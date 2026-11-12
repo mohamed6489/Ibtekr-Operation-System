@@ -20,6 +20,12 @@
 //            mode) come back as `actions` for the page to execute with its own functions (a money entry is only a confirm card
 //            there). At most MAX_TOOL_CALLS data reads a turn; the turn's calls are summed into one ai_runs row (action
 //            'assistant', source chat / filter, label = the question). Claude only (tool use), the «buyer» text tool's model.
+//   'agent' (0084, the owner 12 Nov; the admin or marketing.view F / P) { agent: buyer | designer | dev, chat_id?, question } →
+//            { result: 'ok', text, imagePrompt? (the designer), chat, turns, model, cost_usd, run_id }: a member's chat with one
+//            marketing assistant like Claude's — the chat is the member's own (another's / a deleted one = 404), its last turns
+//            read from mkt_agent_messages, the admin's instructions from settings.marketing.agents, the buyer's ads numbers read
+//            here; after the answer the server writes the question and the answer (and makes the chat on its first message,
+//            named by it). Text only — nothing runs from a chat; ai_runs action 'marketing', source 'agent'.
 // All only suggest: nothing is written to the site, the batch or the campaign (the page saves through product_save / IBStudio.save /
 // IBMarketing.save).
 // A request declined by the model's safety classifiers runs again on Anthropic's recommended model in the same call
@@ -36,7 +42,7 @@ import Anthropic from 'npm:@anthropic-ai/sdk@1.3.0';
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { aiSettings, categoryLines, cleanPrompts, cleanStudio, cleanWrite, costOf, line, parsePrompts, parseStudio, parseWrite, promptsRequest, readAnswer, shotPromptRows, studioRequest, usageOf, writeRequest } from '../_shared/ai-content.js';
 import { vaultEnv } from '../_shared/secrets.js';
-import { buyerRequest, campaignTarget, cleanBuyer, cleanMarketing, marketingRequest, parseBuyer, parseMarketing } from '../_shared/marketing.js';
+import { AGENT_HISTORY, agentHistory, agentRequest, agentTitle, buyerRequest, campaignTarget, cleanAgent, cleanBuyer, cleanMarketing, marketingRequest, parseAgent, parseBuyer, parseMarketing } from '../_shared/marketing.js';
 import { SUGGEST_DAYS, buyerRules, windowOf } from '../_shared/mkt-ads.js';
 import { cleanScenes, scenesRequest } from '../_shared/mkt-video.js';
 import { TEXT_PROVIDERS, TEXT_TOOL_OF, houseStyle, textPick } from '../_shared/ai-providers.js';
@@ -55,7 +61,7 @@ export type Deps = {
   text?: (provider: string, params: Json) => Promise<Json>; // phase 11: OpenAI / Gemini (the Claude dep stays the Claude path)
 };
 
-const ACTIONS = ['write', 'studio', 'prompts', 'marketing', 'buyer', 'assistant'];
+const ACTIONS = ['write', 'studio', 'prompts', 'marketing', 'buyer', 'assistant', 'agent'];
 const STUDIO_BUCKET = 'studio';
 const THROTTLE = 60; // calls of one member in THROTTLE_MINUTES (the studio fills a batch one item at a time)
 const THROTTLE_MINUTES = 10;
@@ -96,7 +102,7 @@ async function authorize(req: Request, deps: Deps, action: string): Promise<stri
   const ok = action === 'write' ? (await admin()) || (await perm('products.add')) || (await perm('products.edit'))
     : action === 'studio' || action === 'prompts' ? (await admin()) || (await perm('products.add'))
     : action === 'marketing' ? (await admin()) || (await perm('marketing.create'))
-    : action === 'buyer' ? (await admin()) || (await perm('marketing.view', true))
+    : action === 'buyer' || action === 'agent' ? (await admin()) || (await perm('marketing.view', true))
     : action === 'assistant' ? true // any signed-in member: the data they read is theirs by RLS, the actions run on their screen
     : await admin();
   return ok ? await deps.userId(jwt) : null;
@@ -308,9 +314,7 @@ async function marketing(deps: Deps, uid: string, args: Json) {
 
 // the last 7 days per campaign (Meta's numbers beside the orders that carry the campaign's UTM), the open suggestions and the rules —
 // read here, never from the body; the answer is text only: nothing is executed from the chat
-async function buyer(deps: Deps, uid: string, args: Json) {
-  const parsed = parseBuyer(args);
-  if ('error' in parsed) return json(400, parsed);
+async function adsData(deps: Deps) {
   const at = deps.now(); const today = cairoParts(Date.parse(at)).day; const since = windowOf(Date.parse(at), SUGGEST_DAYS).since;
   const [{ data: objects }, { data: stats }, { data: orders }, { data: sugg }, { data: set }] = await Promise.all([
     deps.db.from('mkt_ad_objects').select('id, name, status, meta').eq('platform', 'meta').eq('kind', 'campaign').limit(2000),
@@ -328,9 +332,56 @@ async function buyer(deps: Deps, uid: string, args: Json) {
   }
   const campaigns = Object.values(camps).filter((c) => c.spend > 0 || c.orders > 0 || c.status === 'ACTIVE').sort((a, b) => b.spend - a.spend);
   const rules = buyerRules(isObj(set) && isObj(set.data) ? set.data.buyer : null);
+  return { today, rules, campaigns, suggestions: Array.isArray(sugg) ? sugg : [] };
+}
+async function buyer(deps: Deps, uid: string, args: Json) {
+  const parsed = parseBuyer(args);
+  if ('error' in parsed) return json(400, parsed);
+  const data = await adsData(deps);
   const cfg = await configOf(deps, 'buyer');
   const base = { created_by: uid, action: 'marketing', source: 'buyer', label: line(parsed.req.question, 200) };
-  return await runAi(deps, base, cfg, buyerRequest(parsed.req, { model: cfg.model, effort: cfg.effort, data: { today, rules, campaigns, suggestions: Array.isArray(sugg) ? sugg : [] } }), cleanBuyer);
+  return await runAi(deps, base, cfg, buyerRequest(parsed.req, { model: cfg.model, effort: cfg.effort, data }), cleanBuyer);
+}
+
+// ---------------------------------------------------------------- the assistants' chats (0084 — decision 5)
+
+// the member's own chat (or a new one on the first message): the history from the table, the instructions from the settings; the
+// question and the answer are written by the server after the model answered (a failed call leaves nothing) — text only
+async function agent(deps: Deps, uid: string, args: Json) {
+  const parsed = parseAgent(args);
+  if ('error' in parsed) return json(400, parsed);
+  const req = parsed.req;
+  let chat: Json | null = null;
+  if (req.chatId) {
+    const { data } = await deps.db.from('mkt_agent_chats').select('id, member_id, agent, title, deleted_at').eq('id', req.chatId).maybeSingle();
+    if (!isObj(data) || data.member_id !== uid || data.deleted_at || data.agent !== req.agent) return json(404, { error: 'not_found' });
+    chat = data;
+  }
+  const rows = chat ? ((await deps.db.from('mkt_agent_messages').select('role, text, images').eq('chat_id', chat.id).order('id', { ascending: false }).limit(AGENT_HISTORY)).data ?? []) : [];
+  const { data: set } = await deps.db.from('settings').select('data').eq('section', 'marketing').maybeSingle();
+  const agents = isObj(set) && isObj(set.data) && isObj(set.data.agents) ? set.data.agents : {};
+  const data = req.agent === 'buyer' ? await adsData(deps) : null;
+  const cfg = await configOf(deps, req.agent === 'designer' ? 'marketing' : 'buyer'); // the designer writes with the house style
+  const base = { created_by: uid, action: 'marketing', source: 'agent', label: line(req.question, 200) };
+  const params = agentRequest(req, { model: cfg.model, effort: cfg.effort, history: agentHistory((Array.isArray(rows) ? rows : []).slice().reverse()), cfg: agents[req.agent], data });
+  return await runAi(deps, base, cfg, params, (answer) => cleanAgent(answer, req.agent), async (out) => {
+    const now = deps.now();
+    if (!chat) {
+      const { data: made, error } = await deps.db.from('mkt_agent_chats').insert({ member_id: uid, agent: req.agent, title: agentTitle(req.question), created_at: now, updated_at: now }).select('id, agent, title, created_at, updated_at').single();
+      if (error || !isObj(made)) return false;
+      chat = made;
+    } else {
+      await deps.db.from('mkt_agent_chats').update({ updated_at: now }).eq('id', chat.id);
+    }
+    const { data: turns, error } = await deps.db.from('mkt_agent_messages').insert([
+      { chat_id: chat.id, role: 'user', text: req.question, created_at: now },
+      { chat_id: chat.id, role: 'assistant', text: out.text, created_at: now },
+    ]).select('id, role, text, images, created_at');
+    if (error || !Array.isArray(turns)) return false;
+    out.chat = { id: chat.id, agent: req.agent, title: chat.title, updated_at: now };
+    out.turns = turns;
+    return true;
+  });
 }
 
 // ---------------------------------------------------------------- the header's assistant (phase 12 T1, decision 8)
@@ -482,7 +533,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
   if (!uid) return json(401, { error: 'unauthorized' });
   if (!ACTIONS.includes(action)) return json(400, { error: 'unknown_action' });
   try {
-    return action === 'write' ? await write(deps, uid, args) : action === 'prompts' ? await prompts(deps, uid, args) : action === 'marketing' ? await marketing(deps, uid, args) : action === 'buyer' ? await buyer(deps, uid, args)
+    return action === 'write' ? await write(deps, uid, args) : action === 'prompts' ? await prompts(deps, uid, args) : action === 'marketing' ? await marketing(deps, uid, args) : action === 'buyer' ? await buyer(deps, uid, args) : action === 'agent' ? await agent(deps, uid, args)
       : action === 'assistant' ? await assistant(deps, uid, args, jwtOf(req)) : await studio(deps, uid, args);
   } catch (e) {
     console.error('ai-content failed', e instanceof Error ? e.name : typeof e);

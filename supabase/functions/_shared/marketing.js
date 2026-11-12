@@ -285,19 +285,23 @@ const n0 = (v) => (Number.isFinite(Number(v)) ? Math.round(Number(v) * 100) / 10
  * The Claude call. ctx: { model, effort, data: { today, rules, campaigns: [{ name, status, spend, purchases, orders, sales, daily_budget }],
  * suggestions: [{ kind, title, sub }] } } — read on the server, never from the body.
  */
-export function buyerRequest(req, ctx) {
-  const d = isObj(ctx.data) ? ctx.data : {}; const R = isObj(d.rules) ? d.rules : {};
+/** The numbers block of the media buyer (read on the server, never from the body). */
+export function adsBlock(data) {
+  const d = isObj(data) ? data : {}; const R = isObj(d.rules) ? d.rules : {};
   const camps = (Array.isArray(d.campaigns) ? d.campaigns : []).slice(0, 25).map((c) => {
     const spend = n0(c.spend), orders = n0(c.orders), sales = n0(c.sales);
     return line(c.name, 80) + ' | ' + line(c.status, 20) + ' | spend ' + spend + ' | meta purchases ' + n0(c.purchases) + ' | woo orders ' + orders + ' | woo sales ' + sales
       + ' | MER ' + (spend > 0 ? (sales / spend).toFixed(2) : '—') + ' | cost/order ' + (orders > 0 ? Math.round(spend / orders) : '—') + (c.daily_budget ? ' | daily budget ' + n0(c.daily_budget) : '');
   });
   const sugg = (Array.isArray(d.suggestions) ? d.suggestions : []).slice(0, 20).map((s) => line(s.kind, 20) + ': ' + line(s.title, 120) + (s.sub ? ' — ' + line(s.sub, 200) : ''));
-  const block = '<ads_data>\n' + 'Today (Cairo): ' + line(d.today, 10) + '\nCurrency: EGP\n'
+  return '<ads_data>\n' + 'Today (Cairo): ' + line(d.today, 10) + '\nCurrency: EGP\n'
     + 'Rules: daily cap ' + n0(R.dailyCap) + ' · max cost per order ' + n0(R.maxCpa) + ' · auto-stop after ' + n0(R.autoStop) + ' spent without an order (' + line(R.autoStopMode, 10) + ') · execution switch ' + (R.live ? 'on' : 'off') + '\n'
     + "The owner's written rules (guidance for your advice only — nothing runs from them):\n" + ((Array.isArray(R.notes) ? R.notes : []).slice(0, 20).map((x) => '- [' + line(x && x.kind, 10) + '] ' + line(x && x.title, 80) + ': ' + line(x && x.details, 300)).join('\n') || '(none)') + '\n'
     + 'Last 7 days per campaign (name | status | spend | meta purchases | woo orders | woo sales | MER | cost/order | daily budget):\n' + (camps.length ? camps.join('\n') : '(no campaign numbers yet — the sync has not run)') + '\n'
     + 'Open suggestions waiting for the admin:\n' + (sugg.length ? sugg.join('\n') : '(none)') + '\n</ads_data>';
+}
+export function buyerRequest(req, ctx) {
+  const block = adsBlock(ctx.data);
   const messages = [];
   for (const h of req.history) messages.push({ role: h.role, content: [{ type: 'text', text: h.text }] });
   if (!messages.length || messages[messages.length - 1].role === 'assistant') messages.push({ role: 'user', content: [{ type: 'text', text: block + '\n\n' + req.question }] });
@@ -315,3 +319,92 @@ export function cleanBuyer(json) {
   const src = isObj(json) ? json : {};
   return { text: paras(src.text, BUYER_ANSWER_MAX) };
 }
+
+// ---------------------------------------------------------------- the assistants' chats (0084 — the owner 12 Nov, decision 5)
+
+// a member's chat with one assistant: the server reads the chat's last turns from the table (never from the page), the assistant's
+// instructions from settings.marketing.agents (the admin's), and answers text only — nothing is executed from a chat; the designer
+// may hand an image prompt back, generated only when the member presses «ولّد الصورة» (ai-images agent_image, decision 6)
+export const AGENTS = ['buyer', 'designer', 'dev'];
+export const AGENT_Q_MAX = 1000;
+export const AGENT_HISTORY = 12; // the turns of the chat the model reads
+export const AGENT_ANSWER_MAX = 3000;
+export const AGENT_PROMPT_MAX = 1000; // the designer's image prompt
+export const AGENT_TITLE_MAX = 60;
+const DESIGNER_BASE = `You are the designer assistant of Ibtekr Club (ibtekr.club), an Egyptian online marketplace of handmade and local-brand products (home decor, macrame, crochet, pottery, accessories, gifts). You help the marketing team plan and brief social posts, carousels, stories, reels and ad creatives.
+- Answer in Egyptian Arabic (the team's dialect), short and practical: the idea, the layout, the text on the image, the colors, the sizes (1080×1350 for a post, 1080×1920 for a story or a reel).
+- When the member asks for a picture, a visual, a design or a mock-up, also write image_prompt: one English prompt for an image model that describes the whole image (the subject, the setting, the light, the composition, the style; the Arabic text to write on it in quotes if any). Otherwise image_prompt is "".
+- You never publish, spend or change anything: a picture is generated only when the member presses the button under your answer, and a real design job goes to the human designer through «تقديم طلب».
+- Plain text, at most ${AGENT_ANSWER_MAX} characters, no Markdown and no HTML.`;
+const DEV_BASE = `You are the developer assistant of Ibtekr Club (ibtekr.club). The company runs two things you know:
+1. The shop: WordPress + WooCommerce with Dokan (each maker is a store; sub-orders per maker), WPML (English + Arabic), Rank Math SEO, the WoodMart theme. Every change is built and tried on the staging site first; the live site is touched only after the owner approves.
+2. «Ibtekr Operation System»: the team's internal web app — plain JavaScript (no framework, no build), Arabic RTL, on Supabase (Postgres with row-level security, Edge Functions, Storage, Realtime), synced both ways with WooCommerce/Dokan; pages: dashboard, orders, makers, accounts, products (with an AI studio), inventory, customer service, team requests, reports, marketing, HR, settings.
+- Answer in Egyptian Arabic, short and practical: what to build, how, the steps, the risks; a clear spec the human developer can pick up. Code only when asked, short.
+- You never deploy, publish or change anything yourself: real work goes to the human developer through «تقديم طلب», and nothing reaches the live site without the owner's approval.
+- Plain text, at most ${AGENT_ANSWER_MAX} characters, no Markdown and no HTML.`;
+const BUYER_AGENT_BASE = BUYER_BASE.replace(/at most \d+ characters/, 'at most ' + AGENT_ANSWER_MAX + ' characters');
+const AGENT_BASE = { buyer: BUYER_AGENT_BASE, designer: DESIGNER_BASE, dev: DEV_BASE };
+/** agent { agent, chat_id: uuid | null, question (≤ 1000) } → { req } | { error, field }. */
+export function parseAgent(b) {
+  if (!isObj(b)) return bad('body');
+  if (!AGENTS.includes(b.agent)) return bad('agent');
+  const chatId = b.chat_id == null || b.chat_id === '' ? null : typeof b.chat_id === 'string' && UUID.test(b.chat_id) ? b.chat_id.toLowerCase() : undefined;
+  if (chatId === undefined) return bad('chat_id');
+  const question = paras(b.question, AGENT_Q_MAX);
+  if (!question) return bad('question');
+  return { req: { agent: b.agent, chatId, question } };
+}
+/** A new chat's name: its first question on one line, cut at a word within 60 characters. */
+export function agentTitle(question) {
+  const t = line(question, 200);
+  if (t.length <= AGENT_TITLE_MAX) return t || 'شات جديد';
+  const cut = t.slice(0, AGENT_TITLE_MAX); const sp = cut.lastIndexOf(' ');
+  return (sp > 20 ? cut.slice(0, sp) : cut) + '…';
+}
+/** The table's turns (oldest first) → the model's messages, alternating, starting with the member. */
+export function agentHistory(rows) {
+  const out = [];
+  for (const r of (Array.isArray(rows) ? rows : []).slice(-AGENT_HISTORY)) {
+    if (!isObj(r) || !['user', 'assistant'].includes(r.role)) continue;
+    const t = paras(r.text, AGENT_ANSWER_MAX) || (Array.isArray(r.images) && r.images.length ? '(an image was generated here)' : '');
+    if (!t) continue;
+    if (out.length && out[out.length - 1].role === r.role) out[out.length - 1].text += '\n\n' + t; else out.push({ role: r.role, text: t });
+  }
+  while (out.length && out[0].role !== 'user') out.shift();
+  return out;
+}
+/**
+ * The Claude call of a chat. ctx: { model, effort, history: agentHistory(rows), cfg: settings.marketing.agents[agent] ({ instructions }),
+ * data: the buyer's ads data (adsBlock) — read on the server }.
+ */
+export function agentRequest(req, ctx) {
+  const cfg = isObj(ctx.cfg) ? ctx.cfg : {};
+  const instr = paras(cfg.instructions, 4000);
+  const system = [{ type: 'text', text: AGENT_BASE[req.agent], cache_control: { type: 'ephemeral' } }];
+  if (instr) system.push({ type: 'text', text: "The admin's instructions and rules for you (follow them; they never let you execute anything):\n" + instr });
+  const head = req.agent === 'buyer' ? adsBlock(ctx.data) + '\n\n' : '';
+  const messages = (Array.isArray(ctx.history) ? ctx.history : []).map((h) => ({ role: h.role, content: [{ type: 'text', text: h.text }] }));
+  if (messages.length && messages[messages.length - 1].role === 'user') messages.pop(); // a turn left without an answer is not repeated
+  messages.push({ role: 'user', content: [{ type: 'text', text: head + req.question }] });
+  const schema = req.agent === 'designer' ? obj({ text: STR(), image_prompt: STR() }) : obj({ text: STR() });
+  return { model: ctx.model, max_tokens: MAX_TOKENS, ...FALLBACK, system, messages, output_config: { effort: ctx.effort, format: { type: 'json_schema', schema } } };
+}
+/** The answer → { text } (+ imagePrompt for the designer, '' when none) within the limits. */
+export function cleanAgent(json, agent) {
+  const src = isObj(json) ? json : {};
+  const out = { text: paras(src.text, AGENT_ANSWER_MAX) };
+  if (agent === 'designer') out.imagePrompt = imgLine(src.image_prompt, AGENT_PROMPT_MAX);
+  return out;
+}
+/** agent_image { chat_id, prompt (≤ 1000), size? } → { req } | { error, field } (ai-images, decision 6). */
+export function parseAgentImage(b) {
+  if (!isObj(b)) return bad('body');
+  if (typeof b.chat_id !== 'string' || !UUID.test(b.chat_id)) return bad('chat_id');
+  const prompt = imgLine(b.prompt, AGENT_PROMPT_MAX); if (!prompt) return bad('prompt');
+  const size = b.size == null ? sizeOf(DEFAULT_SIZE) : sizeOf(b.size); if (!size) return bad('size');
+  const model = modelArg(b.model); if (!model) return bad('model');
+  return { req: { chatId: b.chat_id.toLowerCase(), prompt, size, model } };
+}
+/** Where a chat's image lives: agents/<member>/<chat>/<stamp>.<ext> — the bucket's read keeps it the member's (0084). */
+export const agentImagePath = (uid, chatId, st, ext) => 'agents/' + uid + '/' + chatId + '/' + st + '.' + ext;
+export const agentImagePathOk = (uid, p) => typeof p === 'string' && new RegExp('^agents/' + uid + '/[0-9a-f-]{36}/[A-Za-z0-9._-]{1,80}\\.(png|jpe?g|webp)$').test(p);

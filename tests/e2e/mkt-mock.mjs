@@ -6,7 +6,7 @@
 // rows only through mkt_schedule / mkt_post_act with marketing.publish F and the day / hour rules on Cairo's clock). The AI actions
 // (ai-images campaign / campaign_edit, ai-content marketing) are answered here too (mktAi). Every RPC / function call lands in
 // mkt.calls, every write the client sent in mkt.writes ({ table, op, ...columns }).
-import { campaignGenPath, campaignPathOk, campaignTarget, cleanBuyer, cleanMarketing, parseBuyer, parseCampaign, parseCampaignEdit, parseMarketing } from '../../supabase/functions/_shared/marketing.js';
+import { agentImagePath, agentTitle, campaignGenPath, campaignPathOk, campaignTarget, cleanAgent, cleanBuyer, cleanMarketing, parseAgent, parseAgentImage, parseBuyer, parseCampaign, parseCampaignEdit, parseMarketing } from '../../supabase/functions/_shared/marketing.js';
 import { BUYER_DEFAULTS, MAX_STEP, budgetPlan, rulesPatch } from '../../supabase/functions/_shared/mkt-ads.js';
 import { PLATFORMS as AD_PLATFORMS, linkAccount, linkPublic, linkReady, parseLink, platformOf } from '../../supabase/functions/_shared/mkt-ads-link.js';
 import { MAX_OPEN_JOBS, cleanScenes, jobView, mixPlan, nextMix, parseVideo, videoPath } from '../../supabase/functions/_shared/mkt-video.js';
@@ -31,8 +31,11 @@ const COLS = {
   mkt_requests: ['id', 'kind', 'title', 'details', 'project', 'status', 'created_by', 'created_at', 'updated_by', 'updated_at', 'done_at'],
   // 0054 (9.5.5): the video jobs — the server's rows, read without the Magnific link
   mkt_video_jobs: ['id', 'campaign_id', 'piece', 'kind', 'scene', 'creation_ref', 'status', 'path', 'bytes', 'duration', 'error', 'data', 'created_by', 'created_at', 'updated_at', 'done_at'],
+  // 0084: the assistants' chats — the member's own (RLS), the turns written by the server only
+  mkt_agent_chats: ['id', 'member_id', 'agent', 'title', 'created_at', 'updated_at', 'deleted_at'],
+  mkt_agent_messages: ['id', 'chat_id', 'role', 'text', 'images', 'run_id', 'created_at'],
 };
-const KEY = { mkt_campaigns: 'campaigns', mkt_posts: 'posts', mkt_templates: 'templates', mkt_ad_objects: 'adObjects', mkt_ad_stats: 'adStats', mkt_suggestions: 'suggestions', mkt_requests: 'requests', mkt_video_jobs: 'videoJobs' };
+const KEY = { mkt_campaigns: 'campaigns', mkt_posts: 'posts', mkt_templates: 'templates', mkt_ad_objects: 'adObjects', mkt_ad_stats: 'adStats', mkt_suggestions: 'suggestions', mkt_requests: 'requests', mkt_video_jobs: 'videoJobs', mkt_agent_chats: 'agentChats', mkt_agent_messages: 'agentMsgs' };
 const GRANT = { mkt_campaigns: { insert: ['name', 'goal', 'step', 'state'], update: ['name', 'goal', 'step', 'state', 'archived_at'] },
   mkt_templates: { insert: ['name', 'kind', 'image', 'descr'], update: ['name', 'kind', 'image', 'descr', 'deleted_at'] },
   mkt_requests: { insert: [], update: [] } }; // 0082: nothing writes it from a member any more (the requests are team requests)
@@ -81,6 +84,11 @@ export function mktState(opts = {}) {
     videoJobs: (opts.mktVideoJobs || []).map((x, i) => ({ id: i + 1, scene: null, creation_ref: null, status: 'queued', url: null, path: null, bytes: null, duration: null, error: null, data: {}, created_by: null, created_at: now, updated_at: now, done_at: null, polls: 0, ...x })),
     bridge: opts.mktBridge !== false, videoDelay: opts.mktVideoDelay == null ? 1 : Number(opts.mktVideoDelay), videoFail: opts.mktVideoFail || null,
     adsFail: null,
+    // 0084: the assistants' chats and turns as the database holds them (opts.mktAgentChats / mktAgentMsgs), the settings of
+    // settings.marketing.agents (opts.mktAgents), and the knobs agentFail / agentAnswer(req) / agentImgFail
+    agentChats: (opts.mktAgentChats || []).map((x) => ({ title: 'شات جديد', created_at: now, updated_at: now, deleted_at: null, ...x })),
+    agentMsgs: (opts.mktAgentMsgs || []).map((x, i) => ({ id: i + 1, text: '', images: [], run_id: null, created_at: now, ...x })),
+    agents: JSON.parse(JSON.stringify(opts.mktAgents || {})), agentFail: null, agentAnswer: null, agentImgFail: null, nchat: 0,
   };
 }
 
@@ -94,7 +102,7 @@ export function mktRoute(c) {
   if (sto && sto[1] && method === 'GET') { const obj = H.objects.get(decodeURIComponent(sto[2])); return obj ? route.fulfill({ status: 200, headers: { 'access-control-allow-origin': '*', 'content-type': obj.type || 'image/png' }, body: PNG_1PX }) : json(400, { statusCode: '400', error: 'not_found', message: 'Object not found' }); }
   if (fn && path === '/functions/v1/mkt-publish') return mktPublish(c, c.body());
   if (fn && path === '/functions/v1/mkt-ads') return mktAds(c, c.body());
-  if (fn) { const b = c.body(); if (path === '/functions/v1/ai-images' ? !(['campaign', 'campaign_edit'].includes(b.action) || /^video_/.test(String(b.action))) : !['marketing', 'buyer'].includes(b.action)) return null; return mktAi(c, b); }
+  if (fn) { const b = c.body(); if (path === '/functions/v1/ai-images' ? !(['campaign', 'campaign_edit', 'agent_image'].includes(b.action) || /^video_/.test(String(b.action))) : !['marketing', 'buyer', 'agent'].includes(b.action)) return null; return mktAi(c, b); }
   const refuse = (status, code, message) => json(status, { code, details: null, hint: null, message });
   if (!u) return sto ? json(401, { statusCode: '401', error: 'Unauthorized', message: 'invalid JWT' }) : refuse(401, '42501', 'permission denied');
   const view = hasPerm(u, 'marketing.view') !== 'N'; const create = hasPerm(u, 'marketing.create') === 'F'; const publish = hasPerm(u, 'marketing.publish') === 'F';
@@ -104,12 +112,13 @@ export function mktRoute(c) {
   // ---------- Storage, bucket «marketing» ----------
   if (sto) {
     const key = decodeURIComponent(sto[2]);
+    const mine = !/^agents\//.test(key) || key.split('/')[1] === u.id;
     if (method === 'POST' && sto[1]) {
-      if (!view || !H.objects.has(key)) return json(400, { statusCode: '400', error: 'not_found', message: 'Object not found' });
+      if (!view || !mine || !H.objects.has(key)) return json(400, { statusCode: '400', error: 'not_found', message: 'Object not found' });
       H.signed += 1; return json(200, { signedURL: '/object/sign/marketing/' + key + '?token=mk-' + H.signed });
     }
     if (method === 'GET') { // download (authenticated)
-      const obj = view && H.objects.get(key); if (!obj) return json(400, { statusCode: '400', error: 'not_found', message: 'Object not found' });
+      const obj = view && mine && H.objects.get(key); if (!obj) return json(400, { statusCode: '400', error: 'not_found', message: 'Object not found' });
       return route.fulfill({ status: 200, headers: { 'access-control-allow-origin': '*', 'content-type': obj.type || 'image/png' }, body: PNG_1PX });
     }
     if (method === 'POST') {
@@ -131,6 +140,24 @@ export function mktRoute(c) {
     const b = c.body(); const name = rpc[1]; H.calls.push({ rpc: name, by: u.id, ...b });
     const bad = (field) => refuse(400, '22023', 'invalid: ' + field);
     if (name === 'mkt_credits') return json(200, create ? { cap: H.cap, used: H.used } : null);
+    // 0084: the member deletes their own chat (final); the settings for marketing.view, written by the admin (the three keys, their limits)
+    if (name === 'mkt_agent_chat_delete') {
+      if (!view) return refuse(403, '42501', 'marketing.view required');
+      const x = H.agentChats.find((r) => r.id === b.p_id && r.member_id === u.id && !r.deleted_at); if (!x) return refuse(404, 'P0002', 'chat not found');
+      x.deleted_at = now; H.writes.push({ table: 'mkt_agent_chats', op: 'delete', id: x.id }); return json(200, null);
+    }
+    if (name === 'mkt_agent_settings') return json(200, view || isAdmin(u) ? JSON.parse(JSON.stringify(H.agents)) : {});
+    if (name === 'mkt_agent_settings_set') {
+      if (!isAdmin(u)) return refuse(403, '42501', 'admin only');
+      if (!['buyer', 'designer', 'dev'].includes(b.p_agent)) return bad('agent');
+      const cfg = b.p_cfg; if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg)) return bad('cfg');
+      if (Object.keys(cfg).some((k) => !['intro', 'instructions', 'suggestions'].includes(k))) return bad('key');
+      const cur = { ...(H.agents[b.p_agent] || {}) };
+      if ('intro' in cfg) { const t = String(cfg.intro || '').trim(); if (t.length > 600 || /[<>]/.test(t)) return bad('intro'); cur.intro = t; }
+      if ('instructions' in cfg) { const t = String(cfg.instructions || '').trim(); if (t.length > 4000 || /[<>]/.test(t)) return bad('instructions'); cur.instructions = t; }
+      if ('suggestions' in cfg) { const L = cfg.suggestions; if (!Array.isArray(L) || L.length > 8 || L.some((x) => typeof x !== 'string' || !x.trim() || x.trim().length > 80 || /[<>]/.test(x))) return bad('suggestions'); cur.suggestions = L.map((x) => x.trim()); }
+      H.agents[b.p_agent] = cur; H.writes.push({ table: 'settings', op: 'agents', agent: b.p_agent, keys: Object.keys(cfg) }); return json(200, cur);
+    }
     if (name === 'mkt_buyer_rules') return view ? json(200, { ...H.rules }) : refuse(403, '42501', 'marketing.view is needed');
     if (name === 'mkt_ads_orders') {
       if (!view) return refuse(403, '42501', 'marketing.view is needed');
@@ -224,6 +251,24 @@ export function mktRoute(c) {
   if (miss) return refuse(400, '42703', 'column ' + t + '.' + miss + ' does not exist');
   const pick = (r) => (sel.includes('*') ? { ...r } : Object.fromEntries(sel.map((x) => [x, r[x] === undefined ? null : r[x]])));
   const answer = (list) => (single ? (list.length ? json(200, pick(list[0])) : refuse(406, 'PGRST116', 'no rows')) : json(200, list.map(pick)));
+  if (t === 'mkt_agent_chats' || t === 'mkt_agent_messages') {
+    const own = (r) => r.member_id === u.id && !r.deleted_at;
+    const vis = t === 'mkt_agent_chats' ? (r) => view && own(r) : (r) => view && H.agentChats.some((ch) => ch.id === r.chat_id && own(ch));
+    if (method === 'GET') {
+      let list = H[key].filter((r) => vis(r) && match(r));
+      const ord = url.searchParams.get('order'); if (ord) { const [col, dir] = ord.split('.'); list = list.slice().sort((a, b2) => (a[col] < b2[col] ? -1 : a[col] > b2[col] ? 1 : 0) * (dir === 'desc' ? -1 : 1)); }
+      const lim = Number(url.searchParams.get('limit')); if (lim > 0) list = list.slice(0, lim);
+      return answer(list);
+    }
+    const b = c.body();
+    if (method === 'PATCH' && t === 'mkt_agent_chats') {
+      if (Object.keys(b || {}).some((k) => k !== 'title')) return refuse(403, '42501', 'permission denied for table mkt_agent_chats');
+      const title = String(b.title == null ? '' : b.title).replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 80); if (!title) return refuse(400, '22023', 'invalid: title');
+      const rows = H.agentChats.filter((r) => vis(r) && match(r)); for (const r of rows) { r.title = title; H.writes.push({ table: t, op: 'rename', id: r.id }); }
+      return answer(rows);
+    }
+    return refuse(403, '42501', 'permission denied for table ' + t);
+  }
   if (method === 'GET') {
     if (!view) return json(200, []);
     let list = H[key].filter(match);
@@ -278,7 +323,7 @@ export function mktRoute(c) {
 // cleaned by the server's own cleanMarketing). H.imgFail / H.aiFail = 'ai_cap' | 'busy' | 'not_configured' | 'ai_error' | 'refused'.
 function mktAi(c, b) {
   const { u, json, hasPerm, isAdmin, mock } = c; const H = mock.mkt;
-  H.calls.push({ fn: b.action === 'marketing' || b.action === 'buyer' ? 'ai-content' : 'ai-images', action: b.action, task: b.task || null, by: u ? u.id : null, piece: b.piece || null, slide: b.slide == null ? null : b.slide, scene: b.scene == null ? null : b.scene, kind: b.kind || null, model: b.model || null, pins: Array.isArray(b.pins) ? b.pins.length : 0 });
+  H.calls.push({ fn: b.action === 'marketing' || b.action === 'buyer' || b.action === 'agent' ? 'ai-content' : 'ai-images', action: b.action, task: b.task || null, by: u ? u.id : null, piece: b.piece || null, slide: b.slide == null ? null : b.slide, scene: b.scene == null ? null : b.scene, kind: b.kind || null, model: b.model || null, pins: Array.isArray(b.pins) ? b.pins.length : 0 });
   if (b.action === 'buyer') { // the buyer's chat: marketing.view (P too); the numbers come from the server, the answer is text only
     if (!u || !(isAdmin(u) || hasPerm(u, 'marketing.view') !== 'N')) return json(401, { error: 'unauthorized' });
     const p = parseBuyer(b); if ('error' in p) return json(400, p);
@@ -286,9 +331,40 @@ function mktAi(c, b) {
     const answer = H.buyerAnswer ? H.buyerAnswer(p.req) : { text: 'سؤالك: ' + p.req.question + '\nالأرقام من آخر 7 أيام على ' + H.adObjects.filter((o) => o.kind === 'campaign').length + ' حملة. أنا ببص بس — التنفيذ من الاقتراحات بموافقتك.' };
     H.seq += 1; return json(200, { result: 'ok', ...cleanBuyer(answer), model: 'claude-opus-5-5', cost_usd: 0.003, run_id: H.seq });
   }
+  if (b.action === 'agent') { // 0084: a member's chat — their own, the history from the table, the turns written here after the answer
+    if (!u || !(isAdmin(u) || hasPerm(u, 'marketing.view') !== 'N')) return json(401, { error: 'unauthorized' });
+    const p = parseAgent(b); if ('error' in p) return json(400, p);
+    let chat = null;
+    if (p.req.chatId) { chat = H.agentChats.find((x) => x.id === p.req.chatId) || null; if (!chat || chat.member_id !== u.id || chat.deleted_at || chat.agent !== p.req.agent) return json(404, { error: 'not_found' }); }
+    const hist = chat ? H.agentMsgs.filter((m) => m.chat_id === chat.id) : [];
+    H.calls[H.calls.length - 1].agent = p.req.agent; H.calls[H.calls.length - 1].history = hist.length; H.calls[H.calls.length - 1].chat = chat ? chat.id : null;
+    if (H.agentFail) return H.agentFail === 'refused' ? json(200, { result: 'refused', model: 'mock' }) : json(H.agentFail === 'ai_cap' ? 402 : H.agentFail === 'busy' ? 429 : H.agentFail === 'not_configured' ? 503 : 502, { error: H.agentFail });
+    const cfg = H.agents[p.req.agent] || {};
+    const raw = H.agentAnswer ? H.agentAnswer(p.req, cfg) : { text: 'سؤالك: ' + p.req.question + (p.req.agent === 'buyer' ? '\nالأرقام من آخر 7 أيام على ' + H.adObjects.filter((o) => o.kind === 'campaign').length + ' حملة. أنا ببص بس — التنفيذ من الاقتراحات بموافقتك.' : '') + (hist.length ? '\n(فاكر ' + hist.length + ' رسالة قبل كده)' : ''),
+      image_prompt: p.req.agent === 'designer' && /صورة/.test(p.req.question) ? 'A cozy winter flat lay of handmade macrame on beige linen, warm light' : '' };
+    const out = cleanAgent(raw, p.req.agent); const now = new Date().toISOString();
+    if (!chat) { H.nchat += 1; chat = { id: 'c0000000-0000-4000-8000-' + String(H.nchat).padStart(12, '0'), member_id: u.id, agent: p.req.agent, title: agentTitle(p.req.question), created_at: now, updated_at: now, deleted_at: null }; H.agentChats.push(chat); }
+    else chat.updated_at = now;
+    const mk = (role, text) => { const id = H.agentMsgs.reduce((m, x) => Math.max(m, x.id), 0) + 1; const r = { id, chat_id: chat.id, role, text, images: [], run_id: null, created_at: now }; H.agentMsgs.push(r); return r; };
+    const turns = [mk('user', p.req.question), mk('assistant', out.text)];
+    H.seq += 1; return json(200, { result: 'ok', ...out, chat: { id: chat.id, agent: chat.agent, title: chat.title, updated_at: now }, turns: turns.map((x) => ({ id: x.id, role: x.role, text: x.text, images: x.images, created_at: x.created_at })), model: 'claude-opus-5-5', cost_usd: 0.004, run_id: H.seq });
+  }
   if (!u || !(isAdmin(u) || hasPerm(u, 'marketing.create') === 'F')) return json(401, { error: 'unauthorized' });
   const failWith = (k) => (k === 'refused' ? json(200, { result: 'refused', model: 'mock' }) : json(k === 'ai_cap' ? 402 : k === 'busy' ? 429 : k === 'not_configured' ? 503 : 502, { error: k, configured: k === 'not_configured' ? false : undefined }));
   const campaign = (id) => H.campaigns.find((x) => x.id === id && !x.archived_at) || null;
+  if (b.action === 'agent_image') { // 0084 decision 6: the designer chat's picture — the image credits, agents/<member>/<chat>/, the assistant's turn
+    const p = parseAgentImage(b); if ('error' in p) return json(400, p);
+    const chat = H.agentChats.find((x) => x.id === p.req.chatId);
+    if (!chat || chat.member_id !== u.id || chat.agent !== 'designer' || chat.deleted_at) return json(404, { error: 'not_found' });
+    if (H.agentImgFail) return failWith(H.agentImgFail);
+    const credits = creditsFor(p.req.model, 1);
+    if (H.cap != null && H.used + credits > H.cap) return json(402, { error: 'ai_cap' });
+    H.used += credits; H.seq += 1; const now = new Date().toISOString();
+    const path = agentImagePath(u.id, chat.id, String(H.seq), 'png'); H.objects.set(path, { type: 'image/png', size: 68, by: u.id });
+    const id = H.agentMsgs.reduce((m, x) => Math.max(m, x.id), 0) + 1; const turn = { id, chat_id: chat.id, role: 'assistant', text: '', images: [path], run_id: H.seq, created_at: now };
+    H.agentMsgs.push(turn); chat.updated_at = now;
+    return json(200, { result: 'ok', bucket: 'marketing', path, paths: [path], credits, model: p.req.model, run_id: H.seq, turn: { id, role: 'assistant', text: '', images: [path], created_at: now } });
+  }
   if (b.action === 'marketing') {
     const p = parseMarketing(b); if ('error' in p) return json(400, p);
     if (p.req.task === 'scenes') { // 9.5.5 decision 59: the video piece's scenes (the durations from the piece and its model) — before the image target (the function's order)

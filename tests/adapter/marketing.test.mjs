@@ -408,6 +408,54 @@ test('9.5.4 buyerChat: marketing.view; the question (≤ 1000) and the last 6 tu
   const none = load({ perms: {} }); eq((await none.M.buyerChat('x')).reason, 'forbidden');
 });
 
+// ---------------------------------------------------------------- 0084: the assistants' chats (decisions 5 and 6)
+const CH = 'c0000000-0000-4000-8000-0000000000aa'; const ME = '00000000-0000-4000-8000-000000000001';
+test('0084 agent chats: the member\'s own list (newest first) and turns; a question to ai-content agent with the chat; the new chat back; the refusals in words; the log carries the assistant and the chat only', async () => {
+  const IMG = 'agents/' + ME + '/' + CH + '/1.png';
+  const { M, stub, logs } = load({ perms: { 'marketing.view': 'P' }, responses: {
+    mkt_agent_chats: ok([{ id: CH, agent: 'designer', title: 'بوست الشتا', created_at: '2026-11-12T08:00:00Z', updated_at: '2026-11-12T09:00:00Z' }]),
+    mkt_agent_messages: ok([{ id: 1, role: 'user', text: 'سؤال', images: [], created_at: 'x' }, { id: 2, role: 'assistant', text: '', images: [IMG, '../../etc', 'agents/x.png'], created_at: 'y' }]),
+    'fn:ai-content': ok({ result: 'ok', text: 'فكرة', imagePrompt: 'a cozy flat lay', chat: { id: CH, agent: 'designer', title: 'سؤال سري', updated_at: 'z' }, turns: [{ id: 3, role: 'user', text: 'سؤال سري' }, { id: 4, role: 'assistant', text: 'فكرة' }] }) } });
+  const L = await M.agentChats('designer'); eq(L.items.map((c) => [c.id, c.title]), [[CH, 'بوست الشتا']]);
+  eq(opsOf(stub.calls, 'mkt_agent_chats').filter((o) => ['select', 'eq', 'order'].includes(o.op)), [{ op: 'select', args: ['id, agent, title, created_at, updated_at'] }, { op: 'eq', args: ['agent', 'designer'] }, { op: 'order', args: ['updated_at', { ascending: false }] }]);
+  eq((await M.agentChats('seo')).field, 'agent');
+  const T = await M.agentTurns(CH); eq(T.items.map((x) => [x.id, x.role, x.images]), [[1, 'user', []], [2, 'assistant', [IMG]]]); // only a chat image path survives
+  eq((await M.agentAsk('designer', null, '   ')).field, 'question');
+  const r = await M.agentAsk('designer', null, '  سؤال سري ');
+  eq([r.ok, r.text, r.imagePrompt, r.chat.id, r.turns.length], [true, 'فكرة', 'a cozy flat lay', CH, 2]);
+  const body = invokes(stub).at(-1)[1].body; eq([body.action, body.agent, body.chat_id, body.question], ['agent', 'designer', null, 'سؤال سري']);
+  eq(logs, [['mkt.agent.chat', 'designer', { entity: 'marketing', entity_id: CH }]]);
+  assert.ok(!JSON.stringify(logs).includes('سري'));
+  const gone = load({ responses: { 'fn:ai-content': { data: null, error: { context: { status: 404, json: async () => ({ error: 'not_found' }) } } } } });
+  assert.match((await gone.M.agentAsk('buyer', CH, 'x')).message, /اتمسح/);
+  const cap = load({ responses: { 'fn:ai-content': { data: null, error: { context: { status: 402, json: async () => ({ error: 'ai_cap' }) } } } } });
+  assert.match((await cap.M.agentAsk('buyer', null, 'x')).message, /سقف الـ AI الشهري/);
+  eq((await load({ perms: {} }).M.agentAsk('buyer', null, 'x')).reason, 'forbidden');
+});
+test('0084 agentImage / rename / delete / settings: the picture needs marketing.create (ai-images agent_image); the title only; the delete RPC; the settings for the admin with their limits — the log names keys, never the text', async () => {
+  const IMG = 'agents/' + ME + '/' + CH + '/2.png';
+  const { M, stub, logs } = load({ role: 'admin', responses: {
+    'fn:ai-images': ok({ result: 'ok', path: IMG, credits: 30, turn: { id: 9, role: 'assistant', text: '', images: [IMG] } }),
+    mkt_agent_chats: ok({ id: CH, agent: 'buyer', title: 'حملات الأسبوع', created_at: 'a', updated_at: 'b' }),
+    'rpc:mkt_agent_chat_delete': ok(null), 'rpc:mkt_agent_settings': ok({ designer: { intro: 'أهلا', suggestions: ['بوست', 7] } }),
+    'rpc:mkt_agent_settings_set': ok({ instructions: 'بيج', suggestions: ['بوست'] }) } });
+  const g = await M.agentImage(CH, ' a cozy post '); eq([g.ok, g.turn.images, g.credits], [true, [IMG], 30]);
+  eq(invokes(stub).at(-1)[1].body, { action: 'agent_image', chat_id: CH, prompt: 'a cozy post' });
+  eq((await load({ perms: { 'marketing.view': 'F' } }).M.agentImage(CH, 'p')).reason, 'forbidden');
+  eq((await M.agentRename(CH, '   ')).field, 'title');
+  const rn = await M.agentRename(CH, '  حملات   الأسبوع '); eq([rn.ok, rn.chat.title], [true, 'حملات الأسبوع']);
+  eq(opsOf(stub.calls, 'mkt_agent_chats').find((o) => o.op === 'update').args[0], { title: 'حملات الأسبوع' });
+  eq((await M.agentDelete(CH)).ok, true); eq(rpcs(stub).find((x) => x[0] === 'mkt_agent_chat_delete')[1], { p_id: CH });
+  const st = await M.agentSettings(true); eq(st.agents.designer, { intro: 'أهلا', instructions: '', suggestions: ['بوست'] }); eq(st.agents.dev, { intro: '', instructions: '', suggestions: null });
+  eq((await M.agentSettingsSet('designer', { instructions: '<script>' })).field, 'text');
+  eq((await M.agentSettingsSet('designer', { suggestions: Array.from({ length: 9 }, (_, i) => 's' + i) })).field, 'suggestions');
+  const sv = await M.agentSettingsSet('designer', { instructions: ' بيج\r\n', suggestions: [' بوست ', ''] }); eq([sv.ok, sv.cfg.instructions], [true, 'بيج']);
+  eq(rpcs(stub).find((x) => x[0] === 'mkt_agent_settings_set')[1], { p_agent: 'designer', p_cfg: { instructions: 'بيج', suggestions: ['بوست'] } });
+  eq((await load({ role: 'ops' }).M.agentSettingsSet('designer', { intro: 'x' })).reason, 'forbidden');
+  eq(logs.map((l) => l[0]), ['mkt.agent.image', 'mkt.agent.rename', 'mkt.agent.delete', 'mkt.agent.settings']);
+  eq(logs[3][1], 'designer · instructions, suggestions'); assert.ok(!JSON.stringify(logs).includes('cozy') && !JSON.stringify(logs).includes('بيج'));
+});
+
 // ---------------------------------------------------------------- 9.5.5: the video through ai-images (the bridge's jobs)
 test('9.5.5 video: clip / voice / music / assemble / poll to ai-images with the campaign and the piece (flushed first); the jobs in the page\'s shape; the refusals in words; the log carries the piece and the kind only', async () => {
   const calls = [];

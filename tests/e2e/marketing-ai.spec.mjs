@@ -197,22 +197,22 @@ test('the v6 «+ قاعدة جديدة»: the admin writes a rule in words (kept
   await expect(pg(page).locator('[data-mk-note-add]')).toHaveCount(0);
 });
 
-test('the chat: the question and the answer in the thread (ai-content buyer with the history), the quick chips; the refusal in words', async ({ page }) => {
+test('the chat (0084): the question and the answer in the thread (ai-content agent — the server keeps the chat), the quick chips; the refusal in words', async ({ page }) => {
   await start(page);
   await openAi(page, ADMIN);
   const P = pg(page);
   await expect(P.locator('[data-mk-pending]')).toBeVisible(); // the tab re-renders once the suggestions land — type after that
   await P.locator('#mk-ask').fill('أزوّد Macrame؟');
   await P.locator('[data-mk-ask]').click();
-  await expect(P.locator('[data-mk-chat="2"] .mk-msg.ai')).toContainText('سؤالك: أزوّد Macrame؟');
+  await expect(P.locator('[data-mk-chat="2"] .mk-msg.ai[data-mk-turn]')).toContainText('سؤالك: أزوّد Macrame؟');
   await expect(P.locator('.mk-msg.user')).toContainText('أزوّد Macrame؟');
   await P.locator('.chip', { hasText: 'إيه أحسن حملة؟' }).click();
   await expect(P.locator('[data-mk-chat="4"]')).toBeVisible();
-  const calls = mock.mkt.calls.filter((x) => x.fn === 'ai-content' && x.action === 'buyer');
-  expect(calls.length).toBe(2);
-  await expect.poll(() => mock.activityRows.filter((l) => l.action === 'mkt.buyer.chat').length).toBe(2);
+  const calls = mock.mkt.calls.filter((x) => x.fn === 'ai-content' && x.action === 'agent');
+  expect(calls.map((x) => [x.agent, x.history, !!x.chat])).toEqual([['buyer', 0, false], ['buyer', 2, true]]); // the second message goes to the chat the first made
+  await expect.poll(() => mock.activityRows.filter((l) => l.action === 'mkt.agent.chat').length).toBe(2);
   expect(JSON.stringify(mock.activityRows)).not.toContain('أزوّد');
-  mock.mkt.buyerFail = 'ai_cap';
+  mock.mkt.agentFail = 'ai_cap';
   await P.locator('#mk-ask').fill('x'); await P.locator('#mk-ask').press('Enter');
   await expect(toast(page)).toContainText('سقف الـ AI الشهري');
   await expect(P.locator('[data-mk-chat="4"]')).toBeVisible(); // the failed question is taken back
@@ -221,6 +221,89 @@ test('the chat: the question and the answer in the thread (ai-content buyer with
   await signIn(page, ACC);
   await page.locator('.sidebar .nav-item[data-page="marketing"]').click();
   await expect(pg(page)).toContainText('مفيش صلاحية');
+});
+
+test('0084 the chats like Claude\'s: the history on the side (the member\'s own, newest first), a new chat named by its first question, rename, delete; ⚙️ the admin\'s settings (the intro, the instructions, the chips); expand / shrink with the same button', async ({ page }) => {
+  const ADMIN_ID = '00000000-0000-4000-8000-000000000001'; const CH = (n) => 'c1000000-0000-4000-8000-00000000000' + n;
+  await start(page, {
+    mktAgentChats: [{ id: CH(1), member_id: ADMIN_ID, agent: 'designer', title: 'بوست الشتا', updated_at: D(-2) + 'T10:00:00Z' }, { id: CH(2), member_id: OPS_ID, agent: 'designer', title: 'شات سارة', updated_at: D(-1) + 'T10:00:00Z' }],
+    mktAgentMsgs: [{ chat_id: CH(1), role: 'user', text: 'فكرة بوست للشتا' }, { chat_id: CH(1), role: 'assistant', text: 'بوست بالماكرامية على خلفية بيج' }, { chat_id: CH(2), role: 'user', text: 'سر سارة' }],
+  });
+  await openAi(page, ADMIN, 'الديزاينر');
+  const P = pg(page); const box = P.locator('[data-mk-agent="designer"]');
+  await expect(box.locator('[data-mk-chats="1"]')).toBeVisible(); // ops's chat is not his
+  await expect(box).not.toContainText('شات سارة');
+  await box.locator('[data-mk-chat-item] .mk-agent-open', { hasText: 'بوست الشتا' }).click();
+  await expect(box.locator('[data-mk-chat="2"]')).toContainText('بوست بالماكرامية على خلفية بيج');
+  // a new chat: the first question names it and puts it on top
+  await box.locator('[data-mk-chat-new]').click();
+  await expect(box.locator('[data-mk-chat="0"]')).toBeVisible();
+  await expect(box.locator('.mk-intro')).toContainText('أنا الديزاينر');
+  await P.locator('#mk-ask').fill('ستوري لخصم الجمعة البيضا على الإضاءة');
+  await P.locator('[data-mk-ask]').click();
+  await expect(box.locator('[data-mk-chats="2"]')).toBeVisible();
+  await expect(box.locator('[data-mk-chat-item]').first()).toContainText('ستوري لخصم الجمعة البيضا على الإضاءة');
+  await expect(box.locator('[data-mk-chat-item].on')).toHaveCount(1);
+  // rename (the title only) and delete (final)
+  const first = box.locator('[data-mk-chat-item]').first();
+  await first.getByRole('button', { name: 'خيارات الشات' }).click();
+  await page.getByRole('menuitem', { name: 'تغيير الاسم' }).click();
+  const f = page.locator('.modal[role=dialog]', { hasText: 'تغيير اسم الشات' }); await f.locator('input').fill('خصم الإضاءة'); await f.getByRole('button', { name: 'احفظ الاسم' }).click();
+  await expect(first).toContainText('خصم الإضاءة');
+  await expect.poll(() => mock.mkt.writes.filter((w) => w.table === 'mkt_agent_chats' && w.op === 'rename').length).toBe(1);
+  await box.locator('[data-mk-chat-item]', { hasText: 'بوست الشتا' }).getByRole('button', { name: 'خيارات الشات' }).click();
+  await page.getByRole('menuitem', { name: 'امسح الشات' }).click();
+  await page.locator('.modal[role=dialog]', { hasText: 'تمسح الشات؟' }).getByRole('button', { name: 'امسح الشات' }).click();
+  await expect(box.locator('[data-mk-chats="1"]')).toBeVisible();
+  expect(mock.mkt.agentChats.find((c) => c.id === CH(1)).deleted_at).not.toBeNull();
+  // ⚙️ the admin's settings: the intro, the instructions, the quick suggestions
+  await box.locator('[data-mk-agent-cfg="designer"]').click();
+  const cfg = page.locator('.modal[role=dialog]', { hasText: 'إعدادات الديزاينر' });
+  await cfg.locator('textarea').nth(0).fill('أنا ديزاينر إبتكر — قولّي المنتج والمناسبة');
+  await cfg.locator('textarea').nth(1).fill('الألوان بيج وأخضر');
+  await cfg.locator('textarea').nth(2).fill('بوست عيد الأم\nريل لمنتج جديد');
+  await cfg.getByRole('button', { name: 'احفظ الإعدادات' }).click();
+  await expect(toast(page)).toContainText('اتحفظت إعدادات الديزاينر');
+  expect(mock.mkt.agents.designer).toEqual({ intro: 'أنا ديزاينر إبتكر — قولّي المنتج والمناسبة', instructions: 'الألوان بيج وأخضر', suggestions: ['بوست عيد الأم', 'ريل لمنتج جديد'] });
+  await box.locator('[data-mk-chat-new]').click();
+  await expect(box.locator('.mk-intro')).toContainText('أنا ديزاينر إبتكر');
+  await expect(box.locator('.mk-agent-chips .chip')).toHaveText(['بوست عيد الأم', 'ريل لمنتج جديد']);
+  // expand / shrink with the same button
+  await box.locator('[data-mk-agent-full]').click();
+  await expect(P.locator('.mk-agent-full')).toBeVisible();
+  await P.locator('[data-mk-agent-full="on"]').click();
+  await expect(P.locator('.mk-agent-full')).toHaveCount(0);
+  // ops (marketing F, not the admin): no ⚙️, their own chat only
+  await signOut(page);
+  await openAi(page, OPS, 'الديزاينر');
+  await expect(pg(page).locator('[data-mk-agent-cfg]')).toHaveCount(0);
+  await expect(pg(page).locator('[data-mk-chat-item]')).toHaveCount(1);
+  await expect(pg(page).locator('[data-mk-chat-item]')).toContainText('شات سارة');
+});
+
+test('0084 decision 6: the designer\'s picture — its answer carries an image prompt, «ولّد الصورة» makes it on the image credits into the chat (the member\'s folder); the cap refuses in words', async ({ page }) => {
+  await start(page);
+  await openAi(page, ADMIN, 'الديزاينر');
+  const P = pg(page); const box = P.locator('[data-mk-agent="designer"]');
+  await P.locator('#mk-ask').fill('اعمل صورة لبوست ماكرامية');
+  await P.locator('[data-mk-ask]').click();
+  await expect(box.locator('[data-mk-gen]')).toBeVisible();
+  await expect(box).toContainText('وصف الصورة: A cozy winter flat lay');
+  await box.locator('[data-mk-gen]').click();
+  await expect(toast(page)).toContainText('اتعملت الصورة');
+  await expect(box.locator('.mk-agent-img img')).toHaveCount(1);
+  await expect(box.locator('[data-mk-gen]')).toHaveCount(0);
+  const img = mock.mkt.calls.filter((x) => x.fn === 'ai-images' && x.action === 'agent_image'); expect(img.length).toBe(1);
+  const turn = mock.mkt.agentMsgs.find((m) => m.images.length); expect(turn.images[0]).toMatch(/^agents\/00000000-0000-4000-8000-000000000001\/c0000000-[0-9a-f-]+\/[0-9]+\.png$/);
+  await expect.poll(() => mock.activityRows.filter((l) => l.action === 'mkt.agent.image').length).toBe(1);
+  expect(JSON.stringify(mock.activityRows)).not.toContain('cozy');
+  // the cap
+  await P.locator('#mk-ask').fill('اعمل صورة تانية');
+  await P.locator('[data-mk-ask]').click();
+  mock.mkt.agentImgFail = 'ai_cap';
+  await box.locator('[data-mk-gen]').click();
+  await expect(toast(page)).toContainText('كريدت الصور');
+  await expect(box.locator('[data-mk-gen]')).toBeVisible(); // still there to try again
 });
 
 test('0082 «تقديم طلب»: the requests are team requests — the list with who asked, a new request (ops) in the team-request popup to the kind\'s role, opened in «طلبات الفريق»; the overview\'s cards', async ({ page }) => {

@@ -20,6 +20,10 @@
 //              The campaign itself is not written (the page puts the path in the piece and saves). ai_runs source 'campaign'.
 //   'campaign_edit' (decision 9; the same) { campaign_id, piece, slide, model?, note?, pins: [{ x, y, text }] } → the target's
 //              current image edited by the instruction (the pins at their places, the general change) → a new path, same way.
+//   'agent_image' (0084 — the owner 12 Nov, decision 6; the admin or marketing.create = F) { chat_id, prompt, size?, model? } → the
+//              designer assistant's picture: the member's own designer chat (another's / a deleted one = 404), one image from the
+//              prompt on the images' credit cap, stored under agents/<member>/<chat>/ in the bucket marketing (read by its member
+//              only — 0084) and written into the chat as the assistant's turn → { result: 'ok', path, turn, credits, run_id }.
 //   'probe'    (the admin) → the shape (keys only) of the provider's account answer, for T2.
 //   'webp'     (decision 7: every result ends as WebP — the browser re-encodes it, this function's CPU budget being too small for
 //              a 2K image) { bucket: studio | ai-images, path, run_id?, image: { data: base64 WebP } } → the WebP stored under the
@@ -69,7 +73,7 @@ import { aiSettings } from '../_shared/ai-content.js';
 import { vaultEnv } from '../_shared/secrets.js';
 import { BridgeError, magnificMcp, randomText, type Bridge, type Tokens } from './providers/magnific-mcp.ts';
 import { REF, creationsOf, familyOf, flowNodes, importShape, lastPageOf, lineageIds, listIdsOf, matchResults, nodeDataOf, nodesOf, templatePrompts, uploadedId, urlsById } from '../_shared/magnific-bridge.js';
-import { DEFAULT_SIZE, campaignGenPath, campaignPathOk, campaignPrompt, campaignRefs, campaignTarget, parseCampaign, parseCampaignEdit, pinsPrompt } from '../_shared/marketing.js';
+import { DEFAULT_SIZE, agentImagePath, campaignGenPath, campaignPathOk, campaignPrompt, campaignRefs, campaignTarget, parseAgentImage, parseCampaign, parseCampaignEdit, pinsPrompt } from '../_shared/marketing.js';
 import { MAX_OPEN_JOBS, MAX_VIDEO_BYTES, MEDIA_EXT, chainedArgs, clipArgs, jobView, mixPlan, modelOf as videoModelOf, musicArgs, nextMix, parseVideo, queuedIds, ttsArgs, videoPath, videoPathOk, waitOf } from '../_shared/mkt-video.js';
 
 // deno-lint-ignore no-explicit-any
@@ -87,7 +91,7 @@ export type Deps = {
   veo?: { start: (req: { model: string; prompt: string; image: { bytes: Uint8Array; mime: string } | null; aspect: string; seconds: number }) => Promise<string>; poll: (op: string) => Promise<{ done: boolean; uri?: string; error?: string }>; download: (uri: string) => Promise<{ bytes: Uint8Array; mime: string }> }; // phase 11: Veo direct
 };
 
-const ACTIONS = ['generate', 'edit', 'create', 'probe', 'webp', 'import', 'share', 'bridge_status', 'bridge_link', 'bridge_callback', 'bridge_unlink', 'bridge_upload', 'bridge_fetch', 'bridge_prompts_sync', 'bridge_flow', 'campaign', 'campaign_edit',
+const ACTIONS = ['generate', 'edit', 'create', 'probe', 'webp', 'import', 'share', 'bridge_status', 'bridge_link', 'bridge_callback', 'bridge_unlink', 'bridge_upload', 'bridge_fetch', 'bridge_prompts_sync', 'bridge_flow', 'campaign', 'campaign_edit', 'agent_image',
   'video_clip', 'video_voice', 'video_music', 'video_upload', 'video_assemble', 'video_poll']; // 9.5.5 (decisions 57–64)
 const SHARE_SECONDS = 7 * 24 * 3600; // a shared photo's link lives a week (the bridge uploads it to the site within that)
 const MAX_WEBP_B64 = 14_000_000; // ≈ 10 MB of WebP
@@ -418,6 +422,31 @@ async function campaignEdit(deps: Deps, who: Who, args: Json) {
   return await runImages(deps, base, req.model, 1,
     (prov, m) => prov.edit({ model: m, op: 'instruction', prompt, image, imageUrl: null, options: {} }),
     (img) => upload(deps.db, MKT_BUCKET, campaignGenPath(req.campaignId, req.piece, req.slide, st, extOf(img.mime), true), img), 'campaign', 'post');
+}
+
+// ---------------------------------------------------------------- agent_image (0084 — the designer assistant's picture, decision 6)
+
+async function agentImage(deps: Deps, who: Who, args: Json) {
+  if (!who.mkt) return json(401, { error: 'unauthorized' });
+  const parsed = parseAgentImage(args);
+  if ('error' in parsed) return json(400, parsed);
+  const req = parsed.req;
+  const { data: chat } = await deps.db.from('mkt_agent_chats').select('id, member_id, agent, deleted_at').eq('id', req.chatId).maybeSingle();
+  if (!isObj(chat) || chat.member_id !== who.uid || chat.agent !== 'designer' || chat.deleted_at) return json(404, { error: 'not_found' });
+  const base = { created_by: who.uid, action: 'image', source: 'agent', label: line(req.prompt, 200) };
+  const st = stamp(deps);
+  const res = await runImages(deps, base, req.model, 1,
+    (prov, m, style) => prov.generate({ model: m, prompt: req.prompt + style, width: req.size.w, height: req.size.h, count: 1, references: [] }),
+    (img) => upload(deps.db, MKT_BUCKET, agentImagePath(who.uid, req.chatId, st, extOf(img.mime)), img), 'campaign', 'post');
+  if (res.status !== 200) return res;
+  const body = await res.json();
+  if (body.result !== 'ok') return json(200, body);
+  const now = deps.now();
+  const { data: turn, error } = await deps.db.from('mkt_agent_messages').insert({ chat_id: req.chatId, role: 'assistant', text: '', images: [body.path], run_id: body.run_id, created_at: now })
+    .select('id, role, text, images, created_at').single();
+  if (error || !isObj(turn)) return json(500, { error: 'failed' });
+  await deps.db.from('mkt_agent_chats').update({ updated_at: now }).eq('id', req.chatId);
+  return json(200, { ...body, turn });
 }
 
 // ---------------------------------------------------------------- webp (the browser's re-encoding of a result)
@@ -1044,6 +1073,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'bridge_flow') return await bridgeFlow(deps, who, args);
     if (action === 'campaign') return await campaign(deps, who, args);
     if (action === 'campaign_edit') return await campaignEdit(deps, who, args);
+    if (action === 'agent_image') return await agentImage(deps, who, args);
     if (action === 'video_clip') return await videoClip(deps, who, args);
     if (action === 'video_voice') return await videoVoice(deps, who, args);
     if (action === 'video_music') return await videoMusic(deps, who, args);

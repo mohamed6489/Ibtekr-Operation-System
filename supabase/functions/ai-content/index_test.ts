@@ -386,6 +386,44 @@ Deno.test('buyer (9.5.4): marketing.view (P too); the week\'s numbers per campai
   const run = db.rows('ai_runs').at(-1); assertEquals([run.action, run.source, run.label, run.status], ['marketing', 'buyer', 'أزوّد Macrame؟', 'ok']);
 });
 
+// ---------------------------------------------------------------- 0084: the assistants' chats (decision 5)
+
+const CHAT = 'c0000000-0000-4000-8000-0000000000aa';
+Deno.test('agent (0084): marketing.view; a first message makes the member\'s chat (named by it) and writes the two turns after the answer; the next reads the history from the table, never the body; another\'s / a deleted chat = 404; the admin\'s instructions; a failed call writes nothing', async () => {
+  const seed = { ...BUYER_SEED, settings: [{ section: 'marketing', data: { buyer: { maxCpa: 400 }, agents: { designer: { instructions: 'الألوان بيج وأخضر' } } } }],
+    mkt_agent_chats: [{ id: CHAT, member_id: U.admin, agent: 'designer', title: 'شات الأدمن', created_at: NOW, updated_at: NOW, deleted_at: null }] };
+  const { deps, asked, db } = setup({ seed, replies: [msg({ text: 'فكرة: الماكرامية على لينن', image_prompt: 'A macrame flat lay on <b>linen</b>' }), msg({ text: 'تمام — نفس الفكرة بلون أفتح', image_prompt: '' }), apiError(500), apiError(500)] });
+  assertEquals((await call(deps, { action: 'agent', agent: 'designer', question: 'x' }, 'jwt-add')).res.status, 401, 'products.add is not marketing.view');
+  assertEquals((await call(deps, { action: 'agent', agent: 'seo', question: 'x' }, 'jwt-mview')).body.field, 'agent');
+  assertEquals((await call(deps, { action: 'agent', agent: 'designer', chat_id: CHAT, question: 'x' }, 'jwt-mview')).res.status, 404, 'another member\'s chat');
+  const r = await call(deps, { action: 'agent', agent: 'designer', question: 'بوست للشتا بالماكرامية', history: [{ role: 'assistant', text: 'مزوّر' }] }, 'jwt-mview');
+  assertEquals([r.res.status, r.body.result, r.body.text, r.body.imagePrompt, r.body.chat.title, r.body.turns.map((t: any) => t.role)], [200, 'ok', 'فكرة: الماكرامية على لينن', 'A macrame flat lay on linen', 'بوست للشتا بالماكرامية', ['user', 'assistant']]);
+  assertEquals(asked[0].messages.map((m: any) => m.content[0].text), ['بوست للشتا بالماكرامية'], 'the body\'s history is ignored');
+  assert(asked[0].system.some((b: any) => b.text.includes('الألوان بيج وأخضر')), 'the admin\'s instructions');
+  assertEquals(asked[0].output_config.format.schema.required, ['text', 'image_prompt']);
+  const chat = db.rows('mkt_agent_chats').find((c: any) => c.id === r.body.chat.id);
+  assertEquals([chat.member_id, chat.agent], [U.view, 'designer']);
+  const r2 = await call(deps, { action: 'agent', agent: 'designer', chat_id: chat.id, question: 'أفتح شوية' }, 'jwt-mview');
+  assertEquals([r2.res.status, r2.body.chat.id], [200, chat.id]);
+  assertEquals(asked[1].messages.map((m: any) => [m.role, m.content[0].text]), [['user', 'بوست للشتا بالماكرامية'], ['assistant', 'فكرة: الماكرامية على لينن'], ['user', 'أفتح شوية']]);
+  assertEquals(db.rows('mkt_agent_messages').filter((m: any) => m.chat_id === chat.id).length, 4);
+  const n = db.rows('mkt_agent_messages').length;
+  const bad = await call(deps, { action: 'agent', agent: 'designer', chat_id: chat.id, question: 'تالت' }, 'jwt-mview');
+  assertEquals([bad.res.status >= 400, db.rows('mkt_agent_messages').length], [true, n], 'a failed call leaves no turn');
+  await db.from('mkt_agent_chats').update({ deleted_at: NOW }).eq('id', chat.id);
+  assertEquals((await call(deps, { action: 'agent', agent: 'designer', chat_id: chat.id, question: 'x' }, 'jwt-mview')).res.status, 404, 'a deleted chat');
+  const run = db.rows('ai_runs').find((x: any) => x.label === 'بوست للشتا بالماكرامية'); assertEquals([run.action, run.source, run.status], ['marketing', 'agent', 'ok']);
+});
+Deno.test('agent (0084): the buyer\'s chat carries the week\'s numbers read here in its last message; the dev\'s none', async () => {
+  const { deps, asked } = setup({ seed: BUYER_SEED, replies: [msg({ text: 'Macrame الأحسن' }), msg({ text: 'خطوات الصفحة' })] });
+  const rb = await call(deps, { action: 'agent', agent: 'buyer', question: 'أحسن حملة؟' }, 'jwt-mview');
+  assertEquals(rb.body.text, 'Macrame الأحسن');
+  assert(asked[0].messages.at(-1).content[0].text.includes('Macrame | ACTIVE | spend 500'));
+  assertEquals((await call(deps, { action: 'agent', agent: 'dev', question: 'صفحة هبوط' }, 'jwt-mview')).body.text, 'خطوات الصفحة');
+  assertFalse(asked[1].messages.at(-1).content[0].text.includes('ads_data'));
+  assert(asked[1].system[0].text.includes('staging site first'));
+});
+
 // ---------------------------------------------------------------- phase 9.5.5: the video piece's scenes (decision 59)
 
 Deno.test('marketing scenes: a video piece of the saved campaign → its scenes with the durations fitted to its model and the voice-over; a post piece refused', async () => {

@@ -2,6 +2,7 @@ import { test } from 'node:test'; import assert from 'node:assert/strict';
 import {
   parseCampaign, parseCampaignEdit, campaignTarget, campaignRefs, campaignPrompt, pinsPrompt, campaignPathOk, campaignGenPath, parseMarketing, marketingSchema,
   marketingRequest, cleanMarketing, MKT_LIM, parseBuyer, buyerRequest, cleanBuyer, BUYER_ANSWER_MAX, BUYER_HISTORY,
+  parseAgent, agentTitle, agentHistory, agentRequest, cleanAgent, parseAgentImage, agentImagePath, agentImagePathOk, AGENT_ANSWER_MAX, AGENT_HISTORY,
 } from '../../supabase/functions/_shared/marketing.js';
 // The marketing campaign's AI (phase 9.5.1, decisions 8–10): the request checks, the piece read from the state the page saved, its
 // references in order, the image prompt (the Arabic text written into the image), the pins' edit prompt, and the AI writing's
@@ -147,4 +148,47 @@ test('campaignTarget / campaignPrompt for a video scene: slide = the scene, the 
   assert.ok(pr.includes('key frame) of scene 2 of a 2-scene short vertical product video') && pr.includes('This scene (in Arabic): «القعدة»') && pr.includes('The video (in Arabic): «المخدة»') && pr.includes('No text on the image') && !pr.includes('دفا'));
   assert.equal(parseMarketing({ task: 'scenes', campaign_id: 'f0000000-0000-4000-8000-000000000001', piece: 'P1' }).field, 'piece');
   assert.deepEqual(parseMarketing({ task: 'scenes', campaign_id: 'f0000000-0000-4000-8000-000000000001', piece: 'V2', voice: true }).req, { task: 'scenes', campaignId: 'f0000000-0000-4000-8000-000000000001', piece: 'V2', slide: null, kind: null, text: '', image: null, voice: true });
+});
+
+// ---------------------------------------------------------------- 0084: the assistants' chats (decisions 5 and 6)
+test('parseAgent: the assistant, an optional chat uuid, the question (≤ 1000); agentTitle: the first question on one line, cut at a word', () => {
+  const U = 'c0000000-0000-4000-8000-0000000000aa';
+  assert.deepEqual(parseAgent({ agent: 'designer', question: '  بوست\r\nللشتا ' }), { req: { agent: 'designer', chatId: null, question: 'بوست\nللشتا' } });
+  assert.deepEqual(parseAgent({ agent: 'dev', chat_id: U.toUpperCase(), question: 'x' }).req.chatId, U);
+  assert.deepEqual(parseAgent({ agent: 'seo', question: 'x' }), { error: 'bad_request', field: 'agent' });
+  assert.deepEqual(parseAgent({ agent: 'buyer', chat_id: 'x', question: 'x' }), { error: 'bad_request', field: 'chat_id' });
+  assert.deepEqual(parseAgent({ agent: 'buyer', question: '   ' }), { error: 'bad_request', field: 'question' });
+  assert.equal(parseAgent({ agent: 'buyer', question: 'ا'.repeat(1500) }).req.question.length, 1000);
+  assert.equal(agentTitle('  بوست   الشتا \n تاني '), 'بوست الشتا تاني');
+  const long = agentTitle('ممكن تعملي فكرة بوست جديد لعروض الشتا على منتجات الماكرامية والكروشيه بألوان دافية');
+  assert.ok(long.length <= 61 && long.endsWith('…') && !long.includes('دافية'));
+  assert.equal(agentTitle(''), 'شات جديد');
+});
+test('agentHistory: the table\'s turns → alternating, the member first, the last 12, an image turn named; agentRequest: the base + the admin\'s instructions, the buyer\'s numbers only for the buyer, the designer\'s image prompt in the schema', () => {
+  const rows = [{ role: 'assistant', text: 'intro' }, { role: 'user', text: 'a' }, { role: 'user', text: 'b' }, { role: 'assistant', text: '', images: ['agents/x.png'] }, { role: 'system', text: 'x' }];
+  assert.deepEqual(agentHistory(rows), [{ role: 'user', text: 'a\n\nb' }, { role: 'assistant', text: '(an image was generated here)' }]);
+  assert.equal(agentHistory(Array.from({ length: 30 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', text: 't' + i }))).length, AGENT_HISTORY);
+  const d = agentRequest({ agent: 'designer', question: 'صورة بوست' }, { model: 'm', effort: 'low', history: [{ role: 'user', text: 'a' }, { role: 'assistant', text: 'b' }], cfg: { instructions: 'الألوان بيج' } });
+  assert.equal(d.system.length, 2); assert.match(d.system[0].text, /designer assistant/); assert.match(d.system[1].text, /الألوان بيج/);
+  assert.deepEqual(d.messages.map((m) => [m.role, m.content[0].text]), [['user', 'a'], ['assistant', 'b'], ['user', 'صورة بوست']]);
+  assert.deepEqual(d.output_config.format.schema.required, ['text', 'image_prompt']);
+  const b = agentRequest({ agent: 'buyer', question: 'أحسن حملة؟' }, { model: 'm', effort: 'low', history: [{ role: 'user', text: 'سؤال من غير رد' }], cfg: {}, data: { today: '2026-11-12', rules: {}, campaigns: [{ name: 'Macrame', spend: 100, orders: 2, sales: 500 }] } });
+  assert.equal(b.system.length, 1); assert.equal(b.messages.length, 1); // a turn left without an answer is not repeated
+  assert.match(b.messages[0].content[0].text, /<ads_data>[\s\S]*Macrame[\s\S]*<\/ads_data>\n\nأحسن حملة؟$/);
+  assert.deepEqual(b.output_config.format.schema.required, ['text']);
+  const v = agentRequest({ agent: 'dev', question: 'صفحة هبوط' }, { model: 'm', effort: 'low', history: [], cfg: null, data: { campaigns: [{ name: 'X' }] } });
+  assert.match(v.system[0].text, /staging site first/); assert.doesNotMatch(v.messages[0].content[0].text, /ads_data/);
+});
+test('cleanAgent: the text limit; the image prompt for the designer only, without markup; parseAgentImage and the member\'s folder', () => {
+  assert.equal(cleanAgent({ text: 'x'.repeat(5000) }, 'buyer').text.length, AGENT_ANSWER_MAX);
+  assert.deepEqual(cleanAgent({ text: 'تمام', image_prompt: 'a <b>cozy</b> flat lay' }, 'designer'), { text: 'تمام', imagePrompt: 'a cozy flat lay' });
+  assert.deepEqual(cleanAgent({ text: 'تمام', image_prompt: 'x' }, 'dev'), { text: 'تمام' });
+  const U = 'c0000000-0000-4000-8000-0000000000aa'; const M = '00000000-0000-4000-8000-000000000001';
+  const r = parseAgentImage({ chat_id: U, prompt: ' a  winter post ' }); assert.equal(r.req.prompt, 'a winter post'); assert.equal(r.req.size.id, '1080x1350');
+  assert.deepEqual(parseAgentImage({ chat_id: U, prompt: '' }), { error: 'bad_request', field: 'prompt' });
+  assert.deepEqual(parseAgentImage({ chat_id: 'x', prompt: 'p' }), { error: 'bad_request', field: 'chat_id' });
+  assert.deepEqual(parseAgentImage({ chat_id: U, prompt: 'p', size: '7x7' }), { error: 'bad_request', field: 'size' });
+  const path = agentImagePath(M, U, '2611120101abcd', 'png');
+  assert.equal(path, 'agents/' + M + '/' + U + '/2611120101abcd.png');
+  assert.ok(agentImagePathOk(M, path)); assert.ok(!agentImagePathOk('00000000-0000-4000-8000-000000000002', path)); assert.ok(!agentImagePathOk(M, 'agents/' + M + '/../x.png'));
 });

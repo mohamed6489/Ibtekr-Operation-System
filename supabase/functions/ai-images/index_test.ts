@@ -866,6 +866,31 @@ Deno.test('campaign (9.5.1): marketing.create only; the piece read from the save
   assertEquals((await call(deps, { action: 'campaign', campaign_id: 'nope', piece: 'P1' }, 'jwt-mkt')).body.field, 'campaign_id');
 });
 
+Deno.test('agent_image (0084 decision 6): marketing.create; the member\'s own designer chat only (another\'s, a buyer chat, a deleted one = 404); one image from the prompt into agents/<member>/<chat>/ and the assistant\'s turn with it; ai_runs source agent', async () => {
+  const CH = 'c0000000-0000-4000-8000-0000000000aa'; const CB = 'c0000000-0000-4000-8000-0000000000bb'; const CO = 'c0000000-0000-4000-8000-0000000000cc';
+  const seed = { ...SEED, mkt_agent_chats: [
+    { id: CH, member_id: U.mkt, agent: 'designer', title: 'بوست', created_at: '2026-11-01T00:00:00Z', updated_at: '2026-11-01T00:00:00Z', deleted_at: null },
+    { id: CB, member_id: U.mkt, agent: 'buyer', title: 'حملات', created_at: '2026-11-01T00:00:00Z', updated_at: '2026-11-01T00:00:00Z', deleted_at: null },
+    { id: CO, member_id: U.admin, agent: 'designer', title: 'الأدمن', created_at: '2026-11-01T00:00:00Z', updated_at: '2026-11-01T00:00:00Z', deleted_at: null }] };
+  const { deps, asked, storage, db } = setup({ seed, replies: [{ images: [img()], credits: 40 }] });
+  assertEquals((await call(deps, { action: 'agent_image', chat_id: CH, prompt: 'p' }, 'jwt-add')).res.status, 401, 'products.add is not marketing.create');
+  assertEquals((await call(deps, { action: 'agent_image', chat_id: CH, prompt: '  ' }, 'jwt-mkt')).body.field, 'prompt');
+  assertEquals((await call(deps, { action: 'agent_image', chat_id: CO, prompt: 'p' }, 'jwt-mkt')).res.status, 404, 'another member\'s chat');
+  assertEquals((await call(deps, { action: 'agent_image', chat_id: CB, prompt: 'p' }, 'jwt-mkt')).res.status, 404, 'not a designer chat');
+  assertEquals(asked.length, 0);
+  const r = await call(deps, { action: 'agent_image', chat_id: CH, prompt: 'A cozy macrame flat lay' }, 'jwt-mkt');
+  assertEquals([r.res.status, r.body.result, r.body.bucket, r.body.credits], [200, 'ok', 'marketing', 40]);
+  assert(r.body.path.startsWith('agents/' + U.mkt + '/' + CH + '/') && r.body.path.endsWith('.png'), r.body.path);
+  assert(storage['marketing/' + r.body.path], 'stored in the member\'s folder');
+  assertEquals([asked[0].width, asked[0].height, asked[0].refs.length], [1080, 1350, 0]);
+  assert(asked[0].prompt.startsWith('A cozy macrame flat lay'));
+  const turn = db.rows('mkt_agent_messages').at(-1);
+  assertEquals([turn.chat_id, turn.role, turn.text, turn.images, r.body.turn.images], [CH, 'assistant', '', [r.body.path], [r.body.path]]);
+  const run = db.rows('ai_runs').at(-1); assertEquals([run.action, run.source, run.label, run.status, run.credits], ['image', 'agent', 'A cozy macrame flat lay', 'ok', 40]);
+  await db.from('mkt_agent_chats').update({ deleted_at: '2026-11-02T00:00:00Z' }).eq('id', CH);
+  assertEquals((await call(deps, { action: 'agent_image', chat_id: CH, prompt: 'p' }, 'jwt-mkt')).res.status, 404, 'a deleted chat');
+});
+
 Deno.test('campaign_edit (decision 9): the piece\'s current image edited by the pins and the note → a new edit- path; no image yet → 400 image; nothing asked → 400 note', async () => {
   const { deps, asked, db } = setup({ seed: MKT_SEED, storage: { ...MKT_FILES }, replies: [{ images: [img()], credits: 75 }] });
   const r = await call(deps, { action: 'campaign_edit', campaign_id: CMP, piece: 'P1', note: 'أدفى', pins: [{ x: 10, y: 80, text: 'الخلفية فاتحة' }] }, 'jwt-mkt');

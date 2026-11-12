@@ -216,3 +216,32 @@ test('permissions and the cap: a member without marketing.view gets no page; ove
   await expect(page.locator('.toast, [role=status]').last()).toContainText('مش كفاية');
   expect(mock.mkt.calls.some((c) => c.action === 'campaign')).toBe(false);
 });
+
+test('the owner 12 Nov: «إنشاء» has the campaign card only; the campaign\'s steps in one centered column with the footer\'s button at its own width; the count typed by hand (Arabic digits, Enter, the arrows) or + / −, centered in its box; the studio in its own column', async ({ page }) => {
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await openMarketing(page);
+  await expect(pg(page).locator('[data-mk-video]')).toHaveCount(0);
+  await expect(pg(page).locator('.tools-grid .tool-card')).toHaveCount(1);
+  await pg(page).locator('[data-mk-start]').click();
+  const col = pg(page).locator('[data-wiz-col="campaign"]');
+  await expect(col).toBeVisible();
+  expect((await col.boundingBox()).width).toBeLessThanOrEqual(880);
+  const next = pg(page).locator('.wiz-foot .cp-next');
+  expect((await next.boundingBox()).width).toBeLessThan(260);
+  await expect(pg(page).locator('.wiz-foot .help')).toContainText('الخطوة 1 من 4');
+  const n = pg(page).locator('#cw-n-post');
+  expect(await n.evaluate((e) => getComputedStyle(e).textAlign)).toBe('center');
+  await n.fill('٣'); await n.press('Enter');
+  await expect(pg(page).locator('#cw-n-post')).toHaveValue('3');
+  await pg(page).locator('#cw-n-post').press('ArrowUp');
+  await expect(pg(page).locator('#cw-n-post')).toHaveValue('4');
+  await pg(page).locator('[data-num="cw-n-post-"]').click();
+  await expect(pg(page).locator('#cw-n-post')).toHaveValue('3');
+  await pg(page).locator('#cw-n-post').fill('99'); await pg(page).locator('#cw-n-post').press('Tab'); // past the most → the most
+  await expect(pg(page).locator('#cw-n-post')).not.toHaveValue('99');
+  // the studio: its own centered column too
+  await page.evaluate(() => { location.hash = 'products-studio-new-1'; });
+  const sc = page.locator('[data-wiz-col="studio"]');
+  await expect.poll(() => sc.evaluate((e) => e.getBoundingClientRect().width).catch(() => 0)).toBeGreaterThan(600); // redrawn as the studio loads
+  expect(await sc.evaluate((e) => e.getBoundingClientRect().width)).toBeLessThanOrEqual(1040);
+});

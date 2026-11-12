@@ -42,7 +42,16 @@ async function waitStep(page, step, max = 8) {
 test('the «فيديو» tool: a campaign with one video; the details (9:16, Seedance, 15 s) → the scenes by Claude → a key frame a scene → the review: clips, voice, music, the cut and the mixes polled to the final video → approval → a download in the schedule', async ({ page }) => {
   await start(page);
   await openMarketing(page);
-  await pg(page).locator('[data-mk-video]').click();
+  // the owner 12 Nov: no video card in «إنشاء» — a campaign with one video piece only (the posts and the carousel at 0)
+  await expect(pg(page).locator('[data-mk-video]')).toHaveCount(0);
+  await pg(page).locator('[data-mk-start]').click();
+  await pg(page).locator('[role=tab]', { hasText: 'فيديو' }).click();
+  await pg(page).locator('#cw-n-video').fill('1'); await pg(page).locator('#cw-n-video').press('Enter');
+  await pg(page).locator('[role=tab]', { hasText: 'بوستات' }).click();
+  await pg(page).locator('#cw-n-post').fill('0'); await pg(page).locator('#cw-n-post').press('Enter');
+  await pg(page).locator('[role=tab]', { hasText: 'كاروسيل' }).click();
+  await pg(page).locator('#cw-n-carousel').fill('0'); await pg(page).locator('#cw-n-carousel').press('Enter');
+  await pg(page).locator('[role=tab]', { hasText: 'فيديو' }).click();
   await expect(pg(page).locator('.wstepper .stp-cur')).toContainText('تفاصيل الكامبين');
   await expect(pg(page).locator('[data-cw-media="video"]')).toBeVisible();
   await pg(page).locator('#cw-idea').fill('ريل لمخدة بوهيمي من Art craft');

@@ -124,24 +124,29 @@ test('«نظرة عامة»: the spend, the Woo sales from ads, the real return 
   await expect(toast(page)).toContainText('اتزامنت أرقام الإعلانات');
   expect(mock.mkt.calls.filter((x) => x.fn === 'mkt-ads' && x.action === 'sync').length).toBe(1);
   // the reports' period moves it: «اليوم» — nothing spent today
-  await P.locator('.ads-bar .date-field').click();
+  await P.locator('[data-mk-range] .date-field').click(); // the period picker is in the header (the owner 12 Nov)
   await page.locator('.dp .presets [role=radio]', { hasText: /^اليوم$/ }).click();
   await page.locator('.dp').getByRole('button', { name: 'تحديث' }).click();
   await expect(kpi(P, 'الصرف الإعلاني')).toContainText('0.00');
   await expect(P.locator('[data-mk-pending="3"]')).toBeVisible(); // the suggestions are the server's — the period does not move them
 });
 
-test('the v6 header: the quick period on the reports\' period compared with the one before («اليوم» vs yesterday), and the platform filter (Google = its UTM orders only)', async ({ page }) => {
+test('the v6 header: the reports\' period (the calendar picker) compared with the one before («اليوم» vs yesterday), and the platform filter (Google = its UTM orders only)', async ({ page }) => {
   await start(page);
   await openTab(page, ADMIN, 'نظرة عامة');
   const P = pg(page);
   await expect(kpi(P, 'الصرف الإعلاني')).toContainText('2,700.00');
   // the period: «اليوم» — no spend today, 1,400 yesterday → −100% «عن أمس»; the reports' own period field shows today too
-  await P.locator('#mk-period').click(); await page.getByRole('option', { name: /اليوم · مقارنة بأمس/ }).click();
+  // the owner 12 Nov: one date filter in the system — the header's period is the calendar picker (its «اليوم» preset)
+  await expect(P.locator('#mk-period')).toHaveCount(0);
+  await expect(P.locator('.ads-bar .date-field')).toHaveCount(0); // once, in the header
+  await P.locator('[data-mk-range] .date-field').click();
+  const dp = page.locator('.dp.range');
+  await dp.getByRole('radio', { name: 'اليوم', exact: true }).click();
+  await dp.getByRole('button', { name: 'تحديث' }).click();
   await expect(kpi(P, 'الصرف الإعلاني')).toContainText('0.00');
   await expect(kpi(P, 'الصرف الإعلاني').locator('.kpi-delta')).toContainText('-100%');
   await expect(kpi(P, 'الصرف الإعلاني').locator('.kpi-delta')).toContainText('عن أمس');
-  await expect(P.locator('#mk-period')).toContainText('اليوم · مقارنة بأمس');
   // back to the last 30 days from the reports' period (a custom period shows its dates in the header select)
   await page.evaluate((from) => { const r = window.IBReportBlocks.rangeOf('reports'); r.from = from; r.preset = 'custom'; }, D(-29));
   await P.locator('#mk-plat').click(); await page.getByRole('option', { name: 'المنصة: جوجل' }).click();

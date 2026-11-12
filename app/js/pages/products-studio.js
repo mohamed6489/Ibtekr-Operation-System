@@ -964,7 +964,8 @@
       h('div', { class: 'actions' }, Button({ type: 'text', label: 'اخرج', onClick: () => { touch(true); go('products-add'); } })));
     if (S.report) return [top, ...reportView()];
     const body = ({ 1: step1, 2: step2, 3: step3, 4: step4, 5: step5, 6: step6, 7: step7, 8: step8 })[S.step]();
-    return [top, Stepper(), ...body];
+    // the owner 12 Nov — the steps in one centered column at a sensible width (the tables of the data step scroll inside it)
+    return [h('div', { class: 'wiz-col wiz-studio', 'data-wiz-col': 'studio' }, top, Stepper(), ...body)];
   }
   // «الشغل المحفوظ» in the add tab (decision 10)
   function savedWork() {

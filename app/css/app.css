@@ -1797,6 +1797,13 @@ tr.tq-hide{display:none}
 .hr-in-list{display:flex;flex-direction:column}
 .hr-in-list .hr-in{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--color-border-subtle);min-height:44px}
 .hr-in-list .hr-in:last-child{border-bottom:0}
+/* the HR rebuild (12 Nov): the totals under «تحويل المرتبات», the evaluator's view of the month's tasks */
+.hr-transfer-sum{margin-top:12px;padding:12px;border:1px solid var(--color-border-subtle);border-radius:var(--radius-md,8px);background:var(--color-bg-subtle,transparent)}
+.ev-head{display:flex;flex-direction:column;gap:12px;margin-bottom:8px}
+.ev-task-cols{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.ev-tasks{display:flex;flex-direction:column;gap:4px;min-width:0}
+.ev-tasks ul{margin:0;padding-inline-start:18px}
+@media (max-width:600px){.ev-task-cols{grid-template-columns:1fr}}
 .hr-in-list .hr-in>span:nth-of-type(2){flex:1;min-width:0}
 /* the owner 12 Nov — the person / product cell in every table: the picture at the start (the right), the name right next to it aligned to the
    start; a name longer than the column is cut with «…» (the whole name on hover — personCols in the kit) */

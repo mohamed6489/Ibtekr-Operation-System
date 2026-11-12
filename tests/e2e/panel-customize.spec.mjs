@@ -53,8 +53,8 @@ test('HR «نظرة عامة» (the owner 12 Nov — the day\'s cards moved here
   await expect.poll(() => mock.prefs.filter((x) => x.key === 'panel.prefs').map((x) => x.user_id)).toEqual([ADMIN_ID]);
   expect(panelPref()).toEqual({ 'hr:overview': { order: ['الإجازات الجاية (#)'].concat(ITEMS.slice(0, -1)), hidden: ['أنهوا الدوام'] } });
   // another tab has its own choice; coming back keeps mine
-  await go(page, 'hr-settings');
-  await expect(page.locator('[data-pn-custom="hr:settings"]')).toBeVisible();
+  await go(page, 'hr-team'); // the rebuild: the HR settings moved to «الإعدادات»
+  await expect(page.locator('[data-pn-custom="hr:team"]')).toHaveCount(1); // its own key (the button hides with fewer than two blocks)
   await go(page, 'hr-overview');
   await expect(kpi(P, 'أنهوا الدوام')).toBeHidden();
   await expect.poll(firstIsLeaves).toBe(true);

@@ -53,7 +53,7 @@ async function pick(page, scope, id, label) { await scope.locator('#' + id).clic
 async function date(scope, id, iso) { await scope.locator('#' + id).fill(dmy(iso)); await scope.locator('#' + id).press('Tab'); }
 const calls = (fn) => mock.hr.calls.filter((c) => c.fn === fn);
 
-test('«الموارد البشرية» is open: the team from the server (the table lists everyone the admin sees — the salary-less admin too; the tiles count the staff), today\'s state, the requests count on the tab', async ({ page }) => {
+test('«الموارد البشرية» is open: the team from the server (the table lists everyone the admin sees — the salary-less admin too; the tiles count the staff), today\'s state, no requests tab', async ({ page }) => {
   await openHr(page);
   const table = P(page).locator('.hr-table');
   await expect(table.locator('tbody tr')).toHaveCount(6); // decision 15: everyone the admin sees — the salary-less admin and the suspended viewer too; the tiles stay on the staff (4)
@@ -68,7 +68,7 @@ test('«الموارد البشرية» is open: the team from the server (the t
   const cut = await table.locator('tbody tr .mlink b').first().evaluate((b) => { b.textContent = 'عبد القادر علي عبد القادر محمد الشرقاوي الكبير المصري'; return [getComputedStyle(b).textOverflow, b.scrollWidth > b.clientWidth]; });
   expect(cut).toEqual(['ellipsis', true]);
   await expect(table.locator('tbody tr .mlink b').nth(1)).toHaveAttribute('title', /\S/);
-  await expect(page.getByRole('tab', { name: /الطلبات \(2\)/ })).toBeVisible(); // the leave + the overtime
+  await expect(P(page).locator('[role=tab]', { hasText: 'الطلبات' })).toHaveCount(0); // the rebuild: the requests live in «طلبات الفريق»
   // the owner 12 Nov: the day's cards moved to «نظرة عامة» (the team tab keeps its table)
   await expect(P(page).locator('[data-hr-today]')).toHaveCount(0);
   await P(page).getByRole('tab', { name: 'نظرة عامة' }).click();
@@ -81,7 +81,7 @@ test('the owner 12 Nov — «نظرة عامة» first: the day\'s cards, the mo
   await expect(page).toHaveURL(/#hr$|#hr-overview$/);
   await expect(P(page).locator('[role=tab][aria-selected=true]')).toContainText('نظرة عامة');
   const names = await P(page).locator('[role=tab]').allInnerTexts();
-  expect(names.map((x) => x.replace(/\s*\(\d+\)$/, '').trim()).slice(0, 7)).toEqual(['نظرة عامة', 'الفريق والحضور', 'الطلبات', 'المرتبات والمكافآت', 'سجل الحركات', 'التقارير', 'إعدادات الموارد البشرية']);
+  expect(names.map((x) => x.trim()).slice(0, 6)).toEqual(['نظرة عامة', 'الفريق والحضور', 'المرتبات', 'التقييمات', 'التقارير', 'سجل الحركات']); // the rebuild (12 Nov)
   await expect(P(page).locator('[data-hr-today]')).toContainText('حاضرين دلوقتي');
   await expect(P(page).locator('[data-hr-month]')).toContainText('ساعات الشهر');
   await expect(P(page).locator('[data-hr-month]')).toContainText('أيام إجازة الشهر');
@@ -151,15 +151,19 @@ test('the kit (decision 18 b): a form\'s first-field focus a tick later leaves a
   expect(first).toBe('first2');
 });
 
-test('requests: approve the leave, «ضيفه» part of the overtime; «متضيفهوش» opens the one-to-one meeting with its date', async ({ page }) => {
+test('the rebuild: the requests are decided from «نظرة عامة › مستني قرار» — approve the leave in its popup, «ضيفه» part of the overtime from its own popup; «#hr-requests» lands on «نظرة عامة»', async ({ page }) => {
   await openHr(page, ADMIN, 'hr-requests');
-  const list = P(page).locator('table').first();
-  const leave = list.locator('tbody tr', { hasText: 'إجازة سنوية' });
-  await leave.getByRole('button', { name: 'موافقة' }).click();
+  await expect(P(page).locator('[role=tab][aria-selected=true]')).toContainText('نظرة عامة');
+  const wait = P(page).locator('.card', { hasText: 'مستني قرار' });
+  await wait.locator('tbody tr', { hasText: 'إجازة سنوية' }).click();
+  await modal(page, 'تفاصيل طلب').getByRole('button', { name: 'موافقة' }).click();
   await expect.poll(() => calls('hr_request_decide').map((c) => c.p_decision)).toEqual(['موافق']);
-  await expect(list.locator('tbody tr', { hasText: 'إجازة سنوية' })).toContainText('موافق');
-  // the overtime: «ضيفه» 45 of the 90 minutes
-  await list.locator('tbody tr', { hasText: 'تأكيد وقت إضافي' }).getByRole('button', { name: 'ضيفه', exact: true }).click();
+  await expect(wait.locator('tbody tr', { hasText: 'إجازة سنوية' })).toHaveCount(0);
+  // the overtime: its popup → «ضيفه» 45 of the 90 minutes
+  await wait.locator('tbody tr', { hasText: 'وقت إضافي' }).click();
+  const d = modal(page, 'وقت إضافي — هدى سمير');
+  await expect(d).toContainText('شحن الأوردرات المتأخرة');
+  await d.getByRole('button', { name: 'ضيفه', exact: true }).click();
   const f = modal(page, 'ضيف الوقت الإضافي');
   await f.getByRole('radio', { name: 'جزء منه' }).click();
   await f.locator('#minutes').fill('45');
@@ -167,11 +171,15 @@ test('requests: approve the leave, «ضيفه» part of the overtime; «متضي
   await expect(f).toBeHidden();
   expect(calls('hr_overtime_decide').map((c) => [c.p_decision, c.p_minutes])).toEqual([['add', 45]]);
   expect(mock.hr.overtime[0]).toMatchObject({ status: 'اتضاف', paid_minutes: 45, pay_month: W1.slice(0, 7) + '-01' });
+  // «كل الطلبات» → «طلبات الفريق»
+  await wait.locator('[data-hr-all-requests]').click();
+  await expect(page).toHaveURL(/#tickets/);
 });
 
-test('«متضيفهوش»: the refusal with its reason, the meeting the server opened gets its date (اتحدد ميعاد)', async ({ page }) => {
-  await openHr(page, ADMIN, 'hr-requests');
-  await P(page).locator('tbody tr', { hasText: 'تأكيد وقت إضافي' }).getByRole('button', { name: 'متضيفهوش' }).click();
+test('«متضيفهوش» from the overtime\'s popup: the refusal with its reason, the meeting the server opened gets its date (اتحدد ميعاد)', async ({ page }) => {
+  await openHr(page, ADMIN, 'hr');
+  await P(page).locator('.card', { hasText: 'مستني قرار' }).locator('tbody tr', { hasText: 'وقت إضافي' }).click();
+  await modal(page, 'وقت إضافي — هدى سمير').getByRole('button', { name: 'متضيفهوش' }).click();
   const f = modal(page, 'متضيفهوش');
   await f.locator('#why').fill('مش متفق عليه قبلها');
   await date(f, 'date', NEXT);
@@ -179,33 +187,83 @@ test('«متضيفهوش»: the refusal with its reason, the meeting the server 
   await expect(f).toBeHidden();
   expect(calls('hr_overtime_decide').map((c) => [c.p_decision, c.p_reason])).toEqual([['reject', 'مش متفق عليه قبلها']]);
   await expect.poll(() => mock.hr.meetings.map((x) => [x.ref, x.status, x.day, x.time_text])).toEqual([['OT-1', 'اتحدد ميعاد', NEXT, '10:00']]);
-  await P(page).getByRole('tab', { name: 'المرتبات والمكافآت' }).click();
-  await P(page).getByRole('tab', { name: 'الميتنجات وخطط التحسين' }).click();
-  await expect(P(page).locator('table')).toContainText('هدى سمير');
-  await expect(P(page).locator('table')).toContainText('اتحدد ميعاد');
 });
 
-test('the monthly sheet: the server\'s lines, مسودة → مراجعة → معتمد → مدفوع from «حساب البنك» = an «المرتبات» expense per member + one withdrawal', async ({ page }) => {
+test('the rebuild — «المرتبات»: the month\'s lines; ⋮ «تحويل المرتب» for one (early = its reason); «تحويل المرتبات» shows the rest with the totals and pays them = an «المرتبات» expense each + one withdrawal; then locked', async ({ page }) => {
   await openHr(page, ADMIN, 'hr-payroll');
-  const sheet = P(page).locator('table').first();
+  const sheet = P(page).locator('table.hr-pay');
   await expect(sheet.locator('tbody tr')).toHaveCount(2);
   await expect(sheet.locator('tbody tr', { hasText: 'سارة أحمد' })).toContainText('11,000'); // 12000 − 1500 + 500
   await expect(sheet.locator('tbody tr', { hasText: 'منى حسن' })).toContainText('8,600');
-  await P(page).getByRole('button', { name: 'إرسال للمراجعة' }).click();
-  await expect(P(page).getByRole('button', { name: 'اعتماد الكشف' })).toBeVisible();
-  await P(page).getByRole('button', { name: 'اعتماد الكشف' }).click();
-  await modal(page, 'اعتماد الكشف').getByRole('button', { name: 'اعتماد الكشف' }).click();
-  await expect(P(page).getByRole('button', { name: 'تعليم مدفوع' })).toBeVisible();
-  expect(mock.hr.payroll_lines.map((l) => [l.name, l.net])).toEqual([['سارة أحمد', 11000], ['منى حسن', 8600]]);
-  await P(page).getByRole('button', { name: 'تعليم مدفوع' }).click();
-  const f = modal(page, 'تعليم الكشف مدفوع');
-  await pick(page, f, 'account', 'حساب البنك');
-  await f.getByRole('button', { name: 'اتدفع', exact: true }).click();
+  // one member first: before the pay day (28) the reason is a must
+  const early = Number(T.slice(8, 10)) < 28;
+  await sheet.locator('tbody tr', { hasText: 'منى حسن' }).getByRole('button', { name: /إجراءات/ }).click();
+  await page.getByRole('menuitem', { name: 'تحويل المرتب' }).click();
+  const one = modal(page, 'تحويل مرتب منى حسن');
+  if (early) { await one.getByRole('button', { name: 'حوّل المرتب' }).click(); await expect(one).toContainText('اكتب سبب التحويل المبكر'); await one.locator('#reason').fill('ظرف عائلي'); }
+  await one.getByRole('button', { name: 'حوّل المرتب' }).click();
+  await expect(one).toBeHidden();
+  expect(calls('hr_pay_member').map((c) => [c.p_member, c.p_account, c.p_reason])).toEqual([[ACC_ID, 'حساب البنك', early ? 'ظرف عائلي' : null]]);
+  await expect(sheet.locator('tbody tr', { hasText: 'منى حسن' })).toContainText('اتحوّل');
+  // the rest in one step: the popup lists who is left, the totals and the grand total
+  await P(page).locator('[data-hr-transfer]').click();
+  const f = modal(page, 'تحويل المرتبات');
+  await expect(f.locator('table tbody tr')).toHaveCount(1);
+  await expect(f.locator('[data-hr-transfer-sum]')).toContainText('إجمالي المرتبات');
+  await expect(f.locator('[data-hr-transfer-sum]')).toContainText('الإجمالي اللي هيتحوّل');
+  await expect(f.locator('[data-hr-transfer-sum]')).toContainText('11,000');
+  await f.getByRole('button', { name: /^حوّل 11,000/ }).click();
   await expect(f).toBeHidden();
-  await expect(P(page).getByRole('button', { name: 'اتدفع', exact: true })).toBeDisabled();
-  expect(mock.acc.acc_expenses.map((e) => [e.category, e.beneficiary, e.amount])).toEqual([['المرتبات', 'سارة أحمد', 11000], ['المرتبات', 'منى حسن', 8600]]);
-  expect(mock.acc.acc_account_moves.map((m) => [m.account, m.direction, m.amount])).toEqual([['حساب البنك', 'withdraw', 19600]]);
-  expect(calls('hr_payroll_step').map((c) => c.p_step)).toEqual(['مراجعة', 'معتمد']);
+  await expect(P(page).locator('[data-hr-transfer]')).toBeDisabled();
+  expect(mock.acc.acc_expenses.map((e) => [e.category, e.beneficiary, e.amount])).toEqual([['المرتبات', 'منى حسن', 8600], ['المرتبات', 'سارة أحمد', 11000]]);
+  expect(mock.acc.acc_account_moves.map((m) => [m.account, m.direction, m.amount])).toEqual([['حساب البنك', 'withdraw', 8600], ['حساب البنك', 'withdraw', 11000]]);
+  expect(calls('hr_payroll_transfer').map((c) => c.p_account)).toEqual(['حساب البنك']);
+  expect((mock.hr.payroll.find((x) => x.month === MK) || {}).status).toBe('مدفوع');
+});
+
+test('the rebuild — ⋮ «تحويل سلفة» (all of it off this month: an approved advance + the money out) and «تصحيح الأوفر تايم» (minutes less, its reason) — the month\'s line follows', async ({ page }) => {
+  await openHr(page, ADMIN, 'hr-payroll');
+  const row = () => P(page).locator('table.hr-pay tbody tr', { hasText: 'سارة أحمد' });
+  await expect(row()).toContainText('11,000');
+  await row().getByRole('button', { name: /إجراءات/ }).click();
+  await page.getByRole('menuitem', { name: 'تحويل سلفة' }).click();
+  const f = modal(page, 'تحويل سلفة');
+  await f.locator('#amount').fill('2000'); await f.locator('#reason').fill('مصاريف علاج');
+  await f.getByRole('button', { name: 'حوّل السلفة' }).click();
+  await expect(f).toBeHidden();
+  expect(calls('hr_advance_give').map((c) => [c.p_member, c.p_amount, c.p_account])).toEqual([[OPS_ID, 2000, 'حساب البنك']]);
+  expect(mock.hr.requests.filter((r) => r.type === 'سُلفة').map((r) => [r.status, r.pay_from])).toEqual([['موافق', MK]]);
+  await expect(row()).toContainText('9,000'); // 11,000 − 2,000 this month
+  expect(mock.acc.acc_account_moves.map((m) => [m.amount, m.note])).toEqual([[2000, expect.stringMatching(/^سلفة HR-/)]]);
+  // the overtime fix: 1:30 more (it was recorded short)
+  await row().getByRole('button', { name: /إجراءات/ }).click();
+  await page.getByRole('menuitem', { name: 'تصحيح الأوفر تايم' }).click();
+  const o = modal(page, 'تصحيح الأوفر تايم');
+  await o.locator('#hours').fill('1'); await o.locator('#minutes').fill('30'); await o.locator('#reason').fill('اتسجل ناقص يوم الجرد');
+  await o.getByRole('button', { name: 'سجّل التصحيح' }).click();
+  await expect(o).toBeHidden();
+  expect(calls('hr_ot_adjust_add').map((c) => [c.p_member, c.p_month, c.p_minutes])).toEqual([[OPS_ID, MK, 90]]);
+  await expect(row()).toContainText('9,093.75'); // + 90 minutes at 12000/24/8 = 62.5/h → 93.75
+});
+
+test('the rebuild — «التقييمات»: the month (the attendance automatic; «قيّم» with the month\'s tasks in front of the manager, the performance and the communication out of 5 → hr_evaluate), and the quarter from its months', async ({ page }) => {
+  await openHr(page, ADMIN, 'hr-evals');
+  const t = P(page).locator('table.hr-evals');
+  await expect(t.locator('tbody tr')).toHaveCount(4);
+  await t.locator('tbody tr', { hasText: 'منى حسن' }).locator('[data-hr-rate]').click();
+  const f = modal(page, 'تقييم منى حسن');
+  await expect(f).toContainText('الحضور (تلقائي)');
+  await expect(f.locator('[data-hr-rate-tasks]')).toContainText('مهام خلصت');
+  await f.getByRole('button', { name: 'حفظ التقييم' }).click();
+  await expect(f).toContainText('اختار تقييم الأداء');
+  await f.locator('#ev-perf [data-star="4"]').click(); await f.locator('#ev-comm [data-star="5"]').click();
+  await f.getByRole('button', { name: 'حفظ التقييم' }).click();
+  await expect(f).toBeHidden();
+  expect(calls('hr_evaluate').map((c) => [c.p_member, c.p_month, c.p_perf, c.p_comm])).toEqual([[ACC_ID, MK, 4, 5]]);
+  const r = t.locator('tbody tr', { hasText: 'منى حسن' });
+  await expect(r).toContainText('4 / 5'); await expect(r).toContainText('5 / 5');
+  await P(page).getByRole('tab', { name: 'التقييم الربع سنوي' }).click();
+  await expect(P(page).locator('table.hr-evals-q tbody tr', { hasText: 'منى حسن' })).toContainText('1 / 3');
 });
 
 test('«إضافة عضو» (decision 14): team-admin makes the login and mails the set-your-password link — the modal says so, no password anywhere; «ابعت إيميل الباسورد تاني» from the row menu', async ({ page }) => {
@@ -271,22 +329,6 @@ test('«إضافة عضو» without Resend: the temporary password shows once (n
   await expect(P(page).locator('.hr-table')).toContainText('كريم سامي');
 });
 
-test('the KPIs by hand: «قيّم الشهر» with the actuals → hr_rate_month, the score on the quarter table', async ({ page }) => {
-  await openHr(page, ADMIN, 'hr-payroll');
-  await P(page).getByRole('tab', { name: 'الأداء والـ KPI' }).click();
-  await P(page).locator('tbody tr', { hasText: 'منى حسن' }).getByRole('button', { name: 'المؤشرات' }).click();
-  await expect(P(page)).toContainText('تقفيل اليومية في ميعادها');
-  await P(page).getByRole('button', { name: 'قيّم الشهر' }).click();
-  const f = modal(page, 'تقييم الشهر');
-  const ins = f.locator('input[inputmode=decimal]');
-  await ins.nth(0).fill('90'); await ins.nth(1).fill('1');
-  await expect(f.locator('.score-box')).toContainText('102.0%'); // 90% × 60 + min(200, 120)% × 40
-  await f.getByRole('button', { name: 'حفظ التقييم' }).click();
-  await expect(f).toBeHidden();
-  expect(calls('hr_rate_month').map((c) => [c.p_member, c.p_month, c.p_actuals])).toEqual([[ACC_ID, MK, { 1: 90, 2: 1 }]]);
-  await expect(P(page).locator('tbody tr', { hasText: 'منى حسن' }).first()).toContainText('102%');
-});
-
 test('the settings row «hr» (the admin): the presence interval saved, no late grace (decision 24 — flexible hours); a holiday added', async ({ page }) => {
   await openHr(page, ADMIN, 'hr-settings');
   await expect(P(page).locator('#hs-grace')).toHaveCount(0);
@@ -302,26 +344,19 @@ test('the settings row «hr» (the admin): the presence interval saved, no late 
   await expect(P(page)).toContainText('عيد تجريبي');
 });
 
-test('ops (hr.view P, no team of her own): herself only, no money and no admin buttons; her own leave request', async ({ page }) => {
+test('ops (hr.view P, no team of her own, no salaries): herself only, no «المرتبات» tab and no admin buttons; «التقييمات» lists her without «قيّم» (never her own month)', async ({ page }) => {
   await openHr(page, OPS);
   await expect(P(page).locator('.hr-table tbody tr')).toHaveCount(1);
   await expect(P(page).locator('.hr-table')).toContainText('سارة أحمد');
   await expect(P(page).getByRole('button', { name: 'إضافة عضو' })).toHaveCount(0);
   await expect(P(page).getByRole('button', { name: 'تسجيل حضور يدوي' })).toHaveCount(0);
-  await page.getByRole('tab', { name: 'المرتبات والمكافآت' }).click();
-  await expect(P(page).getByRole('tab', { name: 'الكشف الشهري' })).toHaveCount(0);
-  await page.getByRole('tab', { name: /الطلبات/ }).click();
-  await P(page).getByRole('button', { name: 'طلب إجازة' }).click();
-  const f = modal(page, 'طلب إجازة');
-  await date(f, 'from', NEXT); await date(f, 'to', NEXT);
-  await f.getByRole('button', { name: 'تقديم الطلب' }).click();
-  await expect(f).toBeHidden();
-  const made = calls('hr_request_create').map((c) => c.p_input);
-  expect(made.length).toBe(1); expect(made[0]).toMatchObject({ type: 'إجازة سنوية', from: NEXT, to: NEXT }); expect(made[0].member).toBeUndefined();
-  await expect(P(page).locator('tbody tr', { hasText: 'إجازة سنوية' })).toContainText('إلغاء الطلب');
+  await expect(P(page).locator('[role=tab]', { hasText: 'المرتبات' })).toHaveCount(0);
+  await page.getByRole('tab', { name: 'التقييمات' }).click();
+  await expect(P(page).locator('table.hr-evals tbody tr')).toHaveCount(1);
+  await expect(P(page).locator('table.hr-evals [data-hr-rate]')).toHaveCount(0);
+  await expect(P(page).locator('table.hr-evals')).not.toContainText('البونص');
 });
-
-test('every tab and sub-tab draws without a page error (the calendar, the quarter, the meetings, the settings, the staff reports)', async ({ page }) => {
+test('every tab and sub-tab draws without a page error (the calendar, the payroll, the evaluations, the staff reports, the log)', async ({ page }) => {
   await openHr(page);
   const tab = (name) => page.getByRole('tab', { name });
   for (const sub of ['سجل الحضور', 'تقويم الفريق', 'الفريق']) { await P(page).getByRole('tab', { name: sub, exact: true }).click(); await expect(P(page).locator('.panel')).toBeVisible(); }
@@ -329,13 +364,9 @@ test('every tab and sub-tab draws without a page error (the calendar, the quarte
   await P(page).getByRole('tab', { name: 'تقويم الفريق' }).click();
   await P(page).getByRole('button', { name: 'التالي ›' }).click(); await P(page).getByRole('button', { name: 'النهارده' }).click();
   await expect(P(page).locator('.tcal2 .tc-row')).toHaveCount(5); // the head + the 4 members
-  await tab(/الطلبات/).click();
-  for (const sub of ['محتاجة قرار', 'وقت إضافي للتأكيد', 'كل الطلبات']) await P(page).getByRole('tab', { name: new RegExp('^' + sub) }).click();
-  await tab('المرتبات والمكافآت').click();
-  for (const sub of ['الأداء والـ KPI', 'صرف الربع والمكافآت', 'الميتنجات وخطط التحسين', 'الكشف الشهري']) { await P(page).getByRole('tab', { name: sub }).click(); await expect(P(page).locator('.panel')).toBeVisible(); }
-  await P(page).getByRole('tab', { name: 'صرف الربع والمكافآت' }).click();
-  await expect(P(page)).toContainText('قواعد المكافآت الإضافية');
+  await tab('المرتبات').click(); await expect(P(page).locator('[data-hr-pay-cards]')).toBeVisible();
+  await tab('التقييمات').click(); await expect(P(page).locator('[data-hr-eval-cards]')).toBeVisible();
+  await P(page).getByRole('tab', { name: 'التقييم الربع سنوي' }).click(); await expect(P(page).locator('table.hr-evals-q')).toBeVisible();
   await tab('التقارير').click(); await expect(P(page).locator('[data-staff="absence"], [data-staff="rating"]').first()).toBeVisible(); // the reports page's «تقارير الموظفين» (T8)
-  await tab('إعدادات الموارد البشرية').click(); await expect(P(page)).toContainText('العطلات الرسمية');
-  await expect(P(page)).toContainText('مكافأة تفوق');
+  await tab('سجل الحركات').click(); await expect(P(page).locator('.panel')).toBeVisible();
 });

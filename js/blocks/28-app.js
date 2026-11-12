@@ -477,6 +477,7 @@
     const proceed = () => {
       const def = mods[page];
       if (def) def.hash(page); else if (page === 'accounts') state.tab = 'acc-overview'; else if (page === 'reports') state.rtab = 'orders';
+      else if (page === 'vendors') state.vtab = 'overview'; else if (page === 'tickets') state.tsub = 'overview'; // their «نظرة عامة» (decisions 57 and B1) came after decision 17
       goNow(page);
     };
     if (cur && cur.canLeave) { cur.canLeave(proceed); return; }

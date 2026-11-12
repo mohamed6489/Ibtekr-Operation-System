@@ -20,7 +20,8 @@ function load({ me = profile(), signedIn = true } = {}) {
 test('load asks roles.permissions and my profile\'s custom_perms, then loads the vendors with the session', async () => {
   const { D, calls, queries } = load();
   await D.load();
-  assert.deepEqual(opsOf(queries, 'roles'), [{ op: 'select', args: ['id, name, permissions'] }]);
+  assert.deepEqual(opsOf(queries, 'roles'), [{ op: 'select', args: ['id, name, permissions, hidden, sort'] }]); // 0081: hidden / sort for the extra roles
+  assert.match(opsOf(queries, 'profiles')[0].args[0], /\bextra_roles\b/);
   assert.match(opsOf(queries, 'profiles')[0].args[0], /\bcustom_perms\b/);
   assert.deepEqual(calls, [['setMe', 'M02'], ['vendors.load']]);
   assert.deepEqual([D.members()[0].role, D.members()[0].roleId], ['عمليات', 'ops']); // the role's name and its id («مين عنده شغل» on the team requests' overview)
@@ -43,6 +44,23 @@ test('perm: the role\'s matrix, a custom_perms entry first (even N), unknown key
   await admin.D.load();
   assert.equal(admin.D.perm('vendors.edit'), 'F'); // an admin's custom_perms do not apply (has_perm)
   assert.equal(admin.D.perm('anything.else'), 'F');
+});
+
+// 0081 (the owner 12 Nov — «دور أساسي + أدوار إضافية»): the highest of the main role and the extra roles; custom_perms still first;
+// a hidden role and «أدمن» give nothing as an extra
+test('perm: the extra roles add up — the highest wins; custom_perms first; a hidden extra or «أدمن» as an extra gives nothing', async () => {
+  const roles = ROLES.concat([{ id: 'designer', name: 'ديزاينر', permissions: { 'vendors.toggle': 'F', 'marketing.create': 'F' } }, { id: 'old', name: 'قديم', hidden: true, permissions: { 'vendors.edit': 'F' } }]);
+  const run = async (me) => { const stub = stubClient({ responses: { profiles: { data: [me], error: null }, roles: { data: roles, error: null } } });
+    const window = { IBSupabase: { client: stub.client }, IBAuth: { session: () => ({ user: { id: 'u1' } }) }, IBKit: { store: { members: [] }, setMe() {} }, IBVendors: { load: () => Promise.resolve(), clear() {} } };
+    runInNewContext(src, { window, document: { dispatchEvent() {} }, Event }); await window.IBDirectory.load(); return window.IBDirectory; };
+  const D = await run(profile({ extra_roles: ['designer', 'old', 'admin'] }));
+  assert.equal(D.perm('vendors.toggle'), 'F'); // ops N, designer F
+  assert.equal(D.perm('vendors.edit'), 'P'); // the hidden role gives nothing
+  assert.equal(D.perm('marketing.create'), 'F');
+  assert.equal(D.perm('anything.else'), 'N'); // «أدمن» as an extra gives nothing
+  assert.deepEqual([D.members()[0].extraRoles, D.members()[0].extraRoleNames], [['designer', 'old', 'admin'], ['ديزاينر', 'قديم', 'أدمن']]);
+  const custom = await run(profile({ extra_roles: ['designer'], custom_perms: { 'marketing.create': 'N' } }));
+  assert.equal(custom.perm('marketing.create'), 'N'); // custom_perms first
 });
 
 test('a suspended profile has no permission; clear forgets the rows and the vendors', async () => {

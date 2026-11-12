@@ -63,11 +63,16 @@ const ROLES = [
   { id: 'vendors_followup', name: 'متابعة الموردين', description: 'تبليغ الموردين ومتابعة التأخير', is_system: true, permissions: { 'hr.view': 'P', 'hr.edit': 'N', 'hr.approve': 'N', 'sensitive.salaries': 'N', 'reports.view': 'P', 'reports.export': 'N', 'marketing.view': 'N', 'marketing.create': 'N', 'marketing.publish': 'N', 'tickets.view': 'P', 'tickets.manage': 'F', 'inventory.view': 'F', 'inventory.edit': 'N', 'inventory.approve': 'N', 'cs.view': 'F', 'cs.reply': 'F', 'cs.manage': 'N', 'products.view': 'F', 'products.edit': 'N', 'products.trash': 'N', 'accounts.view': 'N', 'accounts.add': 'N', 'accounts.approve': 'N', 'settings.view': 'N', 'orders.view': 'F', 'orders.status': 'F', 'orders.edit': 'N', 'vendors.view': 'F', 'vendors.edit': 'F', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'N', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' }, sort: 5 },
   { id: 'viewer', name: 'مشاهد', description: 'عرض بس من غير تعديل', is_system: true, permissions: { 'hr.view': 'N', 'hr.edit': 'N', 'hr.approve': 'N', 'sensitive.salaries': 'N', 'reports.view': 'P', 'reports.export': 'N', 'marketing.view': 'N', 'marketing.create': 'N', 'marketing.publish': 'N', 'tickets.view': 'P', 'tickets.manage': 'N', 'inventory.view': 'F', 'inventory.edit': 'N', 'inventory.approve': 'N', 'cs.view': 'P', 'cs.reply': 'N', 'cs.manage': 'N', 'products.view': 'F', 'products.edit': 'N', 'products.trash': 'N', 'accounts.view': 'N', 'accounts.add': 'N', 'accounts.approve': 'N', 'settings.view': 'N', 'orders.view': 'P', 'orders.status': 'N', 'orders.edit': 'N', 'vendors.view': 'P', 'vendors.edit': 'N', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'N', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' }, sort: 6 },
 ];
+// 0081 (the owner 12 Nov): designer / media buyer / developer — the viewer's permissions + marketing and the team requests
+ROLES.push(...[['designer', 'ديزاينر', 'التصميم والبوستات والفيديوهات وطلبات الديزاين', { 'marketing.view': 'F', 'marketing.create': 'F', 'marketing.publish': 'N', 'tickets.view': 'P', 'tickets.manage': 'F' }, 7],
+  ['media_buyer', 'ميديا باير', 'الحملات الإعلانية وأرقامها وطلبات الإعلانات', { 'marketing.view': 'F', 'marketing.create': 'F', 'marketing.publish': 'F', 'reports.view': 'F', 'tickets.view': 'P', 'tickets.manage': 'F' }, 8],
+  ['developer', 'مبرمج', 'الموقع والسيستم وطلبات البرمجة', { 'marketing.view': 'F', 'marketing.create': 'F', 'marketing.publish': 'N', 'tickets.view': 'P', 'tickets.manage': 'F' }, 9]]
+  .map(([id, name, description, perms, sort]) => ({ id, name, description, is_system: true, permissions: { ...ROLES.find((r) => r.id === 'viewer').permissions, ...perms }, sort })));
 const COLUMNS = { // supabase/migrations/0001_identity.sql, 0002_system.sql (activity_log, alerts, status_map), 0006_dashboard.sql (user_prefs,
   // alert_reads), 0007_orders.sql (orders_v; order_items / sub_orders: the columns granted to authenticated, i.e. all but raw),
   // 0009 (products.permalink), 0010 (orders_v.customer_state: the governorate's code on the website; woo_states: its names),
   // 0011 (order_items.commission_rate / fee; the team's vendors columns; vendor_rates; vendor_bank)
-  profiles: ['id', 'member_code', 'name', 'email', 'phone', 'role_id', 'title', 'dept', 'manager_id', 'status', 'twofa', 'custom_perms', 'created_at'],
+  profiles: ['id', 'member_code', 'name', 'email', 'phone', 'role_id', 'extra_roles', 'title', 'dept', 'manager_id', 'status', 'twofa', 'custom_perms', 'created_at'],
   roles: ['id', 'name', 'description', 'is_system', 'permissions', 'sort', 'hidden'], // 0056: hidden
   user_prefs: ['user_id', 'key', 'data', 'updated_at'],
   activity_log: ['id', 'at', 'actor', 'action', 'entity', 'entity_id', 'old_value', 'new_value'],
@@ -253,11 +258,18 @@ function ordersSeed(opts = {}) {
 // security row is read through the tokenUser's `force2fa` flag.
 const aalGated = (u) => u.aal !== 'aal2' && (!!u.twofa || !!u.force2fa);
 // has_perm of 0001 + 0008: 'N' for a profile that is not active or aal-gated, 'F' for admin, else custom_perms, then the role's matrix
-const hasPerm = (u, key) => (u.status !== 'active' || aalGated(u) ? 'N' : u.role_id === 'admin' ? 'F' : (u.custom_perms || {})[key] || ROLES.find((r) => r.id === u.role_id).permissions[key] || 'N');
+// 0081: the highest of the main and the extra roles (a hidden role gives nothing as an extra); custom_perms first
+const permOfRoles = (u, key) => { let best = 0; [u.role_id].concat(Array.isArray(u.extra_roles) ? u.extra_roles : []).forEach((id, i) => { const r = ROLES.find((x) => x.id === id); if (!r || (i > 0 && (r.hidden || id === 'admin'))) return; const p = r.permissions[key]; best = Math.max(best, p === 'F' ? 2 : p === 'P' ? 1 : 0); }); return best === 2 ? 'F' : best === 1 ? 'P' : 'N'; };
+const hasPerm = (u, key) => (u.status !== 'active' || aalGated(u) ? 'N' : u.role_id === 'admin' ? 'F' : (u.custom_perms || {})[key] || permOfRoles(u, key));
 const isAdmin = (u) => u.status === 'active' && u.role_id === 'admin' && !aalGated(u);
 // 0045 (phase 8): the ticket roles of a system role (ticket_role_labels) and the v2 lists the server checks
 const TK_ROLES = { admin: ['مدير النظام'], cs: ['خدمة العملاء'], vendors_followup: ['متابعة المبتكرين'], accounts: ['الحسابات'], ops: ['اللوجستيك والشحن', 'المحتوى والتصوير'] };
 const TK_ALL_ROLES = ['مدير النظام', 'خدمة العملاء', 'متابعة المبتكرين', 'الحسابات', 'اللوجستيك والشحن', 'المحتوى والتصوير'];
+// 0081: a request goes to any role — the six old labels + every other role (not hidden) by its name; my roles = the main + the extras
+const TK_OLD_IDS = { admin: ['مدير النظام'], cs: ['خدمة العملاء'], vendors_followup: ['متابعة المبتكرين'], accounts: ['الحسابات'], ops: ['اللوجستيك والشحن', 'المحتوى والتصوير'], viewer: [] };
+const tkRolesOf = (mock) => { const all = (mock.st && mock.st.roles) || mock.roles || ROLES; return TK_ALL_ROLES.map((label) => ({ label, role_id: Object.keys(TK_OLD_IDS).find((k) => TK_OLD_IDS[k].includes(label)) }))
+  .concat(all.filter((r) => !TK_OLD_IDS[r.id] && !r.hidden).sort((a, b) => (a.sort || 0) - (b.sort || 0)).map((r) => ({ label: r.name, role_id: r.id }))); };
+const tkRoleOk = (mock, label) => tkRolesOf(mock).some((x) => x.label === label);
 const TK_CUSTOMER = ['تأخير في التسليم', 'منتج تالف', 'منتج مختلف عن الطلب', 'مشكلة دفع أو استرجاع', 'العميل مش بيرد', 'أخرى'];
 const TK_VENDOR = ['تأخير تسليم', 'جودة', 'خامة ناقصة', 'خلاف على الحساب أو العمولة', 'مش بيرد', 'أخرى'];
 const TK_OUTCOMES = ['اتحلت المشكلة', 'مش مشكلة', 'مكرر', 'العميل / المبتكر ما ردش'];
@@ -265,7 +277,7 @@ const TK_STATUS = { open: 'مفتوح', in_progress: 'جاري العمل', wait
 const TK_PRIO = { urgent: 'عاجل', high: 'عالي', normal: 'عادي', low: 'منخفض' };
 const TK_MIME = ['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'application/pdf'];
 const tkClean = (v, n) => String(v ?? '').replace(/[\u0001-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, n);
-const tkRoles = (u) => (u && u.status === 'active' ? TK_ROLES[u.role_id] || [] : []);
+const tkRoles = (u) => (u && u.status === 'active' ? [...new Set([u.role_id].concat(Array.isArray(u.extra_roles) ? u.extra_roles : []).flatMap((id) => { if (TK_ROLES[id]) return TK_ROLES[id]; if (id === 'viewer') return []; const r = ROLES.find((x) => x.id === id && !x.hidden); return r ? [r.name] : []; }))] : []);
 const tkSees = (u, t) => { const v = hasPerm(u, 'tickets.view'); return v === 'F' || (v === 'P' && (t.created_by === u.id || tkRoles(u).includes(t.assignee_role))); };
 // mask_phone of 0007: the first 3 and last 4 characters (10 or more), else •••• and the last 2
 // norm_phone (0034): Arabic / Persian digits → ASCII, digits only, 0020 / 20 (12 digits) stripped, a 10-digit number starting with 1 gets its 0
@@ -619,6 +631,7 @@ export async function installSupabaseMock(page, opts = {}) {
         if (lim) list = list.slice(0, lim);
         return json(200, list.map((r) => JSON.parse(JSON.stringify(r))));
       }
+      if (method === 'POST' && path === '/rest/v1/rpc/ticket_roles') return u ? json(200, tkRolesOf(mock)) : json(401, { code: '42501', message: 'permission denied' });
       if (method === 'POST' && (path === '/rest/v1/rpc/ticket_create' || path === '/rest/v1/rpc/ticket_act')) {
         const refuse = (status, code, message) => json(status, { code, details: null, hint: null, message });
         const bad = (f) => refuse(400, '22023', 'invalid: ' + f); const deny = (m) => refuse(403, '42501', m);
@@ -638,7 +651,7 @@ export async function installSupabaseMock(page, opts = {}) {
           if (!['customer', 'vendor', 'internal'].includes(i.type)) return bad('type');
           const title = tkClean(i.title, 1000); if (!title || title.length > 80) return bad('title');
           const description = tkClean(i.description, 5000); if (!description) return bad('description');
-          if (!TK_PRIO[i.priority]) return bad('priority'); if (!TK_ALL_ROLES.includes(i.assigneeRole)) return bad('assigneeRole');
+          if (!TK_PRIO[i.priority]) return bad('priority'); if (!tkRoleOk(mock, i.assigneeRole)) return bad('assigneeRole');
           const follow = day(i.followUp); if (follow === undefined) return bad('followUp');
           const attachments = filesOf(i.attachments); if (!attachments) return bad('attachments');
           const rec = { id: mock.tickets.reduce((m, t) => Math.max(m, t.id), 0) + 1, type: i.type, title, description, priority: i.priority, assignee_role: i.assigneeRole, order_number: null, order_id: null,
@@ -680,7 +693,7 @@ export async function installSupabaseMock(page, opts = {}) {
           ev(tk, 'event', who.name + ' أُعيد فتحه (×' + tk.reopen_count + ') — السبب: ' + r + ' · رجع لدور «' + tk.assignee_role + '»', old, 'open');
         } else if (act === 'update') {
           if (!work && !closer) return deny('not the role or the opener of this ticket');
-          if ('assigneeRole' in a) { if (!TK_ALL_ROLES.includes(a.assigneeRole)) return bad('assigneeRole'); if (a.assigneeRole !== tk.assignee_role) { const old = tk.assignee_role; tk.assignee_role = a.assigneeRole; ev(tk, 'event', who.name + ' غيّر المسؤول من «' + old + '» إلى «' + a.assigneeRole + '»', old, a.assigneeRole); } }
+          if ('assigneeRole' in a) { if (!tkRoleOk(mock, a.assigneeRole)) return bad('assigneeRole'); if (a.assigneeRole !== tk.assignee_role) { const old = tk.assignee_role; tk.assignee_role = a.assigneeRole; ev(tk, 'event', who.name + ' غيّر المسؤول من «' + old + '» إلى «' + a.assigneeRole + '»', old, a.assigneeRole); } }
           if ('priority' in a) { if (!TK_PRIO[a.priority]) return bad('priority'); if (a.priority !== tk.priority) { const old = tk.priority; tk.priority = a.priority; ev(tk, 'event', who.name + ' غيّر الأولوية من «' + TK_PRIO[old] + '» إلى «' + TK_PRIO[a.priority] + '»', old, a.priority); } }
           if ('followUp' in a) { const d = day(a.followUp); if (d === undefined) return bad('followUp'); if (d !== tk.follow_up) { const old = tk.follow_up; tk.follow_up = d; ev(tk, 'event', who.name + ' غيّر تاريخ المتابعة من «' + (old || '—') + '» إلى «' + (d || '—') + '»', old, d); } }
         } else if (act === 'reply') {

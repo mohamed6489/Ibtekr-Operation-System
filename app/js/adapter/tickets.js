@@ -28,9 +28,12 @@
   const myUid = () => { const m = me(); return (m && m.id) || null; };
   const isAdmin = () => !!(me() && me().role_id === 'admin' && perm('tickets.view') === 'F');
   const can = () => ({ view: perm('tickets.view') !== 'N', manage: perm('tickets.manage') === 'F', admin: isAdmin() });
-  const myRoles = () => { const m = me(); return (m && m.status !== 'suspended' && ROLE_LABELS[m.role_id]) || []; };
+  // 0081 (the owner 12 Nov): the old system roles keep their labels; any other role answers to its name; my roles = the main + the extras
+  const dirRoles = () => (window.IBDirectory && window.IBDirectory.roles ? quiet(() => window.IBDirectory.roles()) || [] : []);
+  const labelsOf = (rid) => { if (ROLE_LABELS[rid]) return ROLE_LABELS[rid].slice(); if (!rid || rid === 'viewer') return []; const r = dirRoles().find((x) => x.id === rid && !x.hidden); return r ? [r.name] : []; };
+  const myRoles = () => { const m = me(); if (!m || m.status === 'suspended') return []; return [...new Set([m.role_id].concat(Array.isArray(m.extra_roles) ? m.extra_roles : []).flatMap(labelsOf))]; };
   const actor = () => { const m = me() || {}; const roles = window.IBDirectory && window.IBDirectory.roles ? quiet(() => window.IBDirectory.roles()) : null;
-    return { name: m.name || '—', role: myRoles()[0] || (roles && roles[m.role_id] && roles[m.role_id].name) || 'عضو', uid: m.id || null }; };
+    return { name: m.name || '—', role: labelsOf(m.role_id)[0] || (roles && roles[m.role_id] && roles[m.role_id].name) || 'عضو', uid: m.id || null }; };
   const canWork = (t) => !!t && can().manage && (isAdmin() || myRoles().includes(t.assigneeRole));
   const canClose = (t) => !!t && can().manage && (isAdmin() || (!!t.createdBy && !!t.createdBy.uid && t.createdBy.uid === myUid()));
   const isMine = (t) => !!t && myRoles().includes(t.assigneeRole);
@@ -80,8 +83,16 @@
       const recent = new Map(); evs.forEach((e) => { const k = Number(e.ticket_id); if (!recent.has(k)) recent.set(k, []); recent.get(k).push(e); });
       for (const k of [...data.events.keys()]) if (!keep.has(k)) { data.events.delete(k); data.full.delete(k); }
       keep.forEach((k) => { if (!data.full.has(k)) data.events.set(k, (recent.get(k) || []).map(toEvent).sort(byAt)); else if (recent.has(k)) mergeEvents(k, recent.get(k)); });
-      ensureSeen(); st = 'ready'; emit(); subscribe(); return { ok: true };
+      ensureSeen(); st = 'ready'; emit(); subscribe();
+      if (!rolesFor) { rolesFor = g; loadRoles(g); } // once a session — never in the 30 s check
+      return { ok: true };
     } catch (e) { if (g === gen) st = 'error'; emit(); return fail(e); }
+  }
+  // the roles a request may go to (0081 ticket_roles(): the six old labels + every other role by its name) → the domain's list
+  let rolesFor = 0;
+  async function loadRoles(g) {
+    const cl = c(); if (!cl || !window.IbtekrTickets || !window.IbtekrTickets.setRoles) return;
+    try { const r = await cl.rpc('ticket_roles'); if (g !== gen) return; if (!r.error && Array.isArray(r.data)) { window.IbtekrTickets.setRoles(r.data.map((x) => x && x.label)); emit(); } else rolesFor = 0; } catch (e) { if (g === gen) rolesFor = 0; /* the six stay; the next load asks again */ }
   }
   function mergeEvents(k, list) { const have = data.events.get(k) || []; const ids = new Set(have.map((x) => x.id)); list.forEach((e) => { if (!ids.has(Number(e.id))) have.push(toEvent(e)); }); data.events.set(k, have.sort(byAt)); }
   // the whole timeline of one ticket (the drawer opens it); older than the recent window when the ticket is old
@@ -101,7 +112,7 @@
     } catch (e) { /* the next load() picks it up */ }
     emit({ id: tid(k) });
   }
-  function clear() { gen += 1; unsubscribe(); data.tickets = []; data.events.clear(); data.full.clear(); memSince = null; st = 'idle'; }
+  function clear() { gen += 1; rolesFor = 0; unsubscribe(); data.tickets = []; data.events.clear(); data.full.clear(); memSince = null; st = 'idle'; if (window.IbtekrTickets && window.IbtekrTickets.setRoles) window.IbtekrTickets.setRoles([]); }
 
   // ---------- the store the page reads (block 05's createStore names) ----------
   const copy = (t) => (t ? Object.assign({}, t, { createdBy: Object.assign({}, t.createdBy), resolution: t.resolution ? Object.assign({}, t.resolution) : null, attachments: t.attachments.slice() }) : null);
@@ -251,7 +262,7 @@
   }
 
   // the ticket roles of a member's role (the owner 11 Nov — «مين اكتر حد عنده شغل» on the overview)
-  const rolesOf = (roleId) => (ROLE_LABELS[roleId] || []).slice();
+  const rolesOf = (roleId) => labelsOf(roleId);
   window.IBTickets = { load, clear, loadEvents, subscribe, unsubscribe, check, state: () => st, can, myRoles, rolesOf, actor, canWork, canClose, canReopen: canClose, isMine,
     all, get, events, bell, markSeen, forOrder, forVendor, forCustomer, forConversation, create, setStatus, resolve, close, reopen, update, reply, upload, fileUrl, checkFile,
     MAX_FILES, MAX_BYTES, MIME, tid, dbIdOf, _test: { toTicket, toEvent, safeName, files, fail } };

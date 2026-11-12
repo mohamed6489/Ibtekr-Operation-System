@@ -28,7 +28,7 @@ export function settingsState(opts = {}, roles) {
 
 export function settingsRoute(c) {
   const { method, path, url, hd, u, hasPerm, isAdmin, json, mock } = c; const S = mock.st; if (!S) return null;
-  const rpc = /^\/rest\/v1\/rpc\/(role_perms_set|role_create|role_update|role_delete|member_role_set|member_perms_set|member_status_set|my_sessions|my_session_revoke|settings_public)$/.exec(path);
+  const rpc = /^\/rest\/v1\/rpc\/(role_perms_set|role_create|role_update|role_delete|member_role_set|member_roles_set|member_perms_set|member_status_set|my_sessions|my_session_revoke|settings_public)$/.exec(path);
   const fn = method === 'POST' && (path === '/functions/v1/settings-admin' || path === '/functions/v1/notify');
   const docs = path === '/rest/v1/company_docs'; const sto = /^\/storage\/v1\/object\/(sign\/)?(company-docs|settings)\/(.+)$/.exec(path);
   const act = method === 'GET' && path === '/rest/v1/activity_log' && [...url.searchParams].some(([k, v]) => k === 'action' && v.startsWith('like.') || (k === 'at' && /^(lte|gte)\./.test(v))) || (method === 'GET' && path === '/rest/v1/activity_log' && (hd.range || url.searchParams.has('offset')));
@@ -85,14 +85,23 @@ export function settingsRoute(c) {
     if (name === 'role_delete') {
       if (body.p_role === 'admin') return refuse(400, '22023', 'the admin role cannot be deleted'); const r = role(body.p_role); if (!r) return refuse(404, 'P0002', 'no such role');
       const moves = body.p_moves || {}; const moved = [];
-      for (const p of mock.profiles.filter((x) => x.role_id === r.id)) { const to = moves[p.id] || moves['*']; if (!to || to === r.id || !S.roles.some((x) => x.id === to && !x.hidden)) return refuse(400, '22023', 'invalid: moves'); p.role_id = to; moved.push({ member: p.id, to }); }
+      for (const p of mock.profiles.filter((x) => x.role_id === r.id)) { const to = moves[p.id] || moves['*']; if (!to || to === r.id || !S.roles.some((x) => x.id === to && !x.hidden)) return refuse(400, '22023', 'invalid: moves'); p.role_id = to; p.extra_roles = (p.extra_roles || []).filter((x) => x !== to); moved.push({ member: p.id, to }); }
+      mock.profiles.forEach((p) => { if ((p.extra_roles || []).includes(r.id)) p.extra_roles = p.extra_roles.filter((x) => x !== r.id); }); // 0081: the extras lose it
       if (r.is_system) r.hidden = true; else S.roles.splice(S.roles.indexOf(r), 1);
       S.writes.push({ table: 'roles', op: 'delete', id: r.id, moved }); logRow('settings.role.delete', 'role', r.id, { name: r.name }, moved); alertAdmins('اتحذف دور «' + r.name + '»', r.id); return json(204, null);
     }
     if (name === 'member_role_set') {
       const p = mock.profiles.find((x) => x.id === body.p_member); if (!p) return refuse(404, 'P0002', 'no such member'); const to = role(body.p_role); if (!to || to.hidden) return refuse(400, '22023', 'invalid: role');
       if (p.role_id === 'admin' && to.id !== 'admin' && !mock.profiles.some((x) => x.id !== p.id && x.role_id === 'admin' && x.status === 'active')) return refuse(400, '22023', 'last admin');
-      const old = p.role_id; p.role_id = to.id; S.writes.push({ table: 'profiles', op: 'role', id: p.id, from: old, to: to.id }); logRow('settings.member.role', 'profile', p.id, old, to.id); return json(204, null);
+      const old = p.role_id; p.role_id = to.id; p.extra_roles = to.id === 'admin' ? [] : (p.extra_roles || []).filter((x) => x !== to.id); S.writes.push({ table: 'profiles', op: 'role', id: p.id, from: old, to: to.id }); logRow('settings.member.role', 'profile', p.id, old, to.id); return json(204, null);
+    }
+    // 0081: a member's extra roles — existing, not hidden, never «أدمن», never the main role, 6 at most
+    if (name === 'member_roles_set') {
+      const p = mock.profiles.find((x) => x.id === body.p_member); if (!p) return refuse(404, 'P0002', 'no such member'); if (p.role_id === 'admin') return refuse(400, '22023', 'invalid: admin');
+      const list = [...new Set((Array.isArray(body.p_roles) ? body.p_roles : []).filter((x) => typeof x === 'string' && x.trim()))].sort();
+      if (list.length > 6 || list.some((id) => id === 'admin' || id === p.role_id || !S.roles.some((x) => x.id === id && !x.hidden))) return refuse(400, '22023', 'invalid: roles');
+      const old = (p.extra_roles || []).slice(); p.extra_roles = list; S.writes.push({ table: 'profiles', op: 'roles', id: p.id, roles: list }); logRow('settings.member.roles', 'profile', p.id, old, list);
+      alertAdmins('اتغيّرت الأدوار الإضافية لعضو (' + list.length + ')', p.id); return json(204, null);
     }
     if (name === 'member_perms_set') {
       if (!permsOk(body.p_perms)) return refuse(400, '22023', 'invalid: perms'); const p = mock.profiles.find((x) => x.id === body.p_member); if (!p) return refuse(404, 'P0002', 'no such member'); if (p.role_id === 'admin') return refuse(400, '22023', 'invalid: admin');

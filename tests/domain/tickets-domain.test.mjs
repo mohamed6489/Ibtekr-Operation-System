@@ -66,3 +66,17 @@ test('summary and filterTickets: open / overdue / reopened, the v2 order (priori
   assert.deepEqual(TK.filterTickets(all).map((t) => t.id), [b.id, a.id]);
   assert.deepEqual(TK.filterTickets(all, { q: '177611' }).length, 2);
 });
+
+// 0081 (the owner 12 Nov): a request goes to any role of the team — setRoles() adds the server's list (ticket_roles()) after the six;
+// the six never leave; validateTicket follows the list
+test('setRoles: the team\'s roles after the six (cleaned, once); validateTicket accepts them; the six stay', () => {
+  const T = loadUmd(new URL('../../app/js/blocks/05-tickets-domain.js', import.meta.url));
+  const input = { type: 'internal', title: 'بوست العروض', description: '3 بوستات', priority: 'normal', assigneeRole: 'ديزاينر' };
+  assert.equal(T.validateTicket(input).assigneeRole, 'اختار الدور المسؤول'); // not on the list yet
+  T.setRoles(['مدير النظام', ' ديزاينر ', 'ديزاينر', 'ميديا باير', '', null]);
+  assert.deepEqual(json(T.ROLES), ['مدير النظام', 'خدمة العملاء', 'متابعة المبتكرين', 'الحسابات', 'اللوجستيك والشحن', 'المحتوى والتصوير', 'ديزاينر', 'ميديا باير']);
+  assert.deepEqual(T.validateTicket(input), {});
+  T.setRoles([]); assert.deepEqual(json(T.ROLES), json(T.BASE_ROLES)); // a refetch with only the six
+  assert.equal(T.validateTicket(input).assigneeRole, 'اختار الدور المسؤول');
+});
+

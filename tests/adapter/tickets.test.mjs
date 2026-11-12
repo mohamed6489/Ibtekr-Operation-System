@@ -19,11 +19,11 @@ const EVENTS = [
   { id: 2, ticket_id: 1, kind: 'message', at: '2026-11-05T08:00:01Z', actor: OTHER, actor_name: 'سارة', actor_role: 'خدمة العملاء', text: 'اتحاسب 100', old_value: null, new_value: null, attachments: [] },
   { id: 1, ticket_id: 1, kind: 'event', at: '2026-11-05T08:00:00Z', actor: OTHER, actor_name: 'سارة', actor_role: 'خدمة العملاء', text: 'سارة أنشأ التذكرة وعيّنها لدور «الحسابات»', old_value: null, new_value: null, attachments: [] },
 ];
-function load({ responses = {}, perms = { 'tickets.view': 'F', 'tickets.manage': 'F' }, role = 'accounts', realtime = false, prefs = null } = {}) {
+function load({ responses = {}, perms = { 'tickets.view': 'F', 'tickets.manage': 'F' }, role = 'accounts', realtime = false, prefs = null, extra = [] } = {}) {
   const stub = stubClient({ responses: { tickets: ok(TICKETS), ticket_events: ok(EVENTS), ...responses } });
   const events = []; const logs = [];
   const window = { IBSupabase: { client: stub.client }, IB_CONFIG: { realtime },
-    IBDirectory: { perm: (k) => perms[k] || 'N', me: () => ({ id: ME, name: 'منى', role_id: role, status: 'active' }) },
+    IBDirectory: { perm: (k) => perms[k] || 'N', me: () => ({ id: ME, name: 'منى', role_id: role, status: 'active', extra_roles: extra }), roles: () => [{ id: 'designer', name: 'ديزاينر' }, { id: 'developer', name: 'مبرمج' }, { id: 'old', name: 'قديم', hidden: true }] },
     IBActivity: { log: (action, detail, meta) => { logs.push([action, detail, meta]); return Promise.resolve(); } },
     IBVendors: { store: { findByName: (n) => (n === 'HANDS' ? { id: V1 } : null) } }, IBPrefs: prefs || undefined, crypto: { randomUUID: () => 'abcdef12-0000-4000-8000-000000000000' } };
   runInNewContext(src, { window, document: { dispatchEvent(e) { events.push(e.type); }, visibilityState: 'visible' }, CustomEvent: class { constructor(t) { this.type = t; } },
@@ -48,6 +48,14 @@ test('load: the tickets in the v2 shapes (TKT-0001, createdBy, resolution) and t
 test('without tickets.view nothing is read', async () => {
   const { T, stub } = load({ perms: {} });
   eq((await T.load()).ok, true); eq(T.all(), []); eq(opsOf(stub.calls, 'tickets').length, 0);
+});
+
+// 0081 (the owner 12 Nov): my roles = the main + the extras; a role outside the old six answers to its name; a hidden one to nothing
+test('the extra roles: my ticket roles = the main + the extras by name (a hidden role none); canWork follows them', async () => {
+  const d = load({ role: 'accounts', extra: ['designer', 'old', 'designer'] }); await d.T.load();
+  eq(d.T.myRoles(), ['الحسابات', 'ديزاينر']);
+  eq([d.T.rolesOf('designer'), d.T.rolesOf('old')], [['ديزاينر'], []]);
+  eq(d.T.actor().role, 'الحسابات'); // the main role acts
 });
 
 test('the roles: canWork = the admin or a member of the assigned role (ops holds two); canClose = the admin or the opener', async () => {

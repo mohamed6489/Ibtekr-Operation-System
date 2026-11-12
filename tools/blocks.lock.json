@@ -57,7 +57,7 @@
   },
   "15-page-hr.js": {
     "prototype": "ee600dbb6d1a699847ee0528e7454c3bc857f4801989b1cf85cdba72aa135d76",
-    "current": "da0fb054d3d31de9f4f1471cbc423ce1a63db8c9b632435366f8a33fbc88db70"
+    "current": "6c21e541936306cd1d78970eb80c99b3f6b72ceb4ff619b524431d99458c116b"
   },
   "16-page-inventory.js": {
     "prototype": "80101269ffc51399a6b19dad74375aa32575fa9e2e6071885c5c77885afee8f5",
@@ -65,11 +65,11 @@
   },
   "17-page-settings.js": {
     "prototype": "89d9c49b0d0f466a618479a6b68c237edb4e90a12b0b233e7d05f7916c8e8dde",
-    "current": "0410dca9539d13e6b5ee8faaa6317ca4740f3123ab1512d661b6592d53a81624"
+    "current": "51684d19a1ff20bc60b99bad139c4f12c8a88b20ba548d260d08b595e9fd2da2"
   },
   "18-page-profile.js": {
     "prototype": "218eb74e001b3e909a563499cdd2d929b1893e93d86d81f9039603b34dbdaa8a",
-    "current": "c008deaf9322d6703a599f7ec1a364eac42ca609b038c30e6ec0334bc0380028"
+    "current": "fa2a451ff48aaaab7a19b23bc8ac9aaccb4383f5e59104c1191b7027616c4789"
   },
   "19-cs-domain.js": {
     "prototype": "5316d08c265ce14e7ed3340ddd6547f4f665dddc07dd3d76bf3868c8ad1f5192",
@@ -109,7 +109,7 @@
   },
   "28-app.js": {
     "prototype": "28f47321b1a78201e81b34cffa6e20cba67b15788396c9ce0def7cd7e17243c9",
-    "current": "234ae063249ae684ae4e30768b041196fa0e3edd50d81045e45c340b9c64346d"
+    "current": "c0edbcc191609a7e4fca41a4cd1bd862bbc79cde41df666f00b049180737c109"
   },
   "29-orders-app.js": {
     "prototype": "2e80a15f203c79adc2931c3682297119b4e1926b9e40f10a0b906007acff23bd",

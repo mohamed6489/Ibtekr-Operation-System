@@ -44,7 +44,7 @@ export const FORMS = {
   customer_add: ['name', 'phone', 'city', 'ig', 'source'],
   ticket_new: ['type', 'title', 'description', 'priority', 'orderId', 'vendor', 'reason'],
   hr_leave: ['kind', 'from', 'to', 'note'],
-  hr_advance: ['amount', 'months', 'note'],
+  hr_advance: ['amount', 'note'], // the HR rebuild (0083): all of it off the month's salary — no installments
   hr_remote: ['from', 'to', 'note'],
   task_add: ['title'],
   order_update: ['order', 'status', 'confirm'],
@@ -128,7 +128,7 @@ CLIENT_TOOL_DEFS.push({ name: 'open_form',
   description: 'جهّز بوب أب من بوب أبات السيستم متملّي بالبيانات اللي قالها (لو قال حاجة) — بيظهر للمستخدم لينك «افتح البوب أب» تحت ردك وهو بيضغطه يفتحه ويملا الباقي ويضغط زراره؛ ما بيسجّلش حاجة، فمتقولش إنها اتسجّلت. '
     + 'form واحدة من: vendor_add (إضافة مبتكر: name مطلوب، category، phone، email، address، instagram، storeUrl، legalName، notes) · member_add (إضافة عضو للفريق — أدمن بس: name و title (الوظيفة) و email مطلوبين، phone، dept، hire تاريخ التعيين YYYY-MM-DD) · '
     + 'customer_add (عميل من غير أوردر: name مطلوب، phone، city، ig، source) · ticket_new (تذكرة: type customer|vendor|internal، title، description، priority urgent|high|normal|low، orderId رقم الأوردر، vendor اسم المبتكر، reason) · '
-    + 'hr_leave (طلب إجازة: kind نوع الإجازة، from و to YYYY-MM-DD، note) · hr_advance (طلب سُلفة: amount، months من 1 لـ 24، note) · hr_remote (شغل عن بُعد: from و to، note) · task_add (مهمة لنفسه: title) · '
+    + 'hr_leave (طلب إجازة: kind نوع الإجازة، from و to YYYY-MM-DD، note) · hr_advance (طلب سُلفة: amount، note — بتتخصم كلها من مرتب الشهر) · hr_remote (شغل عن بُعد: from و to، note) · task_add (مهمة لنفسه: title) · '
     + 'order_update (تحديث أوردر: order رقمه، status من ' + AI_ORDER_STATUSES.join(' / ') + '، أو confirm من ' + CONFIRMS.join(' / ') + ') · '
     + 'expense_add (مصروف: direction withdraw (سحب) | deposit (إيداع — فلوس راجعة) مطلوب، amount، category من ' + CATEGORIES.join(' / ') + '، beneficiary المستفيد (اسم مبتكر أو اسم حر)، details، note، source مصدر المبلغ في الإيداع) · '
     + 'account_move (حركة على الحساب الفعلي: direction مطلوب، amount، account من ' + ACCOUNTS.join(' / ') + ') · '

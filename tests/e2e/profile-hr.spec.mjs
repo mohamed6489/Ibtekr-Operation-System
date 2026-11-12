@@ -25,6 +25,7 @@ const SEED = {
   hrRequests: [{ member_id: OPS_ID, type: 'إجازة سنوية', from_day: addDays(T, 9), to_day: addDays(T, 9), note: 'فرح' }],
   hrKpis: [{ member_id: OPS_ID, name: 'شحن في الميعاد', weight: 100, target: 95 }],
   hrScores: [{ member_id: OPS_ID, month: MK, score: 104 }],
+  hrEvaluations: [{ member_id: OPS_ID, month: MK, performance: 4, communication: 5, note: 'شغل منظم' }], // the HR rebuild (0083): out of 5
   hrAdjustments: [{ member_id: OPS_ID, month: MK, amount: 750, label: 'تصوير 120 منتج', kind: 'achievement' }],
   hrPayroll: [{ month: PM, status: 'مدفوع', paid_at: PM + 'T10:00:00Z', paid_account: 'حساب البنك', total: 40000 }, { month: MK, status: 'مسودة' }],
   hrPayrollLines: [{ month: PM, member_id: OPS_ID, ...LINE }, { month: PM, member_id: M03, ...LINE, name: 'محمد علي', net: 9000 }],
@@ -61,8 +62,10 @@ test('«ملفي» from the server: my hours and overtime, a request cancelled, 
   await expect(row).toContainText('7:50'); await expect(row).not.toContainText('متأخر'); // decision 24: the sessions summed, no lateness
   await expect(P(page)).toContainText('تصوير الكتالوج');
   await expect(P(page).getByRole('tab', { name: 'طلباتي' })).toHaveCount(1); // the owner 11 Nov: my team requests, right after «مهامي»
-  await tab(page, 'أدائي');
-  await expect(P(page)).toContainText('104%'); await expect(P(page)).toContainText('شحن في الميعاد');
+  await tab(page, 'أدائي'); // the HR rebuild: the month out of 5 — the attendance automatic, the performance and the communication from the manager
+  const ev = P(page).locator('table.pf-evals tbody tr', { hasText: monLabel(MK).split(' ')[0] });
+  await expect(ev).toContainText('4 / 5'); await expect(ev).toContainText('5 / 5'); await expect(ev).toContainText('شغل منظم');
+  await expect(P(page).locator('[data-pf-cards]')).toContainText('التقييم الربع سنوي');
   await tab(page, 'مرتبي');
   const slip = P(page).locator('tbody tr', { hasText: monLabel(PM) });
   await expect(slip).toContainText('••••'); await expect(slip).toContainText('اتصرف');

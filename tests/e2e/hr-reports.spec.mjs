@@ -19,7 +19,8 @@ const SEED = {
   hrMembers: [{ member_id: OPS_ID, hire_date: T }, { member_id: M03, hire_date: HIRE3 }, { member_id: ACC_ID, hire_date: T }, { member_id: VF_ID, hire_date: T }],
   hrPay: [{ member_id: OPS_ID, salary: 12000, holdback: 1500, allowances: 500 }, { member_id: M03, salary: 9000, holdback: 900, allowances: 0 }],
   hrAttendance: [OPS_ID, M03, ACC_ID, VF_ID].map((id) => ({ member_id: id, day: T, in_at: hrAt(T, '09:00'), out_at: hrAt(T, '17:00'), source: 'clock' })),
-  hrScores: [{ member_id: OPS_ID, month: MK, score: 104 }, { member_id: ACC_ID, month: prevMonth(MK), score: 92 }],
+  // the HR rebuild (0083): the month's evaluation out of 5 (no working day asked of a member with no hire date in the mock → the two parts' average)
+  hrEvaluations: [{ member_id: OPS_ID, month: MK, performance: 5, communication: 4 }, { member_id: ACC_ID, month: prevMonth(MK), performance: 4, communication: 3 }],
   hrPayroll: [{ month: MK, status: 'مراجعة' }],
 };
 let mock = null; let pageErrors = [];
@@ -44,7 +45,7 @@ async function open(page, email, hash) {
 const kpi = (page, label) => page.locator('#rpanel .kpi[aria-label="' + label + '"]');
 const top = (scope, key) => scope.locator('[data-staff="' + key + '"]');
 
-test('«تقارير الموظفين» is open on real data: the absences of the range, the first reply, the KPI scores; «المهام» from «ملفي › مهامي» (none open here — profile-tasks.spec counts them)', async ({ page }) => {
+test('«تقارير الموظفين» is open on real data: the absences of the range, the first reply, the evaluations out of 5; «المهام» from «ملفي › مهامي» (none open here — profile-tasks.spec counts them)', async ({ page }) => {
   await open(page, ADMIN, 'reports-staff');
   await expect(page.locator('#reports #tab-staff')).toHaveAttribute('aria-selected', 'true');
   await expect(page.locator('#reports [role=tab] [data-soon]')).toHaveCount(0); // «الحملات الإعلانية» opened too (phase 9.5.3)
@@ -55,8 +56,8 @@ test('«تقارير الموظفين» is open on real data: the absences of th
   await expect(top(page.locator('#rpanel'), 'fastest')).toContainText('سارة أحمد');
   const rating = top(page.locator('#rpanel'), 'rating').locator('.st-row');
   await expect(rating).toHaveCount(2);
-  await expect(rating.nth(0)).toContainText('سارة أحمد'); await expect(rating.nth(0)).toContainText('104%');
-  await expect(rating.nth(1)).toContainText('منى حسن'); await expect(rating.nth(1)).toContainText('92%');
+  await expect(rating.nth(0)).toContainText('سارة أحمد'); await expect(rating.nth(0)).toContainText(' / 5');
+  await expect(rating.nth(1)).toContainText('منى حسن'); await expect(rating.nth(1)).toContainText(' / 5');
   await expect(kpi(page, 'مهام مفتوحة')).toContainText('0'); await expect(kpi(page, 'مهام مفتوحة')).not.toContainText('قريبًا');
   await expect(page.locator('#rpanel')).toContainText('مفيش مهام مفتوحة');
 });

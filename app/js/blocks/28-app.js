@@ -2278,7 +2278,8 @@
       mem.forEach((m) => { const l = byName[m.name]; if (l && l.length) resp[m.id] = Math.max(0, Math.round(l.reduce((a, b) => a + b, 0) / l.length)); });
     }
     const end = rr.to.slice(0, 7); const keys = [0, 1, 2].map((n) => { const d = new Date(end + '-01T00:00:00Z'); d.setUTCMonth(d.getUTCMonth() - n); return d.toISOString().slice(0, 7); });
-    const scores = {}; mem.forEach((m) => { const sc = HD.scores[m.id] || {}; const o = {}; keys.forEach((k) => { if (sc[k] != null) o[Number(k.replace('-', ''))] = sc[k]; }); scores[m.id] = o; });
+    // the HR rebuild (0083): the month's evaluation out of 5 (the average of the attendance, the performance and the communication)
+    const scores = {}; mem.forEach((m) => { const ev = (HD.evals || {})[m.id] || {}; const o = {}; keys.forEach((k) => { if (ev[k] && ev[k].total != null) o[Number(k.replace('-', ''))] = ev[k].total; }); scores[m.id] = o; });
     const codes = new Set(mem.map((m) => m.id));
     const tasks = (HD.tasks || []).filter((x) => codes.has(x.member)).map((x) => (x.status === 'اتأجلت' && x.until && x.until <= t ? Object.assign({}, x, { status: 'لسه' }) : x));
     return { mem, rep: R.staffReport({ members: mem, tasks, attendance: absent, todayAbsent, resp, scores, from: rr.from, to: rr.to }), clamped: rr.from < loaded, csOk };
@@ -2289,20 +2290,20 @@
     const rr = state.rrange; const { mem, rep, clamped, csOk } = staffData(rr); const PER = D.formatDateNumeric(rr.from) + ' – ' + D.formatDateNumeric(rr.to);
     const MON = (n) => { const k = String(n); return (window.IBKit.AR_MON[Number(k.slice(4, 6)) - 1] || '') + ' ' + k.slice(0, 4); };
     const card = (title, sub, rows, val, unit, foot, tone, key, empty) => U.ChartCard({ title, subtitle: sub, footnote: foot, body: rows.length ? h('div', { class: 'staff-top', 'data-staff': key }, rows.map((x) => h('div', { class: 'st-row' }, h('span', { class: 'st-rank', 'aria-hidden': 'true' }, String(x.rank)), U.Avatar ? U.Avatar(x.name) : null, h('span', { class: 'st-who' }, h('b', null, x.name), h('small', { class: 't-small help' }, x.title || '')), h('span', { class: 'st-val ' + tone }, num(val(x)), h('small', { class: 't-small' }, ' ' + unit(x)))))) : U.EmptyState(empty ? empty[0] : 'مفيش بيانات', empty ? empty[1] : 'لسه مفيش تسجيلات في الفترة دي.') });
-    rExport = { label: 'تقرير الموظفين', headers: ['التقرير', '#', 'الموظف', 'القيمة'], rows: [].concat(rep.tasks.map((x) => ['مهام مفتوحة', x.rank, x.name, x.open]), rep.absence.map((x) => ['غياب (يوم)', x.rank, x.name, x.days]), rep.fastest.map((x) => ['أسرع رد (دقيقة)', x.rank, x.name, x.minutes]), rep.rating.map((x) => ['تقييم الأداء %', x.rank, x.name, x.score])) };
+    rExport = { label: 'تقرير الموظفين', headers: ['التقرير', '#', 'الموظف', 'القيمة'], rows: [].concat(rep.tasks.map((x) => ['مهام مفتوحة', x.rank, x.name, x.open]), rep.absence.map((x) => ['غياب (يوم)', x.rank, x.name, x.days]), rep.fastest.map((x) => ['أسرع رد (دقيقة)', x.rank, x.name, x.minutes]), rep.rating.map((x) => ['تقييم الشهر (من 5)', x.rank, x.name, x.score])) };
     const NO_TASKS = ['مفيش مهام مفتوحة', 'كل مهام الفريق خلصت أو اتأجلت.'];
     return [
       h('div', { class: 'cards four', 'data-rgroup': 'kpis' },
         U.KpiTile({ label: 'مهام مفتوحة', value: String(rep.counts.openTasks), unit: 'مهمة', compare: 'off', note: 'على ' + mem.length + ' موظف · من «ملفي › مهامي»' }),
         U.KpiTile({ label: 'أيام غياب', value: String(rep.counts.absentDays), unit: 'يوم', compare: 'off', note: PER + ' · من غير إذن' + (clamped ? ' · آخر 120 يوم بس' : '') }),
         U.KpiTile({ label: 'أسرع رد', value: rep.fastest[0] ? String(rep.fastest[0].minutes) : '—', unit: 'دقيقة', compare: 'off', note: !csOk ? 'محتاج صلاحية خدمة العملاء' : rep.fastest[0] ? rep.fastest[0].name : 'مفيش ردود في الفترة' }),
-        U.KpiTile({ label: 'أعلى تقييم أداء', value: rep.rating[0] ? rep.rating[0].score + '%' : '—', compare: 'off', note: rep.rating[0] ? rep.rating[0].name + ' · ' + MON(rep.rating[0].month) : 'لسه مفيش تقييم' })),
+        U.KpiTile({ label: 'أعلى تقييم', value: rep.rating[0] ? rep.rating[0].score + ' / 5' : '—', compare: 'off', note: rep.rating[0] ? rep.rating[0].name + ' · ' + MON(rep.rating[0].month) : 'لسه مفيش تقييم' })),
       h('div', { class: 'charts', 'data-rgroup': 'charts' },
         card('أكتر 5 عندهم مهام', 'المهام المفتوحة (لسه · جاري · متوقفة · جاهزة للمراجعة)', rep.tasks, (x) => String(x.open), () => 'مهمة', 'من «ملفي › مهامي» لكل موظف — دلوقتي', 'neutral', 'tasks', NO_TASKS),
         card('أكتر 5 غياب', PER, rep.absence, (x) => String(x.days), () => 'يوم', 'من سجل الحضور: يوم شغل من غير حضور ولا إجازة متوافق عليها + غايب النهارده', 'bad', 'absence')),
       h('div', { class: 'charts', 'data-rgroup': 'charts2' },
         card('أسرع 5 في الرد', 'متوسط أول رد · ' + PER, rep.fastest, (x) => String(x.minutes), () => 'دقيقة', 'محادثات خدمة العملاء اللي اتفتحت في الفترة', 'good', 'fastest', csOk ? null : ['محتاج صلاحية خدمة العملاء', 'وقت الرد بيتحسب من محادثات خدمة العملاء.']),
-        card('أعلى 5 تقييم', 'تقييم الأداء الشهري (KPI) · آخر 3 شهور لحد آخر الفترة', rep.rating, (x) => x.score + '%', (x) => MON(x.month) + ' · متوسط ' + Math.round(x.avg) + '%', 'من «الموارد البشرية › الأداء والـ KPI»', 'good', 'rating')),
+        card('أعلى 5 تقييم', 'تقييم الشهر من 5 · آخر 3 شهور لحد آخر الفترة', rep.rating, (x) => x.score + ' / 5', (x) => MON(x.month) + ' · متوسط ' + (Math.round(x.avg * 10) / 10) + ' / 5', 'من «الموارد البشرية › التقييمات» (الحضور + الأداء + التواصل)', 'good', 'rating')),
       h('p', { class: 'source' }, 'المصدر: مهام الفريق («ملفي › مهامي») + سجل الحضور والإجازات والتقييم (الموارد البشرية — ' + mem.length + ' عضو ظاهرين ليك) + محادثات خدمة العملاء لوقت الرد.')];
   }
   // «الحملات الإعلانية» (phase 9.5.3 decision 47): the marketing page's own blocks (marketing.js reportBlocks — Meta Ads' numbers in mkt_ad_stats
@@ -2759,7 +2760,7 @@
           U.Textarea({ id: 't-note', label: 'ملاحظة', value: f.note, placeholder: 'اختياري', onInput: (v) => { f.note = v; } }), note];
       }
       if (f.type === 'advance') return [h('div', { class: 'row cols2' }, t, U.TextInput({ id: 't-amount', label: 'المبلغ (ج.م)', required: true, inputmode: 'decimal', value: f.amount, error: errs.amount, onInput: (v) => { f.amount = v; } })),
-        U.Select({ id: 't-months', label: 'التقسيط على', required: true, options: [1, 2, 3, 4, 6, 9, 12].map((n) => ({ value: String(n), label: n + (n === 1 ? ' شهر' : n === 2 ? ' شهرين' : ' شهور') })), value: f.months, onChange: (v) => { f.months = v; draw(); } }),
+        U.InlineNote({ children: 'لو اتوافق عليها بتتخصم كلها من مرتب الشهر — من غير تقسيط.' }), // the HR rebuild (decision 4)
         U.Textarea({ id: 't-note', label: 'السبب', value: f.note, placeholder: 'اختياري', onInput: (v) => { f.note = v; } }), note];
       // rest: the day, the start and the end time — the hours from them
       const a = minsOf(f.startAt), b = minsOf(f.endAt); const hrs = a != null && b != null && b > a ? Math.round((b - a) / 30) / 2 : null;
@@ -2783,7 +2784,7 @@
       if (f.type === 'leave' && f.leaveDoc) { const u = await H.upload(f.leaveDoc, me.member_code); if (!u.ok) return u; doc = u.path; }
       const a = minsOf(f.startAt), b = minsOf(f.endAt);
       const input = f.type === 'leave' ? { type: f.leaveKind, from: f.from, to: f.to, note: f.note || '', doc }
-        : f.type === 'advance' ? { type: 'سُلفة', amount: Number(String(f.amount).replace(/[,٬]/g, '')), months: Number(f.months), note: f.note || '' }
+        : f.type === 'advance' ? { type: 'سُلفة', amount: Number(String(f.amount).replace(/[,٬]/g, '')), months: 1, note: f.note || '' }
           : { type: 'فترة راحة', from: f.from, to: f.from, time: f.startAt, hours: Math.round((b - a) / 30) / 2, note: f.note || '' };
       return H.request(input);
     }
@@ -2932,7 +2933,7 @@
         const HRP = window.IBPages.all().hr.api; const mineRq = rqReq.member === KK.ME; const pendingRq = HRP.isPending(rqReq);
         const reload = (p) => Promise.resolve(p).then(() => { if (TA() && TA().load) return TA().load(); }).then(() => draw());
         rqCard = h('div', { class: 'ctx-card tk-ot', 'data-hr-request': '' }, h('div', { class: 'head' }, h('span', { class: 't-label' }, rqReq.type + ' — ' + rqReq.id), KK.Tag(pendingRq ? 'orange' : rqReq.status === 'موافق' ? 'success' : rqReq.status === 'اتلغى' ? 'neutral' : 'error', rqReq.status)),
-          h('div', { class: 'facts t-small' }, h('span', null, HRP.reqPeriod(rqReq) + (rqReq.type === 'سُلفة' && rqReq.amount != null ? ' · ' + KK.money(rqReq.amount) + ' ج على ' + rqReq.months + ' شهور' : '') + (rqReq.note ? ' · ' + rqReq.note : ''))),
+          h('div', { class: 'facts t-small' }, h('span', null, HRP.reqPeriod(rqReq) + (rqReq.type === 'سُلفة' && rqReq.amount != null && rqReq.months > 1 ? ' · على ' + rqReq.months + ' شهور' : '') + (rqReq.note ? ' · ' + rqReq.note : ''))),
           h('div', { class: 'links' },
             pendingRq && !mineRq ? Button({ type: 'primary', size: 'sm', label: 'موافقة', attrs: { 'data-rq-approve': '' }, onClick: () => reload(HRP.decide(rqReq, 'موافق')) }) : null,
             pendingRq && !mineRq ? Button({ size: 'sm', label: 'رفض', attrs: { 'data-rq-reject': '' }, onClick: () => HRP.rejectReq(rqReq) }) : null,

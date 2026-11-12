@@ -172,7 +172,7 @@ test('open_form: the known forms and their fields only; dates, amounts and numbe
     { name: 'open_form', input: { form: 'vendor_add', values: { name: 'خزف أسوان', phone: '01012345678', storeUrl: 'https://x' } } });
   assert.equal(cleanAction('open_form', { form: 'vendor_delete', values: { name: 'x' } }), null);
   assert.deepEqual(cleanAction('open_form', { form: 'member_add', values: { name: 'منى', hire: '2026-13-40', email: 'm@ibtekr.club' } }).input.values, { name: 'منى', email: 'm@ibtekr.club' });
-  assert.deepEqual(cleanAction('open_form', { form: 'hr_advance', values: { amount: '3,000', months: '30' } }).input.values, { amount: '3000' }); // months > 24 dropped
+  assert.deepEqual(cleanAction('open_form', { form: 'hr_advance', values: { amount: '3,000', months: '3' } }).input.values, { amount: '3000' }); // the HR rebuild: an advance has no installments — months dropped
   assert.deepEqual(cleanAction('open_form', { form: 'hr_leave', values: { kind: 'إجازة سنوية', from: '2026-12-01', to: 'بكرة' } }).input.values, { kind: 'إجازة سنوية', from: '2026-12-01' });
   assert.deepEqual(cleanAction('open_form', { form: 'ticket_new', values: { type: 'boss', priority: 'high', orderId: 'IB-181668', title: 'تأخير' } }).input.values, { priority: 'high', orderId: '181668', title: 'تأخير' });
   assert.deepEqual(cleanAction('open_form', { form: 'order_update', values: { order: 'IB-181668', status: 'جاهز للشحن' } }).input.values, { order: '181668', status: 'جاهز للشحن' });

@@ -113,7 +113,9 @@
   }
 
   // ---------- نظرة عامة: simple summary ----------
-  const lastScore = (id) => { const sc = HD().scores[id] || {}; const k = Object.keys(sc).filter((x) => sc[x] != null).sort().pop(); return k ? { k, v: sc[k] } : null; };
+  // the HR rebuild (0083): the month's evaluation out of 5 — the latest month rated
+  const lastScore = (id) => { const ev = (HD().evals || {})[id] || {}; const k = Object.keys(ev).filter((x) => ev[x] && ev[x].total != null).sort().pop(); return k ? { k, v: ev[k].total } : null; };
+  const of5 = (v) => String(v).replace(/\.0$/, '') + ' / 5';
   function overview(m) {
     const r = O.rollover(tasksOf(m.id), tdy()); const open = r.today.length + autoOf(m).length; const D = HD(); const mk = thisMonth();
     const need = isAdminView() ? 0 : needFromMe().length;
@@ -129,7 +131,7 @@
     const ntfCount = own && NRV && NRV.viewSections ? NRV.viewSections(true).reduce((n, x) => n + (x.received != null ? x.received : ((x.tabs || [])[0] || [0, 0, []])[2].length), 0) : 0;
     return [own ? h('div', { class: 'toolbar pn-bar' }, h('span', { class: 'grow' }), K.PanelButton('profile:overview', 'ملفي — نظرة عامة', () => document.querySelector('#pg-profile .panel'), rerender)) : null,
       h('div', { class: 'cards' }, tile(isAdminView() ? 'مهامه المفتوحة' : 'مهامي المفتوحة', open, autoOf(m).length + ' منها تلقائية من السيستم', 'tasks', () => { st.taskSub = 'today'; }), tile('ساعات ' + monName(mk), K.hm(m.monthMin || 0), days + ' يوم حضور', 'hours'), tile('رصيد الإجازات', (m.leave || 0) - (m.used || 0), 'من ' + (m.leave || 0) + ' يوم', reqGo), isAdminView() || need === 0 ? tile(isAdminView() ? 'طلباته' : 'طلباتي', tkOpen, 'مفتوحة على «طلبات الفريق»', reqGo, () => { st.reqSub = 'open'; }) : tile('محتاجة منك', need, 'طلبات فريقك', '#tickets')),
-      h('div', { class: 'cards' }, tile(sc ? 'أداء ' + monName(sc.k) : 'الأداء', sc ? sc.v + '%' : '—', sc ? O.rating(sc.v) + (qs != null ? ' · الربع ' + qs + '%' : '') : 'لسه مفيش تقييم', 'performance'), tile(isAdminView() ? 'إنجازاته' : 'إنجازاتي', done.length, 'مهمة خلصت · ' + doneMonth + ' الشهر ده', 'tasks', () => { st.taskSub = 'done'; }),
+      h('div', { class: 'cards' }, tile(sc ? 'تقييم ' + monName(sc.k) : 'التقييم', sc ? of5(sc.v) : '—', sc ? (qs != null ? 'الربع ' + of5(qs) : 'تقييم الشهر') : 'لسه مفيش تقييم', 'performance'), tile(isAdminView() ? 'إنجازاته' : 'إنجازاتي', done.length, 'مهمة خلصت · ' + doneMonth + ' الشهر ده', 'tasks', () => { st.taskSub = 'done'; }),
         tile('آخر مرتب', slip ? K.money(slip.net) : '—', !money ? 'المرتبات للأدمن بس' : !(m.salary > 0) ? 'مفيش مرتب مسجل' : slip ? 'صافي ' + monName(slip.month) : 'القسيمة بتظهر بعد اعتماد الكشف', 'salary'), tile('المستندات', m.contract === 'missing' ? 'ناقص' : 'تمام', m.contract === 'expiring' ? 'العقد بيخلص قريب' : 'العقد والمستندات', 'security')),
       // decision 27 (the owner, 10 Nov — «إضافة زرار تخصيص اللوحة… وإمكانية إظهار عدد التنبيهات أو الطلبات»): my alerts and my open requests,
       // and «تخصيص اللوحة» to hide / order every card (user_prefs panel.prefs «profile:overview»)
@@ -143,7 +145,7 @@
       K.Kv([kv('الوظيفة', m.title || '—'), kv('الدور', m.role || '—'), kv('المرتب', c.salaries ? K.money(m.salary || 0) + ' ج.م' : '••••'), kv('الحجز للبونص', c.salaries ? K.money(m.holdback || 0) + ' ج.م' : '••••'), kv('سعر اليوم والساعة', c.salaries && m.salary ? 'اليوم ' + K.money(O.rates(m.salary).daily) + ' · الساعة ' + K.money(O.rates(m.salary).hourly) : '—'), kv('الشيفت', m.shift.join(' – ')), kv('تاريخ التعيين', m.hire ? K.dlabel(m.hire) : '—'), kv('الإجازة السنوية', (m.leave || 0) + ' يوم')])) : null;
     const notes = c.edit ? h('section', { class: 'card admin' }, h('h2', { class: 't-h5' }, 'ملاحظات داخلية'), (() => { const ta = h('textarea', { class: 'textarea', rows: 4, 'aria-label': 'ملاحظات داخلية', placeholder: 'مش ظاهرة للعضو' }); ta.value = m.hrNotes || '';
       ta.addEventListener('change', () => { IH().memberUpdate(m.id, { notes: ta.value }).then((r) => K.toast(r.ok ? 'اتحفظت الملاحظة' : r.message || 'معرفناش نحفظها — جرّب تاني', r.ok ? 'success' : 'error')); }); return ta; })()) : null;
-    const quick = c.edit || c.salaries ? h('section', { class: 'card admin' }, h('h2', { class: 't-h5' }, 'إجراءات سريعة'), h('div', { class: 'quick' }, c.edit ? Button({ label: 'تسجيل حضور يدوي', icon: 'clock', onClick: () => HR().manualAtt(m) }) : null, c.edit ? Button({ label: 'رفع عقد', icon: 'attach', onClick: () => HR().uploadContract(m) }) : null, c.edit ? Button({ label: 'تحديد ميتنج', icon: 'cal', onClick: () => HR().scheduleMeeting(m) }) : null, c.salaries ? Button({ label: 'قسيمة المرتب', icon: 'wallet', onClick: () => HR().payslipModal(m) }) : null)) : null;
+    const quick = c.edit || c.salaries ? h('section', { class: 'card admin' }, h('h2', { class: 't-h5' }, 'إجراءات سريعة'), h('div', { class: 'quick' }, c.edit ? Button({ label: 'تسجيل حضور يدوي', icon: 'clock', onClick: () => HR().manualAtt(m) }) : null, c.edit ? Button({ label: 'رفع عقد', icon: 'attach', onClick: () => HR().uploadContract(m) }) : null, c.salaries ? Button({ label: 'قسيمة المرتب', icon: 'wallet', onClick: () => HR().payslipModal(m) }) : null)) : null;
     const sec = c.admin ? h('section', { class: 'card admin' }, h('h2', { class: 't-h5' }, 'الأمان'), K.Kv([kv('الإيميل', m.email || '—'), kv('الموبايل', m.phone ? h('span', { dir: 'ltr' }, m.phone) : '—'), kv('التحقق بخطوتين', m.twofa ? 'مفعّل' : 'مش مفعّل')]),
       h('div', { class: 'quick' }, Button({ size: 'sm', label: 'باسورد مؤقت جديد', onClick: () => HR().newPassword(m) })), h('div', { class: 't-small help' }, 'إيقاف الحساب والخروج من كل الأجهزة لعضو تاني مع صفحة الإعدادات — لحد وقتها من لوحة Supabase.')) : null;
     return h('div', { class: 'admin-cards' }, job, notes, quick, sec);
@@ -300,27 +302,25 @@
   // ---------- what waits for me (decision 33: the requests are decided in their team tickets; «طلباتي» tab removed) ----------
   // what waits for me: the pending requests and overtime of others that RLS shows me (my team; the server decides who may decide)
   function needFromMe() { const D = HD(); const isP = HR().isPending; return D.requests.filter((r) => r.member !== K.ME && isP(r)).map((r) => ({ kind: 'req', r })).concat(D.overtime.filter((o) => o.member !== K.ME && o.status === 'مستني' && (!IH() || IH().decidesOt(o))).map((o) => ({ kind: 'ot', o }))); }
-  // ---------- أدائي (by the quarter picked; the scores the manager rated, the KPIs set in HR) ----------
+  // ---------- أدائي (the HR rebuild, 0083 — decision 2): the quarter picked, month by month out of 5 — the attendance automatic, the
+  // performance and the communication from the manager, the month = the three's average, the quarter = its rated months'; the bonus of a
+  // month whole when it reaches the setting's bar (the money for sensitive.salaries / my own)
   function performance(m) {
-    const D = HD(); const sc = D.scores[m.id] || {}; const kpis = D.kpis[m.id] || [];
-    if (!kpis.length && !Object.keys(sc).length) return [K.Section('', K.Empty('لسه مفيش تقييم', 'المؤشرات بتتحط من «الموارد البشرية › الأداء والـ KPI»، والتقييم كل شهر.'))];
-    const cur = qOf(thisMonth()); const quarters = [...new Set([cur].concat(Object.keys(sc).map(qOf)))].sort().reverse();
+    const D = HD(); const ev = (D.evals || {})[m.id] || {}; const bar = Number((D.hrSettings || {}).bonusMin) || 3;
+    const cur = qOf(thisMonth()); const quarters = [...new Set([cur].concat(Object.keys(ev).filter((k) => ev[k] && ev[k].total != null).map(qOf)))].sort().reverse();
     const q = st.perfQ && quarters.includes(st.perfQ) ? st.perfQ : cur; const months = qMonths(q);
-    const rated = months.filter((k) => sc[k] != null); const vals = rated.map((k) => sc[k]); const last = rated.length ? rated[rated.length - 1] : null; const lv = last ? sc[last] : null;
-    const avg = vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length * 10) / 10 : null;
-    const money = seesMoney(m); const hb = m.holdback || 0;
-    const qRows = () => months.map((k) => [monName(k), sc[k] != null ? sc[k] + '%' : 'لسه', sc[k] != null ? O.rating(sc[k]) : '—', money ? (sc[k] != null ? K.money(O.monthBonus(hb, sc[k])) + ' ج.م' : '—') : '••••']);
-    const qHead = ['الشهر', 'السكور', 'التقييم', 'الحافز المستحق'];
-    const kpiRows = () => kpis.map((k) => [k.name, k.src || 'يدوي', k.weight + '%', K.Num(String(k.target)) ]);
-    const dScore = () => ({ title: 'سكور ' + monName(last) + ' — ' + m.name, sub: 'التقييم: ' + O.rating(lv) + ' · ممتاز ≥ 100% · جيد 85–99% · محتاج تحسين 70–84% · إنذار < 70%', summary: [{ label: 'السكور', value: lv + '%' }, { label: 'التقييم', value: O.rating(lv) }], headers: ['المؤشر', 'المصدر', 'الوزن', 'الهدف'], rows: kpiRows(), note: 'السكور = مجموع المؤشرات بأوزانها، والمدير بيقيّم الشهر بالفعلي.', source: 'مؤشرات الأداء' });
-    const dAvg = () => ({ title: 'متوسط ' + qLabel(q) + ' — ' + m.name, sub: vals.length ? (O.quarterBad(vals) ? 'ربع سيئ (متوسط < 70% أو شهرين تحت 70%) — في ميتنج فردي' : 'الربع تمام') : 'لسه مفيش شهور متقيّمة', summary: vals.length ? [{ label: 'المتوسط', value: avg + '%' }, { label: 'أعلى شهر', value: Math.max(...vals) + '%' }, { label: 'أقل شهر', value: Math.min(...vals) + '%' }] : [], headers: qHead, rows: qRows(), source: 'التقييم الشهري' });
-    const dQb = () => ({ title: 'بونص ' + qLabel(q) + ' — ' + m.name, sub: 'الحافز المحجوز ' + K.money(hb) + ' ج.م كل شهر — بيتصرف بنسبة السكور (بحد أقصى 100%)، والشهر اللي تحت 70% حافزه 0', summary: [{ label: 'البونص', value: K.money(O.quarterBonus(hb, vals)) + ' ج.م' }, { label: 'من المحجوز', value: K.money(hb * 3) + ' ج.م' }], headers: qHead, rows: qRows(), note: vals.length < 3 ? 'بالشهور اللي اتقيّمت لحد دلوقتي.' : '', source: 'التقييم الشهري + الحافز المحجوز' });
-    const dMb = () => ({ title: 'حافز ' + monName(last) + ' — ' + m.name, sub: 'بيتصرف مع حافز الربع', summary: [{ label: 'الحافز', value: K.money(O.monthBonus(hb, lv)) + ' ج.م' }, { label: 'المحجوز', value: K.money(hb) + ' ج.م' }, { label: 'السكور', value: lv + '%' }], headers: ['البند', 'القيمة'], rows: [['الحافز المحجوز', K.money(hb) + ' ج.م'], ['سكور ' + monName(last), lv + '%'], ['النسبة المحسوبة', Math.min(lv, 100) + '%' + (lv < 70 ? ' (تحت 70% = 0)' : '')], ['الحافز المستحق', K.money(O.monthBonus(hb, lv)) + ' ج.م']], source: 'التقييم الشهري' });
+    const Q = IH() && IH().quarterEval ? IH().quarterEval(m.id, q) : null; const last = lastScore(m.id);
+    const money = seesMoney(m); const hb = m.holdback || 0; const earned = months.filter((k) => ev[k] && ev[k].total != null && ev[k].total >= bar).length;
+    const sc = (v) => (v == null ? '—' : K.Num(of5(v)));
     const pickQ = U.Select({ id: 'pf-q', label: '', options: quarters.map((x) => ({ value: x, label: qLabel(x) })), value: q, onChange: (v) => { st.perfQ = v; rerender(); } });
+    const rows = months.map((k) => { const x = ev[k] || {}; return [monName(k), sc(x.att), sc(x.perf), sc(x.comm), x.total == null ? K.Tag('neutral', 'لسه') : K.Tag(x.total >= 4 ? 'success' : x.total >= 3 ? 'info' : 'error', of5(x.total)),
+      x.total == null ? '—' : x.total >= bar ? K.Tag('success', 'هيتصرف') : K.Tag('error', 'مش هيتصرف'), h('span', { class: 't-small wrap' }, x.note || '—')]; });
     return [h('div', { class: 'toolbar' }, pickQ),
-      h('div', { class: 'cards' }, K.Stat('سكور ' + (last ? monName(last) : 'الشهر'), lv != null ? lv + '%' : '—', '', lv != null ? O.rating(lv) : 'لسه مااتقيّمش', undefined, last ? dScore : undefined), K.Stat('متوسط ' + qShort(q), avg != null ? avg + '%' : '—', '', vals.length ? (O.quarterBad(vals) ? 'ربع سيئ — في ميتنج' : 'تمام') : 'لسه', undefined, dAvg), K.Stat('بونص ' + qShort(q), money ? K.money(O.quarterBonus(hb, vals)) : '••••', 'ج.م', money ? 'من ' + K.money(hb * 3) : 'للأدمن بس', undefined, money ? dQb : undefined), K.Stat('حافز ' + (last ? monName(last) : 'الشهر'), money && lv != null ? K.money(O.monthBonus(hb, lv)) : '—', 'ج.م', 'بيتصرف مع حافز الربع', undefined, money && last ? dMb : undefined)),
-      K.Section('التقييم الشهري — ' + qLabel(q), h('div', { class: 'cols' }, months.map((k) => h('div', { class: 'col' + (k === last ? ' hi' : '') }, h('span', { class: 't-label' }, sc[k] != null ? sc[k] + '%' : '—'), h('i', { style: 'height:' + (sc[k] != null ? Math.round(Math.min(sc[k], 120) * 1.4) : 4) + 'px' }), sc[k] != null ? K.Tag(O.RATING_TONE[O.rating(sc[k])], O.rating(sc[k])) : K.Tag('neutral', 'لسه'), h('span', { class: 't-small' }, monName(k))))), null, { sub: 'ممتاز ≥ 100% · جيد 85–99% · محتاج تحسين 70–84% · إنذار < 70% (حافز الشهر = 0)' }),
-      K.Section('المؤشرات', kpis.length ? U.Table({ headers: ['المؤشر', 'المصدر', 'الوزن', 'الهدف'], rows: kpis.map((k) => [k.name, k.src || 'يدوي', k.weight + '%', K.Num(String(k.target)) + (k.inverse ? ' (الأقل أحسن)' : '')]) }) : K.Empty('لسه مفيش مؤشرات', 'بتتحط من «الموارد البشرية › الأداء والـ KPI».'), null, { sub: 'المدير بيقيّم كل شهر بالفعلي' })];
+      h('div', { class: 'cards', 'data-pf-cards': '' }, K.Stat(last ? 'تقييم ' + monName(last.k) : 'تقييم الشهر', last ? of5(last.v) : '—', '', last ? 'آخر شهر اتقيّم' : 'لسه مااتقيّمش'),
+        K.Stat('التقييم الربع سنوي', Q && Q.total != null ? of5(Q.total) : '—', qShort(q), Q ? Q.rated + ' من 3 شهور اتقيّمت' : '—'),
+        K.Stat('البونص — ' + qShort(q), money ? K.money(hb * earned) : '••••', money ? 'ج.م' : '', earned + ' من 3 شهور وصلت ' + bar + ' من 5')),
+      K.Section('التقييم الشهري — ' + qLabel(q), U.Table({ cls: 'pf-evals', headers: ['الشهر', 'الحضور', 'الأداء', 'التواصل', 'تقييم الشهر', 'البونص', 'ملاحظة'], rows }), null,
+        { sub: 'الحضور تلقائي من أيام الحضور · الأداء (حسب المهام) والتواصل من المدير المباشر · تقييم الشهر = متوسط التلاتة · البونص: الشهر اللي تقييمه ' + bar + ' من 5 أو أكتر محجوزه بيتصرف كامل آخر الربع' })];
   }
   // ---------- مرتبي (decision 2: my own payslips once the sheet is approved; another member's for sensitive.salaries) ----------
   function salary(m) {

@@ -337,7 +337,10 @@ test('the rebuild — the HR settings live in «الإعدادات › المو�
   await expect(S).toContainText('الأحد – الخميس');
   await S.locator('#hs-payday').fill('25');
   await pick(page, S, 'hs-bonus', '3.5 من 5 أو أكتر');
-  await S.getByRole('radio', { name: /يترحّل/ }).click();
+  await expect(page.locator('[role=listbox]')).toHaveCount(0); // the list closed before the next click (under load a click could only close it)
+  await expect(S.locator('#hs-bonus')).toContainText('3.5');
+  await expect(async () => { await S.getByRole('radio', { name: /يترحّل/ }).click(); await expect(S.getByRole('radio', { name: /يترحّل/ })).toHaveAttribute('aria-checked', 'true', { timeout: 1000 }); }).toPass();
+  await expect(S.locator('#hs-payday')).toHaveValue('25');
   await page.locator('[data-set-save]').first().click();
   await expect.poll(() => ((mock.settings.find((x) => x.section === 'hr') || {}).data || {})).toMatchObject({ payDay: 25, bonusMin: 3.5, leaveYearEnd: 'carry' });
   await S.locator('[data-hs-holiday]').click();

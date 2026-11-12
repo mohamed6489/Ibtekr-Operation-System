@@ -72,16 +72,28 @@ test('«التقارير» is open: the nine v2 tabs (none «قريبًا» — 
   await expect(fresh).not.toContainText('09:30');
   await expect(R(page).locator('#rpanel')).not.toContainText('Airtable');
   await expect(page).toHaveURL(/#reports-orders$/);
-  // the admin: CSV, «الإجراءات», compare, the customization
-  await expect(R(page).locator('[data-rp-csv]')).toBeEnabled();
+  // the admin: «الملفات», the customization; the owner 13 Nov — no «نسخ CSV» (it is under «الملفات») and no «مقارنة بالفترة السابقة» button:
+  // the comparison is the calendar's «مقارنة بفترة سابقة», and it works — the KPIs carry their delta against the period before
+  await expect(R(page).locator('[data-rp-csv]')).toHaveCount(0);
   await expect(R(page).locator('[data-actions]')).toHaveCount(1);
   await expect(R(page).locator('[data-actions]')).toHaveText('الملفات'); // the owner 12 Nov: «الملفات» instead of «الإجراءات»
-  await expect(R(page).getByRole('button', { name: 'مقارنة بالفترة السابقة' })).toBeVisible();
+  await expect(R(page).getByRole('button', { name: 'مقارنة بالفترة السابقة' })).toHaveCount(0);
+  await expect(kpi(page, 'إجمالي الأوردرات').locator('.kpi-delta')).toHaveCount(0);
+  await R(page).locator('.page-head .date-field').click();
+  const cmp = page.locator('.dp [data-rp-compare="reports"] input[type=checkbox]');
+  await expect(cmp).not.toBeChecked();
+  await cmp.check();
+  await page.locator('.dp').getByRole('button', { name: 'تحديث' }).click();
+  await expect(kpi(page, 'إجمالي الأوردرات').locator('.kpi-delta')).toBeVisible();
+  await R(page).locator('.page-head .date-field').click();
+  await expect(page.locator('.dp [data-rp-compare="reports"] input[type=checkbox]')).toBeChecked(); // kept with the period
+  await page.locator('.dp [data-rp-compare="reports"] input[type=checkbox]').uncheck();
+  await page.locator('.dp').getByRole('button', { name: 'تحديث' }).click();
+  await expect(kpi(page, 'إجمالي الأوردرات').locator('.kpi-delta')).toHaveCount(0);
   // «الحملات الإعلانية» (phase 9.5.3 decision 47): the marketing page's blocks with the range, CSV and the customization (marketing-ads.spec has the numbers)
   await tab(page, 'campaigns').click();
   await expect(R(page).locator('#rpanel [data-ads-kpis]')).toBeVisible();
   await expect(R(page).locator('.date-field')).toHaveCount(1);
-  await expect(R(page).locator('[data-rp-csv]')).toBeEnabled();
   await expect(R(page).locator('[data-rp-custom]')).toHaveCount(1);
   await expect(page).toHaveURL(/#reports-campaigns$/);
 });
@@ -198,14 +210,3 @@ test('«تخصيص التقارير» per member (user_prefs reports.prefs): a h
   await expect.poll(() => (mock.prefs.find((p) => p.key === 'tickets.kpis') || {}).data).toEqual(['open', 'urgent', 'overdue', 'avg', 'total', 'resolved', 'reopened', 'waiting']);
 });
 
-test('«نسخ CSV» never hands a spreadsheet a formula: a text cell starting with = + - @ gets an apostrophe (a ticket title from outside)', async ({ page }) => {
-  mock.tickets[1].title = '=HYPERLINK("http://x.example","اضغط")';
-  await openReports(page);
-  await page.evaluate(() => { window.__copied = []; navigator.clipboard.writeText = (t) => { window.__copied.push(t); return Promise.resolve(); }; });
-  await tab(page, 'tickets').click();
-  await R(page).locator('[data-rp-csv]').click();
-  await expect(R(page)).toContainText('تم نسخ تذاكر مفتوحة كـ CSV');
-  const csv = await page.evaluate(() => window.__copied[0]);
-  expect(csv).toContain('"\'=HYPERLINK(""http://x.example"",""اضغط"")"');
-  expect(csv).not.toMatch(/(^|,)=HYPERLINK/m);
-});

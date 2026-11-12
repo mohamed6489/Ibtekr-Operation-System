@@ -70,6 +70,7 @@ test('a new campaign: the details (the row created) → the AI fills the piece �
   await pg(page).locator('.cp-next').click();
   await expect(pg(page)).toContainText('اكتب الفكرة العامة');
   await pg(page).locator('#cw-idea').fill('كولكشن الربيع — شنط مكرمية مشغولة يدويًا');
+  await expect(pg(page)).not.toContainText('ملفات إضافية'); // the owner 13 Nov: no extra files on a new campaign
   await pg(page).locator('[data-num="cw-n-post-"]').click(); // 2 → 1 post
   await pg(page).locator('.subtab', { hasText: 'كاروسيل' }).click();
   await pg(page).locator('[data-num="cw-n-carousel-"]').click(); // 1 → 0 carousels

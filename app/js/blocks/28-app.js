@@ -1177,13 +1177,18 @@
     wrap.append(trig); return wrap;
   }
   // dashboard: the preset name + what it is compared with (Figma «الفترة: النهارده · مقارنة بإمبارح»)
-  const dashRangeLabel = (r) => { const p = PRESETS.find((x) => x[0] === r.preset); if (!p || r.preset === 'custom') return D.rangeLabel(r.from, r.to) + ' · مقارنة بالفترة اللي قبلها'; return 'الفترة: ' + p[1] + ' · ' + (r.preset === 'today' ? 'مقارنة بأمس' : 'مقارنة بالفترة اللي قبلها'); };
+  const dashRangeLabel = (r) => { const p = PRESETS.find((x) => x[0] === r.preset); const cmp = r.compare !== false; if (!p || r.preset === 'custom') return D.rangeLabel(r.from, r.to) + (cmp ? ' · مقارنة بالفترة اللي قبلها' : ''); return 'الفترة: ' + p[1] + (cmp ? ' · ' + (r.preset === 'today' ? 'مقارنة بأمس' : 'مقارنة بالفترة اللي قبلها') : ''); };
   const rangeOf = (target) => (target === 'reports' ? state.rrange : target === 'dash' ? state.drange : target === 'mlog' ? (state.mrange = state.mrange || { from: '2026-09-01', to: TODAY, preset: 'custom' }) : target === 'plan' ? (state.prange = state.prange || planDefault()) : target === 'vledger' ? (state.vlrange || { from: TODAY.slice(0, 8) + '01', to: TODAY, preset: 'thisMonth' }) : state.range); // mlog (phase 5.5 decision 4, owner 1 Nov): the moves log's own period, wide by default
   // plan (phase 9.5.1 decision 16, the v5's): the marketing plan calendar's period — from last week's Saturday, three weeks
   function planDefault() { const W = window.IbtekrCampWiz; if (W && W.planDefault) return W.planDefault(TODAY); return { from: TODAY, to: TODAY, preset: 'custom' }; }
+  // the owner 13 Nov (decisions 7–8 of docs/superpowers/plans/2026-11-13-owner-ui-batch.md): «مقارنة بفترة سابقة» lives in the calendar and
+  // works — kept with the period of each picker whose view compares: the reports (their KPIs against the same length before), the
+  // dashboard (on by default, as it always compared) and the accounts' moves log (its four cards); the other pickers have nothing to compare
+  const COMPARE_T = ['reports', 'dash', 'mlog'];
+  const compareOf = (target) => (target === 'reports' ? !!state.rcompare : target === 'dash' ? !(state.drange && state.drange.compare === false) : target === 'mlog' ? !!(state.mrange && state.mrange.compare) : false);
   function RangePicker(close, target = 'accounts') {
     const TODAY = target === 'dash' ? dashToday() : TODAY_APP; // the dashboard's presets / calendar follow its real today (dashToday)
-    const cur = rangeOf(target); const draft = { from: cur.from, to: cur.to, preset: cur.preset };
+    const cur = rangeOf(target); const draft = { from: cur.from, to: cur.to, preset: cur.preset, compare: compareOf(target) };
     let [y, m] = draft.from.split('-').map(Number); let picking = false, hover = null, err = '';
     const dp = h('div', { class: 'dp range', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'اختيار الفترة', 'data-popover-root': '', 'data-focus': 'no' });
     function pick(iso) {
@@ -1206,11 +1211,11 @@
             U.Calendar({ year: next.year, month: next.month, today: TODAY, from: draft.from, to: draft.to, hover: picking ? hover : null, onPick: pick, onHover: (i) => { if (picking && hover !== i) { hover = i; draw(); } }, onNav: (d) => { ({ year: y, month: m } = U.shiftMonth(y, m, d)); draw(); }, showNext: false }))),
         h('div', { class: 'range-row' }, h('div', { class: 'input', style: 'width:180px' }, h('input', { type: 'text', readonly: true, value: (PRESETS.find((p) => p[0] === draft.preset) || [0, 'مخصص'])[1], 'aria-label': 'الفترة الجاهزة', dir: 'rtl' })),
           dateInput('from', 'من تاريخ'), h('span', null, '–'), dateInput('to', 'إلى تاريخ'),
-          h('span', { class: 'check', title: 'غير متاح في النموذج' }, h('i'), 'مقارنة بفترة سابقة')),
+          COMPARE_T.includes(target) ? h('label', { class: 'check on', 'data-rp-compare': target }, h('input', { type: 'checkbox', checked: draft.compare ? true : null, onChange: (e) => { draft.compare = e.target.checked; } }), 'مقارنة بفترة سابقة') : null),
         err ? h('div', { class: 'err-msg', role: 'alert', style: 'padding:0 16px 8px' }, err) : null,
         h('div', { class: 'dp-foot' }, h('span', { class: 'tz' }, 'التواريخ بتوقيت القاهرة (GMT+3)'),
           Button({ label: 'إلغاء', onClick: close }),
-          Button({ type: 'primary', label: 'تحديث', disabled: !draft.from || !draft.to || !!err, onClick: () => { const nr = { from: draft.from, to: draft.to, preset: draft.preset }; if (target === 'reports') { state.rrange = nr; close(); renderReports(); if (window.IBPages && (window.IBPages.current === 'products' || window.IBPages.current === 'hr' || window.IBPages.current === 'marketing')) window.IBPages.render(window.IBPages.current); } else if (target === 'dash') { state.drange = nr; close(); window.IBPages.render('dashboard'); } else if (target === 'mlog') { state.mrange = nr; close(); render(); } else if (target === 'plan') { state.prange = nr; close(); window.IBPages.render('marketing'); } else if (target === 'vledger') { state.vlrange = nr; close(); render(); } else { state.range = nr; close(); render(); } } }))].filter(Boolean));
+          Button({ type: 'primary', label: 'تحديث', disabled: !draft.from || !draft.to || !!err, onClick: () => { const nr = { from: draft.from, to: draft.to, preset: draft.preset }; if (COMPARE_T.includes(target)) nr.compare = !!draft.compare; if (target === 'reports') { state.rrange = nr; state.rcompare = !!draft.compare; close(); renderReports(); if (window.IBPages && (window.IBPages.current === 'products' || window.IBPages.current === 'hr' || window.IBPages.current === 'marketing')) window.IBPages.render(window.IBPages.current); } else if (target === 'dash') { state.drange = nr; close(); window.IBPages.render('dashboard'); } else if (target === 'mlog') { state.mrange = nr; close(); render(); } else if (target === 'plan') { state.prange = nr; close(); window.IBPages.render('marketing'); } else if (target === 'vledger') { state.vlrange = nr; close(); render(); } else { state.range = nr; close(); render(); } } }))].filter(Boolean));
     }
     draw(); return dp;
   }
@@ -1545,6 +1550,14 @@
     const MR = rangeOf('mlog'); const inPer = (x) => !x.date || (x.date >= MR.from && x.date <= MR.to);
     const perRows = r0.rows.filter(inPer); const sumK = (f) => D.round2(perRows.filter(f).reduce((n, x) => n + (Number(x.amount) || 0), 0));
     const r = { rows: perRows, count: perRows.length, inTotal: sumK((x) => x.kind === 'إيداع' || x.kind === 'رصيد افتتاحي'), outTotal: sumK((x) => x.kind === 'سحب'), requests: perRows.filter((x) => x.kind === 'طلب سحب').length };
+    // decision 8 (the owner 13 Nov): «مقارنة بفترة سابقة» in the calendar → each card against the same length just before
+    const addDaysIso = (iso, n) => { const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+    const cmp = !!MR.compare; const span = cmp ? D.daysBetweenIso(MR.from, MR.to) + 1 : 0;
+    const prevTo = cmp ? addDaysIso(MR.from, -1) : null; const prevFrom = cmp ? addDaysIso(MR.from, -span) : null;
+    const pv = cmp ? r0.rows.filter((x) => x.date && x.date >= prevFrom && x.date <= prevTo) : []; const sumP = (f) => D.round2(pv.filter(f).reduce((n, x) => n + (Number(x.amount) || 0), 0));
+    const P = cmp ? { count: pv.length, inTotal: sumP((x) => x.kind === 'إيداع' || x.kind === 'رصيد افتتاحي'), outTotal: sumP((x) => x.kind === 'سحب'), requests: pv.filter((x) => x.kind === 'طلب سحب').length } : null;
+    const cmpTile = (cur, was, upGood) => { if (!cmp) return { compare: 'off' }; const d = cur - was; const pct = was ? Math.round(d / Math.abs(was) * 100) : null;
+      return { compare: d === 0 ? 'neutral' : (d > 0) === upGood ? 'positive' : 'negative', delta: { text: (d > 0 ? '+' : d < 0 ? '−' : '') + (pct == null ? D.formatMoney(Math.abs(d)) : Math.abs(pct) + '%'), caption: 'عن الفترة اللي قبلها (' + D.formatMoney(was) + ')' } }; };
     const q = (state.mlogQ || '').trim();
     const rows0 = q ? r.rows.filter((x) => (x.what + ' ' + x.who + ' ' + x.note + ' ' + x.ref).toLowerCase().includes(q.toLowerCase())) : r.rows;
     const tone = (k) => (k === 'إيداع' ? 'success' : k === 'سحب' ? 'neutral' : k === 'طلب سحب' ? 'orange' : 'goldlight');
@@ -1562,11 +1575,11 @@
     return h('div', { style: 'display:flex;flex-direction:column;gap:24px;min-width:0' },
       KK.SubTabs ? KK.SubTabs({ items: MLOG_TABS, active: kind, label: 'أقسام سجل الحركات', onChange: (id) => { state.mlog = id; state.mlogQ = ''; render(); } }) : null,
       h('div', { class: 'cards four' },
-        U.KpiTile({ label: 'عدد الحركات', value: String(r.count), unit: 'حركة', compare: 'off', note: (MLOG_TABS.find((t) => t.id === kind) || {}).label + ' · في الفترة المختارة' }),
-        U.KpiTile({ label: 'داخل', value: D.formatMoney(r.inTotal), unit: 'ج.م', compare: 'off', note: kind === 'accountMoves' ? 'إيداعات + الرصيد الافتتاحي' : 'إيداعات وعرابين' }),
-        U.KpiTile({ label: 'خارج', value: D.formatMoney(r.outTotal), unit: 'ج.م', compare: 'off', note: 'سحب ومصروفات ومواصلات' }),
-        kind === 'vendorMoves' ? U.KpiTile({ label: 'طلبات سحب', value: String(r.requests), unit: 'طلب', compare: 'off', note: 'من المبتكرين على Dokan' })
-          : U.KpiTile({ label: 'الصافي', value: D.formatMoney(D.round2(r.inTotal - r.outTotal)), unit: 'ج.م', compare: 'off', note: 'داخل − خارج' })),
+        U.KpiTile(Object.assign({ label: 'عدد الحركات', value: String(r.count), unit: 'حركة', note: (MLOG_TABS.find((t) => t.id === kind) || {}).label + ' · في الفترة المختارة' }, cmpTile(r.count, P ? P.count : 0, true))),
+        U.KpiTile(Object.assign({ label: 'داخل', value: D.formatMoney(r.inTotal), unit: 'ج.م', note: kind === 'accountMoves' ? 'إيداعات + الرصيد الافتتاحي' : 'إيداعات وعرابين' }, cmpTile(r.inTotal, P ? P.inTotal : 0, true))),
+        U.KpiTile(Object.assign({ label: 'خارج', value: D.formatMoney(r.outTotal), unit: 'ج.م', note: 'سحب ومصروفات ومواصلات' }, cmpTile(r.outTotal, P ? P.outTotal : 0, false))),
+        kind === 'vendorMoves' ? U.KpiTile(Object.assign({ label: 'طلبات سحب', value: String(r.requests), unit: 'طلب', note: 'من المبتكرين على Dokan' }, cmpTile(r.requests, P ? P.requests : 0, false)))
+          : U.KpiTile(Object.assign({ label: 'الصافي', value: D.formatMoney(D.round2(r.inTotal - r.outTotal)), unit: 'ج.م', note: 'داخل − خارج' }, cmpTile(D.round2(r.inTotal - r.outTotal), P ? D.round2(P.inTotal - P.outTotal) : 0, true)))),
       h('div', { class: 'toolbar mlog-bar' }, search, DateRangeField('mlog'), h('span', { class: 'grow' }), h('span', { class: 't-small', style: 'color:var(--color-text-secondary)' }, num(rows0.length + ' من ' + r.count + ' حركة في الفترة')),
         Button({ label: 'نسخ CSV', icon: 'download', attrs: { 'data-mlog-csv': '' }, onClick: () => csvCopy(headers, rows0.map(flat), 'سجل الحركات — ' + (MLOG_TABS.find((t) => t.id === kind) || {}).label) })),
       TableCard({ title: 'سجل الحركات — ' + (MLOG_TABS.find((t) => t.id === kind) || {}).label, count: rows0.length + ' حركة', pre: LB.bar(),
@@ -2452,8 +2465,6 @@
         h('div', { class: 'title-block' }, h('h1', { class: 't-h3' }, 'التقارير'), U.FreshnessNote(freshness())),
         h('div', { class: 'actions' }, soon ? null : snap ? h('span', { class: 't-small help', 'data-snapshot': '' }, snap) : DateRangeField('reports'),
           exp && reportSheets().length ? window.IBDataActions.Menu(reportSheets(), () => ({ vendors: 'vendors', accounts: 'expenses' }[state.rtab] || 'orders')) : null,
-          soon || snap ? null : Button({ type: state.rcompare ? 'primary' : 'default', label: 'مقارنة بالفترة السابقة', attrs: { 'aria-pressed': String(state.rcompare) }, onClick: () => { state.rcompare = !state.rcompare; renderReports(); } }),
-          exp && !soon ? Button({ label: 'نسخ CSV', icon: 'download', disabled: !rExport, attrs: { 'data-rp-csv': '' }, onClick: () => rExport && csvCopy(rExport.headers, rExport.rows, rExport.label) }) : null,
           kpiCustom ? Button({ label: 'تخصيص اللوحة', icon: 'sliders', attrs: { 'data-kpi-custom': state.rtab }, onClick: kpiCustom }) : null,
           soon ? null : Button({ label: 'تخصيص التقارير', icon: 'sliders', attrs: { 'data-rp-custom': '' }, onClick: () => customizeReports() }))),
       tabs,

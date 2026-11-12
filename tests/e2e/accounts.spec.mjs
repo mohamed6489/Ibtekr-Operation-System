@@ -363,6 +363,31 @@ test('5.5: the moves log has its own period (wide by default) and a bulk export;
   await expect(main(page).locator('[data-bulk^="mlog-"]')).toHaveCount(0);
 });
 
+test('the owner 13 Nov: the moves log\'s calendar «مقارنة بفترة سابقة» puts each card against the same length before; «نسخ CSV» never hands a spreadsheet a formula (a name starting with =)', async ({ page }) => {
+  const day = (n) => { const d = new Date(Date.now() + 2 * 3600 * 1000); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+  const exp = (id, on, amount, who) => ({ id, on_date: on, direction: 'withdraw', category: 'المصروفات', beneficiary: who || 'مكتب', beneficiary_other: true, amount, note: null, sub_name: null, sub_is_other: false, sub_ends: null, sub_alerts: [], sub_note: null, created_by: '00000000-0000-4000-8000-000000000001', created_at: on + 'T08:00:00Z', voided_at: null });
+  mock.acc.acc_expenses.push(exp(95, day(-1), 500, '=HYPERLINK("http://x.example","اضغط")'), exp(96, day(-10), 200, null));
+  await openAccounts(page);
+  await page.evaluate(() => { window.__copied = []; navigator.clipboard.writeText = (t) => { window.__copied.push(t); return Promise.resolve(); }; });
+  await tab(page, 'سجل الحركات').click();
+  await main(page).getByRole('tab', { name: 'المصروفات' }).last().click();
+  const out = main(page).locator('.kpi[aria-label="خارج"]');
+  await expect(out.locator('.kpi-delta')).toHaveCount(0);
+  // a 7-day period with the comparison: the period before holds the 200 one
+  await main(page).locator('.mlog-bar .date-field').click();
+  await page.locator('.dp .presets [role=radio]', { hasText: 'آخر 7 أيام' }).click();
+  await page.locator('.dp [data-rp-compare="mlog"] input[type=checkbox]').check();
+  await page.locator('.dp').getByRole('button', { name: 'تحديث' }).click();
+  await expect(out).toContainText('500.00');
+  await expect(out.locator('.kpi-delta')).toContainText('عن الفترة اللي قبلها (200.00)');
+  await expect(out.locator('.kpi-delta .pill')).toHaveText('+150%');
+  await main(page).locator('[data-mlog-csv]').click();
+  await expect.poll(() => page.evaluate(() => (window.__copied || []).length)).toBe(1);
+  const csv = await page.evaluate(() => window.__copied[0]);
+  expect(csv).toContain("'=HYPERLINK");
+  expect(csv).not.toMatch(/(^|,)"?=HYPERLINK/m);
+});
+
 test('5.5: the makers\' table shows the latest Dokan request per maker; the actual balance shows Ibtekr\'s balance after the makers\' Dokan balances', async ({ page }) => {
   await openAccounts(page);
   await tab(page, 'حسابات المبتكرين').click();

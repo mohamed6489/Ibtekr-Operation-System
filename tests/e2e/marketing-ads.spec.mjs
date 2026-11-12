@@ -293,7 +293,7 @@ test('the reports page\'s «الحملات الإعلانية» (decision 47): t
   await expect(kpi(R, 'الربح بعد الإعلانات')).toContainText('-1,900.00');
   await expect(R.locator('.ads-camps tbody tr')).toHaveCount(3);
   await expect(R.locator('.ads-cr tbody tr')).toHaveCount(2);
-  await expect(page.locator('#reports [data-rp-csv]')).toBeEnabled();
+  await expect(page.locator('#reports [data-rp-csv]')).toHaveCount(0); // the owner 13 Nov: CSV is under «الملفات»
   // the reports' period redraws it here too
   await page.locator('#reports .page-head .date-field').click();
   await page.locator('.dp .presets [role=radio]', { hasText: /^اليوم$/ }).click();

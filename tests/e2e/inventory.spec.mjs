@@ -311,6 +311,9 @@ test('receiving an order\'s line as «تجميع أوردر» opens the order\'s
   await expect(page.locator('#pg-inventory .kpi, #pg-inventory [data-details]', { hasText: 'بتتجمع' }).first()).toContainText('1');
   await page.evaluate(() => { location.hash = 'inventory-consolidate'; });
   await expect(page.locator('#pg-inventory')).toContainText('1 من 2');
+  // the owner 13 Nov: an order's consolidation card has no filter, sort or columns
+  await expect(page.locator('#pg-inventory section.cons')).toHaveCount(1);
+  await expect(page.locator('#pg-inventory section.cons [data-fm-btn], #pg-inventory section.cons [data-sm-btn], #pg-inventory section.cons [data-cols]')).toHaveCount(0);
   // the second line received later joins the same consolidation (no second one)
   await page.getByRole('button', { name: 'استلام في المخزن' }).click();
   const m2 = modal(page, 'استلام في المخزن');
@@ -389,8 +392,16 @@ test('decision 58: the inventory opens on «نظرة عامة» with the cards; 
   await expect(pg.locator('.kpi[aria-label="متاح للبيع"]')).toBeVisible();
   await expect(pg).toContainText('المخزن حسب السبب');
   await expect(pg.locator('[data-inv-toolbar]')).toHaveCount(0);
+  await expect(pg.locator('[data-tq-btn]')).toHaveCount(0); // the owner 13 Nov: no «بحث» on the tables of «نظرة عامة»
   await pg.locator('[data-inv-open-now]').click();
-  await expect(pg.locator('[data-inv-toolbar]')).toBeVisible();
+  // the owner 13 Nov: «فلتر» and «ترتيب» in the head of «سجل المخزون» next to «بحث»; the «فلاتر المخزن» card is gone
+  const log = pg.locator('section.own-filter', { hasText: 'سجل المخزون' });
+  await expect(log.locator('.sec-h [data-tq-btn]')).toBeVisible();
+  await expect(log.locator('.sec-h [data-fm-btn]')).toBeVisible();
+  await expect(log.locator('.sec-h [data-inv-sort]')).toBeVisible();
+  await expect(pg).not.toContainText('فلاتر المخزن');
+  await log.locator('[data-tq-btn]').click();
+  await expect(log.locator('[data-tq-row] input[type=search]')).toHaveAttribute('aria-label', 'بحث في المخزن'); // the page's own search moved in
   await expect(pg.locator('.kpi')).toHaveCount(0);
   await expect(pg).toContainText('سلة كروشيه');
 });

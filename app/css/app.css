@@ -3,7 +3,7 @@
 :root{
   --color-bg-layout:#fff3e6;--color-bg-base:#fff7ef;--color-bg-container:#f5eddc;--color-bg-tint:#f0e5cf;--color-bg-elevated:#fff7ef;--color-bg-disabled:#f0e5cf;--color-bg-sidebar:#005642;
   --color-text-primary:#2e2a1b;--color-text-secondary:#6b6558;--color-text-disabled:#8f887b;--color-text-on-action:#fff7ef;--color-text-on-brand:#fff7ef;--color-text-gold:#e6ba65;
-  --color-action-default:#c39e57;--color-action-hover:#b28f4d;--color-brand-default:#005642;--color-brand-hover:#054b39;--color-brand-subtle-bg:#ebf1f0;
+  --color-action-default:#c39e57;--color-action-hover:#b28f4d;--color-brand-default:#005642;--color-brand-hover:#054b39;--color-brand-subtle-bg:#e8d5b3;
   --color-border-default:#8f887b;--color-border-subtle:#f0e5cf;--color-border-focus:#005642;
   --color-error-base:#da0001;--color-error-bg:#ffeae6;--color-error-border:#ff887a;--color-error-text:#8e0a07;
   --color-success-base:#39ac00;--color-success-text:#2d7106;--color-success-bg:#dfebd3;--color-success-border:#93d164;
@@ -192,6 +192,7 @@ tr.total td{background:var(--color-bg-tint)!important;font-weight:600}
 .dp-foot .tz{flex:1;color:var(--color-text-secondary);font-size:12px}
 .check{display:inline-flex;align-items:center;gap:8px;opacity:.6}
 .check i{width:16px;height:16px;border:1px solid var(--color-border-default);border-radius:3px;background:var(--color-bg-base)}
+.check.on{opacity:1;cursor:pointer}.check.on input{width:16px;height:16px;margin:0;accent-color:var(--color-brand-default);cursor:pointer} /* the owner 13 Nov: the calendar's «مقارنة بفترة سابقة» works */
 
 @media (max-width:1023px){.cards,.cards.five,#reports .cards{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media (max-width:767px){
@@ -277,7 +278,7 @@ tr.total td{background:var(--color-bg-tint)!important;font-weight:600}
 /* Reports page */
 .kpi{padding:16px;display:flex;flex-direction:column;gap:12px;min-width:0}
 .kpi-label{color:var(--color-brand-default);font-weight:900}
-.card.kpi,.card.cat-card{border:2px solid var(--color-border-default)}.cat-top .t-h5{color:var(--color-brand-default);font-weight:900}
+.card.cat-card{border:2px solid var(--color-border-default)}.card.kpi{border:2px solid var(--color-brand-default)}.cat-top .t-h5{color:var(--color-brand-default);font-weight:900}
 .kpi-val{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;color:var(--color-text-primary)}
 .kpi-val .unit{color:var(--color-text-secondary)}
 .kpi-delta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--color-text-secondary)}
@@ -489,7 +490,7 @@ tr.total td{background:var(--color-bg-tint)!important;font-weight:600}
 .dep-neg{color:var(--color-error-text)}.bal-neg{color:var(--color-error-text);font-weight:600}
 /* vendor drawer — clickable KPI tiles open a popup with their orders (21 Oct) */
 .kpi-click{cursor:pointer;transition:border-color .15s}
-.kpi-click:hover{border-color:var(--color-brand-default)}
+.kpi-click:hover{border-color:var(--color-brand-hover);box-shadow:0 0 0 1px var(--color-brand-hover)}
 .kpi-click:focus-visible{outline:2px solid var(--color-brand-default);outline-offset:2px}
 .kpi-more{display:inline-flex;align-items:center;gap:4px;color:var(--color-link-default, var(--color-brand-default));font-weight:600;margin-top:auto}
 .delay-cards{grid-template-columns:repeat(3,minmax(0,1fr))}
@@ -886,7 +887,7 @@ button.pm:disabled{opacity:.7;cursor:not-allowed}
 .prof-head{display:flex;align-items:center;gap:16px;padding:16px;flex-wrap:wrap}
 .prof-head h1{margin:0;color:var(--color-brand-default)}
 .prof-head .acts-inline{justify-content:flex-start;margin-top:6px}
-.sum-tile{display:flex;flex-direction:column;gap:6px;align-items:flex-start;padding:16px;text-align:start;border:2px solid var(--color-border-default);cursor:pointer;color:var(--color-text-primary)}
+.sum-tile{display:flex;flex-direction:column;gap:6px;align-items:flex-start;padding:16px;text-align:start;border:2px solid var(--color-brand-default);cursor:pointer;color:var(--color-text-primary)}
 .sum-tile:hover{border-color:var(--color-brand-default)}
 .sum-tile .kpi-label{color:var(--color-brand-default);font-weight:900}
 .sum-tile .more{margin-top:auto;color:var(--color-brand-default);display:inline-flex;align-items:center;gap:2px;font-weight:600}
@@ -1686,6 +1687,8 @@ tbody tr:nth-child(even) td{background:var(--color-bg-tint)}
 :is(.card.sec:not(.tbl-v2):not(.admin)>.sec-h:not(.cols-only),.chart-card>.chart-head,.dash-card:not(.tbl-v2)>.dash-h,.set-card>.set-card-h) .btn:not(.btn-text){background:var(--color-bg-container);border-color:var(--color-border-default);color:var(--color-text-primary)}
 :is(.card.sec:not(.tbl-v2):not(.admin)>.sec-h:not(.cols-only),.chart-card>.chart-head,.dash-card:not(.tbl-v2)>.dash-h,.set-card>.set-card-h) .btn:not(.btn-text):hover{border-color:var(--color-action-default);color:var(--color-text-primary)}
 :is(.card.sec:not(.tbl-v2):not(.admin)>.sec-h:not(.cols-only),.chart-card>.chart-head,.dash-card:not(.tbl-v2)>.dash-h,.set-card>.set-card-h) .btn-text{color:var(--color-text-on-brand)}
+/* the open «بحث» on a green header: the dark brand beige (green on green would hide it) */
+:is(.card.sec:not(.tbl-v2):not(.admin)>.sec-h:not(.cols-only),.chart-card>.chart-head,.dash-card:not(.tbl-v2)>.dash-h,.set-card>.set-card-h) .tq-btn[aria-expanded=true]{background:var(--color-brand-subtle-bg);border-color:var(--color-brand-subtle-bg);color:var(--color-brand-default)}
 /* phase 13 decision 49 (owner 10 Nov): the general actions of the quick-actions menu in green */
 .menu .opt.opt-general{color:var(--color-brand-default);font-weight:600}.menu .opt.opt-general svg{color:var(--color-brand-default)}
 /* phase 13 decision 50: the fixed first column keeps the grip's place in the columns popup */
@@ -1771,7 +1774,7 @@ tr.dragging{background:var(--color-bg-tint)}
 .tq-btn{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border:1px solid var(--color-border-default);border-radius:var(--radius-sm);background:var(--color-bg-base);color:var(--color-text-primary);font:inherit;font-size:13px;font-weight:500;white-space:nowrap;cursor:pointer}
 .tq-btn:hover{border-color:var(--color-brand-default)}
 .tq-btn[aria-expanded=true]{background:var(--color-brand-default);border-color:var(--color-brand-default);color:var(--color-text-on-brand)}
-.tq-row{display:flex;align-items:center;gap:8px;margin:12px 24px 0}
+.tq-row{display:flex;align-items:center;gap:8px;margin:12px 24px}
 .tq-row[hidden]{display:none}
 .tbl-v2>.tq-row{margin-inline:20px}
 .tq-row .tq-field{flex:1;min-width:0;width:auto;color:var(--color-text-secondary)}

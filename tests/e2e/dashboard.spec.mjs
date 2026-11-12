@@ -545,6 +545,22 @@ test.describe('sign-out leaves no member data in memory and keeps the expired me
 
 
 // ---- phase 5.5 (the owner's prototype v2, plan decision 6) ----
+test('the owner 13 Nov: the calendar\'s «مقارنة بفترة سابقة» is on for the dashboard (as it always compared) — off, the label and the open orders\' card drop the comparison', async ({ page }) => {
+  mockOnly();
+  await signIn(page, ADMIN.id, ADMIN.pw);
+  const open = page.locator('#pg-dashboard .kpi').filter({ hasText: 'أوردرات مفتوحة' });
+  await expect(open.locator('.kpi-delta')).toBeVisible();
+  await expect(page.locator('#pg-dashboard .range-label')).toContainText('مقارنة');
+  await page.getByRole('button', { name: 'اختيار الفترة' }).click();
+  const box = page.locator('.dp [data-rp-compare="dash"] input[type=checkbox]');
+  await expect(box).toBeChecked();
+  await box.uncheck();
+  await page.locator('.dp').getByRole('button', { name: 'تحديث' }).click();
+  await expect(page.locator('#pg-dashboard .range-label')).not.toContainText('مقارنة');
+  await expect(open.locator('.kpi-delta')).toHaveCount(0);
+  await expect(open).toContainText('جديد في الفترة');
+});
+
 test('5.5: the money KPIs follow the dashboard period (sales / net / expenses from accounts_sales and acc_expenses); the customize popup orders the cards by a grip (keyboard)', async ({ page }) => {
   mockOnly();
   await signIn(page, ADMIN.id, ADMIN.pw);

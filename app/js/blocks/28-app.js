@@ -3149,7 +3149,7 @@
   function vendorsToolbar() {
     return h('div', { class: 'toolbar' }, state.vsub === 'ledger' ? DateRangeField('vledger') : null,
       state.vsub === 'ledger' && state.vlrange ? Button({ type: 'text', size: 'sm', label: 'كل الفترات', attrs: { 'data-vl-all': '' }, onClick: () => { state.vlrange = null; render(); } }) : null,
-      SortDropdown(), state.vsub !== 'ledger' ? WdFilterDropdown() : null, h('span', { class: 'grow' }), canAdd() ? AddMenu('إجراء', 'vendorMoves') : null);
+      SortDropdown(), state.vsub !== 'ledger' ? WdFilterDropdown() : null, h('span', { class: 'grow' }), canAdd() ? AddMenu('إضافة مبلغ', 'vendorMoves') : null); // the owner 12 Nov: «إضافة مبلغ» again (was «إجراء» from 0078)
   }
   function makersAccountsTab() {
     refreshSeed(); state.tab = 'vendors';

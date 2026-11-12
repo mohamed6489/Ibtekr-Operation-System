@@ -74,6 +74,7 @@ const cancel = (page) => modal(page).getByRole('button', { name: 'إلغاء' })
 async function statusFilter(page, label) {
   await page.locator('#vendors [data-fm-btn="vendors"]').click(); // the owner 12 Nov: «فلتر» next to the sort, the groups inside
   await page.locator('[data-fm-menu="vendors"] [data-fm-clear]').click();
+  await page.locator('[data-fm-menu="vendors"] [data-fm-tab="status"]').click();
   if (label !== 'الكل') await page.locator('[data-fm-menu="vendors"] [data-fm-key="status"] [data-fm]', { hasText: label }).click(); // «الكل» = no status ticked
   await page.locator('[data-fm-menu="vendors"] [data-fm-apply]').dispatchEvent('click'); // the menu's foot may sit below the viewport
 }

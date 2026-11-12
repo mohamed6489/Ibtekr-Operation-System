@@ -76,6 +76,7 @@ test('a filter applied on a page stays on after leaving it and coming back by th
   await menu(page, 'vendors').click();
   await tabs.getByRole('tab', { name: 'سجل المبتكرين' }).click();
   await page.locator('#vendors [data-fm-btn="vendors"]').click();
+  await page.locator('[data-fm-menu="vendors"] [data-fm-tab="status"]').click();
   await page.locator('[data-fm-menu="vendors"] [data-fm="status:leave"]').click();
   await page.locator('[data-fm-menu="vendors"] [data-fm-apply]').dispatchEvent('click');
   const chips = page.locator('.af-row .af-chip:visible');

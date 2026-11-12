@@ -73,6 +73,7 @@ const inert = async (page) => {
 async function statusFilter(page, label) {
   await page.locator('#vendors [data-fm-btn="vendors"]').click(); // the owner 12 Nov: «فلتر» next to the sort, the groups inside
   await page.locator('[data-fm-menu="vendors"] [data-fm-clear]').click();
+  await page.locator('[data-fm-menu="vendors"] [data-fm-tab="status"]').click();
   if (label !== 'الكل') await page.locator('[data-fm-menu="vendors"] [data-fm-key="status"] [data-fm]', { hasText: label }).click(); // «الكل» = no status ticked
   await page.locator('[data-fm-menu="vendors"] [data-fm-apply]').dispatchEvent('click'); // the menu's foot may sit below the viewport
 }
@@ -621,7 +622,8 @@ test('5.5 / the owner 12 Nov: «فلتر» next to the sort in the card header h
   await expect(page.locator('#vendors [data-fm-btn="vendors"] .val')).toHaveText('فلتر (1)');
   const menu = page.locator('[data-fm-menu="vendors"]');
   await page.locator('#vendors [data-fm-btn="vendors"]').click();
-  await expect(menu.locator('[data-fm-key]')).toHaveCount(5);
+  await expect(menu.locator('[data-fm-tab]')).toHaveCount(5);
+  await menu.locator('[data-fm-tab="status"]').click();
   await expect(menu.locator('[data-fm="status:active"]')).toHaveAttribute('aria-checked', 'true'); // «نشط» by default
   await menu.locator('[data-fm="status:inactive"]').click();
   await expect(menu.locator('[data-fm-apply]')).toHaveText('اعرض 3 مبتكر');
@@ -802,7 +804,8 @@ test('decision 57: the makers page tabs — «نظرة عامة» (cards) · «�
   await expect(logCard.locator('[data-vlog-kind], [data-sm-btn], [data-cols], [data-af]')).toHaveCount(0);
   await logCard.locator('[data-fm-btn="vlog"]').click(); // the owner 12 Nov: one «فلتر» in the header, the groups inside
   const fm = page.locator('[data-fm-menu="vlog"]');
-  await expect(fm.locator('[data-fm-key] .opt-group')).toHaveText(['الحركة', 'المبتكر', 'بواسطة']);
+  await expect(fm.locator('[data-fm-tab]')).toHaveText(['الحركة', 'المبتكر', 'بواسطة']);
+  await fm.locator('[data-fm-tab="kind"]').click();
   await fm.locator('[data-fm="kind:create"]').click();
   await fm.locator('[data-fm-apply]').dispatchEvent('click');
   await expect(page.locator('#vpanel [data-vlog-row="inactive"]')).toHaveCount(0);
@@ -811,6 +814,7 @@ test('decision 57: the makers page tabs — «نظرة عامة» (cards) · «�
   await logCard.locator('[data-af-clear]').click();
   await expect(page.locator('#vpanel [data-vlog-row="inactive"]')).toHaveCount(1);
   await logCard.locator('[data-fm-btn="vlog"]').click();
+  await fm.locator('[data-fm-tab="maker"]').click();
   await fm.locator('[data-fm="maker:Antikiano"]').click();
   await fm.locator('[data-fm-apply]').dispatchEvent('click');
   await expect(logCard.locator('tbody tr')).toHaveCount(await logCard.locator('tbody tr', { hasText: 'Antikiano' }).count());

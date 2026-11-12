@@ -611,6 +611,7 @@ test('B2: «الفئة الأساسية» = the site\'s main categories, several
   // the makers filter «الفئة»: the main categories, by id — Art Craft and Clay Home are «ديكور»
   await drawer(page).getByRole('button', { name: 'إغلاق' }).first().click();
   await page.locator('#vendors [data-fm-btn="vendors"]').click(); // the owner 12 Nov: «فلتر» next to the sort, the groups inside
+  await page.locator('[data-fm-menu="vendors"] [data-fm-tab="category"]').click();
   await expect(page.locator('[data-fm-menu="vendors"] [data-fm-key="category"] [data-fm]')).toHaveText(['ديكور', 'هدايا']);
   await page.locator('[data-fm-menu="vendors"] [data-fm="category:15"]').click();
   await page.locator('[data-fm-menu="vendors"] [data-fm-apply]').dispatchEvent('click');

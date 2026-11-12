@@ -70,7 +70,8 @@ test('filters and sort: status chips, brand / category multi-selects, search by 
   const fbtn = page.locator('#pg-products [data-fm-btn="products"]'); const fm = page.locator('[data-fm-menu="products"]');
   await expect(fbtn.locator('.val')).toHaveText('فلتر');
   await fbtn.click();
-  await expect(fm.locator('[data-fm-key] .opt-group')).toHaveText(['البراند', 'المبتكر', 'القسم', 'المخزون', 'النوع']);
+  await expect(fm.locator('[data-fm-tab]')).toHaveText(['البراند', 'المبتكر', 'القسم', 'المخزون', 'النوع']); // the owner 12 Nov: tabs in a strip
+  await fm.locator('[data-fm-tab="brand"]').click();
   await expect(fm.locator('[data-fm-key="brand"] [role=menuitemcheckbox]').first()).not.toContainText(':'); // the values alone
   await fm.locator('[data-fm="brand:Antikiano"]').click();
   await expect(fm.locator('[data-fm-apply]')).toHaveText('اعرض 2 منتج');
@@ -82,12 +83,14 @@ test('filters and sort: status chips, brand / category multi-selects, search by 
   await expect(rows).toHaveCount(4);
   // the categories: main then sub with dashes; a main one takes what is under it, two picks are either
   await fbtn.click();
+  await fm.locator('[data-fm-tab="category"]').click();
   const cm = fm.locator('[data-fm-key="category"]');
   await expect(cm.locator('[role=menuitemcheckbox]')).toHaveText(['ديكور', '- إضاءة', '-- أباجورات', 'هدايا']);
   await cm.locator('[role=menuitemcheckbox]', { hasText: '- إضاءة' }).click();
   await fm.locator('[data-fm-apply]').dispatchEvent('click');
   const lit = await rows.count();
   await fbtn.click();
+  await expect(fm.locator('[data-fm-tab="category"]')).toHaveAttribute('aria-selected', 'true'); // the filter opens on the tab last used
   await cm.locator('[role=menuitemcheckbox]', { hasText: 'هدايا' }).click();
   await fm.locator('[data-fm-apply]').dispatchEvent('click');
   expect(await rows.count()).toBeGreaterThanOrEqual(lit);
@@ -428,6 +431,7 @@ test('5.5 / B3: the type is a group of the «فلتر» next to the sort (the pi
   await openProducts(page);
   const rows = page.locator('#pg-products .pr-table tbody tr');
   await page.locator('#pg-products [data-fm-btn="products"]').click(); // the owner 12 Nov: the groups inside one «فلتر»
+  await page.locator('[data-fm-menu="products"] [data-fm-tab="type"]').click();
   await page.locator('[data-fm-menu="products"] [data-fm="type:Variable"]').click();
   await expect(page.locator('[data-fm-menu="products"] [data-fm-apply]')).toHaveText('اعرض 1 منتج');
   await page.locator('[data-fm-menu="products"] [data-fm-apply]').dispatchEvent('click');
@@ -643,7 +647,9 @@ test('decision 62: the tabs are نظرة عامة · إضافة · سجل الم
   await expect(card.locator('.sec-h')).toContainText('1 من 1 حركة');
   await expect(card.locator('[data-plog-kind]')).toHaveCount(0);
   await card.locator('[data-fm-btn="plog"]').click();
+  await page.locator('[data-fm-menu="plog"] [data-fm-tab="kind"]').click();
   await expect(page.locator('[data-fm-menu="plog"] [data-fm-key="kind"] [role=menuitemcheckbox]')).toHaveText(['نقل للمهملات']);
+  await page.locator('[data-fm-menu="plog"] [data-fm-tab="by"]').click();
   await expect(page.locator('[data-fm-menu="plog"] [data-fm-key="by"] [role=menuitemcheckbox]')).toHaveCount(1);
   await page.keyboard.press('Escape');
   await expect(card.locator('[data-plog-refresh]')).toBeVisible();

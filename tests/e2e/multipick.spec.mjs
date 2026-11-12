@@ -116,13 +116,27 @@ test('FilterMenu = one «فلتر» button: the panel holds every group, a long 
   await expect(btn.locator('.val')).toHaveText('فلتر (1)');
   await btn.click();
   const menu = page.locator('[data-fm-menu="demo"]');
-  await expect(menu.locator('[data-fm-key] .opt-group')).toHaveText(['الحالة', 'الفئة', 'المحافظة']);
+  // the owner 12 Nov: the groups are tabs in a strip (the count picked on each); the tab picked shows its search and its ticks
+  await expect(menu.locator('[data-fm-tab] .fm-tl')).toHaveText(['الحالة', 'الفئة', 'المحافظة']);
+  await expect(menu.locator('[data-fm-tab] [data-fm-n]')).toHaveText(['1']); // the count picked in the tab's badge
+  await expect(menu.locator('[data-fm-tab="s"]')).toHaveClass(/chip/); // the kit's chip
+  await expect(menu.locator('[data-fm-tab="s"]')).toHaveAttribute('aria-selected', 'true');
+  await expect(menu.locator('[data-fm-key="s"]')).toBeVisible();
+  await expect(menu.locator('[data-fm-key="c"]')).toBeHidden();
+  await menu.locator('[data-fm-tab="c"]').click();
   await expect(menu.locator('[data-fm-key="c"] [role=menuitemcheckbox]')).toHaveText(['ديكور', '- هدايا']); // a sub-level with «-»
-  await expect(menu.locator('[data-fm-q]')).toHaveCount(1); // the search only in the long group
+  await expect(menu.locator('[data-fm-key="s"]')).toBeHidden();
+  await menu.locator('[data-fm-tab="p"]').click();
+  await expect(menu.locator('[data-fm-q="p"]')).toBeFocused(); // the tab's search takes the focus
   await menu.locator('[data-fm-q="p"]').fill('الاقصر'); // أ folded
   await expect(menu.locator('[data-fm-key="p"] [role=menuitemcheckbox]:visible')).toHaveText(['الأقصر']);
+  await expect(menu.locator('[data-fm-key="p"] .fm-q.input')).toBeVisible(); // the kit's input with the search icon
+  await menu.locator('[data-fm-q="p"]').fill('لندن');
+  await expect(menu.locator('[data-fm-key="p"] .fm-none')).toBeVisible();
+  await menu.locator('[data-fm-tab="c"]').click();
   await expect(menu.locator('[data-fm-apply]')).toHaveText('اعرض 2 صف'); // «نشط» already on
   await menu.locator('[data-fm="c:15"]').click();
+  await expect(menu.locator('[data-fm-tab="c"] [data-fm-n]')).toHaveText('1');
   await expect(menu.locator('[data-fm-apply]')).toHaveText('اعرض 1 صف');
   await menu.locator('[data-fm-apply]').click();
   expect(await page.evaluate(() => window.__fm)).toEqual([{ s: ['active'], c: [15], p: [] }]); // the status kept, the category a number
@@ -143,7 +157,8 @@ test('a details table without its own filter gets «فلتر» next to the sort 
   await expect(card.locator('.sec-h [data-sm-btn^="auto"]')).toHaveCount(1); // next to the sort
   await card.locator('[data-fm-btn^="auto"]').click();
   const menu = page.locator('[data-fm-menu^="auto"]');
-  await expect(menu.locator('[data-fm-key] .opt-group')).toContainText(['الحالة', 'المدينة']);
+  await expect(menu.locator('[data-fm-tab]')).toContainText(['الحالة', 'المدينة']);
+  await menu.locator('[data-fm-tab="الحالة"]').click();
   await menu.locator('[data-fm="الحالة:ملغي"]').click();
   await expect(menu.locator('[data-fm-apply]')).toHaveText('اعرض 2 صف');
   await menu.locator('[data-fm-apply]').click();

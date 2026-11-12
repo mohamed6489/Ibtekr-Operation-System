@@ -1755,3 +1755,11 @@ tr.dragging{background:var(--color-bg-tint)}
 .fm-menu .fm-list{max-height:220px;overflow:auto}
 .fm-menu .opt[hidden]{display:none}
 .fm-menu .view-foot{position:sticky;bottom:0;background:var(--color-bg-elevated)}
+
+/* the owner 12 Nov: a small search next to every table's title (the kit's tableSearch) */
+.tq-line{display:flex;align-items:center;gap:12px;flex-wrap:wrap;min-width:0}
+.tq{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 10px;border:1px solid var(--color-border-subtle);border-radius:999px;background:var(--color-bg-elevated);color:var(--color-text-secondary);font-weight:400}
+.tq input{border:0;outline:none;background:transparent;width:150px;height:28px;padding:0;font:inherit;font-size:13px;color:var(--color-text-primary)}
+.tq:focus-within{border-color:var(--color-brand-default)}
+tr.tq-hide{display:none}
+@media (max-width:600px){.tq input{width:110px}}

@@ -391,11 +391,31 @@
     return card;
   }
   function stdTables(root) { if (root && root.querySelectorAll) root.querySelectorAll('table').forEach(stdCard); }
+  // the owner 12 Nov («خانة بحث صغيرة جمب تايتل الجدول بحيث تساعد المستخدم يدور بشكل اسرع على المعلومة جوة الجدول»): a small search next to
+  // the title of every table card (3 columns or more); it hides the rows without the words (Arabic letters folded) and keeps what was
+  // typed while the table redraws. A table whose page already has its own search (one that reads every page — the products, the
+  // makers, the tickets, the customers…) keeps that one only; data-no-tq on a card or above it opts out.
+  const tqMem = {};
+  function tableSearch(card, t) {
+    if (!card || !t || card.querySelector('[data-tq]') || card.closest('[data-no-tq]')) return;
+    const near = card.parentElement; if (near && [...near.querySelectorAll('input[type=search]')].some((x) => !x.closest('.menu, .modal, .drawer, [data-tq]'))) return;
+    const head = card.querySelector(':scope>.table-title, :scope>.sec-h, :scope>.cons-h'); if (!head) return;
+    const title = head.querySelector('h2, h3'); if (!title || !t.tBodies.length) return;
+    const name = (title.textContent || '').trim(); const key = name + '|' + colHeads(t).slice(0, 3).join('|');
+    const inp = h('input', { type: 'search', placeholder: 'دوّر في الجدول…', 'aria-label': 'دوّر في ' + (name || 'الجدول'), autocomplete: 'off', value: tqMem[key] || '' });
+    const run = () => { tqMem[key] = inp.value; const q = foldAr(inp.value); const tb = card.querySelector('table'); if (!tb) return; let n = 0;
+      [...tb.tBodies].forEach((b) => [...b.rows].forEach((r) => { if (r.classList.contains('tq-none')) return; const hit = !q || foldAr(r.textContent).includes(q); r.classList.toggle('tq-hide', !hit); if (hit) n++; }));
+      let none = tb.querySelector('tr.tq-none'); if (q && !n) { if (!none) { none = h('tr', { class: 'tq-none' }, h('td', { colspan: String(colHeads(tb).length || 1), class: 't-small help' }, 'مفيش صفوف فيها «' + inp.value + '»')); tb.tBodies[0].append(none); } else none.querySelector('td').textContent = 'مفيش صفوف فيها «' + inp.value + '»'; } else if (none) none.remove(); };
+    inp.addEventListener('input', run);
+    const box = h('label', { class: 'tq', 'data-tq': key }, Icon('search', 'sm'), inp);
+    const line = h('div', { class: 'tq-line' }); title.replaceWith(line); line.append(title, box);
+    if (inp.value) run();
+  }
   function sweepColumns(root) {
     if (!root || !root.querySelectorAll) return;
     root.querySelectorAll('table').forEach((t) => {
       if (t.closest('.modal, .drawer, [role=dialog]')) return;
-      stdCard(t);
+      tableSearch(stdCard(t), t);
       if (colHeads(t).length < 4) return;
       t.classList.add('sticky-col1'); // أول عمود بيفضل ثابت وانت بتسكرول عرضي (owner 27 Oct)
       const card = t.closest('.card, .table-card, .sec, .tbl-card') || t.parentElement;

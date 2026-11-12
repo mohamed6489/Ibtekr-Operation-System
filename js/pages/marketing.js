@@ -263,13 +263,11 @@
       h('div', { class: 'cw-media', 'data-cw-media': t }, counts, t === 'video' ? vmodelSel('cw-md-video', m.model, (v) => { m.model = v; const mm = PD.VIDEO_MODELS.find((x) => x.id === v); if (mm && !mm.durations.includes(m.dur)) m.dur = mm.durations[0]; }) : modelSel('cw-md-' + t, m.model, (v) => { m.model = v; }),
         h('hr', { class: 'cw-hr' }), Files('cw-use-' + t, 'فايلز أو لينكات للاستخدام', m.use, 'صور المنتج، اللوجو، لقطات من الورشة — أو لينك منتج من الموقع'), Files('cw-ref-' + t, 'فايلز أو لينكات أمثلة للمطابقة', m.ref, 'الـ AI بيقلّد الستايل والترتيب', t === 'carousel' ? 'carousel' : 'post'),
         aiField(U.Textarea({ id: 'cw-notes-' + t, label: 'تعليمات', rows: 2, value: m.notes, placeholder: 'مثلًا: ألوان دافية، من غير ناس، الكلام قليل', onInput: (v) => { m.notes = v; persist(); } }), 'notes', { campaignId: null }))]);
-    const X = c.extra;
-    const extra = Card('ملفات إضافية', 'صور زيادة للستوري أو الموقع بنفس الستايل.', [h('div', { class: 'cw-row' }, num('cw-n-extra', 'العدد', X.count, W.MAX.count, (v) => { X.count = v; })),
-      X.count ? [modelSel('cw-md-extra', X.model, (v) => { X.model = v; }), h('hr', { class: 'cw-hr' }), Files('cw-use-extra', 'فايلز أو لينكات للاستخدام', X.use), Files('cw-ref-extra', 'فايلز أو لينكات أمثلة للمطابقة', X.ref, null, 'post'),
-        aiField(U.Textarea({ id: 'cw-notes-extra', label: 'تعليمات', rows: 2, value: X.notes, onInput: (v) => { X.notes = v; persist(); } }), 'notes', { campaignId: null })] : null]);
+    // the owner 13 Nov (decision 10 of docs/superpowers/plans/2026-11-13-owner-ui-batch.md): no «ملفات إضافية» on a new campaign (an old one's
+    // extra files stay as they were)
     const est = W.estimate(c, IMGM()); const w = wallet(); const estV = W.estimateVideo(c);
     const sum = U.InlineNote({ kind: w.balance != null && est > w.balance ? 'warning' : 'info', children: h('span', { 'data-cw-est': String(est) }, 'التكلفة المتوقعة لصور الكامبين كلها تقريبًا ' + K.n0(est) + ' كريديت' + (estV ? ' · والفيديو ≈ ' + K.n0(estV) + ' كريديت على حساب Magnific المربوط (مش من رصيد الصور)' : '') + ' · ' + (w.balance != null ? 'رصيدك ' + K.n0(w.balance) + ' كريديت' : 'اتصرف الشهر ده ' + K.n0(w.used) + ' كريديت') + '. التكلفة الفعلية بتظهر قبل كل توليد، والكتابة بالـ AI مابتصرفش كريدت.') });
-    return [goal, idea, media, extra, err.media ? U.InlineNote({ kind: 'error', children: err.media }) : null, sum,
+    return [goal, idea, media, err.media ? U.InlineNote({ kind: 'error', children: err.media }) : null, sum,
       Foot(1, 4, cback, 'متابعة للبناء', async () => { camp.tried1 = true; if (Object.keys(W.validateDetails(c)).length) { R(); K.toast('كمّل البيانات الناقصة', 'error'); return; }
         camp.pieces = W.buildPieces(c, camp.pieces); if (!(await ensureCampaign())) return; go('marketing-campaign-2'); }, !can().create)];
   }

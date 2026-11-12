@@ -418,8 +418,11 @@
     for (let k = 0; s && k < 3; k++, s = s.previousElementSibling) { if (s.querySelector('table')) break; const x = s.matches('input[type=search]') ? s : [...s.querySelectorAll('input[type=search]')].find(tqOk); if (x) return x; }
     return null;
   }
+  // the owner 13 Nov (decision 1 of docs/superpowers/plans/2026-11-13-owner-ui-batch.md): no «بحث» on the tables of a «نظرة عامة» tab
+  // (the page's first selected tab)
+  const inOverview = (card) => { const pg = card.closest('main, [id^="pg-"]') || document; const tab = pg.querySelector('[role=tab][aria-selected="true"]'); return !!tab && (tab.textContent || '').trim().startsWith('نظرة عامة'); };
   function tableSearch(card, t) {
-    if (!card || card.querySelector('[data-tq-btn]') || card.closest('[data-no-tq]')) return;
+    if (!card || card.querySelector('[data-tq-btn]') || card.closest('[data-no-tq]') || inOverview(card)) return;
     const head = card.querySelector(':scope>.table-title, :scope>.sec-h, :scope>.cons-h'); if (!head) return;
     const title = head.querySelector('h2, h3'); if (!title) return;
     const own = ownSearch(card);

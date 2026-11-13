@@ -314,9 +314,23 @@
       const def = pages[id]; const main = document.getElementById('pg-' + id); if (!def || !main) return;
       U.closePopover(); const sc = window.scrollY; main.replaceChildren(...def.view().filter(Boolean)); if (keepScroll) window.scrollTo(0, sc);
       stdTables(main); // the standard table right away (no beige header for a frame); the columns sweep stays after the render
+      tabsInView(main);
       setTimeout(() => sweepColumns(main), 0);
     },
   };
+  // the owner 13 Nov (mobile review, decision 1 of docs/superpowers/plans/2026-11-13-mobile-review.md): on a phone the pinned page tabs are one
+  // row that scrolls sideways — the selected tab is brought into view after a render, a tab click / arrow key and a hash change
+  function tabsInView(root) {
+    (root || document).querySelectorAll('.content > .tabs').forEach((l) => {
+      if (l.scrollWidth <= l.clientWidth + 1) return; const a = l.querySelector('[aria-selected="true"]'); if (!a) return;
+      const ar = a.getBoundingClientRect(), lr = l.getBoundingClientRect(); if (ar.left >= lr.left - 1 && ar.right <= lr.right + 1) return;
+      l.scrollLeft += (ar.left + ar.width / 2) - (lr.left + lr.width / 2);
+    });
+  }
+  const tabsLater = () => setTimeout(() => tabsInView(document), 0);
+  document.addEventListener('click', (e) => { if (e.target && e.target.closest && e.target.closest('[role=tab]')) tabsLater(); }, true);
+  document.addEventListener('keydown', (e) => { if (e.target && e.target.closest && e.target.closest('[role=tablist]')) tabsLater(); }, true);
+  window.addEventListener('hashchange', () => setTimeout(() => tabsInView(document), 60));
 
   // ---------- أعمدة أي جدول: إظهار/إخفاء + ترتيب (owner 27 Oct — «في كل الجداول اللي في السيستم»; phase 4.1) ----------
   // بتشتغل على أي <table> فيه thead من غير ما نلمس الكود اللي بيبنيه: بنقرا عناوين الأعمدة ونرتّب الخلايا بيها.

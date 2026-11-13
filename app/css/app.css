@@ -1816,3 +1816,25 @@ td > :is(.mlink,.prod,.who-cell) > :is(span,div):last-child{min-width:0;overflow
 td > :is(.mlink,.prod,.who-cell) :is(b,small){display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 td > :is(.mlink,.prod,.who-cell) .avatar{flex:none}
 
+/* ===== the owner 13 Nov — mobile review (docs/superpowers/plans/2026-11-13-mobile-review.md) ===== */
+@media (max-width:767px){
+  /* decision 1: the pinned page tabs are one row that scrolls sideways, edge to edge (they wrapped into 2–3 rows that stayed pinned over
+     a third of the screen); block 14 keeps the selected tab in view */
+  .content > .tabs{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;margin-inline:calc(-1 * var(--gut));padding-inline:var(--gut);scroll-padding-inline:var(--gut)}
+  .content > .tabs .tab{flex:none}
+  .content > .tabs::before{display:none}
+  /* decision 2: a table card's head wraps its controls instead of squeezing them — «فلتر» keeps its word, nothing is pushed out of the card */
+  .sec-h .acts:has(.select){flex-wrap:wrap}
+  .sec-h .acts:has(.select)>.pop-anchor{flex:1 1 120px;min-width:0;max-width:100%}
+  .sec-h .acts:has(.select)>.pop-anchor:has([data-fm-btn]){flex:0 0 auto}
+}
+/* decision 3: a scroll strip holds its absolutely placed children — a screen-reader label (.sr-only) in a table scrolled sideways sat at its
+   static spot past the strip, relative to the page, and pushed the whole page 121px wider (the makers' log at 1024px); the label is pinned
+   to its box's corner too */
+.scroll-x,.xwrap{position:relative}
+.sr-only{top:0;inset-inline-start:0}
+/* decision 4: a popup never runs past the screen's sides — the scrim is a grid, so a wide popup (.modal.xl 960px) grew its track and
+   «max-width:100%» held nothing (the new template at 768px); the track is the scrim's width now */
+.scrim{grid-template-columns:minmax(0,1fr)}
+/* decision 5: a long name in a popup's pick-list wraps instead of scrolling the list sideways («استلام في المخزن») */
+.rc-orders [role=option]{white-space:normal;overflow-wrap:anywhere;height:auto;min-height:32px;padding-block:6px;text-align:start;justify-content:flex-start}

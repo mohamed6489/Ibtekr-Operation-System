@@ -70,8 +70,8 @@ test('decision 39: the admin sees a member\'s bank account masked on their file 
   await expect(P(page).locator('[data-bank-number]')).toHaveText('55556666777788');
   await expect.poll(() => mock.activity.filter((a) => a.action === 'hr.bank.reveal').map((a) => a.entity_id)).toEqual([OPS_ID]);
   // the server refuses anyone else: the mock answers 42501 for a member reading another's
-  const r = await page.evaluate(async () => { await window.IBAuth.signOut('local'); return true; });
-  expect(r).toBe(true);
+  // the SIGNED_OUT reloads the page (block 28): wait for it, or the next goto is interrupted by that reload
+  await Promise.all([page.waitForEvent('load'), page.evaluate(() => { window.IBAuth.signOut('local'); })]);
   await open(page, 'accounts.dev@ibtekr.local', 'profile');
   const out = await page.evaluate((id) => window.IBHR.bank(id), OPS_ID);
   expect(out).toMatchObject({ ok: false, reason: 'forbidden' });

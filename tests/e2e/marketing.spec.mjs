@@ -206,7 +206,7 @@ test('the templates: a new one with an upload and «اشرحها بالـ AI»; 
 test('permissions and the cap: a member without marketing.view gets no page; over the month\'s cap the image is refused before any call', async ({ page }) => {
   await openMarketing(page, ACCOUNTS, false);
   await expect(pg(page)).toContainText('مفيش صلاحية');
-  await page.evaluate(() => window.IBAuth && window.IBAuth.signOut && window.IBAuth.signOut());
+  await Promise.all([page.waitForEvent('load'), page.evaluate(() => { window.IBAuth.signOut(); })]); // the SIGNED_OUT reloads the page first
   mock.mkt.cap = 100; mock.mkt.used = 60; // 40 left, an image is 75
   await openMarketing(page);
   await pg(page).locator('[data-mk-open="' + C1 + '"]').click();

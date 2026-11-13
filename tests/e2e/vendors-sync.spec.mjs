@@ -292,7 +292,7 @@ test('the commission by category (plan 3.4): the type picker, the tree of the si
   await expect(agreement(page).locator('tr[data-cat-rate="152"]')).toHaveCount(0);
   await expect.poll(() => pushes()).toHaveLength(2);
   // ops: no block, no request for the rates; a write forged past the page → 42501; a push → 401
-  await page.evaluate(() => window.IBAuth.signOut());
+  await Promise.all([page.waitForEvent('load'), page.evaluate(() => { window.IBAuth.signOut(); })]); // the SIGNED_OUT reloads the page first
   await expect(page.locator('#login')).toBeVisible();
   mock.requests.length = 0;
   await openVendors(page, OPS);
@@ -321,7 +321,7 @@ test('ops (vendors.edit = P) saves the contact and its push goes through (the co
   await expect.poll(() => pushes()).toEqual([{ vendor_id: V1, fields: ['contact_name'], result: 'ok' }]);
   await expect(page.locator('#vendors .note.warning')).toHaveCount(0); // no «اتحفظ في السيستم بس»: the push went through
   await expect(info(contact(page), page, 'اسم صاحب المتجر')).toHaveText('منى عادل حسن');
-  await page.evaluate(() => window.IBAuth.signOut());
+  await Promise.all([page.waitForEvent('load'), page.evaluate(() => { window.IBAuth.signOut(); })]); // the SIGNED_OUT reloads the page first
   await expect(page.locator('#login')).toBeVisible();
   await openVendors(page, ACCOUNTS);
   await openDrawer(page, V1);
@@ -372,7 +372,7 @@ test('«مزامنة دلوقتي» (plan 3.4 decision 10): the admin pulls the 
   await expect(note(page)).toContainText('الموقع مش بيرد دلوقتي');
   mock.wooDown = false;
   expect(writes()).toEqual([]);
-  await page.evaluate(() => window.IBAuth.signOut());
+  await Promise.all([page.waitForEvent('load'), page.evaluate(() => { window.IBAuth.signOut(); })]); // the SIGNED_OUT reloads the page first
   await expect(page.locator('#login')).toBeVisible();
   await openVendors(page, OPS);
   await expect(page.locator('#vendors [data-sync-now]')).toHaveCount(0);

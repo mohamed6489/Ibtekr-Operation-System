@@ -63,7 +63,7 @@ test('decision 33: a leave filed from «تذاكر الفريق» opens its tick
   await expect(card).toContainText('إجازة عارضة'); await expect(card).toContainText('مستني قرار مديرك المباشر');
   await expect(card.locator('[data-rq-cancel]')).toBeVisible(); await expect(card.locator('[data-rq-approve]')).toHaveCount(0);
   // the admin approves it from the ticket
-  await page.evaluate(() => window.IBAuth.signOut('local'));
+  await Promise.all([page.waitForEvent('load'), page.evaluate(() => { window.IBAuth.signOut('local'); })]); // the SIGNED_OUT reloads the page first
   await signIn(page, 'admin.dev@ibtekr.local');
   await page.evaluate((id) => { location.hash = 'tickets/TKT-' + String(id).padStart(4, '0'); }, tk.id);
   await page.locator('[data-hr-request] [data-rq-approve]').click();

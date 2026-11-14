@@ -583,3 +583,28 @@ test('the HR rebuild (0083): the leave carried into this year counts in the bala
   eq([c.carry, c.leaveLeft], [0, 21], 'last year\'s carry does not');
   eq([H.settings().payDay, H.settings().bonusMin, H.settings().leaveYearEnd], [28, 3, 'pay']);
 });
+
+test('owner batch 14 Nov decision 13 (0089): the evaluation notes — hr_notes_log read in the members\' codes; noteAdd checks before the server (a warning / a plan needs its text, a meeting a coming time in Cairo) and nothing is logged here', async () => {
+  const { H, stub, logs } = load({ responses: {
+    hr_notes_log: ok([{ id: 5, member_id: C, kind: 'warning', period: '2026-10', body: 'سبب', due_at: null, ticket_id: null, by_id: B, at: '2026-11-01T08:00:00Z' },
+      { id: 6, member_id: C, kind: 'meeting', period: '2026-Q4', body: null, due_at: '2026-11-07T09:00:00Z', ticket_id: 12, by_id: A, at: '2026-11-02T08:00:00Z' }]),
+    'rpc:hr_member_note_add': ok({ id: 9, ticket: 14 }) } });
+  await H.load();
+  eq(H.notesOf('M03').map((x) => [x.id, x.kind, x.period, x.by, x.ticket]), [[5, 'warning', '2026-10', 'سارة أحمد', null], [6, 'meeting', '2026-Q4', 'صفوت كمال', 12]]);
+  eq(H.notesOf('M03', '2026-Q4').length, 1);
+  // Cairo is UTC+2 in November: 11:00 there = 09:00Z
+  eq(H.cairoIso('2026-11-07', '11:00'), '2026-11-07T09:00:00.000Z'); eq(H.cairoIso('2026-11-07', '25:00'), null);
+  eq((await H.noteAdd('M03', 'warning', '2026-11', '   ')).field, 'body');
+  eq((await H.noteAdd('M03', 'plan', '2026-11', '')).field, 'body');
+  eq((await H.noteAdd('M03', 'meeting', '2026-11', '', null)).field, 'due');
+  eq((await H.noteAdd('M03', 'meeting', '2026-11', '', { day: '2026-11-01', time: '11:00' })).field, 'due'); // passed
+  eq((await H.noteAdd('M03', 'bonus', '2026-11')).field, 'kind');
+  eq((await H.noteAdd('M03', 'thanks', '2026-13')).field, 'period');
+  eq(rpcs(stub).filter((x) => x[0] === 'hr_member_note_add').length, 0);
+  const r = await H.noteAdd('M03', 'meeting', '2026-11', ' نراجع  <b>الأوردرات</b> ', { day: '2026-11-08', time: '10:30' });
+  eq([r.ok, r.id, r.ticket], [true, 9, 14]);
+  eq(rpcs(stub).find((x) => x[0] === 'hr_member_note_add'), ['hr_member_note_add', { p_member: C, p_kind: 'meeting', p_period: '2026-11', p_body: 'نراجع b الأوردرات /b', p_due: '2026-11-08T08:30:00.000Z' }]);
+  eq(logs.filter((l) => /note/.test(l[0])).length, 0); // the server logs hr.note.add (the kind and the period only)
+  const bad = load({ responses: { 'rpc:hr_member_note_add': { data: null, error: { code: '42501', message: 'not allowed' } } } });
+  eq((await bad.H.noteAdd('M03', 'thanks', '2026-11')).reason, 'forbidden');
+});

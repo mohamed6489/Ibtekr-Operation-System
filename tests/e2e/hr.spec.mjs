@@ -380,3 +380,66 @@ test('every tab and sub-tab draws without a page error (the calendar, the payrol
   await tab('التقارير').click(); await expect(P(page).locator('[data-staff="absence"], [data-staff="rating"]').first()).toBeVisible(); // the reports page's «تقارير الموظفين» (T8)
   await tab('سجل الحركات').click(); await expect(P(page).locator('.panel')).toBeVisible();
 });
+
+test('owner batch 14 Nov decision 13 — the evaluation ⋮: a low month offers a meeting / a warning / a plan, a high one a thanks / a bonus; the meeting opens a team request with the time only; the member sees it all in «ملفي › أدائي»', async ({ page }) => {
+  // منى حسن: performance 1, communication 2 → under the bar (3); سارة أحمد: 5 and 5 with no working day asked yet (hired later) → 5
+  mock.hr.members.find((x) => x.member_id === OPS_ID).hire_date = addDays(T, 40);
+  mock.hr.evaluations.push({ member_id: ACC_ID, month: MK, performance: 1, communication: 2, note: null, rated_by: null, rated_at: new Date().toISOString() },
+    { member_id: OPS_ID, month: MK, performance: 5, communication: 5, note: null, rated_by: null, rated_at: new Date().toISOString() });
+  await openHr(page, ADMIN, 'hr-evals');
+  const t = P(page).locator('table.hr-evals');
+  const menu = async (name) => { await t.locator('tbody tr', { hasText: name }).getByRole('button', { name: 'إجراءات تقييم ' + name }).click(); return page.locator('[role=menu]').last(); };
+  let m = await menu('منى حسن');
+  for (const x of ['حدد ميتنج', 'ابعت إنذار', 'خطة تحسين']) await expect(m.getByRole('menuitem', { name: x })).toBeVisible();
+  await expect(m.getByRole('menuitem', { name: 'ابعت شكر' })).toHaveCount(0);
+  await m.getByRole('menuitem', { name: 'ابعت إنذار' }).click();
+  let f = modal(page, 'ابعت إنذار — منى حسن');
+  await f.getByRole('button', { name: 'ابعت الإنذار' }).click();
+  await expect(f).toContainText('اكتب سبب الإنذار');
+  await f.locator('#body').fill('القيود اتأخرت أكتر من مرة');
+  await f.getByRole('button', { name: 'ابعت الإنذار' }).click();
+  await expect(f).toBeHidden();
+  m = await menu('منى حسن'); await m.getByRole('menuitem', { name: 'حدد ميتنج' }).click();
+  f = modal(page, 'حدد ميتنج — منى حسن');
+  await expect(f).toContainText('من غير التقييم');
+  await date(f, 'day', addDays(T, 2));
+  await f.locator('#body').fill('نراجع القيود');
+  await f.getByRole('button', { name: 'حدد الميتنج' }).click();
+  await expect(f).toBeHidden();
+  const notes = calls('hr_member_note_add');
+  expect(notes.map((c) => [c.p_member, c.p_kind, c.p_period])).toEqual([[ACC_ID, 'warning', MK.slice(0, 7)], [ACC_ID, 'meeting', MK.slice(0, 7)]]);
+  expect(notes[1].p_due.slice(0, 10) <= addDays(T, 2)).toBe(true);
+  // the request: to the member's role with the time only (no rating, no agenda); the bell to the member
+  const tk = mock.tickets.find((x) => x.title.startsWith('ميتنج فردي — منى حسن'));
+  expect(tk && tk.assignee_role).toBe('الحسابات');
+  expect(tk.title + tk.description).not.toMatch(/تقييم|القيود/);
+  expect(mock.alerts.filter((a) => a.kind === 'hr.note').map((a) => a.user_id)).toEqual([ACC_ID, ACC_ID]);
+  m = await menu('منى حسن'); await m.getByRole('menuitem', { name: 'اللي اتبعت (2)' }).click();
+  f = modal(page, 'اللي اتبعت لـ منى حسن');
+  await expect(f.locator('[data-hr-notes]')).toContainText('إنذار'); await expect(f.locator('[data-hr-notes]')).toContainText('ميتنج فردي');
+  await f.locator('.btn', { hasText: 'إغلاق' }).click(); await expect(f).toBeHidden();
+  // the high row: a thanks and the payroll bonus popup with its line named
+  m = await menu('سارة أحمد');
+  await expect(m.getByRole('menuitem', { name: 'ابعت إنذار' })).toHaveCount(0);
+  await m.getByRole('menuitem', { name: 'أضف مكافأة' }).click();
+  f = modal(page, 'مكافأة / خصم');
+  await expect(f.locator('#label')).toHaveValue('مكافأة تقييم ' + monLabel(MK));
+  await page.keyboard.press('Escape'); await expect(f).toBeHidden();
+  m = await menu('سارة أحمد'); await m.getByRole('menuitem', { name: 'ابعت شكر' }).click();
+  f = modal(page, 'ابعت شكر — سارة أحمد');
+  await f.getByRole('button', { name: 'ابعت الشكر' }).click();
+  await expect(f).toBeHidden();
+  expect(calls('hr_member_note_add').map((c) => [c.p_member, c.p_kind])).toContainEqual([OPS_ID, 'thanks']);
+  // the quarter rows carry the ⋮ too
+  await P(page).getByRole('tab', { name: 'التقييم الربع سنوي' }).click();
+  await expect(P(page).locator('table.hr-evals-q tbody tr', { hasText: 'منى حسن' }).getByRole('button', { name: 'إجراءات تقييم منى حسن' })).toBeVisible();
+  // منى herself: «ملفي › أدائي» lists what was sent
+  await page.evaluate(() => window.IBAuth && window.IBAuth.signOut && window.IBAuth.signOut());
+  await page.goto('/'); await page.fill('#lg-id', 'accounts.dev@ibtekr.local'); await page.fill('#lg-pw', DEV_PW);
+  await page.getByRole('button', { name: 'دخول', exact: true }).click();
+  await expect(page.locator('#root')).toBeVisible();
+  await page.evaluate(() => { location.hash = 'profile-performance'; });
+  const pf = page.locator('table.pf-notes');
+  await expect(pf.locator('tbody tr')).toHaveCount(2);
+  await expect(pf).toContainText('القيود اتأخرت أكتر من مرة'); await expect(pf).toContainText('ميتنج فردي');
+});

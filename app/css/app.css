@@ -1874,3 +1874,8 @@ td > :is(.mlink,.prod,.who-cell) .avatar{flex:none}
 .dash-task-auto{display:flex;align-items:center;gap:8px;padding:6px 0;color:var(--color-text-primary);text-decoration:none;border-bottom:1px solid var(--color-border-subtle)}
 .dash-task-auto:hover{color:var(--color-brand-default)}
 .dash-task-auto .ic{color:var(--color-text-gold,#b8860b)}
+
+/* owner batch 14 Nov decision 13: the evaluation row — «قيّم» and ⋮ side by side; the notes list in its popup */
+.row-acts { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+[data-hr-notes] .note-row { padding: 10px 0; border-bottom: 1px solid var(--color-border, #e6dccb); }
+[data-hr-notes] .note-row:last-child { border-bottom: 0; }

@@ -44,9 +44,11 @@ const COLS = {
   hr_ot_adjust: ['id', 'member_id', 'month', 'minutes', 'reason', 'by_id', 'at'],
   hr_documents: ['id', 'member_id', 'kind', 'path', 'name', 'start_on', 'end_on', 'created_by', 'created_at', 'voided_by', 'voided_at'],
   hr_tasks: ['id', 'member_id', 'title', 'status', 'day', 'reason', 'reviewer_id', 'until', 'review_note', 'done_at', 'created_by', 'created_at', 'updated_by', 'updated_at', 'deleted_at', 'deleted_by'],
+  // owner batch 14 Nov decision 13 (0089): the evaluation notes — read-only, written by hr_member_note_add below
+  hr_notes_log: ['id', 'member_id', 'kind', 'period', 'body', 'due_at', 'ticket_id', 'by_id', 'at'],
 };
 const KEY = { hr_attendance: 'attendance', hr_overtime: 'overtime', hr_requests_v: 'requests', hr_holidays: 'holidays', hr_leave_types: 'leave_types', hr_bonus_rules: 'bonus_rules', hr_ot_periods: 'ot_periods',
-  hr_kpis: 'kpis', hr_scores: 'scores', hr_extras: 'extras', hr_meetings: 'meetings', hr_adjustments: 'adjustments', hr_payroll: 'payroll', hr_payroll_lines: 'payroll_lines', hr_documents: 'documents', hr_members: 'members', hr_pay: 'pay', hr_tasks: 'tasks', hr_payroll_paid: 'payroll_paid', hr_ot_adjust: 'ot_adjust' };
+  hr_kpis: 'kpis', hr_scores: 'scores', hr_extras: 'extras', hr_meetings: 'meetings', hr_adjustments: 'adjustments', hr_payroll: 'payroll', hr_payroll_lines: 'payroll_lines', hr_documents: 'documents', hr_members: 'members', hr_pay: 'pay', hr_tasks: 'tasks', hr_payroll_paid: 'payroll_paid', hr_ot_adjust: 'ot_adjust', hr_notes_log: 'notes_log' };
 
 export function hrState(opts = {}) {
   const T = '2026-11-01T08:00:00Z'; const copy = (l) => (l || []).map((x) => JSON.parse(JSON.stringify(x)));
@@ -78,6 +80,7 @@ export function hrState(opts = {}) {
     // «ملفي › مهامي» (decision 25, 0048): no direct write — hr_task_add / set / delete / review below
     tasks: copy(opts.hrTasks).map((x, i) => ({ id: i + 1, status: 'لسه', day: hrToday(), reason: null, reviewer_id: null, until: null, review_note: null, done_at: null, created_by: x.member_id, created_at: T, updated_by: null, updated_at: T, deleted_at: null, deleted_by: null, ...x })),
     bank: copy(opts.hrBank), // decision 39 (0072): closed — hr_bank_get / set / reveal below
+    notes_log: copy(opts.hrNotesLog).map((x, i) => ({ id: i + 1, body: null, due_at: null, ticket_id: null, at: T, ...x })),
     objects: new Map(Object.entries(opts.hrObjects || {})), calls: [], writes: [], seq: 1000, down: false,
   };
 }
@@ -352,6 +355,31 @@ export function hrRoute(c) {
           out.push({ member_id: p.id, month: m, attendance: att, performance: e ? e.performance : null, communication: e ? e.communication : null, total: e ? evalTotal(att, e.performance, e.communication) : null,
             note: e ? e.note : null, rated_by: e ? e.rated_by : null, rated_at: e ? e.rated_at : null }); } });
       return json(200, out);
+    }
+    // 0089 (owner batch 14 Nov decision 13): a meeting / warning / plan / thanks on a member — the admin, hr.edit F or the direct manager,
+    // never oneself; a meeting opens a team request with the time only; the member's bell either way
+    if (f === 'hr_member_note_add') {
+      if (!active) return no(); const p = prof(b.p_member); if (!p) return nf();
+      if (b.p_member === u.id || !(isAdmin(u) || editor || manages(b.p_member))) return no();
+      if (!['meeting', 'warning', 'plan', 'thanks'].includes(b.p_kind)) return bad('kind');
+      if (!/^\d{4}-(0[1-9]|1[0-2]|Q[1-4])$/.test(String(b.p_period || ''))) return bad('period');
+      const body = String(b.p_body || '').trim() || null; if (body && body.length > 1000) return bad('body'); if (['warning', 'plan'].includes(b.p_kind) && !body) return bad('body');
+      if (b.p_kind === 'meeting' && !(b.p_due && new Date(b.p_due).getTime() > Date.now() - 600000)) return bad('due');
+      let tid = null;
+      if (b.p_kind === 'meeting') {
+        const me0 = prof(u.id) || {}; tid = mock.tickets.reduce((m, t) => Math.max(m, t.id), 0) + 1; const name = String(p.name || 'عضو').slice(0, 60);
+        const when = new Date(b.p_due).toLocaleString('en-GB', { timeZone: 'Africa/Cairo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).replace(',', ' الساعة');
+        mock.tickets.push({ id: tid, type: 'internal', title: ('ميتنج فردي — ' + name + ' · ' + when).slice(0, 80), description: 'ميتنج فردي بين ' + name + ' و' + (me0.name || 'المدير') + ' يوم ' + when + '. التفاصيل عند الموارد البشرية.', priority: 'normal',
+          assignee_role: ROLE_LABEL[p.role_id] || 'مدير النظام', order_number: null, order_id: null, customer: null, cs_customer_id: null, cs_conversation_id: null, vendor_id: null, vendor: null, reason: null, follow_up: String(b.p_due).slice(0, 10),
+          attachments: [], status: 'open', created_by: u.id, created_by_name: me0.name || 'عضو', created_by_role: ROLE_LABEL[me0.role_id] || 'عضو', created_at: now, last_update: now, reopen_count: 0,
+          resolution_outcome: null, resolution_note: null, resolved_by: null, resolved_by_name: null, resolved_at: null, closed_by: null, closed_by_name: null, closed_at: null });
+        otEvent(tid, 'فتح التذكرة');
+      }
+      const id = nextId(); H.notes_log.push({ id, member_id: b.p_member, kind: b.p_kind, period: b.p_period, body, due_at: ['meeting', 'plan'].includes(b.p_kind) ? b.p_due || null : null, ticket_id: tid, by_id: u.id, at: now });
+      const title = { meeting: 'عندك ميتنج فردي', warning: 'وصلك إنذار', plan: 'اتعملك خطة تحسين', thanks: 'وصلك شكر على شغلك' }[b.p_kind];
+      mock.alerts.push({ id: 8000 + id, at: now, kind: 'hr.note', title, body: 'التفاصيل في «ملفي › أدائي»', role_id: null, user_id: b.p_member, entity: tid ? 'tickets/' + tkNum(tid) : 'profile-performance', entity_id: 'note:' + id, read_at: null });
+      mock.activity.push({ action: 'hr.note.add', entity: 'hr', entity_id: b.p_member, actor: u.id, new_value: b.p_kind + ' ' + b.p_period });
+      return json(200, { id, ticket: tid });
     }
     if (f === 'hr_evaluate') {
       if (!active) return no(); const p = prof(b.p_member); if (!p) return nf();

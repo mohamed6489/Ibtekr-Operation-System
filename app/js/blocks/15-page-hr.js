@@ -330,8 +330,8 @@
       validate: (f) => { const e = K.req(f, ['reason']); const n = (Number(f.hours) || 0) * 60 + (Number(f.minutes) || 0); if (!(n > 0) || n > 6000) e.minutes = 'اكتب المدة (لحد 100 ساعة)'; else if (f.dir === 'sub' && n > p.otMin) e.minutes = 'أكتر من الأوفر تايم المحسوب (' + K.hm(p.otMin) + ')'; return e; },
       submitLabel: 'سجّل التصحيح', submit: (f, md) => busy(md, () => H().otAdjust(p.member, mk, (f.dir === 'sub' ? -1 : 1) * ((Number(f.hours) || 0) * 60 + (Number(f.minutes) || 0)), f.reason), () => K.toast('اتسجل التصحيح', 'success')) });
   }
-  function addAdjustment(mk, member) {
-    K.form({ title: 'مكافأة / خصم — ' + monLabel(mk), values: { kind: 'بدل', member: member || '' }, fields: (f, e, set) => [member ? null : K.field.select('member', 'العضو', members(), f, e, set, { required: true }), K.Radios({ label: 'النوع', value: f.kind, onChange: (v) => set('kind', v, true), options: [{ value: 'بدل', label: 'مكافأة / إضافة' }, { value: 'خصم', label: 'خصم' }] }), K.two(K.field.text('label', 'البند', f, e, set, { required: true, placeholder: f.kind === 'خصم' ? 'مثلاً: غياب' : 'مثلاً: بدل انتقالات' }), K.field.text('amount', 'المبلغ', f, e, set, { required: true, inputmode: 'decimal', suffix: 'ج.م' }))],
+  function addAdjustment(mk, member, preset) { // preset (decision 13): «أضف مكافأة» from the evaluation ⋮ comes with its line's label
+    K.form({ title: 'مكافأة / خصم — ' + monLabel(mk), values: { kind: 'بدل', member: member || '', label: (preset && preset.label) || '' }, fields: (f, e, set) => [member ? null : K.field.select('member', 'العضو', members(), f, e, set, { required: true }), K.Radios({ label: 'النوع', value: f.kind, onChange: (v) => set('kind', v, true), options: [{ value: 'بدل', label: 'مكافأة / إضافة' }, { value: 'خصم', label: 'خصم' }] }), K.two(K.field.text('label', 'البند', f, e, set, { required: true, placeholder: f.kind === 'خصم' ? 'مثلاً: غياب' : 'مثلاً: بدل انتقالات' }), K.field.text('amount', 'المبلغ', f, e, set, { required: true, inputmode: 'decimal', suffix: 'ج.م' }))],
       validate: (f) => { const e = K.req(f, ['member', 'label', 'amount']); if (f.amount && !(Number(f.amount) > 0)) e.amount = 'اكتب مبلغ أكبر من صفر'; return e; }, submitLabel: 'إضافة',
       submit: (f, m) => busy(m, H().addAdjustment({ member: f.member, month: mk, label: f.label, amount: (f.kind === 'خصم' ? -1 : 1) * Number(f.amount) }), () => K.toast('اتضاف البند', 'success')) });
   }
@@ -368,16 +368,52 @@
       const ev = (m) => (S.evals[m.id] || {})[mk] || {};
       const rated = tm.filter((m) => ev(m).total != null);
       const rows = tm.map((m) => { const x = ev(m); return [mcell(m.id), score(x.att), score(x.perf), score(x.comm), scoreTag(x.total), can().salaries ? (x.total == null ? '—' : x.total >= bar ? K.Tag('success', 'هيتصرف') : K.Tag('error', 'مش هيتصرف')) : null, x.by ? h('span', { class: 't-small' }, x.by) : '—',
-        canRate(m) ? Button({ size: 'sm', type: x.total == null ? 'primary' : 'text', label: x.total == null ? 'قيّم' : 'عدّل', attrs: { 'data-hr-rate': m.id }, onClick: () => rateMember(m, mk) }) : ''].filter((c) => c !== null); });
+        h('span', { class: 'row-acts' }, canRate(m) ? Button({ size: 'sm', type: x.total == null ? 'primary' : 'text', label: x.total == null ? 'قيّم' : 'عدّل', attrs: { 'data-hr-rate': m.id }, onClick: () => rateMember(m, mk) }) : null, evalMenu(m, mk, x.total, monLabel(mk)))].filter((c) => c !== null); });
       return [h('div', { class: 'toolbar' }, tabs0, pick),
         h('div', { class: 'cards', 'data-hr-eval-cards': '' }, K.Stat('اتقيّموا', rated.length, 'من ' + tm.length, monLabel(mk)), K.Stat('متوسط الفريق', rated.length ? String(Math.round(rated.reduce((n, m) => n + ev(m).total, 0) / rated.length * 10) / 10) : '—', 'من 5', 'تقييم الشهر'), K.Stat('فوق حد البونص', rated.filter((m) => ev(m).total >= bar).length, 'عضو', 'التقييم ' + bar + ' من 5 أو أكتر')),
         K.Section('التقييم الشهري — ' + monLabel(mk), [U.Table({ cls: 'hr-evals', headers: ['العضو', 'الحضور', 'الأداء', 'التواصل', 'تقييم الشهر'].concat(can().salaries ? ['البونص'] : [], ['قيّمه', '']), rows }),
           note('الحضور تلقائي من أيام الحضور على أيام الشغل (من غير الإجازات المتوافق عليها والعطلات). الأداء من المدير المباشر حسب المهام اللي خلصت واللي لأ، والتواصل حسب تعامله مع الفريق والعملاء والمبتكرين. تقييم الشهر = متوسط التلاتة.')], null, { when: monLabel(mk) })];
     }
-    const rows = tm.map((m) => { const x = H().quarterEval(m.id, q) || {}; return [mcell(m.id), score(x.att), score(x.perf), score(x.comm), scoreTag(x.total), K.Num((x.rated || 0) + ' / 3')]; });
+    const rows = tm.map((m) => { const x = H().quarterEval(m.id, q) || {}; return [mcell(m.id), score(x.att), score(x.perf), score(x.comm), scoreTag(x.total), K.Num((x.rated || 0) + ' / 3'), evalMenu(m, q, x.total, qLabel(q))]; });
     return [h('div', { class: 'toolbar' }, tabs0, pick),
-      K.Section('التقييم الربع سنوي — ' + qLabel(q), [U.Table({ cls: 'hr-evals-q', headers: ['العضو', 'الحضور', 'الأداء', 'التواصل', 'التقييم الربع سنوي', 'شهور اتقيّمت'], rows }),
+      K.Section('التقييم الربع سنوي — ' + qLabel(q), [U.Table({ cls: 'hr-evals-q', headers: ['العضو', 'الحضور', 'الأداء', 'التواصل', 'التقييم الربع سنوي', 'شهور اتقيّمت', ''], rows }),
         note('التقييم الربع سنوي تلقائي = متوسط تقييمات شهوره اللي اتقيّمت.')], null, { when: qLabel(q) })];
+  }
+  // owner batch 14 Nov decision 13 (0089): ⋮ on a month / quarter row — under the bonus bar: «حدد ميتنج» (a team request to the member
+  // with the time + the bell) · «ابعت إنذار» · «خطة تحسين»; 4 or more: «ابعت شكر» · «أضف مكافأة» (the payroll popup, sensitive.salaries);
+  // «الملاحظات» lists what was sent for that period. Who: canRate (the server decides again — hr_member_note_add).
+  const NOTE_TITLE = { meeting: 'حدد ميتنج', warning: 'ابعت إنذار', plan: 'خطة تحسين', thanks: 'ابعت شكر' };
+  const NOTE_TONE = { meeting: 'info', warning: 'error', plan: 'orange', thanks: 'success' };
+  const HALF = Array.from({ length: 31 }, (_, i) => String(7 + Math.floor(i / 2)).padStart(2, '0') + (i % 2 ? ':30' : ':00')); // 07:00 … 22:00
+  function evalMenu(m, period, total, label) {
+    const bar = Number(S.hrSettings.bonusMin) || 3; const rate = canRate(m) && total != null;
+    const items = [];
+    if (rate && total < bar) items.push({ label: 'حدد ميتنج', icon: 'calendar', run: () => noteForm(m, 'meeting', period, label) }, { label: 'ابعت إنذار', icon: 'alert', run: () => noteForm(m, 'warning', period, label) }, { label: 'خطة تحسين', icon: 'checkCircle', run: () => noteForm(m, 'plan', period, label) });
+    if (rate && total >= 4) items.push({ label: 'ابعت شكر', icon: 'star', run: () => noteForm(m, 'thanks', period, label) }, can().salaries ? { label: 'أضف مكافأة', icon: 'plus', run: () => addAdjustment(thisMonth(), m.id, { label: 'مكافأة تقييم ' + label }) } : null);
+    const n = H().notesOf ? H().notesOf(m.id, period).length : 0; if (n) items.push({ label: 'اللي اتبعت (' + n + ')', icon: 'activity', run: () => notesView(m, period, label) });
+    const list = items.filter(Boolean); return list.length ? K.RowMenu(list, 'إجراءات تقييم ' + m.name) : '';
+  }
+  function noteForm(m, kind, period, label) {
+    const t = today(); // the server keeps a meeting within 90 days
+    K.form({ title: NOTE_TITLE[kind] + ' — ' + m.name, values: { day: kind === 'meeting' ? t : '', time: '11:00', body: kind === 'thanks' ? 'شكرًا على شغلك في ' + label + ' — تقييمك عالي، كمّل كده 👏' : '' },
+      note: h('p', { class: 't-small help', style: 'margin:0' }, 'عن تقييم ' + label + '. ' + (kind === 'meeting' ? 'هيوصله طلب في «طلبات الفريق» بالميعاد بس (من غير التقييم) وتنبيه في الجرس؛ النقاط اللي هتتكلموا فيها بتفضل في الموارد البشرية.' : 'هيوصله تنبيه في الجرس وهيلاقيه في «ملفي › أدائي».')),
+      fields: (f, e, set) => [kind === 'meeting' ? K.two(K.field.date('day', 'اليوم', f, e, set, { required: true }), U.Select({ id: 'time', label: 'الساعة', value: f.time, options: HALF.map((x) => ({ value: x, label: x })), onChange: (v) => set('time', v, true) })) : null,
+        kind === 'plan' ? K.field.date('day', 'ميعاد المراجعة', f, e, set, { help: 'اختياري — إمتى تراجعوا الخطة' }) : null,
+        K.field.area('body', kind === 'meeting' ? 'هتتكلموا في إيه' : kind === 'warning' ? 'سبب الإنذار' : kind === 'plan' ? 'أهداف الخطة' : 'رسالة الشكر', f, e, set,
+          { required: kind === 'warning' || kind === 'plan', placeholder: kind === 'plan' ? 'مثلاً: الرد على كل الرسايل في نفس اليوم · ولا أوردر متأخر الشهر الجاي' : kind === 'meeting' ? 'اختياري' : '' })],
+      validate: (f) => { const e = {}; if (kind === 'meeting' && (!f.day || f.day < t)) e.day = 'اختار يوم من النهارده أو بعده'; if (kind === 'plan' && f.day && f.day < t) e.day = 'اختار يوم من النهارده أو بعده';
+        if ((kind === 'warning' || kind === 'plan') && !String(f.body || '').trim()) e.body = kind === 'warning' ? 'اكتب سبب الإنذار' : 'اكتب أهداف الخطة'; if (String(f.body || '').length > 1000) e.body = 'لحد 1000 حرف'; return e; },
+      submitLabel: kind === 'meeting' ? 'حدد الميتنج' : kind === 'warning' ? 'ابعت الإنذار' : kind === 'plan' ? 'احفظ الخطة' : 'ابعت الشكر',
+      submit: (f, md) => busy(md, () => H().noteAdd(m.id, kind, period, f.body, (kind === 'meeting' || kind === 'plan') && f.day ? { day: f.day, time: kind === 'meeting' ? f.time : '10:00' } : null),
+        (r) => K.toast(kind === 'meeting' ? 'اتحدد الميتنج' + (r.ticket ? ' — TKT-' + String(r.ticket).padStart(4, '0') : '') : kind === 'warning' ? 'اتبعت الإنذار' : kind === 'plan' ? 'اتحفظت خطة التحسين' : 'اتبعت الشكر', 'success')) });
+  }
+  function notesView(m, period, label) {
+    const list = H().notesOf(m.id, period);
+    const when = (x) => { if (!x) return '—'; try { return K.dshort(new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(x))); } catch (e) { return String(x).slice(0, 10); } };
+    const md = U.Modal({ title: 'اللي اتبعت لـ ' + m.name + ' — ' + label,
+      body: h('div', { class: 'stack', 'data-hr-notes': '' }, list.map((x) => h('div', { class: 'note-row' }, h('div', { class: 'row-acts' }, K.Tag(NOTE_TONE[x.kind] || 'neutral', (H().NOTE_KINDS || {})[x.kind] || x.kind), h('span', { class: 't-small help' }, when(x.at) + (x.by ? ' · ' + x.by : '') + (x.due ? ' · ' + (x.kind === 'meeting' ? 'الميعاد ' : 'المراجعة ') + when(x.due) : ''))),
+        x.body ? h('p', { class: 't-small wrap', style: 'margin:4px 0 0' }, x.body) : null))),
+      footer: [Button({ label: 'إغلاق', onClick: () => md.close() })] });
   }
   // «قيّم»: the attendance (automatic), the month's tasks for the evaluator, then the performance and the communication out of 5
   function rateMember(m, mk) {

@@ -64,6 +64,7 @@
     meeting: 'الوقت الإضافي اللي اترفض بيرجع بنتيجة الميتنج بتاعه بس', title: 'اكتب المهمة (لحد 200 حرف)', reviewer: 'اختار مين هيراجع (غير صاحب المهمة)',
     until: 'اختار يوم من النهارده أو بعده', count: 'فيه 300 مهمة مفتوحة — خلّص أو امسح شوية الأول',
     paid: 'المرتب ده اتحوّل قبل كده', performance: 'اختار تقييم الأداء (من 1 لـ 5)', communication: 'اختار تقييم التواصل (من 1 لـ 5)', range: 'الفترة طويلة',
+    kind: 'النوع ده مش موجود', period: 'الفترة دي لسه مجتش', body: 'اكتب التفاصيل (لحد 1000 حرف)', due: 'اختار ميعاد جاي (في خلال 90 يوم)',
     bank: 'اكتب اسم البنك', holder: 'اكتب اسم صاحب الحساب', number: 'رقم الحساب أرقام بس (من 6 لـ 30 رقم)', iban: 'الـ IBAN مش صحيح (زي EG38…)' };
   const fail = (err) => { const reason = reasonOf(err); const field = reason === 'invalid' ? fieldOf(err) : null; return { ok: false, reason, field, message: (field && FIELD_MESSAGES[field]) || MESSAGES[reason] }; };
   const no = (reason, field) => ({ ok: false, reason, field: field || null, message: (field && FIELD_MESSAGES[field]) || MESSAGES[reason] });
@@ -233,6 +234,9 @@
     const ev = {}; (raw.evals || []).forEach((x) => { const code = codeOf(x.member_id); if (!code) return; const n = (v) => (v == null ? null : Number(v));
       (ev[code] = ev[code] || {})[monthKey(x.month)] = { att: n(x.attendance), perf: n(x.performance), comm: n(x.communication), total: n(x.total), note: x.note || '', by: x.rated_by ? nameOf(x.rated_by) : null, at: x.rated_at || null }; });
     s.evals = ev;
+    // 0089: the evaluation notes — [{ id, member, kind meeting|warning|plan|thanks, period YYYY-MM|YYYY-Qn, body, due, ticket, by, at }]
+    s.noteLog = (raw.noteLog || []).map((x) => ({ id: Number(x.id), member: codeOf(x.member_id), kind: x.kind, period: x.period, body: x.body || '', due: x.due_at || null,
+      ticket: x.ticket_id ? Number(x.ticket_id) : null, by: x.by_id ? nameOf(x.by_id) : null, at: x.at })).filter((x) => x.member);
     s.adjustments = raw.adj.filter((a) => !a.voided_at).map((a) => ({ id: Number(a.id), member: codeOf(a.member_id), month: monthKey(a.month), label: a.label, amount: Number(a.amount), kind: a.kind, note: a.note || '' })).filter((a) => a.member);
     s.achievements = s.adjustments.filter((a) => a.kind === 'achievement').map((a) => ({ id: a.id, member: a.member, title: a.label, amount: a.amount, month: a.month, date: a.month + '-01',
       status: (sheets[a.month] || {}).status === 'مدفوع' ? 'اتصرفت' : 'هتتصرف مع المرتب' }));
@@ -266,7 +270,7 @@
     try {
       const t = today(); const since = addDays(t, -DAYS_BACK); const reqSince = addDays(t, -REQ_DAYS); const scoreSince = addDays(t.slice(0, 8) + '01', -730);
       const evFrom = String(Number(t.slice(0, 4)) - 1) + '-01-01'; // the evaluations: last year and this one (the quarters of both)
-      const [team, hm, pay, att, ot, req, hol, lt, br, otp, kpis, scores, extras, meet, adj, payroll, docs, set, notes, tasks, paidRows, otAdj, evals, carry] = await Promise.all([
+      const [team, hm, pay, att, ot, req, hol, lt, br, otp, kpis, scores, extras, meet, adj, payroll, docs, set, notes, tasks, paidRows, otAdj, evals, carry, noteLog] = await Promise.all([
         cl.rpc('hr_team').then((r) => (r && !r.error && Array.isArray(r.data) ? r.data : []), () => []),
         rows(cl.from('hr_members').select('member_id, shift_start, shift_end, hire_date, leave_days')), // the notes column is closed (hr_member_notes)
         maybe(cl.from('hr_pay').select('member_id, salary, holdback, allowances')),
@@ -294,14 +298,16 @@
         maybe(cl.from('hr_ot_adjust').select('id, member_id, month, minutes, reason, by_id, at').gte('month', addDays(t.slice(0, 8) + '01', -400)).order('at', { ascending: false })),
         cl.rpc('hr_evaluations_list', { p_from: evFrom, p_to: t }).then((r) => (r && !r.error && Array.isArray(r.data) ? r.data : []), () => []),
         maybe(cl.from('hr_members').select('member_id, leave_carry, leave_carry_year')),
+        // owner batch 14 Nov decision 13 (0089): the evaluation notes of the members I see (empty before the migration)
+        maybe(cl.from('hr_notes_log').select('id, member_id, kind, period, body, due_at, ticket_id, by_id, at').order('at', { ascending: false }).limit(1000)),
       ]);
       if (g !== gen) return { ok: false, reason: 'stale' };
-      Object.assign(raw, { team, members: hm, pay, att, ot, req, hol, lt, br, otp, kpis, scores, extras, meet, adj, payroll, docs, settings: set, notes, tasks: tasks.rows, people: tasks.people, paidRows, otAdj, evals, carry });
+      Object.assign(raw, { team, members: hm, pay, att, ot, req, hol, lt, br, otp, kpis, scores, extras, meet, adj, payroll, docs, settings: set, notes, tasks: tasks.rows, people: tasks.people, paidRows, otAdj, evals, carry, noteLog });
       tgen += 1; buildRoster(team); shape(); shapeTasks(); st = 'ready'; emit(); subscribe(); return { ok: true };
     } catch (e) { if (g === gen) st = 'error'; emit(); return fail(e); }
   }
   function empty() {
-    ['team', 'attendance', 'requests', 'overtime', 'restWork', 'adjustments', 'achievements', 'extras', 'meetings', 'otPeriods', 'bonusRules', 'holidays', 'leaveTypes', 'departments', 'tasks', 'people', 'otAdjust'].forEach((k) => { data[k] = []; });
+    ['team', 'attendance', 'requests', 'overtime', 'restWork', 'adjustments', 'achievements', 'extras', 'meetings', 'otPeriods', 'bonusRules', 'holidays', 'leaveTypes', 'departments', 'tasks', 'people', 'otAdjust', 'noteLog'].forEach((k) => { data[k] = []; });
     Object.assign(data, { today: {}, kpis: {}, scores: {}, scoreRows: {}, sheets: {}, paid: {}, evals: {}, sheet: { month: monthKey(today()), status: 'مسودة', exists: false }, hrSettings: Object.assign({}, DEFAULTS) });
   }
   empty();
@@ -539,6 +545,28 @@
     const { data: d, error } = await rpc('hr_evaluate', { p_member: uid, p_month: monthArg(month), p_perf: p, p_comm: q, p_note: note ? clean(note, 500) : null }); if (error) return fail(error);
     await load(); return { ok: true, total: d == null ? null : Number(d) };
   }
+  // ---------- owner batch 14 Nov decision 13 (0089): a note on a member's evaluation — «حدد ميتنج» · «ابعت إنذار» · «خطة تحسين» · «ابعت شكر» ----------
+  // the server checks who (the admin, hr.edit F, the direct manager — never oneself), opens the meeting's team request, rings the member's
+  // bell and logs hr.note.add with the kind and the period only
+  const NOTE_KINDS = { meeting: 'ميتنج فردي', warning: 'إنذار', plan: 'خطة تحسين', thanks: 'شكر' };
+  const cleanText = (s, n) => String(s == null ? '' : s).replace(/[\u0000-\u0009\u000b-\u001f\u007f<>]/g, ' ').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim().slice(0, n);
+  // a Cairo day + HH:MM → an ISO instant (Cairo is UTC+2, UTC+3 in its summer time)
+  function cairoIso(day, hhmm) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(day || '')) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(String(hhmm || ''))) return null;
+    const want = Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3));
+    for (const off of [2, 3]) { const t = new Date(Date.UTC(Number(day.slice(0, 4)), Number(day.slice(5, 7)) - 1, Number(day.slice(8, 10)), 0, want) - off * 3600000); const p0 = parts(t.toISOString()); if (p0 && p0.day === day && p0.min === want) return t.toISOString(); }
+    return null;
+  }
+  async function noteAdd(member, kind, period, body, due) {
+    const uid = uidOf(member); if (!uid) return no('invalid'); if (!NOTE_KINDS[kind]) return no('invalid', 'kind');
+    if (!/^\d{4}-(0[1-9]|1[0-2]|Q[1-4])$/.test(String(period || ''))) return no('invalid', 'period');
+    const text = cleanText(body, 1001); if (text.length > 1000) return no('invalid', 'body'); if ((kind === 'warning' || kind === 'plan') && !text) return no('invalid', 'body');
+    let at = null; if (due && (kind === 'meeting' || kind === 'plan')) { at = due.day ? cairoIso(due.day, due.time || '10:00') : null; if (!at) return no('invalid', 'due'); }
+    if (kind === 'meeting' && (!at || new Date(at).getTime() < Date.now() - 600000)) return no('invalid', 'due');
+    const { data: d, error } = await rpc('hr_member_note_add', { p_member: uid, p_kind: kind, p_period: period, p_body: text || null, p_due: at }); if (error) return fail(error);
+    await load(); return { ok: true, id: d && d.id != null ? Number(d.id) : null, ticket: d && d.ticket != null ? Number(d.ticket) : null };
+  }
+  const notesOf = (code, period) => data.noteLog.filter((x) => x.member === code && (!period || x.period === period));
   // a quarter (YYYY-Q1…4) from its months: each part the average of the months that have it, the total the average of the rated months'
   function quarterEval(code, q) {
     const m = /^(\d{4})-Q([1-4])$/.exec(String(q || '')); if (!m) return null;
@@ -857,7 +885,7 @@
     'hr.contract.upload': ['رفع عقد / مستند', 'الأعضاء'], 'hr.contract.void': ['شال مستند', 'الأعضاء'], 'hr.bank.set': ['عدّل الحساب البنكي', 'الأعضاء'], 'hr.bank.reveal': ['كشف رقم الحساب البنكي', 'الأعضاء'],
     'hr.payroll.review': ['راجع كشف المرتبات', 'المرتبات'], 'hr.payroll.approve': ['اعتمد كشف المرتبات', 'المرتبات'], 'hr.payroll.paid': ['حوّل المرتبات', 'المرتبات'], 'hr.payroll.member': ['حوّل مرتب عضو', 'المرتبات'], 'hr.advance.give': ['حوّل سلفة', 'المرتبات'], 'hr.overtime.adjust': ['صحّح الأوفر تايم', 'المرتبات'], 'hr.payroll.adjust': ['تسوية على الكشف', 'المرتبات'], 'hr.payroll.adjust.void': ['لغى تسوية', 'المرتبات'], 'hr.pay.update': ['عدّل المرتب', 'المرتبات'],
     'hr.extra.create': ['مكافأة / خصم', 'المرتبات'], 'hr.extra.decision': ['قرار مكافأة / خصم', 'المرتبات'],
-    'hr.evaluate': ['قيّم الشهر', 'التقييم'], 'hr.kpi.rate': ['قيّم الشهر (المؤشرات القديمة)', 'التقييم'], 'hr.kpi.define': ['عدّل مؤشرات الأداء', 'التقييم'], 'hr.meeting.create': ['حدد ميتنج', 'التقييم'], 'hr.meeting.update': ['عدّل ميتنج', 'التقييم'], 'hr.achievement': ['إنجاز', 'التقييم'],
+    'hr.evaluate': ['قيّم الشهر', 'التقييم'], 'hr.note.add': ['ملاحظة على التقييم (ميتنج / إنذار / خطة / شكر)', 'التقييم'], 'hr.kpi.rate': ['قيّم الشهر (المؤشرات القديمة)', 'التقييم'], 'hr.kpi.define': ['عدّل مؤشرات الأداء', 'التقييم'], 'hr.meeting.create': ['حدد ميتنج', 'التقييم'], 'hr.meeting.update': ['عدّل ميتنج', 'التقييم'], 'hr.achievement': ['إنجاز', 'التقييم'],
     'hr.task.add': ['ضاف مهمة', 'المهام'], 'hr.task.status': ['غيّر حالة مهمة', 'المهام'], 'hr.task.delete': ['حذف مهمة', 'المهام'], 'hr.task.review': ['راجع مهمة', 'المهام'],
     'hr.holiday.create': ['ضاف عطلة رسمية', 'الإعدادات'], 'hr.holiday.confirm': ['أكّد عطلة رسمية', 'الإعدادات'], 'hr.holiday.delete': ['شال عطلة رسمية', 'الإعدادات'], 'hr.settings': ['عدّل إعدادات الموارد البشرية', 'الإعدادات'] };
   const logLabel = (action) => LOG_LABELS[action] || [String(action || '').replace(/^hr\./, ''), 'أخرى'];
@@ -881,7 +909,7 @@
 
   window.IBHR = { load, clear, subscribe, unsubscribe, check, state: () => st, data, member, team, everyone, can, decidesOt, settings, hm, span, workDays, isWorkDay, dayDivisor, scheduleOf, dayMinutes, today, nowMin, addDays, quarterOf, quarterMonths, monthKey, holidayDates, leaveDays, isLeave,
     shiftNow, myShift, clockIn, clockOut, overtimeBegin, overtimeRequest, setAttendance, endShiftFor, fixOut, request, decide, cancel, overtimeDecide, rateMonth, saveKpis,
-    payrollCalc, payrollLines, sheetLines, sheetTotals, slips, transfer, payMember, advanceGive, otAdjust, payDayOf, evaluate, evalTotal, quarterEval, monthTasks, bank, bankSet, bankReveal, payrollOpen, payrollStep, payrollPay, addAdjustment, voidAdjustment, addExtra, decideExtra, meetingCreate, meetingUpdate,
+    payrollCalc, payrollLines, sheetLines, sheetTotals, slips, transfer, payMember, advanceGive, otAdjust, payDayOf, evaluate, evalTotal, quarterEval, monthTasks, noteAdd, notesOf, NOTE_KINDS, cairoIso, bank, bankSet, bankReveal, payrollOpen, payrollStep, payrollPay, addAdjustment, voidAdjustment, addExtra, decideExtra, meetingCreate, meetingUpdate,
     holidayAdd, holidayConfirm, holidayDelete, leaveTypeAdd, bonusRuleAdd, bonusRuleToggle, otPeriodAdd, otPeriodDelete, saveSettings, addDepartment,
     memberCreate, memberPassword, memberInvite, memberDelete, memberUpdate, payUpdate, upload, addDocument, voidDocument, fileUrl, checkFile, ACCOUNTS, DOC_KINDS, DEFAULTS, MIME, MAX_BYTES,
     tasksOf, reviewsFor, canTask, canDeleteTask, taskAdd, taskSet, taskDelete, taskReview, loadTasks, people: () => data.people.slice(), TASK_STATUSES, loadLog, logNow, logLabel,

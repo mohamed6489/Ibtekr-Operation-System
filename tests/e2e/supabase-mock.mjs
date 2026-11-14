@@ -284,7 +284,7 @@ const TK_PRIO = { urgent: 'عاجل', high: 'عالي', normal: 'عادي', low:
 const TK_MIME = ['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'application/pdf'];
 const tkClean = (v, n) => String(v ?? '').replace(/[\u0001-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, n);
 const tkRoles = (u) => (u && u.status === 'active' ? [...new Set([u.role_id].concat(Array.isArray(u.extra_roles) ? u.extra_roles : []).flatMap((id) => { if (TK_ROLES[id]) return TK_ROLES[id]; if (id === 'viewer') return []; const r = ROLES.find((x) => x.id === id && !x.hidden); return r ? [r.name] : []; }))] : []);
-const tkSees = (u, t) => { const v = hasPerm(u, 'tickets.view'); return v === 'F' || (v === 'P' && (t.created_by === u.id || tkRoles(u).includes(t.assignee_role))); };
+const tkSees = (u, t) => { const v = hasPerm(u, 'tickets.view'); return v === 'F' || (v === 'P' && (t.created_by === u.id || tkRoles(u).includes(t.assignee_role))) || (v !== 'N' && !!t.assignee_member && t.assignee_member === u.id); }; // 0097: the assigned member
 // mask_phone of 0007: the first 3 and last 4 characters (10 or more), else •••• and the last 2
 // norm_phone (0034): Arabic / Persian digits → ASCII, digits only, 0020 / 20 (12 digits) stripped, a 10-digit number starting with 1 gets its 0
 const normPhone = (p) => { let d = String(p ?? '').replace(/[٠-٩۰-۹]/g, (ch) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(ch) >= 0 ? '٠١٢٣٤٥٦٧٨٩'.indexOf(ch) : '۰۱۲۳۴۵۶۷۸۹'.indexOf(ch))).replace(/\D/g, ''); if (d.startsWith('0020')) d = d.slice(4); else if (d.startsWith('20') && d.length === 12) d = d.slice(2); return d.length === 10 && d[0] === '1' ? '0' + d : d; };
@@ -668,9 +668,12 @@ export async function installSupabaseMock(page, opts = {}) {
           const title = tkClean(i.title, 1000); if (!title || title.length > 80) return bad('title');
           const description = tkClean(i.description, 5000); if (!description) return bad('description');
           if (!TK_PRIO[i.priority]) return bad('priority'); if (!tkRoleOk(mock, i.assigneeRole)) return bad('assigneeRole');
+          // 0097 (owner batch 2 decision 32): one active member who holds the role, or the whole role
+          const mem = i.assigneeMember ? mock.profiles.find((x) => x.id === i.assigneeMember) : null;
+          if (i.assigneeMember && (!mem || !tkRoles(mem).includes(i.assigneeRole))) return bad('assigneeMember');
           const follow = day(i.followUp); if (follow === undefined) return bad('followUp');
           const attachments = filesOf(i.attachments); if (!attachments) return bad('attachments');
-          const rec = { id: mock.tickets.reduce((m, t) => Math.max(m, t.id), 0) + 1, type: i.type, title, description, priority: i.priority, assignee_role: i.assigneeRole, order_number: null, order_id: null,
+          const rec = { id: mock.tickets.reduce((m, t) => Math.max(m, t.id), 0) + 1, type: i.type, title, description, priority: i.priority, assignee_role: i.assigneeRole, assignee_member: mem ? mem.id : null, assignee_member_name: mem ? String(mem.name).slice(0, 120) : null, order_number: null, order_id: null,
             customer: tkClean(i.customer, 80) || null, cs_customer_id: null, cs_conversation_id: null, vendor_id: null, vendor: null, reason: null, follow_up: follow, attachments, status: 'open',
             created_by: u.id, created_by_name: who.name, created_by_role: who.role, created_at: now, last_update: now, reopen_count: 0, resolution_outcome: null, resolution_note: null,
             resolved_by: null, resolved_by_name: null, resolved_at: null, closed_by: null, closed_by_name: null, closed_at: null };
@@ -685,12 +688,12 @@ export async function installSupabaseMock(page, opts = {}) {
             const v = mock.vendors.find((x) => x.id === i.vendorId); if (!v) return bad('vendor'); if (!TK_VENDOR.includes(i.reason)) return bad('reason'); rec.vendor_id = v.id; rec.vendor = String(v.name).slice(0, 80); rec.reason = i.reason;
           }
           rec.kind = reqKind || null; rec.project = reqKind ? (tkClean(b.p_project, 60) || null) : null;
-          mock.tickets.push(rec); ev(rec, 'event', who.name + ' أنشأ التذكرة وعيّنها لدور «' + rec.assignee_role + '»'); ev(rec, 'message', description);
+          mock.tickets.push(rec); ev(rec, 'event', who.name + ' أنشأ التذكرة وعيّنها لدور «' + rec.assignee_role + '»' + (mem ? ' — ' + rec.assignee_member_name : '')); ev(rec, 'message', description);
           return json(200, rec.id);
         }
         const tk = mock.tickets.find((t) => t.id === Number(b.p_id)); const a = b.p_args || {}; mock.ticketWrites.push({ fn: 'ticket_act', id: Number(b.p_id), action: b.p_action, ...JSON.parse(JSON.stringify(a)) });
         if (!tk || !tkSees(u, tk)) return refuse(404, 'P0002', 'ticket not found');
-        const work = isAdmin(u) || roles.includes(tk.assignee_role); const closer = isAdmin(u) || tk.created_by === u.id;
+        const work = isAdmin(u) || roles.includes(tk.assignee_role) || (!!tk.assignee_member && tk.assignee_member === u.id); const closer = isAdmin(u) || tk.created_by === u.id;
         const act = b.p_action;
         if (act === 'set_status') {
           if (!['in_progress', 'waiting'].includes(a.status)) return bad('status'); if (!work) return deny('not the role of this ticket'); if (tk.status === 'closed') return bad('closed');
@@ -710,7 +713,14 @@ export async function installSupabaseMock(page, opts = {}) {
           ev(tk, 'event', who.name + ' أُعيد فتحه (×' + tk.reopen_count + ') — السبب: ' + r + ' · رجع لدور «' + tk.assignee_role + '»', old, 'open');
         } else if (act === 'update') {
           if (!work && !closer) return deny('not the role or the opener of this ticket');
-          if ('assigneeRole' in a) { if (!tkRoleOk(mock, a.assigneeRole)) return bad('assigneeRole'); if (a.assigneeRole !== tk.assignee_role) { const old = tk.assignee_role; tk.assignee_role = a.assigneeRole; ev(tk, 'event', who.name + ' غيّر المسؤول من «' + old + '» إلى «' + a.assigneeRole + '»', old, a.assigneeRole); } }
+          let nRole = tk.assignee_role; let nMem = tk.assignee_member || null;
+          if ('assigneeRole' in a) { if (!tkRoleOk(mock, a.assigneeRole)) return bad('assigneeRole'); if (a.assigneeRole !== tk.assignee_role) { nRole = a.assigneeRole; nMem = null; } }
+          if ('assigneeMember' in a) nMem = a.assigneeMember || null;
+          const nm = nMem ? mock.profiles.find((x) => x.id === nMem) : null;
+          if (nMem && nMem !== tk.assignee_member && (!nm || nm.status !== 'active' || !tkRoles(nm).includes(nRole))) return bad('assigneeMember');
+          if (nRole !== tk.assignee_role) { const old = tk.assignee_role; tk.assignee_role = nRole; ev(tk, 'event', who.name + ' غيّر المسؤول من «' + old + '» إلى «' + nRole + '»', old, nRole); }
+          if (nMem !== (tk.assignee_member || null)) { const old = tk.assignee_member_name || null; tk.assignee_member = nMem; tk.assignee_member_name = nm ? String(nm.name).slice(0, 120) : null;
+            ev(tk, 'event', who.name + ' خلّى الطلب ' + (nm ? 'مع ' + tk.assignee_member_name : 'لكل دور «' + nRole + '»'), old, tk.assignee_member_name); }
           if ('priority' in a) { if (!TK_PRIO[a.priority]) return bad('priority'); if (a.priority !== tk.priority) { const old = tk.priority; tk.priority = a.priority; ev(tk, 'event', who.name + ' غيّر الأولوية من «' + TK_PRIO[old] + '» إلى «' + TK_PRIO[a.priority] + '»', old, a.priority); } }
           if ('followUp' in a) { const d = day(a.followUp); if (d === undefined) return bad('followUp'); if (d !== tk.follow_up) { const old = tk.follow_up; tk.follow_up = d; ev(tk, 'event', who.name + ' غيّر تاريخ المتابعة من «' + (old || '—') + '» إلى «' + (d || '—') + '»', old, d); } }
         } else if (act === 'reply') {

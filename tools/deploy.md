@@ -2097,3 +2097,8 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 2. RLS live (`files = rls_role_levels`).
 3. «Deploy functions» لـ `notify` (ماتريكس التنبيهات لكل مستوى: `notif.alertLevels`).
 4. الواجهة على `main` (لازم بعد `0096` — الصفحة بتقرا `profiles.level` و`roles.level_perms`).
+
+**T5 — مسؤول الطلب موظف (قرار 32)، بعد** `0096`:
+1. `0097_ticket_member.sql` — `tickets.assignee_member` (+ `assignee_member_name`)، `ticket_member_ok(عضو, الدور)` (نشط وعنده الدور أساسي أو إضافي)، `ticket_can_see(دور, فاتحها, العضو)` على `tickets_select` و`ticket_file_visible`، و`ticket_create` / `ticket_act` (0081 + العضو: `assigneeMember` في الإنشاء و`update`؛ دور جديد من غير عضو = كل الدور، والعضو المعيّن بيشوف ويشتغل حتى لو ساب الدور).
+2. RLS live (`files = rls_ticket_member`).
+3. الواجهة على `main` (لازم بعد `0097` — الصفحة بتقرا `assignee_member`). والقوايم (`IBUI.Select` وكل `.menu`) بقت بتفتح تحت خانتها وبتسكرول جواها طول ما فيه مكان لـ 3 اختيارات (`MENU_MIN` في الكتلة 10).

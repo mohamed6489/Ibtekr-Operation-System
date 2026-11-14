@@ -223,3 +223,39 @@ test('T4 — decision 4: «إضافة عضو» in three parts; the level «مد�
   const p = mock.profiles.find((x) => x.email === 'laila.dev@ibtekr.local');
   expect(p && p.level).toBe('viewer');
 });
+
+// T5 — decision 32: «طلب جديد» → the role, then «كل الدور» or one member of it; the member is stored and shown, «تغيير المسؤول»
+// takes it back to the whole role; the role's list opens under its field
+test('T5 — decision 32: a request to one member of the role; the list opens under its field; back to «كل الدور»', async ({ page }) => {
+  await page.locator('.sidebar .nav-item[data-page="tickets"]').click();
+  await page.getByRole('button', { name: 'فتح طلب' }).click();
+  const m = page.locator('.modal[role=dialog]', { hasText: 'طلب جديد' });
+  await m.locator('#t-title').fill('راجعي كشف المبتكر');
+  await m.locator('#t-type').click(); await page.locator('[role=listbox] [role=option]', { hasText: 'طلب خاص' }).first().click();
+  await m.locator('#t-desc').fill('الكشف فيه فرق');
+  await expect(m.locator('#t-member')).toBeDisabled(); // no role yet
+  await m.locator('#t-role').click();
+  const list = page.locator('.menu.floating[role=listbox]');
+  await expect(list).toHaveAttribute('data-dir', 'down'); // under its field
+  const [lb, rb] = await Promise.all([list.boundingBox(), m.locator('#t-role').boundingBox()]);
+  expect(lb.y).toBeGreaterThanOrEqual(rb.y + rb.height - 1);
+  await list.locator('[role=option]', { hasText: 'الحسابات' }).first().click();
+  await m.locator('#t-member').click();
+  await expect(page.locator('.menu.floating [role=option]')).toHaveText(['كل الدور', 'منى حسن']);
+  await page.locator('.menu.floating [role=option]', { hasText: 'منى حسن' }).click();
+  await m.getByRole('button', { name: 'إنشاء الطلب' }).click();
+  const d = page.locator('.drawer');
+  await expect(d).toContainText('المسؤول: الحسابات — منى حسن');
+  await expect(d).toContainText('عيّنها لدور «الحسابات» — منى حسن');
+  const w = mock.ticketWrites.find((x) => x.fn === 'ticket_create');
+  expect([w.assigneeRole, w.assigneeMember]).toEqual(['الحسابات', '00000000-0000-4000-8000-000000000004']);
+  // back to the whole role from «تغيير المسؤول»
+  await d.getByRole('button', { name: 'المزيد' }).click();
+  await page.getByRole('menuitem', { name: 'تغيير المسؤول' }).click();
+  const e = page.locator('.modal[role=dialog]', { hasText: 'تغيير المسؤول' });
+  await e.locator('#e-member').click(); await page.locator('.menu.floating [role=option]', { hasText: 'كل الدور' }).click();
+  await e.getByRole('button', { name: 'حفظ' }).click();
+  await expect.poll(() => mock.ticketWrites.filter((x) => x.fn === 'ticket_act' && x.action === 'update').map((x) => x.assigneeMember)).toEqual(['']);
+  await expect(d).toContainText('لكل دور «الحسابات»');
+  expect(mock.tickets.at(-1).assignee_member).toBe(null);
+});

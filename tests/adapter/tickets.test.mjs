@@ -19,11 +19,11 @@ const EVENTS = [
   { id: 2, ticket_id: 1, kind: 'message', at: '2026-11-05T08:00:01Z', actor: OTHER, actor_name: 'سارة', actor_role: 'خدمة العملاء', text: 'اتحاسب 100', old_value: null, new_value: null, attachments: [] },
   { id: 1, ticket_id: 1, kind: 'event', at: '2026-11-05T08:00:00Z', actor: OTHER, actor_name: 'سارة', actor_role: 'خدمة العملاء', text: 'سارة أنشأ التذكرة وعيّنها لدور «الحسابات»', old_value: null, new_value: null, attachments: [] },
 ];
-function load({ responses = {}, perms = { 'tickets.view': 'F', 'tickets.manage': 'F' }, role = 'accounts', realtime = false, prefs = null, extra = [] } = {}) {
+function load({ responses = {}, perms = { 'tickets.view': 'F', 'tickets.manage': 'F' }, role = 'accounts', realtime = false, prefs = null, extra = [], members = [] } = {}) {
   const stub = stubClient({ responses: { tickets: ok(TICKETS), ticket_events: ok(EVENTS), ...responses } });
   const events = []; const logs = [];
   const window = { IBSupabase: { client: stub.client }, IB_CONFIG: { realtime },
-    IBDirectory: { perm: (k) => perms[k] || 'N', me: () => ({ id: ME, name: 'منى', role_id: role, status: 'active', extra_roles: extra }), roles: () => [{ id: 'designer', name: 'ديزاينر' }, { id: 'developer', name: 'مبرمج' }, { id: 'old', name: 'قديم', hidden: true }] },
+    IBDirectory: { perm: (k) => perms[k] || 'N', me: () => ({ id: ME, name: 'منى', role_id: role, status: 'active', extra_roles: extra }), members: () => members, roles: () => [{ id: 'designer', name: 'ديزاينر' }, { id: 'developer', name: 'مبرمج' }, { id: 'old', name: 'قديم', hidden: true }] },
     IBActivity: { log: (action, detail, meta) => { logs.push([action, detail, meta]); return Promise.resolve(); } },
     IBVendors: { store: { findByName: (n) => (n === 'HANDS' ? { id: V1 } : null) } }, IBPrefs: prefs || undefined, crypto: { randomUUID: () => 'abcdef12-0000-4000-8000-000000000000' } };
   runInNewContext(src, { window, document: { dispatchEvent(e) { events.push(e.type); }, visibilityState: 'visible' }, CustomEvent: class { constructor(t) { this.type = t; } },
@@ -69,6 +69,26 @@ test('the roles: canWork = the admin or a member of the assigned role (ops holds
   eq([adm.T.canWork(adm.T.get('TKT-0001')), adm.T.canClose(adm.T.get('TKT-0001')), adm.T.actor().role], [true, true, 'مدير النظام']);
   const view = load({ role: 'viewer', perms: { 'tickets.view': 'P' } }); await view.T.load();
   eq([view.T.canWork(view.T.get('TKT-0001')), view.T.can().manage], [false, false]);
+});
+
+test('0097 (owner batch 2 decision 32): one member of the role — that member works it and it is «mine» for them only; membersOf lists the active members of a role (main or extra)', async () => {
+  const members = [{ uid: 'u3', name: 'هالة', roleId: 'accounts', extraRoles: [], status: 'active' }, { uid: 'u4', name: 'علي', roleId: 'ops', extraRoles: ['accounts'], status: 'active' },
+    { uid: 'u5', name: 'موقوف', roleId: 'accounts', extraRoles: [], status: 'suspended' }, { uid: 'u6', name: 'سارة', roleId: 'cs', extraRoles: [], status: 'active' }];
+  const acc = load({ role: 'accounts', members, responses: { tickets: ok([row({ id: 1, assignee_member: OTHER, assignee_member_name: 'هالة' }), row({ id: 5, assignee_role: 'خدمة العملاء', assignee_member: ME, assignee_member_name: 'منى' })]) } });
+  await acc.T.load();
+  const t1 = acc.T.get('TKT-0001'); const t5 = acc.T.get('TKT-0005');
+  eq([t1.assigneeMember, t1.assigneeMemberName, t5.assigneeMemberName], [OTHER, 'هالة', 'منى']);
+  eq([acc.T.isMine(t1), acc.T.canWork(t1), acc.T.isMine(t5), acc.T.canWork(t5)], [false, true, true, true]); // the role still works it; «mine» = the member
+  eq(acc.T.membersOf('الحسابات').map((m) => m.name), ['علي', 'هالة']); // an extra role counts; a suspended member never
+  eq(acc.T.membersOf('خدمة العملاء').map((m) => m.uid), ['u6']);
+  // create / update carry the member; the log says «عضو» / «كل الدور», never the id
+  acc.stub.responses['rpc:ticket_create'] = ok(9); acc.stub.responses['rpc:ticket_act'] = ok(null);
+  await acc.T.create({ type: 'internal', title: 'x', description: 'y', priority: 'low', assigneeRole: 'الحسابات', assigneeMember: 'u3' });
+  eq(rpcs(acc.stub).find((c) => c[0] === 'ticket_create')[1].p_input.assigneeMember, 'u3');
+  await acc.T.update('TKT-0001', { assigneeMember: '' });
+  eq(rpcs(acc.stub).filter((c) => c[0] === 'ticket_act').at(-1)[1].p_args, { assigneeMember: '' });
+  assert(!JSON.stringify(acc.logs).includes('u3'));
+  assert(acc.logs.some((l) => /assigneeMember=كل الدور/.test(l[1])));
 });
 
 test('create: ticket_create with the v2 form (the maker by name → its id), the activity row without text, the ticket refetched', async () => {

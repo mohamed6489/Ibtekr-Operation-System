@@ -105,6 +105,7 @@
   // Dropdowns float above everything (owner 26 Oct): a popover that CSS places «absolute» under its trigger is switched to
   // position:fixed at the trigger's spot, so no card / section / drawer with overflow can clip it. Opens upward when there's
   // more room above, clamps to the viewport, follows scroll/resize. Bottom sheets and already-fixed panels are left alone.
+  const MENU_MIN = 150; // px under a field that still holds the search box and three rows
   function floatOver(el, trigger) {
     if (getComputedStyle(el).position !== 'absolute') return null;
     const end = el.classList.contains('end'); el.classList.add('floating');
@@ -112,7 +113,10 @@
       if (!el.isConnected) return; const r = trigger.getBoundingClientRect(); const vw = document.documentElement.clientWidth, vh = window.innerHeight, gap = 4, pad = 8;
       el.style.position = 'fixed'; el.style.inset = 'auto'; el.style.minWidth = Math.max(r.width, 0) + 'px'; el.style.maxHeight = '';
       const below = vh - r.bottom - gap - pad, above = r.top - gap - pad; const natural = el.scrollHeight;
-      const up = natural > below && above > below; const room = Math.max(120, up ? above : below);
+      // owner batch 2 decision 32 («كل قايمة بتفتح تحت خانتها»): a list opens under its field and scrolls inside while there is room
+      // for a few rows there (MENU_MIN); it turns up only when the space below is too short. A calendar keeps the flip (it needs its height).
+      const list = el.classList.contains('menu');
+      const up = list ? (below < Math.min(natural, MENU_MIN) && above > below) : (natural > below && above > below); const room = Math.max(120, up ? above : below);
       if (natural > room) el.style.maxHeight = Math.floor(room) + 'px';
       const hgt = Math.min(natural, room); el.style.top = Math.round(up ? r.top - gap - hgt : r.bottom + gap) + 'px';
       const w = el.offsetWidth; const rtl = getComputedStyle(trigger).direction === 'rtl';

@@ -14,7 +14,7 @@
 // signed link. Live (decision 9): the private broadcast «tickets» / «changed» → one load() a moment later, plus a check every 30 s.
 (function () {
   'use strict';
-  const COLS = 'id, type, kind, project, title, description, priority, assignee_role, order_number, order_id, customer, cs_customer_id, cs_conversation_id, vendor_id, vendor, reason, follow_up, attachments, status, created_by, created_by_name, created_by_role, created_at, last_update, reopen_count, resolution_outcome, resolution_note, resolved_by_name, resolved_at, closed_by_name, closed_at';
+  const COLS = 'id, type, kind, project, title, description, priority, assignee_role, assignee_member, assignee_member_name, order_number, order_id, customer, cs_customer_id, cs_conversation_id, vendor_id, vendor, reason, follow_up, attachments, status, created_by, created_by_name, created_by_role, created_at, last_update, reopen_count, resolution_outcome, resolution_note, resolved_by_name, resolved_at, closed_by_name, closed_at';
   const EV_COLS = 'id, ticket_id, kind, at, actor, actor_name, actor_role, text, old_value, new_value, attachments';
   const LIMIT = 2000; const EV_LIMIT = 5000; const EV_DAYS = 30;
   const BUCKET = 'tickets'; const MAX_FILES = 10; const MAX_BYTES = 10 * 1024 * 1024;
@@ -34,9 +34,16 @@
   const myRoles = () => { const m = me(); if (!m || m.status === 'suspended') return []; return [...new Set([m.role_id].concat(Array.isArray(m.extra_roles) ? m.extra_roles : []).flatMap(labelsOf))]; };
   const actor = () => { const m = me() || {}; const roles = window.IBDirectory && window.IBDirectory.roles ? quiet(() => window.IBDirectory.roles()) : null;
     return { name: m.name || '—', role: labelsOf(m.role_id)[0] || (roles && roles[m.role_id] && roles[m.role_id].name) || 'عضو', uid: m.id || null }; };
-  const canWork = (t) => !!t && can().manage && (isAdmin() || myRoles().includes(t.assigneeRole));
+  // owner batch 2 decision 32 (0097): a request may go to one member of the role — that member works it (even off the role); the
+  // others of the role still read it, but it is «mine» (the bell, «مطلوبة مني») for that member only
+  const assignedToMe = (t) => !!t && !!t.assigneeMember && t.assigneeMember === myUid();
+  const canWork = (t) => !!t && can().manage && (isAdmin() || myRoles().includes(t.assigneeRole) || assignedToMe(t));
   const canClose = (t) => !!t && can().manage && (isAdmin() || (!!t.createdBy && !!t.createdBy.uid && t.createdBy.uid === myUid()));
-  const isMine = (t) => !!t && myRoles().includes(t.assigneeRole);
+  const isMine = (t) => !!t && (t.assigneeMember ? assignedToMe(t) : myRoles().includes(t.assigneeRole));
+  // the active members who hold a ticket role (main or extra), for «المسؤول» → «الموظف» — { uid, name }
+  const membersOf = (label) => { const D = window.IBDirectory; const all = D && D.members ? quiet(() => D.members()) || [] : [];
+    return (Array.isArray(all) ? all : []).filter((m) => m && m.uid && m.status === 'active' && [m.roleId].concat(m.extraRoles || []).some((rid) => labelsOf(rid).includes(label)))
+      .map((m) => ({ uid: m.uid, name: m.name || '—' })).sort((a, b) => String(a.name).localeCompare(String(b.name), 'ar')); };
   const reasonOf = (err) => { const code = String((err && err.code) || ''); return code === '42501' ? 'forbidden' : code === 'P0002' ? 'notfound' : /^2[23]/.test(code) ? 'invalid' : 'network'; };
   const fieldOf = (err) => { const m = /invalid: (\w+)/.exec(String((err && err.message) || '')); return m ? m[1] : null; };
   const MESSAGES = { forbidden: 'مفيش صلاحية للإجراء ده', notfound: 'التذكرة مش موجودة أو مش متاحة ليك', network: 'تعذّر الاتصال — جرّب تاني', invalid: 'راجع البيانات' };
@@ -50,7 +57,7 @@
   const dbIdOf = (id) => { const s = String(id == null ? '' : id); const m = /^TKT-(\d+)$/.exec(s); return m ? Number(m[1]) : /^\d+$/.test(s) ? Number(s) : null; };
   const files = (a) => (Array.isArray(a) ? a.filter((f) => f && typeof f.path === 'string').map((f) => ({ path: f.path, name: f.name || f.path.replace(/^.*\//, ''), type: f.type || '', size: Number(f.size) || 0 })) : []);
   const toTicket = (r) => ({ id: tid(r.id), dbId: Number(r.id), type: r.type, kind: r.kind || null, project: r.project || null, title: r.title, description: r.description, priority: r.priority, assigneeRole: r.assignee_role,
-    orderId: r.order_number || null, orderDbId: r.order_id != null ? Number(r.order_id) : null, customer: r.customer || null, csCustomerId: r.cs_customer_id || null, csConversationId: r.cs_conversation_id || null,
+    assigneeMember: r.assignee_member || null, assigneeMemberName: r.assignee_member ? (r.assignee_member_name || '—') : null, orderId: r.order_number || null, orderDbId: r.order_id != null ? Number(r.order_id) : null, customer: r.customer || null, csCustomerId: r.cs_customer_id || null, csConversationId: r.cs_conversation_id || null,
     vendor: r.vendor || null, vendorId: r.vendor_id || null, reason: r.reason || null, followUp: r.follow_up || null, attachments: files(r.attachments), status: r.status,
     createdBy: { name: r.created_by_name, role: r.created_by_role, uid: r.created_by || null }, createdAt: r.created_at, lastUpdate: r.last_update, reopenCount: Number(r.reopen_count) || 0,
     resolution: r.resolution_outcome ? { outcome: r.resolution_outcome, note: r.resolution_note || '', by: r.resolved_by_name || '', at: r.resolved_at } : null, closedBy: r.closed_by_name || null, closedAt: r.closed_at || null });
@@ -171,6 +178,7 @@
     if (!can().manage) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
     const input = { type: f.type, title: f.title, description: f.description, priority: f.priority, assigneeRole: f.assigneeRole, reason: f.reason || null,
       followUp: f.followUp || null, attachments: files(f.attachments).slice(0, MAX_FILES) };
+    if (f.assigneeMember) input.assigneeMember = f.assigneeMember;
     if (f.type === 'customer' || (f.orderId && clean(f.orderId, 20))) input.orderId = clean(f.orderId, 20);
     if (f.customer) input.customer = clean(f.customer, 80);
     if (f.type === 'vendor') input.vendorId = f.vendorId || vendorIdOf(f.vendor);
@@ -178,7 +186,7 @@
     if (f.csCustomerId) input.csCustomerId = f.csCustomerId;
     try {
       const { data: n, error } = await cl.rpc('ticket_create', { p_input: input }); if (error) return fail(error);
-      const k = Number(n); log('ticket.create', tid(k) + ' · ' + f.type + ' · ' + f.assigneeRole + (input.attachments.length ? ' · ' + input.attachments.length + ' مرفق' : ''), tid(k));
+      const k = Number(n); log('ticket.create', tid(k) + ' · ' + f.type + ' · ' + f.assigneeRole + (input.assigneeMember ? ' · عضو' : '') + (input.attachments.length ? ' · ' + input.attachments.length + ' مرفق' : ''), tid(k));
       await refresh(k); return { ok: true, id: tid(k) };
     } catch (e) { return { ok: false, reason: 'network', message: MESSAGES.network }; }
   }
@@ -213,8 +221,9 @@
   const close = (id) => act(id, 'close', {}, statusOf(id) + ' → closed');
   const reopen = (id, f) => act(id, 'reopen', { reason: (f && f.reason) || '' }, '×' + (((get(id) || {}).reopenCount || 0) + 1));
   function update(id, patch) {
-    const args = {}; ['assigneeRole', 'priority', 'followUp'].forEach((k) => { if (patch && patch[k] !== undefined) args[k] = patch[k] == null ? '' : patch[k]; });
-    return act(id, 'update', args, Object.keys(args).map((k) => k + (k === 'followUp' ? '' : '=' + args[k])).join(', '));
+    const args = {}; ['assigneeRole', 'assigneeMember', 'priority', 'followUp'].forEach((k) => { if (patch && patch[k] !== undefined) args[k] = patch[k] == null ? '' : patch[k]; });
+    // the log: the role and the priority by value, the member as «عضو» / «كل الدور» (no uuid in the activity text)
+    return act(id, 'update', args, Object.keys(args).map((k) => (k === 'followUp' ? k : k === 'assigneeMember' ? k + '=' + (args[k] ? 'عضو' : 'كل الدور') : k + '=' + args[k])).join(', '));
   }
   const reply = (id, text, attachments) => { const a = files(attachments).slice(0, MAX_FILES); return act(id, 'reply', { text, attachments: a }, a.length ? a.length + ' مرفق' : ''); };
 
@@ -279,7 +288,7 @@
 
   // the ticket roles of a member's role (the owner 11 Nov — «مين اكتر حد عنده شغل» on the overview)
   const rolesOf = (roleId) => labelsOf(roleId);
-  window.IBTickets = { load, clear, loadEvents, subscribe, unsubscribe, check, state: () => st, can, myRoles, rolesOf, actor, canWork, canClose, canReopen: canClose, isMine,
+  window.IBTickets = { load, clear, loadEvents, subscribe, unsubscribe, check, state: () => st, can, myRoles, rolesOf, actor, canWork, canClose, canReopen: canClose, isMine, assignedToMe, membersOf,
     all, get, events, bell, markSeen, forOrder, forVendor, forCustomer, forConversation, create, createRequest, requests, REQ_KINDS, setStatus, resolve, close, reopen, update, reply, upload, fileUrl, checkFile,
     MAX_FILES, MAX_BYTES, MIME, tid, dbIdOf, _test: { toTicket, toEvent, safeName, files, fail } };
 })();

@@ -318,7 +318,21 @@
         K.Stat('التقييم الربع سنوي', Q && Q.total != null ? of5(Q.total) : '—', qShort(q), Q ? Q.rated + ' من 3 شهور اتقيّمت' : '—'),
         K.Stat('البونص — ' + qShort(q), money ? K.money(hb * earned) : '••••', money ? 'ج.م' : '', earned + ' من 3 شهور وصلت ' + bar + ' من 5')),
       K.Section('التقييم الشهري — ' + qLabel(q), U.Table({ cls: 'pf-evals', headers: ['الشهر', 'الحضور', 'الأداء', 'التواصل', 'تقييم الشهر', 'البونص', 'ملاحظة'], rows }), null,
-        { when: qLabel(q), sub: 'الحضور تلقائي من أيام الحضور · الأداء (حسب المهام) والتواصل من المدير المباشر · تقييم الشهر = متوسط التلاتة · البونص: الشهر اللي تقييمه ' + bar + ' من 5 أو أكتر محجوزه بيتصرف كامل آخر الربع' })];
+        { when: qLabel(q), sub: 'الحضور تلقائي من أيام الحضور · الأداء (حسب المهام) والتواصل من المدير المباشر · تقييم الشهر = متوسط التلاتة · البونص: الشهر اللي تقييمه ' + bar + ' من 5 أو أكتر محجوزه بيتصرف كامل آخر الربع' }),
+      notesSec(m)];
+  }
+  // owner batch 14 Nov decision 13 (0089): what the manager sent about the evaluation — a meeting, a warning, an improvement plan, a thanks
+  // (IBHR.data.noteLog: mine, or the members I see); the newest first
+  const cairo = (iso, loc, o) => { try { return new Intl.DateTimeFormat(loc, Object.assign({ timeZone: 'Africa/Cairo' }, o)).format(new Date(iso)); } catch (e) { return String(iso).slice(0, 10); } };
+  function notesSec(m) {
+    const list = ((HD().noteLog) || []).filter((x) => x.member === m.id); if (!list.length) return null;
+    const KIND = { meeting: ['ميتنج فردي', 'info'], warning: ['إنذار', 'error'], plan: ['خطة تحسين', 'orange'], thanks: ['شكر', 'success'] };
+    const per = (p) => (/Q/.test(p) ? qLabel(p) : monLabel(p)); const day = (x) => (x ? K.dshort(cairo(x, 'en-CA', { year: 'numeric', month: '2-digit', day: '2-digit' })) : '—');
+    const time = (x) => cairo(x, 'en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
+    const rows = list.map((x) => [K.Tag((KIND[x.kind] || [x.kind, 'neutral'])[1], (KIND[x.kind] || [x.kind])[0]), per(x.period), h('span', { class: 't-small wrap' }, x.body || '—'),
+      x.due ? (x.kind === 'meeting' ? 'الميعاد ' + day(x.due) + ' الساعة ' + time(x.due) : 'المراجعة ' + day(x.due)) : '—', x.by || '—', day(x.at)]);
+    return K.Section('من المدير — ميتنج · إنذار · خطة تحسين · شكر', U.Table({ cls: 'pf-notes', headers: ['النوع', 'عن تقييم', 'التفاصيل', 'الميعاد', 'من', 'التاريخ'], rows }), null,
+      { noun: ['ملاحظة', 'الملاحظات'], sub: 'اللي بعته المدير المباشر أو الموارد البشرية على التقييم' });
   }
   // ---------- مرتبي (decision 2: my own payslips once the sheet is approved; another member's for sensitive.salaries) ----------
   function salary(m) {

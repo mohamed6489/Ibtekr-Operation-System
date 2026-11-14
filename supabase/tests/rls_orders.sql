@@ -401,6 +401,10 @@ do $$ declare n int; begin
   if not exists (select 1 from public.order_events where kind = 'cancel' and old_value is null and new_value like '%العميل لا يرد%') then
     raise exception 'case ops cancel writes order_events kind cancel failed';
   end if;
+  -- 0094: the order cancelled → its lines' product status «ملغي»
+  if exists (select 1 from public.order_items where order_id = 181668 and removed = false and status <> 'ملغي') then
+    raise exception 'case the order cancelled cancels its lines (0094) failed';
+  end if;
 
   update public.orders set status = 'استرجاع', ret = '{"reason":"المنتج مكسور","date":"2026-10-26","note":"صورة على الواتساب"}'
     where id = 181668;
@@ -425,7 +429,7 @@ do $$ declare n int; begin
   end if;
   if not exists (select 1 from public.order_events
                  where order_id = 181668 and item_id = 9001 and kind = 'item_status'
-                   and old_value = '' and new_value = 'مرتجع للمخزن' and source = 'user' and actor = auth.uid()) then
+                   and old_value = 'ملغي' and new_value = 'مرتجع للمخزن' and source = 'user' and actor = auth.uid()) then
     raise exception 'case ops item status writes order_events kind item_status failed';
   end if;
 

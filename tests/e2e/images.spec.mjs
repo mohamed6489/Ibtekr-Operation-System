@@ -273,15 +273,20 @@ test('decision 11 — the admin links the system\'s Magnific account from «إع
   await expect(page.locator('.modal [data-img-bridge]')).toContainText('مش مربوط');
   // Magnific's sign-in (mocked) sends the browser straight back with a code
   await page.route('https://auth.mock/**', (route) => { const u = new URL(route.request().url()); route.fulfill({ status: 302, headers: { location: 'http://localhost:4173/magnific-callback.html?code=code-mock-1234&state=' + u.searchParams.get('state') } }); });
-  await page.locator('[data-img-link]').click();
+  // owner batch 2 decision 12: the account links from «الإعدادات › الربط بالمنصات» — the tool's box points there
+  await page.locator('.modal [data-img-bridge-settings]').click();
+  await expect(page).toHaveURL(/#settings-integrations$/);
+  await page.locator('#pg-settings [role=tab]', { hasText: 'الذكاء الاصطناعي' }).click();
+  await page.locator('#pg-settings [data-integ-bridge]').click();
   await expect(page).toHaveURL(/magnific-callback\.html$/);
   await expect(page.locator('#cb-title')).toHaveText('اتربط حساب Magnific ✓');
   await expect(page.locator('#cb-text')).toContainText('owner@ibtekr.club');
   expect(mock.oauthStates.map((s) => s.used)).toEqual([true]);
   expect(mock.magnific.linked).toBe(true);
-  expect(mock.bridgeCalls.map((c) => c.action)).toEqual(['bridge_status', 'bridge_link', 'bridge_callback']);
+  expect(mock.bridgeCalls.map((c) => c.action).filter((a) => a !== 'bridge_status')).toEqual(['bridge_link', 'bridge_callback']);
   await page.locator('#cb-back').click();
-  await expect(page).toHaveURL(/#products-tool-images$/); // the link opens the images tool itself
+  await expect(page).toHaveURL(/#settings-integrations$/); // batch 2 decision 12: the callback returns to the settings
+  await page.evaluate(() => { location.hash = 'products-tool-images'; });
   await expect(page.locator('[data-img-settings]')).toBeVisible();
   await page.locator('[data-img-settings]').click();
   await expect(page.locator('.modal [data-img-bridge]')).toContainText('مربوط بحساب');
@@ -292,10 +297,12 @@ test('decision 11 — the admin links the system\'s Magnific account from «إع
   expect(mock.shotPrompts.find((x) => x.category === 'كرسي' && x.shot === 1).prompt).toBe('CHAIR FOCUS PROMPT v2');
   expect(mock.bridgeCalls.at(-1).action).toBe('bridge_prompts_sync');
   await expect.poll(() => mock.activityRows.filter((x) => x.action === 'product.ai.bridge.prompts').map((x) => x.new_value)).toEqual(['3 categories · 7 prompts']);
-  await page.locator('[data-img-unlink]').click();
-  await page.getByRole('button', { name: 'فكّ الربط', exact: true }).last().click();
-  await expect(page.locator('.modal [data-img-bridge]')).toContainText('مش مربوط');
-  expect(mock.magnific.linked).toBe(false);
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => { location.hash = 'settings-integrations'; });
+  await page.locator('#pg-settings [role=tab]', { hasText: 'الذكاء الاصطناعي' }).click();
+  await page.locator('#pg-settings [data-integ-bridge-unlink]').click();
+  await page.getByRole('button', { name: 'إلغاء الربط', exact: true }).last().click();
+  await expect.poll(() => mock.magnific.linked).toBe(false);
   // a spent or wrong state on the callback page says so
   await page.goto('/magnific-callback.html?code=code-mock-1234&state=' + mock.oauthStates[0].state);
   await expect(page.locator('#cb-text')).toContainText('انتهت صلاحية الربط');

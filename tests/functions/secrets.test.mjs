@@ -17,3 +17,9 @@ test('secretOf parses the JSON object only; secretSet maps the codes', async () 
   assert.deepEqual(await secretSet(db(async () => ({ error: { code: '22023' } })), 'zzz', {}), { ok: false, error: 'unknown_secret' });
   assert.equal(tailOf('sk-abcdefgh1234'), '••••1234'); assert.equal(tailOf('abc'), '••••'); assert.equal(tailOf(''), '');
 });
+
+test('0099 (owner batch 2 decision 11): a paused platform\'s keys are dropped from the env (the Supabase secret too); WOO_PUSH_ENABLED comes as 0', async () => {
+  const env = { WOO_URL: 'https://stage', WOO_CK: 'ck_x', WOO_PUSH_ENABLED: '1', ANTHROPIC_API_KEY: 'sk-x' };
+  const out = await vaultEnv(db(async () => ({ data: { WOO_PUSH_ENABLED: '0', __unset: ['WOO_URL', 'WOO_CK', 'WOO_PUSH_ENABLED'] }, error: null })), env);
+  assert.deepEqual(out, { WOO_PUSH_ENABLED: '0', ANTHROPIC_API_KEY: 'sk-x' });
+});

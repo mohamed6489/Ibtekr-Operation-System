@@ -300,3 +300,27 @@ test('T6 — decision 16: a team action from the settings, stopped from ⋮ and 
   await expect.poll(() => mock.st.quick.filter((x) => x.scope === 'me').map((x) => [x.name, x.owner])).toEqual([['تذاكري', '00000000-0000-4000-8000-000000000002']]);
   await expect(mg.locator('.qa-table tbody tr', { hasText: 'تذاكري' }).locator('[data-qa-scope]')).toHaveText('أنا بس');
 });
+
+// T7 — decisions 11 and 12 (0099): a linked platform pauses for a while from its card (the settings row «integrations»), «كمّل» brings it back
+test('T7 — decision 11: «إيقاف مؤقت» for a day writes integrations.paused, the card says «موقوف مؤقتًا», «كمّل» clears it; the social cards link from here', async ({ page }) => {
+  mock.st.vault.anthropic = JSON.stringify({ key: 'sk-ant-xxxxxxxxxxxxxxxxxxxx1234' });
+  await go(page, '#settings-integrations');
+  await page.locator('#pg-settings [role=tab]', { hasText: 'الذكاء الاصطناعي' }).click();
+  const card = page.locator('#pg-settings [data-integ="claude"]');
+  await expect(card).toContainText('متصل');
+  await card.locator('[data-integ-pause="claude"]').click();
+  const f = modal(page).filter({ hasText: 'إيقاف' });
+  await f.getByRole('radio', { name: 'يوم' }).click();
+  await f.getByRole('button', { name: 'إيقاف', exact: true }).click();
+  await expect.poll(() => { const r = (mock.settings || []).find((x) => x.section === 'integrations'); return r && r.data && r.data.paused ? Object.keys(r.data.paused) : []; }).toEqual(['anthropic']);
+  const until = Date.parse(mock.settings.find((x) => x.section === 'integrations').data.paused.anthropic);
+  expect(until - Date.now()).toBeGreaterThan(23 * 3600e3);
+  await expect(card).toContainText('موقوف مؤقتًا');
+  await card.locator('[data-integ-resume="claude"]').click();
+  await expect.poll(() => Object.keys(mock.settings.find((x) => x.section === 'integrations').data.paused || {})).toEqual([]);
+  await expect(card).not.toContainText('موقوف مؤقتًا');
+  // decision 12: Meta / WhatsApp link from here (not from «خدمة العملاء › القنوات»)
+  await page.locator('#pg-settings [role=tab]', { hasText: 'وسائل التواصل' }).click();
+  await expect(page.locator('#pg-settings [data-integ-connect="messenger"]')).toBeVisible();
+  await expect(page.locator('#pg-settings [data-integ-connect="wa"]')).toBeVisible();
+});

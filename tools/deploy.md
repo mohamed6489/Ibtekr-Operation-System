@@ -2107,3 +2107,9 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 1. `0098_quick_actions.sql` — جدول `quick_actions` (الاسم، اللينك `#…`، الأيقونة، `scope` = `all` «كل الفريق» | `role` «دور معين» + `role_id` | `me` «أنا بس» + `owner`، `active`، `sort`) بـ RLS قراية بالظهور ومن غير كتابة مباشرة؛ القراية والكتابة RPCs: `quick_actions_list()` (بـ `can_edit`) / `quick_action_save(p)` / `quick_action_delete(id)` / `quick_action_order(ids)` — «كل الفريق» للأدمن، «دور معين» للأدمن أو مدير الدور (`roles.manager_id` أو «مدير» دوره الأساسي)، «أنا بس» لصاحبه؛ وبينقل قايمة صف `settings` «quick» القديمة لـ «كل الفريق» مرة واحدة (على الحي القايمة فاضية).
 2. RLS live (`files = rls_quick_actions`).
 3. الواجهة على `main` (لازم بعد `0098` — القايمة بتتقري من الجدول).
+
+**T7 — الإيقاف المؤقت والربط كله من الإعدادات (قرارا 11 و12)، بعد** `0098`:
+1. `0099_integrations_pause.sql` — `integration_paused(key)` من صف `settings` «integrations» `{ paused: { key: until } }`؛ `app_secret_env` بيرجّع `__unset` بمفاتيح المنصة الموقوفة (WooCommerce: من غير الرابط والمفاتيح و`WOO_PUSH_ENABLED = 0`)، و`cs_secret_get` / `mkt_secret_get` / `magnific_secret_get` بقوا غلاف بيرجّع `null` وهو موقوف (الأصل اتغيّر اسمه `*_vault`).
+2. RLS live (`files = rls_integrations_pause`).
+3. «Deploy functions» لكل اللي بيقرا `_shared/secrets.js` (`vaultEnv` بيشيل `__unset`): `woo-sync` · `woo-webhook` · `ai-content` · `ai-images` · `notify` · `settings-admin` · `team-admin` · `portal`.
+4. الواجهة على `main`؛ ولازم تتسجّل «Valid OAuth Redirect» زي ما هي (صفحات الرجوع نفسها — بس زرار «ارجع» بقى للإعدادات).

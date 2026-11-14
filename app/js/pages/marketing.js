@@ -1001,14 +1001,16 @@
     const rows = AD_KEYS.map((k) => [k].concat(platformRow(s, k))).concat([[null, 'ووكومرس — لايف', 'مصدر الأوردر (UTM) شغال · ' + K.n0(c.t.orders) + ' أوردر من إعلانات في الفترة', 'success', 'users']]);
     const acct = s ? AD_KEYS.filter((k) => s.platforms[k].configured && s.platforms[k].account && s.platforms[k].account.status && s.platforms[k].account.status !== 'ACTIVE').map((k) => U.InlineNote({ kind: 'warning', children: 'حساب الإعلانات على ' + AD_NAME[k] + ' حالته: ' + s.platforms[k].account.status })) : null;
     const state = !s ? 'loading' : !s.configured ? 'off' : s.anyError ? 'error' : 'ok';
-    const acts = (k) => { if (!isAdmin() || !s || k == null) return null; const p = s.platforms[k];
-      return h('span', { class: 'acts-inline mk-acts' }, Button({ size: 'sm', type: p.configured ? 'default' : 'primary', label: p.configured ? 'عدّل البيانات' : 'اربط', attrs: { 'data-ads-link': k }, onClick: () => linkPopup(k) }),
-        p.configured || Object.keys(p.fields || {}).length ? Button({ size: 'sm', type: 'text', label: 'فصل', attrs: { 'data-ads-unlink': k }, onClick: () => unlinkAsk(k) }) : null); };
+    // owner batch 2 decision 12: the ad accounts link from «الإعدادات › الربط بالمنصات» only — this card shows their state
+    const acts = (k) => { if (!isAdmin() || !s || k == null) return null;
+      return h('span', { class: 'acts-inline mk-acts' }, Button({ size: 'sm', type: 'text', label: 'الربط من الإعدادات', attrs: { 'data-ads-settings': k }, onClick: () => toSettings('ads') })); };
     return Card('حالة الربط', 'الإعلانات قراية بس — مفيش أي تغيير على المنصات من هنا · بيانات الربط بتتحفظ مشفّرة على السيرفر (Vault) ومابتظهرش تاني',
       [h('div', { class: 'mk-list', 'data-ads-conn': state }, rows.map(([k, t, sub, tone, ic]) => h('div', { class: 'mk-item', 'data-ads-platform': k || 'woo' }, h('span', { class: 'mk-ic tone-' + tone }, Icon(ic, 'sm')), h('span', { class: 'mk-txt' }, h('b', null, t), h('small', null, sub)), acts(k))))].concat(acct || []));
   }
   // the admin's popup of a platform: its fields (a stored secret shows its tail and stays unless typed over), «احفظ», the OAuth button, «فصل»
-  function linkPopup(k) {
+  const toSettings = (tab) => { const sp = window.IBPages.all().settings; if (sp && sp.api && sp.api.openIntegrations) sp.api.openIntegrations(tab); else location.hash = '#settings-integrations'; };
+  // the admin's popup of a platform (opened from the settings — decision 12): onDone runs after a save or an unlink
+  function linkPopup(k, onDone) {
     const s = adsState(null); const p = s && s.platforms ? s.platforms[k] : null; const stored = (p && p.fields) || {}; const vals = {}; let busy = false;
     const fields = W.AD_LINK_FIELDS[k] || [];
     const inputs = fields.map((f) => U.TextInput({ id: 'ads-' + k + '-' + f.key, label: f.label, type: f.secret ? 'password' : 'text', value: !f.secret && stored[f.key] ? stored[f.key] : '', placeholder: f.secret && stored[f.key] ? 'محفوظ ' + stored[f.key] + ' — سيبه فاضي عشان يفضل' : f.placeholder || '', help: f.help || null, autocomplete: 'off', dir: 'ltr', onInput: (v) => { vals[f.key] = v; } }));
@@ -1020,15 +1022,15 @@
       const r = await MK().adsLinkSet(k, body);
       if (!r.ok) { busy = false; K.toast(r.message, 'error'); return; }
       if (thenOauth) { const o = await MK().adsLinkStart(k); busy = false; if (!o.ok) { K.toast(o.message, 'error'); return; } m.close(); location.assign(o.url); return; }
-      busy = false; m.close(); K.toast(r.platform.configured ? 'اتحفظ الربط — المزامنة الجاية هتسحب أرقام ' + AD_NAME[k] : 'اتحفظت البيانات — كمّل الربط عشان الأرقام تتسحب', 'success'); R();
+      busy = false; m.close(); K.toast(r.platform.configured ? 'اتحفظ الربط — المزامنة الجاية هتسحب أرقام ' + AD_NAME[k] : 'اتحفظت البيانات — كمّل الربط عشان الأرقام تتسحب', 'success'); R(); if (onDone) onDone();
     };
     const cand = p && p.candidates && p.candidates.length ? U.InlineNote({ kind: 'warning', children: 'المنصة عرضت أكتر من حساب — اختار واحد:', action: h('span', { class: 'acts-inline' }, p.candidates.map((cnd) => Button({ size: 'sm', label: (cnd.name ? cnd.name + ' · ' : '') + cnd.id, attrs: { 'data-ads-pick': cnd.id }, onClick: async () => { const r = await MK().adsLinkPick(k, cnd.id); K.toast(r.ok ? 'اتربط حساب ' + cnd.id : r.message, r.ok ? 'success' : 'error'); if (r.ok) { m.close(); R(); } } }))) }) : null;
     const m = U.Modal({ title: 'ربط ' + AD_NAME[k] + ' إعلانات', body: [h('div', { class: 'stack', 'data-ads-link-form': k }, inputs)].concat(notes.map((t) => U.InlineNote({ children: t }))).concat(cand ? [cand] : []),
       footer: [Button({ label: 'إلغاء', onClick: () => m.close() }), Button({ type: 'primary', label: 'احفظ', attrs: { 'data-ads-save': k }, onClick: () => save(false) }), W.AD_OAUTH[k] ? Button({ type: 'brand', label: W.AD_OAUTH[k], attrs: { 'data-ads-oauth': k }, onClick: () => save(true) }) : null] });
   }
-  function unlinkAsk(k) {
+  function unlinkAsk(k, onDone) {
     K.confirm({ title: 'تفصل ' + AD_NAME[k] + '؟', text: 'بيانات الربط هتتمسح من السيرفر والأرقام القديمة هتفضل في السجل؛ تقدر تربط تاني في أي وقت.', okLabel: 'افصل', okType: 'danger',
-      onOk: async () => { const r = await MK().adsUnlink(k); K.toast(r.ok ? 'اتفصلت ' + AD_NAME[k] : r.message, r.ok ? 'success' : 'error'); R(); } });
+      onOk: async () => { const r = await MK().adsUnlink(k); K.toast(r.ok ? 'اتفصلت ' + AD_NAME[k] : r.message, r.ok ? 'success' : 'error'); R(); if (onDone) onDone(); } });
   }
   function merChart(c) {
     const w = c.weeks; const max = Math.max(0, ...w.map((x) => x.mer || 0)); const lab = (x) => D2(x.from).slice(0, 5) + '–' + D2(x.to).slice(0, 5);
@@ -1483,5 +1485,6 @@
   document.addEventListener('ib:tickets', () => { if (window.IBPages.current !== 'marketing' || st.view !== 'hub' || !BY.reqs) return; if (document.querySelector('.scrim')) return; R(); }); // 0082: the requests are team requests
   document.addEventListener('ib:marketing', () => { if (window.IBPages.current !== 'marketing' || st.view !== 'hub') return; if (document.querySelector('.scrim')) return; R(); });
 
+  window.IBAdsLinkUI = { popup: linkPopup, unlink: unlinkAsk }; // owner batch 2 decision 12: the settings page opens them
   window.IBPages.register('marketing', { title: 'التسويق', hash: (hs) => route(hs), defaultHash, view, api: { st, camp, go, openCampaign, reportBlocks } });
 })();

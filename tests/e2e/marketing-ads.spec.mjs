@@ -71,6 +71,13 @@ async function openTab(page, email, tab) {
   await pg(page).getByRole('tab', { name: new RegExp(tab) }).click();
 }
 const pg = (page) => page.locator('#pg-marketing');
+// owner batch 2 decision 12: the ad accounts link from «الإعدادات › الربط بالمنصات» (the same popup) — the marketing card shows their state
+const backToMarketing = async (page) => { await page.evaluate(() => { location.hash = 'marketing'; }); await pg(page).getByRole('tab', { name: /نظرة عامة/ }).click(); };
+async function fromSettings(page, attr, id) {
+  await page.evaluate(() => { location.hash = 'settings-integrations'; });
+  await page.locator('#pg-settings [role=tab]', { hasText: 'الإعلانات' }).click();
+  await page.locator('#pg-settings [' + attr + '="' + id + '"]').click();
+}
 const kpi = (scope, label) => scope.locator('.kpi[aria-label="' + label + '"]');
 const modal = (page, text) => page.locator('.modal[role=dialog]', { hasText: text });
 const close = (m) => m.locator('button.btn-text', { hasText: 'إغلاق' }).click();
@@ -314,7 +321,9 @@ test('9.5.6: the admin links TikTok from «حالة الربط» (the fields int
   const P = pg(page);
   await expect(P.locator('[data-ads-platform="tiktok"]')).toContainText('تيك توك — مش مربوطة');
   await expect(P.locator('[data-ads-platform="google"]')).toContainText('جوجل — مش مربوطة');
-  await P.locator('[data-ads-link="tiktok"]').click();
+  await P.locator('[data-ads-settings="tiktok"]').click(); // the card points to the settings
+  await expect(page).toHaveURL(/#settings-integrations$/);
+  await page.locator('#pg-settings [data-integ-connect="tiktokads"]').click();
   const m = modal(page, 'ربط تيك توك إعلانات');
   await expect(m).toContainText('ads-callback.html'); // the redirect the owner registers on the app
   await m.locator('#ads-tiktok-app_id').fill(TT_LINK.app_id);
@@ -323,7 +332,7 @@ test('9.5.6: the admin links TikTok from «حالة الربط» (the fields int
   await expect(toast(page)).toContainText('اتحفظت البيانات — كمّل الربط');
   expect(mock.mkt.links.tiktok).toEqual({ app_id: TT_LINK.app_id, secret: TT_LINK.secret });
   // the token and the advertiser by hand (the owner has them from the app's portal): the stored secret stays when its input is left empty
-  await P.locator('[data-ads-link="tiktok"]').click();
+  await fromSettings(page, 'data-integ-connect', 'tiktokads');
   const m2 = modal(page, 'ربط تيك توك إعلانات');
   await expect(m2.locator('#ads-tiktok-secret')).toHaveAttribute('placeholder', /محفوظ ••••6789/);
   await m2.locator('#ads-tiktok-access_token').fill(TT_LINK.access_token);
@@ -331,6 +340,7 @@ test('9.5.6: the admin links TikTok from «حالة الربط» (the fields int
   await m2.locator('[data-ads-save="tiktok"]').click();
   await expect(toast(page)).toContainText('اتحفظ الربط — المزامنة الجاية هتسحب أرقام تيك توك');
   expect(mock.mkt.links.tiktok).toEqual(TT_LINK);
+  await backToMarketing(page);
   await expect(P.locator('[data-ads-platform="tiktok"]')).toContainText('تيك توك — متصلة');
   await expect(P.locator('[data-ads-platform="tiktok"]')).toContainText('حساب 7000000000000000001');
   // the calls and the writes carry the keys only — never a secret
@@ -342,10 +352,11 @@ test('9.5.6: the admin links TikTok from «حالة الربط» (the fields int
   await expect(toast(page)).toContainText('اتزامنت أرقام الإعلانات');
   await expect(P.locator('.ads-bar .fresh')).toContainText('تيك توك');
   // «فصل» asks, then the card is back to not linked
-  await P.locator('[data-ads-unlink="tiktok"]').click();
+  await fromSettings(page, 'data-integ-unlink', 'tiktokads');
   await page.getByRole('button', { name: 'افصل' }).click();
   await expect(toast(page)).toContainText('اتفصلت تيك توك');
   expect(mock.mkt.links.tiktok).toBeUndefined();
+  await backToMarketing(page);
   await expect(P.locator('[data-ads-platform="tiktok"]')).toContainText('تيك توك — مش مربوطة');
 });
 
@@ -367,5 +378,5 @@ test('9.5.6: a linked TikTok account with numbers — the spend and the campaign
   await signOut(page);
   await openTab(page, OPS, 'نظرة عامة');
   await expect(P.locator('[data-ads-platform="tiktok"]')).toContainText('تيك توك — متصلة');
-  await expect(P.locator('[data-ads-link]')).toHaveCount(0);
+  await expect(P.locator('[data-ads-settings]')).toHaveCount(0);
 });

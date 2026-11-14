@@ -24,6 +24,12 @@ async function signIn(page, id, hash = '#cs-inbox') {
   await expect(page.locator('#pg-cs')).toBeVisible();
 }
 const pg = (page) => page.locator('#pg-cs');
+// owner batch 2 decision 12: the channels link, unlink and pause from «الإعدادات › الربط بالمنصات» — «القنوات» shows their state
+async function fromSettings(page, attr, id) {
+  await page.evaluate(() => { location.hash = 'settings-integrations'; });
+  await page.locator('#pg-settings [role=tab]', { hasText: 'وسائل التواصل' }).click();
+  await page.locator('#pg-settings [' + attr + '="' + id + '"]').click();
+}
 const go = async (page, tab) => { await page.evaluate((t) => { location.hash = 'cs-' + t; }, tab); await expect(pg(page).locator('.cs-tab-' + tab)).toBeVisible(); };
 
 test('inbox: the seeded conversation (customer, assignee, status tag, messages), a note, a status change, close with an outcome + mood + rating', async ({ page }) => {
@@ -136,8 +142,8 @@ test('6.3 hidden (decision 24): without settings «cs».live the last wizard ste
   await expect(P.locator('[data-wz-next] .soon')).toHaveText('soon');
   await P.getByRole('tab', { name: 'القنوات' }).click();
   await expect(P.locator('[data-chan-connect="wa2"][data-soon]')).toBeDisabled();
-  await expect(P.locator('[data-chan-connect="wa1"]')).not.toHaveAttribute('data-soon', ''); // decision 26: WhatsApp 1 is on Meta, not the hidden QR
-  await expect(P.locator('[data-chan-connect="messenger"]')).not.toHaveAttribute('data-soon', '');
+  await expect(P.locator('[data-chan-settings="wa1"]')).toBeVisible(); // decision 26: WhatsApp 1 is on Meta, not the hidden QR — linked from the settings
+  await expect(P.locator('[data-chan-settings="messenger"]')).toBeVisible();
 });
 
 test('6.4 (decisions 21–22, live): «ربط» واتساب 2 shows the bridge\'s QR to the admin, closes once the number is linked', async ({ page }) => {
@@ -195,7 +201,7 @@ test('channels (all disconnected; WhatsApp waits for the last stage; the admin s
   await expect(P.locator('[data-channel]')).toHaveCount(5);
   await expect(P.locator('[data-channel="wa1"]')).toContainText('غير متصلة');
   await expect(P.locator('[data-chan-connect="wa2"]')).toContainText('soon'); // decision 24: WhatsApp 2 (QR) hidden until the owner opens it
-  await expect(P.locator('[data-chan-connect="wa1"]')).not.toContainText('soon'); // decision 26: WhatsApp 1 links through Meta
+  await expect(P.locator('[data-chan-settings="wa1"]')).toHaveText('الربط من الإعدادات'); // decision 26: WhatsApp 1 links through Meta — from the settings (batch 2 decision 12)
   await expect(P.locator('[data-wa-setup]')).toContainText('META_WA_CONFIG_ID موجود ✓');
   await expect(P.locator('[data-wa-setup]')).toContainText('https://fsynculhaupcktzkfkdd.supabase.co/functions/v1/cs-whatsapp');
   await expect(P.locator('[data-meta-setup]')).toContainText('الأسرار موجودة ✓');
@@ -256,7 +262,7 @@ test('6.2 — the admin links the Facebook page from «القنوات» (the dia
   const P = pg(page);
   // Facebook's dialog (mocked) sends the browser straight back with a code
   await page.route('https://www.facebook.com/**', (route) => { const u = new URL(route.request().url()); route.fulfill({ status: 302, headers: { location: 'http://localhost:4173/meta-callback.html?code=AQD-code-mock-1234&state=' + u.searchParams.get('state') } }); });
-  await P.locator('[data-chan-connect="messenger"]').click();
+  await fromSettings(page, 'data-integ-connect', 'messenger');
   await expect(page).toHaveURL(/meta-callback\.html$/);
   await expect(page.locator('#cb-title')).toHaveText('اتربطت صفحة Ibtekr Club ✓');
   await expect(page.locator('#cb-text')).toContainText('@ibtekr.club');
@@ -264,14 +270,15 @@ test('6.2 — the admin links the Facebook page from «القنوات» (the dia
   expect(mock.meta.linked).toBe(true);
   expect(mock.cs.channels.find((c) => c.id === 'messenger')).toMatchObject({ status: 'connected', number: 'Ibtekr Club', meta: { page_id: '111', ig_username: 'ibtekr.club' } });
   expect(mock.cs.channels.find((c) => c.id === 'instagram')).toMatchObject({ status: 'connected', number: '@ibtekr.club' });
-  expect(mock.metaCalls.map((c) => c.action)).toEqual(['status', 'connect_start', 'connect_callback']);
+  expect(mock.metaCalls.map((c) => c.action).filter((a) => a !== 'status')).toEqual(['connect_start', 'connect_callback']);
   await page.locator('#cb-back').click();
-  await expect(page).toHaveURL(/#cs-channels$/);
+  await expect(page).toHaveURL(/#settings-integrations$/); // batch 2 decision 12: the callback returns to the settings
+  await go(page, 'channels');
   await expect(P.locator('[data-channel="messenger"]')).toContainText('متصلة');
   await expect(P.locator('[data-channel="messenger"]')).toContainText('Ibtekr Club');
   await expect(P.locator('[data-channel="instagram"]')).toContainText('@ibtekr.club');
   await expect(P.locator('[data-meta-setup]')).toContainText('Ibtekr Club · @ibtekr.club');
-  await expect(P.locator('[data-chan-disconnect="messenger"]')).toBeVisible();
+  await expect(P.locator('[data-chan-settings="messenger"]')).toBeVisible();
   // the Messenger thread (second in the list: waiting for the customer): the composer is live, the reply goes through the channel
   await go(page, 'inbox');
   await P.locator('.cs-list .cv').nth(1).click();
@@ -328,9 +335,10 @@ test('6.2 — the admin links the Facebook page from «القنوات» (the dia
   await expect.poll(() => mock.activityRows.filter((x) => x.action.startsWith('cs.channel.')).map((x) => x.action)).toEqual(['cs.channel.link', 'cs.channel.connect', 'cs.channel.send', 'cs.channel.failed', 'cs.channel.send', 'cs.channel.private', 'cs.channel.hide', 'cs.channel.hide']); // the member's link start, the server's connect, then the sends / hide (server + adapter)
   expect(JSON.stringify(mock.activityRows)).not.toContain('950 جنيه');
   // disconnect: both channels back, the secret gone on the server
+  await fromSettings(page, 'data-integ-unlink', 'messenger');
+  await page.getByRole('button', { name: 'إلغاء الربط', exact: true }).last().click();
+  await expect.poll(() => mock.meta.linked).toBe(false);
   await go(page, 'channels');
-  await P.locator('[data-chan-disconnect="messenger"]').click();
-  await page.getByRole('button', { name: 'فصل', exact: true }).last().click();
   await expect(P.locator('[data-channel="messenger"]')).toContainText('غير متصلة');
   await expect(P.locator('[data-channel="instagram"]')).toContainText('غير متصلة');
   expect(mock.meta.linked).toBe(false);
@@ -343,13 +351,13 @@ test('6.2 — several pages on the account: the callback page lists them and the
   await signIn(page, ADMIN, '#cs-channels');
   mock.meta.pages.push({ id: '222', name: 'Side page', ig: null });
   await page.route('https://www.facebook.com/**', (route) => { const u = new URL(route.request().url()); route.fulfill({ status: 302, headers: { location: 'http://localhost:4173/meta-callback.html?code=AQD-code-mock-1234&state=' + u.searchParams.get('state') } }); });
-  await pg(page).locator('[data-chan-connect="instagram"]').click();
+  await fromSettings(page, 'data-integ-connect', 'instagram');
   await expect(page.locator('#cb-title')).toHaveText('اختار الصفحة');
   await expect(page.locator('[data-pick-page]')).toHaveCount(2);
   await page.locator('[data-pick-page="111"]').click();
   await expect(page.locator('#cb-title')).toHaveText('اتربطت صفحة Ibtekr Club ✓');
   expect(mock.meta.page.id).toBe('111');
-  expect(mock.metaCalls.map((c) => c.action)).toEqual(['status', 'connect_start', 'connect_callback', 'connect_pick']);
+  expect(mock.metaCalls.map((c) => c.action).filter((a) => a !== 'status')).toEqual(['connect_start', 'connect_callback', 'connect_pick']);
 });
 
 test('decision 26: WhatsApp 1 on Meta — «ربط» opens wa-connect.html, Meta\'s SDK (faked) gives a code and the session info, the number is linked and the history asked for; a reply on wa1 goes through cs-whatsapp', async ({ page }) => {
@@ -357,7 +365,7 @@ test('decision 26: WhatsApp 1 on Meta — «ربط» opens wa-connect.html, Meta
   const P = pg(page);
   // Meta's JavaScript SDK, faked: FB.login records its options, posts no session info (another origin's message is refused anyway) and answers a code
   await page.route('https://connect.facebook.net/**', (r) => r.fulfill({ status: 200, contentType: 'application/javascript', body: "window.FB = { init: function (o) { window.__fbInit = o; }, login: function (cb, o) { window.__fbLogin = o; window.postMessage(JSON.stringify({ type: 'WA_EMBEDDED_SIGNUP', event: 'FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING', data: { waba_id: '999' } }), '*'); cb({ authResponse: { code: 'code-123456' } }); } }; setTimeout(function () { window.fbAsyncInit && window.fbAsyncInit(); }, 0);" }));
-  await P.locator('[data-chan-connect="wa1"]').click();
+  await fromSettings(page, 'data-integ-connect', 'wa');
   await expect(page).toHaveURL(/wa-connect\.html$/);
   await expect(page.locator('#wc-go')).toBeEnabled();
   expect(await page.evaluate(() => window.__fbInit.appId)).toBe('1234567890');

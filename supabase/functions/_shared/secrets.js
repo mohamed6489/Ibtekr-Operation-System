@@ -10,6 +10,8 @@ export async function vaultEnv(db, env) {
     if (error || !data || typeof data !== 'object' || Array.isArray(data)) return env;
     const out = { ...env };
     for (const [k, v] of Object.entries(data)) if (typeof v === 'string' && v.trim()) out[k] = v;
+    // owner batch 2 decision 11 (0099): a paused platform's keys are gone — the Supabase secret of the same name does not stand in
+    if (Array.isArray(data.__unset)) for (const k of data.__unset) if (typeof k === 'string' && k !== 'WOO_PUSH_ENABLED') delete out[k];
     return out;
   } catch {
     return env;

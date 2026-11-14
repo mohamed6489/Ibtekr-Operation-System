@@ -89,3 +89,28 @@ test('decisions 4, 5 and 8: a status gets a shown name (⋮ «تغيير الا�
   await go(page, 'settings-inventory');
   await expect(page.locator('#pg-settings').getByRole('radio', { name: 'اسألني في كل مرة' })).toHaveCount(1);
 });
+
+test('decision 6: the permissions matrix looks like the alerts matrix (icon marks, group headers with a count) and both role rows stay under the top bar until the matrix ends', async ({ page }) => {
+  const stuck = (sel) => page.evaluate((s) => { const head = document.querySelector(s + ' .mx-head'); const m = document.querySelector(s + ' .matrix'); const r = m.getBoundingClientRect(); window.scrollTo(0, window.scrollY + r.top + Math.min(400, r.height / 2)); return new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(() => { const h = head.getBoundingClientRect(); ok({ top: Math.round(h.top), inMatrix: m.getBoundingClientRect().bottom > h.bottom }); }))); }, sel);
+  await go(page, 'settings-team');
+  await page.locator('#pg-settings').getByRole('tab', { name: 'الأدوار والصلاحيات' }).click();
+  const pm = page.locator('[data-perm-matrix]');
+  await expect(pm.locator('.mx-head')).toContainText('أدمن');
+  await expect(pm.locator('.mx-head')).toContainText('كاملة');
+  await expect(pm.locator('.mx-gh .acc-t').first()).toBeVisible();
+  await expect(pm.locator('.mx-gh .meta').first()).toContainText('صلاحيات');
+  await expect(pm.locator('button.pm-full svg').first()).toBeVisible(); // ✓ as an icon, like the alerts matrix
+  await expect(pm.locator('button.pm-none').first()).toHaveText('○');
+  const s1 = await stuck('[data-perm-matrix]');
+  expect(s1.top).toBeGreaterThanOrEqual(46); expect(s1.top).toBeLessThanOrEqual(50); expect(s1.inMatrix).toBe(true);
+  // a click still changes a role's permission (✓ → 👁 → ○)
+  const cell = pm.locator('.mx-row:not(.mx-head):not(.sens) button.pm:not([disabled])').first();
+  const before = await cell.getAttribute('class');
+  await cell.click();
+  await expect(cell).not.toHaveAttribute('class', before);
+  await go(page, 'settings-notifications');
+  await page.locator('#pg-settings').getByRole('tab', { name: 'حسب الدور' }).click();
+  await expect(page.locator('[data-alert-matrix] .mx-head')).toBeVisible();
+  const s2 = await stuck('[data-alert-matrix]');
+  expect(s2.top).toBeGreaterThanOrEqual(46); expect(s2.top).toBeLessThanOrEqual(50); expect(s2.inMatrix).toBe(true);
+});

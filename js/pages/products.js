@@ -52,6 +52,12 @@
     if (hs === 'products-log') { st.view = 'log'; st.tab = 'log'; return true; }
     // phase 5.2: the studio (products-studio.js) — #products-studio-<new|batch id>[-<step 1–8 | report>]
     if ((m = /^products-studio-(new|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:-([1-8]|report))?$/.exec(hs)) && window.IBStudioView) { st.view = 'studio'; st.tab = 'add'; window.IBStudioView.route(m[1], m[2] || '1'); return true; }
+    // the studio's three flows (products-flow.js, docs/superpowers/plans/2026-11-14-studio-flows.md) — #products-flow-<new|batch id>[-<step 1–6>];
+    // «new» opens the chooser over «إضافة»
+    if ((m = /^products-flow-(new|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:-([1-6]))?$/.exec(hs)) && window.IBFlowView) {
+      if (m[1] === 'new') { st.view = 'add'; st.tab = 'add'; setTimeout(() => window.IBFlowView.start()); return true; }
+      st.view = 'flow'; st.tab = 'add'; window.IBFlowView.route(m[1], m[2] || '1'); return true;
+    }
     // phase 5.3: the content tool (products-content.js) — #products-tool-content[-<product id>]
     if ((m = /^products-tool-content(?:-(\d+))?$/.exec(hs)) && window.IBContentView) { st.view = 'tool-content'; st.tab = 'add'; window.IBContentView.route(m[1] ? Number(m[1]) : null); return true; }
     // phase 5.4: the images tool (products-images.js) — #products-tool-images[-<product id>]
@@ -61,7 +67,8 @@
     return false;
   }
   const studioHash = () => { const S = window.IBStudioView ? window.IBStudioView.state : null; return 'products-studio-' + ((S && S.id) || 'new') + '-' + (S && S.report ? 'report' : (S && S.step) || 1); };
-  const defaultHash = () => ({ overview: 'products-overview', log: 'products-log', add: 'products-add', records: 'products-records', cats: 'products-cats', reports: 'products-reports', trash: 'products-trash', edit: 'products-edit-' + st.editId + '-' + st.etab }[st.view] || (st.view === 'studio' ? studioHash() : st.view === 'tool-content' && window.IBContentView ? window.IBContentView.hash() : st.view === 'tool-images' && window.IBImagesView ? window.IBImagesView.hash() : 'products-records'));
+  const flowHash = () => { const S = window.IBFlowView ? window.IBFlowView.state : null; return S && S.id ? 'products-flow-' + S.id + '-' + (S.step || 1) : 'products-add'; };
+  const defaultHash = () => ({ overview: 'products-overview', log: 'products-log', add: 'products-add', records: 'products-records', cats: 'products-cats', reports: 'products-reports', trash: 'products-trash', edit: 'products-edit-' + st.editId + '-' + st.etab }[st.view] || (st.view === 'studio' ? studioHash() : st.view === 'flow' ? flowHash() : st.view === 'tool-content' && window.IBContentView ? window.IBContentView.hash() : st.view === 'tool-images' && window.IBImagesView ? window.IBImagesView.hash() : 'products-records'));
 
   // ---------------- shared pieces ----------------
   // th: a big table's head (2026-11-13-table-head.md) — { noun, when, total, count } for the kit's line «‹إمتى› · N من M ‹اسم› · ‹إجمالي›»
@@ -79,7 +86,9 @@
 
   // ---------------- «إضافة» (phase 5.2: the studio, products.add; phase 5.3: the content tool; the images tool in 5.4) ----------------
   const canAdd = () => !!(window.IBStudio && window.IBStudio.can());
-  const startStudio = () => { if (!canAdd()) { K.toast('مش مسموحلك تضيف منتجات — اطلب صلاحية «إضافة منتجات»', 'error'); return; } window.IBStudioView.start(); };
+  // the three flows (2026-11-14-studio-flows.md decision 1): a new batch starts from the chooser (sheet · WhatsApp · photos → sheet);
+  // the old wizard (#products-studio-…) stays for its saved batches
+  const startStudio = () => { if (!canAdd()) { K.toast('مش مسموحلك تضيف منتجات — اطلب صلاحية «إضافة منتجات»', 'error'); return; } if (window.IBFlowView) window.IBFlowView.start(); else window.IBStudioView.start(); };
   function addView() {
     const studioCard = h('button', { type: 'button', class: 'card tool-card', 'aria-label': 'استوديو المنتجات — ابدأ دفعة', onClick: startStudio }, h('span', { class: 'tool-ic' }, Icon('package')), h('span', { class: 't-h5 tc-t' }, 'استوديو المنتجات'),
       h('span', { class: 't-small tc-b' }, 'من الشيت والصور لحد ما المنتج يترفع على الموقع مسودة: SKU، متغيرات، سعر، صور، أقسام، أوصاف.'), canAdd() ? Tag('success', 'متاح') : Tag('neutral', 'محتاج صلاحية'), h('span', { class: 'tc-cta' }, 'ابدأ دفعة', Icon('chevL', 'sm')));
@@ -1040,6 +1049,7 @@
     P.ensure();
     if (st.view === 'edit') return editView();
     if (st.view === 'studio' && window.IBStudioView) return window.IBStudioView.view(K.PageHead('المنتجات', null, null));
+    if (st.view === 'flow' && window.IBFlowView) return window.IBFlowView.view(K.PageHead('المنتجات', null, null));
     if (st.view === 'tool-content' && window.IBContentView) return window.IBContentView.view();
     if (st.view === 'tool-images' && window.IBImagesView) return window.IBImagesView.view();
     // «تخصيص اللوحة» (phase 10 decision 22, as in the v5 prototype): the log, the additions and the trash; the reports tab has its own

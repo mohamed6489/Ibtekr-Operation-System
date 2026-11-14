@@ -971,10 +971,13 @@
   function savedWork() {
     const s = ST(); if (!s || !s.can()) return null; s.ensure();
     const B = s.batches();
-    const label = (b) => (b.status === 'done' ? Tag('success', 'اترفعت') : b.status === 'uploading' ? Tag('orange', 'اترفع جزء') : Tag('neutral', 'الخطوة ' + b.step + ' · ' + STEPS[b.step - 1]));
+    // the three flows (2026-11-14-studio-flows.md): their batches (state.flow = 2) open in products-flow.js
+    const isFlow = (b) => Number(b.flow != null ? b.flow : b.state && b.state.flow) === 2;
+    const FLOW_STEPS = ['البداية', 'المبتكر والبراند', 'البيانات', 'الأسعار', 'الصور', 'الرفع'];
+    const label = (b) => (b.status === 'done' ? Tag('success', 'اترفعت') : b.status === 'uploading' ? Tag('orange', 'اترفع جزء') : Tag('neutral', 'الخطوة ' + b.step + ' · ' + ((isFlow(b) ? FLOW_STEPS : STEPS)[b.step - 1] || '')));
     return Card('الشغل المحفوظ', 'الدفعات اللي لسه بتشتغل عليها — بتتحفظ تلقائي.', [s.state() === 'loading' ? U.InlineNote({ children: 'بنحمّل…' }) : B.length ? U.Table({ cls: 'dt', headers: ['الدفعة', 'النوع', 'الحالة', 'آخر تعديل', ''],
       rows: B.map((b) => [h('b', null, b.title), b.type, label(b), h('span', { class: 't-small help', dir: 'ltr' }, String(b.updated_at || '').slice(0, 16).replace('T', ' ')),
-        h('span', { class: 'acts-inline' }, Button({ size: 'sm', label: b.status === 'done' ? 'التقرير' : 'كمّل', onClick: () => go('products-studio-' + b.id + '-' + (b.status === 'done' ? 'report' : b.step)) }),
+        h('span', { class: 'acts-inline' }, Button({ size: 'sm', label: b.status === 'done' && !isFlow(b) ? 'التقرير' : 'كمّل', onClick: () => go(isFlow(b) ? 'products-flow-' + b.id + '-' + Math.min(6, b.step || 1) : 'products-studio-' + b.id + '-' + (b.status === 'done' ? 'report' : b.step)) }),
           U.IconButton({ icon: 'trash', label: 'احذف ' + b.title, onClick: () => K.confirm({ title: 'تحذف «' + b.title + '»؟', text: 'الدفعة بتختفي من الشغل المحفوظ. المنتجات اللي اترفعت على الموقع مابتتمسحش.', okLabel: 'احذف', okType: 'danger', onOk: () => s.archive(b.id) }) }))]) }) : K.Empty('مفيش شغل محفوظ', 'ابدأ دفعة جديدة من «استوديو المنتجات».')]);
   }
   document.addEventListener('ib:studio', () => { if (window.IBPages && window.IBPages.current === 'products') R(); });

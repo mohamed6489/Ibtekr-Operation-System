@@ -1,0 +1,84 @@
+/* استوديو المنتجات — التلات حالات (docs/superpowers/plans/2026-11-14-studio-flows.md): the template tables with the reference picture
+   and the checkbox fixed on the right while the rest scrolls, the image units (4 shots + the size drawing), the two upload boxes with
+   their progress, and case 3's photo grid. The stepper, option cards, wizard foot and bulk bar come from studio.css. */
+.fl .fl-card{padding:0;display:flex;flex-direction:column;gap:0}
+.fl .fl-card>:not(.sec-h){margin:12px 16px}
+.fl .fl-card>.sec-h+*{margin-top:16px}
+.fl .sub-h{margin:16px 0 8px}
+.fl-new{display:flex;align-items:flex-end;padding-bottom:4px}
+.rate-field{display:flex;flex-direction:column;gap:4px;justify-content:flex-end;padding-bottom:4px}
+.rate-field b{font-size:18px;color:var(--color-brand-default)}
+
+/* the template table: checkbox + reference picture sticky on the right (RTL start), the rest scrolls */
+.fl-scroll{overflow-x:auto;max-width:100%;border:1px solid var(--color-border-subtle);border-radius:var(--radius-md);background:var(--color-bg-base)}
+.fl-table{border-collapse:separate;border-spacing:0;min-width:100%;font-size:13px}
+.fl-table th{position:sticky;top:0;z-index:2;background:var(--color-brand-default);color:var(--color-text-on-brand);font-weight:700;padding:8px;white-space:nowrap;text-align:start}
+.fl-table td{padding:6px 8px;border-bottom:1px solid var(--color-border-subtle);vertical-align:middle;background:var(--color-bg-base)}
+.fl-table tr:nth-child(even) td{background:var(--color-bg-tint)}
+.fl-table .stk{position:sticky;z-index:1}
+.fl-table th.stk{z-index:3}
+.fl-table .c-cb{inset-inline-start:0;width:44px;min-width:44px}
+.fl-table .c-ref{inset-inline-start:44px;width:104px;min-width:104px;box-shadow:-1px 0 0 var(--color-border-subtle)}
+.fl-table tr.row-err td.c-cb{box-shadow:inset 3px 0 0 var(--color-error-base)}
+.fl-in{min-width:120px;height:32px;padding:4px 8px;font:inherit;font-size:13px}
+.fl-in.w-mid{min-width:200px}
+.fl-in.w-wide{min-width:280px;height:auto;min-height:56px;resize:vertical}
+textarea.fl-in{display:block;width:100%}
+.fl-in.is-ai{background:var(--color-warning-bg);border-color:var(--color-warning-border)}
+.fl-num{width:110px;height:32px;padding:4px 8px;font:inherit;text-align:center}
+.fl-info{display:flex;flex-direction:column;gap:2px;min-width:0}
+.fl-info b{font-size:13px}
+.fl-info span,.fl-info small{font-size:12px;color:var(--color-text-secondary)}
+.fl-preview td{white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis}
+.thumb.st-sm{width:40px;height:46px}
+.thumb.st-xl{width:280px;height:320px;max-width:100%}
+.thumb.gen{display:grid;place-items:center;font-size:12px;color:var(--color-text-secondary);background:var(--color-bg-tint);border:1px dashed var(--color-border-default)}
+
+/* the images: a unit (a product, or a color of a Variable) = its reference + the 4 shots + the size drawing */
+.fl-units{display:flex;flex-direction:column;gap:12px}
+.fl-unit{display:grid;grid-template-columns:auto minmax(180px,220px) minmax(0,1fr) auto auto;gap:12px;align-items:start;padding:12px;border:1px solid var(--color-border-subtle);border-radius:var(--radius-md);background:var(--color-bg-base)}
+.fl-unit.ro{grid-template-columns:minmax(160px,200px) minmax(0,1fr)}
+.fl-uref{display:flex;gap:10px;align-items:flex-start;min-width:0}
+.fl-slots{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;min-width:0}
+.fl-unit.ro .fl-slots{grid-template-columns:repeat(5,minmax(0,1fr))}
+.fl-slots.fl-extra{grid-template-columns:minmax(0,1fr);padding-inline-start:12px;border-inline-start:1px dashed var(--color-border-default)}
+.fl-slot{display:flex;flex-direction:column;gap:6px;align-items:center;min-width:0}
+.fl-slot small{font-size:11px;text-align:center}
+.fl-slot.empty .thumb{outline:1px dashed var(--color-border-default)}
+.fl-slot[draggable=true]{cursor:grab}
+.fl-slot .acts-inline{gap:4px}
+.fl-feat{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+
+/* the upload: two boxes, each with its progress */
+.fl-boxes{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}
+.fl-box{padding:16px;display:flex;flex-direction:column;gap:12px}
+.fl-box-h{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.fl-box-h h2{margin:0;color:var(--color-brand-default)}
+.fl-prog{display:flex;align-items:center;gap:10px}
+.fl-prog .bar{flex:1;height:8px;border-radius:999px;background:var(--color-bg-tint);overflow:hidden}
+.fl-prog .bar i{display:block;height:100%;background:var(--color-brand-default);transition:width .2s}
+.fl-prog b{font-size:12px;min-width:40px;text-align:end}
+.fl-res{display:flex;flex-direction:column;gap:6px}
+.fl-res-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 12px;border:1px solid var(--color-border-subtle);border-radius:var(--radius-md)}
+.fl-res-row.bad{border-color:var(--color-error-border);background:var(--color-error-bg)}
+
+/* case 3: the photos */
+.fl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:12px}
+.fl-pcard{display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px;border:1px solid var(--color-border-subtle);border-radius:var(--radius-md);background:var(--color-bg-base)}
+
+@media (max-width:1023px){
+  .fl-unit{grid-template-columns:auto minmax(0,1fr) auto}
+  .fl-unit .fl-slots{grid-column:1 / -1}
+  .fl-slots.fl-extra{padding-inline-start:0;border:0;grid-template-columns:repeat(4,minmax(0,1fr))}
+  .fl-boxes{grid-template-columns:1fr}
+}
+@media (max-width:599px){
+  .fl-slots,.fl-slots.fl-extra,.fl-unit.ro .fl-slots{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .fl-table .c-ref{width:64px;min-width:64px}
+  .fl-table .c-ref .thumb.st-big{width:52px;height:60px}
+  .thumb.st-xl{width:100%;height:auto;aspect-ratio:7/8}
+}
+/* the previews open in a popup (outside #pg-products) */
+.modal .fl-unit .thumb.st-big{width:72px;height:82px}
+.modal .thumb.empty-img{background:var(--color-bg-base);border:1px dashed var(--color-border-default);color:var(--color-text-secondary)}
+.modal .thumb img{width:100%;height:100%;object-fit:cover}

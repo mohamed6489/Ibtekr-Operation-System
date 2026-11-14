@@ -198,7 +198,7 @@
     const rows = (batch && Array.isArray(batch.rows) ? batch.rows : []).map((r, i) => {
       const imgs = Array.isArray(r.images) ? r.images : [];
       const cells = FIELDS.map((f, k) => {
-        if (f === 'n') return i + 1;
+        if (f === 'n') return r.n != null && r.n !== '' ? r.n : i + 1; // case 3: «1-2» = product 1, its second variant
         if (f === 'ref') return '';
         if (/^img\d$/.test(f)) return imgs[Number(f.slice(3)) - 1] || '';
         const v = r[f]; return v == null ? '' : NUMERIC.includes(f) ? (Number.isFinite(Number(v)) && v !== '' ? Number(v) : '') : String(v);

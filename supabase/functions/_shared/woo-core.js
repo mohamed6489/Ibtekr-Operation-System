@@ -198,7 +198,8 @@ export function incomingStatus(wooStatus, currentSystemStatus, statusMap, curren
   if (current && storedSlug && slug === storedSlug) return { status: current, result: 'unchanged' };
   const matches = slug ? rows.filter((r) => r.woo_status === slug) : [];
   const usable = matches.filter((r) => ['both', 'from_woo'].includes(dirOf(r)));
-  if (usable.length) return { status: (usable.find((r) => r.system_status === current) ?? usable[0]).system_status, result: 'ok' };
+  // 0095: an added status (row.base) shares a slug with its base — the base wins unless the order is in the added one already
+  if (usable.length) return { status: (usable.find((r) => r.system_status === current) ?? usable.find((r) => !r.base) ?? usable[0]).system_status, result: 'ok' };
   if (matches.length) return { status: keep, result: 'unchanged' };
   if (Object.hasOwn(WOO_FALLBACK, slug)) return { status: WOO_FALLBACK[slug], result: 'ok' };
   return { status: keep, result: 'conflict' };
@@ -206,8 +207,17 @@ export function incomingStatus(wooStatus, currentSystemStatus, statusMap, curren
 
 /** System status → the Woo slug to push, or null (= not pushed): a both / from_system row with a slug. */
 export function outgoingWooStatus(systemStatus, statusMap) {
-  const row = rowsOf(statusMap).find((r) => r.system_status === systemStatus);
+  const rows = rowsOf(statusMap);
+  const row = rows.find((r) => r.system_status === systemStatus);
+  if (row && !row.woo_status && row.base) return outgoingWooStatus(row.base, statusMap); // 0095: an added status with no slug of its own → its base's
   return row && row.woo_status && ['both', 'from_system'].includes(dirOf(row)) ? row.woo_status : null;
+}
+
+/** 0095: a system status → { status, status_custom }: an added status (its status_map row has a base) is stored as its base plus
+ * itself in status_custom; any other status is itself with no status_custom. */
+export function splitStatus(systemStatus, statusMap) {
+  const row = rowsOf(statusMap).find((r) => r.system_status === systemStatus);
+  return row && row.base ? { status: row.base, status_custom: row.system_status } : { status: systemStatus, status_custom: null };
 }
 
 // ---------------------------------------------------------------- mapping
@@ -251,6 +261,7 @@ export function mapOrder(wooOrder, ctx) {
   const b = isObj(o.billing) ? o.billing : {};
   const s = isObj(o.shipping) ? o.shipping : {};
   const status = incomingStatus(o.status, currentStatus, statusMap, currentWooStatus);
+  const split = splitStatus(status.status, statusMap);
   const order = {
     id: num(o.id), number: str(o.number ?? o.id),
     customer_name: personName(b) || personName(s),
@@ -259,7 +270,7 @@ export function mapOrder(wooOrder, ctx) {
     customer_address: addressOf(s) ?? addressOf(b),
     customer_state: orNull(s.state) ?? orNull(b.state), // the site's governorate code (EG-01 …); names in woo_states
     payment_method: orNull(o.payment_method), payment_title: orNull(o.payment_method_title),
-    status: status.status, woo_status: orNull(o.status),
+    status: split.status, status_custom: split.status_custom, woo_status: orNull(o.status),
     total: num(o.total) ?? 0, currency: orNull(o.currency) ?? 'EGP', customer_note: orNull(o.customer_note),
     note: orNull(o.customer_note), // the team's comment starts as the website note (woo-write writes it on insert only)
     placed_at: gmtIso(o.date_created_gmt), woo_updated_at: gmtIso(o.date_modified_gmt), synced_at: toIso(now),

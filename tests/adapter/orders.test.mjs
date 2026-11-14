@@ -58,7 +58,7 @@ test('load names every column (no *, removed included) and asks for the last 12 
   assert.deepEqual(selectOf(calls, 'sub_orders'), [COLS.sub]);
   assert.deepEqual(selectOf(calls, 'vendors'), ['id, name, lead_days']); // phase 13 decision 52: the maker's making days
   assert.deepEqual(selectOf(calls, 'products'), ['sku, image_url, permalink, lang']);
-  assert.deepEqual(selectOf(calls, 'status_map'), ['system_status, woo_status, direction, sort']);
+  assert.deepEqual(selectOf(calls, 'status_map'), ['system_status, woo_status, direction, sort, base']); // base: 0095
   assert.match(COLS.order, /\bcustomer_state\b/); // the governorate's code (0010)
   assert.deepEqual(selectOf(calls, 'woo_states'), ['code, name']); // once per load, no filter
   assert.deepEqual(opsOf(calls, 'woo_states').filter((c) => c.op !== 'select' && c.op !== 'order'), []);
@@ -70,7 +70,29 @@ test('load names every column (no *, removed included) and asks for the last 12 
   assert.deepEqual(opsOf(calls, 'order_items').filter((c) => c.op === 'in'), [{ op: 'in', args: ['order_id', [181668, 180686]] }]);
   assert.deepEqual(opsOf(calls, 'sub_orders').filter((c) => c.op === 'in'), [{ op: 'in', args: ['order_id', [181668, 180686]] }]);
   assert.deepEqual(opsOf(calls, 'products').filter((c) => c.op === 'in'), [{ op: 'in', args: ['sku', ['IBTAMCTOWM200X10014', 'IBTA4040PAHC000013']] }]); // the skus of the shown lines only
-  assert.equal(calls.some((c) => c.table === 'orders'), false); // the base table is never read (orders_v masks the phone)
+  // the base table: only the added status (0095 — a column grant: id, status_custom; orders_v masks the phone)
+  assert.deepEqual(selectOf(calls, 'orders'), ['id, status_custom']);
+  assert.deepEqual(opsOf(calls, 'orders').filter((c) => c.op === 'not').map((c) => c.args), [['status_custom', 'is', null]]);
+});
+
+test('0095 (owner batch 2 decision 22): an order on an added status — st keeps the base, stc the added one; the write sends the base + status_custom and pushes the added one; back to a base status clears it', async () => {
+  const STATUSES2 = STATUSES.concat([{ system_status: 'متابعة', woo_status: null, direction: 'both', sort: 11, base: 'جاري التنفيذ' }, { system_status: 'جاري التنفيذ', woo_status: 'processing', direction: 'both', sort: 2 }]);
+  const { O, calls } = load({ responses: { ...seed(), status_map: ok(STATUSES2), orders: ok([{ id: 181668, status_custom: 'متابعة' }]) } });
+  await O.load();
+  const o = O.data().orders.find((x) => x.id === '181668');
+  assert.equal(o.st, 'جاري التنفيذ'); assert.equal(o.stc, 'متابعة');
+  assert.equal('stc' in O.data().orders.find((x) => x.id === '180686'), false);
+  assert.deepEqual(O.siteStatuses().map((x) => x.label), ['قيد الانتظار', 'فشل', 'جاري التنفيذ']); // an added row is not a site status
+  calls.length = 0;
+  await O.setOrderStatus('180686', 'متابعة', {});
+  assert.deepEqual(opsOf(calls, 'orders').filter((c) => c.op === 'update').map((c) => c.args[0]), [{ status: 'جاري التنفيذ', status_custom: 'متابعة' }]);
+  assert.deepEqual(invokes(calls).map((x) => x[1].body.status), ['متابعة']);
+  calls.length = 0;
+  await O.setOrderStatus('181668', 'قيد الشحن', {}); // it had an added one → cleared
+  assert.deepEqual(opsOf(calls, 'orders').filter((c) => c.op === 'update').map((c) => c.args[0]), [{ status: 'قيد الشحن', status_custom: null }]);
+  calls.length = 0;
+  await O.setOrderStatus('181668', 'مكتمل', {}); // none before, none now → status only, as before 0095
+  assert.deepEqual(opsOf(calls, 'orders').filter((c) => c.op === 'update').map((c) => c.args[0]), [{ status: 'مكتمل' }]);
 });
 
 test('load builds the screen shape: multi-maker sid/raw from the Dokan sub-order, ages from K.TODAY, images, links, vendors, statuses', async () => {

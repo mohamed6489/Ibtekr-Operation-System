@@ -61,3 +61,72 @@ test('T1 — decisions 6 and 34: a work day picked is green with beige text; wha
   await expect(opt).toHaveCSS('color', 'rgb(0, 86, 66)');
   await page.keyboard.press('Escape');
 });
+
+const lists = () => ((mock.settings || []).find((r) => r.section === 'lists') || {}).data || {};
+
+test('T2 — decision 22: an order status added «بتتحسب زي» a base one; the orders page offers it and writes it as its base + status_custom; in use it is not deleted', async ({ page }) => {
+  await go(page, 'settings-lists');
+  const body = page.locator('#pg-settings');
+  const add = body.locator('[data-status-add="order"]');
+  await expect(add).toBeEnabled(); // status_map read live
+  await add.click();
+  await modal(page).locator('#name').fill('متابعة');
+  await modal(page).getByRole('button', { name: 'إضافة', exact: true }).click();
+  await expect(modal(page)).toContainText('اختار الحالة الأساسية'); // the base is required
+  await modal(page).locator('#base').click(); await page.locator('[role=listbox] [role=option]', { hasText: 'جاري التنفيذ' }).first().click();
+  await modal(page).locator('#slug').fill('Bad Slug');
+  await modal(page).getByRole('button', { name: 'إضافة', exact: true }).click();
+  await expect(modal(page)).toContainText('حروف إنجليزي صغيرة');
+  await modal(page).locator('#slug').fill('');
+  await modal(page).getByRole('button', { name: 'إضافة', exact: true }).click();
+  await expect(body.locator('[data-status="متابعة"]')).toHaveCount(1);
+  expect(mock.statusMap.find((r) => r.system_status === 'متابعة')).toMatchObject({ base: 'جاري التنفيذ', woo_status: null });
+  await expect(body.locator('[data-status-slug="متابعة"]')).toHaveText('processing'); // its base's slug
+  // a base status: no «حذف»; the added one: «حذف»
+  await body.locator('tr').filter({ has: page.locator('[data-status="مكتمل"]') }).locator('button[aria-haspopup=menu]').click();
+  await expect(page.getByRole('menuitem', { name: 'حذف' })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  // the orders page: the dropdown offers it; picking it writes the base + the added one and pushes the added one
+  await go(page, 'orders');
+  const sel = page.locator('#orders select[data-st="181668"]').first();
+  await expect(sel.locator('option', { hasText: 'متابعة' })).toHaveCount(1);
+  await sel.selectOption('متابعة');
+  await expect.poll(() => mock.patches.filter((p) => p.table === 'orders')).toEqual([{ table: 'orders', id: 181668, status: 'جاري التنفيذ', status_custom: 'متابعة' }]);
+  await expect.poll(() => mock.pushes.map((p) => [p.order_id, p.status])).toEqual([[181668, 'متابعة']]);
+  await expect(page.locator('#orders .card').filter({ hasText: 'IB-181668' }).first()).toContainText('متابعة');
+  // in use → not deleted
+  await go(page, 'settings-lists');
+  await body.locator('tr').filter({ has: page.locator('[data-status="متابعة"]') }).locator('button[aria-haspopup=menu]').click();
+  await page.getByRole('menuitem', { name: 'حذف' }).click();
+  await modal(page).getByRole('button', { name: 'حذف', exact: true }).click();
+  await expect(page.locator('.toast, [role=status]').filter({ hasText: 'عليها أوردرات' }).first()).toBeVisible();
+  expect(mock.statusMap.some((r) => r.system_status === 'متابعة')).toBe(true);
+  // back to a base status: status_custom cleared
+  await go(page, 'orders');
+  await page.locator('#orders select[data-st="181668"]').first().selectOption('جاهز للشحن');
+  await expect.poll(() => mock.patches.filter((p) => p.table === 'orders').slice(-1)[0]).toEqual({ table: 'orders', id: 181668, status: 'جاهز للشحن', status_custom: null });
+  expect(mock.orders.find((o) => o.id === 181668).status_custom).toBe(null);
+});
+
+test('T2 — decision 22: confirmation and product statuses added in the settings show in the orders page; a base one has no «حذف»', async ({ page }) => {
+  await go(page, 'settings-lists');
+  const body = page.locator('#pg-settings');
+  await body.getByRole('tab', { name: 'حالات التأكيد' }).click();
+  await body.locator('[data-status-add="confirm"]').click();
+  await modal(page).locator('#v').fill('غير مؤكد');
+  await modal(page).getByRole('button', { name: 'إضافة', exact: true }).click();
+  await expect(modal(page)).toContainText('فيه حالة بالاسم ده');
+  await modal(page).locator('#v').fill('بيفكر');
+  await modal(page).getByRole('button', { name: 'إضافة', exact: true }).click();
+  await expect.poll(() => lists().statusAdded).toEqual({ confirm: ['بيفكر'], sub: [] });
+  await expect(body.locator('[data-status]')).toHaveText(['مؤكد بعربون', 'مؤكد بدون عربون', 'غير مؤكد', 'في انتظار الرد', 'بيفكر']);
+  await body.getByRole('tab', { name: 'حالات المنتج' }).click();
+  await body.locator('[data-status-add="sub"]').click();
+  await modal(page).locator('#v').fill('في التغليف');
+  await modal(page).getByRole('button', { name: 'إضافة', exact: true }).click();
+  await expect.poll(() => lists().statusAdded).toEqual({ confirm: ['بيفكر'], sub: ['في التغليف'] });
+  await go(page, 'orders');
+  await expect(page.locator('#orders select[data-cf="181668"]').first().locator('option', { hasText: 'بيفكر' })).toHaveCount(1);
+  await page.locator('#orders select[data-cf="181668"]').first().selectOption('بيفكر');
+  await expect.poll(() => mock.patches.filter((p) => p.table === 'orders').map((p) => p.confirm)).toEqual(['بيفكر']);
+});

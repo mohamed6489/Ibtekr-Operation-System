@@ -94,7 +94,8 @@ const COLUMNS = { // supabase/migrations/0001_identity.sql, 0002_system.sql (act
     'total_sales', 'category_ids', 'brand_ids', 'image_count', 'weight', 'featured', 'desc_filled', 'short_desc_filled', 'woo_modified_at', 'trashed_at'], // 0021 (phase 5)
   woo_brands: ['id', 'name', 'slug', 'parent_id', 'updated_at'], // 0021: the site's brands (products.view or vendors.view)
   product_commissions: ['product_id', 'rate', 'type', 'fee', 'updated_at'], // 0021 decision 12: sensitive.commission = F
-  status_map: ['id', 'system_status', 'woo_status', 'direction', 'sort'],
+  status_map: ['id', 'system_status', 'woo_status', 'direction', 'sort', 'base'], // base: 0095 (an added status «بتتحسب زي»)
+  orders: ['id', 'status_custom'], // 0095: the column grants a member reads on orders itself (the rest through orders_v)
   woo_states: ['code', 'name', 'updated_at'],
   brands: ['id', 'name', 'code', 'aliases', 'store_vendor_id', 'origin_vendor_id', 'created_by', 'created_at', 'updated_at'], // 0013 (phase 3.2): the select grants are table-level
   brand_owners: ['id', 'brand_id', 'vendor_id', 'since', 'return_on', 'reason', 'set_by', 'created_at'],
@@ -131,8 +132,8 @@ const IN_FILTERS = { alert_reads: ['alert_id'], orders_v: ['id'], order_items: [
 // products.js (phase 5): the records are the rows that are not Arabic — or=(lang.is.null,lang.neq.ar) is the one `or` it sends
 const OR_FILTERS = { products: { '(lang.is.null,lang.neq.ar)': (r) => r.lang == null || r.lang !== 'ar' } };
 // products.js: product_commissions with a rate only (rate=not.is.null)
-const NOT_NULL = { product_commissions: ['rate'] };
-const GTE_FILTERS = { orders_v: ['placed_at'] }; // orders.js: the last 12 months
+const NOT_NULL = { product_commissions: ['rate'], orders: ['status_custom'] };
+const GTE_FILTERS = { orders_v: ['placed_at'], orders: ['placed_at'] }; // orders.js: the last 12 months
 // the horizontal filters of a PostgREST request (eq. everywhere; in.(a,b) on IN_FILTERS, gte. on GTE_FILTERS only) → { match(row) } | { bad: 'param=value' }
 function readFilters(params, table) {
   const f = [...params].filter(([k]) => !NOT_FILTERS.has(k));
@@ -183,7 +184,8 @@ export const NEW_BRAND = (n) => 'e0000000-0000-4000-8000-' + String(n).padStart(
 export const TRANSFER_SINCE = ymd(new Date(Date.now() - 8 * 86400000)); export const TRANSFER_RETURN = ymd(new Date(Date.now() + 30 * 86400000));
 // status_map after 0009 (system status ↔ WooCommerce slug): 0007's «تم RTC» row (id 6) became «فشل» = failed, from_woo, sort 10
 const STATUS_MAP = [['قيد الانتظار', 'pending', 'both'], ['جاري التنفيذ', 'processing', 'both'], ['معلّق', 'on-hold', 'both'], ['جاهز للشحن', 'ready-shipping', 'both'], ['قيد الشحن', 'in-shipping', 'both'],
-  ['فشل', 'failed', 'from_woo', 10], ['مكتمل', 'completed', 'both'], ['استرجاع', 'refunded', 'both'], ['ملغي', 'cancelled', 'both']].map(([system_status, woo_status, direction, sort], i) => ({ id: i + 1, system_status, woo_status, direction, sort: sort || i + 1 }));
+  ['فشل', 'failed', 'from_woo', 10], ['مكتمل', 'completed', 'both'], ['استرجاع', 'refunded', 'both'], ['ملغي', 'cancelled', 'both']].map(([system_status, woo_status, direction, sort], i) => ({ id: i + 1, system_status, woo_status, direction, sort: sort || i + 1, base: null }));
+const CONFIRMS = ['مؤكد بعربون', 'مؤكد بدون عربون', 'غير مؤكد', 'في انتظار الرد']; // orders.confirm base list (0007; 0095 adds the admin's)
 // order_items.status check list (0007): block 29's 11 sub-statuses or ''
 const ITEM_STATUSES = ['', 'غير مؤكد', 'مؤكد', 'قيد التنفيذ', 'جاهز للشحن من المبتكر للعميل', 'جاهز للشحن من المخزن للعميل', 'جاهز للشحن من المبتكر للمخزن', 'تم الشحن للمخزن', 'وصل المخزن', 'تم الشحن للعميل', 'مرتجع للمخزن', 'مرتجع للمبتكر', 'ملغي']; // 'ملغي': 0094
 function ordersSeed(opts = {}) {
@@ -195,7 +197,7 @@ function ordersSeed(opts = {}) {
   const product = (id, sku, name, image_url, v, slug, extra = {}) => ({ id, sku, name, image_url, permalink: SITE + '/product/' + slug + '/', vendor_id: VND(v), price: null, status: 'publish', raw: { id }, updated_at: T0,
     lang: 'en', translation_ids: { en: id }, type: 'simple', regular_price: 1500, sale_price: 1200, stock_quantity: 8, stock_status: 'instock', manage_stock: true, backorders: 'no', low_stock_amount: 2,
     total_sales: 5, category_ids: [151], brand_ids: [3], image_count: 3, weight: '1', featured: false, desc_filled: true, short_desc_filled: true, woo_modified_at: T0, trashed_at: null, ...extra });
-  const order = (o) => ({ number: String(o.id), customer_state: null, customer_city: null, customer_address: null, payment_method: 'cod', payment_title: 'الدفع عند الاستلام', confirm: 'غير مؤكد', confirm_at: null, confirm_note: null, deposit: 0, currency: 'EGP', note: null, customer_note: null, cancel: null, ret: null, raw: { id: o.id }, woo_updated_at: o.placed_at, synced_at: o.placed_at, created_at: o.placed_at, updated_at: o.placed_at, ...o });
+  const order = (o) => ({ number: String(o.id), status_custom: null, customer_state: null, customer_city: null, customer_address: null, payment_method: 'cod', payment_title: 'الدفع عند الاستلام', confirm: 'غير مؤكد', confirm_at: null, confirm_note: null, deposit: 0, currency: 'EGP', note: null, customer_note: null, cancel: null, ret: null, raw: { id: o.id }, woo_updated_at: o.placed_at, synced_at: o.placed_at, created_at: o.placed_at, updated_at: o.placed_at, ...o });
   const sub = (id, order_id, v, woo_order_id, woo_status, total) => ({ id, order_id, vendor_id: VND(v), woo_order_id, woo_status, total, dokan_earning: null, commission: null, raw: { id: woo_order_id }, updated_at: T0 });
   const line = (o) => ({ sub_order_id: null, product_id: null, qty: 1, status: '', expected_at: null, comment: null, ready_at: null, waybill: null, pulled: false, ret: null, store: null, removed: false, commission_rate: null, commission_fee: null, raw: { id: o.id }, updated_at: T0, ...o, vendor_id: VND(o.vendor_id) });
   const rate = (id, v, rate, since, flat = null, type = 'fixed') => ({ id, vendor_id: VND(v), rate, flat, since, set_by: 'صفوت كمال', created_at: T0, commission_type: type });
@@ -290,7 +292,7 @@ const maskPhone = (p) => (!p ? p : p.length < 10 ? '••••' + p.slice(-2) 
 // sensitive.customer_phone = F, masked otherwise, null without orders.view)
 const viewRow = (u, o) => ({ ...Object.fromEntries(COLUMNS.orders_v.map((c) => [c, o[c] ?? null])), customer_phone: hasPerm(u, 'orders.view') === 'N' ? null : hasPerm(u, 'sensitive.customer_phone') === 'F' ? o.customer_phone : maskPhone(o.customer_phone) });
 // the columns the guard triggers and the update grants of 0007 allow, by the permission they need
-const ORDER_STATUS_COLS = ['status', 'confirm', 'confirm_at', 'confirm_note', 'cancel', 'ret']; const ORDER_EDIT_COLS = ['note', 'customer_city', 'customer_address', 'deposit'];
+const ORDER_STATUS_COLS = ['status', 'status_custom', 'confirm', 'confirm_at', 'confirm_note', 'cancel', 'ret']; const ORDER_EDIT_COLS = ['note', 'customer_city', 'customer_address', 'deposit'];
 const ITEM_COLS = ['status', 'expected_at', 'comment', 'ready_at', 'waybill', 'pulled', 'ret', 'store'];
 // 0011: the vendors columns granted for insert / update to authenticated (never woo_vendor_id, commission_pct, raw, opening_balance), by the rule they need
 const VENDOR_IDENTITY_COLS = ['name', 'legal_name', 'category', 'aliases', 'lead_days', 'deposit_policy', 'joined_at']; const VENDOR_CONTACT_COLS = ['phone', 'alt_phone', 'email', 'address', 'address_parts', 'contact_name', 'social', 'instagram', 'store_url', 'notes']; // 0014: the three synced contact columns under the contact rule
@@ -1134,6 +1136,35 @@ export async function installSupabaseMock(page, opts = {}) {
       // 0018 (phase 3.6): order_complete — the rating and «مكتمل» in one call; orders.status = F (else 42501, as the guard);
       // figures 1–5 and a note of 500 characters at most (else 22023); an order the caller cannot see → P0002. The status change
       // is recorded in patches like a PATCH, the rating in ratings.
+      // 0095 (owner batch 2 decision 22): the admin's order statuses — add («بتتحسب زي» a base, its own slug or none), the slug,
+      // delete (an added one with no order on it), the order of the whole list. Recorded in statusWrites.
+      const osr = method === 'POST' && /^\/rest\/v1\/rpc\/(order_status_add|order_status_slug|order_status_delete|order_status_order)$/.exec(path);
+      if (osr) {
+        const b = body(); const refuse = (status, code, message) => json(status, { code, details: null, hint: null, message }); const SM = mock.statusMap;
+        if (!isAdmin(u)) return refuse(403, '42501', 'admin only');
+        const BASES = ['معلّق', 'قيد الانتظار', 'جاري التنفيذ', 'جاهز للشحن', 'قيد الشحن', 'مكتمل', 'استرجاع', 'ملغي', 'فشل'];
+        const slugOk = (x) => x == null || /^[a-z0-9][a-z0-9-]{0,39}$/.test(x);
+        mock.statusWrites = mock.statusWrites || []; mock.statusWrites.push({ rpc: osr[1], ...b });
+        if (osr[1] === 'order_status_add') {
+          const name = String(b.p_name || '').trim();
+          if (name.length < 2 || name.length > 30 || /[<>]/.test(name)) return refuse(400, '23514', 'invalid: name');
+          if (SM.some((x) => x.system_status === name)) return refuse(409, '23505', 'invalid: exists');
+          if (!BASES.includes(b.p_base)) return refuse(400, '22023', 'invalid: base');
+          if (!slugOk(b.p_slug)) return refuse(400, '23514', 'status_map_slug_check');
+          SM.push({ id: Math.max(...SM.map((x) => x.id)) + 1, system_status: name, woo_status: b.p_slug || null, direction: 'both', sort: Math.max(...SM.map((x) => x.sort)) + 1, base: b.p_base });
+          return json(200, null);
+        }
+        const row = SM.find((x) => x.system_status === b.p_name);
+        if (osr[1] === 'order_status_slug') { if (!row) return refuse(404, 'P0002', 'no such status'); if (!slugOk(b.p_slug)) return refuse(400, '23514', 'status_map_slug_check'); row.woo_status = b.p_slug || null; return json(200, null); }
+        if (osr[1] === 'order_status_delete') {
+          if (!row) return refuse(404, 'P0002', 'no such status'); if (!row.base) return refuse(400, '22023', 'invalid: base status');
+          if (mock.orders.some((o) => o.status_custom === row.system_status)) return refuse(409, '23503', 'in_use');
+          SM.splice(SM.indexOf(row), 1); return json(200, null);
+        }
+        const names = Array.isArray(b.p_names) ? b.p_names : [];
+        if (names.length !== SM.length || new Set(names).size !== names.length || !SM.every((x) => names.includes(x.system_status))) return refuse(400, '22023', 'invalid: names');
+        names.forEach((n, i) => { SM.find((x) => x.system_status === n).sort = i + 1; }); return json(200, null);
+      }
       if (method === 'POST' && path === '/rest/v1/rpc/order_complete') {
         if (mock.ordersDown) return json(503, { message: 'mock: orders down' });
         const b = body(); const refuse = (status, code, message) => json(status, { code, details: null, hint: null, message });
@@ -1507,7 +1538,7 @@ export async function installSupabaseMock(page, opts = {}) {
         if (method === 'DELETE') { mock.productLeads = mock.productLeads.filter((x) => !pick(x)); mock.leadWrites.push({ op: 'delete', product_id: ids && ids[0], by: u.email }); return empty(204); }
       }
       const ot = /^\/rest\/v1\/(orders|orders_v|order_items|sub_orders|products|status_map|woo_states|woo_brands|product_commissions)$/.exec(path);
-      const OT_METHODS = { orders: ['PATCH'], orders_v: ['GET'], order_items: ['GET', 'PATCH'], sub_orders: ['GET'], products: ['GET'], status_map: ['GET'], woo_states: ['GET'], woo_brands: ['GET'], product_commissions: ['GET'] };
+      const OT_METHODS = { orders: ['GET', 'PATCH'], orders_v: ['GET'], order_items: ['GET', 'PATCH'], sub_orders: ['GET'], products: ['GET'], status_map: ['GET'], woo_states: ['GET'], woo_brands: ['GET'], product_commissions: ['GET'] };
       if (ot && OT_METHODS[ot[1]].includes(method)) {
         const t = ot[1]; const f = readFilters(url.searchParams, t);
         const denied = (message) => json(403, { code: '42501', details: null, hint: null, message });
@@ -1522,7 +1553,7 @@ export async function installSupabaseMock(page, opts = {}) {
           // 0021: products with orders.view or products.view; woo_brands with products.view or vendors.view
           const visible = t === 'woo_states' || (t === 'products' ? hasPerm(u, 'orders.view') !== 'N' || hasPerm(u, 'products.view') !== 'N'
             : t === 'woo_brands' ? hasPerm(u, 'products.view') !== 'N' || hasPerm(u, 'vendors.view') !== 'N' : t === 'product_commissions' ? hasPerm(u, 'sensitive.commission') === 'F' : hasPerm(u, 'orders.view') !== 'N');
-          const rows = t === 'orders_v' ? mock.orders.filter((o) => !o.deleted_at).map((o) => viewRow(u, o)) : t === 'order_items' ? mock.orderItems : t === 'sub_orders' ? mock.subOrders : t === 'products' ? mock.products : t === 'woo_states' ? mock.wooStates : t === 'woo_brands' ? mock.wooBrands : t === 'product_commissions' ? mock.productCommissions : mock.statusMap;
+          const rows = t === 'orders_v' ? mock.orders.filter((o) => !o.deleted_at).map((o) => viewRow(u, o)) : t === 'orders' ? mock.orders : t === 'order_items' ? mock.orderItems : t === 'sub_orders' ? mock.subOrders : t === 'products' ? mock.products : t === 'woo_states' ? mock.wooStates : t === 'woo_brands' ? mock.wooBrands : t === 'product_commissions' ? mock.productCommissions : mock.statusMap;
           return json(200, pageOf(visible ? rows.filter(f.match) : [], url.searchParams).map(sel.pick));
         }
         // PATCH: one row named by id=eq.… (else 400, like Supabase's safeupdate guard for an UPDATE without WHERE); update grants
@@ -1540,10 +1571,18 @@ export async function installSupabaseMock(page, opts = {}) {
           if (hasPerm(u, 'orders.status') !== 'F' && hasPerm(u, 'orders.edit') === 'N') return denied(`new row violates row-level security policy for table "${t}"`);
         }
         if (t === 'orders' && 'status' in b && !mock.statusMap.some((x) => x.system_status === b.status)) return json(409, { code: '23503', details: null, hint: null, message: 'insert or update on table "orders" violates foreign key constraint "orders_status_fkey"' });
-        if (t === 'order_items' && 'status' in b && !ITEM_STATUSES.includes(b.status)) return json(400, { code: '23514', details: null, hint: null, message: 'new row for relation "order_items" violates check constraint "order_items_status_check"' });
+        const added = (((mock.settings || []).find((x) => x.section === 'lists') || {}).data || {}).statusAdded || {}; // 0095: the admin's added confirmation / product statuses
+        if (t === 'order_items' && 'status' in b && !ITEM_STATUSES.includes(b.status) && !(added.sub || []).includes(b.status)) return json(400, { code: '23514', details: null, hint: null, message: 'invalid: status' });
+        if (t === 'orders' && 'confirm' in b && b.confirm != null && !CONFIRMS.includes(b.confirm) && !(added.confirm || []).includes(b.confirm)) return json(400, { code: '23514', details: null, hint: null, message: 'invalid: confirm' });
+        // 0095 orders_status_custom: an added status must count as the order's base; a base change alone clears it
+        if (t === 'orders' && ('status_custom' in b || 'status' in b)) for (const r of rows) {
+          const nb = 'status' in b ? b.status : r.status; const nc = 'status_custom' in b ? b.status_custom : ('status' in b && b.status !== r.status ? null : r.status_custom);
+          if (nc != null && !mock.statusMap.some((x) => x.system_status === nc && x.base === nb)) return json(400, { code: '23514', details: null, hint: null, message: 'invalid: status_custom' });
+        }
         const at = new Date().toISOString();
         for (const r of rows) {
           const wasSt = r.status; Object.assign(r, b, { updated_at: at }); mock.patches.push({ table: t, id: r.id, ...b });
+          if (t === 'orders' && 'status' in b && b.status !== wasSt && !('status_custom' in b)) r.status_custom = null; // 0095: the base moved
           if (t === 'orders' && b.status === 'ملغي' && wasSt !== 'ملغي') cancelLines((i) => i.order_id === r.id); // 0094 orders_cancel_lines
         }
         return empty(204);
@@ -2593,9 +2632,11 @@ export async function installSupabaseMock(page, opts = {}) {
         const o = mock.orders.find((x) => x.id === Number(b.order_id));
         if (!o) return json(404, { error: 'order_not_found' });
         // outgoingWooStatus (woo-core): a both / from_system row with a slug; a from_woo row («فشل») is never pushed
-        const row = mock.statusMap.find((x) => x.system_status === b.status) || {};
+        // 0095: an added status without a slug of its own goes out as its base's; the stored one = status_custom, else status
+        const row0 = mock.statusMap.find((x) => x.system_status === b.status) || {};
+        const row = row0.base && !row0.woo_status ? (mock.statusMap.find((x) => x.system_status === row0.base) || {}) : row0;
         const slug = row.woo_status && ['both', 'from_system'].includes(row.direction || 'both') ? row.woo_status : null;
-        const reason = b.status !== o.status ? 'stale' : !slug ? 'no_woo_status' : null;
+        const reason = b.status !== (o.status_custom || o.status) ? 'stale' : !slug ? 'no_woo_status' : null;
         // the owner 11 Nov («زي الـ automation»): an order with Dokan sub-orders gets the status on each current one (the ones its live
         // lines point to), never the parent — recorded with subs
         const subs = reason ? [] : mock.subOrders.filter((x) => x.order_id === o.id && x.woo_order_id !== o.id && x.woo_status !== 'trash'

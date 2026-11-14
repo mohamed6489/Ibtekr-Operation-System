@@ -15,7 +15,7 @@ type Row = Record<string, any>;
 type DbErr = { code: string; message: string; details?: string };
 
 const COLUMNS: Record<string, string[]> = {
-  status_map: ['id', 'system_status', 'woo_status', 'direction', 'sort'],
+  status_map: ['id', 'system_status', 'woo_status', 'direction', 'sort', 'base'], // 0095: base
   vendors: ['id', 'woo_vendor_id', 'site_removed_at', 'name', 'aliases', 'phone', 'email', 'status', 'commission_pct', 'raw', 'created_at', 'updated_at',
     'legal_name', 'category', 'alt_phone', 'address', 'instagram', 'store_url', 'lead_days', 'deposit_policy', 'notes', 'joined_at', 'contract', 'opening_balance',
     'contact_name', 'address_parts', 'social', 'logo_url', 'banner_url', 'woo_payment_methods', 'woo_snapshot', 'push_pending', 'woo_synced_at', 'photo_path', 'main_categories'],
@@ -40,7 +40,7 @@ const COLUMNS: Record<string, string[]> = {
     'payment_title', 'status', 'woo_status', 'confirm', 'confirm_at', 'confirm_note', 'deposit', 'total', 'currency', 'note',
     'customer_note', 'placed_at', 'woo_updated_at', 'cancel', 'ret', 'raw', 'synced_at', 'created_at', 'updated_at', 'customer_state',
     'deleted_at', 'deleted_by', 'delete_reason', // 0033 (phase 5.5 decision 10)
-    'attr_type', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'ad_platform'], // 0052 (phase 9.5.3): the order's source
+    'attr_type', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'ad_platform', 'status_custom'], // 0052 (phase 9.5.3): the order's source
   sub_orders: ['id', 'order_id', 'vendor_id', 'woo_order_id', 'woo_status', 'total', 'dokan_earning', 'commission', 'raw', 'updated_at'],
   order_items: ['id', 'order_id', 'sub_order_id', 'product_id', 'sku', 'name', 'qty', 'total', 'vendor_id', 'status',
     'expected_at', 'comment', 'ready_at', 'waybill', 'pulled', 'ret', 'store', 'removed', 'raw', 'updated_at', 'commission_rate', 'commission_fee', 'dropped_at', 'qty_set', 'total_set', 'added_at'], // dropped_at: 0079; qty_set / total_set: 0091; added_at: 0094

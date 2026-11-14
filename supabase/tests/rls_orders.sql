@@ -150,11 +150,11 @@ do $$ begin
     raise exception 'case orders.customer_state grants (authenticated select only, service_role select/insert/update, anon none) failed';
   end if;
   if not ((select count(*) from information_schema.column_privileges
-           where grantee = 'authenticated' and table_schema = 'public' and table_name = 'orders' and privilege_type = 'SELECT') = 28 -- 0010 customer_state + 0033 deleted_at / deleted_by / delete_reason
+           where grantee = 'authenticated' and table_schema = 'public' and table_name = 'orders' and privilege_type = 'SELECT') = 29 -- 0010 customer_state + 0033 deleted_at / deleted_by / delete_reason + 0095 status_custom
           and not exists (select 1 from information_schema.column_privileges
                           where grantee = 'authenticated' and table_schema = 'public' and table_name = 'orders'
                             and privilege_type = 'SELECT' and column_name in ('customer_phone', 'raw'))) then
-    raise exception 'case authenticated selects 28 orders columns, never customer_phone or raw failed';
+    raise exception 'case authenticated selects 29 orders columns, never customer_phone or raw failed';
   end if;
   -- orders_v: the 0007 columns in the same order, customer_state appended (create or replace view can only append).
   if not ((select string_agg(column_name, ',' order by ordinal_position) from information_schema.columns
@@ -763,20 +763,18 @@ do $$ begin
   raise exception 'case duplicate webhook delivery_id must error failed';
 end $$;
 
--- ================================================================ admin renames a status in use: orders follow
+-- ================================================================ 0095: a status_map row is never renamed (the shown name is a label)
 
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"00000000-0000-4000-8000-000000000031","role":"authenticated"}';
-do $$ declare n int; begin
-  update public.status_map set system_status = 'استرجاع كامل' where system_status = 'استرجاع';
-  get diagnostics n = row_count;
-  if not (n = 1) then raise exception 'case admin renames a status_map row in use failed'; end if;
-  if not ((select status from public.orders where id = 181668) = 'استرجاع كامل') then
-    raise exception 'case orders.status follows the rename (on update cascade) failed';
-  end if;
-  if not exists (select 1 from public.order_events
-                 where order_id = 181668 and kind = 'status' and old_value = 'استرجاع' and new_value = 'استرجاع كامل') then
-    raise exception 'case the cascaded rename is recorded in order_events failed';
+do $$ begin
+  begin
+    update public.status_map set system_status = 'استرجاع كامل' where system_status = 'استرجاع';
+    raise exception 'case a status_map row is never renamed (0095) failed';
+  exception when invalid_parameter_value then null;
+  end;
+  if not ((select status from public.orders where id = 181668) = 'استرجاع') then
+    raise exception 'case orders.status stays when the rename is refused failed';
   end if;
 end $$;
 

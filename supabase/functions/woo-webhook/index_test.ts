@@ -200,7 +200,7 @@ Deno.test('the sync writes only its own columns: an existing order and its lines
 
   const cols = (t: string) => Object.keys(db.writes(t).find((w: any) => w.op === 'upsert').rows[0]).sort();
   assertEquals(cols('orders'), ['currency', 'customer_name', 'customer_note', 'customer_phone', 'id', 'number',
-    'payment_method', 'payment_title', 'placed_at', 'raw', 'status', 'synced_at', 'total', 'woo_status', 'woo_updated_at'], 'an existing order: no city / address / state / note');
+    'payment_method', 'payment_title', 'placed_at', 'raw', 'status', 'status_custom', 'synced_at', 'total', 'woo_status', 'woo_updated_at'], 'an existing order: no city / address / state / note (0095: status_custom with the status)');
   assertEquals(cols('order_items'), ['commission_fee', 'commission_rate', 'id', 'name', 'order_id', 'product_id', 'qty', 'raw', 'removed', 'sku', 'total', 'vendor_id']);
 });
 

@@ -239,9 +239,9 @@ test('force 2FA (the row «security»): a member without 2FA is sent to «ملف
 
 // ---------------------------------------------------------------- phase 12 T3: the saved reason lists (decision 10)
 
-test('lists (phase 12): the statuses stay a view; the cancel reasons are saved to the row «lists» (add / remove, «أخرى» pinned last) and the orders page\'s cancel popup offers them', async ({ page }) => {
+test('lists (phase 12): the order statuses read status_map (owner batch 2 decision 22: «بتتحسب زي»); the cancel reasons are saved to the row «lists» (add / remove, «أخرى» pinned last) and the orders page\'s cancel popup offers them', async ({ page }) => {
   await signIn(page, ADMIN); await openSettings(page, 'lists');
-  await expect(page.locator('#pg-settings')).toContainText('مربوطة بالموقع (status_map)');
+  await expect(page.locator('#pg-settings [data-status-slug="جاري التنفيذ"]')).toHaveText('processing'); // status_map, read live
   await page.getByRole('tab', { name: 'أسباب الإلغاء والمسح' }).click();
   await expect(page.locator('#pg-settings [data-reason="العميل لغى الطلب"]')).toBeVisible(); // block 12's default before anything is saved
   await page.locator('[data-reason-add="cancel"]').click();

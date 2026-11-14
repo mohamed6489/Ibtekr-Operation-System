@@ -57,7 +57,7 @@ import { WooError, errorText } from './woo-api.js';
 import { AUTOPULL_LABEL, AUTOPULL_NOTE, FOR_SALE, RESERVED_STATUS, autoPullPlan } from './woo-inventory.js';
 
 export const ORDER_COLUMNS = ['id', 'number', 'customer_name', 'customer_phone', 'customer_city', 'customer_address', 'customer_state',
-  'payment_method', 'payment_title', 'status', 'woo_status', 'total', 'currency', 'customer_note', 'note', 'placed_at', 'woo_updated_at',
+  'payment_method', 'payment_title', 'status', 'status_custom', 'woo_status', 'total', 'currency', 'customer_note', 'note', 'placed_at', 'woo_updated_at',
   'raw', 'synced_at'];
 export const ITEM_COLUMNS = ['id', 'order_id', 'product_id', 'sku', 'name', 'qty', 'total', 'vendor_id', 'commission_rate', 'commission_fee', 'raw', 'removed'];
 // Written on a new order only: an existing order is upserted without them (the team edits city / address / note after
@@ -103,7 +103,7 @@ const lastById = (list) => [...new Map(list.map((o, i) => [wooId(o.id) ?? `#${i}
  * pushes): without it the store sync writes nothing to the site and pending fields stay pending.
  */
 export async function writeContext({ db, woo, kind, now, pushEnabled = false }) {
-  const { data, error } = await db.from('status_map').select('system_status, woo_status, direction, sort');
+  const { data, error } = await db.from('status_map').select('system_status, woo_status, direction, sort, base');
   if (error) throw new DbError('status_map', error);
   return { db, woo, kind, now, pushEnabled: pushEnabled === true, statusMap: data ?? [], vendors: new Map(), missingVendors: new Set(), failedVendors: new Set(),
     // the store sync's counters of this run (pullVendors reports them): makers changed from the site, conflicts, pushes
@@ -470,11 +470,11 @@ async function flagRemovedLines(ctx, kept) {
 export async function writeOrders(ctx, wooOrders) {
   const parents = lastById(wooOrders.filter((o) => isObj(o) && !isSubOrder(o)));
   const ids = parents.map((o) => wooId(o.id)).filter((id) => id !== null);
-  const stored = new Map((await selectIn(ctx.db, 'orders', 'id, status, woo_status, woo_updated_at', 'id', ids)).map((r) => [Number(r.id), r]));
+  const stored = new Map((await selectIn(ctx.db, 'orders', 'id, status, status_custom, woo_status, woo_updated_at', 'id', ids)).map((r) => [Number(r.id), r]));
   const now = ctx.now();
   const mapped = await mapWithVendors(ctx, parents, (o) => {
     const row = stored.get(wooId(o.id));
-    return mapOrder(o, { statusMap: ctx.statusMap, vendorsByWooId: ctx.vendors, now, currentStatus: row?.status ?? null, currentWooStatus: row?.woo_status ?? null });
+    return mapOrder(o, { statusMap: ctx.statusMap, vendorsByWooId: ctx.vendors, now, currentStatus: row?.status_custom || row?.status || null, currentWooStatus: row?.woo_status ?? null }); // 0095: the added status the order is in counts as its current one
   });
   const kept = mapped.map((m, i) => ({ o: parents[i], m })).filter(({ o, m }) => {
     if (m.skipped) return false;

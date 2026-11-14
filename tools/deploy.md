@@ -2081,3 +2081,11 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 3. «Deploy functions» بـ `function = woo-sync` (action `line_add`).
 4. الواجهة على `main`.
 5. التجربة على الـ staging (صاحب المشروع): «تعديل» أوردر فيه أكتر من مبتكر ← تاب «الأوردرات الفرعية» ← «+ إضافة منتج» على أوردر فرعي (منتج Simple وبعدين Variable بتركيبة، وسعر متعدّل) وتأكد إن **Dokan حسب نصيب المبتكر للسطر الجديد** وإن الأوردر الأصلي على الموقع ماتغيّرش؛ و«تعديل الحالة على الموقع» = «ملغي» ← منتجاته «ملغي» هنا.
+
+#### 2.7.76 دفعة صاحب المشروع التانية — 14 نوفمبر (`docs/superpowers/plans/2026-11-14-owner-batch-2.md`)
+**T2 — الحالات بتتعدّل (قرار 22)، بعد** `0094`:
+1. `0095_statuses_editable.sql` — `status_map.base` (الحالة المضافة «بتتحسب زي» حالة أساسية) + check للـ slug، `status_base()`، الحارس `status_map_guard` (الأساسية مابتتمسحش ولا تتغيّر اسمها ولا أساسها، والمضافة بتتمسح لو مافيش أوردر عليها)، `orders.status_custom` (grant عمود للأعضاء) والتريجر `orders_status_custom` (الأساس اتغيّر لوحده ← الحالة المضافة بتتشال، والمضافة لازم أساسها = `status`)، الـ RPCs `order_status_add` / `order_status_slug` / `order_status_delete` / `order_status_order` (الأدمن)، وحالات التأكيد والمنتج المضافة من `settings.lists.statusAdded` (الـ checks القديمة بقت حراس) و`settings_public` بيرجّع `statusAdded` / `statusOrder`. `orders_v` زي ما هي. بـ Supabase MCP `apply_migration` أو SQL Editor.
+2. RLS live (workflow «RLS live»، `files = rls_statuses`).
+3. «Deploy functions» بـ `function = woo-sync` (المزامنة بتفصل الحالة المضافة: `splitStatus`، والإرسال بمقابلها أو مقابل أساسها، و`push_status` بيقارن بـ `status_custom || status`) — وبعدها `woo-webhook` (نفس `_shared`).
+4. الواجهة على `main`.
+5. التجربة (صاحب المشروع): «الإعدادات › القوائم والحالات › حالات الأوردر» ← «+ حالة» (اسم + «بتتحسب زي» + مقابل اختياري) ← تظهر في دروب داون الأوردرات؛ اختيارها بيتبعت للموقع بمقابلها (أو مقابل أساسها).

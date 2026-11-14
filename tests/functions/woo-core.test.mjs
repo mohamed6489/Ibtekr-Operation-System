@@ -4,7 +4,7 @@ import { createHmac } from 'node:crypto';
 import {
   START_DATE, OPEN_WOO, WOO_FALLBACK, META_KEEP,
   verifySignature, isSubOrder, normalizePhone, redactPII,
-  incomingStatus, outgoingWooStatus, mapOrder, mapSubOrder, mapStore, nextCursor,
+  incomingStatus, outgoingWooStatus, splitStatus, mapOrder, mapSubOrder, mapStore, nextCursor,
   SYNC_FIELDS, ADDRESS_KEYS, SOCIAL_KEYS, BANK_KEYS, bankDigest, addressText, storeSnapshot, diffStore, sameField, commissionOf, toDokanCommission, toDokanStore,
   commissionType, categoryTree, canonicalCategories, explicitCategories,
 } from '../../supabase/functions/_shared/woo-core.js';
@@ -329,11 +329,11 @@ test('mapOrder: a parent order → the orders row', () => {
   assert.equal(r.skipped, undefined);
   assert.equal('skipped' in r, false);
   assert.deepEqual(Object.keys(r.order).sort(), ['currency', 'customer_address', 'customer_city', 'customer_name', 'customer_note', 'customer_phone', 'customer_state', 'id', 'note',
-    'number', 'payment_method', 'payment_title', 'placed_at', 'raw', 'status', 'synced_at', 'total', 'woo_status', 'woo_updated_at']);
+    'number', 'payment_method', 'payment_title', 'placed_at', 'raw', 'status', 'status_custom', 'synced_at', 'total', 'woo_status', 'woo_updated_at']);
   const { raw, ...row } = r.order;
   assert.deepEqual(row, {
     id: 181668, number: '181668', customer_name: 'سلوى زيتوني', customer_phone: '01200007052', customer_city: 'القاهرة',
-    customer_address: `${STREET} ${FLAT}`, customer_state: 'EGC', payment_method: 'cod', payment_title: 'الدفع عند الاستلام', status: 'جاري التنفيذ',
+    customer_address: `${STREET} ${FLAT}`, customer_state: 'EGC', payment_method: 'cod', payment_title: 'الدفع عند الاستلام', status: 'جاري التنفيذ', status_custom: null,
     woo_status: 'processing', total: 1052, currency: 'EGP', customer_note: 'اتصلي قبل التوصيل', note: 'اتصلي قبل التوصيل',
     placed_at: '2026-10-19T09:12:00Z', woo_updated_at: '2026-10-19T10:00:00Z', synced_at: NOW,
   });
@@ -980,3 +980,16 @@ test('bank (3.5): toDokanStore sends payment.bank alone (the eight keys; no payp
   assert.deepEqual(toDokanStore({}, ['bank'], null, null).dropped, ['bank']);
 });
 
+
+// 0095 (owner batch 2 decision 22): an added status counts as its base — stored as the base + status_custom; it shares its base's slug
+// unless it has its own; the base wins the incoming slug unless the order is in the added one already
+test('0095: an added status — splitStatus, outgoing slug (own or the base\'s), incoming prefers the base', () => {
+  const M = MAP.concat([{ system_status: 'متابعة', woo_status: null, direction: 'both', base: 'جاري التنفيذ' }, { system_status: 'اتسلّم', woo_status: 'delivered', direction: 'both', base: 'مكتمل' }, { system_status: 'تحت المراجعة', woo_status: 'processing', direction: 'both', base: 'جاري التنفيذ' }]);
+  assert.deepEqual(splitStatus('متابعة', M), { status: 'جاري التنفيذ', status_custom: 'متابعة' });
+  assert.deepEqual(splitStatus('مكتمل', M), { status: 'مكتمل', status_custom: null });
+  assert.equal(outgoingWooStatus('متابعة', M), 'processing'); // no slug of its own → the base's
+  assert.equal(outgoingWooStatus('اتسلّم', M), 'delivered');
+  assert.deepEqual(incomingStatus('processing', 'معلّق', M, 'on-hold'), { status: 'جاري التنفيذ', result: 'ok' }); // the base, not «تحت المراجعة»
+  assert.deepEqual(incomingStatus('processing', 'تحت المراجعة', M, 'pending'), { status: 'تحت المراجعة', result: 'ok' }); // already in it: stays
+  assert.deepEqual(incomingStatus('delivered', 'جاري التنفيذ', M, 'processing'), { status: 'اتسلّم', result: 'ok' }); // its own slug
+});

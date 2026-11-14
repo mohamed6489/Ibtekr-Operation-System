@@ -1616,17 +1616,64 @@
     }
     return K.Section(def.title, table, admin ? [Button({ label: '+ إضافة', attrs: { 'data-reason-add': k }, onClick: () => nameField(def.one === 'شركة' ? 'شركة شحن جديدة' : 'سبب جديد', '', def.one) })] : null, { th: false, sub: def.sub });
   }
-  // a status table: the value in the system, the name the pages show, and ⋮ «تغيير الاسم» / «رجّع الاسم الأصلي» (decision 4)
-  const STATUS_LISTS = { order: ['حالات الأوردر', 'مربوطة بالموقع (status_map) وبقواعد الحسابات والتقارير والرد الآلي بالقيمة — التغيير للاسم اللي بيظهر بس'], confirm: ['حالات التأكيد', 'التغيير للاسم اللي بيظهر في صفحة الأوردرات بس — القيمة جوه السيستم زي ما هي'], sub: ['حالات المنتج', '«مؤكد» بتتحط تلقائي لما الأوردر الرئيسي يتأكد · «جاهز للشحن …» بتطلب بوليصة · «مرتجع …» بيفتح بوب أب بسبب · «ملغي» بتتحط تلقائي لما الأوردر الرئيسي يتلغي أو أوردر المبتكر الفرعي يبقى «ملغي» على الموقع — التغيير للاسم اللي بيظهر بس'] };
+  // a status table: the value in the system, the name the pages show, and ⋮ «تغيير الاسم» / «رجّع الاسم الأصلي» (decision 4) — and
+  // owner batch 2 decision 22 (0095): every list adds, deletes (an added one nothing uses) and reorders by the grip. An order status
+  // added «بتتحسب زي» a base one (the accounts, reports, delay and auto-reply treat it as its base) with its own WooCommerce slug or its
+  // base's; a base one is renamed through its label and its slug changes; status_map is read live (orderStatuses)
+  const STATUS_LISTS = { order: ['حالات الأوردر', 'الحالة المضافة بتتحسب زي الحالة الأساسية اللي اخترتها (الحسابات والتقارير والتأخير والرد الآلي) — والأساسية مابتتمسحش، بيتغيّر اسمها والمقابل على الموقع بس. اسحب من الست نقط عشان ترتّب.'], confirm: ['حالات التأكيد', 'الأساسية بيتغيّر اسمها بس — والمضافة بتتمسح لو مافيش أوردر عليها. اسحب من الست نقط عشان ترتّب.'], sub: ['حالات المنتج', '«مؤكد» بتتحط تلقائي لما الأوردر الرئيسي يتأكد · «جاهز للشحن …» بتطلب بوليصة · «مرتجع …» بيفتح بوب أب بسبب · «ملغي» بتتحط تلقائي لما الأوردر الرئيسي يتلغي أو أوردر المبتكر الفرعي يبقى «ملغي» على الموقع — الأساسية بيتغيّر اسمها بس، والمضافة بتتمسح لو مافيش منتج عليها. اسحب من الست نقط عشان ترتّب.'] };
+  const LB0 = (k, v) => { const S0 = SETT(); return S0 && S0.statusLabel ? S0.statusLabel(k, v) : v; };
+  let statusRows = null; let statusAsked = false; // status_map as the settings page read it (orderStatuses)
+  const askStatuses = () => { const S0 = SETT(); if (statusAsked || !S0 || !S0.orderStatuses) return; statusAsked = true; S0.orderStatuses().then((r) => { if (r && r.ok) { statusRows = r.rows; R(); } else statusAsked = false; }, () => { statusAsked = false; }); };
+  const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
+  // what the loaded orders use (the orders page's last 12 months): an added confirmation / product status in use is not deleted
+  const usedStatus = (kind, v) => { const O = window.IBOrders && window.IBOrders.data ? window.IBOrders.data() : null; const L = (O && O.orders) || []; return kind === 'confirm' ? L.some((o) => o.cf === v) : L.some((o) => (o.subs || []).some((x) => x.ss === v)); };
   function statusSec(kind) {
-    const S0 = SETT(); const L = S0 && S0.lists ? S0.lists() : { labels: {} }; const labels = L.labels || {}; const cur = labels[kind] || {};
-    const values = (S0 && S0.STATUS_KINDS && S0.STATUS_KINDS[kind]) || []; const woo = Object.fromEntries((C.orderStatuses || []).map((x) => [x[0], x[2]])); const admin = isAdminMe();
+    const S0 = SETT(); const L = S0 && S0.lists ? S0.lists() : { labels: {} }; const labels = L.labels || {}; const cur = labels[kind] || {}; const admin = isAdminMe();
     const saveLabel = async (v, shown) => { const next = JSON.parse(JSON.stringify(labels)); next[kind] = Object.assign({}, next[kind]); if (shown && shown !== v) next[kind][v] = shown; else delete next[kind][v]; const r = await S0.saveLists({ labels: next }); if (!r.ok) return fail(r, 'حفظ الاسم'); LOGV('settings.lists.label', kind); K.toast('اتحفظ الاسم', 'success'); R(); document.dispatchEvent(new Event('ib:settings')); };
-    const rows = values.map((v) => { const shown = cur[v] || v; return [h('span', { 'data-status': v }, v), h('b', { 'data-status-label': v }, shown), kind === 'order' ? h('code', { dir: 'ltr' }, woo[v] || '—') : null, admin ? K.RowMenu([
-      { label: 'تغيير الاسم', icon: 'sliders', run: () => K.form({ title: 'تغيير اسم «' + v + '»', values: { v: shown }, note: U.InlineNote({ children: 'الاسم اللي بيظهر في الصفحات بس — الحالة جوه السيستم والموقع والتقارير زي ما هي.' }), fields: (f, e, set) => [K.field.text('v', 'الاسم اللي بيظهر', f, e, set, { required: true, maxlength: 40 })], validate: (f) => { const e = K.req(f, ['v']); if (!e.v && /[<>]/.test(f.v)) e.v = 'من غير < أو >'; return e; }, submitLabel: 'حفظ', submit: (f) => saveLabel(v, f.v.replace(/\s+/g, ' ').trim()) }) },
-      cur[v] ? { label: 'رجّع الاسم الأصلي', icon: 'refresh', run: () => saveLabel(v, '') } : null].filter(Boolean)) : null].filter((c) => c !== null); });
-    const headers = ['الحالة في السيستم', 'الاسم اللي بيظهر'].concat(kind === 'order' ? ['مقابل WooCommerce'] : []).concat(admin ? [''] : []);
-    return K.Section(STATUS_LISTS[kind][0], U.Table({ headers, rows }), null, { th: false, sub: STATUS_LISTS[kind][1] });
+    const rename = (v, shown) => K.form({ title: 'تغيير اسم «' + v + '»', values: { v: shown }, note: U.InlineNote({ children: 'الاسم اللي بيظهر في الصفحات بس — الحالة جوه السيستم والموقع والتقارير زي ما هي.' }), fields: (f, e, set) => [K.field.text('v', 'الاسم اللي بيظهر', f, e, set, { required: true, maxlength: 40 })], validate: (f) => { const e = K.req(f, ['v']); if (!e.v && /[<>]/.test(f.v)) e.v = 'من غير < أو >'; return e; }, submitLabel: 'حفظ', submit: (f) => saveLabel(v, f.v.replace(/\s+/g, ' ').trim()) });
+    const labelItems = (v) => [{ label: 'تغيير الاسم', icon: 'sliders', run: () => rename(v, cur[v] || v) }, cur[v] ? { label: 'رجّع الاسم الأصلي', icon: 'refresh', run: () => saveLabel(v, '') } : null];
+    const grip = (v) => (admin ? K.Grip(v) : null);
+    const sortable = (table, onIds) => { if (!admin) return; table.querySelectorAll('[data-status]').forEach((el) => { const tr = el.closest('tr'); if (tr) tr.setAttribute('data-status-row', el.getAttribute('data-status')); }); K.sortableRows(table, 'data-status-row', onIds); };
+    const clean = (t) => String(t || '').replace(/\s+/g, ' ').trim();
+    const nameErr = (t, taken) => (t.length < 2 ? 'حرفين على الأقل' : t.length > 30 ? 'لحد 30 حرف' : /[<>]/.test(t) ? 'من غير < أو >' : taken.includes(t) ? 'فيه حالة بالاسم ده' : '');
+    if (kind === 'order') {
+      askStatuses();
+      const BASES = (S0 && S0.STATUS_KINDS && S0.STATUS_KINDS.order) || [];
+      const rows0 = statusRows || BASES.map((v) => ({ name: v, slug: (C.orderStatuses.find((x) => x[0] === v) || [])[2] || '', base: null }));
+      const slugOf = (r) => r.slug || (r.base ? ((rows0.find((x) => x.name === r.base) || {}).slug || '') : '');
+      const done = async (r, msg) => { if (!r.ok) return fail(r, msg); K.toast('اتحفظ', 'success'); statusRows = null; statusAsked = false; askStatuses(); R(); if (window.IBOrders && window.IBOrders.load) window.IBOrders.load(); };
+      const slugForm = (r) => K.form({ title: 'المقابل على الموقع لـ «' + r.name + '»', values: { slug: r.slug || '' }, note: U.InlineNote({ children: r.base ? 'فاضي = بتتبعت للموقع بمقابل «' + r.base + '». لو كتبت حالة جديدة لازم تكون موجودة على WooCommerce.' : 'الحالة دي أساسية — تغيير مقابلها بيغيّر اللي بيتبعت للموقع وبيتقري منه. لازم الحالة تكون موجودة على WooCommerce.' }),
+        fields: (f, e, set) => [K.field.text('slug', 'حالة WooCommerce (slug)', f, e, set, { placeholder: 'follow-up', maxlength: 40 })],
+        validate: (f) => { const e = {}; const v = clean(f.slug).toLowerCase(); if (!v && !r.base) e.slug = 'الحالة الأساسية لازم ليها مقابل'; else if (v && !SLUG_RE.test(v)) e.slug = 'حروف إنجليزي صغيرة وأرقام و - بس'; return e; }, submitLabel: 'حفظ', submit: async (f) => done(await S0.orderStatusSlug(r.name, clean(f.slug).toLowerCase()), 'حفظ المقابل') });
+      const addForm = () => K.form({ title: 'حالة أوردر جديدة', values: { name: '', base: '', slug: '' }, note: U.InlineNote({ children: 'الحالة الجديدة بتتحسب زي الحالة الأساسية اللي تختارها — في الحسابات والتقارير والتأخير والرد الآلي. المقابل على الموقع اختياري: فاضي = مقابل الحالة الأساسية.' }),
+        fields: (f, e, set) => [K.field.text('name', 'اسم الحالة', f, e, set, { required: true, maxlength: 30 }), K.field.select('base', 'بتتحسب زي', [{ value: '', label: '— اختار —' }].concat(BASES.map((b) => ({ value: b, label: LB0('order', b) }))), f, e, set), K.field.text('slug', 'المقابل على WooCommerce (اختياري)', f, e, set, { placeholder: 'follow-up', maxlength: 40 })],
+        validate: (f) => { const e = {}; const t = clean(f.name); const er = nameErr(t, rows0.map((x) => x.name)); if (er) e.name = er; if (!f.base) e.base = 'اختار الحالة الأساسية'; const sl = clean(f.slug).toLowerCase(); if (sl && !SLUG_RE.test(sl)) e.slug = 'حروف إنجليزي صغيرة وأرقام و - بس'; return e; },
+        submitLabel: 'إضافة', submit: async (f) => done(await S0.orderStatusAdd({ name: clean(f.name), base: f.base, slug: clean(f.slug).toLowerCase() }), 'إضافة الحالة') });
+      const del = (r) => K.confirm({ title: 'حذف «' + (cur[r.name] || r.name) + '»', text: 'هتختفي من القوايم. لو فيه أوردر عليها مش هتتمسح — غيّر حالة الأوردرات الأول.', okType: 'danger', okLabel: 'حذف', onOk: async () => done(await S0.orderStatusDelete(r.name), 'الحذف') });
+      const rows = rows0.map((r) => [h('span', { class: 'reason-cell' }, grip(r.name), h('span', { 'data-status': r.name }, r.name)), h('b', { 'data-status-label': r.name }, cur[r.name] || r.name), r.base ? K.Tag('gold', 'زي «' + LB0('order', r.base) + '»') : K.Tag('neutral', 'أساسية'), h('code', { dir: 'ltr', 'data-status-slug': r.name }, slugOf(r) || '—'), admin ? K.RowMenu(labelItems(r.name).concat([
+        statusRows ? { label: 'تغيير المقابل على الموقع', icon: 'link', run: () => slugForm(r) } : null,
+        r.base && statusRows ? { label: 'حذف', icon: 'close', danger: true, run: () => del(r) } : null]).filter(Boolean)) : null].filter((c) => c !== null));
+      const headers = ['الحالة في السيستم', 'الاسم اللي بيظهر', 'بتتحسب زي', 'مقابل WooCommerce'].concat(admin ? [''] : []);
+      const table = U.Table({ headers, rows });
+      if (statusRows) sortable(table, async (ids) => { if (ids.join('\n') === rows0.map((x) => x.name).join('\n')) return; done(await S0.orderStatusOrder(ids), 'الترتيب'); });
+      return K.Section(STATUS_LISTS[kind][0], table, admin ? [Button({ label: '+ حالة', attrs: { 'data-status-add': kind }, disabled: !statusRows, onClick: addForm })] : null, { th: false, sub: STATUS_LISTS[kind][1] });
+    }
+    // confirmation / product statuses: the base values with the admin's (settings «lists» statusAdded / statusOrder)
+    const base = (S0 && S0.STATUS_KINDS && S0.STATUS_KINDS[kind]) || []; const AD = S0 && S0.addedStatuses ? S0.addedStatuses() : { confirm: [], sub: [] }; const added = (AD[kind] || []).slice();
+    const values = S0 && S0.statusList ? S0.statusList(kind) : base.concat(added); const max = (S0 && S0.ADDED_MAX) || 20;
+    const allAdded = () => ({ confirm: (AD.confirm || []).slice(), sub: (AD.sub || []).slice() });
+    const allOrder = () => (S0 && S0.statusList ? { confirm: S0.statusList('confirm'), sub: S0.statusList('sub') } : {});
+    const saveWith = async (patch, what) => { const r = await S0.saveLists(patch); if (!r.ok) return fail(r, 'الحفظ'); LOGV('settings.lists.status', kind + ' · ' + what); K.toast('اتحفظ', 'success'); R(); document.dispatchEvent(new Event('ib:settings')); };
+    const addForm = () => K.form({ title: kind === 'confirm' ? 'حالة تأكيد جديدة' : 'حالة منتج جديدة', values: { v: '' }, fields: (f, e, set) => [K.field.text('v', 'اسم الحالة', f, e, set, { required: true, maxlength: 30 })],
+      validate: (f) => { const e = {}; const er = nameErr(clean(f.v), values); if (er) e.v = er; return e; }, submitLabel: 'إضافة',
+      submit: (f) => { const a = allAdded(); a[kind] = added.concat([clean(f.v)]); const o = allOrder(); o[kind] = values.concat([clean(f.v)]); return saveWith({ statusAdded: a, statusOrder: o }, 'add'); } });
+    const del = (v) => { if (usedStatus(kind, v)) return K.toast('«' + (cur[v] || v) + '» عليها ' + (kind === 'confirm' ? 'أوردرات' : 'منتجات') + ' — غيّرها الأول', 'error');
+      K.confirm({ title: 'حذف «' + (cur[v] || v) + '»', text: 'هتختفي من القوايم.', okType: 'danger', okLabel: 'حذف', onOk: () => { const a = allAdded(); a[kind] = added.filter((x) => x !== v); const o = allOrder(); o[kind] = values.filter((x) => x !== v); const lb = JSON.parse(JSON.stringify(labels)); if (lb[kind]) delete lb[kind][v]; return saveWith({ statusAdded: a, statusOrder: o, labels: lb }, 'delete'); } }); };
+    const rows = values.map((v) => { const own = added.includes(v); return [h('span', { class: 'reason-cell' }, grip(v), h('span', { 'data-status': v }, v)), h('b', { 'data-status-label': v }, cur[v] || v), own ? K.Tag('gold', 'مضافة') : K.Tag('neutral', 'أساسية'), admin ? K.RowMenu(labelItems(v).concat([own ? { label: 'حذف', icon: 'close', danger: true, run: () => del(v) } : null]).filter(Boolean)) : null].filter((c) => c !== null); });
+    const headers = ['الحالة في السيستم', 'الاسم اللي بيظهر', ''].concat(admin ? [''] : []);
+    const table = U.Table({ headers, rows });
+    sortable(table, (ids) => { if (ids.join('\n') === values.join('\n')) return; const o = allOrder(); o[kind] = ids; saveWith({ statusOrder: o }, 'order'); });
+    return K.Section(STATUS_LISTS[kind][0], table, admin ? [Button({ label: '+ حالة', attrs: { 'data-status-add': kind }, disabled: added.length >= max, onClick: addForm })] : null, { th: false, sub: STATUS_LISTS[kind][1] });
   }
   // the expense types (2026-11-14-settings-lists.md decision 1): the four base ones keep their value (the salaries' hiding, the
   // subscriptions' fields, the ads' platform and the payroll read them) and take a shown name only; the admin's own are added, renamed and

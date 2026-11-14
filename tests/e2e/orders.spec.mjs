@@ -160,7 +160,7 @@ test('«فشل» replaces «تم RTC»: a chip and an option styled like «مل�
   await expect(page.locator('#orders [data-sc="تم RTC"]')).toHaveCount(0);
   await expect(page.locator('#orders .oroot')).not.toContainText('RTC');
   const sel = page.locator('#orders select[data-st="181668"]');
-  expect(await sel.locator('option').allTextContents()).toEqual(['معلّق', 'قيد الانتظار', 'جاري التنفيذ', 'جاهز للشحن', 'قيد الشحن', 'مكتمل', 'استرجاع', 'ملغي', 'فشل']);
+  expect(await sel.locator('option').allTextContents()).toEqual(['قيد الانتظار', 'جاري التنفيذ', 'معلّق', 'جاهز للشحن', 'قيد الشحن', 'مكتمل', 'استرجاع', 'ملغي', 'فشل']); // status_map's order (owner batch 2 decision 22: the settings reorder it)
   await sel.selectOption('فشل');
   await expect.poll(() => mock.pushes.length).toBe(1);
   expect(mock.patches).toEqual([{ table: 'orders', id: 181668, status: 'فشل' }]);
@@ -803,7 +803,7 @@ test('bulk select: the bar changes the status of the selected orders one by one 
   await expect(sr('#obulk b')).toHaveText('محدد 2 أوردر');
   await expect(sr('[data-osel="180656"]')).toHaveAttribute('aria-checked', 'true');
   const opts = await sr('select[data-obulk-st] option').allTextContents();
-  expect(opts.slice(1)).toEqual(['معلّق', 'قيد الانتظار', 'جاري التنفيذ', 'جاهز للشحن', 'قيد الشحن', 'مكتمل', 'استرجاع', 'ملغي', 'فشل']); // decision 53
+  expect(opts.slice(1)).toEqual(['قيد الانتظار', 'جاري التنفيذ', 'معلّق', 'جاهز للشحن', 'قيد الشحن', 'مكتمل', 'استرجاع', 'ملغي', 'فشل']); // decision 53 (status_map's order)
   // decision 53: the word on the right, the arrow on the left
   const lay = await page.evaluate(() => { const l = document.getElementById('orders').shadowRoot.querySelector('#obulk .bsel'); const t = l.querySelector('span').getBoundingClientRect(), a = l.querySelector('svg').getBoundingClientRect(); return t.left > a.left; });
   expect(lay).toBe(true);

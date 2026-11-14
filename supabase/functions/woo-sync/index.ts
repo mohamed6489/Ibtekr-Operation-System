@@ -397,7 +397,7 @@ async function pushStatus(run: Run, args: Json) {
   const id = wooId(args.order_id);
   const status = typeof args.status === 'string' ? args.status.trim() : '';
   if (id === null || !status) return json(400, { error: 'bad_request' });
-  const { data: order, error } = await run.db.from('orders').select('id, status, woo_status, woo_updated_at').eq('id', id).maybeSingle();
+  const { data: order, error } = await run.db.from('orders').select('id, status, status_custom, woo_status, woo_updated_at').eq('id', id).maybeSingle();
   if (error) throw new Error(`orders: ${error.message}`);
   if (!order) return json(404, { error: 'order_not_found' });
   const entry = { kind: 'push', direction: 'out', entity: 'order', entity_id: String(id), action: 'status' };
@@ -405,7 +405,8 @@ async function pushStatus(run: Run, args: Json) {
     await logSync(run.db, { ...entry, result: 'skipped', detail: { status, reason, ...extra } });
     return json(200, { action: 'push_status', result: 'skipped', reason, counts: { pushed: 0 } });
   };
-  if (status !== order.status) return await skip('stale', { current: order.status });
+  const current = order.status_custom || order.status; // 0095: an added status is pushed by its own row
+  if (status !== current) return await skip('stale', { current });
   // The guard sits after the stale check and before the status_map read and any Woo client or call.
   if (!pushEnabled(run.env)) return await skip('push_disabled');
   const ctx = await run.ctx();

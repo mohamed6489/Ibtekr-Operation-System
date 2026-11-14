@@ -8,6 +8,12 @@
   'use strict';
 
   const CATEGORIES = Object.freeze(['المرتبات', 'المصروفات', 'الاشتراكات', 'الإعلانات']);
+  // the settings lists all editable (2026-11-14-settings-lists.md): the expense types = the four base ones then the admin's own
+  // (IBSettings.expenseKinds, read with the sign-in — an added type is a plain expense like «المصروفات»), and the week's first day
+  // (IBSettings.weekStart: السبت 6 · الأحد 0 · الاتنين 1). Outside the page (node) the base types and Saturday.
+  const settingsOf = () => { try { return typeof globalThis !== 'undefined' && globalThis.IBSettings ? globalThis.IBSettings : null; } catch (e) { return null; } };
+  const cats = () => { const S = settingsOf(); const v = S && S.expenseKinds ? S.expenseKinds() : null; return Array.isArray(v) && v.length >= CATEGORIES.length ? v : CATEGORIES; };
+  const weekStartDow = () => { const S = settingsOf(); const v = S && S.weekStart ? Number(S.weekStart()) : 6; return v === 0 || v === 1 || v === 6 ? v : 6; };
   const PAYOUT_TYPE = 'تحويل مستحقات';
   // phase 4.1 (plan decision 1): no «تحويل مستحقات» move is recorded here — Dokan lowers the balance itself when a request is approved
   const VENDOR_TYPES = Object.freeze(['مواصلات', 'عربون', 'أخرى']);
@@ -57,8 +63,8 @@
   function rangeLabel(from, to) { return 'الفترة: ' + formatDateLong(from) + ' – ' + formatDateLong(to); }
   const monthName = (m1) => MONTHS[m1 - 1];
 
-  // weekday index with Saturday = 0
-  const satIndex = (s) => (new Date(isoToUtc(s)).getUTCDay() + 1) % 7;
+  // weekday index with the week's first day = 0 (Saturday unless the settings say otherwise)
+  const satIndex = (s) => (new Date(isoToUtc(s)).getUTCDay() - weekStartDow() + 7) % 7;
 
   function presetRange(key, today) {
     const [y, m] = today.split('-').map(Number);
@@ -182,7 +188,8 @@
   function validateExpense(input) {
     const errors = {};
     const { amount, date } = checkAmountDate(input, errors);
-    if (!CATEGORIES.includes(input.category)) errors.category = 'اختار النوع من القايمة';
+    // a row whose type the admin removed since keeps it (input.keep = the row's own type, 2026-11-14-settings-lists.md decision 1)
+    if (!cats().includes(input.category) && !(input.keep && input.category === input.keep)) errors.category = 'اختار النوع من القايمة';
     const direction = input.direction === undefined ? 'withdraw' : input.direction;
     if (direction !== 'withdraw' && direction !== 'deposit') errors.direction = 'اختار إيداع أو سحب';
     let beneficiaryName = sanitizeText(input.beneficiary, 80);
@@ -223,19 +230,22 @@
   }
 
   // ---- derived numbers ----
+  // every type the period has: the current list, then any type an expense in the range still carries (removed from the list since)
   function categoryTotals(seed, entries, from, to) {
-    const amounts = Object.fromEntries(CATEGORIES.map((c) => [c, 0]));
+    const list = cats().slice();
+    for (const e of entries || []) if (e.date >= from && e.date <= to && typeof e.category === 'string' && !list.includes(e.category)) list.push(e.category);
+    const amounts = Object.fromEntries(list.map((c) => [c, 0]));
     for (const key of Object.keys(seed)) {
       const [y, m] = key.split('-').map(Number);
       const first = iso(y, m, 1), last = iso(y, m, new Date(Date.UTC(y, m, 0)).getUTCDate());
-      if (first >= from && last <= to) for (const c of CATEGORIES) amounts[c] += seed[key][c] || 0; // a month seeds the range only when fully covered
+      if (first >= from && last <= to) for (const c of list) amounts[c] += seed[key][c] || 0; // a month seeds the range only when fully covered
     }
     for (const e of entries) if (e.date >= from && e.date <= to && amounts[e.category] !== undefined) amounts[e.category] += e.direction === 'deposit' ? -e.amount : e.amount;
     let total = 0;
-    for (const c of CATEGORIES) { amounts[c] = round2(amounts[c]); total += amounts[c]; }
+    for (const c of list) { amounts[c] = round2(amounts[c]); total += amounts[c]; }
     total = round2(total);
     const byCategory = {};
-    for (const c of CATEGORIES) byCategory[c] = { amount: amounts[c], share: total === 0 ? 0 : amounts[c] / total };
+    for (const c of list) byCategory[c] = { amount: amounts[c], share: total === 0 ? 0 : amounts[c] / total };
     return { total, byCategory };
   }
   function sortVendors(list, key, dir) {
@@ -454,7 +464,7 @@
     LEDGER_STATUS, makerLedger, ledgerTotals, lifetimeLedger, openAt, settlePlan, withCarry, openOf, CORRECTION,
     deductTransport, PAYOUT_TYPE,
     SALES_GROUPS, liveSeed,
-    CATEGORIES, VENDOR_TYPES, ACCOUNTS, OTHER, MAX_AMOUNT,
+    get CATEGORIES() { return cats(); }, BASE_CATEGORIES: CATEGORIES, weekStartDow, VENDOR_TYPES, ACCOUNTS, OTHER, MAX_AMOUNT,
     parseAmount, formatMoney, formatPct, sanitizeText, round2,
     parseDate, formatDateNumeric, formatDateLong, rangeLabel, monthName, presetRange, monthMatrix, addDays,
     validateExpense, validateVendorMovement, validateAccountMovement,

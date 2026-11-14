@@ -941,6 +941,7 @@ export async function installSupabaseMock(page, opts = {}) {
           if (t === 'acc_expenses' && row.category === 'الاشتراكات' && row.direction !== 'deposit' && !(row.sub_name && row.sub_ends && (row.sub_alerts || []).length)) return refuse(400, '23514', 'acc_expenses_subscription');
           if (t === 'acc_expenses' && row.reason != null && !['استرجاع مبلغ مدفوع', 'إلغاء اشتراك', 'خصم من مورد', 'تصحيح تسجيل غلط', 'أخرى'].includes(row.reason)) return refuse(400, '23514', 'acc_expenses_reason_check');
           if (t === 'acc_vendor_moves' && row.direction === 'deposit' && row.kind !== 'أخرى') return refuse(400, '23514', 'new row for relation "acc_vendor_moves" violates check constraint "acc_vendor_moves_deposit_correction"');
+          if (t === 'acc_expenses' && !expenseKindOk(row.category)) return refuse(400, '23514', 'invalid: category'); // 0093 acc_expenses_category_guard
           accSeq += 1; const rec = { ...row, id: accSeq, amount: Number(row.amount), created_by: u.id, created_at: now, updated_by: null, updated_at: null, voided_by: null, voided_at: null };
           if (t === 'acc_vendor_moves') Object.assign(rec, { settled_by: null, settled_at: null }); // the guard: a member never settles a move
           rows.push(rec); mock.accWrites.push({ table: t, op: 'insert', ...row });
@@ -953,11 +954,15 @@ export async function installSupabaseMock(page, opts = {}) {
           if (r.voided_at) return refuse(403, '42501', 'a voided row is final');
           if (t === 'acc_vendor_moves' && r.settled_by != null) return refuse(403, '42501', 'a settled move is final');
           const { created_by, created_at, voided_by, settled_by, settled_at, ...patch } = b;
+          if (t === 'acc_expenses' && patch.category !== undefined && patch.category !== r.category && !expenseKindOk(patch.category)) return refuse(400, '23514', 'invalid: category');
           Object.assign(r, patch, { updated_at: now, updated_by: u.id }); if (patch.voided_at) Object.assign(r, { voided_at: now, voided_by: u.id });
           mock.accWrites.push({ table: t, op: 'update', id: r.id, ...patch });
           return json(200, [{ ...r }]);
         }
       }
+      // 0093 (2026-11-14-settings-lists.md decision 1): an expense's type is a base one or one the admin added in the row «lists»
+      function expenseKindOk(c) { const li = ((mock.settings || []).find((x) => x.section === 'lists') || {}).data || {};
+        return ['المرتبات', 'المصروفات', 'الاشتراكات', 'الإعلانات'].includes(c) || (Array.isArray(li.expenseKinds) && li.expenseKinds.includes(c)); }
       // accounts_sales (0019): our orders placed in the range (Cairo date — the mock uses the UTC date), per maker and group + one total row per group
       if (method === 'POST' && path === '/rest/v1/rpc/accounts_sales') {
         const b = body(); if (hasPerm(u, 'accounts.view') === 'N') return json(403, { code: '42501', details: null, hint: null, message: 'accounts.view is needed' });

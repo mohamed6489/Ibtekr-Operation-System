@@ -191,3 +191,37 @@ test('0078 periodMoney (block 06): an «عربون» counts when it is a «سح�
   const r = VD.periodMoney(moves, [{ vendor: 'A', amount: 30, date: '2026-11-05' }], 'A', { from: '2026-11-01', to: '2026-11-30' });
   assert.deepEqual(plain(r), { deposits: 400, depositCount: 1, transport: 30, trips: 1 });
 });
+
+// the settings lists all editable (docs/superpowers/plans/2026-11-14-settings-lists.md, decisions 1 and 4): the expense types are the base
+// four then the admin's own (IBSettings.expenseKinds()); a removed type keeps its rows in the totals; the week starts on the settings' day
+test('settings lists: added expense types, a removed type kept by its rows, the week start', () => {
+  const prev = globalThis.IBSettings;
+  try {
+    assert.deepEqual(plain(D.CATEGORIES), ['المرتبات', 'المصروفات', 'الاشتراكات', 'الإعلانات']); // no IBSettings = the base four
+    assert.equal(D.weekStartDow(), 6);
+    let kinds = ['المرتبات', 'المصروفات', 'الاشتراكات', 'الإعلانات', 'إيجار'];
+    globalThis.IBSettings = { expenseKinds: () => kinds.slice(), weekStart: () => 0 };
+    assert.deepEqual(plain(D.CATEGORIES), kinds);
+    assert.deepEqual(plain(D.BASE_CATEGORIES), kinds.slice(0, 4));
+    assert.equal(D.weekStartDow(), 0);
+    const ok = D.validateExpense({ amount: '100', date: '05/11/2026', category: 'إيجار', beneficiary: '' });
+    assert.equal(ok.errors.category, undefined);
+    assert.ok(D.validateExpense({ amount: '100', date: '05/11/2026', category: 'نوع مش موجود', beneficiary: '' }).errors.category);
+    // an added type is an expense with details (like «المصروفات»)
+    assert.ok(D.validateExpenseCategory({ category: 'إيجار', details: '' }).errors.details);
+    const rows = [{ date: '2026-11-03', category: 'إيجار', amount: 500, direction: 'withdraw' }, { date: '2026-11-04', category: 'المصروفات', amount: 300, direction: 'withdraw' }];
+    let t = D.categoryTotals({}, rows, '2026-11-01', '2026-11-30');
+    assert.deepEqual(Object.keys(t.byCategory), kinds);
+    assert.equal(t.byCategory['إيجار'].amount, 500); assert.equal(t.total, 800);
+    // the admin removes it: its rows still count, under their own type; a new expense can't take it, the row's own edit can
+    kinds = kinds.slice(0, 4);
+    t = D.categoryTotals({}, rows, '2026-11-01', '2026-11-30');
+    assert.deepEqual(Object.keys(t.byCategory), ['المرتبات', 'المصروفات', 'الاشتراكات', 'الإعلانات', 'إيجار']);
+    assert.equal(t.total, 800);
+    assert.ok(D.validateExpense({ amount: '100', date: '05/11/2026', category: 'إيجار', beneficiary: '' }).errors.category);
+    assert.equal(D.validateExpense({ amount: '100', date: '05/11/2026', category: 'إيجار', beneficiary: '', keep: 'إيجار' }).errors.category, undefined);
+    // a bad answer from the settings = the base four / Saturday
+    globalThis.IBSettings = { expenseKinds: () => ['x'], weekStart: () => 4 };
+    assert.deepEqual(plain(D.CATEGORIES), kinds); assert.equal(D.weekStartDow(), 6);
+  } finally { if (prev === undefined) delete globalThis.IBSettings; else globalThis.IBSettings = prev; }
+});

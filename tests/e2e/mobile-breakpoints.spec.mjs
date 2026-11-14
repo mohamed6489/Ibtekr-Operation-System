@@ -57,9 +57,9 @@ test('phone: the pinned tabs are one row and the selected tab is in view; a tabl
   expect(strip.h).toBeLessThan(64); // one row (it wrapped into two or three before)
   expect(strip.inView).toBe(true);
   expect(strip.pinned).toBe('sticky');
-  // the data export card's head: search · filter · sort · columns
-  await go(page, 'settings-data');
-  const head = await page.evaluate(() => { const acts = document.querySelector('.sec-h .acts:has(.select)'); const card = acts.closest('.card'); const cr = card.getBoundingClientRect(); const fm = acts.querySelector('[data-fm-btn]');
+  // a table card's head: search · filter · sort · columns («سجل المخزون»; the settings tables have no tools since the owner 14 Nov)
+  await go(page, 'inventory'); await clickTab(page, 'سجل المخزون'); await page.waitForTimeout(300);
+  const head = await page.evaluate(() => { const acts = Array.from(document.querySelectorAll('.sec-h .acts:has(.select)')).find((x) => x.offsetParent); const card = acts.closest('.card'); const cr = card.getBoundingClientRect(); const fm = acts.querySelector('[data-fm-btn]');
     return { fmWhole: fm.scrollWidth <= fm.clientWidth + 1, inside: Array.from(acts.children).every((c) => { const r = c.getBoundingClientRect(); return r.left >= cr.left - 1 && r.right <= cr.right + 1; }) }; });
   expect(head).toEqual({ fmWhole: true, inside: true });
 });

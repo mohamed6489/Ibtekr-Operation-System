@@ -144,8 +144,25 @@
     const card = (id) => { const x = SECTIONS.find((q) => q[0] === id); if (!x) return null; const [, t, d, ic] = x; let stt = null; try { stt = STATS[id] ? STATS[id]() : null; } catch (e) { stt = null; }
       return h('section', { class: 'card set-card', 'data-set-card': id }, h('div', { class: 'set-card-h' }, h('span', { class: 'set-ic' }, Icon(ic)), h('h3', { class: 't-h5' }, t)), h('p', { class: 't-small help' }, d), stt ? K.Tag(stt[1], stt[0]) : null,
         st.pending.has(id) ? K.Tag('orange', 'تغييرات مش محفوظة') : null, h('span', { class: 'grow' }), Button({ iconEnd: 'chevL', label: 'تفاصيل', attrs: { 'aria-label': 'تفاصيل ' + t, 'data-set-edit': id }, onClick: () => openSec(id) })); };
-    return [K.PageHead('الإعدادات', 'إعدادات الشركة والفريق والربط — للأدمن بس'), ...GROUPS.map(([g, ids]) => h('div', { class: 'set-group', 'data-set-group': g }, h('h2', { class: 't-h5 set-gt' }, g), h('div', { class: 'set-grid' }, ids.map(card))))];
+    // the owner 14 Nov (2026-11-14-owner-batch.md decision 3): the groups as sticky tabs — a tab scrolls to its group, and the group in
+    // view is the one marked while the page scrolls (spySettings)
+    const jump = h('div', { class: 'tabs set-jump', role: 'tablist', 'aria-label': 'أقسام الإعدادات', 'data-set-jump': '' }, GROUPS.map(([g], i) => h('button', { type: 'button', role: 'tab', class: 'tab', 'data-set-jump-to': g, 'aria-selected': String(i === 0), tabindex: i === 0 ? '0' : '-1',
+      onClick: () => { const el = document.querySelector('[data-set-group="' + g + '"]'); if (!el) return; spyHold = Date.now() + 900; spyMark(g); const top = el.getBoundingClientRect().top + window.scrollY - spyOffset() + 1; window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' }); } }, g)));
+    setTimeout(spySettings, 0);
+    return [K.PageHead('الإعدادات', 'إعدادات الشركة والفريق والربط — للأدمن بس'), jump, ...GROUPS.map(([g, ids]) => h('div', { class: 'set-group', 'data-set-group': g }, h('h2', { class: 't-h5 set-gt' }, g), h('div', { class: 'set-grid' }, ids.map(card))))];
   }
+  // where a group starts to count as «in view»: under the top bar and the sticky tabs
+  const spyOffset = () => { const tb = document.querySelector('.topbar'); const j = document.querySelector('[data-set-jump]'); return (tb ? tb.offsetHeight : 48) + (j ? j.offsetHeight : 0) + 16; };
+  let spyHold = 0;
+  function spyMark(g) { document.querySelectorAll('[data-set-jump] [data-set-jump-to]').forEach((b) => { const on = b.getAttribute('data-set-jump-to') === g; b.setAttribute('aria-selected', String(on)); b.tabIndex = on ? 0 : -1; }); }
+  function spySettings() {
+    if (st.sec !== 'home' || Date.now() < spyHold) return; const groups = Array.from(document.querySelectorAll('#pg-settings [data-set-group]')); if (!groups.length) return;
+    const off = spyOffset(); let cur = groups[0];
+    groups.forEach((el) => { if (el.getBoundingClientRect().top <= off + 8) cur = el; });
+    if (window.scrollY > 0 && window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2) cur = groups[groups.length - 1]; // scrolled to the page's end: the last group
+    spyMark(cur.getAttribute('data-set-group'));
+  }
+  window.addEventListener('scroll', () => { if (window.IBPages && window.IBPages.current === 'settings') spySettings(); }, { passive: true });
   function openSec(id) { st.sec = id; st.integ = null; st.dirty = st.pending.has(id); try { history.replaceState(null, '', '#settings-' + id); } catch (e) { /* */ } R(); window.scrollTo(0, 0); }
   function goHub() { leave(() => { st.sec = 'home'; st.integ = null; try { history.replaceState(null, '', '#settings'); } catch (e) { /* */ } R(); window.scrollTo(0, 0); }); }
   function viewV6() {
@@ -155,14 +172,16 @@
     const note = h('span', { class: 'set-dirty t-small', 'data-set-dirty': '', hidden: !st.dirty }, Icon('alert', 'sm'), ' تغييرات مش محفوظة');
     const save = Button({ type: 'brand', icon: 'check', label: 'حفظ', attrs: { 'data-set-save': '' }, onClick: () => { commit(); R(); } });
     if (st.snapSec !== st.sec) { st.snap = snapTake(); st.snapSec = st.sec; if (st.sec === 'inventory' && !st.dirty) { st.inv = null; st.invAsked = false; } if (st.sec === 'hr' && !st.dirty) st.hr = null; }
-    const body = h('div', { class: 'set-body set-page' }, ...section());
+    // the owner 14 Nov (decision 3): a settings table has no «بحث» / «فلتر» / «ترتيب» / columns — data-no-tq / data-no-cols on the page body
+    const body = h('div', { class: 'set-body set-page', 'data-no-tq': '', 'data-no-cols': '' }, ...section());
     const mark = () => { if (st.dirty) return; st.dirty = true; note.hidden = false; const pg = document.getElementById('pg-settings'); if (pg && !pg.querySelector('.save-bar')) pg.append(saveBar()); };
     // التحديد في الجداول والفلاتر والتابات مش «تغيير» — مش بيطلّع تذكير الحفظ
     const skip = (t) => !t || t.type === 'search' || !!t.closest('.search-field, [role=search], .toolbar label.search, [data-bulk-box], [data-bulk], .bulk-bar, [role=tab], .subtabs, [data-fm], [data-af], [data-sm-btn], .pop-anchor[data-popover-root] .menu');
     body.addEventListener('input', (e) => { if (!skip(e.target)) mark(); }, true);
     body.addEventListener('change', (e) => { if (!skip(e.target)) mark(); }, true);
     body.addEventListener('click', (e) => { if (!skip(e.target) && e.target.closest('[role=switch], [role=radio], [role=checkbox], .chip, [role=option]')) mark(); }, true);
-    return [h('div', { class: 'set-back' }, Button({ type: 'text', size: 'sm', icon: 'chevR', label: 'رجوع للإعدادات', attrs: { 'data-set-back': '' }, onClick: goHub })), K.PageHead(x[1], x[2], [note, save]), body, st.dirty ? saveBar() : null];
+    // the owner 14 Nov (decision 3): every settings page in the middle at one width, «حفظ» at the left end of that width
+    return [h('div', { class: 'set-wrap', 'data-set-wrap': st.sec }, h('div', { class: 'set-back' }, Button({ type: 'text', size: 'sm', icon: 'chevR', label: 'رجوع للإعدادات', attrs: { 'data-set-back': '' }, onClick: goHub })), K.PageHead(x[1], x[2], [note, save]), body), st.dirty ? saveBar() : null];
   }
   // «تجاهل التغييرات» بيرجّع البيانات فعلًا: لقطة من الإعدادات أول ما القسم يفتح (وبعد كل حفظ)
   const LOGO_T = ['color', 'reversed', 'mark'];

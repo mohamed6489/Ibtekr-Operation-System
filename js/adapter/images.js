@@ -141,7 +141,8 @@
   // new image's path in bucket studio (the page puts it in the slot and saves)
   async function generate(batchId, index, slot, opts) {
     const o = opts || {};
-    const r = await invoke(Object.assign({ action: 'generate', batch_id: batchId, index, slot: slotArg(slot), model: o.model || undefined }, sizeArgs(o)));
+    // the three flows: o.color = a Variable's color unit — the shot number with its color (the server reads that color's reference)
+    const r = await invoke(Object.assign({ action: 'generate', batch_id: batchId, index, slot: o.color ? Number(slot) : slotArg(slot), color: o.color || undefined, model: o.model || undefined }, sizeArgs(o)));
     if (!r.ok) return r;
     const out = await webpAll(answer(r.body));
     log(['studio', '#' + (index + 1), slotWord(slot), out.model].concat(tail(out)).join(' · '), 'studio_batches', batchId);

@@ -185,5 +185,18 @@
     });
   }
 
-  window.IBAI = { can, write, studio, shotPrompts, assistant, history, photoOf, settings, saveSettings, monthSpend, estCost, MODELS, EFFORTS, EST_COST };
+  // the studio's WhatsApp flow (docs/superpowers/plans/2026-11-14-studio-flows.md, decision 11): the maker's chat screenshots (8 at
+  // most, read here at Claude's size) → the template's rows in the chat's order → { ok, result, rows, missing, model, cost }
+  async function extract(files, type, photos) {
+    const images = [];
+    for (const f of (files || []).slice(0, 8)) { const p = await photoOf(f); if (p) images.push({ media_type: p.media_type, data: p.data }); }
+    if (!images.length) return { ok: false, reason: 'invalid', field: 'images' };
+    const r = await invoke({ action: 'extract', images, type: type === 'Variable' ? 'Variable' : 'Simple', photos: Math.max(0, Math.min(300, Number(photos) || 0)) });
+    if (!r.ok) return r;
+    const out = Object.assign(answer(r.body), { rows: Array.isArray(r.body.rows) ? r.body.rows : [] });
+    log('product.ai.extract', images.length + ' · ' + out.rows.length + (out.result === 'refused' ? ' · refused' : ''), 'studio_batches', null);
+    return out;
+  }
+
+  window.IBAI = { extract, can, write, studio, shotPrompts, assistant, history, photoOf, settings, saveSettings, monthSpend, estCost, MODELS, EFFORTS, EST_COST };
 })();

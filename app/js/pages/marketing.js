@@ -1368,8 +1368,10 @@
       el.querySelectorAll('img').forEach((im) => { if (!im.complete) im.addEventListener('load', () => { if (AG.atBottom[a] !== false) el.scrollTop = el.scrollHeight; }, { once: true }); });
     });
     const inp = h('input', { type: 'text', class: 'input grow', id: 'mk-ask', placeholder: a === 'buyer' ? 'اسأل الميديا باير عن أرقامك…' : 'اكتب رسالة ل' + A.name + '…', 'aria-label': 'رسالة ل' + A.name, maxlength: '1000', value: AG.draft[a] || '', onInput: () => { AG.draft[a] = inp.value; }, onKeydown: (e) => { if (e.key === 'Enter') agSend(a, inp.value); } });
-    // a re-render (the chats or the turns landing) keeps what was being typed and the cursor in the box
-    if (document.activeElement && document.activeElement.id === 'mk-ask') requestAnimationFrame(() => { const x = document.getElementById('mk-ask'); if (x && document.activeElement !== x) { x.focus(); const n = x.value.length; quietSel(x, n); } });
+    // a re-render (the chats or the turns landing) keeps what was being typed and the cursor in the box — right after the render, in
+    // the same task (IBPages.render is synchronous): a frame later a key typed in between went to the removed box (CI 989 on 14 Nov:
+    // the text typed while the designer's chats landed was lost)
+    if (document.activeElement && document.activeElement.id === 'mk-ask') queueMicrotask(() => { const x = document.getElementById('mk-ask'); if (x && document.activeElement !== x) { x.focus(); const n = x.value.length; quietSel(x, n); } });
     const chips = h('div', { class: 'chips mk-agent-chips' }, h('span', { class: 't-small help' }, 'اقتراحات سريعة:'),
       sugg.map((x) => h('button', { type: 'button', class: 'chip', onClick: () => (a === 'buyer' && x === 'اعمل حملة لمنتج' ? go('marketing-campaign-1') : agSend(a, x)) }, x)));
     const head = h('div', { class: 'mk-agent-head' }, h('div', { class: 'mk-agent-title' }, h('b', null, A.name), h('small', { class: 'help' }, AG_SUB[a])),

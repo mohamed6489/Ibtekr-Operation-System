@@ -289,6 +289,11 @@ test('0084 decision 6: the designer\'s picture — its answer carries an image p
   // CI 14 Nov (three times): the text went into the previous agent's box while the «الديزاينر» tab was still drawing (its draft is
   // per agent), so «ابعت» sent nothing — wait for the designer's own input first
   await expect(box).toBeVisible(); await expect(P.locator('#mk-ask')).toHaveAttribute('placeholder', /الديزاينر/);
+  // CI 989 (14 Nov): fill = focus, then the text in a second step — the designer's chats landing in between re-drew the box and the
+  // focus came back a frame later, so the text went nowhere; a render between the focus and the typing keeps the box focused now
+  await page.evaluate(() => { document.getElementById('mk-ask').focus(); window.IBPages.render('marketing'); });
+  await page.keyboard.insertText('س');
+  await expect(P.locator('#mk-ask')).toHaveValue('س');
   await P.locator('#mk-ask').fill('اعمل صورة لبوست ماكرامية');
   await expect(P.locator('#mk-ask')).toHaveValue('اعمل صورة لبوست ماكرامية');
   await P.locator('[data-mk-ask]').click();

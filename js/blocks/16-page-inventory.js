@@ -269,11 +269,40 @@
     const done = (c.base || 0) + c.lines.filter((l) => l.counted !== '').length;
     return [K.Section(c.id + ' — ' + c.zone, [h('div', { class: 'count-prog' }, h('b', null, 'التقدّم'), h('span', null, done + ' من ' + c.total + ' منتج اتعدّوا · ' + diffs.length + ' فروق لحد دلوقتي'), U.ProgressBar('brand', done / c.total)),
       h('div', { class: 'toolbar' }, h('label', { class: 'search-field' }, Icon('search', 'sm'), h('input', { type: 'search', placeholder: 'ابحث بالاسم أو الـ SKU', 'aria-label': 'بحث في الجرد' })), U.Select({ id: 'cn-l', label: '', options: [{ value: 'B', label: 'المكان: رف B' }], value: 'B', onChange: () => {} }), U.Select({ id: 'cn-v', label: '', options: [{ value: '', label: 'العرض: الكل' }], value: '', onChange: () => {} }), h('span', { class: 't-small help' }, 'العدّ بيتحفظ تلقائي')),
-      U.Table({ headers: ['المنتج', 'المكان', 'في السيستم', 'العدد الفعلي', 'الفرق', 'القيمة', 'ملاحظة'], rows: c.lines.map((l) => { const inp = h('input', { class: 'cnt-in', inputmode: 'numeric', value: l.counted, 'aria-label': 'العدد الفعلي — ' + l.name }); inp.addEventListener('change', () => { l.counted = O.toLatin(inp.value); if (live() && c.dbId) saved(A().countLine(c.dbId, l.key, l.counted, l.note)); K.toast('اتحفظ العدّ'); R(); });
+      U.Table({ headers: ['المنتج', 'المكان', 'في السيستم', 'العدد الفعلي', 'الفرق', 'القيمة', 'ملاحظة'].concat(canEdit() ? [''] : []), rows: c.lines.map((l) => { const gone = removedOf(l); const inp = h('input', { class: 'cnt-in', inputmode: 'numeric', value: l.counted, title: gone ? 'اتشال جزء من المخزن أثناء الجرد — العدد = اللي فاضل' : null, 'aria-label': 'العدد الفعلي — ' + l.name, 'data-cnt-key': l.key }); inp.addEventListener('change', () => { l.counted = O.toLatin(inp.value); if (live() && c.dbId) saved(A().countLine(c.dbId, l.key, l.counted, l.note)); K.toast('اتحفظ العدّ'); R(); });
         const d = l.counted === '' ? null : Number(l.counted) - l.system;
-        return [prodCell(l), K.Num(l.loc), String(l.system), inp, d == null ? K.Tag('neutral', 'لسه') : d === 0 ? K.Tag('success', 'مطابق') : h('b', { class: d < 0 ? 'neg' : 'pos' }, K.Num((d > 0 ? '+ ' : '− ') + Math.abs(d))), d ? K.Num((d > 0 ? '+ ' : '− ') + K.money(Math.abs(d) * l.cost)) : '—', l.note || '—']; }) }),
+        return [prodCell(l), K.Num(l.loc), String(l.system), inp, gone ? K.Tag('orange', String(l.note).split(' — ')[0]) : d == null ? K.Tag('neutral', 'لسه') : d === 0 ? K.Tag('success', 'مطابق') : h('b', { class: d < 0 ? 'neg' : 'pos' }, K.Num((d > 0 ? '+ ' : '− ') + Math.abs(d))), d ? K.Num((d > 0 ? '+ ' : '− ') + K.money(Math.abs(d) * l.cost)) : '—', l.note || '—'].concat(canEdit() ? [countLineMenu(c, l)] : []); }) }),
       h('p', { class: 't-small help', style: 'margin:0' }, 'أثناء الجرد «في السيستم» بيتثبت على لحظة بداية الجرد، والحجوزات الجديدة بتتحسب لوحدها. «اعتماد الجرد» بيعمل حركة «تسوية جرد» لكل فرق بالسبب. المنتجات اللي متعدتش بتفضل زي ما هي.')],
-      [canApprove() ? Button({ type: 'primary', label: 'اعتماد الجرد', onClick: () => approveCount() }) : null], { sub: 'بدأ ' + c.started.slice(11) + ' النهارده' }), history()];
+      [canEdit() ? Button({ label: '+ قطعة', attrs: { 'data-count-add': '' }, onClick: () => receiveManual() }) : null, canApprove() ? Button({ type: 'primary', label: 'اعتماد الجرد', onClick: () => approveCount() }) : null], { sub: 'بدأ ' + c.started.slice(11) + ' النهارده' }), history()];
+  }
+  // owner batch 14 Nov decision 10: in an open count — «+ قطعة» (the manual receive: the piece found joins the hub with an «in» move),
+  // ⋮ on a line: the place and the status of its lot, and «شيل من المخزن» with a reason (an «out» move with the reason; the line's
+  // count becomes what is left — inv_count_approve compares a count with the quantity NOW, so the approval adds no second adjustment)
+  const REMOVE_REASONS = ['طلعت أوردر ونسيت أسجلها', 'حصلها تلف من التخزين', 'حصلها تلف من الشحن', 'أخرى'];
+  const removedOf = (l) => /^اتشال /.test(String(l.note || ''));
+  function countLineMenu(c, l) {
+    const lot = () => S.stock.find((x) => x.key === l.key) || null;
+    return K.RowMenu([
+      { label: 'تعديل المكان', icon: 'sliders', run: () => K.form({ title: 'مكان ' + l.name, values: { loc: l.loc || '' }, fields: (f, e, set) => [K.field.select('loc', 'المكان', LOC_OPTS(), f, e, set)], submitLabel: 'حفظ',
+        submit: (f) => { l.loc = f.loc || null; const it = lot(); if (it) it.loc = f.loc || null; patchLot(l.key, { loc: f.loc || null }, 'inventory.loc'); K.logEvent('stock.count.loc', l.sku); K.toast('اتغيّر المكان', 'success'); R(); } }) },
+      { label: 'تعديل الحالة', icon: 'edit', run: () => { const it = lot(); const opts = it && O.STATUS_BY_REASON[it.reason] ? O.STATUS_BY_REASON[it.reason] : []; if (!opts.length) { K.toast('مفيش حالات تانية للقطعة دي', 'error'); return; }
+        K.form({ title: 'حالة ' + l.name, values: { status: it.status }, fields: (f, e, set) => [K.field.select('status', 'الحالة', opts, f, e, set, { required: true })], submitLabel: 'حفظ',
+          submit: (f) => { it.status = f.status; patchLot(l.key, { status: f.status }, 'inventory.status'); K.logEvent('stock.count.status', l.sku); K.toast('اتغيّرت الحالة', 'success'); R(); } }); } },
+      { label: 'شيل من المخزن', icon: 'trash', danger: true, run: () => removeFromHub(c, l) }], 'إجراءات ' + l.name);
+  }
+  function removeFromHub(c, l) {
+    const it = K.stockNow().find((x) => x.key === l.key); const have = it ? it.onHand : l.system; // the quantity now (from the moves)
+    if (!have) { K.toast('القطعة دي مش في المخزن دلوقتي', 'error'); return; }
+    K.form({ title: 'شيل من المخزن — ' + l.name, values: { reason: '', other: '', qty: String(have) },
+      fields: (f, e, set) => [K.Radios({ label: 'السبب *', value: f.reason, onChange: (v) => set('reason', v, true), options: REMOVE_REASONS.map((r) => ({ value: r, label: r })) }), e.reason ? h('div', { class: 'err-msg', role: 'alert' }, e.reason) : null,
+        f.reason === 'أخرى' ? K.field.text('other', 'اكتب السبب', f, e, set, { required: true, maxlength: 120 }) : null,
+        K.field.text('qty', 'العدد', f, e, set, { required: true, inputmode: 'numeric', help: 'في المخزن ' + have })],
+      validate: (f) => { const e = {}; const n = Number(O.toLatin(String(f.qty || ''))); if (!f.reason) e.reason = 'اختار السبب'; if (f.reason === 'أخرى' && !String(f.other || '').trim()) e.other = 'اكتب السبب'; if (!Number.isInteger(n) || n < 1 || n > have) e.qty = 'العدد من 1 لـ ' + have; return e; },
+      submitLabel: 'شيل من المخزن', submit: (f) => { const n = Number(O.toLatin(String(f.qty))); const why = f.reason === 'أخرى' ? String(f.other).trim() : f.reason;
+        move({ key: l.key, type: 'out', qty: n, label: 'شيل من المخزن', reason: why, ref: c.id, note: why, name: l.name, sku: l.sku });
+        l.counted = String(have - n); l.note = 'اتشال ' + n + ' — ' + why;
+        if (live() && c.dbId) saved(A().countLine(c.dbId, l.key, l.counted, l.note));
+        K.logEvent('stock.count.remove', l.sku + ' × ' + n); K.toast('اتشالت من المخزن', 'success'); R(); } });
   }
   const history = () => K.Section('جرد سابق', U.Table({ cls: 'mini-table', headers: ['رقم الجرد', 'التاريخ', 'النطاق', 'بواسطة', 'أصناف فيها فرق', 'صافي الفرق', 'الحالة'], rows: S.counts.map((c) => [K.Num(c.id), K.dshort(c.date), c.zone, c.by, String(c.items), K.Num(K.money(c.value) + ' ج'), K.Tag('success', c.status)]) }), null, { noun: ['جرد', 'عمليات الجرد'] });
   // ---------- إعدادات ----------

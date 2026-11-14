@@ -86,8 +86,8 @@ do $$ begin
   if pg_temp.mgr('00000000-0000-4000-8000-0000000092b4') is distinct from '00000000-0000-4000-8000-0000000092b1'::uuid then raise exception 'case a member''s own manager kept failed'; end if;
   if pg_temp.mgr('00000000-0000-4000-8000-0000000092b5') is distinct from '00000000-0000-4000-8000-0000000092b2'::uuid then raise exception 'case the others follow the role''s new manager failed'; end if;
 end $$;
--- back to the role's manager
-select pg_temp.as_member('00000000-0000-4000-8000-0000000092b2');
+-- back to the role's manager (the admin — b2 is the role's manager now, so hr.edit b2 may not put the member back under himself)
+select pg_temp.as_member('00000000-0000-4000-8000-0000000092b1');
 do $$ begin perform public.member_manager_set('00000000-0000-4000-8000-0000000092b4', null); end $$;
 reset role;
 do $$ begin
@@ -101,6 +101,22 @@ select pg_temp.as_member('00000000-0000-4000-8000-0000000092b1');
 do $$ begin
   perform public.member_manager_set('00000000-0000-4000-8000-0000000092b3', '00000000-0000-4000-8000-0000000092b5');
   begin perform public.member_manager_set('00000000-0000-4000-8000-0000000092b2', '00000000-0000-4000-8000-0000000092b3'); raise exception 'case a loop up the chain failed'; exception when invalid_parameter_value then null; end;
+  perform public.member_manager_set('00000000-0000-4000-8000-0000000092b3', null);
+end $$;
+-- «back to the role's manager» goes through the same checks: hr.edit F never ends up the manager himself, and no loop through the role's manager
+do $$ begin perform public.role_manager_set('ops', '00000000-0000-4000-8000-0000000092b2'); end $$; -- b2 (hr.edit, role ops) manages ops; b3 is in ops
+select pg_temp.as_member('00000000-0000-4000-8000-0000000092b1');
+do $$ begin perform public.member_manager_set('00000000-0000-4000-8000-0000000092b3', '00000000-0000-4000-8000-0000000092b1'); end $$;
+select pg_temp.as_member('00000000-0000-4000-8000-0000000092b2');
+do $$ begin
+  begin perform public.member_manager_set('00000000-0000-4000-8000-0000000092b3', null); raise exception 'case hr.edit back to himself failed'; exception when insufficient_privilege then null; end;
+end $$;
+select pg_temp.as_member('00000000-0000-4000-8000-0000000092b1');
+do $$ begin
+  perform public.member_manager_set('00000000-0000-4000-8000-0000000092b2', '00000000-0000-4000-8000-0000000092b3'); -- b3 over b2 by hand
+  begin perform public.member_manager_set('00000000-0000-4000-8000-0000000092b3', null); raise exception 'case a loop through the role''s manager failed'; exception when invalid_parameter_value then null; end;
+  perform public.member_manager_set('00000000-0000-4000-8000-0000000092b2', null);
+  perform public.role_manager_set('ops', null);
   perform public.member_manager_set('00000000-0000-4000-8000-0000000092b3', null);
 end $$;
 reset role;

@@ -74,29 +74,33 @@ grant execute on function public.role_manager_set(text, uuid) to authenticated, 
 
 create or replace function public.member_manager_set(p_member uuid, p_manager uuid) returns void
 language plpgsql volatile security definer set search_path = public as $$
-declare v_old uuid; v_role text; v_auto uuid; v_admin boolean := public.is_admin();
+declare v_old uuid; v_role text; v_new uuid; v_admin boolean := public.is_admin();
 begin
   if not (v_admin or public.hr_editor()) then raise exception 'not allowed' using errcode = '42501'; end if;
   select manager_id, role_id into v_old, v_role from public.profiles where id = p_member for update;
   if not found then raise exception 'not found' using errcode = 'P0002'; end if;
-  -- hr.edit F (not the admin): never on himself, never on an admin, and never naming himself the manager (the approvals follow it)
-  if not v_admin and (p_member = auth.uid() or p_manager = auth.uid() or v_role = 'admin') then
-    raise exception 'not allowed' using errcode = '42501';
-  end if;
   if p_manager is null then -- back to the role's manager
-    select r.manager_id into v_auto from public.roles r where r.id = v_role;
-    update public.profiles set manager_fixed = false, manager_id = case when v_auto = p_member then null else v_auto end where id = p_member;
+    select r.manager_id into v_new from public.roles r where r.id = v_role;
+    if v_new = p_member then v_new := null; end if;
   else
-    if p_manager = p_member or not exists (select 1 from public.profiles where id = p_manager and status = 'active')
-       or exists (with recursive up(id, d) as ( -- no loop anywhere up the new manager's chain
-         select p_manager, 0
-         union all select p.manager_id, up.d + 1 from public.profiles p join up on p.id = up.id where p.manager_id is not null and up.d < 50)
-         select 1 from up where up.id = p_member) then
+    if p_manager = p_member or not exists (select 1 from public.profiles where id = p_manager and status = 'active') then
       raise exception 'invalid: manager' using errcode = '22023';
     end if;
-    update public.profiles set manager_id = p_manager, manager_fixed = true where id = p_member;
+    v_new := p_manager;
   end if;
-  perform public.log_activity('hr.member.manager', 'hr', p_member::text, to_jsonb(v_old::text), to_jsonb((select manager_id from public.profiles where id = p_member)::text));
+  -- hr.edit F (not the admin): never on himself, never on an admin, and never ending up the manager himself (the approvals follow it)
+  if not v_admin and (p_member = auth.uid() or v_new = auth.uid() or v_role = 'admin') then
+    raise exception 'not allowed' using errcode = '42501';
+  end if;
+  -- no loop anywhere up the new manager's chain (the role's manager too)
+  if v_new is not null and exists (with recursive up(id, d) as (
+       select v_new, 0
+       union all select p.manager_id, up.d + 1 from public.profiles p join up on p.id = up.id where p.manager_id is not null and up.d < 50)
+     select 1 from up where up.id = p_member) then
+    raise exception 'invalid: manager' using errcode = '22023';
+  end if;
+  update public.profiles set manager_id = v_new, manager_fixed = p_manager is not null where id = p_member;
+  perform public.log_activity('hr.member.manager', 'hr', p_member::text, to_jsonb(v_old::text), to_jsonb(v_new::text));
 end $$;
 revoke execute on function public.member_manager_set(uuid, uuid) from public, anon;
 grant execute on function public.member_manager_set(uuid, uuid) to authenticated, service_role;

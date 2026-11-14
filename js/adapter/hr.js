@@ -42,8 +42,8 @@
     // held-back part whole), the annual leave left at the year's end ('pay' with December's salary · 'carry' to the next year)
     payDay: 28, bonusMin: 3, leaveYearEnd: 'pay',
     // owner batch 14 Nov decision 7 (0087): the work days (isodow — 1 Monday … 7 Sunday), the official hours, the day rate's divisor and a
-    // custom time for a department or a member ({ dept: { name: { from, to } }, member: { uid: { from, to } } }) — the server reads the same
-    workDays: [7, 1, 2, 3, 4], workFrom: '09:00', workTo: '17:00', dayDivisor: 24, schedules: { dept: {}, member: {} } };
+    // custom time for a role or a member ({ role: { roleId: { from, to } }, member: { uid: { from, to } } } — 0092: the role, not the department) — the server reads the same
+    workDays: [7, 1, 2, 3, 4], workFrom: '09:00', workTo: '17:00', dayDivisor: 24, schedules: { role: {}, member: {} } };
   const c = () => (window.IBSupabase && window.IBSupabase.client) || null;
   const quiet = (fn) => { try { return fn(); } catch (e) { return undefined; } };
   const K = () => window.IBKit;
@@ -65,6 +65,7 @@
     until: 'اختار يوم من النهارده أو بعده', count: 'فيه 300 مهمة مفتوحة — خلّص أو امسح شوية الأول',
     paid: 'المرتب ده اتحوّل قبل كده', performance: 'اختار تقييم الأداء (من 1 لـ 5)', communication: 'اختار تقييم التواصل (من 1 لـ 5)', range: 'الفترة طويلة',
     kind: 'النوع ده مش موجود', period: 'الفترة دي لسه مجتش', body: 'اكتب التفاصيل (لحد 1000 حرف)', due: 'اختار ميعاد جاي (في خلال 90 يوم)',
+    manager: 'المدير ده مينفعش — مش نفسه ولا حد هو مديره',
     bank: 'اكتب اسم البنك', holder: 'اكتب اسم صاحب الحساب', number: 'رقم الحساب أرقام بس (من 6 لـ 30 رقم)', iban: 'الـ IBAN مش صحيح (زي EG38…)' };
   const fail = (err) => { const reason = reasonOf(err); const field = reason === 'invalid' ? fieldOf(err) : null; return { ok: false, reason, field, message: (field && FIELD_MESSAGES[field]) || MESSAGES[reason] }; };
   const no = (reason, field) => ({ ok: false, reason, field: field || null, message: (field && FIELD_MESSAGES[field]) || MESSAGES[reason] });
@@ -106,7 +107,7 @@
   const ROLE_NAME = { admin: 'أدمن', ops: 'عمليات', cs: 'خدمة العملاء', accounts: 'حسابات', vendors_followup: 'متابعة المبتكرين', viewer: 'مشاهد' };
   function buildRoster(team) {
     const dir = (S() && S().members) || []; const known = new Set(dir.map((m) => m.uid)); const code = Object.fromEntries((team || []).map((t) => [t.id, t.member_code]).concat(dir.map((m) => [m.uid, m.id])));
-    roster = dir.concat((team || []).filter((t) => !known.has(t.id)).map((t) => ({ id: t.member_code, uid: t.id, name: t.name, title: t.title || '', dept: t.dept || '', manager: code[t.manager_id] || '',
+    roster = dir.concat((team || []).filter((t) => !known.has(t.id)).map((t) => ({ id: t.member_code, uid: t.id, name: t.name, title: t.title || '', dept: t.dept || '', roleId: t.role_id || '', manager: code[t.manager_id] || '',
       status: t.status, role: ROLE_NAME[t.role_id] || '', phone: '', email: '', twofa: false, fromHr: true })));
   }
   const members = () => (roster.length ? roster : (S() && S().members) || []);
@@ -257,8 +258,8 @@
   function scheduleOf(uid) {
     const st0 = settings(); const sc = st0.schedules && typeof st0.schedules === 'object' ? st0.schedules : {};
     const m = uid && sc.member && sc.member[uid]; if (m && span(m.from, m.to) != null) return { from: m.from, to: m.to, kind: 'member' };
-    const who = uid ? members().find((x) => x.uid === uid) : null; const g = who && who.dept && sc.dept && sc.dept[who.dept];
-    if (g && span(g.from, g.to) != null) return { from: g.from, to: g.to, kind: 'dept' };
+    const who = uid ? members().find((x) => x.uid === uid) : null; const g = who && who.roleId && sc.role && sc.role[who.roleId]; // 0092: the role (the departments are out)
+    if (g && span(g.from, g.to) != null) return { from: g.from, to: g.to, kind: 'role' };
     if (span(st0.workFrom, st0.workTo) != null) return { from: st0.workFrom, to: st0.workTo, kind: 'general' };
     return { from: '09:00', to: '17:00', kind: 'general' };
   }
@@ -655,7 +656,7 @@
   const bonusRuleToggle = (dbId, on) => table('hr_bonus_rules', 'update', { active: !!on }, { id: dbId }, 'hr.bonusRule.toggle', dbId + ' ' + (on ? 'on' : 'off'));
   const otPeriodAdd = (f) => table('hr_ot_periods', 'insert', { range_text: clean(f.range, 80), scope: clean(f.scope || 'كل الفريق', 80), counts: !!f.count }, null, 'hr.otPeriod', clean(f.range, 80));
   const otPeriodDelete = (dbId) => table('hr_ot_periods', 'delete', null, { id: dbId }, 'hr.otPeriod.delete', String(dbId));
-  // the settings row «hr» (the admin — 0002): merged over what is there (departments kept)
+  // the settings row «hr» (the admin — 0002): merged over what is there (the old departments list kept, read by nothing — 0092)
   async function saveSettings(patch) {
     const cl = c(); if (!cl) return no('network'); if (!can().admin) return no('forbidden');
     const next = Object.assign({}, raw.settings || {}); Object.keys(patch || {}).forEach((k) => { if (k in DEFAULTS || k === 'departments') next[k] = patch[k]; });
@@ -663,8 +664,22 @@
     raw.settings = next; // the clock and the pages follow at once (0087's hours), before the reload
     return after('hr.settings', Object.keys(patch || {}).join(', '));
   }
-  const addDepartment = (name) => { const n = clean(name, 40); const list = data.departments || []; if (!n) return Promise.resolve(no('invalid')); if (list.includes(n)) return Promise.resolve(no('exists'));
-    return saveSettings({ departments: list.concat([n]) }); };
+  // owner batch 14 Nov decision 16 (0092 — the departments out, «مدير الدور» in): a role's manager (the admin) reaches every member of it
+  // whose manager was not set by hand; a member's own manager (the admin or hr.edit F) — null = back to his role's manager
+  const roleRows = () => (window.IBDirectory && window.IBDirectory.roles ? window.IBDirectory.roles() : []).filter((r) => r && !r.hidden);
+  const roleManager = (roleId) => { const r = roleRows().find((x) => x.id === roleId); return r && r.manager_id ? r.manager_id : null; };
+  async function roleManagerSet(roleId, manager) {
+    if (!can().admin) return no('forbidden'); const uid = manager ? uidOf(manager) : null; if (manager && !uid) return no('invalid', 'manager');
+    const { data: d, error } = await rpc('role_manager_set', { p_role: roleId, p_manager: uid }); if (error) return fail(error);
+    if (window.IBDirectory && window.IBDirectory.refresh) await quiet(() => window.IBDirectory.refresh());
+    await load(); return { ok: true, members: Number((d && d.members) || 0) }; // the server logs hr.role.manager
+  }
+  async function memberManagerSet(member, manager) {
+    const uid = uidOf(member); if (!uid) return no('invalid'); const to = manager ? uidOf(manager) : null; if (manager && !to) return no('invalid', 'manager');
+    const { error } = await rpc('member_manager_set', { p_member: uid, p_manager: to }); if (error) return fail(error);
+    if (window.IBDirectory && window.IBDirectory.refresh) await quiet(() => window.IBDirectory.refresh());
+    await load(); return { ok: true }; // the server logs hr.member.manager
+  }
 
   // ---------- the members (decisions 5 / 6 / 13) ----------
   async function invoke(body) {
@@ -684,7 +699,7 @@
   // «إضافة عضو»: the login + the profile + the HR row (team-admin), then the pay (hr_pay); the password is returned once, never kept
   async function memberCreate(f) {
     if (!can().admin) return no('forbidden');
-    const r = await invoke({ action: 'member_create', name: f.name, email: f.email, phone: f.phone || '', role: f.role, title: f.title || '', dept: f.dept || '', manager_id: uidOf(f.manager) || '',
+    const r = await invoke({ action: 'member_create', name: f.name, email: f.email, phone: f.phone || '', role: f.role, title: f.title || '', manager_id: uidOf(f.manager) || '',
       shift_start: f.shiftStart || '09:00', shift_end: f.shiftEnd || '17:00', hire_date: f.hire || '' });
     if (!r.ok) return r;
     // decision 14: mailed = the set-your-password link went to the member (no password in the answer); else the temporary password as before
@@ -910,7 +925,7 @@
   window.IBHR = { load, clear, subscribe, unsubscribe, check, state: () => st, data, member, team, everyone, can, decidesOt, settings, hm, span, workDays, isWorkDay, dayDivisor, scheduleOf, dayMinutes, today, nowMin, addDays, quarterOf, quarterMonths, monthKey, holidayDates, leaveDays, isLeave,
     shiftNow, myShift, clockIn, clockOut, overtimeBegin, overtimeRequest, setAttendance, endShiftFor, fixOut, request, decide, cancel, overtimeDecide, rateMonth, saveKpis,
     payrollCalc, payrollLines, sheetLines, sheetTotals, slips, transfer, payMember, advanceGive, otAdjust, payDayOf, evaluate, evalTotal, quarterEval, monthTasks, noteAdd, notesOf, NOTE_KINDS, cairoIso, bank, bankSet, bankReveal, payrollOpen, payrollStep, payrollPay, addAdjustment, voidAdjustment, addExtra, decideExtra, meetingCreate, meetingUpdate,
-    holidayAdd, holidayConfirm, holidayDelete, leaveTypeAdd, bonusRuleAdd, bonusRuleToggle, otPeriodAdd, otPeriodDelete, saveSettings, addDepartment,
+    holidayAdd, holidayConfirm, holidayDelete, leaveTypeAdd, bonusRuleAdd, bonusRuleToggle, otPeriodAdd, otPeriodDelete, saveSettings, roleManagerSet, memberManagerSet, roleManager,
     memberCreate, memberPassword, memberInvite, memberDelete, memberUpdate, payUpdate, upload, addDocument, voidDocument, fileUrl, checkFile, ACCOUNTS, DOC_KINDS, DEFAULTS, MIME, MAX_BYTES,
     tasksOf, reviewsFor, canTask, canDeleteTask, taskAdd, taskSet, taskDelete, taskReview, loadTasks, people: () => data.people.slice(), TASK_STATUSES, loadLog, logNow, logLabel,
     _test: { parts, minOf, atLabel, meetingLabel, shape, shapeTasks, raw, safeName, fail, uidOf } };

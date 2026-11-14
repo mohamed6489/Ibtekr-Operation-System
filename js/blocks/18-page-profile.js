@@ -59,7 +59,7 @@
     const m = HM(whoId()); const ad = isAdminView();
     if (!m.id) return [K.Section('', K.Empty('الملف ده مش ظاهر ليك', 'افتح ملفات الفريق من «الموارد البشرية › الفريق».'))];
     const sh = window.IBShell ? window.IBShell.state() : { state: 'out' };
-    const sub = [m.title, m.dept].filter(Boolean).join(' · ') + (m.manager ? ' · المدير المباشر: ' + HM(m.manager).name : '');
+    const sub = [m.title, m.role].filter(Boolean).join(' · ') + (m.manager ? ' · المدير المباشر: ' + HM(m.manager).name + (m.managerFixed ? '' : ' (مدير الدور)') : ''); // 0092
     const head = h('div', { class: 'card prof-head' }, h('span', { class: 'avatar xl', 'aria-hidden': 'true' }, m.name.charAt(0)),
       h('div', { class: 'grow' }, h('h1', { class: 't-h3' }, m.name), h('div', { class: 't-small help' }, sub || '—'), h('div', { class: 'acts-inline' }, m.role ? K.Tag('brand', m.role) : null, m.status === 'suspended' ? K.Tag('error', 'موقوف') : K.Tag('success', 'نشط'), !ad ? K.Tag(sh.state === 'out' ? 'neutral' : sh.state === 'overtime' ? 'orange' : 'success', sh.state === 'out' ? (sh.ended ? 'خلص الدوام' : 'خارج الدوام') : sh.state === 'overtime' ? 'وقت إضافي' : 'على الدوام') : K.Tag(HR().status(m)[1], HR().status(m)[0]))),
       h('div', { class: 'acts-inline' }, ad ? Button({ label: 'رجوع للفريق', onClick: () => { location.hash = 'hr-team'; } }) : myMenu(m)));
@@ -368,7 +368,7 @@
   function security(m) {
     const ad = isAdminView();
     const personal = K.Section('البيانات الشخصية', K.Kv([['الاسم', m.name || '—'], ['الإيميل', m.email || '—'], ['الموبايل', m.phone ? h('span', { dir: 'ltr' }, m.phone) : '—'],
-      ['المسمى الوظيفي', m.title || '—'], ['القسم', m.dept || '—'], ['المدير المباشر', m.manager ? HM(m.manager).name : '—']]), ad ? null : [Button({ label: 'تعديل بياناتي', onClick: () => editInfo(m) })]);
+      ['المسمى الوظيفي', m.title || '—'], ['الدور', m.role || '—'], ['المدير المباشر', m.manager ? HM(m.manager).name + (m.managerFixed ? '' : ' (مدير الدور)') : '—']]), ad ? null : [Button({ label: 'تعديل بياناتي', onClick: () => editInfo(m) })]);
     const pass = K.Section('الرقم السري', [ad ? null : h('div', { class: 'set-row' }, h('div', null, h('b', null, 'كلمة المرور'), h('div', { class: 't-small help' }, '8 حروف على الأقل فيها حرف ورقم')), Button({ type: 'primary', label: 'تغيير كلمة المرور', onClick: () => changePassword() })),
       h('div', { class: 'set-row' }, h('div', null, h('h3', { class: 't-label', style: 'margin:0' }, 'التحقق بخطوتين'), h('b', null, m.twofa ? 'مفعّل — تطبيق Authenticator' : 'مش مفعّل'), h('div', { class: 't-small help' }, ad ? 'العضو بيفعّله أو يوقفه من ملفه' : 'اختياري للكل · تطبيق Authenticator (واتساب وإيميل ' + SOON_2FA + ')')), ad ? null : m.twofa ? Button({ label: 'إيقاف', onClick: () => K.confirm({ title: 'إيقاف التحقق بخطوتين', text: 'حسابك هيبقى محمي بكلمة المرور بس.', okType: 'danger', okLabel: 'إيقاف', onOk: disable2fa }) }) : Button({ type: 'primary', label: 'تفعيل', onClick: () => enable2fa(m) })),
       ad ? null : h('div', { class: 'set-row' }, h('div', null, h('b', null, 'الأجهزة'), h('div', { class: 't-small help' }, 'لو حاسس إن حد تاني داخل بحسابك: غيّر كلمة المرور أو اعمل خروج من كل الأجهزة — الجهاز ده بيفضل داخل.')), Button({ label: 'خروج من كل الأجهزة', onClick: () => window.IBShell.signOutAll() }))]);
@@ -427,7 +427,7 @@
   const ST_AR = { active: 'نشط', suspended: 'موقوف', invited: 'مدعو' };
   const NAME_MSG = { invalid: 'اكتب اسمك (من 2 لـ 80 حرف)', forbidden: 'مش مسموح تغيّر الاسم', network: 'مشكلة في الاتصال — جرّب تاني', server: 'معرفناش نحفظ الاسم — جرّب تاني' };
   function editInfo(m) {
-    const ro = [['المسمى الوظيفي', m.title], ['القسم', m.dept], ['الدور', m.role], ['الحالة', ST_AR[m.status] || 'نشط']].map(([k, v]) => [k, v || '—']);
+    const ro = [['المسمى الوظيفي', m.title], ['الدور', m.role], ['الحالة', ST_AR[m.status] || 'نشط']].map(([k, v]) => [k, v || '—']);
     K.form({ title: 'تعديل بياناتي', values: { name: m.name, phone: m.phone, email: m.email, cur: '', p1: '', p2: '' },
       fields: (f, e, set) => [K.field.text('name', 'الاسم', f, e, set, { required: true }), K.field.text('phone', 'الموبايل', f, e, set, { required: true, inputmode: 'tel' }),
         K.field.text('email', 'الإيميل', f, e, set, { required: true, help: 'تغيير الإيميل محتاج تأكيد من اللينك اللي هيوصلك' }),
@@ -435,7 +435,7 @@
         K.field.text('cur', 'كلمة المرور الحالية', f, e, set, {}), K.two(K.field.text('p1', 'كلمة المرور الجديدة', f, e, set, { help: '8 حروف على الأقل فيها حرف ورقم' }), K.field.text('p2', 'أكّد كلمة المرور', f, e, set, {})),
         h('div', { class: 't-label', style: 'margin-top:4px' }, 'بيانات الأدمن بيحددها'),
         h('dl', { class: 'kv', 'data-info-readonly': '' }, ro.flatMap(([k, v]) => [h('dt', null, k), h('dd', null, String(v))])),
-        h('p', { class: 't-small help', style: 'margin:0' }, 'المسمى الوظيفي والقسم والدور والحالة بيتغيّروا من الأدمن بس (الموارد البشرية أو الإعدادات › الفريق).')],
+        h('p', { class: 't-small help', style: 'margin:0' }, 'المسمى الوظيفي والدور والحالة بيتغيّروا من الأدمن بس (الموارد البشرية أو الإعدادات › الفريق).')],
       validate: (f) => { const e = {}; const nm = String(f.name || '').trim().replace(/\s+/g, ' ');
         if (nm.length < 2 || nm.length > 80) e.name = 'اكتب اسمك (من 2 لـ 80 حرف)';
         if (O.identifierKind(f.phone) !== 'phone') e.phone = 'رقم موبايل مصري صحيح'; if (O.identifierKind(f.email) !== 'email') e.email = 'إيميل صحيح';
@@ -468,12 +468,17 @@
   // IBHR.payUpdate (sensitive.salaries F) — each part only for who may write it; the title and the role stay the settings page's
   function editJob(m) {
     const c = can(); const time = /^\d{1,2}:\d{2}$/;
-    K.form({ title: 'تعديل الوظيفة والمرتب — ' + m.name, values: { salary: String(m.salary || 0), holdback: String(m.holdback || 0), allow: String(m.allow || 0), s0: m.shift[0], s1: m.shift[1], hire: m.hire || '', leave: String(m.leave == null ? 21 : m.leave) },
+    // owner batch 14 Nov decision 16 (0092): «المدير المباشر» — his role's manager (automatic) or one set by hand (the admin / hr.edit F)
+    const HRm = IH(); const auto = HRm && HRm.roleManager ? HRm.roleManager(m.roleId) : null; const autoName = auto ? ((K.store.members.find((x) => x.uid === auto) || {}).name || '') : '';
+    const mgrOpts = [{ value: '', label: 'مدير الدور (تلقائي)' + (autoName ? ' — ' + autoName : ' — مفيش') }].concat(K.store.members.filter((x) => (!x.status || x.status === 'active') && x.id !== m.id).map((x) => ({ value: x.id, label: x.name })));
+    const curMgr = m.managerFixed && m.manager ? m.manager : '';
+    K.form({ title: 'تعديل الوظيفة والمرتب — ' + m.name, values: { mgr: curMgr, salary: String(m.salary || 0), holdback: String(m.holdback || 0), allow: String(m.allow || 0), s0: m.shift[0], s1: m.shift[1], hire: m.hire || '', leave: String(m.leave == null ? 21 : m.leave) },
       fields: (f, e, set) => [c.salaries ? K.two(K.field.text('salary', 'المرتب', f, e, set, { required: true, inputmode: 'decimal', suffix: 'ج.م' }), K.field.text('holdback', 'الحجز للبونص', f, e, set, { inputmode: 'decimal', suffix: 'ج.م' })) : null,
         c.salaries ? K.field.text('allow', 'البدلات الثابتة', f, e, set, { inputmode: 'decimal', suffix: 'ج.م' }) : null,
         c.edit ? K.two(K.field.text('s0', 'بداية الشيفت', f, e, set, { required: true, placeholder: '09:00' }), K.field.text('s1', 'نهاية الشيفت', f, e, set, { required: true, placeholder: '17:00' })) : null,
         c.edit ? K.two(K.field.date('hire', 'تاريخ التعيين', f, e, set), K.field.text('leave', 'أيام الإجازة السنوية', f, e, set, { inputmode: 'numeric' })) : null,
-        U.InlineNote({ children: (c.salaries ? 'المرتب الجديد بيدخل كشف الشهر المفتوح. ' : '') + 'الوظيفة والدور بيتغيروا من صفحة الإعدادات.' })],
+        c.edit ? K.field.select('mgr', 'المدير المباشر', mgrOpts, f, e, set, { help: 'مدير الدور بيتحدد من «الإعدادات › الموارد البشرية › مديري الأدوار»' }) : null,
+        U.InlineNote({ children: (c.salaries ? 'المرتب الجديد بيدخل كشف الشهر المفتوح. ' : '') + 'المسمى والدور بيتغيروا من صفحة الإعدادات.' })],
       validate: (f) => { const e = {};
         if (c.salaries) { if (f.salary === '' || !(Number(f.salary) >= 0)) e.salary = 'اكتب المرتب'; if (f.holdback !== '' && !(Number(f.holdback) >= 0)) e.holdback = 'رقم صحيح'; else if (Number(f.holdback) > Number(f.salary)) e.holdback = 'الحجز لازم أقل من المرتب'; if (f.allow !== '' && !(Number(f.allow) >= 0)) e.allow = 'رقم صحيح'; }
         if (c.edit) { if (!time.test(f.s0 || '')) e.s0 = 'اكتب الوقت كده 09:00'; if (!time.test(f.s1 || '')) e.s1 = 'اكتب الوقت كده 17:00'; if (f.leave !== '' && !(Number.isInteger(Number(f.leave)) && Number(f.leave) >= 0 && Number(f.leave) <= 60)) e.leave = 'من 0 لـ 60 يوم'; }
@@ -482,6 +487,7 @@
         if (md._busy) return false; md._busy = true;
         (async () => {
           if (c.edit) { const r = await IH().memberUpdate(m.id, { shift: [f.s0.padStart(5, '0'), f.s1.padStart(5, '0')], hire: f.hire || null, leave: f.leave === '' ? undefined : Number(f.leave) }); if (!r.ok) return r; }
+          if (c.edit && (f.mgr || '') !== curMgr) { const r = await IH().memberManagerSet(m.id, f.mgr || null); if (!r.ok) return r; }
           if (c.salaries) { const r = await IH().payUpdate(m.id, { salary: Number(f.salary), holdback: Number(f.holdback) || 0, allow: Number(f.allow) || 0 }); if (!r.ok) return r; }
           return { ok: true };
         })().then((r) => { md._busy = false; if (r.ok) { md.close(); K.toast('اتحفظ', 'success'); } else K.toast(r.message || 'حصلت مشكلة — جرّب تاني', 'error'); });

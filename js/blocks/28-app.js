@@ -159,18 +159,18 @@
             if (Object.keys(res.errors).length) continue; ids.push(adapter.add('expenses', res.value).id); }
           return { done: { created: ids, updated: [] }, undo: () => ids.forEach((id) => adapter.remove('expenses', id)) }; } },
       { id: 'team', label: 'الفريق والحضور والمرتبات', key: 'email', modes: ['add', 'update'], filter: { key: 'role', label: 'الدور', options: () => (sapi().roles ? sapi().roles() : []) },
-        fields: () => [{ key: 'name', label: 'الاسم', en: 'Name', required: true }, { key: 'email', label: 'الإيميل', en: 'Email', type: 'email', required: true }, { key: 'role', label: 'الدور', en: 'Role', type: 'enum', options: sapi().roles ? sapi().roles() : [], required: true }, { key: 'title', label: 'المسمى', en: 'Title' }, { key: 'dept', label: 'القسم', en: 'Department' },
+        fields: () => [{ key: 'name', label: 'الاسم', en: 'Name', required: true }, { key: 'email', label: 'الإيميل', en: 'Email', type: 'email', required: true }, { key: 'role', label: 'الدور', en: 'Role', type: 'enum', options: sapi().roles ? sapi().roles() : [], required: true }, { key: 'title', label: 'المسمى', en: 'Title' },
           { key: 'phone', label: 'الموبايل', en: 'Phone', type: 'phone', sensitive: true }, { key: 'hire', label: 'تاريخ التعيين', en: 'Hire date', type: 'date' }, { key: 'salary', label: 'المرتب', en: 'Salary', type: 'number', sensitive: true },
           { key: 'holdback', label: 'المحجوز للبونص (شهري)', en: 'Bonus holdback', type: 'number', sensitive: true }, { key: 'allow', label: 'البدلات', en: 'Allowances', type: 'number', sensitive: true }, { key: 'shiftStart', label: 'بداية الشيفت', en: 'Shift start', type: 'time' }, { key: 'shiftEnd', label: 'نهاية الشيفت', en: 'Shift end', type: 'time' },
           { key: 'leave', label: 'رصيد الإجازات السنوي (يوم)', en: 'Annual leave days', type: 'number' }, { key: 'used', label: 'الإجازات المستخدمة (يوم)', en: 'Leave used', type: 'number' }],
-        presets: { accountant: ['name', 'dept', 'salary'] },
-        rows: () => K().store.members.map((m) => ({ name: m.name, email: m.email, role: m.role, title: m.title, dept: m.dept, phone: m.phone, hire: m.hire, salary: m.salary, holdback: m.holdback, allow: m.allow, shiftStart: (m.shift || [])[0] || '', shiftEnd: (m.shift || [])[1] || '', leave: m.leave, used: m.used })),
+        presets: { accountant: ['name', 'role', 'salary'] },
+        rows: () => K().store.members.map((m) => ({ name: m.name, email: m.email, role: m.role, title: m.title, phone: m.phone, hire: m.hire, salary: m.salary, holdback: m.holdback, allow: m.allow, shiftStart: (m.shift || [])[0] || '', shiftEnd: (m.shift || [])[1] || '', leave: m.leave, used: m.used })),
         existing: () => K().store.members.map((m) => m.email),
         apply: (rows, onMatch) => { const M = K().store.members; const done = { created: [], updated: [] };
           for (const r of rows) { const d = r.data; const ex = M.find((m) => String(m.email).toLowerCase() === String(d.email).toLowerCase());
             if (ex && onMatch === 'تخطّي') continue;
             if (ex && onMatch !== 'إنشاء نسخة') { const old = {}; Object.keys(d).forEach((k) => { if (d[k] !== '' && k !== 'email' && k !== 'shiftStart' && k !== 'shiftEnd') { old[k] = ex[k]; ex[k] = d[k]; } }); if (d.shiftStart || d.shiftEnd) { old.shift = ex.shift; ex.shift = [d.shiftStart || (ex.shift || [])[0] || '09:00', d.shiftEnd || (ex.shift || [])[1] || '17:00']; } done.updated.push({ id: ex.id, old }); }
-            else { const id = 'M' + String(M.length + 1).padStart(2, '0') + 'i'; M.push({ id, name: d.name, email: d.email, role: d.role, title: d.title || '', dept: d.dept || '', phone: d.phone || '', hire: d.hire || K().TODAY, salary: d.salary || 0, holdback: d.holdback || 0, allow: d.allow || 0, shift: [d.shiftStart || '09:00', d.shiftEnd || '17:00'], leave: d.leave === undefined || d.leave === '' ? 21 : d.leave, used: d.used || 0, manager: 'M01', status: 'invited', lastLogin: 'دعوة (استيراد)', twofa: false, contract: 'missing', monthMin: 0, otMonth: 0 }); done.created.push(id); } }
+            else { const id = 'M' + String(M.length + 1).padStart(2, '0') + 'i'; M.push({ id, name: d.name, email: d.email, role: d.role, title: d.title || '', phone: d.phone || '', hire: d.hire || K().TODAY, salary: d.salary || 0, holdback: d.holdback || 0, allow: d.allow || 0, shift: [d.shiftStart || '09:00', d.shiftEnd || '17:00'], leave: d.leave === undefined || d.leave === '' ? 21 : d.leave, used: d.used || 0, manager: 'M01', status: 'invited', lastLogin: 'دعوة (استيراد)', twofa: false, contract: 'missing', monthMin: 0, otMonth: 0 }); done.created.push(id); } }
           return { done, undo: () => { done.created.forEach((id) => { const i = M.findIndex((m) => m.id === id); if (i >= 0) M.splice(i, 1); }); done.updated.forEach((u) => { const m = M.find((x) => x.id === u.id); if (m) Object.assign(m, u.old); }); } }; } },
       // ---- owner 22 Oct: every data set can be imported and exported ----
       { id: 'stock', label: 'المخزن', key: 'sku', modes: ['add', 'update'], dateKey: 'since', filter: { key: 'status', label: 'الحالة', options: () => [...new Set(K().stockNow().map((s) => s.status))] },
@@ -408,7 +408,7 @@
   // search in a popup over the current page — what the search row already shows plus the role, department and manager; «افتح الملف» goes to the full profile.
   function memberPeek(m) {
     const MB = (window.IBKit && window.IBKit.store.members) || []; const mgr = m.manager ? MB.find((x) => x.id === m.manager || x.uid === m.manager) : null;
-    const rows = [['الكود', m.id], ['الدور', m.role], ['الوظيفة', m.title], ['القسم', m.dept], ['الموبايل', m.phone], ['الإيميل', m.email], ['المدير المباشر', mgr && mgr.name]].filter(([, v]) => v);
+    const rows = [['الكود', m.id], ['الدور', m.role], ['الوظيفة', m.title], ['الموبايل', m.phone], ['الإيميل', m.email], ['المدير المباشر', mgr && mgr.name]].filter(([, v]) => v);
     const md = U.Modal({ title: m.name, body: [h('dl', { class: 'kv', 'data-member-peek': m.id }, rows.flatMap(([k, v]) => [h('dt', null, k), h('dd', null, String(v))]))],
       footer: [Button({ label: 'إغلاق', onClick: () => md.close() }), Button({ type: 'primary', icon: 'users', label: 'افتح الملف', attrs: { 'data-member-open': '' }, onClick: () => { md.close(); location.hash = 'member-' + m.id; } })] });
   }
@@ -939,7 +939,7 @@
     const hrApi = () => { const a = P().hr && P().hr.api; if (!a || !window.IBHR) throw new Error('الموارد البشرية مش جاهزة'); return a; };
     switch (form) {
       case 'vendor_add': if (!admin() && can('vendors.edit') !== 'F') no(); if (state.page !== 'vendors') go('vendors'); setTimeout(() => openAddVendor(null, v), 60); return 'form vendor_add';
-      case 'member_add': if (!admin()) no(); hrApi().addMember(Object.fromEntries(['name', 'title', 'email', 'phone', 'dept', 'hire'].filter((k) => v[k] != null && String(v[k]).trim()).map((k) => [k, String(v[k]).trim().slice(0, 200)]))); return 'form member_add';
+      case 'member_add': if (!admin()) no(); hrApi().addMember(Object.fromEntries(['name', 'title', 'email', 'phone', 'hire'].filter((k) => v[k] != null && String(v[k]).trim()).map((k) => [k, String(v[k]).trim().slice(0, 200)]))); return 'form member_add';
       case 'customer_add': { const a = P().cs && P().cs.api; if (!a || !a.addCustomer || !a.addCustomer(v)) no(); return 'form customer_add'; }
       case 'ticket_new': { if (!tCanManage()) no(); const pre = {}; for (const k of ['title', 'description', 'reason']) if (v[k]) pre[k] = String(v[k]).slice(0, 1000); if (['customer', 'vendor', 'internal'].includes(v.type)) pre.type = v.type;
         if (['low', 'normal', 'high', 'urgent'].includes(v.priority)) pre.priority = v.priority; if (v.orderId) pre.orderId = String(v.orderId).replace(/\D/g, '').slice(0, 12); if (v.vendor) { const n = aiVendorName(v.vendor); if (n) pre.vendor = n; }

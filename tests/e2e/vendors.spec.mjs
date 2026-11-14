@@ -611,7 +611,7 @@ test('«في إجازة» (phase 3.1): a status like the others — from «ال�
 
 test('sign-out leaves no maker on the page', async ({ page }) => {
   await openVendors(page);
-  await page.evaluate(() => window.IBAuth.signOut());
+  await Promise.all([page.waitForEvent('load'), page.evaluate(() => { window.IBAuth.signOut(); })]); // the SIGNED_OUT reloads the page first
   await expect(page.locator('#login')).toBeVisible();
   expect(await page.evaluate(() => [window.IBVendors.state(), window.IBVendors.store.all().length, window.IBVendors.data()])).toEqual(['idle', 0, null]);
 });

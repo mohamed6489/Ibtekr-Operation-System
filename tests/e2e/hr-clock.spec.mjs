@@ -225,7 +225,7 @@ test('decision 32: a rest day worked — the direct manager cannot approve it, t
   expect(r.ok).toBe(false);
   expect(mock.hr.overtime[0].status).toBe('مستني');
   // the admin approves it
-  await page.evaluate(() => window.IBAuth.signOut('local')); await page.goto('/');
+  await Promise.all([page.waitForEvent('load'), page.evaluate(() => { window.IBAuth.signOut('local'); })]); await page.goto('/'); // after the SIGNED_OUT's reload
   await page.fill('#lg-id', 'admin.dev@ibtekr.local'); await page.fill('#lg-pw', DEV_PW);
   await page.getByRole('button', { name: 'دخول', exact: true }).click();
   await expect(page.locator('#root')).toBeVisible();

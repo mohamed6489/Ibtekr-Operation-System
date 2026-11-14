@@ -308,7 +308,8 @@ const claims = (token) => { try { return JSON.parse(Buffer.from(token.split('.')
 
 export async function installSupabaseMock(page, opts = {}) {
   const issued = new Set(); const refresh = new Map(); let n = 0;
-  // logoutScopes: the ?scope= of each /logout; afterLogout: requests that reached the origin after the first logout;
+  // logoutScopes: the ?scope= of each /logout; afterLogout: each request that reached the origin after the first logout, as
+  // 'METHOD /path' (so a failing check names it);
   // activityDelayMs: hold every log_activity call that long (a stalled network); recovers: emails sent a reset link;
   // lookups: the ident of each email_for_identifier call. activity: each log_activity body; activityRows: the activity_log
   // table it fills ({ id, at, actor, action, new_value }; a spec may seed older rows); prefs: the user_prefs table
@@ -338,7 +339,7 @@ export async function installSupabaseMock(page, opts = {}) {
     // decision 12: shot_prompts (0030) — the owner's template categories; flows: the flows made on the one Space; flowResults[batchId] = { 1: [ids], 2: [...], 3: [...] } the site's output lists
     shotPrompts: [['كرسي', 1, 'كرسي 1 — تركيز على المنتج', 'CHAIR FOCUS PROMPT'], ['كرسي', 2, 'كرسي 2 — المنتج في بيئة محيطة', 'CHAIR ENV PROMPT'], ['كرسي', 3, 'كرسي 3 — Closeup للتفاصيل', 'CHAIR DETAIL PROMPT'], ['مرآة', 1, 'مرآة 1 — تركيز على المنتج', 'MIRROR FOCUS PROMPT']].map(([category, shot, name, prompt], i) => ({ id: i + 1, category, shot, name, prompt, negative: null, model: 'imagen-nano-banana-2', aspect: '3:4', resolution: '1k', updated_at: new Date().toISOString() })), imgObjects: new Map(), imgSeq: 0, settings: [], studioBatches: [], studioSeq: 0, studioWrites: [], studioObjects: new Map(), studioUploads: [], serialTakes: [], skuSerial: 999, categoriesCreated: [], sheetLinks: {}, sheetReads: [],
     skuColors: [['Beige', 'بيج', 'BE', '#d9c3a0'], ['Black', 'أسود', 'BK', '#1d1d1b'], ['White', 'أبيض', 'WH', '#ffffff'], ['Multicolor', 'ملون', 'MC', null]].map(([name_en, name_ar, code, hex], i) => ({ id: i + 1, name_en, name_ar, code, hex })),
-    profiles, profileWrites: [], factors, enrolls: [], unenrolls: [], twofaCalls: [], twofaRefused: false, rateLimited: false, logouts: 0, logoutScopes: [], afterLogout: 0, activityDelayMs: 0, activity: [], activityRows: [], prefs: [], prefsDown: false, alerts: ALERTS(), alertReads: [], userUpdates: [], recovers: [], lookups: [], requests: [], unhandled: [],
+    profiles, profileWrites: [], factors, enrolls: [], unenrolls: [], twofaCalls: [], twofaRefused: false, rateLimited: false, logouts: 0, logoutScopes: [], afterLogout: [], activityDelayMs: 0, activity: [], activityRows: [], prefs: [], prefsDown: false, alerts: ALERTS(), alertReads: [], userUpdates: [], recovers: [], lookups: [], requests: [], unhandled: [],
     ...ordersSeed(opts), patches: [], ordersDown: false, pushes: [], syncs: [], wooDown: false, wooRefuses: false, functionsDown: false, vendorWrites: [], vendorsDown: false, uploads: [], signs: [], signed: new Map(), rpcs: [], vaultDown: false, brandWrites: [], vendorPushes: [], pushEnabled: true, ratings: [], deletes: [], trashes: [], csMedia: new Map(), orderCreates: [], vendorPhotos: new Map(), photoCalls: [], productLeads: (opts && opts.productLeads) || [], leadWrites: [] }; // phase 13 decision 51: vendor-photos objects and the vendor_photo calls; phase 13 T3: cs-media objects, the orders made from the chat
   // phase 3.3: vendorCategoryRates / wooCategories: the 0014 tables (ordersSeed()); vendorPushes: each woo-sync push_vendor as { vendor_id, fields, by, result, reason? }
   // (the body names the fields only — the mock reads the row like the server); pushEnabled: WOO_PUSH_ENABLED on the server (false → skipped/push_disabled,
@@ -462,7 +463,7 @@ export async function installSupabaseMock(page, opts = {}) {
     const empty = (status) => route.fulfill({ status, headers: cors });
     const body = () => { try { return req.postDataJSON() || {}; } catch { return {}; } };
     if (method === 'OPTIONS') return empty(204);
-    if (mock.logouts > 0) mock.afterLogout += 1;
+    if (mock.logouts > 0) mock.afterLogout.push(method + ' ' + path);
     mock.requests.push(method + ' ' + path);
     // a stored object's content type by its name (every body is the 1×1 PNG — browsers decode by the bytes, not the header)
     const ctOf = (key) => (/\.webp$/i.test(key) ? 'image/webp' : /\.jpe?g$/i.test(key) ? 'image/jpeg' : 'image/png');

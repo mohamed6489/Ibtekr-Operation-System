@@ -471,7 +471,7 @@ test.describe('sign-out leaves no member data in memory and keeps the expired me
     await expect(tabB.locator('#lg-title')).toHaveText('تسجيل الدخول');
     await expect(tabB.locator('#root')).toBeHidden();
     expect(mock.logoutScopes).toEqual(['local']); // only tab A called the server
-    expect(mock.afterLogout).toBe(0); // neither tab asked Supabase anything after the sign-out
+    expect(mock.afterLogout).toEqual([]); // neither tab asked Supabase anything after the sign-out (a click on a quiet page: nothing in flight)
     expect(errorsB).toEqual([]);
   });
 
@@ -502,7 +502,7 @@ test.describe('sign-out leaves no member data in memory and keeps the expired me
     expect(await tabB.evaluate(() => [...Object.keys(sessionStorage), ...Object.keys(localStorage)].filter((k) => k.startsWith('sb-')))).toEqual([]);
     await tabB.clock.runFor('00:30');
     await expect(tabB.locator('#root')).toBeHidden(); // still signed out: the gate found no session after the reload
-    expect(mock.afterLogout).toBe(0);
+    expect(mock.afterLogout).toEqual([]);
     expect(mock.logoutScopes).toEqual(['local']);
     expect(errorsB).toEqual([]);
   });
@@ -522,7 +522,7 @@ test.describe('sign-out leaves no member data in memory and keeps the expired me
     await expect(page.locator('#lg-title')).toHaveText('تسجيل الدخول');
     await expect(page.locator('#root')).toBeHidden();
     await page.clock.runFor('00:30');
-    expect(mock.afterLogout).toBe(0);
+    expect(mock.afterLogout).toEqual([]);
   });
 
   test('after 8 h idle: «الجلسة خلصت» is still up once the page reloaded', async ({ page }) => {
@@ -530,6 +530,9 @@ test.describe('sign-out leaves no member data in memory and keeps the expired me
     await page.clock.install();
     await signIn(page, ADMIN.id, ADMIN.pw);
     await markPage(page);
+    // the count once the reloaded page is up: fastForward's burst can start a read on the signed-in page that lands after the
+    // logout until that page is gone (see auth.spec.mjs «8h idle signs out…»)
+    const inFlight = page.waitForEvent('load').then(() => mock.afterLogout.length);
     await page.clock.fastForward('08:00:30');
     await expect(page.locator('#lg-title')).toHaveText('الجلسة خلصت');
     await expect.poll(() => reloaded(page), { timeout: 10000 }).toBe(true);
@@ -539,7 +542,7 @@ test.describe('sign-out leaves no member data in memory and keeps the expired me
     await page.clock.runFor('00:30'); // the idle check runs twice more: the view stays, nothing reaches Supabase
     await expect(page.locator('#lg-title')).toHaveText('الجلسة خلصت');
     expect(mock.logoutScopes).toEqual(['local']);
-    expect(mock.afterLogout).toBe(0);
+    expect(mock.afterLogout.slice(await inFlight)).toEqual([]);
   });
 });
 

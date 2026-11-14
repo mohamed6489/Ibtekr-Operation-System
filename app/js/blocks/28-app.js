@@ -3812,7 +3812,12 @@
     function draw() {
       const v = vstore.get(id); if (!v) { if (vdrawer) vdrawer.close(); return; } const st = vendorStats()[v.id]; const canEdit = vstore.canEdit(), canBank = vstore.canBank(), canRate = vstore.canRate(), canLogin = !!(vstore.canLogin && vstore.canLogin()); const cstat = VD.contractStatus(v, VTODAY());
       // decision 9 c: what the maker still lacks (login / e-mail / bank), from the store
-      const missingTag = () => { const miss = vstore.missing ? vstore.missing(id) : []; return miss.length ? h('span', { class: 'tg tg-orange', 'data-missing': '' }, 'ناقص: ' + miss.join(' / ')) : null; };
+      // owner batch 2 decision 21: each missing item on its own, and a click opens where it is filled (the login, the contact, the bank)
+      const missingTag = () => { const miss = vstore.missing ? vstore.missing(id) : []; if (!miss.length) return null;
+        const go = { 'بيانات الدخول': canLogin ? () => loginForm(v) : null, 'الإيميل': canEdit ? () => editGroup(v, 'contact') : null, 'الحساب البنكي': canBank ? () => bankForm(v) : null };
+        return h('span', { class: 'miss-row', 'data-missing': '' }, h('span', { class: 't-small' }, 'ناقص: '), miss.map((x) => go[x]
+          ? h('button', { type: 'button', class: 'tg tg-orange miss-btn', 'data-missing-item': x, title: 'اضغط عشان تكمّل ' + x, onClick: go[x] }, x)
+          : h('span', { class: 'tg tg-orange', 'data-missing-item': x }, x))); };
       const header = h('div', { class: 'drawer-h' },
         h('div', { class: 'row1' }, h('div', { class: 'vdrawer-id' }, vendorLogo(v), h('div', { class: 'names' }, h('div', { class: 'name-row' }, h('h2', { class: 't-h4' }, v.name), U.VendorStatus(v.status), siteOffTag(v)), h('span', { class: 't-small' }, num((v.category || 'بدون فئة') + ' · نسبة إبتكر ' + (canRate && v.rate != null ? v.rate + '%' : '—') + ' · مبتكر من ' + D.formatDateLong(v.joinedAt) + (v.wooVendorId ? ' · متجر #' + v.wooVendorId : ' · بدون متجر على الموقع'))), missingTag())),
           h('div', { class: 'actions' }, !v.wooVendorId && vstore.canStore && vstore.canStore() ? Button({ type: 'brand', size: 'sm', icon: 'plus', label: 'اعمل متجر على الموقع', attrs: { 'data-make-store': '' }, onClick: () => storePopup(v) }) : null, moreMenu(v), IconButton({ icon: 'close', label: 'إغلاق', onClick: () => vdrawer.close() }))),

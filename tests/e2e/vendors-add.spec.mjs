@@ -469,7 +469,7 @@ test('«متابعة الموردين» (vendors.edit = F): reveals the temporar
 test('«ناقص» in the drawer header (the admin sees the three pieces); the login added from the drawer comes with its temporary password (the insert, then the RPC) and shrinks it; a weak password is refused on the page; a server without Vault keeps the row and names the password as missing', async ({ page }) => {
   await openVendors(page);
   await openDrawer(page, V1);
-  await expect(drawer(page).locator('[data-missing]')).toHaveText('ناقص: بيانات الدخول / الإيميل / الحساب البنكي');
+  await expect(drawer(page).locator('[data-missing-item]')).toHaveText(['بيانات الدخول', 'الإيميل', 'الحساب البنكي']); // owner batch 2 decision 21: each on its own
   await expect(loginSec(page).locator('[data-login-status]')).toHaveText('مفيش حساب دخول');
   await expect(info(loginSec(page), page, 'الباسورد')).toHaveText('—');
   await expect(loginSec(page).locator('[data-copy-login]')).toHaveCount(0);

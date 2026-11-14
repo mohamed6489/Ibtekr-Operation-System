@@ -2119,3 +2119,5 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 2. RLS live (`files = rls_ai_templates`).
 3. «Deploy functions»: `ai-images` (الكامبين بنص القوالب اللي اتختارت من الإعدادات — `templateNotes`؛ ولقطات الاستوديو التلاتة بقاعدة الأدمن للقطة — `imageStyle(..., shot)`) و`ai-content` (كتابة الكامبين والمشاهد بنص القوالب).
 4. الواجهة على `main` — «قواعد اللقطات» الستة (أي صف قديم بأربع خانات بيرجع للافتراضي لما يتفتح ويتحفظ)، «+ تعليمات جديدة»، و«قوالب التعليمات» في ميديا الكامبين (الـ ids بس في `state.w.media.<نوع>.tpl`).
+
+**T9 — المبتكرين والتحويل وكشف الحساب (قرارات 19 و21 و23–26)** — الواجهة بس (مافيش migration ولا دالة): الواجهة على `main`. «سياسة العربون» = قواعد (`settings.makers.depositRules` — الاسم · لو الأوردر فوق · النسبة، والأعلى في المبلغ بيكسب)، «دورية التحويل» = أيام الشهر (`settings.payments.payout.days`، افتراضي 1 و16)، «تحويل من الحساب البنكي» في طريقة التحويل، `deductTransport` جنب `deductDeposit`، وخانات كشف الحساب (`invLang` / `tax` / `prefix` / `commission` / `orders` / `moves` / `brandBlock` / `footer`) و«معاينة»؛ ودرج المبتكر «ناقص» زرار لكل بند.

@@ -365,3 +365,49 @@ test('T8 — decisions 13–15: the six shot rules of the studio; «+ تعليم
   await expect.poll(() => { const c = mock.mkt.campaigns.find((x) => x.name === 'كولكشن الشتا — مخدات مشغولة'); const m = c && c.state && c.state.w ? c.state.w.media.post : null; return m ? [m.tpl, m.notes] : null; })
     .toEqual([[id], 'من غير ناس']);
 });
+
+test('T9 — decisions 19, 21, 23–26: deposit rules, each missing item opens its form, payout days 1 and 16, the bank transfer, the transport switch, the statement preview', async ({ page }) => {
+  const row = (s) => (mock.settings.find((x) => x.section === s) || {}).data || {};
+  // 19: «سياسة العربون» = rules with «+ إضافة قاعدة»
+  await go(page, '#settings-makers');
+  const st = page.locator('#pg-settings');
+  await expect(st.locator('[data-dep-rule="الأوردرات الكبيرة"]')).toBeVisible();
+  await expect(st).not.toContainText('سياسة العربون الافتراضية');
+  await st.locator('[data-dep-add]').click();
+  let f = modal(page).filter({ hasText: 'قاعدة عربون جديدة' });
+  await f.locator('input').nth(0).fill('الأوردرات الصغيرة'); await f.locator('input').nth(1).fill('3000'); await f.locator('input').nth(2).fill('20');
+  await f.getByRole('button', { name: 'ضيف القاعدة' }).click();
+  await expect(f).toContainText('فيه قاعدة بنفس المبلغ');
+  await f.locator('input').nth(1).fill('1000');
+  await f.getByRole('button', { name: 'ضيف القاعدة' }).click();
+  await expect.poll(() => (row('makers').depositRules || []).map((r) => [r.name, r.over, r.pct])).toEqual([['الأوردرات الصغيرة', 1000, 20], ['الأوردرات الكبيرة', 3000, 50]]);
+  expect(await page.evaluate(() => window.IBDepositRule(2000).pct)).toBe(20); // the highest «over» an order passes
+  expect(await page.evaluate(() => window.IBDepositRule(5000).pct)).toBe(50);
+  expect(await page.evaluate(() => window.IBDepositRule(800))).toBeNull();
+  // 23–26: the payout and the statement
+  await go(page, '#settings-payments');
+  await expect(st.locator('[data-pay-days]')).toHaveAttribute('data-pay-days', '1,16');
+  await st.locator('[data-pay-day="16"]').click(); await st.locator('[data-pay-day="10"]').click();
+  await expect.poll(() => row('payments').payout && row('payments').payout.days).toEqual([1, 10]);
+  await st.locator('#p-me').click();
+  await expect(page.getByRole('option', { name: 'تحويل من الحساب البنكي' })).toBeVisible();
+  await page.getByRole('option', { name: 'تحويل من الحساب البنكي' }).click();
+  await expect.poll(() => row('payments').payout && row('payments').payout.method).toBe('تحويل من الحساب البنكي');
+  const sw = st.getByRole('switch', { name: 'خصم المواصلات تلقائيًا من المستحقات' });
+  await expect(sw).toHaveAttribute('aria-checked', 'true');
+  await sw.click();
+  await expect.poll(() => row('payments').payout && row('payments').payout.deductTransport).toBe(false);
+  await st.locator('[data-stmt-preview]').click();
+  const pv = modal(page).filter({ hasText: 'معاينة كشف الحساب' });
+  await expect(pv.locator('[data-stmt]')).toContainText('كشف حساب المبتكر');
+  await expect(pv.locator('[data-stmt-no]')).toHaveText('IBT-2026-0148');
+  await expect(pv.locator('[data-stmt-brand]')).toBeVisible();
+  await expect(pv.locator('[data-stmt-moves]')).toBeVisible();
+  await page.keyboard.press('Escape');
+  // 21: the maker drawer lists each missing item, a click opens where it is filled
+  await page.evaluate(() => { location.hash = 'makers/a0000000-0000-4000-8000-000000000001'; });
+  const dr = page.locator('.drawer[aria-label^="ملف المبتكر"]');
+  await expect(dr.locator('[data-missing]')).toBeVisible();
+  await dr.locator('[data-missing-item="بيانات الدخول"]').click();
+  await expect(modal(page).filter({ hasText: 'بيانات الدخول —' })).toBeVisible();
+});

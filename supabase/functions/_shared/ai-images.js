@@ -84,6 +84,8 @@ export function parseGenerate(b) {
   if (Number.isInteger(b.slot) && b.slot >= 0 && b.slot < SLOTS.length) slot = b.slot;
   else if (typeof b.slot === 'string' && /^color:[A-Z]{2}$/.test(b.slot)) slot = { color: b.slot.slice(6) };
   else return bad('slot');
+  // the three flows (docs/superpowers/plans/2026-11-14-studio-flows.md): a shot of one color of a Variable — slot + color
+  if (typeof slot === 'number' && b.color != null) { if (typeof b.color !== 'string' || !/^[A-Z0-9]{1,4}$/.test(b.color)) return bad('color'); slot = { color: b.color, shot: slot }; }
   const model = modelArg(b.model); if (!model) return bad('model');
   const size = sizeOf(b.size == null ? PRODUCT_SIZE : b.size, b.width, b.height); if (!size) return bad('size');
   return { req: { batchId: b.batch_id.toLowerCase(), index: b.index, slot, model, size } };
@@ -164,6 +166,35 @@ export function slotPrompt(item, slot, ctx = {}) {
     : 'Another angle of the exact same product from the reference photo on a clean warm cream studio background, soft light.';
   return [BASE, subject + '.', scene, FRAME_NOTE].join(' ');
 }
+/**
+ * The three flows' five shots (the owner, 14 Nov: «الصورة الاولي بتركز علي المنتج في النص — التانية و التالتة علي المنتج مع
+ * البيئة المحيطة — الرابعة تفاصيل المنتج في شكل صورة مقسمة اربع اجزاء — صورة المقاس بالذكاء الاصطناعي كاملة»): 0 centered,
+ * 1 / 2 two different scenes around it, 3 a 2×2 grid of details, 4 the size drawing (magnific-bridge sizePrompt — the template's
+ * «H 25 × W 31 × D 31 cm» read as width × height × depth). ctx: { brand, colorName }. null for a size shot with no numeric size.
+ */
+export const FLOW_SHOTS = ['product', 'scene', 'scene2', 'details', 'size'];
+/** «H 25 × W 31 × D 31 cm» / «ارتفاع 25 × عرض 31 × قطر 31 سم» → «31×25×31» (w × h × d); a size with no labels as it is. */
+export function dimsOf(size) {
+  const s = String(size == null ? '' : size).replace(/[٠-٩]/g, (c) => String(c.charCodeAt(0) - 1632));
+  const grab = (re) => { const m = re.exec(s); return m ? Number(m[1]) : null; };
+  const h = grab(/(?:\bH|ارتفاع|طول)\s*[:=]?\s*(\d+(?:\.\d+)?)/i); const w = grab(/(?:\bW|عرض)\s*[:=]?\s*(\d+(?:\.\d+)?)/i);
+  const d = grab(/(?:\bD|Ø|عمق|قطر)\s*[:=]?\s*(\d+(?:\.\d+)?)/i);
+  if (h == null && w == null && d == null) return line(s, 40);
+  const ww = w ?? d; const hh = h ?? w ?? d; const dd = w != null ? d : null;
+  return [ww, hh, dd].filter((x) => x != null).join('×');
+}
+export function flowShotPrompt(item, shot, ctx = {}) {
+  const it = isObj(item) ? item : {};
+  const subject = subjectOf(it, ctx);
+  const k = FLOW_SHOTS[shot];
+  if (k === 'size') { const p = sizePrompt((Array.isArray(it.sizes) ? it.sizes : []).map(dimsOf)); return p; }
+  const scene = k === 'product' ? 'Keep the exact same product from the reference photo, centered, alone, on a clean warm cream studio background, soft natural window light, gentle shadow, the product filling most of the frame.'
+    : k === 'scene' ? 'Show the exact same product from the reference photo in its natural place in a warm, modern Egyptian home interior that fits it, styled lifestyle scene, afternoon daylight, nothing covering the product.'
+    : k === 'scene2' ? 'Show the exact same product from the reference photo in a second, different setting from the first scene: another room or corner and another camera angle that fits how it is used, warm natural light, a few fitting props that never touch or hide it.'
+    : k === 'details' ? 'One image split into a clean 2×2 grid of four close-up detail shots of the exact same product from the reference photo, each panel on a different part: the material and its texture, a joint or edge showing the craft, a functional detail, and the finish; thin even gaps between the panels, the same warm light in all four.'
+    : null;
+  return scene ? [BASE, subject + '.', scene, FRAME_NOTE].join(' ') : null;
+}
 /** The images tool's prompt from its shape: a scene around the product (from its photo or its name) or the user's own words. */
 export function shapePrompt(shape, subject, extra, opts = {}) {
   const s = line(subject, 160) || 'the handmade product';
@@ -211,7 +242,7 @@ export function renameInState(state, from, to) {
 }
 export const studioPathOk = (batchId, path) => typeof path === 'string' && new RegExp('^' + batchId + '/[A-Za-z0-9._-]{1,120}\\.(webp|png|jpe?g)$', 'i').test(path);
 /** Where a generated slot image goes in bucket studio: <batch>/gen-<item>-<slot>-<stamp>.<ext>. */
-export const studioGenPath = (batchId, index, slot, stamp, ext) => `${batchId}/gen-${index}-${isObj(slot) ? 'c' + slot.color : slot}-${stamp}.${ext}`;
+export const studioGenPath = (batchId, index, slot, stamp, ext) => `${batchId}/gen-${index}-${isObj(slot) ? 'c' + slot.color + (Number.isInteger(slot.shot) ? '-' + slot.shot : '') : slot}-${stamp}.${ext}`;
 /** Where an edit of a studio image goes: <batch>/edit-<item>-<stamp>.<ext>. */
 export const studioEditPath = (batchId, index, stamp, ext) => `${batchId}/edit-${index}-${stamp}.${ext}`;
 /** Where the images tool's results go in bucket ai-images: <uid>/<stamp>-<n>.<ext>. */

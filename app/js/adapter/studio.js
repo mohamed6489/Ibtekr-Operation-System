@@ -7,7 +7,9 @@
 (function () {
   'use strict';
   const BUCKET = 'studio';
-  const COLS = 'id, title, brand_id, vendor_id, type, step, status, result, updated_at, archived_at';
+  // flow: the studio's three flows (docs/superpowers/plans/2026-11-14-studio-flows.md) keep state.flow = 2 — the saved-work list
+  // opens those batches in the new page (a JSON path, read only)
+  const COLS = 'id, title, brand_id, vendor_id, type, step, status, result, updated_at, archived_at, flow:state->flow';
   const c = () => (window.IBSupabase && window.IBSupabase.client) || null;
   const quiet = (fn) => { try { return fn(); } catch (e) { return undefined; } };
   const emit = (detail) => quiet(() => document.dispatchEvent(new CustomEvent('ib:studio', { detail: detail || {} })));
@@ -112,16 +114,39 @@
     });
   }
   const safe = (s) => String(s || 'img').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'img';
-  // file → { ok, path } at studio/<batch>/<name>.jpg
-  async function uploadImage(batchId, file, name) {
+  // the three flows: the site's files are «…-NN.webp» (the owner's links) — a real WebP when the browser writes one, else JPEG
+  function toRealWebp(file, max) {
+    return new Promise((resolve) => {
+      const url = quiet(() => URL.createObjectURL(file)); if (!url) return resolve(null);
+      const im = new Image();
+      im.onload = () => {
+        try {
+          const m = max || 2000; const k = Math.min(1, m / Math.max(im.naturalWidth, im.naturalHeight));
+          const cv = document.createElement('canvas'); cv.width = Math.max(1, Math.round(im.naturalWidth * k)); cv.height = Math.max(1, Math.round(im.naturalHeight * k));
+          const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height); ctx.drawImage(im, 0, 0, cv.width, cv.height);
+          cv.toBlob((b) => { URL.revokeObjectURL(url); if (b && b.type === 'image/webp') return resolve(b); cv.toBlob((j) => resolve(j), 'image/jpeg', 0.9); }, 'image/webp', 0.88);
+        } catch (e) { URL.revokeObjectURL(url); resolve(null); }
+      };
+      im.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+      im.src = url;
+    });
+  }
+  // file → { ok, path } at studio/<batch>/<name>.jpg (opts.webp: .webp when the browser writes WebP — the three flows)
+  async function uploadImage(batchId, file, name, opts) {
     const cl = c(); if (!cl) return { ok: false, reason: 'network' };
-    const blob = await toWebp(file); if (!blob) return { ok: false, reason: 'not_image' };
-    const path = batchId + '/' + safe(name) + '-' + Date.now().toString(36) + '.jpg';
+    const blob = opts && opts.webp ? await toRealWebp(file) : await toWebp(file); if (!blob) return { ok: false, reason: 'not_image' };
+    const webp = blob.type === 'image/webp';
+    const path = batchId + '/' + safe(name) + '-' + Date.now().toString(36) + (webp ? '.webp' : '.jpg');
     try {
-      const { error } = await cl.storage.from(BUCKET).upload(path, blob, { contentType: 'image/jpeg', upsert: false });
+      const { error } = await cl.storage.from(BUCKET).upload(path, blob, { contentType: webp ? 'image/webp' : 'image/jpeg', upsert: false });
       if (error) return { ok: false, reason: 'network' };
       return { ok: true, path };
     } catch (e) { return { ok: false, reason: 'network' }; }
+  }
+  // a batch photo's bytes (the three flows: the ZIP of the named photos, the reference picture inside the sheet) → Uint8Array | null
+  async function bytesOf(path) {
+    const cl = c(); if (!cl || !path) return null;
+    try { const { data, error } = await cl.storage.from(BUCKET).download(path); if (error || !data) return null; return new Uint8Array(await data.arrayBuffer()); } catch (e) { return null; }
   }
   async function removeImage(path) { const cl = c(); if (!cl) return; quiet(() => cl.storage.from(BUCKET).remove([path])); urls.delete(path); }
   // a signed URL for a thumbnail (an hour; cached 50 minutes); null while it loads (ib:studio { url } when it lands)
@@ -163,6 +188,13 @@
     if (item.productId) quiet(() => window.IBActivity && window.IBActivity.log('product.create', '#' + item.productId + (item.arId ? ' #' + item.arId : '') + ' · ' + (item.sku || ''), { entity: 'products', entity_id: String(item.productId) }));
     if (item.productId && window.IBProducts && window.IBProducts.refresh) quiet(() => window.IBProducts.refresh([item.productId].concat(item.arId ? [item.arId] : [])));
     return { ok: true, result: r.body.result, item };
+  }
+  // the three flows (decision 10): one batch photo to the site's media library under the sheet's name → { ok, result, id, url }
+  async function media(batchId, path, name) {
+    const r = await invoke({ action: 'studio_media', batch_id: batchId, path, name });
+    if (!r.ok) return r;
+    if (r.body.result === 'skipped') return { ok: true, result: 'skipped', reason: r.body.reason || 'push_disabled' };
+    return { ok: true, result: 'ok', id: Number(r.body.id) || null, url: typeof r.body.url === 'string' && r.body.url.startsWith('https://') ? r.body.url : null };
   }
   // B4 (the owner, 11 Nov): a category's image (the page's square crop, a Blob) goes to woo-sync as base64 — the server checks the bytes
   const base64Of = async (blob) => { const b = new Uint8Array(await blob.arrayBuffer()); let s = ''; for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000)); return btoa(s); };
@@ -218,6 +250,7 @@
     load, ensure, clear, state: () => st, can, BUCKET,
     batches: () => batches.slice(), colors: () => colors.slice(), nextSerial: () => nextSerial,
     open, create, save, archive, addColor, takeSerials, toWebp, uploadImage, removeImage, imageUrl, upload, createCategory, readSheetLink,
+    media, bytesOf, // the three flows (14 Nov)
     categoryGet, categoryUpdate, categoryDelete, // B4 (11 Nov): the categories tab
   };
 })();

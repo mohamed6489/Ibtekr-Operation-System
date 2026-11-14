@@ -40,7 +40,7 @@
 // the secrets AI_CONTENT_MODEL / AI_CONTENT_EFFORT / AI_MONTHLY_LIMIT_USD are the fallback, then the defaults — read before every call.
 import Anthropic from 'npm:@anthropic-ai/sdk@1.3.0';
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
-import { aiSettings, categoryLines, cleanPrompts, cleanStudio, cleanWrite, costOf, line, parsePrompts, parseStudio, parseWrite, promptsRequest, readAnswer, shotPromptRows, studioRequest, usageOf, writeRequest } from '../_shared/ai-content.js';
+import { aiSettings, categoryLines, cleanExtract, cleanPrompts, cleanStudio, cleanWrite, costOf, extractRequest, line, parseExtract, parsePrompts, parseStudio, parseWrite, promptsRequest, readAnswer, shotPromptRows, studioRequest, usageOf, writeRequest } from '../_shared/ai-content.js';
 import { vaultEnv } from '../_shared/secrets.js';
 import { AGENT_HISTORY, agentHistory, agentRequest, agentTitle, buyerRequest, campaignTarget, cleanAgent, cleanBuyer, cleanMarketing, marketingRequest, parseAgent, parseBuyer, parseMarketing } from '../_shared/marketing.js';
 import { SUGGEST_DAYS, buyerRules, windowOf } from '../_shared/mkt-ads.js';
@@ -61,7 +61,7 @@ export type Deps = {
   text?: (provider: string, params: Json) => Promise<Json>; // phase 11: OpenAI / Gemini (the Claude dep stays the Claude path)
 };
 
-const ACTIONS = ['write', 'studio', 'prompts', 'marketing', 'buyer', 'assistant', 'agent'];
+const ACTIONS = ['write', 'studio', 'prompts', 'marketing', 'buyer', 'assistant', 'agent', 'extract'];
 const STUDIO_BUCKET = 'studio';
 const THROTTLE = 60; // calls of one member in THROTTLE_MINUTES (the studio fills a batch one item at a time)
 const THROTTLE_MINUTES = 10;
@@ -86,6 +86,7 @@ async function configOf(deps: Deps, action = 'write'): Promise<Cfg> {
   const pick = textPick(isObj(ai) ? ai : null, (TEXT_TOOL_OF as Record<string, string>)[action] ?? 'products');
   const style = action === 'buyer' || action === 'prompts' || action === 'assistant' ? '' : houseStyle(isObj(rules) ? rules : null, action === 'marketing' || action === 'scenes' ? 'post' : 'products');
   if (action === 'assistant') return { ...base, provider: 'claude', style }; // the tool loop is Claude's (the other text providers answer text only)
+  if (action === 'extract') return { ...base, provider: 'claude', style: '' }; // the screenshots are read by Claude (the studio's WhatsApp flow)
   return { ...base, provider: pick.provider, model: pick.provider === 'claude' ? base.model : pick.model, style };
 }
 const modelId = (v: unknown) => (typeof v === 'string' ? v.toLowerCase().replace(/[^a-z0-9.-]/g, '').slice(0, 60) : '') || null;
@@ -100,7 +101,7 @@ async function authorize(req: Request, deps: Deps, action: string): Promise<stri
   const perm = async (key: string, any = false) => { const { data, error } = await member.rpc('has_perm', { key }); return !error && (data === 'F' || (any && data === 'P')); };
   const admin = async () => { const { data, error } = await member.rpc('is_admin'); return !error && data === true; };
   const ok = action === 'write' ? (await admin()) || (await perm('products.add')) || (await perm('products.edit'))
-    : action === 'studio' || action === 'prompts' ? (await admin()) || (await perm('products.add'))
+    : action === 'studio' || action === 'prompts' || action === 'extract' ? (await admin()) || (await perm('products.add'))
     : action === 'marketing' ? (await admin()) || (await perm('marketing.create'))
     : action === 'buyer' || action === 'agent' ? (await admin()) || (await perm('marketing.view', true))
     : action === 'assistant' ? true // any signed-in member: the data they read is theirs by RLS, the actions run on their screen
@@ -258,6 +259,17 @@ async function studio(deps: Deps, uid: string, args: Json) {
   const sets = { categoryIds: new Set(cats.map((c: Json) => Number(c.id))), colorCodes: new Set(colors.map((c: Json) => c.code)) };
   return await runAi(deps, base, cfg, studioRequest(item, { model: cfg.model, effort: cfg.effort, want, brand, cats, colors, image }),
     (answer) => cleanStudio(answer, want, sets));
+}
+
+// ---------------------------------------------------------------- extract (the studio's WhatsApp flow, 14 Nov)
+
+// the maker's chat screenshots (the page's, never stored) → the template's rows in the chat's order; text only, nothing written here
+async function extract(deps: Deps, uid: string, args: Json) {
+  const parsed = parseExtract(args);
+  if ('error' in parsed) return json(400, parsed);
+  const cfg = await configOf(deps, 'extract');
+  const base = { created_by: uid, action: 'studio', source: 'studio', label: line('واتساب · ' + parsed.req.images.length + ' سكرين', 200) };
+  return await runAi(deps, base, cfg, extractRequest(parsed.req, { model: cfg.model, effort: cfg.effort }), (answer) => cleanExtract(answer));
 }
 
 // ---------------------------------------------------------------- prompts (decision 13: a category typed in the studio)
@@ -534,7 +546,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
   if (!ACTIONS.includes(action)) return json(400, { error: 'unknown_action' });
   try {
     return action === 'write' ? await write(deps, uid, args) : action === 'prompts' ? await prompts(deps, uid, args) : action === 'marketing' ? await marketing(deps, uid, args) : action === 'buyer' ? await buyer(deps, uid, args) : action === 'agent' ? await agent(deps, uid, args)
-      : action === 'assistant' ? await assistant(deps, uid, args, jwtOf(req)) : await studio(deps, uid, args);
+      : action === 'assistant' ? await assistant(deps, uid, args, jwtOf(req)) : action === 'extract' ? await extract(deps, uid, args) : await studio(deps, uid, args);
   } catch (e) {
     console.error('ai-content failed', e instanceof Error ? e.name : typeof e);
     return json(500, { error: 'failed' });

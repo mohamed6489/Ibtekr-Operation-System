@@ -122,6 +122,8 @@
 //   'products_trash' / 'products_restore' { ids } (≤ 100)  products.trash = F: DELETE with no query (the trash —
 //              never `force`) / PUT status draft, on the product and its translation. WOO_PUSH_ENABLED gates them.
 //              The product actions are a person's, never the sync secret's; the mirror follows WooCommerce's answers.
+//   'studio_media' { batch_id, path, name }  products.add = F (the studio's three flows, 14 Nov): one batch photo to wp/v2/media under
+//     the name the sheet's link carries; result.media / result.urls keep the site's id and link (studio_upload then uses them)
 //   'studio_upload' { batch_id, index }  products.add = F (phase 5.2): one studio batch item, read from studio_batches
 //              and allow-listed (woo-studio.js) → images to wp/v2/media, a draft product + variations, the Arabic translation
 //              (WPML), the maker as author (PUT dokan/v1/products/{id} post_author); the result on the batch. 'category_create' { name_en, name_ar?,
@@ -142,7 +144,7 @@ import { PAY_STATUSES, orderCreateInput, orderPayable, payUrl, wooOrderBody } fr
 import { vaultEnv } from '../_shared/secrets.js';
 import { ConfigError, WooError, errorText, makeScrubber, wooApi } from '../_shared/woo-api.js';
 import { AR_FIELDS, BATCH_FIELDS, EDIT_FIELDS, VARIATION_FIELDS, cleanFields, editView, sharedOf, toWoo, variationView } from '../_shared/woo-products.js';
-import { STUDIO_ATTRS, buildStudio, fetchSheetCsv, matchWooBrand } from '../_shared/woo-studio.js';
+import { STUDIO_ATTRS, VARIATION_GALLERY_KEY, buildStudio, fetchSheetCsv, matchWooBrand } from '../_shared/woo-studio.js';
 import { duplicateAr, duplicatePayload, duplicateSku, duplicateVariation, variationSku } from '../_shared/woo-duplicate.js';
 import { OWNED, siteQuantities, skuList } from '../_shared/woo-inventory.js';
 import { CART_HOURS, CART_PATH, cartRows } from '../_shared/woo-carts.js';
@@ -157,11 +159,11 @@ type Ctx = Awaited<ReturnType<typeof writeContext>>;
 type Run = { db: Db; env: Deps['env']; woo: () => ReturnType<typeof wooApi>; ctx: () => Promise<Ctx>; kind: 'cron' | 'manual'; now: () => string };
 
 const ACTIONS = ['states', 'categories', 'orders', 'vendors', 'products', 'all', 'push_status', 'push_vendor', 'register_webhooks', 'probe_store', 'probe_dokan', 'accounts', 'statement', 'withdraw_approve', 'withdraw_create', 'withdrawals', 'order_trash', 'suborder_trash', 'line_trash', 'line_qty', 'suborder_status', 'order_create', 'order_pay_link',
-  'vendor_photo', 'vendor_store', 'product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push', 'product_duplicate', 'carts',
+  'vendor_photo', 'vendor_store', 'product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'studio_media', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push', 'product_duplicate', 'carts',
   'category_get', 'category_update', 'category_delete'];
 // phase 5: the product actions a person runs (never the sync secret); phase 5.2: the studio's upload, a new category, a sheet link;
 // phase 5.4: the images tool's results onto a product; B4 (11 Nov): the categories tab's read, edit and delete
-const PRODUCT_ACTIONS = ['product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push', 'product_duplicate',
+const PRODUCT_ACTIONS = ['product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'studio_media', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push', 'product_duplicate',
   'category_get', 'category_update', 'category_delete'];
 const PRODUCT_BATCH_MAX = 100;
 const ACCOUNTS_BATCH = 50; // stats requests per run (one per maker; the hourly cron goes round the list)
@@ -215,7 +217,7 @@ async function authorize(req: Request, deps: Deps, action: string, args: Json): 
   if (action === 'products_batch' || action === 'products_vendor') return (await admin()) || (await perm('products.bulk')) ? 'member' : null; // the owner, 28 Oct: bulk edit is its own permission
   if (action === 'products_trash' || action === 'products_restore') return (await admin()) || (await perm('products.trash')) ? 'member' : null;
   // phase 5.2 (decisions 7 / 8 / 13): the studio's upload, a new category and reading a sheet link need products.add = F
-  if (action === 'studio_upload' || action === 'category_create' || action === 'studio_sheet') return (await admin()) || (await perm('products.add')) ? 'member' : null;
+  if (action === 'studio_upload' || action === 'studio_media' || action === 'category_create' || action === 'studio_sheet') return (await admin()) || (await perm('products.add')) ? 'member' : null;
   // B4 (the owner, 11 Nov): the categories tab — reading one for «تعديل», editing and deleting it — the same people who add one
   if (action === 'category_get' || action === 'category_update' || action === 'category_delete') return (await admin()) || (await perm('products.add')) ? 'member' : null;
   // phase 12 T2 (decision 9): a copy of a product is a new product — products.add = F, like the studio
@@ -1755,6 +1757,41 @@ async function ensureArTerms(ctx: Ctx, enAttrs: Json[], arAttrs: Json[]) {
   }
   return ok;
 }
+// studio_media { batch_id, path, name } (the three flows, decision 10): one photo of the batch to the site's media library under the
+// name the sheet's link carries («<name EN>-<SKU>-NN.webp») — the bucket's file of this batch only, read here (never the request's
+// bytes); once per path (result.media / result.urls keep the site's id and link). products.add = F, WOO_PUSH_ENABLED.
+const MEDIA_NAME = /^[A-Za-z0-9][A-Za-z0-9-]{0,150}\.(webp|png|jpe?g)$/;
+async function studioMedia(run: Run, args: Json) {
+  const batchId = typeof args.batch_id === 'string' && UUID.test(args.batch_id) ? args.batch_id : null;
+  const path = typeof args.path === 'string' && batchId && args.path.startsWith(batchId + '/') && /^[0-9a-f-]{36}\/[A-Za-z0-9._-]{1,160}\.(webp|png|jpe?g)$/i.test(args.path) ? args.path : null;
+  const name = typeof args.name === 'string' && MEDIA_NAME.test(args.name) ? args.name : null;
+  if (!batchId || !path || !name) return json(400, { error: 'bad_request', field: !batchId ? 'batch_id' : !path ? 'path' : 'name' });
+  if (path.split('.').pop()!.toLowerCase().replace('jpeg', 'jpg') !== name.split('.').pop()!.toLowerCase().replace('jpeg', 'jpg')) return json(400, { error: 'bad_request', field: 'name' });
+  const { data: batch, error } = await run.db.from('studio_batches').select('id, result, archived_at').eq('id', batchId).maybeSingle();
+  if (error) throw new Error(`studio_batches: ${error.message}`);
+  if (!batch || batch.archived_at) return json(404, { error: 'no_batch' });
+  const had = isObj(batch.result) && isObj(batch.result.media) ? wooId(batch.result.media[path]) : null;
+  if (had !== null) return json(200, { action: 'studio_media', result: 'ok', id: had, url: isObj(batch.result.urls) ? batch.result.urls[path] ?? null : null });
+  if (!pushEnabled(run.env)) return await pushSkip(run, 'studio_media', null, { batch: batchId });
+  const ctx = await run.ctx();
+  const { data: blob, error: dlErr } = await run.db.storage.from(STUDIO_BUCKET).download(path);
+  if (dlErr || !blob) return json(404, { error: 'image_missing' });
+  const ext = name.split('.').pop()!.toLowerCase();
+  let m: Json;
+  try { m = (await ctx.woo.upload('wp/v2/media', new Uint8Array(await blob.arrayBuffer()), name, MIME[ext] ?? 'image/webp')).data as Json; }
+  catch (e) { if (!(e instanceof WooError || e instanceof ConfigError)) throw e; return json(502, { error: wooCode(e) }); }
+  const id = wooId(isObj(m) ? m.id : null);
+  const url = isObj(m) && typeof m.source_url === 'string' && m.source_url.startsWith('https://') ? m.source_url : null;
+  if (id === null) return json(502, { error: 'media_refused' });
+  const { data: cur } = await run.db.from('studio_batches').select('result').eq('id', batchId).maybeSingle();
+  const result: Json = isObj(cur?.result) ? { ...cur.result } : {};
+  result.media = { ...(isObj(result.media) ? result.media : {}), [path]: id };
+  result.urls = { ...(isObj(result.urls) ? result.urls : {}), ...(url ? { [path]: url } : {}) };
+  const { error: upErr } = await run.db.from('studio_batches').update({ result }).eq('id', batchId);
+  if (upErr) throw new Error(`studio_batches: ${upErr.message}`);
+  await logSync(run.db, { ...productEntry(null, 'studio_media'), entity_id: String(id), result: 'ok' });
+  return json(200, { action: 'studio_media', result: 'ok', id, url });
+}
 async function studioUpload(run: Run, args: Json) {
   const batchId = typeof args.batch_id === 'string' && UUID.test(args.batch_id) ? args.batch_id : null;
   const index = Number.isInteger(args.index) && (args.index as number) >= 0 && (args.index as number) < 500 ? (args.index as number) : null;
@@ -1779,6 +1816,9 @@ async function studioUpload(run: Run, args: Json) {
   const built = buildStudio(item, { batchId, type: batch.type, brand: brand?.name ?? '', wooBrand, colors, colorsAr, attrs: await attributeIds(run, ctx) }) as Json;
   if (built.error) return json(400, built);
   const prev = isObj(batch.result) && Array.isArray(batch.result.items) && isObj(batch.result.items[index]) ? batch.result.items[index] : {};
+  // the three flows (docs/superpowers/plans/2026-11-14-studio-flows.md): the photos went up first under their own names
+  // (studio_media → result.media[path] = id); the product takes them as they are, never a second copy
+  const shared: Json = isObj(batch.result) && isObj(batch.result.media) ? batch.result.media : {};
   // the SKU (decision 2) is fixed when the product is made: the result keeps it, and a retry whose item builds another (its
   // variations would take that one under a parent with the old) writes nothing — brand_changed when the brand's two letters
   // differ (another brand, or its name changed), sku_changed for the rest (a Simple's color, the serial, another row here)
@@ -1801,17 +1841,20 @@ async function studioUpload(run: Run, args: Json) {
   const saveResult = async () => {
     const { data: cur } = await run.db.from('studio_batches').select('state, result').eq('id', batchId).maybeSingle();
     const items = isObj(cur?.result) && Array.isArray(cur.result.items) ? [...cur.result.items] : [];
+    const rest: Json = isObj(cur?.result) ? { ...cur.result } : {}; // the flows' media / urls stay
     while (items.length < index) items.push(null);
     items[index] = res;
     const n = Array.isArray(cur?.state?.items) ? cur.state.items.length : 0;
     const done = n > 0 && Array.from({ length: n }, (_, i) => items[i]).every((x) => isObj(x) && wooId(x.productId) !== null && !x.error);
-    const { error: upErr } = await run.db.from('studio_batches').update({ result: { items }, status: done ? 'done' : 'uploading' }).eq('id', batchId);
+    const { error: upErr } = await run.db.from('studio_batches').update({ result: { ...rest, items }, status: done ? 'done' : 'uploading' }).eq('id', batchId);
     if (upErr) throw new Error(`studio_batches: ${upErr.message}`);
   };
   try {
-    const paths = [...new Set([...built.images, ...built.variations.map((v: Json) => v.image).filter(Boolean)])] as string[];
+    const paths = [...new Set([...built.images, ...built.variations.flatMap((v: Json) => [v.image, ...(v.gallery || [])]).filter(Boolean)])] as string[];
     for (const path of res.error ? [] : paths) {
       if (wooId(res.media[path]) !== null) continue;
+      if (wooId(shared[path]) !== null) { res.media[path] = wooId(shared[path]); continue; }
+      if (item.flow === 2) { res.error = 'images_first'; break; } // the flows: «ارفع الصور الأول» — the sheet's links are these files
       const { data: blob, error: dlErr } = await run.db.storage.from(STUDIO_BUCKET).download(path);
       if (dlErr || !blob) { res.error = 'image_missing'; break; }
       const k = built.images.indexOf(path); const v = built.variations.find((x: Json) => x.image === path);
@@ -1846,7 +1889,8 @@ async function studioUpload(run: Run, args: Json) {
     }
     if (!res.error && built.variations.length && !isObj(res.variations)) {
       if (!authored.has(res.productId)) { authored.clear(); on = null; } // made with no maker on their product (no store): theirs is none
-      const r = (await ctx.woo.post(`wc/v3/products/${res.productId}/variations/batch`, { create: built.variations.map((v: Json) => ({ ...v.payload, ...(v.image ? { image: { id: res.media[v.image] } } : {}) })) })).data;
+      const r = (await ctx.woo.post(`wc/v3/products/${res.productId}/variations/batch`, { create: built.variations.map((v: Json) => ({ ...v.payload, ...(v.image ? { image: { id: res.media[v.image] } } : {}),
+        ...(v.gallery && v.gallery.length ? { meta_data: [{ key: VARIATION_GALLERY_KEY, value: v.gallery.map((g: string) => res.media[g]).filter((x: unknown) => wooId(x) !== null) }] } : {}) })) })).data;
       const created = isObj(r) && Array.isArray(r.create) ? r.create : [];
       const failed = created.filter((x: Json) => !isObj(x) || isObj(x.error) || wooId(x.id) === null).length + Math.max(0, built.variations.length - created.length);
       res.variations = { done: built.variations.length - failed, failed };
@@ -2203,6 +2247,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'products_trash' || action === 'products_restore') return await productsTrash(run, args, action === 'products_restore');
     if (action === 'products' && args.full === true) return await fullProducts(run);
     if (action === 'studio_upload') return await studioUpload(run, args);
+    if (action === 'studio_media') return await studioMedia(run, args);
     if (action === 'category_create') return await categoryCreate(run, args);
     if (action === 'category_get') return await categoryGet(run, args);
     if (action === 'category_update') return await categoryUpdate(run, args);

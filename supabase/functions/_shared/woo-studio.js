@@ -8,7 +8,14 @@ import { cleanFields } from './woo-products.js';
 // the global attributes the studio fills (decision 5), looked up by slug on the site
 export const STUDIO_ATTRS = { color: 'pa_color', size: 'pa_size', material: 'pa_material', style: 'pa_style', brand: 'pa_brand' };
 export const MAX_IMAGES = 6;
+export const MAX_IMAGES_FLOW = 10; // the three flows (docs/superpowers/plans/2026-11-14-studio-flows.md): 4 shots + the size drawing + the features image + room
 export const MAX_VARIATIONS = 100;
+// the three flows: the SKU comes with the item (the maker's own, or the flow's IBT + brand code + serial + -color + -size) and is
+// checked here; the site's variation gallery (the «Variation Images Gallery» plugin's meta, the owner's WP All Import column
+// {woovariationgalleryimages}) takes a variation's photos after its first
+export const SKU_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{1,48}$/;
+export const VARIATION_GALLERY_KEY = 'woo_variation_gallery_images';
+const listOf = (v, max) => String(v == null ? '' : v).split(/[,،]/).map((x) => x.trim()).filter(Boolean).slice(0, 10).map((x) => plain(x, max));
 
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const plain = (v, max) => (typeof v === 'string' && v.trim().length >= 1 && v.trim().length <= max && !/[<>%]/.test(v) ? v.trim() : null);
@@ -63,21 +70,31 @@ export function matchWooBrand(brand, wooBrands) {
 export function buildStudio(item, o) {
   const bad = (field) => ({ error: 'bad_field', field });
   if (!isObj(item) || !isObj(o)) return bad('item');
-  const type = o.type === 'Variable' ? 'Variable' : o.type === 'Simple' ? 'Simple' : null;
+  const flow = item.flow === 2; // the three flows: the item carries its type, its SKUs and the Arabic attribute words
+  const rawType = flow && (item.type === 'Simple' || item.type === 'Variable') ? item.type : o.type;
+  const type = rawType === 'Variable' ? 'Variable' : rawType === 'Simple' ? 'Simple' : null;
   if (!type) return bad('type');
   if (!brandCode(o.brand)) return bad('brand');
   const name = plain(item.nameEn, 200); if (!name) return bad('nameEn');
   const nameAr = plain(item.nameAr, 200); if (!nameAr) return bad('nameAr'); // decision 15: every product gets its Arabic translation
-  if (!Number.isInteger(item.serial) || item.serial < 0 || item.serial > 99999999) return bad('serial');
+  if (flow ? !(typeof item.sku === 'string' && SKU_RE.test(item.sku)) : (!Number.isInteger(item.serial) || item.serial < 0 || item.serial > 99999999)) return bad(flow ? 'sku' : 'serial');
   const colors = Array.isArray(item.colors) ? item.colors : [];
   if (colors.length > 30 || !colors.every((c) => typeof c === 'string' && o.colors && typeof o.colors[c] === 'string')) return bad('colors');
-  const sizes = Array.isArray(item.sizes) ? item.sizes.map((s) => plain(s, 30)) : [];
+  const sizes = Array.isArray(item.sizes) ? item.sizes.map((s) => plain(s, flow ? 40 : 30)) : [];
   if (sizes.length > 30 || sizes.some((s) => !s)) return bad('sizes');
   const material = item.material ? plain(item.material, 80) : null; if (item.material && !material) return bad('material');
   const style = item.style ? plain(item.style, 80) : null; if (item.style && !style) return bad('style');
+  // the flows: «Rustic, Modern» is two terms, and the Arabic words of each go on the translation in the same order
+  const materials = flow && material ? listOf(material, 60) : material ? [material] : [];
+  const styles = flow && style ? listOf(style, 60) : style ? [style] : [];
+  const materialsAr = flow && item.materialAr ? listOf(item.materialAr, 60) : materials;
+  const stylesAr = flow && item.styleAr ? listOf(item.styleAr, 60) : styles;
+  if ([materials, styles, materialsAr, stylesAr].some((l) => l.some((x) => !x))) return bad('material');
+  const sizesArIn = flow && Array.isArray(item.sizesAr) ? item.sizesAr.map((x) => (x == null || x === '' ? null : plain(x, 40))) : [];
+  if (sizesArIn.some((x) => x === undefined)) return bad('sizesAr');
   const pathRe = new RegExp('^' + String(o.batchId).replace(/[^0-9a-f-]/gi, '') + '/[A-Za-z0-9._-]{1,120}\\.(webp|png|jpe?g)$');
   const images = Array.isArray(item.images) ? item.images : [];
-  if (images.length > MAX_IMAGES || !images.every((p) => typeof p === 'string' && pathRe.test(p))) return bad('images');
+  if (images.length > (flow ? MAX_IMAGES_FLOW : MAX_IMAGES) || !images.every((p) => typeof p === 'string' && pathRe.test(p))) return bad('images');
   const base = cleanFields({ name, ...(item.shortDesc ? { short_description: item.shortDesc } : {}), ...(item.weight ? { weight: String(item.weight) } : {}),
     categories: Array.isArray(item.categories) ? item.categories : [], ...(o.wooBrand != null ? { brands: [o.wooBrand] } : {}) }, ['name', 'short_description', 'weight', 'categories', 'brands']);
   if (base.error) return bad(base.field);
@@ -91,7 +108,7 @@ export function buildStudio(item, o) {
   const add = (id, options, variation, arOptions = options) => { if (Number.isInteger(id) && options.length) { attrs.push({ id, visible: true, variation, options }); arAttrs.push({ id, visible: true, variation, options: arOptions }); } };
   const colorNames = colors.map((c) => o.colors[c]);
   const colorNamesAr = colors.map((c) => (o.colorsAr && typeof o.colorsAr[c] === 'string' && o.colorsAr[c].trim()) || o.colors[c]);
-  const sizesEn = sizes.map((s) => sizeLabel(s, 'en')); const sizesAr = sizes.map((s) => sizeLabel(s, 'ar'));
+  const sizesEn = flow ? sizes : sizes.map((s) => sizeLabel(s, 'en')); const sizesAr = sizes.map((s, k) => (flow && sizesArIn[k]) || sizeLabel(s, 'ar'));
   const at = o.attrs || {};
   if (type === 'Simple') {
     if (colors.length > 1 || sizes.length > 1) return bad('variations');
@@ -100,35 +117,39 @@ export function buildStudio(item, o) {
     if (!colors.length && !sizes.length) return bad('variations');
     add(at.color, colorNames, colors.length > 0, colorNamesAr); add(at.size, sizesEn, sizes.length > 0, sizesAr);
   }
-  add(at.material, material ? [material] : [], false); add(at.style, style ? [style] : [], false); add(at.brand, [String(o.brand).trim()], false);
+  add(at.material, materials, false, materialsAr); add(at.style, styles, false, stylesAr); add(at.brand, [String(o.brand).trim()], false);
 
   const product = { ...base.payload, type: type === 'Variable' ? 'variable' : 'simple', status: 'draft', attributes: attrs, lang: 'en', wpml_language: 'en' };
   const variations = [];
   let sku;
   if (type === 'Simple') {
-    sku = studioSku({ brand: o.brand, color: colors[0] || null, serial: item.serial });
+    sku = flow ? item.sku : studioSku({ brand: o.brand, color: colors[0] || null, serial: item.serial });
     const price = cleanFields({ regular_price: item.regular, sale_price: item.sale }, ['regular_price', 'sale_price']); if (price.error || !price.payload.sale_price) return bad('price');
     const stock = stockOf(item); if (!stock) return bad('stock');
     Object.assign(product, price.payload, stock);
   } else {
-    sku = studioSku({ brand: o.brand, serial: item.serial });
+    sku = flow ? item.sku : studioSku({ brand: o.brand, serial: item.serial });
     const vars = Array.isArray(item.variations) ? item.variations : [];
     if (!vars.length || vars.length > MAX_VARIATIONS) return bad('variations');
     const seen = new Set();
     for (const v of vars) {
       if (!isObj(v)) return bad('variations');
-      const color = v.color == null ? null : v.color; const size = v.size == null ? null : plain(v.size, 30);
+      const color = v.color == null ? null : v.color; const size = v.size == null ? null : plain(v.size, flow ? 40 : 30);
       if ((colors.length ? !colors.includes(color) : color !== null) || (sizes.length ? !sizes.includes(size) : size !== null)) return bad('variations');
       const key = (color || '') + '|' + (size || ''); if (seen.has(key)) return bad('variations'); seen.add(key);
       const price = cleanFields({ regular_price: v.regular, sale_price: v.sale }, ['regular_price', 'sale_price']); if (price.error || !price.payload.sale_price) return bad('variations.price');
       const stock = stockOf(v); if (!stock) return bad('variations.stock');
       const image = v.image == null ? null : typeof v.image === 'string' && pathRe.test(v.image) ? v.image : undefined; if (image === undefined) return bad('variations.image');
-      const vsku = studioSku({ brand: o.brand, color, serial: item.serial, size: sizes.length ? size : null });
-      variations.push({ sku: vsku, image, payload: { sku: vsku, ...price.payload, ...stock,
-        attributes: [color && Number.isInteger(at.color) ? { id: at.color, option: o.colors[color] } : null, size && Number.isInteger(at.size) ? { id: at.size, option: sizeLabel(size, 'en') } : null].filter(Boolean) } });
+      const gallery = flow && Array.isArray(v.gallery) ? v.gallery : [];
+      if (gallery.length > MAX_IMAGES_FLOW || !gallery.every((p) => typeof p === 'string' && pathRe.test(p))) return bad('variations.gallery');
+      if (flow && !(typeof v.sku === 'string' && SKU_RE.test(v.sku))) return bad('variations.sku');
+      const vsku = flow ? v.sku : studioSku({ brand: o.brand, color, serial: item.serial, size: sizes.length ? size : null });
+      variations.push({ sku: vsku, image, gallery, payload: { sku: vsku, ...price.payload, ...stock, ...(flow && Number(v.weight) > 0 && Number(v.weight) < 10000 ? { weight: String(v.weight) } : {}),
+        attributes: [color && Number.isInteger(at.color) ? { id: at.color, option: o.colors[color] } : null, size && Number.isInteger(at.size) ? { id: at.size, option: flow ? size : sizeLabel(size, 'en') } : null].filter(Boolean) } });
     }
   }
   if (!sku) return bad('sku');
+  if (flow && new Set([sku, ...variations.map((v) => v.sku)]).size !== variations.length + 1) return bad('variations.sku'); // every SKU its own
   product.sku = sku;
   return { sku, product, variations, images, ar: { name: nameAr, ...arShort.payload }, arAttributes: arAttrs };
 }

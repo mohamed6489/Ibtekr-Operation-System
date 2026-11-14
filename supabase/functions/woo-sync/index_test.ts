@@ -5,6 +5,7 @@ import { handler } from './index.ts';
 import { cairoDate } from '../_shared/woo-write.js';
 import { bankDigest } from '../_shared/woo-core.js';
 import { ConfigError, wooApi } from '../_shared/woo-api.js';
+import { buildStudio } from '../_shared/woo-studio.js';
 import { ENV, NOW, PHONE, STATUS_MAP, WC_AUTH, fakeDb, fakeWoo, vendorId, vendorRow, wooOrder, wooProduct, wooStore, wooStoreFull, wooSub, writtenText } from '../_test/fakes.ts';
 
 const SYNC_SECRET = 'sync-test-secret';
@@ -1553,6 +1554,58 @@ Deno.test('studio_upload (phase 5.2): products.add only; images to the media lib
   const n = woo.calls.length;
   await call(deps, { action: 'studio_upload', batch_id: SB, index: 0 }, { jwt: 'jwt-padd' });
   assertFalse(woo.calls.slice(n).some((c) => c.method === 'POST' || c.method === 'PUT'), 'a retry writes nothing again');
+});
+
+// the studio's three flows (docs/superpowers/plans/2026-11-14-studio-flows.md): the photos go up first under the sheet's names,
+// then the products take them; the item carries its own SKUs, its type, the Arabic attribute words and a variation's gallery
+const flowItem = { flow: 2, type: 'Variable', sku: 'IBTGLS1020', nameEn: 'Ceramic Pendant Light C102', nameAr: 'نجفة سيراميك', colors: ['BE', 'BK'], sizes: [], material: 'Ceramic, Glass', materialAr: 'سيراميك، زجاج', categories: [20],
+  images: [`${SB}/f1.webp`], variations: [{ color: 'BE', sku: 'IBTGLS1020-BE', sale: 1360, regular: 1600, image: `${SB}/f1.webp`, gallery: [`${SB}/f2.webp`] }, { color: 'BK', sku: 'IBTGLS1020-BK', sale: 1360, regular: 1600 }] };
+const FLOW_FILES = { [`studio/${SB}/f1.webp`]: new Uint8Array([1, 2, 3]), [`studio/${SB}/f2.webp`]: new Uint8Array([4, 5]) };
+Deno.test('studio_media (the three flows): products.add only, never the sync secret; one batch photo under the sheet\'s name; once per path; the push gate; a name / path outside the rules refused before the site', async () => {
+  const routes = studioRoutes({ 'POST wp/v2/media': () => ({ body: { id: 7101, source_url: 'https://ibtekr.club/wp-content/uploads/2026/11/Ceramic-Pendant-Light-C102-IBTGLS1020-BE-01.webp' } }) });
+  const { woo, db, deps } = setup({ seed: studioSeed(flowItem), routes, env: WP_ENV, storage: FLOW_FILES });
+  const args = { action: 'studio_media', batch_id: SB, path: `${SB}/f1.webp`, name: 'Ceramic-Pendant-Light-C102-IBTGLS1020-BE-01.webp' };
+  assertEquals((await call(deps, args)).res.status, 401, 'never the sync secret');
+  assertEquals((await call(deps, args, { jwt: 'jwt-pedit' })).res.status, 401, 'products.edit is not products.add');
+  assertEquals((await call(deps, { ...args, name: '../x.webp' }, { jwt: 'jwt-padd' })).res.status, 400);
+  assertEquals((await call(deps, { ...args, name: 'Ceramic-01.png' }, { jwt: 'jwt-padd' })).res.status, 400, 'the extension is the file\'s');
+  assertEquals((await call(deps, { ...args, path: '00000000-0000-4000-8000-000000000000/f1.webp' }, { jwt: 'jwt-padd' })).res.status, 400, 'another batch\'s path');
+  const { res, body } = await call(deps, args, { jwt: 'jwt-padd' });
+  assertEquals([res.status, body.id, body.url], [200, 7101, 'https://ibtekr.club/wp-content/uploads/2026/11/Ceramic-Pendant-Light-C102-IBTGLS1020-BE-01.webp']);
+  assertEquals(woo.calls.filter((c) => c.path === 'wp/v2/media').map((c) => c.headers['content-disposition']), ['attachment; filename="Ceramic-Pendant-Light-C102-IBTGLS1020-BE-01.webp"']);
+  assertEquals(db.row('studio_batches', SB).result.media[`${SB}/f1.webp`], 7101);
+  const n = woo.calls.length;
+  assertEquals((await call(deps, args, { jwt: 'jwt-padd' })).body.id, 7101);
+  assertEquals(woo.calls.length, n, 'once per path');
+  const off = setup({ seed: studioSeed(flowItem), routes, env: {}, storage: FLOW_FILES });
+  assertEquals((await call(off.deps, args, { jwt: 'jwt-padd' })).body.reason, 'push_disabled');
+  assertEquals(off.woo.calls.length, 0);
+});
+Deno.test('studio_upload (the three flows): the photos must be up first (images_first, no product); then the product takes them as they are, its own SKUs, the Arabic material words, a variation\'s gallery meta; the result\'s media kept', async () => {
+  const { woo, db, deps } = setup({ seed: studioSeed(flowItem), routes: studioRoutes(), env: WP_ENV, storage: FLOW_FILES });
+  const first = await call(deps, { action: 'studio_upload', batch_id: SB, index: 0 }, { jwt: 'jwt-padd' });
+  assertEquals([first.body.result, first.body.item.error], ['error', 'images_first']);
+  assertFalse(woo.calls.some((c) => c.method === 'POST'), 'nothing written');
+  for (const [k, f] of [[1, 'f1'], [2, 'f2']]) await call(deps, { action: 'studio_media', batch_id: SB, path: `${SB}/${f}.webp`, name: `Ceramic-Pendant-Light-C102-IBTGLS1020-BE-0${k}.webp` }, { jwt: 'jwt-padd' });
+  const before = woo.calls.filter((c) => c.path === 'wp/v2/media').length;
+  const { body } = await call(deps, { action: 'studio_upload', batch_id: SB, index: 0 }, { jwt: 'jwt-padd' });
+  assertEquals(body.result, 'ok');
+  assertEquals(woo.calls.filter((c) => c.path === 'wp/v2/media').length, before, 'no second copy of a photo');
+  const [en, ar] = woo.calls.filter((c) => c.method === 'POST' && c.path === 'wc/v3/products');
+  assertEquals([en.body.sku, en.body.images], ['IBTGLS1020', [{ id: 7001 }]]);
+  assertEquals(en.body.attributes.find((a: any) => a.id === 15).options, ['Ceramic', 'Glass']);
+  assertEquals(ar.body.attributes.find((a: any) => a.id === 15).options, ['سيراميك', 'زجاج']);
+  const vars = woo.calls.find((c) => c.path === 'wc/v3/products/900/variations/batch')!.body.create;
+  assertEquals(vars.map((v: any) => [v.sku, v.image?.id ?? null, v.meta_data ?? null]), [['IBTGLS1020-BE', 7001, [{ key: 'woo_variation_gallery_images', value: [7002] }]], ['IBTGLS1020-BK', null, null]]);
+  const r = db.row('studio_batches', SB).result;
+  assertEquals([r.items[0].productId, r.media[`${SB}/f2.webp`]], [900, 7002], 'the media kept next to the items');
+});
+Deno.test('buildStudio (the three flows): a flow item needs its SKU (valid, every one its own); a classic item is untouched', () => {
+  const o = { batchId: SB, type: 'Simple', brand: 'glasstora', colors: { BE: 'Beige', BK: 'Black' }, attrs: {} };
+  assertEquals((buildStudio({ ...flowItem, sku: 'bad sku' }, o) as any).field, 'sku');
+  assertEquals((buildStudio({ ...flowItem, variations: [{ ...flowItem.variations[0], sku: 'IBTGLS1020' }, flowItem.variations[1]] }, o) as any).field, 'variations.sku');
+  assertEquals((buildStudio(flowItem, o) as any).sku, 'IBTGLS1020', 'the item\'s type wins over the batch\'s');
+  assertEquals((buildStudio({ ...studioItem, flow: undefined }, { ...o, type: 'Variable', brand: 'Art Craft' }) as any).sku, 'IBTAR0999');
 });
 
 Deno.test('studio_upload: the push gate before any call; an item refused before the site; a duplicate SKU recorded as the reason; an Arabic answer not linked to the product is trashed (never force); no Application Password = the images refused', async () => {

@@ -306,6 +306,21 @@ Deno.test('decision 13 — prompts: a category typed in the studio → Claude wr
   assertEquals((await call(setup({ replies: [msg(PROMPTS)] }).deps, { action: 'prompts', category: 'مزهرية' }, 'jwt-admin')).res.status, 200, 'the admin too');
 });
 
+Deno.test('extract (the studio\'s WhatsApp flow): products.add only; the screenshots go to Claude as images; the rows come back cleaned; a studio run logged, nothing else written', async () => {
+  const IMG = { media_type: 'image/jpeg', data: 'A'.repeat(400) };
+  const rows = [{ product: 1, nameEn: 'Blue Vase', nameAr: 'فازة زرقاء', colorEn: 'Blue', colorAr: 'أزرق', size: '25 cm', sizeAr: '25 سم', materialEn: 'Ceramic', materialAr: 'سيراميك', styleEn: '', styleAr: '', vendorPrice: 520, shortEn: '', shortAr: '' }];
+  const { deps, asked, db } = setup({ replies: [msg({ rows })] });
+  assertEquals((await call(deps, { action: 'extract', images: [IMG], type: 'Simple' }, 'jwt-edit')).res.status, 401, 'products.edit is not products.add');
+  assertEquals((await call(deps, { action: 'extract', images: [], type: 'Simple' })).res.status, 400);
+  const { res, body } = await call(deps, { action: 'extract', images: [IMG, IMG], type: 'Simple', photos: 1 });
+  assertEquals(res.status, 200);
+  assertEquals(body.rows, rows.map((r) => ({ ...r })));
+  assertEquals(asked[0].messages[0].content.map((b: any) => b.type), ['image', 'image', 'text']);
+  const run = db.rows('ai_runs')[0];
+  assertEquals([run.action, run.source, run.label, run.status], ['studio', 'studio', 'واتساب · 2 سكرين', 'ok']);
+  assertEquals(db.writes('studio_batches'), []);
+});
+
 Deno.test('studio: a photo outside the batch is not read; no item, an archived batch or a bad body → 404 / 400 with no call', async () => {
   const foreign = { ...STUDIO_SEED, studio_batches: [batch({ state: { items: [item({ main: OTHER + '/row1-main.webp', slots: ['../x.webp'] })] } })] };
   const f = setup({ seed: foreign, storage: { [`studio/${OTHER}/row1-main.webp`]: new Uint8Array([1, 2, 3]) }, replies: [msg({ shortDesc: 'Warm light.', shortDescAr: 'إضاءة دافية.' })] });

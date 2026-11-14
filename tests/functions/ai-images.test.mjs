@@ -2,6 +2,7 @@ import { test } from 'node:test'; import assert from 'node:assert/strict';
 import {
   IMG_MODELS, DEFAULT_MODEL, MODEL_IDS, creditsFor, modelCredits, usdOf, sizeOf, parseGenerate, parseEdit, parseCreate, slotPrompt, shapePrompt,
   editPrompt, studioPathOk, studioGenPath, studioEditPath, toolPath, extOf, imageSettings, line, MAX_IMAGE_B64, SLOTS, renameInState, FRAME_NOTE,
+  FLOW_SHOTS, flowShotPrompt, dimsOf,
 } from '../../supabase/functions/_shared/ai-images.js';
 
 test('decision 14 — renameInState: a renamed result (png → webp) is followed everywhere the batch state points at it (slots, main, refs, color images); nothing pointing = the same state, not changed', () => {
@@ -134,4 +135,29 @@ test('imageSettings: the settings row «ai» over the secrets over the defaults;
   assert.deepEqual(imageSettings({ image_model: 'seedream-5-lite', image_monthly_credits: '5000' }, { MAGNIFIC_MODEL: 'gpt-image-2' }), { model: 'seedream-5-lite', monthlyCredits: 5000 });
   assert.deepEqual(imageSettings({ image_model: 'dall-e' }, { MAGNIFIC_MODEL: 'gpt-image-2', IMAGE_MONTHLY_CREDITS: '800.7' }), { model: 'gpt-image-2', monthlyCredits: 800 });
   assert.deepEqual(imageSettings({ image_monthly_credits: -5 }, {}), { model: 'seedream-5-pro', monthlyCredits: null });
+});
+
+// the studio's three flows (docs/superpowers/plans/2026-11-14-studio-flows.md, decision 8): the owner's five shots
+test('the flows\' shots: 0 centered, 1 / 2 two different scenes, 3 a 2×2 details grid, 4 the size drawing from the template\'s labelled size', () => {
+  const it = { flow: 2, nameEn: 'Ceramic Pendant Light C102', material: 'Ceramic', sizes: ['H 20 × W 20 × D 20 cm'] };
+  assert.deepEqual(FLOW_SHOTS, ['product', 'scene', 'scene2', 'details', 'size']);
+  assert.match(flowShotPrompt(it, 0), /centered, alone/);
+  assert.match(flowShotPrompt(it, 1), /natural place/);
+  assert.match(flowShotPrompt(it, 2), /second, different setting/);
+  assert.match(flowShotPrompt(it, 3), /2×2 grid of four close-up detail shots/);
+  for (const k of [0, 1, 2, 3]) assert.ok(flowShotPrompt(it, k).includes(FRAME_NOTE));
+  assert.match(flowShotPrompt(it, 4), /"20 CM"/);
+  assert.equal(flowShotPrompt({ ...it, sizes: ['Small'] }, 4), null, 'no numeric size = no drawing');
+  assert.equal(dimsOf('H 25 × W 31 × D 31 cm'), '31×25×31');
+  assert.equal(dimsOf('ارتفاع 23 × عرض 32 × قطر 32 سم'), '32×23×32');
+  assert.equal(dimsOf('Ø 15 cm'), '15×15');
+  assert.equal(dimsOf('50 × 70 cm'), '50 × 70 cm');
+});
+test('the flows: generate takes a color with an integer shot; the result path keeps both', () => {
+  const SB0 = '0b6f2f5e-1d2c-4a8b-9e3f-1234567890ab';
+  const r = parseGenerate({ batch_id: SB0, index: 0, slot: 3, color: 'OW' });
+  assert.deepEqual(r.req.slot, { color: 'OW', shot: 3 });
+  assert.equal(parseGenerate({ batch_id: SB0, index: 0, slot: 3, color: 'bad color' }).field, 'color');
+  assert.equal(studioGenPath(SB0, 0, { color: 'OW', shot: 3 }, 's1', 'webp'), SB0 + '/gen-0-cOW-3-s1.webp');
+  assert.equal(studioGenPath(SB0, 0, { color: 'OW' }, 's1', 'webp'), SB0 + '/gen-0-cOW-s1.webp');
 });

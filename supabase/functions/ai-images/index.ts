@@ -58,7 +58,7 @@
 // in 10 minutes), 503 not_configured, 502 ai_error (no usable image), 200 { result: 'refused' } when the provider refused the content.
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import {
-  MODEL_IDS, PROVIDER, creditsFor, editPrompt, extOf, imageSettings, line, parseCreate, parseEdit, parseGenerate, shapePrompt, sizeOf, slotPrompt, studioEditPath,
+  MODEL_IDS, PROVIDER, creditsFor, editPrompt, extOf, imageSettings, line, parseCreate, parseEdit, parseGenerate, shapePrompt, sizeOf, slotPrompt, flowShotPrompt, studioEditPath,
   renameInState, studioGenPath, studioPathOk, toolPath, usdOf,
 } from '../_shared/ai-images.js';
 import { magnific, ProviderError, shape, type Provider, type Ref } from './providers/magnific.ts';
@@ -262,8 +262,10 @@ async function readBatchItem(deps: Deps, batchId: string, index: number) {
   return { item, brand };
 }
 // the item's reference photos: its main photo first, then its references and the color's photo — this batch's paths only
-async function itemRefs(deps: Deps, batchId: string, item: Json, slot: number | { color: string }) {
-  const paths = [item.main, ...(Array.isArray(item.refs) ? item.refs : []), isObj(slot) && isObj(item.colorImages) ? item.colorImages[slot.color] : null]
+async function itemRefs(deps: Deps, batchId: string, item: Json, slot: number | { color: string; shot?: number }) {
+  // the three flows: a color's own reference photo first (the maker's row of that color), then the product's
+  const own = isObj(slot) && isObj(item.colorRefs) ? item.colorRefs[slot.color] : null;
+  const paths = [own, item.main, ...(Array.isArray(item.refs) ? item.refs : []), isObj(slot) && isObj(item.colorImages) ? item.colorImages[slot.color] : null]
     .filter((p): p is string => typeof p === 'string' && studioPathOk(batchId, p));
   const refs: Ref[] = [];
   for (const p of [...new Set(paths)].slice(0, MAX_REFS)) { const r = await download(deps.db, STUDIO_BUCKET, p); if (r) refs.push(r); }
@@ -281,7 +283,11 @@ async function generate(deps: Deps, who: Who, args: Json) {
   if (!refs.length) return json(400, { error: 'bad_request', field: 'reference' });
   let colorName = '';
   if (isObj(slot)) colorName = ((await deps.db.from('sku_colors').select('name_en').eq('code', slot.color).maybeSingle()).data?.name_en ?? '') as string;
-  const prompt = slotPrompt(read.item, slot, { brand: read.brand, colorName });
+  // the three flows (docs/superpowers/plans/2026-11-14-studio-flows.md): the five shots of the owner's rules, by product or by color
+  const flow = read.item.flow === 2;
+  const shot = isObj(slot) ? (Number.isInteger(slot.shot) ? slot.shot : 0) : slot;
+  const prompt = flow ? flowShotPrompt(read.item, shot, { brand: read.brand, colorName }) : slotPrompt(read.item, slot, { brand: read.brand, colorName });
+  if (!prompt) return json(400, { error: 'bad_request', field: 'sizes' }); // a size drawing needs a numeric size
   const label = line(read.item.nameEn || read.item.nameAr || '', 200) || '#' + (index + 1);
   const base = { created_by: who.uid, action: 'image', source: 'studio', label, batch_id: batchId, item_index: index };
   const st = stamp(deps);

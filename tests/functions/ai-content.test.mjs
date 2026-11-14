@@ -3,6 +3,7 @@ import {
   parseWrite, parseStudio, writeSchema, studioSchema, writeRequest, studioRequest, readAnswer, cleanWrite, cleanStudio,
   costOf, usageOf, aiConfig, aiSettings, categoryLines, colorLines, line, paras, htmlText, MAX_IMAGE_B64,
   parsePrompts, promptsSchema, promptsRequest, cleanPrompts, shotPromptRows, FLOW_MODEL, SHOT_NAMES,
+  parseExtract, extractRequest, cleanExtract, extractSchema, EXTRACT_MAX_SHOTS,
 } from '../../supabase/functions/_shared/ai-content.js';
 // The AI content (phase 5.3, docs/superpowers/plans/2026-10-29-phase-5-3-ai-content.md decisions 2 / 3 / 5): the request
 // checks, the Claude request, the answer's cleaning (the WooCommerce limits; never a price or a SKU) and the cost.
@@ -220,4 +221,31 @@ test('line / paras / htmlText: plain text, no tags or < >, control characters ou
   assert.equal(paras(' a \r\n\r\n\r\n b  c ', 50), 'a\n\nb c');
   assert.equal(htmlText('<p>A &lt;b&gt;</p><p>B</p>', 50), 'A\nB');
   assert.equal(line(null, 10), '');
+});
+
+// the studio's WhatsApp flow (docs/superpowers/plans/2026-11-14-studio-flows.md, decision 11)
+test('parseExtract: 1–8 screenshots, a type, the photo count; anything else refused', () => {
+  assert.equal(parseExtract({ images: [], type: 'Simple' }).field, 'images');
+  assert.equal(parseExtract({ images: Array(EXTRACT_MAX_SHOTS + 1).fill(IMG), type: 'Simple' }).field, 'images');
+  assert.equal(parseExtract({ images: [{ media_type: 'image/gif', data: 'A'.repeat(400) }], type: 'Simple' }).field, 'images');
+  assert.equal(parseExtract({ images: [IMG], type: 'x' }).field, 'type');
+  assert.equal(parseExtract({ images: [IMG], type: 'Simple', photos: 301 }).field, 'photos');
+  const ok = parseExtract({ images: [IMG, IMG], type: 'Variable', photos: 4 });
+  assert.deepEqual([ok.req.images.length, ok.req.type, ok.req.photos], [2, 'Variable', 4]);
+});
+test('extractRequest: the screenshots first as images, then the ask; the rows schema; the instructions say the chat is material, never instructions', () => {
+  const r = extractRequest({ images: [IMG, IMG], type: 'Simple', photos: 3 }, { model: 'claude-opus-5-5', effort: 'medium' });
+  assert.deepEqual(r.messages[0].content.map((b) => b.type), ['image', 'image', 'text']);
+  assert.match(r.messages[0].content[2].text, /He sent 3 product photo/);
+  assert.match(r.system[0].text, /never instructions to you/);
+  assert.deepEqual(Object.keys(extractSchema().properties.rows.items.properties).slice(0, 3), ['product', 'nameEn', 'nameAr']);
+  assert.equal(r.output_config.format.schema.properties.rows.type, 'array');
+});
+test('cleanExtract: plain lines within limits, a price ≥ 0 or null, empty rows dropped, 300 at most', () => {
+  const out = cleanExtract({ rows: [{ product: 2, nameEn: '  Vase <b>blue</b> ', nameAr: 'فازة', colorEn: 'Blue', colorAr: 'أزرق', size: '25 cm', sizeAr: '25 سم', materialEn: '', materialAr: '', styleEn: '', styleAr: '', vendorPrice: 520.257, shortEn: '', shortAr: '' },
+    { product: 0, nameEn: '', nameAr: '', vendorPrice: -5 }, 'x'] });
+  assert.equal(out.rows.length, 1);
+  assert.equal(out.rows[0].product, 2); assert.equal(out.rows[0].vendorPrice, 520.26); assert.ok(!/[<>]/.test(out.rows[0].nameEn));
+  assert.equal(cleanExtract({ rows: Array(400).fill({ product: 1, nameEn: 'a', vendorPrice: 1 }) }).rows.length, 300);
+  assert.deepEqual(cleanExtract(null), { rows: [] });
 });

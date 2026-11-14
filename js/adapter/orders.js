@@ -328,6 +328,24 @@
     log('suborder.site_status', '#' + sid + ' (IB-' + orderId + ') · ' + d.status);
     return { ok: true, status: d.status };
   }
+  // «تعديل الكمية» (the owner 14 Nov — «تعديل كمية في الصب اوردر الفرعي», up or down): woo-sync line_qty — the product's quantity
+  // and value at its piece price on its maker's sub-order (the parent on the site untouched, total null) or, for an order of one maker,
+  // on the order itself (its new total); the reasons: 'same' / 'closed' / 'in_hub' (pulled from the hub, or a piece of it there) /
+  // 'sub_line' / 'missing' / 'site' / 'push_disabled' / 'forbidden' / 'invalid'. Logged as order.line_qty with the two numbers only.
+  async function setLineQty(orderId, itemId, qty, was) {
+    const n = Number(qty);
+    if (!Number.isInteger(n) || n < 1 || n > 99) return fail('invalid');
+    const r = await syncCall({ action: 'line_qty', order_id: Number(orderId), item_id: Number(itemId), qty: n });
+    if (r.status === -1) return fail('network');
+    if (r.status) return fail(r.status === 401 || r.status === 403 ? 'forbidden' : r.status === 409 ? (['same', 'closed', 'in_hub', 'sub_line'].includes(r.code) ? r.code : 'site') : r.status === 404 ? 'missing' : r.status === 400 ? 'invalid' : r.status === 502 ? 'site' : 'network');
+    const d = r.data;
+    if (!d || d.result !== 'ok') return fail(d && d.reason === 'push_disabled' ? 'push_disabled' : 'site');
+    const total = d.total != null && Number.isFinite(Number(d.total)) ? Number(d.total) : null;
+    const lineTotal = d.line_total != null && Number.isFinite(Number(d.line_total)) ? Number(d.line_total) : null;
+    if (orders) { const o = orders.find((x) => x.id === String(orderId)); if (o) { o.subs.forEach((s) => { if (String(s.itemId) === String(itemId)) { s.qty = n; if (lineTotal !== null) s.tot = lineTotal; } }); if (total !== null) o.tot = total; notifySoon(); } }
+    log('order.line_qty', 'IB-' + orderId + ' · سطر #' + itemId + ' · ' + (Number.isFinite(Number(was)) ? Number(was) + ' ← ' : '') + n);
+    return { ok: true, qty: n, lineTotal, total, sub: d.sub || null };
+  }
   async function setOrderStatus(id, status, extra) {
     if (status === 'مكتمل' && extra && extra.rating) {
       const r = await completeOrder(id, extra.rating);
@@ -482,6 +500,6 @@
     if (ch && c()) { try { Promise.resolve(c().removeChannel(ch)).catch(() => {}); } catch (e) { /* already closed */ } }
   }
   function clear() { gen += 1; unsubscribe(); cancelNotify(); orders = null; vendorRows = []; leads = new Map(); leadAsked.clear(); images = {}; links = {}; states = new Map(); statuses = []; names = []; asked.clear(); busy.clear(); setState('idle'); }
-  window.IBOrders = { load, data, state: () => st, today, setOrderStatus, setConfirm, patchOrder, deleteOrder, deleteSub, deleteLine, siteStatuses, setSubSiteStatus, setItemStatus, setWaybill, setPulled, syncNow, registerWebhooks, subscribe, unsubscribe, clear, toScreen };
+  window.IBOrders = { load, data, state: () => st, today, setOrderStatus, setConfirm, patchOrder, deleteOrder, deleteSub, deleteLine, setLineQty, siteStatuses, setSubSiteStatus, setItemStatus, setWaybill, setPulled, syncNow, registerWebhooks, subscribe, unsubscribe, clear, toScreen };
   window.IBOrdersStore = window.IBOrders; // the name block 29's write hooks call
 })();

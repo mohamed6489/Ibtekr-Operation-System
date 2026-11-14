@@ -12,7 +12,7 @@
   // woo-sync: the site / Dokan
   const WOO = {
     push_status: 'بنحدّث حالة الأوردر على الموقع…', order_trash: 'بنمسح الأوردر من الموقع…', suborder_trash: 'بنمسح الأوردر الفرعي من الموقع…',
-    line_trash: 'بنشيل المنتج من الأوردر على الموقع…', suborder_status: 'بنغيّر حالة الأوردر الفرعي على الموقع…', order_create: 'بنعمل الأوردر على الموقع…',
+    line_trash: 'بنشيل المنتج من الأوردر على الموقع…', line_qty: 'بنعدّل الكمية على الموقع…', suborder_status: 'بنغيّر حالة الأوردر الفرعي على الموقع…', order_create: 'بنعمل الأوردر على الموقع…',
     order_pay_link: 'بنجيب لينك الدفع من الموقع…', push_vendor: 'بنحدّث بيانات المبتكر على Dokan…', vendor_photo: 'بنرفع صورة المبتكر…',
     statement: 'بنجيب كشف الحساب من Dokan…', withdrawals: 'بنحدّث طلبات السحب من Dokan…', withdraw_approve: 'بنوافق على طلب السحب على Dokan…',
     withdraw_create: 'بنعمل طلب السحب على Dokan…', product_get: 'بنجيب المنتج من الموقع…', product_save: 'بنحفظ المنتج على الموقع…',

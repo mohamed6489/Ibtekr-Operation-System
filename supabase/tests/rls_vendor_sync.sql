@@ -92,7 +92,7 @@ do $$ begin
   end if;
   if not ((select string_agg(column_name || ':' || data_type || ':' || is_nullable, ',' order by ordinal_position)
            from information_schema.columns where table_schema = 'public' and table_name = 'woo_categories')
-          = 'id:integer:NO,name:text:NO,slug:text:YES,parent_id:integer:YES,updated_at:timestamp with time zone:NO') then
+          = 'id:integer:NO,name:text:NO,slug:text:YES,parent_id:integer:YES,updated_at:timestamp with time zone:NO,image_url:text:YES') then -- image_url: 0088 (owner batch 14 Nov)
     raise exception 'case woo_categories columns failed';
   end if;
   if not ((select string_agg(c.conname || ':' || c.contype::text || ':' || (select string_agg(a.attname::text, ',' order by k.ord)

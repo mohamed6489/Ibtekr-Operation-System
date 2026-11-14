@@ -2029,3 +2029,16 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 1. `0085_carts_cron_off.sql` على المشروع (اتطبّق من الجلسة بـ SQL — `cron.unschedule('woo-sync-carts')` + صف `schema_migrations`).
 2. انشر `woo-sync` من «Deploy functions» (الـ 401 `invalid_username` على `ibtekr/v1/carts` = `installed: false` من غير صف غلط).
 3. التحقق: `select count(*) from cron.job where jobname = 'woo-sync-carts';` = 0، ومفيش صفوف `error` جديدة في `woo_sync_log` بتاعة `carts`.
+
+#### 2.7.70 دفعة صاحب المشروع 14 نوفمبر (`docs/superpowers/plans/2026-11-14-owner-batch.md` القرارات 1–15)
+**بعد** `0085` بالترتيب:
+1. `0086_settings_lists_more.sql` — `settings_public` بيرجّع القوائم الجديدة (`stop` / `shipping` / `labels`).
+2. `0087_hr_hours.sql` — أيام وساعات العمل وسعر اليوم و«أوقات عمل مخصصة» على السيرفر (`hr_day_minutes` / `hr_workday_dow` / `hr_day_divisor` في `hr_clock_out` و`hr_rest_day` و`hr_att_score` و`hr_leave_used` و`hr_payroll_calc`). من غير إعدادات = الأحد–الخميس و8 ساعات و÷ 24 زي قبل.
+3. `0088_category_images.sql` — `woo_categories.image_url` (https بس).
+4. `0089_hr_notes.sql` — `hr_notes_log` + `hr_member_note_add` (⋮ التقييم: ميتنج / إنذار / خطة تحسين / شكر).
+5. `0090_role_scope.sql` — أدوار الديزاينر والمبرمج والميديا باير على شغلهم بس (المفتاح اللي اتغيّر بالإيد بيفضل).
+   كلهم بـ Supabase MCP (`execute_sql` بالملف + صف في `supabase_migrations.schema_migrations`) أو SQL Editor.
+6. RLS live (workflow «RLS live»، `files = rls_settings,rls_hr_hours,rls_vendor_sync,rls_hr_notes,rls_role_scope,rls_hr_rebuild,rls_hr`).
+7. انشر من «Deploy functions»: `woo-sync` (الـ Slug والأب في `category_create` / `category_update` والصورة في المرآة) و`ai-content` (`request` في رد المساعدين).
+8. الواجهة على `main`.
+9. التجربة: الإعدادات (التابات الستيكي، «القوائم والحالات» — تغيير اسم حالة وشركة شحن جديدة، مصفوفة الصلاحيات، «أيام وساعات العمل»)؛ «الأقسام» (Slug وتغيير الأب الجماعي)؛ الجرد (⋮ السطر و«شيل من المخزن»)؛ «التقييمات» (⋮ الصف)؛ شات المساعدين («قدّم الطلب ده»)؛ ودخول بعضو ديزاينر — القايمة فيها اللوحة والمنتجات وطلبات الفريق والتسويق بس.

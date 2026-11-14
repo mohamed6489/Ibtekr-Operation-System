@@ -50,3 +50,22 @@ test('the admin gives the accounts member «ديزاينر» as an extra role; t
   await expect(page.locator('.sidebar .nav-item[data-page="marketing"]')).toBeVisible();
   expect(await page.evaluate(() => [window.IBDirectory.perm('marketing.create'), window.IBDirectory.perm('accounts.view'), window.IBTickets.myRoles()])).toEqual(['F', 'F', ['الحسابات', 'ديزاينر']]);
 });
+
+test('owner batch 14 Nov decision 15: the menu follows the role — the admin sees every page; a designer only the dashboard, the products, the team requests and the marketing (0090); a typed hash of a closed page lands on the dashboard', async ({ page }) => {
+  const NAV = '.sidebar .nav-item[data-page]';
+  const shown = async () => page.locator(NAV).evaluateAll((l) => l.filter((b) => !b.hidden && b.offsetParent !== null).map((b) => b.dataset.page));
+  await signIn(page, ADMIN);
+  await expect.poll(shown).toEqual(['dashboard', 'orders', 'vendors', 'accounts', 'inventory', 'products', 'cs', 'autoreply', 'tickets', 'reports', 'marketing', 'hr', 'settings']);
+  await page.locator('.user-btn').click(); await page.getByRole('menuitem', { name: 'تسجيل الخروج' }).click(); await expect(page.locator('#login')).toBeVisible();
+  // the accounts member as a designer (main role)
+  mock.profiles.find((p) => p.id === ACC_ID).role_id = 'designer';
+  await signIn(page, ACC);
+  await expect.poll(shown).toEqual(['dashboard', 'products', 'tickets', 'marketing']);
+  await page.evaluate(() => { location.hash = 'orders'; });
+  await expect(page.locator('.toast.show')).toContainText('مش متاحة لدورك');
+  await expect.poll(() => page.evaluate(() => location.hash)).toBe('#dashboard');
+  await page.evaluate(() => { location.hash = 'settings'; });
+  await expect.poll(() => page.evaluate(() => location.hash)).toBe('#dashboard');
+  await page.evaluate(() => { location.hash = 'marketing'; });
+  await expect(page.locator('#pg-marketing')).toBeVisible();
+});

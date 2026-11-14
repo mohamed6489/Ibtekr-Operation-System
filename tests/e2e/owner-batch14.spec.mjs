@@ -77,11 +77,12 @@ test('decision 11: CS — the chat a lighter beige, the «ملف العميل» 
   await go(page, 'cs-inbox');
   const badge = page.locator('.cs-list .badge').first();
   await expect(badge).toBeVisible();
+  await expect(badge).toHaveCSS('background-color', 'rgb(0, 86, 66)');
   const b = await badge.evaluate((e) => { const c = getComputedStyle(e); const r = e.getBoundingClientRect(); const t = document.createRange(); t.selectNodeContents(e); const q = t.getBoundingClientRect(); return { bg: c.backgroundColor, dx: Math.abs((r.left + r.right) / 2 - (q.left + q.right) / 2) }; });
   expect(b.bg).toBe('rgb(0, 86, 66)'); expect(b.dx).toBeLessThan(1.5);
   await page.locator('.cs-list .cv').first().click();
   const d = await page.locator('[data-panel-toggle] svg path').getAttribute('d');
   expect(d && d !== 'undefined').toBeTruthy();
-  const bg = await page.locator('.cs-msgs').evaluate((e) => getComputedStyle(e).backgroundColor);
-  expect(bg).toBe('rgb(245, 237, 220)'); // the page's container beige, lighter than the selected #e8d5b3
+  // toHaveCSS retries: the chat redraws when the conversation opens (CI read a detached node once → '')
+  await expect(page.locator('.cs-msgs')).toHaveCSS('background-color', 'rgb(245, 237, 220)'); // the page's container beige, lighter than the selected #e8d5b3
 });

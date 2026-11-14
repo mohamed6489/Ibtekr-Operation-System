@@ -67,7 +67,8 @@ const ROLES = [
 ROLES.push(...[['designer', 'ديزاينر', 'التصميم والبوستات والفيديوهات وطلبات الديزاين', { 'marketing.view': 'F', 'marketing.create': 'F', 'marketing.publish': 'N', 'tickets.view': 'P', 'tickets.manage': 'F' }, 7],
   ['media_buyer', 'ميديا باير', 'الحملات الإعلانية وأرقامها وطلبات الإعلانات', { 'marketing.view': 'F', 'marketing.create': 'F', 'marketing.publish': 'F', 'reports.view': 'F', 'tickets.view': 'P', 'tickets.manage': 'F' }, 8],
   ['developer', 'مبرمج', 'الموقع والسيستم وطلبات البرمجة', { 'marketing.view': 'F', 'marketing.create': 'F', 'marketing.publish': 'N', 'tickets.view': 'P', 'tickets.manage': 'F' }, 9]]
-  .map(([id, name, description, perms, sort]) => ({ id, name, description, is_system: true, permissions: { ...ROLES.find((r) => r.id === 'viewer').permissions, ...perms }, sort })));
+  // 0090 (owner batch 14 Nov decision 15): their work only — no orders, makers, inventory or conversations; the reports for the media buyer
+  .map(([id, name, description, perms, sort]) => ({ id, name, description, is_system: true, permissions: { ...ROLES.find((r) => r.id === 'viewer').permissions, 'orders.view': 'N', 'vendors.view': 'N', 'inventory.view': 'N', 'cs.view': 'N', ...(id === 'media_buyer' ? {} : { 'reports.view': 'N' }), ...perms }, sort })));
 const COLUMNS = { // supabase/migrations/0001_identity.sql, 0002_system.sql (activity_log, alerts, status_map), 0006_dashboard.sql (user_prefs,
   // alert_reads), 0007_orders.sql (orders_v; order_items / sub_orders: the columns granted to authenticated, i.e. all but raw),
   // 0009 (products.permalink), 0010 (orders_v.customer_state: the governorate's code on the website; woo_states: its names),

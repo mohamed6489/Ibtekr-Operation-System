@@ -287,7 +287,13 @@ test('0084 decision 6: the designer\'s picture — its answer carries an image p
   const P = pg(page); const box = P.locator('[data-mk-agent="designer"]');
   await P.locator('#mk-ask').fill('اعمل صورة لبوست ماكرامية');
   await P.locator('[data-mk-ask]').click();
-  await expect(box.locator('[data-mk-gen]')).toBeVisible();
+  // failed twice on CI (14 Nov, 08:18 and 08:29 UTC) and never here — name what the page shows when the button is missing
+  await expect(box.locator('[data-mk-gen]')).toBeVisible().catch(async (e) => {
+    const seen = await page.evaluate(() => ({ box: (document.querySelector('[data-mk-agent="designer"] .mk-chat') || {}).innerText, scrims: document.querySelectorAll('.scrim').length, modals: Array.from(document.querySelectorAll('.modal[role=dialog]')).map((x) => x.innerText.slice(0, 80)),
+      ask: (document.getElementById('mk-ask') || {}).value, page: window.IBPages && window.IBPages.current }));
+    const calls = mock.mkt.calls.filter((x) => x.fn === 'ai-content').map((x) => x.action + ':' + (x.agent || '') + ':' + (x.chat || ''));
+    throw new Error(e.message + '\nSEEN ' + JSON.stringify(seen) + '\nCALLS ' + JSON.stringify(calls) + '\nERRORS ' + JSON.stringify(pageErrors));
+  });
   await expect(box).toContainText('وصف الصورة: A cozy winter flat lay');
   await box.locator('[data-mk-gen]').click();
   await expect(toast(page)).toContainText('اتعملت الصورة');

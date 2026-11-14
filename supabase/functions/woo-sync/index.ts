@@ -69,6 +69,15 @@
 //              total is null. An order of one maker: the same on the order itself, mirrored from its answer (its total). qty an integer
 //              1–99 (else 400); the same quantity → 409 same; a line pulled from the hub or with an open lot there → 409 in_hub. Same
 //              permissions as line_trash; never the sync secret; WOO_PUSH_ENABLED.
+//   'line_add' { order_id, sub_id?, product_id, variation_id?, qty, price }  (the owner 14 Nov — «زر اضافة منتج ف ال sub order», the price
+//              typed by hand; a new WooCommerce write by his decision) a product of the sub-order's maker (the mirror, not trashed, not
+//              the Arabic copy — else 400 field product; another maker → 409 other_maker) on an order not «مكتمل» / «استرجاع» /
+//              «ملغي» / «فشل» (409 closed): an order with sub-orders → sub_id (one of its current sub-orders, not cancelled / refunded
+//              / completed on the site) and PUT { line_items: [{ product_id, variation_id?, quantity, subtotal, total }] } on that
+//              sub-order only (the parent never — PR #3454), the new line inserted here with added_at (0094) and sub_orders.total from
+//              the answer; one maker → the order itself, mirrored from its answer. A variable product without variation_id → 409
+//              need_variation with its variations (GET, read only). qty 1–99, price 0–1,000,000 per piece. Same permissions as
+//              line_trash; never the sync secret; WOO_PUSH_ENABLED.
 //   'vendor_store' { vendor_id, password, shop_url?, notify?, trusted?, featured? }  (the owner 11 Nov — «إضافة مبتكر» on the site)
 //              a maker of ours without a store gets Dokan's «Add New Vendor»: POST dokan/v1/stores with his portal login, the
 //              password the member typed (never stored nor logged), the shop URL, the row's store fields, the commission (admin
@@ -158,7 +167,7 @@ export type Deps = { env: Record<string, string | undefined>; fetch: typeof fetc
 type Ctx = Awaited<ReturnType<typeof writeContext>>;
 type Run = { db: Db; env: Deps['env']; woo: () => ReturnType<typeof wooApi>; ctx: () => Promise<Ctx>; kind: 'cron' | 'manual'; now: () => string };
 
-const ACTIONS = ['states', 'categories', 'orders', 'vendors', 'products', 'all', 'push_status', 'push_vendor', 'register_webhooks', 'probe_store', 'probe_dokan', 'accounts', 'statement', 'withdraw_approve', 'withdraw_create', 'withdrawals', 'order_trash', 'suborder_trash', 'line_trash', 'line_qty', 'suborder_status', 'order_create', 'order_pay_link',
+const ACTIONS = ['states', 'categories', 'orders', 'vendors', 'products', 'all', 'push_status', 'push_vendor', 'register_webhooks', 'probe_store', 'probe_dokan', 'accounts', 'statement', 'withdraw_approve', 'withdraw_create', 'withdrawals', 'order_trash', 'suborder_trash', 'line_trash', 'line_qty', 'line_add', 'suborder_status', 'order_create', 'order_pay_link',
   'vendor_photo', 'vendor_store', 'product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'studio_media', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push', 'product_duplicate', 'carts',
   'category_get', 'category_update', 'category_delete'];
 // phase 5: the product actions a person runs (never the sync secret); phase 5.2: the studio's upload, a new category, a sheet link;
@@ -189,7 +198,7 @@ async function authorize(req: Request, deps: Deps, action: string, args: Json): 
   const secret = req.headers.get('x-sync-secret');
   if (secret) {
     if (action === 'withdraw_approve' || action === 'withdraw_create') return null; // a person approves / asks, never the cron / sync secret (phase 4.1; 0078)
-    if (action === 'order_trash' || action === 'suborder_trash' || action === 'line_trash' || action === 'line_qty' || action === 'suborder_status') return null; // a person deletes an order / a sub-order, never the cron / sync secret (phase 5.5 decision 10, phase 13 decision 54)
+    if (action === 'order_trash' || action === 'suborder_trash' || action === 'line_trash' || action === 'line_qty' || action === 'line_add' || action === 'suborder_status') return null; // a person deletes an order / a sub-order, never the cron / sync secret (phase 5.5 decision 10, phase 13 decision 54)
     if (action === 'order_create' || action === 'order_pay_link') return null; // a person makes an order from the chat (phase 13 T3)
     if (action === 'vendor_photo' || action === 'vendor_store') return null; // a person sets a maker's photo / makes his store (phase 13 decision 51; 11 Nov)
     if (PRODUCT_ACTIONS.includes(action)) return null; // a person edits products, never the cron / sync secret (phase 5)
@@ -203,7 +212,7 @@ async function authorize(req: Request, deps: Deps, action: string, args: Json): 
   const admin = async () => { const { data, error } = await member.rpc('is_admin'); return !error && data === true; };
   if (action === 'push_status') return (await perm('orders.status')) ? 'member' : null;
   // phase 5.5 decision 10: the site trash needs the same two permissions RPC order_delete checks — orders.status = F and orders.view <> N
-  if (action === 'order_trash' || action === 'suborder_trash' || action === 'line_trash' || action === 'line_qty' || action === 'suborder_status') { if (!(await perm('orders.status'))) return null; const { data, error } = await member.rpc('has_perm', { key: 'orders.view' }); return !error && (data === 'F' || data === 'P') ? 'member' : null; }
+  if (action === 'order_trash' || action === 'suborder_trash' || action === 'line_trash' || action === 'line_qty' || action === 'line_add' || action === 'suborder_status') { if (!(await perm('orders.status'))) return null; const { data, error } = await member.rpc('has_perm', { key: 'orders.view' }); return !error && (data === 'F' || data === 'P') ? 'member' : null; }
   // phase 13 T3 (decision 7): an order from the customer-service chat and its pay link — the admin or orders.status = F
   if (action === 'order_create' || action === 'order_pay_link') return (await admin()) || (await perm('orders.status')) ? 'member' : null;
   if (action === 'statement' || action === 'withdrawals') { const { data, error } = await member.rpc('has_perm', { key: 'accounts.view' }); return !error && (data === 'F' || data === 'P') ? 'member' : null; }
@@ -725,6 +734,98 @@ async function lineQty(run: Run, args: Json) {
   await writeOrders(ctx, [after]);
   await logSync(run.db, { ...entry, result: 'ok', detail: { line: item, sub: null, from: was, to: qty } });
   return json(200, { action: 'line_qty', result: 'ok', sub: null, qty, line_total: lineTotal, total: isObj(after) ? after.total ?? null : null });
+}
+
+// ---------------------------------------------------------------- line_add (the owner 14 Nov — «زر اضافة منتج ف ال sub order»)
+// A product of the sub-order's maker added on the site at the piece price the member typed (the site's price by default): an order with
+// sub-orders → the maker's Dokan sub-order only (the parent is never written — PR #3454) and the new line kept here (order_items row with
+// the site's line id, added_at — 0094: the sync, which reads the parent's lines, never flags it removed); an order of one maker → the
+// order itself, mirrored from its answer. A variable product without its variation → 409 need_variation with the product's variations
+// read live, so the page asks which one and sends again. The order «مكتمل» / «استرجاع» / «ملغي» / «فشل», or a sub-order cancelled /
+// refunded / completed on the site → 409 closed; a product of another maker → 409 other_maker.
+const PRICE_MAX = 1_000_000;
+const ADD_CLOSED = ['مكتمل', 'استرجاع', 'ملغي', 'فشل'];
+const SUB_CLOSED = ['cancelled', 'refunded', 'completed', 'failed', 'trash'];
+const varLabel = (v: Json) => (Array.isArray(v.attributes) ? v.attributes.filter(isObj).map((a: Json) => String(a.option ?? '')).filter(Boolean).join(' · ') : '') || ('#' + v.id);
+async function lineAdd(run: Run, args: Json) {
+  const id = wooId(args.order_id), pid = wooId(args.product_id);
+  const hasVar = args.variation_id != null && args.variation_id !== 0; const vid = hasVar ? wooId(args.variation_id) : null;
+  const subArg = args.sub_id == null ? null : wooId(args.sub_id);
+  const qty = typeof args.qty === 'number' ? args.qty : NaN; const price = typeof args.price === 'number' ? args.price : NaN;
+  if (id === null || pid === null || (hasVar && vid === null) || (args.sub_id != null && subArg === null) || !Number.isInteger(qty) || qty < 1 || qty > QTY_MAX
+      || !Number.isFinite(price) || price < 0 || price > PRICE_MAX) return json(400, { error: 'bad_request' });
+  const { data: order, error } = await run.db.from('orders').select('id, number, status').eq('id', id).is('deleted_at', null).maybeSingle();
+  if (error) throw new Error(`orders: ${error.message}`);
+  if (!order) return json(404, { error: 'order_not_found' });
+  if (ADD_CLOSED.includes(String(order.status))) return json(409, { error: 'closed', status: order.status });
+  // the target: the maker's sub-order (an order with sub-orders) or the order itself (one maker)
+  const subs = await currentSubOrders(run.db, id);
+  let sid: number | null = null; let subRow: number | null = null; let maker: string | null = null;
+  if (subs.length) {
+    const s = subs.find((x) => x.woo === subArg);
+    if (!s) return json(subArg === null ? 400 : 404, { error: subArg === null ? 'bad_request' : 'sub_missing', ...(subArg === null ? { field: 'sub_id' } : {}) });
+    if (s.status && SUB_CLOSED.includes(s.status)) return json(409, { error: 'closed', sub: s.woo, status: s.status });
+    sid = s.woo; subRow = s.id;
+    const { data: row } = await run.db.from('sub_orders').select('vendor_id').eq('id', s.id).maybeSingle();
+    maker = isObj(row) && typeof row.vendor_id === 'string' ? row.vendor_id : null;
+  } else {
+    if (subArg !== null && subArg !== id) return json(404, { error: 'sub_missing' });
+    const { data: lines, error: lineErr } = await run.db.from('order_items').select('vendor_id').eq('order_id', id).eq('removed', false);
+    if (lineErr) throw new Error(`order_items: ${lineErr.message}`);
+    maker = ((lines ?? []) as Json[]).map((l) => l.vendor_id).find((v) => typeof v === 'string') ?? null;
+  }
+  const { data: prod, error: prodErr } = await run.db.from('products').select('id, name, sku, vendor_id, type, lang, trashed_at').eq('id', pid).maybeSingle();
+  if (prodErr) throw new Error(`products: ${prodErr.message}`);
+  if (!isObj(prod) || prod.trashed_at || prod.lang === 'ar') return json(400, { error: 'bad_request', field: 'product' });
+  if (!maker || prod.vendor_id !== maker) return json(409, { error: 'other_maker' });
+  const entry = { kind: 'push', direction: 'out', entity: 'order', entity_id: String(id), action: 'line_add' };
+  if (!pushEnabled(run.env)) { await logSync(run.db, { ...entry, result: 'skipped', detail: { reason: 'push_disabled', product: pid } }); return json(200, { action: 'line_add', result: 'skipped', reason: 'push_disabled' }); }
+  const woo = run.woo();
+  const fail = async (step: string, e: unknown, extra: Json = {}) => {
+    await logSync(run.db, { ...entry, result: 'error', detail: { step, product: pid, ...extra, error: e ? errorText(e, woo.scrub) : undefined } });
+    if (!e || e instanceof WooError) return json(502, { error: e ? 'woo_error' : 'woo_kept_line', step }); throw e;
+  };
+  // a variable product: its variation (asked of the page when missing, checked when sent)
+  if (prod.type === 'variable') {
+    if (vid === null) {
+      let vars: Json[];
+      try { const r = (await woo.get(`wc/v3/products/${pid}/variations`, { per_page: 100 })).data; vars = Array.isArray(r) ? r.filter(isObj) : []; } catch (e) { return await fail('variations', e); }
+      return json(409, { error: 'need_variation', variations: vars.map((v) => ({ id: wooId(v.id), label: varLabel(v), price: Number.isFinite(Number(v.price)) ? Number(v.price) : null, sku: typeof v.sku === 'string' ? v.sku : null })).filter((v) => v.id !== null) });
+    }
+    let v: Json;
+    try { v = (await woo.get(`wc/v3/products/${pid}/variations/${vid}`)).data as Json; } catch (e) { return await fail('variation', e); }
+    if (!isObj(v) || (v.parent_id != null && wooId(v.parent_id) !== pid)) return json(400, { error: 'bad_request', field: 'variation' });
+  } else if (vid !== null) return json(400, { error: 'bad_request', field: 'variation' });
+  const target = sid ?? id;
+  let live: Json;
+  try { live = (await woo.get(`wc/v3/orders/${target}`)).data as Json; } catch (e) { return await fail(sid !== null ? 'sub_read' : 'read', e, sid !== null ? { sub: sid } : {}); }
+  const before = new Set((isObj(live) && Array.isArray(live.line_items) ? live.line_items.filter(isObj) : []).map((li: Json) => wooId(li.id)));
+  const value = money(price * qty);
+  const put = { product_id: pid, ...(vid !== null ? { variation_id: vid } : {}), quantity: qty, subtotal: value, total: value };
+  let after: Json;
+  try { after = (await woo.put(`wc/v3/orders/${target}`, { line_items: [put] })).data as Json; } catch (e) { return await fail('add', e, sid !== null ? { sub: sid } : {}); }
+  const got = (isObj(after) && Array.isArray(after.line_items) ? after.line_items.filter(isObj) : []).find((li: Json) => !before.has(wooId(li.id))
+    && (wooId(li.product_id) === pid || wooId(li.variation_id) === pid) && (vid === null || wooId(li.variation_id) === vid));
+  const lineId = got ? wooId(got.id) : null;
+  if (!got || lineId === null || Number(got.quantity) !== qty) return await fail('add', null, sid !== null ? { sub: sid, kept: 1 } : { kept: 1 });
+  const lineTotal = Number.isFinite(Number(got.total)) ? Number(money(Number(got.total))) : Number(value);
+  if (sid !== null) { // the parent on the site never lists it (never written): the line kept here (added_at, 0094)
+    const row = { id: lineId, order_id: id, sub_order_id: subRow, vendor_id: maker, product_id: pid, sku: typeof got.sku === 'string' && got.sku ? got.sku : (prod.sku ?? null),
+      name: typeof got.name === 'string' && got.name ? got.name : String(prod.name ?? ''), qty, total: lineTotal, removed: false, added_at: run.now() };
+    const { error: insErr } = await run.db.from('order_items').insert(row);
+    if (insErr) throw new Error(`order_items: ${insErr.message}`);
+    if (subRow !== null && isObj(after) && Number.isFinite(Number(after.total))) {
+      const { error: subErr } = await run.db.from('sub_orders').update({ total: Number(after.total) }).eq('id', subRow);
+      if (subErr) throw new Error(`sub_orders: ${subErr.message}`);
+    }
+    await logSync(run.db, { ...entry, result: 'ok', detail: { line: lineId, sub: sid, product: pid, qty } });
+    return json(200, { action: 'line_add', result: 'ok', sub: sid, line: { id: lineId, name: row.name, sku: row.sku, qty, total: lineTotal }, total: null });
+  }
+  // an order of one maker: the order itself — mirrored from WooCommerce's answer (the new line and the order's new total)
+  const ctx = await run.ctx();
+  await writeOrders(ctx, [after]);
+  await logSync(run.db, { ...entry, result: 'ok', detail: { line: lineId, sub: null, product: pid, qty } });
+  return json(200, { action: 'line_add', result: 'ok', sub: null, line: { id: lineId, name: typeof got.name === 'string' ? got.name : String(prod.name ?? ''), sku: typeof got.sku === 'string' ? got.sku : (prod.sku ?? null), qty, total: lineTotal }, total: isObj(after) ? after.total ?? null : null });
 }
 
 // ---------------------------------------------------------------- suborder_status (the owner 11 Nov, option «أ»)
@@ -2228,6 +2329,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'suborder_trash') return await suborderTrash(run, args);
     if (action === 'line_trash') return await lineTrash(run, args);
     if (action === 'line_qty') return await lineQty(run, args);
+    if (action === 'line_add') return await lineAdd(run, args);
     if (action === 'suborder_status') return await suborderStatus(run, args);
     if (action === 'order_create') return await orderCreate(run, args);
     if (action === 'order_pay_link') return await orderPayLink(run, args);

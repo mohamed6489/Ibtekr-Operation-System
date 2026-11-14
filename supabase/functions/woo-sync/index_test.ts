@@ -2780,3 +2780,94 @@ Deno.test('vendor_store (owner batch 14 Nov): the follow-up update failing on th
   for (const f of ['phone', 'bank', 'name']) assert((row.push_pending ?? []).includes(f), 'pending: ' + f);
   assert(!writtenText(db).includes(PW), 'the password is never kept or logged');
 });
+
+// ---------------------------------------------------------------- line_add (the owner 14 Nov — «زر اضافة منتج ف ال sub order»)
+const addSeed = () => { const b = lineSeed();
+  return { ...b, sub_orders: b.sub_orders.map((s: any) => ({ ...s, woo_status: 'processing' })),
+    order_items: b.order_items.map((i: any) => ({ ...i, vendor_id: i.sub_order_id === 12 ? vendorId(2376) : vendorId(44) })),
+    products: [{ id: 90, name: 'Lamp', sku: 'IBT-L', vendor_id: vendorId(44), type: 'simple', lang: 'en', trashed_at: null },
+      { id: 91, name: 'Other', sku: 'IBT-O', vendor_id: vendorId(2376), type: 'simple', lang: 'en', trashed_at: null },
+      { id: 92, name: 'Chair', sku: 'IBT-C', vendor_id: vendorId(44), type: 'variable', lang: 'en', trashed_at: null },
+      { id: 93, name: 'Old', sku: 'IBT-X', vendor_id: vendorId(44), type: 'simple', lang: 'en', trashed_at: '2026-11-01T00:00:00Z' }] }; };
+
+Deno.test('line_add: orders.status = F only, never the sync secret; bad input → 400; closed → 409; a product of another maker → 409 other_maker; a trashed product → 400; the sub-order missing → 400 / 404; push off → skipped, no Woo call', async () => {
+  const { woo, deps } = setup({ seed: addSeed(), env: PUSH_ON });
+  const a = { action: 'line_add', order_id: 3001, sub_id: 3002, product_id: 90, qty: 2, price: 120 };
+  assertEquals((await call(deps, a, { jwt: 'jwt-acct' })).res.status, 401);
+  assertEquals((await call(deps, a)).res.status, 401, 'never the sync secret');
+  for (const bad of [{ qty: 0 }, { qty: 100 }, { qty: 1.5 }, { price: -1 }, { price: '120' }, { price: 2_000_000 }, { product_id: null }])
+    assertEquals((await call(deps, { ...a, ...bad }, { jwt: 'jwt-ops' })).res.status, 400, JSON.stringify(bad));
+  const noSub = await call(deps, { ...a, sub_id: undefined }, { jwt: 'jwt-ops' });
+  assertEquals([noSub.res.status, noSub.body.field], [400, 'sub_id'], 'an order with sub-orders names the sub-order');
+  assertEquals((await call(deps, { ...a, sub_id: 9999 }, { jwt: 'jwt-ops' })).body.error, 'sub_missing');
+  const cl = await call(deps, { ...a, order_id: 3101, sub_id: 3102 }, { jwt: 'jwt-ops' });
+  assertEquals([cl.res.status, cl.body.error], [409, 'closed']);
+  const other = await call(deps, { ...a, product_id: 91 }, { jwt: 'jwt-ops' });
+  assertEquals([other.res.status, other.body.error], [409, 'other_maker'], 'the other maker\'s product on this maker\'s sub-order');
+  assertEquals((await call(deps, { ...a, product_id: 93 }, { jwt: 'jwt-ops' })).body.field, 'product');
+  const cancelled = setup({ seed: { ...addSeed(), sub_orders: addSeed().sub_orders.map((s: any) => (s.woo_order_id === 3002 ? { ...s, woo_status: 'cancelled' } : s)) }, env: PUSH_ON });
+  const cs = await call(cancelled.deps, a, { jwt: 'jwt-ops' });
+  assertEquals([cs.res.status, cs.body.error], [409, 'closed'], 'a sub-order cancelled on the site');
+  const off = setup({ seed: addSeed() });
+  const r = await call(off.deps, a, { jwt: 'jwt-ops' });
+  assertEquals([r.body.result, r.body.reason], ['skipped', 'push_disabled']);
+  assertEquals(woo.calls.length + cancelled.woo.calls.length + off.woo.calls.length, 0);
+});
+
+Deno.test('line_add: the product goes on the maker\'s sub-order only at the typed price (the parent is never written — PR #3454); the new line kept here with added_at, the sub-order total from the answer; the site not adding it → 502, nothing written', async () => {
+  const puts: any[] = [];
+  const routes = { 'GET wc/v3/orders/3002': { body: subOrder3002 },
+    'PUT wc/v3/orders/3002': (c: any) => { puts.push(c.body); return { body: { ...subOrder3002, total: '390.00', line_items: [...subOrder3002.line_items, { id: 9050, product_id: 90, variation_id: 0, name: 'Lamp', sku: 'IBT-L', quantity: 2, total: '240.00' }] } }; } };
+  const { db, woo, deps } = setup({ seed: addSeed(), routes, env: PUSH_ON });
+  const { res, body } = await call(deps, { action: 'line_add', order_id: 3001, sub_id: 3002, product_id: 90, qty: 2, price: 120 }, { jwt: 'jwt-ops' });
+  assertEquals(res.status, 200, JSON.stringify(body));
+  assertEquals([body.result, body.sub, body.line, body.total], ['ok', 3002, { id: 9050, name: 'Lamp', sku: 'IBT-L', qty: 2, total: 240 }, null]);
+  assertEquals(woo.calls.map((c) => [c.method, c.path]), [['GET', 'wc/v3/orders/3002'], ['PUT', 'wc/v3/orders/3002']], 'the parent 3001 is never written');
+  assertEquals(puts, [{ line_items: [{ product_id: 90, quantity: 2, subtotal: '240.00', total: '240.00' }] }]);
+  const it = db.rows('order_items').find((i: any) => i.id === 9050);
+  assertEquals([it.order_id, it.sub_order_id, it.vendor_id, it.product_id, it.qty, it.total, it.removed, it.added_at], [3001, 11, vendorId(44), 90, 2, 240, false, NOW]);
+  assertEquals(Number(db.rows('sub_orders').find((x: any) => x.id === 11).total), 390);
+  assertEquals(Number(db.rows('orders').find((o: any) => o.id === 3001).total), 300, 'the order keeps the site\'s total');
+  const log = db.rows('woo_sync_log').find((x: any) => x.action === 'line_add');
+  assertEquals([log.result, log.detail], ['ok', { line: 9050, sub: 3002, product: 90, qty: 2 }], 'no price in the log');
+  // the site answers without the new line → 502, nothing inserted
+  const kept = setup({ seed: addSeed(), routes: { 'GET wc/v3/orders/3002': { body: subOrder3002 }, 'PUT wc/v3/orders/3002': { body: subOrder3002 } }, env: PUSH_ON });
+  const k = await call(kept.deps, { action: 'line_add', order_id: 3001, sub_id: 3002, product_id: 90, qty: 2, price: 120 }, { jwt: 'jwt-ops' });
+  assertEquals([k.res.status, k.body.error], [502, 'woo_kept_line']);
+  assertEquals(kept.db.rows('order_items').length, addSeed().order_items.length);
+});
+
+Deno.test('line_add: a variable product without its variation → 409 need_variation with the variations read live (no write); with one of them → added as that variation; a variation of another product → 400', async () => {
+  const vars = [{ id: 921, parent_id: 92, price: '300', sku: 'IBT-C-40', attributes: [{ name: 'Size', option: '40' }] }, { id: 922, parent_id: 92, price: '350', sku: 'IBT-C-60', attributes: [{ name: 'Size', option: '60' }] }];
+  const routes = { 'GET wc/v3/products/92/variations': { body: vars }, 'GET wc/v3/products/92/variations/922': { body: vars[1] }, 'GET wc/v3/products/92/variations/555': { body: { id: 555, parent_id: 70 } },
+    'GET wc/v3/orders/3002': { body: subOrder3002 },
+    'PUT wc/v3/orders/3002': (c: any) => ({ body: { ...subOrder3002, total: '500', line_items: [...subOrder3002.line_items, { id: 9060, product_id: 92, variation_id: 922, name: 'Chair - 60', quantity: 1, total: '350.00' }] } }) };
+  const { db, woo, deps } = setup({ seed: addSeed(), routes, env: PUSH_ON });
+  const a = { action: 'line_add', order_id: 3001, sub_id: 3002, product_id: 92, qty: 1, price: 350 };
+  const need = await call(deps, a, { jwt: 'jwt-ops' });
+  assertEquals([need.res.status, need.body.error, need.body.variations], [409, 'need_variation', [{ id: 921, label: '40', price: 300, sku: 'IBT-C-40' }, { id: 922, label: '60', price: 350, sku: 'IBT-C-60' }]]);
+  assertEquals(woo.calls.map((c) => c.method), ['GET'], 'read only');
+  const bad = await call(deps, { ...a, variation_id: 555 }, { jwt: 'jwt-ops' });
+  assertEquals([bad.res.status, bad.body.field], [400, 'variation']);
+  const ok = await call(deps, { ...a, variation_id: 922 }, { jwt: 'jwt-ops' });
+  assertEquals([ok.res.status, ok.body.line.id], [200, 9060]);
+  assertEquals(woo.calls.at(-1)!.body, { line_items: [{ product_id: 92, variation_id: 922, quantity: 1, subtotal: '350.00', total: '350.00' }] });
+  assertEquals(db.rows('order_items').find((i: any) => i.id === 9060).added_at, NOW);
+});
+
+Deno.test('line_add: an order of one maker → the order itself (GET + PUT), mirrored from the answer (the new line and the order\'s total), no added_at', async () => {
+  const one = { ...addSeed(), orders: [...addSeed().orders, { id: 3201, number: '3201', customer_name: 'z', status: 'جاري التنفيذ', woo_status: 'processing', total: 200, placed_at: '2026-10-20T10:00:00Z', woo_updated_at: '2026-10-20T11:00:00Z' }],
+    order_items: [...addSeed().order_items, { id: 32010, order_id: 3201, name: 'e', qty: 2, total: 200, removed: false, pulled: false, product_id: 80, vendor_id: vendorId(44) }] };
+  const live = wooOrder({ id: 3201, number: '3201', status: 'processing', total: '200.00', date_modified_gmt: '2026-11-14T09:00:00', meta_data: [{ key: '_dokan_vendor_id', value: '44' }],
+    line_items: [{ id: 32010, product_id: 80, name: 'e', quantity: 2, subtotal: '200', total: '200', meta_data: [] }] });
+  const after = wooOrder({ id: 3201, number: '3201', status: 'processing', total: '320.00', date_modified_gmt: '2026-11-14T10:00:00', meta_data: [{ key: '_dokan_vendor_id', value: '44' }],
+    line_items: [{ id: 32010, product_id: 80, name: 'e', quantity: 2, subtotal: '200', total: '200', meta_data: [] }, { id: 32099, product_id: 90, name: 'Lamp', quantity: 1, subtotal: '120.00', total: '120.00', meta_data: [] }] });
+  const { db, woo, deps } = setup({ seed: one, routes: { 'GET wc/v3/orders/3201': { body: live }, 'PUT wc/v3/orders/3201': { body: after } }, env: PUSH_ON });
+  const r = await call(deps, { action: 'line_add', order_id: 3201, product_id: 90, qty: 1, price: 120 }, { jwt: 'jwt-ops' });
+  assertEquals(r.res.status, 200, JSON.stringify(r.body));
+  assertEquals([r.body.sub, r.body.line.id, r.body.total], [null, 32099, '320.00']);
+  assertEquals(woo.calls.map((c) => [c.method, c.path]), [['GET', 'wc/v3/orders/3201'], ['PUT', 'wc/v3/orders/3201']]);
+  const it = db.rows('order_items').find((i: any) => i.id === 32099);
+  assertEquals([it.qty, Number(it.total), it.added_at ?? null], [1, 120, null]);
+  assertEquals(Number(db.rows('orders').find((o: any) => o.id === 3201).total), 320);
+});

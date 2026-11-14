@@ -185,7 +185,7 @@ export const TRANSFER_SINCE = ymd(new Date(Date.now() - 8 * 86400000)); export c
 const STATUS_MAP = [['قيد الانتظار', 'pending', 'both'], ['جاري التنفيذ', 'processing', 'both'], ['معلّق', 'on-hold', 'both'], ['جاهز للشحن', 'ready-shipping', 'both'], ['قيد الشحن', 'in-shipping', 'both'],
   ['فشل', 'failed', 'from_woo', 10], ['مكتمل', 'completed', 'both'], ['استرجاع', 'refunded', 'both'], ['ملغي', 'cancelled', 'both']].map(([system_status, woo_status, direction, sort], i) => ({ id: i + 1, system_status, woo_status, direction, sort: sort || i + 1 }));
 // order_items.status check list (0007): block 29's 11 sub-statuses or ''
-const ITEM_STATUSES = ['', 'غير مؤكد', 'مؤكد', 'قيد التنفيذ', 'جاهز للشحن من المبتكر للعميل', 'جاهز للشحن من المخزن للعميل', 'جاهز للشحن من المبتكر للمخزن', 'تم الشحن للمخزن', 'وصل المخزن', 'تم الشحن للعميل', 'مرتجع للمخزن', 'مرتجع للمبتكر'];
+const ITEM_STATUSES = ['', 'غير مؤكد', 'مؤكد', 'قيد التنفيذ', 'جاهز للشحن من المبتكر للعميل', 'جاهز للشحن من المخزن للعميل', 'جاهز للشحن من المبتكر للمخزن', 'تم الشحن للمخزن', 'وصل المخزن', 'تم الشحن للعميل', 'مرتجع للمخزن', 'مرتجع للمبتكر', 'ملغي']; // 'ملغي': 0094
 function ordersSeed(opts = {}) {
   const ago = (d) => { const t = new Date(Date.now() - d * 864e5); t.setUTCHours(10, 0, 0, 0); return t.toISOString(); };
   const vendor = (n, woo, name, status = 'active', more = {}) => ({ id: VND(n), woo_vendor_id: woo, name, aliases: [], phone: null, email: null, status, commission_pct: null, raw: { id: woo, shop_url: SITE + '/store/' + name.toLowerCase().replace(/\s+/g, '-') + '/' }, created_at: T0, updated_at: T0,
@@ -960,6 +960,8 @@ export async function installSupabaseMock(page, opts = {}) {
           return json(200, [{ ...r }]);
         }
       }
+      // 0094 (2026-11-14-order-edit-tabs.md decision 2): the order or the maker's sub-order cancelled → its lines «ملغي» (not the returned)
+      function cancelLines(pick) { mock.orderItems.filter((i) => !i.removed && pick(i) && !['ملغي', 'مرتجع للمخزن', 'مرتجع للمبتكر'].includes(i.status)).forEach((i) => { i.status = 'ملغي'; }); }
       // 0093 (2026-11-14-settings-lists.md decision 1): an expense's type is a base one or one the admin added in the row «lists»
       function expenseKindOk(c) { const li = ((mock.settings || []).find((x) => x.section === 'lists') || {}).data || {};
         return ['المرتبات', 'المصروفات', 'الاشتراكات', 'الإعلانات'].includes(c) || (Array.isArray(li.expenseKinds) && li.expenseKinds.includes(c)); }
@@ -1540,7 +1542,10 @@ export async function installSupabaseMock(page, opts = {}) {
         if (t === 'orders' && 'status' in b && !mock.statusMap.some((x) => x.system_status === b.status)) return json(409, { code: '23503', details: null, hint: null, message: 'insert or update on table "orders" violates foreign key constraint "orders_status_fkey"' });
         if (t === 'order_items' && 'status' in b && !ITEM_STATUSES.includes(b.status)) return json(400, { code: '23514', details: null, hint: null, message: 'new row for relation "order_items" violates check constraint "order_items_status_check"' });
         const at = new Date().toISOString();
-        for (const r of rows) { Object.assign(r, b, { updated_at: at }); mock.patches.push({ table: t, id: r.id, ...b }); }
+        for (const r of rows) {
+          const wasSt = r.status; Object.assign(r, b, { updated_at: at }); mock.patches.push({ table: t, id: r.id, ...b });
+          if (t === 'orders' && b.status === 'ملغي' && wasSt !== 'ملغي') cancelLines((i) => i.order_id === r.id); // 0094 orders_cancel_lines
+        }
         return empty(204);
       }
       if (method === 'POST' && path === '/rest/v1/rpc/log_activity') {
@@ -2200,7 +2205,7 @@ export async function installSupabaseMock(page, opts = {}) {
         v.woo_vendor_id = store; v.woo_synced_at = new Date().toISOString(); v.push_pending = null;
         return json(200, { action, result: 'ok', store, adopted: false, commission, bank, photo: 'none', shop_url: 'https://woo.test/store/' + shop + '/' });
       }
-      if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : (action === 'order_trash' || action === 'suborder_trash' || action === 'line_trash' || action === 'line_qty' || action === 'suborder_status') ? hasPerm(u, 'orders.status') === 'F' && hasPerm(u, 'orders.view') !== 'N' : (action === 'order_create' || action === 'order_pay_link') ? (isAdmin(u) || hasPerm(u, 'orders.status') === 'F') : action === 'push_vendor' ? mayPushVendor() : (action === 'statement' || action === 'withdrawals') ? hasPerm(u, 'accounts.view') !== 'N' : action === 'withdraw_approve' || action === 'withdraw_create' ? (isAdmin(u) || hasPerm(u, 'accounts.approve') === 'F')
+      if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : (action === 'order_trash' || action === 'suborder_trash' || action === 'line_trash' || action === 'line_qty' || action === 'line_add' || action === 'suborder_status') ? hasPerm(u, 'orders.status') === 'F' && hasPerm(u, 'orders.view') !== 'N' : (action === 'order_create' || action === 'order_pay_link') ? (isAdmin(u) || hasPerm(u, 'orders.status') === 'F') : action === 'push_vendor' ? mayPushVendor() : (action === 'statement' || action === 'withdrawals') ? hasPerm(u, 'accounts.view') !== 'N' : action === 'withdraw_approve' || action === 'withdraw_create' ? (isAdmin(u) || hasPerm(u, 'accounts.approve') === 'F')
         : action === 'product_get' ? hasPerm(u, 'products.view') !== 'N' : action === 'product_save' || action === 'product_images_add' ? (isAdmin(u) || hasPerm(u, 'products.edit') === 'F') : action === 'products_batch' || action === 'products_vendor' ? (isAdmin(u) || hasPerm(u, 'products.bulk') === 'F')
           : action === 'products_trash' || action === 'products_restore' ? hasPerm(u, 'products.trash') === 'F' : action === 'studio_upload' || action === 'studio_media' || action === 'category_create' || action === 'studio_sheet' || action === 'product_duplicate' || action === 'category_get' || action === 'category_update' || action === 'category_delete' ? (isAdmin(u) || hasPerm(u, 'products.add') === 'F') : isAdmin(u))) return json(401, { error: 'unauthorized' });
       // phase 5.2: studio_upload — the item read from the batch and checked by the server's own buildStudio; the gate; a product
@@ -2542,6 +2547,26 @@ export async function installSupabaseMock(page, opts = {}) {
         (mock.lineQtys = mock.lineQtys || []).push({ order_id: o.id, item_id: it.id, qty: q, by: u.email });
         return json(200, { action, result: 'ok', sub: multi ? so.woo_order_id : null, qty: q, line_total: lineTotal, total: multi ? null : Number(o.total).toFixed(2) });
       }
+      // the owner 14 Nov: line_add — a product of the sub-order's maker on that sub-order only (the parent untouched, total null) or on
+      // an order of one maker itself; a variable product without its variation → 409 need_variation with mock variations
+      if (action === 'line_add') {
+        const o = mock.orders.find((x) => x.id === Number(b.order_id) && !x.deleted_at); if (!o) return json(404, { error: 'order_not_found' });
+        const q = b.qty, pr = b.price; if (!Number.isInteger(q) || q < 1 || q > 99 || typeof pr !== 'number' || pr < 0) return json(400, { error: 'bad_request' });
+        if (['مكتمل', 'استرجاع', 'ملغي', 'فشل'].includes(o.status)) return json(409, { error: 'closed', status: o.status });
+        const subs = mock.subOrders.filter((x) => x.order_id === o.id && x.woo_order_id !== o.id && x.woo_status !== 'trash');
+        let so = null; if (subs.length) { so = subs.find((x) => x.woo_order_id === Number(b.sub_id)); if (!so) return json(b.sub_id == null ? 400 : 404, { error: b.sub_id == null ? 'bad_request' : 'sub_missing' }); if (['cancelled', 'refunded', 'completed'].includes(so.woo_status)) return json(409, { error: 'closed' }); }
+        const maker = so ? so.vendor_id : (mock.orderItems.find((i) => i.order_id === o.id && !i.removed) || {}).vendor_id;
+        const p = mock.products.find((x) => Number(x.id) === Number(b.product_id)); if (!p || p.trashed_at) return json(400, { error: 'bad_request', field: 'product' });
+        if (!maker || p.vendor_id !== maker) return json(409, { error: 'other_maker' });
+        if (!mock.pushEnabled) return json(200, { action, result: 'skipped', reason: 'push_disabled' });
+        if (p.type === 'variable' && !b.variation_id) return json(409, { error: 'need_variation', variations: [{ id: Number(p.id) * 10 + 1, label: '40 سم', price: 300, sku: (p.sku || '') + '-40' }, { id: Number(p.id) * 10 + 2, label: '60 سم', price: 350, sku: (p.sku || '') + '-60' }] });
+        if (mock.wooDown) return json(502, { error: 'woo_error', step: 'add' });
+        const id = 990000 + (mock.lineAdds = mock.lineAdds || []).length; const total = Math.round(pr * q * 100) / 100;
+        mock.orderItems.push({ id, order_id: o.id, sub_order_id: so ? so.id : (mock.orderItems.find((i) => i.order_id === o.id) || {}).sub_order_id ?? null, product_id: Number(p.id), sku: p.sku || null, name: p.name + (b.variation_id ? ' - ' + b.variation_id : ''), qty: q, total, vendor_id: maker, status: '', expected_at: null, comment: null, ready_at: null, waybill: null, pulled: false, ret: null, store: null, removed: false, updated_at: new Date().toISOString() });
+        if (!so) o.total = Number(o.total) + total;
+        mock.lineAdds.push({ order_id: o.id, sub_id: so ? so.woo_order_id : null, product_id: Number(p.id), variation_id: b.variation_id || null, qty: q, price: pr, by: u.email });
+        return json(200, { action, result: 'ok', sub: so ? so.woo_order_id : null, line: { id, name: p.name, sku: p.sku || null, qty: q, total }, total: so ? null : Number(o.total).toFixed(2) });
+      }
       if (action === 'suborder_status') {
         const o = mock.orders.find((x) => x.id === Number(b.order_id) && !x.deleted_at); if (!o) return json(404, { error: 'order_not_found' });
         if (Number(b.sub_id) === o.id) return json(400, { error: 'bad_request' });
@@ -2549,7 +2574,8 @@ export async function installSupabaseMock(page, opts = {}) {
         if (!mock.statusMap.some((r) => r.woo_status && r.woo_status === b.status)) return json(400, { error: 'bad_status' });
         if (!mock.pushEnabled) return json(200, { action, result: 'skipped', reason: 'push_disabled' });
         if (mock.wooDown) return json(502, { error: 'woo_error' });
-        so.woo_status = b.status; (mock.subStatuses = mock.subStatuses || []).push({ order_id: o.id, sub_id: so.woo_order_id, status: b.status, by: u.email });
+        const wasSo = so.woo_status; so.woo_status = b.status; (mock.subStatuses = mock.subStatuses || []).push({ order_id: o.id, sub_id: so.woo_order_id, status: b.status, by: u.email });
+        if (b.status === 'cancelled' && wasSo !== 'cancelled') cancelLines((i) => i.sub_order_id === so.id); // 0094 sub_orders_cancel_lines
         return json(200, { action, result: 'ok', sub: so.woo_order_id, status: b.status });
       }
       if (action === 'order_trash') {

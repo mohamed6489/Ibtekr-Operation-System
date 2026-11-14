@@ -40,7 +40,10 @@
     autoMissing: true, probation: 3, salaryViewers: 'المالك بس', hideAmounts: true, holdbackDefault: 1000, bonusFloor: 70,
     // the HR rebuild (0083, the owner 12 Nov): the pay day (an earlier transfer asks why), the bonus bar (a month's evaluation ≥ it = its
     // held-back part whole), the annual leave left at the year's end ('pay' with December's salary · 'carry' to the next year)
-    payDay: 28, bonusMin: 3, leaveYearEnd: 'pay' };
+    payDay: 28, bonusMin: 3, leaveYearEnd: 'pay',
+    // owner batch 14 Nov decision 7 (0087): the work days (isodow — 1 Monday … 7 Sunday), the official hours, the day rate's divisor and a
+    // custom time for a department or a member ({ dept: { name: { from, to } }, member: { uid: { from, to } } }) — the server reads the same
+    workDays: [7, 1, 2, 3, 4], workFrom: '09:00', workTo: '17:00', dayDivisor: 24, schedules: { dept: {}, member: {} } };
   const c = () => (window.IBSupabase && window.IBSupabase.client) || null;
   const quiet = (fn) => { try { return fn(); } catch (e) { return undefined; } };
   const K = () => window.IBKit;
@@ -124,7 +127,7 @@
   async function maybe(q) { try { return await rows(q); } catch (e) { return []; } } // a table RLS hides from the member reads as empty
 
   const holidayDates = () => raw.hol.filter((x) => x.status === 'مؤكد').flatMap((x) => Array.from({ length: x.days || 1 }, (_, i) => addDays(x.day, i)));
-  const offDay = (d, hol) => isoDay(d) === 5 || isoDay(d) === 6 || hol.includes(d);
+  const offDay = (d, hol) => !workDays().includes(isoDay(d) || 7) || hol.includes(d); // 0087: the settings' work days (getUTCDay 0 = Sunday = isodow 7)
   const leaveDays = (from, to, hol) => { let n = 0; for (let d = from; d <= to; d = addDays(d, 1)) if (!offDay(d, hol)) n += 1; return n; };
   const leaveType = (name) => raw.lt.find((t) => t.name === name) || null;
   const isLeave = (type) => !!leaveType(type) || String(type || '').startsWith('إجازة');
@@ -241,6 +244,21 @@
   }
   const meetingLabel = (x) => (x.status === 'خطة شغالة' ? 'اتعمل — خطة شغالة' : x.status === 'اتقفلت' && x.outcome === 'إنذار' ? 'اتعمل — إنذار' : x.status === 'اتقفلت' && x.outcome ? 'اتقفلت — ' + x.outcome : x.status);
   const settings = () => Object.assign({}, DEFAULTS, raw.settings && typeof raw.settings === 'object' ? raw.settings : {});
+  // ---------- the hours (0087 — the same rules as hr_hm / hr_span / hr_schedule / hr_day_minutes / hr_work_dows) ----------
+  const hm = (t) => (/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(String(t || '')) ? Number(t.slice(0, 2)) * 60 + Number(t.slice(3)) : null);
+  const span = (from, to) => { const a = hm(from), b = hm(to); if (a == null || b == null) return null; const d = (b - a + 1440) % 1440; return d >= 60 && d <= 960 ? d : null; };
+  const workDays = () => { const v = settings().workDays; const ok = Array.isArray(v) ? [...new Set(v.map(Number).filter((x) => Number.isInteger(x) && x >= 1 && x <= 7))] : []; return ok.length ? ok.sort() : [1, 2, 3, 4, 7]; };
+  const isWorkDay = (d) => { const x = d instanceof Date ? d : new Date(String(d).slice(0, 10) + 'T12:00:00'); const iso = x.getDay() === 0 ? 7 : x.getDay(); return workDays().includes(iso); };
+  const dayDivisor = () => { const n = Number(settings().dayDivisor); return Number.isInteger(n) && n >= 20 && n <= 31 ? n : 24; };
+  function scheduleOf(uid) {
+    const st0 = settings(); const sc = st0.schedules && typeof st0.schedules === 'object' ? st0.schedules : {};
+    const m = uid && sc.member && sc.member[uid]; if (m && span(m.from, m.to) != null) return { from: m.from, to: m.to, kind: 'member' };
+    const who = uid ? members().find((x) => x.uid === uid) : null; const g = who && who.dept && sc.dept && sc.dept[who.dept];
+    if (g && span(g.from, g.to) != null) return { from: g.from, to: g.to, kind: 'dept' };
+    if (span(st0.workFrom, st0.workTo) != null) return { from: st0.workFrom, to: st0.workTo, kind: 'general' };
+    return { from: '09:00', to: '17:00', kind: 'general' };
+  }
+  const dayMinutes = (uid) => { const s0 = scheduleOf(uid === undefined ? myUid() : uid); return span(s0.from, s0.to) || 480; };
 
   async function load() {
     const cl = c(); const uid = myUid(); if (!cl || !uid) return { ok: false, reason: 'network' };
@@ -614,6 +632,7 @@
     const cl = c(); if (!cl) return no('network'); if (!can().admin) return no('forbidden');
     const next = Object.assign({}, raw.settings || {}); Object.keys(patch || {}).forEach((k) => { if (k in DEFAULTS || k === 'departments') next[k] = patch[k]; });
     const r = await write(cl.from('settings').upsert({ section: 'hr', data: next }, { onConflict: 'section' })); if (r.error) return fail(r.error);
+    raw.settings = next; // the clock and the pages follow at once (0087's hours), before the reload
     return after('hr.settings', Object.keys(patch || {}).join(', '));
   }
   const addDepartment = (name) => { const n = clean(name, 40); const list = data.departments || []; if (!n) return Promise.resolve(no('invalid')); if (list.includes(n)) return Promise.resolve(no('exists'));
@@ -860,7 +879,7 @@
   }
   const logNow = () => logRows;
 
-  window.IBHR = { load, clear, subscribe, unsubscribe, check, state: () => st, data, member, team, everyone, can, decidesOt, settings, today, nowMin, addDays, quarterOf, quarterMonths, monthKey, holidayDates, leaveDays, isLeave,
+  window.IBHR = { load, clear, subscribe, unsubscribe, check, state: () => st, data, member, team, everyone, can, decidesOt, settings, hm, span, workDays, isWorkDay, dayDivisor, scheduleOf, dayMinutes, today, nowMin, addDays, quarterOf, quarterMonths, monthKey, holidayDates, leaveDays, isLeave,
     shiftNow, myShift, clockIn, clockOut, overtimeBegin, overtimeRequest, setAttendance, endShiftFor, fixOut, request, decide, cancel, overtimeDecide, rateMonth, saveKpis,
     payrollCalc, payrollLines, sheetLines, sheetTotals, slips, transfer, payMember, advanceGive, otAdjust, payDayOf, evaluate, evalTotal, quarterEval, monthTasks, bank, bankSet, bankReveal, payrollOpen, payrollStep, payrollPay, addAdjustment, voidAdjustment, addExtra, decideExtra, meetingCreate, meetingUpdate,
     holidayAdd, holidayConfirm, holidayDelete, leaveTypeAdd, bonusRuleAdd, bonusRuleToggle, otPeriodAdd, otPeriodDelete, saveSettings, addDepartment,

@@ -13,6 +13,9 @@
   // (the server records it past 8 hours for the direct manager); «لسه شغال؟» unanswered ends the shift at the moment it was shown.
   // What the member chose for this shift (the 8-hour question, the presence prompts) stays in sessionStorage by the shift's id.
   const HR = () => window.IBHR;
+  // owner batch 14 Nov decision 7 (0087): the day's minutes are the member's (own time, else the department's, else the official hours)
+  const DM = () => (window.IBHR && window.IBHR.dayMinutes ? window.IBHR.dayMinutes() : 480);
+  const dayHrs = () => { const m = DM(); return (m % 60 ? (m / 60).toFixed(1) : String(m / 60)) + ' ساعات'; };
   // phase 13 decision 24 (0068 — «مع المرونة مفيش تأخير»): flexible hours — «ابدأ الدوام» shows again after «إنهاء الدوام», each start is a
   // session of the day, and the day's hours are its sessions summed: `base` = the day's other closed sessions, `worked()` the day's total
   const sh = { state: 'out', start: 0, base: 0, id: null, otStart: null, prompted: 0, endAsked: false, presence: null, note: '', ended: false, endedMin: 0, busy: false };
@@ -36,12 +39,12 @@
     if (sh.id !== s.id) {
       let saved = null; try { saved = JSON.parse(sessionStorage.getItem(SKEY(s.id)) || 'null'); } catch (e) { saved = null; }
       // a session that starts with the day past 8 hours is overtime from its start (the 8-hour question was the earlier session's)
-      if (!saved && base >= 480) saved = { endAsked: true, ot: true, prompted: 0 };
+      if (!saved && base >= DM()) saved = { endAsked: true, ot: true, prompted: 0 };
       saved = saved || {};
-      Object.assign(sh, { id: s.id, endAsked: !!saved.endAsked, prompted: Number(saved.prompted) || 0, otStart: saved.ot ? 480 : null });
+      Object.assign(sh, { id: s.id, endAsked: !!saved.endAsked, prompted: Number(saved.prompted) || 0, otStart: saved.ot ? DM() : null });
     }
     // decision 25 (0069): an overtime started on the server (this device or another) — from its start, or the 8-hour mark if later
-    if (s.ot_from) { sh.otStart = Math.min(480, base + Math.max(0, (Date.parse(s.ot_from) - Date.parse(s.in_at)) / 60000)); sh.endAsked = true; }
+    if (s.ot_from) { sh.otStart = Math.min(DM(), base + Math.max(0, (Date.parse(s.ot_from) - Date.parse(s.in_at)) / 60000)); sh.endAsked = true; }
     sh.start = Date.parse(s.in_at); sh.base = base; sh.ended = false; sh.state = sh.otStart != null ? 'overtime' : 'in';
     paint();
   }
@@ -52,7 +55,7 @@
     const r = await HR().clockIn(); sh.busy = false; // «عن بُعد» comes from the server (an approved «شغل عن بُعد» covering today)
     if (!r.ok) { K.toast(r.message || 'تعذّر بدء الدوام — جرّب تاني', 'error'); paint(); return; }
     const remote = !!(r.shift && r.shift.remote);
-    const off = [5, 6].includes(new Date(t + 'T00:00:00Z').getUTCDay()) || HR().holidayDates().includes(t);
+    const off = (HR().isWorkDay ? !HR().isWorkDay(t) : [5, 6].includes(new Date(t + 'T00:00:00Z').getUTCDay())) || HR().holidayDates().includes(t);
     K.toast(off ? 'بدأ الدوام — يوم راحة/عطلة: بيتحسب بيومين بعد موافقة الأدمن' : remote ? 'بدأ الدوام عن بُعد — بالتوفيق' : again ? 'رجعت للدوام — الساعات بتتجمع على النهارده' : 'بدأ الدوام — بالتوفيق', 'success'); sync();
   }
   async function finish(endMinWorked, note, auto) {
@@ -81,15 +84,15 @@
     if (sh.state !== 'in' || sh.busy || !HR() || !HR().overtimeBegin) return;
     sh.busy = true; const r = await HR().overtimeBegin(); sh.busy = false;
     if (!r.ok) { K.toast(r.message || 'تعذّر بدء الوقت الإضافي — جرّب تاني', 'error'); paint(); return; }
-    sh.state = 'overtime'; sh.otStart = atMark ? 480 : worked(); sh.endAsked = true; sh.prompted = 0; remember(); sync();
+    sh.state = 'overtime'; sh.otStart = atMark ? DM() : worked(); sh.endAsked = true; sh.prompted = 0; remember(); sync();
     // decision 32 (0070): a rest day / holiday worked is the admins' to approve
-    const t = HR().today(); const off = [5, 6].includes(new Date(t + 'T00:00:00Z').getUTCDay()) || HR().holidayDates().includes(t);
+    const t = HR().today(); const off = (HR().isWorkDay ? !HR().isWorkDay(t) : [5, 6].includes(new Date(t + 'T00:00:00Z').getUTCDay())) || HR().holidayDates().includes(t);
     K.toast('بدأ الوقت الإضافي — اتبعت طلب ' + (off ? 'للأدمن' : 'لمديرك المباشر') + (r.ticket ? ' (' + r.ticket + ')' : '') + '، ومابيتحسبش غير بعد موافقته', 'success'); paint();
   }
   function shiftOver() {
     sh.endAsked = true; remember();
-    const m = U.Modal({ title: 'اكتمال ساعات العمل', body: [h('p', { style: 'margin:0' }, 'كمّلت 8 ساعات النهارده (من أول ' + clockLabel(sh.start) + '). تنهي الدوام ولا تبدأ وقت إضافي؟'), h('p', { class: 't-small help', style: 'margin:0' }, 'الوقت الإضافي بيتبعت طلب في «تذاكر الفريق» لمديرك المباشر ومابيتحسبش غير بعد موافقته.')],
-      footer: [Button({ label: 'ابدأ وقت إضافي', onClick: () => { m.close(); startOvertime(true); } }), Button({ type: 'primary', label: 'إنهاء الدوام', onClick: () => { m.close(); finish(Math.min(worked(), 480), '', false); } })] });
+    const m = U.Modal({ title: 'اكتمال ساعات العمل', body: [h('p', { style: 'margin:0' }, 'كمّلت ' + dayHrs() + ' النهارده (من أول ' + clockLabel(sh.start) + '). تنهي الدوام ولا تبدأ وقت إضافي؟'), h('p', { class: 't-small help', style: 'margin:0' }, 'الوقت الإضافي بيتبعت طلب في «تذاكر الفريق» لمديرك المباشر ومابيتحسبش غير بعد موافقته.')],
+      footer: [Button({ label: 'ابدأ وقت إضافي', onClick: () => { m.close(); startOvertime(true); } }), Button({ type: 'primary', label: 'إنهاء الدوام', onClick: () => { m.close(); finish(Math.min(worked(), DM()), '', false); } })] });
   }
   function closePresence() { if (sh.presence) { clearInterval(sh.presence.t); sh.presence.modal.close(); sh.presence = null; } }
   function presencePrompt() {
@@ -103,11 +106,22 @@
   function tick() {
     if (sh.state === 'out' || sh.busy) return;
     const w = worked(); const c = settings();
-    if (sh.state === 'in' && O.shiftState(w) === 'overtime' && !sh.endAsked && c.shiftEnd && !document.querySelector('.scrim')) shiftOver();
+    if (sh.state === 'in' && w >= DM() && !sh.endAsked && c.shiftEnd && !document.querySelector('.scrim')) shiftOver();
     if (sh.state === 'overtime' && c.presence && !sh.presence) { const n = Math.floor(otMin() / (Number(c.presenceEvery) || 120)); if (n > sh.prompted) { sh.prompted = n; remember(); presencePrompt(); } }
     paintTimer();
   }
   setInterval(tick, 1000);
+  // decision 7 (0087): a work day, no session yet and the member's time has started → one reminder a day «ابدأ الدوام» (no lateness)
+  function startReminder() {
+    const H = HR(); if (!H || !H.scheduleOf || !H.today || sh.state !== 'out' || sh.ended || sh.busy) return;
+    const t = H.today(); if (!H.isWorkDay(t) || (H.holidayDates && H.holidayDates().includes(t))) return;
+    const from = H.hm(H.scheduleOf().from); if (from == null || H.nowMin() < from) return;
+    const key = 'ib.start.reminded'; let seen = null; try { seen = localStorage.getItem(key); } catch (e) { seen = null; }
+    if (seen === t) return; try { localStorage.setItem(key, t); } catch (e) { /* private window */ }
+    K.toast('ميعاد الدوام بدأ (' + H.scheduleOf().from + ') — اضغط «ابدأ الدوام» من فوق', 'info');
+    if (widget) widget.classList.add('remind');
+  }
+  setInterval(startReminder, 60000); setTimeout(startReminder, 4000);
 
   // Clock widget (State=Out/In/Overtime + Timer)
   let timerEl = null;
@@ -125,7 +139,7 @@
     timerEl = h('span', { class: 'num' });
     const trig = h('button', { type: 'button', class: 'clock clock-' + sh.state, 'aria-haspopup': 'dialog', 'aria-expanded': 'false', 'aria-label': sh.state === 'overtime' ? 'وقت إضافي — تفاصيل الدوام' : 'على الدوام — تفاصيل الدوام' }, h('i', { class: 'dot' }), h('span', { class: 'lbl' }, sh.state === 'overtime' ? 'وقت إضافي' : 'على الدوام'), timerEl);
     const pop = U.popover(wrap, trig, (close) => h('div', { class: 'menu end clock-pop', role: 'dialog', 'aria-label': 'الدوام', 'data-popover-root': '' },
-      K.Kv([['بدأت', clockLabel(sh.start) + (sh.base ? ' (جلسة تانية)' : '')], ['اشتغلت النهارده', K.hrs(worked())], ['الشيفت', '8 ساعات — مرن'], sh.state === 'overtime' ? ['وقت إضافي', K.hrs(otMin())] : ['فاضل', K.hrs(Math.max(0, 480 - worked()))]]),
+      K.Kv([['بدأت', clockLabel(sh.start) + (sh.base ? ' (جلسة تانية)' : '')], ['اشتغلت النهارده', K.hrs(worked())], ['الشيفت', dayHrs() + ' — مرن'], sh.state === 'overtime' ? ['وقت إضافي', K.hrs(otMin())] : ['فاضل', K.hrs(Math.max(0, 480 - worked()))]]),
       Button({ type: 'primary', label: sh.state === 'overtime' ? 'إنهاء الوقت الإضافي' : 'إنهاء الدوام', onClick: () => { close(); endShift(); } })));
     trig.addEventListener('click', pop.toggle); wrap.append(trig); paintTimer(); return [wrap];
   }

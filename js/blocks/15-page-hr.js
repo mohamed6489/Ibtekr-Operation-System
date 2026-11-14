@@ -9,6 +9,9 @@
   const U = window.IBUI, O = window.IbtekrOps, K = window.IBKit;
   const { h, Icon, Button } = U;
   const H = () => window.IBHR;
+  // owner batch 14 Nov decision 7 (0087): a member's day (own time → department → official hours) and the day rate's divisor from the settings
+  const dayMin = (m) => (H() && H().dayMinutes ? H().dayMinutes(m && m.uid) : 480);
+  const rateOf = (m) => ({ divisor: H() && H().dayDivisor ? H().dayDivisor() : 24, dayHours: dayMin(m) / 60 });
   const S = (window.IBHR && window.IBHR.data) || K.store; // IBHR.data is one object for the session; its rows change with each load
   // the owner 12 Nov — «نضيف تاب نظرة عامة ونضيف تاب سجل الحركات»: «نظرة عامة» first (the day's cards, the month, who is in, what waits,
   // the leaves coming) and «سجل الحركات» (the HR rows of the activity log) before the reports — the log for hr.view F
@@ -39,7 +42,7 @@
   const monShort = (key) => K.AR_MON[Number(String(key).slice(5, 7)) - 1];
   const addMonths = (key, n) => { const d = new Date(key + '-01T00:00:00Z'); d.setUTCMonth(d.getUTCMonth() + n); return d.toISOString().slice(0, 7); };
   const isoDay = (iso) => new Date(iso + 'T00:00:00Z').getUTCDay();
-  const offDay = (d) => isoDay(d) === 5 || isoDay(d) === 6;
+  const offDay = (d) => (H() && H().isWorkDay ? !H().isWorkDay(d) : isoDay(d) === 5 || isoDay(d) === 6); // 0087: the settings' work days
   // a write: the modal stays open (and refuses a second click) until the server answers; the error comes back as a toast
   function busy(m, promise, ok) { // phase 13 decision 13: `promise` may be a function — it runs only once the guard passed, so a second click never sends a second request
     if (m && m._busy) return false; if (m) m._busy = true;
@@ -74,7 +77,7 @@
     if (t.out != null) return ['أنهى الدوام', 'neutral'];
     if (t.remote) return ['عن بُعد', 'info'];
     if (t.missingYesterday) return ['انصراف ناقص أمس', 'orange'];
-    if (nowMin() - t.in >= 480) return ['وقت إضافي', 'orange'];
+    if (nowMin() - t.in >= dayMin(m)) return ['وقت إضافي', 'orange'];
     return ['حاضر', 'success'];
   }
   const present = (m) => { const t = S.today[m.id]; return !!t && t.in != null && t.out == null; };
@@ -168,7 +171,7 @@
         K.RowMenu([{ label: 'فتح الملف', icon: 'users', run: () => { location.hash = 'member-' + m.id; } }, c.edit ? { label: 'تسجيل حضور يدوي', icon: 'clock', run: () => manualAtt(m) } : null, c.edit && present(m) ? { label: 'إنهاء الدوام', icon: 'check', run: () => endShiftFor(m) } : null, { label: 'سجل الحضور', icon: 'activity', run: () => { st.logMember = m.id; st.teamSub = 'log'; R(); } }, c.edit ? { label: 'رفع عقد', icon: 'attach', run: () => uploadContract(m) } : null, c.admin && m.uid !== (window.IBDirectory.me() || {}).id && m.status === 'active' ? { label: 'ابعت إيميل الباسورد تاني', icon: 'send', run: () => resendInvite(m) } : null, c.admin && m.uid !== (window.IBDirectory.me() || {}).id ? { label: 'باسورد مؤقت جديد', icon: 'lock', run: () => newPassword(m) } : null, c.admin && m.uid !== (window.IBDirectory.me() || {}).id && m.id !== 'M01' ? { label: 'حذف العضو نهائي', icon: 'trash', danger: true, run: () => deleteMember(m) } : null].filter(Boolean), 'إجراءات ' + m.name)]; });
     return K.Section('الفريق', [h('div', { class: 'toolbar' }, h('label', { class: 'search-field' }, Icon('search', 'sm'), q), U.Select({ id: 'hr-dept', label: '', options: [{ value: '', label: 'القسم: الكل' }].concat(S.departments.map((d) => ({ value: d, label: 'القسم: ' + d }))), value: st.dept, onChange: (v) => { st.dept = v; R(); } })),
       TB.bar(), list.length ? U.Table({ cls: 'hr-table', headers: [TB.head(), 'العضو', 'القسم', 'الدوام', 'حضور', 'انصراف', 'ساعات اليوم', 'ساعات الشهر', 'أوفر تايم', 'رصيد الإجازات', 'الحالة اليوم', ''], rows }) : K.Empty(tm.length ? 'مفيش أعضاء بالفلتر ده' : 'لسه مفيش أعضاء في الفريق', tm.length ? 'غيّر البحث أو القسم.' : 'ضيف أول عضو من «إضافة عضو».'),
-      note('ساعات اليوم = الانصراف − الحضور. بعد 8 ساعات بيظهر للعضو «إنهاء الدوام / لسه — وقت إضافي». الوقت الإضافي بيتضاف بنفس سعر الساعة (المرتب ÷ 24 ÷ 8) بعد تأكيد المسؤول. شغل الجمعة أو السبت أو عطلة رسمية = اليوم بيومين.'),
+      note('ساعات اليوم = الانصراف − الحضور. بعد ساعات يوم العضو (وقته المخصص أو قسمه أو ساعات العمل الرسمية — من الإعدادات › الموارد البشرية) بيظهر له «إنهاء الدوام / لسه — وقت إضافي». الوقت الإضافي بيتضاف بسعر الساعة (المرتب ÷ ' + (H() && H().dayDivisor ? H().dayDivisor() : 24) + ' ÷ ساعات يومه) بعد تأكيد المسؤول. الشغل في يوم راحة أو عطلة رسمية = اليوم بيومين.'),
       h('div', { class: 'legend t-small' }, h('b', null, 'حالات اليوم:'), K.Tag('success', 'حاضر'), K.Tag('neutral', 'أنهى الدوام'), K.Tag('info', 'عن بُعد'), K.Tag('orange', 'انصراف ناقص'), K.Tag('gold', 'إجازة'), K.Tag('info', 'عطلة رسمية'), K.Tag('error', 'غائب'))], null, { noun: ['عضو', 'الأعضاء'], count: [list.length, everyone.length] });
   }
   // the member's month, day by day up to today: the attendance rows + the approved leaves, holidays, rest days and absences
@@ -195,9 +198,9 @@
     const okOt = S.overtime.filter((o) => o.member === m.id && o.kind === 'hours' && o.status === 'اتضاف' && o.date.startsWith(mk)); const ot = okOt.reduce((s, o) => s + o.paid, 0);
     const rest = S.restWork.filter((r) => r.member === m.id && r.date.startsWith(mk)).length; const nSess = work.reduce((n, a) => n + ((a.sessions && a.sessions.length) || 1), 0);
     const workDays = rows.filter((a) => a.type === 'يوم عمل' || (a.in == null && a.status === 'إجازة')).length + (S.attendance.some((a) => a.member === m.id && a.date === today()) || offDay(today()) || mk !== thisMonth() ? 0 : 1);
-    const need = workDays * 480;
+    const need = workDays * dayMin(m);
     const statusTone = (s) => (s === 'حاضر' || s === 'منتظم' ? 'success' : s === 'انصراف ناقص' ? 'orange' : s === 'إجازة' ? 'gold' : s === 'غياب' ? 'error' : s === 'شغل يوم راحة' || s.startsWith('وقت إضافي') ? 'brand' : 'neutral');
-    const otPay = O.overtimePay(m.salary || 0, { hours: ot / 60 }), restPay = O.overtimePay(m.salary || 0, { offDays: rest });
+    const otPay = O.overtimePay(m.salary || 0, { hours: ot / 60 }, rateOf(m)), restPay = O.overtimePay(m.salary || 0, { offDays: rest }, rateOf(m));
     const dayRow = (a) => [K.dayName(a.date) + ' ' + K.dshort(a.date), a.type, hhmm(a.in), hhmm(a.out), hrsOf(a) == null ? '—' : K.hm(hrsOf(a)) + (a.date === today() && a.out == null ? ' (جاري)' : ''), a.status];
     const dDays = () => { const l = work.filter((a) => a.type === 'يوم عمل'); return { title: 'أيام الحضور — ' + m.name + ' · ' + monLabel(mk), sub: l.length + ' يوم من ' + workDays + ' يوم عمل · اضغط على اليوم للتفاصيل', summary: [{ label: 'أيام الحضور', value: String(l.length) }, { label: 'منتظم', value: String(l.filter((a) => a.status !== 'انصراف ناقص').length) }, { label: 'جلسات', value: String(l.reduce((n, a) => n + ((a.sessions && a.sessions.length) || 1), 0)) }], headers: ['اليوم', 'نوع اليوم', 'الحضور', 'الانصراف', 'الساعات', 'الحالة'], rows: l.map(dayRow), onRow: (i) => dayDetails(l[i]), source: 'سجل الحضور' }; };
     const dHours = () => ({ title: 'ساعات الشهر — ' + m.name + ' · ' + K.hm(total), sub: 'الساعات = مجموع جلسات اليوم (الدوام مرن) · المطلوب ' + K.hm(need) + ' (8 ساعات × ' + workDays + ' يوم)', summary: [{ label: 'الإجمالي', value: K.hm(total) }, { label: 'المطلوب', value: K.hm(need) }, { label: 'الفرق', value: (total >= need ? '+' : '−') + K.hm(Math.abs(total - need)) }], headers: ['اليوم', 'نوع اليوم', 'الحضور', 'الانصراف', 'الساعات', 'الحالة'], rows: work.map(dayRow), onRow: (i) => dayDetails(work[i]), source: 'سجل الحضور' });
@@ -212,7 +215,7 @@
         return [K.dayName(a.date), K.dshort(a.date), a.type, K.Num(hhmm(a.in)), K.Num(hhmm(a.out)), hrs == null ? '—' : h('span', null, K.Num(K.hm(hrs)), a.date === today() && a.out == null ? ' (جاري)' : ''), (a.type === 'راحة أسبوعية' || a.type === 'عطلة رسمية') && a.in != null ? 'يوم × 2' : a.ot ? K.Num(K.hm(a.ot)) : '—', K.Tag(statusTone(a.status), a.status), h('span', { class: 't-small wrap' }, a.src),
           a.status === 'انصراف ناقص' && can().edit ? Button({ type: 'primary', size: 'sm', label: 'تصحيح', onClick: () => fixMissingOut(a) }) : a.in != null ? Button({ type: 'text', size: 'sm', label: 'تفاصيل', onClick: () => dayDetails(a) }) : '']; }),
         totalRow: ['الإجمالي', monShort(mk), workDays + ' يوم عمل', '—', '—', K.Num(K.hm(total)), K.hm(ot) + (rest ? ' + ' + rest + ' يوم' : ''), '—', can().salaries ? K.money(otPay) + (rest ? ' + ' + K.money(restPay) : '') + ' ج' : '—', ''] }) : K.Empty('مفيش أيام الشهر ده لسه', ''), null, { when: monLabel(mk) }),
-      note('الدوام مرن: العضو بيبدأ وينهي أكتر من مرة في اليوم والساعات = مجموع الجلسات، ومفيش تأخير. يوم العمل 8 ساعات؛ لما يخلصوا العضو بيختار «إنهاء الدوام» أو «لسه — وقت إضافي». الوقت الإضافي بيتضاف بنفس سعر الساعة بعد تأكيد المسؤول، والمرفوض بيفضل متسجل «وقت إضافي اترفض» + ميتنج. شغل الجمعة/السبت أو العطلة = اليوم بيومين بعد التأكيد.')];
+      note('الدوام مرن: العضو بيبدأ وينهي أكتر من مرة في اليوم والساعات = مجموع الجلسات، ومفيش تأخير. يوم العمل = ساعات يوم العضو من الإعدادات؛ لما يخلصوا العضو بيختار «إنهاء الدوام» أو «لسه — وقت إضافي». الوقت الإضافي بيتضاف بنفس سعر الساعة بعد تأكيد المسؤول، والمرفوض بيفضل متسجل «وقت إضافي اترفض» + ميتنج. شغل الجمعة/السبت أو العطلة = اليوم بيومين بعد التأكيد.')];
   }
   const weekStart = () => H().addDays(today(), -isoDay(today()));
   function teamCal() {
@@ -249,7 +252,7 @@
   function reqDur(r) { if (r.type === 'سُلفة') return r.months > 1 ? r.months + ' شهور' : 'مرة واحدة'; if (r.type === 'إذن انصراف مبكر') return (r.hours || 2) === 2 ? 'ساعتين' : r.hours + ' ساعات'; if (r.type === 'تصحيح انصراف') return '—'; const n = r.type === 'شغل عن بُعد' ? 1 : daysOf(r); return n === 1 ? 'يوم' : n === 2 ? 'يومين' : n + ' أيام'; }
   function reqEffect(r) { const m = M(r.member); if (r.type === 'سُلفة') return r.amount == null ? '—' : r.months > 1 ? '− ' + K.n0(r.amount / r.months) + ' ج/شهر' : '− ' + K.n0(r.amount) + ' ج من مرتب الشهر'; if (r.type === 'تصحيح انصراف') return 'يقفل يوم ناقص'; if (r.type === 'إجازة مرضية') return 'بتقرير طبي'; const lt = S.leaveTypes.find((t) => t.name === r.type); if (lt && lt.unpaid) return 'بدون أجر — ' + daysOf(r) + ' يوم من المرتب'; if (isLeave(r) && isPending(r) && lt && lt.deducts) return 'الرصيد ' + leaveLeft(m) + ' ← ' + (leaveLeft(m) - daysOf(r)); return '—'; }
   async function decide(r, s, reason) { const res = await after(H().decide(r.id, s, reason), s === 'موافق' ? 'اتوافق على ' + r.id : s === 'مرفوض' ? 'اترفض ' + r.id : 'اتحوّل للمراجعة'); return res; }
-  const otValue = (o, minutes) => (o.kind === 'rest_day' ? O.overtimePay(M(o.member).salary || 0, { offDays: 1 }) : O.reviewOvertime({ minutes: o.minutes, salary: M(o.member).salary || 0 }, { decision: 'add', minutes: minutes == null ? o.minutes : minutes }).pay);
+  const otValue = (o, minutes) => (o.kind === 'rest_day' ? O.overtimePay(M(o.member).salary || 0, { offDays: 1 }, rateOf(M(o.member))) : O.reviewOvertime({ minutes: o.minutes, salary: M(o.member).salary || 0 }, { decision: 'add', minutes: minutes == null ? o.minutes : minutes }).pay);
   // ================= المرتبات (the HR rebuild, 0083 — decisions 7 and 8) =================
   // the month in one table: each member's monthly salary, the bonus (the quarter's last month), the overtime, the extras, the cuts and
   // advances, the net; «تحويل المرتبات» pays everyone not paid yet in one step; ⋮ per member: the salary alone (early = a reason), an
@@ -401,7 +404,7 @@
         K.two(K.field.select('dept', 'القسم', S.departments.length ? S.departments : ['العمليات'], f, e, set, { required: true }), K.field.select('role', 'الدور (الصلاحيات)', ROLES.map((r) => r[0]), f, e, set, { required: true })),
         K.two(K.field.select('manager', 'المدير المباشر', mgrs, f, e, set), K.field.date('hire', 'تاريخ التعيين', f, e, set, { required: true, help: 'أول ' + S.hrSettings.probation + ' شهور فترة اختبار (من غير حافز ربع)' })),
         K.two(K.field.text('salary', 'المرتب الشهري', f, e, set, { required: true, inputmode: 'decimal', suffix: 'ج.م' }), K.field.text('holdback', 'الحافز المحجوز شهريًا', f, e, set, { inputmode: 'decimal', suffix: 'ج.م', help: 'بيتصرف مع الشهر التالت حسب الـ KPI' })),
-        K.two(K.field.text('allow', 'البدلات الشهرية', f, e, set, { inputmode: 'decimal', suffix: 'ج.م' }), K.field.select('shiftStart', 'بداية الدوام', ['08:00', '09:00', '10:00', '11:00'], f, e, set, { help: 'النهاية بعد 8 ساعات' })),
+        K.field.text('allow', 'البدلات الشهرية', f, e, set, { inputmode: 'decimal', suffix: 'ج.م', help: 'وقت العمل = ساعات العمل الرسمية أو وقت قسمه — وقت مخصص له من «الإعدادات › الموارد البشرية › أوقات عمل مخصصة»' }),
         K.field.text('leave', 'رصيد الإجازات السنوي', f, e, set, { inputmode: 'numeric', suffix: 'يوم' }),
         f.salary && Number(f.salary) > 0 ? U.InlineNote({ children: 'سعر اليوم ' + K.money(O.rates(Number(f.salary)).daily) + ' ج · سعر الساعة ' + K.money(O.rates(Number(f.salary)).hourly) + ' ج · المصروف شهريًا ' + K.money(O.monthlyPaid(Number(f.salary), Number(f.holdback) || 0)) + ' ج' }) : null,
         note('هيتعمل له حساب دخول بالإيميل، وهيوصله إيميل بلينك يعمل منه الباسورد بتاعه (لو Resend متظبط في الإعدادات › الربط والمفاتيح). لو الإيميل مش متظبط هيظهر لك باسورد مؤقت مرة واحدة تبعته له بنفسك.')],

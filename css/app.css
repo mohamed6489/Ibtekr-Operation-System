@@ -1866,3 +1866,5 @@ td > :is(.mlink,.prod,.who-cell) .avatar{flex:none}
 .mx-wrap .pm .ic,.legend .pm .ic{width:16px;height:16px}
 @media (min-width:1100px){.mx-wrap{overflow:visible}.mx-wrap .matrix{min-width:0}}
 .card.sec:has(.mx-wrap){overflow:visible} /* the card's overflow:hidden (rounded tables) would make it the sticky head's scroller */
+/* owner batch 14 Nov decision 7: the member's time has started and no session yet — «ابدأ الدوام» glows until pressed */
+.clock-widget.remind .btn{box-shadow:0 0 0 3px var(--color-brand-subtle-bg),0 0 0 5px var(--color-brand-default)}

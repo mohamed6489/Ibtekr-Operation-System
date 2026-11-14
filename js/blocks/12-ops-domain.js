@@ -8,7 +8,8 @@
   const HR = { workDays: 24, shiftHours: 8, offDays: [5, 6] /* Fri, Sat */, presenceEvery: 120, presenceTimeoutSec: 60, escalateHours: 24, bonusFloor: 70 };
 
   function rates(salary) { const daily = r2(salary / HR.workDays); return { daily, hourly: r2(salary / HR.workDays / HR.shiftHours) }; }
-  function overtimePay(salary, { hours = 0, offDays = 0 }) { const d = salary / HR.workDays; return r2(d / HR.shiftHours * hours + d * 2 * offDays); }
+  // owner batch 14 Nov decision 7 (0087): the day rate's divisor and the member's day hours from the settings (24 / 8 when not given)
+  function overtimePay(salary, { hours = 0, offDays = 0 }, rate) { const div = (rate && rate.divisor) || HR.workDays; const dh = (rate && rate.dayHours) || HR.shiftHours; const d = salary / div; return r2(d / dh * hours + d * 2 * offDays); }
   const monthlyPaid = (salary, holdback) => r2(salary - holdback);
   function rating(score) { return score >= 100 ? 'ممتاز' : score >= 85 ? 'جيد' : score >= 70 ? 'محتاج تحسين' : 'إنذار'; }
   const RATING_TONE = { 'ممتاز': 'success', 'جيد': 'brand', 'محتاج تحسين': 'orange', 'إنذار': 'error' };

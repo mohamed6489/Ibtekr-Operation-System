@@ -1858,3 +1858,11 @@ td > :is(.mlink,.prod,.who-cell) .avatar{flex:none}
 :is(.opt[aria-selected=true],.opt[aria-checked=true],.cv.sel,.set-nav-item[aria-current=page]):hover{background:var(--color-brand-subtle-bg)}
 /* a text button on a green header: its hover is a light veil over the green, the beige text stays readable («افتح الميديا باير») */
 :is(.card.sec:not(.tbl-v2):not(.admin)>.sec-h:not(.cols-only),.chart-card>.chart-head,.dash-card:not(.tbl-v2)>.dash-h,.set-card>.set-card-h,.cat-main-h) .btn-text:hover{background:rgba(255,247,239,.16);color:var(--color-text-on-brand)}
+/* owner batch 14 Nov decision 6: the permissions / alerts matrices — the role row stays under the top bar until the matrix ends.
+   Wide screens: the wrapper is no scroll box (sticky needs the page to be the scroller) and the matrix fits the card; narrow: it scrolls sideways. */
+.mx-wrap{overflow-x:auto;min-width:0}
+.mx-wrap .mx-head{position:sticky;top:48px;z-index:3;background:var(--color-bg-tint);box-shadow:0 1px 0 var(--color-border-subtle)}
+.mx-wrap .mx-gh{gap:8px}
+.mx-wrap .pm .ic,.legend .pm .ic{width:16px;height:16px}
+@media (min-width:1100px){.mx-wrap{overflow:visible}.mx-wrap .matrix{min-width:0}}
+.card.sec:has(.mx-wrap){overflow:visible} /* the card's overflow:hidden (rounded tables) would make it the sticky head's scroller */

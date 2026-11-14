@@ -56,7 +56,8 @@ test('owner batch 14 Nov decision 15: the menu follows the role — the admin se
   const shown = async () => page.locator(NAV).evaluateAll((l) => l.filter((b) => !b.hidden && b.offsetParent !== null).map((b) => b.dataset.page));
   await signIn(page, ADMIN);
   await expect.poll(shown).toEqual(['dashboard', 'orders', 'vendors', 'accounts', 'inventory', 'products', 'cs', 'autoreply', 'tickets', 'reports', 'marketing', 'hr', 'settings']);
-  await page.locator('.user-btn').click(); await page.getByRole('menuitem', { name: 'تسجيل الخروج' }).click(); await expect(page.locator('#login')).toBeVisible();
+  // the SIGNED_OUT reloads the page — wait for it before the next goto (CI: ERR_ABORTED when they crossed)
+  await Promise.all([page.waitForEvent('load'), page.evaluate(() => { window.IBAuth.signOut(); })]);
   // the accounts member as a designer (main role)
   mock.profiles.find((p) => p.id === ACC_ID).role_id = 'designer';
   await signIn(page, ACC);

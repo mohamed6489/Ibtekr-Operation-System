@@ -285,7 +285,11 @@ test('0084 decision 6: the designer\'s picture — its answer carries an image p
   await start(page);
   await openAi(page, ADMIN, 'الديزاينر');
   const P = pg(page); const box = P.locator('[data-mk-agent="designer"]');
+  // CI 14 Nov (three times): the text went into the previous agent's box while the «الديزاينر» tab was still drawing (its draft is
+  // per agent), so «ابعت» sent nothing — wait for the designer's own input first
+  await expect(box).toBeVisible(); await expect(P.locator('#mk-ask')).toHaveAttribute('placeholder', /الديزاينر/);
   await P.locator('#mk-ask').fill('اعمل صورة لبوست ماكرامية');
+  await expect(P.locator('#mk-ask')).toHaveValue('اعمل صورة لبوست ماكرامية');
   await P.locator('[data-mk-ask]').click();
   // failed twice on CI (14 Nov, 08:18 and 08:29 UTC) and never here — name what the page shows when the button is missing
   await expect(box.locator('[data-mk-gen]')).toBeVisible().catch(async (e) => {
@@ -367,4 +371,38 @@ test('0082 «تقديم طلب»: the requests are team requests — the list wi
   await expect(cards).toContainText('تحسين سرعة صفحة المنتج');
   await cards.getByRole('button', { name: 'افتح الميديا باير' }).click();
   await expect(pg(page).locator('[data-mk-chat]')).toBeVisible();
+});
+
+test('owner batch 14 Nov decision 14: the chat stays on its last message (opening a long chat, after a send), and a job for a person comes back as «قدّم الطلب ده» — «تقديم طلب» opens filled with it', async ({ page }) => {
+  const ADMIN_ID = '00000000-0000-4000-8000-000000000001'; const CH1 = 'c1400000-0000-4000-8000-000000000001';
+  const msgs = []; for (let i = 1; i <= 24; i += 1) msgs.push({ chat_id: CH1, role: i % 2 ? 'user' : 'assistant', text: 'رسالة رقم ' + i + ' — ' + 'كلام طويل شوية عشان الشات يطول. '.repeat(3) });
+  await start(page, { mktAgentChats: [{ id: CH1, member_id: ADMIN_ID, agent: 'dev', title: 'شات طويل', updated_at: D(-1) + 'T10:00:00Z' }], mktAgentMsgs: msgs });
+  await openAi(page, ADMIN, 'المبرمج');
+  const P = pg(page); const box = P.locator('[data-mk-agent="dev"]'); const chat = box.locator('.mk-chat');
+  await expect(box).toBeVisible(); await expect(P.locator('#mk-ask')).toHaveAttribute('placeholder', /المبرمج/);
+  const atEnd = () => chat.evaluate((el) => el.scrollHeight > el.clientHeight + 50 && el.scrollHeight - el.scrollTop - el.clientHeight < 40);
+  await box.locator('[data-mk-chat-item] .mk-agent-open', { hasText: 'شات طويل' }).click();
+  await expect(chat).toContainText('رسالة رقم 24');
+  await expect.poll(atEnd).toBe(true);
+  // a redraw that brings nothing new keeps where the member scrolled
+  await chat.evaluate((el) => { el.scrollTop = 0; el.dispatchEvent(new Event('scroll')); });
+  await box.locator('[data-mk-agent-full]').click(); await P.locator('[data-mk-agent-full="on"]').click();
+  await expect.poll(() => chat.evaluate((el) => el.scrollTop)).toBe(0);
+  // a send goes back to the bottom, and the answer with a request offers it
+  await P.locator('#mk-ask').fill('عايز صفحة هبوط لعروض الشتا'); await expect(P.locator('#mk-ask')).toHaveValue('عايز صفحة هبوط لعروض الشتا');
+  await P.locator('[data-mk-ask]').click();
+  const btn = box.locator('[data-mk-req-from]');
+  await expect(btn).toBeVisible();
+  await expect.poll(atEnd).toBe(true);
+  await expect(box.locator('.mk-msg-req')).toContainText('طلب جاهز: صفحة هبوط لعروض الشتا');
+  await btn.click();
+  const f = page.locator('.modal[data-mk-req-form="dev"]');
+  await expect(f).toBeVisible();
+  await expect(f.locator('#mk-rq-title')).toHaveValue('صفحة هبوط لعروض الشتا');
+  await expect(f.locator('#mk-rq-desc')).toHaveValue(/بانر العروض و12 منتج/);
+  // a plain answer offers nothing
+  await f.getByRole('button', { name: 'إلغاء' }).click(); await expect(f).toBeHidden();
+  await P.locator('#mk-ask').fill('سؤال عادي'); await P.locator('[data-mk-ask]').click();
+  await expect(box.locator('[data-mk-turn]').last()).toContainText('سؤالك: سؤال عادي');
+  await expect(box.locator('[data-mk-req-from]')).toHaveCount(1);
 });

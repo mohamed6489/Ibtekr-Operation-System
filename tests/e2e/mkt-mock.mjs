@@ -341,7 +341,9 @@ function mktAi(c, b) {
     if (H.agentFail) return H.agentFail === 'refused' ? json(200, { result: 'refused', model: 'mock' }) : json(H.agentFail === 'ai_cap' ? 402 : H.agentFail === 'busy' ? 429 : H.agentFail === 'not_configured' ? 503 : 502, { error: H.agentFail });
     const cfg = H.agents[p.req.agent] || {};
     const raw = H.agentAnswer ? H.agentAnswer(p.req, cfg) : { text: 'سؤالك: ' + p.req.question + (p.req.agent === 'buyer' ? '\nالأرقام من آخر 7 أيام على ' + H.adObjects.filter((o) => o.kind === 'campaign').length + ' حملة. أنا ببص بس — التنفيذ من الاقتراحات بموافقتك.' : '') + (hist.length ? '\n(فاكر ' + hist.length + ' رسالة قبل كده)' : ''),
-      image_prompt: p.req.agent === 'designer' && /صورة/.test(p.req.question) ? 'A cozy winter flat lay of handmade macrame on beige linen, warm light' : '' };
+      image_prompt: p.req.agent === 'designer' && /صورة/.test(p.req.question) ? 'A cozy winter flat lay of handmade macrame on beige linen, warm light' : '',
+      // owner batch 14 Nov decision 14: a job for a person comes back as a ready request
+      request: /صفحة هبوط/.test(p.req.question) ? { title: 'صفحة هبوط لعروض الشتا', details: 'صفحة على الموقع فيها بانر العروض و12 منتج من قسم الشتا وزرار «اشتري دلوقتي».' } : { title: '', details: '' } };
     const out = cleanAgent(raw, p.req.agent); const now = new Date().toISOString();
     if (!chat) { H.nchat += 1; chat = { id: 'c0000000-0000-4000-8000-' + String(H.nchat).padStart(12, '0'), member_id: u.id, agent: p.req.agent, title: agentTitle(p.req.question), created_at: now, updated_at: now, deleted_at: null }; H.agentChats.push(chat); }
     else chat.updated_at = now;

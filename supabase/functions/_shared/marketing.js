@@ -343,7 +343,14 @@ const DEV_BASE = `You are the developer assistant of Ibtekr Club (ibtekr.club). 
 - You never deploy, publish or change anything yourself: real work goes to the human developer through «تقديم طلب», and nothing reaches the live site without the owner's approval.
 - Plain text, at most ${AGENT_ANSWER_MAX} characters, no Markdown and no HTML.`;
 const BUYER_AGENT_BASE = BUYER_BASE.replace(/at most \d+ characters/, 'at most ' + AGENT_ANSWER_MAX + ' characters');
-const AGENT_BASE = { buyer: BUYER_AGENT_BASE, designer: DESIGNER_BASE, dev: DEV_BASE };
+// owner batch 14 Nov decision 14: a job bigger than the chat (or one the member wants a person to do) comes back as a ready request —
+// the page shows «قدّم الطلب ده» under the answer, which opens «تقديم طلب» filled; nothing is sent until the member presses «ابعت الطلب»
+export const AGENT_REQ_TITLE_MAX = 80;
+export const AGENT_REQ_DETAILS_MAX = 1500;
+const REQ_RULE = `
+- When the ask is a real job for a person (a design to make, a page or a feature to build, a campaign to set up and run, anything you cannot finish inside the chat), or the member wants to hand it to the team, suggest «تقديم طلب» in your text and fill request: title (Egyptian Arabic, at most ${AGENT_REQ_TITLE_MAX} characters, what is wanted) and details (Egyptian Arabic, at most ${AGENT_REQ_DETAILS_MAX} characters: the brief the human needs — sizes, products, deadline, links, steps). The member reviews it and sends it themself. Otherwise request.title and request.details are "".`;
+const AGENT_BASE = { buyer: BUYER_AGENT_BASE + REQ_RULE, designer: DESIGNER_BASE + REQ_RULE, dev: DEV_BASE + REQ_RULE };
+const REQ_SCHEMA = () => obj({ title: STR(), details: STR() });
 /** agent { agent, chat_id: uuid | null, question (≤ 1000) } → { req } | { error, field }. */
 export function parseAgent(b) {
   if (!isObj(b)) return bad('body');
@@ -386,14 +393,16 @@ export function agentRequest(req, ctx) {
   const messages = (Array.isArray(ctx.history) ? ctx.history : []).map((h) => ({ role: h.role, content: [{ type: 'text', text: h.text }] }));
   if (messages.length && messages[messages.length - 1].role === 'user') messages.pop(); // a turn left without an answer is not repeated
   messages.push({ role: 'user', content: [{ type: 'text', text: head + req.question }] });
-  const schema = req.agent === 'designer' ? obj({ text: STR(), image_prompt: STR() }) : obj({ text: STR() });
+  const schema = req.agent === 'designer' ? obj({ text: STR(), image_prompt: STR(), request: REQ_SCHEMA() }) : obj({ text: STR(), request: REQ_SCHEMA() });
   return { model: ctx.model, max_tokens: MAX_TOKENS, ...FALLBACK, system, messages, output_config: { effort: ctx.effort, format: { type: 'json_schema', schema } } };
 }
-/** The answer → { text } (+ imagePrompt for the designer, '' when none) within the limits. */
+/** The answer → { text, request } (+ imagePrompt for the designer, '' when none) within the limits; request null unless it has a title. */
 export function cleanAgent(json, agent) {
   const src = isObj(json) ? json : {};
   const out = { text: paras(src.text, AGENT_ANSWER_MAX) };
   if (agent === 'designer') out.imagePrompt = imgLine(src.image_prompt, AGENT_PROMPT_MAX);
+  const rq = isObj(src.request) ? src.request : {}; const title = line(rq.title, AGENT_REQ_TITLE_MAX);
+  out.request = title ? { title, details: paras(rq.details, AGENT_REQ_DETAILS_MAX) } : null;
   return out;
 }
 /** agent_image { chat_id, prompt (≤ 1000), size? } → { req } | { error, field } (ai-images, decision 6). */

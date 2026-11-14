@@ -171,18 +171,25 @@ test('agentHistory: the table\'s turns → alternating, the member first, the la
   const d = agentRequest({ agent: 'designer', question: 'صورة بوست' }, { model: 'm', effort: 'low', history: [{ role: 'user', text: 'a' }, { role: 'assistant', text: 'b' }], cfg: { instructions: 'الألوان بيج' } });
   assert.equal(d.system.length, 2); assert.match(d.system[0].text, /designer assistant/); assert.match(d.system[1].text, /الألوان بيج/);
   assert.deepEqual(d.messages.map((m) => [m.role, m.content[0].text]), [['user', 'a'], ['assistant', 'b'], ['user', 'صورة بوست']]);
-  assert.deepEqual(d.output_config.format.schema.required, ['text', 'image_prompt']);
+  assert.deepEqual(d.output_config.format.schema.required, ['text', 'image_prompt', 'request']);
+  assert.match(d.system[0].text, /«تقديم طلب»[\s\S]*fill request/); // owner batch 14 Nov decision 14
   const b = agentRequest({ agent: 'buyer', question: 'أحسن حملة؟' }, { model: 'm', effort: 'low', history: [{ role: 'user', text: 'سؤال من غير رد' }], cfg: {}, data: { today: '2026-11-12', rules: {}, campaigns: [{ name: 'Macrame', spend: 100, orders: 2, sales: 500 }] } });
   assert.equal(b.system.length, 1); assert.equal(b.messages.length, 1); // a turn left without an answer is not repeated
   assert.match(b.messages[0].content[0].text, /<ads_data>[\s\S]*Macrame[\s\S]*<\/ads_data>\n\nأحسن حملة؟$/);
-  assert.deepEqual(b.output_config.format.schema.required, ['text']);
+  assert.deepEqual(b.output_config.format.schema.required, ['text', 'request']);
+  assert.deepEqual(b.output_config.format.schema.properties.request.required, ['title', 'details']);
   const v = agentRequest({ agent: 'dev', question: 'صفحة هبوط' }, { model: 'm', effort: 'low', history: [], cfg: null, data: { campaigns: [{ name: 'X' }] } });
   assert.match(v.system[0].text, /staging site first/); assert.doesNotMatch(v.messages[0].content[0].text, /ads_data/);
 });
 test('cleanAgent: the text limit; the image prompt for the designer only, without markup; parseAgentImage and the member\'s folder', () => {
   assert.equal(cleanAgent({ text: 'x'.repeat(5000) }, 'buyer').text.length, AGENT_ANSWER_MAX);
-  assert.deepEqual(cleanAgent({ text: 'تمام', image_prompt: 'a <b>cozy</b> flat lay' }, 'designer'), { text: 'تمام', imagePrompt: 'a cozy flat lay' });
-  assert.deepEqual(cleanAgent({ text: 'تمام', image_prompt: 'x' }, 'dev'), { text: 'تمام' });
+  assert.deepEqual(cleanAgent({ text: 'تمام', image_prompt: 'a <b>cozy</b> flat lay' }, 'designer'), { text: 'تمام', imagePrompt: 'a cozy flat lay', request: null });
+  assert.deepEqual(cleanAgent({ text: 'تمام', image_prompt: 'x' }, 'dev'), { text: 'تمام', request: null });
+  // owner batch 14 Nov decision 14: a ready request — one line of 80 for the title, the details within 1500; no title = none
+  const rq = cleanAgent({ text: 'قدّمه', request: { title: 'صفحة هبوط\nلعروض الشتا ' + 'x'.repeat(100), details: 'd'.repeat(2000) } }, 'dev').request;
+  assert.equal(rq.title.length, 80); assert.doesNotMatch(rq.title, /\n/); assert.equal(rq.details.length, 1500);
+  assert.equal(cleanAgent({ text: 'x', request: { title: '  ', details: 'y' } }, 'buyer').request, null);
+  assert.equal(cleanAgent({ text: 'x', request: 'not an object' }, 'designer').request, null);
   const U = 'c0000000-0000-4000-8000-0000000000aa'; const M = '00000000-0000-4000-8000-000000000001';
   const r = parseAgentImage({ chat_id: U, prompt: ' a  winter post ' }); assert.equal(r.req.prompt, 'a winter post'); assert.equal(r.req.size.id, '1080x1350');
   assert.deepEqual(parseAgentImage({ chat_id: U, prompt: '' }), { error: 'bad_request', field: 'prompt' });

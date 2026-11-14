@@ -409,6 +409,7 @@ body.cal-dragging,body.cal-dragging * { cursor:grabbing !important;user-select:n
 #pg-marketing .mk-msg-imgs .thumb { width:220px;height:auto;aspect-ratio:4/5;border-radius:var(--radius-sm);overflow:hidden }
 #pg-marketing .mk-msg-imgs img { width:100%;height:100%;object-fit:cover;display:block }
 #pg-marketing .mk-msg-gen { display:flex;flex-direction:column;gap:6px;align-items:flex-start;margin:6px 0 2px }
+#pg-marketing .mk-msg-req { display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:6px 0 2px;padding:8px 10px;border-radius:10px;background:var(--color-bg-hover, #efe2c9) } /* owner batch 14 Nov decision 14 */
 #pg-marketing .mk-agent-under { margin-top:0 }
 #pg-marketing .mk-agent-full { position:fixed;inset:12px;z-index:60;margin:0;box-shadow:var(--shadow-card, 0 0 6px rgba(0,0,0,.25)) }
 #pg-marketing .mk-agent-full .mk-agent-side { max-height:none }

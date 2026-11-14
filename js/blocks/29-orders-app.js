@@ -132,10 +132,12 @@ function match(o,skipStatus){
  if(S.vc){var n=vcount(o);if(S.vc==='2'?n<2:n!==1)return false}
  if(S.fb.items.length&&!fbEval(S.fb,o))return false;
  return true}
-function opts(list,cur,all){return(all?'<option value="">'+all+'</option>':'')+list.map(function(x){return'<option'+(x===cur?' selected':'')+'>'+esc(x)+'</option>'}).join('')}
+/* owner batch 14 Nov decision 4: the shown name of a status from «الإعدادات › القوائم والحالات» (settings.lists.labels) — the value stays */
+function LB(k,x){var S0=window.IBSettings;return k&&x&&S0&&S0.statusLabel?S0.statusLabel(k,x):x}
+function opts(list,cur,all,k){return(all?'<option value="">'+all+'</option>':'')+list.map(function(x){return'<option value="'+esc(x)+'"'+(x===cur?' selected':'')+'>'+esc(LB(k,x))+'</option>'}).join('')}
 function sdd(sty,st,attr,w,list,sub){
- var m=sty[st];var cls=m?'s-'+m[0]:'sempty';
- return'<label class="dd sdd '+cls+(sub?' sub':'')+'" style="'+(sub?'':'')+'"><span class="l">'+(m?ic(m[1]):'')+'<span>'+esc(st||'— اختر الحالة —')+'</span></span>'+ic('down')+'<select '+attr+' aria-label="الحالة">'+opts(list,st,st?'':'— اختر الحالة —')+'</select></label>'}
+ var m=sty[st];var cls=m?'s-'+m[0]:'sempty';var k=sty===SSTY?'sub':'order';
+ return'<label class="dd sdd '+cls+(sub?' sub':'')+'" style="'+(sub?'':'')+'"><span class="l">'+(m?ic(m[1]):'')+'<span>'+esc(st?LB(k,st):'— اختر الحالة —')+'</span></span>'+ic('down')+'<select '+attr+' aria-label="الحالة">'+opts(list,st,st?'':'— اختر الحالة —',k)+'</select></label>'}
 function dfield(key,v,label,sm,ph){return'<div class="in'+(sm?' sm':'')+' dpf'+(v?' has':'')+'" style="width:100%"><input class="dpt" data-fi="'+key+'" value="'+esc(dt(v==''?'':v).replace('—',''))+'" placeholder="'+(ph||'—')+'" aria-label="'+label+'" aria-haspopup="dialog" autocomplete="off" inputmode="numeric"><button type="button" class="dpx" data-dx="'+key+'" aria-label="مسح التاريخ" tabindex="-1">'+ic('xc')+'</button><button type="button" class="dpi" data-dp="'+key+'" aria-label="فتح التقويم" tabindex="-1">'+ic('cal')+'</button></div>'}
 function field(lbl,icn,val,w,extra){return'<div class="fld" style="width:'+w+'px"><div class="lb">'+ic(icn)+'<span>'+lbl+'</span></div>'+val+'</div>'}
 function header(o,l,open){
@@ -145,7 +147,7 @@ function header(o,l,open){
  +field('تاريخ الأوردر','cal','<div class="vv"><b style="font-weight:600">'+dt(o.date)+'</b></div>',100)
  +field('الأوردرات الفرعية','box','<div class="vv">'+o.subs.length+(o.subs.length>2?' أوردرات':' أوردر')+'</div>',115)
  +field('إجمالي القيمة','coins','<div class="vv"><b style="font-weight:600">'+fmt(o.tot)+' ج.م</b></div>',104)
- +field('حالة التأكيد','check','<label class="in dd" style="justify-content:flex-start;width:100%;padding-inline:8px;gap:8px">'+ic('down')+'<span style="flex:1;text-align:right;overflow:hidden;text-overflow:ellipsis"'+(o.cf==='غير مؤكد'?' class="unconf"':'')+'>'+esc(o.cf)+'</span><select data-cf="'+o.id+'" aria-label="حالة التأكيد">'+opts(CF,o.cf)+'</select></label>',148)
+ +field('حالة التأكيد','check','<label class="in dd" style="justify-content:flex-start;width:100%;padding-inline:8px;gap:8px">'+ic('down')+'<span style="flex:1;text-align:right;overflow:hidden;text-overflow:ellipsis"'+(o.cf==='غير مؤكد'?' class="unconf"':'')+'>'+esc(LB('confirm',o.cf))+'</span><select data-cf="'+o.id+'" aria-label="حالة التأكيد">'+opts(CF,o.cf,'','confirm')+'</select></label>',148)
  +field('تاريخ التأكيد','cal',''+dfield('cd:'+o.id,cd,'تاريخ التأكيد',0,'أضف تاريخ التأكيد')+'',134)
  +field('قيمة العربون','coins','<div class="vv" style="width:100%"><label class="in" style="width:100%"><input class="t" data-dep="'+o.id+'" value="'+(o.dep?fmt(o.dep)+' ج.م':'0 ج.م')+'" aria-label="قيمة العربون"></label></div>',100)
  +'<div class="grow"></div>'
@@ -196,8 +198,8 @@ var BULK_ST=ST; // decision 53 (owner 10 Nov): every status — «مكتمل» a
 function bulkBar(pr){var ids=Object.keys(SEL).filter(function(k){return SEL[k]});var el=$('obulk');if(!el)return;if(!ids.length){el.hidden=true;el.innerHTML='';return}
  var allOn=pr.length&&pr.every(function(o){return SEL[o.id]});
  el.hidden=false;el.innerHTML='<b>محدد '+ids.length+' أوردر</b><button type="button" class="btn" data-osel-page>'+(allOn?'شيل تحديد الصفحة':'حدد الصفحة كلها')+'</button><span class="grow"></span>'
-  +'<label class="in dd bsel"><span>تغيير الحالة</span>'+ic('down')+'<select data-obulk-st aria-label="تغيير حالة المحدد"><option value="">تغيير الحالة…</option>'+BULK_ST.map(function(x){return'<option>'+x+'</option>'}).join('')+'</select></label>'
-  +'<label class="in dd bsel"><span>حالة التأكيد</span>'+ic('down')+'<select data-obulk-cf aria-label="تغيير حالة التأكيد للمحدد"><option value="">حالة التأكيد…</option>'+CF.map(function(x){return'<option>'+x+'</option>'}).join('')+'</select></label>'
+  +'<label class="in dd bsel"><span>تغيير الحالة</span>'+ic('down')+'<select data-obulk-st aria-label="تغيير حالة المحدد"><option value="">تغيير الحالة…</option>'+BULK_ST.map(function(x){return'<option value="'+esc(x)+'">'+esc(LB('order',x))+'</option>'}).join('')+'</select></label>'
+  +'<label class="in dd bsel"><span>حالة التأكيد</span>'+ic('down')+'<select data-obulk-cf aria-label="تغيير حالة التأكيد للمحدد"><option value="">حالة التأكيد…</option>'+CF.map(function(x){return'<option value="'+esc(x)+'">'+esc(LB('confirm',x))+'</option>'}).join('')+'</select></label>'
   +'<button type="button" class="btn dgr" data-obulk-del>مسح المحدد</button>'+'<button type="button" class="btn" data-obulk-copy>نسخ الأرقام</button><button type="button" class="btn" data-obulk-csv>تصدير CSV</button><button type="button" class="btn txt" data-obulk-clear>إلغاء التحديد</button>'}
 function headerM(o,l,open){
  return'<div class="oh m"><div class="tags">'+ocb(o)+sdd(OSTY,o.st,'data-st="'+o.id+'"',140,ST)+'<div class="bdw">'+dbadge(l)+'</div><div class="grow"></div>'+moreBtn('o:'+o.id)+'</div>'
@@ -206,7 +208,7 @@ function headerT(o,l,open){
  return'<div class="oh t"><div class="trow">'+ocb(o)+titleBlock(o)+'<div class="bdw">'+dbadge(l)+'</div>'+sdd(OSTY,o.st,'data-st="'+o.id+'"',140,ST)+tgBtn(o,open)+moreBtn('o:'+o.id)+'</div>'+kpiStrip(o)+'</div>'}
 function lbl(icn,t){return'<div class="lb">'+ic(icn)+'<span>'+t+'</span></div>'}
 function confSec(o,m){
- var cf='<div class="fld">'+lbl('check','حالة التأكيد')+'<label class="in dd cfdd">'+ic('down')+'<span'+(o.cf==='غير مؤكد'?' class="unconf"':'')+'>'+esc(o.cf)+'</span><select data-cf="'+o.id+'" aria-label="حالة التأكيد">'+opts(CF,o.cf)+'</select></label></div>';
+ var cf='<div class="fld">'+lbl('check','حالة التأكيد')+'<label class="in dd cfdd">'+ic('down')+'<span'+(o.cf==='غير مؤكد'?' class="unconf"':'')+'>'+esc(LB('confirm',o.cf))+'</span><select data-cf="'+o.id+'" aria-label="حالة التأكيد">'+opts(CF,o.cf,'','confirm')+'</select></label></div>';
  var dep='<div class="fld">'+lbl('coins','قيمة العربون (ج.م)')+'<label class="in"><input class="t" data-dep="'+o.id+'" value="'+(o.dep?fmt(o.dep)+' ج.م':'0 ج.م')+'" aria-label="قيمة العربون"></label></div>';
  var cd='<div class="fld">'+lbl('cal','تاريخ التأكيد')+dfield('cd:'+o.id,o.cdate,'تاريخ التأكيد',0,'أضف تاريخ التأكيد')+'</div>';
  return'<div class="sec conf">'+(m?cf+'<div class="frow">'+cd+dep+'</div>':'<div class="frow">'+cf+dep+cd+'</div>')+'</div>'}
@@ -266,7 +268,7 @@ ROOT.innerHTML=shell();
 var $=function(i){return R.getElementById(i)};
 function tbH(){var t=R.querySelector('.toolbar'),o=$('oroot'),hb=document.querySelector('.topbar');if(!t||!o)return;o.style.setProperty('--tbh',t.offsetHeight+'px');o.style.setProperty('--ptop',(hb&&getComputedStyle(hb).position!=='static'?hb.offsetHeight:0)+'px')} // decision 47: the selection bar sticks under the sticky filters
 function drawChips(){$('chips').innerHTML=STC.map(function(s){var n=s==='الكل'?O.filter(function(o){return match(o,true)}).length:O.filter(function(o){return match(o,true)&&o.st===s}).length;
-  return'<button class="sc'+(S.st===s?' on':'')+'" data-sc="'+s+'"'+(S.st===s?' aria-pressed="true"':' aria-pressed="false"')+'><span>'+s+'</span><i>'+n+'</i></button>'}).join('');carSync(1);drawActive();tbH()}
+  return'<button class="sc'+(S.st===s?' on':'')+'" data-sc="'+s+'"'+(S.st===s?' aria-pressed="true"':' aria-pressed="false"')+'><span>'+esc(s==='الكل'?s:LB('order',s))+'</span><i>'+n+'</i></button>'}).join('');carSync(1);drawActive();tbH()}
 /* الحالات في كاروسيل بالعرض (owner 1 Nov): سطر واحد بيتسحب + أسهم تظهر بس لو فيه حالات مخفية — RTL: scrollLeft سالب */
 function carSync(toActive){var c=$('chips');if(!c)return;var w=c.closest('[data-car]');if(!w)return;var max=c.scrollWidth-c.clientWidth,x=Math.abs(c.scrollLeft);
  if(toActive){var on=c.querySelector('.sc.on');if(on&&on.scrollIntoView){var r=on.getBoundingClientRect(),cr=c.getBoundingClientRect();if(r.left<cr.left||r.right>cr.right)on.scrollIntoView({block:'nearest',inline:'center'});x=Math.abs(c.scrollLeft)}}
@@ -291,7 +293,7 @@ function drawActive(){var el=$('afc');if(!el)return;var ch=[],cnt=function(fn){r
 function drawFilters(){
  drawChips();
  $('fv').innerHTML=opts(V,S.vendor,'المبتكر: الكل');$('v1').textContent=S.vendor?'المبتكر: '+S.vendor:'المبتكر: الكل';
- $('fc').innerHTML=opts(CF,S.conf,'حالة التأكيد: الكل');$('v2').textContent=S.conf?'حالة التأكيد: '+S.conf:'حالة التأكيد: الكل';
+ $('fc').innerHTML=opts(CF,S.conf,'حالة التأكيد: الكل','confirm');$('v2').textContent=S.conf?'حالة التأكيد: '+S.conf:'حالة التأكيد: الكل';
  $('fd').innerHTML='<option value="">حالة التسليم: الكل</option><option value="risk"'+(S.deliv==='risk'?' selected':'')+'>قابل للتأخير</option><option value="late"'+(S.deliv==='late'?' selected':'')+'>متأخر</option><option value="ok"'+(S.deliv==='ok'?' selected':'')+'>غير متأخر</option>';
  $('v3').textContent=S.deliv==='risk'?'حالة التسليم: قابل للتأخير':S.deliv==='late'?'حالة التسليم: متأخر':S.deliv==='ok'?'حالة التسليم: غير متأخر':'حالة التسليم: الكل';
  $('fn').innerHTML='<option value="">عدد المبتكرين: الكل</option><option value="1"'+(S.vc==='1'?' selected':'')+'>مبتكر واحد</option><option value="2"'+(S.vc==='2'?' selected':'')+'>مبتكرين متعددين</option>';
@@ -635,7 +637,7 @@ function editSub(n){var s=allSub(n);if(!s)return;var o=OM[s.oid];if(!o)return;
   +'<div class="lead">بيانات العميل بتتعدّل من WooCommerce.</div>'
   +'<div class="err" id="eerr" role="alert" hidden></div></div>'
   +'<div class="sec"><h3>تفاصيل الأوردر الفرعي</h3><div class="g2">'+fd('رقم الفرعي','<div class="ro" dir="ltr">#'+esc(s.sid)+'</div>')+fd('المبتكر',woo('<input class="sel2" data-f="vendor" value="'+esc(s.vendor||'—')+'" aria-label="المبتكر" disabled>'))+'</div>'
-  +'<div class="g2">'+fd('المنتج','<div class="ro">'+esc(s.prod)+(s.sku?' · <span dir="ltr">'+esc(s.sku)+'</span>':'')+'</div>')+fd('حالة الفرعي','<select class="sel2" data-f="ss" aria-label="حالة الفرعي"><option value=""'+(s.ss?'':' selected')+'>— اختر الحالة —</option>'+SS.map(function(x){return'<option'+(x===s.ss?' selected':'')+'>'+x+'</option>'}).join('')+'</select>')+'</div>'
+  +'<div class="g2">'+fd('المنتج','<div class="ro">'+esc(s.prod)+(s.sku?' · <span dir="ltr">'+esc(s.sku)+'</span>':'')+'</div>')+fd('حالة الفرعي','<select class="sel2" data-f="ss" aria-label="حالة الفرعي"><option value=""'+(s.ss?'':' selected')+'>— اختر الحالة —</option>'+SS.map(function(x){return'<option value="'+esc(x)+'"'+(x===s.ss?' selected':'')+'>'+esc(LB('sub',x))+'</option>'}).join('')+'</select>')+'</div>'
   +'<div class="g2">'+fd('الكمية',woo('<input class="sel2" data-f="qty" dir="ltr" value="'+esc(s.qty)+'" aria-label="الكمية" disabled>'))+fd('القيمة (ج.م)',woo('<input class="sel2" data-f="tot" dir="ltr" value="'+esc(s.tot)+'" aria-label="القيمة" disabled>'))+'</div>'
   +'<div class="g2">'+fd('تاريخ تبليغ المبتكر','<input class="sel2" data-f="exp" dir="ltr" placeholder="dd/mm/yyyy" value="'+(s.exp?numFmt(s.exp):'')+'">')+fd('مدة التصنيع','<div class="ro">'+leadTxt(s).replace('مدة التصنيع: ','')+'</div>')+'</div>'
   +fd('ملاحظة للمبتكر','<textarea class="sel2" data-f="cm" rows="3">'+esc(s.cm)+'</textarea>')
@@ -794,6 +796,8 @@ if(e.key==='Escape'&&e.target.dataset&&e.target.dataset.ce!==undefined){e.target
 });
 function setQ(v){S.q=v;S.page=1;$('oq').value=v;(R.getElementById('gq')||{}).value=v;draw()}
 $('oq').addEventListener('input',function(e){setQ(e.target.value)});
+/* owner batch 14 Nov decision 4: a status renamed in the settings → the page draws again with the shown names (filters and open rows kept) */
+document.addEventListener('ib:settings',function(){if(HYD)try{drawFilters();draw(true);drawChips()}catch(e){}});
 document.addEventListener('ib:orders',function(){var B=window.IBOrders;if(!B)return;if(HYD&&!B.data()&&B.state()==='idle'){O=[];OM={};V=[];IMG={};S.open={};HYD=false;S.q='';S.st='الكل';S.deliv='';S.conf='';S.vendor='';S.vc='';S.fb={op:'and',items:[]};S.page=1;S.edit=null;$('oq').value=''}if(!HYD)draw()}); // clear() (sign-out): nothing kept
 (function(){var B=window.IBOrders,d=B&&B.data&&B.data();if(d)hydrate(d);else draw()})();
 

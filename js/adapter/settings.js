@@ -303,24 +303,57 @@
   const defaults = () => { const O = window.IbtekrOps || {}; return { cancel: Array.isArray(O.CANCEL_REASONS) ? O.CANCEL_REASONS.slice() : [OTHER], returns: Array.isArray(O.RETURN_REASONS) ? O.RETURN_REASONS.slice() : [OTHER] }; };
   const withOther = (arr) => { const list = arr.filter((x) => x !== OTHER); list.push(OTHER); return list; };
   const cleanList = (v) => { if (!Array.isArray(v)) return null; const out = []; for (const x of v) { const t = typeof x === 'string' ? x.replace(/\s+/g, ' ').trim() : ''; if (!t || t.length > ITEM_MAX || t === OTHER || out.includes(t)) { if (t === OTHER) continue; return null; } out.push(t); } return out.length > LIST_MAX ? null : out; };
+  // owner batch 14 Nov (decisions 4 and 8): two more lists — the makers' stop reasons (`stop`, «أخرى» last) and the shipping companies
+  // (`shipping`, no «أخرى») — and `labels`: the shown name of an order / confirmation / sub-order status ({ order: { value: shown } … }).
+  // The status itself (the value in the database, status_map, the reports) never changes; statusLabel(kind, value) is what the pages show.
+  const EXTRA_KEYS = ['stop', 'shipping']; const OTHER_KEYS = ['cancel', 'returns', 'stop'];
+  const EXTRA_DEF = { stop: ['تأخير متكرر', 'جودة', 'عدم رد', 'طلب المبتكر'], shipping: ['بوسطة', 'أرامكس', 'مندوب إبتكر'] };
+  const STATUS_KINDS = {
+    order: ['معلّق', 'قيد الانتظار', 'جاري التنفيذ', 'جاهز للشحن', 'قيد الشحن', 'مكتمل', 'استرجاع', 'ملغي', 'فشل'],
+    confirm: ['مؤكد بعربون', 'مؤكد بدون عربون', 'غير مؤكد', 'في انتظار الرد'],
+    sub: ['غير مؤكد', 'مؤكد', 'قيد التنفيذ', 'جاهز للشحن من المبتكر للعميل', 'جاهز للشحن من المخزن للعميل', 'جاهز للشحن من المبتكر للمخزن', 'تم الشحن للمخزن', 'وصل المخزن', 'تم الشحن للعميل', 'مرتجع للمخزن', 'مرتجع للمبتكر'] };
+  const LABEL_MAX = 40;
+  const cleanLabels = (v) => {
+    const out = {}; if (!v || typeof v !== 'object' || Array.isArray(v)) return out;
+    for (const kind of Object.keys(STATUS_KINDS)) {
+      const m = v[kind]; if (!m || typeof m !== 'object' || Array.isArray(m)) continue; const k2 = {};
+      for (const s of STATUS_KINDS[kind]) { const t = typeof m[s] === 'string' ? m[s].replace(/\s+/g, ' ').trim() : ''; if (t && t !== s && t.length <= LABEL_MAX && !/[<>]/.test(t)) k2[s] = t; }
+      if (Object.keys(k2).length) out[kind] = k2;
+    }
+    return out;
+  };
+  const listSrc = () => (data.public && data.public.lists && typeof data.public.lists === 'object' ? data.public.lists : null) || section('lists');
   function lists() {
-    const src = (data.public && data.public.lists && typeof data.public.lists === 'object' ? data.public.lists : null) || section('lists');
-    const d = defaults(); const out = {};
-    for (const k of LIST_KEYS) { const c = cleanList(src && src[k]); out[k] = withOther(c && c.length ? c : d[k].filter((x) => x !== OTHER)); }
+    const src = listSrc();
+    const d = Object.assign(defaults(), EXTRA_DEF); const out = {};
+    for (const k of LIST_KEYS.concat(EXTRA_KEYS)) {
+      const c = cleanList(src && src[k]); const base = c && c.length ? c : d[k].filter((x) => x !== OTHER);
+      out[k] = OTHER_KEYS.includes(k) ? withOther(base) : base.slice();
+    }
+    out.labels = cleanLabels(src && src.labels);
     return out;
   }
-  // the admin saves both lists (each 1–30 reasons of at most 60 characters, no repeats; «أخرى» is added last by the reader) → { ok } · logged as settings.lists.save (counts only)
+  // the shown name of a status (the value when nothing is set) — kind: order | confirm | sub
+  function statusLabel(kind, value) { const L = cleanLabels((listSrc() || {}).labels); return (L[kind] && L[kind][value]) || value; }
+  // the admin saves the lists (each 1–30 items of at most 60 characters, no repeats; «أخرى» is added last by the reader where it belongs)
+  // → { ok } · logged as settings.lists.save (counts only). A key left out keeps what is saved; cancel / returns are always written.
   async function saveLists(next) {
     if (!can().admin) return no('forbidden');
-    const row = {};
-    for (const k of LIST_KEYS) { const c = cleanList(next && next[k]); if (!c || !c.length) return { ok: false, reason: 'invalid', field: k }; row[k] = c; }
+    const cur = lists(); const saved = section('lists') || {}; const row = {};
+    for (const k of LIST_KEYS.concat(EXTRA_KEYS)) {
+      const given = next && Object.prototype.hasOwnProperty.call(next, k);
+      if (!given && !LIST_KEYS.includes(k) && !(saved && saved[k])) continue; // an extra list never saved stays on its defaults
+      const c = cleanList(given ? next[k] : cur[k].filter((x) => x !== OTHER)); if (!c || !c.length) return { ok: false, reason: 'invalid', field: k }; row[k] = c;
+    }
+    if (next && Object.prototype.hasOwnProperty.call(next, 'labels')) { const lb = cleanLabels(next.labels); if (Object.keys(lb).length) row.labels = lb; }
+    else if (saved && saved.labels) { const lb = cleanLabels(saved.labels); if (Object.keys(lb).length) row.labels = lb; }
     const r = await save('lists', row, { merge: false });
     if (!r.ok) return r;
     if (data.public && typeof data.public === 'object') data.public.lists = row;
     return { ok: true, lists: lists() };
   }
 
-  window.IBSettings = { load, ensure, loadPublic, clear, data, section, sections: () => Object.assign({}, data.sections), roles, liveRoles, public: () => data.public, can, PERMS, PERM_KEYS, lists, saveLists,
+  window.IBSettings = { load, ensure, loadPublic, clear, data, section, sections: () => Object.assign({}, data.sections), roles, liveRoles, public: () => data.public, can, PERMS, PERM_KEYS, lists, saveLists, statusLabel, STATUS_KINDS,
     save, setRolePerms, createRole, updateRole, deleteRole, setMemberRole, setMemberRoles, setMemberPerms, setMemberStatus, sessions, revokeSession, deviceOf,
     links, setSecret, wooSet, testSecret, unlink, connections, notifyStatus, notifyTick, activity, pageOf, docs, addDoc, updateDoc, removeDoc, docUrl, uploadLogo, logoUrl, LOGO_SLOTS };
 })();

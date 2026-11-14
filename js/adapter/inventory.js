@@ -29,7 +29,7 @@
   // B6: the five settings (auto-pull off until the owner opens it); the alerts in whole days, 1–90
   const DEFAULTS = Object.freeze({ firstWarehouse: false, consolidationAlert: 5, photoMax: 14, returnWait: 7, returnDefault: 'يرجع للمبتكر' });
   const SETTING_KEYS = Object.keys(DEFAULTS);
-  const RETURN_DEFAULTS = ['يستنى أوردر', 'يرجع للمبتكر'];
+  const RETURN_DEFAULTS = ['يستنى أوردر', 'يرجع للمبتكر', 'اسألني في كل مرة']; // owner batch 14 Nov decision 5: «اسألني في كل مرة» = the inspect popup asks
   const PLACES = Object.freeze([['T', 'تجميع'], ['R', 'مرتجعات'], ['P', 'تصوير']]);
   const LIMIT = 5000;
   const c = () => (window.IBSupabase && window.IBSupabase.client) || null;

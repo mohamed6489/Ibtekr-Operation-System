@@ -53,11 +53,11 @@
   },
   "14-kit.js": {
     "prototype": "2a924af8c731555a02958f802f051efe4ef180be78d65a0f3340b342a064e432",
-    "current": "60a59c5a41485f1523f7c24f30f72217568a030f8cf6e01680be9004779e4b40"
+    "current": "be8a67752609a72cd5d222b3419fc41dbfd995ba6d0be81ed46434a5e0d27883"
   },
   "15-page-hr.js": {
     "prototype": "ee600dbb6d1a699847ee0528e7454c3bc857f4801989b1cf85cdba72aa135d76",
-    "current": "6997d4e116aa3f1fb9d4de0ac0207c28c73403c48970f2d86118ef04e9e4a873"
+    "current": "c8f8b1044a48125af26b9e1cfb94f8e1606bdfd1a573dfd1bf91069ab95d4d17"
   },
   "16-page-inventory.js": {
     "prototype": "80101269ffc51399a6b19dad74375aa32575fa9e2e6071885c5c77885afee8f5",
@@ -65,11 +65,11 @@
   },
   "17-page-settings.js": {
     "prototype": "89d9c49b0d0f466a618479a6b68c237edb4e90a12b0b233e7d05f7916c8e8dde",
-    "current": "87933231e2fff0665b50a1c7c41c86a4c58b36942971ae598ba4a1e8aba1820e"
+    "current": "88854ec3ca0e65bfce73d10971772342e714ef2289dbc703bb013290884735f7"
   },
   "18-page-profile.js": {
     "prototype": "218eb74e001b3e909a563499cdd2d929b1893e93d86d81f9039603b34dbdaa8a",
-    "current": "d5c531fef4f98958bf6cd214423b26a21349246dd496a4c577b4fb572e5c41c6"
+    "current": "d9ce56a90282679e708f20395ff6aef6c3b84e789f2f3093d330ad4ee7e1aa35"
   },
   "19-cs-domain.js": {
     "prototype": "5316d08c265ce14e7ed3340ddd6547f4f665dddc07dd3d76bf3868c8ad1f5192",
@@ -81,7 +81,7 @@
   },
   "21-shell.js": {
     "prototype": "da3316ca93e76c490b7a58d4f817bdc7852887e007200bb438efa591045a05f9",
-    "current": "84994b6d65cda94f496abb241254f6c7b2b39b81c6033fcd41383d65fa258d20"
+    "current": "e7d22f6f7d64022a1b21e0d8ac973aa786a999e4595c4e808c112616f686821f"
   },
   "22-orders-ops.js": {
     "prototype": "840c4a2093e78030058acaac11c712410a8107419aa1d34bea7da2526ee80885",
@@ -109,7 +109,7 @@
   },
   "28-app.js": {
     "prototype": "28f47321b1a78201e81b34cffa6e20cba67b15788396c9ce0def7cd7e17243c9",
-    "current": "4a1850e80be8f1d81ffaff285587b8dba26b9001ac71b10e4a4bfcb5c857b6a5"
+    "current": "580129cbd1eebed75132481ef5317f6e12b1ac26dcd72b15eb594603c4c4cbd0"
   },
   "29-orders-app.js": {
     "prototype": "2e80a15f203c79adc2931c3682297119b4e1926b9e40f10a0b906007acff23bd",

@@ -135,7 +135,7 @@
         tile('آخر مرتب', slip ? K.money(slip.net) : '—', !money ? 'المرتبات للأدمن بس' : !(m.salary > 0) ? 'مفيش مرتب مسجل' : slip ? 'صافي ' + monName(slip.month) : 'القسيمة بتظهر بعد اعتماد الكشف', 'salary'), tile('المستندات', m.contract === 'missing' ? 'ناقص' : 'تمام', m.contract === 'expiring' ? 'العقد بيخلص قريب' : 'العقد والمستندات', 'security')),
       // decision 27 (the owner, 10 Nov — «إضافة زرار تخصيص اللوحة… وإمكانية إظهار عدد التنبيهات أو الطلبات»): my alerts and my open requests,
       // and «تخصيص اللوحة» to hide / order every card (user_prefs panel.prefs «profile:overview»)
-      own ? h('div', { class: 'cards' }, tile('التنبيهات', ntfCount, ntfCount ? 'من الجرس — اضغط تشوفها' : 'مفيش تنبيهات دلوقتي', 'alerts'), tile('طلباتي المفتوحة', tkOpen, 'من ' + tkMine.length + ' طلب', reqGo, () => { st.reqSub = 'open'; })) : null,
+      own ? h('div', { class: 'cards' }, tile('التنبيهات', ntfCount, ntfCount ? 'من الجرس — اضغط تشوفها' : 'مفيش تنبيهات دلوقتي', 'alerts'), tile('طلباتي المفتوحة', tkOpen, 'من ' + tkMine.length + ' طلب', reqGo, () => { st.reqSub = 'open'; st.reqTab = 'mine'; })) : null,
       isAdminView() ? adminCards(m) : null];
   }
   // the beige cards when another member's file is open: each by what the viewer may do (the server decides again)
@@ -217,23 +217,40 @@
   // ---------- طلباتي (the owner 11 Nov — «هنضيف هنا طلباتي بعد مهامي»): the team requests («طلبات الفريق», IBTickets) this member opened,
   // every type (a customer / maker problem, the HR requests of decision 33, a special request); open first, a click opens the request ----------
   const REQ_ST = { open: 'مفتوح', in_progress: 'جاري العمل', waiting: 'بانتظار الرد', resolved: 'تم الحل', closed: 'مغلق' };
+  // owner batch 2 decision 5: two tabs — «مطلوبة مني» (assigned to my role or to me — decision 32) and «طلباتي» (what I opened); above the
+  // list an overview (مفتوحة · جاري العمل · بانتظار الرد · اتحلت الشهر ده) of the tab, then the open / all switch and the list
   function requestsTab(m) {
     const TA = window.IBTickets; const TK = window.IbtekrTickets;
     if (!TA || !TA.can || !TA.can().view) return [K.Section(label('requests'), K.Empty('الطلبات مش متاحة ليك', 'طلبات الفريق محتاجة صلاحية «طلبات الفريق».'))];
-    const ready = TA.state && TA.state() === 'ready';
-    const mine = (ready ? TA.all() : []).filter((t) => t.createdBy && t.createdBy.uid && t.createdBy.uid === m.uid).sort((a, b) => (String(a.lastUpdate || a.createdAt) < String(b.lastUpdate || b.createdAt) ? 1 : -1));
-    const open = mine.filter((t) => ['open', 'in_progress', 'waiting'].includes(t.status));
-    const list = st.reqSub === 'all' ? mine : open;
+    const ready = TA.state && TA.state() === 'ready'; const all = ready ? TA.all() : [];
+    const self = !isAdminView();
+    const forMember = (t) => (self && TA.isMine ? TA.isMine(t) : t.assigneeMember ? t.assigneeMember === m.uid : (TA.membersOf ? TA.membersOf(t.assigneeRole) : []).some((x) => x.uid === m.uid));
+    const recent = (a, b) => (String(a.lastUpdate || a.createdAt) < String(b.lastUpdate || b.createdAt) ? 1 : -1);
+    const forMe = all.filter(forMember).sort(recent);
+    const opened = all.filter((t) => t.createdBy && t.createdBy.uid && t.createdBy.uid === m.uid).sort(recent);
+    const tab = st.reqTab === 'mine' ? 'mine' : 'forme'; const set = tab === 'mine' ? opened : forMe;
+    const isOpen = (t) => ['open', 'in_progress', 'waiting'].includes(t.status);
+    const open = set.filter(isOpen);
+    const list = st.reqSub === 'all' ? set : open;
+    const month = String(K.TODAY || new Date().toISOString()).slice(0, 7);
+    const doneAt = (t) => String((t.resolution && t.resolution.at) || t.closedAt || t.lastUpdate || '').slice(0, 7);
+    const kpis = h('div', { class: 'cards', 'data-my-req-kpis': tab }, [['مفتوحة', set.filter((t) => t.status === 'open').length, 'open'], ['جاري العمل', set.filter((t) => t.status === 'in_progress').length, 'in_progress'],
+      ['بانتظار الرد', set.filter((t) => t.status === 'waiting').length, 'waiting'], ['اتحلت الشهر ده', set.filter((t) => ['resolved', 'closed'].includes(t.status) && doneAt(t) === month).length, 'done']]
+      .map(([l, n, k]) => h('div', { 'data-my-req-kpi': k }, K.Stat(l, K.Num(n), '', ''))));
     const typeOf = (t) => (TK ? TK.label(TK.TYPES, t.type) : t.type);
+    const who = (t) => (t.assigneeMemberName ? t.assigneeRole + ' — ' + t.assigneeMemberName : t.assigneeRole || '—');
     const go = (t) => { location.hash = 'tickets/' + t.id; };
     const row = (t) => { const tr = h('tr', { 'data-my-req': t.id, tabindex: '0', role: 'button', 'aria-label': 'افتح الطلب ' + t.id },
-      [K.Num(t.id), t.title, typeOf(t), U.TicketStatus ? U.TicketStatus(t.status) : (REQ_ST[t.status] || t.status), t.assigneeRole || '—', K.Num(String(t.lastUpdate || t.createdAt || '').slice(0, 10))].map((c) => h('td', null, c)));
+      [K.Num(t.id), t.title, typeOf(t), U.TicketStatus ? U.TicketStatus(t.status) : (REQ_ST[t.status] || t.status), tab === 'mine' ? who(t) : ((t.createdBy && t.createdBy.name) || '—'), K.Num(String(t.lastUpdate || t.createdAt || '').slice(0, 10))].map((c) => h('td', null, c)));
       tr.addEventListener('click', () => go(t)); tr.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(t); } }); return tr; };
-    const fresh = window.IbtekrApp && window.IbtekrApp.newTicket && !isAdminView() ? Button({ type: 'brand', size: 'sm', icon: 'plus', label: 'فتح طلب', onClick: () => window.IbtekrApp.newTicket() }) : null;
-    return [K.SubTabs({ items: [{ id: 'open', label: 'المفتوحة', count: open.length }, { id: 'all', label: 'الكل', count: mine.length }], active: st.reqSub === 'all' ? 'all' : 'open', onChange: (id) => { st.reqSub = id; rerender(); }, label: 'طلباتي' }),
-      K.TableSection({ title: isAdminView() ? 'طلباته' : 'طلباتي', sub: 'اللي اتفتح على «طلبات الفريق» — اضغط على أي طلب يفتحه', actions: fresh,
-        body: !ready ? K.Empty('بنجيب الطلبات…', 'لحظة.') : list.length ? h('div', { class: 'scroll-x' }, h('table', null, h('thead', null, h('tr', null, ['الرقم', 'العنوان', 'النوع', 'الحالة', 'المسؤول', 'آخر تحديث'].map((x) => h('th', { scope: 'col' }, x)))), h('tbody', null, list.map(row))))
-          : K.Empty(st.reqSub === 'all' ? 'لسه مفيش طلبات' : 'مفيش طلبات مفتوحة', st.reqSub === 'all' ? 'الطلبات اللي بتفتحها على «طلبات الفريق» بتظهر هنا.' : 'كل طلباتك اتحلت أو اتقفلت.') })];
+    const fresh = window.IbtekrApp && window.IbtekrApp.newTicket && self ? Button({ type: 'brand', size: 'sm', icon: 'plus', label: 'فتح طلب', onClick: () => window.IbtekrApp.newTicket() }) : null;
+    const mineName = self ? 'طلباتي' : 'طلباته'; const forName = self ? 'مطلوبة مني' : 'مطلوبة منه';
+    return [K.MainTabs({ items: [{ id: 'forme', label: forName, count: forMe.filter(isOpen).length }, { id: 'mine', label: mineName, count: opened.filter(isOpen).length }], active: tab, onChange: (id) => { st.reqTab = id; rerender(); }, label: 'الطلبات' }),
+      K.Section('نظرة عامة', kpis, null, { th: false }),
+      K.SubTabs({ items: [{ id: 'open', label: 'المفتوحة', count: open.length }, { id: 'all', label: 'الكل', count: set.length }], active: st.reqSub === 'all' ? 'all' : 'open', onChange: (id) => { st.reqSub = id; rerender(); }, label: tab === 'mine' ? mineName : forName }),
+      K.TableSection({ title: tab === 'mine' ? mineName : forName, sub: tab === 'mine' ? 'اللي اتفتح على «طلبات الفريق» — اضغط على أي طلب يفتحه' : 'المسؤول عنها ' + (self ? 'دورك أو إنت' : 'دوره أو هو') + ' — اضغط على أي طلب يفتحه', actions: fresh,
+        body: !ready ? K.Empty('بنجيب الطلبات…', 'لحظة.') : list.length ? h('div', { class: 'scroll-x' }, h('table', null, h('thead', null, h('tr', null, ['الرقم', 'العنوان', 'النوع', 'الحالة', tab === 'mine' ? 'المسؤول' : 'فتحها', 'آخر تحديث'].map((x) => h('th', { scope: 'col' }, x)))), h('tbody', null, list.map(row))))
+          : K.Empty(st.reqSub === 'all' ? 'لسه مفيش طلبات' : 'مفيش طلبات مفتوحة', tab === 'mine' ? (st.reqSub === 'all' ? 'الطلبات اللي بتفتحها على «طلبات الفريق» بتظهر هنا.' : 'كل طلباتك اتحلت أو اتقفلت.') : 'مفيش طلبات على ' + (self ? 'دورك أو عليك' : 'دوره أو عليه') + (st.reqSub === 'all' ? '.' : ' مستنية دلوقتي.')) })];
   }
   document.addEventListener('ib:tickets', () => { if (window.IBPages.current === 'profile' && st.tab === 'requests' && !typing()) rerender(); });
 
@@ -278,13 +295,13 @@
     const otOk = ot.filter((o) => o.status === 'اتضاف' && o.kind !== 'rest_day' && o.date.startsWith(mk)); const otPend = ot.filter((o) => o.status === 'مستني');
     const sh = !isAdminView() && window.IBShell ? window.IBShell.state() : null;
     const okMin = otOk.reduce((x, o) => x + o.paid, 0);
-    const outTxt = (a) => (a.out != null ? K.hm(a.out) : a.date === t ? 'لسه شغال' : 'ناقص');
+    const outTxt = (a) => (a.out != null ? K.t12(a.out) : a.date === t ? 'لسه شغال' : 'ناقص'); // decision 9: clock times on the 12-hour clock
     const sessTxt = (a) => (a.sessions && a.sessions.length > 1 ? a.sessions.length + ' جلسات' : 'جلسة');
-    const attRow = (a) => [K.dayName(a.date) + ' ' + K.dshort(a.date), K.hm(a.in), outTxt(a), hrsOf(a) || a.out != null ? K.hm(hrsOf(a)) : '—', sessTxt(a)];
+    const attRow = (a) => [K.dayName(a.date) + ' ' + K.dshort(a.date), K.t12(a.in), outTxt(a), hrsOf(a) || a.out != null ? K.hm(hrsOf(a)) : '—', sessTxt(a)];
     const otTag = (o) => K.Tag(o.status === 'مستني' ? 'orange' : o.status === 'اتضاف' ? 'success' : 'error', o.status === 'اتضاف' ? 'اتضاف ' + (o.kind === 'rest_day' ? 'يوم × 2' : K.hrs(o.paid)) : o.status === 'مستني' ? 'مستني تأكيد' : o.status);
     const dToday = () => ({ title: 'النهارده — ' + who, sub: sh ? (sh.state === 'out' ? (sh.ended ? 'خلص الدوام النهارده' : 'خارج الدوام دلوقتي') : 'الدوام شغال من ' + sh.startLabel) : 'حالته النهارده: ' + HR().status(m)[0], summary: [{ label: 'الحالة', value: !sh ? HR().status(m)[0] : sh.state === 'out' ? (sh.ended ? 'خلص الدوام' : 'خارج الدوام') : sh.state === 'overtime' ? 'وقت إضافي' : 'في الدوام' }, { label: 'اشتغلت', value: sh && sh.state !== 'out' ? K.hm(sh.worked) + ' ساعة' : sh && sh.ended ? K.hm(sh.endedMin) + ' ساعة' : '—' }, { label: 'بداية الدوام', value: sh && sh.startLabel || '—' }], headers: [], rows: [], note: 'الدوام مرن: تقدر تبدأ وتنهي أكتر من مرة في اليوم، والساعات = مجموع الجلسات من «ابدأ الدوام» لحد «إنهاء الدوام» على ساعة السيرفر.', source: 'تسجيل الدوام' });
     const dMonth = () => ({ title: 'ساعات ' + mon + ' — ' + who, sub: att.length + ' يوم حضور', summary: [{ label: 'إجمالي الساعات', value: K.hm(worked) }, { label: 'أيام', value: String(att.length) }, { label: 'متوسط اليوم', value: att.length ? K.hm(worked / att.length) : '—' }], headers: ['اليوم', 'أول حضور', 'آخر انصراف', 'الساعات', 'الجلسات'], rows: att.map(attRow), source: 'سجل الحضور' });
-    const sessRows = att.flatMap((a) => (a.sessions || []).map((x, i) => [K.dayName(a.date) + ' ' + K.dshort(a.date), String(i + 1), K.hm(x.in), x.out != null ? K.hm(x.out) : a.date === t ? 'لسه شغال' : 'ناقص', x.out != null ? K.hm(Math.max(0, x.out - x.in)) : '—']));
+    const sessRows = att.flatMap((a) => (a.sessions || []).map((x, i) => [K.dayName(a.date) + ' ' + K.dshort(a.date), String(i + 1), K.t12(x.in), x.out != null ? K.t12(x.out) : a.date === t ? 'لسه شغال' : 'ناقص', x.out != null ? K.hm(Math.max(0, x.out - x.in)) : '—']));
     const dSess = () => ({ title: 'جلسات الدوام — ' + who, sub: nSess + ' جلسة في ' + mon + ' · الدوام مرن ومفيش تأخير', summary: [{ label: 'جلسات', value: String(nSess) }, { label: 'أيام', value: String(att.length) }], headers: ['اليوم', 'الجلسة', 'من', 'لحد', 'المدة'], rows: sessRows, empty: 'لسه مفيش جلسات الشهر ده.', source: 'سجل الحضور' });
     const dOt = () => ({ title: 'الوقت الإضافي — ' + who, sub: otOk.length + ' متأكد في ' + mon + ' · ' + otPend.length + ' مستني تأكيد', summary: [{ label: 'متأكد', value: K.hm(okMin) + ' ساعة' }, { label: 'مستني', value: String(otPend.length) }], headers: ['اليوم', 'المدة', 'المحسوب', 'اشتغلت على إيه', 'الحالة'], rows: ot.map((o) => [K.dshort(o.date), o.kind === 'rest_day' ? 'يوم راحة' : K.hrs(o.minutes), o.status === 'اتضاف' ? (o.kind === 'rest_day' ? 'يوم × 2' : K.hrs(o.paid)) : '—', o.note || '—', o.status]), empty: 'مفيش وقت إضافي مسجّل.', note: 'الوقت الإضافي بيتحسب بس بعد ما المدير يأكده.', source: 'الوقت الإضافي' });
     const now = sh && sh.state !== 'out' ? K.hm(sh.worked) : sh && sh.ended ? K.hm(sh.endedMin) : '—';
@@ -328,7 +345,7 @@
     const list = ((HD().noteLog) || []).filter((x) => x.member === m.id); if (!list.length) return null;
     const KIND = { meeting: ['ميتنج فردي', 'info'], warning: ['إنذار', 'error'], plan: ['خطة تحسين', 'orange'], thanks: ['شكر', 'success'] };
     const per = (p) => (/Q/.test(p) ? qLabel(p) : monLabel(p)); const day = (x) => (x ? K.dshort(cairo(x, 'en-CA', { year: 'numeric', month: '2-digit', day: '2-digit' })) : '—');
-    const time = (x) => cairo(x, 'en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
+    const time = (x) => K.t12(cairo(x, 'en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })); // decision 9: the 12-hour clock
     const rows = list.map((x) => [K.Tag((KIND[x.kind] || [x.kind, 'neutral'])[1], (KIND[x.kind] || [x.kind])[0]), per(x.period), h('span', { class: 't-small wrap' }, x.body || '—'),
       x.due ? (x.kind === 'meeting' ? 'الميعاد ' + day(x.due) + ' الساعة ' + time(x.due) : 'المراجعة ' + day(x.due)) : '—', x.by || '—', day(x.at)]);
     return K.Section('من المدير — ميتنج · إنذار · خطة تحسين · شكر', U.Table({ cls: 'pf-notes', headers: ['النوع', 'عن تقييم', 'التفاصيل', 'الميعاد', 'من', 'التاريخ'], rows }), null,
@@ -560,7 +577,7 @@
     K.toast('اتوقف التحقق بخطوتين', 'success'); rerender();
   }
 
-  window.IBPages.register('profile', { title: 'ملفي', hash: (hs) => { let m = /^profile(?:-([a-z]+))?$/.exec(hs); if (m) { st.who = null; st.tab = m[1] && TABS.some((t) => t[0] === m[1]) ? m[1] : 'overview'; return true; } m = /^member-(M\d{2,4})$/.exec(hs); if (m && (S.members.some((x) => x.id === m[1]) || (window.IBHR && window.IBHR.member(m[1])))) { if (whoId() !== m[1]) st.tab = 'overview'; st.who = m[1] === K.ME ? null : m[1]; return true; } return false; },
+  window.IBPages.register('profile', { title: 'ملفي', hash: (hs) => { let m = /^profile(?:-([a-z]+))?(?:-(forme|mine))?$/.exec(hs); if (m) { st.who = null; st.tab = m[1] && TABS.some((t) => t[0] === m[1]) ? m[1] : 'overview'; if (m[2]) st.reqTab = m[2]; return true; } m = /^member-(M\d{2,4})$/.exec(hs); if (m && (S.members.some((x) => x.id === m[1]) || (window.IBHR && window.IBHR.member(m[1])))) { if (whoId() !== m[1]) st.tab = 'overview'; st.who = m[1] === K.ME ? null : m[1]; return true; } return false; },
     defaultHash: () => (isAdminView() ? 'member-' + st.who : 'profile' + (st.tab === 'overview' ? '' : '-' + st.tab)), view, navPage: () => (isAdminView() ? 'hr' : null),
     api: { autoTasks: () => { const m = HM(K.ME); return m && m.id ? autoOf(m) : []; } } });
 })();

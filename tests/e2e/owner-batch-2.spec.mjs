@@ -411,3 +411,43 @@ test('T9 — decisions 19, 21, 23–26: deposit rules, each missing item opens i
   await dr.locator('[data-missing-item="بيانات الدخول"]').click();
   await expect(modal(page).filter({ hasText: 'بيانات الدخول —' })).toBeVisible();
 });
+
+test('T10 — decisions 5, 7, 9: «مطلوبة مني» / «طلباتي» with an overview, a custom time\'s own work days, the 12-hour clock', async ({ page }) => {
+  // 9: the kit's 12-hour clock (the stored value stays HH:MM)
+  expect(await page.evaluate(() => [window.IBKit.t12('09:00'), window.IBKit.t12('17:30'), window.IBKit.t12('00:15'), window.IBKit.t12('12:00'), window.IBKit.t12(540), window.IBKit.t12(''), window.IBKit.t12('بكرة')]))
+    .toEqual(['9:00 ص', '5:30 م', '12:15 ص', '12:00 م', '9:00 ص', '—', 'بكرة']);
+  // 7: «وقت عمل مخصص» for a member with its own days; the hour lists read on the 12-hour clock
+  await go(page, '#settings-hr');
+  const st = page.locator('#pg-settings');
+  await st.locator('[data-hs-sched-add]').click();
+  const f = modal(page).filter({ hasText: 'وقت عمل مخصص' });
+  await f.getByRole('radio', { name: 'موظف' }).click();
+  await f.locator('#hs-s-member').click();
+  const opt = page.getByRole('option').filter({ hasText: '—' }).nth(1); const who = (await opt.textContent()).split(' — ')[0].trim(); await opt.click();
+  await f.locator('#hs-s-from').click(); await expect(page.getByRole('option', { name: '9:00 ص', exact: true })).toBeVisible(); await page.getByRole('option', { name: '12:00 م', exact: true }).click();
+  await f.locator('#hs-s-to').click(); await page.getByRole('option', { name: '8:00 م', exact: true }).click();
+  await expect(f.locator('[data-hs-s-days]')).toContainText('من غير اختيار = أيام الشغل الرسمية');
+  await f.locator('[data-hs-s-day="5"]').click(); await f.locator('[data-hs-s-day="6"]').click();
+  await expect(f.locator('[data-hs-s-days]')).toContainText('بيشتغل: السبت، الجمعة');
+  await f.getByRole('button', { name: 'إضافة', exact: true }).click();
+  const rowDays = st.locator('[data-hs-sched-days^="member:"]');
+  await expect(rowDays).toHaveText('السبت، الجمعة');
+  await expect(st.locator('tr', { has: page.locator('[data-hs-sched-days^="member:"]') })).toContainText('12:00 م');
+  await st.locator('[data-set-save]').click();
+  await expect.poll(() => { const r = mock.settings.find((x) => x.section === 'hr'); const m = r && r.data && r.data.schedules ? Object.values(r.data.schedules.member || {}) : []; return m.map((x) => [x.from, x.to, x.days]); })
+    .toEqual([['12:00', '20:00', [5, 6]]]);
+  const uid = Object.keys(mock.settings.find((x) => x.section === 'hr').data.schedules.member)[0];
+  await expect.poll(() => page.evaluate((u) => window.IBHR.workDaysOf(u), uid)).toEqual([5, 6]);
+  expect(await page.evaluate((u) => [window.IBHR.isWorkDay('2026-11-06', u), window.IBHR.isWorkDay('2026-11-08', u), window.IBHR.isWorkDay('2026-11-08')], uid)).toEqual([true, false, true]);
+  expect(who.length).toBeGreaterThan(0);
+  // 5: «ملفي › طلباتي» — «مطلوبة مني» first with its overview, then «طلباتي»
+  await go(page, '#profile-requests');
+  const P = page.locator('#pg-profile');
+  await expect(P.locator('#tab-forme')).toHaveAttribute('aria-selected', 'true');
+  await expect(P.locator('[data-my-req-kpis="forme"] [data-my-req-kpi]')).toHaveCount(4);
+  await expect(P.locator('[data-my-req-kpis="forme"]')).toContainText('اتحلت الشهر ده');
+  await P.locator('#tab-mine').click();
+  await expect(P.locator('[data-my-req-kpis="mine"]')).toBeVisible();
+  await go(page, '#profile-requests-forme');
+  await expect(P.locator('#tab-forme')).toHaveAttribute('aria-selected', 'true');
+});

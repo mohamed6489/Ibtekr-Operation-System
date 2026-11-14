@@ -129,7 +129,7 @@
   async function maybe(q) { try { return await rows(q); } catch (e) { return []; } } // a table RLS hides from the member reads as empty
 
   const holidayDates = () => raw.hol.filter((x) => x.status === 'مؤكد').flatMap((x) => Array.from({ length: x.days || 1 }, (_, i) => addDays(x.day, i)));
-  const offDay = (d, hol) => !workDays().includes(isoDay(d) || 7) || hol.includes(d); // 0087: the settings' work days (getUTCDay 0 = Sunday = isodow 7)
+  const offDay = (d, hol, uid) => !workDaysOf(uid).includes(isoDay(d) || 7) || hol.includes(d); // 0087: the work days (getUTCDay 0 = Sunday = isodow 7); 0101: a member's own (uid)
   const leaveDays = (from, to, hol) => { let n = 0; for (let d = from; d <= to; d = addDays(d, 1)) if (!offDay(d, hol)) n += 1; return n; };
   const leaveType = (name) => raw.lt.find((t) => t.name === name) || null;
   const isLeave = (type) => !!leaveType(type) || String(type || '').startsWith('إجازة');
@@ -163,7 +163,7 @@
     const srcOf = (a) => (a.source === 'clock' ? (a.remote ? 'تسجيل من السيستم · عن بُعد' : 'تسجيل من السيستم') : (a.source === 'fix' ? 'تصحيح' : 'تسجيل يدوي') + ' — ' + nameOf(a.by_id) + (a.note ? ' · ' + a.note : ''));
     s.attendance = [...byDay.values()].map((l) => {
       l.sort((x, y) => (x.in_at < y.in_at ? -1 : x.in_at > y.in_at ? 1 : 0));
-      const a = l[0]; const code = codeOf(a.member_id); const off = offDay(a.day, hol);
+      const a = l[0]; const code = codeOf(a.member_id); const off = offDay(a.day, hol, a.member_id);
       const open = l.filter((x) => !x.out_at).pop() || null; const last = l[l.length - 1];
       const sessions = l.map((x) => ({ id: Number(x.id), in: minOf(x.in_at, x.day), out: x.out_at ? minOf(x.out_at, x.day) : null, source: x.source, remote: !!x.remote }));
       const i = sessions[0].in; const o = open ? null : Math.max(...sessions.map((x) => x.out));
@@ -183,7 +183,7 @@
       if (row) { tdy[m.id] = { in: row.in, out: row.out, mins: row.mins, openIn: row.openIn, sessions: row.sessions.length, remote: row.remote, missingYesterday: missing }; return; }
       const leave = s.requests.find((q) => q.member === m.id && isLeave(q.type) && q.status === 'موافق' && q.from <= t && q.to >= t);
       if (hol.includes(t)) tdy[m.id] = { kind: 'holiday', missingYesterday: missing };
-      else if (offDay(t, hol)) tdy[m.id] = { kind: 'off', missingYesterday: missing };
+      else if (offDay(t, hol, m.uid)) tdy[m.id] = { kind: 'off', missingYesterday: missing };
       else if (leave) tdy[m.id] = { kind: 'leave', leaveType: leave.type, missingYesterday: missing };
       else if (nm > end && m.status === 'active') tdy[m.id] = { kind: 'absent', missingYesterday: missing };
       else if (missing) tdy[m.id] = { missingYesterday: true };
@@ -253,15 +253,25 @@
   const hm = (t) => (/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(String(t || '')) ? Number(t.slice(0, 2)) * 60 + Number(t.slice(3)) : null);
   const span = (from, to) => { const a = hm(from), b = hm(to); if (a == null || b == null) return null; const d = (b - a + 1440) % 1440; return d >= 60 && d <= 960 ? d : null; };
   const workDays = () => { const v = settings().workDays; const ok = Array.isArray(v) ? [...new Set(v.map(Number).filter((x) => Number.isInteger(x) && x >= 1 && x <= 7))] : []; return ok.length ? ok.sort() : [1, 2, 3, 4, 7]; };
-  const isWorkDay = (d) => { const x = d instanceof Date ? d : new Date(String(d).slice(0, 10) + 'T12:00:00'); const iso = x.getDay() === 0 ? 7 : x.getDay(); return workDays().includes(iso); };
+  // owner batch 2 decision 7 (0101 hr_member_dows): a member's days = his own schedule's, else his main role's, else the settings'
+  const cleanDays = (v) => (Array.isArray(v) ? [...new Set(v.map(Number).filter((x) => Number.isInteger(x) && x >= 1 && x <= 7))].sort() : []);
+  function workDaysOf(uid) {
+    if (!uid) return workDays();
+    const st0 = settings(); const sc = st0.schedules && typeof st0.schedules === 'object' ? st0.schedules : {};
+    const m = cleanDays(sc.member && sc.member[uid] && sc.member[uid].days); if (m.length) return m;
+    const who = members().find((x) => x.uid === uid); const r = cleanDays(who && who.roleId && sc.role && sc.role[who.roleId] && sc.role[who.roleId].days);
+    return r.length ? r : workDays();
+  }
+  // uid given = that member's days (the header clock passes the signed-in member); none = the settings' days (the team calendar)
+  const isWorkDay = (d, uid) => { const x = d instanceof Date ? d : new Date(String(d).slice(0, 10) + 'T12:00:00'); const iso = x.getDay() === 0 ? 7 : x.getDay(); return (uid ? workDaysOf(uid) : workDays()).includes(iso); };
   const dayDivisor = () => { const n = Number(settings().dayDivisor); return Number.isInteger(n) && n >= 20 && n <= 31 ? n : 24; };
   function scheduleOf(uid) {
     const st0 = settings(); const sc = st0.schedules && typeof st0.schedules === 'object' ? st0.schedules : {};
-    const m = uid && sc.member && sc.member[uid]; if (m && span(m.from, m.to) != null) return { from: m.from, to: m.to, kind: 'member' };
+    const m = uid && sc.member && sc.member[uid]; if (m && span(m.from, m.to) != null) return { from: m.from, to: m.to, kind: 'member', days: workDaysOf(uid) };
     const who = uid ? members().find((x) => x.uid === uid) : null; const g = who && who.roleId && sc.role && sc.role[who.roleId]; // 0092: the role (the departments are out)
-    if (g && span(g.from, g.to) != null) return { from: g.from, to: g.to, kind: 'role' };
-    if (span(st0.workFrom, st0.workTo) != null) return { from: st0.workFrom, to: st0.workTo, kind: 'general' };
-    return { from: '09:00', to: '17:00', kind: 'general' };
+    if (g && span(g.from, g.to) != null) return { from: g.from, to: g.to, kind: 'role', days: workDaysOf(uid) };
+    if (span(st0.workFrom, st0.workTo) != null) return { from: st0.workFrom, to: st0.workTo, kind: 'general', days: workDaysOf(uid) };
+    return { from: '09:00', to: '17:00', kind: 'general', days: workDaysOf(uid) };
   }
   const dayMinutes = (uid) => { const s0 = scheduleOf(uid === undefined ? myUid() : uid); return span(s0.from, s0.to) || 480; };
 
@@ -922,7 +932,7 @@
   }
   const logNow = () => logRows;
 
-  window.IBHR = { load, clear, subscribe, unsubscribe, check, state: () => st, data, member, team, everyone, can, decidesOt, settings, hm, span, workDays, isWorkDay, dayDivisor, scheduleOf, dayMinutes, today, nowMin, addDays, quarterOf, quarterMonths, monthKey, holidayDates, leaveDays, isLeave,
+  window.IBHR = { load, clear, subscribe, unsubscribe, check, state: () => st, data, member, team, everyone, can, decidesOt, settings, hm, span, workDays, workDaysOf, isWorkDay, dayDivisor, scheduleOf, dayMinutes, today, nowMin, addDays, quarterOf, quarterMonths, monthKey, holidayDates, leaveDays, isLeave,
     shiftNow, myShift, clockIn, clockOut, overtimeBegin, overtimeRequest, setAttendance, endShiftFor, fixOut, request, decide, cancel, overtimeDecide, rateMonth, saveKpis,
     payrollCalc, payrollLines, sheetLines, sheetTotals, slips, transfer, payMember, advanceGive, otAdjust, payDayOf, evaluate, evalTotal, quarterEval, monthTasks, noteAdd, notesOf, NOTE_KINDS, cairoIso, bank, bankSet, bankReveal, payrollOpen, payrollStep, payrollPay, addAdjustment, voidAdjustment, addExtra, decideExtra, meetingCreate, meetingUpdate,
     holidayAdd, holidayConfirm, holidayDelete, leaveTypeAdd, bonusRuleAdd, bonusRuleToggle, otPeriodAdd, otPeriodDelete, saveSettings, roleManagerSet, memberManagerSet, roleManager,

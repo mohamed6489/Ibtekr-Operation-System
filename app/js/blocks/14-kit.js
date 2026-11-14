@@ -18,6 +18,10 @@
   function dshort(iso) { if (!iso) return '—'; const [, m, d] = iso.split('-').map(Number); return d + ' ' + AR_MON[m - 1]; }
   const dayName = (iso) => AR_DAY[new Date(iso + 'T00:00:00Z').getUTCDay()];
   const hm = (min) => { const m = Math.max(0, Math.round(min)); return Math.floor(m / 60) + ':' + String(m % 60).padStart(2, '0'); };
+  // owner batch 2 decision 9: the 12-hour clock everywhere it shows — «09:00» → «9:00 ص», «17:30» → «5:30 م» (a minutes number too);
+  // what is stored stays HH:MM. Anything else passes as it is.
+  const t12 = (v) => { if (v == null || v === '') return '—'; const s0 = typeof v === 'number' ? String(Math.floor(v / 60) % 24).padStart(2, '0') + ':' + String(Math.round(v) % 60).padStart(2, '0') : String(v);
+    const m = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(s0.trim()); if (!m) return s0; const hh = Number(m[1]) % 24; return ((hh % 12) || 12) + ':' + m[2] + ' ' + (hh < 12 ? 'ص' : 'م'); };
   const hrs = (min) => { const m = Math.round(min); const hh = Math.floor(m / 60), mm = m % 60; return (hh ? hh + ' س' : '') + (hh && mm ? ' ' : '') + (mm || !hh ? mm + ' د' : ''); };
   const daysBetween = (a, b) => Math.round((new Date(b + 'T00:00:00Z') - new Date(a + 'T00:00:00Z')) / 864e5);
 
@@ -966,7 +970,7 @@
   const chanList = (m) => (m && Array.isArray(m.chans) ? m.chans : []);
   const canChan = (m, id) => chanAll(m) || chanList(m).indexOf(id) > -1;
   const chanMembers = (id) => store.members.filter((m) => m.status !== 'invited' && canChan(m, id) && !chanAll(m));
-  window.IBKit = { chanAll, chanList, canChan, chanMembers, Bulk, FilterMenu, SortMenu, ActiveFilters, MultiPick, foldAr, autoFilter, xlsxExport, saveFile, sortableRows, Grip, sweepColumns, applyColumnPrefs, customizeColumns, withColumns, PanelButton, applyPanelPrefs, customizePanel, panelItems, StarPicker, TODAY, NOW_MIN, ME, setMe, money, n0, dlabel, dshort, dayName, hm, hrs, daysBetween, AR_MON, Tag, PageHead, SubTabs, MainTabs, Section, TableSection, Switch, Checkbox, Radios, Accordion, RowMenu, Kv, Stat, Empty, Num, toast, busy, busyCount, form, confirm, field, two, req, store, member, team, stockNow, logEvent, notify, clockNow };
+  window.IBKit = { chanAll, chanList, canChan, chanMembers, Bulk, FilterMenu, SortMenu, ActiveFilters, MultiPick, foldAr, autoFilter, xlsxExport, saveFile, sortableRows, Grip, sweepColumns, applyColumnPrefs, customizeColumns, withColumns, PanelButton, applyPanelPrefs, customizePanel, panelItems, StarPicker, TODAY, NOW_MIN, ME, setMe, money, n0, dlabel, dshort, dayName, hm, t12, hrs, daysBetween, AR_MON, Tag, PageHead, SubTabs, MainTabs, Section, TableSection, Switch, Checkbox, Radios, Accordion, RowMenu, Kv, Stat, Empty, Num, toast, busy, busyCount, form, confirm, field, two, req, store, member, team, stockNow, logEvent, notify, clockNow };
 })();
 
 /* Quick actions (owner 27 Oct; phase 11 decision 23, from the v6 block 14): «إجراءات سريعة» = a named link to any page of the system,

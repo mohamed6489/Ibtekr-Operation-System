@@ -61,7 +61,7 @@ test('«ملفي» from the server: my hours and overtime, a request cancelled, 
   await expect(row).toContainText('9:40'); await expect(row).toContainText('17:30');
   await expect(row).toContainText('7:50'); await expect(row).not.toContainText('متأخر'); // decision 24: the sessions summed, no lateness
   await expect(P(page)).toContainText('تصوير الكتالوج');
-  await expect(P(page).getByRole('tab', { name: 'طلباتي' })).toHaveCount(1); // the owner 11 Nov: my team requests, right after «مهامي»
+  await expect(P(page).locator('#tab-requests')).toHaveText('طلباتي'); // the owner 11 Nov: my team requests, right after «مهامي»
   await tab(page, 'أدائي'); // the HR rebuild: the month out of 5 — the attendance automatic, the performance and the communication from the manager
   const ev = P(page).locator('table.pf-evals tbody tr', { hasText: monLabel(MK).split(' ')[0] });
   await expect(ev).toContainText('4 / 5'); await expect(ev).toContainText('5 / 5'); await expect(ev).toContainText('شغل منظم');

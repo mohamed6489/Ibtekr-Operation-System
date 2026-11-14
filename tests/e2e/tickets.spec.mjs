@@ -73,9 +73,10 @@ test('the owner 11 Nov: «طلباتي» — the team requests I opened, from th
   await signIn(page, OPS);
   await page.locator('.topbar .user-btn').click();
   await page.getByRole('menuitem', { name: 'طلباتي' }).click();
-  await expect(page).toHaveURL(/#profile-requests$/);
+  await expect(page).toHaveURL(/#profile-requests-mine$/);
   const P = page.locator('#pg-profile');
-  await expect(P.getByRole('tab', { name: 'طلباتي' })).toHaveAttribute('aria-selected', 'true');
+  await expect(P.locator('#tab-requests')).toHaveAttribute('aria-selected', 'true');
+  await expect(P.locator('#tab-mine')).toHaveAttribute('aria-selected', 'true'); // batch 2 decision 5: the account menu opens «طلباتي» (what I opened)
   await expect(P.locator('tr[data-my-req]')).toHaveCount(1); // ticket 2 was not opened by her
   await expect(P.locator('tr[data-my-req="TKT-0001"]')).toContainText('العميلة مستنية الأوردر');
   await P.locator('.subtab', { hasText: 'الكل' }).click();

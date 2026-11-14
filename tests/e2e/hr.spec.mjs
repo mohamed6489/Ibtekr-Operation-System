@@ -121,7 +121,7 @@ test('the attendance log: the month day by day, a missing end fixed by hand on t
   await pick(page, P(page), 'log-m', 'العضو: منى حسن');
   if (W1.slice(0, 7) !== T.slice(0, 7)) await pick(page, P(page), 'log-mo', 'الشهر: ' + monLabel(W1));
   const row = P(page).locator('tbody tr', { hasText: 'انصراف ناقص' }).first();
-  await expect(row).toContainText('09:00');
+  await expect(row).toContainText('9:00 ص'); // batch 2 decision 9: the 12-hour clock
   await row.getByRole('button', { name: 'تصحيح' }).click();
   const f = modal(page, 'تصحيح انصراف ناقص');
   await f.locator('#out').fill('17:30'); await f.locator('#reason').fill('نسيت أسجل');
@@ -131,7 +131,7 @@ test('the attendance log: the month day by day, a missing end fixed by hand on t
   const open = mock.hr.attendance.find((a) => a.member_id === ACC_ID && a.day === W1);
   expect(calls('hr_attendance_close').map((c) => [c.p_id, c.p_out, c.p_note])).toEqual([[open.id, '17:30', 'نسيت أسجل']]);
   expect(calls('hr_attendance_set')).toEqual([]); // the day's other sessions stay
-  await expect(P(page).locator('tbody tr', { hasText: 'تصحيح' }).first()).toContainText('17:30');
+  await expect(P(page).locator('tbody tr', { hasText: 'تصحيح' }).first()).toContainText('5:30 م');
 });
 
 test('the kit (decision 18 b): a form\'s first-field focus a tick later leaves a field already focused inside it — the text stays where it is typed', async ({ page }) => {

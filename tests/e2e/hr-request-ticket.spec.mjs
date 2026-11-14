@@ -33,7 +33,7 @@ test('decision 33: a leave filed from «تذاكر الفريق» opens its tick
   // the owner 11 Nov: «طلباتي» is back in «ملفي» — the team requests I opened
   await page.evaluate(() => { location.hash = 'profile'; });
   await expect(page.locator('#pg-profile .prof-head')).toBeVisible();
-  await expect(page.locator('#pg-profile').getByRole('tab', { name: 'طلباتي' })).toHaveCount(1);
+  await expect(page.locator('#pg-profile #tab-requests')).toHaveText('طلباتي');
   await page.evaluate(() => { location.hash = 'tickets'; });
   // decision 66: one «طلب جديد» popup — the type picks the fields
   await page.locator('[data-req-new]').click();

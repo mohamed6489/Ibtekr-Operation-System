@@ -139,8 +139,9 @@ test('decision 7: the work days, the official hours, the day rate and a custom t
   const dept = Object.keys(hr.schedules.dept)[0];
   expect(hr.schedules.dept[dept]).toEqual({ from: '10:00', to: '16:00' });
   // the adapter answers the same as the server's hr_day_minutes: the official 9 hours, the department's 6
-  expect(await page.evaluate(() => window.IBHR.span(window.IBHR.settings().workFrom, window.IBHR.settings().workTo))).toBe(540);
-  expect(await page.evaluate((d) => { const m = window.IBHR.everyone().find((x) => x.dept === d && x.uid); return m ? window.IBHR.dayMinutes(m.uid) : 360; }, dept)).toBe(360);
+  // (the adapter takes the saved row when the write answers — a moment after the server has it)
+  await expect.poll(() => page.evaluate(() => window.IBHR.span(window.IBHR.settings().workFrom, window.IBHR.settings().workTo))).toBe(540);
+  await expect.poll(() => page.evaluate((d) => { const m = window.IBHR.everyone().find((x) => x.dept === d && x.uid); return m ? window.IBHR.dayMinutes(m.uid) : 360; }, dept)).toBe(360);
 });
 
 test('decision 7: on a work day past the member\'s start time with no session, the clock reminds once («ابدأ الدوام»)', async ({ page }) => {

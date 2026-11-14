@@ -52,7 +52,7 @@
     cancelReasons: [['العميل لا يرد', 'إلغاء', 6, true], ['العميل لم يعد يحتاج المنتج', 'إلغاء', 4, true], ['المنتج غير متوفر عند المبتكر', 'إلغاء · استرجاع', 3, true], ['تأخير المبتكر', 'إلغاء · استرجاع', 2, true], ['خلاف على السعر أو الشحن', 'إلغاء', 1, true], ['أوردر تجريبي', 'مسح', 2, true], ['العميل عايز يعدل الأوردر', 'مسح', 1, true], ['أخرى (نص حر إجباري)', 'إلغاء · مسح · استرجاع', 3, true]],
     otherLists: { confirm: ['مؤكد بعربون', 'مؤكد بدون عربون', 'غير مؤكد', 'في انتظار الرد'], sub: ['غير مؤكد', 'مؤكد', 'قيد التنفيذ', 'جاهز للشحن من المبتكر للعميل', 'جاهز للشحن من المخزن للعميل', 'جاهز للشحن من المبتكر للمخزن', 'تم الشحن للمخزن', 'وصل المخزن', 'تم الشحن للعميل', 'مرتجع للمخزن', 'مرتجع للمبتكر', 'ملغي'], returns: O.RETURN_REASONS.slice(), expenses: ['المرتبات', 'المصروفات', 'الاشتراكات', 'الإعلانات'], categories: ['ديكور', 'إكسسوارات', 'ملابس', 'أثاث', 'فنون', 'هدايا', 'أغذية', 'أخرى'], stop: ['تأخير متكرر', 'جودة', 'عدم رد', 'طلب المبتكر', 'أخرى'], priorities: ['عاجل', 'عالي', 'عادي', 'منخفض'] },
     accounts: [{ name: 'البنك الأهلي — الحساب الجاري', kind: 'بنك', ident: 'EG•••• •••• 4821', link: 'يدوي', on: true }, { name: 'حساب بوسطة', kind: 'شركة شحن', ident: 'BST-10422', link: 'يدوي', on: true }, { name: 'Paymob', kind: 'بوابة دفع', ident: 'merchant_7f2a', link: 'غير مربوط', on: false }, { name: 'المحفظة الإلكترونية (فودافون كاش)', kind: 'محفظة', ident: '0100 000 0000', link: 'يدوي', on: true }, { name: 'خزنة المكتب', kind: 'نقدي', ident: '—', link: 'يدوي', on: true }],
-    payout: { after: 'مكتمل + 7 أيام (فترة الاسترجاع)', min: '500 ج.م', cycle: 'كل أسبوعين — يوم الأحد', notify: 'واتساب + كشف حساب PDF', method: 'تحويل بنكي (InstaPay)', approval: 'حسابات + أدمن (توقيعان)', deductDeposit: true, holdLate: true, invLang: 'عربي + إنجليزي', tax: '—', prefix: 'IBT-2026-', next: 'IBT-2026-0147', commission: 'نعم', orders: 'نعم — جدول الأوردرات المكتملة', footer: 'شكرًا لكونك جزءًا من مجتمع إبتكر' },
+    payout: { after: 'مكتمل + 7 أيام (فترة الاسترجاع)', min: '500 ج.م', days: [1, 16], notify: 'واتساب + كشف حساب PDF', method: 'تحويل بنكي (InstaPay)', approval: 'حسابات + أدمن (توقيعان)', deductDeposit: true, deductTransport: true, holdLate: true, invLang: 'عربي + إنجليزي', tax: '', moves: 'نعم', brandBlock: 'نعم', prefix: 'IBT-2026-', next: 'IBT-2026-0147', commission: 'نعم', orders: 'نعم — جدول الأوردرات المكتملة', footer: 'شكرًا لكونك جزءًا من مجتمع إبتكر' },
     activity: [], // the real log is read with filters (phase 11 decision 18)
     actSet: { sensitiveViews: true, permAlert: true, dailyCopy: false },
     security: { force2fa: false, idle: true, maskCustomers: true, blockExport: true, ipOnly: false, pwMin: '8 أحرف + رقم', idleDesktop: '8 ساعات (تحذير قبلها بدقيقة)', idleMobile: '7 أيام' },
@@ -723,10 +723,33 @@
       K.Section('التنشيط وإيقاف التنشيط', [row('اقتراح إيقاف تلقائي عند تكرار التأخير', 'لو ≥ 3 أوردرات متأخرة خلال 30 يوم ← تنبيه «مراجعة تنشيط المبتكر»', m.autoLate, (v) => { m.autoLate = v; }), row('اقتراح إيقاف عند عدم الرد', 'لو ≥ 2 تذكرة «مشكلة مبتكر» بدون رد 48 ساعة', m.autoNoReply, (v) => { m.autoNoReply = v; }), row('إيقاف تلقائي عند انتهاء العقد', 'بعد 7 أيام من انتهاء العقد بدون تجديد', m.autoContract, (v) => { m.autoContract = v; }), row('إعادة التنشيط تتطلب موافقة أدمن', 'المبتكر الموقوف يرجع «نشط» بعد مراجعة السبب', m.reactivate, (v) => { m.reactivate = v; }),
         K.two(pick(m, 'openEffect', 'mk-oe', 'أثر الإيقاف على الأوردرات المفتوحة', ['تستمر حتى الإغلاق + تنبيه لخدمة العملاء', 'تتحوّل لمبتكر تاني']), pick(m, 'siteEffect', 'mk-se', 'أثر الإيقاف على الموقع', ['إخفاء منتجاته + منع أوردرات جديدة', 'منع أوردرات جديدة فقط', 'لا شيء (داخلي)'])),
         vrow('أسباب الإيقاف (قائمة)', 'تُعدَّل من «القوائم والحالات»', h('b', null, C.otherLists.stop.join(' · ')))], null, { sub: 'الإيقاف التلقائي بينزل كتنبيه «مهام» للموافقة — مفيش إيقاف بدون قرار بشري. السبب إجباري ويتسجل في ملف المبتكر' }),
-      K.Section('الافتراضيات عند إضافة مبتكر جديد', [K.two(pick(m, 'rate', 'mk-rate', 'نسبة عمولة إبتكر الافتراضية', ['30%', '35%', '40%', '45%', '50%'], 'النطاق الحالي 30% – 65% · إبتكر الداخلي 100%'), pick(m, 'deposit', 'mk-dep', 'سياسة العربون الافتراضية', ['عربون 50% للأوردرات فوق 3,000 ج.م', 'بدون عربون'])), K.two(pick(m, 'contractLen', 'mk-cl', 'مدة العقد الافتراضية', ['6 شهور', '12 شهر', '24 شهر']), pick(m, 'contractAlert', 'mk-ca', 'تنبيه قبل انتهاء العقد', ['قبل 15 يوم', 'قبل 30 يوم', 'قبل 60 يوم'], 'يظهر في التنبيهات › مهام (أولوية عالية)')), K.two(pick(m, 'newStatus', 'mk-ns', 'حالة المبتكر الجديد', ['نشط فورًا', 'نشط بعد رفع العقد', 'معلّق للمراجعة']), pick(m, 'category', 'mk-cat', 'فئة المبتكر الافتراضية', ['— بدون'].concat(mainCatNames().length ? mainCatNames() : C.otherLists.categories)))], null, { sub: 'تُملأ تلقائيًا في بوب أب «إضافة مبتكر» وتظل قابلة للتعديل لكل مبتكر' }),
+      K.Section('الافتراضيات عند إضافة مبتكر جديد', [K.two(pick(m, 'rate', 'mk-rate', 'نسبة عمولة إبتكر الافتراضية', ['30%', '35%', '40%', '45%', '50%'], 'النطاق الحالي 30% – 65% · إبتكر الداخلي 100%'), pick(m, 'newStatus', 'mk-ns', 'حالة المبتكر الجديد', ['نشط فورًا', 'نشط بعد رفع العقد', 'معلّق للمراجعة'])), K.two(pick(m, 'contractLen', 'mk-cl', 'مدة العقد الافتراضية', ['6 شهور', '12 شهر', '24 شهر']), pick(m, 'contractAlert', 'mk-ca', 'تنبيه قبل انتهاء العقد', ['قبل 15 يوم', 'قبل 30 يوم', 'قبل 60 يوم'], 'يظهر في التنبيهات › مهام (أولوية عالية)')), pick(m, 'category', 'mk-cat', 'فئة المبتكر الافتراضية', ['— بدون'].concat(mainCatNames().length ? mainCatNames() : C.otherLists.categories))], null, { sub: 'تُملأ تلقائيًا في بوب أب «إضافة مبتكر» وتظل قابلة للتعديل لكل مبتكر' }),
+      depositSec(m),
       loginBankSec(m)];
   }
   window.IBMakerDefaults = () => C.makers;
+  // owner batch 2 decision 19: «سياسة العربون» = rules (name · when the order is over an amount · the percent), «+ إضافة قاعدة»; the
+  // highest «over» an order passes wins (depositFor). An old single choice becomes one rule.
+  const depRules = (m) => { if (!Array.isArray(m.depositRules)) m.depositRules = /بدون/.test(String(m.deposit || '')) ? [] : [{ name: 'الأوردرات الكبيرة', over: 3000, pct: 50 }]; return m.depositRules; };
+  const depositFor = (rules, total) => (rules || []).filter((r) => Number(total) > Number(r.over)).sort((a, b) => b.over - a.over)[0] || null;
+  window.IBDepositRule = (total) => depositFor(depRules(C.makers), total);
+  function depositSec(m) {
+    const L = depRules(m);
+    const edit = (i) => { const cur = i == null ? { name: '', over: '', pct: '' } : L[i];
+      K.form({ title: i == null ? 'قاعدة عربون جديدة' : 'تعديل «' + cur.name + '»', values: { name: cur.name, over: String(cur.over), pct: String(cur.pct) },
+        fields: (f, e, set) => [K.field.text('name', 'الاسم', f, e, set, { required: true, placeholder: 'مثلًا: الأوردرات الكبيرة' }),
+          K.two(K.field.text('over', 'لو الأوردر فوق (ج.م)', f, e, set, { required: true, inputmode: 'numeric', placeholder: '3000' }), K.field.text('pct', 'النسبة %', f, e, set, { required: true, inputmode: 'numeric', placeholder: '50' }))],
+        validate: (f) => { const er = {}; const n = String(f.name || '').trim(); const over = Number(f.over); const pct = Number(f.pct);
+          if (!n) er.name = 'اكتب اسم القاعدة'; else if (n.length > 40 || /[<>]/.test(n)) er.name = 'الاسم لحد 40 حرف من غير < >'; else if (L.some((r, j) => j !== i && r.name.trim() === n)) er.name = 'فيه قاعدة بنفس الاسم';
+          if (String(f.over).trim() === '' || !Number.isFinite(over) || over < 0) er.over = 'اكتب مبلغ (0 أو أكتر)'; else if (L.some((r, j) => j !== i && Number(r.over) === over)) er.over = 'فيه قاعدة بنفس المبلغ';
+          if (!Number.isInteger(pct) || pct < 1 || pct > 100) er.pct = 'النسبة من 1 لـ 100'; return er; },
+        submitLabel: i == null ? 'ضيف القاعدة' : 'احفظ', submit: (f) => { const r = { name: String(f.name).trim(), over: Math.round(Number(f.over)), pct: Number(f.pct) }; if (i == null) L.push(r); else L[i] = r; L.sort((a, b) => a.over - b.over); LOGV('settings.change', 'سياسة العربون = ' + L.length + ' قاعدة'); K.toast('اتحفظت القاعدة', 'success'); R(); } }); };
+    const del = (i) => K.confirm({ title: 'تمسح «' + L[i].name + '»؟', text: 'الأوردرات اللي فوق المبلغ ده هتمشي على القاعدة اللي قبلها (أو من غير عربون).', okLabel: 'امسح', okType: 'danger', onOk: () => { L.splice(i, 1); LOGV('settings.change', 'سياسة العربون = ' + L.length + ' قاعدة'); R(); } });
+    return K.Section('سياسة العربون', L.length ? U.Table({ cls: 'mini-table', headers: ['الاسم', 'لو الأوردر فوق', 'النسبة', ''], rows: L.map((r, i) => [h('b', { 'data-dep-rule': r.name }, r.name), K.money ? K.money(r.over) : r.over.toLocaleString('en-US') + ' ج.م', r.pct + '%', K.RowMenu([{ label: 'تعديل', icon: 'sliders', run: () => edit(i) }, { label: 'حذف', icon: 'trash', danger: true, run: () => del(i) }])]) })
+      : K.Empty('مفيش قواعد عربون', 'من غير قاعدة مفيش عربون على أي أوردر'),
+      [Button({ type: 'text', size: 'sm', icon: 'plus', label: 'إضافة قاعدة', attrs: { 'data-dep-add': '' }, onClick: () => edit(null) })],
+      { th: false, sub: 'الأوردر اللي إجماليه فوق مبلغ القاعدة بيتطلب منه عربون بنسبتها — ولو عدّى أكتر من قاعدة، الأعلى في المبلغ هي اللي بتتطبق.' });
+  }
   if (window.IBCrumbs) window.IBCrumbs.register('settings', () => { const x = SECTIONS.find((q) => q[0] === st.sec); return x ? [{ label: x[1] }] : []; });
   // login + payout for every maker (owner 26 Oct): rules for new makers + coverage of the existing ones
   function loginBankSec(m) {
@@ -906,14 +929,48 @@
   }
 
   // ---------- الحسابات والدفع ----------
+  // owner batch 2 decision 23: «دورية تحويل المبتكرين» = days of the month (1 and 16 by default; an old single choice becomes them)
+  const PAY_DAYS = Array.from({ length: 28 }, (_, i) => i + 1);
+  function payDays(p) {
+    if (!Array.isArray(p.days) || !p.days.length) p.days = [1, 16];
+    const pick1 = (d) => { const on = p.days.includes(d); if (on && p.days.length === 1) { K.toast('لازم يوم واحد على الأقل'); return; }
+      p.days = on ? p.days.filter((x) => x !== d) : p.days.concat(d).sort((a, b) => a - b); LOGV('settings.change', 'أيام تحويل المبتكرين = ' + p.days.join(' و')); R(); };
+    return h('div', { class: 'field', 'data-pay-days': p.days.join(',') }, h('span', { class: 'flabel', id: 'p-days-l' }, 'دورية التحويل — أيام في الشهر'),
+      h('div', { class: 'chips', role: 'group', 'aria-labelledby': 'p-days-l' }, PAY_DAYS.map((d) => h('button', { type: 'button', class: 'chip', 'aria-pressed': String(p.days.includes(d)), 'data-pay-day': String(d), onClick: () => pick1(d) }, String(d)))),
+      h('div', { class: 'help' }, 'بيتحوّل يوم ' + p.days.join(' و') + ' من كل شهر — الأيام لحد 28 عشان تبقى موجودة في كل الشهور'));
+  }
+  // owner batch 2 decision 26: «معاينة» — the statement template as the maker gets it, from these settings (sample numbers)
+  function stmtPreview(p) {
+    const g = C.general || {}; const lang = p.invLang || 'عربي + إنجليزي'; const en = lang !== 'عربي'; const ar = lang !== 'إنجليزي';
+    const t = (a, e) => (ar && en ? a + ' · ' + e : ar ? a : e);
+    const yes = (v) => String(v || '').startsWith('نعم');
+    const orders = [['10234', '1,200.00', '360.00', '840.00'], ['10251', '850.00', '255.00', '595.00'], ['10277', '2,400.00', '720.00', '1,680.00']];
+    const logo = window.IBLogo && window.IBLogo.get ? window.IBLogo.get('color') : null;
+    const head = yes(p.brandBlock) ? h('div', { class: 'stmt-head', 'data-stmt-brand': '' }, logo ? h('img', { src: logo, alt: g.company || 'إبتكر', class: 'stmt-logo' }) : h('b', { class: 'stmt-logo-txt' }, g.company || 'إبتكر كلوب'),
+      h('div', { class: 't-small' }, [g.legal, g.address, g.phone, g.email].filter(Boolean).join(' · '))) : null;
+    const body = [head, h('div', { class: 'stmt-title' }, h('b', null, t('كشف حساب المبتكر', 'Maker statement')), h('span', { dir: 'ltr', 'data-stmt-no': '' }, (p.prefix || '') + '0148')),
+      h('div', { class: 't-small' }, t('المبتكر', 'Maker') + ': مبتكر تجريبي · ' + t('الفترة', 'Period') + ': 1 – 15'),
+      yes(p.orders) ? U.Table({ cls: 'mini-table', headers: [t('الأوردر', 'Order'), t('المبيعات', 'Sales')].concat(yes(p.commission) ? [t('عمولة إبتكر', 'Commission')] : []).concat([t('حقك', 'Your share')]), rows: orders.map((r) => [h('bdi', { dir: 'ltr' }, '#' + r[0]), r[1]].concat(yes(p.commission) ? [r[2]] : []).concat([r[3]])) }) : null,
+      yes(p.moves) ? h('div', { class: 'stmt-moves', 'data-stmt-moves': '' }, h('div', null, t('عربون مستلم', 'Deposit'), ' −500.00'), h('div', null, t('مواصلات', 'Transport'), ' −120.00')) : null,
+      h('div', { class: 'stmt-total' }, h('b', null, t('الصافي المحوّل', 'Net transfer') + ': ' + (yes(p.moves) ? '2,495.00' : '3,115.00') + ' ج.م')),
+      p.tax && p.tax !== '—' ? h('div', { class: 't-small', 'data-stmt-tax': '' }, t('الرقم الضريبي', 'Tax no.') + ': ' + p.tax) : null,
+      p.footer ? h('p', { class: 't-small help stmt-foot' }, p.footer) : null].filter(Boolean);
+    const m = U.Modal({ title: 'معاينة كشف الحساب', body: [h('div', { class: 'stmt-preview', 'data-stmt': lang, dir: ar ? 'rtl' : 'ltr' }, body), U.InlineNote({ children: 'أرقام تجريبية — الكشف الحقيقي بيتعمل من حساب كل مبتكر وقت التحويل.' })] });
+    return m;
+  }
   function payments() {
     const p = C.payout;
     return [K.Section('حسابات الشركة', U.Table({ headers: ['الحساب', 'النوع', 'الرقم / المعرّف', 'الربط', 'مفعّل', ''], rows: C.accounts.map((a) => [a.name, a.kind, h('span', { dir: 'ltr' }, a.ident), K.Tag(a.link === 'غير مربوط' ? 'neutral' : 'info', a.link), h('button', { type: 'button', role: 'switch', class: 'sw', 'aria-checked': String(a.on), 'aria-label': a.name, onClick: () => { a.on = !a.on; R(); } }, h('i')), K.RowMenu([{ label: 'تعديل', icon: 'sliders', run: () => addAccount(a) }, { label: 'حذف', icon: 'close', danger: true, run: () => K.confirm({ title: 'حذف الحساب', text: 'هيتشال «' + a.name + '». الحركات القديمة هتفضل في السجل.', okType: 'danger', okLabel: 'حذف', onOk: () => { C.accounts = C.accounts.filter((x) => x !== a); R(); } }) }])]) }), [Button({ label: '+ حساب', onClick: () => addAccount() })], { th: false, sub: 'الحسابات اللي بتظهر في تاب «الحساب الفعلي» وفي بوب أب «إضافة مبلغ» — الأرصدة تُدخل يدويًا حتى الربط البنكي' }),
-      K.Section('تحويل مستحقات المبتكرين', [h('div', { class: 'grid3' }, pick(p, 'after', 'p-af', 'يُحوَّل بعد حالة', ['مكتمل + 7 أيام (فترة الاسترجاع)', 'مكتمل']), pick(p, 'min', 'p-min', 'الحد الأدنى للتحويل', ['250 ج.م', '500 ج.م', '1,000 ج.م'], 'الأرصدة الأقل بتترحّل للدورة التالية'), pick(p, 'cycle', 'p-cy', 'دورية التحويل', ['أسبوعي', 'كل أسبوعين — يوم الأحد', 'شهري', 'يدوي'])),
-        h('div', { class: 'grid3' }, pick(p, 'notify', 'p-nt', 'إشعار المبتكر بالتحويل', ['واتساب + كشف حساب PDF', 'إيميل']), pick(p, 'method', 'p-me', 'طريقة التحويل الافتراضية', ['تحويل بنكي (InstaPay)', 'فودافون كاش']), pick(p, 'approval', 'p-ap', 'الموافقة مطلوبة من', ['حسابات فقط', 'حسابات + أدمن (توقيعان)', 'أدمن فقط'])),
-        row('خصم العربون تلقائيًا من المستحقات', 'العربون المدفوع مقدمًا يُخصم قبل التحويل ويظهر بالسالب في حساب المبتكر', p.deductDeposit, (v) => { p.deductDeposit = v; }), row('إيقاف التحويل لو عليه أوردرات متأخرة', 'التحويل بيستنى لحد ما الأوردرات المتأخرة تتقفل — مع تنبيه للحسابات', p.holdLate, (v) => { p.holdLate = v; })], null, { sub: 'بيحدد إمتى وإزاي بيتم تحويل أرصدة «لصالح المبتكرين» — كل تحويل بيتسجل في Payout_Log ويحتاج موافقة حسب الصلاحيات' }),
-      K.Section('الفاتورة وكشف الحساب', [h('div', { class: 'grid3' }, pick(p, 'invLang', 'p-il', 'لغة الفاتورة', ['عربي + إنجليزي', 'عربي']), pick(p, 'tax', 'p-tx', 'الرقم الضريبي', ['—']), h('div', null, U.TextInput({ id: 'p-pr', label: 'بادئة رقم الفاتورة', required: true, value: p.prefix, onInput: (v) => { p.prefix = v; } }), h('div', { class: 't-small help' }, 'الرقم التالي: ' + p.next))),
-        h('div', { class: 'grid3' }, pick(p, 'commission', 'p-cm', 'تضمين العمولة لكل أوردر', ['نعم', 'لا']), pick(p, 'orders', 'p-or', 'تضمين تفاصيل الأوردرات', ['نعم — جدول الأوردرات المكتملة', 'لا']), pick(p, 'footer', 'p-ft', 'ملاحظة أسفل الفاتورة', ['شكرًا لكونك جزءًا من مجتمع إبتكر', 'بيت لكل مبتكر']))], null, { sub: 'قالب PDF بيتبعت للمبتكر مع كل تحويل — اللوجو وبيانات الشركة من قسم «عام»' })];
+      K.Section('تحويل مستحقات المبتكرين', [h('div', { class: 'grid3' }, pick(p, 'after', 'p-af', 'يُحوَّل بعد حالة', ['مكتمل + 7 أيام (فترة الاسترجاع)', 'مكتمل']), pick(p, 'min', 'p-min', 'الحد الأدنى للتحويل', ['250 ج.م', '500 ج.م', '1,000 ج.م'], 'الأرصدة الأقل بتترحّل للدورة التالية'), h('div')),
+        payDays(p),
+        h('div', { class: 'grid3' }, pick(p, 'notify', 'p-nt', 'إشعار المبتكر بالتحويل', ['واتساب + كشف حساب PDF', 'إيميل']), pick(p, 'method', 'p-me', 'طريقة التحويل الافتراضية', ['تحويل بنكي (InstaPay)', 'تحويل من الحساب البنكي', 'فودافون كاش']), pick(p, 'approval', 'p-ap', 'الموافقة مطلوبة من', ['حسابات فقط', 'حسابات + أدمن (توقيعان)', 'أدمن فقط'])),
+        row('خصم العربون تلقائيًا من المستحقات', 'العربون المدفوع مقدمًا يُخصم قبل التحويل ويظهر بالسالب في حساب المبتكر', p.deductDeposit, (v) => { p.deductDeposit = v; }), row('خصم المواصلات تلقائيًا من المستحقات', 'المواصلات اللي اتدفعت عن المبتكر بتتخصم قبل التحويل وتظهر بالسالب في حسابه', p.deductTransport !== false, (v) => { p.deductTransport = v; }), row('إيقاف التحويل لو عليه أوردرات متأخرة', 'التحويل بيستنى لحد ما الأوردرات المتأخرة تتقفل — مع تنبيه للحسابات', p.holdLate, (v) => { p.holdLate = v; })], null, { sub: 'بيحدد إمتى وإزاي بيتم تحويل أرصدة «لصالح المبتكرين» — كل تحويل بيتسجل في Payout_Log ويحتاج موافقة حسب الصلاحيات' }),
+      K.Section('الفاتورة وكشف الحساب', [h('div', { class: 'grid3' }, pick(p, 'invLang', 'p-il', 'لغة الفاتورة', ['عربي + إنجليزي', 'عربي', 'إنجليزي']),
+          U.TextInput({ id: 'p-tx', label: 'الرقم الضريبي', value: p.tax === '—' ? '' : (p.tax || ''), placeholder: 'من غير رقم', onInput: (v) => { p.tax = String(v).replace(/[<>]/g, '').slice(0, 30); } }),
+          h('div', null, U.TextInput({ id: 'p-pr', label: 'بادئة رقم الفاتورة', required: true, value: p.prefix, onInput: (v) => { p.prefix = String(v).replace(/[<>]/g, '').slice(0, 20); } }), h('div', { class: 't-small help' }, 'الرقم التالي: ' + p.next))),
+        h('div', { class: 'grid3' }, pick(p, 'commission', 'p-cm', 'تضمين العمولة لكل أوردر', ['نعم', 'لا']), pick(p, 'orders', 'p-or', 'تضمين تفاصيل الأوردرات', ['نعم — جدول الأوردرات المكتملة', 'لا']), pick(p, 'moves', 'p-mv', 'تضمين العرابين والمواصلات', ['نعم', 'لا'])),
+        h('div', { class: 'grid3' }, pick(p, 'brandBlock', 'p-bb', 'اللوجو وبيانات الشركة', ['نعم', 'لا']), h('div', { style: 'grid-column: span 2' }, U.TextInput({ id: 'p-ft', label: 'ملاحظة أسفل الكشف', value: p.footer, onInput: (v) => { p.footer = String(v).replace(/[<>]/g, '').slice(0, 160); } })))],
+        [Button({ size: 'sm', icon: 'eye', label: 'معاينة', attrs: { 'data-stmt-preview': '' }, onClick: () => stmtPreview(p) })], { sub: 'قالب PDF بيتبعت للمبتكر مع كل تحويل — اللوجو وبيانات الشركة من قسم «عام»' })];
   }
 
   // ---------- سجل النشاط ----------

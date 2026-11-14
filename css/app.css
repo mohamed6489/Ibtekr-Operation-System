@@ -1908,3 +1908,8 @@ tr.is-sel td,#vendors .tickets-table tr.is-sel td,.vprod-row.is-sel{background:v
 /* owner batch 2 decision 4: the add-member popup's three parts */
 .form-sec{margin-top:8px;padding-bottom:6px;border-bottom:1px solid var(--color-border-subtle);color:var(--color-brand-default)}
 .form-sec:first-child{margin-top:0}
+
+/* owner batch 2 decision 21: the maker drawer's «ناقص» — each missing item on its own, a click opens where it is filled */
+.miss-row { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.miss-btn { cursor: pointer; border: 1px solid currentColor; font: inherit; }
+.miss-btn:hover, .miss-btn:focus-visible { filter: brightness(.95); text-decoration: underline; }

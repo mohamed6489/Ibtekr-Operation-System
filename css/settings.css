@@ -332,3 +332,13 @@
 .set-wrap>.page-head{margin-bottom:12px}
 #pg-settings>.set-jump{margin-bottom:16px}
 #pg-settings .set-group{scroll-margin-top:120px}
+
+/* owner batch 2 decision 26: the maker statement preview */
+.stmt-preview { display: flex; flex-direction: column; gap: 10px; padding: 16px; border: 1px solid var(--color-border-default, #e5e0d5); border-radius: 12px; background: #fff; }
+.stmt-head { display: flex; align-items: center; gap: 12px; padding-bottom: 10px; border-bottom: 2px solid var(--color-brand-default, #005642); }
+.stmt-logo { max-height: 40px; width: auto; }
+.stmt-logo-txt { font-size: 18px; color: var(--color-brand-default, #005642); }
+.stmt-title { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.stmt-moves { display: flex; gap: 16px; flex-wrap: wrap; color: var(--color-text-subtle, #6b6458); }
+.stmt-total { padding-top: 8px; border-top: 1px dashed var(--color-border-default, #e5e0d5); }
+.stmt-foot { margin: 0; }

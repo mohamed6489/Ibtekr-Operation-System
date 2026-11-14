@@ -247,23 +247,25 @@
   // the day (shown), the missing end, the overtime (counted, «لسه شغال؟», who confirms), the pay day and the bonus bar, the leave types and
   // the year's end (paid with December / carried), the holidays, the departments. The values are IBHR's settings row «hr» — a draft here
   // (st.hr) that the page's «حفظ» sends; the lists are written at once from their popups (the admin)
-  const HR_KEYS = ['autoMissing', 'countOT', 'presence', 'presenceEvery', 'confirmBy', 'payDay', 'bonusMin', 'leaveYearEnd'];
+  const HR_KEYS = ['autoMissing', 'countOT', 'presence', 'presenceEvery', 'confirmBy', 'payDay', 'bonusMin', 'leaveYearEnd', 'workDays', 'workFrom', 'workTo', 'dayDivisor', 'schedules'];
   const hrDay = (v) => { const n = Number(String(v == null ? '' : v).trim().replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d))); return Number.isInteger(n) && n >= 1 && n <= 31 ? n : null; };
-  const hrValid = () => !st.hr || hrDay(st.hr.payDay) != null;
+  const hrSpan = (a, b) => { const HR = window.IBHR; return HR && HR.span ? HR.span(a, b) : null; };
+  const hrValid = () => !st.hr || (hrDay(st.hr.payDay) != null && hrSpan(st.hr.workFrom, st.hr.workTo) != null && Array.isArray(st.hr.workDays) && st.hr.workDays.length > 0);
   async function persistHr() {
     const HR = window.IBHR; if (!HR || !st.hr || !isAdminMe()) return;
     const d = st.hr; const patch = {}; HR_KEYS.forEach((k) => { patch[k] = d[k]; }); patch.payDay = hrDay(d.payDay); patch.bonusMin = Number(d.bonusMin) || 3; patch.presenceEvery = Number(d.presenceEvery) || 120;
+    patch.dayDivisor = Number(d.dayDivisor) || 24; patch.workDays = (d.workDays || []).map(Number).sort(); patch.schedules = { dept: Object.assign({}, (d.schedules || {}).dept), member: Object.assign({}, (d.schedules || {}).member) };
     const r = await HR.saveSettings(patch); if (!r.ok) fail(r, 'حفظ إعدادات الموارد البشرية'); else st.hr = null;
   }
   function hrSec() {
     const HR = window.IBHR; if (!HR) return [U.InlineNote({ kind: 'warning', children: 'إعدادات الموارد البشرية مش متاحة دلوقتي — جرّب تحدّث الصفحة.' })];
-    if (!st.hr) { const v = HR.settings(); st.hr = {}; HR_KEYS.forEach((k) => { st.hr[k] = v[k]; }); }
+    if (!st.hr) { const v = HR.settings(); st.hr = {}; HR_KEYS.forEach((k) => { st.hr[k] = v[k]; }); st.hr.workDays = HR.workDays(); st.hr.schedules = { dept: Object.assign({}, (v.schedules || {}).dept), member: Object.assign({}, (v.schedules || {}).member) }; }
     const d = st.hr; const D = HR.data; const ro = !isAdminMe(); const done = (r, ok) => { if (r && r.ok) K.toast(ok, 'success'); else fail(r); R(); };
     const sw = (k, label, help) => K.Switch({ id: 'hs-' + k, label, help, checked: !!d[k], disabled: ro, onChange: (v) => { d[k] = v; R(); } });
     const holidays = D.holidays || []; const types = D.leaveTypes || []; const depts = D.departments || [];
     return [h('div', { class: 'set-narrow', 'data-hr-settings': '' },
-      K.Section('الدوام', [vrow('أيام الشغل', 'الجمعة والسبت راحة — الشغل فيهم أو في عطلة باليوم بيومين', h('b', null, 'الأحد – الخميس')), vrow('ساعات اليوم', 'الدوام مرن: أكتر من جلسة في اليوم والساعات بتتجمع، ومفيش تأخير', h('b', null, '8 ساعات')),
-        vrow('سعر اليوم', 'المرتب ÷ 24 يوم · سعر الساعة = سعر اليوم ÷ 8', h('b', null, '÷ 24')), sw('autoMissing', 'انصراف ناقص تلقائي', 'الجلسة اللي ما اتقفلتش لحد آخر اليوم بتتعلّم «انصراف ناقص»')]),
+      ...hrHoursSecs(d, ro),
+      K.Section('الانصراف الناقص', [sw('autoMissing', 'انصراف ناقص تلقائي', 'الجلسة اللي ما اتقفلتش لحد آخر اليوم بتتعلّم «انصراف ناقص»')]),
       K.Section('الأوفر تايم', [sw('countOT', 'احتساب الأوفر تايم', 'لما يتقفل الساعات بتتسجل بس ومابتدخلش المرتب'), sw('presence', 'تأكيد التواجد في الأوفر تايم', 'سؤال «لسه شغال؟» — مفيش رد خلال دقيقة = الدوام بيتقفل على وقت السؤال'),
         d.presence ? U.Select({ id: 'hs-every', label: 'كل قد إيه', disabled: ro, options: [60, 120, 180, 240].map((x) => ({ value: String(x), label: x === 60 ? 'كل ساعة' : x === 120 ? 'كل ساعتين' : 'كل ' + x / 60 + ' ساعات' })), value: String(d.presenceEvery || 120), onChange: (v) => { d.presenceEvery = Number(v); R(); } }) : null,
         U.Select({ id: 'hs-who', label: 'مين بيأكد الأوفر تايم', disabled: ro, options: [{ value: 'المدير المباشر', label: 'المدير المباشر ← الأدمن بعد 24 ساعة' }, { value: 'الأدمن', label: 'الأدمن على طول' }], value: d.confirmBy || 'المدير المباشر', onChange: (v) => { d.confirmBy = v; R(); } })]),
@@ -279,6 +281,46 @@
         : K.Empty('مفيش عطلات', 'ضيف العطلات الرسمية عشان متتحسبش غياب.'), ro ? null : [Button({ size: 'sm', label: '+ عطلة', attrs: { 'data-hs-holiday': '' }, onClick: () => hrHoliday(done) })]),
       K.Section('الأقسام', [h('div', { class: 'chips' }, depts.map((x) => h('span', { class: 'list-chip' }, x)))], ro ? null : [Button({ size: 'sm', label: '+ قسم', onClick: () => hrDept(done) })]),
       ro ? note('الإعدادات دي للأدمن بس — بتظهرلك قراية.') : null)];
+  }
+  // ---------- owner batch 14 Nov decision 7 (0087): the work days, the official hours, the day rate and a custom time per department / member ----------
+  // A draft in st.hr that the page's «حفظ» sends (IBHR.saveSettings → the row «hr»); the server reads the same keys (hr_work_dows /
+  // hr_schedule / hr_day_minutes / hr_day_divisor): the overtime starts past the member's day, the clock reminds at its start, no lateness.
+  const WEEK = [[6, 'السبت'], [7, 'الأحد'], [1, 'الاتنين'], [2, 'التلات'], [3, 'الأربع'], [4, 'الخميس'], [5, 'الجمعة']];
+  const HALF_HOURS = Array.from({ length: 48 }, (_, i) => String(Math.floor(i / 2)).padStart(2, '0') + ':' + (i % 2 ? '30' : '00'));
+  const hrsLabel = (min) => (min == null ? '—' : (min % 60 ? (min / 60).toFixed(1) : String(min / 60)) + ' ساعات');
+  const timeSel = (id, label, value, on, ro) => U.Select({ id, label, disabled: ro, options: HALF_HOURS.map((x) => ({ value: x, label: x })), value: HALF_HOURS.includes(value) ? value : '09:00', onChange: (v) => { on(v); R(); } });
+  function hrHoursSecs(d, ro) {
+    const HR = window.IBHR; const days = d.workDays || []; const dm = hrSpan(d.workFrom, d.workTo); const div = Number(d.dayDivisor) || 24;
+    const sc = d.schedules || (d.schedules = { dept: {}, member: {} }); sc.dept = sc.dept || {}; sc.member = sc.member || {};
+    const people = (HR.everyone ? HR.everyone() : HR.team ? HR.team() : []).filter((m) => m && m.uid);
+    const nameOf = (uid) => (people.find((m) => m.uid === uid) || {}).name || 'عضو';
+    const rows = Object.keys(sc.dept).map((k) => ['dept', k]).concat(Object.keys(sc.member).map((k) => ['member', k]));
+    const custom = rows.length ? U.Table({ cls: 'mini-table', headers: ['لمين', 'من', 'لحد', 'ساعات اليوم', ''], rows: rows.map(([kind, key]) => { const x = sc[kind][key] || {};
+      return [h('span', { 'data-hs-sched': kind + ':' + key }, kind === 'dept' ? 'قسم ' + key : nameOf(key)), x.from || '—', x.to || '—', hrsLabel(hrSpan(x.from, x.to)), ro ? '' : K.RowMenu([
+        { label: 'تعديل', icon: 'sliders', run: () => hrSchedule(d, kind, key) },
+        { label: 'حذف', icon: 'close', danger: true, run: () => { delete sc[kind][key]; st.dirty = true; R(); } }], 'إجراءات ' + key)]; }) })
+      : K.Empty('مفيش أوقات مخصصة', 'كل الفريق على ساعات العمل الرسمية.');
+    return [K.Section('أيام وساعات العمل', [
+      h('div', { class: 'set-row hs-days', 'data-hs-days': '' }, h('div', null, h('b', null, 'أيام الشغل'), h('div', { class: 't-small help' }, 'الأيام اللي مش متعلّمة راحة — الشغل فيها أو في عطلة باليوم بيومين')),
+        h('div', { class: 'chips' }, WEEK.map(([n, l]) => h('button', { type: 'button', class: 'chip' + (days.includes(n) ? ' on' : ''), role: 'checkbox', 'aria-checked': String(days.includes(n)), disabled: ro, 'data-hs-day': String(n),
+          onClick: () => { const next = days.includes(n) ? days.filter((x) => x !== n) : days.concat([n]); if (!next.length) return K.toast('لازم يوم شغل واحد على الأقل', 'error'); d.workDays = next; R(); } }, l)))),
+      K.two(timeSel('hs-from', 'ساعات العمل الرسمية — من', d.workFrom, (v) => { d.workFrom = v; }, ro), timeSel('hs-to', 'لحد', d.workTo, (v) => { d.workTo = v; }, ro)),
+      dm == null ? U.InlineNote({ kind: 'warning', children: 'الوقت لازم يكون من ساعة لـ 16 ساعة.' }) : vrow('ساعات اليوم', 'الدوام مرن: أكتر من جلسة في اليوم والساعات بتتجمع، ومفيش تأخير — الأوفر تايم بعد الساعات دي، و«ابدأ الدوام» بيفكّر على ميعاد البداية', h('b', { 'data-hs-hours': '' }, hrsLabel(dm))),
+      U.Select({ id: 'hs-div', label: 'سعر اليوم = المرتب ÷', disabled: ro, options: Array.from({ length: 12 }, (_, i) => 20 + i).map((x) => ({ value: String(x), label: x + ' يوم' })), value: String(div), onChange: (v) => { d.dayDivisor = Number(v); R(); }, help: 'سعر الساعة = سعر اليوم ÷ ساعات يوم الموظف — يوم الإجازة من غير أجر وسعر يوم الراحة (×2) والرصيد في ديسمبر بيتحسبوا بيه' })], null, { th: false }),
+      K.Section('أوقات عمل مخصصة', [custom, note('الموظف اللي له وقت مخصص بياخده، وإلا وقت قسمه، وإلا ساعات العمل الرسمية.')], ro ? null : [Button({ size: 'sm', label: '+ وقت عمل مخصص', attrs: { 'data-hs-sched-add': '' }, onClick: () => hrSchedule(d) })], { th: false })];
+  }
+  function hrSchedule(d, kind0, key0) {
+    const HR = window.IBHR; const sc = d.schedules; const depts = (HR.data.departments || []).slice(); const people = (HR.everyone ? HR.everyone() : HR.team()).filter((m) => m && m.uid && m.status !== 'inactive');
+    const cur = kind0 ? sc[kind0][key0] || {} : {};
+    K.form({ title: kind0 ? 'تعديل وقت العمل' : 'وقت عمل مخصص', values: { kind: kind0 || 'dept', dept: kind0 === 'dept' ? key0 : depts[0] || '', member: kind0 === 'member' ? key0 : '', from: cur.from || d.workFrom || '09:00', to: cur.to || d.workTo || '17:00' },
+      fields: (f, e, set) => [kind0 ? null : K.Radios({ label: 'لمين', value: f.kind, onChange: (v) => set('kind', v, true), options: [{ value: 'dept', label: 'قسم' }, { value: 'member', label: 'موظف' }] }),
+        f.kind === 'dept' ? U.Select({ id: 'hs-s-dept', label: 'القسم', disabled: !!kind0, options: depts.map((x) => ({ value: x, label: x })), value: f.dept, onChange: (v) => set('dept', v, true) })
+          : U.Select({ id: 'hs-s-member', label: 'الموظف', disabled: !!kind0, options: [{ value: '', label: '— اختار —' }].concat(people.map((m) => ({ value: m.uid, label: m.name + (m.dept ? ' — ' + m.dept : '') }))), value: f.member, onChange: (v) => set('member', v, true) }),
+        e.who ? h('div', { class: 'err-msg', role: 'alert' }, e.who) : null,
+        K.two(U.Select({ id: 'hs-s-from', label: 'من', options: HALF_HOURS.map((x) => ({ value: x, label: x })), value: f.from, onChange: (v) => set('from', v, true) }), U.Select({ id: 'hs-s-to', label: 'لحد', options: HALF_HOURS.map((x) => ({ value: x, label: x })), value: f.to, onChange: (v) => set('to', v, true) })),
+        h('div', { class: 't-small help', 'data-hs-s-hours': '' }, 'ساعات اليوم: ' + hrsLabel(hrSpan(f.from, f.to))), e.to ? h('div', { class: 'err-msg', role: 'alert' }, e.to) : null].filter(Boolean),
+      validate: (f) => { const e = {}; const key = f.kind === 'dept' ? f.dept : f.member; if (!key) e.who = f.kind === 'dept' ? 'اختار القسم' : 'اختار الموظف'; if (hrSpan(f.from, f.to) == null) e.to = 'الوقت لازم يكون من ساعة لـ 16 ساعة'; return e; },
+      submitLabel: kind0 ? 'تم' : 'إضافة', submit: (f) => { const key = f.kind === 'dept' ? f.dept : f.member; sc[f.kind][key] = { from: f.from, to: f.to }; st.dirty = true; R(); } });
   }
   function hrHoliday(done) {
     K.form({ title: 'إضافة عطلة', values: { days: '1', kind: 'هجري' }, fields: (f, e, set) => [K.field.text('name', 'اسم العطلة', f, e, set, { required: true }), K.two(K.field.date('date', 'أول يوم', f, e, set, { required: true }), K.field.select('days', 'عدد الأيام', ['1', '2', '3', '4', '5'], f, e, set)), K.field.select('kind', 'النوع', ['هجري', 'ميلادي · سنوي', 'استثنائية'], f, e, set)],
@@ -1329,7 +1371,7 @@
     return viewV6();
   }
   function commit() { if (st.sec === 'inventory' && !invValid()) { K.toast('أيام التنبيهات لازم تكون رقم صحيح من 1 لـ 90', 'error'); return false; } // B6
-    if (st.sec === 'hr' && !hrValid()) { K.toast('يوم الصرف لازم يكون رقم من 1 لـ 31', 'error'); return false; } // the HR rebuild
+    if (st.sec === 'hr' && !hrValid()) { K.toast(hrDay(st.hr.payDay) == null ? 'يوم الصرف لازم يكون رقم من 1 لـ 31' : 'ساعات العمل الرسمية لازم تكون من ساعة لـ 16 ساعة ويوم شغل واحد على الأقل', 'error'); return false; } // the HR rebuild + 0087
     const nm = (SECTIONS.find((q) => q[0] === st.sec) || [, 'عام'])[1]; if (st.draft) Object.assign(C.general, st.draft); st.dirty = false; st.draft = null; st.pending.delete(st.sec); st.snap = snapTake(); st.snapSec = st.sec; K.logEvent('settings.save', nm); if (ROW_OF[st.sec]) persist(st.sec); if (st.sec === 'inventory') persistInventory(); if (st.sec === 'hr') persistHr(); K.toast('اتحفظت التغييرات', 'success'); }
 
   // ---------- the platform links (decisions 9 / 10 / 13): settings-admin + the other pages' links ----------

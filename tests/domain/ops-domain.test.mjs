@@ -16,3 +16,11 @@ test('validateCancel / validateReturn with a saved list: in the list passes, out
   assert.equal(O.validateReturn({ reason: 'x' }, list), 'اختار سبب المرتجع');
   assert.equal(O.validateReturn({ reason: 'أخرى', other: 'وصل مكسور' }, list), null);
 });
+
+// owner batch 14 Nov decision 7 (0087): the overtime pay with the settings' day-rate divisor and the member's day hours
+test('overtimePay: 24 / 8 by default; the settings\' divisor and the member\'s day hours when given (the same as hr_payroll_calc)', () => {
+  assert.equal(O.overtimePay(4800, { hours: 2 }), 50); // 4800 ÷ 24 = 200 a day ÷ 8 = 25 an hour × 2
+  assert.equal(O.overtimePay(4800, { offDays: 1 }), 400); // a rest day = the day ×2
+  assert.equal(O.overtimePay(6000, { hours: 3 }, { divisor: 30, dayHours: 6 }), 100); // 6000 ÷ 30 = 200 ÷ 6 h = 33.33 × 3
+  assert.equal(O.overtimePay(6000, { offDays: 2 }, { divisor: 30, dayHours: 6 }), 800);
+});

@@ -334,7 +334,7 @@ test('the rebuild — the HR settings live in «الإعدادات › المو�
   await page.evaluate(() => { location.hash = 'hr-settings'; });
   await expect(page).toHaveURL(/#settings-hr$/);
   const S = page.locator('[data-hr-settings]');
-  await expect(S).toContainText('الأحد – الخميس');
+  await expect(S.locator('[data-hs-day][aria-checked=true]')).toHaveText(['الأحد', 'الاتنين', 'التلات', 'الأربع', 'الخميس']); // owner batch 14 Nov decision 7: the work days are editable chips
   await S.locator('#hs-payday').fill('25');
   await pick(page, S, 'hs-bonus', '3.5 من 5 أو أكتر');
   await expect(page.locator('[role=listbox]')).toHaveCount(0); // the list closed before the next click (under load a click could only close it)

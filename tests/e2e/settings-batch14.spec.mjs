@@ -114,3 +114,41 @@ test('decision 6: the permissions matrix looks like the alerts matrix (icon mark
   const s2 = await stuck('[data-alert-matrix]');
   expect(s2.top).toBeGreaterThanOrEqual(46); expect(s2.top).toBeLessThanOrEqual(50); expect(s2.inMatrix).toBe(true);
 });
+
+test('decision 7: the work days, the official hours, the day rate and a custom time for a department are editable and saved; the clock follows the member\'s day', async ({ page }) => {
+  await go(page, 'settings-hr');
+  const body = page.locator('#pg-settings');
+  await expect(body.locator('[data-hs-days] [data-hs-day]')).toHaveCount(7);
+  await expect(body.locator('[data-hs-day="5"]')).toHaveAttribute('aria-checked', 'false'); // Friday off by default
+  await body.locator('[data-hs-day="6"]').click(); // Saturday becomes a work day
+  await expect(body.locator('[data-hs-day="6"]')).toHaveAttribute('aria-checked', 'true');
+  await body.locator('#hs-to').click(); await page.getByRole('option', { name: '18:00', exact: true }).click();
+  await expect(body.locator('[data-hs-hours]')).toHaveText('9 ساعات');
+  await body.locator('#hs-div').click(); await page.getByRole('option', { name: '30 يوم', exact: true }).click();
+  // a custom time for a department
+  await body.locator('[data-hs-sched-add]').click();
+  const modal = page.locator('.modal');
+  await modal.locator('#hs-s-from').click(); await page.getByRole('option', { name: '10:00', exact: true }).click();
+  await modal.locator('#hs-s-to').click(); await page.getByRole('option', { name: '16:00', exact: true }).click();
+  await expect(modal.locator('[data-hs-s-hours]')).toContainText('6 ساعات');
+  await modal.getByRole('button', { name: 'إضافة', exact: true }).click();
+  await expect(body.locator('[data-hs-sched^="dept:"]')).toHaveCount(1);
+  await body.locator('[data-set-save]').click();
+  await expect.poll(() => { const r = (mock.settings || []).find((x) => x.section === 'hr'); return r && r.data && [r.data.workDays, r.data.workTo, r.data.dayDivisor]; }).toEqual([[1, 2, 3, 4, 6, 7], '18:00', 30]);
+  const hr = (mock.settings || []).find((x) => x.section === 'hr').data;
+  const dept = Object.keys(hr.schedules.dept)[0];
+  expect(hr.schedules.dept[dept]).toEqual({ from: '10:00', to: '16:00' });
+  // the adapter answers the same as the server's hr_day_minutes: the official 9 hours, the department's 6
+  expect(await page.evaluate(() => window.IBHR.span(window.IBHR.settings().workFrom, window.IBHR.settings().workTo))).toBe(540);
+  expect(await page.evaluate((d) => { const m = window.IBHR.everyone().find((x) => x.dept === d && x.uid); return m ? window.IBHR.dayMinutes(m.uid) : 360; }, dept)).toBe(360);
+});
+
+test('decision 7: on a work day past the member\'s start time with no session, the clock reminds once («ابدأ الدوام»)', async ({ page }) => {
+  await page.evaluate(() => window.IBHR.saveSettings({ workDays: [1, 2, 3, 4, 5, 6, 7], workFrom: '00:00', workTo: '08:00' }));
+  await page.evaluate(() => { try { localStorage.removeItem('ib.start.reminded'); } catch (e) { /* */ } });
+  await page.reload();
+  await expect(page.locator('#root')).toBeVisible();
+  await expect(page.locator('.toast, [role=status]').filter({ hasText: 'ميعاد الدوام بدأ (00:00)' }).first()).toBeVisible({ timeout: 15000 });
+  await expect(page.locator('.clock-widget.remind')).toHaveCount(1);
+  expect(await page.evaluate(() => localStorage.getItem('ib.start.reminded'))).toBe(await page.evaluate(() => window.IBHR.today()));
+});

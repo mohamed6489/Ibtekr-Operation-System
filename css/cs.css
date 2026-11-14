@@ -131,3 +131,8 @@
 .chan-btn:focus-visible{outline:2px solid var(--color-action-default);outline-offset:1px}
 .chan-btn.no-conv{color:var(--color-text-secondary);opacity:.7}
 .chan-btn svg{width:18px;height:18px}
+/* owner batch 14 Nov decision 11: the chat a lighter beige (the dark beige is for what is selected — decision 1); the outgoing bubble
+   keeps the brand's beige on it; the unread count green with its number in the middle */
+.cs-msgs{background:var(--color-bg-container)}
+.cs-msgs .b-out{background:#efe2c9}
+.cs-list .cv .badge,.cs-inbox .badge{background:var(--color-brand-default);color:var(--color-text-on-brand);min-width:20px;height:20px;padding:0 6px;line-height:20px;display:inline-flex;align-items:center;justify-content:center;text-align:center;font-variant-numeric:tabular-nums}

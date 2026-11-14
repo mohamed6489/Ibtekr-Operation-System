@@ -380,7 +380,9 @@
       // phase 12 T3 (decision 3): no pretend choices — the system runs on Cairo time, Arabic RTL and the pound; these are facts, not settings
       K.Section('اللغة والمنطقة', [vrow('المنطقة الزمنية', 'كل التواريخ والأيام في السيستم والتقارير بتوقيت القاهرة', K.Tag('neutral', '(GMT+2/+3) القاهرة')), vrow('اللغة', 'الواجهة عربي RTL باللهجة المصرية — مفيش نسخة إنجليزية', K.Tag('neutral', 'العربية')),
         vrow('العملة', 'الجنيه المصري في كل الأرقام', K.Tag('neutral', 'ج.م')), vrow('تنسيق التاريخ والأرقام', 'التواريخ «20 أكتوبر 2026» وفي الجداول 20/10/2026 · الأرقام 1,234.56 · الهواتف وSKU LTR', K.Tag('neutral', 'ثابت')),
-        vrow('بداية الأسبوع', 'تقارير «أسبوعيًا» والخطة الإعلانية على أسبوع يبدأ السبت', K.Tag('neutral', 'السبت'))], null, { sub: 'ثوابت السيستم — مش اختيارات' }),
+        // 2026-11-14-settings-lists.md decision 4: the week start is a real choice (IBSettings.weekStart() — the calendar's weeks, the weekly
+        // reports, the ad plan's weeks and the HR calendar); the rest stay facts with their reason
+        sel('week', 'g-week', 'بداية الأسبوع', ['السبت', 'الأحد', 'الاتنين'], '«هذا الأسبوع» في الكاليندر، تقسيم التقارير بالأسبوع، أسابيع الخطة الإعلانية، وتقويم «الفريق والحضور»')], null, { sub: 'المنطقة واللغة والعملة ثابتة: السيرفر والموقع وDokan بتوقيت القاهرة وبالجنيه، والواجهة عربي بس' }),
       K.Section('تفضيلات العرض', [row('الوضع المضغوط للجداول', 'صفوف 48px بدل 56px وخطوط أصغر في الجداول الكثيفة', g.compact, ed('compact')), row('إظهار صور المنتجات في الأوردرات', 'صورة مصغّرة 40px في صف الأوردر الفرعي', g.thumbs, ed('thumbs')), row('تذكّر آخر فلاتر لكل صفحة', 'الأوردرات والتقارير بتفتح على آخر فلتر استخدمته', g.rememberFilters, ed('rememberFilters')), row('إخفاء أرقام هواتف العملاء في القوائم', 'تظهر كاملة عند الفتح فقط لمن يملك الصلاحية', g.hidePhones, ed('hidePhones'))], null, { sub: 'إعدادات واجهة على مستوى الشركة — كل عضو يقدر يغيّرها لنفسه من ملفه' })];
   }
 
@@ -685,7 +687,7 @@
       K.Section('التنشيط وإيقاف التنشيط', [row('اقتراح إيقاف تلقائي عند تكرار التأخير', 'لو ≥ 3 أوردرات متأخرة خلال 30 يوم ← تنبيه «مراجعة تنشيط المبتكر»', m.autoLate, (v) => { m.autoLate = v; }), row('اقتراح إيقاف عند عدم الرد', 'لو ≥ 2 تذكرة «مشكلة مبتكر» بدون رد 48 ساعة', m.autoNoReply, (v) => { m.autoNoReply = v; }), row('إيقاف تلقائي عند انتهاء العقد', 'بعد 7 أيام من انتهاء العقد بدون تجديد', m.autoContract, (v) => { m.autoContract = v; }), row('إعادة التنشيط تتطلب موافقة أدمن', 'المبتكر الموقوف يرجع «نشط» بعد مراجعة السبب', m.reactivate, (v) => { m.reactivate = v; }),
         K.two(pick(m, 'openEffect', 'mk-oe', 'أثر الإيقاف على الأوردرات المفتوحة', ['تستمر حتى الإغلاق + تنبيه لخدمة العملاء', 'تتحوّل لمبتكر تاني']), pick(m, 'siteEffect', 'mk-se', 'أثر الإيقاف على الموقع', ['إخفاء منتجاته + منع أوردرات جديدة', 'منع أوردرات جديدة فقط', 'لا شيء (داخلي)'])),
         vrow('أسباب الإيقاف (قائمة)', 'تُعدَّل من «القوائم والحالات»', h('b', null, C.otherLists.stop.join(' · '))), vrow('إيقاف تنشيط مبتكر', 'اقتراح من السيستم ← قرار بشري بسبب إجباري', Button({ type: 'danger', size: 'sm', label: 'إيقاف تنشيط مبتكر', onClick: () => deactivateMaker() }))], null, { sub: 'الإيقاف التلقائي بينزل كتنبيه «مهام» للموافقة — مفيش إيقاف بدون قرار بشري. السبب إجباري ويتسجل في ملف المبتكر' }),
-      K.Section('الافتراضيات عند إضافة مبتكر جديد', [K.two(pick(m, 'rate', 'mk-rate', 'نسبة عمولة إبتكر الافتراضية', ['30%', '35%', '40%', '45%', '50%'], 'النطاق الحالي 30% – 65% · إبتكر الداخلي 100%'), pick(m, 'deposit', 'mk-dep', 'سياسة العربون الافتراضية', ['عربون 50% للأوردرات فوق 3,000 ج.م', 'بدون عربون'])), K.two(pick(m, 'contractLen', 'mk-cl', 'مدة العقد الافتراضية', ['6 شهور', '12 شهر', '24 شهر']), pick(m, 'contractAlert', 'mk-ca', 'تنبيه قبل انتهاء العقد', ['قبل 15 يوم', 'قبل 30 يوم', 'قبل 60 يوم'], 'يظهر في التنبيهات › مهام (أولوية عالية)')), K.two(pick(m, 'newStatus', 'mk-ns', 'حالة المبتكر الجديد', ['نشط فورًا', 'نشط بعد رفع العقد', 'معلّق للمراجعة']), pick(m, 'category', 'mk-cat', 'فئة المبتكر الافتراضية', ['— بدون'].concat(C.otherLists.categories)))], null, { sub: 'تُملأ تلقائيًا في بوب أب «إضافة مبتكر» وتظل قابلة للتعديل لكل مبتكر' }),
+      K.Section('الافتراضيات عند إضافة مبتكر جديد', [K.two(pick(m, 'rate', 'mk-rate', 'نسبة عمولة إبتكر الافتراضية', ['30%', '35%', '40%', '45%', '50%'], 'النطاق الحالي 30% – 65% · إبتكر الداخلي 100%'), pick(m, 'deposit', 'mk-dep', 'سياسة العربون الافتراضية', ['عربون 50% للأوردرات فوق 3,000 ج.م', 'بدون عربون'])), K.two(pick(m, 'contractLen', 'mk-cl', 'مدة العقد الافتراضية', ['6 شهور', '12 شهر', '24 شهر']), pick(m, 'contractAlert', 'mk-ca', 'تنبيه قبل انتهاء العقد', ['قبل 15 يوم', 'قبل 30 يوم', 'قبل 60 يوم'], 'يظهر في التنبيهات › مهام (أولوية عالية)')), K.two(pick(m, 'newStatus', 'mk-ns', 'حالة المبتكر الجديد', ['نشط فورًا', 'نشط بعد رفع العقد', 'معلّق للمراجعة']), pick(m, 'category', 'mk-cat', 'فئة المبتكر الافتراضية', ['— بدون'].concat(mainCatNames().length ? mainCatNames() : C.otherLists.categories)))], null, { sub: 'تُملأ تلقائيًا في بوب أب «إضافة مبتكر» وتظل قابلة للتعديل لكل مبتكر' }),
       loginBankSec(m)];
   }
   window.IBMakerDefaults = () => C.makers;
@@ -1665,6 +1667,50 @@
       admin ? [Button({ label: '+ إضافة نوع', attrs: { 'data-expense-add': '' }, disabled: added.length >= max, onClick: addKind })] : null,
       { th: false, sub: 'الأربعة الأساسية بيتغيّر اسمها بس (المرتبات مخفية عن «الحسابات» الجزئي، والاشتراكات والإعلانات بخاناتهم) — والأنواع المضافة لحد ' + max + ' نوع' });
   }
+  // the priorities (2026-11-14-settings-lists.md decision 3): the four levels keep their code (the urgent card, the sort, the server's
+  // rules and the reports read it) and take a shown name only — ⋮ «تغيير الاسم» / «رجّع الاسم الأصلي»; no level is added or removed
+  function prioritySec() {
+    const S0 = SETT(); const L = S0 && S0.lists ? S0.lists() : { labels: {} }; const labels = L.labels || {}; const cur = labels.priority || {}; const admin = isAdminMe();
+    const base = { urgent: 'عاجل', high: 'عالي', normal: 'عادي', low: 'منخفض' }; const codes = (S0 && S0.STATUS_KINDS && S0.STATUS_KINDS.priority) || Object.keys(base);
+    const saveLabel = async (v, shown) => { const next = JSON.parse(JSON.stringify(labels)); next.priority = Object.assign({}, next.priority); if (shown && shown !== base[v]) next.priority[v] = shown; else delete next.priority[v];
+      const r = await S0.saveLists({ labels: next }); if (!r.ok) return fail(r, 'حفظ الاسم'); LOGV('settings.lists.label', 'priority'); K.toast('اتحفظ الاسم', 'success'); R(); document.dispatchEvent(new Event('ib:settings')); };
+    const rows = codes.map((v) => { const shown = cur[v] || base[v] || v; return [h('span', { 'data-priority': v }, base[v] || v), h('b', { 'data-priority-label': v }, shown), admin ? K.RowMenu([
+      { label: 'تغيير الاسم', icon: 'sliders', run: () => K.form({ title: 'تغيير اسم «' + shown + '»', values: { v: shown }, note: U.InlineNote({ children: 'الاسم اللي بيظهر في الطلبات والفلاتر والتقارير بس — المستوى نفسه وترتيبه زي ما هو.' }),
+        fields: (f, e, set) => [K.field.text('v', 'الاسم اللي بيظهر', f, e, set, { required: true, maxlength: 40 })], validate: (f) => { const e = K.req(f, ['v']); if (!e.v && /[<>]/.test(f.v)) e.v = 'من غير < أو >'; return e; },
+        submitLabel: 'حفظ', submit: (f) => saveLabel(v, String(f.v).replace(/\s+/g, ' ').trim()) }) },
+      cur[v] ? { label: 'رجّع الاسم الأصلي', icon: 'refresh', run: () => saveLabel(v, '') } : null].filter(Boolean)) : null].filter((c) => c !== null); });
+    return K.Section('الأولويات', U.Table({ headers: ['المستوى', 'الاسم اللي بيظهر'].concat(admin ? [''] : []), rows }), null, { th: false, sub: 'بالترتيب من الأعلى — العاجل ليه كارت ومؤشرات في «طلبات الفريق»' });
+  }
+  // the makers' categories (2026-11-14-settings-lists.md decision 2) = the site's main categories (B2): the real ones from the mirror with
+  // how many makers chose each, «+ إضافة فئة» = a new main category on the site, ⋮ «تغيير الاسم» / «حذف» — the same woo-sync actions as
+  // «المنتجات › الأقسام» (WOO_PUSH_ENABLED; a delete is refused while the category has products, sub-categories or makers)
+  function mainCatNames() { const V = window.IBVendors; return V && V.store && V.store.mainCategories ? V.store.mainCategories().map((c) => c.name) : []; }
+  function makerCatsSec() {
+    const V = window.IBVendors; const S1 = window.IBStudio; const admin = isAdminMe();
+    const list = V && V.store && V.store.mainCategories ? V.store.mainCategories() : []; const all = V && V.store && V.store.all ? V.store.all() : [];
+    const count = (id) => all.filter((v) => Array.isArray(v.categories) && v.categories.includes(id)).length;
+    const why = (r) => (r.reason === 'push_disabled' || r.result === 'skipped' ? 'الكتابة على الموقع متقفلة' : r.reason === 'forbidden' ? 'الصلاحية دي مش عندك' : r.reason === 'missing' ? 'القسم ده مش موجود على الموقع' : 'في مشكلة في الاتصال — جرّب تاني');
+    const done = async (msg) => { K.toast(msg, 'success'); try { if (V && V.load) await V.load(); } catch (e) { /* the list refreshes with the next load */ } R(); };
+    const nameErr = (v, need) => (!String(v || '').trim() ? (need ? 'اكتب الاسم' : null) : /[<>%]/.test(v) ? 'من غير < > %' : String(v).trim().length > 80 ? 'لحد 80 حرف' : null);
+    const form = (c) => K.form({ title: c ? 'تغيير اسم «' + c.name + '»' : 'فئة جديدة (قسم رئيسي على الموقع)', values: { en: c ? c.name : '', ar: '' },
+      note: U.InlineNote({ children: c ? 'الاسم بيتغيّر على الموقع نفسه (القسم وترجمته العربي لو مربوطة) — والمبتكرين اللي مختارينها بيفضلوا عليها.' : 'بيتعمل قسم رئيسي على الموقع بترجمته العربي، ويظهر في «الفئة الأساسية» للمبتكرين وفي «المنتجات › الأقسام».' }),
+      fields: (f, e, set) => [K.field.text('en', 'الاسم بالإنجليزي (على الموقع)', f, e, set, { required: true, maxlength: 80 }), K.field.text('ar', c ? 'الاسم بالعربي (سيبه فاضي لو مش هيتغيّر)' : 'الاسم بالعربي', f, e, set, { maxlength: 80 })],
+      validate: (f) => { const e = {}; const a = nameErr(f.en, true); if (a) e.en = a; const b = nameErr(f.ar, false); if (b) e.ar = b; if (!e.en && !c && list.some((x) => x.name.trim().toLowerCase() === String(f.en).trim().toLowerCase())) e.en = 'الفئة دي موجودة'; return e; },
+      submitLabel: c ? 'حفظ' : 'إضافة', submit: async (f) => {
+        if (!S1) return K.toast('في مشكلة في الاتصال — جرّب تاني', 'error');
+        const en = String(f.en).trim(); const ar = String(f.ar || '').trim();
+        if (c) { if (en === c.name && !ar) return; const r = await S1.categoryUpdate(Object.assign({ id: c.id }, en !== c.name ? { name_en: en } : {}, ar ? { name_ar: ar } : {})); if (!r.ok) return K.toast('الاسم ماتغيّرش — ' + why(r), 'error'); LOGV('settings.lists.category', 'rename #' + c.id); return done('اتغيّر اسم الفئة على الموقع'); }
+        const r = await S1.createCategory({ name_en: en, name_ar: ar || null, parent: 0 }); if (!r.ok || r.result === 'skipped') return K.toast('الفئة ماتعملتش — ' + why(r), 'error'); LOGV('settings.lists.category', 'add #' + r.id); return done('اتعملت الفئة على الموقع'); } });
+    const remove = (c) => K.confirm({ title: 'حذف «' + c.name + '» من الموقع', text: 'القسم بيتحذف من الموقع نهائي (ووكومرس مالوش سلة للأقسام) — وبيترفض لو فيه منتجات أو أقسام فرعية أو مبتكرين مختارينه.', okType: 'danger', okLabel: 'حذف',
+      onOk: async () => { if (!S1) return; const r = await S1.categoryDelete(c.id, c.name);
+        if (r.ok) { LOGV('settings.lists.category', 'delete #' + c.id); return done('اتحذفت الفئة من الموقع'); }
+        if (r.reason === 'conflict') { const k = r.count != null ? K.n0(r.count) + ' ' : ''; return K.toast('ماتحذفتش — ' + (r.error === 'has_children' ? 'تحتها ' + k + 'قسم فرعي' : r.error === 'has_makers' ? 'فئة أساسية لـ ' + k + 'مبتكر — شيلها من بياناتهم الأول' : 'فيها ' + k + 'منتج على الموقع — انقلهم الأول'), 'error'); }
+        K.toast('ماتحذفتش — ' + why(r), 'error'); } });
+    const rows = list.map((c) => [h('span', { 'data-maker-cat': String(c.id) }, c.name), K.Num(count(c.id)), admin ? K.RowMenu([{ label: 'تغيير الاسم', icon: 'sliders', run: () => form(c) }, { label: 'حذف', icon: 'close', danger: true, run: () => remove(c) }]) : null].filter((x) => x !== null));
+    return K.Section('فئات المبتكرين', list.length ? U.Table({ headers: ['الفئة (قسم رئيسي على الموقع)', 'المبتكرين'].concat(admin ? [''] : []), rows }) : K.Empty('أقسام الموقع لسه ماتزامنتش', 'الأقسام بتيجي مع مزامنة المنتجات.'),
+      admin ? [Button({ label: '+ إضافة فئة', attrs: { 'data-maker-cat-add': '' }, onClick: () => form(null) })] : null,
+      { th: false, sub: 'أقسام الموقع الرئيسية — «الفئة الأساسية» في ملف المبتكر، وبتتعدّل كمان من «المنتجات › الأقسام»' });
+  }
   function lists() {
     const L = C.otherLists; const tabs = [{ id: 'order', label: 'حالات الأوردر' }, { id: 'confirm', label: 'حالات التأكيد' }, { id: 'sub', label: 'حالات الأوردر الفرعي' }, { id: 'cancel', label: 'أسباب الإلغاء والمسح' }, { id: 'returns', label: 'أسباب المرتجع' }, { id: 'stop', label: 'أسباب إيقاف المبتكر' }, { id: 'shipping', label: 'شركات الشحن' }, { id: 'expenses', label: 'أنواع المصروفات' }, { id: 'categories', label: 'فئات المبتكرين' }, { id: 'priorities', label: 'الأولويات' }];
     const cur = tabs.some((t) => t.id === st.list) ? st.list : 'order';
@@ -1672,8 +1718,9 @@
     if (STATUS_LISTS[cur]) out.push(statusSec(cur));
     else if (SAVED_LISTS[cur]) out.push(reasonsSec(cur));
     else if (cur === 'expenses') out.push(expensesSec());
-    else { const titles = Object.fromEntries(tabs.map((t) => [t.id, t.label])); const items = L[cur] || []; out.push(K.Section(titles[cur], U.Table({ headers: ['الاسم'], rows: items.map((x) => [x]) }), null, { th: false }));
-      out.push(U.InlineNote({ children: cur === 'expenses' ? 'أنواع المصروفات مربوطة بقيود قاعدة البيانات وتقارير الحسابات — عرض بس.' : cur === 'categories' ? 'فئات المبتكرين = أقسام الموقع الرئيسية — بتتعدّل من «المنتجات › الأقسام».' : 'الأولويات مربوطة بطلبات الفريق في قاعدة البيانات — عرض بس.' })); }
+    else if (cur === 'priorities') out.push(prioritySec());
+    else if (cur === 'categories') out.push(makerCatsSec());
+    else { const titles = Object.fromEntries(tabs.map((t) => [t.id, t.label])); const items = L[cur] || []; out.push(K.Section(titles[cur], U.Table({ headers: ['الاسم'], rows: items.map((x) => [x]) }), null, { th: false })); }
     return out;
   }
   // ---------- the makers' defaults (decision 17): the row «makers» + the real rules of the makers ----------

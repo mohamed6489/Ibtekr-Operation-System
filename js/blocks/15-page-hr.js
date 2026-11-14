@@ -217,7 +217,8 @@
         totalRow: ['الإجمالي', monShort(mk), workDays + ' يوم عمل', '—', '—', K.Num(K.hm(total)), K.hm(ot) + (rest ? ' + ' + rest + ' يوم' : ''), '—', can().salaries ? K.money(otPay) + (rest ? ' + ' + K.money(restPay) : '') + ' ج' : '—', ''] }) : K.Empty('مفيش أيام الشهر ده لسه', ''), null, { when: monLabel(mk) }),
       note('الدوام مرن: العضو بيبدأ وينهي أكتر من مرة في اليوم والساعات = مجموع الجلسات، ومفيش تأخير. يوم العمل = ساعات يوم العضو من الإعدادات؛ لما يخلصوا العضو بيختار «إنهاء الدوام» أو «لسه — وقت إضافي». الوقت الإضافي بيتضاف بنفس سعر الساعة بعد تأكيد المسؤول، والمرفوض بيفضل متسجل «وقت إضافي اترفض» + ميتنج. شغل الجمعة/السبت أو العطلة = اليوم بيومين بعد التأكيد.')];
   }
-  const weekStart = () => H().addDays(today(), -isoDay(today()));
+  // the calendar starts on the settings' week start (2026-11-14-settings-lists.md decision 4 — IBSettings.weekStart(), Saturday by default)
+  const weekStart = () => { const S = window.IBSettings; const v = S && S.weekStart ? Number(S.weekStart()) : 6; const ws = v === 0 || v === 1 || v === 6 ? v : 6; return H().addDays(today(), -((isoDay(today()) - ws + 7) % 7)); };
   function teamCal() {
     const start = st.calStart || weekStart(); const days = Array.from({ length: 14 }, (_, i) => H().addDays(start, i)); const hol = holidayDates();
     const DN = ['أحد', 'اثنين', 'ثلاثاء', 'أربعاء', 'خميس', 'جمعة', 'سبت'];

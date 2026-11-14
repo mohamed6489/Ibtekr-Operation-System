@@ -95,17 +95,18 @@ const ORDERS = [
   { id: 3, number: '177703', customer_name: 'سارة', customer_city: 'القاهرة', status: 'مكتمل', confirm: 'مؤكد بعربون', deposit: 100, total: 600, placed_at: '2026-10-20T10:00:00+02:00' },
   { id: 4, number: '177704', customer_name: 'علي', customer_city: 'القاهرة', status: 'قيد الشحن', confirm: 'مؤكد بدون عربون', deposit: 0, total: 400, placed_at: '2026-10-29T10:00:00+02:00' },
 ];
-test('ordersData: the days since the confirmation make risk (9+) and late (12+) on open orders, none while not confirmed (decision 52); status / delivery / q / period filters; the rows carry no phone', () => {
-  assert.equal(deliveryOf('مكتمل', 40), 'done'); assert.equal(deliveryOf('جاري التنفيذ', 12), 'late'); assert.equal(deliveryOf('جاري التنفيذ', 9), 'risk'); assert.equal(deliveryOf('جاري التنفيذ', 8), 'ok'); assert.equal(deliveryOf('جاري التنفيذ', null), 'ok', 'not confirmed: no delay');
+test('ordersData: the settings\' delay rules (owner batch 2 decision 17 — the default making days 7: risk from 5, late after 7; none while not confirmed); status / delivery / q / period filters; the rows carry no phone', () => {
+  assert.equal(deliveryOf('مكتمل', 40), 'done'); assert.equal(deliveryOf('جاري التنفيذ', 8), 'late'); assert.equal(deliveryOf('جاري التنفيذ', 5), 'risk'); assert.equal(deliveryOf('جاري التنفيذ', 4), 'ok'); assert.equal(deliveryOf('جاري التنفيذ', null), 'ok', 'not confirmed: no delay');
+  assert.equal(deliveryOf('جاري التنفيذ', 8, { lead: 12 }), 'ok', 'the default making days from the settings'); assert.equal(deliveryOf('جاري التنفيذ', 9, null, 10), 'risk', 'the longest making days when known');
   assert.equal(ageDays('2026-10-25T10:00:00+02:00', TODAY), 13);
   const dq = dataQuery({ kind: 'orders' }, { today: TODAY, period: { from: '2026-10-01', to: '2026-11-30' } });
   const d = ordersData(ORDERS, dq, TODAY);
   assert.equal(d.total, 4); assert.equal(d.totalEgp, 3400);
   assert.deepEqual(d.byStatus, { 'جاري التنفيذ': 2, 'مكتمل': 1, 'قيد الشحن': 1 });
-  assert.deepEqual(d.delivery, { ok: 2, risk: 1 }); /* decision 52: #177701 is 13 days old but not confirmed — no delay */ assert.deepEqual(d.byConfirm, { 'غير مؤكد': 1, 'مؤكد بعربون': 1, 'مؤكد بدون عربون': 1 });
+  assert.deepEqual(d.delivery, { ok: 3 }); /* decision 52: #177701 is 13 days old but not confirmed — no delay; decision 17: #177704 is «قيد الشحن» — the counter stopped */ assert.deepEqual(d.byConfirm, { 'غير مؤكد': 1, 'مؤكد بعربون': 1, 'مؤكد بدون عربون': 1 });
   assert.deepEqual(Object.keys(d.rows[0]).sort(), ['ageDays', 'city', 'confirm', 'customer', 'delivery', 'deposit', 'id', 'number', 'placed_at', 'status', 'total']);
   assert.equal(ordersData(ORDERS, dataQuery({ kind: 'orders', delivery: 'late' }, { today: TODAY, period: dq }), TODAY).rows.map((o) => o.number).join(), '', 'the old unconfirmed order is not late (decision 52)');
-  assert.equal(ordersData(ORDERS, dataQuery({ kind: 'orders', status: 'قابل للتأخير' }, { today: TODAY, period: dq }), TODAY).total, 1, 'a status word that is a delivery state (#177704, confirmed, 9 days)');
+  assert.equal(ordersData(ORDERS, dataQuery({ kind: 'orders', status: 'قابل للتأخير' }, { today: TODAY, period: dq }), TODAY, { stop: ['مكتمل'], lead: 10 }).total, 1, 'a status word that is a delivery state (#177704, confirmed, 9 days of 10 — with rules where shipping does not stop the counter)');
   assert.equal(ordersData(ORDERS, dataQuery({ kind: 'orders', status: 'قيد التنفيذ' }, { today: TODAY, period: dq }), TODAY).total, 2, 'the prototype alias');
   assert.equal(ordersData(ORDERS, dataQuery({ kind: 'orders', q: 'سارة' }, { today: TODAY, period: dq }), TODAY).rows[0].id, 3);
   assert.equal(ordersData(ORDERS, dataQuery({ kind: 'orders', from: '2026-11-01', to: '2026-11-08' }, { today: TODAY }), TODAY).total, 1);
@@ -140,7 +141,7 @@ test('expensesData / salesData / summaryData: the period totals by category, the
   assert.deepEqual(s.byGroup, { 'مكتمل': { orders: 12, sales: 18000, ibtekrShare: 3600 }, 'تحت التنفيذ': { orders: 4, sales: 5000, ibtekrShare: null } });
   assert.deepEqual(s.topMakers, [{ vendor: 'Art Craft', orders: 7, sales: 10000, ibtekrShare: 2000 }, { vendor: 'b', orders: 5, sales: 8000, ibtekrShare: 1600 }]);
   const sum = summaryData({ orders: ordersData(ORDERS, dataQuery({ kind: 'orders' }, { today: TODAY, period: { from: '2026-10-01', to: '2026-11-30' } }), TODAY), tickets: { forbidden: true }, conversations: { open: 4 }, tasks: { total: 1, byStatus: { 'لسه': 1 } }, expenses: e, sales: { forbidden: true } }, dq);
-  assert.deepEqual(sum.orders, { open: { 'جاري التنفيذ': 2, 'قيد الشحن': 1 }, delivery: { ok: 2, risk: 1 }, unconfirmed: 1, waiting: 0, inPeriod: 4, inPeriodEgp: 3400 });
+  assert.deepEqual(sum.orders, { open: { 'جاري التنفيذ': 2, 'قيد الشحن': 1 }, delivery: { ok: 3 }, unconfirmed: 1, waiting: 0, inPeriod: 4, inPeriodEgp: 3400 });
   assert.deepEqual(sum.tickets, { forbidden: true }); assert.deepEqual(sum.sales, { forbidden: true }); assert.deepEqual(sum.conversations, { open: 4 }); assert.deepEqual(sum.myTasks, { open: 1, byStatus: { 'لسه': 1 } });
   assert.deepEqual(sum.expenses, { withdrawn: 6200.5, byCategory: { 'المرتبات': 5000, 'الإعلانات': 1200.5 } });
 });
@@ -218,10 +219,10 @@ test('decision 42: vendorData — orders by status in the period, cancelled / la
     { on_date: '2026-11-06', direction: 'withdraw', kind: 'أخرى', amount: 100 }, { on_date: '2026-11-07', direction: 'deposit', kind: 'أخرى', amount: 40 }, { on_date: '2026-11-07', direction: 'withdraw', kind: 'عربون', amount: 999, voided_at: '2026-11-08' },
     { on_date: '2026-11-02', direction: 'withdraw', kind: 'عربون', amount: 300, settled_by: 900 }];
   const sales = [{ vendor_id: 'v1', grp: 'مكتمل', orders: 2, sales: 1000, share: 200, is_total: false }, { vendor_id: 'v2', grp: 'مكتمل', orders: 9, sales: 9, share: 1, is_total: false }, { grp: 'مكتمل', orders: 11, sales: 1009, is_total: true }];
-  const r = vendorData({ vendors, items, orders, sales, balance: { balance: 2000, synced_at: '2026-11-10T08:00:00Z' }, moves, carry: 20, withdrawal: { amount: 700, status: 'pending', requested_at: '2026-11-09T12:00:00Z' } }, dq, '2026-11-11');
+  const r = vendorData({ vendors, items, orders, sales, balance: { balance: 2000, synced_at: '2026-11-10T08:00:00Z' }, moves, carry: 20, withdrawal: { amount: 700, status: 'pending', requested_at: '2026-11-09T12:00:00Z' } }, dq, '2026-11-11', { lead: 12 }); // decision 17: the settings' default making days
   assert.equal(r.vendor, 'خزف'); assert.deepEqual(r.otherMatches, ['خزف مصر']);
   assert.equal(r.orders.total, 2); assert.deepEqual(r.orders.byStatus, { 'ملغي': 1, 'جاري التنفيذ': 1 }); assert.equal(r.orders.cancelled, 1); assert.equal(r.orders.totalEgp, 150);
-  assert.equal(r.orders.late, 0); assert.equal(r.orders.risk, 1, '9 days old on the 11th = قابل للتأخير');
+  assert.equal(r.orders.late, 0); assert.equal(r.orders.risk, 1, '10 days of 12 on the 11th = قابل للتأخير (decision 17)');
   assert.deepEqual(r.sales, { 'مكتمل': { orders: 2, sales: 1000, ibtekrShare: 200 } });
   // 2000 − عربون 500 − مواصلات 60 − أخرى 100 + تصحيح 40 − المتبقي 20 = 1360; the voided and the settled moves are out
   assert.deepEqual([r.account.dokanBalance, r.account.deposits, r.account.transport, r.account.otherMoves, r.account.corrections, r.account.carry, r.account.net], [2000, 500, 60, 100, 40, 20, 1360]);

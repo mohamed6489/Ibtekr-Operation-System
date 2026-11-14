@@ -109,6 +109,7 @@ do $$ begin
   update public.order_items set status = 'في التغليف' where id = 99095101;
   if (select status from public.order_items where id = 99095101) <> 'في التغليف' then raise exception 'case an added product status is accepted failed'; end if;
   if (public.settings_public() -> 'lists' -> 'statusAdded' -> 'sub') <> '["في التغليف"]'::jsonb then raise exception 'case settings_public hands the added statuses failed'; end if;
+  if (public.settings_public() -> 'makers' -> 'delay') is null then raise exception 'case settings_public hands the delay rules failed'; end if;
 end $$;
 reset role;
 -- removed from the list later: the row keeps it (only a new value is checked)

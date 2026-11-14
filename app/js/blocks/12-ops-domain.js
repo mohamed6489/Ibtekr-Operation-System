@@ -201,6 +201,31 @@
     if (open === false || elapsed == null || !Number.isFinite(elapsed)) return 'ok';
     const n = leadOf(lead, null); return elapsed > n ? 'late' : elapsed >= n - (DELAY.window - 1) ? 'risk' : 'ok';
   }
+  // owner batch 2 decision 17: the rules from settings «makers».delay — the same as _shared/delay.js (delayRules … lineDelayOf):
+  // start 'confirm' | 'order' | 'notify'; the order against the longest making days of its open lines (risk orderRisk days before,
+  // late once past, a stop status never counts); a line against its own (risk subRisk days before)
+  const START_POINTS = ['confirm', 'order', 'notify']; const DELAY_STOP = ['قيد الشحن', 'مكتمل', 'ملغي', 'استرجاع', 'فشل'];
+  const DELAY_DEFAULTS = Object.freeze({ start: 'confirm', orderRisk: 2, subRisk: 2, lead: 7, stop: DELAY_STOP });
+  const intIn = (v, lo, hi, d) => { const n = Number(v); return v !== null && v !== '' && Number.isInteger(n) && n >= lo && n <= hi ? n : d; };
+  function delayRules(raw) {
+    const d = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+    const stop = Array.isArray(d.stop) ? [...new Set(d.stop.filter((x) => typeof x === 'string' && x.trim()).map((x) => x.trim()))].slice(0, 20) : DELAY_STOP.slice();
+    return { start: START_POINTS.includes(d.start) ? d.start : 'confirm', orderRisk: intIn(d.orderRisk, 0, 30, 2), subRisk: intIn(d.subRisk, 0, 30, 2), lead: intIn(d.lead, 1, 90, 7), stop };
+  }
+  function leadBy(productDays, makerDays, rules) {
+    const p = Number(productDays); if (Number.isInteger(p) && p >= 1 && p <= 90) return p;
+    const m = Number(makerDays); if (Number.isInteger(m) && m >= 1 && m <= 90) return m;
+    return (rules && rules.lead) || 7;
+  }
+  const orderElapsed = (o, today, rules) => (rules && rules.start === 'order' ? daysFrom(o && o.placedAt, today) : confirmAge(o, today));
+  function lineElapsed(o, today, rules) {
+    if (DAY_RE.test(String((o && o.notifiedAt) || ''))) return daysFrom(o.notifiedAt, today);
+    if (rules && rules.start === 'notify') return null;
+    return orderElapsed(o, today, rules);
+  }
+  const delayAgainst = (elapsed, lead, risk) => (elapsed == null || !Number.isFinite(elapsed) ? 'ok' : elapsed > lead ? 'late' : elapsed >= lead - risk ? 'risk' : 'ok');
+  function orderDelayOf(o, rules) { const r = rules || DELAY_DEFAULTS; if (!o || o.maxLead == null || (r.stop || []).includes(String(o.status == null ? '' : o.status))) return 'ok'; return delayAgainst(o.elapsed, leadBy(o.maxLead, null, r), r.orderRisk); }
+  function lineDelayOf(elapsed, lead, open, rules) { const r = rules || DELAY_DEFAULTS; if (open === false) return 'ok'; return delayAgainst(elapsed, leadBy(lead, null, r), r.subRisk); }
   // Owner (22 Oct): alert-types table — short readable cells; add / edit / delete types.
   function notifRepeatShort(count, every, at, days, weekday) {
     const t = at || NOTIF_DEFAULT_AT; const e = every || 'كل 24 ساعة'; const once = isOnce(count); const tillFix = count === 'لحد ما يتحل';
@@ -297,7 +322,7 @@
 
   const api = { HR, INV, AUTH, rates, overtimePay, monthlyPaid, rating, RATING_TONE, monthBonus, quarterBonus, quarterBad, leaveDays, addDays, payslip,
     shiftState, presenceDue, presenceOutcome, reviewOvertime, otReviewer, validateOtEnd,
-    REASONS, STATUS_BY_REASON, stockFromLedger, canAutoPull, validateReceive, CANCEL_REASONS, validateCancel, NOTIF_COUNTS, NOTIF_EVERY, notifRepeat, notifSchedule, NOTIF_DEFAULT_AT, NOTIF_TIMES, isDaily, SHIP_READY, isShipReady, shipRoute, waybillFor, waybillText, deliveryDigestText, isConfirmed, subsOnConfirm, DELAY, daysFrom, confirmAge, orderDelay, leadOf, subElapsed, subDelay, notifRepeatShort, channelsShort, listShort, validateNotifType, ESC_AFTER, ESC_CHANNELS, ESC_MANAGER, escalationTargets, validateEscalation, joinChannels, splitChannels, WEEKDAYS, weeklyPeriod, MONTH_DAYS, monthDaysLabel, monthDaysPeriod, NOTIF_TEAMS, payrollDue, digest, VENDOR_RECIPIENT, recipientChannels, splitRecipients, joinRecipients, RETURN_CONDITIONS, inspectDefault, arrivalReason, arrivalStock, consolidationLate, photoOverdue, consolidation, countDiff,
+    REASONS, STATUS_BY_REASON, stockFromLedger, canAutoPull, validateReceive, CANCEL_REASONS, validateCancel, NOTIF_COUNTS, NOTIF_EVERY, notifRepeat, notifSchedule, NOTIF_DEFAULT_AT, NOTIF_TIMES, isDaily, SHIP_READY, isShipReady, shipRoute, waybillFor, waybillText, deliveryDigestText, isConfirmed, subsOnConfirm, DELAY, daysFrom, confirmAge, orderDelay, leadOf, subElapsed, subDelay, START_POINTS, DELAY_STOP, DELAY_DEFAULTS, delayRules, leadBy, orderElapsed, lineElapsed, delayAgainst, orderDelayOf, lineDelayOf, notifRepeatShort, channelsShort, listShort, validateNotifType, ESC_AFTER, ESC_CHANNELS, ESC_MANAGER, escalationTargets, validateEscalation, joinChannels, splitChannels, WEEKDAYS, weeklyPeriod, MONTH_DAYS, monthDaysLabel, monthDaysPeriod, NOTIF_TEAMS, payrollDue, digest, VENDOR_RECIPIENT, recipientChannels, splitRecipients, joinRecipients, RETURN_CONDITIONS, inspectDefault, arrivalReason, arrivalStock, consolidationLate, photoOverdue, consolidation, countDiff,
     RETURN_REASONS, validateReturn, TASK_STATUSES, rollover, validateTaskStatus,
     loginInit, loginFail, isLocked, identifierKind, toLatin, validatePassword, idleState };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.IbtekrOps = api;

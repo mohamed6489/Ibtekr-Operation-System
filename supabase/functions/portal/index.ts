@@ -197,7 +197,8 @@ async function orders(deps: Deps, who: Who) {
   const leads = new Map<string, number>();
   for (let i = 0; i < pids.length; i += 200) { const { data } = await deps.db.from('product_lead_days').select('product_id, days').in('product_id', pids.slice(i, i + 200)); for (const x of Array.isArray(data) ? data : []) leads.set(String(x.product_id), Number(x.days)); }
   const { data: me } = await deps.db.from('vendors').select('lead_days').eq('id', who.vendor).maybeSingle();
-  const rows = makerLines({ items: Array.isArray(items) ? items : [], orders: ords.filter((o: Json) => !o.deleted_at), subs: Array.isArray(subs) ? subs : [], now: deps.now(), leads, makerLead: me ? me.lead_days : null });
+  const { data: mkRow } = await deps.db.from('settings').select('data').eq('section', 'makers').maybeSingle(); // owner batch 2 decision 17: the delay rules
+  const rows = makerLines({ items: Array.isArray(items) ? items : [], orders: ords.filter((o: Json) => !o.deleted_at), subs: Array.isArray(subs) ? subs : [], now: deps.now(), leads, makerLead: me ? me.lead_days : null, rules: (mkRow as Json | null)?.data?.delay ?? null });
   return json(200, { result: 'ok', rows, since: since.slice(0, 10) });
 }
 

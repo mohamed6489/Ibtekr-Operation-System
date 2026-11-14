@@ -147,3 +147,31 @@ test('T2 — decision 22 (security review): a status name with a quote or & is r
   await expect(page.locator('#orders [data-sc="مراجعة \\"خاصة\\""]')).toHaveCount(1);
   await expect(page.locator('#orders select[data-st="181668"]').first().locator('option', { hasText: 'مراجعة "خاصة"' })).toHaveCount(1);
 });
+
+test('T3 — decision 17: the delay rules in two boxes (no per-maker rules); the start point, the risk days and the stop statuses are saved and the orders page counts with them', async ({ page }) => {
+  await go(page, 'settings-makers');
+  const body = page.locator('#pg-settings');
+  await expect(body.locator('.dl-boxes > .card')).toHaveCount(2);
+  await expect(body).not.toContainText('قواعد خاصة لكل مبتكر');
+  const delay = () => (((mock.settings || []).find((r) => r.section === 'makers') || {}).data || {}).delay;
+  // the risk days of the order
+  await body.locator('#dl-orisk').click(); await page.locator('[role=listbox] [role=option]', { hasText: '4 يوم' }).first().click();
+  await expect.poll(() => (delay() || {}).orderRisk).toBe(4);
+  // «قيد الشحن» no longer stops the counter
+  await body.locator('[data-delay-st="قيد الشحن"]').click();
+  await expect.poll(() => (delay() || {}).stop).toEqual(['مكتمل', 'ملغي', 'استرجاع', 'فشل']);
+  await expect(body.locator('[data-delay-st="قيد الشحن"]')).toHaveAttribute('aria-checked', 'false');
+  // the orders page: 180656 is not confirmed — no delay from the confirmation …
+  mock.orders.find((o) => o.id === 180656).placed_at = new Date(Date.now() - 30 * 864e5).toISOString();
+  const leave = async () => { const sv = page.locator('[data-set-save]').first(); if (await sv.count()) await sv.click(); await go(page, 'orders'); };
+  await leave();
+  const badge = (id) => page.locator('#orders .card').filter({ hasText: 'IB-' + id }).first().locator('.badge').filter({ hasText: /^\s*متأخر\s*$/ });
+  await expect(badge('180656')).toHaveCount(0);
+  // … counted from the order's own date it is past its making days
+  await go(page, 'settings-makers');
+  await body.locator('#dl-start').click(); await page.locator('[role=listbox] [role=option]', { hasText: 'تاريخ الأوردر' }).first().click();
+  await expect.poll(() => (delay() || {}).start).toBe('order');
+  await expect(body.locator('[data-delay-start-help]')).toContainText('الأوردر من تاريخه');
+  await leave();
+  await expect(badge('180656')).toHaveCount(1);
+});

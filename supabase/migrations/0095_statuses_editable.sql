@@ -205,12 +205,13 @@ drop trigger if exists order_items_status_guard on public.order_items;
 create trigger order_items_status_guard before insert or update of status on public.order_items
   for each row execute function public.order_items_status_guard();
 
--- 5. settings_public hands the added statuses and the order to every active member (the body of 0093 plus the two keys)
+-- 5. settings_public hands the added statuses and the order to every active member (the body of 0093 plus the two keys) — and the
+--    delay rules (owner batch 2 decision 17: settings «makers».delay — the orders page counts with them)
 create or replace function public.settings_public() returns jsonb
 language plpgsql stable security definer set search_path = public as $$
 declare
   v_uid uuid := auth.uid();
-  v_general jsonb; v_security jsonb; v_notif jsonb; v_lists jsonb;
+  v_general jsonb; v_security jsonb; v_notif jsonb; v_lists jsonb; v_makers jsonb;
 begin
   if v_uid is null or not exists (select 1 from public.profiles p where p.id = v_uid and p.status = 'active') then
     raise exception 'not allowed' using errcode = '42501';
@@ -219,7 +220,9 @@ begin
   select data into v_security from public.settings where section = 'security';
   select data into v_notif from public.settings where section = 'notif';
   select data into v_lists from public.settings where section = 'lists';
+  select data into v_makers from public.settings where section = 'makers';
   return jsonb_build_object(
+    'makers', jsonb_build_object('delay', coalesce(v_makers -> 'delay', '{}'::jsonb)),
     'brand', coalesce((select data from public.settings where section = 'brand'), '{}'::jsonb),
     'quick', coalesce((select data from public.settings where section = 'quick'), '{}'::jsonb),
     'lists', jsonb_strip_nulls(jsonb_build_object('cancel', v_lists -> 'cancel', 'returns', v_lists -> 'returns',

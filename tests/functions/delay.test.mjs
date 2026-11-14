@@ -36,3 +36,44 @@ test('block 12 (IbtekrOps) answers like the server on every case', () => {
   }
   assert.deepEqual(O.DELAY, { riskFrom: S.RISK_FROM, lateFrom: S.LATE_FROM, lead: S.LEAD_DEFAULT, window: S.RISK_WINDOW });
 });
+
+// owner batch 2 decision 17: the rules from the settings
+test('decision 17: the rules — defaults, bad values back to the defaults, the stop statuses', () => {
+  assert.deepEqual(S.delayRules(null), { start: 'confirm', orderRisk: 2, subRisk: 2, lead: 7, stop: ['قيد الشحن', 'مكتمل', 'ملغي', 'استرجاع', 'فشل'] });
+  assert.deepEqual(S.delayRules({ start: 'order', orderRisk: 3, subRisk: 0, lead: 10, stop: ['مكتمل', 'مكتمل', ' ملغي '] }), { start: 'order', orderRisk: 3, subRisk: 0, lead: 10, stop: ['مكتمل', 'ملغي'] });
+  assert.deepEqual(S.delayRules({ start: 'x', orderRisk: -1, subRisk: 'a', lead: 0 }), S.delayRules({}));
+});
+test('decision 17: the order against the longest making days of its open lines — risk N days before, late once past, a stop status never', () => {
+  const r = S.delayRules({});
+  assert.deepEqual([4, 5, 7, 8].map((e) => S.orderDelayOf({ status: 'جاري التنفيذ', elapsed: e, maxLead: 7 }, r)), ['ok', 'risk', 'risk', 'late']);
+  assert.equal(S.orderDelayOf({ status: 'قيد الشحن', elapsed: 30, maxLead: 7 }, r), 'ok', 'moved to shipping: never late');
+  assert.equal(S.orderDelayOf({ status: 'جاهز للشحن', elapsed: 30, maxLead: 7 }, r), 'late', 'ready but not shipped still counts');
+  assert.equal(S.orderDelayOf({ status: 'جاري التنفيذ', elapsed: 30, maxLead: null }, r), 'ok', 'no open line');
+  assert.equal(S.orderDelayOf({ status: 'جاري التنفيذ', elapsed: null, maxLead: 7 }, r), 'ok', 'not confirmed');
+  assert.equal(S.orderDelayOf({ status: 'جاري التنفيذ', elapsed: 6, maxLead: 10 }, S.delayRules({ orderRisk: 4 })), 'risk', 'the settings move the risk days');
+  assert.equal(S.orderDelayOf({ status: 'قيد الشحن', elapsed: 30, maxLead: 7 }, S.delayRules({ stop: ['مكتمل'] })), 'late', 'the stop list is the settings');
+});
+test('decision 17: the start point — confirmation (default), the order date, or the notify date only for a line', () => {
+  const o = { confirm: 'غير مؤكد', confirmAt: null, placedAt: '2026-11-10' };
+  assert.equal(S.orderElapsed(o, T, S.delayRules({})), null); assert.equal(S.orderElapsed(o, T, S.delayRules({ start: 'order' })), 10);
+  assert.equal(S.lineElapsed({ ...o, notifiedAt: null }, T, S.delayRules({ start: 'order' })), 10);
+  assert.equal(S.lineElapsed({ confirm: 'مؤكد بعربون', confirmAt: '2026-11-15', notifiedAt: null }, T, S.delayRules({ start: 'notify' })), null, 'notify: nothing without the notify date');
+  assert.equal(S.lineElapsed({ notifiedAt: '2026-11-18' }, T, S.delayRules({ start: 'notify' })), 2);
+  assert.deepEqual([4, 5, 7, 8].map((e) => S.lineDelayOf(e, 7, true, S.delayRules({}))), ['ok', 'risk', 'risk', 'late']);
+  assert.equal(S.lineDelayOf(6, 7, true, S.delayRules({ subRisk: 0 })), 'ok'); assert.equal(S.lineDelayOf(20, 7, false, S.delayRules({})), 'ok', 'a closed line is never late');
+  assert.equal(S.leadBy(null, null, S.delayRules({ lead: 12 })), 12, 'the default making days from the settings');
+});
+test('decision 17: block 12 answers like the server on every case', () => {
+  const rules = [{}, { start: 'order', orderRisk: 3 }, { start: 'notify', subRisk: 0, lead: 10 }, { stop: ['مكتمل'] }];
+  const os = [{ confirm: 'غير مؤكد', placedAt: '2026-11-01' }, { confirm: 'مؤكد بعربون', confirmAt: '2026-11-12', placedAt: '2026-11-01' }, { confirm: 'مؤكد بدون عربون', placedAt: '2026-11-15', notifiedAt: '2026-11-16' }];
+  for (const raw of rules) {
+    assert.deepEqual(O.delayRules(raw), S.delayRules(raw));
+    const r = S.delayRules(raw); const r2 = O.delayRules(raw);
+    for (const o of os) {
+      assert.equal(O.orderElapsed(o, T, r2), S.orderElapsed(o, T, r)); assert.equal(O.lineElapsed(o, T, r2), S.lineElapsed(o, T, r));
+      for (const st of ['جاري التنفيذ', 'قيد الشحن', 'مكتمل']) for (const ml of [null, 3, 7, 12]) assert.equal(O.orderDelayOf({ status: st, elapsed: O.orderElapsed(o, T, r2), maxLead: ml }, r2), S.orderDelayOf({ status: st, elapsed: S.orderElapsed(o, T, r), maxLead: ml }, r));
+      for (const lead of [null, 2, 7]) assert.equal(O.lineDelayOf(O.lineElapsed(o, T, r2), lead, true, r2), S.lineDelayOf(S.lineElapsed(o, T, r), lead, true, r));
+    }
+  }
+  assert.deepEqual(O.DELAY_STOP, S.DELAY_STOP); assert.deepEqual(O.START_POINTS, S.START_POINTS);
+});

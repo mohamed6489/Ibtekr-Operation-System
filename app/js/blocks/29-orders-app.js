@@ -109,18 +109,23 @@ function redrawCard(id){var el=$('list').querySelector('.card[data-o="'+cssEsc(i
 function refreshCounts(){$('cn').textContent=O.filter(function(o){return match(o)}).length;drawChips();var fv=$('fv');if(R.activeElement!==fv)fv.innerHTML=opts(V,S.vendor,'المبتكر: الكل')}
 function vcount(o){var m={};o.subs.forEach(function(s){m[s.vendor]=1});return Object.keys(m).length}
 function openCount(o){return o.subs.filter(function(s){return OPEN[s.raw]}).length}
-// phase 13 decision 52 (owner 10 Nov): the order's delay counts from its confirmation date (IbtekrOps.orderDelay — 9 / 12 days); an
-// order not confirmed has none. A sub-order counts from «تاريخ تبليغ المبتكر» (else the order's confirmation) against its making days
-// (s.lead: the product's own, else the maker's «مدة التجهيز», else 7 — IbtekrOps.subDelay: risk in the last 3, late after).
+// owner batch 2 decision 17 (the settings' «قواعد التأخير» — IbtekrOps.delayRules / orderDelayOf / lineDelayOf, the same as the server's
+// _shared/delay.js): the days count from the start point (the confirmation by default — none while not confirmed — or the order's date;
+// a line from its maker's notify date, else the order's start, or nothing with start «notify»). The order is «قابل للتأخير» N days before
+// the longest making days of its open lines end and «متأخر» once they are past, unless its (base) status stops the counter; a line
+// against its own making days (s.lead: the product's own, else the maker's «مدة التجهيز», else the settings' default).
 function XO(){return window.IbtekrOps}
-function cage(o){return XO().isConfirmed(o.cf)?daysSince(o.confAt||o.cdate||o.date):null}
-function ostate(o){return openCount(o)>0&&DONE.indexOf(o.st)<0?XO().orderDelay(cage(o)):'ok'}
+var DR=null;function RULES(){if(!DR){var S0=window.IBSettings;DR=S0&&S0.delayRules?S0.delayRules():XO().delayRules(null)}return DR}
+function cage(o){if(RULES().start==='order')return daysSince(o.date);return XO().isConfirmed(o.cf)?daysSince(o.confAt||o.cdate||o.date):null}
+function lineOpen(s){return !!OPEN[s.raw]&&!s.pulled&&s.ss!=='ملغي'}
+function maxLead(o){var m=null;o.subs.forEach(function(s){if(lineOpen(s)){var l=slead(s);if(m==null||l>m)m=l}});return m}
+function ostate(o){return XO().orderDelayOf({status:o.st,elapsed:cage(o),maxLead:maxLead(o)},RULES())}
 function late(o){return ostate(o)==='late'}
 function risk(o){return ostate(o)==='risk'}
 function dstate(o){return ostate(o)}
-function slead(s){return Number(s.lead)||7}
-function sel(o,s){return s.exp?daysSince(s.exp):cage(o)}
-function sstate(o,s){return OPEN[s.raw]&&!s.pulled&&s.ss!=='ملغي'?XO().subDelay(sel(o,s),slead(s)):'ok'}
+function slead(s){return s.leadSrc==='default'||!Number(s.lead)?RULES().lead:Number(s.lead)}
+function sel(o,s){return s.exp?daysSince(s.exp):RULES().start==='notify'?null:cage(o)}
+function sstate(o,s){return lineOpen(s)?XO().lineDelayOf(sel(o,s),slead(s),true,RULES()):'ok'}
 function leadTxt(s){return'مدة التصنيع: '+slead(s)+' يوم'+(s.leadSrc==='product'?' (المنتج)':s.leadSrc==='maker'?' (المبتكر)':'')}
 function scount(o,s){var e=sel(o,s),n=slead(s);return{e:e,n:n,t:e==null?'—':Math.min(e,99)+'/'+n,pct:e==null?0:Math.min(e/n,1)*100}}
 var DB={risk:['s-warn','قابل للتأخير','clock','#f08a1c'],late:['s-err','متأخر','alert','#da0001'],ok:['s-ok','غير متأخر','check','#39ac00']};
@@ -906,7 +911,7 @@ if(e.key==='Escape'&&e.target.dataset&&e.target.dataset.ce!==undefined){e.target
 function setQ(v){S.q=v;S.page=1;$('oq').value=v;(R.getElementById('gq')||{}).value=v;draw()}
 $('oq').addEventListener('input',function(e){setQ(e.target.value)});
 /* owner batch 14 Nov decision 4: a status renamed in the settings → the page draws again with the shown names (filters and open rows kept) */
-document.addEventListener('ib:settings',function(){syncLists(null);if(HYD)try{drawFilters();draw(true);drawChips()}catch(e){}});
+document.addEventListener('ib:settings',function(){syncLists(null);DR=null;if(HYD)try{drawFilters();draw(true);drawChips()}catch(e){}});
 document.addEventListener('ib:orders',function(){var B=window.IBOrders;if(!B)return;if(HYD&&!B.data()&&B.state()==='idle'){O=[];OM={};V=[];IMG={};S.open={};HYD=false;S.q='';S.st='الكل';S.deliv='';S.conf='';S.vendor='';S.vc='';S.fb={op:'and',items:[]};S.page=1;S.edit=null;$('oq').value=''}if(!HYD)draw()}); // clear() (sign-out): nothing kept
 (function(){var B=window.IBOrders,d=B&&B.data&&B.data();if(d)hydrate(d);else draw()})();
 

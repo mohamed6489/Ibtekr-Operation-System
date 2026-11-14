@@ -2089,3 +2089,5 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 3. «Deploy functions» بـ `function = woo-sync` (المزامنة بتفصل الحالة المضافة: `splitStatus`، والإرسال بمقابلها أو مقابل أساسها، و`push_status` بيقارن بـ `status_custom || status`) — وبعدها `woo-webhook` (نفس `_shared`).
 4. الواجهة على `main`.
 5. التجربة (صاحب المشروع): «الإعدادات › القوائم والحالات › حالات الأوردر» ← «+ حالة» (اسم + «بتتحسب زي» + مقابل اختياري) ← تظهر في دروب داون الأوردرات؛ اختيارها بيتبعت للموقع بمقابلها (أو مقابل أساسها).
+
+**T3 — قواعد التأخير (قرار 17):** مافيش migration جديد — `settings_public` في `0095` بيرجّع `makers.delay` لكل عضو. «Deploy functions» لـ `notify` و`cs-auto` و`portal` و`ai-content` (`_shared/delay.js`: `delayRules` / `orderDelayOf` / `lineDelayOf`). الإعدادات في صف `settings` «makers» مفتاح `delay` (`start` / `orderRisk` / `subRisk` / `lead` / `stop`) — من غيره الافتراضي (تاريخ التأكيد، 2 يوم، 7 أيام، والحالات اللي بتوقف العدّاد: قيد الشحن · مكتمل · ملغي · استرجاع · فشل).

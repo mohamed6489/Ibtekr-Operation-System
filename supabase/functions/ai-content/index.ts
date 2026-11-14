@@ -404,7 +404,9 @@ const FORBIDDEN = { forbidden: true };
 // One get_data read with the member's client: a refused table or RPC (RLS, has_perm) is { forbidden: true } for the model, never a throw.
 async function readData(member: Db, uid: string, dq: DQ, today: string): Promise<Json> {
   const rows = async (q: Promise<{ data: unknown; error: unknown }>) => { const { data, error } = await q; return error ? null : (Array.isArray(data) ? data : []); };
-  const orders = async () => { const r = await rows(member.from('orders_v').select(ORDER_COLS).gte('placed_at', dq.from + 'T00:00:00+02:00').order('placed_at', { ascending: false }).limit(2000)); return r ? ordersData(r, dq, today) : FORBIDDEN; };
+  // owner batch 2 decision 17: the delay rules every member gets (settings_public().makers.delay)
+  const delay = async () => { try { const { data } = await member.rpc('settings_public'); return (data as Json)?.makers?.delay ?? null; } catch { return null; } };
+  const orders = async () => { const [r, dl] = await Promise.all([rows(member.from('orders_v').select(ORDER_COLS).gte('placed_at', dq.from + 'T00:00:00+02:00').order('placed_at', { ascending: false }).limit(2000)), delay()]); return r ? ordersData(r, dq, today, dl) : FORBIDDEN; };
   const tickets = async () => { const r = await rows(member.from('tickets').select('id, type, title, priority, assignee_role, status, order_number, vendor, customer, reason, follow_up, created_at, last_update').order('last_update', { ascending: false }).limit(500)); return r ? ticketsData(r, dq) : FORBIDDEN; };
   const tasks = async () => { const r = await rows(member.from('hr_tasks').select('id, member_id, title, status, day, until, deleted_at').is('deleted_at', null).limit(500)); return r ? tasksData(r, dq, uid) : FORBIDDEN; };
   const expenses = async () => { const r = await rows(member.from('acc_expenses').select('id, on_date, direction, category, beneficiary, amount, sub_name, voided_at').is('voided_at', null).gte('on_date', dq.from).limit(2000)); return r ? expensesData(r, dq) : FORBIDDEN; };
@@ -429,7 +431,7 @@ async function readData(member: Db, uid: string, dq: DQ, today: string): Promise
       rows(member.from('dokan_withdrawals').select('amount, status, requested_at').eq('vendor_id', id).order('requested_at', { ascending: false }).limit(1)),
       rows(member.from('acc_vendor_settlements').select('id, carry_out').eq('vendor_id', id).order('id', { ascending: false }).limit(1)), // 0078: the last carry
     ]);
-    return vendorData({ vendors: vs, items, orders: ords, sales, balance: bal ? bal[0] ?? null : null, balanceForbidden: bal == null, moves, carry: sets && sets[0] ? sets[0].carry_out : 0, withdrawal: wd ? wd[0] ?? null : null }, dq, today);
+    return vendorData({ vendors: vs, items, orders: ords, sales, balance: bal ? bal[0] ?? null : null, balanceForbidden: bal == null, moves, carry: sets && sets[0] ? sets[0].carry_out : 0, withdrawal: wd ? wd[0] ?? null : null }, dq, today, await delay());
   };
   // decision 42: the uploaded files the member can open — company papers (RLS: admin), makers' contracts (only with the key that opens
   // them), HR documents (hr_can_see), ticket attachments (the tickets I see); paths only, signed by the page's own adapter on a click

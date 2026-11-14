@@ -4,7 +4,7 @@
 // its prototype functions: navigate / filter_orders / set_period / sort_vendors / propose_entry, and set_filter for the orders
 // filter builder), the request, reading a turn, the actions' cleaning and the data shaping (never a phone, never an address).
 // No I/O here.
-import { confirmAge } from './delay.js';
+import { confirmAge, delayRules, orderDelayOf, orderElapsed } from './delay.js';
 import { FALLBACK, line, paras } from './ai-content.js';
 
 export const ASSISTANT_TURNS = 12; // the last turns the page sends back (the server keeps no chat)
@@ -268,17 +268,20 @@ export function dataQuery(input, ctx) {
 }
 export const ageDays = (iso, today) => { const t = Date.parse(iso); const d = Date.parse(today + 'T00:00:00Z'); return Number.isFinite(t) && Number.isFinite(d) ? Math.max(0, Math.floor((d - t) / 86_400_000)) : 0; };
 /** status + the days since the confirmation (null = not confirmed) → done | late | risk | ok */
-export const deliveryOf = (status, age) => (CLOSED_STATUSES.includes(status) ? 'done' : age == null ? 'ok' : age >= LATE_DAYS ? 'late' : age >= RISK_DAYS ? 'risk' : 'ok');
-const cAge = (o, today) => confirmAge({ confirm: o.confirm, confirmAt: o.confirm_at, placedAt: o.placed_at }, today);
+// owner batch 2 decision 17: the settings' rules (delayRules of settings_public().makers.delay); the assistant reads orders without their
+// lines, so an order counts against maxLead when given, else the rules' default making days
+export const deliveryOf = (status, age, rules, maxLead) => { if (CLOSED_STATUSES.includes(status)) return 'done'; const r = rules && Array.isArray(rules.stop) ? rules : delayRules(rules); return orderDelayOf({ status, elapsed: age, maxLead: maxLead ?? r.lead }, r); };
+const cAge = (o, today, rules) => (rules ? orderElapsed({ confirm: o.confirm, confirmAt: o.confirm_at, placedAt: o.placed_at }, today, rules) : confirmAge({ confirm: o.confirm, confirmAt: o.confirm_at, placedAt: o.placed_at }, today));
 const STATUS_ALIAS = { 'قيد التنفيذ': 'جاري التنفيذ', 'تم الشحن': 'قيد الشحن', 'معلق': 'معلّق', 'متأخر': 'late', 'قابل للتأخير': 'risk' };
 const count = (rows, key) => { const o = {}; for (const r of rows) { const k = key(r) ?? '—'; o[k] = (o[k] || 0) + 1; } return o; };
 const hasQ = (q, ...vals) => !q || vals.some((v) => String(v ?? '').toLowerCase().includes(q));
 
 /** orders_v rows (id, number, customer_name, customer_city, status, confirm, deposit, total, placed_at) → counts and the first rows. */
-export function ordersData(rows, dq, today) {
+export function ordersData(rows, dq, today, rules) {
+  const DR = delayRules(rules);
   let st = STATUS_ALIAS[dq.status] ?? dq.status; let deliv = dq.delivery;
   if (DELIVERY.includes(st)) { deliv = st; st = ''; }
-  const all = (Array.isArray(rows) ? rows : []).map((o) => { const age = ageDays(o.placed_at, today); return { id: o.id, number: o.number, customer: o.customer_name, city: o.customer_city, status: o.status, confirm: o.confirm, deposit: num(o.deposit), total: num(o.total), placed_at: String(o.placed_at || '').slice(0, 10), ageDays: age, delivery: deliveryOf(o.status, cAge(o, today)) }; })
+  const all = (Array.isArray(rows) ? rows : []).map((o) => { const age = ageDays(o.placed_at, today); return { id: o.id, number: o.number, customer: o.customer_name, city: o.customer_city, status: o.status, confirm: o.confirm, deposit: num(o.deposit), total: num(o.total), placed_at: String(o.placed_at || '').slice(0, 10), ageDays: age, delivery: deliveryOf(o.status, cAge(o, today, DR), DR) }; })
     .filter((o) => (!st || o.status === st) && (!deliv || o.delivery === deliv) && hasQ(dq.q, o.number, o.customer, o.id) && (!dq.from || o.placed_at >= dq.from) && (!dq.to || o.placed_at <= dq.to));
   const open = all.filter((o) => !CLOSED_STATUSES.includes(o.status));
   return { period: { from: dq.from, to: dq.to }, total: all.length, totalEgp: num(all.reduce((t, o) => t + o.total, 0)), byStatus: count(all, (o) => o.status), byConfirm: count(open, (o) => o.confirm), delivery: count(open, (o) => o.delivery), rows: all.slice(0, dq.limit) };
@@ -334,7 +337,8 @@ export function pickVendor(vendors, q) {
   const vs = Array.isArray(vendors) ? vendors : [];
   return vs.find((v) => String(v.name || '').trim().toLowerCase() === q) || vs.find((x) => hasQ(q, x.name)) || null;
 }
-export function vendorData(p, dq, today) {
+export function vendorData(p, dq, today, rules) {
+  const DR = delayRules(rules);
   const vs = Array.isArray(p.vendors) ? p.vendors : []; const q = dq.q;
   const v = pickVendor(vs, q);
   if (!v) return { found: false, q, note: 'مفيش مبتكر بالاسم ده' };
@@ -346,7 +350,7 @@ export function vendorData(p, dq, today) {
   else {
     const byOrder = new Map(); for (const it of p.items) { if (it.removed || it.order_id == null) continue; const k = String(it.order_id); const o = byOrder.get(k) || { lines: 0, total: 0, st: [] }; o.lines++; o.total += num(it.total); o.st.push(it.status || ''); byOrder.set(k, o); }
     const rows = p.orders.filter((o) => byOrder.has(String(o.id))).map((o) => { const age = ageDays(o.placed_at, today); const mine = byOrder.get(String(o.id));
-      return { number: o.number, status: o.status, confirm: o.confirm || null, date: String(o.placed_at || '').slice(0, 10), ageDays: age, delivery: deliveryOf(o.status, cAge(o, today)), lines: mine.lines, total: num(mine.total), lineStatus: [...new Set(mine.st.filter(Boolean))].join('، ') || null }; })
+      return { number: o.number, status: o.status, confirm: o.confirm || null, date: String(o.placed_at || '').slice(0, 10), ageDays: age, delivery: deliveryOf(o.status, cAge(o, today, DR), DR), lines: mine.lines, total: num(mine.total), lineStatus: [...new Set(mine.st.filter(Boolean))].join('، ') || null }; })
       .filter((o) => o.date >= dq.from && o.date <= dq.to).sort((a, b) => (a.date < b.date ? 1 : -1));
     const open = rows.filter((o) => !CLOSED_STATUSES.includes(o.status));
     out.orders = { total: rows.length, totalEgp: num(rows.reduce((t, o) => t + o.total, 0)), byStatus: count(rows, (o) => o.status), cancelled: rows.filter((o) => o.status === 'ملغي').length,

@@ -19,7 +19,7 @@ import { vaultEnv } from '../_shared/secrets.js';
 import { WA_GRAPH, graphErrorCode } from '../_shared/cs-whatsapp.js';
 import { cairoParts } from '../_shared/mkt-publish.js';
 import { SOURCES, digestPlan, emailHtml, plan, waText } from '../_shared/notify.js';
-import { confirmAge, leadOf, orderDelay, subDelay, subElapsed } from '../_shared/delay.js';
+import { delayRules, leadBy, lineDelayOf, lineElapsed, orderDelayOf, orderElapsed } from '../_shared/delay.js';
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -66,7 +66,7 @@ const orderAge = (placedAt: string, day: string) => daysBetween(String(placedAt)
 
 export async function collect(deps: Deps, ctx: Ctx): Promise<Item[]> {
   const { cairo, nowMs, now } = ctx; const today = cairo.day; const out: Item[] = [];
-  const mk = ctx.settings.makers ?? {}; const riskFrom = Number(mk.risk_day) || 9; const lateFrom = Number(mk.late_day) || 12;
+  const mk = ctx.settings.makers ?? {}; const DR = delayRules(mk.delay); // owner batch 2 decision 17: the settings' delay rules
   // the inventory alerts in days (the settings page «المخزن», B6 11 Nov: consolidationAlert / photoMax / returnWait — the old *Days spellings still read)
   const inv = ctx.settings.inventory ?? {}; const invDays = (k: string, old: string, d: number) => { const n = Number(inv[k] ?? inv[old]); return Number.isInteger(n) && n >= 1 && n <= 90 ? n : d; };
   const consDays = invDays('consolidationAlert', 'consolidationAlertDays', 5); const photoDays = invDays('photoMax', 'photoMaxDays', 14); const retDays = invDays('returnWait', 'returnWaitDays', 7);
@@ -84,19 +84,23 @@ export async function collect(deps: Deps, ctx: Ctx): Promise<Item[]> {
   const perVendor = new Map<string, { late: Set<number>; risk: Set<number>; open: Set<number> }>();
   for (const o of O) {
     const age = orderAge(o.placed_at, today); const label = 'IB-' + (o.number ?? o.id) + ' · ' + String(o.customer_name ?? '').trim();
-    // phase 13 decision 52: the order's delay from its confirmation date — an order not confirmed is never late
-    const cage = confirmAge({ confirm: o.confirm, confirmAt: o.confirm_at, placedAt: o.placed_at }, today);
+    // owner batch 2 decision 17: the order against the longest making days of its open lines, from the settings' start point
+    const ov = { confirm: o.confirm, confirmAt: o.confirm_at, placedAt: o.placed_at };
+    const cage = orderElapsed(ov, today, DR);
+    const lines = items.filter((it) => String(it.order_id) === String(o.id));
+    const leadOfLine = (it: Json) => { const v0 = it.vendor_id ? V.get(String(it.vendor_id)) : null; return leadBy(it.product_id != null ? PL.get(String(it.product_id)) : null, v0 ? v0.lead_days : null, DR); };
+    const openLeads = lines.filter((it) => it.vendor_id && !ITEM_DONE.includes(String(it.status))).map(leadOfLine);
+    const maxLead = openLeads.length ? Math.max(...openLeads) : null;
     if (o.status === 'معلّق') out.push({ key: 'customers.follow', entityId: String(o.id), title: label, body: 'أوردر معلّق · محتاج متابعة · عمره ' + age + ' يوم', entity: 'orders' });
-    if (orderDelay(cage, { riskFrom, lateFrom }) === 'late' && o.status === 'جاري التنفيذ') out.push({ key: 'customers.late', entityId: String(o.id), title: label, body: 'أوردر متأخر · محتاج متابعة مع العميل · ' + cage + ' يوم من التأكيد', entity: 'orders' });
+    if (orderDelayOf({ status: o.status, elapsed: cage, maxLead }, DR) === 'late') out.push({ key: 'customers.late', entityId: String(o.id), title: label, body: 'أوردر متأخر · عدّى مدة التصنيع (' + maxLead + ' يوم) · محتاج متابعة مع العميل', entity: 'orders' });
     if (o.confirm === 'غير مؤكد' && age >= 1) out.push({ key: 'customers.unconf', entityId: String(o.id), title: label, body: 'غير مؤكد · لسه ما اتأكدش من العميل · عمره ' + age + ' يوم', entity: 'orders' });
     if (o.confirm === 'في انتظار الرد') out.push({ key: 'customers.waiting', entityId: String(o.id), title: label, body: 'في انتظار رد العميل', entity: 'orders' });
-    const lines = items.filter((it) => String(it.order_id) === String(o.id));
     for (const it of lines) {
       if (!it.vendor_id || ITEM_DONE.includes(String(it.status))) continue;
       const vid = String(it.vendor_id); const pv = perVendor.get(vid) ?? { late: new Set(), risk: new Set(), open: new Set() }; perVendor.set(vid, pv);
       if (o.status === 'جاري التنفيذ') { // the maker's line: from his notify date against the making days (product, else maker)
-        pv.open.add(o.id); const v0 = V.get(vid);
-        const d = subDelay(subElapsed({ notifiedAt: it.expected_at, confirm: o.confirm, confirmAt: o.confirm_at, placedAt: o.placed_at }, today), leadOf(it.product_id != null ? PL.get(String(it.product_id)) : null, v0 ? v0.lead_days : null));
+        pv.open.add(o.id);
+        const d = lineDelayOf(lineElapsed({ notifiedAt: it.expected_at, ...ov }, today, DR), leadOfLine(it), true, DR);
         if (d === 'late') pv.late.add(o.id); else if (d === 'risk') pv.risk.add(o.id);
       }
       // delivery: a ready line without a waybill; late after 24 hours

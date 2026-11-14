@@ -12,6 +12,7 @@
 import { CART_STATUSES, CHANNEL_LABEL, STATUS_CODES, VIRTUAL_STATUS, CART_REPEAT_DAYS, afterHoursEntity, cairoClock, cartEvents, decide, digits, entityFor, failCode, firstEntity, guestCartEvents, inHours, orderEvents, paceGap, ruleFires, sendMode, settingsOf, silentFollowups, statusTo, subEvents, templateBody, transferEvents, varsFor, DAY, HOUR } from './cs-auto.js';
 import { sentIdOf, textBody, waIdOfPhone, waPath, graphErrorCode } from './cs-whatsapp.js';
 import { graphPath, sendBody } from './cs-channel.js';
+import { delayRules, leadBy } from './delay.js';
 
 type Json = Record<string, any>;
 export type Deps = { env: Record<string, string | undefined>; db: any; now: () => string; fetch?: typeof fetch; rand?: () => number; sleep?: (ms: number) => Promise<void> };
@@ -42,11 +43,26 @@ async function graphPost(deps: Deps, url: string, token: string, body: Json): Pr
 }
 
 // ---------------------------------------------------------------- the settings and the links
-export async function autoSettings(deps: Deps): Promise<{ settings: Settings; riskFrom: number; lateFrom: number }> {
+export async function autoSettings(deps: Deps): Promise<{ settings: Settings; delay: ReturnType<typeof delayRules> }> {
   const st = rows(await deps.db.from('settings').select('section, data').in('section', ['cs', 'makers']));
   const cs = st.find((r) => r.section === 'cs'); const mk = st.find((r) => r.section === 'makers');
   const settings = settingsOf(isObj(cs?.data) ? cs.data.auto : null);
-  return { settings, riskFrom: Number(isObj(mk?.data) ? mk.data.risk_day : 0) || 9, lateFrom: Number(isObj(mk?.data) ? mk.data.late_day : 0) || 12 };
+  return { settings, delay: delayRules(isObj(mk?.data) ? mk.data.delay : null) }; // owner batch 2 decision 17
+}
+// the longest making days of each order's open lines (the product's own, else the maker's, else the rules' default)
+const LINE_DONE = ['تم الشحن للعميل', 'مرتجع للمخزن', 'مرتجع للمبتكر', 'ملغي'];
+export async function orderLeads(deps: Deps, ids: string[], DR: ReturnType<typeof delayRules>): Promise<Map<string, number>> {
+  const out = new Map<string, number>(); if (!ids.length) return out;
+  const items = rows(await deps.db.from('order_items').select('order_id, vendor_id, product_id, status').in('order_id', ids.slice(0, LIMIT)).eq('removed', false).limit(10_000));
+  const vids = [...new Set(items.map((i) => i.vendor_id).filter(Boolean).map(String))]; const pids = [...new Set(items.map((i) => i.product_id).filter((x) => x != null).map(String))];
+  const V = new Map<string, unknown>(); for (const v of vids.length ? rows(await deps.db.from('vendors').select('id, lead_days').in('id', vids)) : []) V.set(String(v.id), v.lead_days);
+  const P = new Map<string, unknown>(); for (let i = 0; i < pids.length; i += 500) for (const x of rows(await deps.db.from('product_lead_days').select('product_id, days').in('product_id', pids.slice(i, i + 500)))) P.set(String(x.product_id), x.days);
+  for (const it of items) {
+    if (!it.vendor_id || LINE_DONE.includes(String(it.status ?? ''))) continue;
+    const k = String(it.order_id); const l = leadBy(it.product_id != null ? P.get(String(it.product_id)) : null, V.get(String(it.vendor_id)), DR);
+    out.set(k, Math.max(out.get(k) ?? 0, l));
+  }
+  return out;
 }
 async function secretJson(deps: Deps, name: string): Promise<Json | null> {
   try { const { data, error } = await deps.db.rpc('cs_secret_get', { p_name: name }); if (error || typeof data !== 'string' || !data) return null; const j = JSON.parse(data); return isObj(j) ? j : null; } catch { return null; }
@@ -169,7 +185,7 @@ const capOf = (settings: Settings, channel: string) => (channel === 'wa1' ? sett
 export type TickResult = { result: string; at: string; since: string; live: boolean; events: number; sent: number; held: number; skipped: number; failed: number; tickets: number; assigned: number; tagged: number; due: number; silent: number; by: Record<string, number>; preview?: Json[] };
 export async function tick(deps: Deps, opts: { dry?: boolean } = {}): Promise<TickResult> {
   const now = deps.now(); const nowMs = Date.parse(now);
-  const { settings, riskFrom, lateFrom } = await autoSettings(deps);
+  const { settings, delay } = await autoSettings(deps);
   const { data: last } = await deps.db.from('sync_state').select('value').eq('key', 'cs-auto').maybeSingle();
   const since = isObj(last?.value) && typeof last.value.at === 'string' ? last.value.at : new Date(nowMs - 6 * HOUR).toISOString();
   const rules = rows(await deps.db.from('cs_auto_rules').select('*').eq('enabled', true).limit(500));
@@ -187,7 +203,7 @@ export async function tick(deps: Deps, opts: { dry?: boolean } = {}): Promise<Ti
     const add = (list: Json[]) => { for (const o of list) byId.set(String(o.id), o); };
     if (has('status')) add(rows(await deps.db.from('orders').select(ORDER_COLS).gte('updated_at', since).is('deleted_at', null).limit(LIMIT)));
     if (rules.some((r) => r.event === 'status' && VIRTUAL_STATUS.includes(statusTo(r.event_to)))) add(rows(await deps.db.from('orders').select(ORDER_COLS).eq('status', 'جاري التنفيذ').is('deleted_at', null).limit(LIMIT)));
-    if (has('status')) events.push(...orderEvents([...byId.values()], { sinceIso: since, today, riskFrom, lateFrom } as any));
+    if (has('status')) { const list = [...byId.values()]; const leads = await orderLeads(deps, list.filter((o) => !delay.stop.includes(String(o.status ?? ''))).map((o) => String(o.id)), delay); events.push(...orderEvents(list, { sinceIso: since, today, rules: delay, leads } as any)); }
     if (has('cart')) {
       const recent = rows(await deps.db.from('orders').select(ORDER_COLS).gte('placed_at', new Date(nowMs - 7 * DAY).toISOString()).is('deleted_at', null).limit(LIMIT));
       events.push(...cartEvents(recent, { nowMs, afterMin: settings.cart.afterMin } as any));

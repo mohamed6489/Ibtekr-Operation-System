@@ -43,16 +43,16 @@ test('no two controls touch on any page or tab (a row of buttons keeps its gap)'
   expect(bad).toEqual([]);
 });
 
-test('a hover is the middle beige, the selected keeps the dark beige; a text button on a green header stays readable under the pointer', async ({ page }) => {
+test('a hover is the middle beige, the selected is the light beige with a green ring (owner batch 2 decision 34); a text button on a green header stays readable under the pointer', async ({ page }) => {
   const rgb = (page, sel) => page.locator(sel).first().evaluate((e) => getComputedStyle(e).backgroundColor);
-  const HOVER = 'rgb(239, 226, 201)', SELECTED = 'rgb(232, 213, 179)';
+  const HOVER = 'rgb(239, 226, 201)', SELECTED = 'rgb(246, 234, 214)', DARK = 'rgb(232, 213, 179)';
   await page.locator('.sidebar .nav-item[data-page="marketing"]').click();
   const b = page.getByRole('button', { name: 'افتح الميديا باير' }).first();
   await b.hover();
   const st = await b.evaluate((e) => { const c = getComputedStyle(e); return [c.backgroundColor, c.color]; });
-  expect(st[0]).not.toBe(SELECTED); // it was the dark beige behind beige text
+  expect(st[0]).not.toBe(DARK); // it was the dark beige behind beige text
   expect(st[1]).toBe('rgb(255, 247, 239)');
-  // a menu option: hover = the middle beige, the selected one = the dark beige
+  // a menu option: hover = the middle beige, the selected one = the light beige (decision 34)
   await page.locator('.sidebar .nav-item[data-page="settings"]').click();
   await page.evaluate(() => { location.hash = 'settings-team'; }); await page.waitForTimeout(600);
   const sel = page.locator('.select[aria-haspopup=listbox]:visible').first(); await sel.click();

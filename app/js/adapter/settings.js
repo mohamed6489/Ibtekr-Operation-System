@@ -311,7 +311,7 @@
   const STATUS_KINDS = {
     order: ['معلّق', 'قيد الانتظار', 'جاري التنفيذ', 'جاهز للشحن', 'قيد الشحن', 'مكتمل', 'استرجاع', 'ملغي', 'فشل'],
     confirm: ['مؤكد بعربون', 'مؤكد بدون عربون', 'غير مؤكد', 'في انتظار الرد'],
-    sub: ['غير مؤكد', 'مؤكد', 'قيد التنفيذ', 'جاهز للشحن من المبتكر للعميل', 'جاهز للشحن من المخزن للعميل', 'جاهز للشحن من المبتكر للمخزن', 'تم الشحن للمخزن', 'وصل المخزن', 'تم الشحن للعميل', 'مرتجع للمخزن', 'مرتجع للمبتكر'] };
+    sub: ['غير مؤكد', 'مؤكد', 'قيد التنفيذ', 'جاهز للشحن من المبتكر للعميل', 'جاهز للشحن من المخزن للعميل', 'جاهز للشحن من المبتكر للمخزن', 'تم الشحن للمخزن', 'وصل المخزن', 'تم الشحن للعميل', 'مرتجع للمخزن', 'مرتجع للمبتكر', 'ملغي'] }; // sub = «حالة المنتج» (0094: + «ملغي»)
   // the settings lists all editable (2026-11-14-settings-lists.md): the shown name of an expense type (the four base ones and the
   // admin's own — decision 1) and of a ticket priority (by its code — decision 3); `expenseKinds` = the types the admin added
   // (2–30 characters, no < >, not a base one, at most 20 — the server's trigger 0093 takes a new expense in them or the base ones)

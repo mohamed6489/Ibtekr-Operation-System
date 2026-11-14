@@ -463,6 +463,8 @@ export async function installSupabaseMock(page, opts = {}) {
     const json = (status, body) => route.fulfill({ status, headers: { ...cors, 'content-type': 'application/json', 'x-supabase-api-version': '2024-01-01' }, body: JSON.stringify(body) });
     const empty = (status) => route.fulfill({ status, headers: cors });
     const body = () => { try { return req.postDataJSON() || {}; } catch { return {}; } };
+    // 0094 (2026-11-14-order-edit-tabs.md decision 2): the order or the maker's sub-order cancelled → its lines «ملغي» (not the returned)
+    function cancelLines(pick) { mock.orderItems.filter((i) => !i.removed && pick(i) && !['ملغي', 'مرتجع للمخزن', 'مرتجع للمبتكر'].includes(i.status)).forEach((i) => { i.status = 'ملغي'; }); }
     if (method === 'OPTIONS') return empty(204);
     if (mock.logouts > 0) mock.afterLogout.push(method + ' ' + path);
     mock.requests.push(method + ' ' + path);
@@ -960,8 +962,6 @@ export async function installSupabaseMock(page, opts = {}) {
           return json(200, [{ ...r }]);
         }
       }
-      // 0094 (2026-11-14-order-edit-tabs.md decision 2): the order or the maker's sub-order cancelled → its lines «ملغي» (not the returned)
-      function cancelLines(pick) { mock.orderItems.filter((i) => !i.removed && pick(i) && !['ملغي', 'مرتجع للمخزن', 'مرتجع للمبتكر'].includes(i.status)).forEach((i) => { i.status = 'ملغي'; }); }
       // 0093 (2026-11-14-settings-lists.md decision 1): an expense's type is a base one or one the admin added in the row «lists»
       function expenseKindOk(c) { const li = ((mock.settings || []).find((x) => x.section === 'lists') || {}).data || {};
         return ['المرتبات', 'المصروفات', 'الاشتراكات', 'الإعلانات'].includes(c) || (Array.isArray(li.expenseKinds) && li.expenseKinds.includes(c)); }

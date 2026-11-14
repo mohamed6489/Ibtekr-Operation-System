@@ -367,6 +367,19 @@
     log('order.line_add', 'IB-' + orderId + (body.sub_id ? ' · الفرعي #' + body.sub_id : '') + ' · منتج #' + body.product_id + (vid ? ' / ' + vid : '') + ' · × ' + n);
     return { ok: true, line: d.line || null, sub: d.sub || null };
   }
+  // the maker's products for «+ إضافة منتج» — the mirror (0021: orders.view reads it), not the Arabic translations, not in the trash,
+  // no variation rows; the price = the sale price, else the price. { ok, items: [{ id, name, sku, price, type, image }] }
+  async function makerProducts(vendorId) {
+    const cl = c(); if (!cl || !vendorId) return { ok: false, reason: vendorId ? 'network' : 'invalid', items: [] };
+    try {
+      const { data, error } = await cl.from('products').select('id, name, sku, price, sale_price, type, lang, status, trashed_at, image_url').eq('vendor_id', vendorId).limit(1000);
+      if (error) return { ok: false, reason: 'network', items: [] };
+      const items = (data || []).filter((r) => r.lang !== 'ar' && r.trashed_at == null && r.type !== 'variation')
+        .map((r) => ({ id: Number(r.id), name: r.name || '#' + r.id, sku: r.sku || '', price: numOrNull(r.sale_price) != null ? numOrNull(r.sale_price) : numOrNull(r.price), type: r.type || 'simple', image: r.image_url || '' }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      return { ok: true, items };
+    } catch (e) { return { ok: false, reason: 'network', items: [] }; }
+  }
   async function setOrderStatus(id, status, extra) {
     if (status === 'مكتمل' && extra && extra.rating) {
       const r = await completeOrder(id, extra.rating);
@@ -521,6 +534,6 @@
     if (ch && c()) { try { Promise.resolve(c().removeChannel(ch)).catch(() => {}); } catch (e) { /* already closed */ } }
   }
   function clear() { gen += 1; unsubscribe(); cancelNotify(); orders = null; vendorRows = []; leads = new Map(); leadAsked.clear(); images = {}; links = {}; states = new Map(); statuses = []; names = []; asked.clear(); busy.clear(); setState('idle'); }
-  window.IBOrders = { load, data, state: () => st, today, setOrderStatus, setConfirm, patchOrder, deleteOrder, deleteSub, deleteLine, setLineQty, addLine, siteStatuses, setSubSiteStatus, setItemStatus, setWaybill, setPulled, syncNow, registerWebhooks, subscribe, unsubscribe, clear, toScreen };
+  window.IBOrders = { load, data, state: () => st, today, setOrderStatus, setConfirm, patchOrder, deleteOrder, deleteSub, deleteLine, setLineQty, addLine, makerProducts, siteStatuses, setSubSiteStatus, setItemStatus, setWaybill, setPulled, syncNow, registerWebhooks, subscribe, unsubscribe, clear, toScreen };
   window.IBOrdersStore = window.IBOrders; // the name block 29's write hooks call
 })();

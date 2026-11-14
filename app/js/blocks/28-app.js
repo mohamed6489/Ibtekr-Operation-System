@@ -133,7 +133,7 @@
     const GROUPS = [
       { id: 'orders', label: 'الأوردرات والأوردرات الفرعية', dateKey: 'date', filter: { key: 'status', label: 'حالة الأوردر', options: () => ST() }, note: 'الأوردرات بتيجي من الموقع / Airtable — الاستيراد هنا مقفول عشان مايحصلش تعارض.',
         fields: () => [{ key: 'oid', label: 'رقم الأوردر', en: 'Order #' }, { key: 'sid', label: 'الأوردر الفرعي', en: 'Sub-order #' }, { key: 'date', label: 'التاريخ', en: 'Date', type: 'date' }, { key: 'customer', label: 'العميل', en: 'Customer' }, { key: 'phone', label: 'موبايل العميل', en: 'Customer phone', sensitive: true },
-          { key: 'status', label: 'حالة الأوردر', en: 'Order status' }, { key: 'confirm', label: 'حالة التأكيد', en: 'Confirmation' }, { key: 'vendor', label: 'المبتكر', en: 'Vendor' }, { key: 'product', label: 'المنتج', en: 'Product' }, { key: 'sku', label: 'SKU', en: 'SKU' }, { key: 'qty', label: 'الكمية', en: 'Qty', type: 'number' }, { key: 'total', label: 'القيمة (ج.م)', en: 'Amount (EGP)', type: 'number' }, { key: 'subStatus', label: 'حالة الفرعي', en: 'Sub-order status' }],
+          { key: 'status', label: 'حالة الأوردر', en: 'Order status' }, { key: 'confirm', label: 'حالة التأكيد', en: 'Confirmation' }, { key: 'vendor', label: 'المبتكر', en: 'Vendor' }, { key: 'product', label: 'المنتج', en: 'Product' }, { key: 'sku', label: 'SKU', en: 'SKU' }, { key: 'qty', label: 'الكمية', en: 'Qty', type: 'number' }, { key: 'total', label: 'القيمة (ج.م)', en: 'Amount (EGP)', type: 'number' }, { key: 'subStatus', label: 'حالة المنتج', en: 'Sub-order status' }],
         presets: { accountant: ['oid', 'date', 'status', 'vendor', 'total'], vendor: ['oid', 'sid', 'date', 'product', 'sku', 'qty', 'total', 'subStatus'] },
         rows: () => { const A = OA(); if (!A || !A.query) return []; return A.query({}, 10000).rows.map((r) => A.get(r.id)).filter(Boolean).flatMap((o) => o.subs.map((x) => ({ oid: o.id, sid: x.sid, date: o.date, customer: o.name, phone: o.phone, status: o.st, confirm: o.cf, vendor: x.vendor, product: x.prod, sku: x.sku, qty: x.qty, total: x.tot, subStatus: x.ss || '' }))); } },
       { id: 'vendors', label: 'المبتكرين والنسب', key: 'name', modes: ['add', 'update'], filter: { key: 'status', label: 'الحالة', options: () => VST.map((x) => x[1]) },
@@ -246,7 +246,7 @@
           return { done, undo: () => done.updated.forEach((u) => OA().patch(u.id, u.old)) }; } },
       { id: 'subEdit', label: 'الأوردرات الفرعية — الحالة والميعاد وتعليق المبتكر', key: 'sid', modes: ['update'], note: 'تعديل بس. «وصل المخزن» و«مرتجع» بيتغيّروا من الأوردر نفسه عشان محتاجين بيانات إضافية.',
         fields: () => [{ key: 'sid', label: 'الأوردر الفرعي', en: 'Sub-order #', required: true }, { key: 'oid', label: 'رقم الأوردر', en: 'Order #', readOnly: true }, { key: 'product', label: 'المنتج', en: 'Product', readOnly: true }, { key: 'vendor', label: 'المبتكر', en: 'Vendor', readOnly: true },
-          { key: 'subStatus', label: 'حالة الأوردر الفرعي', en: 'Sub-order status', type: 'enum', options: (OA() && OA().subStatuses ? OA().subStatuses() : []).filter((x) => !POPUP_SS.includes(x)) }, { key: 'expected', label: 'ميعاد التسليم المتوقع', en: 'Expected delivery', type: 'date' }, { key: 'vendorComment', label: 'تعليق المبتكر', en: 'Vendor comment' }],
+          { key: 'subStatus', label: 'حالة المنتج', en: 'Product status', type: 'enum', options: (OA() && OA().subStatuses ? OA().subStatuses() : []).filter((x) => !POPUP_SS.includes(x)) }, { key: 'expected', label: 'ميعاد التسليم المتوقع', en: 'Expected delivery', type: 'date' }, { key: 'vendorComment', label: 'تعليق المبتكر', en: 'Vendor comment' }],
         rows: () => allOrders().flatMap((o) => o.subs.map((x) => ({ sid: x.sid, oid: o.id, product: x.prod, vendor: x.vendor, subStatus: x.ss || '', expected: x.exp || '', vendorComment: x.cm || '' }))),
         existing: () => allOrders().flatMap((o) => o.subs.map((x) => x.sid)),
         apply: (rows) => { const done = { created: [], updated: [] }; const M = { subStatus: 'ss', expected: 'exp', vendorComment: 'cm' };
@@ -799,13 +799,13 @@
     const title = (kind === 'all' ? 'أوردرات متأخرة وقابلة للتأخير — ' : kind === 'risk' ? 'أوردرات قابلة للتأخير — ' : 'أوردرات متأخرة — ') + vendor;
     let m = null;
     const table = h('table', { class: 'vlo-table' },
-      h('thead', null, h('tr', null, ['رقم الأوردر'].concat(kind === 'all' ? ['التأخير'] : [], ['العميل', 'المنتج · SKU']).concat([ 'حالة الفرعي', 'تاريخ تبليغ المبتكر', 'عمر الأوردر']).map((x) => h('th', { scope: 'col' }, x)))),
+      h('thead', null, h('tr', null, ['رقم الأوردر'].concat(kind === 'all' ? ['التأخير'] : [], ['العميل', 'المنتج · SKU']).concat([ 'حالة المنتج', 'تاريخ تبليغ المبتكر', 'عمر الأوردر']).map((x) => h('th', { scope: 'col' }, x)))),
       h('tbody', null, rows.map((r) => h('tr', null,
         h('td', { 'data-l': 'رقم الأوردر' }, h('button', { type: 'button', class: 'vlo-link', onClick: () => { m.close(); OA().details(r.id, r.sid ? 'subs' : 'info'); } }, 'IB-' + r.id, Icon('external', 'sm'))),
         kind === 'all' ? h('td', { 'data-l': 'التأخير' }, U.DelayBadge(r.state)) : null,
         h('td', { 'data-l': 'العميل' }, r.name),
         h('td', { 'data-l': 'المنتج · SKU' }, h('div', { class: 'vlo-prod' }, h('span', { class: 'th' }, OA().thumb(r.sku) ? h('img', { src: OA().thumb(r.sku), alt: '' }) : Icon('box', 'sm')), h('span', { class: 'tx' }, h('span', null, r.prod + ' × ' + r.qty), h('small', null, r.sku || '—')))),
-        h('td', { 'data-l': 'حالة الفرعي' }, r.ss || '— اختر الحالة —'),
+        h('td', { 'data-l': 'حالة المنتج' }, r.ss || '— اختر الحالة —'),
         h('td', { 'data-l': 'تاريخ تبليغ المبتكر' }, r.exp ? D.formatDateNumeric(r.exp) : 'أضف تاريخ الإبلاغ'),
         h('td', { 'data-l': 'عمر الأوردر' }, r.age + ' يوم')))));
     const sub = h('p', { class: 't-small', style: 'margin:0;color:var(--color-text-secondary)' }, String(rows.length) + (kind === 'all' ? ' أوردر — ' + lateN + ' متأخر · ' + riskN + ' قابل للتأخير' : kind === 'risk' ? ' أوردر قابل للتأخير' : ' أوردر متأخر') + (oldest ? ' · أقدمها ' + oldest + ' يوم' : '') + (v && v.phone ? ' · الموبايل ' + v.phone : '') + ' · «مشاركة» بتبعت البوب أب كصورة على واتساب أو إيميل');

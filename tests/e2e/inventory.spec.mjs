@@ -405,3 +405,44 @@ test('decision 58: the inventory opens on «نظرة عامة» with the cards; 
   await expect(pg.locator('.kpi')).toHaveCount(0);
   await expect(pg).toContainText('سلة كروشيه');
 });
+
+test('owner batch 14 Nov decision 10: in an open count — ⋮ changes a lot\'s place, «شيل من المخزن» needs a reason (an out move; the line counts what is left so the approval adds nothing)', async ({ page }) => {
+  await openInventory(page);
+  await page.getByRole('button', { name: 'جرد جديد' }).click();
+  await modal(page, 'جرد جديد').getByRole('button', { name: /ابدأ/ }).click();
+  await expect.poll(() => mock.inv.inv_count_lines.length).toBe(2);
+  const row = page.locator('#pg-inventory tr', { hasText: 'سلة كروشيه' });
+  // the place
+  await row.getByRole('button', { name: 'إجراءات سلة كروشيه' }).click();
+  await page.getByRole('menuitem', { name: 'تعديل المكان' }).click();
+  const pm = modal(page, 'مكان سلة كروشيه');
+  await pm.locator('#loc').click(); await page.getByRole('option', { name: 'R — مرتجعات' }).click();
+  await pm.getByRole('button', { name: 'حفظ', exact: true }).click();
+  await expect.poll(() => (mock.inv.inv_lots.find((l) => l.id === L1) || {}).loc).toBe('R');
+  // the removal: no reason → refused; a reason → an out move with it
+  await row.getByRole('button', { name: 'إجراءات سلة كروشيه' }).click();
+  await page.getByRole('menuitem', { name: 'شيل من المخزن' }).click();
+  const rm = modal(page, 'شيل من المخزن — سلة كروشيه');
+  await rm.locator('#qty').fill('1');
+  await rm.getByRole('button', { name: 'شيل من المخزن', exact: true }).click();
+  await expect(rm).toContainText('اختار السبب');
+  await rm.getByRole('radio', { name: 'حصلها تلف من الشحن' }).click();
+  await rm.getByRole('button', { name: 'شيل من المخزن', exact: true }).click();
+  await expect.poll(() => mock.inv.inv_moves.find((m) => m.lot_id === L1 && m.type === 'out' && m.reason === 'حصلها تلف من الشحن')).toMatchObject({ qty: 1 });
+  await expect.poll(() => (mock.inv.inv_count_lines.find((l) => l.lot_id === L1) || {}).note).toMatch(/^اتشال 1 — حصلها تلف من الشحن/);
+  await expect(row.locator('input')).toHaveValue('1'); // what is left (2 − 1): the approval compares with the quantity now
+  // the approval: the removed line adds no second adjustment
+  await page.getByRole('button', { name: 'اعتماد الجرد' }).click();
+  await modal(page, 'اعتماد الجرد').getByRole('button', { name: 'اعتماد الجرد' }).click();
+  await expect.poll(() => (mock.inv.inv_counts[0] || {}).status).toBe('approved');
+  expect(mock.inv.inv_moves.filter((m) => m.lot_id === L1 && m.type === 'adjust')).toEqual([]);
+});
+
+test('owner batch 14 Nov decision 10: «+ قطعة» in an open count opens «استلام في المخزن»', async ({ page }) => {
+  await openInventory(page);
+  await page.getByRole('button', { name: 'جرد جديد' }).click();
+  await modal(page, 'جرد جديد').getByRole('button', { name: /ابدأ/ }).click();
+  await expect(page.locator('[data-count-add]')).toBeVisible();
+  await page.locator('[data-count-add]').click();
+  await expect(modal(page, 'استلام في المخزن')).toBeVisible();
+});

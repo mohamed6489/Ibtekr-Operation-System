@@ -1011,14 +1011,26 @@
    Links look like #page?key=value — the query is taken off the URL before routing and handed to the page that registered for it. */
 (function () {
   'use strict';
-  const Q = window.IbtekrQuick; const U = window.IBUI, K = window.IBKit; const { h, Button, Icon } = U;
-  const list = () => (K.store.quickActions = K.store.quickActions || Q.DEFAULTS.map((x) => Object.assign({}, x)));
+  const Q = window.IbtekrQuick; const U = window.IBUI, K = window.IBKit; const { h, Button, Icon, IconButton } = U;
+  // owner batch 2 decision 16 (0098): the rows the member reads (quick_actions_list — the server decides who sees which), active or not;
+  // the header menu lists the active ones. «كل الفريق» = the admin, «دور معين» = the admin or the role's manager, «أنا بس» = the member.
+  const list = () => (K.store.quickActions = Array.isArray(K.store.quickActions) ? K.store.quickActions : []);
+  const S0 = () => window.IBSettings || null;
+  const meRow = () => (window.IBDirectory && window.IBDirectory.me ? window.IBDirectory.me() : null);
+  const qAdmin = () => { const m = meRow(); return !!m && m.role_id === 'admin'; };
+  const SCOPE_LABEL = { all: 'كل الفريق', role: 'دور معين', me: 'أنا بس' };
+  const qRoles = () => ((window.IBDirectory && window.IBDirectory.roles ? window.IBDirectory.roles() || [] : [])).filter((r) => r && !r.hidden && r.id !== 'admin');
+  const qRoleName = (id) => { const r = qRoles().find((x) => x.id === id); return r ? r.name : (id || '—'); };
+  // the roles a member may give an action to: all of them for the admin; else the ones they manage (roles.manager_id, or «مدير» of their main role)
+  const manageable = () => { const m = meRow(); if (!m) return []; if (qAdmin()) return qRoles(); return qRoles().filter((r) => r.manager_id === m.id || (r.id === m.role_id && m.level === 'manager')); };
+  const scopesFor = () => [].concat(qAdmin() ? ['all'] : [], manageable().length ? ['role'] : [], ['me']);
+  const whoSees = (x) => (x.scope === 'role' ? 'دور: ' + qRoleName(x.roleId) : SCOPE_LABEL[x.scope] || '—');
+  let loading = null; let loadedOnce = false;
   const handlers = []; let pending = null;
-  // the admin's edits go to the settings row «quick» (IBSettings); other members only read the list
-  function persistQuick() {
-    const S0 = window.IBSettings; const me = window.IBDirectory && window.IBDirectory.me ? window.IBDirectory.me() : null;
-    if (!S0 || !me || me.role_id !== 'admin') return;
-    S0.save('quick', { list: list().map((x) => ({ id: String(x.id), name: String(x.name), link: String(x.link), icon: x.icon || 'link' })) }, { merge: true }).then((r) => { if (!r.ok) K.toast(r.message || 'تعذّر حفظ الإجراءات السريعة', 'error'); });
+  function refresh() {
+    const S = S0(); if (!S || !S.quickList) return Promise.resolve();
+    if (!loading) loading = S.quickList().then((r) => { loading = null; if (r && r.ok) { loadedOnce = true; K.store.quickActions = r.rows; try { document.dispatchEvent(new CustomEvent('ib:quick')); } catch (e) { /* old browser */ } } }, () => { loading = null; });
+    return loading;
   }
   function handle(prefix, get, set) { handlers.push({ prefix, get, set }); handlers.sort((a, b) => b.prefix.length - a.prefix.length); }
   const handlerFor = (base) => handlers.find((x) => base === x.prefix || base.startsWith(x.prefix + '-') || base.startsWith(x.prefix + '/') || base.startsWith(x.prefix));
@@ -1040,46 +1052,83 @@
     K.logEvent('quick.run', link);
   }
   function currentLink() { const base = curBase(); const hd = handlerFor(base); let q = {}; try { q = hd ? hd.get() || {} : {}; } catch (e) { q = {}; } return Q.buildLink(base, q); }
-  function edit(item, onDone) {
-    const L = list(); const isNew = !item || !L.includes(item); const v = { name: item ? item.name : '', link: item ? item.link : '' };
+  function edit(item, onDone, defScope) {
+    const L = list(); const isNew = !item || !item.id || !L.some((x) => x.id === item.id); const scopes = scopesFor(); const mg = manageable();
+    const v = { name: item ? item.name || '' : '', link: item ? item.link || '' : '', scope: item && scopes.includes(item.scope) ? item.scope : scopes.includes(defScope) ? defScope : 'me', role: (item && item.roleId) || (mg[0] ? mg[0].id : ''), active: item && item.active === false ? 'off' : 'on' };
     K.form({ title: isNew ? 'إجراء سريع جديد' : 'تعديل «' + item.name + '»', values: v,
       note: U.InlineNote({ children: 'افتح أي صفحة في السيستم بالفلاتر أو التقارير اللي انت عايزها، وانسخ اللينك من شريط العنوان، أو استخدم «ضيف الصفحة دي» من قايمة «إجراءات سريعة» وهي بتحفظ الفلاتر لوحدها.' }),
-      fields: (f, e, set) => [K.field.text('name', 'اسم الإجراء', f, e, set, { required: true, placeholder: 'مثلاً: أوردرات مكتملة النهارده' }), K.field.text('link', 'لينك الصفحة', f, e, set, { required: true, dir: 'ltr', placeholder: '#orders?st=مكتمل', help: 'بيتقبل اللينك كامل أو الجزء اللي بعد # · الفلاتر بتيجي بعد ?' })],
-      validate: (f) => Q.validate(f, L.filter((x) => x !== item)),
+      fields: (f, e, set) => [K.field.text('name', 'اسم الإجراء', f, e, set, { required: true, placeholder: 'مثلاً: أوردرات مكتملة النهارده' }), K.field.text('link', 'لينك الصفحة', f, e, set, { required: true, dir: 'ltr', placeholder: '#orders?st=مكتمل', help: 'بيتقبل اللينك كامل أو الجزء اللي بعد # · الفلاتر بتيجي بعد ?' }),
+        h('div', { class: 'row cols2' }, K.field.select('scope', 'الظهور', scopes.map((x) => ({ value: x, label: SCOPE_LABEL[x] })), f, e, set, { required: true, help: f.scope === 'all' ? 'كل الفريق هيشوفه في «إجراءات سريعة»' : f.scope === 'role' ? 'أعضاء الدور بس (الأساسي أو الإضافي)' : 'انت بس' }),
+          K.field.select('active', 'الحالة', [{ value: 'on', label: 'مفعّل' }, { value: 'off', label: 'موقوف' }], f, e, set, { help: f.active === 'off' ? 'مش هيظهر في القايمة لحد ما يتفعّل' : null })),
+        f.scope === 'role' ? K.field.select('role', 'الدور', mg.map((r) => ({ value: r.id, label: r.name })), f, e, set, { required: true, placeholder: 'اختار الدور' }) : null],
+      validate: (f) => Object.assign(Q.validate(f, L.filter((x) => !item || x.id !== item.id)), f.scope === 'role' && !f.role ? { role: 'اختار الدور' } : {}),
       submitLabel: isNew ? 'ضيف' : 'احفظ',
-      submit: (f) => { const p = Q.parseLink(f.link); const rec = { name: f.name.trim(), link: Q.buildLink(p.base, p.query) }; if (isNew) L.push(Object.assign({ id: 'qa-' + Date.now().toString(36), icon: 'link' }, rec)); else Object.assign(item, rec); K.logEvent('quick.save', rec.name + ' · ' + rec.link); persistQuick(); K.toast(isNew ? 'اتضاف «' + rec.name + '» للإجراءات السريعة' : 'اتحفظ', 'success'); if (onDone) onDone(); } });
+      submit: (f, m) => {
+        const S = S0(); if (!S || !S.quickSave || m._busy) return false; m._busy = true;
+        const p = Q.parseLink(f.link); const rec = { id: isNew ? null : item.id, name: f.name.trim(), link: Q.buildLink(p.base, p.query), icon: (item && item.icon) || 'link', scope: f.scope, roleId: f.scope === 'role' ? f.role : null, active: f.active !== 'off' };
+        S.quickSave(rec).then((r) => { m._busy = false; if (!r || !r.ok) { K.toast((r && r.message) || 'تعذّر حفظ الإجراء', 'error'); return; }
+          m.close(); K.logEvent('quick.save', rec.scope); K.toast(isNew ? 'اتضاف «' + rec.name + '» للإجراءات السريعة' : 'اتحفظ', 'success'); refresh().then(() => { if (onDone) onDone(); }); });
+        return false;
+      } });
+  }
+  // «إدارة الإجراءات السريعة» for a member who does not open the settings page: the same table in a popup
+  function manageModal() {
+    const m = U.Modal({ title: 'الإجراءات السريعة', body: [] }); m.el.classList.add('wide');
+    const R = () => { if (m.el.isConnected) m.setBody(manage(R)); }; R(); refresh().then(R);
   }
   function Menu() {
     const wrap = h('div', { class: 'pop-anchor qa-anchor', 'data-popover-root': '' });
     const trig = Button({ label: h('span', { class: 'qa-lbl' }, 'إجراءات سريعة'), icon: 'zap', iconEnd: 'chevD', attrs: { 'aria-haspopup': 'menu', 'data-quick': '', 'aria-label': 'إجراءات سريعة', title: 'إجراءات سريعة' } });
     const pop = U.popover(wrap, trig, (close) => { const L = list();
-      const opts = L.map((x) => ({ value: x.id, label: x.name, icon: x.icon || 'link' })).concat([{ value: '__add', label: '+ ضيف الصفحة دي', icon: 'plus' }, { value: '__manage', label: 'إدارة الإجراءات السريعة', icon: 'gear' }]);
-      const menu = U.DropdownMenu({ role: 'menu', end: true, options: opts, onSelect: (v) => { close(); setTimeout(() => { if (v === '__add') edit({ name: (document.title || '').split(' — ')[0], link: currentLink() }); else if (v === '__manage') location.hash = '#settings-quick'; else { const it = L.find((x) => x.id === v); if (it) run(it.link); } }); } });
+      const opts = L.filter((x) => x.active !== false).map((x) => ({ value: x.id, label: x.name, icon: x.icon || 'link' })).concat([{ value: '__add', label: '+ ضيف الصفحة دي', icon: 'plus' }, { value: '__manage', label: 'إدارة الإجراءات السريعة', icon: 'gear' }]);
+      const menu = U.DropdownMenu({ role: 'menu', end: true, options: opts, onSelect: (v) => { close(); setTimeout(() => { if (v === '__add') edit({ name: (document.title || '').split(' — ')[0], link: currentLink() }); else if (v === '__manage') { if (qAdmin()) location.hash = '#settings-quick'; else manageModal(); } else { const it = L.find((x) => x.id === v); if (it) run(it.link); } }); } });
       // phase 13 decision 49 (owner 10 Nov): the two general actions («+ ضيف الصفحة دي» / «إدارة الإجراءات السريعة») in green
       [...menu.querySelectorAll('.opt')].slice(-2).forEach((b) => b.classList.add('opt-general'));
       return menu; });
-    trig.addEventListener('click', pop.toggle); wrap.append(trig); return wrap;
+    // the list may still be on its way (the sign-in reads it once): opening the menu asks for it, and the open menu redraws when it lands
+    trig.addEventListener('click', () => { if (!loadedOnce) refresh(); pop.toggle(); });
+    document.addEventListener('ib:quick', () => { if (trig.getAttribute('aria-expanded') === 'true') { pop.close(); pop.open(); } });
+    wrap.append(trig); return wrap;
   }
   // «الإعدادات › الإجراءات السريعة»
+  function rowMenu(x, R) {
+    const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' });
+    const trig = IconButton({ icon: 'more', label: 'إجراءات «' + x.name + '»', attrs: { 'aria-haspopup': 'menu', 'aria-expanded': 'false', 'data-qa-more': x.id } });
+    const opts = [{ value: 'run', label: 'جرّب' }].concat(x.canEdit ? [{ value: 'edit', label: 'تعديل' }, { value: 'toggle', label: x.active === false ? 'تفعيل' : 'إيقاف' }, { value: 'del', label: 'امسح', danger: true }] : []);
+    const pop = U.popover(wrap, trig, (close) => U.DropdownMenu({ role: 'menu', end: true, options: opts, onSelect: (v) => { close();
+      if (v === 'run') run(x.link);
+      if (v === 'edit') edit(x, R);
+      if (v === 'toggle') S0().quickSave(Object.assign({}, x, { active: x.active === false })).then((r) => { if (!r.ok) K.toast(r.message || 'تعذّر الحفظ', 'error'); else refresh().then(R); });
+      if (v === 'del') K.confirm({ title: 'تمسح «' + x.name + '»؟', text: 'هيتشال من قايمة «إجراءات سريعة» — الصفحة نفسها مش هتتأثر.', okLabel: 'امسح', okType: 'danger', onOk: () => { S0().quickDelete(x.id).then((r) => { if (!r.ok) K.toast(r.message || 'تعذّر المسح', 'error'); else refresh().then(R); }); } });
+    } }));
+    trig.addEventListener('click', pop.toggle); wrap.append(trig); return wrap;
+  }
+  // «الإعدادات › الإجراءات السريعة» (and the popup above): the visibility, the state, and «جرّب / تعديل / امسح» in ⋮
   function manage(rerender) {
-    const L = list(); const R = rerender;
-    const rows = L.map((x, i) => [K.Grip(x.name),
-      h('span', { class: 'qa-name' }, Icon(x.icon || 'link', 'sm'), h('b', null, x.name)), h('code', { class: 'qa-link', dir: 'ltr' }, decodeURIComponent(x.link)),
-      h('span', { class: 'qa-acts' }, Button({ size: 'sm', type: 'text', label: 'جرّب', onClick: () => run(x.link) }), Button({ size: 'sm', type: 'text', label: 'تعديل', attrs: { 'data-qa-edit': x.id }, onClick: () => edit(x, R) }), Button({ size: 'sm', type: 'text', label: 'امسح', attrs: { 'data-qa-del': x.id }, onClick: () => K.confirm({ title: 'تمسح «' + x.name + '»؟', text: 'هيتشال من قايمة «إجراءات سريعة» بس — الصفحة نفسها مش هتتأثر.', okLabel: 'امسح', okType: 'danger', onOk: () => { L.splice(L.indexOf(x), 1); persistQuick(); R(); } }) }))]);
-    const tbl = L.length ? U.Table({ cls: 'dt qa-table', headers: ['الترتيب', 'الاسم', 'اللينك', ''], rows }) : null;
+    const L = list(); const R = rerender; if (!loadedOnce && !loading) refresh().then(() => { if (loadedOnce && R) R(); });
+    const rows = L.map((x) => [x.canEdit ? K.Grip(x.name) : h('span', { class: 't-small', style: 'color:var(--color-text-tertiary)' }, '—'),
+      h('span', { class: 'qa-name' }, Icon(x.icon || 'link', 'sm'), h('b', null, x.name)), h('code', { class: 'qa-link', dir: 'ltr' }, (() => { try { return decodeURIComponent(x.link); } catch (e) { return x.link; } })()),
+      h('span', { 'data-qa-scope': x.scope }, whoSees(x)),
+      h('span', { class: 'chip' + (x.active === false ? '' : ' on'), 'data-qa-state': x.active === false ? 'off' : 'on' }, x.active === false ? 'موقوف' : 'مفعّل'),
+      rowMenu(x, R)]);
+    const tbl = L.length ? U.Table({ cls: 'dt qa-table', headers: ['الترتيب', 'الاسم', 'اللينك', 'الظهور', 'الحالة', ''], rows }) : null;
     if (tbl) setTimeout(() => {
       const trs = [...tbl.querySelectorAll('tbody tr')];
       trs.forEach((tr, i) => tr.setAttribute('data-qa-item', L[i] ? L[i].id : String(i)));
       const body = tbl.querySelector('tbody');
-      K.sortableRows(body, 'data-qa-item', (ids) => { const next = ids.map((id) => L.find((y) => String(y.id) === id)).filter(Boolean); if (next.length === L.length) { L.length = 0; next.forEach((y) => L.push(y)); K.logEvent('quick.reorder', next.map((y) => y.name).join(' · ')); persistQuick(); R(); } });
+      K.sortableRows(body, 'data-qa-item', (ids) => { K.logEvent('quick.reorder', String(ids.length)); S0().quickOrder(ids).then((r) => { if (!r.ok) K.toast(r.message || 'تعذّر الترتيب', 'error'); refresh().then(R); }); });
     }, 0);
+    const resetDefaults = () => K.confirm({ title: 'ترجّع إجراءات «كل الفريق» للافتراضي؟', text: 'إجراءات «كل الفريق» الحالية هتتشال وهيتضاف الافتراضي — إجراءات الأدوار والإجراءات الشخصية زي ما هي.', okLabel: 'رجّع', onOk: async () => {
+      const S = S0(); for (const x of list().filter((y) => y.scope === 'all' && y.canEdit)) await S.quickDelete(x.id);
+      for (const d of Q.DEFAULTS) { const p = Q.parseLink(d.link); await S.quickSave({ name: d.name, link: Q.buildLink(p.base, p.query), icon: d.icon, scope: 'all', active: true }); }
+      refresh().then(R); } });
     return K.Section('الإجراءات السريعة', [tbl || K.Empty('مفيش إجراءات سريعة', 'ضيف أول إجراء — أي صفحة بفلاترها.'),
-      U.InlineNote({ children: 'أي صفحة في السيستم ينفع تبقى إجراء سريع بفلاترها أو تقاريرها: افتح الصفحة واختار اللي عايزه، وبعدين من «إجراءات سريعة» فوق اختار «ضيف الصفحة دي» — أو الصق اللينك هنا وسمّيه اللي انت عايزه.' })],
-    [Button({ type: 'text', label: 'رجوع للافتراضي', onClick: () => K.confirm({ title: 'ترجّع الإجراءات السريعة للافتراضي؟', text: 'الإجراءات اللي ضفتها هتتشال.', okLabel: 'رجّع', onOk: () => { K.store.quickActions = Q.DEFAULTS.map((y) => Object.assign({}, y)); persistQuick(); R(); } }) }), Button({ type: 'primary', icon: 'plus', label: 'إجراء جديد', attrs: { 'data-qa-new': '' }, onClick: () => edit(null, R) })],
-    { sub: 'بتظهر في قايمة «إجراءات سريعة» فوق في كل الصفحات — بالترتيب ده. اسحب من المسكة عشان ترتّب.' });
+      U.InlineNote({ children: 'أي صفحة في السيستم ينفع تبقى إجراء سريع بفلاترها أو تقاريرها: افتح الصفحة واختار اللي عايزه، وبعدين من «إجراءات سريعة» فوق اختار «ضيف الصفحة دي» — أو الصق اللينك هنا وسمّيه. «كل الفريق» للأدمن، «دور معين» للأدمن ومدير الدور، و«أنا بس» لأي حد.' })],
+    [qAdmin() ? Button({ type: 'text', label: 'رجوع للافتراضي', onClick: resetDefaults }) : null, Button({ type: 'primary', icon: 'plus', label: 'إجراء جديد', attrs: { 'data-qa-new': '' }, onClick: () => edit(null, R, scopesFor()[0]) })].filter(Boolean),
+    { sub: 'بتظهر في قايمة «إجراءات سريعة» فوق في كل الصفحات — بالترتيب ده (المفعّل بس). اسحب من المسكة عشان ترتّب اللي تقدر تعدّله.' });
   }
   // orders filters live inside the orders shadow app
   handle('orders', () => (window.OrdersApp && window.OrdersApp.getFilters ? window.OrdersApp.getFilters() : {}), (q) => { if (window.OrdersApp && window.OrdersApp.setFilters) window.OrdersApp.setFilters(q); });
-  window.IBQuick = { Menu, manage, handle, run, edit, list, currentLink, persist: persistQuick };
+  window.IBQuick = { Menu, manage, manageModal, handle, run, edit, list, refresh, currentLink, SCOPE_LABEL };
 })();
 

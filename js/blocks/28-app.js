@@ -3996,8 +3996,7 @@
     if (typeof fonts.head === 'string') { loadFont(fonts.head); r.setProperty('--font-head', "'" + fonts.head.replace(/[^A-Za-z ]/g, '') + "',var(--font)"); }
     const logos = b.logos && typeof b.logos === 'object' ? b.logos : {};
     if (window.IBLogo && window.IBLogo.set) Object.keys(logos).forEach((t) => { S0.logoUrl(logos[t]).then((u) => { if (u) window.IBLogo.set(t, u); }); });
-    const q = pub.quick && typeof pub.quick === 'object' ? pub.quick : {};
-    if (Array.isArray(q.list)) K.store.quickActions = q.list.filter((x) => x && typeof x === 'object' && typeof x.name === 'string' && typeof x.link === 'string').map((x, i) => ({ id: String(x.id || 'qa-' + i), name: x.name.slice(0, 80), link: x.link.slice(0, 300), icon: typeof x.icon === 'string' ? x.icon : 'link' }));
+    if (window.IBQuick && window.IBQuick.refresh) window.IBQuick.refresh(); // owner batch 2 decision 16 (0098): the table quick_actions, by visibility
     const n = pub.notif && typeof pub.notif === 'object' ? pub.notif : {};
     if (n.alertRoles && typeof n.alertRoles === 'object') { Object.keys(K.store.alertRoles).forEach((k) => delete K.store.alertRoles[k]); Object.assign(K.store.alertRoles, n.alertRoles); }
     if (n.alertLevels && typeof n.alertLevels === 'object') K.store.alertLevels = n.alertLevels; // owner batch 2 decision 2

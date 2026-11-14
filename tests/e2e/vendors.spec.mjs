@@ -640,7 +640,8 @@ test('5.5 / the owner 12 Nov: «فلتر» next to the sort in the card header h
   await expect(row(page, V3)).toBeVisible();
   await page.locator('#vendors [data-af-clear]').click();
   await expect(rows(page)).toHaveCount(3); // no filter at all
-  await expect(page.locator('#vendors .af-row')).toHaveCount(0);
+  await expect(page.locator('#vendors .af-row:not(.th-all)')).toHaveCount(0); // no chips; the big table's «كل الـ…» line instead (2026-11-13-table-head.md decision 3)
+  await expect(page.locator('#vendors [data-th-all]')).toHaveText('كل المبتكرين · 3 مبتكر');
   await page.locator('#vendors [data-sm-btn="vendors"]').click();
   await page.locator('[role=listbox] [role=option]', { hasText: 'الاسم (أ – ي)' }).click();
   await expect(page.locator('#vendors [data-sm-btn="vendors"] .sm-v')).toHaveText(': الاسم (أ – ي)');

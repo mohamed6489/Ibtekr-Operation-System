@@ -292,8 +292,8 @@
     try {
       const r = await cl.functions.invoke('woo-sync', { body });
       if (!r.error) return { data: r.data, status: 0, code: '' };
-      let code = ''; try { const j = r.error.context && r.error.context.json ? await r.error.context.json() : null; code = (j && j.error) || ''; } catch (e) { code = ''; }
-      return { status: (r.error.context && r.error.context.status) || 500, code };
+      let code = ''; let answer = null; try { const j = r.error.context && r.error.context.json ? await r.error.context.json() : null; answer = j && typeof j === 'object' ? j : null; code = (j && j.error) || ''; } catch (e) { code = ''; }
+      return { status: (r.error.context && r.error.context.status) || 500, code, body: answer };
     } catch (e) { return { status: -1 }; }
   }
   // «مسح المنتج» (the owner 11 Nov — «امسح منتج بعينه من الاوردر»): woo-sync line_trash — the product off its maker's sub-order (the
@@ -345,6 +345,27 @@
     if (orders) { const o = orders.find((x) => x.id === String(orderId)); if (o) { o.subs.forEach((s) => { if (String(s.itemId) === String(itemId)) { s.qty = n; if (lineTotal !== null) s.tot = lineTotal; } }); if (total !== null) o.tot = total; notifySoon(); } }
     log('order.line_qty', 'IB-' + orderId + ' · سطر #' + itemId + ' · ' + (Number.isFinite(Number(was)) ? Number(was) + ' ← ' : '') + n);
     return { ok: true, qty: n, lineTotal, total, sub: d.sub || null };
+  }
+  // «+ إضافة منتج» (the owner 14 Nov — «زر اضافة منتج ف ال sub order», the price typed by hand): woo-sync line_add — a product of the
+  // sub-order's maker on that Dokan sub-order only (the parent untouched) or, for an order of one maker, on the order itself; then the
+  // order is read again. { ok, line } or { ok: false, reason }: 'need_variation' (+ variations [{ id, label, price, sku }] to pick
+  // from) / 'other_maker' / 'closed' / 'missing' / 'invalid' / 'site' / 'push_disabled' / 'forbidden'. Logged as order.line_add
+  // (the order, the sub-order, the product id and the count — never the price).
+  async function addLine(orderId, subId, productId, opts) {
+    const o2 = opts || {}; const n = Number(o2.qty); const price = Number(o2.price); const vid = o2.variationId == null || o2.variationId === '' ? null : Number(o2.variationId);
+    if (!Number.isInteger(n) || n < 1 || n > 99 || !(o2.price !== '' && o2.price != null && Number.isFinite(price)) || price < 0 || price > 1000000 || !(Number(productId) > 0) || (vid !== null && !(vid > 0))) return fail('invalid');
+    const body = { action: 'line_add', order_id: Number(orderId), product_id: Number(productId), qty: n, price: Math.round(price * 100) / 100 };
+    if (subId != null && String(subId) !== String(orderId)) body.sub_id = Number(subId);
+    if (vid !== null) body.variation_id = vid;
+    const r = await syncCall(body);
+    if (r.status === -1) return fail('network');
+    if (r.status === 409 && r.code === 'need_variation') return { ok: false, reason: 'need_variation', variations: Array.isArray(r.body && r.body.variations) ? r.body.variations.filter((v) => v && Number(v.id) > 0).map((v) => ({ id: Number(v.id), label: String(v.label || '#' + v.id), price: Number.isFinite(Number(v.price)) ? Number(v.price) : null, sku: v.sku || null })) : [] };
+    if (r.status) return fail(r.status === 401 || r.status === 403 ? 'forbidden' : r.status === 409 ? (['closed', 'other_maker'].includes(r.code) ? r.code : 'site') : r.status === 404 ? 'missing' : r.status === 400 ? 'invalid' : r.status === 502 ? 'site' : 'network');
+    const d = r.data;
+    if (!d || d.result !== 'ok') return fail(d && d.reason === 'push_disabled' ? 'push_disabled' : 'site');
+    refetch(String(orderId));
+    log('order.line_add', 'IB-' + orderId + (body.sub_id ? ' · الفرعي #' + body.sub_id : '') + ' · منتج #' + body.product_id + (vid ? ' / ' + vid : '') + ' · × ' + n);
+    return { ok: true, line: d.line || null, sub: d.sub || null };
   }
   async function setOrderStatus(id, status, extra) {
     if (status === 'مكتمل' && extra && extra.rating) {
@@ -500,6 +521,6 @@
     if (ch && c()) { try { Promise.resolve(c().removeChannel(ch)).catch(() => {}); } catch (e) { /* already closed */ } }
   }
   function clear() { gen += 1; unsubscribe(); cancelNotify(); orders = null; vendorRows = []; leads = new Map(); leadAsked.clear(); images = {}; links = {}; states = new Map(); statuses = []; names = []; asked.clear(); busy.clear(); setState('idle'); }
-  window.IBOrders = { load, data, state: () => st, today, setOrderStatus, setConfirm, patchOrder, deleteOrder, deleteSub, deleteLine, setLineQty, siteStatuses, setSubSiteStatus, setItemStatus, setWaybill, setPulled, syncNow, registerWebhooks, subscribe, unsubscribe, clear, toScreen };
+  window.IBOrders = { load, data, state: () => st, today, setOrderStatus, setConfirm, patchOrder, deleteOrder, deleteSub, deleteLine, setLineQty, addLine, siteStatuses, setSubSiteStatus, setItemStatus, setWaybill, setPulled, syncNow, registerWebhooks, subscribe, unsubscribe, clear, toScreen };
   window.IBOrdersStore = window.IBOrders; // the name block 29's write hooks call
 })();

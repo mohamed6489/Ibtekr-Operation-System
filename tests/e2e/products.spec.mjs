@@ -524,7 +524,7 @@ test('B4: «الأقسام» — green main cards, beige sub rows with «-» / �
   await expect(sub(151)).toBeVisible();
   await expect(sub(151).locator('.cat-dash')).toHaveText('-');
   await expect(sub(151).locator('[data-cat-prods="151"]')).toHaveText('3 منتج');
-  expect(await sub(151).evaluate((x) => getComputedStyle(x).backgroundColor)).toBe('rgb(245, 237, 220)');
+  expect(await sub(151).evaluate((x) => getComputedStyle(x).backgroundColor)).toBe('rgb(239, 226, 201)'); // owner batch 14 Nov decision 9: «-» the first beige level (--lvl-1); deeper is lighter
   await sub(151).locator('[data-cat-tog="151"]').click();
   await expect(sub(152).locator('.cat-dash')).toHaveText('--');
   await expect(sub(152).locator('[data-cat-prods="152"]')).toBeDisabled(); // nothing in it

@@ -85,7 +85,7 @@ const COLUMNS = { // supabase/migrations/0001_identity.sql, 0002_system.sql (act
     'contact_name', 'address_parts', 'social', 'logo_url', 'banner_url', 'woo_payment_methods', 'woo_snapshot', 'push_pending', 'woo_synced_at', 'photo_path'], // 0075 photo_path; 0014 (phase 3.3): woo_snapshot is service_role only (a select naming it → 42501, like commission_pct)
   vendor_rates: ['id', 'vendor_id', 'rate', 'flat', 'since', 'set_by', 'created_at', 'commission_type'], // 0014: flat; 0016: commission_type
   vendor_category_rates: ['id', 'vendor_id', 'woo_category_id', 'rate', 'flat', 'since', 'set_by', 'created_at'], // 0014: sensitive.commission, add-only
-  woo_categories: ['id', 'name', 'slug', 'parent_id', 'updated_at'], // 0014: the sync's, vendors.view
+  woo_categories: ['id', 'name', 'slug', 'parent_id', 'image_url', 'updated_at'], // 0014: the sync's, vendors.view; image_url 0088
   vendor_bank: ['vendor_id', 'method', 'bank_name', 'holder', 'iban', 'wallet', 'updated_by', 'updated_at', 'account_number', 'account_type', 'bank_address', 'routing_number', 'swift'], // 0017: + Dokan's bank fields
   vendor_logins: ['vendor_id', 'username', 'email', 'pw_mode', 'status', 'must_change', 'invite_sent_at', 'password_set_at', 'secret_id', 'created_by', 'created_at', 'updated_at', 'fails', 'locked_until', 'own_password', 'last_login_at'], // 0065 (phase 13 T4): the portal's four columns, readable // 0012 (plan 3.1): secret_id is never granted to the client; created_by is the member's name
   products: ['id', 'sku', 'name', 'image_url', 'permalink', 'vendor_id', 'price', 'status', 'raw', 'updated_at',
@@ -2234,7 +2234,8 @@ export async function installSupabaseMock(page, opts = {}) {
       if (action === 'category_create') {
         const img = catImage(b.image); if (img === false) return json(400, { error: 'bad_request', field: 'image' });
         if (!mock.pushEnabled) return json(200, { action, result: 'skipped', reason: 'push_disabled' });
-        const id = 9500 + mock.wooCategories.length; mock.wooCategories.push({ id, name: b.name_en, slug: 'c-' + id, parent_id: b.parent || null, updated_at: T0 });
+        const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/; if (b.slug != null && b.slug !== '' && !SLUG.test(b.slug)) return json(400, { error: 'bad_request', field: 'slug' }); // owner batch 14 Nov decision 9
+        const id = 9500 + mock.wooCategories.length; mock.wooCategories.push({ id, name: b.name_en, slug: b.slug || 'c-' + id, parent_id: b.parent || null, image_url: img ? 'https://woo.test/cat-' + id + '.webp' : null, updated_at: T0 });
         const rec = { ...b, by: u.email }; delete rec.image; if (img) rec.image = true; mock.categoriesCreated.push(rec);
         (mock.catSite = mock.catSite || {})[id] = { ar: b.name_ar || null, image: img ? 'https://woo.test/cat-' + id + '.webp' : null, count: 0 };
         return json(200, { action, result: 'ok', id, ar_id: b.name_ar ? id + 1 : null, image: img ? 'https://woo.test/cat-' + id + '.webp' : null });
@@ -2246,11 +2247,16 @@ export async function installSupabaseMock(page, opts = {}) {
         if (action === 'category_get') return json(200, { action, result: 'ok', category: { id: cat.id, name: cat.name, parent: cat.parent_id || 0, count: site.count, image: site.image }, ar: site.ar ? { id: cat.id + 1, name: site.ar, parent: 0, count: site.count, image: site.image } : null });
         if (action === 'category_update') {
           const img = catImage(b.image); const bad = (v) => v != null && v !== '' && (typeof v !== 'string' || !v.trim() || v.length > 80 || /[<>%]/.test(v));
-          if (img === false || bad(b.name_en) || bad(b.name_ar) || (!b.name_en && !b.name_ar && !img)) return json(400, { error: 'bad_request' });
+          // owner batch 14 Nov decision 9: a slug and a new parent (never itself or one under it)
+          const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/; if (b.slug != null && b.slug !== '' && !SLUG.test(b.slug)) return json(400, { error: 'bad_request', field: 'slug' });
+          const np = b.parent == null ? null : Number(b.parent) || 0;
+          if (np) { let x = np; const seen = new Set(); while (x && !seen.has(x)) { if (x === cat.id) return json(400, { error: 'bad_request', field: 'parent' }); seen.add(x); x = (mock.wooCategories.find((c) => c.id === x) || {}).parent_id || 0; } }
+          if (img === false || bad(b.name_en) || bad(b.name_ar) || (!b.name_en && !b.name_ar && !img && !b.slug && np === null)) return json(400, { error: 'bad_request' });
           if (!mock.pushEnabled) return json(200, { action, result: 'skipped', reason: 'push_disabled' });
-          if (b.name_en) cat.name = b.name_en; const had = !!site.ar; if (b.name_ar) site.ar = b.name_ar; if (img) site.image = 'https://woo.test/cat-' + cat.id + '-v2.webp';
+          if (b.name_en) cat.name = b.name_en; const had = !!site.ar; if (b.name_ar) site.ar = b.name_ar; if (img) { site.image = 'https://woo.test/cat-' + cat.id + '-v2.webp'; cat.image_url = site.image; }
+          if (b.slug) cat.slug = b.slug; if (np !== null) cat.parent_id = np || null;
           (mock.catSite = mock.catSite || {})[cat.id] = site;
-          mock.categoryWrites.push({ action, id: cat.id, name_en: b.name_en || null, name_ar: b.name_ar || null, image: !!img, by: u.email });
+          mock.categoryWrites.push({ action, id: cat.id, name_en: b.name_en || null, name_ar: b.name_ar || null, image: !!img, ...(b.slug ? { slug: b.slug } : {}), ...(np !== null ? { parent: np } : {}), by: u.email });
           return json(200, { action, result: 'ok', id: cat.id, ar: b.name_ar || img ? (had ? 'ok' : 'made') : 'none', image: site.image });
         }
         const uses = mock.products.filter((p) => (p.category_ids || []).includes(cat.id)).length; const kids = mock.wooCategories.filter((x) => x.parent_id === cat.id).length;

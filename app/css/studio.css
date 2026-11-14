@@ -202,3 +202,7 @@ i.sw-0{background:var(--color-chart-2)}i.sw-1{background:var(--color-chart-3)}i.
 /* the owner 14 Nov (decision 1): a step you can go back to takes the middle hover shade; the current step keeps the selected beige */
 .stp-b:not(:disabled):hover{background:var(--color-bg-hover,#efe2c9)}
 .stp-cur .stp-b:hover{background:var(--color-brand-subtle-bg)}
+/* owner batch 14 Nov decision 9: the picker's sub rows get lighter by level like the categories tab (- / -- / ---) */
+.cat-pick .cat-row.cat-pk-sub[style*="--d:1"]{background:var(--lvl-1,#efe2c9)}
+.cat-pick .cat-row.cat-pk-sub[style*="--d:2"]{background:var(--lvl-2,#f5eddc)}
+.cat-pick .cat-row.cat-pk-sub:not([style*="--d:1"]):not([style*="--d:2"]){background:var(--lvl-3,#faf4ea)}

@@ -1868,3 +1868,5 @@ td > :is(.mlink,.prod,.who-cell) .avatar{flex:none}
 .card.sec:has(.mx-wrap){overflow:visible} /* the card's overflow:hidden (rounded tables) would make it the sticky head's scroller */
 /* owner batch 14 Nov decision 7: the member's time has started and no session yet — «ابدأ الدوام» glows until pressed */
 .clock-widget.remind .btn{box-shadow:0 0 0 3px var(--color-brand-subtle-bg),0 0 0 5px var(--color-brand-default)}
+/* owner batch 14 Nov decision 9: the category levels — «-» beige, «--» lighter, «---» lighter still (the tab and the «تغيير القسم» tree) */
+:root{--lvl-1:#efe2c9;--lvl-2:#f5eddc;--lvl-3:#faf4ea}

@@ -1892,7 +1892,8 @@ Deno.test('B4 category_update: the English name and image, then the linked Arabi
   assertEquals(wooWrites(woo), ['POST wp/v2/media', 'PUT wc/v3/products/categories/80', 'PUT wc/v3/products/categories/81?lang=ar']);
   assertEquals([woo.calls.find((c) => c.path.endsWith('/80') && c.method === 'PUT')!.body, woo.calls.find((c) => c.path.endsWith('/81') && c.method === 'PUT')!.body], [{ name: 'Lights', image: { id: 701 } }, { name: 'إضاءة', image: { id: 701 } }]);
   assertEquals(db.rows('woo_categories').map((c) => [c.id, c.name]), [[80, 'Lights']]);
-  assertEquals(db.rows('woo_sync_log').at(-1).detail, { name: true, image: true, ar: 'ok' });
+  assertEquals(db.rows('woo_sync_log').at(-1).detail, { name: true, slug: false, parent: false, image: true, ar: 'ok' });
+  assertEquals(db.rows('woo_categories')[0].image_url, 'https://woo.test/n.webp', 'decision 9 (0088): the image goes to the mirror');
   // the same names: nothing sent but the reads
   const same = setup({ seed, routes, env: PUSH_ON });
   assertEquals([(await call(same.deps, { action: 'category_update', id: 80, name_en: 'Lamps', name_ar: 'أباجورات' }, { jwt: 'jwt-padd' })).body.ar, wooWrites(same.woo)], ['ok', []]);
@@ -2595,4 +2596,31 @@ Deno.test('0078 withdraw_create: WOO_PUSH_ENABLED off, no balance, no store, a b
   const c = await call(refused.deps, { action: 'withdraw_create', vendor_id: vendorId(44) }, { jwt: 'jwt-admin' });
   assertEquals([c.res.status, c.body.result, c.body.reason], [409, 'refused', 'dokan_rest_withdraw_error']);
   assertEquals(refused.db.rows('dokan_withdrawals').length, 0);
+});
+
+Deno.test('owner batch 14 Nov (decision 9): category_create / category_update take a slug (small letters, digits, «-»); category_update moves a category under another parent — never itself or one under it — and its Arabic translation under that parent\'s', async () => {
+  const seed = { woo_categories: [{ id: 15, name: 'Home', slug: 'home', parent_id: 0 }, { id: 80, name: 'Lamps', slug: 'lamps', parent_id: 15 }, { id: 90, name: 'Desk', slug: 'desk', parent_id: 80 }, { id: 20, name: 'Gifts', slug: 'gifts', parent_id: 0 }] };
+  const routes = { 'POST wc/v3/products/categories': (c: any) => ({ body: { id: 99, name: c.body.name, slug: c.body.slug ?? 'x', parent: c.body.parent ?? 0 } }),
+    'GET wc/v3/products/categories/80': { body: catEn() }, 'GET wc/v3/products/categories/81': arRoute(catAr()),
+    'GET wc/v3/products/categories/20': { body: { id: 20, name: 'Gifts', parent: 0, translations: { en: 20, ar: 21 } } },
+    'PUT wc/v3/products/categories/80': (c: any) => ({ body: catEn(c.body) }), 'PUT wc/v3/products/categories/81': (c: any) => ({ body: catAr(c.body) }) };
+  const { woo, db, deps } = setup({ seed, routes, env: PUSH_ON });
+  for (const bad of ['Lamps', 'a b', 'a--b', '-a', 'ل']) assertEquals((await call(deps, { action: 'category_create', name_en: 'X', slug: bad }, { jwt: 'jwt-padd' })).body.field, 'slug', bad);
+  assertEquals(woo.calls.length, 0);
+  await call(deps, { action: 'category_create', name_en: 'Desk Lamps', slug: 'desk-lamps-2' }, { jwt: 'jwt-padd' });
+  assertEquals(woo.calls.at(-1)!.body.slug, 'desk-lamps-2');
+  // the parent: itself / a category under it → 400 before any call
+  const n0 = woo.calls.length;
+  assertEquals((await call(deps, { action: 'category_update', id: 80, parent: 80 }, { jwt: 'jwt-padd' })).body.field, 'parent');
+  assertEquals((await call(deps, { action: 'category_update', id: 80, parent: 90 }, { jwt: 'jwt-padd' })).body.field, 'parent');
+  assertEquals(woo.calls.length, n0);
+  const { body } = await call(deps, { action: 'category_update', id: 80, parent: 20, slug: 'lights' }, { jwt: 'jwt-padd' });
+  assertEquals(body.result, 'ok');
+  const puts = woo.calls.filter((c) => c.method === 'PUT');
+  assertEquals(puts.map((c) => [c.path, c.body]), [['wc/v3/products/categories/80', { slug: 'lights', parent: 20 }], ['wc/v3/products/categories/81', { parent: 21 }]]);
+  assertEquals(db.rows('woo_categories').find((c) => c.id === 80)!.parent_id, 20);
+  // back to a main category (0): the translation goes to the top too
+  const top = setup({ seed, routes, env: PUSH_ON });
+  await call(top.deps, { action: 'category_update', id: 80, parent: 0 }, { jwt: 'jwt-padd' });
+  assertEquals(top.woo.calls.filter((c) => c.method === 'PUT').map((c) => c.body), [{ parent: 0 }, { parent: 0 }]);
 });

@@ -769,7 +769,9 @@ async function writeTerms(ctx, table, categories) {
   const list = Array.isArray(categories) ? categories : [];
   const valid = list.filter((c) => isObj(c) && wooId(c.id) !== null && typeof c.name === 'string' && c.name.trim() !== '');
   const now = ctx.now();
-  const rows = lastById(valid).map((c) => ({ id: wooId(c.id), name: c.name.trim(), slug: orNull(c.slug), parent_id: wooId(c.parent), updated_at: now }));
+  // owner batch 14 Nov (decision 9, 0088): a category's image (https only) beside its name — the brands table has no such column
+  const img = (c) => (table === 'woo_categories' ? { image_url: isObj(c.image) && typeof c.image.src === 'string' && /^https:\/\//.test(c.image.src) ? c.image.src.slice(0, 600) : null } : {});
+  const rows = lastById(valid).map((c) => ({ id: wooId(c.id), name: c.name.trim(), slug: orNull(c.slug), parent_id: wooId(c.parent), ...img(c), updated_at: now }));
   const { bad } = await save(ctx, table, rows, 'id');
   return { written: rows.map((r) => r.id).filter((id) => !bad.has(String(id))), skipped: list.length - valid.length, failed: bad.size };
 }

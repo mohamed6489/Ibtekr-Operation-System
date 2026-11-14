@@ -397,7 +397,7 @@ body.cal-dragging,body.cal-dragging * { cursor:grabbing !important;user-select:n
 #pg-marketing .mk-agent-row { display:flex;align-items:center;gap:4px;border-radius:var(--radius-sm) }
 #pg-marketing .mk-agent-row.on { background:var(--color-success-bg) }
 #pg-marketing .mk-agent-open { flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:8px 10px;border:0;background:none;font:inherit;text-align:start;cursor:pointer;border-radius:var(--radius-sm);color:inherit }
-#pg-marketing .mk-agent-open:hover { background:var(--color-bg-hover, rgba(0,0,0,.04)) }
+#pg-marketing .mk-agent-open:hover { background:var(--color-bg-hover) }
 #pg-marketing .mk-agent-open b { display:block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600 }
 #pg-marketing .mk-agent-main { display:flex;flex-direction:column;gap:12px;padding:14px 16px;min-width:0 }
 #pg-marketing .mk-agent-head { display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap }

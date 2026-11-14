@@ -180,7 +180,15 @@ test('owner batch 2 decision 2 (0096): a level reads its own matrix row over the
   assert.equal(accessOf(notif, ROLES, 'customers.late', 'ops'), 'N', 'the employee row');
   assert.equal(accessOf(notif, ROLES, 'customers.late', 'ops', undefined, 'manager'), 'R', 'the manager row');
   assert.equal(accessOf(notif, ROLES, 'customers.late', 'ops', undefined, 'viewer'), 'N', 'a level with no row reads the employee one');
-  assert.deepEqual(receivers(notif, ROLES, 'customers.late'), ['admin', 'ops'], 'ops receives through its managers');
+  assert.deepEqual(receivers(notif, ROLES, 'customers.late'), ['admin'], 'no role-wide row for ops: only its managers receive (security review)');
+  // the managers of ops get a row each; the employee of ops gets nothing
+  const members = MEMBERS.concat([{ id: 'u-ops-m', name: 'مدير العمليات', role_id: 'ops', status: 'active', level: 'manager', email: null, phone: null }]);
+  const out = plan({ now: NOW, cairo: CAIRO, notif, roles: ROLES, members, items: [{ key: 'customers.late', entityId: '1001', title: 'IB-1001' }], state: [], acted: new Set() });
+  assert.equal(out.alerts.some((a) => a.role_id === 'ops'), false, 'no ops role row');
+  assert.deepEqual(out.alerts.filter((a) => a.user_id).map((a) => a.user_id), ['u-ops-m'], 'a row for the ops manager only');
+  // every level receives → the role row as before
+  const all = { ...notif, alertRoles: { 'customers.late': 'RRNNNN' } };
+  assert.deepEqual(receivers(all, ROLES, 'customers.late'), ['admin', 'ops']);
   // the level's permissions gate it: accounts.payroll needs accounts.view F
   const roles = ROLES.map((r) => (r.id === 'cs' ? { ...r, level_perms: { manager: { ...r.permissions, 'accounts.view': 'F' } } } : r));
   const pay = { alertRoles: { 'accounts.payroll': 'RRRRRR' } };

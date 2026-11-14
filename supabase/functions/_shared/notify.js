@@ -149,7 +149,11 @@ export function accessOf(notif, roles, key, roleId, override, level) {
   if (roleId === 'admin' && c === 'N') c = 'S';
   return c === 'R' || c === 'S' ? c : 'N';
 }
-export const receivers = (notif, roles, key) => (roles || []).filter((r) => ['employee', 'manager', 'viewer'].some((lv) => accessOf(notif, roles, key, r.id, undefined, lv) === 'R')).map((r) => r.id); // a role receives when any of its levels does
+const LEVELS = ['employee', 'manager', 'viewer'];
+// a role-wide bell row only when every level of the role receives (a role row reaches all its members — security review of 0096)
+export const receivers = (notif, roles, key) => (roles || []).filter((r) => LEVELS.every((lv) => accessOf(notif, roles, key, r.id, undefined, lv) === 'R')).map((r) => r.id);
+// the roles where some levels receive and some do not: those get a row per receiving member instead (roleMembers, by the member's level)
+export const partialRoles = (notif, roles, key) => (roles || []).filter((r) => { const n = LEVELS.filter((lv) => accessOf(notif, roles, key, r.id, undefined, lv) === 'R').length; return n > 0 && n < LEVELS.length; }).map((r) => r.id);
 // the members of a role who receive the source (a member's override may add or remove them), active only, with their contacts
 export function roleMembers(notif, roles, members, key, roleId) {
   const ov = notif && notif.alertOverrides && typeof notif.alertOverrides === 'object' ? notif.alertOverrides : {};
@@ -219,6 +223,7 @@ export function plan(input) {
     const src = sourceOf(it.key); const rule = ruleFor(notif, it.key); if (!src || !rule || !rule.on) continue;
     const e = String(it.entityId); const roleTargets = receivers(notif, roles, it.key).map((r) => 'role:' + r);
     const userTargets = []; if (it.own && it.own.manager && src.kind === 'team') userTargets.push('user:' + it.own.manager); if (it.own && it.own.member) userTargets.push('user:' + it.own.member);
+    for (const rid of partialRoles(notif, roles, it.key)) for (const m of roleMembers(notif, roles, members, it.key, rid)) userTargets.push('user:' + m.id);
     const targets = [...new Set(roleTargets.concat(userTargets))];
     for (const t of targets) {
       seen.add(key3(it.key, e, t)); const st0 = stMap.get(key3(it.key, e, t)) || null; const st = st0 && st0.resolved_at ? null : st0; // a resolved row starts over

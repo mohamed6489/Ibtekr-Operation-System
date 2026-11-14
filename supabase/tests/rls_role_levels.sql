@@ -60,6 +60,23 @@ do $$ begin
 end $$;
 reset role;
 
+-- security review: member_perm (another member's permission, for the server's alert recipients) reads the level too, and is server only
+do $$ begin
+  if public.member_perm('00000000-0000-4000-8000-0000000096a2', 'settings.view') <> 'F' then raise exception 'case member_perm reads the level failed'; end if;
+  if has_function_privilege('authenticated', 'public.member_perm(uuid, text)', 'EXECUTE') or has_function_privilege('anon', 'public.member_perm(uuid, text)', 'EXECUTE') then raise exception 'case member_perm is server only failed'; end if;
+  if position('member_perm' in pg_get_functiondef('public.hr_overtime_request(date, text, text, text)'::regprocedure)) = 0 then raise exception 'case hr_overtime_request picks approvers by member_perm failed'; end if;
+end $$;
+
+-- security review: a new main role starts at «موظف» (the level does not carry over to another role)
+update public.profiles set role_id = 'cs' where id = '00000000-0000-4000-8000-0000000096a2';
+do $$ begin
+  if (select level from public.profiles where id = '00000000-0000-4000-8000-0000000096a2') <> 'employee' then raise exception 'case a new main role resets the level failed'; end if;
+end $$;
+update public.profiles set role_id = 'ops', level = 'manager' where id = '00000000-0000-4000-8000-0000000096a2';
+do $$ begin
+  if (select level from public.profiles where id = '00000000-0000-4000-8000-0000000096a2') <> 'manager' then raise exception 'case a level set with the role stays failed'; end if;
+end $$;
+
 -- the viewer: level_perms.viewer only
 select pg_temp.as_member('00000000-0000-4000-8000-0000000096a1');
 do $$ begin perform public.member_level_set('00000000-0000-4000-8000-0000000096a2', 'viewer'); end $$;

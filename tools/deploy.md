@@ -2093,7 +2093,7 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 **T3 — قواعد التأخير (قرار 17):** مافيش migration جديد — `settings_public` في `0095` بيرجّع `makers.delay` لكل عضو. «Deploy functions» لـ `notify` و`cs-auto` و`portal` و`ai-content` (`_shared/delay.js`: `delayRules` / `orderDelayOf` / `lineDelayOf`). الإعدادات في صف `settings` «makers» مفتاح `delay` (`start` / `orderRisk` / `subRisk` / `lead` / `stop`) — من غيره الافتراضي (تاريخ التأكيد، 2 يوم، 7 أيام، والحالات اللي بتوقف العدّاد: قيد الشحن · مكتمل · ملغي · استرجاع · فشل).
 
 **T4 — الأدوار بمستويات (قرارات 2 و3 و4)، بعد** `0095`:
-1. `0096_role_levels.sql` — `roles.level_perms` (مجموعتي «مدير» و«مشاهد»؛ «موظف» = `roles.permissions`)، `profiles.level` (افتراضي `employee`، ومديري الأدوار الحاليين بيبقوا `manager`)، `has_perm` بمستوى العضو للدور الأساسي و«موظف» للإضافية، و`role_level_perms_set` / `member_level_set` (الأدمن).
+1. `0096_role_levels.sql` — `roles.level_perms` (مجموعتي «مدير» و«مشاهد»؛ «موظف» = `roles.permissions`)، `profiles.level` (افتراضي `employee`، ومديري الأدوار الحاليين بيبقوا `manager`)، `has_perm` بمستوى العضو للدور الأساسي و«موظف» للإضافية، و`role_level_perms_set` / `member_level_set` (الأدمن)؛ وبعد المراجعة الأمنية: `member_perm(عضو, مفتاح)` (للسيرفر بس — `hr_overtime_request` بيختار الموافقين بيه بالمستوى)، والتريجر `profiles_level_on_role` (دور أساسي جديد = «موظف»)، ومحرك التنبيهات بيكتب صف للدور كله لو كل مستوياته بتستلم بس — غير كده صف لكل عضو مستواه بيستلم.
 2. RLS live (`files = rls_role_levels`).
 3. «Deploy functions» لـ `notify` (ماتريكس التنبيهات لكل مستوى: `notif.alertLevels`).
 4. الواجهة على `main` (لازم بعد `0096` — الصفحة بتقرا `profiles.level` و`roles.level_perms`).

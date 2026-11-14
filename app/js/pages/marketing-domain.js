@@ -272,14 +272,18 @@
 
   // ---------------------------------------------------------------- ours: the calendar (the plan, decision 16)
 
-  const DAYS = Object.freeze(['السبت', 'الأحد', 'الاتنين', 'التلات', 'الأربع', 'الخميس', 'الجمعة']);
-  const dayIdx = (iso) => (new Date(iso + 'T00:00:00Z').getUTCDay() + 1) % 7; // السبت = 0
+  // the week starts on the settings' day (2026-11-14-settings-lists.md decision 4 — IBSettings.weekStart(): السبت 6 · الأحد 0 · الاتنين 1;
+  // Saturday when the settings aren't loaded): DAYS are the names in the week's order and dayIdx(d) is d's place in it
+  const SAT_DAYS = Object.freeze(['السبت', 'الأحد', 'الاتنين', 'التلات', 'الأربع', 'الخميس', 'الجمعة']);
+  const wsDow = () => { try { const S = typeof globalThis !== 'undefined' ? globalThis.IBSettings : null; const v = S && S.weekStart ? Number(S.weekStart()) : 6; return v === 0 || v === 1 || v === 6 ? v : 6; } catch (e) { return 6; } };
+  const days = () => { const k = (wsDow() + 1) % 7; return Object.freeze(SAT_DAYS.slice(k).concat(SAT_DAYS.slice(0, k))); };
+  const dayIdx = (iso) => (new Date(iso + 'T00:00:00Z').getUTCDay() - wsDow() + 7) % 7; // the week's first day = 0
   const wkStart = (iso) => addD(iso, -dayIdx(iso));
   function weeksOf(from, to) { const out = []; if (!from || !to || from > to) return out; for (let w = wkStart(from); w <= to; w = addD(w, 7)) out.push(w); return out; }
-  // the plan's default period (the v5's planDefault): from last week's Saturday, three weeks
+  // the plan's default period (the v5's planDefault): from last week's first day, three weeks
   function planDefault(today) { const sat = wkStart(today); return { from: addD(sat, -7), to: addD(sat, 13), preset: 'custom' }; }
   const D2 = (d) => String(d || '').split('-').reverse().join('/');
-  const dayLabel = (d) => DAYS[dayIdx(d)] + ' ' + D2(d);
+  const dayLabel = (d) => SAT_DAYS[(new Date(d + 'T00:00:00Z').getUTCDay() + 1) % 7] + ' ' + D2(d);
   function relDay(d, today) { const n = Math.round((Date.parse(d + 'T00:00:00Z') - Date.parse(today + 'T00:00:00Z')) / 864e5); return n < 0 ? 'فات ميعاده' : n === 0 ? 'النهارده' : n === 1 ? 'بكرة' : n === 2 ? 'بعد يومين' : n <= 10 ? 'بعد ' + n + ' أيام' : 'بعد ' + n + ' يوم'; }
   const pct = (a, b) => (b ? (Math.round(a / b * 1000) / 10) + '%' : '—');
 
@@ -453,7 +457,7 @@
   const api = { PRICE_DEMO, VIDEO_SOON, VSIZES, videoImgSize, videoMethod, estimateVideo, METHOD_RATE, GOALS, MEDIA, VIDEO_RATE, METHODS, MAX, TEXT_FILL, DEFAULT_MODEL, clamp, defaults, buildPieces, splitScenes, cost, spend, built, approvable, approved, approveAll, progress, canBuildNext, canReviewNext, validateDetails, estimate, imgRate, videoRate,
     campaignStatus, campaignName, PLATFORMS, CONNECTED, POST_STATUSES, CAP_MAX, TAGS, TIMES, timeOpts, postKind, pieceImages, hookOf, addD, suggest, scheduleItems, isPast, canMove, moveCheck, safeName, zipPlan,
     PUBLISHABLE, PUB_KINDS, MAX_IMAGES, PL_KEY, pubText, notReady, publishable, pubImages, isVideoPath, igFit, jpegSize, isJpeg, PUB_ERRORS, pubError, seenSt, engOf, postTotals, SRC_LABEL,
-    DAYS, dayIdx, wkStart, weeksOf, planDefault, D2, dayLabel, relDay, pct, linkKeys,
+    get DAYS() { return days(); }, dayIdx, wkStart, weeksOf, planDefault, D2, dayLabel, relDay, pct, linkKeys,
     ADS_RULES, AD_PLATFORM, AD_LINK_FIELDS, AD_OAUTH, linkFieldsBody, SOLD, adOrders, adCampaignRows, adTotals, merWeeks, adAlerts, adCreatives, xr };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.IbtekrCampWiz = api;
 })(typeof window !== 'undefined' ? window : globalThis);

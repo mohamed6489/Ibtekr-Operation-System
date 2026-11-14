@@ -215,15 +215,17 @@
       error ? h('div', { class: 'err-msg', id: id + '-err', role: 'alert' }, error) : null);
   }
 
-  // ---- Calendar (shared by single + range pickers); Saturday-first ----
-  const DOW = ['س', 'ح', 'ن', 'ث', 'ر', 'خ', 'ج'];
+  // ---- Calendar (shared by single + range pickers); the week starts on the settings' day (2026-11-14-settings-lists.md decision 4 —
+  // D.monthMatrix follows D.weekStartDow(); Saturday by default), so the header turns with it ----
+  const SAT_DOW = ['س', 'ح', 'ن', 'ث', 'ر', 'خ', 'ج'];
+  const dowHead = () => { const ws = D && D.weekStartDow ? D.weekStartDow() : 6; const k = (ws + 1) % 7; return SAT_DOW.slice(k).concat(SAT_DOW.slice(0, k)); };
   function Calendar({ year, month, today, from, to, hover, onPick, onHover, onNav, min, max, showPrev = true, showNext = true }) {
     const lo = from && to ? (from < to ? from : to) : from; const hi = from && to ? (from < to ? to : from) : from;
     const end = hover && from && !to ? hover : to;
     const a = from && end ? (from < end ? from : end) : from; const b = from && end ? (from < end ? end : from) : from;
     void lo; void hi;
     const grid = h('div', { class: 'cal-grid', role: 'grid', 'aria-label': D.monthName(month) + ' ' + year });
-    DOW.forEach((d) => grid.append(h('div', { class: 'dow', role: 'columnheader' }, d)));
+    dowHead().forEach((d) => grid.append(h('div', { class: 'dow', role: 'columnheader' }, d)));
     for (const week of D.monthMatrix(year, month)) for (const c of week) {
       const isSel = !c.outside && (c.iso === a || c.iso === b);
       const inR = !c.outside && a && b && c.iso > a && c.iso < b;
@@ -424,7 +426,9 @@
   const TICKET_STATUS = { open: 'مفتوح', in_progress: 'جاري العمل', waiting: 'بانتظار الرد', resolved: 'تم الحل', closed: 'مغلق' };
   const PRIORITY = { urgent: 'عاجل', high: 'عالي', normal: 'عادي', low: 'منخفض' };
   function TicketStatus(status) { return h('span', { class: 'tstatus ts-' + status }, TICKET_STATUS[status] || status); }
-  function PriorityTag(p) { return h('span', { class: 'prio prio-' + p }, h('i', { 'aria-hidden': 'true' }), PRIORITY[p] || p); }
+  // the settings lists all editable (2026-11-14-settings-lists.md decision 3): a priority shows the name the admin gave it (by its code)
+  const prioLabel = (p) => { try { const S = window.IBSettings; if (S && S.statusLabel) return S.statusLabel('priority', p) || PRIORITY[p] || p; } catch (e) { /* not loaded */ } return PRIORITY[p] || p; };
+  function PriorityTag(p) { return h('span', { class: 'prio prio-' + p }, h('i', { 'aria-hidden': 'true' }), prioLabel(p)); }
   function TimelineMessage({ author, role, time, text }) {
     return h('div', { class: 'tl-msg' }, Avatar(author),
       h('div', { class: 'bubble' }, h('div', { class: 'head' }, h('span', { class: 'who' }, h('span', { class: 't-label' }, author), h('span', { class: 'role' }, role)), h('span', { class: 't-small time' }, time)),

@@ -88,3 +88,64 @@ test('decision 1: a base expense type takes a shown name; an added type is used 
   const refused = await page.evaluate(async () => { const r = await window.IBAccounts.add('expenses', { amount: 10, date: '2026-11-01', direction: 'withdraw', category: 'نوع مش موجود', beneficiaryName: 'x', beneficiaryIsOther: true, details: 'x' }); return r && r.ok; }).catch(() => false);
   expect(refused).toBeFalsy();
 });
+
+test('decision 3: a priority gets a shown name by its code; the tickets\' tag and picker show it', async ({ page }) => {
+  await go(page, 'settings-lists');
+  const body = page.locator('#pg-settings');
+  await body.getByRole('tab', { name: 'الأولويات' }).click();
+  await expect(body.locator('[data-priority]')).toHaveText(['عاجل', 'عالي', 'عادي', 'منخفض']);
+  await rowMenu(page, body, '[data-priority="urgent"]', 'تغيير الاسم');
+  await modal(page).locator('input').first().fill('طارئ');
+  await modal(page).getByRole('button', { name: 'حفظ', exact: true }).click();
+  await expect(body.locator('[data-priority-label="urgent"]')).toHaveText('طارئ');
+  await expect.poll(() => lists().labels).toEqual({ priority: { urgent: 'طارئ' } });
+  expect(await page.evaluate(() => [window.IBUI.PriorityTag('urgent').textContent, window.IbtekrTickets.PRIORITIES[0][1], window.IbtekrTickets.PRIORITIES[0][0]])).toEqual(['طارئ', 'طارئ', 'urgent']);
+  // back to its own name
+  await rowMenu(page, body, '[data-priority="urgent"]', 'رجّع الاسم الأصلي');
+  await expect(body.locator('[data-priority-label="urgent"]')).toHaveText('عاجل');
+  await expect.poll(() => lists().labels || {}).toEqual({});
+});
+
+test('decision 2: the makers\' categories are the site\'s main categories — add / rename / delete through woo-sync; the default pick reads them', async ({ page }) => {
+  await go(page, 'settings-lists');
+  const body = page.locator('#pg-settings');
+  await body.getByRole('tab', { name: 'فئات المبتكرين' }).click();
+  const names = await body.locator('[data-maker-cat]').allInnerTexts();
+  expect(names).toContain('ديكور'); expect(names).toContain('هدايا');
+  await body.locator('[data-maker-cat-add]').click();
+  await modal(page).locator('input').first().fill('ديكور');
+  await modal(page).getByRole('button', { name: 'إضافة', exact: true }).click();
+  await expect(modal(page)).toContainText('الفئة دي موجودة');
+  await modal(page).locator('input').first().fill('Lighting');
+  await modal(page).locator('input').nth(1).fill('إضاءة');
+  await modal(page).getByRole('button', { name: 'إضافة', exact: true }).click();
+  await expect.poll(() => (mock.categoriesCreated || []).map((c) => [c.name_en, c.name_ar, c.parent])).toEqual([['Lighting', 'إضاءة', 0]]);
+  await expect(body.locator('[data-maker-cat]', { hasText: 'Lighting' })).toHaveCount(1);
+  const id = (mock.wooCategories.find((c) => c.name === 'Lighting') || {}).id;
+  await rowMenu(page, body, '[data-maker-cat="' + id + '"]', 'تغيير الاسم');
+  await modal(page).locator('input').first().fill('Lamps');
+  await modal(page).getByRole('button', { name: 'حفظ', exact: true }).click();
+  await expect.poll(() => (mock.categoryWrites || []).filter((w) => w.action === 'category_update').map((w) => w.name_en)).toEqual(['Lamps']);
+  await expect(body.locator('[data-maker-cat="' + id + '"]')).toHaveText('Lamps');
+  await rowMenu(page, body, '[data-maker-cat="' + id + '"]', 'حذف');
+  await modal(page).getByRole('button', { name: 'حذف', exact: true }).click();
+  await expect.poll(() => (mock.categoryWrites || []).filter((w) => w.action === 'category_delete').map((w) => w.id)).toEqual([id]);
+  await expect(body.locator('[data-maker-cat="' + id + '"]')).toHaveCount(0);
+  // the makers' default category reads the same list
+  await go(page, 'settings-makers');
+  await page.locator('#mk-cat').click();
+  await expect(page.locator('[role=listbox] [role=option]', { hasText: 'هدايا' })).toHaveCount(1);
+  await page.keyboard.press('Escape');
+});
+
+test('decision 4: the week start is a choice in «عام» (Saturday by default) — the calendar presets follow it after «حفظ»', async ({ page }) => {
+  expect(await page.evaluate(() => [window.IBSettings.weekStart(), window.IbtekrDomain.presetRange('thisWeek', '2026-11-17').from])).toEqual([6, '2026-11-14']);
+  await go(page, 'settings-general');
+  await page.locator('#g-week').click();
+  await page.locator('[role=listbox] [role=option]', { hasText: 'الأحد' }).first().click();
+  await page.locator('#pg-settings [data-set-save]').click();
+  await expect.poll(() => ((mock.settings.find((r) => r.section === 'general') || {}).data || {}).week).toBe('الأحد');
+  expect(await page.evaluate(() => [window.IBSettings.weekStart(), window.IbtekrDomain.presetRange('thisWeek', '2026-11-17').from])).toEqual([0, '2026-11-15']);
+  // the other region rows stay facts with their reason
+  await expect(page.locator('#pg-settings')).toContainText('المنطقة واللغة والعملة ثابتة');
+});

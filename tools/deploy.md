@@ -2064,3 +2064,12 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 1. انشر من «Deploy functions» بالترتيب: `woo-sync` (`studio_media` الجديد — صورة الدفعة على `wp/v2/media` بالاسم بتاع الشيت؛ و`studio_upload` بالـ SKU الثابت والصور المرفوعة وجاليري التركيبة `woo_variation_gallery_images`)، ثم `ai-content` (`extract` — سكرين شوتس الواتساب)، ثم `ai-images` (لقطات الفلو الخمسة، ولقطة لون بعينه بـ `slot` + `color`).
 2. الواجهة على `main`.
 3. التجربة على الـ staging (`WOO_PUSH_ENABLED = 1`): «إضافة» › «استوديو المنتجات» › «شيت جاهز» بشيت صغير من شيتات المبتكر (صفين) + صورهم «1» و«2» → المبتكر والبراند → الـ SKU بيتولّد → الأسعار → «ولّد الناقص بالـ AI» → «رفع مباشر» للصور الأول (شوف الأسامي في مكتبة الوسائط) وبعدها للشيت → المنتجين مسودة على متجر المبتكر بالـ SKU والصور. **لو المنتج Variable:** افتح تركيبة على الموقع واتأكد إن صورتها وجاليريها (إضافة «Variation Images Gallery») ظاهرين.
+
+#### 2.7.74 الإعدادات — كل القوائم تتعدّل (`docs/superpowers/plans/2026-11-14-settings-lists.md`)
+**بعد** `0092`:
+1. `0093_settings_lists_editable.sql` — الـ check الثابت على `acc_expenses.category` اتشال وبقى تريجر `acc_expenses_category_guard` (النوع الجديد أساسي أو في `settings.lists.expenseKinds` — 23514 غير كده؛ الصف اللي نوعه اتشال بيفضل)، و`settings_public()` بيرجّع `lists.expenseKinds`. بـ Supabase MCP `apply_migration` أو SQL Editor.
+2. RLS live (workflow «RLS live»، `files = rls_settings_lists rls_accounts rls_accounts_lists rls_settings`).
+3. **مافيش Edge Function** — فئات المبتكرين على `woo-sync` `category_create` / `category_update` / `category_delete` اللي شغّالين من B4.
+4. الواجهة على `main`.
+5. التجربة: «الإعدادات › القوائم والحالات» — «أنواع المصروفات» (+ نوع، ⋮ تغيير الاسم / حذف) وبعدها «الحسابات › المصروفات» (البوب أب والكروت)، «الأولويات» (⋮ تغيير الاسم ← «طلبات الفريق»)، «فئات المبتكرين» (+ فئة = قسم رئيسي على الموقع — `WOO_PUSH_ENABLED`)، و«عام › بداية الأسبوع» ← «هذا الأسبوع» في الكاليندر.
+

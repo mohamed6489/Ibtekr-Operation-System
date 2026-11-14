@@ -27,9 +27,11 @@
   const filterRange = (rows, range, today) => rows.filter((r) => { const d = orderDate(r, today); return d >= range.from && d <= range.to; });
   function previousRange(range) { const len = daysBetween(range.from, range.to) + 1; return { from: addDays(range.from, -len), to: addDays(range.from, -1) }; }
 
-  // Saturday-start weekly buckets covering [from, to]
+  // weekly buckets covering [from, to], starting on the settings' week start (2026-11-14-settings-lists.md decision 4 —
+  // IBSettings.weekStart(): السبت 6 · الأحد 0 · الاتنين 1; Saturday when the settings aren't loaded or say something else)
+  const weekStartDow = () => { try { const S = typeof globalThis !== 'undefined' ? globalThis.IBSettings : null; const v = S && S.weekStart ? Number(S.weekStart()) : 6; return v === 0 || v === 1 || v === 6 ? v : 6; } catch (e) { return 6; } };
   function weeklyBuckets(from, to) {
-    const satIndex = (s) => (new Date(toUtc(s)).getUTCDay() + 1) % 7; // Saturday = 0
+    const ws = weekStartDow(); const satIndex = (s) => (new Date(toUtc(s)).getUTCDay() - ws + 7) % 7; // the week's first day = 0
     let start = addDays(from, -satIndex(from));
     const out = [];
     while (start <= to) {

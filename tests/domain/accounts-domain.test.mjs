@@ -225,3 +225,19 @@ test('settings lists: added expense types, a removed type kept by its rows, the 
     assert.deepEqual(plain(D.CATEGORIES), kinds); assert.equal(D.weekStartDow(), 6);
   } finally { if (prev === undefined) delete globalThis.IBSettings; else globalThis.IBSettings = prev; }
 });
+
+// decision 4: the week start moves «هذا الأسبوع» / «الأسبوع الماضي» and the calendar's month grid (2026-11-14 is a Saturday)
+test('settings lists: the week start moves the presets and the month grid', () => {
+  const prev = globalThis.IBSettings;
+  try {
+    assert.deepEqual(plain(D.presetRange('thisWeek', '2026-11-17')), { from: '2026-11-14', to: '2026-11-17' }); // Saturday
+    assert.equal(D.monthMatrix(2026, 11)[0][0].iso, '2026-10-31'); // November 1st is a Sunday → the grid starts Saturday 31 Oct
+    globalThis.IBSettings = { weekStart: () => 0 }; // الأحد
+    assert.deepEqual(plain(D.presetRange('thisWeek', '2026-11-17')), { from: '2026-11-15', to: '2026-11-17' });
+    assert.deepEqual(plain(D.presetRange('lastWeek', '2026-11-17')), { from: '2026-11-08', to: '2026-11-14' });
+    assert.equal(D.monthMatrix(2026, 11)[0][0].iso, '2026-11-01');
+    globalThis.IBSettings = { weekStart: () => 1 }; // الاتنين
+    assert.deepEqual(plain(D.presetRange('thisWeek', '2026-11-17')), { from: '2026-11-16', to: '2026-11-17' });
+    assert.equal(D.monthMatrix(2026, 11)[0][0].iso, '2026-10-26');
+  } finally { if (prev === undefined) delete globalThis.IBSettings; else globalThis.IBSettings = prev; }
+});

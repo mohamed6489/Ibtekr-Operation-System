@@ -9,7 +9,10 @@
 
   const TYPES = Object.freeze([['customer', 'مشكلة عميل'], ['vendor', 'مشكلة مبتكر'], ['internal', 'تعليق داخلي']]);
   const STATUSES = Object.freeze([['open', 'مفتوح'], ['in_progress', 'جاري العمل'], ['waiting', 'بانتظار الرد'], ['resolved', 'تم الحل'], ['closed', 'مغلق']]);
-  const PRIORITIES = Object.freeze([['urgent', 'عاجل'], ['high', 'عالي'], ['normal', 'عادي'], ['low', 'منخفض']]);
+  const BASE_PRIORITIES = Object.freeze([['urgent', 'عاجل'], ['high', 'عالي'], ['normal', 'عادي'], ['low', 'منخفض']]);
+  // the settings lists all editable (2026-11-14-settings-lists.md decision 3): the four levels keep their code; the name is the admin's
+  // (IBSettings.statusLabel('priority', code)) when the settings are loaded — the base names otherwise (node, the tests)
+  const prios = () => { try { const S = typeof globalThis !== 'undefined' ? globalThis.IBSettings : null; if (S && S.statusLabel) return BASE_PRIORITIES.map(([k, l]) => [k, S.statusLabel('priority', k) || l]); } catch (e) { /* not loaded */ } return BASE_PRIORITIES; };
   // the six roles of the v2; the owner 12 Nov (0081): a request goes to any role of the team — setRoles() adds the others (ticket_roles())
   const BASE_ROLES = Object.freeze(['مدير النظام', 'خدمة العملاء', 'متابعة المبتكرين', 'الحسابات', 'اللوجستيك والشحن', 'المحتوى والتصوير']);
   let ROLES = BASE_ROLES;
@@ -32,7 +35,7 @@
     const title = clean(input.title, 1000);
     if (!title) e.title = 'اكتب عنوان للتذكرة'; else if (title.length > TITLE_MAX) e.title = 'العنوان أقصاه ' + TITLE_MAX + ' حرف';
     if (!clean(input.description, 5000)) e.description = 'اكتب إيه اللي حصل وإيه المطلوب';
-    if (!PRIORITIES.some((p) => p[0] === input.priority)) e.priority = 'اختار الأولوية';
+    if (!BASE_PRIORITIES.some((p) => p[0] === input.priority)) e.priority = 'اختار الأولوية';
     if (!ROLES.includes(input.assigneeRole)) e.assigneeRole = 'اختار الدور المسؤول';
     if (input.type === 'customer') { if (!clean(input.orderId, 20)) e.orderId = 'اكتب رقم الأوردر'; if (!CUSTOMER_REASONS.includes(input.reason)) e.reason = 'اختار سبب المشكلة'; }
     if (input.type === 'vendor') { if (!clean(input.vendor, 80)) e.vendor = 'اختار المبتكر'; if (!VENDOR_REASONS.includes(input.reason)) e.reason = 'اختار سبب المشكلة'; }
@@ -98,7 +101,7 @@
     function update(id, patch, actor) {
       const t = must(id); if (!canWork(t, actor) && !canClose(t, actor)) throw noPerm();
       for (const k of ['assigneeRole', 'priority', 'followUp']) { if (patch[k] !== undefined && patch[k] !== t[k]) { const old = t[k]; t[k] = patch[k];
-        const lab = k === 'priority' ? (v) => label(PRIORITIES, v) : (v) => (v || '—');
+        const lab = k === 'priority' ? (v) => label(prios(), v) : (v) => (v || '—');
         event(id, actor.name + ' غيّر ' + (k === 'assigneeRole' ? 'المسؤول' : k === 'priority' ? 'الأولوية' : 'تاريخ المتابعة') + ' من «' + lab(old) + '» إلى «' + lab(t[k]) + '»', actor, { oldValue: old, newValue: t[k] }); } }
     }
     const all = () => [...tickets.values()].map((t) => Object.assign({}, t));
@@ -142,6 +145,6 @@
     const extra = (Array.isArray(list) ? list : []).map((x) => clean(x, 60)).filter(Boolean);
     ROLES = Object.freeze([...new Set(BASE_ROLES.concat(extra))]); return ROLES;
   }
-  return Object.freeze({ TYPES, STATUSES, PRIORITIES, get ROLES() { return ROLES; }, BASE_ROLES, setRoles, ADMIN_ROLE, CUSTOMER_REASONS, VENDOR_REASONS, OUTCOMES, OPEN, WORK_STATUSES, TITLE_MAX, label, validateTicket, createStore, canWork, canClose, canReopen, isAdmin, summary, summaryDetails, filterTickets });
+  return Object.freeze({ TYPES, STATUSES, get PRIORITIES() { return prios(); }, BASE_PRIORITIES, get ROLES() { return ROLES; }, BASE_ROLES, setRoles, ADMIN_ROLE, CUSTOMER_REASONS, VENDOR_REASONS, OUTCOMES, OPEN, WORK_STATUSES, TITLE_MAX, label, validateTicket, createStore, canWork, canClose, canReopen, isAdmin, summary, summaryDetails, filterTickets });
 });
 

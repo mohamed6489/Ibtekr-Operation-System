@@ -325,3 +325,21 @@ test('9.5.6 adTotals by the linked platforms: TikTok\'s spend counts when linked
   const rows = W.adCampaignRows([{ platform: 'tiktok', kind: 'campaign', id: '180000000002', name: 'TT', status: 'ACTIVE' }], stats, orders, rg);
   assert.deepEqual(rows.map((r) => [r.id, r.platform, r.key, r.orders]), [['120000000001', 'ميتا', 'meta', 2], ['180000000002', 'تيك توك', 'tiktok', 1], ['210000000003', 'جوجل', 'google', 1]]); // an order with a campaign id makes a row even unlinked
 });
+
+// docs/superpowers/plans/2026-11-14-settings-lists.md decision 4: the plan's weeks start on the settings' week start
+test('settings lists: the plan calendar\'s weeks follow the week start', () => {
+  const prev = globalThis.IBSettings;
+  try {
+    assert.deepEqual([...W.DAYS], ['السبت', 'الأحد', 'الاتنين', 'التلات', 'الأربع', 'الخميس', 'الجمعة']);
+    globalThis.IBSettings = { weekStart: () => 0 }; // الأحد
+    assert.deepEqual([...W.DAYS], ['الأحد', 'الاتنين', 'التلات', 'الأربع', 'الخميس', 'الجمعة', 'السبت']);
+    assert.equal(W.dayIdx('2026-11-08'), 0); // a Sunday
+    assert.equal(W.DAYS[W.dayIdx('2026-11-14')], 'السبت');
+    assert.equal(W.wkStart('2026-11-14'), '2026-11-08');
+    assert.deepEqual(W.weeksOf('2026-11-01', '2026-11-20'), ['2026-11-01', '2026-11-08', '2026-11-15']);
+    assert.deepEqual(W.planDefault('2026-11-17'), { from: '2026-11-08', to: '2026-11-28', preset: 'custom' });
+    globalThis.IBSettings = { weekStart: () => 1 }; // الاتنين
+    assert.equal(W.DAYS[0], 'الاتنين'); assert.equal(W.wkStart('2026-11-17'), '2026-11-16');
+    assert.equal(W.dayLabel('2026-11-14'), 'السبت 14/11/2026'); // a day's own name never moves
+  } finally { if (prev === undefined) delete globalThis.IBSettings; else globalThis.IBSettings = prev; }
+});

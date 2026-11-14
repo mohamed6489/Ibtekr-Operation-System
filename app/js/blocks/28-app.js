@@ -121,7 +121,7 @@
     const splitTags = (t) => String(t || '').split(/[،,]/).map((x) => x.trim()).filter(Boolean);
     const mvIn = (d) => ({ amount: String(d.amount), date: D.formatDateNumeric(d.date), direction: d.direction === 'إيداع' ? 'deposit' : 'withdraw', type: d.type, otherName: d.typeName || '', vendor: d.vendor });
     const acIn = (d) => ({ amount: String(d.amount), date: D.formatDateNumeric(d.date), direction: d.direction === 'إيداع' ? 'deposit' : 'withdraw', account: d.account });
-    const tkIn = (d) => ({ type: (TK.TYPES.find((x) => x[1] === d.type) || [d.type])[0], title: d.title, description: d.description, priority: (TK.PRIORITIES.find((x) => x[1] === d.priority) || [d.priority])[0], assigneeRole: d.role, orderId: d.orderId || '', customer: d.customer || '', vendor: d.vendor || '', reason: d.reason || null });
+    const tkIn = (d) => ({ type: (TK.TYPES.find((x) => x[1] === d.type) || [d.type])[0], title: d.title, description: d.description, priority: (TK.PRIORITIES.find((x) => x[1] === d.priority) || TK.BASE_PRIORITIES.find((x) => x[1] === d.priority) || [d.priority])[0], assigneeRole: d.role, orderId: d.orderId || '', customer: d.customer || '', vendor: d.vendor || '', reason: d.reason || null });
     // add new rows / patch matching ones (onMatch «تخطّي» = add-only) with undo
     function upsert(list, rows, onMatch, match, make, patchOf) {
       const done = { created: [], updated: [] };

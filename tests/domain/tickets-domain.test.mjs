@@ -80,3 +80,17 @@ test('setRoles: the team\'s roles after the six (cleaned, once); validateTicket 
   assert.equal(T.validateTicket(input).assigneeRole, 'اختار الدور المسؤول');
 });
 
+
+// docs/superpowers/plans/2026-11-14-settings-lists.md decision 3: a priority keeps its code and shows the admin's name
+test('settings lists: the priorities show the settings\' names by their code', () => {
+  const prev = globalThis.IBSettings;
+  try {
+    assert.deepEqual(json(TK.PRIORITIES), [['urgent', 'عاجل'], ['high', 'عالي'], ['normal', 'عادي'], ['low', 'منخفض']]);
+    globalThis.IBSettings = { statusLabel: (kind, v) => (kind === 'priority' && v === 'urgent' ? 'طارئ' : ({ high: 'عالي', normal: 'عادي', low: 'منخفض' })[v]) };
+    assert.deepEqual(json(TK.PRIORITIES).map((p) => p[1]), ['طارئ', 'عالي', 'عادي', 'منخفض']);
+    assert.equal(TK.label(TK.PRIORITIES, 'urgent'), 'طارئ');
+    assert.deepEqual(json(TK.BASE_PRIORITIES)[0], ['urgent', 'عاجل']);
+    assert.equal(TK.validateTicket({ type: 'internal', title: 'x', priority: 'urgent', assigneeRole: 'مدير النظام' }).priority, undefined); // the code still validates
+    assert.ok(TK.validateTicket({ type: 'internal', title: 'x', priority: 'طارئ', assigneeRole: 'مدير النظام' }).priority); // a name is not a code
+  } finally { if (prev === undefined) delete globalThis.IBSettings; else globalThis.IBSettings = prev; }
+});

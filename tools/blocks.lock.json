@@ -13,11 +13,11 @@
   },
   "04-reports-domain.js": {
     "prototype": "91b189a98b6050f62a54c350ab31484c207a186f7b12b294966ff121500a52d6",
-    "current": "5b67068c66580191acdcfe5af02897c05a110b8628c326952baf42eaf3c79c16"
+    "current": "9b1bec94975d274547bdaa71057243ee0e459912a72e3834da43cfccfc4fc877"
   },
   "05-tickets-domain.js": {
     "prototype": "0ad40f82b8de08859d6a7fba0ad228886fa9fab0340e06c14e89811a39fff569",
-    "current": "72816cbacb5d8e88d253ffb28ee718202ac649e99ca311c5b2504b8f34625e73"
+    "current": "98023bcd5d6e61aa9777d0eb0ecf66432a5b314d0b52a5e3e66783c693364239"
   },
   "06-vendors-domain.js": {
     "prototype": "eee7f82bb5af1440fc5a7454dcad65932f5253b0af6e583a6f2eaf969e7c2bfa",
@@ -37,7 +37,7 @@
   },
   "10-ui-kit.js": {
     "prototype": "6d7129cf7ed40e7276739b75c131c31935f1f1a10c57d62a509dcbfd5e340cca",
-    "current": "275d7ea81527cc5ef46240d0e23c4b4aff6b557e5322f24703e916e8e956bf0d"
+    "current": "a7dd2ac1f7d8881304d0662c79af3cd8f06ceedd2043a80fcaca310c05f7ef4a"
   },
   "11-seed-product-images.js": {
     "prototype": "e378804fb28fedc3fccfbf1a287ebfb2ac99a23d28529f86e8e0afd319be6187",
@@ -57,7 +57,7 @@
   },
   "15-page-hr.js": {
     "prototype": "ee600dbb6d1a699847ee0528e7454c3bc857f4801989b1cf85cdba72aa135d76",
-    "current": "061769145cfdcabda0affc515e476723cba517242f463e15a18977df4ee705cf"
+    "current": "20f515d85fb145d68cbc9126f16b9319b9eebf90406e084b2cff5b41abee080e"
   },
   "16-page-inventory.js": {
     "prototype": "80101269ffc51399a6b19dad74375aa32575fa9e2e6071885c5c77885afee8f5",
@@ -65,7 +65,7 @@
   },
   "17-page-settings.js": {
     "prototype": "89d9c49b0d0f466a618479a6b68c237edb4e90a12b0b233e7d05f7916c8e8dde",
-    "current": "7ff29da3adce15402f581af0a3af6bfe2f6187f46c62cc47e07dbfda1d4286be"
+    "current": "f9ee4ed860b7d6c5dab9021ff19a242a168f321520b9fc7af79d4aadd00a7f0c"
   },
   "18-page-profile.js": {
     "prototype": "218eb74e001b3e909a563499cdd2d929b1893e93d86d81f9039603b34dbdaa8a",
@@ -109,7 +109,7 @@
   },
   "28-app.js": {
     "prototype": "28f47321b1a78201e81b34cffa6e20cba67b15788396c9ce0def7cd7e17243c9",
-    "current": "7f956318316f2890bd39d7115b9985a4c967f8133c2749575083362d432f6a70"
+    "current": "eaea9e2c3abdb6ddacf7ba149c2c8e38859498e888844c040695ff7e6106c11b"
   },
   "29-orders-app.js": {
     "prototype": "2e80a15f203c79adc2931c3682297119b4e1926b9e40f10a0b906007acff23bd",

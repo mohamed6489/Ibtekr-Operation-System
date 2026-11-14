@@ -354,7 +354,8 @@
   const expenseKinds = () => STATUS_KINDS.expense.concat(cleanKinds((listSrc() || {}).expenseKinds));
   // decision 4: the first day of the week (settings «general».week, read with the sign-in) as a JS weekday — السبت 6 · الأحد 0 · الاتنين 1
   const WEEK_DAYS = { 'السبت': 6, 'الأحد': 0, 'الاتنين': 1, 'الإثنين': 1 };
-  function weekStart() { const g = (data.public && data.public.general) || section('general') || {}; const d = WEEK_DAYS[String(g.week || '').trim()]; return d === undefined ? 6 : d; }
+  // the admin's own row first (fresher right after «حفظ»), else the public slice every member gets with the sign-in
+  function weekStart() { const sg = section('general'); const g = (sg && sg.week ? sg : null) || (data.public && data.public.general) || sg || {}; const d = WEEK_DAYS[String(g.week || '').trim()]; return d === undefined ? 6 : d; }
   // the admin saves the lists (each 1–30 items of at most 60 characters, no repeats; «أخرى» is added last by the reader where it belongs)
   // → { ok } · logged as settings.lists.save (counts only). A key left out keeps what is saved; cancel / returns are always written.
   async function saveLists(next) {

@@ -67,3 +67,17 @@ test('the makers wording: «العرابين المدفوعة للمبتكرين
   assert.deepEqual([rep.net, rep.actual, rep.potential], [260, 500, 515]);
   assert.ok(json(rep.potentialParts).some((p) => p[0] === 'عرابين مدفوعة للمبتكرين' && p[1] === 5));
 });
+
+// docs/superpowers/plans/2026-11-14-settings-lists.md decision 4: the weekly buckets start on the settings' week start
+test('settings lists: the weekly buckets follow the week start (Saturday by default)', () => {
+  const prev = globalThis.IBSettings;
+  try {
+    assert.equal(R.weeklyBuckets('2026-11-01', '2026-11-20')[0].from, '2026-10-31'); // Saturday
+    globalThis.IBSettings = { weekStart: () => 0 };
+    assert.deepEqual(R.weeklyBuckets('2026-11-01', '2026-11-20').map((b) => b.from), ['2026-11-01', '2026-11-08', '2026-11-15']);
+    globalThis.IBSettings = { weekStart: () => 1 };
+    assert.equal(R.weeklyBuckets('2026-11-01', '2026-11-20')[0].from, '2026-10-26');
+    globalThis.IBSettings = { weekStart: () => 3 }; // not a choice → Saturday
+    assert.equal(R.weeklyBuckets('2026-11-01', '2026-11-20')[0].from, '2026-10-31');
+  } finally { if (prev === undefined) delete globalThis.IBSettings; else globalThis.IBSettings = prev; }
+});

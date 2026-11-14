@@ -135,21 +135,25 @@ export function permOk(role, perm) {
   return (RANK[p[perm[0]]] || 0) >= RANK[perm[1]];
 }
 // R | S | N of a role for a source: the matrix (or the block-23 default) gated by the role's permissions; the admin never N
-export function accessOf(notif, roles, key, roleId, override) {
+// owner batch 2 decision 2: a member's level reads notif.alertLevels[level][key] over the role row (alertRoles = the «موظف» matrix)
+export function accessOf(notif, roles, key, roleId, override, level) {
   const src = sourceOf(key); if (!src) return 'N';
-  const role = (roles || []).find((r) => r.id === roleId) || null;
+  const role0 = (roles || []).find((r) => r.id === roleId) || null;
+  const lg = role0 && level && level !== 'employee' && role0.level_perms && typeof role0.level_perms[level] === 'object' ? role0.level_perms[level] : null;
+  const role = lg ? { ...role0, permissions: lg } : role0; // the permissions of that level (0096)
   if (!permOk(role, src.perm)) return 'N';
   const ci = roleIndex(roles)[roleId]; if (ci === undefined) return 'N';
-  const m = notif && notif.alertRoles && typeof notif.alertRoles[key] === 'string' ? notif.alertRoles[key] : src.def;
+  const lvm = level && level !== 'employee' && notif && notif.alertLevels && notif.alertLevels[level] && typeof notif.alertLevels[level][key] === 'string' ? notif.alertLevels[level][key] : null;
+  const m = lvm || (notif && notif.alertRoles && typeof notif.alertRoles[key] === 'string' ? notif.alertRoles[key] : src.def);
   let c = override && override !== 'role' ? override : (m[ci] || 'N');
   if (roleId === 'admin' && c === 'N') c = 'S';
   return c === 'R' || c === 'S' ? c : 'N';
 }
-export const receivers = (notif, roles, key) => (roles || []).filter((r) => accessOf(notif, roles, key, r.id) === 'R').map((r) => r.id);
+export const receivers = (notif, roles, key) => (roles || []).filter((r) => ['employee', 'manager', 'viewer'].some((lv) => accessOf(notif, roles, key, r.id, undefined, lv) === 'R')).map((r) => r.id); // a role receives when any of its levels does
 // the members of a role who receive the source (a member's override may add or remove them), active only, with their contacts
 export function roleMembers(notif, roles, members, key, roleId) {
   const ov = notif && notif.alertOverrides && typeof notif.alertOverrides === 'object' ? notif.alertOverrides : {};
-  return (members || []).filter((m) => m && m.status === 'active' && m.role_id === roleId && accessOf(notif, roles, key, roleId, ov[m.id] && ov[m.id][key]) === 'R');
+  return (members || []).filter((m) => m && m.status === 'active' && m.role_id === roleId && accessOf(notif, roles, key, roleId, ov[m.id] && ov[m.id][key], m.level) === 'R');
 }
 
 // ---------------------------------------------------------------- the quiet hours, the WhatsApp cap, the escalations

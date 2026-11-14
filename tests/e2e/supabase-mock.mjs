@@ -73,8 +73,8 @@ const COLUMNS = { // supabase/migrations/0001_identity.sql, 0002_system.sql (act
   // alert_reads), 0007_orders.sql (orders_v; order_items / sub_orders: the columns granted to authenticated, i.e. all but raw),
   // 0009 (products.permalink), 0010 (orders_v.customer_state: the governorate's code on the website; woo_states: its names),
   // 0011 (order_items.commission_rate / fee; the team's vendors columns; vendor_rates; vendor_bank)
-  profiles: ['id', 'member_code', 'name', 'email', 'phone', 'role_id', 'extra_roles', 'title', 'dept', 'manager_id', 'manager_fixed', 'status', 'twofa', 'custom_perms', 'created_at'], // 0092: manager_fixed
-  roles: ['id', 'name', 'description', 'is_system', 'permissions', 'sort', 'hidden', 'manager_id'], // 0056: hidden; 0092: manager_id
+  profiles: ['id', 'member_code', 'name', 'email', 'phone', 'role_id', 'extra_roles', 'level', 'title', 'dept', 'manager_id', 'manager_fixed', 'status', 'twofa', 'custom_perms', 'created_at'], // 0092: manager_fixed; 0096: level
+  roles: ['id', 'name', 'description', 'is_system', 'permissions', 'level_perms', 'sort', 'hidden', 'manager_id'], // 0056: hidden; 0092: manager_id; 0096: level_perms
   user_prefs: ['user_id', 'key', 'data', 'updated_at'],
   activity_log: ['id', 'at', 'actor', 'action', 'entity', 'entity_id', 'old_value', 'new_value'],
   alerts: ['id', 'at', 'kind', 'title', 'body', 'role_id', 'user_id', 'entity', 'entity_id', 'read_at'],
@@ -264,7 +264,8 @@ function ordersSeed(opts = {}) {
 const aalGated = (u) => u.aal !== 'aal2' && (!!u.twofa || !!u.force2fa);
 // has_perm of 0001 + 0008: 'N' for a profile that is not active or aal-gated, 'F' for admin, else custom_perms, then the role's matrix
 // 0081: the highest of the main and the extra roles (a hidden role gives nothing as an extra); custom_perms first
-const permOfRoles = (u, key) => { let best = 0; [u.role_id].concat(Array.isArray(u.extra_roles) ? u.extra_roles : []).forEach((id, i) => { const r = ROLES.find((x) => x.id === id); if (!r || (i > 0 && (r.hidden || id === 'admin'))) return; const p = r.permissions[key]; best = Math.max(best, p === 'F' ? 2 : p === 'P' ? 1 : 0); }); return best === 2 ? 'F' : best === 1 ? 'P' : 'N'; };
+const permOfRoles = (u, key) => { let best = 0; [u.role_id].concat(Array.isArray(u.extra_roles) ? u.extra_roles : []).forEach((id, i) => { const r = (LIVE_ROLES.list || ROLES).find((x) => x.id === id); if (!r || (i > 0 && (r.hidden || id === 'admin'))) return; const lv = i === 0 && u.level && u.level !== 'employee' && r.level_perms && r.level_perms[u.level]; const p = (lv || r.permissions)[key]; /* 0096: the main role at the member's level */ best = Math.max(best, p === 'F' ? 2 : p === 'P' ? 1 : 0); }); return best === 2 ? 'F' : best === 1 ? 'P' : 'N'; };
+const LIVE_ROLES = { list: null }; // the mock's roles (settings-mock writes them), so a level's group counts
 const hasPerm = (u, key) => (u.status !== 'active' || aalGated(u) ? 'N' : u.role_id === 'admin' ? 'F' : (u.custom_perms || {})[key] || permOfRoles(u, key));
 const isAdmin = (u) => u.status === 'active' && u.role_id === 'admin' && !aalGated(u);
 // 0045 (phase 8): the ticket roles of a system role (ticket_role_labels) and the v2 lists the server checks
@@ -423,7 +424,7 @@ export async function installSupabaseMock(page, opts = {}) {
   // phase 9.5.1 (0049): the marketing rows (mkt-mock.mjs mktState: opts.mktCampaigns / mktPosts / mktTemplates / mktObjects / mktCap / mktUsed), mkt.calls / mkt.writes
   mock.mkt = mktState(opts);
   // phase 11 (0056): the settings page's server side (settings-mock.mjs settingsState: opts.vault / companyDocs / settingsObjects / sessions / probeOk), st.calls / st.writes; the roles copy of this install
-  mock.st = settingsState(opts, ROLES); mock.roles = mock.st.roles;
+  mock.st = settingsState(opts, ROLES); mock.roles = mock.st.roles; LIVE_ROLES.list = mock.roles;
   mock.portal = portalState(); // phase 13 T4
   mock.accWrites = []; mock.accountsDown = false; mock.statements = []; mock.statementRows = opts.statementRows || [];
   let accSeq = 0;

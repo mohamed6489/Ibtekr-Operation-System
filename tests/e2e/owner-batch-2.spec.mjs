@@ -175,3 +175,51 @@ test('T3 — decision 17: the delay rules in two boxes (no per-maker rules); the
   await leave();
   await expect(badge('180656')).toHaveCount(1);
 });
+
+test('T4 — decision 2: the permissions in three levels — a role opens its levels, the matrix of a level is saved as that level; a member\'s level beside his role', async ({ page }) => {
+  await go(page, 'settings-team');
+  const body = page.locator('#pg-settings');
+  await body.getByRole('tab', { name: 'الأدوار والصلاحيات' }).click();
+  // a role chip opens its three levels
+  await body.locator('[data-role-chip="عمليات"]').click();
+  await expect(body.locator('[data-role-levels="عمليات"] [data-role-level]')).toHaveCount(3);
+  await body.locator('[data-role-levels="عمليات"] [data-role-level="manager"]').click();
+  await expect(body.getByRole('tab', { name: 'صلاحيات المدير' })).toHaveAttribute('aria-selected', 'true');
+  // toggle a cell of «عمليات» in the manager's matrix → saved as the manager group only
+  const pm = body.locator('[data-perm-matrix]');
+  const cell = pm.locator('button.pm[aria-label*="عمليات"]').filter({ hasNot: page.locator('[disabled]') }).first();
+  const label = await cell.getAttribute('aria-label');
+  await cell.click();
+  await expect.poll(() => (mock.st.writes || []).filter((w) => w.op === 'level_perms').map((w) => [w.id, w.level])).toContainEqual(['ops', 'manager']);
+  const ops = mock.st.roles.find((r) => r.id === 'ops');
+  expect(ops.level_perms && ops.level_perms.manager).toBeTruthy();
+  expect(label).toContain('عمليات');
+  const sv = page.locator('[data-set-save]').first(); if (await sv.count()) await sv.click(); // the matrix change saved before leaving the tab
+  // the member's level beside the role (the admin): «مشاهد» for the ops member
+  await body.getByRole('tab', { name: 'الأعضاء' }).click();
+  const row = body.locator('tr', { hasText: 'ops.dev@ibtekr.local' }).first();
+  await expect(async () => { // the page redraws once the roles are read again after the matrix save
+    await row.getByRole('button', { name: 'موظف', exact: true }).click();
+    await page.getByRole('option', { name: 'مشاهد', exact: true }).last().click({ timeout: 2000 });
+  }).toPass({ timeout: 15000 });
+  await expect.poll(() => (mock.st.writes || []).filter((w) => w.op === 'level').map((w) => w.level)).toEqual(['viewer']);
+});
+
+test('T4 — decision 4: «إضافة عضو» in three parts; the level «مدير» has no direct manager; another level picks from the role\'s managers; the level is saved after the account', async ({ page }) => {
+  await go(page, 'hr-team');
+  await page.locator('#pg-hr').getByRole('button', { name: 'إضافة عضو' }).click();
+  const f = modal(page).filter({ hasText: 'إضافة عضو' });
+  await expect(f.locator('[data-form-sec]')).toHaveText(['البيانات الشخصية', 'البيانات المالية', 'بيانات الوظيفة']);
+  await expect(f.locator('#manager')).toHaveCount(1);
+  await f.locator('#level').click(); await page.locator('[role=listbox] [role=option]', { hasText: 'مدير' }).first().click();
+  await expect(f.locator('#manager')).toHaveCount(0); // a manager has none
+  await f.locator('#level').click(); await page.locator('[role=listbox] [role=option]', { hasText: 'مشاهد' }).first().click();
+  await expect(f.locator('#manager')).toHaveCount(1);
+  await f.locator('#name').fill('ليلى عادل'); await f.locator('#title').fill('مساعدة'); await f.locator('#email').fill('laila.dev@ibtekr.local');
+  await f.locator('#hire').fill('01/11/2026'); await f.locator('#hire').press('Tab');
+  await f.locator('#salary').fill('8000');
+  await f.getByRole('button', { name: 'إضافة وعمل الحساب' }).click();
+  await expect.poll(() => (mock.st.writes || []).filter((w) => w.op === 'level').map((w) => w.level)).toEqual(['viewer']);
+  const p = mock.profiles.find((x) => x.email === 'laila.dev@ibtekr.local');
+  expect(p && p.level).toBe('viewer');
+});

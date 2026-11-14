@@ -1901,3 +1901,10 @@ tr.is-sel td,#vendors .tickets-table tr.is-sel td,.vprod-row.is-sel{background:v
 .dl-boxes>.card{margin:0}
 @media (max-width:900px){.dl-boxes{grid-template-columns:minmax(0,1fr)}}
 [data-delay-stop] .chip[aria-checked=true]{background:var(--color-brand-default);border-color:var(--color-brand-default);color:var(--color-text-on-brand)}
+/* owner batch 2 decision 2: a role's levels under its chip; role + level side by side in the members table */
+.role-levels{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:12px;padding:12px;border:1px solid var(--color-border-subtle);border-radius:var(--radius-md);background:var(--color-bg-tint)}
+.role-chip.on{background:var(--color-selected-bg);border-color:var(--color-brand-default);color:var(--color-brand-default)}
+.role-lvl{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+/* owner batch 2 decision 4: the add-member popup's three parts */
+.form-sec{margin-top:8px;padding-bottom:6px;border-bottom:1px solid var(--color-border-subtle);color:var(--color-brand-default)}
+.form-sec:first-child{margin-top:0}

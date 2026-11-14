@@ -28,7 +28,7 @@ export function settingsState(opts = {}, roles) {
 
 export function settingsRoute(c) {
   const { method, path, url, hd, u, hasPerm, isAdmin, json, mock } = c; const S = mock.st; if (!S) return null;
-  const rpc = /^\/rest\/v1\/rpc\/(role_perms_set|role_create|role_update|role_delete|role_manager_set|member_manager_set|member_role_set|member_roles_set|member_perms_set|member_status_set|my_sessions|my_session_revoke|settings_public)$/.exec(path);
+  const rpc = /^\/rest\/v1\/rpc\/(role_level_perms_set|member_level_set|role_perms_set|role_create|role_update|role_delete|role_manager_set|member_manager_set|member_role_set|member_roles_set|member_perms_set|member_status_set|my_sessions|my_session_revoke|settings_public)$/.exec(path);
   const fn = method === 'POST' && (path === '/functions/v1/settings-admin' || path === '/functions/v1/notify');
   const docs = path === '/rest/v1/company_docs'; const sto = /^\/storage\/v1\/object\/(sign\/)?(company-docs|settings)\/(.+)$/.exec(path);
   const act = method === 'GET' && path === '/rest/v1/activity_log' && [...url.searchParams].some(([k, v]) => k === 'action' && v.startsWith('like.') || (k === 'at' && /^(lte|gte)\./.test(v))) || (method === 'GET' && path === '/rest/v1/activity_log' && (hd.range || url.searchParams.has('offset')));
@@ -76,6 +76,19 @@ export function settingsRoute(c) {
       r.manager_id = to; let n = 0;
       mock.profiles.forEach((p) => { if (p.role_id === r.id && !p.manager_fixed) { p.manager_id = p.id === to ? null : to; if ((p.status || 'active') === 'active' && p.id !== to) n += 1; } });
       S.writes.push({ table: 'roles', op: 'manager', id: r.id, manager: to }); logRow('hr.role.manager', 'role', r.id, null, to); return json(200, { members: n });
+    }
+    // 0096 (owner batch 2 decision 2): a role's group at a level; a member's level (the admin only — the check above)
+    if (name === 'role_level_perms_set') {
+      if (!['manager', 'employee', 'viewer'].includes(body.p_level)) return refuse(400, '22023', 'invalid: level');
+      if (body.p_role === 'admin') return refuse(400, '22023', 'the admin role has every permission'); if (!permsOk(body.p_perms)) return refuse(400, '22023', 'invalid: perms');
+      const r = role(body.p_role); if (!r) return refuse(404, 'P0002', 'no such role');
+      if (body.p_level === 'employee') r.permissions = { ...body.p_perms }; else r.level_perms = { ...(r.level_perms || {}), [body.p_level]: { ...body.p_perms } };
+      S.writes.push({ table: 'roles', op: 'level_perms', id: r.id, level: body.p_level }); logRow('settings.role.perms', 'role', r.id, null, { level: body.p_level }); return json(204, null);
+    }
+    if (name === 'member_level_set') {
+      if (!['manager', 'employee', 'viewer'].includes(body.p_level)) return refuse(400, '22023', 'invalid: level');
+      const p = mock.profiles.find((x) => x.id === body.p_member); if (!p) return refuse(404, 'P0002', 'no such member'); if (p.role_id === 'admin') return refuse(400, '22023', 'invalid: admin');
+      p.level = body.p_level; S.writes.push({ table: 'profiles', op: 'level', id: p.id, level: p.level }); logRow('settings.member.level', 'profile', p.id, null, p.level); return json(204, null);
     }
     if (name === 'role_perms_set') {
       if (body.p_role === 'admin') return refuse(400, '22023', 'the admin role has every permission'); if (!permsOk(body.p_perms)) return refuse(400, '22023', 'invalid: perms');

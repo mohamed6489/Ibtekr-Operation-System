@@ -73,13 +73,13 @@ test('the team: the matrix from the roles\' real permissions; a cell toggles rol
   // the permission change above reloads the settings and the directory after its write (setRolePerms: load + IBDirectory.refresh),
   // and each reload redraws the page — one landing while the select is open closes it, so open and pick again until it takes
   await expect(async () => {
-    await row.locator('button.select').click();
+    await row.locator('button.select[id^="role-"]').click();
     await page.getByRole('option', { name: 'خدمة العملاء' }).click({ timeout: 2000 });
   }).toPass({ timeout: 15000 });
   await expect.poll(() => mock.st.writes.filter((w) => w.op === 'role').length).toBe(1);
   expect(mock.st.writes.find((w) => w.op === 'role')).toMatchObject({ id: OPS_ID, from: 'ops', to: 'cs' });
   expect(mock.profiles.find((p) => p.id === OPS_ID).role_id).toBe('cs');
-  await expect(row.locator('button.select')).toContainText('خدمة العملاء'); // the directory refreshed and the table re-rendered
+  await expect(row.locator('button.select[id^="role-"]')).toContainText('خدمة العملاء'); // the directory refreshed and the table re-rendered
   await page.waitForTimeout(400);
   // suspend: the reason is required, then settings-admin member_status
   await row.getByRole('button', { name: /إجراءات/ }).click();

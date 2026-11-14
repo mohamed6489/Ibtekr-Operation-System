@@ -21,8 +21,8 @@ const COLUMNS: Record<string, string[]> = {
     'contact_name', 'address_parts', 'social', 'logo_url', 'banner_url', 'woo_payment_methods', 'woo_snapshot', 'push_pending', 'woo_synced_at', 'photo_path', 'main_categories'],
   vendor_rates: ['id', 'vendor_id', 'rate', 'flat', 'since', 'set_by', 'created_at', 'commission_type'], // 0016: commission_type
   // 0001 + 0046 (phase 10, team-admin): the team's profiles, the roles, the members' HR data
-  profiles: ['id', 'member_code', 'name', 'email', 'phone', 'role_id', 'title', 'dept', 'manager_id', 'status', 'twofa', 'custom_perms', 'created_at'],
-  roles: ['id', 'name', 'description', 'is_system', 'permissions', 'sort'],
+  profiles: ['id', 'member_code', 'name', 'email', 'phone', 'role_id', 'level', 'title', 'dept', 'manager_id', 'status', 'twofa', 'custom_perms', 'created_at'],
+  roles: ['id', 'name', 'description', 'is_system', 'permissions', 'level_perms', 'sort'],
   hr_members: ['member_id', 'shift_start', 'shift_end', 'hire_date', 'leave_days', 'contract_path', 'notes', 'updated_by', 'updated_at'],
   vendor_category_rates: ['id', 'vendor_id', 'woo_category_id', 'rate', 'flat', 'since', 'set_by', 'created_at'],
   woo_categories: ['id', 'name', 'slug', 'parent_id', 'image_url', 'updated_at'], // image_url: 0088

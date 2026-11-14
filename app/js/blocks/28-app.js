@@ -716,7 +716,8 @@
   }
   function accFor(m) {
     const K = window.IBKit, NR = NRM(); const ci = roleIdx(m); const perms = tkPerms(sPerms(), ci, m); const ov = (K.store.alertOverrides || {})[m.id] || {}; const mute = ((K.store.notifPrefs || {})[m.id] || {}).mute || [];
-    return (k) => { let c = NR.access(K.store.alertRoles, perms, k, ci, ov[k]); if (c === 'R' && mute.includes(k)) c = 'S'; return c; };
+    const lvm = m && m.level && m.level !== 'employee' && K.store.alertLevels && K.store.alertLevels[m.level]; const AM = lvm ? Object.assign({}, K.store.alertRoles, lvm) : K.store.alertRoles; // owner batch 2 decision 2: my level's matrix
+    return (k) => { let c = NR.access(AM, perms, k, ci, ov[k]); if (c === 'R' && mute.includes(k)) c = 'S'; return c; };
   }
   function viewSections(noDigest) {
     const raw = notifSections(); const m = viewer(); const NR = NRM();
@@ -3990,6 +3991,7 @@
     if (Array.isArray(q.list)) K.store.quickActions = q.list.filter((x) => x && typeof x === 'object' && typeof x.name === 'string' && typeof x.link === 'string').map((x, i) => ({ id: String(x.id || 'qa-' + i), name: x.name.slice(0, 80), link: x.link.slice(0, 300), icon: typeof x.icon === 'string' ? x.icon : 'link' }));
     const n = pub.notif && typeof pub.notif === 'object' ? pub.notif : {};
     if (n.alertRoles && typeof n.alertRoles === 'object') { Object.keys(K.store.alertRoles).forEach((k) => delete K.store.alertRoles[k]); Object.assign(K.store.alertRoles, n.alertRoles); }
+    if (n.alertLevels && typeof n.alertLevels === 'object') K.store.alertLevels = n.alertLevels; // owner batch 2 decision 2
     if (n.myOverride && typeof n.myOverride === 'object' && K.ME) K.store.alertOverrides[K.ME] = n.myOverride;
     const sec = pub.security && typeof pub.security === 'object' ? pub.security : {};
     if (window.IBShell && window.IBShell.setIdle) window.IBShell.setIdle(sec);

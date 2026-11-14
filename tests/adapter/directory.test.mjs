@@ -20,7 +20,8 @@ function load({ me = profile(), signedIn = true } = {}) {
 test('load asks roles.permissions and my profile\'s custom_perms, then loads the vendors with the session', async () => {
   const { D, calls, queries } = load();
   await D.load();
-  assert.deepEqual(opsOf(queries, 'roles'), [{ op: 'select', args: ['id, name, permissions, hidden, sort, manager_id'] }]); // 0081: hidden / sort for the extra roles
+  assert.deepEqual(opsOf(queries, 'roles'), [{ op: 'select', args: ['id, name, permissions, level_perms, hidden, sort, manager_id'] }]); // 0081: hidden / sort for the extra roles; 0096: level_perms
+  assert.match(opsOf(queries, 'profiles')[0].args[0], /\blevel\b/);
   assert.match(opsOf(queries, 'profiles')[0].args[0], /\bextra_roles\b/);
   assert.match(opsOf(queries, 'profiles')[0].args[0], /\bcustom_perms\b/);
   assert.deepEqual(calls, [['setMe', 'M02'], ['vendors.load']]);
@@ -111,4 +112,16 @@ test('updateName: my row only, spaces collapsed and <> dropped, too short / too 
   assert.deepEqual(up.find((c) => c.op === 'eq').args, ['id', 'u1']);
   stub.responses.profiles = { data: null, error: { code: '42501', message: 'only an admin can change this profile field' } };
   assert.deepEqual({ ...(await D.updateName('اسم تاني')) }, { ok: false, reason: 'forbidden' });
+});
+
+test('0096 (owner batch 2 decision 2): my main role counts at my level — a manager / viewer group when the role has one, else the employee group; an extra role as employee', async () => {
+  const roles = [{ id: 'ops', name: 'عمليات', permissions: { 'vendors.view': 'F', 'vendors.edit': 'P' }, level_perms: { manager: { 'vendors.view': 'F', 'vendors.edit': 'F' }, viewer: { 'vendors.view': 'P' } } },
+    { id: 'cs', name: 'خدمة العملاء', permissions: { 'cs.view': 'F' }, level_perms: { manager: { 'cs.manage': 'F' } } }];
+  const at = async (me) => { const stub = stubClient({ responses: { profiles: { data: [me], error: null }, roles: { data: roles, error: null } } }); const window = { IBSupabase: { client: stub.client }, IBAuth: { session: () => ({ user: { id: 'u1' } }) }, IBKit: { store: { members: [] }, setMe() {} } };
+    runInNewContext(src, { window, document: { dispatchEvent() {} }, Event }); await window.IBDirectory.refresh(); return window.IBDirectory; };
+  assert.equal((await at(profile({ level: 'manager' }))).perm('vendors.edit'), 'F');
+  assert.equal((await at(profile({ level: 'employee' }))).perm('vendors.edit'), 'P');
+  const v = await at(profile({ level: 'viewer' })); assert.equal(v.perm('vendors.view'), 'P'); assert.equal(v.perm('vendors.edit'), 'N');
+  assert.equal((await at(profile({ level: 'manager', extra_roles: ['cs'] }))).perm('cs.manage'), 'N', 'an extra role counts as employee');
+  assert.equal((await at(profile({ level: null }))).perm('vendors.edit'), 'P', 'no level = employee');
 });

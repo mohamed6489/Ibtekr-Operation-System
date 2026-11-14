@@ -49,8 +49,8 @@ async function context(deps: Deps): Promise<Ctx> {
   const now = deps.now(); const nowMs = Date.parse(now); const cairo = cairoParts(nowMs);
   const [st, roles, members] = await Promise.all([
     deps.db.from('settings').select('section, data').in('section', ['notif', 'inventory', 'cs', 'makers']),
-    deps.db.from('roles').select('id, name, permissions, sort').limit(200),
-    deps.db.from('profiles').select('id, name, role_id, manager_id, status, email, phone').eq('status', 'active').limit(500),
+    deps.db.from('roles').select('id, name, permissions, level_perms, sort').limit(200),
+    deps.db.from('profiles').select('id, name, role_id, level, manager_id, status, email, phone').eq('status', 'active').limit(500), // 0096: level
   ]);
   const settings: Record<string, Json> = {}; for (const r of rows(st)) settings[String(r.section)] = isObj(r.data) ? r.data : {};
   return { now, nowMs, cairo, notif: settings.notif ?? {}, roles: rows(roles), members: rows(members), settings };

@@ -174,3 +174,15 @@ test('the outbound channels are off as a whole unless the switches say so (owner
   const dg = digestPlan({ now: NOW, notif: { ...off, roleDigests: {} }, roles: ROLES, members: MEMBERS, cairo: CAIRO, items, sentToday: new Set() });
   assert.equal(dg.length > 0 && dg.every((r) => r.email === false && !r.whatsapp), true, 'the role digests stay in the bell');
 });
+
+test('owner batch 2 decision 2 (0096): a level reads its own matrix row over the role row and its own permissions; a role receives when any level does', () => {
+  const notif = { ...NOTIF, alertRoles: { 'customers.late': 'RNNNNN' }, alertLevels: { manager: { 'customers.late': 'RRNNNN' } } };
+  assert.equal(accessOf(notif, ROLES, 'customers.late', 'ops'), 'N', 'the employee row');
+  assert.equal(accessOf(notif, ROLES, 'customers.late', 'ops', undefined, 'manager'), 'R', 'the manager row');
+  assert.equal(accessOf(notif, ROLES, 'customers.late', 'ops', undefined, 'viewer'), 'N', 'a level with no row reads the employee one');
+  assert.deepEqual(receivers(notif, ROLES, 'customers.late'), ['admin', 'ops'], 'ops receives through its managers');
+  // the level's permissions gate it: accounts.payroll needs accounts.view F
+  const roles = ROLES.map((r) => (r.id === 'cs' ? { ...r, level_perms: { manager: { ...r.permissions, 'accounts.view': 'F' } } } : r));
+  const pay = { alertRoles: { 'accounts.payroll': 'RRRRRR' } };
+  assert.equal(accessOf(pay, roles, 'accounts.payroll', 'cs'), 'N'); assert.equal(accessOf(pay, roles, 'accounts.payroll', 'cs', undefined, 'manager'), 'R');
+});

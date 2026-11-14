@@ -153,7 +153,7 @@ export function hrRoute(c) {
       if (mock.profiles.some((p) => p.email === email)) return json(409, { error: 'exists', field: 'email' });
       if (phone && mock.profiles.some((p) => p.phone === phone)) return json(409, { error: 'exists', field: 'phone' });
       const max = mock.profiles.map((p) => /^M(\d+)$/.exec(p.member_code || '')).filter(Boolean).reduce((n, m) => Math.max(n, Number(m[1])), 0);
-      const code = 'M' + String(max + 1).padStart(2, '0'); const id = '00000000-0000-4000-8000-0000000010' + String(max + 1).padStart(2, '0');
+      const code = 'M' + String(max + 1).padStart(2, '0'); const id = '00000000-0000-4000-8000-' + ('10' + String(max + 1).padStart(10, '0')); // a uuid whatever the code's length (M100 …)
       mock.profiles.push({ id, member_code: code, name: String(b.name).trim().replace(/\s+/g, ' '), email, phone: phone || null, role_id: b.role, title: b.title || null, dept: b.dept || null,
         manager_id: b.manager_id || null, status: 'active', twofa: false, custom_perms: {}, created_at: now });
       H.members.push({ member_id: id, shift_start: b.shift_start || '09:00', shift_end: b.shift_end || '17:00', hire_date: b.hire_date || null, leave_days: 21, notes: null });

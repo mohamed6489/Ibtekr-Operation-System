@@ -334,7 +334,8 @@
   // of each list (`statusOrder { confirm, sub }` — names; the ones left out keep their place after them). The order statuses the admin
   // added are status_map rows with a base (orderStatuses() / orderStatusAdd …) — their names come from the orders page's load.
   const ADDED_MAX = 20; const ADDED_LEN = 30; const ADDED_KINDS = ['confirm', 'sub'];
-  const addedOk = (t, kind) => t.length >= 2 && t.length <= ADDED_LEN && !/[<>]/.test(t) && !STATUS_KINDS[kind].includes(t);
+  const BAD_NAME = /[<>"'&\u0000-\u001f\u007f]/; // a status name goes into the pages' markup: no tags, quotes, & or control characters
+  const addedOk = (t, kind) => t.length >= 2 && t.length <= ADDED_LEN && !BAD_NAME.test(t) && !STATUS_KINDS[kind].includes(t);
   const cleanAdded = (v, kind, strict) => {
     const arr = v && typeof v === 'object' && Array.isArray(v[kind]) ? v[kind] : [];
     const out = []; for (const x of arr) { const t = typeof x === 'string' ? x.replace(/\s+/g, ' ').trim() : ''; if (!addedOk(t, kind) || out.includes(t)) { if (strict) return null; continue; } out.push(t); }
@@ -414,7 +415,7 @@
   // ---------- the order statuses (decision 22, 0095): status_map — a base row is renamed through its label only; an added row
   // «بتتحسب زي» a base (orders keep the base in status, the added one in status_custom), its own WooCommerce slug or its base's ----------
   const BASES = STATUS_KINDS.order; const SLUG = /^[a-z0-9][a-z0-9-]{0,39}$/;
-  const ORDER_MESSAGES = { name: 'اسم الحالة من 2 لـ 30 حرف ومن غير < >', exists: 'فيه حالة بالاسم ده', base: 'اختار الحالة الأساسية اللي بتتحسب زيها', slug: 'المقابل على الموقع: حروف إنجليزي صغيرة وأرقام و - بس (لحد 40)', in_use: 'عليها أوردرات — مينفعش تتمسح', names: 'الترتيب لازم يكون بكل الحالات', base_status: 'الحالة الأساسية مابتتمسحش' };
+  const ORDER_MESSAGES = { name: 'اسم الحالة من 2 لـ 30 حرف ومن غير < > " \' &', exists: 'فيه حالة بالاسم ده', base: 'اختار الحالة الأساسية اللي بتتحسب زيها', slug: 'المقابل على الموقع: حروف إنجليزي صغيرة وأرقام و - بس (لحد 40)', in_use: 'عليها أوردرات — مينفعش تتمسح', names: 'الترتيب لازم يكون بكل الحالات', base_status: 'الحالة الأساسية مابتتمسحش' };
   const oNo = (field, reason) => ({ ok: false, reason: reason || 'invalid', field, message: ORDER_MESSAGES[field] || MESSAGES[reason || 'invalid'] });
   async function orderStatuses() {
     const cl = c(); if (!cl) return no('network');
@@ -437,7 +438,7 @@
   async function orderStatusAdd(f) {
     if (!can().admin) return no('forbidden');
     const name = clean(f && f.name, 40); const base = String((f && f.base) || ''); const slug = clean(f && f.slug, 40).toLowerCase();
-    if (name.length < 2 || name.length > 30 || /[<>]/.test(name)) return oNo('name');
+    if (name.length < 2 || name.length > 30 || BAD_NAME.test(name)) return oNo('name');
     if (!BASES.includes(base)) return oNo('base');
     if (slug && !SLUG.test(slug)) return oNo('slug');
     return after(await orderRpc('order_status_add', { p_name: name, p_base: base, p_slug: slug || null }, 'name'), 'add', 'order');

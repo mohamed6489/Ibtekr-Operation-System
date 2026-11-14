@@ -1879,3 +1879,20 @@ td > :is(.mlink,.prod,.who-cell) .avatar{flex:none}
 .row-acts { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 [data-hr-notes] .note-row { padding: 10px 0; border-bottom: 1px solid var(--color-border, #e6dccb); }
 [data-hr-notes] .note-row:last-child { border-bottom: 0; }
+/* owner batch 2 (docs/superpowers/plans/2026-11-14-owner-batch-2.md decision 34): what is selected — a light beige, a thick green border
+   and green text, everywhere (the radio cards, the options of a list, the picked rows and nav items); the hover stays its own shade */
+:root{--color-selected-bg:#f6ead6}
+.opt-card.opt-card[aria-checked=true],.merge-c.merge-c.keep{background:var(--color-selected-bg);border:2px solid var(--color-brand-default);color:var(--color-brand-default)}
+.opt-card[aria-checked=true] :is(b,strong,.t-label){color:var(--color-brand-default)}
+:is(.opt[aria-selected=true],.opt[aria-checked=true]),:is(.opt[aria-selected=true],.opt[aria-checked=true]):hover{background:var(--color-selected-bg);color:var(--color-brand-default);box-shadow:inset 0 0 0 2px var(--color-brand-default)}
+.view-menu :is(.opt[aria-selected=true],.opt[aria-checked=true]),.view-menu :is(.opt[aria-selected=true],.opt[aria-checked=true]):hover{background:transparent;box-shadow:none}
+.cv.sel,.cv.sel:hover{background:var(--color-selected-bg);box-shadow:inset 0 0 0 2px var(--color-brand-default)}
+:is(.set-nav-item,.sn-i)[aria-current=page],.set-nav-item[aria-current=page]:hover{background:var(--color-selected-bg);color:var(--color-brand-default);box-shadow:inset 0 0 0 2px var(--color-brand-default)}
+tr.is-sel td,#vendors .tickets-table tr.is-sel td,.vprod-row.is-sel{background:var(--color-selected-bg)}
+.cmp-tab[aria-selected=true]{background:var(--color-selected-bg);box-shadow:inset 0 0 0 2px var(--color-brand-default)}
+.chip-b[aria-pressed=true]{background:var(--color-selected-bg);border:2px solid var(--color-brand-default);color:var(--color-brand-default)}
+/* decision 6: a work day picked — green with beige text (the HR settings and the custom work time) */
+:is([data-hs-days],[data-hs-s-days]) .chip[aria-checked=true]{background:var(--color-brand-default);border-color:var(--color-brand-default);color:var(--color-text-on-brand)}
+/* decision 33: the filter chips line up with the search field — the same inline margins as the search row, in every table card */
+:is(.card,.table-card,.dash-card,.chart-card)>.af-row{margin-inline:24px}
+:is(.tbl-v2,.table-card.tbl-v2)>.af-row{margin-inline:20px}

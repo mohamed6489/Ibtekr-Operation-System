@@ -144,25 +144,12 @@
     const card = (id) => { const x = SECTIONS.find((q) => q[0] === id); if (!x) return null; const [, t, d, ic] = x; let stt = null; try { stt = STATS[id] ? STATS[id]() : null; } catch (e) { stt = null; }
       return h('section', { class: 'card set-card', 'data-set-card': id }, h('div', { class: 'set-card-h' }, h('span', { class: 'set-ic' }, Icon(ic)), h('h3', { class: 't-h5' }, t)), h('p', { class: 't-small help' }, d), stt ? K.Tag(stt[1], stt[0]) : null,
         st.pending.has(id) ? K.Tag('orange', 'تغييرات مش محفوظة') : null, h('span', { class: 'grow' }), Button({ iconEnd: 'chevL', label: 'تفاصيل', attrs: { 'aria-label': 'تفاصيل ' + t, 'data-set-edit': id }, onClick: () => openSec(id) })); };
-    // the owner 14 Nov (2026-11-14-owner-batch.md decision 3): the groups as sticky tabs — a tab scrolls to its group, and the group in
-    // view is the one marked while the page scrolls (spySettings)
-    const jump = h('div', { class: 'tabs set-jump', role: 'tablist', 'aria-label': 'أقسام الإعدادات', 'data-set-jump': '' }, GROUPS.map(([g], i) => h('button', { type: 'button', role: 'tab', class: 'tab', 'data-set-jump-to': g, 'aria-selected': String(i === 0), tabindex: i === 0 ? '0' : '-1',
-      onClick: () => { const el = document.querySelector('[data-set-group="' + g + '"]'); if (!el) return; spyHold = Date.now() + 900; spyMark(g); const top = el.getBoundingClientRect().top + window.scrollY - spyOffset() + 1; window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' }); } }, g)));
-    setTimeout(spySettings, 0);
-    return [K.PageHead('الإعدادات', 'إعدادات الشركة والفريق والربط — للأدمن بس'), jump, ...GROUPS.map(([g, ids]) => h('div', { class: 'set-group', 'data-set-group': g }, h('h2', { class: 't-h5 set-gt' }, g), h('div', { class: 'set-grid' }, ids.map(card))))];
+    // owner batch 2 (2026-11-14-owner-batch-2.md decision 10): the groups as tabs — a tab shows its group only (was a scroll to it)
+    const cur = GROUPS.some(([g]) => g === st.group) ? st.group : GROUPS[0][0];
+    const jump = h('div', { class: 'tabs set-jump', role: 'tablist', 'aria-label': 'أقسام الإعدادات', 'data-set-jump': '' }, GROUPS.map(([g]) => h('button', { type: 'button', role: 'tab', class: 'tab', 'data-set-jump-to': g, 'aria-selected': String(g === cur), tabindex: g === cur ? '0' : '-1',
+      onClick: () => { if (g === cur) return; st.group = g; R(); } }, g)));
+    return [K.PageHead('الإعدادات', 'إعدادات الشركة والفريق والربط — للأدمن بس'), jump, ...GROUPS.filter(([g]) => g === cur).map(([g, ids]) => h('div', { class: 'set-group', 'data-set-group': g }, h('h2', { class: 't-h5 set-gt' }, g), h('div', { class: 'set-grid' }, ids.map(card))))];
   }
-  // where a group starts to count as «in view»: under the top bar and the sticky tabs
-  const spyOffset = () => { const tb = document.querySelector('.topbar'); const j = document.querySelector('[data-set-jump]'); return (tb ? tb.offsetHeight : 48) + (j ? j.offsetHeight : 0) + 16; };
-  let spyHold = 0;
-  function spyMark(g) { document.querySelectorAll('[data-set-jump] [data-set-jump-to]').forEach((b) => { const on = b.getAttribute('data-set-jump-to') === g; b.setAttribute('aria-selected', String(on)); b.tabIndex = on ? 0 : -1; }); }
-  function spySettings() {
-    if (st.sec !== 'home' || Date.now() < spyHold) return; const groups = Array.from(document.querySelectorAll('#pg-settings [data-set-group]')); if (!groups.length) return;
-    const off = spyOffset(); let cur = groups[0];
-    groups.forEach((el) => { if (el.getBoundingClientRect().top <= off + 8) cur = el; });
-    if (window.scrollY > 0 && window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2) cur = groups[groups.length - 1]; // scrolled to the page's end: the last group
-    spyMark(cur.getAttribute('data-set-group'));
-  }
-  window.addEventListener('scroll', () => { if (window.IBPages && window.IBPages.current === 'settings') spySettings(); }, { passive: true });
   function openSec(id) { st.sec = id; st.integ = null; st.dirty = st.pending.has(id); try { history.replaceState(null, '', '#settings-' + id); } catch (e) { /* */ } R(); window.scrollTo(0, 0); }
   function goHub() { leave(() => { st.sec = 'home'; st.integ = null; try { history.replaceState(null, '', '#settings'); } catch (e) { /* */ } R(); window.scrollTo(0, 0); }); }
   function viewV6() {
@@ -203,8 +190,10 @@
     const sec = st.sec; const name = (SECTIONS.find((q) => q[0] === sec) || [, ''])[1];
     const here = () => { try { history.replaceState(null, '', sec === 'home' ? '#settings' : '#settings-' + sec); } catch (e) { /* */ } };
     here();
-    const m = U.Modal({ title: 'لازم تحفظ التغييرات الأول', body: [h('p', { style: 'margin:0' }, 'عملت تغييرات في «' + name + '» ولسه ما اتحفظتش. احفظها عشان تقدر تخرج من الصفحة.'), h('p', { class: 't-small help', style: 'margin:8px 0 0' }, 'لو مش عايز التغييرات دي: ارجع للصفحة ودوس «تجاهل التغييرات» في الشريط اللي تحت.')],
-      footer: [Button({ label: 'ارجع للصفحة', attrs: { 'data-save-stay': '' }, onClick: () => { m.close(); here(); R(); } }), Button({ type: 'primary', icon: 'check', label: 'احفظ واخرج', attrs: { 'data-save-now': '' }, onClick: () => { if (commit() === false) { m.close(); R(); return; } m.close(); go(); } })] });
+    // owner batch 2 (decision 8): «احفظ واخرج» the main one on the right, «تجاهل التغييرات» on the left; closing the popup = stay
+    const m = U.Modal({ title: 'لازم تحفظ التغييرات الأول', body: [h('p', { style: 'margin:0' }, 'عملت تغييرات في «' + name + '» ولسه ما اتحفظتش. احفظها عشان تقدر تخرج من الصفحة.'), h('p', { class: 't-small help', style: 'margin:8px 0 0' }, '«تجاهل التغييرات» بيرجّع الصفحة زي ما كانت ويخرج.')],
+      footer: [Button({ type: 'primary', icon: 'check', label: 'احفظ واخرج', attrs: { 'data-save-now': '' }, onClick: () => { if (commit() === false) { m.close(); R(); return; } m.close(); go(); } }), Button({ label: 'تجاهل التغييرات', attrs: { 'data-save-discard': '' }, onClick: () => { m.close(); discard(); go(); } })] });
+    m.el.classList.add('save-ask');
   }
   function commit() { const nm = (SECTIONS.find((q) => q[0] === st.sec) || [, 'عام'])[1]; if (st.draft) Object.assign(C.general, st.draft); st.dirty = false; st.draft = null; st.pending.delete(st.sec); st.snap = snapTake(); st.snapSec = st.sec; LOGV('settings.save', nm); K.toast('اتحفظت التغييرات', 'success'); }
   function saveBar() { return h('div', { class: 'save-bar', role: 'region', 'aria-label': 'تغييرات غير محفوظة' }, h('span', null, Icon('alert', 'sm'), ' فيه تغييرات غير محفوظة في هذا القسم'), h('div', { class: 'acts-inline' }, Button({ label: 'تجاهل التغييرات', attrs: { 'data-set-discard': '' }, onClick: () => { discard(); R(); } }), Button({ type: 'primary', label: 'حفظ التغييرات', onClick: () => { commit(); R(); } }))); }
@@ -383,7 +372,7 @@
         // 2026-11-14-settings-lists.md decision 4: the week start is a real choice (IBSettings.weekStart() — the calendar's weeks, the weekly
         // reports, the ad plan's weeks and the HR calendar); the rest stay facts with their reason
         sel('week', 'g-week', 'بداية الأسبوع', ['السبت', 'الأحد', 'الاتنين'], '«هذا الأسبوع» في الكاليندر، تقسيم التقارير بالأسبوع، أسابيع الخطة الإعلانية، وتقويم «الفريق والحضور»')], null, { sub: 'المنطقة واللغة والعملة ثابتة: السيرفر والموقع وDokan بتوقيت القاهرة وبالجنيه، والواجهة عربي بس' }),
-      K.Section('تفضيلات العرض', [row('الوضع المضغوط للجداول', 'صفوف 48px بدل 56px وخطوط أصغر في الجداول الكثيفة', g.compact, ed('compact')), row('إظهار صور المنتجات في الأوردرات', 'صورة مصغّرة 40px في صف الأوردر الفرعي', g.thumbs, ed('thumbs')), row('تذكّر آخر فلاتر لكل صفحة', 'الأوردرات والتقارير بتفتح على آخر فلتر استخدمته', g.rememberFilters, ed('rememberFilters')), row('إخفاء أرقام هواتف العملاء في القوائم', 'تظهر كاملة عند الفتح فقط لمن يملك الصلاحية', g.hidePhones, ed('hidePhones'))], null, { sub: 'إعدادات واجهة على مستوى الشركة — كل عضو يقدر يغيّرها لنفسه من ملفه' })];
+      K.Section('تفضيلات العرض', [row('إظهار صور المنتجات في الأوردرات', 'صورة مصغّرة 40px في صف الأوردر الفرعي', g.thumbs, ed('thumbs')), row('تذكّر آخر فلاتر لكل صفحة', 'الأوردرات والتقارير بتفتح على آخر فلتر استخدمته', g.rememberFilters, ed('rememberFilters')), row('إخفاء أرقام هواتف العملاء في القوائم', 'تظهر كاملة عند الفتح فقط لمن يملك الصلاحية', g.hidePhones, ed('hidePhones'))], null, { sub: 'إعدادات واجهة على مستوى الشركة — كل عضو يقدر يغيّرها لنفسه من ملفه' })];
   }
 
   // ---------- الأوراق الرسمية (owner 1 Nov 20:42): السجل التجاري والبطاقة الضريبية وأي ورقة تانية — بحث + اسم للملف + تاريخ انتهاء ----------
@@ -686,7 +675,7 @@
       K.Section('قواعد خاصة لكل مبتكر', U.Table({ headers: ['المبتكر', 'مدة التصنيع', 'قابل للتأخير من', 'متأخر بعد', 'المصدر', 'المتوسط الفعلي', ''], rows: C.makerRules.map((r) => [...r.slice(0, 4), K.Tag(r[4] === 'مدخل يدويًا' ? 'brand' : r[4].startsWith('محسوب') ? 'info' : 'neutral', r[4]), r[5], Button({ type: 'text', size: 'sm', label: 'تعديل', onClick: () => delayRule(r) })]) }), [Button({ label: '+ قاعدة خاصة', onClick: () => delayRule() })], { th: false, sub: 'لو المبتكر معندوش مدة مدخلة، السيستم بيستخدم المتوسط الفعلي من آخر 10 أوردرات مكتملة (لو ≥ 3 أوردرات) وإلا الافتراضي' }),
       K.Section('التنشيط وإيقاف التنشيط', [row('اقتراح إيقاف تلقائي عند تكرار التأخير', 'لو ≥ 3 أوردرات متأخرة خلال 30 يوم ← تنبيه «مراجعة تنشيط المبتكر»', m.autoLate, (v) => { m.autoLate = v; }), row('اقتراح إيقاف عند عدم الرد', 'لو ≥ 2 تذكرة «مشكلة مبتكر» بدون رد 48 ساعة', m.autoNoReply, (v) => { m.autoNoReply = v; }), row('إيقاف تلقائي عند انتهاء العقد', 'بعد 7 أيام من انتهاء العقد بدون تجديد', m.autoContract, (v) => { m.autoContract = v; }), row('إعادة التنشيط تتطلب موافقة أدمن', 'المبتكر الموقوف يرجع «نشط» بعد مراجعة السبب', m.reactivate, (v) => { m.reactivate = v; }),
         K.two(pick(m, 'openEffect', 'mk-oe', 'أثر الإيقاف على الأوردرات المفتوحة', ['تستمر حتى الإغلاق + تنبيه لخدمة العملاء', 'تتحوّل لمبتكر تاني']), pick(m, 'siteEffect', 'mk-se', 'أثر الإيقاف على الموقع', ['إخفاء منتجاته + منع أوردرات جديدة', 'منع أوردرات جديدة فقط', 'لا شيء (داخلي)'])),
-        vrow('أسباب الإيقاف (قائمة)', 'تُعدَّل من «القوائم والحالات»', h('b', null, C.otherLists.stop.join(' · '))), vrow('إيقاف تنشيط مبتكر', 'اقتراح من السيستم ← قرار بشري بسبب إجباري', Button({ type: 'danger', size: 'sm', label: 'إيقاف تنشيط مبتكر', onClick: () => deactivateMaker() }))], null, { sub: 'الإيقاف التلقائي بينزل كتنبيه «مهام» للموافقة — مفيش إيقاف بدون قرار بشري. السبب إجباري ويتسجل في ملف المبتكر' }),
+        vrow('أسباب الإيقاف (قائمة)', 'تُعدَّل من «القوائم والحالات»', h('b', null, C.otherLists.stop.join(' · ')))], null, { sub: 'الإيقاف التلقائي بينزل كتنبيه «مهام» للموافقة — مفيش إيقاف بدون قرار بشري. السبب إجباري ويتسجل في ملف المبتكر' }),
       K.Section('الافتراضيات عند إضافة مبتكر جديد', [K.two(pick(m, 'rate', 'mk-rate', 'نسبة عمولة إبتكر الافتراضية', ['30%', '35%', '40%', '45%', '50%'], 'النطاق الحالي 30% – 65% · إبتكر الداخلي 100%'), pick(m, 'deposit', 'mk-dep', 'سياسة العربون الافتراضية', ['عربون 50% للأوردرات فوق 3,000 ج.م', 'بدون عربون'])), K.two(pick(m, 'contractLen', 'mk-cl', 'مدة العقد الافتراضية', ['6 شهور', '12 شهر', '24 شهر']), pick(m, 'contractAlert', 'mk-ca', 'تنبيه قبل انتهاء العقد', ['قبل 15 يوم', 'قبل 30 يوم', 'قبل 60 يوم'], 'يظهر في التنبيهات › مهام (أولوية عالية)')), K.two(pick(m, 'newStatus', 'mk-ns', 'حالة المبتكر الجديد', ['نشط فورًا', 'نشط بعد رفع العقد', 'معلّق للمراجعة']), pick(m, 'category', 'mk-cat', 'فئة المبتكر الافتراضية', ['— بدون'].concat(mainCatNames().length ? mainCatNames() : C.otherLists.categories)))], null, { sub: 'تُملأ تلقائيًا في بوب أب «إضافة مبتكر» وتظل قابلة للتعديل لكل مبتكر' }),
       loginBankSec(m)];
   }
@@ -902,7 +891,7 @@
     const b = C.backup;
     return [exportSec(), ...importSec(),
       K.Section('النسخ الاحتياطي والاحتفاظ', [row('نسخة احتياطية يومية تلقائية', 'الساعة 03:00 · آخر نسخة: اليوم 03:00 (نجحت) · الاحتفاظ 30 نسخة', b.daily, (v) => { b.daily = v; }), row('نسخة أسبوعية إلى Google Drive', 'مجلد Ibtekr-Backups — يحتاج ربط Google Drive من الربط بالمنصات', b.drive, (v) => { b.drive = v; }),
-        h('div', { class: 'grid3' }, pick(b, 'inactive', 'd-in', 'حذف بيانات العملاء غير النشطين', ['لا — يدوي فقط', 'عميل بدون أوردر لمدة 24 شهر']), pick(b, 'orders', 'd-or', 'الاحتفاظ بالأوردرات المغلقة', ['بلا حد (أرشفة بعد 12 شهر)', '5 سنين']), pick(b, 'log', 'd-lg', 'الاحتفاظ بسجل النشاط', ['12 شهر', '24 شهر'])), h('div', { class: 'acts-inline start' }, Button({ size: 'sm', label: 'عرض النسخ السابقة', onClick: () => K.toast('30 نسخة محفوظة') }), Button({ type: 'primary', size: 'sm', label: 'إنشاء نسخة الآن', onClick: () => K.toast('اتعملت نسخة احتياطية', 'success') }))]),
+        h('div', { class: 'grid3' }, pick(b, 'inactive', 'd-in', 'حذف بيانات العملاء غير النشطين', ['لا — يدوي فقط', 'عميل بدون أوردر لمدة 24 شهر']), pick(b, 'orders', 'd-or', 'الاحتفاظ بالأوردرات المغلقة', ['بلا حد (أرشفة بعد 12 شهر)', '5 سنين']), pick(b, 'log', 'd-lg', 'الاحتفاظ بسجل النشاط', ['12 شهر', '24 شهر'])), h('div', { class: 'acts-inline start' }, Button({ type: 'primary', size: 'sm', label: 'إنشاء نسخة الآن', onClick: () => K.toast('اتعملت نسخة احتياطية', 'success') }))]),
       fullExportSec()];
   }
 
@@ -986,11 +975,11 @@
     const tsv = () => [head().join('\t'), example.join('\t')].join('\n'); const csv = () => X.toCSV([Object.fromEntries(cols.map((c, i) => [c.key, example[i]]))], cols.map((c) => Object.assign({}, c, { label: c.label + (c.required ? ' *' : ''), en: c.en + (c.required ? ' *' : '') })), { lang: st3.lang });
     const copy = (t, msg) => { try { navigator.clipboard.writeText(t).then(() => K.toast(msg, 'success'), () => K.toast('حدّد النص وانسخه بإيدك')); } catch (e) { K.toast('حدّد النص وانسخه بإيدك'); } };
     const md = U.Modal({ title: 'قالب ' + MODES[mode][0] + ' — ' + g.label, body: [] }); md.el.classList.add('wide'); md.el.dataset.template = g.id + ':' + mode;
-    const draw = () => md.setBody(sheetPick(opts, g, (ng) => { md.close(); templateDialog(ng, mode, opts); }), modesOf(g).length > 1 ? K.Radios({ label: 'القالب', name: 'tpl-mode', value: mode, onChange: (v) => { md.close(); templateDialog(g, v, opts); }, options: modesOf(g).map((m) => ({ value: m, label: MODES[m][0] })) }) : null, U.InlineNote({ children: MODES[mode][1] + (mode === 'update' ? ' · المفتاح: ' + keyLabel(g) : '') }),
+    const draw = () => md.setBody(...[sheetPick(opts, g, (ng) => { md.close(); templateDialog(ng, mode, opts); }), modesOf(g).length > 1 ? K.Radios({ label: 'القالب', name: 'tpl-mode', value: mode, onChange: (v) => { md.close(); templateDialog(g, v, opts); }, options: modesOf(g).map((m) => ({ value: m, label: MODES[m][0] })) }) : null, U.InlineNote({ children: MODES[mode][1] + (mode === 'update' ? ' · المفتاح: ' + keyLabel(g) : '') }),
       K.Radios({ label: 'أسماء الأعمدة', name: 'tpl-lang', value: st3.lang, onChange: (v) => { st3.lang = v; draw(); }, options: [{ value: 'ar', label: 'عربي' }, { value: 'en', label: 'English' }] }),
       U.Table({ cls: 'mini-table dx-cols', headers: ['العمود', 'مطلوب', 'الشكل / القيم المسموحة', 'مثال'], rows: cols.map((c, i) => [h('b', null, st3.lang === 'en' ? c.en : c.label), c.required ? K.Tag('error', 'مطلوب') : h('span', { class: 't-small help' }, mode === 'update' ? 'سيبه فاضي لو مش هتغيّره' : 'اختياري'), h('span', { class: 't-small' }, c.hint), h('span', { class: 't-small' }, example[i] || '—')]) }),
       mode === 'update' && F.some((x) => x.noUpdate) ? h('div', { class: 't-small help' }, 'مش في قالب التعديل: ' + F.filter((x) => x.noUpdate).map((x) => x.label).join('، ') + ' — بيتغيّر من الملف نفسه (بتاريخ سريان)') : null,
-      h('textarea', { class: 'input dx-text', readonly: '', rows: '4', dir: 'auto', 'aria-label': 'القالب' }, tsv()));
+      h('textarea', { class: 'input dx-text', readonly: '', rows: '4', dir: 'auto', 'aria-label': 'القالب' }, tsv())].filter(Boolean)); // owner batch 2 (decision 29): a part that is not there is left out — never «null»
     draw();
     md.setFooter(Button({ type: 'text', label: 'إغلاق', onClick: () => md.close() }), Button({ label: 'نسخ CSV', onClick: () => copy(csv(), 'اتنسخ القالب CSV') }), Button({ type: 'primary', label: 'نسخ للصق في Google Sheets', attrs: { 'data-copy-sheet': '' }, onClick: () => copy(tsv(), 'اتنسخ — الصقه في أول خانة في الشيت') }));
   }
@@ -1199,7 +1188,7 @@
         if (!done.length) { K.toast('مفيش بيانات محمّلة تتصدّر — افتح الصفحات الأول', 'error'); return; }
         XL.writeFile(wb, 'ibtekr-full-' + K.TODAY + '.xlsx'); LOGV('settings.export.full', done.join(' · ')); K.toast('اتنزّل الملف — ' + done.length + ' شيت', 'success');
       }).catch(() => K.toast('معرفناش نجهّز ملف Excel — صدّر المجموعات واحدة واحدة من فوق', 'error')) });
-    return h('section', { class: 'card' }, h('h2', { class: 't-h5' }, 'نسخة كاملة من البيانات'), vrow('تصدير كل المجموعات في ملف Excel واحد', 'شيت لكل مجموعة · من غير البيانات الحساسة · من البيانات اللي السيستم محمّلها دلوقتي. مفيش حذف لبيانات الشركة من السيستم — كل سجل ليه قاعدته في صفحته.', Button({ type: 'primary', label: 'تصدير نسخة كاملة', icon: 'download', attrs: { 'data-full-export': '' }, onClick: run })));
+    return K.Section('نسخة كاملة من البيانات', [vrow('تصدير كل المجموعات في ملف Excel واحد', 'شيت لكل مجموعة · من غير البيانات الحساسة · من البيانات اللي السيستم محمّلها دلوقتي. مفيش حذف لبيانات الشركة من السيستم — كل سجل ليه قاعدته في صفحته.', Button({ type: 'primary', label: 'تصدير نسخة كاملة', icon: 'download', attrs: { 'data-full-export': '' }, onClick: run }))], null, { th: false }); // owner batch 2 (decision 31): a regular section, its padding
   }
 
 
@@ -1728,9 +1717,8 @@
     const V = window.IBVendors; const all = V && V.store && V.store.all ? V.store.all() : []; const L0 = (v) => (v.login && v.login.status) || 'none'; const LS = { none: ['neutral', 'مفيش حساب'], invited: ['gold', 'مستني التفعيل'], active: ['success', 'مفعّل'], disabled: ['error', 'موقوف'], leave: ['gold', 'في إجازة'] };
     const bankOk = (v) => !!(v.bank && (v.bank.holder || v.bank.accountNumber || v.bank.iban || v.bank.wallet)); const done = all.filter((v) => L0(v) === 'active' && bankOk(v)).length;
     return K.Section('بيانات الدخول والحساب البنكي', [vrow('طريقة الباسورد', 'باسورد مؤقت بيظهر مرة واحدة — الطريقة الوحيدة (قرار 26 أكتوبر)', K.Tag('brand', 'باسورد مؤقت')),
-      row('يغيّر الباسورد أول ما يدخل', 'إجباري للباسورد المؤقت', m.forceChange !== false, (v) => { m.forceChange = v; }), row('الحساب البنكي إجباري عند الإضافة', 'لو اتقفل: «الحسابات» تكمّله بعدين ويظهر «ناقص» في ملف المبتكر', m.bankRequired !== false, (v) => { m.bankRequired = v; }),
-      h('div', { class: 'set-row' }, h('div', null, h('b', null, 'مكتمل ' + done + ' من ' + all.length + ' مبتكر'), h('div', { class: 't-small help' }, 'الناقص بيتكمّل من ملف كل مبتكر (بيانات الدخول + الحساب البنكي)'))),
-      all.length ? h('div', { class: 'scroll-x' }, U.Table({ cls: 'mini-table mk-cover', headers: ['المبتكر', 'حساب الدخول', 'الحساب البنكي'], rows: all.slice(0, 200).map((v) => { const t = LS[L0(v)] || LS.none; return [v.name, K.Tag(t[0], t[1]), bankOk(v) ? K.Tag('success', 'موجود') : K.Tag('error', 'ناقص')]; }) })) : null], null, { sub: 'من ملفات المبتكرين الحقيقية' });
+      row('يغيّر الباسورد أول ما يدخل', 'إجباري للباسورد المؤقت', m.forceChange !== false, (v) => { m.forceChange = v; }), row('الحساب البنكي إجباري عند الإضافة', 'لو اتقفل: «الحسابات» تكمّله بعدين ويظهر «ناقص» في ملف المبتكر', m.bankRequired !== false, (v) => { m.bankRequired = v; })],
+      null, { th: false, sub: 'الناقص في بيانات أي مبتكر بيظهر في ملفه وبيتكمّل من هناك' }); // owner batch 2 (decision 20): the coverage table is out
   }
   function delayRule(r) { K.toast(r ? 'مدة التصنيع بتتعدل من ملف المبتكر «' + r[0] + '»' : 'القاعدة الخاصة = مدة التصنيع في ملف المبتكر'); }
   function deactivateMaker() { location.hash = 'makers'; K.toast('إيقاف المبتكر من صفحة المبتكرين (قايمة المزيد)'); }

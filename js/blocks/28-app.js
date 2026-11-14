@@ -1229,7 +1229,10 @@
   }
 
   // ---------- movement forms (expense / vendor / account) ----------
-  const CATEGORY_OPTS = D.CATEGORIES.map((c) => ({ value: c, label: c }));
+  // the settings lists all editable (2026-11-14-settings-lists.md, decision 1): the expense types = the base four then the admin's own,
+  // each under its shown name; an expense whose type was removed since keeps it in its own popup
+  const expLabel = (c) => (window.IBSettings && window.IBSettings.statusLabel ? window.IBSettings.statusLabel('expense', c) : c);
+  const categoryOpts = (cur) => D.CATEGORIES.concat(cur && !D.CATEGORIES.includes(cur) ? [cur] : []).map((c) => ({ value: c, label: expLabel(c) }));
   function openForm(kind, direction, existing, readOnly, preset) {
     const f = { amount: existing ? String(existing.amount) : '', date: existing ? existing.date : TODAY, direction, category: existing ? existing.category : '', beneficiary: '', otherName: '', type: existing ? existing.type : '', vendor: existing ? existing.vendor : '', account: existing ? existing.account : '',
       subName: existing && existing.subName ? existing.subName : '', subEnds: existing && existing.subEnds ? existing.subEnds : '', subAlerts: existing && existing.subAlerts ? existing.subAlerts.slice() : ['month', 'week', 'day'], subNote: existing && existing.subNote ? existing.subNote : '',
@@ -1250,7 +1253,7 @@
     function body() {
       if (readOnly) {
         const rows = [['التاريخ', num(D.formatDateNumeric(existing.date))], ['العملية', existing.direction === 'deposit' ? 'إيداع' : 'سحب'], ['المبلغ (ج.م)', num(D.formatMoney(existing.amount))]];
-        if (kind === 'expenses') { rows.push(['النوع', existing.category]);
+        if (kind === 'expenses') { rows.push(['النوع', expLabel(existing.category)]);
           if (existing.category === SUBS_CAT && existing.direction !== 'deposit') rows.push(['الاشتراك', existing.subName || '—'], ['تاريخ الانتهاء', existing.subEnds ? num(D.formatDateNumeric(existing.subEnds)) : '—'],
             ['التنبيه قبل الانتهاء', (existing.subAlerts || []).map((k) => (D.SUB_ALERTS.find((a) => a[0] === k) || [, k])[1]).join(' · ') || '—'], ['ملاحظة', existing.subNote || '—']);
           else if (existing.direction === 'deposit') rows.push(['مصدر المبلغ', existing.beneficiaryName || '—'], ['سبب الإيداع', existing.reason || '—'], ['ملاحظات', existing.note || '—']);
@@ -1271,7 +1274,7 @@
       fields.push(U.DateField({ id: 'f-date', label: direction === 'deposit' ? 'تاريخ الإيداع' : 'تاريخ السحب', required: true, value: f.date, error: errs.date, today: TODAY,
         onChange: (iso, e) => { const had = !!errs.date; if (!e) f.date = iso; errs.date = e || undefined; if (had !== !!e) redraw(); } }));
       if (kind === 'expenses') {
-        fields.push(U.Select({ id: 'f-cat', label: 'النوع', required: true, options: CATEGORY_OPTS, value: f.category, error: errs.category, onChange: (v) => { f.category = v; redraw(); } }));
+        fields.push(U.Select({ id: 'f-cat', label: 'النوع', required: true, options: categoryOpts(existing && existing.category), value: f.category, error: errs.category, onChange: (v) => { f.category = v; redraw(); } }));
         fields.push(...expenseFields(f, errs, redraw, direction));
       }
       if (kind === 'vendorMoves' && direction === 'deposit') {
@@ -1296,7 +1299,7 @@
       errs = {};
       const raw = { ...f, date: f.date ? D.formatDateNumeric(f.date) : '' };
       let res;
-      if (kind === 'expenses') res = D.validateExpense(raw);
+      if (kind === 'expenses') res = D.validateExpense(Object.assign(raw, { keep: existing && existing.category }));
       else if (kind === 'vendorMoves') res = D.validateVendorMovement(raw);
       else res = D.validateAccountMovement(raw);
       if (kind === 'expenses') {
@@ -1599,10 +1602,10 @@
   // تفاصيل المصروفات (phase 5.5 decision 4, owner 1 Nov) — the owner 13 Nov («شيل الزراير من تفاصيل المصروفات»): no buttons in its head
   // (no «بحث» / «فلتر» / «ترتيب» / columns — data-no-tq / data-no-cols and its own-filter keeps the kit's filter away); the four categories in their order
   function expDetailsCard(tot, srcFor) {
-    const list = D.CATEGORIES.map((c, i) => ({ c, i, amt: tot.byCategory[c].amount, share: tot.byCategory[c].share }));
+    const list = Object.keys(tot.byCategory).map((c, i) => ({ c, i, amt: tot.byCategory[c].amount, share: tot.byCategory[c].share }));
     const card = TableCard({ title: 'تفاصيل المصروفات', cls: 'own-filter', cols: false,
-      body: U.Table({ headers: ['البند', 'القيمة (ج.م)', 'النسبة', 'المصدر'], rows: list.map((x) => [x.c, num(D.formatMoney(x.amt)), num(D.formatPct(x.share)), srcFor(x.c, x.i)]),
-        totalRow: ['إجمالي الأربع فئات', num(D.formatMoney(tot.total)), num(tot.total === 0 ? '0.0%' : '100.0%'), 'إجمالي المصروفات'] }) });
+      body: U.Table({ headers: ['البند', 'القيمة (ج.م)', 'النسبة', 'المصدر'], rows: list.map((x) => [expLabel(x.c), num(D.formatMoney(x.amt)), num(D.formatPct(x.share)), srcFor(x.c, x.i)]),
+        totalRow: [list.length === 4 ? 'إجمالي الأربع فئات' : 'إجمالي الفئات', num(D.formatMoney(tot.total)), num(tot.total === 0 ? '0.0%' : '100.0%'), 'إجمالي المصروفات'] }) });
     card.setAttribute('data-no-tq', ''); card.setAttribute('data-no-cols', ''); card.setAttribute('data-exp-details', '');
     return card;
   }
@@ -1618,15 +1621,15 @@
     const cells = ['M14', 'N14', 'O14', 'P14'];
     const srcFor = () => 'تسجيل يدوي';
     return [
-      h('div', { class: 'cards' }, D.CATEGORIES.map((c, i) => U.CategoryCard({ tone: tones[c], name: c, value: tot.byCategory[c].amount, pct: tot.byCategory[c].share, caption: 'من الإجمالي', details: () => { const l = entries.filter((e) => e.category === c); const manual = l.reduce((x, e) => x + (e.direction === 'deposit' ? -e.amount : e.amount), 0); const sheet = Math.round((tot.byCategory[c].amount - manual) * 100) / 100;
-        return { title: c + ' — ' + D.formatMoney(tot.byCategory[c].amount) + ' ج.م', sub: monthTxt + ' · ' + D.formatPct(tot.byCategory[c].share) + ' من إجمالي المصروفات', summary: [{ label: 'الإجمالي', value: D.formatMoney(tot.byCategory[c].amount) + ' ج.م' }, { label: 'من الشيت', value: D.formatMoney(seedKeys.length ? sheet : 0) + ' ج.م' }, { label: 'تسجيل يدوي', value: l.length + ' حركة' }], headers: ['التاريخ', 'البيان', 'المستفيد', 'العملية', 'المبلغ'], rows: (seedKeys.length ? [['—', 'من شيت Monthly Performance!' + cells[i], '—', 'سحب', D.formatMoney(sheet)]] : []).concat(l.map((e) => [num(D.formatDateNumeric(e.date)), 'تسجيل يدوي', e.beneficiaryName || '—', e.direction === 'deposit' ? 'إيداع' : 'سحب', D.formatMoney(e.amount)])), total: ['الإجمالي', '', '', '', D.formatMoney(tot.byCategory[c].amount)], source: srcFor(c, i) }; } }))),
+      h('div', { class: 'cards' }, Object.keys(tot.byCategory).map((c, i) => U.CategoryCard({ tone: tones[c] || 'neutral', name: expLabel(c), value: tot.byCategory[c].amount, pct: tot.byCategory[c].share, caption: 'من الإجمالي', details: () => { const l = entries.filter((e) => e.category === c); const manual = l.reduce((x, e) => x + (e.direction === 'deposit' ? -e.amount : e.amount), 0); const sheet = Math.round((tot.byCategory[c].amount - manual) * 100) / 100;
+        return { title: expLabel(c) + ' — ' + D.formatMoney(tot.byCategory[c].amount) + ' ج.م', sub: monthTxt + ' · ' + D.formatPct(tot.byCategory[c].share) + ' من إجمالي المصروفات', summary: [{ label: 'الإجمالي', value: D.formatMoney(tot.byCategory[c].amount) + ' ج.م' }, { label: 'من الشيت', value: D.formatMoney(seedKeys.length ? sheet : 0) + ' ج.م' }, { label: 'تسجيل يدوي', value: l.length + ' حركة' }], headers: ['التاريخ', 'البيان', 'المستفيد', 'العملية', 'المبلغ'], rows: (seedKeys.length ? [['—', 'من شيت Monthly Performance!' + cells[i], '—', 'سحب', D.formatMoney(sheet)]] : []).concat(l.map((e) => [num(D.formatDateNumeric(e.date)), 'تسجيل يدوي', e.beneficiaryName || '—', e.direction === 'deposit' ? 'إيداع' : 'سحب', D.formatMoney(e.amount)])), total: ['الإجمالي', '', '', '', D.formatMoney(tot.byCategory[c].amount)], source: srcFor(c, i) }; } }))),
       subsSection(),
       h('div', { class: 'card sum-card' }, h('div', null, h('div', { class: 'lab t-small' }, monthTxt), h('div', { class: 't-h5' }, full ? 'إجمالي مصروفات ' + D.monthName(full.m) : 'إجمالي المصروفات'),
-          h('button', { type: 'button', class: 'kpi-more kpi-details', 'data-details': 'إجمالي المصروفات', 'aria-label': 'تفاصيل إجمالي المصروفات', onClick: () => U.DetailsModal(() => ({ title: 'إجمالي المصروفات — ' + D.formatMoney(tot.total) + ' ج.م', sub: monthTxt, summary: D.CATEGORIES.map((c) => ({ label: c, value: D.formatMoney(tot.byCategory[c].amount) })), headers: ['البند', 'القيمة', 'النسبة', 'المصدر'], rows: D.CATEGORIES.map((c, i) => [c, D.formatMoney(tot.byCategory[c].amount), D.formatPct(tot.byCategory[c].share), srcFor(c, i)]).concat(entries.map((e) => [e.category + ' · ' + D.formatDateNumeric(e.date), D.formatMoney(e.amount), '—', 'تسجيل يدوي — ' + (e.beneficiaryName || '—')])) }), { label: 'إجمالي المصروفات' }) }, 'التفاصيل', Icon('chevL', 'sm'))),
+          h('button', { type: 'button', class: 'kpi-more kpi-details', 'data-details': 'إجمالي المصروفات', 'aria-label': 'تفاصيل إجمالي المصروفات', onClick: () => U.DetailsModal(() => ({ title: 'إجمالي المصروفات — ' + D.formatMoney(tot.total) + ' ج.م', sub: monthTxt, summary: Object.keys(tot.byCategory).map((c) => ({ label: expLabel(c), value: D.formatMoney(tot.byCategory[c].amount) })), headers: ['البند', 'القيمة', 'النسبة', 'المصدر'], rows: Object.keys(tot.byCategory).map((c, i) => [expLabel(c), D.formatMoney(tot.byCategory[c].amount), D.formatPct(tot.byCategory[c].share), srcFor(c, i)]).concat(entries.map((e) => [e.category + ' · ' + D.formatDateNumeric(e.date), D.formatMoney(e.amount), '—', 'تسجيل يدوي — ' + (e.beneficiaryName || '—')])) }), { label: 'إجمالي المصروفات' }) }, 'التفاصيل', Icon('chevL', 'sm'))),
         h('div', { class: 'cat-val' }, h('span', { class: 'unit' }, 'ج.م'), h('span', { class: 't-h3' }, num(D.formatMoney(tot.total))))),
       expDetailsCard(tot, srcFor),
       TableCard({ title: 'سجل المصروفات التفصيلي', count: '', th: { noun: ['مصروف', 'المصروفات'], when: monthTxt }, body: entries.length === 0 ? U.EmptyState('لسه مفيش مصروفات مسجّلة', 'اضغط «إضافة مصروفات» وسجّل أول سحب أو إيداع، وهيظهر هنا.') :
-        U.Table({ headers: ['التاريخ', 'النوع', 'اسم المستفيد', 'البيان', 'المبلغ (ج.م)', ''], rows: entries.map((e) => [num(D.formatDateNumeric(e.date)), e.category, e.beneficiaryName || '—', expenseLine(e),
+        U.Table({ headers: ['التاريخ', 'النوع', 'اسم المستفيد', 'البيان', 'المبلغ (ج.م)', ''], rows: entries.map((e) => [num(D.formatDateNumeric(e.date)), expLabel(e.category), e.beneficiaryName || '—', expenseLine(e),
           h('span', { class: e.direction === 'deposit' ? 'pos' : '' }, num((e.direction === 'deposit' ? '+' : '') + D.formatMoney(e.amount))), RowActions('expenses', e, (r) => deleteRec('expenses', r))]) }) }),
       sourceNote('المصدر: المصروفات المتسجلة في السيستم للفترة المحددة'),
     ].filter(Boolean);
@@ -2149,7 +2152,7 @@
   // expenses by type, the net, the real accounts, the makers' balance; every tile opens its tab
   function AccountsOverview() {
     const r = state.range; const tot = D.categoryTotals(SEED.expenseSeed, store.expenses, r.from, r.to);
-    const byCat = {}; D.CATEGORIES.forEach((c) => { byCat[c] = tot.byCategory[c].amount; });
+    const byCat = {}; Object.keys(tot.byCategory).forEach((c) => { byCat[c] = tot.byCategory[c].amount; });
     const rep = R.accountsReport({ expenses: byCat, sales: SEED.sales || [], accounts: accountsNow().balances, inProgressShare: SEED.inProgressShare || 0, deposits: (SEED.vendorTotals && SEED.vendorTotals.dep) || 0 });
     const vs = vendorsNow(); const due = vs.reduce((a, v) => a + Math.max(0, Number(v.balance) || 0), 0);
     const open = (tab) => () => { state.tab = tab; try { history.replaceState(null, '', '#' + tab); } catch (e) { /* sandboxed */ } render(); };
@@ -2164,7 +2167,7 @@
         tile('الحساب الفعلي — الآن', D.formatMoney(rep.actual), 'مجموع الحسابات', 'actual'),
         tile('مستحقات المبتكرين — الآن', D.formatMoney(Math.round(due * 100) / 100), num(vs.filter((v) => Number(v.balance) > 0).length + ' مبتكر ليه رصيد'), 'vendors')),
       h('div', { class: 'grid2' },
-        TableCard({ title: 'المصروفات حسب النوع', count: periodText(), body: U.Table({ cls: 'mini-table', headers: ['النوع', 'المبلغ', 'النسبة'], rows: rep.expenseRows.map(([k, v, p]) => [k, num(money(v)), pct(p)]) }) }),
+        TableCard({ title: 'المصروفات حسب النوع', count: periodText(), body: U.Table({ cls: 'mini-table', headers: ['النوع', 'المبلغ', 'النسبة'], rows: rep.expenseRows.map(([k, v, p]) => [expLabel(k), num(money(v)), pct(p)]) }) }),
         TableCard({ title: 'الحسابات الفعلية', count: 'الآن', body: rep.accountRows.length ? U.Table({ cls: 'mini-table', headers: ['الحساب', 'الرصيد', 'النسبة'], rows: rep.accountRows.map(([k, v, p]) => [k, num(money(v)), pct(p)]) }) : U.EmptyState('مفيش حسابات لسه', 'الحسابات بتتسجل من «الحساب الفعلي».') })),
       h('p', { class: 'source' }, 'المصدر: المبيعات وحصة إبتكر من أوردراتنا (accounts_sales) في الفترة، المصروفات من دفتر المصروفات، الحساب الفعلي من حركاته، ومستحقات المبتكرين من أرصدة Dokan.')];
   }
@@ -2172,11 +2175,14 @@
     // phase 5.5 decision 4 (owner 31 Oct 16:42): the report follows the period picked above (expenses + sales + net) instead of a fixed month; (owner 1 Nov): a month-by-month summary
     const rr = state.rrange; const PER = D.formatDateNumeric(rr.from) + ' – ' + D.formatDateNumeric(rr.to); const A = AC();
     const salesFor = (from, to) => { const rows = A ? A.sales(from, to) : []; return rows ? D.liveSeed({ makers: [], balances: [], sales: rows }) : null; };
-    const repOf = (from, to) => { const tot = D.categoryTotals(SEED.expenseSeed, store.expenses, from, to); const byCat = {}; D.CATEGORIES.forEach((c) => { byCat[c] = tot.byCategory[c].amount; });
+    const repOf = (from, to) => { const tot = D.categoryTotals(SEED.expenseSeed, store.expenses, from, to); const byCat = {}; Object.keys(tot.byCategory).forEach((c) => { byCat[c] = tot.byCategory[c].amount; });
       const sv = salesFor(from, to); return { sv, loading: !sv, rep: R.accountsReport({ expenses: byCat, sales: sv ? sv.sales : [], accounts: accountsNow().balances, inProgressShare: sv ? sv.inProgressShare : 0, deposits: SEED.vendorTotals.dep }) }; };
     const { sv: SV, rep, loading } = repOf(rr.from, rr.to);
-    const headers = ['الشهر', 'الأوردرات', 'المبيعات', 'حصة إبتكر', 'المرتبات', 'المصروفات', 'الاشتراكات', 'الإعلانات', 'إجمالي المصروفات', 'الصافي', 'النتيجة', 'الحساب الفعلي (الآن)', 'الحساب المحتمل (الآن)'];
-    const catOf = (x, c) => ((x.expenseRows.find((r) => r[0] === c) || [, 0])[1]) || 0;
+    // the admin's added expense types (2026-11-14-settings-lists.md decision 1) are counted with «المصروفات» in the monthly columns
+    const added = D.CATEGORIES.some((c) => !D.BASE_CATEGORIES.includes(c)) || store.expenses.some((e) => !D.BASE_CATEGORIES.includes(e.category));
+    const headers = ['الشهر', 'الأوردرات', 'المبيعات', 'حصة إبتكر', expLabel('المرتبات'), expLabel('المصروفات') + (added ? ' وغيرها' : ''), expLabel('الاشتراكات'), expLabel('الإعلانات'), 'إجمالي المصروفات', 'الصافي', 'النتيجة', 'الحساب الفعلي (الآن)', 'الحساب المحتمل (الآن)'];
+    const catOf = (x, c) => (c === 'المصروفات' ? x.expenseRows.filter((r) => r[0] === c || !D.BASE_CATEGORIES.includes(r[0])).reduce((a, r) => a + (Number(r[1]) || 0), 0)
+      : ((x.expenseRows.find((r) => r[0] === c) || [, 0])[1]) || 0);
     const resTag = (n) => h('span', { class: 'tg tg-' + (n < 0 ? 'error' : n > 0 ? 'success' : 'neutral') }, n < 0 ? 'خسارة' : n > 0 ? 'ربح' : 'تعادل');
     const months = []; let anyLoading = loading;
     { let [y, m] = rr.from.split('-').map(Number); for (;;) { const ym = y + '-' + String(m).padStart(2, '0'); if (ym + '-01' > rr.to) break; const a0 = ym + '-01' < rr.from ? rr.from : ym + '-01'; const e = ym + '-' + String(lastDay(y, m)).padStart(2, '0'); const b = e > rr.to ? rr.to : e;
@@ -2190,7 +2196,7 @@
     const adet = (k) => {
       if (k === 'actual') return { title: 'الحساب الفعلي — ' + money(rep.actual) + ' ج.م', sub: 'الأرصدة الحالية · بتتدخل يدويًا في تاب «الحساب الفعلي» لحد الربط البنكي', summary: [{ label: 'الحساب الفعلي', value: money(rep.actual) + ' ج.م' }, { label: 'الرصيد المحتمل', value: money(rep.potential) + ' ج.م' }], headers: ['الحساب', 'الرصيد', 'النسبة'], rows: rep.accountRows.map(pctRow), total: ['الإجمالي', money(rep.actual), '100%'], note: 'الرصيد المحتمل = الحساب الفعلي + حصة إبتكر من أوردرات التنفيذ + العرابين المدفوعة: ' + rep.potentialParts.map(([l, v]) => l + ' ' + money(v)).join(' + '), actions: [{ label: 'فتح الحساب الفعلي', onClick: () => { state.tab = 'actual'; go('accounts'); } }] };
       if (k === 'share') return { title: 'حصة إبتكر من المبيعات — ' + money(rep.share) + ' ج.م', sub: PER + ' · حصة كل أوردر بنسبة المبتكر بتاعه', summary: [{ label: 'المبيعات', value: money(rep.salesTotal) + ' ج.م' }, { label: 'حصة إبتكر', value: money(rep.share) + ' ج.م' }, { label: 'متوسط العمولة', value: Math.round(rep.sharePct * 1000) / 10 + '%' }], headers: ['حالة الأوردر', 'الأوردرات', 'المبيعات', 'حصة إبتكر', 'النسبة'], rows: (SV ? SV.sales : []).map((x) => [x.label, String(x.orders), money(x.sales), money(x.share), x.sales ? D.formatPct(x.share / x.sales) : '—']), total: ['الإجمالي', String(rep.orders), money(rep.salesTotal), money(rep.share), rep.salesTotal ? D.formatPct(rep.share / rep.salesTotal) : '—'], actions: [{ label: 'فتح المبيعات', onClick: () => { state.tab = 'sales'; go('accounts'); } }] };
-      if (k === 'exp') return { title: 'المصروفات — ' + money(rep.expensesTotal) + ' ج.م', sub: PER + ' · حسب الفئة', summary: [{ label: 'الإجمالي', value: money(rep.expensesTotal) + ' ج.م' }, { label: 'أكبر فئة', value: (rep.expenseRows.slice().sort((p, q) => q[1] - p[1])[0] || ['—'])[0] }], headers: ['الفئة', 'المبلغ', 'النسبة'], rows: rep.expenseRows.map(pctRow), total: ['الإجمالي', money(rep.expensesTotal), '100%'], actions: [{ label: 'فتح المصروفات', onClick: () => { state.tab = 'expenses'; go('accounts'); } }] };
+      if (k === 'exp') return { title: 'المصروفات — ' + money(rep.expensesTotal) + ' ج.م', sub: PER + ' · حسب الفئة', summary: [{ label: 'الإجمالي', value: money(rep.expensesTotal) + ' ج.م' }, { label: 'أكبر فئة', value: expLabel((rep.expenseRows.slice().sort((p, q) => q[1] - p[1])[0] || ['—'])[0]) }], headers: ['الفئة', 'المبلغ', 'النسبة'], rows: rep.expenseRows.map(([l, v, p]) => pctRow([expLabel(l), v, p])), total: ['الإجمالي', money(rep.expensesTotal), '100%'], actions: [{ label: 'فتح المصروفات', onClick: () => { state.tab = 'expenses'; go('accounts'); } }] };
       return { title: 'صافي الفترة — ' + money(rep.net) + ' ج.م (' + (rep.net < 0 ? 'خسارة' : 'ربح') + ')', sub: PER + ' · الصافي = حصة إبتكر − المصروفات', summary: [{ label: 'حصة إبتكر', value: money(rep.share) + ' ج.م' }, { label: 'المصروفات', value: money(rep.expensesTotal) + ' ج.م' }, { label: 'الصافي', value: money(rep.net) + ' ج.م' }], headers: ['البند', 'المبلغ'], rows: [['حصة إبتكر من المبيعات (+)', money(rep.share)]].concat(rep.expenseRows.map(([l, v]) => [l + ' (−)', money(v)])).concat([['الصافي', money(rep.net)]]) }; };
     const tA = trAll();
     return [
@@ -2202,7 +2208,7 @@
         U.KpiTile({ label: 'صافي الفترة (حصة إبتكر − المصروفات)', value: money(rep.net), unit: 'ج.م', compare: netTone, delta: { text: rep.net < 0 ? 'خسارة' : 'ربح', caption: PER }, note: [num(money(rep.share)), ' − ', num(money(rep.expensesTotal))], details: () => adet('net') }),
         U.KpiTile({ label: 'المواصلات', value: money(tA.total), unit: 'ج.م', compare: 'off', note: ['مبتكرين ', num(money(tA.vendors)), ' · تشغيل ', num(money(tA.ops)), ' · من البداية'], details: () => transportDetails(null) })),
       h('div', { class: 'charts' },
-        U.ChartCard({ title: 'المصروفات حسب الفئة', subtitle: PER + ' · ' + money(rep.expensesTotal) + ' ج.م', footnote: 'نفس أرقام تاب «المصروفات» في الحسابات', body: barList(rep.expenseRows.map(([l, v, p]) => [l, v, money(v) + ' (' + D.formatPct(p) + ')']), { fmt: money }) }),
+        U.ChartCard({ title: 'المصروفات حسب الفئة', subtitle: PER + ' · ' + money(rep.expensesTotal) + ' ج.م', footnote: 'نفس أرقام تاب «المصروفات» في الحسابات', body: barList(rep.expenseRows.map(([l, v, p]) => [expLabel(l), v, money(v) + ' (' + D.formatPct(p) + ')']), { fmt: money }) }),
         U.ChartCard({ title: 'المبيعات حسب حالة الأوردر', subtitle: PER + ' · ' + rep.orders + ' أوردر', footnote: 'حصة إبتكر تُحسب بنسبة كل مبتكر', body: barList(rep.salesRows.map(([l, v, sh]) => [l, v, money(v) + ' · حصة ' + money(sh)]), { fmt: money, tones: ['brand', 'gold', 'neutral'] }) }),
         U.ChartCard({ title: 'توزيع الحساب الفعلي', subtitle: 'الأرصدة الحالية', footnote: 'تُدخل يدويًا في تاب «الحساب الفعلي» حتى يتم الربط البنكي', body: barList(rep.accountRows.map(([l, v, p]) => [l, v, money(v) + ' (' + D.formatPct(p) + ')']), { fmt: money }) }),
         U.ChartCard({ title: 'مكوّنات الرصيد المحتمل', subtitle: money(rep.potential) + ' ج.م', footnote: 'الرصيد المحتمل = الحساب الفعلي + حصة إبتكر من أوردرات التنفيذ + العرابين المدفوعة', body: barList(rep.potentialParts.map(([l, v, p]) => [l, v, money(v) + ' (' + D.formatPct(p) + ')']), { fmt: money, tones: ['brand', 'gold', 'goldlight'] }) })),

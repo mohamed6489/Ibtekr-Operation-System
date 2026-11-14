@@ -1637,12 +1637,41 @@
     const headers = ['الحالة في السيستم', 'الاسم اللي بيظهر'].concat(kind === 'order' ? ['مقابل WooCommerce'] : []).concat(admin ? [''] : []);
     return K.Section(STATUS_LISTS[kind][0], U.Table({ headers, rows }), null, { th: false, sub: STATUS_LISTS[kind][1] });
   }
+  // the expense types (2026-11-14-settings-lists.md decision 1): the four base ones keep their value (the salaries' hiding, the
+  // subscriptions' fields, the ads' platform and the payroll read them) and take a shown name only; the admin's own are added, renamed and
+  // removed — a removed one stays on the expenses saved with it and in their totals, and leaves the add popup (the server's 0093 guard)
+  function expensesSec() {
+    const S0 = SETT(); const L = S0 && S0.lists ? S0.lists() : { labels: {}, expenseKinds: [] }; const admin = isAdminMe();
+    const base = (S0 && S0.STATUS_KINDS && S0.STATUS_KINDS.expense) || []; const added = (L.expenseKinds || []).slice(); const labels = L.labels || {}; const cur = labels.expense || {};
+    const max = (S0 && S0.KINDS_MAX) || 20; const kmax = (S0 && S0.KIND_MAX) || 30;
+    const saveWith = async (patch, what) => { const r = await S0.saveLists(patch); if (!r.ok) return fail(r, 'الحفظ'); LOGV('settings.lists.expense', what); K.toast('اتحفظ', 'success'); R(); document.dispatchEvent(new Event('ib:settings')); };
+    const withLabel = (v, shown) => { const next = JSON.parse(JSON.stringify(labels)); next.expense = Object.assign({}, next.expense); if (shown && shown !== v) next.expense[v] = shown; else delete next.expense[v]; return next; };
+    const clean = (t) => String(t || '').replace(/\s+/g, ' ').trim();
+    const rename = (v, shown) => K.form({ title: 'تغيير اسم «' + shown + '»', values: { v: shown }, note: base.includes(v) ? U.InlineNote({ children: 'الاسم اللي بيظهر في الصفحات بس — النوع جوه السيستم والتقارير زي ما هو.' }) : null,
+      fields: (f, e, set) => [K.field.text('v', 'الاسم اللي بيظهر', f, e, set, { required: true, maxlength: 40 })],
+      validate: (f) => { const e = K.req(f, ['v']); if (!e.v && /[<>]/.test(f.v)) e.v = 'من غير < أو >'; return e; }, submitLabel: 'حفظ', submit: (f) => saveWith({ labels: withLabel(v, clean(f.v)) }, 'label') });
+    const addKind = () => K.form({ title: 'نوع مصروف جديد', values: { v: '' }, note: U.InlineNote({ children: 'النوع الجديد بيتسجل زي «المصروفات»: التفاصيل إجبارية.' }),
+      fields: (f, e, set) => [K.field.text('v', 'اسم النوع', f, e, set, { required: true, maxlength: kmax })],
+      validate: (f) => { const e = K.req(f, ['v']); const t = clean(f.v); if (!e.v) { if (t.length < 2) e.v = 'حرفين على الأقل'; else if (/[<>]/.test(t)) e.v = 'من غير < أو >'; else if (base.includes(t) || added.includes(t)) e.v = 'النوع ده موجود'; } return e; },
+      submitLabel: 'إضافة', submit: (f) => saveWith({ expenseKinds: added.concat([clean(f.v)]) }, 'add = ' + (added.length + 1)) });
+    const removeKind = (v) => K.confirm({ title: 'حذف «' + (cur[v] || v) + '»', text: 'مش هيظهر في بوب أب «إضافة مصروف»؛ المصروفات اللي اتسجلت بيه بتفضل باسمها وبتتحسب في الإجماليات.', okType: 'danger', okLabel: 'حذف',
+      onOk: () => saveWith({ expenseKinds: added.filter((x) => x !== v), labels: withLabel(v, '') }, 'remove = ' + (added.length - 1)) });
+    const row = (v, own) => [h('span', { 'data-expense-kind': v }, v), h('b', { 'data-expense-label': v }, cur[v] || v), own ? K.Tag('gold', 'مضاف') : K.Tag('neutral', 'أساسي'), admin ? K.RowMenu([
+      { label: 'تغيير الاسم', icon: 'sliders', run: () => rename(v, cur[v] || v) },
+      cur[v] ? { label: 'رجّع الاسم الأصلي', icon: 'refresh', run: () => saveWith({ labels: withLabel(v, '') }, 'label') } : null,
+      own ? { label: 'حذف', icon: 'close', danger: true, run: () => removeKind(v) } : null].filter(Boolean)) : null].filter((c) => c !== null);
+    const headers = ['النوع في السيستم', 'الاسم اللي بيظهر', ''].concat(admin ? [''] : []);
+    return K.Section('أنواع المصروفات', U.Table({ headers, rows: base.map((v) => row(v, false)).concat(added.map((v) => row(v, true))) }),
+      admin ? [Button({ label: '+ إضافة نوع', attrs: { 'data-expense-add': '' }, disabled: added.length >= max, onClick: addKind })] : null,
+      { th: false, sub: 'الأربعة الأساسية بيتغيّر اسمها بس (المرتبات مخفية عن «الحسابات» الجزئي، والاشتراكات والإعلانات بخاناتهم) — والأنواع المضافة لحد ' + max + ' نوع' });
+  }
   function lists() {
     const L = C.otherLists; const tabs = [{ id: 'order', label: 'حالات الأوردر' }, { id: 'confirm', label: 'حالات التأكيد' }, { id: 'sub', label: 'حالات الأوردر الفرعي' }, { id: 'cancel', label: 'أسباب الإلغاء والمسح' }, { id: 'returns', label: 'أسباب المرتجع' }, { id: 'stop', label: 'أسباب إيقاف المبتكر' }, { id: 'shipping', label: 'شركات الشحن' }, { id: 'expenses', label: 'أنواع المصروفات' }, { id: 'categories', label: 'فئات المبتكرين' }, { id: 'priorities', label: 'الأولويات' }];
     const cur = tabs.some((t) => t.id === st.list) ? st.list : 'order';
     const out = [K.SubTabs({ items: tabs, active: cur, onChange: (id) => { st.list = id; R(); }, label: 'القوائم' })];
     if (STATUS_LISTS[cur]) out.push(statusSec(cur));
     else if (SAVED_LISTS[cur]) out.push(reasonsSec(cur));
+    else if (cur === 'expenses') out.push(expensesSec());
     else { const titles = Object.fromEntries(tabs.map((t) => [t.id, t.label])); const items = L[cur] || []; out.push(K.Section(titles[cur], U.Table({ headers: ['الاسم'], rows: items.map((x) => [x]) }), null, { th: false }));
       out.push(U.InlineNote({ children: cur === 'expenses' ? 'أنواع المصروفات مربوطة بقيود قاعدة البيانات وتقارير الحسابات — عرض بس.' : cur === 'categories' ? 'فئات المبتكرين = أقسام الموقع الرئيسية — بتتعدّل من «المنتجات › الأقسام».' : 'الأولويات مربوطة بطلبات الفريق في قاعدة البيانات — عرض بس.' })); }
     return out;

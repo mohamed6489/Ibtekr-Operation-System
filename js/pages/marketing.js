@@ -15,6 +15,19 @@
 (function () {
   'use strict';
   const U = window.IBUI, K = window.IBKit, PD = window.IbtekrProducts, W = window.IbtekrCampWiz;
+  // owner batch 2 decision 14: «تعليمات» = the admin's instruction templates (الإعدادات › الذكاء الاصطناعي — «الصور» for the images,
+  // «الفيديو» for a video; «البوست» is applied to every post already) picked one or more + the member's own words. Only the ids are kept
+  // (state.w.media.<tab>.tpl) — the server reads their text from the settings (templateNotes), never from the page.
+  const aiTemplates = (tab) => { const p = window.IBSettings && window.IBSettings.public ? window.IBSettings.public() : null; const all = p && p.aiTemplates ? p.aiTemplates : {};
+    return (Array.isArray(all[tab === 'video' ? 'vid' : 'img']) ? all[tab === 'video' ? 'vid' : 'img'] : []).filter((x) => x && x.id && x.id !== 'post'); };
+  function tplPick(tab, m) {
+    const L = aiTemplates(tab);
+    if (!L.length) return h('p', { class: 't-small help', 'data-cw-tpl-empty': tab, style: 'margin:0' }, 'مفيش قوالب تعليمات — الأدمن بيضيفها من الإعدادات › الذكاء الاصطناعي («+ تعليمات جديدة»).');
+    const known = new Set(L.map((x) => x.id)); const cur = (Array.isArray(m.tpl) ? m.tpl : []).filter((id) => known.has(id));
+    return h('div', { 'data-cw-tpl': tab }, K.MultiPick({ id: 'cw-tpl-' + tab, label: 'قوالب التعليمات', field: true, placeholder: 'اختار قالب أو أكتر', search: L.length > 6,
+      help: 'تعليمات جاهزة من الإعدادات — تقدر تختار أكتر من واحد وتكتب تحتها اللي عايزه زيادة.',
+      options: L.map((x) => ({ value: x.id, label: x.name || x.id })), value: cur, onChange: (v) => { m.tpl = v.slice(0, 10); persist(); } }));
+  }
   if (!U || !K || !W || !window.IBPages) return;
   const { h, Icon, Button } = U;
   const MK = () => window.IBMarketing;
@@ -263,7 +276,8 @@
     const media = Card('الميديا', 'اختار نوع الميديا وظبط كل نوع لوحده.', [K.SubTabs({ label: 'نوع الميديا', active: t, onChange: (id) => { if (id === 'video' && W.VIDEO_SOON) { K.toast('الفيديو بالـ AI قريبًا — بعد المرحلة دي'); return; } c.mediaTab = id; persist(); R(); }, items: tabItems }),
       h('div', { class: 'cw-media', 'data-cw-media': t }, counts, t === 'video' ? vmodelSel('cw-md-video', m.model, (v) => { m.model = v; const mm = PD.VIDEO_MODELS.find((x) => x.id === v); if (mm && !mm.durations.includes(m.dur)) m.dur = mm.durations[0]; }) : modelSel('cw-md-' + t, m.model, (v) => { m.model = v; }),
         h('hr', { class: 'cw-hr' }), Files('cw-use-' + t, 'فايلز أو لينكات للاستخدام', m.use, 'صور المنتج، اللوجو، لقطات من الورشة — أو لينك منتج من الموقع'), Files('cw-ref-' + t, 'فايلز أو لينكات أمثلة للمطابقة', m.ref, 'الـ AI بيقلّد الستايل والترتيب', t === 'carousel' ? 'carousel' : 'post'),
-        aiField(U.Textarea({ id: 'cw-notes-' + t, label: 'تعليمات', rows: 2, value: m.notes, placeholder: 'مثلًا: ألوان دافية، من غير ناس، الكلام قليل', onInput: (v) => { m.notes = v; persist(); } }), 'notes', { campaignId: null }))]);
+        tplPick(t, m),
+        aiField(U.Textarea({ id: 'cw-notes-' + t, label: 'تعليمات إضافية', rows: 2, value: m.notes, placeholder: 'مثلًا: ألوان دافية، من غير ناس، الكلام قليل', onInput: (v) => { m.notes = v; persist(); } }), 'notes', { campaignId: null }))]);
     // the owner 13 Nov (decision 10 of docs/superpowers/plans/2026-11-13-owner-ui-batch.md): no «ملفات إضافية» on a new campaign (an old one's
     // extra files stay as they were)
     const est = W.estimate(c, IMGM()); const w = wallet(); const estV = W.estimateVideo(c);

@@ -13,7 +13,7 @@ function load(answer) {
   const logs = []; const mirror = [];
   const window = { IBSupabase: { client: stub.client }, IBDirectory: { perm: () => 'F' },
     IBActivity: { log: (action, detail, meta) => { logs.push([action, detail, meta]); return Promise.resolve(); } },
-    IBProducts: { addCategory: (row) => mirror.push(['add', row]), renameCategory: (id, name) => mirror.push(['rename', id, name]), removeCategory: (id) => mirror.push(['remove', id]) } };
+    IBProducts: { addCategory: (row) => mirror.push(['add', row]), renameCategory: (id, name) => mirror.push(['rename', id, name]), patchCategory: (id, patch) => mirror.push(['patch', id, patch]), removeCategory: (id) => mirror.push(['remove', id]) } };
   runInNewContext(src, { window, document: { dispatchEvent() {} }, CustomEvent: class { constructor(t, o) { this.type = t; this.detail = o && o.detail; } }, Promise, Date, Number, String, Array, Object, JSON, Map, Set, Error, Uint8Array, btoa });
   const bodies = () => stub.calls.filter((c) => c.op === 'invoke').map((c) => c.args[1].body);
   return { S: window.IBStudio, bodies, logs, mirror };
@@ -26,7 +26,10 @@ test('createCategory: the image as base64 of its bytes, none without one; the mi
   assert.deepEqual(plain(r), { ok: true, id: 80, arId: 81 });
   await S.createCategory({ name_en: 'Gifts', name_ar: 'هدايا' });
   assert.deepEqual(plain(bodies()), [{ action: 'category_create', name_en: 'Lamps', name_ar: 'أباجورات', parent: 15, image: { data: 'UklGRg==' } }, { action: 'category_create', name_en: 'Gifts', name_ar: 'هدايا', parent: 0 }]);
-  assert.deepEqual(plain(mirror[0]), ['add', { id: 80, name: 'Lamps', parent_id: 15 }]);
+  assert.deepEqual(plain(mirror[0]), ['add', { id: 80, name: 'Lamps', parent_id: 15, slug: null, image_url: null }]);
+  // owner batch 14 Nov decision 9: a slug goes with the request and into the mirror
+  await S.createCategory({ name_en: 'Candles', name_ar: 'شموع', slug: 'candles' });
+  assert.equal(bodies().at(-1).slug, 'candles'); assert.equal(mirror.at(-1)[1].slug, 'candles');
   assert.deepEqual(plain(logs[0]), ['product.category.create', '#80 · Lamps', { entity: 'woo_categories', entity_id: '80' }]);
 });
 
@@ -44,8 +47,13 @@ test('categoryUpdate: only what changed goes (no empty keys), a new name follows
   assert.deepEqual(plain(r), { ok: true, ar: 'none', image: null });
   await S.categoryUpdate({ id: 80, name_en: null, name_ar: 'إضاءة', image: blob([0xff, 0xd8, 0xff]) });
   assert.deepEqual(plain(bodies()), [{ action: 'category_update', id: 80, name_en: 'Lights' }, { action: 'category_update', id: 80, name_ar: 'إضاءة', image: { data: '/9j/' } }]);
-  assert.deepEqual(plain(mirror), [['rename', 80, 'Lights']]);
+  assert.deepEqual(plain(mirror), [['patch', 80, { name: 'Lights' }], ['patch', 80, { image_url: 'https://woo.test/n.webp' }]]);
   assert.deepEqual(plain(logs).map((l) => l[1]), ['#80 · name', '#80 · name_ar, image']);
+  // owner batch 14 Nov decision 9: the slug and a new parent go too, and the mirror follows
+  await S.categoryUpdate({ id: 80, slug: 'lights', parent: 0 });
+  assert.deepEqual(plain(bodies().at(-1)), { action: 'category_update', id: 80, slug: 'lights', parent: 0 });
+  assert.deepEqual(plain(mirror.at(-1)), ['patch', 80, { slug: 'lights', parent_id: null }]);
+  assert.equal(plain(logs).at(-1)[1], '#80 · slug, parent');
   const off = load(() => ({ data: { action: 'category_update', result: 'skipped', reason: 'push_disabled' }, error: null }));
   assert.deepEqual(plain(await off.S.categoryUpdate({ id: 80, name_en: 'X' })), { ok: false, reason: 'push_disabled' });
 });

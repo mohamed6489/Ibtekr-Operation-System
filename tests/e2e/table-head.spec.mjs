@@ -103,3 +103,16 @@ test('a smaller table (4 columns) and a table in a popup stay as they were', asy
   await expect(card(page)).not.toHaveAttribute('data-th', '');
   await expect(card(page).locator('[data-th-sub]')).toHaveCount(0);
 });
+
+test('the owner 14 Nov: a TableCard head («جدول المبتكرين — الفترة المحددة» in the reports) — the period line under the title, the controls one group 8px apart', async ({ page }) => {
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await page.locator('.sidebar .nav-item[data-page="reports"]').click();
+  await page.getByRole('tab', { name: 'تقارير المبتكرين', exact: true }).click();
+  const head = page.locator('.table-card:visible', { hasText: 'جدول المبتكرين — الفترة المحددة' }).locator('.table-title');
+  await expect(head.locator('[data-th-sub]')).toContainText('مبتكر');
+  await expect(head.locator(':scope > .count')).toHaveCount(0); // no count next to the buttons any more
+  const gaps = await head.locator(':scope > .acts').evaluate((a) => { const r = [...a.children].filter((x) => x.offsetParent).map((x) => x.getBoundingClientRect()).sort((p, q) => q.right - p.right);
+    return r.slice(1).map((x, i) => Math.round(r[i].left - x.right)); });
+  expect(gaps.length).toBeGreaterThanOrEqual(3); // بحث · فلتر · ترتيب · columns
+  gaps.forEach((g) => expect(g).toBe(8));
+});

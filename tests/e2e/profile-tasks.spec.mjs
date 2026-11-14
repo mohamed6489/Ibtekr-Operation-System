@@ -50,63 +50,19 @@ const modal = (page, text) => page.locator('.modal[role=dialog]', { hasText: tex
 const calls = (fn) => mock.hr.calls.filter((c) => c.fn === fn);
 const task = (id) => mock.hr.tasks.find((t) => t.id === id);
 
-test('the member: the open tasks (no «النهارده» — the owner 11 Nov) and the admin\'s task, «ضيف مهمة» with Enter, «متوقفة» with its reason, the checkbox, «حذف», the postponed and the done', async ({ page }) => {
+// owner batch 14 Nov decision 12 («المهام هيا بس المهام التلقائية اللي بتيجي من السيستم، غير كده كلها طلبات»): no manual task — no
+// add box, no own list; «مهامي» = «تلقائية من السيستم» and a way to open a team request
+test('owner batch 14 Nov: «مهامي» is the system\'s automatic tasks only — no add box, no manual list, «فتح طلب» for anything else', async ({ page }) => {
   await open(page, OPS, 'profile-tasks');
-  await expect(row(page, 'تجهيز عرض المبتكرين الجدد')).toBeVisible(); // a task carried from yesterday stays open
-  await expect(row(page, 'تجهيز عرض المبتكرين الجدد')).not.toContainText('من امبارح'); // the owner 11 Nov: no «today» in «مهامي»
-  await expect(row(page, 'مراجعة صور منتجات W&R')).toContainText('من صفوت كمال');
-  await expect(row(page, 'مراجعة صور منتجات W&R').getByRole('button', { name: /^إجراءات/ })).toHaveCount(0); // the admin put it: no «حذف» for the member
-  await expect(P(page).locator('.task.auto').first()).toBeVisible(); // the open orders not confirmed yet (ops has orders.status F)
-  await expect(sub(page, 'المفتوحة').locator('.cnt')).toHaveText(String(3 + await P(page).locator('.task.auto').count())); // the three of today + the automatic ones
-  // «ضيف مهمة واضغط Enter»: it shows at once, the field stays focused and empty
-  const add = P(page).locator('.task-add'); await add.fill('متابعة شحنة أسوان'); await add.press('Enter');
-  await expect(row(page, 'متابعة شحنة أسوان')).toBeVisible(); await expect(add).toBeFocused(); await expect(add).toHaveValue('');
-  await expect.poll(() => calls('hr_task_add').length).toBe(1);
-  expect(calls('hr_task_add')[0]).toMatchObject({ p_member: OPS_ID, p_title: 'متابعة شحنة أسوان' });
-  // a status with its reason
-  await row(page, 'مكالمة مع شركة الشحن').locator('.tstat-btn').click(); await page.getByRole('option', { name: 'متوقفة · Hold' }).click();
-  const m = modal(page, 'وقّف المهمة'); await m.getByRole('button', { name: 'حفظ' }).click(); await expect(m).toContainText('اكتب سبب التوقف');
-  await m.locator('textarea').fill('مستني رد الشركة'); await m.getByRole('button', { name: 'حفظ' }).click();
-  await expect(row(page, 'مكالمة مع شركة الشحن')).toContainText('السبب: مستني رد الشركة');
-  await expect.poll(() => task(2).status).toBe('متوقفة');
-  expect(calls('hr_task_set')[0]).toMatchObject({ p_id: 2, p_status: 'متوقفة', p_args: { reason: 'مستني رد الشركة' } });
-  // the checkbox: «خلصت» leaves «النهارده» for «خلصت»; the day moves up to today
-  await row(page, 'تجهيز عرض المبتكرين الجدد').getByRole('checkbox').click();
-  await expect(row(page, 'تجهيز عرض المبتكرين الجدد')).toHaveCount(0);
-  await expect.poll(() => [task(1).status, task(1).day, !!task(1).done_at]).toEqual(['خلصت', T, true]);
-  await sub(page, 'خلصت').click();
-  await expect(row(page, 'تجهيز عرض المبتكرين الجدد')).toBeVisible(); await expect(row(page, 'إرسال فواتير سبتمبر')).toBeVisible();
-  // decision 38: «إنجازاتي» on the overview = the tasks done (5 and now 1); it opens «مهامي › خلصت»
-  await P(page).getByRole('tab', { name: 'نظرة عامة' }).click();
-  const ach = P(page).locator('.sum-tile', { hasText: 'إنجازاتي' });
-  await expect(ach.locator('.t-h3')).toHaveText('2'); await expect(ach).toContainText('مهمة خلصت');
-  await ach.click();
-  await expect(sub(page, 'خلصت')).toHaveAttribute('aria-selected', 'true'); await expect(row(page, 'إرسال فواتير سبتمبر')).toBeVisible();
-  // «حذف» on my own task (marked on the server, gone from the list)
-  await sub(page, 'المفتوحة').click();
-  await row(page, 'متابعة شحنة أسوان').getByRole('button', { name: 'إجراءات متابعة شحنة أسوان' }).click(); await page.getByRole('menuitem', { name: 'حذف' }).click();
-  await expect(row(page, 'متابعة شحنة أسوان')).toHaveCount(0);
-  await expect.poll(() => calls('hr_task_delete').length).toBe(1);
-  expect(mock.hr.tasks.find((t) => t.title === 'متابعة شحنة أسوان').deleted_at).toBeTruthy();
-  // «المؤجل»
-  await sub(page, 'المؤجل').click(); await expect(row(page, 'خطة محتوى نوفمبر')).toContainText('لأجل غير مسمى');
-  // the log: the member's code and the statuses — never a title
-  await expect.poll(() => mock.activity.map((a) => a.action)).toEqual(expect.arrayContaining(['hr.task.add', 'hr.task.status', 'hr.task.delete']));
-  const logged = JSON.stringify(mock.activity.filter((a) => /^hr\.task/.test(a.action)));
-  expect(logged.includes('شحنة')).toBe(false); expect(logged.includes('مستني')).toBe(false);
+  await expect(P(page).locator('.task-add')).toHaveCount(0);
+  await expect(P(page).locator('.task:not(.auto)')).toHaveCount(0);
+  await expect(P(page).locator('.subtab', { hasText: 'المؤجل' })).toHaveCount(0);
+  await expect(P(page).locator('[data-tasks-note]')).toContainText('«طلب» من «طلبات الفريق»');
+  await expect(P(page).getByRole('button', { name: 'فتح طلب' })).toBeVisible();
+  expect(calls('hr_task_add')).toEqual([]);
 });
 
-test('«جاهزة للمراجعة»: the reviewer from the team (the direct manager first) — the task waits at the reviewer', async ({ page }) => {
-  await open(page, OPS, 'profile-tasks');
-  await row(page, 'مكالمة مع شركة الشحن').locator('.tstat-btn').click(); await page.getByRole('option', { name: 'جاهزة للمراجعة · Ready for review' }).click();
-  const m = modal(page, 'جاهزة للمراجعة'); await expect(m.locator('#reviewer')).toContainText('صفوت كمال');
-  await m.locator('#reviewer').click(); await expect(page.getByRole('option', { name: 'سارة أحمد' })).toHaveCount(0); // not the task's own member
-  await page.getByRole('option', { name: 'منى حسن' }).click(); await m.getByRole('button', { name: 'حفظ' }).click();
-  await expect(row(page, 'مكالمة مع شركة الشحن')).toContainText('المراجع: منى حسن');
-  await expect.poll(() => [task(2).status, task(2).reviewer_id]).toEqual(['جاهزة للمراجعة', ACC_ID]);
-});
-
-test('the reviewer: «راجع: …» in «تلقائية من السيستم», «رجّعها» needs a note, the owner reads it; on a member\'s file the admin adds a task for them', async ({ page }) => {
+test('the reviewer: «راجع: …» in «تلقائية من السيستم», «رجّعها» needs a note', async ({ page }) => {
   await open(page, ADMIN, 'profile-tasks');
   const auto = P(page).locator('[data-auto="rv7"]'); await expect(auto).toContainText('راجع: تسوية حساب البنك — منى حسن');
   await auto.getByRole('button').click();
@@ -115,14 +71,7 @@ test('the reviewer: «راجع: …» in «تلقائية من السيستم»,
   await m.locator('textarea').fill('ناقص كشف أكتوبر'); await m.getByRole('button', { name: 'حفظ' }).click();
   await expect(m).toHaveCount(0); await expect(auto).toHaveCount(0);
   expect(calls('hr_task_review')[0]).toMatchObject({ p_id: 7, p_ok: false, p_note: 'ناقص كشف أكتوبر' });
-  // the member's file: «المهام» with the note back; the admin adds one for them
-  await page.evaluate(() => { location.hash = 'member-M04'; });
-  await P(page).getByRole('tab', { name: 'المهام', exact: true }).click();
-  await expect(row(page, 'تسوية حساب البنك')).toContainText('رجعت من صفوت كمال: ناقص كشف أكتوبر');
-  const add = P(page).locator('.task-add'); await add.fill('مراجعة فواتير المبتكرين'); await add.press('Enter');
-  await expect.poll(() => calls('hr_task_add').length).toBe(1);
-  expect(calls('hr_task_add')[0]).toMatchObject({ p_member: ACC_ID, p_title: 'مراجعة فواتير المبتكرين' });
-  await expect(row(page, 'مراجعة فواتير المبتكرين')).toContainText('من صفوت كمال');
+  // owner batch 14 Nov decision 12: no «ضيف مهمة» on a member's file either
 });
 
 test('«تلقائية من السيستم» from the live data: my team\'s request waiting for me, my role\'s urgent ticket, then the count of the rest', async ({ page }) => {
@@ -137,12 +86,12 @@ test('«تلقائية من السيستم» from the live data: my team\'s requ
   await expect(page).toHaveURL(/#tickets$/);
 });
 
-test('the dashboard\'s «يومي — دوامي ومهامي»: today\'s tasks from the server, the checkbox writes «خلصت»', async ({ page }) => {
+test('the dashboard\'s «يومي — دوامي ومهامي»: the automatic tasks as links (owner batch 14 Nov decision 12 — no manual checkbox)', async ({ page }) => {
   await open(page, ADMIN, 'dashboard');
-  const card = page.locator('.dc-daily'); const cb = card.getByRole('checkbox', { name: 'مراجعة كشف المرتبات' });
-  await expect(cb).toHaveAttribute('aria-checked', 'false'); await cb.click();
-  await expect.poll(() => task(6).status).toBe('خلصت');
-  await expect(card.getByRole('checkbox', { name: 'مراجعة كشف المرتبات' })).toHaveAttribute('aria-checked', 'true');
+  const card = page.locator('.dc-daily');
+  await expect(card.locator('[data-dash-auto] .dash-task-auto').first()).toBeVisible();
+  await expect(card.locator('[data-dash-auto]')).toContainText('راجع: تسوية حساب البنك');
+  await expect(card.getByRole('checkbox')).toHaveCount(0);
 });
 
 test('the staff report: «مهام مفتوحة» and «أكتر 5 عندهم مهام» from the team\'s open tasks now', async ({ page }) => {

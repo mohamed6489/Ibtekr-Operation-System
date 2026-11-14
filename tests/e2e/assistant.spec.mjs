@@ -189,13 +189,14 @@ test('decision 36: open_form customer_add / hr_leave / task_add open their forms
   const cust = page.locator('.modal[role=dialog]', { hasText: 'إضافة عميل' }).last();
   await expect(cust.locator('#name')).toHaveValue('منة'); await expect(cust.locator('#city')).toHaveValue('طنطا');
   await cust.getByRole('button', { name: 'إلغاء' }).click();
+  // owner batch 14 Nov decision 12: no manual task — «إضافة مهمة» opens a team request («طلب جديد») with the title
   next = { text: 'فتحتلك المهمة.', actions: [{ name: 'open_form', input: { form: 'task_add', values: { title: 'مراجعة فواتير' } } }] };
   await ask(page, 'ضيفلي مهمة مراجعة فواتير');
   await openLink(page); // decision 41: the popup opens from the link under the answer
-  const task = page.locator('.modal[role=dialog]', { hasText: 'إضافة مهمة' }).last();
-  await expect(task.locator('#title')).toHaveValue('مراجعة فواتير');
-  await task.getByRole('button', { name: 'أكّد وسجّل' }).click();
-  await expect.poll(() => mock.hr.tasks.some((t) => t.title === 'مراجعة فواتير')).toBe(true);
+  await expect(page).toHaveURL(/#tickets/);
+  const req = page.locator('.modal[role=dialog]').last();
+  await expect(req.locator('input[value="مراجعة فواتير"]')).toHaveCount(1);
+  expect(mock.hr.tasks.some((t) => t.title === 'مراجعة فواتير')).toBe(false);
 });
 
 test('decision 36: open_form order_update asks once in a popup, then writes the confirmation; a viewer is told the right is missing', async ({ page }) => {

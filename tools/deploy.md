@@ -2102,3 +2102,8 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 1. `0097_ticket_member.sql` — `tickets.assignee_member` (+ `assignee_member_name`)، `ticket_member_ok(عضو, الدور)` (نشط وعنده الدور أساسي أو إضافي)، `ticket_can_see(دور, فاتحها, العضو)` على `tickets_select` و`ticket_file_visible`، و`ticket_create` / `ticket_act` (0081 + العضو: `assigneeMember` في الإنشاء و`update`؛ دور جديد من غير عضو = كل الدور، والعضو المعيّن بيشوف ويشتغل حتى لو ساب الدور).
 2. RLS live (`files = rls_ticket_member`).
 3. الواجهة على `main` (لازم بعد `0097` — الصفحة بتقرا `assignee_member`). والقوايم (`IBUI.Select` وكل `.menu`) بقت بتفتح تحت خانتها وبتسكرول جواها طول ما فيه مكان لـ 3 اختيارات (`MENU_MIN` في الكتلة 10).
+
+**T6 — الإجراءات السريعة بالظهور (قرار 16)، بعد** `0097`:
+1. `0098_quick_actions.sql` — جدول `quick_actions` (الاسم، اللينك `#…`، الأيقونة، `scope` = `all` «كل الفريق» | `role` «دور معين» + `role_id` | `me` «أنا بس» + `owner`، `active`، `sort`) بـ RLS قراية بالظهور ومن غير كتابة مباشرة؛ القراية والكتابة RPCs: `quick_actions_list()` (بـ `can_edit`) / `quick_action_save(p)` / `quick_action_delete(id)` / `quick_action_order(ids)` — «كل الفريق» للأدمن، «دور معين» للأدمن أو مدير الدور (`roles.manager_id` أو «مدير» دوره الأساسي)، «أنا بس» لصاحبه؛ وبينقل قايمة صف `settings` «quick» القديمة لـ «كل الفريق» مرة واحدة (على الحي القايمة فاضية).
+2. RLS live (`files = rls_quick_actions`).
+3. الواجهة على `main` (لازم بعد `0098` — القايمة بتتقري من الجدول).

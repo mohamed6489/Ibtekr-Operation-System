@@ -33,7 +33,7 @@
 /* inbox zones (owner 1 Nov): نفس التقسيمة — خلفية مختلفة لكل عمود عشان العين تفصل · رسايلنا خضرا والكلام بيج */
 .cs-list{background:var(--color-bg-container)}
 .cs-list .cv{background:transparent;border-bottom-color:var(--color-border-subtle)}
-.cs-list .cv:hover{background:var(--color-bg-tint)}
+.cs-list .cv:hover{background:var(--color-bg-hover,#efe2c9)}
 .cs-list .cv.sel{background:var(--color-bg-base);box-shadow:inset -3px 0 0 var(--color-brand-default)}
 .cs-list .cs-lh .search,.cs-list .cs-lh .select{background:var(--color-bg-base)}
 .cs-inbox>.cs-list{border-inline-end:1px solid var(--color-border-default)}
@@ -104,7 +104,7 @@
 .cs-slash[hidden]{display:none}
 .cmp-in{position:relative}
 .cs-slash-it{display:flex;align-items:center;gap:10px;padding:8px 12px;border:0;background:transparent;font:inherit;color:inherit;text-align:start;cursor:pointer}
-.cs-slash-it:hover,.cs-slash-it:focus{background:var(--color-bg-tint)}
+.cs-slash-it:hover,.cs-slash-it:focus{background:var(--color-bg-hover,#efe2c9)}
 @media (max-width:720px){.rule{flex-wrap:wrap}.rule-info{flex-basis:100%}.rule .stats{white-space:normal;flex:1}}
 
 /* phase 13 T3: attachments in the bubble, the order picker */
@@ -127,7 +127,7 @@
 .st-btn>.tg,.st-btn>.tag{margin:0}
 .chan-btn{display:inline-grid;place-items:center;width:32px;height:32px;padding:0;border:1px solid var(--color-border-subtle);border-radius:var(--radius-sm,6px);background:var(--color-bg-base);color:var(--color-brand-default);cursor:pointer}
 .chan-btn+.chan-btn{margin-inline-start:4px}
-.chan-btn:hover{background:var(--color-brand-subtle-bg);border-color:var(--color-brand-default)}
+.chan-btn:hover{background:var(--color-bg-hover,#efe2c9);border-color:var(--color-brand-default)}
 .chan-btn:focus-visible{outline:2px solid var(--color-action-default);outline-offset:1px}
 .chan-btn.no-conv{color:var(--color-text-secondary);opacity:.7}
 .chan-btn svg{width:18px;height:18px}

@@ -1848,3 +1848,13 @@ td > :is(.mlink,.prod,.who-cell) .avatar{flex:none}
    (.table-title) gets its controls in one group 8px apart like .sec-h — «بحث» and «فلتر» touched and the columns icon stood off */
 .table-title>.acts{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .table-title>.acts>[data-cols]{margin-inline-start:0}
+/* the owner 14 Nov (docs/superpowers/plans/2026-11-14-owner-batch.md decision 1): the dark beige (--color-brand-subtle-bg) marks what is
+   selected only; a hover anywhere is one middle shade between the page's beige and that selected beige (--color-bg-hover) */
+:root{--color-bg-hover:#efe2c9}
+:is(.btn-text,.icon-btn,.opt,.radio,.day,.ntf-nav-item,.ntf-item,.list-chip.role-chip,.dn-item,.dash-barbtn,.subtab,.set-nav-item,.user-btn,.cv,.af-clr,.star-pick .sp,.dc-grip,.th-sort):hover{background:var(--color-bg-hover)}
+.dt-click:hover td{background:var(--color-bg-hover)}
+:is(.opt,.ntf-item):focus-visible{background:var(--color-bg-hover)}
+/* what is selected keeps the dark beige even under the pointer */
+:is(.opt[aria-selected=true],.opt[aria-checked=true],.cv.sel,.set-nav-item[aria-current=page]):hover{background:var(--color-brand-subtle-bg)}
+/* a text button on a green header: its hover is a light veil over the green, the beige text stays readable («افتح الميديا باير») */
+:is(.card.sec:not(.tbl-v2):not(.admin)>.sec-h:not(.cols-only),.chart-card>.chart-head,.dash-card:not(.tbl-v2)>.dash-h,.set-card>.set-card-h,.cat-main-h) .btn-text:hover{background:rgba(255,247,239,.16);color:var(--color-text-on-brand)}

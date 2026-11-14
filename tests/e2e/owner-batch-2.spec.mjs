@@ -324,3 +324,44 @@ test('T7 — decision 11: «إيقاف مؤقت» for a day writes integrations.
   await expect(page.locator('#pg-settings [data-integ-connect="messenger"]')).toBeVisible();
   await expect(page.locator('#pg-settings [data-integ-connect="wa"]')).toBeVisible();
 });
+
+test('T8 — decisions 13–15: the six shot rules of the studio; «+ تعليمات جديدة» adds a template; a campaign picks it beside its own words (the ids only)', async ({ page }) => {
+  await go(page, '#settings-ai');
+  const st = page.locator('#pg-settings');
+  // decision 13: the studio's five shots + the features image, in its order
+  await expect(st).toContainText('قواعد اللقطات');
+  for (const l of ['1 · في النص', '2 · بيئة', '3 · بيئة تانية', '4 · تفاصيل 2×2', '5 · رسم المقاس', '6 · صورة المميزات']) await expect(st.getByText(l, { exact: true })).toBeVisible();
+  await expect(st.locator('#ai-s0')).toHaveValue(/في النص لوحده/);
+  await expect(st).not.toContainText('قواعد الخانات الأربعة');
+  // decision 15: «+ تعليمات جديدة» (was «+ قسم جديد»)
+  await expect(st.getByRole('button', { name: 'قسم جديد' })).toHaveCount(0);
+  await st.locator('[data-ai-addsec]').click();
+  const f = modal(page).filter({ hasText: 'تعليمات جديدة — الصور' });
+  await f.locator('input').first().fill('ألوان الشتا');
+  await f.getByRole('button', { name: 'ضيف التعليمات' }).click();
+  await st.locator('#ais-p').fill('ألوان دافية بني وكريمي، إضاءة شتوية');
+  await st.locator('#ais-p').blur();
+  await st.getByRole('button', { name: 'احفظ التعليمات' }).click();
+  await expect.poll(() => { const r = mock.settings.find((x) => x.section === 'ai_rules'); const img = r && r.data && r.data.sections ? r.data.sections.img : [];
+    return { six: r && r.data ? (r.data.slots || []).length : 0, tpl: img.filter((x) => x.custom).map((x) => [x.name, x.prompt]) }; })
+    .toEqual({ six: 6, tpl: [['ألوان الشتا', 'ألوان دافية بني وكريمي، إضاءة شتوية']] });
+  const id = mock.settings.find((x) => x.section === 'ai_rules').data.sections.img.find((x) => x.custom).id;
+  await page.evaluate(() => window.IBSettings.loadPublic()); // settings_public (0100): the templates for everyone
+  // decision 14: the campaign's «تعليمات» = the templates (pick one or more) + its own words
+  await go(page, '#marketing-create');
+  const mk = page.locator('#pg-marketing');
+  await mk.locator('[data-mk-start]').click();
+  await mk.locator('#cw-idea').fill('كولكشن الشتا — مخدات مشغولة');
+  await expect(mk.locator('[data-cw-tpl="post"]')).toBeVisible();
+  await expect(mk.locator('[data-cw-tpl="post"]')).not.toContainText('البوست'); // applied to every post already
+  await mk.locator('#cw-tpl-post').click();
+  await page.locator('[data-mp-menu="cw-tpl-post"] [data-mp-opt="' + id + '"]').click();
+  await page.keyboard.press('Escape');
+  await expect(mk.locator('#cw-tpl-post')).toContainText('ألوان الشتا');
+  await mk.locator('#cw-notes-post').fill('من غير ناس');
+  await mk.locator('.subtab', { hasText: 'فيديو' }).click();
+  await expect(mk.locator('[data-cw-tpl-empty="video"]')).toContainText('الأدمن بيضيفها من الإعدادات');
+  await mk.locator('.cp-next').click();
+  await expect.poll(() => { const c = mock.mkt.campaigns.find((x) => x.name === 'كولكشن الشتا — مخدات مشغولة'); const m = c && c.state && c.state.w ? c.state.w.media.post : null; return m ? [m.tpl, m.notes] : null; })
+    .toEqual([[id], 'من غير ناس']);
+});

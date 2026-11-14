@@ -1,7 +1,7 @@
 import { test } from 'node:test'; import assert from 'node:assert/strict';
 import {
   parseCampaign, parseCampaignEdit, campaignTarget, campaignRefs, campaignPrompt, pinsPrompt, campaignPathOk, campaignGenPath, parseMarketing, marketingSchema,
-  marketingRequest, cleanMarketing, MKT_LIM, parseBuyer, buyerRequest, cleanBuyer, BUYER_ANSWER_MAX, BUYER_HISTORY,
+  marketingRequest, cleanMarketing, templateNotes, MKT_LIM, parseBuyer, buyerRequest, cleanBuyer, BUYER_ANSWER_MAX, BUYER_HISTORY,
   parseAgent, agentTitle, agentHistory, agentRequest, cleanAgent, parseAgentImage, agentImagePath, agentImagePathOk, AGENT_ANSWER_MAX, AGENT_HISTORY,
 } from '../../supabase/functions/_shared/marketing.js';
 // The marketing campaign's AI (phase 9.5.1, decisions 8–10): the request checks, the piece read from the state the page saved, its
@@ -198,4 +198,19 @@ test('cleanAgent: the text limit; the image prompt for the designer only, withou
   const path = agentImagePath(M, U, '2611120101abcd', 'png');
   assert.equal(path, 'agents/' + M + '/' + U + '/2611120101abcd.png');
   assert.ok(agentImagePathOk(M, path)); assert.ok(!agentImagePathOk('00000000-0000-4000-8000-000000000002', path)); assert.ok(!agentImagePathOk(M, 'agents/' + M + '/../x.png'));
+});
+
+test('templateNotes (owner batch 2 decision 14): the picked templates\' text from the admin\'s settings, in the image and the text prompts', () => {
+  const rules = { sections: { img: [{ id: 'post', prompt: 'البوست' }, { id: 'c1', prompt: 'ألوان الشتا الدافية' }, { id: 'c2', prompt: 'من غير <ناس>' }], vid: [{ id: 'v1', prompt: 'حركة كاميرا ناعمة' }] } };
+  assert.equal(templateNotes(rules, { tpl: ['c2', 'c1', 'c1', 'post', 'zz', 5] }), 'من غير · ألوان الشتا الدافية'); // a tag is dropped, the duplicate and «البوست» too
+  assert.equal(templateNotes(rules, { tpl: ['v1'] }, true), 'حركة كاميرا ناعمة');
+  assert.equal(templateNotes(rules, { tpl: ['v1'] }), ''); // a video template is not an image one
+  assert.equal(templateNotes(null, { tpl: ['c1'] }), '');
+  assert.equal(templateNotes(rules, {}), '');
+  assert.ok(templateNotes({ sections: { img: Array.from({ length: 4 }, (_, i) => ({ id: 'x' + i, prompt: 'ي'.repeat(600) })) } }, { tpl: ['x0', 'x1', 'x2', 'x3'] }).length <= 1200);
+  const t = campaignTarget(state(), 'P1', null);
+  assert.ok(campaignPrompt(t, { tplNotes: 'ألوان الشتا الدافية' }).includes("The team's instruction templates (in Arabic): «ألوان الشتا الدافية»."));
+  assert.ok(!campaignPrompt(t, {}).includes('instruction templates'));
+  const r = marketingRequest({ task: 'fill', campaignId: C, piece: 'P1', slide: null }, { model: 'm', effort: 'low', target: t, tplNotes: 'ألوان الشتا الدافية' });
+  assert.ok(JSON.stringify(r).includes('Instruction templates of the team: ألوان الشتا الدافية'));
 });

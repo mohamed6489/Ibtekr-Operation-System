@@ -104,6 +104,25 @@ export function campaignRefs(t, campaignId) {
 }
 
 /**
+ * Owner batch 2 decision 14 (docs/superpowers/plans/2026-11-14-owner-batch-2.md): the instruction templates the member picked for a
+ * piece's media (state.w.media.<key>.tpl — ids) → their text, read on the server from the admin's «ai_rules» sections («الصور» for the
+ * images, «الفيديو» for a video) and never from the page. «البوست» is in the house style already; an unknown id is skipped. ≤ 1200.
+ */
+/** @param {any} rules @param {any} media @param {boolean} [video] */
+export function templateNotes(rules, media, video = false) {
+  const ids = media && Array.isArray(media.tpl) ? media.tpl.filter((x) => typeof x === 'string' && x && x !== 'post').slice(0, 10) : [];
+  const r = rules && typeof rules === 'object' ? rules : {};
+  const secs = r.sections && typeof r.sections === 'object' && Array.isArray(r.sections[video ? 'vid' : 'img']) ? r.sections[video ? 'vid' : 'img'] : [];
+  const out = [];
+  for (const id of [...new Set(ids)]) {
+    const x = secs.find((y) => y && typeof y === 'object' && y.id === id);
+    const t = x ? imgLine(x.prompt, 600) : '';
+    if (t) out.push(t);
+  }
+  return imgLine(out.join(' · '), 1200);
+}
+
+/**
  * The image prompt of a target (decision 8). ctx: { useCount, styleCount, templates: [{ kind, descr }] } — what the server could
  * load of the references. The member's own words (the idea, the scene, the text to write, the notes) go in as given, in Arabic.
  */
@@ -123,6 +142,7 @@ export function campaignPrompt(t, ctx = {}) {
     q(x.idea, 400) ? 'This ' + (t.kind === VIDEO_KIND ? 'scene' : 'image') + ' (in Arabic): ' + q(x.idea, 400) + '.' : (x !== p && q(p.idea, 400) ? 'The ' + (t.kind === VIDEO_KIND ? 'video' : 'carousel') + ' (in Arabic): ' + q(p.idea, 400) + '.' : ''),
     t.kind === VIDEO_KIND && x !== p && q(p.idea, 400) && q(x.idea, 400) ? 'The video (in Arabic): ' + q(p.idea, 400) + '.' : '',
     t.kind === VIDEO_KIND ? 'No text on the image.' : texts.length ? 'Write this Arabic text on the image exactly as given, right-to-left, clear and legible: ' + texts.map(([k, v]) => k + ' ' + v).join('; ') + '.' : 'No text on the image.',
+    q(ctx.tplNotes, 1200) ? 'The team\'s instruction templates (in Arabic): ' + q(ctx.tplNotes, 1200) + '.' : '',
     q(t.media.notes, 400) ? 'Instructions (in Arabic): ' + q(t.media.notes, 400) + '.' : '',
     ctx.useCount ? `The first ${ctx.useCount} reference image${ctx.useCount > 1 ? 's show the products' : ' shows the product'} to feature: keep ${ctx.useCount > 1 ? 'them' : 'it'} exactly as ${ctx.useCount > 1 ? 'they are' : 'it is'} (shape, colors, material, pattern).` : '',
     ctx.styleCount ? `The ${ctx.useCount ? 'other ' : ''}${ctx.styleCount} reference image${ctx.styleCount > 1 ? 's are examples' : ' is an example'}: match the layout and the style, not the content.` : '',
@@ -210,6 +230,7 @@ export function marketingRequest(req, ctx) {
   const t = ctx.target || null; const w = t ? t.w : {}; const x = t ? t.target : {};
   const rows = t ? [
     ['Goal', line(w.goal, 40)], ['Campaign idea', paras(w.idea, 1000)], ['Piece', t.label], ['Size', line(t.size, 20)],
+    ['Instruction templates of the team', line(ctx.tplNotes, 1200)],
     ['Instructions for this media', line(t.media.notes, 400)],
     ['Current image idea', line(x.idea, 400)], ['Current caption', paras(x.caption, 1000)], ['Current headline', line(x.title, 40)], ['Current subheadline', line(x.sub, 60)], ['Current badge', line(x.badge, 14)],
     ...(t.kind === 'كاروسيل' && req.task === 'fill' ? [['Carousel slides', String(t.slides)]] : []),

@@ -2113,3 +2113,9 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 2. RLS live (`files = rls_integrations_pause`).
 3. «Deploy functions» لكل اللي بيقرا `_shared/secrets.js` (`vaultEnv` بيشيل `__unset`): `woo-sync` · `woo-webhook` · `ai-content` · `ai-images` · `notify` · `settings-admin` · `team-admin` · `portal`.
 4. الواجهة على `main`؛ ولازم تتسجّل «Valid OAuth Redirect» زي ما هي (صفحات الرجوع نفسها — بس زرار «ارجع» بقى للإعدادات).
+
+**T8 — قواعد اللقطات وقوالب التعليمات (قرارات 13–15)، بعد** `0099`:
+1. `0100_ai_templates_public.sql` — `settings_public()` (نسخة `0095` + `aiTemplates`): قوالب التعليمات لكل عضو من صف `ai_rules` (`sections.img` / `vid` / `txt` — `id` ≤ 40 · `name` ≤ 60 · `prompt` ≤ 1200 بس، من غير الممنوعات ولا المقاس).
+2. RLS live (`files = rls_ai_templates`).
+3. «Deploy functions»: `ai-images` (الكامبين بنص القوالب اللي اتختارت من الإعدادات — `templateNotes`؛ ولقطات الاستوديو التلاتة بقاعدة الأدمن للقطة — `imageStyle(..., shot)`) و`ai-content` (كتابة الكامبين والمشاهد بنص القوالب).
+4. الواجهة على `main` — «قواعد اللقطات» الستة (أي صف قديم بأربع خانات بيرجع للافتراضي لما يتفتح ويتحفظ)، «+ تعليمات جديدة»، و«قوالب التعليمات» في ميديا الكامبين (الـ ids بس في `state.w.media.<نوع>.tpl`).

@@ -42,7 +42,7 @@ import Anthropic from 'npm:@anthropic-ai/sdk@1.3.0';
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { aiSettings, categoryLines, cleanExtract, cleanPrompts, cleanStudio, cleanWrite, costOf, extractRequest, line, parseExtract, parsePrompts, parseStudio, parseWrite, promptsRequest, readAnswer, shotPromptRows, studioRequest, usageOf, writeRequest } from '../_shared/ai-content.js';
 import { vaultEnv } from '../_shared/secrets.js';
-import { AGENT_HISTORY, agentHistory, agentRequest, agentTitle, buyerRequest, campaignTarget, cleanAgent, cleanBuyer, cleanMarketing, marketingRequest, parseAgent, parseBuyer, parseMarketing } from '../_shared/marketing.js';
+import { AGENT_HISTORY, agentHistory, agentRequest, agentTitle, buyerRequest, campaignTarget, cleanAgent, cleanBuyer, cleanMarketing, marketingRequest, parseAgent, parseBuyer, parseMarketing, templateNotes } from '../_shared/marketing.js';
 import { SUGGEST_DAYS, buyerRules, windowOf } from '../_shared/mkt-ads.js';
 import { cleanScenes, scenesRequest } from '../_shared/mkt-video.js';
 import { TEXT_PROVIDERS, TEXT_TOOL_OF, houseStyle, textPick } from '../_shared/ai-providers.js';
@@ -74,7 +74,7 @@ const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json' } });
 const isObj = (v: unknown): v is Json => v !== null && typeof v === 'object' && !Array.isArray(v);
 const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-type Cfg = { model: string; effort: string; cap: number | null; provider: string; style: string };
+type Cfg = { model: string; effort: string; cap: number | null; provider: string; style: string; rules?: Json | null };
 // the settings row «ai» over the secrets (decision 8); a row that cannot be read = the secrets alone. Phase 11 (decisions 14 / 15):
 // the provider and model of the action's tool from the row's `providers`, and the house style of the row «ai_rules» as one more
 // system block (the products section, or the marketing «post» section for the marketing calls).
@@ -87,7 +87,7 @@ async function configOf(deps: Deps, action = 'write'): Promise<Cfg> {
   const style = action === 'buyer' || action === 'prompts' || action === 'assistant' ? '' : houseStyle(isObj(rules) ? rules : null, action === 'marketing' || action === 'scenes' ? 'post' : 'products');
   if (action === 'assistant') return { ...base, provider: 'claude', style }; // the tool loop is Claude's (the other text providers answer text only)
   if (action === 'extract') return { ...base, provider: 'claude', style: '' }; // the screenshots are read by Claude (the studio's WhatsApp flow)
-  return { ...base, provider: pick.provider, model: pick.provider === 'claude' ? base.model : pick.model, style };
+  return { ...base, provider: pick.provider, model: pick.provider === 'claude' ? base.model : pick.model, style, rules: isObj(rules) ? rules : null };
 }
 const modelId = (v: unknown) => (typeof v === 'string' ? v.toLowerCase().replace(/[^a-z0-9.-]/g, '').slice(0, 60) : '') || null;
 
@@ -312,14 +312,16 @@ async function marketing(deps: Deps, uid: string, args: Json) {
       const n = Number.isInteger(p.sceneCount) ? p.sceneCount : 3; const dur = Number(p.dur) || Number(media.dur) || 15; const model = typeof p.model === 'string' ? p.model : 'seedance-2.5';
       const cfg = await configOf(deps, 'scenes');
       const base = { created_by: uid, action: 'marketing', source: 'campaign', label: line('فيديو ' + (p.n ?? '') + ' · المشاهد', 200) };
-      return await runAi(deps, base, cfg, scenesRequest({ model: cfg.model, effort: cfg.effort, w, piece: p, n, dur, notes: media.notes, voice: req.voice }), (answer) => cleanScenes(answer, { n, dur, model }));
+      const notes = [typeof media.notes === 'string' ? media.notes : '', templateNotes(cfg.rules, media, true)].filter(Boolean).join(' · '); // the member's words first (≤ 400), then the picked templates
+      return await runAi(deps, base, cfg, scenesRequest({ model: cfg.model, effort: cfg.effort, w, piece: p, n, dur, notes, voice: req.voice }), (answer) => cleanScenes(answer, { n, dur, model }));
     }
     if (req.piece) { target = campaignTarget(c.state, req.piece, req.slide); if (!target) return json(400, { error: 'bad_request', field: 'piece' }); }
     else target = campaignTarget({ ...(isObj(c.state) ? c.state : {}), pieces: [{ id: 'P0', kind: 'بوست', n: 0 }] }, 'P0', null);
   }
   const cfg = await configOf(deps, 'marketing');
   const base = { created_by: uid, action: 'marketing', source: req.task === 'describe' ? 'template' : req.campaignId ? 'campaign' : 'post', label: line(target && req.piece ? target.label : req.task, 200) };
-  return await runAi(deps, base, cfg, marketingRequest(req, { model: cfg.model, effort: cfg.effort, target }), (answer) => cleanMarketing(answer, req, target));
+  const tplNotes = target ? templateNotes(cfg.rules, target.media, target.kind === 'فيديو') : ''; // owner batch 2 decision 14
+  return await runAi(deps, base, cfg, marketingRequest(req, { model: cfg.model, effort: cfg.effort, target, tplNotes }), (answer) => cleanMarketing(answer, req, target));
 }
 
 // ---------------------------------------------------------------- the media buyer's chat (phase 9.5.4, decision 53)

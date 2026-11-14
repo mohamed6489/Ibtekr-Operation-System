@@ -67,3 +67,12 @@ test('houseStyle / imageStyle: the settings rules as one block, a custom section
   assert.equal(imageStyle(rules, 'products'), 'Style: هاندميد دافي. Never: نصوص مكتوبة, علامات مائية');
   assert.equal(imageStyle({ sections: { img: [{ id: 'post', prompt: 'بوست سوشيال', no: ['أسعار'] }] } }, 'post'), 'بوست سوشيال. Never: أسعار');
 });
+
+test('imageStyle shot (owner batch 2 decision 13): the admin\'s rule of a studio shot from the six «قواعد اللقطات», nothing for the old four', () => {
+  const six = { slots: ['في النص على كريم', 'بيت مصري', 'ركن تاني', 'شبكة 2×2', 'رسم <المقاس>', 'المميزات'] };
+  assert.equal(imageStyle(six, 'products', 0), "The team's rule for this shot (in Arabic): في النص على كريم");
+  assert.equal(imageStyle(six, 'products', 4), "The team's rule for this shot (in Arabic): رسم المقاس"); // no tags in a prompt
+  assert.equal(imageStyle(six, 'products', 5), ''); // the features image is uploaded, not drawn
+  assert.equal(imageStyle(six, 'products', null), '');
+  assert.equal(imageStyle({ slots: ['a', 'b', 'c', 'd'] }, 'products', 0), ''); // a row saved before the six
+});

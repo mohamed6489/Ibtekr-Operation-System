@@ -188,13 +188,20 @@ export function houseStyle(rules, section) {
   if (!lines.length) return '';
   return 'House style set by the team in the system settings (it refines the rules above and never overrides the facts, format or safety rules):\n- ' + lines.join('\n- ');
 }
-/** The image rules of the settings («الصور»): the style line, the forbidden list and a section's prompt → a prompt suffix or ''. */
-export function imageStyle(rules, section) {
+/**
+ * The image rules of the settings («الصور»): the style line, the forbidden list and a section's prompt → a prompt suffix or ''.
+ * Owner batch 2 decision 13: `shot` (0–4, the studio's five shots) adds the admin's rule of that shot from the six «قواعد اللقطات».
+ * @param {any} rules @param {string} section @param {number | null} [shot]
+ */
+export function imageStyle(rules, section, shot = null) {
   const r = isObj(rules) ? rules : {};
   const parts = [];
   const style = clip(r.style, 400); if (style) parts.push('Style: ' + style);
   const no = words(r.imgNo, 20); if (no.length) parts.push('Never: ' + no.join(', '));
   const sec = section && section !== 'products' && isObj(r.sections) && Array.isArray(r.sections.img) ? r.sections.img.find((x) => isObj(x) && x.id === section) : null;
   if (sec) { const p = clip(sec.prompt, 600); if (p) parts.push(p); const sn = words(sec.no, 20); if (sn.length) parts.push('Never: ' + sn.join(', ')); }
+  if (Number.isInteger(shot) && shot >= 0 && shot < 5 && Array.isArray(r.slots) && r.slots.length === 6) {
+    const t = clip(r.slots[shot], 400).trim(); if (t) parts.push('The team\'s rule for this shot (in Arabic): ' + t);
+  }
   return parts.join('. ');
 }

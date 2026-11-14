@@ -73,7 +73,7 @@ import { aiSettings } from '../_shared/ai-content.js';
 import { vaultEnv } from '../_shared/secrets.js';
 import { BridgeError, magnificMcp, randomText, type Bridge, type Tokens } from './providers/magnific-mcp.ts';
 import { REF, creationsOf, familyOf, flowNodes, importShape, lastPageOf, lineageIds, listIdsOf, matchResults, nodeDataOf, nodesOf, templatePrompts, uploadedId, urlsById } from '../_shared/magnific-bridge.js';
-import { DEFAULT_SIZE, agentImagePath, campaignGenPath, campaignPathOk, campaignPrompt, campaignRefs, campaignTarget, parseAgentImage, parseCampaign, parseCampaignEdit, pinsPrompt } from '../_shared/marketing.js';
+import { DEFAULT_SIZE, agentImagePath, campaignGenPath, campaignPathOk, campaignPrompt, campaignRefs, campaignTarget, parseAgentImage, templateNotes, parseCampaign, parseCampaignEdit, pinsPrompt } from '../_shared/marketing.js';
 import { MAX_OPEN_JOBS, MAX_VIDEO_BYTES, MEDIA_EXT, chainedArgs, clipArgs, jobView, mixPlan, modelOf as videoModelOf, musicArgs, nextMix, parseVideo, queuedIds, ttsArgs, videoPath, videoPathOk, waitOf } from '../_shared/mkt-video.js';
 
 // deno-lint-ignore no-explicit-any
@@ -142,7 +142,7 @@ async function startRunUsd(deps: Deps, row: Json, usd: number, cap: number | nul
   if (data.result === 'ok' && Number.isInteger(id)) return { result: 'ok' as const, id };
   return { result: data.result === 'busy' ? 'busy' as const : data.result === 'cap' ? 'cap' as const : 'error' as const };
 }
-const styleOf = (rules: Json | null, section: string) => { const t = imageStyle(rules, section); return t ? ' ' + t : ''; };
+const styleOf = (rules: Json | null, section: string, shot: number | null = null) => { const t = imageStyle(rules, section, shot); return t ? ' ' + t : ''; };
 // the reservation (0025 ai_image_run_start): the throttle, the credit cap and the pending row in one locked step — the cap is never
 // checked here and reserved there, so two parallel calls cannot both pass it
 async function startRun(deps: Deps, row: Json, credits: number, capCredits: number | null) {
@@ -163,13 +163,13 @@ type Work = (prov: Provider, model: string, style: string) => Promise<{ images: 
 // The common path of the image actions: the cap, the reservation, the key, the provider, the files, the row. Phase 11 (decision 15):
 // the tool's provider from the settings — Magnific as before (credits), or a direct provider (openai / gemini) whose cost is USD on the
 // content cap; the image style of the settings (decision 14) is handed to the caller's prompt.
-async function runImages(deps: Deps, base: Json, model: string, count: number, work: Work, store: (img: { bytes: Uint8Array; mime: string }, n: number) => Promise<{ bucket: string; path: string } | null>, tool = 'studio', section = 'products'): Promise<Response> {
+async function runImages(deps: Deps, base: Json, model: string, count: number, work: Work, store: (img: { bytes: Uint8Array; mime: string }, n: number) => Promise<{ bucket: string; path: string } | null>, tool = 'studio', section = 'products', shot: number | null = null): Promise<Response> {
   const cfg = await settingsOf(deps);
   const pick = imagePick(cfg.ai, tool);
   const direct = pick.provider !== 'magnific';
   const prov = direct ? deps.providers?.[pick.provider] : deps.provider;
   if (direct) model = pick.model;
-  const style = styleOf(cfg.rules, section);
+  const style = styleOf(cfg.rules, section, shot);
   const planned = direct ? 0 : creditsFor(model, count);
   const usd = direct ? Math.round(((IMAGE_USD as Record<string, number>)[model] ?? 0.2) * Math.max(1, count) * 1e6) / 1e6 : 0;
   // the planned credits (or USD) are held on the pending row (the cap counts them while the call runs)
@@ -293,7 +293,7 @@ async function generate(deps: Deps, who: Who, args: Json) {
   const st = stamp(deps);
   return await runImages(deps, base, model, 1,
     (prov, m, style) => prov.generate({ model: m, prompt: prompt + style, width: size.w, height: size.h, count: 1, references: refs }),
-    (img) => upload(deps.db, STUDIO_BUCKET, studioGenPath(batchId, index, slot, st, extOf(img.mime)), img), 'studio', 'products');
+    (img) => upload(deps.db, STUDIO_BUCKET, studioGenPath(batchId, index, slot, st, extOf(img.mime)), img), 'studio', 'products', flow ? shot : null);
 }
 
 // ---------------------------------------------------------------- edit (a studio image or a product's image)
@@ -405,7 +405,9 @@ async function campaign(deps: Deps, who: Who, args: Json) {
   const t = got.t as Json;
   const size = req.size ?? sizeOf(t.size ?? '') ?? sizeOf(DEFAULT_SIZE)!;
   const inp = await campaignInputs(deps, req.campaignId, t);
-  const prompt = campaignPrompt(t, inp);
+  // owner batch 2 decision 14: the picked instruction templates' text from the admin's settings (never from the page)
+  const tplNotes = templateNotes((await settingsOf(deps)).rules, t.media, t.kind === 'فيديو');
+  const prompt = campaignPrompt(t, { ...inp, tplNotes });
   const base = { created_by: who.uid, action: 'image', source: 'campaign', label: t.label };
   const st = stamp(deps);
   return await runImages(deps, base, req.model, 1,

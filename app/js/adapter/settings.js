@@ -312,12 +312,26 @@
     order: ['معلّق', 'قيد الانتظار', 'جاري التنفيذ', 'جاهز للشحن', 'قيد الشحن', 'مكتمل', 'استرجاع', 'ملغي', 'فشل'],
     confirm: ['مؤكد بعربون', 'مؤكد بدون عربون', 'غير مؤكد', 'في انتظار الرد'],
     sub: ['غير مؤكد', 'مؤكد', 'قيد التنفيذ', 'جاهز للشحن من المبتكر للعميل', 'جاهز للشحن من المخزن للعميل', 'جاهز للشحن من المبتكر للمخزن', 'تم الشحن للمخزن', 'وصل المخزن', 'تم الشحن للعميل', 'مرتجع للمخزن', 'مرتجع للمبتكر'] };
+  // the settings lists all editable (2026-11-14-settings-lists.md): the shown name of an expense type (the four base ones and the
+  // admin's own — decision 1) and of a ticket priority (by its code — decision 3); `expenseKinds` = the types the admin added
+  // (2–30 characters, no < >, not a base one, at most 20 — the server's trigger 0093 takes a new expense in them or the base ones)
+  STATUS_KINDS.expense = ['المرتبات', 'المصروفات', 'الاشتراكات', 'الإعلانات'];
+  STATUS_KINDS.priority = ['urgent', 'high', 'normal', 'low'];
+  const SHOWN_DEF = { priority: { urgent: 'عاجل', high: 'عالي', normal: 'عادي', low: 'منخفض' } };
+  const KINDS_MAX = 20; const KIND_MAX = 30;
+  const kindOk = (t) => t.length >= 2 && t.length <= KIND_MAX && !/[<>]/.test(t) && !STATUS_KINDS.expense.includes(t);
+  const cleanKinds = (v, strict) => {
+    if (!Array.isArray(v)) return strict ? null : []; const out = [];
+    for (const x of v) { const t = typeof x === 'string' ? x.replace(/\s+/g, ' ').trim() : ''; if (!kindOk(t) || out.includes(t)) { if (strict) return null; continue; } out.push(t); }
+    return out.length > KINDS_MAX ? (strict ? null : out.slice(0, KINDS_MAX)) : out;
+  };
   const LABEL_MAX = 40;
-  const cleanLabels = (v) => {
+  const valuesOf = (kind, src) => (kind === 'expense' ? STATUS_KINDS.expense.concat(cleanKinds(src && src.expenseKinds)) : STATUS_KINDS[kind]);
+  const cleanLabels = (v, src) => {
     const out = {}; if (!v || typeof v !== 'object' || Array.isArray(v)) return out;
     for (const kind of Object.keys(STATUS_KINDS)) {
       const m = v[kind]; if (!m || typeof m !== 'object' || Array.isArray(m)) continue; const k2 = {};
-      for (const s of STATUS_KINDS[kind]) { const t = typeof m[s] === 'string' ? m[s].replace(/\s+/g, ' ').trim() : ''; if (t && t !== s && t.length <= LABEL_MAX && !/[<>]/.test(t)) k2[s] = t; }
+      for (const s of valuesOf(kind, src)) { const t = typeof m[s] === 'string' ? m[s].replace(/\s+/g, ' ').trim() : ''; if (t && t !== s && t !== (SHOWN_DEF[kind] || {})[s] && t.length <= LABEL_MAX && !/[<>]/.test(t)) k2[s] = t; }
       if (Object.keys(k2).length) out[kind] = k2;
     }
     return out;
@@ -330,11 +344,17 @@
       const c = cleanList(src && src[k]); const base = c && c.length ? c : d[k].filter((x) => x !== OTHER);
       out[k] = OTHER_KEYS.includes(k) ? withOther(base) : base.slice();
     }
-    out.labels = cleanLabels(src && src.labels);
+    out.expenseKinds = cleanKinds(src && src.expenseKinds);
+    out.labels = cleanLabels(src && src.labels, src);
     return out;
   }
-  // the shown name of a status (the value when nothing is set) — kind: order | confirm | sub
-  function statusLabel(kind, value) { const L = cleanLabels((listSrc() || {}).labels); return (L[kind] && L[kind][value]) || value; }
+  // the shown name of a status (the value when nothing is set) — kind: order | confirm | sub | expense | priority (by its code)
+  function statusLabel(kind, value) { const src = listSrc() || {}; const L = cleanLabels(src.labels, src); return (L[kind] && L[kind][value]) || (SHOWN_DEF[kind] && SHOWN_DEF[kind][value]) || value; }
+  // the expense types a new expense can take: the four base ones then the admin's (decision 1)
+  const expenseKinds = () => STATUS_KINDS.expense.concat(cleanKinds((listSrc() || {}).expenseKinds));
+  // decision 4: the first day of the week (settings «general».week, read with the sign-in) as a JS weekday — السبت 6 · الأحد 0 · الاتنين 1
+  const WEEK_DAYS = { 'السبت': 6, 'الأحد': 0, 'الاتنين': 1, 'الإثنين': 1 };
+  function weekStart() { const g = (data.public && data.public.general) || section('general') || {}; const d = WEEK_DAYS[String(g.week || '').trim()]; return d === undefined ? 6 : d; }
   // the admin saves the lists (each 1–30 items of at most 60 characters, no repeats; «أخرى» is added last by the reader where it belongs)
   // → { ok } · logged as settings.lists.save (counts only). A key left out keeps what is saved; cancel / returns are always written.
   async function saveLists(next) {
@@ -345,15 +365,20 @@
       if (!given && !LIST_KEYS.includes(k) && !(saved && saved[k])) continue; // an extra list never saved stays on its defaults
       const c = cleanList(given ? next[k] : cur[k].filter((x) => x !== OTHER)); if (!c || !c.length) return { ok: false, reason: 'invalid', field: k }; row[k] = c;
     }
-    if (next && Object.prototype.hasOwnProperty.call(next, 'labels')) { const lb = cleanLabels(next.labels); if (Object.keys(lb).length) row.labels = lb; }
-    else if (saved && saved.labels) { const lb = cleanLabels(saved.labels); if (Object.keys(lb).length) row.labels = lb; }
+    const kindsGiven = next && Object.prototype.hasOwnProperty.call(next, 'expenseKinds');
+    const kinds = kindsGiven ? cleanKinds(next.expenseKinds, true) : cleanKinds(saved && saved.expenseKinds);
+    if (!kinds) return { ok: false, reason: 'invalid', field: 'expenseKinds' };
+    if (kinds.length || (saved && saved.expenseKinds)) row.expenseKinds = kinds;
+    const lsrc = { expenseKinds: kinds };
+    if (next && Object.prototype.hasOwnProperty.call(next, 'labels')) { const lb = cleanLabels(next.labels, lsrc); if (Object.keys(lb).length) row.labels = lb; }
+    else if (saved && saved.labels) { const lb = cleanLabels(saved.labels, lsrc); if (Object.keys(lb).length) row.labels = lb; }
     const r = await save('lists', row, { merge: false });
     if (!r.ok) return r;
     if (data.public && typeof data.public === 'object') data.public.lists = row;
     return { ok: true, lists: lists() };
   }
 
-  window.IBSettings = { load, ensure, loadPublic, clear, data, section, sections: () => Object.assign({}, data.sections), roles, liveRoles, public: () => data.public, can, PERMS, PERM_KEYS, lists, saveLists, statusLabel, STATUS_KINDS,
+  window.IBSettings = { load, ensure, loadPublic, clear, data, section, sections: () => Object.assign({}, data.sections), roles, liveRoles, public: () => data.public, can, PERMS, PERM_KEYS, lists, saveLists, statusLabel, STATUS_KINDS, expenseKinds, weekStart, KIND_MAX, KINDS_MAX,
     save, setRolePerms, createRole, updateRole, deleteRole, setMemberRole, setMemberRoles, setMemberPerms, setMemberStatus, sessions, revokeSession, deviceOf,
     links, setSecret, wooSet, testSecret, unlink, connections, notifyStatus, notifyTick, activity, pageOf, docs, addDoc, updateDoc, removeDoc, docUrl, uploadLogo, logoUrl, LOGO_SLOTS };
 })();

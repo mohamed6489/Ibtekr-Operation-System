@@ -149,7 +149,7 @@ test('the papers: list, add (the file into bucket company-docs then the row; a r
 test('lists(): the public slice first, then the row, else block 12\'s defaults — «أخرى» always last; saveLists cleans, refuses a bad list, writes the row «lists» whole and logs counts only', async () => {
   // no IbtekrOps in the test window → the bare default [أخرى]
   // owner batch 14 Nov (decisions 4 and 8): + the makers' stop reasons, the shipping companies and the shown status names
-  const X = { stop: ['تأخير متكرر', 'جودة', 'عدم رد', 'طلب المبتكر', 'أخرى'], shipping: ['بوسطة', 'أرامكس', 'مندوب إبتكر'], labels: {} };
+  const X = { stop: ['تأخير متكرر', 'جودة', 'عدم رد', 'طلب المبتكر', 'أخرى'], shipping: ['بوسطة', 'أرامكس', 'مندوب إبتكر'], expenseKinds: [], labels: {} };
   const r0 = load(); await r0.S.load();
   eq(r0.S.lists(), { cancel: ['أخرى'], returns: ['أخرى'], ...X });
   // the row «lists» (the admin's page): cleaned, «أخرى» moved last
@@ -182,4 +182,31 @@ test('lists(): the public slice first, then the row, else block 12\'s defaults �
   assert.equal(r3.S.statusLabel('confirm', 'وصل المخزن'), 'وصل المخزن', 'a name belongs to its kind only');
   eq(r3.stub.calls.filter((c) => c.op === 'upsert').at(-1).args[0].data.shipping, ['بوسطة', 'J&T'], 'the labels save keeps the saved shipping list');
   assert.ok(!JSON.stringify(r3.logs).includes('J&T') && !JSON.stringify(r3.logs).includes('التصنيع'));
+});
+
+// ---------------------------------------------------------------- 2026-11-14-settings-lists.md: every list editable
+test('settings lists editable: the admin\'s expense types (cleaned, saved, empty allowed, after the four base ones), the shown name of an expense type and of a priority (by its code, Arabic by default), and the week\'s first day from «general».week', async () => {
+  const r = load(); await r.S.load();
+  eq(r.S.expenseKinds(), ['المرتبات', 'المصروفات', 'الاشتراكات', 'الإعلانات']);
+  const s1 = await r.S.saveLists({ cancel: ['سبب'], returns: ['عيب'], expenseKinds: [' إيجار  المكتب ', 'كهربا'] }); // the test window has no block 12 defaults
+  assert.equal(s1.ok, true); eq(s1.lists.expenseKinds, ['إيجار المكتب', 'كهربا']);
+  eq(r.S.expenseKinds().slice(4), ['إيجار المكتب', 'كهربا']);
+  eq(r.stub.calls.filter((c) => c.op === 'upsert').at(-1).args[0].data.expenseKinds, ['إيجار المكتب', 'كهربا']);
+  // a base name, a repeat, < >, one letter or more than 30 → refused whole
+  for (const bad of [['المرتبات'], ['كهربا', 'كهربا'], ['<b>'], ['x'], ['ا'.repeat(31)], 'كهربا']) eq(await r.S.saveLists({ expenseKinds: bad }), { ok: false, reason: 'invalid', field: 'expenseKinds' });
+  // the shown names: a base type, an added one, a priority by its code — a name for something that is not there is dropped
+  const s2 = await r.S.saveLists({ labels: { expense: { 'المرتبات': 'رواتب', 'كهربا': 'كهرباء وماية', 'مش نوع': 'x' }, priority: { urgent: 'طارئ', high: 'عالي', soon: 'y' } } });
+  eq(s2.lists.labels, { expense: { 'المرتبات': 'رواتب', 'كهربا': 'كهرباء وماية' }, priority: { urgent: 'طارئ' } });
+  assert.equal(r.S.statusLabel('expense', 'المرتبات'), 'رواتب'); assert.equal(r.S.statusLabel('expense', 'الإعلانات'), 'الإعلانات');
+  assert.equal(r.S.statusLabel('priority', 'urgent'), 'طارئ'); assert.equal(r.S.statusLabel('priority', 'low'), 'منخفض', 'the Arabic name by default');
+  // an empty list is saved once there was one (the admin removed the last added type); the labels of a removed type go with it
+  const s3 = await r.S.saveLists({ expenseKinds: [] });
+  eq(s3.lists.expenseKinds, []); eq(s3.lists.labels.expense, { 'المرتبات': 'رواتب' });
+  assert.ok(!JSON.stringify(r.logs).includes('كهربا'));
+  // the week's first day: السبت by default, the saved one from the sign-in's general slice
+  assert.equal(r.S.weekStart(), 6);
+  const w = load({ responses: { 'rpc:settings_public': ok({ brand: {}, quick: {}, lists: {}, general: { week: 'الأحد' }, security: {}, notif: {} }) } }); await w.S.loadPublic();
+  assert.equal(w.S.weekStart(), 0);
+  const w2 = load({ responses: { 'rpc:settings_public': ok({ brand: {}, quick: {}, lists: {}, general: { week: 'الاتنين' }, security: {}, notif: {} }) } }); await w2.S.loadPublic();
+  assert.equal(w2.S.weekStart(), 1);
 });

@@ -28,7 +28,7 @@
   const PENDING = ['جديد', 'قيد المراجعة'];
   const isPending = (r) => PENDING.includes(r.status);
   const isLeave = (r) => (H() ? H().isLeave(r.type) : String(r.type).startsWith('إجازة'));
-  const hhmm = (m) => (m == null ? '—' : String(Math.floor(m / 60) % 24).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0'));
+  const hhmm = (m) => (m == null ? '—' : K.t12(m)); // owner batch 2 decision 9: shown on the 12-hour clock
   const toMin = (s) => { const [a, b] = String(s).split(':').map(Number); return a * 60 + (b || 0); };
   const holidayDates = () => H().holidayDates();
   const leaveLeft = (m) => (Number(m.leave) || 0) - (Number(m.used) || 0);

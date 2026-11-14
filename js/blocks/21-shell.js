@@ -13,6 +13,8 @@
   // (the server records it past 8 hours for the direct manager); «لسه شغال؟» unanswered ends the shift at the moment it was shown.
   // What the member chose for this shift (the 8-hour question, the presence prompts) stays in sessionStorage by the shift's id.
   const HR = () => window.IBHR;
+  // owner batch 2 decision 7: the signed-in member's own work days (his schedule's, 0101)
+  const meUid21 = () => (window.IBDirectory && window.IBDirectory.me && (window.IBDirectory.me() || {}).id) || null;
   // owner batch 14 Nov decision 7 (0087): the day's minutes are the member's (own time, else the department's, else the official hours)
   const DM = () => (window.IBHR && window.IBHR.dayMinutes ? window.IBHR.dayMinutes() : 480);
   const dayHrs = () => { const m = DM(); return (m % 60 ? (m / 60).toFixed(1) : String(m / 60)) + ' ساعات'; };
@@ -22,7 +24,7 @@
   const now = () => Date.now();
   const worked = () => (sh.state === 'out' ? 0 : sh.base + Math.max(0, (now() - sh.start) / 60000));
   const otMin = () => (sh.otStart == null ? 0 : worked() - sh.otStart);
-  const clockLabel = (ms) => { const d = new Date(ms); try { return new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Cairo', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(d); } catch (e) { return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); } };
+  const clockLabel = (ms) => { const d = new Date(ms); try { return K.t12(new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Cairo', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(d)); } catch (e) { return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); } };
   const realOf = (min) => sh.start + Math.max(0, min - sh.base) * 60000; // wall-clock time when the day reached `min` worked minutes (in this session)
   const settings = () => (HR() ? HR().data.hrSettings : S.hrSettings);
   const SKEY = (id) => 'ib.shift.' + id;
@@ -55,7 +57,7 @@
     const r = await HR().clockIn(); sh.busy = false; // «عن بُعد» comes from the server (an approved «شغل عن بُعد» covering today)
     if (!r.ok) { K.toast(r.message || 'تعذّر بدء الدوام — جرّب تاني', 'error'); paint(); return; }
     const remote = !!(r.shift && r.shift.remote);
-    const off = (HR().isWorkDay ? !HR().isWorkDay(t) : [5, 6].includes(new Date(t + 'T00:00:00Z').getUTCDay())) || HR().holidayDates().includes(t);
+    const off = (HR().isWorkDay ? !HR().isWorkDay(t, meUid21()) : [5, 6].includes(new Date(t + 'T00:00:00Z').getUTCDay())) || HR().holidayDates().includes(t);
     K.toast(off ? 'بدأ الدوام — يوم راحة/عطلة: بيتحسب بيومين بعد موافقة الأدمن' : remote ? 'بدأ الدوام عن بُعد — بالتوفيق' : again ? 'رجعت للدوام — الساعات بتتجمع على النهارده' : 'بدأ الدوام — بالتوفيق', 'success'); sync();
   }
   async function finish(endMinWorked, note, auto) {
@@ -86,7 +88,7 @@
     if (!r.ok) { K.toast(r.message || 'تعذّر بدء الوقت الإضافي — جرّب تاني', 'error'); paint(); return; }
     sh.state = 'overtime'; sh.otStart = atMark ? DM() : worked(); sh.endAsked = true; sh.prompted = 0; remember(); sync();
     // decision 32 (0070): a rest day / holiday worked is the admins' to approve
-    const t = HR().today(); const off = (HR().isWorkDay ? !HR().isWorkDay(t) : [5, 6].includes(new Date(t + 'T00:00:00Z').getUTCDay())) || HR().holidayDates().includes(t);
+    const t = HR().today(); const off = (HR().isWorkDay ? !HR().isWorkDay(t, meUid21()) : [5, 6].includes(new Date(t + 'T00:00:00Z').getUTCDay())) || HR().holidayDates().includes(t);
     K.toast('بدأ الوقت الإضافي — اتبعت طلب ' + (off ? 'للأدمن' : 'لمديرك المباشر') + (r.ticket ? ' (' + r.ticket + ')' : '') + '، ومابيتحسبش غير بعد موافقته', 'success'); paint();
   }
   function shiftOver() {
@@ -114,11 +116,11 @@
   // decision 7 (0087): a work day, no session yet and the member's time has started → one reminder a day «ابدأ الدوام» (no lateness)
   function startReminder() {
     const H = HR(); if (!H || !H.scheduleOf || !H.today || sh.state !== 'out' || sh.ended || sh.busy) return;
-    const t = H.today(); if (!H.isWorkDay(t) || (H.holidayDates && H.holidayDates().includes(t))) return;
+    const t = H.today(); if (!H.isWorkDay(t, meUid21()) || (H.holidayDates && H.holidayDates().includes(t))) return;
     const from = H.hm(H.scheduleOf().from); if (from == null || H.nowMin() < from) return;
     const key = 'ib.start.reminded'; let seen = null; try { seen = localStorage.getItem(key); } catch (e) { seen = null; }
     if (seen === t) return; try { localStorage.setItem(key, t); } catch (e) { /* private window */ }
-    K.toast('ميعاد الدوام بدأ (' + H.scheduleOf().from + ') — اضغط «ابدأ الدوام» من فوق', 'info');
+    K.toast('ميعاد الدوام بدأ (' + K.t12(H.scheduleOf().from) + ') — اضغط «ابدأ الدوام» من فوق', 'info'); // decision 9: the 12-hour clock
     if (widget) widget.classList.add('remind');
   }
   setInterval(startReminder, 60000); setTimeout(startReminder, 4000);
@@ -150,7 +152,7 @@
     const me = K.member(K.ME);
     const wrap = h('div', { class: 'pop-anchor user', 'data-popover-root': '' });
     const trig = h('button', { type: 'button', class: 'user-btn', 'aria-haspopup': 'menu', 'aria-expanded': 'false', 'aria-label': 'حسابي — ' + me.name }, h('span', { class: 'avatar', 'aria-hidden': 'true' }, me.name.charAt(0)), h('span', { class: 't-label nm' }, me.name), Icon('chevD', 'sm'));
-    const items = [['users', 'ملفي', () => go('profile')], ['send', 'طلباتي', () => { location.hash = 'profile-requests'; }] /* the owner 11 Nov: «ملفي › طلباتي» (my team requests) */, ['clock', 'ساعات العمل', () => { location.hash = 'profile-hours'; }], HR() && HR().overtimeRequest ? ['plus', 'طلب وقت إضافي', otRequest] : null /* decision 44 */, me.role === 'أدمن' ? ['gear', 'الإعدادات', () => go('settings')] : null, ['external', 'تسجيل الخروج', logout, true]].filter(Boolean);
+    const items = [['users', 'ملفي', () => go('profile')], ['send', 'طلباتي', () => { location.hash = 'profile-requests-mine'; }] /* the owner 11 Nov: «ملفي › طلباتي» (my team requests) */, ['clock', 'ساعات العمل', () => { location.hash = 'profile-hours'; }], HR() && HR().overtimeRequest ? ['plus', 'طلب وقت إضافي', otRequest] : null /* decision 44 */, me.role === 'أدمن' ? ['gear', 'الإعدادات', () => go('settings')] : null, ['external', 'تسجيل الخروج', logout, true]].filter(Boolean);
     const pop = U.popover(wrap, trig, (close) => { const menu = h('div', { class: 'menu end acct', role: 'menu', 'data-popover-root': '' }, h('div', { class: 'acct-h' }, h('b', null, me.name), h('small', { dir: 'ltr' }, me.email)), items.map(([ic, lb, run, danger]) => h('button', { type: 'button', role: 'menuitem', class: 'opt' + (danger ? ' danger' : ''), onClick: () => { close(); run(); } }, Icon(ic, 'sm'), lb))); return menu; });
     trig.addEventListener('click', pop.toggle); wrap.append(trig); return wrap;
   }

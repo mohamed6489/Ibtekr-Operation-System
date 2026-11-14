@@ -344,6 +344,12 @@
   const cleanOrder = (v, kind, all) => { const arr = v && typeof v === 'object' && Array.isArray(v[kind]) ? v[kind] : []; const out = []; for (const x of arr) if (typeof x === 'string' && all.includes(x) && !out.includes(x)) out.push(x); return out; };
   const orderAdded = () => { const O = window.IBOrders; const d = O && O.data ? O.data() : null; const st = (d && d.statuses) || orderRows || []; return st.filter((r) => r && r.base).map((r) => r.system_status); };
   let orderRows = null; // status_map read by the settings page (orderStatuses)
+  // owner batch 2 decision 17: the delay rules (settings «makers».delay — the admin's own row first, else the public slice) through
+  // IbtekrOps.delayRules (the defaults when nothing is saved)
+  function delayRules() {
+    const sm = section('makers'); const raw = (sm && sm.delay) || (data.public && data.public.makers && data.public.makers.delay) || null;
+    const O = window.IbtekrOps; return O && O.delayRules ? O.delayRules(raw) : raw || {};
+  }
   // the added confirmation / product statuses ({ confirm, sub })
   function addedStatuses() { const src = listSrc() || {}; return { confirm: cleanAdded(src.statusAdded, 'confirm'), sub: cleanAdded(src.statusAdded, 'sub') }; }
   // a list as the pages show it: the base values with the added ones, in the saved order
@@ -458,7 +464,7 @@
     return after(await orderRpc('order_status_order', { p_names: names.map(String) }, 'names'), 'order', 'order · ' + names.length);
   }
 
-  window.IBSettings = { load, ensure, loadPublic, clear, data, section, sections: () => Object.assign({}, data.sections), roles, liveRoles, public: () => data.public, can, PERMS, PERM_KEYS, lists, saveLists, statusLabel, STATUS_KINDS, expenseKinds, statusList, addedStatuses, orderStatuses, orderStatusAdd, orderStatusSlug, orderStatusDelete, orderStatusOrder, ADDED_MAX, ADDED_LEN, weekStart, KIND_MAX, KINDS_MAX,
+  window.IBSettings = { load, ensure, loadPublic, clear, data, section, sections: () => Object.assign({}, data.sections), roles, liveRoles, public: () => data.public, can, PERMS, PERM_KEYS, lists, saveLists, statusLabel, STATUS_KINDS, expenseKinds, statusList, addedStatuses, delayRules, orderStatuses, orderStatusAdd, orderStatusSlug, orderStatusDelete, orderStatusOrder, ADDED_MAX, ADDED_LEN, weekStart, KIND_MAX, KINDS_MAX,
     save, setRolePerms, createRole, updateRole, deleteRole, setMemberRole, setMemberRoles, setMemberPerms, setMemberStatus, sessions, revokeSession, deviceOf,
     links, setSecret, wooSet, testSecret, unlink, connections, notifyStatus, notifyTick, activity, pageOf, docs, addDoc, updateDoc, removeDoc, docUrl, uploadLogo, logoUrl, LOGO_SLOTS };
 })();

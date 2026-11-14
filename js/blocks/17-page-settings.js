@@ -134,7 +134,7 @@
     brand: () => { const n = Object.keys(brand.colors).length + ['color', 'reversed', 'mark'].filter((t) => window.IBLogo.get(t)).length; return [n ? n + ' تعديل على الأصلي' : 'الهوية الأصلية', n ? 'gold' : 'neutral']; },
     integrations: () => { const all = C.integrations, on = all.filter((x) => x.status === 'متصل').length, err = all.filter((x) => String(x.status).startsWith('خطأ')).length; return [on + ' من ' + all.length + ' متصلة' + (err ? ' · ' + err + ' فيها خطأ' : ''), err ? 'error' : 'success']; },
     quick: () => { const n = window.IBQuick ? window.IBQuick.list().length : 0; return [n + ' إجراء سريع', 'neutral']; },
-    makers: () => [C.makerRules.length + ' قاعدة تأخير خاصة', 'neutral'],
+    makers: () => { const D = window.IbtekrOps && window.IbtekrOps.delayRules ? window.IbtekrOps.delayRules(C.makers.delay) : null; return [D ? 'متأخر بعد مدة التصنيع · قابل قبلها بـ ' + D.orderRisk + ' يوم' : 'قواعد التأخير', 'neutral']; },
     hr: () => { const v = st.hr || (window.IBHR ? window.IBHR.settings() : {}); return ['يوم الصرف ' + (v.payDay || 28) + ' · البونص من ' + (v.bonusMin || 3) + ' من 5', 'neutral']; },
     inventory: () => { const I = window.IBInventory; const v = st.inv || (I ? I.settings() : null); return [v && v.firstWarehouse ? 'السحب التلقائي شغّال' : 'السحب يدوي', v && v.firstWarehouse ? 'gold' : 'neutral']; },
     notifications: () => [C.notif.length + ' نوع تنبيه · ' + C.escalations.length + ' تصعيد', 'neutral'],
@@ -667,12 +667,36 @@
   }
 
   // ---------- إعدادات المبتكرين ----------
+  // owner batch 2 decision 17 («خليها تبقي نقطة بداية حساب الايام … مربعين … هنشيل القواعد الخاصة»): the delay rules in two boxes —
+  // the start point, the order (risk N days before the longest making days of its products end, late once past unless shipped — the
+  // statuses that stop the counter) and the sub-order (late once its making days are past, risk N days before); the default making
+  // days. Saved in the row «makers» as `delay` (IbtekrOps.delayRules — the same on the server: _shared/delay.js)
+  const START_LABELS = { confirm: 'تاريخ التأكيد', order: 'تاريخ الأوردر', notify: 'تاريخ تبليغ المبتكر' };
+  const START_HELP = { confirm: 'الأوردر من تاريخ تأكيده (غير المؤكد مالوش تأخير) — والأوردر الفرعي من تاريخ تبليغ المبتكر، وإلا تاريخ التأكيد', order: 'الأوردر من تاريخه — والأوردر الفرعي من تاريخ تبليغ المبتكر، وإلا تاريخ الأوردر', notify: 'الأوردر الفرعي من تاريخ تبليغ المبتكر بس (من غيره مالوش تأخير) — والأوردر من تاريخ تأكيده' };
+  function delaySec(m) {
+    const XO = window.IbtekrOps; const D = XO && XO.delayRules ? XO.delayRules(m.delay) : Object.assign({ start: 'confirm', orderRisk: 2, subRisk: 2, lead: 7, stop: [] }, m.delay || {});
+    const set = (k, v, label) => { m.delay = Object.assign({}, D, { [k]: v }); LOGV('settings.change', 'قواعد التأخير · ' + label); K.toast('اتحفظ'); R(); };
+    const num = (k, id, label, opts, help) => h('div', null, U.Select({ id, label, options: opts.map((x) => ({ value: String(x), label: x + ' يوم' })), value: String(D[k]), onChange: (v) => set(k, Number(v), label + ' = ' + v) }), help ? h('div', { class: 't-small help' }, help) : null);
+    const S0 = SETT(); const bases = (S0 && S0.STATUS_KINDS && S0.STATUS_KINDS.order) || ['معلّق', 'قيد الانتظار', 'جاري التنفيذ', 'جاهز للشحن', 'قيد الشحن', 'مكتمل', 'استرجاع', 'ملغي', 'فشل'];
+    const stopChips = h('div', { class: 'chips', 'data-delay-stop': '' }, bases.map((b) => { const on = D.stop.includes(b); return h('button', { type: 'button', class: 'chip', role: 'checkbox', 'aria-checked': String(on), 'data-delay-st': b, onClick: () => set('stop', on ? D.stop.filter((x) => x !== b) : D.stop.concat([b]), 'الحالات اللي بتوقف العدّاد') }, LB0('order', b)); }));
+    const chips = h('div', { class: 'acts-inline start' }, U.DelayBadge('ok'), U.DelayBadge('risk'), U.DelayBadge('late'));
+    const range = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
+    return [K.Section('قواعد التأخير', [
+      h('div', null, U.Select({ id: 'dl-start', label: 'نقطة بداية حساب الأيام', options: Object.entries(START_LABELS).map(([v, l]) => ({ value: v, label: l })), value: D.start, onChange: (v) => set('start', v, 'نقطة البداية = ' + START_LABELS[v]) }), h('div', { class: 't-small help', 'data-delay-start-help': '' }, START_HELP[D.start])),
+      num('lead', 'dl-lead', 'مدة التصنيع الافتراضية', [3, 5, 7, 10, 12, 14, 15, 20, 25, 30], 'لما المنتج والمبتكر مالهمش مدة تصنيع'),
+      vrow('معاينة الشارات', '', chips)], null, { th: false, sub: 'الحالة دايمًا محسوبة من القواعد دي في الصفحات والتنبيهات والرد الآلي — مابتتكتبش بالإيد' }),
+      h('div', { class: 'dl-boxes' },
+        K.Section('الأوردر', [
+          num('orderRisk', 'dl-orisk', '«قابل للتأخير» قبل نهاية أطول مدة تصنيع بـ', range(0, 7), 'أطول مدة تصنيع في منتجات الأوردر اللي لسه مفتوحة'),
+          vrow('«متأخر»', 'بعد ما أطول مدة تصنيع تخلص ولسه الأوردر ماتحوّلش للشحن', K.Tag('error', 'متأخر')),
+          U.FieldShell({ id: 'dl-stop', label: 'الحالات اللي بتوقف العدّاد', help: 'الأوردر في الحالات دي عمره ما بيتحسب متأخر (الحالة المضافة بتتحسب زي أساسها)' }, stopChips)], null, { th: false }),
+        K.Section('الأوردر الفرعي', [
+          num('subRisk', 'dl-srisk', '«قابل للتأخير» قبل نهاية مدة التصنيع بـ', range(0, 7), 'مدة التصنيع = بتاعة المنتج، وإلا بتاعة المبتكر، وإلا الافتراضية'),
+          vrow('«متأخر»', 'بعد ما مدة تصنيعه تخلص ولسه ماتشحنش', K.Tag('error', 'متأخر'))], null, { th: false }))];
+  }
   function makersV6() {
-    const m = C.makers; const chips = h('div', { class: 'acts-inline start' }, U.DelayBadge('ok'), U.DelayBadge('risk'), U.DelayBadge('late'));
-    return [K.Section('قواعد التأخير الافتراضية', [K.two(pick(m, 'lead', 'mk-lead', 'مدة التصنيع الافتراضية (يوم)', ['7 – 10', '10 – 12', '12 – 15', '15 – 20'], 'تظهر في كارت الأوردر الفرعي «مدة التصنيع 12–15 يوم»'), pick(m, 'risk', 'mk-risk', '«قابل للتأخير» من يوم', [7, 8, 9, 10], 'شارة برتقالية + إشعار «مبتكرين قابلين للتأخير»')),
-        K.two(pick(m, 'late', 'mk-late', '«متأخر» بعد يوم', [10, 11, 12, 14], 'شارة حمراء + إشعار «مبتكرين متأخرين»'), pick(m, 'counter', 'mk-cnt', 'سقف العدّاد (يوم)', [10, 15, 20], 'شريط التقدم 0/15')),
-        K.two(vrow('استثناء الحالات', 'الأوردرات دي لا تُعتبر متأخرة أبدًا', h('b', null, 'مكتمل · ملغي · استرجاع')), pick(m, 'start', 'mk-start', 'نقطة بداية الحساب', ['تاريخ تبليغ المبتكر ← وإلا تاريخ الأوردر', 'تاريخ الأوردر', 'تاريخ التأكيد'])), vrow('معاينة الشارات بالقواعد الحالية', '', chips)], null, { sub: 'بتُطبَّق على كل المبتكرين إلا اللي ليهم قاعدة خاصة — الحالة دايمًا محسوبة، لا تُكتب يدويًا' }),
-      K.Section('قواعد خاصة لكل مبتكر', U.Table({ headers: ['المبتكر', 'مدة التصنيع', 'قابل للتأخير من', 'متأخر بعد', 'المصدر', 'المتوسط الفعلي', ''], rows: C.makerRules.map((r) => [...r.slice(0, 4), K.Tag(r[4] === 'مدخل يدويًا' ? 'brand' : r[4].startsWith('محسوب') ? 'info' : 'neutral', r[4]), r[5], Button({ type: 'text', size: 'sm', label: 'تعديل', onClick: () => delayRule(r) })]) }), [Button({ label: '+ قاعدة خاصة', onClick: () => delayRule() })], { th: false, sub: 'لو المبتكر معندوش مدة مدخلة، السيستم بيستخدم المتوسط الفعلي من آخر 10 أوردرات مكتملة (لو ≥ 3 أوردرات) وإلا الافتراضي' }),
+    const m = C.makers;
+    return [...delaySec(m),
       K.Section('التنشيط وإيقاف التنشيط', [row('اقتراح إيقاف تلقائي عند تكرار التأخير', 'لو ≥ 3 أوردرات متأخرة خلال 30 يوم ← تنبيه «مراجعة تنشيط المبتكر»', m.autoLate, (v) => { m.autoLate = v; }), row('اقتراح إيقاف عند عدم الرد', 'لو ≥ 2 تذكرة «مشكلة مبتكر» بدون رد 48 ساعة', m.autoNoReply, (v) => { m.autoNoReply = v; }), row('إيقاف تلقائي عند انتهاء العقد', 'بعد 7 أيام من انتهاء العقد بدون تجديد', m.autoContract, (v) => { m.autoContract = v; }), row('إعادة التنشيط تتطلب موافقة أدمن', 'المبتكر الموقوف يرجع «نشط» بعد مراجعة السبب', m.reactivate, (v) => { m.reactivate = v; }),
         K.two(pick(m, 'openEffect', 'mk-oe', 'أثر الإيقاف على الأوردرات المفتوحة', ['تستمر حتى الإغلاق + تنبيه لخدمة العملاء', 'تتحوّل لمبتكر تاني']), pick(m, 'siteEffect', 'mk-se', 'أثر الإيقاف على الموقع', ['إخفاء منتجاته + منع أوردرات جديدة', 'منع أوردرات جديدة فقط', 'لا شيء (داخلي)'])),
         vrow('أسباب الإيقاف (قائمة)', 'تُعدَّل من «القوائم والحالات»', h('b', null, C.otherLists.stop.join(' · ')))], null, { sub: 'الإيقاف التلقائي بينزل كتنبيه «مهام» للموافقة — مفيش إيقاف بدون قرار بشري. السبب إجباري ويتسجل في ملف المبتكر' }),
@@ -1770,7 +1794,7 @@
   function delayRule(r) { K.toast(r ? 'مدة التصنيع بتتعدل من ملف المبتكر «' + r[0] + '»' : 'القاعدة الخاصة = مدة التصنيع في ملف المبتكر'); }
   function deactivateMaker() { location.hash = 'makers'; K.toast('إيقاف المبتكر من صفحة المبتكرين (قايمة المزيد)'); }
   function hydrateMakerRules() { const V = window.IBVendors; const all = V && V.store && V.store.all ? V.store.all() : []; const risk = Number(C.makers.risk) || 9, late = Number(C.makers.late) || 11; C.makerRules.splice(0, C.makerRules.length, ...all.filter((v) => v.status !== 'inactive').map((v) => [v.name, (v.leadDays || 7) + ' يوم', 'يوم ' + risk, 'يوم ' + late, v.leadDays && v.leadDays !== 7 ? 'مدخل يدويًا' : 'الافتراضي', '—'])); }
-  function makers() { hydrateMakerRules(); return makersV6(); }
+  function makers() { return makersV6(); } // owner batch 2 decision 17: no per-maker rules — a maker's making days live in his file
 
   window.IBPages.register('settings', { title: 'الإعدادات', adminOnly: true, hash: (hs) => { const m = /^settings(?:-([a-z]+))?$/.exec(hs); if (!m) return false; const target = m[1] && SECTIONS.some((s) => s[0] === m[1]) ? m[1] : 'home'; if (st.dirty && target !== st.sec) { setTimeout(() => leave(() => { st.sec = target; st.integ = null; try { history.replaceState(null, '', target === 'home' ? '#settings' : '#settings-' + target); } catch (e) { /* */ } R(); window.scrollTo(0, 0); }), 0); return true; } st.sec = target; return true; }, defaultHash: () => (st.sec === 'home' ? 'settings' : 'settings-' + st.sec), view, canLeave: (go) => leave(go), api: { aiRules: () => (S.aiRules = S.aiRules || AI_DEF()), reload: () => { hydrated = false; if (SETT()) SETT().load().then(() => { hydrateAll(); R(); }); }, hydrate: hydrateAll, exportData: (id, o) => exportDialog(DG().group(id), o), importData: (id, mode, o) => { const g = DG().group(id); importWizard(g, mode || modesOf(g)[0], o); }, templates: (id, mode, o) => { const g = DG().group(id); templateDialog(g, mode || modesOf(g)[0], o); }, setIntegration, memberChans: (id) => { const m = K.store.members.find((x) => x.id === id); if (m) memberChans(m); }, openSocial: () => { st.sec = 'integrations'; st.integ = null; st.itab = 'social'; R(); window.scrollTo(0, 0); }, openWa: () => { st.sec = 'integrations'; st.integ = 'wa'; R(); window.scrollTo(0, 0); }, addWa: () => { st.sec = 'integrations'; st.integ = 'wa'; R(); waEdit(); }, makerRules: () => C.makerRules, integrations: () => C.integrations, activityLog: () => C.activity, backup: () => C.backup, perms: () => C.perms, roles: () => liveNames(), roleIndex, rolePopup: (r) => rolePopup(r, roleIndex(r)), lists: listsMap, addListValue, removeListValue } });
 })();

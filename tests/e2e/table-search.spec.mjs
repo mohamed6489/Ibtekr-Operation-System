@@ -117,13 +117,13 @@ test('a page\'s own search moves into the row: the products search reads the who
   await expect(P.locator('[data-tq-btn]')).toHaveAttribute('aria-expanded', 'false');
 });
 
-test('a real page table: the expenses\' details card gets «بحث» in its header and the row searches it', async ({ page }) => {
+test('a real page table: the sales details card gets «بحث» in its header and the row searches it', async ({ page }) => {
   await page.locator('.sidebar .nav-item[data-page="accounts"]').click();
-  await page.getByRole('tab', { name: 'المصروفات' }).first().click();
-  const details = page.locator('#main .table-card', { hasText: 'تفاصيل المصروفات' });
+  await page.getByRole('tab', { name: 'المبيعات' }).first().click(); // the expenses details card has no buttons since the owner 13 Nov
+  const details = page.locator('#main .table-card', { hasText: 'تفاصيل المبيعات حسب حالة الأوردر' });
   await expect(details.locator('.table-title [data-tq-btn]')).toHaveCount(1);
   const before = await details.locator('tbody tr:not(.tq-hide)').count();
   await details.locator('[data-tq-btn]').click();
-  await details.locator('[data-tq-row] input').fill('المرتبات');
+  await details.locator('[data-tq-row] input').fill('مكتمل');
   await expect(details.locator('tbody tr:not(.tq-hide):not(.tq-none)')).not.toHaveCount(before);
 });

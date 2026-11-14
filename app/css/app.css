@@ -1838,3 +1838,9 @@ td > :is(.mlink,.prod,.who-cell) .avatar{flex:none}
 .scrim{grid-template-columns:minmax(0,1fr)}
 /* decision 5: a long name in a popup's pick-list wraps instead of scrolling the list sideways («استلام في المخزن») */
 .rc-orders [role=option]{white-space:normal;overflow-wrap:anywhere;height:auto;min-height:32px;padding-block:6px;text-align:start;justify-content:flex-start}
+/* the owner 13 Nov (docs/superpowers/plans/2026-11-13-table-head.md): a big table's head like «سجل المخزون» — the title with its count line
+   under it, «كل الـ…» under the head on the card's inner edge, a description the page had under the title now under the table */
+.th-t{display:flex;flex-direction:column;gap:2px;min-width:0}
+.tbl-v2>.th-all,.tbl-v2>.scroll-x+.th-note,.tbl-v2>.xwrap+.th-note,.tbl-v2>table+.th-note,.tbl-v2>.th-note{margin-inline:20px}
+.tbl-v2>.th-all{padding-block:12px}
+.th-note{margin:12px 0 0}

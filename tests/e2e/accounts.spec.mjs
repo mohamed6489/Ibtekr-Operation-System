@@ -103,6 +103,8 @@ test('a subscription needs its name, end date and alerts; it is stored with them
   await expect.poll(() => mock.accWrites.length).toBe(1);
   expect(mock.accWrites[0]).toMatchObject({ table: 'acc_expenses', category: 'الاشتراكات', sub_name: 'Canva', sub_is_other: false, sub_alerts: ['month', 'week', 'day'] });
   await expect(main(page).locator('[data-subs-summary]')).toContainText('اشتراكات نشطة'); // phase 5.5: a summary in «المصروفات», the table in its own tab
+  // the owner 13 Nov: the link's words at the right and its arrow after them at the left
+  expect(await main(page).locator('[data-go-subs]').evaluate((b) => { const t = Array.from(b.childNodes).find((n) => n.nodeType === 3 && n.textContent.trim()); const r = document.createRange(); r.selectNodeContents(t); return r.getBoundingClientRect().left > b.querySelector('svg').getBoundingClientRect().right; })).toBe(true);
   await main(page).locator('[data-go-subs]').click();
   await expect(main(page).locator('.subs-tbl')).toContainText('Canva');
   await expect(main(page).locator('.subs-tbl')).toContainText(/باقي [45] يوم/);
@@ -163,8 +165,8 @@ test('the columns (phase 4.1, every table): hiding one is saved for the member i
   await modal(page).getByRole('button', { name: 'حفظ' }).click();
   await expect.poll(() => { const p = mock.prefs.find((x) => x.key === 'table.cols'); return p ? p.data['tbl:حسابات المبتكرين'].order.indexOf(moving) : -1; }).toBe(1);
   // another tab's table has its own button
-  await tab(page, 'المصروفات').click();
-  await expect(main(page).locator('[data-cols="tbl:تفاصيل المصروفات"]')).toBeVisible();
+  await tab(page, 'المبيعات').click();
+  await expect(main(page).locator('[data-cols="tbl:تفاصيل المبيعات حسب حالة الأوردر"]')).toBeVisible();
 });
 
 test('sales come from our orders by status group; the moves log lists Dokan requests', async ({ page }) => {
@@ -320,7 +322,7 @@ test('«تحديث من Dokan» brings a new request now; the withdraw filter sh
   await page.locator('[role=listbox] [role=option]', { hasText: 'مستني الموافقة بس' }).first().click();
   await expect(table.locator('tbody tr')).toHaveCount(2); // Art Craft (#501) + Antikiano (#601)
   await expect(table.locator('tbody tr', { hasText: 'Art Craft' })).toHaveCount(1);
-  await expect(main(page).locator('.table-title .count')).toContainText('مستني الموافقة بس');
+  await expect(main(page).locator('.table-title [data-th-sub]')).toContainText('مستني الموافقة بس'); // the head's count line (2026-11-13-table-head.md)
   await main(page).locator('[data-wd-filter]').click();
   await page.locator('[role=listbox] [role=option]', { hasText: 'طلبات السحب: الكل' }).first().click();
   await expect(table.locator('tbody tr').filter({ hasNot: page.locator('.total') })).not.toHaveCount(2);
@@ -336,21 +338,13 @@ test('the refresh needs accounts.view; ops (view P) may refresh, Dokan down → 
 
 
 // ---- phase 5.5 (the owner's prototype v2, plan decision 4): the accounts additions ----
-test('5.5: the moves log has its own period (wide by default) and a bulk export; the expenses details take a closed filter + sort with chips', async ({ page }) => {
+test('5.5: the moves log has its own period (wide by default) and a bulk export; the owner 13 Nov: the expenses details card has no buttons in its head', async ({ page }) => {
   await openAccounts(page);
-  // expenses details: the filter next to the columns button
-  await main(page).locator('[data-fm-btn="exp"]').click(); // the owner 12 Nov: «فلتر» next to the sort
-  await page.locator('[data-fm-menu="exp"] [data-fm="cat:المرتبات"]').click();
-  await page.locator('[data-fm-menu="exp"] [data-fm-apply]').dispatchEvent('click');
+  // expenses details (the owner 13 Nov — «شيل الزراير من تفاصيل المصروفات»): the four categories with their total, no «بحث» / «فلتر» / «ترتيب» / columns
   const details = main(page).locator('.table-card', { hasText: 'تفاصيل المصروفات' });
-  await expect(details.locator('.af-row .af-chip')).toHaveCount(1);
-  await expect(details.locator('tbody tr')).toHaveCount(1);
-  await expect(details.locator('table')).toContainText('إجمالي البنود المعروضة');
-  await main(page).locator('[data-sm-btn="exp"]').click();
-  await page.locator('[role=listbox] [role=option]', { hasText: 'القيمة: الأعلى للأقل' }).click();
-  await expect(main(page).locator('[data-sm-btn="exp"] .sm-v')).toHaveText(': القيمة: الأعلى للأقل');
-  await details.locator('[data-af-clear]').click();
   await expect(details.locator('tbody tr')).toHaveCount(4);
+  await expect(details.locator('table')).toContainText('إجمالي الأربع فئات');
+  await expect(details.locator('[data-tq-btn], [data-fm-btn], [data-sm-btn], [data-cols], .af-row')).toHaveCount(0);
   // the moves log: the Dokan request of 25 Oct is in the wide default period; its own range field; the bulk bar exports the ticked rows
   await tab(page, 'سجل الحركات').click();
   await main(page).getByRole('tab', { name: 'حسابات المبتكرين' }).last().click();

@@ -1453,7 +1453,7 @@
     const last = rows0.reduce((n, x) => n + (Number(x.amount) || 0), 0);
     return h('section', { class: 'card subs-sum', 'data-subs-summary': '' },
       h('div', { class: 'subs-sum-h' }, h('div', null, h('h2', { class: 't-h5' }, 'الاشتراكات'), h('div', { class: 't-small help' }, 'كل الاشتراكات · مش متأثرة بفترة الصفحة')),
-        Button({ size: 'sm', label: 'كل تفاصيل الاشتراكات', icon: 'chevL', attrs: { 'data-go-subs': '' }, onClick: goSubs })),
+        Button({ size: 'sm', label: 'كل تفاصيل الاشتراكات', iconEnd: 'chevL', attrs: { 'data-go-subs': '' }, onClick: goSubs })), // the owner 13 Nov: the words at the right, the arrow after them at the left
       h('div', { class: 'subs-sum-b' },
         h('div', null, h('span', { class: 't-small help' }, 'اشتراكات نشطة'), h('b', { class: 't-h4' }, num(String(rows0.filter((x) => !x.expired).length)))),
         h('div', null, h('span', { class: 't-small help' }, 'محتاجة تجديد'), h('b', { class: 't-h4' + (due.length ? ' neg' : '') }, num(String(due.length)))),
@@ -1525,8 +1525,10 @@
   const sourceNote = (t) => h('p', { class: 'source', style: 'margin:0' }, t);
   const pctTxt = (p) => num(p);
   // كل كارت جدول بياخد زرار «الأعمدة» تلقائي (4 أعمدة فأكتر) — إظهار/إخفاء وترتيب، محفوظ لكل مستخدم
-  function TableCard({ title, count, action, body, cols, pre, cls }) {
-    const card = h('section', { class: 'card table-card' + (cls ? ' ' + cls : '') }, h('div', { class: 'table-title' }, h('h2', { class: 't-h4' }, title), h('span', { class: 'count t-body' }, count || ''), action || null), pre || null, body);
+  function TableCard({ title, count, action, body, cols, pre, cls, th }) {
+    // th: a big table's head (2026-11-13-table-head.md) — { noun, when, total, count: [shown, all] } for the kit's line «‹إمتى› · N من M ‹اسم› · ‹إجمالي›»
+    const x = th || {};
+    const card = h('section', { class: 'card table-card' + (cls ? ' ' + cls : ''), 'data-th-noun': x.noun ? [].concat(x.noun).join('|') : null, 'data-th-when': x.when || null, 'data-th-total': x.total || null, 'data-th-count': x.count ? x.count.join('/') : null }, h('div', { class: 'table-title' }, h('h2', { class: 't-h4' }, title), h('span', { class: 'count t-body' }, count || ''), action || null), pre || null, body);
     // the key leaves out « — <الفترة>» so a choice outlives the range picked (phase 4.1: the titles carry the period)
     return cols === false ? card : window.IBKit.withColumns(card, 'tbl:' + String(title).split(' — ')[0], title);
   }
@@ -1580,30 +1582,21 @@
         U.KpiTile(Object.assign({ label: 'خارج', value: D.formatMoney(r.outTotal), unit: 'ج.م', note: 'سحب ومصروفات ومواصلات' }, cmpTile(r.outTotal, P ? P.outTotal : 0, false))),
         kind === 'vendorMoves' ? U.KpiTile(Object.assign({ label: 'طلبات سحب', value: String(r.requests), unit: 'طلب', note: 'من المبتكرين على Dokan' }, cmpTile(r.requests, P ? P.requests : 0, false)))
           : U.KpiTile(Object.assign({ label: 'الصافي', value: D.formatMoney(D.round2(r.inTotal - r.outTotal)), unit: 'ج.م', note: 'داخل − خارج' }, cmpTile(D.round2(r.inTotal - r.outTotal), P ? D.round2(P.inTotal - P.outTotal) : 0, true)))),
-      h('div', { class: 'toolbar mlog-bar' }, search, DateRangeField('mlog'), h('span', { class: 'grow' }), h('span', { class: 't-small', style: 'color:var(--color-text-secondary)' }, num(rows0.length + ' من ' + r.count + ' حركة في الفترة')),
+      h('div', { class: 'toolbar mlog-bar' }, search, DateRangeField('mlog'), h('span', { class: 'grow' }),
         Button({ label: 'نسخ CSV', icon: 'download', attrs: { 'data-mlog-csv': '' }, onClick: () => csvCopy(headers, rows0.map(flat), 'سجل الحركات — ' + (MLOG_TABS.find((t) => t.id === kind) || {}).label) })),
-      TableCard({ title: 'سجل الحركات — ' + (MLOG_TABS.find((t) => t.id === kind) || {}).label, count: rows0.length + ' حركة', pre: LB.bar(),
+      TableCard({ title: 'سجل الحركات — ' + (MLOG_TABS.find((t) => t.id === kind) || {}).label, count: '', th: { noun: ['حركة', 'الحركات'], when: D.rangeLabel(MR.from, MR.to), count: [rows0.length, r.count] }, pre: LB.bar(),
         body: rows0.length ? tableOrList(() => U.Table({ cls: 'mlog-table', headers: [LB.head()].concat(headers), rows }), () => CardList({ headers: [''].concat(headers), titleIndex: 3, rows })) : U.EmptyState('مفيش حركات', q ? 'مفيش نتيجة للبحث ده — امسح البحث.' : 'مفيش حركات في الفترة دي — غيّر الفترة من جنب البحث.') }),
       sourceNote('المصدر: الحركات المتسجلة في السيستم + طلبات السحب من Dokan (قراءة بس).'));
   }
-  // تفاصيل المصروفات (phase 5.5 decision 4, owner 1 Nov): فلتر مقفول + ترتيب في راس الكارت، ونتيجة الفلتر شيبس تحت التايتل قبل راس الجدول
-  const EXP_SORTS = [['default', 'الترتيب الافتراضي'], ['amt-desc', 'القيمة: الأعلى للأقل'], ['amt-asc', 'القيمة: الأقل للأعلى'], ['name', 'البند: أ ← ي']];
+  // تفاصيل المصروفات (phase 5.5 decision 4, owner 1 Nov) — the owner 13 Nov («شيل الزراير من تفاصيل المصروفات»): no buttons in its head
+  // (no «بحث» / «فلتر» / «ترتيب» / columns — data-no-tq / data-no-cols and its own-filter keeps the kit's filter away); the four categories in their order
   function expDetailsCard(tot, srcFor) {
-    const KK = window.IBKit; const f = (state.expF = state.expF || { cat: [] }); const sort = state.expSort || 'default';
-    const all = D.CATEGORIES.map((c, i) => ({ c, i, amt: tot.byCategory[c].amount, share: tot.byCategory[c].share }));
-    const ok = (x, d) => !(d.cat || []).length || d.cat.includes(x.c);
-    let list = all.filter((x) => ok(x, f));
-    if (sort === 'amt-desc') list = list.slice().sort((p, q) => q.amt - p.amt); else if (sort === 'amt-asc') list = list.slice().sort((p, q) => p.amt - q.amt); else if (sort === 'name') list = list.slice().sort((p, q) => p.c.localeCompare(q.c, 'ar'));
-    const sum = list.reduce((n, x) => n + x.amt, 0);
-    const chips = (f.cat || []).map((v) => ({ key: 'cat:' + v, label: 'البند: ' + v, count: all.filter((x) => x.c === v).length, remove: () => { f.cat = f.cat.filter((x) => x !== v); render(); } }));
-    // the owner 12 Nov: «فلتر» back next to the sort in the header (B5 had it as a row under the title)
-    const filters = KK.FilterMenu({ id: 'exp', label: 'فلتر تفاصيل المصروفات', noun: 'بند', value: f, groups: [{ key: 'cat', label: 'البند', options: D.CATEGORIES.map((c) => [c, c]) }], count: (d) => all.filter((x) => ok(x, d)).length, onApply: (d) => { state.expF = d; render(); } });
-    const actions = h('span', { class: 'acts-inline' }, filters, KK.SortMenu({ id: 'exp', label: 'ترتيب تفاصيل المصروفات', options: EXP_SORTS, value: sort, onChange: (v) => { state.expSort = v; render(); } }));
-    return TableCard({ title: 'تفاصيل المصروفات', cls: 'own-filter', count: chips.length ? list.length + ' من ' + all.length + ' بند' : '', action: actions,
-      pre: KK.ActiveFilters({ id: 'exp', chips, total: list.length, noun: 'بند', onClear: () => { state.expF = { cat: [] }; render(); } }),
-      body: list.length ? U.Table({ headers: ['البند', 'القيمة (ج.م)', 'النسبة', 'المصدر'], rows: list.map((x) => [x.c, num(D.formatMoney(x.amt)), num(D.formatPct(x.share)), srcFor(x.c, x.i)]),
-        totalRow: chips.length ? ['إجمالي البنود المعروضة', num(D.formatMoney(sum)), num(D.formatPct(tot.total ? sum / tot.total : 0)), list.length + ' من ' + all.length + ' بند'] : ['إجمالي الأربع فئات', num(D.formatMoney(tot.total)), num(tot.total === 0 ? '0.0%' : '100.0%'), 'إجمالي المصروفات'] })
-        : U.EmptyState('مفيش بنود بالفلتر ده', 'غيّر الفلتر أو امسحه.') });
+    const list = D.CATEGORIES.map((c, i) => ({ c, i, amt: tot.byCategory[c].amount, share: tot.byCategory[c].share }));
+    const card = TableCard({ title: 'تفاصيل المصروفات', cls: 'own-filter', cols: false,
+      body: U.Table({ headers: ['البند', 'القيمة (ج.م)', 'النسبة', 'المصدر'], rows: list.map((x) => [x.c, num(D.formatMoney(x.amt)), num(D.formatPct(x.share)), srcFor(x.c, x.i)]),
+        totalRow: ['إجمالي الأربع فئات', num(D.formatMoney(tot.total)), num(tot.total === 0 ? '0.0%' : '100.0%'), 'إجمالي المصروفات'] }) });
+    card.setAttribute('data-no-tq', ''); card.setAttribute('data-no-cols', ''); card.setAttribute('data-exp-details', '');
+    return card;
   }
   // ---------- views ----------
   function ExpensesView() {
@@ -1624,7 +1617,7 @@
           h('button', { type: 'button', class: 'kpi-more kpi-details', 'data-details': 'إجمالي المصروفات', 'aria-label': 'تفاصيل إجمالي المصروفات', onClick: () => U.DetailsModal(() => ({ title: 'إجمالي المصروفات — ' + D.formatMoney(tot.total) + ' ج.م', sub: monthTxt, summary: D.CATEGORIES.map((c) => ({ label: c, value: D.formatMoney(tot.byCategory[c].amount) })), headers: ['البند', 'القيمة', 'النسبة', 'المصدر'], rows: D.CATEGORIES.map((c, i) => [c, D.formatMoney(tot.byCategory[c].amount), D.formatPct(tot.byCategory[c].share), srcFor(c, i)]).concat(entries.map((e) => [e.category + ' · ' + D.formatDateNumeric(e.date), D.formatMoney(e.amount), '—', 'تسجيل يدوي — ' + (e.beneficiaryName || '—')])) }), { label: 'إجمالي المصروفات' }) }, 'التفاصيل', Icon('chevL', 'sm'))),
         h('div', { class: 'cat-val' }, h('span', { class: 'unit' }, 'ج.م'), h('span', { class: 't-h3' }, num(D.formatMoney(tot.total))))),
       expDetailsCard(tot, srcFor),
-      TableCard({ title: 'سجل المصروفات التفصيلي', count: entries.length + ' مصروف مسجّل', body: entries.length === 0 ? U.EmptyState('لسه مفيش مصروفات مسجّلة', 'اضغط «إضافة مصروفات» وسجّل أول سحب أو إيداع، وهيظهر هنا.') :
+      TableCard({ title: 'سجل المصروفات التفصيلي', count: '', th: { noun: ['مصروف', 'المصروفات'], when: monthTxt }, body: entries.length === 0 ? U.EmptyState('لسه مفيش مصروفات مسجّلة', 'اضغط «إضافة مصروفات» وسجّل أول سحب أو إيداع، وهيظهر هنا.') :
         U.Table({ headers: ['التاريخ', 'النوع', 'اسم المستفيد', 'البيان', 'المبلغ (ج.م)', ''], rows: entries.map((e) => [num(D.formatDateNumeric(e.date)), e.category, e.beneficiaryName || '—', expenseLine(e),
           h('span', { class: e.direction === 'deposit' ? 'pos' : '' }, num((e.direction === 'deposit' ? '+' : '') + D.formatMoney(e.amount))), RowActions('expenses', e, (r) => deleteRec('expenses', r))]) }) }),
       sourceNote('المصدر: المصروفات المتسجلة في السيستم للفترة المحددة'),
@@ -1872,7 +1865,7 @@
         const some = (k) => list.some((v) => v[k]);
         const cols = VCOLS.filter(([k]) => (k === 'oth' ? some('other') : k === 'cor' ? some('corrections') : k === 'carry' ? some('carry') : true));
         const pend = sorted.filter((v) => { const r = wdOf(v.name); return r && r.status === 'pending'; }).length;
-        return TableCard({ title: 'حسابات المبتكرين — الرصيد دلوقتي', count: sorted.length + ' مبتكر · ' + pend + ' طلب مستني الموافقة' + (wdFiltered ? ' · ' + (WD_FILTERS.find((x) => x.value === state.wdFilter) || {}).label : ''), action: refreshDokanBtn(),
+        return TableCard({ title: 'حسابات المبتكرين — الرصيد دلوقتي', count: '', th: { noun: ['مبتكر', 'المبتكرين'], total: pend + ' طلب مستني الموافقة' + (wdFiltered ? ' · ' + (WD_FILTERS.find((x) => x.value === state.wdFilter) || {}).label : '') }, action: refreshDokanBtn(),
           body: !sorted.length ? U.EmptyState(wdFiltered ? 'مفيش مبتكرين عندهم طلبات سحب' : 'مفيش مبتكرين', wdFiltered ? 'اضغط «تحديث من Dokan» تجيب الطلبات الجديدة، أو رجّع الفلتر لـ «الكل».' : '') : U.Table({ cls: 'vendors-table', headers: cols.map(([, lb]) => lb), rows: sorted.map((v) => cols.map(([k]) => CELL[k](v))), totalRow: cols.map(([k]) => TOT[k]) }) });
       })(),
       sourceNote('المصدر: رصيد Dokan وطلبات السحب (قراءة بس، بيتحدّث كل ساعة) + الحركات المتسجلة هنا اللي لسه ماتصفّتش · الصافي = رصيد Dokan − العرابين − المواصلات − الخصومات التانية + التصحيحات − المتبقي من آخر تسوية، وبيبقى بالسالب لو الخصومات أكبر · Dokan مابيعرفش الخصومات دي، فطلب السحب بيبقى بكل رصيد Dokan، ولما يتوافق عليه بتتصفّى منه واللي بيتحوّل للمبتكر = الطلب − الخصومات · الأوردرات بالفترة في «كشف بالفترة»'),
@@ -1989,7 +1982,7 @@
     const refresh = () => { if (range) A.dropLedger(range.from, range.to); else if (A.refreshWithdrawals) { A.refreshWithdrawals().then(() => render()); } render(); };
     const progress = pending.length ? U.InlineNote({ children: h('span', { 'data-ledger-progress': '' }, 'بنجيب كشوف حساب المبتكرين من Dokan… ', num(String(withStore.length - pending.length)), ' من ', num(String(withStore.length))) }) : null;
     const failNote = !pending.length && failed.length ? U.InlineNote({ kind: 'error', children: 'Dokan مارجّعش كشف ' + failed.length + ' مبتكر — أرقامهم مش في الإجمالي.', action: Button({ type: 'text', size: 'sm', label: 'جرّب تاني', attrs: { 'data-ledger-retry': '' }, onClick: () => { A.loadLedger(range.from, range.to, failed.map((l) => l.id)); render(); } }) }) : null;
-    const card = TableCard({ title: 'كشف المبتكرين — ' + per, count: rows0.length + ' مبتكر · ' + T.owedCount + ' ليهم رصيد', cols: false, cls: 'ledger-card own-filter', // its own sort + «اعرض كل المبتكرين» — the kit's auto filter leaves it
+    const card = TableCard({ title: 'كشف المبتكرين — ' + per, count: '', th: { noun: ['مبتكر', 'المبتكرين'], when: per, total: T.owedCount + ' ليهم رصيد' }, cols: false, cls: 'ledger-card own-filter', // its own sort + «اعرض كل المبتكرين» — the kit's auto filter leaves it
       action: h('span', { class: 'acts-inline' }, window.IBKit.Checkbox({ label: 'اعرض كل المبتكرين (حتى اللي مالهمش حركة)', checked: !!state.vledgerAll, onChange: (x) => { state.vledgerAll = x; render(); } }),
         Button({ label: pending.length ? 'بنجيب من Dokan…' : 'حدّث الكشف من Dokan', icon: 'refresh', disabled: !!pending.length, attrs: { 'data-ledger-refresh': '' }, onClick: refresh })),
       pre: B.bar(), body: !rows0.length ? U.EmptyState(all0 ? 'مفيش حركة للمبتكرين لسه' : 'مفيش حركة للمبتكرين في الفترة دي', 'علّم «اعرض كل المبتكرين» تشوفهم كلهم.') : U.Table({ cls: 'vendors-table ledger-table', headers: COLS.map(([, lb]) => lb), rows: rows0.map((l) => COLS.map(([k]) => CELL[k](l))), totalRow: COLS.map(([k]) => TOT[k]) }) });
@@ -2034,7 +2027,7 @@
       TableCard({ title: 'الرصيد المتوقع', body: U.Table({ headers: ['البند', 'المبلغ (ج.م)', 'النسبة من المتوقع'],
         rows: [['الرصيد الفعلي', num(D.formatMoney(P.actual)), num(D.formatPct(P.shares.actual))], ['حصة إبتكر من الأوردرات قيد التنفيذ', num(D.formatMoney(P.inProgress)), num(D.formatPct(P.shares.inProgress))], ['العرابين المدفوعة للمبتكرين', num(D.formatMoney(P.deposits)), num(D.formatPct(P.shares.deposits))]],
         totalRow: ['الرصيد المتوقع', num(D.formatMoney(P.total)), num('100.0%')] }) }),
-      TableCard({ title: 'سجل الحساب التفصيلي', count: moves.length + (moves.length === 1 ? ' حركة' : ' حركات') + (outside ? ' · ' + outside + ' خارج الفترة' : ''), body: moves.length === 0 ? U.EmptyState('لسه مفيش حركات مسجّلة', 'اضغط «إضافة مبلغ» وسجّل أول إيداع أو سحب، وهيظهر هنا.') :
+      TableCard({ title: 'سجل الحساب التفصيلي', count: '', th: { noun: ['حركة', 'الحركات'], when: D.rangeLabel(state.range.from, state.range.to), total: outside ? outside + ' خارج الفترة' : '' }, body: moves.length === 0 ? U.EmptyState('لسه مفيش حركات مسجّلة', 'اضغط «إضافة مبلغ» وسجّل أول إيداع أو سحب، وهيظهر هنا.') :
         U.Table({ headers: ['التاريخ', 'نوع الحساب', 'العملية', 'المبلغ (ج.م)', ''], rows: moves.map((m) => [num(D.formatDateNumeric(m.date)), m.account, m.direction === 'deposit' ? 'إيداع' : 'سحب',
           h('span', { class: m.direction === 'deposit' ? 'pos' : 'neg' }, num((m.direction === 'deposit' ? '+' : '-') + D.formatMoney(m.amount))), RowActions('accountMoves', m, (r) => deleteRec('accountMoves', r))]) }) }),
       sourceNote('المصدر: حركات الحساب الفعلي المتسجلة في السيستم (الرصيد الافتتاحي صفر لحد الاستيراد) · الرصيد المتوقع = الرصيد الفعلي + حصة إبتكر من الأوردرات قيد التنفيذ + العرابين المدفوعة للمبتكرين'),
@@ -2138,7 +2131,7 @@
         U.ChartCard({ title: 'توزيع حالات الأوردرات', subtitle: 'الفترة المحددة · ' + n + ' أوردر', footnote: 'حسب حالة الأوردر الرئيسي · الشريط نسبي لأكبر حالة', body: barList(rep.byStatus.map(([l, c]) => [l, c, c + ' (' + pctText(c, n) + ')']), { fmt: String, tones: ['brand', 'gold', 'goldlight', 'neutral', 'neutral', 'neutral'] }) }),
         U.ChartCard({ title: 'حالة التأكيد', subtitle: 'كل أوردرات الفترة', footnote: 'غير المؤكد يظهر أيضًا في إشعار «عملاء لم تؤكد»', body: barList(rep.byConfirm.map(([l, c]) => [l, c, c + ' (' + pctText(c, n) + ')']), { fmt: String, tones: ['brand', 'gold', 'neutral'] }) }),
         U.ChartCard({ title: 'حالة التسليم', subtitle: 'الأوردرات المفتوحة · من تاريخ التأكيد: 9 / 12 يوم', footnote: 'الحالة تُحسب من تاريخ تأكيد الأوردر (غير المؤكد مالوش تأخير)، لا تُكتب يدويًا', body: ['ok', 'risk', 'late'].map((k) => h('div', { class: 'deliv-row' }, U.DelayBadge(k), h('span', { class: 't-label' }, num(rep.byDelivery[k] + ' أوردر (' + pctText(rep.byDelivery[k], n) + ')')))) })),
-      TableCard({ title: 'أوردرات تحتاج تدخّل — قابلة للتأخير أو غير مؤكدة', count: rep.actionRows.length + ' أوردر', action: Button({ type: 'text', size: 'sm', label: 'فتح في الأوردرات', onClick: () => showOrders({ deliv: 'risk' }) }),
+      TableCard({ title: 'أوردرات تحتاج تدخّل — قابلة للتأخير أو غير مؤكدة', count: '', th: { noun: ['أوردر', 'الأوردرات'] }, action: Button({ type: 'text', size: 'sm', label: 'فتح في الأوردرات', onClick: () => showOrders({ deliv: 'risk' }) }),
         body: rep.actionRows.length === 0 ? U.EmptyState('كله تمام', 'مفيش أوردرات مفتوحة قابلة للتأخير أو غير مؤكدة في الفترة دي.') : tableOrList(
           () => U.Table({ headers, rows: rep.actionRows.map((r) => [num(r.id), r.customer, r.status, cfText(r.confirm), U.DelayBadge(r.delivery), num(String(r.ageDays)), num(money(r.total))]) }),
           () => CardList({ headers, titleIndex: 1, rows: rep.actionRows.map((r) => [num(r.id), r.customer, r.status, cfText(r.confirm), U.DelayBadge(r.delivery), num(String(r.ageDays)), num(money(r.total))]) })) }),
@@ -2205,7 +2198,7 @@
         U.ChartCard({ title: 'المبيعات حسب حالة الأوردر', subtitle: PER + ' · ' + rep.orders + ' أوردر', footnote: 'حصة إبتكر تُحسب بنسبة كل مبتكر', body: barList(rep.salesRows.map(([l, v, sh]) => [l, v, money(v) + ' · حصة ' + money(sh)]), { fmt: money, tones: ['brand', 'gold', 'neutral'] }) }),
         U.ChartCard({ title: 'توزيع الحساب الفعلي', subtitle: 'الأرصدة الحالية', footnote: 'تُدخل يدويًا في تاب «الحساب الفعلي» حتى يتم الربط البنكي', body: barList(rep.accountRows.map(([l, v, p]) => [l, v, money(v) + ' (' + D.formatPct(p) + ')']), { fmt: money }) }),
         U.ChartCard({ title: 'مكوّنات الرصيد المحتمل', subtitle: money(rep.potential) + ' ج.م', footnote: 'الرصيد المحتمل = الحساب الفعلي + حصة إبتكر من أوردرات التنفيذ + العرابين المدفوعة', body: barList(rep.potentialParts.map(([l, v, p]) => [l, v, money(v) + ' (' + D.formatPct(p) + ')']), { fmt: money, tones: ['brand', 'gold', 'goldlight'] }) })),
-      TableCard({ title: 'ملخص الحسابات الشهري', count: PER + ' · الصافي ' + money(rep.net) + ' ج.م (' + (rep.net < 0 ? 'خسارة' : 'ربح') + ') · الحساب الفعلي ' + money(rep.actual) + ' · المحتمل ' + money(rep.potential),
+      TableCard({ title: 'ملخص الحسابات الشهري', count: '', th: { noun: ['شهر', 'الشهور'], when: D.rangeLabel(rr.from, rr.to), total: 'الصافي ' + money(rep.net) + ' ج.م (' + (rep.net < 0 ? 'خسارة' : 'ربح') + ') · الحساب الفعلي ' + money(rep.actual) + ' · المحتمل ' + money(rep.potential) },
         action: Button({ type: 'text', size: 'sm', label: 'فتح الحسابات', onClick: () => { state.tab = 'actual'; go('accounts'); } }),
         body: (() => { const tRows = rows.map((r) => r.map((c, i) => (i === 0 ? c : i === 1 ? num(String(c)) : i === 9 ? h('span', { class: c < 0 ? 'neg' : 'pos' }, num(money(c))) : num(money(c)))).concat([resTag(r[9]), '—', '—']));
           return tableOrList(() => U.Table({ cls: 'acc-month-tbl', headers, rows: tRows, totalRow: ['الإجمالي', num(String(rep.orders)), num(money(rep.salesTotal)), num(money(rep.share)), num(money(catOf(rep, 'المرتبات'))), num(money(catOf(rep, 'المصروفات'))), num(money(catOf(rep, 'الاشتراكات'))), num(money(catOf(rep, 'الإعلانات'))), num(money(rep.expensesTotal)), h('span', { class: rep.net < 0 ? 'neg' : 'pos' }, num(money(rep.net))), resTag(rep.net), num(money(rep.actual)), num(money(rep.potential))] }), () => CardList({ headers, titleIndex: 0, rows: tRows })); })() }),
@@ -2260,7 +2253,7 @@
       h('div', { class: 'charts' },
         U.ChartCard({ title: 'أعلى المبتكرين بعدد الأوردرات', subtitle: 'الفترة المحددة · أوردرات فيها المبتكر', footnote: 'الأوردر المشترك يُحسب لكل مبتكر فيه', body: rep.topByOrders.length ? barList(rep.topByOrders, { fmt: String, tones: ['brand', 'brand', 'brand', 'goldlight', 'goldlight', 'neutral'] }) : U.EmptyState('مفيش بيانات', 'مفيش أوردرات في الفترة') }),
         U.ChartCard({ title: 'المبتكرون الأكثر تأخيرًا', subtitle: 'أوردرات مفتوحة قابلة للتأخير أو متأخرة', footnote: 'يُحسب من قاعدة 9 / 11 يوم · نفس مصدر إشعار «مبتكرين متأخرين»', body: rep.topLate.length ? barList(rep.topLate, { fmt: String, tones: ['gold', 'gold', 'goldlight', 'goldlight', 'goldlight', 'neutral'] }) : U.EmptyState('كله في الموعد', 'مفيش مبتكرين عندهم أوردرات قابلة للتأخير في الفترة') })),
-      TableCard({ title: 'جدول المبتكرين — الفترة المحددة', count: rep.rows.length + ' مبتكر',
+      TableCard({ title: 'جدول المبتكرين — الفترة المحددة', count: '', th: { noun: ['مبتكر', 'المبتكرين'], when: D.rangeLabel(rr.from, rr.to) },
         body: rep.rows.length ? tableOrList(() => U.Table({ cls: 'vendors-table', headers, rows: rep.rows.map(vrow), totalRow: COLS.map((c) => c.tot) }), () => CardList({ headers, titleIndex: 0, rows: rep.rows.map(vrow) })) : U.EmptyState('مفيش مبتكرين في الفترة دي', 'مفيش أوردرات لأي مبتكر في الفترة — غيّر الفترة من فوق.') }),
       h('p', { class: 'source' }, 'المصدر: الأوردرات (السيستم، حسب تاريخ الأوردر)' + (money$ ? ' · حصة إبتكر من الأوردرات المكتملة في الفترة بنسبة الموقع على كل سطر · العرابين والمواصلات من حركات حسابات المبتكرين (من البداية) · الرصيد الحالي = رصيد Dokan − العرابين − المواصلات (زي تاب «حسابات المبتكرين»)' : '') + (rate$ ? ' · العمولة = النسبة الحالية لكل مبتكر' : '') + ' · كروت «— الآن» نفس أرقام صفحة المبتكرين.')].filter(Boolean);
   }
@@ -2350,7 +2343,7 @@
       h('div', { class: 'charts', 'data-rgroup': 'charts' },
         U.ChartCard({ title: 'سبب دخول القطع', subtitle: 'عدد الأصناف', footnote: 'نفس أرقام «المخزن الآن»', body: bars(rep.byReason, maxR) }),
         U.ChartCard({ title: 'حالة القطع', subtitle: 'عدد الأصناف', footnote: 'الحالة بتتغير من «المخزن الآن» و«المرتجعات»', body: bars(rep.byStatus, maxS) })),
-      TableCard({ title: 'أعلى 20 قطعة بالتكلفة', count: rep.rows.length + ' صف',
+      TableCard({ title: 'أعلى 20 قطعة بالتكلفة', count: '', th: { noun: ['قطعة', 'القطع'] },
         body: rep.rows.length ? tableOrList(() => U.Table({ cls: 'rp-inv', headers: rowsH, rows }), () => CardList({ headers: rowsH, titleIndex: 0, rows })) : U.EmptyState('المخزن فاضي', 'أول ما قطعة تدخل المخزن هتظهر هنا.') }),
       h('p', { class: 'source' }, 'المصدر: مخزن إبتكر (الكميات من حركات الدخول والخروج) + سجل المرتجعات · القيمة = سعر المبتكر المسجّل على القطعة.')];
   }
@@ -2375,7 +2368,7 @@
       h('div', { class: 'charts', 'data-rgroup': 'charts' },
         U.ChartCard({ title: 'المحادثات حسب الحالة', subtitle: 'محادثات العملاء المفتوحة', footnote: 'نفس أرقام «الرسايل»', body: rep.byStatus.length ? h('div', { class: 'bars' }, rep.byStatus.map((x, i) => U.BarRow({ tone: /مستنية ردنا|جديدة/.test(x.label) ? 'gold' : i === 0 ? 'brand' : 'neutral', label: x.label, value: String(x.count), pct: x.count / maxSt }))) : U.EmptyState('مفيش محادثات مفتوحة', 'أول ما رسالة تيجي هتظهر هنا.') }),
         U.ChartCard({ title: 'التوزيع على الفريق', subtitle: 'المحادثات المفتوحة لكل موظف', footnote: 'من المسؤول عن كل محادثة في «الرسايل»', body: rep.byAgent.length ? h('div', { class: 'bars' }, rep.byAgent.map((x, i) => U.BarRow({ tone: i === 0 ? 'brand' : i === 1 ? 'gold' : 'neutral', label: x.label, value: String(x.count), pct: x.count / maxAg }))) : U.EmptyState('مفيش توزيع', 'لسه مفيش محادثات متوزعة.') })),
-      TableCard({ title: 'أعلى 10 عملاء بالشراء', count: rep.top.length + ' عميل',
+      TableCard({ title: 'أعلى 10 عملاء بالشراء', count: '', th: { noun: ['عميل', 'العملاء'] },
         body: rep.top.length ? tableOrList(() => U.Table({ cls: 'rp-cust', headers: topH, rows: topRows }), () => CardList({ headers: topH, titleIndex: 1, rows: topRows })) : U.EmptyState('مفيش عملاء', 'لسه مفيش عميل اشترى.') }),
       h('p', { class: 'source' }, 'المصدر: محادثات خدمة العملاء (المفتوحة دلوقتي) + ملفات العملاء في السيستم (من الأوردرات) · هدف أول رد من إعدادات خدمة العملاء.')];
   }
@@ -2701,7 +2694,7 @@
       tkHead, tkTabs,
       h('div', { class: 'toolbar' }, search),
       tnote ? (() => { const n = tnote; tnote = null; const el = U.InlineNote({ kind: n.kind, children: n.text, action: IconButton({ icon: 'close', label: 'إخفاء', onClick: () => el.remove() }) }); return el; })() : null,
-      TableCard({ title: 'التذاكر', cls: 'own-filter', count: list.length + ' تذكرة · مرتبة حسب ' + (TSORTS.find((x) => x[0] === state.tsort) || TSORTS[0])[1], action: h('div', { class: 'acts-inline tk-acts' }, tFM, tSM), pre: tAF, // the owner 12 Nov: «فلتر» next to the sort
+      TableCard({ title: 'التذاكر', cls: 'own-filter', count: '', th: { noun: ['تذكرة', 'التذاكر'], count: [list.length, all.length] }, action: h('div', { class: 'acts-inline tk-acts' }, tFM, tSM), pre: tAF, // the owner 12 Nov: «فلتر» next to the sort
         body: loading ? U.EmptyState('بنجيب التذاكر…', 'لحظة.') : list.length === 0 ? U.EmptyState('مفيش تذاكر مطابقة', tCanManage() ? 'غيّر الفلاتر، أو اضغط «إنشاء تذكرة» لو ظهرت مشكلة مع عميل أو مبتكر.' : 'غيّر الفلاتر.') : [TB.bar(), tableOrList(() => table, () => cards), pager] }),
       h('p', { class: 'source' }, 'المصدر: جدول التذاكر في السيستم · الأوردر والعميل بيتجابوا من الأوردرات · كل تغيير حالة أو رد بيتسجل في الخط الزمني وسجل النشاط')];
   }
@@ -3146,7 +3139,7 @@
       : state.vtab === 'records' ? [
       h('div', { class: 'toolbar vtoolbar' }, search, h('span', { class: 'grow' }), h('span', { class: 't-small', style: 'color:var(--color-text-secondary)' }, num(list.length + ' مبتكر · ' + (VD.VENDOR_SORTS.find((x) => x.value === state.vsort) || {}).label))),
       noteEl(),
-      TableCard({ title: 'المبتكرين', cls: 'own-filter', count: list.length + ' مبتكر · ' + ((VD.VENDOR_SORTS.find((x) => x.value === state.vsort) || {}).label || ''), action: h('span', { class: 'acts-inline' }, vFilterBtn(), vSortBtn()), pre: [vChips(), bulk], // the owner 12 Nov: «فلتر» next to the sort
+      TableCard({ title: 'المبتكرين', cls: 'own-filter', count: '', th: { noun: ['مبتكر', 'المبتكرين'], count: [list.length, all.length] }, action: h('span', { class: 'acts-inline' }, vFilterBtn(), vSortBtn()), pre: [vChips(), bulk], // the owner 12 Nov: «فلتر» next to the sort
         body: list.length === 0 ? U.EmptyState(state.vfilter.q ? 'مفيش مبتكر بالاسم ده' : 'مفيش مبتكر بالفلتر ده', 'جرّب اسم بديل أو رقم الهاتف، أو شيل اختيار من الفلتر، أو اضغط «إضافة مبتكر» لو جديد.') : [tableOrList(() => table, () => cards), pager] })]
       : state.vtab === 'accounts' ? makersAccountsTab() : state.vtab === 'log' ? makersLogTab() : makersReportsTab();
     return [headEl, tabsEl, h('div', { id: 'vpanel', role: 'tabpanel', 'aria-labelledby': 'tab-' + state.vtab, style: 'display:flex;flex-direction:column;gap:24px;min-width:0' }, ...body.filter(Boolean))];

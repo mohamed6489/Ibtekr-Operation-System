@@ -152,7 +152,7 @@
     const L = LG.rows; const stamp = (iso) => { const d = new Date(iso); if (isNaN(d)) return '—'; const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d); return K.dshort(day) + ' ' + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Africa/Cairo' }); }; // Cairo's day and time
     const body = L == null ? K.Empty('بيحمّل…', 'لحظة واحدة') : !L.length ? K.Empty('لسه مفيش حركات', 'أي حضور أو طلب أو قرار أو تعديل في الموارد البشرية بيتسجل هنا.')
       : U.Table({ cls: 'hr-log', headers: ['الوقت', 'الحركة', 'النوع', 'على', 'بواسطة', 'التفاصيل'], rows: L.map((x) => [K.Num(stamp(x.at)), x.label, x.group, x.on || '—', x.by, x.detail ? K.Num(x.detail) : '—']) });
-    return [K.Section('سجل الحركات', [body, note('الحضور والانصراف، الطلبات وقراراتها، الوقت الإضافي، الأعضاء، المرتبات، التقييم، المهام والإعدادات — آخر 300 حركة. التفاصيل أكواد وشهور وأرقام بس (من غير مبالغ ولا نصوص).')], [Button({ size: 'sm', label: LG.busy ? 'بيحدّث…' : 'تحديث', icon: 'refresh', disabled: LG.busy, attrs: { 'data-hr-log-refresh': '' }, onClick: () => logLoad(true) })], { sub: L ? K.n0(L.length) + ' حركة' : '' })];
+    return [K.Section('سجل الحركات', [body, note('الحضور والانصراف، الطلبات وقراراتها، الوقت الإضافي، الأعضاء، المرتبات، التقييم، المهام والإعدادات — آخر 300 حركة. التفاصيل أكواد وشهور وأرقام بس (من غير مبالغ ولا نصوص).')], [Button({ size: 'sm', label: LG.busy ? 'بيحدّث…' : 'تحديث', icon: 'refresh', disabled: LG.busy, attrs: { 'data-hr-log-refresh': '' }, onClick: () => logLoad(true) })], { noun: ['حركة', 'الحركات'] })];
   }
   function teamTable(tm) {
     const everyone = H() && H().everyone ? H().everyone() : tm; // decision 15: the table lists everyone I may see (the suspended and the salary-less admins too); the tiles stay on the staff
@@ -169,7 +169,7 @@
     return K.Section('الفريق', [h('div', { class: 'toolbar' }, h('label', { class: 'search-field' }, Icon('search', 'sm'), q), U.Select({ id: 'hr-dept', label: '', options: [{ value: '', label: 'القسم: الكل' }].concat(S.departments.map((d) => ({ value: d, label: 'القسم: ' + d }))), value: st.dept, onChange: (v) => { st.dept = v; R(); } })),
       TB.bar(), list.length ? U.Table({ cls: 'hr-table', headers: [TB.head(), 'العضو', 'القسم', 'الدوام', 'حضور', 'انصراف', 'ساعات اليوم', 'ساعات الشهر', 'أوفر تايم', 'رصيد الإجازات', 'الحالة اليوم', ''], rows }) : K.Empty(tm.length ? 'مفيش أعضاء بالفلتر ده' : 'لسه مفيش أعضاء في الفريق', tm.length ? 'غيّر البحث أو القسم.' : 'ضيف أول عضو من «إضافة عضو».'),
       note('ساعات اليوم = الانصراف − الحضور. بعد 8 ساعات بيظهر للعضو «إنهاء الدوام / لسه — وقت إضافي». الوقت الإضافي بيتضاف بنفس سعر الساعة (المرتب ÷ 24 ÷ 8) بعد تأكيد المسؤول. شغل الجمعة أو السبت أو عطلة رسمية = اليوم بيومين.'),
-      h('div', { class: 'legend t-small' }, h('b', null, 'حالات اليوم:'), K.Tag('success', 'حاضر'), K.Tag('neutral', 'أنهى الدوام'), K.Tag('info', 'عن بُعد'), K.Tag('orange', 'انصراف ناقص'), K.Tag('gold', 'إجازة'), K.Tag('info', 'عطلة رسمية'), K.Tag('error', 'غائب'))], null, { sub: 'اليوم ' + K.dlabel(today()) + ' · ' + list.length + ' عضو' });
+      h('div', { class: 'legend t-small' }, h('b', null, 'حالات اليوم:'), K.Tag('success', 'حاضر'), K.Tag('neutral', 'أنهى الدوام'), K.Tag('info', 'عن بُعد'), K.Tag('orange', 'انصراف ناقص'), K.Tag('gold', 'إجازة'), K.Tag('info', 'عطلة رسمية'), K.Tag('error', 'غائب'))], null, { noun: ['عضو', 'الأعضاء'], count: [list.length, everyone.length] });
   }
   // the member's month, day by day up to today: the attendance rows + the approved leaves, holidays, rest days and absences
   function monthDays(m, mk) {
@@ -211,7 +211,7 @@
       K.Section('سجل الحضور — ' + m.name, rows.length ? U.Table({ headers: ['اليوم', 'التاريخ', 'نوع اليوم', 'الحضور', 'الانصراف', 'الساعات', 'أوفر تايم', 'الحالة', 'ملاحظة', ''], rows: rows.map((a) => { const hrs = hrsOf(a);
         return [K.dayName(a.date), K.dshort(a.date), a.type, K.Num(hhmm(a.in)), K.Num(hhmm(a.out)), hrs == null ? '—' : h('span', null, K.Num(K.hm(hrs)), a.date === today() && a.out == null ? ' (جاري)' : ''), (a.type === 'راحة أسبوعية' || a.type === 'عطلة رسمية') && a.in != null ? 'يوم × 2' : a.ot ? K.Num(K.hm(a.ot)) : '—', K.Tag(statusTone(a.status), a.status), h('span', { class: 't-small wrap' }, a.src),
           a.status === 'انصراف ناقص' && can().edit ? Button({ type: 'primary', size: 'sm', label: 'تصحيح', onClick: () => fixMissingOut(a) }) : a.in != null ? Button({ type: 'text', size: 'sm', label: 'تفاصيل', onClick: () => dayDetails(a) }) : '']; }),
-        totalRow: ['الإجمالي', monShort(mk), workDays + ' يوم عمل', '—', '—', K.Num(K.hm(total)), K.hm(ot) + (rest ? ' + ' + rest + ' يوم' : ''), '—', can().salaries ? K.money(otPay) + (rest ? ' + ' + K.money(restPay) : '') + ' ج' : '—', ''] }) : K.Empty('مفيش أيام الشهر ده لسه', '')),
+        totalRow: ['الإجمالي', monShort(mk), workDays + ' يوم عمل', '—', '—', K.Num(K.hm(total)), K.hm(ot) + (rest ? ' + ' + rest + ' يوم' : ''), '—', can().salaries ? K.money(otPay) + (rest ? ' + ' + K.money(restPay) : '') + ' ج' : '—', ''] }) : K.Empty('مفيش أيام الشهر ده لسه', ''), null, { when: monLabel(mk) }),
       note('الدوام مرن: العضو بيبدأ وينهي أكتر من مرة في اليوم والساعات = مجموع الجلسات، ومفيش تأخير. يوم العمل 8 ساعات؛ لما يخلصوا العضو بيختار «إنهاء الدوام» أو «لسه — وقت إضافي». الوقت الإضافي بيتضاف بنفس سعر الساعة بعد تأكيد المسؤول، والمرفوض بيفضل متسجل «وقت إضافي اترفض» + ميتنج. شغل الجمعة/السبت أو العطلة = اليوم بيومين بعد التأكيد.')];
   }
   const weekStart = () => H().addDays(today(), -isoDay(today()));
@@ -275,7 +275,7 @@
       : L.status === 'loading' ? K.Empty('بيتحسب…', 'لحظة واحدة') : K.Empty('مفيش أعضاء بمرتب', 'المرتب بيتسجل من «إضافة عضو» أو ملف العضو.');
     return [h('div', { class: 'toolbar' }, pick, h('span', { class: 't-small help' }, 'يوم الصرف ' + K.dshort(payDay)), h('span', { class: 'grow' }), Button({ label: 'مكافأة / خصم', icon: 'plus', disabled: done, onClick: () => addAdjustment(mk) }), transferBtn),
       cards, K.Section('مرتبات ' + monLabel(mk), [L.status === 'error' ? U.InlineNote({ kind: 'error', children: 'تعذّر حساب المرتبات — جرّب تاني.' }) : null, table,
-        note('الصافي = المرتب الشهري (من غير البونص المحجوز) + الأوفر تايم المتأكد + أيام الراحة ×2 + الإضافات − الخصومات والسُلف وأيام الإجازة بدون أجر. البونص بيتصرف مع آخر شهر في الربع: محجوز كل شهر تقييمه ' + (S.hrSettings.bonusMin || 3) + ' من 5 أو أكتر كامل، والشهر اللي تقييمه أقل أو ماتقيّمش = صفر. السُلفة بتتخصم كلها من مرتب الشهر. ' + (mk.slice(5) === '12' && S.hrSettings.leaveYearEnd !== 'carry' ? 'ديسمبر: رصيد الإجازات الباقي بيتصرف مع المرتب (في «إضافات»).' : ''))], null, { sub: T.members + ' عضو' + (done ? ' · اتحوّلت' : T.paidAlready ? ' · اتحوّل لـ ' + (T.members - T.left) + ' بدري' : '') })];
+        note('الصافي = المرتب الشهري (من غير البونص المحجوز) + الأوفر تايم المتأكد + أيام الراحة ×2 + الإضافات − الخصومات والسُلف وأيام الإجازة بدون أجر. البونص بيتصرف مع آخر شهر في الربع: محجوز كل شهر تقييمه ' + (S.hrSettings.bonusMin || 3) + ' من 5 أو أكتر كامل، والشهر اللي تقييمه أقل أو ماتقيّمش = صفر. السُلفة بتتخصم كلها من مرتب الشهر. ' + (mk.slice(5) === '12' && S.hrSettings.leaveYearEnd !== 'carry' ? 'ديسمبر: رصيد الإجازات الباقي بيتصرف مع المرتب (في «إضافات»).' : ''))], null, { when: monLabel(mk), noun: ['عضو', 'الأعضاء'], total: done ? 'اتحوّلت' : T.paidAlready ? 'اتحوّل لـ ' + (T.members - T.left) + ' بدري' : '' })];
   }
   // the month's lines (live from the server until paid; a member paid already keeps the line they were paid on) — fetched once per state
   function linesOf(mk) {
@@ -369,12 +369,12 @@
       return [h('div', { class: 'toolbar' }, tabs0, pick),
         h('div', { class: 'cards', 'data-hr-eval-cards': '' }, K.Stat('اتقيّموا', rated.length, 'من ' + tm.length, monLabel(mk)), K.Stat('متوسط الفريق', rated.length ? String(Math.round(rated.reduce((n, m) => n + ev(m).total, 0) / rated.length * 10) / 10) : '—', 'من 5', 'تقييم الشهر'), K.Stat('فوق حد البونص', rated.filter((m) => ev(m).total >= bar).length, 'عضو', 'التقييم ' + bar + ' من 5 أو أكتر')),
         K.Section('التقييم الشهري — ' + monLabel(mk), [U.Table({ cls: 'hr-evals', headers: ['العضو', 'الحضور', 'الأداء', 'التواصل', 'تقييم الشهر'].concat(can().salaries ? ['البونص'] : [], ['قيّمه', '']), rows }),
-          note('الحضور تلقائي من أيام الحضور على أيام الشغل (من غير الإجازات المتوافق عليها والعطلات). الأداء من المدير المباشر حسب المهام اللي خلصت واللي لأ، والتواصل حسب تعامله مع الفريق والعملاء والمبتكرين. تقييم الشهر = متوسط التلاتة.')])];
+          note('الحضور تلقائي من أيام الحضور على أيام الشغل (من غير الإجازات المتوافق عليها والعطلات). الأداء من المدير المباشر حسب المهام اللي خلصت واللي لأ، والتواصل حسب تعامله مع الفريق والعملاء والمبتكرين. تقييم الشهر = متوسط التلاتة.')], null, { when: monLabel(mk) })];
     }
     const rows = tm.map((m) => { const x = H().quarterEval(m.id, q) || {}; return [mcell(m.id), score(x.att), score(x.perf), score(x.comm), scoreTag(x.total), K.Num((x.rated || 0) + ' / 3')]; });
     return [h('div', { class: 'toolbar' }, tabs0, pick),
       K.Section('التقييم الربع سنوي — ' + qLabel(q), [U.Table({ cls: 'hr-evals-q', headers: ['العضو', 'الحضور', 'الأداء', 'التواصل', 'التقييم الربع سنوي', 'شهور اتقيّمت'], rows }),
-        note('التقييم الربع سنوي تلقائي = متوسط تقييمات شهوره اللي اتقيّمت.')])];
+        note('التقييم الربع سنوي تلقائي = متوسط تقييمات شهوره اللي اتقيّمت.')], null, { when: qLabel(q) })];
   }
   // «قيّم»: the attendance (automatic), the month's tasks for the evaluator, then the performance and the communication out of 5
   function rateMember(m, mk) {

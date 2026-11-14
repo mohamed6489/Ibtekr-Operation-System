@@ -7,7 +7,8 @@
 --   triggers: a role's new manager reaches its members (roles_manager_sync), a member who changes role or comes new without a manager
 --   takes his role's (profiles_role_manager). The manager himself has no manager from his own role.
 -- * role_manager_set(role, manager | null) — the admin; member_manager_set(member, manager | null) — the admin or hr.edit F (null = back
---   to the role's manager; never oneself nor whom one manages). activity_log hr.role.manager / hr.member.manager (ids only).
+--   to the role's manager; never oneself nor anyone up one's chain; hr.edit F never on himself, on an admin, nor naming himself).
+--   activity_log hr.role.manager / hr.member.manager (ids only).
 -- * The managers set before this were set by hand: they stay (manager_fixed = true, once, when the column comes).
 
 alter table public.roles add column if not exists manager_id uuid references public.profiles on delete set null;
@@ -73,17 +74,24 @@ grant execute on function public.role_manager_set(text, uuid) to authenticated, 
 
 create or replace function public.member_manager_set(p_member uuid, p_manager uuid) returns void
 language plpgsql volatile security definer set search_path = public as $$
-declare v_old uuid; v_role text; v_auto uuid;
+declare v_old uuid; v_role text; v_auto uuid; v_admin boolean := public.is_admin();
 begin
-  if not (public.is_admin() or public.hr_editor()) then raise exception 'not allowed' using errcode = '42501'; end if;
+  if not (v_admin or public.hr_editor()) then raise exception 'not allowed' using errcode = '42501'; end if;
   select manager_id, role_id into v_old, v_role from public.profiles where id = p_member for update;
   if not found then raise exception 'not found' using errcode = 'P0002'; end if;
+  -- hr.edit F (not the admin): never on himself, never on an admin, and never naming himself the manager (the approvals follow it)
+  if not v_admin and (p_member = auth.uid() or p_manager = auth.uid() or v_role = 'admin') then
+    raise exception 'not allowed' using errcode = '42501';
+  end if;
   if p_manager is null then -- back to the role's manager
     select r.manager_id into v_auto from public.roles r where r.id = v_role;
     update public.profiles set manager_fixed = false, manager_id = case when v_auto = p_member then null else v_auto end where id = p_member;
   else
     if p_manager = p_member or not exists (select 1 from public.profiles where id = p_manager and status = 'active')
-       or exists (select 1 from public.profiles where id = p_manager and manager_id = p_member) then
+       or exists (with recursive up(id, d) as ( -- no loop anywhere up the new manager's chain
+         select p_manager, 0
+         union all select p.manager_id, up.d + 1 from public.profiles p join up on p.id = up.id where p.manager_id is not null and up.d < 50)
+         select 1 from up where up.id = p_member) then
       raise exception 'invalid: manager' using errcode = '22023';
     end if;
     update public.profiles set manager_id = p_manager, manager_fixed = true where id = p_member;

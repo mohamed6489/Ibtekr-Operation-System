@@ -70,6 +70,9 @@ select pg_temp.as_member('00000000-0000-4000-8000-0000000092b2');
 do $$ begin
   begin perform public.member_manager_set('00000000-0000-4000-8000-0000000092b4', '00000000-0000-4000-8000-0000000092b4'); raise exception 'case oneself failed'; exception when invalid_parameter_value then null; end;
   begin perform public.member_manager_set('00000000-0000-4000-8000-0000000092b3', '00000000-0000-4000-8000-0000000092b4'); raise exception 'case a loop failed'; exception when invalid_parameter_value then null; end;
+  begin perform public.member_manager_set('00000000-0000-4000-8000-0000000092b2', '00000000-0000-4000-8000-0000000092b1'); raise exception 'case hr.edit on himself failed'; exception when insufficient_privilege then null; end;
+  begin perform public.member_manager_set('00000000-0000-4000-8000-0000000092b5', '00000000-0000-4000-8000-0000000092b2'); raise exception 'case hr.edit naming himself failed'; exception when insufficient_privilege then null; end;
+  begin perform public.member_manager_set('00000000-0000-4000-8000-0000000092b1', '00000000-0000-4000-8000-0000000092b3'); raise exception 'case hr.edit on an admin failed'; exception when insufficient_privilege then null; end;
   perform public.member_manager_set('00000000-0000-4000-8000-0000000092b4', '00000000-0000-4000-8000-0000000092b1');
 end $$;
 select pg_temp.as_member('00000000-0000-4000-8000-0000000092b6');
@@ -92,6 +95,15 @@ do $$ begin
      or (select manager_fixed from public.profiles where id = '00000000-0000-4000-8000-0000000092b4') then raise exception 'case back to the role''s manager failed'; end if;
   if (select count(*) from public.activity_log where action = 'hr.member.manager' and entity_id = '00000000-0000-4000-8000-0000000092b4') < 2 then raise exception 'case the member manager logged failed'; end if;
 end $$;
+
+-- a loop further up the chain (the admin): b5 is under b2 (the role's manager); b2 under b5 would close it
+select pg_temp.as_member('00000000-0000-4000-8000-0000000092b1');
+do $$ begin
+  perform public.member_manager_set('00000000-0000-4000-8000-0000000092b3', '00000000-0000-4000-8000-0000000092b5');
+  begin perform public.member_manager_set('00000000-0000-4000-8000-0000000092b2', '00000000-0000-4000-8000-0000000092b3'); raise exception 'case a loop up the chain failed'; exception when invalid_parameter_value then null; end;
+  perform public.member_manager_set('00000000-0000-4000-8000-0000000092b3', null);
+end $$;
+reset role;
 
 -- ================================================================ the manager in his own role has none from it; a role change; a new member
 select pg_temp.as_member('00000000-0000-4000-8000-0000000092b1');

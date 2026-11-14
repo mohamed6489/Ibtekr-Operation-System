@@ -263,12 +263,12 @@ test('adjustments / achievements / extras / meetings through the tables RLS lets
   eq(opsOf(stub.calls, 'hr_meetings').find((c) => c.op === 'insert').args[0], { member_id: B, status: 'اتحدد ميعاد', reason: 'متابعة', day: '2026-11-08', time_text: '10:00', place: 'المكتب' });
 });
 
-test('the settings row «hr» (the admin): merged over what is there; a member is refused; a department added once', async () => {
+test('the settings row «hr» (the admin): merged over what is there; a member is refused (0092: no departments to add)', async () => {
   const { H, stub } = load(); await H.load();
   eq((await H.saveSettings({ escalate: 12, nope: 1 })).ok, true);
   eq(opsOf(stub.calls, 'settings').find((c) => c.op === 'upsert').args[0].data.escalate, 12);
   eq(opsOf(stub.calls, 'settings').find((c) => c.op === 'upsert').args[0].data.nope, undefined);
-  eq((await H.addDepartment('العمليات')).reason, 'exists');
+  eq(H.addDepartment, undefined); // 0092: the departments are out
   const mem = load({ role: 'ops', perms: { 'hr.view': 'P' } }); await mem.H.load();
   eq((await mem.H.saveSettings({ escalate: 5 })).reason, 'forbidden');
 });
@@ -280,7 +280,7 @@ test('«إضافة عضو»: team-admin (the login, the code, the password once)
   const r = await H.memberCreate({ name: 'كريم', email: 'karim@ibtekr.club', phone: '01012345678', role: 'cs', manager: 'M02', shiftStart: '10:00', shiftEnd: '18:00', hire: '2026-11-01', salary: 8000, holdback: 1000, allow: 300 });
   eq([r.ok, r.code, r.password, r.payOk, r.mailed], [true, 'M04', 'Xy7kP2mQ9wRt', true, false]);
   const inv = stub.calls.find((c) => c.op === 'invoke'); eq(inv.args[0], 'team-admin');
-  eq(inv.args[1].body, { action: 'member_create', name: 'كريم', email: 'karim@ibtekr.club', phone: '01012345678', role: 'cs', title: '', dept: '', manager_id: B, shift_start: '10:00', shift_end: '18:00', hire_date: '2026-11-01' });
+  eq(inv.args[1].body, { action: 'member_create', name: 'كريم', email: 'karim@ibtekr.club', phone: '01012345678', role: 'cs', title: '', manager_id: B, shift_start: '10:00', shift_end: '18:00', hire_date: '2026-11-01' });
   eq(opsOf(stub.calls, 'hr_pay').find((c) => c.op === 'upsert').args[0], { member_id: 'a0000000-0000-4000-8000-000000000004', salary: 8000, holdback: 1000, allowances: 300 });
   assert(store.members.some((m) => m.id === 'M04'), 'the directory refreshed');
   assert(!JSON.stringify(logs).includes('Xy7kP2mQ9wRt'), 'the password never logged');

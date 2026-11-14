@@ -40,7 +40,7 @@ export const fileRefOk = (source, ref) => (source === 'company' || source === 'c
 // return / fail an order, payroll, publishing) are not forms here — the assistant opens their page only.
 export const FORMS = {
   vendor_add: ['name', 'legalName', 'category', 'phone', 'altPhone', 'email', 'address', 'instagram', 'storeUrl', 'notes'],
-  member_add: ['name', 'title', 'email', 'phone', 'dept', 'hire'],
+  member_add: ['name', 'title', 'email', 'phone', 'hire'], // 0092: no department
   customer_add: ['name', 'phone', 'city', 'ig', 'source'],
   ticket_new: ['type', 'title', 'description', 'priority', 'orderId', 'vendor', 'reason'],
   hr_leave: ['kind', 'from', 'to', 'note'],
@@ -126,7 +126,7 @@ export const CLIENT_TOOL_DEFS = [
 ];
 CLIENT_TOOL_DEFS.push({ name: 'open_form',
   description: 'جهّز بوب أب من بوب أبات السيستم متملّي بالبيانات اللي قالها (لو قال حاجة) — بيظهر للمستخدم لينك «افتح البوب أب» تحت ردك وهو بيضغطه يفتحه ويملا الباقي ويضغط زراره؛ ما بيسجّلش حاجة، فمتقولش إنها اتسجّلت. '
-    + 'form واحدة من: vendor_add (إضافة مبتكر: name مطلوب، category، phone، email، address، instagram، storeUrl، legalName، notes) · member_add (إضافة عضو للفريق — أدمن بس: name و title (الوظيفة) و email مطلوبين، phone، dept، hire تاريخ التعيين YYYY-MM-DD) · '
+    + 'form واحدة من: vendor_add (إضافة مبتكر: name مطلوب، category، phone، email، address، instagram، storeUrl، legalName، notes) · member_add (إضافة عضو للفريق — أدمن بس: name و title (الوظيفة) و email مطلوبين، phone، hire تاريخ التعيين YYYY-MM-DD) · '
     + 'customer_add (عميل من غير أوردر: name مطلوب، phone، city، ig، source) · ticket_new (تذكرة: type customer|vendor|internal، title، description، priority urgent|high|normal|low، orderId رقم الأوردر، vendor اسم المبتكر، reason) · '
     + 'hr_leave (طلب إجازة: kind نوع الإجازة، from و to YYYY-MM-DD، note) · hr_advance (طلب سُلفة: amount، note — بتتخصم كلها من مرتب الشهر) · hr_remote (شغل عن بُعد: from و to، note) · task_add (مهمة لنفسه: title) · '
     + 'order_update (تحديث أوردر: order رقمه، status من ' + AI_ORDER_STATUSES.join(' / ') + '، أو confirm من ' + CONFIRMS.join(' / ') + ') · '

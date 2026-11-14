@@ -2050,3 +2050,11 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 3. انشر من «Deploy functions»: `woo-sync` (`line_qty`).
 4. الواجهة على `main`.
 5. التجربة على الـ staging: ⋮ على سطر في أوردر بأكتر من مبتكر › «تعديل حالة الأوردر الفرعي» (البوب أب بيقول عدد المنتجات والقطع) و«تعديل الكمية» (− / +)؛ وبعدها بص على الأوردر الفرعي في WooCommerce (الكمية والقيمة الجديدة، والأساسي زي ما هو) وعلى **نصيب المبتكر في Dokan** إنه اتحسب من جديد.
+
+#### 2.7.72 الأقسام اتشالت + «مدير الدور» (`docs/superpowers/plans/2026-11-14-owner-batch.md` قرار 16)
+**بعد** `0091`:
+1. `0092_role_managers.sql` — `roles.manager_id` و`profiles.manager_fixed` (اللي مديرهم متحدد قبل كده بيتعلّموا متحددين بالإيد مرة واحدة)، التريجرين `profiles_role_manager` / `roles_manager_sync`، الـ RPCs `role_manager_set` (الأدمن) / `member_manager_set` (الأدمن أو `hr.edit` F)، و`hr_schedule` بيقرا `schedules.role` بدل القسم. بـ Supabase MCP (`apply_migration`) أو SQL Editor.
+2. RLS live (workflow «RLS live»، `files = rls_role_managers rls_hr_hours`).
+3. انشر من «Deploy functions»: `ai-content` (المساعد: `member_add` من غير «القسم»).
+4. الواجهة على `main`.
+5. التجربة: «الإعدادات › الموارد البشرية › مديري الأدوار» — اختار مدير لدور وشوف «المدير المباشر» بتاع أعضائه في ملفهم، وعضو واحد غيّر مديره من «تعديل الوظيفة» وبعدها رجّعه «مدير الدور (تلقائي)».

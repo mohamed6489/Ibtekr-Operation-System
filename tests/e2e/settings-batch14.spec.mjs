@@ -115,7 +115,7 @@ test('decision 6: the permissions matrix looks like the alerts matrix (icon mark
   expect(s2.top).toBeGreaterThanOrEqual(46); expect(s2.top).toBeLessThanOrEqual(50); expect(s2.inMatrix).toBe(true);
 });
 
-test('decision 7: the work days, the official hours, the day rate and a custom time for a department are editable and saved; the clock follows the member\'s day', async ({ page }) => {
+test('decision 7: the work days, the official hours, the day rate and a custom time for a role (0092 — not a department) are editable and saved; the clock follows the member\'s day', async ({ page }) => {
   await go(page, 'settings-hr');
   const body = page.locator('#pg-settings');
   await expect(body.locator('[data-hs-days] [data-hs-day]')).toHaveCount(7);
@@ -125,23 +125,23 @@ test('decision 7: the work days, the official hours, the day rate and a custom t
   await body.locator('#hs-to').click(); await page.getByRole('option', { name: '18:00', exact: true }).click();
   await expect(body.locator('[data-hs-hours]')).toHaveText('9 ساعات');
   await body.locator('#hs-div').click(); await page.getByRole('option', { name: '30 يوم', exact: true }).click();
-  // a custom time for a department
+  // a custom time for a role (0092: the departments are out)
   await body.locator('[data-hs-sched-add]').click();
   const modal = page.locator('.modal');
   await modal.locator('#hs-s-from').click(); await page.getByRole('option', { name: '10:00', exact: true }).click();
   await modal.locator('#hs-s-to').click(); await page.getByRole('option', { name: '16:00', exact: true }).click();
   await expect(modal.locator('[data-hs-s-hours]')).toContainText('6 ساعات');
   await modal.getByRole('button', { name: 'إضافة', exact: true }).click();
-  await expect(body.locator('[data-hs-sched^="dept:"]')).toHaveCount(1);
+  await expect(body.locator('[data-hs-sched^="role:"]')).toHaveCount(1);
   await body.locator('[data-set-save]').click();
   await expect.poll(() => { const r = (mock.settings || []).find((x) => x.section === 'hr'); return r && r.data && [r.data.workDays, r.data.workTo, r.data.dayDivisor]; }).toEqual([[1, 2, 3, 4, 6, 7], '18:00', 30]);
   const hr = (mock.settings || []).find((x) => x.section === 'hr').data;
-  const dept = Object.keys(hr.schedules.dept)[0];
-  expect(hr.schedules.dept[dept]).toEqual({ from: '10:00', to: '16:00' });
-  // the adapter answers the same as the server's hr_day_minutes: the official 9 hours, the department's 6
+  const role = Object.keys(hr.schedules.role)[0];
+  expect(hr.schedules.role[role]).toEqual({ from: '10:00', to: '16:00' });
+  // the adapter answers the same as the server's hr_day_minutes: the official 9 hours, the role's 6
   // (the adapter takes the saved row when the write answers — a moment after the server has it)
   await expect.poll(() => page.evaluate(() => window.IBHR.span(window.IBHR.settings().workFrom, window.IBHR.settings().workTo))).toBe(540);
-  await expect.poll(() => page.evaluate((d) => { const m = window.IBHR.everyone().find((x) => x.dept === d && x.uid); return m ? window.IBHR.dayMinutes(m.uid) : 360; }, dept)).toBe(360);
+  await expect.poll(() => page.evaluate((d) => { const m = window.IBHR.everyone().find((x) => x.roleId === d && x.uid); return m ? window.IBHR.dayMinutes(m.uid) : 360; }, role)).toBe(360);
 });
 
 test('decision 7: on a work day past the member\'s start time with no session, the clock reminds once («ابدأ الدوام»)', async ({ page }) => {
@@ -152,4 +152,43 @@ test('decision 7: on a work day past the member\'s start time with no session, t
   await expect(page.locator('.toast, [role=status]').filter({ hasText: 'ميعاد الدوام بدأ (00:00)' }).first()).toBeVisible({ timeout: 15000 });
   await expect(page.locator('.clock-widget.remind')).toHaveCount(1);
   expect(await page.evaluate(() => localStorage.getItem('ib.start.reminded'))).toBe(await page.evaluate(() => window.IBHR.today()));
+});
+
+// decision 16 (the owner: «نلغي الاقسام دي خالص … هبقي محتاج ادي حد صلاحية مدير القسم», then «شيلها + مدير الدور»): no departments;
+// «مديري الأدوار» first in the HR settings — a role's manager is its members' direct manager; a member's own one from his file, and back
+test('decision 16: the departments are out — «مديري الأدوار» sets a role\'s manager for its members; a member\'s own manager from his file, and back to the role\'s', async ({ page }) => {
+  const OPS = '00000000-0000-4000-8000-000000000002', OPS2 = '00000000-0000-4000-8000-000000000003', ACC = '00000000-0000-4000-8000-000000000004';
+  await go(page, 'settings-hr');
+  const body = page.locator('#pg-settings');
+  await expect(body.locator('[data-hr-settings] h2').first()).toHaveText('مديري الأدوار');
+  await expect(body.getByRole('heading', { name: 'الأقسام', exact: true })).toHaveCount(0);
+  const sec = body.locator('section', { has: page.getByRole('heading', { name: 'مديري الأدوار' }) });
+  await expect(sec.locator('[data-rm-role="ops"]')).toHaveText('عمليات');
+  await sec.locator('#hs-rm-ops').click(); await page.getByRole('option', { name: 'منى حسن', exact: true }).click();
+  await expect(page.locator('.toast, [role=status]').filter({ hasText: 'منى حسن بقى مدير «عمليات» — 2 عضو تحته' }).first()).toBeVisible();
+  expect(mock.st.writes.filter((w) => w.table === 'roles' && w.op === 'manager')).toEqual([{ table: 'roles', op: 'manager', id: 'ops', manager: ACC }]);
+  expect(mock.profiles.filter((p) => p.role_id === 'ops').map((p) => p.manager_id)).toEqual([ACC, ACC]);
+  // the member's file: his own manager by hand, then back to his role's
+  await go(page, 'member-M02');
+  const job = page.locator('.card.admin', { hasText: 'الوظيفة والمرتب' });
+  await expect(page.locator('#pg-profile')).toContainText('منى حسن (مدير الدور)');
+  await job.getByRole('button', { name: 'تعديل' }).click();
+  const f = page.locator('.modal', { hasText: 'تعديل الوظيفة والمرتب — سارة أحمد' });
+  await f.locator('#mgr').click();
+  await expect(page.getByRole('option', { name: 'مدير الدور (تلقائي) — منى حسن' })).toBeVisible();
+  await page.getByRole('option', { name: 'صفوت كمال', exact: true }).click();
+  await f.getByRole('button', { name: 'حفظ' }).click();
+  await expect(f).toBeHidden();
+  await expect.poll(() => { const p = mock.profiles.find((x) => x.id === OPS); return [p.manager_id, !!p.manager_fixed]; }).toEqual(['00000000-0000-4000-8000-000000000001', true]);
+  expect(mock.profiles.find((x) => x.id === OPS2).manager_id).toBe(ACC);
+  await job.getByRole('button', { name: 'تعديل' }).click();
+  await f.locator('#mgr').click(); await page.getByRole('option', { name: 'مدير الدور (تلقائي) — منى حسن' }).click();
+  await f.getByRole('button', { name: 'حفظ' }).click();
+  await expect.poll(() => { const p = mock.profiles.find((x) => x.id === OPS); return [p.manager_id, !!p.manager_fixed]; }).toEqual([ACC, false]);
+  // «إضافة عضو»: no department; the manager is the role's unless picked
+  await go(page, 'hr');
+  await page.locator('#pg-hr').getByRole('button', { name: 'إضافة عضو' }).first().click();
+  const add = page.locator('.modal', { hasText: 'إضافة عضو' });
+  await expect(add.locator('#dept')).toHaveCount(0);
+  await expect(add.locator('#manager')).toContainText('مدير الدور (تلقائي)');
 });

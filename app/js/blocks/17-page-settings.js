@@ -9,7 +9,7 @@
   const { h, Icon, Button, IconButton } = U; const S = K.store;
   const SECTIONS = [
     ['general', 'عام', 'بيانات الشركة واللغة والعرض', 'home'], ['team', 'الفريق والصلاحيات', 'الأعضاء والأدوار والدعوات', 'users'], ['integrations', 'الربط بالمنصات', 'WooCommerce وAirtable وواتساب', 'external'], ['ai', 'تعليمات الذكاء الاصطناعي', 'الصور، الفيديو، والمحتوى بأسلوب إبتكر', 'sparkle'],
-    ['hr', 'الموارد البشرية', 'الدوام والأوفر تايم والمرتبات والإجازات والعطلات', 'briefcase'], ['makers', 'إعدادات المبتكرين', 'قواعد التأخير والتنشيط', 'truck'], ['inventory', 'المخزن', 'الأماكن والسحب والتنبيهات والمرتجع', 'box'], ['notifications', 'التنبيهات', 'الأنواع والتصعيد وساعات الهدوء', 'bell'], ['lists', 'القوائم والحالات', 'الحالات والأسباب والفئات', 'sliders'],
+    ['hr', 'الموارد البشرية', 'مديري الأدوار والدوام والأوفر تايم والمرتبات والإجازات والعطلات', 'briefcase'], ['makers', 'إعدادات المبتكرين', 'قواعد التأخير والتنشيط', 'truck'], ['inventory', 'المخزن', 'الأماكن والسحب والتنبيهات والمرتجع', 'box'], ['notifications', 'التنبيهات', 'الأنواع والتصعيد وساعات الهدوء', 'bell'], ['lists', 'القوائم والحالات', 'الحالات والأسباب والفئات', 'sliders'],
     ['payments', 'الحسابات والدفع', 'الحسابات والتحويلات والفاتورة', 'wallet'], ['activity', 'سجل النشاط', 'مين عمل إيه وإمتى', 'activity'], ['security', 'الأمان', 'كلمة السر والجلسات والسياسات', 'alert'], ['docs', 'الأوراق الرسمية', 'السجل التجاري والبطاقة الضريبية والعقود', 'file'], ['brand', 'الهوية البصرية', 'ألوان الموقع واللوجو والخطوط', 'image'], ['data', 'البيانات', 'تصدير واستيراد ونسخ احتياطي', 'download'], ['quick', 'الإجراءات السريعة', 'روابط لأي صفحة بفلاترها في القايمة اللي فوق', 'zap']];
   const st = { sec: 'home', ntab: 'types', itab: 'site', teamSub: 'members', integ: null, list: 'order', open: {}, nopen: {}, aopen: {}, dirty: false, draft: null, mq: '', pending: new Set() };
   const R = () => window.IBPages.render('settings');
@@ -245,7 +245,7 @@
   }
   // ---------- the HR rebuild (the owner 12 Nov — «اعدادات الموارد البشرية تتنقل للاعدادات العامة … ابسط … المهم بس»): «الموارد البشرية» ----------
   // the day (shown), the missing end, the overtime (counted, «لسه شغال؟», who confirms), the pay day and the bonus bar, the leave types and
-  // the year's end (paid with December / carried), the holidays, the departments. The values are IBHR's settings row «hr» — a draft here
+  // the year's end (paid with December / carried), the holidays, the role managers (0092 — the departments are out). The values are IBHR's settings row «hr» — a draft here
   // (st.hr) that the page's «حفظ» sends; the lists are written at once from their popups (the admin)
   const HR_KEYS = ['autoMissing', 'countOT', 'presence', 'presenceEvery', 'confirmBy', 'payDay', 'bonusMin', 'leaveYearEnd', 'workDays', 'workFrom', 'workTo', 'dayDivisor', 'schedules'];
   const hrDay = (v) => { const n = Number(String(v == null ? '' : v).trim().replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d))); return Number.isInteger(n) && n >= 1 && n <= 31 ? n : null; };
@@ -254,16 +254,17 @@
   async function persistHr() {
     const HR = window.IBHR; if (!HR || !st.hr || !isAdminMe()) return;
     const d = st.hr; const patch = {}; HR_KEYS.forEach((k) => { patch[k] = d[k]; }); patch.payDay = hrDay(d.payDay); patch.bonusMin = Number(d.bonusMin) || 3; patch.presenceEvery = Number(d.presenceEvery) || 120;
-    patch.dayDivisor = Number(d.dayDivisor) || 24; patch.workDays = (d.workDays || []).map(Number).sort(); patch.schedules = { dept: Object.assign({}, (d.schedules || {}).dept), member: Object.assign({}, (d.schedules || {}).member) };
+    patch.dayDivisor = Number(d.dayDivisor) || 24; patch.workDays = (d.workDays || []).map(Number).sort(); patch.schedules = { role: Object.assign({}, (d.schedules || {}).role), member: Object.assign({}, (d.schedules || {}).member) };
     const r = await HR.saveSettings(patch); if (!r.ok) fail(r, 'حفظ إعدادات الموارد البشرية'); else st.hr = null;
   }
   function hrSec() {
     const HR = window.IBHR; if (!HR) return [U.InlineNote({ kind: 'warning', children: 'إعدادات الموارد البشرية مش متاحة دلوقتي — جرّب تحدّث الصفحة.' })];
-    if (!st.hr) { const v = HR.settings(); st.hr = {}; HR_KEYS.forEach((k) => { st.hr[k] = v[k]; }); st.hr.workDays = HR.workDays(); st.hr.schedules = { dept: Object.assign({}, (v.schedules || {}).dept), member: Object.assign({}, (v.schedules || {}).member) }; }
+    if (!st.hr) { const v = HR.settings(); st.hr = {}; HR_KEYS.forEach((k) => { st.hr[k] = v[k]; }); st.hr.workDays = HR.workDays(); st.hr.schedules = { role: Object.assign({}, (v.schedules || {}).role), member: Object.assign({}, (v.schedules || {}).member) }; }
     const d = st.hr; const D = HR.data; const ro = !isAdminMe(); const done = (r, ok) => { if (r && r.ok) K.toast(ok, 'success'); else fail(r); R(); };
     const sw = (k, label, help) => K.Switch({ id: 'hs-' + k, label, help, checked: !!d[k], disabled: ro, onChange: (v) => { d[k] = v; R(); } });
-    const holidays = D.holidays || []; const types = D.leaveTypes || []; const depts = D.departments || [];
+    const holidays = D.holidays || []; const types = D.leaveTypes || [];
     return [h('div', { class: 'set-narrow', 'data-hr-settings': '' },
+      roleManagersSec(ro, done),
       ...hrHoursSecs(d, ro),
       K.Section('الانصراف الناقص', [sw('autoMissing', 'انصراف ناقص تلقائي', 'الجلسة اللي ما اتقفلتش لحد آخر اليوم بتتعلّم «انصراف ناقص»')]),
       K.Section('الأوفر تايم', [sw('countOT', 'احتساب الأوفر تايم', 'لما يتقفل الساعات بتتسجل بس ومابتدخلش المرتب'), sw('presence', 'تأكيد التواجد في الأوفر تايم', 'سؤال «لسه شغال؟» — مفيش رد خلال دقيقة = الدوام بيتقفل على وقت السؤال'),
@@ -279,10 +280,9 @@
       K.Section('العطلات الرسمية', holidays.length ? U.Table({ cls: 'mini-table', headers: ['العطلة', 'التاريخ', 'الأيام', 'الحالة', ''], rows: holidays.map((x) => [x.name, K.dlabel(x.date), String(x.days), K.Tag(x.status === 'مؤكد' ? 'success' : 'orange', x.status === 'مؤكد' ? 'مؤكد' : 'متوقع'),
         ro ? '' : x.status !== 'مؤكد' ? Button({ type: 'text', size: 'sm', label: 'أكّده', onClick: () => HR.holidayConfirm(x.dbId).then((r) => done(r, 'اتأكدت العطلة')) }) : K.RowMenu([{ label: 'حذف', icon: 'close', danger: true, run: () => K.confirm({ title: 'حذف العطلة', text: 'هتتشال «' + x.name + '» من التقويم وحساب الإجازات.', okType: 'danger', okLabel: 'حذف', onOk: () => HR.holidayDelete(x.dbId).then((r) => done(r, 'اتحذفت العطلة')) }) }], 'إجراءات ' + x.name)]) })
         : K.Empty('مفيش عطلات', 'ضيف العطلات الرسمية عشان متتحسبش غياب.'), ro ? null : [Button({ size: 'sm', label: '+ عطلة', attrs: { 'data-hs-holiday': '' }, onClick: () => hrHoliday(done) })]),
-      K.Section('الأقسام', [h('div', { class: 'chips' }, depts.map((x) => h('span', { class: 'list-chip' }, x)))], ro ? null : [Button({ size: 'sm', label: '+ قسم', onClick: () => hrDept(done) })]),
       ro ? note('الإعدادات دي للأدمن بس — بتظهرلك قراية.') : null)];
   }
-  // ---------- owner batch 14 Nov decision 7 (0087): the work days, the official hours, the day rate and a custom time per department / member ----------
+  // ---------- owner batch 14 Nov decision 7 (0087): the work days, the official hours, the day rate and a custom time per role / member (0092) ----------
   // A draft in st.hr that the page's «حفظ» sends (IBHR.saveSettings → the row «hr»); the server reads the same keys (hr_work_dows /
   // hr_schedule / hr_day_minutes / hr_day_divisor): the overtime starts past the member's day, the clock reminds at its start, no lateness.
   const WEEK = [[6, 'السبت'], [7, 'الأحد'], [1, 'الاتنين'], [2, 'التلات'], [3, 'الأربع'], [4, 'الخميس'], [5, 'الجمعة']];
@@ -291,12 +291,12 @@
   const timeSel = (id, label, value, on, ro) => U.Select({ id, label, disabled: ro, options: HALF_HOURS.map((x) => ({ value: x, label: x })), value: HALF_HOURS.includes(value) ? value : '09:00', onChange: (v) => { on(v); R(); } });
   function hrHoursSecs(d, ro) {
     const HR = window.IBHR; const days = d.workDays || []; const dm = hrSpan(d.workFrom, d.workTo); const div = Number(d.dayDivisor) || 24;
-    const sc = d.schedules || (d.schedules = { dept: {}, member: {} }); sc.dept = sc.dept || {}; sc.member = sc.member || {};
+    const sc = d.schedules || (d.schedules = { role: {}, member: {} }); sc.role = sc.role || {}; sc.member = sc.member || {};
     const people = (HR.everyone ? HR.everyone() : HR.team ? HR.team() : []).filter((m) => m && m.uid);
     const nameOf = (uid) => (people.find((m) => m.uid === uid) || {}).name || 'عضو';
-    const rows = Object.keys(sc.dept).map((k) => ['dept', k]).concat(Object.keys(sc.member).map((k) => ['member', k]));
+    const rows = Object.keys(sc.role).map((k) => ['role', k]).concat(Object.keys(sc.member).map((k) => ['member', k]));
     const custom = rows.length ? U.Table({ cls: 'mini-table', headers: ['لمين', 'من', 'لحد', 'ساعات اليوم', ''], rows: rows.map(([kind, key]) => { const x = sc[kind][key] || {};
-      return [h('span', { 'data-hs-sched': kind + ':' + key }, kind === 'dept' ? 'قسم ' + key : nameOf(key)), x.from || '—', x.to || '—', hrsLabel(hrSpan(x.from, x.to)), ro ? '' : K.RowMenu([
+      return [h('span', { 'data-hs-sched': kind + ':' + key }, kind === 'role' ? 'دور ' + hrRoleName(key) : nameOf(key)), x.from || '—', x.to || '—', hrsLabel(hrSpan(x.from, x.to)), ro ? '' : K.RowMenu([
         { label: 'تعديل', icon: 'sliders', run: () => hrSchedule(d, kind, key) },
         { label: 'حذف', icon: 'close', danger: true, run: () => { delete sc[kind][key]; st.dirty = true; R(); } }], 'إجراءات ' + key)]; }) })
       : K.Empty('مفيش أوقات مخصصة', 'كل الفريق على ساعات العمل الرسمية.');
@@ -307,20 +307,20 @@
       K.two(timeSel('hs-from', 'ساعات العمل الرسمية — من', d.workFrom, (v) => { d.workFrom = v; }, ro), timeSel('hs-to', 'لحد', d.workTo, (v) => { d.workTo = v; }, ro)),
       dm == null ? U.InlineNote({ kind: 'warning', children: 'الوقت لازم يكون من ساعة لـ 16 ساعة.' }) : vrow('ساعات اليوم', 'الدوام مرن: أكتر من جلسة في اليوم والساعات بتتجمع، ومفيش تأخير — الأوفر تايم بعد الساعات دي، و«ابدأ الدوام» بيفكّر على ميعاد البداية', h('b', { 'data-hs-hours': '' }, hrsLabel(dm))),
       U.Select({ id: 'hs-div', label: 'سعر اليوم = المرتب ÷', disabled: ro, options: Array.from({ length: 12 }, (_, i) => 20 + i).map((x) => ({ value: String(x), label: x + ' يوم' })), value: String(div), onChange: (v) => { d.dayDivisor = Number(v); R(); }, help: 'سعر الساعة = سعر اليوم ÷ ساعات يوم الموظف — يوم الإجازة من غير أجر وسعر يوم الراحة (×2) والرصيد في ديسمبر بيتحسبوا بيه' })], null, { th: false }),
-      K.Section('أوقات عمل مخصصة', [custom, note('الموظف اللي له وقت مخصص بياخده، وإلا وقت قسمه، وإلا ساعات العمل الرسمية.')], ro ? null : [Button({ size: 'sm', label: '+ وقت عمل مخصص', attrs: { 'data-hs-sched-add': '' }, onClick: () => hrSchedule(d) })], { th: false })];
+      K.Section('أوقات عمل مخصصة', [custom, note('الموظف اللي له وقت مخصص بياخده، وإلا وقت دوره الأساسي، وإلا ساعات العمل الرسمية.')], ro ? null : [Button({ size: 'sm', label: '+ وقت عمل مخصص', attrs: { 'data-hs-sched-add': '' }, onClick: () => hrSchedule(d) })], { th: false })];
   }
   function hrSchedule(d, kind0, key0) {
-    const HR = window.IBHR; const sc = d.schedules; const depts = (HR.data.departments || []).slice(); const people = (HR.everyone ? HR.everyone() : HR.team()).filter((m) => m && m.uid && m.status !== 'inactive');
+    const HR = window.IBHR; const sc = d.schedules; const roles = hrRoles(); const people = (HR.everyone ? HR.everyone() : HR.team()).filter((m) => m && m.uid && m.status !== 'inactive');
     const cur = kind0 ? sc[kind0][key0] || {} : {};
-    K.form({ title: kind0 ? 'تعديل وقت العمل' : 'وقت عمل مخصص', values: { kind: kind0 || 'dept', dept: kind0 === 'dept' ? key0 : depts[0] || '', member: kind0 === 'member' ? key0 : '', from: cur.from || d.workFrom || '09:00', to: cur.to || d.workTo || '17:00' },
-      fields: (f, e, set) => [kind0 ? null : K.Radios({ label: 'لمين', value: f.kind, onChange: (v) => set('kind', v, true), options: [{ value: 'dept', label: 'قسم' }, { value: 'member', label: 'موظف' }] }),
-        f.kind === 'dept' ? U.Select({ id: 'hs-s-dept', label: 'القسم', disabled: !!kind0, options: depts.map((x) => ({ value: x, label: x })), value: f.dept, onChange: (v) => set('dept', v, true) })
-          : U.Select({ id: 'hs-s-member', label: 'الموظف', disabled: !!kind0, options: [{ value: '', label: '— اختار —' }].concat(people.map((m) => ({ value: m.uid, label: m.name + (m.dept ? ' — ' + m.dept : '') }))), value: f.member, onChange: (v) => set('member', v, true) }),
+    K.form({ title: kind0 ? 'تعديل وقت العمل' : 'وقت عمل مخصص', values: { kind: kind0 || 'role', role: kind0 === 'role' ? key0 : (roles[0] || {}).id || '', member: kind0 === 'member' ? key0 : '', from: cur.from || d.workFrom || '09:00', to: cur.to || d.workTo || '17:00' },
+      fields: (f, e, set) => [kind0 ? null : K.Radios({ label: 'لمين', value: f.kind, onChange: (v) => set('kind', v, true), options: [{ value: 'role', label: 'دور' }, { value: 'member', label: 'موظف' }] }),
+        f.kind === 'role' ? U.Select({ id: 'hs-s-role', label: 'الدور', disabled: !!kind0, options: roles.map((x) => ({ value: x.id, label: x.name })), value: f.role, onChange: (v) => set('role', v, true) })
+          : U.Select({ id: 'hs-s-member', label: 'الموظف', disabled: !!kind0, options: [{ value: '', label: '— اختار —' }].concat(people.map((m) => ({ value: m.uid, label: m.name + (m.role ? ' — ' + m.role : '') }))), value: f.member, onChange: (v) => set('member', v, true) }),
         e.who ? h('div', { class: 'err-msg', role: 'alert' }, e.who) : null,
         K.two(U.Select({ id: 'hs-s-from', label: 'من', options: HALF_HOURS.map((x) => ({ value: x, label: x })), value: f.from, onChange: (v) => set('from', v, true) }), U.Select({ id: 'hs-s-to', label: 'لحد', options: HALF_HOURS.map((x) => ({ value: x, label: x })), value: f.to, onChange: (v) => set('to', v, true) })),
         h('div', { class: 't-small help', 'data-hs-s-hours': '' }, 'ساعات اليوم: ' + hrsLabel(hrSpan(f.from, f.to))), e.to ? h('div', { class: 'err-msg', role: 'alert' }, e.to) : null].filter(Boolean),
-      validate: (f) => { const e = {}; const key = f.kind === 'dept' ? f.dept : f.member; if (!key) e.who = f.kind === 'dept' ? 'اختار القسم' : 'اختار الموظف'; if (hrSpan(f.from, f.to) == null) e.to = 'الوقت لازم يكون من ساعة لـ 16 ساعة'; return e; },
-      submitLabel: kind0 ? 'تم' : 'إضافة', submit: (f) => { const key = f.kind === 'dept' ? f.dept : f.member; sc[f.kind][key] = { from: f.from, to: f.to }; st.dirty = true; R(); } });
+      validate: (f) => { const e = {}; const key = f.kind === 'role' ? f.role : f.member; if (!key) e.who = f.kind === 'role' ? 'اختار الدور' : 'اختار الموظف'; if (hrSpan(f.from, f.to) == null) e.to = 'الوقت لازم يكون من ساعة لـ 16 ساعة'; return e; },
+      submitLabel: kind0 ? 'تم' : 'إضافة', submit: (f) => { const key = f.kind === 'role' ? f.role : f.member; sc[f.kind][key] = { from: f.from, to: f.to }; st.dirty = true; R(); } });
   }
   function hrHoliday(done) {
     K.form({ title: 'إضافة عطلة', values: { days: '1', kind: 'هجري' }, fields: (f, e, set) => [K.field.text('name', 'اسم العطلة', f, e, set, { required: true }), K.two(K.field.date('date', 'أول يوم', f, e, set, { required: true }), K.field.select('days', 'عدد الأيام', ['1', '2', '3', '4', '5'], f, e, set)), K.field.select('kind', 'النوع', ['هجري', 'ميلادي · سنوي', 'استثنائية'], f, e, set)],
@@ -332,9 +332,21 @@
       K.field.select('approval', 'الموافقة', ['المدير المباشر', 'الأدمن'], f, e, set)],
       validate: (f) => K.req(f, ['name', 'days']), submitLabel: 'إضافة', submit: (f, md) => { window.IBHR.leaveTypeAdd({ name: f.name, days: f.days, paid: f.paid, approval: f.approval, deducts: f.deducts === 'yes' }).then((r) => { if (r.ok) md.close(); done(r, 'اتضاف نوع الإجازة'); }); return false; } });
   }
-  function hrDept(done) {
-    K.form({ title: 'قسم جديد', values: {}, fields: (f, e, set) => [K.field.text('name', 'اسم القسم', f, e, set, { required: true })], validate: (f) => { const e = K.req(f, ['name']); if ((window.IBHR.data.departments || []).includes(String(f.name).trim())) e.name = 'موجود بالفعل'; return e; },
-      submitLabel: 'إضافة', submit: (f, md) => { window.IBHR.addDepartment(f.name).then((r) => { if (r.ok) md.close(); done(r, 'اتضاف القسم'); }); return false; } });
+  // ---------- owner batch 14 Nov decision 16 (0092): the departments out — «مديري الأدوار» ----------
+  // a role's manager is the direct manager of every member of it (unless one was set by hand in his file): he sees them in HR (with
+  // «الموارد البشرية» P or more), approves their leaves and overtime and rates them. The admin sets it here; it is saved at once.
+  const hrRoles = () => (window.IBDirectory && window.IBDirectory.roles ? window.IBDirectory.roles() : []).filter((r) => r && !r.hidden).sort((a, b) => (a.sort || 0) - (b.sort || 0));
+  const hrRoleName = (id) => (hrRoles().find((r) => r.id === id) || {}).name || id;
+  function roleManagersSec(ro, done) {
+    const HR = window.IBHR; const people = ((window.IBDirectory && window.IBDirectory.members && window.IBDirectory.members()) || []).filter((m) => m && m.uid && (!m.status || m.status === 'active'));
+    const roles = hrRoles(); const nameOf = (uid) => (people.find((m) => m.uid === uid) || {}).name || '—';
+    const rows = roles.map((r) => { const count = people.filter((m) => m.roleId === r.id).length;
+      const pick = ro ? h('span', null, r.manager_id ? nameOf(r.manager_id) : '—')
+        : U.Select({ id: 'hs-rm-' + r.id, label: '', 'aria-label': 'مدير دور ' + r.name, options: [{ value: '', label: '— مفيش مدير —' }].concat(people.map((m) => ({ value: m.uid, label: m.name }))), value: r.manager_id || '',
+          onChange: (v) => HR.roleManagerSet(r.id, v || null).then((res) => { if (res.ok) K.toast(v ? nameOf(v) + ' بقى مدير «' + r.name + '»' + (res.members ? ' — ' + res.members + ' عضو تحته' : '') : 'دور «' + r.name + '» من غير مدير', 'success'); else fail(res); R(); }) });
+      return [h('span', { 'data-rm-role': r.id }, r.name), pick, String(count)]; });
+    return K.Section('مديري الأدوار', [roles.length ? U.Table({ cls: 'mini-table', headers: ['الدور', 'مدير الدور', 'الأعضاء'], rows }) : K.Empty('مفيش أدوار', 'الأدوار من «الإعدادات › الفريق والصلاحيات».'),
+      note('مدير الدور = «المدير المباشر» لكل أعضاء الدور: بيشوف فريقه في «الموارد البشرية» (لو صلاحيته فيها «جزئي» أو أكتر)، ويوافق على إجازاتهم ووقتهم الإضافي، ويقيّمهم. العضو اللي اتحدد له مدير بإيده من ملفه بيفضل على مديره.')], null, { th: false });
   }
   function section() {
     switch (st.sec) {
@@ -999,7 +1011,7 @@
       if (st2.mode === 'update') { if (g.id === 'vendors') return X.toCSV([{ name: s[0].name, status: 'غير نشط' }, { name: s[1].name, leadDays: '14' }, { name: 'مبتكر مش موجود', status: 'نشط' }], cols, { lang: 'ar' }); if (g.id === 'team') { const m = s[0]; return X.toCSV([{ email: m.email, title: 'مدير العمليات' }, { email: 'nobody@ibtekr.club', dept: 'المخزن' }], cols, { lang: 'ar' }); } }
       if (g.id === 'vendors') { s.push({ name: 'ورشة نور', category: 'ديكور منزلى', status: 'نشط', phone: '01012345678', rate: '٣٥', leadDays: '10' }); s.push({ name: '', category: 'هدايا', status: 'نشط', phone: '0101', rate: '40', leadDays: '12' }); }
       if (g.id === 'expenses') s.push({ date: '22/10/2026', amount: '1,250', category: 'الإعلانات', direction: 'سحب', beneficiary: 'Meta' }, { date: '32/10/2026', amount: 'ألف', category: 'اعلانات', direction: 'سحب' });
-      if (g.id === 'team') s.push({ name: 'ليلى حسن', email: 'laila@ibtekr.club', role: 'خدمة العملاء', title: 'خدمة العملاء', dept: 'خدمة العملاء' });
+      if (g.id === 'team') s.push({ name: 'ليلى حسن', email: 'laila@ibtekr.club', role: 'خدمة العملاء', title: 'خدمة العملاء' });
       if (g.id === 'lists') s.push({ list: 'أسباب الإلغاء', value: 'العميل طلب منتج تاني' }, { list: 'أسباب الإيقاف', value: 'تأخير متكرر' });
       return X.toCSV(s, cols, { lang: 'ar' }); };
     const tagOf = (r) => (r.status === 'error' ? ['error', 'خطأ'] : r.status === 'exists' ? ['neutral', 'موجود — هيتخطّى'] : r.status === 'same' ? ['neutral', 'مفيش تغيير'] : r.status === 'update' ? ['gold', 'هيتعدّل'] : ['success', 'جديد']);

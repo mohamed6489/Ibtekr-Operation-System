@@ -28,7 +28,7 @@ export function settingsState(opts = {}, roles) {
 
 export function settingsRoute(c) {
   const { method, path, url, hd, u, hasPerm, isAdmin, json, mock } = c; const S = mock.st; if (!S) return null;
-  const rpc = /^\/rest\/v1\/rpc\/(role_perms_set|role_create|role_update|role_delete|member_role_set|member_roles_set|member_perms_set|member_status_set|my_sessions|my_session_revoke|settings_public)$/.exec(path);
+  const rpc = /^\/rest\/v1\/rpc\/(role_perms_set|role_create|role_update|role_delete|role_manager_set|member_manager_set|member_role_set|member_roles_set|member_perms_set|member_status_set|my_sessions|my_session_revoke|settings_public)$/.exec(path);
   const fn = method === 'POST' && (path === '/functions/v1/settings-admin' || path === '/functions/v1/notify');
   const docs = path === '/rest/v1/company_docs'; const sto = /^\/storage\/v1\/object\/(sign\/)?(company-docs|settings)\/(.+)$/.exec(path);
   const act = method === 'GET' && path === '/rest/v1/activity_log' && [...url.searchParams].some(([k, v]) => k === 'action' && v.startsWith('like.') || (k === 'at' && /^(lte|gte)\./.test(v))) || (method === 'GET' && path === '/rest/v1/activity_log' && (hd.range || url.searchParams.has('offset')));
@@ -59,8 +59,24 @@ export function settingsRoute(c) {
       const i = S.sessions.findIndex((s) => s.id === body.p_id); if (i >= 0 && S.sessions[i].current) return refuse(400, '22023', 'invalid: current');
       if (i >= 0) { S.sessions.splice(i, 1); logRow('settings.session.revoke', 'profile', u.id); } return json(200, i >= 0);
     }
+    // owner batch 14 Nov decision 16 (0092): a member's own manager — the admin or hr.edit F; null = back to his role's manager
+    if (name === 'member_manager_set') {
+      if (!(admin || hasPerm(u, 'hr.edit') === 'F')) return refuse(401, '42501', 'not allowed');
+      const p = mock.profiles.find((x) => x.id === body.p_member); if (!p) return refuse(404, 'P0002', 'not found');
+      if (body.p_manager == null) { const r = S.roles.find((x) => x.id === p.role_id); const auto = (r && r.manager_id) || null; p.manager_fixed = false; p.manager_id = auto === p.id ? null : auto; }
+      else { const mg = mock.profiles.find((x) => x.id === body.p_manager && (x.status || 'active') === 'active'); if (!mg || mg.id === p.id || mg.manager_id === p.id) return refuse(400, '22023', 'invalid: manager'); p.manager_id = mg.id; p.manager_fixed = true; }
+      S.writes.push({ table: 'profiles', op: 'manager', id: p.id, manager: p.manager_id, fixed: !!p.manager_fixed }); logRow('hr.member.manager', 'hr', p.id, null, p.manager_id); return json(204, null);
+    }
     if (!admin) return refuse(401, '42501', 'admin only');
     const role = (id) => S.roles.find((r) => r.id === id);
+    // 0092: a role's manager reaches its members whose manager was not set by hand
+    if (name === 'role_manager_set') {
+      const r = role(body.p_role); if (!r || r.hidden) return refuse(400, '22023', 'invalid: role');
+      const to = body.p_manager || null; if (to && !mock.profiles.some((x) => x.id === to && (x.status || 'active') === 'active')) return refuse(400, '22023', 'invalid: manager');
+      r.manager_id = to; let n = 0;
+      mock.profiles.forEach((p) => { if (p.role_id === r.id && !p.manager_fixed) { p.manager_id = p.id === to ? null : to; if ((p.status || 'active') === 'active' && p.id !== to) n += 1; } });
+      S.writes.push({ table: 'roles', op: 'manager', id: r.id, manager: to }); logRow('hr.role.manager', 'role', r.id, null, to); return json(200, { members: n });
+    }
     if (name === 'role_perms_set') {
       if (body.p_role === 'admin') return refuse(400, '22023', 'the admin role has every permission'); if (!permsOk(body.p_perms)) return refuse(400, '22023', 'invalid: perms');
       const r = role(body.p_role); if (!r) return refuse(404, 'P0002', 'no such role');

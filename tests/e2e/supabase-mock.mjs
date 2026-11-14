@@ -73,8 +73,8 @@ const COLUMNS = { // supabase/migrations/0001_identity.sql, 0002_system.sql (act
   // alert_reads), 0007_orders.sql (orders_v; order_items / sub_orders: the columns granted to authenticated, i.e. all but raw),
   // 0009 (products.permalink), 0010 (orders_v.customer_state: the governorate's code on the website; woo_states: its names),
   // 0011 (order_items.commission_rate / fee; the team's vendors columns; vendor_rates; vendor_bank)
-  profiles: ['id', 'member_code', 'name', 'email', 'phone', 'role_id', 'extra_roles', 'title', 'dept', 'manager_id', 'status', 'twofa', 'custom_perms', 'created_at'],
-  roles: ['id', 'name', 'description', 'is_system', 'permissions', 'sort', 'hidden'], // 0056: hidden
+  profiles: ['id', 'member_code', 'name', 'email', 'phone', 'role_id', 'extra_roles', 'title', 'dept', 'manager_id', 'manager_fixed', 'status', 'twofa', 'custom_perms', 'created_at'], // 0092: manager_fixed
+  roles: ['id', 'name', 'description', 'is_system', 'permissions', 'sort', 'hidden', 'manager_id'], // 0056: hidden; 0092: manager_id
   user_prefs: ['user_id', 'key', 'data', 'updated_at'],
   activity_log: ['id', 'at', 'actor', 'action', 'entity', 'entity_id', 'old_value', 'new_value'],
   alerts: ['id', 'at', 'kind', 'title', 'body', 'role_id', 'user_id', 'entity', 'entity_id', 'read_at'],

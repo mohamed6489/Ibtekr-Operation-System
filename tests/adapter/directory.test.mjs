@@ -20,7 +20,7 @@ function load({ me = profile(), signedIn = true } = {}) {
 test('load asks roles.permissions and my profile\'s custom_perms, then loads the vendors with the session', async () => {
   const { D, calls, queries } = load();
   await D.load();
-  assert.deepEqual(opsOf(queries, 'roles'), [{ op: 'select', args: ['id, name, permissions, hidden, sort'] }]); // 0081: hidden / sort for the extra roles
+  assert.deepEqual(opsOf(queries, 'roles'), [{ op: 'select', args: ['id, name, permissions, hidden, sort, manager_id'] }]); // 0081: hidden / sort for the extra roles
   assert.match(opsOf(queries, 'profiles')[0].args[0], /\bextra_roles\b/);
   assert.match(opsOf(queries, 'profiles')[0].args[0], /\bcustom_perms\b/);
   assert.deepEqual(calls, [['setMe', 'M02'], ['vendors.load']]);

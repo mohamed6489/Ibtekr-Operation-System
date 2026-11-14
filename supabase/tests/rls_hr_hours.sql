@@ -26,17 +26,17 @@ do $$ begin
      or public.hr_span('9:00', '17:00') is not null or public.hr_span('09:00', '09:30') is not null then raise exception 'case the span of two times failed'; end if;
 end $$;
 
--- ================================================================ the settings: Monday–Friday, 10–16 official, a department 09–15, a member 08–18, ÷ 30
+-- ================================================================ the settings: Monday–Friday, 10–16 official, a role 09–15:30 (0092: the role, not the department), a member 08–18, ÷ 30
 insert into public.settings (section, data) values ('hr', jsonb_build_object(
   'workDays', '[1,2,3,4,5]'::jsonb, 'workFrom', '10:00', 'workTo', '16:00', 'dayDivisor', '30',
-  'schedules', jsonb_build_object('dept', jsonb_build_object('خدمة العملاء', jsonb_build_object('from', '09:00', 'to', '15:30')),
+  'schedules', jsonb_build_object('role', jsonb_build_object('cs', jsonb_build_object('from', '09:00', 'to', '15:30')), 'dept', jsonb_build_object('الإدارة', jsonb_build_object('from', '11:00', 'to', '12:00')),
                                   'member', jsonb_build_object('00000000-0000-4000-8000-0000000087a3', jsonb_build_object('from', '08:00', 'to', '18:00')))))
   on conflict (section) do update set data = excluded.data;
 do $$ begin
-  if public.hr_day_minutes('00000000-0000-4000-8000-0000000087a1') <> 360 then raise exception 'case the official hours (no department time) failed'; end if;
-  if public.hr_day_minutes('00000000-0000-4000-8000-0000000087a2') <> 390 then raise exception 'case the department''s time failed'; end if;
+  if public.hr_day_minutes('00000000-0000-4000-8000-0000000087a1') <> 360 then raise exception 'case the official hours (no role time; a department''s time is read no more — 0092) failed'; end if;
+  if public.hr_day_minutes('00000000-0000-4000-8000-0000000087a2') <> 390 then raise exception 'case the role''s time failed'; end if;
   if public.hr_day_minutes('00000000-0000-4000-8000-0000000087a3') <> 600 then raise exception 'case the member''s own time wins failed'; end if;
-  if public.hr_schedule('00000000-0000-4000-8000-0000000087a3') ->> 'kind' <> 'member' or public.hr_schedule('00000000-0000-4000-8000-0000000087a2') ->> 'kind' <> 'dept'
+  if public.hr_schedule('00000000-0000-4000-8000-0000000087a3') ->> 'kind' <> 'member' or public.hr_schedule('00000000-0000-4000-8000-0000000087a2') ->> 'kind' <> 'role'
      or public.hr_schedule('00000000-0000-4000-8000-0000000087a1') ->> 'kind' <> 'general' then raise exception 'case the schedule says where it came from failed'; end if;
   if public.hr_day_divisor() <> 30 then raise exception 'case the divisor from the settings failed'; end if;
   if public.hr_rest_day('2026-11-06') or not public.hr_rest_day('2026-11-08') then raise exception 'case Friday works and Sunday rests with Monday–Friday failed'; end if;

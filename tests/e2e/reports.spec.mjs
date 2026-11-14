@@ -136,10 +136,12 @@ test('each tab by its page\'s permission: no «الحسابات» without accoun
   await expect(tab(page, 'orders')).toHaveAttribute('aria-selected', 'true');
 });
 
-test('reports.view = N: the page says so, no tab', async ({ page }) => {
+test('reports.view = N: no «التقارير» in the menu, and a link to it lands on the dashboard (owner batch 14 Nov decision 15)', async ({ page }) => {
   mock.profiles.find((x) => x.email === VF).custom_perms = { 'reports.view': 'N' };
-  await openReports(page, VF);
-  await expect(R(page)).toContainText('مش مسموحلك تشوف التقارير');
+  await signIn(page, VF);
+  await expect(page.locator('.sidebar .nav-item[data-page="reports"]')).toBeHidden();
+  await page.evaluate(() => { location.hash = 'reports-orders'; });
+  await expect.poll(() => page.evaluate(() => location.hash)).toBe('#dashboard');
   await expect(R(page).locator('[role=tab]')).toHaveCount(0);
 });
 

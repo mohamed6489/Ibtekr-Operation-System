@@ -42,11 +42,12 @@ test('the hub: 16 cards in 4 groups for the admin (B6: «المخزن» in «ا�
   await page.locator('[data-set-edit="general"]').click();
   await expect(page.locator('#pg-settings .set-page')).toBeVisible();
   await expect(page.locator('#g-co')).toHaveValue(/إبتكر/);
-  // accounts: settings.view N → the notice only
+  // accounts: settings.view N → no «الإعدادات» in the menu, and its link lands on the dashboard (owner batch 14 Nov decision 15)
   await relogin(page);
   await page.fill('#lg-id', ACC); await page.fill('#lg-pw', DEV_PW); await page.getByRole('button', { name: 'دخول', exact: true }).click(); await expect(page.locator('#root')).toBeVisible();
+  await expect(page.locator('.sidebar .nav-item[data-page="settings"]')).toBeHidden();
   await page.evaluate(() => { location.hash = 'settings'; });
-  await expect(page.locator('#pg-settings')).toContainText('للأدمن');
+  await expect.poll(() => page.evaluate(() => location.hash)).toBe('#dashboard');
   await expect(page.locator('[data-set-card]')).toHaveCount(0);
 });
 

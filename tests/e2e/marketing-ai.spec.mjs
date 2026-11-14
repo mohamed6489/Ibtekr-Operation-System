@@ -216,11 +216,12 @@ test('the chat (0084): the question and the answer in the thread (ai-content age
   await P.locator('#mk-ask').fill('x'); await P.locator('#mk-ask').press('Enter');
   await expect(toast(page)).toContainText('سقف الـ AI الشهري');
   await expect(P.locator('[data-mk-chat="4"]')).toBeVisible(); // the failed question is taken back
-  // accounts (marketing N) has no page
+  // accounts (marketing N): no «التسويق» in the menu (owner batch 14 Nov decision 15), and its link lands on the dashboard
   await signOut(page);
   await signIn(page, ACC);
-  await page.locator('.sidebar .nav-item[data-page="marketing"]').click();
-  await expect(pg(page)).toContainText('مفيش صلاحية');
+  await expect(page.locator('.sidebar .nav-item[data-page="marketing"]')).toBeHidden();
+  await page.evaluate(() => { location.hash = 'marketing-ai'; });
+  await expect.poll(() => page.evaluate(() => location.hash)).toBe('#dashboard');
 });
 
 test('0084 the chats like Claude\'s: the history on the side (the member\'s own, newest first), a new chat named by its first question, rename, delete; ⚙️ the admin\'s settings (the intro, the instructions, the chips); expand / shrink with the same button', async ({ page }) => {

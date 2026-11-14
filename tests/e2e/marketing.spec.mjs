@@ -205,8 +205,12 @@ test('the templates: a new one with an upload and «اشرحها بالـ AI»; 
 });
 
 test('permissions and the cap: a member without marketing.view gets no page; over the month\'s cap the image is refused before any call', async ({ page }) => {
-  await openMarketing(page, ACCOUNTS, false);
-  await expect(pg(page)).toContainText('مفيش صلاحية');
+  // owner batch 14 Nov decision 15: no «التسويق» in the menu of a member without marketing.view, and its link lands on the dashboard
+  await signIn(page, ACCOUNTS);
+  await expect(page.locator('.sidebar .nav-item[data-page="marketing"]')).toBeHidden();
+  await page.evaluate(() => { location.hash = 'marketing'; });
+  await expect.poll(() => page.evaluate(() => location.hash)).toBe('#dashboard');
+  await expect(pg(page)).toBeHidden();
   await Promise.all([page.waitForEvent('load'), page.evaluate(() => { window.IBAuth.signOut(); })]); // the SIGNED_OUT reloads the page first
   mock.mkt.cap = 100; mock.mkt.used = 60; // 40 left, an image is 75
   await openMarketing(page);

@@ -239,9 +239,16 @@ test('ops (reply without manage) sees the page without add / segment / campaign 
   await expect(P.locator('[data-close-chat]')).toBeEnabled();
 });
 
-test('accounts: cs.view = N — the page says the permission is missing', async ({ page }) => {
-  await signIn(page, ACCOUNTS, '#cs-inbox');
-  await expect(pg(page)).toContainText('صفحة خدمة العملاء محتاجة صلاحية');
+test('accounts: cs.view = N — no «خدمة العملاء» in the menu, and its link lands on the dashboard (owner batch 14 Nov decision 15)', async ({ page }) => {
+  await page.goto('/');
+  await page.fill('#lg-id', ACCOUNTS); await page.fill('#lg-pw', DEV_PW);
+  await page.getByRole('button', { name: 'دخول', exact: true }).click();
+  await expect(page.locator('#root')).toBeVisible();
+  await expect(page.locator('.sidebar .nav-item[data-page="cs"]')).toBeHidden();
+  await page.evaluate(() => { location.hash = 'cs-inbox'; });
+  await expect(page.locator('.toast.show')).toContainText('مش متاحة لدورك');
+  await expect.poll(() => page.evaluate(() => location.hash)).toBe('#dashboard');
+  await expect(pg(page)).toBeHidden();
 });
 
 test('6.2 — the admin links the Facebook page from «القنوات» (the dialog leaves the app, Meta comes back to meta-callback.html): Messenger + Instagram connected; a Messenger reply goes through the channel, a refused one is marked failed; comments: public reply, private reply, hide; disconnect; a spent state', async ({ page }) => {

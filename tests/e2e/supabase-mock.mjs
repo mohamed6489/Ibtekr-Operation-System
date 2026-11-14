@@ -717,7 +717,7 @@ export async function installSupabaseMock(page, opts = {}) {
           if ('assigneeRole' in a) { if (!tkRoleOk(mock, a.assigneeRole)) return bad('assigneeRole'); if (a.assigneeRole !== tk.assignee_role) { nRole = a.assigneeRole; nMem = null; } }
           if ('assigneeMember' in a) nMem = a.assigneeMember || null;
           const nm = nMem ? mock.profiles.find((x) => x.id === nMem) : null;
-          if (nMem && nMem !== tk.assignee_member && (!nm || nm.status !== 'active' || !tkRoles(nm).includes(nRole))) return bad('assigneeMember');
+          if (nMem && (nMem !== tk.assignee_member || nRole !== tk.assignee_role) && (!nm || nm.status !== 'active' || !tkRoles(nm).includes(nRole))) return bad('assigneeMember');
           if (nRole !== tk.assignee_role) { const old = tk.assignee_role; tk.assignee_role = nRole; ev(tk, 'event', who.name + ' غيّر المسؤول من «' + old + '» إلى «' + nRole + '»', old, nRole); }
           if (nMem !== (tk.assignee_member || null)) { const old = tk.assignee_member_name || null; tk.assignee_member = nMem; tk.assignee_member_name = nm ? String(nm.name).slice(0, 120) : null;
             ev(tk, 'event', who.name + ' خلّى الطلب ' + (nm ? 'مع ' + tk.assignee_member_name : 'لكل دور «' + nRole + '»'), old, tk.assignee_member_name); }

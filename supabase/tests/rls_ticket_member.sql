@@ -67,6 +67,9 @@ begin
   if not exists (select 1 from public.ticket_events where ticket_id = v_id and text like '%مع هالة الحسابات%') then raise exception 'case the event of the member failed'; end if;
   begin perform public.ticket_act(v_id, 'update', '{"assigneeMember":"00000000-0000-4000-8000-0000000097a6"}'); raise exception 'case update refuses a member outside the role failed';
   exception when invalid_parameter_value then null; end;
+  -- security review: a new role with the same member passed again is checked against the new role
+  begin perform public.ticket_act(v_id, 'update', '{"assigneeRole":"خدمة العملاء","assigneeMember":"00000000-0000-4000-8000-0000000097a3"}');
+    raise exception 'case a new role re-checks the member failed'; exception when invalid_parameter_value then null; end;
   perform public.ticket_act(v_id, 'update', '{"assigneeRole":"خدمة العملاء"}');
   if (select assignee_member from public.tickets where id = v_id) is not null or (select assignee_role from public.tickets where id = v_id) <> 'خدمة العملاء' then raise exception 'case a new role clears the member failed'; end if;
   perform public.ticket_act(v_id, 'update', '{"assigneeRole":"الحسابات","assigneeMember":"00000000-0000-4000-8000-0000000097a2"}');

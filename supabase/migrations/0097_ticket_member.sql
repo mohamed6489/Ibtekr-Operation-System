@@ -204,7 +204,8 @@ begin
         begin v_member := (args ->> 'assigneeMember')::uuid; exception when others then raise exception 'invalid: assigneeMember' using errcode = '22023'; end;
       end if;
     end if;
-    if v_member is not null and v_member is distinct from t.assignee_member and not public.ticket_member_ok(v_member, v_role) then
+    -- security review: checked whenever the member or the role changes (a new role with the same member passed again is checked too)
+    if v_member is not null and (v_member is distinct from t.assignee_member or v_role <> t.assignee_role) and not public.ticket_member_ok(v_member, v_role) then
       raise exception 'invalid: assigneeMember' using errcode = '22023';
     end if;
     if v_role <> t.assignee_role then

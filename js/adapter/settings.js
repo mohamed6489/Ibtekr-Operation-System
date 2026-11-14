@@ -326,7 +326,31 @@
     return out.length > KINDS_MAX ? (strict ? null : out.slice(0, KINDS_MAX)) : out;
   };
   const LABEL_MAX = 40;
-  const valuesOf = (kind, src) => (kind === 'expense' ? STATUS_KINDS.expense.concat(cleanKinds(src && src.expenseKinds)) : STATUS_KINDS[kind]);
+  const valuesOf = (kind, src) => (kind === 'expense' ? STATUS_KINDS.expense.concat(cleanKinds(src && src.expenseKinds))
+    : kind === 'confirm' || kind === 'sub' ? STATUS_KINDS[kind].concat(cleanAdded(src && src.statusAdded, kind))
+    : kind === 'order' ? STATUS_KINDS.order.concat(orderAdded()) : STATUS_KINDS[kind]);
+  // owner batch 2 decision 22 (0095): the confirmation / product statuses the admin added (`statusAdded { confirm, sub }` — 2–30
+  // characters, no < >, not a base one, at most 20 each; the server's guards take a new value in them or the base list) and the order
+  // of each list (`statusOrder { confirm, sub }` — names; the ones left out keep their place after them). The order statuses the admin
+  // added are status_map rows with a base (orderStatuses() / orderStatusAdd …) — their names come from the orders page's load.
+  const ADDED_MAX = 20; const ADDED_LEN = 30; const ADDED_KINDS = ['confirm', 'sub'];
+  const addedOk = (t, kind) => t.length >= 2 && t.length <= ADDED_LEN && !/[<>]/.test(t) && !STATUS_KINDS[kind].includes(t);
+  const cleanAdded = (v, kind, strict) => {
+    const arr = v && typeof v === 'object' && Array.isArray(v[kind]) ? v[kind] : [];
+    const out = []; for (const x of arr) { const t = typeof x === 'string' ? x.replace(/\s+/g, ' ').trim() : ''; if (!addedOk(t, kind) || out.includes(t)) { if (strict) return null; continue; } out.push(t); }
+    return out.length > ADDED_MAX ? (strict ? null : out.slice(0, ADDED_MAX)) : out;
+  };
+  const cleanOrder = (v, kind, all) => { const arr = v && typeof v === 'object' && Array.isArray(v[kind]) ? v[kind] : []; const out = []; for (const x of arr) if (typeof x === 'string' && all.includes(x) && !out.includes(x)) out.push(x); return out; };
+  const orderAdded = () => { const O = window.IBOrders; const d = O && O.data ? O.data() : null; const st = (d && d.statuses) || orderRows || []; return st.filter((r) => r && r.base).map((r) => r.system_status); };
+  let orderRows = null; // status_map read by the settings page (orderStatuses)
+  // the added confirmation / product statuses ({ confirm, sub })
+  function addedStatuses() { const src = listSrc() || {}; return { confirm: cleanAdded(src.statusAdded, 'confirm'), sub: cleanAdded(src.statusAdded, 'sub') }; }
+  // a list as the pages show it: the base values with the added ones, in the saved order
+  function statusList(kind) {
+    if (!ADDED_KINDS.includes(kind)) return (STATUS_KINDS[kind] || []).slice();
+    const src = listSrc() || {}; const all = STATUS_KINDS[kind].concat(cleanAdded(src.statusAdded, kind));
+    const ord = cleanOrder(src.statusOrder, kind, all); return ord.concat(all.filter((x) => !ord.includes(x)));
+  }
   const cleanLabels = (v, src) => {
     const out = {}; if (!v || typeof v !== 'object' || Array.isArray(v)) return out;
     for (const kind of Object.keys(STATUS_KINDS)) {
@@ -370,7 +394,15 @@
     const kinds = kindsGiven ? cleanKinds(next.expenseKinds, true) : cleanKinds(saved && saved.expenseKinds);
     if (!kinds) return { ok: false, reason: 'invalid', field: 'expenseKinds' };
     if (kinds.length || (saved && saved.expenseKinds)) row.expenseKinds = kinds;
-    const lsrc = { expenseKinds: kinds };
+    // the added confirmation / product statuses and their order (decision 22): given → checked strictly, else what is saved
+    const addedGiven = next && Object.prototype.hasOwnProperty.call(next, 'statusAdded');
+    const added = {}; for (const k of ADDED_KINDS) { const a = cleanAdded(addedGiven ? next.statusAdded : saved && saved.statusAdded, k, addedGiven); if (!a) return { ok: false, reason: 'invalid', field: 'statusAdded' }; added[k] = a; }
+    if (added.confirm.length || added.sub.length || (saved && saved.statusAdded)) row.statusAdded = added;
+    const orderGiven = next && Object.prototype.hasOwnProperty.call(next, 'statusOrder');
+    const osrc = orderGiven ? next.statusOrder : saved && saved.statusOrder; const ord = {};
+    for (const k of ADDED_KINDS) { const o = cleanOrder(osrc, k, STATUS_KINDS[k].concat(added[k])); if (o.length) ord[k] = o; }
+    if (Object.keys(ord).length) row.statusOrder = ord;
+    const lsrc = { expenseKinds: kinds, statusAdded: added };
     if (next && Object.prototype.hasOwnProperty.call(next, 'labels')) { const lb = cleanLabels(next.labels, lsrc); if (Object.keys(lb).length) row.labels = lb; }
     else if (saved && saved.labels) { const lb = cleanLabels(saved.labels, lsrc); if (Object.keys(lb).length) row.labels = lb; }
     const r = await save('lists', row, { merge: false });
@@ -379,7 +411,53 @@
     return { ok: true, lists: lists() };
   }
 
-  window.IBSettings = { load, ensure, loadPublic, clear, data, section, sections: () => Object.assign({}, data.sections), roles, liveRoles, public: () => data.public, can, PERMS, PERM_KEYS, lists, saveLists, statusLabel, STATUS_KINDS, expenseKinds, weekStart, KIND_MAX, KINDS_MAX,
+  // ---------- the order statuses (decision 22, 0095): status_map — a base row is renamed through its label only; an added row
+  // «بتتحسب زي» a base (orders keep the base in status, the added one in status_custom), its own WooCommerce slug or its base's ----------
+  const BASES = STATUS_KINDS.order; const SLUG = /^[a-z0-9][a-z0-9-]{0,39}$/;
+  const ORDER_MESSAGES = { name: 'اسم الحالة من 2 لـ 30 حرف ومن غير < >', exists: 'فيه حالة بالاسم ده', base: 'اختار الحالة الأساسية اللي بتتحسب زيها', slug: 'المقابل على الموقع: حروف إنجليزي صغيرة وأرقام و - بس (لحد 40)', in_use: 'عليها أوردرات — مينفعش تتمسح', names: 'الترتيب لازم يكون بكل الحالات', base_status: 'الحالة الأساسية مابتتمسحش' };
+  const oNo = (field, reason) => ({ ok: false, reason: reason || 'invalid', field, message: ORDER_MESSAGES[field] || MESSAGES[reason || 'invalid'] });
+  async function orderStatuses() {
+    const cl = c(); if (!cl) return no('network');
+    try {
+      const { data: d, error } = await cl.from('status_map').select('system_status, woo_status, direction, sort, base').order('sort', { ascending: true });
+      if (error) return fail(error); orderRows = d || [];
+      return { ok: true, rows: orderRows.map((r) => ({ name: r.system_status, slug: r.woo_status || '', direction: r.direction, sort: r.sort, base: r.base || null })) };
+    } catch (e) { return no('network'); }
+  }
+  const orderFail = (r, field) => (r.ok ? r : r.reason === 'exists' ? oNo('exists', 'exists') : /in_use/.test(String(r.raw || '')) ? oNo('in_use') : r.reason === 'invalid' ? oNo(field) : r);
+  async function orderRpc(name, args, field) {
+    const cl = c(); if (!cl) return no('network');
+    try {
+      const { error } = await cl.rpc(name, args);
+      if (error) { if (String(error.code) === '23503') return oNo('in_use'); if (String(error.code) === '22023' && /base status/.test(String(error.message || ''))) return oNo('base_status'); return orderFail(fail(error), field); }
+      return { ok: true };
+    } catch (e) { return no('network'); }
+  }
+  const after = async (r, what, detail) => { if (!r.ok) return r; log('statuses.' + what, detail); await orderStatuses(); emit(); return { ok: true }; };
+  async function orderStatusAdd(f) {
+    if (!can().admin) return no('forbidden');
+    const name = clean(f && f.name, 40); const base = String((f && f.base) || ''); const slug = clean(f && f.slug, 40).toLowerCase();
+    if (name.length < 2 || name.length > 30 || /[<>]/.test(name)) return oNo('name');
+    if (!BASES.includes(base)) return oNo('base');
+    if (slug && !SLUG.test(slug)) return oNo('slug');
+    return after(await orderRpc('order_status_add', { p_name: name, p_base: base, p_slug: slug || null }, 'name'), 'add', 'order');
+  }
+  async function orderStatusSlug(name, slug) {
+    if (!can().admin) return no('forbidden');
+    const s2 = clean(slug, 40).toLowerCase(); if (s2 && !SLUG.test(s2)) return oNo('slug');
+    return after(await orderRpc('order_status_slug', { p_name: String(name), p_slug: s2 || null }, 'slug'), 'slug', 'order');
+  }
+  async function orderStatusDelete(name) {
+    if (!can().admin) return no('forbidden');
+    return after(await orderRpc('order_status_delete', { p_name: String(name) }, 'name'), 'delete', 'order');
+  }
+  async function orderStatusOrder(names) {
+    if (!can().admin) return no('forbidden');
+    if (!Array.isArray(names) || !names.length) return oNo('names');
+    return after(await orderRpc('order_status_order', { p_names: names.map(String) }, 'names'), 'order', 'order · ' + names.length);
+  }
+
+  window.IBSettings = { load, ensure, loadPublic, clear, data, section, sections: () => Object.assign({}, data.sections), roles, liveRoles, public: () => data.public, can, PERMS, PERM_KEYS, lists, saveLists, statusLabel, STATUS_KINDS, expenseKinds, statusList, addedStatuses, orderStatuses, orderStatusAdd, orderStatusSlug, orderStatusDelete, orderStatusOrder, ADDED_MAX, ADDED_LEN, weekStart, KIND_MAX, KINDS_MAX,
     save, setRolePerms, createRole, updateRole, deleteRole, setMemberRole, setMemberRoles, setMemberPerms, setMemberStatus, sessions, revokeSession, deviceOf,
     links, setSecret, wooSet, testSecret, unlink, connections, notifyStatus, notifyTick, activity, pageOf, docs, addDoc, updateDoc, removeDoc, docUrl, uploadLogo, logoUrl, LOGO_SLOTS };
 })();

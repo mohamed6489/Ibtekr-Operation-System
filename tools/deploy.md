@@ -1069,9 +1069,13 @@ select data from public.settings where section = 'lists';
 الإضافة بيرجّع الزائر لسلته) — بتبعت بس لرقم **موجود في العملاء** وموافق على التسويق، وبعد `cart.afterMin` دقيقة (إعدادات الإرسال الآلي)، والمفتاح الرئيسي
 شغال.
 
+**موقوف من 14 نوفمبر (`0085`):** صاحب المشروع ماركّبش الـ snippet، فالـ cron كان بيفشل كل تشغيلة (الموقع بيرد على المسار المش معروف بـ 401
+`invalid_username`) — `0085_carts_cron_off.sql` شاله، و`woo-sync` بقى بيعتبر الـ 401 ده «مش متركّب» زي الـ 404. **لو الـ snippet اتركّب بعدين:**
+شغّل بلوك الـ cron بتاع `0062` تاني (re-runnable) والجزء يرجع كل 10 دقايق.
+
 **التحقق:**
 ```sql
-select jobname, schedule, active from cron.job where jobname = 'woo-sync-carts';
+select jobname, schedule, active from cron.job where jobname = 'woo-sync-carts';   -- من 0085: مفيش صف
 select entity, result, detail from public.woo_sync_log where entity = 'cs_carts' order by at desc limit 3;   -- installed: true/false وعدد الصفوف
 select status, count(*) from public.cs_carts group by 1;                                                       -- أعداد بس
 ```
@@ -2019,3 +2023,9 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 2. `rls_agent_chats` live (workflow «RLS live»، `files = rls_agent_chats`).
 3. انشر `ai-content` (`agent`) و`ai-images` (`agent_image`) من «Deploy functions».
 4. الواجهة على `main`. التجربة: «التسويق › مساعدين الذكاء الاصطناعي» → «شات جديد» مع الديزاينر → اطلب صورة → «ولّد الصورة» (من كريدت الصور)؛ ⚙️ الإعدادات للأدمن.
+
+#### 2.7.69 السلة المتروكة: الـ cron موقوف (14 نوفمبر)
+
+1. `0085_carts_cron_off.sql` على المشروع (اتطبّق من الجلسة بـ SQL — `cron.unschedule('woo-sync-carts')` + صف `schema_migrations`).
+2. انشر `woo-sync` من «Deploy functions» (الـ 401 `invalid_username` على `ibtekr/v1/carts` = `installed: false` من غير صف غلط).
+3. التحقق: `select count(*) from cron.job where jobname = 'woo-sync-carts';` = 0، ومفيش صفوف `error` جديدة في `woo_sync_log` بتاعة `carts`.

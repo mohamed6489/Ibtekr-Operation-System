@@ -2459,6 +2459,17 @@ Deno.test('carts: the site snippet\'s rows → cs_carts on cart_id (phone, name,
   const r2 = await call(none.deps, { action: 'carts' });
   assertEquals([r2.res.status, r2.body.counts], [200, { installed: false, carts: 0, bad: 0, failed_rows: 0 }]);
   assertEquals(none.db.rows('woo_sync_log').filter((r: any) => r.entity === 'cs_carts').length, 0, 'no log row while the snippet is not on the site'); assertEquals(none.db.rows('cs_carts').length, 0);
+  // the live site without the snippet (9–14 Nov): WordPress answers the unknown route with 401 invalid_username (it reads the WC keys as
+  // an application password) — the same «not installed», for the pull and the probe; any other 401 is still a failure
+  const wp401 = { status: 401, body: { code: 'invalid_username', message: 'Unknown username.', data: { status: 401 } } };
+  const off = setup({ routes: { 'GET ibtekr/v1/carts': wp401 } });
+  const r3 = await call(off.deps, { action: 'carts' });
+  assertEquals([r3.res.status, r3.body.counts], [200, { installed: false, carts: 0, bad: 0, failed_rows: 0 }]);
+  assertEquals(off.db.rows('woo_sync_log').filter((r: any) => r.entity === 'cs_carts' || r.result === 'error').length, 0, 'no error row');
+  const p3 = await call(off.deps, { action: 'carts', probe: true }, { jwt: 'jwt-admin' });
+  assertEquals([p3.res.status, p3.body.installed], [200, false]);
+  const bad = setup({ routes: { 'GET ibtekr/v1/carts': { status: 401, body: { code: 'woocommerce_rest_cannot_view', message: 'no' } } } });
+  assert((await call(bad.deps, { action: 'carts' })).res.status >= 500, 'a refusal of the keys by the snippet itself stays a failure');
 });
 
 Deno.test('inventory_push: the owned SKUs\' available pieces onto the product and its translation (manage_stock + stock_quantity), the mirror follows; a «أمانة» SKU untouched; a SKU not on the site counted missing; inventory.edit + products.edit; never the sync secret', async () => {

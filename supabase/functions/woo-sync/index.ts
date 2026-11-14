@@ -100,8 +100,8 @@
 //   'carts'  (phase 12 T7, decisions 7 / 13)  the visitor's abandoned carts from the site's snippet (tools/wp-snippets/ibtekr-carts.php
 //              over CartFlows' table) — GET ibtekr/v1/carts?hours=48 with the WC keys → cs_carts on cart_id (the phone and e-mail
 //              the visitor typed, the total, the item count, the plugin's status and recovery link; never the contents). The snippet
-//              not installed (404) = ok with installed: false, no error row. The cron woo-sync-carts (0062) runs it every 10 minutes;
-//              by hand the admin.
+//              not installed (404, or 401 invalid_username — the route unknown to WordPress) = ok with installed: false, no error
+//              row. The cron woo-sync-carts (0062) ran it every 10 minutes — off since 0085 (the owner keeps the snippet off); by hand the admin.
 //   'products' { full: true }  (phase 5, decision 4) every product of both languages by id, page by page from
 //              sync_state['products_full'] (the products the delta cursor missed); the delta 'products' pull itself reads
 //              the default language, then lang=ar, then status=trash, each with its own cursor.
@@ -1165,6 +1165,9 @@ async function pullAccounts(run: Run) {
 }
 
 // phase 12 T7: the visitor's abandoned carts — the site's snippet over CartFlows' table, mirrored on cart_id (no contents, no address)
+// The snippet not on the site: 404, or 401 «invalid_username» — the route is unknown, so WordPress core reads the WooCommerce keys
+// as an application password and refuses them before routing (live 9–14 Nov, every run: the owner keeps the snippet off — 9 Nov)
+const cartsMissing = (e: unknown) => e instanceof WooError && (e.status === 404 || (e.status === 401 && /invalid_username|rest_no_route/.test(e.message)));
 // the probe (the admin): what the site keeps abandoned carts in — the tables found, their columns, the name-mapping, row counts; no rows
 async function probeCarts(run: Run) {
   const woo = run.woo();
@@ -1172,7 +1175,7 @@ async function probeCarts(run: Run) {
     const res = await woo.get(CART_PATH, { probe: 1 });
     return { installed: true, probe: isObj(res.data) ? res.data : {} };
   } catch (e) {
-    if (e instanceof WooError && e.status === 404) return { installed: false, probe: null };
+    if (cartsMissing(e)) return { installed: false, probe: null };
     throw e;
   }
 }
@@ -1183,7 +1186,7 @@ async function pullCarts(run: Run) {
     const res = await woo.get(CART_PATH, { hours: CART_HOURS });
     data = Array.isArray(res.data) ? res.data : [];
   } catch (e) {
-    if (e instanceof WooError && e.status === 404) return { installed: false, carts: 0, bad: 0, failed_rows: 0 }; // the snippet or the plugin is not on the site
+    if (cartsMissing(e)) return { installed: false, carts: 0, bad: 0, failed_rows: 0 }; // the snippet or the plugin is not on the site
     throw e;
   }
   const { rows, bad } = cartRows(data, { siteUrl: run.env.WOO_URL, now: run.now() });

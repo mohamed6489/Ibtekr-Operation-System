@@ -11,7 +11,7 @@
     ['general', 'عام', 'بيانات الشركة واللغة والعرض', 'home'], ['team', 'الفريق والصلاحيات', 'الأعضاء والأدوار والدعوات', 'users'], ['integrations', 'الربط بالمنصات', 'WooCommerce وAirtable وواتساب', 'external'], ['ai', 'تعليمات الذكاء الاصطناعي', 'الصور، الفيديو، والمحتوى بأسلوب إبتكر', 'sparkle'],
     ['hr', 'الموارد البشرية', 'مديري الأدوار والدوام والأوفر تايم والمرتبات والإجازات والعطلات', 'briefcase'], ['makers', 'إعدادات المبتكرين', 'قواعد التأخير والتنشيط', 'truck'], ['inventory', 'المخزن', 'الأماكن والسحب والتنبيهات والمرتجع', 'box'], ['notifications', 'التنبيهات', 'الأنواع والتصعيد وساعات الهدوء', 'bell'], ['lists', 'القوائم والحالات', 'الحالات والأسباب والفئات', 'sliders'],
     ['payments', 'الحسابات والدفع', 'الحسابات والتحويلات والفاتورة', 'wallet'], ['activity', 'سجل النشاط', 'مين عمل إيه وإمتى', 'activity'], ['security', 'الأمان', 'كلمة السر والجلسات والسياسات', 'alert'], ['docs', 'الأوراق الرسمية', 'السجل التجاري والبطاقة الضريبية والعقود', 'file'], ['brand', 'الهوية البصرية', 'ألوان الموقع واللوجو والخطوط', 'image'], ['data', 'البيانات', 'تصدير واستيراد ونسخ احتياطي', 'download'], ['quick', 'الإجراءات السريعة', 'روابط لأي صفحة بفلاترها في القايمة اللي فوق', 'zap']];
-  const st = { sec: 'home', ntab: 'types', itab: 'site', teamSub: 'members', integ: null, list: 'order', open: {}, nopen: {}, aopen: {}, dirty: false, draft: null, mq: '', pending: new Set() };
+  const st = { sec: 'home', ntab: 'types', itab: 'site', teamSub: 'members', plevel: 'employee', roleOpen: null, integ: null, list: 'order', open: {}, nopen: {}, aopen: {}, dirty: false, draft: null, mq: '', pending: new Set() };
   const R = () => window.IBPages.render('settings');
   const note = (t) => h('p', { class: 't-small help', style: 'margin:0' }, t);
   let ROLES = ['أدمن', 'عمليات', 'خدمة العملاء', 'حسابات', 'متابعة المبتكرين', 'مشاهد'];
@@ -514,7 +514,7 @@
         { id: 'activate', label: 'تفعيل', icon: 'check', run: (ids, done) => { const l = pickM(ids).filter((m) => m.status === 'suspended'); if (!l.length) { K.toast('مفيش أعضاء موقوفين في المحدد', 'error'); return; } (async () => { let n = 0; for (const m of l) { if (!m.uid) continue; const r = await SETT().setMemberStatus(m.uid, 'active', ''); if (!r.ok) { fail(r, 'التفعيل'); continue; } m.status = 'active'; n++; } done('اتفعّل ' + n + ' أعضاء'); })(); } },
         { id: 'resend', label: 'إعادة إرسال الدعوات', icon: 'send', run: (ids, done) => { const l = pickM(ids).filter((m) => m.status === 'invited'); if (!l.length) { K.toast('مفيش دعوات معلّقة في المحدد', 'error'); return; } done('اتبعتت ' + l.length + ' دعوة تاني'); } }] });
       out.push(K.Section('الأعضاء', [h('div', { class: 'toolbar' }, h('label', { class: 'search-field' }, Icon('search', 'sm'), srch), h('span', { class: 'grow' }), Button({ type: 'primary', label: '+ إضافة عضو', onClick: () => invite() })),
-        MB.bar(), U.Table({ headers: [MB.head(), 'العضو', 'الدور', 'الحالة', 'قنوات خدمة العملاء', 'آخر دخول', 'صلاحيات مخصصة', ''], rows: list.map((m) => [m.id === 'M01' ? '' : MB.box(m.id, m.name), h('span', { class: 'mlink' }, U.Avatar(m.name), h('span', null, h('b', null, m.name), h('small', { dir: 'ltr' }, m.email))), m.id === 'M01' ? K.Tag('brand', 'أدمن (المالك)') : roleSelect(m), stTag(m), K.chanAll(m) ? K.Tag('brand', 'كل القنوات') : chanLabelsOf(m).length ? h('span', { class: 'chips' }, chanLabelsOf(m).map((n) => h('span', { class: 'list-chip' }, n))) : h('span', { class: 't-small help' }, '—'), m.lastLogin || '—', m.override ? K.Tag('gold', m.override + ' تجاوز') : '—',
+        MB.bar(), U.Table({ headers: [MB.head(), 'العضو', 'الدور', 'الحالة', 'قنوات خدمة العملاء', 'آخر دخول', 'صلاحيات مخصصة', ''], rows: list.map((m) => [m.id === 'M01' ? '' : MB.box(m.id, m.name), h('span', { class: 'mlink' }, U.Avatar(m.name), h('span', null, h('b', null, m.name), h('small', { dir: 'ltr' }, m.email))), m.id === 'M01' ? K.Tag('brand', 'أدمن (المالك)') : h('div', { class: 'role-lvl' }, roleSelect(m), levelSelect(m)), stTag(m), K.chanAll(m) ? K.Tag('brand', 'كل القنوات') : chanLabelsOf(m).length ? h('span', { class: 'chips' }, chanLabelsOf(m).map((n) => h('span', { class: 'list-chip' }, n))) : h('span', { class: 't-small help' }, '—'), m.lastLogin || '—', m.override ? K.Tag('gold', m.override + ' تجاوز') : '—',
           m.id === 'M01' ? h('span', { class: 't-small help' }, '—') : K.RowMenu([{ label: 'صلاحيات مخصصة', icon: 'sliders', run: () => customPerms(m) }, { label: 'قنوات خدمة العملاء', icon: 'headset', run: () => memberChans(m) }, { label: 'تنبيهات مخصصة', icon: 'bell', run: () => memberAlerts(m) }, m.status === 'active' ? { label: 'فتح الملف', icon: 'users', run: () => { location.hash = 'hr-team'; } } : null, m.status === 'invited' ? { label: 'إعادة إرسال الدعوة', icon: 'send', run: () => K.toast('اتبعتت الدعوة تاني لـ ' + m.email) } : null, m.status === 'invited' ? { label: 'إلغاء الدعوة', icon: 'close', danger: true, run: () => cancelInvite(m) } : { label: m.status === 'suspended' ? 'إعادة تفعيل' : 'إيقاف العضو', icon: 'alert', danger: m.status !== 'suspended', run: () => suspend(m) }, m.uid && m.uid !== (window.IBDirectory.me() || {}).id ? { label: 'حذف العضو نهائي', icon: 'trash', danger: true, run: () => deleteMember(m) } : null].filter(Boolean), 'إجراءات ' + m.name)]) }),
         note('العضو الجديد بيتضاف من «الموارد البشرية › إضافة عضو» بدوره: بيوصله إيميل بلينك يعمل منه الباسورد بتاعه (لما Resend يبقى متظبط في «الربط والمفاتيح»)، وغير كده باسورد مؤقت بيظهر مرة واحدة. «ابعت إيميل الباسورد تاني» و«باسورد مؤقت جديد» من قايمة العضو في الموارد البشرية.'), U.InlineNote({ children: 'الإيقاف بيقفل الدخول فورًا ويحتفظ بسجل نشاطه وأوردراته وحركاته، وإعادة التفعيل من ⋮ بجانب العضو. «حذف العضو نهائي» من ⋮ هنا أو من الموارد البشرية — بس لعضو ماعملش أي حاجة في السيستم؛ اللي له سجل بيتوقف مش بيتمسح.' })],
         null, { noun: ['عضو', 'الأعضاء'], total: S.members.filter((m) => m.status === 'active').length + ' نشطين · ' + invites.length + ' دعوة معلّقة', sub: 'المالك لا يمكن إزالته ولا تخفيض دوره' }));
@@ -525,14 +525,28 @@
   function roleSelect(m) { return h('div', { class: 'inline-sel' }, U.Select({ id: 'role-' + m.id, label: '', options: liveNames().map((r) => ({ value: r, label: r })), value: m.role, onChange: (v) => { const old = m.role; m.role = v; LOGV('settings.member.role', m.name + ': ' + old + ' ← ' + v); K.toast('دور ' + m.name + ' بقى ' + v); R(); } })); }
   const SYM = { F: ['✓', 'مسموح', 'full'], P: ['▣', 'جزئي (عرض بدون تعديل)', 'part'], N: ['☐', 'غير مسموح', 'none'] };
   const pmMark = (c) => (c === 'N' ? '○' : Icon(c === 'F' ? 'check' : 'eye', 'sm')); // decision 6: the notifications matrix's marks
+  // owner batch 2 decision 2: the three levels of a role (0096 — profiles.level, roles.level_perms)
+  const PLEVELS = [['manager', 'صلاحيات المدير', 'مدير'], ['employee', 'صلاحيات الموظف', 'موظف'], ['viewer', 'صلاحيات المشاهد', 'مشاهد']];
+  const levelName = (l) => (PLEVELS.find((x) => x[0] === l) || PLEVELS[1])[2];
+  const memberLevel = (m) => m.level || 'employee';
+  // a member's level on his main role (the admin; the owner and an admin have none)
+  function levelSelect(m) {
+    if (!m.uid || roleIdOf(m.role) === 'admin') return null;
+    return h('div', { class: 'inline-sel' }, U.Select({ id: 'lvl-' + m.id, label: '', options: PLEVELS.map(([v, , l]) => ({ value: v, label: l })), value: memberLevel(m), onChange: async (v) => { const old = memberLevel(m); const r = await SETT().setMemberLevel(m.uid, v); if (!r.ok) { fail(r, 'تغيير المستوى'); R(); return; } m.level = v; K.toast('مستوى ' + m.name + ': ' + levelName(old) + ' ← ' + levelName(v), 'success'); R(); } }));
+  }
+  function setPLevel(level) { if (!C.permsBy || !C.permsBy[level]) return; st.plevel = level; C.perms.splice(0, C.perms.length, ...C.permsBy[level]); }
   function rolesView() {
     const L = live(); const roles = L.map((x) => x[0]); const all = C.perms.every(([g]) => st.open[g] !== false);
     const fullCount = (ci) => C.perms.reduce((n, [, rows]) => n + rows.filter(([, v]) => (ci === 0 ? 'F' : (v[ci] || 'N')) === 'F').length, 0);
     const isOpen = (g) => st.open[g] !== false;
-    return [K.Section('الأدوار', h('div', { class: 'chips' }, L.map(([r, ci]) => h('button', { type: 'button', class: 'list-chip role-chip', 'aria-haspopup': 'dialog', title: roleDesc(r), onClick: () => rolePopup(r, ci) }, r + ' · ' + S.members.filter((m) => m.role === r).length)), Button({ type: 'text', label: '+ دور مخصص', onClick: () => customRole() })), null, { sub: 'اضغط على أي دور تفتح إعداداته: البيانات والصلاحيات والتنبيهات والحذف — اسم الدور ووصفه بيظهروا عند الدعوة' }),
+    const open = L.find(([r]) => r === st.roleOpen);
+    const levelPanel = open ? h('div', { class: 'role-levels', 'data-role-levels': open[0] }, PLEVELS.map(([lv, , short]) => { const n = S.members.filter((m) => m.role === open[0] && memberLevel(m) === lv).length;
+      return h('button', { type: 'button', class: 'chip' + (st.plevel === lv ? ' on' : ''), 'aria-pressed': String(st.plevel === lv), 'data-role-level': lv, disabled: open[1] === 0, onClick: () => { setPLevel(lv); R(); const mx = document.querySelector('#pg-settings [data-perm-matrix]'); if (mx) mx.scrollIntoView({ block: 'start', behavior: 'smooth' }); } }, short + ' · ' + n); }),
+      Button({ type: 'text', size: 'sm', label: 'إعدادات الدور', onClick: () => rolePopup(open[0], open[1]) })) : null;
+    return [K.Section('الأدوار', [h('div', { class: 'chips' }, L.map(([r, ci]) => h('button', { type: 'button', class: 'list-chip role-chip' + (st.roleOpen === r ? ' on' : ''), 'aria-expanded': String(st.roleOpen === r), title: roleDesc(r), 'data-role-chip': r, onClick: () => { st.roleOpen = st.roleOpen === r ? null : r; R(); } }, r + ' · ' + S.members.filter((m) => m.role === r).length)), Button({ type: 'text', label: '+ دور مخصص', onClick: () => customRole() })), levelPanel], null, { sub: 'اضغط على أي دور يفتح تحته المستويات (مدير · موظف · مشاهد) وصلاحيات كل مستوى — و«إعدادات الدور» للبيانات والتنبيهات والحذف. الدور الإضافي للعضو بيتحسب بصلاحيات «الموظف».' }),
       // owner batch 14 Nov decision 6: the same look as «التنبيهات حسب الدور» — marks with icons (✓ مسموح · 👁 عرض بس · ○ لا), a legend on
       // top, each group a header with its permissions and a count, the role row sticky under the top bar until the matrix ends
-      K.Section('مصفوفة الصلاحيات', [h('div', { class: 'legend t-small' }, ...Object.keys(SYM).map((k) => h('span', { class: 'pm pm-' + SYM[k][2] }, pmMark(k), ' ' + SYM[k][1])), h('span', { class: 'pm sens' }, Icon('alert', 'sm'), ' صلاحية حساسة')),
+      K.Section('مصفوفة الصلاحيات', [K.SubTabs({ items: PLEVELS.map(([id, label]) => ({ id, label })), active: st.plevel, onChange: (id) => { setPLevel(id); R(); }, label: 'مستوى الصلاحيات' }), h('div', { class: 'legend t-small' }, ...Object.keys(SYM).map((k) => h('span', { class: 'pm pm-' + SYM[k][2] }, pmMark(k), ' ' + SYM[k][1])), h('span', { class: 'pm sens' }, Icon('alert', 'sm'), ' صلاحية حساسة')),
         h('p', { class: 't-small help ntf-hint' }, 'اضغط على الخانة للتغيير (مسموح ← عرض بس ← لا). الصفوف الحساسة تغييرها بيطلب تأكيد وبيتسجل في سجل النشاط. التجاوز لعضو: الأعضاء ← ⋮ ← صلاحيات مخصصة.'),
         h('div', { class: 'mx-wrap', 'data-perm-matrix': '' }, h('div', { class: 'matrix', style: '--cols:' + roles.length }, h('div', { class: 'mx-row mx-head' }, h('span', null, 'الصلاحية'), L.map(([r, ci]) => h('span', { class: 't-label-s' }, r, h('small', { class: 't-small help', style: 'display:block' }, fullCount(ci) + ' كاملة')))),
           C.perms.map(([g, rows]) => h('div', { class: 'mx-group' + (isOpen(g) ? ' open' : '') }, h('div', { class: 'mx-gh' }, h('button', { type: 'button', class: 'acc-t', 'aria-expanded': String(isOpen(g)), onClick: () => { st.open[g] = !isOpen(g); R(); } }, h('span', { class: 't-label' }, g), h('span', { class: 't-small acc-d' }, rows.slice(0, 3).map((x) => x[0]).join(' · ') + (rows.length > 3 ? ' …' : ''))), h('span', { class: 't-small meta' }, rows.length + ' صلاحيات'), IconButton({ icon: isOpen(g) ? 'chevU' : 'chevD', label: (isOpen(g) ? 'طي ' : 'فتح ') + g, onClick: () => { st.open[g] = !isOpen(g); R(); }, attrs: { class: 'icon-btn acc-tog', 'aria-expanded': String(isOpen(g)) } })),
@@ -793,17 +807,22 @@
   const ASYM = { R: ['check', 'يستلم', 'full'], S: ['eye', 'يشوف بس', 'part'], N: ['○', 'لا', 'none'] };
   const asymMark = (c) => (c === 'N' ? '○' : Icon(ASYM[c][0], 'sm'));
   function alertRolesSec() {
-    const NR = window.IbtekrNotifRoles; if (!NR) return null; const M = K.store.alertRoles; const groups = [...new Set(NR.SOURCES.map((x) => x.section))]; const isOpen = (g) => st.aopen[g] !== false;
-    const cell = (src, ci, r) => { const ok = NR.canSee(C.perms, src, ci); const c = NR.access(M, C.perms, src.key, ci);
+    const NR = window.IbtekrNotifRoles; if (!NR) return null; const groups = [...new Set(NR.SOURCES.map((x) => x.section))]; const isOpen = (g) => st.aopen[g] !== false;
+    // owner batch 2 decision 2: the matrix of each level — «موظف» = alertRoles, «مدير» / «مشاهد» = alertLevels[level] over it (a source
+    // the level does not set reads the employee row); the permissions gate of the same level
+    const AL = (K.store.alertLevels = K.store.alertLevels || {}); const lv = st.alevel || 'employee';
+    const W = lv === 'employee' ? K.store.alertRoles : (AL[lv] = AL[lv] || {}); const M = lv === 'employee' ? W : Object.assign({}, K.store.alertRoles, W);
+    const PM = (C.permsBy && C.permsBy[lv]) || C.perms;
+    const cell = (src, ci, r) => { const ok = NR.canSee(PM, src, ci); const c = NR.access(M, PM, src.key, ci);
       if (!ok) return h('button', { type: 'button', class: 'pm pm-none', disabled: '', 'aria-label': src.label + ' — ' + r + ': مالوش صلاحية', title: 'الدور ده مالوش صلاحية «' + src.perm.g + ' › ' + src.perm.r + '»' + (src.perm.need === 'F' ? ' كاملة' : '') + ' — غيّرها من الأدوار والصلاحيات الأول' }, '—');
-      return h('button', { type: 'button', class: 'pm pm-' + ASYM[c][2], 'aria-label': src.label + ' — ' + r + ': ' + ASYM[c][1], title: ASYM[c][1] + ' — اضغط للتغيير', onClick: () => { const nx = NR.nextCode(c, ci); const v = (M[src.key] || NR.DEFAULTS[src.key]).split(''); v[ci] = nx; M[src.key] = v.join(''); LOGV('settings.alert.role', src.label + ' / ' + r + ': ' + ASYM[c][1] + ' ← ' + ASYM[nx][1]); R(); document.dispatchEvent(new Event('ib:notify')); } }, asymMark(c)); };
-    const cnt = (ci) => NR.SOURCES.filter((x) => NR.access(M, C.perms, x.key, ci) === 'R').length;
-    return K.Section('التنبيهات حسب الدور', [h('div', { class: 'legend t-small' }, ...Object.keys(ASYM).map((k) => h('span', { class: 'pm pm-' + ASYM[k][2] }, asymMark(k), ' ' + ASYM[k][1])), h('span', { class: 'pm pm-none' }, '— مالوش صلاحية')),
+      return h('button', { type: 'button', class: 'pm pm-' + ASYM[c][2], 'aria-label': src.label + ' — ' + r + ': ' + ASYM[c][1], title: ASYM[c][1] + ' — اضغط للتغيير', onClick: () => { const nx = NR.nextCode(c, ci); const v = (M[src.key] || NR.DEFAULTS[src.key]).split(''); v[ci] = nx; W[src.key] = v.join(''); LOGV('settings.alert.role', src.label + ' / ' + r + ' / ' + levelName(lv) + ': ' + ASYM[c][1] + ' ← ' + ASYM[nx][1]); R(); document.dispatchEvent(new Event('ib:notify')); } }, asymMark(c)); };
+    const cnt = (ci) => NR.SOURCES.filter((x) => NR.access(M, PM, x.key, ci) === 'R').length;
+    return K.Section('التنبيهات حسب الدور', [K.SubTabs({ items: PLEVELS.map(([id, , short]) => ({ id, label: 'تنبيهات ال' + short })), active: lv, onChange: (id) => { st.alevel = id; R(); }, label: 'مستوى التنبيهات' }), h('div', { class: 'legend t-small' }, ...Object.keys(ASYM).map((k) => h('span', { class: 'pm pm-' + ASYM[k][2] }, asymMark(k), ' ' + ASYM[k][1])), h('span', { class: 'pm pm-none' }, '— مالوش صلاحية')),
       h('p', { class: 't-small help ntf-hint' }, 'يستلم = في الجرس وعلى القنوات · يشوف بس = باهت «للعلم» من غير إشعار · اضغط على الخانة للتغيير. تجاوز لموظف: الفريق ← ⋮ ← تنبيهات مخصصة.'),
       h('div', { class: 'mx-wrap', 'data-alert-matrix': '' }, h('div', { class: 'matrix', style: '--cols:' + live().length }, h('div', { class: 'mx-row mx-head' }, h('span', null, 'التنبيه'), live().map(([r, ci]) => h('span', { class: 't-label-s' }, r, h('small', { class: 't-small help', style: 'display:block' }, cnt(ci) + ' بيستلمه')))),
         groups.map((g) => h('div', { class: 'mx-group' + (isOpen(g) ? ' open' : '') }, h('div', { class: 'mx-gh' }, h('button', { type: 'button', class: 'acc-t', 'aria-expanded': String(isOpen(g)), onClick: () => { st.aopen[g] = !isOpen(g); R(); } }, h('span', { class: 't-label' }, g), h('span', { class: 't-small acc-d' }, NTF_DESC[g] || '')), h('span', { class: 't-small meta' }, NR.SOURCES.filter((x) => x.section === g).length + ' أنواع'), IconButton({ icon: isOpen(g) ? 'chevU' : 'chevD', label: (isOpen(g) ? 'طي ' : 'فتح ') + g, onClick: () => { st.aopen[g] = !isOpen(g); R(); }, attrs: { class: 'icon-btn acc-tog', 'aria-expanded': String(isOpen(g)) } })),
           isOpen(g) ? NR.SOURCES.filter((x) => x.section === g).map((src) => h('div', { class: 'mx-row' }, h('span', null, src.label), live().map(([r, ci]) => cell(src, ci, r)))) : null))))],
-      [Button({ label: 'رجوع للافتراضي', onClick: () => K.confirm({ title: 'رجوع للافتراضي', text: 'كل تعديلات الأدوار على التنبيهات هتتشال وترجع القيم المبدئية.', okLabel: 'رجوع للافتراضي', onOk: () => { Object.keys(M).forEach((k) => delete M[k]); LOGV('settings.alert.role.reset', '—'); K.toast('رجعت للافتراضي'); R(); } }) })],
+      [Button({ label: 'رجوع للافتراضي', onClick: () => K.confirm({ title: 'رجوع للافتراضي', text: 'كل تعديلات الأدوار على التنبيهات هتتشال وترجع القيم المبدئية.', okLabel: 'رجوع للافتراضي', onOk: () => { Object.keys(W).forEach((k) => delete W[k]); LOGV('settings.alert.role.reset', levelName(lv)); K.toast('رجعت للافتراضي'); R(); } }) })],
       { sub: 'مين يستلم أنهي تنبيه — نفس فكرة مصفوفة الصلاحيات، والجرس بيتفلتر بدور كل موظف' });
   }
   function memberAlerts(m) {
@@ -1245,9 +1264,11 @@
     C.custom = custom.filter((r) => !r.hidden).map((r) => r.name); ROLE_IDS = sys.map((r) => r.id).concat(custom.filter((r) => !r.hidden).map((r) => r.id));
     C.removed = sys.filter((r) => r.hidden).map((r) => r.name);
     C.roleInfo = Object.fromEntries(sys.concat(custom).map((r) => [r.name, r.description || ROLE_DESC[r.name] || '']));
-    const all = allNames(); const lvl = (ci, key) => { const r = roles.find((x) => x.id === ROLE_IDS[ci]); return !r ? 'N' : r.id === 'admin' ? 'F' : (r.permissions[key] || 'N'); };
-    const rows = SETT().PERMS.map(([g, list]) => [g, list.map(([label, key, sens]) => [label, all.map((_, ci) => lvl(ci, key)).join(''), sens, key])]);
-    C.perms.splice(0, C.perms.length, ...rows);
+    // owner batch 2 decision 2 (0096): the matrix of each level — manager / employee / viewer (a level with no group = the employee one)
+    const all = allNames(); const S0 = SETT(); const grp = (r, level) => (S0.levelPermsOf ? S0.levelPermsOf(r, level) : r.permissions) || {};
+    const lvl = (ci, key, level) => { const r = roles.find((x) => x.id === ROLE_IDS[ci]); return !r ? 'N' : r.id === 'admin' ? 'F' : (grp(r, level)[key] || 'N'); };
+    C.permsBy = {}; PLEVELS.forEach(([level]) => { C.permsBy[level] = SETT().PERMS.map(([g, list]) => [g, list.map(([label, key, sens]) => [label, all.map((_, ci) => lvl(ci, key, level)).join(''), sens, key])]); });
+    C.perms.splice(0, C.perms.length, ...C.permsBy[st.plevel] || C.permsBy.employee);
   }
   // the matrix → the server: every live role whose levels or words differ (the admin never)
   async function syncRoles() {
@@ -1255,9 +1276,11 @@
     const all = allNames(); let touched = false;
     for (let ci = 0; ci < all.length; ci++) {
       const id = roleIdAt(ci); const r = serverRole(id); if (!r || id === 'admin' || (C.removed || []).includes(all[ci])) continue;
-      const perms = {}; C.perms.forEach(([, list]) => list.forEach((row) => { if (row[3]) perms[row[3]] = row[1][ci] || 'N'; }));
-      const changed = S0.PERM_KEYS.some((k) => (perms[k] || 'N') !== (r.permissions[k] || 'N'));
-      if (changed) { const x = await S0.setRolePerms(id, perms); if (!x.ok) fail(x, 'حفظ الصلاحيات'); touched = true; }
+      for (const [level] of PLEVELS) { // owner batch 2 decision 2: every level's group
+        const mx = (C.permsBy && C.permsBy[level]) || C.perms; const perms = {}; mx.forEach(([, list]) => list.forEach((row) => { if (row[3]) perms[row[3]] = row[1][ci] || 'N'; }));
+        const cur = S0.levelPermsOf ? S0.levelPermsOf(r, level) : r.permissions; const changed = S0.PERM_KEYS.some((k) => (perms[k] || 'N') !== ((cur || {})[k] || 'N'));
+        if (changed) { const x = S0.setRoleLevelPerms ? await S0.setRoleLevelPerms(id, level, perms) : await S0.setRolePerms(id, perms); if (!x.ok) fail(x, 'حفظ الصلاحيات'); touched = true; }
+      }
       const desc = (C.roleInfo || {})[all[ci]]; const nm = all[ci];
       if ((desc != null && desc !== (r.description || '')) || nm !== r.name) { const x = await S0.updateRole(id, { name: r.isSystem ? null : nm, desc: desc || '' }); if (!x.ok) fail(x, 'حفظ الدور'); touched = true; }
     }
@@ -1328,7 +1351,7 @@
   const codeToUid = (o) => { const out = {}; Object.keys(o || {}).forEach((code) => { const m = S.members.find((x) => x.id === code); if (m && m.uid) out[m.uid] = o[code]; }); return out; };
   const uidToCode = (o) => { const out = {}; Object.keys(o || {}).forEach((uid) => { const m = memberByUid(uid); if (m) out[m.id] = o[uid]; }); return out; };
   function notifPayload() {
-    return { notif: C.notif, escalations: C.escalations, quiet: C.quiet, alertRoles: K.store.alertRoles, alertOverrides: codeToUid(K.store.alertOverrides), digests: K.store.digests, roleDigests: K.store.roleDigests, roleDigestAt: K.store.roleDigestAt || {},
+    return { notif: C.notif, escalations: C.escalations, quiet: C.quiet, alertRoles: K.store.alertRoles, alertLevels: K.store.alertLevels || {}, alertOverrides: codeToUid(K.store.alertOverrides), digests: K.store.digests, roleDigests: K.store.roleDigests, roleDigestAt: K.store.roleDigestAt || {},
       accAlerts: K.store.accAlerts, delivery: K.store.delivery, subsAlert: K.store.subsAlert || null, whatsappTemplate: C.whatsappTemplate || 'ibtekr_alert', channels: channelsOut() };
   }
   function hydrateNotif(n) {
@@ -1338,6 +1361,7 @@
     if (n.quiet && typeof n.quiet === 'object') Object.assign(C.quiet, n.quiet);
     const fill = (target, src) => { Object.keys(target).forEach((k) => delete target[k]); Object.assign(target, src && typeof src === 'object' ? src : {}); };
     fill(K.store.alertRoles, n.alertRoles); fill(K.store.alertOverrides, uidToCode(n.alertOverrides)); fill(K.store.roleDigests, n.roleDigests);
+    K.store.alertLevels = n.alertLevels && typeof n.alertLevels === 'object' ? JSON.parse(JSON.stringify(n.alertLevels)) : {}; // owner batch 2 decision 2
     K.store.roleDigestAt = n.roleDigestAt && typeof n.roleDigestAt === 'object' ? n.roleDigestAt : (K.store.roleDigestAt || {});
     if (Array.isArray(n.digests)) K.store.digests.splice(0, K.store.digests.length, ...n.digests);
     if (n.accAlerts && typeof n.accAlerts === 'object') Object.assign(K.store.accAlerts, n.accAlerts);

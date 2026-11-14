@@ -7,14 +7,17 @@
 (function () {
   'use strict';
   let meRow = null; let rolesById = {};
-  const toMember = (p, roleName, codeOf) => ({ id: p.member_code, uid: p.id, name: p.name, role: roleName[p.role_id] || '', roleId: p.role_id || '', extraRoles: Array.isArray(p.extra_roles) ? p.extra_roles.slice() : [], extraRoleNames: (Array.isArray(p.extra_roles) ? p.extra_roles : []).map((x) => roleName[x]).filter(Boolean), title: p.title || '', dept: p.dept || '', manager: codeOf[p.manager_id] || '', managerFixed: !!p.manager_fixed /* 0092: the role's manager unless set by hand */, customPerms: p.custom_perms && typeof p.custom_perms === 'object' ? p.custom_perms : {}, override: p.custom_perms && typeof p.custom_perms === 'object' && Object.keys(p.custom_perms).length ? Object.keys(p.custom_perms).length : null, phone: p.phone || '', email: p.email, status: p.status, twofa: !!p.twofa,
+  const toMember = (p, roleName, codeOf) => ({ id: p.member_code, uid: p.id, name: p.name, role: roleName[p.role_id] || '', roleId: p.role_id || '', extraRoles: Array.isArray(p.extra_roles) ? p.extra_roles.slice() : [], extraRoleNames: (Array.isArray(p.extra_roles) ? p.extra_roles : []).map((x) => roleName[x]).filter(Boolean), title: p.title || '', dept: p.dept || '', manager: codeOf[p.manager_id] || '', managerFixed: !!p.manager_fixed /* 0092: the role's manager unless set by hand */, level: LEVELS.includes(p.level) ? p.level : 'employee' /* 0096 */, customPerms: p.custom_perms && typeof p.custom_perms === 'object' ? p.custom_perms : {}, override: p.custom_perms && typeof p.custom_perms === 'object' && Object.keys(p.custom_perms).length ? Object.keys(p.custom_perms).length : null, phone: p.phone || '', email: p.email, status: p.status, twofa: !!p.twofa,
     salary: 0, holdback: 0, allow: 0, leave: 0, used: 0, shift: ['09:00', '17:00'] }); // the HR numbers: IBHR.member(code) (phase 10)
   const quiet = (fn) => { try { return fn(); } catch (e) { return undefined; } };
+  // 0096 (owner batch 2 decision 2): a role's group at a level — manager / viewer from level_perms, else the «موظف» group (permissions)
+  const LEVELS = ['manager', 'employee', 'viewer'];
+  const levelPerms = (r, level) => { const g = r && r.level_perms && typeof r.level_perms === 'object' ? r.level_perms[level] : null; return (level !== 'employee' && g && typeof g === 'object') ? g : (r && r.permissions) || {}; };
   // the members only (the first half of load(); «إضافة عضو» calls it): same array, same objects where the member is still there
   async function refresh() {
     const c = window.IBSupabase.client; const s = window.IBAuth.session();
     if (!c || !s) throw new Error('IBDirectory.load: not signed in');
-    const [p, r] = await Promise.all([c.from('profiles').select('id, member_code, name, email, phone, role_id, extra_roles, title, dept, manager_id, manager_fixed, status, twofa, custom_perms'), c.from('roles').select('id, name, permissions, hidden, sort, manager_id')]);
+    const [p, r] = await Promise.all([c.from('profiles').select('id, member_code, name, email, phone, role_id, extra_roles, level, title, dept, manager_id, manager_fixed, status, twofa, custom_perms'), c.from('roles').select('id, name, permissions, level_perms, hidden, sort, manager_id')]);
     if (p.error || r.error) throw p.error || r.error;
     const roleName = Object.fromEntries(r.data.map((x) => [x.id, x.name])); rolesById = Object.fromEntries(r.data.map((x) => [x.id, x]));
     const codeOf = Object.fromEntries(p.data.map((x) => [x.id, x.member_code]));
@@ -71,7 +74,8 @@
     const rank = { F: 2, P: 1 }; let best = 0;
     [meRow.role_id].concat(Array.isArray(meRow.extra_roles) ? meRow.extra_roles : []).forEach((id, i) => {
       const r = rolesById[id]; if (!r || (i > 0 && (r.hidden || id === 'admin'))) return;
-      const p = r.permissions && typeof r.permissions === 'object' ? r.permissions[key] : null; best = Math.max(best, rank[p] || 0); });
+      const g = i === 0 ? levelPerms(r, meRow.level || 'employee') : r.permissions; // 0096: the main role at my level, the extras as «موظف»
+      const p = g && typeof g === 'object' ? g[key] : null; best = Math.max(best, rank[p] || 0); });
     return best === 2 ? 'F' : best === 1 ? 'P' : 'N';
   }
   // «ملفي › تعديل بياناتي» (phase 10, the owner 5 Nov): my own mobile — a member may change name / phone on their own row (RLS +

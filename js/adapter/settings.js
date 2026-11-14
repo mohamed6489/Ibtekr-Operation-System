@@ -29,7 +29,7 @@
   const reasonOf = (err) => { const code = String((err && err.code) || ''); return code === '42501' ? 'forbidden' : code === 'P0002' || code === 'PGRST116' ? 'notfound' : code === '23505' ? 'exists' : code === '0A000' ? 'no_vault' : /^2[23]/.test(code) ? 'invalid' : 'server'; };
   const fieldOf = (err) => { const m = /invalid: (\w+)/.exec(String((err && err.message) || '')); return m ? m[1] : null; };
   const MESSAGES = { forbidden: 'مفيش صلاحية للإجراء ده', notfound: 'مش موجود أو اتحذف', network: 'تعذّر الاتصال — جرّب تاني', invalid: 'البيانات مش مقبولة', exists: 'الاسم ده موجود', server: 'حصل خطأ في السيرفر', no_vault: 'الخزنة (Vault) مش متاحة في المشروع', last_admin: 'لازم يفضل أدمن واحد نشط على الأقل' };
-  const FIELD_MESSAGES = { id: 'معرّف الدور: حروف إنجليزية صغيرة وأرقام و _ بس', name: 'الاسم مطلوب (لحد 40 حرف) — اسم الدور الجاهز ثابت', base: 'اختار دور تبدأ منه', perms: 'الصلاحيات لازم تكون F أو P أو N', moves: 'كل عضو على الدور لازم يروح لدور تاني موجود', admin: 'الأدمن عنده كل الصلاحيات — مينفعش يتعدّل', self: 'مينفعش توقف نفسك', status: 'الحالة مش معروفة', reason: 'اكتب سبب الإيقاف', current: 'الجلسة الحالية بتتقفل بـ «تسجيل الخروج»', url: 'اكتب رابط الموقع كامل بـ https://', ck: 'Consumer key بيبدأ بـ ck_', cs: 'Consumer secret بيبدأ بـ cs_', key: 'المفتاح مش بالشكل المتوقع', token: 'التوكن مش بالشكل المتوقع', from: 'إيميل المرسل مش صحيح' };
+  const FIELD_MESSAGES = { level: 'المستوى: مدير أو موظف أو مشاهد', id: 'معرّف الدور: حروف إنجليزية صغيرة وأرقام و _ بس', name: 'الاسم مطلوب (لحد 40 حرف) — اسم الدور الجاهز ثابت', base: 'اختار دور تبدأ منه', perms: 'الصلاحيات لازم تكون F أو P أو N', moves: 'كل عضو على الدور لازم يروح لدور تاني موجود', admin: 'الأدمن عنده كل الصلاحيات — مينفعش يتعدّل', self: 'مينفعش توقف نفسك', status: 'الحالة مش معروفة', reason: 'اكتب سبب الإيقاف', current: 'الجلسة الحالية بتتقفل بـ «تسجيل الخروج»', url: 'اكتب رابط الموقع كامل بـ https://', ck: 'Consumer key بيبدأ بـ ck_', cs: 'Consumer secret بيبدأ بـ cs_', key: 'المفتاح مش بالشكل المتوقع', token: 'التوكن مش بالشكل المتوقع', from: 'إيميل المرسل مش صحيح' };
   const fail = (err) => { const msg = String((err && err.message) || ''); const reason = /last admin/.test(msg) ? 'last_admin' : reasonOf(err); const field = reason === 'invalid' ? fieldOf(err) : null; return { ok: false, reason, field, message: (field && FIELD_MESSAGES[field]) || MESSAGES[reason] || MESSAGES.server }; };
   const no = (reason, field) => ({ ok: false, reason, field: field || null, message: (field && FIELD_MESSAGES[field]) || MESSAGES[reason] || MESSAGES.server });
   const log = (action, detail, id) => { const L = window.IBActivity; if (L && L.log) quiet(() => L.log('settings.' + action, detail || '', { entity: 'settings', entity_id: id == null ? null : String(id) })); };
@@ -64,7 +64,7 @@
     const cl = c(); if (!cl) return { ok: false, reason: 'network' };
     if (!can().view) { data.sections = {}; data.roles = []; data.loaded = true; emit(); return { ok: true }; }
     try {
-      const [s, r] = await Promise.all([cl.from('settings').select('section, data, updated_at, updated_by').limit(LIMIT), cl.from('roles').select('id, name, description, is_system, permissions, sort, hidden').order('sort', { ascending: true }).limit(100)]);
+      const [s, r] = await Promise.all([cl.from('settings').select('section, data, updated_at, updated_by').limit(LIMIT), cl.from('roles').select('id, name, description, is_system, permissions, level_perms, sort, hidden').order('sort', { ascending: true }).limit(100)]);
       if (s.error) return fail(s.error);
       data.sections = Object.fromEntries((s.data || []).map((x) => [x.section, x.data && typeof x.data === 'object' ? x.data : {}]));
       data.meta = Object.fromEntries((s.data || []).map((x) => [x.section, { updatedAt: x.updated_at || null, updatedBy: x.updated_by || null }]));
@@ -111,6 +111,22 @@
     const r = await rpc('role_perms_set', { p_role: String(role), p_perms: permsClean(perms) }); if (!r.ok) return r;
     await load(); if (window.IBDirectory && window.IBDirectory.refresh) quiet(() => window.IBDirectory.refresh()); return { ok: true };
   }
+  // 0096 (owner batch 2 decision 2): a role's permissions at a level (employee = setRolePerms) and a member's level — the admin only
+  const MLEVELS = ['manager', 'employee', 'viewer'];
+  async function setRoleLevelPerms(role, level, perms) {
+    if (!can().admin) return no('forbidden'); if (role === 'admin') return no('invalid', 'admin');
+    if (!MLEVELS.includes(level)) return no('invalid', 'level');
+    if (level === 'employee') return setRolePerms(role, perms);
+    const r = await rpc('role_level_perms_set', { p_role: String(role), p_level: level, p_perms: permsClean(perms) }); if (!r.ok) return r;
+    await load(); if (window.IBDirectory && window.IBDirectory.refresh) quiet(() => window.IBDirectory.refresh()); return { ok: true };
+  }
+  async function setMemberLevel(uid, level) {
+    if (!can().admin) return no('forbidden'); if (!UUID.test(String(uid || '')) || !MLEVELS.includes(level)) return no('invalid', 'level');
+    const r = await rpc('member_level_set', { p_member: uid, p_level: level }); if (!r.ok) return r;
+    if (window.IBDirectory && window.IBDirectory.refresh) quiet(() => window.IBDirectory.refresh()); return { ok: true };
+  }
+  // a role's group at a level as the matrix reads it
+  const levelPermsOf = (r, level) => { const g = r && r.level_perms && typeof r.level_perms === 'object' ? r.level_perms[level] : null; return level !== 'employee' && g && typeof g === 'object' ? g : (r && r.permissions) || {}; };
   async function createRole(f) {
     if (!can().admin) return no('forbidden');
     const name = clean(f && f.name, 40); if (!name) return no('invalid', 'name');
@@ -464,7 +480,7 @@
     return after(await orderRpc('order_status_order', { p_names: names.map(String) }, 'names'), 'order', 'order · ' + names.length);
   }
 
-  window.IBSettings = { load, ensure, loadPublic, clear, data, section, sections: () => Object.assign({}, data.sections), roles, liveRoles, public: () => data.public, can, PERMS, PERM_KEYS, lists, saveLists, statusLabel, STATUS_KINDS, expenseKinds, statusList, addedStatuses, delayRules, orderStatuses, orderStatusAdd, orderStatusSlug, orderStatusDelete, orderStatusOrder, ADDED_MAX, ADDED_LEN, weekStart, KIND_MAX, KINDS_MAX,
+  window.IBSettings = { load, ensure, loadPublic, clear, data, section, sections: () => Object.assign({}, data.sections), roles, liveRoles, public: () => data.public, can, PERMS, PERM_KEYS, lists, saveLists, statusLabel, STATUS_KINDS, setRoleLevelPerms, setMemberLevel, levelPermsOf, MEMBER_LEVELS: MLEVELS, expenseKinds, statusList, addedStatuses, delayRules, orderStatuses, orderStatusAdd, orderStatusSlug, orderStatusDelete, orderStatusOrder, ADDED_MAX, ADDED_LEN, weekStart, KIND_MAX, KINDS_MAX,
     save, setRolePerms, createRole, updateRole, deleteRole, setMemberRole, setMemberRoles, setMemberPerms, setMemberStatus, sessions, revokeSession, deviceOf,
     links, setSecret, wooSet, testSecret, unlink, connections, notifyStatus, notifyTick, activity, pageOf, docs, addDoc, updateDoc, removeDoc, docUrl, uploadLogo, logoUrl, LOGO_SLOTS };
 })();

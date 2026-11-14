@@ -435,24 +435,36 @@
   // owner batch 14 Nov decision 16 (0092): the live roles (the new ones too), else the list above; the departments are out
   const roleOpts = () => { const L = (window.IBDirectory && window.IBDirectory.roles ? window.IBDirectory.roles() : []).filter((r) => r && !r.hidden).sort((a, b) => (a.sort || 0) - (b.sort || 0)); return L.length ? L.map((r) => [r.id === 'admin' ? 'مدير النظام (أدمن)' : r.name, r.id]) : ROLES; };
   const plus8 = (t) => String(Math.min(23, Number(String(t).slice(0, 2)) + 8)).padStart(2, '0') + String(t).slice(2, 5);
+  // owner batch 2 decision 4: «إضافة عضو» in three parts — البيانات الشخصية · البيانات المالية · بيانات الوظيفة (الدور · المستوى · المدير
+  // المباشر: the managers of that role only — level «مدير» in the same role; a «مدير» has no field). The level goes through
+  // IBSettings.setMemberLevel (0096, the admin) once the account is made.
+  const LEVEL_OPTS = [{ value: 'employee', label: 'موظف' }, { value: 'manager', label: 'مدير' }, { value: 'viewer', label: 'مشاهد' }];
+  const roleManagers = (roleId) => ((K.store && K.store.members) || []).filter((m) => m && m.roleId === roleId && m.level === 'manager' && (m.status || 'active') === 'active').map((m) => ({ value: m.id, label: m.name }));
+  const formSec = (title) => h('div', { class: 'form-sec', 'data-form-sec': title }, h('b', { class: 't-label' }, title));
   function addMember(prefill) { // prefill: the values of a submit the server refused — the form comes back filled (decision 13)
-    const mgrs = [{ value: '', label: 'مدير الدور (تلقائي)' }].concat(H().data.team.filter((m) => m.status === 'active').map((m) => ({ value: m.id, label: m.name })));
-    K.form({ title: 'إضافة عضو', wide: true, values: Object.assign({ shiftStart: '09:00', holdback: String(S.hrSettings.holdbackDefault || 0), role: (roleOpts().find((r) => r[1] === 'cs') || roleOpts()[0] || [''])[0], manager: '', allow: '0', leave: '21' }, prefill || {}),
-      fields: (f, e, set) => [K.two(K.field.text('name', 'الاسم بالكامل', f, e, set, { required: true }), K.field.text('title', 'الوظيفة', f, e, set, { required: true })),
-        K.two(K.field.text('email', 'الإيميل', f, e, set, { required: true, placeholder: 'name@ibtekr.club' }), K.field.text('phone', 'الموبايل', f, e, set, { inputmode: 'tel', placeholder: '01xxxxxxxxx' })),
-        K.two(K.field.select('role', 'الدور (الصلاحيات)', roleOpts().map((r) => r[0]), f, e, set, { required: true }), K.field.select('manager', 'المدير المباشر', mgrs, f, e, set, { help: 'فاضي = مدير الدور من «الإعدادات › الموارد البشرية›' })),
-        K.field.date('hire', 'تاريخ التعيين', f, e, set, { required: true, help: 'أول ' + S.hrSettings.probation + ' شهور فترة اختبار (من غير حافز ربع)' }),
-        K.two(K.field.text('salary', 'المرتب الشهري', f, e, set, { required: true, inputmode: 'decimal', suffix: 'ج.م' }), K.field.text('holdback', 'الحافز المحجوز شهريًا', f, e, set, { inputmode: 'decimal', suffix: 'ج.م', help: 'بيتصرف مع الشهر التالت حسب الـ KPI' })),
-        K.field.text('allow', 'البدلات الشهرية', f, e, set, { inputmode: 'decimal', suffix: 'ج.م', help: 'وقت العمل = ساعات العمل الرسمية أو وقت دوره — وقت مخصص له من «الإعدادات › الموارد البشرية › أوقات عمل مخصصة»' }),
-        K.field.text('leave', 'رصيد الإجازات السنوي', f, e, set, { inputmode: 'numeric', suffix: 'يوم' }),
-        f.salary && Number(f.salary) > 0 ? U.InlineNote({ children: 'سعر اليوم ' + K.money(O.rates(Number(f.salary)).daily) + ' ج · سعر الساعة ' + K.money(O.rates(Number(f.salary)).hourly) + ' ج · المصروف شهريًا ' + K.money(O.monthlyPaid(Number(f.salary), Number(f.holdback) || 0)) + ' ج' }) : null,
-        note('هيتعمل له حساب دخول بالإيميل، وهيوصله إيميل بلينك يعمل منه الباسورد بتاعه (لو Resend متظبط في الإعدادات › الربط والمفاتيح). لو الإيميل مش متظبط هيظهر لك باسورد مؤقت مرة واحدة تبعته له بنفسك.')],
+    K.form({ title: 'إضافة عضو', wide: true, values: Object.assign({ shiftStart: '09:00', holdback: String(S.hrSettings.holdbackDefault || 0), role: (roleOpts().find((r) => r[1] === 'cs') || roleOpts()[0] || [''])[0], level: 'employee', manager: '', allow: '0', leave: '21' }, prefill || {}),
+      fields: (f, e, set) => { const rid = (roleOpts().find((r) => r[0] === f.role) || [])[1] || ''; const mg = [{ value: '', label: 'مدير الدور (تلقائي)' }].concat(roleManagers(rid));
+        return [formSec('البيانات الشخصية'),
+          K.two(K.field.text('name', 'الاسم بالكامل', f, e, set, { required: true }), K.field.text('phone', 'الموبايل', f, e, set, { inputmode: 'tel', placeholder: '01xxxxxxxxx' })),
+          K.field.text('email', 'الإيميل', f, e, set, { required: true, placeholder: 'name@ibtekr.club' }),
+          formSec('البيانات المالية'),
+          K.two(K.field.text('salary', 'المرتب الشهري', f, e, set, { required: true, inputmode: 'decimal', suffix: 'ج.م' }), K.field.text('holdback', 'الحافز المحجوز شهريًا', f, e, set, { inputmode: 'decimal', suffix: 'ج.م', help: 'بيتصرف مع الشهر التالت حسب الـ KPI' })),
+          K.two(K.field.text('allow', 'البدلات الشهرية', f, e, set, { inputmode: 'decimal', suffix: 'ج.م' }), K.field.text('leave', 'رصيد الإجازات السنوي', f, e, set, { inputmode: 'numeric', suffix: 'يوم' })),
+          f.salary && Number(f.salary) > 0 ? U.InlineNote({ children: 'سعر اليوم ' + K.money(O.rates(Number(f.salary)).daily) + ' ج · سعر الساعة ' + K.money(O.rates(Number(f.salary)).hourly) + ' ج · المصروف شهريًا ' + K.money(O.monthlyPaid(Number(f.salary), Number(f.holdback) || 0)) + ' ج' }) : null,
+          formSec('بيانات الوظيفة'),
+          K.two(K.field.text('title', 'الوظيفة', f, e, set, { required: true }), K.field.date('hire', 'تاريخ التعيين', f, e, set, { required: true, help: 'أول ' + S.hrSettings.probation + ' شهور فترة اختبار (من غير حافز ربع)' })),
+          K.two(K.field.select('role', 'الدور', roleOpts().map((r) => r[0]), f, e, set, { required: true }), rid === 'admin' ? null : K.field.select('level', 'المستوى', LEVEL_OPTS, f, e, set, { help: 'صلاحيات المستوى من «الإعدادات › الأدوار والصلاحيات»' })),
+          rid === 'admin' || f.level === 'manager' ? null : K.field.select('manager', 'المدير المباشر', mg, f, e, set, { help: mg.length > 1 ? 'مديري الدور ده بس — فاضي = مدير الدور من «الإعدادات › الموارد البشرية»' : 'مفيش مدير بمستوى «مدير» في الدور ده لسه — بياخد مدير الدور' }),
+          note('هيتعمل له حساب دخول بالإيميل، وهيوصله إيميل بلينك يعمل منه الباسورد بتاعه (لو Resend متظبط في الإعدادات › الربط والمفاتيح). لو الإيميل مش متظبط هيظهر لك باسورد مؤقت مرة واحدة تبعته له بنفسك. وقت العمل = ساعات العمل الرسمية أو وقت دوره.')]; },
       validate: (f) => { const e = K.req(f, ['name', 'title', 'email', 'salary', 'hire']); if (f.email && O.identifierKind(f.email) !== 'email') e.email = 'اكتب إيميل صحيح'; else if (H().data.team.some((m) => (m.email || '').toLowerCase() === String(f.email).trim().toLowerCase())) e.email = 'الإيميل ده موجود بالفعل'; if (f.phone && O.identifierKind(f.phone) !== 'phone') e.phone = 'اكتب رقم موبايل مصري صحيح (11 رقم)'; if (f.salary && !(Number(f.salary) > 0)) e.salary = 'اكتب مبلغ أكبر من صفر'; else if (Number(f.holdback) >= Number(f.salary)) e.holdback = 'الحافز المحجوز لازم أقل من المرتب'; if (f.leave !== '' && !(Number(f.leave) >= 0 && Number(f.leave) <= 365)) e.leave = 'من 0 لـ 365'; return e; },
       // phase 13 decision 13 (the owner): the popup closes the moment «إضافة وعمل الحساب» is pressed; the password modal follows when the
       // server answers, and a refusal brings the form back filled with the same values + the reason
       submitLabel: 'إضافة وعمل الحساب', submit: (f, m) => { m.close(); K.toast('بيتعمل الحساب…');
-        H().memberCreate({ name: f.name.trim(), title: f.title, email: f.email.trim(), phone: f.phone ? O.toLatin(f.phone) : '', role: (roleOpts().find((r) => r[0] === f.role) || ROLES[1])[1], manager: f.manager, hire: f.hire, shiftStart: f.shiftStart, shiftEnd: plus8(f.shiftStart), salary: Number(f.salary), holdback: Number(f.holdback) || 0, allow: Number(f.allow) || 0, leave: f.leave })
-          .then((r) => { if (r && r.ok) { const warn = r.payOk === false ? 'الحساب اتعمل بس المرتب ماتسجلش — سجّله من ملف العضو.' : ''; if (r.mailed) showMailed(f.name.trim(), r.code, r.email || f.email.trim(), warn); else showPassword(f.name.trim(), r.code, r.password, warn); } else { K.toast((r && r.message) || 'حصلت مشكلة — جرّب تاني', 'error'); addMember(f); } });
+        const rid = (roleOpts().find((r) => r[0] === f.role) || ROLES[1])[1]; const level = rid === 'admin' ? 'employee' : (f.level || 'employee');
+        H().memberCreate({ name: f.name.trim(), title: f.title, email: f.email.trim(), phone: f.phone ? O.toLatin(f.phone) : '', role: rid, manager: level === 'manager' ? '' : f.manager, hire: f.hire, shiftStart: f.shiftStart, shiftEnd: plus8(f.shiftStart), salary: Number(f.salary), holdback: Number(f.holdback) || 0, allow: Number(f.allow) || 0, leave: f.leave })
+          .then(async (r) => { if (r && r.ok) { let warn = r.payOk === false ? 'الحساب اتعمل بس المرتب ماتسجلش — سجّله من ملف العضو.' : '';
+            if (level !== 'employee' && r.uid && window.IBSettings && window.IBSettings.setMemberLevel) { const lv = await window.IBSettings.setMemberLevel(r.uid, level); if (!lv.ok) warn = (warn ? warn + ' ' : '') + 'المستوى ماتسجلش — غيّره من «الإعدادات › الفريق».'; }
+            if (r.mailed) showMailed(f.name.trim(), r.code, r.email || f.email.trim(), warn); else showPassword(f.name.trim(), r.code, r.password, warn); } else { K.toast((r && r.message) || 'حصلت مشكلة — جرّب تاني', 'error'); addMember(f); } });
         return false; } });
   }
   // the temporary password, once (decision 6): never stored, never logged — the modal is its only place

@@ -7,6 +7,7 @@ import { installSupabaseMock, LIVE, DEV_PW } from './supabase-mock.mjs';
 // the saved work. Mock only: the cases assert what the mock recorded (studioUploads, serialTakes, studioWrites).
 const OPS = 'ops.dev@ibtekr.local'; const ACCOUNTS = 'accounts.dev@ibtekr.local';
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+const oldStudio = (page) => page.evaluate(() => window.IBStudioView.start());
 let mock = null; let pageErrors = [];
 test.beforeEach(async ({ page }) => {
   test.skip(LIVE, 'asserts on the mocked Supabase');
@@ -30,7 +31,7 @@ const next = (page, label) => page.locator('.wiz-foot').getByRole('button', { na
 test('studio Simple: brand + batch rate → CSV (columns by name) + images by row → a new color → prices (decision 16) → slots → categories → serials reserved, one studio_upload a product as drafts → the report and the saved work', async ({ page }) => {
   await signIn(page, OPS);
   await page.getByRole('tab', { name: 'إضافة' }).click();
-  await page.getByRole('button', { name: 'استوديو المنتجات — ابدأ دفعة' }).click();
+  await oldStudio(page); // the three flows (14 Nov): the button opens the new chooser — the old wizard stays for its saved batches
   await expect(page).toHaveURL(/#products-studio-new-1$/);
   await page.locator('#w-brand').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
   await expect(page.locator('#pg-products')).toContainText('حرفين الـ SKU: AR');
@@ -86,7 +87,7 @@ test('studio Simple: brand + batch rate → CSV (columns by name) + images by ro
 
 test('studio: the type changes after the sheet was read → the colors and sizes come from the sheet again (all of them for Variable, the first for Simple)', async ({ page }) => {
   await signIn(page, OPS);
-  await page.locator('#pg-products').getByRole('button', { name: '+ دفعة منتجات جديدة' }).click();
+  await oldStudio(page);
   await page.locator('#w-brand').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
   await page.locator('#rate-box').getByRole('button', { name: 'تغيير' }).click(); await page.fill('#r', '30'); await page.getByRole('button', { name: 'طبّق على الدفعة' }).click();
   await next(page, 'التالي: الاستلام'); // Simple: the sheet keeps the first color and the first size of each row
@@ -114,7 +115,7 @@ test('studio: the type changes after the sheet was read → the colors and sizes
 
 test('studio Variable from the owner\'s sheet shape (decision 16): rows sharing a unique id = one product, the first row the parent and the next ones its variations with their own price and stock; a lone row keeps colors × sizes', async ({ page }) => {
   await signIn(page, OPS);
-  await page.locator('#pg-products').getByRole('button', { name: '+ دفعة منتجات جديدة' }).click();
+  await oldStudio(page);
   await page.getByRole('radio', { name: /^Variable/ }).click();
   await page.getByRole('button', { name: 'المقاس' }).click();
   await page.locator('#w-brand').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
@@ -150,7 +151,7 @@ test('studio Variable from the owner\'s sheet shape (decision 16): rows sharing 
 
 test('studio Variable: colors and sizes become variations with their own SKU and price; a refused product is reported with its reason, a maker that did not stick and a brand missing from the site\'s brands are noted, and «جرّب تاني» uploads only those', async ({ page }) => {
   await signIn(page, OPS);
-  await page.locator('#pg-products').getByRole('button', { name: '+ دفعة منتجات جديدة' }).click();
+  await oldStudio(page);
   await page.getByRole('radio', { name: /^Variable/ }).click();
   await page.getByRole('button', { name: 'المقاس' }).click(); // vary by color and size
   await page.locator('#w-brand').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
@@ -199,7 +200,7 @@ test('studio: the maker changed after an upload — a note in «البداية»
   const rate = async () => { await page.locator('#rate-box').getByRole('button', { name: 'تغيير' }).click(); await page.fill('#r', '30'); await page.getByRole('button', { name: 'طبّق على الدفعة' }).click(); };
   const maker = async (name) => { await page.getByRole('button', { name: 'الخطوة 1: البداية' }).click(); await page.locator('#w-vendor').click(); await page.getByRole('option', { name }).click(); };
   await signIn(page, OPS);
-  await page.locator('#pg-products').getByRole('button', { name: '+ دفعة منتجات جديدة' }).click();
+  await oldStudio(page);
   await page.getByRole('radio', { name: /^Variable/ }).click();
   await page.locator('#w-brand').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
   await rate();
@@ -238,7 +239,7 @@ test('studio: the maker changed after an upload — a note in «البداية»
 
 test('studio: a product on the site keeps the SKU it was made with (decision 2) — «البداية» locks the brand with the reason; the brand renamed elsewhere to other letters, or a Simple\'s color edited, makes «ارفع على الموقع» refused with its reason and nothing written, the page showing the site\'s SKU; back as it was → it goes on', async ({ page }) => {
   await signIn(page, OPS);
-  await page.locator('#pg-products').getByRole('button', { name: '+ دفعة منتجات جديدة' }).click();
+  await oldStudio(page);
   await page.locator('#w-brand').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
   await page.locator('#rate-box').getByRole('button', { name: 'تغيير' }).click(); await page.fill('#r', '30'); await page.getByRole('button', { name: 'طبّق على الدفعة' }).click();
   await next(page, 'التالي: الاستلام');
@@ -284,7 +285,7 @@ test('studio: a product on the site keeps the SKU it was made with (decision 2) 
 test('studio: a maker without a store on the site is refused; a Google Sheet link is read by the server (a wrong link before any request, an unpublished sheet explained), and «حدّث من اللينك» keeps the column mapping', async ({ page }) => {
   mock.vendors.push({ ...mock.vendors[0], id: 'a0000000-0000-4000-8000-000000000009', woo_vendor_id: null, name: 'Zeta Maker', aliases: [], raw: {} });
   await signIn(page, OPS);
-  await page.locator('#pg-products').getByRole('button', { name: '+ دفعة منتجات جديدة' }).click();
+  await oldStudio(page);
   await page.locator('#w-brand').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
   await page.locator('#w-vendor').click(); await page.getByRole('option', { name: 'Zeta Maker (مالوش متجر على الموقع)' }).click();
   await expect(page.locator('#pg-products')).toContainText('المبتكر ده مالوش متجر على الموقع — اختار مبتكر ليه متجر');
@@ -319,7 +320,8 @@ test('studio permission: without products.add the studio does not open and the s
   await expect(page.locator('#pg-products')).toContainText('محتاج صلاحية');
   await expect(page.locator('#pg-products')).not.toContainText('الشغل المحفوظ');
   await page.getByRole('button', { name: 'استوديو المنتجات — ابدأ دفعة' }).click();
-  await expect(page).not.toHaveURL(/products-studio/);
+  await expect(page.locator('.modal')).toHaveCount(0); // no chooser either (the three flows)
+  await expect(page).not.toHaveURL(/products-(studio|flow)/);
   await page.goto('/#products-studio-new-1');
   await expect(page.locator('#pg-products')).toContainText('مش مسموحلك تضيف منتجات');
 });
@@ -327,7 +329,7 @@ test('studio permission: without products.add the studio does not open and the s
 test('studio categories (decision 14): the site\'s tree with + / −, a sub-category ticks the ones above it and takes them back off, the search opens the branch, the main one can go alone', async ({ page }) => {
   await signIn(page, OPS);
   await page.getByRole('tab', { name: 'إضافة' }).click();
-  await page.getByRole('button', { name: 'استوديو المنتجات — ابدأ دفعة' }).click();
+  await oldStudio(page); // the three flows (14 Nov): the button opens the new chooser — the old wizard stays for its saved batches
   await page.locator('#w-brand').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
   await page.locator('#rate-box').getByRole('button', { name: 'تغيير' }).click();
   await page.fill('#r', '30'); await page.fill('#f', '0'); await page.getByRole('button', { name: 'طبّق على الدفعة' }).click();
@@ -365,7 +367,7 @@ test('studio categories (decision 14): the site\'s tree with + / −, a sub-cate
 test('studio Arabic name (decision 15): a sheet without it passes «الاستلام» with a warning, «البيانات و SKU» stops until it is typed, and the upload carries the translation', async ({ page }) => {
   await signIn(page, OPS);
   await page.getByRole('tab', { name: 'إضافة' }).click();
-  await page.getByRole('button', { name: 'استوديو المنتجات — ابدأ دفعة' }).click();
+  await oldStudio(page); // the three flows (14 Nov): the button opens the new chooser — the old wizard stays for its saved batches
   await page.locator('#w-brand').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
   await page.locator('#rate-box').getByRole('button', { name: 'تغيير' }).click();
   await page.fill('#r', '30'); await page.fill('#f', '0'); await page.getByRole('button', { name: 'طبّق على الدفعة' }).click();
@@ -397,7 +399,7 @@ test('studio Arabic name (decision 15): a sheet without it passes «الاستل
 test('studio images (phase 5.4): «ولّد» makes a slot\'s image with the AI from the reference (tagged AI), a failure shows on the slot, «ولّد كل الصور الناقصة» asks with the credits, the image popup edits with the AI and keeps the versions, a version goes to another slot, the batch\'s model', async ({ page }) => {
   const SB = '0b6f2f5e-1d2c-4a8b-9e3f-000000000001';
   await signIn(page, OPS);
-  await page.locator('#pg-products').getByRole('button', { name: '+ دفعة منتجات جديدة' }).click();
+  await oldStudio(page);
   await page.locator('#w-brand').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
   await page.locator('#rate-box').getByRole('button', { name: 'تغيير' }).click(); await page.fill('#r', '30'); await page.getByRole('button', { name: 'طبّق على الدفعة' }).click();
   await next(page, 'التالي: الاستلام');
@@ -460,7 +462,7 @@ test('studio images (phase 5.4): «ولّد» makes a slot\'s image with the AI 
 test('decision 10 — «صور بس»: the photos alone, each file\'s name carrying the product\'s data; the same names make one product (main + reference); colors by the table; the review table; the next step', async ({ page }) => {
   const SB = '0b6f2f5e-1d2c-4a8b-9e3f-000000000001';
   await signIn(page, OPS);
-  await page.locator('#pg-products').getByRole('button', { name: '+ دفعة منتجات جديدة' }).click();
+  await oldStudio(page);
   await page.locator('#w-brand').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
   await page.locator('#rate-box').getByRole('button', { name: 'تغيير' }).click(); await page.fill('#r', '30'); await page.getByRole('button', { name: 'طبّق على الدفعة' }).click();
   await page.getByRole('radio', { name: /^صور بس/ }).click();
@@ -499,7 +501,7 @@ test('decision 11 — the system\'s own Magnific link: «ابعت الصور ل�
   const SB = '0b6f2f5e-1d2c-4a8b-9e3f-000000000001';
   await signIn(page, OPS);
   mock.magnific.linked = true; mock.magnific.account = 'owner@ibtekr.club';
-  await page.locator('#pg-products').getByRole('button', { name: '+ دفعة منتجات جديدة' }).click();
+  await oldStudio(page);
   await page.locator('#w-brand').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
   await page.locator('#rate-box').getByRole('button', { name: 'تغيير' }).click(); await page.fill('#r', '30'); await page.getByRole('button', { name: 'طبّق على الدفعة' }).click();
   await page.getByRole('radio', { name: /^صور بس/ }).click();
@@ -549,7 +551,7 @@ test('decision 11 — the system\'s own Magnific link: «ابعت الصور ل�
 test('decision 12 — the prompts library still empty (the owner, 1 Nov: «مفيش تحديد الفئات»): the flow bar says the categories come from the template and the admin reads it from right there; a member sees the hint only', async ({ page }) => {
   await signIn(page, 'admin.dev@ibtekr.local');
   mock.magnific.linked = true; mock.magnific.account = 'owner@ibtekr.club'; mock.shotPrompts.length = 0;
-  await page.locator('#pg-products').getByRole('button', { name: '+ دفعة منتجات جديدة' }).click();
+  await oldStudio(page);
   await page.locator('#w-brand').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
   await page.locator('#rate-box').getByRole('button', { name: 'تغيير' }).click(); await page.fill('#r', '30'); await page.getByRole('button', { name: 'طبّق على الدفعة' }).click();
   await page.getByRole('radio', { name: /^صور بس/ }).click();
@@ -572,7 +574,7 @@ test('decision 13 — a category not in the library: «+ فئة جديدة…» 
   const SB = '0b6f2f5e-1d2c-4a8b-9e3f-000000000001';
   await signIn(page, OPS);
   mock.magnific.linked = true; mock.magnific.account = 'owner@ibtekr.club';
-  await page.locator('#pg-products').getByRole('button', { name: '+ دفعة منتجات جديدة' }).click();
+  await oldStudio(page);
   await page.locator('#w-brand').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
   await page.locator('#rate-box').getByRole('button', { name: 'تغيير' }).click(); await page.fill('#r', '30'); await page.getByRole('button', { name: 'طبّق على الدفعة' }).click();
   await page.getByRole('radio', { name: /^صور بس/ }).click();
@@ -607,7 +609,7 @@ test('decision 13 — a category not in the library: «+ فئة جديدة…» 
 test('decision 12 — the prompts library empty, a member (products.add, not the admin): the hint names who refreshes it, no button', async ({ page }) => {
   await signIn(page, OPS);
   mock.magnific.linked = true; mock.magnific.account = 'owner@ibtekr.club'; mock.shotPrompts.length = 0;
-  await page.locator('#pg-products').getByRole('button', { name: '+ دفعة منتجات جديدة' }).click();
+  await oldStudio(page);
   await page.locator('#w-brand').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
   await page.locator('#rate-box').getByRole('button', { name: 'تغيير' }).click(); await page.fill('#r', '30'); await page.getByRole('button', { name: 'طبّق على الدفعة' }).click();
   await page.getByRole('radio', { name: /^صور بس/ }).click();
@@ -623,7 +625,7 @@ test('decision 12 — the flow on the one Space: the category chosen, «جهّز
   const SB = '0b6f2f5e-1d2c-4a8b-9e3f-000000000001';
   await signIn(page, OPS);
   mock.magnific.linked = true; mock.magnific.account = 'owner@ibtekr.club';
-  await page.locator('#pg-products').getByRole('button', { name: '+ دفعة منتجات جديدة' }).click();
+  await oldStudio(page);
   await page.locator('#w-brand').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
   await page.locator('#rate-box').getByRole('button', { name: 'تغيير' }).click(); await page.fill('#r', '30'); await page.getByRole('button', { name: 'طبّق على الدفعة' }).click();
   await page.getByRole('radio', { name: /^صور بس/ }).click();

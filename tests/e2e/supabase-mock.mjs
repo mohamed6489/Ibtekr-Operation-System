@@ -20,8 +20,8 @@
 // Spec files call installSupabaseMock(page) unless E2E_SUPABASE_LIVE=1: then installLiveConfig(page) points the app at the
 // staging project in E2E_SUPABASE_URL / E2E_SUPABASE_ANON_KEY (never at whatever app/config.js holds), or skips without them.
 import { buildStudio, matchWooBrand, sheetCsvUrl } from '../../supabase/functions/_shared/woo-studio.js';
-import { parseWrite, parseStudio, parsePrompts, cleanWrite, cleanStudio, cleanPrompts, shotPromptRows, aiSettings } from '../../supabase/functions/_shared/ai-content.js';
-import { parseGenerate, parseEdit, parseCreate, imageSettings, creditsFor, usdOf, studioPathOk, studioGenPath, studioEditPath, toolPath, renameInState, MODEL_IDS } from '../../supabase/functions/_shared/ai-images.js';
+import { parseWrite, parseStudio, parsePrompts, parseExtract, cleanWrite, cleanStudio, cleanPrompts, cleanExtract, shotPromptRows, aiSettings } from '../../supabase/functions/_shared/ai-content.js';
+import { parseGenerate, parseEdit, parseCreate, imageSettings, creditsFor, usdOf, studioPathOk, studioGenPath, studioEditPath, toolPath, renameInState, flowShotPrompt, MODEL_IDS } from '../../supabase/functions/_shared/ai-images.js';
 import { hrState, hrRoute } from './hr-mock.mjs'; // phase 10 (0046): the HR tables, RPCs, team-admin and the bucket hr-docs
 import { mktState, mktRoute } from './mkt-mock.mjs'; // phase 9.5.1 (0049): the marketing tables, RPCs, the bucket marketing and its AI actions
 import { settingsState, settingsRoute } from './settings-mock.mjs';
@@ -1880,8 +1880,10 @@ export async function installSupabaseMock(page, opts = {}) {
       if (action === 'generate') {
         const row = mock.studioBatches.find((x) => x.id === req.batchId); const it = row && !row.archived_at && row.state && Array.isArray(row.state.items) ? row.state.items[req.index] : null;
         if (!it) return json(404, { error: 'not_found' });
-        const refs = [it.main, ...(Array.isArray(it.refs) ? it.refs : []), req.slot && typeof req.slot === 'object' && it.colorImages ? it.colorImages[req.slot.color] : null].filter((k) => typeof k === 'string' && studioPathOk(req.batchId, k) && mock.studioObjects.has(k));
+        const own = req.slot && typeof req.slot === 'object' && it.colorRefs ? it.colorRefs[req.slot.color] : null; // the three flows: the color's own reference first
+        const refs = [own, it.main, ...(Array.isArray(it.refs) ? it.refs : []), req.slot && typeof req.slot === 'object' && it.colorImages ? it.colorImages[req.slot.color] : null].filter((k) => typeof k === 'string' && studioPathOk(req.batchId, k) && mock.studioObjects.has(k));
         if (!refs.length) return json(400, { error: 'bad_request', field: 'reference' });
+        if (it.flow === 2 && !flowShotPrompt(it, req.slot && typeof req.slot === 'object' ? (Number.isInteger(req.slot.shot) ? req.slot.shot : 0) : req.slot, {})) return json(400, { error: 'bad_request', field: 'sizes' });
         source = 'studio'; label = it.nameEn || it.nameAr || '#' + (req.index + 1); batchId = req.batchId; itemIndex = req.index; bucket = 'studio';
         where = () => studioGenPath(req.batchId, req.index, req.slot, stamp, 'png');
       } else if (action === 'edit') {
@@ -2094,8 +2096,23 @@ export async function installSupabaseMock(page, opts = {}) {
         mock.aiRuns.push(run);
         return json(200, { result: 'ok', ...out, report, model: 'claude-opus-5-5', cost_usd: 0.02, run_id: run.id });
       }
-      const may = u && (action === 'write' ? isAdmin(u) || hasPerm(u, 'products.add') === 'F' || hasPerm(u, 'products.edit') === 'F' : action === 'studio' || action === 'prompts' ? isAdmin(u) || hasPerm(u, 'products.add') === 'F' : isAdmin(u));
+      const may = u && (action === 'write' ? isAdmin(u) || hasPerm(u, 'products.add') === 'F' || hasPerm(u, 'products.edit') === 'F' : action === 'studio' || action === 'prompts' || action === 'extract' ? isAdmin(u) || hasPerm(u, 'products.add') === 'F' : isAdmin(u));
       if (!may) return json(401, { error: 'unauthorized' });
+      // the studio's three flows (2026-11-14-studio-flows.md decision 11): WhatsApp screenshots → template rows (mock.aiAnswer('extract', req)
+      // answers the rows; else two products, the second with two colors); mock.extractCalls keeps the shots' count only
+      if (action === 'extract') {
+        const parsed = parseExtract(b); if (parsed.error) return json(400, parsed);
+        (mock.extractCalls = mock.extractCalls || []).push({ by: u.email, shots: parsed.req.images.length, type: parsed.req.type, photos: parsed.req.photos });
+        if (mock.aiFail) return json(mock.aiFail === 'not_configured' ? 503 : mock.aiFail === 'busy' ? 429 : 502, { error: mock.aiFail });
+        const a = typeof mock.aiAnswer === 'function' ? mock.aiAnswer('extract', parsed.req) : null;
+        const cleaned = cleanExtract(a || { rows: [
+          { product: 1, nameEn: 'Rattan Wall Basket', nameAr: 'سلة حائط راتان', colorEn: 'Beige', colorAr: 'بيج', size: '30 × 20 cm', sizeAr: '30 × 20 سم', vendorPrice: 520 },
+          { product: 2, nameEn: 'Clay Table Vase', nameAr: 'فازة طاولة فخار', colorEn: 'Black', colorAr: 'أسود', vendorPrice: 300 },
+          { product: 2, nameEn: 'Clay Table Vase', nameAr: 'فازة طاولة فخار', colorEn: 'Beige', colorAr: 'بيج', vendorPrice: 300 }] });
+        const run = { id: mock.aiRuns.length + 1, created_at: new Date().toISOString(), created_by: u.id, action: 'studio', source: 'studio', label: 'واتساب · ' + parsed.req.images.length + ' سكرين', product_id: null, batch_id: null, item_index: null, model: 'claude-opus-5-5', cost_usd: 0.04, status: 'ok', error: null, output: { rows: cleaned.rows.length } };
+        mock.aiRuns.push(run);
+        return json(200, { result: 'ok', rows: cleaned.rows, model: 'claude-opus-5-5', cost_usd: 0.04, run_id: run.id });
+      }
       if (!['write', 'studio', 'prompts'].includes(action)) return json(400, { error: 'unknown_action' });
       const parsed = action === 'write' ? parseWrite(b) : action === 'prompts' ? parsePrompts(b) : parseStudio(b);
       if (parsed.error) return json(400, parsed);
@@ -2180,7 +2197,7 @@ export async function installSupabaseMock(page, opts = {}) {
       }
       if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : (action === 'order_trash' || action === 'suborder_trash' || action === 'line_trash' || action === 'line_qty' || action === 'suborder_status') ? hasPerm(u, 'orders.status') === 'F' && hasPerm(u, 'orders.view') !== 'N' : (action === 'order_create' || action === 'order_pay_link') ? (isAdmin(u) || hasPerm(u, 'orders.status') === 'F') : action === 'push_vendor' ? mayPushVendor() : (action === 'statement' || action === 'withdrawals') ? hasPerm(u, 'accounts.view') !== 'N' : action === 'withdraw_approve' || action === 'withdraw_create' ? (isAdmin(u) || hasPerm(u, 'accounts.approve') === 'F')
         : action === 'product_get' ? hasPerm(u, 'products.view') !== 'N' : action === 'product_save' || action === 'product_images_add' ? (isAdmin(u) || hasPerm(u, 'products.edit') === 'F') : action === 'products_batch' || action === 'products_vendor' ? (isAdmin(u) || hasPerm(u, 'products.bulk') === 'F')
-          : action === 'products_trash' || action === 'products_restore' ? hasPerm(u, 'products.trash') === 'F' : action === 'studio_upload' || action === 'category_create' || action === 'studio_sheet' || action === 'product_duplicate' || action === 'category_get' || action === 'category_update' || action === 'category_delete' ? (isAdmin(u) || hasPerm(u, 'products.add') === 'F') : isAdmin(u))) return json(401, { error: 'unauthorized' });
+          : action === 'products_trash' || action === 'products_restore' ? hasPerm(u, 'products.trash') === 'F' : action === 'studio_upload' || action === 'studio_media' || action === 'category_create' || action === 'studio_sheet' || action === 'product_duplicate' || action === 'category_get' || action === 'category_update' || action === 'category_delete' ? (isAdmin(u) || hasPerm(u, 'products.add') === 'F') : isAdmin(u))) return json(401, { error: 'unauthorized' });
       // phase 5.2: studio_upload — the item read from the batch and checked by the server's own buildStudio; the gate; a product
       // (draft, the mirror row) per item, the result on the batch; mock.studioFail = { [index]: 'product_invalid_sku' } refuses one;
       // mock.studioArFail = { [index]: true } refuses its Arabic translation only (arNote / arError on the result);
@@ -2197,6 +2214,23 @@ export async function installSupabaseMock(page, opts = {}) {
         const hit = (mock.sheetLinks || {})[b.url];
         return json(200, hit && typeof hit.csv === 'string' ? { action, result: 'ok', csv: hit.csv } : { action, result: 'error', reason: (hit && hit.reason) || 'not_published' });
       }
+      // the three flows (2026-11-14-studio-flows.md decision 10): studio_media — one batch photo under its sheet name (the server's checks);
+      // once per path (result.media / result.urls); mock.studioMedia lists the uploads; mock.mediaFail = 'woo_error' answers 502
+      if (action === 'studio_media') {
+        const id0 = typeof b.batch_id === 'string' ? b.batch_id : ''; const row = mock.studioBatches.find((x) => x.id === id0);
+        const okPath = typeof b.path === 'string' && b.path.startsWith(id0 + '/') && /\.(webp|png|jpe?g)$/i.test(b.path); const okName = typeof b.name === 'string' && /^[A-Za-z0-9][A-Za-z0-9-]{0,150}\.(webp|png|jpe?g)$/.test(b.name);
+        if (!id0 || !okPath || !okName) return json(400, { error: 'bad_request', field: !id0 ? 'batch_id' : !okPath ? 'path' : 'name' });
+        if (b.path.split('.').pop().toLowerCase().replace('jpeg', 'jpg') !== b.name.split('.').pop().toLowerCase().replace('jpeg', 'jpg')) return json(400, { error: 'bad_request', field: 'name' });
+        if (!row || row.archived_at) return json(404, { error: 'no_batch' });
+        const had = row.result && row.result.media ? row.result.media[b.path] : null;
+        if (had) return json(200, { action, result: 'ok', id: had, url: (row.result.urls || {})[b.path] || null });
+        if (!mock.pushEnabled) return json(200, { action, result: 'skipped', reason: 'push_disabled' });
+        if (mock.mediaFail) return json(502, { error: mock.mediaFail });
+        (mock.studioMedia = mock.studioMedia || []).push({ by: u.email, path: b.path, name: b.name });
+        const id = 6600 + mock.studioMedia.length; const url = 'https://woo.test/wp-content/uploads/2026/11/' + b.name;
+        row.result = { ...(row.result || {}), media: { ...((row.result || {}).media || {}), [b.path]: id }, urls: { ...((row.result || {}).urls || {}), [b.path]: url } };
+        return json(200, { action, result: 'ok', id, url });
+      }
       if (action === 'studio_upload') {
         const row = mock.studioBatches.find((x) => x.id === b.batch_id); const it = row && row.state && Array.isArray(row.state.items) ? row.state.items[b.index] : null;
         if (!row || !it) return json(404, { error: 'no_item' });
@@ -2211,8 +2245,11 @@ export async function installSupabaseMock(page, opts = {}) {
         // the SKU is fixed with the product (decision 2): a retry whose item builds another is refused, the record kept
         const changed = prev && prev.productId && typeof prev.sku === 'string' && prev.sku !== built.sku ? (prev.sku.slice(3, 5) === built.sku.slice(3, 5) ? 'sku_changed' : 'brand_changed') : null;
         let res;
+        const shared = (row.result && row.result.media) || {};
+        const flowPaths = it.flow === 2 ? [...new Set([...built.images, ...built.variations.flatMap((v) => [v.image, ...(v.gallery || [])]).filter(Boolean)])] : [];
         if (fail) res = { sku: built.sku, error: fail, media: {} };
         else if (changed) res = { ...prev, error: changed };
+        else if (flowPaths.some((k) => !shared[k])) res = { sku: built.sku, error: 'images_first', media: {} }; // the flows: «ارفع الصور الأول»
         else { const id = prev && prev.productId ? prev.productId : 7700 + mock.studioUploads.length;
           const mv = mock.vendors.find((x) => x.id === row.vendor_id); const owner = mv && mv.woo_vendor_id != null ? mv.woo_vendor_id : null;
           const was = prev && prev.productId && prev.authorOwner !== undefined ? prev.authorOwner : owner; const kept = was !== owner && !!(prev && prev.variations);
@@ -2221,9 +2258,10 @@ export async function installSupabaseMock(page, opts = {}) {
           const arFail = !!(mock.studioArFail || {})[b.index]; // the site refusing the translation (the live 422): the product stays, the translation waits for a retry
           res = { sku: built.sku, productId: id, arId: it.nameAr && !arFail ? id + 1 : null, ...(it.nameAr && !arFail ? { arAttrs: 'ok' } : {}), ...(arFail ? { arNote: 'wcml_invalid_language', arError: 'Language ar is not active.' } : {}), author: kept || (mock.studioAuthorFail || {})[b.index] ? 'failed' : 'ok', authorOwner: kept ? was : owner, wooBrand: prev && prev.productId && prev.wooBrand !== undefined ? prev.wooBrand : wooBrand,
             variations: kept ? prev.variations : built.variations.length ? { done: built.variations.length, failed: 0 } : undefined, media: Object.fromEntries(built.images.map((p, k) => [p, 8800 + k])), error: kept ? 'maker_changed' : null }; }
-        mock.studioUploads.push({ index: b.index, by: u.email, maker: row.vendor_id, sku: built.sku, product: built.product, variations: built.variations.map((v) => v.payload), images: built.images, ar: built.ar, result: res.error || 'ok' });
+        if (it.flow === 2 && !res.error) res.media = Object.fromEntries(flowPaths.map((k) => [k, shared[k]])); // the flows: the uploaded photos, never a second copy
+        mock.studioUploads.push({ index: b.index, by: u.email, maker: row.vendor_id, sku: built.sku, product: built.product, variations: built.variations.map((v) => ({ ...v.payload, gallery: (v.gallery || []).map((k) => shared[k] || null) })), images: built.images, ar: built.ar, arAttributes: built.arAttributes, result: res.error || 'ok' });
         while (items.length < b.index) items.push(null); items[b.index] = res;
-        row.result = { items }; row.status = row.state.items.every((_, i) => items[i] && items[i].productId && !items[i].error) ? 'done' : 'uploading';
+        row.result = { ...(row.result || {}), items }; row.status = row.state.items.every((_, i) => items[i] && items[i].productId && !items[i].error) ? 'done' : 'uploading';
         return json(200, { action, result: res.error ? 'error' : 'ok', item: res });
       }
       // B4: an image comes as { data: base64 } and the server checks its bytes (PNG / JPEG / WebP); categoriesCreated records image: true

@@ -8,6 +8,7 @@ import { installSupabaseMock, LIVE, DEV_PW } from './supabase-mock.mjs';
 // Mock only: the cases assert what the mock recorded (aiCalls, studioUploads).
 const OPS = 'ops.dev@ibtekr.local';
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+const oldStudio = (page) => page.evaluate(() => window.IBStudioView.start());
 let mock = null; let pageErrors = [];
 test.beforeEach(async ({ page }) => {
   test.skip(LIVE, 'asserts on the mocked Supabase');
@@ -27,7 +28,7 @@ async function batchAtData(page) {
   await expect(page.locator('#root')).toBeVisible();
   await page.locator('.sidebar .nav-item[data-page="products"]').click();
   await page.getByRole('tab', { name: 'إضافة' }).click();
-  await page.getByRole('button', { name: 'استوديو المنتجات — ابدأ دفعة' }).click();
+  await oldStudio(page); // the three flows (14 Nov): the button opens the new chooser — the old wizard stays for its saved batches
   await page.locator('#w-brand').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
   await page.locator('#rate-box').getByRole('button', { name: 'تغيير' }).click();
   await page.fill('#r', '30'); await page.fill('#f', '0'); await page.getByRole('button', { name: 'طبّق على الدفعة' }).click();

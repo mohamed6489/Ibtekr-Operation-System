@@ -354,6 +354,14 @@
   const SOON = []; // phase 11: «الإعدادات» opened (settings) — the whole page on IBSettings; phase 9.5.1: «التسويق» opened (marketing); phase 6: «خدمة العملاء» opened (cs); «الرد الآلي» stays postponed; phase 7: «المخزون» opened (inventory); phase 8: «تذاكر الفريق» opened (tickets); phase 9: «التقارير» opened (reports) phase 10: «الموارد البشرية» opened (hr).
   const isSoon = (page) => SOON.includes(page);
   const soonNote = () => { if (window.IBKit && window.IBKit.toast) window.IBKit.toast('الصفحة دي لسه — soon'); };
+  // owner batch 14 Nov decision 15 («كل دور بيظهرله الحاجات اللي هو محتاجها فعلا لدوره»): a page whose view permission is N is out of
+  // the menu, the bottom nav and its sheet, and any way in (a link, an alert, a typed hash) lands on the dashboard; the dashboard and
+  // «ملفي» are everyone's. Before the member's rows load nothing is barred (the data is the RLS's either way).
+  const PAGE_PERM = { orders: 'orders.view', vendors: 'vendors.view', accounts: 'accounts.view', inventory: 'inventory.view', products: 'products.view', cs: 'cs.view', autoreply: 'cs.view', tickets: 'tickets.view', reports: 'reports.view', marketing: 'marketing.view', hr: 'hr.view', settings: 'settings.view' };
+  const barred = (page) => { const k = PAGE_PERM[page]; return !!k && !!(window.IBDirectory && window.IBDirectory.me && window.IBDirectory.me()) && rperm(k) === 'N'; };
+  const barNote = () => { if (window.IBKit && window.IBKit.toast) window.IBKit.toast('الصفحة دي مش متاحة لدورك — لو محتاجها كلّم الأدمن'); };
+  // the menus follow the member's permissions (the rows land after the first draw, and the roles may change from the settings)
+  const navPerms = () => document.querySelectorAll('.sidebar .nav-item[data-page], .bottom-nav .bn-item[data-page]').forEach((b) => { b.hidden = barred(b.dataset.page); });
   state.page = pageOfHash(location.hash.slice(1));
   if (isSoon(state.page)) { state.page = 'dashboard'; try { history.replaceState(null, '', '#dashboard'); } catch (e) { /* sandboxed */ } }
 
@@ -391,7 +399,7 @@
     const more = item('more', 'المزيد', null, { 'aria-haspopup': 'dialog', 'aria-expanded': 'false' });
     const pop = U.popover(wrap, more, (close) => h('div', { class: 'menu bn-sheet', role: 'dialog', 'aria-label': 'القائمة', 'data-popover-root': '' },
       h('div', { class: 't-label bn-sheet-h' }, 'القائمة'),
-      NAV.map(([ic, lb, page]) => isSoon(page) ? h('button', { type: 'button', role: 'menuitem', class: 'opt bn-opt', 'data-page': page, 'data-soon': '', 'aria-disabled': 'true', onClick: soonNote }, Icon(ic), h('span', null, lb), h('small', null, 'soon'))
+      NAV.filter(([, , page]) => !barred(page)).map(([ic, lb, page]) => isSoon(page) ? h('button', { type: 'button', role: 'menuitem', class: 'opt bn-opt', 'data-page': page, 'data-soon': '', 'aria-disabled': 'true', onClick: soonNote }, Icon(ic), h('span', null, lb), h('small', null, 'soon'))
         : h('button', { type: 'button', role: 'menuitem', class: 'opt bn-opt', 'data-page': page || false, 'aria-disabled': page ? false : 'true', 'aria-current': page && page === state.page ? 'page' : false, onClick: page ? () => { close(); goHome(page); } : null }, Icon(ic), h('span', null, lb), page ? null : h('small', null, 'غير متاح في النموذج')))));
     more.addEventListener('click', () => pop.toggle()); wrap.append(more);
     return h('nav', { class: 'bottom-nav', 'aria-label': 'القائمة السفلية' }, BN.map(([ic, lb, page]) => item(ic, lb, page)), wrap);
@@ -473,6 +481,7 @@
   // then go() (the bell, the search, the quick actions, the assistant, direct links) keep go().
   function goHome(page) {
     if (isSoon(page)) { goNow(page); return; }
+    if (barred(page)) { barNote(); return; }
     const mods = window.IBPages.all(); const cur = mods[state.page];
     const proceed = () => {
       const def = mods[page];
@@ -3987,7 +3996,7 @@
     root.className = 'app';
     root.replaceChildren(Sidebar(), h('div', { class: 'main' }, TopHeader(), h('main', { class: 'content', id: 'main' }), h('main', { class: 'content', id: 'reports' }), h('main', { class: 'content', id: 'tickets' }), h('main', { class: 'content', id: 'vendors' }), Object.keys(window.IBPages.all()).map((id) => h('main', { class: 'content mod', id: 'pg-' + id, hidden: true })), h('div', { id: 'orders' })), BottomNav());
     U.setModalRoot(document.body); document.body.append(AiPanel());
-    window.addEventListener('hashchange', () => { const hs = location.hash.slice(1); if (window.IBShell.routeLogin(hs)) return; if (needs2fa() && !/^(profile|login)/.test(hs)) { twofaNote(); location.hash = 'profile-security'; return; } if (isSoon(pageOfHash(hs))) { try { history.replaceState(null, '', '#dashboard'); } catch (e) { /* sandboxed */ } soonNote(); goNow('dashboard'); return; } const mp = modPage(hs); if (mp) { state.page = mp; showPage(); window.IBPages.render(mp, false); window.scrollTo(0, 0); return; } if (location.hash.slice(1) === 'orders') { if (state.page !== 'orders') go('orders'); return; } const rt = reportTabOf(location.hash.slice(1)); if (rt) { state.rtab = rt; if (state.page !== 'reports') { state.page = 'reports'; showPage(); } renderReports(); return; } const tk = ticketOf(location.hash.slice(1)); if (tk !== null) { if (state.page !== 'tickets') { state.page = 'tickets'; showPage(); } renderTickets(); if (tk) openTicket(tk); return; } const vd = vendorOf(location.hash.slice(1)); if (vd !== null) { if (state.page !== 'vendors') { state.page = 'vendors'; showPage(); } renderVendors(); if (vd === 'new') { try { history.replaceState(null, '', '#makers'); } catch (e) { /* sandboxed */ } if (vstore.canEdit()) openAddVendor(); else window.IBKit.toast('مفيش صلاحية إضافة مبتكر', 'error'); } else if (vd) openVendor(vd); return; } const t = hashTab(); if (t) { state.tab = t; if (state.page !== 'accounts') { state.page = 'accounts'; showPage(); } render(); } });
+    window.addEventListener('hashchange', () => { const hs = location.hash.slice(1); if (window.IBShell.routeLogin(hs)) return; if (needs2fa() && !/^(profile|login)/.test(hs)) { twofaNote(); location.hash = 'profile-security'; return; } if (isSoon(pageOfHash(hs))) { try { history.replaceState(null, '', '#dashboard'); } catch (e) { /* sandboxed */ } soonNote(); goNow('dashboard'); return; } if (hs && hs !== 'dashboard' && barred(pageOfHash(hs))) { try { history.replaceState(null, '', '#dashboard'); } catch (e) { /* sandboxed */ } barNote(); goNow('dashboard'); return; } const mp = modPage(hs); if (mp) { state.page = mp; showPage(); window.IBPages.render(mp, false); window.scrollTo(0, 0); return; } if (location.hash.slice(1) === 'orders') { if (state.page !== 'orders') go('orders'); return; } const rt = reportTabOf(location.hash.slice(1)); if (rt) { state.rtab = rt; if (state.page !== 'reports') { state.page = 'reports'; showPage(); } renderReports(); return; } const tk = ticketOf(location.hash.slice(1)); if (tk !== null) { if (state.page !== 'tickets') { state.page = 'tickets'; showPage(); } renderTickets(); if (tk) openTicket(tk); return; } const vd = vendorOf(location.hash.slice(1)); if (vd !== null) { if (state.page !== 'vendors') { state.page = 'vendors'; showPage(); } renderVendors(); if (vd === 'new') { try { history.replaceState(null, '', '#makers'); } catch (e) { /* sandboxed */ } if (vstore.canEdit()) openAddVendor(); else window.IBKit.toast('مفيش صلاحية إضافة مبتكر', 'error'); } else if (vd) openVendor(vd); return; } const t = hashTab(); if (t) { state.tab = t; if (state.page !== 'accounts') { state.page = 'accounts'; showPage(); } render(); } });
     showPage(); render(); if (state.page === 'reports') renderReports(); if (state.page === 'tickets') { renderTickets(); const tk = ticketOf(location.hash.slice(1)); if (tk) openTicket(tk); }
     if (window.IBPages.all()[state.page]) window.IBPages.render(state.page, false);
     if (window.IBShell.routeLogin(location.hash.slice(1))) { /* login screen over the app */ }
@@ -4046,6 +4055,9 @@
   (async () => {
     const A = window.IBAuth, SH = window.IBShell, root = document.getElementById('root');
     document.addEventListener('ib:directory', () => { const old = root.querySelector('.topbar .user'); if (old) old.replaceWith(SH.AccountMenu(goHome)); }); // header shows the signed-in member
+    // decision 15: the menus follow the permissions; a page the member may not open (a hash typed before the rows landed) goes home
+    const permsChanged = () => { navPerms(); if (barred(state.page)) { try { history.replaceState(null, '', '#dashboard'); } catch (e) { /* sandboxed */ } goNow('dashboard'); } };
+    document.addEventListener('ib:directory', permsChanged); document.addEventListener('ib:settings', navPerms); navPerms();
     if (!SH.isLoggedOut()) root.hidden = true;
     let gated = false;
     // a SIGNED_OUT this tab did not start (another tab signed out, or the server ended the session) must wipe memory too: reload as 21-shell.js signOut does

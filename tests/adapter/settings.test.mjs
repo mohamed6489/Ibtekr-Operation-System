@@ -148,18 +148,20 @@ test('the papers: list, add (the file into bucket company-docs then the row; a r
 
 test('lists(): the public slice first, then the row, else block 12\'s defaults — «أخرى» always last; saveLists cleans, refuses a bad list, writes the row «lists» whole and logs counts only', async () => {
   // no IbtekrOps in the test window → the bare default [أخرى]
+  // owner batch 14 Nov (decisions 4 and 8): + the makers' stop reasons, the shipping companies and the shown status names
+  const X = { stop: ['تأخير متكرر', 'جودة', 'عدم رد', 'طلب المبتكر', 'أخرى'], shipping: ['بوسطة', 'أرامكس', 'مندوب إبتكر'], labels: {} };
   const r0 = load(); await r0.S.load();
-  eq(r0.S.lists(), { cancel: ['أخرى'], returns: ['أخرى'] });
+  eq(r0.S.lists(), { cancel: ['أخرى'], returns: ['أخرى'], ...X });
   // the row «lists» (the admin's page): cleaned, «أخرى» moved last
   const r1 = load({ responses: { settings: ok(SETTINGS.concat([{ section: 'lists', data: { cancel: ['أخرى', 'سبب 1', ' سبب   2 '], returns: ['عيب'] } }])) } }); await r1.S.load();
-  eq(r1.S.lists(), { cancel: ['سبب 1', 'سبب 2', 'أخرى'], returns: ['عيب', 'أخرى'] });
+  eq(r1.S.lists(), { cancel: ['سبب 1', 'سبب 2', 'أخرى'], returns: ['عيب', 'أخرى'], ...X });
   // the public slice wins (every member gets it with the sign-in)
   const r2 = load({ responses: { 'rpc:settings_public': ok({ brand: {}, quick: {}, lists: { cancel: ['من الصفحة'] }, general: {}, security: {}, notif: {} }) } }); await r2.S.loadPublic();
-  eq(r2.S.lists(), { cancel: ['من الصفحة', 'أخرى'], returns: ['أخرى'] });
+  eq(r2.S.lists(), { cancel: ['من الصفحة', 'أخرى'], returns: ['أخرى'], ...X });
   // saveLists: cleaned, the whole row, logged without the texts
   const r3 = load(); await r3.S.load();
   const saved = await r3.S.saveLists({ cancel: ['أخرى', ' العميل مش بيرد ', 'أوردر مكرر'], returns: ['فيه عيب'] });
-  eq(saved, { ok: true, lists: { cancel: ['العميل مش بيرد', 'أوردر مكرر', 'أخرى'], returns: ['فيه عيب', 'أخرى'] } });
+  eq(saved, { ok: true, lists: { cancel: ['العميل مش بيرد', 'أوردر مكرر', 'أخرى'], returns: ['فيه عيب', 'أخرى'], ...X } });
   const up = r3.stub.calls.filter((c) => c.op === 'upsert').at(-1).args[0];
   eq(up, { section: 'lists', data: { cancel: ['العميل مش بيرد', 'أوردر مكرر'], returns: ['فيه عيب'] } });
   eq(r3.logs.at(-1).slice(0, 2), ['settings.lists.save', 'cancel, returns']);
@@ -168,4 +170,16 @@ test('lists(): the public slice first, then the row, else block 12\'s defaults �
   eq(await r3.S.saveLists({ cancel: ['a', 'a'], returns: ['x'] }), { ok: false, reason: 'invalid', field: 'cancel' }, 'a repeat');
   eq(await r3.S.saveLists({ cancel: ['a'.repeat(61)], returns: ['x'] }), { ok: false, reason: 'invalid', field: 'cancel' }, 'too long');
   const ops = load({ role: 'ops' }); assert.equal((await ops.S.saveLists({ cancel: ['a'], returns: ['b'] })).reason, 'forbidden');
+  // one list at a time: the others stay (cancel / returns always written), a shipping company list has no «أخرى»
+  const s2 = await r3.S.saveLists({ shipping: ['بوسطة', ' J&T '] });
+  assert.equal(s2.ok, true); eq(s2.lists.shipping, ['بوسطة', 'J&T']);
+  eq(r3.stub.calls.filter((c) => c.op === 'upsert').at(-1).args[0].data, { cancel: ['العميل مش بيرد', 'أوردر مكرر'], returns: ['فيه عيب'], shipping: ['بوسطة', 'J&T'] });
+  eq(await r3.S.saveLists({ stop: [] }), { ok: false, reason: 'invalid', field: 'stop' });
+  // the shown name of a status: known statuses only, not the same as the value, ≤ 40, no < >; the value stays everywhere else
+  const s3 = await r3.S.saveLists({ labels: { order: { 'جاري التنفيذ': ' تحت  التصنيع ', 'مكتمل': 'مكتمل', 'مش حالة': 'x', 'ملغي': '<b>' }, sub: { 'وصل المخزن': 'وصل عندنا' }, other: { a: 'b' } } });
+  eq(s3.lists.labels, { order: { 'جاري التنفيذ': 'تحت التصنيع' }, sub: { 'وصل المخزن': 'وصل عندنا' } });
+  assert.equal(r3.S.statusLabel('order', 'جاري التنفيذ'), 'تحت التصنيع'); assert.equal(r3.S.statusLabel('order', 'مكتمل'), 'مكتمل');
+  assert.equal(r3.S.statusLabel('confirm', 'وصل المخزن'), 'وصل المخزن', 'a name belongs to its kind only');
+  eq(r3.stub.calls.filter((c) => c.op === 'upsert').at(-1).args[0].data.shipping, ['بوسطة', 'J&T'], 'the labels save keeps the saved shipping list');
+  assert.ok(!JSON.stringify(r3.logs).includes('J&T') && !JSON.stringify(r3.logs).includes('التصنيع'));
 });

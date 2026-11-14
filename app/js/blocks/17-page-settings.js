@@ -219,7 +219,7 @@
   // alerts in days and one default for a sound return; the values are IBInventory's settings row «inventory» — a draft here (st.inv)
   // that the page's «حفظ» sends (the admin; the others see it read-only)
   const INV_DAYS = [['consolidationAlert', 'تأخير التجميع بعد (يوم)', 'من يوم قرار التجميع والأوردر الفرعي لسه ماوصلش'], ['photoMax', 'قطعة التصوير طوّلت بعد (يوم)', 'من يوم ما القطعة دخلت التصوير'], ['returnWait', 'المرتجع مستني بعد (يوم)', 'من يوم وصول المرتجع من غير فحص']];
-  const retLabel = (v) => (v === 'يستنى أوردر' ? 'يستنى أوردر (متاح للبيع في المخزن)' : 'يرجع للمبتكر');
+  const retLabel = (v) => (v === 'يستنى أوردر' ? 'يستنى أوردر (متاح للبيع في المخزن)' : v === 'اسألني في كل مرة' ? 'اسألني في كل مرة' : 'يرجع للمبتكر');
   const invDay = (v) => { const n = Number(String(v == null ? '' : v).trim().replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d))); return Number.isInteger(n) && n >= 1 && n <= 90 ? n : null; };
   function invSec() {
     const I = window.IBInventory;
@@ -695,11 +695,13 @@
   }
 
   // owner 22 Oct — delivery: who prepares Bosta waybills + the warehouse as sender/receiver
+  // owner batch 14 Nov decision 8: the companies from the saved list (settings.lists.shipping); the chosen one stays even if it left the list
+  const shipCos = (cur) => { const S0 = SETT(); const L = S0 && S0.lists ? S0.lists().shipping : ['بوسطة']; return cur && !L.includes(cur) ? [cur].concat(L) : L; };
   function deliverySec() {
     const d = K.store.delivery; const team = K.team().filter((m) => m.status !== 'inactive');
     const txt = (k, id, label, help) => U.TextInput({ id, label, value: d[k], help, onInput: (v) => { d[k] = v; } });
     return K.Section('التوصيل وبوالص بوسطة', [
-      K.two(U.Select({ id: 'dl-co', label: 'شركة الشحن', options: [{ value: 'بوسطة', label: 'بوسطة (Bosta)' }], value: d.company, onChange: (v) => { d.company = v; R(); } }),
+      K.two(U.Select({ id: 'dl-co', label: 'شركة الشحن', help: 'القايمة من «القوائم والحالات › شركات الشحن»', options: shipCos(d.company).map((x) => ({ value: x, label: x })), value: d.company, onChange: (v) => { d.company = v; LOGV('settings.delivery.company', v); R(); } }),
         U.Select({ id: 'dl-own', label: 'المسؤول عن التوصيل', options: team.map((m) => ({ value: m.id, label: m.name + ' — ' + m.role })), value: d.owner, onChange: (v) => { d.owner = v; LOGV('settings.delivery.owner', K.member(v).name); R(); document.dispatchEvent(new Event('ib:notify')); }, help: 'بيستلم «بوليصة مطلوبة» والملخص اليومي على واتساب على رقمه في ملفه' })),
       K.two(txt('whName', 'dl-wn', 'اسم المخزن (المرسل / المستلم)'), txt('whPhone', 'dl-wp', 'تليفون المخزن')), txt('whAddress', 'dl-wa', 'عنوان المخزن', 'بيظهر في بوليصة «من المخزن للعميل» و«من المبتكر للمخزن»'),
       U.Table({ cls: 'mini-table', headers: ['حالة الأوردر الفرعي', 'المرسل', 'المستلم', 'التحصيل'], rows: [['جاهز للشحن من المبتكر للعميل', 'المبتكر', 'العميل', 'المتبقي'], ['جاهز للشحن من المخزن للعميل', 'المخزن', 'العميل', 'المتبقي'], ['جاهز للشحن من المبتكر للمخزن', 'المبتكر', 'المخزن', 'مفيش']] })],
@@ -1309,7 +1311,7 @@
     if (sec.security) Object.assign(C.security, sec.security); if (sec.data && sec.data.backup) Object.assign(C.backup, sec.data.backup);
     if (sec.brand) { brand.colors = Object.assign({}, sec.brand.colors || {}); brand.fonts = Object.assign({}, FONT_DEF, sec.brand.fonts || {}); applyBrand(); saveBrand(); }
     if (sec.ai_rules && Object.keys(sec.ai_rules).length) S.aiRules = Object.assign(AI_DEF(), sec.ai_rules);
-    if (S0.lists) { const L = S0.lists(); C.cancelReasons.splice(0, C.cancelReasons.length, ...L.cancel.map((x) => [x, 'إلغاء', 0, true])); C.otherLists.returns = L.returns.slice(); } // phase 12 T3: the v6 arrays mirror the saved lists
+    if (S0.lists) { const L = S0.lists(); C.cancelReasons.splice(0, C.cancelReasons.length, ...L.cancel.map((x) => [x, 'إلغاء', 0, true])); C.otherLists.returns = L.returns.slice(); if (L.stop) C.otherLists.stop = L.stop.slice(); } // phase 12 T3: the v6 arrays mirror the saved lists
     hydrateNotif(sec.notif); hydrateRoles(); hydrated = true;
   }
   document.addEventListener('ib:settings', () => { if (SETT() && SETT().data.loaded) { hydrateAll(); if (window.IBPages.current === 'settings') R(); } });
@@ -1534,35 +1536,56 @@
   }
   function aiSec() { return [providersSec()].concat(aiSecV6()); }
 
-  // ---------- the lists (decision 8; phase 12 T3 decision 10): the statuses are the system's (a view); the cancel / return reasons are saved ----------
-  // The statuses stay read-only on purpose: accounts_sales, products_report, order_delete, the auto-reply engine and the reports read them
-  // by name — a rename from the page would break those quietly. The reasons live in the settings row «lists» (IBSettings.saveLists) and the
-  // orders page's cancel / return popups read them (block 22); «أخرى» is always last and cannot go.
-  const REASON_LISTS = { cancel: 'أسباب الإلغاء والمسح', returns: 'أسباب المرتجع' };
+  // ---------- the lists (decision 8; phase 12 T3 decision 10; owner batch 14 Nov decisions 4 and 8) ----------
+  // The statuses (order / confirmation / sub-order) keep their value — accounts_sales, products_report, order_delete, the auto-reply engine
+  // and the reports read them by name — and the admin changes only the name the pages show (⋮ «تغيير الاسم», settings.lists.labels).
+  // The reasons, the makers' stop reasons and the shipping companies are saved lists: «+ إضافة» next to the title, ⋮ next to each item
+  // (تعديل / حذف), the order by dragging the six-dot grip; «أخرى» is always last where it belongs and cannot go.
+  const SAVED_LISTS = {
+    cancel: { title: 'أسباب الإلغاء والمسح', one: 'سبب', other: true, sub: 'بتظهر في بوب أب «إلغاء» الأوردر (الملغي بيتسجل بسببه في تقرير «أوردرات ملغية») — «أخرى» بتفتح خانة نص إجبارية' },
+    returns: { title: 'أسباب المرتجع', one: 'سبب', other: true, sub: 'بتظهر في بوب أب «استرجاع» الأوردر و«مرتجع للمخزن / للمبتكر» للفرعي — «أخرى» بتفتح خانة نص إجبارية' },
+    stop: { title: 'أسباب إيقاف المبتكر', one: 'سبب', other: true, sub: 'بتظهر لما مبتكر يتوقف — «أخرى» بتفتح خانة نص' },
+    shipping: { title: 'شركات الشحن', one: 'شركة', other: false, sub: 'بتظهر في «شحن كامل من المخزن» وفي «التنبيهات › التوصيل»' } };
+  const REASON_LISTS = { cancel: SAVED_LISTS.cancel.title, returns: SAVED_LISTS.returns.title };
   function reasonsSec(k) {
-    const S0 = SETT(); const L = S0 && S0.lists ? S0.lists() : { cancel: [], returns: [] }; const items = L[k] || [];
-    const saveWith = async (next) => { const r = await S0.saveLists(Object.assign({}, L, { [k]: next })); if (!r.ok) return fail(r, 'حفظ الأسباب'); LOGV('settings.lists.save', k + ' = ' + next.length); K.toast('اتحفظت الأسباب', 'success'); R(); };
+    const S0 = SETT(); const L = S0 && S0.lists ? S0.lists() : { cancel: [], returns: [] }; const items = L[k] || []; const def = SAVED_LISTS[k];
+    const fixed = (x) => def.other && x === 'أخرى'; const editable = () => items.filter((y) => !fixed(y));
+    const saveWith = async (next) => { const r = await S0.saveLists({ [k]: next }); if (!r.ok) return fail(r, 'حفظ القايمة'); LOGV('settings.lists.save', k + ' = ' + next.length); K.toast('اتحفظت القايمة', 'success'); R(); };
+    const nameField = (title, v, label) => K.form({ title, values: { v: v || '' }, fields: (f, e, set) => [K.field.text('v', label, f, e, set, { required: true, maxlength: 60 })],
+      validate: (f) => { const e = K.req(f, ['v']); const t = String(f.v || '').trim(); if (!e.v && t !== v && items.includes(t)) e.v = 'موجودة في القايمة'; return e; }, submitLabel: v ? 'حفظ' : 'إضافة',
+      submit: (f) => { const t = f.v.trim(); const next = editable(); if (v) next[next.indexOf(v)] = t; else next.push(t); saveWith(next); } });
     // phase 13 decision 55 (owner 11 Nov — «خلي ترتيب الأعمدة زي ما قلتلك»): the order by dragging the six-dot grip like «تخصيص اللوحة»
-    // (no «تحريك لفوق»); «أخرى» has no grip and stays last
     const admin = isAdminMe();
-    const rows = items.map((x, i) => [h('span', { class: 'reason-cell' }, admin ? (x !== 'أخرى' ? K.Grip(x) : h('span', { class: 'dc-grip-sp', 'aria-hidden': 'true' })) : null, h('span', { 'data-reason': x }, x)), x === 'أخرى' ? K.Tag('neutral', 'ثابت — بيفتح خانة نص') : K.RowMenu([
-      { label: 'تعديل', icon: 'sliders', run: () => K.form({ title: 'تعديل السبب', values: { v: x }, fields: (f, e, set) => [K.field.text('v', 'السبب', f, e, set, { required: true, maxlength: 60 })], validate: (f) => K.req(f, ['v']), submitLabel: 'حفظ', submit: (f) => { const next = items.filter((y) => y !== 'أخرى'); next[i] = f.v.trim(); saveWith(next); } }) },
-      { label: 'حذف', icon: 'close', danger: true, run: () => K.confirm({ title: 'حذف «' + x + '»', text: 'السبب مش هيظهر في بوب أب الأوردرات الجديدة؛ الأوردرات اللي اتسجلت بيه بتفضل زي ما هي.', okType: 'danger', okLabel: 'حذف', onOk: () => saveWith(items.filter((y, j) => j !== i && y !== 'أخرى')) }) }].filter(Boolean))]);
-    const table = U.Table({ headers: ['السبب', ''], rows });
+    const rows = items.map((x) => [h('span', { class: 'reason-cell' }, admin ? (!fixed(x) ? K.Grip(x) : h('span', { class: 'dc-grip-sp', 'aria-hidden': 'true' })) : null, h('span', { 'data-reason': x }, x)), fixed(x) ? K.Tag('neutral', 'ثابت — بيفتح خانة نص') : admin ? K.RowMenu([
+      { label: 'تعديل', icon: 'sliders', run: () => nameField('تعديل ' + def.one, x, def.one) },
+      { label: 'حذف', icon: 'close', danger: true, run: () => { if (editable().length < 2) return K.toast('لازم يفضل ' + def.one + ' واحد على الأقل', 'error'); K.confirm({ title: 'حذف «' + x + '»', text: 'مش هيظهر في البوب أبات الجديدة؛ اللي اتسجل بيه قبل كده بيفضل زي ما هو.', okType: 'danger', okLabel: 'حذف', onOk: () => saveWith(editable().filter((y) => y !== x)) }); } }]) : null]);
+    const table = U.Table({ headers: [def.one === 'شركة' ? 'الشركة' : 'السبب', ''], rows });
     if (admin) {
-      table.querySelectorAll('[data-reason]').forEach((el) => { const tr = el.closest('tr'); if (!tr) return; tr.setAttribute('data-reason-row', el.getAttribute('data-reason')); if (el.getAttribute('data-reason') === 'أخرى') tr.dataset.fixed = '1'; });
-      K.sortableRows(table, 'data-reason-row', (ids) => { const next = ids.filter((y) => y !== 'أخرى'); if (next.join('\n') !== items.filter((y) => y !== 'أخرى').join('\n')) saveWith(next); });
+      table.querySelectorAll('[data-reason]').forEach((el) => { const tr = el.closest('tr'); if (!tr) return; tr.setAttribute('data-reason-row', el.getAttribute('data-reason')); if (fixed(el.getAttribute('data-reason'))) tr.dataset.fixed = '1'; });
+      K.sortableRows(table, 'data-reason-row', (ids) => { const next = ids.filter((y) => !fixed(y)); if (next.join('\n') !== editable().join('\n')) saveWith(next); });
     }
-    return K.Section(REASON_LISTS[k], table, isAdminMe() ? [Button({ label: '+ سبب', attrs: { 'data-reason-add': k }, onClick: () => K.form({ title: 'سبب جديد', values: { v: '' }, fields: (f, e, set) => [K.field.text('v', 'السبب', f, e, set, { required: true, maxlength: 60 })], validate: (f) => K.req(f, ['v']), submitLabel: 'إضافة', submit: (f) => { saveWith(items.filter((y) => y !== 'أخرى').concat([f.v.trim()])); } }) })] : null,
-      { sub: k === 'cancel' ? 'بتظهر في بوب أب «إلغاء» الأوردر (الملغي بيتسجل بسببه في تقرير «أوردرات ملغية») — «أخرى» بتفتح خانة نص إجبارية' : 'بتظهر في بوب أب «استرجاع» الأوردر و«مرتجع للمخزن / للمبتكر» للفرعي — «أخرى» بتفتح خانة نص إجبارية' });
+    return K.Section(def.title, table, admin ? [Button({ label: '+ إضافة', attrs: { 'data-reason-add': k }, onClick: () => nameField(def.one === 'شركة' ? 'شركة شحن جديدة' : 'سبب جديد', '', def.one) })] : null, { th: false, sub: def.sub });
+  }
+  // a status table: the value in the system, the name the pages show, and ⋮ «تغيير الاسم» / «رجّع الاسم الأصلي» (decision 4)
+  const STATUS_LISTS = { order: ['حالات الأوردر', 'مربوطة بالموقع (status_map) وبقواعد الحسابات والتقارير والرد الآلي بالقيمة — التغيير للاسم اللي بيظهر بس'], confirm: ['حالات التأكيد', 'التغيير للاسم اللي بيظهر في صفحة الأوردرات بس — القيمة جوه السيستم زي ما هي'], sub: ['حالات الأوردر الفرعي', '«مؤكد» بتتحط تلقائي لما الأوردر الرئيسي يتأكد · «جاهز للشحن …» بتطلب بوليصة · «مرتجع …» بيفتح بوب أب بسبب — التغيير للاسم اللي بيظهر بس'] };
+  function statusSec(kind) {
+    const S0 = SETT(); const L = S0 && S0.lists ? S0.lists() : { labels: {} }; const labels = L.labels || {}; const cur = labels[kind] || {};
+    const values = (S0 && S0.STATUS_KINDS && S0.STATUS_KINDS[kind]) || []; const woo = Object.fromEntries((C.orderStatuses || []).map((x) => [x[0], x[2]])); const admin = isAdminMe();
+    const saveLabel = async (v, shown) => { const next = JSON.parse(JSON.stringify(labels)); next[kind] = Object.assign({}, next[kind]); if (shown && shown !== v) next[kind][v] = shown; else delete next[kind][v]; const r = await S0.saveLists({ labels: next }); if (!r.ok) return fail(r, 'حفظ الاسم'); LOGV('settings.lists.label', kind); K.toast('اتحفظ الاسم', 'success'); R(); document.dispatchEvent(new Event('ib:settings')); };
+    const rows = values.map((v) => { const shown = cur[v] || v; return [h('span', { 'data-status': v }, v), h('b', { 'data-status-label': v }, shown), kind === 'order' ? h('code', { dir: 'ltr' }, woo[v] || '—') : null, admin ? K.RowMenu([
+      { label: 'تغيير الاسم', icon: 'sliders', run: () => K.form({ title: 'تغيير اسم «' + v + '»', values: { v: shown }, note: U.InlineNote({ children: 'الاسم اللي بيظهر في الصفحات بس — الحالة جوه السيستم والموقع والتقارير زي ما هي.' }), fields: (f, e, set) => [K.field.text('v', 'الاسم اللي بيظهر', f, e, set, { required: true, maxlength: 40 })], validate: (f) => { const e = K.req(f, ['v']); if (!e.v && /[<>]/.test(f.v)) e.v = 'من غير < أو >'; return e; }, submitLabel: 'حفظ', submit: (f) => saveLabel(v, f.v.replace(/\s+/g, ' ').trim()) }) },
+      cur[v] ? { label: 'رجّع الاسم الأصلي', icon: 'refresh', run: () => saveLabel(v, '') } : null].filter(Boolean)) : null].filter((c) => c !== null); });
+    const headers = ['الحالة في السيستم', 'الاسم اللي بيظهر'].concat(kind === 'order' ? ['مقابل WooCommerce'] : []).concat(admin ? [''] : []);
+    return K.Section(STATUS_LISTS[kind][0], U.Table({ headers, rows }), null, { th: false, sub: STATUS_LISTS[kind][1] });
   }
   function lists() {
-    const L = C.otherLists; const tabs = [{ id: 'order', label: 'حالات الأوردر' }, { id: 'confirm', label: 'حالات التأكيد' }, { id: 'sub', label: 'حالات الأوردر الفرعي' }, { id: 'cancel', label: 'أسباب الإلغاء والمسح' }, { id: 'returns', label: 'أسباب المرتجع' }, { id: 'expenses', label: 'أنواع المصروفات' }, { id: 'categories', label: 'فئات المبتكرين' }, { id: 'stop', label: 'أسباب إيقاف المبتكر' }, { id: 'priorities', label: 'الأولويات' }];
-    const out = [K.SubTabs({ items: tabs, active: tabs.some((t) => t.id === st.list) ? st.list : 'order', onChange: (id) => { st.list = id; R(); }, label: 'القوائم' })]; const cur = tabs.some((t) => t.id === st.list) ? st.list : 'order';
-    if (cur === 'order') out.push(K.Section('حالات الأوردر', U.Table({ headers: ['الاسم في السيستم', 'المعاينة', 'مقابل WooCommerce', 'النوع'], rows: C.orderStatuses.map((s) => [s[0], K.Tag(s[1], s[0]), h('code', { dir: 'ltr' }, s[2]), s[4]]) }), null, { sub: 'مربوطة بالموقع (status_map) وبقواعد الحسابات والتقارير والرد الآلي بالاسم — عرض بس' }));
-    else if (cur === 'cancel' || cur === 'returns') out.push(reasonsSec(cur));
-    else { const titles = Object.fromEntries(tabs.map((t) => [t.id, t.label])); const items = L[cur] || []; out.push(K.Section(titles[cur], U.Table({ headers: ['الاسم'], rows: items.map((x) => [x]) }))); }
-    if (cur !== 'cancel' && cur !== 'returns') out.push(U.InlineNote({ children: 'القوايم دي ثابتة في السيستم (الحالات مربوطة بالموقع والتقارير، وأنواع المصروفات بقيود قاعدة البيانات) — عرض بس. أسباب الإلغاء والمرتجع هي اللي بتتعدل من هنا.' }));
+    const L = C.otherLists; const tabs = [{ id: 'order', label: 'حالات الأوردر' }, { id: 'confirm', label: 'حالات التأكيد' }, { id: 'sub', label: 'حالات الأوردر الفرعي' }, { id: 'cancel', label: 'أسباب الإلغاء والمسح' }, { id: 'returns', label: 'أسباب المرتجع' }, { id: 'stop', label: 'أسباب إيقاف المبتكر' }, { id: 'shipping', label: 'شركات الشحن' }, { id: 'expenses', label: 'أنواع المصروفات' }, { id: 'categories', label: 'فئات المبتكرين' }, { id: 'priorities', label: 'الأولويات' }];
+    const cur = tabs.some((t) => t.id === st.list) ? st.list : 'order';
+    const out = [K.SubTabs({ items: tabs, active: cur, onChange: (id) => { st.list = id; R(); }, label: 'القوائم' })];
+    if (STATUS_LISTS[cur]) out.push(statusSec(cur));
+    else if (SAVED_LISTS[cur]) out.push(reasonsSec(cur));
+    else { const titles = Object.fromEntries(tabs.map((t) => [t.id, t.label])); const items = L[cur] || []; out.push(K.Section(titles[cur], U.Table({ headers: ['الاسم'], rows: items.map((x) => [x]) }), null, { th: false }));
+      out.push(U.InlineNote({ children: cur === 'expenses' ? 'أنواع المصروفات مربوطة بقيود قاعدة البيانات وتقارير الحسابات — عرض بس.' : cur === 'categories' ? 'فئات المبتكرين = أقسام الموقع الرئيسية — بتتعدّل من «المنتجات › الأقسام».' : 'الأولويات مربوطة بطلبات الفريق في قاعدة البيانات — عرض بس.' })); }
     return out;
   }
   // ---------- the makers' defaults (decision 17): the row «makers» + the real rules of the makers ----------

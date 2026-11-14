@@ -27,7 +27,8 @@ update public.settings set data = '{"colors":{"--color-brand-default":"#005642"}
 update public.settings set data = '{"alertRoles":{"customers.late":"RRRNSN"},"alertOverrides":{"00000000-0000-4000-8000-0000000056a2":{"customers.late":"S"},"00000000-0000-4000-8000-0000000056a3":{"customers.late":"N"}},"digests":[{"name":"x"}]}'::jsonb where section = 'notif';
 update public.settings set data = '{"force2fa":false,"idleDesktop":"8 ساعات","ipOnly":true}'::jsonb where section = 'security';
 -- 0060 (phase 12 T3): the saved reason lists — the admin's row «lists» reaches every member through the public slice
-insert into public.settings (section, data) values ('lists', '{"cancel":["العميل مش بيرد","أوردر مكرر"],"returns":["فيه عيب"],"secret":"x"}'::jsonb)
+-- 0086 (owner batch 14 Nov): + the stop reasons, the shipping companies and the shown status names
+insert into public.settings (section, data) values ('lists', '{"cancel":["العميل مش بيرد","أوردر مكرر"],"returns":["فيه عيب"],"stop":["جودة"],"shipping":["بوسطة","J&T"],"labels":{"order":{"جاري التنفيذ":"تحت التصنيع"}},"secret":"x"}'::jsonb)
   on conflict (section) do update set data = excluded.data;
 
 -- the name list of the Vault door
@@ -47,6 +48,9 @@ begin
   if (p -> 'general' ->> 'company') <> 'إبتكر كلوب' or p -> 'general' ? 'email' then raise exception 'case the display prefs without the contact data failed: %', p -> 'general'; end if;
   if (p -> 'security' ->> 'idleDesktop') <> '8 ساعات' or p -> 'security' ? 'ipOnly' then raise exception 'case the security slice failed'; end if;
   if (p -> 'lists' -> 'cancel') <> '["العميل مش بيرد","أوردر مكرر"]'::jsonb or (p -> 'lists' -> 'returns') <> '["فيه عيب"]'::jsonb or p -> 'lists' ? 'secret' then raise exception 'case the saved reason lists are public (0060) failed: %', p -> 'lists'; end if;
+  if (p -> 'lists' -> 'shipping') <> '["بوسطة","J&T"]'::jsonb or (p -> 'lists' -> 'stop') <> '["جودة"]'::jsonb or (p -> 'lists' -> 'labels' -> 'order' ->> 'جاري التنفيذ') <> 'تحت التصنيع' then
+    raise exception 'case the stop reasons, shipping companies and shown status names are public (0086) failed: %', p -> 'lists';
+  end if;
   if (p -> 'notif' -> 'alertRoles' ->> 'customers.late') <> 'RRRNSN' or (p -> 'notif' -> 'myOverride' ->> 'customers.late') <> 'S' or p -> 'notif' ? 'digests' or p -> 'notif' -> 'myOverride' ? 'x' then
     raise exception 'case the bell matrix with my override only failed: %', p -> 'notif';
   end if;

@@ -51,7 +51,7 @@ export function settingsRoute(c) {
       const sec = (s) => (mock.settings.find((x) => x.section === s) || {}).data || {};
       const g = sec('general'), se = sec('security'), n = sec('notif'), li = sec('lists');
       const strip = (o) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined && v !== null));
-      return json(200, { brand: sec('brand'), quick: sec('quick'), lists: strip({ cancel: li.cancel, returns: li.returns }), general: strip({ company: g.company, site: g.site, tz: g.tz, week: g.week, compact: g.compact, thumbs: g.thumbs, rememberFilters: g.rememberFilters, hidePhones: g.hidePhones }),
+      return json(200, { brand: sec('brand'), quick: sec('quick'), lists: strip({ cancel: li.cancel, returns: li.returns, stop: li.stop, shipping: li.shipping, labels: li.labels }), general: strip({ company: g.company, site: g.site, tz: g.tz, week: g.week, compact: g.compact, thumbs: g.thumbs, rememberFilters: g.rememberFilters, hidePhones: g.hidePhones }),
         security: strip({ force2fa: se.force2fa, idle: se.idle, idleDesktop: se.idleDesktop, idleMobile: se.idleMobile, pwMin: se.pwMin }), notif: strip({ alertRoles: n.alertRoles || {}, myOverride: (n.alertOverrides || {})[u.id] || {}, whatsappTemplate: n.whatsappTemplate }) });
     }
     if (name === 'my_sessions') { if (!active) return refuse(401, '42501', 'not allowed'); return json(200, S.sessions.map((s) => ({ ...s }))); }

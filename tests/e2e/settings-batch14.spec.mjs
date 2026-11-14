@@ -47,3 +47,45 @@ test('decision 3: a settings page is centred at one width with «حفظ» at its
     await expect(page.locator('#pg-settings [data-tq-btn], #pg-settings [data-cols], #pg-settings [data-fm-btn^="auto"], #pg-settings [data-sm-btn^="auto"]'), sec).toHaveCount(0);
   }
 });
+
+const settingsRow = (section) => (mock.settings || []).find((r) => r.section === section);
+
+test('decisions 4, 5 and 8: a status gets a shown name (⋮ «تغيير الاسم») that the orders page shows while the value stays; shipping companies and stop reasons are saved lists; the return default can ask every time', async ({ page }) => {
+  await go(page, 'settings-lists');
+  const body = page.locator('#pg-settings');
+  // statuses: no «+» (rename only), a ⋮ next to each status
+  await expect(body.locator('[data-reason-add]')).toHaveCount(0);
+  const row = body.locator('tr').filter({ has: page.locator('[data-status="جاري التنفيذ"]') });
+  await row.locator('button[aria-haspopup=menu]').click();
+  await page.getByRole('menuitem', { name: 'تغيير الاسم' }).click();
+  await page.locator('.modal input').first().fill('تحت التصنيع');
+  await page.locator('.modal').getByRole('button', { name: 'حفظ', exact: true }).click();
+  await expect(body.locator('[data-status-label="جاري التنفيذ"]')).toHaveText('تحت التصنيع');
+  await expect.poll(() => ((settingsRow('lists') || {}).data || {}).labels).toEqual({ order: { 'جاري التنفيذ': 'تحت التصنيع' } });
+  // the shipping companies: «+ إضافة» next to the title, then ⋮ تعديل
+  await body.getByRole('tab', { name: 'شركات الشحن' }).click();
+  await expect(body.locator('[data-reason]')).toHaveText(['بوسطة', 'أرامكس', 'مندوب إبتكر']);
+  await body.locator('[data-reason-add="shipping"]').click();
+  await page.locator('.modal input').first().fill('J&T');
+  await page.locator('.modal').getByRole('button', { name: 'إضافة', exact: true }).click();
+  await expect.poll(() => ((settingsRow('lists') || {}).data || {}).shipping).toEqual(['بوسطة', 'أرامكس', 'مندوب إبتكر', 'J&T']);
+  // a company the list has already → the popup refuses it
+  await body.locator('[data-reason-add="shipping"]').click();
+  await page.locator('.modal input').first().fill('بوسطة');
+  await page.locator('.modal').getByRole('button', { name: 'إضافة', exact: true }).click();
+  await expect(page.locator('.modal')).toContainText('موجودة في القايمة');
+  await page.keyboard.press('Escape');
+  // the stop reasons keep «أخرى» last and fixed
+  await body.getByRole('tab', { name: 'أسباب إيقاف المبتكر' }).click();
+  await expect(body.locator('[data-reason]').last()).toHaveText('أخرى');
+  expect((settingsRow('lists').data || {}).cancel.length).toBeGreaterThan(0); // the saved row keeps the cancel / return reasons
+  expect(JSON.stringify(mock.activity.filter((a) => /^settings\.lists/.test(a.action)))).not.toContain('J&T'); // counts / kinds only in the log
+  // the orders page shows the new name; the value in the dropdown is the system's
+  await go(page, 'orders');
+  await expect(page.locator('#chips [data-sc="جاري التنفيذ"] span')).toHaveText('تحت التصنيع');
+  const opt = page.locator('select[data-st] option[value="جاري التنفيذ"]').first();
+  await expect(opt).toHaveText('تحت التصنيع');
+  // the inventory return default can be «اسألني في كل مرة»
+  await go(page, 'settings-inventory');
+  await expect(page.locator('#pg-settings').getByRole('radio', { name: 'اسألني في كل مرة' })).toHaveCount(1);
+});

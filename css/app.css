@@ -1844,3 +1844,7 @@ td > :is(.mlink,.prod,.who-cell) .avatar{flex:none}
 .tbl-v2>.th-all,.tbl-v2>.scroll-x+.th-note,.tbl-v2>.xwrap+.th-note,.tbl-v2>table+.th-note,.tbl-v2>.th-note{margin-inline:20px}
 .tbl-v2>.th-all{padding-block:12px}
 .th-note{margin:12px 0 0}
+/* the owner 14 Nov («جدول المبتكرين — الفترة المحددة»: الزراير بعضها والمسافات مظبوطة زي بقية الجداول): a TableCard's head
+   (.table-title) gets its controls in one group 8px apart like .sec-h — «بحث» and «فلتر» touched and the columns icon stood off */
+.table-title>.acts{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.table-title>.acts>[data-cols]{margin-inline-start:0}

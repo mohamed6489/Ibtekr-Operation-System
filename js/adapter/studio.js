@@ -168,10 +168,10 @@
   const base64Of = async (blob) => { const b = new Uint8Array(await blob.arrayBuffer()); let s = ''; for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000)); return btoa(s); };
   const imageOf = async (blob) => (blob && typeof blob.arrayBuffer === 'function' ? { data: await base64Of(blob) } : undefined);
   async function createCategory(row) {
-    const r = await invoke({ action: 'category_create', name_en: row.name_en, name_ar: row.name_ar || null, parent: row.parent || 0, image: await imageOf(row.image) });
+    const r = await invoke({ action: 'category_create', name_en: row.name_en, name_ar: row.name_ar || null, parent: row.parent || 0, slug: row.slug || undefined, image: await imageOf(row.image) });
     if (!r.ok) return r;
     if (r.body.result !== 'ok') return { ok: false, reason: r.body.reason || r.body.result };
-    quiet(() => window.IBProducts && window.IBProducts.addCategory && window.IBProducts.addCategory({ id: r.body.id, name: row.name_en, parent_id: row.parent || null }));
+    quiet(() => window.IBProducts && window.IBProducts.addCategory && window.IBProducts.addCategory({ id: r.body.id, name: row.name_en, parent_id: row.parent || null, slug: row.slug || null, image_url: r.body.image || null }));
     quiet(() => window.IBActivity && window.IBActivity.log('product.category.create', '#' + r.body.id + ' · ' + row.name_en, { entity: 'woo_categories', entity_id: String(r.body.id) }));
     return { ok: true, id: r.body.id, arId: r.body.ar_id || null };
   }
@@ -184,11 +184,12 @@
   }
   // what changed only ({ id, name_en?, name_ar?, image? }) → { ok, ar: 'ok' | 'made' | 'none' | 'not_linked' | code }
   async function categoryUpdate(row) {
-    const r = await invoke({ action: 'category_update', id: Number(row.id), name_en: row.name_en || undefined, name_ar: row.name_ar || undefined, image: await imageOf(row.image) });
+    const r = await invoke({ action: 'category_update', id: Number(row.id), name_en: row.name_en || undefined, name_ar: row.name_ar || undefined, slug: row.slug || undefined, parent: row.parent == null ? undefined : Number(row.parent), image: await imageOf(row.image) });
     if (!r.ok) return r;
     if (r.body.result !== 'ok') return { ok: false, reason: r.body.reason || r.body.result };
-    if (row.name_en) quiet(() => window.IBProducts && window.IBProducts.renameCategory && window.IBProducts.renameCategory(Number(row.id), row.name_en));
-    const what = [row.name_en ? 'name' : null, row.name_ar ? 'name_ar' : null, row.image ? 'image' : null].filter(Boolean).join(', ');
+    const patch = Object.assign({}, row.name_en ? { name: row.name_en } : {}, row.slug ? { slug: row.slug } : {}, row.parent != null ? { parent_id: Number(row.parent) || null } : {}, r.body.image ? { image_url: r.body.image } : {});
+    if (Object.keys(patch).length) quiet(() => window.IBProducts && window.IBProducts.patchCategory && window.IBProducts.patchCategory(Number(row.id), patch));
+    const what = [row.name_en ? 'name' : null, row.name_ar ? 'name_ar' : null, row.slug ? 'slug' : null, row.parent != null ? 'parent' : null, row.image ? 'image' : null].filter(Boolean).join(', ');
     quiet(() => window.IBActivity && window.IBActivity.log('product.category.update', '#' + row.id + ' · ' + what, { entity: 'woo_categories', entity_id: String(row.id) }));
     return { ok: true, ar: r.body.ar || 'none', image: r.body.image || null };
   }

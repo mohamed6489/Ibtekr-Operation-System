@@ -80,7 +80,8 @@
       const [main, ar, cs, bs, pc] = await Promise.all([
         pages(() => cl.from('products').select(COLS).or('lang.is.null,lang.neq.ar').order('id', { ascending: true }), g),
         pages(() => cl.from('products').select(AR_COLS).eq('lang', 'ar').order('id', { ascending: true }), g),
-        pages(() => cl.from('woo_categories').select('id, name, parent_id').order('id', { ascending: true }), g),
+        // owner batch 14 Nov decision 9: the slug and the image (0088) — before 0088 is live the old columns still load the tab
+        pages(() => cl.from('woo_categories').select('id, name, parent_id, slug, image_url').order('id', { ascending: true }), g).catch(() => pages(() => cl.from('woo_categories').select('id, name, parent_id').order('id', { ascending: true }), g)),
         pages(() => cl.from('woo_brands').select('id, name, parent_id').order('name', { ascending: true }), g),
         canComm ? pages(() => cl.from('product_commissions').select('product_id, rate, type, fee').not('rate', 'is', null).order('product_id', { ascending: true }), g) : Promise.resolve([]),
       ]);
@@ -325,10 +326,12 @@
 
   window.IBProducts = {
     load, ensure, refresh, clear, state: () => st, list, trash, get, toRecord, can, rateOf, commissionOf, commissionParams, vendorPriceOf, STATUS, report, reportFailed, reportRetry, addImages, moveVendor,
-    categories: () => [...cats.values()].map((x) => ({ id: Number(x.id), name: x.name, parentId: x.parent_id ? Number(x.parent_id) : null, path: catPath(x.id) })).sort((a, b) => a.path.localeCompare(b.path)),
+    categories: () => [...cats.values()].map((x) => ({ id: Number(x.id), name: x.name, parentId: x.parent_id ? Number(x.parent_id) : null, path: catPath(x.id), slug: x.slug || '', image: /^https:\/\//.test(x.image_url || '') ? x.image_url : null })).sort((a, b) => a.path.localeCompare(b.path)),
     brands: () => [...brands.values()].map((x) => ({ id: Number(x.id), name: x.name })),
     // phase 5.2: a category the studio just made on the site (category_create) shows at once
-    addCategory: (row) => { cats.set(Number(row.id), { id: Number(row.id), name: row.name, parent_id: row.parent_id || null }); emit({ categories: true }); },
+    addCategory: (row) => { cats.set(Number(row.id), { id: Number(row.id), name: row.name, parent_id: row.parent_id || null, slug: row.slug || null, image_url: row.image_url || null }); emit({ categories: true }); },
+    // owner batch 14 Nov decision 9: what category_update wrote ({ name?, slug?, parent_id?, image_url? }) on the local mirror
+    patchCategory: (id, patch) => { const x = cats.get(Number(id)); if (x) { cats.set(Number(id), Object.assign({}, x, patch)); emit({ categories: true }); } },
     // B4 (11 Nov): the categories tab — a new name and a deleted category show at once (the mirror follows on the server)
     renameCategory: (id, name) => { const x = cats.get(Number(id)); if (x) { cats.set(Number(id), Object.assign({}, x, { name })); emit({ categories: true }); } },
     removeCategory: (id) => { if (cats.delete(Number(id))) emit({ categories: true }); },

@@ -29,7 +29,7 @@
   const reasonOf = (err) => { const code = String((err && err.code) || ''); return code === '42501' ? 'forbidden' : code === 'P0002' || code === 'PGRST116' ? 'notfound' : code === '23505' ? 'exists' : code === '0A000' ? 'no_vault' : /^2[23]/.test(code) ? 'invalid' : 'server'; };
   const fieldOf = (err) => { const m = /invalid: (\w+)/.exec(String((err && err.message) || '')); return m ? m[1] : null; };
   const MESSAGES = { forbidden: 'مفيش صلاحية للإجراء ده', notfound: 'مش موجود أو اتحذف', network: 'تعذّر الاتصال — جرّب تاني', invalid: 'البيانات مش مقبولة', exists: 'الاسم ده موجود', server: 'حصل خطأ في السيرفر', no_vault: 'الخزنة (Vault) مش متاحة في المشروع', last_admin: 'لازم يفضل أدمن واحد نشط على الأقل' };
-  const FIELD_MESSAGES = { level: 'المستوى: مدير أو موظف أو مشاهد', id: 'معرّف الدور: حروف إنجليزية صغيرة وأرقام و _ بس', name: 'الاسم مطلوب (لحد 40 حرف) — اسم الدور الجاهز ثابت', base: 'اختار دور تبدأ منه', perms: 'الصلاحيات لازم تكون F أو P أو N', moves: 'كل عضو على الدور لازم يروح لدور تاني موجود', admin: 'الأدمن عنده كل الصلاحيات — مينفعش يتعدّل', self: 'مينفعش توقف نفسك', status: 'الحالة مش معروفة', reason: 'اكتب سبب الإيقاف', current: 'الجلسة الحالية بتتقفل بـ «تسجيل الخروج»', url: 'اكتب رابط الموقع كامل بـ https://', ck: 'Consumer key بيبدأ بـ ck_', cs: 'Consumer secret بيبدأ بـ cs_', key: 'المفتاح مش بالشكل المتوقع', token: 'التوكن مش بالشكل المتوقع', from: 'إيميل المرسل مش صحيح' };
+  const FIELD_MESSAGES = { qname: 'اسم الإجراء: لحد 60 حرف ومن غير < >', role: 'اختار الدور', link: 'اللينك لازم يكون لصفحة في السيستم (#…)', scope: 'اختار مين يشوف الإجراء', level: 'المستوى: مدير أو موظف أو مشاهد', id: 'معرّف الدور: حروف إنجليزية صغيرة وأرقام و _ بس', name: 'الاسم مطلوب (لحد 40 حرف) — اسم الدور الجاهز ثابت', base: 'اختار دور تبدأ منه', perms: 'الصلاحيات لازم تكون F أو P أو N', moves: 'كل عضو على الدور لازم يروح لدور تاني موجود', admin: 'الأدمن عنده كل الصلاحيات — مينفعش يتعدّل', self: 'مينفعش توقف نفسك', status: 'الحالة مش معروفة', reason: 'اكتب سبب الإيقاف', current: 'الجلسة الحالية بتتقفل بـ «تسجيل الخروج»', url: 'اكتب رابط الموقع كامل بـ https://', ck: 'Consumer key بيبدأ بـ ck_', cs: 'Consumer secret بيبدأ بـ cs_', key: 'المفتاح مش بالشكل المتوقع', token: 'التوكن مش بالشكل المتوقع', from: 'إيميل المرسل مش صحيح' };
   const fail = (err) => { const msg = String((err && err.message) || ''); const reason = /last admin/.test(msg) ? 'last_admin' : reasonOf(err); const field = reason === 'invalid' ? fieldOf(err) : null; return { ok: false, reason, field, message: (field && FIELD_MESSAGES[field]) || MESSAGES[reason] || MESSAGES.server }; };
   const no = (reason, field) => ({ ok: false, reason, field: field || null, message: (field && FIELD_MESSAGES[field]) || MESSAGES[reason] || MESSAGES.server });
   const log = (action, detail, id) => { const L = window.IBActivity; if (L && L.log) quiet(() => L.log('settings.' + action, detail || '', { entity: 'settings', entity_id: id == null ? null : String(id) })); };
@@ -125,6 +125,27 @@
     const r = await rpc('member_level_set', { p_member: uid, p_level: level }); if (!r.ok) return r;
     if (window.IBDirectory && window.IBDirectory.refresh) quiet(() => window.IBDirectory.refresh()); return { ok: true };
   }
+  // 0098 (owner batch 2 decision 16): the quick actions by visibility — «كل الفريق» (scope all, the admin) · «دور معين» (role, the admin or
+  // the role's manager) · «أنا بس» (me, the member) — and «مفعّل / موقوف»; the server decides who reads and who writes each row
+  const Q_SCOPES = ['all', 'role', 'me'];
+  const Q_BAD = /[<>\u0000-\u001f\u007f]/; const Q_LINK = /^#[a-z][^<>"'\s\u0000-\u001f\u007f]{0,298}$/;
+  async function quickList() {
+    const r = await rpc('quick_actions_list', {}); if (!r.ok) return r;
+    const rows = (Array.isArray(r.data) ? r.data : []).filter((x) => x && x.id && typeof x.name === 'string' && typeof x.link === 'string')
+      .map((x) => ({ id: String(x.id), name: x.name.slice(0, 60), link: x.link.slice(0, 300), icon: /^[a-z0-9-]{1,24}$/.test(x.icon || '') ? x.icon : 'link', scope: Q_SCOPES.includes(x.scope) ? x.scope : 'me',
+        roleId: x.role_id || null, active: x.active !== false, sort: Number(x.sort) || 0, canEdit: !!x.can_edit }));
+    return { ok: true, rows };
+  }
+  async function quickSave(item) {
+    const name = String((item && item.name) || '').trim(); const link = String((item && item.link) || '').trim(); const scope = item && item.scope;
+    if (!name || name.length > 60 || Q_BAD.test(name)) return no('invalid', 'qname'); if (!Q_LINK.test(link)) return no('invalid', 'link');
+    if (!Q_SCOPES.includes(scope)) return no('invalid', 'scope'); if (scope === 'role' && !(item && item.roleId)) return no('invalid', 'role');
+    const p = { name, link, icon: /^[a-z0-9-]{1,24}$/.test((item && item.icon) || '') ? item.icon : 'link', scope, active: !(item && item.active === false) };
+    if (scope === 'role') p.role = String(item.roleId); if (item && item.id && !/^qa-/.test(String(item.id))) p.id = String(item.id);
+    const r = await rpc('quick_action_save', { p }); return r.ok ? { ok: true, id: String(r.data || '') } : r;
+  }
+  const quickDelete = async (id) => (UUID.test(String(id || '')) ? rpc('quick_action_delete', { p_id: String(id) }) : no('invalid'));
+  const quickOrder = async (ids) => { const list = (ids || []).map(String).filter((x) => UUID.test(x)).slice(0, 200); return list.length ? rpc('quick_action_order', { p_ids: list }) : { ok: true }; };
   // a role's group at a level as the matrix reads it
   const levelPermsOf = (r, level) => { const g = r && r.level_perms && typeof r.level_perms === 'object' ? r.level_perms[level] : null; return level !== 'employee' && g && typeof g === 'object' ? g : (r && r.permissions) || {}; };
   async function createRole(f) {
@@ -480,7 +501,7 @@
     return after(await orderRpc('order_status_order', { p_names: names.map(String) }, 'names'), 'order', 'order · ' + names.length);
   }
 
-  window.IBSettings = { load, ensure, loadPublic, clear, data, section, sections: () => Object.assign({}, data.sections), roles, liveRoles, public: () => data.public, can, PERMS, PERM_KEYS, lists, saveLists, statusLabel, STATUS_KINDS, setRoleLevelPerms, setMemberLevel, levelPermsOf, MEMBER_LEVELS: MLEVELS, expenseKinds, statusList, addedStatuses, delayRules, orderStatuses, orderStatusAdd, orderStatusSlug, orderStatusDelete, orderStatusOrder, ADDED_MAX, ADDED_LEN, weekStart, KIND_MAX, KINDS_MAX,
+  window.IBSettings = { load, ensure, loadPublic, clear, data, section, sections: () => Object.assign({}, data.sections), roles, liveRoles, public: () => data.public, can, PERMS, PERM_KEYS, lists, saveLists, statusLabel, STATUS_KINDS, setRoleLevelPerms, setMemberLevel, levelPermsOf, MEMBER_LEVELS: MLEVELS, quickList, quickSave, quickDelete, quickOrder, QUICK_SCOPES: Q_SCOPES, expenseKinds, statusList, addedStatuses, delayRules, orderStatuses, orderStatusAdd, orderStatusSlug, orderStatusDelete, orderStatusOrder, ADDED_MAX, ADDED_LEN, weekStart, KIND_MAX, KINDS_MAX,
     save, setRolePerms, createRole, updateRole, deleteRole, setMemberRole, setMemberRoles, setMemberPerms, setMemberStatus, sessions, revokeSession, deviceOf,
     links, setSecret, wooSet, testSecret, unlink, connections, notifyStatus, notifyTick, activity, pageOf, docs, addDoc, updateDoc, removeDoc, docUrl, uploadLogo, logoUrl, LOGO_SLOTS };
 })();

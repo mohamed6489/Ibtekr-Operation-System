@@ -22,13 +22,14 @@ export function settingsState(opts = {}, roles) {
     objects: new Map(Object.entries(opts.settingsObjects || {})), // 'bucket/path' → { type }
     sessions: copy(opts.sessions || [{ id: 'b0000000-0000-4000-8000-000000000001', created_at: '2026-11-01T08:00:00Z', refreshed_at: '2026-11-07T09:00:00Z', user_agent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/130.0 Safari/537.36', ip: '41.1.1.1', aal: 'aal1', current: true },
       { id: 'b0000000-0000-4000-8000-000000000002', created_at: '2026-11-05T08:00:00Z', refreshed_at: '2026-11-06T09:00:00Z', user_agent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Version/17.0 Mobile Safari/604.1', ip: '41.1.1.2', aal: 'aal1', current: false }]),
+    quick: copy(opts.quickActions || []), // 0098: { id, name, link, icon, scope, role_id, owner, active, sort }
     notifyRuns: [], calls: [], writes: [], probeOk: opts.probeOk !== false, seq: 0,
   };
 }
 
 export function settingsRoute(c) {
   const { method, path, url, hd, u, hasPerm, isAdmin, json, mock } = c; const S = mock.st; if (!S) return null;
-  const rpc = /^\/rest\/v1\/rpc\/(role_level_perms_set|member_level_set|role_perms_set|role_create|role_update|role_delete|role_manager_set|member_manager_set|member_role_set|member_roles_set|member_perms_set|member_status_set|my_sessions|my_session_revoke|settings_public)$/.exec(path);
+  const rpc = /^\/rest\/v1\/rpc\/(quick_actions_list|quick_action_save|quick_action_delete|quick_action_order|role_level_perms_set|member_level_set|role_perms_set|role_create|role_update|role_delete|role_manager_set|member_manager_set|member_role_set|member_roles_set|member_perms_set|member_status_set|my_sessions|my_session_revoke|settings_public)$/.exec(path);
   const fn = method === 'POST' && (path === '/functions/v1/settings-admin' || path === '/functions/v1/notify');
   const docs = path === '/rest/v1/company_docs'; const sto = /^\/storage\/v1\/object\/(sign\/)?(company-docs|settings)\/(.+)$/.exec(path);
   const act = method === 'GET' && path === '/rest/v1/activity_log' && [...url.searchParams].some(([k, v]) => k === 'action' && v.startsWith('like.') || (k === 'at' && /^(lte|gte)\./.test(v))) || (method === 'GET' && path === '/rest/v1/activity_log' && (hd.range || url.searchParams.has('offset')));
@@ -66,6 +67,32 @@ export function settingsRoute(c) {
       if (body.p_manager == null) { const r = S.roles.find((x) => x.id === p.role_id); const auto = (r && r.manager_id) || null; p.manager_fixed = false; p.manager_id = auto === p.id ? null : auto; }
       else { const mg = mock.profiles.find((x) => x.id === body.p_manager && (x.status || 'active') === 'active'); if (!mg || mg.id === p.id || mg.manager_id === p.id) return refuse(400, '22023', 'invalid: manager'); p.manager_id = mg.id; p.manager_fixed = true; }
       S.writes.push({ table: 'profiles', op: 'manager', id: p.id, manager: p.manager_id, fixed: !!p.manager_fixed }); logRow('hr.member.manager', 'hr', p.id, null, p.manager_id); return json(204, null);
+    }
+    // 0098 (owner batch 2 decision 16): the quick actions — «كل الفريق» the admin · «دور معين» the admin or the role's manager · «أنا بس» the owner
+    const qRoles = () => (active ? [u.role_id].concat(Array.isArray(u.extra_roles) ? u.extra_roles : []) : []);
+    const qMgr = (rid) => !!rid && (admin || (active && (S.roles.some((r) => r.id === rid && r.manager_id === u.id) || (u.role_id === rid && u.level === 'manager'))));
+    const qSee = (q) => active && (q.scope === 'all' || (q.scope === 'me' && q.owner === u.id) || (q.scope === 'role' && (qRoles().includes(q.role_id) || qMgr(q.role_id))));
+    const qEdit = (scope, rid, owner) => active && (scope === 'all' ? admin : scope === 'role' ? qMgr(rid) : scope === 'me' ? owner === u.id : false);
+    if (name === 'quick_actions_list') return json(200, S.quick.filter(qSee).sort((a, b) => a.sort - b.sort).map((q) => ({ id: q.id, name: q.name, link: q.link, icon: q.icon, scope: q.scope, role_id: q.role_id || null, active: q.active, sort: q.sort, can_edit: qEdit(q.scope, q.role_id, q.owner) })));
+    if (name === 'quick_action_save') {
+      const p = body.p || {}; const scope = p.scope; const nm = String(p.name || '').trim(); const ln = String(p.link || '').trim();
+      if (!['all', 'role', 'me'].includes(scope)) return refuse(400, '22023', 'invalid: scope');
+      if (!nm || nm.length > 60 || /[<>\u0000-\u001f]/.test(nm)) return refuse(400, '22023', 'invalid: name');
+      if (!/^#[a-z]/.test(ln) || ln.length > 300 || /[<>"'\s]/.test(ln)) return refuse(400, '22023', 'invalid: link');
+      const rid = scope === 'role' ? p.role || null : null; if (scope === 'role' && (!rid || rid === 'admin' || !S.roles.some((r) => r.id === rid && !r.hidden))) return refuse(400, '22023', 'invalid: role');
+      const owner = scope === 'me' ? u.id : null; if (!qEdit(scope, rid, owner)) return refuse(403, '42501', 'not allowed');
+      const rec = { name: nm, link: ln, icon: /^[a-z0-9-]{1,24}$/.test(p.icon || '') ? p.icon : 'link', scope, role_id: rid, owner, active: p.active !== false };
+      if (p.id) { const q = S.quick.find((x) => x.id === p.id); if (!q || !qEdit(q.scope, q.role_id, q.owner)) return refuse(404, 'P0002', 'not found'); Object.assign(q, rec); S.writes.push({ table: 'quick_actions', op: 'save', id: q.id, scope }); logRow('settings.quick.save', 'quick_action', q.id, null, { scope }); return json(200, q.id); }
+      const id = 'f0000000-0000-4000-8000-' + String(++S.seq).padStart(12, '0'); S.quick.push({ id, sort: S.quick.reduce((m, x) => Math.max(m, x.sort + 1), 0), ...rec });
+      S.writes.push({ table: 'quick_actions', op: 'add', id, scope }); logRow('settings.quick.add', 'quick_action', id, null, { scope }); return json(200, id);
+    }
+    if (name === 'quick_action_delete') {
+      const i = S.quick.findIndex((x) => x.id === body.p_id); if (i < 0 || !qEdit(S.quick[i].scope, S.quick[i].role_id, S.quick[i].owner)) return refuse(404, 'P0002', 'not found');
+      S.writes.push({ table: 'quick_actions', op: 'delete', id: body.p_id }); S.quick.splice(i, 1); return json(204, null);
+    }
+    if (name === 'quick_action_order') {
+      (body.p_ids || []).forEach((id, i) => { const q = S.quick.find((x) => x.id === id); if (q && qEdit(q.scope, q.role_id, q.owner)) q.sort = i; });
+      S.writes.push({ table: 'quick_actions', op: 'order', ids: (body.p_ids || []).slice() }); return json(204, null);
     }
     if (!admin) return refuse(401, '42501', 'admin only');
     const role = (id) => S.roles.find((r) => r.id === id);

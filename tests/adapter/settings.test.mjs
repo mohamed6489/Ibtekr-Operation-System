@@ -210,3 +210,20 @@ test('settings lists editable: the admin\'s expense types (cleaned, saved, empty
   const w2 = load({ responses: { 'rpc:settings_public': ok({ brand: {}, quick: {}, lists: {}, general: { week: 'الاتنين' }, security: {}, notif: {} }) } }); await w2.S.loadPublic();
   assert.equal(w2.S.weekStart(), 1);
 });
+
+test('0098 (owner batch 2 decision 16): the quick actions — the list in the page\'s shape, a save with its visibility (a role needs the role; a bad name / link refused before any call), delete and order by id', async () => {
+  const Q1 = 'f0000000-0000-4000-8000-000000000001'; const Q2 = 'f0000000-0000-4000-8000-000000000002';
+  const { S, stub } = load({ role: 'ops', responses: { 'rpc:quick_actions_list': ok([{ id: Q1, name: 'أوردرات', link: '#orders', icon: 'link', scope: 'all', role_id: null, active: true, sort: 0, can_edit: false },
+    { id: Q2, name: 'تذاكري', link: '#tickets', icon: '<x>', scope: 'me', role_id: null, active: false, sort: 1, can_edit: true }]), 'rpc:quick_action_save': ok(Q2), 'rpc:quick_action_delete': ok(null), 'rpc:quick_action_order': ok(null) } });
+  const r = await S.quickList();
+  assert.deepEqual(JSON.parse(JSON.stringify(r.rows)), [{ id: Q1, name: 'أوردرات', link: '#orders', icon: 'link', scope: 'all', roleId: null, active: true, sort: 0, canEdit: false },
+    { id: Q2, name: 'تذاكري', link: '#tickets', icon: 'link', scope: 'me', roleId: null, active: false, sort: 1, canEdit: true }]); // a strange icon falls back
+  assert.equal((await S.quickSave({ name: '<b>', link: '#orders', scope: 'me' })).field, 'qname');
+  assert.equal((await S.quickSave({ name: 'x', link: 'https://evil.example', scope: 'me' })).field, 'link');
+  assert.equal((await S.quickSave({ name: 'x', link: '#orders', scope: 'role' })).field, 'role');
+  const before = rpcs(stub).filter((c) => c[0] === 'quick_action_save').length; assert.equal(before, 0, 'refused before any call');
+  assert.deepEqual(JSON.parse(JSON.stringify(await S.quickSave({ id: Q2, name: 'تذاكري', link: '#tickets', scope: 'role', roleId: 'ops', active: false }))), { ok: true, id: Q2 });
+  assert.deepEqual(JSON.parse(JSON.stringify(rpcs(stub).find((c) => c[0] === 'quick_action_save')[1])), { p: { name: 'تذاكري', link: '#tickets', icon: 'link', scope: 'role', active: false, role: 'ops', id: Q2 } });
+  await S.quickDelete(Q1); await S.quickOrder([Q2, 'qa-old', Q1]);
+  assert.deepEqual(JSON.parse(JSON.stringify(rpcs(stub).filter((c) => /quick_action_(delete|order)/.test(c[0])))), [['quick_action_delete', { p_id: Q1 }], ['quick_action_order', { p_ids: [Q2, Q1] }]]);
+});

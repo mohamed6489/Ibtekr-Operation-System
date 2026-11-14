@@ -214,7 +214,8 @@ test('the company papers: upload (the file into bucket company-docs, then the ro
   await page.getByRole('dialog').locator('#name').fill('أوردرات النهارده');
   await page.getByRole('dialog').locator('#link').fill('#orders?st=مكتمل');
   await page.getByRole('dialog').getByRole('button', { name: 'ضيف' }).click();
-  await expect.poll(() => settingsRow('quick') && (settingsRow('quick').data.list || []).map((x) => x.name)).toContain('أوردرات النهارده');
+  // owner batch 2 decision 16 (0098): the table quick_actions — the admin's new action on the settings page is «كل الفريق» by default
+  await expect.poll(() => (mock.st.quick || []).filter((x) => x.scope === 'all').map((x) => x.name)).toContain('أوردرات النهارده');
   // ops signs in: the brand color is applied from settings_public, the quick action is in the topbar menu
   await relogin(page);
   await page.fill('#lg-id', OPS); await page.fill('#lg-pw', DEV_PW); await page.getByRole('button', { name: 'دخول', exact: true }).click(); await expect(page.locator('#root')).toBeVisible();

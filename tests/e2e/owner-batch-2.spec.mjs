@@ -259,3 +259,44 @@ test('T5 — decision 32: a request to one member of the role; the list opens un
   await expect(d).toContainText('لكل دور «الحسابات»');
   expect(mock.tickets.at(-1).assignee_member).toBe(null);
 });
+
+// T6 — decision 16 (0098): the quick actions by visibility and state; «جرّب / تعديل / إيقاف / امسح» in ⋮
+test('T6 — decision 16: a team action from the settings, stopped from ⋮ and gone from the menu; a member adds «أنا بس» from the menu and cannot edit the team one', async ({ page }) => {
+  await go(page, '#settings-quick');
+  await page.locator('[data-qa-new]').click();
+  const f = modal(page).filter({ hasText: 'إجراء سريع جديد' });
+  await expect(f.locator('#scope')).toContainText('كل الفريق'); // the admin's default on the settings page
+  await f.locator('#name').fill('أوردرات النهارده'); await f.locator('#link').fill('#orders?st=مكتمل');
+  await f.getByRole('button', { name: 'ضيف' }).click();
+  await expect.poll(() => mock.st.quick.map((x) => [x.name, x.scope, x.active])).toEqual([['أوردرات النهارده', 'all', true]]);
+  const row = page.locator('.qa-table tbody tr', { hasText: 'أوردرات النهارده' });
+  await expect(row.locator('[data-qa-scope]')).toHaveText('كل الفريق');
+  await row.locator('[data-qa-more]').click(); await page.getByRole('menuitem', { name: 'إيقاف' }).click();
+  await expect(row.locator('[data-qa-state]')).toHaveText('موقوف');
+  await page.locator('[data-quick]').click();
+  await expect(page.getByRole('menuitem', { name: 'أوردرات النهارده' })).toHaveCount(0); // stopped = not in the menu
+  await page.keyboard.press('Escape');
+  await row.locator('[data-qa-more]').click(); await page.getByRole('menuitem', { name: 'تفعيل' }).click();
+  await expect(row.locator('[data-qa-state]')).toHaveText('مفعّل');
+  // ops (not a role manager) — «إدارة الإجراءات السريعة» opens the popup; a new action is «أنا بس» only
+  await page.evaluate(() => { try { localStorage.clear(); sessionStorage.clear(); } catch (e) { /* */ } }); await page.goto('/');
+  await page.fill('#lg-id', 'ops.dev@ibtekr.local'); await page.fill('#lg-pw', DEV_PW); await page.getByRole('button', { name: 'دخول', exact: true }).click();
+  await expect(page.locator('#root')).toBeVisible();
+  await page.locator('[data-quick]').click();
+  await expect(page.getByRole('menuitem', { name: 'أوردرات النهارده' })).toBeVisible();
+  await page.getByRole('menuitem', { name: 'إدارة الإجراءات السريعة' }).click();
+  const mg = modal(page).filter({ hasText: 'الإجراءات السريعة' });
+  const teamRow = mg.locator('.qa-table tbody tr', { hasText: 'أوردرات النهارده' });
+  await teamRow.locator('[data-qa-more]').click();
+  await expect(page.getByRole('menuitem')).toHaveText(['جرّب']); // not his to edit
+  await page.keyboard.press('Escape');
+  await mg.locator('[data-qa-new]').click();
+  const f2 = modal(page).filter({ hasText: 'إجراء سريع جديد' });
+  await f2.locator('#scope').click();
+  await expect(page.locator('.menu.floating [role=option]')).toHaveText(['أنا بس']);
+  await page.keyboard.press('Escape');
+  await f2.locator('#name').fill('تذاكري'); await f2.locator('#link').fill('#tickets');
+  await f2.getByRole('button', { name: 'ضيف' }).click();
+  await expect.poll(() => mock.st.quick.filter((x) => x.scope === 'me').map((x) => [x.name, x.owner])).toEqual([['تذاكري', '00000000-0000-4000-8000-000000000002']]);
+  await expect(mg.locator('.qa-table tbody tr', { hasText: 'تذاكري' }).locator('[data-qa-scope]')).toHaveText('أنا بس');
+});

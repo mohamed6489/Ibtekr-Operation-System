@@ -145,7 +145,8 @@ test('decision 4: the week start is a choice in «عام» (Saturday by default)
   await page.locator('[role=listbox] [role=option]', { hasText: 'الأحد' }).first().click();
   await page.locator('#pg-settings [data-set-save]').click();
   await expect.poll(() => ((mock.settings.find((r) => r.section === 'general') || {}).data || {}).week).toBe('الأحد');
-  expect(await page.evaluate(() => [window.IBSettings.weekStart(), window.IbtekrDomain.presetRange('thisWeek', '2026-11-17').from])).toEqual([0, '2026-11-15']);
+  // the page reads the saved row back after «حفظ» — wait for it (CI run 977 read it before the reload)
+  await expect.poll(() => page.evaluate(() => [window.IBSettings.weekStart(), window.IbtekrDomain.presetRange('thisWeek', '2026-11-17').from])).toEqual([0, '2026-11-15']);
   // the other region rows stay facts with their reason
   await expect(page.locator('#pg-settings')).toContainText('المنطقة واللغة والعملة ثابتة');
 });

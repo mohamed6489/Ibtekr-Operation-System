@@ -18,21 +18,19 @@ test.beforeEach(async ({ page }) => {
 test.afterEach(() => { if (LIVE) return; expect(pageErrors).toEqual([]); expect(mock.unhandled).toEqual([]); });
 const go = async (page, hash) => { await page.evaluate((h) => { location.hash = h; }, hash); await page.waitForTimeout(500); };
 
-test('decision 3: the hub\'s groups are sticky tabs — a tab scrolls to its group and the group in view is the marked one', async ({ page }) => {
+test('decision 3 / owner batch 2 decision 10: the hub\'s groups are sticky tabs — a tab shows its group only', async ({ page }) => {
   await page.locator('.sidebar .nav-item[data-page="settings"]').click();
   const bar = page.locator('#pg-settings > [data-set-jump]');
   await expect(bar.locator('[role=tab]')).toHaveText(['الشركة والفريق', 'الربط والأدوات', 'التشغيل', 'الأمان والبيانات']);
   await expect(bar).toHaveCSS('position', 'sticky');
   await expect(bar.locator('[aria-selected=true]')).toHaveText('الشركة والفريق');
+  await expect(page.locator('#pg-settings [data-set-group]')).toHaveCount(1);
+  await expect(page.locator('#pg-settings [data-set-card="team"]')).toBeVisible();
   await bar.locator('[data-set-jump-to="الربط والأدوات"]').click();
   await expect(bar.locator('[aria-selected=true]')).toHaveText('الربط والأدوات');
-  // the group sits right under the sticky bar, and the bar is still on screen
-  await expect.poll(() => page.locator('[data-set-group="الربط والأدوات"]').evaluate((g) => { const b = document.querySelector('[data-set-jump]').getBoundingClientRect(); return Math.abs(g.getBoundingClientRect().top - b.bottom) < 40; })).toBe(true);
-  await expect.poll(() => bar.evaluate((e) => e.getBoundingClientRect().top)).toBeLessThan(60);
-  // scrolling by hand moves the mark
-  await page.waitForTimeout(1000);
-  await page.evaluate(() => window.scrollTo(0, 0)); await page.waitForTimeout(200);
-  await expect(bar.locator('[aria-selected=true]')).toHaveText('الشركة والفريق');
+  await expect(page.locator('#pg-settings [data-set-group]')).toHaveAttribute('data-set-group', 'الربط والأدوات');
+  await expect(page.locator('#pg-settings [data-set-card="team"]')).toHaveCount(0);
+  await expect(page.locator('#pg-settings [data-set-card="integrations"]')).toBeVisible();
 });
 
 test('decision 3: a settings page is centred at one width with «حفظ» at its left end; its tables have no بحث / فلتر / ترتيب / columns', async ({ page }) => {

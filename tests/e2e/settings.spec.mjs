@@ -34,10 +34,12 @@ async function relogin(page) { await page.evaluate(() => { try { localStorage.cl
 test('the hub: 16 cards in 4 groups for the admin (B6: «المخزن» in «التشغيل»; the HR rebuild: «الموارد البشرية» in «الشركة والفريق»); a member without settings.view sees the notice; the page is out of «soon»', async ({ page }) => {
   await signIn(page, ADMIN);
   await openSettings(page);
-  await expect(page.locator('[data-set-card]')).toHaveCount(16);
+  // owner batch 2 decision 10: a tab shows its group only — 5 + 3 + 5 + 3 = 16 cards
+  const perTab = {};
+  for (const g of ['الشركة والفريق', 'الربط والأدوات', 'التشغيل', 'الأمان والبيانات']) { await page.locator('[data-set-jump-to="' + g + '"]').click(); await expect(page.locator('[data-set-group]')).toHaveCount(1); perTab[g] = await page.locator('[data-set-group="' + g + '"] [data-set-card]').count(); }
+  expect(perTab).toEqual({ 'الشركة والفريق': 5, 'الربط والأدوات': 3, 'التشغيل': 5, 'الأمان والبيانات': 3 });
+  await page.locator('[data-set-jump-to="الشركة والفريق"]').click();
   await expect(page.locator('[data-set-group="الشركة والفريق"] [data-set-card="hr"]')).toHaveCount(1);
-  await expect(page.locator('[data-set-group="التشغيل"] [data-set-card]')).toHaveCount(5);
-  await expect(page.locator('[data-set-group]')).toHaveCount(4);
   await expect(page.locator('.sidebar [data-page="settings"]')).not.toHaveAttribute('data-soon', '');
   await page.locator('[data-set-edit="general"]').click();
   await expect(page.locator('#pg-settings .set-page')).toBeVisible();

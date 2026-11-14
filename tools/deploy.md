@@ -2077,7 +2077,7 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 #### 2.7.75 تعديل الأوردر بالتابات + «حالة المنتج» و«ملغي» + «إضافة منتج» (`docs/superpowers/plans/2026-11-14-order-edit-tabs.md`)
 **بعد** `0093`:
 1. `0094_product_status_cancelled.sql` — «ملغي» في `order_items_status_check`، والتريجرين `orders_cancel_lines` (الأوردر «ملغي» ← منتجاته غير المرتجعة «ملغي») و`sub_orders_cancel_lines` (`woo_status = cancelled` ← منتجات الأوردر الفرعي ده بس)، و`order_items.added_at` + `order_items_keep_added` (المنتج اللي اتضاف على أوردر فرعي مابيتعلّمش ممسوح من المزامنة). بـ Supabase MCP `apply_migration` أو SQL Editor.
-2. RLS live (workflow «RLS live»، `files = rls_order_items_cancel rls_orders rls_order_items_qty rls_order_items_dropped`).
+2. RLS live (workflow «RLS live»، `files = rls_order_items_cancel rls_order_items_qty rls_order_items_dropped` — `rls_orders` مش آمن على الحي: بيستخدم أرقام أوردرات موجودة).
 3. «Deploy functions» بـ `function = woo-sync` (action `line_add`).
 4. الواجهة على `main`.
 5. التجربة على الـ staging (صاحب المشروع): «تعديل» أوردر فيه أكتر من مبتكر ← تاب «الأوردرات الفرعية» ← «+ إضافة منتج» على أوردر فرعي (منتج Simple وبعدين Variable بتركيبة، وسعر متعدّل) وتأكد إن **Dokan حسب نصيب المبتكر للسطر الجديد** وإن الأوردر الأصلي على الموقع ماتغيّرش؛ و«تعديل الحالة على الموقع» = «ملغي» ← منتجاته «ملغي» هنا.

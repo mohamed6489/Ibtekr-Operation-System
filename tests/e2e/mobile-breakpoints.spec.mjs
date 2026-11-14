@@ -29,7 +29,9 @@ const sideways = (page) => page.evaluate(() => document.documentElement.scrollWi
 // the visible pinned tab strip of the page that is open
 const tabLabels = (page) => page.evaluate(() => { const l = Array.from(document.querySelectorAll('.content > .tabs')).find((x) => x.offsetParent !== null); return l ? Array.from(l.querySelectorAll('[role=tab]')).map((t) => t.textContent.trim()) : []; });
 const clickTab = (page, label) => page.evaluate((t) => { const l = Array.from(document.querySelectorAll('.content > .tabs')).find((x) => x.offsetParent !== null); const b = l && Array.from(l.querySelectorAll('[role=tab]')).find((x) => x.textContent.trim() === t); if (b) b.click(); }, label);
-const PAGES = ['dashboard', 'orders', 'makers', 'expenses', 'inventory', 'products', 'cs', 'autoreply', 'tickets', 'reports', 'marketing', 'hr', 'profile', 'settings-team', 'settings-data', 'settings-quick'];
+// owner batch 2 (decision 35): the settings sections and the «ملفي» tab that batch changed are in the sweep too
+const PAGES = ['dashboard', 'orders', 'makers', 'expenses', 'inventory', 'products', 'cs', 'autoreply', 'tickets', 'reports', 'marketing', 'hr', 'profile', 'settings-team', 'settings-data', 'settings-quick',
+  'settings-makers', 'settings-payments', 'settings-hr', 'settings-security', 'settings-activity', 'settings-ai', 'settings-integrations', 'settings-lists', 'profile-requests'];
 
 for (const [label, size] of [['phone 360', { width: 360, height: 740 }], ['tablet 768', { width: 768, height: 1024 }], ['tablet landscape 1024', { width: 1024, height: 768 }]]) {
   test('no page scrolls sideways — every page and tab (' + label + ')', async ({ page }) => {
@@ -83,4 +85,13 @@ test('a wide popup stays inside a tablet screen; the order details popup on a ph
     return { tabsH: tabs.getBoundingClientRect().height, overlap }; });
   expect(d.tabsH).toBeGreaterThanOrEqual(40); // the tab bar used to shrink to a sliver under the body
   expect(d.overlap).toBe(false);
+});
+
+test('owner batch 2 (decision 35): its popups stay inside a phone screen — the deposit rule, the statement preview, a custom work time', async ({ page }) => {
+  await signIn(page, { width: 360, height: 740 });
+  const inside = () => page.evaluate(() => { const m = Array.from(document.querySelectorAll('.modal[role=dialog]')).pop(); if (!m) return 'no popup'; const r = m.getBoundingClientRect(); return r.left >= -1 && r.right <= innerWidth + 1 && document.documentElement.scrollWidth - innerWidth <= 1 ? 'ok' : 'out ' + Math.round(r.left) + '–' + Math.round(r.right); });
+  await go(page, 'settings-makers'); await page.locator('[data-dep-add]').click(); expect(await inside()).toBe('ok'); await page.keyboard.press('Escape');
+  await go(page, 'settings-payments'); await page.locator('[data-stmt-preview]').click(); expect(await inside()).toBe('ok'); await page.keyboard.press('Escape');
+  await go(page, 'settings-hr'); await page.locator('[data-hs-sched-add]').click(); expect(await inside()).toBe('ok');
+  expect(await page.evaluate(() => { const m = Array.from(document.querySelectorAll('.modal[role=dialog]')).pop(); const c = m && m.querySelector('[data-hs-s-days] .chips'); return c ? c.scrollWidth <= c.clientWidth + 1 : false; })).toBe(true); // the day chips wrap
 });

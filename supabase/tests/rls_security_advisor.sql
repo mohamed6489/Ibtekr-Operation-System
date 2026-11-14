@@ -17,7 +17,7 @@ begin
   if v is not null then raise exception 'case every view in public is security_invoker failed: %', v; end if;
   select string_agg(p.proname, ', ' order by p.proname) into v
     from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-    where n.nspname = 'public' and p.prosecdef and p.proname <> 'email_for_identifier'
+    where n.nspname = 'public' and p.prosecdef and p.proname not in ('email_for_identifier', 'login_gate', 'login_failed') -- 0102: the login screen's lock counter
       and has_function_privilege('anon', p.oid, 'execute')
       and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e');
   if v is not null then raise exception 'case anon executes no security definer function but the login lookup failed: %', v; end if;

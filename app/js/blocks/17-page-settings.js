@@ -55,7 +55,7 @@
     payout: { after: 'مكتمل + 7 أيام (فترة الاسترجاع)', min: '500 ج.م', days: [1, 16], notify: 'واتساب + كشف حساب PDF', method: 'تحويل بنكي (InstaPay)', approval: 'حسابات + أدمن (توقيعان)', deductDeposit: true, deductTransport: true, holdLate: true, invLang: 'عربي + إنجليزي', tax: '', moves: 'نعم', brandBlock: 'نعم', prefix: 'IBT-2026-', next: 'IBT-2026-0147', commission: 'نعم', orders: 'نعم — جدول الأوردرات المكتملة', footer: 'شكرًا لكونك جزءًا من مجتمع إبتكر' },
     activity: [], // the real log is read with filters (phase 11 decision 18)
     actSet: { sensitiveViews: true, permAlert: true, dailyCopy: false },
-    security: { force2fa: false, idle: true, maskCustomers: true, blockExport: true, ipOnly: false, pwMin: '8 أحرف + رقم', idleDesktop: '8 ساعات (تحذير قبلها بدقيقة)', idleMobile: '7 أيام' },
+    security: { lockAttempts: '5', lockMinutes: '15', force2fa: false, idle: true, maskCustomers: true, blockExport: true, ipOnly: false, pwMin: '8 أحرف + رقم', idleDesktop: '8 ساعات (تحذير قبلها بدقيقة)', idleMobile: '7 أيام' },
     sessions: [['Chrome · macOS', 'القاهرة، مصر', 'الآن', 'الجلسة الحالية'], ['Safari · iPhone', 'القاهرة، مصر', 'اليوم 09:12', 'نشطة'], ['Chrome · Windows', 'الجيزة، مصر', 'منذ 5 أيام', 'نشطة']],
     exports: [['الأوردرات والأوردرات الفرعية', '1,214', 'اليوم 09:00', 'آخر 30 يوم'], ['المبتكرين والنسب', '31', 'منذ 3 أيام', 'الكل'], ['الحسابات (مصروفات، حركات، تحويلات)', '412', 'أمس', 'سبتمبر 2026'], ['التذاكر', '38', '—', 'الكل'], ['الفريق والحضور والمرتبات', '7', '—', 'أكتوبر 2026'], ['المخزن (القطع والحركات)', '—', '—', 'الكل'], ['سجل النشاط', '1,240', '—', 'آخر 7 أيام']],
     backup: { daily: true, drive: false, inactive: 'لا — يدوي فقط', orders: 'بلا حد (أرشفة بعد 12 شهر)', log: '24 شهر', importKey: 'Vendor ID', onMatch: 'تحديث السجل الموجود', importSet: 'المبتكرين' },
@@ -169,7 +169,8 @@
     const save = Button({ type: 'brand', icon: 'check', label: 'حفظ', attrs: { 'data-set-save': '' }, onClick: () => { commit(); R(); } });
     if (st.snapSec !== st.sec) { st.snap = snapTake(); st.snapSec = st.sec; if (st.sec === 'inventory' && !st.dirty) { st.inv = null; st.invAsked = false; } if (st.sec === 'hr' && !st.dirty) st.hr = null; }
     // the owner 14 Nov (decision 3): a settings table has no «بحث» / «فلتر» / «ترتيب» / columns — data-no-tq / data-no-cols on the page body
-    const body = h('div', { class: 'set-body set-page', 'data-no-tq': '', 'data-no-cols': '' }, ...section());
+    // owner batch 2 decision 28: the activity log is a table like the others (search · filter · sort · columns) beside its period
+    const body = h('div', Object.assign({ class: 'set-body set-page' }, st.sec === 'activity' ? { 'data-std-table': '' } : { 'data-no-tq': '', 'data-no-cols': '' }), ...section());
     const mark = () => { if (st.dirty) return; st.dirty = true; note.hidden = false; const pg = document.getElementById('pg-settings'); if (pg && !pg.querySelector('.save-bar')) pg.append(saveBar()); };
     // التحديد في الجداول والفلاتر والتابات مش «تغيير» — مش بيطلّع تذكير الحفظ
     const skip = (t) => !t || t.type === 'search' || !!t.closest('.search-field, [role=search], .toolbar label.search, [data-bulk-box], [data-bulk], .bulk-bar, [role=tab], .subtabs, [data-fm], [data-af], [data-sm-btn], .pop-anchor[data-popover-root] .menu');
@@ -1684,6 +1685,16 @@
 
   // ---------- the security section (decision 19): my sessions + the company policies ----------
   async function loadSessions() { if (st.sessLoading) return; st.sessLoading = true; const r = await SETT().sessions(); st.sessLoading = false; st.sessions = r.ok ? r.sessions : []; if (!r.ok) K.toast(r.message || 'تعذّر قراية الجلسات', 'error'); R(); }
+  // owner batch 2 decision 27 (0102): the members locked out now, with «فك القفل» (the admin)
+  async function loadLocks() { if (st.locksLoading) return; st.locksLoading = true; const r = await SETT().loginLocks(); st.locksLoading = false; st.locks = r.ok ? r.rows : []; R(); }
+  function lockedList() {
+    if (!st.locks && !st.locksLoading) loadLocks();
+    const L = st.locks || [];
+    const until = (iso) => { const d = new Date(iso); return isNaN(d) ? '—' : K.t12(new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Cairo', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(d)); };
+    return h('div', { 'data-login-locks': String(L.length) }, h('b', null, 'مقفولين دلوقتي (' + L.length + ')'), L.length ? U.Table({ cls: 'mini-table', headers: ['العضو', 'القفل لحد', ''], rows: L.map((x) => [x.name, until(x.until),
+      Button({ type: 'text', size: 'sm', label: 'فك القفل', attrs: { 'data-login-unlock': x.member }, onClick: async () => { const r = await SETT().loginUnlock(x.member); K.toast(r.ok ? 'اتفك القفل عن ' + x.name : r.message || 'تعذّر فك القفل', r.ok ? 'success' : 'error'); st.locks = null; loadLocks(); } })]) })
+      : h('p', { class: 't-small help', style: 'margin:4px 0 0' }, st.locksLoading ? 'بنحمّل…' : 'مفيش حد مقفول دلوقتي.'));
+  }
   function security() {
     const s = C.security; const me = K.member(K.ME) || { name: '', twofa: false };
     if (!st.sessions && !st.sessLoading) loadSessions();
@@ -1693,7 +1704,8 @@
         [Button({ label: 'خروج من كل الأجهزة الأخرى', attrs: { 'data-sess-others': '' }, onClick: () => K.confirm({ title: 'خروج من كل الأجهزة الأخرى؟', text: 'الجلسة دي هتفضل شغالة.', okLabel: 'خروج', onOk: async () => { const A = window.IBAuth; if (A && A.signOutOthers) { await A.signOutOthers(); } K.toast('اتعمل خروج من الأجهزة التانية'); st.sessions = null; loadSessions(); } }) })], { sub: 'جلساتك انت بس — جلسات الأعضاء بتتقفل بإيقاف العضو من الفريق' }),
       K.Section('سياسات الشركة (أدمن)', [row('إلزام التحقق بخطوتين لكل الأعضاء', 'لو اتفعّل: العضو اللي من غير 2FA بيتحوّل لشاشة التفعيل في أول دخول ومايعدّيش', !!s.force2fa, (v) => { s.force2fa = v; }), row('انتهاء الجلسة بعد عدم النشاط', 'تحذير قبلها بدقيقة ثم خروج تلقائي', s.idle !== false, (v) => { s.idle = v; }),
         h('div', { class: 'grid3' }, pick(s, 'pwMin', 'sp-pw', 'الحد الأدنى لكلمة السر', ['8 أحرف + رقم', '8 أحرف + رقم + رمز']), pick(s, 'idleDesktop', 'sp-id', 'انتهاء الجلسة (ديسكتوب)', ['4 ساعات', '8 ساعات (تحذير قبلها بدقيقة)', '12 ساعة']), pick(s, 'idleMobile', 'sp-im', 'انتهاء الجلسة (موبايل)', ['1 يوم', '7 أيام', '30 يوم'])),
-        vrow('قفل الحساب بعد 5 محاولات غلط', 'ثابت في Supabase Auth', K.Tag('neutral', 'ثابت')), vrow('تقييد الدخول من IP محددة', 'مش متاح في الخطة الحالية', K.Tag('neutral', 'مش متاح')),
+        h('div', { class: 'grid3', 'data-login-lock': '' }, pick(s, 'lockAttempts', 'sp-la', 'قفل الدخول بعد', ['3', '5', '7', '10'], 'محاولات غلط ورا بعض — العدّاد على السيرفر'), pick(s, 'lockMinutes', 'sp-lm', 'مدة القفل (دقايق)', ['5', '15', '30', '60', '1440'], '1440 = يوم كامل · الأدمن يقدر يفك القفل قبلها')),
+        lockedList(), vrow('تقييد الدخول من IP محددة', 'مش متاح في الخطة الحالية', K.Tag('neutral', 'مش متاح')),
         vrow('تجربة: تحذير انتهاء الجلسة', 'يعرض التحذير اللي بيظهر قبل الخروج التلقائي بدقيقة', Button({ size: 'sm', label: 'اعرض التحذير', onClick: () => window.IBShell.sessionWarning() }))], null, { sub: 'بتُطبَّق على كل الأعضاء مع الدخول الجاي' })];
   }
 

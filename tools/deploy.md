@@ -2126,3 +2126,8 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 1. `0101_hr_schedule_days.sql` — `hr_member_dows(member)` / `hr_member_workday(member, day)` (service_role بس): أيام «وقت العمل المخصص» للعضو وإلا لدوره الأساسي وإلا أيام الشغل الرسمية؛ و`hr_rest_day(day)` بقى على أيام العضو اللي داخل (كل اللي بينادوه ساعته هو: `hr_clock_out` / `hr_overtime_begin` / `hr_overtime_request`)، و`hr_att_score` / `hr_leave_used` / `hr_payroll_calc` (أجسام `0087`) على أيام العضو نفسه.
 2. RLS live (`files = rls_hr_schedule_days`).
 3. الواجهة على `main` — مافيش دالة تتنشر.
+
+**T11 — قفل الدخول وسجل النشاط (قرارا 27 و28)، بعد** `0101`:
+1. `0102_login_lock.sql` — جدول `login_failures` (بصمة SHA-256 للإيميل بس، مقفول على الأعضاء)، `login_gate` / `login_failed` للـ anon (شاشة الدخول؛ مقيّدين بـ `login_lookups` 120 في الدقيقة)، `login_cleared` للعضو، و`login_locks` / `login_unlock` للأدمن (`activity_log` `settings.login.unlock`)؛ المحاولات والمدة من صف `security` (`lockAttempts` 3–10 · `lockMinutes` 5–1440، افتراضي 5 / 15).
+2. RLS live (`files = rls_login_lock,rls_security_advisor`).
+3. الواجهة على `main` — مافيش دالة تتنشر. **ملحوظة أمان:** القفل على شاشة الدخول؛ نداء مباشر لـ Supabase Auth بحدوده هو، وأي حد يقدر يقفل حساب معروف إيميله لحد المدة (الأدمن بيفك).

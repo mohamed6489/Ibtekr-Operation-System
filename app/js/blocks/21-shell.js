@@ -228,7 +228,7 @@
     if (v === 'login') {
       const locked = O.isLocked(auth, now());
       title = 'تسجيل الدخول'; sub = 'أهلاً بيك تاني';
-      body = [locked ? U.InlineNote({ kind: 'error', children: 'الحساب اتقفل مؤقتًا بعد 5 محاولات غلط. جرّب تاني بعد ' + Math.ceil((auth.lockedUntil - now()) / 60000) + ' دقيقة أو غيّر كلمة المرور.' }) : err,
+      body = [locked ? U.InlineNote({ kind: 'error', children: h('span', { 'data-login-locked': '' }, 'الحساب اتقفل مؤقتًا بعد محاولات غلط كتير. جرّب تاني بعد ' + Math.max(1, Math.ceil((auth.lockedUntil - now()) / 60000)) + ' دقيقة، أو اطلب من الأدمن يفك القفل.') }) : err,
         field('lg-id', 'الإيميل أو رقم الموبايل', 'id', 'text', { ac: 'username', errKey: 'id', onEnter: doLogin, attrs: { dir: 'ltr', inputmode: 'email' } }), field('lg-pw', 'كلمة المرور', 'pw', ls.show ? 'text' : 'password', { ac: 'current-password', errKey: 'pw', toggle: true, onEnter: doLogin }),
         h('div', { class: 'lg-row' }, K.Checkbox({ label: 'افتكرني على الجهاز ده', checked: ls.remember, onChange: (x) => { ls.remember = x; drawLogin(); } }), Button({ type: 'text', size: 'sm', label: 'نسيت كلمة المرور؟', onClick: () => { ls.view = 'forgot'; ls.err = ''; drawLogin(); } })),
         Button({ type: 'primary', size: 'lg', label: 'دخول', disabled: locked, onClick: doLogin, attrs: { class: 'btn btn-primary lg block' } })];
@@ -265,7 +265,9 @@
     if (!O.identifierKind(ls.id)) { ls.err = 'اكتب إيميل صحيح أو رقم موبايل من 11 رقم'; return drawLogin(); }
     ls.busy = true; let r; try { r = await window.IBAuth.signIn(ls.id, ls.pw, ls.remember); } finally { ls.busy = false; }
     if (!r.ok && r.reason === 'suspended') { ls.view = 'suspended'; return drawLogin(); }
-    if (!r.ok && r.reason === 'bad') { auth = O.loginFail(auth, now()); K.logEvent('auth.fail', O.toLatin(ls.id)); ls.err = O.isLocked(auth, now()) ? '' : 'الإيميل/الموبايل أو كلمة المرور غلط. فاضل ' + auth.left + ' محاولات قبل ما الحساب يتقفل 15 دقيقة.'; ls.pw = ''; return drawLogin(); }
+    // owner batch 2 decision 27 (0102): the server counts the failures and locks (its attempts and minutes from «الأمان»)
+    if (!r.ok && r.reason === 'locked') { auth = { fails: 0, left: 0, lockedUntil: now() + (Number(r.minutes) || 1) * 60000 }; ls.err = ''; ls.pw = ''; return drawLogin(); }
+    if (!r.ok && r.reason === 'bad') { auth = Number.isFinite(r.left) ? { fails: 0, left: r.left, lockedUntil: 0 } : O.loginFail(auth, now()); K.logEvent('auth.fail', O.toLatin(ls.id)); ls.err = O.isLocked(auth, now()) ? '' : 'الإيميل/الموبايل أو كلمة المرور غلط. فاضل ' + auth.left + ' محاولات قبل ما الحساب يتقفل مؤقتًا.'; ls.pw = ''; return drawLogin(); }
     if (!r.ok) { ls.err = r.reason === 'rate_limited' ? 'محاولات كتير — استنى دقيقة وجرّب تاني' : netErr(); return drawLogin(); }
     auth = O.loginInit(); ls.err = '';
     if (window.IBAuth.needsTotp()) { ls.view = '2fa'; return drawLogin(); } // aal2 every sign-in: the gate would stop an aal1 session on reload anyway

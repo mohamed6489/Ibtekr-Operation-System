@@ -42,7 +42,9 @@ test('decision 3: a settings page is centred at one width with «حفظ» at its
       return { centred: Math.abs((r.left - main.left) - (main.right - r.right)) < 40 || r.width >= main.width - 60, saveLeft: Math.abs(s.left - r.left) < 2, width: Math.round(r.width) }; });
     expect(g, sec).toEqual(expect.objectContaining({ centred: true, saveLeft: true }));
     expect(g.width, sec).toBeLessThanOrEqual(1040);
-    await expect(page.locator('#pg-settings [data-tq-btn], #pg-settings [data-cols], #pg-settings [data-fm-btn^="auto"], #pg-settings [data-sm-btn^="auto"]'), sec).toHaveCount(0);
+    // owner batch 2 decision 28: the activity log is the one standard table (search · filter · sort · columns)
+    if (sec === 'settings-activity') await expect(page.locator('#pg-settings [data-tq-btn]'), sec).toHaveCount(1);
+    else await expect(page.locator('#pg-settings [data-tq-btn], #pg-settings [data-cols], #pg-settings [data-fm-btn^="auto"], #pg-settings [data-sm-btn^="auto"]'), sec).toHaveCount(0);
   }
 });
 

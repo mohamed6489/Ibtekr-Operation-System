@@ -451,3 +451,47 @@ test('T10 — decisions 5, 7, 9: «مطلوبة مني» / «طلباتي» with
   await go(page, '#profile-requests-forme');
   await expect(P.locator('#tab-forme')).toHaveAttribute('aria-selected', 'true');
 });
+
+test('T11 — decisions 27, 28: the login lock (attempts and minutes from «الأمان», the counter on the server, the admin unlocks); the activity log is a standard table', async ({ page }) => {
+  mock.settings.push({ section: 'security', data: { lockAttempts: '3', lockMinutes: '5' } });
+  // the admin signs out; ops tries a wrong password three times
+  await page.locator('.user-btn').click();
+  await page.getByRole('menuitem', { name: 'تسجيل الخروج' }).click();
+  const card = page.locator('#login .login-card');
+  await expect(page.locator('#lg-title')).toHaveText('تسجيل الدخول'); await page.waitForTimeout(500); // the sign-out settles before typing
+  for (const left of [2, 1]) {
+    await page.fill('#lg-id', 'ops.dev@ibtekr.local'); await page.fill('#lg-pw', 'not-the-password-1');
+    await page.getByRole('button', { name: 'دخول', exact: true }).click();
+    await expect(card).toContainText('فاضل ' + left + ' محاولات');
+  }
+  await page.fill('#lg-id', '01000000002'); await page.fill('#lg-pw', 'not-the-password-1'); // her phone counts on the same counter
+  await page.getByRole('button', { name: 'دخول', exact: true }).click();
+  await expect(card.locator('[data-login-locked]')).toContainText('5 دقيقة');
+  // a reload: the lock is on the server — the right password is refused until the admin unlocks
+  await page.reload();
+  await page.fill('#lg-id', 'ops.dev@ibtekr.local'); await page.fill('#lg-pw', DEV_PW);
+  await page.getByRole('button', { name: 'دخول', exact: true }).click();
+  await expect(card.locator('[data-login-locked]')).toBeVisible();
+  await expect(page.locator('#root')).toBeHidden();
+  // the admin: «الأمان» has the attempts and the minutes, and «فك القفل»
+  await page.reload();
+  await page.fill('#lg-id', 'admin.dev@ibtekr.local'); await page.fill('#lg-pw', DEV_PW);
+  await page.getByRole('button', { name: 'دخول', exact: true }).click();
+  await expect(page.locator('#root')).toBeVisible();
+  await go(page, '#settings-security');
+  const st = page.locator('#pg-settings');
+  await expect(st.locator('#sp-la')).toContainText('3'); await expect(st.locator('#sp-lm')).toContainText('5');
+  await expect(st.locator('[data-login-locks]')).toHaveAttribute('data-login-locks', '1');
+  await st.locator('[data-login-locks] [data-login-unlock]').click();
+  await expect(st.locator('[data-login-locks]')).toHaveAttribute('data-login-locks', '0');
+  expect(mock.activity.some((x) => x.action === 'settings.login.unlock')).toBe(true);
+  await st.locator('#sp-la').click(); await page.getByRole('option', { name: '7', exact: true }).click();
+  await expect.poll(() => (mock.settings.find((x) => x.section === 'security') || {}).data.lockAttempts).toBe('7');
+  // 28: the activity log has the standard head (search · filter · sort · columns) beside its own filters and period
+  await go(page, '#settings-activity');
+  const act = st.locator('.card', { hasText: 'سجل النشاط' }).first();
+  await expect(act.locator('[data-tq-btn]')).toBeVisible();
+  await expect(act.locator('#ac-from')).toBeVisible();
+  await go(page, '#settings-general');
+  await expect(st.locator('[data-tq-btn]')).toHaveCount(0); // the other settings tables stay plain
+});

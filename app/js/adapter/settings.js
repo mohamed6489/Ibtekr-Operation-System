@@ -129,6 +129,16 @@
   // the role's manager) · «أنا بس» (me, the member) — and «مفعّل / موقوف»; the server decides who reads and who writes each row
   const Q_SCOPES = ['all', 'role', 'me'];
   const Q_BAD = /[<>\u0000-\u001f\u007f]/; const Q_LINK = /^#[a-z][^<>"'\s\u0000-\u001f\u007f]{0,298}$/;
+  // owner batch 2 decision 27 (0102): the members locked out of the login screen now, and the admin's unlock
+  async function loginLocks() {
+    const r = await rpc('login_locks', {}); if (!r.ok) return r;
+    return { ok: true, rows: (Array.isArray(r.data) ? r.data : []).filter((x) => x && x.member_id).map((x) => ({ member: String(x.member_id), name: String(x.name || 'عضو').slice(0, 80), until: x.locked_until || null })) };
+  }
+  async function loginUnlock(member) {
+    if (!/^[0-9a-f-]{36}$/i.test(String(member || ''))) return { ok: false, reason: 'invalid', message: 'العضو مش موجود' };
+    const r = await rpc('login_unlock', { p_member: member }); if (!r.ok) return r;
+    return { ok: true, unlocked: r.data === true };
+  }
   async function quickList() {
     const r = await rpc('quick_actions_list', {}); if (!r.ok) return r;
     const rows = (Array.isArray(r.data) ? r.data : []).filter((x) => x && x.id && typeof x.name === 'string' && typeof x.link === 'string')
@@ -501,7 +511,7 @@
     return after(await orderRpc('order_status_order', { p_names: names.map(String) }, 'names'), 'order', 'order · ' + names.length);
   }
 
-  window.IBSettings = { load, ensure, loadPublic, clear, data, section, sections: () => Object.assign({}, data.sections), roles, liveRoles, public: () => data.public, can, PERMS, PERM_KEYS, lists, saveLists, statusLabel, STATUS_KINDS, setRoleLevelPerms, setMemberLevel, levelPermsOf, MEMBER_LEVELS: MLEVELS, quickList, quickSave, quickDelete, quickOrder, QUICK_SCOPES: Q_SCOPES, expenseKinds, statusList, addedStatuses, delayRules, orderStatuses, orderStatusAdd, orderStatusSlug, orderStatusDelete, orderStatusOrder, ADDED_MAX, ADDED_LEN, weekStart, KIND_MAX, KINDS_MAX,
+  window.IBSettings = { loginLocks, loginUnlock, load, ensure, loadPublic, clear, data, section, sections: () => Object.assign({}, data.sections), roles, liveRoles, public: () => data.public, can, PERMS, PERM_KEYS, lists, saveLists, statusLabel, STATUS_KINDS, setRoleLevelPerms, setMemberLevel, levelPermsOf, MEMBER_LEVELS: MLEVELS, quickList, quickSave, quickDelete, quickOrder, QUICK_SCOPES: Q_SCOPES, expenseKinds, statusList, addedStatuses, delayRules, orderStatuses, orderStatusAdd, orderStatusSlug, orderStatusDelete, orderStatusOrder, ADDED_MAX, ADDED_LEN, weekStart, KIND_MAX, KINDS_MAX,
     save, setRolePerms, createRole, updateRole, deleteRole, setMemberRole, setMemberRoles, setMemberPerms, setMemberStatus, sessions, revokeSession, deviceOf,
     links, setSecret, wooSet, testSecret, unlink, connections, notifyStatus, notifyTick, activity, pageOf, docs, addDoc, updateDoc, removeDoc, docUrl, uploadLogo, logoUrl, LOGO_SLOTS };
 })();

@@ -43,6 +43,16 @@
     if (!profile || profile.status !== 'active') { await signOut(); return fail('suspended'); }
     return { ok: true, profile };
   }
+  // owner batch 2 decision 27 (0102): the login lock counter on the server — login_gate before, login_failed after a wrong password,
+  // login_cleared after a sign-in. An unreachable RPC (an older server) leaves the sign-in as it was (Supabase Auth keeps its own limits).
+  async function lockRpc(name, args) {
+    try { const { data, error } = await c().rpc(name, args); if (error) return /rate_limited/.test(error.message || '') ? { rate: true } : null; return data && typeof data === 'object' ? data : null; } catch (e) { return null; }
+  }
+  async function wrong(id) {
+    const f = await lockRpc('login_failed', { p_ident: id });
+    if (f && f.locked) return { ok: false, reason: 'locked', minutes: Number(f.minutes) || 1 };
+    return Object.assign(fail('bad'), f && Number.isFinite(Number(f.left)) ? { left: Number(f.left) } : {});
+  }
   // remember=false keeps the session in this tab only (see supabase-client.js). With TOTP pending → { ok:true, profile:null }.
   async function signIn(identifier, password, remember = true) {
     if (!c()) return fail('network');
@@ -50,17 +60,21 @@
       try { localStorage.setItem('ib.remember', remember ? '1' : '0'); } catch (e) { /* storage blocked: default store */ }
       // an email goes straight to GoTrue (no lookup oracle); a suspended profile is caught by loadMember (sign-out → 'suspended')
       const O = window.IbtekrOps; const id = O.toLatin(String(identifier || '')).trim();
+      const g = await lockRpc('login_gate', { p_ident: id });
+      if (g && g.rate) return fail('rate_limited');
+      if (g && g.locked) return { ok: false, reason: 'locked', minutes: Number(g.minutes) || 1 };
       let email = id.toLowerCase();
       if (O.identifierKind(id) !== 'email') {
         const l = await lookup(id);
         if (l.error) return fail(l.error);
-        if (!l.row) return fail('bad');
+        if (!l.row) return await wrong(id);
         if (l.row.status === 'suspended') return fail('suspended');
         email = l.row.email;
       }
       const { data, error } = await c().auth.signInWithPassword({ email, password });
-      if (error) return fail(error.status === 429 ? 'rate_limited' : error.code === 'user_banned' ? 'suspended' : error.code === 'invalid_credentials' || error.status === 400 ? 'bad' : 'network');
+      if (error) { const why = error.status === 429 ? 'rate_limited' : error.code === 'user_banned' ? 'suspended' : error.code === 'invalid_credentials' || error.status === 400 ? 'bad' : 'network'; return why === 'bad' ? await wrong(id) : fail(why); }
       current = data.session;
+      lockRpc('login_cleared', {}); // the member's own counter back to 0 (not awaited)
       if (await checkTotp()) return { ok: true, profile: null };
       return await loadMember();
     } catch (e) {

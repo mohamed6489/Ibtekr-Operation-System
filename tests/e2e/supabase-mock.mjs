@@ -562,6 +562,30 @@ export async function installSupabaseMock(page, opts = {}) {
         const x = /^[0-9]{11}$/.test(d) ? mock.profiles.find((y) => y.phone === d) : null;
         return json(200, x ? [{ email: x.email, status: x.status }] : []);
       }
+      // 0102 (owner batch 2 decision 27): the login lock counter — login_gate / login_failed for anon, login_cleared for the member,
+      // login_locks / login_unlock for the admin; a member's phone counts on his email; the policy from settings «security»
+      if (method === 'POST' && /^\/rest\/v1\/rpc\/login_(gate|failed|cleared|locks|unlock)$/.test(path)) {
+        const name = path.slice('/rest/v1/rpc/'.length); mock.loginLocks = mock.loginLocks || {};
+        const sec = ((mock.settings || []).find((x) => x.section === 'security') || {}).data || {};
+        const n = Number(sec.lockAttempts) >= 3 && Number(sec.lockAttempts) <= 10 ? Number(sec.lockAttempts) : 5;
+        const mins = Number(sec.lockMinutes) >= 5 && Number(sec.lockMinutes) <= 1440 ? Number(sec.lockMinutes) : 15;
+        const keyOf = (ident) => { const v = String(ident || '').trim().toLowerCase(); const d = v.replace(/[\s-]/g, ''); const p0 = /^[0-9]{11}$/.test(d) ? mock.profiles.find((y) => y.phone === d) : null; return p0 ? String(p0.email).toLowerCase() : v; };
+        const left = (r) => Math.max(1, Math.ceil((r.until - Date.now()) / 60000));
+        if (name === 'login_gate') { const r = mock.loginLocks[keyOf(body().p_ident)]; return json(200, r && r.until > Date.now() ? { locked: true, minutes: left(r) } : { locked: false, minutes: 0 }); }
+        if (name === 'login_failed') {
+          const k = keyOf(body().p_ident); const r = mock.loginLocks[k] || (mock.loginLocks[k] = { fails: 0, until: 0 });
+          if (r.until > Date.now()) return json(200, { locked: true, left: 0, minutes: left(r) });
+          r.fails += 1; if (r.fails >= n) { r.fails = 0; r.until = Date.now() + mins * 60000; return json(200, { locked: true, left: 0, minutes: mins }); }
+          return json(200, { locked: false, left: n - r.fails, minutes: mins });
+        }
+        if (!u) return json(401, { code: '42501', message: 'permission denied', details: null, hint: null });
+        if (name === 'login_cleared') { delete mock.loginLocks[String(u.email || '').toLowerCase()]; return json(200, null); }
+        const prof = mock.profiles.find((x) => x.id === u.id); if (!prof || prof.role_id !== 'admin') return json(403, { code: '42501', message: 'admin only', details: null, hint: null });
+        if (name === 'login_locks') return json(200, mock.profiles.filter((x) => { const r = mock.loginLocks[String(x.email).toLowerCase()]; return r && r.until > Date.now(); })
+          .map((x) => ({ member_id: x.id, name: x.name, locked_until: new Date(mock.loginLocks[String(x.email).toLowerCase()].until).toISOString() })));
+        if (name === 'login_unlock') { const x = mock.profiles.find((y) => y.id === body().p_member); if (!x) return json(400, { code: '22023', message: 'invalid: member', details: null, hint: null });
+          const had = !!mock.loginLocks[String(x.email).toLowerCase()]; delete mock.loginLocks[String(x.email).toLowerCase()]; mock.activity.push({ action: 'settings.login.unlock', entity: 'profile', entity_id: x.id }); return json(200, had); }
+      }
       if (!u) return json(401, { code: '42501', message: 'permission denied', details: null, hint: null }); // anon: no grants below
       // 0034 (phase 6): the customer-service tables as RLS + the guards + the column grants read them. cs_customers: a member never
       // reads the phone (the rpc below masks it), inserts a manual / import lead with cs.manage, updates mood / tags with cs.reply

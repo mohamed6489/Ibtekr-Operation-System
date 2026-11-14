@@ -899,6 +899,23 @@ async function vendorStore(run: Run, args: Json, member: ReturnType<NonNullable<
   // the maker's automatic brand (made with the row) becomes the store's brand, as a synced store's is (0013)
   const { data: brand } = await run.db.from('brands').select('id').eq('origin_vendor_id', vendorId).eq('created_by', 'system').is('store_vendor_id', null).limit(1).maybeSingle();
   if (isObj(brand) && brand.id) await run.db.from('brands').update({ store_vendor_id: vendorId }).eq('id', brand.id);
+  // owner batch 14 Nov («الفيندور الجديد بيتعمل بس مبيتسجلش الحساب البنكي و رقم الموبايل على الويب سايت»): Dokan's «create» keeps the
+  // user and the store but drops fields it takes on an update — the phone and the bank on the live site (store 2479). The same fields
+  // go again at once as one PUT (push_vendor's path: the snapshot takes the site's answer); a failure on the way leaves them pending
+  // for the next sync run, a refusal is said in `followup`.
+  let followup = 'none';
+  if (!adopted && sent.length) {
+    const linkedRow = { ...row, woo_vendor_id: storeId, woo_snapshot: patch.woo_snapshot, push_pending: null, woo_synced_at: now };
+    try {
+      const again = await pushStoreFields(ctx, linkedRow, sent, rates, bank);
+      await applyPushResult(ctx, linkedRow, again, now);
+      followup = again.refused.length ? 'refused' : 'ok';
+    } catch (e) {
+      if (!(e instanceof WooError)) throw e;
+      await markPushPending(ctx, linkedRow, sent);
+      followup = 'pending';
+    }
+  }
   // a photo kept before the store existed becomes the store's photo (best effort: the store stands either way)
   let photo = 'none';
   const pm = typeof row.photo_path === 'string' ? PHOTO_PATH.exec(row.photo_path) : null;
@@ -909,9 +926,9 @@ async function vendorStore(run: Run, args: Json, member: ReturnType<NonNullable<
       photo = bytes && isPhotoBytes(bytes) && bytes.length <= 5 * 1048576 && (await storePhoto(run, ctx, vendorId, storeId, bytes, pm[2].toLowerCase() === 'jpeg' ? 'jpg' : pm[2].toLowerCase())) !== null ? 'ok' : 'failed';
     } catch (e) { if (!(e instanceof WooError)) throw e; photo = 'failed'; }
   }
-  await logSync(run.db, { ...entry, entity_id: String(storeId), result: 'ok', detail: { vendor_id: vendorId, store: storeId, adopted, fields: adopted ? [] : sent, photo } });
+  await logSync(run.db, { ...entry, entity_id: String(storeId), result: 'ok', detail: { vendor_id: vendorId, store: storeId, adopted, fields: adopted ? [] : sent, followup, photo } });
   await logActivity(ctx, adopted ? 'vendor.store.link' : 'vendor.store.create', vendorId, ['#' + storeId]);
-  return json(200, { action: 'vendor_store', result: 'ok', store: storeId, adopted, commission: !adopted && sent.includes('rate'), bank: !adopted && sent.includes('bank'), photo, shop_url: typeof store.shop_url === 'string' && /^https:\/\//.test(store.shop_url) ? store.shop_url : null });
+  return json(200, { action: 'vendor_store', result: 'ok', store: storeId, adopted, commission: !adopted && sent.includes('rate'), bank: !adopted && sent.includes('bank'), followup, photo, shop_url: typeof store.shop_url === 'string' && /^https:\/\//.test(store.shop_url) ? store.shop_url : null });
 }
 // The Dokan store whose WordPress e-mail is exactly `email` (the store search covers user_email), or null.
 async function storeByEmail(ctx: Ctx, email: string): Promise<Json | null> {

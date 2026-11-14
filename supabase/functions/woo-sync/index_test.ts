@@ -2039,14 +2039,16 @@ const NEW_SEED = () => ({ vendors: [{ ...NEW_ROW }], vendor_logins: [{ vendor_id
   vendor_rates: [{ id: 1, vendor_id: NEW_V, rate: 25, flat: 5, since: '2026-10-01', commission_type: 'fixed' }], vendor_bank: [{ vendor_id: NEW_V, holder: 'سلمى علي', account_number: '1234567890', iban: '', bank_name: 'NBE' }],
   brands: [{ id: 'b1', name: 'ورشة جديدة', origin_vendor_id: NEW_V, created_by: 'system', store_vendor_id: null }, { id: 'b2', name: 'براند تاني', origin_vendor_id: NEW_V, created_by: 'سارة', store_vendor_id: null }] });
 const PW = 'Temp1234pw';
-const storeRoutes = (posted: any[], extra: Record<string, any> = {}) => ({
-  'POST dokan/v1/stores': (c: any) => { posted.push(c.body); return { body: wooStoreFull(901, { store_name: c.body.store_name, email: c.body.email, phone: c.body.phone, admin_commission: c.body.admin_commission ?? '', admin_additional_fee: c.body.admin_additional_fee ?? '', shop_url: `https://woo.test/store/${c.body.user_nicename}/`, payment: { bank: c.body.payment?.bank ?? {} } }) }; },
+// as the live site (owner batch 14 Nov, store 2479): Dokan's «create» keeps the store but not its phone nor its bank — the update does
+const storeRoutes = (posted: any[], extra: Record<string, any> = {}, put: any[] = []) => ({
+  'POST dokan/v1/stores': (c: any) => { posted.push(c.body); return { body: wooStoreFull(901, { store_name: c.body.store_name, email: c.body.email, phone: '', admin_commission: c.body.admin_commission ?? '', admin_additional_fee: c.body.admin_additional_fee ?? '', shop_url: `https://woo.test/store/${c.body.user_nicename}/`, payment: { bank: {} } }) }; },
+  'PUT dokan/v1/stores/901': (c: any) => { put.push(c.body); return { body: wooStoreFull(901, { store_name: c.body.store_name, email: 'new@maker.test', phone: c.body.phone, first_name: c.body.first_name, last_name: c.body.last_name, address: c.body.address, social: c.body.social, admin_commission: c.body.admin_commission ?? '', admin_additional_fee: c.body.admin_additional_fee ?? '', admin_commission_type: c.body.admin_commission_type ?? 'fixed', payment: { bank: c.body.payment?.bank ?? {} } }) }; },
   ...extra,
 });
 
 Deno.test('vendor_store: a maker without a store → one POST dokan/v1/stores (his portal login, the typed password, the shop URL, the row\'s store fields); the row is linked (woo_vendor_id, snapshot, nothing pending), his automatic brand tied; the password never kept nor logged; vendors.edit F, never the secret', async () => {
-  const posted: any[] = [];
-  const { db, woo, deps } = setup({ seed: NEW_SEED(), routes: storeRoutes(posted), env: WP_ENV });
+  const posted: any[] = []; const put: any[] = [];
+  const { db, woo, deps } = setup({ seed: NEW_SEED(), routes: storeRoutes(posted, {}, put), env: WP_ENV });
   assertEquals((await call(deps, { action: 'vendor_store', vendor_id: NEW_V, password: PW })).res.status, 401, 'never the sync secret');
   assertEquals((await call(deps, { action: 'vendor_store', vendor_id: NEW_V, password: PW }, { jwt: 'jwt-bank' })).res.status, 401, 'vendors.edit N');
   for (const pw of ['short1', 'no digits here', 'with space 12', 'x'.repeat(64) + '1', 12345678]) assertEquals((await call(deps, { action: 'vendor_store', vendor_id: NEW_V, password: pw }, { jwt: 'jwt-vf' })).body.field, 'password', String(pw));
@@ -2060,6 +2062,8 @@ Deno.test('vendor_store: a maker without a store → one POST dokan/v1/stores (h
   assertEquals([p.user_login, p.email, p.user_pass, p.user_nicename, p.store_name, p.phone, p.first_name, p.last_name, p.enabled, p.notify_vendor, p.trusted, p.featured],
     ['warsha.new', 'new@maker.test', PW, 'warsha-new', 'ورشة جديدة', '01011112222', 'سلمى', 'علي', true, true, true, false]);
   assertEquals([p.address.city, p.address.state, p.social.fb, 'admin_commission' in p, 'payment' in p], ['الجيزة', 'EG-21', 'https://fb.test/new', false, false]);
+  // the create dropped the phone (as the live site): the same fields went again as one PUT — never the login or the password
+  assertEquals([body.followup, put.length, put[0].phone, put[0].store_name, 'user_pass' in put[0], 'user_login' in put[0], 'payment' in put[0]], ['ok', 1, '01011112222', 'ورشة جديدة', false, false, false]);
   const linked = db.rows('vendors').find((v: any) => v.id === NEW_V);
   assertEquals([linked.woo_vendor_id, linked.push_pending, linked.woo_snapshot.name, linked.woo_snapshot.phone, linked.woo_synced_at, linked.raw.id], [901, null, 'ورشة جديدة', '01011112222', NOW, 901]);
   assertEquals(db.rows('brands').map((b: any) => [b.id, b.store_vendor_id]), [['b1', NEW_V], ['b2', null]], 'the automatic brand only');
@@ -2074,10 +2078,12 @@ Deno.test('vendor_store: a maker without a store → one POST dokan/v1/stores (h
 });
 
 Deno.test('vendor_store: the admin\'s store carries the commission and the bank (Dokan keys); notify off and the shop URL as asked; switch off → skipped, nothing sent; no login → 409', async () => {
-  const posted: any[] = [];
-  const { db, deps } = setup({ seed: NEW_SEED(), routes: storeRoutes(posted), env: WP_ENV });
+  const posted: any[] = []; const put: any[] = [];
+  const { db, deps } = setup({ seed: NEW_SEED(), routes: storeRoutes(posted, {}, put), env: WP_ENV });
   const r = await call(deps, { action: 'vendor_store', vendor_id: NEW_V, password: PW, notify: false, shop_url: 'my-shop', featured: true }, { jwt: 'jwt-admin' });
-  assertEquals([r.body.result, r.body.commission, r.body.bank], ['ok', true, true]);
+  assertEquals([r.body.result, r.body.commission, r.body.bank, r.body.followup], ['ok', true, true, 'ok']);
+  assertEquals([put.length, put[0].payment.bank.ac_number, put[0].payment.bank.bank_name, put[0].phone], [1, '1234567890', 'NBE', '01011112222'], 'the bank and the phone again on the update');
+  assertEquals(db.rows('vendors').find((v: any) => v.id === NEW_V).push_pending, null);
   const p = posted[0];
   assertEquals([p.admin_commission_type, p.admin_commission, p.admin_additional_fee, p.payment.bank.ac_number, p.payment.bank.bank_name, p.notify_vendor, p.user_nicename, p.featured, p.trusted],
     ['fixed', '25', '5', '1234567890', 'NBE', false, 'my-shop', true, false]);
@@ -2623,4 +2629,15 @@ Deno.test('owner batch 14 Nov (decision 9): category_create / category_update ta
   const top = setup({ seed, routes, env: PUSH_ON });
   await call(top.deps, { action: 'category_update', id: 80, parent: 0 }, { jwt: 'jwt-padd' });
   assertEquals(top.woo.calls.filter((c) => c.method === 'PUT').map((c) => c.body), [{ parent: 0 }, { parent: 0 }]);
+});
+
+Deno.test('vendor_store (owner batch 14 Nov): the follow-up update failing on the way leaves the fields pending for the next sync — the store stands', async () => {
+  const posted: any[] = [];
+  const { db, deps } = setup({ seed: NEW_SEED(), routes: storeRoutes(posted, { 'PUT dokan/v1/stores/901': { status: 503, text: '{"code":"down","message":"busy"}' } }), env: WP_ENV });
+  const r = await call(deps, { action: 'vendor_store', vendor_id: NEW_V, password: PW }, { jwt: 'jwt-admin' });
+  assertEquals([r.res.status, r.body.result, r.body.store, r.body.followup], [200, 'ok', 901, 'pending']);
+  const row = db.rows('vendors').find((v: any) => v.id === NEW_V);
+  assertEquals(row.woo_vendor_id, 901);
+  for (const f of ['phone', 'bank', 'name']) assert((row.push_pending ?? []).includes(f), 'pending: ' + f);
+  assert(!writtenText(db).includes(PW), 'the password is never kept or logged');
 });

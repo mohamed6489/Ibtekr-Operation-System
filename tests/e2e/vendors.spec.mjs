@@ -537,6 +537,14 @@ test('«إضافة مبتكر» (phase 3.1: basics + login + bank) creates the m
   await expect(modal(page).locator('#v-login-user')).toHaveValue('zaan');
   await modal(page).locator('#v-login-email').fill('zaan.dev@ibtekr.local');
   await modal(page).locator('[data-genpw]').click(); // the temporary password — the only mode (26 Oct)
+  // owner 14 Nov: «نوع الحساب» shows the pick — the second one too (it never redrew)
+  await modal(page).locator('#v-bank-method').click();
+  await page.locator('[role=listbox] [role=option]', { hasText: 'تحويل بنكي' }).click();
+  for (const t of ['شركة (Business)', 'شخصي (Personal)']) {
+    await modal(page).locator('#v-bank-actype').click();
+    await page.locator('[role=listbox] [role=option]', { hasText: t }).click();
+    await expect(modal(page).locator('#v-bank-actype')).toContainText(t);
+  }
   await modal(page).locator('#v-bank-method').click();
   await page.locator('[role=listbox] [role=option]', { hasText: 'نقدي عند التسليم' }).click();
   await modal(page).getByRole('button', { name: 'إضافة المبتكر' }).click();

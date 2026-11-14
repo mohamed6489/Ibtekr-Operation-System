@@ -271,14 +271,15 @@
   // the SKU of every product that has none (decision 5): one serial per product from sku_serial_take; the colors not in the table added with a suggested code
   async function genSkus(silent) {
     const s = st(); if (!FD.validCode(s.code)) { if (!silent) K.toast('حدد كود البراند الأول', 'error'); return; }
-    const need = groups().filter((g) => g.rows.some((ri) => !FD.validSku(rows()[ri].sku)));
-    if (!need.length) { if (!silent) K.toast('كل المنتجات ليها SKU', 'success'); return; }
-    const missingColors = [...new Map(need.flatMap((g) => g.rows.map((ri) => rows()[ri])).filter((r) => r.colorEn && !colorOf(r)).map((r) => [r.colorEn.toLowerCase(), r])).values()];
+    // every row's color in the table first (a maker's own SKU too — a variation's color must be one of ours on the site)
+    const missingColors = [...new Map(rows().filter((r) => r.colorEn && !colorOf(r)).map((r) => [r.colorEn.trim().toLowerCase(), r])).values()];
     for (const r of missingColors) {
       const code = PD.suggestColorCode(r.colorEn, colors().map((c) => c.code));
       const x = code ? await ST().addColor({ name_en: r.colorEn.trim().slice(0, 40), name_ar: (r.colorAr || r.colorEn).trim().slice(0, 40), code }) : { ok: false };
       if (!x.ok && !colorOf(r)) { K.toast('اللون «' + r.colorEn + '» مش في جدول الألوان ومقدرناش نضيفه', 'error'); return; }
     }
+    const need = groups().filter((g) => g.rows.some((ri) => !FD.validSku(rows()[ri].sku)));
+    if (!need.length) { if (missingColors.length) { touch(); R(); } if (!silent) K.toast('كل المنتجات ليها SKU', 'success'); return; }
     const t = await ST().takeSerials(need.length);
     if (!t.ok) { K.toast('مقدرناش نحجز المسلسل — ' + why(t.reason), 'error'); return; }
     need.forEach((g, k) => {
@@ -336,7 +337,7 @@
   const BulkBar = (btns) => (S.sel.size ? h('div', { class: 'bulk-bar', role: 'region', 'aria-label': 'إجراءات على المحدد' }, h('b', null, 'محدد ' + S.sel.size), h('span', { class: 'grow' }), ...btns, Button({ type: 'text', size: 'sm', label: 'إلغاء التحديد', onClick: () => { S.sel.clear(); R(); } })) : null);
   function step3() {
     const s = st(); const L = rows();
-    if (S.autoSku !== S.id && FD.validCode(s.code) && L.some((r) => !FD.validSku(r.sku))) { S.autoSku = S.id; setTimeout(() => genSkus(true), 0); } // once per batch opened
+    if (S.autoSku !== S.id && FD.validCode(s.code) && L.some((r) => !FD.validSku(r.sku) || (r.colorEn && !colorOf(r)))) { S.autoSku = S.id; setTimeout(() => genSkus(true), 0); } // once per batch opened
     const miss = L.filter((r) => ISSUE_FIELDS(r).length).length;
     const dl = h('datalist', { id: 'fl-cats' }, cats().map((c) => h('option', { value: c.path.replace(/\s*›\s*/g, ' > ') })));
     const table = h('div', { class: 'fl-scroll' }, h('table', { class: 'fl-table' }, h('thead', null, h('tr', null, h('th', { class: 'stk c-cb' }, allBox(L.map((r) => r.key))), h('th', { class: 'stk c-ref' }, 'الصورة'), DATA_COLS.map((k) => h('th', null, FD.LABELS[k])), h('th', null, ''))),
@@ -382,8 +383,12 @@
     if (k === 4) st().sizeShot[groupKey(u.gi)] = r.path; else shotsOf(u)[k] = r.path;
     touch(); R(); return true;
   }
+  // the size drawing is the product's (one per group, its first unit), and only for a product with a size
+  const hasSize = (gi) => { const g = groups()[gi]; return !!g && g.rows.some((ri) => String(rows()[ri].size || '').trim()); };
+  const sizeUnit = (u) => { const first = units().find((x) => x.gi === u.gi); return !!first && first.key === u.key; };
   async function genMissing(list) {
-    const jobs = []; list.forEach((u) => { shotsOf(u).forEach((p, k) => { if (!p) jobs.push([u, k]); }); if (!st().sizeShot[groupKey(u.gi)] && unitRow(u).size) jobs.push([u, 4]); });
+    const jobs = []; const sized = new Set();
+    list.forEach((u) => { shotsOf(u).forEach((p, k) => { if (!p) jobs.push([u, k]); }); if (!sized.has(u.gi) && !st().sizeShot[groupKey(u.gi)] && hasSize(u.gi)) { sized.add(u.gi); jobs.push([u, 4]); } });
     if (!jobs.length) { K.toast('مفيش صور ناقصة', 'success'); return; }
     let ok = 0; for (const [u, k] of jobs) { if (await genShot(u, k)) ok += 1; }
     K.toast('اتولّدت ' + ok + ' من ' + jobs.length + ' صورة', ok === jobs.length ? 'success' : 'warning');
@@ -417,7 +422,8 @@
       return h('div', { class: 'fl-unit', 'data-unit': u.key }, h('div', { class: 'fl-ucb' }, selBox(u.key, r.nameEn || r.sku)),
         h('div', { class: 'fl-uref' }, Thumb(r.ref, 'st-big'), h('div', { class: 'fl-info' }, h('b', null, r.nameAr || r.nameEn || '—'), h('span', null, r.nameEn || ''), h('small', { dir: 'ltr' }, FD.imageSku(r.sku, r.size) || ''),
           h('span', null, h('b', { class: 'brand-t' }, money(r.sale)), ' ', h('s', { class: 'help' }, money(r.regular))), h('small', { class: 'help' }, 'نسبة إبتكر ' + (rate == null ? '—' : rate + '%')))),
-        h('div', { class: 'fl-slots' }, [0, 1, 2, 3].map((k) => slot(u, k))), h('div', { class: 'fl-slots fl-extra' }, slot(u, 4)),
+        h('div', { class: 'fl-slots' }, [0, 1, 2, 3].map((k) => slot(u, k))),
+        h('div', { class: 'fl-slots fl-extra' }, sizeUnit(u) && hasSize(u.gi) ? slot(u, 4) : h('small', { class: 'help fl-nosize' }, sizeUnit(u) ? 'من غير مقاس — مفيش رسم مقاس' : 'رسم المقاس مع أول لون')),
         h('div', null, K.RowMenu([{ label: 'ولّد الناقص للمنتج ده', icon: 'sparkle', run: () => genMissing([u]) }, { label: 'امسح صوره', icon: 'trash', danger: true, run: () => { s.shots[u.key] = [null, null, null, null]; touch(); R(); } }], 'إجراءات ' + (r.sku || ''))));
     });
     const sel = us.filter((u) => S.sel.has(u.key));

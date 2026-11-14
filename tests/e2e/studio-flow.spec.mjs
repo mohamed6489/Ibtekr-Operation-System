@@ -75,7 +75,8 @@ test('flow 1 «شيت جاهز» Simple: the sheet + photos by row → maker/bra
   // the shots: one features image for the batch; the 4 shots + the size drawing of the first product, 4 shots of the second
   await pick(page, '[data-flow-features]', png('features.png'));
   await page.locator('[data-flow-genall]').click();
-  await expect(page.locator('#pg-products .fl-slot.empty')).toHaveCount(1); // the second has no size: no drawing
+  await expect(page.locator('#pg-products .fl-slot.empty')).toHaveCount(0);
+  await expect(page.locator('#pg-products .fl-unit').nth(1)).toContainText('من غير مقاس'); // the second has no size: no drawing
   const gens = mock.imgCalls.filter((c) => c.action === 'generate');
   expect(gens.map((c) => [c.index, c.slot]).sort()).toEqual([[0, 0], [0, 1], [0, 2], [0, 3], [0, 4], [1, 0], [1, 1], [1, 2], [1, 3]]);
   expect(batch().state.items[0].refs).toEqual([]); expect(batch().state.items[1].refs.length).toBe(1); // the second photo of a row = a reference

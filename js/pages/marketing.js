@@ -1247,7 +1247,7 @@
   // كلها»): each assistant's chats, the member's own — the history on the side (new, rename, delete), the turns from the server, the
   // quick suggestions inside the chat, ⚙️ the admin's settings, «تقديم طلب» and the expand button (the same icon shrinks it back);
   // nothing runs from a chat — the designer's picture is made only by «ولّد الصورة» under its answer (the image credits) ----------
-  const AG = { chats: {}, active: {}, turns: {}, prompts: {}, draft: {}, asking: false, gen: null, full: false, loading: {}, cfgAsked: false };
+  const AG = { chats: {}, active: {}, turns: {}, prompts: {}, reqs: {}, draft: {}, asking: false, gen: null, full: false, loading: {}, cfgAsked: false, seen: {}, atBottom: {}, pos: {} };
   const AG_INTRO = {
     buyer: 'أنا الميديا باير. بقرا أرقام ميتا بتاعة آخر 7 أيام جنب أوردرات ووكومرس الحقيقية وبقترح — والتنفيذ بموافقتك من «مستني موافقتك». اسألني عن حملة أو العائد أو تكلفة الأوردر.',
     designer: 'أنا الديزاينر. بساعدك في أفكار البوستات والكاروسيل والستوري والريلز بالبراند، ولما تطلب صورة بكتبلك وصفها وتقدر تولّدها بزرار «ولّد الصورة» (من كريدت الصور). الشغل الكبير بيروح للديزاينر البشري من «تقديم طلب».',
@@ -1283,7 +1283,7 @@
     const chat = r.chat; const cid = chat ? chat.id : id;
     const prev = (AG.turns[key] || []).filter((t) => t.id !== 'tmp'); if (!id) delete AG.turns[key];
     AG.turns[cid] = prev.concat(r.turns);
-    const ans = r.turns.find((t) => t.role === 'assistant'); if (ans && r.imagePrompt) AG.prompts[ans.id] = r.imagePrompt;
+    const ans = r.turns.find((t) => t.role === 'assistant'); if (ans && r.imagePrompt) AG.prompts[ans.id] = r.imagePrompt; if (ans && r.request) AG.reqs[ans.id] = r.request;
     if (chat) { AG.chats[a] = [chat].concat((AG.chats[a] || []).filter((c) => c.id !== chat.id)); AG.active[a] = chat.id; }
     agRefresh();
   }
@@ -1334,11 +1334,23 @@
       t.images.length ? h('div', { class: 'mk-msg-imgs' }, t.images.map((pth) => Img(pth, 'mk-agent-img', 'صورة من الديزاينر'))) : null,
       a === 'designer' && t.role === 'assistant' && AG.prompts[t.id] ? h('div', { class: 'mk-msg-gen' }, h('small', { class: 'help' }, 'وصف الصورة: ' + AG.prompts[t.id]),
         can().create ? Button({ size: 'sm', type: 'primary', icon: 'sparkle', label: AG.gen === t.id ? 'بتتعمل…' : 'ولّد الصورة', disabled: !!AG.gen, attrs: { 'data-mk-gen': String(t.id) }, onClick: () => agGen(a, t.id) }) : h('small', { class: 'help' }, 'التوليد محتاج «التسويق: إنشاء»')) : null,
+      // owner batch 14 Nov decision 14: the job the assistant handed back — «قدّم الطلب ده» opens «تقديم طلب» filled with it
+      t.role === 'assistant' && AG.reqs[t.id] && canAsk() ? h('div', { class: 'mk-msg-req' }, h('small', { class: 'help' }, 'طلب جاهز: ' + AG.reqs[t.id].title),
+        Button({ size: 'sm', type: 'primary', icon: 'send', label: 'قدّم الطلب ده', attrs: { 'data-mk-req-from': String(t.id) }, onClick: () => reqForm(a, { title: AG.reqs[t.id].title, details: AG.reqs[t.id].details }) })) : null,
       h('small', { class: 'help' }, t.role === 'user' ? meName() + ' · ' + agTime(t.at) : A.name + ' · ' + agTime(t.at))));
-    const msgs = h('div', { class: 'mk-chat', 'data-mk-chat': String(turns.length), 'aria-live': 'polite' },
+    // owner batch 14 Nov decision 14: the chat stays on its last message — a new turn, «بيفكر…» or another chat goes to the bottom; any
+    // other redraw keeps where the member scrolled (a new .mk-chat starts at the top otherwise)
+    const sk = key + ':' + turns.length + ':' + (AG.asking ? 1 : 0);
+    const msgs = h('div', { class: 'mk-chat', 'data-mk-chat': String(turns.length), 'aria-live': 'polite', onScroll: (e) => { const el = e.currentTarget; AG.pos[a] = el.scrollTop; AG.atBottom[a] = el.scrollHeight - el.scrollTop - el.clientHeight < 40; } },
       h('div', { class: 'mk-msg ai mk-intro' }, h('p', null, intro), h('small', { class: 'help' }, a === 'buyer' ? 'الأرقام من آخر مزامنة' : A.name)),
       cid && !AG.turns[cid] ? h('p', { class: 't-small help' }, 'بيحمّل الرسايل…') : null,
       bubbles, AG.asking ? h('div', { class: 'mk-msg ai', 'data-mk-thinking': '' }, h('p', null, 'بيفكر…')) : null);
+    const toEnd = AG.seen[a] !== sk || AG.atBottom[a] !== false; AG.seen[a] = sk;
+    requestAnimationFrame(() => {
+      const el = document.querySelector('[data-mk-agent="' + a + '"] .mk-chat'); if (!el) return;
+      if (toEnd) { el.scrollTop = el.scrollHeight; AG.atBottom[a] = true; AG.pos[a] = el.scrollTop; } else el.scrollTop = AG.pos[a] || 0; // a second redraw in the same frame lands where the first put it
+      el.querySelectorAll('img').forEach((im) => { if (!im.complete) im.addEventListener('load', () => { if (AG.atBottom[a] !== false) el.scrollTop = el.scrollHeight; }, { once: true }); });
+    });
     const inp = h('input', { type: 'text', class: 'input grow', id: 'mk-ask', placeholder: a === 'buyer' ? 'اسأل الميديا باير عن أرقامك…' : 'اكتب رسالة ل' + A.name + '…', 'aria-label': 'رسالة ل' + A.name, maxlength: '1000', value: AG.draft[a] || '', onInput: () => { AG.draft[a] = inp.value; }, onKeydown: (e) => { if (e.key === 'Enter') agSend(a, inp.value); } });
     // a re-render (the chats or the turns landing) keeps what was being typed and the cursor in the box
     if (document.activeElement && document.activeElement.id === 'mk-ask') requestAnimationFrame(() => { const x = document.getElementById('mk-ask'); if (x && document.activeElement !== x) { x.focus(); const n = x.value.length; quietSel(x, n); } });

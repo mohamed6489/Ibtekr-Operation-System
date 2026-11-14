@@ -716,7 +716,9 @@
     if (b.result === 'refused') return { ok: false, reason: 'refused', message: aiMessage({ reason: 'refused' }, 'text') };
     const chat = b.chat && b.chat.id ? toChat(b.chat) : null;
     log('agent.chat', agent, chat ? chat.id : null);
-    return { ok: true, text: typeof b.text === 'string' ? b.text : '', imagePrompt: typeof b.imagePrompt === 'string' ? b.imagePrompt : '', chat, turns: (Array.isArray(b.turns) ? b.turns : []).map(toTurn) };
+    // owner batch 14 Nov decision 14: a job for a person comes back as a ready request (title + details) — the page offers «قدّم الطلب ده»
+    const rq = b.request && typeof b.request === 'object' && typeof b.request.title === 'string' && b.request.title.trim() ? { title: b.request.title.trim().slice(0, 80), details: typeof b.request.details === 'string' ? b.request.details.slice(0, 1500) : '' } : null;
+    return { ok: true, text: typeof b.text === 'string' ? b.text : '', imagePrompt: typeof b.imagePrompt === 'string' ? b.imagePrompt : '', request: rq, chat, turns: (Array.isArray(b.turns) ? b.turns : []).map(toTurn) };
   }
   // the designer's picture from the prompt of its answer (the image credits) — the turn comes back with the image's path
   async function agentImage(chatId, prompt) {

@@ -44,6 +44,8 @@ do $$ begin
   if public.status_base('متابعة') <> 'جاري التنفيذ' or public.status_base('مكتمل') <> 'مكتمل' then raise exception 'case status_base failed'; end if;
   begin perform public.order_status_add('متابعة', 'جاري التنفيذ', null); raise exception 'case a duplicate name is refused failed'; exception when unique_violation then null; end;
   begin perform public.order_status_add('حالة غلط', 'مش موجودة', null); raise exception 'case a wrong base is refused failed'; exception when invalid_parameter_value then null; end;
+  begin perform public.order_status_add('حالة "x"', 'جاري التنفيذ', null); raise exception 'case a name with a quote is refused failed'; exception when check_violation then null; end;
+  begin perform public.order_status_add('حالة & x', 'جاري التنفيذ', null); raise exception 'case a name with & is refused failed'; exception when check_violation then null; end;
   begin perform public.order_status_slug('متابعة', 'Bad Slug'); raise exception 'case a bad slug is refused failed'; exception when check_violation then null; end;
   perform public.order_status_slug('متابعة', 'follow-up');
   perform public.order_status_add('اتسلّم', 'مكتمل', null);

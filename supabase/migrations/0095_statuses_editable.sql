@@ -48,7 +48,7 @@ begin
     if new.system_status is distinct from old.system_status then raise exception 'invalid: rename' using errcode = '22023'; end if;
     if new.base is distinct from old.base then raise exception 'invalid: base' using errcode = '22023'; end if;
   end if;
-  if tg_op = 'INSERT' and (new.base is null or length(btrim(new.system_status)) < 2 or length(new.system_status) > 30 or new.system_status ~ '[<>]') then
+  if tg_op = 'INSERT' and (new.base is null or length(btrim(new.system_status)) < 2 or length(new.system_status) > 30 or new.system_status ~ '[<>"''&[:cntrl:]]') then
     raise exception 'invalid: name' using errcode = '23514';
   end if;
   return new;
@@ -114,7 +114,7 @@ language plpgsql volatile security definer set search_path = public as $$
 declare v_name text := btrim(coalesce(p_name, '')); v_slug text := nullif(btrim(coalesce(p_slug, '')), '');
 begin
   if not public.is_admin() then raise exception 'admin only' using errcode = '42501'; end if;
-  if length(v_name) < 2 or length(v_name) > 30 or v_name ~ '[<>]' then raise exception 'invalid: name' using errcode = '23514'; end if;
+  if length(v_name) < 2 or length(v_name) > 30 or v_name ~ '[<>"''&[:cntrl:]]' then raise exception 'invalid: name' using errcode = '23514'; end if;
   if exists (select 1 from public.status_map where system_status = v_name) then raise exception 'invalid: exists' using errcode = '23505'; end if;
   if p_base is null or p_base not in ('معلّق', 'قيد الانتظار', 'جاري التنفيذ', 'جاهز للشحن', 'قيد الشحن', 'مكتمل', 'استرجاع', 'ملغي', 'فشل') then raise exception 'invalid: base' using errcode = '22023'; end if;
   insert into public.status_map (system_status, woo_status, direction, sort, base)

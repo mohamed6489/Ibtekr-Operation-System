@@ -277,7 +277,7 @@ ROOT.innerHTML=shell();
 var $=function(i){return R.getElementById(i)};
 function tbH(){var t=R.querySelector('.toolbar'),o=$('oroot'),hb=document.querySelector('.topbar');if(!t||!o)return;o.style.setProperty('--tbh',t.offsetHeight+'px');o.style.setProperty('--ptop',(hb&&getComputedStyle(hb).position!=='static'?hb.offsetHeight:0)+'px')} // decision 47: the selection bar sticks under the sticky filters
 function drawChips(){$('chips').innerHTML=STC.map(function(s){var n=s==='الكل'?O.filter(function(o){return match(o,true)}).length:O.filter(function(o){return match(o,true)&&SV(o)===s}).length;
-  return'<button class="sc'+(S.st===s?' on':'')+'" data-sc="'+s+'"'+(S.st===s?' aria-pressed="true"':' aria-pressed="false"')+'><span>'+esc(s==='الكل'?s:LB('order',s))+'</span><i>'+n+'</i></button>'}).join('');carSync(1);drawActive();tbH()}
+  return'<button class="sc'+(S.st===s?' on':'')+'" data-sc="'+esc(s)+'"'+(S.st===s?' aria-pressed="true"':' aria-pressed="false"')+'><span>'+esc(s==='الكل'?s:LB('order',s))+'</span><i>'+n+'</i></button>'}).join('');carSync(1);drawActive();tbH()}
 /* الحالات في كاروسيل بالعرض (owner 1 Nov): سطر واحد بيتسحب + أسهم تظهر بس لو فيه حالات مخفية — RTL: scrollLeft سالب */
 function carSync(toActive){var c=$('chips');if(!c)return;var w=c.closest('[data-car]');if(!w)return;var max=c.scrollWidth-c.clientWidth,x=Math.abs(c.scrollLeft);
  if(toActive){var on=c.querySelector('.sc.on');if(on&&on.scrollIntoView){var r=on.getBoundingClientRect(),cr=c.getBoundingClientRect();if(r.left<cr.left||r.right>cr.right)on.scrollIntoView({block:'nearest',inline:'center'});x=Math.abs(c.scrollLeft)}}
@@ -583,7 +583,7 @@ function dirtyGuard(w,saveSel,skip){var st={dirty:false};var b=w.querySelector(s
  st.set=function(v){st.dirty=!!v;if(b)b.disabled=!st.dirty};
  var on=function(e){if(skip&&e.target&&e.target.closest&&e.target.closest(skip))return;st.set(true)};w.addEventListener('input',on);w.addEventListener('change',on);return st}
 function ifd(label,ctl){return'<div class="fd"><label class="lb">'+label+'</label>'+ctl+'</div>'}
-function isel(name,list,cur,lab){return'<select class="sel2'+(cur==='غير مؤكد'?' unconf':'')+'" data-f="'+name+'" aria-label="'+lab+'">'+list.map(function(x){return'<option'+(x===cur?' selected':'')+'>'+x+'</option>'}).join('')+'</select>'}
+function isel(name,list,cur,lab){var k=name==='st'?'order':name==='cf'?'confirm':'';return'<select class="sel2'+(cur==='غير مؤكد'?' unconf':'')+'" data-f="'+name+'" aria-label="'+lab+'">'+list.map(function(x){return'<option value="'+esc(x)+'"'+(x===cur?' selected':'')+'>'+esc(LB(k,x))+'</option>'}).join('')+'</select>'}
 function iro(v){var t=String(v==null?'':v).trim();return'<div class="ro">'+(t?esc(t):'—')+'</div>'}
 function custHtml(o){return'<div class="sec"><h3>معلومات العميل</h3><div class="g2">'+ifd('اسم العميل',woo('<input class="sel2" data-f="name" value="'+esc(o.name)+'" aria-label="اسم العميل" disabled>'))+ifd('الهاتف (واتساب)',woo('<input class="sel2" data-f="phone" dir="ltr" value="'+esc(o.phone)+'" aria-label="الهاتف" disabled>'))+'</div>'
   +'<div class="g2">'+ifd('المحافظة',iro(o.stateName))+ifd('المدينة',iro(o.city))+'</div>' // the governorate: the website's list, read-only
@@ -726,7 +726,7 @@ function orderDetails(id,tab){var o=OM[id];if(!o)return;if(DET)DET.close();
  w.addEventListener('click',function(e){var b;if(e.target.closest('[data-cc]')){tryClose();return}
   if(b=e.target.closest('[data-dtab]')){if(b.dataset.dtab!==cur){if(cur==='info'&&infoDirty)stash=formVals();cur=b.dataset.dtab;render();syncDirty()}return}
   if(e.target.closest('[data-eok]')){if(save()&&!DG.dirty)close();return}});
- DET={id:String(id),close:close,refresh:function(){if(cur==='subs'){body.innerHTML=subs(o,dstate(o))}var h=w.querySelector('#ddt + small');if(h)h.textContent=o.st+' · '+o.cf+' · عمره '+o.age+' يوم';syncDirty()}};}
+ DET={id:String(id),close:close,refresh:function(){if(cur==='subs'){body.innerHTML=subs(o,dstate(o))}var h=w.querySelector('#ddt + small');if(h)h.textContent=LB('order',SV(o))+' · '+LB('confirm',o.cf)+' · عمره '+o.age+' يوم';syncDirty()}};}
 /* the owner 14 Nov («البوب اب بتاعت تعديل يتشال منه بيانات العميل و يتضاف حالة الاوردر علي الموقع» — decision 4): the product's
    «تعديل» — no customer data; «حالة المنتج» (the team's, was «حالة الفرعي»); «الحالة على الموقع» of its Dokan sub-order (an order of
    several makers only — one maker's order has the order's own status), written first through woo-sync suborder_status, saying which

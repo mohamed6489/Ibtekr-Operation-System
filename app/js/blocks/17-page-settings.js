@@ -1635,7 +1635,7 @@
     const grip = (v) => (admin ? K.Grip(v) : null);
     const sortable = (table, onIds) => { if (!admin) return; table.querySelectorAll('[data-status]').forEach((el) => { const tr = el.closest('tr'); if (tr) tr.setAttribute('data-status-row', el.getAttribute('data-status')); }); K.sortableRows(table, 'data-status-row', onIds); };
     const clean = (t) => String(t || '').replace(/\s+/g, ' ').trim();
-    const nameErr = (t, taken) => (t.length < 2 ? 'حرفين على الأقل' : t.length > 30 ? 'لحد 30 حرف' : /[<>]/.test(t) ? 'من غير < أو >' : taken.includes(t) ? 'فيه حالة بالاسم ده' : '');
+    const nameErr = (t, taken) => (t.length < 2 ? 'حرفين على الأقل' : t.length > 30 ? 'لحد 30 حرف' : /[<>"'&]/.test(t) ? 'من غير < > " \' &' : taken.includes(t) ? 'فيه حالة بالاسم ده' : '');
     if (kind === 'order') {
       askStatuses();
       const BASES = (S0 && S0.STATUS_KINDS && S0.STATUS_KINDS.order) || [];

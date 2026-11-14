@@ -1147,7 +1147,7 @@ export async function installSupabaseMock(page, opts = {}) {
         mock.statusWrites = mock.statusWrites || []; mock.statusWrites.push({ rpc: osr[1], ...b });
         if (osr[1] === 'order_status_add') {
           const name = String(b.p_name || '').trim();
-          if (name.length < 2 || name.length > 30 || /[<>]/.test(name)) return refuse(400, '23514', 'invalid: name');
+          if (name.length < 2 || name.length > 30 || /[<>"'&\u0000-\u001f]/.test(name)) return refuse(400, '23514', 'invalid: name');
           if (SM.some((x) => x.system_status === name)) return refuse(409, '23505', 'invalid: exists');
           if (!BASES.includes(b.p_base)) return refuse(400, '22023', 'invalid: base');
           if (!slugOk(b.p_slug)) return refuse(400, '23514', 'status_map_slug_check');

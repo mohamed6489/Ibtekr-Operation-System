@@ -130,3 +130,20 @@ test('T2 — decision 22: confirmation and product statuses added in the setting
   await page.locator('#orders select[data-cf="181668"]').first().selectOption('بيفكر');
   await expect.poll(() => mock.patches.filter((p) => p.table === 'orders').map((p) => p.confirm)).toEqual(['بيفكر']);
 });
+
+test('T2 — decision 22 (security review): a status name with a quote or & is refused, and the order page escapes the names it shows', async ({ page }) => {
+  await go(page, 'settings-lists');
+  const body = page.locator('#pg-settings');
+  await body.locator('[data-status-add="order"]').click();
+  await modal(page).locator('#name').fill('حالة "x"');
+  await modal(page).getByRole('button', { name: 'إضافة', exact: true }).click();
+  await expect(modal(page)).toContainText('من غير');
+  await page.keyboard.press('Escape');
+  // a name the server already holds with a quote (made by hand): the chips and the edit popup keep it as text
+  mock.statusMap.push({ id: 99, system_status: 'مراجعة "خاصة"', woo_status: null, direction: 'both', sort: 99, base: 'جاري التنفيذ' });
+  await go(page, 'orders');
+  await page.reload(); await expect(page.locator('#root')).toBeVisible();
+  await page.evaluate(() => { location.hash = 'orders'; });
+  await expect(page.locator('#orders [data-sc="مراجعة \\"خاصة\\""]')).toHaveCount(1);
+  await expect(page.locator('#orders select[data-st="181668"]').first().locator('option', { hasText: 'مراجعة "خاصة"' })).toHaveCount(1);
+});

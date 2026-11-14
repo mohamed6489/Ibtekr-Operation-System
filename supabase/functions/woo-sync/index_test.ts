@@ -2426,6 +2426,92 @@ Deno.test('suborder_status: the site status of a sub-order (a status_map slug), 
   assertEquals(kept.db.rows('sub_orders').find((x: any) => x.woo_order_id === 3002).woo_status ?? null, null);
 });
 
+// ---------------------------------------------------------------- line_qty (the owner 14 Nov — «تعديل كمية في الصب اوردر الفرعي»)
+const sub3002Priced = { ...subOrder3002, total: '150.00', line_items: [subOrder3002.line_items[0], { ...subOrder3002.line_items[1], subtotal: '60', total: '50' }] };
+
+Deno.test('line_qty: orders.status = F only, never the sync secret; qty an integer 1–99; closed → 409; the same quantity → 409 same; a line in the hub (pulled, or an open lot) → 409 in_hub; push off → skipped, no Woo call', async () => {
+  const { woo, deps } = setup({ seed: lineSeed(), env: PUSH_ON });
+  const a = { action: 'line_qty', order_id: 3001, item_id: 30011, qty: 3 };
+  assertEquals((await call(deps, a, { jwt: 'jwt-acct' })).res.status, 401);
+  assertEquals((await call(deps, a)).res.status, 401, 'never the sync secret');
+  for (const qty of [0, 1.5, 100, '2', null]) assertEquals((await call(deps, { ...a, qty }, { jwt: 'jwt-ops' })).res.status, 400, 'qty ' + qty);
+  assertEquals((await call(deps, { ...a, item_id: 99999 }, { jwt: 'jwt-ops' })).res.status, 404);
+  const cl = await call(deps, { ...a, order_id: 3101, item_id: 31010 }, { jwt: 'jwt-ops' });
+  assertEquals([cl.res.status, cl.body.error], [409, 'closed']);
+  const same = await call(deps, { ...a, qty: 1 }, { jwt: 'jwt-ops' });
+  assertEquals([same.res.status, same.body.error], [409, 'same']);
+  const pulled = await call(deps, { ...a, item_id: 30010 }, { jwt: 'jwt-ops' });
+  assertEquals([pulled.res.status, pulled.body.error], [409, 'in_hub'], 'a line pulled from the hub');
+  const lot = setup({ seed: { ...lineSeed(), inv_lots: [...lineSeed().inv_lots, { id: 'lt2', sku: 'IBT-B', name: 'b', reason: 'تجميع أوردر', status: 'في المخزن', item_id: 30011, closed_at: null }] }, env: PUSH_ON });
+  const inHub = await call(lot.deps, a, { jwt: 'jwt-ops' });
+  assertEquals([inHub.res.status, inHub.body.error], [409, 'in_hub'], 'a line with an open lot in the hub');
+  const off = setup({ seed: lineSeed() });
+  const r = await call(off.deps, a, { jwt: 'jwt-ops' });
+  assertEquals([r.body.result, r.body.reason], ['skipped', 'push_disabled']);
+  assertEquals(woo.calls.length + lot.woo.calls.length + off.woo.calls.length, 0);
+  assertEquals(off.db.rows('order_items').find((i: any) => i.id === 30011).qty, 1);
+});
+
+Deno.test('line_qty: the maker\'s sub-order line gets the new quantity at its own piece price and nothing else on the site — the parent is never written (PR #3454); stamped here (qty_set / total_set, 0091), the sub-order total from the answer; the site keeping the old quantity → 502, nothing written', async () => {
+  const puts: any[] = [];
+  const routes = { 'GET wc/v3/orders/3002': { body: sub3002Priced },
+    'PUT wc/v3/orders/3002': (c: any) => { puts.push(c.body); return { body: { ...sub3002Priced, total: '250.00', line_items: [sub3002Priced.line_items[0], { ...sub3002Priced.line_items[1], quantity: 3, subtotal: '180.00', total: '150.00' }] } }; } };
+  const { db, woo, deps } = setup({ seed: lineSeed(), routes, env: PUSH_ON });
+  const { res, body } = await call(deps, { action: 'line_qty', order_id: 3001, item_id: 30011, qty: 3 }, { jwt: 'jwt-ops' });
+  assertEquals(res.status, 200, JSON.stringify(body));
+  assertEquals([body.result, body.sub, body.qty, body.line_total, body.total], ['ok', 3002, 3, 150, null]);
+  assertEquals(woo.calls.map((c) => [c.method, c.path]), [['GET', 'wc/v3/orders/3002'], ['PUT', 'wc/v3/orders/3002']], 'the parent 3001 is never written');
+  assertEquals(puts, [{ line_items: [{ id: 9002, quantity: 3, subtotal: '180.00', total: '150.00' }] }]);
+  const it = db.rows('order_items').find((i: any) => i.id === 30011);
+  assertEquals([it.qty, it.total, it.qty_set, it.total_set, it.removed], [3, 150, 3, 150, false]);
+  assertEquals(Number(db.rows('sub_orders').find((x: any) => x.id === 11).total), 250);
+  assertEquals(Number(db.rows('orders').find((o: any) => o.id === 3001).total), 300, 'the order keeps the site\'s total');
+  const log = db.rows('woo_sync_log').find((x: any) => x.action === 'line_qty');
+  assertEquals([log.result, log.detail], ['ok', { line: 30011, sub: 3002, from: 1, to: 3 }]);
+  // down again (a piece off): 3 → 2 at the same piece price
+  const down = setup({ seed: { ...lineSeed(), order_items: lineSeed().order_items.map((i: any) => (i.id === 30011 ? { ...i, qty: 3, total: 150 } : i)) },
+    routes: { 'GET wc/v3/orders/3002': { body: { ...sub3002Priced, line_items: [sub3002Priced.line_items[0], { ...sub3002Priced.line_items[1], quantity: 3, subtotal: '180', total: '150' }] } },
+      'PUT wc/v3/orders/3002': (c: any) => ({ body: { ...sub3002Priced, line_items: [{ ...c.body.line_items[0] }] } }) }, env: PUSH_ON });
+  const d = await call(down.deps, { action: 'line_qty', order_id: 3001, item_id: 30011, qty: 2 }, { jwt: 'jwt-ops' });
+  assertEquals([d.res.status, d.body.qty, d.body.line_total], [200, 2, 100]);
+  assertEquals(down.woo.calls[1].body, { line_items: [{ id: 9002, quantity: 2, subtotal: '120.00', total: '100.00' }] });
+  // the site keeps the old quantity → 502, nothing stamped
+  const kept = setup({ seed: lineSeed(), routes: { 'GET wc/v3/orders/3002': { body: sub3002Priced }, 'PUT wc/v3/orders/3002': { body: sub3002Priced } }, env: PUSH_ON });
+  const k = await call(kept.deps, { action: 'line_qty', order_id: 3001, item_id: 30011, qty: 3 }, { jwt: 'jwt-ops' });
+  assertEquals([k.res.status, k.body.error], [502, 'woo_kept_qty']);
+  const ki = kept.db.rows('order_items').find((i: any) => i.id === 30011);
+  assertEquals([ki.qty, ki.qty_set ?? null], [1, null]);
+  // two lines of the same product on the sub-order, neither matching → 409 sub_line, no PUT
+  const twin = { ...subOrder3002, line_items: [subOrder3002.line_items[0], { id: 9002, product_id: 78, quantity: 2, total: '100' }, { id: 9003, product_id: 78, quantity: 4, total: '200' }] };
+  const tw = setup({ seed: lineSeed(), routes: { 'GET wc/v3/orders/3002': { body: twin } }, env: PUSH_ON });
+  const t = await call(tw.deps, { action: 'line_qty', order_id: 3001, item_id: 30011, qty: 3 }, { jwt: 'jwt-ops' });
+  assertEquals([t.res.status, t.body.error], [409, 'sub_line']);
+  assertEquals(tw.woo.calls.map((c) => c.method), ['GET']);
+});
+
+Deno.test('line_qty: an order of one maker → the order itself (GET + PUT), mirrored from the answer (its line and its total), no stamp; a line of an order with sub-orders that points to none → 409 sub_line, no Woo call', async () => {
+  const one = { ...lineSeed(), orders: [...lineSeed().orders, { id: 3201, number: '3201', customer_name: 'z', status: 'جاري التنفيذ', woo_status: 'processing', total: 400, placed_at: '2026-10-20T10:00:00Z', woo_updated_at: '2026-10-20T11:00:00Z' }],
+    order_items: [...lineSeed().order_items, { id: 32010, order_id: 3201, name: 'e', qty: 2, total: 200, removed: false, pulled: false, product_id: 80 }, { id: 32011, order_id: 3201, name: 'f', qty: 1, total: 200, removed: false, pulled: false, product_id: 81 }] };
+  const live = wooOrder({ id: 3201, number: '3201', status: 'processing', total: '400.00', date_modified_gmt: '2026-11-14T09:00:00', meta_data: [{ key: '_dokan_vendor_id', value: '44' }],
+    line_items: [{ id: 32010, product_id: 80, name: 'e', quantity: 2, subtotal: '200', total: '200', meta_data: [] }, { id: 32011, product_id: 81, name: 'f', quantity: 1, subtotal: '200', total: '200', meta_data: [] }] });
+  const after = wooOrder({ id: 3201, number: '3201', status: 'processing', total: '300.00', date_modified_gmt: '2026-11-14T10:00:00', meta_data: [{ key: '_dokan_vendor_id', value: '44' }],
+    line_items: [{ id: 32010, product_id: 80, name: 'e', quantity: 1, subtotal: '100.00', total: '100.00', meta_data: [] }, { id: 32011, product_id: 81, name: 'f', quantity: 1, subtotal: '200', total: '200', meta_data: [] }] });
+  const puts: any[] = [];
+  const { db, woo, deps } = setup({ seed: one, routes: { 'GET wc/v3/orders/3201': { body: live }, 'PUT wc/v3/orders/3201': (c: any) => { puts.push(c.body); return { body: after }; } }, env: PUSH_ON });
+  const { res, body } = await call(deps, { action: 'line_qty', order_id: 3201, item_id: 32010, qty: 1 }, { jwt: 'jwt-ops' });
+  assertEquals([res.status, body.result, body.sub, body.qty, body.total], [200, 'ok', null, 1, '300.00']);
+  assertEquals(woo.calls.map((c) => [c.method, c.path]), [['GET', 'wc/v3/orders/3201'], ['PUT', 'wc/v3/orders/3201']]);
+  assertEquals(puts, [{ line_items: [{ id: 32010, quantity: 1, subtotal: '100.00', total: '100.00' }] }]);
+  const it = db.rows('order_items').find((i: any) => i.id === 32010);
+  assertEquals([it.qty, Number(it.total), it.qty_set ?? null], [1, 100, null]);
+  assertEquals(Number(db.rows('orders').find((o: any) => o.id === 3201).total), 300);
+  const loose = { ...lineSeed(), order_items: lineSeed().order_items.map((i: any) => (i.id === 30011 ? { ...i, sub_order_id: null } : i)) };
+  const l = setup({ seed: loose, env: PUSH_ON });
+  const r = await call(l.deps, { action: 'line_qty', order_id: 3001, item_id: 30011, qty: 2 }, { jwt: 'jwt-ops' });
+  assertEquals([r.res.status, r.body.error], [409, 'sub_line']);
+  assertEquals(l.woo.calls.length, 0);
+});
+
 // ---------------------------------------------------------------- phase 7 (decision 1 c): the site quantity from the hub
 const invLot = (id: string, sku: string, o: Record<string, unknown> = {}) => ({ id, sku, name: sku, reason: 'متاح للبيع', status: 'متاح', mode: 'ملك ابتكر', cost: 0, since: '2026-11-01', closed_at: null, ...o });
 const invSeed = {

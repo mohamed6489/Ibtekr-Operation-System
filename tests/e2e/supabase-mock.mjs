@@ -2178,7 +2178,7 @@ export async function installSupabaseMock(page, opts = {}) {
         v.woo_vendor_id = store; v.woo_synced_at = new Date().toISOString(); v.push_pending = null;
         return json(200, { action, result: 'ok', store, adopted: false, commission, bank, photo: 'none', shop_url: 'https://woo.test/store/' + shop + '/' });
       }
-      if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : (action === 'order_trash' || action === 'suborder_trash' || action === 'line_trash' || action === 'suborder_status') ? hasPerm(u, 'orders.status') === 'F' && hasPerm(u, 'orders.view') !== 'N' : (action === 'order_create' || action === 'order_pay_link') ? (isAdmin(u) || hasPerm(u, 'orders.status') === 'F') : action === 'push_vendor' ? mayPushVendor() : (action === 'statement' || action === 'withdrawals') ? hasPerm(u, 'accounts.view') !== 'N' : action === 'withdraw_approve' || action === 'withdraw_create' ? (isAdmin(u) || hasPerm(u, 'accounts.approve') === 'F')
+      if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : (action === 'order_trash' || action === 'suborder_trash' || action === 'line_trash' || action === 'line_qty' || action === 'suborder_status') ? hasPerm(u, 'orders.status') === 'F' && hasPerm(u, 'orders.view') !== 'N' : (action === 'order_create' || action === 'order_pay_link') ? (isAdmin(u) || hasPerm(u, 'orders.status') === 'F') : action === 'push_vendor' ? mayPushVendor() : (action === 'statement' || action === 'withdrawals') ? hasPerm(u, 'accounts.view') !== 'N' : action === 'withdraw_approve' || action === 'withdraw_create' ? (isAdmin(u) || hasPerm(u, 'accounts.approve') === 'F')
         : action === 'product_get' ? hasPerm(u, 'products.view') !== 'N' : action === 'product_save' || action === 'product_images_add' ? (isAdmin(u) || hasPerm(u, 'products.edit') === 'F') : action === 'products_batch' || action === 'products_vendor' ? (isAdmin(u) || hasPerm(u, 'products.bulk') === 'F')
           : action === 'products_trash' || action === 'products_restore' ? hasPerm(u, 'products.trash') === 'F' : action === 'studio_upload' || action === 'category_create' || action === 'studio_sheet' || action === 'product_duplicate' || action === 'category_get' || action === 'category_update' || action === 'category_delete' ? (isAdmin(u) || hasPerm(u, 'products.add') === 'F') : isAdmin(u))) return json(401, { error: 'unauthorized' });
       // phase 5.2: studio_upload — the item read from the batch and checked by the server's own buildStudio; the gate; a product
@@ -2480,6 +2480,24 @@ export async function installSupabaseMock(page, opts = {}) {
         if (multi) it.dropped_at = mock.now || new Date().toISOString(); else o.total = Number(o.total) - Number(it.total || 0);
         (mock.lineTrashes = mock.lineTrashes || []).push({ order_id: o.id, item_id: it.id, reason, by: u.email });
         return json(200, { action, result: 'ok', sub: multi ? so.woo_order_id : null, released: 0, total: multi ? null : o.total.toFixed(2) });
+      }
+      // the owner 14 Nov: line_qty — a product's quantity on its maker's sub-order (the parent untouched, total null; recorded in
+      // lineQtys) or, for an order of one maker, on the order itself (the total by the piece price); the hub's lines → in_hub
+      if (action === 'line_qty') {
+        const o = mock.orders.find((x) => x.id === Number(b.order_id) && !x.deleted_at); if (!o) return json(404, { error: 'order_not_found' });
+        const q = b.qty; if (typeof q !== 'number' || !Number.isInteger(q) || q < 1 || q > 99) return json(400, { error: 'bad_request' });
+        if (['مكتمل', 'استرجاع'].includes(o.status)) return json(409, { error: 'closed', status: o.status });
+        const it = mock.orderItems.find((i) => i.order_id === o.id && !i.removed && i.id === Number(b.item_id)); if (!it) return json(404, { error: 'line_not_found' });
+        const was = Number(it.qty) || 0; if (q === was) return json(409, { error: 'same', qty: was });
+        if (it.pulled) return json(409, { error: 'in_hub' });
+        const so = mock.subOrders.find((x) => x.id === it.sub_order_id); const multi = !!so && so.woo_order_id !== o.id;
+        if (!mock.pushEnabled) return json(200, { action, result: 'skipped', reason: 'push_disabled' });
+        if (mock.wooDown) return json(502, { error: 'woo_error', step: 'qty' });
+        const unit = was ? Number(it.total || 0) / was : 0; const lineTotal = Math.round(unit * q * 100) / 100;
+        if (!multi) o.total = Number(o.total) - Number(it.total || 0) + lineTotal;
+        it.qty = q; it.total = lineTotal;
+        (mock.lineQtys = mock.lineQtys || []).push({ order_id: o.id, item_id: it.id, qty: q, by: u.email });
+        return json(200, { action, result: 'ok', sub: multi ? so.woo_order_id : null, qty: q, line_total: lineTotal, total: multi ? null : Number(o.total).toFixed(2) });
       }
       if (action === 'suborder_status') {
         const o = mock.orders.find((x) => x.id === Number(b.order_id) && !x.deleted_at); if (!o) return json(404, { error: 'order_not_found' });

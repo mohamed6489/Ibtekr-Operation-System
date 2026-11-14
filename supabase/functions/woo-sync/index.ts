@@ -61,6 +61,14 @@
 //              for this action only) a Dokan sub-order's own status on the site: a WooCommerce slug status_map knows, PUT
 //              wc/v3/orders/{sub} { status }, the answer's status kept in sub_orders.woo_status (another answer → 502). The team's
 //              own line status (order_items.status) is untouched. Same permissions; never the sync secret; WOO_PUSH_ENABLED.
+//   'line_qty' { order_id, item_id, qty }  (the owner 14 Nov — «تعديل كمية في الصب اوردر الفرعي», up or down; a new WooCommerce write by
+//              his decision) one product's quantity on an order that is not «مكتمل» / «استرجاع»: on the maker's Dokan sub-order (GET, the
+//              line found like line_trash — else 409 sub_line; PUT { line_items: [{ id, quantity, subtotal, total }] }, the value = the
+//              line's piece price × the new quantity, the answer checked — else 502 woo_kept_qty); the parent is never written (PR #3454),
+//              the line stamped here (qty_set / total_set, 0091 — the sync keeps them) and sub_orders.total from the answer; the answer's
+//              total is null. An order of one maker: the same on the order itself, mirrored from its answer (its total). qty an integer
+//              1–99 (else 400); the same quantity → 409 same; a line pulled from the hub or with an open lot there → 409 in_hub. Same
+//              permissions as line_trash; never the sync secret; WOO_PUSH_ENABLED.
 //   'vendor_store' { vendor_id, password, shop_url?, notify?, trusted?, featured? }  (the owner 11 Nov — «إضافة مبتكر» on the site)
 //              a maker of ours without a store gets Dokan's «Add New Vendor»: POST dokan/v1/stores with his portal login, the
 //              password the member typed (never stored nor logged), the shop URL, the row's store fields, the commission (admin
@@ -148,7 +156,7 @@ export type Deps = { env: Record<string, string | undefined>; fetch: typeof fetc
 type Ctx = Awaited<ReturnType<typeof writeContext>>;
 type Run = { db: Db; env: Deps['env']; woo: () => ReturnType<typeof wooApi>; ctx: () => Promise<Ctx>; kind: 'cron' | 'manual'; now: () => string };
 
-const ACTIONS = ['states', 'categories', 'orders', 'vendors', 'products', 'all', 'push_status', 'push_vendor', 'register_webhooks', 'probe_store', 'probe_dokan', 'accounts', 'statement', 'withdraw_approve', 'withdraw_create', 'withdrawals', 'order_trash', 'suborder_trash', 'line_trash', 'suborder_status', 'order_create', 'order_pay_link',
+const ACTIONS = ['states', 'categories', 'orders', 'vendors', 'products', 'all', 'push_status', 'push_vendor', 'register_webhooks', 'probe_store', 'probe_dokan', 'accounts', 'statement', 'withdraw_approve', 'withdraw_create', 'withdrawals', 'order_trash', 'suborder_trash', 'line_trash', 'line_qty', 'suborder_status', 'order_create', 'order_pay_link',
   'vendor_photo', 'vendor_store', 'product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push', 'product_duplicate', 'carts',
   'category_get', 'category_update', 'category_delete'];
 // phase 5: the product actions a person runs (never the sync secret); phase 5.2: the studio's upload, a new category, a sheet link;
@@ -179,7 +187,7 @@ async function authorize(req: Request, deps: Deps, action: string, args: Json): 
   const secret = req.headers.get('x-sync-secret');
   if (secret) {
     if (action === 'withdraw_approve' || action === 'withdraw_create') return null; // a person approves / asks, never the cron / sync secret (phase 4.1; 0078)
-    if (action === 'order_trash' || action === 'suborder_trash' || action === 'line_trash' || action === 'suborder_status') return null; // a person deletes an order / a sub-order, never the cron / sync secret (phase 5.5 decision 10, phase 13 decision 54)
+    if (action === 'order_trash' || action === 'suborder_trash' || action === 'line_trash' || action === 'line_qty' || action === 'suborder_status') return null; // a person deletes an order / a sub-order, never the cron / sync secret (phase 5.5 decision 10, phase 13 decision 54)
     if (action === 'order_create' || action === 'order_pay_link') return null; // a person makes an order from the chat (phase 13 T3)
     if (action === 'vendor_photo' || action === 'vendor_store') return null; // a person sets a maker's photo / makes his store (phase 13 decision 51; 11 Nov)
     if (PRODUCT_ACTIONS.includes(action)) return null; // a person edits products, never the cron / sync secret (phase 5)
@@ -193,7 +201,7 @@ async function authorize(req: Request, deps: Deps, action: string, args: Json): 
   const admin = async () => { const { data, error } = await member.rpc('is_admin'); return !error && data === true; };
   if (action === 'push_status') return (await perm('orders.status')) ? 'member' : null;
   // phase 5.5 decision 10: the site trash needs the same two permissions RPC order_delete checks — orders.status = F and orders.view <> N
-  if (action === 'order_trash' || action === 'suborder_trash' || action === 'line_trash' || action === 'suborder_status') { if (!(await perm('orders.status'))) return null; const { data, error } = await member.rpc('has_perm', { key: 'orders.view' }); return !error && (data === 'F' || data === 'P') ? 'member' : null; }
+  if (action === 'order_trash' || action === 'suborder_trash' || action === 'line_trash' || action === 'line_qty' || action === 'suborder_status') { if (!(await perm('orders.status'))) return null; const { data, error } = await member.rpc('has_perm', { key: 'orders.view' }); return !error && (data === 'F' || data === 'P') ? 'member' : null; }
   // phase 13 T3 (decision 7): an order from the customer-service chat and its pay link — the admin or orders.status = F
   if (action === 'order_create' || action === 'order_pay_link') return (await admin()) || (await perm('orders.status')) ? 'member' : null;
   if (action === 'statement' || action === 'withdrawals') { const { data, error } = await member.rpc('has_perm', { key: 'accounts.view' }); return !error && (data === 'F' || data === 'P') ? 'member' : null; }
@@ -638,6 +646,83 @@ async function lineTrash(run: Run, args: Json) {
   try { released = await releaseLines(ctx, { ref: 'IB-' + (order.number ?? id), itemIds: [item], sid: null }); } catch (e) { await logSync(run.db, { ...entry, result: 'error', detail: { step: 'release', error: errorText(e, woo.scrub) } }); }
   await logSync(run.db, { ...entry, result: 'ok', detail: { line: item, sub: sid, released } });
   return json(200, { action: 'line_trash', result: 'ok', sub: sid, released, total: isObj(parent) ? parent.total ?? null : null });
+}
+
+// ---------------------------------------------------------------- line_qty (the owner 14 Nov — «تعديل كمية في الصب اوردر الفرعي»)
+// One product's quantity, up or down: the maker's Dokan sub-order's line (found like line_trash) gets the new quantity and its value
+// at the line's own piece price; the parent of an order with sub-orders is never written (PR #3454) — the new quantity and value are
+// stamped here (qty_set / total_set, 0091) so the sync, which still reads the parent's old line, keeps them. An order of one maker:
+// the order itself, mirrored from its answer. The hub's lines (pulled, or an open lot for the line) are refused: their pieces count.
+const QTY_MAX = 99;
+const money = (v: number) => (Math.round(v * 100) / 100).toFixed(2);
+// the line's new subtotal / total at its own piece price (a missing subtotal follows the total)
+function qtyLine(li: Json, qty: number) {
+  const q = Number(li.quantity) || 0; const tot = Number(li.total); const sub = li.subtotal == null || li.subtotal === '' ? tot : Number(li.subtotal);
+  if (!(q > 0) || !Number.isFinite(tot) || !Number.isFinite(sub)) return null;
+  return { id: wooId(li.id), quantity: qty, subtotal: money((sub / q) * qty), total: money((tot / q) * qty) };
+}
+async function lineQty(run: Run, args: Json) {
+  const id = wooId(args.order_id), item = wooId(args.item_id); const qty = typeof args.qty === 'number' ? args.qty : NaN;
+  if (id === null || item === null || !Number.isInteger(qty) || qty < 1 || qty > QTY_MAX) return json(400, { error: 'bad_request' });
+  const { data: order, error } = await run.db.from('orders').select('id, number, status').eq('id', id).is('deleted_at', null).maybeSingle();
+  if (error) throw new Error(`orders: ${error.message}`);
+  if (!order) return json(404, { error: 'order_not_found' });
+  if (CLOSED_ORDER.includes(String(order.status))) return json(409, { error: 'closed', status: order.status });
+  const { data: line, error: lineErr } = await run.db.from('order_items').select('id, sub_order_id, product_id, qty, total, pulled').eq('order_id', id).eq('id', item).eq('removed', false).maybeSingle();
+  if (lineErr) throw new Error(`order_items: ${lineErr.message}`);
+  if (!isObj(line)) return json(404, { error: 'line_not_found' });
+  const was = Number(line.qty) || 0;
+  if (qty === was) return json(409, { error: 'same', qty: was });
+  const { data: lots, error: lotErr } = await run.db.from('inv_lots').select('id').eq('item_id', item).is('closed_at', null);
+  if (lotErr) throw new Error(`inv_lots: ${lotErr.message}`);
+  if (line.pulled === true || (lots ?? []).length) return json(409, { error: 'in_hub' });
+  let sid: number | null = null; let subRow: number | null = null;
+  if (line.sub_order_id != null) {
+    const { data: sub } = await run.db.from('sub_orders').select('id, woo_order_id').eq('id', line.sub_order_id).maybeSingle();
+    const w = isObj(sub) ? wooId(sub.woo_order_id) : null; if (w !== null && w !== id) { sid = w; subRow = Number(sub!.id); }
+  }
+  if (sid === null && (await currentSubOrders(run.db, id)).length) return json(409, { error: 'sub_line', matches: 0 });
+  const entry = { kind: 'push', direction: 'out', entity: 'order', entity_id: String(id), action: 'line_qty' };
+  if (!pushEnabled(run.env)) { await logSync(run.db, { ...entry, result: 'skipped', detail: { reason: 'push_disabled', line: item } }); return json(200, { action: 'line_qty', result: 'skipped', reason: 'push_disabled' }); }
+  const woo = run.woo();
+  const fail = async (step: string, e: unknown, extra: Json = {}) => {
+    await logSync(run.db, { ...entry, result: 'error', detail: { step, line: item, ...extra, error: e ? errorText(e, woo.scrub) : undefined } });
+    if (!e || e instanceof WooError) return json(502, { error: e ? 'woo_error' : 'woo_kept_qty', step }); throw e;
+  };
+  const target = sid ?? id;
+  let live: Json;
+  try { live = (await woo.get(`wc/v3/orders/${target}`)).data as Json; } catch (e) { return await fail(sid !== null ? 'sub_read' : 'read', e, sid !== null ? { sub: sid } : {}); }
+  const items = isObj(live) && Array.isArray(live.line_items) ? live.line_items.filter(isObj) : [];
+  let hit: Json | undefined;
+  if (sid !== null) { // the maker's sub-order: the line of the same product (else the same quantity and value) — like line_trash
+    const pid = wooId(line.product_id); const tot = Number(line.total) || 0;
+    let hits = items.filter((li: Json) => pid !== null && (wooId(li.product_id) === pid || wooId(li.variation_id) === pid));
+    if (hits.length > 1) hits = hits.filter((li: Json) => Number(li.quantity) === was && Math.abs(Number(li.total) - tot) < 0.01);
+    if (hits.length !== 1) { await logSync(run.db, { ...entry, result: 'skipped', detail: { reason: 'sub_line', line: item, sub: sid, matches: hits.length } }); return json(409, { error: 'sub_line', matches: hits.length }); }
+    hit = hits[0];
+  } else hit = items.find((li: Json) => wooId(li.id) === item);
+  const put = hit ? qtyLine(hit, qty) : null;
+  if (!put || put.id === null) return await fail('line', null, sid !== null ? { sub: sid } : {});
+  let after: Json;
+  try { after = (await woo.put(`wc/v3/orders/${target}`, { line_items: [put] })).data as Json; } catch (e) { return await fail('qty', e, sid !== null ? { sub: sid } : {}); }
+  const got = isObj(after) && Array.isArray(after.line_items) ? after.line_items.filter(isObj).find((li: Json) => wooId(li.id) === put.id) : undefined;
+  if (!got || Number(got.quantity) !== qty) return await fail('qty', null, sid !== null ? { sub: sid, kept: 1 } : { kept: 1 });
+  const lineTotal = Number.isFinite(Number(got.total)) ? Number(money(Number(got.total))) : Number(put.total);
+  if (sid !== null) { // the parent on the site keeps its old line (never written): the new quantity and value stamped here (0091)
+    const { error: upErr } = await run.db.from('order_items').update({ qty, total: lineTotal, qty_set: qty, total_set: lineTotal }).eq('id', item);
+    if (upErr) throw new Error(`order_items: ${upErr.message}`);
+    if (subRow !== null && isObj(after) && Number.isFinite(Number(after.total))) {
+      const { error: subErr } = await run.db.from('sub_orders').update({ total: Number(after.total) }).eq('id', subRow);
+      if (subErr) throw new Error(`sub_orders: ${subErr.message}`);
+    }
+    await logSync(run.db, { ...entry, result: 'ok', detail: { line: item, sub: sid, from: was, to: qty } });
+    return json(200, { action: 'line_qty', result: 'ok', sub: sid, qty, line_total: lineTotal, total: null });
+  }
+  // an order of one maker: the order itself — mirrored from WooCommerce's answer (the line and the order's new total)
+  const ctx = await run.ctx();
+  await writeOrders(ctx, [after]);
+  await logSync(run.db, { ...entry, result: 'ok', detail: { line: item, sub: null, from: was, to: qty } });
+  return json(200, { action: 'line_qty', result: 'ok', sub: null, qty, line_total: lineTotal, total: isObj(after) ? after.total ?? null : null });
 }
 
 // ---------------------------------------------------------------- suborder_status (the owner 11 Nov, option «أ»)
@@ -2098,6 +2183,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'order_trash') return await orderTrash(run, args);
     if (action === 'suborder_trash') return await suborderTrash(run, args);
     if (action === 'line_trash') return await lineTrash(run, args);
+    if (action === 'line_qty') return await lineQty(run, args);
     if (action === 'suborder_status') return await suborderStatus(run, args);
     if (action === 'order_create') return await orderCreate(run, args);
     if (action === 'order_pay_link') return await orderPayLink(run, args);

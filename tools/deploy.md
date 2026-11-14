@@ -2042,3 +2042,11 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 7. انشر من «Deploy functions»: `woo-sync` (الـ Slug والأب في `category_create` / `category_update` والصورة في المرآة) و`ai-content` (`request` في رد المساعدين).
 8. الواجهة على `main`.
 9. التجربة: الإعدادات (التابات الستيكي، «القوائم والحالات» — تغيير اسم حالة وشركة شحن جديدة، مصفوفة الصلاحيات، «أيام وساعات العمل»)؛ «الأقسام» (Slug وتغيير الأب الجماعي)؛ الجرد (⋮ السطر و«شيل من المخزن»)؛ «التقييمات» (⋮ الصف)؛ شات المساعدين («قدّم الطلب ده»)؛ ودخول بعضو ديزاينر — القايمة فيها اللوحة والمنتجات وطلبات الفريق والتسويق بس.
+
+#### 2.7.71 قايمة ⋮ بتاعة الأوردر الفرعي — الحالة بالبوب أب وتعديل الكمية (`docs/superpowers/plans/2026-11-14-suborder-menu.md`)
+**بعد** `0090`:
+1. `0091_order_items_qty.sql` — `order_items.qty_set` / `total_set` (للسيرفر بس) + تريجر `order_items_keep_qty` (الكمية اللي اتعدّلت على الأوردر الفرعي بتفضل مهما المزامنة كتبت). بـ Supabase MCP (`execute_sql` بالملف + صف في `supabase_migrations.schema_migrations`) أو SQL Editor.
+2. RLS live (workflow «RLS live»، `files = rls_order_items_qty rls_order_items_dropped`).
+3. انشر من «Deploy functions»: `woo-sync` (`line_qty`).
+4. الواجهة على `main`.
+5. التجربة على الـ staging: ⋮ على سطر في أوردر بأكتر من مبتكر › «تعديل حالة الأوردر الفرعي» (البوب أب بيقول عدد المنتجات والقطع) و«تعديل الكمية» (− / +)؛ وبعدها بص على الأوردر الفرعي في WooCommerce (الكمية والقيمة الجديدة، والأساسي زي ما هو) وعلى **نصيب المبتكر في Dokan** إنه اتحسب من جديد.

@@ -135,8 +135,9 @@ test('a status change writes the order and pushes it to the site', async ({ page
 });
 
 // the owner 11 Nov («زي الـ automation»): Dokan recreates the sub-orders of a parent edited through the API (new numbers), so an order of
-// several makers gets the status on each of its sub-orders and the parent on the site is left as it is; «حالة الموقع» follows at once
-test('a status change on an order with sub-orders goes to each sub-order, never the parent; «حالة الموقع» follows', async ({ page }) => {
+// several makers gets the status on each of its sub-orders and the parent on the site is left as it is; the site status follows at once
+// (the owner 14 Nov: shown in the sub-order's ⋮ popup — the column is gone)
+test('a status change on an order with sub-orders goes to each sub-order, never the parent; the site status follows', async ({ page }) => {
   await openOrders(page);
   const c = card(page, '181668');
   await c.locator('select[data-st="181668"]').selectOption('جاهز للشحن');
@@ -145,8 +146,12 @@ test('a status change on an order with sub-orders goes to each sub-order, never 
   expect(mock.pushes).toEqual([{ action: 'push_status', order_id: 181668, status: 'جاهز للشحن', result: 'ok', subs: [181669, 181670] }]);
   expect(mock.orders.find((o) => o.id === 181668).woo_status).toBe('processing'); // the site's parent untouched
   expect(mock.subOrders.map((s) => [s.woo_order_id, s.woo_status])).toEqual([[181669, 'ready-shipping'], [181670, 'ready-shipping']]);
-  await expect(c.locator('select[data-wst="5001"]')).toHaveValue('جاهز للشحن');
-  await expect(c.locator('select[data-wst="5002"]')).toHaveValue('جاهز للشحن');
+  for (const n of [5001, 5002]) {
+    await c.locator('[data-more="s:' + n + '"]').click();
+    await page.locator('#orders #mpop [data-ma="sitest"]').click();
+    await expect(page.locator('#orders #cdlg [data-site-now]')).toHaveText('جاهز للشحن');
+    await page.locator('#orders #cdlg .cf [data-cc]').click();
+  }
 });
 
 test('«فشل» replaces «تم RTC»: a chip and an option styled like «ملغي», saved here but never pushed to the site (from_woo)', async ({ page }) => {
@@ -923,7 +928,7 @@ test('the owner 11 Nov: the cancel popup\'s date starts on today (Cairo); «ال
   await expect(card(page, '181668').locator('select[data-st="181668"]')).toHaveValue('جاري التنفيذ');
 });
 
-test('the owner 11 Nov: «حالة الموقع» of a Dokan sub-order (the site\'s own status, the whole sub-order) and «مسح المنتج» — one product off the order on the site; the last product of a sub-order goes to «مسح الأوردر الفرعي»', async ({ page }) => {
+test('the owner 11 / 14 Nov: «تعديل حالة الأوردر الفرعي» from ⋮ (the site\'s own status, the whole sub-order — a popup that says how many products move with it; the column is gone) and «مسح المنتج» — one product off the order on the site; the last product of a sub-order goes to «مسح الأوردر الفرعي»', async ({ page }) => {
   // a second product in sub-order 181669 (the same maker)
   const base = mock.orderItems.find((i) => i.id === 5001);
   mock.orderItems.push({ ...base, id: 5099, product_id: 9003, sku: 'IBTA4040PAHC000099', name: 'Pouf', qty: 1, total: 500, status: '', comment: null });
@@ -931,32 +936,42 @@ test('the owner 11 Nov: «حالة الموقع» of a Dokan sub-order (the site
   await openOrders(page);
   const sr = (sel) => page.locator('#orders ' + sel); const menu = sr('#mpop'); const dlg = sr('#cdlg');
   const c = card(page, '181668');
-  // the owner 11 Nov («عمود بعد الأوردر الفرعي علطول زي الحالة»): the site status is its own column right after the sub-order number,
-  // a dropdown with status_map's labels; the old tag under the number and the ⋮ item are gone
+  // the owner 14 Nov («في ال 3 نقط … بوب اب بالتعديل الحالة و يعرفني لو الاوردر الفرعي فيه اكتر من قطعة»): no site-status column any more
   const heads = c.locator('.st .row.h .c');
   await expect(heads.nth(0)).toHaveText('الأوردر الفرعي');
-  await expect(heads.nth(1)).toHaveText('حالة الموقع');
-  const ws = (n) => c.locator('select[data-wst="' + n + '"]');
-  await expect(ws(5001)).toHaveValue('جاري التنفيذ');
-  await expect(ws(5099)).toHaveValue('جاري التنفيذ');
-  // a single-maker order has no sub-order on the site (the sub-order = the order) → «—», no dropdown
-  await expect(card(page, '180686').locator('.st .row:not(.h) .cw').first()).toHaveText('—');
-  await expect(card(page, '180686').locator('select[data-wst]')).toHaveCount(0);
-  await expect(ws(5001)).toHaveAttribute('aria-label', 'حالة الأوردر الفرعي #181669 على الموقع');
-  await c.locator('[data-more="s:5001"]').click();
+  await expect(heads.nth(1)).toHaveText('المنتج');
+  await expect(sr('select[data-wst]')).toHaveCount(0);
+  await expect(sr('.cw')).toHaveCount(0);
+  // a single-maker order has no sub-order on the site (its status = the order's) → no item
+  await card(page, '180686').locator('[data-more="s:5003"]').click();
   await expect(menu.locator('[data-ma="sitest"]')).toHaveCount(0);
   await page.keyboard.press('Escape');
-  // the change writes to the site right away — a spinner while the call runs
+  await c.locator('[data-more="s:5001"]').click();
+  await expect(menu.locator('[data-ma="sitest"]')).toHaveText('تعديل حالة الأوردر الفرعي');
+  await menu.locator('[data-ma="sitest"]').click();
+  await expect(dlg.locator('#cdt')).toHaveText('تعديل حالة الأوردر الفرعي #181669');
+  await expect(dlg.locator('[data-site-now]')).toHaveText('جاري التنفيذ');
+  await expect(dlg.locator('[data-sub-many]')).toHaveText('الأوردر الفرعي #181669 فيه 2 منتج (3 قطع) — الحالة هتتغيّر لكل المنتجات دي مع بعض على الموقع.');
+  await expect(dlg.locator('.dlist li')).toHaveText(['Cushion × 2', 'Pouf × 1']);
+  await expect(dlg).toContainText('«الحالة» بتاعتنا جنب كل منتج مش هتتغيّر');
+  await dlg.locator('#cwst').selectOption({ label: 'جاهز للشحن' });
+  // the site call held → the button spins until the site answers
   let rel; const hold = new Promise((r) => { rel = r; });
   await page.route('**/functions/v1/woo-sync', async (route) => { await hold; await route.fallback(); });
-  await ws(5001).selectOption({ label: 'جاهز للشحن' });
-  await expect(c.locator('.cw .sdd[aria-busy="true"] .spin')).toBeVisible();
-  await expect(ws(5001)).toBeDisabled();
+  await dlg.locator('[data-cok]').click();
+  await expect(dlg.locator('[data-cok]')).toHaveAttribute('aria-busy', 'true');
+  await expect(dlg.locator('[data-cok] .spin')).toBeVisible();
   rel(); await page.unroute('**/functions/v1/woo-sync');
-  await expect(toast(page)).toHaveText('الأوردر الفرعي #181669 بقى «جاهز للشحن» على الموقع');
+  await expect(dlg).toHaveCount(0);
+  await expect(toast(page)).toHaveText('الأوردر الفرعي #181669 بقى «جاهز للشحن» على الموقع — 2 منتج مع بعض');
   expect(mock.subStatuses).toEqual([{ order_id: 181668, sub_id: 181669, status: 'ready-shipping', by: ADMIN }]);
-  await expect(ws(5099)).toHaveValue('جاهز للشحن'); // the whole sub-order
   await expect.poll(() => mock.activity.filter((a) => a.action === 'suborder.site_status').map((a) => a.new_value)).toEqual(['#181669 (IB-181668) · ready-shipping']);
+  // the whole sub-order: the other product's popup says the new status too
+  await c.locator('[data-more="s:5099"]').click();
+  await menu.locator('[data-ma="sitest"]').click();
+  await expect(dlg.locator('[data-site-now]')).toHaveText('جاهز للشحن');
+  await dlg.locator('.cf [data-cc]').click();
+  await expect(dlg).toHaveCount(0);
   // «مسح المنتج»: Pouf off sub-order 181669 — the order on the site keeps it (the owner 11 Nov, «زي الـ automation»)
   await c.locator('[data-more="s:5099"]').click();
   await expect(menu.locator('[data-ma="linedel"]')).toHaveText('مسح المنتج');
@@ -986,6 +1001,65 @@ test('the owner 11 Nov: «حالة الموقع» of a Dokan sub-order (the site
   await menu.locator('[data-ma="linedel"]').click();
   await expect(toast(page)).toHaveText('ده المنتج الوحيد في الأوردر الفرعي #181670 — هيتمسح الأوردر الفرعي كله');
   await expect(dlg.locator('#cdt')).toHaveText('مسح الأوردر الفرعي #181670؟');
+});
+
+// the owner 14 Nov («… اقدر اعمل حذف لقطعة او تعديل كمية في الصب اوردر الفرعي», up or down): «تعديل الكمية» on the site (woo-sync line_qty)
+test('the owner 14 Nov: «تعديل الكمية» from ⋮ — up or down at the piece price; an order of several makers keeps its total on the site, an order of one maker gets its new one; a line pulled from the hub has no item', async ({ page }) => {
+  mock.orderItems.find((i) => i.id === 5002).pulled = true;
+  await openOrders(page);
+  const sr = (sel) => page.locator('#orders ' + sel); const menu = sr('#mpop'); const dlg = sr('#cdlg');
+  const c = card(page, '181668');
+  await c.locator('[data-more="s:5001"]').click();
+  await expect(menu.locator('[data-ma="qty"]')).toHaveText('تعديل الكمية');
+  await menu.locator('[data-ma="qty"]').click();
+  await expect(dlg.locator('#cdt')).toHaveText('تعديل الكمية — Cushion');
+  await expect(dlg.locator('[data-unit]')).toHaveText('501 ج.م');
+  await expect(dlg.locator('#cqty')).toHaveValue('2');
+  await expect(dlg.locator('[data-qv]')).toHaveText('1,002 ج.م');
+  await expect(dlg.locator('[data-qnote]')).toContainText('الكمية هتتعدّل على الأوردر الفرعي #181669 على الموقع، والأوردر الأصلي IB-181668 على الموقع هيفضل زي ما هو بإجماليه');
+  // «−» takes a piece off (never under 1), «+» adds one
+  await dlg.locator('[data-q="-1"]').click();
+  await expect(dlg.locator('#cqty')).toHaveValue('1');
+  await expect(dlg.locator('[data-q="-1"]')).toBeDisabled();
+  await expect(dlg.locator('[data-qv]')).toHaveText('501 ج.م');
+  await dlg.locator('[data-q="1"]').click(); await dlg.locator('[data-q="1"]').click();
+  await expect(dlg.locator('#cqty')).toHaveValue('3');
+  await expect(dlg.locator('[data-qv]')).toHaveText('1,503 ج.م');
+  // a typed value out of range → the error, nothing sent
+  await dlg.locator('#cqty').fill('0');
+  await expect(dlg.locator('[data-qv]')).toHaveText('—');
+  await dlg.locator('[data-cok]').click();
+  await expect(dlg.locator('#qerr')).toHaveText('الكمية لازم تكون رقم من 1 لـ 99');
+  expect(mock.lineQtys || []).toEqual([]);
+  await dlg.locator('#cqty').fill('٣'); // Arabic digits too
+  await expect(dlg.locator('[data-qv]')).toHaveText('1,503 ج.م');
+  await dlg.locator('[data-cok]').click();
+  await expect(dlg).toHaveCount(0);
+  await expect(toast(page)).toHaveText('الكمية بقت 3 على الأوردر الفرعي #181669 — الأوردر الأصلي على الموقع زي ما هو');
+  expect(mock.lineQtys).toEqual([{ order_id: 181668, item_id: 5001, qty: 3, by: ADMIN }]);
+  expect(Number(mock.orders.find((o) => o.id === 181668).total)).toBe(3541); // the site's parent kept its total
+  await expect(c.locator('.st .row:not(.h)').first()).toContainText('Cushion × 3');
+  await expect(c.locator('.st .row:not(.h)').first()).toContainText('1,503 ج.م');
+  await expect.poll(() => mock.activity.filter((a) => a.action === 'order.line_qty').map((a) => a.new_value)).toEqual(['IB-181668 · سطر #5001 · 2 ← 3']);
+  // an order of one maker: the order itself — its new total
+  const one = card(page, '180686');
+  await one.locator('[data-more="s:5003"]').click();
+  await menu.locator('[data-ma="qty"]').click();
+  await expect(dlg.locator('[data-qnote]')).toContainText('الكمية هتتعدّل على الأوردر IB-180686 على الموقع وإجماليه هيتحسب من جديد');
+  await dlg.locator('[data-q="-1"]').click();
+  await dlg.locator('[data-cok]').click();
+  await expect(toast(page)).toHaveText('الكمية بقت 1 — إجمالي IB-180686 بقى 501 ج.م');
+  expect(mock.lineQtys[1]).toEqual({ order_id: 180686, item_id: 5003, qty: 1, by: ADMIN });
+  // the same quantity → nothing sent
+  await one.locator('[data-more="s:5003"]').click();
+  await menu.locator('[data-ma="qty"]').click();
+  await dlg.locator('[data-cok]').click();
+  await expect(toast(page)).toHaveText('دي نفس الكمية');
+  expect(mock.lineQtys.length).toBe(2);
+  // a line pulled from the hub (5002, set before the page opened): no «تعديل الكمية» (its pieces count there)
+  await card(page, '181668').locator('[data-more="s:5002"]').click();
+  await expect(sr('#mpop [data-ma="qty"]')).toHaveCount(0);
+  await expect(sr('#mpop [data-ma="sitest"]')).toHaveCount(1);
 });
 
 test('the status chips sit in a carousel; the chosen filters show as chips with their counts and a ✕ that removes one', async ({ page }) => {

@@ -40,12 +40,15 @@
     return t;
   }
   function Section(title, body, actions, opts = {}) {
-    const card = h('section', { class: 'card sec' + (opts.cls ? ' ' + opts.cls : '') }, title || actions ? h('div', { class: 'sec-h' }, h('div', null, h('h2', { class: 't-h5' }, title), opts.sub ? h('div', { class: 't-small sub' }, opts.sub) : null), h('div', { class: 'acts' }, actions || null)) : null, h('div', { class: 'sec-b' }, body));
+    // a big table's head (2026-11-13-table-head.md): noun ['صنف', 'الأصناف'] · when (the period) · total (a text) · count [shown, all] when the page's
+    // own filter / pages leave rows out before the render · th: false — a list of settings, not data (no standard head)
+    const th = { 'data-th-noun': opts.noun ? [].concat(opts.noun).join('|') : null, 'data-th-when': opts.when || null, 'data-th-total': opts.total || null, 'data-th-count': opts.count ? opts.count.join('/') : null, 'data-no-th': opts.th === false ? '' : null };
+    const card = h('section', Object.assign({ class: 'card sec' + (opts.cls ? ' ' + opts.cls : '') }, th), title || actions ? h('div', { class: 'sec-h' }, h('div', null, h('h2', { class: 't-h5' }, title), opts.sub ? h('div', { class: 't-small sub' }, opts.sub) : null), h('div', { class: 'acts' }, actions || null)) : null, h('div', { class: 'sec-b' }, body));
     return opts.cols === false ? card : withColumns(card, title ? 'sec:' + title : '', title, opts.rerender);
   }
   // الجدول القياسي (owner 28 Oct — phase 6 brought it from the v2 kit): كارت فيه تايتل + sub وأزرار، وتحتيهم الجدول بترويسة خضرا فل-بليد (tbl-v2)
-  function TableSection({ title, sub, actions, body, cls, rerender }) {
-    return Section(title, body, actions, { sub, cls: 'tbl-v2' + (cls ? ' ' + cls : ''), rerender });
+  function TableSection({ title, sub, actions, body, cls, rerender, noun, when, total, count, th }) {
+    return Section(title, body, actions, { sub, cls: 'tbl-v2' + (cls ? ' ' + cls : ''), rerender, noun, when, total, count, th });
   }
   function Switch({ id, label, checked, onChange, help, disabled }) {
     const b = h('button', { type: 'button', role: 'switch', id, class: 'sw', 'aria-checked': String(!!checked), 'aria-label': label, disabled, onClick: () => onChange(!checked) }, h('i'));
@@ -405,7 +408,10 @@
     return card;
   }
   // a table card that shows its empty state (the search left no rows) still holds the page's search in its row
-  const emptyCards = (root) => root.querySelectorAll('.table-card, .tbl-v2, .own-filter').forEach((c) => { if (!c.querySelector('table') && !c.closest('.modal, .drawer, [role=dialog]')) tableSearch(c, null); });
+  // (2026-11-13-table-head.md) and a big table's count line stays when the page gave its own counts
+  const emptyCards = (root) => root.querySelectorAll('.table-card, .tbl-v2, .own-filter, [data-th-count]').forEach((c) => { if (!c.querySelector('table') && !c.closest('.modal, .drawer, [role=dialog]')) {
+    tableSearch(c, null); const title = c.matches('[data-th-count]') && !c.closest('[data-no-th]') && !inOverview(c) && c.querySelector(':scope>.sec-h h2, :scope>.table-title h2');
+    if (title) { thTake(c, title, (note) => (c.querySelector(':scope>.sec-b') || c).append(note)); const hd = c.querySelector(TH_HEAD); if (hd) thOrder(hd); thCount(c); } } });
   // the owner 12 Nov — «خلي دايمًا الصورة على اليمين والاسم جنبها… بمحاذاة اليمين… ولو أكبر من عرض الكولم … ‹عبد القادر ع…›، والكلام ده في الجداول
   // كلها»: a column of people / products (a picture + a name: .mlink, .prod, .who-cell) starts at the right with its header; the CSS cuts a long
   // name with «…» at the column's width, and the whole name shows on hover
@@ -435,6 +441,62 @@
   // the owner 13 Nov (decision 1 of docs/superpowers/plans/2026-11-13-owner-ui-batch.md): no «بحث» on the tables of a «نظرة عامة» tab
   // (the page's first selected tab)
   const inOverview = (card) => { const pg = card.closest('main, [id^="pg-"]') || document; const tab = pg.querySelector('[role=tab][aria-selected="true"]'); return !!tab && (tab.textContent || '').trim().startsWith('نظرة عامة'); };
+  // the owner 13 Nov (docs/superpowers/plans/2026-11-13-table-head.md, decisions 1–5): the head of every big table like «سجل المخزون» — a
+  // table outside a popup / drawer with 5 named columns or more (not on the dashboard or a «نظرة عامة» tab, not under data-no-th /
+  // data-no-cols): under the title one line «‹إمتى› · N من M ‹اسم› · ‹إجمالي›» (N after the filter and the search; a description the page
+  // put there moves under the table), under the head «كل الـ‹الجمع› · M ‹مفرد›» while no filter chip shows, and the controls in one order —
+  // the page's own buttons, then «بحث» · «فلتر» · «ترتيب» · the columns icon last. The page tells it the noun / the period / a total / its own
+  // counts through Section({ noun, when, total, count }) or data-th-noun ("صنف|الأصناف") / data-th-when / data-th-total / data-th-count ("2/18").
+  const TH_NOUNS = { 'المنتج': ['منتج', 'المنتجات'], 'المنتج / الوصف': ['منتج', 'المنتجات'], 'العضو': ['عضو', 'الأعضاء'], 'الموظف': ['موظف', 'الموظفين'], 'المبتكر': ['مبتكر', 'المبتكرين'],
+    'العميل': ['عميل', 'العملاء'], 'الحملة': ['حملة', 'الحملات'], 'الشريحة': ['شريحة', 'الشرايح'], 'الأوردر': ['أوردر', 'الأوردرات'], 'رقم الأوردر': ['أوردر', 'الأوردرات'],
+    'الأوردر الفرعي': ['أوردر فرعي', 'الأوردرات الفرعية'], 'الإعلان': ['إعلان', 'الإعلانات'], 'العمل الفني': ['عمل فني', 'الأعمال الفنية'], 'المنصة': ['منصة', 'المنصات'],
+    'القناة': ['قناة', 'القنوات'], 'الشهر': ['شهر', 'الشهور'], 'اليوم': ['يوم', 'الأيام'], 'التاريخ': ['حركة', 'الحركات'], 'الوقت': ['حركة', 'الحركات'],
+    'حالة الأوردر': ['حالة', 'الحالات'], 'القسم': ['قسم', 'الأقسام'], 'الملف': ['ملف', 'الملفات'], 'الدفعة': ['دفعة', 'الدفعات'], 'الرقم': ['طلب', 'الطلبات'] };
+  const TH_HEAD = ':scope>.sec-h, :scope>.table-title, :scope>.cons-h';
+  const thBig = (card, t) => !!(card && t && !t.closest('.modal, .drawer, [role=dialog]') && !card.closest('[data-no-th], [data-no-cols], #pg-dashboard') && !inOverview(card) && colHeads(t).filter(Boolean).length >= 5);
+  const thNoun = (card, t) => { const d = card.getAttribute('data-th-noun'); if (d) { const [one, many] = d.split('|'); return [one, many || one]; } return (t && TH_NOUNS[colHeads(t).find(Boolean)]) || ['صف', 'الصفوف']; };
+  // a control of the head: «بحث» / a filter / a sort / the columns icon — anything else is the page's own button
+  const thKind = (x) => (x.matches('[data-tq-btn]') ? 1 : x.matches('[data-cols]') ? 4 : x.querySelector('[data-fm-btn], [data-mp-btn]') || /^فلتر/.test((x.textContent || '').trim()) ? 2
+    : x.querySelector('[data-sm-btn]') || /^ترتيب/.test((x.textContent || '').trim()) ? 3 : 0);
+  const thHasSort = (card) => { const hd = card.querySelector(TH_HEAD); return !!hd && [...hd.querySelectorAll('[data-sm-btn], .select, select')].some((x) => !x.closest('[data-auto-ctl]') && (x.matches('[data-sm-btn]') || /^ترتيب/.test((x.textContent || '').trim()) || /ترتيب/.test(x.getAttribute('aria-label') || ''))); };
+  function thOrder(head) {
+    const acts = head.querySelector('.acts, .acts-inline'); if (!acts) return;
+    const kids = [...acts.children]; const want = kids.map((x, i) => ({ x, i, k: thKind(x) })).sort((a, b) => a.k - b.k || a.i - b.i).map((o) => o.x);
+    if (want.some((x, i) => kids[i] !== x)) keepFocus(acts, () => want.forEach((x) => acts.append(x))); // nodes move only when the order changes
+  }
+  // the line under the title and «كل الـ…» under the head, from the rows the filter and the search left (or the page's own counts)
+  function thCount(card) {
+    if (!card || !card.hasAttribute('data-th')) return;
+    const t = card.querySelector('table'); const head = card.querySelector(TH_HEAD); const title = head && head.querySelector('h2, h3');
+    if (!title || (!t && !card.hasAttribute('data-th-count'))) return; // no rows left (the empty state): the line stays when the page gave its counts
+    const n = t ? colHeads(t).length : 0;
+    const rows = t ? [...t.tBodies].flatMap((b) => [...b.rows]).filter((r) => !r.classList.contains('tq-none') && r.cells.length === n) : [];
+    let shown = rows.filter((r) => !r.classList.contains('af-hide') && !r.classList.contains('tq-hide')).length; let all = rows.length;
+    const c = (card.getAttribute('data-th-count') || '').split('/'); if (c.length === 2 && c[1] !== '') { shown = Number(c[0]) || 0; all = Number(c[1]) || 0; }
+    const [one, many] = thNoun(card, t);
+    let sub = head.querySelector('[data-th-sub]');
+    if (!sub) { // under the title: a head that holds its title straight in its row (.table-title / .cons-h) gets a column for the two
+      sub = h('div', { class: 't-small sub', 'data-th-sub': '' });
+      if (title.parentElement === head) { const box = h('div', { class: 'th-t' }); title.replaceWith(box); box.append(title, sub); } else title.after(sub);
+    }
+    sub.textContent = [card.getAttribute('data-th-when') || 'اليوم ' + dlabel(cairoDay()), shown + ' من ' + all + ' ' + one, card.getAttribute('data-th-total')].filter(Boolean).join(' · ');
+    card.querySelectorAll('[data-th-all]').forEach((x) => x.remove());
+    if (!t || [...card.querySelectorAll('.af-row')].some((x) => !x.hidden)) return; // the filter chips (the kit's or the page's own row) say it already
+    const anchor = t.closest('.xwrap') || t.closest('.scroll-x') || t; const bar = card.querySelector('.bulk-bar');
+    (bar && bar.compareDocumentPosition(anchor) & Node.DOCUMENT_POSITION_FOLLOWING ? bar : anchor).before(h('div', { class: 'af-row th-all', 'data-th-all': '' }, h('span', { class: 'af-n' }, 'كل ' + many + ' · ' + all + ' ' + one)));
+  }
+  // a card turning standard: what the page wrote under the title (a description, an old count) goes under the table (place(note)), word for word
+  function thTake(card, title, place) {
+    if (card.hasAttribute('data-th')) return; card.setAttribute('data-th', '');
+    const old = [...title.parentElement.querySelectorAll(':scope > .sub:not([data-th-sub]), :scope > .count')].map((x) => { const s = (x.textContent || '').trim(); x.remove(); return s; }).filter(Boolean);
+    if (old.length) place(h('p', { class: 't-small help th-note', 'data-th-note': '' }, old.join(' · ')));
+  }
+  function tableHead(card, t) {
+    if (!thBig(card, t)) return;
+    const head = card.querySelector(TH_HEAD); const title = head && head.querySelector('h2, h3'); if (!title) return;
+    thTake(card, title, (note) => (t.closest('.xwrap') || t.closest('.scroll-x') || t).after(note));
+    thOrder(head); thCount(card);
+  }
   function tableSearch(card, t) {
     if (!card || card.querySelector('[data-tq-btn]') || card.closest('[data-no-tq]') || inOverview(card)) return;
     const head = card.querySelector(':scope>.table-title, :scope>.sec-h, :scope>.cons-h'); if (!head) return;
@@ -464,7 +526,8 @@
     const run = () => { if (own) return; mem.q = inp.value; const q = foldAr(inp.value); const tb = card.querySelector('table'); if (!tb) return; let n = 0;
       [...tb.tBodies].forEach((bd) => [...bd.rows].forEach((r) => { if (r.classList.contains('tq-none')) return; const hit = !q || foldAr(r.textContent).includes(q); r.classList.toggle('tq-hide', !hit); if (hit && !r.classList.contains('af-hide')) n++; }));
       let none = tb.querySelector('tr.tq-none'); const msg = 'مفيش صفوف فيها «' + inp.value + '»';
-      if (q && !n) { if (!none) { none = h('tr', { class: 'tq-none' }, h('td', { colspan: String(colHeads(tb).length || 1), class: 't-small help' }, msg)); tb.tBodies[0].append(none); } else none.querySelector('td').textContent = msg; } else if (none) none.remove(); };
+      if (q && !n) { if (!none) { none = h('tr', { class: 'tq-none' }, h('td', { colspan: String(colHeads(tb).length || 1), class: 't-small help' }, msg)); tb.tBodies[0].append(none); } else none.querySelector('td').textContent = msg; } else if (none) none.remove();
+      thCount(card); };
     if (!own) inp.addEventListener('input', run);
     const btn = h('button', { type: 'button', class: 'tq-btn', 'aria-expanded': String(mem.open), 'aria-label': 'بحث في ' + (name || 'الجدول'), 'data-tq-btn': key }, Icon('search', 'sm'), h('span', null, 'بحث'));
     const row = h('div', { class: 'tq-row', 'data-tq-row': key });
@@ -495,6 +558,7 @@
       if (colHeads(t).length < 4) return;
       t.classList.add('sticky-col1'); // أول عمود بيفضل ثابت وانت بتسكرول عرضي (owner 27 Oct)
       const card = t.closest('.card, .table-card, .sec, .tbl-card') || t.parentElement;
+      tableHead(card, t); // the standard head of a big table (decisions 1–5 of 2026-11-13-table-head.md); again once withColumns adds its controls
       if (!card || card.querySelector('[data-cols]') || card.closest('[data-no-cols]')) return; // data-no-cols: a card that asked for no «أعمدة الجدول» (the makers log; the products overview's top-10 lists — B3), on the table's box or any card above it
       withColumns(card, '', '');
     });
@@ -640,10 +704,12 @@
   // جنب زرار الأعمدة: «فلتر» من الأعمدة اللي ليها قيم محدودة (حالة، نوع، قناة…) والأعمدة الرقمية بالإشارة، و«ترتيب» بالتاريخ أو الرقم أو النص.
   // النتيجة: شيبس (اختيار لوحده + عدده في دايرة + ✕) تحت التايتل قبل راس الجدول. الجداول اللي ليها فلتر خاص بيها (`own-filter` أو فلتر في راسها) مابتتلمسش.
   function autoFilter(card, key, t) {
-    if (!card || !t || card.classList.contains('own-filter') || card.querySelector('[data-fm-btn]:not([data-fm-btn^="auto"]), [data-fm-row]:not([data-fm-row^="auto"]), [data-af]:not([data-af="auto"])')) return;
-    if (t.closest('.modal, .drawer, [role=dialog]')) return;
+    if (!card || !t || t.closest('.modal, .drawer, [role=dialog]')) return;
     const hd0 = card.querySelector(':scope>.table-title, :scope>.sec-h, :scope>.cons-h');
-    if (hd0 && hd0.querySelector('select, .select:not([data-fm-btn^=auto]):not([data-sm-btn^=auto])')) return; // الكارت عنده فلتر خاص في راسه
+    const own = card.classList.contains('own-filter') || !!card.querySelector('[data-fm-btn]:not([data-fm-btn^="auto"]), [data-fm-row]:not([data-fm-row^="auto"]), [data-af]:not([data-af="auto"])')
+      || !!(hd0 && [...hd0.querySelectorAll('select, .select:not([data-fm-btn^=auto]):not([data-sm-btn^=auto])')].some((x) => !x.closest('[data-auto-ctl]'))); // الكارت عنده فلتر خاص بيه
+    // the owner 13 Nov (decision 5 of 2026-11-13-table-head.md): a big table with a filter of its own and no sort of its own gets the kit's «ترتيب» alone
+    if (own && !(thBig(card, t) && !thHasSort(card))) return;
     const tb = t.tBodies[0]; if (!tb) return;
     const heads = colHeads(t);
     const rows = [...tb.rows].filter((r) => r.cells.length === heads.length);
@@ -663,9 +729,9 @@
     const SIGN = [['pos', 'أكبر من صفر'], ['zero', 'صفر / فاضي'], ['neg', 'سالب']];
     const signOf = (x) => { const n = numOf(x); return n == null || n === 0 ? 'zero' : n > 0 ? 'pos' : 'neg'; };
     const numGroups = cols.filter((c) => c.type === 'num').map((c) => { const present = new Set(rows.map((r) => signOf(cellTxt(r.cells[c.i])))); return present.size >= 2 ? { key: c.lb, label: c.lb, num: true, options: SIGN.filter(([k]) => present.has(k)) } : null; }).filter(Boolean);
-    const groups = cols.filter((c) => c.cat).slice(0, 4).map((c) => ({ key: c.lb, label: c.lb, options: c.distinct.map((v) => [v, v]) })).concat(numGroups).slice(0, 6);
+    const groups = own ? [] : cols.filter((c) => c.cat).slice(0, 4).map((c) => ({ key: c.lb, label: c.lb, options: c.distinct.map((v) => [v, v]) })).concat(numGroups).slice(0, 6); // own: the page's filter stays, the sort alone
     // جدول أرقام موجبة بس (زي «الأكثر مبيعًا»): فلتر بالمتوسط
-    const AVG = {}; if (!groups.length) cols.filter((c) => c.type === 'num').slice(0, 2).forEach((c) => { const v = rows.map((r) => numOf(cellTxt(r.cells[c.i])) || 0); AVG[c.lb] = v.reduce((a, b) => a + b, 0) / v.length; groups.push({ key: c.lb, label: c.lb, avg: true, options: [['hi', 'أعلى من المتوسط'], ['lo', 'المتوسط أو أقل']] }); });
+    const AVG = {}; if (!groups.length && !own) cols.filter((c) => c.type === 'num').slice(0, 2).forEach((c) => { const v = rows.map((r) => numOf(cellTxt(r.cells[c.i])) || 0); AVG[c.lb] = v.reduce((a, b) => a + b, 0) / v.length; groups.push({ key: c.lb, label: c.lb, avg: true, options: [['hi', 'أعلى من المتوسط'], ['lo', 'المتوسط أو أقل']] }); });
     const SORTS = [['', 'الترتيب الافتراضي']];
     cols.filter((c) => c.type === 'date').slice(0, 2).forEach((c) => SORTS.push(['d-desc:' + c.lb, c.lb + ': الأحدث للأقدم'], ['d-asc:' + c.lb, c.lb + ': الأقدم للأحدث']));
     cols.filter((c) => c.type === 'time').slice(0, 2).forEach((c) => SORTS.push(['m-asc:' + c.lb, c.lb + ': الأبكر الأول'], ['m-desc:' + c.lb, c.lb + ': الأتأخر الأول']));
@@ -701,12 +767,14 @@
       // صف الإجمالي: لو هو مجموع الصفوف بنحسبه للمعروض بس (وبنرجّعه لما الفلتر يتشال)
       const active = Object.keys(S.f).some((k) => (S.f[k] || []).length);
       [...(t.tFoot ? t.tFoot.rows : [])].filter((r) => r.cells.length === heads.length).forEach((fr) => {
-        [...fr.cells].forEach((td) => { if (td.dataset.aft == null) td.dataset.aft = td.textContent; });
+        // the page's own cell (a <b data-ledger-total>, a link…) is kept: written only while a filter is on, and given back as it was after
+        [...fr.cells].forEach((td) => { if (td.dataset.aft == null) { td.dataset.aft = td.textContent; td.__aftNodes = [...td.childNodes]; } });
+        const put = (td, text) => { if (active) { if (td.textContent !== text) td.textContent = text; } else if (td.__aftNodes && (td.childNodes.length !== td.__aftNodes.length || td.__aftNodes.some((n, k) => td.childNodes[k] !== n))) td.replaceChildren(...td.__aftNodes); };
         cols.filter((c) => c.type === 'num').forEach((c) => { const td = fr.cells[idx(c.lb)]; if (!td) return; const o = td.dataset.aft.trim();
           if (!/^-?[\d,]+(\.\d+)?$/.test(o)) return; const ov = numOf(o); const sumOf = (l) => l.reduce((n, r) => n + (numOf(cellTxt(r.cells[idx(c.lb)])) || 0), 0);
           if (Math.abs(sumOf(all) - ov) > 0.6) return; const dec = (o.split('.')[1] || '').length;
-          td.textContent = active ? sumOf(all.filter((r) => !r.classList.contains('af-hide'))).toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec }) : td.dataset.aft; });
-        const first = fr.cells[0]; if (first && first.dataset.aft != null && cols.some((c) => c.type === 'num')) first.textContent = active ? first.dataset.aft.trim() + ' (المعروض)' : first.dataset.aft;
+          put(td, sumOf(all.filter((r) => !r.classList.contains('af-hide'))).toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec })); });
+        const first = fr.cells[0]; if (first && first.dataset.aft != null && cols.some((c) => c.type === 'num')) put(first, first.dataset.aft.trim() + ' (المعروض)');
       });
       // the owner 12 Nov («دخل الفلتر اللي بره جوه زرار الفلتر وحطوا جمب الترتيب»): «فلتر» and the sort next to the columns button
       card.querySelectorAll('[data-auto-ctl]').forEach((x) => x.remove());
@@ -721,6 +789,7 @@
       const row = ActiveFilters({ id: 'auto', chips, total: shown, noun: 'صف', onClear: () => { S.f = {}; apply(); } });
       if (row) { row.setAttribute('data-auto-row', ''); anchor.before(row); }
       if (!shown && all.length) anchor.after(h('p', { class: 't-small help af-empty', 'data-auto-row': '' }, 'مفيش صفوف بالفلتر ده — شيل اختيار أو اضغط «مسح الكل».'));
+      thCount(card); // the big table's count line follows the filter (decision 2 of 2026-11-13-table-head.md)
     }
     card.querySelectorAll('[data-auto-row]').forEach((x) => x.remove());
     const _apply = apply; apply = function () { card.querySelectorAll('[data-auto-row]').forEach((x) => x.remove()); _apply(); }; // eslint-disable-line no-func-assign
@@ -735,13 +804,13 @@
       const key = key0 && !/:$/.test(key0) ? key0 : 'cols:' + heads.filter(Boolean).slice(0, 4).join('|');
       const label = label0 || heads.filter(Boolean).slice(0, 2).join(' · ');
       applyColumnPrefs(key, t);
-      if (card.querySelector('[data-cols]')) { autoFilter(card, key, t); return; }
+      if (card.querySelector('[data-cols]')) { autoFilter(card, key, t); tableHead(card, t); return; }
       const btn = IconButton({ icon: 'sliders', label: 'أعمدة الجدول — ' + label, attrs: { 'data-cols': key },
         onClick: () => customizeColumns(key, label, card.querySelector('table'), done || (() => { applyColumnPrefs(key, card.querySelector('table')); })) });
       let head = card.querySelector(':scope>.table-title, :scope>.sec-h, :scope>.cons-h');
       if (!head) { head = h('div', { class: 'sec-h cols-only' }, h('div', { class: 'acts' })); card.prepend(head); }
       const acts = head.querySelector('.acts, .acts-inline'); (acts || head).append(btn);
-      autoFilter(card, key, t);
+      autoFilter(card, key, t); tableHead(card, t);
     }, 0);
     return card;
   }

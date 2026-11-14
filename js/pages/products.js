@@ -64,7 +64,8 @@
   const defaultHash = () => ({ overview: 'products-overview', log: 'products-log', add: 'products-add', records: 'products-records', cats: 'products-cats', reports: 'products-reports', trash: 'products-trash', edit: 'products-edit-' + st.editId + '-' + st.etab }[st.view] || (st.view === 'studio' ? studioHash() : st.view === 'tool-content' && window.IBContentView ? window.IBContentView.hash() : st.view === 'tool-images' && window.IBImagesView ? window.IBImagesView.hash() : 'products-records'));
 
   // ---------------- shared pieces ----------------
-  function Card(title, sub, body, acts, cls) { return K.Section(title, [].concat(body).filter(Boolean), acts, { sub, cls }); }
+  // th: a big table's head (2026-11-13-table-head.md) — { noun, when, total, count } for the kit's line «‹إمتى› · N من M ‹اسم› · ‹إجمالي›»
+  function Card(title, sub, body, acts, cls, th) { return K.Section(title, [].concat(body).filter(Boolean), acts, Object.assign({ sub, cls }, th)); }
   const STOCK_TONE = { 'متاح': 'success', 'قليل': 'orange', 'نفد': 'error', 'حسب الطلب': 'info' };
   const STATUS_TONE = { 'منشور': 'success', 'مسودة': 'orange', 'قيد المراجعة': 'info', 'خاص': 'neutral', 'المهملات': 'error' };
   const stockStateOf = (p) => (p.onDemand ? 'حسب الطلب' : p.manageStock ? PD.stockState(p.stock == null ? 0 : p.stock, false, p.alert == null ? 3 : p.alert) : p.stockStatus === 'outofstock' ? 'نفد' : 'متاح');
@@ -199,7 +200,8 @@
     if (list.length) table.querySelectorAll('td[data-l^="[object"]').forEach((td) => { const th = table.querySelectorAll('thead th')[td.cellIndex]; td.dataset.l = th ? th.textContent.replace(/[↓↑↕]/g, '').trim() : ''; });
     const pager = list.length ? h('div', { class: 'pager t-small' }, h('span', { 'data-pager': '' }, K.n0(st.pageN * PAGE + 1) + '–' + K.n0(st.pageN * PAGE + shown.length) + ' من ' + K.n0(list.length)),
       h('span', { class: 'acts-inline' }, Button({ size: 'sm', label: 'السابق', disabled: st.pageN === 0, onClick: () => { st.pageN--; R(); window.scrollTo(0, 0); } }), Button({ size: 'sm', label: 'التالي', disabled: st.pageN >= pages - 1, onClick: () => { st.pageN++; R(); window.scrollTo(0, 0); } }))) : null;
-    return [statusChips(), filters, bulk, h('section', { class: 'card sec own-filter pr-rec' }, h('div', { class: 'sec-h' }, h('div', null, h('h2', { class: 't-h5' }, 'سجل المنتجات'), h('div', { class: 't-small sub' }, K.n0(list.length) + ' منتج معروض')), h('div', { class: 'acts' }, searchBox(), prFilter, prSortMenu())), h('div', { class: 'sec-b' }, prChips(list), table, pager))];
+    // the kit's line under the title: «اليوم … · N من M منتج» (2026-11-13-table-head.md)
+    return [statusChips(), filters, bulk, h('section', { class: 'card sec own-filter pr-rec', 'data-th-noun': 'منتج|المنتجات', 'data-th-count': list.length + '/' + all().length }, h('div', { class: 'sec-h' }, h('div', null, h('h2', { class: 't-h5' }, 'سجل المنتجات')), h('div', { class: 'acts' }, searchBox(), prFilter, prSortMenu())), h('div', { class: 'sec-b' }, prChips(list), table, pager))];
   }
   /* phase 13 decision 56 (owner 11 Nov — «تاب للأقسام جوه المنتجات يبان فيها كل قسم والأقسام الفرعية اللي تحتيه مع إمكانية إضافة قسم جديد أو
      أقسام فرعية»), its look by B4 (the owner, 11 Nov): the site's tree (the mirror woo_categories) — a main category is a green card
@@ -887,6 +889,7 @@
       return { blocks: [failed ? K.Empty('مقدرناش نحسب التقارير', 'في مشكلة في الاتصال.', Button({ size: 'sm', label: 'جرّب تاني', onClick: () => { P.reportRetry(from, to); (redraw || R)(); } })) : U.InlineNote({ children: 'بنحسب التقارير…' })], ctx: null, exp: null };
     }
     const out = PD.outOfStock(all()); const cats = PD.categoriesRank(rep.cats); const catTop = cats.slice(0, 15);
+    const per = 'الفترة: ' + K.dlabel(from) + ' – ' + K.dlabel(to); // the period on the big tables' line (2026-11-13-table-head.md)
     const openRec = (id, label) => (id ? h('button', { type: 'button', class: 'link-btn', onClick: () => go('products-edit-' + id + '-data') }, label) : label);
     const sku = (x, n) => h('span', { dir: 'ltr', class: 't-small' }, x + (n > 1 ? ' +' + (n - 1) : ''));
     const topH = ['#', 'المنتج', 'SKU', 'المبتكر', 'القطع', 'الأوردرات', 'الإيراد'];
@@ -904,12 +907,12 @@
     return { ctx: kpiCtx, exp, blocks: [
       h('div', { class: 'cards', 'data-rgroup': 'kpis', 'data-prod-kpis': String(picked.length) }, picked.map((id) => { const k = KPIS.find((x) => x.id === id); let v; try { v = k.calc(kpiCtx); } catch (e) { v = { value: '—' }; }
         return U.KpiTile({ label: k.label, value: typeof v.value === 'string' ? v.value : String(v.value), unit: v.unit, compare: 'off', note: v.note, details: v.details || null }); })),
-      Card('المنتجات الأكثر مبيعًا — أعلى 20', rep.top.length + ' منتج', rep.top.length ? U.Table({ cls: 'dt rp-top', headers: topH, rows: topRows }) : K.Empty('مفيش مبيعات في الفترة دي', 'غيّر الفترة من فوق.')),
+      Card('المنتجات الأكثر مبيعًا — أعلى 20', '', rep.top.length ? U.Table({ cls: 'dt rp-top', headers: topH, rows: topRows }) : K.Empty('مفيش مبيعات في الفترة دي', 'غيّر الفترة من فوق.'), null, null, { when: per, noun: ['منتج', 'المنتجات'] }),
       h('div', { class: 'charts', 'data-rgroup': 'charts' },
         U.ChartCard({ title: 'الأقسام الأكثر مبيعًا', subtitle: 'القطع المباعة · أعلى 10', footnote: 'المنتج اللي في أكتر من قسم بيتحسب في كل قسم · الأقسام اللي ليها نفس الاسم اتجمعت', body: catTop.length ? h('div', { class: 'bars' }, catTop.slice(0, 10).map((c, i) => U.BarRow({ tone: i === 0 ? 'brand' : i < 3 ? 'gold' : 'neutral', label: c.name, value: K.n0(c.sold), pct: c.sold / maxC }))) : K.Empty('مفيش مبيعات', 'غيّر الفترة من فوق.') }),
         U.ChartCard({ title: 'المخزون اللي خلص', subtitle: K.n0(out.length) + ' منتج حسب الحالة', footnote: '«حسب الطلب» مش بيتحسب نفد · التركيبات لوحدها مش ظاهرة هنا (المنتج بيظهر لما كل تركيباته تخلص)', body: out.length ? h('div', { class: 'bars' }, byStatus.map(([k, n], i) => U.BarRow({ tone: i === 0 ? 'brand' : 'gold', label: k, value: K.n0(n), pct: n / out.length }))) : K.Empty('كله متاح', 'مفيش منتج نفد مخزونه.') })),
-      Card('منتجات نفد مخزونها', out.length + ' منتج', out.length ? U.Table({ cls: 'dt rp-out', headers: outH, rows: outRows }) : K.Empty('كله متاح', 'مفيش منتج نفد مخزونه دلوقتي.')),
-      Card('الأقسام الأكثر مبيعًا', 'أعلى ' + catTop.length + ' من ' + cats.length + ' قسم', catTop.length ? U.Table({ cls: 'dt rp-cats', headers: catH, rows: catRows }) : K.Empty('مفيش مبيعات في الفترة دي', 'غيّر الفترة من فوق.')),
+      Card('منتجات نفد مخزونها', '', out.length ? U.Table({ cls: 'dt rp-out', headers: outH, rows: outRows }) : K.Empty('كله متاح', 'مفيش منتج نفد مخزونه دلوقتي.'), null, null, { noun: ['منتج', 'المنتجات'] }),
+      Card('الأقسام الأكثر مبيعًا', '', catTop.length ? U.Table({ cls: 'dt rp-cats', headers: catH, rows: catRows }) : K.Empty('مفيش مبيعات في الفترة دي', 'غيّر الفترة من فوق.'), null, null, { when: per, noun: ['قسم', 'الأقسام'], count: [catTop.length, cats.length] }),
       h('p', { class: 'source t-small help' }, 'المصدر: أوردراتنا (الأوردر بتاريخه بتوقيت القاهرة، والسطر على الترجمة العربية بيتحسب على المنتج الإنجليزي) · كتالوج ووكومرس للمخزون.')] };
   }
   // decision 62: «نظرة عامة» — the catalog now (products, published, drafts / pending, out of stock and still published) and, in the

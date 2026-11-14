@@ -23,7 +23,8 @@
   const IMGM = () => (window.IBImages && Array.isArray(window.IBImages.MODELS) ? window.IBImages.MODELS : []);
   const Tag = K.Tag;
   const chip = (label, on, onClick, attrs) => h('button', Object.assign({ type: 'button', class: 'chip', 'aria-pressed': String(!!on), onClick }, attrs || {}), label);
-  const Card = (title, sub, body, acts, cls) => K.Section(title, [].concat(body).filter(Boolean), acts, { sub, cls });
+  // th: a big table's head (2026-11-13-table-head.md) — { noun, when, total, count } for the kit's line «‹إمتى› · N من M ‹اسم› · ‹إجمالي›»
+  const Card = (title, sub, body, acts, cls, th) => K.Section(title, [].concat(body).filter(Boolean), acts, Object.assign({ sub, cls }, th));
   const soonTag = () => h('span', { class: 'soon', 'data-soon': '' }, 'قريبًا');
   // Cairo's day and hour (the schedule's clock — the kit's TODAY is the prototype's date)
   const fmtC = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
@@ -744,7 +745,7 @@
       connCard(null),
       h('div', { class: 'toolbar' }, h('label', { class: 'search search-field' }, Icon('search', 'sm'), sb), Button({ label: 'افتح الخطة الإعلانية', icon: 'calendar', onClick: () => go('marketing-calendar') })),
       Card('سجل النشر', 'كل اللي اترفع على السوشيال — من السيستم أو من المنصة مباشرة · المشاهدات والتفاعل بتتحدث من المنصة كل نص ساعة',
-        list.length ? U.Table({ cls: 'dt pub-tbl', headers: ['العمل الفني', 'المنصة', 'اتنشر / هيتنشر', 'المصدر', 'الكامبين', 'الحالة', 'المشاهدات', 'التفاعل', 'نسبة التفاعل', ''], rows }) : K.Empty(all.length ? 'مفيش بوست بالاسم ده' : 'لسه مفيش بوستات', all.length ? 'جرّب كلمة تانية.' : 'جدول كامبين من «إنشاء» وهتلاقي بوستاتها هنا.'))];
+        list.length ? U.Table({ cls: 'dt pub-tbl', headers: ['العمل الفني', 'المنصة', 'اتنشر / هيتنشر', 'المصدر', 'الكامبين', 'الحالة', 'المشاهدات', 'التفاعل', 'نسبة التفاعل', ''], rows }) : K.Empty(all.length ? 'مفيش بوست بالاسم ده' : 'لسه مفيش بوستات', all.length ? 'جرّب كلمة تانية.' : 'جدول كامبين من «إنشاء» وهتلاقي بوستاتها هنا.'), null, null, { noun: ['بوست', 'البوستات'], count: [list.length, all.length] })];
   }
 
   // ---------- الخطة الإعلانية (decision 16): the weeks of the period, drag a waiting post to another day ----------
@@ -1050,10 +1051,10 @@
     const t = c.t; const diff = (p) => (p.linked && p.purchases ? Math.round((p.orders - p.purchases) / p.purchases * 100) + '%' : '—');
     const rows = t.platforms.map((p) => [p.label, p.linked ? K.Num(n2(p.spend)) : h('span', { class: 't-small help' }, 'مش مربوطة'), K.Num(p.linked ? K.n0(p.purchases) : '—'), K.Num(K.n0(p.orders)), K.Num(diff(p)), K.Num(W.xr(p.roas)), K.Num(W.xr(p.mer)),
       sgBtn(sgSort(pend.filter((x) => (x.platform || 'meta') === p.key)), { 'data-ads-vs-sugg': p.key })]);
-    return Card('المنصة بتقول × ووكومرس', 'المشتريات اللي المنصة بتحسبها قصاد الأوردرات الحقيقية من نفس المصدر (UTM) · ' + perLabel(c.rg), [
+    return Card('المنصة بتقول × ووكومرس', 'المشتريات اللي المنصة بتحسبها قصاد الأوردرات الحقيقية من نفس المصدر (UTM)', [
       U.Table({ cls: 'dt ads-vs', headers: ['المنصة', 'الصرف (ج.م)', 'مشتريات المنصة', 'أوردرات ووكومرس', 'الفرق', 'عائد المنصة', 'العائد الحقيقي', 'القرار المقترح'], rows,
         totalRow: ['الإجمالي', K.Num(n2(t.spend)), K.Num(K.n0(t.purchases)), K.Num(K.n0(t.orders)), '', K.Num(W.xr(t.roas)), K.Num(W.xr(t.mer)), ''] }),
-      h('p', { class: 't-small help', style: 'margin:0' }, 'الفرق = (أوردرات ووكومرس − مشتريات المنصة) ÷ مشتريات المنصة · العائد الحقيقي = مبيعات ووكومرس من المنصة ÷ صرفها · القرار المقترح = أهم اقتراح مستني موافقتك من الميديا باير على المنصة')]);
+      h('p', { class: 't-small help', style: 'margin:0' }, 'الفرق = (أوردرات ووكومرس − مشتريات المنصة) ÷ مشتريات المنصة · العائد الحقيقي = مبيعات ووكومرس من المنصة ÷ صرفها · القرار المقترح = أهم اقتراح مستني موافقتك من الميديا باير على المنصة')], null, null, { when: perLabel(c.rg) });
   }
   function asstCards() {
     byLoad(false); const pend = byPending(); const r = BY.rules;
@@ -1079,10 +1080,10 @@
     const rows = list.map((x) => { const [sl, tone] = stOf(x.status); const S = sg[x.id] || [];
       return [h('button', { type: 'button', class: 'link-btn', 'data-ads-camp': x.id, onClick: () => campDetail(x) }, x.name), x.platform, Tag(tone, sl), K.Num(n2(x.spend)), K.Num(K.n0(x.purchases)), U.num(K.n0(x.orders) + (x.cancelled ? ' (+' + K.n0(x.cancelled) + ' اتلغى)' : '')),
         K.Num(W.xr(x.mer)), K.Num(x.cpa == null ? '—' : K.n0(x.cpa)), S.length ? sgBtn(S, { 'data-mk-camp-sugg': String(S[0].id) }) : '—']; });
-    return Card('الحملات — ' + K.n0(list.length), 'أرقام المنصات جنب أوردرات ووكومرس الحقيقية من نفس الحملة (utm_campaign) · ' + perLabel(c.rg), [
+    return Card('الحملات', 'أرقام المنصات جنب أوردرات ووكومرس الحقيقية من نفس الحملة (utm_campaign)', [
       list.length ? U.Table({ cls: 'dt ads-camps', headers: CAMP_H, rows, totalRow: ['الإجمالي', '', '', K.Num(n2(tot.spend)), K.Num(K.n0(tot.purchases)), K.Num(K.n0(tot.orders)), K.Num(W.xr(tot.spend ? tot.sales / tot.spend : null)), K.Num(tot.orders ? K.n0(tot.spend / tot.orders) : '—'), ''] })
         : K.Empty(c.camps.length ? 'مفيش حملات بالفلاتر دي' : 'مفيش حملات في الفترة دي', c.camps.length ? 'غيّر الفلاتر أو امسحها.' : 'مفيش صرف ولا أوردرات من حملات الإعلانات ' + perLabel(c.rg) + ' — غيّر الفترة من فوق.'),
-      h('p', { class: 't-small help', style: 'margin:0' }, 'الضغط على حملة بيفتح أيامها (الصرف · مشتريات المنصة · الأوردرات الحقيقية) · القرار المقترح من الميديا باير (بيتجدد مع كل مزامنة) ومحتاج موافقة الأدمن — التنفيذ على ميتا بس' + (c.loose ? ' · ' + K.n0(c.loose) + ' أوردر من إعلانات من غير رقم حملة في الـ UTM (محسوبين في «نظرة عامة» بس)' : ''))]);
+      h('p', { class: 't-small help', style: 'margin:0' }, 'الضغط على حملة بيفتح أيامها (الصرف · مشتريات المنصة · الأوردرات الحقيقية) · القرار المقترح من الميديا باير (بيتجدد مع كل مزامنة) ومحتاج موافقة الأدمن — التنفيذ على ميتا بس' + (c.loose ? ' · ' + K.n0(c.loose) + ' أوردر من إعلانات من غير رقم حملة في الـ UTM (محسوبين في «نظرة عامة» بس)' : ''))], null, null, { when: perLabel(c.rg), noun: ['حملة', 'الحملات'] });
   }
   function crDetail(x, c) {
     const fq = x.frequency == null ? '—' : x.frequency.toFixed(2);
@@ -1103,8 +1104,8 @@
     const rows = L.map((x) => [h('button', { type: 'button', class: 'cr-cell link-btn', 'data-org-post': String(x.id), 'aria-label': 'تفاصيل ' + x.name, onClick: () => pubDetail(x) }, h('span', { class: 'cr-th' }, PostImg(x, 'fill', '')), h('span', { class: 'cr-tx' }, h('b', null, x.name), h('small', { class: 'help' }, x.kind + ' · ' + W.SRC_LABEL[x.src]))),
       x.pl, K.Num(D2(x.day)), K.Num(n0(x.views)), K.Num(K.n0(W.engOf(x))), K.Num(x.likes == null ? '—' : K.n0(x.likes)), K.Num(x.views ? W.pct(W.engOf(x), x.views) : '—'),
       K.RowMenu([{ label: 'التفاصيل', icon: 'eye', run: () => pubDetail(x) }].concat(crActs(x.caption || x.name, false)))]);
-    return Card('البوستات المنشورة', K.n0(L.length) + ' بوست · ' + K.n0(T.views) + ' مشاهدة · ' + K.n0(T.eng) + ' تفاعل · ' + perLabel(rg) + ' — الأرقام من المنصة كل نص ساعة',
-      [L.length ? U.Table({ cls: 'dt cr-tbl org-tbl', headers: ['العمل الفني', 'المنصة', 'تاريخ النشر', 'المشاهدات', 'التفاعل', 'اللايكات', 'نسبة التفاعل', ''], rows }) : K.Empty('مفيش بوستات اتنشرت في الفترة دي', 'غيّر الفترة من فوق أو انشر من «إنشاء».')]);
+    return Card('البوستات المنشورة', 'الأرقام من المنصة كل نص ساعة',
+      [L.length ? U.Table({ cls: 'dt cr-tbl org-tbl', headers: ['العمل الفني', 'المنصة', 'تاريخ النشر', 'المشاهدات', 'التفاعل', 'اللايكات', 'نسبة التفاعل', ''], rows }) : K.Empty('مفيش بوستات اتنشرت في الفترة دي', 'غيّر الفترة من فوق أو انشر من «إنشاء».')], null, null, { when: perLabel(rg), noun: ['بوست', 'البوستات'], total: K.n0(T.views) + ' مشاهدة · ' + K.n0(T.eng) + ' تفاعل' });
   }
   function crTable(c) {
     const L = c.creatives; const tot = L.reduce((a, x) => ({ spend: a.spend + x.spend, imp: a.imp + x.impressions, clicks: a.clicks + x.clicks, purchases: a.purchases + x.purchases }), { spend: 0, imp: 0, clicks: 0, purchases: 0 });
@@ -1113,8 +1114,8 @@
       return [h('button', { type: 'button', class: 'cr-cell link-btn', 'data-ads-ad': x.id, 'aria-label': 'تفاصيل ' + x.name, onClick: () => crDetail(x, c) }, th(x), h('span', { class: 'cr-tx' }, h('b', null, x.name), h('small', { class: 'help' }, x.campaign))),
         Tag(tone, sl), K.Num(n2(x.spend)), K.Num(K.n0(x.impressions)), K.Num(x.ctr == null ? '—' : (x.ctr * 100).toFixed(2) + '%'), K.Num(x.frequency == null ? '—' : x.frequency.toFixed(2)), K.Num(K.n0(x.purchases)), K.Num(W.xr(x.roas)),
         K.RowMenu([{ label: 'التفاصيل', icon: 'eye', run: () => crDetail(x, c) }].concat(crActs(x.name, x.tired)))]; });
-    return Card('تفاصيل الأعمال الفنية', K.n0(L.length) + ' إعلان فيه صرف · ' + K.n0(tot.imp) + ' ظهور · ' + n2(tot.spend) + ' ج.م صرف · ' + perLabel(c.rg),
-      [crTip(), L.length ? U.Table({ cls: 'dt cr-tbl ads-cr', headers: ['الإعلان', 'الحالة', 'الصرف (ج.م)', 'الظهور', 'النقرات (CTR)', 'التكرار', 'مشتريات ميتا', 'عائد ميتا', ''], rows }) : K.Empty('مفيش إعلانات فيها صرف في الفترة دي', 'غيّر الفترة من فوق.')]);
+    return Card('تفاصيل الأعمال الفنية', '',
+      [crTip(), L.length ? U.Table({ cls: 'dt cr-tbl ads-cr', headers: ['الإعلان', 'الحالة', 'الصرف (ج.م)', 'الظهور', 'النقرات (CTR)', 'التكرار', 'مشتريات ميتا', 'عائد ميتا', ''], rows }) : K.Empty('مفيش إعلانات فيها صرف في الفترة دي', 'غيّر الفترة من فوق.')], null, null, { when: perLabel(c.rg), noun: ['إعلان', 'الإعلانات'], total: K.n0(tot.imp) + ' ظهور · ' + n2(tot.spend) + ' ج.م صرف' });
   }
   function overviewTab() {
     const rg = adRange(); const s = adsState(null); adsLoad(loadRange(rg), redrawAds);

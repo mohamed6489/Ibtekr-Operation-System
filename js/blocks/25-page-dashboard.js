@@ -95,11 +95,12 @@
 
   function daily() {
     const m = me(); const hs = hrApi() && hrApi().status ? hrApi().status(m) : null; const sh = shell(); const ro = !!st.viewAs;
-    const tasks = myTasks();
+    const tasks = []; const auto = myAuto(); // owner batch 14 Nov decision 12: the automatic tasks only
     return card('daily', 'يومي', 'دوامي ومهامي', [
       h('div', { class: 'dash-shift' }, Icon('clock', 'sm'), h('span', null, hs ? K.Tag(hs[1], hs[0]) : null), !ro && m.id === K.ME ? Button({ size: 'sm', label: sh.state === 'in' ? 'إنهاء الدوام' : 'ابدأ الدوام', onClick: () => { if (sh.state === 'in') window.IBShell.endShift(); else window.IBShell.clockIn(); setTimeout(render, 50); } }) : null),
-      tasks.length ? h('div', { class: 'dash-tasks' }, tasks.slice(0, 5).map((t) => K.Checkbox({ label: t.title, checked: !!t.done, disabled: ro || !(window.IBHR.canTask && window.IBHR.canTask(t.member)), onChange: (v) => { const p = window.IBHR.taskSet(t.id, v ? 'خلصت' : 'لسه'); render(); p.then((x) => { if (!x.ok && x.reason !== 'stale') { K.toast(x.message || 'معرفناش نحفظ — جرّب تاني', 'error'); render(); } }); } }))) : K.Empty('مفيش مهام النهارده', 'ضيف مهمة من «ملفي»')],
-      link('مهامي كلها في «ملفي»', () => go('profile-tasks')));
+      auto.length ? h('div', { class: 'dash-tasks', 'data-dash-auto': '' }, auto.slice(0, 5).map((t) => h('a', { class: 'dash-task-auto', href: t.href || '#profile-tasks', onClick: t.run ? (e) => { e.preventDefault(); t.run(); } : null }, Icon('sparkle', 'sm'), h('span', null, t.title)))) : null,
+      tasks.length ? h('div', { class: 'dash-tasks' }, tasks.slice(0, 5).map((t) => K.Checkbox({ label: t.title, checked: !!t.done, disabled: ro || !(window.IBHR.canTask && window.IBHR.canTask(t.member)), onChange: (v) => { const p = window.IBHR.taskSet(t.id, v ? 'خلصت' : 'لسه'); render(); p.then((x) => { if (!x.ok && x.reason !== 'stale') { K.toast(x.message || 'معرفناش نحفظ — جرّب تاني', 'error'); render(); } }); } }))) : auto.length ? null : K.Empty('مفيش حاجة مستنياك', 'المراجعات والطلبات والأوردرات اللي محتاجاك بتظهر هنا لوحدها.')],
+      link('«مهامي» في «ملفي»', () => go('profile-tasks')));
   }
   function need(S) {
     const r = DD.topNeed(S.sections, 5);

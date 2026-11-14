@@ -938,10 +938,9 @@
       case 'hr_leave': hrApi().leaveRequest(null, v); return 'form hr_leave';
       case 'hr_advance': hrApi().advanceRequest(null, v); return 'form hr_advance';
       case 'hr_remote': hrApi().remoteRequest(null, v); return 'form hr_remote';
-      case 'task_add': { if (!window.IBHR || !window.IBHR.taskAdd) throw new Error('المهام مش جاهزة');
-        K.form({ title: 'إضافة مهمة', values: { title: String(v.title || '').slice(0, 200) }, fields: (f, e, set) => [K.field.text('title', 'المهمة', f, e, set, { required: true })], validate: (f) => K.req(f, ['title']), submitLabel: 'أكّد وسجّل',
-          submit: (f, md) => window.IBHR.taskAdd(K.ME, f.title.trim()).then((r) => { if (r && r.ok) { md.close(); K.toast('اتضافت المهمة', 'success'); } else K.toast((r && r.message) || 'ما اتضافتش — جرّب تاني', 'error'); }) });
-        return 'form task_add'; }
+      // owner batch 14 Nov decision 12: no manual task any more — «إضافة مهمة» opens a team request («طلب جديد») with the same title
+      case 'task_add': { if (!tCanManage()) no(); const pre = { type: 'internal', title: String(v.title || '').slice(0, 200) };
+        if (state.page !== 'tickets') go('tickets'); setTimeout(() => openNewTicket(pre), 60); return 'form ticket_new'; }
       case 'order_update': { const OA = window.OrdersApp; if (!OA || !OA.aiUpdate) throw new Error('الأوردرات مش جاهزة'); if (can('orders.status') !== 'F' && !admin()) no(); const r = OA.aiUpdate({ id: String(v.order || '').replace(/\D/g, ''), status: v.status || '', confirm: v.confirm || '' }); if (r === 'missing') throw new Error('الأوردر ده مش ظاهر عندي'); if (r === 'nothing') throw new Error('مفيش تغيير — الحالة دي مش من اللي المساعد يقدر يغيّرها أو هي نفسها'); return 'form order_update'; }
       // decision 40 (owner 10 Nov — «لما أسأل المساعد على إضافة مصروفات أو حسابات عامة يفتحلي بوب أب أحط فيه بياناتي بعد ما أحددله
       // إيداع ولا سحب»): the accounts page's own «سحب / إيداع» popup (openForm) filled with what was said; «حفظ» in it is the confirmation

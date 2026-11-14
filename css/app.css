@@ -1870,3 +1870,7 @@ td > :is(.mlink,.prod,.who-cell) .avatar{flex:none}
 .clock-widget.remind .btn{box-shadow:0 0 0 3px var(--color-brand-subtle-bg),0 0 0 5px var(--color-brand-default)}
 /* owner batch 14 Nov decision 9: the category levels — «-» beige, «--» lighter, «---» lighter still (the tab and the «تغيير القسم» tree) */
 :root{--lvl-1:#efe2c9;--lvl-2:#f5eddc;--lvl-3:#faf4ea}
+/* owner batch 14 Nov decision 12: the «يومي» card lists the automatic tasks as links */
+.dash-task-auto{display:flex;align-items:center;gap:8px;padding:6px 0;color:var(--color-text-primary);text-decoration:none;border-bottom:1px solid var(--color-border-subtle)}
+.dash-task-auto:hover{color:var(--color-brand-default)}
+.dash-task-auto .ic{color:var(--color-text-gold,#b8860b)}

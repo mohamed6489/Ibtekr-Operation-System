@@ -117,7 +117,7 @@
   const lastScore = (id) => { const ev = (HD().evals || {})[id] || {}; const k = Object.keys(ev).filter((x) => ev[x] && ev[x].total != null).sort().pop(); return k ? { k, v: ev[k].total } : null; };
   const of5 = (v) => String(v).replace(/\.0$/, '') + ' / 5';
   function overview(m) {
-    const r = O.rollover(tasksOf(m.id), tdy()); const open = r.today.length + autoOf(m).length; const D = HD(); const mk = thisMonth();
+    const open = autoOf(m).length; const D = HD(); const mk = thisMonth(); // owner batch 14 Nov decision 12: «مهامي» = the system's automatic tasks only
     const need = isAdminView() ? 0 : needFromMe().length;
     const days = D.attendance.filter((a) => a.member === m.id && a.date.startsWith(mk) && a.in != null).length;
     const sc = lastScore(m.id); const qs = HR().qScore(m.id); const money = seesMoney(m); const slip = money && m.salary > 0 ? slipsOf(m).list[0] : null;
@@ -130,7 +130,7 @@
     const tkOpen = tkMine.filter((t) => ['open', 'in_progress', 'waiting'].includes(t.status)).length;
     const ntfCount = own && NRV && NRV.viewSections ? NRV.viewSections(true).reduce((n, x) => n + (x.received != null ? x.received : ((x.tabs || [])[0] || [0, 0, []])[2].length), 0) : 0;
     return [own ? h('div', { class: 'toolbar pn-bar' }, h('span', { class: 'grow' }), K.PanelButton('profile:overview', 'ملفي — نظرة عامة', () => document.querySelector('#pg-profile .panel'), rerender)) : null,
-      h('div', { class: 'cards' }, tile(isAdminView() ? 'مهامه المفتوحة' : 'مهامي المفتوحة', open, autoOf(m).length + ' منها تلقائية من السيستم', 'tasks', () => { st.taskSub = 'today'; }), tile('ساعات ' + monName(mk), K.hm(m.monthMin || 0), days + ' يوم حضور', 'hours'), tile('رصيد الإجازات', (m.leave || 0) - (m.used || 0), 'من ' + (m.leave || 0) + ' يوم', reqGo), isAdminView() || need === 0 ? tile(isAdminView() ? 'طلباته' : 'طلباتي', tkOpen, 'مفتوحة على «طلبات الفريق»', reqGo, () => { st.reqSub = 'open'; }) : tile('محتاجة منك', need, 'طلبات فريقك', '#tickets')),
+      h('div', { class: 'cards' }, tile(isAdminView() ? 'مهامه' : 'مهامي', open, 'تلقائية من السيستم — بتختفي لما تتحل', 'tasks', () => { st.taskSub = 'today'; }), tile('ساعات ' + monName(mk), K.hm(m.monthMin || 0), days + ' يوم حضور', 'hours'), tile('رصيد الإجازات', (m.leave || 0) - (m.used || 0), 'من ' + (m.leave || 0) + ' يوم', reqGo), isAdminView() || need === 0 ? tile(isAdminView() ? 'طلباته' : 'طلباتي', tkOpen, 'مفتوحة على «طلبات الفريق»', reqGo, () => { st.reqSub = 'open'; }) : tile('محتاجة منك', need, 'طلبات فريقك', '#tickets')),
       h('div', { class: 'cards' }, tile(sc ? 'تقييم ' + monName(sc.k) : 'التقييم', sc ? of5(sc.v) : '—', sc ? (qs != null ? 'الربع ' + of5(qs) : 'تقييم الشهر') : 'لسه مفيش تقييم', 'performance'), tile(isAdminView() ? 'إنجازاته' : 'إنجازاتي', done.length, 'مهمة خلصت · ' + doneMonth + ' الشهر ده', 'tasks', () => { st.taskSub = 'done'; }),
         tile('آخر مرتب', slip ? K.money(slip.net) : '—', !money ? 'المرتبات للأدمن بس' : !(m.salary > 0) ? 'مفيش مرتب مسجل' : slip ? 'صافي ' + monName(slip.month) : 'القسيمة بتظهر بعد اعتماد الكشف', 'salary'), tile('المستندات', m.contract === 'missing' ? 'ناقص' : 'تمام', m.contract === 'expiring' ? 'العقد بيخلص قريب' : 'العقد والمستندات', 'security')),
       // decision 27 (the owner, 10 Nov — «إضافة زرار تخصيص اللوحة… وإمكانية إظهار عدد التنبيهات أو الطلبات»): my alerts and my open requests,
@@ -192,16 +192,14 @@
     t.run ? h('a', { href: '#profile-tasks', role: 'button', onClick: (e) => { e.preventDefault(); t.run(); } }, t.title) : t.href ? h('a', { href: t.href }, t.title) : h('span', null, t.title),
     h('span', { class: 't-small help' }, 'بتختفي لوحدها لما تتحل'));
   const failed = (r) => { if (r && !r.ok && r.reason !== 'stale') { K.toast(r.message || 'معرفناش نحفظ — جرّب تاني', 'error'); if (window.IBPages.current === 'profile') rerender(); } };
+  // owner batch 14 Nov decision 12 («مبقاش فيه مهام خلاص — المهام هيا بس التلقائية اللي بتيجي من السيستم، غير كده كلها طلبات»): «مهامي»
+  // lists what the system asks of the member (reviews, team requests, the role's tickets, the unconfirmed orders) — no manual task, no
+  // add box; any other work is a request in «طلبات الفريق». hr_tasks stays in the database for the history.
   function tasks(m) {
-    const r = O.rollover(tasksOf(m.id), tdy()); const auto = autoOf(m); const w = canT(m.id);
-    const subs = [{ id: 'today', label: 'المفتوحة', count: r.today.length + auto.length } /* the owner 11 Nov: no «النهارده» — the open tasks */, { id: 'later', label: 'المؤجل', count: r.later.length + r.scheduled.length }, { id: 'done', label: 'خلصت', count: r.done.length }];
-    const add = h('input', { class: 'task-add', placeholder: 'ضيف مهمة واضغط Enter', 'aria-label': 'مهمة جديدة', value: st.newTask, maxlength: '200' });
-    add.addEventListener('input', () => { st.newTask = add.value; });
-    add.addEventListener('keydown', (e) => { if (e.key === 'Enter' && add.value.trim()) { const p = IH().taskAdd(whoId(), add.value.trim()); st.newTask = ''; rerender(); setTimeout(() => { const n = document.querySelector('.task-add'); if (n) n.focus(); }); p.then(failed); } });
-    const list = st.taskSub === 'today' ? r.today : st.taskSub === 'later' ? r.later.concat(r.scheduled) : r.done.slice().sort((a, b) => (String(a.doneAt || '') < String(b.doneAt || '') ? 1 : -1));
-    return [K.SubTabs({ items: subs, active: st.taskSub, onChange: (id) => { st.taskSub = id; rerender(); }, label: 'المهام' }),
-      st.taskSub === 'today' ? K.Section('تلقائية من السيستم', auto.length ? auto.map(autoRow) : isAdminView() ? K.Empty('مفيش مراجعات مستنياه', '') : K.Empty('مفيش حاجة مستنياك', 'المراجعات والطلبات والتذاكر والأوردرات اللي محتاجاك بتظهر هنا لوحدها.'), null, { sub: auto.length + ' مهمة' }) : null,
-      K.Section(st.taskSub === 'today' ? (isAdminView() ? 'مهامه المفتوحة' : 'مهامي المفتوحة') : st.taskSub === 'later' ? 'المؤجل' : 'خلصت', [st.taskSub === 'today' && w ? h('label', { class: 'task-add-wrap' }, Icon('plus', 'sm'), add) : null, list.length ? list.map((t) => taskRow(t, w)) : K.Empty(st.taskSub === 'later' ? 'مفيش مهام مؤجلة' : st.taskSub === 'done' ? 'لسه مفيش مهام خلصت' : 'مفيش مهام', st.taskSub === 'today' && w ? 'اكتب مهمة فوق واضغط Enter.' : '')], null, { sub: st.taskSub === 'today' ? 'كل اللي لسه ما خلصش' : st.taskSub === 'later' ? 'تذكير أسبوعي لو المؤجل لأجل غير مسمى عدّى 30 يوم' : 'آخر 90 يوم' })];
+    const auto = autoOf(m);
+    const fresh = window.IbtekrApp && window.IbtekrApp.newTicket && !isAdminView() ? Button({ type: 'brand', size: 'sm', icon: 'plus', label: 'فتح طلب', onClick: () => window.IbtekrApp.newTicket() }) : null;
+    return [K.Section(isAdminView() ? 'مهامه — تلقائية من السيستم' : 'مهامي — تلقائية من السيستم', auto.length ? auto.map(autoRow) : isAdminView() ? K.Empty('مفيش حاجة مستنياه', '') : K.Empty('مفيش حاجة مستنياك', 'المراجعات والطلبات والتذاكر والأوردرات اللي محتاجاك بتظهر هنا لوحدها.'), fresh ? [fresh] : null, { th: false }),
+      h('p', { class: 't-small help', 'data-tasks-note': '' }, 'مفيش مهام بالإيد — أي شغل لحد تاني بيبقى «طلب» من «طلبات الفريق».')];
   }
   function taskRow(t, w) {
     const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' });

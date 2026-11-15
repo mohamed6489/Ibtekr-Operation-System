@@ -506,18 +506,23 @@ test('T10 — decisions 5, 7, 9: «مطلوبة مني» / «طلباتي» with
   await expect.poll(() => page.evaluate((u) => window.IBHR.workDaysOf(u), uid)).toEqual([5, 6]);
   expect(await page.evaluate((u) => [window.IBHR.isWorkDay('2026-11-06', u), window.IBHR.isWorkDay('2026-11-08', u), window.IBHR.isWorkDay('2026-11-08')], uid)).toEqual([true, false, true]);
   expect(who.length).toBeGreaterThan(0);
-  // 5: «ملفي › طلباتي» — «مطلوبة مني» first, then «طلباتي». The owner's comments 15 Nov (2026-11-15-comments.md decisions 2 and 3): the
-  // «نظرة عامة» cards above the list are gone, and each tab carries the number of its open requests (= its «المفتوحة» list)
+  // 5: «ملفي › طلباتي» — «مطلوبة مني» first, then «طلباتي». The owner's comments 15 Nov (2026-11-15-comments.md decisions 2, 3 and 7): the
+  // «نظرة عامة» cards above the list are gone, each tab carries the number of its open requests and lists them, and «الكل» is the
+  // third tab of the same row (the «المفتوحة / الكل» row under the tabs is gone)
   await go(page, '#profile-requests');
   const P = page.locator('#pg-profile');
   await expect(P.locator('#tab-forme')).toHaveAttribute('aria-selected', 'true');
   await expect(P.locator('[data-my-req-kpis]')).toHaveCount(0); await expect(P.locator('.card-title, h2, h3').filter({ hasText: /^نظرة عامة$/ })).toHaveCount(0);
-  const openOf = async () => Number(await P.locator('.subtab[aria-selected=true] .cnt').innerText());
-  await expect(P.locator('#tab-forme .cnt')).toHaveText(String(await openOf())); await expect(P.locator('#tab-mine .cnt')).toHaveText(/^\d+$/);
-  await expect(P.locator('[data-my-req]')).toHaveCount(await openOf());
+  await expect(P.locator('.subtab')).toHaveCount(0);
+  const cnt = async (id) => Number(await P.locator('#tab-' + id + ' .cnt').innerText());
+  await expect(P.locator('[data-my-req]')).toHaveCount(await cnt('forme'));
   await P.locator('#tab-mine').click();
   await expect(P.locator('#tab-mine')).toHaveAttribute('aria-selected', 'true');
-  await expect(P.locator('#tab-mine .cnt')).toHaveText(String(await openOf())); await expect(P.locator('[data-my-req]')).toHaveCount(await openOf());
+  await expect(P.locator('[data-my-req]')).toHaveCount(await cnt('mine'));
+  await P.locator('#tab-all').click();
+  await expect(P.locator('#tab-all')).toHaveAttribute('aria-selected', 'true');
+  await expect(P.locator('[data-my-req]')).toHaveCount(await cnt('all'));
+  expect(await cnt('all')).toBeGreaterThanOrEqual(Math.max(await cnt('forme'), await cnt('mine')));
   await go(page, '#profile-requests-forme');
   await expect(P.locator('#tab-forme')).toHaveAttribute('aria-selected', 'true');
 });

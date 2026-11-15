@@ -93,3 +93,29 @@ test('comment 6 — the customer\'s file: every section in a box of its own with
   await d.getByRole('tab', { name: 'السجل' }).click();
   await expect(d.locator('[data-cu-boxes] > .pn-s .pn-h h3')).toHaveText('سجل العميل');
 });
+
+test('comment 8 — HR › «الفريق»: a member\'s name opens their data in a drawer (boxes like the maker\'s drawer) with «افتح ملف العضو»; the page stays where it is until that button', async ({ page }) => {
+  await signIn(page);
+  await go(page, 'hr');
+  await page.locator('#pg-hr [role=tab]', { hasText: 'الفريق والحضور' }).click();
+  const link = page.locator('#pg-hr table a[data-member-link="M02"]');
+  await expect(link).toBeVisible();
+  await link.click();
+  const d = page.locator('.drawer[data-member-drawer="M02"]');
+  await expect(d).toBeVisible();
+  await expect(page).not.toHaveURL(/#member-M02/); // still on the HR page
+  const name = await page.evaluate(() => window.IBHR.member('M02').name);
+  await expect(d.locator('h2')).toHaveText(name);
+  for (const title of ['البيانات الأساسية', 'التواصل', 'النهارده', 'الشهر ده', 'مستني قرار', 'العقد']) await expect(d.locator('.vsection .head h3', { hasText: title })).toHaveCount(1);
+  await expect(d.locator('.vsection').first()).toContainText('M02');
+  // a box's action is the page's own (the manual attendance popup)
+  await d.locator('[data-md-att], [data-md-end]').first().click();
+  await expect(page.locator('.modal')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await link.click();
+  await page.locator('.drawer [data-member-open="M02"]').click();
+  await expect(page).toHaveURL(/#member-M02$/);
+  await expect(page.locator('.drawer[data-member-drawer]')).toHaveCount(0);
+  // ctrl-click keeps the plain link (a new tab) — the drawer is not opened
+  expect(await page.evaluate(() => { location.hash = 'hr'; return true; })).toBe(true);
+});

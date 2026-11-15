@@ -79,11 +79,35 @@ test('the owner 11 Nov: «طلباتي» — the team requests I opened, from th
   await expect(P.locator('#tab-mine')).toHaveAttribute('aria-selected', 'true'); // batch 2 decision 5: the account menu opens «طلباتي» (what I opened)
   await expect(P.locator('tr[data-my-req]')).toHaveCount(1); // ticket 2 was not opened by her
   await expect(P.locator('tr[data-my-req="TKT-0001"]')).toContainText('العميلة مستنية الأوردر');
-  await P.locator('.subtab', { hasText: 'الكل' }).click();
-  await expect(P.locator('tr[data-my-req]')).toHaveCount(1);
+  await P.locator('#tab-all').click(); // comments plan decision 7: «الكل» is the third tab — hers and the ones on her role, open or closed
+  await expect(P.locator('tr[data-my-req="TKT-0001"]')).toHaveCount(1);
   await P.locator('tr[data-my-req="TKT-0001"]').click();
   await expect(page).toHaveURL(/#tickets\/TKT-0001$/);
   await expect(page.locator('.drawer')).toContainText('العميلة مستنية الأوردر');
+});
+
+// the owner's comment 7 on «نسخة التعليقات» (2026-11-15-comments.md): «وحدهم خليهم يبقوا - مطلوبة مني - طلباتي - الكل»
+test('comment 7 — «ملفي › طلباتي»: one row of three tabs — «مطلوبة مني» · «طلباتي» · «الكل»; the first two list the open requests, «الكل» every request of the two (open or closed) with who opened it and who has it', async ({ page }) => {
+  mock.tickets.find((t) => t.id === 2).status = 'resolved'; // on her role, closed: in «الكل» only
+  await signIn(page, OPS);
+  await page.evaluate(() => { location.hash = 'profile-requests'; });
+  const P = page.locator('#pg-profile');
+  const tabs = P.locator('[role=tablist][aria-label="الطلبات"] [role=tab]');
+  await expect(tabs).toHaveCount(3);
+  expect((await tabs.allTextContents()).map((x) => x.replace(/\d+/g, '').trim())).toEqual(['مطلوبة مني', 'طلباتي', 'الكل']);
+  await expect(P.locator('.subtab')).toHaveCount(0); // the «المفتوحة / الكل» row is gone
+  await expect(P.locator('#tab-forme .cnt')).toHaveText('0'); await expect(P.locator('tr[data-my-req]')).toHaveCount(0);
+  await P.locator('#tab-mine').click();
+  await expect(P.locator('#tab-mine .cnt')).toHaveText('1'); await expect(P.locator('tr[data-my-req]')).toHaveCount(1);
+  await P.locator('#tab-all').click();
+  await expect(P.locator('#tab-all .cnt')).toHaveText('2');
+  await expect(P.locator('tr[data-my-req]')).toHaveCount(2);
+  await expect(P.locator('table thead th')).toHaveText(['الرقم', 'العنوان', 'النوع', 'الحالة', 'فتحها', 'المسؤول', 'آخر تحديث']);
+  await expect(P.locator('tr[data-my-req="TKT-0002"]')).toContainText('الكرتون خلص');
+  await page.evaluate(() => { location.hash = 'profile-requests-forme'; });
+  await expect(P.locator('#tab-forme')).toHaveAttribute('aria-selected', 'true');
+  await page.evaluate(() => { location.hash = 'profile-requests-all'; });
+  await expect(P.locator('#tab-all')).toHaveAttribute('aria-selected', 'true');
 });
 
 test('«تذاكر الفريق» is open: the open tickets from the database (the resolved one behind the filter), the v2 columns', async ({ page }) => {

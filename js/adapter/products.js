@@ -71,10 +71,12 @@
     }
     return out;
   }
-  async function load() {
+  // opts.quiet (IBLive — 0104): a live re-read of what is already shown — no «loading» state, and a failed read keeps it
+  async function load(opts) {
     const cl = c(); if (!cl) return;
     if (perm('products.view') === 'N') { st = 'ready'; emit(); return; } // the page's own permission (decision 3)
-    const g = ++gen; st = 'loading'; emit();
+    const soft = !!(opts && opts.quiet) && st === 'ready';
+    const g = ++gen; if (!soft) { st = 'loading'; emit(); }
     try {
       const canComm = perm('sensitive.commission') === 'F';
       const [main, ar, cs, bs, pc] = await Promise.all([
@@ -101,7 +103,7 @@
       brands = new Map(bs.map((x) => [Number(x.id), x]));
       comm = new Map(pc.map((x) => [Number(x.product_id), { rate: num(x.rate), type: x.type || 'percentage', fee: num(x.fee) }]));
       st = 'ready';
-    } catch (e) { if (g === gen) st = 'error'; }
+    } catch (e) { if (soft) return; if (g === gen) st = 'error'; }
     if (g === gen) emit();
   }
   const ensure = () => { if (st === 'idle' || st === 'error') load(); };

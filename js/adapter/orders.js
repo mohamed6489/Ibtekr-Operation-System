@@ -174,11 +174,13 @@
     notifySoon();
   }
   if (typeof document !== 'undefined' && document.addEventListener) document.addEventListener('ib:product-lead', onLead);
-  async function load() {
+  // opts.quiet (IBLive — 0104): a live re-read of a list that is already shown — no «loading» state, and a failed read keeps it
+  async function load(opts) {
     const cl = c();
     if (!cl || !uid()) return;
+    const soft = !!(opts && opts.quiet) && st === 'ready';
     const g = ++gen;
-    setState('loading');
+    if (!soft) setState('loading');
     try {
       const [found, vs, sm, ws] = await Promise.all([
         pages(() => cl.from('orders_v').select(COLS.order).gte('placed_at', windowStart().toISOString()).order('placed_at', { ascending: false }).order('id', { ascending: false }), g, CAP),
@@ -203,7 +205,7 @@
       setState('ready');
       const app = window.OrdersApp; if (app && app.hydrate) report(() => app.hydrate(data()));
       notify(); // the bell and the dashboard read the orders
-    } catch (e) { if (g === gen) setState('error'); /* offline or refused: the screen keeps what it had; cleared: 'idle' */ }
+    } catch (e) { if (g === gen && !soft) setState('error'); /* offline or refused: the screen keeps what it had; cleared: 'idle' */ }
   }
 
   // ---------- writes ----------
@@ -562,6 +564,6 @@
     if (ch && c()) { try { Promise.resolve(c().removeChannel(ch)).catch(() => {}); } catch (e) { /* already closed */ } }
   }
   function clear() { gen += 1; unsubscribe(); cancelNotify(); orders = null; custom = new Map(); vendorRows = []; leads = new Map(); leadAsked.clear(); images = {}; links = {}; states = new Map(); statuses = []; names = []; asked.clear(); busy.clear(); setState('idle'); }
-  window.IBOrders = { load, data, state: () => st, today, setOrderStatus, setConfirm, patchOrder, deleteOrder, deleteSub, deleteLine, setLineQty, addLine, makerProducts, siteStatuses, setSubSiteStatus, setItemStatus, setWaybill, setPulled, syncNow, registerWebhooks, subscribe, unsubscribe, clear, toScreen };
+  window.IBOrders = { load, data, state: () => st, today, setOrderStatus, setConfirm, patchOrder, deleteOrder, deleteSub, deleteLine, setLineQty, addLine, makerProducts, siteStatuses, setSubSiteStatus, setItemStatus, setWaybill, setPulled, syncNow, registerWebhooks, subscribe, unsubscribe, clear, toScreen, refetch };
   window.IBOrdersStore = window.IBOrders; // the name block 29's write hooks call
 })();

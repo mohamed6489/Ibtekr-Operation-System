@@ -88,3 +88,75 @@ test('a call joining a shown pill keeps it alive (one pill, refreshed) — a lon
   await wait(350);
   assert.equal(pills[0].closed, true);
 });
+
+// the owner 15 Nov (docs/superpowers/plans/2026-11-15-preloader.md — «اي اكشن يف السيستم يتعمله loading»): every other request of
+// the Supabase client — a read, a save, a sign-in
+function loadFetch({ answerMs = 30 } = {}) {
+  const listeners = {}; const pills = []; const sent = [];
+  const document = { addEventListener: (t, fn) => { (listeners[t] = listeners[t] || []).push(fn); } };
+  const IBKit = { busy: (text) => { const p = { text, closed: false, close() { p.closed = true; }, set() {} }; pills.push(p); return p; }, busyCount: () => pills.filter((p) => !p.closed).length };
+  const window = { IBSupabase: { client: null }, IBKit };
+  const fetch = (input, init) => { sent.push([typeof input === 'string' ? input : input.url, (init && init.method) || 'GET']); return wait(answerMs).then(() => ({ ok: true, status: 200 })); };
+  runInNewContext(src, { window, document, fetch, Date, Promise, setTimeout, clearTimeout, Object, Map, Set, Math, Number, String, RegExp });
+  const fire = (type) => (listeners[type] || []).forEach((fn) => fn({ type }));
+  return { B: window.IBBusy, pills, sent, press: () => fire('click'), type: () => fire('input') };
+}
+const REST = 'https://x.supabase.co/rest/v1/'; const AUTH = 'https://x.supabase.co/auth/v1/';
+
+test('requestLabel: a read, a save, a database function, the sign-in and the sign-out — and nothing for the functions, the uploads, the session refresh', () => {
+  const { B } = loadFetch();
+  assert.equal(B.requestLabel(REST + 'orders_v?select=id', 'GET'), 'بنحمّل…');
+  assert.equal(B.requestLabel(REST + 'orders_v?select=id', 'HEAD'), 'بنحمّل…');
+  assert.equal(B.requestLabel(REST + 'orders?id=eq.1', 'PATCH'), 'بنحفظ…');
+  assert.equal(B.requestLabel(REST + 'acc_expenses', 'POST'), 'بنحفظ…');
+  assert.equal(B.requestLabel(REST + 'user_prefs?key=eq.x', 'DELETE'), 'بنحفظ…');
+  assert.equal(B.requestLabel(REST + 'rpc/ticket_act', 'POST'), 'ثواني…');
+  assert.equal(B.requestLabel(AUTH + 'token?grant_type=password', 'POST'), 'بندخّلك…');
+  assert.equal(B.requestLabel(AUTH + 'token?grant_type=refresh_token', 'POST'), null, 'the session\'s own refresh');
+  assert.equal(B.requestLabel(AUTH + 'logout?scope=local', 'POST'), 'بنخرّجك…');
+  assert.equal(B.requestLabel(AUTH + 'user', 'PUT'), 'بنحفظ…');
+  assert.equal(B.requestLabel(AUTH + 'user', 'GET'), null);
+  assert.equal(B.requestLabel('https://x.supabase.co/functions/v1/woo-sync', 'POST'), null, 'the functions have their own lines');
+  assert.equal(B.requestLabel('https://x.supabase.co/storage/v1/object/studio/a.png', 'POST'), null, 'the uploads too');
+  assert.equal(B.requestLabel('', 'GET'), null); assert.equal(B.requestLabel(null), null);
+});
+
+test('IBBusy.fetch: a slow request the member started shows its pill and closes it, the answer untouched; a quick one and a background one show nothing', async () => {
+  const slow = loadFetch({ answerMs: 120 }); slow.B.setDelay(40);
+  slow.press();
+  const r = await slow.B.fetch(REST + 'orders?id=eq.1', { method: 'PATCH' });
+  assert.deepEqual(JSON.parse(JSON.stringify(r)), { ok: true, status: 200 });
+  assert.deepEqual(slow.sent, [[REST + 'orders?id=eq.1', 'PATCH']]);
+  assert.deepEqual(slow.pills.map((p) => p.text), ['بنحفظ…']);
+  await wait(360); assert.equal(slow.pills[0].closed, true);
+  // a Request object carries its own url and method
+  slow.press(); await slow.B.fetch({ url: REST + 'vendors?select=id', method: 'GET' });
+  assert.deepEqual(slow.pills.map((p) => p.text), ['بنحفظ…', 'بنحمّل…']);
+  // quick: answered before the delay
+  const quick = loadFetch({ answerMs: 10 }); quick.B.setDelay(60); quick.press();
+  await quick.B.fetch(REST + 'orders?id=eq.1', { method: 'PATCH' }); await wait(80);
+  assert.deepEqual(quick.pills, []);
+  // background: nobody pressed anything
+  const bg = loadFetch({ answerMs: 120 }); bg.B.setDelay(40);
+  await bg.B.fetch(REST + 'cs_conversations?select=id', { method: 'GET' });
+  assert.deepEqual(bg.pills, []); assert.equal(bg.sent.length, 1, 'the request itself always goes');
+});
+
+test('typing alone does not make a read the member\'s (a poll that lands while he writes), a save he typed does; hush() mutes the quiet reads', async () => {
+  const t = loadFetch({ answerMs: 120 }); t.B.setDelay(40);
+  t.type();
+  await t.B.fetch(REST + 'tickets?select=id', { method: 'GET' });
+  assert.deepEqual(t.pills, [], 'a read after typing: nothing');
+  t.type();
+  await t.B.fetch(REST + 'orders?id=eq.1', { method: 'PATCH' });
+  assert.deepEqual(t.pills.map((p) => p.text), ['بنحفظ…'], 'the field he typed, saved');
+  // hush: the quiet reload behind the member's back, even right after a click
+  const h = loadFetch({ answerMs: 120 }); h.B.setDelay(40); h.press();
+  let release; const quiet = new Promise((res) => { release = res; });
+  h.B.hush(quiet);
+  await h.B.fetch(REST + 'orders_v?select=id', { method: 'GET' });
+  assert.deepEqual(h.pills, []);
+  release(); await wait(5); h.press();
+  await h.B.fetch(REST + 'orders_v?select=id', { method: 'GET' });
+  assert.deepEqual(h.pills.map((p) => p.text), ['بنحمّل…'], 'after the quiet read is over, his own read shows again');
+});

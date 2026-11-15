@@ -106,7 +106,10 @@
     const batch = []; pending.forEach((ids, group) => { if (!groupHeld(group)) batch.push([group, ids ? Array.from(ids) : null]); });
     batch.forEach(([group]) => pending.delete(group));
     since = 0; running = true;
-    try { await Promise.all(batch.map(([group, ids]) => read(group, ids))); } finally { running = false; }
+    // a quiet read is nobody's action: no «بنحمّل…» pill for it (IBBusy.hush), even when the member clicked a moment before
+    const reads = Promise.all(batch.map(([group, ids]) => read(group, ids)));
+    const B = window.IBBusy; if (B && typeof B.hush === 'function') B.hush(reads);
+    try { await reads; } finally { running = false; }
     if (pending.size) plan(batch.length ? undefined : RETRY_MS); // new signals, or a group still held
   }
   const all = () => { Object.keys(readers).concat(Array.from(extra.keys())).forEach((g) => { pending.set(g, null); }); plan(); };

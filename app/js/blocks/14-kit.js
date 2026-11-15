@@ -107,7 +107,9 @@
   function busy(text) {
     if (!busyEl || !busyEl.isConnected) { busyEl = h('div', { class: 'busy-stack', 'aria-live': 'polite' }); document.body.append(busyEl); }
     const txt = h('span', { class: 'busy-txt' }, String(text || 'جاري التنفيذ…'));
-    const el = h('div', { class: 'busy-pill run', 'data-busy': 'run' }, h('span', { class: 'busy-ico', 'aria-hidden': 'true' }), txt);
+    // the owner 15 Nov (preloader plan decision 3): the running pill carries the logo's worm (IBLoader) instead of the ring
+    const worm = window.IBLoader && window.IBLoader.mark ? window.IBLoader.mark(22) : null;
+    const el = h('div', { class: 'busy-pill run', 'data-busy': 'run' }, h('span', { class: 'busy-ico' + (worm ? ' worm' : ''), 'aria-hidden': 'true' }, worm), txt);
     busyEl.append(el); busyOpen += 1;
     const shownAt = Date.now(); let t = 0, closed = false, ended = false;
     requestAnimationFrame(() => { if (!closed) el.classList.add('show'); });

@@ -443,6 +443,9 @@
     if (!Object.keys(patch).length) return { ok: true };
     const r = await update('orders', id, patch);
     if (r.ok) log('order.confirm', 'IB-' + id + (patch.confirm !== undefined ? ' · ' + cf : ''));
+    // 0103 (the owner 15 Nov): the confirmation date fills the lines' «تاريخ تبليغ المبتكر» on the server — the order read again
+    // so the lines show it now (Realtime brings it too, when it is on)
+    if (r.ok && patch.confirm_at) quiet(() => refetch(String(id)));
     return r;
   }
   const FIELDS = { note: 'note', city: 'customer_city', addr: 'customer_address', dep: 'deposit' };

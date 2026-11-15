@@ -95,7 +95,7 @@ test('decision 6: the permissions matrix looks like the alerts matrix (icon mark
   await go(page, 'settings-team');
   await page.locator('#pg-settings').getByRole('tab', { name: 'الأدوار والصلاحيات' }).click();
   const pm = page.locator('[data-perm-matrix]');
-  await expect(pm.locator('.mx-head')).toContainText('أدمن');
+  await expect(pm.locator('.mx-head')).toContainText('عمليات'); // the owner 15 Nov: one role at a time — the first that is not the admin
   await expect(pm.locator('.mx-head')).toContainText('كاملة');
   await expect(pm.locator('.mx-gh .acc-t').first()).toBeVisible();
   await expect(pm.locator('.mx-gh .meta').first()).toContainText('صلاحيات');

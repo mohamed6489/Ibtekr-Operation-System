@@ -186,9 +186,13 @@ test('T4 — decision 2: the permissions in three levels — a role opens its le
   await body.locator('[data-role-chip="عمليات"]').click();
   await expect(body.locator('[data-role-levels="عمليات"] [data-role-level]')).toHaveCount(3);
   await body.locator('[data-role-levels="عمليات"] [data-role-level="manager"]').click();
-  await expect(body.getByRole('tab', { name: 'صلاحيات المدير' })).toHaveAttribute('aria-selected', 'true');
-  // toggle a cell of «عمليات» in the manager's matrix → saved as the manager group only
+  await expect(body.locator('[data-role-levels="عمليات"] [data-role-level="manager"]')).toHaveAttribute('aria-pressed', 'true');
+  // the owner 15 Nov: the matrix is the picked role at the picked level only — no other role's column
   const pm = body.locator('[data-perm-matrix]');
+  await expect(pm.locator('.mx-head > .t-label-s')).toHaveCount(1);
+  await expect(pm.locator('.mx-head')).toContainText('عمليات · المدير');
+  await expect(pm.locator('.mx-head')).not.toContainText('خدمة العملاء');
+  // toggle a cell of «عمليات» in the manager's matrix → saved as the manager group only
   const cell = pm.locator('button.pm[aria-label*="عمليات"]').filter({ hasNot: page.locator('[disabled]') }).first();
   const label = await cell.getAttribute('aria-label');
   await cell.click();
@@ -207,6 +211,28 @@ test('T4 — decision 2: the permissions in three levels — a role opens its le
   await expect.poll(() => (mock.st.writes || []).filter((w) => w.op === 'level').map((w) => w.level)).toEqual(['viewer']);
 });
 
+// the owner 15 Nov: «قدام كل عضو الدور والمستوى مدير أو موظف والمدير المسؤول، ولو هو مستواه مدير يبقى مدير نفسه»
+test('the members: the role, the level and the responsible manager each in its column — the admin has neither, a «مدير» is his own manager, anyone else picks one', async ({ page }) => {
+  await go(page, 'settings-team');
+  const body = page.locator('#pg-settings');
+  const heads = await body.locator('table thead th').allTextContents();
+  expect(heads.map((x) => x.trim())).toEqual(expect.arrayContaining(['الدور', 'المستوى', 'المدير المسؤول']));
+  expect(heads.findIndex((x) => x.trim() === 'المستوى')).toBe(heads.findIndex((x) => x.trim() === 'الدور') + 1);
+  const admin = body.locator('tr', { hasText: 'admin.dev@ibtekr.local' }).first();
+  await expect(admin.locator('[data-member-level="admin"]')).toHaveText('أدمن — كل الصلاحيات');
+  const row = body.locator('tr', { hasText: 'ops.dev@ibtekr.local' }).first();
+  const mgr = row.locator('[data-member-manager]');
+  await expect(mgr).toContainText('مدير الدور (تلقائي)');
+  await mgr.getByRole('button').click(); await page.getByRole('option', { name: 'منى حسن', exact: true }).last().click();
+  await expect.poll(() => (mock.st.writes || []).filter((w) => w.op === 'manager').map((w) => [w.manager, w.fixed])).toEqual([['00000000-0000-4000-8000-000000000004', true]]);
+  // level «مدير» → his own manager
+  await expect(async () => {
+    await row.getByRole('button', { name: 'موظف', exact: true }).click();
+    await page.getByRole('option', { name: 'مدير', exact: true }).last().click({ timeout: 2000 });
+  }).toPass({ timeout: 15000 });
+  await expect(body.locator('tr', { hasText: 'ops.dev@ibtekr.local' }).first().locator('[data-member-manager]')).toHaveText('مدير نفسه');
+});
+
 test('T4 — decision 4: «إضافة عضو» in three parts; the level «مدير» has no direct manager; another level picks from the role\'s managers; the level is saved after the account', async ({ page }) => {
   await go(page, 'hr-team');
   await page.locator('#pg-hr').getByRole('button', { name: 'إضافة عضو' }).click();
@@ -217,6 +243,10 @@ test('T4 — decision 4: «إضافة عضو» in three parts; the level «مد�
   await expect(f.locator('#manager')).toHaveCount(0); // a manager has none
   await f.locator('#level').click(); await page.locator('[role=listbox] [role=option]', { hasText: 'مشاهد' }).first().click();
   await expect(f.locator('#manager')).toHaveCount(1);
+  // the owner 15 Nov: «بيظهر تلقائي المدير للدور لو متحدد او انا بختار الشخص» — the automatic choice names the role's manager
+  // («مفيش» here: خدمة العملاء has none) and any active member can be picked
+  await expect(f.locator('#manager')).toContainText('مدير الدور (تلقائي) — مفيش');
+  await f.locator('#manager').click(); await page.locator('[role=listbox] [role=option]', { hasText: 'منى حسن' }).first().click();
   await f.locator('#name').fill('ليلى عادل'); await f.locator('#title').fill('مساعدة'); await f.locator('#email').fill('laila.dev@ibtekr.local');
   await f.locator('#hire').fill('01/11/2026'); await f.locator('#hire').press('Tab');
   await f.locator('#salary').fill('8000');
@@ -224,6 +254,7 @@ test('T4 — decision 4: «إضافة عضو» in three parts; the level «مد�
   await expect.poll(() => (mock.st.writes || []).filter((w) => w.op === 'level').map((w) => w.level)).toEqual(['viewer']);
   const p = mock.profiles.find((x) => x.email === 'laila.dev@ibtekr.local');
   expect(p && p.level).toBe('viewer');
+  expect(p && p.manager_id).toBe('00000000-0000-4000-8000-000000000004'); // the picked person
 });
 
 // T5 — decision 32: «طلب جديد» → the role, then «كل الدور» or one member of it; the member is stored and shown, «تغيير المسؤول»

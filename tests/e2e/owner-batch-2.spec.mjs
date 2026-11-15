@@ -411,7 +411,8 @@ test('T8 — decisions 13–15: the six shot rules of the studio; «+ تعليم
   await page.keyboard.press('Escape');
   await mk.locator('.subtab', { hasText: 'بوستات' }).click();
   await mk.locator('.cp-next').click();
-  await expect.poll(() => { const c = mock.mkt.campaigns.find((x) => x.name === 'كولكشن الشتا — مخدات مشغولة'); const m = c && c.state && c.state.w ? c.state.w.media.post : null; return m ? [m.tpl, m.notes] : null; })
+  // the campaign is made on «التالي» and its state follows by the page's own delayed save — a loaded runner needs more than the default 5 s (CI 1073)
+  await expect.poll(() => { const c = mock.mkt.campaigns.find((x) => x.name === 'كولكشن الشتا — مخدات مشغولة'); const m = c && c.state && c.state.w ? c.state.w.media.post : null; return m ? [m.tpl, m.notes] : null; }, { timeout: 20000 })
     .toEqual([[id], 'من غير ناس']);
 });
 

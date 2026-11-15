@@ -96,7 +96,7 @@
   }
   // تاب «التقارير»: تقارير الموظفين بتتفتح مع تاب «الموظفين» في صفحة التقارير (T8)
   // «التقارير» (T8, decision 20): the reports page's «تقارير الموظفين» (IBReportBlocks.staff — one source) with its range
-  const reportsTab = () => { const RB = window.IBReportBlocks; if (!RB || !RB.staff) return [K.Section('تقارير الموظفين', K.Empty('التقارير مش متاحة', 'افتح «التقارير › تقارير الموظفين» من القائمة.'))]; return [RB.range ? h('div', { class: 'toolbar pr-rep-bar' }, RB.range()) : null].concat(RB.staff()); };
+  const reportsTab = () => { const RB = window.IBReportBlocks; if (!RB || !RB.staff) return [K.Section('تقارير الموظفين', K.Empty('التقارير مش متاحة', 'افتح «التقارير › تقارير الموظفين» من القائمة.'))]; return [RB.range ? h('div', { class: 'toolbar pr-rep-bar' }, RB.range()) : null, RB.compare ? RB.compare('staff') : null].concat(RB.staff()); }; // comments decision 14: the comparison card under the period
 
   // ================= الفريق والحضور =================
   // the day's four cards (owner 12 Nov: on «نظرة عامة» — the team tab keeps its table, its log and its calendar)

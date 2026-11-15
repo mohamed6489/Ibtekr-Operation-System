@@ -303,3 +303,126 @@ test('comment 12 — no «افتح في صفحة التقارير» on any page\
     await expect(page.locator('main.content:not([hidden])'), hash).not.toContainText('افتح في صفحة التقارير');
   }
 });
+
+// ---- comment 14: «مقارنة بفترة سابقة» works on every period filter ----
+const cairoDay = (n = 0) => { const t = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()); const d = new Date(t + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+const dmy = (iso) => iso.split('-').reverse().join('/');
+const expense = (id, on, amount, category) => ({ id, on_date: on, direction: 'withdraw', category, beneficiary: 'مستفيد ' + id, beneficiary_other: true, amount, note: null, sub_name: null, sub_is_other: false, sub_ends: null, sub_alerts: [], sub_note: null,
+  created_by: '00000000-0000-4000-8000-000000000001', created_by_name: 'صفوت كمال', created_at: on + 'T10:00:00Z', voided_at: null });
+
+test('comment 14 — the accounts page: the comparison period\'s own «من» / «إلى» show under the picker when ticked, «تحديث» puts the two periods side by side; a typed period, back to the same length before, and off = the page as before', async ({ page }) => {
+  mock.acc.acc_expenses.push(expense(1, cairoDay(-2), 9000, 'المرتبات'), expense(2, cairoDay(-33), 8000, 'المرتبات'), expense(3, cairoDay(-5), 1800, 'المصروفات'), expense(4, cairoDay(-36), 2500, 'المصروفات'));
+  await signIn(page);
+  await go(page, 'expenses');
+  const main = page.locator('#main'); const dp = page.locator('.dp.range'); const update = dp.getByRole('button', { name: 'تحديث', exact: true });
+  const tick = dp.locator('[data-rp-compare="accounts"] input[type=checkbox]');
+  await expect(main.locator('.cards').first()).toBeVisible();
+  await expect(main.locator('.pcmp-card')).toHaveCount(0);
+  await main.locator('.date-field').first().click();
+  await dp.getByRole('radio', { name: 'آخر 30 يومًا' }).click();
+  await expect(tick).not.toBeChecked();
+  await expect(dp.locator('[data-rp-cmp]')).toHaveCount(0); // off: the picker as it always was
+  await tick.check();
+  // its own fields, on the same length right before until the member types
+  await expect(dp.locator('[data-rp-cmp] [data-rp-c="cfrom"]')).toHaveValue(dmy(cairoDay(-59)));
+  await expect(dp.locator('[data-rp-cmp] [data-rp-c="cto"]')).toHaveValue(dmy(cairoDay(-30)));
+  await expect(dp.locator('[data-rp-cmp]')).toContainText('فترة المقارنة');
+  await expect(dp.locator('[data-rp-cauto]')).toBeVisible();
+  await update.click();
+  const card = main.locator('.pcmp-card[data-cmp="accounts"]');
+  await expect(card).toContainText('مقارنة الفترتين');
+  await expect(card.locator('[data-cmp-per="cur"]')).toHaveAttribute('data-range', cairoDay(-29) + '|' + cairoDay(0));
+  await expect(card.locator('[data-cmp-per="was"]')).toHaveAttribute('data-range', cairoDay(-59) + '|' + cairoDay(-30));
+  const row = (l) => card.locator('[data-cmp-row="' + l + '"]');
+  await expect(row('المرتبات').locator('.pcmp-v.cur')).toContainText('9,000.00');
+  await expect(row('المرتبات').locator('.pcmp-v.was')).toContainText('8,000.00');
+  await expect(row('المرتبات').locator('[data-cmp-tone]')).toHaveAttribute('data-cmp-tone', 'negative'); // an expense that grew is bad news
+  await expect(row('المرتبات').locator('.pill')).toContainText('+13%');
+  await expect(row('المصروفات').locator('[data-cmp-tone]')).toHaveAttribute('data-cmp-tone', 'positive');
+  await expect(row('المصروفات').locator('.pill')).toContainText('−28%');
+  await expect(row('إجمالي المصروفات').locator('.pcmp-v.cur')).toContainText('10,800.00');
+  await expect(row('إجمالي المصروفات').locator('.pcmp-v.was')).toContainText('10,500.00');
+  // right under the period filter, before the tab's own cards
+  const [cb, tb, kb] = await Promise.all([card.boundingBox(), main.locator('.toolbar').first().boundingBox(), main.locator('#panel').boundingBox()]);
+  expect(cb.y).toBeGreaterThan(tb.y); expect(cb.y + cb.height).toBeLessThanOrEqual(kb.y + 1);
+  // the other tabs of the page compare too, each with its own figures
+  await main.getByRole('tab', { name: 'نظرة عامة', exact: true }).click();
+  await expect(main.locator('.pcmp-card [data-cmp-row="إجمالي المصروفات"] .pcmp-v.cur')).toContainText('10,800.00');
+  await expect(main.locator('.pcmp-card [data-cmp-row="المبيعات"]')).toHaveCount(1);
+  await main.getByRole('tab', { name: 'المصروفات', exact: true }).click();
+  // a period of the member's own: typed in the two fields; the wrong order is refused
+  await main.locator('.date-field').first().click();
+  await expect(tick).toBeChecked(); // kept with the period
+  await dp.locator('[data-rp-c="cfrom"]').fill(dmy(cairoDay(-40))); await dp.locator('[data-rp-c="cfrom"]').press('Enter');
+  await dp.locator('[data-rp-c="cto"]').fill(dmy(cairoDay(-50))); await dp.locator('[data-rp-c="cto"]').press('Enter');
+  await expect(dp.locator('[role=alert]')).toContainText('بداية فترة المقارنة لازم تكون قبل نهايتها');
+  await expect(update).toBeDisabled();
+  await dp.locator('[data-rp-c="cto"]').fill(dmy(cairoDay(-31))); await dp.locator('[data-rp-c="cto"]').press('Enter');
+  await expect(dp.locator('[role=alert]')).toHaveCount(0);
+  await update.click();
+  await expect(card.locator('[data-cmp-per="was"]')).toHaveAttribute('data-range', cairoDay(-40) + '|' + cairoDay(-31));
+  await expect(row('المرتبات').locator('.pcmp-v.was')).toContainText('8,000.00'); // day −33 is inside the typed period
+  await expect(row('المصروفات').locator('.pcmp-v.was')).toContainText('2,500.00');
+  // back to the same length before, then off: no fields, no card — the page as it was
+  await main.locator('.date-field').first().click();
+  await expect(dp.locator('[data-rp-c="cfrom"]')).toHaveValue(dmy(cairoDay(-40)));
+  await dp.locator('[data-rp-creset]').click();
+  await expect(dp.locator('[data-rp-c="cfrom"]')).toHaveValue(dmy(cairoDay(-59)));
+  await tick.uncheck();
+  await expect(dp.locator('[data-rp-cmp]')).toHaveCount(0);
+  await update.click();
+  await expect(main.locator('.pcmp-card')).toHaveCount(0);
+  await expect(main.locator('.cards').first()).toBeVisible();
+});
+
+test('comment 14 — every period filter with figures behind it compares (the reports, the moves log, the makers\' ledger, the dashboard); the campaign plan\'s calendar has no comparison', async ({ page }) => {
+  await signIn(page);
+  const dp = page.locator('.dp.range'); const update = dp.getByRole('button', { name: 'تحديث', exact: true });
+  // the reports: the card with the tab's own figures; a snapshot tab (customer service) has no period and no card
+  await go(page, 'reports-orders');
+  const rep = page.locator('#reports');
+  await rep.locator('.date-field').click();
+  await dp.locator('[data-rp-compare="reports"] input').check();
+  await expect(dp.locator('[data-rp-cmp="reports"]')).toBeVisible();
+  await update.click();
+  await expect(rep.locator('.pcmp-card[data-cmp="reports"] [data-cmp-row="إجمالي الأوردرات"]')).toHaveCount(1);
+  await expect(rep.locator('.pcmp-card [data-cmp-row="نسبة الإكمال"] .pill')).toBeVisible();
+  await rep.getByRole('tab', { name: 'تقارير المبتكرين' }).click();
+  await expect(rep.locator('.pcmp-card [data-cmp-row="مبتكرين نشطين"]')).toHaveCount(1);
+  await rep.getByRole('tab', { name: 'تقارير خدمة العملاء' }).click();
+  await expect(rep.locator('.pcmp-card')).toHaveCount(0);
+  // the same period on a page's own reports tab
+  await go(page, 'makers');
+  await page.locator('#vendors [role=tablist][aria-label="أقسام المبتكرين"] [role=tab]', { hasText: 'التقارير' }).click();
+  await expect(page.locator('#vendors .pcmp-card [data-cmp-row="مبتكرين نشطين"]')).toHaveCount(1);
+  // the makers' ledger by period: the comparison period's statements are asked from Dokan too
+  await page.locator('#vendors [role=tablist][aria-label="أقسام المبتكرين"] [role=tab]', { hasText: 'حسابات المبتكرين' }).click();
+  await page.locator('#vendors').getByRole('tab', { name: 'كشف بالفترة' }).click();
+  await page.locator('#vendors .toolbar .date-field').click();
+  await dp.getByRole('radio', { name: 'آخر 7 أيام' }).click();
+  await dp.locator('[data-rp-compare="vledger"] input').check();
+  await update.click();
+  const led = page.locator('#vendors .pcmp-card[data-cmp="vledger"]');
+  await expect(led.locator('[data-cmp-per="was"]')).toHaveAttribute('data-range', cairoDay(-13) + '|' + cairoDay(-7));
+  await expect(led.locator('[data-cmp-row="المستحق آخر الفترة"]')).toHaveCount(1);
+  expect(mock.statements.some((s) => s.from === cairoDay(-13) && s.to === cairoDay(-7))).toBe(true);
+  // the accounts' moves log: its own period, the card under it
+  await go(page, 'moves-log');
+  await page.locator('#main .mlog-bar .date-field').click();
+  await dp.locator('[data-rp-compare="mlog"] input').check();
+  await update.click();
+  await expect(page.locator('#main .pcmp-card[data-cmp="mlog"] [data-cmp-row="عدد الحركات"]')).toHaveCount(1);
+  // the dashboard always compared: a typed comparison period is named beside the period
+  await go(page, 'dashboard');
+  await page.locator('#pg-dashboard').getByRole('button', { name: 'اختيار الفترة' }).click();
+  await expect(dp.locator('[data-rp-compare="dash"] input')).toBeChecked();
+  await dp.locator('[data-rp-c="cfrom"]').fill('01/09/2026'); await dp.locator('[data-rp-c="cfrom"]').press('Enter');
+  await dp.locator('[data-rp-c="cto"]').fill('30/09/2026'); await dp.locator('[data-rp-c="cto"]').press('Enter');
+  await update.click();
+  await expect(page.locator('#pg-dashboard .range-label')).toContainText('مقارنة بـ');
+  // the campaign plan's calendar: a calendar of posts — nothing to compare
+  await go(page, 'marketing-calendar');
+  await page.locator('#pg-marketing .cal-bar .date-field').click();
+  await expect(dp).toBeVisible();
+  await expect(dp.locator('[data-rp-compare]')).toHaveCount(0);
+});

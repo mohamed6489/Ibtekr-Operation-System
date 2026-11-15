@@ -1239,48 +1239,156 @@
     wrap.append(trig); return wrap;
   }
   // dashboard: the preset name + what it is compared with (Figma «الفترة: النهارده · مقارنة بإمبارح»)
-  const dashRangeLabel = (r) => { const p = PRESETS.find((x) => x[0] === r.preset); const cmp = r.compare !== false; if (!p || r.preset === 'custom') return D.rangeLabel(r.from, r.to) + (cmp ? ' · مقارنة بالفترة اللي قبلها' : ''); return 'الفترة: ' + p[1] + (cmp ? ' · ' + (r.preset === 'today' ? 'مقارنة بأمس' : 'مقارنة بالفترة اللي قبلها') : ''); };
+  const dashRangeLabel = (r) => { const p = PRESETS.find((x) => x[0] === r.preset); const cmp = r.compare !== false; const own = r.cfrom && r.cto ? 'مقارنة بـ ' + D.rangeLabel(r.cfrom, r.cto) : null; // comments decision 14: the member's own comparison period
+    if (!p || r.preset === 'custom') return D.rangeLabel(r.from, r.to) + (cmp ? ' · ' + (own || 'مقارنة بالفترة اللي قبلها') : ''); return 'الفترة: ' + p[1] + (cmp ? ' · ' + (own || (r.preset === 'today' ? 'مقارنة بأمس' : 'مقارنة بالفترة اللي قبلها')) : ''); };
   const rangeOf = (target) => (target === 'reports' ? state.rrange : target === 'dash' ? state.drange : target === 'mlog' ? (state.mrange = state.mrange || { from: '2026-09-01', to: TODAY, preset: 'custom' }) : target === 'plan' ? (state.prange = state.prange || planDefault()) : target === 'vledger' ? (state.vlrange || { from: TODAY.slice(0, 8) + '01', to: TODAY, preset: 'thisMonth' }) : state.range); // mlog (phase 5.5 decision 4, owner 1 Nov): the moves log's own period, wide by default
   // plan (phase 9.5.1 decision 16, the v5's): the marketing plan calendar's period — from last week's Saturday, three weeks
   function planDefault() { const W = window.IbtekrCampWiz; if (W && W.planDefault) return W.planDefault(TODAY); return { from: TODAY, to: TODAY, preset: 'custom' }; }
   // the owner 13 Nov (decisions 7–8 of docs/superpowers/plans/2026-11-13-owner-ui-batch.md): «مقارنة بفترة سابقة» lives in the calendar and
-  // works — kept with the period of each picker whose view compares: the reports (their KPIs against the same length before), the
-  // dashboard (on by default, as it always compared) and the accounts' moves log (its four cards); the other pickers have nothing to compare
-  const COMPARE_T = ['reports', 'dash', 'mlog'];
-  const compareOf = (target) => (target === 'reports' ? !!state.rcompare : target === 'dash' ? !(state.drange && state.drange.compare === false) : target === 'mlog' ? !!(state.mrange && state.mrange.compare) : false);
+  // works. Comments decision 14 (the owner 15 Nov — «عايزها تبقي شغالة لما ادوس عليها تطلعلي fields تحت و تبقي من / إلى — في كل الفلاتر
+  // بالتاريخ اللي ف السيستم»): every period picker with figures behind it compares — the reports, the dashboard (on by default, as it
+  // always compared), the accounts' tabs, their moves log and the makers' ledger by period; the campaign plan's calendar has nothing to
+  // compare. Ticked → the comparison period's own «من» / «إلى» show under the picker, on the same length right before until the member
+  // types his own; «تحديث» applies both. The range keeps `compare` and, for a typed period, `cfrom` / `cto` (R.previousRange reads them).
+  const COMPARE_T = ['reports', 'dash', 'mlog', 'accounts', 'vledger'];
+  const compareOf = (target) => (!COMPARE_T.includes(target) ? false : target === 'reports' ? !!state.rcompare : target === 'dash' ? !(state.drange && state.drange.compare === false)
+    : target === 'mlog' ? !!(state.mrange && state.mrange.compare) : target === 'vledger' ? !!(state.vlrange && state.vlrange.compare) : !!(state.range && state.range.compare));
   function RangePicker(close, target = 'accounts') {
     const TODAY = target === 'dash' ? dashToday() : TODAY_APP; // the dashboard's presets / calendar follow its real today (dashToday)
-    const cur = rangeOf(target); const draft = { from: cur.from, to: cur.to, preset: cur.preset, compare: compareOf(target) };
-    let [y, m] = draft.from.split('-').map(Number); let picking = false, hover = null, err = '';
+    const canCmp = COMPARE_T.includes(target);
+    const cur = rangeOf(target); const own = !!(cur.cfrom && cur.cto);
+    const draft = { from: cur.from, to: cur.to, preset: cur.preset, compare: compareOf(target), cfrom: own ? cur.cfrom : null, cto: own ? cur.cto : null, cauto: !own };
+    let [y, m] = draft.from.split('-').map(Number); let picking = false, hover = null, err = '', cerr = '';
     const dp = h('div', { class: 'dp range', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'اختيار الفترة', 'data-popover-root': '', 'data-focus': 'no' });
+    // the comparison period follows the picked one (the same length right before) until the member types his own dates
+    const before = () => { if (draft.cauto && draft.from && draft.to && draft.from <= draft.to) { const p = R.previousRange({ from: draft.from, to: draft.to }); draft.cfrom = p.from; draft.cto = p.to; cerr = ''; } };
+    before();
     function pick(iso) {
       if (!picking) { draft.from = iso; draft.to = null; picking = true; } else { draft.to = iso; if (draft.to < draft.from) [draft.from, draft.to] = [draft.to, draft.from]; picking = false; hover = null; }
-      draft.preset = 'custom'; err = ''; draw();
+      draft.preset = 'custom'; err = ''; before(); draw();
     }
     function typed(which, value) {
       const iso = D.parseDate(value); if (!iso) { err = 'اكتب التاريخ بالشكل يوم/شهر/سنة'; draw(); return; }
-      draft[which] = iso; draft.preset = 'custom'; if (draft.from && draft.to && draft.from > draft.to) err = 'تاريخ البداية لازم يكون قبل النهاية'; else err = ''; draw();
+      draft[which] = iso; draft.preset = 'custom'; if (draft.from && draft.to && draft.from > draft.to) err = 'تاريخ البداية لازم يكون قبل النهاية'; else err = ''; before(); draw();
+    }
+    function typedC(which, value) {
+      const iso = D.parseDate(value); if (!iso) { cerr = 'اكتب تاريخ المقارنة بالشكل يوم/شهر/سنة'; draw(); return; }
+      draft[which] = iso; draft.cauto = false; cerr = draft.cfrom && draft.cto && draft.cfrom > draft.cto ? 'بداية فترة المقارنة لازم تكون قبل نهايتها' : ''; draw();
     }
     function draw() {
-      const next = U.shiftMonth(y, m, 1);
+      const next = U.shiftMonth(y, m, 1); const cmpOn = canCmp && !!draft.compare;
       const dateInput = (which, label) => { const i = h('input', { type: 'text', dir: 'ltr', value: draft[which] ? D.formatDateNumeric(draft[which]) : '', placeholder: 'dd/mm/yyyy', 'aria-label': label, 'aria-invalid': err ? 'true' : false }); i.addEventListener('change', () => typed(which, i.value)); return h('div', { class: 'input' + (err ? ' err' : '') }, i); };
+      const cInput = (which, label) => { const i = h('input', { type: 'text', dir: 'ltr', value: draft[which] ? D.formatDateNumeric(draft[which]) : '', placeholder: 'dd/mm/yyyy', 'aria-label': label, 'aria-invalid': cerr ? 'true' : false, 'data-rp-c': which }); i.addEventListener('change', () => typedC(which, i.value)); return h('div', { class: 'input' + (cerr ? ' err' : '') }, i); };
+      const cal = (yy, mm, extra) => U.Calendar(Object.assign({ year: yy, month: mm, today: TODAY, from: draft.from, to: draft.to, hover: picking ? hover : null, onPick: pick, onHover: (i) => { if (picking && hover !== i) { hover = i; draw(); } }, onNav: (d) => { ({ year: y, month: m } = U.shiftMonth(y, m, d)); draw(); },
+        cfrom: cmpOn ? draft.cfrom : null, cto: cmpOn ? draft.cto : null }, extra));
       dp.replaceChildren(...[
         h('div', { class: 'dp-body' },
           h('div', { class: 'presets', role: 'radiogroup', 'aria-label': 'فترات جاهزة' },
-            PRESETS.map(([k, label]) => h('button', { type: 'button', class: 'radio', role: 'radio', 'aria-checked': String(draft.preset === k), onClick: () => { if (k === 'custom') { draft.preset = 'custom'; } else { const r = D.presetRange(k, TODAY); draft.from = r.from; draft.to = r.to; draft.preset = k; [y, m] = r.from.split('-').map(Number); } picking = false; err = ''; draw(); } }, h('i'), label))),
-          h('div', { class: 'cals' },
-            U.Calendar({ year: y, month: m, today: TODAY, from: draft.from, to: draft.to, hover: picking ? hover : null, onPick: pick, onHover: (i) => { if (picking && hover !== i) { hover = i; draw(); } }, onNav: (d) => { ({ year: y, month: m } = U.shiftMonth(y, m, d)); draw(); }, showPrev: false }),
-            U.Calendar({ year: next.year, month: next.month, today: TODAY, from: draft.from, to: draft.to, hover: picking ? hover : null, onPick: pick, onHover: (i) => { if (picking && hover !== i) { hover = i; draw(); } }, onNav: (d) => { ({ year: y, month: m } = U.shiftMonth(y, m, d)); draw(); }, showNext: false }))),
+            PRESETS.map(([k, label]) => h('button', { type: 'button', class: 'radio', role: 'radio', 'aria-checked': String(draft.preset === k), onClick: () => { if (k === 'custom') { draft.preset = 'custom'; } else { const r = D.presetRange(k, TODAY); draft.from = r.from; draft.to = r.to; draft.preset = k; [y, m] = r.from.split('-').map(Number); } picking = false; err = ''; before(); draw(); } }, h('i'), label))),
+          h('div', { class: 'cals' }, cal(y, m, { showPrev: false }), cal(next.year, next.month, { showNext: false }))),
         h('div', { class: 'range-row' }, h('div', { class: 'input', style: 'width:180px' }, h('input', { type: 'text', readonly: true, value: (PRESETS.find((p) => p[0] === draft.preset) || [0, 'مخصص'])[1], 'aria-label': 'الفترة الجاهزة', dir: 'rtl' })),
           dateInput('from', 'من تاريخ'), h('span', null, '–'), dateInput('to', 'إلى تاريخ'),
-          COMPARE_T.includes(target) ? h('label', { class: 'check on', 'data-rp-compare': target }, h('input', { type: 'checkbox', checked: draft.compare ? true : null, onChange: (e) => { draft.compare = e.target.checked; } }), 'مقارنة بفترة سابقة') : null),
+          canCmp ? h('label', { class: 'check on', 'data-rp-compare': target }, h('input', { type: 'checkbox', checked: draft.compare ? true : null, onChange: (e) => { draft.compare = e.target.checked; cerr = ''; if (draft.compare) before(); draw(); const c = dp.querySelector('[data-rp-compare] input'); if (c) c.focus(); } }), 'مقارنة بفترة سابقة') : null),
         err ? h('div', { class: 'err-msg', role: 'alert', style: 'padding:0 16px 8px' }, err) : null,
+        // decision 14: the comparison period's own fields, under the picked period's
+        cmpOn ? h('div', { class: 'pcmp-fields', 'data-rp-cmp': target },
+          h('span', { class: 'pcmp-lab' }, h('i', { 'aria-hidden': 'true' }), 'فترة المقارنة'),
+          h('label', null, 'من', cInput('cfrom', 'المقارنة من تاريخ')), h('label', null, 'إلى', cInput('cto', 'المقارنة إلى تاريخ')),
+          draft.cauto ? h('span', { class: 't-small help', 'data-rp-cauto': '' }, 'نفس المدة قبل الفترة — اكتب تاريخين لو عايز تقارن بفترة تانية')
+            : Button({ type: 'text', size: 'sm', label: 'رجّعها لنفس المدة قبلها', attrs: { 'data-rp-creset': '' }, onClick: () => { draft.cauto = true; cerr = ''; before(); draw(); } })) : null,
+        cmpOn && cerr ? h('div', { class: 'err-msg', role: 'alert', style: 'padding:0 16px 8px' }, cerr) : null,
         h('div', { class: 'dp-foot' }, h('span', { class: 'tz' }, 'التواريخ بتوقيت القاهرة (GMT+3)'),
           Button({ label: 'إلغاء', onClick: close }),
-          Button({ type: 'primary', label: 'تحديث', disabled: !draft.from || !draft.to || !!err, onClick: () => { const nr = { from: draft.from, to: draft.to, preset: draft.preset }; if (COMPARE_T.includes(target)) nr.compare = !!draft.compare; if (target === 'reports') { state.rrange = nr; state.rcompare = !!draft.compare; close(); renderReports(); if (window.IBPages && (window.IBPages.current === 'products' || window.IBPages.current === 'hr' || window.IBPages.current === 'marketing')) window.IBPages.render(window.IBPages.current); } else if (target === 'dash') { state.drange = nr; close(); window.IBPages.render('dashboard'); } else if (target === 'mlog') { state.mrange = nr; close(); render(); } else if (target === 'plan') { state.prange = nr; close(); window.IBPages.render('marketing'); } else if (target === 'vledger') { state.vlrange = nr; close(); render(); } else { state.range = nr; close(); render(); } } }))].filter(Boolean));
+          Button({ type: 'primary', label: 'تحديث', disabled: !draft.from || !draft.to || !!err || (cmpOn && (!!cerr || !draft.cfrom || !draft.cto)), onClick: () => { const nr = { from: draft.from, to: draft.to, preset: draft.preset };
+            if (canCmp) { nr.compare = !!draft.compare; if (draft.compare && !draft.cauto) { nr.cfrom = draft.cfrom; nr.cto = draft.cto; } }
+            if (target === 'reports') { state.rrange = nr; state.rcompare = !!draft.compare; close(); renderReports(); if (window.IBPages && (window.IBPages.current === 'products' || window.IBPages.current === 'hr' || window.IBPages.current === 'marketing')) window.IBPages.render(window.IBPages.current); } else if (target === 'dash') { state.drange = nr; close(); window.IBPages.render('dashboard'); } else if (target === 'mlog') { state.mrange = nr; close(); render(); } else if (target === 'plan') { state.prange = nr; close(); window.IBPages.render('marketing'); } else if (target === 'vledger') { state.vlrange = nr; close(); render(); } else { state.range = nr; close(); render(); } } }))].filter(Boolean));
     }
     draw(); return dp;
   }
+
+  // ---------- «مقارنة بفترة سابقة» on the page (comments decision 14, the owner 15 Nov: «لو مشغل المقارنة يوريني المقارنة بشكل ui احترافي و منظم») ----------
+  // One card under every period filter whose comparison is on: the two periods named with their days, then a line per figure of the
+  // view — this period, the comparison period, the two as bars, and the change (green when it moved the good way, red the other).
+  // calc(range) answers the view's figures for a period: [{ label, value, kind, good, unit }], null while that period's numbers still
+  // load (the card says so and is drawn again when they land) or false when they could not be read.
+  const CL = (label, value, kind, good, unit) => ({ label, value: Number(value) || 0, kind: kind || 'count', good: good || null, unit: unit != null ? unit : kind === 'money' ? 'ج.م' : '' });
+  const cmpNum = (l, v) => (l.kind === 'money' ? D.formatMoney(v) : l.kind === 'pct' ? (Math.round(v * 10) / 10) + '%' : Number(v || 0).toLocaleString('en-US'));
+  function CompareCard(target, calc, opts) {
+    if (!calc || !compareOf(target)) return null;
+    const rg0 = rangeOf(target); const rg = (opts && opts.range) || { from: rg0.from, to: rg0.to }; const pv = R.previousRange(rg0);
+    let cur = null, was = null; try { cur = calc(rg, true); was = calc(pv, false); } catch (e) { cur = was = false; }
+    const days = (r) => D.daysBetweenIso(r.from, r.to) + 1;
+    const per = (cls, name, r) => h('span', { class: 'pcmp-per ' + cls, 'data-cmp-per': cls, 'data-range': r.from + '|' + r.to }, h('i', { 'aria-hidden': 'true' }), h('span', { class: 'pcmp-per-n' }, name), h('b', null, num(D.formatDateNumeric(r.from) + ' – ' + D.formatDateNumeric(r.to))), h('small', null, num(days(r) + ' يوم')));
+    const head = h('div', { class: 'pcmp-head' }, h('h2', { class: 't-h5' }, 'مقارنة الفترتين'), h('div', { class: 'pcmp-pers' }, per('cur', 'الفترة', rg), h('span', { class: 'pcmp-vs' }, 'مقابل'), per('was', 'فترة المقارنة', pv)));
+    let body;
+    if (cur === false || was === false) body = U.InlineNote({ kind: 'error', children: 'مقدرناش نحمّل أرقام فترة المقارنة — غيّر الفترة أو حدّث الصفحة.' });
+    else if (!cur || !was) body = U.InlineNote({ children: 'بنحمّل أرقام فترة المقارنة…' });
+    else {
+      const wasBy = new Map(was.map((l) => [l.label, l]));
+      const lines = cur.map((l) => Object.assign({}, l)).concat(was.filter((l) => !cur.some((c) => c.label === l.label)).map((l) => Object.assign({}, l, { value: 0 })));
+      body = h('div', { class: 'pcmp-grid', role: 'table', 'aria-label': 'مقارنة الفترتين' },
+        h('div', { class: 'pcmp-r h', role: 'row' }, ['البند', 'الفترة', 'فترة المقارنة', 'الفترتين', 'التغيّر'].map((t) => h('span', { role: 'columnheader' }, t))),
+        lines.map((l) => { const c = l.value; const w = (wasBy.get(l.label) || { value: 0 }).value; const x = R.compareLine(c, w, l.good, l.kind === 'pct'); const max = Math.max(Math.abs(c), Math.abs(w)) || 1; const wd = (v) => Math.round(Math.abs(v) / max * 100);
+          const u = () => (l.unit ? h('small', null, l.unit) : null);
+          const dv = l.kind === 'pct' || x.dir === 'same' ? null : (x.diff > 0 ? '+' : '−') + cmpNum(l, Math.abs(x.diff));
+          return h('div', { class: 'pcmp-r', role: 'row', 'data-cmp-row': l.label },
+            h('span', { class: 'pcmp-l', role: 'rowheader' }, l.label),
+            h('span', { class: 'pcmp-v cur', role: 'cell', 'data-h': 'الفترة' }, num(cmpNum(l, c)), u()),
+            h('span', { class: 'pcmp-v was', role: 'cell', 'data-h': 'فترة المقارنة' }, num(cmpNum(l, w)), u()),
+            h('span', { class: 'pcmp-bars', 'aria-hidden': 'true' }, h('span', { class: 'cur' }, h('i', { style: 'width:' + wd(c) + '%' })), h('span', { class: 'was' }, h('i', { style: 'width:' + wd(w) + '%' }))),
+            h('span', { class: 'pcmp-d ' + x.tone, role: 'cell', 'data-cmp-tone': x.tone }, h('span', { class: 'pill' }, x.dir === 'up' ? '▲ ' : x.dir === 'down' ? '▼ ' : null, num(x.text)), dv ? h('small', null, num(dv), l.unit ? ' ' + l.unit : null) : null)); }));
+    }
+    return h('section', { class: 'card pcmp-card', 'data-cmp': target, 'data-no-cols': '', 'data-no-tq': '', 'data-no-th': '' }, head, body, opts && opts.note ? h('p', { class: 'pcmp-foot' }, opts.note) : null);
+  }
+  // the accounts' numbers of a period: the sales and Ibtekr's share from accounts_sales (cached per range — loading: true until they land)
+  // and the expenses by type from the ledger
+  const accRepOf = (from, to) => { const A = window.IBAccounts || null; const rows = A ? A.sales(from, to) : []; const sv = rows ? D.liveSeed({ makers: [], balances: [], sales: rows }) : null;
+    const tot = D.categoryTotals(SEED.expenseSeed, store.expenses, from, to); const byCat = {}; Object.keys(tot.byCategory).forEach((c) => { byCat[c] = tot.byCategory[c].amount; });
+    return { sv, loading: !sv, tot, rep: R.accountsReport({ expenses: byCat, sales: sv ? sv.sales : [], accounts: accountsNow().balances, inProgressShare: sv ? sv.inProgressShare : 0, deposits: SEED.vendorTotals ? SEED.vendorTotals.dep : 0 }) }; };
+  const salesWait = (r) => { const A = window.IBAccounts || null; return A && A.salesFailed && A.salesFailed(r.from, r.to) ? false : null; };
+  const inPer = (r) => (d) => !!d && d >= r.from && d <= r.to;
+  const accLines = (r) => { const x = accRepOf(r.from, r.to); if (x.loading) return salesWait(r); const p = x.rep;
+    return [CL('المبيعات', p.salesTotal, 'money', 'up'), CL('عدد الأوردرات', p.orders, 'count', 'up', 'أوردر'), CL('حصة إبتكر', p.share, 'money', 'up'), CL('إجمالي المصروفات', p.expensesTotal, 'money', 'down'), CL('الصافي (حصة إبتكر − المصروفات)', p.net, 'money', 'up')]; };
+  const CMP = {
+    // ---- the accounts page's tabs (the page's own period) ----
+    'acc-overview': accLines,
+    expenses: (r) => { const t = D.categoryTotals(SEED.expenseSeed, store.expenses, r.from, r.to); return Object.keys(t.byCategory).map((c) => CL(expLabel(c), t.byCategory[c].amount, 'money', 'down')).concat([CL('إجمالي المصروفات', t.total, 'money', 'down')]); },
+    subscriptions: (r) => { const ok = inPer(r); const l = store.expenses.filter((e) => e.category === SUBS_CAT && e.direction !== 'deposit' && ok(e.date)); return [CL('مدفوع للاشتراكات', D.round2(l.reduce((n, e) => n + (Number(e.amount) || 0), 0)), 'money', 'down'), CL('عدد الدفعات', l.length, 'count', null, 'دفعة')]; },
+    sales: (r) => { const x = accRepOf(r.from, r.to); if (x.loading) return salesWait(r); const T = x.sv.salesTotal;
+      return x.sv.sales.map((g) => CL('مبيعات ' + g.label, g.sales, 'money', /مرتجع|ملغي/.test(g.label) ? 'down' : 'up')).concat([CL('إجمالي المبيعات', T.sales, 'money', 'up'), CL('عدد الأوردرات', T.orders, 'count', 'up', 'أوردر'), CL('حصة إبتكر', T.share, 'money', 'up'), CL('حصة المبتكرين', D.round2(T.sales - T.share), 'money', null)]); },
+    actual: (r) => { const ok = inPer(r); const l = store.accountMoves.filter((m) => ok(m.date)); const s = (d) => D.round2(l.filter((m) => (m.direction === 'deposit') === d).reduce((n, m) => n + (Number(m.amount) || 0), 0)); const dep = s(true), wd = s(false);
+      return [CL('إيداعات في الحسابات', dep, 'money', 'up'), CL('سحوبات من الحسابات', wd, 'money', 'down'), CL('صافي الحركة', D.round2(dep - wd), 'money', 'up'), CL('عدد الحركات', l.length, 'count', null, 'حركة')]; },
+    // «كشف بالفترة»: the makers' ledger of the comparison period is read from Dokan like the period's own (a statement a maker)
+    ledger: (r) => { const A = window.IBAccounts || null; if (!A || !A.loadLedger) return false;
+      const days = (Date.parse(r.to + 'T00:00:00Z') - Date.parse(r.from + 'T00:00:00Z')) / 864e5; if (!(days >= 0) || days > LEDGER_MAX_DAYS) return false;
+      const withStore = vendorsNow().map((v) => (v.id && vstore.get ? vstore.get(v.id) : null)).filter((vv) => vv && vv.wooVendorId).map((vv) => vv.id);
+      let L = A.ledgerOf(r.from, r.to); const missing = withStore.filter((id) => !L || !L.by.has(id)); if (missing.length) L = A.loadLedger(r.from, r.to, missing);
+      const all = ledgerRows(r, L); if (all.some((l) => l.dokan === 'pending')) return null;
+      const T = D.ledgerTotals(all.filter((l) => l.dokan === 'ok' || l.dokan === 'none'));
+      return [CL('مبيعات المكتمل', T.sales, 'money', 'up'), CL('حصة إبتكر', T.share, 'money', 'up'), CL('حق المبتكرين من المكتمل', T.earned, 'money', null), CL('العرابين', T.deposits, 'money', null), CL('المواصلات', T.transport, 'money', null), CL('اتحوّل للمبتكرين', T.payouts, 'money', null), CL('المستحق آخر الفترة', T.closing, 'money', null)]; },
+    // ---- the reports' tabs (the reports' period) ----
+    orders: (r) => { const p = R.ordersReport(ordersRows(), { from: r.from, to: r.to }, TODAY);
+      return [CL('إجمالي الأوردرات', p.count, 'count', 'up', 'أوردر'), CL('إجمالي القيمة', p.total, 'money', 'up'), CL('متوسط قيمة الأوردر', p.avg, 'money', 'up'), CL('نسبة الإكمال', p.completionRate * 100, 'pct', 'up'), CL('أوردرات تحتاج تدخّل', p.needAction, 'count', 'down', 'أوردر'), CL('أوردرات ملغية', p.cancelled, 'count', 'down', 'أوردر')]; },
+    vendors: (r) => { const money$ = rperm('accounts.view') !== 'N'; const A = window.IBAccounts || null; const sales = money$ && A ? A.sales(r.from, r.to) : [];
+      if (money$ && A && !sales) return A.salesFailed(r.from, r.to) ? false : null;
+      const V = window.IBVendors; const makers = V && V.store ? V.store.all().map((v) => ({ id: v.id, name: v.name, rate: null })) : [];
+      const p = R.vendorsReport(ordersRows(), { from: r.from, to: r.to }, TODAY, D.liveSeed({ makers, balances: [], sales: sales || [] }).vendors);
+      return [CL('مبتكرين نشطين', p.active, 'count', 'up', 'مبتكر'), CL('أوردرات المبتكرين', p.totals.orders, 'count', 'up', 'أوردر'), CL('أوردرات قابلة للتأخير', p.totals.late, 'count', 'down', 'أوردر'), CL('مبتكرين عندهم قابلة للتأخير', p.withDelay, 'count', 'down', 'مبتكر')]
+        .concat(money$ ? [CL('حصة إبتكر من المكتمل', p.totals.share, 'money', 'up')] : []); },
+    accounts: accLines,
+    products: (r) => { const P = window.IBProducts; if (!P || !P.report) return false; const x = P.report(r.from, r.to); if (!x) return P.reportFailed && P.reportFailed(r.from, r.to) ? false : null;
+      return [CL('قطع اتباعت', x.qty, 'count', 'up', 'قطعة'), CL('مبيعات المنتجات', x.revenue, 'money', 'up'), CL('أوردرات فيها منتجات', x.orders, 'count', 'up', 'أوردر'), CL('منتجات مختلفة اتباعت', x.distinct, 'count', 'up', 'منتج')]; },
+    staff: (r) => { const H = window.IBHR; if (!H || H.state() !== 'ready') return H && H.state() === 'error' ? false : null; const x = staffData({ from: r.from, to: r.to }).rep;
+      return [CL('أيام غياب من غير إذن', x.counts.absentDays, 'count', 'down', 'يوم')]; },
+    inventory: (r) => { const ok = inPer(r); const l = ((window.IBKit.store || {}).ledger || []).filter((m) => ok(String(m.at || '').slice(0, 10))); const q = (ts) => l.filter((m) => ts.includes(m.type)).reduce((n, m) => n + (Number(m.qty) || 0), 0);
+      return [CL('حركات المخزن', l.length, 'count', null, 'حركة'), CL('قطع دخلت', q(['in']), 'count', null, 'قطعة'), CL('قطع خرجت', q(['out', 'ship']), 'count', null, 'قطعة')]; },
+    tickets: (r) => { const ok = inPer(r); const per = tstore.all().filter((t) => ok(cairoDayOf(t.createdAt))); const rep = tkRepOf(per); const done = per.filter((t) => t.status === 'resolved' || t.status === 'closed').length;
+      return [CL('طلبات اتفتحت', rep.total, 'count', null, 'طلب'), CL('لسه مفتوحة', rep.open, 'count', 'down', 'طلب'), CL('عاجلة ولسه مفتوحة', rep.urgent, 'count', 'down', 'طلب'), CL('اتحلّت أو اتقفلت', done, 'count', 'up', 'طلب')]; },
+  };
+  // the card of the page's own period filter, by where the member stands
+  const accountsCompare = () => (state.tab === 'moves-log' ? null : state.tab === 'acc-reports' ? CompareCard('reports', CMP.accounts)
+    : state.tab === 'vendors' ? (state.vsub === 'ledger' && ledgerRange() ? CompareCard('vledger', CMP.ledger, { range: ledgerRange(), note: 'أرقام فترة المقارنة من كشف حساب Dokan لكل مبتكر في الفترة دي، زي الكشف نفسه.' }) : null)
+      : CompareCard('accounts', CMP[state.tab]));
 
   // ---------- movement forms (expense / vendor / account) ----------
   // the settings lists all editable (2026-11-14-settings-lists.md, decision 1): the expense types = the base four then the admin's own,
@@ -1618,13 +1726,13 @@
     const perRows = r0.rows.filter(inPer); const sumK = (f) => D.round2(perRows.filter(f).reduce((n, x) => n + (Number(x.amount) || 0), 0));
     const r = { rows: perRows, count: perRows.length, inTotal: sumK((x) => x.kind === 'إيداع' || x.kind === 'رصيد افتتاحي'), outTotal: sumK((x) => x.kind === 'سحب'), requests: perRows.filter((x) => x.kind === 'طلب سحب').length };
     // decision 8 (the owner 13 Nov): «مقارنة بفترة سابقة» in the calendar → each card against the same length just before
-    const addDaysIso = (iso, n) => { const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
-    const cmp = !!MR.compare; const span = cmp ? D.daysBetweenIso(MR.from, MR.to) + 1 : 0;
-    const prevTo = cmp ? addDaysIso(MR.from, -1) : null; const prevFrom = cmp ? addDaysIso(MR.from, -span) : null;
+    // comments decision 14: against the member's own comparison period when he typed one (R.previousRange)
+    const cmp = !!MR.compare; const PV = cmp ? R.previousRange(MR) : null; const ownCmp = !!(MR.cfrom && MR.cto);
+    const prevTo = PV ? PV.to : null; const prevFrom = PV ? PV.from : null;
     const pv = cmp ? r0.rows.filter((x) => x.date && x.date >= prevFrom && x.date <= prevTo) : []; const sumP = (f) => D.round2(pv.filter(f).reduce((n, x) => n + (Number(x.amount) || 0), 0));
     const P = cmp ? { count: pv.length, inTotal: sumP((x) => x.kind === 'إيداع' || x.kind === 'رصيد افتتاحي'), outTotal: sumP((x) => x.kind === 'سحب'), requests: pv.filter((x) => x.kind === 'طلب سحب').length } : null;
     const cmpTile = (cur, was, upGood) => { if (!cmp) return { compare: 'off' }; const d = cur - was; const pct = was ? Math.round(d / Math.abs(was) * 100) : null;
-      return { compare: d === 0 ? 'neutral' : (d > 0) === upGood ? 'positive' : 'negative', delta: { text: (d > 0 ? '+' : d < 0 ? '−' : '') + (pct == null ? D.formatMoney(Math.abs(d)) : Math.abs(pct) + '%'), caption: 'عن الفترة اللي قبلها (' + D.formatMoney(was) + ')' } }; };
+      return { compare: d === 0 ? 'neutral' : (d > 0) === upGood ? 'positive' : 'negative', delta: { text: (d > 0 ? '+' : d < 0 ? '−' : '') + (pct == null ? D.formatMoney(Math.abs(d)) : Math.abs(pct) + '%'), caption: (ownCmp ? 'عن فترة المقارنة (' : 'عن الفترة اللي قبلها (') + D.formatMoney(was) + ')' } }; };
     const q = (state.mlogQ || '').trim();
     const rows0 = q ? r.rows.filter((x) => (x.what + ' ' + x.who + ' ' + x.note + ' ' + x.ref).toLowerCase().includes(q.toLowerCase())) : r.rows;
     const tone = (k) => (k === 'إيداع' ? 'success' : k === 'سحب' ? 'neutral' : k === 'طلب سحب' ? 'orange' : 'goldlight');
@@ -1649,6 +1757,7 @@
           : U.KpiTile(Object.assign({ label: 'الصافي', value: D.formatMoney(D.round2(r.inTotal - r.outTotal)), unit: 'ج.م', note: 'داخل − خارج' }, cmpTile(D.round2(r.inTotal - r.outTotal), P ? D.round2(P.inTotal - P.outTotal) : 0, true)))),
       h('div', { class: 'toolbar mlog-bar' }, search, DateRangeField('mlog'), h('span', { class: 'grow' }),
         Button({ label: 'نسخ CSV', icon: 'download', attrs: { 'data-mlog-csv': '' }, onClick: () => csvCopy(headers, rows0.map(flat), 'سجل الحركات — ' + (MLOG_TABS.find((t) => t.id === kind) || {}).label) })),
+      CompareCard('mlog', (rg, own) => { const x = own ? r : P; return [CL('عدد الحركات', x.count, 'count', null, 'حركة'), CL('داخل (إيداعات)', x.inTotal, 'money', 'up'), CL('خارج (سحوبات)', x.outTotal, 'money', 'down'), CL('الصافي', D.round2(x.inTotal - x.outTotal), 'money', 'up')].concat(kind === 'vendorMoves' ? [CL('طلبات سحب', x.requests, 'count', null, 'طلب')] : []); }),
       TableCard({ title: 'سجل الحركات — ' + (MLOG_TABS.find((t) => t.id === kind) || {}).label, count: '', th: { noun: ['حركة', 'الحركات'], when: D.rangeLabel(MR.from, MR.to), count: [rows0.length, r.count] }, pre: LB.bar(),
         body: rows0.length ? tableOrList(() => U.Table({ cls: 'mlog-table', headers: [LB.head()].concat(headers), rows }), () => CardList({ headers: [''].concat(headers), titleIndex: 3, rows })) : U.EmptyState('مفيش حركات', q ? 'مفيش نتيجة للبحث ده — امسح البحث.' : 'مفيش حركات في الفترة دي — غيّر الفترة من جنب البحث.') }),
       sourceNote('المصدر: الحركات المتسجلة في السيستم + طلبات السحب من Dokan (قراءة بس).'));
@@ -2558,6 +2667,7 @@
           soon ? null : Button({ label: 'تخصيص التقارير', icon: 'sliders', attrs: { 'data-rp-custom': '' }, onClick: () => customizeReports() }))),
       tabs,
       noteEl,
+      soon || snap || state.rtab === 'campaigns' ? null : CompareCard('reports', CMP[state.rtab]), // comments decision 14 (the campaigns tab compares in its own cards)
       h('div', { id: 'rpanel', role: 'tabpanel', 'aria-labelledby': 'tab-' + state.rtab, style: 'display:flex;flex-direction:column;gap:24px;min-width:0' }, body)].filter(Boolean));
     applyReportPrefs(main.querySelector('#rpanel'));
     window.IBKit.sweepColumns(main);
@@ -3270,10 +3380,10 @@
     refreshSeed(); state.tab = 'vendors';
     const note = state.note; state.note = null; shownNote = note;
     const noteEl = note ? U.InlineNote({ kind: note.kind, children: note.text, action: note.undo ? Button({ type: 'text', size: 'sm', label: 'تراجع', onClick: note.undo }) : IconButton({ icon: 'close', label: 'إخفاء', onClick: () => { noteEl.remove(); } }) }) : null;
-    return [vendorsToolbar(), noteEl].concat(VendorsTab());
+    return [vendorsToolbar(), noteEl, accountsCompare()].concat(VendorsTab());
   }
   function makersReportsTab() {
-    return [h('div', { class: 'toolbar' }, DateRangeField('reports'))].concat(VendorsReportView()); // comments decision 12: no «افتح في صفحة التقارير» on a page's own reports tab
+    return [h('div', { class: 'toolbar' }, DateRangeField('reports')), CompareCard('reports', CMP.vendors)].concat(VendorsReportView()); // comments decision 12: no «افتح في صفحة التقارير» on a page's own reports tab; decision 14: the comparison card
   }
   // «سجل الحركات»: add / stop / activate / delete a maker (IBVendors.loadMakersLog — the server's activity_log). The owner (11 Nov — «اظبط
   // الفلتر يبقي اسهل»، picked «زرار فلتر واحد بس»): one «فلتر» (الحركة · المبتكر · بواسطة, several picks each) and its chips while one is
@@ -4095,6 +4205,7 @@
       tabs,
       state.tab === 'moves-log' ? null : state.tab === 'acc-reports' ? h('div', { class: 'toolbar' }, DateRangeField('reports')) /* comments decision 12: no «افتح في صفحة التقارير» */ : state.tab === 'vendors' ? vendorsToolbar() : h('div', { class: 'toolbar' }, DateRangeField(), h('span', { class: 'grow' }), !canAdd() ? null : state.tab === 'expenses' ? AddMenu('إضافة مصروفات', 'expenses') : state.tab === 'subscriptions' ? Button({ type: 'brand', icon: 'plus', label: 'إضافة اشتراك', attrs: { 'data-add-sub': '' }, onClick: () => openForm('expenses', 'withdraw', null, false, { category: SUBS_CAT }) }) : state.tab === 'actual' ? AddMenu('إضافة مبلغ', 'accountMoves') : null),
       noteEl,
+      accountsCompare(), // comments decision 14: the two periods side by side, under the period filter
       h('div', { id: 'panel', role: 'tabpanel', 'aria-labelledby': 'tab-' + state.tab, style: 'display:flex;flex-direction:column;gap:24px;min-width:0' }, VIEWS[state.tab]())].filter(Boolean));
     // «تخصيص اللوحة» (phase 10 decision 22, as in the v5 prototype): every tab but the moves log
     if (state.tab !== 'moves-log') window.IBKit.applyPanelPrefs('accounts:' + state.tab, document.getElementById('panel'));
@@ -4182,7 +4293,7 @@
   };
   // an order popup lives inside the orders page, so it is opened there (owner 22 Oct: before this, «فتح الأوردر» from other pages stayed hidden until you visited الأوردرات)
   // phase 5.1 (decision 20 in the phase 5 plan): the products page's «التقارير» tab shares the reports page's range (state.rrange)
-  window.IBReportBlocks = { range: () => DateRangeField('reports'), get: () => state.rrange, staff: () => StaffReportView(), rangeField: (t) => DateRangeField(t), rangeOf: (t) => rangeOf(t) }; // rangeField / rangeOf: the v5's (phase 9.5.1 — the marketing plan's «plan») // staff: the HR page's own «التقارير» (phase 10 T8)
+  window.IBReportBlocks = { range: () => DateRangeField('reports'), get: () => state.rrange, staff: () => StaffReportView(), rangeField: (t) => DateRangeField(t), rangeOf: (t) => rangeOf(t), compare: (key) => CompareCard('reports', CMP[key]), compareOn: (t) => compareOf(t || 'reports'), previous: (t) => R.previousRange(rangeOf(t || 'reports')) }; // rangeField / rangeOf: the v5's (phase 9.5.1 — the marketing plan's «plan») // staff: the HR page's own «التقارير» (phase 10 T8)
   window.IBShowOrders = () => { if (state.page !== 'orders') go('orders'); };
   // the owner 15 Nov («لما أدوس على إضافة مبتكر يفتحلي بوب أب إضافة المبتكر»): the add-maker popup over another page (the products
   // studio) — done(maker) after the save instead of his drawer; false when the member may not add makers

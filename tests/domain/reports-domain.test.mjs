@@ -8,7 +8,7 @@ const TODAY = '2026-11-05';
 const row = (id, ageDays, status, items, extra) => ({ id, ageDays, status, total: 100, delivery: 'ok', confirm: 'مؤكد', customer: 'ع' + id, vendors: ['HANDS'], items, ...extra });
 
 test('the v2 exports: the reports the page reads are all there', () => {
-  ['ordersReport', 'vendorsReport', 'accountsReport', 'topProducts', 'outOfStock', 'categoriesRank', 'staffReport', 'campaignsReport', 'campaignsInRange', 'inventoryReport', 'csReport', 'ticketsReport', 'previousRange', 'delta']
+  ['ordersReport', 'vendorsReport', 'accountsReport', 'topProducts', 'outOfStock', 'categoriesRank', 'staffReport', 'campaignsReport', 'campaignsInRange', 'inventoryReport', 'csReport', 'ticketsReport', 'previousRange', 'compareLine', 'delta']
     .forEach((k) => assert.equal(typeof R[k], 'function', k));
 });
 
@@ -18,6 +18,34 @@ test('the period: an order is in the range by its age from today; the previous r
   assert.deepEqual(json(R.previousRange({ from: '2026-10-07', to: '2026-11-05' })), { from: '2026-09-07', to: '2026-10-06' });
   assert.equal(R.delta(12, 10, 'up', 5).text, '+20%');
   assert.equal(R.delta(12, 2, 'up', 5).text, '—'); // too few to compare
+});
+
+// comments decision 14 (the owner 15 Nov): «مقارنة بفترة سابقة» with the member's own comparison period
+test('the comparison period: the member\'s own «من» / «إلى» when both are dates in order, else the same length right before; the orders report compares against it', () => {
+  const rg = { from: '2026-10-07', to: '2026-11-05' };
+  assert.deepEqual(json(R.previousRange({ ...rg, cfrom: '2026-01-01', cto: '2026-01-31' })), { from: '2026-01-01', to: '2026-01-31' });
+  assert.deepEqual(json(R.previousRange({ ...rg, cfrom: '2026-02-10', cto: '2026-02-01' })), { from: '2026-09-07', to: '2026-10-06' }); // out of order → the default
+  assert.deepEqual(json(R.previousRange({ ...rg, cfrom: '2026-01-01' })), { from: '2026-09-07', to: '2026-10-06' }); // half a period → the default
+  assert.deepEqual(json(R.previousRange({ ...rg, cfrom: 'x', cto: 'y' })), { from: '2026-09-07', to: '2026-10-06' });
+  // the orders report's «قبل»: the orders of the typed period, not of the 30 days before
+  const rows = Array.from({ length: 12 }, (_, i) => row(i + 1, 280 + i, 'مكتمل', [])).concat([row(50, 1, 'مكتمل', []), row(51, 40, 'مكتمل', [])]);
+  const own = R.ordersReport(rows, { ...rg, cfrom: '2026-01-01', cto: '2026-02-15' }, TODAY);
+  assert.equal(own.count, 1); assert.equal(own.prev.count, 12);
+  assert.equal(R.ordersReport(rows, rg, TODAY).prev.count, 1);
+});
+
+test('compareLine: the change between the two periods — the direction, the percent, and the tone by which way is good news', () => {
+  assert.deepEqual(json(R.compareLine(9000, 8000, 'down')), { diff: 1000, pct: 13, dir: 'up', tone: 'negative', text: '+13%' }); // an expense that grew
+  assert.deepEqual(json(R.compareLine(1800, 2500, 'down')), { diff: -700, pct: -28, dir: 'down', tone: 'positive', text: '−28%' });
+  assert.deepEqual(json(R.compareLine(1800, 2500, 'up')), { diff: -700, pct: -28, dir: 'down', tone: 'negative', text: '−28%' });
+  assert.equal(R.compareLine(5, 5, 'up').text, 'زي ما هو'); assert.equal(R.compareLine(5, 5, 'up').tone, 'neutral');
+  assert.equal(R.compareLine(5, 0, 'up').text, 'جديد'); assert.equal(R.compareLine(5, 0, 'up').pct, null); // nothing to divide by
+  assert.equal(R.compareLine(0, 5, 'up').text, '−100%');
+  assert.equal(R.compareLine(120, 100, null).tone, 'neutral'); // neither way is good news (a count of moves)
+  assert.equal(R.compareLine(-13518.45, -13250, 'up').text, '−2%'); // a loss that grew: against the size of the old figure
+  assert.equal(R.compareLine(1000.2, 1000, 'up').text, '+أقل من 1%');
+  // a figure that is itself a percentage: the change in points
+  assert.equal(R.compareLine(66.7, 50, 'up', true).text, '+16.7 نقطة'); assert.equal(R.compareLine(40, 50, 'up', true).tone, 'negative');
 });
 
 test('topProducts: the pieces sold in the period by product, cancelled / returned left out, merged by name', () => {

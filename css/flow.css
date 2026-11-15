@@ -83,14 +83,17 @@ textarea.fl-in{display:block;width:100%}
 .fl-sort .thumb img{width:100%;height:100%;object-fit:cover;border-radius:4px}
 @media (max-width:640px){.fl-match.two{grid-template-columns:1fr 1fr;gap:8px}.fl-sort-row{padding:0 4px;gap:4px}.fl-sort-name{display:none}}
 /* the owner 15 Nov: the maker alone — his rate shown with his details, the brand code for the SKU under it */
-.fl-maker-info{display:grid;grid-template-columns:auto 1fr;gap:16px;align-items:stretch;padding:14px 16px;border:1px solid var(--color-border-subtle);border-radius:var(--radius-md,10px);background:var(--color-bg-tint,#f5ecdc)}
+.fl-maker-info{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:16px;align-items:stretch;padding:14px 16px;border:1px solid var(--color-border-subtle);border-radius:var(--radius-md,10px);background:var(--color-bg-tint,#f5ecdc)}
 .fl-mk-rate{display:flex;flex-direction:column;justify-content:center;align-items:center;gap:2px;min-width:150px;padding:8px 16px;border-radius:var(--radius-sm,8px);background:var(--color-bg-elevated,#fff);border:1px solid var(--color-brand-default,#005642)}
 .fl-mk-rate b{font-size:28px;line-height:1.2;color:var(--color-brand-default,#005642)}
-.fl-mk-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 16px;align-content:center}
-.fl-mk-item{display:flex;flex-direction:column;gap:2px;min-width:0}
-.fl-mk-item b{overflow-wrap:anywhere}
+.fl-mk-cats{display:flex;flex-direction:column;justify-content:center;gap:6px;min-width:0}
+.fl-mk-chips{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.fl-mk-chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;background:var(--color-bg-elevated,#fff);border:1px solid var(--color-border-subtle);font-size:13px;max-width:100%}
+.fl-mk-chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fl-mk-chip b{color:var(--color-brand-default,#005642)}
+.fl-mk-act{display:flex;align-items:center}
 .fl-sku-ex{align-self:center;padding-top:22px}
-@media (max-width:640px){.fl-maker-info{grid-template-columns:1fr}.fl-sku-ex{padding-top:0}}
+@media (max-width:640px){.fl-maker-info{grid-template-columns:1fr}.fl-mk-act .btn{width:100%;justify-content:center}.fl-sku-ex{padding-top:0}}
 /* the owner 15 Nov («في اسكرين الاسعار صلح شكل الجدول و إظهر بيانات المنتج العربي بس»): the prices as a grid, not a <table> — the photo
    inside the product cell with its Arabic data; on a phone a card each (the product on top, the three prices under it, labelled) */
 .fl-plist{border:1px solid var(--color-border-subtle);border-radius:var(--radius-md);background:var(--color-bg-base)}

@@ -131,6 +131,19 @@
   // ---------------- the items the server reads (one per product, flow 2) ----------------
   const rateNow = () => { const s = st(); if (s.rate != null) return Number(s.rate); return PR() && s.vendorId ? PR().rateOf(s.vendorId) : null; };
   const feeNow = () => { const s = st(); if (s.fee != null) return Number(s.fee); const v = V() && V().store && s.vendorId ? V().store.get(s.vendorId) : null; return v && v.rateFlat ? Number(v.rateFlat) : 0; };
+  // a row's group head (a Variable's variations share its category)
+  const headOf = (r) => { const i = rows().indexOf(r); const g = groups().find((x) => x.rows.includes(i)); return g ? rows()[g.rows[0]] : r; };
+  // the rate a product is priced with (the owner 15 Nov — a category can have its own rate): the batch's own when set, else what Dokan
+  // takes on it — a «category_based» maker's rate on the product's category or its nearest parent with one, else his general rate
+  // (IBProducts.commissionParams, the same reading as the products' «Commission»). → { rate, fee, byCat } or null (not visible)
+  function commOf(r) {
+    const s = st(); if (s.rate != null) return { rate: Number(s.rate), fee: feeNow(), byCat: false };
+    const cid = catIdOf((r && r.catEn) || headOf(r).catEn);
+    const c = s.vendorId && PR() && PR().commissionParams ? PR().commissionParams({ vendorId: s.vendorId, categoryIds: cid == null ? [] : [cid] }) : null;
+    if (c && c.rate != null) return { rate: Number(c.rate), fee: Number(c.fee) || 0, byCat: c.source === 'category' };
+    const rt = rateNow(); return rt == null ? null : { rate: rt, fee: feeNow(), byCat: false };
+  }
+  const commKey = (c) => (c ? c.rate + '|' + c.fee : '');
   function imagesOfUnit(u) { const sh = shotsOf(u).filter(Boolean); return sh; }
   function buildItems() {
     const s = st(); if (!s || s.case === 'photos') return productItems();
@@ -307,7 +320,9 @@
     // the brand is his own — the one of his store, else the one named like him, else his first; with none, his name
     if (mk) autoBrand(mk, brands);
     const r = rateNow(); const noStore = mk && mk.wooVendorId == null && s.case !== 'photos';
-    const info = (label, value, attrs) => h('div', Object.assign({ class: 'fl-mk-item' }, attrs || {}), h('span', { class: 't-small help' }, label), h('b', null, value));
+    // the owner 15 Nov («شيل سعر البيع والمتجر على الموقع والبراند وخلّي بس نسبته تبان، ويبقى فيه إمكانية لتعديلها: النسبة العامة أو
+    // نسبة لقسم معيّن»): the rate alone, the categories with their own rate beside it, and «تعديل النسبة» for sensitive.commission = F
+    const catRates = mk && mk.commissionType === 'category_based' ? (mk.categoryRates || []) : [];
     const body = [
       h('div', { class: 'grid2' },
         U.Select({ id: 'fl-maker', label: 'المبتكر', required: true, value: s.vendorId || '', placeholder: vd ? 'اختار المبتكر — اكتب أول حروف اسمه' : 'بنحمّل المبتكرين…',
@@ -316,13 +331,13 @@
           error: noStore ? 'المبتكر ده مالوش متجر على الموقع — اعمله متجر من ملفه الأول' : null }),
         h('div', { class: 'fl-new' }, Button({ size: 'sm', icon: 'plus', label: 'مبتكر جديد', attrs: { 'data-fl-new-maker': '' }, onClick: newMaker }))),
       mk ? h('div', { class: 'fl-maker-info', 'data-fl-maker-info': '' },
-        h('div', { class: 'fl-mk-rate' }, h('span', { class: 't-small help' }, 'نسبة إبتكر'), h('b', { class: 'num', 'data-fl-rate': '' }, r == null ? '—' : U.num(r + '%')),
-          h('small', { class: 'help' }, (feeNow() ? '+ ' + K.n0(feeNow()) + ' ج.م رسوم ثابتة' : 'من غير رسوم ثابتة') + (mk.commissionType === 'category_based' ? ' · بتختلف حسب القسم' : ''))),
-        h('div', { class: 'fl-mk-grid' },
-          info('المبتكر', mk.name),
-          info('المتجر على الموقع', mk.wooVendorId == null ? 'مالوش متجر' : 'موجود'),
-          info('البراند', s.brandName || mk.name, { 'data-fl-brand': '' }),
-          info('سعر البيع', '(سعر المبتكر + الرسوم) ÷ (1 − النسبة)'))) : null,
+        h('div', { class: 'fl-mk-rate' }, h('span', { class: 't-small help' }, catRates.length ? 'نسبة إبتكر العامة' : 'نسبة إبتكر'), h('b', { class: 'num', 'data-fl-rate': '' }, r == null ? '—' : U.num(r + '%')),
+          h('small', { class: 'help' }, feeNow() ? '+ ' + K.n0(feeNow()) + ' ج.م رسوم ثابتة' : 'من غير رسوم ثابتة')),
+        h('div', { class: 'fl-mk-cats', 'data-fl-cat-rates': '' },
+          h('span', { class: 't-small help' }, catRates.length ? 'أقسام ليها نسبة لوحدها' : r == null ? 'نسبة المبتكر مش ظاهرة لك' : 'نفس النسبة على كل الأقسام'),
+          catRates.length ? h('div', { class: 'fl-mk-chips' }, catRates.slice(0, 8).map((c) => h('span', { class: 'fl-mk-chip', 'data-cat': c.wooCategoryId }, h('span', null, c.name), h('b', { class: 'num' }, U.num(c.rate + '%')))),
+            catRates.length > 8 ? h('span', { class: 't-small help' }, '+' + U.num(catRates.length - 8)) : null) : null),
+        canRate() ? h('div', { class: 'fl-mk-act' }, Button({ size: 'sm', icon: 'edit', label: 'تعديل النسبة', attrs: { 'data-fl-rate-edit': '' }, onClick: () => rateModal(mk) })) : null) : null,
       mk ? h('div', { class: 'grid2' }, U.FieldShell({ id: 'fl-code', label: 'كود البراند في الـ SKU (2–4 حروف)', help: 'مثال: glasstora → GLS — IBTGLS1020-OW' }, h('div', { class: 'input' }, h('input', { id: 'fl-code', dir: 'ltr', maxlength: 4, value: s.code || '', 'data-flow-code': '',
           onChange: (ev) => { s.code = String(ev.target.value || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4); touch(); R(); } }))),
         h('div', { class: 'fl-sku-ex t-small help', 'data-fl-sku-ex': '' }, FD.validCode(s.code) ? 'الـ SKU هيبقى: ' : '', FD.validCode(s.code) ? h('b', { dir: 'ltr' }, 'IBT' + s.code + '1020-OW') : null)) : null,
@@ -340,6 +355,63 @@
     });
     if (ok === false) K.toast('إضافة المبتكرين لأدمن أو اللي عنده صلاحية تعديل المبتكرين', 'error');
     else if (!window.IBMakerAdd) { touch(true); go('makers/new'); }
+  }
+  // the rate popup (the owner 15 Nov): «النسبة العامة» (his rate on every category without its own) or «نسبة قسم معيّن» (a category
+  // and its rate). Written like the maker's «الاتفاق التجاري» — IBVendors.store.setCommission (vendor_commission_set, today in Cairo,
+  // then push_vendor ['rate', 'category_rates'] to his Dokan store). A category rate on a maker on «fixed» makes him «category_based»
+  // with his general rate as the default of every other category, so nothing else changes on the site; the category's own flat fee is
+  // kept (the one it has today, set or inherited). sensitive.commission = F only (the adapter and the RPC check it too).
+  const canRate = () => { const Vs = V(); return !!(Vs && Vs.store && Vs.store.canRate && Vs.store.canRate()); };
+  const latin = (x) => String(x == null ? '' : x).replace(/[٠-٩]/g, (c) => String(c.charCodeAt(0) - 0x660)).replace(/[٫,]/g, '.').trim();
+  const rateOk = (x) => { const t = latin(x); const n = Number(t); return t !== '' && Number.isFinite(n) && n >= 0 && n <= 65; };
+  const catComm = (vid, cid) => (PR() && PR().commissionParams && cid != null ? PR().commissionParams({ vendorId: vid, categoryIds: [Number(cid)] }) : null);
+  function rateModal(mk) {
+    const Vs = V(); if (!canRate() || !Vs.store.get) return;
+    const v = Vs.store.get(mk.id) || mk;
+    const opts = cats().map((c) => ({ value: String(c.id), label: c.path || c.name }));
+    const own = new Set(rows().map((x) => catIdOf(x.catEn)).filter((x) => x != null)); // the batch's categories first in the list
+    const sorted = opts.filter((o) => own.has(Number(o.value))).concat(opts.filter((o) => !own.has(Number(o.value))));
+    const effOf = (cid) => { const c = catComm(v.id, cid); return c && c.rate != null ? String(c.rate) : v.rate == null ? '' : String(v.rate); };
+    const first = own.size ? String([...own][0]) : '';
+    K.form({ title: 'تعديل نسبة إبتكر — ' + v.name, values: { kind: 'all', flRateCat: first, flRate: v.rate == null ? '' : String(v.rate) }, submitLabel: 'احفظ النسبة',
+      fields: (f, e, set) => {
+        const out = [K.Radios({ label: 'هتعدّل إيه؟', name: 'fl-rate-kind', value: f.kind, options: [
+          { value: 'all', label: 'النسبة العامة', hint: 'على كل الأقسام اللي مالهاش نسبة لوحدها' },
+          { value: 'cat', label: 'نسبة قسم معيّن', hint: 'القسم ده بس (وأقسامه الفرعية اللي مالهاش نسبة)' }],
+        onChange: (k) => { if (k === f.kind) return; f.flRate = k === 'cat' ? (f.flRateCat ? effOf(f.flRateCat) : '') : v.rate == null ? '' : String(v.rate); set('kind', k, true); } })];
+        if (f.kind === 'cat') out.push(K.field.select('flRateCat', 'القسم', sorted, f, e, (k, val, rd) => { f.flRate = effOf(val); set(k, val, rd); }, { required: true, placeholder: 'اختار القسم — اكتب أول حروف اسمه' }));
+        const cur = f.kind === 'cat' && f.flRateCat ? catComm(v.id, f.flRateCat) : null;
+        out.push(K.field.text('flRate', f.kind === 'cat' ? 'نسبة القسم (%)' : 'النسبة العامة (%)', f, e, set, { required: true, inputmode: 'decimal',
+          help: f.kind === 'cat' ? (cur ? 'دلوقتي ' + cur.rate + '%' + (cur.source === 'category' ? ' (نسبة القسم)' : ' (النسبة العامة)') : 'من 0 لـ 65') : 'من 0 لـ 65 — النسبة بتتطبق على الأوردرات الجديدة من النهارده' }));
+        if (f.kind === 'cat' && v.commissionType !== 'category_based') out.push(U.InlineNote({ children: 'عمولة المبتكر هتبقى «حسب القسم» على الموقع: القسم ده بنسبته، وباقي الأقسام على النسبة العامة' + (v.rate == null ? '' : ' (' + v.rate + '%)') + ' زي ما هي.' }));
+        return out;
+      },
+      validate: (f) => { const e = {}; if (!rateOk(f.flRate)) e.flRate = 'رقم من 0 لـ 65'; if (f.kind === 'cat' && !f.flRateCat) e.flRateCat = 'اختار القسم'; if (f.kind === 'cat' && v.rate == null) e.flRate = 'حط النسبة العامة الأول'; return e; },
+      submit: (f) => { saveRate(v, f); } });
+  }
+  function saveRate(v, f) {
+    const Vs = V(); const id = String(v.id); const n = Number(latin(f.flRate)); const flat = v.rateFlat == null ? null : Number(v.rateFlat);
+    let input;
+    if (f.kind === 'cat') { const c = catComm(v.id, f.flRateCat); const fee = c && Number(c.fee) > 0 ? Number(c.fee) : null; input = { type: 'category_based', rate: Number(v.rate), flat, categories: [{ id: Number(f.flRateCat), rate: n, flat: fee }] }; }
+    else input = { type: v.commissionType === 'category_based' ? 'category_based' : 'fixed', rate: n, flat, categories: [] };
+    // the write's outcome comes back as ib:vendors { id, reason } (refused — the adapter put the old rate back) or { id, written, push }
+    const done = new Promise((resolve) => {
+      const t = setTimeout(() => { document.removeEventListener('ib:vendors', on); resolve({ timeout: true }); }, 30000);
+      function on(e) { const d = (e && e.detail) || {}; if (String(d.id) !== id || !(d.reason || d.written)) return; clearTimeout(t); document.removeEventListener('ib:vendors', on); resolve(d); }
+      document.addEventListener('ib:vendors', on);
+    });
+    try { Vs.store.setCommission(id, input, Vs.store.actor ? Vs.store.actor() : null); } catch (err) { K.toast('النسبة ما اتحفظتش — ' + (err && err.message === 'rate out of range' ? 'رقم من 0 لـ 65' : 'ماعندكش صلاحية تعديل العمولة'), 'error'); return; }
+    const s = st(); if (s) { s.rate = null; s.fee = null; touch(); }
+    R();
+    done.then((d) => {
+      const M = Vs.MESSAGES || {};
+      if (d.reason) K.toast(M[d.reason] || 'النسبة ما اتحفظتش.', 'error');
+      else if (d.timeout) K.toast('النسبة لسه بتتحفظ — افتح ملف المبتكر بعد شوية واتأكد.', 'warning');
+      else if (d.push && d.push.result === 'error') K.toast(d.push.reason === 'woo_refused' ? M.push_refused : d.push.pending === false ? M.push_lost : M.push_failed, 'warning');
+      else if (d.push && d.push.result === 'skipped' && d.push.reason === 'no_permission') K.toast(M.push_forbidden || 'اتحفظت عندنا، والموقع محتاج حد عنده صلاحية تعديل المبتكرين.', 'warning');
+      else K.toast(f.kind === 'cat' ? 'اتحفظت نسبة القسم' : 'اتحفظت النسبة العامة', 'success');
+      if (S.row && st() && st().vendorId === v.id) R();
+    });
   }
   // the maker's own brand (see step2); a batch that already has one of his brands keeps it
   function autoBrand(mk, brands) {
@@ -568,10 +640,11 @@
 
   // ---------------- 4 الأسعار (decision 7) ----------------
   // the rate hidden (no sensitive.commission) → no price is worked out: the member types the sale price
-  function reprice(r, force) { if (rateNow() == null) return; const p = FD.pricesOf(r.vendorPrice, { rate: rateNow(), fee: feeNow(), markup: r.markup == null ? undefined : r.markup }); if (!p) return; if (r.markup == null) r.markup = p.markup; if (force || !r.priceHand) { r.sale = p.sale; r.regular = p.regular; } }
+  // r.rateAt = the rate | fee the computed price used: a rate changed since (the maker step, another category) prices it again
+  function reprice(r, force) { const c = commOf(r); if (!c) return; const p = FD.pricesOf(r.vendorPrice, { rate: c.rate, fee: c.fee, markup: r.markup == null ? undefined : r.markup }); if (!p) return; if (r.markup == null) r.markup = p.markup; if (force || !r.priceHand) { r.sale = p.sale; r.regular = p.regular; r.rateAt = commKey(c); } }
   function step4() {
     const L = rows(); const rate = rateNow();
-    L.forEach((r) => { if (r.vendorPrice != null && r.sale == null) reprice(r); });
+    L.forEach((r) => { if (r.vendorPrice == null) return; if (r.sale == null || (!r.priceHand && r.rateAt !== commKey(commOf(r)))) reprice(r); });
     const num = (r, k, onSet) => h('input', { class: 'input fl-num', inputmode: 'decimal', 'data-fl': k, 'aria-label': FD.LABELS[k] + ' — ' + (r.sku || ''), value: r[k] == null ? '' : String(r[k]), onChange: (ev) => { const v = ev.target.value.trim(); r[k] = v === '' ? null : Number(v); onSet(); touch(); RF(); } });
     const bulk = () => K.form({ title: 'سعر المبتكر لـ ' + S.sel.size + ' صف', values: { v: '' }, submitLabel: 'طبّق',
       fields: (f, e, set) => [K.field.text('v', 'سعر المبتكر (ج.م)', f, e, set, { required: true, inputmode: 'decimal' })], validate: (f) => (Number(f.v) > 0 ? {} : { v: 'رقم أكبر من صفر' }),
@@ -579,16 +652,17 @@
     // the owner 15 Nov («صلح شكل الجدول و إظهر بيانات المنتج العربي بس»): a grid, not a <table> (the system's table sweeps — the sticky
     // first column, the person cell — broke its columns), the photo inside the product cell, the product's Arabic data only (its
     // Arabic name, the SKU, the Arabic color and size; the English one only while the Arabic is missing); on a phone a card each
-    const rateEl = () => (rate == null ? '—' : U.num(rate + '%'));
+    // the product's own rate (its category's when the maker has one there — «نسبة القسم»)
+    const rateEl = (r) => { const c = commOf(r); return c == null ? '—' : h('span', { 'data-fl-row-rate': '', title: c.byCat ? 'نسبة القسم' : 'النسبة العامة' }, U.num(c.rate + '%'), c.byCat ? h('small', { class: 'help' }, ' · القسم') : null); };
     const pcell = (cls, label, child) => h('div', { class: 'fl-pc' + (cls ? ' ' + cls : ''), role: 'cell' }, label ? h('span', { class: 'fl-plbl', 'aria-hidden': 'true' }, label) : null, child);
     const prow = (r) => {
       const meta = [r.colorAr || r.colorEn, arSize(r)].filter(Boolean).join(' · ');
       return h('div', { class: 'fl-prow' + (!(Number(r.sale) > 0) ? ' row-err' : ''), role: 'row', 'data-row': r.key },
         pcell('c-cb', null, selBox(r.key, r.nameAr || r.nameEn || r.sku)),
         pcell('c-prod', null, h('div', { class: 'fl-pprod' }, Thumb(r.ref, 'fl-pthumb'), h('div', { class: 'fl-info' }, h('b', { dir: 'rtl', 'data-fl-name': '' }, r.nameAr || r.nameEn || '—'),
-          h('small', { class: 'num' }, h('bdi', { dir: 'ltr' }, r.sku || '—')), meta ? h('small', null, meta) : null, h('small', { class: 'fl-prate-m' }, 'نسبة إبتكر ', rateEl())))),
+          h('small', { class: 'num' }, h('bdi', { dir: 'ltr' }, r.sku || '—')), meta ? h('small', null, meta) : null, h('small', { class: 'fl-prate-m' }, 'نسبة إبتكر ', rateEl(r))))),
         pcell(null, 'سعر المبتكر', num(r, 'vendorPrice', () => { r.priceHand = false; reprice(r, true); })),
-        pcell('c-rate', null, h('span', { class: 'help' }, rateEl())),
+        pcell('c-rate', null, h('span', { class: 'help' }, rateEl(r))),
         pcell(null, 'سعر البيع', num(r, 'sale', () => { r.priceHand = true; })),
         pcell(null, 'قبل الخصم', num(r, 'regular', () => { r.priceHand = true; })),
         pcell('c-menu', null, K.RowMenu([{ label: 'احسب السعر تاني', icon: 'undo', run: () => { r.priceHand = false; r.markup = null; reprice(r, true); touch(); R(); } }, { label: 'شيل من الدفعة', icon: 'trash', danger: true, run: () => { st().rows = st().rows.filter((x) => x !== r); touch(); R(); } }], 'إجراءات ' + (r.sku || ''))));
@@ -598,7 +672,7 @@
       h('div', { class: 'fl-prow head', role: 'row' }, hcell(allBox(L.map((r) => r.key)), 'c-cb'), hcell('المنتج', 'c-prod'), hcell('سعر المبتكر'), hcell('نسبة إبتكر', 'c-rate'), hcell('سعر البيع'), hcell('قبل الخصم'), hcell('', 'c-menu')),
       L.map(prow));
     const ok = L.length > 0 && L.every((r) => Number(r.sale) > 0);
-    return [Card('الأسعار', 'سعر البيع = (سعر المبتكر + الرسوم) ÷ (1 − نسبة إبتكر) لأقرب 10، وقبل الخصم أعلى بـ 15–30%. نسبة إبتكر من حساب المبتكر.', [
+    return [Card('الأسعار', 'سعر البيع = (سعر المبتكر + الرسوم) ÷ (1 − نسبة إبتكر) لأقرب 10، وقبل الخصم أعلى بـ 15–30%. نسبة إبتكر من حساب المبتكر — ولو القسم ليه نسبة لوحده بتتحسب بيها.', [
       rate == null ? U.InlineNote({ kind: 'warning', children: 'نسبة المبتكر مش ظاهرة لك — السعر مش هيتحسب لوحده، اكتب سعر البيع بإيدك.' }) : null,
       BulkBar([Button({ size: 'sm', icon: 'edit', label: 'سعر المبتكر للمحدد', onClick: bulk })]), table]), Foot(ok, 'كل الصفوف محتاجة سعر بيع')];
   }
@@ -645,7 +719,7 @@
     return el;
   }
   function step5() {
-    const s = st(); const us = units(); const rate = rateNow();
+    const s = st(); const us = units();
     const features = Card('صورة المميزات', 'صورة واحدة للدفعة كلها — بتتحط في آخر صور كل المنتجات.', [h('div', { class: 'fl-feat' }, Thumb(s.features, 'st-big'),
       h('div', { class: 'acts-inline' }, Button({ size: 'sm', icon: 'upload', label: s.features ? 'بدّل' : 'ارفع صورة المميزات', attrs: { 'data-flow-features': '' }, onClick: () => filePick('image/*', false, async (f) => { const r = await ST().uploadImage(S.id, f[0], 'features', { webp: true }); if (r.ok) { s.features = r.path; touch(); R(); } }) }),
         s.features ? U.IconButton({ icon: 'trash', label: 'حذف صورة المميزات', onClick: () => { s.features = null; touch(); R(); } }) : null))]);
@@ -657,7 +731,7 @@
       return h('div', { class: 'fl-unit fl-ucard', 'data-unit': u.key },
         h('div', { class: 'fl-uhead' }, h('div', { class: 'fl-ucb' }, selBox(u.key, r.nameAr || r.nameEn || r.sku)), Thumb(r.ref, 'fl-pthumb'),
           h('div', { class: 'fl-info' }, h('b', null, r.nameAr || r.nameEn || '—'), h('small', { class: 'num' }, h('bdi', { dir: 'ltr' }, FD.imageSku(r.sku, r.size) || r.sku || '')), meta ? h('small', null, meta) : null),
-          h('div', { class: 'fl-uprice' }, h('b', { class: 'brand-t' }, money(r.sale)), r.regular ? h('s', { class: 'help' }, money(r.regular)) : null, h('small', { class: 'help' }, 'نسبة إبتكر ', rate == null ? '—' : U.num(rate + '%'))),
+          h('div', { class: 'fl-uprice' }, h('b', { class: 'brand-t' }, money(r.sale)), r.regular ? h('s', { class: 'help' }, money(r.regular)) : null, h('small', { class: 'help' }, 'نسبة إبتكر ', (() => { const c = commOf(r); return c == null ? '—' : U.num(c.rate + '%'); })())),
           h('div', { class: 'fl-umenu' }, K.RowMenu([{ label: 'ولّد الناقص للمنتج ده', icon: 'sparkle', run: () => genMissing([u]) }, { label: 'امسح صوره', icon: 'trash', danger: true, run: () => { s.shots[u.key] = [null, null, null, null]; touch(); R(); } }], 'إجراءات ' + (r.sku || '')))),
         h('div', { class: 'fl-shots' }, [0, 1, 2, 3].map((k) => slot(u, k)), sizeCell));
     });

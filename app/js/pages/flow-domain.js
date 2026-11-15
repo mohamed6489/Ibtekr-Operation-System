@@ -184,7 +184,7 @@
   // ---------------------------------------------------------------- prices (decision 7 = the studio's rule, phase 5 decision 16)
   /** a row's prices from the maker's price: { sale, regular } (null when the price or the rate is missing). The markup kept per row. */
   function pricesOf(vendor, o) {
-    const p = PD.priceFromVendor(vendor, { rate: o && o.rate, fee: o && o.fee, markup: o && o.markup });
+    const p = PD.priceFromVendor(vendor, { rate: o && o.rate, fee: o && o.fee, markup: o && o.markup, fake: o && o.fake }); // fake: the «الخصم الوهمي» tiers (15 Nov)
     return p ? { sale: p.sale, regular: p.regular, markup: p.markup } : null;
   }
 

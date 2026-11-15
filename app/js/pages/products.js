@@ -649,14 +649,14 @@
     const next = (p, o) => {
       if (o.target === 'discount') { const d = Math.min(90, Math.max(0, o.mode === 'pct' ? +(p.disc * (1 + (o.dir * o.amount) / 100)).toFixed(1) : p.disc + o.dir * o.amount)); return { sale: p.sale, regular: Math.round(p.sale / (1 - d / 100)), disc: d }; }
       if (p.rate == null || p.vendorPrice == null) return null;
-      const r = PD.bulkPrice(p, o); const pr = PD.priceFromVendor(r.vendorPrice, { rate: r.rate, fee: p.fee, markup: p.markup });
+      const r = PD.bulkPrice(p, o); const pr = PD.priceFromVendor(r.vendorPrice, { rate: r.rate, fee: p.fee, markup: p.markup, fake: fakeNow() });
       return pr ? { sale: pr.sale, regular: pr.regular, rate: r.rate, vendorPrice: r.vendorPrice } : null;
     };
     K.form({ title: 'تعديل سعر ' + (simple.length === 1 ? 'منتج' : simple.length + ' منتجات'), values: { target: TG[0][0], dir: '1', mode: 'pct', amount: '10' }, submitLabel: 'طبّق السعر',
       fields: (f, e, set, draw) => { const opt = { target: f.target, mode: f.mode, dir: Number(f.dir), amount: Number(f.amount) }; const ok = Number(f.amount) > 0;
         const rows = ok ? items.slice(0, 5).map((p) => { const r = next(p, opt); return [nameOf(p), !r ? 'مالوش نسبة ظاهرة' : f.target === 'vendor' ? K.n0(p.vendorPrice) + ' ← ' + K.n0(r.vendorPrice) : f.target === 'rate' ? p.rate + '% ← ' + r.rate + '%' : p.disc + '% ← ' + r.disc + '%', r ? K.n0(p.sale) + ' ← ' + K.n0(r.sale) : '—']; }) : [];
         const seg = (key, opts) => h('div', { class: 'chips', role: 'radiogroup' }, opts.map(([v, lab]) => chipBtn(lab, f[key] === v, () => { f[key] = v; draw(); }, { role: 'radio', 'aria-checked': String(f[key] === v) })));
-        return [U.FieldShell({ id: 'bp-t', label: 'تعدّل إيه؟', required: true, help: (C.commission ? 'سعر المبتكر أو النسبة بيحسبوا سعر البيع (لفوق لأقرب 10) وقبل الخصم (+15–30% عشوائي) · النسبة والخصم بالنقط (%)' : 'الخصم الوهمي بيغيّر السعر قبل الخصم بس — سعر البيع زي ما هو') }, seg('target', TG)),
+        return [U.FieldShell({ id: 'bp-t', label: 'تعدّل إيه؟', required: true, help: (C.commission ? 'سعر المبتكر أو النسبة بيحسبوا سعر البيع (لفوق لأقرب 10) وقبل الخصم (' + (fakeNow() ? 'بشرايح «الخصم الوهمي»' : '+15–30% عشوائي') + ') · النسبة والخصم بالنقط (%)' : 'الخصم الوهمي بيغيّر السعر قبل الخصم بس — سعر البيع زي ما هو') }, seg('target', TG)),
           K.two(U.FieldShell({ id: 'bp-d', label: 'زيادة ولا نقص' }, seg('dir', [['1', 'زيادة'], ['-1', 'نقص']])), U.FieldShell({ id: 'bp-m', label: 'بنسبة ولا بقيمة' }, seg('mode', [['pct', 'نسبة %'], ['value', f.target === 'vendor' ? 'قيمة (ج.م)' : 'قيمة (نقط)']]))),
           K.field.text('amount', 'المقدار', f, e, (k, v) => { set(k, v); draw(); }, { required: true, inputmode: 'numeric', help: 'مثال: 10' + (f.mode === 'pct' ? '%' : '') + ' ' + (f.dir === '1' ? 'زيادة' : 'نقص') + ' على ' + TG.find((x) => x[0] === f.target)[1] }),
           rows.length ? U.FieldShell({ id: 'bp-p', label: 'قبل ← بعد' }, U.Table({ cls: 'dt', headers: ['المنتج', TG.find((x) => x[0] === f.target)[1], 'سعر البيع'], rows })) : null,
@@ -878,10 +878,14 @@
   function fromVendor(params, val, key) {
     const t = digits(val); if (!/^\d+(\.\d{1,2})?$/.test(t)) return null;
     st.marks = st.marks || {}; if (st.marks[key] == null) st.marks[key] = PD.randomMarkup();
-    return PD.priceFromVendor(Number(t), { rate: params.rate || 0, fee: params.fee || 0, markup: st.marks[key] });
+    return PD.priceFromVendor(Number(t), { rate: params.rate || 0, fee: params.fee || 0, markup: st.marks[key], fake: fakeNow() });
   }
+  // «الخصم الوهمي» بالشرايح (the owner 15 Nov — fake-discount plan decision 4): «قبل الخصم» = the sale price + its tier's addition from
+  // the settings' default (الإعدادات › إعدادات المبتكرين); a price with no tier, or no tiers at all, = the old sale + 15–30%
+  function fakeNow() { return window.IBFakeDiscount ? window.IBFakeDiscount.rule() : null; }
+  const fakeHelp = () => (fakeNow() ? 'سعر البيع + زيادة شريحته من «الخصم الوهمي»' : 'سعر البيع + 15–30%');
   const paramsLabel = (c) => (c.source === 'product' ? 'عمولة المنتج' : c.source === 'category' ? 'نسبة القسم' : 'نسبة المتجر') + (c.rate != null ? ' ' + c.rate + '%' : '') + (c.fee ? ' + ' + K.n0(c.fee) + ' ج.م' : '');
-  const calcHelp = (c) => 'سعر البيع = (سعر المبتكر' + (c.fee ? ' + ' + K.n0(c.fee) : '') + ') ÷ ' + (c.rate ? (1 - c.rate / 100).toFixed(2).replace(/0+$/, '').replace(/\.$/, '') : '1') + ' لفوق لأقرب 10 · قبل الخصم = سعر البيع + 15–30% · ' + paramsLabel(c);
+  const calcHelp = (c) => 'سعر البيع = (سعر المبتكر' + (c.fee ? ' + ' + K.n0(c.fee) : '') + ') ÷ ' + (c.rate ? (1 - c.rate / 100).toFixed(2).replace(/0+$/, '').replace(/\.$/, '') : '1') + ' لفوق لأقرب 10 · قبل الخصم = ' + fakeHelp() + ' · ' + paramsLabel(c);
   function editView() {
     const id = st.editId; const C = can(); const rec = byId(id);
     const back = Button({ type: 'text', size: 'sm', label: '→ رجوع للسجل', onClick: () => leaveGuard(() => go('products-records')) });

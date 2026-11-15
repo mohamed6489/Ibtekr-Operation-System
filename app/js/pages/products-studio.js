@@ -232,7 +232,9 @@
   const vendorRec = () => { const V = window.IBVendors; return S.state.vendorId && V && V.store && V.store.get ? V.store.get(S.state.vendorId) : null; };
   const rateNow = () => (S.state.rate != null ? Number(S.state.rate) : PR() ? PR().rateOf(S.state.vendorId) : null);
   const feeNow = () => { if (S.state.fee != null) return Number(S.state.fee); const v = vendorRec(); return v && v.rateFlat ? Number(v.rateFlat) : 0; };
-  function priceOf(vp, markup) { const r = rateNow(); if (r == null || !(Number(vp) > 0)) return null; return PD.priceFromVendor(Number(vp), { rate: r, fee: feeNow(), markup }); }
+  function priceOf(vp, markup) { const r = rateNow(); if (r == null || !(Number(vp) > 0)) return null; return PD.priceFromVendor(Number(vp), { rate: r, fee: feeNow(), markup, fake: fakeNow() }); }
+  // «الخصم الوهمي» بالشرايح (the owner 15 Nov — fake-discount plan decision 4): the settings' default tiers give «قبل الخصم» here too
+  const fakeNow = () => (window.IBFakeDiscount ? window.IBFakeDiscount.rule() : null);
   // an uploaded item is on the batch's maker: the Dokan store its ids were set to (result authorOwner) is the chosen maker's; a
   // result without it (before woo-sync v33) or a maker not known here counts as yes
   const onMaker = (r) => { const v = vendorRec(); return r.authorOwner === undefined || !v || v.wooVendorId == null || r.authorOwner === v.wooVendorId; };
@@ -361,7 +363,7 @@
       moved ? U.InlineNote({ kind: 'warning', children: 'في منتجات اترفعت على مبتكر تاني — «ارفع على الموقع» في «المراجعة والرفع» بيحط المبتكر ده عليها، إلا الـ Variable اللي اتعملت تركيباته: بيفضل على المبتكر القديم.' }) : null,
       h('div', { class: 'rate-field', id: 'rate-box' }, h('span', { class: 't-small help' }, 'نسبة إبتكر'), h('b', null, r == null ? '—' : U.num(r + '%')), h('small', { class: 'help' }, ' + ' + K.n0(feeNow()) + ' ج.م رسوم'), h('span', { class: 'grow' }), Button({ size: 'sm', label: 'تغيير', onClick: changeRate })),
       r == null && s.vendorId ? U.InlineNote({ kind: 'warning', children: 'نسبة المبتكر مش ظاهرة لك — اكتبها بـ «تغيير» عشان الأسعار تتحسب.' }) : null,
-      h('div', { class: 'formula' }, h('small', null, 'معاينة المعادلة'), ex ? h('span', null, 'سعر المبتكر 1,000 ← سعر البيع ', h('b', null, K.n0(ex.sale)), ' ← قبل الخصم ', h('b', null, K.n0(ex.regular)), ' (+15–30% عشوائي)') : h('span', null, 'اختار البراند الأول')),
+      h('div', { class: 'formula' }, h('small', null, 'معاينة المعادلة'), ex ? h('span', null, 'سعر المبتكر 1,000 ← سعر البيع ', h('b', null, K.n0(ex.sale)), ' ← قبل الخصم ', h('b', null, K.n0(ex.regular)), ex.tiered ? ' (بشرايح «الخصم الوهمي»)' : ' (+15–30% عشوائي)') : h('span', null, 'اختار البراند الأول')),
       h('small', { class: 't-small help' }, 'المسلسل الجاي في الموقع: ', U.num(PD.serialText(ST().nextSerial()) || '0999'), ' — بيتحجز وقت الرفع بس')]);
     const ok = !!s.brandId && !!PD.brandCode(s.brandName) && !!mk && !noStore && (s.type === 'Simple' || s.vary.length > 0);
     return [h('div', { class: 'cols2-wide' }, L, R2), WizFoot(ok, !s.brandId ? 'اختار البراند' : !mk ? 'اختار المبتكر' : noStore ? 'اختار مبتكر ليه متجر على الموقع' : 'اختار هيتغير في إيه')];
@@ -734,11 +736,11 @@
       const vr = isVar() ? it.variations.map((v) => priceOf(v.vendorPrice, ensureMarkup(v))).filter(Boolean) : [];
       return { cells: [selBox(it), PCell(it), isVar() ? h('span', { class: 'help' }, 'لكل تركيبة') : vin, r == null ? '—' : K.Num(r + '%'),
         isVar() ? (vr.length ? h('span', null, U.num(K.n0(Math.min(...vr.map((x) => x.sale)))), ' – ', U.num(K.n0(Math.max(...vr.map((x) => x.sale))))) : '—') : p ? h('b', { class: 'brand-t' }, U.num(K.n0(p.sale))) : '—',
-        isVar() ? '—' : p ? h('span', { class: 'help' }, U.num(K.n0(p.regular)), ' (+', p.markup, '%)') : '—', isVar() ? Button({ size: 'sm', type: 'text', label: 'التركيبات', onClick: () => goStep(4) }) : Button({ size: 'sm', type: 'text', label: 'سعر قبل الخصم تاني', onClick: () => { it.markup = PD.randomMarkup(); touch(); R(); } })] }; });
+        isVar() ? '—' : p ? h('span', { class: 'help' }, U.num(K.n0(p.regular)), p.tiered ? ' (بالشرايح)' : ' (+' + p.markup + '%)') : '—', isVar() ? Button({ size: 'sm', type: 'text', label: 'التركيبات', onClick: () => goStep(4) }) : Button({ size: 'sm', type: 'text', label: 'سعر قبل الخصم تاني', onClick: () => { it.markup = PD.randomMarkup(); touch(); R(); } })] }; });
     const bulk = () => K.form({ title: 'سعر المبتكر للمحدد (' + S.sel.size + ')', values: { v: '' }, fields: (f, e, set) => [K.field.text('v', 'سعر المبتكر الجديد', f, e, set, { required: true, inputmode: 'numeric' })],
       validate: (f) => (Number(f.v) > 0 ? {} : { v: 'اكتب سعر صحيح' }), submit: (f) => { sel().forEach((it) => { it.vendorPrice = Number(f.v); it.variations.forEach((v) => { v.vendorPrice = Number(f.v); }); }); touch(); R(); } });
     return [TotalsBar([['المنتجات', L.length], ['نسبة إبتكر', r == null ? '—' : r + '%'], ['الرسوم', money(feeNow())]], Button({ size: 'sm', label: 'غيّر النسبة للدفعة', onClick: changeRate })),
-      Card('المعادلة (قرار 16)', null, [h('div', { class: 'formula' }, h('span', null, 'سعر البيع = (سعر المبتكر + الرسوم) ÷ (1 − نسبة إبتكر) لفوق لأقرب 10'), h('span', null, 'السعر قبل الخصم = سعر البيع + 15–30% عشوائي لفوق لأقرب 10'))]),
+      Card('المعادلة (قرار 16)', null, [h('div', { class: 'formula' }, h('span', null, 'سعر البيع = (سعر المبتكر + الرسوم) ÷ (1 − نسبة إبتكر) لفوق لأقرب 10'), h('span', null, fakeNow() ? 'السعر قبل الخصم = سعر البيع + زيادة شريحته من «الخصم الوهمي» (الإعدادات › إعدادات المبتكرين)' : 'السعر قبل الخصم = سعر البيع + 15–30% عشوائي لفوق لأقرب 10'))]),
       BulkBar([Button({ type: 'primary', size: 'sm', icon: 'edit', label: 'عدّل سعر المبتكر للمحدد', onClick: bulk })]),
       h('section', { class: 'card sec' }, h('div', { class: 'sec-b' }, STable([{ l: allBox(L), w: 48 }, { l: 'المنتج' }, { l: 'سعر المبتكر', w: 130 }, { l: 'نسبة إبتكر', w: 100 }, { l: 'سعر البيع', w: 150 }, { l: 'قبل الخصم', w: 150 }, { l: '', w: 140 }], rows, 'السعر'))),
       WizFoot(r != null && L.every((it) => (isVar() ? it.variations.every((v) => v.vendorPrice > 0) : it.vendorPrice > 0)), r == null ? 'نسبة إبتكر ناقصة — «غيّر النسبة للدفعة»' : 'في سعر ناقص')];

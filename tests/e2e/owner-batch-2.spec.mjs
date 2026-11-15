@@ -504,14 +504,18 @@ test('T10 — decisions 5, 7, 9: «مطلوبة مني» / «طلباتي» with
   await expect.poll(() => page.evaluate((u) => window.IBHR.workDaysOf(u), uid)).toEqual([5, 6]);
   expect(await page.evaluate((u) => [window.IBHR.isWorkDay('2026-11-06', u), window.IBHR.isWorkDay('2026-11-08', u), window.IBHR.isWorkDay('2026-11-08')], uid)).toEqual([true, false, true]);
   expect(who.length).toBeGreaterThan(0);
-  // 5: «ملفي › طلباتي» — «مطلوبة مني» first with its overview, then «طلباتي»
+  // 5: «ملفي › طلباتي» — «مطلوبة مني» first, then «طلباتي». The owner's comments 15 Nov (2026-11-15-comments.md decisions 2 and 3): the
+  // «نظرة عامة» cards above the list are gone, and each tab carries the number of its open requests (= its «المفتوحة» list)
   await go(page, '#profile-requests');
   const P = page.locator('#pg-profile');
   await expect(P.locator('#tab-forme')).toHaveAttribute('aria-selected', 'true');
-  await expect(P.locator('[data-my-req-kpis="forme"] [data-my-req-kpi]')).toHaveCount(4);
-  await expect(P.locator('[data-my-req-kpis="forme"]')).toContainText('اتحلت الشهر ده');
+  await expect(P.locator('[data-my-req-kpis]')).toHaveCount(0); await expect(P.locator('.card-title, h2, h3').filter({ hasText: /^نظرة عامة$/ })).toHaveCount(0);
+  const openOf = async () => Number(await P.locator('.subtab[aria-selected=true] .cnt').innerText());
+  await expect(P.locator('#tab-forme .cnt')).toHaveText(String(await openOf())); await expect(P.locator('#tab-mine .cnt')).toHaveText(/^\d+$/);
+  await expect(P.locator('[data-my-req]')).toHaveCount(await openOf());
   await P.locator('#tab-mine').click();
-  await expect(P.locator('[data-my-req-kpis="mine"]')).toBeVisible();
+  await expect(P.locator('#tab-mine')).toHaveAttribute('aria-selected', 'true');
+  await expect(P.locator('#tab-mine .cnt')).toHaveText(String(await openOf())); await expect(P.locator('[data-my-req]')).toHaveCount(await openOf());
   await go(page, '#profile-requests-forme');
   await expect(P.locator('#tab-forme')).toHaveAttribute('aria-selected', 'true');
 });

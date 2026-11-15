@@ -511,7 +511,7 @@ const PNG_4X2 = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEkl
 test('B4: «الأقسام» — green main cards, beige sub rows with «-» / «--», the arrow, the search, a sub-category and a main one on the site with a square image', async ({ page }) => {
   await openProducts(page);
   const pg = page.locator('#pg-products');
-  await page.getByRole('tab', { name: /^الأقسام · 4$/ }).click();
+  await page.getByRole('tab', { name: 'الأقسام', exact: true }).click(); // without the categories' count (the owner 15 Nov, 2026-11-15-comments.md decision 1)
   await expect(page).toHaveURL(/#products-cats$/);
   const main = (id) => pg.locator(`.cat-main[data-cat="${id}"]`); const sub = (id) => pg.locator(`.cat-sub[data-cat="${id}"]`);
   await expect(pg.locator('.cat-main')).toHaveCount(2); // the two main categories, closed
@@ -629,7 +629,7 @@ test('decision 62: the tabs are نظرة عامة · إضافة · سجل الم
   await page.locator('.sidebar .nav-item[data-page="products"]').click();
   const pg = page.locator('#pg-products');
   const tabs = pg.locator('[role=tab]');
-  await expect(tabs).toHaveText(['نظرة عامة', 'إضافة', 'سجل المنتجات', /^الأقسام · \d+$/, 'سجل الحركة', 'التقارير']);
+  await expect(tabs).toHaveText(['نظرة عامة', 'إضافة', 'سجل المنتجات', 'الأقسام', 'سجل الحركة', 'التقارير']); // «الأقسام» without its count (2026-11-15-comments.md decision 1)
   await expect(page).toHaveURL(/#products-overview$/);
   await expect(pg.locator('.kpi[aria-label="المنتجات"]')).toContainText('4');
   await expect(pg.locator('.kpi[aria-label="خلص ستوكه ولسه منشور"]')).toHaveCount(0); // B3: the stock tile and table are gone

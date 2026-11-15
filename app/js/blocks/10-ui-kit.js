@@ -317,7 +317,7 @@
   function EmptyState(title, text) { return h('div', { class: 'empty' }, h('div', { class: 't t-h5' }, title), h('div', { class: 's' }, text)); }
   function Tabs({ items, active, onChange }) {
     const list = h('div', { class: 'tabs', role: 'tablist', 'aria-label': 'أقسام الحسابات' });
-    items.forEach((t) => list.append(h('button', { type: 'button', role: 'tab', class: 'tab', id: 'tab-' + t.id, 'aria-selected': String(t.id === active), 'aria-controls': 'panel', tabindex: t.id === active ? '0' : '-1', onClick: () => onChange(t.id) }, t.label)));
+    items.forEach((t) => list.append(h('button', { type: 'button', role: 'tab', class: 'tab', id: 'tab-' + t.id, 'aria-selected': String(t.id === active), 'aria-controls': 'panel', tabindex: t.id === active ? '0' : '-1', onClick: () => onChange(t.id) }, t.label, t.count != null ? h('span', { class: 'cnt' }, String(t.count)) : null))); // count: the tab's number (2026-11-15-comments.md decision 3)
     list.addEventListener('keydown', (e) => {
       const i = items.findIndex((t) => t.id === active); let n = null;
       if (e.key === 'ArrowLeft') n = (i + 1) % items.length; // RTL: left = next

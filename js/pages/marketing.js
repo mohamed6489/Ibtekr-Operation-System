@@ -16,7 +16,7 @@
   'use strict';
   const U = window.IBUI, K = window.IBKit, PD = window.IbtekrProducts, W = window.IbtekrCampWiz;
   // owner batch 2 decision 14: «تعليمات» = the admin's instruction templates (الإعدادات › الذكاء الاصطناعي — «الصور» for the images,
-  // «الفيديو» for a video; «البوست» is applied to every post already) picked one or more + the member's own words. Only the ids are kept
+  // «الفيديو» for a video; «البوست» is applied to every post already) — one picked (15 Nov) — + the member's own words. Only the ids are kept
   // (state.w.media.<tab>.tpl) — the server reads their text from the settings (templateNotes), never from the page.
   // The owner 15 Nov: «خلي قوالب التعليمات يبقى فيها غير محدد … والتعليمات الجديدة للصور والفيديوهات تتحط فيها» — «غير محدد» first (none
   // picked), then every template of the piece's kind: the images' new ones for a post / carousel («البوست» of the images is applied to
@@ -34,11 +34,13 @@
     if (window.IBSettings && window.IBSettings.loadPublic && Date.now() - tplAt > 30000) { tplAt = Date.now(); const before = tplKey();
       Promise.resolve(window.IBSettings.loadPublic()).then(() => { if (tplKey() !== before) R(); }, () => {}); }
     const L = aiTemplates(tab);
-    const known = new Set(L.map((x) => x.id)); const cur = (Array.isArray(m.tpl) ? m.tpl : []).filter((id) => known.has(id));
-    return h('div', { 'data-cw-tpl': tab }, K.MultiPick({ id: 'cw-tpl-' + tab, label: 'قوالب التعليمات', field: true, search: L.length > 6,
-      help: L.length ? 'تعليمات جاهزة من الإعدادات — تقدر تختار أكتر من واحد وتكتب تحتها اللي عايزه زيادة.' : 'مفيش تعليمات ' + (tab === 'video' ? 'للفيديو' : 'للصور') + ' لسه — الأدمن بيضيفها من الإعدادات › الذكاء الاصطناعي («+ تعليمات جديدة»).',
-      options: [{ value: NO_TPL, label: 'غير محدد' }].concat(L.map((x) => ({ value: x.id, label: x.name || x.id }))), value: cur.length ? cur : [NO_TPL],
-      onChange: (v) => { const next = v.includes(NO_TPL) && cur.length ? [] : v.filter((x) => x !== NO_TPL); m.tpl = next.slice(0, 10); persist(); R(); } }));
+    // the owner 15 Nov («خلي اختيار قوالب التعليمات لاختيار واحد بس و شيل تم و مسح»): one template, picked like any dropdown — the
+    // pick closes the list, no «تم» / «مسح»; «غير محدد» = none. Kept as a one-id list (the server reads state…tpl as a list)
+    const known = new Set(L.map((x) => x.id)); const cur = (Array.isArray(m.tpl) ? m.tpl : []).find((id) => known.has(id)) || NO_TPL;
+    return h('div', { 'data-cw-tpl': tab }, U.Select({ id: 'cw-tpl-' + tab, label: 'قوالب التعليمات',
+      help: L.length ? 'تعليمات جاهزة من الإعدادات — اختار واحدة واكتب تحتها اللي عايزه زيادة.' : 'مفيش تعليمات ' + (tab === 'video' ? 'للفيديو' : 'للصور') + ' لسه — الأدمن بيضيفها من الإعدادات › الذكاء الاصطناعي («+ تعليمات جديدة»).',
+      options: [{ value: NO_TPL, label: 'غير محدد' }].concat(L.map((x) => ({ value: x.id, label: x.name || x.id }))), value: cur,
+      onChange: (v) => { m.tpl = v && v !== NO_TPL ? [v] : []; persist(); R(); } }));
   }
   if (!U || !K || !W || !window.IBPages) return;
   const { h, Icon, Button } = U;

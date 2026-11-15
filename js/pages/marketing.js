@@ -18,15 +18,23 @@
   // owner batch 2 decision 14: «تعليمات» = the admin's instruction templates (الإعدادات › الذكاء الاصطناعي — «الصور» for the images,
   // «الفيديو» for a video; «البوست» is applied to every post already) picked one or more + the member's own words. Only the ids are kept
   // (state.w.media.<tab>.tpl) — the server reads their text from the settings (templateNotes), never from the page.
+  // The owner 15 Nov: «خلي قوالب التعليمات يبقى فيها غير محدد … والتعليمات الجديدة للصور والفيديوهات تتحط فيها» — «غير محدد» first (none
+  // picked), then every template of the piece's kind: the images' new ones for a post / carousel («البوست» of the images is applied to
+  // every image already), and all the videos' ones for a video («البوست» included — nothing applies it to a video by itself).
+  const NO_TPL = 'none';
   const aiTemplates = (tab) => { const p = window.IBSettings && window.IBSettings.public ? window.IBSettings.public() : null; const all = p && p.aiTemplates ? p.aiTemplates : {};
-    return (Array.isArray(all[tab === 'video' ? 'vid' : 'img']) ? all[tab === 'video' ? 'vid' : 'img'] : []).filter((x) => x && x.id && x.id !== 'post'); };
+    const video = tab === 'video';
+    return (Array.isArray(all[video ? 'vid' : 'img']) ? all[video ? 'vid' : 'img'] : []).filter((x) => x && x.id && x.id !== NO_TPL && (video || x.id !== 'post')); };
+  let tplAsked = false; // a session signed in before 0100 has no aiTemplates in its public settings — read them once
   function tplPick(tab, m) {
+    const P = window.IBSettings && window.IBSettings.public ? window.IBSettings.public() : null;
+    if (P && !P.aiTemplates && !tplAsked && window.IBSettings.loadPublic) { tplAsked = true; Promise.resolve(window.IBSettings.loadPublic()).then(() => R(), () => {}); }
     const L = aiTemplates(tab);
-    if (!L.length) return h('p', { class: 't-small help', 'data-cw-tpl-empty': tab, style: 'margin:0' }, 'مفيش قوالب تعليمات — الأدمن بيضيفها من الإعدادات › الذكاء الاصطناعي («+ تعليمات جديدة»).');
     const known = new Set(L.map((x) => x.id)); const cur = (Array.isArray(m.tpl) ? m.tpl : []).filter((id) => known.has(id));
-    return h('div', { 'data-cw-tpl': tab }, K.MultiPick({ id: 'cw-tpl-' + tab, label: 'قوالب التعليمات', field: true, placeholder: 'اختار قالب أو أكتر', search: L.length > 6,
-      help: 'تعليمات جاهزة من الإعدادات — تقدر تختار أكتر من واحد وتكتب تحتها اللي عايزه زيادة.',
-      options: L.map((x) => ({ value: x.id, label: x.name || x.id })), value: cur, onChange: (v) => { m.tpl = v.slice(0, 10); persist(); } }));
+    return h('div', { 'data-cw-tpl': tab }, K.MultiPick({ id: 'cw-tpl-' + tab, label: 'قوالب التعليمات', field: true, search: L.length > 6,
+      help: L.length ? 'تعليمات جاهزة من الإعدادات — تقدر تختار أكتر من واحد وتكتب تحتها اللي عايزه زيادة.' : 'مفيش تعليمات ' + (tab === 'video' ? 'للفيديو' : 'للصور') + ' لسه — الأدمن بيضيفها من الإعدادات › الذكاء الاصطناعي («+ تعليمات جديدة»).',
+      options: [{ value: NO_TPL, label: 'غير محدد' }].concat(L.map((x) => ({ value: x.id, label: x.name || x.id }))), value: cur.length ? cur : [NO_TPL],
+      onChange: (v) => { const next = v.includes(NO_TPL) && cur.length ? [] : v.filter((x) => x !== NO_TPL); m.tpl = next.slice(0, 10); persist(); R(); } }));
   }
   if (!U || !K || !W || !window.IBPages) return;
   const { h, Icon, Button } = U;

@@ -44,10 +44,13 @@ test('photos by row (decision 3): «1» / «01» / «1-2» / «1_2» / «1 (2)»
   assert.deepEqual(a.unmatched, ['x.png']);
 });
 
-test('the owner 15 Nov («مبتترفعش»): a photo without a number takes the next free row, one a row, in the order picked — none is dropped', () => {
-  // a maker's photos: no number at all → rows 1, 2, 3 in the picked order
+test('the owner 15 Nov («مبتترفعش» · «لو متسميين صح يترتبوا بحسب التسمية»): a photo without a number takes the next free row, one a row, in its name\'s order — none is dropped', () => {
+  // a maker's photos: no number at all → rows 1, 2, 3 in their names' order (case aside), not the order picked
   assert.deepEqual(plain(F.placePhotos(['IMG_2041.jpg', 'WhatsApp Image 2026-11-14.jpeg', 'vase.png'])),
-    [{ i: 0, row: 1, order: 0, auto: true }, { i: 1, row: 2, order: 0, auto: true }, { i: 2, row: 3, order: 0, auto: true }]);
+    [{ i: 0, row: 1, order: 0, auto: true }, { i: 2, row: 2, order: 0, auto: true }, { i: 1, row: 3, order: 0, auto: true }]);
+  // the numbers inside a name count as numbers: IMG_9 before IMG_10, whatever the order picked
+  assert.deepEqual(plain(F.placePhotos(['IMG_10.jpg', 'IMG_9.jpg', 'img_11.jpg'])).map((x) => [x.i, x.row]), [[1, 1], [0, 2], [2, 3]]);
+  assert.deepEqual(['shot 10.png', 'Shot 2.png', 'shot 1.png'].sort(F.nameOrder), ['shot 1.png', 'Shot 2.png', 'shot 10.png']);
   // the numbered ones keep their rows; the loose ones take the free rows (never a numbered one), then go after
   assert.deepEqual(plain(F.placePhotos(['2.jpg', 'x.jpg', '1-2.jpg', 'y.jpg', '4.jpg'])),
     [{ i: 2, row: 1, order: 2, auto: false }, { i: 0, row: 2, order: 0, auto: false }, { i: 1, row: 3, order: 0, auto: true },

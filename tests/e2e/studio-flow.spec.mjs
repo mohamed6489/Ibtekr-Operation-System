@@ -230,11 +230,24 @@ test('flow 2 «داتا على الواتساب» Variable: the screenshots read
 test('flow 2: the screenshots and the photos show small side by side, each row with the six dots — a photo moved takes the other row; screenshots moved are read again in their new order', async ({ page }) => {
   await signIn(page, ADMIN);
   await choose(page, 'داتا على الواتساب', 'Simple');
+  // empty (the owner 15 Nov «خلي الصور والسكرين شوتس قد بعض و هما فاضيين»): the two cards the same size, each list an empty box in its card
+  const m = page.locator('#pg-products [data-fl-match]');
+  const cards = m.locator(':scope > .fl-card');
+  await expect(cards).toHaveCount(2);
+  const [c1, c2] = [await cards.nth(0).boundingBox(), await cards.nth(1).boundingBox()];
+  expect(Math.abs(c1.height - c2.height)).toBeLessThan(2); expect(Math.abs(c1.y - c2.y)).toBeLessThan(2);
+  await expect(m.locator('[data-fl-list="screens"] .fl-list-empty')).toHaveCount(1);
+  await expect(m.locator('[data-fl-list="photos"] .fl-list-empty')).toHaveCount(1);
   await pick(page, '[data-flow-photos]', [png('1.png'), png('2.png')]);
   await pick(page, '[data-flow-screens]', [png('chat-1.png'), png('chat-2.png')]);
   await expect(page.locator('#pg-products')).toContainText('اتقرا');
-  const m = page.locator('#pg-products [data-fl-match]');
-  await expect(m).toContainText('السكرين شوتس'); await expect(m).toContainText('صور المنتجات');
+  // the screenshots inside the screenshots card, the photos inside the photos card, row facing row
+  await expect(m.locator('[data-fl-list="screens"] [data-fl-screens-row]')).toHaveCount(2);
+  await expect(m.locator('[data-fl-list="photos"] [data-fl-photos-row]')).toHaveCount(2);
+  for (const i of [0, 1]) {
+    const [a, b] = [await m.locator('[data-fl-screens-row]').nth(i).boundingBox(), await m.locator('[data-fl-photos-row]').nth(i).boundingBox()];
+    expect(Math.abs(a.y - b.y)).toBeLessThan(2); expect(Math.abs(a.height - b.height)).toBeLessThan(2);
+  }
   await expect(m.locator('[data-fl-screens-row]')).toHaveCount(2);
   await expect(m.locator('[data-fl-photos-row]')).toHaveCount(2);
   await expect(m.locator('[data-fl-screens-row] .thumb')).toHaveCount(2);

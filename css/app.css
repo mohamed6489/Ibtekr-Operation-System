@@ -2146,3 +2146,8 @@ tr.is-sel td,#vendors .tickets-table tr.is-sel td,.vprod-row.is-sel{background:v
 .kpi-opt-v{flex:none;font-weight:700;color:var(--color-brand-default);max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .kpi-ord{color:var(--color-text-secondary);font-weight:600}
 @media (max-width:599px){.kpi-pick-grid{grid-template-columns:1fr}.kpi-opt{min-height:60px}}
+
+/* المخزن › سجل المخزون (comments decision 19): the product's page on the site, under its name */
+.inv-site{display:inline-flex;align-items:center;gap:4px;width:max-content;max-width:100%;font-size:12px;line-height:18px;font-weight:600;color:var(--color-brand-default);text-decoration:none}
+.inv-site:hover,.inv-site:focus-visible{text-decoration:underline}
+.inv-site svg{width:12px;height:12px;flex:none}

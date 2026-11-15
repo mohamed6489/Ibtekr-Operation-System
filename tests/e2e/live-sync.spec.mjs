@@ -83,3 +83,39 @@ test('a signal for a group nobody loaded, or of an unknown group, asks the serve
   await page.waitForTimeout(1500);
   expect(seen.filter((u) => /\/(products|studio_batches|woo_categories)\b/.test(u))).toEqual([]);
 });
+
+// decision 3: «لسه زي ما أنا شايفه» — the owner: «غيرت حالة اوردر و عضو تاني غير حالة نفس الاوردر»
+test('orders: a status changed on a card a teammate already moved is refused — nothing is written, the card shows theirs and says so; then my change goes', async ({ page }) => {
+  await signIn(page);
+  await page.evaluate(() => { location.hash = 'orders'; });
+  await expect(page.locator('#orders #list .card')).toHaveCount(3);
+  const st = page.locator('#orders select[data-st="181668"]');
+  await expect(st).toHaveValue('جاري التنفيذ');
+  // a teammate set «معلّق» a moment ago; my screen has not heard yet
+  Object.assign(mock.orders.find((o) => o.id === 181668), { status: 'معلّق' });
+  const before = mock.patches.length;
+  await st.selectOption('جاهز للشحن');
+  await expect(page.locator('#orders #toast')).toContainText('حد تاني غيّر ده من شوية');
+  await expect(st).toHaveValue('معلّق'); // theirs, read again
+  expect(mock.orders.find((o) => o.id === 181668).status).toBe('معلّق');
+  expect(mock.patches.slice(before).filter((p) => p.table === 'orders')).toEqual([]);
+  expect(mock.activity.map((a) => a.action)).not.toContain('order.status');
+  // now I am looking at theirs: the same change is mine to make
+  await st.selectOption('جاهز للشحن');
+  await expect.poll(() => mock.orders.find((o) => o.id === 181668).status).toBe('جاهز للشحن');
+  await expect(st).toHaveValue('جاهز للشحن');
+});
+
+test('orders: «مكتمل» with the rating on an order a teammate completed first leaves one rating', async ({ page }) => {
+  await signIn(page);
+  await page.evaluate(() => { location.hash = 'orders'; });
+  await expect(page.locator('#orders #list .card')).toHaveCount(3);
+  const st = page.locator('#orders select[data-st="181668"]');
+  Object.assign(mock.orders.find((o) => o.id === 181668), { status: 'مكتمل' }); mock.ratings.push({ order_id: 181668, sat: 5, manners: 5, note: null, by_user: 'a0000000-0000-4000-8000-0000000000aa' });
+  await st.selectOption('مكتمل');
+  const rate = page.getByRole('dialog', { name: /قيّم العميل — IB-181668/ });
+  await rate.locator('#rt-sat [data-star="4"]').click(); await rate.locator('#rt-manners [data-star="4"]').click();
+  await rate.getByRole('button', { name: 'احفظ التقييم وقفّل الأوردر' }).click();
+  await expect(page.locator('#orders #toast')).toContainText('حد تاني غيّر ده من شوية');
+  expect(mock.ratings.filter((r) => r.order_id === 181668)).toHaveLength(1);
+});

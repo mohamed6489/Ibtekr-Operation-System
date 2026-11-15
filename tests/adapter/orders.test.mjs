@@ -279,11 +279,12 @@ test('a failed read keeps data() as it was and never throws', async () => {
   assert.equal(O.data().orders.length, 2);
 });
 
-test('setOrderStatus updates orders (status only, no .select()) then pushes it through woo-sync', async () => {
+test('setOrderStatus updates orders (status only, no .select()) while the row still holds the status on the screen, then pushes it through woo-sync', async () => {
   const { O, calls, logs } = load();
   await O.load(); calls.length = 0;
   assert.deepEqual(plain(await O.setOrderStatus('181668', 'قيد الشحن', {})), { ok: true, push: 'ok' });
-  assert.deepEqual(opsOf(calls, 'orders'), [{ op: 'update', args: [{ status: 'قيد الشحن' }] }, { op: 'eq', args: ['id', '181668'] }]);
+  // decision 3 (0104 plan): the write names what the member was looking at — the base status and no added one
+  assert.deepEqual(opsOf(calls, 'orders'), [{ op: 'update', args: [{ status: 'قيد الشحن' }, { count: 'exact' }] }, { op: 'eq', args: ['id', '181668'] }, { op: 'eq', args: ['status', 'جاري التنفيذ'] }, { op: 'is', args: ['status_custom', null] }]);
   assert.deepEqual(invokes(calls), [['woo-sync', { body: { action: 'push_status', order_id: 181668, status: 'قيد الشحن' } }]]);
   assert.ok(calls.findIndex((c) => c.op === 'invoke') > calls.findIndex((c) => c.op === 'update')); // the row first: woo-sync refuses a stale status
   assert.deepEqual(logs, [['order.status', 'IB-181668 · قيد الشحن']]);
@@ -307,11 +308,12 @@ test('setOrderStatus carries cancel / ret when given; the push result is answere
   const cancel = { reason: 'العميل لغى', note: '', date: '2026-10-25' };
   responses['fn:woo-sync'] = ok({ action: 'push_status', result: 'skipped', reason: 'no_woo_status' });
   assert.deepEqual(plain(await O.setOrderStatus('181668', 'ملغي', { cancel })), { ok: true, push: 'skipped' });
-  assert.deepEqual(opsOf(calls, 'orders')[0], { op: 'update', args: [{ status: 'ملغي', cancel }] });
+  assert.deepEqual(opsOf(calls, 'orders')[0], { op: 'update', args: [{ status: 'ملغي', cancel }, { count: 'exact' }] });
   calls.length = 0;
   responses['fn:woo-sync'] = { data: null, error: { name: 'FunctionsHttpError', context: { status: 502 } } };
   assert.deepEqual(plain(await O.setOrderStatus('181668', 'استرجاع', { ret: { reason: 'تالف' } })), { ok: true, push: 'error' });
-  assert.deepEqual(opsOf(calls, 'orders')[0], { op: 'update', args: [{ status: 'استرجاع', ret: { reason: 'تالف' } }] });
+  assert.deepEqual(opsOf(calls, 'orders')[0], { op: 'update', args: [{ status: 'استرجاع', ret: { reason: 'تالف' } }, { count: 'exact' }] });
+  assert.deepEqual(opsOf(calls, 'orders')[2], { op: 'eq', args: ['status', 'ملغي'] }, 'my own saved write moved «what I am looking at» on');
   responses['fn:woo-sync'] = () => { throw new Error('offline'); };
   assert.deepEqual(plain(await O.setOrderStatus('181668', 'مكتمل')), { ok: true, push: 'error' });
 });
@@ -321,7 +323,7 @@ test('«مكتمل» with a rating goes through order_complete (rating + status 
   await O.load(); calls.length = 0;
   responses['rpc:order_complete'] = { data: 7, error: null };
   assert.deepEqual(plain(await O.setOrderStatus('181668', 'مكتمل', { rating: { sat: 5, manners: 4, note: '  ذوق جداً ' } })), { ok: true, push: 'ok' });
-  assert.deepEqual(calls.filter((c) => c.op === 'rpc').map((c) => ({ op: c.op, args: c.args })), [{ op: 'rpc', args: ['order_complete', { p_order: 181668, p_sat: 5, p_manners: 4, p_note: 'ذوق جداً' }] }]);
+  assert.deepEqual(calls.filter((c) => c.op === 'rpc').map((c) => ({ op: c.op, args: c.args })), [{ op: 'rpc', args: ['order_complete', { p_from: 'جاري التنفيذ', p_order: 181668, p_sat: 5, p_manners: 4, p_note: 'ذوق جداً' }] }]); // p_from: the status on the screen (0105)
   assert.deepEqual(opsOf(calls, 'orders'), []); // no separate status update
   assert.deepEqual(invokes(calls), [['woo-sync', { body: { action: 'push_status', order_id: 181668, status: 'مكتمل' } }]]);
   assert.deepEqual(logs, [['order.rating', 'IB-181668 · رضا 5 · أخلاق 4'], ['order.status', 'IB-181668 · مكتمل']]); // never the note
@@ -376,7 +378,7 @@ test('patchOrder refuses a deposit that is not a finite number and writes nothin
   assert.deepEqual(calls, []);
   assert.deepEqual(logs, []);
   assert.deepEqual(plain(await O.patchOrder('180686', { dep: ' 250 ' })), { ok: true });
-  assert.deepEqual(opsOf(calls, 'orders')[0], { op: 'update', args: [{ deposit: 250 }] });
+  assert.deepEqual(opsOf(calls, 'orders')[0], { op: 'update', args: [{ deposit: 250 }, { count: 'exact' }] });
 });
 
 test('setItemStatus writes status + extras on order_items; setWaybill / setPulled their one column', async () => {
@@ -384,7 +386,7 @@ test('setItemStatus writes status + extras on order_items; setWaybill / setPulle
   await O.load(); calls.length = 0;
   const ret = { reason: 'مقاس غلط', note: '' };
   assert.deepEqual(plain(await O.setItemStatus('5001', 'مرتجع للمخزن', { ret })), { ok: true });
-  assert.deepEqual(opsOf(calls, 'order_items'), [{ op: 'update', args: [{ status: 'مرتجع للمخزن', ret }] }, { op: 'eq', args: ['id', '5001'] }]);
+  assert.deepEqual(opsOf(calls, 'order_items'), [{ op: 'update', args: [{ status: 'مرتجع للمخزن', ret }, { count: 'exact' }] }, { op: 'eq', args: ['id', '5001'] }, { op: 'eq', args: ['status', ''] }]); // the line's status on the screen
   calls.length = 0;
   assert.deepEqual(plain(await O.setItemStatus(5002, 'جاهز للشحن من المبتكر للعميل', { exp: '', cm: 'هيتسلم بكرة', store: { reason: 'تجميع' }, readyAt: '2026-10-20 11:00' })), { ok: true });
   await O.setItemStatus(5002, undefined, { cm: 'تعليق بس' });
@@ -404,7 +406,7 @@ test('nothing to write → { ok:true } without a request; setConfirm with a date
   assert.deepEqual(plain(await O.setConfirm('181668', undefined, {})), { ok: true });
   assert.deepEqual(calls, []);
   assert.deepEqual(plain(await O.setConfirm('181668', undefined, { confAt: '2026-10-24' })), { ok: true });
-  assert.deepEqual(opsOf(calls, 'orders')[0], { op: 'update', args: [{ confirm_at: '2026-10-24' }] });
+  assert.deepEqual(opsOf(calls, 'orders')[0], { op: 'update', args: [{ confirm_at: '2026-10-24' }, { count: 'exact' }] });
   assert.deepEqual(logs, [['order.confirm', 'IB-181668']]);
 });
 
@@ -618,7 +620,7 @@ test('deleteOrder with cancel on an open order: setOrderStatus «ملغي» + ca
   responses['fn:woo-sync'] = (ops, body) => ok(body && body.body && body.body.action === 'order_trash' ? { action: 'order_trash', result: 'ok', counts: { trashed: 3, already: 0 } } : { action: 'push_status', result: 'ok', counts: { pushed: 1 } });
   responses['rpc:order_delete'] = { data: 181668, error: null };
   assert.deepEqual(plain(await O.deleteOrder('181668', 'إلغاء من العميل', { cancel: true })), { ok: true, site: 'ok' });
-  assert.deepEqual(opsOf(calls, 'orders'), [{ op: 'update', args: [{ status: 'ملغي', cancel: { reason: 'إلغاء من العميل' } }] }, { op: 'eq', args: ['id', '181668'] }]);
+  assert.deepEqual(opsOf(calls, 'orders').slice(0, 2), [{ op: 'update', args: [{ status: 'ملغي', cancel: { reason: 'إلغاء من العميل' } }, { count: 'exact' }] }, { op: 'eq', args: ['id', '181668'] }]);
   assert.deepEqual(invokes(calls).map((i) => i[1].body.action), ['push_status', 'order_trash']);
   assert.deepEqual(logs.map((l) => l[0]), ['order.status', 'order.delete']);
   assert.deepEqual(plain(O.data().orders.map((o) => o.id)), ['180686']);
@@ -676,4 +678,82 @@ test('load({ quiet }) (IBLive — 0104): a live re-read of a shown list stays «
   assert.equal(t.O.state(), 'ready'); assert.equal(t.O.data().orders.length, n, 'a failed live read keeps the list');
   await t.O.load(); assert.equal(t.O.state(), 'error', 'a plain load still says it failed');
   assert.equal(typeof t.O.refetch, 'function');
+});
+
+// ---- «لسه زي ما أنا شايفه» (docs/superpowers/plans/2026-11-15-live-sync.md decision 3) ----
+const whereOf = (calls, table) => { const ops = opsOf(calls, table); const i = ops.findIndex((c) => c.op === 'update'); const w = {}; ops.slice(i + 1).forEach((c) => { if (c.op === 'eq' || c.op === 'is') w[c.args[0]] = c.args[1]; }); return w; };
+test('a write names the old value of every column it changes — the confirmation, the order\'s data, a line\'s status / date / comment / waybill / pulled; untracked columns add no condition', async () => {
+  const t = load();
+  await t.O.load(); t.calls.length = 0;
+  await t.O.setConfirm('180686', 'غير مؤكد', { confAt: '', note: 'x' });
+  assert.deepEqual(whereOf(t.calls, 'orders'), { id: '180686', confirm: 'مؤكد بعربون', confirm_at: '2026-10-18' }, 'confirm_note is not on the screen: no condition');
+  t.calls.length = 0;
+  await t.O.patchOrder('180686', { note: 'جديد', city: 'الجيزة', dep: 100 });
+  assert.deepEqual(whereOf(t.calls, 'orders'), { id: '180686', note: 'تبع اوردر 180668', customer_city: null, deposit: '300.00' });
+  t.calls.length = 0;
+  await t.O.setItemStatus(5002, 'جاهز للشحن من المبتكر للعميل', { exp: '2026-10-22', cm: 'x', store: { reason: 'r' } });
+  assert.deepEqual(whereOf(t.calls, 'order_items'), { id: 5002, status: 'مؤكد', expected_at: '2026-10-20', comment: 'تم تبليغ المورد' });
+  t.calls.length = 0;
+  await t.O.setWaybill(5002, { no: 'B-1' }); assert.deepEqual(whereOf(t.calls, 'order_items'), { id: 5002, waybill: null });
+  t.calls.length = 0;
+  await t.O.setPulled(5003, true); assert.deepEqual(whereOf(t.calls, 'order_items'), { id: 5003, pulled: false });
+  // my own writes moved the screen's values on: the next write of the same columns names the new ones
+  t.calls.length = 0;
+  await t.O.patchOrder('180686', { note: 'تاني' }); assert.deepEqual(whereOf(t.calls, 'orders'), { id: '180686', note: 'جديد' });
+  t.calls.length = 0;
+  await t.O.setPulled(5003, false); assert.deepEqual(whereOf(t.calls, 'order_items'), { id: 5003, pulled: true });
+});
+
+test('somebody saved it first: no row is written → «stale», nothing pushed or logged, and the order is read again for the screen', async () => {
+  const applied = []; const t = load({ app: { hydrate() {}, applyOrder: (o) => applied.push([o.id, o.st]) } });
+  await t.O.load(); t.calls.length = 0;
+  // the teammate's status is in the database; the update with «status = what I see» touches no row
+  t.responses.orders = (q) => (q.some((c) => c.op === 'update') ? { data: null, error: null, count: 0 } : q.some((c) => c.op === 'select' && /status/.test(c.args[0]) && !/status_custom/.test(c.args[0])) || q.some((c) => c.op === 'maybeSingle') ? ok({ id: 181668, status: 'جاهز للشحن', status_custom: null }) : ok([]));
+  t.responses.orders_v = ok([{ ...O1, status: 'جاهز للشحن' }]);
+  assert.deepEqual(plain(await t.O.setOrderStatus('181668', 'قيد الشحن', {})), { ok: false, reason: 'stale' });
+  assert.deepEqual(invokes(t.calls), [], 'the site hears nothing');
+  assert.deepEqual(t.logs, []);
+  await new Promise((r) => setTimeout(r, 10));
+  assert.deepEqual(plain(applied), [['181668', 'جاهز للشحن']], 'the page is handed the teammate\'s value');
+  // now that I see theirs, the same change goes through — naming their status
+  t.calls.length = 0; t.responses.orders = { data: null, error: null, count: 1 };
+  assert.deepEqual(plain(await t.O.setOrderStatus('181668', 'قيد الشحن', {})), { ok: true, push: 'ok' });
+  assert.equal(whereOf(t.calls, 'orders').status, 'جاهز للشحن');
+});
+
+test('no row written and the row is as I see it → «forbidden» (not mine to write); the row is gone → «missing»; a line: its order is read again', async () => {
+  const applied = []; const t = load({ app: { hydrate() {}, applyOrder: (o) => applied.push(o.id) } });
+  await t.O.load(); t.calls.length = 0;
+  t.responses.orders = (q) => (q.some((c) => c.op === 'update') ? { data: null, error: null, count: 0 } : q.some((c) => c.op === 'maybeSingle') ? ok({ id: 180686, note: 'تبع اوردر 180668' }) : ok([]));
+  assert.deepEqual(plain(await t.O.patchOrder('180686', { note: 'x' })), { ok: false, reason: 'forbidden' });
+  assert.deepEqual(applied, [], 'nothing changed: nothing to read again');
+  t.responses.orders = (q) => (q.some((c) => c.op === 'update') ? { data: null, error: null, count: 0 } : q.some((c) => c.op === 'maybeSingle') ? ok(null) : ok([]));
+  assert.deepEqual(plain(await t.O.patchOrder('180686', { note: 'x' })), { ok: false, reason: 'missing' });
+  await new Promise((r) => setTimeout(r, 10)); applied.length = 0; // (a gone order is read again too: the screen drops it)
+  t.responses.order_items = (q) => (q.some((c) => c.op === 'update') ? { data: null, error: null, count: 0 } : q.some((c) => c.op === 'maybeSingle') ? ok({ id: 5002, status: 'ملغي' }) : ok(ITEMS));
+  assert.deepEqual(plain(await t.O.setItemStatus(5002, 'جاهز للشحن من المبتكر للعميل')), { ok: false, reason: 'stale' });
+  await new Promise((r) => setTimeout(r, 10));
+  assert.deepEqual(plain(applied), ['181668'], 'the line\'s order');
+});
+
+test('«مكتمل» with a rating: the server says somebody moved the order first (IBSTL) → «stale», no push; a project without 0105 (PGRST202) is asked again without p_from', async () => {
+  const t = load();
+  await t.O.load(); t.calls.length = 0;
+  t.responses['rpc:order_complete'] = { data: null, error: { code: 'IBSTL', message: 'stale: the order is no longer «جاري التنفيذ»' } };
+  assert.deepEqual(plain(await t.O.setOrderStatus('181668', 'مكتمل', { rating: { sat: 5, manners: 5 } })), { ok: false, reason: 'stale' });
+  assert.deepEqual(invokes(t.calls), []); assert.deepEqual(t.logs, []);
+  t.calls.length = 0;
+  t.responses['rpc:order_complete'] = (args) => (args && args.p_from !== undefined ? { data: null, error: { code: 'PGRST202', message: 'Could not find the function public.order_complete(p_from, …)' } } : { data: 9, error: null });
+  assert.deepEqual(plain(await t.O.setOrderStatus('181668', 'مكتمل', { rating: { sat: 5, manners: 5 } })), { ok: true, push: 'ok' });
+  assert.deepEqual(t.calls.filter((c) => c.op === 'rpc').map((c) => Object.keys(c.args[1]).includes('p_from')), [true, false]);
+});
+
+test('the old postgres_changes line hands its orders to IBLive when it is there (gathered, held while a popup is open)', async () => {
+  const t = load(); const got = [];
+  await t.O.load(); t.O.subscribe();
+  t.window.IBLive = { signal: (m) => got.push(m.payload) };
+  t.calls.length = 0;
+  await t.emitChange({ table: 'order_items', eventType: 'UPDATE', new: { id: 5001, order_id: 181668 } });
+  assert.deepEqual(plain(got), [{ t: 'orders', ids: [181668] }]);
+  assert.deepEqual(opsOf(t.calls, 'orders_v'), [], 'not read here: IBLive decides when');
 });

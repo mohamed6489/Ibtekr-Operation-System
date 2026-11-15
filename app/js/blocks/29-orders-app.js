@@ -353,9 +353,11 @@ function setCf(o,v,changes){var old=o.cf;if(old===v)return [];o.cf=v;var OPS=win
  return ch}
 function toast(t){var e=$('toast');e.textContent=t;e.hidden=false;clearTimeout(toast.t);toast.t=setTimeout(function(){e.hidden=true},2200)}
 /* ---- write-through (phase 2): every edit changes the page's copy first, then IBOrdersStore (= IBOrders); a refused write
-   puts the old values back (while they still hold what was written) and says why. No store: the local change stays. ---- */
+   puts the old values back (while they still hold what was written) and says why. No store: the local change stays.
+   «stale» (the owner 15 Nov — 2026-11-15-live-sync.md decision 3): a teammate saved the same thing first — nothing was written,
+   the adapter reads the order again and the card shows theirs. ---- */
 function WS(){return window.IBOrdersStore||null}
-function wt(p,undo,ok){if(!p||typeof p.then!=='function')return;var no=function(r){if(undo)undo();draw();toast(r&&r.reason==='forbidden'?'مش من صلاحياتك':r&&r.reason==='invalid'?'القيمة مش صح':'معرفناش نحفظ — جرّب تاني')};p.then(function(r){if(r&&r.ok===false)no(r);else if(ok)ok(r||{})},function(){no(null)})}
+function wt(p,undo,ok){if(!p||typeof p.then!=='function')return;var no=function(r){if(undo)undo();draw();toast(r&&r.reason==='stale'?'حد تاني غيّر ده من شوية — اتحدّث قدامك، راجعه وغيّر تاني لو لسه محتاج':r&&r.reason==='forbidden'?'مش من صلاحياتك':r&&r.reason==='invalid'?'القيمة مش صح':'معرفناش نحفظ — جرّب تاني')};p.then(function(r){if(r&&r.ok===false)no(r);else if(ok)ok(r||{})},function(){no(null)})}
 function rv(t,b,keys){var a=keys.map(function(k){return t[k]});return function(){if(keys.every(function(k,i){return t[k]===a[i]}))keys.forEach(function(k){t[k]=b[k]})}}
 function snapO(o){return{st:o.st,stc:o.stc,rating:o.rating,cancel:o.cancel,ret:o.ret,cf:o.cf,cdate:o.cdate,confAt:o.confAt,note:o.note,city:o.city,addr:o.addr,dep:o.dep}}
 // what changed on order o since snapshot b → setOrderStatus (pushed to the site by the adapter) / setConfirm / patchOrder

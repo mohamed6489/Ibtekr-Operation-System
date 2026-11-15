@@ -137,11 +137,13 @@ const GTE_FILTERS = { orders_v: ['placed_at'], orders: ['placed_at'] }; // order
 // the horizontal filters of a PostgREST request (eq. everywhere; in.(a,b) on IN_FILTERS, gte. on GTE_FILTERS only) → { match(row) } | { bad: 'param=value' }
 function readFilters(params, table) {
   const f = [...params].filter(([k]) => !NOT_FILTERS.has(k));
-  const bad = f.find(([k, v]) => !(k === 'or' && (OR_FILTERS[table] || {})[v]) && !((NOT_NULL[table] || []).includes(k) && v === 'not.is.null') && !v.startsWith('eq.') && !((IN_FILTERS[table] || []).includes(k) && /^in\.\(.*\)$/.test(v)) && !((GTE_FILTERS[table] || []).includes(k) && v.startsWith('gte.')) && !((LIKE_FILTERS[table] || []).includes(k) && v.startsWith('like.')));
+  const bad = f.find(([k, v]) => !(k === 'or' && (OR_FILTERS[table] || {})[v]) && !((NOT_NULL[table] || []).includes(k) && v === 'not.is.null') && !v.startsWith('eq.') && !/^is\.(null|true|false)$/.test(v) && !((IN_FILTERS[table] || []).includes(k) && /^in\.\(.*\)$/.test(v)) && !((GTE_FILTERS[table] || []).includes(k) && v.startsWith('gte.')) && !((LIKE_FILTERS[table] || []).includes(k) && v.startsWith('like.')));
   const one = ([k, v]) => {
     if (k === 'or') return OR_FILTERS[table][v];
     if (v === 'not.is.null') return (r) => r[k] != null;
-    if (v.startsWith('eq.')) return (r) => String(r[k]) === v.slice(3);
+    if (v === 'is.null') return (r) => r[k] == null;
+    if (v === 'is.true' || v === 'is.false') return (r) => r[k] === (v === 'is.true');
+    if (v.startsWith('eq.')) return (r) => r[k] != null && String(r[k]) === v.slice(3); // null = anything is never true
     if (v.startsWith('gte.')) { const t = Date.parse(v.slice(4)); return (r) => Date.parse(r[k]) >= t; }
     if (v.startsWith('like.')) { const re = new RegExp('^' + v.slice(5).replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/[%*]/g, '.*') + '$', 's'); return (r) => re.test(String(r[k] ?? '')); }
     const set = v.slice(4, -1).split(',').map((x) => x.replace(/^"(.*)"$/, '$1')); return (r) => set.includes(String(r[k]));
@@ -1212,6 +1214,7 @@ export async function installSupabaseMock(page, opts = {}) {
         const o = hasPerm(u, 'orders.view') === 'N' ? null : mock.orders.find((x) => Number(x.id) === Number(b.p_order));
         if (!o) return refuse(400, 'P0002', 'order not found');
         if (hasPerm(u, 'orders.status') !== 'F') return refuse(403, '42501', 'orders.status = F is required to change an order status or confirmation');
+        if (b.p_from != null && o.status !== b.p_from) return refuse(400, 'IBSTL', 'stale: the order is no longer on that status'); // 0105: somebody moved it first
         Object.assign(o, { status: 'مكتمل', updated_at: new Date().toISOString() }); mock.patches.push({ table: 'orders', id: o.id, status: 'مكتمل' });
         mock.ratings.push({ order_id: o.id, sat: b.p_sat, manners: b.p_manners, note, by_user: u.id });
         return json(200, mock.ratings.length);
@@ -1626,6 +1629,8 @@ export async function installSupabaseMock(page, opts = {}) {
           if (t === 'orders' && 'status' in b && b.status !== wasSt && !('status_custom' in b)) r.status_custom = null; // 0095: the base moved
           if (t === 'orders' && b.status === 'ملغي' && wasSt !== 'ملغي') cancelLines((i) => i.order_id === r.id); // 0094 orders_cancel_lines
         }
+        // Prefer: count=exact (the adapter's «لسه زي ما أنا شايفه» writes — 0104 plan decision 3): how many rows were written
+        if (/count=exact/.test(hd.prefer || '')) return route.fulfill({ status: 204, headers: { ...cors, 'content-range': '*/' + rows.length, 'access-control-expose-headers': 'content-range' } });
         return empty(204);
       }
       if (method === 'POST' && path === '/rest/v1/rpc/log_activity') {

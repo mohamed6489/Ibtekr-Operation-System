@@ -201,3 +201,26 @@ test('a page inside a shadow root (the orders page): its open popup and its fiel
   inner.active = null; await tick(800);
   assert.ok(calls.some((c) => c[1] === 'refetch' && c[2] === '5'));
 });
+
+test('a join that keeps being refused (a project without 0104) is tried less and less often — then 20 s, 40 s, 80 s … 5 minutes apart', async () => {
+  const { L, stub, tick } = load();
+  const joins = () => stub.calls.filter((c) => c.op === 'channel').length;
+  L.subscribe(); stub.emitStatus('CHANNEL_ERROR');
+  await tick(20000); assert.equal(joins(), 2, 'the first cut: at the watch\'s next look'); stub.emitStatus('CHANNEL_ERROR');
+  await tick(20000); assert.equal(joins(), 3, '20 s after the second refusal'); stub.emitStatus('CHANNEL_ERROR');
+  await tick(20000); assert.equal(joins(), 3, 'not before 40 s');
+  await tick(20000); assert.equal(joins(), 4); stub.emitStatus('CHANNEL_ERROR');
+  await tick(60000); assert.equal(joins(), 4, 'not before 80 s');
+  await tick(20000); assert.equal(joins(), 5); stub.emitStatus('SUBSCRIBED');
+  stub.emitStatus('CLOSED'); await tick(20000);
+  assert.equal(joins(), 6, 'once it was in, the next cut is tried again at the next look');
+});
+
+test('a dropdown that just took the focus holds the read for a few seconds (the member is choosing), not for as long as it keeps the focus', async () => {
+  const { L, calls, screen, tick, fire } = load();
+  L.subscribe();
+  screen.active = { tagName: 'SELECT' }; fire('focusin');
+  L.signal({ payload: { t: 'orders', ids: [3] } });
+  await tick(5000); assert.equal(calls.length, 0, 'choosing');
+  await tick(4000); assert.ok(calls.some((c) => c[1] === 'refetch'), 'the focus resting on it does not hold');
+});

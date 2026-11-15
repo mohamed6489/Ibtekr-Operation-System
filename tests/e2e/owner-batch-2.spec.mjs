@@ -211,26 +211,21 @@ test('T4 — decision 2: the permissions in three levels — a role opens its le
   await expect.poll(() => (mock.st.writes || []).filter((w) => w.op === 'level').map((w) => w.level)).toEqual(['viewer']);
 });
 
-// the owner 15 Nov: «قدام كل عضو الدور والمستوى مدير أو موظف والمدير المسؤول، ولو هو مستواه مدير يبقى مدير نفسه»
-test('the members: the role, the level and the responsible manager each in its column — the admin has neither, a «مدير» is his own manager, anyone else picks one', async ({ page }) => {
+// the owner 15 Nov: «قدام كل عضو الدور والمستوى …» — then the same day «شيل قنوات خدمة العملاء و المدير المسؤول و الصلاحيات المخصصة»
+test('the members: the role then the level in their columns — the admin has no level; no «المدير المسؤول» / «قنوات خدمة العملاء» / «صلاحيات مخصصة» columns (⋮ keeps the channels and the permissions)', async ({ page }) => {
   await go(page, 'settings-team');
   const body = page.locator('#pg-settings');
-  const heads = await body.locator('table thead th').allTextContents();
-  expect(heads.map((x) => x.trim())).toEqual(expect.arrayContaining(['الدور', 'المستوى', 'المدير المسؤول']));
-  expect(heads.findIndex((x) => x.trim() === 'المستوى')).toBe(heads.findIndex((x) => x.trim() === 'الدور') + 1);
+  const heads = (await body.locator('table thead th').allTextContents()).map((x) => x.trim());
+  expect(heads).toEqual(expect.arrayContaining(['العضو', 'الدور', 'المستوى', 'الحالة', 'آخر دخول']));
+  for (const gone of ['المدير المسؤول', 'قنوات خدمة العملاء', 'صلاحيات مخصصة']) expect(heads).not.toContain(gone);
+  expect(heads.findIndex((x) => x === 'المستوى')).toBe(heads.findIndex((x) => x === 'الدور') + 1);
   const admin = body.locator('tr', { hasText: 'admin.dev@ibtekr.local' }).first();
   await expect(admin.locator('[data-member-level="admin"]')).toHaveText('أدمن — كل الصلاحيات');
   const row = body.locator('tr', { hasText: 'ops.dev@ibtekr.local' }).first();
-  const mgr = row.locator('[data-member-manager]');
-  await expect(mgr).toContainText('مدير الدور (تلقائي)');
-  await mgr.getByRole('button').click(); await page.getByRole('option', { name: 'منى حسن', exact: true }).last().click();
-  await expect.poll(() => (mock.st.writes || []).filter((w) => w.op === 'manager').map((w) => [w.manager, w.fixed])).toEqual([['00000000-0000-4000-8000-000000000004', true]]);
-  // level «مدير» → his own manager
-  await expect(async () => {
-    await row.getByRole('button', { name: 'موظف', exact: true }).click();
-    await page.getByRole('option', { name: 'مدير', exact: true }).last().click({ timeout: 2000 });
-  }).toPass({ timeout: 15000 });
-  await expect(body.locator('tr', { hasText: 'ops.dev@ibtekr.local' }).first().locator('[data-member-manager]')).toHaveText('مدير نفسه');
+  await expect(row.locator('[data-member-manager]')).toHaveCount(0);
+  await row.getByRole('button', { name: /^إجراءات/ }).click();
+  await expect(page.getByRole('menuitem', { name: 'صلاحيات مخصصة' })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: 'قنوات خدمة العملاء' })).toBeVisible();
 });
 
 test('T4 — decision 4: «إضافة عضو» in three parts; the level «مدير» has no direct manager; another level picks from the role\'s managers; the level is saved after the account', async ({ page }) => {

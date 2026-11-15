@@ -39,7 +39,12 @@ test('the admin gives the accounts member «ديزاينر» as an extra role; t
   await expect.poll(() => mock.st.writes.filter((w) => w.op === 'roles').length).toBe(1);
   expect(mock.st.writes.find((w) => w.op === 'roles')).toMatchObject({ id: ACC_ID, roles: ['designer'] });
   expect(mock.profiles.find((p) => p.id === ACC_ID).extra_roles).toEqual(['designer']);
-  await expect(row.locator('[data-extra-roles]')).toHaveText('+ ديزاينر');
+  // the owner 15 Nov: the count, not the names (they are in the tooltip); a click opens the same popup with the pick
+  await expect(row.locator('[data-extra-roles]')).toHaveText('دور إضافي واحد');
+  await expect(row.locator('[data-extra-roles]')).toHaveAttribute('title', 'ديزاينر');
+  await row.locator('[data-extra-roles]').click();
+  await expect(page.locator('.modal[role=dialog]', { hasText: 'الأدوار الإضافية — منى حسن' }).locator('#xr-pick')).toContainText('ديزاينر');
+  await page.keyboard.press('Escape');
   // the team requests: the domain's list = the six + the team's other roles (ticket_roles)
   await page.locator('.sidebar .nav-item[data-page="tickets"]').click();
   await page.waitForFunction(() => window.IbtekrTickets.ROLES.includes('ديزاينر'));

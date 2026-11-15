@@ -2585,11 +2585,11 @@
   const orderCtx = (id) => { if (!id || !window.OrdersApp || !window.OrdersApp.query) return null; try { const r = window.OrdersApp.query({ q: id }, 1).rows.find((x) => String(x.id) === String(id)); return r || null; } catch (e) { return null; } };
   function ticketTasks() { return TK.filterTickets(tstore.all(), { status: 'open_any' }).filter((t) => (t.followUp && t.followUp < TODAY) || t.reopenCount > 0).map((t) => ({ id: t.id, role: t.assigneeRole, title: t.title, prio: t.priority, sub: t.followUp && t.followUp < TODAY ? 'عدّى موعد المتابعة ' + D.formatDateNumeric(t.followUp) : 'أُعيد فتحه ×' + t.reopenCount })); }
   function showTickets() { if (state.page !== 'tickets') go('tickets'); }
-  let tnote = null;
+  let tnote = null; let tshown = null; // tshown: the note on the screen — a redraw for the server's answer keeps it (page-notes plan decision 3)
   const notify = (kind, text) => { tnote = { kind, text }; renderTickets(); };
   // the page follows the adapter: a load / a write / a live ping redraws it (and the open drawer)
   let drawerRedraw = null;
-  document.addEventListener('ib:tickets', () => { if (state.page === 'tickets') renderTickets(); if (drawerRedraw) drawerRedraw(); document.dispatchEvent(new CustomEvent('ib:notify')); }); // decision 9: the bell recounts
+  document.addEventListener('ib:tickets', () => { if (state.page === 'tickets') { if (!tnote && tshown && document.querySelector('#tickets [data-page-note]')) tnote = tshown; renderTickets(); } if (drawerRedraw) drawerRedraw(); document.dispatchEvent(new CustomEvent('ib:notify')); }); // decision 9: the bell recounts
 
   // ----- attachments (decision 2): a picker that uploads into the member's folder and keeps the files for the ticket / reply -----
   const ACCEPT = 'image/png,image/jpeg,image/webp,image/gif,application/pdf';
@@ -2732,7 +2732,7 @@
     return [
       tkHead, tkTabs,
       h('div', { class: 'toolbar' }, search),
-      tnote ? (() => { const n = tnote; tnote = null; const el = U.InlineNote({ kind: n.kind, children: n.text, action: IconButton({ icon: 'close', label: 'إخفاء', onClick: () => el.remove() }) }); return el; })() : null,
+      tnote ? (() => { const n = tnote; tnote = null; tshown = n; const el = U.InlineNote({ kind: n.kind, children: n.text, action: IconButton({ icon: 'close', label: 'إخفاء', onClick: () => el.remove() }) }); el.setAttribute('data-page-note', ''); return el; })() : null,
       TableCard({ title: 'التذاكر', cls: 'own-filter', count: '', th: { noun: ['تذكرة', 'التذاكر'], count: [list.length, all.length] }, action: h('div', { class: 'acts-inline tk-acts' }, tFM, tSM), pre: tAF, // the owner 12 Nov: «فلتر» next to the sort
         body: loading ? U.EmptyState('بنجيب التذاكر…', 'لحظة.') : list.length === 0 ? U.EmptyState('مفيش تذاكر مطابقة', tCanManage() ? 'غيّر الفلاتر، أو اضغط «إنشاء تذكرة» لو ظهرت مشكلة مع عميل أو مبتكر.' : 'غيّر الفلاتر.') : [TB.bar(), tableOrList(() => table, () => cards), pager] }),
       h('p', { class: 'source' }, 'المصدر: جدول التذاكر في السيستم · الأوردر والعميل بيتجابوا من الأوردرات · كل تغيير حالة أو رد بيتسجل في الخط الزمني وسجل النشاط')];
@@ -3031,11 +3031,11 @@
     // may not push says so; ok / skipped (no store, the push gate, a placeholder name) add nothing to the save's own note
     if (d.push && d.push.result === 'error') vnote = { kind: 'warning', text: d.push.reason === 'woo_refused' ? VMSG.push_refused : d.push.pending === false ? VMSG.push_lost : VMSG.push_failed };
     else if (d.push && d.push.result === 'skipped' && d.push.reason === 'no_permission') vnote = { kind: 'warning', text: VMSG.push_forbidden };
-    if (state.page === 'vendors') renderVendors(true);
+    if (state.page === 'vendors') { vkeep(); renderVendors(true); }
     if (vredraw) vredraw();
   });
   // the orders behind the stats changed (IBOrders: a load, a Realtime burst) — not while a menu or the filter is open
-  document.addEventListener('ib:notify', () => { if (state.page === 'vendors' && !document.querySelector('.pop-anchor .menu, .pop-anchor [role=dialog]')) renderVendors(true); if (vredraw) vredraw(); });
+  document.addEventListener('ib:notify', () => { if (state.page === 'vendors' && !document.querySelector('.pop-anchor .menu, .pop-anchor [role=dialog]')) { vkeep(); renderVendors(true); } if (vredraw) vredraw(); });
   state.vfilter = { status: 'active', category: 'all', balance: 'all', contract: 'all', late: false, tickets: false, q: '' }; state.vsort = 'open'; state.vpage = 1; const VPAGE = 9;
   // phase 5.5 decision 3 (owner 1 Nov): the closed filter picks several values per group; «نشط» ticked by default. decision 3 (owner 31 Oct): the selection for the bulk actions
   const VF0 = () => ({ status: ['active'], category: [], balance: [], contract: [], other: [] }); state.vf = VF0(); state.vsel = new Set(); state.vtab = 'overview'; // phase 13 decision 57
@@ -3064,8 +3064,13 @@
   const makerMenuItems = (v) => [{ label: 'تعديل الأسعار', icon: 'edit', run: () => makerAct('price', [v.id]) }, vstore.canRate() ? { label: 'تعديل نسبة إبتكر', icon: 'sliders', run: () => makerAct('rate', [v.id]) } : null, { label: 'نقل المنتجات لمبتكر تاني', icon: 'users', run: () => makerAct('move', [v.id]) }, { label: 'منتجاته', icon: 'box', run: () => goMakerProducts(v) }, { label: 'أوردراته', icon: 'external', run: () => { if (vdrawer) vdrawer.close(); showOrders({ vendor: v.name }); } }];
   function goMakerProducts(v) { const a = PAPI(); if (vdrawer) vdrawer.close(); if (!a) return; go('products'); a.openRecords({ vendor: v.name }); }
   // the drawer's products tab follows the mirror (a load, a write); the makers list carries no product counts of its own
-  document.addEventListener('ib:products', () => { if (vredraw && vtab === 'products') vredraw(); if (state.page === 'vendors' && state.vsel.size && !document.querySelector('.pop-anchor .menu, .modal[role=dialog]')) renderVendors(true); });
+  document.addEventListener('ib:products', () => { if (vredraw && vtab === 'products') vredraw(); if (state.page === 'vendors' && state.vsel.size && !document.querySelector('.pop-anchor .menu, .modal[role=dialog]')) { vkeep(); renderVendors(true); } });
   let vnote = null; const vnotify = (kind, text) => { vnote = { kind, text }; renderVendors(); };
+  // the owner 15 Nov (docs/superpowers/plans/2026-11-15-page-notes.md — «Keep the makers page note visible after a save»): the note
+  // was taken by the first draw, and the redraw for the save's own reload (ib:vendors), the bell's recount or a teammate's change drew
+  // the page without it a blink later. A redraw for the server's answer keeps the note that is on the screen (the accounts page's
+  // rule — shownNote); a member's own action, a new note or «إخفاء» clears it as before.
+  let vshown = null; const vkeep = () => { if (!vnote && vshown && document.querySelector('#vendors [data-page-note]')) vnote = vshown; };
   // plan 3.4 decision 10 (owner, 27 Oct): «مزامنة دلوقتي» — the site's store changes now instead of at the next quarter-hour run (admin)
   function syncNowBtn() {
     if (!vstore.canSyncNow || !vstore.canSyncNow()) return null;
@@ -3165,7 +3170,7 @@
     // phase 13 decision 57 (owner 11 Nov — «قسّم صفحة المبتكرين تابس: نظرة عامة، سجل المبتكرين، حسابات المبتكرين، سجل الحركات، التقارير»):
     // the cards on «نظرة عامة», the table (search, filter, bulk) on «سجل المبتكرين», the accounts page's own «حسابات المبتكرين» (it stays
     // there too), the makers' add / stop / activate / delete log, and the reports page's makers report — the tabs a member may see only
-    const noteEl = () => (vnote ? (() => { const n = vnote; vnote = null; const el = U.InlineNote({ kind: n.kind, children: n.text, action: IconButton({ icon: 'close', label: 'إخفاء', onClick: () => el.remove() }) }); return el; })() : null);
+    const noteEl = () => (vnote ? (() => { const n = vnote; vnote = null; vshown = n; const el = U.InlineNote({ kind: n.kind, children: n.text, action: IconButton({ icon: 'close', label: 'إخفاء', onClick: () => el.remove() }) }); el.setAttribute('data-page-note', ''); return el; })() : null);
     const vt = makerTabs(); if (!vt.some((t) => t.id === state.vtab)) state.vtab = vt[0].id;
     const tabsEl = U.Tabs({ items: vt, active: state.vtab, onChange: (id) => { state.vtab = id; renderVendors(); } }); tabsEl.setAttribute('aria-label', 'أقسام المبتكرين');
     const headEl =

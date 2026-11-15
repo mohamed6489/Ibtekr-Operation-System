@@ -226,10 +226,20 @@
     if (!k) return no;
     const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
     try {
-      const q = cl.from('products').select('id, name, sku, image_url');
-      const { data: r, error } = k.sku ? await q.eq('sku', k.sku).limit(1) : await q.in('permalink', k.permalinks).limit(1);
+      const q = () => cl.from('products').select('id, name, sku, image_url, lang');
+      const { data: r, error } = k.sku ? await q().eq('sku', k.sku).limit(1) : await q().in('permalink', k.permalinks).limit(1);
       if (error) return fail(error);
-      const p = Array.isArray(r) && r[0]; if (!p) return no;
+      let p = Array.isArray(r) && r[0];
+      // not the exact link (another host — the live site against the staging mirror): the product path (/product/<slug>) on any host,
+      // the English row first (the mirror holds the Arabic translation too)
+      for (const path of (!p && k.paths) || []) {
+        const like = '%' + path.replace(/[\\%_]/g, (c) => '\\' + c);
+        const { data: r2, error: e2 } = await q().like('permalink', like + '/').limit(4);
+        if (e2) return fail(e2);
+        const rows = Array.isArray(r2) ? r2 : []; p = rows.find((x) => x.lang !== 'ar') || rows[0];
+        if (p) break;
+      }
+      if (!p) return no;
       return { ok: true, product: { id: Number(p.id), name: p.name || p.sku || '#' + p.id, sku: p.sku || '', image: p.image_url || null } };
     } catch (e) { return fail(e); }
   }

@@ -299,7 +299,11 @@
     const base = u.origin + u.pathname; let dec = base; try { dec = decodeURI(base); } catch (e) { /* keep */ }
     let enc = base; try { enc = encodeURI(dec); } catch (e) { /* keep */ }
     const both = (x) => (x.endsWith('/') ? [x, x.slice(0, -1)] : [x, x + '/']);
-    return { permalinks: [...new Set([].concat(both(base), both(dec), both(enc)))] };
+    // the owner 15 Nov («بدلو لينك المنتج علي الموقع … مش قريه»): the mirror's permalinks are the staging site's, so a link of the live
+    // site (ibtekr.club) — or any host — is also matched by its product path (/product/<slug>), the host aside; a bare path never
+    const segs = u.pathname.split('/').filter(Boolean);
+    const paths = segs.length >= 2 && segs[0].toLowerCase() === 'product' ? [...new Set([u.pathname, (() => { try { return decodeURI(u.pathname); } catch (e) { return u.pathname; } })()].map((x) => x.replace(/\/+$/, '')))] : [];
+    return { permalinks: [...new Set([].concat(both(base), both(dec), both(enc)))], paths };
   }
 
   // ---------------------------------------------------------------- 9.5.3: the ads numbers (decisions 44–46) — Meta's own numbers

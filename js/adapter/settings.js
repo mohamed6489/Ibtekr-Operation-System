@@ -45,7 +45,7 @@
     ['المنتجات', [['عرض', 'products.view'], ['تعديل', 'products.edit'], ['الاستوديو (إضافة منتجات)', 'products.add'], ['تعديل جماعي', 'products.bulk'], ['سلة المهملات', 'products.trash']]],
     ['خدمة العملاء', [['عرض', 'cs.view'], ['الرد والمحادثات', 'cs.reply'], ['العملاء والشرايح والحملات', 'cs.manage']]],
     ['المخزون', [['عرض', 'inventory.view'], ['الاستلام والحركات', 'inventory.edit'], ['التسوية واعتماد الجرد', 'inventory.approve']]],
-    ['تذاكر الفريق', [['عرض', 'tickets.view'], ['إنشاء وحل التذاكر', 'tickets.manage']]],
+    ['طلبات الفريق', [['عرض', 'tickets.view'], ['إنشاء وحل الطلبات', 'tickets.manage']]],
     ['التقارير', [['عرض', 'reports.view'], ['تصدير CSV', 'reports.export']]],
     ['الموارد البشرية', [['عرض', 'hr.view'], ['الحضور وبيانات الأعضاء', 'hr.edit'], ['الموافقات', 'hr.approve']]],
     ['التسويق', [['عرض', 'marketing.view'], ['إنشاء الكامبينات', 'marketing.create'], ['النشر', 'marketing.publish']]],
@@ -277,7 +277,7 @@
       return { ok: true, rows: list.slice(0, size).map((r) => ({ id: r.id, at: r.at, actor: r.actor || null, actorName: (r.actor && names.get(r.actor)) || (r.actor ? 'عضو' : 'السيستم'), action: r.action, page: pageOf(r.action), entity: r.entity || '', entityId: r.entity_id || '', oldValue: r.old_value, newValue: r.new_value })), more, page };
     } catch (e) { return no('network'); }
   }
-  const PAGE_NAMES = { auth: 'الدخول', dashboard: 'لوحة التحكم', profile: 'ملفي', order: 'الأوردرات', suborder: 'الأوردرات', vendor: 'المبتكرين', accounts: 'الحسابات', product: 'المنتجات', cs: 'خدمة العملاء', inventory: 'المخزون', ticket: 'تذاكر الفريق', hr: 'الموارد البشرية', mkt: 'التسويق', settings: 'الإعدادات', delivery: 'التوصيل' };
+  const PAGE_NAMES = { auth: 'الدخول', dashboard: 'لوحة التحكم', profile: 'ملفي', order: 'الأوردرات', suborder: 'الأوردرات', vendor: 'المبتكرين', accounts: 'الحسابات', product: 'المنتجات', cs: 'خدمة العملاء', inventory: 'المخزون', ticket: 'طلبات الفريق', hr: 'الموارد البشرية', mkt: 'التسويق', settings: 'الإعدادات', delivery: 'التوصيل' };
   const pageOf = (action) => PAGE_NAMES[String(action || '').split('.')[0]] || 'أخرى';
 
   // ---------- the company papers (decision 20) ----------

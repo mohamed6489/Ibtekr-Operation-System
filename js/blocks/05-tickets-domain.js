@@ -31,9 +31,9 @@
 
   function validateTicket(input) {
     const e = {};
-    if (!TYPES.some((t) => t[0] === input.type)) e.type = 'اختار نوع التذكرة';
+    if (!TYPES.some((t) => t[0] === input.type)) e.type = 'اختار نوع الطلب';
     const title = clean(input.title, 1000);
-    if (!title) e.title = 'اكتب عنوان للتذكرة'; else if (title.length > TITLE_MAX) e.title = 'العنوان أقصاه ' + TITLE_MAX + ' حرف';
+    if (!title) e.title = 'اكتب عنوان للطلب'; else if (title.length > TITLE_MAX) e.title = 'العنوان أقصاه ' + TITLE_MAX + ' حرف';
     if (!clean(input.description, 5000)) e.description = 'اكتب إيه اللي حصل وإيه المطلوب';
     if (!BASE_PRIORITIES.some((p) => p[0] === input.priority)) e.priority = 'اختار الأولوية';
     if (!ROLES.includes(input.assigneeRole)) e.assigneeRole = 'اختار الدور المسؤول';
@@ -63,7 +63,7 @@
         orderId: clean(input.orderId, 20) || null, customer: clean(input.customer, 80) || null, vendor: clean(input.vendor, 80) || null, reason: input.reason || null, followUp: input.followUp || null, attachments: (input.attachments || []).slice(0, 10),
         status: 'open', createdBy: { name: actor.name, role: actor.role }, createdAt: at, lastUpdate: at, reopenCount: 0, resolution: null, closedBy: null, closedAt: null };
       tickets.set(id, t); timeline.set(id, []);
-      event(id, actor.name + ' أنشأ التذكرة وعيّنها لدور «' + t.assigneeRole + '»', actor);
+      event(id, actor.name + ' أنشأ الطلب وعيّنه لدور «' + t.assigneeRole + '»', actor);
       push(id, { kind: 'message', at, author: { name: actor.name, role: actor.role }, text: t.description });
       return get(id);
     }
@@ -74,20 +74,20 @@
       if (!STATUSES.some((s) => s[0] === status)) throw new Error('bad status');
       if (status === 'closed' || status === 'open') throw noPerm(); // closing/reopening go through close()/reopen()
       if (!canWork(t, actor)) throw noPerm();
-      if (t.status === 'closed') throw new Error('التذكرة مغلقة — أعد فتحها الأول');
+      if (t.status === 'closed') throw new Error('الطلب مغلق — أعد فتحه الأول');
       const old = t.status; t.status = status;
       event(id, actor.name + ' غيّر الحالة من «' + label(STATUSES, old) + '» إلى «' + label(STATUSES, status) + '»', actor, { oldValue: old, newValue: status });
     }
     function resolve(id, { outcome, note }, actor) {
       const t = must(id); if (!canWork(t, actor)) throw noPerm(); if (!OUTCOMES.includes(outcome)) throw new Error('outcome required');
-      if (t.status === 'closed') throw new Error('التذكرة مغلقة');
+      if (t.status === 'closed') throw new Error('الطلب مغلق');
       const old = t.status; t.status = 'resolved'; t.resolution = { outcome, note: clean(note, 1000), by: actor.name, at: clock() };
-      event(id, actor.name + ' حوّل التذكرة إلى «تم الحل» — ' + outcome + (t.resolution.note ? ' · ' + t.resolution.note : ''), actor, { oldValue: old, newValue: 'resolved' });
+      event(id, actor.name + ' حوّل الطلب إلى «تم الحل» — ' + outcome + (t.resolution.note ? ' · ' + t.resolution.note : ''), actor, { oldValue: old, newValue: 'resolved' });
     }
     function close(id, actor) {
       const t = must(id); if (!canClose(t, actor)) throw noPerm(); if (t.status === 'closed') return;
       const old = t.status; t.status = 'closed'; t.closedBy = actor.name; t.closedAt = clock();
-      event(id, actor.name + ' قفل التذكرة نهائيًا', actor, { oldValue: old, newValue: 'closed' });
+      event(id, actor.name + ' قفل الطلب نهائيًا', actor, { oldValue: old, newValue: 'closed' });
     }
     function reopen(id, { reason }, actor) {
       const t = must(id); const r = clean(reason, 1000); if (!r) throw new Error('reason required'); if (!canReopen(t, actor)) throw noPerm();
@@ -95,7 +95,7 @@
       event(id, actor.name + ' أُعيد فتحه (×' + t.reopenCount + ') — السبب: ' + r + ' · رجع لدور «' + t.assigneeRole + '»', actor, { oldValue: old, newValue: 'open' });
     }
     function reply(id, text, actor) {
-      const t = must(id); const s = clean(text, 5000); if (!s) throw new Error('text required'); if (t.status === 'closed') throw new Error('التذكرة مغلقة — أعد فتحها عشان ترد');
+      const t = must(id); const s = clean(text, 5000); if (!s) throw new Error('text required'); if (t.status === 'closed') throw new Error('الطلب مغلق — أعد فتحه عشان ترد');
       return push(id, { kind: 'message', at: clock(), author: { name: actor.name, role: actor.role }, text: s });
     }
     function update(id, patch, actor) {
@@ -145,6 +145,15 @@
     const extra = (Array.isArray(list) ? list : []).map((x) => clean(x, 60)).filter(Boolean);
     ROLES = Object.freeze([...new Set(BASE_ROLES.concat(extra))]); return ROLES;
   }
-  return Object.freeze({ TYPES, STATUSES, get PRIORITIES() { return prios(); }, BASE_PRIORITIES, get ROLES() { return ROLES; }, BASE_ROLES, setRoles, ADMIN_ROLE, CUSTOMER_REASONS, VENDOR_REASONS, OUTCOMES, OPEN, WORK_STATUSES, TITLE_MAX, label, validateTicket, createStore, canWork, canClose, canReopen, isAdmin, summary, summaryDetails, filterTickets });
+  // comments decision 13 (the owner 15 Nov — «كل كلمة تذاكر أو تذكرة في السيستم كله تبقى طلبات أو طلب»): the page's own strings say
+  // «طلب»; a line the server wrote into a request's history (ticket_create / ticket_act of 0045 …, the HR and the auto-reply
+  // openers) and the rows written before still say «تذكرة» — words(text) is how such a line is shown. Whole phrases first (their
+  // gender follows the new word), then the word itself. Never for what a member typed (a title, a reply, a note).
+  const WORDS = [['أنشأ التذكرة وعيّنها', 'أنشأ الطلب وعيّنه'], ['فتح التذكرة وعيّنها', 'فتح الطلب وعيّنه'], ['فتحت التذكرة وعيّنتها', 'فتحت الطلب وعيّنته'], ['من التذكرة دي', 'من الطلب ده'], ['الطلب في التذكرة', 'موجود في الطلب'],
+    ['للتذكرة', 'للطلب'], ['التذكرة', 'الطلب'], ['التذاكر', 'الطلبات'], ['تذاكر', 'طلبات'], ['تذكرة', 'طلب']];
+  const words = (text) => { let s = String(text == null ? '' : text); if (!/تذ(?:كر|اكر)/.test(s)) return s; for (const [a, b] of WORDS) s = s.split(a).join(b); return s; };
+  // a description or a closing note may be a member's own words: only the server's own sentences in it change
+  const phrases = (text) => { let s = String(text == null ? '' : text); if (!/تذكرة/.test(s)) return s; for (const [a, b] of [['من التذكرة دي أو من', 'من الطلب ده أو من'], ['الطلب في التذكرة TKT-', 'موجود في الطلب TKT-']]) s = s.split(a).join(b); return s; };
+  return Object.freeze({ words, phrases, TYPES, STATUSES, get PRIORITIES() { return prios(); }, BASE_PRIORITIES, get ROLES() { return ROLES; }, BASE_ROLES, setRoles, ADMIN_ROLE, CUSTOMER_REASONS, VENDOR_REASONS, OUTCOMES, OPEN, WORK_STATUSES, TITLE_MAX, label, validateTicket, createStore, canWork, canClose, canReopen, isAdmin, summary, summaryDetails, filterTickets });
 });
 

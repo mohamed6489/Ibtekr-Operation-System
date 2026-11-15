@@ -585,7 +585,7 @@
       submitLabel: 'تقديم الطلب', submit: (f, md) => busy(md, H().request({ member: f.member, type: 'سُلفة', amount: Number(f.amount), months: 1, note: f.note || '' }), (r) => K.toast(filedMsg(r), 'success')) });
   }
   // phase 13 decision 33 (0071): every request opens its team ticket — the toast says which
-  const filedMsg = (r) => 'اتقدم الطلب ' + r.id + (r.ticket ? ' — في «تذاكر الفريق» ' + r.ticket : '');
+  const filedMsg = (r) => 'اتقدم الطلب ' + r.id + (r.ticket ? ' — في «طلبات الفريق» ' + r.ticket : '');
   function remoteRequest(m, pre) { // «شغل عن بُعد» (from the tickets page, decision 33)
     const me = (window.IBDirectory.me() || {}).member_code; const who = can().edit ? members() : members().filter((x) => x.value === me);
     K.form({ title: 'طلب شغل عن بُعد', values: Object.assign({ member: (m && who.some((x) => x.value === m.id) ? m.id : null) || me || (who[0] || {}).value, from: today(), to: today() }, preOf(pre, ['from', 'to', 'note'])),

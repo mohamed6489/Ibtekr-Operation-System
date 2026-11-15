@@ -46,8 +46,8 @@
       .map((m) => ({ uid: m.uid, name: m.name || '—' })).sort((a, b) => String(a.name).localeCompare(String(b.name), 'ar')); };
   const reasonOf = (err) => { const code = String((err && err.code) || ''); return code === '42501' ? 'forbidden' : code === 'P0002' ? 'notfound' : /^2[23]/.test(code) ? 'invalid' : 'network'; };
   const fieldOf = (err) => { const m = /invalid: (\w+)/.exec(String((err && err.message) || '')); return m ? m[1] : null; };
-  const MESSAGES = { forbidden: 'مفيش صلاحية للإجراء ده', notfound: 'التذكرة مش موجودة أو مش متاحة ليك', network: 'تعذّر الاتصال — جرّب تاني', invalid: 'راجع البيانات' };
-  const FIELD_MESSAGES = { closed: 'التذكرة مغلقة — أعد فتحها الأول', status: 'الحالة دي مش متاحة للتذكرة دي', outcome: 'اختار نتيجة الحل', reason: 'اكتب السبب', text: 'اكتب الرد',
+  const MESSAGES = { forbidden: 'مفيش صلاحية للإجراء ده', notfound: 'الطلب مش موجود أو مش متاح ليك', network: 'تعذّر الاتصال — جرّب تاني', invalid: 'راجع البيانات' };
+  const FIELD_MESSAGES = { closed: 'الطلب مغلق — أعد فتحه الأول', status: 'الحالة دي مش متاحة للطلب ده', outcome: 'اختار نتيجة الحل', reason: 'اكتب السبب', text: 'اكتب الرد',
     attachments: 'المرفقات: صور أو PDF، لحد ' + MAX_FILES + ' ملفات و10 ميجا للملف', followUp: 'اكتب التاريخ بالشكل يوم/شهر/سنة', orderId: 'اكتب رقم الأوردر', vendor: 'اختار المبتكر', title: 'العنوان أقصاه 80 حرف' };
   const fail = (err) => { const reason = reasonOf(err); const field = reason === 'invalid' ? fieldOf(err) : null; return { ok: false, reason, field, message: (field && FIELD_MESSAGES[field]) || MESSAGES[reason] }; };
   const log = (action, detail, id) => { const L = window.IBActivity; if (L && L.log) quiet(() => L.log(action, detail, { entity: 'ticket', entity_id: id || null })); };
@@ -56,14 +56,17 @@
   const tid = (n) => 'TKT-' + String(n).padStart(4, '0');
   const dbIdOf = (id) => { const s = String(id == null ? '' : id); const m = /^TKT-(\d+)$/.exec(s); return m ? Number(m[1]) : /^\d+$/.test(s) ? Number(s) : null; };
   const files = (a) => (Array.isArray(a) ? a.filter((f) => f && typeof f.path === 'string').map((f) => ({ path: f.path, name: f.name || f.path.replace(/^.*\//, ''), type: f.type || '', size: Number(f.size) || 0 })) : []);
-  const toTicket = (r) => ({ id: tid(r.id), dbId: Number(r.id), type: r.type, kind: r.kind || null, project: r.project || null, title: r.title, description: r.description, priority: r.priority, assigneeRole: r.assignee_role,
+  // comments decision 13: a history line the server wrote says «طلب» (IbtekrTickets.words); in a description / a closing note only
+  // the server's own sentences change (phrases) — what a member typed stays as typed
+  const say = (how, t) => (window.IbtekrTickets && window.IbtekrTickets[how] && typeof t === 'string' ? window.IbtekrTickets[how](t) : t);
+  const toTicket = (r) => ({ id: tid(r.id), dbId: Number(r.id), type: r.type, kind: r.kind || null, project: r.project || null, title: r.title, description: say('phrases', r.description), priority: r.priority, assigneeRole: r.assignee_role,
     assigneeMember: r.assignee_member || null, assigneeMemberName: r.assignee_member ? (r.assignee_member_name || '—') : null, orderId: r.order_number || null, orderDbId: r.order_id != null ? Number(r.order_id) : null, customer: r.customer || null, csCustomerId: r.cs_customer_id || null, csConversationId: r.cs_conversation_id || null,
     vendor: r.vendor || null, vendorId: r.vendor_id || null, reason: r.reason || null, followUp: r.follow_up || null, attachments: files(r.attachments), status: r.status,
     createdBy: { name: r.created_by_name, role: r.created_by_role, uid: r.created_by || null }, createdAt: r.created_at, lastUpdate: r.last_update, reopenCount: Number(r.reopen_count) || 0,
-    resolution: r.resolution_outcome ? { outcome: r.resolution_outcome, note: r.resolution_note || '', by: r.resolved_by_name || '', at: r.resolved_at } : null, closedBy: r.closed_by_name || null, closedAt: r.closed_at || null });
+    resolution: r.resolution_outcome ? { outcome: r.resolution_outcome, note: say('phrases', r.resolution_note || ''), by: r.resolved_by_name || '', at: r.resolved_at } : null, closedBy: r.closed_by_name || null, closedAt: r.closed_at || null });
   const toEvent = (e) => { const who = { name: e.actor_name, role: e.actor_role };
     return e.kind === 'message' ? { id: Number(e.id), kind: 'message', at: e.at, author: who, actorUid: e.actor || null, text: e.text, attachments: files(e.attachments) }
-      : { id: Number(e.id), kind: 'event', at: e.at, text: e.text, actor: who, actorUid: e.actor || null, oldValue: e.old_value == null ? null : e.old_value, newValue: e.new_value == null ? null : e.new_value }; };
+      : { id: Number(e.id), kind: 'event', at: e.at, text: say('words', e.text), actor: who, actorUid: e.actor || null, oldValue: e.old_value == null ? null : e.old_value, newValue: e.new_value == null ? null : e.new_value }; };
 
   let st = 'idle'; let gen = 0;
   const data = { tickets: [], events: new Map(), full: new Set() }; // events: dbId → [event] (oldest first); full: the tickets whose whole timeline is loaded
@@ -153,7 +156,7 @@
       const fresh = evs.filter((e) => e.id > last && e.at > seen.since && e.actorUid !== uid); if (!fresh.length) continue;
       const isNew = !last && isMine(t) && t.createdBy.uid !== uid && t.createdAt > seen.since;
       const e = fresh[fresh.length - 1];
-      const sub = isNew ? 'تذكرة جديدة لدور «' + t.assigneeRole + '» من ' + t.createdBy.name
+      const sub = isNew ? 'طلب جديد لدور «' + t.assigneeRole + '» من ' + t.createdBy.name
         : e.kind === 'message' ? 'رد من ' + e.author.name + ': ' + String(e.text || '').slice(0, 60) : e.text;
       out.push({ id: t.id, kind: isNew ? 'new' : 'update', title: t.id + ' — ' + t.title, sub, prio: t.priority, at: e.at, count: fresh.length });
     }

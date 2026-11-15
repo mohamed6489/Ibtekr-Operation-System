@@ -137,7 +137,20 @@
     const n = /^\d+/.test(count) ? parseInt(count, 10) : 3; const g = everyHours(every);
     return Array.from({ length: n }, (_, i) => i * g);
   }
-  const NOTIF_TEAMS = Object.freeze(['أدمن', 'خدمة العملاء', 'متابعة المبتكرين', 'العمليات', 'المخزن', 'الحسابات', 'المدير المباشر', 'المسؤول عن التذكرة', 'المسؤول عن التوصيل', 'المبتكر (واتساب)']);
+  // comments decision 13 (the owner 15 Nov — «كل كلمة تذاكر أو تذكرة في السيستم كله تبقى طلبات أو طلب»): the alert types and the
+  // recipient that said «تذكرة» say «طلب». Their names are the keys of the saved «notif» row and of the engine
+  // (_shared/notify.js TYPE_RENAMES — the same pairs), so a row saved before is read through notifRenamed and written back with
+  // the new names at the next save.
+  const NOTIF_RENAMES = Object.freeze({ 'تذكرة عاجلة / عالية': 'طلب عاجل / عالي', 'تذكرة متأخرة عن موعد المتابعة': 'طلب متأخر عن موعد المتابعة', 'تذكرة عاجلة بدون رد': 'طلب عاجل بدون رد', 'المسؤول عن التذكرة': 'المسؤول عن الطلب' });
+  const notifName = (s) => (typeof s === 'string' ? s.split(' + ').map((p) => NOTIF_RENAMES[p.trim()] || p).join(' + ') : s);
+  function notifRenamed(n) {
+    if (!n || typeof n !== 'object') return n;
+    const out = Object.assign({}, n);
+    if (Array.isArray(n.notif)) out.notif = n.notif.map((g) => (Array.isArray(g) && Array.isArray(g[1]) ? [g[0], g[1].map((r) => (Array.isArray(r) ? r.map((c, i) => (i === 0 || i === 3 ? notifName(c) : c)) : r))].concat(g.slice(2)) : g));
+    if (Array.isArray(n.escalations)) out.escalations = n.escalations.map((e) => (e && typeof e === 'object' ? Object.assign({}, e, { type: notifName(e.type), to: Array.isArray(e.to) ? e.to.map(notifName) : notifName(e.to) }) : e));
+    return out;
+  }
+  const NOTIF_TEAMS = Object.freeze(['أدمن', 'خدمة العملاء', 'متابعة المبتكرين', 'العمليات', 'المخزن', 'الحسابات', 'المدير المباشر', 'المسؤول عن الطلب', 'المسؤول عن التوصيل', 'المبتكر (واتساب)']);
   // Owner (22 Oct): vendors can receive alerts — always on WhatsApp, on the number in their profile.
   const VENDOR_RECIPIENT = 'المبتكر (واتساب)';
   const recipientChannels = (to, ch) => ({ team: ch, vendor: (to || []).includes(VENDOR_RECIPIENT) ? 'واتساب' : null });
@@ -323,7 +336,7 @@
 
   const api = { HR, INV, AUTH, rates, overtimePay, monthlyPaid, rating, RATING_TONE, monthBonus, quarterBonus, quarterBad, leaveDays, addDays, payslip,
     shiftState, presenceDue, presenceOutcome, reviewOvertime, otReviewer, validateOtEnd,
-    REASONS, STATUS_BY_REASON, stockFromLedger, canAutoPull, validateReceive, CANCEL_REASONS, validateCancel, NOTIF_COUNTS, NOTIF_EVERY, notifRepeat, notifSchedule, NOTIF_DEFAULT_AT, NOTIF_TIMES, isDaily, SHIP_READY, isShipReady, shipRoute, waybillFor, waybillText, deliveryDigestText, isConfirmed, subsOnConfirm, DELAY, daysFrom, confirmAge, orderDelay, leadOf, subElapsed, subDelay, START_POINTS, DELAY_STOP, DELAY_DEFAULTS, delayRules, leadBy, orderElapsed, lineElapsed, delayAgainst, orderDelayOf, lineDelayOf, notifRepeatShort, channelsShort, listShort, validateNotifType, ESC_AFTER, ESC_CHANNELS, ESC_MANAGER, escalationTargets, validateEscalation, joinChannels, splitChannels, WEEKDAYS, weeklyPeriod, MONTH_DAYS, monthDaysLabel, monthDaysPeriod, NOTIF_TEAMS, payrollDue, digest, VENDOR_RECIPIENT, recipientChannels, splitRecipients, joinRecipients, RETURN_CONDITIONS, inspectDefault, arrivalReason, arrivalStock, consolidationLate, photoOverdue, consolidation, countDiff,
+    REASONS, STATUS_BY_REASON, stockFromLedger, canAutoPull, validateReceive, CANCEL_REASONS, validateCancel, NOTIF_COUNTS, NOTIF_EVERY, NOTIF_RENAMES, notifName, notifRenamed, notifRepeat, notifSchedule, NOTIF_DEFAULT_AT, NOTIF_TIMES, isDaily, SHIP_READY, isShipReady, shipRoute, waybillFor, waybillText, deliveryDigestText, isConfirmed, subsOnConfirm, DELAY, daysFrom, confirmAge, orderDelay, leadOf, subElapsed, subDelay, START_POINTS, DELAY_STOP, DELAY_DEFAULTS, delayRules, leadBy, orderElapsed, lineElapsed, delayAgainst, orderDelayOf, lineDelayOf, notifRepeatShort, channelsShort, listShort, validateNotifType, ESC_AFTER, ESC_CHANNELS, ESC_MANAGER, escalationTargets, validateEscalation, joinChannels, splitChannels, WEEKDAYS, weeklyPeriod, MONTH_DAYS, monthDaysLabel, monthDaysPeriod, NOTIF_TEAMS, payrollDue, digest, VENDOR_RECIPIENT, recipientChannels, splitRecipients, joinRecipients, RETURN_CONDITIONS, inspectDefault, arrivalReason, arrivalStock, consolidationLate, photoOverdue, consolidation, countDiff,
     RETURN_REASONS, validateReturn, TASK_STATUSES, rollover, validateTaskStatus,
     loginInit, loginFail, isLocked, identifierKind, toLatin, validatePassword, idleState };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.IbtekrOps = api;

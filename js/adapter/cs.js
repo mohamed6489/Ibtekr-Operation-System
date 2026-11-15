@@ -790,7 +790,7 @@
   const LIBS = ['customers', 'vendors']; const TRIG_KINDS = ['auto', 'manual', 'campaign'];
   const EVENTS = ['status', 'sub', 'first', 'afterhours', 'cart', 'transfer']; const ACTIONS = ['send', 'ticket', 'assign', 'tag'];
   const EVENT_LABEL = { status: 'حالة الأوردر اتغيرت', sub: 'أوردر فرعي اتعمل', first: 'أول رسالة من رقم جديد', afterhours: 'رسالة خارج مواعيد العمل', cart: 'سلة متروكة', transfer: 'تحويل اتسجل' };
-  const ACTION_LABEL = { send: 'ابعت قالب', ticket: 'افتح تذكرة', assign: 'عيّن لدور', tag: 'ضيف تاج' };
+  const ACTION_LABEL = { send: 'ابعت قالب', ticket: 'افتح طلب', assign: 'عيّن لدور', tag: 'ضيف تاج' };
   const DELAYS = [[0, 'فوراً (في مواعيد الإرسال)'], [5, 'بعد 5 دقايق'], [60, 'بعد ساعة'], [1440, 'بعد يوم']];
   const delayLabel = (m) => { const d = DELAYS.find((x) => x[0] === Number(m)); return d ? d[1] : 'بعد ' + Number(m) + ' دقيقة'; };
   const QUICK_KEY = /^\/\S{1,39}$/; const WA_TPL = /^[a-z0-9_]{1,120}$/;
@@ -824,7 +824,7 @@
     const when = r.event === 'status' ? 'الأوردر بقى «' + (r.to || '') + '»' : EVENT_LABEL[r.event] || r.event;
     const conds = (r.conds || []).length ? ' و' + r.conds.map((c) => c.join(' ')).join(' و') : '';
     const target = r.action === 'send' ? (tplName ? ' «' + tplName + '»' : r.event === 'afterhours' ? ' «نص خارج المواعيد»' : '') : r.action === 'assign' ? ' «' + roleName(r.roleId) + '»' : r.action === 'tag' ? ' «' + (r.tag || '') + '»' : '';
-    return 'لما: ' + when + conds + ' ← ' + (ACTION_LABEL[r.action] || r.action) + target + ' · ' + delayLabel(r.delayMin) + (r.once ? ' · مرة واحدة' : '') + (r.ticket ? ' · مردّش 24 ساعة → تذكرة' : '');
+    return 'لما: ' + when + conds + ' ← ' + (ACTION_LABEL[r.action] || r.action) + target + ' · ' + delayLabel(r.delayMin) + (r.once ? ' · مرة واحدة' : '') + (r.ticket ? ' · مردّش 24 ساعة → طلب' : '');
   }
   const ruleStats = (r) => (!r.on ? (r.runs ? 'متوقفة · اتنفذت ' + r.runs + ' مرة' : 'متوقفة') : r.runs ? 'اتنفذت ' + r.runs + ' مرة' + (r.lastRunAt ? ' · آخر مرة ' + timeLabel(ms(r.lastRunAt), Date.now()) : '') : 'شغالة — لسه ما اتنفذتش');
   function toRule(r, templates) {

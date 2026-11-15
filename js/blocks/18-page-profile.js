@@ -177,9 +177,9 @@
     const TA = window.IBTickets;
     if (TA && TA.can && TA.can().view && TA.state && TA.state() === 'ready') {
       const open = TA.all().filter((t) => TK_OPEN.includes(t.status) && TA.isMine(t)); const urgent = open.filter((t) => t.priority === 'urgent');
-      urgent.forEach((t) => out.push({ key: 'tk' + t.id, title: 'الرد على تذكرة ' + t.id + ' (عاجل)', href: '#tickets/' + t.id }));
+      urgent.forEach((t) => out.push({ key: 'tk' + t.id, title: 'الرد على طلب ' + t.id + ' (عاجل)', href: '#tickets/' + t.id }));
       const rest = open.length - urgent.length;
-      if (rest > 0) out.push({ key: 'tk', title: 'الرد على ' + cnt(rest, 'تذكرة مفتوحة', 'تذكرتين مفتوحين', 'تذاكر مفتوحة', 'تذكرة مفتوحة'), href: '#tickets' });
+      if (rest > 0) out.push({ key: 'tk', title: 'الرد على ' + cnt(rest, 'طلب مفتوح', 'طلبين مفتوحين', 'طلبات مفتوحة', 'طلب مفتوح'), href: '#tickets' });
     }
     const DD = window.IBDashData;
     if (DD && DD.rows && perm('orders.view') !== 'N' && perm('orders.status') === 'F') {
@@ -198,7 +198,7 @@
   function tasks(m) {
     const auto = autoOf(m);
     const fresh = window.IbtekrApp && window.IbtekrApp.newTicket && !isAdminView() ? Button({ type: 'brand', size: 'sm', icon: 'plus', label: 'فتح طلب', onClick: () => window.IbtekrApp.newTicket() }) : null;
-    return [K.Section(isAdminView() ? 'مهامه — تلقائية من السيستم' : 'مهامي — تلقائية من السيستم', auto.length ? auto.map(autoRow) : isAdminView() ? K.Empty('مفيش حاجة مستنياه', '') : K.Empty('مفيش حاجة مستنياك', 'المراجعات والطلبات والتذاكر والأوردرات اللي محتاجاك بتظهر هنا لوحدها.'), fresh ? [fresh] : null, { th: false }),
+    return [K.Section(isAdminView() ? 'مهامه — تلقائية من السيستم' : 'مهامي — تلقائية من السيستم', auto.length ? auto.map(autoRow) : isAdminView() ? K.Empty('مفيش حاجة مستنياه', '') : K.Empty('مفيش حاجة مستنياك', 'المراجعات والطلبات والأوردرات اللي محتاجاك بتظهر هنا لوحدها.'), fresh ? [fresh] : null, { th: false }),
       h('p', { class: 't-small help', 'data-tasks-note': '' }, 'مفيش مهام بالإيد — أي شغل لحد تاني بيبقى «طلب» من «طلبات الفريق».')];
   }
   function taskRow(t, w) {
@@ -312,7 +312,7 @@
     // decision 24: «ابدأ الدوام» again after «إنهاء الدوام» (from the header clock) — another session, the hours summed
     // decision 25: «إضافة وقت إضافي» (overtime from now, through the request ticket), under «إجراءات سريعة»; decision 31 (owner 10 Nov —
     // «امسح زرار إنهاء الدوام»): it is the only quick action here — the shift starts and ends from the header clock
-    const btn = !isAdminView() && sh && sh.state === 'in' && window.IBShell.startOvertime ? [Button({ label: 'إضافة وقت إضافي', icon: 'plus', attrs: { 'data-ot-start': '' }, onClick: () => K.confirm({ title: 'إضافة وقت إضافي', text: 'الوقت الإضافي هيبدأ من دلوقتي، وهيتبعت طلب في «تذاكر الفريق» لمديرك المباشر — ومابيتحسبش غير بعد موافقته.', okLabel: 'ابدأ وقت إضافي', onOk: () => window.IBShell.startOvertime() }) })] : null;
+    const btn = !isAdminView() && sh && sh.state === 'in' && window.IBShell.startOvertime ? [Button({ label: 'إضافة وقت إضافي', icon: 'plus', attrs: { 'data-ot-start': '' }, onClick: () => K.confirm({ title: 'إضافة وقت إضافي', text: 'الوقت الإضافي هيبدأ من دلوقتي، وهيتبعت طلب في «طلبات الفريق» لمديرك المباشر — ومابيتحسبش غير بعد موافقته.', okLabel: 'ابدأ وقت إضافي', onOk: () => window.IBShell.startOvertime() }) })] : null;
     return [h('div', { class: 'cards' }, K.Stat('النهارده', now, '', sh ? (sh.state === 'out' ? (sh.ended ? 'خلص الدوام' : 'خارج الدوام') : 'من ' + sh.startLabel) : HR().status(m)[0], undefined, dToday), K.Stat('ساعات ' + mon, K.hm(worked), 'ساعة', att.length + ' يوم حضور', undefined, dMonth), K.Stat('جلسات الدوام', nSess, 'جلسة', 'الدوام مرن — ' + mon, undefined, dSess), K.Stat('وقت إضافي متأكد', K.hm(okMin), 'ساعة', otPend.length + ' مستني تأكيد', undefined, dOt)),
       btn ? h('div', { class: 'toolbar quick-acts' }, h('span', { class: 't-label help' }, 'إجراءات سريعة:'), ...btn) : null,
       K.Section('سجل الحضور — ' + monLabel(mk), att.length ? U.Table({ headers: ['اليوم', 'أول حضور', 'آخر انصراف', 'الساعات', 'الجلسات', 'وقت إضافي'], rows: att.map((a) => [K.dayName(a.date) + ' ' + K.dshort(a.date), K.Num(K.hm(a.in)), a.out != null ? K.Num(K.hm(a.out)) : a.date === t ? K.Tag('success', 'لسه شغال') : K.Tag('error', 'ناقص'), hrsOf(a) || a.out != null ? K.Num(K.hm(hrsOf(a))) : '—', sessTxt(a), a.ot ? K.Tag('gold', K.hrs(a.ot)) : '—']) }) : K.Empty('لسه مفيش حضور الشهر ده', isAdminView() ? '' : '«ابدأ الدوام» من فوق بيسجّل اليوم.'), null, { when: monLabel(mk) }),

@@ -60,7 +60,7 @@
   const countIn = (orders, r) => (orders || []).filter((o) => o.date >= r.from && o.date <= r.to).length;
   const QA = [
     ['expense', '+ مصروف', 'wallet', ['أدمن', 'حسابات']], ['vendorMove', '+ حركة لمبتكر', 'wallet', ['أدمن', 'حسابات', 'متابعة الموردين']], ['vendor', '+ مبتكر جديد', 'users', ['أدمن', 'متابعة الموردين']],
-    ['ticket', '+ تذكرة', 'ticket', ['أدمن', 'عمليات', 'خدمة العملاء', 'حسابات', 'متابعة الموردين']], ['vendorReport', 'تقرير مبتكر…', 'chart', ['أدمن', 'حسابات', 'متابعة الموردين']],
+    ['ticket', '+ طلب', 'ticket', ['أدمن', 'عمليات', 'خدمة العملاء', 'حسابات', 'متابعة الموردين']], ['vendorReport', 'تقرير مبتكر…', 'chart', ['أدمن', 'حسابات', 'متابعة الموردين']],
     ['clock', 'بدء / إنهاء الدوام', 'clock', ROLES], ['leave', 'طلب إجازة', 'cal', ROLES], ['notifs', 'فتح الإشعارات', 'bell', ROLES]];
   const quickActions = (role) => QA.filter((a) => a[3].includes(roleOf(role))).map(([id, label, icon]) => ({ id, label, icon }));
   // next send date for «أيام محددة من الشهر» (1–28 + 'last'); today counts

@@ -39,10 +39,13 @@ async function choose(page, kase, type) {
 }
 async function makerArtCraft(page) {
   await page.locator('#fl-maker').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
-  // the owner 15 Nov: the maker alone — no brand list; his own brand is taken, his rate shown with his details
+  // the owner 15 Nov: the maker alone — no brand list (his own brand is taken); then his rate alone — no sale-price formula, no store,
+  // no brand — and beside it his categories with their own rate (Art Craft is «category_based»: ديكور 30%)
   await expect(page.locator('#fl-brand')).toHaveCount(0);
-  await expect(page.locator('[data-fl-brand]')).toContainText('Art Craft');
   await expect(page.locator('[data-fl-rate]')).toContainText('%');
+  const info = page.locator('[data-fl-maker-info]');
+  for (const gone of ['سعر البيع', 'المتجر على الموقع', 'البراند']) await expect(info).not.toContainText(gone);
+  await expect(info.locator('[data-fl-cat-rates] [data-cat="15"]')).toHaveText('ديكور30%');
   await expect(page.locator('#fl-code')).toHaveValue('ART'); // glasstora → GLS: the first letter + the consonants after it
 }
 const batch = () => mock.studioBatches[0];
@@ -56,7 +59,7 @@ test('flow 1 «شيت جاهز» Simple: the sheet + photos by row → maker/bra
   await expect(page.locator('#pg-products')).toContainText('3 صورة');
   await next(page);
   await makerArtCraft(page);
-  await expect(page.locator('[data-fl-rate]')).toHaveText('35%'); // the maker's rate, read only (the owner 15 Nov: with his details)
+  await expect(page.locator('[data-fl-rate]')).toHaveText('35%'); // the maker's general rate
   await next(page);
   // the data: the SKU of every product (one serial each, the new color added with a suggested code), the category matched
   await expect(page.locator('#pg-products [data-fl="sku"]').first()).toHaveValue('IBTART0999-BE');
@@ -71,10 +74,12 @@ test('flow 1 «شيت جاهز» Simple: the sheet + photos by row → maker/bra
   await expect(page.locator('.toast[role=status]')).toContainText('مفيش بيانات ناقصة');
   expect(mock.aiCalls.filter((c) => c.action === 'studio').length).toBe(2);
   await next(page);
-  // the prices: (maker + fee) ÷ (1 − 35%) up to the next 10; «قبل الخصم» above it
-  await expect(page.locator('#pg-products [data-fl="sale"]').first()).toHaveValue('1540');
-  await expect(page.locator('#pg-products [data-fl="sale"]').nth(1)).toHaveValue('1240');
-  expect(Number(await page.locator('#pg-products [data-fl="regular"]').first().inputValue())).toBeGreaterThan(1540);
+  // the prices: (maker + fee) ÷ (1 − the rate) up to the next 10; «قبل الخصم» above it — the rate Dokan takes on the product: both are in
+  // «ديكور», where Art Craft has his own 30% (not his general 35%)
+  await expect(page.locator('#pg-products [data-fl="sale"]').first()).toHaveValue('1430');
+  await expect(page.locator('#pg-products [data-fl="sale"]').nth(1)).toHaveValue('1150');
+  await expect(page.locator('#pg-products [data-fl-prices] [data-row]').first().locator('.c-rate')).toContainText('30% · القسم');
+  expect(Number(await page.locator('#pg-products [data-fl="regular"]').first().inputValue())).toBeGreaterThan(1430);
   await page.locator('#pg-products [data-fl="sale"]').nth(1).fill('1250'); await page.locator('#pg-products [data-fl="sale"]').nth(1).press('Tab');
   await expect(page.locator('#pg-products [data-fl="sale"]').nth(1)).toHaveValue('1250');
   // the owner 15 Nov («صلح شكل الجدول و إظهر بيانات المنتج العربي بس»): a grid (no <table>), the product's Arabic data only
@@ -118,7 +123,7 @@ test('flow 1 «شيت جاهز» Simple: the sheet + photos by row → maker/bra
   await expect(page.locator('#pg-products .fl-res-row')).toHaveCount(2);
   await expect(page.locator('#pg-products .fl-res-row').first()).toContainText('مسودة #');
   expect(mock.studioUploads.map((x) => [x.sku, x.product.status, x.product.type, x.product.sale_price, x.product.categories, x.images.length, x.ar.name])).toEqual([
-    ['IBTART0999-BE', 'draft', 'simple', '1540', [{ id: 15 }], 6, 'مخدة بوهيمي'], ['IBTART1000-PU', 'draft', 'simple', '1250', [{ id: 15 }], 5, 'مخدة مخططة']]);
+    ['IBTART0999-BE', 'draft', 'simple', '1430', [{ id: 15 }], 6, 'مخدة بوهيمي'], ['IBTART1000-PU', 'draft', 'simple', '1250', [{ id: 15 }], 5, 'مخدة مخططة']]);
   expect(mock.studioUploads[0].product.attributes.find((a) => a.id === 3)).toEqual({ id: 3, visible: true, variation: false, options: ['40 × 40 cm'] }); // the size as typed
   // the sheet on the device: the template's file name (the maker + the day)
   const dl = page.waitForEvent('download');
@@ -167,8 +172,82 @@ test('the maker step: «+ مبتكر جديد» opens the add-maker popup over t
   expect(page.url()).toBe(url); // still the studio's step 2 — no makers page, no drawer
   await expect(page.locator('.drawer')).toHaveCount(0);
   await expect(page.locator('#fl-maker')).toContainText('Wood & Rope');
-  await expect(page.locator('[data-fl-brand]')).toContainText('Wood & Rope');
   await expect.poll(() => (batch().state || {}).vendorName).toBe('Wood & Rope');
+  await expect.poll(() => (batch().state || {}).brandName).toBe('Wood & Rope');
+});
+
+// the owner 15 Nov («شيل سعر البيع والمتجر على الموقع والبراند وخلّي بس نسبته تبان، ويبقى فيه إمكانية لتعديلها: النسبة العامة أو نسبة
+// لقسم معيّن — بختار القسم ونسبته»): «تعديل النسبة» writes the maker's commission like his «الاتفاق التجاري» (vendor_commission_set + the
+// push to his Dokan store), and the prices take the rate Dokan takes on each product (its category's when it has one)
+test('the maker step: «تعديل النسبة» — the general rate, then one category\'s; the prices follow each product\'s own rate', async ({ page }) => {
+  await signIn(page, ADMIN);
+  await choose(page, 'شيت جاهز', 'Simple');
+  await pick(page, '[data-flow-sheet]', { name: 'a.csv', mimeType: 'text/csv', buffer: Buffer.from('#,SKU,Product Name EN,Product Name AR,Vendor Price,Product Category\n1,,Lamp,أباجورة,700,ديكور\n2,,Mug,مج,700,هدايا\n') });
+  await next(page);
+  await makerArtCraft(page);
+  const writes = () => mock.vendorWrites.filter((x) => x.table === 'vendor_commission');
+  // the general rate: 35 → 40 (Art Craft stays «category_based», his ديكور keeps its 30)
+  await page.locator('[data-fl-rate-edit]').click();
+  const m = page.locator('.modal'); await expect(m).toContainText('تعديل نسبة إبتكر — Art Craft');
+  await expect(m.locator('#flRate')).toHaveValue('35');
+  await m.locator('#flRate').fill('66'); await m.getByRole('button', { name: 'احفظ النسبة' }).click();
+  await expect(m).toContainText('رقم من 0 لـ 65'); expect(writes()).toEqual([]);
+  await m.locator('#flRate').fill('40'); await m.getByRole('button', { name: 'احفظ النسبة' }).click();
+  await expect(page.locator('[data-fl-rate]')).toHaveText('40%');
+  await expect(page.locator('.toast[role=status]').last()).toContainText('اتحفظت النسبة العامة');
+  expect(writes().at(-1)).toMatchObject({ type: 'category_based', rate: 40, flat: null, categories: [] });
+  await expect.poll(() => mock.vendorPushes.length).toBeGreaterThan(0);
+  expect(mock.vendorPushes.at(-1).fields).toEqual(expect.arrayContaining(['rate', 'category_rates']));
+  // one category: «ديكور» (the batch's own first, its rate today in the box) 30 → 25
+  await page.locator('[data-fl-rate-edit]').click();
+  await m.getByRole('radio', { name: /نسبة قسم معيّن/ }).click();
+  await expect(m.locator('#flRateCat')).toContainText('ديكور');
+  await expect(m.locator('#flRate')).toHaveValue('30');
+  await expect(m).not.toContainText('هتبقى «حسب القسم»'); // already by category
+  await m.locator('#flRate').fill('25'); await m.getByRole('button', { name: 'احفظ النسبة' }).click();
+  await expect(page.locator('[data-fl-cat-rates] [data-cat="15"]')).toHaveText('ديكور25%');
+  await expect(page.locator('.toast[role=status]').last()).toContainText('اتحفظت نسبة القسم');
+  expect(writes().at(-1)).toMatchObject({ type: 'category_based', rate: 40, categories: [{ id: 15, rate: 25, flat: null }] });
+  await expect(page.locator('[data-fl-rate]')).toHaveText('40%'); // the general rate stays
+  // the prices: the lamp in «ديكور» at its 25% (700 ÷ 0.75 → 940), the mug in «هدايا» (no rate of its own) at the general 40% (→ 1170)
+  await next(page); await next(page);
+  await expect(page.locator('#pg-products [data-fl="sale"]').first()).toHaveValue('940');
+  await expect(page.locator('#pg-products [data-fl="sale"]').nth(1)).toHaveValue('1170');
+  await expect(page.locator('#pg-products [data-fl-prices] [data-row]').nth(1).locator('.c-rate')).toHaveText('40%');
+});
+
+// a category rate on a maker on «fixed»: he becomes «category_based» with his general rate (and flat fee) as the default of every other
+// category — nothing else changes on the site — and the category keeps the flat fee it had (inherited); ops (no sensitive.commission)
+// sees no rate and no edit
+test('the maker step: a category rate on a «fixed» maker keeps his general rate and fee for the rest; no edit without sensitive.commission', async ({ page }) => {
+  await signIn(page, ADMIN);
+  await choose(page, 'صور وعايز شيت', 'Simple');
+  await next(page);
+  await page.locator('#fl-maker').click(); await page.getByRole('option', { name: 'Antikiano' }).click();
+  await expect(page.locator('[data-fl-rate]')).toHaveText('45%');
+  await expect(page.locator('[data-fl-maker-info]')).toContainText('+ 10 ج.م رسوم ثابتة');
+  await expect(page.locator('[data-fl-cat-rates]')).toContainText('نفس النسبة على كل الأقسام');
+  await page.locator('[data-fl-rate-edit]').click();
+  const m = page.locator('.modal');
+  await m.getByRole('radio', { name: /نسبة قسم معيّن/ }).click();
+  await expect(m).toContainText('هتبقى «حسب القسم» على الموقع'); await expect(m).toContainText('(45%)');
+  await m.getByRole('button', { name: 'احفظ النسبة' }).click();
+  await expect(m).toContainText('اختار القسم'); // no category picked (the batch has none)
+  await m.locator('#flRateCat').click(); await page.getByRole('option', { name: 'هدايا' }).click();
+  await expect(m.locator('#flRate')).toHaveValue('45'); // what it takes today: the general rate
+  await m.locator('#flRate').fill('30'); await m.getByRole('button', { name: 'احفظ النسبة' }).click();
+  await expect(page.locator('[data-fl-cat-rates] [data-cat="22"]')).toHaveText('هدايا30%');
+  expect(mock.vendorWrites.filter((x) => x.table === 'vendor_commission').at(-1)).toMatchObject({ type: 'category_based', rate: 45, flat: 10, categories: [{ id: 22, rate: 30, flat: 10 }] });
+  await expect(page.locator('[data-fl-rate]')).toHaveText('45%');
+});
+test('the maker step for ops (products.add without sensitive.commission): the rate hidden, no «تعديل النسبة»', async ({ page }) => {
+  await signIn(page, 'ops.dev@ibtekr.local');
+  await choose(page, 'صور وعايز شيت', 'Simple');
+  await next(page);
+  await page.locator('#fl-maker').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
+  await expect(page.locator('[data-fl-rate]')).toHaveText('—');
+  await expect(page.locator('[data-fl-cat-rates]')).toContainText('نسبة المبتكر مش ظاهرة لك');
+  await expect(page.locator('[data-fl-rate-edit]')).toHaveCount(0);
 });
 
 // the owner 15 Nov («في مرحلة البيانات يفضل نقسمها لجزئين إنجليزي و عربي و بيملا البيانات اوتوماتيك بال ايه اي … لو غير اي حاجة في العربي
@@ -243,7 +322,7 @@ test('flow 2 «داتا على الواتساب» Variable: the screenshots read
   await expect(page.locator('#pg-products [data-fl="sku"]')).toHaveCount(3);
   for (const [i, sku] of ['IBTART0999-BE', 'IBTART1000-BK', 'IBTART1000-BE'].entries()) await expect(page.locator('#pg-products [data-fl="sku"]').nth(i)).toHaveValue(sku);
   await next(page);
-  await expect(page.locator('#pg-products [data-fl="sale"]').first()).toHaveValue('800'); // 520 ÷ 0.65
+  await expect(page.locator('#pg-products [data-fl="sale"]').first()).toHaveValue('750'); // 520 ÷ 0.70 — «ديكور», Art Craft's own 30% there
   await next(page);
   await expect(page.locator('#pg-products .fl-unit')).toHaveCount(3); // the basket + the vase's two colors
   await page.locator('#pg-products .fl-unit').nth(1).getByRole('button', { name: 'ولّد بالـ AI' }).first().click();
@@ -257,7 +336,7 @@ test('flow 2 «داتا على الواتساب» Variable: the screenshots read
   await page.locator('[data-up="sheet"]').click();
   await expect(page.locator('#pg-products .fl-res-row')).toHaveCount(2);
   const v = mock.studioUploads[1];
-  expect([v.sku, v.product.type, v.variations.map((x) => [x.sku, x.sale_price])]).toEqual(['IBTART1000', 'variable', [['IBTART1000-BK', '470'], ['IBTART1000-BE', '470']]]);
+  expect([v.sku, v.product.type, v.variations.map((x) => [x.sku, x.sale_price])]).toEqual(['IBTART1000', 'variable', [['IBTART1000-BK', '430'], ['IBTART1000-BE', '430']]]);
   expect(mock.studioUploads[0].product.type).toBe('simple'); // a product alone = Simple
 });
 

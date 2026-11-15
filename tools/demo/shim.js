@@ -105,7 +105,7 @@
   var cover = document.createElement('div'); cover.id = 'demo-cover'; cover.textContent = 'جاري فتح النسخة التجريبية…';
   cover.style.cssText = 'position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;background:#f6f1e7;color:#005642;font:600 16px Cairo,system-ui,sans-serif';
   var mark = document.createElement('div'); mark.id = 'demo-mark'; mark.textContent = 'نسخة تجريبية · داتا وهمية';
-  mark.style.cssText = 'position:fixed;bottom:4px;left:6px;z-index:99998;pointer-events:none;padding:2px 8px;border-radius:999px;background:#005642;color:#f6f1e7;opacity:.72;font:500 10px Cairo,system-ui,sans-serif';
+  mark.style.cssText = 'position:fixed;bottom:4px;right:6px;z-index:99998;pointer-events:none;padding:2px 8px;border-radius:999px;background:#f6f1e7;color:#005642;opacity:.8;font:500 10px Cairo,system-ui,sans-serif'; // the right corner: the bottom left is «اطلع لأول الصفحة»
   document.body.appendChild(cover); document.body.appendChild(mark);
 
   window.__ibDemo = { HOST: HOST, handlers: handlers, open: open, uncover: function () { if (cover.parentNode) cover.parentNode.removeChild(cover); } };

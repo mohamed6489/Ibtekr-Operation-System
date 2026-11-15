@@ -25,7 +25,8 @@ async function signIn(page, size) {
   await expect(page.locator('#root')).toBeVisible();
 }
 const go = async (page, hash) => { await page.evaluate((h) => { location.hash = h; }, hash); await page.waitForTimeout(500); };
-const sideways = (page) => page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
+// the page's scroller is <body> on a desktop (page-scroll.js — the scroll bar on the left), the window below 1024: both are measured
+const sideways = (page) => page.evaluate(() => Math.max(document.documentElement.scrollWidth - innerWidth, document.body.scrollWidth - document.body.clientWidth));
 // the visible pinned tab strip of the page that is open
 const tabLabels = (page) => page.evaluate(() => { const l = Array.from(document.querySelectorAll('.content > .tabs')).find((x) => x.offsetParent !== null); return l ? Array.from(l.querySelectorAll('[role=tab]')).map((t) => t.textContent.trim()) : []; });
 const clickTab = (page, label) => page.evaluate((t) => { const l = Array.from(document.querySelectorAll('.content > .tabs')).find((x) => x.offsetParent !== null); const b = l && Array.from(l.querySelectorAll('[role=tab]')).find((x) => x.textContent.trim() === t); if (b) b.click(); }, label);

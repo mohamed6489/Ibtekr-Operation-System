@@ -244,19 +244,22 @@
   async function update(table, id, patch, was) {
     const cl = c();
     if (!cl || !uid()) return fail('network');
-    const cols = was ? Object.keys(was).filter((k) => !(typeof was[k] === 'string' && was[k].length > 400)) : [];
+    // a json column (the waybill) is named by its text — the database compares it as json
+    const lit = (v) => (v !== null && v !== undefined && typeof v === 'object' ? JSON.stringify(v) : v === undefined ? null : v);
+    const cols = was ? Object.keys(was).filter((k) => { const v = lit(was[k]); return !(typeof v === 'string' && v.length > 400); }) : [];
     const bad = (error) => fail(error.code === '42501' ? 'forbidden' : 'network');
     try {
       if (!cols.length) { const { error } = await cl.from(table).update(patch).eq('id', id); if (error) return bad(error); }
       else {
         let q = cl.from(table).update(patch, { count: 'exact' }).eq('id', id);
-        cols.forEach((k) => { q = was[k] === null ? q.is(k, null) : q.eq(k, was[k]); });
+        cols.forEach((k) => { const v = lit(was[k]); q = v === null ? q.is(k, null) : q.eq(k, v); });
         const { error, count } = await q;
         if (error) return bad(error);
         if (count === 0) {
           const now = await cl.from(table).select(['id'].concat(cols).join(', ')).eq('id', id).maybeSingle();
           const row = now && !now.error ? now.data : null;
-          const same = !!row && cols.every((k) => (row[k] == null ? null : String(row[k])) === (was[k] == null ? null : String(was[k])));
+          const text = (v) => { const x = lit(v); return x === null ? null : String(x); };
+          const same = !!row && cols.every((k) => text(row[k]) === text(was[k]));
           const oid = table === 'orders' ? String(id) : orderOfItem(id);
           if (!same && oid != null) quiet(() => refetch(String(oid))); // theirs on the screen
           return fail(now && now.error ? 'stale' : !row ? 'missing' : same ? 'forbidden' : 'stale');

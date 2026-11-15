@@ -26,7 +26,7 @@
   const DUP_KIND = { expenses: 'المصروف', vendorMoves: 'حركة المبتكر', accountMoves: 'حركة الحساب' };
   function dupAsk(dup, again) {
     const K0 = window.IBKit; const mins = Number(dup.minutes) || 0; const who = dup.by ? '«' + dup.by + '»' : 'حد من الفريق';
-    const when = mins < 1 ? 'من لحظات' : mins === 1 ? 'من دقيقة' : mins === 2 ? 'من دقيقتين' : 'من ' + K0.Num(String(mins)).textContent + (mins <= 10 ? ' دقايق' : ' دقيقة');
+    const when = mins < 1 ? 'من لحظات' : mins === 1 ? 'من دقيقة' : mins === 2 ? 'من دقيقتين' : 'من ' + String(mins) + (mins <= 10 ? ' دقايق' : ' دقيقة');
     K0.confirm({ title: 'الحركة دي اتسجّلت قبل كده — دي حركة تانية؟',
       text: who + ' سجّل نفس ' + (DUP_KIND[again.kind] || 'الحركة') + ' (نفس الجهة والاتجاه والمبلغ) ' + when + '. لو دي حركة تانية فعلًا سجّلها، ولو هي نفسها اقفل — ما اتسجّلش حاجة منك.',
       okLabel: 'سجّلها برضه', cancelLabel: 'إلغاء — هي نفسها',

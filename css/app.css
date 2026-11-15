@@ -755,6 +755,9 @@ input::placeholder,textarea::placeholder{text-align:right}
 .subtab:hover{background:var(--color-bg-tint)}
 .subtab[aria-selected=true]{background:var(--color-bg-base);color:var(--color-brand-default);font-weight:700;box-shadow:0 1px 2px rgba(46,42,27,.12)}
 .subtab .cnt,.chip .cnt{min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:var(--color-bg-tint);color:var(--color-text-primary);font-size:12px;line-height:20px;text-align:center}
+/* a main tab's count (ملفي › طلباتي: the open requests of each tab — 2026-11-15-comments.md decision 3) */
+.tab .cnt{display:inline-block;min-width:20px;height:20px;margin-inline-start:8px;padding:0 6px;border-radius:999px;background:var(--color-bg-tint);color:var(--color-text-primary);font-size:12px;font-weight:600;line-height:20px;text-align:center;vertical-align:middle}
+.tab[aria-selected=true] .cnt{background:var(--color-brand-default);color:var(--color-text-on-brand)}
 .subtab[aria-selected=true] .cnt{background:var(--color-action-default);color:var(--color-text-on-action)}
 
 /* Switch / checkbox / radios */

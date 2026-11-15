@@ -217,8 +217,9 @@
   // ---------- طلباتي (the owner 11 Nov — «هنضيف هنا طلباتي بعد مهامي»): the team requests («طلبات الفريق», IBTickets) this member opened,
   // every type (a customer / maker problem, the HR requests of decision 33, a special request); open first, a click opens the request ----------
   const REQ_ST = { open: 'مفتوح', in_progress: 'جاري العمل', waiting: 'بانتظار الرد', resolved: 'تم الحل', closed: 'مغلق' };
-  // owner batch 2 decision 5: two tabs — «مطلوبة مني» (assigned to my role or to me — decision 32) and «طلباتي» (what I opened); above the
-  // list an overview (مفتوحة · جاري العمل · بانتظار الرد · اتحلت الشهر ده) of the tab, then the open / all switch and the list
+  // owner batch 2 decision 5: two tabs — «مطلوبة مني» (assigned to my role or to me — decision 32) and «طلباتي» (what I opened), each with
+  // the number of its open requests (2026-11-15-comments.md decision 3), then the open / all switch and the list. The «نظرة عامة» cards
+  // above the list were removed by the owner (the same plan, decision 2).
   function requestsTab(m) {
     const TA = window.IBTickets; const TK = window.IbtekrTickets;
     if (!TA || !TA.can || !TA.can().view) return [K.Section(label('requests'), K.Empty('الطلبات مش متاحة ليك', 'طلبات الفريق محتاجة صلاحية «طلبات الفريق».'))];
@@ -232,11 +233,6 @@
     const isOpen = (t) => ['open', 'in_progress', 'waiting'].includes(t.status);
     const open = set.filter(isOpen);
     const list = st.reqSub === 'all' ? set : open;
-    const month = String(K.TODAY || new Date().toISOString()).slice(0, 7);
-    const doneAt = (t) => String((t.resolution && t.resolution.at) || t.closedAt || t.lastUpdate || '').slice(0, 7);
-    const kpis = h('div', { class: 'cards', 'data-my-req-kpis': tab }, [['مفتوحة', set.filter((t) => t.status === 'open').length, 'open'], ['جاري العمل', set.filter((t) => t.status === 'in_progress').length, 'in_progress'],
-      ['بانتظار الرد', set.filter((t) => t.status === 'waiting').length, 'waiting'], ['اتحلت الشهر ده', set.filter((t) => ['resolved', 'closed'].includes(t.status) && doneAt(t) === month).length, 'done']]
-      .map(([l, n, k]) => h('div', { 'data-my-req-kpi': k }, K.Stat(l, K.Num(n), '', ''))));
     const typeOf = (t) => (TK ? TK.label(TK.TYPES, t.type) : t.type);
     const who = (t) => (t.assigneeMemberName ? t.assigneeRole + ' — ' + t.assigneeMemberName : t.assigneeRole || '—');
     const go = (t) => { location.hash = 'tickets/' + t.id; };
@@ -246,7 +242,6 @@
     const fresh = window.IbtekrApp && window.IbtekrApp.newTicket && self ? Button({ type: 'brand', size: 'sm', icon: 'plus', label: 'فتح طلب', onClick: () => window.IbtekrApp.newTicket() }) : null;
     const mineName = self ? 'طلباتي' : 'طلباته'; const forName = self ? 'مطلوبة مني' : 'مطلوبة منه';
     return [K.MainTabs({ items: [{ id: 'forme', label: forName, count: forMe.filter(isOpen).length }, { id: 'mine', label: mineName, count: opened.filter(isOpen).length }], active: tab, onChange: (id) => { st.reqTab = id; rerender(); }, label: 'الطلبات' }),
-      K.Section('نظرة عامة', kpis, null, { th: false }),
       K.SubTabs({ items: [{ id: 'open', label: 'المفتوحة', count: open.length }, { id: 'all', label: 'الكل', count: set.length }], active: st.reqSub === 'all' ? 'all' : 'open', onChange: (id) => { st.reqSub = id; rerender(); }, label: tab === 'mine' ? mineName : forName }),
       K.TableSection({ title: tab === 'mine' ? mineName : forName, sub: tab === 'mine' ? 'اللي اتفتح على «طلبات الفريق» — اضغط على أي طلب يفتحه' : 'المسؤول عنها ' + (self ? 'دورك أو إنت' : 'دوره أو هو') + ' — اضغط على أي طلب يفتحه', actions: fresh,
         body: !ready ? K.Empty('بنجيب الطلبات…', 'لحظة.') : list.length ? h('div', { class: 'scroll-x' }, h('table', null, h('thead', null, h('tr', null, ['الرقم', 'العنوان', 'النوع', 'الحالة', tab === 'mine' ? 'المسؤول' : 'فتحها', 'آخر تحديث'].map((x) => h('th', { scope: 'col' }, x)))), h('tbody', null, list.map(row))))

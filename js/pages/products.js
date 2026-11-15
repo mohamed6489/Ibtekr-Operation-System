@@ -1041,7 +1041,7 @@
   }
   // phase 13 decision 62 (owner 11 Nov — «نظرة عامة وسجل الحركة وسجل المنتجات بدل السجل ٤،١٥٢، وإضافة بعد نظرة عامة وسجل الحركة قبل التقارير»)
   const TAB_HASH = { overview: 'products-overview', add: 'products-add', records: 'products-records', cats: 'products-cats', log: 'products-log', reports: 'products-reports' };
-  const mainTabs = () => K.MainTabs({ items: [{ id: 'overview', label: 'نظرة عامة' }, { id: 'add', label: 'إضافة' }, { id: 'records', label: 'سجل المنتجات' }, { id: 'cats', label: 'الأقسام · ' + K.n0(PR() ? PR().categories().length : 0) }, { id: 'log', label: 'سجل الحركة' }, { id: 'reports', label: 'التقارير' }], active: st.tab, onChange: (id) => go(TAB_HASH[id] || 'products-records'), label: 'أقسام المنتجات' });
+  const mainTabs = () => K.MainTabs({ items: [{ id: 'overview', label: 'نظرة عامة' }, { id: 'add', label: 'إضافة' }, { id: 'records', label: 'سجل المنتجات' }, { id: 'cats', label: 'الأقسام' }, { id: 'log', label: 'سجل الحركة' }, { id: 'reports', label: 'التقارير' }], active: st.tab, onChange: (id) => go(TAB_HASH[id] || 'products-records'), label: 'أقسام المنتجات' });
   function view() {
     const P = PR(); const C = can();
     // decision 3: the page needs products.view (orders.view reads the mirror for the orders screen only)

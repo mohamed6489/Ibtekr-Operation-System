@@ -9,7 +9,7 @@
   const { h, Icon, Button, IconButton } = U; const S = K.store;
   const SECTIONS = [
     ['general', 'عام', 'بيانات الشركة واللغة والعرض', 'home'], ['team', 'الفريق والصلاحيات', 'الأعضاء والأدوار والدعوات', 'users'], ['integrations', 'الربط بالمنصات', 'WooCommerce وAirtable وواتساب', 'external'], ['ai', 'تعليمات الذكاء الاصطناعي', 'الصور، الفيديو، والمحتوى بأسلوب إبتكر', 'sparkle'],
-    ['hr', 'الموارد البشرية', 'مديري الأدوار والدوام والأوفر تايم والمرتبات والإجازات والعطلات', 'briefcase'], ['makers', 'إعدادات المبتكرين', 'قواعد التأخير والتنشيط', 'truck'], ['inventory', 'المخزن', 'الأماكن والسحب والتنبيهات والمرتجع', 'box'], ['notifications', 'التنبيهات', 'الأنواع والتصعيد وساعات الهدوء', 'bell'], ['lists', 'القوائم والحالات', 'الحالات والأسباب والفئات', 'sliders'],
+    ['hr', 'الموارد البشرية', 'مديري الأدوار والدوام والأوفر تايم والمرتبات والإجازات والعطلات', 'briefcase'], ['makers', 'إعدادات المبتكرين', 'قواعد التأخير والتنشيط والخصم الوهمي', 'truck'], ['inventory', 'المخزن', 'الأماكن والسحب والتنبيهات والمرتجع', 'box'], ['notifications', 'التنبيهات', 'الأنواع والتصعيد وساعات الهدوء', 'bell'], ['lists', 'القوائم والحالات', 'الحالات والأسباب والفئات', 'sliders'],
     ['payments', 'الحسابات والدفع', 'الحسابات والتحويلات والفاتورة', 'wallet'], ['activity', 'سجل النشاط', 'مين عمل إيه وإمتى', 'activity'], ['security', 'الأمان', 'كلمة السر والجلسات والسياسات', 'alert'], ['docs', 'الأوراق الرسمية', 'السجل التجاري والبطاقة الضريبية والعقود', 'file'], ['brand', 'الهوية البصرية', 'ألوان الموقع واللوجو والخطوط', 'image'], ['data', 'البيانات', 'تصدير واستيراد ونسخ احتياطي', 'download'], ['quick', 'الإجراءات السريعة', 'روابط لأي صفحة بفلاترها في القايمة اللي فوق', 'zap']];
   const st = { sec: 'home', ntab: 'types', itab: 'site', teamSub: 'members', plevel: 'employee', roleOpen: null, integ: null, list: 'order', open: {}, nopen: {}, aopen: {}, dirty: false, draft: null, mq: '', pending: new Set() };
   const R = () => window.IBPages.render('settings');
@@ -746,8 +746,21 @@
         K.two(pick(m, 'openEffect', 'mk-oe', 'أثر الإيقاف على الأوردرات المفتوحة', ['تستمر حتى الإغلاق + تنبيه لخدمة العملاء', 'تتحوّل لمبتكر تاني']), pick(m, 'siteEffect', 'mk-se', 'أثر الإيقاف على الموقع', ['إخفاء منتجاته + منع أوردرات جديدة', 'منع أوردرات جديدة فقط', 'لا شيء (داخلي)'])),
         vrow('أسباب الإيقاف (قائمة)', 'تُعدَّل من «القوائم والحالات»', h('b', null, C.otherLists.stop.join(' · ')))], null, { sub: 'الإيقاف التلقائي بينزل كتنبيه «مهام» للموافقة — مفيش إيقاف بدون قرار بشري. السبب إجباري ويتسجل في ملف المبتكر' }),
       K.Section('الافتراضيات عند إضافة مبتكر جديد', [K.two(pick(m, 'rate', 'mk-rate', 'نسبة عمولة إبتكر الافتراضية', ['30%', '35%', '40%', '45%', '50%'], 'النطاق الحالي 30% – 65% · إبتكر الداخلي 100%'), pick(m, 'newStatus', 'mk-ns', 'حالة المبتكر الجديد', ['نشط فورًا', 'نشط بعد رفع العقد', 'معلّق للمراجعة'])), K.two(pick(m, 'contractLen', 'mk-cl', 'مدة العقد الافتراضية', ['6 شهور', '12 شهر', '24 شهر']), pick(m, 'contractAlert', 'mk-ca', 'تنبيه قبل انتهاء العقد', ['قبل 15 يوم', 'قبل 30 يوم', 'قبل 60 يوم'], 'يظهر في التنبيهات › مهام (أولوية عالية)')), pick(m, 'category', 'mk-cat', 'فئة المبتكر الافتراضية', ['— بدون'].concat(mainCatNames().length ? mainCatNames() : C.otherLists.categories))], null, { sub: 'تُملأ تلقائيًا في بوب أب «إضافة مبتكر» وتظل قابلة للتعديل لكل مبتكر' }),
+      fakeSec(m),
       depositSec(m),
       loginBankSec(m)];
+  }
+  // the owner 15 Nov (docs/superpowers/plans/2026-11-15-fake-discount.md decision 2 — «نحط ف الاعدادات حاجة لحساب الخصم الوهمي الافتراضي»):
+  // the tiers of the sale price that give «قبل الخصم» (the row «makers», key `fake`). The popup is IBFakeDiscount's — the studio's
+  // prices step opens the same one for a batch.
+  function fakeSec(m) {
+    const FK = window.IBFakeDiscount; const PD0 = window.IbtekrProducts; if (!FK || !PD0 || !PD0.fakeRule) return null;
+    const rule = PD0.fakeRule(m.fake); const L = FK.lines(rule);
+    const edit = () => FK.editor({ title: 'الخصم الوهمي الافتراضي', rule, onSave: (r) => { m.fake = r; LOGV('settings.change', 'الخصم الوهمي = ' + (r ? r.tiers.length : 0) + ' شريحة'); K.toast(r ? 'اتحفظت الشرايح' : 'رجع للطريقة القديمة', 'success'); R(); } });
+    return K.Section('الخصم الوهمي الافتراضي', L.length ? U.Table({ cls: 'mini-table', headers: ['سعر البيع', 'قبل الخصم = سعر البيع'], rows: L.map((x, i) => [h('span', { 'data-fake-range': String(i + 1) }, x[0]), h('b', { 'data-fake-add': String(i + 1), dir: 'ltr' }, x[1])]) })
+      : K.Empty('مفيش شرايح', '«قبل الخصم» بيتحسب بالطريقة القديمة: ' + FK.OLD),
+      [Button({ type: 'text', size: 'sm', icon: L.length ? 'sliders' : 'plus', label: L.length ? 'تعديل الشرايح' : 'إضافة شرايح', attrs: { 'data-fake-edit': '' }, onClick: edit })],
+      { th: false, sub: '«قبل الخصم» (السعر المشطوب على الموقع) لأي منتج بيتسعّر من سعر المبتكر — في رفع الشيت وصفحة المنتج والتعديل الجماعي. ولدفعة بعينها تتغيّر من خطوة «الأسعار».' });
   }
   window.IBMakerDefaults = () => C.makers;
   // owner batch 2 decision 19: «سياسة العربون» = rules (name · when the order is over an amount · the percent), «+ إضافة قاعدة»; the

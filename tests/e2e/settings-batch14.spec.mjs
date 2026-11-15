@@ -146,7 +146,7 @@ test('decision 7: the work days, the official hours, the day rate and a custom t
 
 test('decision 7: on a work day past the member\'s start time with no session, the clock reminds once («ابدأ الدوام»)', async ({ page }) => {
   await page.evaluate(() => window.IBHR.saveSettings({ workDays: [1, 2, 3, 4, 5, 6, 7], workFrom: '00:00', workTo: '08:00' }));
-  await page.evaluate(() => { try { localStorage.removeItem('ib.start.reminded'); } catch (e) { /* */ } });
+  await page.evaluate(() => { try { sessionStorage.setItem('ib.e2e.remind', '1'); localStorage.removeItem('ib.start.reminded'); } catch (e) { /* */ } }); // the harness marks it shown otherwise
   await page.reload();
   await expect(page.locator('#root')).toBeVisible();
   await expect(page.locator('.toast, [role=status]').filter({ hasText: 'ميعاد الدوام بدأ (12:00 ص)' }).first()).toBeVisible({ timeout: 15000 });

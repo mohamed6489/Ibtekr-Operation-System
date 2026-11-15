@@ -460,6 +460,10 @@ export async function installSupabaseMock(page, opts = {}) {
   // mock.attach(otherPage): a second tab of the same context answered by this same mock (same sessions, same counters)
   const attach = async (p) => {
   await p.addInitScript(([url, key]) => { window.IB_CONFIG = { supabaseUrl: url, supabaseAnonKey: key, realtime: false }; }, [SUPABASE_URL, ANON_KEY]); // no Realtime socket to mock
+  // owner batch 2 decision 7's «ميعاد الدوام بدأ» toast comes 4 s after any page opens on a work day past the start time — on CI in Cairo
+  // working hours it covered the toast a test was reading. Marked as shown for today in every test; the test of the reminder itself opts
+  // back in with sessionStorage «ib.e2e.remind» = 1 before it reloads.
+  await p.addInitScript(() => { try { if (sessionStorage.getItem('ib.e2e.remind') !== '1') localStorage.setItem('ib.start.reminded', new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo' }).format(new Date())); } catch (e) { /* storage blocked */ } });
   await p.route(SUPABASE_URL + '/**', async (route) => {
     const req = route.request(); const url = new URL(req.url()); const path = url.pathname; const method = req.method(); const hd = req.headers();
     const cors = { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS', 'access-control-allow-headers': hd['access-control-request-headers'] || '*', 'access-control-expose-headers': 'x-supabase-api-version' };

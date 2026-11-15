@@ -167,8 +167,25 @@
         variations: g.rows.map((ri) => { const r = rows()[ri]; const ush = unitOf(ri) ? imagesOfUnit(unitOf(ri)) : []; return { color: cs.length ? codeOfRow(r) : null, size: sizes.length ? r.size || null : null, sku: r.sku, sale: r.sale, regular: r.regular, weight: r.weight, image: ush[0] || null, gallery: ush.slice(1) }; }) });
     });
   }
-  // case 3: one item per product (its photo as the reference) — for the AI fill
-  function productItems() { const s = st(); return (s.products || []).map((p, i) => ({ flow: 2, key: 'p' + i, type: 'Simple', nameEn: p.nameEn || '', nameAr: p.nameAr || '', main: p.ref || null, colors: [], sizes: [], images: [] })); }
+  // case 3: one item per product (its photo as the reference) — for the AI fill — then one item per color slot that has a photo of its
+  // own (the product's n-th photo, or the one swapped in the sheet), so the AI reads each color from its own picture (the owner 15 Nov)
+  function productItems() {
+    const s = st(); const out = (s.products || []).map((p, i) => ({ flow: 2, key: 'p' + i, type: 'Simple', nameEn: p.nameEn || '', nameAr: p.nameAr || '', main: p.ref || null, colors: [], sizes: [], images: [] }));
+    colorUnits().forEach((cu) => { out.push({ flow: 2, key: 'p' + cu.product + 'c' + cu.slot, type: 'Simple', nameEn: '', nameAr: '', main: cu.photo, colors: [], sizes: [], images: [] }); });
+    return out;
+  }
+  // the picture of a sheet row: the one swapped in for it, else its color slot's photo (the product's n-th photo), else the product's first
+  const rowPhotoKey = (r) => String(r.variant || 0);
+  function slotPhoto(i, slot) { const p = (st().products || [])[i]; if (!p) return null; return (slot >= 1 && Array.isArray(p.photos) && p.photos[slot - 1]) || p.ref || null; }
+  function rowRef(r) { const x = (st().fill || {})[r.product] || {}; const own = (x.rowPhotos || {})[rowPhotoKey(r)]; return own || slotPhoto(r.product, r.colorSlot || 0); }
+  // the color slots read from a picture of their own: a slot whose first row's picture is not the product's first photo
+  function colorUnits() {
+    const s = st(); if (s.type !== 'Variable' || !(s.kinds && s.kinds.colors > 0)) return [];
+    const L = FD.blankSheetRows({ type: s.type, products: (s.products || []).length, kinds: s.kinds }); const seen = new Set(); const out = []; const base = (s.products || []).length;
+    L.forEach((r) => { const k = r.product + ':' + r.colorSlot; if (seen.has(k)) return; seen.add(k); const p = s.products[r.product]; const photo = rowRef(r);
+      if (photo && photo !== p.ref) out.push({ product: r.product, slot: r.colorSlot, photo, index: base + out.length }); });
+    return out;
+  }
 
   // ---------------- 1 البداية ----------------
   async function takeSheet(file) {
@@ -993,22 +1010,50 @@
     return L.map((r) => { const p = s.products[r.product]; const k = r.variant ? (p.n + '-' + r.variant) : String(p.n); const x = (s.fill && s.fill[r.product]) || {};
       const [colorEn, colorAr] = colorOfSlot(x, r.colorSlot || 0); const [size, sizeAr] = sizePair((x.sizes || {})[r.sizeSlot || 0]);
       const pr = Number((x.prices || {})[r.variant || 0]);
-      return Object.assign(r, { n: k, ref: p.ref, brand: s.brandName, nameEn: x.nameEn || '', nameAr: x.nameAr || '', catEn: x.catEn || '', shortEn: x.shortEn || '', shortAr: x.shortAr || '', colorEn, colorAr, size, sizeAr,
+      return Object.assign(r, { n: k, ref: rowRef(r), brand: s.brandName, nameEn: x.nameEn || '', nameAr: x.nameAr || '', catEn: x.catEn || '', shortEn: x.shortEn || '', shortAr: x.shortAr || '', colorEn, colorAr, size, sizeAr,
         vendorPrice: Number.isFinite(pr) && pr > 0 ? pr : null, images: [] }); });
   }
+  // the owner 15 Nov («في حالة إضافة شيت لما اعمل ملأ بالذكاء الاصطناعي ياريت في المقاسات يكتب مقاس ١ مقاس ٢ و في الالوان يختار بناء علي
+  // الصورة المرفوعة»): the names / description / category / first color from each product's photo; then every color slot with a photo of
+  // its own (its n-th photo or one swapped in) read from that picture; the size slots labelled «مقاس 1», «مقاس 2» … — the empty only
+  const colorPair = (code) => { const c = code ? colors().find((x) => x.code === code) : null; return c ? [c.name_en, c.name_ar || ''] : null; };
+  function setSlotColor(x, slot, pair, ai) { if (slot > 1) x.colors = Object.assign({}, x.colors, { [slot]: pair }); else { x.colorEn = pair[0]; x.colorAr = pair[1]; } x.aiColors = Object.assign({}, x.aiColors, { [slot || 0]: !!ai }); }
   async function aiFillProducts(notes) {
     const s = st(); await touch(true); S.busy = 'ai'; R(); s.fill = s.fill || {}; let stop = '';
-    for (let i = 0; i < s.products.length; i++) {
+    for (let i = 0; i < s.products.length && !stop; i++) {
       if (s.fill[i] && s.fill[i].nameEn) continue;
       const r = await AI().studio(S.id, i, ['nameEn', 'nameAr', 'desc', 'category', 'variations'], notes);
       if (!r.ok) { stop = why(r.reason); break; }
       const f = r.fields || {}; const c = (f.colors || [])[0] ? colors().find((x) => x.code === f.colors[0]) : null;
+      const slot1Own = colorUnits().some((cu) => cu.product === i && cu.slot === 1);
       // the AI fills what is empty only — a size, a price, a color or a category the member set stays
       const add = { nameEn: f.nameEn || '', nameAr: f.nameAr || '', shortEn: f.shortDesc || '', shortAr: f.shortDescAr || '', catEn: (f.categories || [])[0] ? pathOfId(f.categories[0]) : '', colorEn: c ? c.name_en : '', colorAr: c ? c.name_ar : '' };
-      const cur = s.fill[i] || {}; Object.keys(add).forEach((k) => { if (!cur[k] && add[k]) cur[k] = add[k]; }); s.fill[i] = cur;
+      if (slot1Own) { delete add.colorEn; delete add.colorAr; } // slot 1 has its own picture — read below
+      const cur = s.fill[i] || {}; const hadColor = !!cur.colorEn; Object.keys(add).forEach((k) => { if (!cur[k] && add[k]) cur[k] = add[k]; }); s.fill[i] = cur;
+      if (!hadColor && cur.colorEn && add.colorEn) cur.aiColors = Object.assign({}, cur.aiColors, { [s.type === 'Variable' && s.kinds && s.kinds.colors > 0 ? 1 : 0]: true });
       touch(); R();
     }
-    S.busy = ''; R(); K.toast(stop || 'الـ AI ملا الأسماء والأقسام والألوان — سعر المبتكر والمقاس للمبتكر', stop ? 'error' : 'success');
+    for (const cu of stop ? [] : colorUnits()) {
+      const x = fillOf(cu.product); if (colorOfSlot(x, cu.slot)[0]) continue;
+      const r = await AI().studio(S.id, cu.index, ['variations'], notes);
+      if (!r.ok) { stop = why(r.reason); break; }
+      const pair = colorPair(((r.fields || {}).colors || [])[0]); if (pair) { setSlotColor(x, cu.slot, pair, true); touch(); R(); }
+    }
+    const sizes = s.type === 'Variable' && s.kinds ? Number(s.kinds.sizes) || 0 : 0;
+    if (!stop && sizes) (s.products || []).forEach((_, i) => { const x = fillOf(i); for (let k = 1; k <= sizes; k++) if (!(x.sizes || {})[k]) x.sizes = Object.assign({}, x.sizes, { [k]: 'مقاس ' + k }); });
+    touch(); S.busy = ''; R();
+    K.toast(stop || 'الـ AI ملا الأسماء والأقسام والألوان من الصور' + (sizes ? ' والمقاسات «مقاس 1» … — المبتكر بيكتب المقاس الفعلي' : '') + '، وسعر المبتكر للمبتكر', stop ? 'error' : 'success');
+  }
+  // the owner 15 Nov («خلي فيه إمكانية اني ابدل الصور جوة الشيت»): a row's picture swapped for another — into the batch, kept for that row;
+  // its color slot's color, when the AI had picked it, is cleared so the next «املأ بالـ AI» reads it from the new picture
+  async function swapRowPhoto(r, file) {
+    if (!file) return; S.busy = 'photo:' + r.n; R();
+    const up = await ST().uploadImage(S.id, file, 'r' + r.product + '-' + (r.variant || 0), { webp: true });
+    S.busy = '';
+    if (!up.ok) { R(); K.toast(up.reason === 'not_image' ? 'الصيغة مش مدعومة في المتصفح — حوّلها JPG أو PNG' : 'ماترفعتش — جرّب تاني', 'error'); return; }
+    const x = fillOf(r.product); x.rowPhotos = Object.assign({}, x.rowPhotos, { [rowPhotoKey(r)]: up.path });
+    const slot = r.colorSlot || 0; if ((x.aiColors || {})[slot]) { setSlotColor(x, slot, ['', ''], false); }
+    await touch(true); R(); K.toast('اتبدلت صورة ' + r.n, 'success');
   }
   async function shareSheet(how) {
     await saveSheet(true); const blob = await sheetFile(blankRowsOf(), st().type, null); const name = FD.sheetFileName(st().vendorName || st().brandName);
@@ -1035,7 +1080,7 @@
     const options = [{ value: '', label: '— من غير —' }].concat(list.map((c) => ({ value: c.name_en, label: (c.name_ar || c.name_en) + ' — ' + c.name_en })), cur && !known ? [{ value: cur, label: cur }] : []);
     return named('اللون — ' + r.n, h('div', { class: 'fl-sh-sel', 'data-sh': 'color:' + r.n }, U.Select({ id: 'fl-sh-color-' + r.n, label: '', options, value: cur, placeholder: 'اختار اللون',
       onChange: (v) => { const c = list.find((y) => y.name_en === v); const pair = v ? [v, c ? c.name_ar || '' : ''] : ['', ''];
-        if (slot > 1) x.colors = Object.assign({}, x.colors, { [slot]: pair }); else { x.colorEn = pair[0]; x.colorAr = pair[1]; if (x.colors) delete x.colors[slot]; }
+        setSlotColor(x, slot, pair, false); if (slot <= 1 && x.colors) delete x.colors[slot];
         touch(); R(); } })));
   }
   const named = (label, el) => { const b = el.querySelector('button.select'); if (b) b.setAttribute('aria-label', label); return el; };
@@ -1060,7 +1105,10 @@
       U.InlineNote({ children: 'تقدر تعدّل أي خانة هنا — الاسم واللون والمقاس وسعر المبتكر والقسم — وبتتحفظ مع الدفعة وتنزل في الشيت. اللي يفضل فاضي المبتكر بيملاه، ولما يرجّعه ابدأ دفعة «شيت جاهز» بيه.' }),
       h('div', { class: 'fl-scroll' }, h('table', { class: 'fl-table fl-sheet-ed', 'data-flow-sheet': '' }, h('thead', null, h('tr', null, h('th', null, '#'), h('th', null, 'الصورة'), h('th', null, 'الاسم EN'), h('th', null, 'الاسم AR'), h('th', null, 'اللون'), h('th', null, 'المقاس'), h('th', null, 'سعر المبتكر'), h('th', null, 'القسم'))),
         h('tbody', null, L.map((r) => { const x = fillOf(r.product);
-          return h('tr', { 'data-sh-row': r.n }, h('td', { class: 'num' }, r.n), h('td', null, Thumb(r.ref, 'st-sm')),
+          const busyPhoto = S.busy === 'photo:' + r.n;
+          return h('tr', { 'data-sh-row': r.n }, h('td', { class: 'num' }, r.n),
+            h('td', null, h('button', { type: 'button', class: 'fl-sh-photo' + (busyPhoto ? ' is-busy' : ''), 'data-sh-photo': r.n, disabled: !!S.busy, title: 'بدّل الصورة', 'aria-label': 'بدّل صورة ' + r.n,
+              onClick: () => filePick('image/*', false, (fs) => swapRowPhoto(r, fs[0])) }, Thumb(r.ref, 'st-sm'), h('span', { class: 'fl-sh-photo-i', 'aria-hidden': 'true' }, Icon(busyPhoto ? 'refresh' : 'upload', 'sm')))),
             h('td', null, sheetInput(r, 'nameEn', x.nameEn, (v) => { x.nameEn = v.trim(); }, { label: 'الاسم EN', dir: 'ltr' })),
             h('td', null, sheetInput(r, 'nameAr', x.nameAr, (v) => { x.nameAr = v.trim(); }, { label: 'الاسم AR', dir: 'rtl' })),
             h('td', null, sheetColor(r)),

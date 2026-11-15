@@ -198,7 +198,8 @@
       const ps = await within(cl, 'products', 'sku, image_url, permalink, lang', 'sku', skus, SKUS, g);
       stale(g);
       leads = new Map(); leadAsked.clear(); await loadLeads(cl, items, g);
-      vendorRows = vs; statuses = sm.data || []; if (cs) custom = cs; images = {}; links = {}; asked.clear();
+      vendorRows = vs; statuses = sm.data || []; if (cs) custom = cs; customOk = !!cs; images = {}; links = {}; asked.clear();
+      seenO.clear(); seenI.clear(); remember(rows, items);
       if (ws && !ws.error) states = stateMap(ws.data); // refused (no grant yet) or down: the last list stays, the codes show without one
       skus.forEach((s) => asked.add(s)); keepAll(ps);
       orders = toScreen(rows, items, subs, vendorRows, { links, states, leads, custom }); names = vendorNames(orders);
@@ -210,6 +211,20 @@
 
   // ---------- writes ----------
   const fail = (reason) => ({ ok: false, reason });
+  // «لسه زي ما أنا شايفه» (the owner 15 Nov — docs/superpowers/plans/2026-11-15-live-sync.md decision 3: «غيرت حالة اوردر و عضو تاني غير
+  // حالة نفس الاوردر»). What the member is looking at, as the database holds it: order id → the columns an edit may change, line id →
+  // the same. Every read fills them (IBLive holds the reads while a popup is open or a field is in use, so they stay what is on the
+  // screen); my own saved write moves them on. A write names the old value of each column it changes — update … where id = … and
+  // <column> = <what was on the screen> — so when somebody saved it first no row is written: 'stale', and the order is read again.
+  const SEEN_O = ['status', 'confirm', 'confirm_at', 'note', 'customer_city', 'customer_address', 'deposit'];
+  const SEEN_I = ['status', 'expected_at', 'comment', 'waybill', 'pulled'];
+  const seenO = new Map(); const seenI = new Map(); let customOk = false;
+  const keepSeen = (map, cols) => (r) => { if (!r || r.id == null) return; const o = {}; cols.forEach((k) => { if (r[k] !== undefined) o[k] = r[k]; }); map.set(String(r.id), o); };
+  function remember(rows, items) { (rows || []).forEach(keepSeen(seenO, SEEN_O)); (items || []).forEach(keepSeen(seenI, SEEN_I)); }
+  // the old values of the tracked columns this patch changes (nothing known of the row: no condition — the write goes as before)
+  function wasOf(map, id, patch) { const sn = map.get(String(id)); const w = {}; if (sn) Object.keys(patch).forEach((k) => { if (Object.prototype.hasOwnProperty.call(sn, k)) w[k] = sn[k]; }); return w; }
+  const moveOn = (map, cols, id, patch) => { const sn = map.get(String(id)); if (sn) cols.forEach((k) => { if (Object.prototype.hasOwnProperty.call(patch, k)) sn[k] = patch[k]; }); };
+  const orderOfItem = (itemId) => { const o = (orders || []).find((x) => x.subs.some((sb) => sb.itemId === String(itemId))); return o ? o.id : null; };
   // 0095 (owner batch 2 decision 22): the orders on an added status — orders.status_custom (a column grant; orders_v as it was) → a Map
   // id → name; one order (id) or every one on an added status. Not there yet (before 0095) or down: null — the screen keeps the bases
   async function customs(cl, id) {
@@ -223,10 +238,33 @@
   }
   // an added status → its base («بتتحسب زي»); a base status → itself
   function baseOf(status) { const r = (statuses || []).find((x) => x && x.system_status === status); return r && r.base ? r.base : status; }
-  async function update(table, id, patch) {
+  // was (optional): { column: the value on the screen } → the row is written only while it still holds them. No row written:
+  // the row is read — changed → 'stale' (and the order is read again for the screen); the same → the write was not mine to make
+  // ('forbidden'); gone → 'missing'. A text longer than 400 characters is not sent as a condition (the address bar's limit).
+  async function update(table, id, patch, was) {
     const cl = c();
     if (!cl || !uid()) return fail('network');
-    try { const { error } = await cl.from(table).update(patch).eq('id', id); return error ? fail(error.code === '42501' ? 'forbidden' : 'network') : { ok: true }; } catch (e) { return fail('network'); }
+    const cols = was ? Object.keys(was).filter((k) => !(typeof was[k] === 'string' && was[k].length > 400)) : [];
+    const bad = (error) => fail(error.code === '42501' ? 'forbidden' : 'network');
+    try {
+      if (!cols.length) { const { error } = await cl.from(table).update(patch).eq('id', id); if (error) return bad(error); }
+      else {
+        let q = cl.from(table).update(patch, { count: 'exact' }).eq('id', id);
+        cols.forEach((k) => { q = was[k] === null ? q.is(k, null) : q.eq(k, was[k]); });
+        const { error, count } = await q;
+        if (error) return bad(error);
+        if (count === 0) {
+          const now = await cl.from(table).select(['id'].concat(cols).join(', ')).eq('id', id).maybeSingle();
+          const row = now && !now.error ? now.data : null;
+          const same = !!row && cols.every((k) => (row[k] == null ? null : String(row[k])) === (was[k] == null ? null : String(was[k])));
+          const oid = table === 'orders' ? String(id) : orderOfItem(id);
+          if (!same && oid != null) quiet(() => refetch(String(oid))); // theirs on the screen
+          return fail(now && now.error ? 'stale' : !row ? 'missing' : same ? 'forbidden' : 'stale');
+        }
+      }
+    } catch (e) { return fail('network'); }
+    if (table === 'orders') moveOn(seenO, SEEN_O, id, patch); else if (table === 'order_items') moveOn(seenI, SEEN_I, id, patch);
+    return { ok: true };
   }
   const log = (action, detail) => { const K = window.IBKit; if (K && K.logEvent) quiet(() => K.logEvent(action, detail)); };
   const itemRef = (itemId) => { const o = (orders || []).find((x) => x.subs.some((s) => s.itemId === String(itemId))); return (o ? 'IB-' + o.id + ' · ' : '') + '#' + itemId; };
@@ -241,16 +279,23 @@
   }
   // «مكتمل» with the team's rating of the customer (phase 3.6): one RPC writes the rating and the status together
   // (order_complete — the orders guard decides, as for any status change); the log carries the figures, never the note.
+  // 0105: p_from = the status on the screen — the server refuses (IBSTL) when somebody moved the order first, so two members
+  // completing it together leave one rating. A project without 0105 yet does not know p_from (PGRST202): asked again without it.
   async function completeOrder(id, rating) {
     const cl = c();
     if (!cl || !uid()) return fail('network');
     const sat = Number(rating && rating.sat), manners = Number(rating && rating.manners);
     if (![sat, manners].every((n) => Number.isInteger(n) && n >= 1 && n <= 5)) return fail('invalid');
     const note = rating && typeof rating.note === 'string' && rating.note.trim() ? rating.note.trim() : null;
+    const args = { p_order: Number(id), p_sat: sat, p_manners: manners, p_note: note };
+    const sn = seenO.get(String(id)); const from = sn && typeof sn.status === 'string' ? sn.status : null;
     try {
-      const { error } = await cl.rpc('order_complete', { p_order: Number(id), p_sat: sat, p_manners: manners, p_note: note });
-      if (error) return fail(error.code === '42501' ? 'forbidden' : error.code === '22023' ? 'invalid' : 'network');
+      let r = await cl.rpc('order_complete', from ? Object.assign({ p_from: from }, args) : args);
+      if (r.error && from && r.error.code === 'PGRST202') r = await cl.rpc('order_complete', args);
+      if (r.error && r.error.code === 'IBSTL') { quiet(() => refetch(String(id))); return fail('stale'); }
+      if (r.error) return fail(r.error.code === '42501' ? 'forbidden' : r.error.code === '22023' ? 'invalid' : 'network');
     } catch (e) { return fail('network'); }
+    moveOn(seenO, SEEN_O, id, { status: 'مكتمل' });
     log('order.rating', 'IB-' + id + ' · رضا ' + sat + ' · أخلاق ' + manners);
     return { ok: true };
   }
@@ -415,7 +460,9 @@
     if (added || had) patch.status_custom = added;
     if (extra && extra.cancel) patch.cancel = extra.cancel;
     if (extra && extra.ret) patch.ret = extra.ret;
-    const r = await update('orders', id, patch);
+    const was = wasOf(seenO, id, { status: base }); // the status on the screen — and its added one, when those are known
+    if (customOk && Object.keys(was).length) was.status_custom = had;
+    const r = await update('orders', id, patch, was);
     if (!r.ok) return r;
     keep();
     log('order.status', 'IB-' + id + ' · ' + status);
@@ -443,7 +490,7 @@
     if (has(opts, 'confAt')) patch.confirm_at = opts.confAt || null;
     if (has(opts, 'note')) patch.confirm_note = opts.note;
     if (!Object.keys(patch).length) return { ok: true };
-    const r = await update('orders', id, patch);
+    const r = await update('orders', id, patch, wasOf(seenO, id, patch));
     if (r.ok) log('order.confirm', 'IB-' + id + (patch.confirm !== undefined ? ' · ' + cf : ''));
     // 0103 (the owner 15 Nov): the confirmation date fills the lines' «تاريخ تبليغ المبتكر» on the server — the order read again
     // so the lines show it now (Realtime brings it too, when it is on)
@@ -457,7 +504,7 @@
     const dep = !has(f, 'dep') ? 0 : typeof f.dep === 'number' ? f.dep : typeof f.dep === 'string' && f.dep.trim() ? Number(f.dep) : NaN;
     if (!Number.isFinite(dep)) return fail('invalid'); // never a silent 0
     const patch = {}; keys.forEach((k) => { patch[FIELDS[k]] = k === 'dep' ? dep : f[k]; });
-    const r = await update('orders', id, patch);
+    const r = await update('orders', id, patch, wasOf(seenO, id, patch));
     if (r.ok) log('order.patch', 'IB-' + id + ' · ' + keys.join(', ')); // which fields, never their text
     return r;
   }
@@ -470,17 +517,18 @@
     if (has(extra, 'store')) patch.store = extra.store || null;
     if (has(extra, 'readyAt')) patch.ready_at = toIso(extra.readyAt);
     if (!Object.keys(patch).length) return { ok: true };
-    const r = await update('order_items', itemId, patch);
+    const r = await update('order_items', itemId, patch, wasOf(seenI, itemId, patch));
     if (r.ok) log('suborder.status', itemRef(itemId) + (patch.status !== undefined ? ' · ' + ss : ''));
     return r;
   }
   async function setWaybill(itemId, w) {
-    const r = await update('order_items', itemId, { waybill: w == null ? null : w });
+    const wb = { waybill: w == null ? null : w };
+    const r = await update('order_items', itemId, wb, wasOf(seenI, itemId, wb));
     if (r.ok) log('suborder.waybill', itemRef(itemId));
     return r;
   }
   async function setPulled(itemId, on) {
-    const r = await update('order_items', itemId, { pulled: !!on });
+    const r = await update('order_items', itemId, { pulled: !!on }, wasOf(seenI, itemId, { pulled: !!on }));
     if (r.ok) log('suborder.pulled', itemRef(itemId) + ' · ' + (on ? 'سحب من المتاح' : 'إلغاء السحب'));
     return r;
   }
@@ -519,8 +567,9 @@
       if (!known && !(Date.parse(o.data[0].placed_at) >= windowStart().getTime())) return; // older than the screen's 12 months
       await fill(cl, it.data || [], so.data || [], g);
       if (!orders) return;
-      const cu = await customs(cl, id); if (cu) { if (cu.get(String(id))) custom.set(String(id), cu.get(String(id))); else custom.delete(String(id)); }
+      const cu = await customs(cl, id); if (cu) { if (cu.get(String(id))) custom.set(String(id), cu.get(String(id))); else custom.delete(String(id)); } else customOk = false;
       if (!orders) return;
+      remember(o.data.slice(0, 1), it.data || []);
       const next = toScreen(o.data.slice(0, 1), it.data || [], so.data || [], vendorRows, { links, states, leads, custom })[0];
       const i = orders.findIndex((x) => x.id === next.id);
       if (i >= 0) orders[i] = next; else orders.unshift(next);
@@ -541,7 +590,10 @@
   function onChange(p) {
     const row = p && p.new; if (!row) return undefined;
     const id = p.table === 'orders' ? row.id : row.order_id;
-    return id == null ? undefined : refetch(String(id));
+    if (id == null) return undefined;
+    const L = window.IBLive; // 0104: gathered, and held while a popup is open — the screen stays what the member is looking at
+    if (L && L.signal) { L.signal({ payload: { t: 'orders', ids: [id] } }); return undefined; }
+    return refetch(String(id));
   }
   // the channel's status: SUBSCRIBED again after CHANNEL_ERROR / TIMED_OUT / CLOSED (the socket was down; supabase-js rejoins
   // by itself) → one load(), so the changes missed meanwhile are not lost. A channel unsubscribe() let go of is ignored.
@@ -563,7 +615,7 @@
     const ch = channel; channel = null;
     if (ch && c()) { try { Promise.resolve(c().removeChannel(ch)).catch(() => {}); } catch (e) { /* already closed */ } }
   }
-  function clear() { gen += 1; unsubscribe(); cancelNotify(); orders = null; custom = new Map(); vendorRows = []; leads = new Map(); leadAsked.clear(); images = {}; links = {}; states = new Map(); statuses = []; names = []; asked.clear(); busy.clear(); setState('idle'); }
+  function clear() { gen += 1; unsubscribe(); cancelNotify(); orders = null; custom = new Map(); customOk = false; seenO.clear(); seenI.clear(); vendorRows = []; leads = new Map(); leadAsked.clear(); images = {}; links = {}; states = new Map(); statuses = []; names = []; asked.clear(); busy.clear(); setState('idle'); }
   window.IBOrders = { load, data, state: () => st, today, setOrderStatus, setConfirm, patchOrder, deleteOrder, deleteSub, deleteLine, setLineQty, addLine, makerProducts, siteStatuses, setSubSiteStatus, setItemStatus, setWaybill, setPulled, syncNow, registerWebhooks, subscribe, unsubscribe, clear, toScreen, refetch };
   window.IBOrdersStore = window.IBOrders; // the name block 29's write hooks call
 })();

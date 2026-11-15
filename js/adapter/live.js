@@ -60,9 +60,12 @@
   const any = (sel) => roots().some((r) => Array.prototype.some.call(r.querySelectorAll(sel), seen));
   const active = () => { const d = doc(); let a = d && d.activeElement; while (a && a.shadowRoot && a.shadowRoot.activeElement) a = a.shadowRoot.activeElement; return a || null; };
   const isSearch = (a) => a.type === 'search' || a.id === 'gq' || (a.getAttribute && (a.getAttribute('role') === 'searchbox' || a.hasAttribute('data-fm-q'))) || !!(a.closest && a.closest('[data-tq-row]')) || /بحث|ابحث|دوّر/.test(a.placeholder || '');
-  let lastKey = 0;
+  let lastKey = 0; let lastFocus = 0; const SELECT_MS = 8000;
   function typing() {
     const d = doc(); const a = active(); if (!a || a === d.body) return false;
+    // a dropdown just opened: the list under the member's hand is not redrawn while they choose (it keeps the focus afterwards, so
+    // only for a few seconds)
+    if (a.tagName === 'SELECT') return Date.now() - lastFocus < SELECT_MS;
     const field = a.isContentEditable || a.tagName === 'TEXTAREA' || (a.tagName === 'INPUT' && !/^(checkbox|radio|button|submit|reset|range|file|color|image)$/i.test(a.type || 'text'));
     if (!field) return false;
     return isSearch(a) ? Date.now() - lastKey < 1500 : true; // a search box holds only while its keys are being pressed
@@ -109,7 +112,7 @@
   const all = () => { Object.keys(readers).concat(Array.from(extra.keys())).forEach((g) => { pending.set(g, null); }); plan(); };
 
   // ---------- the line ----------
-  let channel = null; let down = false; let watch = null; let wired = false; let hiddenAt = 0;
+  let channel = null; let down = false; let watch = null; let wired = false; let hiddenAt = 0; let fails = 0; let nextTry = 0;
   function onSignal(msg) {
     const p = (msg && msg.payload) || msg || {}; const t = typeof p.t === 'string' ? p.t : ''; if (!t) return;
     mark(t, Array.isArray(p.ids) ? p.ids.filter((x) => x != null) : null);
@@ -123,8 +126,10 @@
       channel = mine;
       mine.subscribe((status) => {
         if (channel !== mine) return;
-        if (status === 'SUBSCRIBED') { if (down) { down = false; all(); } } // back after a cut: whatever was missed
-        else if (DOWN.includes(status)) { down = true; drop(); }             // the watch opens a new one
+        if (status === 'SUBSCRIBED') { fails = 0; if (down) { down = false; all(); } } // back after a cut: whatever was missed
+        // the watch opens a new one: the first cut at its next look, then each failed try waits twice as long, up to 5 minutes (a
+        // project without 0104 refuses the join)
+        else if (DOWN.includes(status)) { down = true; drop(); fails = Math.min(fails + 1, 6); nextTry = Date.now() + (fails > 1 ? Math.min(WATCH_MS * Math.pow(2, fails - 2), 300000) : 0); }
       });
     } catch (e) { channel = null; }
   }
@@ -139,16 +144,17 @@
     if (d && d.addEventListener) {
       d.addEventListener('visibilitychange', onVisible);
       d.addEventListener('keydown', () => { lastKey = Date.now(); }, true);
+      d.addEventListener('focusin', () => { lastFocus = Date.now(); }, true);
       d.addEventListener('focusout', () => { if (pending.size) plan(120); }, true); // the field was left: do not wait for the retry
     }
-    if (typeof window.addEventListener === 'function') window.addEventListener('online', () => { if (uid()) { down = true; drop(); connect(); all(); } });
+    if (typeof window.addEventListener === 'function') window.addEventListener('online', () => { if (uid()) { down = true; drop(); fails = 0; nextTry = 0; connect(); all(); } });
   }
   function subscribe() {
     wire(); connect();
     const cfg = window.IB_CONFIG || {};
-    if (!watch && cfg.realtime !== false && typeof setInterval === 'function') watch = setInterval(() => { if (!channel && uid()) connect(); }, WATCH_MS);
+    if (!watch && cfg.realtime !== false && typeof setInterval === 'function') watch = setInterval(() => { if (!channel && uid() && Date.now() >= nextTry) connect(); }, WATCH_MS);
   }
-  function unsubscribe() { drop(); down = false; if (watch) { clearInterval(watch); watch = null; } }
+  function unsubscribe() { drop(); down = false; fails = 0; nextTry = 0; if (watch) { clearInterval(watch); watch = null; } }
   function clear() { unsubscribe(); pending.clear(); since = 0; if (timer) { clearTimeout(timer); timer = null; } }
 
   window.IBLive = { subscribe, unsubscribe, clear, on, holdWhile, signal: onSignal, refresh: all, held, connected: () => !!channel && !down,

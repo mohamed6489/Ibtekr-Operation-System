@@ -208,6 +208,11 @@ test('linkKeys: a product link of the site (as typed / decoded / trailing slash)
   assert.ok(k.permalinks.includes('https://ibtekr.club/product/مخدة/'));
   assert.ok(k.permalinks.includes('https://ibtekr.club/product/مخدة'));
   assert.equal(W.linkKeys('javascript:alert(1)'), null); assert.equal(W.linkKeys(''), null); assert.equal(W.linkKeys('كلام عادي'), null);
+  // the owner 15 Nov: the live site's link against the staging mirror → its product path, any host; not for a page that is not a product
+  assert.deepEqual(plain(W.linkKeys('https://ibtekr.club/product/cushion-cover-16/').paths), ['/product/cushion-cover-16']);
+  assert.deepEqual(plain(k.paths), ['/product/%D9%85%D8%AE%D8%AF%D8%A9', '/product/مخدة']);
+  assert.deepEqual(plain(W.linkKeys('https://ibtekr.club/shop/').paths), []);
+  assert.deepEqual(plain(W.linkKeys('https://ibtekr.club/').paths), []);
 });
 
 // ---------------------------------------------------------------- 9.5.3: the ads numbers (decisions 44–46)

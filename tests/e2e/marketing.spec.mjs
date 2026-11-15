@@ -156,6 +156,14 @@ test('the owner 15 Nov — «السيستم مش قابل اي لينكات»: a
   await box.fill('IBTA4040PAHC000013'); await ref.getByRole('button', { name: 'ضيف' }).click();
   await expect(ref.locator('.cw-f')).toHaveCount(2);
   expect(mock.mkt.calls.filter((c) => c.action === 'ref_link').length).toBe(2);
+  // the owner 15 Nov («بدلو لينك المنتج علي الموقع … مش قريه»): the live site's link (the mirror holds the staging site's) → the
+  // product by its path, the English row — a product chip, not a fetched picture
+  const use = pg(page).locator('[data-cw-files="cw-use-post"]');
+  await pg(page).locator('#cw-use-post-l').fill('https://ibtekr.club/product/cushion/'); await use.getByRole('button', { name: 'ضيف' }).click();
+  await expect(use.locator('.cw-f')).toHaveCount(1);
+  await expect(use.locator('.cw-f')).toContainText('Cushion');
+  expect(mock.mkt.calls.filter((c) => c.action === 'ref_link').length).toBe(2);
+  await expect.poll(() => { const cur = mock.mkt.campaigns.find((c) => c.id === made.id); return ((cur && cur.state && cur.state.w ? cur.state.w.media.post.use : []) || []).map((f) => [f.t, f.id]); }).toEqual([['product', 9001]]);
 });
 
 test('the log: the caption saved as it is typed, «أجّل» to a new hour, «علّمه اتنشر» with a link, «احذف» a waiting one', async ({ page }) => {

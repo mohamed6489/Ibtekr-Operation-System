@@ -128,6 +128,36 @@ test('a new campaign: the details (the row created) → the AI fills the piece �
   for (const secret of ['الربيع', 'مكرمية', 'كولكشن', 'قديم']) expect(logs).not.toContain(secret);
 });
 
+test('the owner 15 Nov — «السيستم مش قابل اي لينكات»: any https link in «فايلز أو لينكات» — a Pinterest pin becomes a picture of the campaign (the server fetches it); a page with no picture, an http link and an unknown SKU are refused with their reason; a site product link stays a product', async ({ page }) => {
+  await openMarketing(page);
+  await pg(page).locator('[data-mk-start]').click();
+  await pg(page).locator('#cw-idea').fill('كولكشن المكرمية');
+  const ref = pg(page).locator('[data-cw-files="cw-ref-post"]'); const box = pg(page).locator('#cw-ref-post-l');
+  await expect(box).toHaveAttribute('placeholder', /Pinterest/);
+  // a Pinterest short link → the campaign row made first, then the server's ref_link → a file chip with the link icon
+  await box.fill('https://pin.it/4yUtHzQQl'); await ref.getByRole('button', { name: 'ضيف' }).click();
+  await expect(ref.locator('.cw-f')).toContainText('لينك — pin.it');
+  await expect(box).toHaveValue('');
+  const call = mock.mkt.calls.find((c) => c.action === 'ref_link'); expect(call.url).toBe('https://pin.it/4yUtHzQQl');
+  const made = mock.mkt.campaigns.find((c) => c.id !== C1); expect(made).toBeTruthy();
+  await expect.poll(() => { const cur = mock.mkt.campaigns.find((c) => c.id === made.id); const r = cur && cur.state && cur.state.w ? cur.state.w.media.post.ref : []; return r.map((f) => [f.t, f.name, /\/ref-[a-z0-9]+\.jpg$/.test(f.path) && f.path.startsWith(made.id + '/')]); })
+    .toEqual([['file', 'لينك — pin.it', true]]);
+  // the refusals, each with its reason; nothing is added
+  mock.mkt.refWeb = { 'https://cdn.example.com/page': 'none' };
+  await box.fill('https://cdn.example.com/page'); await ref.getByRole('button', { name: 'ضيف' }).click();
+  await expect(page.locator('.toast.show')).toContainText('مالقيناش صورة في اللينك ده');
+  await box.fill('http://cdn.example.com/a.jpg'); await box.press('Enter');
+  await expect(page.locator('.toast.show')).toContainText('https://');
+  await box.fill('NOPE-SKU'); await ref.getByRole('button', { name: 'ضيف' }).click();
+  await expect(page.locator('.toast.show')).toContainText('مالقيناش منتج بالـ SKU ده');
+  await expect(ref.locator('.cw-f')).toHaveCount(1);
+  expect(mock.mkt.calls.filter((c) => c.action === 'ref_link').length).toBe(2); // the http link and the SKU never reach the server
+  // a product of the site by its SKU stays a product (the server reads its photo from the site, never through ref_link)
+  await box.fill('IBTA4040PAHC000013'); await ref.getByRole('button', { name: 'ضيف' }).click();
+  await expect(ref.locator('.cw-f')).toHaveCount(2);
+  expect(mock.mkt.calls.filter((c) => c.action === 'ref_link').length).toBe(2);
+});
+
 test('the log: the caption saved as it is typed, «أجّل» to a new hour, «علّمه اتنشر» with a link, «احذف» a waiting one', async ({ page }) => {
   await openMarketing(page);
   await pg(page).getByRole('tab', { name: 'سجل النشر' }).click();

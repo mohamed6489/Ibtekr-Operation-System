@@ -1089,3 +1089,46 @@ Deno.test('video_poll: the open jobs asked at once; a done one downloaded into b
   assertEquals([a1.body.job.kind, a1.body.job.status, a1.body.job.ref, a1.body.job.data.final, !!a1.body.job.path], ['mix', 'done', 'clip-1', true, true]);
   assertEquals((await vcall(one.deps, 'video_poll')).body.final.ref, 'clip-1');
 });
+
+Deno.test('ref_link (the owner 15 Nov — «السيستم مش قابل اي لينكات»): marketing.create; an image link kept as <campaign>/ref-….<ext>; a page (a Pinterest short link redirecting to the pin) → its og:image; the SSRF rules: https / no IP / no local name / a redirect or a resolved address off them refused; not an image → 422; too big → 413', async () => {
+  const JPG = new Uint8Array([255, 216, 255, 224, 0, 16, 74, 70, 73, 70, 0, 1, 1, 1]);
+  const PAGE = '<html><head><meta property="og:type" content="pin"><meta content="https://i.pinimg.com/736x/aa/bb.jpg" property="og:image"></head><body>…</body></html>';
+  const hits: string[] = []; const inits: any[] = [];
+  const web: Record<string, () => Response> = {
+    'https://pin.it/4yUtHzQQl': () => new Response(null, { status: 301, headers: { location: 'https://www.pinterest.com/pin/123/' } }),
+    'https://www.pinterest.com/pin/123/': () => new Response(PAGE, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } }),
+    'https://i.pinimg.com/736x/aa/bb.jpg': () => new Response(JPG as BlobPart, { status: 200, headers: { 'content-type': 'image/jpeg' } }),
+    'https://cdn.example.com/a.png': () => new Response(new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13]) as BlobPart, { status: 200, headers: { 'content-type': 'image/png' } }),
+    'https://cdn.example.com/to-local': () => new Response(null, { status: 302, headers: { location: 'https://127.0.0.1/admin' } }),
+    'https://cdn.example.com/no-image': () => new Response('<html><head><title>x</title></head></html>', { status: 200, headers: { 'content-type': 'text/html' } }),
+    'https://cdn.example.com/a.gif': () => new Response(new Uint8Array([71, 73, 70, 56, 57, 97, 1, 0, 1, 0, 0, 0, 0]) as BlobPart, { status: 200, headers: { 'content-type': 'image/gif' } }),
+    'https://cdn.example.com/huge.jpg': () => new Response(JPG as BlobPart, { status: 200, headers: { 'content-type': 'image/jpeg', 'content-length': '99999999' } }),
+    'https://rebind.example.com/x.jpg': () => new Response(JPG as BlobPart, { status: 200, headers: { 'content-type': 'image/jpeg' } }),
+  };
+  const { deps, storage } = setup({ seed: MKT_SEED, storage: { ...MKT_FILES } });
+  (deps as any).fetch = (async (url: string, init: any = {}) => { hits.push(url); inits.push(init); const f = web[url]; return f ? f() : new Response('nope', { status: 404 }); }) as any;
+  (deps as any).resolve = async (host: string) => (host === 'rebind.example.com' ? ['10.0.0.5'] : ['151.101.0.84']);
+  const go = (url: string, jwt = 'jwt-mkt', cid = CMP) => call(deps, { action: 'ref_link', campaign_id: cid, url }, jwt);
+  assertEquals((await go('https://pin.it/4yUtHzQQl', 'jwt-add')).res.status, 401, 'products.add is not marketing.create');
+  // the Pinterest short link: 301 → the pin page → its og:image → kept as a JPEG under the campaign
+  const pin = await go('https://pin.it/4yUtHzQQl');
+  assertEquals([pin.res.status, pin.body.result, pin.body.name], [200, 'ok', 'لينك — pin.it']);
+  assert(/^[0-9a-f-]{36}\/ref-[a-z0-9]+\.jpg$/.test(pin.body.path) && pin.body.path.startsWith(CMP + '/'), pin.body.path);
+  assertEquals(storage['marketing/' + pin.body.path], JPG);
+  assertEquals(hits, ['https://pin.it/4yUtHzQQl', 'https://www.pinterest.com/pin/123/', 'https://i.pinimg.com/736x/aa/bb.jpg']);
+  assert(inits.every((i) => i.redirect === 'manual'), 'redirects followed by hand, each checked');
+  // a direct image link (PNG by its bytes)
+  const png = await go('https://cdn.example.com/a.png'); assertEquals(png.res.status, 200); assert(png.body.path.endsWith('.png'), png.body.path);
+  // the rules
+  for (const bad of ['http://cdn.example.com/a.png', 'https://127.0.0.1/a.png', 'https://[::1]/a.png', 'https://localhost/a.png', 'https://printer.local/a.png', 'https://metadata.google.internal/x', 'https://user:pw@cdn.example.com/a.png', 'https://cdn.example.com:8443/a.png', 'نص', 'https://0x7f.1/a.png']) {
+    const r = await go(bad); assertEquals([r.res.status, r.body.field], [400, 'url'], bad);
+  }
+  assertEquals((await go('https://cdn.example.com/to-local')).res.status, 403, 'a redirect to a private address');
+  assertEquals((await go('https://rebind.example.com/x.jpg')).body.error, 'blocked', 'a name resolving to a private address');
+  assertEquals((await go('https://cdn.example.com/no-image')).res.status, 422, 'a page without a picture');
+  assertEquals((await go('https://cdn.example.com/a.gif')).body.error, 'not_image', 'GIF is not taken (PNG / JPEG / WebP only)');
+  assertEquals((await go('https://cdn.example.com/huge.jpg')).res.status, 413);
+  assertEquals((await go('https://cdn.example.com/missing.jpg')).res.status, 502);
+  assertEquals((await go('https://cdn.example.com/a.png', 'jwt-mkt', CMP_OLD)).res.status, 404, 'an archived campaign');
+  assertEquals((await go('https://cdn.example.com/a.png', 'jwt-mkt', 'nope')).body.field, 'campaign_id');
+});

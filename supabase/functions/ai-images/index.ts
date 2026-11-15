@@ -20,6 +20,10 @@
 //              The campaign itself is not written (the page puts the path in the piece and saves). ai_runs source 'campaign'.
 //   'campaign_edit' (decision 9; the same) { campaign_id, piece, slide, model?, note?, pins: [{ x, y, text }] } → the target's
 //              current image edited by the instruction (the pins at their places, the general change) → a new path, same way.
+//   'ref_link' (the owner 15 Nov — «السيستم مش قابل اي لينكات»; the admin or marketing.create = F) { campaign_id, url } → any public
+//              link's image (an image link, or the page's og:image — Pinterest …) fetched under the SSRF rules of _shared/ref-link.js
+//              and kept as <campaign>/ref-<stamp>.<ext> in bucket marketing → { path, name }. Errors: 400 url · 404 the campaign ·
+//              403 blocked (a private address / a redirect off the rules) · 422 not_image · 413 too_big · 502 unreachable.
 //   'agent_image' (0084 — the owner 12 Nov, decision 6; the admin or marketing.create = F) { chat_id, prompt, size?, model? } → the
 //              designer assistant's picture: the member's own designer chat (another's / a deleted one = 404), one image from the
 //              prompt on the images' credit cap, stored under agents/<member>/<chat>/ in the bucket marketing (read by its member
@@ -74,6 +78,7 @@ import { vaultEnv } from '../_shared/secrets.js';
 import { BridgeError, magnificMcp, randomText, type Bridge, type Tokens } from './providers/magnific-mcp.ts';
 import { REF, creationsOf, familyOf, flowNodes, importShape, lastPageOf, lineageIds, listIdsOf, matchResults, nodeDataOf, nodesOf, templatePrompts, uploadedId, urlsById } from '../_shared/magnific-bridge.js';
 import { DEFAULT_SIZE, agentImagePath, campaignGenPath, campaignPathOk, campaignPrompt, campaignRefs, campaignTarget, parseAgentImage, templateNotes, parseCampaign, parseCampaignEdit, pinsPrompt } from '../_shared/marketing.js';
+import { REF_HOPS, REF_PAGE_MAX, imageKind, pageImage, privateIp, refName, refUrl } from '../_shared/ref-link.js';
 import { MAX_OPEN_JOBS, MAX_VIDEO_BYTES, MEDIA_EXT, chainedArgs, clipArgs, jobView, mixPlan, modelOf as videoModelOf, musicArgs, nextMix, parseVideo, queuedIds, ttsArgs, videoPath, videoPathOk, waitOf } from '../_shared/mkt-video.js';
 
 // deno-lint-ignore no-explicit-any
@@ -88,10 +93,11 @@ export type Deps = {
   providers?: Record<string, Provider>; // phase 11: the direct image providers (openai / gemini) beside Magnific
   tts?: (req: { text: string; voiceId: string | null; model: string | null }) => Promise<{ bytes: Uint8Array; mime: string }>; // phase 11: ElevenLabs direct
   mcp?: (url: string, token: string | null) => McpClient; // phase 11 (decision 4): a linked MCP server — Higgsfield's video tools
+  resolve?: (host: string) => Promise<string[] | null>; // ref_link: the host's addresses (null = the runtime cannot resolve) — tests stub it
   veo?: { start: (req: { model: string; prompt: string; image: { bytes: Uint8Array; mime: string } | null; aspect: string; seconds: number }) => Promise<string>; poll: (op: string) => Promise<{ done: boolean; uri?: string; error?: string }>; download: (uri: string) => Promise<{ bytes: Uint8Array; mime: string }> }; // phase 11: Veo direct
 };
 
-const ACTIONS = ['generate', 'edit', 'create', 'probe', 'webp', 'import', 'share', 'bridge_status', 'bridge_link', 'bridge_callback', 'bridge_unlink', 'bridge_upload', 'bridge_fetch', 'bridge_prompts_sync', 'bridge_flow', 'campaign', 'campaign_edit', 'agent_image',
+const ACTIONS = ['generate', 'edit', 'create', 'probe', 'webp', 'import', 'share', 'bridge_status', 'bridge_link', 'bridge_callback', 'bridge_unlink', 'bridge_upload', 'bridge_fetch', 'bridge_prompts_sync', 'bridge_flow', 'campaign', 'campaign_edit', 'agent_image', 'ref_link',
   'video_clip', 'video_voice', 'video_music', 'video_upload', 'video_assemble', 'video_poll']; // 9.5.5 (decisions 57–64)
 const SHARE_SECONDS = 7 * 24 * 3600; // a shared photo's link lives a week (the bridge uploads it to the site within that)
 const MAX_WEBP_B64 = 14_000_000; // ≈ 10 MB of WebP
@@ -413,6 +419,89 @@ async function campaign(deps: Deps, who: Who, args: Json) {
   return await runImages(deps, base, req.model, 1,
     (prov, m, style) => prov.generate({ model: m, prompt: prompt + style, width: size.w, height: size.h, count: 1, references: inp.refs }),
     (img) => upload(deps.db, MKT_BUCKET, campaignGenPath(req.campaignId, req.piece, req.slide, st, extOf(img.mime), false), img), 'campaign', 'post');
+}
+// ---------------------------------------------------------------- ref_link (the owner 15 Nov: any link as an example / a photo)
+
+const REF_UA = 'Mozilla/5.0 (compatible; LinkPreview/1.0)';
+const UUID_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// the host's addresses must all be public; a runtime without a resolver (null) is let through — the name rules already held
+async function hostPublic(deps: Deps, host: string): Promise<boolean> {
+  let addrs: string[] | null = null;
+  try {
+    if (deps.resolve) addrs = await deps.resolve(host);
+    else {
+      const D = (globalThis as unknown as { Deno?: { resolveDns?: (h: string, t: string) => Promise<string[]> } }).Deno;
+      if (D && typeof D.resolveDns === 'function') {
+        const a = await D.resolveDns(host, 'A').catch(() => [] as string[]); const b = await D.resolveDns(host, 'AAAA').catch(() => [] as string[]);
+        addrs = [...a, ...b];
+      }
+    }
+  } catch { addrs = null; }
+  return !addrs || addrs.every((ip) => !privateIp(ip));
+}
+// up to max bytes of the body; over it: null (an image) or the head (a page — its <head> is what counts)
+async function readCapped(res: Response, max: number, keepHead: boolean): Promise<Uint8Array | null> {
+  const declared = Number(res.headers.get('content-length'));
+  if (!keepHead && Number.isFinite(declared) && declared > max) { try { await res.body?.cancel(); } catch { /* gone */ } return null; }
+  const reader = res.body?.getReader(); if (!reader) return new Uint8Array();
+  const parts: Uint8Array[] = []; let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read(); if (done) break;
+    size += value.length; parts.push(value);
+    if (size > max) { try { await reader.cancel(); } catch { /* enough */ } if (!keepHead) return null; break; }
+  }
+  const out = new Uint8Array(Math.min(size, max)); let at = 0;
+  for (const p of parts) { const take = Math.min(p.length, out.length - at); if (take <= 0) break; out.set(p.subarray(0, take), at); at += take; }
+  return out;
+}
+// a GET under the rules: each hop's host public, redirects followed by hand (REF_HOPS at most), each new link checked again
+async function refGet(deps: Deps, start: URL, accept: string): Promise<{ res: Response; url: URL } | { error: string }> {
+  let u = start;
+  for (let hop = 0; hop <= REF_HOPS; hop += 1) {
+    if (!(await hostPublic(deps, u.hostname))) return { error: 'blocked' };
+    let r: Response;
+    try { r = await (deps.fetch ?? fetch)(u.href, { redirect: 'manual', headers: { accept, 'user-agent': REF_UA }, signal: AbortSignal.timeout(FETCH_MS) }); }
+    catch { return { error: 'unreachable' }; }
+    if (r.status >= 300 && r.status < 400) {
+      const loc = r.headers.get('location'); try { await r.body?.cancel(); } catch { /* the headers are enough */ }
+      let next: URL | null = null; try { next = loc ? refUrl(new URL(loc, u).href) : null; } catch { next = null; }
+      if (!next) return { error: 'blocked' };
+      u = next; continue;
+    }
+    if (!r.ok) { try { await r.body?.cancel(); } catch { /* nothing to read */ } return { error: 'unreachable' }; }
+    return { res: r, url: u };
+  }
+  return { error: 'unreachable' };
+}
+const isHtml = (ct: string) => ct === 'text/html' || ct === 'application/xhtml+xml';
+// the image behind a link: the link itself when it is an image, else the picture its page names (one level — a page's image is an image)
+async function refImage(deps: Deps, start: URL): Promise<{ bytes: Uint8Array; mime: string } | { error: string }> {
+  const got = await refGet(deps, start, 'image/png,image/jpeg,image/webp,text/html;q=0.9,*/*;q=0.5'); if ('error' in got) return got;
+  const ct = (got.res.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
+  let img = got;
+  if (isHtml(ct)) {
+    const head = await readCapped(got.res, REF_PAGE_MAX, true);
+    const src = head ? refUrl(pageImage(new TextDecoder().decode(head), got.url.href) ?? '') : null;
+    if (!src) return { error: 'not_image' };
+    const g2 = await refGet(deps, src, 'image/png,image/jpeg,image/webp'); if ('error' in g2) return g2;
+    img = g2;
+  } else if (!ct.startsWith('image/') && ct !== 'application/octet-stream' && ct !== '') { try { await got.res.body?.cancel(); } catch { /* not ours */ } return { error: 'not_image' }; }
+  const bytes = await readCapped(img.res, MAX_REF_BYTES, false);
+  if (!bytes) return { error: 'too_big' };
+  const mime = imageKind(bytes); if (!mime) return { error: 'not_image' };
+  return { bytes, mime };
+}
+async function refLink(deps: Deps, who: Who, args: Json) {
+  if (!who.mkt) return json(401, { error: 'unauthorized' });
+  const cid = typeof args.campaign_id === 'string' && UUID_ID.test(args.campaign_id) ? args.campaign_id.toLowerCase() : null;
+  if (!cid) return json(400, { error: 'bad_request', field: 'campaign_id' });
+  const u = refUrl(args.url); if (!u) return json(400, { error: 'bad_request', field: 'url' });
+  if (!(await readCampaign(deps, cid))) return json(404, { error: 'not_found' });
+  const got = await refImage(deps, u);
+  if ('error' in got) return json(got.error === 'blocked' ? 403 : got.error === 'not_image' ? 422 : got.error === 'too_big' ? 413 : 502, { error: got.error });
+  const path = `${cid}/ref-${stamp(deps)}.${extOf(got.mime)}`;
+  if (!campaignPathOk(cid, path) || !(await upload(deps.db, MKT_BUCKET, path, got))) return json(500, { error: 'storage' });
+  return json(200, { result: 'ok', path, name: refName(u) });
 }
 async function campaignEdit(deps: Deps, who: Who, args: Json) {
   if (!who.mkt) return json(401, { error: 'unauthorized' });
@@ -1082,6 +1171,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'campaign') return await campaign(deps, who, args);
     if (action === 'campaign_edit') return await campaignEdit(deps, who, args);
     if (action === 'agent_image') return await agentImage(deps, who, args);
+    if (action === 'ref_link') return await refLink(deps, who, args);
     if (action === 'video_clip') return await videoClip(deps, who, args);
     if (action === 'video_voice') return await videoVoice(deps, who, args);
     if (action === 'video_music') return await videoMusic(deps, who, args);

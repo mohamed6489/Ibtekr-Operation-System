@@ -11,6 +11,7 @@ import { BUYER_DEFAULTS, MAX_STEP, budgetPlan, rulesPatch } from '../../supabase
 import { PLATFORMS as AD_PLATFORMS, linkAccount, linkPublic, linkReady, parseLink, platformOf } from '../../supabase/functions/_shared/mkt-ads-link.js';
 import { MAX_OPEN_JOBS, cleanScenes, jobView, mixPlan, nextMix, parseVideo, videoPath } from '../../supabase/functions/_shared/mkt-video.js';
 import { creditsFor } from '../../supabase/functions/_shared/ai-images.js';
+import { refName, refUrl } from '../../supabase/functions/_shared/ref-link.js';
 const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 const cairo = (d = new Date()) => { const p = Object.fromEntries(fmt.formatToParts(d).map((x) => [x.type, x.value])); return { day: p.year + '-' + p.month + '-' + p.day, hm: p.hour + ':' + p.minute }; };
 export const mktToday = () => cairo().day;
@@ -102,7 +103,7 @@ export function mktRoute(c) {
   if (sto && sto[1] && method === 'GET') { const obj = H.objects.get(decodeURIComponent(sto[2])); return obj ? route.fulfill({ status: 200, headers: { 'access-control-allow-origin': '*', 'content-type': obj.type || 'image/png' }, body: PNG_1PX }) : json(400, { statusCode: '400', error: 'not_found', message: 'Object not found' }); }
   if (fn && path === '/functions/v1/mkt-publish') return mktPublish(c, c.body());
   if (fn && path === '/functions/v1/mkt-ads') return mktAds(c, c.body());
-  if (fn) { const b = c.body(); if (path === '/functions/v1/ai-images' ? !(['campaign', 'campaign_edit', 'agent_image'].includes(b.action) || /^video_/.test(String(b.action))) : !['marketing', 'buyer', 'agent'].includes(b.action)) return null; return mktAi(c, b); }
+  if (fn) { const b = c.body(); if (path === '/functions/v1/ai-images' ? !(['campaign', 'campaign_edit', 'agent_image', 'ref_link'].includes(b.action) || /^video_/.test(String(b.action))) : !['marketing', 'buyer', 'agent'].includes(b.action)) return null; return mktAi(c, b); }
   const refuse = (status, code, message) => json(status, { code, details: null, hint: null, message });
   if (!u) return sto ? json(401, { statusCode: '401', error: 'Unauthorized', message: 'invalid JWT' }) : refuse(401, '42501', 'permission denied');
   const view = hasPerm(u, 'marketing.view') !== 'N'; const create = hasPerm(u, 'marketing.create') === 'F'; const publish = hasPerm(u, 'marketing.publish') === 'F';
@@ -392,6 +393,18 @@ function mktAi(c, b) {
     H.seq += 1; return json(200, { result: 'ok', ...cleanMarketing(answer, p.req, target), model: 'claude-opus-5-5', cost_usd: 0.004, run_id: H.seq });
   }
   if (/^video_/.test(String(b.action))) return mktVideo(c, b, campaign);
+  // the owner 15 Nov: any link — the server's rules (refUrl), then H.refWeb[url] = 'image' | 'page' (its og:image) | 'none' | 'big';
+  // unknown = an image; the image kept as <campaign>/ref-mkN.jpg (the bytes are the server's business, not the page's)
+  if (b.action === 'ref_link') {
+    if (!u || !(isAdmin(u) || hasPerm(u, 'marketing.create') === 'F')) return json(401, { error: 'unauthorized' });
+    const camp = typeof b.campaign_id === 'string' ? campaign(b.campaign_id) : null;
+    const url = refUrl(b.url); if (!url) return json(400, { error: 'bad_request', field: 'url' }); if (!camp) return json(404, { error: 'not_found' });
+    const kind = (H.refWeb || {})[url.href] || 'image';
+    if (kind === 'none') return json(422, { error: 'not_image' }); if (kind === 'big') return json(413, { error: 'too_big' }); if (kind === 'blocked') return json(403, { error: 'blocked' });
+    H.seq += 1; const path = camp.id + '/ref-mk' + H.seq + '.jpg'; H.objects.set(path, { type: 'image/jpeg', size: 68, by: u.id });
+    H.calls[H.calls.length - 1].url = url.href;
+    return json(200, { result: 'ok', path, name: refName(url) });
+  }
   const parsed = b.action === 'campaign' ? parseCampaign(b) : parseCampaignEdit(b); if ('error' in parsed) return json(400, parsed);
   const req = parsed.req; const camp = campaign(req.campaignId); if (!camp) return json(404, { error: 'not_found' });
   const t = campaignTarget(camp.state, req.piece, req.slide); if (!t) return json(400, { error: 'bad_request', field: 'piece' });

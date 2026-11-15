@@ -1003,14 +1003,21 @@
     ai.turns.push({ role: 'assistant', text: m.text });
     // decision 41 (owner 10 Nov — «يقولي حط المعلومات هنا ويديني لينك أفتح منه البوب أب… خلّي كل الأكشنز نفس الكلام»): an open_form is
     // a link under the answer, the popup opens when the member clicks it; the other actions run as before
-    const acts = r.actions || []; m.forms = acts.filter((a) => a.name === 'open_form'); m.files = acts.filter((a) => a.name === 'offer_file').slice(0, 5);
+    // the owner 15 Nov (2026-11-15-assistant-categories.md): a plan_categories is a link too — «راجع الأقسام» opens the review, the member publishes
+    const acts = r.actions || []; m.forms = acts.filter((a) => a.name === 'open_form' || a.name === 'plan_categories'); m.files = acts.filter((a) => a.name === 'offer_file').slice(0, 5);
     aiBusy(false); aiDraw();
-    aiExecActions(acts.filter((a) => a.name !== 'open_form' && a.name !== 'offer_file'));
+    aiExecActions(acts.filter((a) => a.name !== 'open_form' && a.name !== 'plan_categories' && a.name !== 'offer_file'));
   }
   const AI_FORM_LABEL = { vendor_add: 'إضافة مبتكر', member_add: 'إضافة عضو', customer_add: 'إضافة عميل', ticket_new: 'تذكرة جديدة', hr_leave: 'طلب إجازة', hr_advance: 'طلب سُلفة', hr_remote: 'شغل عن بُعد',
     task_add: 'إضافة مهمة', order_update: 'تحديث الأوردر', expense_add: 'المصروفات', account_move: 'الحساب الفعلي', vendor_move: 'حركة المبتكر' };
   const aiFormLabel = (a) => { const v = (a.input && a.input.values) || {}; const dir = v.direction === 'deposit' ? 'إيداع — ' : v.direction === 'withdraw' ? 'سحب — ' : ''; return dir + (AI_FORM_LABEL[a.input && a.input.form] || 'البوب أب'); };
-  function aiOpenLink(a) { try { aiTools().open_form(a.input || {}); } catch (e) { aiSay('ما قدرتش أفتح البوب أب: ' + (e && e.message ? e.message : '')); } }
+  // the category plan → the products page's review popup («نشر على الموقع» in it is the confirmation; products.add / the admin)
+  function aiOpenPlan(i) {
+    const P = window.IBPages.all().products; const api = P && P.api; if (!api || !api.planCategories) { aiSay('المنتجات مش جاهزة — جرّب تاني.'); return; }
+    Promise.resolve(api.planCategories(i || {})).then((r) => { if (r === 'forbidden') aiSay('الصلاحية دي مش معاك — إضافة الأقسام لصلاحية «إضافة منتجات».'); else if (r !== true) aiSay('ما قدرتش أفتح مراجعة الأقسام — جرّب تاني.'); },
+      () => aiSay('ما قدرتش أفتح مراجعة الأقسام — جرّب تاني.'));
+  }
+  function aiOpenLink(a) { if (a.name === 'plan_categories') { aiOpenPlan(a.input); return; } try { aiTools().open_form(a.input || {}); } catch (e) { aiSay('ما قدرتش أفتح البوب أب: ' + (e && e.message ? e.message : '')); } }
   // ---- phase 13 decision 42: a file the assistant found → a download link; the page's own adapter signs it (the Storage policies decide)
   async function aiFile(a) {
     const i = a.input || {}; let url = null; let why = '';
@@ -1057,8 +1064,8 @@
     if (!aiList) return;
     aiList.replaceChildren(...ai.msgs.map((m) => {
       const kids = [h('p', { class: 'ai-text' }, m.live && !m.text ? 'بفكّر…' : m.welcome ? aiWelcome() : m.text)];
-      if (m.forms && m.forms.length && !m.live) kids.push(h('div', { class: 'ai-actions ai-forms' }, m.forms.map((a) => h('a', { href: '#', class: 'ai-form-link', 'data-ai-open': (a.input && a.input.form) || '',
-        onClick: (e) => { e.preventDefault(); aiOpenLink(a); } }, Icon('plus', 'sm'), 'افتح بوب أب «' + aiFormLabel(a) + '» ↗'))));
+      if (m.forms && m.forms.length && !m.live) kids.push(h('div', { class: 'ai-actions ai-forms' }, m.forms.map((a) => h('a', { href: '#', class: 'ai-form-link', 'data-ai-open': a.name === 'plan_categories' ? 'category_plan' : (a.input && a.input.form) || '',
+        onClick: (e) => { e.preventDefault(); aiOpenLink(a); } }, Icon('plus', 'sm'), a.name === 'plan_categories' ? 'راجع الأقسام (' + ((a.input && a.input.items) || []).length + ') ↗' : 'افتح بوب أب «' + aiFormLabel(a) + '» ↗'))));
       if (m.files && m.files.length && !m.live) kids.push(h('div', { class: 'ai-actions ai-forms' }, m.files.map((a) => h('a', { href: '#', class: 'ai-form-link', 'data-ai-file': (a.input && a.input.source) || '',
         onClick: (e) => { e.preventDefault(); aiFile(a); } }, Icon('download', 'sm'), 'تنزيل «' + String((a.input && a.input.name) || 'الملف') + '»'))));
       if (m.report && m.report.length && !m.live) kids.push(h('div', { class: 'ai-actions' }, Button({ size: 'sm', icon: 'file', label: 'تفاصيل', attrs: { 'data-ai-details': '' }, onClick: () => aiReport(m) }),

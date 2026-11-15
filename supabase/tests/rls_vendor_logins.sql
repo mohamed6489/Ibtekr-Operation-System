@@ -170,8 +170,9 @@ do $$ begin
   if not ((select string_agg(t.tgname || ':' || c.relname || ':' || p.proname || ':' || p.prosecdef::text || ':' || r.rolname || ':' || t.tgtype::text, ',' order by t.tgname)
            from pg_trigger t join pg_class c on c.oid = t.tgrelid join pg_proc p on p.oid = t.tgfoid join pg_roles r on r.oid = p.proowner
            where not t.tgisinternal and c.relname = 'vendor_logins')
-          = 'vendor_logins_guard:vendor_logins:vendor_logins_guard:false:postgres:19') then -- 19 = row + before + update
-    raise exception 'case trigger vendor_logins_guard (before update, row, invoker, owner postgres) failed: %',
+          = 'vendor_logins_guard:vendor_logins:vendor_logins_guard:false:postgres:19,' -- 19 = row + before + update
+            || 'vendor_logins_live:vendor_logins:live_changed:true:postgres:28') then  -- 28 = statement + after + insert / update / delete (0104: the change signal — a group's name, no row)
+    raise exception 'case triggers vendor_logins_guard (before update, row, invoker, owner postgres) and vendor_logins_live (0104) failed: %',
       coalesce((select string_agg(t.tgname || ':' || p.proname || ':' || p.prosecdef::text || ':' || t.tgtype::text, ',')
                 from pg_trigger t join pg_class c on c.oid = t.tgrelid join pg_proc p on p.oid = t.tgfoid
                 where not t.tgisinternal and c.relname = 'vendor_logins'), '<none>');

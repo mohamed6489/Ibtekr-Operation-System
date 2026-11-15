@@ -873,7 +873,9 @@ function dpSet(v){var k=DP.k,id=DP.id,key=k+':'+id,o2=k==='cd'?OM[id]:null,s2=o2
 function dpErr(on,msg){var f=dpInput();if(!f)return;f.closest('.dpf').classList.toggle('err',on);var h=R.getElementById('dph');if(h){h.classList.toggle('e',on);h.textContent=on?(msg||'التاريخ مش صحيح — اكتبه بصيغة يوم/شهر/سنة، مثال 25/10/2026'):''}}
 function dpCommit(){var inp=dpInput();if(!inp)return true;var v=parseTyped(inp.value);if(v===null){dpErr(true);return false}dpSet(v);return true}
 R.addEventListener('focusin',function(e){var t=e.target;if(t.matches&&t.matches('[data-fi]')&&!DPSUP)dpOpen(t)});
-R.addEventListener('input',function(e){var t=e.target;if(!(DP&&t.matches&&t.matches('[data-fi]')))return;var v=parseTyped(t.value);if(v===null){dpErr(false);return}if(v){var p=pIso(v);DP.y=p.y;DP.m=p.m;DP.f=v;DP.dec=Math.floor(p.y/10)*10;DP.mode='day';DP.v=v;dpErr(false);dpRender()}else dpErr(false)});
+// the owner 15 Nov (artifact comment 5): a date typed in a field that kept the focus after its last save (the picker shut) was
+// dropped without a word — the picker opens under the typing instead, what was typed kept, so Enter / leaving the field saves it
+R.addEventListener('input',function(e){var t=e.target;if(!(t.matches&&t.matches('[data-fi]')))return;if(!DP){var typed=t.value;dpOpen(t);t.value=typed;try{t.setSelectionRange(typed.length,typed.length)}catch(x){}}if(!DP)return;var v=parseTyped(t.value);if(v===null){dpErr(false);return}if(v){var p=pIso(v);DP.y=p.y;DP.m=p.m;DP.f=v;DP.dec=Math.floor(p.y/10)*10;DP.mode='day';DP.v=v;dpErr(false);dpRender()}else dpErr(false)});
 R.addEventListener('click',function(e){
  var t=e.target,b;
  if(b=t.closest('[data-dx]')){e.stopPropagation();var kk=b.dataset.dx.split(':'),xo=kk[0]==='cd'?OM[kk[1]]:null,xs=xo?null:allSub(kk[1]),xb=xo?snapO(xo):snapS(xs);if(xo)xo.cdate='';else xs.exp='';dpClose(0);draw(1);if(xo)ordW(xo,xb);else subW(xs,xb);return}

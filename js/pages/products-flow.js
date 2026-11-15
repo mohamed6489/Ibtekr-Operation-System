@@ -269,6 +269,34 @@
       U.IconButton({ icon: 'trash', label: 'امسح السكرين ده', onClick: () => { s.screenList = list.filter((p) => p !== x.id); ST().removeImage(x.id); s.screensDirty = !!(s.rows || []).length; touch(); R(); } })),
       (ids) => { if (ids.join('|') === list.join('|')) return; s.screenList = ids.slice(); s.screensDirty = !!(s.rows || []).length; touch(); R(); });
   }
+  // the owner 15 Nov («خلّي فيه إمكانية إني أعمل drag and drop للصور»): files dropped on a card go up like its button's — the photos and the
+  // screenshots take images, the sheet card one xlsx / csv. A drag of the page's own rows (the six dots — pointer events) or of a shot is
+  // no file drag and passes by; a file dropped elsewhere on the studio never opens in the tab (the batch would be left)
+  const hasFiles = (e) => !!(e && e.dataTransfer && [...(e.dataTransfer.types || [])].includes('Files'));
+  const isImage = (f) => /^image\//.test(f.type || '') || /\.(jpe?g|png|webp|gif|avif|heic|heif)$/i.test(f.name || '');
+  const isSheet = (f) => /\.(xlsx|csv)$/i.test(f.name || '');
+  function dropZone(el, accept, take, busy, wrong) {
+    let depth = 0;
+    const off = () => { depth = 0; el.classList.remove('is-drop'); };
+    el.setAttribute('data-fl-drop', '');
+    el.addEventListener('dragenter', (e) => { if (!hasFiles(e)) return; e.preventDefault(); depth += 1; el.classList.add('is-drop'); });
+    el.addEventListener('dragover', (e) => { if (!hasFiles(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
+    el.addEventListener('dragleave', (e) => { if (!hasFiles(e)) return; depth -= 1; if (depth <= 0) off(); });
+    el.addEventListener('drop', (e) => {
+      if (!hasFiles(e)) return; e.preventDefault(); off();
+      if (busy()) { K.toast('استنى لما الرفع اللي شغّال يخلص', 'warning'); return; }
+      const files = [...(e.dataTransfer.files || [])].filter(accept);
+      if (!files.length) { K.toast(wrong, 'error'); return; }
+      take(files);
+    });
+    return el;
+  }
+  if (!window.__ibFlowDropGuard) {
+    window.__ibFlowDropGuard = true;
+    const inFlow = (e) => hasFiles(e) && e.target && e.target.closest && e.target.closest('.fl');
+    document.addEventListener('dragover', (e) => { if (inFlow(e)) e.preventDefault(); });
+    document.addEventListener('drop', (e) => { if (inFlow(e)) e.preventDefault(); });
+  }
   function step1() {
     const s = st();
     const photosN = Object.values(s.photoRows || {}).reduce((t, l) => t + l.length, 0);
@@ -293,18 +321,21 @@
           (s.screenList || []).length && (s.screensDirty || !s.rows.length) ? Button({ icon: 'sparkle', label: 'اقرا تاني بالترتيب ده', disabled: S.busy === 'extract', attrs: { 'data-flow-read': '' }, onClick: () => readScreens() }) : null),
           s.screensDirty ? U.InlineNote({ kind: 'warning', children: 'غيّرت ترتيب السكرين شوتس أو مسحت واحدة — اضغط «اقرا تاني بالترتيب ده» عشان الصفوف تمشي معاها.' })
             : s.rows.length ? U.InlineNote({ kind: 'success', children: 'اتقرا ' + s.rows.length + ' صف من ' + (s.screens || 0) + ' سكرين — هتراجعهم في «البيانات».' }) : null),
-        h('div', { class: 'fl-pair-list', 'data-fl-list': 'screens' }, screensList() || empty('السكرين شوتس هتظهر هنا بالترتيب')),
+        h('div', { class: 'fl-pair-list', 'data-fl-list': 'screens' }, screensList() || empty('اسحب السكرين شوتس وسيبها هنا — وهتظهر بالترتيب')),
         h('div', { class: 'fl-pair-notes' }, U.InlineNote({ children: 'ارفع صور المنتجات الأول عشان الـ AI يعرف عددها، وبنفس ترتيب المنتجات في الشات (صورة لكل منتج، أو سمّيها «1»، «2»، «1-2»…). اسحب من الست نقط عشان كل سكرين تبقى قدام صورتها.' }))])
       : Card('الشيت', 'xlsx أو csv بالقالب بتاعنا أو بأي عناوين — بنطابق الأعمدة لوحدنا.', [
         h('div', { class: 'fl-pair-acts' }, h('div', { class: 'acts-inline' }, Button({ type: 'primary', icon: 'upload', label: s.rows.length ? 'بدّل الشيت' : 'ارفع الشيت', attrs: { 'data-flow-sheet': '' }, onClick: () => filePick('.xlsx,.csv', false, (f) => takeSheet(f[0])) }), s.sheetName ? h('span', { class: 't-small help' }, s.sheetName) : null),
           s.rows.length ? U.InlineNote({ kind: 'success', children: s.rows.length + ' صف · ' + (s.mapped || 0) + ' عمود اتطابق' + (s.unknown && s.unknown.length ? ' · أعمدة مش في القالب: ' + s.unknown.join('، ') : '') }) : null),
-        h('div', { class: 'fl-pair-list', 'data-fl-list': 'rows' }, rowsList() || empty('صفوف الشيت هتظهر هنا بالترتيب')),
+        h('div', { class: 'fl-pair-list', 'data-fl-list': 'rows' }, rowsList() || empty('اسحب الشيت وسيبه هنا — وصفوفه هتظهر بالترتيب')),
         h('div', { class: 'fl-pair-notes' }, U.InlineNote({ children: 'كل صف قدامه صوره في كارت «الصور» — اسحب الصور من الست نقط لو صورة جت على صف غلط.' }))]);
     const pics = Card('الصور', photosN ? photosN + ' صورة' + (s.rows.length ? ' · ' + (s.rows.length - noRef) + ' صف ليه صورة' : '') : 'صور المنتجات بجودة عالية', [
       h('div', { class: 'fl-pair-acts' }, h('div', { class: 'acts-inline' }, photosBtn, S.busy === 'photos' ? h('span', { class: 't-small help' }, 'بنرفع…') : null),
         s.rows.length && noRef ? U.InlineNote({ kind: 'warning', children: noRef + ' صف من غير صورة مرجعية — الصور بتتولّد من المرجعية، فارفعها أو كمّل من غيرها.' }) : null),
-      h('div', { class: 'fl-pair-list', 'data-fl-list': 'photos' }, photosList() || empty('الصور هتظهر هنا بالترتيب')),
+      h('div', { class: 'fl-pair-list', 'data-fl-list': 'photos' }, photosList() || empty('اسحب الصور وسيبها هنا — وهتظهر بالترتيب')),
       h('div', { class: 'fl-pair-notes' }, nameHelp)]);
+    if (s.case === 'whatsapp') dropZone(src, isImage, takeScreens, () => S.busy === 'extract' || (s.screenList || []).length >= 8, 'اسحب صور (السكرين شوتس) بس');
+    else dropZone(src, isSheet, (f) => takeSheet(f[0]), () => false, 'الشيت لازم يكون xlsx أو csv');
+    dropZone(pics, isImage, takePhotos, () => S.busy === 'photos', 'اسحب صور بس (JPG أو PNG أو WebP)');
     return [h('div', { class: 'fl-pair', 'data-fl-match': '' }, src, pics), Foot(s.rows.length > 0, s.case === 'whatsapp' ? 'اقرا السكرين شوتس الأول' : 'ارفع الشيت الأول')];
   }
 
@@ -856,9 +887,12 @@
   // ---------------- case 3: 3 الصور · 4 الشيت (decision 12) ----------------
   function stepPhotos() {
     const s = st(); const n = (s.products || []).length;
-    return [Card('صور المنتجات', n ? n + ' منتج' : 'صورة لكل منتج بالترتيب', [h('div', { class: 'acts-inline' }, Button({ type: 'primary', icon: 'upload', label: n ? 'بدّل / زوّد الصور' : 'ارفع الصور', disabled: S.busy === 'photos', attrs: { 'data-flow-photos': '' }, onClick: () => filePick('image/*', true, takePhotos) })),
+    const card = Card('صور المنتجات', n ? n + ' منتج' : 'صورة لكل منتج بالترتيب', [h('div', { class: 'acts-inline' }, Button({ type: 'primary', icon: 'upload', label: n ? 'بدّل / زوّد الصور' : 'ارفع الصور', disabled: S.busy === 'photos', attrs: { 'data-flow-photos': '' }, onClick: () => filePick('image/*', true, takePhotos) })),
       U.InlineNote({ children: 'كل صورة بتبقى منتج بالترتيب. ولو أكتر من صورة لنفس المنتج سمّيها «1-1»، «1-2» (و«2-1»، «2-2»…). أول صورة للمنتج هي اللي بتتحط في الشيت.' }),
-      n ? h('div', { class: 'fl-grid' }, s.products.map((p) => h('div', { class: 'fl-pcard' }, Thumb(p.ref, 'st-big'), h('b', null, 'منتج ' + p.n), h('small', { class: 'help' }, p.photos.length + ' صورة')))) : null]), Foot(n > 0, 'ارفع الصور')];
+      n ? h('div', { class: 'fl-grid fl-pair-list' }, s.products.map((p) => h('div', { class: 'fl-pcard' }, Thumb(p.ref, 'st-big'), h('b', null, 'منتج ' + p.n), h('small', { class: 'help' }, p.photos.length + ' صورة'))))
+        : h('div', { class: 'fl-pair-list' }, h('div', { class: 'fl-list-empty' }, Icon('image', 'sm'), h('span', null, 'اسحب الصور وسيبها هنا — كل صورة منتج بالترتيب')))]);
+    dropZone(card, isImage, takePhotos, () => S.busy === 'photos', 'اسحب صور بس (JPG أو PNG أو WebP)');
+    return [card, Foot(n > 0, 'ارفع الصور')];
   }
   function blankRowsOf() {
     const s = st(); const L = FD.blankSheetRows({ type: s.type, products: (s.products || []).length, kinds: s.kinds });

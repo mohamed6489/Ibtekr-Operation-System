@@ -241,7 +241,18 @@
   // was (optional): { column: the value on the screen } → the row is written only while it still holds them. No row written:
   // the row is read — changed → 'stale' (and the order is read again for the screen); the same → the write was not mine to make
   // ('forbidden'); gone → 'missing'. A text longer than 400 characters is not sent as a condition (the address bar's limit).
-  async function update(table, id, patch, was) {
+  // A row's writes go one after the other, and `was` (a function) is read when its turn comes: the second of two quick changes to
+  // the same field is compared with what the first one left — not with what was on the screen before it. (Sent side by side, the
+  // second named the value the first had just replaced and was refused as «حد تاني غيّر ده» — a teammate nobody was.)
+  const rowQueue = new Map();
+  function update(table, id, patch, was) {
+    const key = table + ':' + id; const prev = rowQueue.get(key) || Promise.resolve();
+    const run = prev.then(() => write(table, id, patch, typeof was === 'function' ? was() : was));
+    const tail = run.then(() => {}, () => {}); rowQueue.set(key, tail);
+    tail.then(() => { if (rowQueue.get(key) === tail) rowQueue.delete(key); });
+    return run;
+  }
+  async function write(table, id, patch, was) {
     const cl = c();
     if (!cl || !uid()) return fail('network');
     // a json column (the waybill) is named by its text — the database compares it as json
@@ -465,8 +476,8 @@
     if (added || had) patch.status_custom = added;
     if (extra && extra.cancel) patch.cancel = extra.cancel;
     if (extra && extra.ret) patch.ret = extra.ret;
-    const was = wasOf(seenO, id, { status: base }); // the status on the screen — and its added one, when those are known
-    if (customOk && Object.keys(was).length) was.status_custom = had;
+    // the status on the screen — and its added one, when those are known (read when the write's turn comes: rowQueue)
+    const was = () => { const w = wasOf(seenO, id, { status: base }); if (customOk && Object.keys(w).length) w.status_custom = custom.get(k) || null; return w; };
     const r = await update('orders', id, patch, was);
     if (!r.ok) return r;
     keep();
@@ -495,7 +506,7 @@
     if (has(opts, 'confAt')) patch.confirm_at = opts.confAt || null;
     if (has(opts, 'note')) patch.confirm_note = opts.note;
     if (!Object.keys(patch).length) return { ok: true };
-    const r = await update('orders', id, patch, wasOf(seenO, id, patch));
+    const r = await update('orders', id, patch, () => wasOf(seenO, id, patch));
     if (r.ok) log('order.confirm', 'IB-' + id + (patch.confirm !== undefined ? ' · ' + cf : ''));
     // 0103 (the owner 15 Nov): the confirmation date fills the lines' «تاريخ تبليغ المبتكر» on the server — the order read again
     // so the lines show it now (Realtime brings it too, when it is on)
@@ -509,7 +520,7 @@
     const dep = !has(f, 'dep') ? 0 : typeof f.dep === 'number' ? f.dep : typeof f.dep === 'string' && f.dep.trim() ? Number(f.dep) : NaN;
     if (!Number.isFinite(dep)) return fail('invalid'); // never a silent 0
     const patch = {}; keys.forEach((k) => { patch[FIELDS[k]] = k === 'dep' ? dep : f[k]; });
-    const r = await update('orders', id, patch, wasOf(seenO, id, patch));
+    const r = await update('orders', id, patch, () => wasOf(seenO, id, patch));
     if (r.ok) log('order.patch', 'IB-' + id + ' · ' + keys.join(', ')); // which fields, never their text
     return r;
   }
@@ -522,18 +533,18 @@
     if (has(extra, 'store')) patch.store = extra.store || null;
     if (has(extra, 'readyAt')) patch.ready_at = toIso(extra.readyAt);
     if (!Object.keys(patch).length) return { ok: true };
-    const r = await update('order_items', itemId, patch, wasOf(seenI, itemId, patch));
+    const r = await update('order_items', itemId, patch, () => wasOf(seenI, itemId, patch));
     if (r.ok) log('suborder.status', itemRef(itemId) + (patch.status !== undefined ? ' · ' + ss : ''));
     return r;
   }
   async function setWaybill(itemId, w) {
     const wb = { waybill: w == null ? null : w };
-    const r = await update('order_items', itemId, wb, wasOf(seenI, itemId, wb));
+    const r = await update('order_items', itemId, wb, () => wasOf(seenI, itemId, wb));
     if (r.ok) log('suborder.waybill', itemRef(itemId));
     return r;
   }
   async function setPulled(itemId, on) {
-    const r = await update('order_items', itemId, { pulled: !!on }, wasOf(seenI, itemId, { pulled: !!on }));
+    const r = await update('order_items', itemId, { pulled: !!on }, () => wasOf(seenI, itemId, { pulled: !!on }));
     if (r.ok) log('suborder.pulled', itemRef(itemId) + ' · ' + (on ? 'سحب من المتاح' : 'إلغاء السحب'));
     return r;
   }

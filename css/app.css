@@ -1966,3 +1966,8 @@ tr.is-sel td,#vendors .tickets-table tr.is-sel td,.vprod-row.is-sel{background:v
 .busy-ico.worm .ib-worm{width:22px;height:22px}
 .busy-pill.ok .busy-ico.worm .ib-worm,.busy-pill.err .busy-ico.worm .ib-worm,.busy-pill.warn .busy-ico.worm .ib-worm{display:none}
 .busy-pill.ok .busy-ico.worm,.busy-pill.err .busy-ico.worm,.busy-pill.warn .busy-ico.worm{overflow:visible;border-radius:0}
+
+/* the owner 15 Nov (artifact comment 8): the member's drawer on the HR page — boxes like the maker's drawer */
+.md-boxes{padding:16px 24px 24px;display:flex;flex-direction:column;gap:16px}
+.md-boxes .vsection .info-row:last-child{border-bottom:0}
+@media (max-width:599px){.md-boxes{padding:12px 12px 20px;gap:12px}}

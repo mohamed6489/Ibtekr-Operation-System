@@ -146,9 +146,10 @@ test('accounts: an expense a teammate recorded a moment ago is not recorded agai
   await expect(ask).toBeHidden();
   expect(mock.acc.acc_expenses).toHaveLength(1); expect(mock.accWrites).toEqual([]);
   await expect(main(page).locator('table').filter({ hasText: 'ورق طباعة تاني' })).toHaveCount(0); // my copy is not left on the screen
-  // it really is a second expense
+  // it really is a second expense (the teammate's is five minutes old by now)
+  theirs.created_at = new Date(Date.now() - 305000).toISOString();
   await save();
-  await expect(ask).toBeVisible();
+  await expect(ask).toBeVisible(); await expect(ask).toContainText('من 5 دقايق');
   await ask.getByRole('button', { name: 'سجّلها برضه' }).click();
   await expect.poll(() => mock.accWrites.length).toBe(1);
   expect(mock.accWrites[0]).toMatchObject({ table: 'acc_expenses', op: 'insert', amount: 1250, dup_ok: true });

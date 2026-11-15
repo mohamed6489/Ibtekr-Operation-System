@@ -757,3 +757,14 @@ test('the old postgres_changes line hands its orders to IBLive when it is there 
   assert.deepEqual(plain(got), [{ t: 'orders', ids: [181668] }]);
   assert.deepEqual(opsOf(t.calls, 'orders_v'), [], 'not read here: IBLive decides when');
 });
+
+test('a json column on the screen (the waybill) is named by its text, never as «[object Object]» — clearing or replacing a waybill reaches the database', async () => {
+  const items = ITEMS.map((x) => (x.id === 5002 ? { ...x, waybill: { no: 'BST-1', at: '2026-10-25' } } : x));
+  const t = load({ responses: { ...seed(), order_items: ok(items) } });
+  await t.O.load(); t.calls.length = 0;
+  assert.deepEqual(plain(await t.O.setWaybill(5002, null)), { ok: true });
+  assert.deepEqual(whereOf(t.calls, 'order_items'), { id: 5002, waybill: '{"no":"BST-1","at":"2026-10-25"}' });
+  t.calls.length = 0;
+  await t.O.setWaybill(5002, { no: 'BST-2' });
+  assert.deepEqual(whereOf(t.calls, 'order_items'), { id: 5002, waybill: null }, 'after my own clear');
+});

@@ -143,7 +143,8 @@ function readFilters(params, table) {
     if (v === 'not.is.null') return (r) => r[k] != null;
     if (v === 'is.null') return (r) => r[k] == null;
     if (v === 'is.true' || v === 'is.false') return (r) => r[k] === (v === 'is.true');
-    if (v.startsWith('eq.')) return (r) => r[k] != null && String(r[k]) === v.slice(3); // null = anything is never true
+    // null = anything is never true; a json column is compared as json (PostgREST casts the literal), never as «[object Object]»
+    if (v.startsWith('eq.')) return (r) => { if (r[k] == null) return false; if (typeof r[k] !== 'object') return String(r[k]) === v.slice(3); try { return JSON.stringify(JSON.parse(v.slice(3))) === JSON.stringify(r[k]); } catch (e) { return false; } };
     if (v.startsWith('gte.')) { const t = Date.parse(v.slice(4)); return (r) => Date.parse(r[k]) >= t; }
     if (v.startsWith('like.')) { const re = new RegExp('^' + v.slice(5).replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/[%*]/g, '.*') + '$', 's'); return (r) => re.test(String(r[k] ?? '')); }
     const set = v.slice(4, -1).split(',').map((x) => x.replace(/^"(.*)"$/, '$1')); return (r) => set.includes(String(r[k]));

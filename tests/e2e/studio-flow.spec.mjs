@@ -277,8 +277,9 @@ test('the maker step for ops (products.add without sensitive.commission): the ra
 async function dropFiles(page, target, files) {
   const dt = await page.evaluateHandle((fs) => { const d = new DataTransfer(); fs.forEach((f) => d.items.add(new File([Uint8Array.from(atob(f.b64), (c) => c.charCodeAt(0))], f.name, { type: f.type }))); return d; },
     files.map((f) => ({ name: f.name, type: f.mimeType, b64: f.buffer.toString('base64') })));
-  await target.dispatchEvent('dragenter', { dataTransfer: dt });
-  await expect(target).toHaveClass(/is-drop/); // the card shows where the files land
+  // the card shows where the files land — entered again if the page was drawn again meanwhile (the upload before this one landing
+  // under load redraws the cards: a local full run lost the mark between the two lines)
+  await expect(async () => { await target.dispatchEvent('dragenter', { dataTransfer: dt }); await expect(target).toHaveClass(/is-drop/, { timeout: 1000 }); }).toPass({ timeout: 8000 });
   await target.dispatchEvent('dragover', { dataTransfer: dt });
   await target.dispatchEvent('drop', { dataTransfer: dt });
   await expect(target).not.toHaveClass(/is-drop/);

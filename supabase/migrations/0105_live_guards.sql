@@ -57,11 +57,15 @@ alter table public.acc_account_moves add column if not exists dup_ok boolean not
 
 -- who recorded the same entry in the last 10 minutes (null: nobody). volatile on purpose: it must see a row committed while
 -- the caller waited for the lock (a stable function would read with the caller's older snapshot).
+-- It reads past the row policies (the entry may be a teammate's), so it answers only what the caller could both record and
+-- read himself — the ledgers' own insert and select rules (0019): accounts.add = F and accounts.view <> N, and a «المرتبات»
+-- expense only with accounts.view = F. Anybody else gets null (security review: no way to probe a salary by guessing it).
 create or replace function public.acc_dup_find(p_table text, p_who text, p_direction text, p_amount numeric) returns jsonb
 language plpgsql volatile security definer set search_path = public as $$
 declare v_at timestamptz; v_by uuid;
 begin
-  if not (public.is_admin() or public.has_perm('accounts.add') = 'F') then return null; end if; -- only who may add an entry asks
+  if coalesce(public.has_perm('accounts.add'), 'N') <> 'F' or coalesce(public.has_perm('accounts.view'), 'N') = 'N' then return null; end if;
+  if p_table = 'acc_expenses' and split_part(coalesce(p_who, ''), '|', 1) = 'المرتبات' and coalesce(public.has_perm('accounts.view'), 'N') <> 'F' then return null; end if;
   if p_table = 'acc_vendor_moves' then
     select m.created_at, m.created_by into v_at, v_by from public.acc_vendor_moves m
      where m.voided_at is null and m.created_at > now() - interval '10 minutes' and m.direction = p_direction and m.amount = p_amount

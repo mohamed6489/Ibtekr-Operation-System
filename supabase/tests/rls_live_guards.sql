@@ -126,6 +126,25 @@ begin
   insert into public.acc_account_moves (account, on_date, direction, amount) values ('حساب البنك', current_date, 'deposit', 777);
   insert into public.acc_account_moves (account, on_date, direction, amount) values ('حساب البنك', current_date, 'deposit', 777);
 
+  -- the lookup answers only what the caller could record and read himself (the ledgers' own rules): a member who sees the
+  -- accounts in part (no «المرتبات») cannot probe a salary by guessing its amount — by the function or by trying to insert it
+  insert into public.acc_expenses (on_date, direction, category, beneficiary, amount) values (current_date, 'withdraw', 'المرتبات', 'موظف الحراسة', 9000);
+  update public.profiles set custom_perms = '{"accounts.view":"P","accounts.add":"F"}' where id = '00000000-0000-4000-8000-0000000105a2';
+  perform pg_temp.as_member('00000000-0000-4000-8000-0000000105a2');
+  if public.acc_dup_find('acc_expenses', 'المرتبات|موظف الحراسة', 'withdraw', 9000) is not null then raise exception 'the lookup told a salary to a member who may not read salaries'; end if;
+  begin
+    insert into public.acc_expenses (on_date, direction, category, beneficiary, amount) values (current_date, 'withdraw', 'المرتبات', 'موظف الحراسة', 9000);
+    raise exception 'a salary was recorded by a member who may not';
+  exception when sqlstate 'IBDUP' then raise exception 'the refusal of a salary insert gave the salary away';
+            when insufficient_privilege then null;
+  end;
+  if public.acc_dup_find('acc_expenses', 'المصروفات|مطبعة الحراسة', 'withdraw', 250) is null then raise exception 'the lookup is silent on what the member may read and record'; end if;
+  reset role;
+  update public.profiles set custom_perms = '{"accounts.view":"N","accounts.add":"F"}' where id = '00000000-0000-4000-8000-0000000105a2';
+  perform pg_temp.as_member('00000000-0000-4000-8000-0000000105a2');
+  if public.acc_dup_find('acc_account_moves', 'حساب البنك', 'deposit', 777) is not null then raise exception 'the lookup answered a member who may not read the accounts'; end if;
+  reset role;
+
   -- a member who may not add entries learns nothing from the lookup; nobody outside signs in to it
   update public.profiles set custom_perms = '{"accounts.view":"F","accounts.add":"N"}' where id = '00000000-0000-4000-8000-0000000105a2';
   perform pg_temp.as_member('00000000-0000-4000-8000-0000000105a2');

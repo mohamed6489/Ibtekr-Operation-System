@@ -383,7 +383,7 @@ test('T8 — decisions 13–15: the six shot rules of the studio; «+ تعليم
   // the public templates again, and a campaign reads them when it opens (here: one added from another device after the save)
   const rules = mock.settings.find((x) => x.section === 'ai_rules').data;
   rules.sections.img.push({ id: 'other1', name: 'بجرب', prompt: 'إضاءة طبيعية', custom: true });
-  // decision 14: the campaign's «تعليمات» = the templates (pick one or more) + its own words
+  // decision 14: the campaign's «تعليمات» = the templates (one picked — 15 Nov) + its own words
   await go(page, '#marketing-create');
   const mk = page.locator('#pg-marketing');
   await mk.locator('[data-mk-start]').click();
@@ -392,18 +392,25 @@ test('T8 — decisions 13–15: the six shot rules of the studio; «+ تعليم
   // the owner 15 Nov: «غير محدد» first (and picked while nothing is), then the images' new templates — the images' «البوست» is applied
   // to every post already
   await expect(mk.locator('#cw-tpl-post')).toContainText('غير محدد');
+  // the owner 15 Nov: one template only — a plain dropdown, the pick closes it, no «تم» / «مسح»
   await mk.locator('#cw-tpl-post').click();
-  expect(await page.locator('[data-mp-menu="cw-tpl-post"] [data-mp-opt]').evaluateAll((l) => l.map((x) => x.getAttribute('data-mp-opt')))).toEqual(['none', id, 'other1']);
-  await page.locator('[data-mp-menu="cw-tpl-post"] [data-mp-opt="' + id + '"]').click();
-  await page.keyboard.press('Escape');
+  const menu = page.locator('[role=listbox]').last();
+  expect(await menu.locator('[role=option]').allTextContents()).toEqual(['غير محدد', 'ألوان الشتا', 'بجرب']);
+  await expect(menu.locator('[role=checkbox], input[type=checkbox]')).toHaveCount(0);
+  await expect(menu.getByRole('button', { name: /^(تم|مسح)$/ })).toHaveCount(0);
+  await menu.getByRole('option', { name: 'بجرب' }).click();
+  await expect(menu).toBeHidden();
+  await expect(mk.locator('#cw-tpl-post')).toContainText('بجرب');
+  await mk.locator('#cw-tpl-post').click();
+  await page.locator('[role=listbox]').last().getByRole('option', { name: 'ألوان الشتا' }).click(); // a second pick replaces the first
   await expect(mk.locator('#cw-tpl-post')).toContainText('ألوان الشتا');
-  await expect(mk.locator('#cw-tpl-post')).not.toContainText('غير محدد');
+  await expect(mk.locator('#cw-tpl-post')).not.toContainText('بجرب');
   await mk.locator('#cw-notes-post').fill('من غير ناس');
   // the video: «غير محدد» and the videos' templates — its «البوست» too (nothing applies it to a video by itself)
   await mk.locator('.subtab', { hasText: 'فيديو' }).click();
   await expect(mk.locator('#cw-tpl-video')).toContainText('غير محدد');
   await mk.locator('#cw-tpl-video').click();
-  expect(await page.locator('[data-mp-menu="cw-tpl-video"] [data-mp-opt]').evaluateAll((l) => l.map((x) => x.getAttribute('data-mp-opt')))).toEqual(['none', 'post']);
+  expect(await page.locator('[role=listbox]').last().locator('[role=option]').count()).toBe(2); // «غير محدد» + the videos' «البوست»
   await page.keyboard.press('Escape');
   await mk.locator('.subtab', { hasText: 'بوستات' }).click();
   await mk.locator('.cp-next').click();

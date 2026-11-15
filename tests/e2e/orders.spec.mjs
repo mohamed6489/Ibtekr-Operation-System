@@ -398,6 +398,9 @@ test('confirmation, deposit and note are written through; a network failure puts
   expect(mock.patches).toContainEqual({ table: 'order_items', id: 5001, status: 'مؤكد' });
   expect(await page.evaluate(() => window.OrdersApp.get('181668').cdate)).toBe(today); // «تاريخ التأكيد» shows at once
   await expect(page.locator('#orders input[data-fi="cd:181668"]')).not.toHaveValue('');
+  // 0103 (the owner 15 Nov): the confirmation date fills «تاريخ تبليغ المبتكر» of the lines without one — the server's trigger, the
+  // order read again so the page shows it at once (no extra write from the page)
+  await expect.poll(() => page.evaluate(() => window.OrdersApp.get('181668').subs.map((s) => s.exp))).toEqual([today, today]);
   const dep = page.locator('#orders input[data-dep="181668"]');
   await dep.fill('500'); await dep.press('Tab');
   await expect.poll(() => mock.patches.length).toBe(3);

@@ -9,7 +9,7 @@
 //   a hold (hours / delay / the daily cap / the per-tick pace) keeps the row with no delivery and meta.due_at until its time;
 //   «ticket» opens a ticket for خدمة العملاء as the server; «assign» / «tag» touch the conversation; the run log (cs_auto_runs,
 //   one live row a rule × entity) is what makes a rule fire once. Nothing here logs a phone, a token or a message's text.
-import { CART_STATUSES, CHANNEL_LABEL, STATUS_CODES, VIRTUAL_STATUS, CART_REPEAT_DAYS, afterHoursEntity, cairoClock, cartEvents, decide, digits, entityFor, failCode, firstEntity, guestCartEvents, inHours, orderEvents, paceGap, ruleFires, sendMode, settingsOf, silentFollowups, statusTo, subEvents, templateBody, transferEvents, varsFor, DAY, HOUR } from './cs-auto.js';
+import { CART_STATUSES, CHANNEL_LABEL, STATUS_CODES, VIRTUAL_STATUS, CART_REPEAT_DAYS, afterHoursEntity, cairoClock, cartEvents, decide, digits, entityFor, failCode, firstEntity, guestCartEvents, inHours, orderEvents, paceGap, ruleFires, sendMode, settingsOf, shipDateOf, silentFollowups, statusTo, subEvents, templateBody, transferEvents, varsFor, DAY, HOUR } from './cs-auto.js';
 import { sentIdOf, textBody, waIdOfPhone, waPath, graphErrorCode } from './cs-whatsapp.js';
 import { graphPath, sendBody } from './cs-channel.js';
 import { delayRules, leadBy } from './delay.js';
@@ -258,7 +258,7 @@ export async function tick(deps: Deps, opts: { dry?: boolean } = {}): Promise<Ti
     n.events++; n.by[ev.type] = (n.by[ev.type] || 0) + 1;
     const template = rule.template_id ? templates.get(String(rule.template_id)) ?? null : null;
     const expected = lines.map((it) => it.expected_at).filter(Boolean).sort()[0] ?? null;
-    const shipDate = expected ? arDay(expected) : o && vendor ? arDay(new Date(Date.parse(o.placed_at) + (Number(vendor.lead_days) || 7) * DAY).toISOString()) : '';
+    const shipDate = o ? arDay(shipDateOf({ notified: expected, confirmAt: o.confirm_at, placedAt: o.placed_at, leadDays: vendor?.lead_days })) : '';
     const siteUrl = (deps.env.WOO_URL ?? '').replace(/\/$/, '');
     const vars = varsFor(ev, { customerName: customer?.name ?? o?.customer_name ?? g?.name, trackingUrl: trackingOf(lines), shipDate, vendorName: vendor?.name ?? '', productName: lines[0]?.name ?? '', deliveryDate: shipDate,
       orderNumbers: o?.number ? String(o.number) : '', cartUrl: g && g.url ? String(g.url) : siteUrl ? siteUrl + '/checkout/' : '' });

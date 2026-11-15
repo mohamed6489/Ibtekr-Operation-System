@@ -2132,3 +2132,10 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 1. `0102_login_lock.sql` — جدول `login_failures` (بصمة SHA-256 للإيميل بس، مقفول على الأعضاء)، `login_gate` / `login_failed` للـ anon (شاشة الدخول؛ مقيّدين بـ `login_lookups` 120 في الدقيقة)، `login_cleared` للعضو، و`login_locks` / `login_unlock` للأدمن (`activity_log` `settings.login.unlock`)؛ المحاولات والمدة من صف `security` (`lockAttempts` 3–10 · `lockMinutes` 5–1440، افتراضي 5 / 15).
 2. RLS live (`files = rls_login_lock,rls_security_advisor`).
 3. الواجهة على `main` — مافيش دالة تتنشر. **ملحوظة أمان:** القفل على شاشة الدخول؛ نداء مباشر لـ Supabase Auth بحدوده هو، وأي حد يقدر يقفل حساب معروف إيميله لحد المدة (الأدمن بيفك).
+
+#### 2.7.77 تاريخ التأكيد بيملا «تاريخ تبليغ المبتكر» (صاحب المشروع 15 نوفمبر — `0103`)
+«خلّي تاريخ التأكيد يتضاف أوتوماتيك في تاريخ تبليغ الفيندر للأوردرات الفرعية»:
+1. `0103_notify_from_confirm.sql` — التريجر `orders_notify_from_confirm` (بعد تغيير `confirm_at`: سطور الأوردر اللي مالهاش تاريخ تبليغ، واللي لسه على تاريخ التأكيد القديم، بتاخد الجديد؛ التاريخ اللي اتكتب بالإيد ليوم تاني بيفضل، والمسحوب من المخزن والممسوح لأ، ومسح التأكيد مابيغيّرش حاجة) و`order_items_notify_default` (سطر جديد على أوردر متأكد — المزامنة أو «إضافة منتج»)، ومرة واحدة: سطور الأوردرات المفتوحة المتأكدة من غير تاريخ (من غير صف في `order_events`).
+2. RLS live (`files = rls_notify_from_confirm,rls_orders`).
+3. «Deploy functions»: `cs-auto` · `cs-channel` · `cs-whatsapp` (`_shared/cs-auto-run.ts`: «تاريخ الشحن» في رسايل الرد الآلي = تاريخ التبليغ (وإلا التأكيد وإلا يوم الأوردر) + أيام تصنيع المبتكر — `shipDateOf`؛ قبل كده كان بيعرض تاريخ التبليغ نفسه، وده بقى تاريخ التأكيد).
+4. الواجهة على `main` (`IBOrders.setConfirm` بيقرا الأوردر تاني بعد التأكيد فالسطور بتبان بتاريخها على طول).

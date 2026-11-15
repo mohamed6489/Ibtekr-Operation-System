@@ -50,6 +50,16 @@ export const statusTo = (label) => STATUS_ALIAS[String(label ?? '').trim()] ?? S
 const statusCode = (s) => { const i = STATUS_CODES.indexOf(s); return i < 0 ? 'x' : 's' + i; };
 const dayOf = (iso) => String(iso ?? '').slice(0, 10);
 export const daysBetween = (a, b) => Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / DAY);
+/** the day a customer is told his order ships ({تاريخ_الشحن} / {تاريخ_التسليم}): the making days (the maker's, else 7) counted from
+ *  the earliest «تاريخ تبليغ المبتكر» of its lines, else its confirmation, else the order's day — the notify date itself is no ship
+ *  date (0103 fills it with the confirmation date). → an ISO instant ('' without a start) */
+export function shipDateOf({ notified, confirmAt, placedAt, leadDays } = {}) {
+  const s = String(notified || confirmAt || placedAt || '');
+  const t = /^\d{4}-\d{2}-\d{2}$/.test(s) ? Date.parse(s + 'T12:00:00Z') : Date.parse(s);
+  if (!Number.isFinite(t)) return '';
+  const lead = Number(leadDays) > 0 ? Number(leadDays) : 7;
+  return new Date(t + lead * DAY).toISOString();
+}
 const after = (iso, sinceIso) => !sinceIso || (typeof iso === 'string' && iso > sinceIso);
 export const CART_STATUSES = ['قيد الانتظار', 'فشل'];
 export const digits = (v) => (v == null ? '' : normPhone(v) || String(v).replace(/\D/g, '')); // the same key as cs_customers.phone

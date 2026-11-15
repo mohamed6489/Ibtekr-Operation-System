@@ -1616,7 +1616,9 @@ export async function installSupabaseMock(page, opts = {}) {
         }
         const at = new Date().toISOString();
         for (const r of rows) {
-          const wasSt = r.status; Object.assign(r, b, { updated_at: at }); mock.patches.push({ table: t, id: r.id, ...b });
+          const wasSt = r.status; const wasAt = r.confirm_at; Object.assign(r, b, { updated_at: at }); mock.patches.push({ table: t, id: r.id, ...b });
+          // 0103 orders_notify_from_confirm: the confirmation date set or moved → the lines with no notify date (or still on the old one)
+          if (t === 'orders' && b.confirm_at && b.confirm_at !== wasAt) mock.orderItems.filter((i) => i.order_id === r.id && !i.removed && !i.pulled && (i.expected_at == null || (wasAt && i.expected_at === wasAt))).forEach((i) => { i.expected_at = b.confirm_at; });
           if (t === 'orders' && 'status' in b && b.status !== wasSt && !('status_custom' in b)) r.status_custom = null; // 0095: the base moved
           if (t === 'orders' && b.status === 'ملغي' && wasSt !== 'ملغي') cancelLines((i) => i.order_id === r.id); // 0094 orders_cancel_lines
         }

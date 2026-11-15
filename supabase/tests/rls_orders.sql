@@ -437,8 +437,9 @@ do $$ declare n int; begin
   if not (exists (select 1 from public.order_events where item_id = 9002 and kind = 'item_waybill' and new_value like '%BX-1%')
           and exists (select 1 from public.order_events where item_id = 9002 and kind = 'item_pulled'
                       and old_value = 'false' and new_value = 'true')
+          -- 0103: the order's confirmation (2026-10-25, above) filled the line's notify date; the member moves it
           and exists (select 1 from public.order_events where item_id = 9002 and kind = 'item_expected_at'
-                      and old_value is null and new_value = '2026-10-28')) then
+                      and old_value = '2026-10-25' and new_value = '2026-10-28')) then
     raise exception 'case ops waybill/pulled/expected_at write order_events failed';
   end if;
 

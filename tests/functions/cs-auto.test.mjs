@@ -2,7 +2,7 @@
 // conditions and the rules, the variables, the text-or-template choice by the 24-hour window, what to do with a fired rule,
 // the silent follow-ups. No I/O.
 import test from 'node:test'; import assert from 'node:assert/strict';
-import { DEFAULTS, STATUS_CODES, afterHoursEntity, cairoClock, cartEvents, condOk, decide, dueAfter, entityFor, failCode, fill, guestCartEvents, inHours, nextOpenAt, orderEvents, paceGap, ruleFires, sendMode, settingsOf, silentFollowups, statusTo, subEvents, templateBody, templateVars, transferEvents, varsFor, windowOpen, withOptOut } from '../../supabase/functions/_shared/cs-auto.js';
+import { DEFAULTS, STATUS_CODES, afterHoursEntity, cairoClock, cartEvents, condOk, decide, dueAfter, entityFor, failCode, fill, guestCartEvents, inHours, nextOpenAt, orderEvents, paceGap, ruleFires, sendMode, settingsOf, shipDateOf, silentFollowups, statusTo, subEvents, templateBody, templateVars, transferEvents, varsFor, windowOpen, withOptOut } from '../../supabase/functions/_shared/cs-auto.js';
 
 // Sunday 8 Nov 2026 — Cairo is UTC+2 in November: 08:00Z = 10:00 Cairo
 const NOW = Date.parse('2026-11-08T08:00:00Z');
@@ -183,4 +183,14 @@ test('silentFollowups: a sent run older than a day with no customer message afte
   assert.deepEqual(silentFollowups(runs, rules, convs, NOW).map((x) => x.entity), ['order:1-silent']);
   assert.equal(afterHoursEntity('3f2a', '2026-11-08'), 'conv:3f2a-20261108');
   assert.equal(failCode({ code: 'graph_timeout' }), 'graph_timeout'); assert.equal(failCode(new TypeError('x y')), 'typeerror'); assert.equal(failCode(null), 'failed');
+});
+
+// the owner 15 Nov (0103): «تاريخ تبليغ المبتكر» is filled with the confirmation date, so it is the start of the making days, not the
+// ship date the customer is told — the ship date = the notify date (else the confirmation, else the order day) + the maker's days (else 7)
+test('shipDateOf: the making days counted from the notify date, else the confirmation, else the order day', () => {
+  assert.equal(shipDateOf({ notified: '2026-11-11', confirmAt: '2026-11-10', placedAt: '2026-11-09T08:00:00Z', leadDays: 5 }).slice(0, 10), '2026-11-16');
+  assert.equal(shipDateOf({ confirmAt: '2026-11-10', placedAt: '2026-11-09T08:00:00Z', leadDays: 5 }).slice(0, 10), '2026-11-15');
+  assert.equal(shipDateOf({ placedAt: '2026-11-09T08:00:00Z' }).slice(0, 10), '2026-11-16'); // no maker days: 7
+  assert.equal(shipDateOf({ notified: '2026-11-11', leadDays: 0 }).slice(0, 10), '2026-11-18');
+  assert.equal(shipDateOf({}), '');
 });

@@ -768,3 +768,12 @@ test('a json column on the screen (the waybill) is named by its text, never as �
   await t.O.setWaybill(5002, { no: 'BST-2' });
   assert.deepEqual(whereOf(t.calls, 'order_items'), { id: 5002, waybill: null }, 'after my own clear');
 });
+
+test('«no row» said as an error by the API (404 / PGRST116) is the same «stale», not «network»', async () => {
+  const t = load();
+  await t.O.load();
+  t.responses.orders = (q) => (q.some((c) => c.op === 'update') ? { data: null, error: { code: 'PGRST116', message: 'no rows' }, status: 406 } : q.some((c) => c.op === 'maybeSingle') ? ok({ id: 181668, status: 'معلّق', status_custom: null }) : ok([]));
+  assert.deepEqual(plain(await t.O.setOrderStatus('181668', 'قيد الشحن', {})), { ok: false, reason: 'stale' });
+  t.responses.orders = (q) => (q.some((c) => c.op === 'update') ? { data: null, error: { code: 'PGRST000', message: 'down' }, status: 503 } : ok([]));
+  assert.deepEqual(plain(await t.O.setOrderStatus('181668', 'قيد الشحن', {})), { ok: false, reason: 'network' });
+});

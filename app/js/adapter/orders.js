@@ -253,9 +253,11 @@
       else {
         let q = cl.from(table).update(patch, { count: 'exact' }).eq('id', id);
         cols.forEach((k) => { const v = lit(was[k]); q = v === null ? q.is(k, null) : q.eq(k, v); });
-        const { error, count } = await q;
-        if (error) return bad(error);
-        if (count === 0) {
+        const { error, count, status } = await q;
+        // «no row» however the API says it: a count of 0, or its «nothing matched» answers (404 / 406, PGRST116)
+        const none = count === 0 || (!!error && (status === 404 || status === 406 || error.code === 'PGRST116'));
+        if (error && !none) return bad(error);
+        if (none) {
           const now = await cl.from(table).select(['id'].concat(cols).join(', ')).eq('id', id).maybeSingle();
           const row = now && !now.error ? now.data : null;
           const text = (v) => { const x = lit(v); return x === null ? null : String(x); };

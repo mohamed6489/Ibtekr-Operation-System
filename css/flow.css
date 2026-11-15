@@ -36,17 +36,8 @@ textarea.fl-in{display:block;width:100%}
 
 /* the images: a unit (a product, or a color of a Variable) = its reference + the 4 shots + the size drawing */
 .fl-units{display:flex;flex-direction:column;gap:12px}
-.fl-unit{display:grid;grid-template-columns:auto minmax(180px,220px) minmax(0,1fr) auto auto;gap:12px;align-items:start;padding:12px;border:1px solid var(--color-border-subtle);border-radius:var(--radius-md);background:var(--color-bg-base)}
-.fl-unit.ro{grid-template-columns:minmax(160px,200px) minmax(0,1fr)}
-.fl-uref{display:flex;gap:10px;align-items:flex-start;min-width:0}
-.fl-slots{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;min-width:0}
-.fl-unit.ro .fl-slots{grid-template-columns:repeat(5,minmax(0,1fr))}
-.fl-slots.fl-extra{grid-template-columns:minmax(0,1fr);padding-inline-start:12px;border-inline-start:1px dashed var(--color-border-default)}
-.fl-slot{display:flex;flex-direction:column;gap:6px;align-items:center;min-width:0}
-.fl-slot small{font-size:11px;text-align:center}
-.fl-slot.empty .thumb{outline:1px dashed var(--color-border-default)}
+.fl-unit{border:1px solid var(--color-border-subtle);border-radius:var(--radius-md);background:var(--color-bg-base)}
 .fl-slot[draggable=true]{cursor:grab}
-.fl-slot .acts-inline{gap:4px}
 .fl-feat{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
 
 /* the upload: two boxes, each with its progress */
@@ -67,19 +58,14 @@ textarea.fl-in{display:block;width:100%}
 .fl-pcard{display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px;border:1px solid var(--color-border-subtle);border-radius:var(--radius-md);background:var(--color-bg-base)}
 
 @media (max-width:1023px){
-  .fl-unit{grid-template-columns:auto minmax(0,1fr) auto}
-  .fl-unit .fl-slots{grid-column:1 / -1}
-  .fl-slots.fl-extra{padding-inline-start:0;border:0;grid-template-columns:repeat(4,minmax(0,1fr))}
   .fl-boxes{grid-template-columns:1fr}
 }
 @media (max-width:599px){
-  .fl-slots,.fl-slots.fl-extra,.fl-unit.ro .fl-slots{grid-template-columns:repeat(2,minmax(0,1fr))}
   .fl-table .c-ref{width:64px;min-width:64px}
   .fl-table .c-ref .thumb.st-big{width:52px;height:60px}
   .thumb.st-xl{width:100%;height:auto;aspect-ratio:7/8}
 }
 /* the previews open in a popup (outside #pg-products) */
-.modal .fl-unit .thumb.st-big{width:72px;height:82px}
 .modal .thumb.empty-img{background:var(--color-bg-base);border:1px dashed var(--color-border-default);color:var(--color-text-secondary)}
 .modal .thumb img{width:100%;height:100%;object-fit:cover}
 /* the owner 15 Nov: the photos and the screenshots small, each row with the six dots, the photos beside their screenshots */
@@ -105,3 +91,76 @@ textarea.fl-in{display:block;width:100%}
 .fl-mk-item b{overflow-wrap:anywhere}
 .fl-sku-ex{align-self:center;padding-top:22px}
 @media (max-width:640px){.fl-maker-info{grid-template-columns:1fr}.fl-sku-ex{padding-top:0}}
+/* the owner 15 Nov («في اسكرين الاسعار صلح شكل الجدول و إظهر بيانات المنتج العربي بس»): the prices as a grid, not a <table> — the photo
+   inside the product cell with its Arabic data; on a phone a card each (the product on top, the three prices under it, labelled) */
+.fl-plist{border:1px solid var(--color-border-subtle);border-radius:var(--radius-md);overflow:hidden;background:var(--color-bg-base)}
+.fl-prow{display:grid;grid-template-columns:40px minmax(220px,1fr) 124px 84px 124px 124px 40px;align-items:center;column-gap:12px;padding:10px 14px;border-bottom:1px solid var(--color-border-subtle);background:var(--color-bg-base)}
+.fl-prow:last-child{border-bottom:0}
+.fl-prow:not(.head):nth-child(odd){background:var(--color-bg-tint)}
+.fl-prow.head{background:var(--color-brand-default);color:var(--color-text-on-brand);font-weight:700;font-size:13px;min-height:48px;padding-block:8px}
+.fl-prow.head .cb{color:inherit}
+.fl-prow.row-err{box-shadow:inset -3px 0 0 var(--color-error-base)}
+.fl-pc{min-width:0;text-align:start}
+.fl-pc.c-rate{text-align:center}
+.fl-pc.c-menu{display:flex;justify-content:center}
+.fl-pc .fl-num{width:100%}
+.fl-pprod{display:flex;align-items:center;gap:12px;min-width:0}
+.fl-pprod .fl-info{flex:1;min-width:0}
+.fl-pprod .fl-info b{overflow-wrap:anywhere}
+.thumb.fl-pthumb{width:56px;height:64px;flex:none;border-radius:var(--radius-sm,8px);overflow:hidden}
+.thumb.fl-pthumb img{width:100%;height:100%;object-fit:cover}
+.fl-plbl,.fl-prate-m{display:none}
+@media (max-width:760px){
+  .fl-prow.head{display:none}
+  .fl-prow{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px 8px;padding:12px}
+  .fl-pc.c-cb{flex:none;align-self:center}
+  .fl-pc.c-prod{flex:1 1 0}
+  .fl-pc.c-menu{flex:none;align-self:center}
+  .fl-prow .fl-pc.c-rate{display:none}
+  .fl-pc:not(.c-cb):not(.c-prod):not(.c-menu):not(.c-rate){flex:1 1 0;min-width:0;display:flex;flex-direction:column;gap:4px;order:2}
+  .fl-pc.c-menu{order:1}
+  .fl-prow::after{content:'';order:1;flex-basis:100%;height:0}
+  .fl-plbl{display:block;font-size:11px;color:var(--color-text-secondary);font-weight:600}
+  .fl-prate-m{display:block}
+}
+/* the owner 15 Nov («الصور تبقا اليند جمب بعض و يبقا كارت المنتج شكلو منظم»): the photos step — a product card with a head (the photo,
+   the Arabic name, the SKU, the price) and the five pictures in one row, all the same size, each label on one line, the buttons under them */
+.fl-unit.fl-ucard{display:flex;flex-direction:column;align-items:stretch;gap:0;padding:0;overflow:hidden}
+.fl-uhead{display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--color-bg-tint);border-bottom:1px solid var(--color-border-subtle)}
+.fl-uhead .fl-info{flex:1;min-width:0}
+.fl-uhead .fl-info b{font-size:14px;overflow-wrap:anywhere}
+.fl-uprice{display:flex;flex-direction:column;align-items:flex-end;gap:2px;white-space:nowrap;font-size:13px}
+.fl-uprice s{font-size:12px}
+.fl-umenu{flex:none}
+.fl-shots{display:grid;grid-template-columns:repeat(5,minmax(0,168px));gap:14px;padding:16px;justify-content:start}
+.fl-ucard :is(.fl-slot,.fl-sna){display:flex;flex-direction:column;gap:8px;align-items:stretch;min-width:0}
+.fl-slab{display:block;font-size:12px;font-weight:600;color:var(--color-text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center}
+.thumb.fl-shot{width:100%;height:auto;aspect-ratio:7/8;border-radius:var(--radius-sm,8px);background:var(--color-bg-tint)}
+.thumb.fl-shot img{width:100%;height:100%;object-fit:cover}
+.fl-ucard .fl-slot.is-empty .thumb{border:1px dashed var(--color-border-default);background:var(--color-bg-base);color:var(--color-text-secondary)}
+.thumb.fl-shot.na{border:1px dashed var(--color-border-default);background:var(--color-bg-tint);color:var(--color-text-secondary);font-size:12px;text-align:center;padding:10px;line-height:1.5}
+.fl-sacts{display:flex;gap:6px;align-items:center;justify-content:center;min-height:32px}
+.fl-sacts .btn{flex:1;justify-content:center;min-width:0}
+@media (max-width:1023px){.fl-shots{grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;padding:12px}}
+@media (max-width:640px){
+  .fl-uhead{flex-wrap:wrap;padding:10px 12px}
+  .fl-uprice{order:5;flex-basis:100%;flex-direction:row;align-items:baseline;gap:8px;padding-inline-start:40px}
+  .fl-shots{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .fl-sacts .btn{padding-inline:6px;font-size:12px}
+}
+/* the owner 15 Nov («خلي بوباب معاينة الصور اكبر شوية عشان يبين الصور بوضوح و الشيت نفس الكلام»): the two previews of the upload step
+   wider than the 800px popup rule and taller (90%), the pictures five in a row at 7:8 under their product, the sheet's photo bigger */
+.scrim .modal.fl-big{width:min(1180px, calc(100vw - 48px));max-width:min(1180px, calc(100vw - 48px));max-height:90vh;max-height:90dvh}
+.fl-pv{display:flex;flex-direction:column;gap:16px}
+.fl-pv-unit{border:1px solid var(--color-border-subtle);border-radius:var(--radius-md);overflow:hidden;background:var(--color-bg-base)}
+.fl-pv-head{display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--color-bg-tint);border-bottom:1px solid var(--color-border-subtle)}
+.fl-pv-head .fl-info b{font-size:14px}
+.fl-pv-shots{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:14px;padding:14px}
+.fl-pv-shot{margin:0;display:flex;flex-direction:column;gap:6px;min-width:0}
+.fl-pv-feat{display:flex;flex-direction:column;gap:6px;width:min(220px,45%);margin-bottom:16px}
+.modal.fl-big .fl-preview{font-size:13px}
+.modal.fl-big .fl-preview td{max-width:320px;padding-block:8px}
+@media (max-width:767px){
+  .scrim .modal.fl-big{width:100%;max-width:100%}
+  .fl-pv-shots{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:10px}
+}

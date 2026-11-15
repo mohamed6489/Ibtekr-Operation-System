@@ -531,7 +531,9 @@
         { id: 'activate', label: 'تفعيل', icon: 'check', run: (ids, done) => { const l = pickM(ids).filter((m) => m.status === 'suspended'); if (!l.length) { K.toast('مفيش أعضاء موقوفين في المحدد', 'error'); return; } (async () => { let n = 0; for (const m of l) { if (!m.uid) continue; const r = await SETT().setMemberStatus(m.uid, 'active', ''); if (!r.ok) { fail(r, 'التفعيل'); continue; } m.status = 'active'; n++; } done('اتفعّل ' + n + ' أعضاء'); })(); } },
         { id: 'resend', label: 'إعادة إرسال الدعوات', icon: 'send', run: (ids, done) => { const l = pickM(ids).filter((m) => m.status === 'invited'); if (!l.length) { K.toast('مفيش دعوات معلّقة في المحدد', 'error'); return; } done('اتبعتت ' + l.length + ' دعوة تاني'); } }] });
       out.push(K.Section('الأعضاء', [h('div', { class: 'toolbar' }, h('label', { class: 'search-field' }, Icon('search', 'sm'), srch), h('span', { class: 'grow' }), Button({ type: 'primary', label: '+ إضافة عضو', onClick: () => invite() })),
-        MB.bar(), U.Table({ headers: [MB.head(), 'العضو', 'الدور', 'المستوى', 'المدير المسؤول', 'الحالة', 'قنوات خدمة العملاء', 'آخر دخول', 'صلاحيات مخصصة', ''], rows: list.map((m) => [m.id === 'M01' ? '' : MB.box(m.id, m.name), h('span', { class: 'mlink' }, U.Avatar(m.name), h('span', null, h('b', null, m.name), h('small', { dir: 'ltr' }, m.email))), m.id === 'M01' ? K.Tag('brand', 'أدمن (المالك)') : roleSelect(m), levelCell(m), managerCell(m), stTag(m), K.chanAll(m) ? K.Tag('brand', 'كل القنوات') : chanLabelsOf(m).length ? h('span', { class: 'chips' }, chanLabelsOf(m).map((n) => h('span', { class: 'list-chip' }, n))) : h('span', { class: 't-small help' }, '—'), m.lastLogin || '—', m.override ? K.Tag('gold', m.override + ' تجاوز') : '—',
+        // the owner 15 Nov («شيل قنوات خدمة العملاء و المدير المسؤول و الصلاحيات المخصصة»): the three columns are gone — the channels and the
+        // custom permissions stay in ⋮, the direct manager in «الموارد البشرية › تعديل الوظيفة»
+        MB.bar(), U.Table({ headers: [MB.head(), 'العضو', 'الدور', 'المستوى', 'الحالة', 'آخر دخول', ''], rows: list.map((m) => [m.id === 'M01' ? '' : MB.box(m.id, m.name), h('span', { class: 'mlink' }, U.Avatar(m.name), h('span', null, h('b', null, m.name), h('small', { dir: 'ltr' }, m.email))), m.id === 'M01' ? K.Tag('brand', 'أدمن (المالك)') : roleSelect(m), levelCell(m), stTag(m), m.lastLogin || '—',
           m.id === 'M01' ? h('span', { class: 't-small help' }, '—') : K.RowMenu([{ label: 'صلاحيات مخصصة', icon: 'sliders', run: () => customPerms(m) }, { label: 'قنوات خدمة العملاء', icon: 'headset', run: () => memberChans(m) }, { label: 'تنبيهات مخصصة', icon: 'bell', run: () => memberAlerts(m) }, m.status === 'active' ? { label: 'فتح الملف', icon: 'users', run: () => { location.hash = 'hr-team'; } } : null, m.status === 'invited' ? { label: 'إعادة إرسال الدعوة', icon: 'send', run: () => K.toast('اتبعتت الدعوة تاني لـ ' + m.email) } : null, m.status === 'invited' ? { label: 'إلغاء الدعوة', icon: 'close', danger: true, run: () => cancelInvite(m) } : { label: m.status === 'suspended' ? 'إعادة تفعيل' : 'إيقاف العضو', icon: 'alert', danger: m.status !== 'suspended', run: () => suspend(m) }, m.uid && m.uid !== (window.IBDirectory.me() || {}).id ? { label: 'حذف العضو نهائي', icon: 'trash', danger: true, run: () => deleteMember(m) } : null].filter(Boolean), 'إجراءات ' + m.name)]) }),
         note('العضو الجديد بيتضاف من «الموارد البشرية › إضافة عضو» بدوره: بيوصله إيميل بلينك يعمل منه الباسورد بتاعه (لما Resend يبقى متظبط في «الربط والمفاتيح»)، وغير كده باسورد مؤقت بيظهر مرة واحدة. «ابعت إيميل الباسورد تاني» و«باسورد مؤقت جديد» من قايمة العضو في الموارد البشرية.'), U.InlineNote({ children: 'الإيقاف بيقفل الدخول فورًا ويحتفظ بسجل نشاطه وأوردراته وحركاته، وإعادة التفعيل من ⋮ بجانب العضو. «حذف العضو نهائي» من ⋮ هنا أو من الموارد البشرية — بس لعضو ماعملش أي حاجة في السيستم؛ اللي له سجل بيتوقف مش بيتمسح.' })],
         null, { noun: ['عضو', 'الأعضاء'], total: S.members.filter((m) => m.status === 'active').length + ' نشطين · ' + invites.length + ' دعوة معلّقة', sub: 'المالك لا يمكن إزالته ولا تخفيض دوره' }));
@@ -551,24 +553,13 @@
     if (!m.uid || roleIdOf(m.role) === 'admin') return null;
     return h('div', { class: 'inline-sel' }, U.Select({ id: 'lvl-' + m.id, label: '', options: PLEVELS.map(([v, , l]) => ({ value: v, label: l })), value: memberLevel(m), onChange: async (v) => { const old = memberLevel(m); const r = await SETT().setMemberLevel(m.uid, v); if (!r.ok) { fail(r, 'تغيير المستوى'); R(); return; } m.level = v; K.toast('مستوى ' + m.name + ': ' + levelName(old) + ' ← ' + levelName(v), 'success'); R(); } }));
   }
-  // the owner 15 Nov («قدام كل عضو الدور والمستوى مدير أو موظف والمدير المسؤول، ولو هو مستواه مدير يبقى مدير نفسه»): the level and the
-  // responsible manager in their own columns — the admin has neither (all the permissions); a «مدير» is his own manager; anyone else
-  // takes his role's manager (automatic, named) or a person picked here (IBHR.memberManagerSet — 0092)
+  // the owner 15 Nov («قدام كل عضو الدور والمستوى مدير أو موظف …»): the level in its own column — the admin has none (all the permissions);
+  // the responsible manager's column was dropped the same day (the HR job popup sets it)
   const isAdminRow = (m) => m.id === 'M01' || roleIdOf(m.role) === 'admin';
   function levelCell(m) {
     if (!m.uid) return h('span', { class: 't-small help' }, '—');
     if (isAdminRow(m)) return h('span', { class: 't-small help', 'data-member-level': 'admin' }, 'أدمن — كل الصلاحيات');
     return levelSelect(m);
-  }
-  function managerCell(m) {
-    if (!m.uid || isAdminRow(m)) return h('span', { class: 't-small help' }, '—');
-    if (memberLevel(m) === 'manager') return h('span', { 'data-member-manager': m.id }, K.Tag('info', 'مدير نفسه'));
-    const HRm = window.IBHR; const autoUid = HRm && HRm.roleManager ? HRm.roleManager(roleIdOf(m.role)) : null; const autoM = autoUid ? memberByUid(autoUid) : null;
-    const opts = [{ value: '', label: 'مدير الدور (تلقائي) — ' + (autoM ? autoM.name : 'مفيش') }].concat(S.members.filter((x) => x.id !== m.id && x.uid && (x.status || 'active') === 'active').map((x) => ({ value: x.id, label: x.name })));
-    const cur = m.managerFixed && m.manager ? m.manager : '';
-    return h('div', { class: 'inline-sel', 'data-member-manager': m.id }, U.Select({ id: 'mgr-' + m.id, label: '', 'aria-label': 'المدير المسؤول — ' + m.name, options: opts, value: cur, onChange: async (v) => {
-      if (!HRm || !HRm.memberManagerSet) return; const r = await HRm.memberManagerSet(m.id, v || null); if (!r.ok) { fail(r, 'تغيير المدير المسؤول'); R(); return; }
-      K.toast('المدير المسؤول عن ' + m.name + ': ' + (v ? ((S.members.find((x) => x.id === v) || {}).name || '') : 'مدير الدور'), 'success'); R(); } }));
   }
   function setPLevel(level) { if (!C.permsBy || !C.permsBy[level]) return; st.plevel = level; C.perms.splice(0, C.perms.length, ...C.permsBy[level]); }
   function rolesView() {
@@ -697,7 +688,6 @@
   function setChan(m, id, on) { if (!Array.isArray(m.chans)) m.chans = []; const i = m.chans.indexOf(id); if (on && i < 0) m.chans.push(id); if (!on && i > -1) m.chans.splice(i, 1); }
   const CHAN_FIXED = [['messenger', 'ماسنجر (Meta)'], ['instagram', 'إنستجرام'], ['tiktok', 'تيك توك']];
   function chanOptions() { return waChannels().map(({ id, c }) => [id, c.name + ' · ' + AUD[c.aud || 'customers']]).concat(CHAN_FIXED); }
-  function chanLabelsOf(m) { const map = {}; chanOptions().forEach(([id, label]) => { map[id] = label.split(' · ')[0]; }); return K.chanList(m).map((id) => map[id]).filter(Boolean); }
   function memberChans(m) {
     if (K.chanAll(m)) { K.toast('الأدمن بيشوف كل القنوات'); return; }
     const opts = chanOptions(); const vals = {}; opts.forEach(([id]) => { vals['c_' + id] = K.canChan(m, id); });
@@ -1393,7 +1383,10 @@
   function extraRolesBtn(m) {
     const main = roleIdOf(m.role); if (!uidOf(m) || m.id === 'M01' || main === 'admin') return null;
     const names = Array.isArray(m.extraRoleNames) ? m.extraRoleNames : [];
-    return Button({ size: 'sm', type: 'text', label: names.length ? '+ ' + names.join('، ') : '+ أدوار إضافية', attrs: { 'data-extra-roles': m.id, 'aria-label': 'الأدوار الإضافية — ' + m.name }, onClick: () => editExtraRoles(m) });
+    // the owner 15 Nov («بدل كتابة اسما الادوار الاضافية يكفي ظهور عددهم … و لما ادوس عليها اقدر اعدل الادوار عن طريق اعادة الاختيار من
+    // نفس البوب اب»): the count only (the names in the tooltip); a click opens the same popup to pick again
+    const n = names.length; const count = n === 1 ? 'دور إضافي واحد' : n === 2 ? 'دورين إضافيين' : n + ' أدوار إضافية';
+    return Button({ size: 'sm', type: 'text', label: n ? count : '+ أدوار إضافية', attrs: { 'data-extra-roles': m.id, 'data-extra-count': String(n), title: n ? names.join('، ') : false, 'aria-label': 'الأدوار الإضافية — ' + m.name + (n ? ': ' + names.join('، ') : '') }, onClick: () => editExtraRoles(m) });
   }
   function editExtraRoles(m) {
     const main = roleIdOf(m.role); const D = window.IBDirectory; const all = (D && D.roles ? D.roles() : []).filter((r) => !r.hidden && r.id !== 'admin' && r.id !== main).sort((a, b) => (a.sort || 0) - (b.sort || 0));

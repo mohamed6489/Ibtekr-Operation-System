@@ -2160,3 +2160,11 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 1. «Deploy functions»: `ai-content` (أداة `plan_categories` وتعليماتها — من غيرها المساعد مابيطلّعش لينك «راجع الأقسام»).
 2. الواجهة على `main` (بوب أب «مراجعة الأقسام» واللينك في المساعد). مافيش migration ولا سر جديد؛ النشر نفسه = `category_create` بتاعة تاب الأقسام (`WOO_PUSH_ENABLED`).
 3. تجربة: «اعملي قسم Test Main (تجربة) وجواه Test Sub» ← «راجع الأقسام» ← «نشر على الموقع» ← القسمين في تاب «الأقسام» وعلى الموقع، وبعدها يتحذفوا من ⋮.
+
+#### 2.7.83 المزامنة اللحظية + منع الكتابة على بعض (صاحب المشروع 15 نوفمبر)
+الخطة `docs/superpowers/plans/2026-11-15-live-sync.md`. **الواجهة بتشتغل قبل الـ migrations** (قناة «sync» بتترفض بهدوء وبتتجرّب على مهل، و`order_complete` بيتنادى من غير `p_from`، وشرط «لسه زي ما أنا شايفه» في الأوردرات مش محتاج migration) — بس مفيش تحديث لحظي ولا حارس تكرار غير بعدها.
+1. **بعد «طبّق» من صاحب المشروع:** `0104_live_sync.sql` ثم `0105_live_guards.sql` (`apply_migration`). `0104` = دوال `live_send` / `live_changed` / `live_orders` + تريجر statement على جداول الأوردرات والحسابات والمبتكرين والمخزن والمنتجات والاستوديو والإعدادات والفريق والجرس + سياسة `sync_receive` على `realtime.messages`. `0105` = `order_complete(…, p_from)` (الدالة القديمة بأربع خانات بتتشال) + عمود `dup_ok` وحارس `acc_dup_guard` على `acc_expenses` / `acc_vendor_moves` / `acc_account_moves`.
+2. RLS الحي: `supabase/tests/rls_live_sync.sql` و`rls_live_guards.sql` (و`rls_vendor_logins.sql` — قايمة تريجراته بقى فيها `vendor_logins_live`) — `execute_sql` أو workflow «RLS live».
+3. `get_advisors` (security): مفيش جديد — الدوال الأربعة `security definer` بـ `search_path` ومش لـ `anon`.
+4. تجربة بحسابين: (أ) عضو يغيّر حالة أوردر ← عند التاني تتغيّر في ثانية من غير reload؛ (ب) الاتنين على نفس الأوردر: التاني يغيّر الحالة قبل ما التحديث يوصله ← «حد تاني غيّر ده من شوية»؛ (ج) نفس «إيداع 10» لنفس المبتكر من عضوين ← التاني يتسأل «دي حركة تانية؟»؛ (د) مصروف / مبتكر جديد عند عضو ← يظهر عند التاني وهو فاتح الصفحة.
+5. لو قناة «sync» مااشتغلتش بعد `0104`: `select * from pg_policies where policyname = 'sync_receive'` و`realtime.messages` فيها صفوف `topic = 'sync'` بعد أي تعديل (التريجر بيبعت)، وإن الـ Realtime شغّال للمشروع.

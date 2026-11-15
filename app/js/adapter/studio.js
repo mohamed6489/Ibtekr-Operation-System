@@ -20,10 +20,12 @@
   let batches = []; let colors = []; let nextSerial = null;
   const urls = new Map(); // path → { url, at }
 
-  async function load() {
+  // opts.quiet (IBLive — 0104): a live re-read of what is already shown — no «loading» state, and a failed read keeps it
+  async function load(opts) {
     const cl = c(); if (!cl) return;
     if (!can()) { st = 'ready'; emit(); return; }
-    const g = ++gen; st = 'loading'; emit();
+    const soft = !!(opts && opts.quiet) && st === 'ready';
+    const g = ++gen; if (!soft) { st = 'loading'; emit(); }
     try {
       const [b, k, s] = await Promise.all([
         cl.from('studio_batches').select(COLS).is('archived_at', null).order('updated_at', { ascending: false }).limit(100),
@@ -34,7 +36,7 @@
       if (b.error || k.error) throw b.error || k.error;
       batches = b.data || []; colors = k.data || []; nextSerial = s && s.data ? Number(s.data.next) : null;
       st = 'ready';
-    } catch (e) { if (g === gen) st = 'error'; }
+    } catch (e) { if (soft) return; if (g === gen) st = 'error'; }
     if (g === gen) emit();
   }
   const ensure = () => { if (st === 'idle' || st === 'error') load(); };

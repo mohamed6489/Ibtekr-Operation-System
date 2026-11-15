@@ -78,10 +78,11 @@
   const data = { settings: Object.assign({}, DEFAULTS) };
 
   async function rows(q) { const { data: d, error } = await q; if (error) throw error; return Array.isArray(d) ? d : []; }
-  async function load() {
+  async function load(opts) {
     const cl = c(); const S = store(); if (!cl || !S) return { ok: false, reason: 'network' };
     if (!can().view) { Object.assign(S, { stock: [], ledger: [], returns: [], consolidations: [], count: null, counts: [], racks: [] }); st = 'ready'; emit(); return { ok: true }; }
-    const g = ++gen; st = 'loading';
+    const soft = !!(opts && opts.quiet) && st === 'ready'; // IBLive (0104): a live re-read — no «loading» state, a failed read keeps what is shown
+    const g = ++gen; if (!soft) st = 'loading';
     try {
       const [lots, moves, cons, counts, locs, set] = await Promise.all([
         rows(cl.from('inv_lots').select(LOT_COLS).order('created_at', { ascending: false }).limit(LIMIT)),
@@ -128,7 +129,7 @@
       data.settings = Object.assign({}, DEFAULTS, pick((set && set.data && set.data.data) || {}));
       Object.assign(S, { stock, ledger, returns, consolidations, count, counts: countsHist, racks, invSettings: Object.assign({}, data.settings) });
       st = 'ready'; emit(); return { ok: true };
-    } catch (e) { if (g === gen) st = 'error'; emit(); return fail(e); }
+    } catch (e) { if (soft) return fail(e); if (g === gen) st = 'error'; emit(); return fail(e); }
   }
   // the known keys with valid values only (a day count 1–90, the switch a boolean, the return default one of two)
   const pick = (o) => { const out = {}; if (!o || typeof o !== 'object') return out;

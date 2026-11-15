@@ -291,11 +291,13 @@
     }
     return rows;
   }
-  async function load() {
+  // opts.quiet (IBLive — 0104): a live re-read of what is already shown — no «loading» state, and a failed read keeps it
+  async function load(opts) {
     const cl = c();
     if (!cl || !uid()) return;
+    const soft = !!(opts && opts.quiet) && st === 'ready';
     const g = ++gen;
-    setState('loading');
+    if (!soft) setState('loading');
     try {
       const mayRate = canRate(); // the brand_rates policy needs sensitive.commission = F: no request without it (0 rows anyway)
       const none = { data: [], error: null };
@@ -325,8 +327,8 @@
       const T = today();
       vendors = new Map(vs.map((r) => [String(r.id), toVendor(r, byVendor.get(String(r.id)) || [], bankOf.get(String(r.id)) || null, { ratesVisible: visible, today: T, login: loginOf.get(String(r.id)) || null, categoryRates: catRates.get(String(r.id)) || [] })]));
       syncVendorBrands();
-      setState('ready');
-    } catch (e) { if (g === gen) setState('error'); /* offline or refused: the screen keeps what it had; cleared: 'idle' */ }
+      if (soft && st === 'ready') emit({ state: 'ready', live: true }); else setState('ready');
+    } catch (e) { if (g === gen && !soft) setState('error'); /* offline or refused: the screen keeps what it had; cleared: 'idle' */ }
   }
   function clear() { gen += 1; makersLog = null; vendors = new Map(); brands = new Map(); catRates = new Map(); categoriesMap = new Map(); timeline.clear(); revealed.clear(); ratesOk = false; brandRatesOk = false; catRatesOk = false; setState('idle'); }
   // phase 3.3: the site's product categories for the pickers, by name

@@ -203,3 +203,23 @@ test('phase 5.5 decision 13: loadLedger asks woo-sync statement per maker (4 at 
   A.loadLedger('2026-09-01', '2026-09-30', [ids[0]]); A.clear(); assert.equal(A.ledgerOf('2026-09-01', '2026-09-30'), null, 'the sign-out wipe forgets the statements');
   A.dropLedger('2026-10-01', '2026-10-31'); assert.equal(A.ledgerOf('2026-10-01', '2026-10-31'), null);
 });
+
+test('load({ quiet }) (IBLive — 0104): a live re-read stays «ready», brings the new rows, reads the shown period\'s sales again behind the numbers, and a failed read keeps what is shown', async () => {
+  const total = (sales) => ok([{ vendor_id: null, grp: 'done', orders: 2, sales, share: 20, is_total: true }]);
+  const { A, stub, events } = load({ responses: { 'rpc:accounts_sales': total(100) } });
+  await A.load(); A.sales('2026-10-01', '2026-10-31'); await new Promise((r) => setTimeout(r, 0));
+  assert.equal(A.sales('2026-10-01', '2026-10-31')[0].sales, 100);
+  stub.responses.acc_expenses = ok([EXP, { ...EXP, id: 8 }]); stub.responses['rpc:accounts_sales'] = total(150);
+  events.length = 0;
+  const p = A.load({ quiet: true });
+  assert.equal(A.state(), 'ready', 'no «loading» state on a live re-read'); assert.equal(events.length, 0);
+  await p;
+  assert.equal(A.state(), 'ready'); assert.equal(A.rows('expenses').length, 2, 'the teammate\'s entry is here');
+  assert.equal(A.sales('2026-10-01', '2026-10-31')[0].sales, 100, 'the numbers shown stay until the new ones arrive — never «loading»');
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(A.sales('2026-10-01', '2026-10-31')[0].sales, 150);
+  stub.responses.acc_expenses = { data: null, error: { code: '500' } };
+  await A.load({ quiet: true });
+  assert.equal(A.state(), 'ready'); assert.equal(A.rows('expenses').length, 2, 'a failed live read keeps what is shown');
+  await A.load(); assert.equal(A.state(), 'error', 'a plain load still says it failed');
+});

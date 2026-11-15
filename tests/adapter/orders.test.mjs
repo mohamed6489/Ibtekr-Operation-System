@@ -662,3 +662,18 @@ test('Realtime: an order the view no longer returns (deleted on another screen) 
   await emitChange({ table: 'orders', eventType: 'UPDATE', new: { id: 999 } }); // unknown and gone: nothing to drop
   assert.deepEqual(removed, ['180686']);
 });
+
+test('load({ quiet }) (IBLive — 0104): a live re-read of a shown list stays «ready» and hands the page the fresh list; a failed one keeps what is shown; refetch is public', async () => {
+  const hyd = []; const t = load({ app: { hydrate: (d) => hyd.push(d.orders.length) } });
+  await t.O.load(); assert.equal(t.O.state(), 'ready'); const n = t.O.data().orders.length; assert.ok(n > 0);
+  t.events.length = 0;
+  const p = t.O.load({ quiet: true });
+  assert.equal(t.O.state(), 'ready', 'no «loading» state'); await p;
+  assert.equal(t.O.state(), 'ready'); assert.equal(hyd.length, 2, 'the page takes the fresh list');
+  assert.ok(!t.events.includes('ib:orders'), 'the state never changed');
+  t.responses.status_map = { data: null, error: { code: '500' } };
+  await t.O.load({ quiet: true });
+  assert.equal(t.O.state(), 'ready'); assert.equal(t.O.data().orders.length, n, 'a failed live read keeps the list');
+  await t.O.load(); assert.equal(t.O.state(), 'error', 'a plain load still says it failed');
+  assert.equal(typeof t.O.refetch, 'function');
+});

@@ -143,3 +143,15 @@ test('duplicate: woo-sync product_duplicate, the new rows read again, logged wit
   assert.equal((await load({ responses: { 'fn:woo-sync': fail(401, {}) } }).P.duplicate(501)).reason, 'forbidden');
   assert.equal(load().P.can().add, false);
 });
+
+test('load({ quiet }) (IBLive — 0104): a live re-read stays «ready» (the page never shows «بنحمّل المنتجات…»); a failed one keeps the records', async () => {
+  const { P, stub, events } = load();
+  await P.load(); assert.equal(P.state(), 'ready'); const n = P.list().length; assert.ok(n > 0);
+  events.length = 0;
+  const p = P.load({ quiet: true });
+  assert.equal(P.state(), 'ready'); assert.equal(events.length, 0, 'no «loading» announcement'); await p;
+  assert.deepEqual(events, ['ib:products'], 'one announcement with the fresh records');
+  stub.responses.woo_brands = { data: null, error: { code: '500' } }; events.length = 0;
+  await P.load({ quiet: true });
+  assert.equal(P.state(), 'ready'); assert.equal(P.list().length, n); assert.equal(events.length, 0);
+});

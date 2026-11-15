@@ -1231,3 +1231,15 @@ test('loadEvents (3.3): the server\'s vendor.sync / vendor.sync.conflict rows (a
   assert.deepEqual(plain([refused.text, refused.actor.name]), ['الموقع رفض التعديل في: التليفون، السوشيال', 'الموقع']);
   assert.equal(V.toEvent({ id: 8, at: 'x', action: 'vendor.sync', new_value: 'phone' }).actor.name, 'الموقع'); // no actor key at all: the server's
 });
+
+test('load({ quiet }) (IBLive — 0104): a live re-read stays «ready» and announces the fresh makers once; a failed one keeps what is shown', async () => {
+  const t = load();
+  await t.V.load(); assert.equal(t.V.state(), 'ready'); const n = t.V.data().vendors.length; assert.ok(n > 0);
+  t.events.length = 0;
+  const p = t.V.load({ quiet: true });
+  assert.equal(t.V.state(), 'ready', 'no «loading» state'); await p;
+  assert.deepEqual(t.events.filter((e) => e.type === 'ib:vendors').map((e) => e.detail.state), ['ready'], 'one «ready» so the page redraws — never «loading»');
+  t.responses.vendors = { data: null, error: { code: '500' } }; t.events.length = 0;
+  await t.V.load({ quiet: true });
+  assert.equal(t.V.state(), 'ready'); assert.equal(t.V.data().vendors.length, n, 'a failed live read keeps the makers'); assert.equal(t.events.length, 0);
+});

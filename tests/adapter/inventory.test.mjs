@@ -131,3 +131,15 @@ test('no site quantity from the inventory any more (B6): a move or a new «مل�
   await new Promise((r) => setTimeout(r, 0));
   eq(on.stub.calls.filter((c) => c.op === 'invoke').length, 0);
 });
+
+test('load({ quiet }) (IBLive — 0104): a live re-read stays «ready» and brings the teammate\'s lot; a failed one keeps the stock', async () => {
+  const { I, S, stub, events } = load();
+  await I.load(); assert.equal(I.state(), 'ready'); const n = S.stock.length; assert.ok(n > 0);
+  stub.responses.inv_lots = ok(LOTS.slice(0, 1)); events.length = 0;
+  const p = I.load({ quiet: true });
+  assert.equal(I.state(), 'ready'); await p;
+  assert.equal(S.stock.length, 1); assert.deepEqual(events, ['ib:inventory']);
+  stub.responses.inv_lots = { data: null, error: { code: '500' } }; events.length = 0;
+  const r = await I.load({ quiet: true });
+  assert.equal(r.ok, false); assert.equal(I.state(), 'ready'); assert.equal(S.stock.length, 1, 'a failed live read keeps the stock'); assert.equal(events.length, 0);
+});

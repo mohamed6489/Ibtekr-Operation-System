@@ -92,10 +92,13 @@
     return { account: v.account, on_date: v.date, direction: v.direction, amount: v.amount, note: v.note || null };
   }
 
-  async function load() {
+  // opts.quiet (IBLive — 0104): a live re-read of what is already shown — no «loading» state, a failed read keeps it, and the
+  // periods' sales are read again behind what is shown instead of being dropped
+  async function load(opts) {
     const cl = c(); if (!cl) return;
     if (perm('accounts.view') === 'N') { st = 'ready'; emit(); return; }
-    st = 'loading'; emit();
+    const soft = !!(opts && opts.quiet) && st === 'ready';
+    if (!soft) { st = 'loading'; emit(); }
     try {
       const reads = Object.entries(KINDS).map(([, k]) => cl.from(k.table).select(k.cols).is('voided_at', null).order('on_date', { ascending: false }).range(0, 9999));
       reads.push(cl.from('dokan_balances').select('vendor_id, woo_vendor_id, balance, earning, sales, orders, synced_at'));
@@ -109,9 +112,9 @@
       data.lists = (res[5].data || []).map((r) => ({ list: r.list, name: r.name }));
       data.withdrawals = (res[4].data || []).map((r) => ({ id: r.id, store: r.woo_vendor_id, vendorId: r.vendor_id, amount: num(r.amount), charge: num(r.charge), receivable: num(r.receivable), status: r.status, method: r.method || '', at: r.requested_at || '', syncedAt: r.synced_at }));
       data.settlements = (res[6].data || []).map(toSettlement);
-      salesCache.clear();
+      if (soft) refreshSales(); else salesCache.clear();
       st = 'ready';
-    } catch (e) { st = 'error'; }
+    } catch (e) { if (soft) return; st = 'error'; }
     emit();
   }
 
@@ -173,6 +176,21 @@
     return null;
   }
   const salesFailed = (from, to) => salesCache.get(from + '|' + to) === 'error';
+  // the periods already shown, read again behind the numbers on the screen (IBLive: an order changed) — the last three asked for;
+  // the older ones are dropped and read when a screen asks again. A failed read keeps the numbers that are there.
+  function refreshSales() {
+    const cl = c(); if (!cl || perm('accounts.view') === 'N') return;
+    const keys = Array.from(salesCache.keys()).filter((k) => Array.isArray(salesCache.get(k)));
+    keys.slice(0, -3).forEach((k) => salesCache.delete(k));
+    keys.slice(-3).forEach((key) => {
+      const [from, to] = key.split('|');
+      Promise.resolve(cl.rpc('accounts_sales', { p_from: from, p_to: to })).then(({ data: rows, error }) => {
+        if (error || !Array.isArray(salesCache.get(key))) return;
+        salesCache.set(key, (rows || []).map((r) => ({ vendorId: r.vendor_id, group: r.grp, orders: Number(r.orders) || 0, sales: num(r.sales), share: num(r.share), isTotal: !!r.is_total })));
+        emit({ sales: key });
+      }, () => {});
+    });
+  }
 
   async function statement(vendorId, from, to) {
     const cl = c(); if (!cl) return { ok: false, reason: 'network', rows: [] };
@@ -286,5 +304,5 @@
 
   window.IBAccounts = { load, clear, state: () => st, rows: (kind) => data[kind].slice(), balances: () => data.balances.slice(), withdrawals: () => data.withdrawals.slice(),
     settlements: () => data.settlements.slice(), carryOf, createWithdraw,
-    add, update, remove, sales, salesFailed, statement, ledgerOf, loadLedger, dropLedger, lists, addListItem, approveWithdraw, refreshWithdrawals, refreshing: () => refreshingNow, can, canEdit, toExpense, toVendorMove, toAccountMove, toSettlement, toColumns, KINDS };
+    add, update, remove, sales, salesFailed, refreshSales, statement, ledgerOf, loadLedger, dropLedger, lists, addListItem, approveWithdraw, refreshWithdrawals, refreshing: () => refreshingNow, can, canEdit, toExpense, toVendorMove, toAccountMove, toSettlement, toColumns, KINDS };
 })();

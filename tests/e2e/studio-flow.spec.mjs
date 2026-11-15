@@ -488,7 +488,7 @@ test('flow 3 «صور وعايز شيت» Variable: two colors × two products �
   await next(page);
   const sheet = page.locator('#pg-products [data-flow-sheet]');
   await expect(sheet.locator('tbody tr')).toHaveCount(4);
-  expect(await sheet.locator('tbody tr td:first-child').allTextContents()).toEqual(['1-1', '1-2', '2-1', '2-2']);
+  await expect(sheet.locator('tbody tr td:first-child')).toHaveText(['1-1', '1-2', '2-1', '2-2']); // waits for the sheet (CI run 1045 read it before it was drawn)
   // the owner 15 Nov: every cell edited in place — a size, a price and a color typed / picked before the AI; the AI fills the rest only
   await sheet.locator('[data-sh="size:1-1"]').fill('٤٠×٦٠ سم'); await sheet.locator('[data-sh="size:1-1"]').press('Tab');
   await sheet.locator('[data-sh="price:1-2"]').fill('850'); await sheet.locator('[data-sh="price:1-2"]').press('Tab');
@@ -532,7 +532,7 @@ test('the owner 15 Nov: «صور وعايز شيت» — «املأ بالـ AI�
   await expect(page.locator('#pg-products .fl-pcard')).toHaveCount(1);
   await next(page);
   const sheet = page.locator('#pg-products [data-flow-sheet]');
-  expect(await sheet.locator('tbody tr td:first-child').allTextContents()).toEqual(['1-1', '1-2', '1-3', '1-4']);
+  await expect(sheet.locator('tbody tr td:first-child')).toHaveText(['1-1', '1-2', '1-3', '1-4']); // waits for the sheet (CI run 1045 read it before it was drawn)
   await page.locator('[data-flow-ai]').click(); await page.locator('[data-ai-go]').click();
   await expect(sheet.locator('[data-sh="nameAr:1-1"]')).toHaveValue('أباجورة مكتب بامبو');
   // the sizes labelled per slot, the colors per photo: slot 1 (the first photo) Beige, slot 2 (the second photo) Black
@@ -565,6 +565,6 @@ test('the owner 15 Nov («بجرب ارفع الصور … مبتترفعش»): 
   await expect(page.locator('.toast[role=status]').last()).toContainText('2 من غير رقم');
   // «2-2» keeps row 2; the two without a number take rows 1 and 3 — three photos, three uploads (none dropped)
   await expect(page.locator('#pg-products .fl-pcard')).toHaveCount(3);
-  expect(await page.locator('#pg-products .fl-pcard b').allTextContents()).toEqual(['منتج 1', 'منتج 2', 'منتج 3']);
+  await expect(page.locator('#pg-products .fl-pcard b')).toHaveText(['منتج 1', 'منتج 2', 'منتج 3']);
   await expect.poll(() => Object.keys((batch().state || {}).photoRows || {}).sort()).toEqual(['1', '2', '3']);
 });

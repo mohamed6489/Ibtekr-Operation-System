@@ -20,7 +20,18 @@
   const ACC = () => window.IBAccounts || null;
   const WRITE_ERR = { forbidden: 'مالكش صلاحية على الحركة دي.', invalid: 'السيرفر رفض البيانات دي — راجع الحقول.', network: 'مقدرناش نحفظ دلوقتي — اتأكد من النت وجرّب تاني.' };
   function syncStore() { const A = ACC(); if (!A) return; store.expenses = A.rows('expenses'); store.vendorMoves = A.rows('vendorMoves'); store.accountMoves = A.rows('accountMoves'); }
-  function settle(p) { p.then((r) => { syncStore(); if (r && !r.ok) setNote({ kind: 'error', text: WRITE_ERR[r.reason] || WRITE_ERR.network }); rerender(); }); }
+  // again (optional): what to record once more when the server says the same entry was recorded a moment ago (0105 —
+  // 2026-11-15-live-sync.md decision 4): the member is asked «دي حركة تانية؟» first
+  function settle(p, again) { p.then((r) => { syncStore(); if (r && !r.ok && r.reason === 'duplicate' && again) { rerender(); dupAsk(r.dup || {}, again); return; } if (r && !r.ok) setNote({ kind: 'error', text: WRITE_ERR[r.reason] || WRITE_ERR.network }); rerender(); }); }
+  const DUP_KIND = { expenses: 'المصروف', vendorMoves: 'حركة المبتكر', accountMoves: 'حركة الحساب' };
+  function dupAsk(dup, again) {
+    const K0 = window.IBKit; const mins = Number(dup.minutes) || 0; const who = dup.by ? '«' + dup.by + '»' : 'حد من الفريق';
+    const when = mins < 1 ? 'من لحظات' : mins === 1 ? 'من دقيقة' : mins === 2 ? 'من دقيقتين' : 'من ' + K0.Num(String(mins)).textContent + (mins <= 10 ? ' دقايق' : ' دقيقة');
+    K0.confirm({ title: 'الحركة دي اتسجّلت قبل كده — دي حركة تانية؟',
+      text: who + ' سجّل نفس ' + (DUP_KIND[again.kind] || 'الحركة') + ' (نفس الجهة والاتجاه والمبلغ) ' + when + '. لو دي حركة تانية فعلًا سجّلها، ولو هي نفسها اقفل — ما اتسجّلش حاجة منك.',
+      okLabel: 'سجّلها برضه', cancelLabel: 'إلغاء — هي نفسها',
+      onOk: () => { adapter.add(again.kind, again.value, again.actor, { dupOk: true }); rerender(); } });
+  }
   // a redraw for the server's answer keeps the note on screen (its «تراجع» included); a user's action clears it as before
   let shownNote = null;
   function rerender() { if (state.page === 'vendors' && state.vtab === 'accounts') { renderVendors(); return; } if (state.page !== 'accounts') return; if (!state.note && shownNote) state.note = shownNote; render(); }
@@ -39,10 +50,11 @@
     restore(kind, rec) { store[kind] = [...store[kind], rec]; log.append({ action: kind + '.restore', actor: ACTOR, newValue: rec }); },
   };
   const adapter = {
-    add(kind, value, actor = ACTOR) { const rec = adapterLocal.add(kind, value, actor); if (ACC()) settle(ACC().add(kind, value)); return rec; },
+    // opts.dupOk: the member said «دي حركة تانية» — or the entry comes from a reviewed import; opts.ask === false: never asked (an import's rows)
+    add(kind, value, actor = ACTOR, opts) { const rec = adapterLocal.add(kind, value, actor); if (ACC()) settle(ACC().add(kind, value, opts && opts.dupOk ? { dupOk: true } : undefined), opts && opts.dupOk ? null : { kind, value, actor }); return rec; },
     update(kind, id, value) { const rec = adapterLocal.update(kind, id, value); if (ACC()) settle(ACC().update(kind, id, value)); return rec; },
     remove(kind, id) { const old = adapterLocal.remove(kind, id); if (ACC()) settle(ACC().remove(kind, id)); return old; },
-    restore(kind, rec) { adapterLocal.restore(kind, rec); if (ACC()) settle(ACC().add(kind, rec)); },
+    restore(kind, rec) { adapterLocal.restore(kind, rec); if (ACC()) settle(ACC().add(kind, rec, { dupOk: true })); }, // «تراجع» of a delete: the member's own entry again
   };
   document.addEventListener('ib:accounts', () => { syncStore(); rerender(); if (state.page === 'reports') renderReports(); });
   document.addEventListener('ib:vendors', () => { rerender(); });
@@ -156,7 +168,7 @@
         rows: () => store.expenses.map((e) => ({ date: e.date, amount: e.amount, category: e.category, direction: e.direction === 'deposit' ? 'إيداع' : 'سحب', beneficiary: e.beneficiaryName || '' })),
         apply: (rows) => { const ids = [];
           for (const r of rows) { const d = r.data; const res = D.validateExpense({ amount: String(d.amount), date: D.formatDateNumeric(d.date), category: d.category, direction: d.direction === 'إيداع' ? 'deposit' : 'withdraw', beneficiary: d.beneficiary ? D.OTHER : '', otherName: d.beneficiary || '' });
-            if (Object.keys(res.errors).length) continue; ids.push(adapter.add('expenses', res.value).id); }
+            if (Object.keys(res.errors).length) continue; ids.push(adapter.add('expenses', res.value, undefined, { dupOk: true }).id); }
           return { done: { created: ids, updated: [] }, undo: () => ids.forEach((id) => adapter.remove('expenses', id)) }; } },
       { id: 'team', label: 'الفريق والحضور والمرتبات', key: 'email', modes: ['add', 'update'], filter: { key: 'role', label: 'الدور', options: () => (sapi().roles ? sapi().roles() : []) },
         fields: () => [{ key: 'name', label: 'الاسم', en: 'Name', required: true }, { key: 'email', label: 'الإيميل', en: 'Email', type: 'email', required: true }, { key: 'role', label: 'الدور', en: 'Role', type: 'enum', options: sapi().roles ? sapi().roles() : [], required: true }, { key: 'title', label: 'المسمى', en: 'Title' },
@@ -208,19 +220,19 @@
         apply: (rows) => { const made = [];
           for (const r of rows) { const d = r.data;
             if (d.vendor === 'تشغيل') { const t = { date: d.date, dateFixed: false, raw: d.date, amount: d.amount, vendor: null, scope: 'ops', payer: d.payer || '', note: d.note || '', place: d.note || '' }; TR_SHEET.push(t); made.push(['ops', t]); }
-            else { const res = D.validateVendorMovement({ amount: String(d.amount), date: D.formatDateNumeric(d.date), direction: 'withdraw', type: 'مواصلات', vendor: d.vendor }); if (Object.keys(res.errors).length) continue; made.push(['v', adapter.add('vendorMoves', res.value).id]); } }
+            else { const res = D.validateVendorMovement({ amount: String(d.amount), date: D.formatDateNumeric(d.date), direction: 'withdraw', type: 'مواصلات', vendor: d.vendor }); if (Object.keys(res.errors).length) continue; made.push(['v', adapter.add('vendorMoves', res.value, undefined, { dupOk: true }).id]); } }
           return { done: { created: made, updated: [] }, undo: () => made.forEach(([k, x]) => { if (k === 'ops') { const i = TR_SHEET.indexOf(x); if (i >= 0) TR_SHEET.splice(i, 1); } else adapter.remove('vendorMoves', x); }) }; } },
       { id: 'vendorMoves', label: 'حركات المبتكرين (عربون / مواصلات / أخرى)', modes: ['add'], dateKey: 'date', filter: { key: 'type', label: 'النوع', options: () => D.VENDOR_TYPES.slice() },
         fields: () => [{ key: 'date', label: 'التاريخ', en: 'Date', type: 'date', required: true }, { key: 'vendor', label: 'المبتكر', en: 'Vendor', type: 'enum', options: vnames(), required: true }, { key: 'type', label: 'النوع', en: 'Type', type: 'enum', options: D.VENDOR_TYPES.slice(), required: true },
           { key: 'typeName', label: 'اسم النوع (لو «أخرى»)', en: 'Other type' }, { key: 'direction', label: 'إيداع / سحب', en: 'Direction', type: 'enum', options: ['سحب', 'إيداع'], required: true }, { key: 'amount', label: 'المبلغ (ج.م)', en: 'Amount (EGP)', type: 'number', required: true }],
         rows: () => store.vendorMoves.map((m) => ({ date: m.date, vendor: m.vendor, type: m.type, typeName: m.type === 'أخرى' ? m.typeName : '', direction: m.direction === 'deposit' ? 'إيداع' : 'سحب', amount: m.amount })),
         check: (d) => ({ errors: Object.values(D.validateVendorMovement(mvIn(d)).errors) }),
-        apply: (rows) => { const ids = []; for (const r of rows) { const res = D.validateVendorMovement(mvIn(r.data)); if (Object.keys(res.errors).length) continue; ids.push(adapter.add('vendorMoves', res.value).id); } return { done: { created: ids, updated: [] }, undo: () => ids.forEach((id) => adapter.remove('vendorMoves', id)) }; } },
+        apply: (rows) => { const ids = []; for (const r of rows) { const res = D.validateVendorMovement(mvIn(r.data)); if (Object.keys(res.errors).length) continue; ids.push(adapter.add('vendorMoves', res.value, undefined, { dupOk: true }).id); } return { done: { created: ids, updated: [] }, undo: () => ids.forEach((id) => adapter.remove('vendorMoves', id)) }; } },
       { id: 'accountMoves', label: 'حركات الحسابات (البنك / بوسطة / باي موب / المحفظة)', modes: ['add'], dateKey: 'date', filter: { key: 'account', label: 'الحساب', options: () => D.ACCOUNTS.slice() },
         fields: () => [{ key: 'date', label: 'التاريخ', en: 'Date', type: 'date', required: true }, { key: 'account', label: 'الحساب', en: 'Account', type: 'enum', options: D.ACCOUNTS.slice(), required: true }, { key: 'direction', label: 'إيداع / سحب', en: 'Direction', type: 'enum', options: ['إيداع', 'سحب'], required: true }, { key: 'amount', label: 'المبلغ (ج.م)', en: 'Amount (EGP)', type: 'number', required: true }],
         rows: () => store.accountMoves.map((m) => ({ date: m.date, account: m.account, direction: m.direction === 'deposit' ? 'إيداع' : 'سحب', amount: m.amount })),
         check: (d) => { const res = D.validateAccountMovement(acIn(d)); const errors = Object.values(res.errors); if (!errors.length) { try { D.applyAccountMovement(accountsNow().balances, res.value.account, res.value.direction, res.value.amount); } catch (e) { errors.push('الرصيد في «' + d.account + '» مش كفاية للسحب ده'); } } return { errors }; },
-        apply: (rows) => { const ids = []; for (const r of rows) { const res = D.validateAccountMovement(acIn(r.data)); if (Object.keys(res.errors).length) continue; try { D.applyAccountMovement(accountsNow().balances, res.value.account, res.value.direction, res.value.amount); } catch (e) { continue; } ids.push(adapter.add('accountMoves', res.value).id); } return { done: { created: ids, updated: [] }, undo: () => ids.forEach((id) => adapter.remove('accountMoves', id)) }; } },
+        apply: (rows) => { const ids = []; for (const r of rows) { const res = D.validateAccountMovement(acIn(r.data)); if (Object.keys(res.errors).length) continue; try { D.applyAccountMovement(accountsNow().balances, res.value.account, res.value.direction, res.value.amount); } catch (e) { continue; } ids.push(adapter.add('accountMoves', res.value, undefined, { dupOk: true }).id); } return { done: { created: ids, updated: [] }, undo: () => ids.forEach((id) => adapter.remove('accountMoves', id)) }; } },
       { id: 'vendorSecure', label: 'بيانات المبتكرين الحساسة (البنك والعقد والنسبة)', key: 'name', modes: ['update'], sensitive: true, note: 'للأدمن والحسابات بس — كل تعديل بيتسجل في سجل نشاط المبتكر.',
         fields: () => [{ key: 'name', label: 'اسم المبتكر', en: 'Vendor name', required: true }, { key: 'method', label: 'طريقة التحويل', en: 'Payout method', type: 'enum', options: VD.PAY_METHODS.map((x) => x[1]) }, { key: 'bankName', label: 'البنك', en: 'Bank', sensitive: true }, { key: 'holder', label: 'صاحب الحساب', en: 'Account holder', sensitive: true },
           { key: 'accountNumber', label: 'رقم الحساب', en: 'Account number', sensitive: true }, { key: 'iban', label: 'IBAN', en: 'IBAN', sensitive: true }, { key: 'wallet', label: 'رقم المحفظة', en: 'Wallet #', sensitive: true }, { key: 'contractExpires', label: 'العقد ينتهي في', en: 'Contract expires', type: 'date' },

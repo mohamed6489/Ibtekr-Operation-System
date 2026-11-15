@@ -130,10 +130,20 @@
     quiet(() => L.log(KINDS[kind].log + suffix, detail, { entity: KINDS[kind].table, entity_id: v.id }));
   }
 
-  async function add(kind, value) {
+  // 0105 (the owner 15 Nov: «انا عملت ايداع لفيندور و ف نفس الوقت عضو تاني عمل ايداع تاني … اتسجل للفيندور ده 20»): the server
+  // refuses an entry the same as one recorded in the last 10 minutes (IBDUP) and says who recorded it and how long ago →
+  // { ok: false, reason: 'duplicate', dup: { by, minutes } }; the page asks, and opts.dupOk sends it as «دي حركة تانية» (dup_ok).
+  function dupOf(error) {
+    let d = null; try { d = JSON.parse(String((error && error.details) || '')); } catch (e) { d = null; }
+    const by = d && typeof d.by === 'string' ? d.by.replace(/[<>]/g, '').slice(0, 80) : ''; const m = d ? Number(d.minutes) : NaN;
+    return { by, minutes: Number.isFinite(m) && m >= 0 ? Math.floor(m) : 0 };
+  }
+  async function add(kind, value, opts) {
     const cl = c(); if (!cl || !KINDS[kind]) return { ok: false, reason: 'network' };
     try {
-      const { data: rows, error } = await cl.from(KINDS[kind].table).insert(toColumns(kind, value)).select(KINDS[kind].cols);
+      const row = toColumns(kind, value); if (opts && opts.dupOk) row.dup_ok = true;
+      const { data: rows, error } = await cl.from(KINDS[kind].table).insert(row).select(KINDS[kind].cols);
+      if (error && error.code === 'IBDUP') return { ok: false, reason: 'duplicate', dup: dupOf(error) };
       if (error) return { ok: false, reason: reasonOf(error) };
       const rec = TO[kind]((rows || [])[0] || {});
       data[kind] = [rec, ...data[kind]]; logged(kind, '', { ...value, id: rec.id }); emit({ kind, id: rec.id });

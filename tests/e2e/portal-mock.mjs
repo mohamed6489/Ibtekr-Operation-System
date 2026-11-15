@@ -105,7 +105,7 @@ export function portalRoute(c) {
     const description = 'المبتكر «' + v.name + '» طلب من بوابة المبتكر تعديل / تسجيل حسابه البنكي. الحسابات تتواصل معاه وتتأكد من البيانات قبل أي تغيير.';
     mock.tickets.push({ id, type: 'vendor', title: 'طلب تعديل الحساب البنكي — ' + v.name, description, priority: 'normal', assignee_role: 'الحسابات', order_number: null, order_id: null, customer: null, cs_customer_id: null, cs_conversation_id: null, vendor_id: me.vendor, vendor: v.name, reason: null, follow_up: null, attachments: [], status: 'open',
       created_by: null, created_by_name: 'بوابة المبتكر', created_by_role: 'بوابة المبتكر', created_at: now, last_update: now, reopen_count: 0, resolution_outcome: null, resolution_note: null, resolved_by: null, resolved_by_name: null, resolved_at: null, closed_by: null, closed_by_name: null, closed_at: null });
-    mock.ticketEvents.push({ id: mock.ticketEvents.reduce((m, e) => Math.max(m, e.id), 0) + 1, ticket_id: id, kind: 'event', at: now, actor: null, actor_name: 'بوابة المبتكر', actor_role: 'بوابة المبتكر', text: 'بوابة المبتكر فتحت التذكرة وعيّنتها لدور «الحسابات»', old_value: null, new_value: null, attachments: [] });
+    mock.ticketEvents.push({ id: mock.ticketEvents.reduce((m, e) => Math.max(m, e.id), 0) + 1, ticket_id: id, kind: 'event', at: now, actor: null, actor_name: 'بوابة المبتكر', actor_role: 'بوابة المبتكر', text: 'بوابة المبتكر فتحت الطلب وعيّنته لدور «الحسابات»', old_value: null, new_value: null, attachments: [] });
     mock.activityRows.push({ id: mock.activityRows.length + 1, at: now, actor: null, action: 'portal.bank_request', entity: 'vendor', entity_id: me.vendor, new_value: String(id) });
     return json(200, { ok: true, id });
   }

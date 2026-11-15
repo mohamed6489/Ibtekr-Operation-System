@@ -130,7 +130,7 @@ test('admin opens a ticket: ticket_create with the form, the drawer on the new t
   await pick(page, m, 't-role', 'اللوجستيك والشحن');
   await m.getByRole('button', { name: 'إنشاء الطلب' }).click();
   await expect(drawer(page)).toContainText('الطابعة واقفة');
-  await expect(drawer(page)).toContainText('أنشأ التذكرة وعيّنها لدور «اللوجستيك والشحن»');
+  await expect(drawer(page)).toContainText('أنشأ الطلب وعيّنه لدور «اللوجستيك والشحن»');
   await expect(drawer(page)).toContainText('سر الوصف — محتاجين حبر');
   const w = mock.ticketWrites.find((x) => x.fn === 'ticket_create');
   expect([w.type, w.title, w.assigneeRole, w.priority]).toEqual(['internal', 'الطابعة واقفة', 'اللوجستيك والشحن', 'normal']);
@@ -177,12 +177,12 @@ test('accounts (P): only its role\'s ticket; works on it (status, reply, resolve
   await expect(page.getByRole('menuitem', { name: 'إغلاق نهائي' })).toHaveCount(0);
   await page.keyboard.press('Escape');
   await d.getByRole('button', { name: 'تم الحل' }).click();
-  const r = modal(page, 'تم حل التذكرة؟');
+  const r = modal(page, 'تم حل الطلب؟');
   await r.getByRole('button', { name: 'تأكيد الحل' }).click();
   await expect(r).toContainText('اختار نتيجة الحل');
   await pick(page, r, 'r-out', 'اتحلت المشكلة');
   await r.getByRole('button', { name: 'تأكيد الحل' }).click();
-  await expect(d).toContainText('حوّل التذكرة إلى «تم الحل» — اتحلت المشكلة');
+  await expect(d).toContainText('حوّل الطلب إلى «تم الحل» — اتحلت المشكلة');
   expect(mock.tickets[0]).toMatchObject({ status: 'resolved', resolved_by: ACC_ID });
   await expect(d.getByRole('button', { name: 'إغلاق نهائي' })).toHaveCount(0);
 });
@@ -197,10 +197,10 @@ test('ops (the opener of TKT-0001, not its role): no work buttons, closes it, th
   await d.getByRole('button', { name: 'المزيد' }).click();
   await page.getByRole('menuitem', { name: 'إغلاق نهائي' }).click();
   await modal(page, 'إغلاق نهائي').getByRole('button', { name: 'إغلاق نهائي' }).click();
-  await expect(d).toContainText('قفل التذكرة نهائيًا');
+  await expect(d).toContainText('قفل الطلب نهائيًا');
   await expect(d.locator('.tk-reply')).toHaveCount(0); // a closed ticket takes no reply
   await d.getByRole('button', { name: 'إعادة فتح' }).click();
-  const o = modal(page, 'إعادة فتح التذكرة');
+  const o = modal(page, 'إعادة فتح الطلب');
   await o.getByRole('button', { name: 'إعادة الفتح' }).click();
   await expect(o).toContainText('اكتب سبب إعادة الفتح');
   await o.locator('#o-reason').fill('العميلة لسه ما استلمتش');
@@ -228,8 +228,8 @@ test('the reports tab: open / overdue / average from the loaded tickets, by role
   await openTickets(page);
   await page.getByRole('tab', { name: /التقارير/ }).click();
   const tiles = page.locator('#tickets .cards');
-  await expect(tiles).toContainText('تذاكر مفتوحة');
-  await expect(tiles.locator('.kpi', { hasText: 'تذاكر مفتوحة' })).toContainText('2');
+  await expect(tiles).toContainText('طلبات مفتوحة');
+  await expect(tiles.locator('.kpi', { hasText: 'طلبات مفتوحة' })).toContainText('2');
   await expect(tiles.locator('.kpi', { hasText: 'متأخرة عن موعد المتابعة' })).toContainText('1');
   await expect(page.locator('#tickets')).toContainText('حسب المسؤول');
 });
@@ -248,7 +248,7 @@ test('attachments: an image uploaded into tickets/<my uid>/, carried by the new 
   await expect(m).toContainText('page.html');
   await expect(m).toContainText('أو PDF بس');
   await m.getByRole('button', { name: 'إنشاء الطلب' }).click();
-  await expect(drawer(page)).toContainText('مرفقات التذكرة');
+  await expect(drawer(page)).toContainText('مرفقات الطلب');
   const w = mock.ticketWrites.find((x) => x.fn === 'ticket_create');
   expect(w.attachments.length).toBe(1);
   expect(w.attachments[0].path).toMatch(new RegExp('^' + ADMIN_ID + '/[a-z0-9]+-break\\.png$'));
@@ -264,14 +264,14 @@ test('orders: the open-ticket chip on the order opens its tickets; «افتح ت
   await signIn(page, ADMIN);
   await page.locator('.sidebar .nav-item[data-page="orders"]').click();
   const chip = page.locator('#orders [data-tk-order="181668"]').first();
-  await expect(chip).toHaveText('1 تذكرة');
+  await expect(chip).toHaveText('1 طلب');
   await chip.click();
   await expect(page.locator('#tickets')).toBeVisible();
   await expect(page.locator('#tickets input[type=search]')).toHaveValue('181668');
   await expect(page.locator('#tickets tbody tr[data-id]')).toHaveCount(1);
   await page.locator('.sidebar .nav-item[data-page="orders"]').click();
   await page.locator('#orders [data-more="o:180686"]').first().click();
-  await page.getByRole('menuitem', { name: 'افتح تذكرة' }).click();
+  await page.getByRole('menuitem', { name: 'افتح طلب' }).click();
   const m = modal(page, 'طلب جديد');
   await expect(m.locator('#t-order')).toHaveValue('180686');
   await m.locator('#t-title').fill('العميلة عايزة تغيّر المقاس');
@@ -309,11 +309,11 @@ test('customer service: «تحويل لتذكرة» from the conversation links 
   await page.evaluate(() => { location.hash = 'cs-inbox'; });
   const P = page.locator('#pg-cs');
   await expect(P.locator('.cs-ch .who b')).toHaveText('سلوى زيتوني');
-  await expect(P.locator('.cs-panel')).toContainText('التذاكر');
+  await expect(P.locator('.cs-panel')).toContainText('الطلبات');
   await P.locator('.cs-ch').getByRole('button', { name: 'المزيد' }).click();
-  await page.getByRole('menuitem', { name: 'تحويل لتذكرة' }).click();
+  await page.getByRole('menuitem', { name: 'تحويل لطلب' }).click();
   const m = modal(page, 'طلب جديد');
-  await expect(m).toContainText('هتتربط بمحادثة خدمة العملاء مع سلوى زيتوني');
+  await expect(m).toContainText('الطلب هيتربط بمحادثة خدمة العملاء مع سلوى زيتوني');
   await m.locator('#t-title').fill('سؤال عن ميعاد التسليم');
   await m.locator('#t-desc').fill('العميلة سألت على الشات');
   await pick(page, m, 't-reason', 'تأخير في التسليم');
@@ -340,7 +340,7 @@ test('the bell: a new ticket for my role and a reply by someone else reach it li
   await page.evaluate(() => window.IBTickets.load()); // the live ping (no Realtime socket in the mock) = one load()
   await page.locator('.notif-btn').click();
   await bell(page).locator('.ntf-nav-item', { has: page.locator('.lbl', { hasText: /^مهام$/ }) }).click();
-  await expect(bell(page).locator('.ntf-item', { hasText: 'TKT-0009' })).toContainText('تذكرة جديدة لدور «الحسابات» من سارة أحمد');
+  await expect(bell(page).locator('.ntf-item', { hasText: 'TKT-0009' })).toContainText('طلب جديد لدور «الحسابات» من سارة أحمد');
   await expect(bell(page).locator('.ntf-item', { hasText: 'TKT-0001' }).first()).toContainText('رد من سارة أحمد: العميلة اتصلت تاني');
   await bell(page).locator('.ntf-item', { hasText: 'TKT-0009' }).click();
   await expect(drawer(page)).toContainText('تذكرة جديدة للحسابات');

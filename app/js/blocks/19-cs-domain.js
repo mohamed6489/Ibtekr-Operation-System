@@ -153,10 +153,12 @@
   }
 
   // ---- امتى يتبعت القالب (owner 28 Oct): لكل تصنيف مشغّلاته، واختيار من متعدد
+  // comments decision 13: «تذكرة جديدة» is «طلب جديد» — a template saved with the old word reads as the new one (trigName)
+  const trigName = (x) => (x === 'تذكرة جديدة' ? 'طلب جديد' : x);
   const TRIGGERS = {
     'حالة الأوردر': { label: 'يتبعت لما الأوردر يبقى', opts: ['جاري التنفيذ', 'جاهز للشحن', 'قيد الشحن', 'مكتمل', 'معلق', 'ملغي', 'مرتجع'] },
     'متابعة': { label: 'يتبعت عند', opts: ['بعد التسليم بيوم', 'ترك السلة', 'قبل ميعاد الشحن بيوم', 'الأوردر بقى قابل للتأخير', 'عميل ما اشتراش من 30 يوم'] },
-    'شكاوى': { label: 'يتبعت عند', opts: ['تذكرة جديدة', 'تقييم أقل من 3 نجوم', 'شكوى اتسجلت', 'تأخير عدّى 11 يوم'] },
+    'شكاوى': { label: 'يتبعت عند', opts: ['طلب جديد', 'تقييم أقل من 3 نجوم', 'شكوى اتسجلت', 'تأخير عدّى 11 يوم'] },
     'تسويق': { label: 'يتبعت في', opts: ['حملات بس', 'إطلاق منتج جديد', 'عرض موسمي', 'عملاء شريحة محددة'] },
     'أوردرات فرعية': { label: 'يتبعت لما الأوردر الفرعي يبقى', opts: ['أوردر فرعي جديد', 'متأكد من المبتكر', 'قبل التسليم بيومين', 'جاهز للتسليم', 'اتسلم', 'اتلغى'] },
     'تأخير': { label: 'يتبعت عند', opts: ['قابل للتأخير (9–11 يوم من التأكيد)', 'متأخر (أكتر من 11 يوم من التأكيد)', 'عدّى ميعاد التسليم', 'مفيش رد من المبتكر 24 ساعة'] },
@@ -167,7 +169,7 @@
   function triggerText(t) {
     if (!t || t.trigKind === 'manual') return 'يدوي من الشات';
     if (t.trigKind === 'campaign') return 'حملات بس';
-    const on = Array.isArray(t.trigOn) ? t.trigOn : [];
+    const on = (Array.isArray(t.trigOn) ? t.trigOn : []).map(trigName);
     if (!on.length) return 'تلقائي — لسه ما اتحددش المشغّل';
     const head = (TRIGGERS[t.cat] || { label: 'يتبعت عند' }).label;
     const when = t.trigWhen && t.trigWhen !== 'فورًا' ? ' · ' + t.trigWhen : '';
@@ -177,10 +179,10 @@
     const e = {};
     if (t.trigKind === 'auto' && !(Array.isArray(t.trigOn) && t.trigOn.length)) e.trigOn = 'اختار مشغّل واحد على الأقل';
     const opts = (TRIGGERS[t.cat] || { opts: [] }).opts;
-    if (t.trigKind === 'auto' && Array.isArray(t.trigOn) && t.trigOn.some((x) => opts.indexOf(x) < 0)) e.trigOn = 'فيه مشغّل مش من التصنيف ده';
+    if (t.trigKind === 'auto' && Array.isArray(t.trigOn) && t.trigOn.some((x) => opts.indexOf(trigName(x)) < 0)) e.trigOn = 'فيه مشغّل مش من التصنيف ده';
     return e;
   }
-  const api = { SLA, slaLevel, nextStatus, windowOpen, templateVars, fillTemplate, withOptOut, OPT_OUT, customerStage, customerRating, validateRatingOverride, audience, batches, validateDelay, autoStop, STOP_RATE, canCampaignFrom, assignNext, mergeProfiles, quickReplies, unreadBy, ruleMatches, sendTime, PLATFORMS, RATE_KEYS, validateTeamRating, teamRatingSummary, segmentMatch, validateSegment, segmentLabel, SEG_LAST: LAST, segmentHasRules: hasRules, TRIGGERS, TRIG_WHEN, triggerText, validateTrigger, normPhone, phoneColumn, matchSheet };
+  const api = { trigName, SLA, slaLevel, nextStatus, windowOpen, templateVars, fillTemplate, withOptOut, OPT_OUT, customerStage, customerRating, validateRatingOverride, audience, batches, validateDelay, autoStop, STOP_RATE, canCampaignFrom, assignNext, mergeProfiles, quickReplies, unreadBy, ruleMatches, sendTime, PLATFORMS, RATE_KEYS, validateTeamRating, teamRatingSummary, segmentMatch, validateSegment, segmentLabel, SEG_LAST: LAST, segmentHasRules: hasRules, TRIGGERS, TRIG_WHEN, triggerText, validateTrigger, normPhone, phoneColumn, matchSheet };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.IbtekrCS = api;
 })(typeof window !== 'undefined' ? window : globalThis);
 

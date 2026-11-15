@@ -440,7 +440,7 @@
   }
   function TimelineEvent({ text, time }) { return h('div', { class: 'tl-ev t-small' }, Icon('activity', 'sm'), h('span', null, text), h('span', { class: 'time' }, time)); }
   function ReplyBox({ onSend, disabled }) {
-    const ta = h('textarea', { class: 'textarea', rows: 2, placeholder: 'اكتب تحديث للفريق… استخدم @ لذكر دور', 'aria-label': 'رد على التذكرة', disabled });
+    const ta = h('textarea', { class: 'textarea', rows: 2, placeholder: 'اكتب تحديث للفريق… استخدم @ لذكر دور', 'aria-label': 'رد على الطلب', disabled });
     const send = () => { const v = ta.value.trim(); if (!v) { ta.focus(); return; } onSend(v); ta.value = ''; };
     ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
     const btn = Button({ type: 'primary', label: 'إرسال', icon: 'send', disabled, onClick: send });

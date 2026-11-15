@@ -62,7 +62,7 @@ const modal = (page, text) => page.locator('.modal[role=dialog]', { hasText: tex
 test('«التقارير» is open: the nine v2 tabs (none «قريبًا» — staff opened with HR, campaigns with the ads numbers), the orders tab on our orders, the real «آخر تحديث»', async ({ page }) => {
   await openReports(page);
   await expect(page.locator('.sidebar .nav-item[data-page="reports"]')).not.toHaveAttribute('data-soon', '');
-  await expect(R(page).locator('[role=tab]')).toHaveText([/^تقارير الأوردرات$/, /^تقارير المبتكرين$/, /^تقارير الحسابات$/, /^تقارير المنتجات$/, /^تقارير الموظفين$/, /^الحملات الإعلانية$/, /^تقارير المخزن$/, /^تقارير خدمة العملاء$/, /^تقارير التذاكر$/]);
+  await expect(R(page).locator('[role=tab]')).toHaveText([/^تقارير الأوردرات$/, /^تقارير المبتكرين$/, /^تقارير الحسابات$/, /^تقارير المنتجات$/, /^تقارير الموظفين$/, /^الحملات الإعلانية$/, /^تقارير المخزن$/, /^تقارير خدمة العملاء$/, /^تقارير الطلبات$/]);
   await expect(R(page).locator('[role=tab] [data-soon]')).toHaveCount(0);
   await expect(tab(page, 'orders')).toHaveAttribute('aria-selected', 'true');
   await expect(kpi(page, 'إجمالي الأوردرات')).toContainText('3'); // the three seeded orders of the last 30 days (the 400-day-old one out)
@@ -160,9 +160,9 @@ test('the stock, customer-service and tickets tabs: the hub\'s pieces, the open 
   await expect(kpi(page, 'مستنية ردنا')).toContainText('3');
   await expect(kpi(page, 'عدّت هدف الرد')).toContainText('3'); // 18 / 30 / 20 minutes against 15
   await tab(page, 'tickets').click();
-  await expect(kpi(page, 'تذاكر مفتوحة')).toContainText('2');
-  await expect(kpi(page, 'تذاكر عاجلة')).toContainText('1');
-  await expect(kpi(page, 'تذاكر الفترة')).toContainText('3');
+  await expect(kpi(page, 'طلبات مفتوحة')).toContainText('2');
+  await expect(kpi(page, 'طلبات عاجلة')).toContainText('1');
+  await expect(kpi(page, 'طلبات الفترة')).toContainText('3');
   await expect(R(page).locator('table.rp-tk tbody tr')).toHaveCount(2);
   await expect(R(page).locator('table.rp-tk')).toContainText('عاجل');
   // the v2's order: cards, charts, then the table — though the table's title is also a card's («تذاكر مفتوحة»)
@@ -202,13 +202,13 @@ test('«تخصيص التقارير» per member (user_prefs reports.prefs): a h
   await tab(page, 'tickets').click();
   await expect(R(page).locator('#rpanel [data-tk-kpis="8"] .kpi')).toHaveCount(8);
   await R(page).locator('[data-kpi-custom="tickets"]').click();
-  const pick = modal(page, 'تخصيص تقارير التذاكر');
+  const pick = modal(page, 'تخصيص تقارير الطلبات');
   await expect(pick.locator('[data-kpi="waiting"]')).toBeDisabled(); // 8 of 8
   await pick.locator('[data-kpi="toprole"]').click();
   await pick.locator('[data-kpi="waiting"]').click();
   await pick.locator('[data-kpi-save]').click();
   await expect(kpi(page, 'بانتظار الرد')).toBeVisible();
-  await expect(kpi(page, 'أكتر دور عليه تذاكر')).toHaveCount(0);
+  await expect(kpi(page, 'أكتر دور عليه طلبات')).toHaveCount(0);
   await expect.poll(() => (mock.prefs.find((p) => p.key === 'tickets.kpis') || {}).data).toEqual(['open', 'urgent', 'overdue', 'avg', 'total', 'resolved', 'reopened', 'waiting']);
 });
 

@@ -160,7 +160,7 @@ export async function openTicket(deps: Deps, t: { title: string; description: st
   const { data, error } = await deps.db.from('tickets').insert(row).select('id').single();
   if (error || !isObj(data)) throw new Error('tickets: ' + (error?.code ?? 'insert'));
   await deps.db.from('ticket_events').insert([
-    { ticket_id: data.id, kind: 'event', actor: null, actor_name: AUTO_ACTOR.name, actor_role: AUTO_ACTOR.role, text: AUTO_ACTOR.name + ' فتح التذكرة وعيّنها لدور «خدمة العملاء»', at: deps.now() },
+    { ticket_id: data.id, kind: 'event', actor: null, actor_name: AUTO_ACTOR.name, actor_role: AUTO_ACTOR.role, text: AUTO_ACTOR.name + ' فتح الطلب وعيّنه لدور «خدمة العملاء»', at: deps.now() },
     { ticket_id: data.id, kind: 'message', actor: null, actor_name: AUTO_ACTOR.name, actor_role: AUTO_ACTOR.role, text: t.description.slice(0, 7000), at: deps.now() },
   ]);
   return Number(data.id);
@@ -253,7 +253,7 @@ export async function tick(deps: Deps, opts: { dry?: boolean } = {}): Promise<Ti
     const customer = evPhone ? customers.get(evPhone) ?? null : null;
     const target = ev.type === 'sub' || ev.type === 'transfer' ? (vendor ? await vendorTarget(deps, vendor, false) : null) : await customerTarget(deps, customer, evPhone, false);
     const condCtx: Json = { 'القناة': target ? CHANNEL_LABEL[target.channel as keyof typeof CHANNEL_LABEL] ?? target.channel : 'واتساب 1', 'الدفع': o ? payLabel(o) : '', 'الحالة': ev.to ?? '', 'الإجمالي': o ? Number(o.total) || 0 : g ? Number(g.total) || 0 : 0,
-      'عمر_الأوردر': ev.age ?? 0, 'المبتكر': vendor?.name ?? '', consents: customer ? [...(customer.auto_consent !== false ? ['auto'] : []), ...(customer.consent !== false ? ['marketing'] : [])] : ['auto', 'marketing'], has: o && openTickets.has(String(o.id)) ? ['تذكرة مفتوحة'] : [] };
+      'عمر_الأوردر': ev.age ?? 0, 'المبتكر': vendor?.name ?? '', consents: customer ? [...(customer.auto_consent !== false ? ['auto'] : []), ...(customer.consent !== false ? ['marketing'] : [])] : ['auto', 'marketing'], has: o && openTickets.has(String(o.id)) ? ['طلب مفتوح', 'تذكرة مفتوحة'] : [] /* «طلب مفتوح» (comments decision 13); a rule saved with «تذكرة مفتوحة» still matches */ };
     if (!ruleFires(rule, ev, condCtx)) continue;
     n.events++; n.by[ev.type] = (n.by[ev.type] || 0) + 1;
     const template = rule.template_id ? templates.get(String(rule.template_id)) ?? null : null;
@@ -270,7 +270,7 @@ export async function tick(deps: Deps, opts: { dry?: boolean } = {}): Promise<Ti
     if (d.result === 'skipped') { await runRow(deps, { ...base, result: 'skipped', code: d.code }); n.skipped++; continue; }
     if (d.result === 'ticket') {
       if (!(await runRow(deps, { ...base, result: 'ticket', code: null }))) continue;
-      await openTicket(deps, { title: ('قاعدة «' + rule.name + '» — ' + (o ? 'أوردر ' + o.number : entity)).slice(0, 80), description: 'الرد الآلي فتح التذكرة دي من قاعدة «' + rule.name + '»' + (ev.to ? ' لما الأوردر بقى «' + ev.to + '»' : '') + '.', orderNumber: o?.number, orderId: o?.id ?? null, customerName: customer?.name ?? o?.customer_name, customerId: customer?.id ?? null, convId: target?.convId ?? null });
+      await openTicket(deps, { title: ('قاعدة «' + rule.name + '» — ' + (o ? 'أوردر ' + o.number : entity)).slice(0, 80), description: 'الرد الآلي فتح الطلب ده من قاعدة «' + rule.name + '»' + (ev.to ? ' لما الأوردر بقى «' + ev.to + '»' : '') + '.', orderNumber: o?.number, orderId: o?.id ?? null, customerName: customer?.name ?? o?.customer_name, customerId: customer?.id ?? null, convId: target?.convId ?? null });
       n.tickets++; ruleRuns[rule.id] = (ruleRuns[rule.id] || 0) + 1; continue;
     }
     if (d.result === 'assigned' || d.result === 'tagged') {

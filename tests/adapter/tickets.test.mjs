@@ -127,7 +127,7 @@ test('the actions go to ticket_act by number; the server\'s refusals come back i
   eq(await T.setStatus('TKT-0001', 'in_progress'), { ok: true });
   eq(rpcs(stub).at(-1), ['ticket_act', { p_id: 1, p_action: 'set_status', p_args: { status: 'in_progress' } }]);
   eq(logs.at(-1)[0], 'ticket.set_status'); eq(logs.at(-1)[1], 'TKT-0001 · open → in_progress');
-  eq(await T.reply('TKT-0002', 'سر الرد', [{ path: ME + '/x.pdf', name: 'إيصال', type: 'application/pdf', size: 4 }]), { ok: false, reason: 'invalid', field: 'closed', message: 'التذكرة مغلقة — أعد فتحها الأول' });
+  eq(await T.reply('TKT-0002', 'سر الرد', [{ path: ME + '/x.pdf', name: 'إيصال', type: 'application/pdf', size: 4 }]), { ok: false, reason: 'invalid', field: 'closed', message: 'الطلب مغلق — أعد فتحه الأول' });
   eq((await T.close('TKT-0001')).message, 'مفيش صلاحية للإجراء ده');
   await T.reply('TKT-0001', 'سر الرد', []);
   eq(rpcs(stub).at(-1), ['ticket_act', { p_id: 1, p_action: 'reply', p_args: { text: 'سر الرد', attachments: [] } }]);
@@ -182,7 +182,7 @@ test('the bell: from the first load on (no write at sign-in), a new ticket for m
     { id: 10, ticket_id: 1, kind: 'message', at: later, actor: OTHER, actor_name: 'سارة', actor_role: 'خدمة العملاء', text: 'العميلة اتصلت', old_value: null, new_value: null, attachments: [] },
     { id: 11, ticket_id: 2, kind: 'message', at: later, actor: ME, actor_name: 'منى', actor_role: 'الحسابات', text: 'ردي أنا', old_value: null, new_value: null, attachments: [] }]));
   await T.load();
-  eq(T.bell().map((b) => [b.id, b.kind, b.sub]).sort(), [['TKT-0001', 'update', 'رد من سارة: العميلة اتصلت'], ['TKT-0005', 'new', 'تذكرة جديدة لدور «الحسابات» من سارة']]);
+  eq(T.bell().map((b) => [b.id, b.kind, b.sub]).sort(), [['TKT-0001', 'update', 'رد من سارة: العميلة اتصلت'], ['TKT-0005', 'new', 'طلب جديد لدور «الحسابات» من سارة']]);
   eq(writes.length, 1); eq(writes[0][0], 'tickets.seen'); // the baseline saved with the first item
   T.markSeen('TKT-0005');
   eq(store.get('tickets.seen').ids, { 5: 9 });

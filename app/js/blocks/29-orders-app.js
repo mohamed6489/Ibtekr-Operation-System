@@ -378,7 +378,7 @@ function subW(s,b){var ws=WS();if(!ws||!s)return;var id=s.itemId||String(s.n),f=
 // phase 7 decision 10 (d): «في المخزن» on a line not pulled yet whose SKU is held «متاح للبيع» in the hub
 function hubChip(s){return !s.pulled&&window.IBOrdersOps&&window.IBOrdersOps.hubHas&&['تم الشحن للعميل','مكتمل','ملغي'].indexOf(s.ss)<0&&window.IBOrdersOps.hubHas(s.sku,s.qty)?' <span class="vchip pull" data-hub-has title="فيه قطعة متاحة في مخزن ابتكر — «اسحب من المخزن» من قايمة السطر">في المخزن</span>':''}
 // phase 8 decision 3: the open tickets on the order (IBTickets.forOrder — what the member sees); a press opens them in «تذاكر الفريق»
-function tkChip(o){var T=window.IBTickets,n=T&&T.forOrder?T.forOrder(o.id).length:0;return n?' <button type="button" class="vchip tk" data-tk-order="'+esc(o.id)+'" title="تذاكر مفتوحة على الأوردر — اضغط تشوفها">'+n+(n>2&&n<11?' تذاكر':' تذكرة')+'</button>':''}
+function tkChip(o){var T=window.IBTickets,n=T&&T.forOrder?T.forOrder(o.id).length:0;return n?' <button type="button" class="vchip tk" data-tk-order="'+esc(o.id)+'" title="طلبات مفتوحة على الأوردر — اضغط تشوفها">'+n+(n>2&&n<11?' طلبات':' طلب')+'</button>':''}
 function vcell(s){return s.pulled?'<span class="vchip pull">مخزن ابتكر</span><small class="pullsub">سحب تلقائي</small>':esc(s.vendor)+hubChip(s)}
 function pullNote(s){return'<div class="pulln">'+ic('box')+'<span>من مخزن ابتكر — مفيش تبليغ مبتكر ولا عدّاد</span></div>'}
 function consBar(o){var c=window.IBOrdersOps&&window.IBOrdersOps.cons(o.id);if(!c)return'';var a=c.subs.filter(function(x){return x[2]==='وصل المخزن'}).length,rd=a===c.subs.length;
@@ -406,7 +406,7 @@ function mpOpen(btn){var key=btn.dataset.more;if(MP&&MP.key===key){mpClose(1);re
   // the owner 14 Nov: «تعديل الحالة على الموقع» (the site status of a Dokan sub-order — a popup); «مسح الأوردر الفرعي» and «تعديل الكمية»
   // are gone from the menu (the plan 2026-11-14-order-edit-tabs.md decision 3) — the order's «تعديل» has the sub-orders tab
   var sws=WS(),stItem=ls&&po&&String(ls.sid)!==String(po.id)&&sws&&sws.setSubSiteStatus&&sws.siteStatuses&&sws.siteStatuses().length?'<button type="button" role="menuitem" data-ma="sitest">'+ic('tag')+'<span>تعديل الحالة على الموقع</span></button>':'';
-  var tk=window.IbtekrApp&&window.IbtekrApp.newTicket&&window.IBTickets&&window.IBTickets.can().manage?'<button type="button" role="menuitem" data-ma="ticket">'+ic('edit')+'<span>افتح تذكرة</span></button>':''; // phase 8 decision 3
+  var tk=window.IbtekrApp&&window.IbtekrApp.newTicket&&window.IBTickets&&window.IBTickets.can().manage?'<button type="button" role="menuitem" data-ma="ticket">'+ic('edit')+'<span>افتح طلب</span></button>':''; // phase 8 decision 3
   w.innerHTML='<button type="button" role="menuitem" data-ma="edit">'+ic('edit')+'<span>تعديل</span></button>'+(stItem||'')+tk+extra+del;
  R.appendChild(w);var r=btn.getBoundingClientRect();
  w.style.left=(Math.max(8,r.left+window.scrollX))+'px';w.style.top=(r.bottom+window.scrollY+4)+'px';

@@ -217,7 +217,7 @@ test('decision 42: a maker question is answered in the chat without changing the
   const report = [{ kind: 'vendor', data: { vendor: 'Art Craft', status: 'active', period: { from: '2026-11-01', to: '2026-11-10' },
     orders: { total: 3, totalEgp: 2100, byStatus: { 'ملغي': 1, 'جاري التنفيذ': 2 }, cancelled: 1, late: 1, rows: [{ number: 180672, status: 'ملغي', total: 700 }] },
     account: { dokanBalance: 3000, deposits: 500, transport: 50, otherMoves: 0, net: 2450 } } },
-  { kind: 'files', data: { total: 1, rows: [{ source: 'ticket', ref: FILE, name: 'صورة الكسر.jpg', label: 'مرفق تذكرة', owner: 'TKT-0007' }] } }];
+  { kind: 'files', data: { total: 1, rows: [{ source: 'ticket', ref: FILE, name: 'صورة الكسر.jpg', label: 'مرفق طلب', owner: 'TKT-0007' }] } }];
   mock.aiAnswer = (action) => (action === 'assistant' ? { text: 'Art Craft عنده 3 أوردرات، واحد ملغي، والصافي 2,450 ج.م. نزّل الصورة من هنا.', tools: ['vendor', 'files'], report,
     actions: [{ name: 'offer_file', input: { source: 'ticket', ref: FILE, name: 'صورة الكسر.jpg' } }] } : null);
   await signIn(page, OPS);

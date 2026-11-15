@@ -346,7 +346,7 @@ test('6.5 load: templates / quick replies / rules → the prototype shapes (trig
   eq(plain(S.data.quick), [{ id: Q1, key: '/شحن', label: 'مواعيد الشحن', text: 'الشحن 2–3 أيام.' }]);
   const r = plain(S.data.rules[0]);
   eq([r.id, r.group, r.event, r.to, r.conds, r.action, r.tpl, r.tplName, r.delayMin, r.once, r.ticket, r.on, r.runs], [R1, 'العملاء — حالة الأوردر', 'status', 'جاري التنفيذ', [['القناة', '=', 'واتساب 1']], 'send', T1, 'تأكيد الأوردر', 5, true, true, true, 3]);
-  assert.equal(r.logic, 'لما: الأوردر بقى «جاري التنفيذ» والقناة = واتساب 1 ← ابعت قالب «تأكيد الأوردر» · بعد 5 دقايق · مرة واحدة · مردّش 24 ساعة → تذكرة');
+  assert.equal(r.logic, 'لما: الأوردر بقى «جاري التنفيذ» والقناة = واتساب 1 ← ابعت قالب «تأكيد الأوردر» · بعد 5 دقايق · مرة واحدة · مردّش 24 ساعة → طلب');
   assert.match(r.stats, /^اتنفذت 3 مرة · آخر مرة /);
   eq(plain(S.data.auto), { live: true, hours: { from: 10, to: 23 }, delayMin: 20, delayMax: 60, daily: { wa1: 300, wa2: 150 }, afterHoursText: 'نرد بكرة', cart: { afterMin: 90 } });
   eq(plain(S.quickList()), [{ key: '/شحن', label: 'مواعيد الشحن', text: 'الشحن 2–3 أيام.', kind: 'quick' }, { key: '/تأكيد', label: 'تأكيد الأوردر', text: TPL.body, kind: 'template', id: T1 }]);

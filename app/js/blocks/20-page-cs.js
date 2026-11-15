@@ -333,7 +333,7 @@
     const cu = c.who && c.seg !== 'vendors' ? C(c.who) : null;
     const more = K.RowMenu([
       { label: 'تأجيل', icon: 'moon', run: () => snooze(c) },
-      { label: 'تحويل لتذكرة', icon: 'ticket', run: () => ticketFrom(c, cu) },
+      { label: 'تحويل لطلب', icon: 'ticket', run: () => ticketFrom(c, cu) },
       cu ? { label: 'إضافة تاج', icon: 'tag', run: () => addTag(cu) } : null,
       cu && can().manage ? { label: 'دمج مع عميل تاني', icon: 'merge', run: () => merge(cu) } : null,
       { label: 'تعليم كغير مقروءة', run: () => A().setUnread(c.id, 1).then((r) => { if (done(r)) R(); }) },
@@ -568,7 +568,7 @@
     m.el.classList.add('wide'); search(); drawItems(); setTimeout(() => { const f = document.getElementById('co-q'); if (f) f.focus(); });
   }
   function ticketFrom(c, cu) {
-    const app = APP(); if (!app || !app.newTicket || !TKA() || !TKA().can().manage) { K.toast('مفيش صلاحية تفتح تذاكر', 'error'); return; }
+    const app = APP(); if (!app || !app.newTicket || !TKA() || !TKA().can().manage) { K.toast('مفيش صلاحية تفتح طلبات', 'error'); return; }
     if (c.seg === 'vendors') { const v = V(c.who); app.newTicket({ type: 'vendor', vendor: v ? v.name : '', vendorId: v ? v.id : null, csConversationId: c.id }); return; }
     if (cu) { const open = cu.orderList.filter((o) => o[1] !== 'Completed' && o[1] !== 'Cancelled'); const o = open[0] || cu.orderList[0];
       app.newTicket({ type: o ? 'customer' : 'internal', orderId: o ? String(o[0]).replace(/^IB-/, '') : '', customer: cu.name, csCustomerId: cu.id, csConversationId: c.id }); return; }
@@ -577,8 +577,8 @@
   function TicketsSec(list, more) {
     const T = TKA(); if (!T || !T.can().view) return null;
     const app = APP(); const LBL = { open: 'مفتوح', in_progress: 'جاري العمل', waiting: 'بانتظار الرد', resolved: 'تم الحل', closed: 'مغلق' };
-    return sec('التذاكر', more, list.length ? list.slice(0, 5).map((t) => h('div', { class: 'ord' }, h('div', { class: 'r' }, link(t.id, () => app && app.openTicket && app.openTicket(t.id)), K.Tag(t.status === 'resolved' || t.status === 'closed' ? 'success' : 'brand', LBL[t.status] || t.status)), h('div', { class: 't-small' }, t.title + ' · ' + t.assigneeRole)))
-      : h('div', { class: 't-small' }, 'مفيش تذاكر.'));
+    return sec('الطلبات', more, list.length ? list.slice(0, 5).map((t) => h('div', { class: 'ord' }, h('div', { class: 'r' }, link(t.id, () => app && app.openTicket && app.openTicket(t.id)), K.Tag(t.status === 'resolved' || t.status === 'closed' ? 'success' : 'brand', LBL[t.status] || t.status)), h('div', { class: 't-small' }, t.title + ' · ' + t.assigneeRole)))
+      : h('div', { class: 't-small' }, 'مفيش طلبات.'));
   }
   const ticketsOf = (cu, c) => { const T = TKA(); if (!T) return []; const seen = new Set(); return T.forCustomer(cu ? cu.id : null, true).concat(c ? T.forConversation(c.id, true) : []).filter((t) => (seen.has(t.id) ? false : seen.add(t.id))).sort((a, b) => (a.lastUpdate < b.lastUpdate ? 1 : -1)); };
   function CustomerPanel(cu, c) {
@@ -590,8 +590,8 @@
       sec('بيانات التواصل', can().manage ? link('تعديل', () => editContact(cu)) : null, [cu.phone ? U.InfoRow({ label: 'واتساب', value: cu.phone, copy: can().phone, onCopy: (v) => copy(v, 'الرقم') }) : null, cu.ig ? U.InfoRow({ label: 'إنستجرام', value: cu.ig, copy: true, onCopy: (v) => copy(v, 'الحساب') }) : null, cu.address ? U.InfoRow({ label: 'العنوان', value: cu.address }) : null]),
       sec('أرقام الشراء', null, h('div', { class: 'kvg' }, [['الأوردرات', cu.orders], ['إجمالي الشراء', K.n0(cu.total) + ' ج.م'], ['متوسط الأوردر', cu.orders ? K.n0(cu.total / cu.orders) + ' ج.م' : '—'], ['آخر أوردر', cu.lastOrderDays != null ? 'من ' + cu.lastOrderDays + ' يوم' : '—'], ['رفض استلام', cu.refused], ['مرتجع', cu.returned]].map(([k, v]) => h('div', { class: 'kvc' }, h('span', { class: 't-small' }, k), h('b', null, K.Num(String(v))))))),
       sec('الأوردرات', cu.orderList.length ? link('عرض الكل (' + cu.orders + ')', () => profile(cu, 'orders')) : null, cu.orderList.length ? cu.orderList.map(OrderRow) : h('div', { class: 't-small' }, can().orders ? 'لسه مفيش أوردرات' : 'الأوردرات محتاجة صلاحية عرضها')),
-      sec('إجراءات سريعة', null, h('div', { class: 'qa' }, Button({ size: 'sm', label: 'إرسال رابط التتبع', disabled: !cu.orderList.length, onClick: () => { st.draft = fillFor(c, 'تابعي شحنتك من هنا: {رابط_التتبع}'); st.mode = 'reply'; R(); focusComposer(); } }), Button({ size: 'sm', label: 'إرسال لينك دفع', attrs: { 'data-pay-link': '' }, onClick: () => payLinkPopup(cu, c) }), Button({ size: 'sm', label: 'إنشاء أوردر', attrs: { 'data-new-order': '' }, onClick: () => createOrderPopup(cu, c) }), Button({ size: 'sm', label: 'تعديل أوردر', disabled: !cu.orderList.length, attrs: { 'data-edit-order': '', title: cu.orderList.length ? '' : 'مفيش أوردرات للعميل ده' }, onClick: () => editCustOrder(cu, c) }), Button({ size: 'sm', label: 'تحويل لتذكرة', onClick: () => ticketFrom(c, cu) }))),
-      TicketsSec(ticketsOf(cu, c), TKA() && TKA().can().manage ? link('+ تذكرة', () => ticketFrom(c, cu)) : null),
+      sec('إجراءات سريعة', null, h('div', { class: 'qa' }, Button({ size: 'sm', label: 'إرسال رابط التتبع', disabled: !cu.orderList.length, onClick: () => { st.draft = fillFor(c, 'تابعي شحنتك من هنا: {رابط_التتبع}'); st.mode = 'reply'; R(); focusComposer(); } }), Button({ size: 'sm', label: 'إرسال لينك دفع', attrs: { 'data-pay-link': '' }, onClick: () => payLinkPopup(cu, c) }), Button({ size: 'sm', label: 'إنشاء أوردر', attrs: { 'data-new-order': '' }, onClick: () => createOrderPopup(cu, c) }), Button({ size: 'sm', label: 'تعديل أوردر', disabled: !cu.orderList.length, attrs: { 'data-edit-order': '', title: cu.orderList.length ? '' : 'مفيش أوردرات للعميل ده' }, onClick: () => editCustOrder(cu, c) }), Button({ size: 'sm', label: 'تحويل لطلب', onClick: () => ticketFrom(c, cu) }))),
+      TicketsSec(ticketsOf(cu, c), TKA() && TKA().can().manage ? link('+ طلب', () => ticketFrom(c, cu)) : null),
       cu.source ? sec('جه منين', null, h('div', { class: 'r t-small' }, Icon('megaphone', 'sm'), cu.source)) : null);
   }
   function VendorPanel(v, c) {
@@ -601,8 +601,8 @@
       sec('التواصل', link('صفحة المبتكر', () => { location.hash = 'vendors'; }), [v.phone ? U.InfoRow({ label: 'واتساب 2', value: v.phone, copy: true, onCopy: (x) => copy(x, 'الرقم') }) : null, U.InfoRow({ label: 'المسؤول عندهم', value: v.contact })]),
       sec('أرقام المبتكر', null, h('div', { class: 'kvg' }, [['فرعي مفتوح', v.open], ['متأخر', v.late], ['مدة التصنيع', v.avg]].map(([k, x]) => h('div', { class: 'kvc' }, h('span', { class: 't-small' }, k), h('b', null, K.Num(String(x))))))),
       sec('الأوردرات الفرعية المفتوحة', v.open ? link('عرض الكل (' + v.open + ')', () => { location.hash = 'orders'; }) : null, v.subs.length ? v.subs.map((s) => h('div', { class: 'ord' }, h('div', { class: 'r' }, link(s[0], () => openOrder(s[3])), U.DelayBadge(s[2] === 'AtRisk' ? 'risk' : s[2] === 'Late' ? 'late' : 'ok')), h('div', { class: 't-small' }, s[1]))) : h('div', { class: 't-small' }, 'مفيش أوردرات فرعية مفتوحة')),
-      TicketsSec(TKA() ? TKA().forVendor(v.id) : [], TKA() && TKA().can().manage ? link('+ تذكرة', () => ticketFrom(c, null)) : null),
-      sec('إجراءات سريعة', null, h('div', { class: 'qa' }, Button({ size: 'sm', label: 'تذكير بميعاد التسليم', onClick: () => pickTemplate(c) }), Button({ size: 'sm', label: 'تعديل ميعاد التسليم', onClick: () => K.form({ title: 'تعديل ميعاد التسليم', values: { d: today() }, fields: (f, e, set) => [K.field.date('d', 'ميعاد التسليم الجديد', f, e, set, { required: true })], submitLabel: 'حفظ', submit: async (f) => { const r = await A().event(c.id, 'ميعاد تسليم ' + (v.subs[0] ? v.subs[0][0] : '') + ' اتغير لـ ' + K.dlabel(f.d) + ' — ' + meName()); if (done(r)) R(); } }) }), Button({ size: 'sm', label: 'تحويل لتذكرة', onClick: () => ticketFrom(c, null) }))));
+      TicketsSec(TKA() ? TKA().forVendor(v.id) : [], TKA() && TKA().can().manage ? link('+ طلب', () => ticketFrom(c, null)) : null),
+      sec('إجراءات سريعة', null, h('div', { class: 'qa' }, Button({ size: 'sm', label: 'تذكير بميعاد التسليم', onClick: () => pickTemplate(c) }), Button({ size: 'sm', label: 'تعديل ميعاد التسليم', onClick: () => K.form({ title: 'تعديل ميعاد التسليم', values: { d: today() }, fields: (f, e, set) => [K.field.date('d', 'ميعاد التسليم الجديد', f, e, set, { required: true })], submitLabel: 'حفظ', submit: async (f) => { const r = await A().event(c.id, 'ميعاد تسليم ' + (v.subs[0] ? v.subs[0][0] : '') + ' اتغير لـ ' + K.dlabel(f.d) + ' — ' + meName()); if (done(r)) R(); } }) }), Button({ size: 'sm', label: 'تحويل لطلب', onClick: () => ticketFrom(c, null) }))));
   }
   // تعديل أوردر من الشات (owner 1 Nov): لو أكتر من أوردر بيختار الأول؛ بيفتح نفس شاشة تعديل صفحة الأوردرات
   function editCustOrder(cu, c) {
@@ -1289,6 +1289,7 @@
   function trigFields(f, e, set) {
     const T = CS.TRIGGERS[f.cat] || { label: 'يتبعت عند', opts: [] };
     const on = Array.isArray(f.trigOn) ? f.trigOn : (f.trigOn = []);
+    if (CS.trigName) on.forEach((x, i) => { on[i] = CS.trigName(x); }); // comments decision 13: a template saved with «تذكرة جديدة»
     const toggle = (o, v) => { const i = on.indexOf(o); if (v && i < 0) on.push(o); if (!v && i > -1) on.splice(i, 1); set('trigOn', on.slice(), true); };
     return h('fieldset', { class: 'blk tp-trig', 'data-trig': '' }, h('legend', null, 'امتى يتبعت؟'),
       K.Radios({ label: null, value: f.trigKind, error: e.trigKind, onChange: (v) => set('trigKind', v, true), options: [
@@ -1361,7 +1362,7 @@
   }
   async function ruleLog(r) {
     const runs = await A().ruleRuns(r.id, 30);
-    const RES = { sent: ['success', 'اتبعتت'], held: ['info', 'محجوزة'], skipped: ['neutral', 'اتخطّت'], failed: ['error', 'فشلت'], ticket: ['orange', 'تذكرة'], assigned: ['info', 'تعيين'], tagged: ['info', 'تاج'] };
+    const RES = { sent: ['success', 'اتبعتت'], held: ['info', 'محجوزة'], skipped: ['neutral', 'اتخطّت'], failed: ['error', 'فشلت'], ticket: ['orange', 'طلب'], assigned: ['info', 'تعيين'], tagged: ['info', 'تاج'] };
     const CODE = { off: 'الإرسال التلقائي متوقف', consent: 'العميل مش موافق', blocked: 'عميل محظور', merged: 'عميل مدموج', channel: 'القناة مش مناسبة للقالب', no_template: 'مفيش قالب', inactive: 'القالب مسودة', missing_var: 'متغير ناقص في البيانات', window: 'برّه نافذة الـ 24 ساعة ومفيش قالب Meta', cap: 'الحد اليومي', hours: 'مواعيد الإرسال', delay: 'التوقيت', pace: 'الدور', no_channel: 'مفيش قناة للعميل', not_linked: 'القناة مش مربوطة', no_phone: 'مفيش رقم', silent: 'مردّش في 24 ساعة', lost: 'الرسالة اتشالت' };
     const m = U.Modal({ title: 'سجل التنفيذ — ' + r.name, body: [runs.length ? U.Table({ headers: ['الوقت', 'على', 'النتيجة', 'السبب / القناة'], rows: runs.map((x) => [whenLabel(x.at), x.entity, K.Tag(RES[x.result] ? RES[x.result][0] : 'neutral', RES[x.result] ? RES[x.result][1] : x.result), CODE[x.code] || x.code || '—']) }) : K.Empty('لسه ما اتنفذتش', 'أول تنفيذ هيظهر هنا بالوقت والنتيجة.')], footer: [Button({ label: 'إغلاق', onClick: () => m.close() })] }); m.el.classList.add('wide');
   }
@@ -1378,11 +1379,11 @@
           h('fieldset', { class: 'blk' }, h('legend', null, Icon('zap', 'sm'), ' لما (الحدث)'), K.two(K.field.select('event', 'الحدث', EV, f, e, (k, x) => { if (x === 'afterhours') f.tpl = ''; set(k, x, true); }, { required: true }), f.event === 'status' ? K.field.select('to', 'إلى', STATUS_TO, f, e, set, { required: true }) : h('span')),
             f.event === 'cart' ? U.InlineNote({ children: 'السلة المتروكة = أوردر وقف عند الدفع على الموقع (قيد الانتظار / فشل) من ' + (S.auto || A().DEFAULT_AUTO).cart.afterMin + ' دقيقة ومحدش كمّل بعده — وكمان سلة الزائر اللي كتب رقمه في الـ checkout ومكمّلش (من إضافة Cart Abandonment Recovery على الموقع لو متركّبة) — وبيحتاج موافقة التسويق من العميل.' }) : f.event === 'afterhours' ? U.InlineNote({ children: 'من غير قالب بيتبعت «رد خارج مواعيد العمل» من إعدادات الإرسال — مرة واحدة في الليلة لكل محادثة.' }) : null),
           h('fieldset', { class: 'blk' }, h('legend', null, Icon('filter', 'sm'), ' لو (الشروط) — اختياري'), f.conds.map((c, i) => h('div', { class: 'cond', 'data-cond': i }, U.Select({ id: 'cf-' + i, options: COND_FIELDS.map((x) => ({ value: x, label: x })), value: c[0], onChange: (x) => { c[0] = x; } }), U.Select({ id: 'co-' + i, options: COND_OPS.map((x) => ({ value: x, label: x })), value: c[1], onChange: (x) => { c[1] = x; } }), U.TextInput({ id: 'cv-' + i, label: null, value: c[2], placeholder: 'القيمة', onInput: (x) => { c[2] = x; } }), IconButton({ icon: 'close', label: 'حذف الشرط', onClick: () => { f.conds.splice(i, 1); draw(); } }))), e.conds ? h('div', { class: 'err-msg', role: 'alert' }, e.conds) : null,
-            Button({ type: 'text', size: 'sm', icon: 'plus', label: 'إضافة شرط (و)', onClick: () => { f.conds.push(['القناة', '=', 'واتساب 1']); draw(); } }), h('div', { class: 't-small help' }, 'القناة: واتساب 1 / ماسنجر / إنستجرام / واتساب 2 · الدفع: كاش / أونلاين · العميل موافق على: الرد الآلي / التسويق · الأوردر فيه / مفيهوش: تذكرة مفتوحة')),
+            Button({ type: 'text', size: 'sm', icon: 'plus', label: 'إضافة شرط (و)', onClick: () => { f.conds.push(['القناة', '=', 'واتساب 1']); draw(); } }), h('div', { class: 't-small help' }, 'القناة: واتساب 1 / ماسنجر / إنستجرام / واتساب 2 · الدفع: كاش / أونلاين · العميل موافق على: الرد الآلي / التسويق · الأوردر فيه / مفيهوش: طلب مفتوح')),
           h('fieldset', { class: 'blk' }, h('legend', null, Icon('send', 'sm'), ' اعمل (الإجراء)'), h('div', { class: 'row cols3' }, K.field.select('action', 'الإجراء', ACT, f, e, set, { required: true }),
               f.action === 'send' ? K.field.select('tpl', 'القالب', (f.event === 'afterhours' ? [{ value: '', label: 'نص خارج المواعيد (من الإعدادات)' }] : []).concat(tplOpts), f, e, set, { required: f.event !== 'afterhours' }) : f.action === 'assign' ? K.field.select('roleId', 'الدور', roles, f, e, set, { required: true }) : f.action === 'tag' ? K.field.text('tag', 'التاج', f, e, set, { required: true }) : h('span'),
               K.field.select('delayMin', 'التوقيت', A().DELAYS.map(([m, l]) => ({ value: String(m), label: l })), f, e, set, { required: true })),
-            K.Checkbox({ label: 'مرة واحدة بس لكل أوردر / محادثة', checked: f.once, onChange: (x) => set('once', x, true) }), f.action === 'send' ? K.Checkbox({ label: 'لو العميل مردّش خلال 24 ساعة افتح تذكرة لخدمة العملاء', checked: f.ticket, onChange: (x) => set('ticket', x, true) }) : null),
+            K.Checkbox({ label: 'مرة واحدة بس لكل أوردر / محادثة', checked: f.once, onChange: (x) => set('once', x, true) }), f.action === 'send' ? K.Checkbox({ label: 'لو العميل مردّش خلال 24 ساعة افتح طلب لخدمة العملاء', checked: f.ticket, onChange: (x) => set('ticket', x, true) }) : null),
           U.InlineNote({ children: 'ملخص: ' + A().ruleLogic({ event: f.event, to: f.to, conds: f.conds, action: f.action, roleId: f.roleId, tag: f.tag, delayMin: Number(f.delayMin), once: f.once, ticket: f.ticket }, (S.templates.find((x) => x.id === f.tpl) || {}).name || '') })]; },
       validate: (f) => (A().validateRule ? A().validateRule({ name: f.name, event: f.event, to: f.to, action: f.action, tpl: f.tpl, roleId: f.roleId, tag: f.tag, conds: f.conds }) : {}), submitLabel: 'حفظ وتفعيل',
       extraFooter: (f, m) => Button({ label: 'حفظ كمسودة', attrs: { 'data-rule-draft': '' }, onClick: async () => { if (!f.name) { K.toast('اكتب اسم القاعدة', 'error'); return; } if (await save(f, false)) m.close(); } }),

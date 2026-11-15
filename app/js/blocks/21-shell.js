@@ -76,7 +76,7 @@
   }
   function endOvertime(after) {
     const end = worked();
-    K.form({ title: 'إنهاء الوقت الإضافي', values: {}, note: U.InlineNote({ children: 'اشتغلت ' + K.hrs(end - sh.otStart) + ' وقت إضافي (من ' + clockLabel(realOf(sh.otStart)) + '). هيتسجل في تذكرة الطلب ويتبعت لمديرك المباشر يأكده — ولو عدّى ' + (settings().escalate || 24) + ' ساعة بيروح للأدمن.' }),
+    K.form({ title: 'إنهاء الوقت الإضافي', values: {}, note: U.InlineNote({ children: 'اشتغلت ' + K.hrs(end - sh.otStart) + ' وقت إضافي (من ' + clockLabel(realOf(sh.otStart)) + '). هيتسجل في الطلب ويتبعت لمديرك المباشر يأكده — ولو عدّى ' + (settings().escalate || 24) + ' ساعة بيروح للأدمن.' }),
       fields: (f, e, set) => [K.field.area('note', 'اشتغلت على إيه في الوقت ده؟', f, e, set, { required: true, placeholder: 'مثلاً: جهزت 14 أوردر لشحنة أرامكس' })],
       validate: (f) => { const err = O.validateOtEnd(f.note); return err ? { note: err } : {}; }, submitLabel: 'إنهاء الدوام وإرسال للتأكيد', submit: (f) => { finish(end, f.note.trim(), false).then(() => { if (after) after(); }); } });
   }
@@ -93,7 +93,7 @@
   }
   function shiftOver() {
     sh.endAsked = true; remember();
-    const m = U.Modal({ title: 'اكتمال ساعات العمل', body: [h('p', { style: 'margin:0' }, 'كمّلت ' + dayHrs() + ' النهارده (من أول ' + clockLabel(sh.start) + '). تنهي الدوام ولا تبدأ وقت إضافي؟'), h('p', { class: 't-small help', style: 'margin:0' }, 'الوقت الإضافي بيتبعت طلب في «تذاكر الفريق» لمديرك المباشر ومابيتحسبش غير بعد موافقته.')],
+    const m = U.Modal({ title: 'اكتمال ساعات العمل', body: [h('p', { style: 'margin:0' }, 'كمّلت ' + dayHrs() + ' النهارده (من أول ' + clockLabel(sh.start) + '). تنهي الدوام ولا تبدأ وقت إضافي؟'), h('p', { class: 't-small help', style: 'margin:0' }, 'الوقت الإضافي بيتبعت طلب في «طلبات الفريق» لمديرك المباشر ومابيتحسبش غير بعد موافقته.')],
       footer: [Button({ label: 'ابدأ وقت إضافي', onClick: () => { m.close(); startOvertime(true); } }), Button({ type: 'primary', label: 'إنهاء الدوام', onClick: () => { m.close(); finish(Math.min(worked(), DM()), '', false); } })] });
   }
   function closePresence() { if (sh.presence) { clearInterval(sh.presence.t); sh.presence.modal.close(); sh.presence = null; } }

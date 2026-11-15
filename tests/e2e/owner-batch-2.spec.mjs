@@ -276,7 +276,7 @@ test('T5 — decision 32: a request to one member of the role; the list opens un
   await m.getByRole('button', { name: 'إنشاء الطلب' }).click();
   const d = page.locator('.drawer');
   await expect(d).toContainText('المسؤول: الحسابات — منى حسن');
-  await expect(d).toContainText('عيّنها لدور «الحسابات» — منى حسن');
+  await expect(d).toContainText('عيّنه لدور «الحسابات» — منى حسن');
   const w = mock.ticketWrites.find((x) => x.fn === 'ticket_create');
   expect([w.assigneeRole, w.assigneeMember]).toEqual(['الحسابات', '00000000-0000-4000-8000-000000000004']);
   // back to the whole role from «تغيير المسؤول»

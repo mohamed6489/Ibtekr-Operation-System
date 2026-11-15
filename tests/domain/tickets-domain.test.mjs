@@ -41,7 +41,7 @@ test('working on a ticket = the admin or its role; closing / reopening = the adm
   assert.equal(s.get(t.id).resolution.outcome, 'اتحلت المشكلة');
   assert.throws(() => s.close(t.id, ACC), /صلاحية/);
   s.close(t.id, CS);
-  assert.throws(() => s.reply(t.id, 'x', ACC), /مغلقة/);
+  assert.throws(() => s.reply(t.id, 'x', ACC), /مغلق/);
   assert.throws(() => s.reopen(t.id, { reason: ' ' }, CS), /reason/);
   s.reopen(t.id, { reason: 'ماوصلش' }, CS);
   const r = s.get(t.id);

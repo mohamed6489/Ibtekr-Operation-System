@@ -231,7 +231,7 @@ async function bankRequest(deps: Deps, who: Who, args: Json) {
   const { data, error } = await deps.db.from('tickets').insert(row).select('id').single();
   if (error || !isObj(data)) return json(500, { error: 'failed' });
   await deps.db.from('ticket_events').insert([
-    { ticket_id: data.id, kind: 'event', actor: null, actor_name: PORTAL_ACTOR.name, actor_role: PORTAL_ACTOR.role, text: PORTAL_ACTOR.name + ' فتحت التذكرة وعيّنتها لدور «الحسابات»', at: deps.now() },
+    { ticket_id: data.id, kind: 'event', actor: null, actor_name: PORTAL_ACTOR.name, actor_role: PORTAL_ACTOR.role, text: PORTAL_ACTOR.name + ' فتحت الطلب وعيّنته لدور «الحسابات»', at: deps.now() },
     { ticket_id: data.id, kind: 'message', actor: null, actor_name: PORTAL_ACTOR.name, actor_role: PORTAL_ACTOR.role, text: description, at: deps.now() },
   ]);
   try { await deps.db.from('activity_log').insert({ at: deps.now(), actor: null, action: 'portal.bank_request', entity: 'vendor', entity_id: who.vendor, new_value: String(data.id) }); } catch { /* never blocks */ }

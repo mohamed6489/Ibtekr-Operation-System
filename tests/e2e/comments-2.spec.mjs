@@ -28,7 +28,9 @@ test('comment 4 — makers › «حسابات المبتكرين»: «تحديث
   await signIn(page);
   await go(page, 'makers');
   await page.locator('#vendors [role=tablist][aria-label="أقسام المبتكرين"] [role=tab]', { hasText: 'حسابات المبتكرين' }).click();
-  const head = page.locator('#vpanel section.card .table-title').first();
+  const head = page.locator('#vpanel section.card .table-title').filter({ has: page.locator('[data-dokan-refresh]') }).first();
+  // the kit puts «بحث» in the head a moment after the card is drawn — measure once both stand there
+  await expect(head.locator('[data-dokan-refresh]')).toBeVisible(); await expect(head.locator('[data-tq-btn]')).toBeVisible();
   const refresh = await box(head.locator('[data-dokan-refresh]')); const search = await box(head.locator('[data-tq-btn]')); const title = await box(head.locator('h2'));
   // RTL: the title at the right; the page's button directly at the right of «بحث», no gap of free space between them
   expect(refresh.x).toBeGreaterThan(search.x + search.width - 1);
@@ -37,6 +39,7 @@ test('comment 4 — makers › «حسابات المبتكرين»: «تحديث
   // the accounts page's own tab is the same card
   await go(page, 'accounts-vendors');
   const head2 = page.locator('#rpanel section.card .table-title, main:not([hidden]) section.card .table-title').filter({ has: page.locator('[data-dokan-refresh]') }).first();
+  await expect(head2.locator('[data-dokan-refresh]')).toBeVisible(); await expect(head2.locator('[data-tq-btn]')).toBeVisible();
   const r2 = await box(head2.locator('[data-dokan-refresh]')); const s2 = await box(head2.locator('[data-tq-btn]'));
   expect(r2.x - (s2.x + s2.width)).toBeLessThan(24);
 });

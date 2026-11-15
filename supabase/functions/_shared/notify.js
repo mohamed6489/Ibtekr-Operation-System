@@ -30,9 +30,9 @@ export const SOURCES = Object.freeze([
   S('accounts.vendors', 'accounts', 'كشف حساب المبتكرين', ['vendors.view', 'P'], 'RSNRRN', null, 'accounts'),
   S('accounts.subs', 'accounts', 'اشتراك قرب يخلص', ['accounts.view', 'P'], 'RNNRNN', null, 'accounts'),
   S('accounts.subs_expired', 'accounts', 'اشتراك خلص من غير تجديد', ['accounts.view', 'P'], 'RNNRNN', null, 'accounts'),
-  S('tasks.urgent', 'tasks', 'تذكرة عاجلة / عالية', ['tickets.view', 'P'], 'RRRRRS', 'تذكرة عاجلة بدون رد', 'tickets'),
-  S('tasks.high', 'tasks', 'تذكرة عاجلة / عالية', ['tickets.view', 'P'], 'RRRRRS', null, 'tickets'),
-  S('tasks.late', 'tasks', 'تذكرة متأخرة عن موعد المتابعة', ['tickets.view', 'P'], 'RRRRRS', null, 'tickets'),
+  S('tasks.urgent', 'tasks', 'طلب عاجل / عالي', ['tickets.view', 'P'], 'RRRRRS', 'طلب عاجل بدون رد', 'tickets'),
+  S('tasks.high', 'tasks', 'طلب عاجل / عالي', ['tickets.view', 'P'], 'RRRRRS', null, 'tickets'),
+  S('tasks.late', 'tasks', 'طلب متأخر عن موعد المتابعة', ['tickets.view', 'P'], 'RRRRRS', null, 'tickets'),
   S('messages.waiting', 'messages', 'رسالة مستنية ردنا', ['cs.view', 'P'], 'RSRNNN', null, 'cs'),
   S('messages.late', 'messages', 'رسالة متأخرة عن الرد', ['cs.view', 'P'], 'RRRNNN', null, 'cs'),
   S('messages.channels', 'messages', 'فشل مزامنة منصة', null, 'RRRNNN', 'فشل مزامنة منصة', 'cs-channels'),
@@ -55,7 +55,7 @@ export const sourceOf = (key) => SOURCES.find((s) => s.key === key) || null;
 export const DEFAULT_TYPES = Object.freeze([
   ['عملاء', [['أوردر متأخر — محتاج متابعة مع العميل', 'حتى الإغلاق', 'داخل السيستم + واتساب', 'خدمة العملاء', true, 'لحد ما يتحل', 'كل 24 ساعة'], ['أوردر معلّق — محتاج متابعة', '7 أيام', 'داخل السيستم + واتساب', 'خدمة العملاء', true, '3 مرات', 'كل 24 ساعة'], ['غير مؤكد من العميل', '3 أيام', 'داخل السيستم', 'خدمة العملاء', true], ['في انتظار رد العميل', '2 يوم', 'داخل السيستم', 'خدمة العملاء', true]]],
   ['المبتكرين', [['المتابعة اليومية للمبتكر', 'حتى الإغلاق', 'داخل السيستم + واتساب + إيميل', 'متابعة المبتكرين + المبتكر (واتساب)', true, 'لحد ما يتحل', 'كل 24 ساعة', '10:00 ص'], ['مبتكر قابل للتأخير (آخر 3 أيام من مدة التصنيع)', 'حتى الإغلاق', 'داخل السيستم', 'متابعة المبتكرين', true], ['عقد مبتكر بينتهي', '30 يوم', 'داخل السيستم + إيميل', 'أدمن', true], ['التقرير الأسبوعي للمبتكر', '7 أيام', 'داخل السيستم + واتساب', 'متابعة المبتكرين + الحسابات + المبتكر (واتساب)', true, 'مرة واحدة', 'أسبوعيًا', '10:00 ص', null, 'الأحد']]],
-  ['مهام', [['تذكرة عاجلة / عالية', 'حتى الحل', 'داخل السيستم + واتساب', 'المسؤول عن التذكرة', true, 'لحد ما يتحل', 'كل 4 ساعات'], ['تذكرة متأخرة عن موعد المتابعة', 'حتى الحل', 'داخل السيستم', 'المسؤول + خدمة العملاء', true], ['مراجعة تنشيط مبتكر', 'حتى القرار', 'داخل السيستم', 'أدمن', true], ['فشل مزامنة منصة', 'حتى الإصلاح', 'داخل السيستم + إيميل', 'أدمن', true], ['ملخص يومي', '1 يوم', 'إيميل', 'الكل', true]]],
+  ['مهام', [['طلب عاجل / عالي', 'حتى الحل', 'داخل السيستم + واتساب', 'المسؤول عن الطلب', true, 'لحد ما يتحل', 'كل 4 ساعات'], ['طلب متأخر عن موعد المتابعة', 'حتى الحل', 'داخل السيستم', 'المسؤول + خدمة العملاء', true], ['مراجعة تنشيط مبتكر', 'حتى القرار', 'داخل السيستم', 'أدمن', true], ['فشل مزامنة منصة', 'حتى الإصلاح', 'داخل السيستم + إيميل', 'أدمن', true], ['ملخص يومي', '1 يوم', 'إيميل', 'الكل', true]]],
   ['الفريق', [['طلب إجازة / سُلفة / تصحيح', 'حتى القرار', 'داخل السيستم', 'المدير المباشر', true], ['وقت إضافي محتاج تأكيد', '24 ساعة ثم تصعيد', 'داخل السيستم', 'المدير المباشر ← الأدمن', true], ['ميتنج فردي اتحدد', 'حتى الميعاد', 'داخل السيستم + إيميل', 'العضو + الأدمن', true]]],
   ['الحسابات', [['مرتبات الموظفين — قبل يوم الصرف', 'حتى الدفع', 'داخل السيستم + إيميل', 'أدمن + الحسابات', true, 'لحد ما يتحل', 'كل 24 ساعة'], ['كشف حساب المبتكرين', '7 أيام', 'داخل السيستم + واتساب', 'الحسابات + المبتكر (واتساب)', true, 'مرة واحدة', 'أيام محددة من الشهر', '12:00 ص', [16, 'last']], ['اشتراك قرب يخلص', 'حتى التجديد', 'داخل السيستم + إيميل', 'أدمن + الحسابات', true, 'لحد ما يتحل', 'كل 24 ساعة'], ['اشتراك خلص من غير تجديد', 'حتى التجديد', 'داخل السيستم + إيميل', 'أدمن + الحسابات', true, 'لحد ما يتحل', 'كل 24 ساعة']]],
   ['المخزن', [['اتحجزت قطعة من المخزن', '3 أيام', 'داخل السيستم', 'أدمن + مسؤول الأوردرات', true], ['قاعدة أكتر من اللازم (تجميع / تصوير)', 'حتى الإجراء', 'داخل السيستم', 'المخزن + العمليات', true], ['مرتجع بانتظار الفحص', 'حتى الفحص', 'داخل السيستم', 'المخزن', true]]],
@@ -74,13 +74,18 @@ export function parseRule(row) {
   return { on: on !== false, channels: { system: true, email: c.includes('إيميل'), whatsapp: c.includes('واتساب') }, vendorWa: parts(to).includes('المبتكر (واتساب)'),
     count: countOf(count), every: every || 'كل 24 ساعة', at: parseAt(at), days: Array.isArray(days) ? days : null, weekday: weekday || 'الأحد' };
 }
+// 2026-11-15-comments.md decision 13 (the owner: «كل كلمة تذاكر أو تذكرة … تبقى طلبات أو طلب»): the alert types that said
+// «تذكرة» say «طلب». The names are the keys of the saved «notif» row, so a row saved before is read through typeName — the
+// same pairs as the page's (block 12 NOTIF_RENAMES; a test compares them).
+export const TYPE_RENAMES = Object.freeze({ 'تذكرة عاجلة / عالية': 'طلب عاجل / عالي', 'تذكرة متأخرة عن موعد المتابعة': 'طلب متأخر عن موعد المتابعة', 'تذكرة عاجلة بدون رد': 'طلب عاجل بدون رد', 'المسؤول عن التذكرة': 'المسؤول عن الطلب' });
+export const typeName = (n) => (typeof n === 'string' && Object.prototype.hasOwnProperty.call(TYPE_RENAMES, n) ? TYPE_RENAMES[n] : n);
 export function typeRules(notif) {
   const out = new Map();
   for (const [name, row] of Object.entries(BUILT_IN)) out.set(name, parseRule([name, ...row]));
   for (const [, rows] of DEFAULT_TYPES) for (const r of rows) out.set(r[0], parseRule(r));
   for (const g of Array.isArray(notif && notif.notif) ? notif.notif : []) {
     const rows = Array.isArray(g) && Array.isArray(g[1]) ? g[1] : [];
-    for (const r of rows) if (Array.isArray(r) && typeof r[0] === 'string') out.set(r[0], parseRule(r));
+    for (const r of rows) if (Array.isArray(r) && typeof r[0] === 'string') out.set(typeName(r[0]), parseRule(r));
   }
   return out;
 }
@@ -180,7 +185,7 @@ const ESC_TO = { 'دور أدمن': 'admin', 'أدمن': 'admin', 'مدير خد
 // the escalation of a source's type: { afterMs, roles, manager, channels } or null
 export function escalationFor(notif, key) {
   const src = sourceOf(key); if (!src || !src.esc) return null;
-  const e = (Array.isArray(notif && notif.escalations) ? notif.escalations : []).find((x) => x && x.type === src.esc && x.on !== false); if (!e) return null;
+  const e = (Array.isArray(notif && notif.escalations) ? notif.escalations : []).find((x) => x && typeName(x.type) === src.esc && x.on !== false); if (!e) return null;
   const to = Array.isArray(e.to) ? e.to : parts(e.to); const c = parts(e.ch);
   return { afterMs: parseAfter(e.after), roles: [...new Set(to.map((t) => ESC_TO[t]).filter(Boolean))], manager: to.includes('المدير المباشر'), channels: { system: true, email: c.includes('إيميل'), whatsapp: c.includes('واتساب') } };
 }

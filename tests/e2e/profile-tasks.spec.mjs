@@ -79,8 +79,8 @@ test('«تلقائية من السيستم» from the live data: my team\'s requ
   const box = P(page).locator('.task.auto');
   await expect(box.filter({ hasText: 'مراجعة طلب إجازة سنوية — سارة أحمد' })).toHaveCount(1);
   await expect(P(page).locator('[data-auto="tkTKT-0001"] a')).toHaveAttribute('href', '#tickets/TKT-0001');
-  await expect(P(page).locator('[data-auto="tkTKT-0001"]')).toContainText('الرد على تذكرة TKT-0001 (عاجل)');
-  await expect(P(page).locator('[data-auto="tk"]')).toContainText('الرد على تذكرة مفتوحة');
+  await expect(P(page).locator('[data-auto="tkTKT-0001"]')).toContainText('الرد على طلب TKT-0001 (عاجل)');
+  await expect(P(page).locator('[data-auto="tk"]')).toContainText('الرد على طلب مفتوح');
   // decision 33: the request is decided in «تذاكر الفريق» (a seeded request without its ticket opens the list)
   await box.filter({ hasText: 'مراجعة طلب إجازة سنوية' }).getByRole('button').click();
   await expect(page).toHaveURL(/#tickets$/);

@@ -17,7 +17,7 @@
   },
   "05-tickets-domain.js": {
     "prototype": "0ad40f82b8de08859d6a7fba0ad228886fa9fab0340e06c14e89811a39fff569",
-    "current": "98023bcd5d6e61aa9777d0eb0ecf66432a5b314d0b52a5e3e66783c693364239"
+    "current": "8b80bf91f17054480035404b7c8c6ab01cd7797fc9350324b8bf5068aa346e43"
   },
   "06-vendors-domain.js": {
     "prototype": "eee7f82bb5af1440fc5a7454dcad65932f5253b0af6e583a6f2eaf969e7c2bfa",
@@ -37,7 +37,7 @@
   },
   "10-ui-kit.js": {
     "prototype": "6d7129cf7ed40e7276739b75c131c31935f1f1a10c57d62a509dcbfd5e340cca",
-    "current": "e9becb049446f00b33ca415a184e8424342bb14635062c0a845a16cd3c06b02a"
+    "current": "c0e1f0b46f616336516ac1df773ee73efe61c4e88ce4e81d1e1d3170924470bc"
   },
   "11-seed-product-images.js": {
     "prototype": "e378804fb28fedc3fccfbf1a287ebfb2ac99a23d28529f86e8e0afd319be6187",
@@ -45,7 +45,7 @@
   },
   "12-ops-domain.js": {
     "prototype": "61b358d0af069a9ee879baebcac093a7e606e7b8f38aec2a6ed69bca0ccffcc1",
-    "current": "0fd84846b866429c6517363d859fd4b10ae84d5e443e87612631e8a7674290d9"
+    "current": "dc01d566159081aae30192d714d38a7b89a16d0d7ef9902f7c21983604417fab"
   },
   "13-logo.js": {
     "prototype": "4f6a9cbb22ffb0a3e844e20feb6c41508ca1c46b4313d990d5414d67186f7c78",
@@ -53,11 +53,11 @@
   },
   "14-kit.js": {
     "prototype": "2a924af8c731555a02958f802f051efe4ef180be78d65a0f3340b342a064e432",
-    "current": "60db3d6a8c2bfc973fe4b58fd16540a32a4e7251efa3b570946bcf1b944849e6"
+    "current": "67dfa897b5b01c790a70abdf132a3c0f1f2ec876d64b647647bb88f97929416e"
   },
   "15-page-hr.js": {
     "prototype": "ee600dbb6d1a699847ee0528e7454c3bc857f4801989b1cf85cdba72aa135d76",
-    "current": "da5b2c3b111ce456aba47796692e0997222957fad4f9da5ff07698022e5c3a09"
+    "current": "cdd0bd12e8e8073203c83efed2c335368bc0f380bbdb66fb360348180f9c15ca"
   },
   "16-page-inventory.js": {
     "prototype": "80101269ffc51399a6b19dad74375aa32575fa9e2e6071885c5c77885afee8f5",
@@ -65,23 +65,23 @@
   },
   "17-page-settings.js": {
     "prototype": "89d9c49b0d0f466a618479a6b68c237edb4e90a12b0b233e7d05f7916c8e8dde",
-    "current": "9ab635abd59959268905ff5fba81d697e914d9e686ba0a8b8a77c8d594fe8152"
+    "current": "8dd3eeb2b183b76a28ddcb733bbe55c902992d0e15a3b408743ce0c02dee427d"
   },
   "18-page-profile.js": {
     "prototype": "218eb74e001b3e909a563499cdd2d929b1893e93d86d81f9039603b34dbdaa8a",
-    "current": "ec864303886a0bebc24b5bbbce2ed2d5fc4f71d29d1d69321cc309dcbbff0adf"
+    "current": "56c89128058841e7931b6295e4674e0b065cb4666ac3662dc7a3798578f76bb5"
   },
   "19-cs-domain.js": {
     "prototype": "5316d08c265ce14e7ed3340ddd6547f4f665dddc07dd3d76bf3868c8ad1f5192",
-    "current": "009409e05de84a7a2412efc838cd297461bc1ff7e120e15779899d295b67354c"
+    "current": "46a6ef7a6fa3e0e85b0fb7f2089d97520518dfca4ee9c2a0ae536d64391d6e0c"
   },
   "20-page-cs.js": {
     "prototype": "07edfb71ffed3920bba96b1602645c9224249cc9a0ce63e07b4d4fe58295118b",
-    "current": "d0942a4d20b7b0421c09041d5cc1b5d4f4ad19b44e9ff14345ffbc88d3cc6c42"
+    "current": "b344c7ac83e144257476ca5b38fcfa75c00111bbb0d27cd9bc17d7ee7cda9068"
   },
   "21-shell.js": {
     "prototype": "da3316ca93e76c490b7a58d4f817bdc7852887e007200bb438efa591045a05f9",
-    "current": "f4659d50645aadd4ac80e02017bbb4c38224b7935aad3478d393895f9f405c1d"
+    "current": "73135c5b9121189a6aaeb878caff57a9a40cd431e11bc338f11b301256c34035"
   },
   "22-orders-ops.js": {
     "prototype": "840c4a2093e78030058acaac11c712410a8107419aa1d34bea7da2526ee80885",
@@ -89,15 +89,15 @@
   },
   "23-notif-roles-domain.js": {
     "prototype": "68697112a566dd41c2cd864e4f5540db306821930b9c3ad448e66008f688aec2",
-    "current": "68697112a566dd41c2cd864e4f5540db306821930b9c3ad448e66008f688aec2"
+    "current": "745b16a2287bb2f8813cda12eab4c225db0ea6a0c39c4b02e16785a4957b4a1c"
   },
   "24-dash-domain.js": {
     "prototype": "7e9dbf09b85dd993640344b0343568a33010b1c13e951a340cba0f15b133b0d3",
-    "current": "9abd75ff5762b9af30b5be909fba82f28433ef523bdbb94665bb8943d374051a"
+    "current": "b32a7a5114ba2fd3a608f331239278b142c7ecdd698082350133a94e5167a70b"
   },
   "25-page-dashboard.js": {
     "prototype": "f0ac7e16f52f393457bde9d1617eab227f9d9a3d36da857ec81c7b7684e3bb84",
-    "current": "47cbe0a4a84e782c8ee1b997f49e4d8b4ea7e2d13f21045c0361ec8d0e8d5443"
+    "current": "da0c77d07bbc4b807e5ec450438b890e300bb9778e40f65c083fdb0821a78259"
   },
   "26-data-actions.js": {
     "prototype": "fafccd1bfeb257fa467d090d00589b9d01bcfe738dbf77d17cc8c26c4c0da6f4",
@@ -109,10 +109,10 @@
   },
   "28-app.js": {
     "prototype": "28f47321b1a78201e81b34cffa6e20cba67b15788396c9ce0def7cd7e17243c9",
-    "current": "a799f5141ef69fdb7e4328af0e235dfee72dcb2e3b7a4d114b69ebcf01d40b96"
+    "current": "2e008de3bcaf2291b6715ecd98289e51b360421d986c9ee0012ade6d892f2c41"
   },
   "29-orders-app.js": {
     "prototype": "2e80a15f203c79adc2931c3682297119b4e1926b9e40f10a0b906007acff23bd",
-    "current": "9615d056cc666e6ffa81e25e86572e4e9f043472f6b98136712193700b42c81b"
+    "current": "88610e6aa0c9f728ab1deb44fba74e5bb150db521edc3eae0b535cf31463f132"
   }
 }

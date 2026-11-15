@@ -54,7 +54,7 @@ for (const [id, inside, home, sel] of CASES) {
 }
 
 // the makers page (decision 57) and the team requests (B1) got «نظرة عامة» after decision 17: their tab lives in the app state, not the hash
-for (const [id, tablist, other] of [['vendors', 'أقسام المبتكرين', 'سجل الحركات'], ['tickets', 'أقسام التذاكر', 'السجل']]) {
+for (const [id, tablist, other] of [['vendors', 'أقسام المبتكرين', 'سجل الحركات'], ['tickets', 'أقسام الطلبات', 'السجل']]) {
   test('the menu opens «' + id + '» on «نظرة عامة» after another tab (from another page, and from the page itself)', async ({ page }) => {
     await signIn(page);
     const tabs = page.getByRole('tablist', { name: tablist });

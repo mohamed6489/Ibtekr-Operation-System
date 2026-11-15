@@ -155,7 +155,8 @@
     const r = await invoke(body);
     if (!r.ok) return r;
     if (r.body.result === 'ok') { logged('product.save', [Number(id)], Object.keys(body.fields).concat(body.ar ? Object.keys(body.ar).map((k) => 'ar.' + k) : [], body.variations ? ['variations'] : [])); await refresh([Number(id)]); }
-    return { ok: true, result: r.body.result, reason: r.body.reason || null, counts: r.body.counts || {} };
+    // brandAttr: how the «Product Brand» attribute followed a brand change (the brand in both places — comments plan decision 81)
+    return { ok: true, result: r.body.result, reason: r.body.reason || null, counts: r.body.counts || {}, brandAttr: r.body.brand_attr || null };
   }
   // phase 5.4 (T8): the images tool's results (bucket ai-images, the member's own paths) onto a product — woo-sync
   // product_images_add (products.edit = F, WOO_PUSH_ENABLED); first = ahead of the current images; logged as product.images.add
@@ -181,14 +182,17 @@
   // onProgress(done, total) after every request; a request the site did not answer (woo_down / network) marks its 25 as failed
   // and the next ones still go; a refusal (forbidden / invalid) or the push gate stops there
   async function batch(updates, onProgress) {
-    const out = { ok: true, result: 'ok', updated: 0, failedIds: [], reason: null };
+    const out = { ok: true, result: 'ok', updated: 0, failedIds: [], reason: null, brandAttr: null };
     for (let i = 0; i < updates.length; i += BATCH) {
       const part = updates.slice(i, i + BATCH);
       const r = await invoke({ action: 'products_batch', update: part });
       if (!r.ok && (r.reason === 'woo_down' || r.reason === 'network')) { out.failedIds.push(...part.map((u) => Number(u.id))); out.reason = r.reason; }
       else if (!r.ok) return Object.assign(out, { ok: i > 0 && out.updated > 0, partial: i > 0, reason: r.reason, field: r.field || null });
       else if (r.body.result === 'skipped') return Object.assign(out, { result: 'skipped', reason: r.body.reason });
-      else { out.updated += (r.body.counts && r.body.counts.updated) || 0; out.failedIds.push(...(r.body.failed_ids || [])); }
+      else { out.updated += (r.body.counts && r.body.counts.updated) || 0; out.failedIds.push(...(r.body.failed_ids || []));
+        // the worst answer of the parts stands (the brand in both places): failed / partial / no_attribute over ok / same
+        const ba = r.body.brand_attr || null; const rank = { failed: 4, partial: 3, no_attribute: 2, ok: 1, same: 1 };
+        if (ba && (rank[ba] || 0) > (rank[out.brandAttr] || 0)) out.brandAttr = ba; }
       if (onProgress) quiet(() => onProgress(Math.min(i + BATCH, updates.length), updates.length));
     }
     const ids = updates.map((u) => Number(u.id));

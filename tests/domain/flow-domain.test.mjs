@@ -44,6 +44,19 @@ test('photos by row (decision 3): «1» / «01» / «1-2» / «1_2» / «1 (2)»
   assert.deepEqual(a.unmatched, ['x.png']);
 });
 
+test('the owner 15 Nov («مبتترفعش»): a photo without a number takes the next free row, one a row, in the order picked — none is dropped', () => {
+  // a maker's photos: no number at all → rows 1, 2, 3 in the picked order
+  assert.deepEqual(plain(F.placePhotos(['IMG_2041.jpg', 'WhatsApp Image 2026-11-14.jpeg', 'vase.png'])),
+    [{ i: 0, row: 1, order: 0, auto: true }, { i: 1, row: 2, order: 0, auto: true }, { i: 2, row: 3, order: 0, auto: true }]);
+  // the numbered ones keep their rows; the loose ones take the free rows (never a numbered one), then go after
+  assert.deepEqual(plain(F.placePhotos(['2.jpg', 'x.jpg', '1-2.jpg', 'y.jpg', '4.jpg'])),
+    [{ i: 2, row: 1, order: 2, auto: false }, { i: 0, row: 2, order: 0, auto: false }, { i: 1, row: 3, order: 0, auto: true },
+      { i: 4, row: 4, order: 0, auto: false }, { i: 3, row: 5, order: 0, auto: true }]);
+  // rows that already have photos (a second pick) are skipped by the loose ones
+  assert.deepEqual(plain(F.placePhotos(['a.jpg', 'b.jpg'], ['1', '2', '4'])), [{ i: 0, row: 3, order: 0, auto: true }, { i: 1, row: 5, order: 0, auto: true }]);
+  assert.deepEqual(plain(F.placePhotos([], [])), []);
+});
+
 test('the SKU (decision 5): IBT + brand code + 4-digit serial + «-color» + «-size»; the brand code from the brand\'s letters', () => {
   assert.equal(F.brandCode3('glasstora'), 'GLS');
   assert.equal(F.brandCode3('bian'), 'BNI');

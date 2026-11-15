@@ -162,3 +162,18 @@ test('flow 3 «صور وعايز شيت» Variable: two colors × two products �
   await dl2;
   expect(await page.evaluate(() => window.__opened)).toMatch(/^https:\/\/wa\.me\/\?text=/);
 });
+
+test('the owner 15 Nov («بجرب ارفع الصور … مبتترفعش»): a maker\'s photos with any name go up — each one a product in the order picked; a numbered one keeps its row', async ({ page }) => {
+  await signIn(page, ADMIN);
+  await choose(page, 'صور وعايز شيت', 'Simple');
+  await next(page);
+  await page.locator('#fl-maker').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
+  await next(page);
+  await pick(page, '[data-flow-photos]', [png('IMG_2041.png'), png('WhatsApp Image 2026-11-14 at 10.12.png'), png('2-2.png')]);
+  await expect(page.locator('.toast[role=status]').last()).toContainText('اترفعت 3 صورة');
+  await expect(page.locator('.toast[role=status]').last()).toContainText('2 من غير رقم');
+  // «2-2» keeps row 2; the two without a number take rows 1 and 3 — three photos, three uploads (none dropped)
+  await expect(page.locator('#pg-products .fl-pcard')).toHaveCount(3);
+  expect(await page.locator('#pg-products .fl-pcard b').allTextContents()).toEqual(['منتج 1', 'منتج 2', 'منتج 3']);
+  await expect.poll(() => Object.keys((batch().state || {}).photoRows || {}).sort()).toEqual(['1', '2', '3']);
+});

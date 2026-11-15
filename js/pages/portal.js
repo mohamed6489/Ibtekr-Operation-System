@@ -128,7 +128,7 @@
     const rows = D.subs.filter(F[ps.of]);
     return [h('div', { class: 'chips', role: 'radiogroup', 'aria-label': 'فلتر القطع' }, [['open', 'مفتوحة'], ['late', 'متأخرة وقابلة للتأخير'], ['done', 'خلصت'], ['all', 'الكل']].map(([k, l]) => h('button', { type: 'button', class: 'chip', role: 'radio', 'aria-checked': String(ps.of === k), 'aria-pressed': String(ps.of === k), onClick: () => { ps.of = k; draw(); } }, l + ' (' + D.subs.filter(F[k]).length + ')'))),
       h('section', { class: 'card sec' }, h('div', { class: 'sec-b' }, D.ordersOk ? subsTable(rows) : U.InlineNote({ kind: 'warning', children: 'مقدرناش نقرا الأوردرات دلوقتي — جرّب تاني.' }))),
-      h('p', { class: 't-small help', style: 'margin:0' }, 'أوردرات آخر 90 يوم. التأخير بيتحسب من تاريخ تبليغك بالقطعة على مدة التصنيع: قابل للتأخير في آخر 3 أيام، ومتأخر بعدها.')];
+      h('p', { class: 't-small help', style: 'margin:0' }, 'أوردرات آخر 90 يوم. التأخير بيتحسب على مدة التصنيع من تاريخ تأكيد الأوردر (أو نقطة البداية اللي إبتكر محدداها): قابل للتأخير قرب نهايتها، ومتأخر بعدها.')];
   }
   function accountTab(D) {
     const l = D.led; const row = (k, v, cls) => h('div', { class: 'pt-row' + (cls ? ' ' + cls : '') }, h('span', null, k), h('b', null, U.num(money(v) + ' ج.م')));

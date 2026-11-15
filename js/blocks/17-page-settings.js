@@ -703,7 +703,7 @@
   // statuses that stop the counter) and the sub-order (late once its making days are past, risk N days before); the default making
   // days. Saved in the row «makers» as `delay` (IbtekrOps.delayRules — the same on the server: _shared/delay.js)
   const START_LABELS = { confirm: 'تاريخ التأكيد', order: 'تاريخ الأوردر', notify: 'تاريخ تبليغ المبتكر' };
-  const START_HELP = { confirm: 'الأوردر من تاريخ تأكيده (غير المؤكد مالوش تأخير) — والأوردر الفرعي من تاريخ تبليغ المبتكر، وإلا تاريخ التأكيد', order: 'الأوردر من تاريخه — والأوردر الفرعي من تاريخ تبليغ المبتكر، وإلا تاريخ الأوردر', notify: 'الأوردر الفرعي من تاريخ تبليغ المبتكر بس (من غيره مالوش تأخير) — والأوردر من تاريخ تأكيده' };
+  const START_HELP = { confirm: 'الأوردر والأوردرات الفرعية من تاريخ تأكيد الأوردر (غير المؤكد مالوش تأخير)', order: 'الأوردر والأوردرات الفرعية من تاريخ الأوردر', notify: 'الأوردر الفرعي من تاريخ تبليغ المبتكر بس (من غيره مالوش تأخير) — والأوردر من تاريخ تأكيده' };
   function delaySec(m) {
     const XO = window.IbtekrOps; const D = XO && XO.delayRules ? XO.delayRules(m.delay) : Object.assign({ start: 'confirm', orderRisk: 2, subRisk: 2, lead: 7, stop: [] }, m.delay || {});
     const set = (k, v, label) => { m.delay = Object.assign({}, D, { [k]: v }); LOGV('settings.change', 'قواعد التأخير · ' + label); K.toast('اتحفظ'); R(); };

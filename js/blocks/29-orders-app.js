@@ -111,7 +111,8 @@ function vcount(o){var m={};o.subs.forEach(function(s){m[s.vendor]=1});return Ob
 function openCount(o){return o.subs.filter(function(s){return OPEN[s.raw]}).length}
 // owner batch 2 decision 17 (the settings' «قواعد التأخير» — IbtekrOps.delayRules / orderDelayOf / lineDelayOf, the same as the server's
 // _shared/delay.js): the days count from the start point (the confirmation by default — none while not confirmed — or the order's date;
-// a line from its maker's notify date, else the order's start, or nothing with start «notify»). The order is «قابل للتأخير» N days before
+// a line from the same start — the owner 15 Nov: «بناء علي تاريخ التأكيد» —, its maker's notify date only with start «notify»; a line
+// closed on the site or «ملغي» has no counter — «مقفول»). The order is «قابل للتأخير» N days before
 // the longest making days of its open lines end and «متأخر» once they are past, unless its (base) status stops the counter; a line
 // against its own making days (s.lead: the product's own, else the maker's «مدة التجهيز», else the settings' default).
 function XO(){return window.IbtekrOps}
@@ -124,10 +125,13 @@ function late(o){return ostate(o)==='late'}
 function risk(o){return ostate(o)==='risk'}
 function dstate(o){return ostate(o)}
 function slead(s){return s.leadSrc==='default'||!Number(s.lead)?RULES().lead:Number(s.lead)}
-function sel(o,s){return s.exp?daysSince(s.exp):RULES().start==='notify'?null:cage(o)}
+function sel(o,s){return RULES().start==='notify'?(s.exp?daysSince(s.exp):null):cage(o)}
 function sstate(o,s){return lineOpen(s)?XO().lineDelayOf(sel(o,s),slead(s),true,RULES()):'ok'}
+function sbadge(s,sl){return lineOpen(s)?dbadge(sl):'<span class="badge s-proc" data-closed title="'+(s.ss==='ملغي'?'المنتج ملغي':'الأوردر الفرعي مقفول على الموقع ('+esc(SITE_ST[s.raw]||s.raw||'—')+')')+' — مالوش عدّاد تأخير">مقفول'+ic('xc')+'</span>'}
+var SITE_ST={completed:'مكتمل',cancelled:'ملغي',refunded:'مسترجع',failed:'فشل',trash:'المهملات','checkout-draft':'مسودة'};
+function startTxt(){var st=RULES().start;return st==='notify'?'العدّاد بيحسب الأيام من تاريخ تبليغ المبتكر على مدة التصنيع (بتاعة المنتج، وإلا بتاعة المبتكر) · من غير تاريخ تبليغ مالوش عدّاد':'العدّاد بيحسب الأيام من '+(st==='order'?'تاريخ الأوردر':'تاريخ تأكيد الأوردر')+' على مدة التصنيع (بتاعة المنتج، وإلا بتاعة المبتكر) · نقطة البداية من الإعدادات › المبتكرين'}
 function leadTxt(s){return'مدة التصنيع: '+slead(s)+' يوم'+(s.leadSrc==='product'?' (المنتج)':s.leadSrc==='maker'?' (المبتكر)':'')}
-function scount(o,s){var e=sel(o,s),n=slead(s);return{e:e,n:n,t:e==null?'—':Math.min(e,99)+'/'+n,pct:e==null?0:Math.min(e/n,1)*100}}
+function scount(o,s){var e=lineOpen(s)?sel(o,s):null,n=slead(s);return{e:e,n:n,t:e==null?'—':Math.min(e,99)+'/'+n,pct:e==null?0:Math.min(e/n,1)*100}}
 var DB={risk:['s-warn','قابل للتأخير','clock','#f08a1c'],late:['s-err','متأخر','alert','#da0001'],ok:['s-ok','غير متأخر','check','#39ac00']};
 function dbadge(k){var d=DB[k];return'<span class="badge '+d[0]+'">'+d[1]+ic(d[2])+'</span>'}
 var SEL={}; // التحديد الجماعي (owner 31 Oct): id → true
@@ -191,12 +195,12 @@ function subrow(o,s,l){
  +'<div class="c c3" data-l="المبتكر">'+vcell(s)+'</div>'
  +'<div class="c c4" data-l="حالة المنتج">'+sdd(SSTY,s.ss,'data-ss="'+s.n+'"',110,SS,1)+'</div>'
  +'<div class="c c5" data-l="القيمة"><b style="font-weight:600">'+fmt(s.tot)+' ج.م</b></div>'
- +'<div class="c c6" data-l="التصنيع · تاريخ تبليغ المبتكر">'+(s.pulled?pullNote(s)+'</div>':'<div class="dc"><div class="dcr">'+dbadge(sl)+'<div class="cnt"><s>يوم</s><b>'+sc.t+'</b></div></div><div class="trk"><div class="fil" style="width:'+pct+'%;background:'+DB[sl][3]+'"></div></div></div>'
+ +'<div class="c c6" data-l="التصنيع · تاريخ تبليغ المبتكر">'+(s.pulled?pullNote(s)+'</div>':'<div class="dc"><div class="dcr">'+sbadge(s,sl)+'<div class="cnt"><s>يوم</s><b>'+sc.t+'</b></div></div><div class="trk"><div class="fil" style="width:'+pct+'%;background:'+DB[sl][3]+'"></div></div></div>'
  +''+dfield('ex:'+s.n,s.exp,'تاريخ تبليغ المبتكر',1,'أضف تاريخ الإبلاغ')+'<span class="lead" data-lead="'+s.n+'">'+leadTxt(s)+'</span></div>')
  +'<div class="c c7" data-l="تعليق المبتكر"><div class="cm inl" data-cm="'+s.n+'"><textarea data-ce="'+s.n+'" data-orig="'+esc(s.cm)+'" rows="2" placeholder="اكتب تعليقك هنا" aria-label="تعليق المبتكر #'+s.sid+'">'+esc(s.cm)+'</textarea><button type="button" class="csv" data-cs="'+s.n+'" hidden>حفظ</button></div></div>'
  +'<div class="c c8" data-l=""><button class="ibtn" data-more="s:'+s.n+'" aria-haspopup="menu" aria-expanded="false" aria-label="المزيد">'+ic('more')+'</button></div></div>'}
 function subs(o,l){if(MODE!=='d')return subsM(o,l,MODE==='m');
- return consBar(o)+'<div class="so"><div class="sh"><b>الأوردرات الفرعية ('+o.subs.length+')</b><span>العدّاد بيحسب الأيام من تاريخ تبليغ المبتكر على مدة التصنيع (بتاعة المنتج، وإلا بتاعة المبتكر) · لو التاريخ فاضي بيتحسب من تاريخ تأكيد الأوردر</span></div><div class="st"><div class="row h"><div class="c c1">الأوردر الفرعي</div><div class="c c2">المنتج</div><div class="c c3">المبتكر</div><div class="c c4">حالة المنتج</div><div class="c c5">القيمة</div><div class="c c6">التصنيع · تاريخ تبليغ المبتكر</div><div class="c c7">تعليق المبتكر</div><div class="c c8"></div></div>'
+ return consBar(o)+'<div class="so"><div class="sh"><b>الأوردرات الفرعية ('+o.subs.length+')</b><span data-delay-start>'+startTxt()+'</span></div><div class="st"><div class="row h"><div class="c c1">الأوردر الفرعي</div><div class="c c2">المنتج</div><div class="c c3">المبتكر</div><div class="c c4">حالة المنتج</div><div class="c c5">القيمة</div><div class="c c6">التصنيع · تاريخ تبليغ المبتكر</div><div class="c c7">تعليق المبتكر</div><div class="c c8"></div></div>'
  +o.subs.map(function(s){return subrow(o,s,l)}).join('')+'</div></div><div style="height:16px"></div>'}
 
 // ---------- mobile / tablet templates (Figma: Order card / Mobile 268:459 · Tablet 269:462 · Sub-order card / Mobile 268:390 · Tablet 269:390) ----------
@@ -248,13 +252,13 @@ function subcard(o,s,l,m){
  var pt='<div class="pt"><b>'+pname(s)+' × '+s.qty+'</b><span dir="ltr" style="text-align:right">'+esc(s.sku)+'</span><div class="vrow">'+(s.pulled?'<span class="vchip pull" title="مخزن ابتكر">مخزن ابتكر</span><small>سحب تلقائي · فرعي #'+s.sid+'</small>':'<span class="vchip" title="'+esc(s.vendor)+'">'+esc(s.vendor)+'</span>'+hubChip(s)+'<small>فرعي #'+s.sid+'</small>')+'</div></div>';
  var st='<div class="fld">'+lbl('check','حالة المنتج')+sdd(SSTY,s.ss,'data-ss="'+s.n+'"',110,SS,1)+'</div>';
  var val='<div class="fld val">'+lbl('coins','القيمة')+'<div class="vv"><b>'+fmt(s.tot)+' ج.م</b></div></div>';
- var cnt=s.pulled?pullNote(s):'<div class="scnt"><div class="dcr"><div class="cnt"><s>يوم</s><b>'+sc.t+'</b></div>'+dbadge(sl)+'<span class="lead" data-lead="'+s.n+'">'+leadTxt(s)+'</span></div><div class="trk"><div class="fil" style="width:'+pct+'%;background:'+DB[sl][3]+'"></div></div></div>';
+ var cnt=s.pulled?pullNote(s):'<div class="scnt"><div class="dcr"><div class="cnt"><s>يوم</s><b>'+sc.t+'</b></div>'+sbadge(s,sl)+'<span class="lead" data-lead="'+s.n+'">'+leadTxt(s)+'</span></div><div class="trk"><div class="fil" style="width:'+pct+'%;background:'+DB[sl][3]+'"></div></div></div>';
  var dtf=s.pulled?'':'<div class="fld dtf">'+lbl('cal','تاريخ تبليغ المبتكر')+dfield('ex:'+s.n,s.exp,'تاريخ تبليغ المبتكر',1,'أضف تاريخ الإبلاغ')+'</div>';
  var cm='<div class="fld"><div class="lb">'+ic('edit')+'<span>تعليق المبتكر</span></div><div class="cm inl" data-cm="'+s.n+'"><textarea data-ce="'+s.n+'" data-orig="'+esc(s.cm)+'" rows="2" placeholder="اكتب تعليقك للمبتكر هنا" aria-label="تعليق المبتكر #'+s.sid+'">'+esc(s.cm)+'</textarea><button type="button" class="csv" data-cs="'+s.n+'" hidden>حفظ</button></div></div>';
  if(m)return'<div class="scard m" data-s="'+s.n+'"><div class="shd">'+thumb+pt+moreBtn('s:'+s.n)+'</div><div class="srow">'+st+val+'</div>'+cnt+'<div class="sfld">'+dtf+cm+'</div></div>';
  return'<div class="scard t" data-s="'+s.n+'"><div class="shd">'+thumb+pt+val+st+moreBtn('s:'+s.n)+'</div>'+cnt+'<div class="sfld">'+dtf+cm+'</div></div>'}
 function subsM(o,l,m){
- return consBar(o)+'<div class="sec subsm"><div class="sh"><b>الأوردرات الفرعية ('+o.subs.length+')</b><span>العدّاد بيحسب الأيام من تاريخ تبليغ المبتكر على مدة التصنيع (بتاعة المنتج، وإلا بتاعة المبتكر) · لو التاريخ فاضي بيتحسب من تاريخ تأكيد الأوردر</span></div><div class="slist">'
+ return consBar(o)+'<div class="sec subsm"><div class="sh"><b>الأوردرات الفرعية ('+o.subs.length+')</b><span data-delay-start>'+startTxt()+'</span></div><div class="slist">'
  +o.subs.map(function(s){return subcard(o,s,l,m)}).join('')+'</div></div>'}
 function cardM(o,l,op){return'<div class="card m" data-o="'+o.id+'">'+headerM(o,l,op)+(op?confSec(o,1)+custSec(o,1)+notesM(o)+subsM(o,l,1):'')+'</div>'}
 function cardT(o,l,op){return'<div class="card t" data-o="'+o.id+'">'+headerT(o,l,op)+(op?confSec(o,0)+custSec(o,0)+notes(o)+subsM(o,l,0):'')+'</div>'}

@@ -21,6 +21,7 @@
   'use strict';
   const LOT_COLS = 'id, reason, status, sku, product_id, name, vendor_id, order_id, item_id, ref, loc, mode, cost, condition, condition_note, note, since, closed_at, created_by, created_at';
   const MOVE_COLS = 'id, lot_id, type, qty, label, reason, ref, note, by, at';
+  const ORDER_DONE = ['ملغي', 'مكتمل', 'استرجاع', 'فشل']; const LINE_DONE = ['تم الشحن للعميل', 'مكتمل', 'ملغي', 'مرتجع للمخزن', 'مرتجع للمبتكر']; // decision 23: a closed order / line gathers nothing
   const CONS_COLS = 'id, order_id, zone, status, carrier, since, created_by, created_at';
   const ITEM_COLS = 'id, order_id, sub_order_id, name, sku, qty, total, vendor_id, status';
   const COUNT_COLS = 'id, zone, status, note, started_by, started_at, approved_by, approved_at';
@@ -99,10 +100,22 @@
       // the lines of the consolidations and of the lots (a member without orders.view: none — the item id stands for the sub-order)
       const itemIds = [...new Set(links.map((x) => x.item_id).concat(lots.map((l) => l.item_id).filter((x) => x != null)))];
       const items = itemIds.length ? await rows(cl.from('order_items').select(ITEM_COLS).in('id', itemIds)).catch(() => []) : [];
+      // comments decision 23 (the owner 15 Nov — «احيانا ف تجميع الاوردات مش بتتجمع ف صفحة التجميع ف المخزن — خلي الاوردارات تظهر»): an
+      // order whose «تجميع أوردر» pieces are in the hub (on hand, from the moves) with no open consolidation — received from the orders
+      // page before a consolidation was opened — is listed in «تجميع أوردرات» too: `derived`, no id (the page writes its row before it
+      // acts on it). Not an order whose last consolidation the team cancelled, nor a closed order.
+      const onHand = new Map(); moves.forEach((m) => { const d = m.type === 'in' || m.type === 'adjust' ? m.qty : m.type === 'out' || m.type === 'ship' ? -m.qty : 0; if (d) onHand.set(m.lot_id, (onHand.get(m.lot_id) || 0) + d); });
+      const openFor = new Set(cons.map((x) => String(x.order_id)));
+      const loose = lots.filter((l) => !l.closed_at && l.reason === 'تجميع أوردر' && l.order_id != null && (onHand.get(l.id) || 0) > 0 && !openFor.has(String(l.order_id)));
+      const looseIds = [...new Set(loose.map((l) => Number(l.order_id)))];
+      const [past, looseItems] = looseIds.length ? await Promise.all([
+        rows(cl.from('inv_consolidations').select('order_id, status, created_at').in('order_id', looseIds).in('status', ['shipped', 'partial', 'cancelled'])).catch(() => []),
+        rows(cl.from('order_items').select(ITEM_COLS + ', removed, pulled').in('order_id', looseIds)).catch(() => [])]) : [[], []];
+      looseItems.forEach((i) => { if (!items.some((x) => String(x.id) === String(i.id))) items.push(i); });
       const subIds = [...new Set(items.map((i) => i.sub_order_id).filter((x) => x != null))];
       const subs = subIds.length ? await rows(cl.from('sub_orders').select('id, woo_order_id').in('id', subIds)).catch(() => []) : [];
-      const orderIds = [...new Set(cons.map((x) => x.order_id))];
-      const orders = orderIds.length ? await rows(cl.from('orders_v').select('id, customer_name').in('id', orderIds)) : [];
+      const orderIds = [...new Set(cons.map((x) => x.order_id).concat(looseIds))];
+      const orders = orderIds.length ? await rows(cl.from('orders_v').select('id, customer_name, status').in('id', orderIds)) : [];
       const open = counts.find((x) => x.status === 'open') || null;
       const closedIds = counts.filter((x) => x.status === 'approved').map((x) => x.id);
       const lineIds = (open ? [open.id] : []).concat(closedIds);
@@ -130,6 +143,14 @@
           // a line with an open «تجميع أوردر» lot in the hub has arrived, whatever its line status says (decision 8 — received here, not from the orders page)
           const got = stock.some((s) => !s.closed && s.reason === 'تجميع أوردر' && s.itemId === String(l.item_id)) && !['تم الشحن للعميل', 'مكتمل'].includes(i.status);
           return [sidOf(l.item_id), vendorName(i.vendor_id), got ? 'وصل المخزن' : i.status || 'قيد التنفيذ', i.name || '', String(l.item_id)]; }) }));
+      const lastPast = new Map(); past.slice().sort((a, b) => (String(a.created_at) < String(b.created_at) ? -1 : 1)).forEach((x) => lastPast.set(String(x.order_id), x.status));
+      const stOf = new Map(orders.map((o) => [String(o.id), o.status || '']));
+      looseIds.forEach((oid) => { const k = String(oid); if (lastPast.get(k) === 'cancelled' || ORDER_DONE.includes(stOf.get(k))) return;
+        const mine = loose.filter((l) => String(l.order_id) === k); const got = new Set(mine.filter((l) => l.item_id != null).map((l) => String(l.item_id)));
+        const lines = looseItems.filter((i) => String(i.order_id) === k && (got.has(String(i.id)) || (!i.removed && !i.pulled && !LINE_DONE.includes(i.status))));
+        const rowsOf = lines.map((i) => [sidOf(i.id), vendorName(i.vendor_id), got.has(String(i.id)) ? 'وصل المخزن' : i.status || 'قيد التنفيذ', i.name || '', String(i.id)]);
+        mine.forEach((l) => { if (!lines.some((i) => String(i.id) === String(l.item_id))) rowsOf.push([l.item_id != null ? sidOf(l.item_id) : k, vendorName(l.vendor_id), 'وصل المخزن', l.name || '', l.item_id != null ? String(l.item_id) : null]); });
+        consolidations.push({ id: null, derived: true, order: k, customer: custOf.get(k) || '', since: mine.map((l) => l.since).sort()[0], zone: (mine.find((l) => l.loc) || {}).loc || 'T', by: '', subs: rowsOf }); });
       const lotLines = (id) => lines.filter((l) => l.count_id === id).map((l) => { const lot = byKey.get(l.lot_id) || {}; return { key: l.lot_id, sku: lot.sku || '', name: lot.name || '', loc: lot.loc || '—', system: l.system, counted: l.counted == null ? '' : String(l.counted), cost: lot.cost || 0, note: l.note || '' }; });
       countRow = open;
       const count = open ? { id: 'CNT-' + String(open.id).padStart(2, '0'), dbId: open.id, zone: open.zone, started: cairo(open.started_at), total: 0, base: 0, lines: lotLines(open.id) } : null;

@@ -68,7 +68,9 @@
   // comments decision 18 (the owner 15 Nov — «الصورة هنا مش بتبان … خلي صور المنتجات تبان هنا»): the product's own photo from the site's mirror
   // first (IBInventory.media — https only), the prototype's seeds after it
   const siteOf = (sku) => (window.IBInventory && window.IBInventory.media ? window.IBInventory.media(sku) : { img: '', link: '' });
-  const imgOf = (sku) => { const m = window.IB_PRODUCT_IMG || {}; const k = String(sku || '').trim(); const live = k ? siteOf(k).img : ''; return /^https:\/\//.test(live) ? live : k && m[k] ? 'data:image/jpeg;base64,' + m[k] : null; };
+  // (a product not in the hub yet — a line of a gathered order on its way — takes the photo the orders page shows)
+  const orderImg = (k) => { const D = window.IBOrders && window.IBOrders.data ? window.IBOrders.data() : null; return String((D && D.images && D.images[k]) || ''); };
+  const imgOf = (sku) => { const m = window.IB_PRODUCT_IMG || {}; const k = String(sku || '').trim(); const live = k ? siteOf(k).img || orderImg(k) : ''; return /^https:\/\//.test(live) ? live : k && m[k] ? 'data:image/jpeg;base64,' + m[k] : null; };
   const skuOfName = (name) => { const x = S.stock.find((s) => s.name === name && imgOf(s.sku)); return x ? x.sku : null; };
   const Thumb = (sku, name, big) => { const src = imgOf(sku) || imgOf(skuOfName(name)); return src ? h('span', { class: 'thumb' }, h('img', { src, alt: name || '', loading: 'lazy' })) : h('span', { class: 'thumb', role: 'img', 'aria-label': 'مفيش صورة' }, Icon('box', big ? undefined : 'sm')); };
   // comments decision 19 (the owner — «لو المنتج ليه لينك على الويبسايت حطه هنا … مكتوب عليه افتح على الموقع»): the product's page on the site
@@ -175,7 +177,7 @@
         const vendors = new Set(c.subs.map((x) => x[1])).size;
         // decision 3 (the owner 13 Nov): an order's consolidation card has no filter, sort or columns of its own
         return h('section', { class: 'card cons' + (late ? ' is-late' : ''), 'data-no-cols': '' },
-          h('div', { class: 'cons-h' }, h('div', null, h('a', { href: '#orders', class: 'oid', onClick: (e) => { e.preventDefault(); location.hash = 'orders'; setTimeout(() => window.OrdersApp && window.OrdersApp.setQuery(String(c.order)), 50); } }, 'IB-' + c.order), h('span', { class: 't-label' }, ' · ' + c.customer), h('div', { class: 't-small help' }, vendors + ' مبتكرين · ' + (p.ready ? 'جاهز' : late ? 'فيه تأخير' : 'قرار التجميع: ' + (c.by || '—') + ' ' + K.dshort(c.since)))),
+          h('div', { class: 'cons-h' }, h('div', null, h('a', { href: '#orders', class: 'oid', onClick: (e) => { e.preventDefault(); location.hash = 'orders'; setTimeout(() => window.OrdersApp && window.OrdersApp.setQuery(String(c.order)), 50); } }, 'IB-' + c.order), h('span', { class: 't-label' }, ' · ' + c.customer), h('div', { class: 't-small help' }, (vendors === 1 ? 'مبتكر واحد' : vendors + ' مبتكرين') + ' · ' + (p.ready ? 'جاهز' : late ? 'فيه تأخير' : c.derived ? 'القطع وصلت المخزن ' + K.dshort(c.since) : 'قرار التجميع: ' + (c.by || '—') + ' ' + K.dshort(c.since)))),
             h('div', { class: 'acts-inline' }, p.ready ? K.Tag('success', p.arrived + ' من ' + p.total + ' وصلوا — جاهز يطلع كامل', 'check') : K.Tag(late ? 'error' : 'info', p.arrived + ' من ' + p.total + (late ? ' — أوردر فرعي متأخر' : ' وصلوا')),
               late && !p.arrived ? Button({ size: 'sm', label: 'إلغاء التجميع', onClick: () => cancelCons(c) }) : Button({ type: 'primary', size: 'sm', label: 'شحن كامل', disabled: !p.ready, onClick: () => shipAll(c) }), !p.ready && p.arrived ? Button({ size: 'sm', label: 'اشحن الموجود والباقي بعدين', onClick: () => shipPartial(c, p) }) : null,
               K.RowMenu([{ label: 'إلغاء التجميع', icon: 'close', danger: true, run: () => cancelCons(c) }]))),
@@ -186,12 +188,27 @@
               x[2] !== 'وصل المخزن' ? Button({ type: 'text', size: 'sm', label: 'علّم وصل', onClick: () => markArrived(c, x) }) : '']; }) })); }),
       h('p', { class: 't-small help', style: 'margin:0' }, 'الفريق بيقرر التجميع لكل أوردر من صفحة الأوردرات (⋮ › تجميع في المخزن). الأوردرات الفرعية اللي في التجميع بتتشحن من المبتكر للمخزن («اتشحن للمخزن» ← «وصل المخزن»). لما الكل يوصل الأوردر بيبقى «جاهز يطلع كامل». لو حد اتأخر، تقدر تشحن الموجود والباقي يتشحن لوحده بعدين.')];
   }
+  // comments decision 23 (the owner 15 Nov — «خلي الاوردارات تظهر لما اعمل تجميع في المخزن»): a «تجميع أوردر» piece received for an order
+  // puts the order in «تجميع أوردرات» whatever the way it came in — its open consolidation takes the line, else one is opened with
+  // every line of the order not shipped yet (a `derived` one — the hub's pieces with no row — gets its row with its own lines)
+  function gather(orderId, itemIds, zone) {
+    if (!live() || orderId == null) return; const ids = (itemIds || []).filter((x) => x != null && x !== '').map(String);
+    const c = S.consolidations.find((x) => String(x.order) === String(orderId)) || null;
+    if (c && c.id) { const have = new Set(c.subs.map((y) => String(y[4]))); const add = ids.filter((x) => !have.has(x)); if (add.length) saved(A().addToConsolidation(c.id, add)).then((r) => { if (r.ok) reload(); }); return; }
+    const o = orderList().find((x) => String(x.id) === String(orderId)) || null;
+    const open = c ? c.subs.map((y) => y[4]).filter(Boolean).map(String) : o ? o.subs.filter((x) => !x.pulled && x.ss !== 'تم الشحن للعميل' && x.itemId).map((x) => String(x.itemId)) : [];
+    const all = [...new Set(open.concat(ids))]; if (all.length) saved(A().consolidate(orderId, all, zone || (c && c.zone) || 'T')).then((r) => { if (r.ok) reload(); });
+  }
+  // a derived consolidation (no row yet) is written before it is closed, so «شحن» / «إلغاء التجميع» leave their record
+  const ensureCons = (c) => (!live() || c.id || !c.derived ? Promise.resolve(c) : Promise.resolve(A().consolidate(c.order, c.subs.map((x) => x[4]).filter(Boolean), c.zone)).then((r) => { if (r && r.ok) { c.id = r.id; c.derived = false; } return c; }));
+  const closeCons = (c, status, carrier) => { if (!live()) return; ensureCons(c).then((x) => { if (x.id) saved(A().closeConsolidation(x.id, status, carrier)); }); };
   function markArrived(c, x) {
     const o = window.OrdersApp && window.OrdersApp.get ? window.OrdersApp.get(String(c.order)) : null; const sub = o && o.subs ? o.subs.find((s) => String(s.sid) === String(x[0])) : null;
     x[2] = 'وصل المخزن'; const key = newKey(); const ready = O.consolidation(c.subs.map((y) => y[2])).ready;
     newLot({ key, sku: sub ? sub.sku : 'SUB-' + x[0], name: sub ? sub.prod : (x[3] || 'فرعي #' + x[0]), vendor: x[1], reason: 'تجميع أوردر', status: ready ? 'جاهز يطلع كامل' : 'وصل المخزن', ref: 'IB-' + c.order, sub: x[0], itemId: x[4], order: c.order, since: TODAY, loc: c.zone, cost: lineCost(x[4], sub ? sub.tot : 0) },
       { type: 'in', qty: sub ? sub.qty || 1 : 1, label: 'دخول — تجميع', reason: 'تجميع أوردر', ref: 'IB-' + c.order + ' · #' + x[0], note: 'وصل من ' + x[1] });
     if (ready) S.stock.forEach((s) => { if (String(s.order) === String(c.order) && s.reason === 'تجميع أوردر' && s.key !== key && s.status !== 'جاهز يطلع كامل') { s.status = 'جاهز يطلع كامل'; patchLot(s.key, { status: 'جاهز يطلع كامل' }, 'inventory.status'); } });
+    if (!c.id) gather(c.order, [x[4]], c.zone);
     window.OrdersSetSub && window.OrdersSetSub(x[0], 'وصل المخزن'); K.logEvent('stock.consolidation.arrive', '#' + x[0]); rerender();
   }
   // owner batch 14 Nov decision 8: the shipping companies from «الإعدادات › القوائم والحالات › شركات الشحن» (settings.lists.shipping)
@@ -201,7 +218,7 @@
       fields: (f, e, set) => [K.field.select('carrier', 'شركة الشحن', shipCos(), f, e, set, { required: true }), K.field.text('awb', 'رقم البوليصة', f, e, set, { required: true })],
       validate: (f) => K.req(f, ['carrier', 'awb']), submitLabel: 'شحن', submit: (f) => { const lots = K.stockNow().filter((s) => String(s.order) === String(c.order) && s.reason === 'تجميع أوردر');
         lots.forEach((s) => move({ key: s.key, type: 'out', qty: s.onHand, label: 'خروج — شحن مجمّع', reason: 'تجميع', ref: 'IB-' + c.order, note: 'شحنة واحدة ' + f.carrier + ' ' + f.awb }));
-        S.consolidations = S.consolidations.filter((x) => x !== c); if (live() && c.id) saved(A().closeConsolidation(c.id, 'shipped', f.carrier + ' ' + f.awb)); c.subs.forEach((x) => window.OrdersSetSub && window.OrdersSetSub(x[0], 'تم الشحن للعميل')); K.logEvent('stock.consolidation.ship', c.order); K.toast('اتشحن IB-' + c.order + ' كامل', 'success'); rerender(); } });
+        S.consolidations = S.consolidations.filter((x) => x !== c); closeCons(c, 'shipped', f.carrier + ' ' + f.awb); c.subs.forEach((x) => window.OrdersSetSub && window.OrdersSetSub(x[0], 'تم الشحن للعميل')); K.logEvent('stock.consolidation.ship', c.order); K.toast('اتشحن IB-' + c.order + ' كامل', 'success'); rerender(); } });
   }
   // phase 7 decision 9 (owner, 4 Nov — «لو جمعت أوردر عندي في المخزن ولو حولته قيد الشحن ينقص من المخزن لأني بكده أبقى خرّجته»):
   // the order's status saved as «قيد الشحن» / «مكتمل» → every «تجميع أوردر» piece of it still in the hub leaves (an out move), the lines
@@ -214,7 +231,7 @@
     lots.forEach((s) => move({ key: s.key, type: 'out', qty: s.onHand, label: 'خروج — الأوردر اتشحن', reason: 'تجميع', ref: 'IB-' + orderId, note: 'الأوردر بقى «' + (status || 'قيد الشحن') + '»' }));
     const close = (x) => { const ready = O.consolidation(x.subs.map((y) => y[2])).ready;
       x.subs.filter((y) => y[2] === 'وصل المخزن').forEach((y) => window.OrdersSetSub && window.OrdersSetSub(y[0], 'تم الشحن للعميل'));
-      S.consolidations = S.consolidations.filter((y) => y !== x); return x.id ? saved(A().closeConsolidation(x.id, ready ? 'shipped' : 'partial')) : null; };
+      S.consolidations = S.consolidations.filter((y) => y !== x); return x.id ? saved(A().closeConsolidation(x.id, ready ? 'shipped' : 'partial')) : null; }; // a derived one (no row) just leaves with its pieces
     if (c && (c.id || !live())) close(c);
     // a consolidation opened a moment ago may not be on the page yet, or not carry its id (the hub not reloaded): read the hub, then close it
     else if (live()) A().load().then(() => { const c2 = S.consolidations.find((x) => String(x.order) === String(orderId)); if (c2) Promise.resolve(close(c2)).then(() => rerender()); });
@@ -226,9 +243,9 @@
   function shipPartial(c, p) {
     K.confirm({ title: 'اشحن الموجود والباقي بعدين', text: 'هيطلع ' + p.arrived + ' من ' + p.total + ' دلوقتي والباقي هيتشحن لوحده من المبتكر للعميل لما يخلص.', okLabel: 'اشحن الموجود', onOk: () => {
       K.stockNow().filter((s) => String(s.order) === String(c.order) && s.reason === 'تجميع أوردر').forEach((s) => move({ key: s.key, type: 'out', qty: s.onHand, label: 'خروج — شحن جزئي', reason: 'تجميع', ref: 'IB-' + c.order }));
-      c.subs.filter((x) => x[2] === 'وصل المخزن').forEach((x) => window.OrdersSetSub && window.OrdersSetSub(x[0], 'تم الشحن للعميل')); S.consolidations = S.consolidations.filter((x) => x !== c); if (live() && c.id) saved(A().closeConsolidation(c.id, 'partial')); K.logEvent('stock.consolidation.partial', c.order); K.toast('اتشحن الموجود من IB-' + c.order); rerender(); } });
+      c.subs.filter((x) => x[2] === 'وصل المخزن').forEach((x) => window.OrdersSetSub && window.OrdersSetSub(x[0], 'تم الشحن للعميل')); S.consolidations = S.consolidations.filter((x) => x !== c); closeCons(c, 'partial'); K.logEvent('stock.consolidation.partial', c.order); K.toast('اتشحن الموجود من IB-' + c.order); rerender(); } });
   }
-  function cancelCons(c) { K.confirm({ title: 'إلغاء التجميع', text: 'كل أوردر فرعي هيتشحن لوحده من المبتكر للعميل. القطع اللي وصلت المخزن هتطلع لوحدها.', okType: 'danger', okLabel: 'إلغاء التجميع', onOk: () => { S.consolidations = S.consolidations.filter((x) => x !== c); if (live() && c.id) saved(A().closeConsolidation(c.id, 'cancelled')); K.logEvent('stock.consolidation.cancel', c.order); K.toast('اتلغى التجميع'); rerender(); } }); }
+  function cancelCons(c) { K.confirm({ title: 'إلغاء التجميع', text: 'كل أوردر فرعي هيتشحن لوحده من المبتكر للعميل. القطع اللي وصلت المخزن هتطلع لوحدها.', okType: 'danger', okLabel: 'إلغاء التجميع', onOk: () => { S.consolidations = S.consolidations.filter((x) => x !== c); closeCons(c, 'cancelled'); K.logEvent('stock.consolidation.cancel', c.order); K.toast('اتلغى التجميع'); rerender(); } }); }
 
   // ---------- المرتجعات ----------
   function returnsTab() {
@@ -274,7 +291,8 @@
     const diffs = c.lines.filter((l) => l.counted !== '' && Number(l.counted) !== l.system);
     const done = (c.base || 0) + c.lines.filter((l) => l.counted !== '').length;
     return [K.Section(c.id + ' — ' + c.zone, [h('div', { class: 'count-prog' }, h('b', null, 'التقدّم'), h('span', null, done + ' من ' + c.total + ' منتج اتعدّوا · ' + diffs.length + ' فروق لحد دلوقتي'), U.ProgressBar('brand', done / c.total)),
-      h('div', { class: 'toolbar' }, h('label', { class: 'search-field' }, Icon('search', 'sm'), h('input', { type: 'search', placeholder: 'ابحث بالاسم أو الـ SKU', 'aria-label': 'بحث في الجرد' })), U.Select({ id: 'cn-l', label: '', options: [{ value: 'B', label: 'المكان: رف B' }], value: 'B', onChange: () => {} }), U.Select({ id: 'cn-v', label: '', options: [{ value: '', label: 'العرض: الكل' }], value: '', onChange: () => {} }), h('span', { class: 't-small help' }, 'العدّ بيتحفظ تلقائي')),
+      // comments decision 21 (the owner 15 Nov — «شيل دول ملهمش لازمة»): the two fixed dropdowns («المكان: رف B» / «العرض: الكل») and the
+      // hint beside them left the open count; its search is the kit's «بحث» in the card's head (the page's own input did nothing)
       U.Table({ headers: ['المنتج', 'المكان', 'في السيستم', 'العدد الفعلي', 'الفرق', 'القيمة', 'ملاحظة'].concat(canEdit() ? [''] : []), rows: c.lines.map((l) => { const gone = removedOf(l); const inp = h('input', { class: 'cnt-in', inputmode: 'numeric', value: l.counted, title: gone ? 'اتشال جزء من المخزن أثناء الجرد — العدد = اللي فاضل' : null, 'aria-label': 'العدد الفعلي — ' + l.name, 'data-cnt-key': l.key }); inp.addEventListener('change', () => { l.counted = O.toLatin(inp.value); if (live() && c.dbId) saved(A().countLine(c.dbId, l.key, l.counted, l.note)); K.toast('اتحفظ العدّ'); R(); });
         const d = l.counted === '' ? null : Number(l.counted) - l.system;
         return [prodCell(l), K.Num(l.loc), String(l.system), inp, gone ? K.Tag('orange', String(l.note).split(' — ')[0]) : d == null ? K.Tag('neutral', 'لسه') : d === 0 ? K.Tag('success', 'مطابق') : h('b', { class: d < 0 ? 'neg' : 'pos' }, K.Num((d > 0 ? '+ ' : '− ') + Math.abs(d))), d ? K.Num((d > 0 ? '+ ' : '− ') + K.money(Math.abs(d) * l.cost)) : '—', l.note || '—'].concat(canEdit() ? [countLineMenu(c, l)] : []); }) }),
@@ -369,6 +387,7 @@
         newLot({ key, sku: info.sku || 'SUB-' + info.sid, name: info.prod, vendor: info.vendor, reason: f.reason, status: a.status, ref: a.ref, order: f.reason === 'تجميع أوردر' ? info.order : null, sub: info.sid, itemId: info.itemId, since: f.date, loc: f.loc || null, cost: lineCost(info.itemId, info.tot), mode: f.reason === 'متاح للبيع' ? f.mode : undefined, condition: f.reason === 'مرتجع' ? f.condition : undefined, conditionNote: f.reason === 'مرتجع' ? (f.conditionNote || '') : undefined, note: f.reason === 'مرتجع' ? (info.retReason || '') : (f.note || '') },
           { type: 'in', qty, label: a.label, reason: f.reason, ref: a.ref + ' · #' + info.sid, note: 'من الأوردرات — ' + info.vendor + (f.note ? ' · ' + f.note : '') });
         if (f.reason === 'مرتجع') S.returns.unshift({ name: info.prod, vendor: info.vendor, mode: 'أمانة', sub: '#' + info.sid, sku: info.sku, type: 'مرتجع للمخزن', reason: 'وصل المخزن من الأوردرات · ' + (O.RETURN_CONDITIONS.find((c) => c.value === f.condition) || {}).label, condition: f.condition, conditionNote: f.conditionNote || '', at: K.dshort(f.date), status: 'بانتظار الفحص', effect: '+ ' + qty + ' بعد الفحص', key });
+        if (f.reason === 'تجميع أوردر') gather(info.order, [info.itemId], f.loc || 'T'); // comments decision 23: the order shows in «تجميع أوردرات»
         K.logEvent('stock.arrival', '#' + info.sid + ' · ' + f.reason); K.toast('اتسجل وصول #' + info.sid + ' للمخزن — ' + f.reason, 'success');
         ok({ reason: f.reason, date: f.date, loc: f.loc || '', condition: f.condition || '' }); rerender(); } });
   }
@@ -448,10 +467,7 @@
             { type: 'in', qty: x.qty || 1, label, reason: f.reason, ref: ref + ' · #' + x.sid }); });
         // «تجميع أوردر» (owner, 4 Nov — the cards stayed 0): the order is being gathered — its open consolidation gets the ticked lines,
         // or one is opened with every line of the order not shipped yet (the progress counts the lots received)
-        if (f.reason === 'تجميع أوردر' && live()) { const c = S.consolidations.find((x) => String(x.order) === String(o.id));
-          const open = o.subs.filter((x) => !x.pulled && x.ss !== 'تم الشحن للعميل' && x.itemId).map((x) => x.itemId);
-          if (c && c.id) { const have = new Set(c.subs.map((y) => String(y[4]))); const add = picked.map((x) => x.itemId).filter((x) => x && !have.has(String(x))); if (add.length) saved(A().addToConsolidation(c.id, add)).then((r) => { if (r.ok) reload(); }); }
-          else if (!c && open.length) saved(A().consolidate(o.id, [...new Set(open.concat(picked.map((x) => x.itemId)))], 'T')).then((r) => { if (r.ok) reload(); }); }
+        if (f.reason === 'تجميع أوردر') gather(o.id, picked.map((x) => x.itemId), 'T');
         // «تجميع أوردر»: a sub-order whose lines all arrived is «وصل المخزن» on the orders page too (the same write as the orders page)
         if (f.reason === 'تجميع أوردر' && window.OrdersSetSub) [...new Set(picked.map((x) => x.sid))].forEach((sid) => { if (o.subs.filter((x) => x.sid === sid).every((x) => f.pick[String(x.itemId)] || inHub(x.itemId))) window.OrdersSetSub(sid, 'وصل المخزن'); });
         K.logEvent('stock.receive', 'IB-' + o.id + ' · ' + picked.length + ' (' + f.reason + ')'); K.toast('اتسجل استلام ' + picked.length + ' منتج من IB-' + o.id, 'success'); rerender(); } });

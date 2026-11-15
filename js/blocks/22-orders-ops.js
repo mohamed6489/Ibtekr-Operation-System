@@ -72,17 +72,50 @@
     if (ready) { S.stock.forEach((x) => { if (String(x.order) === String(orderId) && x.reason === 'تجميع أوردر' && x.status !== 'جاهز يطلع كامل') { x.status = 'جاهز يطلع كامل'; if (live()) told(A().updateLot(x.key, { status: 'جاهز يطلع كامل' }, 'inventory.status')); } }); K.notify({ title: 'IB-' + orderId + ' جاهز يطلع كامل من المخزن', link: '#inventory-consolidate' }); }
     rerenderInv();
   }
-  // «تجميع في المخزن» popup: choose sub-orders + zone
+  // «تجميع في المخزن» popup: choose the order's products + the place.
+  // Comments decisions 22 and 25 (the owner 15 Nov — «ف منطقة التجميع دي هنحط مناطق التجميع العادية — و البوب اب ده حتي لو مبتكر واحد
+  // يبقي متاح» · «البوب اب هنا يبقي علي شكل جدول اسم المبتكر و صورة و حالة الاوردر الحالي»): the products are a table — a box, the
+  // photo, the product, its maker and its status now —, the place is one of the hub's normal places (T / R / P, as the hub's own
+  // popups), and one product of one maker is enough.
+  const PLACES = [['T', 'T — تجميع'], ['R', 'R — مرتجعات'], ['P', 'P — تصوير']];
+  const placeName = (c) => (PLACES.find((x) => x[0] === c) || [c, c])[1];
+  const photoOf = (sku) => { const k = String(sku || '').trim(); if (!k) return ''; const D = window.IBOrders && window.IBOrders.data ? window.IBOrders.data() : null;
+    const u = String((D && D.images && D.images[k]) || (A() && A().media ? A().media(k).img : '') || ''); return /^https:\/\//i.test(u) ? u : ''; };
+  const thumb = (sku, name) => { const u = photoOf(sku); return u ? h('span', { class: 'thumb' }, h('img', { src: u, alt: name || '', loading: 'lazy' })) : h('span', { class: 'thumb', role: 'img', 'aria-label': 'مفيش صورة' }, U.Icon('box', 'sm')); };
+  const LINE_DONE = ['تم الشحن للعميل', 'مكتمل', 'ملغي', 'مرتجع للمخزن', 'مرتجع للمبتكر'];
+  const lineLabel = (v) => { const S0 = window.IBSettings; return S0 && S0.statusLabel ? S0.statusLabel('sub', v) : v; };
   function consPopup(o) {
-    const used = S.consolidations.map((c) => c.zone); const free = ['T-01', 'T-02', 'T-03', 'T-04', 'T-05', 'T-06'].filter((z) => !used.includes(z));
-    const pk = (s) => s.itemId || s.sid; const pick = {}; o.subs.forEach((s) => { pick[pk(s)] = !s.pulled && s.ss !== 'تم الشحن للعميل'; });
-    K.form({ title: 'تجميع في المخزن — IB-' + o.id, values: { zone: free[0] || '' }, note: U.InlineNote({ children: 'الفرعيات المختارة هتتشحن من المبتكرين للمخزن وتطلع للعميل في شحنة واحدة. تنبيه لو التجميع عدّى ' + S.invSettings.consolidationAlert + ' أيام.' }),
-      fields: (f, e, set, draw) => [h('div', { class: 'field' }, h('span', { class: 'flabel' }, 'الفرعيات اللي هتتجمع *'), ...o.subs.map((s) => K.Checkbox({ label: '#' + s.sid + ' · ' + s.prod + ' — ' + (s.pulled ? 'مخزن ابتكر' : s.vendor) + (s.ss ? ' (' + s.ss + ')' : ''), checked: pick[pk(s)], disabled: s.pulled, onChange: (v) => { pick[pk(s)] = v; draw(); } })), e.subs ? h('div', { class: 'err-msg', role: 'alert' }, e.subs) : null),
-        K.field.select('zone', 'منطقة التجميع', free.length ? free : ['T-07'], f, e, set, { required: true })],
-      validate: (f) => { const n = Object.values(pick).filter(Boolean).length; const e = {}; if (n < 2) e.subs = 'اختار فرعيين على الأقل — التجميع لأكتر من مبتكر'; if (!f.zone) e.zone = 'اختار المنطقة'; return e; },
+    const pk = (s) => s.itemId || s.sid; const pick = {}; o.subs.forEach((s) => { pick[pk(s)] = !s.pulled && LINE_DONE.indexOf(s.ss) < 0; });
+    const makers = new Set(o.subs.map((s) => s.vendor)).size;
+    K.form({ title: 'تجميع في المخزن — IB-' + o.id, wide: true, values: { zone: 'T' }, note: U.InlineNote({ children: 'المنتجات المختارة هتتشحن من ' + (makers === 1 ? 'المبتكر' : 'المبتكرين') + ' للمخزن وتطلع للعميل في شحنة واحدة. تنبيه لو التجميع عدّى ' + S.invSettings.consolidationAlert + ' أيام.' }),
+      fields: (f, e, set, draw) => [h('div', { class: 'field', 'data-cons-pick': '' }, h('span', { class: 'flabel' }, 'المنتجات اللي هتتجمع *'),
+        U.Table({ cls: 'mini-table cons-pick', headers: ['', 'الصورة', 'المنتج', 'المبتكر', 'الحالة الحالية'], rows: o.subs.map((s) => {
+          const cb = K.Checkbox({ label: '', checked: !!pick[pk(s)], disabled: !!s.pulled, onChange: (v) => { pick[pk(s)] = v; draw(); } }); cb.setAttribute('aria-label', 'جمّع ' + s.prod); cb.setAttribute('data-cons-line', String(pk(s)));
+          const st = s.pulled ? 'مخزن ابتكر' : s.ss || '';
+          return [h('span', { class: 'cons-cb' }, cb), thumb(s.sku, s.prod), h('span', { class: 'cons-prod' }, h('b', null, s.prod), h('small', { dir: 'ltr' }, '#' + s.sid + ((s.qty || 1) > 1 ? ' × ' + s.qty : ''))), s.pulled ? 'مخزن ابتكر' : s.vendor,
+            st ? K.Tag(st === 'وصل المخزن' ? 'success' : /للمخزن$/.test(st) ? 'info' : LINE_DONE.indexOf(st) >= 0 ? 'neutral' : 'orange', s.pulled ? st : lineLabel(st)) : '—']; }) }),
+        e.subs ? h('div', { class: 'err-msg', role: 'alert' }, e.subs) : null),
+        K.field.select('zone', 'منطقة التجميع', PLACES.map(([value, label]) => ({ value, label })), f, e, set, { required: true })],
+      validate: (f) => { const n = Object.values(pick).filter(Boolean).length; const e = {}; if (n < 1) e.subs = 'اختار منتج واحد على الأقل'; if (!f.zone) e.zone = 'اختار المنطقة'; return e; },
       submitLabel: 'ابدأ التجميع', submit: (f) => { const subs = o.subs.filter((s) => pick[pk(s)]).map((s) => [s.sid, s.vendor, s.ss === 'وصل المخزن' ? 'وصل المخزن' : s.ss || 'قيد التنفيذ', s.prod, s.itemId]);
         if (live()) told(A().consolidate(o.id, subs.map((x) => x[4]), f.zone)).then((r) => { if (r.ok) reload(); });
-        S.consolidations.unshift({ order: o.id, customer: o.name, subs, since: DAY(), zone: f.zone, by: K.member(K.ME).name }); K.logEvent('order.consolidate', 'IB-' + o.id + ' · ' + subs.length + ' فرعي · ' + f.zone); K.toast('IB-' + o.id + ' بيتجمع في المخزن (' + f.zone + ')', 'success'); window.OrdersSetSub && window.OrdersSetSub('__redraw__', null); rerenderInv(); } });
+        S.consolidations.unshift({ order: o.id, customer: o.name, subs, since: DAY(), zone: f.zone, by: K.member(K.ME).name }); K.logEvent('order.consolidate', 'IB-' + o.id + ' · ' + subs.length + ' منتج · ' + f.zone); K.toast('IB-' + o.id + ' بيتجمع في المخزن (' + placeName(f.zone) + ')', 'success'); window.OrdersSetSub && window.OrdersSetSub('__redraw__', null); rerenderInv(); } });
+  }
+  // comments decision 24 (the owner 15 Nov — «مجرد ما اخلي الحالة دي جاهز للشحن من المبتكر للمخزن يطلعلي بوب اب هتجمع الاوردر ده ف المخزن
+  // لو كتبت اه يفتحلي البوب بتاع تجميع ف المخزن و يجمع»): a product set «جاهز للشحن من المبتكر للمخزن» on an order that is not being
+  // gathered → the question; «أيوه» opens the popup above. An order already gathered takes the product into its consolidation.
+  const asking = new Set();
+  function askConsolidate(o, s) {
+    const c = cons(o.id);
+    if (c) { const id = s && s.itemId != null ? String(s.itemId) : ''; if (!id || c.subs.some((x) => String(x[4]) === id)) return;
+      c.subs.push([s.sid, s.vendor, s.ss || 'قيد التنفيذ', s.prod, s.itemId]);
+      if (live() && c.id) told(A().addToConsolidation(c.id, [id])).then((r) => { if (r.ok) reload(); });
+      K.toast('اتضاف لتجميع IB-' + o.id, 'success'); rerenderInv(); return; }
+    const k = String(o.id); if (asking.has(k)) return; asking.add(k);
+    let m = null; let yes = false;
+    m = U.Modal({ title: 'تجميع في المخزن — IB-' + o.id, onClose: () => { asking.delete(k); if (yes) consPopup(o); },
+      body: [h('p', { class: 't-body', style: 'margin:0', 'data-cons-ask': k }, 'هتجمّع الأوردر ده في المخزن؟')],
+      footer: [U.Button({ label: 'لأ', onClick: () => m.close() }), U.Button({ type: 'primary', label: 'أيوه، جمّعه', onClick: () => { yes = true; m.close(); } })] });
   }
   // «وصل المخزن» on a sub-order → choose the storage reason (owner 22 Oct). The stock row is added by the popup.
   const arrivalPopup = (info, ok) => inv().arrival(Object.assign({ inConsolidation: !!cons(info.order) }, info), ok);
@@ -103,7 +136,7 @@
   // the hub loaded or changed: the orders page redraws its «في المخزن» chips and consolidation bars (phase 7)
   document.addEventListener('ib:inventory', () => { if (window.OrdersSetSub) window.OrdersSetSub('__redraw__', null); });
   document.addEventListener('ib:tickets', () => { if (window.OrdersSetSub) window.OrdersSetSub('__redraw__', null); }); // phase 8: the open-ticket count on the orders
-  window.IBOrdersOps = { cons, returnPopup, orderReturnPopup, orderReasonPopup, ratePopup, subChanged, arrivalPopup, consolidate: consPopup,
+  window.IBOrdersOps = { cons, returnPopup, orderReturnPopup, orderReasonPopup, ratePopup, subChanged, arrivalPopup, consolidate: consPopup, askConsolidate,
     shipall: (o) => { const c = cons(o.id); if (c) inv().shipAll(c); },
     uncons: (o) => { const c = cons(o.id); if (c) inv().cancelCons(c); },
     // phase 7 decision 9 (owner, 4 Nov): the order's status saved as «قيد الشحن» / «مكتمل» = it left — its gathered pieces leave the hub

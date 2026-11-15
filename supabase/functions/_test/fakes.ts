@@ -390,7 +390,7 @@ export function fakeDb(seed: Record<string, Row[]> = {}, opts: { rpc?: Record<st
 }
 
 export type WooCall = { method: string; path: string; query: Record<string, string>; headers: Record<string, string>; body: any; timed: boolean; redirect?: string };
-export type Reply = { status?: number; body?: unknown; text?: string; headers?: Record<string, string>; error?: Error };
+export type Reply = { status?: number; body?: unknown; text?: string; bytes?: Uint8Array; headers?: Record<string, string>; error?: Error };
 
 export function fakeWoo(routes: Record<string, Reply | ((call: WooCall) => Reply | undefined)> = {}) {
   const calls: WooCall[] = [];
@@ -406,7 +406,7 @@ export function fakeWoo(routes: Record<string, Reply | ((call: WooCall) => Reply
     const reply = typeof route === 'function' ? route(call) : route;
     if (!reply) return Promise.resolve(new Response(JSON.stringify({ code: 'rest_no_route', message: 'No route' }), { status: 404 }));
     if (reply.error) return Promise.reject(reply.error);
-    return Promise.resolve(new Response(reply.text ?? JSON.stringify(reply.body ?? null), { status: reply.status ?? 200, headers: { 'content-type': 'application/json', ...reply.headers } }));
+    return Promise.resolve(new Response((reply.bytes as BodyInit | undefined) ?? reply.text ?? JSON.stringify(reply.body ?? null), { status: reply.status ?? 200, headers: { 'content-type': 'application/json', ...reply.headers } })); // bytes: a file (an image)
   };
   return { fetch: fetch as typeof globalThis.fetch, calls };
 }

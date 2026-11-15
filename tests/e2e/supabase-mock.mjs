@@ -172,6 +172,7 @@ const SECRET_ID = 'c0000000-0000-4000-8000-000000000001'; // the vault id of Ant
 export const CONTRACT_BYTES = Buffer.from('%PDF-1.4\n% mock contract of Antikiano\n%%EOF\n');
 export const SITE = 'https://ibtekr.stage.test';
 // a 1×1 PNG for the studio's thumbnails (signed URLs of the bucket studio)
+const THUMB_PNG = 'iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAIAAABvFaqvAAAAKElEQVR4nGNgCHOiDhrEBh1fHEUGGjVo1KBRg0YNGgkGUa2oHSwGAQBmztHPx/YxxQAAAABJRU5ErkJggg=='; // a 24 px gold tile in a green frame: what woo-sync thumbs answers for a site upload (comments decision 10)
 const PNG_1PX = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
 export const IMG = { cushion: 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==', curtain: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=' };
 const VND = (n) => 'a0000000-0000-4000-8000-00000000000' + n;
@@ -429,6 +430,7 @@ export async function installSupabaseMock(page, opts = {}) {
   // phase 11 (0056): the settings page's server side (settings-mock.mjs settingsState: opts.vault / companyDocs / settingsObjects / sessions / probeOk), st.calls / st.writes; the roles copy of this install
   mock.st = settingsState(opts, ROLES); mock.roles = mock.st.roles; LIVE_ROLES.list = mock.roles;
   mock.portal = portalState(); // phase 13 T4
+  mock.thumbs = []; mock.thumbsDown = false; // comments decision 10: woo-sync thumbs
   mock.accWrites = []; mock.accountsDown = false; mock.statements = []; mock.statementRows = opts.statementRows || [];
   let accSeq = 0;
   // brands / brandOwners / brandRates: the 0013 tables (ordersSeed(opts): opts.transfer seeds the temporary transfer); brandWrites: each
@@ -2300,7 +2302,7 @@ export async function installSupabaseMock(page, opts = {}) {
         v.woo_vendor_id = store; v.woo_synced_at = new Date().toISOString(); v.push_pending = null;
         return json(200, { action, result: 'ok', store, adopted: false, commission, bank, photo: 'none', shop_url: 'https://woo.test/store/' + shop + '/' });
       }
-      if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : (action === 'order_trash' || action === 'suborder_trash' || action === 'line_trash' || action === 'line_qty' || action === 'line_add' || action === 'suborder_status') ? hasPerm(u, 'orders.status') === 'F' && hasPerm(u, 'orders.view') !== 'N' : (action === 'order_create' || action === 'order_pay_link') ? (isAdmin(u) || hasPerm(u, 'orders.status') === 'F') : action === 'push_vendor' ? mayPushVendor() : (action === 'statement' || action === 'withdrawals') ? hasPerm(u, 'accounts.view') !== 'N' : action === 'withdraw_approve' || action === 'withdraw_create' ? (isAdmin(u) || hasPerm(u, 'accounts.approve') === 'F')
+      if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : (action === 'order_trash' || action === 'suborder_trash' || action === 'line_trash' || action === 'line_qty' || action === 'line_add' || action === 'suborder_status') ? hasPerm(u, 'orders.status') === 'F' && hasPerm(u, 'orders.view') !== 'N' : (action === 'order_create' || action === 'order_pay_link') ? (isAdmin(u) || hasPerm(u, 'orders.status') === 'F') : action === 'push_vendor' ? mayPushVendor() : (action === 'statement' || action === 'withdrawals') ? hasPerm(u, 'accounts.view') !== 'N' : action === 'thumbs' ? (hasPerm(u, 'orders.view') !== 'N' || hasPerm(u, 'products.view') !== 'N') : action === 'withdraw_approve' || action === 'withdraw_create' ? (isAdmin(u) || hasPerm(u, 'accounts.approve') === 'F')
         : action === 'product_get' ? hasPerm(u, 'products.view') !== 'N' : action === 'product_save' || action === 'product_images_add' ? (isAdmin(u) || hasPerm(u, 'products.edit') === 'F') : action === 'products_batch' || action === 'products_vendor' ? (isAdmin(u) || hasPerm(u, 'products.bulk') === 'F')
           : action === 'products_trash' || action === 'products_restore' ? hasPerm(u, 'products.trash') === 'F' : action === 'studio_upload' || action === 'studio_media' || action === 'category_create' || action === 'studio_sheet' || action === 'product_duplicate' || action === 'category_get' || action === 'category_update' || action === 'category_delete' ? (isAdmin(u) || hasPerm(u, 'products.add') === 'F') : isAdmin(u))) return json(401, { error: 'unauthorized' });
       // phase 5.2: studio_upload — the item read from the batch and checked by the server's own buildStudio; the gate; a product
@@ -2545,6 +2547,15 @@ export async function installSupabaseMock(page, opts = {}) {
         const nid = Math.max(700, ...mock.acc.dokan_withdrawals.map((x) => Number(x.id))) + 1;
         mock.acc.dokan_withdrawals.push({ id: nid, woo_vendor_id: Number(v.woo_vendor_id), vendor_id: vid, amount, charge: 0, receivable: amount, status: 'pending', method: 'bank', requested_at: new Date().toISOString().replace('T', ' ').slice(0, 19), synced_at: new Date().toISOString() });
         return done(200, { result: 'ok', id: nid, amount, status: 'pending' });
+      }
+      // comments decision 10: the site's own product photos for a report that goes out as a file — a tiny PNG for each upload of
+      // the site (mock.thumbs: each call's urls; mock.thumbsDown: none can be read)
+      if (action === 'thumbs') {
+        const urls = Array.isArray(b.urls) ? b.urls : null;
+        if (!urls || !urls.length || urls.length > 12 || urls.some((x) => typeof x !== 'string' || !x)) return json(400, { error: 'bad_request', field: 'urls' });
+        mock.thumbs.push({ urls, by: u.email });
+        const ok = (x) => !mock.thumbsDown && x.startsWith(SITE + '/wp-content/uploads/') && /\.(webp|jpe?g|png)$/i.test(x.split('?')[0]);
+        return json(200, { action, result: 'ok', images: [...new Set(urls)].map((x) => (ok(x) ? { url: x, type: 'image/png', data: THUMB_PNG } : { url: x, type: null, data: null })) });
       }
       // phase 4: the maker's Dokan statement (read-only, not stored) — mock.statementRows for any range
       if (action === 'statement') {

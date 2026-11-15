@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { installSupabaseMock, LIVE, DEV_PW } from './supabase-mock.mjs';
+import { installSupabaseMock, LIVE, DEV_PW, SITE } from './supabase-mock.mjs';
 // The owner's comments on «نسخة التعليقات» — batch 2 (docs/superpowers/plans/2026-11-15-comments.md): one case a comment (or a small
 // group on the same screen), named by the comment's number there. Mock only.
 const ADMIN = 'admin.dev@ibtekr.local';
@@ -184,4 +184,106 @@ test('comment 9 — «إضافة مبتكر» in steps: بيانات المبت�
   await expect(m).toBeVisible();
   const mb = await box(m); expect(mb.x).toBeGreaterThanOrEqual(0); expect(mb.x + mb.width).toBeLessThanOrEqual(390);
   const sb = await box(m.locator('.mk-steps')); expect(sb.x).toBeGreaterThanOrEqual(mb.x - 1); expect(sb.x + sb.width).toBeLessThanOrEqual(mb.x + mb.width + 1);
+});
+
+// comments 10 and 11: the maker's short report — Art Craft with 2,500 on Dokan and a pending request of 1,200; Antikiano with 25,000
+// and no request. The site's product photos are answered here (the page shows them; woo-sync thumbs hands them to the file).
+const V1 = 'a0000000-0000-4000-8000-000000000001'; const V2 = 'a0000000-0000-4000-8000-000000000002';
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+async function makersAccounts(page) {
+  mock.acc.dokan_balances.push({ vendor_id: V1, woo_vendor_id: 2376, balance: 2500, earning: 9000, sales: 11000, orders: 12, synced_at: '2026-10-27T10:00:00Z' }, { vendor_id: V2, woo_vendor_id: 44, balance: 25000, earning: 30000, sales: 40000, orders: 20, synced_at: '2026-11-11T10:00:00Z' });
+  mock.acc.dokan_withdrawals.push({ id: 501, woo_vendor_id: 2376, vendor_id: V1, amount: 1200, charge: 0, receivable: 1200, status: 'pending', method: 'bank', requested_at: '2026-10-25 12:00:00', synced_at: '2026-10-27T10:00:00Z' });
+  mock.orders.forEach((o) => { if (o.id === 181668 || o.id === 180656) Object.assign(o, { status: 'مكتمل', woo_status: 'completed' }); });
+  mock.products.forEach((p, i) => { p.image_url = SITE + '/wp-content/uploads/2026/11/p' + i + '.webp'; });
+  await page.route(SITE + '/**', (r) => r.fulfill({ status: 200, contentType: 'image/png', body: PNG }));
+  await page.setViewportSize({ width: 1366, height: 900 });
+  await signIn(page);
+  await go(page, 'makers');
+  await page.locator('#vendors [role=tablist][aria-label="أقسام المبتكرين"] [role=tab]', { hasText: 'حسابات المبتكرين' }).click();
+}
+
+test('comment 10 — «تقرير مختصر»: five numbers, the request\'s box, the orders with the product\'s photo, three buttons; «مشاركة» asks the file\'s kind and how it goes — a PDF / an Excel with the photos; «التقرير الكامل» says it is the maker\'s whole history', async ({ page }) => {
+  await makersAccounts(page);
+  await page.locator('#vpanel .vname-link', { hasText: 'Art Craft' }).first().click();
+  const m = page.locator('.modal.vb-modal');
+  await expect(m.locator('.modal-h h2')).toHaveText('تقرير مختصر — Art Craft');
+  // the owner's five numbers, in his order — nothing else on top
+  await expect(m.locator('[data-vb-tile] > span')).toHaveText(['رصيد Dokan', 'العرابين', 'المواصلات', 'التصحيح', 'صافي الرصيد']);
+  await expect(m.locator('[data-vb-tile="dokan"] b')).toHaveText('2,500.00 ج.م'); await expect(m.locator('[data-vb-tile="net"] b')).toHaveText('2,500.00 ج.م');
+  await expect(m.locator('[data-vb-req]')).toHaveAttribute('data-vb-req', 'pending');
+  // the orders: the number and the product with its own photo (the site's)
+  const row = m.locator('[data-vb-table] tbody tr').first();
+  await expect(row).toContainText('#181668'); await expect(row).toContainText('Cushion'); await expect(row).toContainText('1,002.00');
+  await expect(row.locator('.vr-prod img')).toHaveAttribute('src', new RegExp('^' + SITE.replace(/\./g, '\\.') + '/wp-content/uploads/'));
+  // the buttons: «مشاركة» · «التقرير الكامل» · «إغلاق» — «كشف حساب Dokan» and «نسخ CSV» are gone
+  await expect(m.locator('.modal-f button')).toHaveText(['مشاركة', 'التقرير الكامل', 'إغلاق']);
+  await expect(m).not.toContainText('نسخ CSV'); await expect(m.getByRole('button', { name: 'كشف حساب Dokan' })).toHaveCount(0);
+  // «مشاركة»: the file's kind, then how it goes
+  await m.locator('[data-vb-share]').click();
+  const sh = page.locator('.modal.sh-modal');
+  await expect(sh.locator('.modal-h h2')).toHaveText('مشاركة — تقرير مختصر — Art Craft');
+  await expect(sh.locator('[data-sh-type] b')).toHaveText(['Excel', 'PDF']);
+  await expect(sh.locator('[data-sh-via] b')).toHaveText(['واتساب', 'إيميل', 'تحميل على الجهاز']);
+  await expect(sh.locator('[data-sh-hint]')).toContainText('هيتفتح واتساب على رقم 01000000003'); // the maker's own number
+  // a PDF saved on the device: one A4 page, with the product's photo read by the server
+  await sh.locator('[data-sh-type="pdf"]').click(); await sh.locator('[data-sh-via="download"]').click();
+  await expect(sh.locator('[data-sh-go]')).toHaveText('تحميل');
+  const [pdf] = await Promise.all([page.waitForEvent('download'), sh.locator('[data-sh-go]').click()]);
+  const fs = await import('node:fs'); const bytes = fs.readFileSync(await pdf.path());
+  expect(bytes.subarray(0, 8).toString('latin1')).toBe('%PDF-1.4'); expect(bytes.subarray(-6).toString('latin1')).toBe('%%EOF\n');
+  expect(bytes.includes(Buffer.from('/Type /Pages /Count 1 '))).toBe(true);
+  await expect(sh).toHaveCount(0);
+  let last = await page.evaluate(() => window.__lastShare);
+  expect(last).toMatchObject({ type: 'pdf', via: 'download', ok: true, name: 'تقرير Art Craft.pdf', pages: 1, photos: 1 });
+  expect(mock.thumbs).toEqual([{ urls: [expect.stringContaining('/wp-content/uploads/2026/11/')], by: ADMIN }]);
+  expect(last.text).not.toMatch(/نسبة|عمولة/); // it goes to the maker: no Ibtekr share or rate
+  // an Excel by WhatsApp: the file is saved, the chat opens on the maker's number with the numbers as the message
+  await m.locator('[data-vb-share]').click();
+  await sh.locator('[data-sh-type="excel"]').click(); await sh.locator('[data-sh-via="whatsapp"]').click();
+  await expect(sh.locator('[data-sh-go]')).toHaveText('مشاركة');
+  page.on('popup', (p) => p.close().catch(() => {}));
+  const [xlsx] = await Promise.all([page.waitForEvent('download'), sh.locator('[data-sh-go]').click()]);
+  const zip = fs.readFileSync(await xlsx.path());
+  expect(zip.subarray(0, 2).toString('latin1')).toBe('PK'); expect(zip.includes(Buffer.from('xl/media/image1.jpeg'))).toBe(true); // the photo is inside the sheet
+  last = await page.evaluate(() => window.__lastShare);
+  expect(last).toMatchObject({ type: 'excel', via: 'whatsapp', name: 'تقرير Art Craft.xlsx', photos: 1 });
+  expect(last.href.startsWith('https://wa.me/201000000003?text=')).toBe(true);
+  expect(decodeURIComponent(last.href.split('text=')[1])).toContain('صافي الرصيد: 2,500.00 ج.م');
+  expect(mock.thumbs).toHaveLength(1); // the photo is kept for the session
+  // «التقرير الكامل»: its own popup, and it says what it is — the whole history, an order older than the screen's 12 months too
+  await m.locator('[data-vb-full]').click();
+  const full = page.locator('.modal.vb-modal');
+  await expect(full.locator('.modal-h h2')).toHaveText('التقرير الكامل — Art Craft');
+  await expect(full.locator('[data-vfull-scope]')).toHaveAttribute('data-vfull-scope', 'whole');
+  await expect(full.locator('[data-vfull-scope]')).toContainText('ده التقرير الكامل للمبتكر: كل أوردراته المكتملة والملغية من أول ما بدأ معانا');
+  await expect(full.locator('[data-vfull-table] tbody tr.dt-click')).toHaveCount(2);
+  await expect(full.locator('[data-vfull-table]')).toContainText('#150001'); // 2025: not among the screen's orders
+  await expect(full.locator('.modal-f button')).toHaveText(['مشاركة', 'إغلاق']);
+});
+
+test('comment 11 — «تقفيل حساب» is the short report\'s own popup; «اعمل طلب سحب على Dokan» files the request and asks «وافق دلوقتي» / «بعدين» in the same popup', async ({ page }) => {
+  await makersAccounts(page);
+  await page.locator('#vpanel table tbody tr', { hasText: 'Antikiano' }).getByRole('button', { name: /إجراءات/ }).click();
+  await page.locator('[role=menu] .opt, [role=menu] [role=menuitem]', { hasText: 'تسوية دلوقتي (تقفيل الحساب)' }).first().click();
+  const m = page.locator('.modal.vb-modal');
+  await expect(m.locator('.modal-h h2')).toHaveText('تقفيل حساب — Antikiano');
+  // the same popup as the short report: the five numbers, the orders, the three buttons
+  await expect(m.locator('[data-vb-tile] > span')).toHaveText(['رصيد Dokan', 'العرابين', 'المواصلات', 'التصحيح', 'صافي الرصيد']);
+  await expect(m.locator('[data-vb-table]')).toBeVisible();
+  await expect(m.locator('.modal-f button')).toHaveText(['مشاركة', 'التقرير الكامل', 'إغلاق']);
+  await expect(m.locator('[data-vb-req]')).toHaveAttribute('data-vb-req', 'settle');
+  // one press: the request is filed on Dokan and the same popup asks — it never closes and opens again
+  await m.locator('[data-vb-create]').click();
+  await expect(m.locator('[data-vb-req]')).toHaveAttribute('data-vb-req', 'ask');
+  await expect(m.locator('[data-vb-req]')).toContainText('بمبلغ 25,000.00 ج.م على Dokan — توافق عليه دلوقتي؟');
+  await expect(m.locator('[data-vb-req] button')).toHaveText(['وافق دلوقتي', 'بعدين']);
+  await expect(page.locator('.modal[role=dialog]')).toHaveCount(1);
+  expect(mock.withdrawCreates).toHaveLength(1);
+  // «وافق دلوقتي»: approved on Dokan, the result in the box, the numbers follow
+  await m.locator('[data-vb-approve]').click();
+  await expect(m.locator('[data-vb-req]')).toHaveAttribute('data-vb-req', 'approved');
+  await expect(m.locator('[data-vb-res]')).toContainText('اتوافق على طلب السحب');
+  await expect(m.locator('[data-vb-tile="dokan"] b')).toHaveText('0.00 ج.م');
+  expect(mock.approvals.at(-1)).toMatchObject({ by: ADMIN, result: 'ok' });
+  await expect(page.locator('.modal[role=dialog]')).toHaveCount(1);
 });

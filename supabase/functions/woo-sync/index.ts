@@ -102,6 +102,10 @@
 //              page → dokan_withdrawals (id, store, amount, charge, receivable, status, method, created — never `details`
 //              (the bank account), `ip` or `note`), then dokan/v1/stores/{id}/stats for the next ACCOUNTS_BATCH makers with a
 //              store (sync_state['accounts'].offset goes round) → dokan_balances. Nothing is ever written to Dokan.
+//   'thumbs' { urls: [1–12] }  (2026-11-15-comments.md decision 10) the site's own product photos as small base64 images,
+//              for a report that goes out as a PDF / Excel — the browser cannot read them into a file (the site sends no CORS
+//              header). A member with orders.view <> N or products.view <> N, never the sync secret. Only the site's uploads
+//              (_shared/site-image.js), never a redirect; a photo that cannot be read is null. Reads only; nothing is logged.
 //   'statement' { vendor_id, from, to }  (decision 6) the maker's Dokan statement for the range (at most 400 days),
 //              dokan/v1/vendor/reports/statement, read-only and not stored: rows { date, type, title, debit, credit,
 //              balance, ref } (title scrubbed; ref = Dokan's trn_id, the maker's order for dokan_orders — phase 5.5
@@ -157,6 +161,7 @@ import { STUDIO_ATTRS, VARIATION_GALLERY_KEY, buildStudio, fetchSheetCsv, matchW
 import { duplicateAr, duplicatePayload, duplicateSku, duplicateVariation, variationSku } from '../_shared/woo-duplicate.js';
 import { OWNED, siteQuantities, skuList } from '../_shared/woo-inventory.js';
 import { CART_HOURS, CART_PATH, cartRows } from '../_shared/woo-carts.js';
+import { imageHosts, imageKind, siteImage, thumbCandidates, thumbUrls } from '../_shared/site-image.js';
 import { VENDOR_SYNC_COLUMNS, applyPushResult, effectiveRates, gmtIso, loadBanks, loadTree, logActivity, markPushPending, pushStoreFields, retryablePush, saveVendors, wooId, writeBrands, writeCategories, releaseLines, writeContext, writeOrderPage, writeOrders, writeProducts, writeStates } from '../_shared/woo-write.js';
 
 // deno-lint-ignore no-explicit-any
@@ -169,11 +174,11 @@ type Run = { db: Db; env: Deps['env']; woo: () => ReturnType<typeof wooApi>; ctx
 
 const ACTIONS = ['states', 'categories', 'orders', 'vendors', 'products', 'all', 'push_status', 'push_vendor', 'register_webhooks', 'probe_store', 'probe_dokan', 'accounts', 'statement', 'withdraw_approve', 'withdraw_create', 'withdrawals', 'order_trash', 'suborder_trash', 'line_trash', 'line_qty', 'line_add', 'suborder_status', 'order_create', 'order_pay_link',
   'vendor_photo', 'vendor_store', 'product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'studio_media', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push', 'product_duplicate', 'carts',
-  'category_get', 'category_update', 'category_delete'];
+  'category_get', 'category_update', 'category_delete', 'thumbs'];
 // phase 5: the product actions a person runs (never the sync secret); phase 5.2: the studio's upload, a new category, a sheet link;
 // phase 5.4: the images tool's results onto a product; B4 (11 Nov): the categories tab's read, edit and delete
 const PRODUCT_ACTIONS = ['product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'studio_media', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push', 'product_duplicate',
-  'category_get', 'category_update', 'category_delete'];
+  'category_get', 'category_update', 'category_delete', 'thumbs'];
 const PRODUCT_BATCH_MAX = 100;
 const ACCOUNTS_BATCH = 50; // stats requests per run (one per maker; the hourly cron goes round the list)
 const STATEMENT_MAX_DAYS = 400;
@@ -216,6 +221,8 @@ async function authorize(req: Request, deps: Deps, action: string, args: Json): 
   // phase 13 T3 (decision 7): an order from the customer-service chat and its pay link — the admin or orders.status = F
   if (action === 'order_create' || action === 'order_pay_link') return (await admin()) || (await perm('orders.status')) ? 'member' : null;
   if (action === 'statement' || action === 'withdrawals') { const { data, error } = await member.rpc('has_perm', { key: 'accounts.view' }); return !error && (data === 'F' || data === 'P') ? 'member' : null; }
+  // comments decision 10: the photos of a report's products — whoever sees the orders or the products
+  if (action === 'thumbs') { for (const key of ['orders.view', 'products.view']) { const { data, error } = await member.rpc('has_perm', { key }); if (!error && (data === 'F' || data === 'P')) return 'member'; } return null; }
   // phase 4.1 (decision 1): approving a Dokan withdraw request — the admin or accounts.approve = F (has_perm carries aal2)
   if (action === 'withdraw_approve') return (await admin()) || (await perm('accounts.approve')) ? 'member' : null;
   // 0078 (the owner, 11 Nov — «تسوية دلوقتي»): a request for the maker's whole Dokan balance — the same people who approve one
@@ -2127,6 +2134,41 @@ async function studioUpload(run: Run, args: Json) {
 
 // studio_sheet { url } (decision 13): a Google Sheets link → { result: 'ok', csv } | { result: 'error', reason: not_published |
 // too_big | unreachable }; a link that is not a Google sheet → 400 bad_link. Read only: no Woo call, nothing stored.
+// thumbs { urls } (comments decision 10): each photo's smallest copy the site has (thumbCandidates), by its own bytes. 8 s and
+// 1.5 MB a photo, 4 MB the whole answer (what is over stays null); four at a time.
+const THUMB_MS = 8000; const THUMB_MAX = 1536 * 1024; const THUMBS_TOTAL = 4 * 1024 * 1024;
+const b64 = (bytes: Uint8Array) => { let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000)); return btoa(bin); };
+async function thumbs(run: Run, args: Json, fetchFn: typeof fetch) {
+  const urls = thumbUrls(args.urls) as string[] | null;
+  if (!urls) return json(400, { error: 'bad_request', field: 'urls' });
+  const hosts = imageHosts(run.env);
+  const one = async (raw: string) => {
+    const u = siteImage(raw, hosts);
+    if (!u) return null;
+    for (const href of thumbCandidates(u) as string[]) {
+      try {
+        const r = await fetchFn(href, { redirect: 'error', signal: AbortSignal.timeout(THUMB_MS) });
+        const declared = Number(r.headers.get('content-length'));
+        if (!r.ok || (Number.isFinite(declared) && declared > THUMB_MAX)) { try { await r.body?.cancel(); } catch { /* nothing to drop */ } continue; }
+        const bytes = new Uint8Array(await r.arrayBuffer());
+        const type = imageKind(bytes) as string | null;
+        if (type && bytes.length <= THUMB_MAX) return { type, bytes };
+      } catch { /* the next copy */ }
+    }
+    return null;
+  };
+  const images: Json[] = []; let total = 0;
+  for (let i = 0; i < urls.length; i += 4) {
+    const got = await Promise.all(urls.slice(i, i + 4).map(one));
+    got.forEach((g, k) => {
+      const fits = !!g && total + g.bytes.length <= THUMBS_TOTAL;
+      if (g && fits) total += g.bytes.length;
+      images.push(g && fits ? { url: urls[i + k], type: g.type, data: b64(g.bytes) } : { url: urls[i + k], type: null, data: null });
+    });
+  }
+  return json(200, { action: 'thumbs', result: 'ok', images });
+}
+
 async function studioSheet(args: Json, fetchFn: typeof fetch) {
   const r = await fetchSheetCsv(typeof args.url === 'string' ? args.url.slice(0, 2000) : '', fetchFn) as Json;
   if (r.error === 'bad_link') return json(400, { error: 'bad_link', field: 'url' });
@@ -2434,6 +2476,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'category_update') return await categoryUpdate(run, args);
     if (action === 'category_delete') return await categoryDelete(run, args);
     if (action === 'studio_sheet') return await studioSheet(args, deps.fetch);
+    if (action === 'thumbs') return await thumbs(run, args, deps.fetch);
     if (action === 'inventory_push') return await inventoryPush(run, args);
     if (action === 'product_duplicate') { const jwt = /^Bearer\s+(\S+)$/i.exec(req.headers.get('authorization') ?? '')?.[1] ?? ''; return await productDuplicate(run, args, deps.userDb && jwt ? deps.userDb(jwt) : null); }
     if (action === 'product_images_add') {

@@ -631,7 +631,62 @@
     const ch = channel; channel = null;
     if (ch && c()) { try { Promise.resolve(c().removeChannel(ch)).catch(() => {}); } catch (e) { /* already closed */ } }
   }
-  function clear() { gen += 1; unsubscribe(); cancelNotify(); orders = null; custom = new Map(); customOk = false; seenO.clear(); seenI.clear(); vendorRows = []; leads = new Map(); leadAsked.clear(); images = {}; links = {}; states = new Map(); statuses = []; names = []; asked.clear(); busy.clear(); setState('idle'); }
-  window.IBOrders = { load, data, state: () => st, today, setOrderStatus, setConfirm, patchOrder, deleteOrder, deleteSub, deleteLine, setLineQty, addLine, makerProducts, siteStatuses, setSubSiteStatus, setItemStatus, setWaybill, setPulled, syncNow, registerWebhooks, subscribe, unsubscribe, clear, toScreen, refetch };
+  // ---------- a maker's whole history (2026-11-15-comments.md decision 10 — «التقرير الكامل … من تاريخ ما بدأ معانا») ----------
+  // Every line of the maker, of any date (the screen holds the last 12 months only), with its order's status and day — read under
+  // RLS (orders.view), for the report only: nothing of it is kept but the products' photos / links.
+  // → { ok: true, rows: [{ oid, sid, prod, sku, tot, status, at }], capped } | { ok: false, reason }
+  const HISTORY_CAP = 5000;
+  async function makerHistory(vendorId) {
+    const cl = c();
+    if (!cl || !uid() || !vendorId) return { ok: false, reason: 'unavailable' };
+    const g = gen;
+    try {
+      const items = [];
+      for (let from = 0; from < HISTORY_CAP; from += PAGE) {
+        const { data: d, error } = await cl.from('order_items').select('id, order_id, sub_order_id, sku, name, total, removed').eq('vendor_id', vendorId).order('id', { ascending: false }).range(from, from + PAGE - 1);
+        if (error) throw error;
+        items.push(...(d || []));
+        if (!d || d.length < PAGE) break;
+      }
+      const live = items.filter((it) => !it.removed);
+      const oids = [...new Set(live.map((it) => it.order_id).filter((x) => x != null))]; const sids = [...new Set(live.map((it) => it.sub_order_id).filter((x) => x != null))];
+      const skus = [...new Set(live.map((it) => it.sku).filter((x) => x && !(x in images)))];
+      const [os, ss, ps] = await Promise.all([within(cl, 'orders_v', 'id, status, placed_at', 'id', oids, IDS, g), within(cl, 'sub_orders', 'id, woo_order_id', 'id', sids, IDS, g),
+        within(cl, 'products', 'sku, image_url, permalink, lang', 'sku', skus, SKUS, g).catch(() => [])]);
+      keepAll(ps);
+      const oBy = new Map(os.map((o) => [String(o.id), o])); const sBy = new Map(ss.map((x) => [String(x.id), x]));
+      const rows = live.map((it) => { const o = oBy.get(String(it.order_id)); if (!o) return null; const so = it.sub_order_id != null ? sBy.get(String(it.sub_order_id)) : null; const d = local(o.placed_at);
+        return { oid: String(it.order_id), sid: so && so.woo_order_id != null ? String(so.woo_order_id) : String(it.order_id), prod: it.name || '', sku: it.sku || '', tot: Number(it.total) || 0, status: o.status, at: d ? ymd(d) : '' }; }).filter(Boolean);
+      rows.sort((a, b) => Number(b.oid) - Number(a.oid) || Number(a.sid) - Number(b.sid));
+      return { ok: true, rows, capped: items.length >= HISTORY_CAP };
+    } catch (e) { return { ok: false, reason: 'failed' }; }
+  }
+  // ---------- a report's photos (decision 10) ----------
+  // thumbs(urls) → Map url → data: URL. The site's own product photos as small images the page can put into a file it builds (a
+  // PDF / an Excel): the browser shows them but cannot read them (the site sends no CORS header), so woo-sync reads them — 12 a
+  // call, kept for the session. A photo that cannot be read is simply not in the map: the file goes out without it.
+  const thumbCache = new Map();
+  async function thumbs(urls) {
+    const cl = c(); const want = [...new Set((urls || []).filter((u) => typeof u === 'string' && HTTPS.test(u) && u.length <= 500))];
+    const out = new Map(); const ask = [];
+    want.forEach((u) => { if (!thumbCache.has(u)) ask.push(u); else if (thumbCache.get(u)) out.set(u, thumbCache.get(u)); });
+    if (!cl || !uid()) return out;
+    for (let i = 0; i < ask.length; i += 12) {
+      try {
+        const { data: body, error } = await cl.functions.invoke('woo-sync', { body: { action: 'thumbs', urls: ask.slice(i, i + 12) } });
+        if (error || !body || !Array.isArray(body.images)) continue; // not kept: asked again the next time
+        body.images.forEach((im) => {
+          if (!im || typeof im.url !== 'string') return;
+          const ok = /^image\/(png|jpeg|webp)$/.test(im.type || '') && typeof im.data === 'string' && /^[A-Za-z0-9+/=]+$/.test(im.data);
+          thumbCache.set(im.url, ok ? 'data:' + im.type + ';base64,' + im.data : '');
+          if (ok) out.set(im.url, thumbCache.get(im.url));
+        });
+      } catch (e) { /* the file goes out without these photos */ }
+    }
+    return out;
+  }
+  const imageOf = (sku) => (sku && images[sku]) || '';
+  function clear() { gen += 1; unsubscribe(); cancelNotify(); thumbCache.clear(); orders = null; custom = new Map(); customOk = false; seenO.clear(); seenI.clear(); vendorRows = []; leads = new Map(); leadAsked.clear(); images = {}; links = {}; states = new Map(); statuses = []; names = []; asked.clear(); busy.clear(); setState('idle'); }
+  window.IBOrders = { load, data, state: () => st, today, setOrderStatus, setConfirm, patchOrder, deleteOrder, deleteSub, deleteLine, setLineQty, addLine, makerProducts, siteStatuses, setSubSiteStatus, setItemStatus, setWaybill, setPulled, syncNow, registerWebhooks, subscribe, unsubscribe, clear, toScreen, refetch, makerHistory, thumbs, imageOf };
   window.IBOrdersStore = window.IBOrders; // the name block 29's write hooks call
 })();

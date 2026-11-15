@@ -133,7 +133,11 @@ test('makers: Dokan balance, the open Dokan request, a deposit recorded here low
   await expect(modal(page)).toContainText('تقرير مختصر — Art Craft');
   await expect(modal(page)).toContainText('الموافقة بتتكتب على Dokan نفسه');
   await expect(modal(page).getByRole('button', { name: /طلب سحب داخلي|تسجيل التحويل/ })).toHaveCount(0);
-  await modal(page).getByRole('button', { name: 'كشف حساب Dokan' }).click();
+  // comments decision 10: «كشف حساب Dokan» and «نسخ CSV» left the popup — three buttons: «مشاركة» · «التقرير الكامل» · «إغلاق»; the statement is in the row's ⋮
+  await expect(modal(page).locator('.modal-f button')).toHaveText(['مشاركة', 'التقرير الكامل', 'إغلاق']);
+  await page.keyboard.press('Escape');
+  await art.getByRole('button', { name: /إجراءات/ }).click();
+  await page.locator('[role=menu] .opt, [role=menu] [role=menuitem]', { hasText: 'كشف حساب Dokan' }).first().click();
   await expect(page.locator('.modal[role=dialog]', { hasText: 'كشف حساب Dokan — Art Craft' })).toBeVisible();
   await expect(page.locator('.modal[role=dialog]', { hasText: 'كشف حساب Dokan' })).toContainText('Order #55');
   expect(mock.statements).toEqual([expect.objectContaining({ vendor_id: V1 })]);
@@ -215,14 +219,26 @@ test('approve a pending Dokan request from the brief (admin): confirm → woo-sy
   const art = main(page).locator('table.vendors-table tbody tr', { hasText: 'Art Craft' });
   mock.pushEnabled = false;
   await art.locator('[data-vreport]').click(); // the name opens the brief (no «تقرير» button)
-  await modal(page).getByRole('button', { name: /موافقة على طلب السحب/ }).click();
-  await page.locator('.modal[role=dialog]', { hasText: 'موافقة على طلب السحب #501' }).getByRole('button', { name: 'وافق على Dokan' }).click();
+  // comments decision 11: the approval is asked and answered inside the same popup — no second popup, the brief stays open
+  const brief = page.locator('.modal.vb-modal');
+  await brief.getByRole('button', { name: /موافقة على طلب السحب/ }).click();
+  await expect(brief.locator('[data-vb-req]')).toHaveAttribute('data-vb-req', 'ask');
+  await expect(brief).toContainText('طلب السحب #501 بمبلغ 1,200.00 ج.م على Dokan — توافق عليه دلوقتي؟');
+  await expect(page.locator('.modal[role=dialog]')).toHaveCount(1);
+  await brief.locator('[data-vb-approve]').click();
+  await expect(brief.locator('[data-vb-res]')).toHaveText('الكتابة على Dokan مقفولة دلوقتي — الطلب ما اتوافقش عليه.');
   await expect(main(page)).toContainText('الكتابة على Dokan مقفولة دلوقتي');
   expect(mock.approvals).toEqual([{ id: 501, by: ADMIN, result: 'skipped', reason: 'push_disabled' }]);
   mock.pushEnabled = true;
-  await art.locator('[data-vreport]').click();
-  await modal(page).getByRole('button', { name: /موافقة على طلب السحب/ }).click();
-  await page.locator('.modal[role=dialog]', { hasText: 'موافقة على طلب السحب #501' }).getByRole('button', { name: 'وافق على Dokan' }).click();
+  await brief.getByRole('button', { name: /موافقة على طلب السحب/ }).click(); // the same popup, again
+  await brief.locator('[data-vb-later]').click(); // «بعدين»: nothing is sent, the request stays pending
+  await expect(brief.locator('[data-vb-req]')).toHaveAttribute('data-vb-req', 'pending');
+  expect(mock.approvals).toHaveLength(1);
+  await brief.getByRole('button', { name: /موافقة على طلب السحب/ }).click();
+  await brief.locator('[data-vb-approve]').click();
+  await expect(brief.locator('[data-vb-req]')).toHaveAttribute('data-vb-req', 'approved'); // the popup follows Dokan's mirror
+  await expect(brief.locator('[data-vb-res]')).toContainText('اتوافق على طلب السحب #501');
+  await page.keyboard.press('Escape');
   await expect(main(page)).toContainText('اتوافق على طلب السحب #501');
   expect(mock.approvals.at(-1)).toEqual({ id: 501, by: ADMIN, result: 'ok' });
   expect(mock.acc.dokan_withdrawals.find((w) => w.id === 501).status).toBe('approved');
@@ -523,25 +539,35 @@ test('0078: «تسوية دلوقتي» files a request on Dokan for the whole D
   mock.pushEnabled = false;
   await anti.getByRole('button', { name: /إجراءات/ }).click();
   await page.locator('[role=menu] .opt, [role=menu] [role=menuitem]', { hasText: 'تسوية دلوقتي (تقفيل الحساب)' }).first().click();
-  const settle = page.locator('.modal[role=dialog]', { hasText: 'تقفيل حساب — Antikiano' });
-  await expect(settle).toContainText('طلب السحب على Dokan'); await expect(settle).toContainText('25,000.00');
-  await expect(settle).toContainText('هيتحوّل للمبتكر'); await expect(settle).toContainText('20,000.00');
+  // comments decision 11: «تقفيل الحساب» is the short report's own popup, opened on the request's box with the open moves listed
+  const settle = page.locator('.modal.vb-modal', { hasText: 'تقفيل حساب — Antikiano' });
+  await expect(settle).toHaveAttribute('data-vb-modal', 'settle');
+  await expect(settle.locator('[data-vb-tile]')).toHaveText([/رصيد Dokan\s*25,000\.00 ج\.م/, /العرابين\s*4,000\.00 ج\.م/, /المواصلات\s*1,000\.00 ج\.م/, /التصحيح\s*0\.00 ج\.م/, /صافي الرصيد\s*20,000\.00 ج\.م/]);
+  await expect(settle.locator('[data-vb-req]')).toHaveAttribute('data-vb-req', 'settle');
+  await expect(settle).toContainText('رصيده على Dokan 25,000.00 ج.م');
   await expect(settle).toContainText('= الصافي 20,000.00 + الخصومات 5,000.00');
-  await settle.getByRole('button', { name: /اعمل طلب السحب على Dokan/ }).click();
-  await page.locator('.modal[role=dialog]', { hasText: 'طلب سحب على Dokan — Antikiano' }).getByRole('button', { name: 'اعمل الطلب على Dokan' }).click();
+  await expect(settle.locator('[data-vb-moves]')).toHaveAttribute('open', '');
+  await expect(settle.locator('[data-vb-moves] tbody tr')).toHaveCount(2);
+  await settle.getByRole('button', { name: /اعمل طلب سحب على Dokan/ }).click();
+  await expect(settle.locator('[data-vb-res]')).toHaveText('الكتابة على Dokan مقفولة دلوقتي — الطلب ما اتعملش.'); // the answer in the same popup
   await expect(main(page)).toContainText('الكتابة على Dokan مقفولة دلوقتي — الطلب ما اتعملش.');
   expect(mock.withdrawCreates).toEqual([{ vendor_id: V2, by: ADMIN, result: 'skipped', reason: 'push_disabled' }]);
-  // the gate on: a pending request of 25,000 on Dokan, mirrored at once
+  // the gate on: a pending request of 25,000 on Dokan, mirrored at once — and the same popup asks «وافق دلوقتي» / «بعدين»
   mock.pushEnabled = true;
-  await anti.getByRole('button', { name: /إجراءات/ }).click();
-  await page.locator('[role=menu] .opt, [role=menu] [role=menuitem]', { hasText: 'تسوية دلوقتي (تقفيل الحساب)' }).first().click();
-  await settle.getByRole('button', { name: /اعمل طلب السحب على Dokan/ }).click();
-  await page.locator('.modal[role=dialog]', { hasText: 'طلب سحب على Dokan — Antikiano' }).getByRole('button', { name: 'اعمل الطلب على Dokan' }).click();
+  await settle.getByRole('button', { name: /اعمل طلب سحب على Dokan/ }).click();
+  await expect(settle.locator('[data-vb-req]')).toHaveAttribute('data-vb-req', 'ask');
+  await expect(settle).toContainText('بمبلغ 25,000.00 ج.م على Dokan — توافق عليه دلوقتي؟');
+  await expect(settle).toContainText('الخصومات المفتوحة (5,000.00 ج.م) بتتصفّى منه، واللي بيتحوّل للمبتكر 20,000.00 ج.م');
+  await expect(page.locator('.modal[role=dialog]')).toHaveCount(1); // no second popup
   await expect(main(page)).toContainText('بمبلغ 25,000.00 ج.م على Dokan — مستني موافقتك.');
   // the owner (11 Nov — «خلي يبقي زي popup notification»): the call ran under the busy pill at the bottom centre, which ends with the result
   await expect(page.locator('.busy-stack .busy-pill[data-busy="ok"]')).toContainText('بمبلغ 25,000.00 ج.م على Dokan — مستني موافقتك.');
   expect(mock.withdrawCreates.at(-1)).toMatchObject({ vendor_id: V2, by: ADMIN, result: 'ok', amount: 25000, status: 'pending' });
   await expect.poll(() => mock.activity.filter((a) => a.action === 'accounts.withdraw.create').length).toBe(1);
+  await settle.locator('[data-vb-later]').click(); // «بعدين»: the request waits
+  await expect(settle.locator('[data-vb-req]')).toHaveAttribute('data-vb-req', 'pending');
+  expect(mock.approvals || []).toEqual([]);
+  await page.keyboard.press('Escape');
   await expect(anti.locator('[data-wd]')).toHaveText('مستني الموافقة · 25,000.00');
   await anti.getByRole('button', { name: /إجراءات/ }).click();
   await expect(page.locator('[role=menu]')).not.toContainText('تسوية دلوقتي'); // never with a pending request
@@ -550,9 +576,11 @@ test('0078: «تسوية دلوقتي» files a request on Dokan for the whole D
   await anti.locator('[data-vreport]').click();
   await expect(modal(page)).toContainText('واللي بيتحوّل للمبتكر 20,000.00 ج.م');
   await modal(page).getByRole('button', { name: /موافقة على طلب السحب/ }).click();
-  const conf = page.locator('.modal[role=dialog]', { hasText: /موافقة على طلب السحب #\d+ — Antikiano/ });
+  const conf = page.locator('.modal.vb-modal');
   await expect(conf).toContainText('الخصومات المفتوحة (5,000.00 ج.م) بتتصفّى منه، واللي بيتحوّل للمبتكر 20,000.00 ج.م.');
-  await conf.getByRole('button', { name: 'وافق على Dokan' }).click();
+  await conf.locator('[data-vb-approve]').click();
+  await expect(conf.locator('[data-vb-res]')).toContainText('واتصفّى منه 5,000.00 ج.م خصومات (2 حركة) — حوّل للمبتكر 20,000.00 ج.م.');
+  await page.keyboard.press('Escape');
   await expect(main(page)).toContainText('واتصفّى منه 5,000.00 ج.م خصومات (2 حركة) — حوّل للمبتكر 20,000.00 ج.م.');
   expect(mock.acc.acc_vendor_settlements.at(-1)).toMatchObject({ vendor_id: V2, amount: 25000, consumed: 5000, carry_out: 0, cash: 20000, moves: 2 });
   await expect(anti.locator('[data-vbal="Antikiano"]')).toHaveText('0.00'); // Dokan 0 − nothing open

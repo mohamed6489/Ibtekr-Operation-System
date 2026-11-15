@@ -97,25 +97,59 @@
   // owner 22 Oct: the confirmation state «غير مؤكد» is always written in red
   const cfText = (v) => (v === 'غير مؤكد' ? h('span', { class: 'unconf' }, v) : v);
   // ---------- vendor report popup (owner 22 Oct): balance + completed / cancelled + every order with photo, # , value, status. No Ibtekr share. ----------
+  // comments decision 10: the product's own photo from the site's mirror (IBOrders.imageOf) — the prototype's seeds after it
+  const prodImage = (sku) => { const k = String(sku || '').trim(); const u = k && window.IBOrders && window.IBOrders.imageOf ? window.IBOrders.imageOf(k) : ''; return /^https:\/\//.test(u) ? u : ''; };
   function prodThumb(sku, name) {
-    const m = window.IB_PRODUCT_IMG || {}; const k = String(sku || '').trim();
-    return h('span', { class: 'vr-prod' }, k && m[k] ? h('span', { class: 'thumb' }, h('img', { src: 'data:image/jpeg;base64,' + m[k], alt: name || '', loading: 'lazy' })) : h('span', { class: 'thumb', role: 'img', 'aria-label': 'مفيش صورة' }, Icon('box', 'sm')), h('span', null, name || '—'));
+    const m = window.IB_PRODUCT_IMG || {}; const k = String(sku || '').trim(); const u = prodImage(k);
+    const src = u || (k && m[k] ? 'data:image/jpeg;base64,' + m[k] : '');
+    return h('span', { class: 'vr-prod' }, src ? h('span', { class: 'thumb' }, h('img', { src, alt: name || '', loading: 'lazy' })) : h('span', { class: 'thumb', role: 'img', 'aria-label': 'مفيش صورة' }, Icon('box', 'sm')), h('span', { dir: 'auto' }, name || '—'));
   }
   // review I3 (phase 3.2): the maker report, the period statement, the weekly / daily reports and the shared text still match sub-orders by
   // store name; only the balance and the drawer KPIs follow a brand transfer (IBVendors.stats). Until phase 4 moves the reports onto the
   // attribution, a maker touched by a transfer gets this line on each of them.
   const brandNote = (v) => (v && ((v.brandsEver && v.brandsEver.length) || (v.brands || []).some((b) => !b.origin)) ? 'ملحوظة: التقرير ده بيطابق الأوردرات باسم المتجر — نقل البراندات بيتحسب في رصيد المبتكر والـ KPIs في ملفه بس (التقارير بتاخد النقل في مرحلة الحسابات).' : '');
   const bn = (v) => (brandNote(v) ? ' · ' + brandNote(v) : '');
+  // comments decision 10 («التقرير الكامل ده لما أدوسه يعرفني إن ده تقرير كامل لكل الفيندور من تاريخ ما بدأ معانا»): the maker's whole
+  // history — every completed / cancelled order of his of any date, read from the server (IBOrders.makerHistory; the screen holds the
+  // last 12 months only) — in one popup that says so, with the product's photo, and the same share popup. Without the server read
+  // (an older page / a failure) it falls back to the orders on the screen and says «آخر 12 شهر».
   function openVendorReport(name) {
-    const OA = window.OrdersApp; const orders = OA ? OA.query({}, 10000).rows.map((r) => OA.get(r.id)).filter(Boolean) : [];
-    const v = vstore.findByName(name); const st = (v && vendorStats()[v.id]) || { balance: 0 }; // phase 3: opening + completed shares (IBVendors.stats); deposits / transport from phase 4
-    const r = VD.vendorReport(orders, v ? [v.name, ...v.aliases] : [name], st.balance); const fmt = (n) => D.formatMoney(n);
-    U.DetailsModal({ title: 'تقرير ' + name, sub: 'الأوردرات المكتملة والملغية بس · ' + r.orders + ' أوردر · الرصيد = الافتتاحي + حقه من المكتملة من 1 أكتوبر · اضغط على أي أوردر يفتحه',
-      summary: [{ label: 'الرصيد', value: fmt(r.balance) + ' ج.م' }, { label: 'منه مواصلات اتخصمت', value: '— (من مرحلة 4)' }, { label: 'مكتمل', value: String(r.completed) + ' أوردر' }, { label: 'ملغي', value: String(r.cancelled) + ' أوردر' }],
-      headers: ['المنتج', 'رقم الأوردر', 'القيمة (ج.م)', 'حالة الأوردر'],
-      rows: r.rows.map((x) => [prodThumb(x.sku, x.prod), h('span', { class: 'vr-oid' }, h('bdi', { dir: 'ltr' }, '#' + x.oid), x.sid !== x.oid ? h('small', null, ' · فرعي ', h('bdi', { dir: 'ltr' }, '#' + x.sid)) : null), fmt(x.tot), x.status]),
-      total: r.rows.length ? ['الإجمالي', String(r.orders) + ' أوردر', fmt(r.value), ''] : null,
-      onRow: (i) => showOrders({ q: r.rows[i].oid }), phone: v && v.phone, email: v && v.email, empty: 'مفيش أوردرات مكتملة أو ملغية للمبتكر ده.', note: brandNote(v) || null, source: 'الأوردرات (الموقع) + مستحقات المرحلة 3' }, { label: 'تقرير ' + name });
+    const OA = window.OrdersApp; const fmt = (n) => D.formatMoney(n); const v = vstore.findByName(name); const st = (v && vendorStats()[v.id]) || { balance: 0 };
+    const names = v ? [v.name, ...v.aliases] : [name];
+    const screen = () => VD.vendorReport(OA ? OA.query({}, 10000).rows.map((r) => OA.get(r.id)).filter(Boolean) : [], names, st.balance);
+    const ofHistory = (rows) => { const by = new Map(); rows.forEach((r) => { if (!by.has(r.oid)) by.set(r.oid, { id: r.oid, st: r.status, subs: [] }); by.get(r.oid).subs.push({ vendor: names[0], sid: r.sid, prod: r.prod, sku: r.sku, tot: r.tot }); }); return VD.vendorReport([...by.values()], names, st.balance); };
+    const state = { r: null, whole: false, loading: !!(v && window.IBOrders && window.IBOrders.makerHistory), first: '', capped: false }; let m = null;
+    const title = 'التقرير الكامل — ' + name;
+    // «من أول ما بدأ معانا»: the day he joined, or his first order's when that is earlier (a maker entered after his first orders)
+    const since = () => { const d = [v && v.joinedAt, state.first].filter(Boolean).sort()[0]; return d ? D.formatDateNumeric(d) : ''; };
+    const scope = () => (state.whole ? 'ده التقرير الكامل للمبتكر: كل أوردراته المكتملة والملغية من أول ما بدأ معانا' + (since() ? ' (' + since() + ')' : '') + ' لحد النهارده.'
+      : 'الأوردرات المكتملة والملغية في آخر 12 شهر (اللي على الشاشة) — التاريخ الكامل ماتقراش دلوقتي.');
+    const tiles = (r) => [{ label: 'الرصيد', value: fmt(r.balance) + ' ج.م' }, { label: 'الأوردرات', value: String(r.orders) }, { label: 'مكتمل', value: String(r.completed) }, { label: 'ملغي', value: String(r.cancelled) }, { label: 'قيمة الأوردرات', value: fmt(r.value) + ' ج.م' }];
+    const oidCell = (x) => h('span', { class: 'vr-oid' }, h('bdi', { dir: 'ltr' }, '#' + x.oid), x.sid !== x.oid ? h('small', null, ' · فرعي ', h('bdi', { dir: 'ltr' }, '#' + x.sid)) : null);
+    const spec = (r) => ({ title, name: 'التقرير الكامل ' + name, sub: scope(), phone: v && v.phone, email: v && v.email, summary: tiles(r),
+      headers: ['المنتج', 'رقم الأوردر', 'القيمة (ج.م)', 'حالة الأوردر'], rows: r.rows.map((x) => [{ text: x.prod, img: prodImage(x.sku) }, '#' + x.oid + (x.sid !== x.oid ? ' · فرعي #' + x.sid : ''), { text: fmt(x.tot), n: x.tot }, x.status]),
+      total: r.rows.length ? ['الإجمالي', r.orders + ' أوردر', { text: fmt(r.value), n: r.value }, ''] : null, empty: 'مفيش أوردرات مكتملة أو ملغية للمبتكر ده.' });
+    function draw() {
+      const r = state.r || screen();
+      const body = [h('div', { class: 'vb-scope' + (state.whole ? ' whole' : ''), 'data-vfull-scope': state.whole ? 'whole' : 'screen' }, Icon('calendar', 'sm'), h('span', null, state.loading ? 'بنحمّل التاريخ الكامل للمبتكر…' : scope())),
+        h('div', { class: 'vb-tiles' }, tiles(r).map((t) => h('div', { class: 'vb-tile' }, h('span', { class: 't-small' }, t.label), h('b', null, num(t.value))))),
+        r.rows.length ? h('div', { class: 'vb-table-wrap' }, h('table', { class: 'vlo-table dt-table vb-table', 'data-vfull-table': '' }, h('thead', null, h('tr', null, ['المنتج', 'رقم الأوردر', 'القيمة (ج.م)', 'حالة الأوردر'].map((x) => h('th', { scope: 'col' }, x)))),
+          h('tbody', null, r.rows.slice(0, 500).map((x) => { const tr = h('tr', { class: 'dt-click', tabindex: '0', role: 'button' }, h('td', { 'data-l': 'المنتج' }, prodThumb(x.sku, x.prod)), h('td', { 'data-l': 'رقم الأوردر', class: 'nw' }, oidCell(x)), h('td', { 'data-l': 'القيمة (ج.م)', class: 'nw' }, num(fmt(x.tot))), h('td', { 'data-l': 'حالة الأوردر', class: 'nw' }, x.status));
+            const go = () => { m.close(); showOrders({ q: x.oid }); }; tr.addEventListener('click', go); tr.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); }); return tr; })
+            .concat([h('tr', { class: 'dt-total' }, h('td', null, 'الإجمالي'), h('td', { class: 'nw' }, num(r.orders + ' أوردر')), h('td', { class: 'nw' }, num(fmt(r.value))), h('td', { class: 'dt-empty' }, ''))])))) : U.EmptyState('مفيش بيانات', 'مفيش أوردرات مكتملة أو ملغية للمبتكر ده.'),
+        r.rows.length > 500 ? U.InlineNote({ children: 'أول 500 سطر على الشاشة — الملف اللي بيتشارك فيه الكل.' }) : null,
+        state.capped ? U.InlineNote({ kind: 'warning', children: 'المبتكر ده عنده سطور أكتر من 5,000 — التقرير واقف عند أحدث 5,000 سطر.' }) : null,
+        brandNote(v) ? U.InlineNote({ children: brandNote(v) }) : null].filter(Boolean);
+      const foot = [Button({ type: 'primary', icon: 'share', label: 'مشاركة', disabled: state.loading, attrs: { 'data-vb-share': '' }, onClick: () => window.IBShare.open(spec(state.r || screen())) }), Button({ type: 'text', label: 'إغلاق', onClick: () => m.close() })];
+      if (!m) { m = U.Modal({ title, body, footer: foot, share: false }); m.el.classList.add('wide', 'vb-modal'); m.el.dataset.details = title; m.el.dataset.share = '1'; }
+      else { m.setBody(...body); m.setFooter(...foot); }
+    }
+    draw();
+    if (state.loading) window.IBOrders.makerHistory(v.id).then((res) => {
+      state.loading = false;
+      if (res && res.ok) { const rows = res.rows.filter((x) => x.status === 'مكتمل' || x.status === 'ملغي'); state.r = ofHistory(rows); state.whole = true; state.capped = !!res.capped; const days = res.rows.map((x) => x.at).filter(Boolean).sort(); state.first = days[0] || ''; }
+      if (m && document.body.contains(m.el)) draw();
+    });
   }
 
 
@@ -1704,105 +1738,133 @@
     return Object.assign(VD.accountBrief({ name, report: rep, deposits: seed.deposits || 0, transport: seed.transport || 0, balance: seed.balance || 0, request: wdOf(name) }),
       { dokanBalance: seed.dokanBalance == null ? null : seed.dokanBalance, vendorId: v ? v.id : null, hasStore: !!(v && v.wooVendorId), other: seed.other || 0, corrections: seed.corrections || 0, carry: seed.carry || 0, open: D.openOf(seed) });
   }
-  // 0078: the chips of the open deductions — the ones that are not zero after the deposits and the transport
-  const openChips = (b, fmt) => [{ label: 'رصيد Dokan', value: b.dokanBalance == null ? '—' : fmt(b.dokanBalance) + ' ج.م' }, { label: 'العرابين (اتخصمت)', value: fmt(b.deposits) + ' ج.م' }, { label: 'المواصلات (اتخصمت)', value: fmt(b.transport) + ' ج.م' }]
-    .concat(b.other ? [{ label: 'خصومات تانية', value: fmt(b.other) + ' ج.م' }] : [], b.corrections ? [{ label: 'تصحيحات (اتضافت)', value: fmt(b.corrections) + ' ج.م' }] : [], b.carry ? [{ label: 'متبقي من آخر تسوية', value: fmt(b.carry) + ' ج.م' }] : [],
-      [{ label: 'الصافي (بعد الخصومات)', value: fmt(b.balance) + ' ج.م' }]);
   const canSettle = (b) => !!(b.vendorId && b.hasStore && AC() && AC().can().approve && !(b.request && b.request.status === 'pending'));
-  const briefRows = (b) => [['تقرير مختصر — ' + b.name], ['رصيد Dokan (ج.م)', b.dokanBalance == null ? '—' : b.dokanBalance], ['العرابين (ج.م)', b.deposits], ['المواصلات (ج.م)', b.transport], ['الصافي (ج.م)', b.balance],
-    ['عدد الأوردرات', b.orders], ['قيمة الأوردرات (ج.م)', b.value], b.request ? ['طلب السحب', b.request.id + ' · ' + VD.wdLabel(b.request.status) + ' · ' + b.request.amount + ' ج.م'] : ['طلب السحب', 'لا يوجد'],
-    [], ['رقم الأوردر', 'رقم الأوردر الفرعي', 'المنتج', 'القيمة (ج.م)', 'الحالة']].concat(b.rows.map((r) => [r.oid, r.sid, r.prod, r.tot, r.status]));
-  // البوب أب الواحد للتقرير المختصر وطلب السحب (owner: «يفتح نفس بوب اب التقارير») — phase 4: read-only on the requests
-  function openAccountBrief(name) {
-    const b = vendorBriefData(name); const req = b.request; const fmt = (n) => D.formatMoney(n);
-    const headers = ['رقم الأوردر', 'المنتج', 'القيمة (ج.م)', 'الحالة'];
-    const rows = b.rows.map((x) => [h('span', { class: 'vr-oid' }, h('bdi', { dir: 'ltr' }, '#' + x.oid), x.sid !== x.oid ? h('small', null, ' · فرعي ', h('bdi', { dir: 'ltr' }, '#' + x.sid)) : null), x.prod, fmt(x.tot), x.status]);
-    const actions = [{ label: 'التقرير الكامل', onClick: () => openVendorReport(name) }, { label: 'نسخ CSV', onClick: () => { const aoa = briefRows(b); csvCopy(aoa[9], aoa.slice(10), 'تقرير ' + name); } }];
-    if (b.vendorId) actions.splice(1, 0, { label: 'كشف حساب Dokan', onClick: () => openStatement(name, b.vendorId) });
-    // phase 4.1 (decision 1, owner 28 Oct): approve the pending request on Dokan itself; 0078: «تسوية دلوقتي» when there is none
-    if (req && req.status === 'pending' && AC() && AC().can().approve) actions.unshift({ label: 'موافقة على طلب السحب (' + fmt(req.amount) + ' ج.م)', onClick: () => approveWithdraw(req, name) });
-    else if (canSettle(b)) actions.unshift({ label: 'تسوية دلوقتي (تقفيل الحساب)', onClick: () => openSettle(name) });
-    const plan = req && req.status === 'pending' ? D.settlePlan(req.amount, b.open) : null;
-    const sub = [req ? 'طلب سحب ' + req.id + ' · ' + VD.wdLabel(req.status) + ' · ' + fmt(req.amount) + ' ج.م' : 'مفيش طلب سحب حالي',
-      b.orders + ' أوردر (مكتمل ' + b.completed + ' · ملغي ' + b.cancelled + ')', 'اضغط على أي أوردر يفتحه'].join(' · ');
-    U.DetailsModal({ title: 'تقرير مختصر — ' + name, sub,
-      summary: openChips(b, fmt),
-      headers, rows, total: rows.length ? ['الإجمالي', b.orders + ' أوردر', fmt(b.value), ''] : null,
-      onRow: (i) => showOrders({ q: b.rows[i].oid }),
-      note: [req ? (req.status === 'pending' ? 'الطلب مستني الموافقة — راجع الرصيد والأوردرات وبعدين وافق (الموافقة بتتكتب على Dokan نفسه). لما توافق: Dokan بيخصم ' + fmt(req.amount) + ' ج.م من رصيده'
-            + (plan.consumed ? '، والخصومات المفتوحة بتتصفّى منه (' + fmt(plan.consumed) + ' ج.م)' : '') + '، واللي بيتحوّل للمبتكر ' + fmt(plan.cash) + ' ج.م' + (plan.carryOut > 0 ? ' وفاضل عليه ' + fmt(plan.carryOut) + ' ج.م' : '') + '.'
-          : 'الطلب اتوافق عليه على Dokan واتخصم من رصيده هناك — فاضل التحويل للمبتكر.')
-        : (b.payable > 0 ? 'المبتكر ليه رصيد صافي ' + fmt(b.payable) + ' ج.م ومفيش طلب سحب على Dokan' + (canSettle(b) ? ' — «تسوية دلوقتي» بتعمله بكل رصيد Dokan.' : '.') : 'مفيش رصيد مستحق للمبتكر.'),
-        'العرابين والمواصلات وأي «سحب» متخصومين من الرصيد (إبتكر دفعتهم للمبتكر أو بدله) — ولو مفيش رصيد كفاية الصافي بيبقى بالسالب. Dokan مابيعرفهمش، فطلب السحب بيبقى بكل رصيد Dokan، ولما يتوافق عليه بيتصفّوا منه.'].join(' '),
-      actions, empty: 'مفيش أوردرات مكتملة أو ملغية للمبتكر ده.',
-      source: 'الأوردرات (السيستم) + رصيد Dokan وطلبات السحب (قراءة بس) + العرابين والمواصلات المتسجلة هنا' }, { label: 'تقرير مختصر ' + name });
-  }
-  // phase 4.1 (decision 1): approve a pending request on Dokan (woo-sync withdraw_approve) — no payout move here: Dokan lowers
-  // the balance itself. The answer: ok | skipped (push_disabled / stale / not_pending) | an error.
+  // ---- the maker's short report and «تقفيل الحساب»: one popup (2026-11-15-comments.md decisions 10 and 11) ----
+  // The owner 15 Nov: «ظبط الـ UI بتاع البوب أب ده بشكل احترافي ومنظم … الخانات اللي فوق خليها أبسط: رصيد دكان · العرابين · المواصلات ·
+  // التصحيح · صافي الرصيد … جدول الأوردرات بأرقامها وبصورة المنتج ونفس الشكل اللي هعمله إكسبورت أو إرسال»، «بوب أب تقفيل الحساب يبقى
+  // هو هو بوب أب تقرير مختصر — وزرار اعمل طلب سحب … يعمل الطلب ويسألني وافق على الطلب ولا بعدين في نفس المرحلة».
+  // One popup: five numbers, the request's box (file it → «وافق دلوقتي» / «بعدين» in place → the result), the orders with the
+  // product's photo, and three buttons — «مشاركة» (IBShare: Excel / PDF by WhatsApp / e-mail / download), «التقرير الكامل», «إغلاق».
+  // «كشف حساب Dokan» and «نسخ CSV» left the popup (the statement stays in the row's ⋮). A Dokan call runs under the kit's busy pill
+  // and its result stays in the box and as the page's note.
   const WD_SKIP = { push_disabled: 'الكتابة على Dokan مقفولة دلوقتي — الطلب ما اتوافقش عليه.', stale: 'الطلب اتغيّر على Dokan قبل الموافقة — حدّثنا حالته عندنا.', not_pending: 'الطلب مش مستني الموافقة — حدّثنا حالته عندنا.' };
-  function approveWithdraw(req, name) {
-    const K = window.IBKit; const amount = D.formatMoney(req.amount); const fmt = (n) => D.formatMoney(n);
-    // 0078: what the approval settles — the open deductions are covered by the request, the rest is transferred to the maker
-    const seed = vendorsNow().find((x) => VD.norm(x.name) === VD.norm(name)) || {}; const p = D.settlePlan(req.amount, D.openOf(seed));
-    const planText = p.open ? ' الخصومات المفتوحة (' + fmt(p.open) + ' ج.م) بتتصفّى منه، ' + (p.cash > 0 ? 'واللي بيتحوّل للمبتكر ' + fmt(p.cash) + ' ج.م' : 'ومفيش تحويل للمبتكر') + (p.carryOut > 0 ? ' وفاضل عليه ' + fmt(p.carryOut) + ' ج.م' : '') + '.' : ' مفيش خصومات مفتوحة — الطلب كله بيتحوّل للمبتكر.';
-    K.confirm({ title: 'موافقة على طلب السحب ' + req.id + ' — ' + name,
-      text: 'هتتوافق على الطلب على Dokan نفسه بمبلغ ' + amount + ' ج.م. Dokan بيخصمه من رصيد المبتكر على طول.' + planText + ' التحويل نفسه بيفضل عليك زي ما هو.',
-      okLabel: 'وافق على Dokan',
-      onOk: () => {
-        const note = busyNote(K.busy ? K.busy('بنوافق على طلب السحب ' + req.id + ' على Dokan…') : null);
-        AC().approveWithdraw(req.wid).then((r) => {
-          const st = r.settlement;
-          if (r.ok && r.result === 'ok' && st) note({ kind: 'success', text: 'اتوافق على طلب السحب ' + req.id + ' لـ ' + name + ' بمبلغ ' + amount + ' ج.م على Dokan' + (st.moves ? '، واتصفّى منه ' + fmt(st.consumed) + ' ج.م خصومات (' + st.moves + ' حركة)' : '')
-            + ' — حوّل للمبتكر ' + fmt(st.cash) + ' ج.م' + (st.carry_out > 0 ? '، وفاضل عليه ' + fmt(st.carry_out) + ' ج.م لحد التسوية الجاية' : '') + '.' });
-          else if (r.ok && r.result === 'ok') note({ kind: 'success', text: 'اتوافق على طلب السحب ' + req.id + ' لـ ' + name + ' بمبلغ ' + amount + ' ج.م على Dokan، واتخصم من رصيده هناك.' });
-          else if (r.ok) note({ kind: 'warning', text: WD_SKIP[r.reason] || 'الطلب ما اتوافقش عليه.' });
-          else note({ kind: 'error', text: r.reason === 'forbidden' ? 'مش مسموحلك توافق على طلبات السحب.' : 'مقدرناش نوافق على الطلب على Dokan دلوقتي — جرّب تاني.' });
-          render();
-        });
-      } });
-  }
+  const WC_SKIP = { pending_exists: 'فيه طلب سحب مستني الموافقة للمبتكر ده على Dokan بالفعل — راجعه ووافق عليه.', push_disabled: 'الكتابة على Dokan مقفولة دلوقتي — الطلب ما اتعملش.', no_balance: 'رصيد المبتكر على Dokan صفر — مفيش طلب يتعمل.', no_store: 'المبتكر ده مالوش متجر على Dokan.' };
   // the owner (11 Nov — «ال loading مش باين … خلي يبقي زي popup notification»): a Dokan call runs under the kit's busy pill (bottom
   // centre), which then shows the result for a moment; the result stays on the page as its note too
   const busyNote = (pill) => (n) => { setNote(n); if (pill) pill.done(n.text, n.kind); };
-  // 0078 (the owner, 11 Nov — «تسوية دلوقتي / تقفيل حساب»): the maker's account up to today — the open deductions, the net, the orders —
-  // and the request the system files on Dokan for his whole Dokan balance (= the net + the deductions Dokan does not count), pending
-  // until it is approved like any other («يعمله ويستنى موافقتك»). Never with a pending request; the amount is Dokan's own, read then.
-  const WC_SKIP = { pending_exists: 'فيه طلب سحب مستني الموافقة للمبتكر ده على Dokan بالفعل — راجعه ووافق عليه.', push_disabled: 'الكتابة على Dokan مقفولة دلوقتي — الطلب ما اتعملش.', no_balance: 'رصيد المبتكر على Dokan صفر — مفيش طلب يتعمل.', no_store: 'المبتكر ده مالوش متجر على Dokan.' };
-  function openSettle(name) {
-    const b = vendorBriefData(name); const fmt = (n) => D.formatMoney(n); const dokan = b.dokanBalance;
-    const p = D.settlePlan(dokan == null ? 0 : dokan, b.open);
-    const moves = store.vendorMoves.filter((m) => m.vendor === name && m.settledBy == null).sort((x, y) => (x.date < y.date ? -1 : x.date > y.date ? 1 : (x.id || 0) - (y.id || 0)));
-    const rows = moves.map((m) => [num(D.formatDateNumeric(m.date)), m.direction === 'deposit' ? 'إيداع (تصحيح)' : 'سحب', m.typeName || m.type, (m.direction === 'deposit' ? '+' : '−') + fmt(m.amount)])
-      .concat(b.carry ? [['—', 'متبقي', 'من آخر تسوية', '−' + fmt(b.carry)]] : []);
-    const can = dokan != null && dokan > 0 && canSettle(b);
-    const actions = [{ label: 'تقرير الأوردرات', onClick: () => openAccountBrief(name) }];
-    if (can) actions.unshift({ label: 'اعمل طلب السحب على Dokan (' + fmt(dokan) + ' ج.م)', onClick: () => createWithdraw(name, b.vendorId, dokan) });
-    const note = dokan == null ? 'رصيد Dokan للمبتكر ده لسه ماتقريش — جرّب «تحديث من Dokan» أو استنى المزامنة الجاية.'
-      : dokan <= 0 ? 'مفيش رصيد على Dokan يتطلب دلوقتي — الخصومات المفتوحة بتفضل عليه لحد ما يبقى له رصيد.'
-      : 'هيتعمل طلب سحب على Dokan بكل رصيده (' + fmt(dokan) + ' ج.م' + (p.open ? ' = الصافي ' + fmt(b.balance) + ' + الخصومات ' + fmt(p.open) : '') + ') ويفضل مستني موافقتك — مفيش فلوس بتتحرك قبلها. لما توافق: Dokan بيخصمه من رصيده'
-        + (p.consumed ? '، والحركات دي بتتصفّى منه' : '') + '، واللي بيتحوّل للمبتكر ' + fmt(p.cash) + ' ج.م' + (p.carryOut > 0 ? ' — والخصومات أكبر من رصيده فبيفضل عليه ' + fmt(p.carryOut) + ' ج.م لحد التسوية الجاية' : '') + '.';
-    U.DetailsModal({ title: 'تقفيل حساب — ' + name, sub: 'الحساب لحد النهارده · ' + b.orders + ' أوردر (مكتمل ' + b.completed + ' · ملغي ' + b.cancelled + ') بقيمة ' + fmt(b.value) + ' ج.م · ' + moves.length + ' حركة لسه ماتصفّتش',
-      summary: openChips(b, fmt).concat(dokan != null && dokan > 0 ? [{ label: 'طلب السحب على Dokan', value: fmt(dokan) + ' ج.م' }, { label: 'هيتحوّل للمبتكر', value: fmt(p.cash) + ' ج.م' }] : []),
-      headers: ['التاريخ', 'الحركة', 'البيان', 'المبلغ (ج.م)'], rows, total: rows.length ? ['الإجمالي', '', 'بيتصفّى من الطلب', (p.open >= 0 ? '−' : '+') + fmt(Math.abs(p.open))] : null,
-      note, actions, empty: 'مفيش خصومات مفتوحة — الطلب كله بيتحوّل للمبتكر.',
-      source: 'رصيد Dokan (قراءة) + الحركات المتسجلة هنا اللي لسه ماتصفّتش + الأوردرات (السيستم)' }, { label: 'تقفيل حساب ' + name });
+  // the five numbers (the owner's list, in his order); a deduction of another kind and what the last settlement left are named
+  // under them when they are not zero, so the net still adds up
+  const briefTiles = (b, fmt) => [{ key: 'dokan', label: 'رصيد Dokan', value: b.dokanBalance == null ? '—' : fmt(b.dokanBalance) + ' ج.م' }, { key: 'deposits', label: 'العرابين', value: fmt(b.deposits) + ' ج.م' },
+    { key: 'transport', label: 'المواصلات', value: fmt(b.transport) + ' ج.م' }, { key: 'corrections', label: 'التصحيح', value: fmt(b.corrections) + ' ج.م' }, { key: 'net', label: 'صافي الرصيد', value: fmt(b.balance) + ' ج.م' }];
+  const briefExtra = (b, fmt) => [b.other ? 'خصومات تانية ' + fmt(b.other) + ' ج.م' : '', b.carry ? 'متبقي من آخر تسوية ' + fmt(b.carry) + ' ج.م' : ''].filter(Boolean).join(' · ');
+  function openAccountBrief(name, opts) {
+    const K = window.IBKit; const fmt = (n) => D.formatMoney(n); const settle = !!(opts && opts.settle); let m = null;
+    // the request's box: '' = what Dokan has now · 'ask' = «وافق دلوقتي؟» · busy = a call is running · res = the last call's answer
+    const flow = { step: '', busy: '', made: null, res: null };
+    const title = (settle ? 'تقفيل حساب — ' : 'تقرير مختصر — ') + name;
+    const setOf = (wid) => (AC() && AC().settlements ? AC().settlements().find((x) => x.withdrawId === wid) : null);
+    const openMoves = () => store.vendorMoves.filter((x) => x.vendor === name && x.settledBy == null).sort((x, y) => (x.date < y.date ? -1 : x.date > y.date ? 1 : (x.id || 0) - (y.id || 0)));
+    const reqOf = (b) => b.request || (flow.made ? { id: '#' + flow.made.id, wid: flow.made.id, amount: flow.made.amount, status: 'pending' } : null);
+    const planText = (amount, b) => { const p = D.settlePlan(amount, b.open);
+      return 'Dokan هيخصم ' + fmt(amount) + ' ج.م من رصيده' + (p.consumed ? '، والخصومات المفتوحة (' + fmt(p.consumed) + ' ج.م) بتتصفّى منه' : '') + '، واللي بيتحوّل للمبتكر ' + fmt(p.cash) + ' ج.م' + (p.carryOut > 0 ? ' وفاضل عليه ' + fmt(p.carryOut) + ' ج.م لحد التسوية الجاية' : '') + '.'; };
+    const say = (pill, n) => { flow.res = n; busyNote(pill)(n); };
+    function create(b) {
+      if (flow.busy) return; flow.busy = 'create'; flow.res = null; draw();
+      const pill = K.busy ? K.busy('بنعمل طلب السحب على Dokan لـ ' + name + '…') : null;
+      AC().createWithdraw(b.vendorId).then((r) => {
+        flow.busy = '';
+        if (r.ok && r.result === 'ok') { flow.made = { id: r.id, amount: r.amount }; flow.step = 'ask'; busyNote(pill)({ kind: 'success', text: 'اتعمل طلب سحب #' + r.id + ' لـ ' + name + ' بمبلغ ' + fmt(r.amount) + ' ج.م على Dokan — مستني موافقتك.' }); } // the box itself asks now
+        else if (r.ok && r.result === 'skipped') say(pill, { kind: 'warning', text: WC_SKIP[r.reason] || 'الطلب ما اتعملش.' });
+        else if (r.ok) say(pill, { kind: 'error', text: r.reason === 'no_store' ? WC_SKIP.no_store : 'Dokan رفض الطلب (' + r.reason + ') — راجع حدود السحب على Dokan.' });
+        else say(pill, { kind: 'error', text: r.reason === 'forbidden' ? 'مش من صلاحياتك تعمل طلب سحب.' : r.reason === 'woo_down' ? 'Dokan مش بيرد دلوقتي — جرّب كمان شوية.' : 'مقدرناش نعمل الطلب على Dokan دلوقتي — جرّب تاني.' });
+        render(); draw();
+      });
+    }
+    function approve(req) {
+      if (flow.busy) return; flow.busy = 'approve'; flow.res = null; draw();
+      const amount = fmt(req.amount); const pill = K.busy ? K.busy('بنوافق على طلب السحب ' + req.id + ' على Dokan…') : null;
+      AC().approveWithdraw(req.wid).then((r) => {
+        flow.busy = ''; flow.step = ''; const stl = r.settlement;
+        if (r.ok && r.result === 'ok') flow.made = null;
+        if (r.ok && r.result === 'ok' && stl) say(pill, { kind: 'success', text: 'اتوافق على طلب السحب ' + req.id + ' لـ ' + name + ' بمبلغ ' + amount + ' ج.م على Dokan' + (stl.moves ? '، واتصفّى منه ' + fmt(stl.consumed) + ' ج.م خصومات (' + stl.moves + ' حركة)' : '')
+          + ' — حوّل للمبتكر ' + fmt(stl.cash) + ' ج.م' + (stl.carry_out > 0 ? '، وفاضل عليه ' + fmt(stl.carry_out) + ' ج.م لحد التسوية الجاية' : '') + '.' });
+        else if (r.ok && r.result === 'ok') say(pill, { kind: 'success', text: 'اتوافق على طلب السحب ' + req.id + ' لـ ' + name + ' بمبلغ ' + amount + ' ج.م على Dokan، واتخصم من رصيده هناك.' });
+        else if (r.ok) say(pill, { kind: 'warning', text: WD_SKIP[r.reason] || 'الطلب ما اتوافقش عليه.' });
+        else say(pill, { kind: 'error', text: r.reason === 'forbidden' ? 'مش مسموحلك توافق على طلبات السحب.' : 'مقدرناش نوافق على الطلب على Dokan دلوقتي — جرّب تاني.' });
+        render(); draw();
+      });
+    }
+    // the request's box
+    function reqBox(b) {
+      const req = reqOf(b); const canApprove = !!(AC() && AC().can().approve); const dokan = b.dokanBalance; const kids = []; let tone = 'none';
+      const line = (t, strong) => h('p', { class: 'vb-req-t' + (strong ? ' strong' : '') }, num(t));
+      if (flow.step === 'ask' && req && req.status === 'pending' && canApprove) {
+        tone = 'ask';
+        kids.push(line((flow.made ? 'اتعمل طلب السحب ' : 'طلب السحب ') + req.id + ' بمبلغ ' + fmt(req.amount) + ' ج.م على Dokan — توافق عليه دلوقتي؟', true), line(planText(req.amount, b) + ' التحويل نفسه بيفضل عليك زي ما هو.'),
+          h('div', { class: 'vb-req-a' }, Button({ type: 'primary', label: flow.busy === 'approve' ? 'بنوافق…' : 'وافق دلوقتي', disabled: !!flow.busy, attrs: { 'data-vb-approve': '' }, onClick: () => approve(req) }),
+            Button({ label: 'بعدين', disabled: !!flow.busy, attrs: { 'data-vb-later': '' }, onClick: () => { flow.step = ''; flow.res = null; draw(); } })));
+      } else if (req && req.status === 'pending') {
+        tone = 'pending';
+        kids.push(line('طلب سحب ' + req.id + ' مستني الموافقة — ' + fmt(req.amount) + ' ج.م', true), line(canApprove ? 'راجع الرصيد والأوردرات وبعدين وافق — الموافقة بتتكتب على Dokan نفسه. ' + planText(req.amount, b) : 'الموافقة عليه بتتعمل من حد معاه صلاحية اعتماد الحسابات.'));
+        if (canApprove) kids.push(h('div', { class: 'vb-req-a' }, Button({ type: 'primary', label: 'موافقة على طلب السحب (' + fmt(req.amount) + ' ج.م)', disabled: !!flow.busy, attrs: { 'data-vb-ask': '' }, onClick: () => { flow.step = 'ask'; flow.res = null; draw(); } })));
+      } else if (req && req.status === 'approved') {
+        tone = 'approved'; const x = setOf(req.wid);
+        kids.push(line('طلب السحب ' + req.id + ' اتوافق عليه على Dokan — ' + fmt(req.amount) + ' ج.م', true), line('اتخصم من رصيده هناك' + (x ? ' — فاضل تحوّل للمبتكر ' + fmt(x.cash) + ' ج.م' + (x.carryOut > 0 ? '، وفاضل عليه ' + fmt(x.carryOut) + ' ج.م' : '') + '.' : ' — فاضل التحويل للمبتكر.')));
+      } else if (canSettle(b) && dokan != null && dokan > 0) {
+        tone = 'settle'; const p = D.settlePlan(dokan, b.open);
+        kids.push(line('مفيش طلب سحب — رصيده على Dokan ' + fmt(dokan) + ' ج.م', true), line('طلب السحب بيتعمل بكل رصيد Dokan' + (p.open ? ' (= الصافي ' + fmt(b.balance) + ' + الخصومات ' + fmt(p.open) + ')' : '') + ' ويفضل مستني موافقتك — مفيش فلوس بتتحرك قبلها.'),
+          h('div', { class: 'vb-req-a' }, Button({ type: 'primary', label: flow.busy === 'create' ? 'بنعمل الطلب…' : 'اعمل طلب سحب على Dokan (' + fmt(dokan) + ' ج.م)', disabled: !!flow.busy, attrs: { 'data-vb-create': '' }, onClick: () => create(b) })));
+      } else {
+        kids.push(line('مفيش طلب سحب حالي', true), line(!b.hasStore ? 'المبتكر ده مالوش متجر على Dokan.' : dokan == null ? 'رصيد Dokan للمبتكر ده لسه ماتقريش — جرّب «تحديث من Dokan» أو استنى المزامنة الجاية.'
+          : dokan <= 0 ? 'مفيش رصيد على Dokan يتطلب دلوقتي — الخصومات المفتوحة بتفضل عليه لحد ما يبقى له رصيد.' : b.payable > 0 ? 'المبتكر ليه رصيد صافي ' + fmt(b.payable) + ' ج.م.' : 'مفيش رصيد مستحق للمبتكر.'));
+      }
+      if (flow.res) kids.push(h('p', { class: 'vb-req-res ' + flow.res.kind, role: 'status', 'data-vb-res': flow.res.kind }, num(flow.res.text)));
+      return h('section', { class: 'vb-req ' + tone, 'data-vb-req': tone, 'aria-label': 'طلب السحب' }, h('span', { class: 'vb-req-i' }, Icon('wallet', 'md')), h('div', { class: 'vb-req-b' }, kids));
+    }
+    // the deductions not settled yet — folded: the numbers above already carry their totals
+    function movesBox(b) {
+      const mv = openMoves(); if (!mv.length && !b.carry) return null;
+      const rows = mv.map((x) => [D.formatDateNumeric(x.date), x.direction === 'deposit' ? 'إيداع (تصحيح)' : 'سحب', x.typeName || x.type, (x.direction === 'deposit' ? '+' : '−') + fmt(x.amount)]).concat(b.carry ? [['—', 'متبقي', 'من آخر تسوية', '−' + fmt(b.carry)]] : []);
+      return h('details', { class: 'vb-moves', 'data-vb-moves': '', open: settle ? '' : false }, h('summary', null, 'الحركات اللي لسه ماتصفّتش (' + rows.length + ')'),
+        h('table', { class: 'vlo-table dt-table' }, h('thead', null, h('tr', null, ['التاريخ', 'الحركة', 'البيان', 'المبلغ (ج.م)'].map((x) => h('th', { scope: 'col' }, x)))), h('tbody', null, rows.map((r) => h('tr', null, r.map((c, k) => h('td', { 'data-l': ['التاريخ', 'الحركة', 'البيان', 'المبلغ (ج.م)'][k], class: 'nw' }, num(c))))))));
+    }
+    const HEAD = ['المنتج', 'رقم الأوردر', 'القيمة (ج.م)', 'الحالة'];
+    const oidText = (x) => '#' + x.oid + (x.sid !== x.oid ? ' · فرعي #' + x.sid : '');
+    function spec(b) {
+      const v = vstore.findByName(name); const req = reqOf(b); const extra = briefExtra(b, fmt);
+      return { title, name: (settle ? 'تقفيل حساب ' : 'تقرير ') + name, phone: v && v.phone, email: v && v.email,
+        sub: [req ? 'طلب سحب ' + req.id + ' · ' + VD.wdLabel(req.status) + ' · ' + fmt(req.amount) + ' ج.م' : 'مفيش طلب سحب حالي', b.orders + ' أوردر (مكتمل ' + b.completed + ' · ملغي ' + b.cancelled + ')'].join(' · '),
+        summary: briefTiles(b, fmt).map((t) => ({ label: t.label, value: t.value })), headers: HEAD, rows: b.rows.map((x) => [{ text: x.prod, img: prodImage(x.sku) }, oidText(x), { text: fmt(x.tot), n: x.tot }, x.status]),
+        total: b.rows.length ? ['الإجمالي', b.orders + ' أوردر', { text: fmt(b.value), n: b.value }, ''] : null, empty: 'مفيش أوردرات مكتملة أو ملغية للمبتكر ده.',
+        note: 'العرابين والمواصلات متخصومة من الرصيد.' + (extra ? ' ' + extra + '.' : '') };
+    }
+    function draw() {
+      if (m && !document.body.contains(m.el)) return;
+      const b = vendorBriefData(name); const extra = briefExtra(b, fmt);
+      const body = [
+        h('p', { class: 't-small vb-sub' }, num(b.orders + ' أوردر (مكتمل ' + b.completed + ' · ملغي ' + b.cancelled + ') بقيمة ' + fmt(b.value) + ' ج.م')),
+        h('div', { class: 'vb-tiles', 'data-vb-tiles': '' }, briefTiles(b, fmt).map((t) => h('div', { class: 'vb-tile' + (t.key === 'net' ? ' net' : ''), 'data-vb-tile': t.key }, h('span', { class: 't-small' }, t.label), h('b', null, num(t.value))))),
+        extra ? h('p', { class: 't-small vb-extra', 'data-vb-extra': '' }, num('وكمان: ' + extra + ' — متحسوبين في الصافي.')) : null,
+        reqBox(b), movesBox(b),
+        h('div', { class: 'vb-h' }, h('h3', { class: 't-h5' }, 'الأوردرات'), h('span', { class: 't-small' }, 'اضغط على أي أوردر يفتحه')),
+        b.rows.length ? h('div', { class: 'vb-table-wrap' }, h('table', { class: 'vlo-table dt-table vb-table', 'data-vb-table': '' }, h('thead', null, h('tr', null, HEAD.map((x) => h('th', { scope: 'col' }, x)))),
+          h('tbody', null, b.rows.map((x) => { const tr = h('tr', { class: 'dt-click', tabindex: '0', role: 'button' }, h('td', { 'data-l': HEAD[0] }, prodThumb(x.sku, x.prod)), h('td', { 'data-l': HEAD[1], class: 'nw' }, h('span', { class: 'vr-oid' }, h('bdi', { dir: 'ltr' }, '#' + x.oid), x.sid !== x.oid ? h('small', null, ' · فرعي ', h('bdi', { dir: 'ltr' }, '#' + x.sid)) : null)),
+              h('td', { 'data-l': HEAD[2], class: 'nw' }, num(fmt(x.tot))), h('td', { 'data-l': HEAD[3], class: 'nw' }, x.status));
+            const go = () => { m.close(); showOrders({ q: x.oid }); }; tr.addEventListener('click', go); tr.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); }); return tr; })
+            .concat([h('tr', { class: 'dt-total' }, h('td', null, 'الإجمالي'), h('td', { class: 'nw' }, num(b.orders + ' أوردر')), h('td', { class: 'nw' }, num(fmt(b.value))), h('td', { class: 'dt-empty' }, ''))])))) : U.EmptyState('مفيش بيانات', 'مفيش أوردرات مكتملة أو ملغية للمبتكر ده.'),
+        h('p', { class: 't-small vb-foot' }, 'العرابين والمواصلات وأي «سحب» متخصومين من الرصيد (إبتكر دفعتهم للمبتكر أو بدله). Dokan مابيعرفهمش، فطلب السحب بيبقى بكل رصيد Dokan، ولما يتوافق عليه بيتصفّوا منه.'),
+      ].filter(Boolean);
+      const foot = [Button({ type: 'primary', icon: 'share', label: 'مشاركة', attrs: { 'data-vb-share': '' }, onClick: () => window.IBShare.open(spec(vendorBriefData(name))) }),
+        Button({ label: 'التقرير الكامل', attrs: { 'data-vb-full': '', title: 'كل أوردرات المبتكر من أول ما بدأ معانا' }, onClick: () => { m.close(); openVendorReport(name); } }), Button({ type: 'text', label: 'إغلاق', onClick: () => m.close() })];
+      if (!m) { m = U.Modal({ title, body, footer: foot, share: false, onClose: () => document.removeEventListener('ib:accounts', draw) }); m.el.classList.add('wide', 'vb-modal'); m.el.dataset.details = 'تقرير مختصر ' + name; m.el.dataset.share = '1'; m.el.dataset.vbModal = settle ? 'settle' : 'brief'; }
+      else { m.setBody(...body); m.setFooter(...foot); }
+    }
+    draw();
+    document.addEventListener('ib:accounts', draw); // the request and the balances follow Dokan's mirror while the popup is open
+    return m;
   }
-  function createWithdraw(name, vendorId, dokan) {
-    const K = window.IBKit;
-    K.confirm({ title: 'طلب سحب على Dokan — ' + name,
-      text: 'هيتعمل طلب سحب على Dokan بكل رصيد المبتكر دلوقتي (حوالي ' + D.formatMoney(dokan) + ' ج.م — Dokan بيقرا الرصيد وقت الطلب) بالتحويل البنكي، ويفضل مستني موافقتك.',
-      okLabel: 'اعمل الطلب على Dokan',
-      onOk: () => {
-        const note = busyNote(K.busy ? K.busy('بنعمل طلب السحب على Dokan لـ ' + name + '…') : null);
-        AC().createWithdraw(vendorId).then((r) => {
-          if (r.ok && r.result === 'ok') note({ kind: 'success', text: 'اتعمل طلب سحب #' + r.id + ' لـ ' + name + ' بمبلغ ' + D.formatMoney(r.amount) + ' ج.م على Dokan — مستني موافقتك.' });
-          else if (r.ok && r.result === 'skipped') note({ kind: 'warning', text: WC_SKIP[r.reason] || 'الطلب ما اتعملش.' });
-          else if (r.ok) note({ kind: 'error', text: r.reason === 'no_store' ? WC_SKIP.no_store : 'Dokan رفض الطلب (' + r.reason + ') — راجع حدود السحب على Dokan.' });
-          else note({ kind: 'error', text: r.reason === 'forbidden' ? 'مش من صلاحياتك تعمل طلب سحب.' : r.reason === 'woo_down' ? 'Dokan مش بيرد دلوقتي — جرّب كمان شوية.' : 'مقدرناش نعمل الطلب على Dokan دلوقتي — جرّب تاني.' });
-          render();
-        });
-      } });
-  }
+  // 0078 (the owner, 11 Nov — «تسوية دلوقتي / تقفيل حساب»); decision 11: the same popup, opened on the request's box
+  function openSettle(name) { return openAccountBrief(name, { settle: true }); }
   // plan 4.1 decision 12 (owner, 28 Oct): «تحديث من Dokan» — the withdraw requests now instead of at the hourly run (read-only)
   function refreshDokanBtn() {
     if (!AC() || !AC().refreshWithdrawals) return null;

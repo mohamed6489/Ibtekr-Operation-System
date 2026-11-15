@@ -2975,3 +2975,43 @@ Deno.test('line_add: an order of one maker → the order itself (GET + PUT), mir
   assertEquals([it.qty, Number(it.total), it.added_at ?? null], [1, 120, null]);
   assertEquals(Number(db.rows('orders').find((o: any) => o.id === 3201).total), 320);
 });
+
+// ---------------------------------------------------------------- thumbs (2026-11-15-comments.md decision 10)
+
+Deno.test('thumbs (comments decision 10): a member who sees the orders or the products, never the sync secret; only the site\'s own uploads, the smallest copy first, never a redirect, by the bytes themselves; what cannot be read is null; nothing written or logged', async () => {
+  const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0x0d, 1, 2, 3]);
+  const JPG = Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46, 0x49, 0x46, 0, 1, 9]);
+  const U = 'https://woo.test/wp-content/uploads/2026/11/';
+  const { woo, db, deps } = setup({ env: { IMAGE_HOSTS: 'cdn.woo.test' }, routes: {
+    'GET /wp-content/uploads/2026/11/lamp-150x150.webp': { bytes: PNG, headers: { 'content-type': 'image/webp' } }, // the small copy is there
+    'GET /wp-content/uploads/2026/11/vase.jpg': { bytes: JPG, headers: { 'content-type': 'image/jpeg' } }, // only the original
+    'GET /wp-content/uploads/2026/11/page-150x150.png': { text: '<html>login</html>', headers: { 'content-type': 'image/png' } }, // says png, is not
+    'GET /wp-content/uploads/2026/11/big-150x150.png': { bytes: PNG, headers: { 'content-length': String(5 * 1024 * 1024) } }, // too big by its header
+  } });
+  const urls = [U + 'lamp.webp', U + 'vase.jpg', U + 'page.png', U + 'big.png', 'https://evil.test/wp-content/uploads/a.png', 'https://woo.test/wp-admin/a.png'];
+  assertEquals((await call(deps, { action: 'thumbs', urls })).res.status, 401, 'never the sync secret');
+  assertEquals((await call(deps, { action: 'thumbs', urls }, { jwt: 'jwt-bank' })).res.status, 401, 'neither orders.view nor products.view');
+  assertEquals(woo.calls.length, 0);
+  for (const bad of [undefined, [], 'x', [5], new Array(13).fill(0).map((_, i) => U + i + '.png')]) {
+    const r = await call(deps, { action: 'thumbs', urls: bad }, { jwt: 'jwt-pview' });
+    assertEquals([r.res.status, r.body], [400, { error: 'bad_request', field: 'urls' }]);
+  }
+  assertEquals(woo.calls.length, 0);
+  const { res, body } = await call(deps, { action: 'thumbs', urls }, { jwt: 'jwt-pview' }); // products.view = P is enough
+  assertEquals(res.status, 200);
+  assertEquals(body.images.map((x: any) => [x.url, x.type, x.data]), [
+    [urls[0], 'image/png', btoa(String.fromCharCode(...PNG))], // by its bytes, not its name
+    [urls[1], 'image/jpeg', btoa(String.fromCharCode(...JPG))],
+    [urls[2], null, null], [urls[3], null, null], [urls[4], null, null], [urls[5], null, null]]);
+  // the small copies first; another host and a path outside the uploads are never asked; no redirect is followed, no key is sent
+  assertEquals(woo.calls.filter((c) => c.path.includes('lamp')).map((c) => c.path), ['/wp-content/uploads/2026/11/lamp-150x150.webp']);
+  assertEquals(woo.calls.filter((c) => c.path.includes('vase')).map((c) => c.path), ['/wp-content/uploads/2026/11/vase-150x150.jpg', '/wp-content/uploads/2026/11/vase-300x300.jpg', '/wp-content/uploads/2026/11/vase.jpg']);
+  assertEquals(woo.calls.some((c) => c.path.includes('wp-admin') || c.path === '/wp-content/uploads/a.png'), false);
+  assertEquals(woo.calls.every((c) => c.redirect === 'error' && c.timed && !('authorization' in c.headers)), true);
+  assertEquals(db.writes().length, 0);
+  // orders.view is enough too; a paused / unset site = no host to read from → every photo null, nothing asked
+  assertEquals((await call(deps, { action: 'thumbs', urls: [U + 'lamp.webp'] }, { jwt: 'jwt-ops' })).body.images[0].type, 'image/png');
+  const none = setup({ env: { WOO_URL: '' } });
+  assertEquals((await call(none.deps, { action: 'thumbs', urls: [U + 'lamp.webp'] }, { jwt: 'jwt-ops' })).body.images, [{ url: U + 'lamp.webp', type: null, data: null }]);
+  assertEquals(none.woo.calls.length, 0);
+});

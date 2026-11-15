@@ -106,8 +106,9 @@
   let hushed = 0;
   function hush(p) { hushed += 1; const off = () => { hushed = Math.max(0, hushed - 1); }; Promise.resolve(p).then(off, off); return p; }
   // run fn (the original call) under a pill when the member started it; the original promise's answer passes through unchanged
-  function track(label, fn) {
-    if (!label || hushed > 0 || !userStarted(label === READING)) return fn();
+  // pressOnly: only a press makes the call the member's (a read — typing alone does not)
+  function track(label, fn, pressOnly) {
+    if (!label || hushed > 0 || !userStarted(!!pressOnly)) return fn();
     const end = begin(label);
     let r;
     try { r = fn(); } catch (e) { end(); throw e; }
@@ -160,7 +161,11 @@
   function trackedFetch(input, init) {
     const url = typeof input === 'string' ? input : (input && input.url) || '';
     const method = (init && init.method) || (input && typeof input === 'object' && input.method) || 'GET';
-    return track(requestLabel(url, method), () => fetch(input, init));
+    const base = requestLabel(url, method);
+    // a read and a database function side by side (a page loading) share the line that is already up — one pill, not two
+    const busyWith = (l) => { const p = pills.get(l); return !!p && p.n > 0; };
+    const label = base === WORKING && busyWith(READING) ? READING : base === READING && busyWith(WORKING) ? WORKING : base;
+    return track(label, () => fetch(input, init), base === READING);
   }
 
   const wrapped = wrap(window.IBSupabase && window.IBSupabase.client);

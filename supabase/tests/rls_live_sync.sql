@@ -24,11 +24,12 @@ insert into public.orders (id, number, customer_name, status, placed_at)
   select 990104000 + g, 'L' || g, 'عميل مزامنة', 'جاري التنفيذ', now() from generate_series(1, 40) g;
 insert into public.order_items (id, order_id, name, qty, total) values (990104901, 990104001, 'منتج مزامنة', 1, 10), (990104902, 990104002, 'منتج مزامنة ٢', 1, 10);
 
--- what went on «sync» since the last look (and a fresh transaction's memory of what it already sent)
+-- what went on «sync» since the last look (and a fresh transaction's memory of what it already sent). The hosted project's
+-- realtime.send adds the message's own uuid to the payload (`id`) — Realtime's, not ours — so it is left out of the comparison.
 create or replace function pg_temp.sent() returns jsonb language plpgsql as $$
 declare r jsonb;
 begin
-  select coalesce(jsonb_agg(m.payload - 'at' order by m.payload ->> 't', m.payload -> 'ids'), '[]'::jsonb) into r
+  select coalesce(jsonb_agg(m.payload - 'at' - 'id' order by m.payload ->> 't', m.payload -> 'ids'), '[]'::jsonb) into r
     from realtime.messages m where m.topic = 'sync' and m.event = 'changed' and m.private and m.extension = 'broadcast';
   delete from realtime.messages where topic = 'sync';
   perform set_config('ib.live_sent', '', true);
@@ -49,7 +50,7 @@ begin
   perform pg_temp.as_member('00000000-0000-4000-8000-0000000104a1');
   insert into public.acc_vendor_moves (vendor_id, on_date, direction, kind, amount) values ('00000000-0000-4000-8000-0000000104f1', current_date, 'withdraw', 'عربون', 10);
   reset role;
-  select count(*) into n from realtime.messages where topic = 'sync' and (payload - 't' - 'at') <> '{}'::jsonb;
+  select count(*) into n from realtime.messages where topic = 'sync' and (payload - 't' - 'at' - 'id') <> '{}'::jsonb;
   if n <> 0 then raise exception 'a signal carries more than its group and time'; end if;
   s := pg_temp.sent();
   if s <> '[{"t":"accounts"}]'::jsonb then raise exception 'accounts signal: %', s; end if;

@@ -2136,7 +2136,7 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 #### 2.7.77 تاريخ التأكيد بيملا «تاريخ تبليغ المبتكر» (صاحب المشروع 15 نوفمبر — `0103`)
 «خلّي تاريخ التأكيد يتضاف أوتوماتيك في تاريخ تبليغ الفيندر للأوردرات الفرعية»:
 1. `0103_notify_from_confirm.sql` — التريجر `orders_notify_from_confirm` (بعد تغيير `confirm_at`: سطور الأوردر اللي مالهاش تاريخ تبليغ، واللي لسه على تاريخ التأكيد القديم، بتاخد الجديد؛ التاريخ اللي اتكتب بالإيد ليوم تاني بيفضل، والمسحوب من المخزن والممسوح لأ، ومسح التأكيد مابيغيّرش حاجة) و`order_items_notify_default` (سطر جديد على أوردر متأكد — المزامنة أو «إضافة منتج»)، ومرة واحدة: سطور الأوردرات المفتوحة المتأكدة من غير تاريخ (من غير صف في `order_events`).
-2. RLS live (`files = rls_notify_from_confirm,rls_orders`).
+2. RLS live (`files = rls_notify_from_confirm`؛ `rls_orders` محلي / CI بس — بيبني أوردرات بأرقام ثابتة موجودة على الحي).
 3. «Deploy functions»: `cs-auto` · `cs-channel` · `cs-whatsapp` (`_shared/cs-auto-run.ts`: «تاريخ الشحن» في رسايل الرد الآلي = تاريخ التبليغ (وإلا التأكيد وإلا يوم الأوردر) + أيام تصنيع المبتكر — `shipDateOf`؛ قبل كده كان بيعرض تاريخ التبليغ نفسه، وده بقى تاريخ التأكيد).
 4. الواجهة على `main` (`IBOrders.setConfirm` بيقرا الأوردر تاني بعد التأكيد فالسطور بتبان بتاريخها على طول).
 
@@ -2164,7 +2164,7 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 #### 2.7.83 المزامنة اللحظية + منع الكتابة على بعض (صاحب المشروع 15 نوفمبر)
 الخطة `docs/superpowers/plans/2026-11-15-live-sync.md`. **الواجهة بتشتغل قبل الـ migrations** (قناة «sync» بتترفض بهدوء وبتتجرّب على مهل، و`order_complete` بيتنادى من غير `p_from`، وشرط «لسه زي ما أنا شايفه» في الأوردرات مش محتاج migration) — بس مفيش تحديث لحظي ولا حارس تكرار غير بعدها.
 1. **بعد «طبّق» من صاحب المشروع:** `0104_live_sync.sql` ثم `0105_live_guards.sql` (`apply_migration`). `0104` = دوال `live_send` / `live_changed` / `live_orders` + تريجر statement على جداول الأوردرات والحسابات والمبتكرين والمخزن والمنتجات والاستوديو والإعدادات والفريق والجرس + سياسة `sync_receive` على `realtime.messages`. `0105` = `order_complete(…, p_from)` (الدالة القديمة بأربع خانات بتتشال) + عمود `dup_ok` وحارس `acc_dup_guard` على `acc_expenses` / `acc_vendor_moves` / `acc_account_moves`.
-2. RLS الحي: `supabase/tests/rls_live_sync.sql` و`rls_live_guards.sql` (و`rls_vendor_logins.sql` — قايمة تريجراته بقى فيها `vendor_logins_live`) — `execute_sql` أو workflow «RLS live».
+2. RLS الحي: `supabase/tests/rls_live_sync.sql` و`rls_live_guards.sql` (و`rls_vendor_logins.sql` — قايمة تريجراته بقى فيها `vendor_logins_live`) — `execute_sql` أو workflow «RLS live». على الحي `realtime.send` بيزوّد `id` (رقم الرسالة بتاع Realtime) على الإشارة — الاختبار بيسيبه برّه المقارنة.
 3. `get_advisors` (security): مفيش جديد — الدوال الأربعة `security definer` بـ `search_path` ومش لـ `anon`.
 4. تجربة بحسابين: (أ) عضو يغيّر حالة أوردر ← عند التاني تتغيّر في ثانية من غير reload؛ (ب) الاتنين على نفس الأوردر: التاني يغيّر الحالة قبل ما التحديث يوصله ← «حد تاني غيّر ده من شوية»؛ (ج) نفس «إيداع 10» لنفس المبتكر من عضوين ← التاني يتسأل «دي حركة تانية؟»؛ (د) مصروف / مبتكر جديد عند عضو ← يظهر عند التاني وهو فاتح الصفحة.
 5. لو قناة «sync» مااشتغلتش بعد `0104`: `select * from pg_policies where policyname = 'sync_receive'` و`realtime.messages` فيها صفوف `topic = 'sync'` بعد أي تعديل (التريجر بيبعت)، وإن الـ Realtime شغّال للمشروع.

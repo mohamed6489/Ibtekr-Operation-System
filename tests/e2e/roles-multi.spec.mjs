@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { installSupabaseMock, LIVE, DEV_PW } from './supabase-mock.mjs';
 
 // 0081 (the owner 12 Nov — «نقدر نزود أدوار زي ديزاينر، ميديا باير، مبرمج… ونديها صلاحيات» + «دور أساسي + أدوار إضافية»): the three new
-// roles are there; «+ أدوار إضافية» beside a member's role in الإعدادات › الفريق → member_roles_set; the member then has the
+// roles are there; «إضافة أدوار إضافية» in the member's «أدوار إضافية» column in الإعدادات › الفريق → member_roles_set; the member then has the
 // permissions of every role (the highest) — the accounts member with «ديزاينر» opens «التسويق» — and the team requests go to any role
 // (ticket_roles → the domain's list). Mock only.
 const ADMIN = 'admin.dev@ibtekr.local'; const ACC = 'accounts.dev@ibtekr.local'; const ACC_ID = '00000000-0000-4000-8000-000000000004';
@@ -24,8 +24,20 @@ test('the admin gives the accounts member «ديزاينر» as an extra role; t
   await expect(page.locator('#pg-settings .set-page')).toBeVisible();
   await page.getByRole('tab', { name: /^الأعضاء/ }).click();
   const row = page.locator('#pg-settings table tbody tr', { hasText: 'منى حسن' });
+  // the owner 15 Nov («خلي الادوار الاضافية في خانة لوحدها في الجدول لو مش مختار تبان اضافة ادوار اضافية و لما اختار يظهر في الخانة عدد
+  // الادوار»): the column «أدوار إضافية» right after «الدور» — the link is in its own cell, not under the role's list
+  const heads = page.locator('#pg-settings table thead th');
+  const names = (await heads.allTextContents()).map((t) => t.trim());
+  expect(names.indexOf('أدوار إضافية')).toBe(names.indexOf('الدور') + 1);
+  expect(names.indexOf('المستوى')).toBe(names.indexOf('أدوار إضافية') + 1);
+  const col = names.indexOf('أدوار إضافية');
   const btn = row.locator('[data-extra-roles]');
-  await expect(btn).toHaveText('+ أدوار إضافية');
+  await expect(row.locator('td').nth(col).locator('[data-extra-roles]')).toHaveCount(1);
+  await expect(row.locator('.role-cell [data-extra-roles]')).toHaveCount(0);
+  await expect(btn).toHaveText('إضافة أدوار إضافية');
+  // an admin's row has no extra roles: a dash in that column
+  const adminRow = page.locator('#pg-settings table tbody tr', { has: page.locator('[data-extra-none]') }).first();
+  await expect(adminRow.locator('td').nth(col)).toHaveText('—');
   await btn.click();
   const md = page.locator('.modal[role=dialog]', { hasText: 'الأدوار الإضافية — منى حسن' });
   await expect(md).toBeVisible();
@@ -40,7 +52,7 @@ test('the admin gives the accounts member «ديزاينر» as an extra role; t
   expect(mock.st.writes.find((w) => w.op === 'roles')).toMatchObject({ id: ACC_ID, roles: ['designer'] });
   expect(mock.profiles.find((p) => p.id === ACC_ID).extra_roles).toEqual(['designer']);
   // the owner 15 Nov: the count, not the names (they are in the tooltip); a click opens the same popup with the pick
-  await expect(row.locator('[data-extra-roles]')).toHaveText('دور إضافي واحد');
+  await expect(row.locator('td').nth(col).locator('[data-extra-roles]')).toHaveText('دور إضافي واحد');
   await expect(row.locator('[data-extra-roles]')).toHaveAttribute('title', 'ديزاينر');
   await row.locator('[data-extra-roles]').click();
   await expect(page.locator('.modal[role=dialog]', { hasText: 'الأدوار الإضافية — منى حسن' }).locator('#xr-pick')).toContainText('ديزاينر');

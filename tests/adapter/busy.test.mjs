@@ -160,3 +160,17 @@ test('typing alone does not make a read the member\'s (a poll that lands while h
   await h.B.fetch(REST + 'orders_v?select=id', { method: 'GET' });
   assert.deepEqual(h.pills.map((p) => p.text), ['بنحمّل…'], 'after the quiet read is over, his own read shows again');
 });
+
+test('a read and a database function in flight together share one pill (a page loading) — the line that came first', async () => {
+  const t = loadFetch({ answerMs: 150 }); t.B.setDelay(30); t.press();
+  await Promise.all([t.B.fetch(REST + 'orders_v?select=id', { method: 'GET' }), t.B.fetch(REST + 'rpc/settings_public', { method: 'POST' }), t.B.fetch(REST + 'vendors?select=id', { method: 'GET' })]);
+  assert.deepEqual(t.pills.map((p) => p.text), ['بنحمّل…']);
+  // the other way round: the function first, the reads join it
+  const u = loadFetch({ answerMs: 150 }); u.B.setDelay(30); u.press();
+  await Promise.all([u.B.fetch(REST + 'rpc/ticket_act', { method: 'POST' }), u.B.fetch(REST + 'tickets?select=id', { method: 'GET' })]);
+  assert.deepEqual(u.pills.map((p) => p.text), ['ثواني…']);
+  // a save keeps its own line beside them
+  const v = loadFetch({ answerMs: 150 }); v.B.setDelay(30); v.press();
+  await Promise.all([v.B.fetch(REST + 'orders_v?select=id', { method: 'GET' }), v.B.fetch(REST + 'orders?id=eq.1', { method: 'PATCH' })]);
+  assert.deepEqual(v.pills.map((p) => p.text).sort(), ['بنحفظ…', 'بنحمّل…'].sort());
+});

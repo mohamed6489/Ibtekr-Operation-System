@@ -3273,7 +3273,7 @@
     return [vendorsToolbar(), noteEl].concat(VendorsTab());
   }
   function makersReportsTab() {
-    return [h('div', { class: 'toolbar' }, DateRangeField('reports'), h('span', { class: 'grow' }), Button({ type: 'text', size: 'sm', label: 'افتح في صفحة التقارير', attrs: { 'data-vrep-page': '' }, onClick: () => { state.rtab = 'vendors'; state.vtab = 'overview'; go('reports'); } }))].concat(VendorsReportView());
+    return [h('div', { class: 'toolbar' }, DateRangeField('reports'))].concat(VendorsReportView()); // comments decision 12: no «افتح في صفحة التقارير» on a page's own reports tab
   }
   // «سجل الحركات»: add / stop / activate / delete a maker (IBVendors.loadMakersLog — the server's activity_log). The owner (11 Nov — «اظبط
   // الفلتر يبقي اسهل»، picked «زرار فلتر واحد بس»): one «فلتر» (الحركة · المبتكر · بواسطة, several picks each) and its chips while one is
@@ -4093,7 +4093,7 @@
     main.replaceChildren(...[
       h('div', { class: 'page-head row' }, h('div', { class: 'title-block' }, h('h1', { class: 't-h3' }, 'الحسابات'), h('p', { class: 't-small' }, 'نظرة عامة · المصروفات · المبيعات · حسابات المبتكرين · الحساب الفعلي · سجل الحركات · التقارير')), h('div', { class: 'actions' }, state.tab === 'moves-log' ? null : window.IBKit.PanelButton('accounts:' + state.tab, 'الحسابات — ' + (TABS.find((t) => t.id === state.tab) || {}).label, () => document.getElementById('panel'), render), window.IBDataActions.Menu(window.IBDataActions.PAGES.accounts, () => ({ vendors: 'vendorMoves', actual: 'accountMoves' }[state.tab] || 'expenses')))),
       tabs,
-      state.tab === 'moves-log' ? null : state.tab === 'acc-reports' ? h('div', { class: 'toolbar' }, DateRangeField('reports'), h('span', { class: 'grow' }), Button({ type: 'text', size: 'sm', label: 'افتح في صفحة التقارير', attrs: { 'data-accrep-page': '' }, onClick: () => { state.rtab = 'accounts'; go('reports'); } })) : state.tab === 'vendors' ? vendorsToolbar() : h('div', { class: 'toolbar' }, DateRangeField(), h('span', { class: 'grow' }), !canAdd() ? null : state.tab === 'expenses' ? AddMenu('إضافة مصروفات', 'expenses') : state.tab === 'subscriptions' ? Button({ type: 'brand', icon: 'plus', label: 'إضافة اشتراك', attrs: { 'data-add-sub': '' }, onClick: () => openForm('expenses', 'withdraw', null, false, { category: SUBS_CAT }) }) : state.tab === 'actual' ? AddMenu('إضافة مبلغ', 'accountMoves') : null),
+      state.tab === 'moves-log' ? null : state.tab === 'acc-reports' ? h('div', { class: 'toolbar' }, DateRangeField('reports')) /* comments decision 12: no «افتح في صفحة التقارير» */ : state.tab === 'vendors' ? vendorsToolbar() : h('div', { class: 'toolbar' }, DateRangeField(), h('span', { class: 'grow' }), !canAdd() ? null : state.tab === 'expenses' ? AddMenu('إضافة مصروفات', 'expenses') : state.tab === 'subscriptions' ? Button({ type: 'brand', icon: 'plus', label: 'إضافة اشتراك', attrs: { 'data-add-sub': '' }, onClick: () => openForm('expenses', 'withdraw', null, false, { category: SUBS_CAT }) }) : state.tab === 'actual' ? AddMenu('إضافة مبلغ', 'accountMoves') : null),
       noteEl,
       h('div', { id: 'panel', role: 'tabpanel', 'aria-labelledby': 'tab-' + state.tab, style: 'display:flex;flex-direction:column;gap:24px;min-width:0' }, VIEWS[state.tab]())].filter(Boolean));
     // «تخصيص اللوحة» (phase 10 decision 22, as in the v5 prototype): every tab but the moves log

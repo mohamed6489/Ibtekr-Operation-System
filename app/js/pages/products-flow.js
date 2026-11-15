@@ -92,6 +92,8 @@
 
   // ---------------- rows, groups, units ----------------
   const rows = () => (st() ? st().rows : []);
+  // the size in Arabic for a display (the owner 15 Nov: the product's Arabic data): the Arabic one, else the English with its unit in Arabic
+  const arSize = (r) => r.sizeAr || String(r.size || '').replace(/\bcm\b/gi, 'سم').replace(/\bmm\b/gi, 'مم').replace(/\bkg\b/gi, 'كجم');
   const newKey = () => 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const groups = () => FD.groupRows(rows(), st().type);
   const colors = () => (ST() ? ST().colors() : []);
@@ -419,12 +421,27 @@
     const bulk = () => K.form({ title: 'سعر المبتكر لـ ' + S.sel.size + ' صف', values: { v: '' }, submitLabel: 'طبّق',
       fields: (f, e, set) => [K.field.text('v', 'سعر المبتكر (ج.م)', f, e, set, { required: true, inputmode: 'decimal' })], validate: (f) => (Number(f.v) > 0 ? {} : { v: 'رقم أكبر من صفر' }),
       submit: (f) => { L.filter((r) => S.sel.has(r.key)).forEach((r) => { r.vendorPrice = Number(f.v); r.priceHand = false; reprice(r, true); }); touch(); R(); } });
-    const table = h('div', { class: 'fl-scroll' }, h('table', { class: 'fl-table fl-prices' }, h('thead', null, h('tr', null, h('th', { class: 'stk c-cb' }, allBox(L.map((r) => r.key))), h('th', { class: 'stk c-ref' }, 'الصورة'), h('th', null, 'المنتج'), h('th', null, 'سعر المبتكر'), h('th', null, 'نسبة إبتكر'), h('th', null, 'سعر البيع'), h('th', null, 'قبل الخصم'), h('th', null, ''))),
-      h('tbody', null, L.map((r) => h('tr', { class: !(Number(r.sale) > 0) ? 'row-err' : null, 'data-row': r.key }, h('td', { class: 'stk c-cb' }, selBox(r.key, r.nameEn || r.sku)), h('td', { class: 'stk c-ref' }, Thumb(r.ref, 'st-big')),
-        h('td', null, h('div', { class: 'fl-info' }, h('b', null, r.nameAr || '—'), h('span', null, r.nameEn || '—'), h('small', { dir: 'ltr' }, r.sku || ''), r.colorEn || r.size ? h('small', null, [r.colorEn, r.size].filter(Boolean).join(' · ')) : null)),
-        h('td', null, num(r, 'vendorPrice', () => { r.priceHand = false; reprice(r, true); })), h('td', null, h('span', { class: 'help' }, rate == null ? '—' : U.num(rate + '%'))),
-        h('td', null, num(r, 'sale', () => { r.priceHand = true; })), h('td', null, num(r, 'regular', () => { r.priceHand = true; })),
-        h('td', null, K.RowMenu([{ label: 'احسب السعر تاني', icon: 'undo', run: () => { r.priceHand = false; r.markup = null; reprice(r, true); touch(); R(); } }, { label: 'شيل من الدفعة', icon: 'trash', danger: true, run: () => { st().rows = st().rows.filter((x) => x !== r); touch(); R(); } }], 'إجراءات ' + (r.sku || '')))))))) ;
+    // the owner 15 Nov («صلح شكل الجدول و إظهر بيانات المنتج العربي بس»): a grid, not a <table> (the system's table sweeps — the sticky
+    // first column, the person cell — broke its columns), the photo inside the product cell, the product's Arabic data only (its
+    // Arabic name, the SKU, the Arabic color and size; the English one only while the Arabic is missing); on a phone a card each
+    const rateEl = () => (rate == null ? '—' : U.num(rate + '%'));
+    const pcell = (cls, label, child) => h('div', { class: 'fl-pc' + (cls ? ' ' + cls : ''), role: 'cell' }, label ? h('span', { class: 'fl-plbl', 'aria-hidden': 'true' }, label) : null, child);
+    const prow = (r) => {
+      const meta = [r.colorAr || r.colorEn, arSize(r)].filter(Boolean).join(' · ');
+      return h('div', { class: 'fl-prow' + (!(Number(r.sale) > 0) ? ' row-err' : ''), role: 'row', 'data-row': r.key },
+        pcell('c-cb', null, selBox(r.key, r.nameAr || r.nameEn || r.sku)),
+        pcell('c-prod', null, h('div', { class: 'fl-pprod' }, Thumb(r.ref, 'fl-pthumb'), h('div', { class: 'fl-info' }, h('b', { dir: 'rtl', 'data-fl-name': '' }, r.nameAr || r.nameEn || '—'),
+          h('small', { class: 'num' }, h('bdi', { dir: 'ltr' }, r.sku || '—')), meta ? h('small', null, meta) : null, h('small', { class: 'fl-prate-m' }, 'نسبة إبتكر ', rateEl())))),
+        pcell(null, 'سعر المبتكر', num(r, 'vendorPrice', () => { r.priceHand = false; reprice(r, true); })),
+        pcell('c-rate', null, h('span', { class: 'help' }, rateEl())),
+        pcell(null, 'سعر البيع', num(r, 'sale', () => { r.priceHand = true; })),
+        pcell(null, 'قبل الخصم', num(r, 'regular', () => { r.priceHand = true; })),
+        pcell('c-menu', null, K.RowMenu([{ label: 'احسب السعر تاني', icon: 'undo', run: () => { r.priceHand = false; r.markup = null; reprice(r, true); touch(); R(); } }, { label: 'شيل من الدفعة', icon: 'trash', danger: true, run: () => { st().rows = st().rows.filter((x) => x !== r); touch(); R(); } }], 'إجراءات ' + (r.sku || ''))));
+    };
+    const hcell = (label, cls) => h('div', { class: 'fl-pc' + (cls ? ' ' + cls : ''), role: 'columnheader' }, label);
+    const table = h('div', { class: 'fl-plist', role: 'table', 'aria-label': 'الأسعار', 'data-fl-prices': '' },
+      h('div', { class: 'fl-prow head', role: 'row' }, hcell(allBox(L.map((r) => r.key)), 'c-cb'), hcell('المنتج', 'c-prod'), hcell('سعر المبتكر'), hcell('نسبة إبتكر', 'c-rate'), hcell('سعر البيع'), hcell('قبل الخصم'), hcell('', 'c-menu')),
+      L.map(prow));
     const ok = L.length > 0 && L.every((r) => Number(r.sale) > 0);
     return [Card('الأسعار', 'سعر البيع = (سعر المبتكر + الرسوم) ÷ (1 − نسبة إبتكر) لأقرب 10، وقبل الخصم أعلى بـ 15–30%. نسبة إبتكر من حساب المبتكر.', [
       rate == null ? U.InlineNote({ kind: 'warning', children: 'نسبة المبتكر مش ظاهرة لك — السعر مش هيتحسب لوحده، اكتب سعر البيع بإيدك.' }) : null,
@@ -459,10 +476,10 @@
         Button({ type: 'primary', icon: 'sparkle', label: 'عدّل', onClick: async () => { if (!words.trim() || !path) return; await touch(true); m.close(); S.busy = busyKey(u, k); R(); const r = await IM().edit({ batchId: S.id, index: u.gi, path }, 'instruction', { prompt: words.trim() }); S.busy = ''; if (r.ok && r.path) { if (k === 4) st().sizeShot[groupKey(u.gi)] = r.path; else sh[k] = r.path; touch(); } else K.toast(why(r.reason), 'error'); R(); } })] });
   }
   function slot(u, k) {
-    const sh = shotsOf(u); const path = k === 4 ? st().sizeShot[groupKey(u.gi)] : sh[k]; const gen = S.busy === busyKey(u, k);
-    const el = h('div', { class: 'fl-slot' + (path ? '' : ' empty'), draggable: path && k < 4 ? 'true' : 'false', 'data-slot': u.key + ':' + k },
-      h('small', { class: 'help' }, k === 4 ? 'صورة المقاس' : SHOT_L[k]), gen ? h('span', { class: 'thumb st-big gen' }, 'بيتولّد…') : Thumb(path, 'st-big'),
-      h('div', { class: 'acts-inline' }, path ? Button({ size: 'sm', label: 'تعديل', onClick: () => shotModal(u, k) }) : null,
+    const sh = shotsOf(u); const path = k === 4 ? st().sizeShot[groupKey(u.gi)] : sh[k]; const gen = S.busy === busyKey(u, k); const label = k === 4 ? 'صورة المقاس' : SHOT_L[k];
+    const el = h('div', { class: 'fl-slot' + (path ? '' : ' is-empty'), draggable: path && k < 4 ? 'true' : 'false', 'data-slot': u.key + ':' + k },
+      h('small', { class: 'fl-slab', title: label }, label), gen ? h('span', { class: 'thumb fl-shot gen' }, 'بيتولّد…') : Thumb(path, 'fl-shot'),
+      h('div', { class: 'fl-sacts' }, path ? Button({ size: 'sm', label: 'تعديل', onClick: () => shotModal(u, k) }) : null,
         path ? U.IconButton({ icon: 'trash', label: 'حذف', onClick: () => { if (k === 4) delete st().sizeShot[groupKey(u.gi)]; else sh[k] = null; touch(); R(); } }) : null,
         !path ? Button({ size: 'sm', icon: 'sparkle', label: 'ولّد بالـ AI', disabled: !!S.busy, attrs: { 'data-gen': u.key + ':' + k }, onClick: () => genShot(u, k) }) : null));
     if (k < 4) {
@@ -477,13 +494,17 @@
     const features = Card('صورة المميزات', 'صورة واحدة للدفعة كلها — بتتحط في آخر صور كل المنتجات.', [h('div', { class: 'fl-feat' }, Thumb(s.features, 'st-big'),
       h('div', { class: 'acts-inline' }, Button({ size: 'sm', icon: 'upload', label: s.features ? 'بدّل' : 'ارفع صورة المميزات', attrs: { 'data-flow-features': '' }, onClick: () => filePick('image/*', false, async (f) => { const r = await ST().uploadImage(S.id, f[0], 'features', { webp: true }); if (r.ok) { s.features = r.path; touch(); R(); } }) }),
         s.features ? U.IconButton({ icon: 'trash', label: 'حذف صورة المميزات', onClick: () => { s.features = null; touch(); R(); } }) : null))]);
-    const list = us.map((u) => { const r = unitRow(u);
-      return h('div', { class: 'fl-unit', 'data-unit': u.key }, h('div', { class: 'fl-ucb' }, selBox(u.key, r.nameEn || r.sku)),
-        h('div', { class: 'fl-uref' }, Thumb(r.ref, 'st-big'), h('div', { class: 'fl-info' }, h('b', null, r.nameAr || r.nameEn || '—'), h('span', null, r.nameEn || ''), h('small', { dir: 'ltr' }, FD.imageSku(r.sku, r.size) || ''),
-          h('span', null, h('b', { class: 'brand-t' }, money(r.sale)), ' ', h('s', { class: 'help' }, money(r.regular))), h('small', { class: 'help' }, 'نسبة إبتكر ' + (rate == null ? '—' : rate + '%')))),
-        h('div', { class: 'fl-slots' }, [0, 1, 2, 3].map((k) => slot(u, k))),
-        h('div', { class: 'fl-slots fl-extra' }, sizeUnit(u) && hasSize(u.gi) ? slot(u, 4) : h('small', { class: 'help fl-nosize' }, sizeUnit(u) ? 'من غير مقاس — مفيش رسم مقاس' : 'رسم المقاس مع أول لون')),
-        h('div', null, K.RowMenu([{ label: 'ولّد الناقص للمنتج ده', icon: 'sparkle', run: () => genMissing([u]) }, { label: 'امسح صوره', icon: 'trash', danger: true, run: () => { s.shots[u.key] = [null, null, null, null]; touch(); R(); } }], 'إجراءات ' + (r.sku || ''))));
+    // the owner 15 Nov («الصور تبقا اليند جمب بعض و يبقا كارت المنتج شكلو منظم»): a head with the product (its photo, the Arabic name,
+    // the SKU, the price) and under it the four shots + the size drawing side by side, all the same size, the labels on one line
+    const list = us.map((u) => { const r = unitRow(u); const meta = [r.colorAr || r.colorEn, arSize(r)].filter(Boolean).join(' · ');
+      const sizeCell = sizeUnit(u) && hasSize(u.gi) ? slot(u, 4) : h('div', { class: 'fl-sna' }, h('small', { class: 'fl-slab' }, 'صورة المقاس'),
+        h('span', { class: 'thumb fl-shot na fl-nosize' }, sizeUnit(u) ? 'من غير مقاس' : 'رسم المقاس مع أول لون'));
+      return h('div', { class: 'fl-unit fl-ucard', 'data-unit': u.key },
+        h('div', { class: 'fl-uhead' }, h('div', { class: 'fl-ucb' }, selBox(u.key, r.nameAr || r.nameEn || r.sku)), Thumb(r.ref, 'fl-pthumb'),
+          h('div', { class: 'fl-info' }, h('b', null, r.nameAr || r.nameEn || '—'), h('small', { class: 'num' }, h('bdi', { dir: 'ltr' }, FD.imageSku(r.sku, r.size) || r.sku || '')), meta ? h('small', null, meta) : null),
+          h('div', { class: 'fl-uprice' }, h('b', { class: 'brand-t' }, money(r.sale)), r.regular ? h('s', { class: 'help' }, money(r.regular)) : null, h('small', { class: 'help' }, 'نسبة إبتكر ', rate == null ? '—' : U.num(rate + '%'))),
+          h('div', { class: 'fl-umenu' }, K.RowMenu([{ label: 'ولّد الناقص للمنتج ده', icon: 'sparkle', run: () => genMissing([u]) }, { label: 'امسح صوره', icon: 'trash', danger: true, run: () => { s.shots[u.key] = [null, null, null, null]; touch(); R(); } }], 'إجراءات ' + (r.sku || '')))),
+        h('div', { class: 'fl-shots' }, [0, 1, 2, 3].map((k) => slot(u, k)), sizeCell));
     });
     const sel = us.filter((u) => S.sel.has(u.key));
     return [features, Card('صور المنتجات', us.length + ' ' + (isVar() ? 'لون' : 'منتج') + ' · 1 في النص · 2 و3 البيئة · 4 التفاصيل (4 أجزاء) · المقاس رسم بالـ AI. اسحب الصورة على خانة تانية تبدّلهم.', [BulkBar([Button({ size: 'sm', icon: 'sparkle', label: 'ولّد الناقص للمحدد', disabled: !!S.busy, onClick: () => genMissing(sel) })]), h('div', { class: 'fl-units' }, list)],
@@ -554,13 +575,23 @@
   }
   function previewSheet(L, type) {
     const sh = FD.sheetOf({ type, rows: L });
-    U.Modal({ title: 'معاينة الشيت — ' + L.length + ' صف', body: [h('div', { class: 'fl-scroll' }, h('table', { class: 'fl-table fl-preview' }, h('thead', null, h('tr', null, sh.head.map((x) => h('th', null, x)))),
-      h('tbody', null, sh.rows.slice(0, 200).map((r, i) => h('tr', null, r.map((c, k) => h('td', null, k === sh.refCol ? Thumb(L[i].ref, 'st-sm') : typeof c === 'object' && c ? '=' + c.f : String(c == null ? '' : c)))))))),
-    L.length > 200 ? U.InlineNote({ children: 'أول 200 صف بس في المعاينة.' }) : null] });
+    const m = U.Modal({ title: 'معاينة الشيت — ' + L.length + ' صف', body: [h('div', { class: 'fl-scroll' }, h('table', { class: 'fl-table fl-preview' }, h('thead', null, h('tr', null, sh.head.map((x) => h('th', null, x)))),
+      h('tbody', null, sh.rows.slice(0, 200).map((r, i) => h('tr', null, r.map((c, k) => h('td', null, k === sh.refCol ? Thumb(L[i].ref, 'fl-pthumb') : typeof c === 'object' && c ? '=' + c.f : String(c == null ? '' : c)))))))),
+    L.length > 200 ? U.InlineNote({ children: 'أول 200 صف بس في المعاينة.' }) : null].filter(Boolean) }); // a null child would print «null»
+    m.el.classList.add('wide', 'fl-big'); // the owner 15 Nov: the previews bigger
+
   }
+  // the owner 15 Nov («خلي بوباب معاينة الصور اكبر شوية عشان يبين الصور بوضوح»): a wide popup, each product with its five pictures in a row
   function previewImages() {
-    U.Modal({ title: 'معاينة الصور', body: [h('div', { class: 'fl-units' }, units().map((u) => { const r = unitRow(u); return h('div', { class: 'fl-unit ro' }, h('div', { class: 'fl-uref' }, Thumb(r.ref, 'st-big'), h('div', { class: 'fl-info' }, h('b', null, r.nameAr || r.nameEn || ''), h('small', { dir: 'ltr' }, FD.imageSku(r.sku, r.size)))),
-      h('div', { class: 'fl-slots' }, shotsOf(u).map((p) => Thumb(p, 'st-big')).concat([Thumb(st().sizeShot[groupKey(u.gi)], 'st-big')]))); }))] });
+    const s = st(); const us = units();
+    const m = U.Modal({ title: 'معاينة الصور — ' + us.length + ' ' + (isVar() ? 'لون' : 'منتج'), body: [
+      s.features ? h('div', { class: 'fl-pv-feat' }, h('small', { class: 'fl-slab' }, 'صورة المميزات — في آخر صور كل منتج'), Thumb(s.features, 'fl-shot')) : null,
+      h('div', { class: 'fl-pv' }, us.map((u) => { const r = unitRow(u);
+        const pics = shotsOf(u).map((p, k) => [SHOT_L[k], p]).concat(sizeUnit(u) && hasSize(u.gi) ? [['صورة المقاس', s.sizeShot[groupKey(u.gi)]]] : []);
+        return h('div', { class: 'fl-pv-unit', 'data-pv-unit': u.key }, h('div', { class: 'fl-pv-head' }, Thumb(r.ref, 'fl-pthumb'),
+          h('div', { class: 'fl-info' }, h('b', null, r.nameAr || r.nameEn || '—'), h('small', { class: 'num' }, h('bdi', { dir: 'ltr' }, FD.imageSku(r.sku, r.size) || r.sku || '')))),
+          h('div', { class: 'fl-pv-shots' }, pics.map(([label, p]) => h('figure', { class: 'fl-pv-shot' }, Thumb(p, 'fl-shot'), h('figcaption', { class: 'fl-slab' }, label))))); }))].filter(Boolean) });
+    m.el.classList.add('wide', 'fl-big');
   }
   async function uploadSheet() {
     await refreshRow(); const all = mediaList(); const have = resultOf().media || {};

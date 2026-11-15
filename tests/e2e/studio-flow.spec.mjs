@@ -74,11 +74,15 @@ test('flow 1 «شيت جاهز» Simple: the sheet + photos by row → maker/bra
   expect(Number(await page.locator('#pg-products [data-fl="regular"]').first().inputValue())).toBeGreaterThan(1540);
   await page.locator('#pg-products [data-fl="sale"]').nth(1).fill('1250'); await page.locator('#pg-products [data-fl="sale"]').nth(1).press('Tab');
   await expect(page.locator('#pg-products [data-fl="sale"]').nth(1)).toHaveValue('1250');
+  // the owner 15 Nov («صلح شكل الجدول و إظهر بيانات المنتج العربي بس»): a grid (no <table>), the product's Arabic data only
+  await expect(page.locator('#pg-products [data-fl-prices] table')).toHaveCount(0);
+  const first = page.locator('#pg-products [data-fl-prices] [data-row]').first();
+  await expect(first).toContainText('مخدة بوهيمي'); await expect(first).toContainText('بيج · 40 × 40 سم'); await expect(first).not.toContainText('Boho Cushion');
   await next(page);
   // the shots: one features image for the batch; the 4 shots + the size drawing of the first product, 4 shots of the second
   await pick(page, '[data-flow-features]', png('features.png'));
   await page.locator('[data-flow-genall]').click();
-  await expect(page.locator('#pg-products .fl-slot.empty')).toHaveCount(0);
+  await expect(page.locator('#pg-products .fl-slot.is-empty')).toHaveCount(0);
   await expect(page.locator('#pg-products .fl-unit').nth(1)).toContainText('من غير مقاس'); // the second has no size: no drawing
   const gens = mock.imgCalls.filter((c) => c.action === 'generate');
   expect(gens.map((c) => [c.index, c.slot]).sort()).toEqual([[0, 0], [0, 1], [0, 2], [0, 3], [0, 4], [1, 0], [1, 1], [1, 2], [1, 3]]);
@@ -88,6 +92,17 @@ test('flow 1 «شيت جاهز» Simple: the sheet + photos by row → maker/bra
   await page.locator('[data-up="sheet"]').click();
   await expect(page.locator('.toast[role=status]')).toContainText('ارفع الصور الأول');
   expect(mock.studioUploads).toEqual([]);
+  // the owner 15 Nov («خلي بوباب معاينة الصور اكبر شوية … و الشيت نفس الكلام»): both previews wide, the pictures five in a row
+  await page.locator('[data-box="images"]').getByRole('button', { name: 'معاينة' }).click();
+  await expect(page.locator('.modal.fl-big .fl-pv-unit')).toHaveCount(2);
+  await expect(page.locator('.modal.fl-big .fl-pv-unit').first().locator('.fl-pv-shot')).toHaveCount(5);
+  await expect(page.locator('.modal.fl-big')).not.toContainText('null');
+  expect((await page.locator('.modal.fl-big').boundingBox()).width).toBeGreaterThan(900);
+  await page.keyboard.press('Escape');
+  await page.locator('[data-box="sheet"]').getByRole('button', { name: 'معاينة' }).click();
+  await expect(page.locator('.modal.fl-big .fl-preview tbody tr')).toHaveCount(2);
+  await expect(page.locator('.modal.fl-big')).not.toContainText('null');
+  await page.keyboard.press('Escape');
   await page.locator('[data-up="images"]').click();
   await expect(page.locator('.toast[role=status]')).toContainText('اترفعت الصور على الموقع');
   const names = mock.studioMedia.map((x) => x.name);
@@ -125,7 +140,7 @@ test('flow 2 «داتا على الواتساب» Variable: the screenshots read
   await next(page);
   await expect(page.locator('#pg-products .fl-unit')).toHaveCount(3); // the basket + the vase's two colors
   await page.locator('#pg-products .fl-unit').nth(1).getByRole('button', { name: 'ولّد بالـ AI' }).first().click();
-  await expect(page.locator('#pg-products .fl-unit').nth(1).locator('.fl-slot:not(.empty)')).toHaveCount(1);
+  await expect(page.locator('#pg-products .fl-unit').nth(1).locator('.fl-slot:not(.is-empty)')).toHaveCount(1);
   const g = mock.imgCalls.filter((c) => c.action === 'generate');
   expect(g.map((c) => [c.index, c.slot, c.color])).toEqual([[1, 0, 'BK']]); // the shot of one color: slot + color
   expect(batch().state.items[1].colorRefs).toEqual({ BK: expect.stringMatching(/\/p2-/), BE: expect.stringMatching(/\/p2-/) });

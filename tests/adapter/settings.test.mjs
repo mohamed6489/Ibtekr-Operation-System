@@ -227,3 +227,45 @@ test('0098 (owner batch 2 decision 16): the quick actions — the list in the pa
   await S.quickDelete(Q1); await S.quickOrder([Q2, 'qa-old', Q1]);
   assert.deepEqual(JSON.parse(JSON.stringify(rpcs(stub).filter((c) => /quick_action_(delete|order)/.test(c[0])))), [['quick_action_delete', { p_id: Q1 }], ['quick_action_order', { p_ids: [Q2, Q1] }]]);
 });
+
+// the owner 15 Nov (docs/superpowers/plans/2026-11-15-fake-discount.md): «الخصم الوهمي» بالشرايح — settings «makers».fake
+test('the fake-discount tiers: fakeRule() = the admin\'s row first, else the public slice (0106), cleaned and sorted; saveFake reads the row first, merges the one key (the delay rules stay), null takes it out; the admin only', async () => {
+  // the domain is the page's (window.IbtekrProducts): the adapter cleans through it
+  const { loadUmd } = await import('../helpers/load-umd.mjs'); const PD = loadUmd(new URL('../../app/js/pages/products-domain.js', import.meta.url));
+  const ctxLoad = (o = {}) => {
+    const stub = stubClient({ responses: { settings: ok(SETTINGS), roles: ok(ROLES), ...(o.responses || {}) } }); const logs = []; const events = [];
+    const role = o.role || 'admin';
+    const window = { IbtekrProducts: PD, IBSupabase: { client: stub.client }, IBDirectory: { perm: (k) => (role === 'admin' ? 'F' : (o.perms || {})[k] || 'N'), me: () => ({ id: A, name: 'صفوت', role_id: role, status: 'active' }), members: () => [], refresh: async () => {} },
+      IBActivity: { log: (action, detail, meta) => { logs.push([action, detail, meta]); return Promise.resolve(); } }, crypto: { randomUUID: () => 'abcdef12-3456-4000-8000-000000000000' } };
+    const ctx = { window, document: { dispatchEvent(e) { events.push(e.type); } }, CustomEvent: class { constructor(t) { this.type = t; } }, Promise, Date, Number, String, Array, Object, JSON, Map, Set, Math, Error, RegExp };
+    ctx.globalThis = ctx; runInNewContext(src, ctx);
+    return { S: window.IBSettings, stub, logs, events };
+  };
+  const OWNER = { tiers: [{ to: 1000, type: 'amount', value: 500 }, { to: 2000, type: 'amount', value: 1000 }, { to: null, type: 'amount', value: 1500 }] };
+  // nothing saved = null (the old way)
+  const none = ctxLoad(); await none.S.load(); eq(none.S.fakeRule(), null);
+  // a member: the public slice (after 0106); the tiers come back sorted, «فيما فوق» last, a bad one dropped
+  const member = ctxLoad({ role: 'ops', perms: {}, responses: { 'rpc:settings_public': ok({ makers: { delay: {}, fake: { tiers: [{ to: null, type: 'amount', value: 1500 }, { to: 2000, type: 'percent', value: 40 }, { to: 1000, type: 'amount', value: 500 }, { to: 500, type: 'amount', value: -3 }] } } }) } });
+  await member.S.loadPublic();
+  eq(member.S.fakeRule(), { tiers: [{ to: 1000, type: 'amount', value: 500 }, { to: 2000, type: 'percent', value: 40 }, { to: null, type: 'amount', value: 1500 }] });
+  eq((await member.S.saveFake(OWNER)).reason, 'forbidden'); eq(opsOf(member.stub.calls, 'settings').filter((c) => c.op === 'upsert'), [], 'a member writes nothing');
+  // the admin: his own row wins over the public slice
+  const rows = [...SETTINGS, { section: 'makers', data: { delay: { lead: 9 }, rate: '40%', fake: { tiers: [{ to: null, type: 'percent', value: 25 }] } }, updated_at: null, updated_by: null }];
+  const admin = ctxLoad({ responses: { settings: ok(rows), 'rpc:settings_public': ok({ makers: { delay: { lead: 9 }, fake: OWNER } }) } });
+  await admin.S.load(); await admin.S.loadPublic();
+  eq(admin.S.fakeRule(), { tiers: [{ to: null, type: 'percent', value: 25 }] });
+  // saveFake: the one key merged into the row that was read — the delay rules and the rest stay
+  eq(await admin.S.saveFake(OWNER), { ok: true });
+  const up = opsOf(admin.stub.calls, 'settings').filter((c) => c.op === 'upsert').at(-1);
+  eq(up.args, [{ section: 'makers', data: { delay: { lead: 9 }, rate: '40%', fake: OWNER } }, { onConflict: 'section' }]);
+  eq(admin.S.fakeRule(), OWNER); eq(admin.S.public().makers.fake, OWNER); assert.ok(admin.events.includes('ib:settings'));
+  eq(admin.logs.at(-1), ['settings.makers.save', 'fake', { entity: 'settings', entity_id: 'makers' }], 'the key\'s name only — no numbers');
+  // null (or nothing valid) takes the key out of the row and of the public slice
+  eq(await admin.S.saveFake({ tiers: [{ to: 0, type: 'amount', value: 0 }] }), { ok: true });
+  eq(opsOf(admin.stub.calls, 'settings').filter((c) => c.op === 'upsert').at(-1).args[0], { section: 'makers', data: { delay: { lead: 9 }, rate: '40%' } });
+  eq(admin.S.fakeRule(), null); eq(admin.S.public().makers.fake, undefined);
+  // a row that was never read is read before the save (never written over with the one key)
+  const cold = ctxLoad({ responses: { settings: ok(rows) } });
+  eq(await cold.S.saveFake(OWNER), { ok: true });
+  eq(opsOf(cold.stub.calls, 'settings').filter((c) => c.op === 'upsert').at(-1).args[0].data, { delay: { lead: 9 }, rate: '40%', fake: OWNER });
+});

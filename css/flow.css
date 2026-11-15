@@ -252,7 +252,7 @@ textarea.fl-in{display:block;width:100%}
 .fl-inwrap>.fl-in{width:100%;padding-inline-end:36px}
 .fl-rw-in{position:absolute;inset-inline-end:5px;top:50%;transform:translateY(-50%);width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:999px;background:transparent;color:var(--color-brand-default,#005642);cursor:pointer;padding:0}
 .fl-inwrap.is-area>.fl-rw-in{top:5px;transform:none}
-.fl-rw-in:hover:not(:disabled),.fl-rw-in:focus-visible{background:var(--color-bg-tint)}
+.fl-rw-in:hover:not(:disabled),.fl-rw-in:focus-visible{background:var(--color-brand-default,#005642);color:var(--color-text-on-brand,#fff7ef)} /* the owner 15 Nov: green round, beige icon */
 .fl-rw-in:disabled{opacity:.55;cursor:default}
 .fl-rw-in[data-tip]:hover::after,.fl-rw-in[data-tip]:focus-visible::after{content:attr(data-tip);position:absolute;bottom:calc(100% + 4px);inset-inline-end:0;white-space:nowrap;background:var(--color-text-primary,#1d1d1b);color:var(--color-bg-base,#fff);font-size:11px;font-weight:600;padding:3px 8px;border-radius:6px;pointer-events:none;z-index:5}
 .fl-rw-in.is-busy svg{animation:fl-spin 1s linear infinite}

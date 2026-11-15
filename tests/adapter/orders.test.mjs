@@ -777,3 +777,29 @@ test('«no row» said as an error by the API (404 / PGRST116) is the same «stal
   t.responses.orders = (q) => (q.some((c) => c.op === 'update') ? { data: null, error: { code: 'PGRST000', message: 'down' }, status: 503 } : ok([]));
   assert.deepEqual(plain(await t.O.setOrderStatus('181668', 'قيد الشحن', {})), { ok: false, reason: 'network' });
 });
+
+// two quick changes to the same field by the same member (CI caught it: the deposit set, then cleared before the first answer came)
+test('a row\'s writes go one after the other: the second of two quick changes names what the first left, not what was on the screen before it', async () => {
+  const t = load();
+  await t.O.load(); t.calls.length = 0;
+  const a = t.O.patchOrder('181668', { dep: 500 }); const b = t.O.patchOrder('181668', { dep: 0 }); // not awaited in between
+  assert.deepEqual(plain(await Promise.all([a, b])), [{ ok: true }, { ok: true }]);
+  const ops = opsOf(t.calls, 'orders');
+  assert.deepEqual(ops.filter((c) => c.op === 'update').map((c) => c.args[0]), [{ deposit: 500 }, { deposit: 0 }], 'in the order they were asked');
+  const named = ops.filter((c) => (c.op === 'eq' || c.op === 'is') && c.args[0] === 'deposit').map((c) => c.args[1]);
+  assert.equal(named.length, 2); assert.equal(Number(named[1]), 500, 'the second write is compared with the first one\'s value');
+  assert.notEqual(Number(named[0]), 500);
+  // a line the same way, and another row is not kept waiting behind this one
+  t.calls.length = 0;
+  const c1 = t.O.setItemStatus('5001', undefined, { cm: 'أول' }); const c2 = t.O.setItemStatus('5001', undefined, { cm: 'تاني' }); const other = t.O.patchOrder('180686', { dep: 10 });
+  assert.deepEqual(plain(await Promise.all([c1, c2, other])), [{ ok: true }, { ok: true }, { ok: true }]);
+  const li = opsOf(t.calls, 'order_items').filter((c) => (c.op === 'eq' || c.op === 'is') && c.args[0] === 'comment').map((c) => c.args[1]);
+  assert.equal(li[1], 'أول');
+  // a refused first write leaves what was on the screen: the second is compared with that
+  t.calls.length = 0; let n = 0;
+  t.responses.orders = (q) => (q.some((c) => c.op === 'update') ? ((n += 1) === 1 ? { data: null, error: { code: 'PGRST000', message: 'down' }, status: 503 } : { data: null, error: null, count: 1 }) : ok([]));
+  const f1 = t.O.patchOrder('181668', { dep: 900 }); const f2 = t.O.patchOrder('181668', { dep: 70 });
+  assert.deepEqual(plain(await Promise.all([f1, f2])), [{ ok: false, reason: 'network' }, { ok: true }]);
+  const after = opsOf(t.calls, 'orders').filter((c) => (c.op === 'eq' || c.op === 'is') && c.args[0] === 'deposit').map((c) => Number(c.args[1]));
+  assert.deepEqual(after, [0, 0], 'both name the deposit the two successful writes above left (0)');
+});

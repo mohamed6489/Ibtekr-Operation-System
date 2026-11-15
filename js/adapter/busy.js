@@ -7,6 +7,7 @@
 // shown here) is left alone. The wrapping is on supabase-js's prototypes (FunctionsClient.invoke — `client.functions` is a new
 // object at every read — and StorageFileApi.upload / uploadToSignedUrl); the adapters' calls and answers are untouched.
 // labelOf(fn, body) is pure: the Arabic line for an action, or null when it shows nothing.
+// From 15 Nov every other request of the client is covered too (requestLabel / IBBusy.fetch, at the end of this file).
 (function () {
   'use strict';
   // woo-sync: the site / Dokan
@@ -59,15 +60,18 @@
     return BY_FN[fn] || null;
   }
 
+  const READING = 'بنحمّل…', SAVING = 'بنحفظ…', WORKING = 'ثواني…', SIGNING = 'بندخّلك…', LEAVING = 'بنخرّجك…'; // the lines of the client's own requests (requestLabel)
   let DELAY_MS = 450; const GESTURE_MS = 2500, CHAIN_MS = 1500;
-  let lastGesture = 0, chainUntil = 0, autoShown = 0;
+  let lastGesture = 0, lastPress = 0, chainUntil = 0, autoShown = 0;
   const now = () => Date.now();
-  const mark = () => { lastGesture = now(); };
+  // a press (a click, a choice, a submit, Enter / Space) or typing (`input`): typing alone never makes a read the member's — a
+  // poll that lands while he writes shows nothing; a save he typed (a field's own change) still does
+  const mark = (e) => { lastGesture = now(); if (!e || e.type !== 'input') lastPress = lastGesture; };
   if (typeof document !== 'undefined' && document.addEventListener) {
     ['pointerdown', 'click', 'input', 'change', 'submit'].forEach((t) => document.addEventListener(t, mark, true)); // input crosses a shadow root, change does not
     document.addEventListener('keydown', (e) => { if (e && (e.key === 'Enter' || e.key === ' ')) mark(); }, true);
   }
-  const userStarted = () => { const n = now(); return n - lastGesture < GESTURE_MS || n < chainUntil; };
+  const userStarted = (pressOnly) => { const n = now(); return n - (pressOnly ? lastPress : lastGesture) < GESTURE_MS || n < chainUntil; };
 
   const pills = new Map(); // label → { n, handle, timer, closeT }
   function begin(label) {
@@ -97,9 +101,13 @@
       }, 300);
     };
   }
+  // hush(promise): while it is pending nothing new shows a pill — the quiet reads behind the member's back (IBLive's reload after a
+  // teammate's change) are not his action even when he clicked a moment before
+  let hushed = 0;
+  function hush(p) { hushed += 1; const off = () => { hushed = Math.max(0, hushed - 1); }; Promise.resolve(p).then(off, off); return p; }
   // run fn (the original call) under a pill when the member started it; the original promise's answer passes through unchanged
   function track(label, fn) {
-    if (!label || !userStarted()) return fn();
+    if (!label || hushed > 0 || !userStarted(label === READING)) return fn();
     const end = begin(label);
     let r;
     try { r = fn(); } catch (e) { end(); throw e; }
@@ -127,6 +135,34 @@
     return { functions, storage };
   }
 
+  // The owner 15 Nov (docs/superpowers/plans/2026-11-15-preloader.md — «اي اكشن يف السيستم يتعمله loading»): every other request of
+  // the Supabase client the member started — a read, a save, a sign-in — shows the pill the same way (after the delay, one per line).
+  // requestLabel(url, method) is pure: the line, or null for what never shows one here — the Edge Functions and the uploads (they
+  // have their own lines above), the session's own refresh, the Realtime line. supabase-client.js hands the client this fetch.
+  function requestLabel(url, method) {
+    const u = String(url || ''); const m = String(method || 'GET').toUpperCase();
+    const at = u.indexOf('/rest/v1/');
+    if (at >= 0) {
+      if (u.indexOf('/rest/v1/rpc/', at) === at) return WORKING; // a function of the database: a read or a save — only it knows
+      return m === 'GET' || m === 'HEAD' ? READING : SAVING;
+    }
+    const au = u.indexOf('/auth/v1/');
+    if (au >= 0) {
+      const path = u.slice(au + 9);
+      if (path.indexOf('token') === 0) return /[?&]grant_type=password(&|$)/.test(path) ? SIGNING : null; // the refresh is the session's own
+      if (path.indexOf('logout') === 0) return LEAVING;
+      if (path.indexOf('user') === 0 && m !== 'GET') return SAVING; // the password, the e-mail
+      if (path.indexOf('factors') === 0 && m !== 'GET') return WORKING; // 2FA: enrol, challenge, verify
+      return null;
+    }
+    return null; // functions, storage, anything else
+  }
+  function trackedFetch(input, init) {
+    const url = typeof input === 'string' ? input : (input && input.url) || '';
+    const method = (init && init.method) || (input && typeof input === 'object' && input.method) || 'GET';
+    return track(requestLabel(url, method), () => fetch(input, init));
+  }
+
   const wrapped = wrap(window.IBSupabase && window.IBSupabase.client);
-  window.IBBusy = { labelOf, wrap, wrapped, setDelay: (ms) => { DELAY_MS = Math.max(0, Number(ms) || 0); }, userStarted, mark, SKIP };
+  window.IBBusy = { labelOf, requestLabel, fetch: trackedFetch, hush, wrap, wrapped, setDelay: (ms) => { DELAY_MS = Math.max(0, Number(ms) || 0); }, userStarted, mark, SKIP };
 })();

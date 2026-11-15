@@ -18,5 +18,8 @@
   // checker(): a throwaway client for «تغيير كلمة المرور» (IBAuth.changePassword) — it checks the current password and keeps no session
   // (nothing stored, nothing refreshed), so the member's own session is never replaced
   const checker = () => (ok ? window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, storageKey: 'ib-password-check' } }) : null);
-  window.IBSupabase = { client: ok ? window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, { auth: { storage } }) : null, recoveryHint, checker };
+  // the owner 15 Nov («اي اكشن في السيستم يتعمله loading»): every request of the client passes IBBusy.fetch (busy.js, loaded after this
+  // file — looked up at call time), which shows the running pill for the ones the member started; without it, the plain fetch
+  const viaBusy = (input, init) => { const B = window.IBBusy; return B && typeof B.fetch === 'function' ? B.fetch(input, init) : fetch(input, init); };
+  window.IBSupabase = { client: ok ? window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, { auth: { storage }, global: { fetch: viaBusy } }) : null, recoveryHint, checker };
 })();

@@ -128,6 +128,7 @@ test('studioRequest: the catalog (category paths + color codes) is the cached bl
   const p = studioRequest(item, { ...CTX, want: ['nameAr', 'category'], brand: 'Art Craft', cats: CATS, colors: COLORS, image: { media_type: 'image/webp', data: 'B'.repeat(300) } });
   assert.equal(p.system.length, 2); assert.equal(p.system[0].cache_control, undefined);
   assert.match(p.system[0].text, /read the product's color from the photo/, 'the owner (1 Nov): no color in the data → the photo');
+  assert.match(p.system[0].text, /The first code is always the product's dominant color as seen in the photo/, 'the owner (15 Nov): the color from the picture, the dominant one first');
   assert.deepEqual(p.system[1].cache_control, { type: 'ephemeral' });
   assert.match(p.system[1].text, /^Shop categories \(id: path\)\n10: Home Decor\n12: Home Decor › Cushions\n11: Home Decor › Mirrors\n20: Kitchen\n\nColors \(code: name\)\nBE: Beige \(بيج\)\nBK: Black \(أسود\)$/);
   assert.equal(p.messages[0].content[0].source.media_type, 'image/webp');

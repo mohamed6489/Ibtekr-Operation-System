@@ -518,6 +518,42 @@ test('flow 3 «صور وعايز شيت» Variable: two colors × two products �
   expect(await page.evaluate(() => window.__opened)).toMatch(/^https:\/\/wa\.me\/\?text=/);
 });
 
+test('the owner 15 Nov: «صور وعايز شيت» — «املأ بالـ AI» labels the sizes «مقاس 1 / 2», reads each color from its own photo (a product\'s second photo = its second color), and a row\'s photo is swapped in the sheet (its AI color read again)', async ({ page }) => {
+  // the AI's color: Black for the second photo or a swapped one, else Beige (the photo decides)
+  mock.studioColor = (item) => (/\/(p1-2|r0-3)-/.test(String(item.main || '')) ? 'BK' : 'BE');
+  await signIn(page, ADMIN);
+  await choose(page, 'صور وعايز شيت', 'Variable');
+  await page.locator('#fl-k-colors').click(); await page.getByRole('option', { name: '2 ألوان' }).click();
+  await page.locator('#fl-k-sizes').click(); await page.getByRole('option', { name: '2 مقاسات' }).click();
+  await next(page);
+  await page.locator('#fl-maker').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
+  await next(page);
+  await pick(page, '[data-flow-photos]', [png('1-1.png'), png('1-2.png')]);
+  await expect(page.locator('#pg-products .fl-pcard')).toHaveCount(1);
+  await next(page);
+  const sheet = page.locator('#pg-products [data-flow-sheet]');
+  expect(await sheet.locator('tbody tr td:first-child').allTextContents()).toEqual(['1-1', '1-2', '1-3', '1-4']);
+  await page.locator('[data-flow-ai]').click(); await page.locator('[data-ai-go]').click();
+  await expect(sheet.locator('[data-sh="nameAr:1-1"]')).toHaveValue('أباجورة مكتب بامبو');
+  // the sizes labelled per slot, the colors per photo: slot 1 (the first photo) Beige, slot 2 (the second photo) Black
+  await expect(sheet.locator('[data-sh="size:1-1"]')).toHaveValue('مقاس 1'); await expect(sheet.locator('[data-sh="size:1-2"]')).toHaveValue('مقاس 2');
+  await expect(sheet.locator('[data-sh="size:1-3"]')).toHaveValue('مقاس 1'); await expect(sheet.locator('[data-sh="size:1-4"]')).toHaveValue('مقاس 2');
+  await expect(sheet.locator('[data-sh="color:1-1"]')).toContainText('Beige'); await expect(sheet.locator('[data-sh="color:1-3"]')).toContainText('Black');
+  const studioCalls = () => mock.aiRuns.filter((r) => r.action === 'studio' && r.source === 'studio').map((r) => r.item_index);
+  expect(studioCalls()).toEqual([0, 1]); // the product, then its second color's photo (item 1)
+  // the second color's photo swapped (row 1-3) → its AI color is cleared; «املأ بالـ AI» reads it from the new picture
+  const fc = page.waitForEvent('filechooser'); await sheet.locator('[data-sh-photo="1-3"]').click(); (await fc).setFiles([png('new-white.png')]);
+  await expect(page.locator('.toast.show')).toContainText('اتبدلت صورة 1-3');
+  await expect(sheet.locator('[data-sh="color:1-3"]')).not.toContainText('Black');
+  await expect.poll(() => Object.values((((batch().state || {}).fill || {})[0] || {}).rowPhotos || {}).length).toBe(1);
+  mock.studioColor = (item) => (/\/r0-3-/.test(String(item.main || '')) ? 'WH' : 'BE');
+  await page.locator('[data-flow-ai]').click(); await page.locator('[data-ai-go]').click();
+  await expect(sheet.locator('[data-sh="color:1-3"]')).toContainText('White');
+  await expect(sheet.locator('[data-sh="color:1-1"]')).toContainText('Beige'); // the names and slot 1 stay — not asked again
+  expect(studioCalls()).toEqual([0, 1, 1]);
+  mock.studioColor = null;
+});
+
 test('the owner 15 Nov («بجرب ارفع الصور … مبتترفعش»): a maker\'s photos with any name go up — each one a product in the order picked; a numbered one keeps its row', async ({ page }) => {
   await signIn(page, ADMIN);
   await choose(page, 'صور وعايز شيت', 'Simple');

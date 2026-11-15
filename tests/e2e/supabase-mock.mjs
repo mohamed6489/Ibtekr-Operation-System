@@ -2228,7 +2228,7 @@ export async function installSupabaseMock(page, opts = {}) {
         : { nameEn: req.want.includes('rewriteName') ? 'Rewritten Product Name' : req.want.includes('translate') ? 'Translated Product Name' : item.nameEn || 'Bamboo Desk Lamp',
           nameAr: req.want.includes('rewriteName') ? 'اسم منتج متكتب من جديد' : 'أباجورة مكتب بامبو',
           shortDesc: req.want.includes('rewriteDesc') ? 'A rewritten short description.' : req.want.includes('translate') ? 'Translated short description.' : 'A warm bamboo desk lamp.',
-          shortDescAr: req.want.includes('rewriteDesc') ? 'وصف قصير متكتب من جديد.' : 'أباجورة مكتب من البامبو بإضاءة دافية.', categories: cats.slice(0, 1), colors: ['BE'], sizes: [],
+          shortDescAr: req.want.includes('rewriteDesc') ? 'وصف قصير متكتب من جديد.' : 'أباجورة مكتب من البامبو بإضاءة دافية.', categories: cats.slice(0, 1), colors: [typeof mock.studioColor === 'function' ? mock.studioColor(item) : 'BE'], sizes: [],
           material: 'Rattan', materialAr: 'راتان', style: 'Boho', styleAr: 'بوهيمي' }; // the owner 15 Nov: attrs (material/style) and translate (Arabic → English)
       const cleaned = action === 'write' ? cleanWrite(answer, req.outputs, req.langs) : action === 'prompts' ? cleanPrompts(answer) : cleanStudio(answer, req.want, { categoryIds: new Set(cats), colorCodes: new Set(mock.skuColors.map((c) => c.code)) });
       const run = { ...base, status: 'ok', error: null, input_tokens: 3000, output_tokens: 2000, cost_usd: cost, output: cleaned };

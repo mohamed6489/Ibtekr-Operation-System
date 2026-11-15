@@ -2151,3 +2151,6 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 #### 2.7.80 أي لينك في «فايلز أو لينكات» بتاعة الكامبين (صاحب المشروع 15 نوفمبر — «السيستم مش قابل اي لينكات»)
 1. «Deploy functions»: `ai-images` (action `ref_link` — السيرفر بيجيب صورة اللينك أو `og:image` بتاع الصفحة بقواعد `_shared/ref-link.js`). من غيره الصفحة بتقول «الموقع ده ماردش».
 2. الواجهة على `main`. مافيش migration ولا سر جديد.
+
+#### 2.7.81 لون المنتج من الصورة في «صور وعايز شيت» (صاحب المشروع 15 نوفمبر)
+1. «Deploy functions»: `ai-content` (تعليمات `STUDIO_FIELDS`: أول كود لون = اللون الغالب للمنتج في الصورة). الواجهة على `main`. مافيش migration.

@@ -375,6 +375,111 @@
           else K.toast('القسم ماتعملش — ' + catFail(r), 'error'); });
         return false; } });
   }
+  /* The assistant's category plan (the owner 15 Nov — 2026-11-15-assistant-categories.md: «اعملي القسم كذا انجليزي و عربي و جواه قسم فرعي
+     كذا و كذا … يبني levels الاقسام الفرعية علي حسب شرحي بس يوريني قبل ما يطبق عشان ممكن اعدل وراه و بعدين اعمل نشر»): the assistant's
+     plan_categories hands an outline (PD.planOutline) and this popup is the review — every row's two names edited, a row (and what is
+     under it) taken out, a sub-category or a main one added, the whole tree put under a category of the site. Nothing is written until
+     «نشر على الموقع»: then the rows are created in order through the same category_create as «قسم رئيسي جديد» (a parent always before
+     its children, each child under the id the site gave its parent). A row whose English name is already on the site under the same
+     parent is used as it is; a failure stops there and «كمّل النشر» goes on from it without making anything twice. */
+  function planCategories(input) {
+    const C = can(); if (!C.add) return 'forbidden';
+    const S0 = window.IBStudio; if (!S0 || !S0.createCategory) return 'unready';
+    const src = PD.planOutline(input && input.items); let seq = 0; let running = false; let focusK = null; let redraw = null; let closed = false;
+    const rows = src.map((x) => ({ k: 'c' + (++seq), level: x.level, id: null, err: '', noAr: false }));
+    const values = { under: '0' }; rows.forEach((r, i) => { values['en_' + r.k] = src[i].en; values['ar_' + r.k] = src[i].ar; });
+    const cats = () => PR().categories().map((c) => ({ id: c.id, name: catName(c.name), parentId: c.parentId, path: catName(c.path) }));
+    const wanted = String((input && input.under) || '').trim(); const wk = wanted.toLowerCase();
+    const hitUnder = wanted ? cats().find((c) => c.name.trim().toLowerCase() === wk || c.path.trim().toLowerCase() === wk) : null;
+    if (hitUnder) values.under = String(hitUnder.id);
+    const named = (f) => rows.map((r) => ({ level: r.level, en: f['en_' + r.k] || '', id: r.id }));
+    const resolve = (f) => PD.planResolve(named(f), cats(), Number(f.under) || 0);
+    const made = () => rows.filter((r) => r.id && !r.was).length;
+    let refs = []; let sumEl = null;
+    // the row's state as it is typed (no redraw — the focus stays): «موجود على الموقع» / the failure / nothing for a new one
+    const tagOf = (r, x) => (r.id && !r.was ? K.Tag('success', 'اتعمل', 'check') : r.err ? K.Tag('error', r.err) : (r.was || x.existing) ? K.Tag('info', 'موجود على الموقع') : null);
+    const sumText = (f) => { const X = resolve(f); let fresh = 0, mains = 0, there = 0;
+      rows.forEach((r, i) => { if (r.id && !r.was) return; if (r.was || X[i].existing) { there += 1; return; } fresh += 1; if (X[i].parent < 0 && !(Number(f.under) || 0)) mains += 1; });
+      const done = made();
+      return (fresh ? 'هيتعمل ' + K.n0(fresh) + (fresh > 2 && fresh < 11 ? ' أقسام' : ' قسم') + ' على الموقع (' + K.n0(mains) + ' رئيسي · ' + K.n0(fresh - mains) + ' فرعي)' : 'مفيش قسم جديد يتعمل')
+        + (there ? ' · ' + K.n0(there) + ' موجود قبل كده وهيتساب زي ما هو' : '') + (done ? ' · اتعمل ' + K.n0(done) : ''); };
+    const refresh = (f) => { const X = resolve(f); refs.forEach((ref, i) => { const r = rows[i]; if (!ref || !r) return; const t = tagOf(r, X[i]); ref.tag.replaceChildren(...(t ? [t] : [])); ref.row.classList.toggle('exists', !r.id && !!X[i].existing); }); if (sumEl) sumEl.textContent = sumText(f); };
+    const addRow = (f, at, level, draw) => { const r = { k: 'c' + (++seq), level, id: null, err: '', noAr: false }; rows.splice(at, 0, r); f['en_' + r.k] = ''; f['ar_' + r.k] = ''; focusK = r.k; draw(); };
+    K.form({ title: 'مراجعة الأقسام', wide: 'mid', cancelLabel: 'إغلاق', values, onClose: () => { closed = true; },
+      submitLabel: () => (running ? 'بننشر…' : made() ? 'كمّل النشر' : 'نشر على الموقع'),
+      note: U.InlineNote({ kind: 'warning', children: 'راجع الأسامي وعدّل اللي عايزه. الأقسام بتتعمل على ووكومرس نفسه بالإنجليزي وترجمتها العربي — القسم الرئيسي الأول وبعده اللي تحته — ومفيش حاجة هتتعمل قبل ما تضغط «نشر على الموقع».' }),
+      fields: (f, e, set, draw) => {
+        redraw = draw; const X = resolve(f); const L = cats(); const locked = running || rows.some((r) => r.id);
+        const inp = (r, key, lab, i, dir) => { const id = key + '_' + r.k; const off = running || !!r.id || (key === 'ar' && !r.id && !!X[i].existing);
+          return h('span', { class: 'cp-cell' }, h('input', { type: 'text', class: 'input' + (e[id] ? ' err' : ''), id, dir: dir || null, value: f[id] || '', maxlength: '80', disabled: off ? '' : null, placeholder: lab, 'aria-label': lab + ' — القسم ' + K.n0(i + 1),
+            'aria-invalid': e[id] ? 'true' : null, 'data-cp': key + ':' + (i + 1), onInput: (ev) => { r.err = ''; set(id, ev.target.value); refresh(f); } }), e[id] ? h('span', { class: 't-small err-text', 'data-cp-err': key + ':' + (i + 1) }, e[id]) : null); };
+        refs = [];
+        const list = rows.map((r, i) => {
+          const tag = h('span', { class: 'cp-tag', 'data-cp-tag': String(i + 1) }, tagOf(r, X[i]));
+          const name = (f['en_' + r.k] || f['ar_' + r.k] || 'القسم ' + K.n0(i + 1)).trim();
+          const can2 = !running && r.level < PD.PLAN_DEPTH && rows.length < PD.PLAN_MAX;
+          const row = h('div', { class: 'cp-row lvl-' + Math.min(r.level - 1, 3) + (r.id && !r.was ? ' done' : '') + (!r.id && X[i].existing ? ' exists' : ''), role: 'listitem', 'data-cp-row': String(i + 1), 'data-cp-level': String(r.level), style: '--d:' + (r.level - 1) },
+            h('span', { class: 'cp-dash', 'aria-hidden': 'true' }, r.level > 1 ? '-'.repeat(r.level - 1) : ''),
+            inp(r, 'en', 'الاسم بالإنجليزي', i, 'ltr'), inp(r, 'ar', 'الاسم بالعربي', i), h('span', { class: 'cp-acts' },
+            can2 ? U.IconButton({ icon: 'plus', label: 'قسم فرعي تحت «' + name + '»', attrs: { 'data-cp-sub': String(i + 1) }, onClick: () => addRow(f, PD.planEnd(rows, i), r.level + 1, draw) }) : null,
+            !running && !r.id ? U.IconButton({ icon: 'trash', label: 'شيل «' + name + '»' + (PD.planEnd(rows, i) - i > 1 ? ' واللي تحته' : ''), attrs: { 'data-cp-del': String(i + 1) },
+              onClick: () => { const end = PD.planEnd(rows, i); if (rows.slice(i, end).some((x) => x.id)) { K.toast('في أقسام تحته اتعملت على الموقع — امسحها من تاب «الأقسام»', 'error'); return; } rows.splice(i, end - i).forEach((x) => { delete f['en_' + x.k]; delete f['ar_' + x.k]; delete e['en_' + x.k]; delete e['ar_' + x.k]; }); draw(); } }) : null), tag);
+          refs.push({ row, tag }); return row;
+        });
+        sumEl = h('p', { class: 't-small help cp-sum', 'data-cp-sum': '' }, sumText(f));
+        const under = L.find((c) => String(c.id) === String(f.under)) || null;
+        if (focusK) { const k = focusK; focusK = null; setTimeout(() => { const el = document.getElementById('en_' + k); if (el) el.focus(); }, 0); }
+        return [
+          wanted && !hitUnder ? U.InlineNote({ kind: 'error', children: 'مالقيناش قسم باسم «' + wanted + '» على الموقع — اختار مكان الأقسام من القايمة، أو سيبها أقسام رئيسية جديدة.' }) : null,
+          U.Select({ id: 'cp-under', label: 'مكان الأقسام', options: [{ value: '0', label: 'أقسام رئيسية جديدة (من غير أب)' }].concat(L.map((c) => ({ value: String(c.id), label: 'تحت: ' + c.path }))), value: String(f.under || '0'), disabled: locked,
+            help: locked && !running ? 'المكان اتثبّت — في أقسام اتعملت.' : null, onChange: (v) => set('under', v, true) }),
+          h('div', { class: 'cp-head', 'aria-hidden': 'true' }, h('span', { class: 'cp-dash' }), h('span', { class: 'cp-cell' }, 'الاسم بالإنجليزي'), h('span', { class: 'cp-cell' }, 'الاسم بالعربي'), h('span', { class: 'cp-acts' })),
+          rows.length ? h('div', { class: 'cp-list', role: 'list', 'aria-label': 'الأقسام اللي هتتعمل', 'data-cat-plan': '' }, list) : K.Empty('مفيش أقسام في المراجعة', 'ضيف قسم من الزرار اللي تحت.'),
+          e._ ? h('p', { class: 't-small err-text', 'data-cp-err': 'all', role: 'alert' }, e._) : null,
+          h('div', { class: 'cp-foot' }, !running && rows.length < PD.PLAN_MAX ? Button({ size: 'sm', icon: 'plus', label: under ? 'قسم تحت «' + under.name + '»' : 'قسم رئيسي', attrs: { 'data-cp-main': '' }, onClick: () => addRow(f, rows.length, 1, draw) }) : null, sumEl)];
+      },
+      validate: (f) => { const e = {}; const X = resolve(f); let fresh = 0;
+        if (!rows.length) { e._ = 'ضيف قسم واحد على الأقل.'; return e; }
+        rows.forEach((r, i) => { if (r.id) return; const x = X[i];
+          if (x.existing) { if (x.dup) e['en_' + r.k] = 'الاسم ده مكتوب مرتين هنا'; return; }
+          fresh += 1; const en = catNameErr(f['en_' + r.k], true); const ar = catNameErr(f['ar_' + r.k], true);
+          if (en) e['en_' + r.k] = en; else if (x.dup) e['en_' + r.k] = 'الاسم ده مكتوب مرتين هنا'; if (ar) e['ar_' + r.k] = ar; });
+        if (!fresh && !Object.keys(e).length) e._ = 'مفيش قسم جديد يتعمل — كل الأقسام دي موجودة على الموقع.';
+        return e; },
+      submit: (f, m) => {
+        if (running) return false; running = true; m._busy = true; rows.forEach((r) => { r.err = ''; });
+        const pill = K.busy('بنعمل الأقسام على الموقع…'); const show = () => { if (!closed && redraw) redraw(); };
+        show();
+        (async () => { let stop = null; let n = 0; const total = rows.filter((r) => !r.id).length;
+          for (let i = 0; i < rows.length; i += 1) {
+            if (closed) break; // the review was closed while it ran: what was made stays, nothing more is made
+            const r = rows[i]; if (r.id) continue; const x = resolve(f)[i];
+            if (x.existing) { r.id = x.existing; r.was = true; continue; }
+            if (x.parentId == null) { r.err = 'القسم اللي فوقه ماتعملش'; stop = r; break; }
+            n += 1; const en = String(f['en_' + r.k]).trim(); pill.set('بنعمل «' + en + '» — ' + K.n0(n) + ' من ' + K.n0(total));
+            let res; try { res = await S0.createCategory({ name_en: en, name_ar: String(f['ar_' + r.k]).trim(), parent: x.parentId || 0, slug: null, image: null }); } catch (er) { res = { ok: false, reason: 'network' }; }
+            if (!res || !res.ok) { r.err = catFail(res || {}); stop = r; break; }
+            r.id = res.id; r.noAr = !res.arId; if (x.parentId) st.catOpen.add(x.parentId); show();
+          }
+          running = false; m._busy = false; const done = made();
+          if (stop) { pill.fail('وقفنا عند «' + (String(f['en_' + stop.k] || '').trim() || 'قسم') + '» — ' + stop.err + (done ? ' (اتعمل ' + K.n0(done) + ')' : '')); show(); R(); return; }
+          if (closed && rows.some((r) => !r.id)) { pill.done('المراجعة اتقفلت — اتعمل ' + K.n0(done) + ' والباقي ماتعملش', 'warning'); R(); return; }
+          const noAr = rows.filter((r) => r.noAr).map((r) => String(f['en_' + r.k]).trim());
+          pill.done(done ? 'اتعمل ' + K.n0(done) + (done > 2 && done < 11 ? ' أقسام' : ' قسم') + ' على الموقع' + (noAr.length ? ' — من غير الترجمة العربي: ' + noAr.join('، ') + ' (ضيفها من «تعديل»)' : '') : 'الأقسام دي موجودة على الموقع', noAr.length ? 'warning' : 'success');
+          rows.forEach((r) => { if (r.id) st.catOpen.add(r.id); }); const u = Number(f.under) || 0; if (u) st.catOpen.add(u);
+          m.close(); R(); })();
+        return false; } });
+    return true;
+  }
+  // the assistant's link: the «الأقسام» tab opens under the review, and the review waits for the site's categories (the names it matches)
+  async function openPlan(input) {
+    if (!can().add) return 'forbidden';
+    if (!PR()) return 'unready'; PR().ensure();
+    if (location.hash.slice(1) !== 'products-cats') location.hash = 'products-cats';
+    for (let i = 0; i < 80 && PR().state() !== 'ready'; i += 1) { if (PR().state() === 'error') return 'unready'; await new Promise((r) => setTimeout(r, 100)); }
+    if (PR().state() !== 'ready') return 'unready';
+    return planCategories(input);
+  }
   async function editCat(c) {
     const S0 = window.IBStudio; if (!S0 || !S0.categoryGet) { K.toast(MSG.network, 'error'); return; }
     if (st.busy) { K.toast(MSG.busy, 'error'); return; }
@@ -1068,5 +1173,5 @@
   // a deep link opened before the sign-in finished: draw again once the permissions are known
   document.addEventListener('ib:directory', () => { if (window.IBPages.current === 'products') R(); });
 
-  window.IBPages.register('products', { title: 'المنتجات', hash: (hs) => route(hs), defaultHash, view, canLeave: (proceed) => leaveGuard(proceed), api: { st, go, ensure: () => { if (PR()) PR().ensure(); }, ready: () => !!PR() && PR().state() === 'ready', makerItems, openRecords, openEdit: (id) => go('products-edit-' + id), copyLinks, reportBlocks, kpiPicker, bulkPrice, makerPrice, makerMove, toDraft, publish, toTrash, moveBrand, moveVendor, thumb: (p) => Thumb(p.img) } });
+  window.IBPages.register('products', { title: 'المنتجات', hash: (hs) => route(hs), defaultHash, view, canLeave: (proceed) => leaveGuard(proceed), api: { st, go, planCategories: openPlan, ensure: () => { if (PR()) PR().ensure(); }, ready: () => !!PR() && PR().state() === 'ready', makerItems, openRecords, openEdit: (id) => go('products-edit-' + id), copyLinks, reportBlocks, kpiPicker, bulkPrice, makerPrice, makerMove, toDraft, publish, toTrash, moveBrand, moveVendor, thumb: (p) => Thumb(p.img) } });
 })();

@@ -562,6 +562,50 @@
     }
     return marked;
   }
-  return { aiDisplay, paraHtml, aiSaveChange, aiApply, brandCode, serialText, sizeDigits, studioSku, suggestColorCode, parseCsv, parseXlsx, mapColumns, rowsToItems, photoName, catFromPath, itemIssues, STUDIO_FIELDS, catTree, catAncestors, catToggle, catSearch, catOptions, outOfStock, categoriesRank, priceFromVendor, randomMarkup, ceil10, MARKUP_MIN, MARKUP_MAX, crc32, zip, xlsx, xlsxFiles, backupPlan, SLOT_DIRS, safeName, IMG_SIZES, customSize, IMG_MODELS, imgCredits, designCode, designBase, variantSku, SLOTS, SLOT_HINT, slotPrompt, credits, catsOf, inCategory, bulkPrice, buildSku, skuParts, serialStart, serials, sizeCode, price, DISCOUNTS, rotatingDiscount, imageName, imagePath, combos, stockState, completeness, trashDaysLeft, trashSoon, TRASH_DAYS, moveVendor, bumpPrice, validateCode, groupImages, VIDEO_MODELS, scenesTotal, scenesFit, campaignPieces };
+  // ---------- the assistant's category plan (the owner 15 Nov — 2026-11-15-assistant-categories.md): «اعملي القسم كذا انجليزي و عربي و جواه
+  // قسم فرعي كذا و كذا … بس يوريني قبل ما يطبق». The plan is an outline — rows of { level, en, ar } in order: level 1 is a top row, a
+  // deeper row sits under the nearest shallower row before it — so creating the rows in order always makes a parent before its children.
+  const PLAN_DEPTH = 4; const PLAN_MAX = 40;
+  const planKey = (s) => String(s == null ? '' : s).trim().toLowerCase();
+  /** The outline made valid: names trimmed (a row with neither name is dropped), the first row level 1, a row never more than one level
+   *  deeper than the row before it, at most PLAN_DEPTH levels and PLAN_MAX rows. */
+  function planOutline(items) {
+    const out = []; let prev = 0;
+    for (const x of Array.isArray(items) ? items : []) {
+      if (!x || typeof x !== 'object') continue;
+      const en = String(x.en == null ? '' : x.en).trim().slice(0, 80); const ar = String(x.ar == null ? '' : x.ar).trim().slice(0, 80); if (!en && !ar) continue;
+      const want = Number.isInteger(Number(x.level)) ? Number(x.level) : 1; const level = Math.max(1, Math.min(want, prev + 1, PLAN_DEPTH));
+      out.push({ level, en, ar }); prev = level; if (out.length >= PLAN_MAX) break;
+    }
+    return out;
+  }
+  /** Each row's parent row (its index; -1 = a top row of the plan). */
+  function planParents(rows) {
+    const last = []; return (rows || []).map((r, i) => { const lv = Math.max(1, Number(r.level) || 1); const p = lv > 1 && last[lv - 1] != null ? last[lv - 1] : -1; last[lv] = i; last.length = lv + 1; return p; });
+  }
+  /** The index after row i's last descendant (the rows i … end-1 are the row and everything under it). */
+  function planEnd(rows, i) { let j = i + 1; while (j < rows.length && rows[j].level > rows[i].level) j += 1; return j; }
+  /**
+   * What «نشر» does with each row → [{ parent, parentId, existing, dup }]. parentId: the site's id of the row's parent (underId — 0 = a main
+   * category — for a top row; the parent row's id once it was made or found), null while the parent is not on the site yet. existing: the id
+   * of a category already on the site under that parent with the same English name (it is used as it is, never made twice). dup: an
+   * earlier row of the plan under the same parent has the same English name. rows: [{ level, en, id? }]; cats: [{ id, name, parentId }].
+   */
+  function planResolve(rows, cats, underId) {
+    const parents = planParents(rows); const site = new Map();
+    (cats || []).forEach((c) => { const k = Number(c.parentId) || 0; if (!site.has(k)) site.set(k, new Map()); const n = planKey(c.name); if (n && !site.get(k).has(n)) site.get(k).set(n, Number(c.id)); });
+    const seen = new Map(); const out = [];
+    (rows || []).forEach((r, i) => {
+      const p = parents[i]; const name = planKey(r.en);
+      const parentId = p < 0 ? (Number(underId) || 0) : (rows[p].id ? Number(rows[p].id) : out[p].existing);
+      const under = parentId == null ? null : site.get(parentId);
+      const existing = !r.id && name && under && under.has(name) ? under.get(name) : null;
+      if (!seen.has(p)) seen.set(p, new Set()); const dup = !!name && seen.get(p).has(name); if (name) seen.get(p).add(name);
+      out.push({ parent: p, parentId: parentId == null ? null : parentId, existing, dup });
+    });
+    return out;
+  }
+
+  return { PLAN_DEPTH, PLAN_MAX, planOutline, planParents, planEnd, planResolve, aiDisplay, paraHtml, aiSaveChange, aiApply, brandCode, serialText, sizeDigits, studioSku, suggestColorCode, parseCsv, parseXlsx, mapColumns, rowsToItems, photoName, catFromPath, itemIssues, STUDIO_FIELDS, catTree, catAncestors, catToggle, catSearch, catOptions, outOfStock, categoriesRank, priceFromVendor, randomMarkup, ceil10, MARKUP_MIN, MARKUP_MAX, crc32, zip, xlsx, xlsxFiles, backupPlan, SLOT_DIRS, safeName, IMG_SIZES, customSize, IMG_MODELS, imgCredits, designCode, designBase, variantSku, SLOTS, SLOT_HINT, slotPrompt, credits, catsOf, inCategory, bulkPrice, buildSku, skuParts, serialStart, serials, sizeCode, price, DISCOUNTS, rotatingDiscount, imageName, imagePath, combos, stockState, completeness, trashDaysLeft, trashSoon, TRASH_DAYS, moveVendor, bumpPrice, validateCode, groupImages, VIDEO_MODELS, scenesTotal, scenesFit, campaignPieces };
 });
 

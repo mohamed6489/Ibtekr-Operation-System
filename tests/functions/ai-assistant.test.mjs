@@ -2,7 +2,7 @@ import { test } from 'node:test'; import assert from 'node:assert/strict';
 import {
   parseAssistant, assistantRequest, readTurn, toolResults, cleanAction, dataQuery, ordersData, vendorsData, customersData, ticketsData, tasksData, expensesData, salesData, summaryData, cleanAnswer,
   toolsOf, reportOf, REPORT_MAX, ASSISTANT_TURNS, Q_MAX, ANSWER_MAX, PAGES, deliveryOf, ageDays, amountsIn,
-  FORMS, AI_ORDER_STATUSES, vendorData, filesData, pickVendor, fileRefOk, DATA_KINDS,
+  FORMS, AI_ORDER_STATUSES, vendorData, filesData, pickVendor, fileRefOk, DATA_KINDS, CLIENT_TOOLS, CAT_PLAN_DEPTH, CAT_PLAN_MAX,
 } from '../../supabase/functions/_shared/ai-assistant.js';
 // The header's assistant (phase 12 T1, decision 8): the body checks, Claude's tools and request, reading a turn, the client
 // actions' cleaning and the data shaping with the member's rows — never a phone or an address.
@@ -35,13 +35,13 @@ test('assistantRequest: the cached base + the screen block, the turns as message
   assert.deepEqual(p.system[0].cache_control, { type: 'ephemeral' }); assert.match(p.system[0].text, /get_data/); assert.match(p.system[0].text, /expense_add/); assert.match(p.system[0].text, /إيداع ولا سحب/); assert.match(p.system[0].text, /حط المعلومات هنا/); // decision 41 assert.doesNotMatch(p.system[0].text, /propose_entry/); assert.match(p.system[0].text, /متعرضش أرقام تليفونات/);
   assert.equal(p.system[1].text, 'النهارده (القاهرة): 2026-11-08\nالمستخدم: منى (خدمة العملاء)\nالصفحة المفتوحة: الحسابات / expenses\nالفترة المعروضة: 2026-11-01 → 2026-11-08');
   assert.deepEqual(p.messages.map((m) => [m.role, m.content[0].text]), [['user', 'أهلًا'], ['assistant', 'أهلًا بيك'], ['user', 'افتح الأوردرات']]);
-  assert.deepEqual(p.tools.map((t) => t.name), ['get_data', 'navigate', 'filter_orders', 'set_period', 'sort_vendors', 'offer_file', 'open_form']); // decision 40 / 42: the money entries are open_form popups
+  assert.deepEqual(p.tools.map((t) => t.name), ['get_data', 'navigate', 'filter_orders', 'set_period', 'sort_vendors', 'offer_file', 'open_form', 'plan_categories']); // decision 40 / 42: the money entries are open_form popups; + plan_categories (15 Nov)
   assert.equal(p.tool_choice, undefined);
   assert.deepEqual(p.tools[1].input_schema.properties.page.enum, PAGES);
   const f = assistantRequest(parseAssistant({ mode: 'filter', turns: [{ role: 'user', text: 'المتأخر بتاع Art Craft' }], context: { vendors: ['Art Craft'], statuses: ['مكتمل', 'ملغي'] } }).req, CTX);
   assert.deepEqual(f.tools.map((t) => t.name), ['set_filter']); assert.deepEqual(f.tool_choice, { type: 'tool', name: 'set_filter' });
   assert.equal(f.system[1].text, 'المبتكرين المتاحين: Art Craft\nحالات الأوردر: مكتمل، ملغي');
-  assert.deepEqual(toolsOf('chat').length, 7); // + open_form (decision 36), − propose_entry (decision 40: the money entries are popups), + offer_file (decision 42)
+  assert.deepEqual(toolsOf('chat').length, 8); // + open_form (decision 36), − propose_entry (decision 40: the money entries are popups), + offer_file (decision 42), + plan_categories (15 Nov)
 });
 
 test('readTurn: text, tool uses (ids kept for the results), a refusal, a cut-off without text; toolResults shapes the next user message', () => {
@@ -255,4 +255,24 @@ test('decision 42: filesData lists what the member may open; offer_file keeps a 
   assert.equal(cleanAction('offer_file', { source: 'bucket', ref: U1 }), null);
   assert.equal(cleanAction('offer_file', { source: 'ticket', ref: U2 + '/p2.pdf' }).input.name, 'p2.pdf');
   assert.ok(fileRefOk('contract', U2) && !fileRefOk('ticket', U2 + '/../x'));
+});
+
+// The owner 15 Nov (2026-11-15-assistant-categories.md — «اعملي القسم كذا انجليزي و عربي و جواه قسم فرعي كذا و كذا … بس يوريني قبل ما يطبق»)
+test('plan_categories: an outline of new categories the page reviews — the levels made valid, the names cleaned, nothing published from the assistant', () => {
+  assert.ok(CLIENT_TOOLS.includes('plan_categories'));
+  const tool = toolsOf('chat').find((t) => t.name === 'plan_categories');
+  assert.deepEqual(tool.input_schema.required, ['items']); assert.deepEqual(tool.input_schema.properties.items.items.required, ['level', 'en', 'ar']);
+  assert.match(tool.description, /راجع الأقسام/); assert.match(tool.description, /ما بتعملش حاجة على الموقع/);
+  const sys = assistantRequest(parseAssistant(body()).req, CTX).system[0].text;
+  assert.match(sys, /plan_categories/); assert.match(sys, /متقولش إنها اتعملت/); assert.match(sys, /ولا نشر على الموقع/); // the member publishes from the review
+  // the main one, two under it, one under the first of them — as he described
+  assert.deepEqual(cleanAction('plan_categories', { items: [{ level: 1, en: ' Home Decor ', ar: 'ديكور المنزل' }, { level: 2, en: 'Vases', ar: 'فازات' }, { level: 3, en: 'Glass Vases', ar: 'فازات زجاج' }, { level: 2, en: 'Candles', ar: 'شموع' }] }),
+    { name: 'plan_categories', input: { items: [{ level: 1, en: 'Home Decor', ar: 'ديكور المنزل' }, { level: 2, en: 'Vases', ar: 'فازات' }, { level: 3, en: 'Glass Vases', ar: 'فازات زجاج' }, { level: 2, en: 'Candles', ar: 'شموع' }] } });
+  // the first row is a main one whatever it says; a level never jumps down more than one; never deeper than CAT_PLAN_DEPTH; < > % out; an unnamed row dropped; under kept
+  const a = cleanAction('plan_categories', { under: ' ديكور ', items: [{ level: 3, en: 'A <b>', ar: '' }, { level: 4, en: 'B', ar: 'ب' }, { level: 9, en: 'C', ar: 'ج' }, { level: 9, en: 'D', ar: 'د' }, { level: 9, en: 'E', ar: 'هـ' }, { en: '', ar: '' }, 'x', { level: 0, en: 'F%', ar: 'و' }] });
+  assert.equal(a.input.under, 'ديكور'); assert.deepEqual(a.input.items.map((x) => x.level), [1, 2, 3, 4, CAT_PLAN_DEPTH, 1]);
+  assert.equal(a.input.items[0].en, 'A b'); assert.equal(a.input.items[5].en, 'F'); assert.equal(a.input.items[0].ar, '');
+  // at most CAT_PLAN_MAX rows; nothing usable → not an action
+  assert.equal(cleanAction('plan_categories', { items: Array.from({ length: 60 }, (_, i) => ({ level: 1, en: 'C' + i, ar: 'ق' + i })) }).input.items.length, CAT_PLAN_MAX);
+  assert.equal(cleanAction('plan_categories', { items: [] }), null); assert.equal(cleanAction('plan_categories', { items: [{ level: 1 }] }), null); assert.equal(cleanAction('plan_categories', {}), null);
 });

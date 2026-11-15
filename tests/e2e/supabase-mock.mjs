@@ -2368,6 +2368,7 @@ export async function installSupabaseMock(page, opts = {}) {
         const img = catImage(b.image); if (img === false) return json(400, { error: 'bad_request', field: 'image' });
         if (!mock.pushEnabled) return json(200, { action, result: 'skipped', reason: 'push_disabled' });
         const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/; if (b.slug != null && b.slug !== '' && !SLUG.test(b.slug)) return json(400, { error: 'bad_request', field: 'slug' }); // owner batch 14 Nov decision 9
+        if (typeof mock.catCreateFail === 'function' && mock.catCreateFail(b)) return json(502, { error: 'woo_error' }); // a spec's «the site refused this one» (the assistant's category plan)
         const id = 9500 + mock.wooCategories.length; mock.wooCategories.push({ id, name: b.name_en, slug: b.slug || 'c-' + id, parent_id: b.parent || null, image_url: img ? 'https://woo.test/cat-' + id + '.webp' : null, updated_at: T0 });
         const rec = { ...b, by: u.email }; delete rec.image; if (img) rec.image = true; mock.categoriesCreated.push(rec);
         (mock.catSite = mock.catSite || {})[id] = { ar: b.name_ar || null, image: img ? 'https://woo.test/cat-' + id + '.webp' : null, count: 0 };

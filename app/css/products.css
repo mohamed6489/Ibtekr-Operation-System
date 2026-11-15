@@ -177,3 +177,35 @@
 .cat-main-h .menu .opt .ic{color:inherit;stroke:currentColor}
 .cat-bulk{margin-bottom:10px}
 .modal .cat-prods-q{width:100%;margin-bottom:8px}
+/* the assistant's category plan — «مراجعة الأقسام» (2026-11-15-assistant-categories.md): a row per category, indented by its level in the
+   categories tab's own beiges, the two names side by side, «+» a sub-category and the bin, its state on a line under them */
+.cp-head,.cp-row{display:flex;align-items:center;gap:8px}
+.cp-head{padding:0 10px;color:var(--color-text-secondary);font-size:12px;font-weight:600}
+.cp-list{flex:none;border:1px solid var(--color-border-subtle);border-radius:var(--radius-md);overflow:hidden}
+.cp-row{flex-wrap:wrap;padding:8px 10px;padding-inline-start:calc(10px + var(--d, 0) * 22px);background:var(--color-bg-base);border-top:1px solid rgba(46,42,27,.06)}
+.cp-row:first-child{border-top:0}
+.cp-row.lvl-0{background:var(--color-brand-subtle-bg)}
+.cp-row.lvl-1{background:var(--lvl-1, var(--color-bg-container))}
+.cp-row.lvl-2{background:var(--lvl-2, var(--color-bg-container))}
+.cp-row.lvl-3{background:var(--lvl-3, var(--color-bg-container))}
+.cp-row.lvl-0 .cp-cell .input{font-weight:600}
+.cp-dash{flex:none;width:22px;color:var(--color-text-secondary);font-weight:700;letter-spacing:1px}
+.cp-cell{flex:1 1 0;min-width:0;display:flex;flex-direction:column;gap:2px}
+.cp-cell .input{width:100%;min-width:0}
+.cp-cell .input.err{border-color:var(--color-error-border)}
+.cp-acts{flex:none;width:80px;display:flex;justify-content:flex-end;gap:4px}
+.cp-tag{flex:0 0 100%;padding-inline-start:30px}
+.cp-tag:empty{display:none}
+[data-cp-err]{color:var(--color-error-text);margin:0}
+.cp-foot{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:4px}
+.cp-foot .cp-sum{margin:0;flex:1;min-width:200px}
+@media (max-width:767px){
+  .cp-head{display:none}
+  .cp-row{padding-inline-start:calc(8px + var(--d, 0) * 10px)}
+  .cp-dash{width:16px}
+  .cp-cell{flex:1 1 calc(100% - 24px)}
+  .cp-cell + .cp-cell{margin-inline-start:24px}
+  .cp-acts{width:auto;margin-inline-start:auto}
+  .cp-tag{flex:1 1 0;order:1;padding-inline-start:24px}
+  .cp-acts{order:2}
+}

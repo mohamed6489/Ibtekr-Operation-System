@@ -248,3 +248,90 @@ test('decision 42: a maker question is answered in the chat without changing the
   await expect(P.locator('.ai-msg.ai').last()).toContainText('ما قدرتش أجيب الملف');
   expect(await page.evaluate(() => window.__opened.length)).toBe(1);
 });
+
+// The owner 15 Nov (docs/superpowers/plans/2026-11-15-assistant-categories.md — «اعملي القسم كذا انجليزي و عربي و جواه قسم فرعي كذا و كذا …
+// يبني levels الاقسام الفرعية علي حسب شرحي بس يوريني قبل ما يطبق عشان ممكن اعدل وراه و بعدين اعمل نشر»): plan_categories is a link under
+// the answer; it opens «مراجعة الأقسام» on the categories tab — the tree edited, a row added and one taken out — and «نشر على الموقع»
+// creates the rows in order through category_create, each child under the id the site gave its parent; a category already on the site
+// is used as it is; a refusal stops there and «كمّل النشر» goes on without making anything twice.
+test('plan_categories: the review popup edits the tree, then «نشر» creates the main category and what is under it in order', async ({ page }) => {
+  const plan = { items: [{ level: 1, en: 'Home Decor', ar: 'ديكور المنزل' }, { level: 2, en: 'Vases', ar: 'فازات' }, { level: 3, en: 'Glass Vases', ar: 'فازات زجاج' }, { level: 2, en: 'Candles', ar: 'شموع' },
+    { level: 1, en: 'هدايا', ar: 'هدايا' }, { level: 2, en: 'Gift Boxes', ar: 'علب هدايا' }] };
+  mock.aiAnswer = (action) => (action === 'assistant' ? { text: 'راجع الأقسام من هنا واضغط نشر.', actions: [{ name: 'plan_categories', input: plan }] } : null);
+  await signIn(page, ADMIN);
+  await page.getByRole('button', { name: 'مساعد AI' }).click();
+  await ask(page, 'اعملي قسم Home Decor ديكور المنزل وجواه Vases وتحتها Glass Vases، و Candles، وتحت هدايا Gift Boxes');
+  const link = panel(page).locator('[data-ai-open="category_plan"]');
+  await expect(link).toHaveText(/راجع الأقسام \(6\)/);
+  expect(mock.categoriesCreated).toEqual([]); // nothing is made by the answer
+  await link.click();
+  await expect(page).toHaveURL(/#products-cats$/);
+  const M = page.locator('.modal').filter({ hasText: 'مراجعة الأقسام' });
+  await expect(M).toBeVisible();
+  const rows = M.locator('[data-cp-row]');
+  await expect(rows).toHaveCount(6);
+  expect(await rows.evaluateAll((els) => els.map((el) => el.dataset.cpLevel))).toEqual(['1', '2', '3', '2', '1', '2']);
+  await expect(M.locator('[data-cp="en:1"]')).toHaveValue('Home Decor'); await expect(M.locator('[data-cp="ar:3"]')).toHaveValue('فازات زجاج');
+  // «هدايا» is already a main category of the site: used as it is, its Arabic name not asked
+  await expect(M.locator('[data-cp-tag="5"]')).toHaveText('موجود على الموقع'); await expect(M.locator('[data-cp="ar:5"]')).toBeDisabled();
+  await expect(M.locator('[data-cp-sum]')).toHaveText(/هيتعمل 5 أقسام على الموقع \(1 رئيسي · 4 فرعي\) · 1 موجود قبل كده/);
+  // he edits behind the assistant: a name, a row out (with nothing under it), a sub-category added under the main one
+  await M.locator('[data-cp="en:2"]').fill('Flower Vases');
+  await M.locator('[data-cp-del="4"]').click();
+  await expect(rows).toHaveCount(5);
+  await M.locator('[data-cp-sub="1"]').click();
+  await expect(rows).toHaveCount(6);
+  expect(await rows.evaluateAll((els) => els.map((el) => el.dataset.cpLevel))).toEqual(['1', '2', '3', '2', '1', '2']); // the new row sits after the main one's subtree
+  await expect(M.locator('[data-cp="en:4"]')).toBeFocused();
+  // a new row needs both names: nothing is sent
+  await M.getByRole('button', { name: 'نشر على الموقع', exact: true }).click();
+  await expect(M.locator('[data-cp-err="en:4"]')).toHaveText('اكتب الاسم'); await expect(M.locator('[data-cp-err="ar:4"]')).toHaveText('اكتب الاسم');
+  expect(mock.categoriesCreated).toEqual([]);
+  await M.locator('[data-cp="en:4"]').fill('Mirrors'); await M.locator('[data-cp="ar:4"]').fill('مرايات');
+  // the site refuses one: what was made stays, the rest waits
+  mock.catCreateFail = (b) => b.name_en === 'Glass Vases';
+  await M.getByRole('button', { name: 'نشر على الموقع', exact: true }).click();
+  await expect(M.locator('[data-cp-tag="3"]')).not.toHaveText('');
+  await expect(M.getByRole('button', { name: 'كمّل النشر', exact: true })).toBeVisible();
+  expect(mock.categoriesCreated.map((c) => [c.name_en, c.name_ar, c.parent])).toEqual([['Home Decor', 'ديكور المنزل', 0], ['Flower Vases', 'فازات', 9504]]);
+  await expect(M.locator('[data-cp-tag="1"]')).toHaveText('اتعمل'); await expect(M.locator('[data-cp="en:1"]')).toBeDisabled();
+  await expect(page.locator('.busy-pill.err')).toContainText('وقفنا عند «Glass Vases»');
+  // «كمّل النشر»: the rest, each under its parent's id — nothing twice; the site's «هدايا» (22) keeps its id for its new child
+  mock.catCreateFail = null;
+  await M.getByRole('button', { name: 'كمّل النشر', exact: true }).click();
+  await expect(M).toBeHidden();
+  expect(mock.categoriesCreated.map((c) => [c.name_en, c.name_ar, c.parent])).toEqual([['Home Decor', 'ديكور المنزل', 0], ['Flower Vases', 'فازات', 9504], ['Glass Vases', 'فازات زجاج', 9505], ['Mirrors', 'مرايات', 9504], ['Gift Boxes', 'علب هدايا', 22]]);
+  await expect(page.locator('.busy-pill.ok')).toContainText('اتعمل 5 أقسام على الموقع');
+  // the categories tab under the popup shows the new tree, opened
+  await expect(page.locator('.cat-main[data-cat="9504"] .cat-main-h .cat-name')).toHaveText('Home Decor');
+  await expect(page.locator('.cat-sub[data-cat="9506"]')).toContainText('Glass Vases');
+  await expect(page.locator('.cat-sub[data-cat="9508"]')).toContainText('Gift Boxes');
+  expect(mock.activityRows.filter((r) => r.action === 'product.category.create').length).toBe(5);
+});
+
+test('plan_categories: the tree under a category of the site; a member without «إضافة منتجات» gets a note, no popup', async ({ page }) => {
+  mock.aiAnswer = (action) => (action === 'assistant' ? { text: 'راجع الأقسام من هنا واضغط نشر.', actions: [{ name: 'plan_categories', input: { under: 'ديكور', items: [{ level: 1, en: 'Wall Art', ar: 'لوحات' }, { level: 2, en: 'Canvas', ar: 'كانفاس' }] } }] } : null);
+  await signIn(page, ADMIN);
+  await page.getByRole('button', { name: 'مساعد AI' }).click();
+  await ask(page, 'تحت قسم ديكور اعمل Wall Art لوحات وجواه Canvas كانفاس');
+  await panel(page).locator('[data-ai-open="category_plan"]').click();
+  const M = page.locator('.modal').filter({ hasText: 'مراجعة الأقسام' });
+  await expect(M).toBeVisible();
+  await expect(M.locator('#cp-under')).toContainText('تحت: ديكور');
+  await expect(M.locator('[data-cp-sum]')).toHaveText(/هيتعمل 2 قسم على الموقع \(0 رئيسي · 2 فرعي\)/);
+  await M.getByRole('button', { name: 'نشر على الموقع', exact: true }).click();
+  await expect(M).toBeHidden();
+  expect(mock.categoriesCreated.map((c) => [c.name_en, c.parent])).toEqual([['Wall Art', 15], ['Canvas', 9504]]);
+  // accounts: no products.add — the link says so and nothing opens
+  await page.evaluate(() => window.IBAuth.signOut());
+  await expect(page.locator('#login')).toBeVisible();
+  await page.fill('#lg-id', 'accounts.dev@ibtekr.local'); await page.fill('#lg-pw', DEV_PW);
+  await page.getByRole('button', { name: 'دخول', exact: true }).click();
+  await expect(page.locator('#root')).toBeVisible();
+  await page.getByRole('button', { name: 'مساعد AI' }).click();
+  await ask(page, 'اعمل قسم Wall Art');
+  await panel(page).locator('[data-ai-open="category_plan"]').last().click();
+  await expect(panel(page).locator('.ai-msg.ai').last()).toContainText('إضافة الأقسام لصلاحية «إضافة منتجات»');
+  await expect(page.locator('.modal')).toHaveCount(0);
+  expect(mock.categoriesCreated.length).toBe(2);
+});

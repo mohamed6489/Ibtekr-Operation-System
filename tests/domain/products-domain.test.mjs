@@ -344,3 +344,30 @@ test('catOptions (B3): the site\'s category tree in order — main, then its sub
   assert.deepEqual(plain(PD.catOptions([{ id: 1, name: 'A', parentId: 2, path: 'B › A' }, { id: 2, name: 'B', parentId: 1, path: 'A › B' }])).length, 2); // a loop: each once
   assert.deepEqual(plain(PD.catOptions(null)), []);
 });
+
+// The assistant's category plan (the owner 15 Nov — 2026-11-15-assistant-categories.md): an outline reviewed in a popup, then created in
+// order — a parent always before what is under it, and never a category the site already has under the same parent.
+test('category plan: the outline made valid, each row\'s parent, the row\'s subtree', () => {
+  const rows = PD.planOutline([{ level: 2, en: ' Home Decor ', ar: 'ديكور' }, { level: 2, en: 'Vases', ar: 'فازات' }, { level: 9, en: 'Glass', ar: 'زجاج' }, { level: 2, en: 'Candles', ar: '' }, null, { en: '', ar: ' ' }, { level: 1, en: 'Gifts', ar: 'هدايا' }]);
+  assert.deepEqual(plain(rows), [{ level: 1, en: 'Home Decor', ar: 'ديكور' }, { level: 2, en: 'Vases', ar: 'فازات' }, { level: 3, en: 'Glass', ar: 'زجاج' }, { level: 2, en: 'Candles', ar: '' }, { level: 1, en: 'Gifts', ar: 'هدايا' }]);
+  assert.deepEqual(plain(PD.planParents(rows)), [-1, 0, 1, 0, -1]);
+  assert.deepEqual([0, 1, 2, 3, 4].map((i) => PD.planEnd(rows, i)), [4, 3, 3, 4, 5]); // a row and everything under it
+  assert.equal(PD.planOutline(Array.from({ length: 70 }, (_, i) => ({ level: 1, en: 'C' + i, ar: '' }))).length, PD.PLAN_MAX);
+  assert.deepEqual(plain(PD.planOutline([{ level: 1, en: 'a', ar: '' }, { level: 2, en: 'b', ar: '' }, { level: 3, en: 'c', ar: '' }, { level: 4, en: 'd', ar: '' }, { level: 5, en: 'e', ar: '' }]).map((x) => x.level)), [1, 2, 3, 4, PD.PLAN_DEPTH]);
+  assert.deepEqual(plain(PD.planOutline('x')), []);
+});
+
+test('category plan: what «نشر» does with each row — the parent\'s id on the site, a category already there used as it is, a name written twice', () => {
+  const cats = [{ id: 10, name: 'Home Decor', parentId: null }, { id: 11, name: 'Candles', parentId: 10 }, { id: 12, name: 'Gifts', parentId: 10 }];
+  const rows = [{ level: 1, en: 'home decor ' }, { level: 2, en: 'Vases' }, { level: 3, en: 'Glass' }, { level: 2, en: 'Candles' }, { level: 2, en: 'vases' }, { level: 1, en: 'Gifts' }];
+  const view = (r) => plain(r.map((x) => [x.parent, x.parentId, x.existing, x.dup]));
+  // «Home Decor» is on the site (10): used as it is, so «Vases» goes under 10 at once; «Glass» waits for «Vases»; «Candles» is there (11);
+  // the second «vases» under the same parent is a duplicate; «Gifts» as a main category is new (the site's «Gifts» sits under 10)
+  assert.deepEqual(view(PD.planResolve(rows, cats, 0)), [[-1, 0, 10, false], [0, 10, null, false], [1, null, null, false], [0, 10, 11, false], [0, 10, null, true], [-1, 0, null, false]]);
+  // once «Vases» was made (the site answered 77) its child knows its parent, and the made row is never matched again
+  rows[1].id = 77; assert.deepEqual(view(PD.planResolve(rows, cats.concat([{ id: 77, name: 'Vases', parentId: 10 }]), 0)).slice(1, 3), [[0, 10, null, false], [1, 77, null, false]]);
+  // the whole plan under a category of the site: its top rows are that category's children
+  assert.deepEqual(view(PD.planResolve([{ level: 1, en: 'Candles' }, { level: 2, en: 'Soy' }, { level: 1, en: 'Mirrors' }], cats, 10)), [[-1, 10, 11, false], [0, 11, null, false], [-1, 10, null, false]]);
+  // an empty name matches nothing and is no duplicate (the popup asks for it)
+  assert.deepEqual(view(PD.planResolve([{ level: 1, en: '' }, { level: 1, en: ' ' }], cats, 0)), [[-1, 0, null, false], [-1, 0, null, false]]);
+});

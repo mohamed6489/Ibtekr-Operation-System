@@ -2154,3 +2154,9 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 
 #### 2.7.81 لون المنتج من الصورة في «صور وعايز شيت» (صاحب المشروع 15 نوفمبر)
 1. «Deploy functions»: `ai-content` (تعليمات `STUDIO_FIELDS`: أول كود لون = اللون الغالب للمنتج في الصورة). الواجهة على `main`. مافيش migration.
+
+#### 2.7.82 المساعد — شجرة أقسام بمراجعة قبل النشر (صاحب المشروع 15 نوفمبر)
+الخطة `docs/superpowers/plans/2026-11-15-assistant-categories.md`.
+1. «Deploy functions»: `ai-content` (أداة `plan_categories` وتعليماتها — من غيرها المساعد مابيطلّعش لينك «راجع الأقسام»).
+2. الواجهة على `main` (بوب أب «مراجعة الأقسام» واللينك في المساعد). مافيش migration ولا سر جديد؛ النشر نفسه = `category_create` بتاعة تاب الأقسام (`WOO_PUSH_ENABLED`).
+3. تجربة: «اعملي قسم Test Main (تجربة) وجواه Test Sub» ← «راجع الأقسام» ← «نشر على الموقع» ← القسمين في تاب «الأقسام» وعلى الموقع، وبعدها يتحذفوا من ⋮.

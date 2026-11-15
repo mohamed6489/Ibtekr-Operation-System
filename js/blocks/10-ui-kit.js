@@ -223,7 +223,8 @@
   // D.monthMatrix follows D.weekStartDow(); Saturday by default), so the header turns with it ----
   const SAT_DOW = ['س', 'ح', 'ن', 'ث', 'ر', 'خ', 'ج'];
   const dowHead = () => { const ws = D && D.weekStartDow ? D.weekStartDow() : 6; const k = (ws + 1) % 7; return SAT_DOW.slice(k).concat(SAT_DOW.slice(0, k)); };
-  function Calendar({ year, month, today, from, to, hover, onPick, onHover, onNav, min, max, showPrev = true, showNext = true }) {
+  function Calendar({ year, month, today, from, to, hover, onPick, onHover, onNav, min, max, showPrev = true, showNext = true, cfrom, cto }) {
+    // cfrom / cto (comments decision 14): the comparison period's days carry a mark of their own (.pcmp)
     const lo = from && to ? (from < to ? from : to) : from; const hi = from && to ? (from < to ? to : from) : from;
     const end = hover && from && !to ? hover : to;
     const a = from && end ? (from < end ? from : end) : from; const b = from && end ? (from < end ? end : from) : from;
@@ -235,7 +236,7 @@
       const inR = !c.outside && a && b && c.iso > a && c.iso < b;
       const dis = (min && c.iso < min) || (max && c.iso > max);
       grid.append(h('button', {
-        type: 'button', role: 'gridcell', class: 'day' + (c.outside ? ' outside' : '') + (c.iso === today ? ' today' : '') + (isSel ? ' sel' : '') + (inR ? ' inrange' : ''),
+        type: 'button', role: 'gridcell', class: 'day' + (c.outside ? ' outside' : '') + (c.iso === today ? ' today' : '') + (isSel ? ' sel' : '') + (inR ? ' inrange' : '') + (!c.outside && cfrom && cto && c.iso >= cfrom && c.iso <= cto ? ' pcmp' : ''),
         'aria-label': D.formatDateLong(c.iso), 'aria-selected': String(!!isSel), 'aria-current': c.iso === today ? 'date' : false, disabled: dis,
         onClick: () => onPick(c.iso), onMouseenter: () => onHover && onHover(c.iso),
       }, String(c.day)));

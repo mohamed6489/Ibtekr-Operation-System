@@ -942,9 +942,15 @@
   const periodRange = (k, t) => (k === 'today' ? { from: t, to: t } : k === 'week' ? { from: W.wkStart(t), to: t } : { from: t.slice(0, 8) + '01', to: t });
   const periodOf = (rg) => { const t = TODAY(); const p = PERIODS.find(([k]) => { const r = periodRange(k, t); return r.from === rg.from && r.to === rg.to; }); return p ? p[0] : 'custom'; };
   const spanOf = (rg) => Math.round((Date.parse(rg.to + 'T00:00:00Z') - Date.parse(rg.from + 'T00:00:00Z')) / 864e5) + 1;
-  const prevOf = (rg) => { const n = spanOf(rg); return { from: W.addD(rg.from, -n), to: W.addD(rg.from, -1) }; };
+  // comments decision 14 (the owner 15 Nov): the member's own comparison period from the calendar (rg.cfrom / rg.cto) when he typed
+  // one; else the same length right before
+  const ownPrev = (rg) => (rg && /^\d{4}-\d{2}-\d{2}$/.test(rg.cfrom || '') && /^\d{4}-\d{2}-\d{2}$/.test(rg.cto || '') && rg.cfrom <= rg.cto ? { from: rg.cfrom, to: rg.cto } : null);
+  const prevOf = (rg) => { const own = ownPrev(rg); if (own) return own; const n = spanOf(rg); return { from: W.addD(rg.from, -n), to: W.addD(rg.from, -1) }; };
   const COMPARE_MAX = 92; // a period up to 3 months is compared with the one before it (its days load with it)
-  const loadRange = (rg) => (spanOf(rg) <= COMPARE_MAX ? { from: prevOf(rg).from, to: rg.to } : rg);
+  // the days to load: the period and its comparison period together, while the two span up to twice COMPARE_MAX (as before for the
+  // period right before); a comparison period further away than that is not loaded — the cards then show no comparison
+  const loadRange = (rg) => { const pv = prevOf(rg); if (!ownPrev(rg)) return spanOf(rg) <= COMPARE_MAX ? { from: pv.from, to: rg.to } : { from: rg.from, to: rg.to };
+    const all = { from: pv.from < rg.from ? pv.from : rg.from, to: pv.to > rg.to ? pv.to : rg.to }; return spanOf(all) <= COMPARE_MAX * 2 ? all : { from: rg.from, to: rg.to }; };
   const PLATS = [['all', 'الكل'], ['meta', 'ميتا'], ['tiktok', 'تيك توك'], ['google', 'جوجل']];
   // the rows of the chosen platform only (the stats, the ads and campaigns, the Woo ad orders)
   function byPlat(r, k) {
@@ -992,7 +998,7 @@
     const show = (t) => (pl === 'all' ? t : Object.assign(t, { platforms: t.platforms.filter((p) => p.key === pl) }));
     const t = show(W.adTotals(r.stats, r.orders, rg, moneyOk(), linked)); const camps = W.adCampaignRows(r.objects, r.stats, r.orders, rg);
     // the period before, of the same length — only when its days were loaded with this one (loadRange)
-    const pv = prevOf(rg); const lr = r0.rg || null; const prev = lr && lr.from <= pv.from && lr.to >= rg.to ? show(W.adTotals(r.stats, r.orders, pv, moneyOk(), linked)) : null;
+    const pv = prevOf(rg); const lr = r0.rg || null; const prev = lr && lr.from <= pv.from && lr.to >= rg.to && lr.to >= pv.to ? show(W.adTotals(r.stats, r.orders, pv, moneyOk(), linked)) : null;
     return { rg, t, prev, pv, camps, alerts: W.adAlerts(r.objects, r.stats, r.orders, rg, end), weeks: W.merWeeks(r.stats, r.orders, rg.to, 5, linked), creatives: W.adCreatives(r.objects, r.stats, rg),
       loose: Math.max(0, t.metaOrders - camps.reduce((n, x) => n + x.orders, 0)) };
   }

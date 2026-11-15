@@ -1143,7 +1143,7 @@
     const RB = window.IBReportBlocks; const rg = RB ? RB.get() : null;
     const body = reportBody(R);
     const bar = h('div', { class: 'toolbar pr-rep-bar' }, RB ? RB.range() : null, Button({ size: 'sm', icon: 'sliders', label: 'تخصيص التقارير', attrs: { 'data-prod-kpi-custom': '' }, disabled: !(rg && rg.from), onClick: () => { if (body.ctx) kpiPicker(body.ctx, R); else K.toast('استنى التقارير تتحسب الأول', 'error'); } }), h('span', { class: 't-small help grow' }, 'الأكثر مبيعًا والأقسام من أوردراتنا في الفترة (من غير الملغي والمسترجع والفاشل) · المخزون من كتالوج ووكومرس دلوقتي.'));
-    return [bar].concat(body.blocks);
+    return [bar, RB && RB.compare ? RB.compare('products') : null].concat(body.blocks); // comments decision 14: the comparison card under the period
   }
   // the reports page's tab (phase 9): the same blocks once the mirror is in; the picker is this page's (user_prefs products.kpis)
   function reportBlocks(redraw) {

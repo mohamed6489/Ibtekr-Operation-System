@@ -25,7 +25,28 @@
   // ---- period helpers ----
   const orderDate = (row, today) => addDays(today, -Number(row.ageDays || 0));
   const filterRange = (rows, range, today) => rows.filter((r) => { const d = orderDate(r, today); return d >= range.from && d <= range.to; });
-  function previousRange(range) { const len = daysBetween(range.from, range.to) + 1; return { from: addDays(range.from, -len), to: addDays(range.from, -1) }; }
+  // comments decision 14 (the owner 15 Nov — «مقارنة بفترة سابقة … تطلعلي fields تحت و تبقي من / إلى»): the member's own comparison period
+  // (range.cfrom / range.cto, two dates in order) when he typed one; else the same length right before
+  const isIso = (x) => /^\d{4}-\d{2}-\d{2}$/.test(String(x || ''));
+  function previousRange(range) {
+    if (range && isIso(range.cfrom) && isIso(range.cto) && range.cfrom <= range.cto) return { from: range.cfrom, to: range.cto };
+    const len = daysBetween(range.from, range.to) + 1; return { from: addDays(range.from, -len), to: addDays(range.from, -1) };
+  }
+  // one line of the comparison card: this period's figure against the comparison period's. good = the direction that is good news
+  // ('up' | 'down' | null: neither); points = the figure is itself a percentage, so the change is said in points, not in percent
+  function compareLine(cur, was, good, points) {
+    const c = Number(cur) || 0, w = Number(was) || 0; const diff = round2(c - w);
+    const dir = diff > 0 ? 'up' : diff < 0 ? 'down' : 'same';
+    const tone = dir === 'same' || !good ? 'neutral' : dir === good ? 'positive' : 'negative';
+    const sign = diff > 0 ? '+' : '−';
+    let text = 'زي ما هو', pct = null;
+    if (dir !== 'same') {
+      if (points) text = sign + Math.abs(Math.round(diff * 10) / 10) + ' نقطة';
+      else if (!w) text = 'جديد';
+      else { pct = Math.round((diff / Math.abs(w)) * 100); text = Math.abs(pct) < 1 ? sign + 'أقل من 1%' : sign + Math.abs(pct) + '%'; }
+    }
+    return { diff, pct, dir, tone, text };
+  }
 
   // weekly buckets covering [from, to], starting on the settings' week start (2026-11-14-settings-lists.md decision 4 —
   // IBSettings.weekStart(): السبت 6 · الأحد 0 · الاتنين 1; Saturday when the settings aren't loaded or say something else)
@@ -249,6 +270,6 @@
     return '﻿' + [headers, ...rows].map((r) => r.map(esc).join(',')).join('\r\n') + '\r\n';
   }
 
-  return Object.freeze({ cancelReasons, NO_REASON, orderDate, filterRange, previousRange, weeklyBuckets, delta, ordersReport, vendorsReport, accountsReport, toCsv, OPEN_STATUSES, topProducts, outOfStock, categoriesRank, staffReport, campaignsReport, campaignDays, campaignsInRange, inventoryReport, csReport, ticketsReport });
+  return Object.freeze({ cancelReasons, NO_REASON, orderDate, filterRange, previousRange, compareLine, weeklyBuckets, delta, ordersReport, vendorsReport, accountsReport, toCsv, OPEN_STATUSES, topProducts, outOfStock, categoriesRank, staffReport, campaignsReport, campaignDays, campaignsInRange, inventoryReport, csReport, ticketsReport });
 });
 

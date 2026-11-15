@@ -1512,7 +1512,7 @@
   }
   function hydrateAll() {
     const S0 = SETT(); if (!S0) return; const sec = S0.sections();
-    if (sec.general) Object.assign(C.general, sec.general); if (sec.makers) Object.assign(C.makers, sec.makers);
+    if (sec.general) Object.assign(C.general, sec.general); if (sec.makers) { Object.assign(C.makers, sec.makers); C.makers.fake = sec.makers.fake || null; } // the tiers are also saved from the studio's prices step (IBSettings.saveFake): a key that left the row leaves here too
     if (sec.payments && sec.payments.payout) Object.assign(C.payout, sec.payments.payout); if (sec.activity) Object.assign(C.actSet, sec.activity);
     if (sec.security) Object.assign(C.security, sec.security); if (sec.data && sec.data.backup) Object.assign(C.backup, sec.data.backup);
     if (sec.brand) { brand.colors = Object.assign({}, sec.brand.colors || {}); brand.fonts = Object.assign({}, FONT_DEF, sec.brand.fonts || {}); applyBrand(); saveBrand(); }

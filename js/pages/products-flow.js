@@ -737,14 +737,26 @@
   // ---------------- 4 الأسعار (decision 7) ----------------
   // the rate hidden (no sensitive.commission) → no price is worked out: the member types the sale price
   // r.rateAt = the rate | fee the computed price used: a rate changed since (the maker step, another category) prices it again
-  function reprice(r, force) { const c = commOf(r); if (!c) return; const p = FD.pricesOf(r.vendorPrice, { rate: c.rate, fee: c.fee, markup: r.markup == null ? undefined : r.markup }); if (!p) return; if (r.markup == null) r.markup = p.markup; if (force || !r.priceHand) { r.sale = p.sale; r.regular = p.regular; r.rateAt = commKey(c); } }
+  // the owner 15 Nov (docs/superpowers/plans/2026-11-15-fake-discount.md decision 3): «قبل الخصم» by the tiers of the sale price —
+  // this batch's own (state.fake, set from this step; { tiers: [] } = the old way for it) or the settings' default. r.fakeAt = the
+  // tiers the computed price used (a rule changed since prices it again, like r.rateAt); r.regHand = «قبل الخصم» typed by hand.
+  const FK = () => window.IBFakeDiscount;
+  const fakeOwn = () => { const b = st() && st().fake; return !!(b && Array.isArray(b.tiers)); };
+  const fakeNow = () => (fakeOwn() ? window.IbtekrProducts.fakeRule(st().fake) : (FK() ? FK().rule() : null));
+  const fakeKey = () => { const f = fakeNow(); return f ? JSON.stringify(f.tiers) : ''; };
+  function reprice(r, force) { const c = commOf(r); if (!c) return; const fake = fakeNow(); const p = FD.pricesOf(r.vendorPrice, { rate: c.rate, fee: c.fee, markup: r.markup == null ? undefined : r.markup, fake }); if (!p) return; if (r.markup == null) r.markup = p.markup; if (force || !r.priceHand) { r.sale = p.sale; r.regular = p.regular; r.rateAt = commKey(c); r.fakeAt = fake ? JSON.stringify(fake.tiers) : ''; } }
+  // a sale price typed by hand: its «قبل الخصم» follows its tier (unless that one was typed by hand too)
+  function refake(r) { if (r.regHand || !(Number(r.sale) > 0)) return; const g = window.IbtekrProducts.fakeRegular(Number(r.sale), fakeNow()); if (g != null) r.regular = g; }
+  // the tiers changed in this step: every row not priced by hand again, and the hand-priced sale's «قبل الخصم» by its tier
+  function refakeAll() { rows().forEach((r) => { if (r.vendorPrice != null && !r.priceHand) reprice(r, true); else if (r.priceHand) refake(r); }); }
   function step4() {
     const L = rows(); const rate = rateNow();
-    L.forEach((r) => { if (r.vendorPrice == null) return; if (r.sale == null || (!r.priceHand && r.rateAt !== commKey(commOf(r)))) reprice(r); });
+    const fkey = fakeKey();
+    L.forEach((r) => { if (r.vendorPrice == null) return; if (r.sale == null || (!r.priceHand && (r.rateAt !== commKey(commOf(r)) || (r.fakeAt || '') !== fkey))) reprice(r); });
     const num = (r, k, onSet) => h('input', { class: 'input fl-num', inputmode: 'decimal', 'data-fl': k, 'aria-label': FD.LABELS[k] + ' — ' + (r.sku || ''), value: r[k] == null ? '' : String(r[k]), onChange: (ev) => { const v = ev.target.value.trim(); r[k] = v === '' ? null : Number(v); onSet(); touch(); RF(); } });
     const bulk = () => K.form({ title: 'سعر المبتكر لـ ' + S.sel.size + ' صف', values: { v: '' }, submitLabel: 'طبّق',
       fields: (f, e, set) => [K.field.text('v', 'سعر المبتكر (ج.م)', f, e, set, { required: true, inputmode: 'decimal' })], validate: (f) => (Number(f.v) > 0 ? {} : { v: 'رقم أكبر من صفر' }),
-      submit: (f) => { L.filter((r) => S.sel.has(r.key)).forEach((r) => { r.vendorPrice = Number(f.v); r.priceHand = false; reprice(r, true); }); touch(); R(); } });
+      submit: (f) => { L.filter((r) => S.sel.has(r.key)).forEach((r) => { r.vendorPrice = Number(f.v); r.priceHand = false; r.regHand = false; reprice(r, true); }); touch(); R(); } });
     // the owner 15 Nov («صلح شكل الجدول و إظهر بيانات المنتج العربي بس»): a grid, not a <table> (the system's table sweeps — the sticky
     // first column, the person cell — broke its columns), the photo inside the product cell, the product's Arabic data only (its
     // Arabic name, the SKU, the Arabic color and size; the English one only while the Arabic is missing); on a phone a card each
@@ -757,19 +769,35 @@
         pcell('c-cb', null, selBox(r.key, r.nameAr || r.nameEn || r.sku)),
         pcell('c-prod', null, h('div', { class: 'fl-pprod' }, Thumb(r.ref, 'fl-pthumb'), h('div', { class: 'fl-info' }, h('b', { dir: 'rtl', 'data-fl-name': '' }, r.nameAr || r.nameEn || '—'),
           h('small', { class: 'num' }, h('bdi', { dir: 'ltr' }, r.sku || '—')), meta ? h('small', null, meta) : null, h('small', { class: 'fl-prate-m' }, 'نسبة إبتكر ', rateEl(r))))),
-        pcell(null, 'سعر المبتكر', num(r, 'vendorPrice', () => { r.priceHand = false; reprice(r, true); })),
+        pcell(null, 'سعر المبتكر', num(r, 'vendorPrice', () => { r.priceHand = false; r.regHand = false; reprice(r, true); })),
         pcell('c-rate', null, h('span', { class: 'help' }, rateEl(r))),
-        pcell(null, 'سعر البيع', num(r, 'sale', () => { r.priceHand = true; })),
-        pcell(null, 'قبل الخصم', num(r, 'regular', () => { r.priceHand = true; })),
-        pcell('c-menu', null, K.RowMenu([{ label: 'احسب السعر تاني', icon: 'undo', run: () => { r.priceHand = false; r.markup = null; reprice(r, true); touch(); R(); } }, { label: 'شيل من الدفعة', icon: 'trash', danger: true, run: () => { st().rows = st().rows.filter((x) => x !== r); touch(); R(); } }], 'إجراءات ' + (r.sku || ''))));
+        pcell(null, 'سعر البيع', num(r, 'sale', () => { r.priceHand = true; refake(r); })),
+        pcell(null, 'قبل الخصم', num(r, 'regular', () => { r.priceHand = true; r.regHand = true; })),
+        pcell('c-menu', null, K.RowMenu([{ label: 'احسب السعر تاني', icon: 'undo', run: () => { r.priceHand = false; r.regHand = false; r.markup = null; reprice(r, true); touch(); R(); } }, { label: 'شيل من الدفعة', icon: 'trash', danger: true, run: () => { st().rows = st().rows.filter((x) => x !== r); touch(); R(); } }], 'إجراءات ' + (r.sku || ''))));
     };
     const hcell = (label, cls) => h('div', { class: 'fl-pc' + (cls ? ' ' + cls : ''), role: 'columnheader' }, label);
     const table = h('div', { class: 'fl-plist', role: 'table', 'aria-label': 'الأسعار', 'data-fl-prices': '' },
       h('div', { class: 'fl-prow head', role: 'row' }, hcell(allBox(L.map((r) => r.key)), 'c-cb'), hcell('المنتج', 'c-prod'), hcell('سعر المبتكر'), hcell('نسبة إبتكر', 'c-rate'), hcell('سعر البيع'), hcell('قبل الخصم'), hcell('', 'c-menu')),
       L.map(prow));
     const ok = L.length > 0 && L.every((r) => Number(r.sale) > 0);
-    return [Card('الأسعار', 'سعر البيع = (سعر المبتكر + الرسوم) ÷ (1 − نسبة إبتكر) لأقرب 10، وقبل الخصم أعلى بـ 15–30%. نسبة إبتكر من حساب المبتكر — ولو القسم ليه نسبة لوحده بتتحسب بيها.', [
+    // «الخصم الوهمي»: the tiers this batch is priced with, «تعديل» (the settings' own popup, for this batch) and «رجّع الافتراضي»
+    const fakeBar = () => {
+      const F = FK(); if (!F) return null; const rule = fakeNow(); const own = fakeOwn(); const admin = !!(window.IBSettings && window.IBSettings.can && window.IBSettings.can().admin);
+      const edit = () => F.editor({ title: 'الخصم الوهمي للدفعة دي', rule, asDefault: admin, submitLabel: 'طبّق على الدفعة', note: 'التعديل هنا للدفعة دي بس — الافتراضي لكل الدفعات من «الإعدادات › إعدادات المبتكرين».',
+        onSave: async (r, o) => {
+          st().fake = r || { tiers: [] }; refakeAll(); touch(); R();
+          if (!o || !o.asDefault) { K.toast('اتطبّقت على الدفعة', 'success'); return; }
+          const res = await window.IBSettings.saveFake(r);
+          if (res && res.ok) { delete st().fake; refakeAll(); touch(); R(); K.toast('اتحفظت كافتراضي واتطبّقت على الدفعة', 'success'); } else K.toast('اتطبّقت على الدفعة — بس الافتراضي ماتحفظش', 'warning');
+        } });
+      return h('div', { class: 'fl-fake', 'data-fl-fake': own ? 'batch' : 'default' },
+        h('span', { class: 'fl-fake-text' }, h('b', null, 'الخصم الوهمي ' + (own ? '(للدفعة دي)' : '(الافتراضي)') + ': '), h('span', { 'data-fl-fake-text': '' }, F.text(rule))),
+        Button({ size: 'sm', icon: 'sliders', label: 'تعديل', attrs: { 'data-fl-fake-edit': '' }, onClick: edit }),
+        own ? Button({ size: 'sm', type: 'text', icon: 'undo', label: 'رجّع الافتراضي', attrs: { 'data-fl-fake-reset': '' }, onClick: () => { delete st().fake; refakeAll(); touch(); R(); K.toast('رجعت للافتراضي', 'success'); } }) : null);
+    };
+    return [Card('الأسعار', 'سعر البيع = (سعر المبتكر + الرسوم) ÷ (1 − نسبة إبتكر) لأقرب 10، وقبل الخصم = سعر البيع + زيادة شريحته من «الخصم الوهمي» (ومن غير شريحة: أعلى بـ 15–30%). نسبة إبتكر من حساب المبتكر — ولو القسم ليه نسبة لوحده بتتحسب بيها.', [
       rate == null ? U.InlineNote({ kind: 'warning', children: 'نسبة المبتكر مش ظاهرة لك — السعر مش هيتحسب لوحده، اكتب سعر البيع بإيدك.' }) : null,
+      fakeBar(),
       BulkBar([Button({ size: 'sm', icon: 'edit', label: 'سعر المبتكر للمحدد', onClick: bulk })]), table]), Foot(ok, 'كل الصفوف محتاجة سعر بيع')];
   }
 

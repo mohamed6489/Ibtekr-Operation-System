@@ -440,10 +440,16 @@
   // IBSettings.setMemberLevel (0096, the admin) once the account is made.
   const LEVEL_OPTS = [{ value: 'employee', label: 'موظف' }, { value: 'manager', label: 'مدير' }, { value: 'viewer', label: 'مشاهد' }];
   const roleManagers = (roleId) => ((K.store && K.store.members) || []).filter((m) => m && m.roleId === roleId && m.level === 'manager' && (m.status || 'active') === 'active').map((m) => ({ value: m.id, label: m.name }));
+  // the owner 15 Nov («لو اخترنه موظف بيظهر تلقائي المدير للدور لو متحدد او انا بختار الشخص»): the automatic choice names the role's
+  // manager («— مفيش» without one), and any active member can be picked — the role's «مدير» level first, then the others
+  const roleManagerName = (roleId) => { const HRm = H(); const uid = HRm && HRm.roleManager ? HRm.roleManager(roleId) : null; return uid ? ((((K.store && K.store.members) || []).find((x) => x.uid === uid) || {}).name || '') : ''; };
+  const managerOpts = (roleId) => { const first = roleManagers(roleId); const seen = new Set(first.map((o) => o.value)); const auto = roleManagerName(roleId);
+    return [{ value: '', label: 'مدير الدور (تلقائي) — ' + (auto || 'مفيش') }].concat(first.map((o) => ({ value: o.value, label: o.label + ' — مدير في الدور' })),
+      ((K.store && K.store.members) || []).filter((m) => m && !seen.has(m.id) && (m.status || 'active') === 'active').map((m) => ({ value: m.id, label: m.name }))); };
   const formSec = (title) => h('div', { class: 'form-sec', 'data-form-sec': title }, h('b', { class: 't-label' }, title));
   function addMember(prefill) { // prefill: the values of a submit the server refused — the form comes back filled (decision 13)
     K.form({ title: 'إضافة عضو', wide: true, values: Object.assign({ shiftStart: '09:00', holdback: String(S.hrSettings.holdbackDefault || 0), role: (roleOpts().find((r) => r[1] === 'cs') || roleOpts()[0] || [''])[0], level: 'employee', manager: '', allow: '0', leave: '21' }, prefill || {}),
-      fields: (f, e, set) => { const rid = (roleOpts().find((r) => r[0] === f.role) || [])[1] || ''; const mg = [{ value: '', label: 'مدير الدور (تلقائي)' }].concat(roleManagers(rid));
+      fields: (f, e, set) => { const rid = (roleOpts().find((r) => r[0] === f.role) || [])[1] || ''; const mg = managerOpts(rid);
         return [formSec('البيانات الشخصية'),
           K.two(K.field.text('name', 'الاسم بالكامل', f, e, set, { required: true }), K.field.text('phone', 'الموبايل', f, e, set, { inputmode: 'tel', placeholder: '01xxxxxxxxx' })),
           K.field.text('email', 'الإيميل', f, e, set, { required: true, placeholder: 'name@ibtekr.club' }),
@@ -454,7 +460,7 @@
           formSec('بيانات الوظيفة'),
           K.two(K.field.text('title', 'الوظيفة', f, e, set, { required: true }), K.field.date('hire', 'تاريخ التعيين', f, e, set, { required: true, help: 'أول ' + S.hrSettings.probation + ' شهور فترة اختبار (من غير حافز ربع)' })),
           K.two(K.field.select('role', 'الدور', roleOpts().map((r) => r[0]), f, e, set, { required: true }), rid === 'admin' ? null : K.field.select('level', 'المستوى', LEVEL_OPTS, f, e, set, { help: 'صلاحيات المستوى من «الإعدادات › الأدوار والصلاحيات»' })),
-          rid === 'admin' || f.level === 'manager' ? null : K.field.select('manager', 'المدير المباشر', mg, f, e, set, { help: mg.length > 1 ? 'مديري الدور ده بس — فاضي = مدير الدور من «الإعدادات › الموارد البشرية»' : 'مفيش مدير بمستوى «مدير» في الدور ده لسه — بياخد مدير الدور' }),
+          rid === 'admin' || f.level === 'manager' ? null : K.field.select('manager', 'المدير المباشر', mg, f, e, set, { help: 'تلقائي = مدير الدور من «الإعدادات › الموارد البشرية › مديري الأدوار» — أو اختار الشخص بنفسك' }),
           note('هيتعمل له حساب دخول بالإيميل، وهيوصله إيميل بلينك يعمل منه الباسورد بتاعه (لو Resend متظبط في الإعدادات › الربط والمفاتيح). لو الإيميل مش متظبط هيظهر لك باسورد مؤقت مرة واحدة تبعته له بنفسك. وقت العمل = ساعات العمل الرسمية أو وقت دوره.')]; },
       validate: (f) => { const e = K.req(f, ['name', 'title', 'email', 'salary', 'hire']); if (f.email && O.identifierKind(f.email) !== 'email') e.email = 'اكتب إيميل صحيح'; else if (H().data.team.some((m) => (m.email || '').toLowerCase() === String(f.email).trim().toLowerCase())) e.email = 'الإيميل ده موجود بالفعل'; if (f.phone && O.identifierKind(f.phone) !== 'phone') e.phone = 'اكتب رقم موبايل مصري صحيح (11 رقم)'; if (f.salary && !(Number(f.salary) > 0)) e.salary = 'اكتب مبلغ أكبر من صفر'; else if (Number(f.holdback) >= Number(f.salary)) e.holdback = 'الحافز المحجوز لازم أقل من المرتب'; if (f.leave !== '' && !(Number(f.leave) >= 0 && Number(f.leave) <= 365)) e.leave = 'من 0 لـ 365'; return e; },
       // phase 13 decision 13 (the owner): the popup closes the moment «إضافة وعمل الحساب» is pressed; the password modal follows when the

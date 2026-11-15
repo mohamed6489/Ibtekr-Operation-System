@@ -414,6 +414,15 @@ test('T9 — decisions 19, 21, 23–26: deposit rules, each missing item opens i
   await expect(pv.locator('[data-stmt-no]')).toHaveText('IBT-2026-0148');
   await expect(pv.locator('[data-stmt-brand]')).toBeVisible();
   await expect(pv.locator('[data-stmt-moves]')).toBeVisible();
+  // the owner 15 Nov: «إظهار صور المنتجات» — on by default: each line's product with its picture; «لا» = the names only
+  await expect(pv.locator('[data-stmt-img]')).toHaveCount(3);
+  await expect(pv).toContainText('مخدة بوهيمي');
+  await page.keyboard.press('Escape');
+  await st.locator('#p-im').click(); await page.getByRole('option', { name: 'لا', exact: true }).click();
+  await expect.poll(() => row('payments').payout && row('payments').payout.images).toBe('لا');
+  await st.locator('[data-stmt-preview]').click();
+  await expect(modal(page).filter({ hasText: 'معاينة كشف الحساب' }).locator('[data-stmt-img]')).toHaveCount(0);
+  await expect(modal(page).filter({ hasText: 'معاينة كشف الحساب' })).toContainText('مخدة بوهيمي');
   await page.keyboard.press('Escape');
   // 21: the maker drawer lists each missing item, a click opens where it is filled
   await page.evaluate(() => { location.hash = 'makers/a0000000-0000-4000-8000-000000000001'; });

@@ -342,3 +342,6 @@
 .stmt-moves { display: flex; gap: 16px; flex-wrap: wrap; color: var(--color-text-subtle, #6b6458); }
 .stmt-total { padding-top: 8px; border-top: 1px dashed var(--color-border-default, #e5e0d5); }
 .stmt-foot { margin: 0; }
+/* the owner 15 Nov: «إظهار صور المنتجات» — the product of a line with its picture */
+.stmt-prod { display: inline-flex; align-items: center; gap: 8px; }
+.stmt-img { display: inline-grid; place-items: center; width: 32px; height: 32px; flex: none; border-radius: 6px; background: var(--color-bg-tint, #f5ecdc); color: var(--color-text-subtle, #6b6458); }

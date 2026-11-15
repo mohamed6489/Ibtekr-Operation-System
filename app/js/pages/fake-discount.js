@@ -13,7 +13,17 @@
   const PD = () => window.IbtekrProducts; const SET = () => window.IBSettings;
   const n0 = (x) => { const n = Number(x); return Number.isFinite(n) ? n.toLocaleString('en-US', { maximumFractionDigits: 2 }) : String(x); };
   const OLD = 'سعر البيع + 15–30% عشوائي لأقرب 10';
-  const rule = () => { const S0 = SET(); return S0 && S0.fakeRule ? S0.fakeRule() : null; };
+  // Before 0106 the tiers reach nobody through settings_public: the admin has them in his own settings rows, which load with the
+  // settings page only — so they are read once here (and the products page drawn again when they turn out to be different).
+  let asked = false;
+  const rule = () => {
+    const S0 = SET(); if (!S0 || !S0.fakeRule) return null;
+    if (!asked && S0.ensure && S0.can && S0.can().admin && S0.data && !S0.data.loaded) {
+      asked = true; const before = JSON.stringify(S0.fakeRule());
+      Promise.resolve(S0.ensure()).then(() => { const P0 = window.IBPages; if (JSON.stringify(S0.fakeRule()) !== before && P0 && P0.current === 'products' && !document.querySelector('.modal[role=dialog]')) P0.render('products'); }).catch(() => {});
+    }
+    return S0.fakeRule();
+  };
   const addText = (t) => '+ ' + n0(t.value) + (t.type === 'percent' ? '%' : ' ج.م');
   const rangeText = (l) => (l.to === null ? 'من ' + n0(l.from) + ' فيما فوق' : 'من ' + n0(l.from) + ' لـ ' + n0(l.to));
   const lines = (r) => PD().fakeLines(r).map((l) => [rangeText(l), addText(l)]);

@@ -40,6 +40,8 @@
   على الافتراضي (من غير شرايح خاصة)؛ لو الحفظ فشل الشرايح بتفضل على الدفعة.
 - **الإعدادات:** الكتلة 17 — `fakeSec(m)` في `makersV6()` (بين «الافتراضيات عند إضافة مبتكر جديد» و«سياسة العربون»)، و`hydrateAll` بيشيل
   `C.makers.fake` لما المفتاح يخرج من الصف (الحفظ من خطوة الأسعار بيعلن `ib:settings`).
+- **قبل `0106`:** `settings_public` مافيهاش الشرايح، وصفوف الإعدادات بتتحمّل مع صفحة الإعدادات بس — فـ `IBFakeDiscount.rule()` بيقرا
+  صفوف الأدمن مرة واحدة (`IBSettings.ensure()`) أول ما صفحة تسعير تسأل، وبيرسم صفحة المنتجات تاني لو الشرايح طلعت مختلفة.
 - **الاختبارات:** `tests/domain/products-domain.test.mjs` (القواعد)، `tests/adapter/settings.test.mjs` (`fakeRule` / `saveFake`)،
   `tests/e2e/fake-discount.spec.mjs` (الكارت، خطوة الأسعار بالافتراضي وبشرايح الدفعة ومن غير شرايح، صفحة المنتج والتعديل الجماعي)،
   `supabase/tests/rls_fake_discount.sql`. النشر `tools/deploy.md` §2.7.84.

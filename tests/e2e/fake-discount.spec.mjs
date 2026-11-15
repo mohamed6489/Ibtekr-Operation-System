@@ -233,3 +233,19 @@ test('the product page and the bulk price: «قبل الخصم» from the defaul
   expect(w.id).toBe(9001); expect(sale).toBeGreaterThan(1200);
   expect(regular - sale).toBe(sale <= 1000 ? 500 : sale <= 2000 ? 1000 : 1500);
 });
+
+// before 0106 settings_public has no tiers: the admin takes them from his own settings rows, read once when a price page first asks
+test('before 0106: the admin has the default tiers without opening the settings page — his rows are read once and the page is drawn again', async ({ page }) => {
+  seed(OWNER);
+  await signIn(page);
+  await page.evaluate(() => { const p = window.IBSettings.public(); if (p && p.makers) delete p.makers.fake; }); // the public slice as it is before the migration
+  expect(await page.evaluate(() => window.IBSettings.data.loaded)).toBeFalsy();
+  await page.locator('.sidebar .nav-item[data-page="products"]').click();
+  await page.locator('#pg-products [role=tab]', { hasText: 'سجل المنتجات' }).click();
+  await page.locator('[data-pedit="9003"]').click();
+  await page.getByRole('tab', { name: 'السعر والمخزون' }).click();
+  await expect(page.locator('[data-vcalc]')).toContainText('زيادة شريحته من «الخصم الوهمي»'); // drawn again once the rows came
+  await page.fill('#e-vin', '1000');
+  await page.locator('[data-vapply]').click();
+  await expect(page.locator('#e-reg')).toHaveValue('2270');
+});

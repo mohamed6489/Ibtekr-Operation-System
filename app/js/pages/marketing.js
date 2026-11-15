@@ -234,8 +234,11 @@
     let prev = null, tm = null, busy = false; const c = ctx || {};
     const undo = h('button', { type: 'button', class: 'ai-undo', hidden: true, 'aria-label': 'تراجع — رجّع الكلام اللي كان', title: 'تراجع', 'data-ai-undo': inp.id || kind, onClick: () => { if (prev == null) return; inp.value = prev; inp.dispatchEvent(new Event('input', { bubbles: true })); prev = null; undo.hidden = true; inp.focus(); } }, Icon('undo', 'sm'));
     const btn = h('button', { type: 'button', class: 'ai-rw', 'aria-label': 'إعادة كتابة بالـ AI', title: 'إعادة كتابة بالـ AI — من رصيد الـ AI الشهري', 'data-ai-rw': inp.id || kind, onClick: async () => {
-      if (busy) return; busy = true; btn.classList.add('busy'); btn.setAttribute('aria-busy', 'true');
-      const r = await MK().write(c.campaignId !== undefined ? c.campaignId : camp.id, { task: 'rewrite', kind, piece: c.piece, slide: c.slide, text: inp.value });
+      if (busy) return;
+      // the owner 15 Nov: every AI rewrite asks for instructions first (IBAIAsk — «ابدأ التوليد» / «إغلاق»)
+      const a = await window.IBAIAsk({ title: 'إعادة كتابة بالـ AI', intro: 'نسخة جديدة أحسن من الكلام اللي في الخانة.' }); if (!a) return;
+      busy = true; btn.classList.add('busy'); btn.setAttribute('aria-busy', 'true');
+      const r = await MK().write(c.campaignId !== undefined ? c.campaignId : camp.id, { task: 'rewrite', kind, piece: c.piece, slide: c.slide, text: inp.value, notes: a.notes });
       busy = false; btn.classList.remove('busy'); btn.removeAttribute('aria-busy');
       if (!r.ok || !r.text) { K.toast(r.message || 'الـ AI ماردش — جرّب تاني', 'error'); return; }
       prev = inp.value; let v = r.text; const ml = Number(inp.getAttribute('maxlength')) || 0; if (ml && v.length > ml) v = v.slice(0, ml);
@@ -321,9 +324,9 @@
   }
   async function genCarousel(p) { if (!(await genImage(p, -1))) return false; for (let k = 0; k < p.slides.length; k++) if (!(await genImage(p, k))) return false; return true; }
   // «املأ بالـ AI»: the empty fields of the piece (and its slides) from its campaign — the filled ones stay
-  async function aiFill(p) {
+  async function aiFill(p, notes) {
     if (!(await ensureCampaign())) return false; persist(0);
-    const r = await MK().write(camp.id, { task: 'fill', piece: p.id });
+    const r = await MK().write(camp.id, { task: 'fill', piece: p.id, notes });
     if (!r.ok) { K.toast(r.message, 'error'); return false; }
     const f = r.fields || {};
     ['idea', 'caption', 'title', 'sub', 'badge'].forEach((k) => { if (f[k] && !p[k]) p[k] = f[k]; });
@@ -339,9 +342,9 @@
       Files(id + '-ref', 'مثال للمطابقة', t.ref, null, p.kind === 'كاروسيل' ? 'carousel' : 'post'), Files(id + '-use', 'صور أو لينكات للاستخدام', t.use)];
   }
   // the video scenes by Claude (decision 59): the ideas, the on-screen text, the camera, the voice-over — the images stay where the count did not change
-  async function planScenes(p) {
+  async function planScenes(p, notes) {
     if (!(await ensureCampaign())) return false; persist(0);
-    const r = await MK().videoScenes(camp.id, p.id, p.voice && p.voice.mode === 'ai');
+    const r = await MK().videoScenes(camp.id, p.id, p.voice && p.voice.mode === 'ai', notes);
     if (!r.ok) { K.toast(r.message, 'error'); return false; }
     const old = p.scenes || [];
     p.scenes = r.scenes.map((s, k) => Object.assign({ n: k + 1, d: s.d, idea: s.idea, text: s.text, cam: s.cam, ref: [], use: [] }, old.length === r.scenes.length && old[k] && old[k].img ? { img: old[k].img, gen: old[k].gen } : {}));
@@ -352,7 +355,7 @@
   function pieceHead(p) {
     const cost = p.kind === 'كاروسيل' ? W.cost('carousel', p, IMGM()) : p.kind === 'فيديو' ? sceneCostAll(p) : W.cost('image', p, IMGM());
     return h('div', { class: 'cw-ph' }, h('b', { class: 't-h5' }, p.kind + ' ' + p.n), h('span', { class: 'cw-meta' }, h('span', null, 'المقاس: ', szName(p.size)), h('span', null, 'الموديل: ', mdlName(p.model)), h('span', null, 'هيصرف: ', K.Num(K.n0(cost) + ' كريديت'))),
-      W.built(p) ? Tag('success', 'اتولد') : Tag('neutral', 'لسه'), h('span', { class: 'grow' }), aiBtn('املأ بالـ AI', async () => { if (await aiFill(p)) K.toast('اتملت الحقول الفاضية — راجعها', 'success'); }, { 'data-cw-fill': p.id }));
+      W.built(p) ? Tag('success', 'اتولد') : Tag('neutral', 'لسه'), h('span', { class: 'grow' }), aiBtn('املأ بالـ AI', async () => { const a = await window.IBAIAsk({ title: 'املأ القطعة بالـ AI', intro: 'الحقول الفاضية بس — اللي مكتوب يفضل.' }); if (a && await aiFill(p, a.notes)) K.toast('اتملت الحقول الفاضية — راجعها', 'success'); }, { 'data-cw-fill': p.id }));
   }
   function buildCard(p) {
     const anchor = { id: 'cw-' + p.id, 'data-cw-piece': p.id, tabindex: '-1' };
@@ -382,24 +385,27 @@
       h('div', { class: 'cw-grid' }, pv(sc[0] && sc[0].img, vcls(p), 'فيديو ' + K.n0(p.dur) + ' ث'), h('div', { class: 'cw-fields' }, txt('b-' + p.id + '-idea', 'فكرة الفيديو', p.idea, (v) => { p.idea = v; }, true, ctx), txt('b-' + p.id + '-cap', 'الكابشن المقترح', p.caption, (v) => { p.caption = v; }, true, ctx),
         Files('b-' + p.id + '-ref', 'مثال للمطابقة', p.ref, null, 'video'), Files('b-' + p.id + '-use', 'صور أو لينكات للاستخدام', p.use),
         h('div', { class: 'cw-row' }, num('b-' + p.id + '-n', 'عدد المشاهد', p.sceneCount, W.MAX.scenes, (v) => { p.sceneCount = v; }, 1)),
-        h('div', { class: 'acts-inline start' }, aiBtn(sc.length ? 'وزّع المشاهد تاني' : 'توليد المشاهد', async () => { if (await planScenes(p)) K.toast('اتقسم الفيديو ' + K.n0(p.scenes.length) + ' مشاهد — ولّد صورة كل مشهد', 'success'); }, { 'data-cw-plan': p.id })))),
+        h('div', { class: 'acts-inline start' }, aiBtn(sc.length ? 'وزّع المشاهد تاني' : 'توليد المشاهد', async () => { const a = await window.IBAIAsk({ title: sc.length ? 'وزّع المشاهد تاني بالـ AI' : 'توليد المشاهد بالـ AI', intro: 'فكرة كل مشهد والكلام اللي على الشاشة وحركة الكاميرا' + (p.voice && p.voice.mode === 'ai' ? ' ونص الفويس.' : '.') }); if (a && await planScenes(p, a.notes)) K.toast('اتقسم الفيديو ' + K.n0(p.scenes.length) + ' مشاهد — ولّد صورة كل مشهد', 'success'); }, { 'data-cw-plan': p.id })))),
       sc.length ? [h('div', { class: 'grp-h cw-sub' }, h('h3', { class: 't-h6' }, 'المشاهد (' + K.n0(sc.length) + ')'), h('span', { class: 'grow' }), allN ? costBtn('ولّد صور كل المشاهد', allN, async () => { for (let k = 0; k < sc.length; k++) { if (!sc[k].img && !(await genImage(p, k))) return; } K.toast('اتولدت صور المشاهد', 'success'); }, { 'data-cw-scenes-all': p.id }) : null), h('div', { class: 'cw-scenes' }, sc.map(scene))] : null);
   }
   // «ولّد الكل بالـ AI» (owner 2 Nov 00:25): every piece still missing — the empty texts first (no credit), then the images
-  function genAllPlan() {
-    const ps = camp.pieces || []; let cost = 0; const jobs = [];
+  function genAllPlan(notes) {
+    const ps = camp.pieces || []; let cost = 0; const jobs = []; let texts = 0;
     ps.forEach((p) => { if (W.built(p)) return;
-      if (p.kind === 'فيديو') { const sc = (p.scenes || []).length ? p.scenes : W.splitScenes(p.dur, p.sceneCount); if (!(p.scenes || []).length) jobs.push(() => planScenes(p)); sc.forEach((x, k) => { if (!x.img) { cost += W.cost('scene', p, IMGM()); jobs.push(() => genImage(p, k)); } }); return; }
-      if (!p.idea) jobs.push(() => aiFill(p));
+      if (p.kind === 'فيديو') { const sc = (p.scenes || []).length ? p.scenes : W.splitScenes(p.dur, p.sceneCount); if (!(p.scenes || []).length) { texts += 1; jobs.push(() => planScenes(p, notes)); } sc.forEach((x, k) => { if (!x.img) { cost += W.cost('scene', p, IMGM()); jobs.push(() => genImage(p, k)); } }); return; }
+      if (!p.idea) { texts += 1; jobs.push(() => aiFill(p, notes)); }
       if (p.kind === 'كاروسيل') { const miss = [p.img ? null : -1].concat(p.slides.map((s, k) => (s.img ? null : k))).filter((x) => x != null); cost += W.imgRate(IMGM(), p.model) * miss.length; miss.forEach((k) => jobs.push(() => genImage(p, k))); }
       else { cost += W.cost('image', p, IMGM()); jobs.push(() => genImage(p, null)); } });
-    return { cost, jobs };
+    return { cost, jobs, texts };
   }
   function GenAll() {
     if (st.step !== 2) return null; ensurePieces(); const g = genAllPlan();
     if (!g.jobs.length) return Button({ size: 'sm', icon: 'check', label: 'كله اتولد', disabled: true, attrs: { 'data-cw-genall': 'done' } });
     return Button({ type: 'brand', size: 'sm', icon: 'sparkle', label: 'ولّد الكل بالـ AI‏ · ' + K.n0(g.cost) + ' كريديت', disabled: !can().create, attrs: { 'data-cw-genall': String(g.cost), title: 'ولّد كل القطع في ضغطة واحدة' },
-      onClick: () => pay('ولّد كل القطع بالـ AI', g.cost, async () => { for (const j of g.jobs) { if (!(await j())) return; } K.logEvent('mkt.campaign.generate_all', 'step 2 · ' + g.cost); K.toast('اتولدت كل القطع — راجعها', 'success'); }) });
+      onClick: async () => {
+        // the owner 15 Nov: the texts the AI writes on the way (empty pieces, scenes) take the member's instructions first
+        let plan = g; if (g.texts) { const a = await window.IBAIAsk({ title: 'ولّد الكل بالـ AI', intro: 'الكلام الفاضي في القطع بيتكتب الأول بالتعليمات دي، وبعدها الصور (هتأكد الكريدت).' }); if (!a) return; plan = genAllPlan(a.notes); }
+        pay('ولّد كل القطع بالـ AI', plan.cost, async () => { for (const j of plan.jobs) { if (!(await j())) return; } K.logEvent('mkt.campaign.generate_all', 'step 2 · ' + plan.cost); K.toast('اتولدت كل القطع — راجعها', 'success'); }); } });
   }
   function w2() {
     ensurePieces(); const ps = camp.pieces; const pr = W.progress(ps, W.built);
@@ -861,7 +867,8 @@
               const blob = file || (f.img && !/^local:/.test(f.img) ? (await MK().blob(f.img)).blob : null);
               const photo = blob && window.IBAI && window.IBAI.photoOf ? await window.IBAI.photoOf(blob) : null;
               if (!photo) { K.toast('مقدرتش أقرا الصورة', 'error'); return; }
-              const r = await MK().write(null, { task: 'describe', kind: 'desc', image: { media_type: photo.media_type, data: photo.data } });
+              const a = await window.IBAIAsk({ title: 'اشرح القالب بالـ AI', intro: 'شرح للستايل من الصورة — الـ AI بيستخدمه بعدين عشان يطلّع نفس الشكل.' }); if (!a) return;
+              const r = await MK().write(null, { task: 'describe', kind: 'desc', image: { media_type: photo.media_type, data: photo.data }, notes: a.notes });
               if (!r.ok || !r.text) { K.toast(r.message || 'الـ AI ماردش — جرّب تاني', 'error'); return; }
               set('desc', r.text, true); K.toast('اتكتب الشرح — راجعه', 'success'); } }), f.img ? null : h('span', { class: 't-small help' }, 'ارفع الصورة الأول'))))];
       },

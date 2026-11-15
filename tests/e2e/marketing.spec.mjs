@@ -81,13 +81,14 @@ test('a new campaign: the details (the row created) → the AI fills the piece �
   const made = mock.mkt.campaigns.find((c) => c.id !== C1);
   expect(made.name).toBe('كولكشن الربيع — شنط مكرمية مشغولة يدويًا');
   // «املأ بالـ AI» fills the empty fields (no credit)
-  await pg(page).locator('[data-cw-fill="P1"]').click();
+  await pg(page).locator('[data-cw-fill="P1"]').click(); await page.locator('[data-ai-go]').click(); // the owner 15 Nov: the instructions popup first
   await expect(pg(page).locator('#b-P1-t')).toHaveValue('دفا الشتا');
   expect(mock.mkt.calls.some((c) => c.fn === 'ai-content' && c.task === 'fill' && c.piece === 'P1')).toBe(true);
   // «إعادة كتابة بالـ AI» on the subheadline, then «تراجع»
   await pg(page).locator('#b-P1-s').fill('قديم');
-  await pg(page).locator('[data-ai-rw="b-P1-s"]').click();
+  await pg(page).locator('[data-ai-rw="b-P1-s"]').click(); await page.fill('#ai-ask-notes', 'أقصر'); await page.locator('[data-ai-go]').click();
   await expect(pg(page).locator('#b-P1-s')).toHaveValue('كولكشن الشتا وصل');
+  expect(mock.mkt.calls.filter((c) => c.fn === 'ai-content' && c.task === 'rewrite').pop().notes).toBe('أقصر'); // the member's instructions reach the server
   await pg(page).locator('[data-ai-undo="b-P1-s"]').click();
   await expect(pg(page).locator('#b-P1-s')).toHaveValue('قديم');
   // the image: the cost first, then the path in the piece
@@ -188,7 +189,7 @@ test('the templates: a new one with an upload and «اشرحها بالـ AI»; 
   const f = modal(page, 'قالب تصميم جديد');
   await f.locator('#tpl-up').setInputFiles({ name: 'carousel-boho.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64') });
   await f.locator('[data-kind="carousel"]').click();
-  await f.locator('[data-tpl-ai]').click();
+  await f.locator('[data-tpl-ai]').click(); await page.locator('[data-ai-go]').click();
   await expect(f.locator('#desc')).toHaveValue(/المنتج في النص/);
   await f.getByRole('button', { name: 'احفظ القالب' }).click();
   await expect.poll(() => mock.mkt.templates.length).toBe(2);

@@ -2,7 +2,7 @@
 // as the Magnific MCP catalog lists them (read live 7 Nov), the scenes (their durations from the piece's length, fitted to the model),
 // the English prompts of a clip and of a chained multi-shot call, the voice-over and music calls, the mix plan, the stored files'
 // names and the shapes of the requests. Shared by ai-images / ai-content (Deno) and the node tests. Nothing here talks to the network.
-import { line, paras } from './ai-content.js';
+import { line, notesText, paras } from './ai-content.js';
 
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -172,7 +172,7 @@ Format
 export function scenesRequest(ctx) {
   const w = isObj(ctx.w) ? ctx.w : {}; const p = isObj(ctx.piece) ? ctx.piece : {}; const n = Math.max(1, Math.min(MAX_SCENES, Number(ctx.n) || 3)); const dur = Math.max(4, Math.min(MAX_DUR, Number(ctx.dur) || 15));
   const rows = [['Goal', line(w.goal, 40)], ['Campaign idea', paras(w.idea, 1000)], ['Video idea', paras(p.idea, 600)], ['Length', dur + ' seconds'], ['Scenes', String(n)], ['Instructions', line(ctx.notes, 400)], ['Products', line(ctx.products, 300)]].filter(([, v]) => v);
-  const text = '<campaign_data>\n' + rows.map(([k, v]) => k + ': ' + v).join('\n') + '\n</campaign_data>\n\nWrite exactly ' + n + ' scenes for a ' + dur + '-second video' + (ctx.voice ? ', and the voice-over script.' : '; the video has no voice-over: voice is an empty string.') + ' Camera moves allowed: ' + CAMS.join(', ') + '.';
+  const text = '<campaign_data>\n' + rows.map(([k, v]) => k + ': ' + v).join('\n') + '\n</campaign_data>\n\nWrite exactly ' + n + ' scenes for a ' + dur + '-second video' + (ctx.voice ? ', and the voice-over script.' : '; the video has no voice-over: voice is an empty string.') + ' Camera moves allowed: ' + CAMS.join(', ') + '.' + notesText(ctx.memberNotes);
   return { model: ctx.model, max_tokens: 4000, system: [{ type: 'text', text: SCENES_BASE, cache_control: { type: 'ephemeral' } }], messages: [{ role: 'user', content: [{ type: 'text', text }] }], output_config: { effort: ctx.effort, format: { type: 'json_schema', schema: scenesSchema() } } };
 }
 /** The answer → { scenes: [{ n, d, idea, text, cam, voice: '' }], voice } with the durations of splitScenes fitted to the model. */

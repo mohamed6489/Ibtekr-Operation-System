@@ -244,7 +244,7 @@ async function itemPhoto(db: Db, batchId: string, item: Json) {
 async function studio(deps: Deps, uid: string, args: Json) {
   const parsed = parseStudio(args);
   if ('error' in parsed) return json(400, parsed);
-  const { batchId, index, want } = parsed.req;
+  const { batchId, index, want, notes } = parsed.req;
   const { data: batch } = await deps.db.from('studio_batches').select('id, brand_id, state, archived_at').eq('id', batchId).maybeSingle();
   const items = isObj(batch?.state) && Array.isArray(batch.state.items) ? batch.state.items : [];
   const item = batch && !batch.archived_at ? items[index] : null;
@@ -257,7 +257,7 @@ async function studio(deps: Deps, uid: string, args: Json) {
   const label = line(item.nameEn || item.nameAr || '', 200) || '#' + (index + 1);
   const base = { created_by: uid, action: 'studio', source: 'studio', label, batch_id: batchId, item_index: index };
   const sets = { categoryIds: new Set(cats.map((c: Json) => Number(c.id))), colorCodes: new Set(colors.map((c: Json) => c.code)) };
-  return await runAi(deps, base, cfg, studioRequest(item, { model: cfg.model, effort: cfg.effort, want, brand, cats, colors, image }),
+  return await runAi(deps, base, cfg, studioRequest(item, { model: cfg.model, effort: cfg.effort, want, brand, cats, colors, image, notes }),
     (answer) => cleanStudio(answer, want, sets));
 }
 
@@ -313,7 +313,7 @@ async function marketing(deps: Deps, uid: string, args: Json) {
       const cfg = await configOf(deps, 'scenes');
       const base = { created_by: uid, action: 'marketing', source: 'campaign', label: line('فيديو ' + (p.n ?? '') + ' · المشاهد', 200) };
       const notes = [typeof media.notes === 'string' ? media.notes : '', templateNotes(cfg.rules, media, true)].filter(Boolean).join(' · '); // the member's words first (≤ 400), then the picked templates
-      return await runAi(deps, base, cfg, scenesRequest({ model: cfg.model, effort: cfg.effort, w, piece: p, n, dur, notes, voice: req.voice }), (answer) => cleanScenes(answer, { n, dur, model }));
+      return await runAi(deps, base, cfg, scenesRequest({ model: cfg.model, effort: cfg.effort, w, piece: p, n, dur, notes, voice: req.voice, memberNotes: req.notes }), (answer) => cleanScenes(answer, { n, dur, model }));
     }
     if (req.piece) { target = campaignTarget(c.state, req.piece, req.slide); if (!target) return json(400, { error: 'bad_request', field: 'piece' }); }
     else target = campaignTarget({ ...(isObj(c.state) ? c.state : {}), pieces: [{ id: 'P0', kind: 'بوست', n: 0 }] }, 'P0', null);

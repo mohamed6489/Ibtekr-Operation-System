@@ -38,10 +38,11 @@ test('from data: the card opens the tool; outputs, languages and tone → one ai
   await pickBrand(page, 'Art Craft');
   await page.fill('#c-m', 'بامبو'); await page.fill('#c-x', 'المقاس 30×50 سم');
   await page.locator('[data-cout="seo"]').click(); await page.locator('[data-ctone="luxury"]').click();
-  await page.locator('[data-cwrite]').click();
+  await page.locator('[data-cwrite]').click(); // the owner 15 Nov: the instructions popup first (IBAIAsk) — the notes go to the server
+  await expect(page.locator('[data-ai-ask]')).toContainText('ابدأ التوليد'); await page.fill('#ai-ask-notes', 'خلّي الاسم <قصير>'); await page.locator('[data-ai-go]').click();
   await expect(box(page, 'ar.name')).toHaveText('مراية بامبو بوهيمي');
   expect(mock.aiCalls).toEqual([{ action: 'write', by: OPS, source: 'data', outputs: ['name', 'short', 'keywords', 'seo'], langs: ['ar', 'en'], tone: 'luxury',
-    data: { name: 'Bamboo Mirror', brand: 'Art Craft', material: 'بامبو', details: 'المقاس 30×50 سم' } }]);
+    data: { name: 'Bamboo Mirror', brand: 'Art Craft', material: 'بامبو', details: 'المقاس 30×50 سم' }, notes: 'خلّي الاسم قصير' }]); // cleaned: no <>
   await expect(box(page, 'ar.keywords')).toHaveText('مرايا بامبو · ديكور بوهيمي · مرايا حائط');
   await expect(page.locator('[data-out="ar.long"]')).toHaveCount(0); // not asked
   await page.locator('[data-cshow="en"]').click();
@@ -68,7 +69,7 @@ test('from a product: the edit page\'s button opens the tool on it; its current 
   await expect(page.locator('#c-sku')).toHaveValue('IBTA4040PAHC000013');
   await expect(page.locator('#pg-products')).toContainText('Cushion');
   await page.locator('[data-cout="long"]').click(); await page.locator('[data-cout="seo"]').click();
-  await page.locator('[data-cwrite]').click();
+  await page.locator('[data-cwrite]').click(); await page.locator('[data-ai-go]').click();
   await expect(box(page, 'ar.name')).toHaveText('مراية بامبو بوهيمي');
   const call = mock.aiCalls.at(-1);
   expect([call.source, call.product_id, call.outputs]).toEqual(['product', 9001, ['name', 'short', 'long', 'keywords', 'seo']]);
@@ -97,7 +98,7 @@ test('from a photo: shrunk in the browser and sent as a JPEG; a SKU that is no p
   await page.getByRole('tab', { name: 'من صورة' }).click();
   await page.setInputFiles('#ct-photo', { name: 'mirror.png', mimeType: 'image/png', buffer: PNG });
   await expect(page.locator('.ct-photo img')).toBeVisible();
-  await page.locator('[data-cwrite]').click();
+  await page.locator('[data-cwrite]').click(); await page.locator('[data-ai-go]').click();
   await expect(box(page, 'ar.short')).toBeVisible();
   const call = mock.aiCalls.at(-1);
   expect([call.source, call.image.media_type, call.image.data.length > 50, 'preview' in call.image]).toEqual(['image', 'image/jpeg', true, false]);
@@ -114,12 +115,12 @@ test('the failures: the key not set, the monthly cap, busy and a refusal — a m
   await page.fill('#c-n', 'Desk Lamp'); await pickBrand(page, 'Antikiano');
   for (const [fail, text] of [['not_configured', 'الـ AI لسه مش متوصّل'], ['ai_cap', 'وصلنا لحد الـ AI الشهري'], ['busy', 'الـ AI مشغول دلوقتي'], ['refused', 'Claude رفض يكتب']]) {
     mock.aiFail = fail;
-    await page.locator('[data-cwrite]').click();
+    await page.locator('[data-cwrite]').click(); await page.locator('[data-ai-go]').click();
     await expect(page.locator('#pg-products .card').filter({ hasText: 'الناتج' })).toContainText(text);
     await expect(page.locator('[data-out]')).toHaveCount(0);
   }
   mock.aiFail = null;
-  await page.getByRole('button', { name: 'جرّب تاني' }).click();
+  await page.getByRole('button', { name: 'جرّب تاني' }).click(); await page.locator('[data-ai-go]').click();
   await expect(box(page, 'ar.name')).toHaveText('مراية بامبو بوهيمي');
   expect(mock.aiRuns.map((r) => r.status)).toEqual(['error', 'cap', 'error', 'refused', 'ok']);
 });
@@ -139,7 +140,7 @@ test('decision 8 — «إعدادات الـ AI» (the admin): the month\'s spen
   expect(mock.settings).toEqual([expect.objectContaining({ section: 'ai', data: { model: 'claude-sonnet-5-5', effort: 'low', monthly_limit_usd: 20 } })]);
   // the next call runs on the row (the mock reads it like the server)
   await page.fill('#c-n', 'Desk Lamp'); await pickBrand(page, 'Antikiano');
-  await page.locator('[data-cwrite]').click();
+  await page.locator('[data-cwrite]').click(); await page.locator('[data-ai-go]').click();
   await expect(box(page, 'ar.name')).toHaveText('مراية بامبو بوهيمي');
   await expect(page.locator('#pg-products')).toContainText('claude-sonnet-5-5');
   expect(mock.aiRuns.map((r) => [r.model, r.cost_usd])).toEqual([['claude-sonnet-5-5', 0.026]]);
@@ -151,7 +152,7 @@ test('decision 8 — «إعدادات الـ AI» (the admin): the month\'s spen
   await page.fill('#ai-cap', '0.5');
   await page.locator('[data-ai-save]').click();
   await expect(page.locator('.toast.show')).toContainText('اتحفظت إعدادات الـ AI');
-  await page.locator('[data-cwrite]').click();
+  await page.locator('[data-cwrite]').click(); await page.locator('[data-ai-go]').click();
   await expect(page.locator('.toast.show').filter({ hasText: 'وصلنا لحد الـ AI الشهري' })).toBeVisible();
   expect(mock.aiRuns.at(-1).status).toBe('cap');
   await expect(box(page, 'ar.name')).toHaveText('مراية بامبو بوهيمي'); // the earlier text stays on the page

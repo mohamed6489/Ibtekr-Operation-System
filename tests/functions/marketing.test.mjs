@@ -4,6 +4,7 @@ import {
   marketingRequest, cleanMarketing, templateNotes, MKT_LIM, parseBuyer, buyerRequest, cleanBuyer, BUYER_ANSWER_MAX, BUYER_HISTORY,
   parseAgent, agentTitle, agentHistory, agentRequest, cleanAgent, parseAgentImage, agentImagePath, agentImagePathOk, AGENT_ANSWER_MAX, AGENT_HISTORY,
 } from '../../supabase/functions/_shared/marketing.js';
+import { scenesRequest } from '../../supabase/functions/_shared/mkt-video.js';
 // The marketing campaign's AI (phase 9.5.1, decisions 8–10): the request checks, the piece read from the state the page saved, its
 // references in order, the image prompt (the Arabic text written into the image), the pins' edit prompt, and the AI writing's
 // requests and their cleaning — the pure part shared by ai-images and ai-content.
@@ -72,7 +73,7 @@ test('pinsPrompt: each pin at its place (% from the left / the top) and the gene
 });
 
 test('parseMarketing: fill needs the campaign and the piece, rewrite a known kind, describe an image', () => {
-  assert.deepEqual(parseMarketing({ task: 'fill', campaign_id: C, piece: 'P1' }).req, { task: 'fill', campaignId: C, piece: 'P1', slide: null, kind: null, text: '', image: null });
+  assert.deepEqual(parseMarketing({ task: 'fill', campaign_id: C, piece: 'P1' }).req, { task: 'fill', campaignId: C, piece: 'P1', slide: null, kind: null, text: '', image: null, notes: '' });
   assert.equal(parseMarketing({ task: 'fill', piece: 'P1' }).field, 'campaign_id');
   assert.equal(parseMarketing({ task: 'rewrite', kind: 'caption', text: 'كابشن' }).req.kind, 'caption');
   assert.equal(parseMarketing({ task: 'rewrite', kind: 'screen' }).field, 'kind');
@@ -147,7 +148,7 @@ test('campaignTarget / campaignPrompt for a video scene: slide = the scene, the 
   const pr = campaignPrompt(t, {});
   assert.ok(pr.includes('key frame) of scene 2 of a 2-scene short vertical product video') && pr.includes('This scene (in Arabic): «القعدة»') && pr.includes('The video (in Arabic): «المخدة»') && pr.includes('No text on the image') && !pr.includes('دفا'));
   assert.equal(parseMarketing({ task: 'scenes', campaign_id: 'f0000000-0000-4000-8000-000000000001', piece: 'P1' }).field, 'piece');
-  assert.deepEqual(parseMarketing({ task: 'scenes', campaign_id: 'f0000000-0000-4000-8000-000000000001', piece: 'V2', voice: true }).req, { task: 'scenes', campaignId: 'f0000000-0000-4000-8000-000000000001', piece: 'V2', slide: null, kind: null, text: '', image: null, voice: true });
+  assert.deepEqual(parseMarketing({ task: 'scenes', campaign_id: 'f0000000-0000-4000-8000-000000000001', piece: 'V2', voice: true }).req, { task: 'scenes', campaignId: 'f0000000-0000-4000-8000-000000000001', piece: 'V2', slide: null, kind: null, text: '', image: null, voice: true, notes: '' });
 });
 
 // ---------------------------------------------------------------- 0084: the assistants' chats (decisions 5 and 6)
@@ -216,4 +217,18 @@ test('templateNotes (owner batch 2 decision 14): the picked templates\' text fro
   assert.ok(!campaignPrompt(t, {}).includes('instruction templates'));
   const r = marketingRequest({ task: 'fill', campaignId: C, piece: 'P1', slide: null }, { model: 'm', effort: 'low', target: t, tplNotes: 'ألوان الشتا الدافية' });
   assert.ok(JSON.stringify(r).includes('Instruction templates of the team: ألوان الشتا الدافية'));
+});
+
+// the owner 15 Nov: the member's instructions from the popup reach every marketing AI task (fill, rewrite, describe, scenes) — cleaned,
+// last in the request inside <member_notes>; a non-string is refused
+test('parseMarketing / marketingRequest / scenesRequest: the member notes', () => {
+  const C = 'f0000000-0000-4000-8000-000000000001';
+  assert.equal(parseMarketing({ task: 'rewrite', kind: 'caption', text: 'x', notes: 'أقصر <b>' }).req.notes, 'أقصر b');
+  assert.equal(parseMarketing({ task: 'fill', campaign_id: C, piece: 'P1', notes: 7 }).field, 'notes');
+  const req = parseMarketing({ task: 'rewrite', kind: 'caption', text: 'كابشن قديم', notes: 'خلّيه أقصر وبإيموجي واحد' }).req;
+  const t = marketingRequest(req, { model: 'm', effort: 'low' }).messages[0].content[0].text;
+  assert.match(t, /<member_notes>\nخلّيه أقصر وبإيموجي واحد\n<\/member_notes>/); assert.ok(t.indexOf('<member_notes>') > t.indexOf('<current_text>'));
+  assert.doesNotMatch(marketingRequest(parseMarketing({ task: 'rewrite', kind: 'caption', text: 'x' }).req, { model: 'm', effort: 'low' }).messages[0].content[0].text, /member_notes/);
+  const sc = scenesRequest({ model: 'm', effort: 'low', w: { goal: 'مبيعات' }, piece: { idea: 'فكرة' }, n: 3, dur: 15, memberNotes: 'مشاهد أهدى' }).messages[0].content[0].text;
+  assert.match(sc, /<member_notes>\nمشاهد أهدى\n<\/member_notes>/);
 });

@@ -2139,3 +2139,7 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 2. RLS live (`files = rls_notify_from_confirm,rls_orders`).
 3. «Deploy functions»: `cs-auto` · `cs-channel` · `cs-whatsapp` (`_shared/cs-auto-run.ts`: «تاريخ الشحن» في رسايل الرد الآلي = تاريخ التبليغ (وإلا التأكيد وإلا يوم الأوردر) + أيام تصنيع المبتكر — `shipDateOf`؛ قبل كده كان بيعرض تاريخ التبليغ نفسه، وده بقى تاريخ التأكيد).
 4. الواجهة على `main` (`IBOrders.setConfirm` بيقرا الأوردر تاني بعد التأكيد فالسطور بتبان بتاريخها على طول).
+
+#### 2.7.78 بوب أب التعليمات قبل أي كتابة بالـ AI (صاحب المشروع 15 نوفمبر)
+1. «Deploy functions»: `ai-content` (`notes` في `studio` / `write` / `marketing` / `scenes` — `memberNotes` / `notesText`). الدالة القديمة بتتجاهل `notes` فالترتيب مش فارق، بس انشرها قبل ما تقول لصاحب المشروع.
+2. الواجهة على `main` (`app/js/pages/ai-ask.js` في `index.html` قبل صفحات المنتجات والتسويق). مافيش migration.

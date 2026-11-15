@@ -70,7 +70,11 @@ test('flow 1 «شيت جاهز» Simple: the sheet + photos by row → maker/bra
   await expect(page.locator('#pg-products [data-fl="shortEn"]').first()).toHaveValue('A warm bamboo desk lamp.');
   await expect(page.locator('#pg-products [data-fl="shortEn"]').first()).toHaveClass(/is-ai/);
   expect(mock.aiCalls.filter((c) => c.action === 'studio').map((c) => c.want)).toEqual([['desc', 'attrs'], ['desc', 'attrs']]);
-  await page.locator('[data-flow-ai]').click(); // nothing missing any more → no other call
+  // the owner 15 Nov: «املأ الناقص أو أعد الكتابة بالـ AI» asks first — fill or rewrite, with instructions; «إغلاق» asks nothing
+  await page.locator('[data-flow-ai]').click();
+  await expect(page.locator('[data-ai-ask]')).toContainText('املأ الناقص بس'); await expect(page.locator('[data-ai-ask]')).toContainText('أعد كتابة الاسم والوصف كمان');
+  await page.locator('[data-ai-close]').click(); await expect(page.locator('[data-ai-ask]')).toHaveCount(0);
+  await page.locator('[data-flow-ai]').click(); await page.locator('[data-ai-go]').click(); // fill: nothing missing any more → no other call
   await expect(page.locator('.toast[role=status]')).toContainText('مفيش بيانات ناقصة');
   expect(mock.aiCalls.filter((c) => c.action === 'studio').length).toBe(2);
   await next(page);
@@ -333,16 +337,47 @@ test('the data step: a card per product with Arabic and English side by side —
     .toEqual(['مخدة بوهيمي كبيرة', 'Translated Product Name', 'Modern', 'مودرن', 'W 50 × L 70 cm', 'Beige', 'IBTART0999-BE']);
   // the owner 15 Nov («خلي الاسم و الوصف فيهم امكانية اعادة الكتابة بال ايه اي»): from the Arabic column both languages change,
   // from the English column the English only
-  await card.locator('[data-fl-rewrite="nameAr"]').click();
+  // the owner 15 Nov: the rewrite is a sparkle inside the field («إعادة كتابة» on hover) and asks for instructions first
+  await expect(card.locator('[data-fl-rewrite="nameAr"]')).toHaveAttribute('data-tip', 'إعادة كتابة');
+  await expect(card.locator('.fl-inwrap [data-fl="nameAr"] + [data-fl-rewrite="nameAr"]')).toHaveCount(1); // inside the field's box
+  await card.locator('[data-fl-rewrite="nameAr"]').click(); await page.fill('#ai-ask-notes', 'اسم أقصر'); await page.locator('[data-ai-go]').click();
   await expect(card.locator('[data-fl="nameAr"]')).toHaveValue('اسم منتج متكتب من جديد');
   await expect(card.locator('[data-fl="nameEn"]')).toHaveValue('Rewritten Product Name');
-  expect(mock.aiCalls.filter((c) => c.action === 'studio').pop().want).toEqual(['rewriteName']);
+  expect(mock.aiCalls.filter((c) => c.action === 'studio').pop()).toMatchObject({ want: ['rewriteName'], notes: 'اسم أقصر' });
   const arDesc = await card.locator('[data-fl="shortAr"]').inputValue();
-  await card.locator('[data-fl-rewrite="shortEn"]').click();
+  await card.locator('[data-fl-rewrite="shortEn"]').click(); await page.locator('[data-ai-go]').click();
   await expect(card.locator('[data-fl="shortEn"]')).toHaveValue('A rewritten short description.');
   await expect(card.locator('[data-fl="shortEn"]')).toHaveClass(/is-ai/);
   await expect(card.locator('[data-fl="shortAr"]')).toHaveValue(arDesc); // the English column's rewrite leaves the Arabic
   expect(mock.aiCalls.filter((c) => c.action === 'studio').pop().want).toEqual(['rewriteDesc']);
+});
+
+// the owner 15 Nov («شيل كلمة القسم AR وخلّي البيانات بدروب داون، وخلّي دروب داون الأقسام فيه خانة بحث»; «املأ الناقص أو أعد الكتابة بالـ AI
+// … يفتح بوب أب أكتب فيه تعليمات»): the shared edit sets both languages from one pick; the header's rewrite mode sends new names and
+// descriptions with the member's instructions
+test('the data step: «تعديل مشترك» with dropdowns (one pick = both languages, no «AR» fields); «أعد كتابة الاسم والوصف كمان» with instructions', async ({ page }) => {
+  await signIn(page, ADMIN);
+  await choose(page, 'شيت جاهز', 'Simple');
+  await pick(page, '[data-flow-sheet]', { name: 'a.csv', mimeType: 'text/csv', buffer: Buffer.from('#,SKU,Product Name EN,Product Name AR,Vendor Price,Product Category\n1,,Lamp,أباجورة,700,ديكور\n2,,Mug,مج,300,ديكور\n') });
+  await next(page); await makerArtCraft(page); await next(page);
+  await expect(page.locator('#pg-products [data-fl="shortEn"]').first()).toHaveValue(/./); // the fill on open is done
+  await page.getByRole('checkbox', { name: 'حدد الكل' }).click();
+  await page.getByRole('button', { name: 'تعديل مشترك' }).click();
+  const m = page.locator('.modal').filter({ hasText: 'تعديل مشترك' });
+  await expect(m).not.toContainText(' AR'); await expect(m.locator('#catAr, #styleAr, #materialAr')).toHaveCount(0);
+  const sel = async (id, q, name) => { const b = m.locator('#' + id); await b.evaluate((e) => e.scrollIntoView({ block: 'center' })); await b.click(); const box = page.locator('.menu [data-select-search]'); if (await box.count()) await box.fill(q); await page.getByRole('option', { name, exact: true }).dispatchEvent('click'); }; // the menu follows the modal's scroll — a direct click
+  await sel('style', 'مودرن', 'مودرن — Modern'); await page.screenshot({ path: process.env.SHOT ? process.env.SHOT + '/bulk.png' : 'test-results/bulk.png' }); await sel('material', 'راتان', 'راتان — Rattan'); await sel('cat', 'هدايا', 'هدايا');
+  await m.getByRole('button', { name: 'طبّق على المحدد' }).click();
+  await expect.poll(() => batch().state.rows.map((r) => [r.styleEn, r.styleAr, r.materialEn, r.materialAr, r.catEn])).toEqual([['Modern', 'مودرن', 'Rattan', 'راتان', 'هدايا'], ['Modern', 'مودرن', 'Rattan', 'راتان', 'هدايا']]);
+  // the header: rewrite the names and descriptions too, with instructions
+  const n0 = mock.aiCalls.length;
+  await page.locator('[data-flow-ai]').click();
+  await page.locator('[data-ai-ask]').getByRole('radio', { name: /أعد كتابة الاسم والوصف كمان/ }).click();
+  await page.fill('#ai-ask-notes', 'أسماء قصيرة'); await page.locator('[data-ai-go]').click();
+  await expect(page.locator('#pg-products [data-fl="nameEn"]').first()).toHaveValue('Rewritten Product Name');
+  await expect(page.locator('#pg-products [data-fl="nameAr"]').nth(1)).toHaveValue('اسم منتج متكتب من جديد');
+  const calls = mock.aiCalls.slice(n0).filter((c) => c.action === 'studio');
+  expect(calls.length).toBe(2); calls.forEach((c) => { expect(c.want).toEqual(expect.arrayContaining(['rewriteName', 'rewriteDesc'])); expect(c.notes).toBe('أسماء قصيرة'); });
 });
 
 test('flow 2 «داتا على الواتساب» Variable: the screenshots read into rows → a product of two colors grouped by its serial → a color\'s own shot → its variation', async ({ page }) => {
@@ -431,7 +466,7 @@ test('flow 3 «صور وعايز شيت» Variable: two colors × two products �
   await next(page);
   await expect(page.locator('#pg-products .fl-preview tbody tr')).toHaveCount(4);
   expect(await page.locator('#pg-products .fl-preview tbody tr td:first-child').allTextContents()).toEqual(['1-1', '1-2', '2-1', '2-2']);
-  await page.locator('[data-flow-ai]').click();
+  await page.locator('[data-flow-ai]').click(); await page.locator('[data-ai-go]').click();
   await expect(page.locator('#pg-products .fl-preview tbody tr').first()).toContainText('أباجورة مكتب بامبو');
   const dl = page.waitForEvent('download');
   await page.locator('[data-flow-download]').click();

@@ -6,7 +6,7 @@
 // cleaning of its answer. Nothing here talks to a provider or a database.
 
 import { DEFAULT_MODEL, MAX_PROMPT, MODEL_IDS, line as imgLine, sizeOf } from './ai-images.js';
-import { FALLBACK, IMAGE_TYPES, MAX_IMAGE_B64, MAX_TOKENS, line, paras } from './ai-content.js';
+import { FALLBACK, IMAGE_TYPES, MAX_IMAGE_B64, MAX_TOKENS, line, memberNotes, notesText, paras } from './ai-content.js';
 
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -211,11 +211,13 @@ export function parseMarketing(b) {
   if (slide === undefined) return bad('slide');
   if (b.text != null && (typeof b.text !== 'string' || b.text.length > 3000)) return bad('text');
   const text = paras(typeof b.text === 'string' ? b.text : '', 3000);
-  if (b.task === 'fill') { if (!campaignId) return bad('campaign_id'); if (!piece) return bad('piece'); return { req: { task: 'fill', campaignId, piece, slide: null, kind: null, text: '', image: null } }; }
-  if (b.task === 'scenes') { if (!campaignId) return bad('campaign_id'); if (!piece || !/^V/.test(piece)) return bad('piece'); return { req: { task: 'scenes', campaignId, piece, slide: null, kind: null, text: '', image: null, voice: b.voice === true } }; }
-  if (b.task === 'describe') { const image = imageArg(b.image); if (!image) return bad('image'); return { req: { task: 'describe', campaignId: null, piece: null, slide: null, kind: 'desc', text, image } }; }
+  // the member's instructions from the popup (the owner 15 Nov — memberNotes in ai-content.js)
+  const notes = memberNotes(b.notes); if (notes === null) return bad('notes');
+  if (b.task === 'fill') { if (!campaignId) return bad('campaign_id'); if (!piece) return bad('piece'); return { req: { task: 'fill', campaignId, piece, slide: null, kind: null, text: '', image: null, notes } }; }
+  if (b.task === 'scenes') { if (!campaignId) return bad('campaign_id'); if (!piece || !/^V/.test(piece)) return bad('piece'); return { req: { task: 'scenes', campaignId, piece, slide: null, kind: null, text: '', image: null, voice: b.voice === true, notes } }; }
+  if (b.task === 'describe') { const image = imageArg(b.image); if (!image) return bad('image'); return { req: { task: 'describe', campaignId: null, piece: null, slide: null, kind: 'desc', text, image, notes } }; }
   if (!Object.prototype.hasOwnProperty.call(MKT_LIM, b.kind)) return bad('kind');
-  return { req: { task: 'rewrite', campaignId, piece, slide, kind: b.kind, text, image: null } };
+  return { req: { task: 'rewrite', campaignId, piece, slide, kind: b.kind, text, image: null, notes } };
 }
 /** The schema of a task: fill → the piece's fields (+ slides for a carousel, no caption for an extra file); else { text }. */
 export function marketingSchema(req, t) {
@@ -247,7 +249,7 @@ export function marketingRequest(req, ctx) {
     ask = 'Write ' + KIND_WHAT[req.kind] + ' — in at most ' + MKT_LIM[req.kind] + ' characters, in the field text.'
       + (req.text ? '\nThe current text (write a better, different version):\n<current_text>\n' + paras(req.text, 3000) + '\n</current_text>' : '');
   }
-  const text = (rows.some(([, v]) => v) ? dataBlock(rows) + '\n\n' : '') + ask;
+  const text = (rows.some(([, v]) => v) ? dataBlock(rows) + '\n\n' : '') + ask + notesText(req.notes);
   const content = req.image ? [{ type: 'image', source: { type: 'base64', media_type: req.image.media_type, data: req.image.data } }, { type: 'text', text }] : [{ type: 'text', text }];
   return {
     model: ctx.model, max_tokens: MAX_TOKENS, ...FALLBACK,

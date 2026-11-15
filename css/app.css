@@ -1916,3 +1916,22 @@ tr.is-sel td,#vendors .tickets-table tr.is-sel td,.vprod-row.is-sel{background:v
 .miss-row { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .miss-btn { cursor: pointer; border: 1px solid currentColor; font: inherit; }
 .miss-btn:hover, .miss-btn:focus-visible { filter: brightness(.95); text-decoration: underline; }
+
+/* ===== the page's scroll (the owner 15 Nov — docs/superpowers/plans/2026-11-15-page-scroll.md) =====
+   The scroll bar on the left: a browser keeps the window's scroll bar on the right even in a right-to-left page, and puts it on the left
+   only for a scrolling element inside the page — so on a desktop (wide screen + mouse) <html> stops scrolling and <body> scrolls
+   (js/pages/page-scroll.js keeps window.scrollTo / scrollY meaning «the page»). A phone / tablet keeps the window's own scroll. */
+@media (min-width:1024px) and (hover:hover) and (pointer:fine){
+  html{height:100%;overflow:hidden}
+  body{height:100%;overflow-y:auto}
+}
+/* «اطلع لأول الصفحة»: a round button fixed at the bottom left, clear of the left scroll bar; shown once the page is scrolled down */
+.to-top{position:fixed;z-index:25;left:calc(20px + var(--page-sbw, 0px) + env(safe-area-inset-left, 0px));bottom:calc(20px + env(safe-area-inset-bottom, 0px));width:44px;height:44px;padding:0;border:0;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;background:var(--color-brand-default);color:var(--color-text-on-brand);box-shadow:0 2px 10px rgba(0,0,0,.28);cursor:pointer;
+  opacity:0;visibility:hidden;transform:translateY(8px);transition:opacity .18s ease,transform .18s ease,visibility 0s linear .18s}
+.to-top.show{opacity:1;visibility:visible;transform:none;transition:opacity .18s ease,transform .18s ease}
+.to-top:hover{background:var(--color-brand-hover, #00483a)}
+.to-top:focus-visible{outline:2px solid var(--color-action-default);outline-offset:2px}
+@media (max-width:767px){.to-top{left:calc(12px + env(safe-area-inset-left, 0px));bottom:calc(64px + 12px + env(safe-area-inset-bottom, 0px))}}
+@media (prefers-reduced-motion:reduce){.to-top,.to-top.show{transition:none}}
+@media print{.to-top{display:none}}

@@ -149,7 +149,7 @@ test('studio Variable from the owner\'s sheet shape (decision 16): rows sharing 
   expect(mock.studioUploads[1].variations.map((x) => x.sku)).toEqual(['IBTARWH1000']);
 });
 
-test('studio Variable: colors and sizes become variations with their own SKU and price; a refused product is reported with its reason, a maker that did not stick and a brand missing from the site\'s brands are noted, and «جرّب تاني» uploads only those', async ({ page }) => {
+test('studio Variable: colors and sizes become variations with their own SKU and price; a refused product is reported with its reason, a maker that did not stick and a brand made new on the site are noted, and «جرّب تاني» uploads only those', async ({ page }) => {
   await signIn(page, OPS);
   await oldStudio(page);
   await page.getByRole('radio', { name: /^Variable/ }).click();
@@ -172,7 +172,7 @@ test('studio Variable: colors and sizes become variations with their own SKU and
   await page.locator('.modal').getByText('هدايا', { exact: true }).click(); await page.locator('.modal').getByRole('button', { name: 'تمام' }).click();
   await next(page, 'التالي: المراجعة والرفع');
   mock.studioFail = { 1: 'product_invalid_sku' }; mock.studioAuthorFail = { 0: true }; mock.studioArFail = { 0: true };
-  mock.wooBrands = mock.wooBrands.filter((b) => b.name !== 'Art Craft'); // decision 5: no site brand named like the batch's
+  mock.wooBrands = mock.wooBrands.filter((b) => b.name !== 'Art Craft'); // no site brand named like the batch's: the upload makes it
   await next(page, 'ارفع على الموقع (مسودة)');
   await expect(page.locator('.modal')).toContainText('الـ SKU ده موجود على الموقع');
   await page.locator('.modal').getByRole('button', { name: 'شوف التقرير' }).click();
@@ -183,8 +183,12 @@ test('studio Variable: colors and sizes become variations with their own SKU and
   await expect(page.locator('#pg-products')).toContainText('المبتكر ماتحطش');
   await expect(page.locator('#pg-products')).toContainText('الترجمة العربية ماتعملتش — الموقع قال: Language ar is not active.'); // the site's answer, and «جرّب تاني» on that row
   await expect(page.locator('#pg-products .st-table tbody tr').first().getByRole('button', { name: 'جرّب تاني' })).toBeVisible();
-  await expect(page.locator('#pg-products')).toContainText('البراند مش موجود في براندات الموقع');
-  expect('brands' in v.product).toBe(false); // the pa_brand attribute only
+  // the brand in both places (the owner 15 Nov — comments plan decision 81): the site had no such brand → it is made there and
+  // the product takes it (beside its pa_brand attribute); the report says a new brand was made
+  await expect(page.locator('#pg-products')).toContainText('البراند اتعمل جديد في براندات الموقع (WooCommerce Brands)');
+  const made = mock.wooBrands.find((b) => b.name === 'Art Craft');
+  expect(v.product.brands).toEqual([{ id: made.id }]);
+  expect(v.product.attributes.find((a) => a.id === 13).options).toEqual(['Art Craft']);
   mock.studioFail = {}; mock.studioAuthorFail = {}; mock.studioArFail = {};
   await page.getByRole('button', { name: 'جرّب تاني' }).first().click();
   await page.locator('.modal').getByRole('button', { name: 'شوف التقرير' }).click();

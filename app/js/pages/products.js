@@ -587,6 +587,10 @@
 
   // ---------------- actions / popups ----------------
   const names = (l) => l.slice(0, 5).map((p) => '«' + nameOf(p) + '»').join(' و') + (l.length > 5 ? ' و' + (l.length - 5) + ' كمان' : '');
+  // the brand in both places (the owner 15 Nov — comments plan decision 81): the WooCommerce brand is saved either way; when the
+  // «Product Brand» attribute did not follow, the member is told (ok / same say nothing)
+  const brandAttrNote = (state) => (state === 'no_attribute' ? 'البراند اتحفظ، بس الموقع مافيهوش خاصية Brand (pa_brand) تتحط فيها'
+    : state === 'failed' || state === 'partial' ? 'البراند اتحفظ، بس خاصية Brand على المنتج ماتحدّثتش — احفظ البراند تاني' : '');
   // one write at a time; the popup stays open until the site answers (a refusal keeps it open with the reason)
   // more than 25 products: a progress popup «اتعدل X من Y…» while the requests go one after the other (the owner, 28 Oct)
   async function write(run, okMsg, m, total) {
@@ -598,8 +602,8 @@
       const r = await run(prog);
       if (!r.ok) { K.toast(fail(r), 'error'); return false; }
       if (r.result === 'skipped') { K.toast(MSG[r.reason] || MSG.push_disabled, 'error'); if (m) m.close(); return false; }
-      const failed = r.failedIds || [];
-      K.toast(failed.length ? okMsg + ' — ماتحفظش في ' + failed.length + ' منتج' : okMsg, failed.length ? 'error' : 'success');
+      const failed = r.failedIds || []; const ba = brandAttrNote(r.brandAttr);
+      K.toast((failed.length ? okMsg + ' — ماتحفظش في ' + failed.length + ' منتج' : okMsg) + (ba ? ' — ' + ba : ''), failed.length || ba ? 'error' : 'success');
       st.sel.clear(); if (m) m.close(); R(); return true;
     } finally { st.busy = false; if (pm) pm.close(); }
   }
@@ -630,7 +634,7 @@
     const brands = PR().brands().slice().sort((a, b) => a.name.localeCompare(b.name));
     K.form({ title: 'نقل ' + (l.length === 1 ? 'منتج' : l.length + ' منتجات') + ' لبراند تاني', values: { brand: '' }, submitLabel: 'انقل المنتجات',
       note: h('p', { class: 't-small help', style: 'margin:0' }, names(l)),
-      fields: (f, e, set) => [K.field.select('brand', 'البراند الجديد', brands.map((b) => ({ value: String(b.id), label: b.name })), f, e, set, { required: true, help: 'البراند اللي ظاهر على المنتج في الموقع (WooCommerce Brands).' }),
+      fields: (f, e, set) => [K.field.select('brand', 'البراند الجديد', brands.map((b) => ({ value: String(b.id), label: b.name })), f, e, set, { required: true, help: 'بيتحفظ على الموقع في المكانين: براند المنتج (WooCommerce Brands) وخاصية Brand.' }),
         U.InlineNote({ children: 'المتجر على Dokan (المبتكر اللي بيتحاسب على المنتج) مش بيتغير من هنا — بيفضل زي ما هو. والـ SKU والسعر كمان.' })],
       validate: (f) => K.req(f, ['brand'], { brand: 'اختار البراند' }),
       submit: (f, m) => { write((pg) => batch(l, { brands: [Number(f.brand)] }, pg), 'اتنقلوا لـ ' + ((brands.find((b) => String(b.id) === f.brand) || {}).name || 'البراند'), m, l.length); return false; } });
@@ -848,7 +852,8 @@
     st.saving = false;
     if (!r.ok) { K.toast(fail(r), 'error'); R(); return; }
     if (r.result === 'skipped') { K.toast(MSG[r.reason] || MSG.push_disabled, 'error'); R(); return; }
-    K.toast(r.counts && r.counts.variations_failed ? 'اتحفظ — بس ' + r.counts.variations_failed + ' تركيبة ماتحفظتش' : 'اتحفظ على الموقع', r.counts && r.counts.variations_failed ? 'error' : 'success');
+    const ba = brandAttrNote(r.brandAttr); const vf = r.counts && r.counts.variations_failed;
+    K.toast((vf ? 'اتحفظ — بس ' + vf + ' تركيبة ماتحفظتش' : 'اتحفظ على الموقع') + (ba ? ' — ' + ba : ''), vf || ba ? 'error' : 'success');
     st.live = null; st.draft = null; st.liveFor = null; st.errs = {}; fetchLive(st.editId); R();
   }
   const discard = () => { st.draft = toDraft_(st.live); st.errs = {}; resetCalc(); R(); };
@@ -911,7 +916,7 @@
     let body;
     if (st.etab === 'data') body = h('div', { class: 'side-layout' }, Card('البيانات الأساسية', null, [K.two(inp('en', 'الاسم (EN)', 'name', { required: true }), st.live.ar ? inp('ar', 'الاسم (AR)', 'arName') : U.InlineNote({ children: 'المنتج ده ملوش ترجمة عربي على الموقع.' })),
       K.two(inp('sku', 'SKU', 'sku', { help: 'تغيير الـ SKU بيغيّر الباركود واللينكات القديمة.' }), inp('w', 'الوزن (كجم)', 'weight', { inputmode: 'decimal' })),
-      K.two(U.Select({ id: 'e-brand', label: 'البراند', options: [{ value: '', label: '—' }].concat(PR().brands().map((b) => ({ value: String(b.id), label: b.name }))), value: d.brands[0] != null ? String(d.brands[0]) : '', disabled: dis, help: 'براند WooCommerce الظاهر على المنتج', onChange: (v) => { d.brands = v ? [Number(v)] : []; R(); } }),
+      K.two(U.Select({ id: 'e-brand', label: 'البراند', options: [{ value: '', label: '—' }].concat(PR().brands().map((b) => ({ value: String(b.id), label: b.name }))), value: d.brands[0] != null ? String(d.brands[0]) : '', disabled: dis, help: 'بيتحفظ على الموقع في المكانين: براند المنتج (WooCommerce Brands) وخاصية Brand', onChange: (v) => { d.brands = v ? [Number(v)] : []; R(); } }),
         makerField(id, p, rec, C)),
       K.two(U.TextInput({ id: 'e-type', label: 'النوع', value: p.type === 'variable' ? 'Variable' : p.type === 'simple' ? 'Simple' : p.type, disabled: true, onInput: () => {}, help: 'النوع بيتغير من الاستوديو بس' }), leadField(id, rec, C))], null, 'grow'),
       h('div', { class: 'stack side-card' }, Card('الحالة والظهور', null, [U.Select({ id: 'e-status', label: 'الحالة', options: [{ value: 'publish', label: 'منشور' }, { value: 'draft', label: 'مسودة' }, { value: 'pending', label: 'قيد المراجعة' }].concat(['publish', 'draft', 'pending'].includes(p.status) ? [] : [{ value: p.status, label: status }]), value: d.status, disabled: dis, onChange: (v) => { d.status = v; R(); } }),

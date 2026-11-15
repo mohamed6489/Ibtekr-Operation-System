@@ -128,6 +128,45 @@ export function editView(p) {
   };
 }
 
+// The brand in both places (the owner 15 Nov — docs/superpowers/plans/2026-11-15-comments.md decision 81: «المفروض البراند تسمع في
+// مكانين علي الويب سايت … الاول اللي انت بتعد فيه حاليا و التاني الattribute اللي اسمه brand»): a product's WooCommerce brand (the
+// `brands` taxonomy) is also its «Product Brand» attribute (pa_brand). Pure helpers for woo-sync's product writes.
+const termText = (v) => pickStr(v).replace(/&amp;/g, '&').replace(/&#0?38;/g, '&').replace(/&#8211;|&ndash;/g, '–').replace(/&#8217;|&rsquo;/g, '’').replace(/&#0?39;|&apos;/g, "'").replace(/&quot;/g, '"').trim();
+const termKeyOf = (v) => termText(v).normalize('NFKC').toLowerCase();
+/** The names of a product's WooCommerce brands, as plain text (the REST answer escapes «&»), no duplicates. */
+export function brandNamesOf(product) {
+  const out = []; const seen = new Set();
+  for (const b of (isObj(product) && Array.isArray(product.brands) ? product.brands : [])) {
+    const name = isObj(b) ? termText(b.name) : ''; const k = termKeyOf(name);
+    if (name && name.length <= 200 && !/[<>]/.test(name) && !seen.has(k)) { seen.add(k); out.push(name); }
+  }
+  return out;
+}
+/**
+ * A product's attributes with its brand attribute set to `names` (none → the attribute is taken off): the list WooCommerce takes
+ * in a PUT — every other attribute goes back as the site returned it (a global one by its id, a custom one by its name; position,
+ * visible, variation and options kept), the brand attribute keeps its place, or goes last when new. `null` when the brand
+ * attribute already says exactly that (nothing to write) or `attrId` is not a positive id.
+ */
+export function withBrandAttr(attributes, attrId, names) {
+  const id = posId(attrId); if (id === null) return null;
+  const list = (Array.isArray(attributes) ? attributes : []).filter(isObj);
+  const want = []; const seen = new Set();
+  for (const n of (Array.isArray(names) ? names : [])) { const t = termText(n); const k = termKeyOf(t); if (t && !seen.has(k)) { seen.add(k); want.push(t); } }
+  const cur = list.find((a) => posId(a.id) === id);
+  const have = cur && Array.isArray(cur.options) ? cur.options.map(termKeyOf).filter(Boolean) : [];
+  if (have.length === want.length && want.every((w) => have.includes(termKeyOf(w)))) return null;
+  const keep = (a, k) => ({ ...(posId(a.id) !== null ? { id: posId(a.id) } : { name: pickStr(a.name) }), position: Number.isInteger(a.position) ? a.position : k,
+    visible: a.visible !== false, variation: a.variation === true, options: (Array.isArray(a.options) ? a.options : []).map((o) => pickStr(o)).filter(Boolean) });
+  const out = [];
+  list.forEach((a, k) => {
+    if (posId(a.id) !== id) { if (posId(a.id) !== null || pickStr(a.name)) out.push(keep(a, k)); return; }
+    if (want.length) out.push({ ...keep(a, k), variation: false, options: want });
+  });
+  if (!cur && want.length) out.push({ id, position: out.length, visible: true, variation: false, options: want });
+  return out;
+}
+
 /** A wc/v3/products/{id}/variations item → the edit page's row (attributes as «name: option», price and stock). */
 export function variationView(v) {
   if (!isObj(v)) return null;

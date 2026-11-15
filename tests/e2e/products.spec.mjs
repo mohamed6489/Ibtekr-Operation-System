@@ -158,11 +158,35 @@ test('bulk: publish the pending product (one product → product_save) and move 
   await rowOf(page, 'Boho mirror').locator('[role=checkbox]').click();
   await page.locator('.bulk-bar').getByRole('button', { name: 'نقل لبراند تاني' }).click();
   await expect(page.locator('.modal')).toContainText('المتجر على Dokan');
+  // the brand in both places (the owner 15 Nov — comments plan decision 81): the popup says where the brand is written
+  await expect(page.locator('.modal')).toContainText('في المكانين: براند المنتج (WooCommerce Brands) وخاصية Brand');
   await page.locator('.modal #brand').click(); await page.getByRole('option', { name: 'Antikiano' }).click();
   await page.locator('.modal').getByRole('button', { name: 'انقل المنتجات' }).click();
   await expect(page.locator('.modal')).toHaveCount(0);
   expect(mock.productWrites.at(-1).update).toEqual([{ id: 9001, brands: [4] }, { id: 9004, brands: [4] }]);
   await expect(rowOf(page, 'Cushion')).toContainText('Antikiano');
+  await expect(page.locator('.toast.show')).toContainText('اتنقلوا لـ Antikiano');
+  await expect(page.locator('.toast.show')).not.toContainText('خاصية Brand');
+});
+
+test('the brand in both places (comments plan decision 81): the product page says the brand is written to WooCommerce Brands and the Brand attribute; a save whose attribute did not follow says so, the brand still saved', async ({ page }) => {
+  await openProducts(page);
+  await page.locator('[data-pedit="9001"]').click();
+  await expect(page.locator('#e-brand')).toBeVisible();
+  await expect(page.locator('#pg-products')).toContainText('بيتحفظ على الموقع في المكانين: براند المنتج (WooCommerce Brands) وخاصية Brand');
+  mock.brandAttr = 'failed';
+  await page.locator('#e-brand').click(); await page.getByRole('option', { name: 'Antikiano' }).click();
+  await page.getByRole('button', { name: 'احفظ على الموقع' }).first().click();
+  await expect(page.locator('.toast.show')).toContainText('البراند اتحفظ، بس خاصية Brand على المنتج ماتحدّثتش');
+  expect(mock.productWrites.at(-1)).toMatchObject({ action: 'product_save', id: 9001, fields: { brands: [4] } });
+  expect(mock.products.find((p) => p.id === 9001).brand_ids).toEqual([4]);
+  // a site without the attribute
+  mock.brandAttr = 'no_attribute';
+  await expect(page.locator('#e-brand')).toContainText('Antikiano');
+  await page.locator('#e-brand').click(); await page.getByRole('option', { name: 'Art Craft' }).first().click();
+  await page.getByRole('button', { name: 'احفظ على الموقع' }).first().click();
+  await expect(page.locator('.toast.show')).toContainText('الموقع مافيهوش خاصية Brand');
+  mock.brandAttr = null;
 });
 
 test('bulk stock and price: a quantity for the simple products only; the fake discount moves the regular price, the sale stays', async ({ page }) => {

@@ -19,7 +19,7 @@
 // vendors_brands_guard_delete (23503 naming brand_owners_vendor_id_fkey) and the cascade of the origin's brands). Not a product feature.
 // Spec files call installSupabaseMock(page) unless E2E_SUPABASE_LIVE=1: then installLiveConfig(page) points the app at the
 // staging project in E2E_SUPABASE_URL / E2E_SUPABASE_ANON_KEY (never at whatever app/config.js holds), or skips without them.
-import { buildStudio, matchWooBrand, sheetCsvUrl } from '../../supabase/functions/_shared/woo-studio.js';
+import { buildStudio, matchWooBrand, sheetCsvUrl, wooBrandIds } from '../../supabase/functions/_shared/woo-studio.js';
 import { parseWrite, parseStudio, parsePrompts, parseExtract, cleanWrite, cleanStudio, cleanPrompts, cleanExtract, shotPromptRows, aiSettings } from '../../supabase/functions/_shared/ai-content.js';
 import { parseGenerate, parseEdit, parseCreate, imageSettings, creditsFor, usdOf, studioPathOk, studioGenPath, studioEditPath, toolPath, renameInState, flowShotPrompt, MODEL_IDS } from '../../supabase/functions/_shared/ai-images.js';
 import { hrState, hrRoute } from './hr-mock.mjs'; // phase 10 (0046): the HR tables, RPCs, team-admin and the bucket hr-docs
@@ -2340,7 +2340,13 @@ export async function installSupabaseMock(page, opts = {}) {
         const row = mock.studioBatches.find((x) => x.id === b.batch_id); const it = row && row.state && Array.isArray(row.state.items) ? row.state.items[b.index] : null;
         if (!row || !it) return json(404, { error: 'no_item' });
         const brand = mock.brands.find((x) => x.id === row.brand_id);
-        const wooBrand = matchWooBrand(brand, mock.wooBrands); // the server's rule: the site's WooCommerce brand named like ours
+        // the server's rule: the site's WooCommerce brand named like ours; none → made on the site under the brand's own name (the brand in
+        // both places — comments plan decision 81; mock.wooBrandRefuse = the site refuses it), more than one alike → unset
+        let wooBrand = matchWooBrand(brand, mock.wooBrands); let brandMade = false;
+        if (wooBrand === null && brand && mock.pushEnabled && !mock.wooBrandRefuse && wooBrandIds(brand, mock.wooBrands).length === 0) {
+          wooBrand = Math.max(0, ...mock.wooBrands.map((x) => Number(x.id))) + 1; brandMade = true;
+          mock.wooBrands.push({ id: wooBrand, name: brand.name, slug: String(brand.name).toLowerCase().replace(/[^a-z0-9]+/g, '-'), parent_id: null, updated_at: T0 });
+        }
         const built = buildStudio(it, { batchId: row.id, type: row.type, brand: brand ? brand.name : '', wooBrand, colors: Object.fromEntries(mock.skuColors.map((c) => [c.code, c.name_en])), attrs: { color: 12, size: 3, material: 15, style: 14, brand: 13 } });
         if (built.error) return json(400, built);
         if (!mock.pushEnabled) return json(200, { action, result: 'skipped', reason: 'push_disabled' });
@@ -2361,7 +2367,7 @@ export async function installSupabaseMock(page, opts = {}) {
           if (prev && prev.productId && was !== owner && !kept) { const p = mock.products.find((x) => x.id === id); if (p) p.vendor_id = row.vendor_id; }
           if (!prev || !prev.productId) mock.products.push({ id, sku: built.sku, name: it.nameEn, image_url: null, permalink: SITE + '/product/studio-' + id + '/', vendor_id: row.vendor_id, price: null, status: 'draft', raw: { id }, updated_at: T0, lang: 'en', translation_ids: { en: id }, type: row.type === 'Variable' ? 'variable' : 'simple', regular_price: built.product.regular_price ? Number(built.product.regular_price) : null, sale_price: built.product.sale_price ? Number(built.product.sale_price) : null, stock_quantity: null, stock_status: 'instock', manage_stock: false, backorders: 'no', low_stock_amount: null, total_sales: 0, category_ids: it.categories, brand_ids: wooBrand ? [wooBrand] : [], image_count: built.images.length, weight: it.weight || null, featured: false, desc_filled: false, short_desc_filled: !!it.shortDesc, woo_modified_at: T0, trashed_at: null });
           const arFail = !!(mock.studioArFail || {})[b.index]; // the site refusing the translation (the live 422): the product stays, the translation waits for a retry
-          res = { sku: built.sku, productId: id, arId: it.nameAr && !arFail ? id + 1 : null, ...(it.nameAr && !arFail ? { arAttrs: 'ok' } : {}), ...(arFail ? { arNote: 'wcml_invalid_language', arError: 'Language ar is not active.' } : {}), author: kept || (mock.studioAuthorFail || {})[b.index] ? 'failed' : 'ok', authorOwner: kept ? was : owner, wooBrand: prev && prev.productId && prev.wooBrand !== undefined ? prev.wooBrand : wooBrand,
+          res = { sku: built.sku, productId: id, arId: it.nameAr && !arFail ? id + 1 : null, ...(it.nameAr && !arFail ? { arAttrs: 'ok' } : {}), ...(arFail ? { arNote: 'wcml_invalid_language', arError: 'Language ar is not active.' } : {}), author: kept || (mock.studioAuthorFail || {})[b.index] ? 'failed' : 'ok', authorOwner: kept ? was : owner, wooBrand: prev && prev.productId && prev.wooBrand != null ? prev.wooBrand : wooBrand, ...(brandMade || (prev && prev.wooBrandNew) ? { wooBrandNew: true } : {}),
             variations: kept ? prev.variations : built.variations.length ? { done: built.variations.length, failed: 0 } : undefined, media: Object.fromEntries(built.images.map((p, k) => [p, 8800 + k])), error: kept ? 'maker_changed' : null }; }
         if (it.flow === 2 && !res.error) res.media = Object.fromEntries(flowPaths.map((k) => [k, shared[k]])); // the flows: the uploaded photos, never a second copy
         mock.studioUploads.push({ index: b.index, by: u.email, maker: row.vendor_id, sku: built.sku, product: built.product, variations: built.variations.map((v) => ({ ...v.payload, gallery: (v.gallery || []).map((k) => shared[k] || null) })), images: built.images, ar: built.ar, arAttributes: built.arAttributes, result: res.error || 'ok' });
@@ -2480,12 +2486,13 @@ export async function installSupabaseMock(page, opts = {}) {
           // the shared fields (status, prices, stock — SHARED_FIELDS in woo-products.js) go to the translation too, with its own fields
           const SHARED = ['status', 'regular_price', 'sale_price', 'manage_stock', 'stock_quantity', 'stock_status', 'backorders', 'low_stock_amount'];
           apply(p, b.fields); if (ar) apply(ar, Object.assign(Object.fromEntries(Object.entries(b.fields || {}).filter(([k]) => SHARED.includes(k))), b.ar || {}));
-          return json(200, { action, result: 'ok', counts: { saved: ar ? 2 : 1, variations: (b.variations || []).length, variations_failed: 0 } });
+          // the brand in both places (comments plan decision 81): a save that set the brand says how the «Product Brand» attribute followed
+          return json(200, { action, result: 'ok', counts: { saved: ar ? 2 : 1, variations: (b.variations || []).length, variations_failed: 0 }, ...('brands' in (b.fields || {}) ? { brand_attr: mock.brandAttr || 'ok' } : {}) });
         }
         if (action === 'products_batch') {
           const ids = (b.update || []).map((x) => Number(x.id));
           for (const it of b.update || []) { const [p] = withAr(it.id); if (p) { const { id: _i, ...rest } = it; apply(p, rest); } }
-          return json(200, { action, result: 'ok', counts: { updated: ids.length, failed: 0, translations: 0 }, failed_ids: [] });
+          return json(200, { action, result: 'ok', counts: { updated: ids.length, failed: 0, translations: 0 }, failed_ids: [], ...((b.update || []).some((x) => 'brands' in x) ? { brand_attr: mock.brandAttr || 'ok' } : {}) });
         }
         for (const id of b.ids || []) { const [p, ar] = withAr(id); for (const x of [p, ar].filter(Boolean)) { x.status = action === 'products_trash' ? 'trash' : 'draft'; x.trashed_at = action === 'products_trash' ? new Date().toISOString() : null; } }
         return json(200, { action, result: 'ok', counts: { done: (b.ids || []).length, failed: 0 }, failed_ids: [] });

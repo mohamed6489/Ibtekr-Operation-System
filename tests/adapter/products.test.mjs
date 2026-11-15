@@ -55,13 +55,27 @@ test('save: the product_save body (fields, ar, variations), logged with field na
   const { P, stub, logs } = load({ responses: { 'fn:woo-sync': (o) => ({ data: { action: o.body.action, result: 'ok', counts: { saved: 2 } }, error: null }) } });
   await P.load();
   const r = await P.save(501, { fields: { regular_price: '1600' }, ar: { name: 'لمبة 2' }, variations: [] });
-  assert.deepEqual(plain(r), { ok: true, result: 'ok', reason: null, counts: { saved: 2 } });
+  assert.deepEqual(plain(r), { ok: true, result: 'ok', reason: null, counts: { saved: 2 }, brandAttr: null });
   const inv = stub.calls.filter((c) => c.op === 'invoke').at(-1).args;
   assert.deepEqual(inv, ['woo-sync', { body: { action: 'product_save', id: 501, fields: { regular_price: '1600' }, ar: { name: 'لمبة 2' } } }]);
   assert.deepEqual(logs.at(-1).slice(0, 2), ['product.save', '#501 · regular_price, ar.name']);
   assert.ok(!JSON.stringify(logs).includes('1600'));
   const last = opsOf(stub.calls, 'products').filter((c) => c.op === 'in').at(-1).args;
   assert.deepEqual(last, ['id', [501, 601]]);
+});
+
+test('the brand in both places (comments plan decision 81): a save and a batch pass on how the «Product Brand» attribute followed — the worst answer of a batch\'s parts stands', async () => {
+  const one = load({ responses: { 'fn:woo-sync': (o) => ({ data: { action: o.body.action, result: 'ok', counts: { saved: 1 }, brand_attr: 'no_attribute' }, error: null }) } });
+  await one.P.load();
+  assert.equal((await one.P.save(501, { fields: { brands: [4] } })).brandAttr, 'no_attribute');
+  let n = 0; const states = ['ok', 'failed', 'same'];
+  const many = load({ responses: { 'fn:woo-sync': (o) => ({ data: { action: o.body.action, result: 'ok', counts: { updated: o.body.update.length }, failed_ids: [], brand_attr: states[n++] }, error: null }) } });
+  await many.P.load();
+  const r = await many.P.batch(Array.from({ length: 60 }, (_, i) => ({ id: 1000 + i, brands: [4] })));
+  assert.deepEqual([r.ok, r.updated, r.brandAttr, n], [true, 60, 'failed', 3]);
+  const plainBatch = load({ responses: { 'fn:woo-sync': (o) => ({ data: { action: o.body.action, result: 'ok', counts: { updated: 1 }, failed_ids: [] }, error: null }) } });
+  await plainBatch.P.load();
+  assert.equal((await plainBatch.P.batch([{ id: 501, status: 'draft' }])).brandAttr, null);
 });
 
 test('the reasons: 401 forbidden, 400 invalid with the field, 409 no_translation, 502 woo_down; skipped push_disabled is not logged', async () => {

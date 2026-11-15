@@ -51,14 +51,19 @@ const stockOf = (it) => {
 
 // The site's WooCommerce brand for the batch's brand (decision 5): the woo_brands row whose name or slug is the brand's name
 // or one of its aliases once case, spaces and signs are set aside («@Sugar-crafts» = «Sugar crafts» = sugar-crafts). None,
-// or more than one → null: the product goes up with the pa_brand attribute only and the report says so.
+// or more than one → null. The brand in both places (the owner 15 Nov, comments plan decision 81): with none, woo-sync makes the
+// site's brand under the brand's own name before the product goes up (wooBrandIds tells none from more than one); with more than
+// one the product goes up with the pa_brand attribute only and the report says so.
 const brandKey = (s) => String(s == null ? '' : s).normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
 const slugKey = (s) => { try { return brandKey(decodeURIComponent(String(s == null ? '' : s))); } catch { return brandKey(s); } };
-export function matchWooBrand(brand, wooBrands) {
+export function wooBrandIds(brand, wooBrands) {
   const keys = new Set([brand?.name, ...(Array.isArray(brand?.aliases) ? brand.aliases : [])].map(brandKey).filter(Boolean));
-  const ids = new Set((Array.isArray(wooBrands) ? wooBrands : []).filter((w) => isObj(w) && Number.isInteger(Number(w.id)) && Number(w.id) > 0
-    && (keys.has(brandKey(w.name)) || keys.has(slugKey(w.slug)))).map((w) => Number(w.id)));
-  return ids.size === 1 ? [...ids][0] : null;
+  return [...new Set((Array.isArray(wooBrands) ? wooBrands : []).filter((w) => isObj(w) && Number.isInteger(Number(w.id)) && Number(w.id) > 0
+    && (keys.has(brandKey(w.name)) || keys.has(slugKey(w.slug)))).map((w) => Number(w.id)))];
+}
+export function matchWooBrand(brand, wooBrands) {
+  const ids = wooBrandIds(brand, wooBrands);
+  return ids.length === 1 ? ids[0] : null;
 }
 
 /**

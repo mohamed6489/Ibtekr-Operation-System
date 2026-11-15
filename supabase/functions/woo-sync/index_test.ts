@@ -719,6 +719,82 @@ Deno.test('products_batch: wc/v3/products/batch with `update` only (never `delet
   assertEquals((await call(deps, { action: 'products_batch', update: [{ id: 501, status: 'draft' }] }, { jwt: 'jwt-pone' })).res.status, 401, 'products.edit F without products.bulk');
 });
 
+// the brand in both places (the owner 15 Nov — comments plan decision 81): the WooCommerce brand a save or a batch sets is the
+// product's «Product Brand» attribute (pa_brand) too — on the product, then on its Arabic translation
+const ATTRS = { 'GET wc/v3/products/attributes': { body: [{ id: 12, slug: 'pa_color' }, { id: 13, slug: 'pa_brand' }] } };
+const colorAttr = { id: 12, name: 'Color', slug: 'pa_color', position: 0, visible: true, variation: true, options: ['Red', 'Blue'] };
+const ownAttr = { id: 0, name: 'Care', position: 1, visible: false, variation: false, options: ['Dry clean'] };
+const brandAttr = (options: string[]) => ({ id: 13, name: 'Product Brand', slug: 'pa_brand', position: 2, visible: true, variation: false, options });
+
+Deno.test('product_save with a brand: the pa_brand attribute follows the WooCommerce brand on the product and its translation (the Arabic term made first); the other attributes untouched; already right → no write; no brand → taken off; no such attribute → said, never an error', async () => {
+  const terms: any[] = []; const attrPuts: any[] = [];
+  const routes = { ...ATTRS,
+    'PUT wc/v3/products/501': (c: any) => { if (c.body.attributes) { attrPuts.push([501, c.body]); return { body: { id: 501 } }; }
+      return { body: wooProduct(501, 44, { lang: 'en', translations: { ar: 601, en: 501 }, brands: (c.body.brands ?? []).map((b: any) => ({ id: b.id, name: b.id === 3 ? 'Sugar &amp; Crafts' : 'Lusso', slug: 'x' })), attributes: [colorAttr, ownAttr, brandAttr(['Old Brand'])] }) }; },
+    'GET wc/v3/products/601': { body: wooProduct(601, 44, { lang: 'ar', attributes: [{ ...colorAttr, options: ['أحمر', 'أزرق'] }, brandAttr(['Old Brand'])] }) },
+    'PUT wc/v3/products/601': (c: any) => { attrPuts.push([601, c.body]); return { body: { id: 601 } }; },
+    'GET wc/v3/products/attributes/13/terms': (c: any) => ({ body: c.query.lang === 'ar' ? terms : [{ id: 3055, name: 'Sugar &amp; Crafts' }] }),
+    'POST wc/v3/products/attributes/13/terms': (c: any) => { terms.push({ id: 5701, name: c.body.name }); return { body: { id: 5701 } }; },
+  };
+  const { db, woo, deps } = setup({ seed: prodSeed, routes, env: PUSH_ON });
+  const { res, body } = await call(deps, { action: 'product_save', id: 501, fields: { brands: [3] } }, { jwt: 'jwt-pedit' });
+  assertEquals([res.status, body.result, body.brand_attr], [200, 'ok', 'ok']);
+  const keepColor = { id: 12, position: 0, visible: true, variation: true, options: ['Red', 'Blue'] }; const keepOwn = { name: 'Care', position: 1, visible: false, variation: false, options: ['Dry clean'] };
+  assertEquals(attrPuts, [
+    [501, { attributes: [keepColor, keepOwn, { id: 13, position: 2, visible: true, variation: false, options: ['Sugar & Crafts'] }] }],
+    [601, { attributes: [{ ...keepColor, options: ['أحمر', 'أزرق'] }, { id: 13, position: 2, visible: true, variation: false, options: ['Sugar & Crafts'] }] }],
+  ], 'the brand by its plain name; every other attribute as the site returned it');
+  assertEquals(woo.calls.find((c) => c.method === 'POST' && c.path.endsWith('/13/terms'))!.body, { name: 'Sugar & Crafts', lang: 'ar', translation_of: 3055 }, 'the Arabic term as the English term\'s translation');
+  const order = woo.calls.filter((c) => c.method !== 'GET').map((c) => `${c.method} ${c.path}`);
+  assertEquals(order, ['PUT wc/v3/products/501', 'PUT wc/v3/products/501', 'POST wc/v3/products/attributes/13/terms', 'PUT wc/v3/products/601'], 'the brand, its attribute, the Arabic term, the translation');
+  assertEquals(db.rows('woo_sync_log').at(-1).detail.brand_attr, 'ok');
+  assertFalse(JSON.stringify(db.rows('woo_sync_log').at(-1).detail).includes('Sugar'), 'no brand name in the log');
+  // the attribute already says the brand: nothing written for it
+  const same = setup({ seed: prodSeed, env: PUSH_ON, routes: { ...ATTRS,
+    'PUT wc/v3/products/502': (c: any) => ({ body: wooProduct(502, 44, { lang: 'en', brands: [{ id: 5, name: 'Lusso' }], attributes: [brandAttr(['lusso'])], ...('attributes' in c.body ? { wrote: true } : {}) }) }) } });
+  const sm = await call(same.deps, { action: 'product_save', id: 502, fields: { brands: [5] } }, { jwt: 'jwt-pedit' });
+  assertEquals([sm.body.brand_attr, same.woo.calls.filter((c) => c.method === 'PUT').length], ['same', 1]);
+  // the brand cleared: the attribute goes
+  const off: any[] = [];
+  const cleared = setup({ seed: prodSeed, env: PUSH_ON, routes: { ...ATTRS,
+    'PUT wc/v3/products/502': (c: any) => { if (c.body.attributes) { off.push(c.body); return { body: { id: 502 } }; } return { body: wooProduct(502, 44, { lang: 'en', brands: [], attributes: [colorAttr, brandAttr(['Lusso'])] }) }; } } });
+  assertEquals((await call(cleared.deps, { action: 'product_save', id: 502, fields: { brands: [] } }, { jwt: 'jwt-pedit' })).body.brand_attr, 'ok');
+  assertEquals(off, [{ attributes: [{ id: 12, position: 0, visible: true, variation: true, options: ['Red', 'Blue'] }] }]);
+  // a site with no pa_brand attribute: the brand is saved, the answer says so
+  const bare = setup({ seed: prodSeed, env: PUSH_ON, routes: { 'GET wc/v3/products/attributes': { body: [{ id: 12, slug: 'pa_color' }] },
+    'PUT wc/v3/products/502': { body: wooProduct(502, 44, { lang: 'en', brands: [{ id: 5, name: 'Lusso' }], attributes: [] }) } } });
+  const br = await call(bare.deps, { action: 'product_save', id: 502, fields: { brands: [5] } }, { jwt: 'jwt-pedit' });
+  assertEquals([br.res.status, br.body.result, br.body.brand_attr, bare.woo.calls.filter((c) => c.method === 'PUT').length], [200, 'ok', 'no_attribute', 1]);
+  // a save without the brand asks nothing about attributes
+  const plainSave = setup({ seed: prodSeed, env: PUSH_ON, routes: { 'PUT wc/v3/products/502': { body: wooProduct(502, 44, { lang: 'en' }) } } });
+  const ps = await call(plainSave.deps, { action: 'product_save', id: 502, fields: { status: 'draft' } }, { jwt: 'jwt-pedit' });
+  assertEquals(['brand_attr' in ps.body, plainSave.woo.calls.length], [false, 1]);
+});
+
+Deno.test('products_batch with a brand («نقل لبراند تاني»): one more batch writes the pa_brand attribute of the products that took the brand, their translations read in one list and written in one batch; a product the site refused is left alone', async () => {
+  const batches: any[] = [];
+  const routes = { ...ATTRS,
+    'POST wc/v3/products/batch': (c: any) => { batches.push(c.body);
+      if (c.body.update[0].attributes) return { body: { update: c.body.update.map((u: any) => ({ id: u.id })) } };
+      return { body: { update: c.body.update.map((u: any) => (u.id === 503 ? { id: 503, error: { code: 'x' } } : wooProduct(u.id, 44, { lang: 'en', brands: [{ id: 5, name: 'Lusso' }], attributes: u.id === 501 ? [colorAttr] : [brandAttr(['Old'])] }))) } }; },
+    'GET wc/v3/products': (c: any) => ({ body: String(c.query.include).split(',').map((id: string) => wooProduct(Number(id), 44, { lang: 'ar', attributes: [] })) }),
+    'GET wc/v3/products/attributes/13/terms': { body: [{ id: 3055, name: 'Lusso' }, { id: 3056, name: 'Lusso' }] },
+  };
+  const seed = { products: [...prodSeed.products, { id: 504, name: 'Tray', status: 'publish', lang: 'en', translation_ids: { ar: 604, en: 504 } }, { id: 503, name: 'Cup', status: 'publish', lang: 'en', translation_ids: { en: 503 } }] };
+  const { woo, deps } = setup({ seed, routes, env: PUSH_ON });
+  const { res, body } = await call(deps, { action: 'products_batch', update: [{ id: 501, brands: [5] }, { id: 504, brands: [5] }, { id: 503, brands: [5] }] }, { jwt: 'jwt-pedit' });
+  assertEquals([res.status, body.counts.updated, body.failed_ids, body.brand_attr], [200, 2, [503], 'ok']);
+  const lusso = { id: 13, visible: true, variation: false, options: ['Lusso'] };
+  assertEquals(batches, [
+    { update: [{ id: 501, brands: [{ id: 5 }] }, { id: 504, brands: [{ id: 5 }] }, { id: 503, brands: [{ id: 5 }] }] },
+    { update: [{ id: 501, attributes: [{ id: 12, position: 0, visible: true, variation: true, options: ['Red', 'Blue'] }, { ...lusso, position: 1 }] }, { id: 504, attributes: [{ ...lusso, position: 2 }] }] },
+    { update: [{ id: 601, attributes: [{ ...lusso, position: 0 }] }, { id: 604, attributes: [{ ...lusso, position: 0 }] }] },
+  ]);
+  const list = woo.calls.find((c) => c.method === 'GET' && c.path === 'wc/v3/products')!;
+  assertEquals([list.query.include, list.query.lang], ['601,604', 'all'], 'the translations in one read');
+  assertFalse(woo.calls.some((c) => 'delete' in (c.body ?? {})), 'never delete');
+});
+
 Deno.test('products_trash / products_restore: DELETE with no query at all (never force) on the product and its translation; restore = draft; products.trash = F only', async () => {
   const tr = { translations: { ar: 601, en: 501 } };
   const routes = { 'DELETE wc/v3/products/501': { body: wooProduct(501, 44, { status: 'trash', ...tr }) }, 'DELETE wc/v3/products/601': { body: wooProduct(601, 44, { status: 'trash', lang: 'ar' }) },
@@ -1495,6 +1571,7 @@ const studioItem = { nameEn: 'Boho Cushion', nameAr: 'مخدة بوهيمي', se
   images: [`${SB}/1-1.webp`], variations: [{ color: 'BE', sale: 1200, regular: 1500, stock: 3, image: `${SB}/1-be.webp` }, { color: 'BK', sale: 1200, regular: 1500, onDemand: true }] };
 const studioSeed = (item: any = studioItem) => ({
   brands: [{ id: BRAND, name: 'Art Craft', code: 'A' }], sku_colors: [{ id: 1, name_en: 'Beige', name_ar: 'بيج', code: 'BE' }, { id: 2, name_en: 'Black', name_ar: 'أسود', code: 'BK' }],
+  woo_brands: [{ id: 4363, name: 'Art Craft', slug: 'art-craft' }], // the site's WooCommerce brand of the batch's brand (a missing one is made — the test of decision 81)
   studio_batches: [{ id: SB, title: 'دفعة', brand_id: BRAND, vendor_id: vendorId(44), type: 'Variable', state: { items: [item] }, step: 8, status: 'draft' }],
 });
 const STUDIO_FILES = { [`studio/${SB}/1-1.webp`]: new Uint8Array([1, 2, 3]), [`studio/${SB}/1-be.webp`]: new Uint8Array([4, 5]) };
@@ -1694,7 +1771,7 @@ Deno.test('studio_upload: the maker stays on the result with the ids it took (au
   await upload(deps);
   assertEquals(siteWrites(woo, n), [], 'the same maker: a retry writes nothing');
   // woo-sync v32 kept the ids without their maker: they count as the batch's maker (nothing asked again), and it is written
-  const old = simpleSeed({ items: [{ sku: 'IBTARBE1000', productId: 900, arId: 901, media: { [`${SB}/1-1.webp`]: 7001 }, authorIds: [900, 901], author: 'ok', arAttrs: 'ok', error: null }] });
+  const old = simpleSeed({ items: [{ sku: 'IBTARBE1000', productId: 900, arId: 901, media: { [`${SB}/1-1.webp`]: 7001 }, authorIds: [900, 901], author: 'ok', arAttrs: 'ok', wooBrand: 4363, error: null }] });
   const v32 = setup({ seed: old, routes: studioRoutes(), env: WP_ENV, storage: STUDIO_FILES });
   const l = await upload(v32.deps);
   assertEquals([siteWrites(v32.woo, 0), l.body.item.author, l.body.item.authorOwner], [[], 'ok', 44]);
@@ -1798,16 +1875,43 @@ Deno.test('studio_upload: once the product is made, an item that builds another 
   assertEquals(nm.woo.calls.filter((c) => c.method === 'POST' && c.path === 'wc/v3/products' && c.body.wpml_language === 'en').map((c) => c.body.sku), ['IBTARBE1000', 'IBTBIBE1000']);
 });
 
-Deno.test('studio_upload (decision 5): the site\'s WooCommerce brand named like the batch\'s («@Art-craft» = «Art Craft») goes with the product, not its translation; none → no brands field and wooBrand null; a product made before (woo-sync v33) gets it on a retry, once', async () => {
+Deno.test('studio_upload (decision 5 + the brand in both places): the site\'s WooCommerce brand named like the batch\'s («@Art-craft» = «Art Craft») goes with the product, not its translation; none → made on the site first (term_exists = its id; two alike = unset; a refusal never stops the product); a product made before gets it on a retry, once', async () => {
   const seed = { ...studioSeed(), brands: [{ id: BRAND, name: '@Art-craft', code: 'A' }], woo_brands: [{ id: 4363, name: 'Art Craft', slug: 'art-craft' }, { id: 5, name: 'Lusso', slug: 'lusso' }] };
   const { woo, deps } = setup({ seed, routes: studioRoutes(), env: WP_ENV, storage: STUDIO_FILES });
   const r = await upload(deps);
   const [en, ar] = woo.calls.filter((c) => c.method === 'POST' && c.path === 'wc/v3/products');
   assertEquals([en.body.brands, ar.body.brands, r.body.item.wooBrand, r.body.result], [[{ id: 4363 }], undefined, 4363, 'ok']);
-  const none = setup({ seed: { ...studioSeed(), woo_brands: [{ id: 5, name: 'Lusso', slug: 'lusso' }] }, routes: studioRoutes(), env: WP_ENV, storage: STUDIO_FILES });
+  // the brand in both places (the owner 15 Nov, comments plan decision 81): no such brand on the site → it is made there under the
+  // brand's own name, before the product, which takes it; the mirror gets its row; a retry makes nothing again
+  const lusso = [{ id: 5, name: 'Lusso', slug: 'lusso' }];
+  const none = setup({ seed: { ...studioSeed(), woo_brands: lusso }, routes: studioRoutes({ 'POST wc/v3/products/brands': (c: any) => ({ body: { id: 4400, name: c.body.name, slug: 'art-craft' } }) }), env: WP_ENV, storage: STUDIO_FILES });
   const n = await upload(none.deps);
   const enN = none.woo.calls.find((c) => c.method === 'POST' && c.path === 'wc/v3/products')!;
-  assertEquals(['brands' in enN.body, n.body.item.wooBrand, n.body.result], [false, null, 'ok'], 'the pa_brand attribute only; the report says so');
+  const brandPost = none.woo.calls.find((c) => c.path === 'wc/v3/products/brands')!;
+  assertEquals([brandPost.body, enN.body.brands, n.body.item.wooBrand, n.body.item.wooBrandNew, n.body.result], [{ name: 'Art Craft' }, [{ id: 4400 }], 4400, true, 'ok']);
+  assert(none.woo.calls.indexOf(brandPost) < none.woo.calls.indexOf(enN), 'the brand before the product');
+  assertEquals(none.db.rows('woo_brands').map((b: any) => [b.id, b.name]), [[5, 'Lusso'], [4400, 'Art Craft']], 'the mirror');
+  const again = none.woo.calls.length;
+  await upload(none.deps);
+  assertEquals(siteWrites(none.woo, again), [], 'a retry makes no brand and writes nothing');
+  // there already but not in the mirror: the site answers term_exists with its id, which the product takes
+  const exists = setup({ seed: { ...studioSeed(), woo_brands: lusso }, env: WP_ENV, storage: STUDIO_FILES,
+    routes: studioRoutes({ 'POST wc/v3/products/brands': { status: 400, body: { code: 'term_exists', message: 'x', data: { status: 400, resource_id: 4363 } } } }) });
+  const ex = await upload(exists.deps);
+  assertEquals([exists.woo.calls.find((c) => c.method === 'POST' && c.path === 'wc/v3/products')!.body.brands, ex.body.item.wooBrand, ex.body.item.wooBrandNew], [[{ id: 4363 }], 4363, undefined]);
+  // two brands of the site named like it: none is made, the product goes up with the attribute only and the report says so
+  const two = setup({ seed: { ...studioSeed(), woo_brands: [{ id: 7, name: 'Art Craft', slug: 'art-craft' }, { id: 8, name: 'art-craft', slug: 'art-craft-2' }] }, routes: studioRoutes(), env: WP_ENV, storage: STUDIO_FILES });
+  const tw = await upload(two.deps);
+  assertEquals([two.woo.calls.some((c) => c.path === 'wc/v3/products/brands'), 'brands' in two.woo.calls.find((c) => c.method === 'POST' && c.path === 'wc/v3/products')!.body, tw.body.item.wooBrand, tw.body.result], [false, false, null, 'ok']);
+  // the site refusing the new brand never stops the product: it goes up with the attribute, and a retry asks again
+  const refused = setup({ seed: { ...studioSeed(), woo_brands: lusso }, routes: studioRoutes({ 'POST wc/v3/products/brands': { status: 500, body: { code: 'x' } } }), env: WP_ENV, storage: STUDIO_FILES });
+  const rf = await upload(refused.deps);
+  assertEquals(['brands' in refused.woo.calls.find((c) => c.method === 'POST' && c.path === 'wc/v3/products')!.body, rf.body.item.wooBrand, rf.body.result], [false, null, 'ok']);
+  // a product that went up while the site had no such brand takes it on a retry, once
+  const late = setup({ seed: { ...simpleSeed({ items: [{ sku: 'IBTARBE1000', productId: 900, arId: 901, media: { [`${SB}/1-1.webp`]: 7001 }, authorIds: [900, 901], authorOwner: 44, author: 'ok', arAttrs: 'ok', wooBrand: null, error: null }] }), woo_brands: lusso }, env: WP_ENV, storage: STUDIO_FILES,
+    routes: studioRoutes({ 'POST wc/v3/products/brands': (c: any) => ({ body: { id: 4400, name: c.body.name, slug: 'art-craft' } }), 'PUT wc/v3/products/900': (c: any) => ({ body: { id: 900, brands: c.body.brands } }) }) });
+  const lt = await upload(late.deps);
+  assertEquals([siteWrites(late.woo, 0), late.woo.calls.find((c) => c.method === 'PUT')!.body, lt.body.item.wooBrand], [['POST wc/v3/products/brands', 'PUT wc/v3/products/900'], { brands: [{ id: 4400 }] }, 4400]);
   const old = simpleSeed({ items: [{ sku: 'IBTARBE1000', productId: 900, arId: 901, media: { [`${SB}/1-1.webp`]: 7001 }, authorIds: [900, 901], authorOwner: 44, author: 'ok', arAttrs: 'ok', error: null }] });
   const v33 = setup({ seed: { ...old, woo_brands: [{ id: 4363, name: 'Art Craft', slug: 'art-craft' }] }, env: WP_ENV, storage: STUDIO_FILES,
     routes: studioRoutes({ 'PUT wc/v3/products/900': (c: any) => ({ body: { id: 900, brands: c.body.brands } }) }) });
@@ -1841,7 +1945,7 @@ Deno.test('studio_upload (the owner, 2 Nov): a size typed as numbers gets «cm»
   const termsBefore = woo.calls.findIndex((c) => c.method === 'POST' && c.path.endsWith('/terms')) < woo.calls.indexOf(ar);
   assert(termsBefore, 'the terms before the translation is posted');
   // a translation from before this (no arAttrs on the result): the terms, then the attributes on the translation; a second retry writes nothing
-  const old = simpleSeed({ items: [{ sku: 'IBTARBE1000', productId: 900, arId: 901, media: { [`${SB}/1-1.webp`]: 7001 }, authorIds: [900, 901], authorOwner: 44, author: 'ok', wooBrand: null, error: null }] });
+  const old = simpleSeed({ items: [{ sku: 'IBTARBE1000', productId: 900, arId: 901, media: { [`${SB}/1-1.webp`]: 7001 }, authorIds: [900, 901], authorOwner: 44, author: 'ok', wooBrand: 4363, error: null }] });
   const prior = setup({ seed: old, env: WP_ENV, storage: STUDIO_FILES, routes: studioRoutes({ 'PUT wc/v3/products/901': (c: any) => ({ body: { id: 901, attributes: c.body.attributes } }) }) });
   const p = await upload(prior.deps);
   assertEquals([siteWrites(prior.woo, 0), p.body.item.arAttrs], [['PUT wc/v3/products/901'], 'ok']);

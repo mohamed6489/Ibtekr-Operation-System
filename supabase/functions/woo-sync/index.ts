@@ -152,8 +152,8 @@ import { getState, logSync, setState, upsertRows } from '../_shared/db.js';
 import { PAY_STATUSES, orderCreateInput, orderPayable, payUrl, wooOrderBody } from '../_shared/woo-order-create.js';
 import { vaultEnv } from '../_shared/secrets.js';
 import { ConfigError, WooError, errorText, makeScrubber, wooApi } from '../_shared/woo-api.js';
-import { AR_FIELDS, BATCH_FIELDS, EDIT_FIELDS, VARIATION_FIELDS, cleanFields, editView, sharedOf, toWoo, variationView } from '../_shared/woo-products.js';
-import { STUDIO_ATTRS, VARIATION_GALLERY_KEY, buildStudio, fetchSheetCsv, matchWooBrand } from '../_shared/woo-studio.js';
+import { AR_FIELDS, BATCH_FIELDS, EDIT_FIELDS, VARIATION_FIELDS, brandNamesOf, cleanFields, editView, sharedOf, toWoo, variationView, withBrandAttr } from '../_shared/woo-products.js';
+import { STUDIO_ATTRS, VARIATION_GALLERY_KEY, buildStudio, fetchSheetCsv, matchWooBrand, wooBrandIds } from '../_shared/woo-studio.js';
 import { duplicateAr, duplicatePayload, duplicateSku, duplicateVariation, variationSku } from '../_shared/woo-duplicate.js';
 import { OWNED, siteQuantities, skuList } from '../_shared/woo-inventory.js';
 import { CART_HOURS, CART_PATH, cartRows } from '../_shared/woo-carts.js';
@@ -1536,6 +1536,58 @@ async function arIds(run: Run, ids: number[]) {
   return out;
 }
 
+// The brand in both places (the owner 15 Nov — docs/superpowers/plans/2026-11-15-comments.md decision 81: «المفروض البراند تسمع في
+// مكانين علي الويب سايت»): after a write that set a product's WooCommerce brand (`brands` — the taxonomy the system reads), its
+// «Product Brand» attribute (pa_brand) is written with the same names — on the product, then on its Arabic translation (the Arabic
+// term is made as the English term's translation first, as the studio does). `rows` are the site's own answers to that write: they
+// carry `brands` with their names and the product's `attributes`, which go back untouched but for the brand's. No brand = the
+// attribute is taken off. Soft: the brand itself is saved either way, and the answer says how the attribute went —
+// 'ok' | 'same' (already right) | 'no_attribute' (the site has no pa_brand) | 'partial' | 'failed'. Names only, never logged.
+async function syncBrandAttr(run: Run, ctx: Ctx, rows: Json[], ar: Map<number, number>): Promise<{ state: string; written: number }> {
+  const list = rows.filter((r) => isObj(r) && wooId(r.id) !== null);
+  if (!list.length) return { state: 'same', written: 0 };
+  let written = 0, failed = 0;
+  try {
+    const attrId = wooId((await attributeIds(run, ctx)).brand);
+    if (attrId === null) return { state: 'no_attribute', written: 0 };
+    // a brand the answer did not name (an older WooCommerce Brands answers ids only) is read from the mirror
+    const nameless = [...new Set(list.flatMap((r) => (Array.isArray(r.brands) ? r.brands : []).filter((b: Json) => isObj(b) && wooId(b.id) !== null && !String(b.name ?? '').trim()).map((b: Json) => wooId(b.id) as number)))];
+    const mirror = new Map<number, string>();
+    if (nameless.length) { const { data } = await run.db.from('woo_brands').select('id, name').in('id', nameless); for (const b of data ?? []) mirror.set(Number(b.id), String(b.name ?? '')); }
+    const namesOf = (r: Json) => brandNamesOf({ brands: (Array.isArray(r.brands) ? r.brands : []).filter(isObj).map((b: Json) => ({ id: b.id, name: String(b.name ?? '').trim() || mirror.get(Number(b.id)) || '' })) }) as string[];
+    const send = async (upd: Json[]) => {
+      for (let i = 0; i < upd.length; i += PRODUCT_BATCH_MAX) {
+        const part = upd.slice(i, i + PRODUCT_BATCH_MAX);
+        try {
+          if (part.length === 1) { await ctx.woo.put(`wc/v3/products/${part[0].id}`, { attributes: part[0].attributes }); written += 1; continue; }
+          const r = (await ctx.woo.post('wc/v3/products/batch', { update: part })).data;
+          const ok = (isObj(r) && Array.isArray(r.update) ? r.update : []).filter((x: Json) => isObj(x) && !isObj(x.error) && wooId(x.id) !== null).length;
+          written += ok; failed += part.length - ok;
+        } catch (e) { if (!(e instanceof WooError)) throw e; failed += part.length; }
+      }
+    };
+    const names = new Map<number, string[]>(); const update: Json[] = [];
+    for (const r of list) { const id = wooId(r.id) as number; const n = namesOf(r); names.set(id, n); const a = withBrandAttr(r.attributes, attrId, n); if (a) update.push({ id, attributes: a }); }
+    await send(update);
+    // the translations: read as they are now (their attributes carry the Arabic terms), the brand's set the same way
+    const enOf = new Map<number, number>(list.map((r) => [ar.get(wooId(r.id) as number), wooId(r.id) as number] as [number | undefined, number]).filter(([a]) => a != null) as [number, number][]);
+    if (enOf.size) {
+      const arIdList = [...enOf.keys()];
+      const got = arIdList.length === 1 ? [(await ctx.woo.get(`wc/v3/products/${arIdList[0]}`)).data]
+        : ((await ctx.woo.get('wc/v3/products', { include: arIdList.join(','), per_page: String(PRODUCT_BATCH_MAX), lang: 'all', status: 'any' })).data ?? []);
+      const arUpdate: Json[] = []; const terms = new Set<string>();
+      for (const p of (Array.isArray(got) ? got : []).filter(isObj)) {
+        const en = enOf.get(wooId(p.id) as number); if (en == null) continue;
+        const n = names.get(en) ?? []; const a = withBrandAttr(p.attributes, attrId, n);
+        if (a) { arUpdate.push({ id: wooId(p.id), attributes: a }); n.forEach((x) => terms.add(x)); }
+      }
+      if (terms.size) { const options = [...terms]; if (!(await ensureArTerms(ctx, [{ id: attrId, options }], [{ id: attrId, options }]))) failed += 1; }
+      await send(arUpdate);
+    }
+  } catch (e) { if (!(e instanceof WooError)) throw e; failed += 1; }
+  return { state: failed ? (written ? 'partial' : 'failed') : written ? 'ok' : 'same', written };
+}
+
 // product_get { id }: the product as it is on the site now (+ its Arabic translation's name / descriptions + its
 // variations, up to 100), allow-listed (editView / variationView); the mirror is refreshed on the way.
 async function productGet(run: Run, args: Json) {
@@ -1590,9 +1642,11 @@ async function productSave(run: Run, args: Json) {
     const r = (await ctx.woo.post(`wc/v3/products/${id}/variations/batch`, { update: varPayload })).data;
     varFailed = (isObj(r) && Array.isArray(r.update) ? r.update : []).filter((x: Json) => isObj(x) && isObj(x.error)).length;
   }
+  // the brand in both places: the WooCommerce brand just written is the product's «Product Brand» attribute too
+  const brandAttr = 'brands' in main.payload && isObj(saved[0]) ? await syncBrandAttr(run, ctx, [saved[0]], arId !== null ? new Map([[id, arId]]) : new Map()) : null;
   await writeProducts(ctx, saved.filter(isObj));
-  await logSync(run.db, { ...productEntry(id, 'product_save'), result: varFailed ? 'error' : 'ok', detail: { ...detail, translation: arId !== null, variations_failed: varFailed } });
-  return json(200, { action: 'product_save', result: 'ok', counts: { saved: saved.length, variations: varPayload.length - varFailed, variations_failed: varFailed } });
+  await logSync(run.db, { ...productEntry(id, 'product_save'), result: varFailed ? 'error' : 'ok', detail: { ...detail, translation: arId !== null, variations_failed: varFailed, ...(brandAttr ? { brand_attr: brandAttr.state } : {}) } });
+  return json(200, { action: 'product_save', result: 'ok', counts: { saved: saved.length, variations: varPayload.length - varFailed, variations_failed: varFailed }, ...(brandAttr ? { brand_attr: brandAttr.state } : {}) });
 }
 
 // products_batch { update: [{ id, ...fields }] } (≤ 100): wc/v3/products/batch with `update` only — the batch's
@@ -1622,10 +1676,13 @@ async function productsBatch(run: Run, args: Json) {
     try { const r2 = (await ctx.woo.post('wc/v3/products/batch', { update: arUpdate })).data; arRows = (isObj(r2) && Array.isArray(r2.update) ? r2.update : []).filter((x: Json) => isObj(x) && !isObj(x.error)); }
     catch (e) { if (!(e instanceof WooError)) throw e; }
   }
+  // the brand in both places: every product whose WooCommerce brand this batch set gets its «Product Brand» attribute too
+  const branded = new Set(update.filter((u) => 'brands' in u).map((u) => u.id as number));
+  const brandAttr = branded.size ? await syncBrandAttr(run, ctx, okRows.filter((r: Json) => branded.has(wooId(r.id) as number)), ar) : null;
   await writeProducts(ctx, [...okRows, ...arRows]);
   const counts = { updated: okRows.length, failed: ids.length - okRows.length, translations: arRows.length };
-  await logSync(run.db, { ...productEntry(null, 'products_batch'), result: counts.failed ? 'error' : 'ok', detail: { ...counts, fields, ids: ids.slice(0, PRODUCT_BATCH_MAX) } });
-  return json(200, { action: 'products_batch', result: 'ok', counts, failed_ids: ids.filter((i) => !okRows.some((r: Json) => wooId(r.id) === i)) });
+  await logSync(run.db, { ...productEntry(null, 'products_batch'), result: counts.failed ? 'error' : 'ok', detail: { ...counts, fields, ids: ids.slice(0, PRODUCT_BATCH_MAX), ...(brandAttr ? { brand_attr: brandAttr.state } : {}) } });
+  return json(200, { action: 'products_batch', result: 'ok', counts, failed_ids: ids.filter((i) => !okRows.some((r: Json) => wooId(r.id) === i)), ...(brandAttr ? { brand_attr: brandAttr.state } : {}) });
 }
 
 // products_trash { ids } / products_restore { ids } (≤ 100): to the trash = DELETE wc/v3/products/{id} with no query
@@ -1915,6 +1972,24 @@ async function studioUpload(run: Run, args: Json) {
   const entry = { ...productEntry(null, 'studio_upload'), entity_id: `${batchId}#${index}` };
   if (!pushEnabled(run.env)) return await pushSkip(run, 'studio_upload', null, { batch: batchId, index });
   const ctx = await run.ctx();
+  // the brand in both places (the owner 15 Nov): a brand the site's WooCommerce Brands does not have yet is made there under its
+  // own name — asked only when the product is about to take it (never for an item that is refused first); one that is there but
+  // not in the mirror answers term_exists with its id; more than one match stays unset (null)
+  let siteBrand = wooBrand; let brandMade = false; let brandAsked = false;
+  const ensureBrand = async (): Promise<number | null> => {
+    if (siteBrand !== null || brandAsked) return siteBrand;
+    brandAsked = true;
+    if (!(typeof brand?.name === 'string' && brand.name.trim() && !/[<>]/.test(brand.name)) || wooBrandIds(brand, wooBrands ?? []).length !== 0) return null;
+    try {
+      const made = (await ctx.woo.post('wc/v3/products/brands', { name: brand.name.trim().slice(0, 80) })).data;
+      if (isObj(made) && wooId(made.id) !== null) { siteBrand = wooId(made.id); brandMade = true; await writeBrands(ctx, [made]); }
+    } catch (e) {
+      if (!(e instanceof WooError)) throw e;
+      const there = /term_exists/.test(e.message) ? wooId(/"resource_id":\s*(\d+)/.exec(e.message)?.[1]) : null;
+      if (there !== null) siteBrand = there;
+    }
+    return siteBrand;
+  };
   const built = buildStudio(item, { batchId, type: batch.type, brand: brand?.name ?? '', wooBrand, colors, colorsAr, attrs: await attributeIds(run, ctx) }) as Json;
   if (built.error) return json(400, built);
   const prev = isObj(batch.result) && Array.isArray(batch.result.items) && isObj(batch.result.items[index]) ? batch.result.items[index] : {};
@@ -1968,10 +2043,11 @@ async function studioUpload(run: Run, args: Json) {
       res.media[path] = mid;
     }
     if (!res.error && wooId(res.productId) === null) {
-      const p = (await ctx.woo.post('wc/v3/products', { ...built.product, images: built.images.map((path: string) => ({ id: res.media[path] })) })).data;
+      const b = await ensureBrand();
+      const p = (await ctx.woo.post('wc/v3/products', { ...built.product, ...(b !== null ? { brands: [{ id: b }] } : {}), images: built.images.map((path: string) => ({ id: res.media[path] })) })).data;
       res.productId = wooId(isObj(p) ? p.id : null);
       if (res.productId === null) res.error = 'product_refused';
-      else res.wooBrand = wooBrand; // the site's WooCommerce brand went with the product (null: none matched)
+      else { res.wooBrand = b; if (brandMade) res.wooBrandNew = true; } // the site's WooCommerce brand went with the product (null: more than one matched)
     }
     // the maker before the variations: Dokan orders a variation by the variation's own author, gives a new variation its
     // product's vendor, and has no REST route to change a variation's author afterwards — so a product whose maker did not
@@ -1985,9 +2061,11 @@ async function studioUpload(run: Run, args: Json) {
       }
     }
     // a product made before its WooCommerce brand was sent (woo-sync v33) gets it on a retry
-    if (!res.error && res.wooBrand === undefined) {
-      if (wooBrand !== null) await ctx.woo.put(`wc/v3/products/${res.productId}`, { brands: [{ id: wooBrand }] });
-      res.wooBrand = wooBrand;
+    // … and one that went up while the site had no such brand (null) takes the brand a retry found or made
+    if (!res.error && (res.wooBrand === undefined || res.wooBrand === null)) {
+      const b = await ensureBrand();
+      if (b !== null) await ctx.woo.put(`wc/v3/products/${res.productId}`, { brands: [{ id: b }] });
+      res.wooBrand = b; if (brandMade) res.wooBrandNew = true;
     }
     if (!res.error && built.variations.length && !isObj(res.variations)) {
       if (!authored.has(res.productId)) { authored.clear(); on = null; } // made with no maker on their product (no store): theirs is none

@@ -39,7 +39,10 @@ async function choose(page, kase, type) {
 }
 async function makerArtCraft(page) {
   await page.locator('#fl-maker').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
-  await expect(page.locator('#fl-brand')).toContainText('Art Craft'); // the maker's only brand is picked by itself
+  // the owner 15 Nov: the maker alone — no brand list; his own brand is taken, his rate shown with his details
+  await expect(page.locator('#fl-brand')).toHaveCount(0);
+  await expect(page.locator('[data-fl-brand]')).toContainText('Art Craft');
+  await expect(page.locator('[data-fl-rate]')).toContainText('%');
   await expect(page.locator('#fl-code')).toHaveValue('ART'); // glasstora → GLS: the first letter + the consonants after it
 }
 const batch = () => mock.studioBatches[0];
@@ -53,7 +56,7 @@ test('flow 1 «شيت جاهز» Simple: the sheet + photos by row → maker/bra
   await expect(page.locator('#pg-products')).toContainText('3 صورة');
   await next(page);
   await makerArtCraft(page);
-  await expect(page.locator('.rate-field')).toContainText('35%'); // the maker's rate, read only
+  await expect(page.locator('[data-fl-rate]')).toHaveText('35%'); // the maker's rate, read only (the owner 15 Nov: with his details)
   await next(page);
   // the data: the SKU of every product (one serial each, the new color added with a suggested code), the category matched
   await expect(page.locator('#pg-products [data-fl="sku"]').first()).toHaveValue('IBTART0999-BE');
@@ -134,6 +137,36 @@ test('flow 2 «داتا على الواتساب» Variable: the screenshots read
   const v = mock.studioUploads[1];
   expect([v.sku, v.product.type, v.variations.map((x) => [x.sku, x.sale_price])]).toEqual(['IBTART1000', 'variable', [['IBTART1000-BK', '470'], ['IBTART1000-BE', '470']]]);
   expect(mock.studioUploads[0].product.type).toBe('simple'); // a product alone = Simple
+});
+
+// the owner 15 Nov: «لما ارفع الصور توريني الصور بحجم صغير … ونفس الكلام في السكرين شوتس، وجنب كل واحدة الست نقط … بحيث أحط كل صورة
+// جنبها الناحية التانية السكرين شوت»
+test('flow 2: the screenshots and the photos show small side by side, each row with the six dots — a photo moved takes the other row; screenshots moved are read again in their new order', async ({ page }) => {
+  await signIn(page, ADMIN);
+  await choose(page, 'داتا على الواتساب', 'Simple');
+  await pick(page, '[data-flow-photos]', [png('1.png'), png('2.png')]);
+  await pick(page, '[data-flow-screens]', [png('chat-1.png'), png('chat-2.png')]);
+  await expect(page.locator('#pg-products')).toContainText('اتقرا');
+  const m = page.locator('#pg-products [data-fl-match]');
+  await expect(m).toContainText('السكرين شوتس'); await expect(m).toContainText('صور المنتجات');
+  await expect(m.locator('[data-fl-screens-row]')).toHaveCount(2);
+  await expect(m.locator('[data-fl-photos-row]')).toHaveCount(2);
+  await expect(m.locator('[data-fl-screens-row] .thumb')).toHaveCount(2);
+  await expect(m.locator('[data-fl-photos-row] [data-grip]')).toHaveCount(2);
+  await expect.poll(() => ((batch().state || {}).screenList || []).length).toBe(2); // the screenshots are kept with the batch
+  await expect.poll(() => Object.keys((batch().state || {}).photoRows || {}).length).toBe(2);
+  // the first photo row one down (the six dots by keyboard: ArrowDown) → row 1 has the second photo, row 2 the first
+  const was = JSON.parse(JSON.stringify(batch().state.photoRows));
+  await m.locator('[data-fl-photos-row] [data-grip]').first().focus(); await page.keyboard.press('ArrowDown');
+  await expect.poll(() => [batch().state.photoRows['1'][0], batch().state.photoRows['2'][0]]).toEqual([was['2'][0], was['1'][0]]);
+  // a screenshot moved → «اقرا تاني بالترتيب ده» → the AI reads them again in the new order
+  const shots = batch().state.screenList.slice();
+  await m.locator('[data-fl-screens-row] [data-grip]').first().focus(); await page.keyboard.press('ArrowDown');
+  await expect.poll(() => batch().state.screenList).toEqual([shots[1], shots[0]]);
+  await expect(page.locator('#pg-products')).toContainText('اضغط «اقرا تاني بالترتيب ده»');
+  await page.locator('[data-flow-read]').click();
+  await expect.poll(() => (mock.extractCalls || []).length).toBe(2);
+  await expect(page.locator('[data-flow-read]')).toHaveCount(0);
 });
 
 test('flow 3 «صور وعايز شيت» Variable: two colors × two products → the empty template with the reference picture in its cell → download, WhatsApp share', async ({ page }) => {

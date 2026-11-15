@@ -973,7 +973,7 @@
     const B = s.batches();
     // the three flows (2026-11-14-studio-flows.md): their batches (state.flow = 2) open in products-flow.js
     const isFlow = (b) => Number(b.flow != null ? b.flow : b.state && b.state.flow) === 2;
-    const FLOW_STEPS = ['البداية', 'المبتكر والبراند', 'البيانات', 'الأسعار', 'الصور', 'الرفع'];
+    const FLOW_STEPS = ['البداية', 'المبتكر', 'البيانات', 'الأسعار', 'الصور', 'الرفع'];
     const label = (b) => (b.status === 'done' ? Tag('success', 'اترفعت') : b.status === 'uploading' ? Tag('orange', 'اترفع جزء') : Tag('neutral', 'الخطوة ' + b.step + ' · ' + ((isFlow(b) ? FLOW_STEPS : STEPS)[b.step - 1] || '')));
     return Card('الشغل المحفوظ', 'الدفعات اللي لسه بتشتغل عليها — بتتحفظ تلقائي.', [s.state() === 'loading' ? U.InlineNote({ children: 'بنحمّل…' }) : B.length ? U.Table({ cls: 'dt', headers: ['الدفعة', 'النوع', 'الحالة', 'آخر تعديل', ''],
       rows: B.map((b) => [h('b', null, b.title), b.type, label(b), h('span', { class: 't-small help', dir: 'ltr' }, String(b.updated_at || '').slice(0, 16).replace('T', ' ')),

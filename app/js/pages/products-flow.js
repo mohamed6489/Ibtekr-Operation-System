@@ -26,7 +26,7 @@
   const Card = (title, sub, body, acts) => h('section', { class: 'card sec fl-card', 'data-no-tq': '', 'data-no-cols': '', 'data-no-th': '' },
     h('div', { class: 'sec-h' }, h('div', null, h('h2', { class: 't-h5' }, title), sub ? h('div', { class: 't-small sub' }, sub) : null), acts ? h('div', { class: 'acts-inline' }, acts) : null), [].concat(body).filter(Boolean));
   const CASES = { sheet: 'شيت جاهز من المبتكر', whatsapp: 'داتا على الواتساب', photos: 'صور وعايز شيت' };
-  const STEPS = { data: ['البداية', 'المبتكر والبراند', 'البيانات', 'الأسعار', 'الصور', 'الرفع'], photos: ['البداية', 'المبتكر والبراند', 'الصور', 'الشيت'] };
+  const STEPS = { data: ['البداية', 'المبتكر', 'البيانات', 'الأسعار', 'الصور', 'الرفع'], photos: ['البداية', 'المبتكر', 'الصور', 'الشيت'] };
   const SHOT_L = ['صورة 1 · في النص', 'صورة 2 · البيئة', 'صورة 3 · البيئة', 'صورة 4 · التفاصيل'];
   const REASON = { push_disabled: 'الكتابة على الموقع متقفلة (WOO_PUSH_ENABLED)', forbidden: 'مش مسموحلك', network: 'مشكلة في الاتصال — جرّب تاني', invalid: 'البيانات ناقصة أو مش صحيحة', missing: 'مش لاقيين الدفعة',
     images_first: 'ارفع الصور الأول — الشيت لينكاته من الصور', product_invalid_sku: 'الـ SKU ده موجود على الموقع', product_refused: 'الموقع رفض المنتج', author_failed: 'المبتكر ماتحطش على المنتج — جرّب تاني',
@@ -193,17 +193,57 @@
     if (fail.not_image) K.toast(fail.not_image + ' صورة ماترفعتش: الصيغة مش مدعومة في المتصفح (زي HEIC من الآيفون) — حوّلها JPG أو PNG وارفعها تاني', 'error');
     if (fail.network) K.toast(fail.network + ' صورة ماترفعتش: النت أو السيرفر — جرّب تاني', 'error');
   }
+  // the owner 15 Nov («لما ارفع الصور توريني الصور بحجم صغير … ونفس الكلام في السكرين شوتس، وجنب كل واحدة الست نقط اللي بغيّر بيها
+  // الترتيب، بحيث أحط كل صورة جنبها الناحية التانية السكرين شوت»): the screenshots go up into the batch (s.screenList, studio/<batch>/
+  // shot-…), shown small beside the photos and read by the AI in the order they are in; moving or removing one asks to read again
   async function takeScreens(files) {
-    const s = st();
-    if (files.length > 8) K.toast('أول 8 سكرين شوتس بس', 'warning');
+    const s = st(); s.screenList = Array.isArray(s.screenList) ? s.screenList : [];
+    const room = 8 - s.screenList.length;
+    if (room <= 0) { K.toast('لحد 8 سكرين شوتس — امسح واحدة الأول', 'warning'); return; }
+    if (files.length > room) K.toast('أول ' + room + ' سكرين بس (لحد 8)', 'warning');
     S.busy = 'extract'; R();
-    const r = await AI().extract(files.slice(0, 8), s.type, Object.keys(s.photoRows || {}).length);
+    let bad = 0;
+    for (const f of files.slice(0, room)) { const r = await ST().uploadImage(S.id, f, 'shot-' + (s.screenList.length + 1), { webp: true }); if (r.ok) s.screenList.push(r.path); else bad += 1; }
+    if (bad) K.toast(bad + ' سكرين ماترفعتش — جرّب تاني', 'error');
+    touch(); await readScreens();
+  }
+  async function readScreens() {
+    const s = st(); const list = Array.isArray(s.screenList) ? s.screenList : [];
+    if (!list.length) { S.busy = ''; R(); return; }
+    S.busy = 'extract'; R();
+    const blobs = [];
+    for (const p of list) { const b = await ST().bytesOf(p); if (b) blobs.push(new Blob([b], { type: /\.webp$/i.test(p) ? 'image/webp' : 'image/jpeg' })); }
+    if (!blobs.length) { S.busy = ''; K.toast('مقدرناش نقرا السكرين شوتس — ارفعها تاني', 'error'); R(); return; }
+    const r = await AI().extract(blobs, s.type, Object.keys(s.photoRows || {}).length);
     S.busy = '';
     if (!r.ok) { K.toast(why(r.reason, r.field), 'error'); R(); return; }
     if (r.result === 'refused' || !r.rows.length) { K.toast('الـ AI مالقاش منتجات في السكرين شوتس', 'warning'); R(); return; }
     s.rows = r.rows.map((x) => Object.assign(FD.blankRow(), x, { key: newKey(), src: x.product, ai: { extract: true } }));
-    s.screens = files.length; attachPhotos(); touch(); R();
+    s.screens = blobs.length; s.screensDirty = false; attachPhotos(); touch(); R();
     K.toast('الـ AI طلّع ' + r.rows.length + ' صف — راجعهم', 'success');
+  }
+  // a list in the order it is in, each row with the six dots (K.Grip / K.sortableRows) — the same row height on both sides, so a photo
+  // sits beside its screenshot
+  function sortList(attr, items, body, onOrder) {
+    const wrap = h('div', { class: 'fl-sort', ['data-' + attr]: '' }, items.map((x, i) => h('div', { class: 'fl-sort-row', ['data-' + attr + '-row']: x.id }, K.Grip(x.label), h('b', { class: 'fl-sort-n num' }, String(i + 1)), body(x))));
+    K.sortableRows(wrap, 'data-' + attr + '-row', onOrder);
+    return wrap;
+  }
+  function photosList() {
+    const s = st(); const byN = s.photoRows || {}; const keys = Object.keys(byN).map(Number).filter((k) => (byN[k] || []).length).sort((a, b) => a - b);
+    if (!keys.length) return null;
+    const nameOf = (k) => { const r = (s.rows || []).find((x) => (s.case === 'whatsapp' ? x.product : x.src) === k); return r ? (r.nameAr || r.nameEn || '') : ''; };
+    return sortList('fl-photos', keys.map((k) => ({ id: String(k), label: 'صور المنتج ' + k, paths: byN[k] })), (x) => h('div', { class: 'fl-sort-body' },
+      h('span', { class: 'fl-sort-thumbs' }, x.paths.slice(0, 3).map((p) => Thumb(p, 'st-sm')), x.paths.length > 3 ? h('span', { class: 't-small help' }, '+' + (x.paths.length - 3)) : null),
+      h('span', { class: 't-small help fl-sort-name' }, nameOf(Number(x.id)))),
+      (ids) => { const vals = ids.map((id) => byN[id]); const next = {}; keys.forEach((k, i) => { next[k] = vals[i]; }); s.photoRows = next; attachPhotos(); touch(); R(); });
+  }
+  function screensList() {
+    const s = st(); const list = Array.isArray(s.screenList) ? s.screenList : [];
+    if (!list.length) return null;
+    return sortList('fl-screens', list.map((p, i) => ({ id: p, label: 'السكرين ' + (i + 1) })), (x) => h('div', { class: 'fl-sort-body' }, Thumb(x.id, 'st-sm'),
+      U.IconButton({ icon: 'trash', label: 'امسح السكرين ده', onClick: () => { s.screenList = list.filter((p) => p !== x.id); ST().removeImage(x.id); s.screensDirty = !!(s.rows || []).length; touch(); R(); } })),
+      (ids) => { if (ids.join('|') === list.join('|')) return; s.screenList = ids.slice(); s.screensDirty = !!(s.rows || []).length; touch(); R(); });
   }
   function step1() {
     const s = st();
@@ -220,7 +260,9 @@
     }
     const src = s.case === 'whatsapp'
       ? Card('سكرين شوتس الواتساب', 'لحد 8 سكرين شوتس — الـ AI بيقرا الأسماء والأسعار والألوان والمقاسات بالترتيب.', [
-        h('div', { class: 'acts-inline' }, Button({ type: 'primary', icon: 'sparkle', label: S.busy === 'extract' ? 'بيقرا…' : s.rows.length ? 'اقرا سكرين شوتس تانية' : 'ارفع السكرين شوتس واقرا الداتا', disabled: S.busy === 'extract', attrs: { 'data-flow-screens': '' }, onClick: () => filePick('image/*', true, takeScreens) })),
+        h('div', { class: 'acts-inline' }, Button({ type: 'primary', icon: 'sparkle', label: S.busy === 'extract' ? 'بيقرا…' : (s.screenList || []).length ? 'زوّد سكرين شوتس' : 'ارفع السكرين شوتس واقرا الداتا', disabled: S.busy === 'extract' || (s.screenList || []).length >= 8, attrs: { 'data-flow-screens': '' }, onClick: () => filePick('image/*', true, takeScreens) }),
+          (s.screenList || []).length && (s.screensDirty || !s.rows.length) ? Button({ icon: 'sparkle', label: 'اقرا تاني بالترتيب ده', disabled: S.busy === 'extract', attrs: { 'data-flow-read': '' }, onClick: () => readScreens() }) : null),
+        s.screensDirty ? U.InlineNote({ kind: 'warning', children: 'غيّرت ترتيب السكرين شوتس أو مسحت واحدة — اضغط «اقرا تاني بالترتيب ده» عشان الصفوف تمشي معاها.' }) : null,
         s.rows.length ? U.InlineNote({ kind: 'success', children: 'اتقرا ' + s.rows.length + ' صف من ' + (s.screens || 0) + ' سكرين — هتراجعهم في «البيانات».' }) : null,
         U.InlineNote({ children: 'ارفع صور المنتجات الأول عشان الـ AI يعرف عددها، وبنفس ترتيب المنتجات في الشات (صورة لكل منتج، أو سمّيها «1»، «2»، «1-2»…).' })])
       : Card('الشيت', 'xlsx أو csv بالقالب بتاعنا أو بأي عناوين — بنطابق الأعمدة لوحدنا.', [
@@ -229,7 +271,12 @@
     const noRef = s.rows.filter((r) => !r.ref).length;
     const pics = Card('الصور', photosN ? photosN + ' صورة' + (s.rows.length ? ' · ' + (s.rows.length - noRef) + ' صف ليه صورة' : '') : 'صور المنتجات بجودة عالية', [h('div', { class: 'acts-inline' }, photosBtn, S.busy === 'photos' ? h('span', { class: 't-small help' }, 'بنرفع…') : null), nameHelp,
       s.rows.length && noRef ? U.InlineNote({ kind: 'warning', children: noRef + ' صف من غير صورة مرجعية — الصور بتتولّد من المرجعية، فارفعها أو كمّل من غيرها.' }) : null]);
-    return [h('div', { class: 'cols2-wide' }, src, pics), Foot(s.rows.length > 0, s.case === 'whatsapp' ? 'اقرا السكرين شوتس الأول' : 'ارفع الشيت الأول')];
+    const sl = s.case === 'whatsapp' ? screensList() : null; const pl = photosList();
+    const match = sl || pl ? Card(s.case === 'whatsapp' ? 'الصور قدام السكرين شوتس' : 'الصور على صفوف الشيت', 'اسحب من الست نقط عشان ترتّب — ' + (s.case === 'whatsapp' ? 'كل صورة قدام السكرين شوت بتاعها، والترتيب ده هو ترتيب المنتجات.' : 'كل صف بصوره، واسم المنتج من الشيت جنبه.'),
+      h('div', { class: 'fl-match' + (sl ? ' two' : ''), 'data-fl-match': '' },
+        sl ? h('div', { class: 'fl-match-col' }, h('b', { class: 't-label-s' }, 'السكرين شوتس'), sl) : null,
+        h('div', { class: 'fl-match-col' }, h('b', { class: 't-label-s' }, 'صور المنتجات'), pl || h('span', { class: 't-small help' }, 'ارفع الصور')))) : null;
+    return [h('div', { class: 'cols2-wide' }, src, pics), match, Foot(s.rows.length > 0, s.case === 'whatsapp' ? 'اقرا السكرين شوتس الأول' : 'ارفع الشيت الأول')];
   }
 
   // ---------------- 2 المبتكر والبراند (decision 4) ----------------
@@ -239,36 +286,44 @@
     const makers = Vs && Vs.store && Vs.store.all ? Vs.store.all().slice().sort((a, b) => a.name.localeCompare(b.name, 'ar')) : [];
     const mk = makers.find((x) => x.id === s.vendorId) || null;
     const brands = (vd ? vd.brands : []).filter((b) => mk && String(b.owner) === String(mk.id));
-    if (mk && !s.brandId && brands.length === 1) { setBrand(brands[0]); }
-    const r = rateNow();
+    // the owner 15 Nov («محتاجين بس نختار اسم المبتكر ويكون في بحث في الدروب داون، وشيل البراند، وأظهر نسبة المبتكر بشكل يليق مع
+    // المعلومات وتحتها كود البراند في الـ SKU»): the maker alone is picked (his list opens with a search box — U.Select, 9 names or more);
+    // the brand is his own — the one of his store, else the one named like him, else his first; with none, his name
+    if (mk) autoBrand(mk, brands);
+    const r = rateNow(); const noStore = mk && mk.wooVendorId == null && s.case !== 'photos';
+    const info = (label, value, attrs) => h('div', Object.assign({ class: 'fl-mk-item' }, attrs || {}), h('span', { class: 't-small help' }, label), h('b', null, value));
     const body = [
       h('div', { class: 'grid2' },
-        U.Select({ id: 'fl-maker', label: 'المبتكر', required: true, value: s.vendorId || '', placeholder: vd ? 'اختار المبتكر' : 'بنحمّل المبتكرين…',
+        U.Select({ id: 'fl-maker', label: 'المبتكر', required: true, value: s.vendorId || '', placeholder: vd ? 'اختار المبتكر — اكتب أول حروف اسمه' : 'بنحمّل المبتكرين…',
           options: makers.map((x) => ({ value: x.id, label: x.name + (x.wooVendorId == null ? ' (مالوش متجر على الموقع)' : '') })),
           onChange: (v) => { const m = makers.find((x) => x.id === v); s.vendorId = m ? m.id : null; s.vendorName = m ? m.name : ''; s.brandId = null; s.brandName = ''; s.code = ''; s.rate = null; s.fee = null; touch(); R(); },
-          error: mk && mk.wooVendorId == null && s.case !== 'photos' ? 'المبتكر ده مالوش متجر على الموقع — اعمله متجر من ملفه الأول' : null }),
+          error: noStore ? 'المبتكر ده مالوش متجر على الموقع — اعمله متجر من ملفه الأول' : null }),
         h('div', { class: 'fl-new' }, Button({ size: 'sm', icon: 'plus', label: 'مبتكر جديد', onClick: () => { touch(true); go('makers/new'); } }))),
-      mk ? h('div', { class: 'grid2' },
-        U.Select({ id: 'fl-brand', label: 'البراند', required: true, value: s.brandId || '', placeholder: brands.length ? 'اختار البراند' : 'المبتكر مالوش براندات', options: brands.map((b) => ({ value: b.id, label: b.name })),
-          onChange: (v) => { const b = brands.find((x) => x.id === v); if (b) setBrand(b); touch(); R(); } }),
-        h('div', { class: 'fl-new' }, Button({ size: 'sm', icon: 'plus', label: 'براند جديد', onClick: () => newBrand(mk) }))) : null,
-      s.brandId ? h('div', { class: 'grid2' }, U.FieldShell({ id: 'fl-code', label: 'كود البراند في الـ SKU (2–4 حروف)', help: 'مثال: glasstora → GLS — IBTGLS1020-OW' }, h('div', { class: 'input' }, h('input', { id: 'fl-code', dir: 'ltr', maxlength: 4, value: s.code || '', 'data-flow-code': '',
+      mk ? h('div', { class: 'fl-maker-info', 'data-fl-maker-info': '' },
+        h('div', { class: 'fl-mk-rate' }, h('span', { class: 't-small help' }, 'نسبة إبتكر'), h('b', { class: 'num', 'data-fl-rate': '' }, r == null ? '—' : U.num(r + '%')),
+          h('small', { class: 'help' }, (feeNow() ? '+ ' + K.n0(feeNow()) + ' ج.م رسوم ثابتة' : 'من غير رسوم ثابتة') + (mk.commissionType === 'category_based' ? ' · بتختلف حسب القسم' : ''))),
+        h('div', { class: 'fl-mk-grid' },
+          info('المبتكر', mk.name),
+          info('المتجر على الموقع', mk.wooVendorId == null ? 'مالوش متجر' : 'موجود'),
+          info('البراند', s.brandName || mk.name, { 'data-fl-brand': '' }),
+          info('سعر البيع', '(سعر المبتكر + الرسوم) ÷ (1 − النسبة)'))) : null,
+      mk ? h('div', { class: 'grid2' }, U.FieldShell({ id: 'fl-code', label: 'كود البراند في الـ SKU (2–4 حروف)', help: 'مثال: glasstora → GLS — IBTGLS1020-OW' }, h('div', { class: 'input' }, h('input', { id: 'fl-code', dir: 'ltr', maxlength: 4, value: s.code || '', 'data-flow-code': '',
           onChange: (ev) => { s.code = String(ev.target.value || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4); touch(); R(); } }))),
-        h('div', { class: 'rate-field' }, h('span', { class: 't-small help' }, 'نسبة إبتكر (من حساب المبتكر)'), h('b', null, r == null ? '—' : U.num(r + '%')), h('small', { class: 'help' }, ' + ' + K.n0(feeNow()) + ' ج.م رسوم'))) : null,
-      s.brandId && !FD.validCode(s.code) ? U.InlineNote({ kind: 'warning', children: 'كود البراند لازم 2–4 حروف إنجليزي.' }) : null];
-    const ok = !!mk && !!s.brandId && FD.validCode(s.code) && (s.case === 'photos' || mk.wooVendorId != null);
-    return [Card('المبتكر والبراند', 'المنتجات بتترفع على متجر المبتكر، والبراند بيتكتب في الشيت وكوده في الـ SKU.', body), Foot(ok, !mk ? 'اختار المبتكر' : !s.brandId ? 'اختار البراند' : 'كود البراند')];
+        h('div', { class: 'fl-sku-ex t-small help', 'data-fl-sku-ex': '' }, FD.validCode(s.code) ? 'الـ SKU هيبقى: ' : '', FD.validCode(s.code) ? h('b', { dir: 'ltr' }, 'IBT' + s.code + '1020-OW') : null)) : null,
+      mk && !FD.validCode(s.code) ? U.InlineNote({ kind: 'warning', children: 'كود البراند لازم 2–4 حروف إنجليزي.' }) : null];
+    const ok = !!mk && FD.validCode(s.code) && (s.case === 'photos' || mk.wooVendorId != null);
+    return [Card('المبتكر', 'المنتجات بتترفع على متجر المبتكر، وبراندُه بيتكتب في الشيت وكوده في الـ SKU.', body), Foot(ok, !mk ? 'اختار المبتكر' : 'كود البراند')];
+  }
+  // the maker's own brand (see step2); a batch that already has one of his brands keeps it
+  function autoBrand(mk, brands) {
+    const s = st(); if (s.brandId && brands.some((b) => b.id === s.brandId)) return;
+    const norm = (x) => String(x || '').trim().toLowerCase();
+    const pick = brands.find((b) => String(b.store) === String(mk.id)) || brands.find((b) => norm(b.name) === norm(mk.name)) || brands[0] || null;
+    if (pick) { setBrand(pick); return; }
+    if (s.brandName !== mk.name || !s.code) { s.brandId = null; s.brandName = mk.name; if (!FD.validCode(s.code)) s.code = FD.brandCode3(mk.name); s.rows.forEach((r) => { if (!r.brand) r.brand = mk.name; }); }
   }
   function setBrand(b) { const s = st(); s.brandId = b.id; s.brandName = b.name; const c = String(b.code || '').toUpperCase(); s.code = FD.validCode(c) && c.length >= 3 ? c : FD.brandCode3(b.name); s.rows.forEach((r) => { if (!r.brand) r.brand = b.name; }); }
-  function newBrand(mk) {
-    K.form({ title: 'براند جديد لـ ' + mk.name, values: { name: '' }, submitLabel: 'ضيف البراند',
-      fields: (f, e, set) => [K.field.text('name', 'اسم البراند (إنجليزي)', f, e, set, { required: true })],
-      validate: (f) => (String(f.name || '').trim().length >= 2 && /[A-Za-z]{2}/.test(f.name) ? {} : { name: 'اكتب اسم البراند بالإنجليزي' }),
-      submit: async (f) => {
-        try { const r = await V().store.addBrand(mk.id, { name: String(f.name).trim(), code: FD.brandCode3(f.name) }, V().store.actor ? V().store.actor() : null); if (r && r.brand) { setBrand(r.brand); touch(); } R(); K.toast('اتضاف البراند', 'success'); }
-        catch (e) { K.toast(e && e.message ? e.message : 'مقدرناش نضيف البراند', 'error'); }
-      } });
-  }
+
 
   // ---------------- 3 البيانات (decision 6) ----------------
   const ISSUE_FIELDS = (r) => FD.rowIssues(r).filter((x) => x !== 'سعر المبتكر' && x !== 'سعر البيع');

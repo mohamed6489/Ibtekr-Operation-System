@@ -97,6 +97,8 @@
     } catch (e) { return no('network'); }
     data.sections[sec] = next; emit();
     log(sec + '.save', Object.keys(patch).sort().join(', '), sec);
+    // the owner 15 Nov: an instruction template added here shows in a campaign right away (settings_public().aiTemplates)
+    if (sec === 'ai_rules') Promise.resolve(loadPublic()).catch(() => {});
     return { ok: true };
   }
 

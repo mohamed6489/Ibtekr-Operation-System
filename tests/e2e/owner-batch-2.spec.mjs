@@ -379,7 +379,10 @@ test('T8 — decisions 13–15: the six shot rules of the studio; «+ تعليم
     return { six: r && r.data ? (r.data.slots || []).length : 0, tpl: img.filter((x) => x.custom).map((x) => [x.name, x.prompt]) }; })
     .toEqual({ six: 6, tpl: [['ألوان الشتا', 'ألوان دافية بني وكريمي، إضاءة شتوية']] });
   const id = mock.settings.find((x) => x.section === 'ai_rules').data.sections.img.find((x) => x.custom).id;
-  await page.evaluate(() => window.IBSettings.loadPublic()); // settings_public (0100): the templates for everyone
+  // the owner 15 Nov («ضفت … بجرب بس مظهرتش في قوالب التعليمات وأنا بعمل كامبين»): no reload of the page — saving the instructions reads
+  // the public templates again, and a campaign reads them when it opens (here: one added from another device after the save)
+  const rules = mock.settings.find((x) => x.section === 'ai_rules').data;
+  rules.sections.img.push({ id: 'other1', name: 'بجرب', prompt: 'إضاءة طبيعية', custom: true });
   // decision 14: the campaign's «تعليمات» = the templates (pick one or more) + its own words
   await go(page, '#marketing-create');
   const mk = page.locator('#pg-marketing');
@@ -390,7 +393,7 @@ test('T8 — decisions 13–15: the six shot rules of the studio; «+ تعليم
   // to every post already
   await expect(mk.locator('#cw-tpl-post')).toContainText('غير محدد');
   await mk.locator('#cw-tpl-post').click();
-  expect(await page.locator('[data-mp-menu="cw-tpl-post"] [data-mp-opt]').evaluateAll((l) => l.map((x) => x.getAttribute('data-mp-opt')))).toEqual(['none', id]);
+  expect(await page.locator('[data-mp-menu="cw-tpl-post"] [data-mp-opt]').evaluateAll((l) => l.map((x) => x.getAttribute('data-mp-opt')))).toEqual(['none', id, 'other1']);
   await page.locator('[data-mp-menu="cw-tpl-post"] [data-mp-opt="' + id + '"]').click();
   await page.keyboard.press('Escape');
   await expect(mk.locator('#cw-tpl-post')).toContainText('ألوان الشتا');

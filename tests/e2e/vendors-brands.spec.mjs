@@ -334,7 +334,11 @@ test('transfer Antikiano\'s brand to Bian eg from 8 days ago, temporarily: one o
   await modal(page).getByRole('button', { name: 'رجوع' }).click();
   await expect(modal(page)).toContainText('قبل آخر نقل');
   await typeDate(page, 'br-since', TODAY);
+  // the owner 15 Nov («Keep the makers page note visible after a save»): the note is still there after the save's own reload drew the
+  // page again (it used to be gone a blink after it showed — this line passed only when it caught it)
+  await page.evaluate(() => { window.__written = 0; document.addEventListener('ib:vendors', (e) => { if (e.detail && e.detail.written) window.__written += 1; }); });
   await modal(page).getByRole('button', { name: 'رجوع' }).click();
+  await expect.poll(() => page.evaluate(() => window.__written)).toBeGreaterThan(0); // the reload after the save announced itself
   await expect(note(page)).toContainText('رجع البراند Antikiano لـ Antikiano');
   await expect.poll(() => writes().length).toBe(2);
   expect(writes()[1]).toEqual({ table: 'brand_owners', op: 'insert', brand_id: B2, vendor_id: V2, since: TODAY, return_on: null, reason: 'رجوع لصاحبه', set_by: 'صفوت كمال' });
@@ -381,4 +385,31 @@ test('the seeded transfer ({ transfer: true }): at sign-in Bian eg holds Antikia
   await expect(note(page)).toContainText('التاريخ ده قبل آخر نقل للبراند');
   await expect.poll(() => page.evaluate((b2) => window.IBVendors.store.brand(b2).owner, B2)).toBe(V3); // the history back as it was (a refusal reloads nothing)
   expect(writes()).toEqual([]);
+});
+
+// the owner 15 Nov («Keep the makers page note visible after a save» — docs/superpowers/plans/2026-11-15-page-notes.md): the page's note
+// was taken by the first draw, so the redraw for the server's answer removed it a blink after it showed
+test('the page note stays through the redraws for the server\'s answer (the reload after a save, the bell\'s recount, a teammate\'s change); «إخفاء» and the member\'s own action clear it', async ({ page }) => {
+  await setup(page, { transfer: true }); // Bian eg holds Antikiano's brand: his delete is refused by the server
+  await openVendors(page);
+  const refusedDelete = () => page.evaluate((v3) => { try { window.IBVendors.store.remove(v3, window.IBVendors.store.actor()); return 'removed'; } catch (e) { return e.message; } }, V3);
+  const serverRedraws = () => page.evaluate(() => { document.dispatchEvent(new CustomEvent('ib:notify')); document.dispatchEvent(new CustomEvent('ib:vendors', { detail: { id: 'x', written: true } })); document.dispatchEvent(new CustomEvent('ib:notify')); });
+  expect(await refusedDelete()).toBe('removed');
+  await expect(note(page)).toContainText('عليه براندات');
+  await expect.poll(() => page.evaluate((v3) => !!window.IBVendors.store.get(v3), V3)).toBe(true); // the maker is back in the store — and the note is still there
+  await serverRedraws();
+  await expect(note(page)).toHaveCount(1); await expect(note(page)).toContainText('عليه براندات');
+  // «إخفاء»: off the screen, and no later redraw brings it back
+  await note(page).getByRole('button', { name: 'إخفاء' }).click();
+  await expect(note(page)).toHaveCount(0);
+  await serverRedraws();
+  await expect(note(page)).toHaveCount(0);
+  // the member's own action (the search) clears it as before — and it stays cleared
+  expect(await refusedDelete()).toBe('removed');
+  await expect(note(page)).toContainText('عليه براندات');
+  await page.locator('#vendors [data-tq-btn]').click(); // «بحث» opens the search row
+  await page.locator('#vendors input[type=search]').fill('Bian');
+  await expect(note(page)).toHaveCount(0);
+  await serverRedraws();
+  await expect(note(page)).toHaveCount(0);
 });

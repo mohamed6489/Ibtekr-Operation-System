@@ -142,7 +142,8 @@ test('the contact popup (admin): the six address parts and the social links; one
   await expect.poll(() => acts('vendor.update')).toEqual([{ action: 'vendor.update', entity: 'vendor', entity_id: V1, new_value: 'contactName, addressParts, social' }]);
   await expect(info(contact(page), page, 'آخر مزامنة مع الموقع').locator('[data-synced-at]')).not.toHaveAttribute('data-synced-at', T0); // the reload after the push
   await expect(contact(page).locator('[data-push-pending]')).toHaveCount(0);
-  await expect(note(page)).toHaveCount(0); // the save's own note went with the redraw after the push; an ok push adds none
+  // an ok push adds no note of its own: what is on the screen is the save's own (it stays through the redraw after the push — the owner 15 Nov)
+  await expect(page.locator('#vendors .note.warning, #vendors .note.error')).toHaveCount(0);
   expect(mock.vendors.find((v) => v.id === V1).woo_snapshot.contact_name).toBe('منى عادل حسن');
   // a link that is not https:// is refused on the page before any write
   await openContact(page);
@@ -174,7 +175,7 @@ test('the push fails (502): saved here, the message, the fields wait in «في �
   await modal(page).getByRole('button', { name: 'حفظ' }).click();
   await expect.poll(() => pushes().slice(1)).toEqual([{ vendor_id: V1, fields: ['address_parts'], result: 'skipped', reason: 'push_disabled' }]);
   await expect(info(contact(page), page, 'في انتظار الإرسال')).toHaveText('اسم صاحب المتجر، العنوان');
-  await expect(note(page)).toHaveCount(0); // skipped: nothing beyond the save's own note (gone with the redraw)
+  await expect(page.locator('#vendors .note.warning, #vendors .note.error')).toHaveCount(0); // skipped: nothing beyond the save's own note
   mock.pushEnabled = true;
   // «المزيد» → a status change pushes status; the terms popup → a new rate pushes rate; after the ok the pending fields it sent are gone
   await drawer(page).getByRole('button', { name: 'المزيد' }).click();

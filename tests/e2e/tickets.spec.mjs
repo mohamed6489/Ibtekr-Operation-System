@@ -113,6 +113,17 @@ test('admin opens a ticket: ticket_create with the form, the drawer on the new t
   expect(mock.tickets.at(-1)).toMatchObject({ id: 4, created_by: ADMIN_ID, created_by_role: 'مدير النظام', status: 'open' });
   await expect.poll(() => mock.activityRows.filter((r) => r.action === 'ticket.create').map((r) => r.new_value)).toEqual(['TKT-0004 · internal · اللوجستيك والشحن']);
   expect(JSON.stringify(mock.activityRows)).not.toContain('سر الوصف');
+  // the owner 15 Nov (page-notes plan decision 3): the page's note stays through a redraw for the server's answer (its own ping about
+  // this very write drew the page again without it); «إخفاء» takes it off for good
+  const pnote = page.locator('#tickets [data-page-note]');
+  await expect(pnote).toContainText('اتعمل الطلب TKT-0004');
+  const ping = () => page.evaluate(() => { document.dispatchEvent(new CustomEvent('ib:tickets', { detail: {} })); });
+  await ping(); await ping();
+  await expect(pnote).toHaveCount(1); await expect(pnote).toContainText('اتعمل الطلب TKT-0004');
+  await pnote.getByRole('button', { name: 'إخفاء' }).dispatchEvent('click'); // the drawer sits over the page
+  await expect(pnote).toHaveCount(0);
+  await ping();
+  await expect(pnote).toHaveCount(0);
 });
 
 test('a customer ticket needs the order number and a reason (the v2 validation, before any call)', async ({ page }) => {

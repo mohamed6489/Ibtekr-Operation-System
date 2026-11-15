@@ -359,6 +359,9 @@ test('the data step: a card per product with Arabic and English side by side —
   // the owner 15 Nov: the rewrite is a sparkle inside the field («إعادة كتابة» on hover) and asks for instructions first
   await expect(card.locator('[data-fl-rewrite="nameAr"]')).toHaveAttribute('data-tip', 'إعادة كتابة');
   await expect(card.locator('.fl-inwrap [data-fl="nameAr"] + [data-fl-rewrite="nameAr"]')).toHaveCount(1); // inside the field's box
+  const rw = card.locator('[data-fl-rewrite="nameAr"]'); const look = () => rw.evaluate((el) => { const c = getComputedStyle(el); return [c.backgroundColor, c.color]; });
+  expect(await look()).toEqual(['rgba(0, 0, 0, 0)', 'rgb(0, 86, 66)']); // the owner 15 Nov: no background, green
+  await rw.hover(); await expect.poll(look).toEqual(['rgb(0, 86, 66)', 'rgb(255, 247, 239)']); // hover: green round, beige icon
   await card.locator('[data-fl-rewrite="nameAr"]').click(); await page.fill('#ai-ask-notes', 'اسم أقصر'); await page.locator('[data-ai-go]').click();
   await expect(card.locator('[data-fl="nameAr"]')).toHaveValue('اسم منتج متكتب من جديد');
   await expect(card.locator('[data-fl="nameEn"]')).toHaveValue('Rewritten Product Name');

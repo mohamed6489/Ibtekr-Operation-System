@@ -86,6 +86,12 @@ test('a new campaign: the details (the row created) → the AI fills the piece �
   expect(mock.mkt.calls.some((c) => c.fn === 'ai-content' && c.task === 'fill' && c.piece === 'P1')).toBe(true);
   // «إعادة كتابة بالـ AI» on the subheadline, then «تراجع»
   await pg(page).locator('#b-P1-s').fill('قديم');
+  // the owner 15 Nov: the sparkle has no background and is green; under the pointer a green round with a beige icon
+  const rw = pg(page).locator('[data-ai-rw="b-P1-s"]');
+  const look = () => rw.evaluate((el) => { const c = getComputedStyle(el); return [c.backgroundColor, c.color]; });
+  expect(await look()).toEqual(['rgba(0, 0, 0, 0)', 'rgb(0, 86, 66)']);
+  await rw.hover();
+  await expect.poll(look).toEqual(['rgb(0, 86, 66)', 'rgb(255, 247, 239)']);
   await pg(page).locator('[data-ai-rw="b-P1-s"]').click(); await page.fill('#ai-ask-notes', 'أقصر'); await page.locator('[data-ai-go]').click();
   await expect(pg(page).locator('#b-P1-s')).toHaveValue('كولكشن الشتا وصل');
   expect(mock.mkt.calls.filter((c) => c.fn === 'ai-content' && c.task === 'rewrite').pop().notes).toBe('أقصر'); // the member's instructions reach the server

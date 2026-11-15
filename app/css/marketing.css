@@ -244,6 +244,10 @@
 .ai-fld.one .ai-acts { top:50%;bottom:auto;transform:translateY(-50%) }
 .ai-rw,.ai-undo { display:inline-flex;align-items:center;justify-content:center;gap:4px;height:28px;min-width:28px;padding:0 8px;border-radius:999px;border:1px solid var(--color-brand-subtle-bg);background:var(--color-brand-subtle-bg);color:var(--color-brand-default);font:inherit;font-size:12px;font-weight:700;cursor:pointer }
 .ai-rw:hover { background:var(--color-brand-default);color:var(--color-text-on-brand) }
+/* the owner 15 Nov («شيل الخلفية من ورا ايقونة ال ايه اي و خليها تبقا بلون اخضر و لما اعمل هوفر تظهر لها خلفية خضرا و الايقون تبقا بيج»):
+   the in-field AI sparkle has no background — a green icon; under the pointer (or the keyboard) a green round with a beige icon */
+.ai-rw { background:transparent;border-color:transparent;color:var(--color-brand-default) }
+.ai-rw:hover:not(:disabled),.ai-rw:focus-visible { background:var(--color-brand-default);border-color:var(--color-brand-default);color:var(--color-text-on-brand) }
 .ai-undo { background:var(--color-bg-base);border-color:var(--color-border-default);color:var(--color-text-secondary);padding:0 6px }
 .ai-rw:focus-visible,.ai-undo:focus-visible { outline:2px solid var(--color-border-focus);outline-offset:1px }
 @media (max-width:767px) {

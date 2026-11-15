@@ -2132,3 +2132,17 @@ tr.is-sel td,#vendors .tickets-table tr.is-sel td,.vprod-row.is-sel{background:v
   .dp.range .pcmp-fields label{display:flex;flex-direction:column;align-items:stretch;gap:2px}
   .dp.range .pcmp-fields .input{width:100%;height:44px}
 }
+
+/* «تخصيص اللوحة» بتاع كروت التقارير (comments decision 16, the owner 15 Nov — «خد التصميم بتاعها من الـ prototype»): the picker's own
+   rules as the prototype has them — they were never brought over, so the popup drew as bare buttons */
+.kpi-pick{display:flex;flex-direction:column;gap:16px}
+.kpi-pick-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.kpi-opt{display:flex;align-items:center;gap:10px;min-height:56px;padding:8px 12px;border:1px solid var(--color-border-subtle);border-radius:var(--radius-md);background:var(--color-bg-base);text-align:start;font:inherit;color:inherit;cursor:pointer}
+.kpi-opt:hover{border-color:var(--color-brand-default)}.kpi-opt.on{border-color:var(--color-brand-default);background:var(--color-bg-tint)}
+.kpi-opt[disabled]{opacity:.45;cursor:not-allowed}
+.kpi-opt .mchk{width:18px;height:18px;flex:none;border:1px solid var(--color-border-default);border-radius:4px;display:inline-flex;align-items:center;justify-content:center}
+.kpi-opt.on .mchk{background:var(--color-brand-default);border-color:var(--color-brand-default);color:var(--color-bg-base)}
+.kpi-opt-t{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.kpi-opt-v{flex:none;font-weight:700;color:var(--color-brand-default);max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kpi-ord{color:var(--color-text-secondary);font-weight:600}
+@media (max-width:599px){.kpi-pick-grid{grid-template-columns:1fr}.kpi-opt{min-height:60px}}

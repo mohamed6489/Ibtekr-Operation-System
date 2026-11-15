@@ -152,6 +152,8 @@ test('T3 — decision 17: the delay rules in two boxes (no per-maker rules); the
   await go(page, 'settings-makers');
   const body = page.locator('#pg-settings');
   await expect(body.locator('.dl-boxes > .card')).toHaveCount(2);
+  // the owner 15 Nov: the two boxes say what they are
+  expect(await body.locator('.dl-boxes > .card h2').allTextContents()).toEqual(['قواعد تأخير الأوردر الرئيسي', 'قواعد تأخير الأوردر الفرعي']);
   await expect(body).not.toContainText('قواعد خاصة لكل مبتكر');
   const delay = () => (((mock.settings || []).find((r) => r.section === 'makers') || {}).data || {}).delay;
   // the risk days of the order

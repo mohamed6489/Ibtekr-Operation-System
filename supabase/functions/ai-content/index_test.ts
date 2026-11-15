@@ -456,6 +456,28 @@ Deno.test('marketing scenes: a video piece of the saved campaign → its scenes 
   assertEquals((await call(deps, { action: 'marketing', task: 'scenes', campaign_id: CMP, piece: 'V1' }, 'jwt-add')).res.status, 401);
 });
 
+// 15 Nov: the video piece's own texts — «فكرة الفيديو» / «الكابشن المقترح» (rewrite) and «املأ بالـ AI» (fill) were answered 400 «piece»
+Deno.test('marketing on a video piece itself: rewrite its idea as a reel\'s and fill its idea and caption only, from the saved piece and the video\'s instructions; no such scene is still refused', async () => {
+  const seed = { mkt_campaigns: [{ id: CMP, name: 'فيديو', archived_at: null, state: { w: { goal: 'منتج جديد', idea: 'كولكشن الشتا', media: { video: { notes: 'نور دافي', dur: 10 }, post: { notes: 'ألوان دافية' } } },
+    pieces: [{ id: 'V1', kind: 'فيديو', n: 1, size: '9:16', idea: 'المخدة', caption: '', title: '', sub: '', badge: '', dur: 10, model: 'seedance-2.5', sceneCount: 2, scenes: [{ n: 1, d: 5, idea: 'لقطة قريبة' }] }] } }] };
+  const { deps, asked, db } = setup({ seed, replies: [msg({ text: 'ريل للمخدة في قعدة دافية' }), msg({ idea: 'ريل للمخدة جنب الشباك', caption: 'كولكشن الشتا وصل ✨', title: 'دفا الشتا', badge: 'جديد' }), msg({ text: 'لقطة أقرب على الغرزة' })] });
+  const r = await call(deps, { action: 'marketing', task: 'rewrite', kind: 'idea', campaign_id: CMP, piece: 'V1', slide: null, text: 'المخدة' }, 'jwt-mkt');
+  assertEquals([r.res.status, r.body.result, r.body.text], [200, 'ok', 'ريل للمخدة في قعدة دافية']);
+  const sent = asked[0].messages[0].content[0].text;
+  assert(sent.includes('Piece: فيديو 1') && sent.includes('Video length: 10 seconds') && sent.includes('Video scenes: 2') && sent.includes('Current video idea: المخدة') && sent.includes('Instructions for this media: نور دافي'));
+  assert(sent.includes("the idea of the campaign's short vertical product video (a reel)") && sent.includes('<current_text>\nالمخدة\n</current_text>') && !sent.includes('ألوان دافية'), 'the video\'s own instructions, not the posts\'');
+  const run = db.rows('ai_runs').at(-1); assertEquals([run.action, run.source, run.label, run.status], ['marketing', 'campaign', 'فيديو 1', 'ok']);
+  const f = await call(deps, { action: 'marketing', task: 'fill', campaign_id: CMP, piece: 'V1' }, 'jwt-mkt');
+  assertEquals([f.res.status, f.body.fields], [200, { idea: 'ريل للمخدة جنب الشباك', caption: 'كولكشن الشتا وصل ✨' }]);
+  assertEquals(Object.keys(asked[1].output_config.format.schema.properties), ['idea', 'caption']);
+  assert(asked[1].messages[0].content[0].text.includes('Fill these fields of this video piece: idea, caption'));
+  // a scene's idea: the scene as before; a scene that is not there → 400 piece
+  const sc = await call(deps, { action: 'marketing', task: 'rewrite', kind: 'idea', campaign_id: CMP, piece: 'V1', slide: 0, text: 'لقطة قريبة' }, 'jwt-mkt');
+  assertEquals([sc.res.status, sc.body.text, db.rows('ai_runs').at(-1).label], [200, 'لقطة أقرب على الغرزة', 'فيديو 1 · المشهد 1']);
+  const no = await call(deps, { action: 'marketing', task: 'rewrite', kind: 'idea', campaign_id: CMP, piece: 'V1', slide: 4 }, 'jwt-mkt');
+  assertEquals([no.res.status, no.body.field], [400, 'piece']);
+});
+
 // ---------------------------------------------------------------- phase 12 T1: the header's assistant (decision 8)
 
 const toolUse = (uses: { id: string; name: string; input: unknown }[], text = '') => msg(text, { stop_reason: 'tool_use', content: [...(text ? [{ type: 'text', text }] : []), ...uses.map((u) => ({ type: 'tool_use', ...u }))] });

@@ -344,4 +344,25 @@
 .stmt-foot { margin: 0; }
 /* the owner 15 Nov: «إظهار صور المنتجات» — the product of a line with its picture */
 .stmt-prod { display: inline-flex; align-items: center; gap: 8px; }
+/* the owner 15 Nov: «صغّر المسافات بين الأعمدة عشان يتبعت PDF والمعلومات واضحة» — a tight table that fits the page, no side scroll */
+.stmt-preview .scroll-x { overflow: visible; }
+.stmt-preview table.mini-table { width: 100%; min-width: 0; table-layout: auto; border-collapse: collapse; font-size: 13px; }
+.stmt-preview table.mini-table :is(th, td) { padding: 6px 8px; height: auto; line-height: 1.35; vertical-align: middle; }
+.stmt-preview table.mini-table th { white-space: normal; font-size: 12px; min-width: 0; }
+.stmt-preview table.mini-table td { white-space: nowrap; }
+.stmt-preview table.mini-table td:nth-child(2) { white-space: normal; }
+.stmt-preview .stmt-prod { gap: 6px; }
+.stmt-preview .stmt-img { width: 28px; height: 28px; }
+/* it previews a PDF: a table on a phone too (not the record cards every other table becomes under 1024px) */
+@media (max-width: 1023px) {
+  .stmt-preview .scroll-x table.mini-table { display: table; width: 100%; font-size: 11px; }
+  .stmt-preview .scroll-x table.mini-table thead { display: table-header-group; }
+  .stmt-preview .scroll-x table.mini-table tbody { display: table-row-group; }
+  .stmt-preview .scroll-x table.mini-table tr { display: table-row; border: 0; padding: 0; margin: 0; }
+  .stmt-preview .scroll-x table.mini-table :is(th, td) { display: table-cell; padding: 5px 4px; border: 0; text-align: start; line-height: 1.35; width: auto; flex: none; }
+  .stmt-preview .scroll-x table.mini-table th { font-size: 10.5px; }
+  .stmt-preview .scroll-x table.mini-table td::before { content: none; display: none; }
+  .stmt-preview .scroll-x table.mini-table td:first-child { font-weight: 400; font-size: inherit; color: inherit; border: 0; padding-bottom: 5px; }
+  .stmt-preview .stmt-img { width: 22px; height: 22px; }
+}
 .stmt-img { display: inline-grid; place-items: center; width: 32px; height: 32px; flex: none; border-radius: 6px; background: var(--color-bg-tint, #f5ecdc); color: var(--color-text-subtle, #6b6458); }

@@ -423,6 +423,14 @@ test('T9 — decisions 19, 21, 23–26: deposit rules, each missing item opens i
   await st.locator('[data-stmt-preview]').click();
   await expect(modal(page).filter({ hasText: 'معاينة كشف الحساب' }).locator('[data-stmt-img]')).toHaveCount(0);
   await expect(modal(page).filter({ hasText: 'معاينة كشف الحساب' })).toContainText('مخدة بوهيمي');
+  // and «إظهار سعر البيع»: on = the «المبيعات» column, «لا» = without it
+  await expect(modal(page).filter({ hasText: 'معاينة كشف الحساب' }).locator('[data-stmt-sales]')).toHaveCount(3);
+  await page.keyboard.press('Escape');
+  await st.locator('#p-sl').click(); await page.getByRole('option', { name: 'لا', exact: true }).click();
+  await expect.poll(() => row('payments').payout && row('payments').payout.sales).toBe('لا');
+  await st.locator('[data-stmt-preview]').click();
+  await expect(modal(page).filter({ hasText: 'معاينة كشف الحساب' }).locator('[data-stmt-sales]')).toHaveCount(0);
+  await expect(modal(page).filter({ hasText: 'معاينة كشف الحساب' })).not.toContainText('المبيعات');
   await page.keyboard.press('Escape');
   // 21: the maker drawer lists each missing item, a click opens where it is filled
   await page.evaluate(() => { location.hash = 'makers/a0000000-0000-4000-8000-000000000001'; });

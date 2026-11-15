@@ -489,3 +489,33 @@ test('comment 16 — «تخصيص اللوحة» of the reports cards: the proto
   expect(await css(p.locator('.kpi-pick-grid').first(), 'display')).toBe('grid');
   expect(await css(p.locator('.kpi-opt').first(), 'borderTopStyle')).toBe('solid');
 });
+
+// ---- comments 17–19: the stock records table ----
+test('comments 17–19 — «سجل المخزون»: no «الخطوة الجاية» column; a piece shows its product\'s own photo from the site and «افتح على الموقع» opens the product\'s page in a new tab; a piece with no product on the site has neither', async ({ page }) => {
+  const V1 = 'a0000000-0000-4000-8000-000000000001'; const L1 = 'b7000000-0000-4000-8000-0000000000a1', L2 = 'b7000000-0000-4000-8000-0000000000a2';
+  const lot = (id, sku, name) => ({ id, reason: 'متاح للبيع', status: 'متاح', sku, name, vendor_id: V1, order_id: null, item_id: null, ref: null, loc: 'T', mode: 'ملك ابتكر', cost: 650, condition: null, condition_note: null, note: null, product_id: null, since: '2026-11-01', closed_at: null, created_by: null, created_at: '2026-11-01T10:00:00Z' });
+  mock.inv.inv_lots.push(lot(L1, 'IBTA4040PAHC000013', 'Cushion'), lot(L2, 'NO-SUCH-SKU', 'قطعة من غير منتج'));
+  mock.inv.inv_moves.push({ id: 98, lot_id: L1, type: 'in', qty: 3, label: 'دخول — للبيع', reason: 'متاح للبيع', ref: null, note: null, by: null, at: '2026-11-01T10:00:00Z' }, { id: 99, lot_id: L2, type: 'in', qty: 1, label: 'دخول — للبيع', reason: 'متاح للبيع', ref: null, note: null, by: null, at: '2026-11-01T10:00:00Z' });
+  const photo = SITE + '/wp-content/uploads/2026/11/cushion.webp';
+  mock.products.filter((p) => p.sku === 'IBTA4040PAHC000013').forEach((p) => { p.image_url = photo; });
+  await page.route(SITE + '/wp-content/**', (r) => r.fulfill({ status: 200, contentType: 'image/gif', body: Buffer.from('R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==', 'base64') }));
+  await signIn(page);
+  await go(page, 'inventory-now');
+  const inv = page.locator('#pg-inventory'); const table = inv.locator('table.inv-table');
+  await expect(table.locator('tbody tr')).toHaveCount(2);
+  // 17: the column is gone (the piece's details keep the step)
+  const heads = (await table.locator('thead th').allTextContents()).map((x) => x.trim());
+  expect(heads).not.toContain('الخطوة الجاية');
+  expect(heads).toEqual(expect.arrayContaining(['المنتج', 'السبب', 'الحالة', 'دخل المخزن', 'بقاله']));
+  // 18: the product's own photo from the site
+  const r1 = table.locator('tbody tr', { hasText: 'Cushion' }); const r2 = table.locator('tbody tr', { hasText: 'قطعة من غير منتج' });
+  await expect(r1.locator('.thumb img')).toHaveAttribute('src', photo);
+  await expect(r2.locator('.thumb img')).toHaveCount(0);
+  // 19: the product's page on the site — a new tab, never this one
+  const link = r1.locator('a[data-inv-site]');
+  await expect(link).toHaveText('افتح على الموقع');
+  await expect(link).toHaveAttribute('href', SITE + '/product/cushion/');
+  await expect(link).toHaveAttribute('target', '_blank');
+  await expect(link).toHaveAttribute('rel', /noopener/);
+  await expect(r2.locator('a[data-inv-site]')).toHaveCount(0);
+});

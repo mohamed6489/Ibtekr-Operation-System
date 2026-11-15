@@ -74,7 +74,9 @@
       value: status === 'اتفحص — تالف' ? l.cost : 0 };
   }
 
-  let st = 'idle'; let gen = 0; let countRow = null;
+  let st = 'idle'; let gen = 0; let countRow = null; let media = new Map(); const HTTPS = /^https:\/\/[^\s"'<>]+$/i;
+  // a product's photo and page on the site by SKU ('' when the mirror has none): { img, link }
+  const mediaOf = (sku) => media.get(String(sku || '').trim()) || { img: '', link: '' };
   const data = { settings: Object.assign({}, DEFAULTS) };
 
   async function rows(q) { const { data: d, error } = await q; if (error) throw error; return Array.isArray(d) ? d : []; }
@@ -105,7 +107,17 @@
       const closedIds = counts.filter((x) => x.status === 'approved').map((x) => x.id);
       const lineIds = (open ? [open.id] : []).concat(closedIds);
       const lines = lineIds.length ? await rows(cl.from('inv_count_lines').select(LINE_COLS).in('count_id', lineIds)) : [];
+      // comments decisions 18 and 19 (the owner 15 Nov — «خلي صور المنتجات تبان هنا» · «لو المنتج ليه لينك على الويبسايت حطه هنا»): the lots'
+      // products on the site by SKU — the photo and the page from the mirror (https only; the English row first, as the orders page).
+      // A member who cannot read the mirror gets none (the box icon stays).
+      const skus = [...new Set(lots.map((l) => String(l.sku || '').trim()).filter(Boolean))]; const found = new Map();
+      for (let i = 0; i < skus.length; i += 100) {
+        const ps = await rows(cl.from('products').select('sku, image_url, permalink, lang').in('sku', skus.slice(i, i + 100))).catch(() => []);
+        ps.slice().sort((a, b) => (a.lang === 'ar') - (b.lang === 'ar')).forEach((x) => { const k = String(x.sku || '').trim(); if (!k) return; const m = found.get(k) || { img: '', link: '' };
+          if (!m.img && HTTPS.test(x.image_url || '')) m.img = x.image_url; if (!m.link && HTTPS.test(x.permalink || '')) m.link = x.permalink; found.set(k, m); });
+      }
       if (g !== gen) return { ok: false, reason: 'stale' };
+      media = found;
       const itemOf = new Map(items.map((i) => [String(i.id), i])); const wooOf = new Map(subs.map((x) => [String(x.id), x.woo_order_id]));
       const sidOf = (id) => { const i = itemOf.get(String(id)); if (!i) return String(id); const w = i.sub_order_id != null ? wooOf.get(String(i.sub_order_id)) : null; return w != null ? String(w) : String(i.order_id); };
       const stock = lots.map((r) => toStock(r, sidOf)); const byKey = new Map(stock.map((l) => [l.key, l]));
@@ -137,7 +149,7 @@
     ['consolidationAlert', 'photoMax', 'returnWait'].forEach((k) => { const n = Number(o[k]); if (o[k] !== undefined && o[k] !== null && o[k] !== '' && Number.isInteger(n) && n >= 1 && n <= 90) out[k] = n; });
     if (RETURN_DEFAULTS.includes(o.returnDefault)) out.returnDefault = o.returnDefault;
     return out; };
-  function clear() { gen++; st = 'idle'; countRow = null; const S = store(); if (S) Object.assign(S, { stock: [], ledger: [], returns: [], consolidations: [], count: null, counts: [], racks: [] }); }
+  function clear() { gen++; st = 'idle'; countRow = null; media = new Map(); const S = store(); if (S) Object.assign(S, { stock: [], ledger: [], returns: [], consolidations: [], count: null, counts: [], racks: [] }); }
 
   // ---------- writes ----------
   const lotRow = (l) => ({ id: UUID.test(String(l.key)) ? l.key : newKey(), reason: l.reason, status: l.status, sku: l.sku ? String(l.sku).trim().slice(0, 80) : null, name: String(l.name || '').trim().slice(0, 200),
@@ -253,7 +265,7 @@
     catch (e) { return { ok: false, reason: 'network' }; }
   }
 
-  window.IBInventory = { load, clear, state: () => st, can, today, cairo, newKey, settings: () => Object.assign({}, data.settings), DEFAULTS, PLACES, RETURN_DEFAULTS, loadSettings,
+  window.IBInventory = { load, clear, media: mediaOf, state: () => st, can, today, cairo, newKey, settings: () => Object.assign({}, data.settings), DEFAULTS, PLACES, RETURN_DEFAULTS, loadSettings,
     addLot, addMove, updateLot, consolidate, addToConsolidation, closeConsolidation, startCount, countLine, approveCount, saveSettings, countId: () => (countRow ? countRow.id : null),
     _test: { toStock, toMove, toReturn, lotRow, moveRow, locCode, modeIn, modeOut } };
 })();

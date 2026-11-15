@@ -399,6 +399,22 @@
     const sm = section('makers'); const raw = (sm && sm.delay) || (data.public && data.public.makers && data.public.makers.delay) || null;
     const O = window.IbtekrOps; return O && O.delayRules ? O.delayRules(raw) : raw || {};
   }
+  // the owner 15 Nov (docs/superpowers/plans/2026-11-15-fake-discount.md): the default fake-discount tiers — settings «makers».fake
+  // (the admin's own row first, else the public slice — 0106), cleaned by the products domain; null = none (the old sale + 15–30%)
+  function fakeRule() {
+    const sm = section('makers'); const raw = (sm && sm.fake) || (data.public && data.public.makers && data.public.makers.fake) || null;
+    const P = window.IbtekrProducts; return P && P.fakeRule ? P.fakeRule(raw) : null;
+  }
+  // the admin may save it from the studio's prices step too. The row is read first: a save merges into the loaded row, and a row
+  // that was never read would be written over with this one key
+  async function saveFake(rule) {
+    if (!can().admin) return no('forbidden');
+    const e = await ensure(); if (!e || !e.ok || !data.loaded) return no('network');
+    const P = window.IbtekrProducts; const clean = P && P.fakeRule ? P.fakeRule(rule) : null;
+    const r = await save('makers', { fake: clean }); // null: the key leaves the row
+    if (r && r.ok) { if (data.public) { data.public.makers = Object.assign({}, data.public.makers, { fake: clean || undefined }); } emit(); }
+    return r;
+  }
   // the added confirmation / product statuses ({ confirm, sub })
   function addedStatuses() { const src = listSrc() || {}; return { confirm: cleanAdded(src.statusAdded, 'confirm'), sub: cleanAdded(src.statusAdded, 'sub') }; }
   // a list as the pages show it: the base values with the added ones, in the saved order
@@ -513,7 +529,7 @@
     return after(await orderRpc('order_status_order', { p_names: names.map(String) }, 'names'), 'order', 'order · ' + names.length);
   }
 
-  window.IBSettings = { loginLocks, loginUnlock, load, ensure, loadPublic, clear, data, section, sections: () => Object.assign({}, data.sections), roles, liveRoles, public: () => data.public, can, PERMS, PERM_KEYS, lists, saveLists, statusLabel, STATUS_KINDS, setRoleLevelPerms, setMemberLevel, levelPermsOf, MEMBER_LEVELS: MLEVELS, quickList, quickSave, quickDelete, quickOrder, QUICK_SCOPES: Q_SCOPES, expenseKinds, statusList, addedStatuses, delayRules, orderStatuses, orderStatusAdd, orderStatusSlug, orderStatusDelete, orderStatusOrder, ADDED_MAX, ADDED_LEN, weekStart, KIND_MAX, KINDS_MAX,
+  window.IBSettings = { loginLocks, loginUnlock, load, ensure, loadPublic, clear, data, section, sections: () => Object.assign({}, data.sections), roles, liveRoles, public: () => data.public, can, PERMS, PERM_KEYS, lists, saveLists, statusLabel, STATUS_KINDS, setRoleLevelPerms, setMemberLevel, levelPermsOf, MEMBER_LEVELS: MLEVELS, quickList, quickSave, quickDelete, quickOrder, QUICK_SCOPES: Q_SCOPES, expenseKinds, statusList, addedStatuses, delayRules, fakeRule, saveFake, orderStatuses, orderStatusAdd, orderStatusSlug, orderStatusDelete, orderStatusOrder, ADDED_MAX, ADDED_LEN, weekStart, KIND_MAX, KINDS_MAX,
     save, setRolePerms, createRole, updateRole, deleteRole, setMemberRole, setMemberRoles, setMemberPerms, setMemberStatus, sessions, revokeSession, deviceOf,
     links, setSecret, wooSet, testSecret, unlink, connections, notifyStatus, notifyTick, activity, pageOf, docs, addDoc, updateDoc, removeDoc, docUrl, uploadLogo, logoUrl, LOGO_SLOTS };
 })();

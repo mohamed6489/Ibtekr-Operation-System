@@ -982,10 +982,19 @@
     dropZone(card, isImage, takePhotos, () => S.busy === 'photos', 'اسحب صور بس (JPG أو PNG أو WebP)');
     return [card, Foot(n > 0, 'ارفع الصور')];
   }
+  // the template's rows with what was filled: the names / description / category of the product (s.fill[product], the AI's or typed),
+  // its color by color slot (slot 1 = the AI's color unless picked), its size by size slot and the maker's price by row (the owner
+  // 15 Nov: «خلي في امكانية للمستخدم بتعديل البيانات … المقاس … اللون … القسم و السعر و الحفظ قبل التنزيل») — empty = for the maker
+  const fillOf = (i) => { const s = st(); s.fill = s.fill || {}; return (s.fill[i] = s.fill[i] || {}); };
+  const colorOfSlot = (x, slot) => { const c = (x.colors || {})[slot]; return c ? c : slot > 1 ? ['', ''] : [x.colorEn || '', x.colorAr || '']; };
+  const sizePair = (t) => { const v = String(t || '').trim(); if (!v) return ['', '']; const ar = /[\u0600-\u06FF]/.test(v); return [FD.sizeEnOf(v) || (ar ? '' : v), ar ? v : arSize({ size: v })]; };
   function blankRowsOf() {
     const s = st(); const L = FD.blankSheetRows({ type: s.type, products: (s.products || []).length, kinds: s.kinds });
     return L.map((r) => { const p = s.products[r.product]; const k = r.variant ? (p.n + '-' + r.variant) : String(p.n); const x = (s.fill && s.fill[r.product]) || {};
-      return Object.assign(r, { n: k, ref: p.ref, brand: s.brandName, nameEn: x.nameEn || '', nameAr: x.nameAr || '', catEn: x.catEn || '', shortEn: x.shortEn || '', shortAr: x.shortAr || '', colorEn: r.colorSlot > 1 ? '' : x.colorEn || '', colorAr: r.colorSlot > 1 ? '' : x.colorAr || '', images: [] }); });
+      const [colorEn, colorAr] = colorOfSlot(x, r.colorSlot || 0); const [size, sizeAr] = sizePair((x.sizes || {})[r.sizeSlot || 0]);
+      const pr = Number((x.prices || {})[r.variant || 0]);
+      return Object.assign(r, { n: k, ref: p.ref, brand: s.brandName, nameEn: x.nameEn || '', nameAr: x.nameAr || '', catEn: x.catEn || '', shortEn: x.shortEn || '', shortAr: x.shortAr || '', colorEn, colorAr, size, sizeAr,
+        vendorPrice: Number.isFinite(pr) && pr > 0 ? pr : null, images: [] }); });
   }
   async function aiFillProducts(notes) {
     const s = st(); await touch(true); S.busy = 'ai'; R(); s.fill = s.fill || {}; let stop = '';
@@ -994,13 +1003,15 @@
       const r = await AI().studio(S.id, i, ['nameEn', 'nameAr', 'desc', 'category', 'variations'], notes);
       if (!r.ok) { stop = why(r.reason); break; }
       const f = r.fields || {}; const c = (f.colors || [])[0] ? colors().find((x) => x.code === f.colors[0]) : null;
-      s.fill[i] = { nameEn: f.nameEn || '', nameAr: f.nameAr || '', shortEn: f.shortDesc || '', shortAr: f.shortDescAr || '', catEn: (f.categories || [])[0] ? pathOfId(f.categories[0]) : '', colorEn: c ? c.name_en : '', colorAr: c ? c.name_ar : '' };
+      // the AI fills what is empty only — a size, a price, a color or a category the member set stays
+      const add = { nameEn: f.nameEn || '', nameAr: f.nameAr || '', shortEn: f.shortDesc || '', shortAr: f.shortDescAr || '', catEn: (f.categories || [])[0] ? pathOfId(f.categories[0]) : '', colorEn: c ? c.name_en : '', colorAr: c ? c.name_ar : '' };
+      const cur = s.fill[i] || {}; Object.keys(add).forEach((k) => { if (!cur[k] && add[k]) cur[k] = add[k]; }); s.fill[i] = cur;
       touch(); R();
     }
     S.busy = ''; R(); K.toast(stop || 'الـ AI ملا الأسماء والأقسام والألوان — سعر المبتكر والمقاس للمبتكر', stop ? 'error' : 'success');
   }
   async function shareSheet(how) {
-    const blob = await sheetFile(blankRowsOf(), st().type, null); const name = FD.sheetFileName(st().vendorName || st().brandName);
+    await saveSheet(true); const blob = await sheetFile(blankRowsOf(), st().type, null); const name = FD.sheetFileName(st().vendorName || st().brandName);
     const file = typeof File === 'function' ? new File([blob], name, { type: blob.type }) : null;
     if (file && navigator.canShare && navigator.canShare({ files: [file] })) { try { await navigator.share({ files: [file], title: name }); return; } catch (e) { if (e && e.name === 'AbortError') return; } }
     K.saveFile(name, blob);
@@ -1009,6 +1020,33 @@
     window.open(url, '_blank', 'noopener');
     K.toast('الملف اتنزل — ارفقه في ' + (how === 'mail' ? 'الإيميل' : 'الواتساب'), 'success');
   }
+  // one cell's control: a text / number box (kept as typed; the rows sharing it redraw when it is left) or a dropdown
+  function sheetInput(r, key, val, set, o) {
+    const x = o || {};
+    const el = h('input', { class: 'input sm', type: x.num ? 'number' : 'text', inputmode: x.num ? 'decimal' : false, min: x.num ? '0' : false, dir: x.dir || 'auto', value: val == null ? '' : String(val), placeholder: x.ph || '',
+      'aria-label': x.label + ' — ' + r.n, 'data-sh': key + ':' + r.n });
+    el.addEventListener('input', () => { set(el.value); touch(); });
+    el.addEventListener('change', () => R());
+    return el;
+  }
+  function sheetColor(r) {
+    const x = fillOf(r.product); const slot = r.colorSlot || 0; const cur = colorOfSlot(x, slot)[0];
+    const list = colors(); const known = list.some((c) => c.name_en === cur);
+    const options = [{ value: '', label: '— من غير —' }].concat(list.map((c) => ({ value: c.name_en, label: (c.name_ar || c.name_en) + ' — ' + c.name_en })), cur && !known ? [{ value: cur, label: cur }] : []);
+    return named('اللون — ' + r.n, h('div', { class: 'fl-sh-sel', 'data-sh': 'color:' + r.n }, U.Select({ id: 'fl-sh-color-' + r.n, label: '', options, value: cur, placeholder: 'اختار اللون',
+      onChange: (v) => { const c = list.find((y) => y.name_en === v); const pair = v ? [v, c ? c.name_ar || '' : ''] : ['', ''];
+        if (slot > 1) x.colors = Object.assign({}, x.colors, { [slot]: pair }); else { x.colorEn = pair[0]; x.colorAr = pair[1]; if (x.colors) delete x.colors[slot]; }
+        touch(); R(); } })));
+  }
+  const named = (label, el) => { const b = el.querySelector('button.select'); if (b) b.setAttribute('aria-label', label); return el; };
+  function sheetCat(r) {
+    const x = fillOf(r.product); const list = cats(); const now = catIdOf(x.catEn);
+    if (!list.length) return sheetInput(r, 'cat', x.catEn, (v) => { x.catEn = v.trim(); }, { label: 'القسم', dir: 'ltr' });
+    const options = [{ value: '', label: '— من غير —' }].concat(list.map((c) => ({ value: String(c.id), label: c.path }))).concat(now == null && x.catEn ? [{ value: '__cur', label: x.catEn + ' (مش على الموقع)' }] : []);
+    return named('القسم — ' + r.n, h('div', { class: 'fl-sh-sel fl-sh-cat', 'data-sh': 'cat:' + r.n }, U.Select({ id: 'fl-sh-cat-' + r.n, label: '', options, value: now != null ? String(now) : x.catEn ? '__cur' : '', placeholder: 'اختار القسم',
+      onChange: (v) => { if (v === '__cur') return; x.catEn = v ? pathOfId(v) : ''; touch(); R(); } })));
+  }
+  async function saveSheet(quiet) { const r = await touch(true); if (!quiet) K.toast(r && r.ok === false ? (r.message || 'ماتحفظش — جرّب تاني') : 'اتحفظت التعديلات', r && r.ok === false ? 'error' : 'success'); return !(r && r.ok === false); }
   function stepSheet() {
     const L = blankRowsOf(); const s = st();
     const shareBtn = (() => { const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' }); const btn = Button({ size: 'sm', icon: 'share', label: 'مشاركة', attrs: { 'data-flow-share': '', 'aria-haspopup': 'menu', 'aria-expanded': 'false' } });
@@ -1016,10 +1054,19 @@
       btn.addEventListener('click', pop.toggle); wrap.append(btn); return wrap; })();
     return [Card('الشيت', L.length + ' صف · ' + s.products.length + ' منتج — عمود «refrance image» فيه صورة كل منتج، والباقي القالب كامل.', [
       h('div', { class: 'acts-inline' }, Button({ type: 'primary', icon: 'sparkle', label: S.busy === 'ai' ? 'بيكتب…' : 'املأ بالـ AI', disabled: !!S.busy, attrs: { 'data-flow-ai': '' }, onClick: async () => { const a = await window.IBAIAsk({ title: 'املأ الشيت بالـ AI — ' + (st().products || []).length + ' منتج', intro: 'الأسماء والوصف والقسم واللون من الصور.' }); if (a) aiFillProducts(a.notes); } }),
-        Button({ size: 'sm', label: 'معاينة', onClick: () => previewSheet(L, s.type) }), Button({ size: 'sm', icon: 'download', label: 'تحميل على الجهاز', attrs: { 'data-flow-download': '' }, onClick: async () => { const blob = await sheetFile(L, s.type, null); K.saveFile(FD.sheetFileName(s.vendorName || s.brandName), blob); } }), shareBtn),
-      U.InlineNote({ children: 'سعر المبتكر والمقاس فاضيين — المبتكر بيملاهم. لما يرجّعه، ابدأ دفعة «شيت جاهز» بيه.' }),
-      h('div', { class: 'fl-scroll' }, h('table', { class: 'fl-table fl-preview' }, h('thead', null, h('tr', null, h('th', null, '#'), h('th', null, 'الصورة'), h('th', null, 'الاسم EN'), h('th', null, 'الاسم AR'), h('th', null, 'اللون'), h('th', null, 'المقاس'), h('th', null, 'سعر المبتكر'), h('th', null, 'القسم'))),
-        h('tbody', null, L.map((r) => h('tr', null, h('td', null, r.n), h('td', null, Thumb(r.ref, 'st-sm')), h('td', null, r.nameEn || '—'), h('td', null, r.nameAr || '—'), h('td', null, r.colorEn || (r.colorSlot ? 'لون ' + r.colorSlot : '—')), h('td', null, r.sizeSlot ? 'مقاس ' + r.sizeSlot : '—'), h('td', null, '—'), h('td', null, r.catEn || '—'))))))])];
+        Button({ size: 'sm', icon: 'check', label: 'حفظ', attrs: { 'data-flow-save': '' }, onClick: () => saveSheet(false) }),
+        Button({ size: 'sm', label: 'معاينة', onClick: async () => { await saveSheet(true); previewSheet(blankRowsOf(), s.type); } }),
+        Button({ size: 'sm', icon: 'download', label: 'تحميل على الجهاز', attrs: { 'data-flow-download': '' }, onClick: async () => { await saveSheet(true); const blob = await sheetFile(blankRowsOf(), s.type, null); K.saveFile(FD.sheetFileName(s.vendorName || s.brandName), blob); } }), shareBtn),
+      U.InlineNote({ children: 'تقدر تعدّل أي خانة هنا — الاسم واللون والمقاس وسعر المبتكر والقسم — وبتتحفظ مع الدفعة وتنزل في الشيت. اللي يفضل فاضي المبتكر بيملاه، ولما يرجّعه ابدأ دفعة «شيت جاهز» بيه.' }),
+      h('div', { class: 'fl-scroll' }, h('table', { class: 'fl-table fl-sheet-ed', 'data-flow-sheet': '' }, h('thead', null, h('tr', null, h('th', null, '#'), h('th', null, 'الصورة'), h('th', null, 'الاسم EN'), h('th', null, 'الاسم AR'), h('th', null, 'اللون'), h('th', null, 'المقاس'), h('th', null, 'سعر المبتكر'), h('th', null, 'القسم'))),
+        h('tbody', null, L.map((r) => { const x = fillOf(r.product);
+          return h('tr', { 'data-sh-row': r.n }, h('td', { class: 'num' }, r.n), h('td', null, Thumb(r.ref, 'st-sm')),
+            h('td', null, sheetInput(r, 'nameEn', x.nameEn, (v) => { x.nameEn = v.trim(); }, { label: 'الاسم EN', dir: 'ltr' })),
+            h('td', null, sheetInput(r, 'nameAr', x.nameAr, (v) => { x.nameAr = v.trim(); }, { label: 'الاسم AR', dir: 'rtl' })),
+            h('td', null, sheetColor(r)),
+            h('td', null, sheetInput(r, 'size', (x.sizes || {})[r.sizeSlot || 0], (v) => { x.sizes = Object.assign({}, x.sizes, { [r.sizeSlot || 0]: v.trim() }); }, { label: 'المقاس', ph: r.sizeSlot ? 'مقاس ' + r.sizeSlot + ' — مثلًا 40×60 سم' : 'مثلًا 40×60 سم' })),
+            h('td', null, sheetInput(r, 'price', (x.prices || {})[r.variant || 0], (v) => { const n = Number(String(v).replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))); x.prices = Object.assign({}, x.prices, { [r.variant || 0]: Number.isFinite(n) && n > 0 ? n : null }); }, { label: 'سعر المبتكر', num: true, dir: 'ltr', ph: 'ج.م' })),
+            h('td', null, sheetCat(r))); }))))])];
   }
 
   // ---------------- the wizard ----------------

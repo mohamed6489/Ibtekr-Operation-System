@@ -273,3 +273,14 @@ textarea.fl-in{display:block;width:100%}
 .fl-pin-row{display:flex;align-items:center;gap:8px}
 .fl-pin-row .input{flex:1;min-width:0}
 @media (max-width:760px){.fl-pin-grid{grid-template-columns:1fr}.fl-pin{width:32px;height:32px}}
+
+/* the owner 15 Nov: «الشيت» of «صور وعايز شيت» edited in place — compact boxes and dropdowns in the cells */
+.fl-sheet-ed td{white-space:nowrap}
+.fl-sheet-ed .input.sm{height:32px;min-width:120px;width:100%}
+.fl-sheet-ed td:nth-child(3) .input,.fl-sheet-ed td:nth-child(4) .input{min-width:200px}
+.fl-sheet-ed td:nth-child(7) .input{min-width:96px;max-width:120px}
+.fl-sh-sel{min-width:160px}
+.fl-sh-cat{min-width:240px}
+.fl-sh-sel .field{margin:0}
+.fl-sh-sel .field>label:empty{display:none}
+.fl-sh-sel .select{height:32px;min-height:32px}

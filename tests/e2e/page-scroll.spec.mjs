@@ -21,9 +21,12 @@ async function signIn(page, hash) {
   await expect(page.locator('#root')).toBeVisible();
   await page.evaluate((h) => { location.hash = h; }, hash);
   await expect(page.locator('#pg-settings')).toBeVisible();
-  // a page far taller than any window, whatever the stand-in's data
-  await page.evaluate(() => { const s = document.createElement('div'); s.id = 'tall'; s.style.height = '3000px'; document.querySelector('#pg-settings').appendChild(s); });
+  // a page far taller than any window, whatever the stand-in's data — on the app's own frame: the page inside it is drawn again when
+  // its settings arrive (CI run 1043: a spacer inside the page was gone by then and the page was 600px short)
+  await page.evaluate(() => { document.querySelector('.app').style.minHeight = '4000px'; });
 }
+// the button slides up 6px as it appears (0.18 s): measure it once it rests
+const rested = (page) => expect.poll(() => page.evaluate(() => { const b = document.querySelector('[data-to-top]'); const cs = getComputedStyle(b); return cs.opacity + '|' + cs.transform; })).toBe('1|none');
 const state = (page) => page.evaluate(() => ({ html: getComputedStyle(document.documentElement).overflowY, body: getComputedStyle(document.body).overflowY, dir: getComputedStyle(document.body).direction,
   inner: window.IBPageScroll.bodyScrolls(), bodyTop: document.body.scrollTop, docTop: document.documentElement.scrollTop, y: window.scrollY, off: window.pageYOffset }));
 
@@ -47,7 +50,7 @@ test('«اطلع لأول الصفحة»: a round button at the bottom left, sho
   await expect(btn).toBeHidden(); await expect(btn).toHaveAttribute('aria-hidden', 'true');
   await page.evaluate(() => window.scrollTo(0, 200)); await expect(btn).toBeHidden(); // not for a small move
   await page.evaluate(() => window.scrollTo(0, 900));
-  await expect(btn).toBeVisible(); await expect(btn).toHaveAttribute('aria-label', 'اطلع لأول الصفحة');
+  await expect(btn).toBeVisible(); await expect(btn).toHaveAttribute('aria-label', 'اطلع لأول الصفحة'); await rested(page);
   const box = await btn.evaluate((el) => { const r = el.getBoundingClientRect(); const cs = getComputedStyle(el); return { left: Math.round(r.left), fromBottom: Math.round(innerHeight - r.bottom), w: Math.round(r.width), h: Math.round(r.height), radius: cs.borderTopLeftRadius, pos: cs.position, bg: cs.backgroundColor, arrow: !!el.querySelector('svg path') }; });
   expect(box).toEqual({ left: 20, fromBottom: 20, w: 44, h: 44, radius: '50%', pos: 'fixed', bg: 'rgb(0, 86, 66)', arrow: true }); // bottom left, round, the brand green, an arrow inside
   await btn.click();
@@ -62,7 +65,7 @@ test('phone: the window scrolls as before (no inner scroller) and the button sit
   await page.evaluate(() => window.scrollTo(0, 900));
   expect(await state(page)).toMatchObject({ bodyTop: 0, docTop: 900, y: 900 });
   const btn = page.locator('[data-to-top]');
-  await expect(btn).toBeVisible();
+  await expect(btn).toBeVisible(); await rested(page);
   const gap = await page.evaluate(() => { const b = document.querySelector('[data-to-top]').getBoundingClientRect(); const n = document.querySelector('.bottom-nav').getBoundingClientRect(); return { left: Math.round(b.left), above: Math.round(n.top - b.bottom) }; });
   expect(gap.left).toBe(12); expect(gap.above).toBeGreaterThanOrEqual(8);
   await btn.click();

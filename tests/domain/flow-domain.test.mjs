@@ -146,3 +146,24 @@ test('the .xlsx: a styled green head, frozen at C2, prices #,##0, the reference 
   assert.match(td('[Content_Types].xml'), /Extension="png"/);
   assert.equal(F.sheetFileName('Glas/stora', new Date(2026, 10, 14)), 'Glas-stora - 2026-11-14.xlsx');
 });
+
+// the owner 15 Nov (the data step: Arabic and English side by side, «لو غير اي حاجة في العربي تتغير اوتوماتيك في الانجليزي»)
+test('the data step: material / style pairs found by either language; an Arabic size written in English', () => {
+  assert.deepEqual(plain(F.pairOf(F.MATERIALS, '', 'راتان')), ['Rattan', 'راتان']);
+  assert.deepEqual(plain(F.pairOf(F.MATERIALS, 'boucle', '')), ['Bouclé', 'بوكليه'], 'accents and case aside');
+  assert.deepEqual(plain(F.pairOf(F.STYLES, 'Boho', 'شيء تاني')), ['Boho', 'بوهيمي']);
+  assert.equal(F.pairOf(F.STYLES, 'Space Age', ''), null);
+  assert.equal(F.pairOf(F.STYLES, '', ''), null);
+  for (const list of [F.MATERIALS, F.STYLES]) {
+    assert.equal(new Set(list.map(([e]) => F.norm(e))).size, list.length, 'no English twice');
+    assert.equal(new Set(list.map(([, a]) => F.norm(a))).size, list.length, 'no Arabic twice');
+  }
+  assert.equal(F.sizeEnOf('عرض ١٢٠ × طول ٧٠ × عمق ٥٠ سم'), 'W 120 × L 70 × D 50 cm');
+  assert.equal(F.sizeEnOf('40x40 سم'), '40 × 40 cm');
+  assert.equal(F.sizeEnOf('قطر 30 سم'), 'Ø 30 cm');
+  assert.equal(F.sizeEnOf('XL'), 'XL', 'a letter size is no multiplication');
+  assert.equal(F.sizeEnOf('مقاس كبير'), 'L');
+  assert.equal(F.sizeEnOf('٢ كيلو'), '2 kg');
+  assert.equal(F.sizeEnOf('حجم عائلي'), '', 'Arabic words left → nothing (the English stays)');
+  assert.equal(F.sizeEnOf(''), '');
+});

@@ -188,6 +188,26 @@ test('cleanStudio: the site\'s categories (3 at most), sku_colors codes, plain s
   assert.deepEqual(none, { fields: { sizes: [] }, missing: ['categories', 'colors'] });
 });
 
+// the owner 15 Nov (the studio's data step — Arabic and English side by side, «لو غير اي حاجة في العربي تتغير اوتوماتيك في الانجليزي»)
+test('studio attrs + translate: the material and the style in both languages; the English name and description from the Arabic ones', () => {
+  const id = '0b6f2f5e-1d2c-4a8b-9e3f-000000000001';
+  assert.deepEqual(parseStudio({ batch_id: id, index: 0, want: ['translate', 'attrs'] }).req.want, ['attrs', 'translate']);
+  assert.deepEqual(studioSchema(['attrs']).required, ['material', 'materialAr', 'style', 'styleAr']);
+  assert.deepEqual(studioSchema(['translate']).required, ['nameEn', 'shortDesc']);
+  const item = { nameEn: 'Old Name', nameAr: 'كرسي خيزران', shortDesc: '', shortDescAr: 'كرسي من الخيزران بقماش بوكليه.' };
+  const p = studioRequest(item, { ...CTX, want: ['translate'], brand: 'Zana', cats: CATS, colors: COLORS });
+  const text = p.messages[0].content[0].text;
+  assert.ok(text.includes('Arabic name: كرسي خيزران') && text.includes('Current Arabic short description: كرسي من الخيزران'));
+  assert.match(text, /Fill these fields: nameEn, shortDesc\.\nTone: warm\.\nTranslate: nameEn is the Arabic name in English and shortDesc the current Arabic short description in English/);
+  assert.match(p.system[0].text, /material \/ materialAr: the product's main material in English \/ Arabic/);
+  const sets = { categoryIds: new Set([10]), colorCodes: new Set(['BE']) };
+  assert.deepEqual(cleanStudio({ nameEn: 'Rattan Chair', shortDesc: 'A rattan chair in bouclé.' }, ['translate'], sets), { fields: { nameEn: 'Rattan Chair', shortDesc: 'A rattan chair in bouclé.' }, missing: [] });
+  assert.deepEqual(cleanStudio({ nameEn: 'كرسي خيزران', shortDesc: '' }, ['translate'], sets).missing, ['nameEn', 'shortDesc'], 'Arabic is no English');
+  assert.deepEqual(cleanStudio({ material: 'Rattan', materialAr: 'راتان', style: 'Boho', styleAr: 'Boho' }, ['attrs'], sets),
+    { fields: { material: 'Rattan', materialAr: 'راتان', style: 'Boho' }, missing: ['styleAr'] });
+  assert.deepEqual(cleanStudio({ nameEn: 'A', shortDesc: 'B.', shortDescAr: 'ب.' }, ['desc', 'translate'], sets).fields, { shortDesc: 'B.', shortDescAr: 'ب.', nameEn: 'A' }, 'desc + translate: one shortDesc');
+});
+
 test('costOf: by the model that answered (Opus 5.5 $4 / $20, cache read $0.20, cache write × 1.25); unknown = the dearest', () => {
   assert.equal(costOf('claude-opus-5-5', { input_tokens: 3000, output_tokens: 2000 }), 0.052);
   assert.equal(costOf('claude-opus-5-5-20261001', { input_tokens: 1000, output_tokens: 0, cache_read_input_tokens: 10000, cache_creation_input_tokens: 2000 }), 0.016);

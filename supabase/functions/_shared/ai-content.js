@@ -8,7 +8,9 @@ export const OUTPUTS = ['name', 'short', 'long', 'keywords', 'bullets', 'seo'];
 export const LANGS = ['ar', 'en'];
 export const TONES = ['warm', 'luxury', 'brief'];
 export const SOURCES = ['data', 'image', 'product'];
-export const WANTS = ['nameEn', 'nameAr', 'desc', 'category', 'variations'];
+// the owner 15 Nov (the studio's data step: Arabic and English side by side): attrs = the material and the style in both languages from
+// the data and the photo; translate = the English name and short description from the Arabic ones (an Arabic edit flows to English)
+export const WANTS = ['nameEn', 'nameAr', 'desc', 'category', 'variations', 'attrs', 'translate'];
 // decision 2: the default and the one other model the secret AI_CONTENT_MODEL may pick; AI_CONTENT_EFFORT the same
 export const MODELS = ['claude-opus-5-5', 'claude-sonnet-5-5'];
 export const EFFORTS = ['low', 'medium', 'high'];
@@ -185,7 +187,9 @@ Fields
 - shortDesc / shortDescAr: the short description in English / Arabic: one or two sentences (at most 300 characters) on what it is and why it appeals.
 - categories: the ids of the 1 to 3 most specific shop categories that fit the product, only from the list of shop categories below.
 - colors: the codes of the colors the product clearly comes in, only from the list of colors below. When the data names no color, read the product's color from the photo and give the closest code (the main color of the product itself, not of the background); a product of one color gets one code.
-- sizes: the sizes the product comes in only when the data gives them (for example "50×50" in cm, or S, M, L); otherwise an empty list.`;
+- sizes: the sizes the product comes in only when the data gives them (for example "50×50" in cm, or S, M, L); otherwise an empty list.
+- material / materialAr: the product's main material in English / Arabic, one to three words, from the data and the photo (for example Rattan / راتان, Bouclé / بوكليه, Wood / خشب).
+- style / styleAr: the product's style in English / Arabic, one or two words (for example Modern / مودرن, Boho / بوهيمي, Minimalist / مينيمال).`;
 
 const EXTRACT_FIELDS = `This is the product studio's WhatsApp intake: the images are screenshots of a chat where a maker sent the details of his products (names, prices, colors, sizes, materials). Read them and list his products as rows of our sheet.
 
@@ -300,6 +304,8 @@ export function studioSchema(want) {
   if (want.includes('desc')) { p.shortDesc = STR(); p.shortDescAr = STR(); }
   if (want.includes('category')) p.categories = { type: 'array', items: { type: 'integer' } };
   if (want.includes('variations')) { p.colors = STRS(); p.sizes = STRS(); }
+  if (want.includes('attrs')) { p.material = STR(); p.materialAr = STR(); p.style = STR(); p.styleAr = STR(); }
+  if (want.includes('translate')) { p.nameEn = STR(); p.shortDesc = STR(); }
   return obj(p);
 }
 
@@ -374,7 +380,9 @@ export function studioRequest(item, ctx) {
     ['Current English short description', htmlText(it.shortDesc, 3000)], ['Current Arabic short description', htmlText(it.shortDescAr, 3000)],
   ];
   const keys = Object.keys(studioSchema(ctx.want).properties);
-  const text = dataBlock(rows) + '\n\nFill these fields: ' + keys.join(', ') + '.\nTone: warm.' + (ctx.image ? '\nThe image shows the product.' : '');
+  const translate = ctx.want.includes('translate')
+    ? '\nTranslate: nameEn is the Arabic name in English and shortDesc the current Arabic short description in English — the same meaning in natural English, the brand as written, nothing the Arabic does not say.' : '';
+  const text = dataBlock(rows) + '\n\nFill these fields: ' + keys.join(', ') + '.\nTone: warm.' + translate + (ctx.image ? '\nThe image shows the product.' : '');
   const catalog = 'Shop categories (id: path)\n' + (categoryLines(ctx.cats).join('\n') || '(none)') + '\n\nColors (code: name)\n' + (colorLines(ctx.colors).join('\n') || '(none)');
   return {
     model: ctx.model, max_tokens: MAX_TOKENS, ...FALLBACK,
@@ -449,6 +457,14 @@ export function cleanStudio(json, want, { categoryIds, colorCodes }) {
     const codes = [...new Set((Array.isArray(src.colors) ? src.colors : []).map((c) => String(c).trim().toUpperCase()).filter((c) => colorCodes.has(c)))].slice(0, LIM.colors);
     if (codes.length) fields.colors = codes; else missing.push('colors');
     fields.sizes = uniq((Array.isArray(src.sizes) ? src.sizes : []).map((s) => line(s, LIM.size, true)).filter(Boolean)).slice(0, LIM.sizes);
+  }
+  if (want.includes('attrs')) {
+    put('material', line(src.material, DATA_LIM.material, true), 'en'); put('materialAr', line(src.materialAr, DATA_LIM.material, true), 'ar');
+    put('style', line(src.style, DATA_LIM.style, true), 'en'); put('styleAr', line(src.styleAr, DATA_LIM.style, true), 'ar');
+  }
+  if (want.includes('translate')) {
+    if (!want.includes('nameEn')) put('nameEn', line(src.nameEn, LIM.name, true), 'en');
+    if (!want.includes('desc')) put('shortDesc', paras(src.shortDesc, LIM.short), 'en');
   }
   return { fields, missing };
 }

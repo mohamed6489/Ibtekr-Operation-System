@@ -93,7 +93,10 @@ textarea.fl-in{display:block;width:100%}
 @media (max-width:640px){.fl-maker-info{grid-template-columns:1fr}.fl-sku-ex{padding-top:0}}
 /* the owner 15 Nov («في اسكرين الاسعار صلح شكل الجدول و إظهر بيانات المنتج العربي بس»): the prices as a grid, not a <table> — the photo
    inside the product cell with its Arabic data; on a phone a card each (the product on top, the three prices under it, labelled) */
-.fl-plist{border:1px solid var(--color-border-subtle);border-radius:var(--radius-md);overflow:hidden;background:var(--color-bg-base)}
+.fl-plist{border:1px solid var(--color-border-subtle);border-radius:var(--radius-md);background:var(--color-bg-base)}
+/* no overflow:hidden on these cards — it clipped the ⋮ menus and the dropdowns that open inside them; the corners round on the rows */
+.fl-prow:first-child{border-radius:var(--radius-md) var(--radius-md) 0 0}
+.fl-prow:last-child{border-radius:0 0 var(--radius-md) var(--radius-md)}
 .fl-prow{display:grid;grid-template-columns:40px minmax(220px,1fr) 124px 84px 124px 124px 40px;align-items:center;column-gap:12px;padding:10px 14px;border-bottom:1px solid var(--color-border-subtle);background:var(--color-bg-base)}
 .fl-prow:last-child{border-bottom:0}
 .fl-prow:not(.head):nth-child(odd){background:var(--color-bg-tint)}
@@ -125,8 +128,8 @@ textarea.fl-in{display:block;width:100%}
 }
 /* the owner 15 Nov («الصور تبقا اليند جمب بعض و يبقا كارت المنتج شكلو منظم»): the photos step — a product card with a head (the photo,
    the Arabic name, the SKU, the price) and the five pictures in one row, all the same size, each label on one line, the buttons under them */
-.fl-unit.fl-ucard{display:flex;flex-direction:column;align-items:stretch;gap:0;padding:0;overflow:hidden}
-.fl-uhead{display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--color-bg-tint);border-bottom:1px solid var(--color-border-subtle)}
+.fl-unit.fl-ucard{display:flex;flex-direction:column;align-items:stretch;gap:0;padding:0}
+.fl-uhead{display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--color-bg-tint);border-bottom:1px solid var(--color-border-subtle);border-radius:var(--radius-md) var(--radius-md) 0 0}
 .fl-uhead .fl-info{flex:1;min-width:0}
 .fl-uhead .fl-info b{font-size:14px;overflow-wrap:anywhere}
 .fl-uprice{display:flex;flex-direction:column;align-items:flex-end;gap:2px;white-space:nowrap;font-size:13px}
@@ -163,4 +166,60 @@ textarea.fl-in{display:block;width:100%}
 @media (max-width:767px){
   .scrim .modal.fl-big{width:100%;max-width:100%}
   .fl-pv-shots{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:10px}
+}
+/* the owner 15 Nov (the data step, his mockup): one card per product — the head (number, brand, SKU, category, weight, what's missing),
+   then the photo on the right, the Arabic column and the English column side by side; a Variable's variations under them */
+.fl-dtools{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--color-text-secondary)}
+.fl-dlist{display:flex;flex-direction:column;gap:16px}
+.fl-dcard{border:1px solid var(--color-border-subtle);border-radius:var(--radius-md);background:var(--color-bg-base)}
+.fl-dcard.has-miss{box-shadow:inset -3px 0 0 var(--color-error-base)}
+.fl-dhead{display:flex;align-items:flex-end;flex-wrap:wrap;gap:10px 14px;padding:12px 16px;background:var(--color-bg-tint);border-bottom:1px solid var(--color-border-subtle);border-radius:var(--radius-md) var(--radius-md) 0 0}
+.fl-dhead>.cb{align-self:center}
+.fl-dnum{font-size:15px;align-self:center;color:var(--color-brand-default)}
+.fl-dhead>.tg{align-self:center}
+.fl-dbrand{display:flex;flex-direction:column;gap:2px;min-width:0;padding-bottom:6px}
+.fl-dbrand small{font-size:11px;color:var(--color-text-secondary)}
+.fl-dbrand b{font-size:13px}
+.fl-dhead .fl-f{min-width:0}
+.fl-dhead .fl-sku{width:170px}
+.fl-dhead .fl-w{width:96px}
+.fl-dhead .fl-cat{width:min(320px,100%)}
+.fl-dmiss{align-self:center;font-size:12px;color:var(--color-error-base);max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fl-dok{align-self:center;display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--color-brand-default);font-weight:600}
+.fl-dhead .pop-anchor:last-child{align-self:center}
+.fl-dbody{display:grid;grid-template-columns:150px minmax(0,1fr) minmax(0,1fr);gap:18px;padding:16px}
+.fl-dpic{display:flex;flex-direction:column;gap:6px;align-items:center}
+.thumb.fl-dimg{width:150px;height:172px;border-radius:var(--radius-sm,8px)}
+.thumb.fl-dimg img{width:100%;height:100%;object-fit:cover}
+.fl-dcol{display:flex;flex-direction:column;gap:10px;min-width:0}
+.fl-dcol[lang=ar]{padding-inline-end:18px;border-inline-end:1px solid var(--color-border-subtle)}
+.fl-pick .select{width:100%}
+.fl-dcol-h{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;letter-spacing:.02em;color:var(--color-brand-default);text-transform:uppercase}
+.fl-f{display:flex;flex-direction:column;gap:4px;min-width:0}
+.fl-f>label,.fl-pick .field>label{font-size:12px;font-weight:600;color:var(--color-text-secondary);display:flex;align-items:center;gap:6px}
+.fl-f .fl-in{width:100%;min-width:0;height:36px}
+.fl-f textarea.fl-in{height:auto;min-height:84px;resize:vertical;line-height:1.6}
+.fl-pick .field{margin:0;gap:4px}
+.fl-pick.is-ai .select{background:var(--color-warning-bg);border-color:var(--color-warning-border)}
+.fl-aitag{font-size:10.5px;font-weight:600;color:var(--color-warning-text,#8a5a00);background:var(--color-warning-bg);border:1px solid var(--color-warning-border);border-radius:999px;padding:0 6px;line-height:16px}
+.fl-2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.fl-trans{font-size:11.5px;font-weight:600;color:var(--color-text-secondary);text-transform:none}
+.fl-vars{border-top:1px solid var(--color-border-subtle);padding:12px 16px;display:flex;flex-direction:column;gap:8px}
+.fl-vars-h{font-size:12px;font-weight:700;color:var(--color-brand-default)}
+.fl-var{display:grid;grid-template-columns:44px 150px repeat(4,minmax(0,1fr)) 80px 32px;gap:10px;align-items:end;padding:8px;border-radius:var(--radius-sm,8px);background:var(--color-bg-tint)}
+.fl-var .thumb.fl-pthumb{width:44px;height:50px;align-self:center}
+.fl-var.row-err{box-shadow:inset -3px 0 0 var(--color-error-base)}
+@media (max-width:1023px){
+  .fl-dbody{grid-template-columns:110px minmax(0,1fr) minmax(0,1fr);gap:12px;padding:12px}
+  .thumb.fl-dimg{width:110px;height:126px}
+  .fl-var{grid-template-columns:44px repeat(3,minmax(0,1fr))}
+}
+@media (max-width:760px){
+  .fl-dbody{grid-template-columns:1fr}
+  .fl-dpic{flex-direction:row;justify-content:flex-start}
+  .thumb.fl-dimg{width:96px;height:110px}
+  .fl-dcol[lang=ar]{padding-inline-end:0;border-inline-end:0;padding-bottom:14px;border-bottom:1px solid var(--color-border-subtle)}
+  .fl-dhead .fl-sku,.fl-dhead .fl-cat{width:100%}
+  .fl-var{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .fl-var .thumb.fl-pthumb{grid-column:1 / -1}
 }

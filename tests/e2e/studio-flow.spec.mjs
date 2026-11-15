@@ -63,10 +63,13 @@ test('flow 1 «شيت جاهز» Simple: the sheet + photos by row → maker/bra
   await expect(page.locator('#pg-products [data-fl="sku"]').nth(1)).toHaveValue('IBTART1000-PU');
   expect(mock.serialTakes).toEqual([2]);
   expect(mock.skuColors.some((c) => c.code === 'PU' && c.name_en === 'Purple')).toBe(true);
-  await page.locator('[data-flow-ai]').click();
+  // the owner 15 Nov: the AI fills what is missing by itself when the step opens (the descriptions, the material and the style)
   await expect(page.locator('#pg-products [data-fl="shortEn"]').first()).toHaveValue('A warm bamboo desk lamp.');
   await expect(page.locator('#pg-products [data-fl="shortEn"]').first()).toHaveClass(/is-ai/);
-  expect(mock.aiCalls.filter((c) => c.action === 'studio').map((c) => c.want)).toEqual([['desc'], ['desc']]);
+  expect(mock.aiCalls.filter((c) => c.action === 'studio').map((c) => c.want)).toEqual([['desc', 'attrs'], ['desc', 'attrs']]);
+  await page.locator('[data-flow-ai]').click(); // nothing missing any more → no other call
+  await expect(page.locator('.toast[role=status]')).toContainText('مفيش بيانات ناقصة');
+  expect(mock.aiCalls.filter((c) => c.action === 'studio').length).toBe(2);
   await next(page);
   // the prices: (maker + fee) ÷ (1 − 35%) up to the next 10; «قبل الخصم» above it
   await expect(page.locator('#pg-products [data-fl="sale"]').first()).toHaveValue('1540');
@@ -121,6 +124,53 @@ test('flow 1 «شيت جاهز» Simple: the sheet + photos by row → maker/bra
   const dl = page.waitForEvent('download');
   await page.locator('[data-box="sheet"]').getByRole('button', { name: 'تحميل على الجهاز' }).click();
   expect((await dl).suggestedFilename()).toMatch(/^Art Craft - \d{4}-\d{2}-\d{2}\.xlsx$/);
+});
+
+// the owner 15 Nov («في مرحلة البيانات يفضل نقسمها لجزئين إنجليزي و عربي و بيملا البيانات اوتوماتيك بال ايه اي … لو غير اي حاجة في العربي
+// تتغير اوتوماتيك في الانجليزي … الصورة علي اليمين و جمبهم البيانات»): a card per product, the Arabic and English columns side by side
+test('the data step: a card per product with Arabic and English side by side — the AI fills by itself, an Arabic name is translated, a pick sets both columns, a color moves the SKU', async ({ page }) => {
+  await signIn(page, ADMIN);
+  await choose(page, 'شيت جاهز', 'Simple');
+  await pick(page, '[data-flow-sheet]', { name: 'art craft.csv', mimeType: 'text/csv', buffer: Buffer.from('#,SKU,Product Name EN,Product Name AR,Product Colors,Product Colors AR,Size,Vendor Price,Product Category\n1,,Boho Cushion,مخدة بوهيمي,Beige,بيج,40 × 40 cm,1000,ديكور\n') });
+  await pick(page, '[data-flow-photos]', [png('1.png')]);
+  await next(page);
+  await makerArtCraft(page);
+  await next(page);
+  const card = page.locator('#pg-products [data-fl-data] .fl-dcard');
+  await expect(card).toHaveCount(1);
+  await expect(card.locator('.fl-dbody > .fl-dpic .thumb img')).toHaveCount(1); // the photo beside the data
+  await expect(card.locator('.fl-dcol[lang=ar] [data-fl="nameAr"]')).toHaveValue('مخدة بوهيمي');
+  await expect(card.locator('.fl-dcol[lang=en] [data-fl="nameEn"]')).toHaveValue('Boho Cushion');
+  await expect(card.locator('[data-fl="sku"]')).toHaveValue('IBTART0999-BE');
+  // the AI by itself: the descriptions, the material and the style in both columns (marked «AI — راجع» / «· AI»)
+  await expect(card.locator('[data-fl-pick="materialAr"]')).toContainText('راتان');
+  await expect(card.locator('[data-fl-pick="materialEn"]')).toContainText('Rattan');
+  await expect(card.locator('[data-fl-pick="styleEn"]')).toContainText('Boho');
+  await expect(card.locator('[data-fl="shortAr"]')).toHaveClass(/is-ai/);
+  await expect(card.locator('[data-fl="sizeAr"]')).toHaveValue('40 × 40 سم'); // the English-only size in Arabic
+  // an Arabic name typed → the English written from it
+  await card.locator('[data-fl="nameAr"]').fill('مخدة بوهيمي كبيرة'); await card.locator('[data-fl="nameAr"]').press('Tab');
+  await expect(card.locator('[data-fl="nameEn"]')).toHaveValue('Translated Product Name');
+  await expect(card.locator('[data-fl="nameEn"]')).toHaveClass(/is-ai/);
+  expect(mock.aiCalls.filter((c) => c.action === 'studio').pop().want).toEqual(['translate']);
+  // an Arabic size typed → the English one from it
+  await card.locator('[data-fl="sizeAr"]').fill('عرض ٥٠ × طول ٧٠ سم'); await card.locator('[data-fl="sizeAr"]').press('Tab');
+  await expect(card.locator('[data-fl="size"]')).toHaveValue('W 50 × L 70 cm');
+  // a style picked in the Arabic column → the English one too
+  // a long list opens with a search box (9 options or more): type the name, then pick it
+  const choosePick = async (k, name) => { const b = card.locator('[data-fl-pick="' + k + '"] button.select'); await b.evaluate((e) => e.scrollIntoView({ block: 'center' })); await b.click();
+    const q = page.locator('.menu [data-select-search]'); if (await q.count()) await q.fill(name); await page.getByRole('option', { name, exact: true }).click(); };
+  await choosePick('styleAr', 'مودرن');
+  await expect(card.locator('[data-fl-pick="styleEn"]')).toContainText('Modern');
+  // a color picked → both columns and the SKU's color part; back to beige → back
+  await choosePick('colorAr', 'أسود');
+  await expect(card.locator('[data-fl-pick="colorEn"]')).toContainText('Black');
+  await expect(card.locator('[data-fl="sku"]')).toHaveValue('IBTART0999-BK');
+  await choosePick('colorEn', 'Beige');
+  await expect(card.locator('[data-fl-pick="colorAr"]')).toContainText('بيج');
+  await expect(card.locator('[data-fl="sku"]')).toHaveValue('IBTART0999-BE');
+  await expect.poll(() => { const r = batch().state.rows[0]; return [r.nameAr, r.nameEn, r.styleEn, r.styleAr, r.size, r.colorEn, r.sku]; })
+    .toEqual(['مخدة بوهيمي كبيرة', 'Translated Product Name', 'Modern', 'مودرن', 'W 50 × L 70 cm', 'Beige', 'IBTART0999-BE']);
 });
 
 test('flow 2 «داتا على الواتساب» Variable: the screenshots read into rows → a product of two colors grouped by its serial → a color\'s own shot → its variation', async ({ page }) => {

@@ -483,15 +483,30 @@ test('flow 3 «صور وعايز شيت» Variable: two colors × two products �
   await pick(page, '[data-flow-photos]', [png('1.png'), png('2.png')]);
   await expect(page.locator('#pg-products .fl-pcard')).toHaveCount(2);
   await next(page);
-  await expect(page.locator('#pg-products .fl-preview tbody tr')).toHaveCount(4);
-  expect(await page.locator('#pg-products .fl-preview tbody tr td:first-child').allTextContents()).toEqual(['1-1', '1-2', '2-1', '2-2']);
+  const sheet = page.locator('#pg-products [data-flow-sheet]');
+  await expect(sheet.locator('tbody tr')).toHaveCount(4);
+  expect(await sheet.locator('tbody tr td:first-child').allTextContents()).toEqual(['1-1', '1-2', '2-1', '2-2']);
+  // the owner 15 Nov: every cell edited in place — a size, a price and a color typed / picked before the AI; the AI fills the rest only
+  await sheet.locator('[data-sh="size:1-1"]').fill('٤٠×٦٠ سم'); await sheet.locator('[data-sh="size:1-1"]').press('Tab');
+  await sheet.locator('[data-sh="price:1-2"]').fill('850'); await sheet.locator('[data-sh="price:1-2"]').press('Tab');
+  await sheet.locator('[data-sh="color:1-2"] button.select').click();
+  await page.getByRole('option', { name: /Black/ }).first().click();
   await page.locator('[data-flow-ai]').click(); await page.locator('[data-ai-go]').click();
-  await expect(page.locator('#pg-products .fl-preview tbody tr').first()).toContainText('أباجورة مكتب بامبو');
+  await expect(sheet.locator('[data-sh="nameAr:1-1"]')).toHaveValue('أباجورة مكتب بامبو');
+  await expect(sheet.locator('[data-sh="size:1-1"]')).toHaveValue('٤٠×٦٠ سم'); // kept through the AI
+  await expect(sheet.locator('[data-sh="color:1-2"]')).toContainText('Black');
+  // the category picked, the Arabic name typed over the AI's, then «حفظ» → the batch keeps them
+  await sheet.locator('[data-sh="nameAr:2-1"]').fill('أباجورة أرضية'); await sheet.locator('[data-sh="nameAr:2-1"]').press('Tab');
+  await page.locator('[data-flow-save]').click();
+  await expect(page.locator('.toast.show')).toContainText('اتحفظت التعديلات');
+  await expect.poll(() => { const f = (batch().state || {}).fill || {}; return [f[0] && f[0].sizes && f[0].sizes[0], f[0] && f[0].prices && f[0].prices[2], f[0] && f[0].colors && f[0].colors[2] && f[0].colors[2][0], f[1] && f[1].nameAr]; })
+    .toEqual(['٤٠×٦٠ سم', 850, 'Black', 'أباجورة أرضية']);
   const dl = page.waitForEvent('download');
   await page.locator('[data-flow-download]').click();
   const file = await dl; expect(file.suggestedFilename()).toMatch(/^Art Craft - \d{4}-\d{2}-\d{2}\.xlsx$/);
   const bytes = readFileSync(await file.path()).toString('latin1');
   expect(bytes).toContain('xl/drawings/drawing1.xml'); expect(bytes).toContain('xl/media/image4.jpeg'); // a picture for each row
+  expect(bytes).toMatch(/<v>850<\/v>/); expect(bytes).toMatch(/>40 .{1,2} 60 cm</); /* the ×, read as latin1 */ // what was typed in the step is in the file (stored zip, plain XML)
   await page.evaluate(() => { navigator.canShare = () => false; window.open = (u) => { window.__opened = u; return null; }; });
   const dl2 = page.waitForEvent('download');
   await page.locator('[data-flow-share]').click();

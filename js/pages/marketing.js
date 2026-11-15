@@ -190,11 +190,22 @@
   const cback = () => go('marketing-campaign-' + Math.max(1, st.step - 1));
 
   // ---------- files and links (decision 13) — the same control everywhere ----------
-  const fileIcon = (f) => (f.t === 'product' ? 'package' : f.t === 'tpl' ? 'copy' : 'file');
+  const fileIcon = (f) => (f.t === 'product' ? 'package' : f.t === 'tpl' ? 'copy' : /\/ref-[^/]+$/.test(String(f.path || '')) ? 'link' : 'file');
   function Files(id, label, arr, help, tplKind) {
-    const li = h('input', { type: 'text', class: 'input grow', dir: 'auto', placeholder: 'لينك منتج من الموقع أو الـ SKU', 'aria-label': label + ' — لينك', id: id + '-l' });
-    const add = async () => { const v = li.value.trim(); if (!v) return; const r = await MK().product(v); if (!r.ok) { K.toast(r.message, 'error'); return; }
-      if (!arr.some((f) => f.t === 'product' && f.id === r.product.id)) arr.push({ t: 'product', id: r.product.id, name: r.product.name }); li.value = ''; persist(); R(); };
+    const li = h('input', { type: 'text', class: 'input grow', dir: 'auto', placeholder: 'أي لينك (صورة، Pinterest، منتج من الموقع) أو الـ SKU', 'aria-label': label + ' — لينك', id: id + '-l' });
+    // a product of the site (its link or SKU) first; any other https link (the owner 15 Nov — «السيستم مش قابل اي لينكات») → the server
+    // fetches its image (the link's, or the picture its page names) into the campaign's folder — a file like an upload
+    let adding = false;
+    const add = async () => { const v = li.value.trim(); if (!v || adding) return; adding = true;
+      try {
+        const r = await MK().product(v);
+        if (r.ok) { if (!arr.some((f) => f.t === 'product' && f.id === r.product.id)) arr.push({ t: 'product', id: r.product.id, name: r.product.name }); li.value = ''; persist(); R(); return; }
+        if (!/^https?:\/\//i.test(v)) { K.toast('مالقيناش منتج بالـ SKU ده — أو حط لينك يبدأ بـ https://', 'error'); return; }
+        if (!(await ensureCampaign())) return;
+        const l = await MK().refLink(camp.id, v); if (!l.ok) { K.toast(l.message, 'error'); return; }
+        arr.push({ t: 'file', name: l.name, path: l.path }); li.value = ''; persist(); R(); K.toast('اتضافت الصورة من اللينك', 'success');
+      } finally { adding = false; }
+    };
     li.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } });
     const up = h('input', { type: 'file', class: 'sr-file', id: id + '-f', multiple: true, accept: 'image/png,image/jpeg,image/webp', onChange: async () => {
       const list = [...up.files]; up.value = ''; if (!list.length || !(await ensureCampaign())) return;

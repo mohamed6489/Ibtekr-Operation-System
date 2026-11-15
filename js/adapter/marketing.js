@@ -234,6 +234,25 @@
     } catch (e) { return fail(e); }
   }
 
+  // any other public link (the owner 15 Nov — «السيستم مش قابل اي لينكات»): the server (ai-images ref_link) fetches its image — the
+  // link itself or the picture its page names (a Pinterest pin …) — under the SSRF rules and keeps it in the campaign's folder
+  const REF_MESSAGES = { url: 'اللينك لازم يبدأ بـ https:// ويكون لموقع عام', blocked: 'اللينك ده مش مسموح — نزّل الصورة وارفعها',
+    not_image: 'مالقيناش صورة في اللينك ده — نزّل الصورة وارفعها', too_big: 'الصورة اللي في اللينك أكبر من 12 ميجا', unreachable: 'الموقع ده ماردش — جرّب تاني أو نزّل الصورة وارفعها' };
+  async function refLink(campaignId, link) {
+    if (!can().create) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
+    if (!campaignId) return { ok: false, reason: 'invalid', message: 'احفظ الكامبين الأول' };
+    const u = String(link == null ? '' : link).trim();
+    if (!/^https:\/\/[^\s]+$/i.test(u) || u.length > 2000) return { ok: false, reason: 'invalid', field: 'url', message: REF_MESSAGES.url };
+    const r = await invoke('ai-images', { action: 'ref_link', campaign_id: campaignId, url: u });
+    if (!r.ok) {
+      const k = r.field === 'url' ? 'url' : r.code && REF_MESSAGES[r.code] ? r.code : null;
+      return Object.assign(r, { message: k ? REF_MESSAGES[k] : r.reason === 'notfound' ? 'الكامبين دي اتمسحت — افتحها من «آخر الشغل»' : r.reason === 'forbidden' ? MESSAGES.forbidden : REF_MESSAGES.unreachable });
+    }
+    const b = r.body || {};
+    if (typeof b.path !== 'string' || b.path.indexOf(campaignId + '/') !== 0) return { ok: false, reason: 'network', message: REF_MESSAGES.unreachable };
+    return { ok: true, path: b.path, name: clean(b.name, 120) || 'لينك' };
+  }
+
   // ---------- the AI (decisions 8–10) ----------
   async function invoke(fn, body) {
     const cl = c(); if (!cl) return { ok: false, reason: 'network' };
@@ -855,7 +874,7 @@
   function clear() { gen += 1; unsubscribe(); pend.forEach((p) => { if (p.timer) clearTimeout(p.timer); }); pend.clear(); chains.clear(); urls.clear(); data.campaigns = []; data.posts = []; data.templates = []; data.credits = null; conn = null; connAt = 0; ads = null; adsAt = 0; adsCache.clear(); sugg = null; suggAt = 0; rulesCache = null; rulesAt = 0; st = 'idle'; }
 
   window.IBMarketing = { load, ensure, clear, state: () => st, can, campaigns, posts, templates, getPost, wallet, credits, open, create, save, saveSoon, flush, archive,
-    upload, uploadTemplate, url, cachedUrl, blob, product, checkFile, generate, edit, write, schedule, move, caption, published, remove,
+    upload, uploadTemplate, url, cachedUrl, blob, product, refLink, checkFile, generate, edit, write, schedule, move, caption, published, remove,
     videoClip, videoVoice, videoMusic, videoAssemble, videoPoll, videoUpload, videoScenes,
     connection, connNow, setAutopublish, publishNow, deleteLive, preparePublish,
     adsStatus, adsNow, adsSync, adsData, adsLinkSet, adsLinkStart, adsLinkPick, adsUnlink, adsWhy,

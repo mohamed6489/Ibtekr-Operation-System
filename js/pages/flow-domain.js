@@ -299,10 +299,39 @@
     }
     return files;
   }
+  // ---------------------------------------------------------------- the data step's lists (the owner 15 Nov: Arabic and English side by side)
+  /** the material and the style dropdowns: [English, Arabic] pairs — a pick sets both columns; a value not in the list stays as typed. */
+  const MATERIALS = [['Cotton', 'قطن'], ['Linen', 'كتان'], ['Wool', 'صوف'], ['Silk', 'حرير'], ['Velvet', 'قطيفة'], ['Bouclé', 'بوكليه'], ['Fabric', 'قماش'],
+    ['Polyester', 'بوليستر'], ['Leather', 'جلد'], ['Felt', 'لباد'], ['Canvas', 'كانفاس'], ['Wood', 'خشب'], ['MDF', 'إم دي إف'], ['Plywood', 'أبلكاش'],
+    ['Bamboo', 'بامبو'], ['Rattan', 'راتان'], ['Wicker', 'خوص'], ['Jute', 'جوت'], ['Macrame', 'مكرمية'], ['Crochet', 'كروشيه'], ['Ceramic', 'سيراميك'],
+    ['Pottery', 'فخار'], ['Porcelain', 'بورسلين'], ['Glass', 'زجاج'], ['Marble', 'رخام'], ['Stone', 'حجر'], ['Concrete', 'أسمنت'], ['Metal', 'معدن'],
+    ['Iron', 'حديد'], ['Stainless Steel', 'ستانلس ستيل'], ['Brass', 'نحاس أصفر'], ['Copper', 'نحاس'], ['Aluminum', 'ألومنيوم'], ['Silver', 'فضة'],
+    ['Gold Plated', 'مطلي ذهب'], ['Resin', 'ريزن'], ['Epoxy', 'إيبوكسي'], ['Acrylic', 'أكريليك'], ['Plastic', 'بلاستيك'], ['Paper', 'ورق'],
+    ['Beads', 'خرز'], ['Wax', 'شمع'], ['Mixed Materials', 'خامات متعددة']];
+  const STYLES = [['Modern', 'مودرن'], ['Contemporary', 'معاصر'], ['Minimalist', 'مينيمال'], ['Boho', 'بوهيمي'], ['Classic', 'كلاسيك'], ['Vintage', 'فينتدج'],
+    ['Retro', 'ريترو'], ['Rustic', 'ريفي'], ['Farmhouse', 'فارم هاوس'], ['Scandinavian', 'إسكندنافي'], ['Japandi', 'جاباندي'], ['Industrial', 'صناعي'],
+    ['Mid-Century', 'ميد سنشري'], ['Art Deco', 'آرت ديكو'], ['Luxury', 'فخم'], ['Oriental', 'شرقي'], ['Islamic', 'إسلامي'], ['Pharaonic', 'فرعوني'],
+    ['Coastal', 'ساحلي'], ['Tropical', 'استوائي'], ['Handmade', 'هاند ميد'], ['Geometric', 'هندسي'], ['Abstract', 'تجريدي'], ['Floral', 'فلورال'], ['Kids', 'أطفال']];
+  /** the pair a value names, by its English or its Arabic (accents and case aside) → [en, ar] | null */
+  const bare = (v) => norm(String(v == null ? '' : v).normalize('NFD').replace(/\p{M}/gu, '')); // «Bouclé» = «boucle»; the Arabic marks off too
+  const pairOf = (list, en, ar) => { const e = bare(en); const a = bare(ar); return (e || a) ? list.find(([x, y]) => (e && bare(x) === e) || (a && bare(y) === a)) || null : null; };
+  const AR_DIGITS = '٠١٢٣٤٥٦٧٨٩';
+  const SIZE_WORDS = [[/سنتيمتر|سنتي|سم/g, 'cm'], [/مليمتر|ملي|مم/g, 'mm'], [/كيلو\s*جرام|كيلو|كجم/g, 'kg'], [/متر/g, 'm'], [/عرض/g, 'W'], [/طول/g, 'L'],
+    [/ارتفاع|إرتفاع/g, 'H'], [/عمق/g, 'D'], [/قطر/g, 'Ø'], [/مقاس/g, ''], [/صغير/g, 'S'], [/وسط|متوسط/g, 'M'], [/كبير/g, 'L']];
+  /** an Arabic size → its English (the digits Latin, the units and the dimension words in English): «عرض ١٢٠ × طول ٧٠ سم» → «W 120 × L 70 cm»;
+   * a size with Arabic letters left over → '' (the English stays as it is). */
+  function sizeEnOf(ar) {
+    let s = String(ar == null ? '' : ar).replace(/[٠-٩]/g, (d) => String(AR_DIGITS.indexOf(d))).replace(/٫/g, '.').replace(/(\d)\s*[xX*]\s*(?=\d)/g, '$1×');
+    SIZE_WORDS.forEach(([re, to]) => { s = s.replace(re, to); });
+    s = s.replace(/\s*×\s*/g, ' × ').replace(/\s+/g, ' ').trim();
+    return /[\u0600-\u06FF]/.test(s) ? '' : s;
+  }
+
   const xlsx = (o) => PD.zip(xlsxParts(o));
   /** the sheet's file name: «<maker> - <yyyy-mm-dd>.xlsx» (signs a file system refuses dropped). */
   const sheetFileName = (maker, when) => { const d = when instanceof Date ? when : new Date(); return (String(maker || 'Products').replace(/[\\/:*?"<>|]+/g, '-').trim().slice(0, 60) || 'Products') + ' - ' + d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + '.xlsx'; };
 
   return { FIELDS, LABELS, NUMERIC, TEMPLATE, HEAD_SIMPLE, HEAD_VARIABLE, PREVIEWS, mapHeaders, readSheet, blankRow, photoIndex, assignPhotos, placePhotos, brandCode3, validCode, sizeCode, skuOf, validSku, skuBase, baseName,
-    groupRows, slugName, imageSku, fileName, siteUrl, pricesOf, rowIssues, sheetOf, blankSheetRows, colName, xlsxParts, xlsx, sheetFileName, norm };
+    groupRows, slugName, imageSku, fileName, siteUrl, pricesOf, rowIssues, sheetOf, blankSheetRows, colName, xlsxParts, xlsx, sheetFileName, norm,
+    MATERIALS, STYLES, pairOf, sizeEnOf };
 });

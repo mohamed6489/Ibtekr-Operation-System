@@ -34,7 +34,7 @@
   const why = (code, field) => (REASON[code] || 'حصلت مشكلة (' + code + ')') + (field ? ' — ' + field : '');
 
   // ---------------- state ----------------
-  const S = { id: null, row: null, step: 1, loading: false, err: '', timer: null, sel: new Set(), busy: '', prog: { img: null, sheet: null }, results: null };
+  const S = { id: null, row: null, step: 1, loading: false, err: '', timer: null, sel: new Set(), busy: '', tr: new Set(), prog: { img: null, sheet: null }, results: null };
   const st = () => S.row && S.row.state;
   const blank = (kase, type) => ({ flow: 2, case: kase, type, vendorId: null, vendorName: '', brandId: null, brandName: '', code: '', rate: null, fee: null, rows: [], kinds: { sizes: 0, colors: 0 }, products: [], shots: {}, sizeShot: {}, features: null, sheetName: '', items: [], screens: 0 });
   const steps = () => (st() && st().case === 'photos' ? STEPS.photos : STEPS.data);
@@ -349,46 +349,66 @@
     });
     touch(); R(); if (!silent) K.toast('اتعمل SKU لـ ' + need.length + ' منتج', 'success');
   }
-  // «املأ بالـ AI» (decision 6): the names, the descriptions and the category the rows lack, product by product (IBAI.studio on the saved items)
-  async function aiFill(only) {
-    const gs = groups().map((g, gi) => ({ g, gi })).filter((x) => !only || x.g.rows.some((ri) => only.has(rows()[ri].key)));
-    const todo = gs.filter(({ g }) => g.rows.some((ri) => { const r = rows()[ri]; return !r.nameEn || !r.nameAr || !r.shortEn || !r.shortAr || !catIdOf(r.catEn); }));
-    if (!todo.length) { K.toast('مفيش بيانات ناقصة', 'success'); return; }
+  // «املأ بالـ AI» (decision 6; the owner 15 Nov: by itself when the step opens): the names, the descriptions, the category, the material
+  // and the style (both languages), and a Simple product's color from its photo — product by product (IBAI.studio on the saved items)
+  const needOf = (g) => { const R0 = rows()[g.rows[0]];
+    return [!R0.nameEn && 'nameEn', !R0.nameAr && 'nameAr', (!R0.shortEn || !R0.shortAr) && 'desc', !catIdOf(R0.catEn) && 'category',
+      (!R0.materialEn || !R0.materialAr || !R0.styleEn || !R0.styleAr) && 'attrs', g.type === 'Simple' && !R0.colorEn && !R0.colorAr && 'variations'].filter(Boolean); };
+  async function aiFill(only, auto) {
+    const todo = groups().map((g, gi) => ({ g, gi, want: needOf(g) })).filter((x) => x.want.length && (!only || x.g.rows.some((ri) => only.has(rows()[ri].key))));
+    if (!todo.length) { if (!auto) K.toast('مفيش بيانات ناقصة', 'success'); return; }
     await touch(true); S.busy = 'ai'; R(); let done = 0; let stop = '';
-    for (const { g, gi } of todo) {
-      const R0 = rows()[g.rows[0]];
-      const want = [!R0.nameEn && 'nameEn', !R0.nameAr && 'nameAr', (!R0.shortEn || !R0.shortAr) && 'desc', !catIdOf(R0.catEn) && 'category'].filter(Boolean);
+    for (const { g, gi, want } of todo) {
       const r = await AI().studio(S.id, gi, want);
       if (!r.ok) { stop = why(r.reason); break; }
       const f = r.fields || {};
+      const mat = FD.pairOf(FD.MATERIALS, f.material, f.materialAr); const sty = FD.pairOf(FD.STYLES, f.style, f.styleAr);
       g.rows.forEach((ri) => { const x = rows()[ri]; x.ai = Object.assign({}, x.ai);
-        if (f.nameEn && !x.nameEn) { x.nameEn = f.nameEn; x.ai.nameEn = true; } if (f.nameAr && !x.nameAr) { x.nameAr = f.nameAr; x.ai.nameAr = true; }
-        if (f.shortDesc && !x.shortEn) { x.shortEn = f.shortDesc; x.ai.shortEn = true; } if (f.shortDescAr && !x.shortAr) { x.shortAr = f.shortDescAr; x.ai.shortAr = true; }
-        if (Array.isArray(f.categories) && f.categories.length && !catIdOf(x.catEn)) { x.catEn = pathOfId(f.categories[0]); x.ai.catEn = true; } });
-      done += 1; touch(); R();
+        const fill = (k, v) => { if (v && !x[k]) { x[k] = v; x.ai[k] = true; } };
+        fill('nameEn', f.nameEn); fill('nameAr', f.nameAr); fill('shortEn', f.shortDesc); fill('shortAr', f.shortDescAr);
+        if (Array.isArray(f.categories) && f.categories.length && !catIdOf(x.catEn)) { x.catEn = pathOfId(f.categories[0]); x.ai.catEn = true; }
+        fill('materialEn', mat ? mat[0] : f.material); fill('materialAr', mat ? mat[1] : f.materialAr);
+        fill('styleEn', sty ? sty[0] : f.style); fill('styleAr', sty ? sty[1] : f.styleAr);
+        const c = g.type === 'Simple' && !x.colorEn && !x.colorAr && Array.isArray(f.colors) && f.colors.length ? colors().find((y) => y.code === f.colors[0]) : null;
+        if (c) { const old = codeOfRow(x); fill('colorEn', c.name_en); fill('colorAr', c.name_ar); recolorSku(x, old, c.code); } });
+      done += 1; touch(); RF();
     }
-    S.busy = ''; R();
+    S.busy = ''; RF();
     K.toast(stop ? 'وقف بعد ' + done + ' منتج — ' + stop : 'اتملا ' + done + ' منتج بالـ AI — راجعهم', stop ? 'error' : 'success');
   }
-  const DATA_COLS = ['sku', 'nameEn', 'nameAr', 'colorEn', 'colorAr', 'size', 'sizeAr', 'styleEn', 'styleAr', 'materialEn', 'materialAr', 'weight', 'brand', 'catEn', 'catAr', 'shortEn', 'shortAr'];
-  const cell = (r, k) => {
-    const wide = k.startsWith('short') ? ' w-wide' : k.startsWith('cat') || k.startsWith('name') ? ' w-mid' : '';
-    const inp = h(k.startsWith('short') ? 'textarea' : 'input', { class: 'input fl-in' + wide + (r.ai && r.ai[k] ? ' is-ai' : ''), 'aria-label': FD.LABELS[k] + ' — ' + (r.nameEn || r.nameAr || r.sku || ''), 'data-fl': k, value: r[k] == null ? '' : String(r[k]), list: k === 'catEn' ? 'fl-cats' : undefined, dir: k.endsWith('Ar') ? 'rtl' : k === 'sku' ? 'ltr' : 'auto', rows: k.startsWith('short') ? 2 : undefined,
-      onChange: (ev) => { const v = ev.target.value; r[k] = k === 'weight' ? (v === '' ? null : Number(v)) : v; if (r.ai) delete r.ai[k]; touch(); RF(); } });
-    if (k.startsWith('short')) inp.value = r[k] || '';
-    return h('td', null, inp);
-  };
+  // the owner 15 Nov: a color picked (or read by the AI) after the SKU was made → the SKU's color part follows it (our own SKU only — a
+  // maker's SKU stays as it is): «IBTART0999-BE» → «IBTART0999-PU»; a SKU with no color part takes it after the serial
+  function recolorSku(r, oldCode, newCode) {
+    const s = st(); const sku = String(r.sku || ''); if (!newCode || oldCode === newCode || !FD.validSku(sku) || !FD.validCode(s.code) || !sku.startsWith('IBT' + s.code)) return;
+    const base = FD.skuBase(sku); let rest = sku.slice(base.length);
+    if (oldCode) { if (rest === '-' + oldCode || rest.startsWith('-' + oldCode + '-')) rest = rest.slice(oldCode.length + 1); else return; }
+    r.sku = base + '-' + newCode + rest;
+  }
+  // a color by its names → its code in the colors table (a new one added with a suggested code, like the SKU step does)
+  async function codeForColor(en, ar) {
+    const hit = colors().find((c) => (en && c.name_en.toLowerCase() === en.trim().toLowerCase()) || (ar && String(c.name_ar).trim() === ar.trim())); if (hit) return hit.code;
+    const code = en ? PD.suggestColorCode(en, colors().map((c) => c.code)) : null; if (!code) return null;
+    const x = await ST().addColor({ name_en: en.trim().slice(0, 40), name_ar: (ar || en).trim().slice(0, 40), code });
+    return x.ok ? code : null;
+  }
+  // the owner 15 Nov («لو غير اي حاجة في العربي تتغير اوتوماتيك في الانجليزي … لو كتب كلام بالعربي في الاسم او الوصف يترجم لوحده»): an
+  // Arabic name or description typed → the English one written from it by the AI (want «translate»), marked «AI — راجع» until edited
+  async function translateGroup(key, what) {
+    if (S.tr.has(key)) return;
+    S.tr.add(key); RF(); await touch(true);
+    const gi = groups().findIndex((x) => x.key === key);
+    const r = gi < 0 ? { ok: false, reason: 'not_found' } : await AI().studio(S.id, gi, ['translate']);
+    S.tr.delete(key);
+    if (!r.ok) { K.toast('مقدرناش نترجم للإنجليزي — ' + why(r.reason), 'error'); RF(); return; }
+    const f = r.fields || {}; const g = groups().find((x) => x.key === key);
+    (g ? g.rows : []).forEach((ri) => { const x = rows()[ri]; x.ai = Object.assign({}, x.ai);
+      if (what.name && f.nameEn) { x.nameEn = f.nameEn; x.ai.nameEn = true; }
+      if (what.desc && f.shortDesc) { x.shortEn = f.shortDesc; x.ai.shortEn = true; } });
+    touch(); RF();
+  }
   const Cb = (label, checked, onChange) => h('button', { type: 'button', role: 'checkbox', class: 'cb', 'aria-checked': String(!!checked), 'aria-label': label, onClick: () => onChange(!checked) }, h('i', null, checked ? Icon('check', 'sm') : null));
   const selBox = (key, label) => Cb('حدد ' + (label || ''), S.sel.has(key), (v) => { if (v) S.sel.add(key); else S.sel.delete(key); R(); });
   const allBox = (keys) => Cb('حدد الكل', keys.length > 0 && keys.every((k) => S.sel.has(k)), (v) => { keys.forEach((k) => (v ? S.sel.add(k) : S.sel.delete(k))); R(); });
-  function rowMenu(r, extra) {
-    return K.RowMenu([{ label: 'تعديل', icon: 'edit', run: () => editRow(r) }].concat(extra || [], [{ label: 'شيل من الدفعة', icon: 'trash', danger: true, run: () => K.confirm({ title: 'تشيل «' + (r.nameEn || r.nameAr || r.sku || 'الصف') + '» من الدفعة؟', text: 'بيتشال من الدفعة دي بس.', okLabel: 'شيل', okType: 'danger', onOk: () => { const s = st(); s.rows = s.rows.filter((x) => x !== r); S.sel.delete(r.key); touch(); R(); } }) }]), 'إجراءات ' + (r.nameEn || r.sku || ''));
-  }
-  function editRow(r) {
-    K.form({ title: 'تعديل — ' + (r.nameEn || r.nameAr || r.sku || 'الصف'), values: Object.fromEntries(DATA_COLS.map((k) => [k, r[k] == null ? '' : String(r[k])])), submitLabel: 'احفظ',
-      fields: (f, e, set) => DATA_COLS.map((k) => K.field.text(k, FD.LABELS[k], f, e, set, k === 'sku' ? { help: 'فاضي = بيتولّد' } : {})),
-      submit: (f) => { DATA_COLS.forEach((k) => { r[k] = k === 'weight' ? (f[k] === '' ? null : Number(f[k])) : String(f[k] || '').trim(); if (r.ai) delete r.ai[k]; }); touch(); R(); } });
-  }
   function bulkEdit() {
     const keys = ['catEn', 'catAr', 'brand', 'styleEn', 'styleAr', 'materialEn', 'materialAr', 'nameEn', 'nameAr'];
     K.form({ title: 'تعديل مشترك لـ ' + S.sel.size + ' صف', values: Object.fromEntries(keys.map((k) => [k, ''])), submitLabel: 'طبّق على المحدد', note: U.InlineNote({ children: 'الخانة الفاضية مابتتغيّرش.' }),
@@ -396,17 +416,103 @@
       submit: (f) => { rows().filter((r) => S.sel.has(r.key)).forEach((r) => keys.forEach((k) => { const v = String(f[k] || '').trim(); if (v) { r[k] = v; if (r.ai) delete r.ai[k]; } })); touch(); R(); } });
   }
   const BulkBar = (btns) => (S.sel.size ? h('div', { class: 'bulk-bar', role: 'region', 'aria-label': 'إجراءات على المحدد' }, h('b', null, 'محدد ' + S.sel.size), h('span', { class: 'grow' }), ...btns, Button({ type: 'text', size: 'sm', label: 'إلغاء التحديد', onClick: () => { S.sel.clear(); R(); } })) : null);
+  // ---------------- the data step's cards (the owner 15 Nov: «نقسمها لجزئين إنجليزي و عربي … الصورة علي اليمين و جمبهم البيانات») ----------------
+  // a product = one card: the head (its number, the brand, the SKU, the category, the weight), then the photo on the right, the Arabic
+  // column and the English column side by side; a Variable's colors and sizes per variation under them. The fields a product shares
+  // (the names, the descriptions, the category, the material, the style) write every row of a Variable.
+  const setAll = (rs, k, v) => rs.forEach((x) => { x[k] = v; if (x.ai) delete x.ai[k]; });
+  function textField(rs, k, label, o) {
+    const r = rs[0]; const opt = o || {}; const id = 'fl-' + k + '-' + r.key; const area = k.startsWith('short'); const ai = !!(r.ai && r.ai[k]);
+    const inp = h(area ? 'textarea' : 'input', { id, class: 'input fl-in' + (ai ? ' is-ai' : ''), 'data-fl': k, dir: opt.dir || (k.endsWith('Ar') ? 'rtl' : k === 'sku' ? 'ltr' : 'auto'), rows: area ? 4 : undefined,
+      inputmode: k === 'weight' ? 'decimal' : undefined, value: r[k] == null ? '' : String(r[k]),
+      onChange: (ev) => { const v = String(ev.target.value).trim(); const was = r[k] == null ? '' : String(r[k]); setAll(rs, k, k === 'weight' ? (v === '' ? null : Number(v)) : v); if (opt.after && v !== was) opt.after(v); touch(); RF(); } });
+    if (area) inp.value = r[k] || '';
+    return h('div', { class: 'fl-f' + (opt.cls ? ' ' + opt.cls : '') }, h('label', { for: id }, label, ai ? h('span', { class: 'fl-aitag' }, 'AI — راجع') : null), inp);
+  }
+  function newPair(title, done) {
+    K.form({ title, values: { ar: '', en: '' }, submitLabel: 'ضيف',
+      fields: (f, e, set) => [K.field.text('ar', 'بالعربي', f, e, set, {}), K.field.text('en', 'بالإنجليزي', f, e, set, {})],
+      validate: (f) => { const e = {}; if (!String(f.ar || '').trim()) e.ar = 'اكتبه بالعربي'; if (!String(f.en || '').trim() || /[\u0600-\u06FF]/.test(f.en)) e.en = 'اكتبه بالإنجليزي'; return e; },
+      submit: (f) => done(String(f.en).trim().slice(0, 40), String(f.ar).trim().slice(0, 40)) });
+  }
+  // a dropdown of [English, Arabic] pairs: the Arabic column shows the Arabic names, the English the English; a pick sets both
+  function pairField(rs, kEn, kAr, list, lang, label, onPick) {
+    const r = rs[0]; const k = lang === 'ar' ? kAr : kEn; const id = 'fl-' + k + '-' + r.key;
+    const hit = FD.pairOf(list, r[kEn], r[kAr]); const cur = (lang === 'ar' ? r[kAr] || r[kEn] : r[kEn] || r[kAr]) || '';
+    const options = [{ value: '', label: '—' }].concat(list.map(([en, ar]) => ({ value: en, label: lang === 'ar' ? ar : en })), !hit && cur ? [{ value: '__cur', label: cur }] : [],
+      [{ value: '__new', label: lang === 'ar' ? '+ جديد…' : '+ New…' }]);
+    const ai = !!(r.ai && (r.ai[kEn] || r.ai[kAr]));
+    return h('div', { class: 'fl-f fl-pick' + (ai ? ' is-ai' : ''), 'data-fl-pick': k, dir: lang === 'ar' ? 'rtl' : 'ltr' },
+      U.Select({ id, label: ai ? label + ' · AI' : label, options, value: hit ? hit[0] : cur ? '__cur' : '', onChange: (v) => {
+        if (v === '__cur') return;
+        if (v === '__new') { newPair('إضافة ' + label, (en, ar) => onPick(rs, en, ar)); return; }
+        const p = list.find(([en]) => en === v); onPick(rs, p ? p[0] : '', p ? p[1] : ''); } }));
+  }
+  const pickBoth = (kEn, kAr) => (rs, en, ar) => { setAll(rs, kEn, en); setAll(rs, kAr, ar); touch(); R(); };
+  const pickColor = async (rs, en, ar) => { const x = rs[0]; const old = codeOfRow(x); setAll(rs, 'colorEn', en); setAll(rs, 'colorAr', ar); R();
+    const code = en ? await codeForColor(en, ar) : null; if (code) recolorSku(x, old, code); touch(); R(); };
+  const colorList = () => colors().map((c) => [c.name_en, c.name_ar]);
+  // the Arabic size typed → the English size from it (digits, units, the dimension words)
+  const sizeAfter = (rs) => (v) => { const en = FD.sizeEnOf(v); if (en) setAll(rs, 'size', en); };
+  function catField(rs) {
+    const r = rs[0]; const id = 'fl-cat-' + r.key; const list = cats(); const now = catIdOf(r.catEn); const ai = !!(r.ai && r.ai.catEn);
+    if (!list.length) return textField(rs, 'catEn', 'القسم', { dir: 'ltr' });
+    const options = list.map((c) => ({ value: String(c.id), label: c.path })).concat(now == null && r.catEn ? [{ value: '__cur', label: r.catEn + ' (مش على الموقع)' }] : []);
+    return h('div', { class: 'fl-f fl-pick fl-cat' + (ai ? ' is-ai' : ''), 'data-fl-pick': 'catEn' },
+      U.Select({ id, label: ai ? 'القسم · AI' : 'القسم', options, value: now != null ? String(now) : r.catEn ? '__cur' : '', placeholder: 'اختار القسم', onChange: (v) => { if (v === '__cur') return; setAll(rs, 'catEn', pathOfId(v)); touch(); R(); } }));
+  }
+  function groupMenu(g, rs) {
+    const keys = rs.map((x) => x.key);
+    return K.RowMenu([{ label: 'املأ الناقص بالـ AI', icon: 'sparkle', run: () => aiFill(new Set(keys)) },
+      { label: 'ترجم الإنجليزي من العربي', icon: 'sparkle', run: () => translateGroup(g.key, { name: true, desc: true }) },
+      { label: 'شيل من الدفعة', icon: 'trash', danger: true, run: () => K.confirm({ title: 'تشيل «' + (rs[0].nameAr || rs[0].nameEn || rs[0].sku || 'المنتج') + '» من الدفعة؟', text: 'بيتشال من الدفعة دي بس' + (rs.length > 1 ? ' (' + rs.length + ' تركيبات).' : '.'), okLabel: 'شيل', okType: 'danger',
+        onOk: () => { const s = st(); s.rows = s.rows.filter((x) => !keys.includes(x.key)); keys.forEach((k) => S.sel.delete(k)); touch(); R(); } }) }], 'إجراءات ' + (rs[0].sku || rs[0].nameAr || ''));
+  }
+  function dataCard(g, n) {
+    const rs = g.rows.map((ri) => rows()[ri]); const R0 = rs[0]; const vari = g.type === 'Variable'; const keys = rs.map((x) => x.key); const s = st();
+    const issues = [...new Set(rs.flatMap(ISSUE_FIELDS))]; const tr = S.tr.has(g.key);
+    const head = h('div', { class: 'fl-dhead' },
+      Cb('حدد ' + (R0.nameAr || R0.nameEn || R0.sku || ''), keys.every((k) => S.sel.has(k)), (v) => { keys.forEach((k) => (v ? S.sel.add(k) : S.sel.delete(k))); R(); }),
+      h('b', { class: 'fl-dnum num' }, '#' + n), Tag(vari ? 'info' : 'neutral', vari ? 'Variable · ' + rs.length + ' تركيبات' : 'Simple'),
+      h('div', { class: 'fl-dbrand' }, h('small', null, 'البراند'), h('b', null, s.brandName || R0.brand || '—')),
+      vari ? h('div', { class: 'fl-dbrand' }, h('small', null, 'SKU الأساسي'), h('b', { class: 'num' }, h('bdi', { dir: 'ltr' }, FD.skuBase(R0.sku) || '—'))) : textField(rs, 'sku', 'SKU', { cls: 'fl-sku' }),
+      catField(rs), vari ? null : textField(rs, 'weight', 'الوزن (كجم)', { cls: 'fl-w' }),
+      h('span', { class: 'grow' }),
+      issues.length ? h('span', { class: 'fl-dmiss', title: issues.join('، ') }, 'ناقص: ' + issues.join('، ')) : h('span', { class: 'fl-dok' }, Icon('check', 'sm'), 'كامل'),
+      groupMenu(g, rs));
+    const nameAfter = () => translateGroup(g.key, { name: true }); const descAfter = () => translateGroup(g.key, { desc: true });
+    const ar = h('div', { class: 'fl-dcol', lang: 'ar', dir: 'rtl' }, h('div', { class: 'fl-dcol-h' }, 'عربي'),
+      textField(rs, 'nameAr', 'الاسم', { after: nameAfter }), textField(rs, 'shortAr', 'الوصف', { after: descAfter }),
+      vari ? null : h('div', { class: 'fl-2' }, pairField(rs, 'colorEn', 'colorAr', colorList(), 'ar', 'اللون', pickColor), textField(rs, 'sizeAr', 'المقاس', { after: sizeAfter(rs) })),
+      h('div', { class: 'fl-2' }, pairField(rs, 'materialEn', 'materialAr', FD.MATERIALS, 'ar', 'الخامة', pickBoth('materialEn', 'materialAr')), pairField(rs, 'styleEn', 'styleAr', FD.STYLES, 'ar', 'الستايل', pickBoth('styleEn', 'styleAr'))));
+    const en = h('div', { class: 'fl-dcol', lang: 'en', dir: 'ltr' }, h('div', { class: 'fl-dcol-h' }, 'English', tr ? h('span', { class: 'fl-trans', role: 'status' }, 'بيترجم…') : null),
+      textField(rs, 'nameEn', 'Product name', { dir: 'ltr' }), textField(rs, 'shortEn', 'Description', { dir: 'ltr' }),
+      vari ? null : h('div', { class: 'fl-2' }, pairField(rs, 'colorEn', 'colorAr', colorList(), 'en', 'Colour', pickColor), textField(rs, 'size', 'Size', { dir: 'ltr' })),
+      h('div', { class: 'fl-2' }, pairField(rs, 'materialEn', 'materialAr', FD.MATERIALS, 'en', 'Material', pickBoth('materialEn', 'materialAr')), pairField(rs, 'styleEn', 'styleAr', FD.STYLES, 'en', 'Style', pickBoth('styleEn', 'styleAr'))));
+    const photos = (R0.photos || []).length;
+    const pic = h('div', { class: 'fl-dpic' }, Thumb(R0.ref, 'fl-dimg'), photos > 1 ? h('small', { class: 'help' }, photos + ' صور') : null);
+    const vars = vari ? h('div', { class: 'fl-vars' }, h('div', { class: 'fl-vars-h' }, 'التركيبات'), rs.map((x) => h('div', { class: 'fl-var' + (ISSUE_FIELDS(x).length ? ' row-err' : ''), 'data-row': x.key },
+      Thumb(x.ref || R0.ref, 'fl-pthumb'), textField([x], 'sku', 'SKU', { cls: 'fl-sku' }),
+      pairField([x], 'colorEn', 'colorAr', colorList(), 'ar', 'اللون', pickColor), pairField([x], 'colorEn', 'colorAr', colorList(), 'en', 'Colour', pickColor),
+      textField([x], 'sizeAr', 'المقاس', { after: sizeAfter([x]) }), textField([x], 'size', 'Size', { dir: 'ltr' }), textField([x], 'weight', 'الوزن', { cls: 'fl-w' }),
+      U.IconButton({ icon: 'trash', label: 'شيل التركيبة ' + (x.sku || ''), onClick: () => { const s2 = st(); s2.rows = s2.rows.filter((y) => y !== x); S.sel.delete(x.key); touch(); R(); } })))) : null;
+    return h('section', { class: 'fl-dcard' + (issues.length ? ' has-miss' : ''), 'data-row': R0.key, 'data-group': g.key }, head, h('div', { class: 'fl-dbody' }, pic, ar, en), vars);
+  }
   function step3() {
-    const s = st(); const L = rows();
+    const s = st(); const L = rows(); const G = groups();
+    // a size the sheet gave in English only → its Arabic written from it («40 × 40 cm» → «40 × 40 سم»), so the Arabic column is whole
+    let sized = false; L.forEach((r) => { if (r.size && !r.sizeAr) { r.sizeAr = arSize(r); sized = true; } }); if (sized) touch();
     if (S.autoSku !== S.id && FD.validCode(s.code) && L.some((r) => !FD.validSku(r.sku) || (r.colorEn && !colorOf(r)))) { S.autoSku = S.id; setTimeout(() => genSkus(true), 0); } // once per batch opened
-    const miss = L.filter((r) => ISSUE_FIELDS(r).length).length;
-    const dl = h('datalist', { id: 'fl-cats' }, cats().map((c) => h('option', { value: c.path.replace(/\s*›\s*/g, ' > ') })));
-    const table = h('div', { class: 'fl-scroll' }, h('table', { class: 'fl-table' }, h('thead', null, h('tr', null, h('th', { class: 'stk c-cb' }, allBox(L.map((r) => r.key))), h('th', { class: 'stk c-ref' }, 'الصورة'), DATA_COLS.map((k) => h('th', null, FD.LABELS[k])), h('th', null, ''))),
-      h('tbody', null, L.map((r) => h('tr', { class: ISSUE_FIELDS(r).length ? 'row-err' : null, 'data-row': r.key }, h('td', { class: 'stk c-cb' }, selBox(r.key, r.nameEn || r.sku)), h('td', { class: 'stk c-ref' }, Thumb(r.ref, 'st-big')), DATA_COLS.map((k) => cell(r, k)), h('td', null, rowMenu(r)))))));
-    const head = Card('البيانات على القالب', L.length + ' صف · ' + groups().length + ' منتج' + (miss ? ' · ' + miss + ' ناقصهم بيانات' : ' · كاملين'), [dl,
+    // the owner 15 Nov: the AI fills what is missing by itself when the step opens (once per batch opened; the button stays for later)
+    if (S.autoAi !== S.id && !S.busy && G.some((g) => needOf(g).length)) { S.autoAi = S.id; setTimeout(() => aiFill(null, true), 0); }
+    const miss = G.filter((g) => g.rows.some((ri) => ISSUE_FIELDS(rows()[ri]).length)).length;
+    const keys = L.map((r) => r.key);
+    const head = Card('البيانات', G.length + ' منتج' + (L.length !== G.length ? ' · ' + L.length + ' صف' : '') + (miss ? ' · ' + miss + ' ناقصهم بيانات' : ' · كاملين'), [
       BulkBar([Button({ size: 'sm', icon: 'edit', label: 'تعديل مشترك', onClick: bulkEdit }), Button({ size: 'sm', icon: 'sparkle', label: 'املأ بالـ AI', disabled: !!S.busy, onClick: () => aiFill(new Set(S.sel)) }),
         Button({ size: 'sm', type: 'danger', icon: 'trash', label: 'احذف', onClick: () => K.confirm({ title: 'تحذف ' + S.sel.size + ' صف من الدفعة؟', okLabel: 'احذف', okType: 'danger', onOk: () => { s.rows = s.rows.filter((r) => !S.sel.has(r.key)); S.sel.clear(); touch(); R(); } }) })]),
-      table, U.InlineNote({ children: 'الـ SKU بيتولّد لوحده للصف اللي مالوش (المسلسل من الموقع)، والخانات اللي اتملت بالـ AI عليها علامة لحد ما تتعدّل.' })],
+      h('div', { class: 'fl-dtools' }, allBox(keys), h('span', null, 'حدد الكل'), S.busy === 'ai' ? h('span', { class: 'fl-trans', role: 'status' }, 'الـ AI بيملا البيانات…') : null),
+      h('div', { class: 'fl-dlist', 'data-fl-data': '' }, G.map((g, i) => dataCard(g, i + 1))),
+      U.InlineNote({ children: 'الـ AI بيملا الناقص لوحده (الاسم والوصف والقسم والخامة والستايل واللون من الصورة)، والخانة اللي اتملت بالـ AI عليها علامة لحد ما تتعدّل. أي تعديل في الاسم أو الوصف بالعربي بيتترجم للإنجليزي لوحده، واللون والخامة والستايل بيتغيّروا في العمودين مع بعض. الـ SKU بيتولّد لوحده (المسلسل من الموقع).' })],
       [Button({ size: 'sm', label: 'ولّد الـ SKU للناقص', attrs: { 'data-flow-sku': '' }, onClick: () => genSkus(false) }), Button({ size: 'sm', type: 'primary', icon: 'sparkle', label: S.busy === 'ai' ? 'بيكتب…' : 'املأ الناقص بالـ AI', disabled: !!S.busy, attrs: { 'data-flow-ai': '' }, onClick: () => aiFill(null) })]);
     return [head, Foot(L.length > 0 && L.every((r) => FD.validSku(r.sku)), 'كل الصفوف محتاجة SKU')];
   }

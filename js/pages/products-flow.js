@@ -174,20 +174,24 @@
     // the maker's photos are references only (the owner, 1 Nov: «الأساسية = أول صورة اتعملها generate») — the shots start empty
     s.rows.forEach((r) => { const n = s.case === 'whatsapp' ? r.product : r.src; const ps = byN[n] || []; r.ref = ps[0] || null; r.photos = ps.slice(); });
   }
+  // the owner 15 Nov («بجرب ارفع الصور … مبتترفعش»): a maker's photos rarely carry the row number, and every one of them was dropped —
+  // a photo without a number now takes the next free row (FD.placePhotos), and a photo that does not go up says why
   async function takePhotos(files) {
-    const s = st(); const named = files.map((f) => ({ f, at: FD.photoIndex(f.name) }));
-    const bad = named.filter((x) => !x.at);
-    if (bad.length) K.toast(bad.length + ' صورة اسمها مش بالترتيب (1، 2، 1-2…) — اتسابت', 'warning');
-    const ok = named.filter((x) => x.at).sort((a, b) => a.at.row - b.at.row || a.at.order - b.at.order);
+    const s = st(); s.photoRows = s.photoRows || {};
+    const placed = FD.placePhotos(files.map((f) => f.name), Object.keys(s.photoRows));
     S.busy = 'photos'; R();
-    s.photoRows = s.photoRows || {}; let n = 0;
-    for (const x of ok) {
-      const r = await ST().uploadImage(S.id, x.f, 'p' + x.at.row + '-' + (x.at.order || 0), { webp: true });
-      if (r.ok) { (s.photoRows[x.at.row] = s.photoRows[x.at.row] || []).push(r.path); n += 1; }
+    let n = 0, loose = 0; const fail = { not_image: 0, network: 0 };
+    for (const x of placed) {
+      const r = await ST().uploadImage(S.id, files[x.i], 'p' + x.row + '-' + (x.order || 0), { webp: true });
+      if (r.ok) { (s.photoRows[x.row] = s.photoRows[x.row] || []).push(r.path); n += 1; if (x.auto) loose += 1; }
+      else fail[r.reason === 'not_image' ? 'not_image' : 'network'] += 1;
     }
     if (s.case === 'photos') s.products = Object.keys(s.photoRows).map(Number).sort((a, b) => a - b).map((k) => ({ n: k, ref: s.photoRows[k][0], photos: s.photoRows[k] }));
     else attachPhotos();
-    S.busy = ''; touch(); R(); K.toast('اترفعت ' + n + ' صورة', 'success');
+    S.busy = ''; touch(); R();
+    if (n) K.toast('اترفعت ' + n + ' صورة' + (loose ? ' — ' + loose + ' من غير رقم في اسمها اتحطت بالترتيب (صورة لكل منتج)، راجعها' : ''), 'success');
+    if (fail.not_image) K.toast(fail.not_image + ' صورة ماترفعتش: الصيغة مش مدعومة في المتصفح (زي HEIC من الآيفون) — حوّلها JPG أو PNG وارفعها تاني', 'error');
+    if (fail.network) K.toast(fail.network + ' صورة ماترفعتش: النت أو السيرفر — جرّب تاني', 'error');
   }
   async function takeScreens(files) {
     const s = st();
@@ -205,7 +209,7 @@
     const s = st();
     const photosN = Object.values(s.photoRows || {}).reduce((t, l) => t + l.length, 0);
     const photosBtn = Button({ label: photosN ? 'بدّل / زوّد الصور (' + photosN + ')' : 'ارفع الصور', icon: 'upload', disabled: S.busy === 'photos', attrs: { 'data-flow-photos': '' }, onClick: () => filePick('image/*', true, takePhotos) });
-    const nameHelp = U.InlineNote({ children: 'سمّي الصور بترتيب الصفوف: «1»، «2»، «3»… ولو أكتر من صورة لنفس المنتج «1-1»، «1-2». أول صورة هي المرجعية.' });
+    const nameHelp = U.InlineNote({ children: 'الصور بتتحط على الصفوف بالترتيب، صورة لكل صف. ولو عايز تحدد: سمّيها برقم الصف «1»، «2»… وأكتر من صورة لنفس المنتج «1-1»، «1-2». أول صورة هي المرجعية.' });
     if (s.case === 'photos') {
       const kind = (k, label) => U.Select({ id: 'fl-k-' + k, label, value: String(s.kinds[k] || 0), options: [0, 1, 2, 3, 4, 5].map((x) => ({ value: String(x), label: x ? x + ' ' + label : 'من غير' })), onChange: (v) => { s.kinds[k] = Number(v); touch(); R(); } });
       const ok = s.type === 'Simple' || s.kinds.sizes > 0 || s.kinds.colors > 0;
@@ -218,7 +222,7 @@
       ? Card('سكرين شوتس الواتساب', 'لحد 8 سكرين شوتس — الـ AI بيقرا الأسماء والأسعار والألوان والمقاسات بالترتيب.', [
         h('div', { class: 'acts-inline' }, Button({ type: 'primary', icon: 'sparkle', label: S.busy === 'extract' ? 'بيقرا…' : s.rows.length ? 'اقرا سكرين شوتس تانية' : 'ارفع السكرين شوتس واقرا الداتا', disabled: S.busy === 'extract', attrs: { 'data-flow-screens': '' }, onClick: () => filePick('image/*', true, takeScreens) })),
         s.rows.length ? U.InlineNote({ kind: 'success', children: 'اتقرا ' + s.rows.length + ' صف من ' + (s.screens || 0) + ' سكرين — هتراجعهم في «البيانات».' }) : null,
-        U.InlineNote({ children: 'ارفع صور المنتجات الأول عشان الـ AI يعرف عددها، وسمّيها بنفس ترتيب المنتجات في الشات.' })])
+        U.InlineNote({ children: 'ارفع صور المنتجات الأول عشان الـ AI يعرف عددها، وبنفس ترتيب المنتجات في الشات (صورة لكل منتج، أو سمّيها «1»، «2»، «1-2»…).' })])
       : Card('الشيت', 'xlsx أو csv بالقالب بتاعنا أو بأي عناوين — بنطابق الأعمدة لوحدنا.', [
         h('div', { class: 'acts-inline' }, Button({ type: 'primary', icon: 'upload', label: s.rows.length ? 'بدّل الشيت' : 'ارفع الشيت', attrs: { 'data-flow-sheet': '' }, onClick: () => filePick('.xlsx,.csv', false, (f) => takeSheet(f[0])) }), s.sheetName ? h('span', { class: 't-small help' }, s.sheetName) : null),
         s.rows.length ? U.InlineNote({ kind: 'success', children: s.rows.length + ' صف · ' + (s.mapped || 0) + ' عمود اتطابق' + (s.unknown && s.unknown.length ? ' · أعمدة مش في القالب: ' + s.unknown.join('، ') : '') }) : null]);
@@ -538,7 +542,7 @@
   function stepPhotos() {
     const s = st(); const n = (s.products || []).length;
     return [Card('صور المنتجات', n ? n + ' منتج' : 'صورة لكل منتج بالترتيب', [h('div', { class: 'acts-inline' }, Button({ type: 'primary', icon: 'upload', label: n ? 'بدّل / زوّد الصور' : 'ارفع الصور', disabled: S.busy === 'photos', attrs: { 'data-flow-photos': '' }, onClick: () => filePick('image/*', true, takePhotos) })),
-      U.InlineNote({ children: 'سمّي الصور «1»، «2»، «3»… ولو أكتر من صورة لنفس المنتج «1-1»، «1-2». أول صورة للمنتج هي اللي بتتحط في الشيت.' }),
+      U.InlineNote({ children: 'كل صورة بتبقى منتج بالترتيب. ولو أكتر من صورة لنفس المنتج سمّيها «1-1»، «1-2» (و«2-1»، «2-2»…). أول صورة للمنتج هي اللي بتتحط في الشيت.' }),
       n ? h('div', { class: 'fl-grid' }, s.products.map((p) => h('div', { class: 'fl-pcard' }, Thumb(p.ref, 'st-big'), h('b', null, 'منتج ' + p.n), h('small', { class: 'help' }, p.photos.length + ' صورة')))) : null]), Foot(n > 0, 'ارفع الصور')];
   }
   function blankRowsOf() {

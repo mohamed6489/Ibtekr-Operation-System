@@ -99,6 +99,17 @@
     Object.keys(byRow).forEach((k) => { byRow[k] = byRow[k].sort((a, b) => a.o - b.o || String(a.n).localeCompare(String(b.n))).map((x) => x.n); });
     return { byRow, unmatched };
   }
+  /** the picked photos → [{ i, row, order, auto }] in the upload order. A numbered name keeps its row (1, 2, 1-2…); a name without a
+   *  number (a maker's «IMG_…» / «WhatsApp Image …») takes the next free row, one photo a row, in the order picked — the owner 15 Nov:
+   *  «بجرب ارفع الصور … مبتترفعش» (they were all dropped). `taken` = the rows that already have photos. */
+  function placePhotos(names, taken) {
+    const used = new Set((Array.isArray(taken) ? taken : []).map(Number).filter((n) => n >= 1));
+    const out = []; const loose = [];
+    (Array.isArray(names) ? names : []).forEach((n, i) => { const p = photoIndex(n); if (p) { out.push({ i, row: p.row, order: p.order, auto: false }); used.add(p.row); } else loose.push(i); });
+    let next = 1;
+    loose.forEach((i) => { while (used.has(next)) next += 1; used.add(next); out.push({ i, row: next, order: 0, auto: true }); });
+    return out.sort((a, b) => a.row - b.row || a.order - b.order || a.i - b.i);
+  }
 
   // ---------------------------------------------------------------- the SKU (decision 5: the Glastora sheet's shape)
   const VOWELS = new Set(['A', 'E', 'I', 'O', 'U']);
@@ -292,6 +303,6 @@
   /** the sheet's file name: «<maker> - <yyyy-mm-dd>.xlsx» (signs a file system refuses dropped). */
   const sheetFileName = (maker, when) => { const d = when instanceof Date ? when : new Date(); return (String(maker || 'Products').replace(/[\\/:*?"<>|]+/g, '-').trim().slice(0, 60) || 'Products') + ' - ' + d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + '.xlsx'; };
 
-  return { FIELDS, LABELS, NUMERIC, TEMPLATE, HEAD_SIMPLE, HEAD_VARIABLE, PREVIEWS, mapHeaders, readSheet, blankRow, photoIndex, assignPhotos, brandCode3, validCode, sizeCode, skuOf, validSku, skuBase, baseName,
+  return { FIELDS, LABELS, NUMERIC, TEMPLATE, HEAD_SIMPLE, HEAD_VARIABLE, PREVIEWS, mapHeaders, readSheet, blankRow, photoIndex, assignPhotos, placePhotos, brandCode3, validCode, sizeCode, skuOf, validSku, skuBase, baseName,
     groupRows, slugName, imageSku, fileName, siteUrl, pricesOf, rowIssues, sheetOf, blankSheetRows, colName, xlsxParts, xlsx, sheetFileName, norm };
 });

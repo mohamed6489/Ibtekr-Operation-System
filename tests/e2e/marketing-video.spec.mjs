@@ -63,7 +63,7 @@ test('the «فيديو» tool: a campaign with one video; the details (9:16, See
   await expect.poll(() => mock.mkt.campaigns.length).toBe(1);
   expect(piece()).toMatchObject({ kind: 'فيديو', size: '9:16', model: 'seedance-2.5', dur: 10, sceneCount: 3, scenes: [] });
   // the scenes by Claude (no credit), with the durations of the length
-  await pg(page).locator('[data-cw-plan="V1"]').click();
+  await pg(page).locator('[data-cw-plan="V1"]').click(); await page.locator('[data-ai-go]').click(); // the owner 15 Nov: the instructions popup first
   await expect(pg(page).locator('[data-cw-scene]')).toHaveCount(3);
   await expect(pg(page).locator('#b-V1-sc0')).toHaveValue('لقطة قريبة على نقشة المنتج');
   await expect(pg(page).locator('#b-V1-tx0')).toHaveValue('دفا الشتا');

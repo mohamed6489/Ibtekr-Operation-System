@@ -250,6 +250,42 @@ test('the maker step for ops (products.add without sensitive.commission): the ra
   await expect(page.locator('[data-fl-rate-edit]')).toHaveCount(0);
 });
 
+// the owner 15 Nov («خلّي فيه إمكانية إني أعمل drag and drop للصور»): files dropped on a card go up like its button's
+async function dropFiles(page, target, files) {
+  const dt = await page.evaluateHandle((fs) => { const d = new DataTransfer(); fs.forEach((f) => d.items.add(new File([Uint8Array.from(atob(f.b64), (c) => c.charCodeAt(0))], f.name, { type: f.type }))); return d; },
+    files.map((f) => ({ name: f.name, type: f.mimeType, b64: f.buffer.toString('base64') })));
+  await target.dispatchEvent('dragenter', { dataTransfer: dt });
+  await expect(target).toHaveClass(/is-drop/); // the card shows where the files land
+  await target.dispatchEvent('dragover', { dataTransfer: dt });
+  await target.dispatchEvent('drop', { dataTransfer: dt });
+  await expect(target).not.toHaveClass(/is-drop/);
+}
+test('step 1: drag & drop — photos and screenshots dropped on their cards go up and are read; a sheet dropped on the sheet card is read; a wrong file says so', async ({ page }) => {
+  await signIn(page, ADMIN);
+  await choose(page, 'داتا على الواتساب', 'Variable');
+  const photos = page.locator('[data-fl-drop]', { has: page.locator('[data-fl-list="photos"]') });
+  const screens = page.locator('[data-fl-drop]', { has: page.locator('[data-fl-list="screens"]') });
+  await expect(photos).toContainText('اسحب الصور وسيبها هنا');
+  await dropFiles(page, photos, [{ name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('x') }]);
+  await expect(page.locator('.toast[role=status]').last()).toContainText('اسحب صور بس');
+  await dropFiles(page, photos, [png('1.png'), png('2.png')]);
+  await expect(page.locator('#pg-products [data-fl-list="photos"] [data-fl-photos-row]')).toHaveCount(2);
+  await dropFiles(page, screens, [png('chat-1.png'), png('chat-2.png')]);
+  await expect(page.locator('#pg-products')).toContainText('اتقرا 3 صف');
+  expect(mock.extractCalls).toEqual([{ by: ADMIN, shots: 2, type: 'Variable', photos: 2 }]);
+  // a file let go anywhere else on the studio does not open in the tab (the batch would be left)
+  expect(await page.evaluate(() => { const dt = new DataTransfer(); dt.items.add(new File(['x'], 'a.png', { type: 'image/png' }));
+    return !document.querySelector('.fl .wiz-foot').dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true })); })).toBe(true);
+  // the sheet case: a csv dropped on the sheet card
+  await page.locator('.sidebar .nav-item[data-page="products"]').click();
+  await page.locator('#pg-products [role=tab]', { hasText: 'إضافة' }).click();
+  await page.getByRole('button', { name: 'استوديو المنتجات — ابدأ دفعة' }).click();
+  const m = page.locator('.modal'); await m.getByRole('radio', { name: /شيت جاهز/ }).click(); await m.getByRole('radio', { name: /^Simple/ }).click(); await m.locator('[data-flow-start]').click();
+  const sheet = page.locator('[data-fl-drop]', { has: page.locator('[data-fl-list="rows"]') });
+  await dropFiles(page, sheet, [{ name: 'a.csv', mimeType: 'text/csv', buffer: Buffer.from('#,SKU,Product Name EN,Product Name AR,Vendor Price\n1,,Lamp,أباجورة,500\n2,,Mug,مج,300\n') }]);
+  await expect(page.locator('#pg-products [data-fl-list="rows"] [data-fl-rows-row]')).toHaveCount(2);
+});
+
 // the owner 15 Nov («في مرحلة البيانات يفضل نقسمها لجزئين إنجليزي و عربي و بيملا البيانات اوتوماتيك بال ايه اي … لو غير اي حاجة في العربي
 // تتغير اوتوماتيك في الانجليزي … الصورة علي اليمين و جمبهم البيانات»): a card per product, the Arabic and English columns side by side
 test('the data step: a card per product with Arabic and English side by side — the AI fills by itself, an Arabic name is translated, a pick sets both columns, a color moves the SKU', async ({ page }) => {

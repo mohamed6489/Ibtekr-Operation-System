@@ -248,3 +248,6 @@ textarea.fl-in{display:block;width:100%}
 .fl-rw{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--color-border-default);background:var(--color-bg-base);color:var(--color-brand-default);border-radius:999px;padding:2px 10px;font:inherit;font-size:11.5px;font-weight:600;cursor:pointer;white-space:nowrap}
 .fl-rw:hover:not(:disabled){background:var(--color-bg-tint)}
 .fl-rw:disabled{opacity:.6;cursor:default}
+/* the owner 15 Nov: drag & drop — a card with files over it shows where they land */
+.fl [data-fl-drop].is-drop{outline:2px dashed var(--color-brand-default,#005642);outline-offset:-2px}
+.fl [data-fl-drop].is-drop .fl-pair-list,.fl [data-fl-drop].is-drop .fl-list-empty{background:var(--color-bg-brand-subtle,#e3efe9);border-color:var(--color-brand-default,#005642)}

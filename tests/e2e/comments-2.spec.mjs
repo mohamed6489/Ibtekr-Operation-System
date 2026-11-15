@@ -426,3 +426,66 @@ test('comment 14 — every period filter with figures behind it compares (the re
   await expect(dp).toBeVisible();
   await expect(dp.locator('[data-rp-compare]')).toHaveCount(0);
 });
+
+// ---- comment 15: the refund's reason is asked once ----
+test('comment 15 — «استرجاع» on the order with its reason: a product then set «مرتجع» takes that reason (no reason field); a product returned by itself must have its own reason', async ({ page }) => {
+  await signIn(page);
+  await go(page, 'orders');
+  const O = page.locator('#orders'); const card = (id) => O.locator('.card[data-o="' + id + '"]');
+  await expect(O.locator('#list .card')).toHaveCount(3);
+  const modal = (t) => page.locator('.modal[role=dialog]').filter({ hasText: t });
+  for (const id of ['181668', '180656']) { const b = card(id).locator('[data-tg]').first(); if ((await b.getAttribute('aria-label')) === 'فتح') await b.click(); }
+  // a product returned by itself: the reason is required
+  await O.locator('select[data-ss="5002"]').selectOption('مرتجع للمبتكر');
+  const one = modal('مرتجع للمبتكر — فرعي #181670');
+  await expect(one.locator('#reason')).toBeVisible();
+  await expect(one.locator('[data-ret-from-order]')).toHaveCount(0);
+  await one.getByRole('button', { name: 'تسجيل مرتجع للمبتكر' }).click();
+  await expect(one).toContainText('اختار سبب المرتجع'); // refused without it
+  expect(mock.orderItems.find((i) => i.id === 5002).status).not.toBe('مرتجع للمبتكر');
+  await one.locator('#reason').click(); await page.getByRole('option', { name: 'فيه عيب' }).click();
+  await one.getByRole('button', { name: 'تسجيل مرتجع للمبتكر' }).click();
+  await expect.poll(() => { const i = mock.orderItems.find((x) => x.id === 5002); return [i.status, i.ret && i.ret.reason]; }).toEqual(['مرتجع للمبتكر', 'فيه عيب']);
+  // the order refunded with its reason: its other product takes it, the field is not asked again
+  await O.locator('select[data-st="181668"]').selectOption('استرجاع');
+  const ord = modal('استرجاع — IB-181668');
+  await ord.locator('#reason').click(); await page.getByRole('option', { name: 'العميل غيّر رأيه' }).click();
+  await ord.getByRole('button', { name: 'تأكيد' }).click();
+  await expect.poll(() => { const o = mock.orders.find((x) => x.id === 181668); return [o.status, o.ret && o.ret.reason]; }).toEqual(['استرجاع', 'العميل غيّر رأيه']);
+  await O.locator('select[data-ss="5001"]').selectOption('مرتجع للمبتكر');
+  const two = modal('مرتجع للمبتكر — فرعي #181669');
+  await expect(two.locator('[data-ret-from-order]')).toContainText('العميل غيّر رأيه');
+  await expect(two.locator('#reason')).toHaveCount(0);
+  await two.getByRole('button', { name: 'تسجيل مرتجع للمبتكر' }).click();
+  await expect.poll(() => { const i = mock.orderItems.find((x) => x.id === 5001); return [i.status, i.ret && i.ret.reason]; }).toEqual(['مرتجع للمبتكر', 'العميل غيّر رأيه']);
+});
+
+// ---- comment 16: the reports' cards picker looks like the prototype's ----
+test('comment 16 — «تخصيص اللوحة» of the reports cards: the prototype\'s picker — the choices as bordered cards two a row, the picked ones tinted with a filled tick, the value at the end', async ({ page }) => {
+  await page.setViewportSize({ width: 1366, height: 900 });
+  await signIn(page);
+  await go(page, 'reports-tickets');
+  await page.locator('#reports [data-kpi-custom="tickets"]').click();
+  const m = page.locator('.modal[role=dialog]').filter({ hasText: 'تخصيص تقارير الطلبات' });
+  const css = (loc, prop) => loc.evaluate((e, p) => getComputedStyle(e)[p], prop);
+  const grid = m.locator('.kpi-pick-grid').first();
+  expect(await css(grid, 'display')).toBe('grid');
+  expect((await css(grid, 'gridTemplateColumns')).split(' ').length).toBe(2);
+  const on = m.locator('.kpi-opt.on').first(); const off = m.locator('.kpi-opt:not(.on)').first();
+  expect(await css(on, 'display')).toBe('flex');
+  expect(parseFloat(await css(on, 'minHeight'))).toBeGreaterThanOrEqual(56);
+  expect(await css(on, 'borderTopStyle')).toBe('solid');
+  expect(await css(on, 'backgroundColor')).not.toBe(await css(off, 'backgroundColor')); // the picked ones are tinted
+  expect(await css(on.locator('.mchk'), 'backgroundColor')).toBe('rgb(0, 86, 66)'); // the filled tick
+  expect(await css(off, 'opacity')).toBe('0.45'); // 8 of 8 picked: the rest wait
+  // a card: the tick, the name with its hint under it, the value now at the far end
+  const [tick, text, val] = await Promise.all([on.locator('.mchk').boundingBox(), on.locator('.kpi-opt-t').boundingBox(), on.locator('.kpi-opt-v').boundingBox()]);
+  expect(tick.x).toBeGreaterThan(text.x); expect(val.x + val.width).toBeLessThanOrEqual(text.x + 1); // RTL: tick · text · value
+  // the products reports' picker is the same component
+  await m.getByRole('button', { name: 'إلغاء' }).click();
+  await go(page, 'products-reports');
+  await page.locator('#pg-products [data-prod-kpi-custom]').click();
+  const p = page.locator('.modal[role=dialog]').filter({ hasText: 'تخصيص تقارير المنتجات' });
+  expect(await css(p.locator('.kpi-pick-grid').first(), 'display')).toBe('grid');
+  expect(await css(p.locator('.kpi-opt').first(), 'borderTopStyle')).toBe('solid');
+});

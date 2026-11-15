@@ -22,17 +22,20 @@
 
   // phase 12 T3 (decision 10): the reasons of the settings page («القوائم والحالات») when saved, else block 12's defaults
   const reasonsOf = (k) => { const S0 = window.IBSettings; const L = S0 && S0.lists ? S0.lists() : null; return L && Array.isArray(L[k]) && L[k].length ? L[k] : (k === 'cancel' ? O.CANCEL_REASONS : O.RETURN_REASONS); };
+  // comments decision 15 (the owner 15 Nov — «حالة الاسترجاع على الأوردر الكبير لو اتعملت وكتبت السبب مايظهرش السبب في الأوردر الفرعي — بس
+  // لو عملت الفرعي مرتجع لازم يكتب السبب»): the order already on «استرجاع» with its reason (info.orderReason) → the product's return
+  // takes that reason and the field is not shown; a product returned by itself (the order not refunded) must have its own reason.
   function returnPopup(info, ok) {
-    const toStock = info.status === 'مرتجع للمخزن'; const RR = reasonsOf('returns');
+    const toStock = info.status === 'مرتجع للمخزن'; const RR = reasonsOf('returns'); const fromOrder = String(info.orderReason || '').trim();
     K.form({ title: info.status + ' — فرعي #' + info.sid, values: { date: DAY() },
       note: U.InlineNote({ children: info.prod + ' · ' + info.vendor + ' · IB-' + info.order + ' · ' + K.money(info.tot) + ' ج.م' }),
-      fields: (f, e, set) => [K.field.select('reason', 'سبب المرتجع', RR, f, e, set, { required: true }), f.reason === 'أخرى' ? K.field.area('other', 'اكتب السبب', f, e, set, { required: true }) : null, K.field.date('date', 'تاريخ المرتجع', f, e, set, { required: true }),
+      fields: (f, e, set) => [fromOrder ? U.InlineNote({ children: h('span', { 'data-ret-from-order': '' }, 'سبب الاسترجاع متسجّل على الأوردر: ', h('b', null, fromOrder), ' — مش محتاج تكتبه تاني.') }) : K.field.select('reason', 'سبب المرتجع', RR, f, e, set, { required: true }), !fromOrder && f.reason === 'أخرى' ? K.field.area('other', 'اكتب السبب', f, e, set, { required: true }) : null, K.field.date('date', 'تاريخ المرتجع', f, e, set, { required: true }),
         U.InlineNote({ kind: 'warning', children: toStock ? 'الأثر: القطعة هتتسجل في المخزن «مرتجع — بانتظار الفحص»' + (S.invSettings.returnsInspect ? ' (لازم تتفحص خلال ' + S.invSettings.returnsInspect + ' ساعة)' : '') + ' وقيمتها تتشال من مبيعات الأوردر لحد قرار الفحص.' : 'الأثر: حصة المبتكر في الفرعي ده بس هتتلغي (' + K.money(info.tot) + ' ج.م) والقطعة هترجع للمبتكر مباشرة — باقي الأوردر زي ما هو.' }),
         K.field.area('note', 'ملاحظة', f, e, set, { placeholder: 'اختياري' })],
-      validate: (f) => { const err = O.validateReturn({ reason: f.reason, other: f.other }, RR); const e = {}; if (err) e[err === 'اكتب السبب' ? 'other' : 'reason'] = err; if (!f.date) e.date = 'اختار التاريخ'; return e; },
+      validate: (f) => { const err = fromOrder ? '' : O.validateReturn({ reason: f.reason, other: f.other }, RR); const e = {}; if (err) e[err === 'اكتب السبب' ? 'other' : 'reason'] = err; if (!f.date) e.date = 'اختار التاريخ'; return e; },
       submitType: toStock ? 'primary' : 'danger', submitLabel: 'تسجيل ' + info.status,
       submit: (f) => {
-        const reason = f.reason === 'أخرى' ? 'أخرى: ' + f.other.trim() : f.reason;
+        const reason = fromOrder || (f.reason === 'أخرى' ? 'أخرى: ' + f.other.trim() : f.reason);
         const key = live() ? A().newKey() : 'L-R-' + info.sid + '-' + Date.now();
         if (toStock && live()) told(A().addLot({ key, sku: info.sku || 'SUB-' + info.sid, name: info.prod, vendor: info.vendor, reason: 'مرتجع', status: 'بانتظار الفحص', ref: '#' + info.sid, order: info.order, sub: info.sid, itemId: info.itemId, since: f.date, loc: 'R', cost: inv().lineCost ? inv().lineCost(info.itemId, info.tot) : info.tot, mode: 'أمانة', note: reason },
           { type: 'in', qty: info.qty || 1, label: 'دخول — مرتجع', reason: 'مرتجع', ref: '#' + info.sid, note: 'بانتظار الفحص' }));

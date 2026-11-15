@@ -201,9 +201,12 @@ test('cleanAgent: the text limit; the image prompt for the designer only, withou
 });
 
 test('templateNotes (owner batch 2 decision 14): the picked templates\' text from the admin\'s settings, in the image and the text prompts', () => {
-  const rules = { sections: { img: [{ id: 'post', prompt: 'البوست' }, { id: 'c1', prompt: 'ألوان الشتا الدافية' }, { id: 'c2', prompt: 'من غير <ناس>' }], vid: [{ id: 'v1', prompt: 'حركة كاميرا ناعمة' }] } };
+  const rules = { sections: { img: [{ id: 'post', prompt: 'البوست' }, { id: 'c1', prompt: 'ألوان الشتا الدافية' }, { id: 'c2', prompt: 'من غير <ناس>' }], vid: [{ id: 'post', prompt: 'ريلز قصير بـ hook' }, { id: 'v1', prompt: 'حركة كاميرا ناعمة' }] } };
   assert.equal(templateNotes(rules, { tpl: ['c2', 'c1', 'c1', 'post', 'zz', 5] }), 'من غير · ألوان الشتا الدافية'); // a tag is dropped, the duplicate and «البوست» too
   assert.equal(templateNotes(rules, { tpl: ['v1'] }, true), 'حركة كاميرا ناعمة');
+  // the owner 15 Nov: the videos' «البوست» is picked like the others (nothing applies it to a video by itself); the images' one stays automatic
+  assert.equal(templateNotes(rules, { tpl: ['post', 'v1'] }, true), 'ريلز قصير بـ hook · حركة كاميرا ناعمة');
+  assert.equal(templateNotes(rules, { tpl: ['none'] }, true), ''); // «غير محدد» is never stored, and an unknown id reads as nothing
   assert.equal(templateNotes(rules, { tpl: ['v1'] }), ''); // a video template is not an image one
   assert.equal(templateNotes(null, { tpl: ['c1'] }), '');
   assert.equal(templateNotes(rules, {}), '');

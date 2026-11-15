@@ -110,7 +110,8 @@ export function campaignRefs(t, campaignId) {
  */
 /** @param {any} rules @param {any} media @param {boolean} [video] */
 export function templateNotes(rules, media, video = false) {
-  const ids = media && Array.isArray(media.tpl) ? media.tpl.filter((x) => typeof x === 'string' && x && x !== 'post').slice(0, 10) : [];
+  // the images' «البوست» is applied to every campaign image already (imageStyle 'post'); the videos' one only when picked (the owner 15 Nov)
+  const ids = media && Array.isArray(media.tpl) ? media.tpl.filter((x) => typeof x === 'string' && x && (video || x !== 'post')).slice(0, 10) : [];
   const r = rules && typeof rules === 'object' ? rules : {};
   const secs = r.sections && typeof r.sections === 'object' && Array.isArray(r.sections[video ? 'vid' : 'img']) ? r.sections[video ? 'vid' : 'img'] : [];
   const out = [];

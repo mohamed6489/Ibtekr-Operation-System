@@ -353,14 +353,23 @@ test('T8 — decisions 13–15: the six shot rules of the studio; «+ تعليم
   await mk.locator('[data-mk-start]').click();
   await mk.locator('#cw-idea').fill('كولكشن الشتا — مخدات مشغولة');
   await expect(mk.locator('[data-cw-tpl="post"]')).toBeVisible();
-  await expect(mk.locator('[data-cw-tpl="post"]')).not.toContainText('البوست'); // applied to every post already
+  // the owner 15 Nov: «غير محدد» first (and picked while nothing is), then the images' new templates — the images' «البوست» is applied
+  // to every post already
+  await expect(mk.locator('#cw-tpl-post')).toContainText('غير محدد');
   await mk.locator('#cw-tpl-post').click();
+  expect(await page.locator('[data-mp-menu="cw-tpl-post"] [data-mp-opt]').evaluateAll((l) => l.map((x) => x.getAttribute('data-mp-opt')))).toEqual(['none', id]);
   await page.locator('[data-mp-menu="cw-tpl-post"] [data-mp-opt="' + id + '"]').click();
   await page.keyboard.press('Escape');
   await expect(mk.locator('#cw-tpl-post')).toContainText('ألوان الشتا');
+  await expect(mk.locator('#cw-tpl-post')).not.toContainText('غير محدد');
   await mk.locator('#cw-notes-post').fill('من غير ناس');
+  // the video: «غير محدد» and the videos' templates — its «البوست» too (nothing applies it to a video by itself)
   await mk.locator('.subtab', { hasText: 'فيديو' }).click();
-  await expect(mk.locator('[data-cw-tpl-empty="video"]')).toContainText('الأدمن بيضيفها من الإعدادات');
+  await expect(mk.locator('#cw-tpl-video')).toContainText('غير محدد');
+  await mk.locator('#cw-tpl-video').click();
+  expect(await page.locator('[data-mp-menu="cw-tpl-video"] [data-mp-opt]').evaluateAll((l) => l.map((x) => x.getAttribute('data-mp-opt')))).toEqual(['none', 'post']);
+  await page.keyboard.press('Escape');
+  await mk.locator('.subtab', { hasText: 'بوستات' }).click();
   await mk.locator('.cp-next').click();
   await expect.poll(() => { const c = mock.mkt.campaigns.find((x) => x.name === 'كولكشن الشتا — مخدات مشغولة'); const m = c && c.state && c.state.w ? c.state.w.media.post : null; return m ? [m.tpl, m.notes] : null; })
     .toEqual([[id], 'من غير ناس']);

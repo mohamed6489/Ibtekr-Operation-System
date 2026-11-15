@@ -205,6 +205,8 @@
     if (files.length > room) K.toast('أول ' + room + ' سكرين بس (لحد 8)', 'warning');
     S.busy = 'extract'; R();
     let bad = 0;
+    // the owner 15 Nov («لو متسميين صح يترتبوا بحسب التسمية»): picked screenshots go in by their names (numbers counted as numbers)
+    files = files.slice().sort((a, b) => FD.nameOrder(a.name, b.name));
     for (const f of files.slice(0, room)) { const r = await ST().uploadImage(S.id, f, 'shot-' + (s.screenList.length + 1), { webp: true }); if (r.ok) s.screenList.push(r.path); else bad += 1; }
     if (bad) K.toast(bad + ' سكرين ماترفعتش — جرّب تاني', 'error');
     touch(); await readScreens();
@@ -240,6 +242,13 @@
       h('span', { class: 't-small help fl-sort-name' }, nameOf(Number(x.id)))),
       (ids) => { const vals = ids.map((id) => byN[id]); const next = {}; keys.forEach((k, i) => { next[k] = vals[i]; }); s.photoRows = next; attachPhotos(); touch(); R(); });
   }
+  // case 1: the sheet's rows as they were read (number + name), the same row height as the photos list so each row faces its photos
+  function rowsList() {
+    const s = st(); const L = (s.rows || []).filter((r, i, all) => all.findIndex((x) => x.src === r.src) === i);
+    if (!L.length) return null;
+    return h('div', { class: 'fl-sort' }, L.map((r) => h('div', { class: 'fl-sort-row ro', 'data-fl-rows-row': String(r.src) }, h('b', { class: 'fl-sort-n num' }, String(r.src)),
+      h('div', { class: 'fl-sort-body' }, h('span', { class: 'fl-sort-name' }, r.nameAr || r.nameEn || '—'), r.sku ? h('small', { class: 'help num' }, h('bdi', { dir: 'ltr' }, r.sku)) : null))));
+  }
   function screensList() {
     const s = st(); const list = Array.isArray(s.screenList) ? s.screenList : [];
     if (!list.length) return null;
@@ -260,25 +269,30 @@
         s.type === 'Variable' && !ok ? U.InlineNote({ kind: 'warning', children: 'اختار مقاسات أو ألوان (أو الاتنين).' }) : null]),
       Foot(ok, 'اختار المتغيرات')];
     }
+    // the owner 15 Nov («خلي الصور والسكرين شوتس قد بعض … الصور بتتحط جوا نفس السكشن … تحت بعض … وأقدر أغيّر الترتيب بحيث كل صورة
+    // أجيبها قدام الصورة بتاعتها»): each list inside its own card, the two cards side by side on one grid (title · buttons · list ·
+    // notes as shared rows), so a photo sits in front of its screenshot (or of its sheet row); empty, the two lists are the same box
+    const empty = (text) => h('div', { class: 'fl-list-empty' }, Icon('image', 'sm'), h('span', null, text));
+    const noRef = s.rows.filter((r) => !r.ref).length;
     const src = s.case === 'whatsapp'
       ? Card('سكرين شوتس الواتساب', 'لحد 8 سكرين شوتس — الـ AI بيقرا الأسماء والأسعار والألوان والمقاسات بالترتيب.', [
-        h('div', { class: 'acts-inline' }, Button({ type: 'primary', icon: 'sparkle', label: S.busy === 'extract' ? 'بيقرا…' : (s.screenList || []).length ? 'زوّد سكرين شوتس' : 'ارفع السكرين شوتس واقرا الداتا', disabled: S.busy === 'extract' || (s.screenList || []).length >= 8, attrs: { 'data-flow-screens': '' }, onClick: () => filePick('image/*', true, takeScreens) }),
+        h('div', { class: 'fl-pair-acts' }, h('div', { class: 'acts-inline' }, Button({ type: 'primary', icon: 'sparkle', label: S.busy === 'extract' ? 'بيقرا…' : (s.screenList || []).length ? 'زوّد سكرين شوتس' : 'ارفع السكرين شوتس واقرا الداتا', disabled: S.busy === 'extract' || (s.screenList || []).length >= 8, attrs: { 'data-flow-screens': '' }, onClick: () => filePick('image/*', true, takeScreens) }),
           (s.screenList || []).length && (s.screensDirty || !s.rows.length) ? Button({ icon: 'sparkle', label: 'اقرا تاني بالترتيب ده', disabled: S.busy === 'extract', attrs: { 'data-flow-read': '' }, onClick: () => readScreens() }) : null),
-        s.screensDirty ? U.InlineNote({ kind: 'warning', children: 'غيّرت ترتيب السكرين شوتس أو مسحت واحدة — اضغط «اقرا تاني بالترتيب ده» عشان الصفوف تمشي معاها.' }) : null,
-        s.rows.length ? U.InlineNote({ kind: 'success', children: 'اتقرا ' + s.rows.length + ' صف من ' + (s.screens || 0) + ' سكرين — هتراجعهم في «البيانات».' }) : null,
-        U.InlineNote({ children: 'ارفع صور المنتجات الأول عشان الـ AI يعرف عددها، وبنفس ترتيب المنتجات في الشات (صورة لكل منتج، أو سمّيها «1»، «2»، «1-2»…).' })])
+          s.screensDirty ? U.InlineNote({ kind: 'warning', children: 'غيّرت ترتيب السكرين شوتس أو مسحت واحدة — اضغط «اقرا تاني بالترتيب ده» عشان الصفوف تمشي معاها.' })
+            : s.rows.length ? U.InlineNote({ kind: 'success', children: 'اتقرا ' + s.rows.length + ' صف من ' + (s.screens || 0) + ' سكرين — هتراجعهم في «البيانات».' }) : null),
+        h('div', { class: 'fl-pair-list', 'data-fl-list': 'screens' }, screensList() || empty('السكرين شوتس هتظهر هنا بالترتيب')),
+        h('div', { class: 'fl-pair-notes' }, U.InlineNote({ children: 'ارفع صور المنتجات الأول عشان الـ AI يعرف عددها، وبنفس ترتيب المنتجات في الشات (صورة لكل منتج، أو سمّيها «1»، «2»، «1-2»…). اسحب من الست نقط عشان كل سكرين تبقى قدام صورتها.' }))])
       : Card('الشيت', 'xlsx أو csv بالقالب بتاعنا أو بأي عناوين — بنطابق الأعمدة لوحدنا.', [
-        h('div', { class: 'acts-inline' }, Button({ type: 'primary', icon: 'upload', label: s.rows.length ? 'بدّل الشيت' : 'ارفع الشيت', attrs: { 'data-flow-sheet': '' }, onClick: () => filePick('.xlsx,.csv', false, (f) => takeSheet(f[0])) }), s.sheetName ? h('span', { class: 't-small help' }, s.sheetName) : null),
-        s.rows.length ? U.InlineNote({ kind: 'success', children: s.rows.length + ' صف · ' + (s.mapped || 0) + ' عمود اتطابق' + (s.unknown && s.unknown.length ? ' · أعمدة مش في القالب: ' + s.unknown.join('، ') : '') }) : null]);
-    const noRef = s.rows.filter((r) => !r.ref).length;
-    const pics = Card('الصور', photosN ? photosN + ' صورة' + (s.rows.length ? ' · ' + (s.rows.length - noRef) + ' صف ليه صورة' : '') : 'صور المنتجات بجودة عالية', [h('div', { class: 'acts-inline' }, photosBtn, S.busy === 'photos' ? h('span', { class: 't-small help' }, 'بنرفع…') : null), nameHelp,
-      s.rows.length && noRef ? U.InlineNote({ kind: 'warning', children: noRef + ' صف من غير صورة مرجعية — الصور بتتولّد من المرجعية، فارفعها أو كمّل من غيرها.' }) : null]);
-    const sl = s.case === 'whatsapp' ? screensList() : null; const pl = photosList();
-    const match = sl || pl ? Card(s.case === 'whatsapp' ? 'الصور قدام السكرين شوتس' : 'الصور على صفوف الشيت', 'اسحب من الست نقط عشان ترتّب — ' + (s.case === 'whatsapp' ? 'كل صورة قدام السكرين شوت بتاعها، والترتيب ده هو ترتيب المنتجات.' : 'كل صف بصوره، واسم المنتج من الشيت جنبه.'),
-      h('div', { class: 'fl-match' + (sl ? ' two' : ''), 'data-fl-match': '' },
-        sl ? h('div', { class: 'fl-match-col' }, h('b', { class: 't-label-s' }, 'السكرين شوتس'), sl) : null,
-        h('div', { class: 'fl-match-col' }, h('b', { class: 't-label-s' }, 'صور المنتجات'), pl || h('span', { class: 't-small help' }, 'ارفع الصور')))) : null;
-    return [h('div', { class: 'cols2-wide' }, src, pics), match, Foot(s.rows.length > 0, s.case === 'whatsapp' ? 'اقرا السكرين شوتس الأول' : 'ارفع الشيت الأول')];
+        h('div', { class: 'fl-pair-acts' }, h('div', { class: 'acts-inline' }, Button({ type: 'primary', icon: 'upload', label: s.rows.length ? 'بدّل الشيت' : 'ارفع الشيت', attrs: { 'data-flow-sheet': '' }, onClick: () => filePick('.xlsx,.csv', false, (f) => takeSheet(f[0])) }), s.sheetName ? h('span', { class: 't-small help' }, s.sheetName) : null),
+          s.rows.length ? U.InlineNote({ kind: 'success', children: s.rows.length + ' صف · ' + (s.mapped || 0) + ' عمود اتطابق' + (s.unknown && s.unknown.length ? ' · أعمدة مش في القالب: ' + s.unknown.join('، ') : '') }) : null),
+        h('div', { class: 'fl-pair-list', 'data-fl-list': 'rows' }, rowsList() || empty('صفوف الشيت هتظهر هنا بالترتيب')),
+        h('div', { class: 'fl-pair-notes' }, U.InlineNote({ children: 'كل صف قدامه صوره في كارت «الصور» — اسحب الصور من الست نقط لو صورة جت على صف غلط.' }))]);
+    const pics = Card('الصور', photosN ? photosN + ' صورة' + (s.rows.length ? ' · ' + (s.rows.length - noRef) + ' صف ليه صورة' : '') : 'صور المنتجات بجودة عالية', [
+      h('div', { class: 'fl-pair-acts' }, h('div', { class: 'acts-inline' }, photosBtn, S.busy === 'photos' ? h('span', { class: 't-small help' }, 'بنرفع…') : null),
+        s.rows.length && noRef ? U.InlineNote({ kind: 'warning', children: noRef + ' صف من غير صورة مرجعية — الصور بتتولّد من المرجعية، فارفعها أو كمّل من غيرها.' }) : null),
+      h('div', { class: 'fl-pair-list', 'data-fl-list': 'photos' }, photosList() || empty('الصور هتظهر هنا بالترتيب')),
+      h('div', { class: 'fl-pair-notes' }, nameHelp)]);
+    return [h('div', { class: 'fl-pair', 'data-fl-match': '' }, src, pics), Foot(s.rows.length > 0, s.case === 'whatsapp' ? 'اقرا السكرين شوتس الأول' : 'ارفع الشيت الأول')];
   }
 
   // ---------------- 2 المبتكر والبراند (decision 4) ----------------

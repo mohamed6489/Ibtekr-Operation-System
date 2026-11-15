@@ -223,3 +223,20 @@ textarea.fl-in{display:block;width:100%}
   .fl-var{grid-template-columns:repeat(2,minmax(0,1fr))}
   .fl-var .thumb.fl-pthumb{grid-column:1 / -1}
 }
+/* the owner 15 Nov («خلي الصور والسكرين شوتس قد بعض … الصور بتتحط جوا نفس السكشن … وأقدر أغيّر الترتيب بحيث كل صورة قدام الصورة
+   بتاعتها»): the two cards of step 1 on one grid — title · buttons · list · notes are shared rows (subgrid), so the two cards are the same
+   size and the two lists start on the same line, row facing row; empty, each list is the same dashed box */
+.fl-pair{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:auto auto 1fr auto;column-gap:16px;align-items:stretch}
+.fl .fl-pair>.fl-card{grid-row:span 4;display:grid;grid-template-rows:subgrid;row-gap:0;min-width:0}
+.fl-pair-acts{display:flex;flex-direction:column;gap:10px;align-self:start}
+.fl-pair-list{min-width:0}
+.fl-pair-notes{align-self:end}
+.fl-list-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-height:132px;height:100%;border:1px dashed var(--color-border-default);border-radius:var(--radius-sm,8px);background:var(--color-bg-tint);color:var(--color-text-secondary);font-size:13px;text-align:center;padding:12px}
+.fl-sort-row.ro{padding-inline-start:12px}
+.fl-sort-row.ro .fl-sort-body{flex-direction:column;align-items:flex-start;gap:2px}
+.fl-sort-row.ro .fl-sort-name{display:block;font-size:13px;color:var(--color-text-primary)}
+@media (max-width:760px){
+  .fl-pair{grid-template-columns:minmax(0,1fr);grid-template-rows:none;row-gap:16px}
+  .fl .fl-pair>.fl-card{grid-row:auto;display:flex;flex-direction:column}
+  .fl-list-empty{min-height:96px}
+}

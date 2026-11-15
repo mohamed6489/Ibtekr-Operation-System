@@ -65,6 +65,30 @@ const inert = async (page) => {
 async function pickCats(page, id, labels) { await modal(page).locator('#' + id).click(); for (const l of labels) await page.locator('[data-mp-menu] [role=menuitemcheckbox]', { hasText: l }).click(); await page.locator('[data-mp-menu] [data-mp-done]').click(); }
 async function pickOption(page, selectId, label) { await modal(page).locator('#' + selectId).click(); await page.locator('[role=listbox] [role=option]', { hasText: label }).click(); }
 async function openAdd(page) { await page.getByRole('button', { name: 'إضافة مبتكر' }).click(); await expect(modal(page)).toBeVisible(); return modal(page); }
+// the add-maker popup is a wizard (the owner 15 Nov, 2026-11-15-comments.md decision 9): toStep = the step whose fields the next
+// lines touch («التالي» forward — a refused step fails here — or a done step's own button back); addMaker = «التالي» to the last
+// step, then «إضافة المبتكر», stopping at the first step that shows a mistake
+async function toStep(page, id) {
+  const m = page.locator('.modal.mk-modal');
+  for (let k = 0; k < 6; k++) {
+    if (await m.locator('[data-mk-body="' + id + '"]').count()) return;
+    const back = m.locator('.mk-steps li.done[data-mk-step="' + id + '"] button');
+    if (await back.count()) { await back.click(); continue; }
+    const before = await m.locator('[data-mk-body]').getAttribute('data-mk-body');
+    await m.locator('[data-mk-next="next"]').click();
+    await expect(m.locator('[data-mk-body]')).not.toHaveAttribute('data-mk-body', before);
+  }
+}
+async function addMaker(page) {
+  const m = page.locator('.modal.mk-modal');
+  for (let k = 0; k < 6; k++) {
+    if (!(await m.count())) return;
+    const btn = m.locator('[data-mk-next]'); const kind = await btn.getAttribute('data-mk-next'); const before = await m.locator('[data-mk-body]').getAttribute('data-mk-body');
+    await btn.click();
+    if (kind === 'add') return;
+    if (!(await m.count()) || (await m.locator('[data-mk-body]').getAttribute('data-mk-body')) === before) return;
+  }
+}
 // what the page copies (the clipboard is not readable in the test browser)
 async function captureClipboard(page) { await page.evaluate(() => { window.__copied = []; navigator.clipboard.writeText = (t) => { window.__copied.push(t); return Promise.resolve(); }; }); }
 
@@ -84,22 +108,22 @@ test('the admin adds a complete maker (basics + login with its temporary passwor
   const m = await openAdd(page);
   await expect(m).toContainText('بيانات الدخول'); await expect(m).toContainText('الحساب البنكي');
   await m.locator('#v-name').fill('Wood & Rope');
-  await expect(m.locator('#v-login-user')).toHaveValue('wood.rope'); // suggested from the name
   await pickCats(page, 'v-cat', ['ديكور']);
   await m.locator('#v-phone').fill('01000000009');
+  await toStep(page, 'login'); await expect(m.locator('#v-login-user')).toHaveValue('wood.rope'); // suggested from the name
   await m.locator('#v-login-email').fill('wood.dev@ibtekr.local');
   await expect(m.locator('[data-pwmode]')).toHaveCount(0); // no «ابعتله لينك يعمل الباسورد بنفسه» (owner, 26 Oct): the temporary password is the only way
   await expect(m).not.toContainText('لينك');
   await expect(m.locator('#v-login-pw')).toHaveAttribute('type', 'password');
-  await m.getByRole('button', { name: 'إضافة المبتكر' }).click(); // the password is required; the bank is optional (phase 13 decision 51)
-  await expect(m.locator('#v-login-pw-err')).toContainText('الباسورد لازم');
+  await addMaker(page); // the password is required; the bank is optional (phase 13 decision 51)
+  await toStep(page, 'login'); await expect(m.locator('#v-login-pw-err')).toContainText('الباسورد لازم');
   await expect(m).not.toContainText('اختار طريقة التحويل');
   expect(writes()).toEqual([]); expect(mock.rpcs).toEqual([]);
   await m.locator('[data-genpw]').click();
   const pw = await m.locator('#v-login-pw').inputValue(); expect(pw).toMatch(PW_RE);
-  await pickOption(page, 'v-bank-method', 'تحويل بنكي');
+  await toStep(page, 'bank'); await pickOption(page, 'v-bank-method', 'تحويل بنكي');
   await m.locator('#v-bank-holder').fill('Wood & Rope'); await m.locator('#v-bank-bank').fill('بنك مصر'); await m.locator('#v-bank-iban').fill('eg38 0003 0001 0000 0000 0000 0482 1');
-  await m.getByRole('button', { name: 'إضافة المبتكر' }).click();
+  await addMaker(page);
   await expect(drawer(page)).toBeVisible();
   await expect(drawer(page).locator('.drawer-h h2')).toHaveText('Wood & Rope');
   await expect(drawer(page).locator('[data-missing]')).toHaveCount(0);
@@ -132,19 +156,21 @@ test('the admin adds a complete maker (basics + login with its temporary passwor
 test('phase 13 decision 51: the bank is optional, the photo and the contract are picked in «إضافة مبتكر»; after the save the photo goes to vendor-photos and woo-sync vendor_photo (no store → kept in the system only), the contract to vendor-contracts; the drawer shows the photo', async ({ page }) => {
   await openVendors(page);
   const m = await openAdd(page);
-  await expect(m.locator('#v-bank-method')).not.toHaveAttribute('aria-required', 'true');
   await m.locator('#v-name').fill('Clay Home');
   await pickCats(page, 'v-cat', ['ديكور']);
   await m.locator('#v-phone').fill('01000000019');
-  await m.locator('#v-login-email').fill('clay.dev@ibtekr.local');
-  await m.locator('[data-genpw]').click();
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
   await m.locator('[data-v-photo]').setInputFiles({ name: 'clay.png', mimeType: 'image/png', buffer: png });
   await expect(m.locator('[data-v-photo-prev] img')).toHaveCount(1); // the preview
   await expect(m.locator('[data-v-photo-pick]')).toHaveText('غيّر الصورة');
+  await toStep(page, 'login'); await m.locator('#v-login-email').fill('clay.dev@ibtekr.local');
+  await m.locator('[data-genpw]').click();
+  await toStep(page, 'store'); await m.getByRole('switch', { name: 'اعمل له متجر على الموقع' }).click(); // the owner, 11 Nov: here without the store (the photo stays in the system)
+  await toStep(page, 'bank'); await expect(m.locator('#v-bank-method')).not.toHaveAttribute('aria-required', 'true');
   await m.locator('[data-v-contract]').setInputFiles({ name: 'contract.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\n%mock\n') });
-  await m.getByRole('switch', { name: 'اعمل له متجر على الموقع' }).click(); // the owner, 11 Nov: here without the store (the photo stays in the system)
-  await m.getByRole('button', { name: 'إضافة المبتكر' }).click(); // no bank: it still saves
+  await toStep(page, 'maker'); await expect(m.locator('[data-v-photo-prev] img')).toHaveCount(1); // a step back keeps what was picked
+  await toStep(page, 'bank'); await expect(m).toContainText('الملف المختار: contract.pdf'); // … and the contract too
+  await addMaker(page); // no bank: it still saves
   await expect(drawer(page)).toBeVisible();
   const ins = writes().filter((w) => w.op === 'insert');
   expect(ins.map((w) => w.table)).toEqual(['vendors', 'vendor_rates', 'vendor_logins']); // no vendor_bank row
@@ -165,24 +191,25 @@ test('the owner, 11 Nov: «المتجر على الموقع» — the admin adds
   await m.locator('#v-name').fill('Wood & Rope');
   await pickCats(page, 'v-cat', ['ديكور']);
   await m.locator('#v-phone').fill('01000000009');
-  await m.locator('#v-login-email').fill('wood.dev@ibtekr.local');
+  await m.locator('#v-flat').fill('5');
+  await toStep(page, 'login'); await m.locator('#v-login-email').fill('wood.dev@ibtekr.local');
   await m.locator('[data-genpw]').click();
   const pw = await m.locator('#v-login-pw').inputValue();
+  await toStep(page, 'store');
   await expect(m.getByRole('switch', { name: 'اعمل له متجر على الموقع' })).toHaveAttribute('aria-checked', 'true'); // on by default
   await expect(m.locator('#v-shop')).toHaveValue('wood-rope'); // from the username
   await expect(m.getByRole('switch', { name: 'نشر المنتجات مباشرة' })).toHaveAttribute('aria-checked', 'false');
   await expect(m.getByRole('switch', { name: 'ابعت إيميل للمبتكر بحسابه' })).toHaveAttribute('aria-checked', 'true');
-  await m.locator('#v-flat').fill('5');
   await m.locator('#v-first').fill('سلمى'); await m.locator('#v-last').fill('علي');
   await m.locator('#v-city').fill('الجيزة');
   await m.getByRole('switch', { name: 'نشر المنتجات مباشرة' }).click();
   // a shop URL with spaces is refused on the page, nothing written
   await m.locator('#v-shop').fill('wood rope');
-  await m.getByRole('button', { name: 'إضافة المبتكر' }).click();
-  await expect(m.locator('#v-shop-err')).toContainText('حروف إنجليزي صغيرة');
+  await addMaker(page);
+  await toStep(page, 'store'); await expect(m.locator('#v-shop-err')).toContainText('حروف إنجليزي صغيرة');
   expect(writes()).toEqual([]);
   await m.locator('#v-shop').fill('wood-and-rope');
-  await m.getByRole('button', { name: 'إضافة المبتكر' }).click();
+  await addMaker(page);
   await expect(drawer(page)).toBeVisible();
   await expect.poll(() => (mock.storeCalls || []).length).toBe(1);
   expect(mock.storeCalls[0]).toMatchObject({ vendor_id: NEW1, by: ADMIN, username: 'wood.rope', email: 'wood.dev@ibtekr.local', pwLength: pw.length, shop_url: 'wood-and-rope', notify: true, trusted: true, featured: false, commission: true, store: 901 });
@@ -205,9 +232,9 @@ test('the owner, 11 Nov: the store refused by the site (the username taken there
   await m.locator('#v-name').fill('Clay Home');
   await pickCats(page, 'v-cat', ['ديكور']);
   await m.locator('#v-phone').fill('01000000019');
-  await m.locator('#v-login-email').fill('clay.dev@ibtekr.local');
+  await toStep(page, 'login'); await m.locator('#v-login-email').fill('clay.dev@ibtekr.local');
   await m.locator('[data-genpw]').click();
-  await m.getByRole('button', { name: 'إضافة المبتكر' }).click();
+  await addMaker(page);
   await expect(drawer(page)).toBeVisible();
   await expect(note(page)).toContainText('اتضاف المبتكر Clay Home');
   await expect(note(page)).toContainText('المتجر على الموقع ماتعملش: اسم المستخدم ده عليه حساب على الموقع');
@@ -235,11 +262,11 @@ test('the owner, 11 Nov: the store refused by the site (the username taken there
   await m2.locator('#v-name').fill('Glass Art');
   await pickCats(page, 'v-cat', ['ديكور']);
   await m2.locator('#v-phone').fill('01000000029');
-  await m2.locator('#v-login-email').fill('glass.dev@ibtekr.local');
+  await toStep(page, 'login'); await m2.locator('#v-login-email').fill('glass.dev@ibtekr.local');
   await m2.locator('[data-genpw]').click();
-  await m2.getByRole('switch', { name: 'اعمل له متجر على الموقع' }).click();
+  await toStep(page, 'store'); await m2.getByRole('switch', { name: 'اعمل له متجر على الموقع' }).click();
   await expect(m2.locator('#v-shop')).toHaveCount(0);
-  await m2.getByRole('button', { name: 'إضافة المبتكر' }).click();
+  await addMaker(page);
   await expect(drawer(page)).toBeVisible();
   await expect(note(page)).toContainText('اتضاف المبتكر Glass Art');
   expect(mock.storeCalls.length).toBe(1);
@@ -272,7 +299,7 @@ test('phase 13 decision 51: a photo of the wrong type is refused in the popup be
 test('a temporary password from the generator passes the rules and reaches the RPC alone: in no write, no client log, nowhere on the page after; the server logs vendor.login.password; the note says it is ready to send', async ({ page }) => {
   await openVendors(page);
   const m = await openAdd(page);
-  await m.locator('#v-name').fill('Zaan'); await pickCats(page, 'v-cat', ['هدايا']); await m.locator('#v-phone').fill('01000000008'); await m.locator('#v-login-email').fill('zaan.dev@ibtekr.local');
+  await m.locator('#v-name').fill('Zaan'); await pickCats(page, 'v-cat', ['هدايا']); await m.locator('#v-phone').fill('01000000008'); await toStep(page, 'login'); await m.locator('#v-login-email').fill('zaan.dev@ibtekr.local');
   await expect(m.locator('#v-login-pw')).toHaveAttribute('type', 'password'); // there from the start: the only mode
   await m.locator('#v-login-pw').fill('short');
   await expect(m.locator('.pw-rules li.ok')).toHaveCount(2); // a letter, no spaces; not 8 chars, no digit
@@ -284,8 +311,8 @@ test('a temporary password from the generator passes the rules and reaches the R
   await m.getByRole('button', { name: 'إخفاء الباسورد' }).click();
   await expect(m.locator('#v-login-pw')).toHaveAttribute('type', 'password');
   await expect(m).toContainText('بيتحفظ مشفّر عشان الدعم');
-  await pickOption(page, 'v-bank-method', 'نقدي عند التسليم');
-  await m.getByRole('button', { name: 'إضافة المبتكر' }).click();
+  await toStep(page, 'bank'); await pickOption(page, 'v-bank-method', 'نقدي عند التسليم');
+  await addMaker(page);
   await expect(drawer(page)).toBeVisible();
   expect(mock.rpcs).toEqual([{ fn: 'vendor_login_set_password', vendor_id: NEW1, by: ADMIN, result: 'ok' }]);
   expect(JSON.stringify([mock.vendorWrites, mock.activity, mock.activityRows])).not.toContain(pw);
@@ -307,17 +334,19 @@ test('a temporary password from the generator passes the rules and reaches the R
 test('the username: suggested from the name until typed, a taken one refused locally with a suggestion; taken on the server meanwhile (23505) → the maker is added, the login is what is missing', async ({ page }) => {
   await openVendors(page);
   const m = await openAdd(page);
-  await m.locator('#v-name').fill('Antik'); await expect(m.locator('#v-login-user')).toHaveValue('antik');
+  await m.locator('#v-name').fill('Antik'); await pickCats(page, 'v-cat', ['هدايا']); await m.locator('#v-phone').fill('01000000008');
+  await toStep(page, 'login'); await expect(m.locator('#v-login-user')).toHaveValue('antik');
   await m.locator('#v-login-user').fill('Antikiano');
-  await m.locator('#v-name').fill('Antik Store'); await expect(m.locator('#v-login-user')).toHaveValue('Antikiano'); // typed once: the name no longer drives it
-  await pickCats(page, 'v-cat', ['هدايا']); await m.locator('#v-phone').fill('01000000008'); await m.locator('#v-login-email').fill('antik.dev@ibtekr.local');
-  await pickOption(page, 'v-bank-method', 'نقدي عند التسليم'); await m.locator('[data-genpw]').click();
-  await m.getByRole('button', { name: 'إضافة المبتكر' }).click();
+  await toStep(page, 'maker'); await m.locator('#v-name').fill('Antik Store'); await toStep(page, 'login'); await expect(m.locator('#v-login-user')).toHaveValue('antikiano'); // typed once: the name no longer drives it (kept lower-cased, as it is saved)
+  await m.locator('#v-login-email').fill('antik.dev@ibtekr.local'); await m.locator('[data-genpw]').click();
+  await m.locator('[data-mk-next="next"]').click(); // «التالي» stops on this step: the username is somebody's
+  await expect(m.locator('[data-mk-body]')).toHaveAttribute('data-mk-body', 'login');
   await expect(m.locator('#v-login-user-err')).toHaveText('اسم المستخدم ده مستخدم قبل كده — جرّب antikiano2'); // lower-cased: Antikiano's
   expect(writes()).toEqual([]);
   await m.locator('#v-login-user').fill('antik.store');
+  await toStep(page, 'bank'); await pickOption(page, 'v-bank-method', 'نقدي عند التسليم');
   mock.vendorLogins.push({ vendor_id: V1, username: 'antik.store', email: 'other.dev@ibtekr.local', pw_mode: 'temp', status: 'invited', must_change: true, invite_sent_at: null, password_set_at: null, secret_id: null, created_by: 'سارة أحمد', created_at: '2026-10-22T00:00:00Z', updated_at: '2026-10-22T00:00:00Z' }); // another member took it
-  await m.getByRole('button', { name: 'إضافة المبتكر' }).click();
+  await addMaker(page);
   await expect(drawer(page)).toBeVisible();
   await expect(note(page)).toContainText('اتضاف المبتكر Antik Store — ناقص: بيانات الدخول (اسم المستخدم ده مستخدم قبل كده). كمّله من ملفه.');
   await expect(drawer(page).locator('[data-missing]')).toHaveText('ناقص: بيانات الدخول');
@@ -332,9 +361,9 @@ test('a maker already in the registry (by name or alias, normalised) is refused 
   await openVendors(page);
   const m = await openAdd(page);
   await m.locator('#v-name').fill('antikiano  store'); // Antikiano's alias «Antikiano store»
-  await pickCats(page, 'v-cat', ['هدايا']); await m.locator('#v-phone').fill('01000000008'); await m.locator('#v-login-email').fill('x.dev@ibtekr.local');
-  await pickOption(page, 'v-bank-method', 'نقدي عند التسليم');
-  await m.getByRole('button', { name: 'إضافة المبتكر' }).click();
+  await pickCats(page, 'v-cat', ['هدايا']); await m.locator('#v-phone').fill('01000000008');
+  await m.locator('[data-mk-next="next"]').click(); // «التالي» stops on the first step
+  await expect(m.locator('[data-mk-body]')).toHaveAttribute('data-mk-body', 'maker');
   await expect(m.locator('#v-name-err')).toContainText('المبتكر ده موجود (');
   expect(writes()).toEqual([]);
   await m.locator('[data-open-dup]').click();
@@ -343,9 +372,9 @@ test('a maker already in the registry (by name or alias, normalised) is refused 
   await drawer(page).getByRole('button', { name: 'إغلاق' }).first().click();
   const m2 = await openAdd(page);
   await m2.locator('#v-name').fill('ART-CRAFT'); await m2.locator('#v-aliases').fill('Bian'); // the name of one, the alias of another: refused on the name first
-  await pickCats(page, 'v-cat', ['هدايا']); await m2.locator('#v-phone').fill('01000000008'); await m2.locator('#v-login-email').fill('x.dev@ibtekr.local');
-  await pickOption(page, 'v-bank-method', 'نقدي عند التسليم');
-  await m2.getByRole('button', { name: 'إضافة المبتكر' }).click();
+  await pickCats(page, 'v-cat', ['هدايا']); await m2.locator('#v-phone').fill('01000000008');
+  await m2.locator('[data-mk-next="next"]').click();
+  await expect(m2.locator('[data-mk-body]')).toHaveAttribute('data-mk-body', 'maker');
   await expect(m2.locator('#v-name-err')).toContainText('المبتكر ده موجود (');
   expect(writes()).toEqual([]);
 });
@@ -544,7 +573,9 @@ test('«ناقص» in the drawer header (the admin sees the three pieces); the l
 test('the add popup\'s dropdowns float above the modal and are not clipped; Esc closes the dropdown first, then the modal', async ({ page }) => {
   await openVendors(page);
   const m = await openAdd(page);
-  await pickOption(page, 'v-bank-method', 'تحويل بنكي'); // the last select of a long form
+  await m.locator('#v-name').fill('Float Test'); await pickCats(page, 'v-cat', ['ديكور']); await m.locator('#v-phone').fill('01000000077');
+  await toStep(page, 'login'); await m.locator('#v-login-email').fill('float.dev@ibtekr.local'); await m.locator('[data-genpw]').click();
+  await toStep(page, 'bank'); await pickOption(page, 'v-bank-method', 'تحويل بنكي'); // the last select of the last step
   await m.locator('#v-bank-method').click();
   const menu = page.locator('[role=listbox]');
   await expect(menu).toBeVisible();
@@ -581,8 +612,9 @@ test('B2: «الفئة الأساسية» = the site\'s main categories, several
   await openVendors(page);
   const m = await openAdd(page);
   await m.locator('#v-name').fill('Clay Home');
-  await m.locator('#v-phone').fill('01000000006'); await m.locator('#v-login-email').fill('clay.dev@ibtekr.local'); await m.locator('[data-genpw]').click();
-  await m.getByRole('button', { name: 'إضافة المبتكر' }).click();
+  await m.locator('#v-phone').fill('01000000006');
+  await m.locator('[data-mk-next="next"]').click(); // «التالي» stops on the first step
+  await expect(m.locator('[data-mk-body]')).toHaveAttribute('data-mk-body', 'maker');
   await expect(m.locator('#v-cat-err')).toHaveText('اختار قسم رئيسي واحد على الأقل');
   expect(writes()).toEqual([]);
   await m.locator('#v-cat').click();
@@ -593,7 +625,8 @@ test('B2: «الفئة الأساسية» = the site\'s main categories, several
   await expect(menu.locator('[aria-checked=true]')).toHaveCount(2);
   await menu.locator('[data-mp-done]').click();
   await expect(m.locator('#v-cat .val')).toHaveText('هدايا، ديكور');
-  await m.getByRole('button', { name: 'إضافة المبتكر' }).click();
+  await toStep(page, 'login'); await m.locator('#v-login-email').fill('clay.dev@ibtekr.local'); await m.locator('[data-genpw]').click();
+  await addMaker(page);
   await expect(drawer(page)).toBeVisible();
   expect(mock.vendorWrites.filter((w) => w.table === 'vendor_main_categories')).toEqual([{ table: 'vendor_main_categories', vendor_id: NEW1, ids: [22, 15], category: 'هدايا، ديكور', by: ADMIN }]);
   expect(mock.vendorPushes.filter((p) => p.vendor_id === NEW1)).toEqual([]); // nothing to the site

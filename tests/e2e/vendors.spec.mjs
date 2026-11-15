@@ -44,6 +44,30 @@ async function openVendors(page, email = ADMIN, n = 2) {
   await expect(page).toHaveURL(/#makers$/);
   await expect(rows(page)).toHaveCount(n);
 }
+// the add-maker popup is a wizard (the owner 15 Nov, 2026-11-15-comments.md decision 9): toStep = the step whose fields the next
+// lines touch («التالي» forward — a refused step fails here — or a done step's own button back); addMaker = «التالي» to the last
+// step, then «إضافة المبتكر», stopping at the first step that shows a mistake
+async function toStep(page, id) {
+  const m = page.locator('.modal.mk-modal');
+  for (let k = 0; k < 6; k++) {
+    if (await m.locator('[data-mk-body="' + id + '"]').count()) return;
+    const back = m.locator('.mk-steps li.done[data-mk-step="' + id + '"] button');
+    if (await back.count()) { await back.click(); continue; }
+    const before = await m.locator('[data-mk-body]').getAttribute('data-mk-body');
+    await m.locator('[data-mk-next="next"]').click();
+    await expect(m.locator('[data-mk-body]')).not.toHaveAttribute('data-mk-body', before);
+  }
+}
+async function addMaker(page) {
+  const m = page.locator('.modal.mk-modal');
+  for (let k = 0; k < 6; k++) {
+    if (!(await m.count())) return;
+    const btn = m.locator('[data-mk-next]'); const kind = await btn.getAttribute('data-mk-next'); const before = await m.locator('[data-mk-body]').getAttribute('data-mk-body');
+    await btn.click();
+    if (kind === 'add') return;
+    if (!(await m.count()) || (await m.locator('[data-mk-body]').getAttribute('data-mk-body')) === before) return;
+  }
+}
 const drawer = (page) => page.locator('.drawer[aria-label^="ملف المبتكر"]');
 async function openDrawer(page, id) { await row(page, id).click(); await expect(drawer(page)).toBeVisible(); await expect(page).toHaveURL(new RegExp('#makers/' + id + '$')); return drawer(page); }
 // a makers drawer straight from its hash (an inactive maker is not in the default list)
@@ -534,11 +558,11 @@ test('«إضافة مبتكر» (phase 3.1: basics + login + bank) creates the m
   await page.locator('[data-mp-menu] [role=menuitemcheckbox]', { hasText: 'هدايا' }).click(); await page.locator('[data-mp-menu] [data-mp-done]').click();
   await modal(page).locator('#v-phone').fill('01000000009');
   await modal(page).locator('#v-aliases').fill('zana، Zaan');
-  await expect(modal(page).locator('#v-login-user')).toHaveValue('zaan');
+  await toStep(page, 'login'); await expect(modal(page).locator('#v-login-user')).toHaveValue('zaan');
   await modal(page).locator('#v-login-email').fill('zaan.dev@ibtekr.local');
   await modal(page).locator('[data-genpw]').click(); // the temporary password — the only mode (26 Oct)
   // owner 14 Nov: «نوع الحساب» shows the pick — the second one too (it never redrew)
-  await modal(page).locator('#v-bank-method').click();
+  await toStep(page, 'bank'); await modal(page).locator('#v-bank-method').click();
   await page.locator('[role=listbox] [role=option]', { hasText: 'تحويل بنكي' }).click();
   for (const t of ['شركة (Business)', 'شخصي (Personal)']) {
     await modal(page).locator('#v-bank-actype').click();
@@ -547,7 +571,7 @@ test('«إضافة مبتكر» (phase 3.1: basics + login + bank) creates the m
   }
   await modal(page).locator('#v-bank-method').click();
   await page.locator('[role=listbox] [role=option]', { hasText: 'نقدي عند التسليم' }).click();
-  await modal(page).getByRole('button', { name: 'إضافة المبتكر' }).click();
+  await addMaker(page);
   await expect(drawer(page)).toBeVisible();
   await expect(drawer(page).locator('.drawer-h h2')).toHaveText('zaan');
   await expect(drawer(page).locator('.drawer-h')).toContainText('متجر #901'); // the owner, 11 Nov: «إضافة مبتكر» makes his store on the site too (vendor_store)
@@ -569,10 +593,11 @@ test('«إضافة مبتكر» (phase 3.1: basics + login + bank) creates the m
   await modal(page).locator('#v-cat').click(); // B2 (0080): «الفئة الأساسية» = the site's main categories, several
   await page.locator('[data-mp-menu] [role=menuitemcheckbox]', { hasText: 'هدايا' }).click(); await page.locator('[data-mp-menu] [data-mp-done]').click();
   await modal(page).locator('#v-phone').fill('01000000007');
-  await modal(page).locator('#v-login-email').fill('nope.dev@ibtekr.local'); await modal(page).locator('[data-genpw]').click();
+  await toStep(page, 'login'); await modal(page).locator('#v-login-email').fill('nope.dev@ibtekr.local'); await modal(page).locator('[data-genpw]').click();
+  await toStep(page, 'bank'); await expect(modal(page).locator('.mk-steps [data-mk-step="store"]')).toHaveCount(0); // vendors.edit = P: no store step
   await expect(modal(page).locator('#v-bank-method')).toHaveCount(0); // no sensitive.vendor_bank: the bank section says accounts completes it
   await expect(modal(page)).toContainText('البيانات البنكية بيكمّلها قسم الحسابات بس');
-  await modal(page).getByRole('button', { name: 'إضافة المبتكر' }).click();
+  await addMaker(page);
   await expect(modal(page)).toContainText('مش من صلاحياتك');
   expect(writes().filter((w) => w.op === 'insert')).toHaveLength(4);
 });

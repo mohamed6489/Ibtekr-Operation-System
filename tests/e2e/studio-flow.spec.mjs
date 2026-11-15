@@ -48,6 +48,30 @@ async function makerArtCraft(page) {
   await expect(info.locator('[data-fl-cat-rates] [data-cat="15"]')).toHaveText('ديكور30%');
   await expect(page.locator('#fl-code')).toHaveValue('ART'); // glasstora → GLS: the first letter + the consonants after it
 }
+// the add-maker popup is a wizard (the owner 15 Nov, 2026-11-15-comments.md decision 9): toStep = the step whose fields the next
+// lines touch («التالي» forward — a refused step fails here — or a done step's own button back); addMaker = «التالي» to the last
+// step, then «إضافة المبتكر», stopping at the first step that shows a mistake
+async function toStep(page, id) {
+  const m = page.locator('.modal.mk-modal');
+  for (let k = 0; k < 6; k++) {
+    if (await m.locator('[data-mk-body="' + id + '"]').count()) return;
+    const back = m.locator('.mk-steps li.done[data-mk-step="' + id + '"] button');
+    if (await back.count()) { await back.click(); continue; }
+    const before = await m.locator('[data-mk-body]').getAttribute('data-mk-body');
+    await m.locator('[data-mk-next="next"]').click();
+    await expect(m.locator('[data-mk-body]')).not.toHaveAttribute('data-mk-body', before);
+  }
+}
+async function addMaker(page) {
+  const m = page.locator('.modal.mk-modal');
+  for (let k = 0; k < 6; k++) {
+    if (!(await m.count())) return;
+    const btn = m.locator('[data-mk-next]'); const kind = await btn.getAttribute('data-mk-next'); const before = await m.locator('[data-mk-body]').getAttribute('data-mk-body');
+    await btn.click();
+    if (kind === 'add') return;
+    if (!(await m.count()) || (await m.locator('[data-mk-body]').getAttribute('data-mk-body')) === before) return;
+  }
+}
 const batch = () => mock.studioBatches[0];
 
 test('flow 1 «شيت جاهز» Simple: the sheet + photos by row → maker/brand → SKU generated + AI fill → prices from the rate → shots → photos then sheet to the site as drafts', async ({ page }) => {
@@ -188,9 +212,9 @@ test('the maker step: «+ مبتكر جديد» opens the add-maker popup over t
   await m.locator('#v-name').fill('Wood & Rope');
   await m.locator('#v-cat').click(); await page.locator('[data-mp-menu] [role=menuitemcheckbox]', { hasText: 'ديكور' }).click(); await page.locator('[data-mp-menu] [data-mp-done]').click();
   await m.locator('#v-phone').fill('01000000009');
-  await m.locator('#v-login-email').fill('wood.dev@ibtekr.local');
+  await toStep(page, 'login'); await m.locator('#v-login-email').fill('wood.dev@ibtekr.local');
   await m.locator('[data-genpw]').click();
-  await m.getByRole('button', { name: 'إضافة المبتكر' }).click();
+  await addMaker(page);
   await expect(m).toHaveCount(0);
   expect(page.url()).toBe(url); // still the studio's step 2 — no makers page, no drawer
   await expect(page.locator('.drawer')).toHaveCount(0);

@@ -3337,7 +3337,7 @@
     const storeSection = () => {
       const KK = window.IBKit; const sub = (fid, label, obj, key, o = {}) => U.TextInput(Object.assign({ id: fid, label, value: f[obj][key] || '', error: errs[obj] && errs[obj][key], onInput: (x) => { f[obj][key] = x; } }, o));
       const shop = f.shopUrl || shopOf(f.username);
-      return [fsec('المتجر على الموقع (Dokan)', 'زي «Add New Vendor» في Dokan — حسابه على الموقع بنفس اسم المستخدم والإيميل والباسورد المؤقت اللي فوق'),
+      return [fsec('المتجر على الموقع (Dokan)', 'زي «Add New Vendor» في Dokan — حسابه على الموقع بنفس اسم المستخدم والإيميل والباسورد المؤقت بتوع «بيانات الدخول»'),
         KK.Switch({ id: 'v-mkstore', label: 'اعمل له متجر على الموقع', help: f.mkStore ? 'المتجر بيتعمل على الموقع أول ما تضغط «إضافة المبتكر»' : 'هيتسجل هنا بس — تقدر تعمل متجره بعدين من ملفه', checked: f.mkStore, onChange: (x) => { f.mkStore = x; draw(); } }),
         f.mkStore ? [
           U.TextInput({ id: 'v-shop', label: 'رابط المتجر', dir: 'ltr', value: shop, error: errs.shopUrl, help: 'ibtekr.club/store/' + (shop || '…') + ' — حروف إنجليزي صغيرة وأرقام و -', onInput: (x) => { f.shopUrl = x.trim().toLowerCase(); f.shopTouched = true; } }),
@@ -3375,7 +3375,7 @@
     const contractBox = () => {
       const inp = h('input', { type: 'file', accept: '.pdf,.png,.jpg,.jpeg', 'aria-label': 'ملف العقد', 'data-v-contract': '' });
       inp.addEventListener('change', () => { const file = inp.files && inp.files[0]; contract = file ? { fileName: file.name, size: file.size, file } : null; });
-      return [fsec('العقد', 'اختياري — تقدر ترفعه بعدين من ملف المبتكر'), U.FieldShell({ id: 'v-contract', label: 'ملف العقد (PDF أو صورة، حتى 10 ميجا)' }, inp),
+      return [fsec('العقد', 'اختياري — تقدر ترفعه بعدين من ملف المبتكر'), U.FieldShell({ id: 'v-contract', label: 'ملف العقد (PDF أو صورة، حتى 10 ميجا)', help: contract ? 'الملف المختار: ' + contract.fileName : null }, inp),
         U.DateField({ id: 'v-contract-exp', label: 'تاريخ انتهاء العقد', value: cExp || null, today: VTODAY(), help: 'هيوصلك تنبيه قبل الانتهاء بـ 30 يوم', onChange: (iso, e) => { if (!e) cExp = iso || ''; } })];
     };
     // after the maker is saved: the photo (system + store) and the contract — each told apart in the toast, never blocking the save
@@ -3392,39 +3392,73 @@
     const txt = (id, label, key, opts = {}) => U.TextInput(Object.assign({ id, label, value: f[key], error: errs[key], onInput: (v) => { f[key] = v; } }, opts));
     const two = (a, b) => h('div', { class: 'row cols2' }, a, b);
     const statusOpts = VD.STATUSES.map(([value, label]) => ({ value, label }));
+    // the owner 15 Nov (2026-11-15-comments.md decision 9 — «البوب اب ده محتاج يتقسم لمراحل - التالي و التالي و التالي — بيانات المبتكر - بيانات
+    // الدخول - بيانات المتجر - بيانات الحساب البنكي و العقد»): a new maker is added in steps — «التالي» checks the step's own fields, the
+    // done steps are a click back, the last step's button adds the maker (every step checked again; the first with a mistake opens).
+    // «بيانات المتجر» is a step only for who may make the store on the site. Editing a maker stays one form.
+    const STEPS = existing ? [] : [['maker', 'بيانات المبتكر'], ['login', 'بيانات الدخول'], canStoreMk ? ['store', 'بيانات المتجر'] : null, ['bank', 'الحساب البنكي والعقد']].filter(Boolean);
+    let step = 0;
+    const arN = (x) => String(x == null ? '' : x).trim().replace(/[٠-٩]/g, (c) => String(c.charCodeAt(0) - 0x660));
+    function stepErrs(id) {
+      const e = {};
+      if (id === 'maker') {
+        Object.assign(e, VD.validateVendor(f)); delete e.email; // the e-mail is the login step's
+        // the owner, 11 Nov: the commission's flat fee and figures
+        if (vstore.canRate() && arN(f.flat) !== '' && !(Number(arN(f.flat)) >= 0)) e.flat = 'الرسوم الثابتة رقم من 0 أو أكتر';
+        if (vstore.canRate() && f.ctype === 'category_based' && Object.values(f.cat).some((c) => (arN(c.rate) !== '' && !(Number(arN(c.rate)) >= 0 && Number(arN(c.rate)) <= 65)) || (arN(c.flat) !== '' && !(Number(arN(c.flat)) >= 0)))) e._cats = 'نسبة أي فئة لازم من 0% لـ 65%، والرسوم من 0 أو أكتر';
+        if (!e.name) { dup = vstore.findByName(f.name) || VD.parseAliases(f.aliases).map((a) => vstore.findByName(a)).find(Boolean) || null; if (dup) e.name = 'المبتكر ده موجود (' + dup.name + ') — افتح ملفه'; }
+      } else if (id === 'login') {
+        Object.assign(e, VD.validateLogin(f));
+        if (!e.username && vstore.usernameTaken(f.username)) e.username = 'اسم المستخدم ده مستخدم قبل كده — جرّب ' + VD.suggestUsername(f.username, (u) => vstore.usernameTaken(u));
+      } else if (id === 'store') {
+        // the shop URL of the store on the site
+        if (canStoreMk && f.mkStore) { const shop = f.shopUrl || shopOf(f.username); if (!/^[a-z0-9](?:[a-z0-9-]{0,48}[a-z0-9])?$/.test(shop)) e.shopUrl = 'حروف إنجليزي صغيرة وأرقام و - بس (من غير - في الأول والآخر)'; }
+      } else if (id === 'bank') {
+        if (canBank && (bankReq || f.method)) Object.assign(e, VD.validateBank(f));
+      }
+      return e;
+    }
+    const formNote = (e) => (dup ? 'المبتكر ده موجود — افتح ملفه' : e._cats || 'راجع الحقول المعلّمة بالأحمر');
+    const focusBad = () => { const bad = modal.el.querySelector('[aria-invalid=true]'); if (bad) bad.focus(); };
+    const focusFirst = () => { const x = modal.el.querySelector('.modal-b input:not([type=file]):not([hidden]), .modal-b select, .modal-b textarea, .modal-b [role=combobox]') || modal.el.querySelector('input:not([type=file]):not([hidden])'); if (x) x.focus(); };
+    function goStep(n) { errs = {}; dup = null; step = Math.max(0, Math.min(STEPS.length - 1, n)); draw(); focusFirst(); }
+    function next() {
+      dup = null; errs = stepErrs(STEPS[step][0]);
+      if (Object.keys(errs).length) { errs._form = formNote(errs); draw(); focusBad(); return; }
+      goStep(step + 1);
+    }
+    const stepper = () => h('ol', { class: 'mk-steps', 'aria-label': 'خطوات إضافة المبتكر' }, STEPS.map(([id, label], i) => h('li', { class: i < step ? 'done' : i === step ? 'cur' : '', 'aria-current': i === step ? 'step' : false, 'data-mk-step': id },
+      h('button', { type: 'button', class: 'mk-step-b', disabled: i >= step, 'aria-label': 'الخطوة ' + (i + 1) + ': ' + label, onClick: () => goStep(i) }, h('span', { class: 'dot' }, i < step ? Icon('check', 'sm') : String(i + 1)), h('span', null, label)))));
     function draw() {
-      const fields = [
+      const makerPart = [
         h('div', { class: 'row cols2' }, h('div', { style: 'flex:1;display:flex;flex-direction:column;gap:16px;min-width:0' }, txt('v-name', 'اسم المبتكر (المعروض)', 'name', { required: true, maxlength: 80, onInput: (v) => { f.name = v; if (!existing && !f.userTouched) { f.username = VD.suggestUsername(v, (u) => vstore.usernameTaken(u)); const el = document.getElementById('v-login-user'); if (el) el.value = f.username; } } }), catPick('v-cat', f, errs)),
           photoBox()), // phase 3.3 (decision 1): the logo was the site's gravatar only; phase 13 decision 51: a photo uploaded here becomes it
         two(txt('v-phone', 'الهاتف (واتساب)', 'phone', { required: true, inputmode: 'tel', placeholder: '01xxxxxxxxx' }), existing ? txt('v-alt', 'هاتف بديل', 'altPhone', { inputmode: 'tel' }) : txt('v-rate', f.ctype === 'category_based' ? 'نسبة الفئات اللي مالهاش رقم' : 'نسبة إبتكر', 'rate', { required: true, inputmode: 'decimal', suffix: '%', help: 'تنطبق على الأوردرات الجديدة من تاريخ الإضافة', onInput: (x) => { f.rate = x; if (ctk) ctk.refresh(); } })),
         ...commissionFields(),
         two(txt('v-lead', 'مدة التجهيز (أيام)', 'leadDays', { required: true, inputmode: 'numeric', help: 'بتغذي قاعدة التأخير بدل الرقم الثابت' }), U.Select({ id: 'v-status', label: 'الحالة', required: true, options: statusOpts, value: f.status, error: errs.status, onChange: (v) => { f.status = v; draw(); } })),
-        txt('v-aliases', 'أسماء بديلة', 'aliases', { placeholder: 'W&R، WOOD & ROPE', help: 'لتوحيد الأسماء من الأوردرات والشيت — افصل بفاصلة' }),
-        existing ? null : [fsec('بيانات الدخول', 'المبتكر بيدخل بيها على بوابته يتابع أوردراته وحسابه'), ...loginFields(f, errs, draw, 'v-login')],
-        canStoreMk ? storeSection() : null,
-        existing ? null : [fsec('الحساب البنكي', 'اختياري — عشان نحوّل له مستحقاته'), ...(canBank ? bankFields(f, errs, draw, 'v-bank', true) : [U.InlineNote({ children: 'البيانات البنكية بيكمّلها قسم الحسابات بس — هتظهر «ناقص» في ملف المبتكر لحد ما تتكمّل.' })])],
-        existing || !canBank ? null : contractBox(),
-        existing ? two(txt('v-legal', 'الاسم التجاري / القانوني', 'legalName'), txt('v-email', 'الإيميل', 'email', { inputmode: 'email' })) : null,
-        existing ? two(txt('v-addr', 'العنوان (الاستلام)', 'address'), txt('v-ig', 'إنستجرام', 'instagram', { placeholder: '@name' })) : null,
-        existing ? two(txt('v-url', 'صفحة المتجر', 'storeUrl'), txt('v-dep', 'سياسة العربون', 'depositPolicy')) : null,
-        existing ? U.Textarea({ id: 'v-notes', label: 'ملاحظات الاتفاق', value: f.notes, onInput: (v) => { f.notes = v; } }) : null,
-        errs._form ? U.InlineNote({ kind: 'error', children: errs._form, action: dup ? Button({ type: 'text', size: 'sm', label: 'افتح ملفه', attrs: { 'data-open-dup': '' }, onClick: () => { const d = dup; modal.close(); openVendor(d.id); } }) : null }) : U.InlineNote({ children: existing ? 'التعديل بيتسجل في سجل النشاط باسمك.' : 'هيتسجل بـ Vendor ID ثابت، والأوردرات هتربط بيه مش بالاسم.' })].flat().filter(Boolean);
-      modal.setBody(...fields); modal.setFooter(Button({ type: 'primary', label: existing ? 'حفظ التعديلات' : 'إضافة المبتكر', onClick: submit }), Button({ label: 'إلغاء', onClick: modal.close }));
+        txt('v-aliases', 'أسماء بديلة', 'aliases', { placeholder: 'W&R، WOOD & ROPE', help: 'لتوحيد الأسماء من الأوردرات والشيت — افصل بفاصلة' })];
+      const loginPart = existing ? [] : [fsec('بيانات الدخول', 'المبتكر بيدخل بيها على بوابته يتابع أوردراته وحسابه'), ...loginFields(f, errs, draw, 'v-login')];
+      const storePart = canStoreMk ? storeSection() : [];
+      const bankPart = existing ? [] : [fsec('الحساب البنكي', 'اختياري — عشان نحوّل له مستحقاته'), ...(canBank ? bankFields(f, errs, draw, 'v-bank', true) : [U.InlineNote({ children: 'البيانات البنكية بيكمّلها قسم الحسابات بس — هتظهر «ناقص» في ملف المبتكر لحد ما تتكمّل.' })])].concat(canBank ? contractBox() : []);
+      const editPart = existing ? [two(txt('v-legal', 'الاسم التجاري / القانوني', 'legalName'), txt('v-email', 'الإيميل', 'email', { inputmode: 'email' })), two(txt('v-addr', 'العنوان (الاستلام)', 'address'), txt('v-ig', 'إنستجرام', 'instagram', { placeholder: '@name' })), two(txt('v-url', 'صفحة المتجر', 'storeUrl'), txt('v-dep', 'سياسة العربون', 'depositPolicy')), U.Textarea({ id: 'v-notes', label: 'ملاحظات الاتفاق', value: f.notes, onInput: (v) => { f.notes = v; } })] : [];
+      const noteEl = errs._form ? U.InlineNote({ kind: 'error', children: errs._form, action: dup ? Button({ type: 'text', size: 'sm', label: 'افتح ملفه', attrs: { 'data-open-dup': '' }, onClick: () => { const d = dup; modal.close(); openVendor(d.id); } }) : null }) : U.InlineNote({ children: existing ? 'التعديل بيتسجل في سجل النشاط باسمك.' : 'هيتسجل بـ Vendor ID ثابت، والأوردرات هتربط بيه مش بالاسم.' });
+      const sid = existing ? null : STEPS[step][0]; const last = existing || step === STEPS.length - 1;
+      const fields = (existing ? [...makerPart, ...editPart, noteEl]
+        : [stepper(), h('div', { class: 'mk-step', 'data-mk-body': sid }, ...[sid === 'maker' ? makerPart : sid === 'login' ? loginPart : sid === 'store' ? storePart : bankPart].flat().filter(Boolean)), errs._form || last ? noteEl : null]).flat().filter(Boolean);
+      modal.setBody(...fields);
+      modal.setFooter(...[Button({ type: 'primary', label: existing ? 'حفظ التعديلات' : last ? 'إضافة المبتكر' : 'التالي', attrs: existing ? null : { 'data-mk-next': last ? 'add' : 'next' }, onClick: last ? submit : next }),
+        !existing && step > 0 ? Button({ label: 'السابق', attrs: { 'data-mk-prev': '' }, onClick: () => goStep(step - 1) }) : null, Button({ label: 'إلغاء', onClick: modal.close })].filter(Boolean));
     }
     function submit() {
-      errs = VD.validateVendor(f); dup = null;
-      if (!existing) {
-        Object.assign(errs, VD.validateLogin(f));
-        if (!errs.username && vstore.usernameTaken(f.username)) errs.username = 'اسم المستخدم ده مستخدم قبل كده — جرّب ' + VD.suggestUsername(f.username, (u) => vstore.usernameTaken(u));
-        if (canBank && (bankReq || f.method)) Object.assign(errs, VD.validateBank(f));
-        // the owner, 11 Nov: the commission's flat fee and figures, and the shop URL of the store on the site
-        const arN = (x) => String(x == null ? '' : x).trim().replace(/[٠-٩]/g, (c) => String(c.charCodeAt(0) - 0x660));
-        if (vstore.canRate() && arN(f.flat) !== '' && !(Number(arN(f.flat)) >= 0)) errs.flat = 'الرسوم الثابتة رقم من 0 أو أكتر';
-        if (vstore.canRate() && f.ctype === 'category_based' && Object.values(f.cat).some((c) => (arN(c.rate) !== '' && !(Number(arN(c.rate)) >= 0 && Number(arN(c.rate)) <= 65)) || (arN(c.flat) !== '' && !(Number(arN(c.flat)) >= 0)))) errs._cats = 'نسبة أي فئة لازم من 0% لـ 65%، والرسوم من 0 أو أكتر';
-        if (canStoreMk && f.mkStore) { const shop = f.shopUrl || shopOf(f.username); if (!/^[a-z0-9](?:[a-z0-9-]{0,48}[a-z0-9])?$/.test(shop)) errs.shopUrl = 'حروف إنجليزي صغيرة وأرقام و - بس (من غير - في الأول والآخر)'; }
-        if (!errs.name) { dup = vstore.findByName(f.name) || VD.parseAliases(f.aliases).map((a) => vstore.findByName(a)).find(Boolean) || null; if (dup) errs.name = 'المبتكر ده موجود (' + dup.name + ') — افتح ملفه'; }
+      dup = null;
+      if (existing) errs = VD.validateVendor(f);
+      else {
+        // every step again; the first one with a mistake opens
+        const bad = STEPS.map(([id]) => [id, stepErrs(id)]).find(([, e]) => Object.keys(e).length);
+        errs = bad ? bad[1] : {};
+        if (bad) { step = STEPS.findIndex(([id]) => id === bad[0]); if (bad[0] !== 'maker') dup = null; }
       }
-      if (Object.keys(errs).length) { errs._form = dup ? 'المبتكر ده موجود — افتح ملفه' : errs._cats || 'راجع الحقول المعلّمة بالأحمر'; draw(); const bad = modal.el.querySelector('[aria-invalid=true]'); if (bad) bad.focus(); return; }
+      if (Object.keys(errs).length) { errs._form = formNote(errs); draw(); focusBad(); return; }
       if (existing) { try { vstore.update(existing.id, f, vstore.actor()); log.append({ action: 'vendor.update', actor: ME.name, newValue: existing.id }); modal.close(); vnotify('success', 'اتحفظت بيانات ' + f.name + '.'); if (vdrawer) openVendor(existing.id); afterSave(existing.id).then((did) => { if (did && vredraw) vredraw(); }); } catch (e) { errs._form = e.message; draw(); } return; }
       // decision 10: the store's create runs the sequence (vendor → rate → login → password → bank); a step refused after the vendor's
       // insert leaves the vendor and is named here — the password travels inside `login` only and is dropped once the call is done
@@ -3454,7 +3488,7 @@
         afterSave(v.id).then((did) => { if (did && vredraw) vredraw(); });
       }, (e) => { errs._form = e.message; draw(); });
     }
-    modal = U.Modal({ title: existing ? 'تعديل بيانات ' + existing.name : 'إضافة مبتكر', body: [], footer: [] }); draw(); const first = modal.el.querySelector('#v-name'); if (first) first.focus();
+    modal = U.Modal({ title: existing ? 'تعديل بيانات ' + existing.name : 'إضافة مبتكر', body: [], footer: [] }); if (!existing) modal.el.classList.add('mk-modal'); draw(); const first = modal.el.querySelector('#v-name'); if (first) first.focus();
   }
 
   // ----- vendor drawer (Figma: Drawer / Vendor, Tab=Info | Orders) -----

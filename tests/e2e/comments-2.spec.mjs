@@ -119,3 +119,69 @@ test('comment 8 — HR › «الفريق»: a member\'s name opens their data i
   // ctrl-click keeps the plain link (a new tab) — the drawer is not opened
   expect(await page.evaluate(() => { location.hash = 'hr'; return true; })).toBe(true);
 });
+
+test('comment 9 — «إضافة مبتكر» in steps: بيانات المبتكر · بيانات الدخول · بيانات المتجر · الحساب البنكي والعقد — «التالي» checks its own step, a done step is a click back, «إضافة المبتكر» on the last step only; editing a maker stays one form', async ({ page }) => {
+  await page.setViewportSize({ width: 1366, height: 900 });
+  await signIn(page);
+  await go(page, 'makers/new');
+  const m = page.locator('.modal.mk-modal');
+  await expect(m).toBeVisible();
+  const steps = m.locator('.mk-steps li');
+  await expect(steps).toHaveText([/بيانات المبتكر/, /بيانات الدخول/, /بيانات المتجر/, /الحساب البنكي والعقد/]);
+  await expect(m.locator('[data-mk-body]')).toHaveAttribute('data-mk-body', 'maker');
+  await expect(steps.nth(0)).toHaveAttribute('aria-current', 'step');
+  // the first step: «التالي» only (no «السابق», no «إضافة المبتكر»), and only its own fields
+  await expect(m.locator('[data-mk-next]')).toHaveText('التالي');
+  await expect(m.locator('[data-mk-prev]')).toHaveCount(0);
+  await expect(m.getByRole('button', { name: 'إضافة المبتكر' })).toHaveCount(0);
+  await expect(m.locator('#v-name')).toBeVisible();
+  await expect(m.locator('#v-login-email')).toHaveCount(0); await expect(m.locator('#v-bank-method')).toHaveCount(0);
+  for (const i of [1, 2, 3]) await expect(steps.nth(i).locator('button')).toBeDisabled(); // a step not reached yet is not a way round the checks
+  // «التالي» with the step empty: it stays, with its own mistakes
+  await m.locator('[data-mk-next]').click();
+  await expect(m.locator('[data-mk-body]')).toHaveAttribute('data-mk-body', 'maker');
+  await expect(m.locator('#v-name-err')).toBeVisible();
+  await m.locator('#v-name').fill('Step Maker');
+  await m.locator('#v-cat').click(); await page.locator('[data-mp-menu] [role=menuitemcheckbox]', { hasText: 'ديكور' }).click(); await page.locator('[data-mp-menu] [data-mp-done]').click();
+  await m.locator('#v-phone').fill('01000000055');
+  await m.locator('[data-mk-next]').click();
+  // step 2: the login — the username from the name; an empty e-mail stops «التالي» here
+  await expect(m.locator('[data-mk-body]')).toHaveAttribute('data-mk-body', 'login');
+  await expect(steps.nth(1)).toHaveAttribute('aria-current', 'step');
+  await expect(m.locator('#v-login-user')).toHaveValue('step.maker');
+  await expect(m.locator('#v-name')).toHaveCount(0);
+  await expect(m.locator('[data-mk-prev]')).toHaveText('السابق');
+  await m.locator('[data-mk-next]').click();
+  await expect(m.locator('[data-mk-body]')).toHaveAttribute('data-mk-body', 'login');
+  await expect(m.locator('#v-login-email-err')).toBeVisible();
+  await m.locator('#v-login-email').fill('step.dev@ibtekr.local'); await m.locator('[data-genpw]').click();
+  // «السابق» goes back with everything kept; the done step's own button too
+  await m.locator('[data-mk-prev]').click();
+  await expect(m.locator('#v-name')).toHaveValue('Step Maker');
+  await m.locator('[data-mk-next]').click();
+  await expect(m.locator('#v-login-email')).toHaveValue('step.dev@ibtekr.local');
+  await m.locator('[data-mk-next]').click();
+  // step 3: the store
+  await expect(m.locator('[data-mk-body]')).toHaveAttribute('data-mk-body', 'store');
+  await expect(m.getByRole('switch', { name: 'اعمل له متجر على الموقع' })).toBeVisible();
+  await steps.nth(0).locator('button').click(); // a done step is one click away
+  await expect(m.locator('[data-mk-body]')).toHaveAttribute('data-mk-body', 'maker');
+  await expect(steps.nth(2).locator('button')).toBeDisabled(); // forward is «التالي» only — every step is checked on the way
+  await m.locator('[data-mk-next]').click(); await m.locator('[data-mk-next]').click();
+  await expect(m.locator('[data-mk-body]')).toHaveAttribute('data-mk-body', 'store');
+  await m.locator('[data-mk-next]').click();
+  // step 4: the bank and the contract — the only step with «إضافة المبتكر»
+  await expect(m.locator('[data-mk-body]')).toHaveAttribute('data-mk-body', 'bank');
+  await expect(m.locator('#v-bank-method')).toBeVisible(); await expect(m.locator('[data-v-contract]')).toHaveCount(1);
+  await expect(m.locator('[data-mk-next]')).toHaveText('إضافة المبتكر');
+  await expect(m.locator('[data-mk-next]')).toHaveAttribute('data-mk-next', 'add');
+  await m.locator('[data-mk-next]').click();
+  await expect(page.locator('.drawer .drawer-h h2')).toHaveText('Step Maker');
+  // the popup fits a phone: the steps in one row, nothing wider than the screen
+  await page.locator('.drawer').getByRole('button', { name: 'إغلاق' }).first().click();
+  await page.setViewportSize({ width: 390, height: 800 });
+  await go(page, 'makers/new');
+  await expect(m).toBeVisible();
+  const mb = await box(m); expect(mb.x).toBeGreaterThanOrEqual(0); expect(mb.x + mb.width).toBeLessThanOrEqual(390);
+  const sb = await box(m.locator('.mk-steps')); expect(sb.x).toBeGreaterThanOrEqual(mb.x - 1); expect(sb.x + sb.width).toBeLessThanOrEqual(mb.x + mb.width + 1);
+});

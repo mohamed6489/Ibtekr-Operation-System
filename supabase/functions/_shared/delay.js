@@ -49,9 +49,10 @@ export function subDelay(elapsed, lead, open = true) {
 // Owner batch 2 decision 17 (14 Nov — «نقطة بداية حساب الأيام … قابل للتأخير قبل انتهاء أطول مدة تصنيع بيومين، ومتأخر عند انتهاء مدة
 // التصنيع وعدم تحويلها للشحن … الأوردر الفرعي متأخر في حالة مرور مدة التصنيع»): the rules from settings «makers».delay, the same in
 // block 12 (IbtekrOps.delayRules / orderDelayOf / lineDelayOf — tests/functions/delay.test.mjs compares them):
-// * start: 'confirm' (default — the order from its confirmation, none while not confirmed; a line from the maker's notify date, else
-//   the order's start) · 'order' (the order from its own date; a line from its notify date, else the order's date) · 'notify' (a line
-//   from its notify date only — none without it; the order from its confirmation).
+// * start: 'confirm' (default — the order and its lines from its confirmation, none while not confirmed) · 'order' (the order and its
+//   lines from its own date) · 'notify' (a line from its maker's notify date only — none without it; the order from its confirmation).
+//   The owner 15 Nov («المفروض الاوردرات الفرعية تتحول متأخرة بناء علي تاريخ التأكيد لو عدت مدة التصنيع من تاريخ التأكيد»): the notify
+//   date counts only with start 'notify' — before, it won over the start point.
 // * the order: against the longest making days of its open lines — «قابل للتأخير» from orderRisk (2) days before they end, «متأخر» once
 //   they are past; an order in a stop status (stop — default قيد الشحن · مكتمل · ملغي · استرجاع · فشل; the base status) never counts.
 // * a line: against its own making days (product, else maker, else lead — 7), «قابل للتأخير» from subRisk (2) days before.
@@ -76,10 +77,9 @@ export function orderElapsed({ confirm, confirmAt, placedAt }, today, rules) {
   if (rules && rules.start === 'order') return daysFrom(placedAt, today);
   return confirmAge({ confirm, confirmAt, placedAt }, today);
 }
-/** the days counted on a line: from its notify date; without it the order's start (start 'notify': none) */
+/** the days counted on a line: the order's start (its confirmation / its date); start 'notify' — the maker's notify date, none without it */
 export function lineElapsed({ notifiedAt, confirm, confirmAt, placedAt }, today, rules) {
-  if (DAY_RE.test(String(notifiedAt ?? ''))) return daysFrom(notifiedAt, today);
-  if (rules && rules.start === 'notify') return null;
+  if (rules && rules.start === 'notify') return DAY_RE.test(String(notifiedAt ?? '')) ? daysFrom(notifiedAt, today) : null;
   return orderElapsed({ confirm, confirmAt, placedAt }, today, rules);
 }
 /** elapsed days against a making time: 'late' once past it, 'risk' from `risk` days before its end, else 'ok' */

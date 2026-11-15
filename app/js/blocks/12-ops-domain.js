@@ -218,9 +218,10 @@
     return (rules && rules.lead) || 7;
   }
   const orderElapsed = (o, today, rules) => (rules && rules.start === 'order' ? daysFrom(o && o.placedAt, today) : confirmAge(o, today));
+  // the owner 15 Nov: a line counts from the order's start point (confirmation / order date) like the order; its maker's notify date
+  // only with start 'notify'
   function lineElapsed(o, today, rules) {
-    if (DAY_RE.test(String((o && o.notifiedAt) || ''))) return daysFrom(o.notifiedAt, today);
-    if (rules && rules.start === 'notify') return null;
+    if (rules && rules.start === 'notify') return DAY_RE.test(String((o && o.notifiedAt) || '')) ? daysFrom(o.notifiedAt, today) : null;
     return orderElapsed(o, today, rules);
   }
   const delayAgainst = (elapsed, lead, risk) => (elapsed == null || !Number.isFinite(elapsed) ? 'ok' : elapsed > lead ? 'late' : elapsed >= lead - risk ? 'risk' : 'ok');

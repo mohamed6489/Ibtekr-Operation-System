@@ -24,10 +24,11 @@ async function portalLogin(page, user, pw) {
 }
 
 test('the sign-in: a wrong password, an unknown user and an inactive maker all read the same; the first sign-in forces a new password (the rules live), then the maker sees his own view — KPIs, his lines with the delay rule, his account, his data with the bank masked; the bank request opens one ticket for the accounts; logout', async ({ page }) => {
-  // decision 52: the line's delay counts from his notify date against the making days — Macrame Feathers notified 6 days ago, his
-  // «مدة التجهيز» 7 → the last 3 days = «قابل للتأخير» (its order is not confirmed: without the notify date it would have none)
-  const notified = new Date(Date.now() - 6 * 864e5).toISOString().slice(0, 10);
-  mock.orderItems.find((x) => x.id === 5005).expected_at = notified;
+  // the line's delay counts from its order's confirmation against the making days (the owner 15 Nov — the notify date only with the
+  // start point «تاريخ تبليغ المبتكر») — Macrame Feathers' order confirmed 6 days ago, his «مدة التجهيز» 7 → the last 3 days = «قابل للتأخير»
+  const confirmed = new Date(Date.now() - 6 * 864e5).toISOString().slice(0, 10);
+  Object.assign(mock.orders.find((o) => o.id === 180656), { confirm: 'مؤكد بدون عربون', confirm_at: confirmed });
+  mock.orderItems.find((x) => x.id === 5005).expected_at = new Date(Date.now() - 1 * 864e5).toISOString().slice(0, 10); // told yesterday: not the start
   await page.goto('/portal.html');
   await expect(card(page)).toContainText('دخول المبتكر');
   await portalLogin(page, 'antikiano', 'Wrong1234');
@@ -53,7 +54,7 @@ test('the sign-in: a wrong password, an unknown user and an inactive maker all r
   const login = mock.vendorLogins.find((l) => l.vendor_id === V2);
   expect([login.own_password, login.must_change, login.status]).toEqual([true, false, 'active']);
   expect(mock.vault.get(login.secret_id)).toBe('MyOwn2026');
-  // the home: Antikiano's two open lines — order 181668 (not late) and 180656's line (notified 6 days ago, 7 making days → at risk); his balance from Dokan
+  // the home: Antikiano's two open lines — order 181668 (not late) and 180656's line (confirmed 6 days ago, 7 making days → at risk); his balance from Dokan
   const kpis = page.locator('#portal .pt-kpi');
   await expect(kpis.nth(0)).toContainText('قطع مفتوحة'); await expect(kpis.nth(0).locator('b')).toHaveText('2');
   await expect(kpis.nth(1).locator('b')).toHaveText('0'); await expect(kpis.nth(2).locator('b')).toHaveText('1');

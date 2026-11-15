@@ -173,7 +173,7 @@ test('T3 — decision 17: the delay rules in two boxes (no per-maker rules); the
   await go(page, 'settings-makers');
   await body.locator('#dl-start').click(); await page.locator('[role=listbox] [role=option]', { hasText: 'تاريخ الأوردر' }).first().click();
   await expect.poll(() => (delay() || {}).start).toBe('order');
-  await expect(body.locator('[data-delay-start-help]')).toContainText('الأوردر من تاريخه');
+  await expect(body.locator('[data-delay-start-help]')).toContainText('الأوردر والأوردرات الفرعية من تاريخ الأوردر');
   await leave();
   await expect(badge('180656')).toHaveCount(1);
 });

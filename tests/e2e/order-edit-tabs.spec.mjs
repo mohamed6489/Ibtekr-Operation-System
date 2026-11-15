@@ -30,7 +30,7 @@ const openMenu = async (page, key) => { await sr(page, `[data-more="${key}"]`).f
 const editOrder = async (page, id) => { await openMenu(page, 'o:' + id); await sr(page, '#mpop [data-ma="edit"]').click(); };
 
 test('decisions 3 and 4: ⋮ of a product — «تعديل الحالة على الموقع», no «مسح الأوردر الفرعي» / «تعديل الكمية»; its «تعديل» has no customer data, «حالة المنتج», and «الحالة على الموقع» (several makers only) — «ملغي» there cancels its products', async ({ page }) => {
-  mock.orderItems.find((i) => i.id === 5001).expected_at = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10); // told 30 days ago: late
+  Object.assign(mock.orders.find((o) => o.id === 181668), { confirm: 'مؤكد بدون عربون', confirm_at: new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10) }); // confirmed 30 days ago: late (the owner 15 Nov — from the confirmation)
   await openOrders(page);
   const badge = card(page, '181668').locator('select[data-ss="5001"]').locator('xpath=ancestor::div[contains(@class,"row")][1]').locator('.badge');
   await expect(badge).toHaveText('متأخر');
@@ -59,8 +59,8 @@ test('decisions 3 and 4: ⋮ of a product — «تعديل الحالة على �
   expect(mock.orderItems.find((i) => i.id === 5001).status).toBe('ملغي');
   expect(mock.orderItems.find((i) => i.id === 5002).status).toBe('مؤكد'); // the other maker's
   expect(mock.patches.filter((p) => p.table === 'order_items')).toEqual([]);
-  // a cancelled product has no delay badge on its line
-  await expect(badge).toHaveText('غير متأخر');
+  // a cancelled product has no delay counter on its line — «مقفول» (the owner 15 Nov: not «غير متأخر»)
+  await expect(badge).toHaveText('مقفول');
   // an order of one maker: no «الحالة على الموقع» (its status = the order's)
   await openMenu(page, 's:5003');
   await expect(sr(page, '#mpop [data-ma="sitest"]')).toHaveCount(0);

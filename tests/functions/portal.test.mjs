@@ -33,7 +33,7 @@ test('ageDays + deliveryState: block 29\'s rule on the order\'s age — late pas
 
 test('makerLines: his lines with their order and sub-order — open while the order runs and the sub-order is processing / pending / on-hold; removed lines and deleted orders left out; newest first; no customer field', () => {
   const orders = [
-    { id: 181668, number: '181668', status: 'جاري التنفيذ', placed_at: '2026-10-28T10:00:00Z', customer_name: 'سلوى', customer_phone: '0120' },
+    { id: 181668, number: '181668', status: 'جاري التنفيذ', confirm: 'مؤكد بدون عربون', confirm_at: '2026-11-01', placed_at: '2026-10-28T10:00:00Z', customer_name: 'سلوى', customer_phone: '0120' },
     { id: 180686, number: '180686', status: 'مكتمل', placed_at: '2026-10-20T10:00:00Z' },
     { id: 170000, number: '170000', status: 'جاري التنفيذ', placed_at: '2026-10-25T10:00:00Z', deleted_at: '2026-11-01T00:00:00Z' },
   ];
@@ -45,7 +45,8 @@ test('makerLines: his lines with their order and sub-order — open while the or
     { id: 14, order_id: 170000, sub_order_id: null, name: 'Gone', qty: 1, total: 50, status: '' },
     { id: 15, order_id: 999999, sub_order_id: null, name: 'Orphan', qty: 1, total: 50, status: '' },
   ];
-  // decision 52: from the notify date (8 days) against the making days — the maker's 10 → at risk (the last 3); the product's 7 → late
+  // from the order's confirmation (8 days — the owner 15 Nov: not the notify date) against the making days — the maker's 10 → at risk
+  // (the last 3); the product's 7 → late
   const rows = makerLines({ items, orders, subs, now: NOW, makerLead: 10 });
   assert.deepEqual(rows, [
     { order: '181668', n: '181669', prod: 'Cushion', qty: 2, total: 700, ss: 'قيد التنفيذ', exp: '2026-11-01', open: true, status: 'جاري التنفيذ', delivery: 'risk', age: 12, days: 8, lead: 10, placed: '2026-10-28' },
@@ -53,6 +54,7 @@ test('makerLines: his lines with their order and sub-order — open while the or
   ]);
   assert.equal(makerLines({ items, orders, subs, now: NOW, makerLead: 10, leads: new Map([['901', 7]]) })[0].delivery, 'late', 'the product\'s own days win');
   assert.equal(makerLines({ items: [{ id: 1, order_id: 5, name: 'x' }], orders: [{ id: 5, status: 'جاري التنفيذ', confirm: 'غير مؤكد', placed_at: '2026-09-01T10:00:00Z' }], subs: [], now: NOW })[0].delivery, 'ok', 'no notify date, not confirmed: no delay');
+  assert.equal(makerLines({ items: [{ id: 1, order_id: 5, name: 'x', expected_at: '2026-11-01' }], orders: [{ id: 5, status: 'جاري التنفيذ', confirm: 'غير مؤكد', placed_at: '2026-09-01T10:00:00Z' }], subs: [], now: NOW })[0].delivery, 'ok', 'a notify date without a confirmation: no delay (start «تاريخ التأكيد»)');
   assert.ok(!JSON.stringify(rows).includes('سلوى') && !JSON.stringify(rows).includes('0120'), 'no customer data');
   assert.equal(makerLines({ items: [{ id: 1, order_id: 5, name: 'x' }], orders: [{ id: 5, status: 'جاري التنفيذ', placed_at: '2026-11-08T10:00:00Z' }], subs: [], now: NOW })[0].open, true, 'no sub-order: open while the order runs');
 });

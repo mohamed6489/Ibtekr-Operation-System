@@ -59,6 +59,13 @@ test('decision 17: the start point — confirmation (default), the order date, o
   assert.equal(S.lineElapsed({ ...o, notifiedAt: null }, T, S.delayRules({ start: 'order' })), 10);
   assert.equal(S.lineElapsed({ confirm: 'مؤكد بعربون', confirmAt: '2026-11-15', notifiedAt: null }, T, S.delayRules({ start: 'notify' })), null, 'notify: nothing without the notify date');
   assert.equal(S.lineElapsed({ notifiedAt: '2026-11-18' }, T, S.delayRules({ start: 'notify' })), 2);
+  // the owner 15 Nov: «بناء علي تاريخ التأكيد» — a line counts from the order's start point; the notify date only with start 'notify'
+  const late = { confirm: 'مؤكد بدون عربون', confirmAt: '2026-09-13', notifiedAt: '2026-11-15', placedAt: '2026-09-12' };
+  assert.equal(S.lineElapsed(late, T, S.delayRules({})), 68, 'start confirm: from the confirmation, not the later notify date');
+  assert.equal(S.lineDelayOf(S.lineElapsed(late, T, S.delayRules({})), 7, true, S.delayRules({})), 'late');
+  assert.equal(S.lineElapsed(late, T, S.delayRules({ start: 'order' })), 69, 'start order: from the order date');
+  assert.equal(S.lineElapsed(late, T, S.delayRules({ start: 'notify' })), 5, 'start notify: from the notify date');
+  assert.equal(S.lineElapsed({ ...late, confirm: 'غير مؤكد', confirmAt: null }, T, S.delayRules({})), null, 'not confirmed: no counter even with a notify date');
   assert.deepEqual([4, 5, 7, 8].map((e) => S.lineDelayOf(e, 7, true, S.delayRules({}))), ['ok', 'risk', 'risk', 'late']);
   assert.equal(S.lineDelayOf(6, 7, true, S.delayRules({ subRisk: 0 })), 'ok'); assert.equal(S.lineDelayOf(20, 7, false, S.delayRules({})), 'ok', 'a closed line is never late');
   assert.equal(S.leadBy(null, null, S.delayRules({ lead: 12 })), 12, 'the default making days from the settings');

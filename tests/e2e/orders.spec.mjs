@@ -1204,3 +1204,21 @@ test('decision 52: an unconfirmed order is never late; a sub-order counts agains
   await expect(sub.locator('[data-lead]')).toHaveText('مدة التصنيع: 10 يوم (المنتج)');
   await expect(sub).toContainText('5/10'); await expect(sub).toContainText('غير متأخر');
 });
+
+// the owner 15 Nov: «المفروض الاوردرات الفرعية تتحول متأخرة بناء علي تاريخ التأكيد لو عدت مدة التصنيع من تاريخ التأكيد» — a sub-order counts
+// from its order's confirmation (the start point), not from a later notify date; a sub-order closed on the site has no counter («مقفول»)
+test('the owner 15 Nov: a sub-order is late once its making days pass from the confirmation, whatever its notify date; closed on the site = «مقفول»', async ({ page }) => {
+  const day = (n) => new Date(Date.now() - n * 864e5).toISOString().slice(0, 10);
+  Object.assign(mock.orders.find((o) => o.id === 181668), { confirm: 'مؤكد بدون عربون', confirm_at: day(60) });
+  mock.orderItems.find((i) => i.id === 5001).expected_at = day(2); // told the maker 2 days ago — the counter stays on the confirmation
+  mock.subOrders.find((s) => s.id === 2).woo_status = 'cancelled'; // the other maker's sub-order: cancelled on the site
+  await openOrders(page);
+  const row = (sku) => card(page, '181668').locator('.row').filter({ hasText: sku }).first();
+  await expect(row('IBTA4040PAHC000013')).toContainText('60/7');
+  await expect(row('IBTA4040PAHC000013').locator('.badge').filter({ hasText: /^\s*متأخر\s*$/ })).toHaveCount(1);
+  await expect(card(page, '181668').locator('[data-delay-start]').first()).toContainText('من تاريخ تأكيد الأوردر');
+  const closed = row('IBTAMCTOWM200X10014');
+  await expect(closed.locator('[data-closed]')).toHaveText('مقفول');
+  await expect(closed.locator('[data-closed]')).toHaveAttribute('title', /ملغي/);
+  await expect(closed).toContainText('—');
+});

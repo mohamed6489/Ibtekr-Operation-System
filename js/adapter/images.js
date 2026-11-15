@@ -142,7 +142,9 @@
   async function generate(batchId, index, slot, opts) {
     const o = opts || {};
     // the three flows: o.color = a Variable's color unit — the shot number with its color (the server reads that color's reference)
-    const r = await invoke(Object.assign({ action: 'generate', batch_id: batchId, index, slot: o.color ? Number(slot) : slotArg(slot), color: o.color || undefined, model: o.model || undefined }, sizeArgs(o)));
+    // o.note = the team's instructions for a regenerated shot (the owner 15 Nov — «إعادة توليد»), never logged
+    const note = typeof o.note === 'string' ? o.note.replace(/[<>]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 500) : '';
+    const r = await invoke(Object.assign({ action: 'generate', batch_id: batchId, index, slot: o.color ? Number(slot) : slotArg(slot), color: o.color || undefined, model: o.model || undefined, note: note || undefined }, sizeArgs(o)));
     if (!r.ok) return r;
     const out = await webpAll(answer(r.body));
     log(['studio', '#' + (index + 1), slotWord(slot), out.model].concat(tail(out)).join(' · '), 'studio_batches', batchId);
@@ -152,7 +154,9 @@
   // ai-images); op instruction (needs words) / remove_bg ({ bg }) / upscale ({ scale }) / relight
   async function edit(target, op, opts) {
     const t = target || {}; const o = opts || {};
-    const body = { action: 'edit', op, prompt: o.prompt || undefined, model: o.model || undefined, options: o.options || undefined };
+    // o.pins = points on the image [{ x, y (0–100 % from the left / the top), text }] (the owner 15 Nov — an edit by comments on a spot)
+    const pins = Array.isArray(o.pins) ? o.pins.filter((x) => x && String(x.text || '').trim()).slice(0, 10).map((x) => ({ x: Math.round(Number(x.x)), y: Math.round(Number(x.y)), text: String(x.text).trim().slice(0, 200) })) : [];
+    const body = { action: 'edit', op, prompt: o.prompt || undefined, model: o.model || undefined, options: o.options || undefined, pins: pins.length ? pins : undefined };
     if (t.path) { body.batch_id = t.batchId; body.index = t.index; body.path = t.path; } else body.product_id = Number(t.productId);
     const r = await invoke(body);
     if (!r.ok) return r;

@@ -208,6 +208,23 @@ test('studio attrs + translate: the material and the style in both languages; th
   assert.deepEqual(cleanStudio({ nameEn: 'A', shortDesc: 'B.', shortDescAr: 'ب.' }, ['desc', 'translate'], sets).fields, { shortDesc: 'B.', shortDescAr: 'ب.', nameEn: 'A' }, 'desc + translate: one shortDesc');
 });
 
+// the owner 15 Nov («خلي الاسم و الوصف فيهم امكانية اعادة الكتابة بال ايه اي»)
+test('studio rewriteName / rewriteDesc: a new version of the name or the description in both languages, asked as a rewrite', () => {
+  const id = '0b6f2f5e-1d2c-4a8b-9e3f-000000000001';
+  assert.deepEqual(parseStudio({ batch_id: id, index: 0, want: ['rewriteDesc', 'rewriteName'] }).req.want, ['rewriteName', 'rewriteDesc']);
+  assert.deepEqual(studioSchema(['rewriteName']).required, ['nameEn', 'nameAr']);
+  assert.deepEqual(studioSchema(['rewriteDesc']).required, ['shortDesc', 'shortDescAr']);
+  const item = { nameEn: 'Wood and Cane Armchair', nameAr: 'كرسي من الخشب والقش', shortDescAr: 'كرسي بظهر من القش.' };
+  const t = studioRequest(item, { ...CTX, want: ['rewriteName'], brand: 'Akhmim', cats: CATS, colors: COLORS }).messages[0].content[0].text;
+  assert.match(t, /Fill these fields: nameEn, nameAr\.\nTone: warm\.\nRewrite the name: the current one is in the data — write a new, better version, different from it/);
+  assert.match(studioRequest(item, { ...CTX, want: ['rewriteName', 'rewriteDesc'], brand: '', cats: CATS, colors: COLORS }).messages[0].content[0].text, /Rewrite the name and the short description:/);
+  assert.doesNotMatch(studioRequest(item, { ...CTX, want: ['nameAr'], brand: '', cats: CATS, colors: COLORS }).messages[0].content[0].text, /Rewrite/);
+  const sets = { categoryIds: new Set([10]), colorCodes: new Set(['BE']) };
+  assert.deepEqual(cleanStudio({ nameEn: 'Rattan Lounge Chair', nameAr: 'كرسي استرخاء راتان' }, ['rewriteName'], sets), { fields: { nameEn: 'Rattan Lounge Chair', nameAr: 'كرسي استرخاء راتان' }, missing: [] });
+  assert.deepEqual(cleanStudio({ shortDesc: 'A chair.', shortDescAr: 'A chair.' }, ['rewriteDesc'], sets), { fields: { shortDesc: 'A chair.' }, missing: ['shortDescAr'] }, 'English in the Arabic field is refused');
+  assert.deepEqual(cleanStudio({ nameEn: 'X Chair', nameAr: 'كرسي' }, ['nameEn', 'rewriteName'], sets).fields, { nameEn: 'X Chair', nameAr: 'كرسي' }, 'one nameEn when asked twice');
+});
+
 test('costOf: by the model that answered (Opus 5.5 $4 / $20, cache read $0.20, cache write × 1.25); unknown = the dearest', () => {
   assert.equal(costOf('claude-opus-5-5', { input_tokens: 3000, output_tokens: 2000 }), 0.052);
   assert.equal(costOf('claude-opus-5-5-20261001', { input_tokens: 1000, output_tokens: 0, cache_read_input_tokens: 10000, cache_creation_input_tokens: 2000 }), 0.016);

@@ -147,6 +147,30 @@ test('the maker step is the same new one in the three cases (sheet · WhatsApp �
   }
 });
 
+// the owner 15 Nov («لما أدوس على إضافة مبتكر يفتحلي بوب أب إضافة المبتكر»): «+ مبتكر جديد» opens the add-maker popup over the studio,
+// and the new maker is picked for the batch — the studio stays where it is
+test('the maker step: «+ مبتكر جديد» opens the add-maker popup over the studio and picks the new maker', async ({ page }) => {
+  await signIn(page, ADMIN);
+  await choose(page, 'صور وعايز شيت', 'Simple');
+  await next(page);
+  await expect(page).toHaveURL(/-2$/);
+  const url = page.url();
+  await page.locator('[data-fl-new-maker]').click();
+  const m = page.locator('.modal'); await expect(m).toContainText('إضافة مبتكر');
+  await m.locator('#v-name').fill('Wood & Rope');
+  await m.locator('#v-cat').click(); await page.locator('[data-mp-menu] [role=menuitemcheckbox]', { hasText: 'ديكور' }).click(); await page.locator('[data-mp-menu] [data-mp-done]').click();
+  await m.locator('#v-phone').fill('01000000009');
+  await m.locator('#v-login-email').fill('wood.dev@ibtekr.local');
+  await m.locator('[data-genpw]').click();
+  await m.getByRole('button', { name: 'إضافة المبتكر' }).click();
+  await expect(m).toHaveCount(0);
+  expect(page.url()).toBe(url); // still the studio's step 2 — no makers page, no drawer
+  await expect(page.locator('.drawer')).toHaveCount(0);
+  await expect(page.locator('#fl-maker')).toContainText('Wood & Rope');
+  await expect(page.locator('[data-fl-brand]')).toContainText('Wood & Rope');
+  await expect.poll(() => (batch().state || {}).vendorName).toBe('Wood & Rope');
+});
+
 // the owner 15 Nov («في مرحلة البيانات يفضل نقسمها لجزئين إنجليزي و عربي و بيملا البيانات اوتوماتيك بال ايه اي … لو غير اي حاجة في العربي
 // تتغير اوتوماتيك في الانجليزي … الصورة علي اليمين و جمبهم البيانات»): a card per product, the Arabic and English columns side by side
 test('the data step: a card per product with Arabic and English side by side — the AI fills by itself, an Arabic name is translated, a pick sets both columns, a color moves the SKU', async ({ page }) => {
@@ -192,6 +216,18 @@ test('the data step: a card per product with Arabic and English side by side —
   await expect(card.locator('[data-fl="sku"]')).toHaveValue('IBTART0999-BE');
   await expect.poll(() => { const r = batch().state.rows[0]; return [r.nameAr, r.nameEn, r.styleEn, r.styleAr, r.size, r.colorEn, r.sku]; })
     .toEqual(['مخدة بوهيمي كبيرة', 'Translated Product Name', 'Modern', 'مودرن', 'W 50 × L 70 cm', 'Beige', 'IBTART0999-BE']);
+  // the owner 15 Nov («خلي الاسم و الوصف فيهم امكانية اعادة الكتابة بال ايه اي»): from the Arabic column both languages change,
+  // from the English column the English only
+  await card.locator('[data-fl-rewrite="nameAr"]').click();
+  await expect(card.locator('[data-fl="nameAr"]')).toHaveValue('اسم منتج متكتب من جديد');
+  await expect(card.locator('[data-fl="nameEn"]')).toHaveValue('Rewritten Product Name');
+  expect(mock.aiCalls.filter((c) => c.action === 'studio').pop().want).toEqual(['rewriteName']);
+  const arDesc = await card.locator('[data-fl="shortAr"]').inputValue();
+  await card.locator('[data-fl-rewrite="shortEn"]').click();
+  await expect(card.locator('[data-fl="shortEn"]')).toHaveValue('A rewritten short description.');
+  await expect(card.locator('[data-fl="shortEn"]')).toHaveClass(/is-ai/);
+  await expect(card.locator('[data-fl="shortAr"]')).toHaveValue(arDesc); // the English column's rewrite leaves the Arabic
+  expect(mock.aiCalls.filter((c) => c.action === 'studio').pop().want).toEqual(['rewriteDesc']);
 });
 
 test('flow 2 «داتا على الواتساب» Variable: the screenshots read into rows → a product of two colors grouped by its serial → a color\'s own shot → its variation', async ({ page }) => {

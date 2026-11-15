@@ -314,7 +314,7 @@
           options: makers.map((x) => ({ value: x.id, label: x.name + (x.wooVendorId == null ? ' (مالوش متجر على الموقع)' : '') })),
           onChange: (v) => { const m = makers.find((x) => x.id === v); s.vendorId = m ? m.id : null; s.vendorName = m ? m.name : ''; s.brandId = null; s.brandName = ''; s.code = ''; s.rate = null; s.fee = null; touch(); R(); },
           error: noStore ? 'المبتكر ده مالوش متجر على الموقع — اعمله متجر من ملفه الأول' : null }),
-        h('div', { class: 'fl-new' }, Button({ size: 'sm', icon: 'plus', label: 'مبتكر جديد', onClick: () => { touch(true); go('makers/new'); } }))),
+        h('div', { class: 'fl-new' }, Button({ size: 'sm', icon: 'plus', label: 'مبتكر جديد', attrs: { 'data-fl-new-maker': '' }, onClick: newMaker }))),
       mk ? h('div', { class: 'fl-maker-info', 'data-fl-maker-info': '' },
         h('div', { class: 'fl-mk-rate' }, h('span', { class: 't-small help' }, 'نسبة إبتكر'), h('b', { class: 'num', 'data-fl-rate': '' }, r == null ? '—' : U.num(r + '%')),
           h('small', { class: 'help' }, (feeNow() ? '+ ' + K.n0(feeNow()) + ' ج.م رسوم ثابتة' : 'من غير رسوم ثابتة') + (mk.commissionType === 'category_based' ? ' · بتختلف حسب القسم' : ''))),
@@ -329,6 +329,17 @@
       mk && !FD.validCode(s.code) ? U.InlineNote({ kind: 'warning', children: 'كود البراند لازم 2–4 حروف إنجليزي.' }) : null];
     const ok = !!mk && FD.validCode(s.code) && (s.case === 'photos' || mk.wooVendorId != null);
     return [Card('المبتكر', 'المنتجات بتترفع على متجر المبتكر، وبراندُه بيتكتب في الشيت وكوده في الـ SKU.', body), Foot(ok, !mk ? 'اختار المبتكر' : 'كود البراند')];
+  }
+  // the owner 15 Nov («لما أدوس على إضافة مبتكر يفتحلي بوباب إضافة المبتكر»): the add-maker popup itself over the studio (IBMakerAdd,
+  // block 28) — the new maker is picked for the batch right after the save; the batch stays where it is
+  function newMaker() {
+    touch(true);
+    const ok = window.IBMakerAdd && window.IBMakerAdd((v) => {
+      const s = st(); if (!s || !v) return;
+      s.vendorId = v.id; s.vendorName = v.name; s.brandId = null; s.brandName = ''; s.code = ''; s.rate = null; s.fee = null; touch(); R();
+    });
+    if (ok === false) K.toast('إضافة المبتكرين لأدمن أو اللي عنده صلاحية تعديل المبتكرين', 'error');
+    else if (!window.IBMakerAdd) { touch(true); go('makers/new'); }
   }
   // the maker's own brand (see step2); a batch that already has one of his brands keeps it
   function autoBrand(mk, brands) {
@@ -430,6 +441,25 @@
       submit: (f) => { rows().filter((r) => S.sel.has(r.key)).forEach((r) => keys.forEach((k) => { const v = String(f[k] || '').trim(); if (v) { r[k] = v; if (r.ai) delete r.ai[k]; } })); touch(); R(); } });
   }
   const BulkBar = (btns) => (S.sel.size ? h('div', { class: 'bulk-bar', role: 'region', 'aria-label': 'إجراءات على المحدد' }, h('b', null, 'محدد ' + S.sel.size), h('span', { class: 'grow' }), ...btns, Button({ type: 'text', size: 'sm', label: 'إلغاء التحديد', onClick: () => { S.sel.clear(); R(); } })) : null);
+  // the owner 15 Nov («خلي الاسم و الوصف فيهم امكانية اعادة الكتابة بال ايه اي»): a new, better version of the name or the description by
+  // the AI (want rewriteName / rewriteDesc — the same facts) — from the Arabic column both languages change (the Arabic leads, like the
+  // translation), from the English column the English only; marked «AI — راجع» until edited
+  const rwKey = (key, what, lang) => 'rw:' + key + ':' + what + ':' + lang;
+  async function rewriteGroup(key, what, lang) {
+    const tk = rwKey(key, what, lang); if (S.tr.has(tk)) return;
+    S.tr.add(tk); RF(); await touch(true);
+    const gi = groups().findIndex((x) => x.key === key);
+    const r = gi < 0 ? { ok: false, reason: 'not_found' } : await AI().studio(S.id, gi, [what === 'name' ? 'rewriteName' : 'rewriteDesc']);
+    S.tr.delete(tk);
+    if (!r.ok) { K.toast('مقدرناش نعيد الكتابة — ' + why(r.reason), 'error'); RF(); return; }
+    const f = r.fields || {}; const g = groups().find((x) => x.key === key);
+    const sets = what === 'name' ? (lang === 'ar' ? [['nameAr', f.nameAr], ['nameEn', f.nameEn]] : [['nameEn', f.nameEn]])
+      : (lang === 'ar' ? [['shortAr', f.shortDescAr], ['shortEn', f.shortDesc]] : [['shortEn', f.shortDesc]]);
+    let n = 0;
+    (g ? g.rows : []).forEach((ri) => { const x = rows()[ri]; x.ai = Object.assign({}, x.ai); sets.forEach(([k, v]) => { if (v) { x[k] = v; x.ai[k] = true; n += 1; } }); });
+    if (!n) K.toast('الـ AI مارجّعش نسخة جديدة — جرّب تاني', 'warning');
+    touch(); RF();
+  }
   // ---------------- the data step's cards (the owner 15 Nov: «نقسمها لجزئين إنجليزي و عربي … الصورة علي اليمين و جمبهم البيانات») ----------------
   // a product = one card: the head (its number, the brand, the SKU, the category, the weight), then the photo on the right, the Arabic
   // column and the English column side by side; a Variable's colors and sizes per variation under them. The fields a product shares
@@ -441,7 +471,12 @@
       inputmode: k === 'weight' ? 'decimal' : undefined, value: r[k] == null ? '' : String(r[k]),
       onChange: (ev) => { const v = String(ev.target.value).trim(); const was = r[k] == null ? '' : String(r[k]); setAll(rs, k, k === 'weight' ? (v === '' ? null : Number(v)) : v); if (opt.after && v !== was) opt.after(v); touch(); RF(); } });
     if (area) inp.value = r[k] || '';
-    return h('div', { class: 'fl-f' + (opt.cls ? ' ' + opt.cls : '') }, h('label', { for: id }, label, ai ? h('span', { class: 'fl-aitag' }, 'AI — راجع') : null), inp);
+    const rw = opt.rw; const working = rw && S.tr.has(rwKey(rw.key, rw.what, rw.lang));
+    const rwBtn = rw ? h('button', { type: 'button', class: 'fl-rw', 'data-fl-rewrite': k, disabled: working || !!S.busy, title: rw.lang === 'ar' ? 'نسخة جديدة بالـ AI — والإنجليزي بيتغيّر معاها' : 'A new version by the AI',
+      'aria-label': (rw.lang === 'ar' ? 'أعد كتابة ' : 'Rewrite ') + label, onClick: () => rewriteGroup(rw.key, rw.what, rw.lang) },
+      Icon('sparkle', 'sm'), h('span', null, working ? (rw.lang === 'ar' ? 'بيكتب…' : 'Writing…') : (rw.lang === 'ar' ? 'أعد الكتابة بالـ AI' : 'Rewrite with AI'))) : null;
+    const lab = h('label', { for: id }, label, ai ? h('span', { class: 'fl-aitag' }, 'AI — راجع') : null);
+    return h('div', { class: 'fl-f' + (opt.cls ? ' ' + opt.cls : '') }, rwBtn ? h('div', { class: 'fl-f-head' }, lab, rwBtn) : lab, inp);
   }
   function newPair(title, done) {
     K.form({ title, values: { ar: '', en: '' }, submitLabel: 'ضيف',
@@ -496,11 +531,11 @@
       groupMenu(g, rs));
     const nameAfter = () => translateGroup(g.key, { name: true }); const descAfter = () => translateGroup(g.key, { desc: true });
     const ar = h('div', { class: 'fl-dcol', lang: 'ar', dir: 'rtl' }, h('div', { class: 'fl-dcol-h' }, 'عربي'),
-      textField(rs, 'nameAr', 'الاسم', { after: nameAfter }), textField(rs, 'shortAr', 'الوصف', { after: descAfter }),
+      textField(rs, 'nameAr', 'الاسم', { after: nameAfter, rw: { key: g.key, what: 'name', lang: 'ar' } }), textField(rs, 'shortAr', 'الوصف', { after: descAfter, rw: { key: g.key, what: 'desc', lang: 'ar' } }),
       vari ? null : h('div', { class: 'fl-2' }, pairField(rs, 'colorEn', 'colorAr', colorList(), 'ar', 'اللون', pickColor), textField(rs, 'sizeAr', 'المقاس', { after: sizeAfter(rs) })),
       h('div', { class: 'fl-2' }, pairField(rs, 'materialEn', 'materialAr', FD.MATERIALS, 'ar', 'الخامة', pickBoth('materialEn', 'materialAr')), pairField(rs, 'styleEn', 'styleAr', FD.STYLES, 'ar', 'الستايل', pickBoth('styleEn', 'styleAr'))));
     const en = h('div', { class: 'fl-dcol', lang: 'en', dir: 'ltr' }, h('div', { class: 'fl-dcol-h' }, 'English', tr ? h('span', { class: 'fl-trans', role: 'status' }, 'بيترجم…') : null),
-      textField(rs, 'nameEn', 'Product name', { dir: 'ltr' }), textField(rs, 'shortEn', 'Description', { dir: 'ltr' }),
+      textField(rs, 'nameEn', 'Product name', { dir: 'ltr', rw: { key: g.key, what: 'name', lang: 'en' } }), textField(rs, 'shortEn', 'Description', { dir: 'ltr', rw: { key: g.key, what: 'desc', lang: 'en' } }),
       vari ? null : h('div', { class: 'fl-2' }, pairField(rs, 'colorEn', 'colorAr', colorList(), 'en', 'Colour', pickColor), textField(rs, 'size', 'Size', { dir: 'ltr' })),
       h('div', { class: 'fl-2' }, pairField(rs, 'materialEn', 'materialAr', FD.MATERIALS, 'en', 'Material', pickBoth('materialEn', 'materialAr')), pairField(rs, 'styleEn', 'styleAr', FD.STYLES, 'en', 'Style', pickBoth('styleEn', 'styleAr'))));
     const photos = (R0.photos || []).length;

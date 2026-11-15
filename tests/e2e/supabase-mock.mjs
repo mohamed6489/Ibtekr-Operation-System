@@ -2223,8 +2223,10 @@ export async function installSupabaseMock(page, opts = {}) {
       const cats = mock.wooCategories.map((c) => Number(c.id));
       const PROMPTS = { shot1: 'A professional product photograph of the exact ' + req.category + ' from the reference, kept completely identical, centered on a warm cream studio background, soft window light.', shot2: 'A lifestyle photograph of the exact same ' + req.category + ' from the reference, kept completely identical, in its place in a warm modern Egyptian home, afternoon daylight.', shot3: 'A close-up detail photograph of the exact same ' + req.category + ' from the reference, kept completely identical: material, craft and texture, shallow depth of field.', negative: 'text, logos, watermarks, people, hands' };
       const answer = typeof mock.aiAnswer === 'function' ? mock.aiAnswer(action, req, item) : action === 'write' ? SAMPLE : action === 'prompts' ? PROMPTS
-        : { nameEn: req.want.includes('translate') ? 'Translated Product Name' : item.nameEn || 'Bamboo Desk Lamp', nameAr: 'أباجورة مكتب بامبو',
-          shortDesc: req.want.includes('translate') ? 'Translated short description.' : 'A warm bamboo desk lamp.', shortDescAr: 'أباجورة مكتب من البامبو بإضاءة دافية.', categories: cats.slice(0, 1), colors: ['BE'], sizes: [],
+        : { nameEn: req.want.includes('rewriteName') ? 'Rewritten Product Name' : req.want.includes('translate') ? 'Translated Product Name' : item.nameEn || 'Bamboo Desk Lamp',
+          nameAr: req.want.includes('rewriteName') ? 'اسم منتج متكتب من جديد' : 'أباجورة مكتب بامبو',
+          shortDesc: req.want.includes('rewriteDesc') ? 'A rewritten short description.' : req.want.includes('translate') ? 'Translated short description.' : 'A warm bamboo desk lamp.',
+          shortDescAr: req.want.includes('rewriteDesc') ? 'وصف قصير متكتب من جديد.' : 'أباجورة مكتب من البامبو بإضاءة دافية.', categories: cats.slice(0, 1), colors: ['BE'], sizes: [],
           material: 'Rattan', materialAr: 'راتان', style: 'Boho', styleAr: 'بوهيمي' }; // the owner 15 Nov: attrs (material/style) and translate (Arabic → English)
       const cleaned = action === 'write' ? cleanWrite(answer, req.outputs, req.langs) : action === 'prompts' ? cleanPrompts(answer) : cleanStudio(answer, req.want, { categoryIds: new Set(cats), colorCodes: new Set(mock.skuColors.map((c) => c.code)) });
       const run = { ...base, status: 'ok', error: null, input_tokens: 3000, output_tokens: 2000, cost_usd: cost, output: cleaned };

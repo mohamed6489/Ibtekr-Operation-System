@@ -10,7 +10,9 @@ export const TONES = ['warm', 'luxury', 'brief'];
 export const SOURCES = ['data', 'image', 'product'];
 // the owner 15 Nov (the studio's data step: Arabic and English side by side): attrs = the material and the style in both languages from
 // the data and the photo; translate = the English name and short description from the Arabic ones (an Arabic edit flows to English)
-export const WANTS = ['nameEn', 'nameAr', 'desc', 'category', 'variations', 'attrs', 'translate'];
+// the owner 15 Nov («خلي الاسم و الوصف فيهم امكانية اعادة الكتابة بال ايه اي»): rewriteName / rewriteDesc = a new, better version of the
+// name / the short description in both languages (the same facts, nothing invented)
+export const WANTS = ['nameEn', 'nameAr', 'desc', 'category', 'variations', 'attrs', 'translate', 'rewriteName', 'rewriteDesc'];
 // decision 2: the default and the one other model the secret AI_CONTENT_MODEL may pick; AI_CONTENT_EFFORT the same
 export const MODELS = ['claude-opus-5-5', 'claude-sonnet-5-5'];
 export const EFFORTS = ['low', 'medium', 'high'];
@@ -306,6 +308,8 @@ export function studioSchema(want) {
   if (want.includes('variations')) { p.colors = STRS(); p.sizes = STRS(); }
   if (want.includes('attrs')) { p.material = STR(); p.materialAr = STR(); p.style = STR(); p.styleAr = STR(); }
   if (want.includes('translate')) { p.nameEn = STR(); p.shortDesc = STR(); }
+  if (want.includes('rewriteName')) { p.nameEn = STR(); p.nameAr = STR(); }
+  if (want.includes('rewriteDesc')) { p.shortDesc = STR(); p.shortDescAr = STR(); }
   return obj(p);
 }
 
@@ -382,7 +386,10 @@ export function studioRequest(item, ctx) {
   const keys = Object.keys(studioSchema(ctx.want).properties);
   const translate = ctx.want.includes('translate')
     ? '\nTranslate: nameEn is the Arabic name in English and shortDesc the current Arabic short description in English — the same meaning in natural English, the brand as written, nothing the Arabic does not say.' : '';
-  const text = dataBlock(rows) + '\n\nFill these fields: ' + keys.join(', ') + '.\nTone: warm.' + translate + (ctx.image ? '\nThe image shows the product.' : '');
+  const rw = [ctx.want.includes('rewriteName') && 'the name', ctx.want.includes('rewriteDesc') && 'the short description'].filter(Boolean);
+  const rewrite = rw.length
+    ? '\nRewrite ' + rw.join(' and ') + ': the current one is in the data — write a new, better version, different from it (clearer and more appealing), with the same facts (material, color, size) and nothing invented; both languages say the same thing.' : '';
+  const text = dataBlock(rows) + '\n\nFill these fields: ' + keys.join(', ') + '.\nTone: warm.' + translate + rewrite + (ctx.image ? '\nThe image shows the product.' : '');
   const catalog = 'Shop categories (id: path)\n' + (categoryLines(ctx.cats).join('\n') || '(none)') + '\n\nColors (code: name)\n' + (colorLines(ctx.colors).join('\n') || '(none)');
   return {
     model: ctx.model, max_tokens: MAX_TOKENS, ...FALLBACK,
@@ -462,10 +469,13 @@ export function cleanStudio(json, want, { categoryIds, colorCodes }) {
     put('material', line(src.material, DATA_LIM.material, true), 'en'); put('materialAr', line(src.materialAr, DATA_LIM.material, true), 'ar');
     put('style', line(src.style, DATA_LIM.style, true), 'en'); put('styleAr', line(src.styleAr, DATA_LIM.style, true), 'ar');
   }
+  const once = (k, v, lang) => { if (!(k in fields) && !missing.includes(k)) put(k, v, lang); };
   if (want.includes('translate')) {
     if (!want.includes('nameEn')) put('nameEn', line(src.nameEn, LIM.name, true), 'en');
     if (!want.includes('desc')) put('shortDesc', paras(src.shortDesc, LIM.short), 'en');
   }
+  if (want.includes('rewriteName')) { once('nameEn', line(src.nameEn, LIM.name, true), 'en'); once('nameAr', line(src.nameAr, LIM.name, true), 'ar'); }
+  if (want.includes('rewriteDesc')) { once('shortDesc', paras(src.shortDesc, LIM.short), 'en'); once('shortDescAr', paras(src.shortDescAr, LIM.short), 'ar'); }
   return { fields, missing };
 }
 

@@ -3298,7 +3298,7 @@
   // link was withdrawn by the owner on 26 Oct) and «الحساب البنكي» (when the caller sees bank rows; required when it shows — no IBMakerDefaults).
   // The edit popup of an existing maker (openAddVendor(existing)) is unchanged. A name or alias already in the registry is refused
   // (decision 2: every Dokan store is already here) and the file is one click away.
-  function openAddVendor(existing, pre) { // pre (phase 13 decision 36): the AI assistant's values for a new maker — the member reviews and saves
+  function openAddVendor(existing, pre, done) { // pre (phase 13 decision 36): the AI assistant's values for a new maker — the member reviews and saves; done (the owner 15 Nov, the studio): called with the new maker instead of opening his drawer
     const f = existing ? { name: existing.name, legalName: existing.legalName || '', categories: (existing.categories || []).slice(), phone: existing.phone, altPhone: existing.altPhone || '', email: existing.email || '', address: existing.address || '', instagram: existing.instagram || '', storeUrl: existing.storeUrl || '', rate: String(existing.rate), leadDays: String(existing.leadDays), status: existing.status, aliases: existing.aliases.join('، '), depositPolicy: existing.depositPolicy || '', notes: existing.notes || '' }
       : { name: '', legalName: '', categories: [], phone: '', altPhone: '', email: '', address: '', instagram: '', storeUrl: '', rate: '40', leadDays: '7', status: 'active', aliases: '', depositPolicy: '', notes: '', username: '', pwMode: 'temp', password: '', method: '', bankName: '', holder: '', iban: '', wallet: '', accountNumber: '', accountType: '', bankAddress: '', routingNumber: '', swift: '',
         // the owner, 11 Nov: the commission as on Dokan («Commission» tab) and the store on the site («General» tab)
@@ -3426,7 +3426,7 @@
           if (!sr.ok) miss.push('المتجر على الموقع');
         } else if (storeOpts) { storeOpts.password = ''; storeNote = ' · المتجر على الموقع مستني بيانات الدخول — اعمله من ملفه بعد ما تكمّلها.'; }
         vnotify(miss.length ? 'warning' : 'success', 'اتضاف المبتكر ' + v.name + (miss.filter((x) => x !== 'المتجر على الموقع').length ? ' — ناقص: ' + miss.filter((x) => x !== 'المتجر على الموقع').join('، ') + '. كمّله من ملفه.' : ' · الباسورد المؤقت جاهز تبعته له.') + storeNote);
-        openVendor(v.id);
+        if (typeof done === 'function') done(v); else openVendor(v.id);
         afterSave(v.id).then((did) => { if (did && vredraw) vredraw(); });
       }, (e) => { errs._form = e.message; draw(); });
     }
@@ -4064,6 +4064,9 @@
   // phase 5.1 (decision 20 in the phase 5 plan): the products page's «التقارير» tab shares the reports page's range (state.rrange)
   window.IBReportBlocks = { range: () => DateRangeField('reports'), get: () => state.rrange, staff: () => StaffReportView(), rangeField: (t) => DateRangeField(t), rangeOf: (t) => rangeOf(t) }; // rangeField / rangeOf: the v5's (phase 9.5.1 — the marketing plan's «plan») // staff: the HR page's own «التقارير» (phase 10 T8)
   window.IBShowOrders = () => { if (state.page !== 'orders') go('orders'); };
+  // the owner 15 Nov («لما أدوس على إضافة مبتكر يفتحلي بوب أب إضافة المبتكر»): the add-maker popup over another page (the products
+  // studio) — done(maker) after the save instead of his drawer; false when the member may not add makers
+  window.IBMakerAdd = (done) => { const P = window.IBDirectory && window.IBDirectory.perm; if (!(P && P('vendors.edit') === 'F')) return false; openAddVendor(null, null, done); return true; }; // perm() is F for the admin
   window.IBOrdersHidden = () => state.page !== 'orders';
   // phase 8: «تذاكر الفريق» from the other pages — a new ticket with its context, the open tickets of an order (the search), one ticket
   const ticketsFor = (q) => { state.tfilter.q = String(q || ''); state.tf = Object.assign({}, state.tf, { status: ['open_any'] }); state.tpage = 1; state.tsub = 'log'; if (state.page !== 'tickets') go('tickets'); else renderTickets(); };

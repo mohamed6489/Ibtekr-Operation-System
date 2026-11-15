@@ -212,13 +212,15 @@ test('T4 — decision 2: the permissions in three levels — a role opens its le
 });
 
 // the owner 15 Nov: «قدام كل عضو الدور والمستوى …» — then the same day «شيل قنوات خدمة العملاء و المدير المسؤول و الصلاحيات المخصصة»
-test('the members: the role then the level in their columns — the admin has no level; no «المدير المسؤول» / «قنوات خدمة العملاء» / «صلاحيات مخصصة» columns (⋮ keeps the channels and the permissions)', async ({ page }) => {
+test('the members: the role, the extra roles, then the level in their columns — the admin has no level; no «المدير المسؤول» / «قنوات خدمة العملاء» / «صلاحيات مخصصة» columns (⋮ keeps the channels and the permissions)', async ({ page }) => {
   await go(page, 'settings-team');
   const body = page.locator('#pg-settings');
   const heads = (await body.locator('table thead th').allTextContents()).map((x) => x.trim());
-  expect(heads).toEqual(expect.arrayContaining(['العضو', 'الدور', 'المستوى', 'الحالة', 'آخر دخول']));
+  expect(heads).toEqual(expect.arrayContaining(['العضو', 'الدور', 'أدوار إضافية', 'المستوى', 'الحالة', 'آخر دخول']));
   for (const gone of ['المدير المسؤول', 'قنوات خدمة العملاء', 'صلاحيات مخصصة']) expect(heads).not.toContain(gone);
-  expect(heads.findIndex((x) => x === 'المستوى')).toBe(heads.findIndex((x) => x === 'الدور') + 1);
+  // the owner 15 Nov: the extra roles in a column of their own, between the role and the level
+  expect(heads.findIndex((x) => x === 'أدوار إضافية')).toBe(heads.findIndex((x) => x === 'الدور') + 1);
+  expect(heads.findIndex((x) => x === 'المستوى')).toBe(heads.findIndex((x) => x === 'الدور') + 2);
   const admin = body.locator('tr', { hasText: 'admin.dev@ibtekr.local' }).first();
   await expect(admin.locator('[data-member-level="admin"]')).toHaveText('أدمن — كل الصلاحيات');
   const row = body.locator('tr', { hasText: 'ops.dev@ibtekr.local' }).first();

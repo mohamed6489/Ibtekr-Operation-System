@@ -25,10 +25,14 @@
   const aiTemplates = (tab) => { const p = window.IBSettings && window.IBSettings.public ? window.IBSettings.public() : null; const all = p && p.aiTemplates ? p.aiTemplates : {};
     const video = tab === 'video';
     return (Array.isArray(all[video ? 'vid' : 'img']) ? all[video ? 'vid' : 'img'] : []).filter((x) => x && x.id && x.id !== NO_TPL && (video || x.id !== 'post')); };
-  let tplAsked = false; // a session signed in before 0100 has no aiTemplates in its public settings — read them once
+  // the owner 15 Nov («ضفت قواعد تعليمات سميتها بجرب بس مظهرتش في قوالب التعليمات … وأنا بعمل كامبين»): the public settings are read
+  // with the sign-in, so a template added since stayed out — the campaign reads them again when its picker shows (at most every 30 s)
+  // and draws again only if the list changed
+  let tplAt = 0;
+  const tplKey = () => { const P = window.IBSettings && window.IBSettings.public ? window.IBSettings.public() : null; return JSON.stringify((P && P.aiTemplates) || null); };
   function tplPick(tab, m) {
-    const P = window.IBSettings && window.IBSettings.public ? window.IBSettings.public() : null;
-    if (P && !P.aiTemplates && !tplAsked && window.IBSettings.loadPublic) { tplAsked = true; Promise.resolve(window.IBSettings.loadPublic()).then(() => R(), () => {}); }
+    if (window.IBSettings && window.IBSettings.loadPublic && Date.now() - tplAt > 30000) { tplAt = Date.now(); const before = tplKey();
+      Promise.resolve(window.IBSettings.loadPublic()).then(() => { if (tplKey() !== before) R(); }, () => {}); }
     const L = aiTemplates(tab);
     const known = new Set(L.map((x) => x.id)); const cur = (Array.isArray(m.tpl) ? m.tpl : []).filter((id) => known.has(id));
     return h('div', { 'data-cw-tpl': tab }, K.MultiPick({ id: 'cw-tpl-' + tab, label: 'قوالب التعليمات', field: true, search: L.length > 6,

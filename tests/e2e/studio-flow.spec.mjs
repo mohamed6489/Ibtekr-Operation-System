@@ -126,6 +126,27 @@ test('flow 1 «شيت جاهز» Simple: the sheet + photos by row → maker/bra
   expect((await dl).suggestedFilename()).toMatch(/^Art Craft - \d{4}-\d{2}-\d{2}\.xlsx$/);
 });
 
+// the owner 15 Nov («التعديلات اللي طلبتها في صفحة المبتكر والبراند تطبق على صفحات إضافة المنتجات التلاتة»): the three cases share one
+// maker step — the maker alone (no brand list, no «+ براند جديد»), his rate with his details, the brand code under it
+test('the maker step is the same new one in the three cases (sheet · WhatsApp · photos for a sheet)', async ({ page }) => {
+  await signIn(page, ADMIN);
+  const cases = [['شيت جاهز', 'Simple', async () => pick(page, '[data-flow-sheet]', { name: 'a.csv', mimeType: 'text/csv', buffer: Buffer.from('#,SKU,Product Name EN,Product Name AR,Vendor Price\n1,,Lamp,أباجورة,500\n') })],
+    ['داتا على الواتساب', 'Simple', async () => { await pick(page, '[data-flow-photos]', [png('1.png')]); await pick(page, '[data-flow-screens]', [png('chat.png')]); await expect(page.locator('#pg-products')).toContainText('اتقرا'); }],
+    ['صور وعايز شيت', 'Simple', async () => {}]];
+  for (const [kase, type, fill] of cases) {
+    await page.locator('.sidebar .nav-item[data-page="products"]').click();
+    await page.locator('#pg-products [role=tab]', { hasText: 'إضافة' }).click();
+    await page.getByRole('button', { name: 'استوديو المنتجات — ابدأ دفعة' }).click();
+    const m = page.locator('.modal'); await m.getByRole('radio', { name: new RegExp(kase) }).click(); await m.getByRole('radio', { name: new RegExp('^' + type) }).click(); await m.locator('[data-flow-start]').click();
+    await fill();
+    await next(page);
+    await expect(page.locator('#pg-products')).not.toContainText('المبتكر والبراند');
+    await expect(page.locator('#pg-products')).not.toContainText('براند جديد');
+    await makerArtCraft(page); // no brand list, his brand and rate shown, the code ART
+    await expect(page.locator('[data-fl-sku-ex]')).toContainText('IBTART1020-OW');
+  }
+});
+
 // the owner 15 Nov («في مرحلة البيانات يفضل نقسمها لجزئين إنجليزي و عربي و بيملا البيانات اوتوماتيك بال ايه اي … لو غير اي حاجة في العربي
 // تتغير اوتوماتيك في الانجليزي … الصورة علي اليمين و جمبهم البيانات»): a card per product, the Arabic and English columns side by side
 test('the data step: a card per product with Arabic and English side by side — the AI fills by itself, an Arabic name is translated, a pick sets both columns, a color moves the SKU', async ({ page }) => {

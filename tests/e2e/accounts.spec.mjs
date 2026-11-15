@@ -480,9 +480,9 @@ test('decision 61: the accounts tabs start with «نظرة عامة» (the perio
   await main(page).locator('[data-acc-ov="expenses"] button').click();
   await expect(tab(page, 'المصروفات')).toHaveAttribute('aria-selected', 'true');
   await tabs.last().click();
-  await expect(main(page).locator('[data-accrep-page]')).toBeVisible();
-  await main(page).locator('[data-accrep-page]').click();
-  await expect(page).toHaveURL(/#reports-accounts$/);
+  await expect(tabs.last()).toHaveAttribute('aria-selected', 'true');
+  await expect(main(page).locator('[data-accrep-page]')).toHaveCount(0); // comments decision 12: no «افتح في صفحة التقارير» on a reports tab
+  await expect(main(page)).not.toContainText('افتح في صفحة التقارير');
 });
 
 // ---------------------------------------------------------------- 0078 (the owner, 11 Nov): the makers' settlement

@@ -857,7 +857,8 @@ test('decision 57: the makers page tabs — «نظرة عامة» (cards) · «�
   await expect(logCard.locator('[data-af-chip="maker:Antikiano"]')).toContainText('Antikiano');
   // the reports page's makers report
   await tabs.nth(4).click();
-  await expect(page.locator('#vpanel [data-vrep-page]')).toBeVisible();
+  await expect(page.locator('#vpanel [data-vrep-page]')).toHaveCount(0); // comments decision 12: no «افتح في صفحة التقارير» on a reports tab
+  await expect(page.locator('#vpanel')).not.toContainText('افتح في صفحة التقارير');
   await expect(page.locator('#vpanel')).toContainText('Antikiano');
 });
 

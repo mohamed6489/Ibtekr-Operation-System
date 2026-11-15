@@ -287,3 +287,16 @@ test('comment 11 — «تقفيل حساب» is the short report\'s own popup; �
   expect(mock.approvals.at(-1)).toMatchObject({ by: ADMIN, result: 'ok' });
   await expect(page.locator('.modal[role=dialog]')).toHaveCount(1);
 });
+
+test('comment 12 — no «افتح في صفحة التقارير» on any page\'s own reports tab', async ({ page }) => {
+  await page.setViewportSize({ width: 1366, height: 900 });
+  await signIn(page);
+  for (const [hash, tab] of [['makers', 'التقارير'], ['accounts', 'التقارير'], ['inventory', 'التقارير'], ['products', 'التقارير'], ['tickets', 'التقارير'], ['hr', 'التقارير'], ['cs', 'التقارير']]) {
+    await go(page, hash);
+    const t = page.locator('main.content:not([hidden]) [role=tab]', { hasText: tab }).last();
+    await expect(t, hash).toBeVisible();
+    await t.click();
+    await expect(t, hash).toHaveAttribute('aria-selected', 'true'); // the tab drew
+    await expect(page.locator('main.content:not([hidden])'), hash).not.toContainText('افتح في صفحة التقارير');
+  }
+});

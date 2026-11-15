@@ -382,7 +382,7 @@ function mktAi(c, b) {
     let target = null;
     if (p.req.campaignId) {
       const camp = campaign(p.req.campaignId); if (!camp) return json(404, { error: 'not_found' });
-      if (p.req.piece) { target = campaignTarget(camp.state, p.req.piece, p.req.slide); if (!target) return json(400, { error: 'bad_request', field: 'piece' }); }
+      if (p.req.piece) { target = campaignTarget(camp.state, p.req.piece, p.req.slide, { text: true }); if (!target) return json(400, { error: 'bad_request', field: 'piece' }); } // the writing's target, as the function asks: a video piece is itself
     }
     if (H.aiFail) return failWith(H.aiFail);
     const answer = H.aiAnswer ? H.aiAnswer(p.req, target) : p.req.task === 'fill'

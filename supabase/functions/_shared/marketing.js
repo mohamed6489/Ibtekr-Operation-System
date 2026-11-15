@@ -60,8 +60,12 @@ export function parseCampaignEdit(b) {
  * The piece (and its slide) of a campaign's state → { piece, target, kind, media, w, label, size, slides, slideIndex } | null: the
  * piece by its id in state.pieces (an image piece only), a carousel's slide by its index (slide null or -1 = the piece itself — a
  * carousel's cover), its media's settings (state.w.media.post / carousel, state.w.extra) for the notes and the files.
+ * A video piece: slide = its scene (the key frame, an image of the campaign). With no scene it has no image of its own, so the
+ * images (ai-images campaign / campaign_edit) get null — and the AI writing (ai-content «marketing» fill / rewrite) asks with
+ * opts.text: the piece itself is the target then, for its own idea and caption, with media = state.w.media.video.
  */
-export function campaignTarget(state, piece, slide) {
+/** @param {any} state @param {string} piece @param {number | null} [slide] @param {{ text?: boolean }} [opts] */
+export function campaignTarget(state, piece, slide, opts) {
   const s = isObj(state) ? state : {}; const list = Array.isArray(s.pieces) ? s.pieces : [];
   const p = list.find((x) => isObj(x) && x.id === piece); if (!p) return null;
   const kind = typeof p.kind === 'string' ? p.kind : ''; if (!IMAGE_KINDS.includes(kind) && kind !== VIDEO_KIND) return null;
@@ -71,7 +75,7 @@ export function campaignTarget(state, piece, slide) {
     if ((kind !== 'كاروسيل' && kind !== VIDEO_KIND) || !isObj(slides[slide])) return null;
     target = slides[slide]; slideIndex = slide; label += kind === VIDEO_KIND ? ' · المشهد ' + (slide + 1) : ' · صورة ' + (slide + 1);
   } else if (kind === 'كاروسيل') label += ' · الغلاف';
-  else if (kind === VIDEO_KIND) return null; // a video piece has no image of its own: its scenes have (9.5.5)
+  else if (kind === VIDEO_KIND && !(opts && opts.text === true && slide == null)) return null; // a video piece has no image of its own: its scenes have (9.5.5) — its texts are its own (opts.text)
   const w = isObj(s.w) ? s.w : {};
   const key = kind === 'بوست' ? 'post' : kind === 'كاروسيل' ? 'carousel' : kind === VIDEO_KIND ? 'video' : 'extra';
   const media = key === 'extra' ? (isObj(w.extra) ? w.extra : {}) : (isObj(w.media) && isObj(w.media[key]) ? w.media[key] : {});
@@ -174,6 +178,13 @@ const KIND_WHAT = {
   notes: 'short instructions for the image designer: colors, light, what to show or avoid (1–2 sentences)',
   desc: 'the description of a design template from its image: the composition, where the product and the text sit, the colors, the light and the mood (2–4 sentences) — so a designer can make new images in the same style',
 };
+// a video piece itself (no scene): the page shows and saves its idea and its caption only — the scenes' texts are the «scenes» task
+const videoOwn = (t) => !!t && t.kind === VIDEO_KIND && t.target === t.piece;
+const VIDEO_WHAT = {
+  idea: 'the idea of the campaign\'s short vertical product video (a reel): what it shows from its first second to its last, where, the light and the mood — for the team that splits it into scenes (1–2 sentences)',
+  caption: 'the reel\'s caption for Instagram / Facebook (2–4 short lines; at most two emoji; no hashtags — they are added separately)',
+};
+const whatOf = (kind, t) => (videoOwn(t) && VIDEO_WHAT[kind]) || KIND_WHAT[kind];
 const MKT_BASE = `You write social media marketing content for Ibtekr Club (ibtekr.club), an Egyptian online marketplace where independent makers sell handmade and local-brand products: home decor, furniture, kitchen and table, gifts, fashion and lifestyle.
 
 Language
@@ -196,7 +207,7 @@ const imageArg = (v) => {
 
 /**
  * The «marketing» body → { req } | { error: 'bad_request', field }:
- * fill { campaign_id, piece } — the piece's fields (and a carousel's slides) from its campaign;
+ * fill { campaign_id, piece } — the piece's fields (and a carousel's slides; a video piece's idea and caption) from its campaign;
  * rewrite { kind, text?, campaign_id?, piece?, slide? } — one field again, the campaign as context when given;
  * describe { image } — a design template's description from its image.
  */
@@ -219,9 +230,10 @@ export function parseMarketing(b) {
   if (!Object.prototype.hasOwnProperty.call(MKT_LIM, b.kind)) return bad('kind');
   return { req: { task: 'rewrite', campaignId, piece, slide, kind: b.kind, text, image: null, notes } };
 }
-/** The schema of a task: fill → the piece's fields (+ slides for a carousel, no caption for an extra file); else { text }. */
+/** The schema of a task: fill → the piece's fields (+ slides for a carousel, no caption for an extra file; a video piece: its idea and caption only); else { text }. */
 export function marketingSchema(req, t) {
   if (req.task !== 'fill') return obj({ text: STR() });
+  if (videoOwn(t)) return obj({ idea: STR(), caption: STR() });
   const p = { idea: STR(), title: STR(), sub: STR(), badge: STR() };
   if (t && t.kind !== 'ملف إضافي') p.caption = STR();
   if (t && t.kind === 'كاروسيل') p.slides = { type: 'array', items: obj({ idea: STR(), title: STR(), sub: STR() }) };
@@ -235,18 +247,21 @@ export function marketingRequest(req, ctx) {
     ['Goal', line(w.goal, 40)], ['Campaign idea', paras(w.idea, 1000)], ['Piece', t.label], ['Size', line(t.size, 20)],
     ['Instruction templates of the team', line(ctx.tplNotes, 1200)],
     ['Instructions for this media', line(t.media.notes, 400)],
-    ['Current image idea', line(x.idea, 400)], ['Current caption', paras(x.caption, 1000)], ['Current headline', line(x.title, 40)], ['Current subheadline', line(x.sub, 60)], ['Current badge', line(x.badge, 14)],
+    ...(videoOwn(t) ? [['Video length', Number(x.dur) > 0 && Number(x.dur) <= 600 ? Math.round(Number(x.dur)) + ' seconds' : ''], ['Video scenes', posInt(x.sceneCount) && posInt(x.sceneCount) <= 50 ? String(posInt(x.sceneCount)) : '']] : []),
+    [videoOwn(t) ? 'Current video idea' : 'Current image idea', line(x.idea, 400)], ['Current caption', paras(x.caption, 1000)], ['Current headline', line(x.title, 40)], ['Current subheadline', line(x.sub, 60)], ['Current badge', line(x.badge, 14)],
     ...(t.kind === 'كاروسيل' && req.task === 'fill' ? [['Carousel slides', String(t.slides)]] : []),
   ] : [];
   let ask;
   if (req.task === 'fill') {
     const keys = Object.keys(marketingSchema(req, t).properties);
-    ask = 'Fill these fields of this piece: ' + keys.join(', ') + ' (idea ≤ 400, caption ≤ 1000, title ≤ 40, sub ≤ 60, badge ≤ 14 characters'
+    ask = videoOwn(t)
+      ? 'Fill these fields of this video piece: ' + keys.join(', ') + ' (idea ≤ 400, caption ≤ 1000 characters). idea: ' + VIDEO_WHAT.idea + '. caption: ' + VIDEO_WHAT.caption + '. Keep any current text that is already good.'
+      : 'Fill these fields of this piece: ' + keys.join(', ') + ' (idea ≤ 400, caption ≤ 1000, title ≤ 40, sub ≤ 60, badge ≤ 14 characters'
       + (t && t.kind === 'كاروسيل' ? '; slides: exactly ' + t.slides + ' items, one per slide in order, each a different angle of the campaign' : '') + '). Keep any current text that is already good.';
   } else if (req.task === 'describe') {
     ask = 'Write ' + KIND_WHAT.desc + ' — in at most ' + MKT_LIM.desc + ' characters, in the field text. The image is the template.';
   } else {
-    ask = 'Write ' + KIND_WHAT[req.kind] + ' — in at most ' + MKT_LIM[req.kind] + ' characters, in the field text.'
+    ask = 'Write ' + whatOf(req.kind, t) + ' — in at most ' + MKT_LIM[req.kind] + ' characters, in the field text.'
       + (req.text ? '\nThe current text (write a better, different version):\n<current_text>\n' + paras(req.text, 3000) + '\n</current_text>' : '');
   }
   const text = (rows.some(([, v]) => v) ? dataBlock(rows) + '\n\n' : '') + ask + notesText(req.notes);
@@ -258,13 +273,13 @@ export function marketingRequest(req, ctx) {
     output_config: { effort: ctx.effort, format: { type: 'json_schema', schema: marketingSchema(req, t) } },
   };
 }
-/** The answer → { fields: { idea?, caption?, title?, sub?, badge?, slides? } } (fill) | { text } (rewrite / describe), cleaned to the limits. */
+/** The answer → { fields: { idea?, caption?, title?, sub?, badge?, slides? } } (fill — a video piece: idea and caption only) | { text } (rewrite / describe), cleaned to the limits. */
 export function cleanMarketing(json, req, t) {
   const src = isObj(json) ? json : {};
   const one = (k, v) => (k === 'caption' || k === 'general' || k === 'desc' ? paras(v, MKT_LIM[k]) : line(v, MKT_LIM[k]));
   if (req.task !== 'fill') { const s = one(req.kind || 'desc', src.text); return { text: s }; }
   const fields = {};
-  for (const k of ['idea', 'caption', 'title', 'sub', 'badge']) { if (k === 'caption' && t && t.kind === 'ملف إضافي') continue; const v = one(k, src[k]); if (v) fields[k] = v; }
+  for (const k of videoOwn(t) ? ['idea', 'caption'] : ['idea', 'caption', 'title', 'sub', 'badge']) { if (k === 'caption' && t && t.kind === 'ملف إضافي') continue; const v = one(k, src[k]); if (v) fields[k] = v; }
   if (fields.idea && !AR.test(fields.idea)) delete fields.idea;
   if (fields.caption && !AR.test(fields.caption)) delete fields.caption;
   if (t && t.kind === 'كاروسيل') {

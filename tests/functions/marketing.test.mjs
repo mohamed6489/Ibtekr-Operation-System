@@ -151,6 +151,63 @@ test('campaignTarget / campaignPrompt for a video scene: slide = the scene, the 
   assert.deepEqual(parseMarketing({ task: 'scenes', campaign_id: 'f0000000-0000-4000-8000-000000000001', piece: 'V2', voice: true }).req, { task: 'scenes', campaignId: 'f0000000-0000-4000-8000-000000000001', piece: 'V2', slide: null, kind: null, text: '', image: null, voice: true, notes: '' });
 });
 
+// 15 Nov: the video piece's own texts — «فكرة الفيديو» / «الكابشن المقترح» (rewrite) and «املأ بالـ AI» (fill) were answered 400 «piece»:
+// campaignTarget gave null for a video piece with no scene. The writing asks with { text: true }; the images never do.
+const videoState = () => ({ w: { goal: 'منتج جديد', idea: 'كولكشن الشتا', media: { video: { notes: 'بطيء', tpl: ['v1'], use: [], ref: [] }, post: { notes: 'ألوان دافية' } } },
+  pieces: [{ id: 'V1', kind: 'فيديو', n: 1, size: '9:16', dur: 10, sceneCount: 3, idea: 'المخدة', caption: 'ريل الشتا', title: '', sub: '', badge: '', scenes: [{ n: 1, d: 5, idea: 'لقطة قريبة', text: 'دفا' }, { n: 2, d: 5, idea: 'القعدة' }] },
+    { id: 'P1', kind: 'بوست', n: 1, size: '1080x1350', idea: 'المخدة على كنبة' }] });
+
+test('campaignTarget for a video piece: null for the image use (no scene, a cover, any opts but text) — { text: true } is the piece itself with media.video; a scene and the other pieces read the same either way', () => {
+  const s = videoState();
+  // the image use (ai-images campaign / campaign_edit): a video piece has no image of its own
+  for (const opts of [undefined, null, {}, { text: false }, { text: 1 }]) { assert.equal(campaignTarget(s, 'V1', null, opts), null); assert.equal(campaignTarget(s, 'V1', -1, opts), null); }
+  // the writing (ai-content marketing fill / rewrite)
+  const t = campaignTarget(s, 'V1', null, { text: true });
+  assert.equal(t.target, t.piece); assert.equal(t.piece, s.pieces[0]); assert.equal(t.media, s.w.media.video);
+  assert.deepEqual([t.kind, t.label, t.size, t.slides, t.slideIndex], ['فيديو', 'فيديو 1', '9:16', 2, null]);
+  assert.equal(campaignTarget(s, 'V1', -1, { text: true }), null); // a video has no cover
+  assert.equal(campaignTarget(s, 'V1', 2, { text: true }), null); assert.equal(campaignTarget(s, 'V9', null, { text: true }), null);
+  assert.deepEqual(campaignTarget(s, 'V1', 1, { text: true }), campaignTarget(s, 'V1', 1)); // a scene: the same target
+  assert.deepEqual(campaignTarget(s, 'P1', null, { text: true }), campaignTarget(s, 'P1', null));
+  assert.equal(campaignTarget({ pieces: [{ id: 'V1', kind: 'فيديو', n: 1 }] }, 'V1', null, { text: true }).media.notes, undefined); // no media saved: an empty one
+});
+
+test('marketingRequest / cleanMarketing for a video piece: rewrite its idea or its caption as a reel\'s (the length, the scenes, the video\'s instructions as data); fill = idea and caption only; a scene keeps the image wording', () => {
+  const s = videoState(); const t = campaignTarget(s, 'V1', null, { text: true });
+  // rewrite «فكرة الفيديو» — what the page sends: { piece, slide: null, kind: 'idea', text }
+  const rw = parseMarketing({ task: 'rewrite', kind: 'idea', campaign_id: C, piece: 'V1', slide: null, text: 'المخدة' }).req;
+  assert.deepEqual([rw.task, rw.piece, rw.slide, rw.kind], ['rewrite', 'V1', null, 'idea']);
+  const r = marketingRequest(rw, { model: 'm', effort: 'low', target: t, tplNotes: 'حركة هادية' });
+  const text = r.messages[0].content[0].text;
+  for (const part of ['Piece: فيديو 1', 'Size: 9:16', 'Video length: 10 seconds', 'Video scenes: 3', 'Current video idea: المخدة', 'Current caption: ريل الشتا', 'Instructions for this media: بطيء',
+    'Instruction templates of the team: حركة هادية', "Write the idea of the campaign's short vertical product video (a reel)", 'in at most 400 characters', '<current_text>\nالمخدة\n</current_text>']) assert.ok(text.includes(part), part);
+  assert.ok(!text.includes('Current image idea') && !text.includes('one image of the campaign') && !text.includes('Current headline'));
+  assert.deepEqual(Object.keys(r.output_config.format.schema.properties), ['text']);
+  assert.deepEqual(cleanMarketing({ text: '  ريل <b>دافي</b> للمخدة  ' }, rw, t), { text: 'ريل دافي للمخدة' });
+  // rewrite «الكابشن المقترح»: the reel's caption, its lines kept
+  const cap = parseMarketing({ task: 'rewrite', kind: 'caption', campaign_id: C, piece: 'V1', text: 'ريل الشتا' }).req;
+  assert.ok(marketingRequest(cap, { model: 'm', effort: 'low', target: t }).messages[0].content[0].text.includes("Write the reel's caption for Instagram / Facebook"));
+  assert.equal(cleanMarketing({ text: 'الدفا وصل 🧶\nاطلبه من إبتكر' }, cap, t).text, 'الدفا وصل 🧶\nاطلبه من إبتكر');
+  // «املأ بالـ AI»: the two fields the page shows and saves for a video piece — no headline, subheadline, badge or slides
+  const fl = parseMarketing({ task: 'fill', campaign_id: C, piece: 'V1' }).req;
+  const schema = marketingSchema(fl, t);
+  assert.deepEqual([Object.keys(schema.properties), schema.required, schema.additionalProperties], [['idea', 'caption'], ['idea', 'caption'], false]);
+  const f = marketingRequest(fl, { model: 'm', effort: 'low', target: t });
+  const ask = f.messages[0].content[0].text;
+  assert.ok(ask.includes('Fill these fields of this video piece: idea, caption (idea ≤ 400, caption ≤ 1000 characters)') && ask.includes('Keep any current text that is already good.'));
+  assert.ok(!ask.includes('title ≤ 40') && !ask.includes('slides'));
+  assert.deepEqual(f.output_config.format.schema, schema);
+  assert.deepEqual(cleanMarketing({ idea: 'ريل للمخدة في قعدة دافية', caption: 'كولكشن الشتا وصل ✨\nاطلبه دلوقتي', title: 'دفا الشتا', sub: 'مشغولة يدويًا', badge: 'جديد', slides: [{ idea: 'الغرزة' }] }, fl, t).fields,
+    { idea: 'ريل للمخدة في قعدة دافية', caption: 'كولكشن الشتا وصل ✨\nاطلبه دلوقتي' });
+  assert.deepEqual(cleanMarketing({ idea: 'English only', caption: 'ي'.repeat(1500) }, fl, t).fields, { caption: 'ي'.repeat(MKT_LIM.caption) });
+  // a scene of the video is an image of the campaign (its key frame): the wording and the fields of an image, as before
+  const sc = campaignTarget(s, 'V1', 1, { text: true });
+  const st = marketingRequest(parseMarketing({ task: 'rewrite', kind: 'idea', campaign_id: C, piece: 'V1', slide: 1, text: 'القعدة' }).req, { model: 'm', effort: 'low', target: sc }).messages[0].content[0].text;
+  assert.ok(st.includes('Piece: فيديو 1 · المشهد 2') && st.includes('Current image idea: القعدة') && st.includes('the idea of one image of the campaign') && !st.includes('Video length'));
+  // a post is untouched by the mode
+  assert.deepEqual(Object.keys(marketingSchema(fl, campaignTarget(s, 'P1', null, { text: true })).properties), ['idea', 'title', 'sub', 'badge', 'caption']);
+});
+
 // ---------------------------------------------------------------- 0084: the assistants' chats (decisions 5 and 6)
 test('parseAgent: the assistant, an optional chat uuid, the question (≤ 1000); agentTitle: the first question on one line, cut at a word', () => {
   const U = 'c0000000-0000-4000-8000-0000000000aa';

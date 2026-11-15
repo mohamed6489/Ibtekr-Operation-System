@@ -924,6 +924,15 @@ function videoBridge(state: { done?: Set<string>; failed?: Set<string> } = {}) {
 }
 const vcall = (deps: any, action: string, extra: any = {}) => call(deps, { action, campaign_id: CMP, piece: 'V1', ...extra }, 'jwt-mkt');
 
+// 15 Nov: the writing (ai-content marketing) takes a video piece itself as its target, for its idea and its caption — the images do not
+Deno.test('campaign / campaign_edit on a video piece with no scene: refused 400 piece before anything is asked or kept (a video piece has no image of its own — its scenes have)', async () => {
+  const { deps, asked, db } = setup({ seed: structuredClone(VID_SEED), storage: { ...VID_FILES } });
+  for (const b of [{ action: 'campaign' }, { action: 'campaign', slide: -1 }, { action: 'campaign_edit', note: 'أدفى' }, { action: 'campaign', slide: 5 }]) {
+    const r = await vcall(deps, b.action, b); assertEquals([r.res.status, r.body.field], [400, 'piece']);
+  }
+  assertEquals([asked.length, db.rows('ai_runs').length], [0, 0]);
+});
+
 Deno.test('video_clip (marketing.create, the bridge linked): the scene\'s key frame uploaded by a signed link, video_generate with the model\'s slug / ratio / seconds / ambient audio, a running job without credits; chained = one multi-shot call; the limits', async () => {
   const F = videoBridge(); const { deps, db, storage } = setup({ vault: { ...LINKED }, bridge: F.bridge, seed: structuredClone(VID_SEED), storage: { ...VID_FILES } });
   assertEquals((await call(deps, { action: 'video_clip', campaign_id: CMP, piece: 'V1', scene: 0 }, 'jwt-add')).res.status, 401);

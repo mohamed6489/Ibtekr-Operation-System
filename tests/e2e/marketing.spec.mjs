@@ -134,6 +134,40 @@ test('a new campaign: the details (the row created) → the AI fills the piece �
   for (const secret of ['الربيع', 'مكرمية', 'كولكشن', 'قديم']) expect(logs).not.toContain(secret);
 });
 
+// 15 Nov: the AI texts of a «فيديو» piece itself were refused on the server (400 «piece» — the writing asked for an image target, and a
+// video piece with no scene has none): «فكرة الفيديو» rewritten, and «املأ بالـ AI» fills its idea and caption only
+test('a video piece\'s own texts: «إعادة كتابة بالـ AI» on «فكرة الفيديو» (the instructions popup first, «تراجع»), and «املأ بالـ AI» fills its empty caption — the written idea stays, no headline or badge lands on the piece', async ({ page }) => {
+  const C2 = MKT_ID(2);
+  const state = { w: { goal: 'منتج جديد', idea: 'ريل لمخدة بوهيمي', mediaTab: 'video', media: { video: { count: 1, size: '9:16', dur: 10, model: 'seedance-2.5', notes: 'حركة هادية', use: [], ref: [] }, post: { count: 0, size: '1080x1350', model: 'seedream-5-pro', notes: '', use: [], ref: [] }, carousel: { count: 0, slides: 4, size: '1080x1350', model: 'seedream-5-pro', notes: '', use: [], ref: [] } }, extra: { count: 0, model: 'seedream-5-pro', notes: '', use: [], ref: [] } },
+    pieces: [{ id: 'V1', kind: 'فيديو', n: 1, size: '9:16', model: 'seedance-2.5', dur: 10, res: '1080p', sceneCount: 2, method: 'separate', idea: 'المخدة', caption: '', title: '', sub: '', badge: '', ref: [], use: [], img: null, gen: 0, approved: false, clips: 0, assembled: false, video: null,
+      music: { src: 'none', type: '', file: '' }, voice: { mode: 'none', voice: 'm-eg-1', text: '', file: '' }, scenes: [] }], sched: {}, rtab: 'video' };
+  const now = new Date().toISOString();
+  mock.mkt.campaigns.push({ id: C2, name: 'ريل الشتا', goal: 'منتج جديد', step: 2, state, scheduled_at: null, created_by: null, created_at: now, updated_by: null, updated_at: now, archived_at: null, archived_by: null });
+  const saved = () => mock.mkt.campaigns.find((c) => c.id === C2).state.pieces[0];
+  const seen = []; mock.mkt.aiAnswer = (req, target) => { seen.push([req.task, target && target.label, target && target.kind]); return req.task === 'fill' ? { idea: 'ريل للمخدة في قعدة دافية', caption: 'الدفا وصل إبتكر ✨', title: 'دفا الشتا', sub: 'مشغولة يدويًا', badge: 'جديد' } : { text: 'ريل قصير للمخدة البوهيمي جنب الشباك' }; };
+  await openMarketing(page);
+  await pg(page).locator('[data-mk-open="' + C2 + '"]').click();
+  await expect(pg(page).locator('.wstepper .stp-cur')).toContainText('البناء');
+  await expect(pg(page).locator('#b-V1-idea')).toHaveValue('المخدة');
+  // «فكرة الفيديو»: the popup first, then the server's text in the field (it was «الـ AI ماردش» / a 400 before)
+  await pg(page).locator('[data-ai-rw="b-V1-idea"]').click(); await page.fill('#ai-ask-notes', 'أقصر'); await page.locator('[data-ai-go]').click();
+  await expect(pg(page).locator('#b-V1-idea')).toHaveValue('ريل قصير للمخدة البوهيمي جنب الشباك');
+  const rw = mock.mkt.calls.filter((c) => c.fn === 'ai-content' && c.task === 'rewrite').pop();
+  expect([rw.piece, rw.slide, rw.kind, rw.notes]).toEqual(['V1', null, 'idea', 'أقصر']);
+  await expect.poll(() => saved().idea).toBe('ريل قصير للمخدة البوهيمي جنب الشباك');
+  await pg(page).locator('[data-ai-undo="b-V1-idea"]').click();
+  await expect(pg(page).locator('#b-V1-idea')).toHaveValue('المخدة');
+  // «املأ بالـ AI»: the empty caption only — the idea is written already, and a video piece takes no headline / subheadline / badge
+  await pg(page).locator('[data-cw-fill="V1"]').click(); await page.locator('[data-ai-go]').click();
+  await expect(pg(page).locator('#b-V1-cap')).toHaveValue('الدفا وصل إبتكر ✨');
+  await expect(pg(page).locator('#b-V1-idea')).toHaveValue('المخدة');
+  expect(mock.mkt.calls.some((c) => c.fn === 'ai-content' && c.task === 'fill' && c.piece === 'V1')).toBe(true);
+  await expect.poll(() => [saved().idea, saved().caption, saved().title, saved().sub, saved().badge]).toEqual(['المخدة', 'الدفا وصل إبتكر ✨', '', '', '']);
+  expect(seen).toEqual([['rewrite', 'فيديو 1', 'فيديو'], ['fill', 'فيديو 1', 'فيديو']]); // the server's target: the video piece itself
+  // its image is still no piece of the server's: the key frames are the scenes' (no generate button on the piece itself)
+  await expect(pg(page).locator('[data-cw-gen="V1"]')).toHaveCount(0);
+});
+
 test('the owner 15 Nov — «السيستم مش قابل اي لينكات»: any https link in «فايلز أو لينكات» — a Pinterest pin becomes a picture of the campaign (the server fetches it); a page with no picture, an http link and an unknown SKU are refused with their reason; a site product link stays a product', async ({ page }) => {
   await openMarketing(page);
   await pg(page).locator('[data-mk-start]').click();

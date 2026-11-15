@@ -315,7 +315,8 @@ async function marketing(deps: Deps, uid: string, args: Json) {
       const notes = [typeof media.notes === 'string' ? media.notes : '', templateNotes(cfg.rules, media, true)].filter(Boolean).join(' · '); // the member's words first (≤ 400), then the picked templates
       return await runAi(deps, base, cfg, scenesRequest({ model: cfg.model, effort: cfg.effort, w, piece: p, n, dur, notes, voice: req.voice, memberNotes: req.notes }), (answer) => cleanScenes(answer, { n, dur, model }));
     }
-    if (req.piece) { target = campaignTarget(c.state, req.piece, req.slide); if (!target) return json(400, { error: 'bad_request', field: 'piece' }); }
+    // the writing's target ({ text: true }): a video piece with no scene is itself — its own idea and caption (the images of ai-images get null there)
+    if (req.piece) { target = campaignTarget(c.state, req.piece, req.slide, { text: true }); if (!target) return json(400, { error: 'bad_request', field: 'piece' }); }
     else target = campaignTarget({ ...(isObj(c.state) ? c.state : {}), pieces: [{ id: 'P0', kind: 'بوست', n: 0 }] }, 'P0', null);
   }
   const cfg = await configOf(deps, 'marketing');

@@ -482,17 +482,21 @@
   const needOf = (g) => { const R0 = rows()[g.rows[0]];
     return [!R0.nameEn && 'nameEn', !R0.nameAr && 'nameAr', (!R0.shortEn || !R0.shortAr) && 'desc', !catIdOf(R0.catEn) && 'category',
       (!R0.materialEn || !R0.materialAr || !R0.styleEn || !R0.styleAr) && 'attrs', g.type === 'Simple' && !R0.colorEn && !R0.colorAr && 'variations'].filter(Boolean); };
-  async function aiFill(only, auto) {
-    const todo = groups().map((g, gi) => ({ g, gi, want: needOf(g) })).filter((x) => x.want.length && (!only || x.g.rows.some((ri) => only.has(rows()[ri].key))));
+  // notes = the member's instructions from the popup (IBAIAsk); rewrite = new names and descriptions too, in both languages
+  async function aiFill(only, auto, notes, rewrite) {
+    const want0 = (g) => (rewrite ? [...new Set(needOf(g).filter((w) => !['nameEn', 'nameAr', 'desc'].includes(w)).concat(['rewriteName', 'rewriteDesc']))] : needOf(g));
+    const todo = groups().map((g, gi) => ({ g, gi, want: want0(g) })).filter((x) => x.want.length && (!only || x.g.rows.some((ri) => only.has(rows()[ri].key))));
     if (!todo.length) { if (!auto) K.toast('مفيش بيانات ناقصة', 'success'); return; }
     await touch(true); S.busy = 'ai'; R(); let done = 0; let stop = '';
     for (const { g, gi, want } of todo) {
-      const r = await AI().studio(S.id, gi, want);
+      const r = await AI().studio(S.id, gi, want, notes);
       if (!r.ok) { stop = why(r.reason); break; }
       const f = r.fields || {};
       const mat = FD.pairOf(FD.MATERIALS, f.material, f.materialAr); const sty = FD.pairOf(FD.STYLES, f.style, f.styleAr);
       g.rows.forEach((ri) => { const x = rows()[ri]; x.ai = Object.assign({}, x.ai);
         const fill = (k, v) => { if (v && !x[k]) { x[k] = v; x.ai[k] = true; } };
+        const put = (k, v) => { if (v) { x[k] = v; x.ai[k] = true; } };
+        if (rewrite) { put('nameEn', f.nameEn); put('nameAr', f.nameAr); put('shortEn', f.shortDesc); put('shortAr', f.shortDescAr); }
         fill('nameEn', f.nameEn); fill('nameAr', f.nameAr); fill('shortEn', f.shortDesc); fill('shortAr', f.shortDescAr);
         if (Array.isArray(f.categories) && f.categories.length && !catIdOf(x.catEn)) { x.catEn = pathOfId(f.categories[0]); x.ai.catEn = true; }
         fill('materialEn', mat ? mat[0] : f.material); fill('materialAr', mat ? mat[1] : f.materialAr);
@@ -502,7 +506,23 @@
       done += 1; touch(); RF();
     }
     S.busy = ''; RF();
-    K.toast(stop ? 'وقف بعد ' + done + ' منتج — ' + stop : 'اتملا ' + done + ' منتج بالـ AI — راجعهم', stop ? 'error' : 'success');
+    K.toast(stop ? 'وقف بعد ' + done + ' منتج — ' + stop : (rewrite ? 'اتكتب ' : 'اتملا ') + done + ' منتج بالـ AI — راجعهم', stop ? 'error' : 'success');
+  }
+  // the owner 15 Nov («خلّي املأ الناقص بالـ AI أو أعد الكتابة بالـ AI، ولما أدوس عليه يفتح بوب أب أكتب فيه تعليمات، وفيه زرار ابدأ التوليد
+  // أو إغلاق»): the header button, the selection bar and a product's menu ask first — fill the missing fields or rewrite the names and
+  // descriptions too — then run with the instructions
+  async function askFill(only) {
+    const n = only ? groups().filter((g) => g.rows.some((ri) => only.has(rows()[ri].key))).length : groups().length;
+    const a = await window.IBAIAsk({ title: 'املأ الناقص أو أعد الكتابة بالـ AI — ' + n + ' منتج', modes: [
+      { value: 'fill', label: 'املأ الناقص بس', hint: 'الخانات الفاضية بس — اللي مكتوب يفضل زي ما هو' },
+      { value: 'rewrite', label: 'أعد كتابة الاسم والوصف كمان', hint: 'نسخة جديدة باللغتين لكل منتج، والناقص يتملا' }] });
+    if (!a) return;
+    await aiFill(only, false, a.notes, a.mode === 'rewrite');
+  }
+  // a field's sparkle → the instructions popup → the rewrite (the Arabic column rewrites both languages, the English one the English)
+  async function askRewrite(rw, label) {
+    const a = await window.IBAIAsk({ title: 'إعادة كتابة ' + label + ' بالـ AI', intro: rw.lang === 'ar' ? 'نسخة جديدة بنفس المعلومات — والإنجليزي بيتكتب معاها.' : 'A new version with the same facts — the English only.' });
+    if (a) rewriteGroup(rw.key, rw.what, rw.lang, a.notes);
   }
   // the owner 15 Nov: a color picked (or read by the AI) after the SKU was made → the SKU's color part follows it (our own SKU only — a
   // maker's SKU stays as it is): «IBTART0999-BE» → «IBTART0999-PU»; a SKU with no color part takes it after the serial
@@ -537,22 +557,49 @@
   const Cb = (label, checked, onChange) => h('button', { type: 'button', role: 'checkbox', class: 'cb', 'aria-checked': String(!!checked), 'aria-label': label, onClick: () => onChange(!checked) }, h('i', null, checked ? Icon('check', 'sm') : null));
   const selBox = (key, label) => Cb('حدد ' + (label || ''), S.sel.has(key), (v) => { if (v) S.sel.add(key); else S.sel.delete(key); R(); });
   const allBox = (keys) => Cb('حدد الكل', keys.length > 0 && keys.every((k) => S.sel.has(k)), (v) => { keys.forEach((k) => (v ? S.sel.add(k) : S.sel.delete(k))); R(); });
+  // the owner 15 Nov («شيل كلمة القسم AR وخلّي البيانات بدروب داون، وخلّي دروب داون الأقسام فيه خانة بحث»): the shared edit of the
+  // selected rows = the same lists as the cards — the site's categories (the list opens with a search box), the colors / materials /
+  // styles as Arabic–English pairs (one pick sets both languages, so no «… AR» fields), the maker's brands; the names stay typed
   function bulkEdit() {
-    const keys = ['catEn', 'catAr', 'brand', 'styleEn', 'styleAr', 'materialEn', 'materialAr', 'nameEn', 'nameAr'];
-    K.form({ title: 'تعديل مشترك لـ ' + S.sel.size + ' صف', values: Object.fromEntries(keys.map((k) => [k, ''])), submitLabel: 'طبّق على المحدد', note: U.InlineNote({ children: 'الخانة الفاضية مابتتغيّرش.' }),
-      fields: (f, e, set) => keys.map((k) => K.field.text(k, FD.LABELS[k], f, e, set, {})),
-      submit: (f) => { rows().filter((r) => S.sel.has(r.key)).forEach((r) => keys.forEach((k) => { const v = String(f[k] || '').trim(); if (v) { r[k] = v; if (r.ai) delete r.ai[k]; } })); touch(); R(); } });
+    const keep = { value: '', label: 'من غير تغيير' };
+    const pairs = (list) => [keep].concat(list.map(([en, ar]) => ({ value: en, label: ar && ar !== en ? ar + ' — ' + en : en })));
+    const catOpts = [keep].concat(cats().map((c) => ({ value: String(c.id), label: c.path })));
+    const s = st(); const vd = V() && V().data ? V().data() : null;
+    const brands = vd ? vd.brands.filter((b) => s.vendorId && String(b.owner) === String(s.vendorId)).map((b) => b.name) : [];
+    K.form({ title: 'تعديل مشترك لـ ' + S.sel.size + ' صف', values: { cat: '', brand: '', color: '', material: '', style: '', nameAr: '', nameEn: '' }, submitLabel: 'طبّق على المحدد',
+      note: U.InlineNote({ children: 'اللي مسيبه «من غير تغيير» أو فاضي مابيتغيّرش. اللون والخامة والستايل بيتحطوا بالعربي والإنجليزي مع بعض.' }),
+      fields: (f, e, set) => [
+        catOpts.length > 1 ? K.field.select('cat', 'القسم', catOpts, f, e, set, { placeholder: 'اختار القسم — اكتب أول حروف اسمه' }) : null,
+        brands.length > 1 ? K.field.select('brand', 'البراند', [keep].concat(brands.map((b) => ({ value: b, label: b }))), f, e, set) : null,
+        K.two(K.field.select('color', 'اللون', pairs(colorList()), f, e, set), K.field.select('material', 'الخامة', pairs(FD.MATERIALS), f, e, set)),
+        K.field.select('style', 'الستايل', pairs(FD.STYLES), f, e, set),
+        K.two(K.field.text('nameAr', 'الاسم بالعربي', f, e, set, {}), K.field.text('nameEn', 'الاسم بالإنجليزي', f, e, set, { dir: 'ltr' }))],
+      submit: async (f) => {
+        const sel = rows().filter((r) => S.sel.has(r.key)); const pick = (list, v) => list.find(([en]) => en === v) || null;
+        const col = f.color ? pick(colorList(), f.color) : null; const mat = f.material ? pick(FD.MATERIALS, f.material) : null; const sty = f.style ? pick(FD.STYLES, f.style) : null;
+        const code = col ? await codeForColor(col[0], col[1]) : null;
+        sel.forEach((r) => {
+          const put = (k, v) => { if (v) { r[k] = v; if (r.ai) delete r.ai[k]; } };
+          if (f.cat) put('catEn', pathOfId(f.cat));
+          put('brand', f.brand);
+          if (col) { const old = codeOfRow(r); put('colorEn', col[0]); put('colorAr', col[1]); if (code) recolorSku(r, old, code); }
+          if (mat) { put('materialEn', mat[0]); put('materialAr', mat[1]); }
+          if (sty) { put('styleEn', sty[0]); put('styleAr', sty[1]); }
+          put('nameAr', String(f.nameAr || '').trim()); put('nameEn', String(f.nameEn || '').trim());
+        });
+        touch(); R();
+      } });
   }
   const BulkBar = (btns) => (S.sel.size ? h('div', { class: 'bulk-bar', role: 'region', 'aria-label': 'إجراءات على المحدد' }, h('b', null, 'محدد ' + S.sel.size), h('span', { class: 'grow' }), ...btns, Button({ type: 'text', size: 'sm', label: 'إلغاء التحديد', onClick: () => { S.sel.clear(); R(); } })) : null);
   // the owner 15 Nov («خلي الاسم و الوصف فيهم امكانية اعادة الكتابة بال ايه اي»): a new, better version of the name or the description by
   // the AI (want rewriteName / rewriteDesc — the same facts) — from the Arabic column both languages change (the Arabic leads, like the
   // translation), from the English column the English only; marked «AI — راجع» until edited
   const rwKey = (key, what, lang) => 'rw:' + key + ':' + what + ':' + lang;
-  async function rewriteGroup(key, what, lang) {
+  async function rewriteGroup(key, what, lang, notes) {
     const tk = rwKey(key, what, lang); if (S.tr.has(tk)) return;
     S.tr.add(tk); RF(); await touch(true);
     const gi = groups().findIndex((x) => x.key === key);
-    const r = gi < 0 ? { ok: false, reason: 'not_found' } : await AI().studio(S.id, gi, [what === 'name' ? 'rewriteName' : 'rewriteDesc']);
+    const r = gi < 0 ? { ok: false, reason: 'not_found' } : await AI().studio(S.id, gi, [what === 'name' ? 'rewriteName' : 'rewriteDesc'], notes);
     S.tr.delete(tk);
     if (!r.ok) { K.toast('مقدرناش نعيد الكتابة — ' + why(r.reason), 'error'); RF(); return; }
     const f = r.fields || {}; const g = groups().find((x) => x.key === key);
@@ -574,12 +621,13 @@
       inputmode: k === 'weight' ? 'decimal' : undefined, value: r[k] == null ? '' : String(r[k]),
       onChange: (ev) => { const v = String(ev.target.value).trim(); const was = r[k] == null ? '' : String(r[k]); setAll(rs, k, k === 'weight' ? (v === '' ? null : Number(v)) : v); if (opt.after && v !== was) opt.after(v); touch(); RF(); } });
     if (area) inp.value = r[k] || '';
+    // the owner 15 Nov («خلّي بس علامة الـ AI جوه الخانات ولما أقف عليها بالماوس تقولي إعادة كتابة عشان نقلل الزحمة»): the rewrite is a
+    // small sparkle inside the field (its end), «إعادة كتابة» on hover; it asks for instructions first (askRewrite)
     const rw = opt.rw; const working = rw && S.tr.has(rwKey(rw.key, rw.what, rw.lang));
-    const rwBtn = rw ? h('button', { type: 'button', class: 'fl-rw', 'data-fl-rewrite': k, disabled: working || !!S.busy, title: rw.lang === 'ar' ? 'نسخة جديدة بالـ AI — والإنجليزي بيتغيّر معاها' : 'A new version by the AI',
-      'aria-label': (rw.lang === 'ar' ? 'أعد كتابة ' : 'Rewrite ') + label, onClick: () => rewriteGroup(rw.key, rw.what, rw.lang) },
-      Icon('sparkle', 'sm'), h('span', null, working ? (rw.lang === 'ar' ? 'بيكتب…' : 'Writing…') : (rw.lang === 'ar' ? 'أعد الكتابة بالـ AI' : 'Rewrite with AI'))) : null;
+    const rwBtn = rw ? h('button', { type: 'button', class: 'fl-rw-in' + (working ? ' is-busy' : ''), 'data-fl-rewrite': k, 'data-tip': working ? 'بيكتب…' : 'إعادة كتابة', disabled: working || !!S.busy,
+      'aria-label': 'إعادة كتابة ' + label + ' بالـ AI', 'aria-busy': working ? 'true' : 'false', onClick: () => askRewrite(rw, label) }, Icon('sparkle', 'sm')) : null;
     const lab = h('label', { for: id }, label, ai ? h('span', { class: 'fl-aitag' }, 'AI — راجع') : null);
-    return h('div', { class: 'fl-f' + (opt.cls ? ' ' + opt.cls : '') }, rwBtn ? h('div', { class: 'fl-f-head' }, lab, rwBtn) : lab, inp);
+    return h('div', { class: 'fl-f' + (opt.cls ? ' ' + opt.cls : '') }, lab, rwBtn ? h('div', { class: 'fl-inwrap' + (area ? ' is-area' : '') }, inp, rwBtn) : inp);
   }
   function newPair(title, done) {
     K.form({ title, values: { ar: '', en: '' }, submitLabel: 'ضيف',
@@ -615,7 +663,7 @@
   }
   function groupMenu(g, rs) {
     const keys = rs.map((x) => x.key);
-    return K.RowMenu([{ label: 'املأ الناقص بالـ AI', icon: 'sparkle', run: () => aiFill(new Set(keys)) },
+    return K.RowMenu([{ label: 'املأ الناقص أو أعد الكتابة بالـ AI', icon: 'sparkle', run: () => askFill(new Set(keys)) },
       { label: 'ترجم الإنجليزي من العربي', icon: 'sparkle', run: () => translateGroup(g.key, { name: true, desc: true }) },
       { label: 'شيل من الدفعة', icon: 'trash', danger: true, run: () => K.confirm({ title: 'تشيل «' + (rs[0].nameAr || rs[0].nameEn || rs[0].sku || 'المنتج') + '» من الدفعة؟', text: 'بيتشال من الدفعة دي بس' + (rs.length > 1 ? ' (' + rs.length + ' تركيبات).' : '.'), okLabel: 'شيل', okType: 'danger',
         onOk: () => { const s = st(); s.rows = s.rows.filter((x) => !keys.includes(x.key)); keys.forEach((k) => S.sel.delete(k)); touch(); R(); } }) }], 'إجراءات ' + (rs[0].sku || rs[0].nameAr || ''));
@@ -660,12 +708,12 @@
     const miss = G.filter((g) => g.rows.some((ri) => ISSUE_FIELDS(rows()[ri]).length)).length;
     const keys = L.map((r) => r.key);
     const head = Card('البيانات', G.length + ' منتج' + (L.length !== G.length ? ' · ' + L.length + ' صف' : '') + (miss ? ' · ' + miss + ' ناقصهم بيانات' : ' · كاملين'), [
-      BulkBar([Button({ size: 'sm', icon: 'edit', label: 'تعديل مشترك', onClick: bulkEdit }), Button({ size: 'sm', icon: 'sparkle', label: 'املأ بالـ AI', disabled: !!S.busy, onClick: () => aiFill(new Set(S.sel)) }),
+      BulkBar([Button({ size: 'sm', icon: 'edit', label: 'تعديل مشترك', onClick: bulkEdit }), Button({ size: 'sm', icon: 'sparkle', label: 'املأ أو أعد الكتابة بالـ AI', disabled: !!S.busy, onClick: () => askFill(new Set(S.sel)) }),
         Button({ size: 'sm', type: 'danger', icon: 'trash', label: 'احذف', onClick: () => K.confirm({ title: 'تحذف ' + S.sel.size + ' صف من الدفعة؟', okLabel: 'احذف', okType: 'danger', onOk: () => { s.rows = s.rows.filter((r) => !S.sel.has(r.key)); S.sel.clear(); touch(); R(); } }) })]),
       h('div', { class: 'fl-dtools' }, allBox(keys), h('span', null, 'حدد الكل'), S.busy === 'ai' ? h('span', { class: 'fl-trans', role: 'status' }, 'الـ AI بيملا البيانات…') : null),
       h('div', { class: 'fl-dlist', 'data-fl-data': '' }, G.map((g, i) => dataCard(g, i + 1))),
       U.InlineNote({ children: 'الـ AI بيملا الناقص لوحده (الاسم والوصف والقسم والخامة والستايل واللون من الصورة)، والخانة اللي اتملت بالـ AI عليها علامة لحد ما تتعدّل. أي تعديل في الاسم أو الوصف بالعربي بيتترجم للإنجليزي لوحده، واللون والخامة والستايل بيتغيّروا في العمودين مع بعض. الـ SKU بيتولّد لوحده (المسلسل من الموقع).' })],
-      [Button({ size: 'sm', label: 'ولّد الـ SKU للناقص', attrs: { 'data-flow-sku': '' }, onClick: () => genSkus(false) }), Button({ size: 'sm', type: 'primary', icon: 'sparkle', label: S.busy === 'ai' ? 'بيكتب…' : 'املأ الناقص بالـ AI', disabled: !!S.busy, attrs: { 'data-flow-ai': '' }, onClick: () => aiFill(null) })]);
+      [Button({ size: 'sm', label: 'ولّد الـ SKU للناقص', attrs: { 'data-flow-sku': '' }, onClick: () => genSkus(false) }), Button({ size: 'sm', type: 'primary', icon: 'sparkle', label: S.busy === 'ai' ? 'بيكتب…' : 'املأ الناقص أو أعد الكتابة بالـ AI', disabled: !!S.busy, attrs: { 'data-flow-ai': '' }, onClick: () => askFill(null) })]);
     return [head, Foot(L.length > 0 && L.every((r) => FD.validSku(r.sku)), 'كل الصفوف محتاجة SKU')];
   }
 
@@ -899,11 +947,11 @@
     return L.map((r) => { const p = s.products[r.product]; const k = r.variant ? (p.n + '-' + r.variant) : String(p.n); const x = (s.fill && s.fill[r.product]) || {};
       return Object.assign(r, { n: k, ref: p.ref, brand: s.brandName, nameEn: x.nameEn || '', nameAr: x.nameAr || '', catEn: x.catEn || '', shortEn: x.shortEn || '', shortAr: x.shortAr || '', colorEn: r.colorSlot > 1 ? '' : x.colorEn || '', colorAr: r.colorSlot > 1 ? '' : x.colorAr || '', images: [] }); });
   }
-  async function aiFillProducts() {
+  async function aiFillProducts(notes) {
     const s = st(); await touch(true); S.busy = 'ai'; R(); s.fill = s.fill || {}; let stop = '';
     for (let i = 0; i < s.products.length; i++) {
       if (s.fill[i] && s.fill[i].nameEn) continue;
-      const r = await AI().studio(S.id, i, ['nameEn', 'nameAr', 'desc', 'category', 'variations']);
+      const r = await AI().studio(S.id, i, ['nameEn', 'nameAr', 'desc', 'category', 'variations'], notes);
       if (!r.ok) { stop = why(r.reason); break; }
       const f = r.fields || {}; const c = (f.colors || [])[0] ? colors().find((x) => x.code === f.colors[0]) : null;
       s.fill[i] = { nameEn: f.nameEn || '', nameAr: f.nameAr || '', shortEn: f.shortDesc || '', shortAr: f.shortDescAr || '', catEn: (f.categories || [])[0] ? pathOfId(f.categories[0]) : '', colorEn: c ? c.name_en : '', colorAr: c ? c.name_ar : '' };
@@ -927,7 +975,7 @@
       const pop = U.popover(wrap, btn, (close) => U.DropdownMenu({ role: 'menu', end: true, options: [{ value: 'wa', label: 'واتساب', icon: 'whatsapp' }, { value: 'mail', label: 'إيميل', icon: 'mail' }], onSelect: (v) => { close(); shareSheet(v); } }));
       btn.addEventListener('click', pop.toggle); wrap.append(btn); return wrap; })();
     return [Card('الشيت', L.length + ' صف · ' + s.products.length + ' منتج — عمود «refrance image» فيه صورة كل منتج، والباقي القالب كامل.', [
-      h('div', { class: 'acts-inline' }, Button({ type: 'primary', icon: 'sparkle', label: S.busy === 'ai' ? 'بيكتب…' : 'املأ بالـ AI', disabled: !!S.busy, attrs: { 'data-flow-ai': '' }, onClick: aiFillProducts }),
+      h('div', { class: 'acts-inline' }, Button({ type: 'primary', icon: 'sparkle', label: S.busy === 'ai' ? 'بيكتب…' : 'املأ بالـ AI', disabled: !!S.busy, attrs: { 'data-flow-ai': '' }, onClick: async () => { const a = await window.IBAIAsk({ title: 'املأ الشيت بالـ AI — ' + (st().products || []).length + ' منتج', intro: 'الأسماء والوصف والقسم واللون من الصور.' }); if (a) aiFillProducts(a.notes); } }),
         Button({ size: 'sm', label: 'معاينة', onClick: () => previewSheet(L, s.type) }), Button({ size: 'sm', icon: 'download', label: 'تحميل على الجهاز', attrs: { 'data-flow-download': '' }, onClick: async () => { const blob = await sheetFile(L, s.type, null); K.saveFile(FD.sheetFileName(s.vendorName || s.brandName), blob); } }), shareBtn),
       U.InlineNote({ children: 'سعر المبتكر والمقاس فاضيين — المبتكر بيملاهم. لما يرجّعه، ابدأ دفعة «شيت جاهز» بيه.' }),
       h('div', { class: 'fl-scroll' }, h('table', { class: 'fl-table fl-preview' }, h('thead', null, h('tr', null, h('th', null, '#'), h('th', null, 'الصورة'), h('th', null, 'الاسم EN'), h('th', null, 'الاسم AR'), h('th', null, 'اللون'), h('th', null, 'المقاس'), h('th', null, 'سعر المبتكر'), h('th', null, 'القسم'))),

@@ -40,7 +40,7 @@
     if (S.aiBusy || !S.id) return null;
     const jobs = list.map((it) => ({ it, want: wantOf(it) })).filter((j) => j.want.length);
     if (!jobs.length) { K.toast('مفيش حاجة ناقصة هنا'); return null; }
-    const run = async () => {
+    const run = async (notes) => {
       const id = S.id; S.aiBusy = { done: 0, total: jobs.length }; R();
       await touch(true);
       const tree = PD.catTree(catsAll());
@@ -49,7 +49,7 @@
         if (S.id !== id) break;
         const index = S.state.items.indexOf(j.it);
         if (index >= 0) {
-          const r = await A.studio(id, index, j.want);
+          const r = await A.studio(id, index, j.want, notes);
           if (!r.ok && AI_STOP[r.reason]) { stop = r.reason; break; }
           const n = r.ok && r.result === 'ok' ? PD.aiApply(j.it, r.fields, j.want, { tree, type: S.state.type, force }).length : 0;
           if (n) { filled += n; done++; syncVariations(j.it); } else failed++;
@@ -62,10 +62,11 @@
       if (stop) K.toast(AI_STOP[stop] + (done ? ' — اتملا ' + done + ' منتج قبلها' : ''), 'error');
       else K.toast(done ? 'خلص — اتملت ' + filled + ' خانة في ' + done + ' منتج · راجع اللي عليها «AI — راجع»' + (failed ? ' · ' + failed + ' ماتملاش' : '') : 'الـ AI مارجّعش حاجة نستخدمها — جرّب تاني', done ? 'success' : 'error');
     };
-    if (jobs.length === 1) return run();
-    // the cost per product follows the model the admin chose (decision 8); the settings row is read first
-    A.settings().then((cfg) => K.confirm({ title: title + '؟', text: jobs.length + ' منتج · التكلفة حوالي ' + (jobs.length * A.estCost(cfg.ok ? cfg.model : null)).toFixed(2) + ' دولار. كل خانة الـ AI يملاها عليها «AI — راجع» — راجعها قبل الرفع. السعر والـ SKU مابيتكتبوش بالـ AI.', okLabel: 'ابدأ', onOk: run }));
-    return null;
+    // the owner 15 Nov: every AI write asks for instructions first (IBAIAsk); for several products the popup says the cost — it
+    // follows the model the admin chose (decision 8), the settings row read first
+    const ask = (intro) => window.IBAIAsk({ title, intro }).then((a) => (a ? run(a.notes) : null));
+    if (jobs.length === 1) return ask('كل خانة الـ AI يملاها عليها «AI — راجع». السعر والـ SKU مابيتكتبوش بالـ AI.');
+    return A.settings().then((cfg) => ask(jobs.length + ' منتج · التكلفة حوالي ' + (jobs.length * A.estCost(cfg.ok ? cfg.model : null)).toFixed(2) + ' دولار. كل خانة الـ AI يملاها عليها «AI — راجع» — راجعها قبل الرفع. السعر والـ SKU مابيتكتبوش بالـ AI.'));
   }
   const aiButton = (label, onClick) => { const A = AI(); if (!A || !A.can().studio) return null; const b = S.aiBusy;
     return Button({ type: 'primary', size: 'sm', icon: 'sparkle', label: b ? 'الـ AI بيملا… ' + b.done + ' من ' + b.total : label, disabled: !!b, attrs: { 'data-ai': label }, onClick }); };

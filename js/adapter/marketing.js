@@ -289,7 +289,8 @@
     if (!can().create) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
     const x = a || {}; if (cid) await flush(cid);
     const body = { action: 'marketing', task: x.task, campaign_id: cid || undefined, piece: x.piece || undefined, slide: x.slide == null ? undefined : Number(x.slide), kind: x.kind || undefined,
-      text: typeof x.text === 'string' ? x.text.slice(0, 3000) : undefined, image: x.image || undefined, voice: x.task === 'scenes' ? x.voice === true : undefined };
+      text: typeof x.text === 'string' ? x.text.slice(0, 3000) : undefined, image: x.image || undefined, voice: x.task === 'scenes' ? x.voice === true : undefined,
+      notes: clean(x.notes, 500) || undefined }; // the member's instructions from the popup (IBAIAsk, the owner 15 Nov) — never logged
     const r = await invoke('ai-content', body);
     if (!r.ok) return Object.assign(r, { message: aiMessage(r, 'text') });
     const b = r.body || {};
@@ -333,7 +334,7 @@
     return videoCall('video_upload', cid, piece, { path: put1.path, role }, 'upload');
   }
   // the scenes written by Claude (decision 59) — the campaign's own AI budget, no credit
-  async function videoScenes(cid, piece, voice) { const r = await write(cid, { task: 'scenes', piece, voice: voice === true }); return r.ok ? { ok: true, scenes: r.scenes || [], voice: r.voice || '' } : r; }
+  async function videoScenes(cid, piece, voice, notes) { const r = await write(cid, { task: 'scenes', piece, voice: voice === true, notes }); return r.ok ? { ok: true, scenes: r.scenes || [], voice: r.voice || '' } : r; }
 
   // ---------- the schedule and the log (decisions 14–16) ----------
   async function schedule(cid, items) {

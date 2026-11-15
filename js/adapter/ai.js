@@ -40,6 +40,8 @@
     } catch (e) { return { ok: false, reason: e && e.name === 'AbortError' ? 'cancelled' : 'network' }; }
   }
   const log = (action, detail, entity, id) => quiet(() => window.IBActivity && window.IBActivity.log && window.IBActivity.log(action, detail, { entity, entity_id: id == null ? null : String(id) }));
+  // the member's instructions (IBAIAsk): no <>, one space, ≤ 500 — '' = none
+  const cleanNotes = (v) => String(v == null ? '' : v).replace(/[<>]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 500);
   const answer = (b) => ({ ok: true, result: b.result === 'refused' ? 'refused' : 'ok', missing: Array.isArray(b.missing) ? b.missing : [], model: typeof b.model === 'string' ? b.model : '', cost: Number(b.cost_usd) || 0, runId: b.run_id || null });
 
   // the content tool: { source: data | image | product, outputs, langs, tone, data?, current?, image?, productId? }
@@ -50,6 +52,7 @@
     if (req.current) body.current = req.current;
     if (req.image) body.image = { media_type: req.image.media_type, data: req.image.data };
     if (req.productId) body.product_id = Number(req.productId);
+    const notes = cleanNotes(req.notes); if (notes) body.notes = notes; // the member's instructions (IBAIAsk) — never logged
     const r = await invoke(body);
     if (!r.ok) return r;
     const out = Object.assign(answer(r.body), { out: r.body.out && typeof r.body.out === 'object' ? r.body.out : {} });
@@ -57,8 +60,10 @@
     return out;
   }
   // the studio: one batch item (read by the server from the saved batch) → { ok, result, fields, missing, model, cost }
-  async function studio(batchId, index, want) {
-    const r = await invoke({ action: 'studio', batch_id: batchId, index, want });
+  // notes = the member's instructions from the popup (IBAIAsk, the owner 15 Nov) — sent only when written; the server cleans them again
+  async function studio(batchId, index, want, notes) {
+    const n = cleanNotes(notes);
+    const r = await invoke(Object.assign({ action: 'studio', batch_id: batchId, index, want }, n ? { notes: n } : {}));
     if (!r.ok) return r;
     const out = Object.assign(answer(r.body), { fields: r.body.fields && typeof r.body.fields === 'object' ? r.body.fields : {} });
     log('product.ai.studio', ['#' + (index + 1), want.join(', ')].concat(out.result === 'refused' ? ['refused'] : []).join(' · '), 'studio_batches', batchId);

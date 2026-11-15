@@ -74,8 +74,10 @@
   async function run() {
     const A = AI(); if (!A || S.running) return;
     const bad = problem(); if (bad) { K.toast(bad, 'error'); return; }
+    // the owner 15 Nov: every AI write asks for instructions first (IBAIAsk — «ابدأ التوليد» / «إغلاق»); the last ones are offered again
+    const a = window.IBAIAsk ? await window.IBAIAsk({ title: 'اكتب المحتوى بالـ AI', notes: S.notes || '' }) : { notes: '' }; if (!a) return; S.notes = a.notes;
     const source = S.tab === 'site' ? 'product' : S.tab === 'image' ? 'image' : 'data';
-    const req = { source, outputs: S.out.slice(), langs: S.langs.slice(), tone: S.tone };
+    const req = { source, outputs: S.out.slice(), langs: S.langs.slice(), tone: S.tone, notes: a.notes };
     const d = {}; Object.keys(S.data).forEach((k) => { const v = String(S.data[k] || '').trim(); if (v) d[k] = v; });
     if (source !== 'product' && Object.keys(d).length) req.data = d;
     if (source === 'image') req.image = S.photo;

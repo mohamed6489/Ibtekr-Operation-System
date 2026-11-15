@@ -519,3 +519,20 @@ test('comments 17–19 — «سجل المخزون»: no «الخطوة الجا
   await expect(link).toHaveAttribute('rel', /noopener/);
   await expect(r2.locator('a[data-inv-site]')).toHaveCount(0);
 });
+
+test('comment 20 — the campaign\'s file / link chips are green pills with beige content (the icon, the name and the ×)', async ({ page }) => {
+  await signIn(page); await go(page, '#marketing-create');
+  const pg = page.locator('#pg-marketing');
+  await pg.locator('[data-mk-start]').click();
+  await pg.locator('#cw-idea').fill('كولكشن المكرمية');
+  const ref = pg.locator('[data-cw-files="cw-ref-post"]');
+  await pg.locator('#cw-ref-post-l').fill('https://pin.it/4yUtHzQQl'); await ref.getByRole('button', { name: 'ضيف' }).click();
+  const chip = ref.locator('.cw-f'); await expect(chip).toContainText('لينك — pin.it');
+  const GREEN = 'rgb(0, 86, 66)', BEIGE = 'rgb(255, 247, 239)';
+  const look = await chip.evaluate((el) => { const cs = (x) => getComputedStyle(x); const x = el.querySelector('.icon-btn');
+    return { bg: cs(el).backgroundColor, border: cs(el).borderTopColor, text: cs(el.querySelector('.cw-fn')).color, icon: cs(el.querySelector('svg')).color, x: cs(x).color, xbg: cs(x).backgroundColor }; });
+  expect(look).toEqual({ bg: GREEN, border: GREEN, text: BEIGE, icon: BEIGE, x: BEIGE, xbg: 'rgba(0, 0, 0, 0)' });
+  // the × still takes the chip off
+  await chip.getByRole('button', { name: /شيل/ }).click();
+  await expect(ref.locator('.cw-f')).toHaveCount(0);
+});

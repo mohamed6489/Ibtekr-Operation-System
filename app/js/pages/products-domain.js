@@ -154,14 +154,45 @@
   const ceil10 = (x) => Math.ceil(Math.round(x * 1000) / 10000) * 10; // the rounding first: 1660.0000001 stays 1660
   const MARKUP_MIN = 15, MARKUP_MAX = 30;
   const randomMarkup = (rng) => MARKUP_MIN + Math.floor(Math.min(0.999999, Math.max(0, (rng || Math.random)())) * (MARKUP_MAX - MARKUP_MIN + 1));
-  // vendor: سعر المبتكر · rate: نسبة إبتكر % (0 لعمولة ثابتة بس) · fee: الرسوم الثابتة · markup: الزيادة % (من غيرها عشوائي) → null لو الأرقام مش صالحة
+  // ---------- الخصم الوهمي بالشرايح (صاحب المشروع 15 نوفمبر — docs/superpowers/plans/2026-11-15-fake-discount.md) ----------
+  // «لو سعر البيع من 0 ل 1000 يبقي هنزود ف الخصم الوهمي 500 … لو 1001 ل 2000 هنزود 1000 … 2001 … فيما فوق هنزود 1500». القاعدة شرايح على
+  // سعر البيع: { to: آخر سعر في الشريحة | null = «فيما فوق», type: 'amount' (ج.م) | 'percent', value }. «من» = آخر «لحد» + 1.
+  const FAKE_MAX = 20, FAKE_AMOUNT_MAX = 1000000, FAKE_PERCENT_MAX = 500, FAKE_TO_MAX = 100000000;
+  // أي شكل محفوظ → { tiers } مرتّبة («فيما فوق» في الآخر، «لحد» مكرر = الأولى بس) أو null لو مفيش شريحة صالحة
+  function fakeRule(raw) {
+    const list = raw && Array.isArray(raw.tiers) ? raw.tiers : Array.isArray(raw) ? raw : [];
+    const closed = []; let open = null;
+    for (const t of list) {
+      if (!t || typeof t !== 'object') continue;
+      const type = t.type === 'percent' ? 'percent' : 'amount'; const value = Number(t.value);
+      if (!Number.isFinite(value) || value <= 0 || value > (type === 'percent' ? FAKE_PERCENT_MAX : FAKE_AMOUNT_MAX)) continue;
+      const tier = { to: null, type, value: Math.round(value * 100) / 100 };
+      if (t.to === null || t.to === undefined || t.to === '') { if (!open) open = tier; continue; }
+      const to = Number(t.to); if (!Number.isFinite(to) || to <= 0 || to > FAKE_TO_MAX) continue;
+      tier.to = Math.round(to * 100) / 100; closed.push(tier);
+    }
+    closed.sort((a, b) => a.to - b.to);
+    const tiers = closed.filter((x, i) => i === 0 || x.to !== closed[i - 1].to).slice(0, FAKE_MAX - (open ? 1 : 0)).concat(open ? [open] : []);
+    return tiers.length ? { tiers } : null;
+  }
+  // شريحة سعر البيع ده (null: مالوش شريحة — أعلى من آخر «لحد» ومفيش «فيما فوق»)
+  function fakeTier(sale, rule) { const r = fakeRule(rule); const s = Number(sale); if (!r || !Number.isFinite(s) || s <= 0) return null; return r.tiers.find((t) => t.to === null || s <= t.to) || null; }
+  // «قبل الخصم» بالقاعدة: الرقم بيتزود زي ما هو، والنسبة لفوق لأقرب 10 — null لو السعر مالوش شريحة (الحساب القديم هو اللي يمشي)
+  function fakeRegular(sale, rule) { const t = fakeTier(sale, rule); if (!t) return null; const s = Number(sale); return t.type === 'percent' ? ceil10(s * (1 + t.value / 100)) : Math.round((s + t.value) * 100) / 100; }
+  // للعرض: [{ from, to, type, value }] — «من» محسوبة (الأولى 0، وبعدها آخر «لحد» + 1)
+  function fakeLines(rule) { const r = fakeRule(rule); if (!r) return []; let from = 0; return r.tiers.map((t) => { const line = { from, to: t.to, type: t.type, value: t.value }; if (t.to !== null) from = Math.floor(t.to) + 1; return line; }); }
+  // vendor: سعر المبتكر · rate: نسبة إبتكر % (0 لعمولة ثابتة بس) · fee: الرسوم الثابتة · markup: الزيادة % (من غيرها عشوائي) ·
+  // fake: قاعدة الخصم الوهمي (الشرايح — من غيرها أو لسعر مالوش شريحة: الزيادة %) → null لو الأرقام مش صالحة
   function priceFromVendor(vendor, opts) {
     const o = opts || {}; const v = Number(vendor), r = o.rate == null ? 0 : Number(o.rate), f = o.fee == null ? 0 : Number(o.fee);
     if (!Number.isFinite(v) || v <= 0 || !Number.isFinite(r) || r < 0 || r >= 100 || !Number.isFinite(f) || f < 0) return null;
     const m = o.markup == null ? randomMarkup(o.rng) : Number(o.markup);
     const sale = ceil10((v + f) / (1 - r / 100));
-    const regular = ceil10(sale * (1 + m / 100));
-    return { sale, regular, markup: m, vendorNet: Math.round((sale * (1 - r / 100) - f) * 100) / 100 };
+    const tiered = o.fake ? fakeRegular(sale, o.fake) : null;
+    const regular = tiered != null ? tiered : ceil10(sale * (1 + m / 100));
+    const out = { sale, regular, markup: m, vendorNet: Math.round((sale * (1 - r / 100) - f) * 100) / 100 };
+    if (tiered != null) out.tiered = true; // «قبل الخصم» جه من شريحة مش من الزيادة %
+    return out;
   }
   // ---------- تقارير المنتجات (قرار 20 في خطة المرحلة 5) ----------
   // records (IBProducts.list) → اللي نفد مخزونه: مش «حسب الطلب»، وحالته على ووكومرس outofstock أو مخزونه المتتبع 0 أو أقل؛ الأكتر مبيعًا الأول.
@@ -606,6 +637,6 @@
     return out;
   }
 
-  return { PLAN_DEPTH, PLAN_MAX, planOutline, planParents, planEnd, planResolve, aiDisplay, paraHtml, aiSaveChange, aiApply, brandCode, serialText, sizeDigits, studioSku, suggestColorCode, parseCsv, parseXlsx, mapColumns, rowsToItems, photoName, catFromPath, itemIssues, STUDIO_FIELDS, catTree, catAncestors, catToggle, catSearch, catOptions, outOfStock, categoriesRank, priceFromVendor, randomMarkup, ceil10, MARKUP_MIN, MARKUP_MAX, crc32, zip, xlsx, xlsxFiles, backupPlan, SLOT_DIRS, safeName, IMG_SIZES, customSize, IMG_MODELS, imgCredits, designCode, designBase, variantSku, SLOTS, SLOT_HINT, slotPrompt, credits, catsOf, inCategory, bulkPrice, buildSku, skuParts, serialStart, serials, sizeCode, price, DISCOUNTS, rotatingDiscount, imageName, imagePath, combos, stockState, completeness, trashDaysLeft, trashSoon, TRASH_DAYS, moveVendor, bumpPrice, validateCode, groupImages, VIDEO_MODELS, scenesTotal, scenesFit, campaignPieces };
+  return { FAKE_MAX, FAKE_AMOUNT_MAX, FAKE_PERCENT_MAX, fakeRule, fakeTier, fakeRegular, fakeLines, PLAN_DEPTH, PLAN_MAX, planOutline, planParents, planEnd, planResolve, aiDisplay, paraHtml, aiSaveChange, aiApply, brandCode, serialText, sizeDigits, studioSku, suggestColorCode, parseCsv, parseXlsx, mapColumns, rowsToItems, photoName, catFromPath, itemIssues, STUDIO_FIELDS, catTree, catAncestors, catToggle, catSearch, catOptions, outOfStock, categoriesRank, priceFromVendor, randomMarkup, ceil10, MARKUP_MIN, MARKUP_MAX, crc32, zip, xlsx, xlsxFiles, backupPlan, SLOT_DIRS, safeName, IMG_SIZES, customSize, IMG_MODELS, imgCredits, designCode, designBase, variantSku, SLOTS, SLOT_HINT, slotPrompt, credits, catsOf, inCategory, bulkPrice, buildSku, skuParts, serialStart, serials, sizeCode, price, DISCOUNTS, rotatingDiscount, imageName, imagePath, combos, stockState, completeness, trashDaysLeft, trashSoon, TRASH_DAYS, moveVendor, bumpPrice, validateCode, groupImages, VIDEO_MODELS, scenesTotal, scenesFit, campaignPieces };
 });
 

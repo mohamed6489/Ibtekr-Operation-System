@@ -371,3 +371,42 @@ test('category plan: what «نشر» does with each row — the parent\'s id on 
   // an empty name matches nothing and is no duplicate (the popup asks for it)
   assert.deepEqual(view(PD.planResolve([{ level: 1, en: '' }, { level: 1, en: ' ' }], cats, 0)), [[-1, 0, null, false], [-1, 0, null, false]]);
 });
+
+// ---- the fake discount by tiers (the owner 15 Nov — docs/superpowers/plans/2026-11-15-fake-discount.md) ----
+const OWNER = { tiers: [{ to: 1000, type: 'amount', value: 500 }, { to: 2000, type: 'amount', value: 1000 }, { to: null, type: 'amount', value: 1500 }] };
+test('fakeRegular: the owner\'s example — up to 1000 adds 500, 1001–2000 adds 1000, above adds 1500', () => {
+  assert.equal(PD.fakeRegular(1000, OWNER), 1500);
+  assert.equal(PD.fakeRegular(10, OWNER), 510);
+  assert.equal(PD.fakeRegular(1001, OWNER), 2001); assert.equal(PD.fakeRegular(2000, OWNER), 3000);
+  assert.equal(PD.fakeRegular(2001, OWNER), 3501); assert.equal(PD.fakeRegular(250000, OWNER), 251500, '«فيما فوق»');
+  assert.equal(PD.fakeRegular(0, OWNER), null); assert.equal(PD.fakeRegular('x', OWNER), null);
+});
+test('fakeRegular: a percent tier goes up to the next 10; a price above the last «لحد» with no «فيما فوق» has no tier', () => {
+  const R = { tiers: [{ to: 500, type: 'percent', value: 25 }, { to: 1500, type: 'amount', value: 499 }] };
+  assert.equal(PD.fakeRegular(330, R), 420, '330 × 1.25 = 412.5 → 420');
+  assert.equal(PD.fakeRegular(400, R), 500, 'an exact product stays');
+  assert.equal(PD.fakeRegular(1000, R), 1499, 'an amount is added as it is — no rounding');
+  assert.equal(PD.fakeRegular(1501, R), null);
+  assert.equal(PD.fakeTier(1501, R), null); assert.deepEqual(plain(PD.fakeTier(1500, R)), { to: 1500, type: 'amount', value: 499 });
+});
+test('fakeRule: sorted by «لحد», «فيما فوق» last and once, a repeated «لحد» keeps the first, bad tiers dropped, 20 at most; nothing valid → null', () => {
+  assert.deepEqual(plain(PD.fakeRule({ tiers: [{ to: null, type: 'amount', value: 1500 }, { to: 2000, type: 'amount', value: 1000 }, { to: '1000', type: 'amount', value: '500' }, { to: 2000, type: 'percent', value: 9 }, { to: '', type: 'percent', value: 9 }] })), OWNER);
+  assert.deepEqual(plain(PD.fakeRule([{ to: 100, value: 5 }])), { tiers: [{ to: 100, type: 'amount', value: 5 }] }, 'a bare list; the type defaults to an amount');
+  for (const bad of [null, undefined, {}, { tiers: [] }, { tiers: 'x' }, { tiers: [null, 5, { to: 100, value: 0 }, { to: 100, value: -5 }, { to: -1, value: 5 }, { to: 'abc', value: 5 }, { to: 100, type: 'percent', value: 501 }, { to: 100, value: 1000001 }] }]) assert.equal(PD.fakeRule(bad), null);
+  const many = PD.fakeRule({ tiers: Array.from({ length: 30 }, (_, i) => ({ to: (i + 1) * 100, value: 10 })).concat([{ to: null, value: 99 }]) });
+  assert.equal(many.tiers.length, PD.FAKE_MAX); assert.equal(many.tiers[PD.FAKE_MAX - 1].to, null, '«فيما فوق» is kept when the list is cut');
+  assert.deepEqual(plain(PD.fakeRule(PD.fakeRule(OWNER))), OWNER, 'a clean rule stays as it is');
+});
+test('fakeLines: «من» is the tier before + 1 (the first from 0)', () => {
+  assert.deepEqual(plain(PD.fakeLines(OWNER)), [{ from: 0, to: 1000, type: 'amount', value: 500 }, { from: 1001, to: 2000, type: 'amount', value: 1000 }, { from: 2001, to: null, type: 'amount', value: 1500 }]);
+  assert.deepEqual(plain(PD.fakeLines(null)), []);
+});
+test('priceFromVendor with the rule: «قبل الخصم» from the sale price\'s tier; no tier for it (or no rule) → the old sale + markup %', () => {
+  assert.deepEqual(plain(PD.priceFromVendor(600, { rate: 40, markup: 30, fake: OWNER })), { sale: 1000, regular: 1500, markup: 30, vendorNet: 600, tiered: true });
+  assert.deepEqual(plain(PD.priceFromVendor(1000, { rate: 40, markup: 22, fake: OWNER })), { sale: 1670, regular: 2670, markup: 22, vendorNet: 1002, tiered: true });
+  const capped = { tiers: [{ to: 1000, type: 'amount', value: 500 }] };
+  assert.deepEqual(plain(PD.priceFromVendor(1000, { rate: 40, markup: 22, fake: capped })), { sale: 1670, regular: 2040, markup: 22, vendorNet: 1002 }, 'above the last tier: 22%');
+  assert.deepEqual(plain(PD.priceFromVendor(1000, { rate: 40, markup: 22, fake: null })), { sale: 1670, regular: 2040, markup: 22, vendorNet: 1002 });
+  assert.deepEqual(plain(PD.priceFromVendor(1000, { rate: 40, markup: 22, fake: { tiers: [] } })), { sale: 1670, regular: 2040, markup: 22, vendorNet: 1002 });
+  assert.equal(typeof PD.priceFromVendor(600, { rate: 40, fake: OWNER }).markup, 'number', 'a markup is still drawn: it is what a later rule change falls back to');
+});

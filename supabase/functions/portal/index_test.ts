@@ -44,7 +44,7 @@ function setup(opts: { resend?: boolean; mailFail?: boolean } = {}) {
     brands: [{ id: '00000000-0000-4000-8000-00000000b001', name: 'Bian', store_vendor_id: V1 }, { id: '00000000-0000-4000-8000-00000000b002', name: 'Rope', store_vendor_id: V2 }, { id: '00000000-0000-4000-8000-00000000b003', name: 'Old Brand', store_vendor_id: null }],
     brand_owners: [{ id: 1, brand_id: '00000000-0000-4000-8000-00000000b003', vendor_id: V1, since: '2026-01-01' }],
     orders: [
-      { id: 181668, number: '181668', status: 'جاري التنفيذ', placed_at: '2026-10-13T10:00:00Z', customer_name: 'سلوى', customer_phone: '01200007052' },
+      { id: 181668, number: '181668', status: 'جاري التنفيذ', confirm: 'مؤكد بدون عربون', confirm_at: '2026-10-15', placed_at: '2026-10-13T10:00:00Z', customer_name: 'سلوى', customer_phone: '01200007052' },
       { id: 180686, number: '180686', status: 'مكتمل', placed_at: '2026-10-01T10:00:00Z', customer_name: 'هدير', customer_phone: '01000007030' },
       { id: 150001, number: '150001', status: 'مكتمل', placed_at: '2026-06-01T10:00:00Z', customer_name: 'قديم', customer_phone: '01000000000' },
     ],
@@ -138,7 +138,7 @@ Deno.test('me / orders / account: the maker\'s own rows only — his brands (sto
   assertEquals(r.body.bank, { method: 'bank', holder: 'Bian Egypt', bankName: 'NBE', iban: '•••• •••• •••• 0002', account: null, wallet: '•••• •••• •••• 0011' });
   assert(!JSON.stringify(r.body).includes('EG380019000500000000263180002'), 'no IBAN in clear');
   r = await call(deps, { action: 'orders' }, tokenV1);
-  assertEquals(r.body.rows.map((x: any) => [x.order, x.n, x.prod, x.open, x.delivery, x.age]), [['181668', '181669', 'Cushion', true, 'late', 12], ['180686', '180687', 'Vase', false, 'ok', 24]], 'his two lines of the last 90 days (decision 52: notified 10 days ago, past the 7 making days = late); the June one is out, the other maker\'s line is out');
+  assertEquals(r.body.rows.map((x: any) => [x.order, x.n, x.prod, x.open, x.delivery, x.age]), [['181668', '181669', 'Cushion', true, 'late', 12], ['180686', '180687', 'Vase', false, 'ok', 24]], 'his two lines of the last 90 days (confirmed 10 days ago — the owner 15 Nov: from the confirmation —, past the 7 making days = late); the June one is out, the other maker\'s line is out');
   assert(!JSON.stringify(r.body).includes('سلوى') && !JSON.stringify(r.body).includes('0120000') && !JSON.stringify(r.body).includes('Other thing'));
   r = await call(deps, { action: 'account' }, tokenV1);
   assertEquals(r.body.ledger, { dokan: 5000, deposits: 1000, transport: 150, other: 0, carry: 100, net: 3750, status: 'ليك' });

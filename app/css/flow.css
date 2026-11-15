@@ -257,3 +257,19 @@ textarea.fl-in{display:block;width:100%}
 .fl-rw-in[data-tip]:hover::after,.fl-rw-in[data-tip]:focus-visible::after{content:attr(data-tip);position:absolute;bottom:calc(100% + 4px);inset-inline-end:0;white-space:nowrap;background:var(--color-text-primary,#1d1d1b);color:var(--color-bg-base,#fff);font-size:11px;font-weight:600;padding:3px 8px;border-radius:6px;pointer-events:none;z-index:5}
 .fl-rw-in.is-busy svg{animation:fl-spin 1s linear infinite}
 @keyframes fl-spin{to{transform:rotate(360deg)}}
+/* the owner 15 Nov: a filled shot — «تعديل» (pins) and «إعادة توليد» side by side, the bin under them */
+.fl-sacts{flex-wrap:wrap}
+.fl-sacts [data-shot-regen]{flex:1 1 100%;order:-1}
+.fl-sacts [data-shot-edit]{flex:1 1 0}
+/* the pin editor: the image large with numbered points, the comments beside it */
+.fl-pin-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:16px;align-items:start}
+.fl-pin-stage{position:relative;cursor:crosshair;border-radius:var(--radius-sm,8px);overflow:hidden;background:var(--color-bg-tint)}
+.fl-pin-stage .thumb.fl-pin-img{display:block;width:100%;height:auto;aspect-ratio:7/8;pointer-events:none}
+.fl-pin-stage .thumb.fl-pin-img img{width:100%;height:100%;object-fit:contain}
+.fl-pin{position:absolute;transform:translate(-50%,-50%);width:28px;height:28px;border-radius:50% 50% 50% 4px;background:var(--color-error-base,#c0392b);color:#fff;border:2px solid var(--color-bg-base,#fff);font-weight:700;font-size:13px;display:grid;place-items:center;box-shadow:var(--shadow-popover);cursor:pointer;padding:0}
+.fl-pin.sm{position:static;transform:none;flex:none}
+.fl-pin-side{display:flex;flex-direction:column;gap:10px;min-width:0}
+.fl-pins{display:flex;flex-direction:column;gap:8px}
+.fl-pin-row{display:flex;align-items:center;gap:8px}
+.fl-pin-row .input{flex:1;min-width:0}
+@media (max-width:760px){.fl-pin-grid{grid-template-columns:1fr}.fl-pin{width:32px;height:32px}}

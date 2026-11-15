@@ -99,6 +99,25 @@ test('flow 1 «شيت جاهز» Simple: the sheet + photos by row → maker/bra
   const gens = mock.imgCalls.filter((c) => c.action === 'generate');
   expect(gens.map((c) => [c.index, c.slot]).sort()).toEqual([[0, 0], [0, 1], [0, 2], [0, 3], [0, 4], [1, 0], [1, 1], [1, 2], [1, 3]]);
   expect(batch().state.items[0].refs).toEqual([]); expect(batch().state.items[1].refs.length).toBe(1); // the second photo of a row = a reference
+  // the owner 15 Nov: a filled shot has «إعادة توليد» (the instructions popup first, the note sent with the shot) and «تعديل» — the image
+  // large, a click puts a numbered point with what to change there, plus a general change → an edit of this very image with the pins
+  const u0 = page.locator('#pg-products .fl-unit').first(); const slot0 = u0.locator('.fl-slot').first();
+  const before = await slot0.locator('img').getAttribute('src');
+  await slot0.locator('[data-shot-regen]').click();
+  await expect(page.locator('[data-ai-ask]')).toContainText('إعادة توليد'); await page.fill('#ai-ask-notes', 'خلفية أفتح'); await page.locator('[data-ai-go]').click();
+  await expect.poll(() => mock.imgCalls.filter((c) => c.action === 'generate').pop().note).toBe('خلفية أفتح');
+  await expect.poll(() => slot0.locator('img').getAttribute('src')).not.toBe(before);
+  await slot0.locator('[data-shot-edit]').click();
+  const ed = page.locator('[data-fl-pin-edit]'); await expect(ed).toBeVisible();
+  const stage = ed.locator('[data-pin-stage]'); const box = await stage.boundingBox();
+  await stage.click({ position: { x: box.width * 0.25, y: box.height * 0.75 } });
+  await expect(ed.locator('.fl-pin[data-pin="1"]')).toBeVisible();
+  await ed.locator('#fl-pin-t-0').fill('شيل الظل ده'); await ed.locator('#fl-edit').fill('إضاءة أدفى');
+  await ed.locator('[data-fl-pin-go]').click();
+  await expect.poll(() => mock.imgCalls.filter((c) => c.action === 'edit').length).toBe(1);
+  const e1 = mock.imgCalls.filter((c) => c.action === 'edit').pop();
+  expect(e1).toMatchObject({ op: 'instruction', prompt: 'إضاءة أدفى' }); expect(e1.pins).toHaveLength(1); expect(e1.pins[0].text).toBe('شيل الظل ده');
+  expect(Math.abs(e1.pins[0].x - 25)).toBeLessThan(4); expect(Math.abs(e1.pins[0].y - 75)).toBeLessThan(4);
   await next(page);
   // the sheet before the photos → «ارفع الصور الأول», nothing sent
   await page.locator('[data-up="sheet"]').click();

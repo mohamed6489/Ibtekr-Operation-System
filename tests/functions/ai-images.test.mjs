@@ -2,7 +2,7 @@ import { test } from 'node:test'; import assert from 'node:assert/strict';
 import {
   IMG_MODELS, DEFAULT_MODEL, MODEL_IDS, creditsFor, modelCredits, usdOf, sizeOf, parseGenerate, parseEdit, parseCreate, slotPrompt, shapePrompt,
   editPrompt, studioPathOk, studioGenPath, studioEditPath, toolPath, extOf, imageSettings, line, MAX_IMAGE_B64, SLOTS, renameInState, FRAME_NOTE,
-  FLOW_SHOTS, flowShotPrompt, dimsOf,
+  FLOW_SHOTS, flowShotPrompt, dimsOf, noteText,
 } from '../../supabase/functions/_shared/ai-images.js';
 
 test('decision 14 — renameInState: a renamed result (png → webp) is followed everywhere the batch state points at it (slots, main, refs, color images); nothing pointing = the same state, not changed', () => {
@@ -43,7 +43,7 @@ test('sizeOf: a listed id, or custom 256–4096 a side at most 4:1; else null', 
 });
 
 test('parseGenerate: a batch, an item, a slot (a number or a color), the default model and product size; refusals by field', () => {
-  assert.deepEqual(parseGenerate({ batch_id: SB.toUpperCase(), index: 2, slot: 1 }).req, { batchId: SB, index: 2, slot: 1, model: 'seedream-5-pro', size: { w: 700, h: 800, id: '700x800' } });
+  assert.deepEqual(parseGenerate({ batch_id: SB.toUpperCase(), index: 2, slot: 1 }).req, { batchId: SB, index: 2, slot: 1, model: 'seedream-5-pro', size: { w: 700, h: 800, id: '700x800' }, note: '' });
   assert.deepEqual(parseGenerate({ batch_id: SB, index: 0, slot: 'color:BK', model: 'seedream-5-lite', size: '1080x1080' }).req.slot, { color: 'BK' });
   assert.equal(parseGenerate({ batch_id: 'x', index: 0, slot: 0 }).field, 'batch_id');
   assert.equal(parseGenerate({ batch_id: SB, index: -1, slot: 0 }).field, 'index');
@@ -56,7 +56,7 @@ test('parseGenerate: a batch, an item, a slot (a number or a color), the default
 
 test('parseEdit: an op on a studio path (with its batch) or a site product; instruction needs words; remove_bg / upscale options checked', () => {
   const r = parseEdit({ batch_id: SB, path: SB + '/gen-0-0-x.webp', op: 'instruction', prompt: ' lighter <b>background</b> ' }).req;
-  assert.deepEqual(r, { batchId: SB, path: SB + '/gen-0-0-x.webp', productId: null, op: 'instruction', prompt: 'lighter background', model: 'seedream-5-pro', options: {} });
+  assert.deepEqual(r, { batchId: SB, path: SB + '/gen-0-0-x.webp', productId: null, op: 'instruction', prompt: 'lighter background', model: 'seedream-5-pro', options: {}, pins: [] });
   assert.deepEqual(parseEdit({ product_id: '4001', op: 'remove_bg', options: { bg: '#1A5C40' } }).req.options, { bg: '#1a5c40' });
   assert.deepEqual(parseEdit({ product_id: 4001, op: 'remove_bg' }).req.options, { bg: 'transparent' });
   assert.deepEqual(parseEdit({ product_id: 4001, op: 'upscale' }).req.options, { scale: 2 });
@@ -160,4 +160,20 @@ test('the flows: generate takes a color with an integer shot; the result path ke
   assert.equal(parseGenerate({ batch_id: SB0, index: 0, slot: 3, color: 'bad color' }).field, 'color');
   assert.equal(studioGenPath(SB0, 0, { color: 'OW', shot: 3 }, 's1', 'webp'), SB0 + '/gen-0-cOW-3-s1.webp');
   assert.equal(studioGenPath(SB0, 0, { color: 'OW' }, 's1', 'webp'), SB0 + '/gen-0-cOW-s1.webp');
+});
+
+// the owner 15 Nov: «إعادة توليد» with the team's instructions, and the edit by points on the image (pins) like the campaign review
+test('studio images: a regenerate note; an edit by pins — points 0–100, words ≤ 200, ≤ 10, empty pins dropped; the prompt names each point', () => {
+  const g = parseGenerate({ batch_id: SB, index: 0, slot: 0, note: '  خلفية <b>أفتح</b> ' }).req;
+  assert.equal(g.note, 'خلفية أفتح'); assert.equal(parseGenerate({ batch_id: SB, index: 0, slot: 0, note: 5 }).field, 'note');
+  assert.match(noteText(g.note), /Extra instructions from the team for this shot.*: خلفية أفتح\.$/); assert.equal(noteText(''), '');
+  const p = SB + '/gen-0-0-x.webp';
+  const e = parseEdit({ batch_id: SB, path: p, op: 'instruction', pins: [{ x: 20.4, y: 70, text: 'شيل الظل ده' }, { x: 50, y: 50, text: '  ' }] }).req;
+  assert.deepEqual(e.pins, [{ x: 20, y: 70, text: 'شيل الظل ده' }]); assert.equal(e.prompt, '');
+  assert.equal(parseEdit({ batch_id: SB, path: p, op: 'instruction', pins: [{ x: 120, y: 5, text: 'x' }] }).field, 'pins');
+  assert.equal(parseEdit({ batch_id: SB, path: p, op: 'instruction', pins: Array.from({ length: 11 }, () => ({ x: 1, y: 1, text: 'x' })) }).field, 'pins');
+  assert.equal(parseEdit({ batch_id: SB, path: p, op: 'instruction', pins: [{ x: 1, y: 1, text: ' ' }] }).field, 'prompt'); // nothing to change
+  const t = editPrompt('instruction', 'أدفى', {}, e.pins);
+  assert.match(t, /1\) at about 20% from the left and 70% from the top: شيل الظل ده/); assert.match(t, /General change: أدفى\./); assert.match(t, /keep everything else exactly as it is/);
+  assert.equal(editPrompt('instruction', 'أدفى'), 'Edit the reference photo as instructed, keeping the product itself unchanged: أدفى'); // no pins: as before
 });

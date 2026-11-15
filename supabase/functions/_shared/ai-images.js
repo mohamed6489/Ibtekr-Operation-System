@@ -88,7 +88,28 @@ export function parseGenerate(b) {
   if (typeof slot === 'number' && b.color != null) { if (typeof b.color !== 'string' || !/^[A-Z0-9]{1,4}$/.test(b.color)) return bad('color'); slot = { color: b.color, shot: slot }; }
   const model = modelArg(b.model); if (!model) return bad('model');
   const size = sizeOf(b.size == null ? PRODUCT_SIZE : b.size, b.width, b.height); if (!size) return bad('size');
-  return { req: { batchId: b.batch_id.toLowerCase(), index: b.index, slot, model, size } };
+  // the owner 15 Nov («إعادة توليد … بوب أب أقدر أحط فيه تعليمات»): the team's instructions for this shot (optional, ≤ 500)
+  if (b.note != null && typeof b.note !== 'string') return bad('note');
+  return { req: { batchId: b.batch_id.toLowerCase(), index: b.index, slot, model, size, note: line(b.note, MAX_PROMPT) } };
+}
+/** the team's instructions for a regenerated shot, after the shot's own prompt — the product stays as it is */
+export const noteText = (note) => (note ? ' Extra instructions from the team for this shot (the product itself stays exactly as it is): ' + note + '.' : '');
+
+// the owner 15 Nov («أداة تعديل على الصورة الموجودة بحيث أقدر أحط كومنت على جزء معين مع كتابة التعليمات»): points on the image — the
+// campaign review's pins (marketing.js parseCampaignEdit / pinsPrompt) for a studio or product image: [{ x, y: 0–100 (% from the left /
+// the top), text ≤ 200 }] ≤ 10; a pin with no words is dropped → the pins | null (not a list / a bad point)
+export const MAX_PINS = 10;
+export function parsePins(raw) {
+  if (raw == null) return [];
+  if (!Array.isArray(raw) || raw.length > MAX_PINS) return null;
+  const out = [];
+  for (const x of raw) {
+    if (!isObj(x)) return null;
+    const px = Number(x.x), py = Number(x.y);
+    if (!Number.isFinite(px) || !Number.isFinite(py) || px < 0 || px > 100 || py < 0 || py > 100) return null;
+    const text = line(x.text, 200); if (text) out.push({ x: Math.round(px), y: Math.round(py), text });
+  }
+  return out;
 }
 
 /** edit { batch_id?, path | product_id, op, prompt?, model?, options? } → { req } | { error, field }. */
@@ -104,13 +125,14 @@ export function parseEdit(b) {
   if (!path && !productId) return bad('path');
   if (path && !batchId && !/^[0-9a-f-]{36}\//i.test(path)) return bad('batch_id'); // a studio path needs its batch
   const prompt = line(b.prompt, MAX_PROMPT);
-  if (b.op === 'instruction' && !prompt) return bad('prompt');
+  const pins = b.op === 'instruction' ? parsePins(b.pins) : []; if (pins === null) return bad('pins');
+  if (b.op === 'instruction' && !prompt && !pins.length) return bad('prompt');
   const model = modelArg(b.model); if (!model) return bad('model');
   const o = isObj(b.options) ? b.options : {};
   const options = {};
   if (b.op === 'remove_bg') { const bg = typeof o.bg === 'string' ? o.bg.trim() : 'transparent'; if (!(bg === 'transparent' || bg === 'white' || /^#[0-9a-f]{6}$/i.test(bg))) return bad('options.bg'); options.bg = bg.toLowerCase(); }
   if (b.op === 'upscale') { const s = o.scale == null ? 2 : o.scale; if (!(s === 2 || s === 4)) return bad('options.scale'); options.scale = s; }
-  return { req: { batchId, path, productId, op: b.op, prompt, model, options } };
+  return { req: { batchId, path, productId, op: b.op, prompt, model, options, pins } };
 }
 
 /** create { source: text | image, prompt?, shape, size, width?, height?, count, model?, image?, product_id? } → { req } | { error, field }. */
@@ -209,8 +231,13 @@ export function shapePrompt(shape, subject, extra, opts = {}) {
   return [BASE, scene, FRAME_NOTE, more].filter(Boolean).join(' ');
 }
 /** An edit's instruction for the provider (remove_bg / upscale / relight have their own routes; `instruction` is free text). */
-export function editPrompt(op, prompt, options = {}) {
-  if (op === 'instruction') return 'Edit the reference photo as instructed, keeping the product itself unchanged: ' + line(prompt, MAX_PROMPT);
+export function editPrompt(op, prompt, options = {}, pins = []) {
+  if (op === 'instruction') {
+    const L = (Array.isArray(pins) ? pins : []).map((x, i) => (i + 1) + ') at about ' + x.x + '% from the left and ' + x.y + '% from the top: ' + line(x.text, 200)).join('; ');
+    if (!L) return 'Edit the reference photo as instructed, keeping the product itself unchanged: ' + line(prompt, MAX_PROMPT);
+    const g = line(prompt, MAX_PROMPT);
+    return 'Edit the reference photo as instructed and keep everything else exactly as it is (the product itself, its shape, its colors). Changes at points of the photo: ' + L + '.' + (g ? ' General change: ' + g + '.' : '');
+  }
   if (op === 'remove_bg') return options.bg === 'transparent' ? 'Cut the product out on a transparent background.' : 'Place the product on a plain ' + (options.bg === 'white' ? 'white' : options.bg) + ' background with a soft shadow.';
   if (op === 'relight') return 'Relight the product photo with soft warm natural light' + (line(prompt, 200) ? ': ' + line(prompt, 200) : '.');
   return 'Upscale the product photo ' + (options.scale || 2) + '× with more detail.';

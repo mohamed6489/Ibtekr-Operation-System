@@ -58,7 +58,7 @@
 // in 10 minutes), 503 not_configured, 502 ai_error (no usable image), 200 { result: 'refused' } when the provider refused the content.
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import {
-  MODEL_IDS, PROVIDER, creditsFor, editPrompt, extOf, imageSettings, line, parseCreate, parseEdit, parseGenerate, shapePrompt, sizeOf, slotPrompt, flowShotPrompt, studioEditPath,
+  MODEL_IDS, PROVIDER, creditsFor, editPrompt, extOf, imageSettings, line, noteText, parseCreate, parseEdit, parseGenerate, shapePrompt, sizeOf, slotPrompt, flowShotPrompt, studioEditPath,
   renameInState, studioGenPath, studioPathOk, toolPath, usdOf,
 } from '../_shared/ai-images.js';
 import { magnific, ProviderError, shape, type Provider, type Ref } from './providers/magnific.ts';
@@ -276,7 +276,7 @@ async function generate(deps: Deps, who: Who, args: Json) {
   if (!who.add) return json(401, { error: 'unauthorized' });
   const parsed = parseGenerate(args);
   if ('error' in parsed) return json(400, parsed);
-  const { batchId, index, slot, model, size } = parsed.req;
+  const { batchId, index, slot, model, size, note } = parsed.req;
   const read = await readBatchItem(deps, batchId, index);
   if (!read) return json(404, { error: 'not_found' });
   const refs = await itemRefs(deps, batchId, read.item, slot);
@@ -292,7 +292,7 @@ async function generate(deps: Deps, who: Who, args: Json) {
   const base = { created_by: who.uid, action: 'image', source: 'studio', label, batch_id: batchId, item_index: index };
   const st = stamp(deps);
   return await runImages(deps, base, model, 1,
-    (prov, m, style) => prov.generate({ model: m, prompt: prompt + style, width: size.w, height: size.h, count: 1, references: refs }),
+    (prov, m, style) => prov.generate({ model: m, prompt: prompt + noteText(note) + style, width: size.w, height: size.h, count: 1, references: refs }),
     (img) => upload(deps.db, STUDIO_BUCKET, studioGenPath(batchId, index, slot, st, extOf(img.mime)), img), 'studio', 'products', flow ? shot : null);
 }
 
@@ -301,7 +301,7 @@ async function generate(deps: Deps, who: Who, args: Json) {
 async function edit(deps: Deps, who: Who, args: Json) {
   const parsed = parseEdit(args);
   if ('error' in parsed) return json(400, parsed);
-  const { batchId, path, productId, op, prompt, model, options } = parsed.req;
+  const { batchId, path, productId, op, prompt, model, options, pins } = parsed.req;
   let image: Ref | null = null; let imageUrl: string | null = null; let base: Json; let where: (img: { bytes: Uint8Array; mime: string }, n: number) => Promise<{ bucket: string; path: string } | null>;
   if (path) {
     if (!who.add) return json(401, { error: 'unauthorized' });
@@ -329,7 +329,7 @@ async function edit(deps: Deps, who: Who, args: Json) {
   if (!image) return json(404, { error: 'not_found' });
   const ref = image;
   return await runImages(deps, base, model, 1,
-    (prov, m) => prov.edit({ model: m, op, prompt: editPrompt(op, prompt, options), image: ref, imageUrl, options }),
+    (prov, m) => prov.edit({ model: m, op, prompt: editPrompt(op, prompt, options, pins), image: ref, imageUrl, options }),
     (img, n) => where(img, n));
 }
 

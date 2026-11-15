@@ -758,10 +758,10 @@
 
   // ---------------- 5 الصور (decision 8) ----------------
   const busyKey = (u, k) => 'img:' + u.key + ':' + k;
-  async function genShot(u, k) {
+  async function genShot(u, k, note) {
     if (S.busy === busyKey(u, k)) return;
     await touch(true); S.busy = busyKey(u, k); R();
-    const r = await IM().generate(S.id, u.gi, k, { color: u.color || undefined });
+    const r = await IM().generate(S.id, u.gi, k, { color: u.color || undefined, note: note || undefined });
     S.busy = '';
     if (!r.ok || r.result !== 'ok' || !r.path) { K.toast(r.ok ? 'الموديل رفض الصورة' : (IM().why ? IM().why(r) : why(r.reason)), 'error'); R(); return false; }
     if (k === 4) st().sizeShot[groupKey(u.gi)] = r.path; else shotsOf(u)[k] = r.path;
@@ -777,17 +777,57 @@
     let ok = 0; for (const [u, k] of jobs) { if (await genShot(u, k)) ok += 1; }
     K.toast('اتولّدت ' + ok + ' من ' + jobs.length + ' صورة', ok === jobs.length ? 'success' : 'warning');
   }
+  // the owner 15 Nov («تحت الصور زرار إعادة توليد ويفتح بوب أب أقدر أحط فيه تعليمات قبل إعادة التوليد»): a filled slot → the
+  // instructions popup (IBAIAsk) → the same shot generated again with them; the new one takes the slot
+  async function regenShot(u, k) {
+    const a = await window.IBAIAsk({ title: 'إعادة توليد ' + (k === 4 ? 'صورة المقاس' : SHOT_L[k]), intro: 'صورة جديدة لنفس اللقطة بنفس المنتج — والقديمة بتتبدل بيها.', go: 'ابدأ التوليد' });
+    if (a) genShot(u, k, a.notes);
+  }
+  // «وكمان أداة تعديل على الصورة الموجودة بحيث أقدر أحط كومنت على جزء معين مع كتابة التعليمات»: the image large — a click on it puts a
+  // numbered point there with what to change at it (up to 10, like the campaign review) — plus a general change; «عدّل» edits this
+  // very image (ai-images edit with pins), and «بدّل بصورة من عندي» stays
   function shotModal(u, k) {
-    const sh = shotsOf(u); const path = k === 4 ? st().sizeShot[groupKey(u.gi)] : sh[k]; let words = '';
-    const m = U.Modal({ title: (k === 4 ? 'صورة المقاس' : SHOT_L[k]) + ' — ' + (unitRow(u).nameEn || unitRow(u).sku || ''), body: [Thumb(path, 'st-xl'), U.Textarea({ id: 'fl-edit', label: 'عدّل بالـ AI', rows: 2, placeholder: 'مثال: خلفية أفتح وظل أخف، من غير ما المنتج يتغيّر', onInput: (v) => { words = v; } })],
-      footer: [Button({ type: 'text', label: 'إغلاق', onClick: () => m.close() }), Button({ label: 'بدّل بصورة من عندي', icon: 'upload', onClick: () => filePick('image/*', false, async (f) => { const r = await ST().uploadImage(S.id, f[0], 'u' + u.gi + '-' + k, { webp: true }); if (r.ok) { if (k === 4) st().sizeShot[groupKey(u.gi)] = r.path; else sh[k] = r.path; touch(); m.close(); R(); } }) }),
-        Button({ type: 'primary', icon: 'sparkle', label: 'عدّل', onClick: async () => { if (!words.trim() || !path) return; await touch(true); m.close(); S.busy = busyKey(u, k); R(); const r = await IM().edit({ batchId: S.id, index: u.gi, path }, 'instruction', { prompt: words.trim() }); S.busy = ''; if (r.ok && r.path) { if (k === 4) st().sizeShot[groupKey(u.gi)] = r.path; else sh[k] = r.path; touch(); } else K.toast(why(r.reason), 'error'); R(); } })] });
+    const sh = shotsOf(u); const path = k === 4 ? st().sizeShot[groupKey(u.gi)] : sh[k]; if (!path) return;
+    const pins = []; let note = '';
+    const m = U.Modal({ title: 'تعديل ' + (k === 4 ? 'صورة المقاس' : SHOT_L[k]) + ' — ' + (unitRow(u).nameAr || unitRow(u).nameEn || unitRow(u).sku || ''), body: [], footer: [] });
+    m.el.classList.add('wide', 'fl-big'); m.el.setAttribute('data-fl-pin-edit', '');
+    const put = (p) => { if (k === 4) st().sizeShot[groupKey(u.gi)] = p; else sh[k] = p; touch(); };
+    const draw = () => {
+      const stage = h('div', { class: 'fl-pin-stage', 'data-pin-stage': '', role: 'application', 'aria-label': 'الصورة — دوس في أي مكان تحط تعليق' }, Thumb(path, 'fl-pin-img'),
+        pins.map((x, i) => h('button', { type: 'button', class: 'fl-pin', style: 'left:' + x.x + '%;top:' + x.y + '%', 'data-pin': String(i + 1), 'aria-label': 'تعليق ' + (i + 1) + (x.text ? ': ' + x.text : ''),
+          onClick: (e) => { e.stopPropagation(); const f = document.getElementById('fl-pin-t-' + i); if (f) f.focus(); } }, String(i + 1))));
+      stage.addEventListener('click', (e) => {
+        const r = stage.getBoundingClientRect(); if (!r.width || !r.height) return;
+        if (pins.length >= 10) { K.toast('10 تعليقات بالكتير', 'warning'); return; }
+        const x = Math.round((e.clientX - r.left) / r.width * 100), y = Math.round((e.clientY - r.top) / r.height * 100);
+        pins.push({ x: Math.max(2, Math.min(98, x)), y: Math.max(2, Math.min(98, y)), text: '' }); draw();
+        setTimeout(() => { const f = document.getElementById('fl-pin-t-' + (pins.length - 1)); if (f) f.focus(); }, 0);
+      });
+      const list = pins.length ? h('div', { class: 'fl-pins', 'data-pins': String(pins.length) }, pins.map((x, i) => h('div', { class: 'fl-pin-row' }, h('span', { class: 'fl-pin sm', 'aria-hidden': 'true' }, String(i + 1)),
+        (() => { const inp = h('input', { type: 'text', class: 'input', id: 'fl-pin-t-' + i, value: x.text, maxlength: 200, placeholder: 'عايز إيه يتعدل هنا؟', 'aria-label': 'تعليق ' + (i + 1) }); inp.addEventListener('input', () => { x.text = inp.value; }); return inp; })(),
+        U.IconButton({ icon: 'trash', label: 'شيل تعليق ' + (i + 1), onClick: () => { pins.splice(i, 1); draw(); } }))))
+        : h('p', { class: 't-small help', style: 'margin:0' }, 'دوس على أي حتة في الصورة تحط نقطة واكتب عندها التعديل.');
+      m.setBody(h('div', { class: 'fl-pin-grid' }, stage, h('div', { class: 'fl-pin-side' }, h('div', { class: 't-label' }, 'التعليقات على الصورة' + (pins.length ? ' (' + pins.length + ')' : '')), list,
+        U.Textarea({ id: 'fl-edit', label: 'تعديل عام (اختياري)', rows: 3, maxlength: 500, value: note, placeholder: 'مثال: خلفية أفتح وظل أخف، من غير ما المنتج يتغيّر', onInput: (v) => { note = v; } }))));
+    };
+    m.setFooter(Button({ type: 'text', label: 'إغلاق', onClick: () => m.close() }),
+      Button({ label: 'بدّل بصورة من عندي', icon: 'upload', onClick: () => filePick('image/*', false, async (f) => { const r = await ST().uploadImage(S.id, f[0], 'u' + u.gi + '-' + k, { webp: true }); if (r.ok) { put(r.path); m.close(); R(); } }) }),
+      Button({ type: 'primary', icon: 'sparkle', label: 'عدّل الصورة', attrs: { 'data-fl-pin-go': '' }, onClick: async () => {
+        const ps = pins.filter((x) => String(x.text || '').trim()); const all = note.trim();
+        if (!ps.length && !all) { K.toast('حط تعليق على الصورة أو اكتب التعديل الأول', 'error'); return; }
+        await touch(true); m.close(); S.busy = busyKey(u, k); R();
+        const r = await IM().edit({ batchId: S.id, index: u.gi, path }, 'instruction', { prompt: all || undefined, pins: ps });
+        S.busy = '';
+        if (r.ok && r.path) { put(r.path); K.toast('اتعدّلت الصورة — راجعها', 'success'); } else K.toast(r.ok ? 'الموديل رفض التعديل' : (IM().why ? IM().why(r) : why(r.reason)), 'error');
+        R(); } }));
+    draw();
   }
   function slot(u, k) {
     const sh = shotsOf(u); const path = k === 4 ? st().sizeShot[groupKey(u.gi)] : sh[k]; const gen = S.busy === busyKey(u, k); const label = k === 4 ? 'صورة المقاس' : SHOT_L[k];
     const el = h('div', { class: 'fl-slot' + (path ? '' : ' is-empty'), draggable: path && k < 4 ? 'true' : 'false', 'data-slot': u.key + ':' + k },
       h('small', { class: 'fl-slab', title: label }, label), gen ? h('span', { class: 'thumb fl-shot gen' }, 'بيتولّد…') : Thumb(path, 'fl-shot'),
-      h('div', { class: 'fl-sacts' }, path ? Button({ size: 'sm', label: 'تعديل', onClick: () => shotModal(u, k) }) : null,
+      h('div', { class: 'fl-sacts' }, path ? Button({ size: 'sm', icon: 'edit', label: 'تعديل', disabled: !!S.busy, attrs: { 'data-shot-edit': u.key + ':' + k }, onClick: () => shotModal(u, k) }) : null,
+        path ? Button({ size: 'sm', icon: 'sparkle', label: 'إعادة توليد', disabled: !!S.busy, attrs: { 'data-shot-regen': u.key + ':' + k }, onClick: () => regenShot(u, k) }) : null,
         path ? U.IconButton({ icon: 'trash', label: 'حذف', onClick: () => { if (k === 4) delete st().sizeShot[groupKey(u.gi)]; else sh[k] = null; touch(); R(); } }) : null,
         !path ? Button({ size: 'sm', icon: 'sparkle', label: 'ولّد بالـ AI', disabled: !!S.busy, attrs: { 'data-gen': u.key + ':' + k }, onClick: () => genShot(u, k) }) : null));
     if (k < 4) {

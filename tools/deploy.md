@@ -2143,3 +2143,7 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 #### 2.7.78 بوب أب التعليمات قبل أي كتابة بالـ AI (صاحب المشروع 15 نوفمبر)
 1. «Deploy functions»: `ai-content` (`notes` في `studio` / `write` / `marketing` / `scenes` — `memberNotes` / `notesText`). الدالة القديمة بتتجاهل `notes` فالترتيب مش فارق، بس انشرها قبل ما تقول لصاحب المشروع.
 2. الواجهة على `main` (`app/js/pages/ai-ask.js` في `index.html` قبل صفحات المنتجات والتسويق). مافيش migration.
+
+#### 2.7.79 «إعادة توليد» بتعليمات و«تعديل» بنقط على صورة الاستوديو (صاحب المشروع 15 نوفمبر)
+1. «Deploy functions»: `ai-images` (`generate` بـ `note`، `edit` بـ `pins`). الدالة القديمة بتتجاهل `note` / `pins` (التعديل بالنقط من غير «تعديل عام» بيترفض `prompt` لحد النشر) — انشرها قبل الواجهة.
+2. الواجهة على `main`. مافيش migration.

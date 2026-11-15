@@ -42,3 +42,74 @@ begin
 end $$;
 revoke execute on function public.order_complete(bigint, int, int, text, text) from public, anon;
 grant execute on function public.order_complete(bigint, int, int, text, text) to authenticated, service_role;
+
+-- ---------------------------------------------------------------- part 2 — the same money entry twice (decision 4)
+-- The owner: «انا عملت ايداع لفيندور و ف نفس الوقت عضو تاني عمل ايداع تاني … ده ب 10 و ده ب 10 ف بالغلط اتسجل للفيندور ده 20».
+-- A member's own insert into one of the three ledgers is refused (IBDUP) when the same entry — the same maker and kind / the same
+-- expense type and beneficiary / the same account, with the same direction and amount — was recorded in the last 10 minutes and
+-- is not voided, by anybody. The detail says who recorded it and how long ago; the page asks «دي حركة تانية؟» and sends the
+-- entry again with dup_ok = true. A lock on the entry's key makes two saves in the same second wait for each other, so the
+-- second one sees the first. The server's own entries (the payroll, an advance, a settlement — functions that run as their
+-- owner) are not asked.
+alter table public.acc_expenses      add column if not exists dup_ok boolean not null default false;
+alter table public.acc_vendor_moves  add column if not exists dup_ok boolean not null default false;
+alter table public.acc_account_moves add column if not exists dup_ok boolean not null default false;
+
+-- who recorded the same entry in the last 10 minutes (null: nobody). volatile on purpose: it must see a row committed while
+-- the caller waited for the lock (a stable function would read with the caller's older snapshot).
+create or replace function public.acc_dup_find(p_table text, p_who text, p_direction text, p_amount numeric) returns jsonb
+language plpgsql volatile security definer set search_path = public as $$
+declare v_at timestamptz; v_by uuid;
+begin
+  if not (public.is_admin() or public.has_perm('accounts.add') = 'F') then return null; end if; -- only who may add an entry asks
+  if p_table = 'acc_vendor_moves' then
+    select m.created_at, m.created_by into v_at, v_by from public.acc_vendor_moves m
+     where m.voided_at is null and m.created_at > now() - interval '10 minutes' and m.direction = p_direction and m.amount = p_amount
+       and (m.vendor_id::text || '|' || m.kind) = p_who
+     order by m.created_at desc limit 1;
+  elsif p_table = 'acc_expenses' then
+    select m.created_at, m.created_by into v_at, v_by from public.acc_expenses m
+     where m.voided_at is null and m.created_at > now() - interval '10 minutes' and m.direction = p_direction and m.amount = p_amount
+       and (m.category || '|' || coalesce(btrim(m.beneficiary), '')) = p_who
+     order by m.created_at desc limit 1;
+  elsif p_table = 'acc_account_moves' then
+    select m.created_at, m.created_by into v_at, v_by from public.acc_account_moves m
+     where m.voided_at is null and m.created_at > now() - interval '10 minutes' and m.direction = p_direction and m.amount = p_amount
+       and m.account = p_who
+     order by m.created_at desc limit 1;
+  end if;
+  if v_at is null then return null; end if;
+  return jsonb_build_object('by', coalesce((select p.name from public.profiles p where p.id = v_by), ''),
+                            'minutes', greatest(0, floor(extract(epoch from clock_timestamp() - v_at) / 60))::int);
+end $$;
+revoke execute on function public.acc_dup_find(text, text, text, numeric) from public, anon;
+grant execute on function public.acc_dup_find(text, text, text, numeric) to authenticated, service_role;
+
+-- security invoker: current_user tells a member's own insert (authenticated) from a server function's (its owner)
+create or replace function public.acc_dup_guard() returns trigger
+language plpgsql security invoker set search_path = public as $$
+declare j jsonb; v_who text; v_hit jsonb;
+begin
+  if current_user <> 'authenticated' then return new; end if;
+  j := to_jsonb(new);
+  v_who := case tg_table_name
+    when 'acc_vendor_moves' then (j ->> 'vendor_id') || '|' || (j ->> 'kind')
+    when 'acc_expenses' then (j ->> 'category') || '|' || coalesce(btrim(j ->> 'beneficiary'), '')
+    else j ->> 'account' end;
+  -- one at a time per entry: the second of two saves made together waits here until the first is committed
+  perform pg_advisory_xact_lock(hashtextextended(tg_table_name || '|' || v_who || '|' || new.direction || '|' || new.amount::text, 0));
+  if new.dup_ok then return new; end if;
+  v_hit := public.acc_dup_find(tg_table_name::text, v_who, new.direction, new.amount);
+  if v_hit is not null then
+    raise exception 'duplicate: the same entry was recorded a moment ago' using errcode = 'IBDUP', detail = v_hit::text;
+  end if;
+  return new;
+end $$;
+revoke execute on function public.acc_dup_guard() from public, anon, authenticated;
+
+drop trigger if exists acc_expenses_dup_guard on public.acc_expenses;
+create trigger acc_expenses_dup_guard before insert on public.acc_expenses for each row execute function public.acc_dup_guard();
+drop trigger if exists acc_vendor_moves_dup_guard on public.acc_vendor_moves;
+create trigger acc_vendor_moves_dup_guard before insert on public.acc_vendor_moves for each row execute function public.acc_dup_guard();
+drop trigger if exists acc_account_moves_dup_guard on public.acc_account_moves;
+create trigger acc_account_moves_dup_guard before insert on public.acc_account_moves for each row execute function public.acc_dup_guard();

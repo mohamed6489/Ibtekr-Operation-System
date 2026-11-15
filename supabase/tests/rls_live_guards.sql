@@ -66,5 +66,82 @@ begin
   end if;
 end $$;
 
+-- ================================================================ part 2 — the same money entry twice
+do $$
+declare n int; d text; j jsonb;
+begin
+  -- the owner's case: one member records «إيداع 10» for a maker, a teammate records the same a moment later
+  perform pg_temp.as_member('00000000-0000-4000-8000-0000000105a1');
+  insert into public.acc_vendor_moves (vendor_id, on_date, direction, kind, kind_name, amount) values ('00000000-0000-4000-8000-0000000105f1', current_date, 'deposit', 'أخرى', 'تصحيح رصيد', 10);
+  perform pg_temp.as_member('00000000-0000-4000-8000-0000000105a2');
+  begin
+    insert into public.acc_vendor_moves (vendor_id, on_date, direction, kind, kind_name, amount) values ('00000000-0000-4000-8000-0000000105f1', current_date, 'deposit', 'أخرى', 'تصحيح رصيد', 10);
+    raise exception 'the same entry was recorded twice';
+  exception when sqlstate 'IBDUP' then get stacked diagnostics d = pg_exception_detail;
+  end;
+  j := d::jsonb;
+  if j ->> 'by' <> 'عضو أول' or (j ->> 'minutes')::int <> 0 or (select count(*) from jsonb_object_keys(j)) <> 2 then raise exception 'the refusal names who recorded it and how long ago, nothing else: %', d; end if;
+  -- the same member twice (a double save) is caught too
+  perform pg_temp.as_member('00000000-0000-4000-8000-0000000105a1');
+  begin
+    insert into public.acc_vendor_moves (vendor_id, on_date, direction, kind, kind_name, amount) values ('00000000-0000-4000-8000-0000000105f1', current_date, 'deposit', 'أخرى', 'تصحيح رصيد', 10);
+    raise exception 'a double save went through';
+  exception when sqlstate 'IBDUP' then null;
+  end;
+  -- «دي حركة تانية» (dup_ok), another amount, another direction, another kind: recorded
+  insert into public.acc_vendor_moves (vendor_id, on_date, direction, kind, kind_name, amount, dup_ok) values ('00000000-0000-4000-8000-0000000105f1', current_date, 'deposit', 'أخرى', 'تصحيح رصيد', 10, true);
+  insert into public.acc_vendor_moves (vendor_id, on_date, direction, kind, kind_name, amount) values ('00000000-0000-4000-8000-0000000105f1', current_date, 'deposit', 'أخرى', 'تصحيح رصيد', 11);
+  insert into public.acc_vendor_moves (vendor_id, on_date, direction, kind, amount) values ('00000000-0000-4000-8000-0000000105f1', current_date, 'withdraw', 'عربون', 10);
+  insert into public.acc_vendor_moves (vendor_id, on_date, direction, kind, amount) values ('00000000-0000-4000-8000-0000000105f1', current_date, 'withdraw', 'مواصلات', 10);
+  reset role;
+  select count(*) into n from public.acc_vendor_moves where vendor_id = '00000000-0000-4000-8000-0000000105f1';
+  if n <> 5 then raise exception 'vendor moves recorded: %', n; end if;
+
+  -- an entry older than 10 minutes, or a voided one, is not «the same entry a moment ago»
+  update public.acc_vendor_moves set created_at = now() - interval '11 minutes' where vendor_id = '00000000-0000-4000-8000-0000000105f1' and kind = 'عربون';
+  update public.acc_vendor_moves set voided_at = now() where vendor_id = '00000000-0000-4000-8000-0000000105f1' and kind = 'مواصلات';
+  perform pg_temp.as_member('00000000-0000-4000-8000-0000000105a2');
+  insert into public.acc_vendor_moves (vendor_id, on_date, direction, kind, amount) values ('00000000-0000-4000-8000-0000000105f1', current_date, 'withdraw', 'عربون', 10);
+  insert into public.acc_vendor_moves (vendor_id, on_date, direction, kind, amount) values ('00000000-0000-4000-8000-0000000105f1', current_date, 'withdraw', 'مواصلات', 10);
+
+  -- expenses: the same type, beneficiary, direction and amount; another beneficiary (three salaries of the same amount) is not
+  insert into public.acc_expenses (on_date, direction, category, beneficiary, amount) values (current_date, 'withdraw', 'المصروفات', 'مطبعة الحراسة', 250);
+  begin
+    insert into public.acc_expenses (on_date, direction, category, beneficiary, amount) values (current_date, 'withdraw', 'المصروفات', ' مطبعة الحراسة ', 250.00);
+    raise exception 'the same expense was recorded twice';
+  exception when sqlstate 'IBDUP' then null;
+  end;
+  insert into public.acc_expenses (on_date, direction, category, beneficiary, amount) values (current_date, 'withdraw', 'المصروفات', 'مطبعة تانية', 250);
+  -- the real account: the same account, direction and amount
+  insert into public.acc_account_moves (account, on_date, direction, amount) values ('حساب البنك', current_date, 'deposit', 777);
+  begin
+    insert into public.acc_account_moves (account, on_date, direction, amount) values ('حساب البنك', current_date, 'deposit', 777);
+    raise exception 'the same account move was recorded twice';
+  exception when sqlstate 'IBDUP' then null;
+  end;
+  insert into public.acc_account_moves (account, on_date, direction, amount) values ('حساب بوسطة', current_date, 'deposit', 777);
+  reset role;
+
+  -- the server's own entries are not asked (a function that runs as its owner, an import by the service role)
+  insert into public.acc_account_moves (account, on_date, direction, amount) values ('حساب البنك', current_date, 'deposit', 777);
+  insert into public.acc_account_moves (account, on_date, direction, amount) values ('حساب البنك', current_date, 'deposit', 777);
+
+  -- a member who may not add entries learns nothing from the lookup; nobody outside signs in to it
+  update public.profiles set custom_perms = '{"accounts.view":"F","accounts.add":"N"}' where id = '00000000-0000-4000-8000-0000000105a2';
+  perform pg_temp.as_member('00000000-0000-4000-8000-0000000105a2');
+  if public.acc_dup_find('acc_account_moves', 'حساب البنك', 'deposit', 777) is not null then raise exception 'the lookup answered a member without accounts.add'; end if;
+  perform pg_temp.as_member('00000000-0000-4000-8000-0000000105a1');
+  if public.acc_dup_find('acc_account_moves', 'حساب البنك', 'deposit', 777) is null then raise exception 'the lookup missed an entry'; end if;
+  if public.acc_dup_find('profiles', 'x', 'deposit', 1) is not null then raise exception 'the lookup read another table'; end if;
+  reset role;
+  if has_function_privilege('anon', 'public.acc_dup_find(text, text, text, numeric)', 'execute') or has_function_privilege('authenticated', 'public.acc_dup_guard()', 'execute') then
+    raise exception 'grants of the duplicate guard';
+  end if;
+  if (select prosecdef from pg_proc where oid = 'public.acc_dup_guard()'::regprocedure) or not (select prosecdef from pg_proc where oid = 'public.acc_dup_find(text, text, text, numeric)'::regprocedure)
+     or (select provolatile from pg_proc where oid = 'public.acc_dup_find(text, text, text, numeric)'::regprocedure) <> 'v' then
+    raise exception 'the guard runs as the caller, the lookup as its owner and volatile';
+  end if;
+end $$;
+
 do $$ begin raise notice 'rls_live_guards: ok'; end $$;
 rollback;

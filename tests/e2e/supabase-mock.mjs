@@ -987,6 +987,11 @@ export async function installSupabaseMock(page, opts = {}) {
           if (t === 'acc_expenses' && row.reason != null && !['استرجاع مبلغ مدفوع', 'إلغاء اشتراك', 'خصم من مورد', 'تصحيح تسجيل غلط', 'أخرى'].includes(row.reason)) return refuse(400, '23514', 'acc_expenses_reason_check');
           if (t === 'acc_vendor_moves' && row.direction === 'deposit' && row.kind !== 'أخرى') return refuse(400, '23514', 'new row for relation "acc_vendor_moves" violates check constraint "acc_vendor_moves_deposit_correction"');
           if (t === 'acc_expenses' && !expenseKindOk(row.category)) return refuse(400, '23514', 'invalid: category'); // 0093 acc_expenses_category_guard
+          // 0105 acc_dup_guard: the same entry (maker + kind / type + beneficiary / account, direction, amount) recorded in the last
+          // 10 minutes and not voided → IBDUP with who and how long ago, unless the member said «دي حركة تانية» (dup_ok)
+          const whoOf = (x) => (t === 'acc_vendor_moves' ? x.vendor_id + '|' + x.kind : t === 'acc_expenses' ? x.category + '|' + String(x.beneficiary || '').trim() : x.account);
+          const twin = row.dup_ok === true || t === 'acc_list_items' ? null : rows.filter((x) => !x.voided_at && Date.now() - Date.parse(x.created_at) < 600000 && x.direction === row.direction && Number(x.amount) === Number(row.amount) && whoOf(x) === whoOf(row)).pop();
+          if (twin) return json(400, { code: 'IBDUP', details: JSON.stringify({ by: (profileOf(twin.created_by) || {}).name || '', minutes: Math.floor((Date.now() - Date.parse(twin.created_at)) / 60000) }), hint: null, message: 'duplicate: the same entry was recorded a moment ago' });
           accSeq += 1; const rec = { ...row, id: accSeq, amount: Number(row.amount), created_by: u.id, created_at: now, updated_by: null, updated_at: null, voided_by: null, voided_at: null };
           if (t === 'acc_vendor_moves') Object.assign(rec, { settled_by: null, settled_at: null }); // the guard: a member never settles a move
           rows.push(rec); mock.accWrites.push({ table: t, op: 'insert', ...row });

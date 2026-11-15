@@ -119,3 +119,39 @@ test('orders: «مكتمل» with the rating on an order a teammate completed fi
   await expect(page.locator('#orders #toast')).toContainText('حد تاني غيّر ده من شوية');
   expect(mock.ratings.filter((r) => r.order_id === 181668)).toHaveLength(1);
 });
+
+// decision 4: the same money entry twice — the owner: «انا عملت ايداع لفيندور و ف نفس الوقت عضو تاني عمل ايداع تاني … اتسجل للفيندور ده 20»
+test('accounts: an expense a teammate recorded a moment ago is not recorded again without asking — «دي حركة تانية؟»: «إلغاء» records nothing, «سجّلها برضه» records it', async ({ page }) => {
+  await signIn(page);
+  await page.locator('.sidebar .nav-item[data-page="accounts"]').click();
+  await main(page).locator('[role=tab]', { hasText: 'المصروفات' }).first().click();
+  // «منى حسن» recorded it two minutes ago; my screen has not heard of it
+  const theirs = expense(9201, 'ورق طباعة', 1250); Object.assign(theirs, { created_by: '00000000-0000-4000-8000-000000000004', created_at: new Date(Date.now() - 125000).toISOString() });
+  mock.acc.acc_expenses.push(theirs);
+  const save = async () => {
+    await main(page).getByRole('button', { name: 'إضافة مصروفات', exact: true }).click();
+    await page.locator('[role=menu] [role=menuitem], [role=menu] .opt', { hasText: 'سحب' }).first().click();
+    await modal(page).locator('#f-amount').fill('1250');
+    await modal(page).locator('#f-cat').click(); await page.locator('[role=listbox] [role=option]', { hasText: 'المصروفات' }).first().click();
+    await modal(page).locator('#f-ben').click(); await page.locator('[role=listbox] [role=option]', { hasText: 'آخر' }).first().click();
+    await modal(page).locator('#f-other').fill('مطبعة النيل'); await modal(page).locator('#f-details').fill('ورق طباعة تاني');
+    await modal(page).getByRole('button', { name: 'حفظ' }).click();
+  };
+  await save();
+  const ask = page.locator('.modal[role=dialog]').filter({ hasText: 'دي حركة تانية؟' });
+  await expect(ask).toBeVisible();
+  await expect(ask).toContainText('«منى حسن» سجّل نفس المصروف'); await expect(ask).toContainText('من دقيقتين');
+  expect(mock.accWrites).toEqual([]); // nothing was written
+  await ask.getByRole('button', { name: 'إلغاء — هي نفسها' }).click();
+  await expect(ask).toBeHidden();
+  expect(mock.acc.acc_expenses).toHaveLength(1); expect(mock.accWrites).toEqual([]);
+  await expect(main(page).locator('table').filter({ hasText: 'ورق طباعة تاني' })).toHaveCount(0); // my copy is not left on the screen
+  // it really is a second expense
+  await save();
+  await expect(ask).toBeVisible();
+  await ask.getByRole('button', { name: 'سجّلها برضه' }).click();
+  await expect.poll(() => mock.accWrites.length).toBe(1);
+  expect(mock.accWrites[0]).toMatchObject({ table: 'acc_expenses', op: 'insert', amount: 1250, dup_ok: true });
+  await expect(main(page).locator('table').filter({ hasText: 'ورق طباعة تاني' })).toBeVisible();
+  expect(mock.acc.acc_expenses).toHaveLength(2);
+});

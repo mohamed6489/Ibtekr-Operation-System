@@ -223,3 +223,21 @@ test('load({ quiet }) (IBLive — 0104): a live re-read stays «ready», brings 
   assert.equal(A.state(), 'ready'); assert.equal(A.rows('expenses').length, 2, 'a failed live read keeps what is shown');
   await A.load(); assert.equal(A.state(), 'error', 'a plain load still says it failed');
 });
+
+test('add: the server says the same entry was recorded a moment ago (IBDUP — 0105) → «duplicate» with who and how long ago; nothing kept, nothing logged; dupOk sends it as «دي حركة تانية»', async () => {
+  const { A, stub, logs, events } = load();
+  await A.load(); logs.length = 0; events.length = 0; stub.calls.length = 0;
+  const move = { vendorId: V1, date: '2026-10-22', direction: 'deposit', type: 'أخرى', typeName: 'تصحيح رصيد', amount: 10 };
+  stub.responses.acc_vendor_moves = { data: null, error: { code: 'IBDUP', message: 'duplicate: the same entry was recorded a moment ago', details: '{"by": "منى <b>حسن</b>", "minutes": 3}' } };
+  assert.deepEqual(plain(await A.add('vendorMoves', move)), { ok: false, reason: 'duplicate', dup: { by: 'منى bحسن/b', minutes: 3 } }, 'the name is text, never markup');
+  assert.equal(A.rows('vendorMoves').length, 1, 'the ledger is as it was'); assert.deepEqual(logs, []); assert.deepEqual(events, []);
+  assert.equal(stub.calls.find((c) => c.op === 'insert').args[0].dup_ok, undefined, 'a first save never claims it is a second entry');
+  // details that are not what the server sends: still «duplicate», with nothing to show
+  stub.responses.acc_vendor_moves = { data: null, error: { code: 'IBDUP', message: 'x', details: 'not json' } };
+  assert.deepEqual(plain(await A.add('vendorMoves', move)), { ok: false, reason: 'duplicate', dup: { by: '', minutes: 0 } });
+  // «سجّلها برضه»
+  stub.calls.length = 0; stub.responses.acc_vendor_moves = ok([{ ...MOVE, id: 99, direction: 'deposit', kind: 'أخرى', kind_name: 'تصحيح رصيد', amount: 10 }]);
+  const r = await A.add('vendorMoves', move, { dupOk: true });
+  assert.equal(r.ok, true); assert.equal(stub.calls.find((c) => c.op === 'insert').args[0].dup_ok, true);
+  assert.equal(A.rows('vendorMoves').length, 2);
+});

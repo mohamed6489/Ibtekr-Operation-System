@@ -536,3 +536,126 @@ test('comment 20 — the campaign\'s file / link chips are green pills with beig
   await chip.getByRole('button', { name: /شيل/ }).click();
   await expect(ref.locator('.cw-f')).toHaveCount(0);
 });
+
+// ---------- comments 21–25: the hub — the open count and gathering an order ----------
+const dlg = (page, text) => page.locator('.modal[role=dialog]', { hasText: text });
+async function ordersOpen(page) {
+  await signIn(page); await go(page, '#orders');
+  await expect(page.locator('#orders .card[data-o="181668"]')).toBeVisible();
+  for (const id of await page.locator('#orders #list .card').evaluateAll((cs) => cs.map((c) => c.dataset.o))) { // decision 48: the orders start closed
+    const b = page.locator(`#orders .card[data-o="${id}"] [data-tg]`).first();
+    if ((await b.getAttribute('aria-label')) === 'فتح') await b.click();
+    await expect(page.locator(`#orders .card[data-o="${id}"] [data-tg]`).first()).toHaveAttribute('aria-label', 'طي');
+  }
+}
+const gatherMenu = async (page, id) => { await page.locator(`#orders .card[data-o="${id}"] [data-more="o:${id}"]`).click(); await page.locator('#orders #mpop [data-ma="cons"]').click(); };
+const hubLot = (id, order, item, name, extra) => ({ id, reason: 'تجميع أوردر', status: 'وصل المخزن', sku: 'IBTA4040PAHC000013', name, vendor_id: 'a0000000-0000-4000-8000-000000000001', order_id: order, item_id: item, ref: 'IB-' + order, loc: 'T', mode: 'أمانة', cost: 650, condition: null, condition_note: null, note: null, product_id: null, since: '2026-11-10', closed_at: null, created_by: null, created_at: '2026-11-10T10:00:00Z', ...(extra || {}) });
+const hubIn = (id, lot) => ({ id, lot_id: lot, type: 'in', qty: 1, label: 'دخول — تجميع', reason: 'تجميع أوردر', ref: null, note: null, by: null, at: '2026-11-10T10:00:00Z' });
+
+test('comment 21 — the open count has no fixed «المكان: رف B» / «العرض: الكل» dropdowns and no «العدّ بيتحفظ تلقائي» beside them; the card\'s «بحث» finds a product', async ({ page }) => {
+  mock.inv.inv_lots.push(hubLot('b7000000-0000-4000-8000-0000000000c1', null, null, 'Cushion', { reason: 'متاح للبيع', status: 'متاح', ref: null }), hubLot('b7000000-0000-4000-8000-0000000000c2', null, null, 'Macrame Curtain', { reason: 'متاح للبيع', status: 'متاح', ref: null, sku: 'IBTAMCTOWM200X10014' }));
+  mock.inv.inv_moves.push(hubIn(81, 'b7000000-0000-4000-8000-0000000000c1'), hubIn(82, 'b7000000-0000-4000-8000-0000000000c2'));
+  await signIn(page); await go(page, '#inventory-count');
+  await page.locator('#pg-inventory').getByRole('button', { name: 'جرد جديد' }).first().click();
+  await dlg(page, 'جرد جديد').getByRole('button', { name: 'ابدأ الجرد' }).click();
+  const card = page.locator('#pg-inventory section.card').filter({ hasText: 'CNT-' }).first();
+  await expect(card.locator('table tbody tr')).toHaveCount(2);
+  await expect(card.locator('#cn-l, #cn-v')).toHaveCount(0);
+  await expect(card).not.toContainText('رف B'); await expect(card).not.toContainText('العرض: الكل'); await expect(card.locator('.toolbar')).toHaveCount(0);
+  await card.locator('[data-tq-btn]').click();
+  await card.locator('[data-tq-row] input').fill('Macrame');
+  await expect(card.locator('table tbody tr:visible')).toHaveCount(1);
+  await expect(card.locator('table tbody tr:visible')).toContainText('Macrame Curtain');
+});
+
+test('comments 22 and 25 — «تجميع في المخزن»: the products as a table (photo, product, maker, status now), the place one of the hub\'s normal places, and one product of one maker is enough', async ({ page }) => {
+  const photo = SITE + '/wp-content/uploads/2026/11/cushion.webp';
+  mock.products.filter((p) => p.sku === 'IBTA4040PAHC000013').forEach((p) => { p.image_url = photo; });
+  await page.route(SITE + '/wp-content/**', (r) => r.fulfill({ status: 200, contentType: 'image/png', body: PNG }));
+  await ordersOpen(page);
+  await gatherMenu(page, 181668);
+  const m = dlg(page, 'تجميع في المخزن — IB-181668');
+  await expect(m.locator('table.cons-pick thead th')).toHaveText(['', 'الصورة', 'المنتج', 'المبتكر', 'الحالة الحالية']);
+  const rows = m.locator('table.cons-pick tbody tr'); await expect(rows).toHaveCount(2);
+  await expect(rows.nth(0).locator('.thumb img')).toHaveAttribute('src', photo);
+  await expect(rows.nth(0)).toContainText('Cushion'); await expect(rows.nth(0)).toContainText('#181669 × 2'); await expect(rows.nth(0)).toContainText('Art Craft');
+  await expect(rows.nth(1)).toContainText('Macrame Curtain'); await expect(rows.nth(1)).toContainText('Antikiano'); await expect(rows.nth(1).locator('td').nth(4)).toHaveText('مؤكد');
+  // the place: the hub's three places, «T — تجميع» first
+  await expect(m.locator('#zone')).toHaveText('T — تجميع');
+  await m.locator('#zone').click();
+  const opts = page.locator('[role="listbox"]:visible [role="option"]'); // (the orders page has <select>s of its own)
+  await expect(opts).toHaveText(['T — تجميع', 'R — مرتجعات', 'P — تصوير']);
+  await opts.filter({ hasText: 'T — تجميع' }).click();
+  // nothing ticked is refused; one product is enough
+  await m.locator('[data-cons-line="5001"]').click(); await m.locator('[data-cons-line="5002"]').click();
+  await m.getByRole('button', { name: 'ابدأ التجميع' }).click();
+  await expect(m.getByRole('alert')).toHaveText('اختار منتج واحد على الأقل');
+  await m.locator('[data-cons-line="5001"]').click();
+  await m.getByRole('button', { name: 'ابدأ التجميع' }).click();
+  await expect.poll(() => mock.inv.inv_consolidation_items.map((x) => x.item_id)).toEqual([5001]);
+  expect(mock.inv.inv_consolidations[0]).toMatchObject({ order_id: 181668, zone: 'T', status: 'open' });
+  // an order of one maker (one product) is gathered the same way
+  await gatherMenu(page, 180686);
+  const one = dlg(page, 'تجميع في المخزن — IB-180686');
+  await expect(one.locator('table.cons-pick tbody tr')).toHaveCount(1);
+  await expect(one).toContainText('من المبتكر للمخزن');
+  await one.getByRole('button', { name: 'ابدأ التجميع' }).click();
+  await expect.poll(() => mock.inv.inv_consolidation_items.map((x) => x.item_id).sort()).toEqual([5001, 5003]);
+  await expect(page.locator('#orders .card[data-o="180686"] .consbar')).toContainText('0 من 1 وصلوا');
+});
+
+test('comment 24 — a product set «جاهز للشحن من المبتكر للمخزن» asks «هتجمّع الأوردر ده في المخزن؟»: «لأ» leaves the order, «أيوه» opens the gather popup; an order already gathered takes the product in without asking', async ({ page }) => {
+  await ordersOpen(page);
+  const READY = 'جاهز للشحن من المبتكر للمخزن';
+  await page.locator('#orders select[data-ss="5001"]').selectOption(READY);
+  const ask = page.locator('.modal[role=dialog]').filter({ has: page.locator('[data-cons-ask="181668"]') });
+  await expect(ask).toContainText('هتجمّع الأوردر ده في المخزن؟');
+  await expect.poll(() => mock.patches.find((p) => p.id === 5001)).toMatchObject({ table: 'order_items', status: READY }); // the status is saved whatever the answer
+  await ask.getByRole('button', { name: 'لأ', exact: true }).click();
+  await expect(ask).toHaveCount(0); await expect(page.locator('table.cons-pick')).toHaveCount(0);
+  expect(mock.inv.inv_consolidations).toHaveLength(0);
+  // the other product → «أيوه» → the popup, the products ticked
+  await page.locator('#orders select[data-ss="5002"]').selectOption(READY);
+  await ask.getByRole('button', { name: 'أيوه، جمّعه' }).click();
+  const m = dlg(page, 'المنتجات اللي هتتجمع');
+  await expect(m.locator('[data-cons-line="5002"]')).toHaveAttribute('aria-checked', 'true');
+  await m.locator('[data-cons-line="5001"]').click(); // gather the second only
+  await m.getByRole('button', { name: 'ابدأ التجميع' }).click();
+  await expect.poll(() => mock.inv.inv_consolidation_items.map((x) => x.item_id)).toEqual([5002]);
+  await expect(page.locator('#orders .card[data-o="181668"] .consbar')).toContainText('0 من 1 وصلوا');
+  // the order is gathered now: the first product set ready again joins it — no question
+  await page.locator('#orders select[data-ss="5001"]').selectOption('مؤكد');
+  await page.locator('#orders select[data-ss="5001"]').selectOption(READY);
+  await expect.poll(() => mock.inv.inv_consolidation_items.map((x) => x.item_id).sort()).toEqual([5001, 5002]);
+  await expect(ask).toHaveCount(0);
+  await expect(page.locator('#orders .card[data-o="181668"] .consbar')).toContainText('0 من 2 وصلوا');
+});
+
+test('comment 23 — «تجميع أوردرات» lists every order gathered in the hub: a product received «وصل المخزن» as «تجميع أوردر» opens the order\'s consolidation, and pieces received before with no consolidation are listed — «إلغاء التجميع» records it', async ({ page }) => {
+  const L = 'b7000000-0000-4000-8000-0000000000d1';
+  mock.inv.inv_lots.push(hubLot(L, 180686, 5003, 'Cushion')); mock.inv.inv_moves.push(hubIn(71, L));
+  await ordersOpen(page);
+  // the order whose piece is in the hub is gathered on the orders page too (no row yet)
+  await expect(page.locator('#orders .card[data-o="180686"] .consbar')).toContainText('1 من 1');
+  // «وصل المخزن» on a product of an order that is not gathered, kept as «تجميع أوردر»
+  await page.locator('#orders select[data-ss="5001"]').selectOption('وصل المخزن');
+  const a = dlg(page, 'وصل المخزن — فرعي #181669');
+  await a.getByRole('radio', { name: /^تجميع أوردر/ }).click();
+  await a.getByRole('button', { name: 'تأكيد' }).click();
+  await expect.poll(() => mock.inv.inv_consolidations.filter((c) => c.order_id === 181668 && c.status === 'open').length).toBe(1);
+  await expect.poll(() => mock.inv.inv_consolidation_items.map((x) => x.item_id).sort()).toEqual([5001, 5002]); // the order's open products
+  // the hub's tab: both orders
+  await go(page, '#inventory-consolidate');
+  const cards = page.locator('#pg-inventory section.card.cons');
+  await expect(cards).toHaveCount(2);
+  const c1 = cards.filter({ hasText: 'IB-181668' }), c2 = cards.filter({ hasText: 'IB-180686' });
+  await expect(c1).toContainText('1 من 2'); await expect(c1).toContainText('2 مبتكرين');
+  await expect(c2).toContainText('مبتكر واحد'); await expect(c2).toContainText('1 من 1 وصلوا — جاهز يطلع كامل');
+  // «إلغاء التجميع» on the one with no row: the row is written, then closed
+  await c2.getByRole('button', { name: 'إجراءات' }).click();
+  await page.getByRole('menuitem', { name: 'إلغاء التجميع' }).click();
+  await dlg(page, 'كل أوردر فرعي هيتشحن لوحده').getByRole('button', { name: 'إلغاء التجميع' }).click();
+  await expect.poll(() => mock.inv.inv_consolidations.find((c) => c.order_id === 180686)).toMatchObject({ status: 'cancelled' });
+  await page.evaluate(() => window.IBInventory.load());
+  await expect(cards).toHaveCount(1); await expect(cards).toContainText('IB-181668'); // a cancelled gathering is not listed again
+});

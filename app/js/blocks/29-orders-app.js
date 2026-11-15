@@ -389,7 +389,9 @@ function orderStatus(o,v,done){var bv=BASE(v);if(bv==='مكتمل'&&o.st!==bv&&w
 function subStatus(s,v){var o=OM[s.oid];
  if(v==='وصل المخزن'&&s.ss!==v&&window.IBOrdersOps&&window.IBOrdersOps.arrivalPopup){draw(1);window.IBOrdersOps.arrivalPopup({order:o.id,sid:s.sid,itemId:s.itemId,prod:s.prod,sku:s.sku,vendor:s.vendor,qty:s.qty,tot:s.tot},function(r){var b=snapS(s),old=s.ss;s.ss=v;s.store=r;if(window.IbtekrApp&&window.IbtekrApp.logEvent)window.IbtekrApp.logEvent({action:'suborder.arrived',newValue:'#'+s.sid+' (IB-'+o.id+') · '+(old||'—')+' ← '+v+' · سبب التخزين: '+r.reason});window.IBOrdersOps.subChanged(o.id,s.sid,v,s,{stockAdded:true});draw(1);subW(s,b)});return}
  if(RET.indexOf(v)>=0&&window.IBOrdersOps){draw(1);window.IBOrdersOps.returnPopup({order:o.id,sid:s.sid,itemId:s.itemId,qty:s.qty,prod:s.prod,sku:s.sku,vendor:s.vendor,tot:s.tot,status:v,orderReason:o.st==='استرجاع'&&o.ret&&o.ret.reason?o.ret.reason:'',orderDate:o.st==='استرجاع'&&o.ret&&o.ret.date?o.ret.date:''},function(r){var b=snapS(s),old=s.ss;s.ss=v;s.ret=r;if(window.IbtekrApp&&window.IbtekrApp.logEvent)window.IbtekrApp.logEvent({action:'suborder.return',newValue:'#'+s.sid+' (IB-'+o.id+') · '+(old||'—')+' ← '+v+' · '+r.reason});draw(1);subW(s,b)});return}
- var b=snapS(s);shipReady(o,s,v);s.ss=v;if(window.IBOrdersOps)window.IBOrdersOps.subChanged(o.id,s.sid,v,s);draw(1);subW(s,b)}
+ var b=snapS(s),was=s.ss;shipReady(o,s,v);s.ss=v;if(window.IBOrdersOps)window.IBOrdersOps.subChanged(o.id,s.sid,v,s);draw(1);subW(s,b);
+ // comments decision 24 (the owner 15 Nov): a product set «جاهز للشحن من المبتكر للمخزن» → «هتجمّع الأوردر ده في المخزن؟» (block 22)
+ if(v==='جاهز للشحن من المبتكر للمخزن'&&was!==v&&window.IBOrdersOps&&window.IBOrdersOps.askConsolidate)window.IBOrdersOps.askConsolidate(orderSnap(o),{sid:s.sid,itemId:s.itemId,vendor:s.vendor,prod:s.prod,ss:v})}
 window.OrdersSetSub=function(sid,v){if(v!=null)O.forEach(function(o){o.subs.forEach(function(s){if(String(s.sid)===String(sid)){var b=snapS(s);s.ss=v;subW(s,b)}})});draw(1)};
 function allSub(n){var r;O.forEach(function(o){o.subs.forEach(function(s){if(s.n==n)r=s})});return r}
 var MP=null; // open "more" menu {key, btn}
@@ -772,7 +774,9 @@ function editSub(n){var s=allSub(n);if(!s)return;var o=OM[s.oid];if(!o)return;
   function finish(siteNote){var changes=[];var apply=function(k,v,lab){if(String(s[k]||'')!==String(v||'')){changes.push(lab+': «'+(s[k]||'—')+'» ← «'+(v||'—')+'»');s[k]=v}};
    var sb=snapS(s),isRet=ssMoved&&(RET.indexOf(nss)>=0||nss==='وصل المخزن');if(ssMoved&&!isRet)apply('ss',nss,'حالة المنتج');apply('exp',ex?parseTyped(ex):'','تاريخ تبليغ المبتكر');apply('cm',g('cm').trim(),'الملاحظة');
    if(changes.length&&window.IbtekrApp&&window.IbtekrApp.logEvent)window.IbtekrApp.logEvent({action:'suborder.edit',newValue:'#'+s.sid+' (IB-'+o.id+') · '+changes.join(' · ')});
-   close();S.open[o.id]=true;draw(1);subW(s,sb);if(isRet)subStatus(s,nss);var k=changes.length+(siteNote?1:0);toast(siteNote?siteNote+(changes.length?' · واتحفظ '+changes.length+' تعديل':''):k?'تم حفظ '+k+' تعديل':'مفيش تعديلات')}
+   close();S.open[o.id]=true;draw(1);subW(s,sb);if(isRet)subStatus(s,nss);
+   if(ssMoved&&!isRet&&nss==='جاهز للشحن من المبتكر للمخزن'&&window.IBOrdersOps&&window.IBOrdersOps.askConsolidate)window.IBOrdersOps.askConsolidate(orderSnap(o),{sid:s.sid,itemId:s.itemId,vendor:s.vendor,prod:s.prod,ss:nss}); // comments decision 24
+   var k=changes.length+(siteNote?1:0);toast(siteNote?siteNote+(changes.length?' · واتحفظ '+changes.length+' تعديل':''):k?'تم حفظ '+k+' تعديل':'مفيش تعديلات')}
   if(!SL.length||nsite==null||nsite===s.raw){finish('');return}
   busy(ok,1,'بيتغيّر على الموقع…');
   ws.setSubSiteStatus(o.id,s.sid,nsite).then(function(r){

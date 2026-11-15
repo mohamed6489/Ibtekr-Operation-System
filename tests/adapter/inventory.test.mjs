@@ -53,6 +53,33 @@ test('load: the lots, moves (newest first, Cairo time), returns, the open consol
   assert(events.includes('ib:inventory'));
 });
 
+// comments decision 23 (the owner 15 Nov): «تجميع أوردر» pieces in the hub for an order with no open consolidation
+test('an order whose «تجميع أوردر» pieces are on hand with no open consolidation is listed too (derived, no id): its open lines, the arrived one «وصل المخزن»; not after the team cancelled its consolidation, not a closed order, not a piece that left', async () => {
+  const L4 = 'b0000000-0000-4000-8000-000000000004', L5 = 'b0000000-0000-4000-8000-000000000005', L6 = 'b0000000-0000-4000-8000-000000000006', L7 = 'b0000000-0000-4000-8000-000000000007';
+  const lot = (id, order, item, since) => ({ id, reason: 'تجميع أوردر', status: 'وصل المخزن', sku: 'IBT-X', name: 'قطعة ' + item, vendor_id: V1, order_id: order, item_id: item, ref: 'IB-' + order, loc: 'T', mode: 'أمانة', cost: '100', since, created_by: ME });
+  const mv = (id, lot_id, type) => ({ id, lot_id, type, qty: 1, label: '', reason: 'تجميع أوردر', ref: null, note: null, by: ME, at: '2026-11-15T10:00:00Z' });
+  const items = [{ id: 5001, order_id: 180662, sub_order_id: 77, name: 'سلة كروشيه', sku: 'IBT-CB', qty: 1, total: 260, vendor_id: V1, status: 'وصل المخزن' }, { id: 5003, order_id: 180662, name: 'فازة', sku: 'IBT-VZ', qty: 1, total: 300, vendor_id: V1, status: 'قيد التنفيذ' },
+    { id: 6001, order_id: 190001, name: 'قطعة 6001', vendor_id: V1, status: 'قيد التنفيذ' }, { id: 6002, order_id: 190001, name: 'لسه عند المبتكر', vendor_id: V1, status: 'قيد التنفيذ' },
+    { id: 6003, order_id: 190001, name: 'اتشالت من الأوردر', vendor_id: V1, status: 'قيد التنفيذ', removed: true }, { id: 6004, order_id: 190001, name: 'اتشحنت للعميل', vendor_id: V1, status: 'تم الشحن للعميل' },
+    { id: 6101, order_id: 190002, name: 'قطعة 6101', vendor_id: V1, status: 'وصل المخزن' }, { id: 6201, order_id: 190003, name: 'قطعة 6201', vendor_id: V1, status: 'وصل المخزن' }, { id: 6301, order_id: 190004, name: 'قطعة 6301', vendor_id: V1, status: 'تم الشحن للعميل' }];
+  const { I, S, stub } = load({ responses: {
+    inv_lots: ok(LOTS.concat([lot(L4, 190001, 6001, '2026-11-15'), lot(L5, 190002, 6101, '2026-11-14'), lot(L6, 190003, 6201, '2026-11-14'), lot(L7, 190004, 6301, '2026-11-10')])),
+    inv_moves: ok(MOVES.concat([mv(10, L4, 'in'), mv(11, L5, 'in'), mv(12, L6, 'in'), mv(13, L7, 'in'), mv(14, L7, 'out')])),
+    // the open list (eq status open) and the past of the loose orders (in status …) are two reads of the same table
+    inv_consolidations: (calls) => (calls.some((c) => c.op === 'eq' && c.args[0] === 'status') ? ok([{ id: C1, order_id: 180662, zone: 'T', status: 'open', since: '2026-11-01', created_by: ME }])
+      : ok([{ order_id: 190002, status: 'shipped', created_at: '2026-11-01T10:00:00Z' }, { order_id: 190002, status: 'cancelled', created_at: '2026-11-14T12:00:00Z' }, { order_id: 190001, status: 'partial', created_at: '2026-11-02T10:00:00Z' }])),
+    order_items: (calls) => { const f = calls.find((c) => c.op === 'in'); const ids = f.args[1].map(Number); return ok(items.filter((i) => ids.includes(Number(f.args[0] === 'order_id' ? i.order_id : i.id)))); },
+    orders_v: ok([{ id: 180662, customer_name: 'منى', status: 'جاري التنفيذ' }, { id: 190001, customer_name: 'هدى', status: 'جاري التنفيذ' }, { id: 190002, customer_name: 'سما', status: 'جاري التنفيذ' }, { id: 190003, customer_name: 'نور', status: 'ملغي' }, { id: 190004, customer_name: 'ريم', status: 'جاري التنفيذ' }]) } });
+  eq((await I.load()).ok, true);
+  eq(S.consolidations.map((c) => [c.id, c.order, !!c.derived]), [[C1, '180662', false], [null, '190001', true]], '190002: the team cancelled its last consolidation · 190003: the order is cancelled · 190004: the piece left the hub');
+  const d = S.consolidations[1];
+  eq([d.customer, d.since, d.zone, d.by], ['هدى', '2026-11-15', 'T', '']);
+  eq(d.subs, [['190001', 'HANDS', 'وصل المخزن', 'قطعة 6001', '6001'], ['190001', 'HANDS', 'قيد التنفيذ', 'لسه عند المبتكر', '6002']], 'the line in the hub has arrived; the removed line and the one shipped to the customer are not gathered');
+  // the past of the loose orders only, and their lines by order
+  const past = opsOf(stub.calls, 'inv_consolidations').filter((c) => c.op === 'in');
+  eq(past.map((c) => c.args), [['order_id', [190001, 190002, 190003]], ['status', ['shipped', 'partial', 'cancelled']]]);
+});
+
 test('without inventory.view nothing is read and the hub is empty', async () => {
   const { I, S, stub } = load({ perms: {} });
   eq((await I.load()).ok, true);

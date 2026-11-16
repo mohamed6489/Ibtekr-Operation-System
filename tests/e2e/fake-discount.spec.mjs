@@ -51,9 +51,21 @@ test('settings › إعدادات المبتكرين: the default tiers — the 
   await expect(f.locator('[data-fk-err="to:2"]')).toHaveText('اكتب آخر سعر في الشريحة');
   await f.locator('[data-fk="to:2"]').pressSequentially('900'); // the field is drawn again on the first key — the typing goes on
   await expect(f.locator('[data-fk="to:2"]')).toHaveValue('900');
+  // the owner 16 Nov: «لحد» lower than the tier's own «من» is said under the field while typed — and «حفظ» stops on it
+  await expect(f.locator('[data-fk-err="to:2"]')).toHaveText('لازم يبقى أكبر من 1,001');
+  await expect(f.locator('[data-fk="to:2"]')).toHaveAttribute('aria-invalid', 'true');
   await f.getByRole('button', { name: 'حفظ' }).click();
-  await expect(f.locator('[data-fk-err="to:2"]')).toHaveText('لازم يبقى أكبر من 1,000');
+  await expect(f).toBeVisible();
+  await expect(f.locator('[data-fk-err="to:2"]')).toHaveText('لازم يبقى أكبر من 1,001');
   await f.locator('[data-fk="to:2"]').fill('2000');
+  await expect(f.locator('[data-fk-err="to:2"]')).toBeHidden();
+  // a change up the list is checked down it: tier 1 raised over tier 2's «لحد» → tier 2 says so at once
+  await f.locator('[data-fk="to:1"]').fill('2500');
+  await expect(f.locator('[data-fk-err="to:2"]')).toHaveText('لازم يبقى أكبر من 2,501');
+  await f.locator('[data-fk="to:1"]').fill('1000');
+  await expect(f.locator('[data-fk-err="to:2"]')).toBeHidden();
+  // one table: the header once, a row per tier
+  await expect(f.locator('.fk-head')).toHaveCount(1);
   await expect(f.locator('[data-fk-from="3"]')).toHaveText('2,001');
   await expect(f.locator('[data-fk-open-text]')).toHaveText('فيما فوق');
   // «جرّب بسعر بيع»

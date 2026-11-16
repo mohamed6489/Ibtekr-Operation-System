@@ -29,7 +29,7 @@ export function settingsState(opts = {}, roles) {
 
 export function settingsRoute(c) {
   const { method, path, url, hd, u, hasPerm, isAdmin, json, mock } = c; const S = mock.st; if (!S) return null;
-  const rpc = /^\/rest\/v1\/rpc\/(quick_actions_list|quick_action_save|quick_action_delete|quick_action_order|role_level_perms_set|member_level_set|role_perms_set|role_create|role_update|role_delete|role_manager_set|member_manager_set|member_role_set|member_roles_set|member_perms_set|member_status_set|my_sessions|my_session_revoke|settings_public)$/.exec(path);
+  const rpc = /^\/rest\/v1\/rpc\/(quick_actions_list|quick_action_save|quick_action_delete|quick_action_order|role_level_perms_set|member_level_set|role_perms_set|role_create|role_update|role_delete|role_manager_set|member_manager_set|member_can_edit|member_info_set|member_job_set|member_role_set|member_roles_set|member_perms_set|member_status_set|my_sessions|my_session_revoke|settings_public)$/.exec(path);
   const fn = method === 'POST' && (path === '/functions/v1/settings-admin' || path === '/functions/v1/notify');
   const docs = path === '/rest/v1/company_docs'; const sto = /^\/storage\/v1\/object\/(sign\/)?(company-docs|settings)\/(.+)$/.exec(path);
   const act = method === 'GET' && path === '/rest/v1/activity_log' && [...url.searchParams].some(([k, v]) => k === 'action' && v.startsWith('like.') || (k === 'at' && /^(lte|gte)\./.test(v))) || (method === 'GET' && path === '/rest/v1/activity_log' && (hd.range || url.searchParams.has('offset')));
@@ -96,7 +96,38 @@ export function settingsRoute(c) {
       (body.p_ids || []).forEach((id, i) => { const q = S.quick.find((x) => x.id === id); if (q && qEdit(q.scope, q.role_id, q.owner)) q.sort = i; });
       S.writes.push({ table: 'quick_actions', op: 'order', ids: (body.p_ids || []).slice() }); return json(204, null);
     }
-    if (!admin) return refuse(401, '42501', 'admin only');
+    // 0111 (the owner 16 Nov): the admin or the member's direct manager edits the member's data and access — a manager never on an
+    // admin, never himself, and nothing above his own (the effective permission after the change, as member_perms_set judges it)
+    const RK = { F: 2, P: 1 }; const rk = (v) => RK[v] || 0;
+    const target = mock.profiles.find((x) => x.id === body.p_member) || null;
+    const canEdit = !!target && active && target.id !== u.id && (admin || (target.manager_id === u.id && target.role_id !== 'admin'));
+    const within = (perms) => admin || Object.entries(perms || {}).every(([k, v]) => rk(v) <= rk(hasPerm(u, k)));
+    const lvlSet = (r, lv) => (lv !== 'employee' && r && r.level_perms && r.level_perms[lv]) || (r && r.permissions) || {};
+    if (name === 'member_can_edit') return json(200, canEdit);
+    if (name === 'member_info_set') {
+      if (!canEdit) return refuse(401, '42501', 'not allowed'); const p = target; const changed = [];
+      const nm = body.p_name == null ? p.name : String(body.p_name).trim().replace(/\s+/g, ' '); if (nm.length < 2 || nm.length > 80 || /[<>]/.test(nm)) return refuse(400, '22023', 'invalid: name');
+      const ph = body.p_phone == null ? p.phone : String(body.p_phone).trim().replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)); if (ph !== p.phone && !/^01[0-9]{9}$/.test(ph)) return refuse(400, '22023', 'invalid: phone');
+      if (ph !== p.phone && mock.profiles.some((x) => x.id !== p.id && x.phone === ph)) return refuse(409, '23505', 'taken: phone');
+      const tt = body.p_title == null ? p.title || null : String(body.p_title).trim() || null; if (tt && (tt.length > 80 || /[<>]/.test(tt))) return refuse(400, '22023', 'invalid: title');
+      if (nm !== p.name) changed.push('name'); if (ph !== p.phone) changed.push('phone'); if (tt !== (p.title || null)) changed.push('title');
+      Object.assign(p, { name: nm, phone: ph, title: tt }); if (changed.length) { S.writes.push({ table: 'profiles', op: 'info', id: p.id, changed }); logRow('hr.member.info', 'profile', p.id, null, changed); }
+      return json(200, { changed });
+    }
+    if (name === 'member_job_set') {
+      if (!(canEdit || (target && target.id !== u.id && active && hasPerm(u, 'hr.edit') === 'F'))) return refuse(401, '42501', 'not allowed');
+      const H = mock.hr; const row = H && H.members.find((x) => x.member_id === target.id); if (row) { if (body.p_shift_start) row.shift_start = body.p_shift_start; if (body.p_shift_end) row.shift_end = body.p_shift_end; if (body.p_hire) row.hire_date = body.p_hire; if (body.p_leave != null) row.leave_days = Number(body.p_leave); }
+      S.writes.push({ table: 'hr_members', op: 'job', id: target.id }); logRow('hr.member.job', 'profile', target.id, null, null); return json(204, null);
+    }
+    if (!admin && canEdit && ['member_role_set', 'member_roles_set', 'member_level_set', 'member_perms_set', 'member_status_set'].includes(name)) {
+      const r0 = S.roles.find((r) => r.id === target.role_id);
+      if (name === 'member_role_set') { if (body.p_role === 'admin') return refuse(400, '22023', 'invalid: admin'); if (!within(lvlSet(S.roles.find((r) => r.id === body.p_role), target.level || 'employee'))) return refuse(400, '22023', 'invalid: above'); }
+      if (name === 'member_level_set' && !within(lvlSet(r0, body.p_level))) return refuse(400, '22023', 'invalid: above');
+      if (name === 'member_roles_set' && (body.p_roles || []).filter((x) => !(target.extra_roles || []).includes(x)).some((x) => !within((S.roles.find((r) => r.id === x) || {}).permissions))) return refuse(400, '22023', 'invalid: above');
+      if (name === 'member_perms_set') { const keys = [...new Set(Object.keys(target.custom_perms || {}).concat(Object.keys(body.p_perms || {})))]; const before = Object.fromEntries(keys.map((k) => [k, hasPerm(target, k)])); const old = target.custom_perms; target.custom_perms = { ...(body.p_perms || {}) };
+        const bad = !within(body.p_perms) || keys.some((k) => rk(hasPerm(target, k)) > rk(before[k]) && rk(hasPerm(target, k)) > rk(hasPerm(u, k))); target.custom_perms = old; if (bad) return refuse(400, '22023', 'invalid: above'); }
+    } else if (!admin && ['member_role_set', 'member_roles_set', 'member_level_set', 'member_perms_set', 'member_status_set'].includes(name)) return refuse(401, '42501', 'not allowed');
+    if (!admin && !['member_role_set', 'member_roles_set', 'member_level_set', 'member_perms_set', 'member_status_set'].includes(name)) return refuse(401, '42501', 'admin only');
     const role = (id) => S.roles.find((r) => r.id === id);
     // 0092: a role's manager reaches its members whose manager was not set by hand
     if (name === 'role_manager_set') {
@@ -178,7 +209,10 @@ export function settingsRoute(c) {
   // ---------------------------------------------------------------- the Edge Functions
   if (fn) {
     const action = String(body.action || ''); S.calls.push({ fn: path.split('/').pop(), action, body: { ...body, fields: body.fields ? Object.keys(body.fields) : undefined } });
-    if (!admin) return json(401, { error: 'unauthorized' });
+    // 0111: member_status is the admin's or the member's direct manager's (never on an admin, never himself)
+    const tg = action === 'member_status' ? mock.profiles.find((x) => x.id === body.member_id) : null;
+    const mgrOk = !!tg && active && tg.id !== u.id && tg.manager_id === u.id && tg.role_id !== 'admin';
+    if (!admin && !mgrOk) return json(401, { error: 'unauthorized' });
     if (path === '/functions/v1/notify') {
       if (action === 'status') return json(200, { result: 'ok', last: S.notifyRuns.at(-1) || null, email: { ready: !!S.vault.resend, from: 'alerts@ibtekr.club' }, whatsapp: { ready: false, template: 'ibtekr_alert' }, sources: SOURCES.map((s) => s.key) });
       if (action === 'tick') { const run = { at: now, items: 3, alerts: body.dry ? 2 : 2, digests: 0, external: 0, resolved: 0, by: { 'customers.late': 2, 'team.req': 1 }, sent: { email: 0, whatsapp: 0, failed: 0, not_linked: 0 } }; if (!body.dry) S.notifyRuns.push(run); return json(200, { result: body.dry ? 'dry' : 'ok', ...run, ...(body.dry ? { preview: [] } : {}) }); }

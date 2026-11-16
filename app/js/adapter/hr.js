@@ -728,7 +728,7 @@
     return out;
   }
   // decision 14: the set-your-password mail again (the admin; an active member who is not me)
-  async function memberInvite(member) { if (!can().admin) return no('forbidden'); const uid = uidOf(member); if (!uid) return no('invalid'); const r = await invoke({ action: 'member_invite', member_id: uid });
+  async function memberInvite(member) { if (!can().admin && !canEditMember(member)) return no('forbidden'); const uid = uidOf(member); if (!uid) return no('invalid'); const r = await invoke({ action: 'member_invite', member_id: uid });
     if (r.ok) return { ok: true, mailed: true };
     const code = r.code || ''; return code === 'not_configured' || r.status === 503 ? { ok: false, reason: 'invalid', message: 'الإيميل مش متظبط — اربط Resend من الإعدادات › الربط والمفاتيح، أو اعمل باسورد مؤقت' } : code === 'inactive' ? { ok: false, reason: 'invalid', message: 'العضو موقوف — فعّله الأول' } : code === 'mail_failed' ? { ok: false, reason: 'network', message: 'الإيميل ماتبعتش — جرّب تاني أو اعمل باسورد مؤقت' } : r; }
   // decision 15: a member deleted for good (the admin; not me) — team-admin → member_delete (0066): a trace anywhere refuses it
@@ -745,6 +745,12 @@
   // the member's HR data (hr.edit F) and pay (sensitive.salaries F)
   async function memberUpdate(member, f) {
     const cl = c(); const uid = uidOf(member); if (!cl || !uid) return no('network');
+    // 0111: the direct manager (no hr.edit) writes the job through member_job_set — the notes stay hr.edit's
+    if (!can().edit) {
+      const { error } = await rpc('member_job_set', { p_member: uid, p_shift_start: f.shift ? f.shift[0] : null, p_shift_end: f.shift ? f.shift[1] : null, p_hire: f.hire || null, p_leave: f.leave === undefined || f.leave === '' ? null : Number(f.leave) });
+      if (error) return fail(error);
+      await load(); return { ok: true }; // the server logs hr.member.job
+    }
     const row = { member_id: uid };
     if (f.shift) { row.shift_start = f.shift[0]; row.shift_end = f.shift[1]; }
     if (f.hire !== undefined) row.hire_date = f.hire || null;
@@ -753,6 +759,32 @@
     if (f.notes !== undefined) { const n = await write(cl.rpc('hr_member_note_set', { p_member: uid, p_notes: f.notes ? clean(f.notes, 500) : null })); if (n.error) return fail(n.error); }
     if (Object.keys(row).length > 1) { const r = await write(cl.from('hr_members').upsert(row, { onConflict: 'member_id' })); if (r.error) return fail(r.error); }
     return after('hr.member.update', (byUid(uid) || {}).id + ' · ' + Object.keys(f).join(', '), uid);
+  }
+  // 0111 (the owner 16 Nov — «المدير المباشر او الادمن يقدر يعدل اي بيانات لاي فرد في الفريق و الصلاحيات»): the admin, or the
+  // member's direct manager — never oneself, never an admin unless I am one (the server's member_can_edit is the judge)
+  function canEditMember(member) {
+    const mine = me(); const uid = uidOf(member); const t = uid ? byUid(uid) : null; if (!mine || !t) return false;
+    if (t.uid === mine.id || t.id === mine.member_code) return false;
+    if (can().admin) return true;
+    return !!t.manager && t.manager === mine.member_code && t.roleId !== 'admin';
+  }
+  const INFO_MSG = { phone: 'رقم موبايل مصري صحيح (11 رقم يبدأ بـ 01)', name: 'اكتب الاسم (من 2 لـ 80 حرف)', title: 'المسمى لحد 80 حرف', email: 'إيميل صحيح' };
+  // the name, the mobile and the job title (member_info_set) — null = unchanged; a taken mobile → exists
+  async function memberInfoSet(member, f) {
+    const uid = uidOf(member); if (!uid) return no('invalid');
+    const { data: d, error } = await rpc('member_info_set', { p_member: uid, p_name: f.name == null ? null : String(f.name), p_phone: f.phone == null ? null : String(f.phone), p_title: f.title == null ? null : String(f.title) });
+    if (error) { if (String(error.code) === '23505') return { ok: false, reason: 'exists', field: 'phone', message: 'الرقم ده مسجّل لعضو تاني' }; const r = fail(error); if (r.field && INFO_MSG[r.field]) r.message = INFO_MSG[r.field]; return r; }
+    if (window.IBDirectory && window.IBDirectory.refresh) await quiet(() => window.IBDirectory.refresh());
+    await load(); return { ok: true, changed: Array.isArray(d && d.changed) ? d.changed : [] }; // the server logs hr.member.info (field names)
+  }
+  // the login email (team-admin member_email — confirmed at once; the profile follows)
+  async function memberEmailSet(member, email) {
+    const uid = uidOf(member); if (!uid) return no('invalid'); const e = String(email || '').trim().toLowerCase();
+    if (!/^[^\s@<>"']{1,64}@[^\s@<>"']{1,180}\.[a-z]{2,24}$/i.test(e)) return { ok: false, reason: 'invalid', field: 'email', message: INFO_MSG.email };
+    const r = await invoke({ action: 'member_email', member_id: uid, email: e });
+    if (!r.ok) return r.reason === 'exists' ? { ok: false, reason: 'exists', field: 'email', message: 'الإيميل ده مستخدم لحساب تاني' } : r;
+    if (window.IBDirectory && window.IBDirectory.refresh) await quiet(() => window.IBDirectory.refresh());
+    return { ok: true, same: r.body && r.body.same === true };
   }
   async function payUpdate(member, f) {
     const cl = c(); const uid = uidOf(member); if (!cl || !uid) return no('network');
@@ -942,7 +974,7 @@
     shiftNow, myShift, clockIn, clockOut, overtimeBegin, overtimeRequest, setAttendance, endShiftFor, fixOut, request, decide, cancel, overtimeDecide, rateMonth, saveKpis,
     payrollCalc, payrollLines, sheetLines, sheetTotals, slips, transfer, payMember, advanceGive, otAdjust, payDayOf, evaluate, evalTotal, quarterEval, monthTasks, noteAdd, notesOf, NOTE_KINDS, cairoIso, bank, bankSet, bankReveal, payrollOpen, payrollStep, payrollPay, addAdjustment, voidAdjustment, addExtra, decideExtra, meetingCreate, meetingUpdate,
     holidayAdd, holidayConfirm, holidayDelete, leaveTypeAdd, bonusRuleAdd, bonusRuleToggle, otPeriodAdd, otPeriodDelete, saveSettings, roleManagerSet, memberManagerSet, roleManager,
-    memberCreate, memberPassword, memberInvite, memberDelete, memberUpdate, payUpdate, upload, addDocument, voidDocument, fileUrl, checkFile, ACCOUNTS, DOC_KINDS, DEFAULTS, MIME, MAX_BYTES,
+    memberCreate, memberPassword, memberInvite, memberDelete, memberUpdate, payUpdate, canEditMember, memberInfoSet, memberEmailSet, upload, addDocument, voidDocument, fileUrl, checkFile, ACCOUNTS, DOC_KINDS, DEFAULTS, MIME, MAX_BYTES,
     tasksOf, reviewsFor, canTask, canDeleteTask, taskAdd, taskSet, taskDelete, taskReview, loadTasks, people: () => data.people.slice(), TASK_STATUSES, loadLog, logNow, logLabel,
     _test: { parts, minOf, atLabel, meetingLabel, shape, shapeTasks, raw, safeName, fail, uidOf } };
 })();

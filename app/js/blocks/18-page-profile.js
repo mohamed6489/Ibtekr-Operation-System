@@ -140,15 +140,94 @@
   }
   // the beige cards when another member's file is open: each by what the viewer may do (the server decides again)
   function adminCards(m) {
-    const c = can(); const kv = (k, v) => [k, v];
-    const job = c.salaries || c.edit ? h('section', { class: 'card admin' }, h('div', { class: 'sec-h' }, h('h2', { class: 't-h5' }, 'الوظيفة والمرتب'), Button({ size: 'sm', label: 'تعديل', onClick: () => editJob(m) })),
+    const c = can(); const kv = (k, v) => [k, v]; const ce = canEdit(m);
+    const job = c.salaries || c.edit || ce ? h('section', { class: 'card admin' }, h('div', { class: 'sec-h' }, h('h2', { class: 't-h5' }, 'الوظيفة والمرتب'), Button({ size: 'sm', label: 'تعديل', onClick: () => editJob(m) })),
       K.Kv([kv('الوظيفة', m.title || '—'), kv('الدور', m.role || '—'), kv('المرتب', c.salaries ? K.money(m.salary || 0) + ' ج.م' : '••••'), kv('الحجز للبونص', c.salaries ? K.money(m.holdback || 0) + ' ج.م' : '••••'), kv('سعر اليوم والساعة', c.salaries && m.salary ? 'اليوم ' + K.money(O.rates(m.salary).daily) + ' · الساعة ' + K.money(O.rates(m.salary).hourly) : '—'), kv('الشيفت', m.shift.map((x) => (K.t12 ? K.t12(x) : x)).join(' – ')), kv('تاريخ التعيين', m.hire ? K.dlabel(m.hire) : '—'), kv('الإجازة السنوية', (m.leave || 0) + ' يوم')])) : null;
     const notes = c.edit ? h('section', { class: 'card admin' }, h('h2', { class: 't-h5' }, 'ملاحظات داخلية'), (() => { const ta = h('textarea', { class: 'textarea', rows: 4, 'aria-label': 'ملاحظات داخلية', placeholder: 'مش ظاهرة للعضو' }); ta.value = m.hrNotes || '';
       ta.addEventListener('change', () => { IH().memberUpdate(m.id, { notes: ta.value }).then((r) => K.toast(r.ok ? 'اتحفظت الملاحظة' : r.message || 'معرفناش نحفظها — جرّب تاني', r.ok ? 'success' : 'error')); }); return ta; })()) : null;
     const quick = c.edit || c.salaries ? h('section', { class: 'card admin' }, h('h2', { class: 't-h5' }, 'إجراءات سريعة'), h('div', { class: 'quick' }, c.edit ? Button({ label: 'تسجيل حضور يدوي', icon: 'clock', onClick: () => HR().manualAtt(m) }) : null, c.edit ? Button({ label: 'رفع عقد', icon: 'attach', onClick: () => HR().uploadContract(m) }) : null, c.salaries ? Button({ label: 'قسيمة المرتب', icon: 'wallet', onClick: () => HR().payslipModal(m) }) : null)) : null;
     const sec = c.admin ? h('section', { class: 'card admin' }, h('h2', { class: 't-h5' }, 'الأمان'), K.Kv([kv('الإيميل', m.email || '—'), kv('الموبايل', m.phone ? h('span', { dir: 'ltr' }, m.phone) : '—'), kv('التحقق بخطوتين', m.twofa ? 'مفعّل' : 'مش مفعّل')]),
       h('div', { class: 'quick' }, Button({ size: 'sm', label: 'باسورد مؤقت جديد', onClick: () => HR().newPassword(m) })), h('div', { class: 't-small help' }, 'إيقاف الحساب والخروج من كل الأجهزة لعضو تاني مع صفحة الإعدادات — لحد وقتها من لوحة Supabase.')) : null;
-    return h('div', { class: 'admin-cards' }, job, notes, quick, sec);
+    return h('div', { class: 'admin-cards' }, ce ? memberCard(m) : null, job, notes, quick, sec);
+  }
+
+  // 0111 (the owner 16 Nov — «عايز امكانية للمدير المباشر او الادمن يقدر يعدل اي بيانات لاي فرد في الفريق و الصلاحيات»; his answers:
+  // the pay stays the admin's, and a manager gives nothing above his own): the admin or the member's direct manager sees «بيانات العضو
+  // والصلاحيات» on the member's file — «تعديل البيانات» (the name, the mobile, the email, the job title) and «الدور والصلاحيات» (the
+  // role, its level, the extra roles, the custom permissions, the status); the server judges each write again (member_can_edit,
+  // perms_within_mine)
+  const canEdit = (m) => !!(m && IH() && IH().canEditMember && IH().canEditMember(m.id));
+  const LV_AR = { manager: 'مدير', employee: 'موظف', viewer: 'مشاهد' };
+  const PV = [{ value: 'F', label: 'مسموح' }, { value: 'P', label: 'عرض بس' }, { value: 'N', label: 'غير مسموح' }]; const RANK = { F: 2, P: 1, N: 0 };
+  const SETT = () => window.IBSettings;
+  const dirRow = (m) => (window.IBDirectory && window.IBDirectory.members ? window.IBDirectory.members().find((x) => x.id === m.id) : null) || m;
+  // what I may hand over: the admin anything; a manager up to his own (has_perm on my rows)
+  const myRank = (key) => (can().admin ? 2 : RANK[window.IBDirectory && window.IBDirectory.perm ? window.IBDirectory.perm(key) : 'N'] || 0);
+  const withinMe = (perms) => Object.entries(perms || {}).every(([k, v]) => (RANK[v] || 0) <= myRank(k));
+  function memberCard(m) {
+    const d = dirRow(m); const kv = (k, v) => [k, v]; const roleName = (id) => ((window.IBDirectory && window.IBDirectory.roles ? window.IBDirectory.roles() : []).find((r) => r.id === id) || {}).name || id;
+    const extras = (d.extraRoles || []).map(roleName); const own = d.customPerms && typeof d.customPerms === 'object' ? Object.keys(d.customPerms).length : 0;
+    return h('section', { class: 'card admin', 'data-member-card': '' }, h('div', { class: 'sec-h' }, h('h2', { class: 't-h5' }, 'بيانات العضو والصلاحيات'),
+      h('div', { class: 'acts-inline' }, Button({ size: 'sm', label: 'تعديل البيانات', attrs: { 'data-member-info': '' }, onClick: () => editMember(m) }), Button({ size: 'sm', label: 'الدور والصلاحيات', attrs: { 'data-member-access': '' }, onClick: () => editAccess(m) }))),
+      K.Kv([kv('الاسم', d.name || '—'), kv('الموبايل', d.phone ? h('span', { dir: 'ltr' }, d.phone) : '—'), kv('الإيميل', d.email || '—'), kv('المسمى الوظيفي', d.title || '—'),
+        kv('الدور', (d.role || '—') + ' · ' + (LV_AR[d.level] || 'موظف')), kv('أدوار إضافية', extras.length ? extras.join('، ') : '—'), kv('صلاحيات مخصصة', own ? own + ' صلاحية' : 'حسب الدور'), kv('الحالة', d.status === 'suspended' ? 'موقوف' : 'نشط')]),
+      h('div', { class: 'quick' }, Button({ size: 'sm', label: 'ابعت إيميل الباسورد', attrs: { 'data-member-invite': '' }, onClick: () => IH().memberInvite(m.id).then((r) => K.toast(r.ok ? 'اتبعت لـ ' + (d.email || d.name) : r.message || 'معرفناش نبعته — جرّب تاني', r.ok ? 'success' : 'error')) })),
+      h('p', { class: 't-small help', style: 'margin:0' }, can().admin ? 'المرتب والحجز والبدلات من «تعديل» في كارت الوظيفة اللي تحت.' : 'انت المدير المباشر — تقدر تعدّل كل بياناته وصلاحياته لحد صلاحياتك انت؛ المرتب للأدمن بس.'));
+  }
+  function editMember(m) {
+    const d = dirRow(m); const admin = can().admin; // the login email is the admin's only (security review — 0111 team-admin)
+    K.form({ title: 'تعديل بيانات ' + d.name, values: { name: d.name || '', phone: d.phone || '', email: d.email || '', title: d.title || '' },
+      fields: (f, e, set) => [K.field.text('name', 'الاسم', f, e, set, { required: true }), K.two(K.field.text('phone', 'الموبايل', f, e, set, { required: true, inputmode: 'tel' }), admin ? K.field.text('email', 'الإيميل', f, e, set, { required: true, help: 'إيميل الدخول بيتغيّر على طول' }) : K.field.text('email', 'الإيميل', f, e, set, { disabled: true, help: 'إيميل الدخول بيتغيّر من الأدمن بس' })),
+        K.field.text('title', 'المسمى الوظيفي', f, e, set, {})],
+      validate: (f) => { const e = {}; const nm = String(f.name || '').trim(); if (nm.length < 2 || nm.length > 80) e.name = 'اكتب الاسم (من 2 لـ 80 حرف)';
+        if (O.identifierKind(f.phone) !== 'phone') e.phone = 'رقم موبايل مصري صحيح'; if (admin && O.identifierKind(f.email) !== 'email') e.email = 'إيميل صحيح'; if (String(f.title || '').length > 80) e.title = 'لحد 80 حرف'; return e; },
+      submitLabel: 'حفظ', submit: (f, md) => {
+        if (md._busy) return false; md._busy = true;
+        (async () => {
+          const name = String(f.name || '').trim().replace(/\s+/g, ' '); const phone = O.toLatin(String(f.phone || '')).trim(); const title = String(f.title || '').trim(); const email = String(f.email || '').trim().toLowerCase();
+          if (name !== String(d.name || '') || phone !== String(d.phone || '') || title !== String(d.title || '')) { const r = await IH().memberInfoSet(m.id, { name, phone, title }); if (!r.ok) return r; }
+          if (admin && email !== String(d.email || '').toLowerCase()) { const r = await IH().memberEmailSet(m.id, email); if (!r.ok) return r; }
+          return { ok: true };
+        })().then((r) => { md._busy = false; if (r.ok) { md.close(); K.toast('اتحفظت بيانات ' + name0(f, d), 'success'); rerender(); } else K.toast(r.message || 'حصلت مشكلة — جرّب تاني', 'error'); });
+        return false;
+      } });
+  }
+  const name0 = (f, d) => String(f.name || d.name || '').trim();
+  function editAccess(m) {
+    const S = SETT(); const d = dirRow(m); if (!S) return; const admin = can().admin;
+    const roles = (window.IBDirectory && window.IBDirectory.roles ? window.IBDirectory.roles() : []).filter((r) => r && !r.hidden && (admin || (r.id !== 'admin' && withinMe(r.permissions))));
+    const roleOpts = roles.map((r) => ({ value: r.id, label: r.name })); if (d.roleId && !roleOpts.some((o) => o.value === d.roleId)) roleOpts.unshift({ value: d.roleId, label: d.role || d.roleId, disabled: true });
+    const cur = d.customPerms && typeof d.customPerms === 'object' ? d.customPerms : {}; const v0 = { role: d.roleId || '', level: d.level || 'employee', status: d.status === 'suspended' ? 'suspended' : 'active', reason: '' };
+    S.PERM_KEYS.forEach((k) => { v0['p:' + k] = cur[k] || 'role'; }); (d.extraRoles || []).forEach((x) => { v0['x:' + x] = true; });
+    K.form({ title: 'الدور والصلاحيات — ' + d.name, wide: true, values: v0,
+      note: U.InlineNote({ children: admin ? 'التغيير بيتطبق على العضو ده بس.' : 'انت المدير المباشر — الاختيارات اللي فوق صلاحياتك مش ظاهرة، والسيرفر بيرفض أي صلاحية أعلى منها.' }),
+      fields: (f, e, set) => [K.two(K.field.select('role', 'الدور الأساسي', roleOpts, f, e, set, {}), K.field.select('level', 'المستوى في الدور', ['manager', 'employee', 'viewer'].map((x) => ({ value: x, label: LV_AR[x] })), f, e, set, {})),
+        h('div', { class: 't-label', style: 'margin-top:4px' }, 'أدوار إضافية'),
+        h('div', { class: 'acts-inline', 'data-extra-roles': '', style: 'flex-wrap:wrap' }, roles.filter((r) => r.id !== 'admin' && r.id !== f.role).map((r) => h('label', { class: 'acts-inline' }, h('input', { type: 'checkbox', checked: !!f['x:' + r.id], onChange: (ev) => set('x:' + r.id, ev.target.checked, true) }), h('span', null, r.name)))),
+        K.two(K.field.select('status', 'الحالة', [{ value: 'active', label: 'نشط' }, { value: 'suspended', label: 'موقوف' }], f, e, set, {}), f.status === 'suspended' && d.status !== 'suspended' ? K.field.text('reason', 'سبب الإيقاف', f, e, set, { required: true }) : h('span')),
+        h('div', { class: 't-label', style: 'margin-top:4px' }, 'صلاحيات مخصصة (فوق الدور)'),
+        h('div', { class: 'rp-list' }, S.PERMS.map(([g, rows]) => h('div', { class: 'rp-group' }, h('b', { class: 't-label' }, g), rows.map(([n, key]) => h('div', { class: 'ma-row' }, h('span', null, n),
+          U.Select({ id: 'ma-' + key.replace('.', '-'), label: '', options: [{ value: 'role', label: 'حسب الدور' }].concat(PV.filter((o) => RANK[o.value] <= myRank(key) || f['p:' + key] === o.value)), value: f['p:' + key], onChange: (v) => set('p:' + key, v, true) }))))))],
+      validate: (f) => { const e = {}; if (f.status === 'suspended' && d.status !== 'suspended' && !String(f.reason || '').trim()) e.reason = 'اكتب سبب الإيقاف'; return e; },
+      submitLabel: 'حفظ', submit: (f, md) => {
+        if (md._busy) return false; md._busy = true; const uid = d.uid;
+        (async () => {
+          // the level stays with the member across a role change (0111) and the server checks the role at it: a lower level first, a
+          // higher one after the role
+          const LR = { viewer: 0, employee: 1, manager: 2 }; const lv0 = d.level || 'employee'; const lvDown = LR[f.level] < LR[lv0];
+          if (f.level !== lv0 && lvDown) { const r = await S.setMemberLevel(uid, f.level); if (!r.ok) return r; }
+          if (f.role && f.role !== d.roleId) { const r = await S.setMemberRole(uid, f.role); if (!r.ok) return r; }
+          if (f.level !== lv0 && !lvDown) { const r = await S.setMemberLevel(uid, f.level); if (!r.ok) return r; }
+          const extras = roles.map((r) => r.id).filter((x) => f['x:' + x] && x !== f.role); const was = (d.extraRoles || []).slice().sort().join(',');
+          if (extras.slice().sort().join(',') !== was) { const r = await S.setMemberRoles(uid, extras); if (!r.ok) return r; }
+          const perms = {}; S.PERM_KEYS.forEach((k) => { const v = f['p:' + k]; if (v && v !== 'role') perms[k] = v; });
+          if (JSON.stringify(perms) !== JSON.stringify(Object.fromEntries(S.PERM_KEYS.filter((k) => cur[k]).map((k) => [k, cur[k]])))) { const r = await S.setMemberPerms(uid, perms); if (!r.ok) return r; }
+          if (f.status !== (d.status === 'suspended' ? 'suspended' : 'active')) { const r = await S.setMemberStatus(uid, f.status, f.reason || ''); if (!r.ok) return r; }
+          if (window.IBDirectory && window.IBDirectory.refresh) await window.IBDirectory.refresh();
+          return { ok: true };
+        })().then((r) => { md._busy = false; if (r.ok) { md.close(); K.toast('اتحفظ الدور والصلاحيات لـ ' + d.name, 'success'); rerender(); } else K.toast(r.message || 'حصلت مشكلة — جرّب تاني', 'error'); });
+        return false;
+      } });
   }
 
   // ---------- مهامي (phase 10 decision 25: IBHR.data.tasks — hr_tasks on the server, 0048) ----------
@@ -488,7 +567,7 @@
   // the job and the pay (phase 10 T7): the shift, the hire date and the leave days through IBHR.memberUpdate (hr.edit F), the pay through
   // IBHR.payUpdate (sensitive.salaries F) — each part only for who may write it; the title and the role stay the settings page's
   function editJob(m) {
-    const c = can(); const time = /^\d{1,2}:\d{2}$/;
+    const c0 = can(); const c = Object.assign({}, c0, { job: c0.edit || canEdit(m) }); const time = /^\d{1,2}:\d{2}$/;
     // owner batch 14 Nov decision 16 (0092): «المدير المباشر» — his role's manager (automatic) or one set by hand (the admin / hr.edit F)
     const HRm = IH(); const auto = HRm && HRm.roleManager ? HRm.roleManager(m.roleId) : null; const autoName = auto ? ((K.store.members.find((x) => x.uid === auto) || {}).name || '') : '';
     const mgrOpts = [{ value: '', label: 'مدير الدور (تلقائي)' + (autoName ? ' — ' + autoName : ' — مفيش') }].concat(K.store.members.filter((x) => (!x.status || x.status === 'active') && x.id !== m.id).map((x) => ({ value: x.id, label: x.name })));
@@ -496,18 +575,18 @@
     K.form({ title: 'تعديل الوظيفة والمرتب — ' + m.name, values: { mgr: curMgr, salary: String(m.salary || 0), holdback: String(m.holdback || 0), allow: String(m.allow || 0), s0: m.shift[0], s1: m.shift[1], hire: m.hire || '', leave: String(m.leave == null ? 21 : m.leave) },
       fields: (f, e, set) => [c.salaries ? K.two(K.field.text('salary', 'المرتب', f, e, set, { required: true, inputmode: 'decimal', suffix: 'ج.م' }), K.field.text('holdback', 'الحجز للبونص', f, e, set, { inputmode: 'decimal', suffix: 'ج.م' })) : null,
         c.salaries ? K.field.text('allow', 'البدلات الثابتة', f, e, set, { inputmode: 'decimal', suffix: 'ج.م' }) : null,
-        c.edit ? K.two(K.field.text('s0', 'بداية الشيفت', f, e, set, { required: true, placeholder: '09:00' }), K.field.text('s1', 'نهاية الشيفت', f, e, set, { required: true, placeholder: '17:00' })) : null,
-        c.edit ? K.two(K.field.date('hire', 'تاريخ التعيين', f, e, set), K.field.text('leave', 'أيام الإجازة السنوية', f, e, set, { inputmode: 'numeric' })) : null,
+        c.job ? K.two(K.field.text('s0', 'بداية الشيفت', f, e, set, { required: true, placeholder: '09:00' }), K.field.text('s1', 'نهاية الشيفت', f, e, set, { required: true, placeholder: '17:00' })) : null,
+        c.job ? K.two(K.field.date('hire', 'تاريخ التعيين', f, e, set), K.field.text('leave', 'أيام الإجازة السنوية', f, e, set, { inputmode: 'numeric' })) : null,
         c.edit ? K.field.select('mgr', 'المدير المباشر', mgrOpts, f, e, set, { help: 'مدير الدور بيتحدد من «الإعدادات › الموارد البشرية › مديري الأدوار»' }) : null,
         U.InlineNote({ children: (c.salaries ? 'المرتب الجديد بيدخل كشف الشهر المفتوح. ' : '') + 'المسمى والدور بيتغيروا من صفحة الإعدادات.' })],
       validate: (f) => { const e = {};
         if (c.salaries) { if (f.salary === '' || !(Number(f.salary) >= 0)) e.salary = 'اكتب المرتب'; if (f.holdback !== '' && !(Number(f.holdback) >= 0)) e.holdback = 'رقم صحيح'; else if (Number(f.holdback) > Number(f.salary)) e.holdback = 'الحجز لازم أقل من المرتب'; if (f.allow !== '' && !(Number(f.allow) >= 0)) e.allow = 'رقم صحيح'; }
-        if (c.edit) { if (!time.test(f.s0 || '')) e.s0 = 'اكتب الوقت كده 09:00'; if (!time.test(f.s1 || '')) e.s1 = 'اكتب الوقت كده 17:00'; if (f.leave !== '' && !(Number.isInteger(Number(f.leave)) && Number(f.leave) >= 0 && Number(f.leave) <= 60)) e.leave = 'من 0 لـ 60 يوم'; }
+        if (c.job) { if (!time.test(f.s0 || '')) e.s0 = 'اكتب الوقت كده 09:00'; if (!time.test(f.s1 || '')) e.s1 = 'اكتب الوقت كده 17:00'; if (f.leave !== '' && !(Number.isInteger(Number(f.leave)) && Number(f.leave) >= 0 && Number(f.leave) <= 60)) e.leave = 'من 0 لـ 60 يوم'; }
         return e; },
       submitLabel: 'حفظ', submit: (f, md) => {
         if (md._busy) return false; md._busy = true;
         (async () => {
-          if (c.edit) { const r = await IH().memberUpdate(m.id, { shift: [f.s0.padStart(5, '0'), f.s1.padStart(5, '0')], hire: f.hire || null, leave: f.leave === '' ? undefined : Number(f.leave) }); if (!r.ok) return r; }
+          if (c.job) { const r = await IH().memberUpdate(m.id, { shift: [f.s0.padStart(5, '0'), f.s1.padStart(5, '0')], hire: f.hire || null, leave: f.leave === '' ? undefined : Number(f.leave) }); if (!r.ok) return r; }
           if (c.edit && (f.mgr || '') !== curMgr) { const r = await IH().memberManagerSet(m.id, f.mgr || null); if (!r.ok) return r; }
           if (c.salaries) { const r = await IH().payUpdate(m.id, { salary: Number(f.salary), holdback: Number(f.holdback) || 0, allow: Number(f.allow) || 0 }); if (!r.ok) return r; }
           return { ok: true };

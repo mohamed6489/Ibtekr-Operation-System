@@ -143,7 +143,17 @@ export function hrRoute(c) {
   // ---------- the Edge Function team-admin (decisions 5 / 6 / 13) ----------
   if (fn) {
     const b = c.body(); H.calls.push({ fn: 'team-admin', action: b.action, by: u.id });
-    if (!isAdmin(u)) return json(401, { error: 'unauthorized' });
+    // 0111: member_invite is the admin's or the member's direct manager's (never on an admin); member_email and the rest the admin's
+    const tg = prof(b.member_id); const mgrOk = b.action === 'member_invite' && !!tg && active && tg.id !== u.id && tg.manager_id === u.id && tg.role_id !== 'admin';
+    if (!isAdmin(u) && !mgrOk) return json(401, { error: 'unauthorized' });
+    if (b.action === 'member_email') {
+      const p = prof(b.member_id); if (!p) return json(404, { error: 'not_found' }); const e = String(b.email || '').trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(e)) return json(400, { error: 'invalid', field: 'email' });
+      if (e === String(p.email || '').toLowerCase()) return json(200, { ok: true, id: p.id, same: true });
+      if (mock.profiles.some((x) => x.id !== p.id && String(x.email || '').toLowerCase() === e)) return json(409, { error: 'exists', field: 'email' });
+      p.email = e; mock.activityRows.push({ id: mock.activityRows.length + 1, at: now, actor: u.id, action: 'hr.member.email', entity: 'profile', entity_id: p.id, new_value: p.name });
+      return json(200, { ok: true, id: p.id });
+    }
     if (b.action === 'member_create') {
       const email = String(b.email || '').trim().toLowerCase(); const phone = String(b.phone || '').replace(/[\s-]/g, '');
       if (String(b.name || '').trim().length < 2) return json(400, { error: 'invalid', field: 'name' });

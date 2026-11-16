@@ -539,3 +539,9 @@ a.mk-lib.disabled { opacity:.5;pointer-events:none }
 .cw-up>label.btn.disabled { opacity:.5;pointer-events:none }
 .cw-mg { margin-bottom:0 }
 @media (max-width:767px) { .cw-up>label.btn { min-height:44px } .cw-mg .acts-inline .btn,.cw-mg .acts-inline a.btn { min-height:44px } }
+/* the owner 16 Nov: «توليد» / «ارفع صورة» under the image box, and the box in the chosen size's own ratio (inline aspect-ratio) */
+@media (min-width:1024px) { .cw-grid { grid-template-columns:240px minmax(0,1fr) } }
+.cw-media { display:flex;flex-direction:column;gap:8px;min-width:0 }
+.cw-media-acts { display:flex;flex-direction:column;gap:6px }
+.cw-media-acts > .btn, .cw-media-acts > * { width:100%;justify-content:center }
+@media (max-width:720px) { .cw-grid { grid-template-columns:1fr } .cw-media { max-width:320px;margin-inline:auto;width:100% } }

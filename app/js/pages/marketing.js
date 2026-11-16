@@ -338,9 +338,14 @@
 
   // ===== ٢. البناء =====
   const busyKey = (p, slide) => p.id + (slide == null ? '' : ':' + slide);
-  const pv = (src, cls, label, busy) => h('div', { class: 'cw-pv' + (cls ? ' ' + cls : ''), role: src ? null : 'img', 'aria-label': src ? null : 'لسه ما اتولدتش', 'aria-busy': busy ? 'true' : null },
+  // the owner 16 Nov («الصورة بتتغير ال ratio بتاعتها حسب اللي مختاره»): the box takes the chosen size's own ratio (1080×1350 → 4:5, 1200×628, 9:16 …)
+  const arOf = (size) => { const m = /(\d+)\s*[x:×]\s*(\d+)/.exec(String(size || '')); return m && Number(m[1]) && Number(m[2]) ? m[1] + ' / ' + m[2] : null; };
+  const pv = (src, cls, label, busy) => h('div', { class: 'cw-pv' + (cls && cls.cls ? ' ' + cls.cls : typeof cls === 'string' && cls ? ' ' + cls : ''), style: cls && cls.ar ? 'aspect-ratio:' + cls.ar : null, 'data-cw-ar': cls && cls.ar ? cls.ar : null,
+    role: src ? null : 'img', 'aria-label': src ? null : 'لسه ما اتولدتش', 'aria-busy': busy ? 'true' : null },
     src ? Img(src, 'fill') : h('span', { class: 'cw-pv-e' }, Icon('image'), h('small', null, label || 'المعاينة هنا')), busy ? h('span', { class: 'cw-pv-busy', 'data-cw-busy': '' }, busy === 'up' ? 'بيترفع…' : 'بيتولد…') : null);
-  const vcls = (p) => szCls(p.size).trim();
+  const vcls = (p) => ({ cls: szCls(p.size).trim(), ar: arOf(p.size) });
+  // the owner 16 Nov («خلي زر توليد و ارفع صورة يبقوا تحت مربع الصورة»): the image box and its buttons in one column
+  const media = (box, ...acts) => h('div', { class: 'cw-media' }, box, acts.filter(Boolean).length ? h('div', { class: 'cw-media-acts', 'data-cw-media-acts': '' }, acts) : null);
   // one image of a piece (slide null = a post / an extra file, -1 = a carousel's cover, k = its slide) → the path into the piece
   async function genImage(p, slide) {
     const key = busyKey(p, slide); if (camp.busy[key]) return false;
@@ -497,14 +502,15 @@
     if (p.kind === 'كاروسيل') {
       const n = W.cost('carousel', p, IMGM()); const any = Object.keys(camp.busy).some((k) => k.startsWith(p.id + ':'));
       return h('section', Object.assign({ class: 'card cw-piece' }, anchor), pieceHead(p),
-        h('div', { class: 'cw-grid' }, pv(p.img, vcls(p), 'الغلاف', camp.busy[busyKey(p, -1)]), h('div', { class: 'cw-fields' }, h('h3', { class: 't-h6' }, 'الغلاف'), ...fieldsFor(p, 'b-', { ideaLabel: 'فكرة الغلاف' }), h('div', { class: 'acts-inline start' }, upBtn(p, -1, 'ارفع صورة الغلاف')))),
+        h('div', { class: 'cw-grid' }, media(pv(p.img, vcls(p), 'الغلاف', camp.busy[busyKey(p, -1)]), upBtn(p, -1, 'ارفع صورة الغلاف')), h('div', { class: 'cw-fields' }, h('h3', { class: 't-h6' }, 'الغلاف'), ...fieldsFor(p, 'b-', { ideaLabel: 'فكرة الغلاف' }))),
         h('h3', { class: 't-h6 cw-sub' }, 'صور الكاروسيل (' + p.slides.length + ')'),
-        h('div', { class: 'cw-slides' }, p.slides.map((s, k) => h('div', { class: 'cw-slide' }, h('div', { class: 'cw-grid' }, pv(s.img, vcls(p), 'صورة ' + (k + 1), camp.busy[busyKey(p, k)]), h('div', { class: 'cw-fields' }, h('b', null, 'صورة ' + (k + 1)), ...fieldsFor(p, 'b-', { k, target: s, caption: false, ideaLabel: 'فكرة الصورة' }), h('div', { class: 'acts-inline start' }, upBtn(p, k, 'ارفع صورة ' + (k + 1)))))))),
+        h('div', { class: 'cw-slides' }, p.slides.map((s, k) => h('div', { class: 'cw-slide' }, h('div', { class: 'cw-grid' }, media(pv(s.img, vcls(p), 'صورة ' + (k + 1), camp.busy[busyKey(p, k)]), upBtn(p, k, 'ارفع صورة ' + (k + 1))), h('div', { class: 'cw-fields' }, h('b', null, 'صورة ' + (k + 1)), ...fieldsFor(p, 'b-', { k, target: s, caption: false, ideaLabel: 'فكرة الصورة' })))))),
         h('div', { class: 'acts-inline start' }, costBtn(p.img ? 'ولّد الكاروسيل تاني' : 'توليد الكاروسيل', n, async () => { if (await genCarousel(p)) K.toast('اتولد الغلاف و' + p.slides.length + ' صور', 'success'); }, { 'data-cw-gen': p.id }, null, any)));
     }
     const n = W.cost('image', p, IMGM()); const busy = camp.busy[busyKey(p, null)];
-    return h('section', Object.assign({ class: 'card cw-piece' }, anchor), pieceHead(p), h('div', { class: 'cw-grid' }, pv(p.img, vcls(p), null, busy), h('div', { class: 'cw-fields' }, ...fieldsFor(p, 'b-', { caption: p.kind === 'بوست' }),
-      h('div', { class: 'acts-inline start' }, costBtn(p.img ? 'ولّد تاني' : 'توليد الصورة', n, async () => { if (await genImage(p, null)) K.toast('اتولدت الصورة', 'success'); }, { 'data-cw-gen': p.id }, null, busy), upBtn(p, null, p.img ? 'ارفع صورة تانية' : 'ارفع صورة')))));
+    return h('section', Object.assign({ class: 'card cw-piece' }, anchor), pieceHead(p), h('div', { class: 'cw-grid' }, media(pv(p.img, vcls(p), null, busy),
+      costBtn(p.img ? 'ولّد تاني' : 'توليد الصورة', n, async () => { if (await genImage(p, null)) K.toast('اتولدت الصورة', 'success'); }, { 'data-cw-gen': p.id }, null, busy), upBtn(p, null, p.img ? 'ارفع صورة تانية' : 'ارفع صورة')),
+      h('div', { class: 'cw-fields' }, ...fieldsFor(p, 'b-', { caption: p.kind === 'بوست' }))));
   }
   // the video piece in the build step (the v6): the idea and the caption, the scenes count, «توليد المشاهد» by Claude, a key frame a scene
   function buildVideo(p, anchor) {

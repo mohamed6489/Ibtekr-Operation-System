@@ -107,6 +107,15 @@ test('a new campaign: the details (the row created) → the AI fills the piece �
   expect(mock.mkt.calls.filter((c) => c.fn === 'ai-content' && c.task === 'rewrite').pop().notes).toBe('أقصر'); // the member's instructions reach the server
   await pg(page).locator('[data-ai-undo="b-P1-s"]').click();
   await expect(pg(page).locator('#b-P1-s')).toHaveValue('قديم');
+  // the owner 16 Nov: «توليد» / «ارفع صورة» sit under the image box, and the box takes the chosen size's ratio (1080×1350 → 4:5)
+  const piece = pg(page).locator('[data-cw-piece="P1"]');
+  await expect(piece.locator('.cw-media [data-cw-media-acts] [data-cw-gen="P1"]')).toBeVisible();
+  const box = await piece.locator('.cw-media .cw-pv').evaluate((el) => { const r = el.getBoundingClientRect(); return { ar: el.getAttribute('data-cw-ar'), ratio: r.width / r.height }; });
+  expect(box.ar).toMatch(/^\d+ \/ \d+$/);
+  const [aw, ah] = box.ar.split(' / ').map(Number); expect(Math.abs(box.ratio - aw / ah)).toBeLessThan(0.02);
+  const btnTop = await piece.locator('[data-cw-gen="P1"]').evaluate((el) => el.getBoundingClientRect().top);
+  const boxBottom = await piece.locator('.cw-media .cw-pv').evaluate((el) => el.getBoundingClientRect().bottom);
+  expect(btnTop).toBeGreaterThanOrEqual(boxBottom - 1);
   // the image: the cost first, then the path in the piece
   await pg(page).locator('[data-cw-gen="P1"]').click();
   const cost = modal(page, 'توليد الصورة');

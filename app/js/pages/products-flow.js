@@ -842,6 +842,41 @@
       { label: 'شيل من الدفعة', icon: 'trash', danger: true, run: () => K.confirm({ title: 'تشيل «' + (rs[0].nameAr || rs[0].nameEn || rs[0].sku || 'المنتج') + '» من الدفعة؟', text: 'بيتشال من الدفعة دي بس' + (rs.length > 1 ? ' (' + rs.length + ' تركيبات).' : '.'), okLabel: 'شيل', okType: 'danger',
         onOk: () => { const s = st(); s.rows = s.rows.filter((x) => !keys.includes(x.key)); keys.forEach((k) => S.sel.delete(k)); touch(); R(); } }) }], 'إجراءات ' + (rs[0].sku || rs[0].nameAr || ''));
   }
+  // comments decision 43 («اقدر ادوس علي الصورة و اعدلها او اغيرها … ف بوب اب يفتحلي الصورة و اختار تبديل او انشاء صورة بالذكاء الاصطناعي»):
+  // the picture's popup — the maker's photo large with «تبديل الصورة» (another photo in its place: the row's reference), and the AI's
+  // picture of the product («صورة 1 · في النص», the first shot of the photos step) made from it by «ولّد صورة بالذكاء الاصطناعي» after
+  // the instructions popup; once made it shows there with «تعديل» (the points on the picture) and «إعادة توليد»
+  function photoPopup(x) {
+    const s = st(); const key = x.key; let m = null; let busy = '';
+    const rowNow = () => rows().find((r) => r.key === key) || null;
+    const unitNow = () => { const ri = rows().findIndex((r) => r.key === key); return ri < 0 ? null : units().find((u) => u.rows.includes(ri)) || null; };
+    const srcOf = (r) => Number(s.case === 'whatsapp' ? r.product : r.src);
+    const swap = () => filePick('image/*', false, async (fs) => { const r = rowNow(); if (!r || busy) return; busy = 'swap'; draw(); await swapPhoto(srcOf(r), fs[0]); busy = ''; draw(); });
+    const gen = async (again) => {
+      const u = unitNow(); const r = rowNow(); if (!u || !r || busy) return;
+      if (!(r.ref || unitRow(u).ref)) { K.toast('ارفع صورة للمنتج الأول — الـ AI بيولّد منها', 'error'); return; }
+      const a = await window.IBAIAsk({ title: (again ? 'إعادة توليد' : 'توليد') + ' صورة «' + (r.nameAr || r.nameEn || r.sku || 'المنتج') + '» بالذكاء الاصطناعي', intro: 'صورة للمنتج نفسه في نص الكادر على خلفية نضيفة («صورة 1 · في النص») — بتتولّد من صورة المبتكر وبتظهر في خطوة «الصور».', go: 'ابدأ التوليد' });
+      if (!a) return;
+      busy = 'gen'; draw(); const ok = await genShot(u, 0, a.notes); busy = ''; draw();
+      if (ok) K.toast('اتولّدت الصورة — راجعها', 'success');
+    };
+    function draw() {
+      const r = rowNow(); const u = unitNow(); if (!r || !u) { if (m) m.close(); return; }
+      const ref = r.ref || unitRow(u).ref || null; const shot = shotsOf(u)[0] || null; const own = !!r.ref;
+      const box = (attr, title, sub, img, acts) => h('div', { class: 'fl-pp-box', ['data-pp-' + attr]: '' }, h('div', { class: 'fl-pp-h' }, h('b', null, title), h('small', { class: 'help' }, sub)), img, h('div', { class: 'acts-inline fl-pp-acts' }, acts));
+      const body = h('div', { class: 'fl-pp' },
+        box('ref', 'صورة المبتكر', own ? 'الصورة المرجعية للمنتج — الصور بتتولّد منها' : ref ? 'صورة المنتج (التركيبة دي مالهاش صورة لوحدها)' : 'مفيش صورة لسه',
+          busy === 'swap' ? h('span', { class: 'thumb fl-pp-img gen' }, 'بنرفع…') : Thumb(ref, 'fl-pp-img'),
+          [Button({ icon: 'upload', label: ref && own ? 'تبديل الصورة' : 'ارفع صورة', disabled: !!busy, attrs: { 'data-pp-swap': '' }, onClick: swap })]),
+        box('ai', 'صورة الذكاء الاصطناعي', 'صورة 1 · في النص' + (shot ? '' : ' — لسه ما اتولّدتش'),
+          busy === 'gen' ? h('span', { class: 'thumb fl-pp-img gen' }, 'بيتولّد…') : shot ? Thumb(shot, 'fl-pp-img') : h('span', { class: 'thumb fl-pp-img na' }, Icon('sparkle', 'md'), h('span', null, 'ولّد صورة للمنتج من صورة المبتكر')),
+          shot ? [Button({ icon: 'edit', label: 'تعديل', disabled: !!busy, attrs: { 'data-pp-edit': '' }, onClick: () => { m.close(); shotModal(u, 0); } }), Button({ icon: 'sparkle', label: 'إعادة توليد', disabled: !!busy, attrs: { 'data-pp-gen': '' }, onClick: () => gen(true) })]
+            : [Button({ type: 'primary', icon: 'sparkle', label: 'ولّد صورة بالذكاء الاصطناعي', disabled: !!busy || !ref, attrs: { 'data-pp-gen': '' }, onClick: () => gen(false) })]));
+      if (!m) { m = U.Modal({ title: 'صورة المنتج — ' + (r.nameAr || r.nameEn || r.sku || ''), body, footer: [Button({ type: 'text', label: 'إغلاق', onClick: () => m.close() })] }); m.el.classList.add('wide'); m.el.setAttribute('data-fl-photo-pop', ''); }
+      else m.setBody(body);
+    }
+    draw();
+  }
   function dataCard(g, n) {
     const rs = g.rows.map((ri) => rows()[ri]); const R0 = rs[0]; const vari = g.type === 'Variable'; const keys = rs.map((x) => x.key); const s = st();
     const issues = [...new Set(rs.flatMap(ISSUE_FIELDS))]; const tr = S.tr.has(g.key);
@@ -864,9 +899,12 @@
       vari ? null : h('div', { class: 'fl-2' }, pairField(rs, 'colorEn', 'colorAr', colorList(), 'en', 'Colour', pickColor), textField(rs, 'size', 'Size', { dir: 'ltr' })),
       h('div', { class: 'fl-2' }, pairField(rs, 'materialEn', 'materialAr', FD.MATERIALS, 'en', 'Material', pickBoth('materialEn', 'materialAr')), pairField(rs, 'styleEn', 'styleAr', FD.STYLES, 'en', 'Style', pickBoth('styleEn', 'styleAr'))));
     const photos = (R0.photos || []).length;
-    const pic = h('div', { class: 'fl-dpic' }, Thumb(R0.ref, 'fl-dimg'), photos > 1 ? h('small', { class: 'help' }, photos + ' صور') : null);
+    // comments decision 43: the picture — the card's or a variation's — is a button: it opens the picture's popup
+    const picBtn = (x, cls) => h('button', { type: 'button', class: 'fl-pic-btn', 'data-fl-photo': x.key, title: 'افتح الصورة — بدّلها أو ولّد صورة بالذكاء الاصطناعي', 'aria-label': 'صورة ' + (x.nameAr || x.nameEn || x.sku || 'المنتج') + ' — افتحها', onClick: () => photoPopup(x) },
+      Thumb(x.ref || R0.ref, cls), h('span', { class: 'fl-pic-i', 'aria-hidden': 'true' }, Icon('edit', 'sm')));
+    const pic = h('div', { class: 'fl-dpic' }, picBtn(R0, 'fl-dimg'), photos > 1 ? h('small', { class: 'help' }, photos + ' صور') : null);
     const vars = vari ? h('div', { class: 'fl-vars' }, h('div', { class: 'fl-vars-h' }, 'التركيبات'), rs.map((x) => h('div', { class: 'fl-var' + (ISSUE_FIELDS(x).length ? ' row-err' : ''), 'data-row': x.key },
-      Thumb(x.ref || R0.ref, 'fl-pthumb'), textField([x], 'sku', 'SKU', { cls: 'fl-sku' }),
+      picBtn(x, 'fl-pthumb'), textField([x], 'sku', 'SKU', { cls: 'fl-sku' }),
       pairField([x], 'colorEn', 'colorAr', colorList(), 'ar', 'اللون', pickColor), pairField([x], 'colorEn', 'colorAr', colorList(), 'en', 'Colour', pickColor),
       textField([x], 'sizeAr', 'المقاس', { after: sizeAfter([x]) }), textField([x], 'size', 'Size', { dir: 'ltr' }), textField([x], 'weight', 'الوزن', { cls: 'fl-w' }),
       U.IconButton({ icon: 'trash', label: 'شيل التركيبة ' + (x.sku || ''), onClick: () => { const s2 = st(); s2.rows = s2.rows.filter((y) => y !== x); S.sel.delete(x.key); touch(); R(); } })))) : null;
@@ -935,7 +973,10 @@
           h('small', { class: 'num' }, h('bdi', { dir: 'ltr' }, r.sku || '—')), meta ? h('small', null, meta) : null, h('small', { class: 'fl-prate-m' }, 'نسبة إبتكر ', rateEl(r))))),
         pcell(null, 'سعر المبتكر', num(r, 'vendorPrice', () => { r.priceHand = false; r.regHand = false; reprice(r, true); })),
         pcell('c-rate', null, h('span', { class: 'help' }, rateEl(r))),
-        pcell(null, 'سعر البيع', num(r, 'sale', () => { r.priceHand = true; refake(r); })),
+        // comments decision 45 («سعر البيع … غير قابل للتعديل … بيتحسب تلقائي … من سعر المبتكر»): shown, never typed. The one exception is a
+        // member the maker's rate is hidden from — nothing can be computed for him, so he still types it
+        pcell(null, 'سعر البيع', commOf(r) == null ? num(r, 'sale', () => { r.priceHand = true; refake(r); })
+          : h('input', { class: 'input fl-num is-ro', readonly: '', 'data-fl': 'sale', 'data-fl-auto': '', title: 'بيتحسب لوحده من سعر المبتكر ونسبة إبتكر', 'aria-label': FD.LABELS.sale + ' — ' + (r.sku || '') + ' (بيتحسب لوحده)', value: r.sale == null ? '' : String(r.sale) })),
         pcell(null, 'قبل الخصم', num(r, 'regular', () => { r.priceHand = true; r.regHand = true; })),
         pcell('c-menu', null, K.RowMenu([{ label: 'احسب السعر تاني', icon: 'undo', run: () => { r.priceHand = false; r.regHand = false; r.markup = null; reprice(r, true); touch(); R(); } }, { label: 'شيل من الدفعة', icon: 'trash', danger: true, run: () => { st().rows = st().rows.filter((x) => x !== r); touch(); R(); } }], 'إجراءات ' + (r.sku || ''))));
     };
@@ -967,15 +1008,21 @@
 
   // ---------------- 5 الصور (decision 8) ----------------
   const busyKey = (u, k) => 'img:' + u.key + ':' + k;
-  async function genShot(u, k, note) {
+  const upKey = (u, k) => 'up:' + u.key + ':' + k;
+  async function genShot(u, k, note, quiet) {
     if (S.busy === busyKey(u, k)) return;
     await touch(true); S.busy = busyKey(u, k); R();
     const r = await IM().generate(S.id, u.gi, k, { color: u.color || undefined, note: note || undefined });
     S.busy = '';
-    if (!r.ok || r.result !== 'ok' || !r.path) { K.toast(r.ok ? 'الموديل رفض الصورة' : (IM().why ? IM().why(r) : why(r.reason)), 'error'); R(); return false; }
+    S.lastGen = r;
+    if (!r.ok || r.result !== 'ok' || !r.path) { if (!quiet) K.toast(genWhy(r), 'error'); R(); return false; }
     if (k === 4) st().sizeShot[groupKey(u.gi)] = r.path; else shotsOf(u)[k] = r.path;
     touch(); R(); return true;
   }
+  const genWhy = (r) => (r.ok ? 'الموديل رفض الصورة' : ((IM().why ? IM().why(r) : '') || why(r.reason)));
+  // comments decision 47 («لو مفيش كريدت من اول صورة يقولي و يوقف اللي بيعمله»): a failure every next picture would meet too — the
+  // credit gone (ours for the month, or the provider's), the AI not set up, no permission — stops a bulk run where it is
+  const genStops = (r) => !!r && !r.ok && (r.reason === 'ai_cap' || (r.reason === 'ai_error' && r.status === 402) || r.reason === 'not_configured' || r.reason === 'not_linked' || r.reason === 'forbidden');
   // the size drawing is the product's (one per group, its first unit), and only for a product with a size
   const hasSize = (gi) => { const g = groups()[gi]; return !!g && g.rows.some((ri) => String(rows()[ri].size || '').trim()); };
   const sizeUnit = (u) => { const first = units().find((x) => x.gi === u.gi); return !!first && first.key === u.key; };
@@ -983,7 +1030,14 @@
     const jobs = []; const sized = new Set();
     list.forEach((u) => { shotsOf(u).forEach((p, k) => { if (!p) jobs.push([u, k]); }); if (!sized.has(u.gi) && !st().sizeShot[groupKey(u.gi)] && hasSize(u.gi)) { sized.add(u.gi); jobs.push([u, 4]); } });
     if (!jobs.length) { K.toast('مفيش صور ناقصة', 'success'); return; }
-    let ok = 0; for (const [u, k] of jobs) { if (await genShot(u, k)) ok += 1; }
+    let ok = 0; let tried = 0;
+    for (const [u, k] of jobs) {
+      tried += 1;
+      if (await genShot(u, k, undefined, true)) { ok += 1; continue; }
+      if (genStops(S.lastGen)) { // one message, and nothing more is asked for
+        K.toast(genWhy(S.lastGen) + ' — وقفنا التوليد' + (ok ? ' بعد ' + ok + ' صورة' : ' من أول صورة') + ' (كان فاضل ' + (jobs.length - tried + 1) + ').', 'error'); return;
+      }
+    }
     K.toast('اتولّدت ' + ok + ' من ' + jobs.length + ' صورة', ok === jobs.length ? 'success' : 'warning');
   }
   // the owner 15 Nov («تحت الصور زرار إعادة توليد ويفتح بوب أب أقدر أحط فيه تعليمات قبل إعادة التوليد»): a filled slot → the
@@ -1031,14 +1085,25 @@
         R(); } }));
     draw();
   }
+  async function upShot(u, k, file) {
+    if (!file || S.busy) return;
+    S.busy = upKey(u, k); R();
+    const r = await ST().uploadImage(S.id, file, 'u' + u.gi + '-' + k, { webp: true });
+    S.busy = '';
+    if (!r.ok) { R(); K.toast(r.reason === 'not_image' ? 'الصورة ماترفعتش: الصيغة مش مدعومة — حوّلها JPG أو PNG' : 'الصورة ماترفعتش — جرّب تاني', 'error'); return; }
+    if (k === 4) st().sizeShot[groupKey(u.gi)] = r.path; else shotsOf(u)[k] = r.path;
+    touch(); R();
+  }
   function slot(u, k) {
     const sh = shotsOf(u); const path = k === 4 ? st().sizeShot[groupKey(u.gi)] : sh[k]; const gen = S.busy === busyKey(u, k); const label = k === 4 ? 'صورة المقاس' : SHOT_L[k];
     const el = h('div', { class: 'fl-slot' + (path ? '' : ' is-empty'), draggable: path && k < 4 ? 'true' : 'false', 'data-slot': u.key + ':' + k },
-      h('small', { class: 'fl-slab', title: label }, label), gen ? h('span', { class: 'thumb fl-shot gen' }, 'بيتولّد…') : Thumb(path, 'fl-shot'),
+      h('small', { class: 'fl-slab', title: label }, label), gen ? h('span', { class: 'thumb fl-shot gen' }, 'بيتولّد…') : S.busy === upKey(u, k) ? h('span', { class: 'thumb fl-shot gen' }, 'بنرفع…') : Thumb(path, 'fl-shot'),
       h('div', { class: 'fl-sacts' }, path ? Button({ size: 'sm', icon: 'edit', label: 'تعديل', disabled: !!S.busy, attrs: { 'data-shot-edit': u.key + ':' + k }, onClick: () => shotModal(u, k) }) : null,
         path ? Button({ size: 'sm', icon: 'sparkle', label: 'إعادة توليد', disabled: !!S.busy, attrs: { 'data-shot-regen': u.key + ':' + k }, onClick: () => regenShot(u, k) }) : null,
         path ? U.IconButton({ icon: 'trash', label: 'حذف', onClick: () => { if (k === 4) delete st().sizeShot[groupKey(u.gi)]; else sh[k] = null; touch(); R(); } }) : null,
-        !path ? Button({ size: 'sm', icon: 'sparkle', label: 'ولّد بالـ AI', disabled: !!S.busy, attrs: { 'data-gen': u.key + ':' + k }, onClick: () => genShot(u, k) }) : null));
+        !path ? Button({ size: 'sm', icon: 'sparkle', label: 'ولّد بالـ AI', disabled: !!S.busy, attrs: { 'data-gen': u.key + ':' + k }, onClick: () => genShot(u, k) }) : null,
+        // comments decision 48 («جمب زر التوليد يبقي فيه رفع»): a photo of the member's own goes straight into the empty slot
+        !path ? Button({ size: 'sm', icon: 'upload', label: 'رفع', disabled: !!S.busy, attrs: { 'data-shot-up': u.key + ':' + k, title: 'ارفع صورة من عندك للخانة دي' }, onClick: () => filePick('image/*', false, (f) => upShot(u, k, f[0])) }) : null));
     if (k < 4) {
       el.addEventListener('dragstart', (e) => { e.dataTransfer.setData('text/plain', u.key + ':' + k); });
       el.addEventListener('dragover', (e) => e.preventDefault());

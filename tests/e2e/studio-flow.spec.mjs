@@ -114,7 +114,9 @@ test('flow 1 «شيت جاهز» Simple: the sheet + photos by row → maker/bra
   await expect(page.locator('#pg-products [data-fl="sale"]').nth(1)).toHaveValue('1150');
   await expect(page.locator('#pg-products [data-fl-prices] [data-row]').first().locator('.c-rate')).toContainText('30% · القسم');
   expect(Number(await page.locator('#pg-products [data-fl="regular"]').first().inputValue())).toBeGreaterThan(1430);
-  await page.locator('#pg-products [data-fl="sale"]').nth(1).fill('1250'); await page.locator('#pg-products [data-fl="sale"]').nth(1).press('Tab');
+  // comments decision 45: the sale price is computed, never typed — the maker's price is what moves it (875 ÷ 0.7 = 1,250)
+  await expect(page.locator('#pg-products [data-fl="sale"]').nth(1)).toHaveAttribute('readonly', '');
+  await page.locator('#pg-products [data-fl="vendorPrice"]').nth(1).fill('875'); await page.locator('#pg-products [data-fl="vendorPrice"]').nth(1).press('Tab');
   await expect(page.locator('#pg-products [data-fl="sale"]').nth(1)).toHaveValue('1250');
   // the owner 15 Nov («صلح شكل الجدول و إظهر بيانات المنتج العربي بس»): a grid (no <table>), the product's Arabic data only
   await expect(page.locator('#pg-products [data-fl-prices] table')).toHaveCount(0);
@@ -710,6 +712,70 @@ const drawPics = (page) => page.evaluate(() => {
   return [0, 1, 2, 3].map((k) => ({ big: b64(draw(k, 600, 600, { x: 60, y: 60, s: 480 }), 'image/png'), thumb: b64(draw(k, 210, 240, { x: 21, y: 36, s: 168 }), 'image/jpeg') }));
 });
 const bigPng = (name, pic) => ({ name, mimeType: 'image/png', buffer: Buffer.from(pic.big, 'base64') });
+
+test('comments 43–48 and 50 — the data step\'s picture opens a popup (replace it, or an AI picture after the instructions); «القسم» under its label; the sale price computed and not typed, the SKU under the name; an empty slot takes an upload beside «ولّد بالـ AI», the slots in the middle, and a bulk run stops at the first «no credit»', async ({ page }) => {
+  await signIn(page, ADMIN);
+  await choose(page, 'شيت جاهز', 'Simple');
+  await pick(page, '[data-flow-sheet]', { name: 'a.csv', mimeType: 'text/csv', buffer: Buffer.from('#,SKU,Product Name EN,Product Name AR,Product Colors,Product Colors AR,Size,Vendor Price,Product Category\n1,,Boho Cushion,مخدة بوهيمي,Beige,بيج,40 × 40 cm,1000,ديكور\n2,,Clay Vase,فازة فخار,Black,أسود,25 cm,450,ديكور\n') });
+  await photosFor(page, 2);
+  await next(page); await makerArtCraft(page); await next(page);
+  await expect(page.locator('#pg-products [data-fl="shortEn"]').first()).toHaveValue(/./); // the fill on open is done
+  const box = async (l) => l.boundingBox();
+  // 44: «القسم» is as wide as its field and starts where its label starts; the head's labels are on one line
+  const head = page.locator('#pg-products .fl-dhead').first();
+  await expect(head.locator('.fl-cat button.select')).toBeVisible();
+  const [lab, sel, brand] = [await box(head.locator('.fl-cat label')), await box(head.locator('.fl-cat button.select')), await box(head.locator('.fl-dbrand small').first())];
+  expect(Math.abs((lab.x + lab.width) - (sel.x + sel.width))).toBeLessThan(2); expect(Math.abs(lab.width - sel.width)).toBeLessThan(2);
+  expect(Math.abs(lab.y - brand.y)).toBeLessThan(2);
+  // 43: the picture is a button → its popup: the maker's photo and the AI's side by side
+  const was = batch().state.photoRows[1][0];
+  await page.locator('#pg-products [data-fl-photo]').first().click();
+  const pop = page.locator('.modal[data-fl-photo-pop]');
+  await expect(pop.locator('[data-pp-ref]')).toContainText('صورة المبتكر'); await expect(pop.locator('[data-pp-ai]')).toContainText('لسه ما اتولّدتش');
+  { const fc = page.waitForEvent('filechooser'); await pop.locator('[data-pp-swap]').click(); (await fc).setFiles([png('other.png')]); }
+  await expect(page.locator('.toast.show').filter({ hasText: 'الصورة اتبدّلت' })).toBeVisible();
+  await expect.poll(() => { const l = batch().state.photoRows[1]; return l.length === 1 && l[0] !== was; }).toBe(true);
+  await expect(pop).toBeVisible(); // the popup stays for the next choice
+  // «ولّد صورة بالذكاء الاصطناعي» asks for instructions first, then makes the product's first shot from the photo
+  const calls = mock.imgCalls.length;
+  await pop.locator('[data-pp-gen]').click();
+  await page.locator('[data-ai-ask] textarea').fill('خلفية بيج فاتح');
+  await page.locator('[data-ai-go]').click();
+  await expect(pop.locator('[data-pp-edit]')).toBeVisible(); await expect(pop.locator('[data-pp-gen]')).toHaveText(/إعادة توليد/);
+  expect(mock.imgCalls.slice(calls).map((c) => [c.action, c.index, c.slot, c.note])).toEqual([['generate', 0, 0, 'خلفية بيج فاتح']]);
+  await expect.poll(() => Object.values(batch().state.shots || {}).some((l) => !!l[0])).toBe(true);
+  await pop.getByRole('button', { name: 'إغلاق' }).last().click();
+  await next(page);
+  // 45: the sale price is shown, not typed; 46: the SKU sits under the name, on the right
+  const row = page.locator('#pg-products [data-fl-prices] [data-row]').first();
+  await expect(row.locator('[data-fl="sale"]')).toHaveAttribute('readonly', ''); await expect(row.locator('[data-fl="sale"]')).toHaveValue('1430');
+  await row.locator('[data-fl="sale"]').click(); await page.keyboard.type('9'); await expect(row.locator('[data-fl="sale"]')).toHaveValue('1430');
+  await row.locator('[data-fl="vendorPrice"]').fill('2000'); await row.locator('[data-fl="vendorPrice"]').press('Tab');
+  await expect(page.locator('#pg-products [data-fl-prices] [data-row]').first().locator('[data-fl="sale"]')).toHaveValue('2860'); // 2,000 ÷ 0.7 up to the next 10
+  const info = page.locator('#pg-products [data-fl-prices] [data-row]').first().locator('.fl-info');
+  const [nm, sku] = [await box(info.locator('b').first()), await box(info.locator('small.num').first())];
+  expect(Math.abs((nm.x + nm.width) - (sku.x + sku.width))).toBeLessThan(2);
+  await next(page);
+  // 50: the five slots in the middle of the card
+  const card = page.locator('#pg-products .fl-ucard').nth(1); const shots = card.locator('.fl-shots');
+  const [wrap, first, last] = [await box(shots), await box(shots.locator(':scope > *').first()), await box(shots.locator(':scope > *').last())];
+  expect(Math.abs(((wrap.x + wrap.width) - (first.x + first.width)) - (last.x - wrap.x))).toBeLessThan(3);
+  // the first product's first slot holds the picture made in the data step
+  await expect(page.locator('#pg-products .fl-ucard').first().locator('.fl-slot:not(.is-empty)')).toHaveCount(1);
+  // 48: «رفع» beside «ولّد بالـ AI» in an empty slot → the member's own photo fills it
+  const empty = card.locator('.fl-slot.is-empty').first();
+  await expect(empty.locator('[data-gen]')).toBeVisible();
+  { const fc = page.waitForEvent('filechooser'); await empty.locator('[data-shot-up]').click(); (await fc).setFiles([png('mine.png')]); }
+  await expect(card.locator('.fl-slot:not(.is-empty)')).toHaveCount(1);
+  // 47: the credit is gone → a bulk run asks for one picture, says so and stops
+  mock.imgFail = 'ai_cap';
+  const before = mock.imgCalls.filter((c) => c.action === 'generate').length;
+  await page.locator('[data-flow-genall]').click();
+  await expect(page.locator('.toast.show').filter({ hasText: 'وقفنا التوليد من أول صورة' })).toBeVisible();
+  await expect(page.locator('.toast.show').filter({ hasText: 'وقفنا التوليد' })).toHaveCount(1);
+  expect(mock.imgCalls.filter((c) => c.action === 'generate').length).toBe(before + 1);
+  mock.imgFail = null;
+});
 
 test('comments 39–41 — a ready sheet\'s photos: the sheet\'s own pictures stand on their rows, the uploads go to the row they look like whatever their names; each row\'s ⋮ replaces or empties it, «زوّد صور» only adds, «مسح الكل» empties all; a product without a photo or a photo without a row stops «التالي» with a note', async ({ page }) => {
   await signIn(page, ADMIN);

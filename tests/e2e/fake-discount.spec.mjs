@@ -138,8 +138,10 @@ test('the sheet flow › الأسعار: «قبل الخصم» by the default ti
   await expect(bar.locator('[data-fl-fake-reset]')).toHaveCount(0);
   // 1,430 and 1,150 are both in the second tier: + 1,000
   await expect(reg(page, 0)).toHaveValue('2430'); await expect(sale(page, 1)).toHaveValue('1150'); await expect(reg(page, 1)).toHaveValue('2150');
-  // a sale price typed by hand: its «قبل الخصم» is its tier's (900 → the first tier, + 500)
-  await sale(page, 1).fill('900'); await sale(page, 1).press('Tab');
+  // a sale price that moves (the maker's price changed — the sale is computed, never typed: comments decision 45): its «قبل الخصم» is
+  // its tier's (630 ÷ 0.7 = 900 → the first tier, + 500)
+  await page.locator('#pg-products [data-fl="vendorPrice"]').nth(1).fill('630'); await page.locator('#pg-products [data-fl="vendorPrice"]').nth(1).press('Tab');
+  await expect(sale(page, 1)).toHaveValue('900');
   await expect(reg(page, 1)).toHaveValue('1400');
 
   // «تعديل» — the same popup, for this batch: the second tier + 300 instead of + 1,000
@@ -152,7 +154,7 @@ test('the sheet flow › الأسعار: «قبل الخصم» by the default ti
   await expect(f).toBeHidden();
   await expect(bar).toHaveAttribute('data-fl-fake', 'batch'); await expect(bar).toContainText('الخصم الوهمي (للدفعة دي)');
   await expect(reg(page, 0)).toHaveValue('1730'); // priced again at once
-  await expect(sale(page, 1)).toHaveValue('900'); await expect(reg(page, 1)).toHaveValue('1400'); // the hand-typed sale stays, its tier did not change
+  await expect(sale(page, 1)).toHaveValue('900'); await expect(reg(page, 1)).toHaveValue('1400'); // the sale stays, its tier did not change
   await expect.poll(() => ((batch().state.fake || {}).tiers || []).map((t) => t.value)).toEqual([500, 300, 1500]);
   expect(row('makers').fake).toEqual(OWNER); // the default was not touched
 

@@ -48,6 +48,8 @@ async function openTickets(page, email = ADMIN) {
 }
 const modal = (page, text) => page.locator('.modal[role=dialog]', { hasText: text });
 const drawer = (page) => page.locator('.drawer');
+// 0113: the status is one dropdown in the drawer's head — the working states, «تم الحل», and «مغلق» / reopening for the opener and the admin
+const setStatus = async (page, d, label) => { await d.locator('[data-tk-status]').click(); await page.getByRole('menuitem', { name: label }).click(); };
 async function pick(page, scope, id, label) { await scope.locator('#' + id).click(); await page.locator('[role=listbox] [role=option]', { hasText: label }).first().click(); }
 
 // the owner 11 Nov: «نظرة عامة» is the first tab — the counts, the requests by kind, and who carries the work (the open requests on each
@@ -167,16 +169,15 @@ test('accounts (P): only its role\'s ticket; works on it (status, reply, resolve
   await page.locator('#tickets tr[data-id="TKT-0001"]').click();
   const d = drawer(page);
   await expect(d).toContainText('اتصلت مرتين');
-  await d.getByRole('button', { name: 'جاري العمل' }).click();
+  await setStatus(page, d, 'جاري العمل');
   await expect(d).toContainText('غيّر الحالة من «مفتوح» إلى «جاري العمل»');
   expect(mock.tickets[0].status).toBe('in_progress');
   await d.locator('.tk-reply textarea').fill('كلمنا المبتكر');
   await d.getByRole('button', { name: 'إرسال' }).click();
   await expect(d.locator('.tk-msg', { hasText: 'كلمنا المبتكر' })).toHaveCount(1);
-  await d.getByRole('button', { name: 'المزيد' }).click();
-  await expect(page.getByRole('menuitem', { name: 'إغلاق نهائي' })).toHaveCount(0);
-  await page.keyboard.press('Escape');
-  await d.getByRole('button', { name: 'تم الحل' }).click();
+  await d.locator('[data-tk-status]').click();
+  await expect(page.locator('[data-tk-st="closed"]')).toHaveCount(0); // not the opener: no «إغلاق نهائي» in the list
+  await page.locator('[data-tk-st="resolved"]').click();
   const r = modal(page, 'تم حل الطلب؟');
   await r.getByRole('button', { name: 'تأكيد الحل' }).click();
   await expect(r).toContainText('اختار نتيجة الحل');
@@ -184,7 +185,7 @@ test('accounts (P): only its role\'s ticket; works on it (status, reply, resolve
   await r.getByRole('button', { name: 'تأكيد الحل' }).click();
   await expect(d).toContainText('حوّل الطلب إلى «تم الحل» — اتحلت المشكلة');
   expect(mock.tickets[0]).toMatchObject({ status: 'resolved', resolved_by: ACC_ID });
-  await expect(d.getByRole('button', { name: 'إغلاق نهائي' })).toHaveCount(0);
+  await expect(d.locator('button[data-tk-status]')).toHaveCount(0); // resolved and not the opener: nothing left to pick — the status is a plain pill
 });
 
 test('ops (the opener of TKT-0001, not its role): no work buttons, closes it, then reopens it with a reason', async ({ page }) => {
@@ -192,14 +193,14 @@ test('ops (the opener of TKT-0001, not its role): no work buttons, closes it, th
   await page.locator('#tickets tr[data-id="TKT-0001"]').click();
   const d = drawer(page);
   await expect(d).toContainText('العميلة مستنية الأوردر');
-  await expect(d.getByRole('button', { name: 'جاري العمل' })).toHaveCount(0);
-  await expect(d.getByRole('button', { name: 'تم الحل' })).toHaveCount(0);
-  await d.getByRole('button', { name: 'المزيد' }).click();
-  await page.getByRole('menuitem', { name: 'إغلاق نهائي' }).click();
+  await d.locator('[data-tk-status]').click();
+  await expect(page.locator('[data-tk-st="in_progress"]')).toHaveCount(0); // the opener, not the role: no working states
+  await expect(page.locator('[data-tk-st="resolved"]')).toHaveCount(0);
+  await page.locator('[data-tk-st="closed"]').click();
   await modal(page, 'إغلاق نهائي').getByRole('button', { name: 'إغلاق نهائي' }).click();
   await expect(d).toContainText('قفل الطلب نهائيًا');
   await expect(d.locator('.tk-reply')).toHaveCount(0); // a closed ticket takes no reply
-  await d.getByRole('button', { name: 'إعادة فتح' }).click();
+  await d.getByRole('button', { name: 'إعادة فتح' }).click(); // on the closed note (the opener / admin only)
   const o = modal(page, 'إعادة فتح الطلب');
   await o.getByRole('button', { name: 'إعادة الفتح' }).click();
   await expect(o).toContainText('اكتب سبب إعادة الفتح');
@@ -210,7 +211,8 @@ test('ops (the opener of TKT-0001, not its role): no work buttons, closes it, th
   // ops works on its own roles' ticket (اللوجستيك والشحن)
   await d.getByRole('button', { name: 'إغلاق' }).first().click();
   await page.locator('#tickets tr[data-id="TKT-0002"]').click();
-  await expect(drawer(page).getByRole('button', { name: 'تم الحل' })).toBeVisible();
+  await drawer(page).locator('[data-tk-status]').click();
+  await expect(page.locator('[data-tk-st="resolved"]')).toBeVisible();
 });
 
 // comments decision 61 («و اضافة كل الفلاتر الناقصة في كل الويبسايت»): the requests filter also has «الموظف» — the member the request is
@@ -420,4 +422,108 @@ test('owner 16 Nov — the bell: «طلبات الفريق» is the requests\' g
   await bell(page).locator('.ntf-nav-item', { has: page.locator('.lbl', { hasText: /^مهام$/ }) }).click();
   expect(auto.length).toBeGreaterThan(0);
   await expect(bell(page).locator('.ntf-item').first()).toContainText(auto[0]);
+});
+
+// ---------------------------------------------------------------- 0113 (the owner 16 Nov): the request as a chat — a group, bubbles, voice
+const groupTicket = (o) => Object.assign({}, mock.tickets[1], { id: 9, type: 'internal', title: 'جروب المرتجعات', description: 'نراجع المرتجعات سوا', priority: 'normal', assignee_role: 'خدمة العملاء', assignee_member: null, assignee_member_name: null,
+  members: [ACC_ID], status: 'open', created_by: ADMIN_ID, created_by_name: 'صفوت كمال', created_by_role: 'مدير النظام', created_at: at(3), last_update: at(3), attachments: [], reopen_count: 0, resolution_outcome: null }, o || {});
+
+test('0113 — a new request takes people (a group): «أعضاء في الطلب» goes to ticket_create', async ({ page }) => {
+  await openTickets(page);
+  await page.getByRole('button', { name: 'فتح طلب' }).click();
+  const m = modal(page, 'طلب جديد');
+  await m.locator('#t-title').fill('نراجع المرتجعات');
+  await pick(page, m, 't-type', 'طلب خاص');
+  await m.locator('#t-desc').fill('كلنا نشوفه');
+  await pick(page, m, 't-role', 'الحسابات');
+  await m.locator('[data-mp-btn="t-members"]').click();
+  await page.locator('[data-mp-menu="t-members"] [data-mp-opt="' + OPS_ID + '"]').click();
+  await page.locator('[data-mp-menu="t-members"] [data-mp-done]').click();
+  await m.getByRole('button', { name: 'إنشاء الطلب' }).click();
+  const w = mock.ticketWrites.find((x) => x.fn === 'ticket_create');
+  expect(w.members).toEqual([OPS_ID]);
+  expect(mock.tickets.at(-1).members).toEqual([OPS_ID]);
+  await expect(drawer(page).locator('[data-tk-member="' + OPS_ID + '"]')).toContainText('سارة أحمد');
+  await expect(drawer(page)).toContainText('ضاف للطلب: سارة أحمد');
+});
+
+test('0113 — a member of the group (accounts, not the role) sees it, works it, adds people, cannot take others out or close it, and leaves', async ({ page }) => {
+  mock.tickets.push(groupTicket());
+  mock.ticketEvents.push({ id: 90, ticket_id: 9, kind: 'message', at: at(3), actor: ADMIN_ID, actor_name: 'صفوت كمال', actor_role: 'مدير النظام', text: 'نراجع المرتجعات سوا', old_value: null, new_value: null, attachments: [] });
+  await openTickets(page, ACCOUNTS);
+  await expect(page.locator('#tickets tbody tr[data-id]')).toHaveCount(2); // its role's + the group's
+  await page.locator('#tickets tr[data-id="TKT-0009"]').click();
+  const d = drawer(page);
+  await expect(d.locator('[data-tk-member="' + ACC_ID + '"]')).toContainText('(أنت)');
+  await setStatus(page, d, 'جاري العمل');
+  await expect.poll(() => mock.tickets.find((t) => t.id === 9).status).toBe('in_progress');
+  await d.locator('[data-tk-status]').click();
+  await expect(page.locator('[data-tk-st="closed"]')).toHaveCount(0); // closing stays the opener's and the admin's
+  await page.keyboard.press('Escape');
+  await d.locator('[data-tk-add-members]').click();
+  const a = modal(page, 'إضافة أعضاء للطلب');
+  await a.locator('[data-mp-btn="tk-add-members"]').click();
+  await page.locator('[data-mp-menu="tk-add-members"] [data-mp-opt="' + OPS_ID + '"]').click();
+  await page.locator('[data-mp-menu="tk-add-members"] [data-mp-done]').click();
+  await a.locator('[data-tk-add-ok]').click();
+  await expect.poll(() => mock.tickets.find((t) => t.id === 9).members).toEqual([ACC_ID, OPS_ID]);
+  await expect(d.locator('[data-tk-member="' + OPS_ID + '"]')).toBeVisible();
+  await expect(d.locator('[data-tk-member="' + OPS_ID + '"] .icon-btn')).toHaveCount(0); // not the opener: no × on someone else
+  await d.locator('[data-tk-member="' + ACC_ID + '"] .icon-btn').click();
+  await modal(page, 'تخرج من الطلب؟').getByRole('button', { name: 'اخرج' }).click();
+  await expect.poll(() => mock.tickets.find((t) => t.id === 9).members).toEqual([OPS_ID]);
+  await expect(page.locator('#tickets tr[data-id="TKT-0009"]')).toHaveCount(0);
+});
+
+test('0113 — the chat: mine on the right in beige, the others on the left in green; a day line between days', async ({ page }) => {
+  await openTickets(page);
+  await page.locator('#tickets tr[data-id="TKT-0001"]').click();
+  const d = drawer(page);
+  const other = d.locator('.tk-bub.is-other', { hasText: 'اتصلت مرتين' });
+  await expect(other).toBeVisible();
+  await expect(other).toContainText('سارة أحمد');
+  await d.locator('.tk-reply textarea').fill('هكلمها دلوقتي');
+  await d.locator('[data-tk-send]').click();
+  const mine = d.locator('.tk-bub.is-mine', { hasText: 'هكلمها دلوقتي' });
+  await expect(mine).toBeVisible();
+  const look = (l) => l.evaluate((el) => { const b = el.querySelector('.tk-bub-b'); const r = el.getBoundingClientRect(); const p = el.parentElement.getBoundingClientRect(); return { bg: getComputedStyle(b).backgroundColor, right: Math.round(p.right - r.right), left: Math.round(r.left - p.left) }; });
+  const o = await look(other); const m2 = await look(mine);
+  expect(o.bg).toBe('rgb(0, 86, 66)'); // green
+  expect(m2.bg).toBe('rgb(245, 237, 220)'); // beige
+  expect(m2.right).toBeLessThan(4); // mine hugs the right
+  expect(o.left).toBeLessThan(4); // the others hug the left
+  await expect(d.locator('.tk-day')).not.toHaveCount(0);
+  await expect(mine).not.toContainText('صفوت كمال'); // no name on my own bubble
+});
+
+test('0113 — a voice note: record (the microphone stubbed), the take waits with its player, «إرسال» sends it alone; 1x → 1.5x → 2x', async ({ page }) => {
+  await page.addInitScript(() => {
+    class FakeRec { constructor(s, o) { this.mimeType = (o && o.mimeType) || 'audio/webm'; this.state = 'inactive'; } start() { this.state = 'recording'; }
+      stop() { this.state = 'inactive'; this.ondataavailable({ data: new Blob([new Uint8Array(3000)], { type: this.mimeType }) }); this.onstop(); }
+      static isTypeSupported(t) { return t === 'audio/webm;codecs=opus'; } }
+    window.MediaRecorder = FakeRec;
+    Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: async () => ({ getTracks: () => [{ stop() {} }] }) } });
+  });
+  await openTickets(page);
+  await page.locator('#tickets tr[data-id="TKT-0001"]').click();
+  const d = drawer(page);
+  await d.locator('[data-vr-start]').click();
+  await expect(d.locator('[data-vr]')).toBeVisible();
+  await expect(d.locator('[data-vr-clock]')).toContainText('/ 1:00');
+  await page.waitForTimeout(1300);
+  await d.locator('[data-vr-stop]').click();
+  await expect(d.locator('[data-tk-take] [data-voice]')).toBeVisible();
+  const key = [...mock.ticketObjects.keys()].find((k) => /-voice\.webm$/.test(k));
+  expect(key).toMatch(new RegExp('^' + ADMIN_ID + '/'));
+  expect(mock.ticketObjects.get(key).type).toBe('audio/webm');
+  await d.locator('[data-tk-send]').click();
+  await expect.poll(() => mock.ticketWrites.filter((x) => x.action === 'reply').length).toBe(1);
+  const w = mock.ticketWrites.find((x) => x.action === 'reply');
+  expect(w.text).toBe(''); expect(w.attachments[0]).toMatchObject({ type: 'audio/webm', name: 'رسالة صوتية' });
+  expect(w.attachments[0].duration).toBeGreaterThanOrEqual(1);
+  const bub = d.locator('.tk-bub.is-mine [data-voice]').last();
+  await expect(bub).toBeVisible();
+  await expect(d.locator('.tk-bub.is-mine .tk-bub-t', { hasText: 'رسالة صوتية' })).toHaveCount(0); // a voice note alone: the player, not the word
+  const sp = bub.locator('[data-vn-speed]');
+  await expect(sp).toHaveText('1x'); await sp.click(); await expect(sp).toHaveText('1.5x'); await sp.click(); await expect(sp).toHaveText('2x'); await sp.click(); await expect(sp).toHaveText('1x');
 });

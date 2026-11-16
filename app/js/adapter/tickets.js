@@ -52,11 +52,15 @@
   const canAddMembers = (t) => !!t && t.status !== 'closed' && (canWork(t) || canClose(t));
   const canRemoveMember = (t, uid) => !!t && can().manage && Array.isArray(t.members) && t.members.includes(uid) && (canClose(t) || uid === myUid());
   // who can be added: active members, not already in it (the opener, the assigned member, the group) — { uid, name, role }
-  const addable = (t) => { const D = window.IBDirectory; const all = D && D.members ? quiet(() => D.members()) || [] : [];
+  // the people list: ticket_people() (0113 — names only; the directory shows a member only themselves without settings.view), else the directory
+  let people = null;
+  const peopleAll = () => { if (people && people.length) return people; const D = window.IBDirectory; const all = D && D.members ? quiet(() => D.members()) || [] : [];
+    return (Array.isArray(all) ? all : []).filter((m) => m && m.uid).map((m) => ({ uid: m.uid, name: m.name, status: m.status, roleId: m.roleId })); };
+  const addable = (t) => { const all = peopleAll();
     const skip = new Set([t && t.createdBy && t.createdBy.uid, t && t.assigneeMember].concat((t && t.members) || []).filter(Boolean));
     return (Array.isArray(all) ? all : []).filter((m) => m && m.uid && m.status === 'active' && !skip.has(m.uid))
       .map((m) => ({ uid: m.uid, name: m.name || '—', role: (labelsOf(m.roleId)[0]) || '' })).sort((a, b) => String(a.name).localeCompare(String(b.name), 'ar')); };
-  const nameOf = (uid) => { const D = window.IBDirectory; const all = D && D.members ? quiet(() => D.members()) || [] : []; const m = (Array.isArray(all) ? all : []).find((x) => x && x.uid === uid); return m ? (m.name || '—') : '—'; };
+  const nameOf = (uid) => { const m = peopleAll().find((x) => x.uid === uid); if (m) return m.name || '—'; const D = window.IBDirectory; const all = D && D.members ? quiet(() => D.members()) || [] : []; const d = (Array.isArray(all) ? all : []).find((x) => x && x.uid === uid); return d ? (d.name || '—') : 'عضو'; };
   // the active members who hold a ticket role (main or extra), for «المسؤول» → «الموظف» — { uid, name }
   const membersOf = (label) => { const D = window.IBDirectory; const all = D && D.members ? quiet(() => D.members()) || [] : [];
     return (Array.isArray(all) ? all : []).filter((m) => m && m.uid && m.status === 'active' && [m.roleId].concat(m.extraRoles || []).some((rid) => labelsOf(rid).includes(label)))
@@ -121,6 +125,7 @@
   let rolesFor = 0;
   async function loadRoles(g) {
     const cl = c(); if (!cl || !window.IbtekrTickets || !window.IbtekrTickets.setRoles) return;
+    if (can().manage) cl.rpc('ticket_people').then((r) => { if (g === gen && r && !r.error && Array.isArray(r.data)) { people = r.data.map((x) => ({ uid: x.id, name: x.name, status: 'active', roleId: x.role_id })); emit(); } }, () => {}); // 0113 (before it: 404 → the directory)
     try { const r = await cl.rpc('ticket_roles'); if (g !== gen) return; if (!r.error && Array.isArray(r.data)) { window.IbtekrTickets.setRoles(r.data.map((x) => x && x.label)); emit(); } else rolesFor = 0; } catch (e) { if (g === gen) rolesFor = 0; /* the six stay; the next load asks again */ }
   }
   function mergeEvents(k, list) { const have = data.events.get(k) || []; const ids = new Set(have.map((x) => x.id)); list.forEach((e) => { if (!ids.has(Number(e.id))) have.push(toEvent(e)); }); data.events.set(k, have.sort(byAt)); }
@@ -141,7 +146,7 @@
     } catch (e) { /* the next load() picks it up */ }
     emit({ id: tid(k) });
   }
-  function clear() { gen += 1; rolesFor = 0; unsubscribe(); data.tickets = []; data.events.clear(); data.full.clear(); memSince = null; st = 'idle'; if (window.IbtekrTickets && window.IbtekrTickets.setRoles) window.IbtekrTickets.setRoles([]); }
+  function clear() { gen += 1; rolesFor = 0; people = null; unsubscribe(); data.tickets = []; data.events.clear(); data.full.clear(); memSince = null; st = 'idle'; if (window.IbtekrTickets && window.IbtekrTickets.setRoles) window.IbtekrTickets.setRoles([]); }
 
   // ---------- the store the page reads (block 05's createStore names) ----------
   const copy = (t) => (t ? Object.assign({}, t, { createdBy: Object.assign({}, t.createdBy), resolution: t.resolution ? Object.assign({}, t.resolution) : null, attachments: t.attachments.slice() }) : null);
@@ -175,7 +180,8 @@
       const fresh = evs.filter((e) => e.id > last && e.at > seen.since && e.actorUid !== uid); if (!fresh.length) continue;
       const isNew = !last && isMine(t) && t.createdBy.uid !== uid && t.createdAt > seen.since;
       const e = fresh[fresh.length - 1];
-      const sub = isNew ? 'طلب جديد لدور «' + t.assigneeRole + '» من ' + t.createdBy.name
+      const viaGroup = inGroup(t) && !(t.assigneeMember ? assignedToMe(t) : myRoles().includes(t.assigneeRole)); // 0113: added to someone's request
+      const sub = isNew ? (viaGroup ? t.createdBy.name + ' ضافك في طلب' : 'طلب جديد لدور «' + t.assigneeRole + '» من ' + t.createdBy.name)
         : e.kind === 'message' ? 'رد من ' + e.author.name + ': ' + String(e.text || '').slice(0, 60) : e.text;
       out.push({ id: t.id, kind: isNew ? 'new' : 'update', title: t.id + ' — ' + t.title, sub, prio: t.priority, at: e.at, count: fresh.length });
     }

@@ -56,6 +56,19 @@ begin
 end $$;
 reset role;
 
+-- ================================================================ ticket_people: names only, the active members who read the requests
+select pg_temp.as_member('00000000-0000-4000-8000-000000113a03');
+do $$ begin
+  if not exists (select 1 from public.ticket_people() where id = '00000000-0000-4000-8000-000000113a04' and name = 'كريم') then raise exception 'case ticket_people lists a member failed'; end if;
+  if exists (select 1 from public.ticket_people() where id in ('00000000-0000-4000-8000-000000113a05', '00000000-0000-4000-8000-000000113a06')) then raise exception 'case ticket_people leaves out no-view and suspended failed'; end if;
+end $$;
+reset role;
+select pg_temp.as_member('00000000-0000-4000-8000-000000113a05');
+do $$ begin
+  if exists (select 1 from public.ticket_people()) then raise exception 'case ticket_people is empty without tickets.manage failed'; end if;
+end $$;
+reset role;
+
 -- ================================================================ a member of the group sees, writes and works it
 select pg_temp.as_member('00000000-0000-4000-8000-000000113a03');
 do $$

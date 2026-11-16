@@ -2857,7 +2857,8 @@
       return h('button', { type: 'button', class: 'tk-thumb-btn', onClick: () => openFile(f), 'aria-label': 'افتح ' + f.name }, img); }));
   }
   // the picker: a hidden input, uploads one by one, reports what was refused; files = the caller's array (kept between redraws)
-  function AttachPicker(files, redraw) {
+  // 0113: { icon: true } = a small icon button (the chat composer); a voice note in files keeps its own player, not a chip
+  function AttachPicker(files, redraw, opt) {
     const input = h('input', { type: 'file', multiple: true, accept: ACCEPT, hidden: true, 'data-tk-file': '' });
     const msg = h('span', { class: 't-small', 'aria-live': 'polite' });
     input.addEventListener('change', async () => {
@@ -2868,8 +2869,13 @@
       if (list.length > room) bad.push('اتشال ' + (list.length - room) + ' — أقصى عدد ' + TA().MAX_FILES + ' ملفات');
       redraw(bad.length ? bad.join(' · ') : '');
     });
-    const btn = Button({ label: 'إضافة صورة أو ملف', icon: 'attach', disabled: !tCanManage() || files.length >= ((TA() && TA().MAX_FILES) || 10), onClick: () => input.click() });
-    return { el: h('div', { class: 'tk-attach' }, btn, input, files.length ? FileChips(files, (i) => { files.splice(i, 1); redraw(''); }) : null, msg), msg };
+    const full = !tCanManage() || files.length >= ((TA() && TA().MAX_FILES) || 10);
+    const btn = opt && opt.icon ? IconButton({ icon: 'attach', label: 'إضافة صورة أو ملف', attrs: { 'data-tk-attach': '', disabled: full ? true : null }, onClick: () => input.click() })
+      : Button({ label: 'إضافة صورة أو ملف', icon: 'attach', disabled: full, onClick: () => input.click() });
+    const plain = files.filter((x) => !(TA() && TA().isVoice && TA().isVoice(x)));
+    const chips = plain.length ? FileChips(plain, (i) => { files.splice(files.indexOf(plain[i]), 1); redraw(''); }) : null;
+    if (opt && opt.icon) return { msg, btn: h('span', { class: 'tk-attach-b' }, btn, input), chips }; // the composer places the parts itself
+    return { el: h('div', { class: 'tk-attach' }, btn, input, chips, msg), msg };
   }
 
   // ----- the reports tab (the v2's KPI tiles moved here) -----
@@ -3010,7 +3016,7 @@
     const canT = tCanManage(), canH = hrCanFile();
     if (!canT && !canH) { notify('error', 'مفيش صلاحية تفتح طلبات.'); return; }
     const f = Object.assign({ type: canT ? 'customer' : 'leave', leaveKind: '', from: TODAY, to: TODAY, amount: '', months: '3', startAt: '', endAt: '', note: '', leaveDoc: null, title: '', description: '', priority: 'normal', assigneeRole: '', assigneeMember: '', orderId: '', vendor: '', reason: '', followUp: '', attachments: [] }, pre || {});
-    f.attachments = (f.attachments || []).slice();
+    f.attachments = (f.attachments || []).slice(); f.members = (f.members || []).slice(); // 0113: the people added to the request (a group)
     let errs = {}; let modal = null; let sending = false; let fileMsg = '';
     const vendorOpts = (typeof vstore !== 'undefined' && vstore.all ? vstore.all() : []).filter((v) => !v.siteRemoved).map((v) => ({ value: v.name, label: v.name }));
     // decision 19 (the owner, 5 Nov — «وهو بيكتب تظهرله خيارات الأوردرات الموجودة يختار منها»): «رقم الأوردر» searches the loaded
@@ -3102,6 +3108,7 @@
         h('div', { class: 'row cols2' }, U.Select({ id: 't-role', label: 'المسؤول (الدور)', required: true, options: roleOpts(), value: f.assigneeRole, error: errs.assigneeRole, placeholder: 'اختار الدور', onChange: (v) => { if (v !== f.assigneeRole) f.assigneeMember = ''; f.assigneeRole = v; draw(); } }),
           memberSelect('t-member', f.assigneeRole, f.assigneeMember, (v) => { f.assigneeMember = v; errs.assigneeMember = undefined; draw(); })),
         errs.assigneeMember ? U.InlineNote({ kind: 'error', children: errs.assigneeMember }) : null,
+        groupPick(f, errs),
         h('div', { class: 'row cols2' }, U.Select({ id: 't-prio', label: 'الأولوية', required: true, options: TK.PRIORITIES.map(([v, l]) => ({ value: v, label: l })), value: f.priority, error: errs.priority, onChange: (v) => { f.priority = v; draw(); } }),
           U.DateField({ id: 't-follow', label: 'تاريخ المتابعة', value: f.followUp || null, error: errs.followUp, today: TODAY, onChange: (iso, e) => { if (!e) f.followUp = iso || ''; errs.followUp = e || undefined; draw(); } })),
         U.FieldShell({ id: 't-att', label: 'مرفقات (صور أو PDF — لحد 10 ملفات، 10 ميجا للملف)' }, pick.el),
@@ -3121,7 +3128,7 @@
       const c0 = f.type === 'customer' ? orderCtx(String(f.orderId).trim()) : null; if (c0 && !f.customer) f.customer = c0.customer;
       sending = true; draw();
       const r = await TA().create(f).catch(() => offline); sending = false;
-      if (!r.ok) { errs = r.field && ['title', 'orderId', 'vendor', 'reason', 'followUp', 'description', 'priority', 'assigneeRole', 'assigneeMember'].includes(r.field) ? { [r.field]: r.message } : {}; errs._form = r.message || 'تعذّر إنشاء الطلب'; draw(); return; }
+      if (!r.ok) { errs = r.field && ['title', 'orderId', 'vendor', 'reason', 'followUp', 'description', 'priority', 'assigneeRole', 'assigneeMember', 'members'].includes(r.field) ? { [r.field]: r.message } : {}; errs._form = r.message || 'تعذّر إنشاء الطلب'; draw(); return; }
       const toWho = f.assigneeMember ? ((TA().membersOf(f.assigneeRole).find((x) => x.uid === f.assigneeMember) || {}).name || 'الموظف') : 'دور «' + f.assigneeRole + '»';
       modal.close(); state.tf = Object.assign({}, state.tf, { status: ['open_any'] }); state.tpage = 1; notify('success', 'اتعمل الطلب ' + r.id + ' ووصل لـ ' + toWho + '.'); openTicket(r.id);
     }
@@ -3129,13 +3136,80 @@
     const first = modal.el.querySelector('#t-title') || modal.el.querySelector('#t-type'); if (first) first.focus();
   }
 
+  // ----- 0113 (the owner 16 Nov — «امكانية اني افتح طلب واحد يبقي فيه اكتر من فرد يبقي زي الجروب»): the people in a request -----
+  const tMyUid = () => (TA() && TA().actor ? TA().actor().uid : null);
+  const peopleOpts = (t) => (TA() && TA().addable ? TA().addable(t) : []).map((m) => [m.uid, m.name + (m.role ? ' — ' + m.role : '')]);
+  function groupPick(f, errs) {
+    const opts = peopleOpts({ createdBy: { uid: tMyUid() }, assigneeMember: f.assigneeMember || null, members: [] }); if (!opts.length) return null;
+    return h('div', { class: 'tk-group-pick' }, window.IBKit.MultiPick({ id: 't-members', field: true, search: true, label: 'أعضاء في الطلب (اختياري)', placeholder: 'زي الجروب — اللي هتختارهم هيشوفوا الطلب ويكتبوا فيه',
+      options: opts, value: f.members, error: errs.members, help: 'أي حد في الطلب يقدر يضيف أعضاء بعدين، وانت بس (صاحب الطلب) أو الأدمن تشيلهم', onChange: (v) => { f.members = v; errs.members = undefined; } }));
+  }
+  // ----- voice notes (0113 — «تسجيل صوتي اقصي مدة ليه 60 ثانية و … تسريع الفويس 1x و 1.5x و 2x») -----
+  const mmss = (sec) => { const s2 = Math.max(0, Math.floor(Number(sec) || 0)); return Math.floor(s2 / 60) + ':' + String(s2 % 60).padStart(2, '0'); };
+  const SPEEDS = [1, 1.5, 2];
+  // the player: play / pause, a seek bar, the time, and the speed (1x → 1.5x → 2x); the file is read by a signed link when played
+  function VoiceNote(f) {
+    const audio = h('audio', { preload: 'none' }); let speed = 0; let loaded = false;
+    const playB = h('button', { type: 'button', class: 'vn-play', 'aria-label': 'شغّل الرسالة الصوتية', 'data-vn-play': '' }, Icon('play', 'sm'));
+    const bar = h('input', { type: 'range', class: 'vn-bar', min: 0, max: 1000, value: 0, step: 1, 'aria-label': 'مكان التشغيل' });
+    const time = h('span', { class: 'vn-time', 'data-vn-time': '' }, mmss(f.duration));
+    const speedB = h('button', { type: 'button', class: 'vn-speed', 'data-vn-speed': '1x', 'aria-label': 'سرعة التشغيل 1x' }, '1x');
+    const total = () => (Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : Number(f.duration) || 0);
+    const paint = () => { const on = !audio.paused; playB.replaceChildren(on ? h('span', { class: 'vn-pause', 'aria-hidden': 'true' }) : Icon('play', 'sm')); playB.setAttribute('aria-label', on ? 'إيقاف مؤقت' : 'شغّل الرسالة الصوتية');
+      const tt = total(); bar.value = tt ? String(Math.round((audio.currentTime / tt) * 1000)) : '0'; time.textContent = on || audio.currentTime ? mmss(audio.currentTime) + ' / ' + mmss(tt) : mmss(tt); };
+    ['play', 'pause', 'timeupdate', 'ended', 'loadedmetadata'].forEach((ev) => audio.addEventListener(ev, paint));
+    audio.addEventListener('ended', () => { audio.currentTime = 0; paint(); });
+    const load = () => (loaded ? Promise.resolve(true) : TA().fileUrl(f.path).then((url) => { if (!url) { notify('error', 'تعذّر تشغيل التسجيل.'); return false; } audio.src = url; audio.playbackRate = SPEEDS[speed]; loaded = true; return true; }));
+    playB.addEventListener('click', () => { if (!audio.paused) { audio.pause(); return; } load().then((ok) => { if (ok) { audio.playbackRate = SPEEDS[speed]; const p = audio.play(); if (p && p.catch) p.catch(() => notify('error', 'تعذّر تشغيل التسجيل.')); } }); });
+    bar.addEventListener('input', () => { const tt = total(); if (loaded && tt) audio.currentTime = (Number(bar.value) / 1000) * tt; });
+    speedB.addEventListener('click', () => { speed = (speed + 1) % SPEEDS.length; const l = SPEEDS[speed] + 'x'; audio.playbackRate = SPEEDS[speed]; speedB.textContent = l; speedB.setAttribute('data-vn-speed', l); speedB.setAttribute('aria-label', 'سرعة التشغيل ' + l); });
+    return h('div', { class: 'vn', 'data-voice': f.path }, playB, h('div', { class: 'vn-mid' }, bar, time), speedB, audio);
+  }
+  // the recorder: the microphone through MediaRecorder; stops by itself at 60 seconds; the take is uploaded and waits in the composer
+  function VoiceRecorder(onDone) {
+    const MR = window.MediaRecorder; const md = navigator.mediaDevices;
+    if (!MR || !md || !md.getUserMedia) return null;
+    const MAX = (TA() && TA().MAX_VOICE_SEC) || 60; let rec = null; let stream = null; let chunks = []; let t0 = 0; let tick = null; let keep = false;
+    const box = h('div', { class: 'vr', 'data-vr': '', hidden: true });
+    const clock = h('span', { class: 'vr-clock', 'data-vr-clock': '' }, '0:00 / ' + mmss(MAX));
+    const stopAll = () => { if (tick) clearInterval(tick); tick = null; if (stream) stream.getTracks().forEach((x) => x.stop()); stream = null; box.hidden = true; micB.hidden = false; };
+    const finish = () => { keep = true; if (rec && rec.state !== 'inactive') rec.stop(); };
+    const cancel = () => { keep = false; if (rec && rec.state !== 'inactive') rec.stop(); else stopAll(); };
+    box.append(h('span', { class: 'vr-dot', 'aria-hidden': 'true' }), h('span', { class: 't-small' }, 'بيسجّل…'), clock,
+      Button({ size: 'sm', label: 'إلغاء', attrs: { 'data-vr-cancel': '' }, onClick: cancel }), Button({ size: 'sm', type: 'primary', label: 'إيقاف', icon: 'check', attrs: { 'data-vr-stop': '' }, onClick: finish }));
+    const start = async () => {
+      try { stream = await md.getUserMedia({ audio: true }); } catch (e) { notify('error', 'محتاجين إذن المايك عشان نسجّل — اسمح بيه من المتصفح.'); return; }
+      const type = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/mp4', 'audio/webm'].find((x) => !MR.isTypeSupported || MR.isTypeSupported(x)) || '';
+      try { rec = type ? new MR(stream, { mimeType: type }) : new MR(stream); } catch (e) { stopAll(); notify('error', 'المتصفح ده مش بيسجّل صوت.'); return; }
+      chunks = []; keep = false; t0 = Date.now();
+      rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+      rec.onstop = () => { const sec = Math.min(MAX, (Date.now() - t0) / 1000); const blob = new Blob(chunks, { type: (rec.mimeType || type || 'audio/webm') }); stopAll(); if (keep) onDone(blob, sec); };
+      rec.start(250); box.hidden = false; micB.hidden = true;
+      tick = setInterval(() => { const sec = (Date.now() - t0) / 1000; clock.textContent = mmss(sec) + ' / ' + mmss(MAX); if (sec >= MAX) finish(); }, 250);
+    };
+    const micB = IconButton({ icon: 'mic', label: 'سجّل رسالة صوتية (لحد ' + MAX + ' ثانية)', attrs: { 'data-vr-start': '' }, onClick: start });
+    return { el: h('div', { class: 'vr-wrap' }, micB, box), busy: () => !!tick };
+  }
+  // a chat bubble: mine on the right (beige), the others on the left (green), the files under the text; a voice note alone shows its player
+  function Bubble(e, mine) {
+    const files = e.attachments || []; const voices = files.filter((x) => TA() && TA().isVoice(x)); const rest = files.filter((x) => !(TA() && TA().isVoice(x)));
+    const onlyVoice = voices.length && (e.text === 'رسالة صوتية' || !String(e.text || '').trim());
+    return h('div', { class: 'tk-msg tk-bub ' + (mine ? 'is-mine' : 'is-other'), 'data-mine': mine ? '1' : '0' },
+      mine ? null : h('span', { class: 'tk-bub-av' }, U.Avatar(e.author.name)),
+      h('div', { class: 'tk-bub-b' },
+        mine ? null : h('div', { class: 'tk-bub-who' }, h('b', null, e.author.name), h('span', null, e.author.role)),
+        onlyVoice ? null : h('div', { class: 'tk-bub-t' }, e.text),
+        voices.map(VoiceNote), rest.length ? Thumbs(rest) : null,
+        h('div', { class: 'tk-bub-time' }, fmtTime(e.at))));
+  }
+  const dayKey = (iso) => { const p = cairoParts(iso); return p ? p.day : ''; };
   // ----- ticket drawer (Figma: Drawer / Ticket) -----
   let drawerApi = null;
   function openTicket(id) {
     const t0 = tstore.get(id); if (!t0) { notify('error', 'الطلب ' + id + ' مش موجود أو مش متاح ليك.'); return; }
     if (drawerApi) drawerApi.close();
     try { history.replaceState(null, '', '#tickets/' + id); } catch (e) { /* sandboxed */ }
-    let busy = false; const replyFiles = []; let replyMsg = ''; let replyDraft = '';
+    let busy = false; const replyFiles = []; let replyMsg = ''; let replyDraft = ''; let recorder = null; let voiceMsg = '';
     drawerApi = U.Drawer({ label: 'الطلب ' + id, onClose: () => { drawerApi = null; drawerRedraw = null; try { history.replaceState(null, '', '#tickets'); } catch (e) { /* sandboxed */ } renderTickets(); } });
     // a write: one at a time; the drawer redraws from the adapter after it (ib:tickets), the note says how it went
     const act = (run, okMsg) => { if (busy || !TA()) return; busy = true; Promise.resolve().then(run).catch(() => offline).then((r) => { busy = false; if (r && r.ok === false) notify('error', r.message || 'تعذّر الحفظ'); else if (okMsg) notify('success', okMsg); if (drawerApi) draw(); }); };
@@ -3144,10 +3218,8 @@
       const trig = IconButton({ icon: 'more', label: 'المزيد', attrs: { 'aria-haspopup': 'menu', 'aria-expanded': 'false' } });
       const editable = (tCanWork(t) || tCanClose(t));
       const opts = [].concat(editable ? [{ value: 'role', label: 'تغيير المسؤول' }, { value: 'prio', label: 'تغيير الأولوية' }, { value: 'follow', label: 'تغيير تاريخ المتابعة' }] : [], [{ value: 'copy', label: 'نسخ رابط الطلب' }]);
-      if (tCanClose(t) && t.status !== 'closed') opts.push({ value: 'close', label: 'إغلاق نهائي', danger: true });
       const pop = U.popover(wrap, trig, (close) => U.DropdownMenu({ role: 'menu', end: true, options: opts, onSelect: (v) => { close();
         if (v === 'copy') { const link = location.href.split('#')[0] + '#tickets/' + id; try { navigator.clipboard.writeText(link).then(() => notify('success', 'اتنسخ رابط الطلب.'), () => notify('error', 'تعذّر النسخ.')); } catch (e) { notify('error', 'تعذّر النسخ.'); } draw(); }
-        if (v === 'close') confirmClose(t);
         if (v === 'role' || v === 'prio' || v === 'follow') editField(t, v); } }));
       trig.addEventListener('click', pop.toggle); wrap.append(trig); return wrap;
     }
@@ -3174,25 +3246,62 @@
       const body = () => [U.Textarea({ id: 'o-reason', label: 'سبب إعادة الفتح', required: true, value: f.reason, error: err, placeholder: 'مثال: العميلة لسه ما استلمتش…', help: 'إجباري — بيظهر في الخط الزمني كحدث «أُعيد فتحه»', onInput: (v) => { f.reason = v; } }), U.InlineNote({ children: 'هترجع «مفتوح» لدور «' + t.assigneeRole + '» وهيوصله إشعار.' })];
       m = U.Modal({ title: 'إعادة فتح الطلب', body: body(), footer: [Button({ type: 'brand', label: 'إعادة الفتح', onClick: () => { if (!f.reason.trim()) { err = 'اكتب سبب إعادة الفتح'; m.setBody(...body()); return; } m.close(); act(() => TA().reopen(id, f), 'الطلب اتفتح تاني ورجع لدور «' + t.assigneeRole + '».'); } }), Button({ label: 'إلغاء', onClick: () => m.close() })] });
     }
+    // 0113 (the owner 16 Nov — «الحالات بتاعت الطلب تبقي ب دروب داون للحالات كلها … زر اغلاق نهائي و اعادة فتح يبقي بس عند اللي فتح»):
+    // one dropdown on the status — the working states for whoever works it, «تم الحل» with its outcome, and «مغلق» / back to «مفتوح»
+    // (reopening) for the opener and the admin only; what a member may not pick is not in the list
+    const TS_ORDER = ['open', 'in_progress', 'waiting', 'resolved', 'closed'];
+    function statusMenu(t) {
+      const canWork = tCanWork(t), canClose = tCanClose(t); const done = t.status === 'resolved' || t.status === 'closed';
+      const opts = TS_ORDER.map((s2) => {
+        if (s2 === t.status) return { s: s2, cur: true };
+        if (s2 === 'open' && done) return canClose ? { s: s2, hint: 'إعادة فتح', run: () => confirmReopen(t) } : null;
+        if (s2 === 'open' || s2 === 'in_progress' || s2 === 'waiting') return !done && canWork ? { s: s2, run: () => act(() => TA().setStatus(id, s2)) } : null;
+        if (s2 === 'resolved') return canWork && t.status !== 'closed' ? { s: s2, hint: 'بنتيجة الحل', run: () => confirmResolve(t) } : null;
+        return canClose ? { s: s2, hint: 'إغلاق نهائي', run: () => confirmClose(t) } : null; }).filter(Boolean);
+      if (opts.length < 2) return h('span', { 'data-tk-status': t.status }, U.TicketStatus(t.status));
+      const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' });
+      const trig = h('button', { type: 'button', class: 'tk-st-btn tstatus ts-' + t.status, 'data-tk-status': t.status, 'aria-haspopup': 'menu', 'aria-expanded': 'false', 'aria-label': 'الحالة: ' + U.TICKET_STATUS[t.status] + ' — غيّرها' },
+        h('span', null, U.TICKET_STATUS[t.status]), Icon('chevD', 'sm'));
+      const pop = U.popover(wrap, trig, (close) => h('div', { class: 'menu tk-st-menu', role: 'menu', 'data-popover-root': '' },
+        h('div', { class: 'tk-st-h t-small' }, 'غيّر حالة الطلب'),
+        opts.map((o) => h('button', { type: 'button', class: 'opt tk-st-opt' + (o.cur ? ' is-cur' : '') + (o.s === 'closed' ? ' danger' : ''), role: 'menuitem', 'data-tk-st': o.s, disabled: o.cur ? true : null, 'aria-current': o.cur ? 'true' : null,
+          onClick: () => { close(); if (o.run) o.run(); } },
+          h('i', { class: 'tk-st-dot ts-' + o.s, 'aria-hidden': 'true' }), h('span', { class: 'tk-st-l' }, U.TICKET_STATUS[o.s]), o.hint ? h('span', { class: 'tk-st-hint' }, o.hint) : null, o.cur ? Icon('check', 'sm') : null))));
+      trig.addEventListener('click', pop.toggle); wrap.append(trig); return wrap;
+    }
+    // the people in the request: the assigned role / member, the opener and the group; «+ إضافة أعضاء» for anyone in it, × for the opener / admin (or yourself)
+    function addPeople(t) {
+      const opts = peopleOpts(t); if (!opts.length) { notify('error', 'مفيش أعضاء تانيين متاحين يتضافوا.'); return; }
+      let pickd = []; let m = null; let err = null;
+      const body = () => [window.IBKit.MultiPick({ id: 'tk-add-members', field: true, search: true, label: 'الأعضاء', placeholder: 'اختار عضو أو أكتر', options: opts, value: pickd, error: err, onChange: (v) => { pickd = v; err = null; } }),
+        U.InlineNote({ children: 'اللي هتضيفهم هيشوفوا الطلب كله ويقدروا يكتبوا فيه ويغيّروا حالته — الإغلاق وإعادة الفتح بيفضلوا لصاحب الطلب والأدمن.' })];
+      m = U.Modal({ title: 'إضافة أعضاء للطلب', body: body(), footer: [Button({ type: 'primary', label: 'إضافة', attrs: { 'data-tk-add-ok': '' }, onClick: () => { if (!pickd.length) { err = 'اختار عضو واحد على الأقل'; m.setBody(...body()); return; } m.close(); act(() => TA().addMembers(id, pickd), pickd.length === 1 ? 'اتضاف عضو للطلب.' : 'اتضاف ' + pickd.length + ' أعضاء للطلب.'); } }), Button({ label: 'إلغاء', onClick: () => m.close() })] });
+    }
+    function removePerson(t, uid, nm) {
+      const me = uid === tMyUid();
+      window.IBKit.confirm({ title: me ? 'تخرج من الطلب؟' : 'تشيل ' + nm + ' من الطلب؟', text: me ? 'مش هتشوف الطلب تاني إلا لو حد ضافك أو الطلب لدورك.' : nm + ' مش هيشوف الطلب تاني إلا لو الطلب لدوره.', okLabel: me ? 'اخرج' : 'شيله',
+        onOk: () => act(() => TA().removeMember(id, uid), me ? 'خرجت من الطلب.' : 'اتشال من الطلب.') });
+    }
+    function peopleBar(t) {
+      const ms = t.members || []; const canAdd = TA() && TA().canAddMembers && tCanManage() && TA().canAddMembers(t);
+      if (!ms.length && !canAdd) return null;
+      return h('div', { class: 'tk-people', 'data-tk-people': '' }, h('span', { class: 'tk-people-l t-small' }, Icon('users', 'sm'), 'في الطلب'),
+        ms.map((uid) => { const nm = TA().nameOf(uid); const me = uid === tMyUid();
+          return h('span', { class: 'tk-person', 'data-tk-member': uid }, U.Avatar(nm), h('span', null, me ? nm + ' (أنت)' : nm),
+            TA().canRemoveMember(t, uid) ? IconButton({ icon: 'close', label: me ? 'اخرج من الطلب' : 'شيل ' + nm + ' من الطلب', onClick: () => removePerson(t, uid, nm) }) : null); }),
+        canAdd ? Button({ type: 'text', size: 'sm', icon: 'plus', label: 'إضافة أعضاء', attrs: { 'data-tk-add-members': '' }, onClick: () => addPeople(t) }) : null);
+    }
     function draw() {
       if (!drawerApi) return; let otCard = null;
       const t = tstore.get(id); if (!t) { drawerApi.close(); notify('error', 'الطلب ' + id + ' مابقاش متاح ليك.'); return; }
       const closed = t.status === 'closed'; const ctx = orderCtx(t.orderId);
       const canWork = tCanWork(t), canClose = tCanClose(t);
-      const actions = [];
-      if (closed) { if (canClose) actions.push(Button({ type: 'brand', size: 'sm', label: 'إعادة فتح', onClick: () => confirmReopen(t) })); }
-      else if (canWork) {
-        if (t.status !== 'resolved') actions.push(Button({ type: 'primary', size: 'sm', label: 'تم الحل', onClick: () => confirmResolve(t) }));
-        if (t.status === 'open' || t.status === 'waiting') actions.push(Button({ size: 'sm', label: 'جاري العمل', onClick: () => act(() => TA().setStatus(id, 'in_progress')) }));
-        if (t.status === 'open' || t.status === 'in_progress') actions.push(Button({ size: 'sm', label: 'بانتظار الرد', onClick: () => act(() => TA().setStatus(id, 'waiting')) }));
-        if (t.status === 'resolved' && canClose) actions.push(Button({ type: 'primary', size: 'sm', label: 'إغلاق نهائي', onClick: () => confirmClose(t) }));
-      }
-      if (!closed && canClose && t.status === 'resolved') actions.push(Button({ type: 'brand', size: 'sm', label: 'إعادة فتح', onClick: () => confirmReopen(t) }));
-      actions.push(moreMenu(t));
+      void canWork;
+      const actions = [moreMenu(t)];
       const header = h('div', { class: 'drawer-h' },
-        h('div', { class: 'row1' }, h('div', { class: 'ids' }, h('span', { class: 't-label', style: 'color:var(--color-text-secondary)' }, num(t.id)), h('span', { class: 'chip' }, typeLabel(t.type)), U.TicketStatus(t.status), U.PriorityTag(t.priority), t.reopenCount ? h('span', { class: 'chip' }, 'أُعيد فتحه ×' + t.reopenCount) : null), IconButton({ icon: 'close', label: 'إغلاق', onClick: () => drawerApi.close() })),
+        h('div', { class: 'row1' }, h('div', { class: 'ids' }, h('span', { class: 't-label', style: 'color:var(--color-text-secondary)' }, num(t.id)), h('span', { class: 'chip' }, typeLabel(t.type)), statusMenu(t), U.PriorityTag(t.priority), t.reopenCount ? h('span', { class: 'chip' }, 'أُعيد فتحه ×' + t.reopenCount) : null), IconButton({ icon: 'close', label: 'إغلاق', onClick: () => drawerApi.close() })),
         h('h2', { class: 't-h4' }, t.title),
-        h('div', { class: 'meta t-small' }, h('span', null, 'المسؤول: ' + tkWho(t) + ' · أنشأه ' + t.createdBy.role + ' (' + t.createdBy.name + ') · ' + D.formatDateLong(dayOf(t.createdAt)) + (t.followUp ? ' · متابعة ' + D.formatDateLong(t.followUp) : '')), h('div', { class: 'actions' }, actions)));
+        h('div', { class: 'meta t-small' }, h('span', null, 'المسؤول: ' + tkWho(t) + ' · أنشأه ' + t.createdBy.role + ' (' + t.createdBy.name + ') · ' + D.formatDateLong(dayOf(t.createdAt)) + (t.followUp ? ' · متابعة ' + D.formatDateLong(t.followUp) : '')), h('div', { class: 'actions' }, actions)), peopleBar(t));
       const ctxCard = t.type === 'internal' && !t.csConversationId ? null : h('div', { class: 'ctx-card' },
         h('div', { class: 'head' }, h('span', { class: 't-label' }, t.type === 'customer' ? (ctx ? 'الأوردر ' + t.orderId + ' — ' + ctx.customer : 'الأوردر ' + t.orderId + (t.customer ? ' — ' + t.customer : ' — مش موجود في الأوردرات الحالية')) : t.type === 'vendor' ? 'المبتكر ' + t.vendor + (t.orderId ? ' — الأوردر ' + t.orderId : '') : 'محادثة خدمة العملاء'),
           h('div', { class: 'links' }, t.orderId ? Button({ type: 'text', size: 'sm', label: 'فتح الأوردر', onClick: () => { drawerApi.close(); showOrders({ q: t.orderId }); } }) : null,
@@ -3200,10 +3309,14 @@
             t.csConversationId && csApi() && csApi().openConversation ? Button({ type: 'text', size: 'sm', label: 'فتح المحادثة', onClick: () => { drawerApi.close(); csApi().openConversation(t.csConversationId); } }) : null)),
         ctx ? h('div', { class: 'facts t-small' }, U.DelayBadge(ctx.delivery), h('span', null, num((ctx.vendors || []).join('، ') + ' · ' + ctx.status + ' · ' + ctx.confirm + ' · الإجمالي ' + D.formatMoney(ctx.total) + ' · العمر ' + ctx.ageDays + ' يوم'))) : (t.reason ? h('div', { class: 'facts t-small' }, h('span', null, 'السبب: ' + t.reason)) : null));
       const items = tstore.events(id);
-      const tl = h('div', { class: 'tl' }, h('div', { class: 't-label', style: 'color:var(--color-text-secondary)' }, 'آخر التحديثات'),
-        items.map((e) => e.kind === 'message' ? h('div', { class: 'tk-msg' }, U.TimelineMessage({ author: e.author.name, role: e.author.role, time: fmtTime(e.at), text: e.text }), Thumbs(e.attachments)) : U.TimelineEvent({ text: e.text, time: fmtTime(e.at) })));
+      // 0113 (the owner 16 Nov — «مرسل علي اليمين و مستقبل علي الشمال زي اي شات … اللي علي الشمال اخضر و اللي علي اليمين بيج»): a chat —
+      // my messages on the right in beige, everyone else's (a group too) on the left in green, the changes as small lines in the middle, a day line between days
+      const me = tMyUid(); let lastDay = '';
+      const tl = h('div', { class: 'tl tk-chat', 'data-tk-chat': '' }, items.map((e) => { const d = dayKey(e.at); const sep = d && d !== lastDay ? h('div', { class: 'tk-day' }, h('span', null, d === TODAY ? 'النهارده' : D.formatDateLong(d))) : null; lastDay = d || lastDay;
+        return [sep, e.kind === 'message' ? Bubble(e, !!me && e.actorUid === me) : h('div', { class: 'tk-ev' }, h('span', null, e.text), h('span', { class: 'time' }, fmtTime(e.at)))]; }));
       const own = t.attachments && t.attachments.length ? h('div', { class: 'tk-own' }, h('div', { class: 't-label', style: 'color:var(--color-text-secondary)' }, 'مرفقات الطلب'), Thumbs(t.attachments)) : null;
-      const body = h('div', { class: 'drawer-b' }, closed ? U.InlineNote({ kind: 'warning', children: 'مغلق بواسطة ' + (t.closedBy || '—') + (t.closedAt ? ' · ' + D.formatDateLong(dayOf(t.closedAt)) : '') + (t.resolution ? ' · «' + t.resolution.outcome + '»' : '') + ' — لو المشكلة رجعت اضغط «إعادة فتح».' }) : null, ctxCard, own, tl);
+      const body = h('div', { class: 'drawer-b' }, closed ? U.InlineNote({ kind: 'warning', children: 'مغلق بواسطة ' + (t.closedBy || '—') + (t.closedAt ? ' · ' + D.formatDateLong(dayOf(t.closedAt)) : '') + (t.resolution ? ' · «' + t.resolution.outcome + '»' : '') + (canClose ? ' — لو المشكلة رجعت اضغط «إعادة فتح».' : ''),
+        action: canClose ? Button({ type: 'brand', size: 'sm', label: 'إعادة فتح', onClick: () => confirmReopen(t) }) : null }) : null, ctxCard, own, tl);
       // phase 13 decision 25 (0069): an overtime request ticket — its waiting overtime decided here by whoever may (the direct manager,
       // hr.approve or the admin; the server checks), the same as «الموارد البشرية › الطلبات»; the decision closes the ticket
       const HRa = window.IBHR; const KK = window.IBKit; const OO = window.IbtekrOps; const otReq = HRa && HRa.data && (HRa.data.overtime || []).find((o) => o.ticket === t.id);
@@ -3238,11 +3351,22 @@
       }
       let reply = null;
       if (!closed && tCanManage()) {
-        const pick = AttachPicker(replyFiles, (m) => { replyMsg = m; draw(); }); pick.msg.textContent = replyMsg;
-        const box = U.ReplyBox({ onSend: (text) => { replyDraft = ''; const files = replyFiles.slice(); act(() => TA().reply(id, text, files).then((r) => { if (r && r.ok) { replyFiles.length = 0; replyMsg = ''; } return r; })); } });
-        const ta = box.querySelector('textarea'); if (ta) { ta.value = replyDraft; ta.addEventListener('input', () => { replyDraft = ta.value; }); }
-        const dead = box.querySelector('.hint .icon-btn'); if (dead) dead.remove(); // the prototype's disabled «إضافة مرفق» — the picker above is the real one
-        reply = h('div', { class: 'tk-reply' }, pick.el, box);
+        // 0113: one row like any chat — the text, a file, the microphone (≤ 60 s) and «إرسال»; a take waits above it with its player and ×
+        if (recorder && recorder.busy()) return; // a redraw mid-recording would drop the microphone — the live update waits for the take
+        const pick = AttachPicker(replyFiles, (m) => { replyMsg = m; draw(); }, { icon: true }); pick.msg.textContent = replyMsg;
+        const voice = replyFiles.find((x) => TA().isVoice(x));
+        const ta = h('textarea', { class: 'textarea tk-ta', rows: 1, placeholder: 'اكتب رسالة…', 'aria-label': 'رد على الطلب' }); ta.value = replyDraft;
+        const grow = () => { ta.style.height = 'auto'; ta.style.height = Math.min(140, ta.scrollHeight) + 'px'; };
+        const send = () => { const text = ta.value.trim(); if (!text && !replyFiles.length) { ta.focus(); return; } replyDraft = ''; const files = replyFiles.slice();
+          act(() => TA().reply(id, text, files).then((r) => { if (r && r.ok) { replyFiles.length = 0; replyMsg = ''; voiceMsg = ''; } else replyDraft = text; return r; })); };
+        ta.addEventListener('input', () => { replyDraft = ta.value; grow(); });
+        ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
+        recorder = voice ? null : VoiceRecorder((blob, sec) => { voiceMsg = 'بيترفع التسجيل…'; draw(); TA().uploadVoice(blob, sec).then((r) => { if (r.ok) { replyFiles.push(r.file); voiceMsg = ''; } else voiceMsg = r.message; if (drawerApi) draw(); }); });
+        const take = voice ? h('div', { class: 'tk-take', 'data-tk-take': '' }, VoiceNote(voice), IconButton({ icon: 'trash', label: 'امسح التسجيل', onClick: () => { replyFiles.splice(replyFiles.indexOf(voice), 1); draw(); } })) : null;
+        const sendB = Button({ type: 'primary', label: 'إرسال', icon: 'send', attrs: { 'data-tk-send': '' }, onClick: send });
+        reply = h('div', { class: 'tk-reply reply' }, take, voiceMsg ? h('span', { class: 't-small tk-vmsg', 'aria-live': 'polite' }, voiceMsg) : null, pick.chips,
+          h('div', { class: 'tk-compose' }, pick.btn, recorder ? recorder.el : null, ta, sendB), pick.msg,
+          h('span', { class: 't-small hint' }, 'Enter للإرسال · Shift+Enter سطر جديد'));
       }
       const typing = document.activeElement && document.activeElement.closest && document.activeElement.closest('.tk-reply textarea'); // a live redraw keeps the reply's focus (as decision 16 did for the inbox)
       if (otCard) body.prepend(otCard);

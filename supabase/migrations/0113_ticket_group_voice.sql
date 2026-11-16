@@ -5,6 +5,7 @@
 --   sees the request (tickets.view <> N), writes in it and works it like the role (status / resolve / update) — closing and
 --   reopening stay the opener's and the admin's (0045, unchanged).
 -- * ticket_can_see(role, by, member, members): 0097's OR «I am in the members». tickets_select / ticket_file_visible / ticket_act use it.
+-- * ticket_people(): id / name / main role of who can be in a request (names only), for the pickers.
 -- * ticket_create: p_input.members (uuid list) — active members with tickets.view <> N, the opener and the assigned member left out.
 -- * ticket_act add_members { members } (anyone in the request: the role, the assigned member, a member, the opener, the admin) and
 --   remove_member { member } (the opener or the admin; anyone may take themselves out); the events name them.
@@ -38,6 +39,17 @@ begin
 end $$;
 revoke execute on function public.ticket_members_clean(jsonb, uuid[]) from public, anon, authenticated;
 grant execute on function public.ticket_members_clean(jsonb, uuid[]) to service_role;
+
+-- who can be added (and the names in a request): the active members who read the requests — id, name and main role only (no e-mail,
+-- phone or permissions), for a member with tickets.manage F (the directory shows a member only themselves without settings.view)
+create or replace function public.ticket_people() returns table (id uuid, name text, role_id text)
+language sql stable security definer set search_path = public as $$
+  select p.id, left(p.name, 120), p.role_id from public.profiles p
+   where p.status = 'active' and public.has_perm('tickets.manage') = 'F' and public.member_perm_raw(p.id, 'tickets.view') <> 'N'
+   order by p.name
+$$;
+revoke execute on function public.ticket_people() from public, anon;
+grant execute on function public.ticket_people() to authenticated, service_role;
 
 -- the names of a list of members, «، » between them (the events)
 create or replace function public.ticket_names(p uuid[]) returns text

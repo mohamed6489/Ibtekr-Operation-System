@@ -700,6 +700,8 @@ export async function installSupabaseMock(page, opts = {}) {
         if (lim) list = list.slice(0, lim);
         return json(200, list.map((r) => JSON.parse(JSON.stringify(r))));
       }
+      // 0113: who can be in a request — the active members who read the requests, names only, for tickets.manage F
+      if (method === 'POST' && path === '/rest/v1/rpc/ticket_people') return u ? json(200, hasPerm(u, 'tickets.manage') === 'F' ? mock.profiles.filter((p) => p.status === 'active' && hasPerm(p, 'tickets.view') !== 'N').map((p) => ({ id: p.id, name: String(p.name).slice(0, 120), role_id: p.role_id })) : []) : json(401, { code: '42501', message: 'permission denied' });
       if (method === 'POST' && path === '/rest/v1/rpc/ticket_roles') return u ? json(200, tkRolesOf(mock)) : json(401, { code: '42501', message: 'permission denied' });
       if (method === 'POST' && (path === '/rest/v1/rpc/ticket_create' || path === '/rest/v1/rpc/ticket_act' || path === '/rest/v1/rpc/ticket_request_create')) {
         const refuse = (status, code, message) => json(status, { code, details: null, hint: null, message });

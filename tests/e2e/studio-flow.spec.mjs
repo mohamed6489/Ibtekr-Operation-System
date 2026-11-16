@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { loadUmd } from '../helpers/load-umd.mjs';
 import { readFileSync } from 'node:fs';
 import { installSupabaseMock, LIVE, DEV_PW } from './supabase-mock.mjs';
 
@@ -11,6 +12,9 @@ import { installSupabaseMock, LIVE, DEV_PW } from './supabase-mock.mjs';
 const ADMIN = 'admin.dev@ibtekr.local';
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
 const png = (name) => ({ name, mimeType: 'image/png', buffer: PNG });
+// the studio's pure rules in Node: the sheet writer (a maker's sheet with pictures in its cells) and the pictures' signatures
+const PDn = loadUmd(new URL('../../app/js/pages/products-domain.js', import.meta.url)); globalThis.IbtekrProducts = PDn;
+const F = loadUmd(new URL('../../app/js/pages/flow-domain.js', import.meta.url));
 let mock = null; let pageErrors = [];
 test.beforeEach(async ({ page }) => {
   test.skip(LIVE, 'asserts on the mocked Supabase');
@@ -29,6 +33,8 @@ async function signIn(page, email) {
 }
 const pick = async (page, sel, files) => { const fc = page.waitForEvent('filechooser'); await page.locator(sel).first().click(); (await fc).setFiles(files); };
 const next = (page) => page.locator('.wiz-foot [data-flow-next]').click();
+// comments decision 41: «التالي» waits for a photo on every product — the tests that are about a later step upload one each
+const photosFor = async (page, n) => { await pick(page, '[data-flow-photos]', Array.from({ length: n }, (_, i) => png((i + 1) + '.png'))); await expect(page.locator('#pg-products [data-fl-gaps]')).toHaveAttribute('data-fl-gaps', 'ok'); };
 async function choose(page, kase, type) {
   await page.getByRole('button', { name: 'استوديو المنتجات — ابدأ دفعة' }).click();
   const m = page.locator('.modal'); await expect(m).toContainText('دفعة منتجات جديدة');
@@ -188,8 +194,8 @@ async function choose2(page, kase, type) {
 }
 test('the maker step is the same new one in the three cases (sheet · WhatsApp · photos for a sheet)', async ({ page }) => {
   await signIn(page, ADMIN);
-  const cases = [['شيت جاهز', 'Simple', async () => pick(page, '[data-flow-sheet]', { name: 'a.csv', mimeType: 'text/csv', buffer: Buffer.from('#,SKU,Product Name EN,Product Name AR,Vendor Price\n1,,Lamp,أباجورة,500\n') })],
-    ['داتا على الواتساب', 'Simple', async () => { await pick(page, '[data-flow-photos]', [png('1.png')]); await pick(page, '[data-flow-screens]', [png('chat.png')]); await expect(page.locator('#pg-products')).toContainText('اتقرا'); }],
+  const cases = [['شيت جاهز', 'Simple', async () => pick(page, '[data-flow-sheet]', { name: 'a.csv', mimeType: 'text/csv', buffer: Buffer.from('#,SKU,Product Name EN,Product Name AR,Vendor Price\n1,,Lamp,أباجورة,500\n') }).then(() => photosFor(page, 1))],
+    ['داتا على الواتساب', 'Simple', async () => { await pick(page, '[data-flow-photos]', [png('1.png'), png('2.png')]); /* the chat has two products (decision 41: a photo each) */ await pick(page, '[data-flow-screens]', [png('chat.png')]); await expect(page.locator('#pg-products')).toContainText('اتقرا'); }],
     ['صور وعايز شيت', 'Simple', async () => {}]];
   for (const [kase, type, fill] of cases) {
     await page.locator('.sidebar .nav-item[data-page="products"]').click();
@@ -284,6 +290,7 @@ test('the maker step: «تعديل النسبة» — the general rate, then one
   await signIn(page, ADMIN);
   await choose(page, 'شيت جاهز', 'Simple');
   await pick(page, '[data-flow-sheet]', { name: 'a.csv', mimeType: 'text/csv', buffer: Buffer.from('#,SKU,Product Name EN,Product Name AR,Vendor Price,Product Category\n1,,Lamp,أباجورة,700,ديكور\n2,,Mug,مج,700,هدايا\n') });
+  await photosFor(page, 2);
   await next(page);
   await makerArtCraft(page);
   const writes = () => mock.vendorWrites.filter((x) => x.table === 'vendor_commission');
@@ -460,6 +467,7 @@ test('the data step: «تعديل مشترك» with dropdowns (one pick = both l
   await signIn(page, ADMIN);
   await choose(page, 'شيت جاهز', 'Simple');
   await pick(page, '[data-flow-sheet]', { name: 'a.csv', mimeType: 'text/csv', buffer: Buffer.from('#,SKU,Product Name EN,Product Name AR,Vendor Price,Product Category\n1,,Lamp,أباجورة,700,ديكور\n2,,Mug,مج,300,ديكور\n') });
+  await photosFor(page, 2);
   await next(page); await makerArtCraft(page); await next(page);
   await expect(page.locator('#pg-products [data-fl="shortEn"]').first()).toHaveValue(/./); // the fill on open is done
   await page.getByRole('checkbox', { name: 'حدد الكل' }).click();
@@ -649,6 +657,7 @@ test('comment 36 — the maker\'s copy returned starts a «شيت جاهز» bat
   // (the batch is saved a moment after the sheet is read)
   await expect.poll(() => ((batch().state || {}).rows || []).map((r) => [r.nameEn, r.nameAr, r.colorAr, r.sizeAr, r.vendorPrice])).toEqual([['Bamboo Lamp', 'أباجورة بامبو', 'بيج', '٤٠ × ٦٠ سم', 700], ['Wool Rug', 'سجادة صوف', 'Black', 'M', 1500]]);
   expect(batch().state.unknown || []).toEqual([]); // the photo column and # are not data, nothing is left unread
+  await photosFor(page, 2);
   await next(page);
   await makerArtCraft(page);
   await next(page);
@@ -656,6 +665,88 @@ test('comment 36 — the maker\'s copy returned starts a «شيت جاهز» bat
   await expect.poll(() => batch().state.rows.map((r) => [r.size, r.colorEn, r.colorAr])).toEqual([['40 × 60 cm', 'Beige', mock.skuColors.find((c) => c.code === 'BE').name_ar], ['M', 'Black', mock.skuColors.find((c) => c.code === 'BK').name_ar]]);
   await expect(page.locator('#pg-products [data-fl="sku"]').first()).toHaveValue(/^IBTART\d{4}-BE$/);
   await expect(page.locator('#pg-products [data-fl="sku"]').nth(1)).toHaveValue(/^IBTART\d{4}-BK$/);
+});
+
+// three different pictures, each drawn twice in the page: the photo a maker has (600 px, the product on white) and the small copy his
+// sheet carries in its cell (210 × 240, between white bars)
+const drawPics = (page) => page.evaluate(() => {
+  const draw = (k, w, h, box) => {
+    const cv = document.createElement('canvas'); cv.width = w; cv.height = h; const c = cv.getContext('2d'); c.fillStyle = '#fff'; c.fillRect(0, 0, w, h);
+    c.save(); c.translate(box.x, box.y); c.scale(box.s / 100, box.s / 100);
+    if (k === 0) { c.fillStyle = '#c0392b'; c.beginPath(); c.arc(50, 50, 40, 0, 7); c.fill(); c.fillStyle = '#2c3e50'; c.fillRect(40, 10, 20, 34); }
+    if (k === 1) { c.fillStyle = '#1f6f8b'; c.fillRect(6, 28, 88, 44); c.fillStyle = '#f1c40f'; c.fillRect(6, 28, 24, 44); }
+    if (k === 2) { c.fillStyle = '#27ae60'; c.beginPath(); c.moveTo(50, 6); c.lineTo(94, 94); c.lineTo(6, 94); c.closePath(); c.fill(); c.fillStyle = '#8e44ad'; c.fillRect(42, 58, 16, 36); }
+    if (k === 3) { c.fillStyle = '#e67e22'; for (let i = 0; i < 4; i++) c.fillRect(8 + i * 22, 8, 12, 84); } // a fourth picture the sheet does not have
+    c.restore(); return cv;
+  };
+  const b64 = (cv, type) => cv.toDataURL(type, 0.8).split(',')[1];
+  return [0, 1, 2, 3].map((k) => ({ big: b64(draw(k, 600, 600, { x: 60, y: 60, s: 480 }), 'image/png'), thumb: b64(draw(k, 210, 240, { x: 21, y: 36, s: 168 }), 'image/jpeg') }));
+});
+const bigPng = (name, pic) => ({ name, mimeType: 'image/png', buffer: Buffer.from(pic.big, 'base64') });
+
+test('comments 39–41 — a ready sheet\'s photos: the sheet\'s own pictures stand on their rows, the uploads go to the row they look like whatever their names; each row\'s ⋮ replaces or empties it, «زوّد صور» only adds, «مسح الكل» empties all; a product without a photo or a photo without a row stops «التالي» with a note', async ({ page }) => {
+  await signIn(page, ADMIN);
+  const pics = await drawPics(page);
+  // the maker's sheet: three rows, each with its picture in the cell (the same writer as «نسخة المبتكر»)
+  const sh = F.makerSheetOf({ rows: [{ n: 1, nameEn: 'Red Vase', nameAr: 'فازة حمرا', vendorPrice: 500 }, { n: 2, nameEn: 'Blue Tray', nameAr: 'صينية زرقا', vendorPrice: 300 }, { n: 3, nameEn: 'Green Tree', nameAr: 'شجرة خضرا', vendorPrice: 700 }] });
+  const xlsx = F.xlsx({ ...sh, freeze: 'C2', images: [0, 1, 2].map((i) => ({ row: i, col: sh.refCol, bytes: Uint8Array.from(Buffer.from(pics[i].thumb, 'base64')), ext: 'jpeg', w: 105, h: 120 })) });
+  await choose(page, 'شيت جاهز', 'Simple');
+  await pick(page, '[data-flow-sheet]', { name: 'maker.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: Buffer.from(xlsx) });
+  const card = page.locator('#pg-products [data-fl-list="photos"]'); const gaps = page.locator('#pg-products [data-fl-gaps]'); const nextBtn = page.locator('.wiz-foot [data-flow-next]');
+  // 40: the sheet's pictures are taken onto their rows by themselves — every row has its photo, marked «من الشيت», and «التالي» is open
+  await expect(card.locator('[data-fl-photos-row]')).toHaveCount(3);
+  await expect(card.locator('[data-fl-from-sheet]')).toHaveCount(3);
+  await expect(gaps).toHaveAttribute('data-fl-gaps', 'ok'); await expect(nextBtn).toBeEnabled();
+  await expect.poll(() => Object.keys((batch().state || {}).sheetSigs || {}).length).toBe(3);
+  // the maker's real photos, named in an order that is NOT the rows' (a = the third product, b = the first, c = the second)
+  await expect(page.locator('[data-flow-photos]')).toHaveText(/زوّد صور/); // 39: the button only adds
+  await pick(page, '[data-flow-photos]', [bigPng('a.png', pics[2]), bigPng('b.png', pics[0]), bigPng('c.png', pics[1])]);
+  await expect(page.locator('.toast.show').filter({ hasText: 'اتحطت على صفها لوحدها' })).toBeVisible();
+  await expect(card.locator('[data-fl-from-sheet]')).toHaveCount(0); // the small copies gave way to the real photos
+  // (the batch is saved a moment later: wait for the save that carries the uploads)
+  await expect.poll(() => { const st = batch().state || {}; return [Object.keys(st.photoSigs || {}).length, Object.keys(st.sheetPhotos || {}).length].concat([1, 2, 3].map((k) => ((st.photoRows || {})[k] || []).length)); }).toEqual([3, 0, 1, 1, 1]);
+  { // each row holds the photo that looks like its picture in the sheet — and not like another row's
+    const st = batch().state; const d = (row, k) => F.sigDistance(st.sheetSigs[row], st.photoSigs[st.photoRows[k][0]]);
+    for (const k of [1, 2, 3]) { expect(d(k, k)).toBeLessThan(F.SIG_MAX); for (const o of [1, 2, 3].filter((x) => x !== k)) expect(d(o, k)).toBeGreaterThan(F.SIG_MAX); }
+    expect(Object.keys(st.sheetPhotos || {})).toEqual([]);
+  }
+  await expect(gaps).toHaveAttribute('data-fl-gaps', 'ok');
+  // 39: a row's ⋮ — «مسح» empties the row: its slot stays in its place and says what is missing; 41: «التالي» stops with a note
+  const menu = (k, name) => card.locator('[data-fl-photo-menu="' + k + '"] button').first().click().then(() => page.getByRole('menuitem', { name }).click());
+  await menu(2, 'مسح');
+  await expect(card.locator('[data-fl-photos-row]')).toHaveCount(3);
+  await expect(card.locator('[data-fl-photos-row="2"] [data-fl-slot]')).toHaveAttribute('data-fl-slot', 'empty');
+  await expect(card.locator('[data-fl-photos-row="2"]')).toContainText('ناقص');
+  await expect(gaps).toHaveAttribute('data-fl-gaps', 'bad');
+  await expect(gaps).toContainText('ناقص: 1 منتج من غير صورة — صف 2');
+  await expect(nextBtn).toBeDisabled(); await expect(page.locator('.wiz-foot')).toContainText('1 منتج من غير صورة');
+  // the empty row's ⋮ takes a photo for that row («ارفع صورة»); a filled row's replaces it («تبديل الصورة»)
+  { const fc = page.waitForEvent('filechooser'); await menu(2, 'ارفع صورة'); (await fc).setFiles([bigPng('whatever.png', pics[1])]); }
+  await expect(card.locator('[data-fl-photos-row="2"] [data-fl-slot]')).toHaveAttribute('data-fl-slot', 'photo');
+  await expect(gaps).toHaveAttribute('data-fl-gaps', 'ok'); await expect(nextBtn).toBeEnabled();
+  const before = batch().state.photoRows[1][0];
+  { const fc = page.waitForEvent('filechooser'); await menu(1, 'تبديل الصورة'); (await fc).setFiles([bigPng('new.png', pics[0])]); }
+  await expect(page.locator('.toast.show').filter({ hasText: 'الصورة اتبدّلت' })).toBeVisible();
+  await expect.poll(() => { const l = batch().state.photoRows[1]; return l.length === 1 && l[0] !== before; }).toBe(true);
+  // 41: a photo that looks like no row and carries a number the sheet does not have is «زيادة» — the note names its row and «التالي» stops
+  await pick(page, '[data-flow-photos]', [bigPng('9.png', pics[3])]);
+  await expect(card.locator('[data-fl-photos-row]')).toHaveCount(4);
+  await expect(card.locator('[data-fl-photos-row="9"] [data-fl-extra]')).toHaveCount(1);
+  await expect(gaps).toContainText('زيادة: صور على صف مش في الشيت — 9');
+  await expect(nextBtn).toBeDisabled();
+  await menu(9, 'مسح');
+  await expect(card.locator('[data-fl-photos-row]')).toHaveCount(3); await expect(nextBtn).toBeEnabled();
+  // 39: «مسح الكل» asks, then empties every row
+  await page.locator('[data-flow-photos-clear]').click();
+  await page.getByRole('button', { name: 'امسح الكل' }).click();
+  await expect(card.locator('[data-fl-photos-row]')).toHaveCount(0);
+  await expect(page.locator('[data-flow-photos]')).toHaveText(/ارفع الصور/); await expect(page.locator('[data-flow-photos-clear]')).toHaveCount(0);
+  await expect(gaps).toContainText('ناقص: 3 منتج من غير صورة — صف 1، 2، 3'); await expect(nextBtn).toBeDisabled();
+  await expect.poll(() => Object.keys(batch().state.photoRows || {}).length).toBe(0);
+  // the photos uploaded again without numbers in the names still land on their rows (the sheet's pictures are remembered)
+  await pick(page, '[data-flow-photos]', [bigPng('x.png', pics[1]), bigPng('y.png', pics[2]), bigPng('z.png', pics[0])]);
+  await expect.poll(() => { const st = batch().state; return [1, 2, 3].every((k) => (st.photoRows[k] || []).length === 1 && F.sigDistance(st.sheetSigs[k], st.photoSigs[st.photoRows[k][0]]) < F.SIG_MAX); }).toBe(true);
+  await expect(nextBtn).toBeEnabled();
 });
 
 test('the owner 15 Nov: «صور وعايز شيت» — «املأ بالـ AI» labels the sizes «مقاس 1 / 2», reads each color from its own photo (a product\'s second photo = its second color), and a row\'s photo is swapped in the sheet (its AI color read again)', async ({ page }) => {

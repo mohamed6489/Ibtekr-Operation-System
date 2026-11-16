@@ -204,3 +204,91 @@ test('the data step: material / style pairs found by either language; an Arabic 
   assert.equal(F.sizeEnOf('حجم عائلي'), '', 'Arabic words left → nothing (the English stays)');
   assert.equal(F.sizeEnOf(''), '');
 });
+
+// ---------------------------------------------------------------- comments decisions 39–41 (a ready sheet's photos)
+// a picture as pixels: fn(u, v) → [r, g, b] over the unit square, drawn inside `box` of a w × h raster (white around it)
+const raster = (w, h, fn, box) => {
+  const b = box || { x: 0, y: 0, w, h }; const px = new Uint8ClampedArray(w * h * 4).fill(255);
+  for (let y = b.y; y < b.y + b.h; y++) for (let x = b.x; x < b.x + b.w; x++) { const c = fn((x - b.x + 0.5) / b.w, (y - b.y + 0.5) / b.h); const i = (y * w + x) * 4; px[i] = c[0]; px[i + 1] = c[1]; px[i + 2] = c[2]; }
+  return px;
+};
+const W = [255, 255, 255];
+const disc = (col) => (u, v) => ((u - 0.5) ** 2 + (v - 0.5) ** 2 < 0.2 ? (v < 0.35 && Math.abs(u - 0.5) < 0.12 ? [40, 60, 80] : col) : W);
+const tray = (u, v) => (v > 0.28 && v < 0.72 && u > 0.05 && u < 0.95 ? (u < 0.3 ? [240, 200, 20] : [30, 110, 140]) : W);
+const tree = (u, v) => (Math.abs(u - 0.5) < v * 0.45 && v > 0.06 ? (v > 0.6 && Math.abs(u - 0.5) < 0.08 ? [140, 70, 170] : [40, 170, 95]) : W);
+// the photo a maker has (the product in the middle of a white square) and the small copy in his sheet's cell (the photo between white bars)
+const photo = (fn) => F.photoSig(raster(64, 64, fn, { x: 8, y: 8, w: 48, h: 48 }), 64, 64, 1);
+const inSheet = (fn) => F.photoSig(raster(64, 64, fn, { x: 6, y: 10, w: 52, h: 44 }), 64, 64, 210 / 240);
+
+test('photoSig / sigDistance: a photo and its small copy between white bars are the same picture; another shape, or the same shape in another colour, is not', () => {
+  const red = disc([200, 50, 40]); const blue = disc([40, 90, 200]);
+  assert.match(photo(red), /^[0-9a-f]{256}$/); // 100 greys + 27 colours + the shape, two hex digits each
+  assert.equal(photo(red), photo(red));
+  for (const fn of [red, tray, tree]) assert.ok(F.sigDistance(photo(fn), inSheet(fn)) < 0.15, 'the same picture: ' + F.sigDistance(photo(fn), inSheet(fn)));
+  assert.ok(F.sigDistance(photo(red), inSheet(tray)) > F.SIG_MAX && F.sigDistance(photo(tree), inSheet(tray)) > F.SIG_MAX && F.sigDistance(photo(tree), inSheet(red)) > F.SIG_MAX);
+  assert.ok(F.sigDistance(photo(blue), inSheet(red)) > F.SIG_MAX, 'the same vase in another colour is another product: ' + F.sigDistance(photo(blue), inSheet(red)));
+  assert.equal(F.sigDistance(photo(red), photo(red)), 0);
+  // nothing to read
+  assert.equal(F.photoSig(null, 64, 64, 1), ''); assert.equal(F.photoSig(new Uint8ClampedArray(16), 2, 2, 1), '');
+  assert.equal(F.sigDistance('', photo(red)), Infinity); assert.equal(F.sigDistance('zz', 'zz'), Infinity);
+  // a picture with a background of its own is read whole (no border to cut), still itself
+  const scene = (u, v) => ((u - 0.4) ** 2 + (v - 0.55) ** 2 < 0.07 ? [250, 250, 250] : [140 + Math.round(60 * u), 110 + Math.round(60 * v), 100]);
+  assert.ok(F.sigDistance(F.photoSig(raster(64, 64, scene), 64, 64, 1.5), F.photoSig(raster(64, 64, scene, { x: 0, y: 12, w: 64, h: 40 }), 64, 64, 210 / 240)) < F.SIG_MAX);
+});
+
+test('matchPhotos: each photo to the row whose picture it looks like — closest first, a row and a photo once; a stranger stays loose', () => {
+  const red = disc([200, 50, 40]); const stripes = (u, v) => (Math.floor(u * 8) % 2 === 0 && v > 0.08 && v < 0.92 ? [230, 126, 34] : W);
+  const refs = [{ row: 1, sig: inSheet(red) }, { row: 2, sig: inSheet(tray) }, { row: 3, sig: inSheet(tree) }];
+  const photos = [{ i: 0, sig: photo(tree) }, { i: 1, sig: photo(stripes) }, { i: 2, sig: photo(red) }, { i: 3, sig: photo(tray) }];
+  const m = F.matchPhotos(refs, photos);
+  assert.deepEqual(m.pairs.map((x) => [x.i, x.row]), [[2, 1], [3, 2], [0, 3]]);
+  assert.deepEqual(plain(m.loose), [1]);
+  // the same picture on two rows (a Variable sheet): the first row takes the photo, a second copy of the photo takes the next
+  const twice = [{ row: 4, sig: inSheet(red) }, { row: 5, sig: inSheet(red) }];
+  assert.deepEqual(F.matchPhotos(twice, [{ i: 0, sig: photo(red) }]).pairs.map((x) => [x.i, x.row]), [[0, 4]]);
+  assert.deepEqual(F.matchPhotos(twice, [{ i: 0, sig: photo(red) }, { i: 1, sig: photo(red) }]).pairs.map((x) => [x.i, x.row]), [[0, 4], [1, 5]]);
+  // nothing to match to, or a photo that could not be read
+  assert.deepEqual(plain(F.matchPhotos([], photos)), { pairs: [], loose: [0, 1, 2, 3] });
+  assert.deepEqual(plain(F.matchPhotos(refs, [{ i: 0, sig: '' }])), { pairs: [], loose: [0] });
+  assert.deepEqual(plain(F.matchPhotos(refs, [{ i: 0, sig: photo(red) }], 0)).loose, [0]); // a limit of 0 takes only the very same pixels
+});
+
+test('photoGaps (decision 41): a product with no photo on any of its rows is missing; photos on a row the sheet does not have are extra', () => {
+  const rows = [{ src: 1, group: 'a' }, { src: 2, group: 'a' }, { src: 3, group: 'b' }, { src: 4, group: 'c' }, { src: 5 }];
+  assert.deepEqual(plain(F.photoGaps(rows, { 2: ['p2'], 4: ['p4'], 7: ['x'], 9: [] })), { missing: [3, 5], extra: [7] }); // the variations of «a» share row 2's photo
+  assert.deepEqual(plain(F.photoGaps(rows, {})), { missing: [1, 3, 4, 5], extra: [] });
+  assert.deepEqual(plain(F.photoGaps(rows, { 1: ['a'], 3: ['b'], 4: ['c'], 5: ['d'] })), { missing: [], extra: [] });
+  assert.deepEqual(plain(F.photoGaps([], { 1: ['a'] })), { missing: [], extra: [1] });
+  assert.deepEqual(plain(F.photoGaps(null, null)), { missing: [], extra: [] });
+});
+
+test('the pictures inside a workbook (decision 40): a drawing\'s cell and a «Place in cell» picture are found by their sheet lines; readSheet keeps each row\'s line', async () => {
+  const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4]); const jpg = Uint8Array.from([0xff, 0xd8, 0xff, 9, 9]);
+  // our own writer: an empty line between the head and the rows would shift a plain count — the lines come from the sheet
+  const sh = F.makerSheetOf({ rows: [{ n: 1, nameEn: 'Vase', vendorPrice: 100 }, { n: 2, nameEn: 'Tray', vendorPrice: 200 }, { n: 3, nameEn: 'Tree', vendorPrice: 300 }] });
+  const bytes = F.xlsx({ ...sh, freeze: 'C2', images: [{ row: 0, col: sh.refCol, bytes: png, ext: 'png', w: 10, h: 10 }, { row: 2, col: sh.refCol, bytes: jpg, ext: 'jpeg', w: 10, h: 10 }] });
+  const pics = await PD.xlsxPhotos(bytes);
+  assert.deepEqual(pics.map((p) => [p.line, p.col, p.ext, p.bytes.length]), [[2, 1, 'png', 8], [4, 1, 'jpeg', 5]]);
+  const cells = await PD.parseXlsx(bytes); assert.deepEqual(plain(cells.lines), [1, 2, 3, 4]);
+  assert.deepEqual(F.readSheet(cells).rows.map((r) => [r.nameEn, r.line]), [['Vase', 2], ['Tray', 3], ['Tree', 4]]);
+  assert.deepEqual(F.readSheet([['Name EN', 'Vendor Price'], [], ['Lamp', 5]]).rows.map((r) => r.line), [3]); // a csv: the row's place among the lines
+  // a sheet with a gap: row 5 of the file is the second product
+  const NS = 'http://schemas.openxmlformats.org/';
+  const sheet = '<?xml version="1.0"?><worksheet xmlns="' + NS + 'spreadsheetml/2006/main" xmlns:r="' + NS + 'officeDocument/2006/relationships"><sheetData>'
+    + '<row r="1"><c r="A1" t="inlineStr"><is><t>Name EN</t></is></c><c r="B1" t="inlineStr"><is><t>photo</t></is></c></row>'
+    + '<row r="3"><c r="A3" t="inlineStr"><is><t>Lamp</t></is></c><c r="B3" t="e" vm="1"><v>#VALUE!</v></c></row>'
+    + '<row r="5"><c r="A5" t="inlineStr"><is><t>Mug</t></is></c><c r="B5" t="e" vm="2"><v>#VALUE!</v></c></row></sheetData></worksheet>';
+  const rich = PD.zip([
+    { name: 'xl/worksheets/sheet1.xml', data: sheet },
+    { name: 'xl/metadata.xml', data: '<metadata><futureMetadata name="XLRICHVALUE" count="2"><bk/><bk/></futureMetadata><valueMetadata count="2"><bk><rc t="1" v="0"/></bk><bk><rc t="1" v="1"/></bk></valueMetadata></metadata>' },
+    { name: 'xl/richData/rdrichvalue.xml', data: '<rvData count="2"><rv s="0"><v>1</v><v>5</v></rv><rv s="0"><v>0</v><v>5</v></rv></rvData>' },
+    { name: 'xl/richData/richValueRel.xml', data: '<richValueRels xmlns:r="' + NS + 'officeDocument/2006/relationships"><rel r:id="rId1"/><rel r:id="rId2"/></richValueRels>' },
+    { name: 'xl/richData/_rels/richValueRel.xml.rels', data: '<Relationships><Relationship Id="rId1" Type="x" Target="../media/image1.png"/><Relationship Id="rId2" Type="x" Target="../media/image2.jpeg"/></Relationships>' },
+    { name: 'xl/media/image1.png', data: png }, { name: 'xl/media/image2.jpeg', data: jpg }, { name: 'xl/media/vector1.emf', data: png }]);
+  // the first cell's value is rich value 0 → relation 1 → image2.jpeg; the second → relation 0 → image1.png
+  assert.deepEqual((await PD.xlsxPhotos(rich)).map((p) => [p.line, p.col, p.name]), [[3, 1, 'xl/media/image2.jpeg'], [5, 1, 'xl/media/image1.png']]);
+  assert.deepEqual(F.readSheet(await PD.parseXlsx(rich)).rows.map((r) => [r.nameEn, r.line]), [['Lamp', 3], ['Mug', 5]]);
+  // not a workbook, or one with no pictures
+  assert.deepEqual(await PD.xlsxPhotos(new Uint8Array([1, 2, 3])), []);
+  assert.deepEqual(await PD.xlsxPhotos(F.xlsx({ ...sh, freeze: 'C2' })), []);
+});

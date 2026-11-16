@@ -69,14 +69,19 @@
   const text = (v, max) => { const s = String(v == null ? '' : v).replace(/\s+/g, ' ').trim(); return max ? s.slice(0, max) : s; };
   /** a sheet as rows of cells (the first row its headers) → { rows: [template row], map, unknown: [header] } — rows with no name and no price are skipped. */
   function readSheet(cells) {
-    const all = (Array.isArray(cells) ? cells : []).filter((r) => Array.isArray(r) && r.some((c) => String(c == null ? '' : c).trim() !== ''));
+    // each row keeps the line it sits on in the sheet (cells.lines from PD.parseXlsx, else its place) — a picture inside the sheet
+    // is found by that line (comments decision 40)
+    const src = Array.isArray(cells) ? cells : []; const lines = Array.isArray(src.lines) && src.lines.length === src.length ? src.lines : null;
+    const kept = []; src.forEach((r, i) => { if (Array.isArray(r) && r.some((c) => String(c == null ? '' : c).trim() !== '')) kept.push({ r, line: lines ? Number(lines[i]) : i + 1 }); });
+    const all = kept.map((x) => x.r);
     if (!all.length) return { rows: [], map: {}, unknown: [] };
     const head = all[0]; const map = mapHeaders(head);
     const taken = new Set(Object.values(map));
     const unknown = head.map((x, i) => (taken.has(i) || !String(x == null ? '' : x).trim() || /^#$|^preview|image|refrance|reference|صور/i.test(String(x)) ? null : String(x).trim())).filter(Boolean);
-    const rows = all.slice(1).map((r) => {
+    const rows = kept.slice(1).map(({ r, line }) => {
       const o = blankRow();
       Object.keys(map).forEach((f) => { const v = r[map[f]]; if (NUMERIC.includes(f)) o[f] = num(v); else o[f] = text(v, f.startsWith('short') ? 2000 : 200); });
+      o.line = line;
       return o;
     }).filter((o) => o.nameEn || o.nameAr || o.vendorPrice != null);
     return { rows, map, unknown };
@@ -113,6 +118,93 @@
     let next = 1;
     loose.forEach((i) => { while (used.has(next)) next += 1; used.add(next); out.push({ i, row: next, order: 0, auto: true }); });
     return out.sort((a, b) => a.row - b.row || a.order - b.order || a.i - b.i);
+  }
+
+  // ---------------------------------------------------------------- a picture's signature (comments decision 40)
+  // The owner 15 Nov: «محتاج السيستم يعمل ماتشينج للصور ف الترتيب لوحده بناءا علي الصور اللي جوة الشيت» — the photos a member uploads
+  // are put on their rows by looking like the picture the sheet has on that row. Pure: the page hands the pixels.
+  const SIG_G = 10, SIG_C = 3, SIG_TOL = 26, SIG_MAX = 0.35; // the same picture small and big measures ≈ 0.05–0.2; the same shape in another colour ≈ 0.65
+  const SIG_LEN = SIG_G * SIG_G + SIG_C * SIG_C * 3 + 1;
+  /**
+   * A picture's signature from its pixels (RGBA, w × h — the picture drawn into a small square; `ratio` its real width ÷ height).
+   * The plain border — the same colour as the four corners — is cut first, so a product on white and its small copy between white
+   * bars show the same box; the box is then read as a 10 × 10 grid of grey, a 3 × 3 grid of colour and its shape. → a hex string
+   * ('' when there are no pixels to read).
+   */
+  function photoSig(px, w, h, ratio) {
+    if (!px || !(w >= 8) || !(h >= 8) || px.length < w * h * 4) return '';
+    const at = (x, y) => (y * w + x) * 4;
+    const corners = [at(0, 0), at(w - 1, 0), at(0, h - 1), at(w - 1, h - 1)];
+    const bg = [0, 1, 2].map((c) => corners.reduce((t, i) => t + px[i + c], 0) / 4);
+    const plain = corners.every((i) => [0, 1, 2].every((c) => Math.abs(px[i + c] - bg[c]) <= SIG_TOL));
+    let x0 = 0, y0 = 0, x1 = w - 1, y1 = h - 1;
+    if (plain) {
+      const isBg = (i) => Math.abs(px[i] - bg[0]) <= SIG_TOL && Math.abs(px[i + 1] - bg[1]) <= SIG_TOL && Math.abs(px[i + 2] - bg[2]) <= SIG_TOL;
+      const rowBg = (y) => { let n = 0; for (let x = 0; x < w; x++) if (!isBg(at(x, y))) n += 1; return n <= w * 0.03; };
+      const colBg = (x) => { let n = 0; for (let y = y0; y <= y1; y++) if (!isBg(at(x, y))) n += 1; return n <= (y1 - y0 + 1) * 0.03; };
+      while (y0 < y1 && rowBg(y0)) y0 += 1;
+      while (y1 > y0 && rowBg(y1)) y1 -= 1;
+      while (x0 < x1 && colBg(x0)) x0 += 1;
+      while (x1 > x0 && colBg(x1)) x1 -= 1;
+      if (x1 - x0 + 1 < 6 || y1 - y0 + 1 < 6) { x0 = 0; y0 = 0; x1 = w - 1; y1 = h - 1; } // nothing but the background: the whole picture
+    }
+    const bw = x1 - x0 + 1, bh = y1 - y0 + 1; const bytes = [];
+    const grid = (g, each) => {
+      for (let gy = 0; gy < g; gy++) for (let gx = 0; gx < g; gx++) {
+        const xa = x0 + Math.floor(gx * bw / g), xb = Math.max(xa, x0 + Math.ceil((gx + 1) * bw / g) - 1), ya = y0 + Math.floor(gy * bh / g), yb = Math.max(ya, y0 + Math.ceil((gy + 1) * bh / g) - 1);
+        let r = 0, gr = 0, b = 0, n = 0;
+        for (let y = ya; y <= yb; y++) for (let x = xa; x <= xb; x++) { const i = at(x, y); r += px[i]; gr += px[i + 1]; b += px[i + 2]; n += 1; }
+        each(r / n, gr / n, b / n);
+      }
+    };
+    grid(SIG_G, (r, g, b) => bytes.push(0.299 * r + 0.587 * g + 0.114 * b));
+    grid(SIG_C, (r, g, b) => bytes.push(r, g, b));
+    const shape = (bw / bh) * (ratio > 0 ? ratio * h / w : 1); // the box's real width ÷ height
+    bytes.push(64 + 32 * Math.log2(Math.max(0.25, Math.min(4, shape)))); // 64 = a square, 32 a doubling
+    return bytes.map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('');
+  }
+  const sigBytes = (sig) => { const t = String(sig || ''); if (t.length !== SIG_LEN * 2 || /[^0-9a-f]/.test(t)) return null; const o = new Array(SIG_LEN); for (let i = 0; i < SIG_LEN; i++) o[i] = parseInt(t.substr(i * 2, 2), 16); return o; };
+  /** how far two signatures are — 0 the same picture: the grey grids' likeness (1 − correlation) + twice the colours' difference + the boxes' shapes. Infinity for a broken one. */
+  function sigDistance(a, b) {
+    const A = sigBytes(a), B = sigBytes(b); if (!A || !B) return Infinity;
+    const n = SIG_G * SIG_G; let ma = 0, mb = 0;
+    for (let i = 0; i < n; i++) { ma += A[i]; mb += B[i]; }
+    ma /= n; mb /= n;
+    let sab = 0, saa = 0, sbb = 0;
+    for (let i = 0; i < n; i++) { const x = A[i] - ma, y = B[i] - mb; sab += x * y; saa += x * x; sbb += y * y; }
+    const flatA = saa < n * 4, flatB = sbb < n * 4; // one grey all over: no shape to compare, the colour speaks
+    const corr = flatA || flatB ? (flatA && flatB ? 1 : 0) : sab / Math.sqrt(saa * sbb);
+    const m = SIG_C * SIG_C * 3; let col = 0;
+    for (let i = 0; i < m; i++) col += Math.abs(A[n + i] - B[n + i]);
+    col /= m * 255;
+    const shape = Math.abs(A[n + m] - B[n + m]) / 32; // in doublings
+    return (1 - corr) + col * 2 + (shape > 0.35 ? 0.5 : shape * 0.3);
+  }
+  /**
+   * The uploaded photos against the sheet's own pictures: refs [{ row, sig }], photos [{ i, sig }] → { pairs: [{ i, row, d }], loose: [i] }.
+   * The closest pair first; a row takes one photo and a photo one row; a pair further than `max` is no match.
+   */
+  function matchPhotos(refs, photos, max) {
+    const lim = Number.isFinite(max) ? max : SIG_MAX; const all = []; const P = Array.isArray(photos) ? photos : [];
+    (Array.isArray(refs) ? refs : []).forEach((r) => P.forEach((p) => { const d = sigDistance(r.sig, p.sig); if (d <= lim) all.push({ i: p.i, row: r.row, d }); }));
+    all.sort((a, b) => a.d - b.d || a.row - b.row || a.i - b.i);
+    const rows = new Set(); const used = new Set(); const pairs = [];
+    all.forEach((x) => { if (rows.has(x.row) || used.has(x.i)) return; rows.add(x.row); used.add(x.i); pairs.push(x); });
+    return { pairs: pairs.sort((a, b) => a.row - b.row), loose: P.map((p) => p.i).filter((i) => !used.has(i)) };
+  }
+  /**
+   * What stops «التالي» in the first step (comments decision 41 — «لو لقي حاجة زيادة … او حاجة ناقصة»): rows [{ src, group }] (group =
+   * its product — the variations of one product share its photos) and photoRows { row: [paths] } → { missing: [src of the first row
+   * of each product without a photo], extra: [photo rows that are not rows of the sheet] }.
+   */
+  function photoGaps(rows, photoRows) {
+    const L = Array.isArray(rows) ? rows : []; const by = photoRows && typeof photoRows === 'object' ? photoRows : {};
+    const has = (n) => Array.isArray(by[n]) && by[n].length > 0;
+    const srcs = new Set(L.map((r) => Number(r.src)));
+    const groups = new Map(); L.forEach((r) => { const k = r.group == null ? 'r' + r.src : String(r.group); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(Number(r.src)); });
+    const missing = [...groups.values()].filter((g) => !g.some(has)).map((g) => g[0]).sort((a, b) => a - b);
+    const extra = Object.keys(by).map(Number).filter((n) => has(n) && !srcs.has(n)).sort((a, b) => a - b);
+    return { missing, extra };
   }
 
   // ---------------------------------------------------------------- the SKU (decision 5: the Glastora sheet's shape)
@@ -351,6 +443,6 @@
     return (clean(maker).slice(0, 60) || 'Products') + (clean(tag) ? ' - ' + clean(tag).slice(0, 30) : '') + ' - ' + d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + '.xlsx'; };
 
   return { FIELDS, LABELS, NUMERIC, TEMPLATE, HEAD_SIMPLE, HEAD_VARIABLE, PREVIEWS, mapHeaders, readSheet, blankRow, photoIndex, assignPhotos, placePhotos, brandCode3, validCode, sizeCode, skuOf, validSku, skuBase, baseName,
-    groupRows, slugName, imageSku, fileName, siteUrl, pricesOf, rowIssues, sheetOf, makerSheetOf, MAKER_HEAD, blankSheetRows, colName, xlsxParts, xlsx, sheetFileName, norm,
+    groupRows, slugName, imageSku, fileName, siteUrl, pricesOf, rowIssues, sheetOf, makerSheetOf, MAKER_HEAD, photoSig, sigDistance, matchPhotos, photoGaps, SIG_MAX, blankSheetRows, colName, xlsxParts, xlsx, sheetFileName, norm,
     MATERIALS, STYLES, pairOf, sizeEnOf, nameOrder };
 });

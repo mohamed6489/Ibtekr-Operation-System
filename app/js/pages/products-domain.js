@@ -260,7 +260,8 @@
   }
   // XLSX → صفوف أول شيت (من غير مكتبات: zip + DecompressionStream('deflate-raw') + XML بسيط). async.
   const xmlText = (s) => s.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n))).replace(/&amp;/g, '&');
-  async function unzipText(bytes, want) {
+  // binary: the files as bytes (the pictures inside a workbook), else as text
+  async function unzipText(bytes, want, binary) {
     const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes); const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
     let e = -1; for (let i = b.length - 22; i >= Math.max(0, b.length - 65557); i--) if (dv.getUint32(i, true) === 0x06054b50) { e = i; break; }
     if (e < 0) throw new Error('not a zip');
@@ -274,28 +275,73 @@
       let data = raw;
       if (method === 8) data = new Uint8Array(await new Response(new Blob([raw]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());
       else if (method !== 0) throw new Error('zip method ' + method);
-      out[name] = new TextDecoder().decode(data);
+      out[name] = binary && binary(name) ? data.slice() : new TextDecoder().decode(data);
     }
     return out;
   }
   const colIndex = (ref) => { const m = /^([A-Z]+)/.exec(ref || ''); if (!m) return -1; let n = 0; for (const ch of m[1]) n = n * 26 + (ch.charCodeAt(0) - 64); return n - 1; };
+  const firstSheet = (files) => Object.keys(files).filter((n) => /^xl\/worksheets\/sheet\d+\.xml$/.test(n)).sort((a, b) => Number(a.match(/\d+/)[0]) - Number(b.match(/\d+/)[0]))[0];
+  // the rows carry their sheet lines as `rows.lines` (1-based, the same length) — a picture inside the sheet is found by its line
   async function parseXlsx(bytes) {
     const files = await unzipText(bytes, (n) => n === 'xl/sharedStrings.xml' || /^xl\/worksheets\/sheet\d+\.xml$/.test(n));
-    const sheet = Object.keys(files).filter((n) => n.startsWith('xl/worksheets/')).sort((a, b) => Number(a.match(/\d+/)[0]) - Number(b.match(/\d+/)[0]))[0];
+    const sheet = firstSheet(files);
     if (!sheet) throw new Error('no sheet');
     const shared = [...(files['xl/sharedStrings.xml'] || '').matchAll(/<si>([\s\S]*?)<\/si>/g)].map((m) => [...m[1].matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)].map((t) => xmlText(t[1])).join(''));
-    const rows = [];
-    for (const r of files[sheet].matchAll(/<row[^>]*>([\s\S]*?)<\/row>/g)) {
-      const row = [];
-      for (const c of r[1].matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+    const rows = []; const lines = []; let at = 0;
+    for (const r of files[sheet].matchAll(/<row\b([^>]*)>([\s\S]*?)<\/row>/g)) {
+      const row = []; const rn = Number((/\br="(\d+)"/.exec(r[1]) || [])[1]); at = rn >= 1 ? rn : at + 1;
+      for (const c of r[2].matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
         const attrs = c[1]; const body = c[2] || ''; const i = colIndex((/\br="([A-Z]+\d+)"/.exec(attrs) || [])[1]); const t = (/\bt="(\w+)"/.exec(attrs) || [])[1];
         const v = (/<v>([\s\S]*?)<\/v>/.exec(body) || [])[1];
         const val = t === 's' ? shared[Number(v)] || '' : t === 'inlineStr' ? xmlText((/<is>([\s\S]*?)<\/is>/.exec(body) || [])[1] || '') : v == null ? '' : xmlText(v);
         row[i < 0 ? row.length : i] = val;
       }
-      rows.push(Array.from(row, (x) => (x == null ? '' : x)));
+      const cells = Array.from(row, (x) => (x == null ? '' : x));
+      if (cells.some((c) => String(c).trim() !== '')) { rows.push(cells); lines.push(at); }
     }
-    return rows.filter((r) => r.some((c) => String(c).trim() !== ''));
+    Object.defineProperty(rows, 'lines', { value: lines, enumerable: false }); // beside the rows, not one of them
+    return rows;
+  }
+  /**
+   * The pictures inside a workbook's first sheet, by the line they sit on (comments decision 40 — «بناءا علي الصور اللي جوة
+   * الشيت»): the drawings anchored to a cell (the usual «صورة فوق الخلايا» — and what our own sheets write) and Excel's
+   * «Place in cell» pictures (richData). → [{ line (1-based), col (0-based), name, ext, bytes }] in the sheet's order; PNG / JPEG /
+   * GIF / WebP / BMP only, 300 at most.
+   */
+  async function xlsxPhotos(bytes) {
+    const isPic = (n) => /^xl\/media\/[^/]+\.(png|jpe?g|gif|webp|bmp)$/i.test(n);
+    let files;
+    try { files = await unzipText(bytes, (n) => /^xl\/worksheets\/(sheet\d+\.xml|_rels\/sheet\d+\.xml\.rels)$/.test(n) || /^xl\/drawings\/(drawing\d+\.xml|_rels\/drawing\d+\.xml\.rels)$/.test(n)
+      || /^xl\/(metadata\.xml|richData\/(rdrichvalue\.xml|richValueRel\.xml|_rels\/richValueRel\.xml\.rels))$/.test(n) || isPic(n), isPic); } catch (e) { return []; }
+    const sheet = firstSheet(files); if (!sheet) return [];
+    const relsOf = (xml) => { const m = {}; for (const r of String(xml || '').matchAll(/<Relationship\b([^>]*)\/?>/g)) { const id = (/\bId="([^"]+)"/.exec(r[1]) || [])[1]; const t = (/\bTarget="([^"]+)"/.exec(r[1]) || [])[1]; if (id && t) m[id] = t; } return m; };
+    const resolve = (base, target) => { if (target.startsWith('/')) return target.slice(1); const parts = base.split('/').slice(0, -1); target.split('/').forEach((x) => { if (x === '..') parts.pop(); else if (x !== '.') parts.push(x); }); return parts.join('/'); };
+    const out = []; const put = (line, col, name) => { const b = files[name]; if (!(b instanceof Uint8Array) || !b.length || b.length > 8 * 1024 * 1024 || !(line >= 1)) return; out.push({ line, col: col >= 0 ? col : 0, name, ext: name.split('.').pop().toLowerCase().replace('jpg', 'jpeg'), bytes: b }); };
+    // 1) the drawings: an anchor's top-left cell is the picture's cell
+    const sheetRels = relsOf(files[sheet.replace('worksheets/', 'worksheets/_rels/') + '.rels']);
+    for (const m of files[sheet].matchAll(/<drawing\b[^>]*\br:id="([^"]+)"/g)) {
+      const dr = sheetRels[m[1]] ? resolve(sheet, sheetRels[m[1]]) : ''; const xml = files[dr]; if (typeof xml !== 'string') continue;
+      const dRels = relsOf(files[dr.replace('drawings/', 'drawings/_rels/') + '.rels']);
+      for (const a of xml.matchAll(/<(?:\w+:)?(oneCellAnchor|twoCellAnchor)\b[\s\S]*?<\/(?:\w+:)?\1>/g)) {
+        const from = (/<(?:\w+:)?from>([\s\S]*?)<\/(?:\w+:)?from>/.exec(a[0]) || [])[1] || '';
+        const row = Number((/<(?:\w+:)?row>(\d+)<\//.exec(from) || [])[1]); const col = Number((/<(?:\w+:)?col>(\d+)<\//.exec(from) || [])[1]);
+        const rid = (/<(?:\w+:)?blip\b[^>]*\b(?:r:)?embed="([^"]+)"/.exec(a[0]) || [])[1];
+        if (rid && dRels[rid] && Number.isFinite(row)) put(row + 1, col, resolve(dr, dRels[rid]));
+      }
+    }
+    // 2) «Place in cell»: the cell's vm → the value's metadata → the rich value → its relation → the picture
+    const meta = files['xl/metadata.xml']; const rv = files['xl/richData/rdrichvalue.xml']; const rvRel = files['xl/richData/richValueRel.xml'];
+    if (typeof meta === 'string' && typeof rv === 'string' && typeof rvRel === 'string') {
+      const vmeta = (/<valueMetadata\b[^>]*>([\s\S]*?)<\/valueMetadata>/.exec(meta) || [])[1] || '';
+      const bks = [...vmeta.matchAll(/<bk>([\s\S]*?)<\/bk>/g)].map((b) => Number((/\bv="(\d+)"/.exec(b[1]) || [])[1]));
+      const rvs = [...rv.matchAll(/<rv\b[^>]*>([\s\S]*?)<\/rv>/g)].map((x) => Number((/<v>(\d+)<\/v>/.exec(x[1]) || [])[1]));
+      const rels = [...rvRel.matchAll(/<rel\b[^>]*\br:id="([^"]+)"/g)].map((x) => x[1]); const relMap = relsOf(files['xl/richData/_rels/richValueRel.xml.rels']);
+      for (const c of files[sheet].matchAll(/<c\b([^>]*\bvm="(\d+)"[^>]*)>/g)) {
+        const ref = (/\br="([A-Z]+)(\d+)"/.exec(c[1]) || []); const k = Number(c[2]); const vi = bks[k - 1]; const ri = Number.isFinite(vi) ? rvs[vi] : NaN; const rid = Number.isFinite(ri) ? rels[ri] : null;
+        if (ref[2] && rid && relMap[rid]) put(Number(ref[2]), colIndex(ref[1] + '1'), resolve('xl/richData/richValueRel.xml', relMap[rid]));
+      }
+    }
+    return out.sort((a, b) => a.line - b.line || a.col - b.col).slice(0, 300);
   }
   // ربط الأعمدة بالاسم (عربي أو إنجليزي) → { field: index }
   const STUDIO_FIELDS = {
@@ -637,6 +683,6 @@
     return out;
   }
 
-  return { FAKE_MAX, FAKE_AMOUNT_MAX, FAKE_PERCENT_MAX, fakeRule, fakeTier, fakeRegular, fakeLines, PLAN_DEPTH, PLAN_MAX, planOutline, planParents, planEnd, planResolve, aiDisplay, paraHtml, aiSaveChange, aiApply, brandCode, serialText, sizeDigits, studioSku, suggestColorCode, parseCsv, parseXlsx, mapColumns, rowsToItems, photoName, catFromPath, itemIssues, STUDIO_FIELDS, catTree, catAncestors, catToggle, catSearch, catOptions, outOfStock, categoriesRank, priceFromVendor, randomMarkup, ceil10, MARKUP_MIN, MARKUP_MAX, crc32, zip, xlsx, xlsxFiles, backupPlan, SLOT_DIRS, safeName, IMG_SIZES, customSize, IMG_MODELS, imgCredits, designCode, designBase, variantSku, SLOTS, SLOT_HINT, slotPrompt, credits, catsOf, inCategory, bulkPrice, buildSku, skuParts, serialStart, serials, sizeCode, price, DISCOUNTS, rotatingDiscount, imageName, imagePath, combos, stockState, completeness, trashDaysLeft, trashSoon, TRASH_DAYS, moveVendor, bumpPrice, validateCode, groupImages, VIDEO_MODELS, scenesTotal, scenesFit, campaignPieces };
+  return { FAKE_MAX, FAKE_AMOUNT_MAX, FAKE_PERCENT_MAX, fakeRule, fakeTier, fakeRegular, fakeLines, PLAN_DEPTH, PLAN_MAX, planOutline, planParents, planEnd, planResolve, aiDisplay, paraHtml, aiSaveChange, aiApply, brandCode, serialText, sizeDigits, studioSku, suggestColorCode, parseCsv, parseXlsx, xlsxPhotos, mapColumns, rowsToItems, photoName, catFromPath, itemIssues, STUDIO_FIELDS, catTree, catAncestors, catToggle, catSearch, catOptions, outOfStock, categoriesRank, priceFromVendor, randomMarkup, ceil10, MARKUP_MIN, MARKUP_MAX, crc32, zip, xlsx, xlsxFiles, backupPlan, SLOT_DIRS, safeName, IMG_SIZES, customSize, IMG_MODELS, imgCredits, designCode, designBase, variantSku, SLOTS, SLOT_HINT, slotPrompt, credits, catsOf, inCategory, bulkPrice, buildSku, skuParts, serialStart, serials, sizeCode, price, DISCOUNTS, rotatingDiscount, imageName, imagePath, combos, stockState, completeness, trashDaysLeft, trashSoon, TRASH_DAYS, moveVendor, bumpPrice, validateCode, groupImages, VIDEO_MODELS, scenesTotal, scenesFit, campaignPieces };
 });
 

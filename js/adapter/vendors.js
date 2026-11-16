@@ -189,6 +189,7 @@
       leadDays: Number(r.lead_days) || 7, depositPolicy: r.deposit_policy || null, notes: r.notes || null, logoLetter: name.charAt(0),
       joinedAt: localDate(r.joined_at) || localDate(r.created_at) || T, contract, bank: b, login: toLogin(opts && opts.login), openingBalance: Number(r.opening_balance) || 0,
       wooVendorId: r.woo_vendor_id == null ? null : Number(r.woo_vendor_id), shopUrl: text(raw.shop_url), createdAt: text(r.created_at), lastUpdate: text(r.updated_at) || text(r.created_at),
+      storeError: text(r.store_error) || null, archivedAt: text(r.archived_at) || null, // 0112 (the owner 16 Nov)
       siteRemovedAt: text(r.site_removed_at) || null, // the owner (2 Nov): the store is gone from the site (woo-sync marks it; the admin deletes from the drawer)
       brands: [], brandsEver: [] }; // phase 3.2: filled by load() from the brands tables (syncVendorBrands)
   }
@@ -283,6 +284,7 @@
 
   // ---------- load ----------
   const stale = (g) => { if (g !== gen) throw new Error('stale'); };
+  let has0112 = true;
   async function pages(build, g) {
     const rows = [];
     for (let from = 0; ; from += PAGE) {
@@ -305,7 +307,10 @@
       const mayRate = canRate(); // the brand_rates policy needs sensitive.commission = F: no request without it (0 rows anyway)
       const none = { data: [], error: null };
       const [vs, rs, bs, ls, brs, ows, bts, crs, cts] = await Promise.all([
-        pages(() => cl.from('vendors').select(COLS.vendor).order('name', { ascending: true }).order('id', { ascending: true }), g),
+        // 0112 (the owner 16 Nov): the store's failed try and the archive — before 0112 is applied the columns are not there (42703): the
+        // older list again, nobody archived, no retry flag
+        pages(() => cl.from('vendors').select(COLS.vendor + (has0112 ? ', store_error, archived_at' : '')).order('name', { ascending: true }).order('id', { ascending: true }), g)
+          .catch((e) => { if (has0112 && e && String(e.code) === '42703') { has0112 = false; return pages(() => cl.from('vendors').select(COLS.vendor).order('name', { ascending: true }).order('id', { ascending: true }), g); } throw e; }),
         cl.from('vendor_rates').select(COLS.rate).order('since', { ascending: true }).order('id', { ascending: true }),
         cl.from('vendor_bank').select(COLS.bank),
         cl.from('vendor_logins').select(COLS.login),
@@ -348,10 +353,11 @@
   // ---------- the store ----------
   const copy = (v) => JSON.parse(JSON.stringify(v));
   const get = (id) => { const v = vendors.get(String(id)); return v ? copy(v) : null; };
-  const all = () => [...vendors.values()].map(copy);
+  // 0112: an archived maker (deleted with orders / moves on him) is in no list or picker — get(id) still names him for his old orders
+  const all = () => [...vendors.values()].filter((v) => !v.archivedAt).map(copy);
   const must = (id) => { const v = vendors.get(String(id)); if (!v) throw new Error('vendor not found: ' + id); return v; };
   const events = (id) => (timeline.get(String(id)) || []).slice();
-  function findByName(name) { const n = norm(name); if (!n) return null; for (const v of vendors.values()) { if (norm(v.name) === n || v.aliases.some((a) => norm(a) === n)) return copy(v); } return null; }
+  function findByName(name) { const n = norm(name); if (!n) return null; for (const v of vendors.values()) { if (v.archivedAt) continue; if (norm(v.name) === n || v.aliases.some((a) => norm(a) === n)) return copy(v); } return null; }
   const fail = (reason) => ({ ok: false, reason });
   // the brands' own codes (0013) are told apart by their message: 23503 of vendors_brands_guard_delete names brand_owners_vendor_id_fkey,
   // 23505 of the name index brands_name_key, 22023 of brand_owners_guard says which rule
@@ -648,21 +654,23 @@
     const o = opts || {}; const body = { action: 'vendor_store', vendor_id: String(id), password: String(o.password || '') };
     if (o.shopUrl) body.shop_url = String(o.shopUrl).trim().toLowerCase();
     ['notify', 'trusted', 'featured'].forEach((k) => { if (typeof o[k] === 'boolean') body[k] = o[k]; });
-    let d = null;
+    let d = null; let fails = true;
+    // 0112: a failed try shows «جرّب عمل المتجر تاني» in his file at once (the server keeps it on the row too)
+    const mark = (r) => { if (fails && !r.ok && r.reason !== 'invalid' && r.reason !== 'has_store') { const cur = vendors.get(String(id)); if (cur) cur.storeError = r.reason || 'failed'; } return r; };
     try {
       const res = await c().functions.invoke('woo-sync', { body }); d = res.data;
       if (res.error) {
         let b = null; try { b = res.error.context && typeof res.error.context.json === 'function' ? await res.error.context.json() : null; } catch (x) { b = null; }
         const st = res.error.context && res.error.context.status;
         const why = b && typeof b.error === 'string' ? b.error : st === 401 || st === 403 ? 'forbidden' : 'network';
-        if (why === 'exists_store') return { ok: false, reason: why, message: 'الإيميل ده بتاع متجر «' + String((b && b.name) || '').slice(0, 80) + '» عندنا بالفعل.' };
-        if (why === 'refused') return { ok: false, reason: why, message: 'الموقع رفض إنشاء المتجر' + (b && b.code ? ' (' + String(b.code).slice(0, 40) + ')' : '') + '.' };
-        if (why === 'woo_error' || st === 502) return { ok: false, reason: 'woo_down', message: STORE_MSG.woo_down };
-        if (why === 'bad_request') return { ok: false, reason: 'invalid', field: b && b.field, message: b && b.field === 'password' ? 'الباسورد لازم 8 حروف على الأقل وفيه حرف إنجليزي ورقم ومن غير مسافات.' : b && b.field === 'shop_url' ? 'رابط المتجر حروف إنجليزي صغيرة وأرقام و - بس.' : 'البيانات مش مظبوطة.' };
-        return STORE_MSG[why] ? { ok: false, reason: why, message: STORE_MSG[why] } : fail(why === 'forbidden' ? 'forbidden' : 'network');
+        if (why === 'exists_store') return mark({ ok: false, reason: why, message: 'الإيميل ده بتاع متجر «' + String((b && b.name) || '').slice(0, 80) + '» عندنا بالفعل.' });
+        if (why === 'refused') return mark({ ok: false, reason: why, message: 'الموقع رفض إنشاء المتجر' + (b && b.code ? ' (' + String(b.code).slice(0, 40) + ')' : '') + '.' });
+        if (why === 'woo_error' || st === 502) return mark({ ok: false, reason: 'woo_down', message: STORE_MSG.woo_down });
+        if (why === 'bad_request') return mark({ ok: false, reason: 'invalid', field: b && b.field, message: b && b.field === 'password' ? 'الباسورد لازم 8 حروف على الأقل وفيه حرف إنجليزي ورقم ومن غير مسافات.' : b && b.field === 'shop_url' ? 'رابط المتجر حروف إنجليزي صغيرة وأرقام و - بس.' : 'البيانات مش مظبوطة.' });
+        return mark(STORE_MSG[why] ? { ok: false, reason: why, message: STORE_MSG[why] } : fail(why === 'forbidden' ? 'forbidden' : 'network'));
       }
-    } catch (x) { return fail('network'); }
-    if (!d || d.result !== 'ok') return { ok: false, reason: (d && d.reason) || 'network', message: STORE_MSG[d && d.reason] || STORE_MSG.woo_down };
+    } catch (x) { return mark(fail('network')); }
+    if (!d || d.result !== 'ok') return mark({ ok: false, reason: (d && d.reason) || 'network', message: STORE_MSG[d && d.reason] || STORE_MSG.woo_down });
     await load();
     emit({ id, changed: ['store'] });
     return { ok: true, store: d.store, adopted: !!d.adopted, commission: !!d.commission, bank: !!d.bank, photo: d.photo || 'none', shopUrl: d.shop_url || null };

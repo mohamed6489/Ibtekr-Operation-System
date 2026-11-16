@@ -3533,8 +3533,8 @@
     const storeSection = () => {
       const KK = window.IBKit; const sub = (fid, label, obj, key, o = {}) => U.TextInput(Object.assign({ id: fid, label, value: f[obj][key] || '', error: errs[obj] && errs[obj][key], onInput: (x) => { f[obj][key] = x; } }, o));
       const shop = f.shopUrl || shopOf(f.username);
-      return [fsec('المتجر على الموقع (Dokan)', 'زي «Add New Vendor» في Dokan — حسابه على الموقع بنفس اسم المستخدم والإيميل والباسورد المؤقت بتوع «بيانات الدخول»'),
-        KK.Switch({ id: 'v-mkstore', label: 'اعمل له متجر على الموقع', help: f.mkStore ? 'المتجر بيتعمل على الموقع أول ما تضغط «إضافة المبتكر»' : 'هيتسجل هنا بس — تقدر تعمل متجره بعدين من ملفه', checked: f.mkStore, onChange: (x) => { f.mkStore = x; draw(); } }),
+      // the owner 16 Nov (plan 2026-11-16 decision 4): the store is made with the maker, always — no switch
+      return [fsec('المتجر على الموقع (Dokan)', 'بيتعمل على الموقع أول ما تضغط «إضافة المبتكر» — حسابه بنفس اسم المستخدم والإيميل والباسورد المؤقت بتوع «بيانات الدخول»'),
         f.mkStore ? [
           U.TextInput({ id: 'v-shop', label: 'رابط المتجر', dir: 'ltr', value: shop, error: errs.shopUrl, help: 'ibtekr.club/store/' + (shop || '…') + ' — حروف إنجليزي صغيرة وأرقام و -', onInput: (x) => { f.shopUrl = x.trim().toLowerCase(); f.shopTouched = true; } }),
           two(txt('v-first', 'الاسم الأول', 'first', { maxlength: 60 }), txt('v-last', 'الاسم الأخير', 'last', { maxlength: 60 })),
@@ -4062,7 +4062,8 @@
           : h('span', { class: 'tg tg-orange', 'data-missing-item': x }, x))); };
       const header = h('div', { class: 'drawer-h' },
         h('div', { class: 'row1' }, h('div', { class: 'vdrawer-id' }, vendorLogo(v), h('div', { class: 'names' }, h('div', { class: 'name-row' }, h('h2', { class: 't-h4' }, v.name), U.VendorStatus(v.status), siteOffTag(v)), h('span', { class: 't-small' }, num((v.category || 'بدون فئة') + ' · نسبة إبتكر ' + (canRate && v.rate != null ? v.rate + '%' : '—') + ' · مبتكر من ' + D.formatDateLong(v.joinedAt) + (v.wooVendorId ? ' · متجر #' + v.wooVendorId : ' · بدون متجر على الموقع'))), missingTag())),
-          h('div', { class: 'actions' }, !v.wooVendorId && vstore.canStore && vstore.canStore() ? Button({ type: 'brand', size: 'sm', icon: 'plus', label: 'اعمل متجر على الموقع', attrs: { 'data-make-store': '' }, onClick: () => storePopup(v) }) : null, moreMenu(v), IconButton({ icon: 'close', label: 'إغلاق', onClick: () => vdrawer.close() }))),
+          // the owner 16 Nov (decision 4): the store comes with «إضافة المبتكر»; here only after a failed try
+          h('div', { class: 'actions' }, !v.wooVendorId && v.storeError && vstore.canStore && vstore.canStore() ? Button({ type: 'brand', size: 'sm', icon: 'refresh', label: 'جرّب عمل المتجر تاني', attrs: { 'data-make-store': '' }, onClick: () => storePopup(v) }) : null, moreMenu(v), IconButton({ icon: 'close', label: 'إغلاق', onClick: () => vdrawer.close() }))),
         U.Tabs({ items: [{ id: 'info', label: 'معلومات المبتكر' }, { id: 'products', label: 'المنتجات' }, { id: 'orders', label: 'الأوردرات' }, { id: 'accounts', label: 'الحسابات' }], active: vtab, onChange: (t) => { vtab = t; if (t === 'products') { vpQ = ''; const a = PAPI(); if (a) a.ensure(); } draw(); } }));
       let body;
         const copy = (val, label) => copyText(val, label);

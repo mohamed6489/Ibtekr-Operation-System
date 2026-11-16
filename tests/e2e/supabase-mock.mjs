@@ -374,6 +374,7 @@ export async function installSupabaseMock(page, opts = {}) {
   mock.acc = { acc_expenses: [], acc_vendor_moves: [], acc_account_moves: [], acc_list_items: [], dokan_balances: (opts.dokanBalances || []).map((x) => ({ ...x })), dokan_withdrawals: (opts.dokanWithdrawals || []).map((x) => ({ ...x })),
     acc_vendor_settlements: (opts.settlements || []).map((x) => ({ ...x })) };
   mock.approvals = []; mock.withdrawCreates = [];
+  mock.shareMails = []; mock.shareMailDown = false; // share-mail (the owner 16 Nov): each mail { to, subject, kind, size, by }; shareMailDown = Resend not set (503)
   // phase 6 (0034): the customer-service tables. cs.customers: one row per normalised phone of the seeded orders (the backfill)
   // plus a manual lead; one open customer conversation (assigned to M02, two messages) and one closed maker conversation; the
   // five channels disconnected; csWrites: each insert / update / delete a member sent as { table, op, ...columns } (never the phone).
@@ -2136,6 +2137,19 @@ export async function installSupabaseMock(page, opts = {}) {
       }
       if (action === 'campaign_tick') { if (!isAdmin(u)) return json(401, { error: 'unauthorized' }); return json(200, { result: 'ok', skipped: 'off' }); }
       return json(400, { error: 'unknown_action' });
+    }
+    if (method === 'POST' && path === '/functions/v1/share-mail') {
+      // «مشاركة» › «إيميل» from the system: an active member, one plain address, the file of its kind (xlsx = PK / pdf = %PDF)
+      const u = tokenUser(); const b = body();
+      if (!u) return json(401, { error: 'unauthorized' });
+      if (mock.shareMailDown) return json(503, { error: 'not_configured' });
+      const to = String(b.to || '').trim().toLowerCase();
+      if (!/^[^\s@<>"',;]{1,64}@[^\s@<>"',;]{1,180}\.[a-z]{2,24}$/i.test(to)) return json(400, { error: 'invalid', field: 'to' });
+      const f = b.file; let kind = null, size = 0;
+      if (f) { const head = Buffer.from(String(f.data || ''), 'base64'); kind = f.kind; size = head.length;
+        if (!((kind === 'xlsx' && head[0] === 0x50 && head[1] === 0x4b) || (kind === 'pdf' && head[0] === 0x25 && head[1] === 0x50 && head[2] === 0x44 && head[3] === 0x46))) return json(400, { error: 'invalid', field: 'file' }); }
+      mock.shareMails.push({ to, subject: String(b.subject || ''), text: String(b.text || ''), kind, name: f ? String(f.name || '') : null, size, by: u.email });
+      return json(200, { ok: true });
     }
     if (method === 'POST' && path === '/functions/v1/cs-auto') {
       // phase 6.5: the engine's member actions — status (cs.view), tick (the admin; dry = a preview, nothing written)

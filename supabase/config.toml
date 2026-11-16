@@ -41,3 +41,6 @@ verify_jwt = false
 
 [functions.portal]
 verify_jwt = false
+
+[functions.share-mail]
+verify_jwt = false

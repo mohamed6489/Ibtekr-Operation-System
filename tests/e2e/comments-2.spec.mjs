@@ -239,7 +239,7 @@ test('comment 10 — «تقرير مختصر»: five numbers, the request\'s box
   await expect(sh.locator('.modal-h h2')).toHaveText('مشاركة — تقرير مختصر — Art Craft');
   await expect(sh.locator('[data-sh-type] b')).toHaveText(['Excel', 'PDF']);
   await expect(sh.locator('[data-sh-via] b')).toHaveText(['واتساب', 'إيميل', 'تحميل على الجهاز']);
-  await expect(sh.locator('[data-sh-hint]')).toContainText('هيتفتح واتساب على رقم 01000000003'); // the maker's own number
+  await expect(sh.locator('[data-sh-hint]')).toContainText('هيتفتح واتساب (الويب أو البرنامج) على رقم 01000000003'); // the maker's own number
   // a PDF saved on the device: one A4 page, with the product's photo read by the server
   await sh.locator('[data-sh-type="pdf"]').click(); await sh.locator('[data-sh-via="download"]').click();
   await expect(sh.locator('[data-sh-go]')).toHaveText('تحميل');
@@ -307,6 +307,47 @@ test('comment 11 — «تقفيل حساب» is the short report\'s own popup; �
   await expect(m.locator('[data-vb-tile="dokan"] b')).toHaveText('0.00 ج.م');
   expect(mock.approvals.at(-1)).toMatchObject({ by: ADMIN, result: 'ok' });
   await expect(page.locator('.modal[role=dialog]')).toHaveCount(1);
+});
+
+test('the owner 16 Nov: «مشاركة» › واتساب has the maker\'s number in a field (editable) and opens wa.me on it from a computer; «إيميل» has his email (editable) and goes from the system with the file attached', async ({ page }) => {
+  mock.vendors.find((v) => v.name === 'Art Craft').email = 'art@craft.eg';
+  await makersAccounts(page);
+  page.on('popup', (p) => p.close().catch(() => {}));
+  await page.locator('#vpanel .vname-link', { hasText: 'Art Craft' }).first().click();
+  const m = page.locator('.modal.vb-modal');
+  await m.locator('[data-vb-share]').click();
+  const sh = page.locator('.modal.sh-modal');
+  // WhatsApp: the maker's number, changed to another one → the link opens on the new number (no device share sheet on a computer)
+  await expect(sh.locator('[data-sh-to="phone"]')).toHaveValue('01000000003');
+  await sh.locator('[data-sh-to="phone"]').fill('01111111111');
+  await expect(sh.locator('[data-sh-hint]')).toContainText('هيتفتح واتساب (الويب أو البرنامج) على رقم 01111111111');
+  await page.evaluate(() => { window.__nativeShare = 0; navigator.canShare = () => true; navigator.share = async () => { window.__nativeShare += 1; }; });
+  await sh.locator('[data-sh-type="excel"]').click();
+  await Promise.all([page.waitForEvent('download'), sh.locator('[data-sh-go]').click()]);
+  let last = await page.evaluate(() => window.__lastShare);
+  expect(last.href.startsWith('https://wa.me/201111111111?text=')).toBe(true);
+  expect(await page.evaluate(() => window.__nativeShare)).toBe(0);
+  // e-mail: his address by default; a wrong one stops with a message and the popup stays; another address → sent by the system
+  await m.locator('[data-vb-share]').click();
+  await sh.locator('[data-sh-via="email"]').click();
+  await expect(sh.locator('[data-sh-to="email"]')).toHaveValue('art@craft.eg');
+  await expect(sh.locator('[data-sh-go]')).toHaveText('ابعت الإيميل');
+  await sh.locator('[data-sh-to="email"]').fill('not-an-email');
+  await sh.locator('[data-sh-go]').click();
+  await expect(sh).toBeVisible(); expect(mock.shareMails).toHaveLength(0);
+  await sh.locator('[data-sh-to="email"]').fill('accounts@other.eg');
+  await sh.locator('[data-sh-type="pdf"]').click();
+  await expect(sh.locator('[data-sh-hint]')).toContainText('الإيميل هيتبعت من السيستم لـ accounts@other.eg والملف مرفق فيه');
+  await sh.locator('[data-sh-go]').click();
+  await expect(sh).toHaveCount(0);
+  expect(mock.shareMails).toHaveLength(1);
+  expect(mock.shareMails[0]).toMatchObject({ to: 'accounts@other.eg', subject: 'تقرير مختصر — Art Craft', kind: 'pdf', name: 'تقرير Art Craft.pdf' });
+  expect(mock.shareMails[0].size).toBeGreaterThan(1000);
+  last = await page.evaluate(() => window.__lastShare); expect(last).toMatchObject({ type: 'pdf', via: 'email', mailed: true });
+  // Resend not set: the popup says so and stays
+  mock.shareMailDown = true;
+  await m.locator('[data-vb-share]').click(); await sh.locator('[data-sh-via="email"]').click(); await sh.locator('[data-sh-go]').click();
+  await expect(page.getByText('الإيميل من السيستم مش متظبط')).toBeVisible(); await expect(sh).toBeVisible();
 });
 
 test('the owner 16 Nov («شوف ال error ده»): a maker with no bank account on Dokan — «اعمل طلب سحب» says so in words with «افتح ملف المبتكر»; Dokan\'s refusal is named by its kind, never a bare code', async ({ page }) => {

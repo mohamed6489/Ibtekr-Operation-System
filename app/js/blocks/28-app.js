@@ -99,6 +99,27 @@
   // ---------- vendor report popup (owner 22 Oct): balance + completed / cancelled + every order with photo, # , value, status. No Ibtekr share. ----------
   // comments decision 10: the product's own photo from the site's mirror (IBOrders.imageOf) — the prototype's seeds after it
   const prodImage = (sku) => { const k = String(sku || '').trim(); const u = k && window.IBOrders && window.IBOrders.imageOf ? window.IBOrders.imageOf(k) : ''; return /^https:\/\//.test(u) ? u : ''; };
+  // chat ش7 (the owner 16 Nov — «في ال pdf و ال exel … القيمة تبقي الفلوس اللي هياخدها المبتكر مش سعر المنتج علي الويب سايت»): a report
+  // row's value in the shared file is the maker's money — the line less Ibtekr's commission on it (IBVendors.lineShare: the line's own
+  // Dokan rate and fee, else the maker's rate that day when visible); a cancelled order's line is 0; a line whose share the member
+  // can't see is null ('—', out of the total). `lines` = the order lines with { sid, prod, tot, rate, fee, vendorId, date }.
+  function makerShares(rows, lines, v) {
+    const V = window.IBVendors; const left = new Map();
+    for (const l of lines || []) { const k = l.sid + '|' + l.prod + '|' + Number(l.tot); if (!left.has(k)) left.set(k, []); left.get(k).push(l); }
+    return (rows || []).map((x) => {
+      if (x.status === 'ملغي') return 0;
+      const q = left.get(x.sid + '|' + x.prod + '|' + Number(x.tot)); const l = q && q.length ? q.shift() : null;
+      if (!l || !V || !V.lineShare) return null;
+      const r = V.lineShare(l, v, l.date || ''); return r.noRate ? null : Math.max(0, r.share);
+    });
+  }
+  // the order lines on the screen, flat, for makerShares
+  const screenLines = () => { const d = window.IBOrders && window.IBOrders.data ? window.IBOrders.data() : null; const out = [];
+    for (const o of (d && d.orders) || []) for (const s of o.subs || []) out.push({ sid: String(s.sid), prod: s.prod, tot: Number(s.tot) || 0, rate: s.rate, fee: s.fee, vendorId: s.vendorId, date: o.date || '' });
+    return out; };
+  // the file's value column and total from the shares
+  const shareCols = (rows, shares, fmt) => ({ cells: shares.map((n) => (n == null ? '—' : { text: fmt(n), n })), total: Math.round(shares.reduce((t, n) => t + (n || 0), 0) * 100) / 100, hidden: shares.some((n) => n == null) });
+  const SHARE_HEAD = 'حق المبتكر (ج.م)';
   function prodThumb(sku, name) {
     const m = window.IB_PRODUCT_IMG || {}; const k = String(sku || '').trim(); const u = prodImage(k);
     const src = u || (k && m[k] ? 'data:image/jpeg;base64,' + m[k] : '');
@@ -126,9 +147,11 @@
       : 'الأوردرات المكتملة والملغية في آخر 12 شهر (اللي على الشاشة) — التاريخ الكامل ماتقراش دلوقتي.');
     const tiles = (r) => [{ label: 'الرصيد', value: fmt(r.balance) + ' ج.م' }, { label: 'الأوردرات', value: String(r.orders) }, { label: 'مكتمل', value: String(r.completed) }, { label: 'ملغي', value: String(r.cancelled) }, { label: 'قيمة الأوردرات', value: fmt(r.value) + ' ج.م' }];
     const oidCell = (x) => h('span', { class: 'vr-oid' }, h('bdi', { dir: 'ltr' }, '#' + (x.sid || x.oid))); // chat ش6 (16 Nov): the sub-order's number only (the order's when it has none)
-    const spec = (r) => ({ title, name: 'التقرير الكامل ' + name, sub: scope(), phone: v && v.phone, email: v && v.email, summary: tiles(r),
-      headers: ['المنتج', 'رقم الأوردر', 'القيمة (ج.م)', 'حالة الأوردر'], rows: r.rows.map((x) => [{ text: x.prod, img: prodImage(x.sku) }, '#' + (x.sid || x.oid), { text: fmt(x.tot), n: x.tot }, x.status]),
-      total: r.rows.length ? ['الإجمالي', r.orders + ' أوردر', { text: fmt(r.value), n: r.value }, ''] : null, empty: 'مفيش أوردرات مكتملة أو ملغية للمبتكر ده.' });
+    const spec = (r) => { const sc = shareCols(r.rows, makerShares(r.rows, state.lines || screenLines(), v), fmt);
+      return { title, name: 'التقرير الكامل ' + name, sub: scope(), phone: v && v.phone, email: v && v.email, summary: tiles(r),
+        headers: ['المنتج', 'رقم الأوردر', SHARE_HEAD, 'حالة الأوردر'], rows: r.rows.map((x, i) => [{ text: x.prod, img: prodImage(x.sku) }, '#' + (x.sid || x.oid), sc.cells[i], x.status]),
+        total: r.rows.length ? ['الإجمالي', r.orders + ' أوردر', { text: fmt(sc.total), n: sc.total }, ''] : null, empty: 'مفيش أوردرات مكتملة أو ملغية للمبتكر ده.',
+        note: 'حق المبتكر = قيمة المنتج ناقص عمولة إبتكر عليه، والملغي صفر.' + (sc.hidden ? ' «—» = حق المبتكر مش ظاهر لك (برّه الإجمالي).' : '') }; };
     function draw() {
       const r = state.r || screen();
       const body = [h('div', { class: 'vb-scope' + (state.whole ? ' whole' : ''), 'data-vfull-scope': state.whole ? 'whole' : 'screen' }, Icon('calendar', 'sm'), h('span', null, state.loading ? 'بنحمّل التاريخ الكامل للمبتكر…' : scope())),
@@ -147,7 +170,7 @@
     draw();
     if (state.loading) window.IBOrders.makerHistory(v.id).then((res) => {
       state.loading = false;
-      if (res && res.ok) { const rows = res.rows.filter((x) => x.status === 'مكتمل' || x.status === 'ملغي'); state.r = ofHistory(rows); state.whole = true; state.capped = !!res.capped; const days = res.rows.map((x) => x.at).filter(Boolean).sort(); state.first = days[0] || ''; }
+      if (res && res.ok) { const rows = res.rows.filter((x) => x.status === 'مكتمل' || x.status === 'ملغي'); state.lines = res.rows.map((x) => Object.assign({}, x, { date: x.at })); state.r = ofHistory(rows); state.whole = true; state.capped = !!res.capped; const days = res.rows.map((x) => x.at).filter(Boolean).sort(); state.first = days[0] || ''; }
       if (m && document.body.contains(m.el)) draw();
     });
   }
@@ -1954,12 +1977,12 @@
     const HEAD = ['المنتج', 'رقم الأوردر', 'القيمة (ج.م)', 'الحالة'];
     const oidText = (x) => '#' + (x.sid || x.oid); // chat ش6 (16 Nov): the sub-order's number only (the order's when it has none)
     function spec(b) {
-      const v = vstore.findByName(name); const req = reqOf(b); const extra = briefExtra(b, fmt);
+      const v = vstore.findByName(name); const req = reqOf(b); const extra = briefExtra(b, fmt); const sc = shareCols(b.rows, makerShares(b.rows, screenLines(), v), fmt);
       return { title, name: (settle ? 'تقفيل حساب ' : 'تقرير ') + name, phone: v && v.phone, email: v && v.email,
         sub: [req ? 'طلب سحب ' + req.id + ' · ' + VD.wdLabel(req.status) + ' · ' + fmt(req.amount) + ' ج.م' : 'مفيش طلب سحب حالي', b.orders + ' أوردر (مكتمل ' + b.completed + ' · ملغي ' + b.cancelled + ')'].join(' · '),
-        summary: briefTiles(b, fmt).map((t) => ({ label: t.label, value: t.value })), headers: HEAD, rows: b.rows.map((x) => [{ text: x.prod, img: prodImage(x.sku) }, oidText(x), { text: fmt(x.tot), n: x.tot }, x.status]),
-        total: b.rows.length ? ['الإجمالي', b.orders + ' أوردر', { text: fmt(b.value), n: b.value }, ''] : null, empty: 'مفيش أوردرات مكتملة أو ملغية للمبتكر ده.',
-        note: 'العرابين والمواصلات متخصومة من الرصيد.' + (extra ? ' ' + extra + '.' : '') };
+        summary: briefTiles(b, fmt).map((t) => ({ label: t.label, value: t.value })), headers: [HEAD[0], HEAD[1], SHARE_HEAD, HEAD[3]], rows: b.rows.map((x, i) => [{ text: x.prod, img: prodImage(x.sku) }, oidText(x), sc.cells[i], x.status]),
+        total: b.rows.length ? ['الإجمالي', b.orders + ' أوردر', { text: fmt(sc.total), n: sc.total }, ''] : null, empty: 'مفيش أوردرات مكتملة أو ملغية للمبتكر ده.',
+        note: 'حق المبتكر = قيمة المنتج ناقص عمولة إبتكر عليه، والملغي صفر.' + (sc.hidden ? ' «—» = حق المبتكر مش ظاهر لك (برّه الإجمالي).' : '') + ' العرابين والمواصلات متخصومة من الرصيد.' + (extra ? ' ' + extra + '.' : '') };
     }
     function draw() {
       if (m && !document.body.contains(m.el)) return;

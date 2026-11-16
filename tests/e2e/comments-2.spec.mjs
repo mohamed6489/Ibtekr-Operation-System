@@ -227,8 +227,14 @@ test('comment 10 — «تقرير مختصر»: five numbers, the request\'s box
   // the buttons: «مشاركة» · «التقرير الكامل» · «إغلاق» — «كشف حساب Dokan» and «نسخ CSV» are gone
   await expect(m.locator('.modal-f button')).toHaveText(['مشاركة', 'التقرير الكامل', 'إغلاق']);
   await expect(m).not.toContainText('نسخ CSV'); await expect(m.getByRole('button', { name: 'كشف حساب Dokan' })).toHaveCount(0);
+  // chat ش7 (16 Nov): the file's value column is the maker's money — the line less Ibtekr's 35% on it — and the number the sub-order's
+  await page.evaluate(() => { const o = window.IBShare.open; window.IBShare.open = (sp) => { window.__spec = JSON.parse(JSON.stringify(sp)); return o(sp); }; });
   // «مشاركة»: the file's kind, then how it goes
   await m.locator('[data-vb-share]').click();
+  const sp = await page.evaluate(() => window.__spec);
+  expect(sp.headers).toEqual(['المنتج', 'رقم الأوردر', 'حق المبتكر (ج.م)', 'الحالة']);
+  expect(sp.rows[0][1]).toBe('#181669'); expect(sp.rows[0][2]).toEqual({ text: '651.30', n: 651.3 });
+  expect(sp.total[2].n).toBe(sp.rows.reduce((t, r) => t + (r[2].n || 0), 0)); expect(sp.note).toContain('حق المبتكر = قيمة المنتج ناقص عمولة إبتكر عليه');
   const sh = page.locator('.modal.sh-modal');
   await expect(sh.locator('.modal-h h2')).toHaveText('مشاركة — تقرير مختصر — Art Craft');
   await expect(sh.locator('[data-sh-type] b')).toHaveText(['Excel', 'PDF']);
@@ -268,6 +274,12 @@ test('comment 10 — «تقرير مختصر»: five numbers, the request\'s box
   await expect(full.locator('[data-vfull-table] tbody tr.dt-click')).toHaveCount(2);
   await expect(full.locator('[data-vfull-table]')).toContainText('#150001'); // 2025: not among the screen's orders
   await expect(full.locator('.modal-f button')).toHaveText(['مشاركة', 'إغلاق']);
+  // ش7: the whole history's file carries the maker's money too — the old line (no commission of its own) at the maker's rate that day
+  await full.locator('[data-vb-share]').click();
+  const fsp = await page.evaluate(() => window.__spec);
+  expect(fsp.headers[2]).toBe('حق المبتكر (ج.م)');
+  const old = fsp.rows.find((r) => r[1] === '#150001'); expect(typeof old[2].n).toBe('number'); expect(old[2].n).toBeLessThan(500);
+  expect(fsp.rows.find((r) => r[1] === '#181669')[2].n).toBe(651.3);
 });
 
 test('comment 11 — «تقفيل حساب» is the short report\'s own popup; «اعمل طلب سحب على Dokan» files the request and asks «وافق دلوقتي» / «بعدين» in the same popup', async ({ page }) => {

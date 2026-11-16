@@ -643,7 +643,7 @@
     try {
       const items = [];
       for (let from = 0; from < HISTORY_CAP; from += PAGE) {
-        const { data: d, error } = await cl.from('order_items').select('id, order_id, sub_order_id, sku, name, total, removed').eq('vendor_id', vendorId).order('id', { ascending: false }).range(from, from + PAGE - 1);
+        const { data: d, error } = await cl.from('order_items').select('id, order_id, sub_order_id, sku, name, total, removed, vendor_id, commission_rate, commission_fee').eq('vendor_id', vendorId).order('id', { ascending: false }).range(from, from + PAGE - 1);
         if (error) throw error;
         items.push(...(d || []));
         if (!d || d.length < PAGE) break;
@@ -656,7 +656,8 @@
       keepAll(ps);
       const oBy = new Map(os.map((o) => [String(o.id), o])); const sBy = new Map(ss.map((x) => [String(x.id), x]));
       const rows = live.map((it) => { const o = oBy.get(String(it.order_id)); if (!o) return null; const so = it.sub_order_id != null ? sBy.get(String(it.sub_order_id)) : null; const d = local(o.placed_at);
-        return { oid: String(it.order_id), sid: so && so.woo_order_id != null ? String(so.woo_order_id) : String(it.order_id), prod: it.name || '', sku: it.sku || '', tot: Number(it.total) || 0, status: o.status, at: d ? ymd(d) : '' }; }).filter(Boolean);
+        return { oid: String(it.order_id), sid: so && so.woo_order_id != null ? String(so.woo_order_id) : String(it.order_id), prod: it.name || '', sku: it.sku || '', tot: Number(it.total) || 0, status: o.status, at: d ? ymd(d) : '',
+          rate: numOrNull(it.commission_rate), fee: numOrNull(it.commission_fee), vendorId: it.vendor_id ? String(it.vendor_id) : null }; }).filter(Boolean); // rate / fee: the maker's share in the shared file (chat ش7)
       rows.sort((a, b) => Number(b.oid) - Number(a.oid) || Number(a.sid) - Number(b.sid));
       return { ok: true, rows, capped: items.length >= HISTORY_CAP };
     } catch (e) { return { ok: false, reason: 'failed' }; }

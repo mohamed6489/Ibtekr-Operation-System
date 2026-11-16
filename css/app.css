@@ -2045,6 +2045,8 @@ img.ib-worm.ib-ldr-img.spin{animation:ib-ldr-spin var(--ldr-speed,1.7s) linear i
 .sh-opt[disabled]{opacity:.6;cursor:default}
 .sh-opt:focus-visible{outline:2px solid #005642;outline-offset:2px}
 .sh-hint{margin:14px 0 0;color:var(--color-text-secondary)}
+/* the owner 16 Nov: the number / the address it goes to — the maker's by default, editable */
+.sh-to{margin-top:16px}.sh-to .input{width:100%;text-align:left}
 .sh-step{margin:8px 0 0;color:#005642;font-weight:700}
 /* the report as A4 pages (drawn off the screen, then photographed into the PDF) */
 .sh-host{position:fixed;inset-inline-start:-12000px;top:0;width:794px;pointer-events:none;z-index:-1}

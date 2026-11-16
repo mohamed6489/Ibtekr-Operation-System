@@ -16,8 +16,12 @@
 // PDF from the same report drawn as A4 pages (html2canvas → one JPEG a page → a small PDF written here), so Arabic reads as it
 // does on the screen. The products' photos come through IBOrders.thumbs (the site sends no CORS header, the browser alone cannot
 // read them into a file); a photo that cannot be read leaves its box empty.
-// Sending: «تحميل» saves the file; «واتساب» / «إيميل» hand the file to the device's own share sheet where it exists (a phone),
-// else the file is saved and the chat / the mail opens with the message — the member attaches it. Nothing is sent by a server.
+// Sending: «تحميل» saves the file. «واتساب» (the owner 16 Nov — «يتبعت في Whatsapp web او ابليكشن الواتس علي اللاب كاني بفتح اللينك
+// اللي فيه رقم الموبايل … رقم الفيندور محطوط default و ممكن اغيره»): a field with the number (spec.phone by default, editable); on a
+// phone the device's own share sheet takes the file, on a computer the file is saved and wa.me/<the number> opens (WhatsApp Web or the
+// desktop app — the member attaches the file). «إيميل» («يتبعت من السيستم … field محطوط فيه ايميل الفيندور default … اقدر اغيره»): a field
+// with the address (spec.email by default, editable) and the mail goes from the system with the file attached — Edge Function share-mail
+// (Resend; an active member, one address, the file of its kind ≤ 8 MB, 30 an hour; logged with the file's kind only).
 // ============================================================
 (() => {
   'use strict';
@@ -195,12 +199,32 @@
 
   // ---------------------------------------------------------------- sending
   const openTab = (href) => { const a = document.createElement('a'); a.href = href; a.target = '_blank'; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove(); };
-  async function send(spec, type, via, onStep) {
+  // a phone or a tablet (a finger, no mouse): the device's own share sheet; a computer: the link (WhatsApp Web / the desktop app)
+  const touchOnly = () => { try { return !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches && !window.matchMedia('(any-pointer: fine)').matches); } catch (e) { return false; } };
+  const EMAIL_RE = /^[^\s@<>"',;]{1,64}@[^\s@<>"',;]{1,180}\.[a-z]{2,24}$/i;
+  const toBase64 = (blob) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).replace(/^data:[^,]*,/, '')); r.onerror = () => rej(r.error); r.readAsDataURL(blob); });
+  // the mail from the system (share-mail) → { ok } or { ok: false, reason }
+  async function mail(to, title, text, file) {
+    const cl = window.IBSupabase && window.IBSupabase.client; if (!cl) return { ok: false, reason: 'network' };
+    try {
+      const payload = { to, subject: title, text, file: file ? { name: file.name, kind: file.kind, data: await toBase64(file.blob) } : null };
+      const { data, error } = await cl.functions.invoke('share-mail', { body: payload });
+      if (!error && data && data.ok) return { ok: true };
+      const status = error && error.context && error.context.status; let b = null; try { b = error && error.context && typeof error.context.json === 'function' ? await error.context.json() : null; } catch (e) { b = null; }
+      return { ok: false, reason: status === 503 ? 'not_configured' : status === 429 ? 'too_many' : status === 400 ? 'invalid' + (b && b.field ? ':' + b.field : '') : status === 401 ? 'forbidden' : status === 502 ? 'refused' : 'network' };
+    } catch (e) { return { ok: false, reason: 'network' }; }
+  }
+  const MAIL_FAIL = { not_configured: 'الإيميل من السيستم مش متظبط (Resend) — اتظبط من الإعدادات › الربط بالمنصات.', too_many: 'بعت إيميلات كتير الساعة دي — استنى شوية وجرّب تاني.', 'invalid:to': 'الإيميل ده مش مظبوط.', 'invalid:file': 'الملف كبير أوي على الإيميل (أكتر من 8 ميجا) — نزّله وابعته بنفسك.', forbidden: 'مش مسموحلك تبعت من السيستم.', refused: 'خدمة الإيميل رفضت الرسالة — جرّب تاني بعد شوية.' };
+  async function send(spec, type, via, onStep, to) {
     const title = String(spec.title || ''); const text = spec.text ? String(spec.text) : messageText(spec);
+    // the number / the address typed in the popup (the maker's by default)
+    spec = Object.assign({}, spec, to && to.phone != null ? { phone: to.phone } : null, to && to.email != null ? { email: to.email } : null);
     const toast = (m, k) => { if (K() && K().toast) K().toast(m, k); };
     const done = (o) => { window.__lastShare = Object.assign({ type, via, title, text }, o); return o; };
+    if (via === 'email' && !EMAIL_RE.test(String(spec.email || '').trim())) { toast('اكتب إيميل صحيح للي هيتبعتله.', 'error'); return done({ ok: false, invalid: 'email' }); }
     if (type === 'link') {
       const body = (text ? text + '\n' : '') + (text.includes(spec.link) ? '' : spec.link);
+      if (via === 'email') { const r = await mail(String(spec.email).trim(), title, body.trim(), null); if (!r.ok) { toast(MAIL_FAIL[r.reason] || 'الإيميل ما اتبعتش — جرّب تاني.', 'error'); return done({ ok: false, reason: r.reason }); } toast('الإيميل اتبعت لـ ' + String(spec.email).trim(), 'success'); return done({ ok: true, mailed: true }); }
       if (via === 'copy') { try { await navigator.clipboard.writeText(String(spec.link)); toast('اللينك اتنسخ', 'success'); } catch (e) { toast('المتصفح ما سمحش بالنسخ — انسخه بإيدك: ' + spec.link, 'warning'); } return done({ ok: true, href: String(spec.link) }); }
       const href = shareHref(via, { phone: spec.phone, email: spec.email, title, text: body.trim() }); openTab(href);
       toast('اتفتح ' + (via === 'whatsapp' ? 'واتساب' : 'الإيميل') + ' باللينك', 'success'); return done({ ok: true, href });
@@ -211,15 +235,21 @@
     const name = fileBase(spec.name || title) + (type === 'pdf' ? '.pdf' : '.xlsx');
     const info = { ok: true, name, size: made.blob.size, pages: made.pages, photos: photos.size };
     if (via === 'download') { await K().saveFile(name, made.blob); toast('الملف اتنزل على جهازك: ' + name, 'success'); return done(info); }
-    // a phone: the device's own share sheet takes the file itself (WhatsApp, mail, …)
+    // the mail goes from the system, the file attached
+    if (via === 'email') {
+      const r = await mail(String(spec.email).trim(), title, text, { name, kind: type === 'pdf' ? 'pdf' : 'xlsx', blob: made.blob });
+      if (!r.ok) { toast(MAIL_FAIL[r.reason] || 'الإيميل ما اتبعتش — جرّب تاني.', 'error'); return done(Object.assign(info, { ok: false, reason: r.reason })); }
+      toast('الإيميل اتبعت لـ ' + String(spec.email).trim() + ' والملف مرفق فيه', 'success'); return done(Object.assign(info, { mailed: true }));
+    }
+    // a phone: the device's own share sheet takes the file itself (WhatsApp, mail, …); a computer goes by the link below
     const file = typeof File === 'function' ? new File([made.blob], name, { type: made.blob.type }) : null;
-    if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
+    if (touchOnly() && file && navigator.canShare && navigator.canShare({ files: [file] })) {
       try { await navigator.share({ files: [file], title, text }); return done(Object.assign(info, { native: true })); } catch (e) { if (e && e.name === 'AbortError') return done(Object.assign(info, { ok: false, cancelled: true })); }
     }
     // a computer: the file is saved and the chat / the mail opens with the message — the member attaches the file
     await K().saveFile(name, made.blob);
     const href = shareHref(via, { phone: spec.phone, email: spec.email, title, text: text + '\n(الملف مرفق: ' + name + ')' }); openTab(href);
-    toast('الملف اتنزل (' + name + ') واتفتح ' + (via === 'whatsapp' ? 'واتساب' : 'الإيميل') + ' — ارفقه في الرسالة.', 'success');
+    toast('الملف اتنزل (' + name + ') واتفتح واتساب — ارفقه في الرسالة.', 'success');
     return done(Object.assign(info, { href }));
   }
 
@@ -230,21 +260,30 @@
     const spec = Object.assign({}, spec0 || {}); const hasTable = (spec.headers || []).length > 0 || (spec.summary || []).length > 0; const hasLink = typeof spec.link === 'string' && /^https:\/\//.test(spec.link);
     if (!hasLink) delete spec.link;
     const types = TYPES.filter((t) => (t[0] === 'link' ? hasLink : hasTable));
-    const st = { type: types[0] ? types[0][0] : 'excel', via: 'whatsapp', busy: false, step: '' };
+    const st = { type: types[0] ? types[0][0] : 'excel', via: 'whatsapp', busy: false, step: '', phone: digits(spec.phone || '').trim(), email: String(spec.email || '').trim() };
     let m = null;
     const icon = (n) => { try { return U().Icon(n, 'md'); } catch (e) { return null; } };
     const opt = (kind, id, label, desc, ic) => h('button', { type: 'button', class: 'sh-opt' + (st[kind] === id ? ' on' : ''), role: 'radio', 'aria-checked': String(st[kind] === id), ['data-sh-' + kind]: id, disabled: st.busy ? '' : false,
       onClick: () => { st[kind] = id; if (kind === 'type') { const ok = viasOf().map((v) => v[0]); if (!ok.includes(st.via)) st.via = ok[0]; } draw(); } }, icon(ic), h('span', { class: 'sh-opt-t' }, h('b', null, label), desc ? h('small', null, desc) : null));
     const viasOf = () => VIAS.filter((v) => (st.type === 'link' ? v[0] !== 'download' : v[0] !== 'copy'));
-    const who = () => (st.via === 'whatsapp' ? (waNumber(spec.phone) ? 'هيتفتح واتساب على رقم ' + digits(spec.phone) + '.' : 'هيتفتح واتساب وتختار المحادثة.')
-      : st.via === 'email' ? (spec.email ? 'هيتفتح الإيميل لـ ' + spec.email + '.' : 'هيتفتح الإيميل وتكتب المرسل له.') : '');
-    const hint = () => (st.type === 'link' ? who() : st.via === 'download' ? 'الملف هينزل على جهازك.' : who() + ' على الموبايل الملف بيتبعت مع الرسالة، وعلى الكمبيوتر بينزل على جهازك وترفقه في الرسالة.');
+    const who = () => (st.via === 'whatsapp' ? (waNumber(st.phone) ? 'هيتفتح واتساب (الويب أو البرنامج) على رقم ' + st.phone + '.' : 'هيتفتح واتساب وتختار المحادثة.')
+      : st.via === 'email' ? (EMAIL_RE.test(st.email) ? 'الإيميل هيتبعت من السيستم لـ ' + st.email : 'اكتب الإيميل اللي هيتبعتله.') : '');
+    const hint = () => (st.type === 'link' ? who() + (st.via === 'email' && EMAIL_RE.test(st.email) ? '.' : '') : st.via === 'download' ? 'الملف هينزل على جهازك.' : st.via === 'email' ? (EMAIL_RE.test(st.email) ? who() + ' والملف مرفق فيه.' : who()) : who() + ' الملف بينزل على جهازك وترفقه في المحادثة (وعلى الموبايل بيتبعت مع الرسالة).');
+    const putHint = () => { const p = m && m.el.querySelector('[data-sh-hint]'); if (p) p.textContent = hint(); };
+    // the number / the address it goes to: the maker's by default, editable (typing never redraws the popup)
+    const toField = () => {
+      if (st.via !== 'whatsapp' && st.via !== 'email') return null;
+      const wa = st.via === 'whatsapp';
+      const inp = h('input', { class: 'input', type: wa ? 'tel' : 'email', dir: 'ltr', inputmode: wa ? 'tel' : 'email', autocomplete: 'off', value: wa ? st.phone : st.email, placeholder: wa ? '01xxxxxxxxx' : 'name@example.com', 'data-sh-to': wa ? 'phone' : 'email', 'aria-label': wa ? 'رقم الواتساب' : 'الإيميل', disabled: st.busy ? '' : false,
+        onInput: (e) => { if (wa) st.phone = e.target.value.trim(); else st.email = e.target.value.trim(); putHint(); } });
+      return h('label', { class: 'sh-sec sh-to' }, h('div', { class: 'sh-h' }, wa ? 'رقم الواتساب' : 'الإيميل اللي هيتبعتله'), inp);
+    };
     const go = async () => {
       if (st.busy) return; st.busy = true; st.step = 'بنجهّز الملف…'; draw();
       try {
-        const r = await send(spec, st.type, st.via, (i, n) => { st.step = 'بنجهّز الملف… صفحة ' + i + ' من ' + n; const b = m && m.el.querySelector('[data-sh-step]'); if (b) b.textContent = st.step; });
+        const r = await send(spec, st.type, st.via, (i, n) => { st.step = 'بنجهّز الملف… صفحة ' + i + ' من ' + n; const b = m && m.el.querySelector('[data-sh-step]'); if (b) b.textContent = st.step; }, { phone: st.phone, email: st.email });
         st.busy = false;
-        if (r && r.cancelled) { draw(); return; }
+        if (r && (r.cancelled || r.ok === false)) { st.step = ''; draw(); return; } // the popup stays: fix the address / try again
         // the caller's own record of the share (the activity log) — what went and how, never the file
         if (typeof spec.onDone === 'function') { try { spec.onDone({ type: st.type, via: st.via }); } catch (e) { /* the share itself went */ } }
         m.close();
@@ -254,10 +293,11 @@
       const body = [
         types.length > 1 || st.type !== 'link' ? h('div', { class: 'sh-sec' }, h('div', { class: 'sh-h' }, 'نوع الملف'), h('div', { class: 'sh-opts', role: 'radiogroup', 'aria-label': 'نوع الملف' }, types.map((t) => opt('type', t[0], t[1], t[2], t[3])))) : null,
         h('div', { class: 'sh-sec' }, h('div', { class: 'sh-h' }, 'طريقة الإرسال'), h('div', { class: 'sh-opts', role: 'radiogroup', 'aria-label': 'طريقة الإرسال' }, viasOf().map((v) => opt('via', v[0], v[1], '', v[2])))),
+        toField(),
         h('p', { class: 'sh-hint t-small', 'data-sh-hint': '' }, hint()),
         st.busy ? h('p', { class: 'sh-step t-small', 'data-sh-step': '', role: 'status' }, st.step) : null,
       ].filter(Boolean);
-      const label = st.type === 'link' && st.via === 'copy' ? 'نسخ اللينك' : st.via === 'download' ? 'تحميل' : 'مشاركة';
+      const label = st.type === 'link' && st.via === 'copy' ? 'نسخ اللينك' : st.via === 'download' ? 'تحميل' : st.via === 'email' ? 'ابعت الإيميل' : 'مشاركة';
       const foot = [U().Button({ type: 'primary', label: st.busy ? 'ثواني…' : label, disabled: st.busy, attrs: { 'data-sh-go': '' }, onClick: go }), U().Button({ type: 'text', label: 'إلغاء', disabled: st.busy, onClick: () => m.close() })];
       if (!m) { m = U().Modal({ title: 'مشاركة — ' + String(spec.title || ''), body, footer: foot, share: false }); m.el.classList.add('sh-modal'); m.el.dataset.shareModal = ''; }
       else { m.setBody(...body); m.setFooter(...foot); }

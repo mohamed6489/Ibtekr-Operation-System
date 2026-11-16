@@ -277,3 +277,13 @@
 @media (min-width:768px){#pg-products .pe-layout[data-pe="variants"]>.pe-rail{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start}}
 @media (max-width:767px){.pe-prices,.pe-prices.two{grid-template-columns:1fr}.pe-boxes{grid-template-columns:1fr 1fr}
   .edit-head .actions .pop-anchor{width:auto}.edit-head .actions>.btn{flex:1 1 auto}}
+
+/* comments 15 Nov decision 82: «تعديل سعر منتج» wider, with the makers whose Ibtekr rate moves under the amount */
+.scrim .modal.bp-modal{width:min(920px, calc(100vw - 32px));max-width:min(920px, calc(100vw - 32px))}
+.bp-makers td{vertical-align:top}
+.bp-makers td:first-child b{display:block}
+.bp-brands{display:block;margin-top:2px}
+.bp-moves{display:flex;flex-direction:column;gap:4px;align-items:flex-start}
+.bp-move{display:inline-flex;gap:6px;align-items:baseline;flex-wrap:wrap}
+.bp-move b{font-weight:600}
+.bp-over{color:var(--color-error-text);font-weight:600}

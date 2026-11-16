@@ -410,3 +410,53 @@ test('priceFromVendor with the rule: «قبل الخصم» from the sale price\'
   assert.deepEqual(plain(PD.priceFromVendor(1000, { rate: 40, markup: 22, fake: { tiers: [] } })), { sale: 1670, regular: 2040, markup: 22, vendorNet: 1002 });
   assert.equal(typeof PD.priceFromVendor(600, { rate: 40, fake: OWNER }).markup, 'number', 'a markup is still drawn: it is what a later rule change falls back to');
 });
+
+// comments decision 82 (the owner 15 Nov on «تعديل سعر منتج»): a change of Ibtekr's rate is the maker's commission — the whole maker when
+// all his products are picked, the categories when the picked ones are all his products of them, and only the price for the rest
+test('decision 82 — rateScopes: every product of a maker = the whole maker; all his products of a category = that category (the top-most); the scattered rest only gets its price', () => {
+  const parent = new Map([[10, null], [11, 10], [12, 10], [20, null]]); const parentOf = (id) => (parent.has(Number(id)) ? parent.get(Number(id)) : null);
+  const all = [
+    { id: 1, vendorId: 'A', categoryIds: [10, 11] }, { id: 2, vendorId: 'A', categoryIds: [10, 11] }, { id: 3, vendorId: 'A', categoryIds: [10, 12] }, { id: 4, vendorId: 'A', categoryIds: [20] }, { id: 5, vendorId: 'A', categoryIds: [20] },
+    { id: 6, vendorId: 'B', categoryIds: [20] }, { id: 7, vendorId: 'B', categoryIds: [10] }, { id: 8, vendorId: null, categoryIds: [10] }];
+  const pick = (ids) => all.filter((p) => ids.includes(p.id));
+  // the whole of A, and one of B's two
+  assert.deepEqual(plain(PD.rateScopes(pick([1, 2, 3, 4, 5, 6]), all, parentOf)), [{ vendorId: 'A', picked: 5, total: 5, whole: true, cats: [], rest: 0 }, { vendorId: 'B', picked: 1, total: 2, whole: false, cats: [20], rest: 0 }]);
+  // all of A under 10 (both sub-categories): the parent alone is named, not its children
+  assert.deepEqual(plain(PD.rateScopes(pick([1, 2, 3]), all, parentOf)), [{ vendorId: 'A', picked: 3, total: 5, whole: false, cats: [10], rest: 0 }]);
+  // all of A in 11 only, and one of the two in 20: the sub-category, and one product left to its price
+  assert.deepEqual(plain(PD.rateScopes(pick([1, 2, 4]), all, parentOf)), [{ vendorId: 'A', picked: 3, total: 5, whole: false, cats: [11], rest: 1 }]);
+  // one of two in a category: nothing of the commission moves
+  assert.deepEqual(plain(PD.rateScopes(pick([1]), all, parentOf)), [{ vendorId: 'A', picked: 1, total: 5, whole: false, cats: [], rest: 1 }]);
+  // a product without a maker is nobody's
+  assert.deepEqual(plain(PD.rateScopes(pick([8]), all, parentOf)), []);
+});
+test('decision 82 — ratePlan: the whole maker moves his general rate and each category rate of his; a category moves from what it pays today (its own, its parent\'s, else the general) and the maker turns «حسب القسم»; past 65 is flagged', () => {
+  const parent = new Map([[10, null], [11, 10], [12, 10], [20, null]]); const parentOf = (id) => (parent.has(Number(id)) ? parent.get(Number(id)) : null);
+  const up2 = { mode: 'value', dir: 1, amount: 2 }; const pct10 = { mode: 'pct', dir: -1, amount: 10 };
+  const fixed = { rate: 30, rateFlat: 5, commissionType: 'fixed', categoryRates: [] };
+  const byCat = { rate: 30, rateFlat: null, commissionType: 'category_based', categoryRates: [{ wooCategoryId: 10, rate: 25, flat: 3 }, { wooCategoryId: 11, rate: 20, flat: null }] };
+  // the whole maker, fixed: the general rate only, the type as it is
+  assert.deepEqual(plain(PD.ratePlan({ whole: true, cats: [] }, fixed, up2, parentOf)), { input: { type: 'fixed', rate: 32, flat: 5, categories: [] }, lines: [{ kind: 'general', id: null, from: 30, to: 32 }], over: false, changed: true });
+  // a «ثابت» maker's old category rows are not what he pays: they stay out of it
+  assert.deepEqual(plain(PD.ratePlan({ whole: true, cats: [] }, Object.assign({}, fixed, { categoryRates: [{ wooCategoryId: 10, rate: 25, flat: null }] }), up2, parentOf).input), { type: 'fixed', rate: 32, flat: 5, categories: [] });
+  // the whole maker, by category: the general rate and both category rates by the same step
+  const w = PD.ratePlan({ whole: true, cats: [] }, byCat, up2, parentOf);
+  assert.deepEqual(plain(w.input), { type: 'category_based', rate: 32, flat: null, categories: [{ id: 10, rate: 27, flat: 3 }, { id: 11, rate: 22, flat: null }] });
+  assert.deepEqual(plain(w.lines.map((l) => [l.kind, l.id, l.from, l.to])), [['general', null, 30, 32], ['category', 10, 25, 27], ['category', 11, 20, 22]]);
+  // a category on a fixed maker: from the general rate, the maker becomes «حسب القسم», the general stays
+  assert.deepEqual(plain(PD.ratePlan({ whole: false, cats: [20] }, fixed, up2, parentOf)), { input: { type: 'category_based', rate: 30, flat: 5, categories: [{ id: 20, rate: 32, flat: null }] }, lines: [{ kind: 'category', id: 20, from: 30, to: 32 }], over: false, changed: true });
+  // a parent category with a rate: itself and the sub-category that has its own; 12 (no rate of its own) follows the parent by itself
+  const c = PD.ratePlan({ whole: false, cats: [10] }, byCat, pct10, parentOf);
+  assert.deepEqual(plain(c.input), { type: 'category_based', rate: 30, flat: null, categories: [{ id: 10, rate: 22.5, flat: 3 }, { id: 11, rate: 18, flat: null }] });
+  // a sub-category without a rate of its own starts from its parent's
+  assert.deepEqual(plain(PD.ratePlan({ whole: false, cats: [12] }, byCat, up2, parentOf).lines), [{ kind: 'category', id: 12, from: 25, to: 27 }]);
+  // nothing to write: no general rate to start from, or no category covered
+  assert.equal(PD.ratePlan({ whole: true, cats: [] }, { rate: null, categoryRates: [] }, up2, parentOf), null);
+  assert.equal(PD.ratePlan({ whole: false, cats: [] }, fixed, up2, parentOf), null);
+  // past 65 the write is not sent
+  assert.equal(PD.ratePlan({ whole: true, cats: [] }, { rate: 60, commissionType: 'fixed', categoryRates: [] }, { mode: 'value', dir: 1, amount: 10 }, parentOf).over, true);
+  // the same step as a product's own price: shiftRate
+  assert.equal(PD.shiftRate(33, { mode: 'pct', dir: 1, amount: 10 }), 36.3);
+  assert.equal(PD.shiftRate(33, { mode: 'value', dir: -1, amount: 40 }), 0);
+  assert.equal(PD.bulkPrice({ vendorPrice: 1000, rate: 33, disc: 20 }, { target: 'rate', mode: 'pct', dir: 1, amount: 10 }).rate, 36.3);
+});

@@ -1289,11 +1289,21 @@
     const cur = rangeOf(target); const own = !!(cur.cfrom && cur.cto);
     const draft = { from: cur.from, to: cur.to, preset: cur.preset, compare: compareOf(target), cfrom: own ? cur.cfrom : null, cto: own ? cur.cto : null, cauto: !own };
     let [y, m] = draft.from.split('-').map(Number); let picking = false, hover = null, err = '', cerr = '';
+    // chat ش10 (the owner 16 Nov — «فلتر التاريخ المقارنة مفيهاش الcalender اللي بحدد منها التاريخ»): the calendars pick the comparison
+    // period too — «الفترة» / «فترة المقارنة» above them, and a click in a comparison field turns them to it
+    let mode = 'main';
+    // soft (a click in a comparison field): the calendars alone are drawn again — the field being typed in stays as it is
+    const setMode = (md, soft) => { if (mode === md) return; mode = md; picking = false; hover = null; const at = md === 'cmp' ? draft.cfrom : draft.from; if (at) [y, m] = at.split('-').map(Number);
+      if (!soft) { draw(); return; } const w = dp.querySelector('.cals-wrap'); if (w) w.replaceWith(calsWrap()); dp.querySelectorAll('.pcmp-fields .input').forEach((x) => x.classList.toggle('rp-on', mode === 'cmp')); };
     const dp = h('div', { class: 'dp range', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'اختيار الفترة', 'data-popover-root': '', 'data-focus': 'no' });
     // the comparison period follows the picked one (the same length right before) until the member types his own dates
     const before = () => { if (draft.cauto && draft.from && draft.to && draft.from <= draft.to) { const p = R.previousRange({ from: draft.from, to: draft.to }); draft.cfrom = p.from; draft.cto = p.to; cerr = ''; } };
     before();
     function pick(iso) {
+      if (mode === 'cmp' && canCmp && draft.compare) {
+        if (!picking) { draft.cfrom = iso; draft.cto = null; picking = true; } else { draft.cto = iso; if (draft.cto < draft.cfrom) [draft.cfrom, draft.cto] = [draft.cto, draft.cfrom]; picking = false; hover = null; }
+        draft.cauto = false; cerr = ''; draw(); return;
+      }
       if (!picking) { draft.from = iso; draft.to = null; picking = true; } else { draft.to = iso; if (draft.to < draft.from) [draft.from, draft.to] = [draft.to, draft.from]; picking = false; hover = null; }
       draft.preset = 'custom'; err = ''; before(); draw();
     }
@@ -1305,20 +1315,27 @@
       const iso = D.parseDate(value); if (!iso) { cerr = 'اكتب تاريخ المقارنة بالشكل يوم/شهر/سنة'; draw(); return; }
       draft[which] = iso; draft.cauto = false; cerr = draft.cfrom && draft.cto && draft.cfrom > draft.cto ? 'بداية فترة المقارنة لازم تكون قبل نهايتها' : ''; draw();
     }
-    function draw() {
+    function calsWrap() {
       const next = U.shiftMonth(y, m, 1); const cmpOn = canCmp && !!draft.compare;
+      const cm = cmpOn && mode === 'cmp'; // picking the comparison period: its range is the one drawn as picked, the main one as the comparison
+      const cal = (yy, mm, extra) => U.Calendar(Object.assign({ year: yy, month: mm, today: TODAY, from: cm ? draft.cfrom : draft.from, to: cm ? (picking ? null : draft.cto) : draft.to, hover: picking ? hover : null, onPick: pick, onHover: (i) => { if (picking && hover !== i) { hover = i; draw(); } }, onNav: (d) => { ({ year: y, month: m } = U.shiftMonth(y, m, d)); draw(); },
+        cfrom: !cmpOn ? null : cm ? draft.from : draft.cfrom, cto: !cmpOn ? null : cm ? draft.to : draft.cto }, extra));
+      const modeBar = cmpOn ? h('div', { class: 'rp-mode', role: 'radiogroup', 'aria-label': 'بتحدد إيه من الكاليندر', 'data-rp-mode': mode },
+        [['main', 'الفترة'], ['cmp', 'فترة المقارنة']].map(([k, label]) => h('button', { type: 'button', class: 'chip' + (mode === k ? ' on' : ''), role: 'radio', 'aria-checked': String(mode === k), 'data-rp-mode-btn': k, onClick: () => setMode(k) }, label))) : null;
+      return h('div', { class: 'cals-wrap' }, modeBar, h('div', { class: 'cals' }, cal(y, m, { showPrev: false }), cal(next.year, next.month, { showNext: false })));
+    }
+    function draw() {
+      const cmpOn = canCmp && !!draft.compare;
       const dateInput = (which, label) => { const i = h('input', { type: 'text', dir: 'ltr', value: draft[which] ? D.formatDateNumeric(draft[which]) : '', placeholder: 'dd/mm/yyyy', 'aria-label': label, 'aria-invalid': err ? 'true' : false }); i.addEventListener('change', () => typed(which, i.value)); return h('div', { class: 'input' + (err ? ' err' : '') }, i); };
-      const cInput = (which, label) => { const i = h('input', { type: 'text', dir: 'ltr', value: draft[which] ? D.formatDateNumeric(draft[which]) : '', placeholder: 'dd/mm/yyyy', 'aria-label': label, 'aria-invalid': cerr ? 'true' : false, 'data-rp-c': which }); i.addEventListener('change', () => typedC(which, i.value)); return h('div', { class: 'input' + (cerr ? ' err' : '') }, i); };
-      const cal = (yy, mm, extra) => U.Calendar(Object.assign({ year: yy, month: mm, today: TODAY, from: draft.from, to: draft.to, hover: picking ? hover : null, onPick: pick, onHover: (i) => { if (picking && hover !== i) { hover = i; draw(); } }, onNav: (d) => { ({ year: y, month: m } = U.shiftMonth(y, m, d)); draw(); },
-        cfrom: cmpOn ? draft.cfrom : null, cto: cmpOn ? draft.cto : null }, extra));
+      const cInput = (which, label) => { const i = h('input', { type: 'text', dir: 'ltr', value: draft[which] ? D.formatDateNumeric(draft[which]) : '', placeholder: 'dd/mm/yyyy', 'aria-label': label, 'aria-invalid': cerr ? 'true' : false, 'data-rp-c': which }); i.addEventListener('change', () => typedC(which, i.value)); i.addEventListener('focus', () => setMode('cmp', true)); return h('div', { class: 'input' + (cerr ? ' err' : '') + (mode === 'cmp' ? ' rp-on' : '') }, i); };
       dp.replaceChildren(...[
         h('div', { class: 'dp-body' },
           h('div', { class: 'presets', role: 'radiogroup', 'aria-label': 'فترات جاهزة' },
             PRESETS.map(([k, label]) => h('button', { type: 'button', class: 'radio', role: 'radio', 'aria-checked': String(draft.preset === k), onClick: () => { if (k === 'custom') { draft.preset = 'custom'; } else { const r = D.presetRange(k, TODAY); draft.from = r.from; draft.to = r.to; draft.preset = k; [y, m] = r.from.split('-').map(Number); } picking = false; err = ''; before(); draw(); } }, h('i'), label))),
-          h('div', { class: 'cals' }, cal(y, m, { showPrev: false }), cal(next.year, next.month, { showNext: false }))),
+          calsWrap()),
         h('div', { class: 'range-row' }, h('div', { class: 'input', style: 'width:180px' }, h('input', { type: 'text', readonly: true, value: (PRESETS.find((p) => p[0] === draft.preset) || [0, 'مخصص'])[1], 'aria-label': 'الفترة الجاهزة', dir: 'rtl' })),
           dateInput('from', 'من تاريخ'), h('span', null, '–'), dateInput('to', 'إلى تاريخ'),
-          canCmp ? h('label', { class: 'check on', 'data-rp-compare': target }, h('input', { type: 'checkbox', checked: draft.compare ? true : null, onChange: (e) => { draft.compare = e.target.checked; cerr = ''; if (draft.compare) before(); draw(); const c = dp.querySelector('[data-rp-compare] input'); if (c) c.focus(); } }), 'مقارنة بفترة سابقة') : null),
+          canCmp ? h('label', { class: 'check on', 'data-rp-compare': target }, h('input', { type: 'checkbox', checked: draft.compare ? true : null, onChange: (e) => { draft.compare = e.target.checked; cerr = ''; if (draft.compare) before(); else mode = 'main'; draw(); const c = dp.querySelector('[data-rp-compare] input'); if (c) c.focus(); } }), 'مقارنة بفترة سابقة') : null),
         err ? h('div', { class: 'err-msg', role: 'alert', style: 'padding:0 16px 8px' }, err) : null,
         // decision 14: the comparison period's own fields, under the picked period's
         cmpOn ? h('div', { class: 'pcmp-fields', 'data-rp-cmp': target },

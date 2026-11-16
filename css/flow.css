@@ -302,3 +302,11 @@ textarea.fl-in{display:block;width:100%}
 .fl-copy-list{margin:0;padding:0 18px 0 0;display:flex;flex-direction:column;gap:4px;font-size:13px;flex:1}
 .fl-copy .btn{align-self:stretch;justify-content:center}
 @media (max-width:640px){.fl-copies{grid-template-columns:1fr}}
+/* the photos list (comments decisions 39–41): a slot for every row — an empty one says so, a missing one in red, a photo with no row «زيادة»; the row's ⋮ at its end */
+.fl-sort-menu{margin-inline-start:auto;flex:none;display:inline-flex}
+.fl-sort-tag{flex:none;display:inline-flex}
+.fl-sort-none{display:inline-flex;align-items:center;gap:6px;color:var(--color-text-secondary);flex:none}
+.fl-sort-row:has(.fl-sort-body.is-empty){border-style:dashed;background:transparent}
+.fl-sort-row:has(.fl-sort-body.is-missing){border-color:var(--color-error-border,#ff887a);background:var(--color-error-bg,#ffeae6)}
+.fl-sort-body.is-missing .fl-sort-none{color:var(--color-error-text,#8e0a07)}
+.fl-sort-row:has(.fl-sort-body.is-extra){border-color:var(--color-error-border,#ff887a)}

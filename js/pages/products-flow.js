@@ -66,7 +66,11 @@
     return null;
   }
   const titleOf = () => (st().brandName || st().vendorName || 'دفعة') + ' — ' + CASES[st().case] + ' · ' + st().type + ' · ' + new Date().toISOString().slice(0, 10);
-  async function goStep(n) { await touch(true); S.sel.clear(); go(hashFor(n)); }
+  async function goStep(n) {
+    // comments decision 41: the first step is not left forward while a product has no photo or a photo has no row (the stepper too)
+    if (n > 1 && S.step === 1) { const g = photoGapsNow(); if (g.missing.length || g.extra.length) { K.toast(g.missing.length ? g.missing.length + ' منتج من غير صورة — ارفع صورته الأول' : 'فيه صور زيادة مالهاش صف — امسحها أو حطها قدام صفها', 'error'); return; } }
+    await touch(true); S.sel.clear(); go(hashFor(n));
+  }
 
   // ---------------- the chooser (decision 1) ----------------
   function start() {
@@ -189,17 +193,67 @@
 
   // ---------------- 1 البداية ----------------
   async function takeSheet(file) {
-    let cells;
+    let cells; let pics = [];
     try {
       if (/\.csv$/i.test(file.name)) cells = PD.parseCsv(await file.text());
-      else cells = await PD.parseXlsx(new Uint8Array(await file.arrayBuffer()));
+      else { const bytes = new Uint8Array(await file.arrayBuffer()); cells = await PD.parseXlsx(bytes); try { pics = await PD.xlsxPhotos(bytes); } catch (e) { pics = []; } }
     } catch (e) { K.toast('مقدرناش نقرا الشيت — ارفعه xlsx أو csv', 'error'); return; }
     const r = FD.readSheet(cells);
     if (!r.rows.length) { K.toast('الشيت مافيهوش صفوف بأسماء أو أسعار', 'error'); return; }
     const s = st(); s.rows = r.rows.map((x, i) => Object.assign(x, { key: newKey(), src: i + 1, ref: null, photos: [] }));
     s.sheetName = file.name.slice(0, 120); s.unknown = r.unknown; s.mapped = Object.keys(r.map).length;
+    try { await takeSheetPics(pics); } catch (e) { /* the sheet is read all the same — its pictures are an extra */ } finally { if (S.busy === 'photos') S.busy = ''; }
     attachPhotos(); touch(); R();
   }
+  // ---- the pictures inside the sheet (comments decision 40 — «يعمل ماتشينج للصور ف الترتيب لوحده بناءا علي الصور اللي جوة الشيت») ----
+  // a picture's signature (FD.photoSig): the picture drawn into a 64 × 64 square on white, its pixels handed to the rule
+  async function sigOf(blob) {
+    try {
+      const bmp = await createImageBitmap(blob); const n = 64; const cv = document.createElement('canvas'); cv.width = n; cv.height = n;
+      const ctx = cv.getContext('2d', { willReadFrequently: true }); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, n, n); ctx.drawImage(bmp, 0, 0, n, n);
+      const ratio = bmp.width / bmp.height; if (bmp.close) bmp.close();
+      return FD.photoSig(ctx.getImageData(0, 0, n, n).data, n, n, ratio);
+    } catch (e) { return ''; }
+  }
+  const isSheetPic = (p) => !!(st().sheetPhotos && st().sheetPhotos[p]);
+  const memberPhotos = (n) => ((st().photoRows || {})[n] || []).filter((p) => !isSheetPic(p));
+  // a photo leaves the batch: its file, its signature and its «من الشيت» mark
+  function dropPhoto(path) { const s = st(); ST().removeImage(path); if (s.sheetPhotos) delete s.sheetPhotos[path]; if (s.photoSigs) delete s.photoSigs[path]; }
+  // a member's photo landed on a row: the sheet's own small picture of that row was only standing in for it
+  function dropSheetPics(n) { const s = st(); const L = (s.photoRows || {})[n] || []; const keep = L.filter((p) => !isSheetPic(p)); if (keep.length && keep.length !== L.length) { L.filter(isSheetPic).forEach(dropPhoto); s.photoRows[n] = keep; } }
+  // The sheet just read: its pictures' signatures by row (s.sheetSigs — what the uploads are matched to); the photos uploaded before
+  // it move to the rows they look like; and a row left without a photo takes the sheet's own picture (marked s.sheetPhotos).
+  async function takeSheetPics(pics) {
+    const s = st(); s.photoRows = s.photoRows || {};
+    Object.keys(s.sheetPhotos || {}).forEach((p) => { Object.keys(s.photoRows).forEach((k) => { s.photoRows[k] = (s.photoRows[k] || []).filter((x) => x !== p); if (!s.photoRows[k].length) delete s.photoRows[k]; }); ST().removeImage(p); }); // the sheet before this one
+    s.sheetPhotos = {}; s.sheetSigs = {};
+    const byLine = new Map(); s.rows.forEach((r) => { if (r.line != null && !byLine.has(Number(r.line))) byLine.set(Number(r.line), r.src); });
+    const first = new Map(); (pics || []).forEach((p) => { const src = byLine.get(p.line); if (src && !first.has(src)) first.set(src, p); }); // a row's first picture is its picture
+    if (!first.size) return;
+    S.busy = 'photos'; R();
+    const blobs = new Map();
+    for (const [src, p] of first) { const blob = new Blob([p.bytes], { type: 'image/' + p.ext }); const sig = await sigOf(blob); if (sig) { s.sheetSigs[src] = sig; blobs.set(src, blob); } }
+    // the member's photos that were there before the sheet: each row's group goes to the row its first photo looks like
+    const keys = Object.keys(s.photoRows).map(Number).filter((k) => (s.photoRows[k] || []).length).sort((a, b) => a - b);
+    if (keys.length && Object.keys(s.sheetSigs).length) {
+      const groups = keys.map((k) => s.photoRows[k]);
+      const m = FD.matchPhotos(sheetRefs(), groups.map((g, i) => ({ i, sig: (s.photoSigs || {})[g[0]] || '' })));
+      if (m.pairs.length) {
+        const next = {}; m.pairs.forEach((x) => { next[x.row] = groups[x.i]; });
+        m.loose.forEach((i) => { let k = keys[i]; while (next[k]) k += 1; next[k] = groups[i]; }); // the rest keep their row, or the next free one
+        s.photoRows = next; s.matched = (s.matched || 0) + m.pairs.length;
+      }
+    }
+    let n = 0;
+    for (const [src, blob] of blobs) {
+      if ((s.photoRows[src] || []).length) continue;
+      const r = await ST().uploadImage(S.id, new File([blob], 'sheet-' + src + '.' + (blob.type.split('/')[1] || 'png'), { type: blob.type }), 'x' + src, { webp: true });
+      if (r.ok) { s.photoRows[src] = [r.path]; s.sheetPhotos[r.path] = 1; n += 1; }
+    }
+    S.busy = '';
+    if (n) K.toast('أخدنا ' + n + ' صورة من جوه الشيت على صفوفها — ارفع الصور الأصلية وهتتحط مكانها لوحدها', 'success');
+  }
+  const sheetRefs = () => Object.keys(st().sheetSigs || {}).map((k) => ({ row: Number(k), sig: st().sheetSigs[k] }));
   // the photos by row number (decision 3): the sheet's row (case 1) or the product's number in the chat (case 2)
   function attachPhotos() {
     const s = st(); const byN = s.photoRows || {};
@@ -209,21 +263,45 @@
   // the owner 15 Nov («بجرب ارفع الصور … مبتترفعش»): a maker's photos rarely carry the row number, and every one of them was dropped —
   // a photo without a number now takes the next free row (FD.placePhotos), and a photo that does not go up says why
   async function takePhotos(files) {
-    const s = st(); s.photoRows = s.photoRows || {};
-    const placed = FD.placePhotos(files.map((f) => f.name), Object.keys(s.photoRows));
+    const s = st(); s.photoRows = s.photoRows || {}; s.photoSigs = s.photoSigs || {};
     S.busy = 'photos'; R();
-    let n = 0, loose = 0; const fail = { not_image: 0, network: 0 };
+    // comments decision 40: a photo that looks like the picture the sheet has on a row goes to that row, whatever its name; the
+    // rest go by their names (a number = that row), else to the free rows in order. A row that holds only the sheet's own picture
+    // is free.
+    const sigs = []; for (const f of files) sigs.push(s.case === 'sheet' ? await sigOf(f) : '');
+    const refs = s.case === 'sheet' ? sheetRefs().filter((x) => !memberPhotos(x.row).length) : [];
+    const m = refs.length ? FD.matchPhotos(refs, sigs.map((sig, i) => ({ i, sig }))) : { pairs: [], loose: files.map((_, i) => i) };
+    const taken = Object.keys(s.photoRows).map(Number).filter((k) => memberPhotos(k).length).concat(m.pairs.map((x) => x.row));
+    const rest = FD.placePhotos(m.loose.map((i) => files[i].name), taken).map((x) => Object.assign(x, { i: m.loose[x.i] }));
+    const placed = m.pairs.map((x) => ({ i: x.i, row: x.row, order: 0, auto: false, matched: true })).concat(rest).sort((a, b) => a.row - b.row || a.order - b.order || a.i - b.i);
+    let n = 0, loose = 0, hit = 0; const fail = { not_image: 0, network: 0 };
     for (const x of placed) {
       const r = await ST().uploadImage(S.id, files[x.i], 'p' + x.row + '-' + (x.order || 0), { webp: true });
-      if (r.ok) { (s.photoRows[x.row] = s.photoRows[x.row] || []).push(r.path); n += 1; if (x.auto) loose += 1; }
+      if (r.ok) { (s.photoRows[x.row] = s.photoRows[x.row] || []).push(r.path); if (sigs[x.i]) s.photoSigs[r.path] = sigs[x.i]; dropSheetPics(x.row); n += 1; if (x.auto) loose += 1; if (x.matched) hit += 1; }
       else fail[r.reason === 'not_image' ? 'not_image' : 'network'] += 1;
     }
     if (s.case === 'photos') s.products = Object.keys(s.photoRows).map(Number).sort((a, b) => a - b).map((k) => ({ n: k, ref: s.photoRows[k][0], photos: s.photoRows[k] }));
     else attachPhotos();
     S.busy = ''; touch(); R();
-    if (n) K.toast('اترفعت ' + n + ' صورة' + (loose ? ' — ' + loose + ' من غير رقم في اسمها اتحطت بالترتيب (صورة لكل منتج)، راجعها' : ''), 'success');
+    if (n) K.toast('اترفعت ' + n + ' صورة' + (hit ? ' — ' + hit + ' اتحطت على صفها لوحدها من صور الشيت' : '') + (loose ? ' — ' + loose + ' من غير رقم في اسمها اتحطت بالترتيب (صورة لكل منتج)، راجعها' : ''), 'success');
     if (fail.not_image) K.toast(fail.not_image + ' صورة ماترفعتش: الصيغة مش مدعومة في المتصفح (زي HEIC من الآيفون) — حوّلها JPG أو PNG وارفعها تاني', 'error');
     if (fail.network) K.toast(fail.network + ' صورة ماترفعتش: النت أو السيرفر — جرّب تاني', 'error');
+  }
+  // comments decision 39: a row's ⋮ — «تبديل الصورة» puts one new photo in the row's place, «مسح» empties the row; «مسح الكل» empties them all
+  function afterPhotos() { const s = st(); if (s.case === 'photos') s.products = Object.keys(s.photoRows).map(Number).sort((a, b) => a - b).map((k) => ({ n: k, ref: s.photoRows[k][0], photos: s.photoRows[k] })); else attachPhotos(); touch(); R(); }
+  async function swapPhoto(n, file) {
+    const s = st(); if (!file || S.busy) return;
+    S.busy = 'photos'; R();
+    const sig = await sigOf(file); const r = await ST().uploadImage(S.id, file, 'p' + n + '-0', { webp: true });
+    S.busy = '';
+    if (!r.ok) { R(); K.toast(r.reason === 'not_image' ? 'الصورة ماترفعتش: الصيغة مش مدعومة — حوّلها JPG أو PNG' : 'الصورة ماترفعتش — جرّب تاني', 'error'); return; }
+    ((s.photoRows || {})[n] || []).forEach(dropPhoto); s.photoRows[n] = [r.path]; s.photoSigs = s.photoSigs || {}; if (sig) s.photoSigs[r.path] = sig;
+    afterPhotos(); K.toast('الصورة اتبدّلت', 'success');
+  }
+  function clearPhotoRow(n) { const s = st(); ((s.photoRows || {})[n] || []).forEach(dropPhoto); delete s.photoRows[n]; afterPhotos(); }
+  function clearPhotos() {
+    const s = st(); const all = Object.values(s.photoRows || {}).reduce((t, l) => t + l.length, 0); if (!all) return;
+    K.confirm({ title: 'تمسح كل الصور؟', text: all + ' صورة هتتشال من الدفعة — الشيت والبيانات زي ما هي.', okLabel: 'امسح الكل', okType: 'danger', onOk: () => { Object.values(s.photoRows || {}).forEach((l) => l.forEach(dropPhoto)); s.photoRows = {}; s.sheetPhotos = {}; s.photoSigs = {}; afterPhotos(); K.toast('كل الصور اتمسحت', 'success'); } });
   }
   // the owner 15 Nov («لما ارفع الصور توريني الصور بحجم صغير … ونفس الكلام في السكرين شوتس، وجنب كل واحدة الست نقط اللي بغيّر بيها
   // الترتيب، بحيث أحط كل صورة جنبها الناحية التانية السكرين شوت»): the screenshots go up into the batch (s.screenList, studio/<batch>/
@@ -259,18 +337,33 @@
   // a list in the order it is in, each row with the six dots (K.Grip / K.sortableRows) — the same row height on both sides, so a photo
   // sits beside its screenshot
   function sortList(attr, items, body, onOrder) {
-    const wrap = h('div', { class: 'fl-sort', ['data-' + attr]: '' }, items.map((x, i) => h('div', { class: 'fl-sort-row', ['data-' + attr + '-row']: x.id }, K.Grip(x.label), h('b', { class: 'fl-sort-n num' }, String(i + 1)), body(x))));
+    const wrap = h('div', { class: 'fl-sort', ['data-' + attr]: '' }, items.map((x, i) => h('div', { class: 'fl-sort-row', ['data-' + attr + '-row']: x.id }, K.Grip(x.label), h('b', { class: 'fl-sort-n num' }, String(x.num != null ? x.num : i + 1)), body(x))));
     K.sortableRows(wrap, 'data-' + attr + '-row', onOrder);
     return wrap;
   }
+  // A slot for every row once the rows are known (comments decisions 39–41): the row's photos, or an empty slot that says so — so
+  // each photo faces its row, a missing one is seen where it is missing, and a photo is dragged onto the empty slot. Photos on a
+  // number the sheet does not have come after the rows, marked «زيادة».
   function photosList() {
-    const s = st(); const byN = s.photoRows || {}; const keys = Object.keys(byN).map(Number).filter((k) => (byN[k] || []).length).sort((a, b) => a - b);
-    if (!keys.length) return null;
+    const s = st(); const byN = s.photoRows || {}; const withPhotos = Object.keys(byN).map(Number).filter((k) => (byN[k] || []).length);
+    const rowKeys = [...new Set((s.rows || []).map((x) => Number(s.case === 'whatsapp' ? x.product : x.src)).filter((n) => n >= 1))];
+    const keys = [...new Set(rowKeys.concat(withPhotos))].sort((a, b) => a - b);
+    if (!withPhotos.length && !rowKeys.length) return null;
+    if (!withPhotos.length) return null; // nothing uploaded yet: the empty box invites the first upload
+    const known = new Set(rowKeys); const gaps = photoGapsNow(); const missing = new Set(gaps.missing);
     const nameOf = (k) => { const r = (s.rows || []).find((x) => (s.case === 'whatsapp' ? x.product : x.src) === k); return r ? (r.nameAr || r.nameEn || '') : ''; };
-    return sortList('fl-photos', keys.map((k) => ({ id: String(k), label: 'صور المنتج ' + k, paths: byN[k] })), (x) => h('div', { class: 'fl-sort-body' },
-      h('span', { class: 'fl-sort-thumbs' }, x.paths.slice(0, 3).map((p) => Thumb(p, 'st-sm')), x.paths.length > 3 ? h('span', { class: 't-small help' }, '+' + (x.paths.length - 3)) : null),
-      h('span', { class: 't-small help fl-sort-name' }, nameOf(Number(x.id)))),
-      (ids) => { const vals = ids.map((id) => byN[id]); const next = {}; keys.forEach((k, i) => { next[k] = vals[i]; }); s.photoRows = next; attachPhotos(); touch(); R(); });
+    const menu = (k, has) => h('span', { class: 'fl-sort-menu', 'data-fl-photo-menu': String(k) }, K.RowMenu([
+      { label: has ? 'تبديل الصورة' : 'ارفع صورة', icon: 'upload', run: () => filePick('image/*', false, (fs) => swapPhoto(k, fs[0])) },
+      has ? { label: 'مسح', icon: 'trash', danger: true, run: () => clearPhotoRow(k) } : null].filter(Boolean), 'إجراءات صور المنتج ' + k));
+    return sortList('fl-photos', keys.map((k) => ({ id: String(k), num: k, label: 'صور المنتج ' + k, paths: byN[k] || [] })), (x) => { const k = Number(x.id); const extra = rowKeys.length > 0 && !known.has(k);
+      return h('div', { class: 'fl-sort-body' + (extra ? ' is-extra' : '') + (!x.paths.length ? ' is-empty' : '') + (missing.has(k) ? ' is-missing' : ''), 'data-fl-slot': x.paths.length ? 'photo' : 'empty' },
+        x.paths.length ? h('span', { class: 'fl-sort-thumbs' }, x.paths.slice(0, 3).map((p) => Thumb(p, 'st-sm')), x.paths.length > 3 ? h('span', { class: 't-small help' }, '+' + (x.paths.length - 3)) : null)
+          : h('span', { class: 'fl-sort-none' }, Icon('image', 'sm'), h('span', { class: 't-small' }, missing.has(k) ? 'ناقص — من غير صورة' : 'من غير صورة')),
+        h('span', { class: 't-small help fl-sort-name' }, nameOf(k)),
+        x.paths.length && x.paths.every(isSheetPic) ? h('span', { class: 'fl-sort-tag', 'data-fl-from-sheet': '', title: 'الصورة دي من جوه الشيت — ارفع الأصلية وهتتحط مكانها' }, Tag('info', 'من الشيت')) : null,
+        extra ? h('span', { class: 'fl-sort-tag', 'data-fl-extra': '' }, Tag('error', 'زيادة')) : null,
+        menu(k, x.paths.length > 0)); },
+      (ids) => { const vals = ids.map((id) => byN[id] || []); const next = {}; keys.forEach((k, i) => { if (vals[i].length) next[k] = vals[i]; }); s.photoRows = next; attachPhotos(); touch(); R(); });
   }
   // case 1: the sheet's rows as they were read (number + name), the same row height as the photos list so each row faces its photos
   function rowsList() {
@@ -317,7 +410,9 @@
   function step1() {
     const s = st();
     const photosN = Object.values(s.photoRows || {}).reduce((t, l) => t + l.length, 0);
-    const photosBtn = Button({ label: photosN ? 'بدّل / زوّد الصور (' + photosN + ')' : 'ارفع الصور', icon: 'upload', disabled: S.busy === 'photos', attrs: { 'data-flow-photos': '' }, onClick: () => filePick('image/*', true, takePhotos) });
+    // comments decision 39: the button only adds («زوّد صور»); a row is replaced or emptied from its ⋮, and «مسح الكل» empties them all
+    const photosBtn = Button({ label: photosN ? 'زوّد صور' : 'ارفع الصور', icon: 'upload', disabled: S.busy === 'photos', attrs: { 'data-flow-photos': '' }, onClick: () => filePick('image/*', true, takePhotos) });
+    const clearBtn = photosN ? Button({ type: 'text', icon: 'trash', label: 'مسح الكل', disabled: S.busy === 'photos', attrs: { 'data-flow-photos-clear': '' }, onClick: () => clearPhotos() }) : null;
     const nameHelp = U.InlineNote({ children: 'الصور بتتحط على الصفوف بالترتيب، صورة لكل صف. ولو عايز تحدد: سمّيها برقم الصف «1»، «2»… وأكتر من صورة لنفس المنتج «1-1»، «1-2». أول صورة هي المرجعية.' });
     if (s.case === 'photos') {
       const kind = (k, label) => U.Select({ id: 'fl-k-' + k, label, value: String(s.kinds[k] || 0), options: [0, 1, 2, 3, 4, 5].map((x) => ({ value: String(x), label: x ? x + ' ' + label : 'من غير' })), onChange: (v) => { s.kinds[k] = Number(v); touch(); R(); } });
@@ -331,7 +426,13 @@
     // أجيبها قدام الصورة بتاعتها»): each list inside its own card, the two cards side by side on one grid (title · buttons · list ·
     // notes as shared rows), so a photo sits in front of its screenshot (or of its sheet row); empty, the two lists are the same box
     const empty = (text) => h('div', { class: 'fl-list-empty' }, Icon('image', 'sm'), h('span', null, text));
-    const noRef = s.rows.filter((r) => !r.ref).length;
+    // comments decision 41 («لو لقي حاجة زيادة ميكملش للتالي او حاجة ناقصة — يديني ايرور و يقولي ملحوظة»): a product without a photo, or
+    // photos on a row the sheet does not have, stop «التالي» with a note that names the rows
+    const gaps = photoGapsNow(); const list = (L) => L.slice(0, 12).join('، ') + (L.length > 12 ? ' …' : '');
+    const gapNotes = s.rows.length ? [
+      gaps.missing.length ? U.InlineNote({ kind: 'error', children: 'ناقص: ' + gaps.missing.length + ' منتج من غير صورة — صف ' + list(gaps.missing) + '. ارفع صورته («زوّد صور») أو سمّي الصورة برقم الصف.' }) : null,
+      gaps.extra.length ? U.InlineNote({ kind: 'error', children: 'زيادة: صور على صف مش في الشيت — ' + list(gaps.extra) + '. امسحها من ⋮ أو اسحبها قدام صفها.' }) : null].filter(Boolean) : [];
+    const gapWhy = gaps.missing.length && gaps.extra.length ? 'فيه صور ناقصة وصور زيادة — راجع كارت «الصور»' : gaps.missing.length ? gaps.missing.length + ' منتج من غير صورة — ارفع صورته الأول' : gaps.extra.length ? 'فيه صور زيادة مالهاش صف — امسحها أو حطها قدام صفها' : '';
     const src = s.case === 'whatsapp'
       ? Card('سكرين شوتس الواتساب', 'لحد 8 سكرين شوتس — الـ AI بيقرا الأسماء والأسعار والألوان والمقاسات بالترتيب.', [
         h('div', { class: 'fl-pair-acts' }, h('div', { class: 'acts-inline' }, Button({ type: 'primary', icon: 'sparkle', label: S.busy === 'extract' ? 'بيقرا…' : (s.screenList || []).length ? 'زوّد سكرين شوتس' : 'ارفع السكرين شوتس واقرا الداتا', disabled: S.busy === 'extract' || (s.screenList || []).length >= 8, attrs: { 'data-flow-screens': '' }, onClick: () => filePick('image/*', true, takeScreens) }),
@@ -345,15 +446,23 @@
           s.rows.length ? U.InlineNote({ kind: 'success', children: s.rows.length + ' صف · ' + (s.mapped || 0) + ' عمود اتطابق' + (s.unknown && s.unknown.length ? ' · أعمدة مش في القالب: ' + s.unknown.join('، ') : '') }) : null),
         h('div', { class: 'fl-pair-list', 'data-fl-list': 'rows' }, rowsList() || empty('اسحب الشيت وسيبه هنا — وصفوفه هتظهر بالترتيب')),
         h('div', { class: 'fl-pair-notes' }, U.InlineNote({ children: 'كل صف قدامه صوره في كارت «الصور» — اسحب الصور من الست نقط لو صورة جت على صف غلط.' }))]);
-    const pics = Card('الصور', photosN ? photosN + ' صورة' + (s.rows.length ? ' · ' + (s.rows.length - noRef) + ' صف ليه صورة' : '') : 'صور المنتجات بجودة عالية', [
-      h('div', { class: 'fl-pair-acts' }, h('div', { class: 'acts-inline' }, photosBtn, S.busy === 'photos' ? h('span', { class: 't-small help' }, 'بنرفع…') : null),
-        s.rows.length && noRef ? U.InlineNote({ kind: 'warning', children: noRef + ' صف من غير صورة مرجعية — الصور بتتولّد من المرجعية، فارفعها أو كمّل من غيرها.' }) : null),
+    const withRef = s.rows.filter((r) => r.ref).length;
+    const pics = Card('الصور', photosN ? photosN + ' صورة' + (s.rows.length ? ' · ' + withRef + ' صف ليه صورة' : '') : 'صور المنتجات بجودة عالية', [
+      h('div', { class: 'fl-pair-acts', 'data-fl-gaps': gaps.missing.length || gaps.extra.length ? 'bad' : 'ok' }, h('div', { class: 'acts-inline' }, photosBtn, clearBtn, S.busy === 'photos' ? h('span', { class: 't-small help' }, 'بنرفع…') : null),
+        gapNotes,
+        s.case === 'sheet' && Object.keys(s.sheetSigs || {}).length ? U.InlineNote({ children: 'الشيت فيه صور — أي صورة ترفعها بتتحط على صفها لوحدها لو شبه صورة الصف في الشيت، من غير ما تسمّيها.' }) : null),
       h('div', { class: 'fl-pair-list', 'data-fl-list': 'photos' }, photosList() || empty('اسحب الصور وسيبها هنا — وهتظهر بالترتيب')),
       h('div', { class: 'fl-pair-notes' }, nameHelp)]);
     if (s.case === 'whatsapp') dropZone(src, isImage, takeScreens, () => S.busy === 'extract' || (s.screenList || []).length >= 8, 'اسحب صور (السكرين شوتس) بس');
     else dropZone(src, isSheet, (f) => takeSheet(f[0]), () => false, 'الشيت لازم يكون xlsx أو csv');
     dropZone(pics, isImage, takePhotos, () => S.busy === 'photos', 'اسحب صور بس (JPG أو PNG أو WebP)');
-    return [h('div', { class: 'fl-pair', 'data-fl-match': '' }, src, pics), Foot(s.rows.length > 0, s.case === 'whatsapp' ? 'اقرا السكرين شوتس الأول' : 'ارفع الشيت الأول')];
+    return [h('div', { class: 'fl-pair', 'data-fl-match': '' }, src, pics), Foot(s.rows.length > 0 && !gapWhy && S.busy !== 'photos', !s.rows.length ? (s.case === 'whatsapp' ? 'اقرا السكرين شوتس الأول' : 'ارفع الشيت الأول') : gapWhy || 'استنى لما الصور تترفع')];
+  }
+  // the first step's rows against the photos (FD.photoGaps): a Variable product's rows share its photos
+  function photoGapsNow() {
+    const s = st(); if (!s || s.case === 'photos' || !(s.rows || []).length) return { missing: [], extra: [] };
+    const G = groups(); const groupOf = new Map(); G.forEach((g, gi) => g.rows.forEach((ri) => groupOf.set(ri, gi)));
+    return FD.photoGaps(rows().map((r, ri) => ({ src: s.case === 'whatsapp' ? r.product : r.src, group: s.case === 'whatsapp' ? 'p' + r.product : groupOf.get(ri) })), s.photoRows || {});
   }
 
   // ---------------- 2 المبتكر والبراند (decision 4) ----------------
@@ -1061,7 +1170,8 @@
   // ---------------- case 3: 3 الصور · 4 الشيت (decision 12) ----------------
   function stepPhotos() {
     const s = st(); const n = (s.products || []).length;
-    const card = Card('صور المنتجات', n ? n + ' منتج' : 'صورة لكل منتج بالترتيب', [h('div', { class: 'acts-inline' }, Button({ type: 'primary', icon: 'upload', label: n ? 'بدّل / زوّد الصور' : 'ارفع الصور', disabled: S.busy === 'photos', attrs: { 'data-flow-photos': '' }, onClick: () => filePick('image/*', true, takePhotos) })),
+    const card = Card('صور المنتجات', n ? n + ' منتج' : 'صورة لكل منتج بالترتيب', [h('div', { class: 'acts-inline' }, Button({ type: 'primary', icon: 'upload', label: n ? 'زوّد صور' : 'ارفع الصور', disabled: S.busy === 'photos', attrs: { 'data-flow-photos': '' }, onClick: () => filePick('image/*', true, takePhotos) }),
+        n ? Button({ type: 'text', icon: 'trash', label: 'مسح الكل', disabled: S.busy === 'photos', attrs: { 'data-flow-photos-clear': '' }, onClick: () => clearPhotos() }) : null),
       U.InlineNote({ children: 'كل صورة بتبقى منتج بالترتيب. ولو أكتر من صورة لنفس المنتج سمّيها «1-1»، «1-2» (و«2-1»، «2-2»…). أول صورة للمنتج هي اللي بتتحط في الشيت.' }),
       n ? h('div', { class: 'fl-grid fl-pair-list' }, s.products.map((p) => h('div', { class: 'fl-pcard' }, Thumb(p.ref, 'st-big'), h('b', null, 'منتج ' + p.n), h('small', { class: 'help' }, p.photos.length + ' صورة'))))
         : h('div', { class: 'fl-pair-list' }, h('div', { class: 'fl-list-empty' }, Icon('image', 'sm'), h('span', null, 'اسحب الصور وسيبها هنا — كل صورة منتج بالترتيب')))]);

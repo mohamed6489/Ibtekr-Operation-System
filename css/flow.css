@@ -140,7 +140,8 @@ textarea.fl-in{display:block;width:100%}
 .fl-uprice{display:flex;flex-direction:column;align-items:flex-end;gap:2px;white-space:nowrap;font-size:13px}
 .fl-uprice s{font-size:12px}
 .fl-umenu{flex:none}
-.fl-shots{display:grid;grid-template-columns:repeat(5,minmax(0,168px));gap:14px;padding:16px;justify-content:start}
+/* comments decision 50 («خلي الصور تبقي ف النص»): the five slots sit in the middle of the card */
+.fl-shots{display:grid;grid-template-columns:repeat(5,minmax(0,168px));gap:14px;padding:16px;justify-content:center}
 .fl-ucard :is(.fl-slot,.fl-sna){display:flex;flex-direction:column;gap:8px;align-items:stretch;min-width:0}
 .fl-slab{display:block;font-size:12px;font-weight:600;color:var(--color-text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center}
 .thumb.fl-shot{width:100%;height:auto;aspect-ratio:7/8;border-radius:var(--radius-sm,8px);background:var(--color-bg-tint)}
@@ -182,16 +183,20 @@ textarea.fl-in{display:block;width:100%}
 .fl-dhead>.cb{align-self:center}
 .fl-dnum{font-size:15px;align-self:center;color:var(--color-brand-default)}
 .fl-dhead>.tg{align-self:center}
-.fl-dbrand{display:flex;flex-direction:column;gap:2px;min-width:0;padding-bottom:6px}
-.fl-dbrand small{font-size:11px;color:var(--color-text-secondary)}
-.fl-dbrand b{font-size:13px}
+/* a read-only fact in the head is built like a field — a label line, then a value as tall as a control — so every label of the head is on one line and every value on the next (decision 44) */
+.fl-dbrand{display:flex;flex-direction:column;gap:4px;min-width:0}
+.fl-dbrand small{font-size:12px;font-weight:600;line-height:20px;color:var(--color-text-secondary);display:flex;align-items:center}
+/* a dropdown's label took the kit's taller line — 4px above the labels beside it */
+.fl-f>label,.fl-pick .field>label{line-height:20px}
+.fl-dbrand b{font-size:13px;height:36px;display:flex;align-items:center}
 .fl-dhead .fl-f{min-width:0}
 .fl-dhead .fl-sku{width:170px}
 .fl-dhead .fl-w{width:96px}
 .fl-dhead .fl-cat{width:min(320px,100%)}
 .fl-dmiss{align-self:center;font-size:12px;color:var(--color-error-base);max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .fl-dok{align-self:center;display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--color-brand-default);font-weight:600}
-.fl-dhead .pop-anchor:last-child{align-self:center}
+/* the card's own ⋮ only — not the dropdown inside a field (comments decision 44: «القسم» sat in the middle of its field, away from its label) */
+.fl-dhead>.pop-anchor:last-child{align-self:center}
 .fl-dbody{display:grid;grid-template-columns:150px minmax(0,1fr) minmax(0,1fr);gap:18px;padding:16px}
 .fl-dpic{display:flex;flex-direction:column;gap:6px;align-items:center}
 .thumb.fl-dimg{width:150px;height:172px;border-radius:var(--radius-sm,8px)}
@@ -310,3 +315,24 @@ textarea.fl-in{display:block;width:100%}
 .fl-sort-row:has(.fl-sort-body.is-missing){border-color:var(--color-error-border,#ff887a);background:var(--color-error-bg,#ffeae6)}
 .fl-sort-body.is-missing .fl-sort-none{color:var(--color-error-text,#8e0a07)}
 .fl-sort-row:has(.fl-sort-body.is-extra){border-color:var(--color-error-border,#ff887a)}
+/* the data step's pictures open their popup (comments decision 43): a button over the picture, a pencil at its corner; the popup's two boxes — the maker's photo and the AI's */
+.fl-pic-btn{position:relative;display:inline-flex;padding:0;border:0;background:transparent;cursor:pointer;border-radius:var(--radius-sm,8px);flex:none}
+.fl-pic-btn:hover .thumb,.fl-pic-btn:focus-visible .thumb{outline:2px solid var(--color-brand-default,#005642);outline-offset:1px}
+.fl-pic-i{position:absolute;inset-inline-end:4px;bottom:4px;width:24px;height:24px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;background:var(--color-brand-default,#005642);color:var(--color-text-on-brand,#fff7ef);box-shadow:0 1px 3px rgba(0,0,0,.25)}
+.fl-var .fl-pic-btn{align-self:center}
+.fl-var .fl-pic-i{width:18px;height:18px;inset-inline-end:-4px;bottom:-4px}
+.fl-var .fl-pic-i svg{width:11px;height:11px}
+.fl-pp{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start}
+.fl-pp-box{display:flex;flex-direction:column;gap:10px;padding:12px;border:1px solid var(--color-border-subtle);border-radius:12px;background:var(--color-bg-base);min-width:0}
+.fl-pp-h{display:flex;flex-direction:column;gap:2px}
+.thumb.fl-pp-img{width:100%;height:auto;aspect-ratio:7/8;border-radius:var(--radius-sm,8px);background:var(--color-bg-tint);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center;color:var(--color-text-secondary);font-size:13px;padding:0}
+.thumb.fl-pp-img img{width:100%;height:100%;object-fit:contain}
+.thumb.fl-pp-img.na{border:1px dashed var(--color-border-default);padding:16px}
+.fl-pp-acts{justify-content:center}
+@media (max-width:640px){.fl-pp{grid-template-columns:1fr}}
+/* the prices step (comments decisions 45, 46): the sale price is shown, not typed; a product's SKU sits under its name on the right (an LTR line in an RTL column went to the left) */
+.fl-num.is-ro{background:var(--color-bg-disabled,#f0e5cf);border-style:dashed;color:var(--color-text-primary);cursor:default}
+.fl-info .num{align-self:flex-start}
+/* an empty slot's two buttons — «ولّد بالـ AI» and «رفع» (decision 48) */
+.fl-sacts [data-gen]{flex:1 1 0;min-width:0;padding-inline:6px}
+.fl-sacts [data-shot-up]{flex:0 0 auto;padding-inline:8px}

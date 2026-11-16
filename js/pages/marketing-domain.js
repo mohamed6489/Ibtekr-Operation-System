@@ -325,6 +325,41 @@
     return null;
   }
   // the ZIP's plan (decision 14): a folder per piece — its images numbered in order and caption.txt (the caption + the tags)
+  // ---------- «إعلانات المنافسين» (comments decision 70): Meta's Ad Library, opened on a competitor's ads ----------
+  // The library's own page shows any advertiser's running ads; its API gives commercial ads only where they reached the EU / UK,
+  // so nothing is pulled — the link opens the library on the page's list (its number known) or on a search (a word, else the name).
+  const AD_LIBRARY = 'https://www.facebook.com/ads/library/';
+  const PAGE_HOST = /^https:\/\/([a-z0-9-]+\.)?(facebook|instagram)\.com\/[^\s<>"]{1,300}$/i;
+  function adLibraryUrl(c, country) {
+    const q = new URLSearchParams({ active_status: 'active', ad_type: 'all', country: /^[A-Z]{2}$/.test(String(country || '')) ? country : 'EG', media_type: 'all' });
+    const id = String((c && c.pageId) || '').trim();
+    if (/^[0-9]{5,20}$/.test(id)) q.set('view_all_page_id', id);
+    else { q.set('q', String((c && (c.keyword || c.name)) || '').replace(/\s+/g, ' ').trim().slice(0, 80)); q.set('search_type', 'keyword_unordered'); }
+    return AD_LIBRARY + '?' + q.toString();
+  }
+  // what the member typed for the page: its number, or its link (a profile.php?id= / …/pages/name/number link gives the number too)
+  function competitorPage(v) {
+    const t = String(v == null ? '' : v).trim();
+    if (!t) return { pageId: '', pageUrl: '' };
+    if (/^[0-9]{5,20}$/.test(t)) return { pageId: t, pageUrl: '' };
+    const u = /^https?:\/\//i.test(t) ? t.replace(/^http:/i, 'https:') : 'https://' + t.replace(/^\/+/, '');
+    if (!PAGE_HOST.test(u)) return { error: 'page' };
+    let id = '';
+    try { const x = new URL(u); const q = x.searchParams.get('id') || ''; const m = /\/(?:pages\/[^/]+|people\/[^/]+)\/([0-9]{5,20})\/?$/.exec(x.pathname); id = /^[0-9]{5,20}$/.test(q) ? q : m ? m[1] : ''; } catch (e) { return { error: 'page' }; }
+    return { pageId: id, pageUrl: u };
+  }
+  // the form's values → the row's columns, or the first field that is wrong
+  function competitorRow(f) {
+    const one = (v, max) => String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max + 1);
+    const name = one(f && f.name, 80), keyword = one(f && f.keyword, 80), note = one(f && f.note, 300);
+    if (!name || name.length > 80) return { error: 'name' };
+    if (keyword.length > 80) return { error: 'keyword' };
+    if (note.length > 300) return { error: 'note' };
+    if (/[<>]/.test(name + keyword + note)) return { error: 'text' };
+    const pg = competitorPage(f && f.page); if (pg.error) return { error: 'page' };
+    return { row: { name, page_id: pg.pageId || null, page_url: pg.pageUrl || null, keyword: keyword || null, note: note || null } };
+  }
+
   const safeName = (s) => String(s || '').replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim().slice(0, 60) || 'قطعة';
   function zipPlan(items) {
     const used = new Set();
@@ -525,6 +560,7 @@
   const xr = (v) => (v == null ? '—' : Number(v).toFixed(2) + '×');
 
   const api = { PRICE_DEMO, VIDEO_SOON, VSIZES, videoImgSize, videoMethod, estimateVideo, METHOD_RATE, GOALS, MEDIA, VIDEO_RATE, METHODS, MAX, TEXT_FILL, DEFAULT_MODEL, clamp, defaults, buildPieces, splitScenes, CLIP, VIDEO_MAX, clipSeconds, sceneSeconds, scenesPending, sceneDurOf, videoSeconds, setSceneDur, setSceneD, setSceneCount, keepSceneDurs, cost, spend, built, approvable, approved, approveAll, progress, canBuildNext, canReviewNext, validateDetails, estimate, imgRate, videoRate,
+    adLibraryUrl, competitorPage, competitorRow,
     campaignStatus, campaignName, PLATFORMS, CONNECTED, POST_STATUSES, CAP_MAX, TAGS, TIMES, timeOpts, postKind, pieceImages, hookOf, addD, suggest, scheduleItems, isPast, canMove, moveCheck, safeName, zipPlan,
     PUBLISHABLE, PUB_KINDS, MAX_IMAGES, PL_KEY, pubText, notReady, publishable, pubImages, isVideoPath, igFit, jpegSize, isJpeg, PUB_ERRORS, pubError, seenSt, engOf, postTotals, SRC_LABEL,
     get DAYS() { return days(); }, dayIdx, wkStart, weeksOf, planDefault, D2, dayLabel, relDay, pct, linkKeys,

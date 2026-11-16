@@ -710,6 +710,89 @@
     return { ok: true, text: typeof b.text === 'string' ? b.text : '' };
   }
 
+  // ---------- «آخر التريندات» (comments decision 69): the designer's trends — rows the server found on the web (ai-content
+  // `trends`: Claude's web search), read from mkt_trends newest first; the page never writes a row. Before 0109 is applied the
+  // table is not there: the list is empty and `ready` is false. The log carries the count only.
+  const noTable = (err) => !!err && (err.code === '42P01' || err.code === 'PGRST205' || /does not exist|schema cache/i.test(String(err.message || '')));
+  let trendRows = null; let trendsAt = 0; let trendsReady = true;
+  const toTrend = (r) => ({ id: r.id, batch: r.batch || null, title: clean(r.title, 160), summary: clean(r.summary, 600), source: clean(r.source, 80) || '—', url: /^https:\/\/[^\s<>"]+$/.test(String(r.url || '')) ? String(r.url) : '',
+    kind: r.kind === 'video' ? 'video' : 'image', at: r.found_at || null });
+  async function trends(force) {
+    if (!can().view) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
+    if (!force && trendRows && Date.now() - trendsAt < 60000) return { ok: true, items: trendRows, ready: trendsReady };
+    const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
+    try {
+      const { data: d, error } = await cl.from('mkt_trends').select('id, batch, title, summary, source, url, kind, found_at').order('found_at', { ascending: false }).order('id', { ascending: true }).limit(60);
+      if (error) { if (!noTable(error)) return fail(error); trendRows = []; trendsReady = false; trendsAt = Date.now(); return { ok: true, items: trendRows, ready: false }; }
+      trendRows = (d || []).map(toTrend).filter((x) => x.title && x.url); trendsReady = true; trendsAt = Date.now();
+      return { ok: true, items: trendRows, ready: true };
+    } catch (e) { return fail(null); }
+  }
+  const trendsNow = () => trendRows;
+  const trendsReadyNow = () => trendsReady;
+  const TREND_MESSAGES = { not_ready: 'القسم ده مستني تحديث قاعدة البيانات — هيشتغل بعد التحديث الجاي', no_search: 'Claude ماعرفش يبحث على الويب دلوقتي — اتأكد إن البحث على الويب متفعّل على حساب الـ API، وجرّب تاني' };
+  async function trendsRefresh(focus) {
+    if (!can().create) return { ok: false, reason: 'forbidden', message: 'تحديث التريندات محتاج «التسويق: إنشاء»' };
+    const f = clean(focus, 200); if (/[<>]/.test(f)) return { ok: false, reason: 'invalid', field: 'focus', message: 'من غير < أو >' };
+    const r = await invoke('ai-content', { action: 'trends', focus: f });
+    if (!r.ok) return Object.assign(r, { message: (r.code && TREND_MESSAGES[r.code]) || aiMessage(r, 'text') });
+    const b = r.body || {};
+    if (b.result === 'refused') return { ok: false, reason: 'refused', message: aiMessage({ reason: 'refused' }, 'text') };
+    const n = Number(b.count) || 0;
+    log('trends.refresh', String(n), null);
+    await trends(true); emit();
+    return { ok: true, count: n };
+  }
+
+  // ---------- «إعلانات المنافسين» (comments decision 70): the media buyer's competitors — a list the team keeps (0109: added,
+  // edited and archived with marketing.create, read with marketing.view); their ads are opened in Meta's Ad Library by the page
+  // (no ad is pulled or stored — the library's API gives commercial ads for the EU / UK only). The log carries the row's id.
+  let compRows = null; let compAt = 0; let compReady = true;
+  const toCompetitor = (r) => ({ id: r.id, name: clean(r.name, 80), pageId: /^[0-9]{5,20}$/.test(String(r.page_id || '')) ? String(r.page_id) : '', pageUrl: /^https:\/\/[^\s<>"]+$/.test(String(r.page_url || '')) ? String(r.page_url) : '',
+    keyword: clean(r.keyword, 80), note: clean(r.note, 300), at: r.created_at || null });
+  async function competitors(force) {
+    if (!can().view) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
+    if (!force && compRows && Date.now() - compAt < 60000) return { ok: true, items: compRows, ready: compReady };
+    const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
+    try {
+      const { data: d, error } = await cl.from('mkt_competitors').select('id, name, page_id, page_url, keyword, note, created_at').is('archived_at', null).order('created_at', { ascending: false }).limit(100);
+      if (error) { if (!noTable(error)) return fail(error); compRows = []; compReady = false; compAt = Date.now(); return { ok: true, items: compRows, ready: false }; }
+      compRows = (d || []).map(toCompetitor).filter((x) => x.name); compReady = true; compAt = Date.now();
+      return { ok: true, items: compRows, ready: true };
+    } catch (e) { return fail(null); }
+  }
+  const competitorsNow = () => compRows;
+  const competitorsReadyNow = () => compReady;
+  const COMP_MESSAGES = { name: 'اكتب اسم المنافس (لحد 80 حرف)', page: 'اكتب لينك صفحة الفيسبوك أو الإنستجرام، أو رقم الصفحة (أرقام بس)', keyword: 'كلمة البحث لحد 80 حرف', note: 'الملاحظة لحد 300 حرف', text: 'من غير < أو >' };
+  // id null = a new competitor; else the row's fields are replaced
+  async function competitorSave(id, f) {
+    if (!can().create) return { ok: false, reason: 'forbidden', message: 'إضافة المنافسين محتاجة «التسويق: إنشاء»' };
+    const W2 = window.IbtekrCampWiz; const v = W2 && W2.competitorRow ? W2.competitorRow(f) : { error: 'name' };
+    if (v.error) return { ok: false, reason: 'invalid', field: v.error === 'text' ? 'name' : v.error, message: COMP_MESSAGES[v.error] };
+    const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
+    try {
+      const q = id == null ? cl.from('mkt_competitors').insert(v.row) : cl.from('mkt_competitors').update(v.row).eq('id', id);
+      const { data: d, error } = await q.select('id').maybeSingle();
+      if (error) return noTable(error) ? { ok: false, reason: 'not_ready', message: TREND_MESSAGES.not_ready } : fail(error);
+      if (!d) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
+      log(id == null ? 'competitor.add' : 'competitor.edit', '', d.id);
+      await competitors(true); emit();
+      return { ok: true, id: d.id };
+    } catch (e) { return fail(null); }
+  }
+  async function competitorArchive(id) {
+    if (!can().create) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
+    const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
+    try {
+      const { data: d, error } = await cl.from('mkt_competitors').update({ archived_at: new Date().toISOString() }).eq('id', id).is('archived_at', null).select('id').maybeSingle();
+      if (error) return fail(error);
+      if (!d) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
+      log('competitor.remove', '', id);
+      await competitors(true); emit();
+      return { ok: true };
+    } catch (e) { return fail(null); }
+  }
+
   // ---------- 0084: the assistants' chats like Claude's (the owner 12 Nov — decisions 5 and 6) ----------
   // the member's own chats only (RLS); the server writes the turns (ai-content agent) and the designer's picture (ai-images
   // agent_image); the member renames and deletes; the assistants' settings (intro, instructions, quick suggestions) are the admin's.
@@ -890,6 +973,7 @@
     adsStatus, adsNow, adsSync, adsData, adsLinkSet, adsLinkStart, adsLinkPick, adsUnlink, adsWhy,
     suggestions, suggNow, decide, rules, rulesNow, rulesSet, setLive, requests, reqsNow, addRequest, REQ_KIND: KIND_OF, buyerChat,
     agentChats, agentTurns, agentAsk, agentImage, agentRename, agentDelete, agentSettings, agentSettingsNow, agentSettingsSet, AGENT_KEYS,
+    trends, trendsNow, trendsReadyNow, trendsRefresh, competitors, competitorsNow, competitorsReadyNow, competitorSave, competitorArchive,
     addTemplate, editTemplate, removeTemplate, templateUsed, subscribe, unsubscribe, check, MAX_BYTES, MIME, BUCKET,
     _test: { toCampaign, toPost, toTemplate, fail, aiMessage, fieldsOf, tplRow, pubMessage, toSuggestion, toRequest, toRules, toChat, toTurn } };
 })();

@@ -29,7 +29,7 @@ export function settingsState(opts = {}, roles) {
 
 export function settingsRoute(c) {
   const { method, path, url, hd, u, hasPerm, isAdmin, json, mock } = c; const S = mock.st; if (!S) return null;
-  const rpc = /^\/rest\/v1\/rpc\/(quick_actions_list|quick_action_save|quick_action_delete|quick_action_order|role_level_perms_set|member_level_set|role_perms_set|role_create|role_update|role_delete|role_manager_set|member_manager_set|member_can_edit|member_info_set|member_job_set|member_role_set|member_roles_set|member_perms_set|member_status_set|my_sessions|my_session_revoke|settings_public)$/.exec(path);
+  const rpc = /^\/rest\/v1\/rpc\/(data_wipe|quick_actions_list|quick_action_save|quick_action_delete|quick_action_order|role_level_perms_set|member_level_set|role_perms_set|role_create|role_update|role_delete|role_manager_set|member_manager_set|member_can_edit|member_info_set|member_job_set|member_role_set|member_roles_set|member_perms_set|member_status_set|my_sessions|my_session_revoke|settings_public)$/.exec(path);
   const fn = method === 'POST' && (path === '/functions/v1/settings-admin' || path === '/functions/v1/notify');
   const docs = path === '/rest/v1/company_docs'; const sto = /^\/storage\/v1\/object\/(sign\/)?(company-docs|settings)(?:\/(.+))?$/.exec(path); // no path = a remove with { prefixes } in the body
   const act = method === 'GET' && path === '/rest/v1/activity_log' && [...url.searchParams].some(([k, v]) => k === 'action' && v.startsWith('like.') || (k === 'at' && /^(lte|gte)\./.test(v))) || (method === 'GET' && path === '/rest/v1/activity_log' && (hd.range || url.searchParams.has('offset')));
@@ -56,6 +56,18 @@ export function settingsRoute(c) {
       const ar = sec('ai_rules').sections || {}; const tpl = (k) => (Array.isArray(ar[k]) ? ar[k] : []).filter((x) => x && x.id).map((x) => ({ id: String(x.id).slice(0, 40), name: String(x.name || '').slice(0, 60), prompt: String(x.prompt || '').slice(0, 1200) }));
       return json(200, { aiTemplates: { img: tpl('img'), vid: tpl('vid'), txt: tpl('txt') }, makers: strip({ delay: sec('makers').delay || {}, fake: sec('makers').fake }), brand: sec('brand'), quick: sec('quick'), lists: strip({ cancel: li.cancel, returns: li.returns, stop: li.stop, shipping: li.shipping, labels: li.labels, expenseKinds: li.expenseKinds, statusAdded: li.statusAdded, statusOrder: li.statusOrder }), general: strip({ company: g.company, site: g.site, tz: g.tz, week: g.week, compact: g.compact, thumbs: g.thumbs, rememberFilters: g.rememberFilters, hidePhones: g.hidePhones, clock: ['12', '24'].includes(g.clock) ? g.clock : undefined, dateFmt: ['dmy', 'ymd'].includes(g.dateFmt) ? g.dateFmt : undefined }),
         security: strip({ force2fa: se.force2fa, idle: se.idle, idleDesktop: se.idleDesktop, idleMobile: se.idleMobile, pwMin: se.pwMin }), notif: strip({ alertRoles: n.alertRoles || {}, myOverride: (n.alertOverrides || {})[u.id] || {}, whatsappTemplate: n.whatsappTemplate }) });
+    }
+    // 0117: «منطقة الخطر» — the admin only; a dry run counts; the real run needs the phrase and records the sections
+    if (name === 'data_wipe') {
+      if (!admin) return refuse(403, '42501', 'forbidden');
+      const known = ['orders', 'vendors', 'products', 'accounts', 'inventory', 'cs', 'tickets', 'marketing', 'hr', 'logs']; const secs = body.p_sections || [];
+      if (!secs.length || secs.some((x) => !known.includes(x))) return refuse(400, '22023', 'invalid: section');
+      const tables = secs.map((x) => ({ section: x, table: x === 'tickets' ? 'tickets' : x + '_rows', rows: 3, kind: 'wipe' })).concat(secs.includes('orders') && !secs.includes('tickets') ? [{ section: 'tickets', table: 'tickets', rows: 2, kind: 'unlink' }] : []);
+      const rows = secs.length * 3;
+      if (body.p_dry) return json(200, { dry: true, tables, rows, blocked: [] });
+      if (body.p_confirm !== 'امسح البيانات') return refuse(400, '22023', 'invalid: confirm');
+      S.wipes = (S.wipes || []).concat([secs.slice()]); S.writes.push({ table: 'data_wipe', op: 'wipe', sections: secs.slice() });
+      return json(200, { dry: false, tables, rows, blocked: [] });
     }
     if (name === 'my_sessions') { if (!active) return refuse(401, '42501', 'not allowed'); return json(200, S.sessions.map((s) => ({ ...s }))); }
     if (name === 'my_session_revoke') {

@@ -135,7 +135,7 @@ test('comment 77 — «المرتبات»: «الشهر» and «السنة» are
   await bar.locator('#sh-m').click(); await expect(page.locator('[role=listbox] [role=option]')).toHaveCount(12); await page.keyboard.press('Escape');
   await pick(page, 'sh-y', 'السنة: ' + MK.slice(0, 4));
   await expect(bar).toHaveAttribute('data-hr-month-pick', MK);
-  await expect(P(page).locator('table.hr-pay tbody tr:not(.dt-total)')).toHaveCount(2);
+  await expect(P(page).locator('table.hr-pay tbody tr:not(.dt-total)').filter({ hasNotText: 'مالوش مرتب' })).toHaveCount(2); // ش31: the rest of the team as «مالوش مرتب»
   await expect(P(page).locator('[data-hr-ahead]')).toHaveCount(0);
   // a month to come (next year's same month): the note, no transfer; «مكافأة / خصم» stays
   await pick(page, 'sh-y', 'السنة: ' + (Number(MK.slice(0, 4)) + 1));

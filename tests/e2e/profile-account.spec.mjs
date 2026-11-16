@@ -72,7 +72,7 @@ test('decision 39: the admin sees a member\'s bank account masked on their file 
   // the server refuses anyone else: the mock answers 42501 for a member reading another's
   // the SIGNED_OUT reloads the page (block 28): wait for it, or the next goto is interrupted by that reload
   await Promise.all([page.waitForEvent('load'), page.evaluate(() => { window.IBAuth.signOut('local'); })]);
-  await open(page, 'accounts.dev@ibtekr.local', 'profile');
+  await open(page, 'vf.dev@ibtekr.local', 'profile'); // 0115: «الحسابات» has sensitive.salaries F (it pays the salaries) — a member with no salaries is refused
   const out = await page.evaluate((id) => window.IBHR.bank(id), OPS_ID);
   expect(out).toMatchObject({ ok: false, reason: 'forbidden' });
 });

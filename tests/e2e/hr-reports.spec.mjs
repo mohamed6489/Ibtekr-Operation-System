@@ -91,8 +91,9 @@ test('the bell\'s payroll reminder reads the real sheet (status and lines) for s
   expect(mock.hr.calls.some((c) => c.fn === 'hr_payroll_calc')).toBe(true);
 });
 
-test('accounts (no sensitive.salaries) gets no payroll reminder and never asks for the sheet', async ({ page }) => {
-  await open(page, ACC, 'dashboard');
+// 0115 (the owner 16 Nov): «الحسابات» has sensitive.salaries F now — the member with no salaries here is ops
+test('ops (no sensitive.salaries) gets no payroll reminder and never asks for the sheet', async ({ page }) => {
+  await open(page, 'ops.dev@ibtekr.local', 'dashboard');
   await page.evaluate(() => { window.IBKit.store.accAlerts = Object.assign({}, window.IBKit.store.accAlerts, { payDay: 1, lead: 40 }); });
   await page.getByRole('button', { name: /الإشعارات/ }).first().click();
   const bell = page.getByRole('dialog', { name: 'الإشعارات' });

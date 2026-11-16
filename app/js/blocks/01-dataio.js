@@ -8,7 +8,9 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
   const latin = (s) => String(s == null ? '' : s).replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[۰-۹]/g, (d) => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d));
-  const norm = (s) => String(s == null ? '' : s).trim().toLowerCase().replace(/\s+/g, '').replace(/^ال/, '');
+  // 2026-11-16-data-page.md decision 3: Arabic matches without the hamza forms, the final ya / ta marbuta, tatweel or harakat
+  const fold = (s) => String(s == null ? '' : s).replace(/[\u064B-\u0652\u0640]/g, '').replace(/[أإآٱ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه');
+  const norm = (s) => fold(String(s == null ? '' : s).trim().toLowerCase()).replace(/\s+/g, '').replace(/^ال/, '');
   const esc = (v) => { const s = v == null ? '' : String(v); return /[",\r\n]|^\s|\s$/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
   function toCSV(rows, fields, opts) {
     const en = opts && opts.lang === 'en'; const lines = [fields.map((f) => esc(en ? f.en || f.label : f.label)).join(',')];
@@ -49,6 +51,8 @@
       case 'number': { const n = Number(latin(v).replace(/[,\s]/g, '').replace(/٫/g, '.')); return Number.isFinite(n) ? { v: n } : { e: f.label + ' لازم يكون رقم' }; }
       case 'date': { const d = isoOf(v); return d ? { v: d } : { e: 'التاريخ «' + v + '» غلط — اكتبه كده 25/10/2026' }; }
       case 'enum': { const hit = (f.options || []).find((o) => norm(o) === norm(v)); return hit ? { v: hit } : { e: f.label + ' «' + v + '» مش في القائمة', s: suggest(v, f.options) }; }
+      // several values from a list, split by «،» or «,» (decision 3 — a maker's main categories)
+      case 'list': { const out = []; for (const w of v.split(/[،,]/).map((x) => x.trim()).filter(Boolean)) { const hit = (f.options || []).find((o) => norm(o) === norm(w)); if (!hit) return { e: f.label + ' «' + w + '» مش في القائمة', s: suggest(w, f.options) }; if (!out.includes(hit)) out.push(hit); } return { v: out.join('، ') }; }
       case 'phone': { const p = latin(v).replace(/[\s-]/g, ''); return /^01\d{9}$/.test(p) ? { v: p } : { e: f.label + ' لازم 11 رقم يبدأ بـ 01' }; }
       case 'time': { const m = /^(\d{1,2}):(\d{2})$/.exec(latin(v).replace(/\s/g, '')); return m && +m[1] < 24 && +m[2] < 60 ? { v: m[1].padStart(2, '0') + ':' + m[2] } : { e: f.label + ' لازم يكون ساعة زي 09:00' }; }
       case 'email': return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) ? { v } : { e: f.label + ' مش إيميل صحيح' };
@@ -57,10 +61,16 @@
   }
   // template of a sheet (owner 22 Oct): add = every writable column · update = the key first + the columns that can be edited (only the key is required)
   const HINT = { time: '09:00', number: 'رقم', date: '25/10/2026', phone: '01xxxxxxxxx', email: 'name@mail.com' };
+  // decision 3: the record id of a sheet that edits by ID — the first column of its export and its template
+  const ID_KEY = '_id'; const ID_FIELD = Object.freeze({ key: ID_KEY, label: 'ID (ماتغيّروش)', en: 'ID', id: true });
   const keysOf = (key) => (Array.isArray(key) ? key : key ? [key] : []);
   // the match key of a row: one field or several (employee + day …), normalized
   const keyOf = (data, key) => { const ks = keysOf(key); if (!ks.length) return ''; const v = ks.map((k) => (data[k] == null ? '' : String(data[k]))); return v.some((x) => x === '') ? '' : v.map((x) => norm(x)).join('|'); };
   function templateCols(fields, mode, key) {
+    // mixed (decision 3): the ID first, then every writable column — «مطلوب» is for a new row only
+    if (mode === 'mixed') { const w = (fields || []).filter((f) => !f.readOnly || f.id);
+      return w.map((f) => ({ key: f.key, label: f.label, en: f.en, required: !f.id && !!f.required, id: !!f.id,
+        hint: f.id ? 'سيبه زي ما هو للتعديل · فاضي = صف جديد' : f.type === 'enum' ? (f.options || []).join(' / ') : f.type === 'list' ? (f.options || []).join(' / ') + ' (أكتر من واحد بـ ،)' : HINT[f.type] || 'نص' })); }
     const w = (fields || []).filter((f) => !f.readOnly); const ks = keysOf(key);
     const list = mode === 'update' ? ks.map((k) => w.find((f) => f.key === k)).filter(Boolean).concat(w.filter((f) => !ks.includes(f.key) && !f.noUpdate)) : w;
     return list.map((f) => ({ key: f.key, label: f.label, en: f.en, required: mode === 'update' ? ks.includes(f.key) : !!f.required,
@@ -68,8 +78,38 @@
   }
   // rows: arrays of cells · mapping: {colIndex: fieldKey} · ctx.key: unique field · ctx.existing: keys already in the system
   // ctx.mode: 'add' (existing rows are skipped) | 'update' (only existing rows; empty cells keep the old value; ctx.current(key) → record for the diff) | none (legacy)
+  // mixed (decision 3): a row with an ID edits that record with its filled cells only (an unknown ID = an error); a row with no ID is a
+  // new one when ctx.canAdd (the required cells), else an error; a new row whose key is in the system already is skipped («exists»).
+  // ctx.byId(id) → the record as the export shows it, for the before → after of each change
+  function validateMixed(rows, mapping, fields, c) {
+    const ex = new Set((c.existing || []).map(norm)); const seenId = new Map(); const seenKey = new Map();
+    return (rows || []).map((cells, ri) => {
+      const data = {}, errors = [], sug = {}; let note, changes, status;
+      Object.keys(mapping).forEach((ci) => { const k = mapping[ci]; if (!k) return; const f = fields.find((x) => x.key === k); if (!f) return; const r = f.id ? { v: String(cells[ci] == null ? '' : cells[ci]).trim() } : cellValue(f, cells[ci]);
+        if (r.e) { errors.push(r.e); if (r.s) sug[k] = r.s; } else if (r.v !== '') data[k] = r.v; });
+      const id = data[ID_KEY];
+      if (id) {
+        if (seenId.has(id)) errors.push('الـ ID ده متكرر في الملف (زي صف ' + (seenId.get(id) + 1) + ')'); else seenId.set(id, ri);
+        const cur = c.byId ? c.byId(id) : null;
+        if (!cur) errors.push('الـ ID «' + id + '» مش موجود في السيستم — امسحه لو الصف جديد');
+        if (errors.length) status = 'error';
+        else { changes = Object.keys(data).filter((k) => k !== ID_KEY).filter((k) => { const f = fields.find((x) => x.key === k); return f && !f.readOnly; })
+          .filter((k) => norm(cur[k]) !== norm(data[k])).map((k) => ({ key: k, label: fields.find((f) => f.key === k).label, from: cur[k] == null || cur[k] === '' ? '—' : cur[k], to: data[k] }));
+          status = changes.length ? 'update' : 'same'; if (!changes.length) note = 'مفيش تغيير'; }
+      } else {
+        if (!c.canAdd) errors.push('الشيت ده تعديل بس — الصف لازم يبقى فيه الـ ID من التصدير أو القالب');
+        else fields.filter((f) => f.required && !f.id).forEach((f) => { if (data[f.key] === undefined || data[f.key] === '') { if (!errors.some((e) => e.indexOf(f.label) === 0)) errors.push(f.label + ' مطلوب للصف الجديد'); } });
+        const kv = keyOf(data, c.key);
+        if (kv) { if (seenKey.has(kv)) errors.push('مكرر في الملف (زي صف ' + (seenKey.get(kv) + 1) + ')'); else seenKey.set(kv, ri); }
+        status = errors.length ? 'error' : kv && ex.has(kv) ? 'exists' : 'new';
+        if (status === 'exists') note = 'موجود بالفعل — عشان تعدّله حط الـ ID بتاعه من التصدير';
+      }
+      const out = { row: ri + 1, data, errors, status }; if (Object.keys(sug).length) out.suggest = sug; if (note) out.note = note; if (changes) out.changes = changes; return out;
+    });
+  }
   function validate(rows, mapping, fields, ctx) {
-    const c = ctx || {}; const ex = new Set((c.existing || []).map(norm)); const seen = new Map(); const up = c.mode === 'update';
+    const c = ctx || {}; if (c.mode === 'mixed') return validateMixed(rows, mapping, fields, c);
+    const ex = new Set((c.existing || []).map(norm)); const seen = new Map(); const up = c.mode === 'update';
     const ks = keysOf(c.key); const keyFs = ks.map((k) => fields.find((f) => f.key === k)).filter(Boolean);
     return (rows || []).map((cells, ri) => {
       const data = {}, errors = [], sug = {}; let note;
@@ -95,6 +135,6 @@
   }
   const inRange = (rows, key, range) => (!range ? rows.slice() : rows.filter((r) => r[key] && (!range.from || r[key] >= range.from) && (!range.to || r[key] <= range.to)));
   const presetCols = (fields, p) => fields.filter((f) => p === 'full' || !f.sensitive).map((f) => f.key);
-  return Object.freeze({ toAOA, keyOf, keysOf, latin, norm, toCSV, toTSV, parseCSV, autoMap, suggest, validate, summary, templateCols, inRange, presetCols, isoOf });
+  return Object.freeze({ ID_KEY, ID_FIELD, fold, toAOA, keyOf, keysOf, latin, norm, toCSV, toTSV, parseCSV, autoMap, suggest, validate, summary, templateCols, inRange, presetCols, isoOf });
 });
 

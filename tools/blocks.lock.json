@@ -1,7 +1,7 @@
 {
   "01-dataio.js": {
     "prototype": "0b9f99efb9d7a83895428a46e7a1fbe8f84db42ee6be7f2161dd6463f9ea3a43",
-    "current": "0b9f99efb9d7a83895428a46e7a1fbe8f84db42ee6be7f2161dd6463f9ea3a43"
+    "current": "b3cd3faa3fa5baf8b83846a1f1ad1ae8e5ac45b20cc44c47511381b2f14e9643"
   },
   "02-accounts-domain.js": {
     "prototype": "06166cf1494125e7ff98effed95b033fc5b4abbea709c482112016db97400093",
@@ -65,7 +65,7 @@
   },
   "17-page-settings.js": {
     "prototype": "89d9c49b0d0f466a618479a6b68c237edb4e90a12b0b233e7d05f7916c8e8dde",
-    "current": "f2336a568b1547903389a845d27d98c12aee23c29fea682be94cd0f68780ca9a"
+    "current": "906d330c122ecae43e012c45bbbf08b59e30c4e26f54572f3d0dd49ca626c0c7"
   },
   "18-page-profile.js": {
     "prototype": "218eb74e001b3e909a563499cdd2d929b1893e93d86d81f9039603b34dbdaa8a",
@@ -101,7 +101,7 @@
   },
   "26-data-actions.js": {
     "prototype": "fafccd1bfeb257fa467d090d00589b9d01bcfe738dbf77d17cc8c26c4c0da6f4",
-    "current": "c5cd0b89ebd6cd92b527bf90576a566b9f4c1698d17ec13de616554400f2642a"
+    "current": "f72ac16ea4e7b60e9d0ac87c04ace35916530542d5516595751d18809ddf7f9d"
   },
   "27-commands-domain.js": {
     "prototype": "a37fb75ac20524452701bbc0be6a71a567290a637baff536713c181fe864e444",
@@ -109,10 +109,10 @@
   },
   "28-app.js": {
     "prototype": "28f47321b1a78201e81b34cffa6e20cba67b15788396c9ce0def7cd7e17243c9",
-    "current": "10b5631d77ef379382275cbadd26e929fd17c21a6033f832adefe27fc941a13e"
+    "current": "68f1c5d4429d54c2b260fbc5a5e68b079af18c6f8d78795ec902a2ca471990f1"
   },
   "29-orders-app.js": {
     "prototype": "2e80a15f203c79adc2931c3682297119b4e1926b9e40f10a0b906007acff23bd",
-    "current": "5bdbf9cfae6d5bea3900aacc3d521f82d5c227f0e80c284c5be3d09ef5c57273"
+    "current": "a4278aa480c232244d7b77651c6b4ff4363665ef37b3cc572fefde6d23dec28b"
   }
 }

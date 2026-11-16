@@ -42,9 +42,11 @@ test('T1 — decisions 1, 8, 18, 20, 30, 31, 29: no compact rows, the save popup
   // 30 + 31. the data page: no «عرض النسخ السابقة»; the full copy is a regular section
   await go(page, 'settings-data');
   await expect(page.locator('#pg-settings')).not.toContainText('عرض النسخ السابقة');
+  await page.locator('[data-dtab="backup"]').click(); // 2026-11-16-data-page.md decision 2: the page in tabs
   await expect(page.locator('#pg-settings .card.sec', { hasText: 'نسخة كاملة من البيانات' })).toHaveCount(1);
   // 29. the template popup never shows «null»
-  await page.locator('[data-tpl$=":update"]').first().click();
+  await page.locator('[data-dtab="templates"]').click();
+  await page.locator('#pg-settings [data-tpl]').first().click();
   await expect(modal(page).last()).toBeVisible();
   await expect(modal(page).last()).not.toContainText('null');
 });
@@ -193,7 +195,7 @@ test('T4 — decision 2: the permissions in three levels — a role opens its le
   await expect(pm.locator('.mx-head')).toContainText('عمليات · المدير');
   await expect(pm.locator('.mx-head')).not.toContainText('خدمة العملاء');
   // toggle a cell of «عمليات» in the manager's matrix → saved as the manager group only
-  const cell = pm.locator('button.pm[aria-label*="عمليات"]').filter({ hasNot: page.locator('[disabled]') }).first();
+  const cell = pm.locator('button.pm[aria-label*="عمليات"]:not([disabled])').first(); // ش32: three choices — the current one is disabled
   const label = await cell.getAttribute('aria-label');
   await cell.click();
   await expect.poll(() => (mock.st.writes || []).filter((w) => w.op === 'level_perms').map((w) => [w.id, w.level])).toContainEqual(['ops', 'manager']);

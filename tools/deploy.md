@@ -2305,3 +2305,10 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 2. **`0116_brand_fonts.sql`** (بعد «طبّق»): bucket `settings` بياخد `font/woff2` / `font/woff` / `font/ttf` / `font/otf` (نفس الـ 2MB). من غيره «ارفع خط»
    بيرجع «تعذّر» والباقي شغّال.
 3. الواجهة على `main` (الكتل 15 و17 و28 و`adapter/settings.js` و`app.css` / `settings.css` / `marketing.css`)؛ مافيش تغيير في الـ CSP.
+
+#### 2.7.102 «البيانات» بتابات والاستيراد بالـ ID و«منطقة الخطر» (16 نوفمبر — `0117`، مافيش Edge Function)
+1. **`0117_data_wipe.sql`** (بعد «طبّق»): `data_wipe_map()` و`data_wipe(p_sections, p_confirm, p_dry)` — الأدمن بس بجلسة aal2 لو عنده 2FA. بعدها
+   `supabase/tests/rls_data_wipe.sql` على الحي (rollback — بيمسح طلب اختبار جوه الـ transaction بس). **ماتجرّبش المسح نفسه على الحي** — التجربة الحقيقية
+   لصاحب المشروع من الصفحة وقت النقل، بعد «النسخة الكاملة».
+2. الاستيراد والقوالب مالهمش migration: كل شيت بيكتب عبر نفس الـ adapter بتاع صفحته (والموقع بنفس شرط `WOO_PUSH_ENABLED`).
+3. لو اتنقل للموقع الحقيقي: «منطقة الخطر» بالأقسام المطلوبة ← «الربط بالمنصات» برابط الموقع الجديد ومفاتيحه ← «مزامنة دلوقتي» (الأوردرات والمبتكرين والمنتجات بتيجي من الجديد).

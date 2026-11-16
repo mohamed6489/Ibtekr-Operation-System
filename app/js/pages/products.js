@@ -38,7 +38,7 @@
   };
 
   // ---------------- state ----------------
-  const st = { tab: 'records', view: 'records', status: 'all', q: '', f: { vendor: [], brand: [], category: [], stock: [], type: [] }, sort: '', sel: new Set(), pageN: 0,
+  const st = { tab: 'records', view: 'records', status: 'all', q: '', f: { vendor: [], brand: [], category: [], stock: [], type: [], status: [] }, sort: '', sel: new Set(), pageN: 0,
     editId: null, etab: 'data', live: null, draft: null, liveFor: null, loadingLive: false, liveErr: '', saving: false, imgSel: null, busy: false };
   const can = () => (PR() ? PR().can() : { view: false, edit: false, trash: false, commission: false });
   // the owner (1 Nov): Shift + click selects a range — the first ticked row to the one clicked (in the order shown), ticking or
@@ -82,7 +82,7 @@
   // th: a big table's head (2026-11-13-table-head.md) — { noun, when, total, count } for the kit's line «‹إمتى› · N من M ‹اسم› · ‹إجمالي›»
   function Card(title, sub, body, acts, cls, th) { return K.Section(title, [].concat(body).filter(Boolean), acts, Object.assign({ sub, cls }, th)); }
   const STOCK_TONE = { 'متاح': 'success', 'قليل': 'orange', 'نفد': 'error', 'حسب الطلب': 'info' };
-  const STATUS_TONE = { 'منشور': 'success', 'مسودة': 'orange', 'قيد المراجعة': 'info', 'خاص': 'neutral', 'المهملات': 'error' };
+  const STATUS_TONE = { 'منشور': 'success', 'مسودة': 'orange', 'في انتظار المراجعة': 'info', 'خاص': 'neutral', 'المهملات': 'error' };
   const stockStateOf = (p) => (p.onDemand ? 'حسب الطلب' : p.manageStock ? PD.stockState(p.stock == null ? 0 : p.stock, false, p.alert == null ? 3 : p.alert) : p.stockStatus === 'outofstock' ? 'نفد' : 'متاح');
   const realCats = (p) => p.cats.filter((c) => !/^uncategori[sz]ed$/i.test(c.split(' › ').pop()));
   const complete = (p) => PD.completeness({ nameEn: p.nameEn, nameAr: p.nameAr, sku: p.sku, price: p.sale, images: p.imageCount, category: realCats(p).length ? 1 : 0, weight: p.weight, sizeImage: true, desc: p.shortDescFilled || p.descFilled });
@@ -128,6 +128,7 @@
       if (st.f.brand.length && !p.brands.some((b) => st.f.brand.includes(b))) return false;
       if (st.f.category.length && !p.cats.some((c) => catHit(c))) return false;
       if (st.f.stock.length && !st.f.stock.includes(stockStateOf(p))) return false;
+      if ((st.f.status || []).length && !st.f.status.includes(p.status)) return false; // comments decision 61: the «الحالة» group of «فلتر» (several at once)
       if (st.f.type.length && !st.f.type.includes(p.type)) return false;
       return true;
     });
@@ -138,20 +139,20 @@
       out: L.filter((p) => stockStateOf(p) === 'نفد').length, trash: trashRows().length };
   }
   function statusChips() {
-    const c = counts(); const it = [['all', 'الكل'], ['published', 'منشور'], ['draft', 'مسودة'], ['pending', 'قيد المراجعة'], ['trash', 'المهملات']]; // B3: no «نفد» tab (the «المخزون» filter has it)
-    return h('div', { class: 'chips', role: 'group', 'aria-label': 'الحالة' }, it.map(([id, l]) => chipBtn(l + ' ' + K.n0(c[id]), st.status === id, () => { st.status = id; st.sel.clear(); st.pageN = 0; go(id === 'trash' ? 'products-trash' : 'products-records'); }, { 'data-pstatus': id })));
+    const c = counts(); const it = [['all', 'الكل'], ['published', 'منشور'], ['draft', 'مسودة'], ['pending', 'في انتظار المراجعة'], ['trash', 'المهملات']]; // B3: no «نفد» tab (the «المخزون» filter has it)
+    return h('div', { class: 'chips', role: 'group', 'aria-label': 'الحالة' }, it.map(([id, l]) => chipBtn(l + ' ' + K.n0(c[id]), st.status === id, () => { st.status = id; if (st.f.status) st.f.status = []; st.sel.clear(); st.pageN = 0; go(id === 'trash' ? 'products-trash' : 'products-records'); }, { 'data-pstatus': id })));
   }
   // the owner 12 Nov («دخل الفلتر … جوه زرار الفلتر وحطوا جمب الترتيب … في كل الجداول»): the five filters live in one «فلتر» button next
   // to the sort — each group with its ticks (a search box past six values; the categories main, then their subs with «-»)
-  const countAll = (d) => { const was = st.f; st.f = Object.assign({ vendor: [], brand: [], category: [], stock: [], type: [] }, d); const n = filtered().length; st.f = was; return n; };
+  const countAll = (d) => { const was = st.f; st.f = Object.assign({ vendor: [], brand: [], category: [], stock: [], type: [], status: [] }, d); const n = filtered().length; st.f = was; return n; };
   const prFilterMenu = (groups) => K.FilterMenu({ id: 'products', label: 'فلتر المنتجات', noun: 'منتج', value: st.f, groups, count: countAll,
-    onApply: (d) => { st.f = Object.assign({ vendor: [], brand: [], category: [], stock: [], type: [] }, d); st.sel.clear(); st.pageN = 0; R(); } });
+    onApply: (d) => { st.f = Object.assign({ vendor: [], brand: [], category: [], stock: [], type: [], status: [] }, d); if (st.f.status.length && ['published', 'draft', 'pending'].includes(st.status)) st.status = 'all'; st.sel.clear(); st.pageN = 0; R(); } });
   function searchBox() {
     const q = h('input', { type: 'search', placeholder: 'دوّر بالاسم أو الـ SKU', 'aria-label': 'بحث في المنتجات', value: st.q });
     q.addEventListener('input', () => { st.q = q.value; st.pageN = 0; const p = q.selectionStart; R(); const n = document.querySelector('#pg-products input[type=search]'); if (n) { n.focus(); n.setSelectionRange(p, p); } });
     return h('label', { class: 'search-field' }, Icon('search', 'sm'), q);
   }
-  const clearFilters = () => { st.f = { vendor: [], brand: [], category: [], stock: [], type: [] }; st.q = ''; st.pageN = 0; };
+  const clearFilters = () => { st.f = { vendor: [], brand: [], category: [], stock: [], type: [], status: [] }; st.q = ''; st.pageN = 0; };
   // phase 5.5 decision 5 (owner 1 Nov): the kit's closed filter + sort + chips in the records card header, next to the columns button — the same look as every table
   const PR_SORTS = [['new', 'الإضافة: الأحدث للأقدم'], ['old', 'الإضافة: الأقدم للأحدث'], ['sales-desc', 'مرات البيع: الأكتر للأقل'], ['sales-asc', 'مرات البيع: الأقل للأكتر'], ['price-desc', 'السعر: الأعلى للأقل'], ['price-asc', 'السعر: الأقل للأعلى'], ['stock-asc', 'المخزون: الأقل الأول (للتزويد)'], ['stock-desc', 'المخزون: الأكتر الأول'], ['missing', 'ناقصها بيانات الأول'], ['name', 'الاسم: A → Z']];
   const sellPrice = (p) => Number(p.type === 'Variable' ? p.price : p.sale) || 0;
@@ -160,16 +161,16 @@
       'stock-asc': (x, y) => (x.onDemand || x.stock == null ? 1e9 : x.stock) - (y.onDemand || y.stock == null ? 1e9 : y.stock), 'stock-desc': (x, y) => (y.onDemand || y.stock == null ? -1 : y.stock) - (x.onDemand || x.stock == null ? -1 : x.stock), missing: (x, y) => complete(y).missing.length - complete(x).missing.length, name: (x, y) => nameOf(x).localeCompare(nameOf(y)) }[k];
     return by ? l.sort(by) : l;
   }
-  const FLBL = { brand: 'البراند', vendor: 'المبتكر', category: 'القسم', stock: 'المخزون', type: 'النوع' };
+  const FLBL = { status: 'الحالة', brand: 'البراند', vendor: 'المبتكر', category: 'القسم', stock: 'المخزون', type: 'النوع' };
   function prSortMenu() { return K.SortMenu({ id: 'products', label: 'ترتيب المنتجات', options: PR_SORTS, value: st.sort && PR_SORTS.some((x) => x[0] === st.sort) ? st.sort : 'new', onChange: (v) => { st.sort = v; st.pageN = 0; R(); } }); }
   // the picks as chips with their counts (each on its own), before the table
   function prChips(list) {
-    const chips = []; const STL = { published: 'منشور', draft: 'مسودة', pending: 'قيد المراجعة', out: 'نفد' };
-    const cnt = (patch) => { const sv = { status: st.status, f: st.f, q: st.q }; st.status = patch.status || 'all'; st.f = Object.assign({ vendor: [], brand: [], category: [], stock: [], type: [] }, patch.f || {}); st.q = patch.q || ''; const n = filtered().length; Object.assign(st, sv); return n; };
+    const chips = []; const STL = { published: 'منشور', draft: 'مسودة', pending: 'في انتظار المراجعة', out: 'نفد' };
+    const cnt = (patch) => { const sv = { status: st.status, f: st.f, q: st.q }; st.status = patch.status || 'all'; st.f = Object.assign({ vendor: [], brand: [], category: [], stock: [], type: [], status: [] }, patch.f || {}); st.q = patch.q || ''; const n = filtered().length; Object.assign(st, sv); return n; };
     const ch = (key, label, patch, reset) => chips.push({ key, label, count: cnt(patch), remove: () => { reset(); st.sel.clear(); st.pageN = 0; R(); } });
     if (st.q) ch('q', 'بحث: ' + st.q, { q: st.q }, () => { st.q = ''; });
     if (STL[st.status]) ch('status', 'الحالة: ' + STL[st.status], { status: st.status }, () => { st.status = 'all'; });
-    Object.keys(FLBL).forEach((k) => st.f[k].forEach((v) => ch(k + ':' + v, FLBL[k] + ': ' + v, { f: { [k]: [v] } }, () => { st.f[k] = st.f[k].filter((x) => x !== v); }))); // B3: a chip per pick
+    Object.keys(FLBL).forEach((k) => (st.f[k] || []).forEach((v) => ch(k + ':' + v, FLBL[k] + ': ' + v, { f: { [k]: [v] } }, () => { st.f[k] = st.f[k].filter((x) => x !== v); }))); // B3: a chip per pick
     return K.ActiveFilters({ id: 'products', chips, total: list.length, noun: 'منتج', onClear: () => { clearFilters(); st.status = 'all'; st.sel.clear(); R(); } });
   }
   function recordsView() {
@@ -180,7 +181,9 @@
     const brandNames = (PR() ? PR().brands() : []).map((b) => b.name).sort((a, b) => a.localeCompare(b));
     const catOpts = PD.catOptions(PR() ? PR().categories() : []); // B3: main, then its subs with «-» / «--» / «---»
     // B3 (the owner, 11 Nov): no «ناقصها بيانات» chip; each filter a multi-select with the values alone
-    const prFilter = prFilterMenu([{ key: 'brand', label: 'البراند', options: brandNames.map((x) => [x, x]) }, { key: 'vendor', label: 'المبتكر', options: vendors.map((x) => [x, x]) },
+    // comments decision 61 (the owner 15 Nov — «نزود فلتر الحالة: مسودة ولا منشور ولا في انتظار المراجعة»): «الحالة» is a group of the menu too
+    // (several at once); the status tabs above stay the one-tap way — a tab clears the menu's picks and the menu's picks put the tab on «الكل»
+    const prFilter = prFilterMenu([{ key: 'status', label: 'الحالة', options: ['منشور', 'مسودة', 'في انتظار المراجعة'].map((x) => [x, x]) }, { key: 'brand', label: 'البراند', options: brandNames.map((x) => [x, x]) }, { key: 'vendor', label: 'المبتكر', options: vendors.map((x) => [x, x]) },
       { key: 'category', label: 'القسم', options: catOpts }, { key: 'stock', label: 'المخزون', options: ['متاح', 'قليل', 'نفد', 'حسب الطلب'].map((x) => [x, x]) },
       { key: 'type', label: 'النوع', options: [['Simple', 'Simple'], ['Variable', 'Variable']] }]);
     // the owner 12 Nov («إنقل خانة البحث جمب ايقونة الفلتر وخلي الزراير سنتر … مع التايتل … طبقوا بس على المنتجات»): the search sits in the
@@ -190,7 +193,7 @@
     const bulk = sel.length && (C.bulk || C.trash) ? h('div', { class: 'bulk-bar', role: 'region', 'aria-label': 'إجراءات على المحدد' }, h('b', null, 'محدد ' + K.n0(sel.length)), h('span', { class: 'grow' }),
       C.bulk ? Button({ size: 'sm', label: 'تعديل السعر', onClick: () => bulkPrice(sel) }) : null, C.bulk ? Button({ size: 'sm', label: 'تعديل المخزون', onClick: () => bulkStock(sel) }) : null,
       C.bulk ? Button({ size: 'sm', label: 'نقل لبراند تاني', onClick: () => moveBrand(sel) }) : null, C.bulk ? Button({ size: 'sm', label: 'نقل لمبتكر تاني', onClick: () => moveVendor(sel) }) : null, C.bulk ? Button({ size: 'sm', label: 'تغيير القسم', onClick: () => changeCat(sel) }) : null,
-      C.bulk ? Button({ size: 'sm', label: 'تحويل لمسودة', onClick: () => toDraft(sel) }) : null, C.bulk ? Button({ size: 'sm', label: 'نشر', onClick: () => publish(sel) }) : null,
+      C.bulk ? Button({ size: 'sm', label: 'تحويل لمسودة', onClick: () => toDraft(sel) }) : null, C.bulk ? Button({ size: 'sm', label: 'تحويل لفي انتظار المراجعة', attrs: { 'data-pbulk-pending': '' }, onClick: () => toPending(sel) }) : null, C.bulk ? Button({ size: 'sm', label: 'نشر', onClick: () => publish(sel) }) : null,
       C.trash ? Button({ type: 'danger', size: 'sm', label: 'مسح', onClick: () => toTrash(sel) }) : null, Button({ size: 'sm', label: 'إلغاء التحديد', onClick: () => { st.sel.clear(); R(); } })) : null;
     const pages = Math.max(1, Math.ceil(list.length / PAGE)); if (st.pageN >= pages) st.pageN = pages - 1;
     const shown = list.slice(st.pageN * PAGE, st.pageN * PAGE + PAGE);
@@ -680,7 +683,15 @@
     return PR().batch(ups, onProgress);
   };
   function toDraft(l) { K.confirm({ title: 'تحويل ' + (l.length === 1 ? 'المنتج' : l.length + ' منتجات') + ' لمسودة؟', text: names(l) + ' هيختفوا من الموقع لحد ما تنشرهم تاني. الأوردرات القديمة مش هتتأثر.', okLabel: 'حوّل لمسودة', onOk: () => write((pg) => batch(l, { status: 'draft' }, pg), 'اتحولوا لمسودة على الموقع', null, l.length) }); }
-  function publish(l) { K.confirm({ title: 'نشر ' + (l.length === 1 ? 'المنتج' : l.length + ' منتجات') + ' على الموقع؟', text: names(l) + ' هيظهروا للعملاء على الموقع.' + (l.some((p) => p.wooStatus === 'pending') ? ' المنتجات «قيد المراجعة» بتتوافق عليها بالنشر.' : ''), okLabel: 'انشر', onOk: () => write((pg) => batch(l, { status: 'publish' }, pg), 'اتنشر على الموقع', null, l.length) }); }
+  // comments decision 59 (the owner 15 Nov — «اضافة حالة pending review … في التعديل الجماعي — سميها تحويل لفي انتظار المراجعة»): the
+  // products that are not there already go to WooCommerce's «pending» (off the shop until someone publishes them)
+  function toPending(l) {
+    const go = l.filter((p) => p.wooStatus !== 'pending');
+    if (!go.length) { K.toast(l.length === 1 ? 'المنتج «في انتظار المراجعة» أصلًا' : 'المنتجات دي «في انتظار المراجعة» أصلًا', 'error'); return; }
+    K.confirm({ title: 'تحويل ' + (go.length === 1 ? 'المنتج' : go.length + ' منتجات') + ' لـ «في انتظار المراجعة»؟', text: names(go) + (go.some((p) => p.wooStatus === 'publish') ? ' — المنشور منهم هيختفي من الموقع لحد ما يتراجع ويتنشر تاني.' : ' — هيفضلوا مش ظاهرين على الموقع لحد ما يتراجعوا ويتنشروا.'),
+      okLabel: 'حوّل لفي انتظار المراجعة', onOk: () => write((pg) => batch(go, { status: 'pending' }, pg), 'اتحوّلوا لـ «في انتظار المراجعة»', null, go.length) });
+  }
+  function publish(l) { K.confirm({ title: 'نشر ' + (l.length === 1 ? 'المنتج' : l.length + ' منتجات') + ' على الموقع؟', text: names(l) + ' هيظهروا للعملاء على الموقع.' + (l.some((p) => p.wooStatus === 'pending') ? ' المنتجات «في انتظار المراجعة» بتتوافق عليها بالنشر.' : ''), okLabel: 'انشر', onOk: () => write((pg) => batch(l, { status: 'publish' }, pg), 'اتنشر على الموقع', null, l.length) }); }
   function toTrash(l) {
     K.confirm({ title: 'مسح ' + (l.length === 1 ? 'المنتج' : l.length + ' منتجات') + '؟', text: 'هيتنقلوا لسلة المهملات في ووكومرس ويختفوا من الموقع. تقدر ترجعهم خلال ' + PD.TRASH_DAYS + ' يوم.', body: h('p', { class: 't-small help', style: 'margin:0' }, names(l)), okLabel: 'انقل للمهملات', okType: 'danger',
       onOk: () => write((pg) => PR().trashIds(l.map((p) => p.id), pg), 'اتنقلوا للمهملات', null, l.length) });
@@ -742,11 +753,12 @@
     K.form({ title: 'تعديل مخزون ' + (simple.length === 1 ? 'منتج' : simple.length + ' منتجات'), values: { mode: 'set', qty: '10', alert: '3' }, submitLabel: 'احفظ المخزون',
       fields: (f, e, set, draw) => [K.Radios({ value: f.mode, onChange: (v) => { f.mode = v; draw(); }, options: [{ value: 'set', label: 'حدد الكمية' }, { value: 'add', label: 'زوّد / قلّل' }, { value: 'demand', label: 'حسب الطلب (بيتصنع بعد الأوردر)', hint: 'المنتج يفضل متاح للشراء ومدة التصنيع بتظهر للعميل.' }] }),
         f.mode !== 'demand' ? K.field.text('qty', f.mode === 'add' ? 'الزيادة (سالب للنقص)' : 'الكمية', f, e, set, { required: true, inputmode: 'numeric' }) : null,
-        K.field.select('alert', 'التنبيه: نبّهني لما الكمية توصل لـ', ['0', '1', '2', '3', '4', '5'].map((x) => ({ value: x, label: x === '0' ? '0 — من غير تنبيه' : x + (x === '1' ? ' قطعة' : ' قطع') })), f, e, set, { help: 'من 0 لـ 5' }),
+        // comments decision 60 (the owner 15 Nov — «التنبيه يتشال لو اخترت تعديل المخزون حسب الطلب»): no quantity = nothing to warn about
+        f.mode !== 'demand' ? K.field.select('alert', 'التنبيه: نبّهني لما الكمية توصل لـ', ['0', '1', '2', '3', '4', '5'].map((x) => ({ value: x, label: x === '0' ? '0 — من غير تنبيه' : x + (x === '1' ? ' قطعة' : ' قطع') })), f, e, set, { help: 'من 0 لـ 5' }) : null,
         simple.length < l.length ? U.InlineNote({ children: (l.length - simple.length) + ' منتج Variable برّه التعديل ده — مخزونهم لكل تركيبة.' }) : null],
       validate: (f) => (f.mode === 'demand' ? {} : !/^-?\d+$/.test(String(f.qty).trim()) || (f.mode === 'set' && Number(f.qty) < 0) ? { qty: 'اكتب رقم صحيح' } : {}),
       submit: (f, m) => { const alert = Number(f.alert);
-        write((pg) => batch(simple, (p) => (f.mode === 'demand' ? { manage_stock: false, stock_status: 'onbackorder', low_stock_amount: alert }
+        write((pg) => batch(simple, (p) => (f.mode === 'demand' ? { manage_stock: false, stock_status: 'onbackorder' }
           : { manage_stock: true, stock_quantity: Math.max(0, f.mode === 'add' ? (p.stock || 0) + Number(f.qty) : Number(f.qty)), backorders: 'no', low_stock_amount: alert }), pg), 'اتحفظ المخزون على ووكومرس', m, simple.length); return false; } });
   }
   // the owner (1 Nov): the products' maker on the site — Dokan's post_author, the studio's own way (products.bulk, like the
@@ -772,7 +784,7 @@
   // the records filtered on one maker (his name, as the «المبتكر» select filters)
   function openRecords(filter) {
     if (PR()) PR().ensure();
-    st.status = 'all'; st.q = ''; st.sel.clear(); st.f = { vendor: filter && filter.vendor ? [filter.vendor] : [], brand: [], category: [], stock: [], type: [] };
+    st.status = 'all'; st.q = ''; st.sel.clear(); st.f = { vendor: filter && filter.vendor ? [filter.vendor] : [], brand: [], category: [], stock: [], type: [], status: [] };
     go('products-records');
   }
   const makerMove = (ids, after) => { const l = makerItems(ids); if (!l.length) { K.toast((ids.length === 1 ? 'المبتكر ده ملوش' : 'المبتكرين دول ملهمش') + ' منتجات على الموقع', 'error'); return; } moveVendor(l, { exclude: ids, after }); };
@@ -1036,7 +1048,7 @@
     const cats = PR().categories().filter((c) => d.cats.includes(c.id));
     const jump = (tab, label) => h('button', { type: 'button', class: 'link-btn', onClick: () => { st.etab = tab; setHash('products-edit-' + st.editId + '-' + tab); R(); window.scrollTo(0, 0); } }, label);
     return h('div', { class: 'stack side-card pe-rail' },
-      Card('الحالة والظهور', null, [U.Select({ id: 'e-status', label: 'الحالة', options: [{ value: 'publish', label: 'منشور' }, { value: 'draft', label: 'مسودة' }, { value: 'pending', label: 'قيد المراجعة' }].concat(['publish', 'draft', 'pending'].includes(p.status) ? [] : [{ value: p.status, label: status }]), value: d.status, disabled: dis, onChange: (v) => { d.status = v; R(); } }),
+      Card('الحالة والظهور', null, [U.Select({ id: 'e-status', label: 'الحالة', options: [{ value: 'publish', label: 'منشور' }, { value: 'draft', label: 'مسودة' }, { value: 'pending', label: 'في انتظار المراجعة' }].concat(['publish', 'draft', 'pending'].includes(p.status) ? [] : [{ value: p.status, label: status }]), value: d.status, disabled: dis, onChange: (v) => { d.status = v; R(); } }),
         K.Switch({ id: 'e-feat', label: 'منتج مميز', checked: d.featured, disabled: dis, onChange: (v) => { d.featured = v; R(); } }),
         arStatusNote(p, dis)]),
       Card('ملخص المنتج', null, [h('dl', { class: 'kv pe-sum', 'data-pe-summary': '' },
@@ -1231,7 +1243,7 @@
   // reports period, the best sellers and the best categories (the reports tab's own numbers: products_report)
   function overviewView() {
     const P = PR(); const L = all(); const RB = window.IBReportBlocks; const rg = RB ? RB.get() : null;
-    const AR = { publish: 'منشور', draft: 'مسودة', pending: 'قيد المراجعة' }; const by = (k) => L.filter((p) => p.status === AR[k]).length;
+    const AR = { publish: 'منشور', draft: 'مسودة', pending: 'في انتظار المراجعة' }; const by = (k) => L.filter((p) => p.status === AR[k]).length;
     const rep = rg && rg.from ? P.report(rg.from, rg.to) : null;
     const failed = rg && rg.from && !rep && P.reportFailed(rg.from, rg.to);
     const openRec = (id, label) => (id ? h('button', { type: 'button', class: 'link-btn', onClick: () => go('products-edit-' + id + '-data') }, label) : label);
@@ -1244,7 +1256,7 @@
       h('div', { class: 'cards', 'data-prod-ov': '' },
         U.KpiTile({ label: 'المنتجات', value: K.n0(L.length), unit: 'منتج', compare: 'off', note: 'في السجل (من غير المهملات)' }),
         U.KpiTile({ label: 'منشور', value: K.n0(by('publish')), unit: 'منتج', compare: 'off', note: 'ظاهر على الموقع' }),
-        U.KpiTile({ label: 'مسودة / قيد المراجعة', value: K.n0(by('draft') + by('pending')), unit: 'منتج', compare: 'off', note: 'مش ظاهر لسه' }),
+        U.KpiTile({ label: 'مسودة / في انتظار المراجعة', value: K.n0(by('draft') + by('pending')), unit: 'منتج', compare: 'off', note: 'مش ظاهر لسه' }),
         null), // B3 (the owner, 11 Nov — «… ستوكه … ملوش لازمة»): no out-of-stock tile or table here
       // B3 (the owner, 11 Nov — «صغر ال width … جدولين جمب بعض»): the two tables side by side on a wide screen, narrower (no SKU)
       h('div', { class: 'pr-ov-two', 'data-ov-two': '' },

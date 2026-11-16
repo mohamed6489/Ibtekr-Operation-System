@@ -213,6 +213,39 @@ test('ops (the opener of TKT-0001, not its role): no work buttons, closes it, th
   await expect(drawer(page).getByRole('button', { name: 'تم الحل' })).toBeVisible();
 });
 
+// comments decision 61 («و اضافة كل الفلاتر الناقصة في كل الويبسايت»): the requests filter also has «الموظف» — the member the request is
+// with, or «كل الدور» — and «فاتح الطلب»; a pick narrows the table and shows as a chip, and «مسح الفلاتر» brings every request back
+test('comment 61 — the requests filter: «الموظف» and «فاتح الطلب» narrow the table and show as chips', async ({ page }) => {
+  const t2 = mock.tickets.find((t) => t.id === 2); t2.assignee_member = OPS_ID; t2.assignee_member_name = 'سارة أحمد';
+  await signIn(page, ADMIN);
+  await page.locator('.sidebar .nav-item[data-page="tickets"]').click();
+  await page.locator('#tickets [role=tab]', { hasText: 'السجل' }).click();
+  const rows = page.locator('#tickets tbody tr[data-id]');
+  await expect(rows).toHaveCount(2);
+  await page.locator('#tickets [data-fm-btn]').first().click();
+  const menu = page.locator('[data-fm-menu]');
+  await expect(menu.locator('[data-fm-tab]')).toContainText(['الحالة', 'النوع', 'الأولوية', 'المسؤول', 'الموظف', 'فاتح الطلب']);
+  await menu.locator('[data-fm-tab="member"]').click();
+  await expect(menu.locator('[data-fm^="member:"]')).toHaveCount(2); // «كل الدور» and the one member a request is with
+  await menu.locator('[data-fm="member:سارة أحمد"]').click();
+  await menu.locator('[data-fm-apply]').dispatchEvent('click');
+  await expect(rows).toHaveCount(1);
+  await expect(page.locator('#tickets tr[data-id="TKT-0002"]')).toBeVisible();
+  await expect(page.locator('#tickets [data-af-chip="member:سارة أحمد"]')).toBeVisible();
+  // who opened it: the customer request was opened by the ops member, the internal one by the admin
+  await page.locator('#tickets [data-fm-btn]').first().click();
+  await menu.locator('[data-fm-tab="member"]').click();
+  await menu.locator('[data-fm="member:سارة أحمد"]').click();
+  await menu.locator('[data-fm-tab="by"]').click();
+  await menu.locator('[data-fm="by:سارة أحمد"]').click();
+  await menu.locator('[data-fm-apply]').dispatchEvent('click');
+  await expect(rows).toHaveCount(1);
+  await expect(page.locator('#tickets tr[data-id="TKT-0001"]')).toBeVisible();
+  await expect(page.locator('#tickets [data-af-chip="by:سارة أحمد"]')).toBeVisible();
+  await page.locator('#tickets [data-af-clear]').click();
+  await expect(rows).toHaveCount(3); // every request — the resolved one too
+});
+
 test('bulk: priority for the selected tickets, one RPC each', async ({ page }) => {
   await openTickets(page);
   await page.locator('#tickets [data-bulk-box="TKT-0001"]').click();

@@ -46,10 +46,10 @@ test('records: the English rows with their Arabic name, brand, maker, category p
   await expect(cushion).toContainText('منشور');
   await expect(rowOf(page, 'Macrame Curtain')).toContainText('حسب الطلب');
   await expect(rowOf(page, 'Macrame Curtain')).toContainText('Variable');
-  await expect(rowOf(page, 'Boho mirror')).toContainText('قيد المراجعة');
+  await expect(rowOf(page, 'Boho mirror')).toContainText('في انتظار المراجعة');
   await expect(rowOf(page, 'Macrame Feathers')).not.toContainText('ناقص'); // no «ناقص: …» under the name (the owner, 28 Oct)
   await expect(page.locator('[data-pstatus="trash"]')).toHaveText('المهملات 1');
-  await expect(page.locator('[data-pstatus="pending"]')).toHaveText('قيد المراجعة 1');
+  await expect(page.locator('[data-pstatus="pending"]')).toHaveText('في انتظار المراجعة 1');
 });
 
 // B3 (the owner, 11 Nov): a multi-select per filter with the values alone (no «البراند:» before them), «اعرض N منتج» applies;
@@ -57,7 +57,7 @@ test('records: the English rows with their Arabic name, brand, maker, category p
 test('filters and sort: status chips, brand / category multi-selects, search by SKU, sort by sales', async ({ page }) => {
   await openProducts(page);
   const rows = page.locator('#pg-products .pr-table tbody tr');
-  await expect(page.locator('[data-pstatus]')).toHaveText([/^الكل/, /^منشور/, /^مسودة/, /^قيد المراجعة/, /^المهملات/]); // no «نفد»
+  await expect(page.locator('[data-pstatus]')).toHaveText([/^الكل/, /^منشور/, /^مسودة/, /^في انتظار المراجعة/, /^المهملات/]); // no «نفد»
   await expect(page.locator('#pg-products [data-missing]')).toHaveCount(0);
   await expect(page.locator('#pg-products .acts:has([data-sm-btn="products"]) [data-fm-btn="products"]')).toHaveCount(1); // the owner 12 Nov: «فلتر» next to the sort
   // the owner 12 Nov (a try on the products first): the search sits in the records card's header, right before «فلتر», and the header's
@@ -70,7 +70,7 @@ test('filters and sort: status chips, brand / category multi-selects, search by 
   const fbtn = page.locator('#pg-products [data-fm-btn="products"]'); const fm = page.locator('[data-fm-menu="products"]');
   await expect(fbtn.locator('.val')).toHaveText('فلتر');
   await fbtn.click();
-  await expect(fm.locator('[data-fm-tab]')).toHaveText(['البراند', 'المبتكر', 'القسم', 'المخزون', 'النوع']); // the owner 12 Nov: tabs in a strip
+  await expect(fm.locator('[data-fm-tab]')).toHaveText(['الحالة', 'البراند', 'المبتكر', 'القسم', 'المخزون', 'النوع']); // the owner 12 Nov: tabs in a strip · «الحالة»: comments decision 61
   await fm.locator('[data-fm-tab="brand"]').click();
   await expect(fm.locator('[data-fm-key="brand"] [role=menuitemcheckbox]').first()).not.toContainText(':'); // the values alone
   await fm.locator('[data-fm="brand:Antikiano"]').click();
@@ -329,7 +329,7 @@ test('the push gate: WOO_PUSH_ENABLED off → «الكتابة على الموق
   await page.locator('.bulk-bar').getByRole('button', { name: 'نشر' }).click();
   await page.locator('.modal').getByRole('button', { name: 'انشر' }).click();
   await expect(page.locator('.toast.show')).toContainText('الكتابة على الموقع مقفولة');
-  await expect(rowOf(page, 'Boho mirror')).toContainText('قيد المراجعة');
+  await expect(rowOf(page, 'Boho mirror')).toContainText('في انتظار المراجعة');
   await expect(page.locator('.bulk-bar').getByRole('button', { name: 'مسح' })).toHaveCount(0); // ops: products.trash N
 });
 
@@ -385,6 +385,61 @@ test('decision 16 on a variable product: a maker price per variation → its two
   await expect.poll(() => (mock.productWrites || []).length).toBeGreaterThan(n0); // the write lands after the page settles (CI, 5 Nov)
   const w = mock.productWrites.at(-1);
   expect(w.variations).toEqual([{ id: 9901, sale_price: String(sale), regular_price: String(reg) }]);
+});
+
+test('comments 59–61 — «تحويل لفي انتظار المراجعة» on the selection; the bulk stock popup drops the alert with «حسب الطلب»; «الحالة» is a group of the products\' filter (several at once) beside the status tabs', async ({ page }) => {
+  await openProducts(page);
+  // 59: two products picked, one already waiting — only the other is written, as «pending»
+  await rowOf(page, 'Cushion').locator('[role=checkbox]').click();
+  await rowOf(page, 'Boho mirror').locator('[role=checkbox]').click();
+  await page.locator('.bulk-bar [data-pbulk-pending]').click();
+  await expect(page.locator('.modal')).toContainText('تحويل المنتج لـ «في انتظار المراجعة»؟');
+  await expect(page.locator('.modal')).toContainText('هيختفي من الموقع');
+  await page.locator('.modal').getByRole('button', { name: 'حوّل لفي انتظار المراجعة' }).click();
+  await expect(page.locator('.toast.show').filter({ hasText: 'اتحوّلوا لـ «في انتظار المراجعة»' })).toBeVisible();
+  expect(mock.productWrites.at(-1)).toMatchObject({ action: 'product_save', id: 9001, fields: { status: 'pending' } });
+  await expect(rowOf(page, 'Cushion')).toContainText('في انتظار المراجعة');
+  await expect(page.locator('[data-pstatus="pending"]')).toHaveText('في انتظار المراجعة 2');
+  // both waiting now: nothing to do, said
+  await rowOf(page, 'Cushion').locator('[role=checkbox]').click();
+  await rowOf(page, 'Boho mirror').locator('[role=checkbox]').click();
+  const n0 = mock.productWrites.length;
+  await page.locator('.bulk-bar [data-pbulk-pending]').click();
+  await expect(page.locator('.toast.show').filter({ hasText: '«في انتظار المراجعة» أصلًا' })).toBeVisible();
+  expect(mock.productWrites.length).toBe(n0);
+  // 60: «حسب الطلب» in the bulk stock popup — no quantity and no alert field, and no alert sent
+  await page.locator('.bulk-bar').getByRole('button', { name: 'تعديل المخزون' }).click();
+  const m = page.locator('.modal');
+  await expect(m.locator('#alert')).toBeVisible();
+  await m.getByRole('radio', { name: /حسب الطلب/ }).click();
+  await expect(m.locator('#alert')).toHaveCount(0); await expect(m.locator('#qty')).toHaveCount(0);
+  await expect(m).not.toContainText('التنبيه');
+  await m.getByRole('radio', { name: 'حدد الكمية' }).click();
+  await expect(m.locator('#alert')).toBeVisible(); // back with a quantity
+  await m.getByRole('radio', { name: /حسب الطلب/ }).click();
+  await m.getByRole('button', { name: 'احفظ المخزون' }).click();
+  await expect(m).toHaveCount(0);
+  const w = mock.productWrites.at(-1);
+  expect(w.action).toBe('products_batch');
+  expect(w.update.map((u) => [u.manage_stock, u.stock_status, 'low_stock_amount' in u])).toEqual([[false, 'onbackorder', false], [false, 'onbackorder', false]]);
+  // 61: «الحالة» in «فلتر» — two statuses at once; the picks are chips; a status tab clears them
+  await page.locator('#pg-products [data-fm-btn="products"]').click();
+  const menu = page.locator('[data-fm-menu="products"]');
+  await expect(menu.locator('[data-fm-tab]').first()).toHaveAttribute('data-fm-tab', 'status');
+  await menu.locator('[data-fm-tab="status"]').click();
+  await expect(menu.locator('[data-fm^="status:"]')).toHaveText(['منشور', 'مسودة', 'في انتظار المراجعة']);
+  await menu.locator('[data-fm="status:في انتظار المراجعة"]').click();
+  await expect(menu.locator('[data-fm-apply]')).toHaveText('اعرض 2 منتج');
+  await menu.locator('[data-fm="status:منشور"]').click();
+  await expect(menu.locator('[data-fm-apply]')).toHaveText('اعرض 3 منتج'); // + the one still published (the fourth is a draft)
+  await menu.locator('[data-fm="status:منشور"]').click();
+  await menu.locator('[data-fm-apply]').dispatchEvent('click');
+  await expect(page.locator('#pg-products .pr-table tbody tr')).toHaveCount(2);
+  await expect(page.locator('#pg-products [data-af-chip="status:في انتظار المراجعة"]')).toContainText('الحالة: في انتظار المراجعة');
+  await page.locator('[data-pstatus="published"]').click(); // the tab takes over
+  await expect(page.locator('#pg-products [data-af-chip^="status:في"]')).toHaveCount(0);
+  await expect(page.locator('#pg-products .pr-table tbody tr')).toHaveCount(1);
+  await expect(page.locator('#pg-products .pr-table tbody tr').first()).toContainText('منشور');
 });
 
 test('comment 58 — the records table: «البراند» and «المبتكر» are two columns (they were one cell)', async ({ page }) => {

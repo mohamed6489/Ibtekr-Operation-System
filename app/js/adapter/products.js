@@ -18,7 +18,7 @@
   const BATCH = 25; // the owner (28 Oct): bulk writes go 25 products a request, one request after the other, with progress
   const COLS = 'id, sku, name, image_url, vendor_id, price, status, permalink, lang, translation_ids, type, regular_price, sale_price, stock_quantity, stock_status, manage_stock, backorders, low_stock_amount, total_sales, category_ids, brand_ids, image_count, weight, featured, desc_filled, short_desc_filled, woo_modified_at, trashed_at';
   const AR_COLS = 'id, name, translation_ids';
-  const STATUS = { publish: 'منشور', draft: 'مسودة', pending: 'قيد المراجعة', private: 'خاص', trash: 'المهملات' };
+  const STATUS = { publish: 'منشور', draft: 'مسودة', pending: 'في انتظار المراجعة', private: 'خاص', trash: 'المهملات' }; // «في انتظار المراجعة»: the owner's name for it (comments decisions 59 and 61)
   const c = () => (window.IBSupabase && window.IBSupabase.client) || null;
   const quiet = (fn) => { try { return fn(); } catch (e) { return undefined; } };
   const num = (v) => (v == null || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));

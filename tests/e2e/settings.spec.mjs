@@ -281,7 +281,8 @@ test('lists (phase 12): the order statuses read status_map (owner batch 2 decisi
 test('data (phase 12): no «حذف بيانات الشركة» any more; «تصدير نسخة كاملة» confirms, writes one workbook and logs the sheets with their counts only', async ({ page }) => {
   await signIn(page, ADMIN); await openSettings(page, 'data');
   await expect(page.locator('#pg-settings')).not.toContainText('حذف بيانات الشركة');
-  await expect(page.locator('#pg-settings')).not.toContainText('منطقة الخطر');
+  // 2026-11-16-data-page.md decision 6: «منطقة الخطر» came back as its own tab (data_wipe, by section) — the full copy is in «النسخة الكاملة»
+  await page.locator('[data-dtab="backup"]').click();
   const dl = page.waitForEvent('download');
   await page.locator('[data-full-export]').click();
   await expect(page.locator('.modal')).toContainText('من غير البيانات الحساسة');

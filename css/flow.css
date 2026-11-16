@@ -292,3 +292,13 @@ textarea.fl-in{display:block;width:100%}
 .fl-sh-photo-i{position:absolute;inset-inline-end:-4px;bottom:-4px;width:22px;height:22px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;background:var(--color-brand-default,#005642);color:var(--color-text-on-brand,#fff7ef);box-shadow:0 0 0 2px var(--color-bg-base,#fff)}
 .fl-sh-photo:hover .thumb,.fl-sh-photo:focus-visible .thumb{outline:2px solid var(--color-brand-default,#005642);outline-offset:1px}
 .fl-sh-photo.is-busy .fl-sh-photo-i svg{animation:fl-spin 1s linear infinite}
+/* «تحميل على الجهاز» (comments decision 36): the popup split in two — the maker's copy and the system's */
+.fl-copies{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:stretch}
+.fl-copy{display:flex;flex-direction:column;gap:10px;padding:16px;border:1px solid var(--color-border-subtle,#f0e5cf);border-radius:12px;background:var(--color-bg-base,#fff7ef);min-width:0}
+.fl-copy[data-fl-copy="maker"]{border-color:var(--color-brand-default,#005642);background:var(--color-bg-container,#f5eddc)}
+.fl-copy-h{display:flex;align-items:center;gap:8px;color:var(--color-brand-default,#005642)}
+.fl-copy-h b{font-size:16px}
+.fl-copy p{margin:0;color:var(--color-text-secondary,#6b6558)}
+.fl-copy-list{margin:0;padding:0 18px 0 0;display:flex;flex-direction:column;gap:4px;font-size:13px;flex:1}
+.fl-copy .btn{align-self:stretch;justify-content:center}
+@media (max-width:640px){.fl-copies{grid-template-columns:1fr}}

@@ -751,7 +751,14 @@
   function step3() {
     const s = st(); const L = rows(); const G = groups();
     // a size the sheet gave in English only → its Arabic written from it («40 × 40 cm» → «40 × 40 سم»), so the Arabic column is whole
-    let sized = false; L.forEach((r) => { if (r.size && !r.sizeAr) { r.sizeAr = arSize(r); sized = true; } }); if (sized) touch();
+    let sized = false; L.forEach((r) => { if (r.size && !r.sizeAr) { r.sizeAr = arSize(r); sized = true; } });
+    // the maker's copy comes back with one colour and one size column (comments decision 36), read as the Arabic ones: the English
+    // size written from it, and the colour matched to the colours table by either name
+    L.forEach((r) => {
+      if (r.sizeAr && !r.size) { const e = FD.sizeEnOf(r.sizeAr); if (e) { r.size = e; sized = true; } }
+      if (r.colorAr && !r.colorEn) { const a = String(r.colorAr).trim().toLowerCase(); const c = colors().find((y) => String(y.name_ar).trim() === String(r.colorAr).trim() || String(y.name_en).toLowerCase() === a); if (c) { r.colorEn = c.name_en; r.colorAr = c.name_ar; sized = true; } }
+    });
+    if (sized) touch();
     if (S.autoSku !== S.id && FD.validCode(s.code) && L.some((r) => !FD.validSku(r.sku) || (r.colorEn && !colorOf(r)))) { S.autoSku = S.id; setTimeout(() => genSkus(true), 0); } // once per batch opened
     // the owner 15 Nov: the AI fills what is missing by itself when the step opens (once per batch opened; the button stays for later)
     if (S.autoAi !== S.id && !S.busy && G.some((g) => needOf(g).length)) { S.autoAi = S.id; setTimeout(() => aiFill(null, true), 0); }
@@ -989,8 +996,9 @@
       const blob = await new Promise((res) => cv.toBlob(res, 'image/jpeg', 0.8)); return blob ? new Uint8Array(await blob.arrayBuffer()) : null;
     } catch (e) { return null; }
   }
-  async function sheetFile(rowsOut, type, prog) {
-    const sh = FD.sheetOf({ type, rows: rowsOut }); const images = [];
+  // copy: 'maker' = the maker's short copy (comments decision 36), else the system's whole template
+  async function sheetFile(rowsOut, type, prog, copy) {
+    const sh = copy === 'maker' ? FD.makerSheetOf({ rows: rowsOut }) : FD.sheetOf({ type, rows: rowsOut }); const images = [];
     for (let i = 0; i < rowsOut.length; i++) { const bytes = await thumbBytes(rowsOut[i].ref); if (bytes) images.push({ row: i, col: sh.refCol, bytes, ext: 'jpeg', w: 105, h: 120 }); if (prog) { prog.done = i + 1; R(); } }
     return new Blob([FD.xlsx(Object.assign(sh, { images, freeze: 'C2' }))], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   }
@@ -1116,15 +1124,55 @@
     const slot = r.colorSlot || 0; if ((x.aiColors || {})[slot]) { setSlotColor(x, slot, ['', ''], false); }
     await touch(true); R(); K.toast('اتبدلت صورة ' + r.n, 'success');
   }
-  async function shareSheet(how) {
-    await saveSheet(true); const blob = await sheetFile(blankRowsOf(), st().type, null); const name = FD.sheetFileName(st().vendorName || st().brandName);
-    const file = typeof File === 'function' ? new File([blob], name, { type: blob.type }) : null;
-    if (file && navigator.canShare && navigator.canShare({ files: [file] })) { try { await navigator.share({ files: [file], title: name }); return; } catch (e) { if (e && e.name === 'AbortError') return; } }
-    K.saveFile(name, blob);
-    const text = 'شيت المنتجات من إبتكر — املا سعر المبتكر والمقاس وابعته تاني.';
-    const url = how === 'mail' ? 'mailto:?subject=' + encodeURIComponent('شيت المنتجات — ' + name) + '&body=' + encodeURIComponent(text + '\n(الملف اتنزل على جهازك — ارفقه)') : 'https://wa.me/?text=' + encodeURIComponent(text);
-    window.open(url, '_blank', 'noopener');
-    K.toast('الملف اتنزل — ارفقه في ' + (how === 'mail' ? 'الإيميل' : 'الواتساب'), 'success');
+  // the two copies of the sheet (comments decision 36 — «بوب اب تتقسم اتنين»)
+  const COPIES = { maker: 'نسخة المبتكر', system: 'نسخة السيستم' };
+  const copyName = (copy) => FD.sheetFileName(st().vendorName || st().brandName, null, COPIES[copy] || '');
+  // «تحميل على الجهاز»: the maker's copy — the reference photo, the two names, the colour, the size and his price — or the
+  // system's — the whole template. The step's edits are saved first, then the chosen file comes down.
+  function downloadPopup() {
+    let m = null; let busy = '';
+    const take = async (copy) => {
+      if (busy) return; busy = copy; draw();
+      try {
+        await saveSheet(true); const s = st(); const blob = await sheetFile(blankRowsOf(), s.type, null, copy); const name = copyName(copy);
+        await K.saveFile(name, blob); window.__lastSheet = { copy, name, size: blob.size };
+        K.toast('الملف اتنزل على جهازك: ' + name, 'success'); m.close();
+      } catch (e) { busy = ''; draw(); K.toast('الملف ما اتجهّزش — جرّب تاني', 'error'); }
+    };
+    const card = (copy, icon, sub, items, primary) => h('div', { class: 'fl-copy', 'data-fl-copy': copy },
+      h('div', { class: 'fl-copy-h' }, Icon(icon, 'md'), h('b', null, COPIES[copy])),
+      h('p', { class: 't-small' }, sub),
+      h('ul', { class: 'fl-copy-list' }, items.map((x) => h('li', null, x))),
+      Button({ type: primary ? 'primary' : 'default', icon: 'download', label: busy === copy ? 'بنجهّز الملف…' : 'تحميل ' + COPIES[copy], disabled: !!busy, attrs: { 'data-fl-copy-go': copy }, onClick: () => take(copy) }));
+    function draw() {
+      const body = h('div', { class: 'fl-copies' },
+        card('maker', 'users', 'شيت بسيط تبعته للمبتكر يملاه ويرجّعه.', ['الصورة المرجعية', 'الاسم بالإنجليزي والعربي', 'اللون', 'المقاس', 'سعر المبتكر'], true),
+        card('system', 'sheet', 'القالب كامل بكل خاناته — نسخة الشغل بتاعة إبتكر.', ['كل خانات نسخة المبتكر', 'الـ SKU والبراند والقسم', 'الوصف والخامة والستايل والوزن', 'الأسعار ولينكات الصور']));
+      if (!m) { m = U.Modal({ title: 'تحميل الشيت على الجهاز', body, footer: [Button({ type: 'text', label: 'إغلاق', onClick: () => m.close() })] }); m.el.classList.add('wide'); m.el.dataset.flDownload = ''; }
+      else m.setBody(body);
+    }
+    draw();
+  }
+  // a row's reference photo as a data: URL for the share popup's file (the studio's photos are not the site's — IBShare takes them ready)
+  const refData = new Map();
+  async function refDataUrl(path) {
+    if (!path) return ''; if (refData.has(path)) return refData.get(path);
+    const b = await thumbBytes(path); let u = '';
+    if (b) { let bin = ''; for (let i = 0; i < b.length; i += 0x8000) bin += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000)); u = 'data:image/jpeg;base64,' + btoa(bin); }
+    refData.set(path, u); return u;
+  }
+  // «مشاركة» (comments decision 37 — «نفس الفكرة … في كل حتة»): the system's one share popup — the file's kind (Excel / PDF) and
+  // the way (WhatsApp / e-mail / download). What goes out is the maker's copy: the Excel is the same file «نسخة المبتكر» downloads.
+  async function shareSheet() {
+    if (!window.IBShare) { downloadPopup(); return; }
+    await saveSheet(true); const s = st(); const L = blankRowsOf(); const mk = V() && V().store && V().store.get && s.vendorId ? V().store.get(s.vendorId) : null;
+    const sh = FD.makerSheetOf({ rows: L }); const photos = [];
+    for (let i = 0; i < L.length; i++) photos.push(await refDataUrl(L[i].ref));
+    const who = s.vendorName || s.brandName || '';
+    window.IBShare.open({ title: 'شيت المنتجات' + (who ? ' — ' + who : ''), sub: L.length + ' صف · ' + s.products.length + ' منتج', name: copyName('maker').replace(/\.xlsx$/, ''),
+      phone: mk && mk.phone ? mk.phone : '', email: mk && mk.email ? mk.email : '', text: 'شيت المنتجات من إبتكر — املا سعر المبتكر والمقاس وابعته تاني.',
+      headers: sh.head.filter((_, k) => k !== sh.refCol), rows: sh.rows.map((r, i) => r.filter((_, k) => k !== sh.refCol).map((c, k) => (k === 0 ? { text: String(c), img: photos[i] } : c))),
+      note: 'اللي فاضي املاه وابعت الشيت تاني.', excel: () => sheetFile(L, s.type, null, 'maker') });
   }
   // one cell's control: a text / number box (kept as typed; the rows sharing it redraw when it is left) or a dropdown
   function sheetInput(r, key, val, set, o) {
@@ -1152,18 +1200,16 @@
     return named('القسم — ' + r.n, h('div', { class: 'fl-sh-sel fl-sh-cat', 'data-sh': 'cat:' + r.n }, U.Select({ id: 'fl-sh-cat-' + r.n, label: '', options, value: now != null ? String(now) : x.catEn ? '__cur' : '', placeholder: 'اختار القسم',
       onChange: (v) => { if (v === '__cur') return; x.catEn = v ? pathOfId(v) : ''; touch(); R(); } })));
   }
-  async function saveSheet(quiet) { const r = await touch(true); if (!quiet) K.toast(r && r.ok === false ? (r.message || 'ماتحفظش — جرّب تاني') : 'اتحفظت التعديلات', r && r.ok === false ? 'error' : 'success'); return !(r && r.ok === false); }
+  async function saveSheet(quiet) { const r = await touch(true); if (!quiet) K.toast(r && r.ok === false ? (r.message || 'ماتحفظش — جرّب تاني') : 'اتحفظت كمسودة — تكمّلها في أي وقت من «الشغل المحفوظ»', r && r.ok === false ? 'error' : 'success'); return !(r && r.ok === false); }
   function stepSheet() {
     const L = blankRowsOf(); const s = st();
-    const shareBtn = (() => { const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' }); const btn = Button({ size: 'sm', icon: 'share', label: 'مشاركة', attrs: { 'data-flow-share': '', 'aria-haspopup': 'menu', 'aria-expanded': 'false' } });
-      const pop = U.popover(wrap, btn, (close) => U.DropdownMenu({ role: 'menu', end: true, options: [{ value: 'wa', label: 'واتساب', icon: 'whatsapp' }, { value: 'mail', label: 'إيميل', icon: 'mail' }], onSelect: (v) => { close(); shareSheet(v); } }));
-      btn.addEventListener('click', pop.toggle); wrap.append(btn); return wrap; })();
-    return [Card('الشيت', L.length + ' صف · ' + s.products.length + ' منتج — عمود «refrance image» فيه صورة كل منتج، والباقي القالب كامل.', [
+    const shareBtn = Button({ size: 'sm', icon: 'share', label: 'مشاركة', attrs: { 'data-flow-share': '' }, onClick: () => shareSheet() });
+    return [Card('الشيت', L.length + ' صف · ' + s.products.length + ' منتج — «تحميل على الجهاز» فيه نسخة بسيطة للمبتكر ونسخة السيستم الكاملة، وصورة كل منتج جوه خليتها.', [
       h('div', { class: 'acts-inline' }, Button({ type: 'primary', icon: 'sparkle', label: S.busy === 'ai' ? 'بيكتب…' : 'املأ بالـ AI', disabled: !!S.busy, attrs: { 'data-flow-ai': '' }, onClick: async () => { const a = await window.IBAIAsk({ title: 'املأ الشيت بالـ AI — ' + (st().products || []).length + ' منتج', intro: 'الأسماء والوصف والقسم واللون من الصور.' }); if (a) aiFillProducts(a.notes); } }),
-        Button({ size: 'sm', icon: 'check', label: 'حفظ', attrs: { 'data-flow-save': '' }, onClick: () => saveSheet(false) }),
+        Button({ size: 'sm', icon: 'check', label: 'حفظ كمسودة', attrs: { 'data-flow-save': '' }, onClick: () => saveSheet(false) }),
         Button({ size: 'sm', label: 'معاينة', onClick: async () => { await saveSheet(true); previewSheet(blankRowsOf(), s.type); } }),
-        Button({ size: 'sm', icon: 'download', label: 'تحميل على الجهاز', attrs: { 'data-flow-download': '' }, onClick: async () => { await saveSheet(true); const blob = await sheetFile(blankRowsOf(), s.type, null); K.saveFile(FD.sheetFileName(s.vendorName || s.brandName), blob); } }), shareBtn),
-      U.InlineNote({ children: 'تقدر تعدّل أي خانة هنا — الاسم واللون والمقاس وسعر المبتكر والقسم — وبتتحفظ مع الدفعة وتنزل في الشيت. اللي يفضل فاضي المبتكر بيملاه، ولما يرجّعه ابدأ دفعة «شيت جاهز» بيه.' }),
+        Button({ size: 'sm', icon: 'download', label: 'تحميل على الجهاز', attrs: { 'data-flow-download': '', 'aria-haspopup': 'dialog' }, onClick: () => downloadPopup() }), shareBtn),
+      U.InlineNote({ children: 'تقدر تعدّل أي خانة هنا — الاسم واللون والمقاس وسعر المبتكر والقسم — وبتتحفظ مع الدفعة («حفظ كمسودة») وتنزل في الشيت. اللي يفضل فاضي المبتكر بيملاه في «نسخة المبتكر»، ولما يرجّعها ابدأ دفعة «شيت جاهز» بيها.' }),
       h('div', { class: 'fl-scroll' }, h('table', { class: 'fl-table fl-sheet-ed', 'data-flow-sheet': '' }, h('thead', null, h('tr', null, h('th', null, '#'), h('th', null, 'الصورة'), h('th', null, 'الاسم EN'), h('th', null, 'الاسم AR'), h('th', null, 'اللون'), h('th', null, 'المقاس'), h('th', null, 'سعر المبتكر'), h('th', null, 'القسم'))),
         h('tbody', null, L.map((r) => { const x = fillOf(r.product);
           const busyPhoto = S.busy === 'photo:' + r.n;

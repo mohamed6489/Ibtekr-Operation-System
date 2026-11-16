@@ -762,9 +762,18 @@
       { id: 'vendors', label: 'المبتكرين', icon: 'truck', unit: 'تنبيه', all: () => showOrders({ deliv: 'late' }), allLabel: 'عرض الكل في الأوردرات', empty: 'مفيش مبتكرين متأخرين.',
         tabs: [['all', 'الكل', late.concat(risk, dy, wk)], ['late', 'متأخر', late], ['risk', 'قابل للتأخير', risk], ['daily', 'المتابعة اليومية', dy], ['weekly', 'التقرير الأسبوعي', wk]] },
       accountsSection(), deliverySection(),
-      { id: 'tasks', label: 'مهام', icon: 'checkCircle', unit: 'مهمة', all: () => showTickets(), allLabel: 'عرض الكل في طلبات الفريق', empty: 'مفيش مهام مستنياك.',
+      // the owner 16 Nov («مهام دي يبقي اسمها طلبات الفريق و المهام تبقي لوحده و بتجيب المهام التلقائية من السيستم»): the team requests are
+      // their own group, and «مهام» is what the system asks of the member — the same list as «ملفي › مهامي» (profile api.autoTasks)
+      { id: 'tasks', label: 'طلبات الفريق', icon: 'ticket', unit: 'طلب', all: () => showTickets(), allLabel: 'عرض الكل في طلبات الفريق', empty: 'مفيش طلبات مستنياك.',
         tabs: [['all', 'الكل', tasks.slice().sort((x, y) => P.indexOf(x.prio) - P.indexOf(y.prio))]].concat(P.map((p) => [p, U.PRIORITY[p], tasks.filter((t) => t.prio === p)])) },
     ].concat(csSection(), opsSections());
+  }
+  function autoSection(me) {
+    const pr = window.IBPages.all().profile; let list = [];
+    try { list = pr && pr.api && pr.api.autoTasks ? pr.api.autoTasks() : []; } catch (e) { list = []; }
+    const items = list.map((t) => ({ own: { member: me }, key: 'au:' + t.key, title: t.title, sub: 'من السيستم — بتختفي لوحدها لما تتحل', meta: '', tone: 'brand', icon: 'checkCircle',
+      run: () => { if (t.run) t.run(); else if (t.href) location.hash = t.href.replace(/^#/, ''); else go('profile-tasks'); } }));
+    return { id: 'auto', label: 'مهام', icon: 'checkCircle', unit: 'مهمة', all: () => go('profile-tasks'), allLabel: 'عرض الكل في «مهامي»', empty: 'مفيش مهام من السيستم دلوقتي.', tabs: [['all', 'الكل', items]] };
   }
   // HR + inventory notifications (Figma: notifications sample 380:6178) — team requests, overtime to confirm, meetings, stock alerts
   // customer service inbox group «رسايل» (Figma 27 · Notifications panel nav after «مهام»)
@@ -793,6 +802,10 @@
     let secs = NR && m ? NR.filterSections(raw, accFor(m), {}) : raw.map((s) => Object.assign({}, s, { received: s.tabs[0][2].length }));
     // server alerts (IBAlerts, already filtered by RLS) first, after the role filter; only for the signed-in member, never «عرض تنبيهات» another one
     if (window.IBAlerts && (ntfState.viewer || window.IBKit.ME) === window.IBKit.ME) { const s = window.IBAlerts.section(); if (s) secs = [s].concat(secs); }
+    // «مهام» (the owner 16 Nov): the member's own system tasks — not a role's alert, so after the role filter, for the signed-in member only,
+    // right after «طلبات الفريق» (or where it would be)
+    if ((ntfState.viewer || window.IBKit.ME) === window.IBKit.ME) { const au = autoSection(TA() ? TA().actor().name : null); if (au.tabs[0][2].length) { const at = secs.findIndex((x) => x.id === 'tasks');
+      const sec = Object.assign({}, au, { received: au.tabs[0][2].length }); secs = at > -1 ? secs.slice(0, at + 1).concat(sec, secs.slice(at + 1)) : secs.concat(sec); } }
     if (!noDigest) secs = secs.concat(digestSection(m)); return secs;
   }
   window.IBNotifRoles = { viewSections, accFor, roleIdx, viewer, setViewer: (id) => { ntfState.viewer = id; } };

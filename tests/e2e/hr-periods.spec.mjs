@@ -121,12 +121,13 @@ test('comment 77 — «المرتبات»: «الشهر» and «السنة» are
   const bar = P(page).locator('.hr-mpick');
   await expect(bar.locator('#sh-m')).toContainText('الشهر: ' + AR[Number(MK.slice(5, 7)) - 1]);
   await expect(bar.locator('#sh-y')).toContainText('السنة: ' + MK.slice(0, 4));
-  // the months of this year stop at this one; last year is in the years
+  // chat ش9 (16 Nov): every month of this year (a bonus / deduction on a month to come) and next year in the years; last year too
   await bar.locator('#sh-m').click();
-  await expect(page.locator('[role=listbox] [role=option]')).toHaveCount(Number(MK.slice(5, 7)));
+  await expect(page.locator('[role=listbox] [role=option]')).toHaveCount(12);
   await page.keyboard.press('Escape');
   await bar.locator('#sh-y').click();
-  await expect(page.locator('[role=listbox] [role=option]').first()).toHaveText('السنة: ' + MK.slice(0, 4));
+  await expect(page.locator('[role=listbox] [role=option]').first()).toHaveText('السنة: ' + (Number(MK.slice(0, 4)) + 1));
+  await expect(page.locator('[role=listbox] [role=option]').nth(1)).toHaveText('السنة: ' + MK.slice(0, 4));
   await expect(page.locator('[role=listbox] [role=option]', { hasText: String(Number(MK.slice(0, 4)) - 1) })).toHaveCount(1);
   await page.locator('[role=listbox] [role=option]', { hasText: String(Number(MK.slice(0, 4)) - 1) }).click();
   // last year: all twelve months, the same month picked there
@@ -135,6 +136,15 @@ test('comment 77 — «المرتبات»: «الشهر» and «السنة» are
   await pick(page, 'sh-y', 'السنة: ' + MK.slice(0, 4));
   await expect(bar).toHaveAttribute('data-hr-month-pick', MK);
   await expect(P(page).locator('table.hr-pay tbody tr:not(.dt-total)')).toHaveCount(2);
+  await expect(P(page).locator('[data-hr-ahead]')).toHaveCount(0);
+  // a month to come (next year's same month): the note, no transfer; «مكافأة / خصم» stays
+  await pick(page, 'sh-y', 'السنة: ' + (Number(MK.slice(0, 4)) + 1));
+  await expect(bar).toHaveAttribute('data-hr-month-pick', (Number(MK.slice(0, 4)) + 1) + MK.slice(4));
+  await expect(P(page).locator('[data-hr-ahead]')).toContainText('لسه مابدأش — تقدر تضيف مكافأة أو خصم');
+  await expect(P(page).locator('[data-hr-transfer]')).toBeDisabled();
+  await expect(P(page).locator('[data-hr-adjust]')).toBeEnabled();
+  await pick(page, 'sh-y', 'السنة: ' + MK.slice(0, 4));
+  await expect(bar).toHaveAttribute('data-hr-month-pick', MK);
   // «مقارنة»: off by default; on = the month before, its own two lists, and the card
   await expect(P(page).locator('[data-cmp="hr-pay"]')).toHaveCount(0);
   await expect(bar.locator('#sh-c-m')).toHaveCount(0);

@@ -508,6 +508,7 @@
     const groups = BRAND_ROWS.map(([t, sub, rows]) => [t, sub, rows.map((r) => r[0]).filter((k) => !q || (t + TOK[k].label + TOK[k].use + k).includes(q))]).filter(([, , ks]) => ks.length);
     return [K.Section('معاينة', [preview, h('div', { class: 'cc-list' }, cRows)], anyChanged ? Button({ size: 'sm', label: 'رجّع كله للأصلي', attrs: { 'data-brand-reset': '' }, onClick: () => K.confirm({ title: 'ترجّع الألوان والخطوط للأصلي؟', text: 'هترجع ألوان إبتكر وخط Cairo زي ما كانوا' + (nEdit ? ' (' + nEdit + ' لون متعدّل)' : '') + '.', okLabel: 'رجّع', onOk: () => { brand.colors = {}; brand.fonts = Object.assign({}, FONT_DEF); applyBrand(); saveBrand(); LOGV('settings.brand.reset', ''); K.toast('رجعت للأصلي', 'success'); R(); } }) }) : null, { sub: Object.keys(TOK).length + ' لون في ' + BRAND_ROWS.length + ' مجموعات · أي تعديل بيبان في السيستم كله على طول (والأوردرات كمان) ومتسجل في سجل النشاط' }),
       K.Section('اللوجو', h('div', { class: 'logo-slots' }, LOGO_SLOTS.map(logoSlot)), null, { sub: 'صورة SVG أو PNG بخلفية شفافة · لحد 1MB · بتتغير في السيستم كله على طول', cols: false }),
+      ...(typeof loaderSecs === 'function' ? loaderSecs() : []),
       h('div', { class: 'toolbar' }, h('label', { class: 'search search-field' }, Icon('search', 'sm'), search), h('span', { class: 't-small help', 'data-clr-count': '' }, nEdit ? nEdit + ' لون متعدّل' : 'كل الألوان أصلية')),
       ...(groups.length ? groups.map(([t, sub, ks]) => K.Section(t + ' (' + ks.length + ')', h('div', { class: 'clr-list' }, ks.map(colorRow)), null, sub ? { sub } : {})) : [K.Empty('مفيش لون بالاسم ده', 'جرّب كلمة تانية.')]),
       K.Section('الخطوط', [U.InlineNote({ children: 'اختيار مبدئي للتجربة — الخط النهائي هيتثبت في البرمجة.' }), K.two(fsel('body', 'f-body', 'خط الكلام', 'الجداول والحقول والكلام العادي'), fsel('head', 'f-head', 'خط العناوين', 'عناوين الصفحات والكروت')),
@@ -1497,7 +1498,7 @@
 
   // ---------- the sections' rows ----------
   const PAYLOADS = { general: () => Object.assign({}, C.general), notifications: notifPayload, makers: () => Object.assign({}, C.makers), payments: () => ({ payout: C.payout }), activity: () => Object.assign({}, C.actSet),
-    security: () => Object.assign({}, C.security), data: () => ({ backup: C.backup }), brand: () => ({ colors: brand.colors, fonts: brand.fonts, logos: (SETT().section('brand') || {}).logos || {} }), ai: () => (S.aiRules ? JSON.parse(JSON.stringify(S.aiRules)) : null) };
+    security: () => Object.assign({}, C.security), data: () => ({ backup: C.backup }), brand: () => { const b0 = SETT().section('brand') || {}; return { colors: brand.colors, fonts: brand.fonts, logos: b0.logos || {}, loader: b0.loader || null, favicon: b0.favicon || null }; }, ai: () => (S.aiRules ? JSON.parse(JSON.stringify(S.aiRules)) : null) };
   async function persist(sec) {
     const row = ROW_OF[sec]; const build = PAYLOADS[sec]; if (!row || !build || !SETT() || !isAdminMe()) return;
     const payload = build(); if (!payload) return;
@@ -1792,6 +1793,44 @@
       h('div', { class: 'logo-meta' }, h('b', null, label), h('small', { class: 'help' }, use), cur ? K.Tag('gold', 'مرفوع') : K.Tag('neutral', 'الأصلي')),
       h('div', { class: 'acts-inline start' }, h('label', { class: 'btn btn-default sm', for: id, tabindex: '0', role: 'button', 'data-logo-up': tone, onKeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); inp.click(); } } }, Icon('upload', 'sm'), h('span', null, cur ? 'غيّر الصورة' : 'ارفع صورة')), inp,
         cur ? Button({ type: 'text', size: 'sm', label: 'رجّع الأصلي', attrs: { 'data-logo-reset': tone }, onClick: async () => { const logos = Object.assign({}, (SETT().section('brand') || {}).logos || {}); delete logos[tone]; const r = await SETT().save('brand', { logos }); if (!r.ok) return fail(r, 'الحفظ'); window.IBLogo.set(tone, null); LOGV('settings.brand.logo', label + ' · الأصلي'); K.toast('رجع اللوجو الأصلي'); R(); } }) : null));
+  }
+
+  // ---------- «شاشة التحميل» و«أيقونة المتصفح» (the owner 16 Nov: «اعمل ف الاعدادات مكان اعدل منه ال preloaded و ال fav icon ف اعدادات
+  // الهوية البصرية»): the row «brand» { loader, favicon } — IBLoader (js/pages/loader.js) cleans, applies and remembers them; saved at once
+  function loaderSecs() {
+    const L = window.IBLoader; if (!L || !L.clean) return [];
+    const b = SETT().section('brand') || {}; const cur = L.clean(b.loader); const fav = L.cleanFavicon(b.favicon); const custom = !!b.loader;
+    const saveLoader = async (next, what) => { const v = next ? L.clean(next) : null; const r = await SETT().save('brand', { loader: v }); if (!r.ok) return fail(r, 'الحفظ'); L.apply(v); LOGV('settings.brand.loader', what); K.toast(v ? 'اتحفظت شاشة التحميل' : 'رجعت شاشة التحميل الأصلية', 'success'); R(); };
+    const set = (k, v, what) => saveLoader(Object.assign({}, cur, { [k]: v }), what);
+    const readData = (f) => new Promise((ok) => { const r = new FileReader(); r.onload = () => ok(String(r.result || '')); r.onerror = () => ok(''); r.readAsDataURL(f); });
+    const imgIn = h('input', { type: 'file', class: 'sr-file', id: 'ldr-up', accept: 'image/png,image/gif,image/webp', onChange: async () => { const f = imgIn.files[0]; imgIn.value = ''; if (!f) return;
+      if (!/^image\/(png|gif|webp)$/.test(f.type)) { K.toast('ارفع PNG أو GIF أو WebP', 'error'); return; } if (f.size > 200 * 1024) { K.toast('الصورة أكبر من 200KB — صغّرها الأول', 'error'); return; }
+      const d = await readData(f); if (!L.clean({ kind: 'image', image: d }).image) { K.toast('الصورة دي مش مقبولة', 'error'); return; }
+      saveLoader(Object.assign({}, cur, { kind: 'image', image: d }), 'صورة'); } });
+    const upLabel = (txt) => h('label', { class: 'btn btn-default sm', for: 'ldr-up', tabindex: '0', role: 'button', 'data-ldr-up': '', onKeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); imgIn.click(); } } }, Icon('upload', 'sm'), h('span', null, txt));
+    const color = (k, label) => h('label', { class: 'ldr-clr', 'data-ldr-color': k }, h('input', { type: 'color', value: cur[k], 'aria-label': label, onChange: (e) => set(k, e.target.value, label + ' ' + e.target.value) }), h('span', null, label));
+    const kindBtn = (k, label) => Button({ size: 'sm', type: cur.kind === k ? 'brand' : 'default', label, attrs: { 'data-ldr-kind': k, 'aria-pressed': String(cur.kind === k) }, onClick: () => { if (k === 'image' && !cur.image) { imgIn.click(); return; } if (k !== cur.kind) set('kind', k, k === 'image' ? 'صورة' : 'دودة اللوجو'); } });
+    const pv = h('div', { class: 'ldr-pv', 'data-ldr-pv': '' }, L.mark(88), h('span', { class: 'ldr-sm acts-inline' }, L.mark(24), h('span', { class: 't-small help' }, 'بنحمّل…')));
+    const loaderSec = K.Section('شاشة التحميل (Preloader)', [pv,
+      vrow('الشكل', 'دودة اللوجو بتلف حوالين نفسها، أو صورة متحركة من عندك (GIF / PNG / WebP لحد 200KB)', h('div', { class: 'acts-inline start' }, kindBtn('worm', 'دودة اللوجو'), kindBtn('image', 'صورة من عندي'), imgIn)),
+      cur.kind === 'worm' ? vrow('الألوان', 'الراس (النقطة اللي بتلف قدام) · الجسم · الخلفية', h('div', { class: 'acts-inline start' }, color('head', 'الراس'), color('body', 'الجسم'), color('tile', 'الخلفية'))) : null,
+      cur.kind === 'image' ? vrow('الصورة', 'بتظهر مكان الدودة في كل تحميل', h('div', { class: 'acts-inline start' }, upLabel('غيّر الصورة'), h('label', { class: 'acts-inline', 'data-ldr-spin': '' }, h('input', { type: 'checkbox', id: 'ldr-spin', checked: cur.spin, onChange: (e) => set('spin', !!e.target.checked, 'لف ' + (e.target.checked ? 'شغال' : 'واقف')) }), h('span', null, 'لفّ الصورة')))) : null,
+      vrow('السرعة', 'لفّة كاملة كل قد إيه', U.Select({ id: 'ldr-speed', label: 'السرعة', value: String(cur.speed), options: [['2.6', 'بطيئة'], ['1.7', 'عادية'], ['1.1', 'سريعة']].concat([['2.6', '1.7', '1.1'].includes(String(cur.speed)) ? [] : [[String(cur.speed), cur.speed + ' ثانية']]]).map(([v, l]) => ({ value: v, label: l })), onChange: (v) => set('speed', Number(v), 'السرعة ' + v) })),
+    ].filter(Boolean), custom ? Button({ type: 'text', size: 'sm', label: 'رجّع الأصلي', attrs: { 'data-ldr-reset': '' }, onClick: () => saveLoader(null, 'الأصلي') }) : null, { sub: 'بتظهر أول ما السيستم يفتح ومع أي تحميل أو حفظ · بتتغير عند الكل على طول', cols: false, th: false });
+    // the favicon: any picture → a 64 × 64 PNG drawn here (centred, whole) → the row
+    const saveFav = async (v, what) => { const r = await SETT().save('brand', { favicon: v }); if (!r.ok) return fail(r, 'الحفظ'); L.favicon(v); LOGV('settings.brand.favicon', what); K.toast(v ? 'اتغيّرت أيقونة المتصفح' : 'رجعت أيقونة المتصفح الأصلية', 'success'); R(); };
+    const favIn = h('input', { type: 'file', class: 'sr-file', id: 'fav-up', accept: 'image/png,image/svg+xml,image/webp,image/jpeg,image/x-icon,image/vnd.microsoft.icon', onChange: async () => { const f = favIn.files[0]; favIn.value = ''; if (!f) return;
+      if (f.size > 2 * 1024 * 1024) { K.toast('الصورة أكبر من 2MB', 'error'); return; }
+      const src = await readData(f); const img = new Image();
+      img.onload = () => { const c = document.createElement('canvas'); c.width = 64; c.height = 64; const x = c.getContext('2d'); const k = Math.min(64 / (img.naturalWidth || 64), 64 / (img.naturalHeight || 64)); const w = (img.naturalWidth || 64) * k; const hh = (img.naturalHeight || 64) * k; x.drawImage(img, (64 - w) / 2, (64 - hh) / 2, w, hh);
+        const d = c.toDataURL('image/png'); if (!L.cleanFavicon(d)) { K.toast('الأيقونة دي مش مقبولة — جرّب صورة أبسط', 'error'); return; } saveFav(d, 'صورة'); };
+      img.onerror = () => K.toast('الصورة دي مابتتقريش — ارفع PNG أو SVG', 'error'); img.src = src; } });
+    const favNow = fav || (document.querySelector('link[rel~="icon"]') || {}).href || null;
+    const favSec = K.Section('أيقونة المتصفح (Favicon)', [
+      h('div', { class: 'fav-pv', 'data-fav-pv': '' }, favNow ? h('img', { class: 'fav-big', src: favNow, alt: '' }) : h('span', { class: 'fav-big' }), h('span', { class: 'fav-tab' }, favNow ? h('img', { src: favNow, alt: '' }) : null, h('span', null, document.title || 'نظام إبتكر'))),
+      vrow('الأيقونة', 'اللي بتظهر في تاب المتصفح وفي المفضّلة — أي صورة مربعة (PNG / SVG / ICO)، بتتصغّر لـ 64×64', h('div', { class: 'acts-inline start' }, h('label', { class: 'btn btn-default sm', for: 'fav-up', tabindex: '0', role: 'button', 'data-fav-up': '', onKeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); favIn.click(); } } }, Icon('upload', 'sm'), h('span', null, fav ? 'غيّر الأيقونة' : 'ارفع أيقونة')), favIn)),
+    ], fav ? Button({ type: 'text', size: 'sm', label: 'رجّع الأصلي', attrs: { 'data-fav-reset': '' }, onClick: () => saveFav(null, 'الأصلي') }) : null, { cols: false, th: false });
+    return [loaderSec, favSec];
   }
 
   // ---------- the AI providers (decision 14): the defaults per section and per tool, from the row «ai» ----------

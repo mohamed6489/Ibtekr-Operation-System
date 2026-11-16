@@ -7,8 +7,12 @@
 //          attached, reply-to the member's own email; { ok: true }
 // The checks: one address (a plain email), the subject ≤ 150 and the text ≤ 4000 characters without < >, the file ≤ 8 MB and of
 // its kind by its first bytes (an Excel = a zip «PK», a PDF «%PDF»), its name a plain file name of that kind; 30 mails a member
-// an hour (counted on activity_log share.email). No Resend = 503 not_configured; Resend refuses = 502 refused.
-// activity_log: share.email with the file's kind only — never the address, the subject, the text or the file.
+// an hour. No Resend = 503 not_configured; Resend refuses = 502 refused.
+// The hour's count (security review): each try is written first to activity_log share.email WITH THE MEMBER'S OWN JWT — the table's
+// trigger (0002 activity_log_actor) stamps actor = auth.uid(), so a row written with the service key would carry no actor and
+// never count — and then the member's rows of the last hour are counted, this one included; the 31st is refused, and a try that
+// cannot be written is refused too (fail closed). The row has the file's kind only — never the address, the subject, the text or
+// the file — and stays whether Resend took the mail or not (a try counts).
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { withVault } from '../_shared/secrets.js';
 
@@ -16,7 +20,7 @@ import { withVault } from '../_shared/secrets.js';
 type Db = any;
 // deno-lint-ignore no-explicit-any
 type Json = Record<string, any>;
-export type Deps = { env: Record<string, string | undefined>; db: Db; now: () => string; userId?: (jwt: string) => Promise<string | null>; fetch?: typeof fetch };
+export type Deps = { env: Record<string, string | undefined>; db: Db; now: () => string; userId?: (jwt: string) => Promise<string | null>; userDb?: (jwt: string) => Db; fetch?: typeof fetch };
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Access-Control-Allow-Methods': 'POST, OPTIONS' };
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json' } });
@@ -64,7 +68,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
   if (req.method !== 'POST') return json(405, { error: 'method' });
   const jwt = /^Bearer\s+(\S+)$/i.exec(req.headers.get('authorization') ?? '')?.[1];
   const uid = jwt && deps.userId ? await deps.userId(jwt) : null;
-  if (!uid) return json(401, { error: 'unauthorized' });
+  if (!uid || !deps.userDb) return json(401, { error: 'unauthorized' });
   let args: Json;
   try { args = await req.json(); } catch { return json(400, { error: 'bad_json' }); }
   if (!isObj(args)) return json(400, { error: 'bad_json' });
@@ -76,11 +80,14 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (!input.ok) return json(400, { error: 'invalid', field: input.field });
     const key = (deps.env.RESEND_API_KEY ?? '').trim();
     if (!key) return json(503, { error: 'not_configured' });
+    const v = input.v;
+    // the try first, as the member (the trigger stamps him and the time); not written = not sent
+    const { error: wErr } = await deps.userDb(jwt as string).from('activity_log').insert({ action: 'share.email', entity: 'share', entity_id: v.file ? v.file.kind : 'text', new_value: null });
+    if (wErr) return json(503, { error: 'not_logged' });
     const since = new Date(Date.parse(deps.now()) - 3_600_000).toISOString();
-    const { data: sent, error: cErr } = await deps.db.from('activity_log').select('id').eq('actor', uid).eq('action', 'share.email').gte('at', since);
+    const { data: tries, error: cErr } = await deps.db.from('activity_log').select('id').eq('actor', uid).eq('action', 'share.email').gte('at', since);
     if (cErr) throw new Error('activity_log: ' + cErr.message);
-    if ((sent ?? []).length >= PER_HOUR) return json(429, { error: 'too_many' });
-    const v = input.v; const reply = typeof me.email === 'string' && EMAIL.test(me.email) ? me.email : null;
+    if ((tries ?? []).length > PER_HOUR) return json(429, { error: 'too_many' }); const reply = typeof me.email === 'string' && EMAIL.test(me.email) ? me.email : null;
     const mail: Json = { from: (deps.env.RESEND_FROM ?? '').trim() || 'alerts@ibtekr.club', to: [v.to], subject: v.subject, html: mailHtml(v.subject, v.text, line(me.name, 80)), text: v.text || v.subject };
     if (reply) mail.reply_to = reply;
     if (v.file) mail.attachments = [{ filename: v.file.name, content: v.file.data }];
@@ -90,7 +97,6 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
       ok = res.ok;
     } catch { ok = false; }
     if (!ok) return json(502, { error: 'refused' });
-    try { await deps.db.from('activity_log').insert({ at: deps.now(), actor: uid, action: 'share.email', entity: 'share', entity_id: v.file ? v.file.kind : 'text', new_value: null }); } catch { /* never blocks */ }
     return json(200, { ok: true });
   } catch (e) {
     console.error('share-mail: ' + errText(e));
@@ -103,7 +109,8 @@ let service: Db = null;
 function realDeps(): Deps {
   const env = Deno.env.toObject();
   service ??= createClient(env.SUPABASE_URL ?? '', env.SUPABASE_SERVICE_ROLE_KEY ?? '', NO_SESSION);
-  return { env, db: service, now: () => new Date().toISOString(), userId: async (jwt) => { const { data, error } = await service.auth.getUser(jwt); return error ? null : data?.user?.id ?? null; } };
+  return { env, db: service, now: () => new Date().toISOString(), userId: async (jwt) => { const { data, error } = await service.auth.getUser(jwt); return error ? null : data?.user?.id ?? null; },
+    userDb: (jwt) => createClient(env.SUPABASE_URL ?? '', env.SUPABASE_ANON_KEY ?? '', { ...NO_SESSION, global: { headers: { Authorization: `Bearer ${jwt}` } } }) };
 }
 
 if (import.meta.main || 'EdgeRuntime' in globalThis) Deno.serve(async (req) => handler(req, await withVault(realDeps())));

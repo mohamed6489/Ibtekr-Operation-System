@@ -10,11 +10,13 @@ const OFF = '00000000-0000-4000-8000-0000000000a2';
 const b64 = (bytes: number[]) => btoa(String.fromCharCode(...bytes));
 const XLSX = b64([0x50, 0x4b, 0x03, 0x04, 1, 2, 3, 4, 5]);
 const PDF = b64([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34]);
-function setup(opts: { key?: boolean; status?: number; log?: any[] } = {}) {
+function setup(opts: { key?: boolean; status?: number; log?: any[]; logFails?: boolean } = {}) {
   const db = fakeDb({ profiles: [{ id: ME, name: 'صفوت', email: 'owner@ibtekr.club', status: 'active' }, { id: OFF, name: 'موقوف', email: 'off@ibtekr.club', status: 'inactive' }], activity_log: opts.log ?? [] });
   const sent: any[] = [];
   const deps = { env: opts.key === false ? {} : { RESEND_API_KEY: 're_test' }, db, now: () => NOW,
     userId: async (jwt: string) => (jwt === 'jwt-me' ? ME : jwt === 'jwt-off' ? OFF : null),
+    // the member's own client: 0002's trigger stamps actor = auth.uid() and at = now(), whatever was passed
+    userDb: (jwt: string) => ({ from: (t: string) => ({ insert: async (row: any) => (opts.logFails ? { error: { code: '42501', message: 'rls' } } : db.from(t).insert({ ...row, actor: jwt === 'jwt-me' ? ME : null, at: NOW })) }) }),
     fetch: (async (url: string, init: any) => { sent.push({ url, body: JSON.parse(init.body), auth: init.headers.Authorization }); return new Response('{}', { status: opts.status ?? 200 }); }) as any };
   return { db, sent, deps };
 }
@@ -38,6 +40,7 @@ Deno.test('share-mail: an active member sends one mail with the file to the addr
   assertEquals(sent.at(-1).body.attachments[0].filename, 'x.pdf');
   assertEquals((await call(deps, { to: 'a@b.co', subject: 'لينك', text: 'https://x.y' })).body, { ok: true });
   assertEquals(sent.at(-1).body.attachments, undefined);
+  assertEquals(db.rows('activity_log').map((r: any) => [r.actor, r.entity_id]), [[ME, 'xlsx'], [ME, 'pdf'], [ME, 'text']], 'each try under the member, written before the send');
 });
 
 Deno.test('share-mail: no JWT / a stranger / a suspended member → 401; a bad address, subject, file kind or bytes → 400 before Resend', async () => {
@@ -58,10 +61,17 @@ Deno.test('share-mail: no Resend → 503; Resend refuses → 502 and nothing log
   assertEquals([(await call(none.deps, GOOD)).res.status, none.sent.length], [503, 0]);
   const refused = setup({ status: 422 });
   const r = await call(refused.deps, GOOD);
-  assertEquals([r.res.status, r.body.error, refused.db.rows('activity_log').length], [502, 'refused', 0]);
+  assertEquals([r.res.status, r.body.error, refused.db.rows('activity_log').length], [502, 'refused', 1], 'a try counts');
   const at = new Date(Date.parse(NOW) - 600_000).toISOString();
   const full = setup({ log: Array.from({ length: PER_HOUR }, (_, i) => ({ id: i + 1, at, actor: ME, action: 'share.email', entity: 'share', entity_id: 'pdf' })) });
   assertEquals([(await call(full.deps, GOOD)).res.status, full.sent.length], [429, 0]);
+  // the hour's limit counts every try, one after the other: 30 go, the 31st does not
+  const run = setup();
+  for (let i = 0; i < PER_HOUR; i++) assertEquals((await call(run.deps, GOOD)).res.status, 200, 'try ' + (i + 1));
+  assertEquals([(await call(run.deps, GOOD)).res.status, run.sent.length], [429, PER_HOUR]);
+  // a try that cannot be written is not sent (fail closed)
+  const closed = setup({ logFails: true });
+  assertEquals([(await call(closed.deps, GOOD)).res.status, closed.sent.length], [503, 0]);
 });
 
 Deno.test('share-mail: mailInput cleans the subject and text (no < >), keeps the lines; mailHtml escapes', () => {

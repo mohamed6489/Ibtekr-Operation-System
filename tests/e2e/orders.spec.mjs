@@ -713,6 +713,23 @@ test('the date picker opens right under its field with the page scrolled, and fo
   await expect.poll(gap).toBe(4);
 });
 
+// the owner 16 Nov: «اظبط ال ui بتاع البوب اب ده بشكل احترافي و منظم و كمان زود زر اني افتح الاوردر في صفحة الاوردارات» — the order popup
+// opens on its states as pills and a money strip, and «افتح في صفحة الأوردرات» shows that one order on the page, open
+test('the order popup: states as pills, a money strip, and «افتح في صفحة الأوردرات» shows that order open on the page', async ({ page }) => {
+  await openOrders(page);
+  await page.evaluate(() => window.OrdersApp.details('181668', 'info'));
+  const dlg = page.locator('#orders #cdlg');
+  await expect(dlg.locator('#dmeta .dpill')).toHaveCount(3);
+  await expect(dlg.locator('[data-dsum] .ds')).toHaveCount(4);
+  await expect(dlg.locator('[data-dsum]')).toContainText('المتبقي بعد العربون');
+  await expect(dlg.locator('.dnote')).toContainText('WooCommerce');
+  await dlg.locator('[data-dopen]').click();
+  await expect(page.locator('#orders #cdlg')).toHaveCount(0);
+  await expect(cards(page)).toHaveCount(1);
+  await expect(cards(page).first()).toHaveAttribute('data-o', '181668');
+  await expect(card(page, '181668').locator('[data-tg="181668"]')).toHaveAttribute('aria-label', 'طي');
+});
+
 test('Escape on a sub-order comment drops what was typed (a redraw keeps only unsaved comments)', async ({ page }) => {
   await openOrders(page);
   const cm = page.locator('#orders textarea[data-ce="5002"]');

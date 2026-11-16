@@ -628,3 +628,72 @@ Deno.test('assistant: no key → 503 with an error row; a refusal → 200 refuse
   assertEquals((await call(s5.deps, ASSIST('x'), 'jwt-view')).res.status, 402, 'a chat turn reserves 3.5');
   assertEquals((await call(s5.deps, { action: 'assistant', mode: 'filter', turns: [{ role: 'user', text: 'المكتمل' }] }, 'jwt-view')).res.status, 200, 'the filter mode reserves one call');
 });
+
+// comments decision 69 («آخر التريندات» — the designer): Claude with the web search tool; the rows whose link the search returned
+// are written to mkt_trends as one batch; a paused turn is resumed; the run row holds the tokens of every call and the searches
+const found = (url: string, title: string) => ({ type: 'web_search_result', url, title, encrypted_content: 'x', page_age: null });
+const searched = (id: string, list: unknown) => [{ type: 'server_tool_use', id, name: 'web_search', input: { query: 'instagram trends this month' } }, { type: 'web_search_tool_result', tool_use_id: id, content: list }];
+const TREND_JSON = { trends: [
+  { title: 'كاروسيل «قبل وبعد» (Before / After)', summary: 'صورتين ورا بعض للمنتج قبل وبعد الاستخدام — ينفع لقطع الديكور.', source: 'Later', url: 'https://later.com/blog/instagram-trends/', kind: 'image' },
+  { title: 'ريلز «يوم في الورشة»', summary: 'لقطات سريعة من تصنيع القطعة بإيد المبتكر.', source: 'Hootsuite', url: 'https://blog.hootsuite.com/made-up-path/', kind: 'video' },
+  { title: 'تريند من موقع ماتبحثش فيه', summary: 'x', source: 'Nowhere', url: 'https://nowhere.example/trend', kind: 'video' },
+  { title: 'كاروسيل «قبل وبعد» (Before / After)', summary: 'مكرر', source: 'Later', url: 'https://later.com/blog/instagram-trends/', kind: 'image' },
+  { title: 'ألوان ترابية <b>', summary: 'خلفيات بيج وأخضر زيتي.', source: '', url: 'https://later.com/blog/instagram-trends/?utm_source=x#top', kind: 'poster' }] };
+const trendsMsg = (extra: any = {}) => ({ ...msg('', { model: 'claude-sonnet-5-5' }), content: [
+  ...searched('srvtoolu_1', [found('https://later.com/blog/instagram-trends/', 'Instagram trends'), found('https://blog.hootsuite.com/social-media-trends/', 'Social trends'), found('http://plain.example/x', 'not https')]),
+  { type: 'text', text: 'دي آخر التريندات:\n```json\n' + JSON.stringify(TREND_JSON).slice(0, 80) }, { type: 'text', text: JSON.stringify(TREND_JSON).slice(80) + '\n```', citations: [] }],
+  usage: { input_tokens: 20000, output_tokens: 1500, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, server_tool_use: { web_search_requests: 3 } }, ...extra });
+
+Deno.test('trends (comments decision 69): marketing.create or the admin; the web search tool with the admin\'s sites; the rows on a page the search returned are stored as one batch (a made-up path takes the site\'s returned page, a site the search never returned is dropped, the same trend once); the run row counts the tokens and the searches', async () => {
+  const seed = { settings: [{ section: 'ai', data: { model: 'claude-sonnet-5-5', effort: 'low' } }, { section: 'marketing', data: { trends: { sources: ['Later.com', 'https://www.hootsuite.com/blog', 'not a host', 'later.com'] } } }] };
+  const { deps, asked, db } = setup({ seed, replies: [trendsMsg()] });
+  for (const jwt of ['jwt-add', 'jwt-mview', null]) assertEquals((await call(deps, { action: 'trends' }, jwt)).res.status, 401);
+  assertEquals(asked.length, 0);
+  assertEquals((await call(deps, { action: 'trends', focus: 'هدايا <b>' }, 'jwt-mkt')).body, { error: 'bad_request', field: 'focus' });
+  const { res, body } = await call(deps, { action: 'trends', focus: 'هدايا الشتا' }, 'jwt-mkt');
+  assertEquals([res.status, body.result, body.count, body.model], [200, 'ok', 3, 'claude-sonnet-5-5']);
+  // the request: the search tool (the newest variant, five searches, the admin's two sites), the focus as data, no forced format
+  const p = asked[0];
+  assertEquals(p.tools, [{ type: 'web_search_20260209', name: 'web_search', max_uses: 5, allowed_domains: ['later.com', 'hootsuite.com'] }]);
+  assertEquals([p.model, p.output_config, p.fallbacks], ['claude-sonnet-5-5', { effort: 'low' }, 'default']);
+  assert(p.messages[0].content[0].text.includes('<focus>هدايا الشتا</focus>') && p.messages[0].content[0].text.startsWith('Today is ' + NOW.slice(0, 10)));
+  // the rows
+  const rows = db.rows('mkt_trends');
+  assertEquals(rows.map((r: any) => [r.title, r.source, r.url, r.kind]), [
+    ['كاروسيل «قبل وبعد» (Before / After)', 'Later', 'https://later.com/blog/instagram-trends/', 'image'],
+    ['ريلز «يوم في الورشة»', 'Hootsuite', 'https://blog.hootsuite.com/social-media-trends/', 'video'],
+    ['ألوان ترابية', 'later.com', 'https://later.com/blog/instagram-trends/', 'image']]); // the tag is stripped
+  assert(rows.every((r: any) => r.batch === rows[0].batch && r.created_by === U.mkt && r.found_at === NOW));
+  // 20,000 in + 1,500 out on Sonnet 5.5 ($2 / $10) = 0.055, and three searches at a cent
+  const [run] = db.rows('ai_runs');
+  assertEquals([run.action, run.source, run.label, run.status, run.input_tokens, run.output_tokens, Number(run.cost_usd), run.output], ['marketing', 'trends', 'هدايا الشتا', 'ok', 20000, 1500, 0.085, { count: 3, searches: 2 }]);
+  assertEquals(body.cost_usd, 0.085);
+});
+
+Deno.test('trends: a paused turn is sent back as it is and resumed (its searches and tokens counted once each); no page returned → 502 no_search with the search\'s code and nothing stored; no table yet → 503 before any call; no rows in the answer → 502', async () => {
+  const paused = { ...msg('', { model: 'claude-opus-5-5' }), stop_reason: 'pause_turn', content: searched('srvtoolu_1', [found('https://later.com/blog/instagram-trends/', 'Instagram trends')]),
+    usage: { input_tokens: 5000, output_tokens: 100, server_tool_use: { web_search_requests: 1 } } };
+  const done = { ...msg('```json\n' + JSON.stringify({ trends: [TREND_JSON.trends[0]] }) + '\n```'), usage: { input_tokens: 6000, output_tokens: 400 } };
+  const a = setup({ replies: [paused, done] });
+  const ok = await call(a.deps, { action: 'trends' }, 'jwt-admin');
+  assertEquals([ok.res.status, ok.body.count, a.asked.length], [200, 1, 2]);
+  assertEquals(a.asked[1].messages.map((m: any) => m.role), ['user', 'assistant']);
+  assertEquals(a.asked[1].messages[1].content, paused.content);
+  // Opus 5.5 ($4 / $20): 11,000 in + 500 out = 0.054, and one search
+  const [run] = a.db.rows('ai_runs');
+  assertEquals([run.input_tokens, run.output_tokens, Number(run.cost_usd), run.label], [11000, 500, 0.064, 'trends']);
+  // the search answered an error object: nothing to stand a row on
+  const off = { ...msg('```json\n' + JSON.stringify(TREND_JSON) + '\n```'), content: [...searched('srvtoolu_1', { type: 'web_search_tool_result_error', error_code: 'unavailable' }), { type: 'text', text: '```json\n' + JSON.stringify(TREND_JSON) + '\n```' }] };
+  const b = setup({ replies: [off] });
+  const none = await call(b.deps, { action: 'trends' }, 'jwt-admin');
+  assertEquals([none.res.status, none.body], [502, { error: 'no_search', code: 'unavailable' }]);
+  assertEquals([b.db.rows('mkt_trends').length, b.db.rows('ai_runs')[0].status, b.db.rows('ai_runs')[0].error], [0, 'error', 'no_search']);
+  // 0109 not applied yet: no call, no run row
+  const c = setup({ replies: [trendsMsg()], fail: (q: any) => (q.table === 'mkt_trends' ? { code: '42P01', message: 'relation "public.mkt_trends" does not exist' } : null) });
+  const early = await call(c.deps, { action: 'trends' }, 'jwt-admin');
+  assertEquals([early.res.status, early.body, c.asked.length, c.db.rows('ai_runs').length], [503, { error: 'not_ready' }, 0, 0]);
+  // an answer with no list
+  const d = setup({ replies: [{ ...trendsMsg(), content: [...searched('srvtoolu_1', [found('https://later.com/blog/instagram-trends/', 'x')]), { type: 'text', text: 'مش لاقي حاجة' }] }] });
+  assertEquals((await call(d.deps, { action: 'trends' }, 'jwt-admin')).res.status, 502);
+  assertEquals(d.db.rows('mkt_trends').length, 0);
+});

@@ -1539,19 +1539,106 @@
         kind === 'designer' ? U.InlineNote({ children: 'اقتراح «نسخة جديدة» من الميديا باير لما يتوافق عليه بيتحط هنا طلب لوحده.' }) : kind === 'dev' ? U.InlineNote({ children: 'المبرمج مايقدرش ينشر على الموقع اللايف من غير موافقتك.' }) : null],
       askBtn(kind));
   }
+  // ---------- «آخر التريندات» (comments decision 69 — the owner 15 Nov: «يجمعلي اخر التريندات من مواقع بتنزل التريندات تبقي في جدول
+  // منظم و يبقي في عمود للموقع ال source و خانة للنوع ده صورة ولا فيديو»): the designer's section — the rows the server found on
+  // the web (Claude's web search, ai-content `trends`), newest first: the trend, its kind, the site it came from (a link) and the
+  // day; «حدّث التريندات» asks what the team cares about first (the instructions popup) and brings a new batch ----------
+  const TR = { at: 0, busy: false, asking: false };
+  const dayOf = (iso) => { const d = new Date(iso); return isNaN(d) ? '' : new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo' }).format(d); };
+  function trLoad(force) {
+    if (!MK() || !MK().trends || !can().view || TR.busy || (!force && TR.at && Date.now() - TR.at < 60000)) return;
+    TR.busy = true;
+    MK().trends(force).then(() => { TR.at = Date.now(); TR.busy = false; if (window.IBPages.current === 'marketing' && st.view === 'hub' && !document.querySelector('.scrim')) R(); });
+  }
+  async function trRefresh() {
+    if (TR.asking) return;
+    const a = await window.IBAIAsk({ title: 'حدّث التريندات', intro: 'Claude هيدوّر على الويب على آخر تريندات السوشيال والتصميم ويحط اللي لقاه في الجدول بمصدره. لو مهتم بحاجة معينة اكتبها (مثلًا: هدايا الشتا) — أو سيبها فاضية.' });
+    if (!a) return;
+    TR.asking = true; R();
+    const pill = K.busy ? K.busy('بندوّر على آخر التريندات… ممكن ياخد دقيقة') : null;
+    const r = await MK().trendsRefresh(a.notes || '');
+    TR.asking = false; TR.at = Date.now();
+    if (!r.ok) { if (pill) pill.fail(r.message); else K.toast(r.message, 'error'); R(); return; }
+    if (pill) pill.done('اتحدّثت التريندات — ' + K.n0(r.count) + ' تريند'); else K.toast('اتحدّثت التريندات', 'success');
+    R();
+  }
+  const TR_KIND = { image: ['صورة', 'gold', 'image'], video: ['فيديو', 'info', 'play'] };
+  function trendsCard() {
+    trLoad(false);
+    const L = MK().trendsNow ? MK().trendsNow() : []; const ready = !MK().trendsReadyNow || MK().trendsReadyNow();
+    const rows = (L || []).map((x) => { const k = TR_KIND[x.kind] || TR_KIND.image;
+      return [h('span', { class: 'mk-trend', 'data-mk-trend': String(x.id) }, h('b', null, x.title), x.summary ? h('small', null, x.summary) : null), h('span', { 'data-mk-trend-kind': x.kind }, Tag(k[1], k[0])),
+        h('a', { class: 'mk-out', href: x.url, target: '_blank', rel: 'noopener noreferrer', title: 'افتح المصدر في تاب جديد', 'data-mk-trend-src': String(x.id) }, h('span', null, x.source), Icon('external', 'sm')),
+        K.Num(x.at ? D2(dayOf(x.at)) : '—')]; });
+    const last = L && L.length ? dayOf(L[0].at) : null;
+    const go = can().create && ready ? Button({ size: 'sm', type: 'primary', icon: 'sparkle', label: TR.asking ? 'بيدوّر…' : 'حدّث التريندات', disabled: TR.asking, attrs: { 'data-mk-trends-go': '' }, onClick: trRefresh }) : null;
+    return Card('آخر التريندات', last ? 'آخر تحديث ' + D2(last) + ' · من مواقع بتنشر التريندات، وكل تريند بمصدره' : 'من مواقع بتنشر التريندات — كل تريند بمصدره ونوعه',
+      [!L ? K.Empty('بيحمّل…', '') : !ready ? U.InlineNote({ children: 'القسم ده مستني تحديث قاعدة البيانات — هيشتغل بعد التحديث الجاي.' })
+        : rows.length ? U.Table({ cls: 'dt mk-trends-t', headers: ['التريند', 'النوع', 'المصدر', 'اتلقى'], rows })
+        : K.Empty('لسه مفيش تريندات', can().create ? 'دوس «حدّث التريندات» — Claude بيدوّر على الويب ويجيب آخر التريندات بمصادرها.' : 'اللي معاه «التسويق: إنشاء» بيحدّثها.'),
+      rows.length ? h('p', { class: 't-small help', style: 'margin:0' }, 'المصادر من نتايج البحث على الويب — افتح المصدر وراجعه قبل ما تبني عليه. التحديث بيتحسب على سقف الـ AI الشهري.') : null],
+      go, 'mk-trends', { noun: 'تريند' });
+  }
+  // ---------- «إعلانات المنافسين» (comments decision 70 — the owner 15 Nov: «اعملي قسم تاني يبقي فيه اعلانات اللي المنافسين في
+  // الميديا باير و يجيبها من [مكتبة إعلانات ميتا]»): the media buyer's second section — the competitors the team follows, each
+  // opened in Meta's Ad Library on its running ads (the page's own list by its number, else a search by a word), and a search
+  // of the library by any word. Nothing is pulled: the library's API gives commercial ads for the EU / UK only ----------
+  const CP = { at: 0, busy: false, q: '' };
+  function cpLoad(force) {
+    if (!MK() || !MK().competitors || !can().view || CP.busy || (!force && CP.at && Date.now() - CP.at < 60000)) return;
+    CP.busy = true;
+    MK().competitors(force).then(() => { CP.at = Date.now(); CP.busy = false; if (window.IBPages.current === 'marketing' && st.view === 'hub' && !document.querySelector('.scrim')) R(); });
+  }
+  const libLink = (c, label, attrs) => h('a', Object.assign({ class: 'btn btn-default sm mk-lib', href: W.adLibraryUrl(c), target: '_blank', rel: 'noopener noreferrer', title: 'يفتح مكتبة إعلانات ميتا في تاب جديد' }, attrs || {}), Icon('external', 'sm'), h('span', null, label));
+  function compForm(x) {
+    const isNew = !x;
+    K.form({ title: isNew ? 'منافس جديد' : 'تعديل «' + x.name + '»', submitLabel: isNew ? 'ضيف المنافس' : 'احفظ',
+      values: { name: x ? x.name : '', page: x ? (x.pageUrl || x.pageId) : '', keyword: x ? x.keyword : '', note: x ? x.note : '' },
+      fields: (f, e, set) => [K.field.text('name', 'اسم المنافس', f, e, set, { required: true, maxlength: 80, placeholder: 'اسم البراند أو الصفحة' }),
+        K.field.text('page', 'صفحته على فيسبوك أو إنستجرام', f, e, set, { placeholder: 'لينك الصفحة، أو رقمها (Page ID)', help: 'برقم الصفحة المكتبة بتفتح على إعلاناته هو بالظبط — موجود في الصفحة › About › Page transparency. من غيره بندوّر بالاسم أو كلمة البحث.' }),
+        K.field.text('keyword', 'كلمة البحث في المكتبة (اختياري)', f, e, set, { maxlength: 80, placeholder: 'لو فاضية بندوّر باسمه' }),
+        K.field.area('note', 'ملاحظة (اختياري)', f, e, set, { rows: 2, maxlength: 300, placeholder: 'بيبيع إيه · بيعلن على إيه' })],
+      validate: (f) => { const v = W.competitorRow(f); return v.error ? { [v.error === 'text' ? 'name' : v.error]: { name: 'اكتب اسم المنافس (لحد 80 حرف)', page: 'لينك صفحة فيسبوك أو إنستجرام، أو رقم الصفحة', keyword: 'لحد 80 حرف', note: 'لحد 300 حرف', text: 'من غير < أو >' }[v.error] } : {}; },
+      submit: async (f) => { const r = await MK().competitorSave(x ? x.id : null, f); K.toast(r.ok ? (isNew ? 'اتضاف المنافس' : 'اتحفظ') : r.message, r.ok ? 'success' : 'error'); CP.at = Date.now(); R(); } });
+  }
+  function compRemove(x) {
+    K.confirm({ title: 'تشيل «' + x.name + '» من المنافسين؟', text: 'بيتشال من القايمة هنا بس.', okLabel: 'شيله', okType: 'danger',
+      onOk: async () => { const r = await MK().competitorArchive(x.id); K.toast(r.ok ? 'اتشال من القايمة' : r.message, r.ok ? 'success' : 'error'); CP.at = Date.now(); R(); } });
+  }
+  function competitorsCard() {
+    cpLoad(false);
+    const L = MK().competitorsNow ? MK().competitorsNow() : []; const ready = !MK().competitorsReadyNow || MK().competitorsReadyNow(); const edit = can().create;
+    const rows = (L || []).map((x) => [h('span', { class: 'mk-trend', 'data-mk-comp': String(x.id) }, h('b', null, x.name), x.note ? h('small', null, x.note) : null),
+      x.pageUrl ? h('a', { class: 'mk-out', href: x.pageUrl, target: '_blank', rel: 'noopener noreferrer', title: 'افتح صفحته' }, h('span', null, 'صفحته'), Icon('external', 'sm')) : x.pageId ? K.Num(x.pageId) : '—',
+      h('span', { class: 't-small' }, x.pageId ? 'إعلانات الصفحة نفسها' : 'بحث بـ «' + (x.keyword || x.name) + '»'),
+      libLink(x, 'إعلاناته دلوقتي', { 'data-mk-comp-ads': String(x.id) }),
+      edit ? K.RowMenu([{ label: 'تعديل', icon: 'edit', run: () => compForm(x) }, { label: 'شيله من القايمة', icon: 'trash', danger: true, run: () => compRemove(x) }], 'خيارات ' + x.name) : '']);
+    const inp = h('input', { type: 'text', class: 'input grow', id: 'mk-lib-q', maxlength: '80', placeholder: 'اسم منتج أو براند أو كلمة… (مثلًا: مكرمية)', 'aria-label': 'كلمة البحث في مكتبة الإعلانات', value: CP.q,
+      onInput: () => { CP.q = inp.value; const a = document.querySelector('[data-mk-lib-go]'); if (a) { const on = !!inp.value.trim(); a.setAttribute('href', on ? W.adLibraryUrl({ keyword: inp.value }) : '#'); a.classList.toggle('disabled', !on); a.setAttribute('aria-disabled', String(!on)); } },
+      onKeydown: (e) => { if (e.key === 'Enter' && inp.value.trim()) { const a = document.querySelector('[data-mk-lib-go]'); if (a) a.click(); } } });
+    const go = libLink({ keyword: CP.q }, 'دوّر في المكتبة', { 'data-mk-lib-go': '', 'aria-disabled': String(!CP.q.trim()), class: 'btn btn-default sm mk-lib' + (CP.q.trim() ? '' : ' disabled'), onClick: (e) => { if (!CP.q.trim()) e.preventDefault(); } });
+    if (!CP.q.trim()) go.setAttribute('href', '#');
+    return Card('إعلانات المنافسين', 'من مكتبة إعلانات ميتا · الإعلانات الشغّالة دلوقتي في مصر',
+      [!L ? K.Empty('بيحمّل…', '') : !ready ? U.InlineNote({ children: 'القسم ده مستني تحديث قاعدة البيانات — هيشتغل بعد التحديث الجاي.' }) : [
+        h('div', { class: 'mk-lib-row' }, inp, go),
+        rows.length ? U.Table({ cls: 'dt mk-comp-t', headers: ['المنافس', 'الصفحة', 'المكتبة بتفتح على', 'الإعلانات', ''], rows })
+          : K.Empty('لسه مفيش منافسين', edit ? 'ضيف المنافسين اللي بتتابعهم — كل واحد بيتفتح على إعلاناته الشغّالة في مكتبة ميتا.' : 'اللي معاه «التسويق: إنشاء» بيضيفهم.'),
+        U.InlineNote({ children: 'الإعلانات بتتفتح في مكتبة إعلانات ميتا نفسها (تاب جديد). ميتا مابتدّيش الإعلانات التجارية بتاعة مصر عن طريق الـ API — للاتحاد الأوروبي وبريطانيا بس — فالسيستم بيفتحلك كل منافس على إعلاناته هناك.' })]],
+      edit && ready ? Button({ size: 'sm', type: 'primary', icon: 'plus', label: 'منافس', attrs: { 'data-mk-comp-add': '' }, onClick: () => compForm(null) }) : null, 'mk-comp mk-wide', { noun: 'منافس' });
+  }
   function aiTab() {
     byLoad(false);
     const cnt = (kind) => (reqsOf(kind) || []).filter((q) => q.open).length || null;
     const sub = K.SubTabs({ items: [{ id: 'buyer', label: 'الميديا باير', count: byPending().length || null }, { id: 'designer', label: 'الديزاينر', count: cnt('designer') }, { id: 'dev', label: 'المبرمج', count: cnt('dev') }], active: BY.aiTab, onChange: (id) => { BY.aiTab = id; R(); }, label: 'المساعدين' });
     const chat = agentChat(BY.aiTab);
-    if (BY.aiTab !== 'buyer') return [sub, chat, reqsCard(BY.aiTab)];
+    if (BY.aiTab !== 'buyer') return [sub, chat, reqsCard(BY.aiTab), BY.aiTab === 'designer' ? trendsCard() : null];
     const pend = byPending(); const past = (BY.sugg || []).filter((x) => x.status !== 'pending').slice(0, 8);
     const under = h('div', { class: 'grid2 mk-agent-under' },
       Card('مستني موافقتك (' + K.n0(pend.length) + ')', 'وافق أو ارفض · كل إجراء بيتسجل في سجل النشاط', [BY.sugg ? (pend.length ? h('div', { class: 'mk-list', 'data-mk-pending': String(pend.length) }, pend.map((x) => sgItem(x, () => openSugg(x)))) : K.Empty('مفيش حاجة مستنية', 'الاقتراحات بتتجدد مع كل مزامنة لأرقام ميتا.')) : K.Empty('بيحمّل…', ''),
         h('p', { class: 't-small help', style: 'margin:0' }, 'الضغط على اقتراح بيفتحه: الأرقام · السبب · «وافق» / «ارفض» / «عدّل»')]),
       past.length ? Card('آخر القرارات', 'آخر 30 يوم', [h('div', { class: 'mk-list', 'data-mk-past': String(past.length) }, past.map((x) => h('button', { type: 'button', class: 'mk-item', 'data-mk-sugg': String(x.id), onClick: () => openSugg(x) }, h('span', { class: 'mk-txt' }, h('b', null, x.title), h('small', null, U.num(decidedLine(x)))), Tag((SG_ST[x.status] || SG_ST.pending)[1], (SG_ST[x.status] || SG_ST.pending)[0]))))]) : null,
       reqsCard('buyer'), rulesCard());
-    return [sub, chat, under];
+    return [sub, chat, under, competitorsCard()];
   }
   // the overview's card (the v5): the open suggestions, the whole list from the assistants' tab
   function suggCard() {

@@ -26,6 +26,11 @@
 //            read from mkt_agent_messages, the admin's instructions from settings.marketing.agents, the buyer's ads numbers read
 //            here; after the answer the server writes the question and the answer (and makes the chat on its first message,
 //            named by it). Text only — nothing runs from a chat; ai_runs action 'marketing', source 'agent'.
+//   'trends' (comments decision 69; the admin or marketing.create) { focus? } → { result: 'ok', count, model, cost_usd, run_id }:
+//            «آخر التريندات» of the designer — Claude with the web search server tool (the admin's preferred sites from
+//            settings.marketing.trends.sources, if any) answers a JSON list; the rows whose link the search returned are written
+//            to mkt_trends (0109) as one batch (the page shows the last ones; nothing is deleted). 503 not_ready before 0109, 502 no_search
+//            when the search answered nothing. ai_runs action 'marketing', source 'trends' (the tokens and the searches).
 // All only suggest: nothing is written to the site, the batch or the campaign (the page saves through product_save / IBStudio.save /
 // IBMarketing.save).
 // A request declined by the model's safety classifiers runs again on Anthropic's recommended model in the same call
@@ -45,6 +50,7 @@ import { vaultEnv } from '../_shared/secrets.js';
 import { AGENT_HISTORY, agentHistory, agentRequest, agentTitle, buyerRequest, campaignTarget, cleanAgent, cleanBuyer, cleanMarketing, marketingRequest, parseAgent, parseBuyer, parseMarketing, templateNotes } from '../_shared/marketing.js';
 import { SUGGEST_DAYS, buyerRules, windowOf } from '../_shared/mkt-ads.js';
 import { cleanScenes, scenesRequest } from '../_shared/mkt-video.js';
+import { SEARCH_USD, TREND_CONTINUES, cleanTrends, parseTrends, readTrends, searchCount, searchError, searchResults, trendSources, trendsRequest, trendsText } from '../_shared/mkt-trends.js';
 import { TEXT_PROVIDERS, TEXT_TOOL_OF, houseStyle, textPick } from '../_shared/ai-providers.js';
 import { MAX_TOOL_CALLS, amountsIn, reportOf, assistantMessage, assistantRequest, cleanAction, cleanAnswer, customersData, dataQuery, expensesData, filesData, ordersData, parseAssistant, readTurn, salesData, summaryData, tasksData, pickVendor, ticketsData, toolResults, vendorData, vendorsData } from '../_shared/ai-assistant.js';
 import { completeText } from './providers/text.ts';
@@ -61,7 +67,7 @@ export type Deps = {
   text?: (provider: string, params: Json) => Promise<Json>; // phase 11: OpenAI / Gemini (the Claude dep stays the Claude path)
 };
 
-const ACTIONS = ['write', 'studio', 'prompts', 'marketing', 'buyer', 'assistant', 'agent', 'extract'];
+const ACTIONS = ['write', 'studio', 'prompts', 'marketing', 'buyer', 'assistant', 'agent', 'extract', 'trends'];
 const STUDIO_BUCKET = 'studio';
 const THROTTLE = 60; // calls of one member in THROTTLE_MINUTES (the studio fills a batch one item at a time)
 const THROTTLE_MINUTES = 10;
@@ -87,6 +93,7 @@ async function configOf(deps: Deps, action = 'write'): Promise<Cfg> {
   const style = action === 'buyer' || action === 'prompts' || action === 'assistant' ? '' : houseStyle(isObj(rules) ? rules : null, action === 'marketing' || action === 'scenes' ? 'post' : 'products');
   if (action === 'assistant') return { ...base, provider: 'claude', style }; // the tool loop is Claude's (the other text providers answer text only)
   if (action === 'extract') return { ...base, provider: 'claude', style: '' }; // the screenshots are read by Claude (the studio's WhatsApp flow)
+  if (action === 'trends') return { ...base, provider: 'claude', style: '' }; // the web search tool is Claude's (comments decision 69)
   return { ...base, provider: pick.provider, model: pick.provider === 'claude' ? base.model : pick.model, style, rules: isObj(rules) ? rules : null };
 }
 const modelId = (v: unknown) => (typeof v === 'string' ? v.toLowerCase().replace(/[^a-z0-9.-]/g, '').slice(0, 60) : '') || null;
@@ -102,7 +109,7 @@ async function authorize(req: Request, deps: Deps, action: string): Promise<stri
   const admin = async () => { const { data, error } = await member.rpc('is_admin'); return !error && data === true; };
   const ok = action === 'write' ? (await admin()) || (await perm('products.add')) || (await perm('products.edit'))
     : action === 'studio' || action === 'prompts' || action === 'extract' ? (await admin()) || (await perm('products.add'))
-    : action === 'marketing' ? (await admin()) || (await perm('marketing.create'))
+    : action === 'marketing' || action === 'trends' ? (await admin()) || (await perm('marketing.create'))
     : action === 'buyer' || action === 'agent' ? (await admin()) || (await perm('marketing.view', true))
     : action === 'assistant' ? true // any signed-in member: the data they read is theirs by RLS, the actions run on their screen
     : await admin();
@@ -358,6 +365,59 @@ async function buyer(deps: Deps, uid: string, args: Json) {
   return await runAi(deps, base, cfg, buyerRequest(parsed.req, { model: cfg.model, effort: cfg.effort, data }), cleanBuyer);
 }
 
+// ---------------------------------------------------------------- «آخر التريندات» (comments decision 69)
+
+// The designer's trends: Claude with the web search tool (its own server tool — no page is fetched from here) finds this
+// month's trends and answers a JSON list; a row is stored only when its link is a page the search returned. A turn the server
+// paused (pause_turn) is sent back as it is and resumed, at most TREND_CONTINUES times; the calls of one refresh are one ai_runs
+// row (the tokens of every call and the searches). No call is made when the table is not there yet (0109 not applied).
+async function trends(deps: Deps, uid: string, args: Json) {
+  const parsed = parseTrends(args);
+  if ('error' in parsed) return json(400, parsed);
+  const probe = await deps.db.from('mkt_trends').select('id').limit(1);
+  if (probe.error) return json(503, { error: 'not_ready' });
+  const { data: set } = await deps.db.from('settings').select('data').eq('section', 'marketing').maybeSingle();
+  const sources = trendSources(isObj(set) && isObj(set.data) && isObj(set.data.trends) ? set.data.trends.sources : null);
+  const cfg = await configOf(deps, 'trends');
+  const run = await startRun(deps, { created_by: uid, action: 'marketing', source: 'trends', label: line(parsed.req.focus, 200) || 'trends', model: cfg.model }, cfg.cap);
+  if (run.result === 'busy') return json(429, { error: 'busy' });
+  if (run.result === 'cap') return json(402, { error: 'ai_cap' });
+  if (run.result !== 'ok') return json(502, { error: 'ai_error' });
+  if (!deps.env.ANTHROPIC_API_KEY?.trim()) { await finishRun(deps, run.id, { status: 'error', error: 'not_configured', cost_usd: 0 }); return json(503, { error: 'not_configured', provider: 'claude' }); }
+  const params: Json = trendsRequest(parsed.req, { model: cfg.model, effort: cfg.effort, sources, today: deps.now() });
+  const spent = { model: cfg.model, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, cost_usd: 0 };
+  const seen: Json[] = []; let msg: Json | null = null;
+  for (let turn = 0; turn <= TREND_CONTINUES; turn++) {
+    const asked = await ask(deps, params);
+    if ('error' in asked) {
+      await finishRun(deps, run.id, { ...spent, status: 'error', error: asked.error, cost_usd: spent.cost_usd + (asked.status === null ? RESERVE_USD : 0) });
+      return json(asked.error === 'not_configured' ? 503 : asked.error === 'busy' ? 429 : 502, { error: asked.error });
+    }
+    msg = asked.msg;
+    const model = modelId(msg.model) ?? cfg.model; const u = usageOf(msg.usage);
+    spent.model = model; spent.input_tokens += u.input; spent.output_tokens += u.output; spent.cache_read_tokens += u.cacheRead; spent.cache_write_tokens += u.cacheWrite;
+    spent.cost_usd = Math.round((spent.cost_usd + costOf(model, msg.usage) + searchCount(msg.usage) * SEARCH_USD) * 1e6) / 1e6;
+    const content: Json[] = Array.isArray(msg.content) ? msg.content : [];
+    seen.push(...content);
+    if (msg.stop_reason !== 'pause_turn') break;
+    params.messages = [params.messages[0], { role: 'assistant', content }]; // the server resumes from its own trailing block
+  }
+  if (!msg || msg.stop_reason === 'pause_turn') { await finishRun(deps, run.id, { ...spent, status: 'error', error: 'ai_error' }); return json(502, { error: 'ai_error' }); }
+  if (msg.stop_reason === 'refusal') { await finishRun(deps, run.id, { ...spent, status: 'refused', error: 'refused' }); return json(200, { result: 'refused', model: spent.model, cost_usd: spent.cost_usd }); }
+  const results = searchResults(seen);
+  if (!results.length) { // the search never answered (off for this key, refused, over its limit): nothing to stand a row on
+    await finishRun(deps, run.id, { ...spent, status: 'error', error: 'no_search' });
+    return json(502, { error: 'no_search', code: searchError(seen) });
+  }
+  const rows = cleanTrends(readTrends(trendsText(Array.isArray(msg.content) ? msg.content : [])), results);
+  if (!rows.length) { await finishRun(deps, run.id, { ...spent, status: 'error', error: 'ai_error' }); return json(502, { error: 'ai_error' }); }
+  const batch = crypto.randomUUID(); const now = deps.now();
+  const { error } = await deps.db.from('mkt_trends').insert(rows.map((r) => ({ ...r, batch, found_at: now, created_by: uid })));
+  if (error) { await finishRun(deps, run.id, { ...spent, status: 'error', error: 'failed' }); return json(500, { error: 'failed' }); }
+  await finishRun(deps, run.id, { ...spent, status: 'ok', output: { count: rows.length, searches: results.length } });
+  return json(200, { result: 'ok', count: rows.length, model: spent.model, cost_usd: spent.cost_usd, run_id: run.id });
+}
+
 // ---------------------------------------------------------------- the assistants' chats (0084 — decision 5)
 
 // the member's own chat (or a new one on the first message): the history from the table, the instructions from the settings; the
@@ -551,7 +611,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
   if (!ACTIONS.includes(action)) return json(400, { error: 'unknown_action' });
   try {
     return action === 'write' ? await write(deps, uid, args) : action === 'prompts' ? await prompts(deps, uid, args) : action === 'marketing' ? await marketing(deps, uid, args) : action === 'buyer' ? await buyer(deps, uid, args) : action === 'agent' ? await agent(deps, uid, args)
-      : action === 'assistant' ? await assistant(deps, uid, args, jwtOf(req)) : action === 'extract' ? await extract(deps, uid, args) : await studio(deps, uid, args);
+      : action === 'assistant' ? await assistant(deps, uid, args, jwtOf(req)) : action === 'extract' ? await extract(deps, uid, args) : action === 'trends' ? await trends(deps, uid, args) : await studio(deps, uid, args);
   } catch (e) {
     console.error('ai-content failed', e instanceof Error ? e.name : typeof e);
     return json(500, { error: 'failed' });

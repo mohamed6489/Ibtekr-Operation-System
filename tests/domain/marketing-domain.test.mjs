@@ -393,3 +393,33 @@ test('one scene\'s seconds: what a model takes (Kling 5 or 10), cut so the scene
   assert.equal(W.sceneDurOf(k), 5); assert.equal(W.setSceneDur(k, 10), ''); assert.equal(k.dur, 20);
   W.setSceneCount(k, 4); assert.deepEqual([k.sceneDur, k.dur], [5, 20]);
 });
+
+// comments decision 70 («إعلانات المنافسين»): Meta's Ad Library opened on a competitor — the page's own list by its number, else
+// a search by the word (or the name); what the member typed for the page; the form's row
+test('the Ad Library link: active ads of every type in Egypt — the page\'s list by its number, else a keyword search; the page field reads a number or a Facebook / Instagram link', () => {
+  const q = (u) => Object.fromEntries(new URL(u).searchParams);
+  const byPage = W.adLibraryUrl({ name: 'Macrame House', pageId: '123456789012', keyword: 'x' });
+  assert.equal(byPage.startsWith('https://www.facebook.com/ads/library/?'), true);
+  assert.deepEqual(q(byPage), { active_status: 'active', ad_type: 'all', country: 'EG', media_type: 'all', view_all_page_id: '123456789012' });
+  assert.deepEqual(q(W.adLibraryUrl({ name: 'Boho Corner', keyword: ' بوهو   ديكور ' })), { active_status: 'active', ad_type: 'all', country: 'EG', media_type: 'all', q: 'بوهو ديكور', search_type: 'keyword_unordered' });
+  assert.equal(q(W.adLibraryUrl({ name: 'Boho Corner', pageId: 'abc' })).q, 'Boho Corner'); // a bad number falls back to the name
+  assert.equal(q(W.adLibraryUrl({ keyword: 'x' }, 'SA')).country, 'SA');
+  assert.equal(q(W.adLibraryUrl({ keyword: 'x' }, 'egypt')).country, 'EG');
+  // the page field
+  assert.deepEqual(W.competitorPage(''), { pageId: '', pageUrl: '' });
+  assert.deepEqual(W.competitorPage(' 123456789012 '), { pageId: '123456789012', pageUrl: '' });
+  assert.deepEqual(W.competitorPage('https://www.facebook.com/macramehouse'), { pageId: '', pageUrl: 'https://www.facebook.com/macramehouse' });
+  assert.deepEqual(W.competitorPage('facebook.com/profile.php?id=100064812345678'), { pageId: '100064812345678', pageUrl: 'https://facebook.com/profile.php?id=100064812345678' });
+  assert.deepEqual(W.competitorPage('http://www.facebook.com/pages/Boho-Corner/987654321098/'), { pageId: '987654321098', pageUrl: 'https://www.facebook.com/pages/Boho-Corner/987654321098/' });
+  assert.deepEqual(W.competitorPage('https://www.instagram.com/bohocorner/'), { pageId: '', pageUrl: 'https://www.instagram.com/bohocorner/' });
+  assert.deepEqual(W.competitorPage('https://evil.example/facebook.com/x'), { error: 'page' });
+  assert.deepEqual(W.competitorPage('1234'), { error: 'page' });
+  // the form's row
+  assert.deepEqual(W.competitorRow({ name: '  Macrame   House ', page: '123456789012', keyword: '', note: ' ديكور ' }), { row: { name: 'Macrame House', page_id: '123456789012', page_url: null, keyword: null, note: 'ديكور' } });
+  assert.deepEqual(W.competitorRow({ name: '' }), { error: 'name' });
+  assert.deepEqual(W.competitorRow({ name: 'x'.repeat(81) }), { error: 'name' });
+  assert.deepEqual(W.competitorRow({ name: 'a', keyword: 'k'.repeat(81) }), { error: 'keyword' });
+  assert.deepEqual(W.competitorRow({ name: 'a', note: 'n'.repeat(301) }), { error: 'note' });
+  assert.deepEqual(W.competitorRow({ name: 'a <b>' }), { error: 'text' });
+  assert.deepEqual(W.competitorRow({ name: 'a', page: 'https://example.com/x' }), { error: 'page' });
+});

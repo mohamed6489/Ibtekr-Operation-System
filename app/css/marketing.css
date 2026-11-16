@@ -454,3 +454,15 @@ body.cal-dragging,body.cal-dragging * { cursor:grabbing !important;user-select:n
   #pg-marketing .mk-msg-imgs .thumb { width:100% }
   #pg-marketing .mk-agent-full { inset:0 }
 }
+
+/* comments decision 69: «آخر التريندات» — the trend's name over its two lines, the source a link with the «opens outside» mark */
+.mk-trend { display:flex;flex-direction:column;gap:2px;min-width:220px;max-width:560px;white-space:normal;text-align:start }
+.mk-trend small { color:var(--color-text-secondary);line-height:1.5 }
+.mk-out { display:inline-flex;align-items:center;gap:4px;color:var(--color-brand-default);font-weight:500;text-decoration:none;white-space:nowrap }
+.mk-out:hover span { text-decoration:underline }
+
+/* comments decision 70: «إعلانات المنافسين» — the library's search row, and the link that opens it as a small button */
+.mk-lib-row { display:flex;gap:8px;align-items:center;flex-wrap:wrap }
+.mk-lib-row .input { min-width:200px;max-width:420px }
+a.mk-lib { display:inline-flex;align-items:center;gap:6px;white-space:nowrap }
+a.mk-lib.disabled { opacity:.5;pointer-events:none }

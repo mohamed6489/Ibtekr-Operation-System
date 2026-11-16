@@ -412,3 +412,114 @@ test('owner batch 14 Nov decision 14: the chat stays on its last message (openin
   await expect(box.locator('[data-mk-turn]').last()).toContainText('سؤالك: سؤال عادي');
   await expect(box.locator('[data-mk-req-from]')).toHaveCount(1);
 });
+
+// comments decision 69 (the owner 15 Nov — «حطلي قسم … اخر التريندات و يجمعلي اخر التريندات من مواقع بتنزل التريندات تبقي في جدول منظم و
+// يبقي في عمود للموقع ال source و خانة للنوع ده صورة ولا فيديو»): the designer's section «آخر التريندات» — the server's rows
+// (ai-content `trends`: Claude's web search), a table with the trend, its kind, the source's site as a link and the day;
+// «حدّث التريندات» asks what the team cares about first; the buyer's and the developer's tabs do not have it
+test('comment 69 — «آخر التريندات» in the designer\'s tab: the table with the source and the kind; «حدّث التريندات» asks first and brings a batch; a failed search in words; the other assistants have no such section', async ({ page }) => {
+  const NOW = new Date().toISOString();
+  await start(page, { mktTrends: [{ title: 'كاروسيل «قبل وبعد»', summary: 'صورتين للمنتج قبل وبعد.', source: 'Later', url: 'https://later.com/blog/instagram-trends/', kind: 'image', found_at: NOW }] });
+  await openAi(page, ADMIN, 'الديزاينر');
+  const card = pg(page).locator('.mk-trends');
+  await expect(card.locator('h2, .sec-h b').first()).toContainText('آخر التريندات');
+  await expect(card.locator('thead th')).toHaveText(['التريند', 'النوع', 'المصدر', 'اتلقى']);
+  const row = card.locator('tbody tr').first();
+  await expect(row).toContainText('كاروسيل «قبل وبعد»');
+  await expect(row.locator('[data-mk-trend-kind]')).toHaveAttribute('data-mk-trend-kind', 'image');
+  await expect(row.locator('[data-mk-trend-kind]')).toHaveText('صورة');
+  // the source is a link that opens outside, safely
+  const src = row.locator('a[data-mk-trend-src]');
+  expect(await src.evaluate((a) => [a.textContent.trim(), a.getAttribute('href'), a.target, a.rel])).toEqual(['Later', 'https://later.com/blog/instagram-trends/', '_blank', 'noopener noreferrer']);
+  // a refresh: the instructions popup first, the focus sent, the new batch on top with its kinds
+  await card.locator('[data-mk-trends-go]').click();
+  await page.fill('#ai-ask-notes', 'هدايا الشتا');
+  await page.locator('[data-ai-go]').click();
+  await expect(card.locator('tbody tr')).toHaveCount(7);
+  const call = mock.mkt.calls.filter((c) => c.action === 'trends').pop();
+  expect([call.fn, call.focus]).toEqual(['ai-content', 'هدايا الشتا']);
+  expect(await card.locator('tbody tr [data-mk-trend-kind]').evaluateAll((els) => els.map((e) => e.getAttribute('data-mk-trend-kind')))).toEqual(['video', 'image', 'video', 'image', 'image', 'video', 'image']);
+  await expect(page.locator('body')).toContainText('اتحدّثت التريندات — 6 تريند');
+  await expect.poll(() => mock.activityRows.filter((a) => a.action === 'mkt.trends.refresh').map((a) => a.new_value)).toEqual(['6']);
+  expect(JSON.stringify(mock.activityRows)).not.toContain('هدايا الشتا'); // the focus is not logged
+  // the search answered nothing: its reason in words, the table as it was
+  mock.mkt.trendsFail = 'no_search';
+  await card.locator('[data-mk-trends-go]').click(); await page.locator('[data-ai-go]').click();
+  await expect(page.locator('body')).toContainText('Claude ماعرفش يبحث على الويب دلوقتي');
+  await expect(card.locator('tbody tr')).toHaveCount(7);
+  // the other assistants' tabs do not have the section
+  await pg(page).getByRole('tab', { name: /المبرمج/ }).click();
+  await expect(pg(page).locator('.mk-trends')).toHaveCount(0);
+  await pg(page).getByRole('tab', { name: /الميديا باير/ }).click();
+  await expect(pg(page).locator('.mk-trends')).toHaveCount(0);
+});
+
+test('comment 69 — before the migration the section says it waits (no button, no call)', async ({ page }) => {
+  await start(page, { mktNoSections: true });
+  await openAi(page, ADMIN, 'الديزاينر');
+  const card = pg(page).locator('.mk-trends');
+  await expect(card).toContainText('القسم ده مستني تحديث قاعدة البيانات');
+  await expect(card.locator('[data-mk-trends-go]')).toHaveCount(0);
+  expect(mock.mkt.calls.filter((c) => c.action === 'trends')).toEqual([]);
+});
+
+// comments decision 70 (the owner 15 Nov — «اعملي قسم تاني يبقي فيه اعلانات اللي المنافسين في الميديا باير و يجيبها من [مكتبة إعلانات
+// ميتا]»): the media buyer's section «إعلانات المنافسين» — the competitors the team keeps, each opened in Meta's Ad Library on its
+// running ads in Egypt (the page's own list by its number, else a search by the word or the name), and a search of the library
+// by any word; nothing is pulled from Meta. Added / edited / removed with marketing.create
+test('comment 70 — «إعلانات المنافسين» in the media buyer\'s tab: a competitor added (the page\'s number read from its link), its ads open in the Ad Library on that page; one without a number opens a search; the library search by a word; edit and remove', async ({ page }) => {
+  await start(page, { mktCompetitors: [{ name: 'Boho Corner', keyword: 'بوهو ديكور' }] });
+  await openAi(page, ADMIN);
+  const card = pg(page).locator('.mk-comp');
+  await expect(card).toContainText('إعلانات المنافسين');
+  await expect(card.locator('thead th')).toHaveText(['المنافس', 'الصفحة', 'المكتبة بتفتح على', 'الإعلانات', '']);
+  const params = async (loc) => Object.fromEntries(new URL(await loc.getAttribute('href')).searchParams);
+  // the seeded one has no page number: a search by its word
+  const boho = card.locator('tbody tr', { hasText: 'Boho Corner' });
+  await expect(boho).toContainText('بحث بـ «بوهو ديكور»');
+  expect(await params(boho.locator('[data-mk-comp-ads]'))).toEqual({ active_status: 'active', ad_type: 'all', country: 'EG', media_type: 'all', q: 'بوهو ديكور', search_type: 'keyword_unordered' });
+  expect(await boho.locator('[data-mk-comp-ads]').evaluate((a) => [a.origin + a.pathname, a.target, a.rel])).toEqual(['https://www.facebook.com/ads/library/', '_blank', 'noopener noreferrer']);
+  // a new one: the name is required, the page must be a Facebook / Instagram link or a number
+  await card.locator('[data-mk-comp-add]').click();
+  const m = modal(page, 'منافس جديد');
+  await m.getByRole('button', { name: 'ضيف المنافس' }).click();
+  await expect(m).toContainText('اكتب اسم المنافس');
+  await m.locator('#name').fill('Macrame House');
+  await m.locator('#page').fill('https://example.com/macrame');
+  await m.getByRole('button', { name: 'ضيف المنافس' }).click();
+  await expect(m).toContainText('لينك صفحة فيسبوك أو إنستجرام، أو رقم الصفحة');
+  await m.locator('#page').fill('facebook.com/profile.php?id=100064812345678');
+  await m.locator('#note').fill('مكرمية وديكور حيطان');
+  await m.getByRole('button', { name: 'ضيف المنافس' }).click();
+  await expect(m).toHaveCount(0);
+  const w = mock.mkt.writes.filter((x) => x.table === 'mkt_competitors').pop();
+  expect([w.op, w.name, w.page_id, w.page_url, w.keyword, w.note]).toEqual(['insert', 'Macrame House', '100064812345678', 'https://facebook.com/profile.php?id=100064812345678', null, 'مكرمية وديكور حيطان']);
+  const mac = card.locator('tbody tr', { hasText: 'Macrame House' });
+  await expect(mac).toContainText('إعلانات الصفحة نفسها');
+  expect(await params(mac.locator('[data-mk-comp-ads]'))).toEqual({ active_status: 'active', ad_type: 'all', country: 'EG', media_type: 'all', view_all_page_id: '100064812345678' });
+  // the library's own search: off until a word is typed
+  const go = card.locator('[data-mk-lib-go]');
+  await expect(go).toHaveAttribute('aria-disabled', 'true');
+  await card.locator('#mk-lib-q').fill('مكرمية');
+  await expect(go).toHaveAttribute('aria-disabled', 'false');
+  expect((await params(go)).q).toBe('مكرمية');
+  // edit: a word for the one without a number; remove: it leaves the list (archived, not deleted)
+  await boho.getByRole('button', { name: 'خيارات Boho Corner' }).click();
+  await page.getByRole('menuitem', { name: 'تعديل' }).click();
+  const e = modal(page, 'تعديل «Boho Corner»');
+  await e.locator('#keyword').fill('ديكور بوهيمي');
+  await e.getByRole('button', { name: 'احفظ' }).click();
+  await expect(card.locator('tbody tr', { hasText: 'Boho Corner' })).toContainText('بحث بـ «ديكور بوهيمي»');
+  await card.locator('tbody tr', { hasText: 'Boho Corner' }).getByRole('button', { name: 'خيارات Boho Corner' }).click();
+  await page.getByRole('menuitem', { name: 'شيله من القايمة' }).click();
+  await page.locator('.modal[role=dialog]').getByRole('button', { name: 'شيله' }).click();
+  await expect(card.locator('tbody tr')).toHaveCount(1);
+  expect(mock.mkt.competitors.find((c) => c.name === 'Boho Corner').archived_at).not.toBeNull();
+  // the log: the row's id only
+  const logs = mock.activityRows.filter((a) => String(a.action).startsWith('mkt.competitor.'));
+  expect(logs.map((a) => a.action)).toEqual(['mkt.competitor.add', 'mkt.competitor.edit', 'mkt.competitor.remove']);
+  expect(JSON.stringify(logs)).not.toContain('Macrame');
+  // the designer's tab does not have the section
+  await pg(page).getByRole('tab', { name: /الديزاينر/ }).click();
+  await expect(pg(page).locator('.mk-comp')).toHaveCount(0);
+});

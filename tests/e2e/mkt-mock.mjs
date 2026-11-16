@@ -12,6 +12,7 @@ import { PLATFORMS as AD_PLATFORMS, linkAccount, linkPublic, linkReady, parseLin
 import { MAX_OPEN_JOBS, cleanScenes, jobView, mixPlan, nextMix, parseVideo, videoPath } from '../../supabase/functions/_shared/mkt-video.js';
 import { creditsFor } from '../../supabase/functions/_shared/ai-images.js';
 import { refName, refUrl } from '../../supabase/functions/_shared/ref-link.js';
+import { cleanTrends, parseTrends } from '../../supabase/functions/_shared/mkt-trends.js';
 const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 const cairo = (d = new Date()) => { const p = Object.fromEntries(fmt.formatToParts(d).map((x) => [x.type, x.value])); return { day: p.year + '-' + p.month + '-' + p.day, hm: p.hour + ':' + p.minute }; };
 export const mktToday = () => cairo().day;
@@ -35,8 +36,11 @@ const COLS = {
   // 0084: the assistants' chats — the member's own (RLS), the turns written by the server only
   mkt_agent_chats: ['id', 'member_id', 'agent', 'title', 'created_at', 'updated_at', 'deleted_at'],
   mkt_agent_messages: ['id', 'chat_id', 'role', 'text', 'images', 'run_id', 'created_at'],
+  // 0109 (comments decisions 69 / 70): the designer's trends (the server's rows) and the media buyer's competitors (marketing.create writes)
+  mkt_trends: ['id', 'batch', 'title', 'summary', 'source', 'url', 'kind', 'found_at', 'created_by'],
+  mkt_competitors: ['id', 'name', 'page_id', 'page_url', 'keyword', 'note', 'created_by', 'created_at', 'updated_by', 'updated_at', 'archived_at'],
 };
-const KEY = { mkt_campaigns: 'campaigns', mkt_posts: 'posts', mkt_templates: 'templates', mkt_ad_objects: 'adObjects', mkt_ad_stats: 'adStats', mkt_suggestions: 'suggestions', mkt_requests: 'requests', mkt_video_jobs: 'videoJobs', mkt_agent_chats: 'agentChats', mkt_agent_messages: 'agentMsgs' };
+const KEY = { mkt_campaigns: 'campaigns', mkt_posts: 'posts', mkt_templates: 'templates', mkt_ad_objects: 'adObjects', mkt_ad_stats: 'adStats', mkt_suggestions: 'suggestions', mkt_requests: 'requests', mkt_video_jobs: 'videoJobs', mkt_agent_chats: 'agentChats', mkt_agent_messages: 'agentMsgs', mkt_trends: 'trends', mkt_competitors: 'competitors' };
 const GRANT = { mkt_campaigns: { insert: ['name', 'goal', 'step', 'state'], update: ['name', 'goal', 'step', 'state', 'archived_at'] },
   mkt_templates: { insert: ['name', 'kind', 'image', 'descr'], update: ['name', 'kind', 'image', 'descr', 'deleted_at'] },
   mkt_requests: { insert: [], update: [] } }; // 0082: nothing writes it from a member any more (the requests are team requests)
@@ -51,6 +55,21 @@ const line = (v, max) => String(v == null ? '' : v).replace(/[\u0000-\u001f\u007
 const lines = (v) => String(v == null ? '' : v).replace(/\r\n?/g, '\n').replace(/[\u0001-\u0009\u000b-\u001f\u007f]/g, ' ').trim();
 // 0051's columns as a system row starts
 const POST_9_5_2 = { src: 'system', external_id: null, thumb: null, views: null, reach: null, likes: null, comments: null, shares: null, saves: null, eng: null, stats_at: null, error: null, attempts: 0, claimed_at: null, work: null };
+
+// what a trends refresh «finds» when a spec gives no answer of its own (the demo copy shows these): pages and the rows on them
+const TREND_PAGES = [
+  { url: 'https://later.com/blog/instagram-reels-trends/', title: 'Instagram Reels trends', host: 'later.com' },
+  { url: 'https://blog.hootsuite.com/social-media-trends/', title: 'Social media trends', host: 'blog.hootsuite.com' },
+  { url: 'https://newsroom.tiktok.com/en-us/whats-next-trend-report', title: "What's Next trend report", host: 'newsroom.tiktok.com' },
+  { url: 'https://www.canva.com/design-trends/', title: 'Design trends', host: 'canva.com' },
+  { url: 'https://newsroom.pinterest.com/pinterest-predicts/', title: 'Pinterest Predicts', host: 'newsroom.pinterest.com' }];
+const TREND_ROWS = [
+  { title: 'ريلز «يوم في الورشة» (Behind the craft)', summary: 'لقطات سريعة لإيد المبتكر وهو بيشتغل على القطعة — تنفع لكل منتج مشغول يدوي.', source: 'Later', url: TREND_PAGES[0].url, kind: 'video' },
+  { title: 'كاروسيل «قبل وبعد» للديكور', summary: 'صورة الركن قبل وبعد ما القطعة تتحط فيه — أول صورة «بعد» عشان توقف السكرول.', source: 'Hootsuite', url: TREND_PAGES[1].url, kind: 'image' },
+  { title: 'فيديو «افتح معايا الأوردر» (Unboxing ASMR)', summary: 'صوت الفتح والتغليف من غير كلام — ينفع لهدايا الشتا.', source: 'TikTok Newsroom', url: TREND_PAGES[2].url, kind: 'video' },
+  { title: 'ألوان ترابية وخطوط سيريف كبيرة', summary: 'خلفية بيج أو أخضر زيتي وعنوان بخط سيريف عريض — قريبة من براند إبتكر.', source: 'Canva', url: TREND_PAGES[3].url, kind: 'image' },
+  { title: 'لقطة المنتج في إيد حد (In-hand shot)', summary: 'المنتج متصوّر في الإيد بإضاءة طبيعية بدل الخلفية السادة.', source: 'Pinterest Predicts', url: TREND_PAGES[4].url, kind: 'image' },
+  { title: 'ريلز بنص على الشاشة وإيقاع سريع (3 لقطات في 7 ثواني)', summary: 'تلات لقطات للمنتج على بيت موسيقي، وكل لقطة عليها كلمة.', source: 'Later', url: TREND_PAGES[0].url, kind: 'video' }];
 
 export function mktState(opts = {}) {
   const now = new Date().toISOString();
@@ -90,6 +109,12 @@ export function mktState(opts = {}) {
     agentChats: (opts.mktAgentChats || []).map((x) => ({ title: 'شات جديد', created_at: now, updated_at: now, deleted_at: null, ...x })),
     agentMsgs: (opts.mktAgentMsgs || []).map((x, i) => ({ id: i + 1, text: '', images: [], run_id: null, created_at: now, ...x })),
     agents: JSON.parse(JSON.stringify(opts.mktAgents || {})), agentFail: null, agentAnswer: null, agentImgFail: null, nchat: 0,
+    // 0109: the trends and the competitors as the database holds them (opts.mktTrends / mktCompetitors); noSections = the migration
+    // is not applied yet (the two tables are not there); trendsFail = our code the next refresh answers with; trendsAnswer(req) =
+    // the rows the model «found» (cleaned against trendsResults — the pages the search returned)
+    trends: (opts.mktTrends || []).map((x, i) => ({ id: i + 1, batch: 'b0000000-0000-4000-8000-000000000001', summary: null, kind: 'image', found_at: now, created_by: null, ...x })),
+    competitors: (opts.mktCompetitors || []).map((x, i) => ({ id: i + 1, page_id: null, page_url: null, keyword: null, note: null, created_by: null, created_at: now, updated_by: null, updated_at: now, archived_at: null, ...x })),
+    noSections: !!opts.mktNoSections, trendsFail: null, trendsAnswer: null, trendsResults: null,
   };
 }
 
@@ -103,7 +128,7 @@ export function mktRoute(c) {
   if (sto && sto[1] && method === 'GET') { const obj = H.objects.get(decodeURIComponent(sto[2])); return obj ? route.fulfill({ status: 200, headers: { 'access-control-allow-origin': '*', 'content-type': obj.type || 'image/png' }, body: PNG_1PX }) : json(400, { statusCode: '400', error: 'not_found', message: 'Object not found' }); }
   if (fn && path === '/functions/v1/mkt-publish') return mktPublish(c, c.body());
   if (fn && path === '/functions/v1/mkt-ads') return mktAds(c, c.body());
-  if (fn) { const b = c.body(); if (path === '/functions/v1/ai-images' ? !(['campaign', 'campaign_edit', 'agent_image', 'ref_link'].includes(b.action) || /^video_/.test(String(b.action))) : !['marketing', 'buyer', 'agent'].includes(b.action)) return null; return mktAi(c, b); }
+  if (fn) { const b = c.body(); if (path === '/functions/v1/ai-images' ? !(['campaign', 'campaign_edit', 'agent_image', 'ref_link'].includes(b.action) || /^video_/.test(String(b.action))) : !['marketing', 'buyer', 'agent', 'trends'].includes(b.action)) return null; return mktAi(c, b); }
   const refuse = (status, code, message) => json(status, { code, details: null, hint: null, message });
   if (!u) return sto ? json(401, { statusCode: '401', error: 'Unauthorized', message: 'invalid JWT' }) : refuse(401, '42501', 'permission denied');
   const view = hasPerm(u, 'marketing.view') !== 'N'; const create = hasPerm(u, 'marketing.create') === 'F'; const publish = hasPerm(u, 'marketing.publish') === 'F';
@@ -252,6 +277,39 @@ export function mktRoute(c) {
   if (miss) return refuse(400, '42703', 'column ' + t + '.' + miss + ' does not exist');
   const pick = (r) => (sel.includes('*') ? { ...r } : Object.fromEntries(sel.map((x) => [x, r[x] === undefined ? null : r[x]])));
   const answer = (list) => (single ? (list.length ? json(200, pick(list[0])) : refuse(406, 'PGRST116', 'no rows')) : json(200, list.map(pick)));
+  if (t === 'mkt_trends' || t === 'mkt_competitors') { // 0109
+    if (H.noSections) return refuse(404, 'PGRST205', "Could not find the table 'public." + t + "' in the schema cache");
+    if (method === 'GET') {
+      let list = view ? H[key].filter(match) : [];
+      const ords = String(url.searchParams.get('order') || '').split(',').filter(Boolean).map((o) => o.split('.'));
+      if (ords.length) list = list.slice().sort((a, b2) => { for (const [col, dir] of ords) { const d = (a[col] < b2[col] ? -1 : a[col] > b2[col] ? 1 : 0) * (dir === 'desc' ? -1 : 1); if (d) return d; } return 0; });
+      const lim = Number(url.searchParams.get('limit')); if (lim > 0) list = list.slice(0, lim);
+      return answer(list);
+    }
+    if (t === 'mkt_trends') return refuse(403, '42501', 'permission denied for table mkt_trends'); // the server's rows
+    const b = c.body(); const ALLOW = method === 'POST' ? ['name', 'page_id', 'page_url', 'keyword', 'note'] : ['name', 'page_id', 'page_url', 'keyword', 'note', 'archived_at'];
+    if (Object.keys(b || {}).some((k) => !ALLOW.includes(k))) return refuse(403, '42501', 'permission denied for table mkt_competitors');
+    if (!create) return refuse(403, '42501', 'new row violates row-level security policy for table "mkt_competitors"');
+    const chk = (r) => (!String(r.name || '').trim() || String(r.name).trim().length > 80 || /[<>]/.test(r.name) ? 'mkt_competitors_name_check' : r.page_id != null && !/^[0-9]{5,20}$/.test(r.page_id) ? 'mkt_competitors_page_id_check'
+      : r.page_url != null && !/^https:\/\/([a-z0-9-]+\.)?(facebook|instagram)\.com\/[^\s<>"]{1,300}$/.test(r.page_url) ? 'mkt_competitors_page_url_check' : r.keyword != null && (String(r.keyword).length > 80 || /[<>]/.test(r.keyword)) ? 'mkt_competitors_keyword_check'
+      : r.note != null && (String(r.note).length > 300 || /[<>]/.test(r.note)) ? 'mkt_competitors_note_check' : null);
+    const violates = (name) => refuse(400, '23514', 'new row for relation "mkt_competitors" violates check constraint "' + name + '"');
+    if (method === 'POST') {
+      const row = { id: H.competitors.reduce((m, r) => Math.max(m, r.id), 0) + 1, name: b.name, page_id: b.page_id ?? null, page_url: b.page_url ?? null, keyword: b.keyword ?? null, note: b.note ?? null, created_by: u.id, created_at: now, updated_by: u.id, updated_at: now, archived_at: null };
+      const bad = chk(row); if (bad) return violates(bad);
+      H.competitors.push(row); H.writes.push({ table: t, op: 'insert', id: row.id, ...b }); return answer([row]);
+    }
+    if (method === 'PATCH') {
+      const rows = H.competitors.filter(match);
+      for (const r of rows) {
+        if (r.archived_at) return refuse(403, '42501', 'an archived competitor is not edited');
+        const next = { ...r, ...b }; const bad = chk(next); if (bad) return violates(bad);
+        Object.assign(r, b, b.archived_at ? { archived_at: now } : {}, { updated_by: u.id, updated_at: now }); H.writes.push({ table: t, op: b.archived_at ? 'archive' : 'update', id: r.id, ...b });
+      }
+      return answer(rows);
+    }
+    return refuse(403, '42501', 'permission denied for table mkt_competitors');
+  }
   if (t === 'mkt_agent_chats' || t === 'mkt_agent_messages') {
     const own = (r) => r.member_id === u.id && !r.deleted_at;
     const vis = t === 'mkt_agent_chats' ? (r) => view && own(r) : (r) => view && H.agentChats.some((ch) => ch.id === r.chat_id && own(ch));
@@ -325,6 +383,20 @@ export function mktRoute(c) {
 function mktAi(c, b) {
   const { u, json, hasPerm, isAdmin, mock } = c; const H = mock.mkt;
   H.calls.push({ fn: b.action === 'marketing' || b.action === 'buyer' || b.action === 'agent' ? 'ai-content' : 'ai-images', action: b.action, task: b.task || null, by: u ? u.id : null, piece: b.piece || null, slide: b.slide == null ? null : b.slide, scene: b.scene == null ? null : b.scene, kind: b.kind || null, model: b.model || null, pins: Array.isArray(b.pins) ? b.pins.length : 0, notes: b.notes || null });
+  if (b.action === 'trends') { // 0109 (comments decision 69): marketing.create or the admin; the rows a search page stands behind are stored
+    if (!u || !(isAdmin(u) || hasPerm(u, 'marketing.create') === 'F')) return json(401, { error: 'unauthorized' });
+    const p = parseTrends(b); if ('error' in p) return json(400, p);
+    H.calls[H.calls.length - 1].fn = 'ai-content'; H.calls[H.calls.length - 1].focus = p.req.focus;
+    if (H.noSections) return json(503, { error: 'not_ready' });
+    if (H.trendsFail) return H.trendsFail === 'refused' ? json(200, { result: 'refused', model: 'mock' }) : H.trendsFail === 'no_search' ? json(502, { error: 'no_search', code: 'unavailable' })
+      : json(H.trendsFail === 'ai_cap' ? 402 : H.trendsFail === 'busy' ? 429 : H.trendsFail === 'not_configured' ? 503 : 502, { error: H.trendsFail });
+    const results = H.trendsResults || TREND_PAGES;
+    const rows = cleanTrends(H.trendsAnswer ? H.trendsAnswer(p.req) : TREND_ROWS, results);
+    if (!rows.length) return json(502, { error: 'ai_error' });
+    H.seq += 1; const batch = 'b0000000-0000-4000-8000-' + String(H.seq).padStart(12, '0'); const at = new Date().toISOString(); let id = H.trends.reduce((m, r) => Math.max(m, r.id), 0);
+    for (const r of rows) { id += 1; H.trends.push({ id, batch, ...r, found_at: at, created_by: u.id }); }
+    return json(200, { result: 'ok', count: rows.length, model: 'claude-opus-5-5', cost_usd: 0.09, run_id: H.seq });
+  }
   if (b.action === 'buyer') { // the buyer's chat: marketing.view (P too); the numbers come from the server, the answer is text only
     if (!u || !(isAdmin(u) || hasPerm(u, 'marketing.view') !== 'N')) return json(401, { error: 'unauthorized' });
     const p = parseBuyer(b); if ('error' in p) return json(400, p);

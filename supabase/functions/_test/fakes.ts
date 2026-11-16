@@ -85,6 +85,8 @@ const COLUMNS: Record<string, string[]> = {
   mkt_video_jobs: ['id', 'campaign_id', 'piece', 'kind', 'scene', 'creation_ref', 'status', 'url', 'path', 'bytes', 'duration', 'error', 'data', 'created_by', 'created_at', 'updated_at', 'done_at'], // 0054 (phase 9.5.5)
   mkt_agent_chats: ['id', 'member_id', 'agent', 'title', 'created_at', 'updated_at', 'deleted_at'], // 0084 (the assistants' chats)
   mkt_agent_messages: ['id', 'chat_id', 'role', 'text', 'images', 'run_id', 'created_at'],
+  mkt_trends: ['id', 'batch', 'title', 'summary', 'source', 'url', 'kind', 'found_at', 'created_by'], // 0109 (the designer's «آخر التريندات»)
+  site_checks: ['kind', 'data', 'checked_at', 'checked_by'], // 0109 (the last WordPress updates check)
   alerts: ['id', 'at', 'kind', 'title', 'body', 'role_id', 'user_id', 'entity', 'entity_id', 'read_at', 'source_key', 'expires_at'], // 0056: source_key / expires_at
   // 0006 + 0056 (phase 11): the read marks and the notifications engine's memory
   alert_reads: ['alert_id', 'user_id', 'read_at'],
@@ -146,7 +148,7 @@ const DEFAULTS: Record<string, Row> = {
   hr_payroll: { status: 'مسودة' }, inv_consolidations: { status: 'open' }, acc_expenses: { direction: 'withdraw' },
 };
 const SERIAL: Record<string, 'int' | 'uuid'> = { status_map: 'int', vendors: 'uuid', sub_orders: 'int', woo_webhook_events: 'int', woo_sync_log: 'int',
-  vendor_rates: 'int', vendor_category_rates: 'int', activity_log: 'int', ai_runs: 'int', image_imports: 'int', image_shares: 'int', shot_prompts: 'int',
+  vendor_rates: 'int', vendor_category_rates: 'int', activity_log: 'int', ai_runs: 'int', mkt_trends: 'int', image_imports: 'int', image_shares: 'int', shot_prompts: 'int',
   cs_customers: 'uuid', cs_contacts: 'int', cs_conversations: 'uuid', cs_messages: 'uuid', cs_channel_events: 'int', tickets: 'int', cs_templates: 'uuid', cs_quick_replies: 'uuid', cs_auto_rules: 'uuid', cs_auto_runs: 'int', ticket_events: 'int', hr_requests: 'int', hr_overtime: 'int', hr_meetings: 'int', inv_consolidations: 'uuid', acc_expenses: 'uuid', company_docs: 'uuid', cs_campaigns: 'uuid', cs_campaign_recipients: 'int', mkt_posts: 'int', mkt_suggestions: 'int', mkt_requests: 'int', mkt_video_jobs: 'int', alerts: 'int', mkt_agent_chats: 'uuid', mkt_agent_messages: 'int' };
 const UNIQUE: Record<string, string[][]> = {
   status_map: [['id'], ['system_status']], vendors: [['id'], ['woo_vendor_id']], products: [['id']], orders: [['id']],
@@ -158,7 +160,7 @@ const UNIQUE: Record<string, string[][]> = {
   cs_oauth_states: [['state']], cs_channel_events: [['id']], cs_posts: [['id']], cs_wa_state: [['channel']], cs_campaigns: [['id']], cs_campaign_recipients: [['id'], ['campaign_id', 'customer_id']],
   cs_templates: [['id'], ['quick_key']], cs_quick_replies: [['id'], ['key']], cs_auto_rules: [['id']], cs_auto_runs: [['id'], ['rule_id', 'entity']], cs_carts: [['cart_id']], ticket_events: [['id']], // the live index on (rule_id, entity) is partial (result <> failed): the fake is stricter
   profiles: [['id'], ['email'], ['phone'], ['member_code']], roles: [['id']], hr_members: [['member_id']], mkt_posts: [['id'], ['platform', 'external_id']], mkt_ad_objects: [['platform', 'kind', 'id']], mkt_ad_stats: [['platform', 'level', 'object_id', 'day']],
-  mkt_suggestions: [['id']], mkt_requests: [['id']], mkt_video_jobs: [['id']], alerts: [['id']], mkt_agent_chats: [['id']], mkt_agent_messages: [['id']],
+  mkt_suggestions: [['id']], mkt_requests: [['id']], mkt_video_jobs: [['id']], alerts: [['id']], mkt_agent_chats: [['id']], mkt_agent_messages: [['id']], mkt_trends: [['id']], site_checks: [['kind']],
   alert_reads: [['alert_id', 'user_id']], alert_state: [['source_key', 'entity_id', 'target']], tickets: [['id']], hr_requests: [['id']], hr_overtime: [['id']], hr_meetings: [['id']], hr_payroll: [['month']], inv_consolidations: [['id']], acc_expenses: [['id']], company_docs: [['id']],
 };
 const NOT_NULL: Record<string, string[]> = {
@@ -170,9 +172,10 @@ const NOT_NULL: Record<string, string[]> = {
   cs_customers: ['name', 'created_from'], cs_contacts: ['customer_id', 'platform', 'external_id'], cs_conversations: ['seg', 'platform', 'channel', 'status'], cs_messages: ['conversation_id', 'kind', 'text'],
   cs_channels: ['name', 'audience', 'kind', 'status'], cs_oauth_states: ['verifier', 'channel', 'created_by'], cs_channel_events: ['object', 'status'],
   cs_templates: ['name', 'body'], cs_quick_replies: ['key', 'label', 'text'], cs_auto_rules: ['name', 'event', 'action'], cs_auto_runs: ['rule_id', 'entity', 'result'], cs_carts: ['cart_id', 'site_updated_at'], ticket_events: ['ticket_id', 'kind', 'actor_name', 'actor_role', 'text'],
-  mkt_posts: ['kind', 'name', 'platform', 'day', 'time', 'how', 'status', 'src'], mkt_suggestions: ['kind', 'campaign_id', 'title'], mkt_requests: ['kind', 'title'], mkt_video_jobs: ['campaign_id', 'piece', 'kind', 'created_by'], alerts: ['kind', 'title'], mkt_agent_chats: ['member_id', 'agent', 'title'], mkt_agent_messages: ['chat_id', 'role'],
+  mkt_posts: ['kind', 'name', 'platform', 'day', 'time', 'how', 'status', 'src'], mkt_suggestions: ['kind', 'campaign_id', 'title'], mkt_requests: ['kind', 'title'], mkt_video_jobs: ['campaign_id', 'piece', 'kind', 'created_by'], alerts: ['kind', 'title'], mkt_trends: ['batch', 'title', 'source', 'url', 'kind'], mkt_agent_chats: ['member_id', 'agent', 'title'], mkt_agent_messages: ['chat_id', 'role'],
 };
 const CHECK: Record<string, Record<string, unknown[]>> = {
+  mkt_trends: { kind: ['image', 'video'] }, // 0109
   cs_customers: { created_from: ['orders', 'manual', 'import', 'channel'] }, cs_contacts: { platform: ['whatsapp', 'messenger', 'instagram', 'tiktok', 'facebook'] },
   cs_conversations: { seg: ['customers', 'vendors', 'comments'], platform: ['whatsapp', 'messenger', 'instagram', 'tiktok', 'facebook'], channel: ['wa1', 'wa2', 'messenger', 'instagram', 'tiktok', 'facebook'], status: ['جديدة', 'مستنية ردنا', 'مستنية العميل', 'مؤجلة', 'اتحلت'] },
   cs_messages: { kind: ['in', 'out', 'note', 'auto', 'event'], delivery: [null, 'queued', 'sent', 'delivered', 'read', 'failed'] }, // external_id ≤ 1000 (0037)
@@ -181,7 +184,7 @@ const CHECK: Record<string, Record<string, unknown[]>> = {
   vendors: { status: ['active', 'leave', 'inactive'] },
   woo_webhook_events: { status: ['ok', 'ignored', 'duplicate', 'error'] },
   woo_sync_log: { kind: ['webhook', 'sync', 'push', 'manual', 'cron'], direction: [null, 'in', 'out'], result: ['ok', 'error', 'conflict', 'skipped'] },
-  ai_runs: { action: ['write', 'studio', 'image', 'marketing', 'assistant'], source: [null, 'data', 'image', 'product', 'studio', 'tool', 'edit', 'import', 'campaign', 'template', 'post', 'buyer', 'video', 'chat', 'filter', 'agent'], status: ['pending', 'ok', 'refused', 'error', 'cap'] }, // image: 0025, import: 0026 (phase 5.4), buyer: 0053, video: 0054, assistant / chat / filter: 0059 (phase 12), agent: 0084
+  ai_runs: { action: ['write', 'studio', 'image', 'marketing', 'assistant'], source: [null, 'data', 'image', 'product', 'studio', 'tool', 'edit', 'import', 'campaign', 'template', 'post', 'buyer', 'video', 'chat', 'filter', 'agent', 'trends'], status: ['pending', 'ok', 'refused', 'error', 'cap'] }, // image: 0025, import: 0026 (phase 5.4), buyer: 0053, video: 0054, assistant / chat / filter: 0059 (phase 12), agent: 0084
   image_imports: { source: ['magnific'], status: ['pending', 'ok', 'partial', 'error'], target: [null, 'tool', 'studio', 'batch'], batch_type: [null, 'Simple', 'Variable'] },
   image_shares: { status: ['pending', 'sent', 'error'] },
   mkt_posts: { src: ['system', 'platform'], how: ['download', 'publish'], status: ['مجدول', 'اتنشر', 'فشل', 'اتحذف'], platform: ['انستجرام', 'فيسبوك', 'تيك توك'], kind: ['بوست', 'كاروسيل', 'ريل', 'ستوري'] },

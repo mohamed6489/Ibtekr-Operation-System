@@ -139,12 +139,68 @@
   const catsOf = (p) => (Array.isArray(p.cats) && p.cats.length ? p.cats : String(p.category || '').split(' + ').filter(Boolean));
   const inCategory = (p, cat) => !cat || catsOf(p).includes(cat);
   // target: 'vendor' (سعر المبتكر → sale recalculated) | 'rate' (نسبة إبتكر, points) | 'discount' (الخصم الوهمي, points) ; mode 'pct' | 'value' ; dir +1 | -1
+  // one rule for «نسبة إبتكر ± …» wherever it is applied (a product's price, a maker's rate, a category's): ± a share of it, or ± points, kept in 0–90
+  function shiftRate(rate, { mode, dir, amount }) {
+    const a = Number(amount) || 0; const sgn = dir < 0 ? -1 : 1; const r0 = Number(rate) || 0;
+    return Math.min(90, Math.max(0, mode === 'pct' ? +(r0 * (1 + (sgn * a) / 100)).toFixed(1) : +(r0 + sgn * a).toFixed(2)));
+  }
+  // comments 15 Nov decision 82 (the owner on «تعديل سعر منتج» — «لما اعدل نسبة ابتكر … يظهرلي تحتيها ال vendors … و المقدار اللي هزوده يزيد علي
+  // الفيندور كله لو انا محدد كل منتجات الفيندور ده مش محدد قسم معين و في حالة تحديد قسم معين … يظهرلي الاقسام … و كل اللي انا بقوله ده مرتبط بالنسبة
+  // بتاعة المبتكرين»): whose commission a change of Ibtekr's rate on the picked products touches. Per maker of the picked products:
+  //   whole — every product of his in the records is picked → his whole commission moves (the general rate and each category's own);
+  //   cats  — the picked ones are all his products of some categories → those categories' rates move (the top-most such categories);
+  //   rest  — what is left of his picked products belongs to no such category: only their price is recalculated.
+  // picked / all: [{ id, vendorId, categoryIds }]; parentOf(catId) → its parent's id or null.
+  function rateScopes(picked, all, parentOf) {
+    const by = (list) => { const m = new Map(); (list || []).forEach((p) => { if (!p || !p.vendorId) return; const k = String(p.vendorId); if (!m.has(k)) m.set(k, []); m.get(k).push(p); }); return m; };
+    const P = by(picked); const A = by(all); const out = [];
+    const up = (id) => { const seen = new Set(); const l = []; let cur = parentOf ? parentOf(id) : null; while (cur != null && !seen.has(cur)) { seen.add(cur); l.push(Number(cur)); cur = parentOf(cur); } return l; };
+    P.forEach((sel, vid) => {
+      const mine = A.get(vid) || sel; const ids = new Set(sel.map((p) => String(p.id)));
+      const whole = mine.every((p) => ids.has(String(p.id)));
+      let cats = []; let rest = 0;
+      if (!whole) {
+        const cand = new Set(); sel.forEach((p) => (p.categoryIds || []).forEach((c) => cand.add(Number(c))));
+        const covered = new Set([...cand].filter((c) => mine.filter((p) => (p.categoryIds || []).map(Number).includes(c)).every((p) => ids.has(String(p.id)))));
+        cats = [...covered].filter((c) => !up(c).some((x) => covered.has(x))).sort((x, y) => x - y);
+        rest = sel.filter((p) => !(p.categoryIds || []).some((c) => covered.has(Number(c)))).length;
+      }
+      out.push({ vendorId: vid, picked: sel.length, total: mine.length, whole, cats, rest });
+    });
+    return out;
+  }
+  // what the maker's commission becomes for that scope: the input of his «الاتفاق التجاري» write ({ type, rate, flat, categories })
+  // and the lines the popup shows ({ kind: 'general' | 'category', id, from, to }). v: { rate, rateFlat, commissionType,
+  // categoryRates: [{ wooCategoryId, rate, flat }] }. null when there is nothing to write (no general rate to start from, or a
+  // scope that covers no category). `over` = a new rate past 65, the most a commission takes — the write is not sent then.
+  function ratePlan(scope, v, o, parentOf, max) {
+    if (!scope || !v || v.rate == null) return null;
+    const cap = max == null ? 65 : max; const own = new Map((v.categoryRates || []).filter((c) => c && c.rate != null).map((c) => [Number(c.wooCategoryId), c]));
+    const flat = v.rateFlat == null ? null : Number(v.rateFlat);
+    const eff = (id) => { const seen = new Set(); let cur = Number(id); while (cur != null && !seen.has(cur)) { seen.add(cur); if (own.has(cur)) return own.get(cur); const pr = parentOf ? parentOf(cur) : null; cur = pr == null ? null : Number(pr); } return null; };
+    const under = (id, top) => { const seen = new Set(); let cur = parentOf ? parentOf(id) : null; while (cur != null && !seen.has(cur)) { if (Number(cur) === Number(top)) return true; seen.add(cur); cur = parentOf(cur); } return false; };
+    const lines = []; const cats = []; let rate = Number(v.rate); let type = v.commissionType === 'category_based' ? 'category_based' : 'fixed';
+    if (scope.whole) {
+      const to = shiftRate(rate, o); lines.push({ kind: 'general', id: null, from: rate, to }); rate = to;
+      // his categories' own rates move with him — when they are what he pays (a «ثابت» maker's old category rows are not in effect)
+      if (type === 'category_based') own.forEach((c, id) => { const t = shiftRate(c.rate, o); lines.push({ kind: 'category', id, from: Number(c.rate), to: t }); cats.push({ id, rate: t, flat: c.flat == null ? null : Number(c.flat) }); });
+    } else {
+      if (!scope.cats || !scope.cats.length) return null;
+      type = 'category_based';
+      scope.cats.forEach((id) => { const e = eff(id); const from = e ? Number(e.rate) : rate; const to = shiftRate(from, o);
+        lines.push({ kind: 'category', id: Number(id), from, to }); cats.push({ id: Number(id), rate: to, flat: e && e.flat != null ? Number(e.flat) : null });
+        // a sub-category with a rate of its own keeps following its parent's move
+        own.forEach((c, cid) => { if (cid !== Number(id) && under(cid, id)) { const t = shiftRate(c.rate, o); lines.push({ kind: 'category', id: cid, from: Number(c.rate), to: t }); cats.push({ id: cid, rate: t, flat: c.flat == null ? null : Number(c.flat) }); } }); });
+    }
+    const changed = lines.some((l) => l.from !== l.to);
+    return { input: { type, rate, flat, categories: cats }, lines, over: lines.some((l) => l.to > cap), changed };
+  }
   function bulkPrice(p, { target, mode, dir, amount }) {
     const a = Number(amount) || 0; const sgn = dir < 0 ? -1 : 1; const rate = p.rate != null ? p.rate : 33; const disc = p.disc != null ? p.disc : 20;
     const bump = (v) => (mode === 'pct' ? Math.round(v * (1 + (sgn * a) / 100)) : Math.round(v + sgn * a));
     let vendorPrice = p.vendorPrice, r = rate, d = disc;
     if (target === 'vendor') vendorPrice = Math.max(0, bump(p.vendorPrice));
-    else if (target === 'rate') r = Math.min(90, Math.max(0, mode === 'pct' ? +(rate * (1 + (sgn * a) / 100)).toFixed(1) : rate + sgn * a));
+    else if (target === 'rate') r = shiftRate(rate, { mode, dir, amount });
     else d = Math.min(90, Math.max(0, mode === 'pct' ? +(disc * (1 + (sgn * a) / 100)).toFixed(1) : disc + sgn * a));
     const pr = price(vendorPrice, r / 100, d / 100);
     return { vendorPrice, rate: r, disc: d, sale: pr.sale, regular: pr.regular };
@@ -683,6 +739,6 @@
     return out;
   }
 
-  return { FAKE_MAX, FAKE_AMOUNT_MAX, FAKE_PERCENT_MAX, fakeRule, fakeTier, fakeRegular, fakeLines, PLAN_DEPTH, PLAN_MAX, planOutline, planParents, planEnd, planResolve, aiDisplay, paraHtml, aiSaveChange, aiApply, brandCode, serialText, sizeDigits, studioSku, suggestColorCode, parseCsv, parseXlsx, xlsxPhotos, mapColumns, rowsToItems, photoName, catFromPath, itemIssues, STUDIO_FIELDS, catTree, catAncestors, catToggle, catSearch, catOptions, outOfStock, categoriesRank, priceFromVendor, randomMarkup, ceil10, MARKUP_MIN, MARKUP_MAX, crc32, zip, xlsx, xlsxFiles, backupPlan, SLOT_DIRS, safeName, IMG_SIZES, customSize, IMG_MODELS, imgCredits, designCode, designBase, variantSku, SLOTS, SLOT_HINT, slotPrompt, credits, catsOf, inCategory, bulkPrice, buildSku, skuParts, serialStart, serials, sizeCode, price, DISCOUNTS, rotatingDiscount, imageName, imagePath, combos, stockState, completeness, trashDaysLeft, trashSoon, TRASH_DAYS, moveVendor, bumpPrice, validateCode, groupImages, VIDEO_MODELS, scenesTotal, scenesFit, campaignPieces };
+  return { FAKE_MAX, FAKE_AMOUNT_MAX, FAKE_PERCENT_MAX, fakeRule, fakeTier, fakeRegular, fakeLines, PLAN_DEPTH, PLAN_MAX, planOutline, planParents, planEnd, planResolve, aiDisplay, paraHtml, aiSaveChange, aiApply, brandCode, serialText, sizeDigits, studioSku, suggestColorCode, parseCsv, parseXlsx, xlsxPhotos, mapColumns, rowsToItems, photoName, catFromPath, itemIssues, STUDIO_FIELDS, catTree, catAncestors, catToggle, catSearch, catOptions, outOfStock, categoriesRank, priceFromVendor, randomMarkup, ceil10, MARKUP_MIN, MARKUP_MAX, crc32, zip, xlsx, xlsxFiles, backupPlan, SLOT_DIRS, safeName, IMG_SIZES, customSize, IMG_MODELS, imgCredits, designCode, designBase, variantSku, SLOTS, SLOT_HINT, slotPrompt, credits, catsOf, inCategory, bulkPrice, shiftRate, rateScopes, ratePlan, buildSku, skuParts, serialStart, serials, sizeCode, price, DISCOUNTS, rotatingDiscount, imageName, imagePath, combos, stockState, completeness, trashDaysLeft, trashSoon, TRASH_DAYS, moveVendor, bumpPrice, validateCode, groupImages, VIDEO_MODELS, scenesTotal, scenesFit, campaignPieces };
 });
 

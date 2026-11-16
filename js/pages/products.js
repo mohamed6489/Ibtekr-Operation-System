@@ -733,17 +733,68 @@
       const r = PD.bulkPrice(p, o); const pr = PD.priceFromVendor(r.vendorPrice, { rate: r.rate, fee: p.fee, markup: p.markup, fake: fakeNow() });
       return pr ? { sale: pr.sale, regular: pr.regular, rate: r.rate, vendorPrice: r.vendorPrice } : null;
     };
-    K.form({ title: 'تعديل سعر ' + (simple.length === 1 ? 'منتج' : simple.length + ' منتجات'), values: { target: TG[0][0], dir: '1', mode: 'pct', amount: '10' }, submitLabel: 'طبّق السعر',
+    // comments 15 Nov decision 82 (the owner on this popup — «لما اعدل نسبة ابتكر … يظهرلي تحتيها ال vendors التاابعين للبراندات دي و المقدار اللي
+    // هزوده يزيد علي الفيندور كله لو انا محدد كل منتجات الفيندور ده … و في حالة تحديد قسم معين … يظهرلي الاقسام … و كل اللي انا بقوله ده مرتبط
+    // بالنسبة بتاعة المبتكرين» · «و سع عرض الpopup ده»): «نسبة إبتكر» here is the maker's own commission. Under the amount the popup lists
+    // the makers of the picked products (with their brands) and what moves for each — his whole commission when every product of his
+    // is picked, the categories when the picked ones are all his products of them, the price alone for what is left — and «طبّق»
+    // writes those commissions first (IBVendors.store.setCommission → vendor_commission_set + his Dokan store), then the prices.
+    const Vs = window.IBVendors; const canRate = !!(C.commission && Vs && Vs.store && Vs.store.canRate && Vs.store.canRate());
+    const catsAll = PR().categories(); const catBy = new Map(catsAll.map((c) => [Number(c.id), c])); const parentOf = (id) => { const c = catBy.get(Number(id)); return c && c.parentId != null ? Number(c.parentId) : null; };
+    const catName = (id) => (catBy.get(Number(id)) || {}).name || '#' + id;
+    const scopes = canRate ? PD.rateScopes(l, PR().list(), parentOf) : [];
+    const makers = scopes.map((sc) => { const v = Vs.store.get(sc.vendorId); const mine = l.filter((p) => String(p.vendorId) === String(sc.vendorId));
+      return { sc, v, name: (v && v.name) || (mine[0] && mine[0].vendor) || 'مبتكر', brands: [...new Set(mine.reduce((a, p) => a.concat(p.brands || []), []))] }; });
+    const plansOf = (o) => makers.map((mk) => Object.assign({}, mk, { plan: mk.v && mk.v.ratesVisible ? PD.ratePlan(mk.sc, mk.v, o, parentOf) : null }));
+    const pc = (n) => String(n).replace(/\.0+$/, '') + '%';
+    const moves = (ln) => h('span', { class: 'bp-move', 'data-bp-line': ln.kind === 'general' ? 'general' : String(ln.id) }, h('b', null, ln.kind === 'general' ? 'النسبة العامة' : catName(ln.id)), h('span', { class: 'bp-fromto' }, pc(ln.from) + ' ← ' + pc(ln.to)));
+    function makersBox(o) {
+      const rows = plansOf(o).map((mk) => { const sc = mk.sc; const pl = mk.plan;
+        const what = sc.whole ? 'كل منتجاته (' + K.n0(sc.total) + ')' : sc.cats.length ? 'كل منتجاته في: ' + sc.cats.map(catName).join('، ') + (sc.rest ? ' · و' + K.n0(sc.rest) + ' منتج متفرق' : '') : K.n0(sc.picked) + ' من ' + K.n0(sc.total) + ' منتج (متفرقين)';
+        const change = !pl ? h('span', { class: 't-small help' }, mk.v && mk.v.rate == null ? 'مالوش نسبة عامة متسجلة — السعر بس' : 'السعر بس — نسبة المبتكر زي ما هي')
+          : h('div', { class: 'bp-moves' }, pl.lines.map(moves), !sc.whole && mk.v.commissionType !== 'category_based' ? h('small', { class: 'help' }, 'عمولته هتبقى «حسب القسم» — الباقي على النسبة العامة') : null,
+            sc.rest ? h('small', { class: 'help' }, U.num(sc.rest + ' منتج متفرق: سعره بس')) : null, pl.over ? h('small', { class: 'bp-over' }, 'النسبة هتعدّي 65% — قلّل المقدار') : null);
+        return h('tr', { 'data-bp-maker': String(sc.vendorId), 'data-bp-scope': !pl ? 'price' : sc.whole ? 'whole' : 'cats' },
+          h('td', null, h('b', null, mk.name), mk.brands.length ? h('small', { class: 'help bp-brands' }, 'البراندات: ' + mk.brands.join('، ')) : null), h('td', null, U.num(what)), h('td', null, change)); });
+      return U.FieldShell({ id: 'bp-mk', label: 'المبتكرين اللي نسبتهم هتتغير', help: 'النسبة بتتغير في السيستم وعلى متجر المبتكر في Dokan من النهارده (للأوردرات الجديدة)، وأسعار المنتجات المحددة بتتحسب عليها.' },
+        h('div', { class: 'scroll-x' }, h('table', { class: 'dt bp-makers', 'data-bp-makers': String(rows.length) }, h('thead', null, h('tr', null, ['المبتكر', 'المتحدد من منتجاته', 'نسبة إبتكر (قبل ← بعد)'].map((t) => h('th', null, t)))), h('tbody', null, rows))));
+    }
+    // a maker's commission written like his «الاتفاق التجاري»: the outcome comes back as ib:vendors { id, reason } (refused) or { id, written, push }
+    const commit = (id, input) => new Promise((resolve) => {
+      const t = setTimeout(() => { document.removeEventListener('ib:vendors', on); resolve({ timeout: true }); }, 30000);
+      function on(e) { const d = (e && e.detail) || {}; if (String(d.id) !== String(id) || !(d.reason || d.written)) return; clearTimeout(t); document.removeEventListener('ib:vendors', on); resolve(d); }
+      document.addEventListener('ib:vendors', on);
+      try { Vs.store.setCommission(id, input, Vs.store.actor ? Vs.store.actor() : null); } catch (err) { clearTimeout(t); document.removeEventListener('ib:vendors', on); resolve({ reason: 'threw' }); }
+    });
+    async function applyRates(o, m) {
+      const todo = plansOf(o).filter((mk) => mk.plan && mk.plan.changed); const failed = new Set(); const pill = K.busy ? K.busy('بنغيّر نسبة المبتكرين…') : null; let i = 0;
+      m._busy = true;
+      for (const mk of todo) { i += 1; if (pill && pill.set) pill.set(U.num('بنغيّر نسبة المبتكرين… ' + i + ' من ' + todo.length));
+        const d = await commit(mk.sc.vendorId, mk.plan.input); if (d.reason || d.timeout) failed.add(String(mk.sc.vendorId)); }
+      m._busy = false;
+      const okN = todo.length - failed.size;
+      if (pill) { if (failed.size) pill.fail(U.num('نسبة ' + failed.size + ' مبتكر ما اتغيّرتش — أسعار منتجاته زي ما هي')); else if (todo.length) pill.done(U.num('اتغيّرت نسبة ' + okN + ' مبتكر')); else pill.close(); }
+      // the prices follow: every picked product but the ones of a maker whose commission did not move
+      const list = items.filter((p) => !failed.has(String(p.vendorId)));
+      if (!list.length) { if (m) m.close(); return; }
+      write((pg) => batch(list, (p) => { const r = next(p, o); return r ? { sale_price: String(r.sale), regular_price: String(r.regular) } : {}; }, pg), 'اتعدل السعر على الموقع' + (okN ? ' ونسبة ' + K.n0(okN) + ' مبتكر' : ''), m, list.length);
+    }
+    K.form({ title: 'تعديل سعر ' + (simple.length === 1 ? 'منتج' : simple.length + ' منتجات'), wide: 'bp-modal', values: { target: TG[0][0], dir: '1', mode: 'pct', amount: '10' },
+      submitLabel: (f) => (f.target === 'rate' && Number(f.amount) > 0 && plansOf({ target: 'rate', mode: f.mode, dir: Number(f.dir), amount: Number(f.amount) }).some((x) => x.plan && x.plan.changed) ? 'طبّق السعر والنسبة' : 'طبّق السعر'),
       fields: (f, e, set, draw) => { const opt = { target: f.target, mode: f.mode, dir: Number(f.dir), amount: Number(f.amount) }; const ok = Number(f.amount) > 0;
-        const rows = ok ? items.slice(0, 5).map((p) => { const r = next(p, opt); return [nameOf(p), !r ? 'مالوش نسبة ظاهرة' : f.target === 'vendor' ? K.n0(p.vendorPrice) + ' ← ' + K.n0(r.vendorPrice) : f.target === 'rate' ? p.rate + '% ← ' + r.rate + '%' : p.disc + '% ← ' + r.disc + '%', r ? K.n0(p.sale) + ' ← ' + K.n0(r.sale) : '—']; }) : [];
+        const rows = ok ? items.slice(0, 8).map((p) => { const r = next(p, opt); return [nameOf(p), !r ? 'مالوش نسبة ظاهرة' : f.target === 'vendor' ? K.n0(p.vendorPrice) + ' ← ' + K.n0(r.vendorPrice) : f.target === 'rate' ? p.rate + '% ← ' + r.rate + '%' : p.disc + '% ← ' + r.disc + '%', r ? K.n0(p.sale) + ' ← ' + K.n0(r.sale) : '—']; }) : [];
         const seg = (key, opts) => h('div', { class: 'chips', role: 'radiogroup' }, opts.map(([v, lab]) => chipBtn(lab, f[key] === v, () => { f[key] = v; draw(); }, { role: 'radio', 'aria-checked': String(f[key] === v) })));
         return [U.FieldShell({ id: 'bp-t', label: 'تعدّل إيه؟', required: true, help: (C.commission ? 'سعر المبتكر أو النسبة بيحسبوا سعر البيع (لفوق لأقرب 10) وقبل الخصم (' + (fakeNow() ? 'بشرايح «الخصم الوهمي»' : '+15–30% عشوائي') + ') · النسبة والخصم بالنقط (%)' : 'الخصم الوهمي بيغيّر السعر قبل الخصم بس — سعر البيع زي ما هو') }, seg('target', TG)),
           K.two(U.FieldShell({ id: 'bp-d', label: 'زيادة ولا نقص' }, seg('dir', [['1', 'زيادة'], ['-1', 'نقص']])), U.FieldShell({ id: 'bp-m', label: 'بنسبة ولا بقيمة' }, seg('mode', [['pct', 'نسبة %'], ['value', f.target === 'vendor' ? 'قيمة (ج.م)' : 'قيمة (نقط)']]))),
           K.field.text('amount', 'المقدار', f, e, (k, v) => { set(k, v); draw(); }, { required: true, inputmode: 'numeric', help: 'مثال: 10' + (f.mode === 'pct' ? '%' : '') + ' ' + (f.dir === '1' ? 'زيادة' : 'نقص') + ' على ' + TG.find((x) => x[0] === f.target)[1] }),
-          rows.length ? U.FieldShell({ id: 'bp-p', label: 'قبل ← بعد' }, U.Table({ cls: 'dt', headers: ['المنتج', TG.find((x) => x[0] === f.target)[1], 'سعر البيع'], rows })) : null,
+          f.target === 'rate' && ok && makers.length ? makersBox(opt) : null,
+          rows.length ? U.FieldShell({ id: 'bp-p', label: 'قبل ← بعد' + (items.length > rows.length ? U.num(' (أول ' + rows.length + ' من ' + items.length + ')') : '') }, U.Table({ cls: 'dt', headers: ['المنتج', TG.find((x) => x[0] === f.target)[1], 'سعر البيع'], rows })) : null,
           U.InlineNote({ children: 'هيتطبق على ' + simple.length + ' منتجات وبيتحدث على ووكومرس بعد التأكيد.' + (simple.length < l.length ? ' (' + (l.length - simple.length) + ' Variable أو من غير سعر برّه التعديل ده.)' : '') })]; },
-      validate: (f) => (Number(f.amount) > 0 ? {} : { amount: 'اكتب رقم أكبر من صفر' }),
+      validate: (f) => { if (!(Number(f.amount) > 0)) return { amount: 'اكتب رقم أكبر من صفر' };
+        if (f.target === 'rate' && plansOf({ target: 'rate', mode: f.mode, dir: Number(f.dir), amount: Number(f.amount) }).some((x) => x.plan && x.plan.over)) return { amount: 'النسبة الجديدة هتعدّي 65% عند مبتكر — قلّل المقدار' };
+        return {}; },
       submit: (f, m) => { const o = { target: f.target, mode: f.mode, dir: Number(f.dir), amount: Number(f.amount) };
+        if (f.target === 'rate' && plansOf(o).some((x) => x.plan && x.plan.changed)) { applyRates(o, m); return false; }
         write((pg) => batch(items, (p) => { const r = next(p, o); return r ? { sale_price: String(r.sale), regular_price: String(r.regular) } : {}; }, pg), 'اتعدل السعر على الموقع', m, items.length); return false; } });
   }
   // bulk stock (Figma 703:4703): الكمية / زوّد-قلّل / حسب الطلب، والتنبيه 0–5 (decision 8)

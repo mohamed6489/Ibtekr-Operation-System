@@ -91,3 +91,16 @@ test('the scenes by Claude: the request carries the campaign and the count, the 
   assert.ok(c.scenes[0].text.length <= 60); assert.equal(c.voice, 'الدفا');
   assert.equal(cleanScenes(null, { n: 1, dur: 5, model: 'seedance-2.5' }).scenes[0].d, 5);
 });
+
+// comments decisions 33 and 65: the page sets a scene's seconds itself — its rule must be the server's
+test('the page\'s scene seconds are the server\'s: the same clip range a model, the same nearest seconds, the same 30 s a video', async () => {
+  const { loadUmd } = await import('../helpers/load-umd.mjs');
+  const W = loadUmd(new URL('../../app/js/pages/marketing-domain.js', import.meta.url));
+  const { MAX_DUR } = await import('../../supabase/functions/_shared/mkt-video.js');
+  assert.equal(W.VIDEO_MAX, MAX_DUR);
+  assert.deepEqual(Object.keys(W.CLIP).sort(), VIDEO_MODELS.map((m) => m.id).sort());
+  for (const m of VIDEO_MODELS) {
+    assert.deepEqual(JSON.parse(JSON.stringify(W.CLIP[m.id])), m.fixed ? { fixed: m.fixed } : { min: m.min, max: m.max }, m.id);
+    for (let d = 0; d <= 40; d++) assert.equal(W.clipSeconds(d, m.id), clipSeconds(d, m.id), m.id + ' ' + d);
+  }
+});

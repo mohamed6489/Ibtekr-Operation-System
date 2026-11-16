@@ -348,3 +348,48 @@ test('settings lists: the plan calendar\'s weeks follow the week start', () => {
     assert.equal(W.dayLabel('2026-11-14'), 'السبت 14/11/2026'); // a day's own name never moves
   } finally { if (prev === undefined) delete globalThis.IBSettings; else globalThis.IBSettings = prev; }
 });
+
+// comments decisions 33 and 65 (the owner 15 Nov): the seconds of one scene
+test('one scene\'s seconds: what a model takes (Kling 5 or 10), cut so the scenes stay within 30 s; «مدة المشهد الواحد» sets every scene and the video\'s length; a scene\'s own seconds make the length their sum; a changed count waits for a new plan', () => {
+  assert.equal(W.VIDEO_MAX, 30);
+  assert.deepEqual([W.clipSeconds(2, 'seedance-2.5'), W.clipSeconds(40, 'seedance-2.5'), W.clipSeconds(7, 'kling-2.5'), W.clipSeconds(8, 'kling-2.5'), W.clipSeconds(3, 'minimax-h3'), W.clipSeconds(20, 'seedance-2.0')], [4, 30, 5, 10, 5, 15]);
+  assert.deepEqual(W.sceneSeconds('seedance-2.5', 3), [4, 5, 6, 7, 8, 9, 10]);
+  assert.deepEqual(W.sceneSeconds('seedance-2.5', 8), []); // 8 × 4 s is past 30 s
+  assert.deepEqual([W.sceneSeconds('kling-2.5', 3), W.sceneSeconds('kling-2.5', 4), W.sceneSeconds('kling-2.5', 7)], [[5, 10], [5], []]);
+  // the piece as it is built (no scenes yet): 15 s in 3 scenes → 5 s a scene
+  const p = { model: 'seedance-2.5', dur: 15, sceneCount: 3, scenes: [] };
+  assert.deepEqual([W.sceneDurOf(p), W.videoSeconds(p), W.scenesPending(p)], [5, 15, false]);
+  assert.equal(W.setSceneDur(p, 8), ''); assert.deepEqual([p.sceneDur, p.dur], [8, 24]);
+  assert.match(W.setSceneDur(p, 12), /من 4 لـ 10 ثانية/); assert.deepEqual([p.sceneDur, p.dur], [8, 24], 'a refused length changes nothing');
+  // the count changes: the chosen seconds stay where the count allows, else the nearest it allows
+  W.setSceneCount(p, 2); assert.deepEqual([p.sceneCount, p.sceneDur, p.dur], [2, 8, 16]);
+  W.setSceneCount(p, 5); assert.deepEqual([p.sceneCount, p.sceneDur, p.dur], [5, 6, 30]);
+  W.setSceneCount(p, 99); assert.equal(p.sceneCount, W.MAX.scenes);
+  // a piece never given a length: the count keeps the even share of the video
+  const e = { model: 'seedance-2.5', dur: 30, sceneCount: 3, scenes: [] };
+  W.setSceneCount(e, 5); assert.deepEqual([e.sceneDur, e.dur, W.videoSeconds(e)], [6, 30, 30]);
+  // planned scenes: one length for all, then one scene's own
+  const q = { model: 'seedance-2.5', dur: 12, sceneCount: 3, scenes: [{ n: 1, d: 4 }, { n: 2, d: 4 }, { n: 3, d: 4 }] };
+  assert.deepEqual([W.sceneDurOf(q), W.videoSeconds(q)], [4, 12]);
+  assert.equal(W.setSceneDur(q, 6), ''); assert.deepEqual([q.scenes.map((s) => s.d), q.dur], [[6, 6, 6], 18]);
+  assert.equal(W.setSceneD(q, 1, 10), ''); assert.deepEqual([q.scenes.map((s) => s.d), q.scenes.map((s) => !!s.dh), q.dur, q.sceneDur, W.videoSeconds(q)], [[6, 10, 6], [false, true, false], 22, null, 22]);
+  assert.match(W.setSceneD(q, 0, 20), /لحد 30 ثانية/); assert.deepEqual(q.scenes.map((s) => s.d), [6, 10, 6]);
+  assert.equal(W.setSceneD(q, 9, 5), 'المشهد مش موجود');
+  assert.equal(W.sceneDurOf(q), 7, 'scenes of different lengths: the nearest even share the count allows');
+  // the count changed after the plan: the scenes wait («وزّع المشاهد تاني») — the length shown is the next plan's, the scenes stay
+  W.setSceneCount(q, 5);
+  assert.deepEqual([W.scenesPending(q), q.sceneCount, q.sceneDur, q.dur, W.sceneDurOf(q), W.videoSeconds(q), q.scenes.map((s) => s.d)], [true, 5, 6, 30, 6, 30, [6, 10, 6]]);
+  assert.equal(W.setSceneDur(q, 4), ''); assert.deepEqual([q.sceneDur, q.dur, q.scenes.map((s) => s.d)], [4, 20, [6, 10, 6]], 'the waiting scenes are not touched');
+  // back on the planned count: the video is its scenes again
+  W.setSceneCount(q, 3); assert.deepEqual([W.scenesPending(q), q.dur, q.sceneDur, W.videoSeconds(q)], [false, 22, null, 22]);
+  // the scenes planned again: the hand-set seconds stay when the count did not change
+  const next = [{ n: 1, d: 7, idea: 'أ' }, { n: 2, d: 7, idea: 'ب' }, { n: 3, d: 8, idea: 'ج' }];
+  assert.deepEqual(W.keepSceneDurs(next, q.scenes).map((s) => [s.d, !!s.dh, s.idea]), [[7, false, 'أ'], [10, true, 'ب'], [8, false, 'ج']]);
+  assert.deepEqual(W.keepSceneDurs(next, q.scenes.slice(0, 2)).map((s) => s.d), [7, 7, 8], 'another count: the server\'s split');
+  // «مدة المشهد الواحد» again clears the hand marks
+  assert.equal(W.setSceneDur(q, 5), ''); assert.deepEqual([q.scenes.map((s) => s.d), q.scenes.some((s) => s.dh), q.dur], [[5, 5, 5], false, 15]);
+  // Kling: 5 or 10 only
+  const k = { model: 'kling-2.5', dur: 10, sceneCount: 2, scenes: [] };
+  assert.equal(W.sceneDurOf(k), 5); assert.equal(W.setSceneDur(k, 10), ''); assert.equal(k.dur, 20);
+  W.setSceneCount(k, 4); assert.deepEqual([k.sceneDur, k.dur], [5, 20]);
+});

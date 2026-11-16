@@ -120,6 +120,73 @@ test('the «فيديو» tool: a campaign with one video; the details (9:16, See
   for (const secret of ['الدفا', 'pikaso', 'مخدة']) expect(logs).not.toContain(secret);
 });
 
+
+// comments decisions 33 and 65 (the owner 15 Nov — «تزود بعد عدد المشاهد … اني احدد مدة المشهد الواحد» · «تعديل مدة المشهد الواحد لكل مشهد»)
+test('comments 33 and 65 — «مدة المشهد الواحد» beside the scenes count sets every scene and the video\'s length; each scene has its own seconds on its card, kept when the scenes are planned again; a video stays within 30 s', async ({ page }) => {
+  await start(page);
+  await openMarketing(page);
+  await pg(page).locator('[data-mk-start]').click();
+  await pg(page).locator('[role=tab]', { hasText: 'فيديو' }).click();
+  await pg(page).locator('#cw-n-video').fill('1'); await pg(page).locator('#cw-n-video').press('Enter');
+  await pg(page).locator('[role=tab]', { hasText: 'بوستات' }).click();
+  await pg(page).locator('#cw-n-post').fill('0'); await pg(page).locator('#cw-n-post').press('Enter');
+  await pg(page).locator('[role=tab]', { hasText: 'كاروسيل' }).click();
+  await pg(page).locator('#cw-n-carousel').fill('0'); await pg(page).locator('#cw-n-carousel').press('Enter');
+  await pg(page).locator('#cw-idea').fill('ريل لمخدة بوهيمي');
+  await pg(page).locator('.cp-next').click();
+  await expect(pg(page).locator('.wstepper .stp-cur')).toContainText('البناء');
+  await expect.poll(() => mock.mkt.campaigns.length).toBe(1);
+  const row = pg(page).locator('[data-cw-scene-set="V1"]'); const total = pg(page).locator('[data-cw-total="V1"] b');
+  // «متابعة للبناء» plans the scenes itself (comments decision 28): 15 s in 3 scenes
+  await expect(pg(page).locator('[data-cw-scene]')).toHaveCount(3);
+  await expect(pg(page).locator('[data-cw-autofill]')).toHaveCount(0);
+  await expect.poll(() => piece().scenes.map((s) => s.d)).toEqual([5, 5, 5]);
+  // 33 — beside the count: the seconds of one scene, and the video's length they make
+  await expect(row.locator('#b-V1-n')).toHaveValue('3');
+  await expect(row.locator('#b-V1-sd')).toHaveValue('5');
+  await expect(total).toHaveText('15 ث');
+  await row.locator('#b-V1-sd').fill('8'); await row.locator('#b-V1-sd').press('Enter');
+  await expect(total).toHaveText('24 ث');
+  await expect.poll(() => [piece().sceneDur, piece().dur, piece().scenes.map((s) => s.d)]).toEqual([8, 24, [8, 8, 8]]);
+  // the count changes: the scenes wait for a new plan; its length follows the chosen seconds within 30 s (5 × 8 s does not fit → 6 s)
+  await row.locator('#b-V1-n').fill('5'); await row.locator('#b-V1-n').press('Enter');
+  await expect(row.locator('#b-V1-sd')).toHaveValue('6'); await expect(total).toHaveText('30 ث');
+  await expect(pg(page).locator('[data-cw-replan]')).toBeVisible();
+  await expect(pg(page).locator('[data-num="b-V1-sd+"]')).toBeDisabled(); // no room for a longer scene
+  await pg(page).locator('[data-cw-plan="V1"]').click(); await page.locator('[data-ai-go]').click();
+  await expect(pg(page).locator('[data-cw-scene]')).toHaveCount(5);
+  await expect.poll(() => [piece().scenes.map((s) => s.d), piece().dur]).toEqual([[6, 6, 6, 6, 6], 30]);
+  await expect(pg(page).locator('[data-cw-replan]')).toHaveCount(0);
+  // back to three scenes of 7 s
+  await row.locator('#b-V1-n').fill('3'); await row.locator('#b-V1-n').press('Enter');
+  await row.locator('#b-V1-sd').fill('7'); await row.locator('#b-V1-sd').press('Enter');
+  await expect.poll(() => [piece().sceneCount, piece().sceneDur, piece().dur]).toEqual([3, 7, 21]);
+  await pg(page).locator('[data-cw-plan="V1"]').click(); await page.locator('[data-ai-go]').click();
+  await expect(pg(page).locator('[data-cw-scene]')).toHaveCount(3);
+  await expect.poll(() => piece().scenes.map((s) => s.d)).toEqual([7, 7, 7]);
+  // 65 — each scene's own seconds on its card
+  const d1 = pg(page).locator('[data-cw-scene="V1-1"] #b-V1-d1');
+  await expect(d1).toHaveValue('7');
+  await d1.fill('10'); await d1.press('Enter');
+  await expect.poll(() => [piece().scenes.map((s) => s.d), piece().dur]).toEqual([[7, 10, 7], 24]);
+  await expect(total).toHaveText('24 ث');
+  await expect(pg(page).locator('[data-cw-total="V1"]')).toContainText('المشاهد مددها مختلفة');
+  // within 30 s: the second scene can grow to 16 at most (30 − 7 − 7); a bigger figure is cut to it
+  await d1.fill('25'); await d1.press('Enter');
+  await expect.poll(() => [piece().scenes.map((s) => s.d), piece().dur]).toEqual([[7, 16, 7], 30]);
+  await expect(pg(page).locator('[data-num="b-V1-d1+"]')).toBeDisabled();
+  await d1.fill('10'); await d1.press('Enter');
+  await expect.poll(() => piece().scenes.map((s) => s.d)).toEqual([7, 10, 7]);
+  // planned again: the scene's own seconds stay, the video's length is still their sum
+  const plans = () => mock.mkt.calls.filter((c) => c.fn === 'ai-content' && c.task === 'scenes').length; const before = plans();
+  await pg(page).locator('[data-cw-plan="V1"]').click(); await page.locator('[data-ai-go]').click();
+  await expect.poll(plans).toBe(before + 1);
+  await expect.poll(() => [piece().scenes.map((s) => s.d), piece().scenes[1].dh, piece().dur]).toEqual([[8, 10, 8], true, 26]);
+  // «مدة المشهد الواحد» again: every scene the same
+  await row.locator('#b-V1-sd').fill('5'); await row.locator('#b-V1-sd').press('Enter');
+  await expect.poll(() => [piece().scenes.map((s) => s.d), piece().dur]).toEqual([[5, 5, 5], 15]);
+  await expect(pg(page).locator('[data-cw-total="V1"]')).not.toContainText('المشاهد مددها مختلفة');
+});
 test('the bridge not linked: the clips are refused with the way to link; a failed job is shown; a member\'s own audio file goes up as a done upload job', async ({ page }) => {
   const C = 'c0000000-0000-4000-8000-00000000000a';
   const state = { w: { goal: 'منتج جديد', idea: 'ريل', mediaTab: 'video', media: { video: { count: 1, size: '9:16', dur: 10, model: 'kling-2.5', notes: '', use: [], ref: [] }, post: { count: 0, size: '1080x1350', model: 'seedream-5-pro', notes: '', use: [], ref: [] }, carousel: { count: 0, slides: 4, size: '1080x1350', model: 'seedream-5-pro', notes: '', use: [], ref: [] } }, extra: { count: 0, model: 'seedream-5-pro', notes: '', use: [], ref: [] } },

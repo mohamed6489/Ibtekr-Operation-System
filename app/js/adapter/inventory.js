@@ -95,6 +95,7 @@
         rows(cl.from('inv_locations').select(LOC_COLS).order('code')),
         cl.from('settings').select('data').eq('section', 'inventory').maybeSingle(),
       ]);
+      seenL = new Map(lots.map((r) => [String(r.id), Object.fromEntries(Object.values(LOT_PATCH).map((k) => [k, r[k] === undefined ? null : r[k]]))]));
       const consIds = cons.map((x) => x.id);
       const links = consIds.length ? await rows(cl.from('inv_consolidation_items').select('consolidation_id, item_id').in('consolidation_id', consIds)) : [];
       // the lines of the consolidations and of the lots (a member without orders.view: none — the item id stands for the sub-order)
@@ -211,12 +212,26 @@
   // `since` (comments decision 31): a return «enters the hub» the day it is inspected — the inspection moves the lot's day (a valid day only)
   const LOT_PATCH = { status: 'status', reason: 'reason', loc: 'loc', mode: 'mode', cost: 'cost', note: 'note', condition: 'condition', conditionNote: 'condition_note', since: 'since' };
   const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+  // «لسه زي ما أنا شايفه» (live-sync plan decision 6): lot id → its editable columns as the last read had them; a piece a teammate
+  // changed a moment ago (its place, its status…) is not written over — 'stale' with the message, and the hub is read again
+  let seenL = new Map();
+  const quietLoad = () => { const p = quiet(() => load({ quiet: true })); if (p && p.catch) p.catch(() => {}); };
+  const STALE_MSG = 'حد تاني غيّر القطعة دي من شوية — اتحدّثت قدامك، راجعها وعدّل تاني لو لسه محتاج';
   async function updateLot(key, patch, action) {
     const cl = c(); if (!cl) return { ok: false, reason: 'network' };
     if (!can().edit) return { ok: false, reason: 'forbidden' };
     if (!UUID.test(String(key))) return { ok: false, reason: 'invalid' };
     const row = {}; Object.keys(patch || {}).forEach((k) => { if (k === 'since' && !DAY_RE.test(String(patch[k] || ''))) return; if (LOT_PATCH[k]) row[LOT_PATCH[k]] = k === 'loc' ? locCode(patch[k]) : k === 'mode' ? modeIn(patch[k]) : k === 'cost' ? num(patch[k]) : patch[k]; });
     if (!Object.keys(row).length) return { ok: true };
+    const L = window.IBLive; const sn = seenL.get(String(key));
+    if (L && L.guarded && sn) {
+      const was = {}; Object.keys(row).forEach((k) => { if (Object.prototype.hasOwnProperty.call(sn, k)) was[k] = sn[k]; });
+      const r = await L.guarded(cl, 'inv_lots', { id: key }, row, was);
+      if (!r.ok) { if (r.reason === 'stale' || r.reason === 'missing') { quietLoad(); return { ok: false, reason: 'stale', message: STALE_MSG }; } return { ok: false, reason: r.reason }; }
+      Object.assign(sn, row);
+      log(action || 'inventory.lot', Object.keys(row).map((k) => k + ': ' + (k === 'note' || k === 'condition_note' ? '…' : row[k])).join(' · '), key);
+      return { ok: true };
+    }
     try { const { data: d, error } = await cl.from('inv_lots').update(row).eq('id', key).select('id'); if (error) return fail(error); if (!d || !d.length) return { ok: false, reason: 'forbidden' };
       log(action || 'inventory.lot', Object.keys(row).map((k) => k + ': ' + (k === 'note' || k === 'condition_note' ? '…' : row[k])).join(' · '), key);
       return { ok: true }; }

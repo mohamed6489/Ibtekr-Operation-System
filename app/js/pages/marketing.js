@@ -147,6 +147,20 @@
   const snapshot = () => Object.assign({ w: camp.w, pieces: camp.pieces, sched: camp.sched, rtab: camp.rtab }, camp.mg ? { mg: camp.mg } : {}); // mg: the Magnific flow's link, for the page (comments decision 52)
   const fields = () => ({ name: W.campaignName(camp.w.idea), goal: camp.w.goal, step: st.step, state: snapshot() });
   const persist = (ms) => { if (camp.id && can().create && MK()) MK().saveSoon(camp.id, fields, ms == null ? 1200 : ms); };
+  // «لسه زي ما أنا شايفه» (live-sync plan decision 6): a teammate saved this campaign after I opened it — the autosave stopped
+  // writing; I choose: open their copy (mine since then is dropped) or save mine over theirs
+  let staleAsk = false;
+  function onStale(id, by) {
+    if (staleAsk || !camp.id || camp.id !== id) return; staleAsk = true;
+    const D = window.IBDirectory; let list = []; try { list = (D && D.members && D.members()) || []; } catch (e) { list = []; } const who = (list.find((m) => m.id === by) || {}).name || 'عضو تاني';
+    let chose = false;
+    const m = U.Modal({ title: '«' + who + '» عدّل الكامبين دي من شوية',
+      body: [h('p', { class: 't-body', style: 'margin:0' }, 'تعديلاتك من ساعة ما «' + who + '» حفظ مااتحفظتش لسه. تفتح نسخته (وتعديلاتك دي تروح)، ولا تحفظ نسختك فوق نسخته؟')],
+      onClose: () => { staleAsk = false; if (!chose) K.toast('الحفظ التلقائي واقف لحد ما تختار — هيسألك تاني مع أول تعديل', 'warning'); },
+      footer: [U.Button({ label: 'افتح نسخته', attrs: { 'data-mk-theirs': '' }, onClick: () => { chose = true; m.close(); const cid = camp.id; MK().forget(cid); openCampaign(cid); } }),
+        U.Button({ type: 'primary', label: 'احفظ نسختي فوقها', attrs: { 'data-mk-mine': '' }, onClick: async () => { chose = true; m.close(); const r = await MK().save(camp.id, fields(), { force: true }); K.toast(r.ok ? 'اتحفظت نسختك' : r.message, r.ok ? 'success' : 'error'); } })] });
+  }
+  document.addEventListener('ib:marketing', (e) => { const d = e && e.detail; if (d && d.stale) onStale(d.stale, d.by); });
   async function ensureCampaign() {
     if (camp.id) return true;
     if (!can().create) { K.toast('مفيش صلاحية إنشاء كامبين', 'error'); return false; }

@@ -160,6 +160,38 @@
   function unsubscribe() { drop(); down = false; fails = 0; nextTry = 0; if (watch) { clearInterval(watch); watch = null; } }
   function clear() { unsubscribe(); pending.clear(); since = 0; if (timer) { clearTimeout(timer); timer = null; } }
 
-  window.IBLive = { subscribe, unsubscribe, clear, on, holdWhile, signal: onSignal, refresh: all, held, connected: () => !!channel && !down,
+  // «لسه زي ما أنا شايفه» for any table (live-sync plan decision 6 — the second stage of decision 3: the makers, the inventory pieces,
+  // the settings, the campaigns). key: { column: value } names the row; was: { column: the value on the screen } — the row is written
+  // only while it still holds them (update … where key and column = was, Prefer count=exact). A list (a text[] column) or a text past
+  // 400 characters is not sent as a condition (the address bar's limit). No row written → the row is read: changed → 'stale' (row =
+  // what is there now), the same → 'forbidden' (the policy said no), gone → 'missing'. → { ok } | { ok:false, reason, row? }; never thrown.
+  const lit = (v) => (v !== null && v !== undefined && typeof v === 'object' ? JSON.stringify(v) : v === undefined ? null : v);
+  const asText = (v) => { const x = lit(v); return x === null ? null : String(x); };
+  function conds(was) { return was ? Object.keys(was).filter((k) => !Array.isArray(was[k]) && was[k] !== undefined && !(typeof lit(was[k]) === 'string' && lit(was[k]).length > 400)) : []; }
+  async function guarded(cl, table, key, patch, was) {
+    if (!cl) return { ok: false, reason: 'network' };
+    const bad = (error) => ({ ok: false, reason: error && error.code === '42501' ? 'forbidden' : 'network', error });
+    const cols = conds(was);
+    const at = (q) => { Object.keys(key).forEach((k) => { q = q.eq(k, key[k]); }); return q; };
+    try {
+      if (!cols.length) { const { error } = await at(cl.from(table).update(patch)); return error ? bad(error) : { ok: true }; }
+      let q = at(cl.from(table).update(patch, { count: 'exact' }));
+      cols.forEach((k) => { const v = lit(was[k]); q = v === null ? q.is(k, null) : q.eq(k, v); });
+      const { error, count, status } = await q;
+      const none = count === 0 || (!!error && (status === 404 || status === 406 || error.code === 'PGRST116'));
+      if (error && !none) return bad(error);
+      if (!none) return { ok: true };
+      const now = await at(cl.from(table).select(Object.keys(key).concat(cols).join(', '))).maybeSingle();
+      const row = now && !now.error ? now.data : null;
+      if (now && now.error) return { ok: false, reason: 'stale' };
+      if (!row) return { ok: false, reason: 'missing' };
+      const same = cols.every((k) => asText(row[k]) === asText(was[k]));
+      return same ? { ok: false, reason: 'forbidden' } : { ok: false, reason: 'stale', row };
+    } catch (e) { return { ok: false, reason: 'network' }; }
+  }
+  // what changed under me: the columns of `was` whose value is not what the row holds now
+  const changedCols = (was, row) => conds(was).filter((k) => row && asText(row[k]) !== asText(was[k]));
+
+  window.IBLive = { subscribe, unsubscribe, clear, on, holdWhile, signal: onSignal, refresh: all, held, connected: () => !!channel && !down, guarded, changedCols,
     _test: { pending: () => new Map(pending), flush, typing, groupHeld, QUIET_MS, MAX_MS } };
 })();

@@ -9,10 +9,13 @@ const ADMIN = 'admin.dev@ibtekr.local';
 const V1 = 'a0000000-0000-4000-8000-000000000001';
 const cairo = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 let mock = null; let pageErrors = [];
-test.beforeEach(async ({ page }) => {
+const CAMP = 'f0000000-0000-4000-8000-000000000001';
+const LOT1 = 'b7000000-0000-4000-8000-000000000001';
+const lot1 = () => ({ id: LOT1, reason: 'متاح للبيع', status: 'متاح', sku: 'IBTA4040PAHC000013', name: 'Cushion', vendor_id: V1, product_id: null, order_id: null, item_id: null, ref: null, loc: 'T', mode: 'أمانة', cost: 650, condition: null, condition_note: null, note: null, since: cairo(), closed_at: null, created_by: null, created_at: new Date().toISOString() });
+test.beforeEach(async ({ page }, info) => {
   test.skip(LIVE, 'plays the change signal by hand on the mocked Supabase');
   pageErrors = []; page.on('pageerror', (e) => pageErrors.push(e.message));
-  mock = await installSupabaseMock(page, {});
+  mock = await installSupabaseMock(page, /hub/.test(info.title) ? { invLots: [lot1()] } : /campaign/.test(info.title) ? { mktCampaigns: [{ id: CAMP, name: 'كولكشن الشتا', goal: 'منتج جديد', step: 2, state: { w: { idea: 'كولكشن الشتا' } } }] } : {});
 });
 test.afterEach(() => { if (LIVE) return; expect(pageErrors).toEqual([]); expect(mock.unhandled).toEqual([]); });
 
@@ -155,4 +158,90 @@ test('accounts: an expense a teammate recorded a moment ago is not recorded agai
   expect(mock.accWrites[0]).toMatchObject({ table: 'acc_expenses', op: 'insert', amount: 1250, dup_ok: true });
   await expect(main(page).locator('table').filter({ hasText: 'ورق طباعة تاني' })).toBeVisible();
   expect(mock.acc.acc_expenses).toHaveLength(2);
+});
+
+// live-sync plan decision 6 (the second stage of «لسه زي ما أنا شايفه»): a maker's data, the hub's pieces, a settings section and a
+// campaign are written only while they still hold what the member is looking at.
+const vendorEvents = (page) => page.evaluate(() => { window.__vev = []; document.addEventListener('ib:vendors', (e) => window.__vev.push(e.detail || {})); });
+test('makers: a field a teammate changed a moment ago is not overwritten — the refusal says so and shows theirs; another field still saves', async ({ page }) => {
+  await signIn(page);
+  await page.evaluate(() => { location.hash = 'makers'; });
+  await expect.poll(() => page.evaluate(() => window.IBVendors.state())).toBe('ready');
+  await vendorEvents(page);
+  // a teammate saved a new phone a moment ago; my screen has not heard yet
+  mock.vendors.find((v) => v.id === V1).phone = '01011111111';
+  const before = mock.vendorWrites.length;
+  await page.evaluate((id) => window.IBVendors.store.update(id, { phone: '01022222222' }), V1);
+  await expect.poll(() => page.evaluate(() => window.__vev.some((d) => d.reason === 'stale'))).toBe(true);
+  expect(mock.vendors.find((v) => v.id === V1).phone).toBe('01011111111');
+  expect(mock.vendorWrites.slice(before).filter((w) => w.table === 'vendors')).toEqual([]);
+  await expect.poll(() => page.evaluate((id) => window.IBVendors.store.get(id).phone, V1)).toBe('01011111111'); // theirs, read again
+  expect(await page.evaluate(() => window.IBVendors.MESSAGES.stale)).toContain('حد تاني غيّر');
+  // now I am looking at theirs: the change is mine to make
+  await page.evaluate((id) => window.IBVendors.store.update(id, { phone: '01022222222' }), V1);
+  await expect.poll(() => mock.vendors.find((v) => v.id === V1).phone).toBe('01022222222');
+  // a teammate changed the phone again — my note is another field, so it still saves
+  mock.vendors.find((v) => v.id === V1).phone = '01033333333';
+  await page.evaluate((id) => window.IBVendors.store.update(id, { notes: 'ملاحظة جديدة' }), V1);
+  await expect.poll(() => mock.vendors.find((v) => v.id === V1).notes).toBe('ملاحظة جديدة');
+  expect(mock.vendors.find((v) => v.id === V1).phone).toBe('01033333333');
+});
+
+test('hub: a piece a teammate moved a moment ago is not moved over — «حد تاني غيّر القطعة دي», theirs read again; then my change goes', async ({ page }) => {
+  await signIn(page);
+  await page.evaluate(() => { location.hash = 'inventory'; });
+  await expect.poll(() => page.evaluate(() => window.IBInventory.state())).toBe('ready');
+  const lot = () => mock.inv.inv_lots.find((l) => l.id === LOT1);
+  lot().loc = 'P'; // a teammate put it in «تصوير» a moment ago
+  const r = await page.evaluate((k) => window.IBInventory.updateLot(k, { loc: 'R' }), LOT1);
+  expect(r.ok).toBe(false); expect(r.reason).toBe('stale'); expect(r.message).toContain('حد تاني غيّر القطعة دي');
+  expect(lot().loc).toBe('P');
+  // read again: now I am looking at theirs, and the move is mine to make
+  await expect.poll(async () => (await page.evaluate((k) => window.IBInventory.updateLot(k, { loc: 'R' }), LOT1)).ok).toBe(true);
+  expect(lot().loc).toBe('R');
+});
+
+test('settings: a section a teammate saved a moment ago is not saved over — «اتغيّرت من شوية», read again; then my save goes', async ({ page }) => {
+  await signIn(page);
+  await page.evaluate(() => { location.hash = 'settings'; });
+  await expect.poll(() => page.evaluate(() => window.IBSettings && window.IBSettings.data && window.IBSettings.data.loaded)).toBe(true);
+  const row = () => mock.settings.find((r) => r.section === 'general');
+  if (!row()) { await page.evaluate(() => window.IBSettings.save('general', { week: 'sat' })); await page.evaluate(() => window.IBSettings.load()); }
+  // a teammate saved the section a moment ago (a new stamp); my screen has not heard yet
+  Object.assign(row(), { data: { ...row().data, week: 'sun' }, updated_at: new Date(Date.now() + 5000).toISOString() });
+  const r = await page.evaluate(() => window.IBSettings.save('general', { week: 'mon' }));
+  expect(r.ok).toBe(false); expect(r.reason).toBe('stale'); expect(r.message).toContain('اتغيّرت من شوية');
+  expect(row().data.week).toBe('sun');
+  await expect.poll(() => page.evaluate(() => (window.IBSettings.section('general') || {}).week)).toBe('sun'); // theirs, read again
+  const again = await page.evaluate(() => window.IBSettings.save('general', { week: 'mon' }));
+  expect(again.ok).toBe(true); expect(row().data.week).toBe('mon');
+  // two quick saves of one section: the second goes with the stamp the first left
+  const two = await page.evaluate(() => Promise.all([window.IBSettings.save('general', { week: 'sat' }), window.IBSettings.save('general', { week: 'sun' })]));
+  expect(two.map((x) => x.ok)).toEqual([true, true]); expect(row().data.week).toBe('sun');
+});
+
+test('campaign: an autosave after a teammate saved the campaign writes nothing and asks — «افتح نسخته» / «احفظ نسختي فوقها»; a stamp the server moved is mine', async ({ page }) => {
+  await signIn(page);
+  await page.evaluate(() => { location.hash = 'marketing'; });
+  await expect.poll(() => page.evaluate(() => !!window.IBMarketing)).toBe(true);
+  const row = () => mock.mkt.campaigns.find((c) => c.id === CAMP);
+  expect((await page.evaluate((id) => window.IBMarketing.open(id), CAMP)).ok).toBe(true);
+  await page.evaluate(() => { window.__mev = []; document.addEventListener('ib:marketing', (e) => { if (e.detail) window.__mev.push(e.detail); }); });
+  // the server placed Magnific results on the saved campaign (the stamp moved, the saver is still me): my save goes
+  Object.assign(row(), { updated_at: new Date(Date.now() + 1000).toISOString() });
+  expect((await page.evaluate((id) => window.IBMarketing.save(id, { name: 'كولكشن الشتا ١' }), CAMP)).ok).toBe(true);
+  expect(row().name).toBe('كولكشن الشتا ١');
+  // a teammate saved it a moment ago: nothing is written, the page is told who
+  const TEAM = '00000000-0000-4000-8000-000000000002';
+  Object.assign(row(), { name: 'نسخة سارة', updated_by: TEAM, updated_at: new Date(Date.now() + 5000).toISOString() });
+  const r = await page.evaluate((id) => window.IBMarketing.save(id, { name: 'نسختي' }), CAMP);
+  expect(r.ok).toBe(false); expect(r.reason).toBe('stale');
+  expect(row().name).toBe('نسخة سارة');
+  expect(await page.evaluate(() => window.__mev.filter((d) => d.stale).map((d) => d.by))).toContain(TEAM);
+  // the autosave keeps writing nothing until the member chooses
+  expect((await page.evaluate((id) => window.IBMarketing.save(id, { name: 'نسختي ٢' }), CAMP)).ok).toBe(false);
+  expect(row().name).toBe('نسخة سارة');
+  // «احفظ نسختي فوقها»
+  expect((await page.evaluate((id) => window.IBMarketing.save(id, { name: 'نسختي' }, { force: true }), CAMP)).ok).toBe(true);
+  expect(row().name).toBe('نسختي');
 });

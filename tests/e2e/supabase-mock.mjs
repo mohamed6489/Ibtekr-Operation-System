@@ -676,6 +676,7 @@ export async function installSupabaseMock(page, opts = {}) {
             const { system, created_by, created_at, ...patch } = b; Object.assign(r, patch); if (t === 'inv_consolidations' && patch.status && patch.status !== 'open') Object.assign(r, { closed_at: now, closed_by: u.id });
             mock.invWrites.push({ table: t, op: 'update', ...patch, id: r.id || r.lot_id });
           }
+          if (/count=exact/.test(hd.prefer || '')) return route.fulfill({ status: 204, headers: { ...cors, 'content-range': '*/' + list.length, 'access-control-expose-headers': 'content-range' } }); // live-sync decision 6
           return out(list);
         }
         return refuse(403, '42501', 'permission denied for table ' + t);
@@ -1130,7 +1131,14 @@ export async function installSupabaseMock(page, opts = {}) {
         if (method === 'GET') { const rows = mock.settings.filter((r) => want === null || r.section === want).map(pick); return single ? (rows.length ? json(200, rows[0]) : json(200, null)) : json(200, rows); }
         const may = (section) => (['team', 'integrations', 'security'].includes(section) ? hasPerm(u, 'settings.team') === 'F' : isAdmin(u));
         const rows = [].concat(body()); const merge = /resolution=merge-duplicates/.test(hd.prefer || '');
-        if (method === 'PATCH') { const i = mock.settings.findIndex((r) => r.section === want); if (i < 0 || !may(want)) return json(401, { code: '42501', details: null, hint: null, message: 'permission denied' }); mock.settings[i] = { ...mock.settings[i], ...rows[0], updated_at: new Date().toISOString(), updated_by: u.id }; return empty(204); }
+        if (method === 'PATCH') {
+          const i = mock.settings.findIndex((r) => r.section === want); if (i < 0 || !may(want)) return json(401, { code: '42501', details: null, hint: null, message: 'permission denied' });
+          // live-sync decision 6: «لسه زي ما أنا شايفه» — updated_at=eq.<what was on the screen>; no row written when it moved on
+          const ua = url.searchParams.get('updated_at'); const hit = !ua || (ua.startsWith('eq.') && mock.settings[i].updated_at === ua.slice(3));
+          if (hit) { mock.settings[i] = { ...mock.settings[i], ...rows[0], updated_at: new Date(Math.max(Date.now(), Date.parse(mock.settings[i].updated_at || 0) + 1)).toISOString(), updated_by: u.id }; mock.settingsWrites = (mock.settingsWrites || []).concat([{ section: want, keys: Object.keys(rows[0].data || {}) }]); }
+          if (/count=exact/.test(hd.prefer || '')) return route.fulfill({ status: 204, headers: { ...cors, 'content-range': '*/' + (hit ? 1 : 0), 'access-control-expose-headers': 'content-range' } });
+          return empty(204);
+        }
         if (rows.some((r) => !may(r.section))) return json(401, { code: '42501', details: null, hint: null, message: 'new row violates row-level security policy for table "settings"' });
         if (!merge && rows.some((r) => mock.settings.some((x) => x.section === r.section))) return json(409, { code: '23505', details: null, hint: null, message: 'duplicate key value violates unique constraint "settings_pkey"' });
         for (const r of rows) { const i = mock.settings.findIndex((x) => x.section === r.section); const row = { section: r.section, data: r.data ?? {}, updated_at: new Date().toISOString(), updated_by: u.id }; if (i >= 0) mock.settings[i] = row; else mock.settings.push(row); }
@@ -1506,6 +1514,7 @@ export async function installSupabaseMock(page, opts = {}) {
             const c = bad({ ...r, ...b }); if (c) return check(c);
           }
           for (const r of target) { Object.assign(r, b, { updated_at: now }); mock.vendorWrites.push({ table: t, op: 'update', [key]: r[key], ...b }); } // updated_at: the server bumps it on every write
+          if (/count=exact/.test(hd.prefer || '')) return route.fulfill({ status: 204, headers: { ...cors, 'content-range': '*/' + target.length, 'access-control-expose-headers': 'content-range' } }); // live-sync decision 6: the guarded writes
           return empty(204);
         }
         // DELETE (vendors): the policy admits the admin only (0 rows for anyone else); the fk from order_items / sub_orders refuses

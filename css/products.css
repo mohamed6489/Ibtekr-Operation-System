@@ -295,10 +295,28 @@
 
 /* comments 15 Nov decision 82: «تعديل سعر منتج» wider, with the makers whose Ibtekr rate moves under the amount */
 .scrim .modal.bp-modal{width:min(920px, calc(100vw - 32px));max-width:min(920px, calc(100vw - 32px))}
-.bp-makers td{vertical-align:top}
-.bp-makers td:first-child b{display:block}
-.bp-brands{display:block;margin-top:2px}
-.bp-moves{display:flex;flex-direction:column;gap:4px;align-items:flex-start}
-.bp-move{display:inline-flex;gap:6px;align-items:baseline;flex-wrap:wrap}
-.bp-move b{font-weight:600}
+.bp-makers{display:flex;flex-direction:column;gap:12px}
+.bp-mk{border:1px solid var(--color-border-subtle);border-radius:12px;background:var(--color-bg-base);padding:14px 16px;display:flex;flex-direction:column;gap:10px}
+.bp-mk-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.bp-mk-who{display:flex;flex-direction:column;gap:2px;min-width:0}
+.bp-mk-who b{font-weight:700;overflow-wrap:anywhere}
+.bp-brands{display:block}
+.bp-scope{flex:none;font-size:12px;font-weight:600;padding:3px 10px;border-radius:999px;border:1px solid var(--color-border-subtle);white-space:nowrap}
+.bp-scope.whole{background:#005642;color:#F4ECDD;border-color:#005642}
+.bp-scope.cats{background:#F4ECDD;color:#005642;border-color:#005642}
+.bp-scope.price{color:var(--color-text-secondary)}
+.bp-mk-what{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;font-size:14px}
+.bp-lab{color:var(--color-text-secondary);font-size:12px;flex:none}
+.bp-cats{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
+.bp-cat{font-size:12px;padding:2px 8px;min-height:0}
+.bp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+.bp-move{display:flex;flex-direction:column;gap:4px;padding:8px 10px;border-radius:10px;background:var(--color-bg-container);border:1px solid var(--color-border-subtle)}
+.bp-move[data-bp-line="general"]{border-color:#005642}
+.bp-move-name{font-size:12px;color:var(--color-text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bp-fromto{display:inline-flex;align-items:baseline;gap:6px;font-size:15px}
+.bp-from{color:var(--color-text-secondary);text-decoration:line-through;text-decoration-thickness:1px}
+.bp-to{font-weight:700;color:#005642}
+.bp-to.down{color:var(--color-error-text)}
+.bp-notes{display:flex;flex-direction:column;gap:2px;border-top:1px dashed var(--color-border-subtle);padding-top:8px}
 .bp-over{color:var(--color-error-text);font-weight:600}
+@media (max-width:767px){.bp-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.bp-mk{padding:12px}}

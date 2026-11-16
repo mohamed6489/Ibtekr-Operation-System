@@ -747,17 +747,31 @@
       return { sc, v, name: (v && v.name) || (mine[0] && mine[0].vendor) || 'مبتكر', brands: [...new Set(mine.reduce((a, p) => a.concat(p.brands || []), []))] }; });
     const plansOf = (o) => makers.map((mk) => Object.assign({}, mk, { plan: mk.v && mk.v.ratesVisible ? PD.ratePlan(mk.sc, mk.v, o, parentOf) : null }));
     const pc = (n) => String(n).replace(/\.0+$/, '') + '%';
-    const moves = (ln) => h('span', { class: 'bp-move', 'data-bp-line': ln.kind === 'general' ? 'general' : String(ln.id) }, h('b', null, ln.kind === 'general' ? 'النسبة العامة' : catName(ln.id)), h('span', { class: 'bp-fromto' }, pc(ln.from) + ' ← ' + pc(ln.to)));
+    // owner 16 Nov («ظبط ال ui بشكل احترافي و منظم»): a card per maker — his name and brands with what moves for him (a chip), the
+    // products picked, then every rate that moves as a cell in a grid (the name over «before ← after»), the notes under it
+    const moves = (ln) => h('div', { class: 'bp-move', 'data-bp-line': ln.kind === 'general' ? 'general' : String(ln.id) },
+      h('span', { class: 'bp-move-name' }, ln.kind === 'general' ? 'النسبة العامة' : catName(ln.id)),
+      h('span', { class: 'bp-fromto', dir: 'rtl' }, h('span', { class: 'bp-from' }, U.num(pc(ln.from))), ' ← ', h('b', { class: 'bp-to' + (ln.to > ln.from ? ' up' : ln.to < ln.from ? ' down' : '') }, U.num(pc(ln.to)))));
+    const SCOPE = { whole: ['النسبة كلها', 'نسبته العامة وأقسامه'], cats: ['أقسام بعينها', 'نسبة الأقسام دي بس'], price: ['السعر بس', 'نسبته زي ما هي'] };
     function makersBox(o) {
-      const rows = plansOf(o).map((mk) => { const sc = mk.sc; const pl = mk.plan;
-        const what = sc.whole ? 'كل منتجاته (' + K.n0(sc.total) + ')' : sc.cats.length ? 'كل منتجاته في: ' + sc.cats.map(catName).join('، ') + (sc.rest ? ' · و' + K.n0(sc.rest) + ' منتج متفرق' : '') : K.n0(sc.picked) + ' من ' + K.n0(sc.total) + ' منتج (متفرقين)';
-        const change = !pl ? h('span', { class: 't-small help' }, mk.v && mk.v.rate == null ? 'مالوش نسبة عامة متسجلة — السعر بس' : 'السعر بس — نسبة المبتكر زي ما هي')
-          : h('div', { class: 'bp-moves' }, pl.lines.map(moves), !sc.whole && mk.v.commissionType !== 'category_based' ? h('small', { class: 'help' }, 'عمولته هتبقى «حسب القسم» — الباقي على النسبة العامة') : null,
-            sc.rest ? h('small', { class: 'help' }, U.num(sc.rest + ' منتج متفرق: سعره بس')) : null, pl.over ? h('small', { class: 'bp-over' }, 'النسبة هتعدّي 65% — قلّل المقدار') : null);
-        return h('tr', { 'data-bp-maker': String(sc.vendorId), 'data-bp-scope': !pl ? 'price' : sc.whole ? 'whole' : 'cats' },
-          h('td', null, h('b', null, mk.name), mk.brands.length ? h('small', { class: 'help bp-brands' }, 'البراندات: ' + mk.brands.join('، ')) : null), h('td', null, U.num(what)), h('td', null, change)); });
-      return U.FieldShell({ id: 'bp-mk', label: 'المبتكرين اللي نسبتهم هتتغير', help: 'النسبة بتتغير في السيستم وعلى متجر المبتكر في Dokan من النهارده (للأوردرات الجديدة)، وأسعار المنتجات المحددة بتتحسب عليها.' },
-        h('div', { class: 'scroll-x' }, h('table', { class: 'dt bp-makers', 'data-bp-makers': String(rows.length) }, h('thead', null, h('tr', null, ['المبتكر', 'المتحدد من منتجاته', 'نسبة إبتكر (قبل ← بعد)'].map((t) => h('th', null, t)))), h('tbody', null, rows))));
+      const cards = plansOf(o).map((mk) => { const sc = mk.sc; const pl = mk.plan; const kind = !pl ? 'price' : sc.whole ? 'whole' : 'cats';
+        const what = sc.whole ? h('span', null, U.num('كل منتجاته (' + K.n0(sc.total) + ')'))
+          : sc.cats.length ? h('span', { class: 'bp-cats' }, h('span', null, 'كل منتجاته في'), sc.cats.map((id) => h('span', { class: 'chip bp-cat' }, catName(id))),
+            sc.rest ? h('span', { class: 'help' }, U.num('و' + K.n0(sc.rest) + ' منتج متفرق')) : null)
+          : h('span', null, U.num(K.n0(sc.picked) + ' من ' + K.n0(sc.total) + ' منتج (متفرقين)'));
+        const notes = [
+          !pl ? (mk.v && mk.v.rate == null ? 'مالوش نسبة عامة متسجلة — السعر بس' : 'السعر بس — نسبة المبتكر زي ما هي') : null,
+          pl && !sc.whole && mk.v.commissionType !== 'category_based' ? 'عمولته هتبقى «حسب القسم» — الباقي على النسبة العامة' : null,
+          pl && sc.rest ? U.num(sc.rest + ' منتج متفرق: سعره بس') : null].filter(Boolean);
+        return h('div', { class: 'bp-mk', 'data-bp-maker': String(sc.vendorId), 'data-bp-scope': kind },
+          h('div', { class: 'bp-mk-head' },
+            h('div', { class: 'bp-mk-who' }, h('b', null, mk.name), mk.brands.length ? h('small', { class: 'help bp-brands' }, 'البراندات: ' + mk.brands.join('، ')) : null),
+            h('span', { class: 'bp-scope ' + kind, title: SCOPE[kind][1] }, SCOPE[kind][0])),
+          h('div', { class: 'bp-mk-what' }, h('span', { class: 'bp-lab' }, 'المتحدد'), what),
+          pl ? h('div', { class: 'bp-grid' }, pl.lines.map(moves)) : null,
+          notes.length || (pl && pl.over) ? h('div', { class: 'bp-notes' }, notes.map((t) => h('small', { class: 'help' }, t)), pl && pl.over ? h('small', { class: 'bp-over' }, 'النسبة هتعدّي 65% — قلّل المقدار') : null) : null); });
+      return U.FieldShell({ id: 'bp-mk', label: U.num('المبتكرين اللي نسبتهم هتتغير (' + cards.length + ')'), help: 'النسبة بتتغير في السيستم وعلى متجر المبتكر في Dokan من النهارده (للأوردرات الجديدة)، وأسعار المنتجات المحددة بتتحسب عليها.' },
+        h('div', { class: 'bp-makers', 'data-bp-makers': String(cards.length), 'data-no-cols': '', 'data-no-tq': '' }, cards));
     }
     // a maker's commission written like his «الاتفاق التجاري»: the outcome comes back as ib:vendors { id, reason } (refused) or { id, written, push }
     const commit = (id, input) => new Promise((resolve) => {

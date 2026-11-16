@@ -315,6 +315,32 @@ test('plan_categories: the review popup edits the tree, then «نشر» creates 
   expect(mock.activityRows.filter((r) => r.action === 'product.category.create').length).toBe(5);
 });
 
+test('owner 16 Nov — «مراجعة الأقسام»: a square picture per category (pick or drop, × takes it off), sent with its category on «نشر»; a category the site has takes none', async ({ page }) => {
+  const plan = { items: [{ level: 1, en: 'Home Decor', ar: 'ديكور المنزل' }, { level: 2, en: 'Vases', ar: 'فازات' }, { level: 1, en: 'هدايا', ar: 'هدايا' }] };
+  mock.aiAnswer = (action) => (action === 'assistant' ? { text: 'راجع الأقسام.', actions: [{ name: 'plan_categories', input: plan }] } : null);
+  await signIn(page, ADMIN);
+  await page.getByRole('button', { name: 'مساعد AI' }).click();
+  await ask(page, 'اعملي قسم Home Decor وتحته Vases');
+  await panel(page).locator('[data-ai-open="category_plan"]').click();
+  const M = page.locator('.modal').filter({ hasText: 'مراجعة الأقسام' });
+  await expect(M.locator('.cp-head')).toContainText('الصورة');
+  await expect(M.locator('[data-cp-img]')).toHaveCount(3);
+  await expect(M.locator('[data-cp-img="3"]')).toBeDisabled(); // «هدايا» is on the site already
+  const png = await page.evaluate(async () => { const c = document.createElement('canvas'); c.width = 60; c.height = 40; const x = c.getContext('2d'); x.fillStyle = '#005642'; x.fillRect(0, 0, 60, 40);
+    const b = await new Promise((r) => c.toBlob(r, 'image/png')); return [...new Uint8Array(await b.arrayBuffer())]; });
+  const file = { name: 'decor.png', mimeType: 'image/png', buffer: Buffer.from(png) };
+  await M.locator('[data-cp-img-input="1"]').setInputFiles(file);
+  await expect(M.locator('[data-cp-img="1"] img')).toBeVisible();
+  await M.locator('[data-cp-img-input="2"]').setInputFiles(file);
+  await expect(M.locator('[data-cp-sum]')).toContainText('2 بصورة');
+  await M.locator('[data-cp-img-x="2"]').click(); // taken back off
+  await expect(M.locator('[data-cp-img="2"] img')).toHaveCount(0);
+  await expect(M.locator('[data-cp-sum]')).toContainText('1 بصورة');
+  await M.getByRole('button', { name: 'نشر على الموقع', exact: true }).click();
+  await expect(M).toBeHidden();
+  expect(mock.categoriesCreated.map((c) => [c.name_en, !!c.image])).toEqual([['Home Decor', true], ['Vases', false]]);
+});
+
 test('plan_categories: the tree under a category of the site; a member without «إضافة منتجات» gets a note, no popup', async ({ page }) => {
   mock.aiAnswer = (action) => (action === 'assistant' ? { text: 'راجع الأقسام من هنا واضغط نشر.', actions: [{ name: 'plan_categories', input: { under: 'ديكور', items: [{ level: 1, en: 'Wall Art', ar: 'لوحات' }, { level: 2, en: 'Canvas', ar: 'كانفاس' }] } }] } : null);
   await signIn(page, ADMIN);

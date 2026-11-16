@@ -2030,6 +2030,74 @@ Deno.test('B4 category_get: products.add (never products.edit or the sync secret
   assertEquals([db.writes().length, db.rows('woo_sync_log').length], [0, 0]);
 });
 
+Deno.test('category_order (comments decision 56): one parent\'s children in the dragged order → WooCommerce menu_order 1, 2, 3 … in one batch with only the categories whose number changes, the Arabic terms after them (lang=ar, soft); the list must be the mirror\'s children of that parent (409 stale); products.add; the switch off → skipped; the mirror follows', async () => {
+  const mirror = [{ id: 15, name: 'Home', slug: 'home', parent_id: null }, { id: 80, name: 'Lamps', slug: 'lamps', parent_id: 15 }, { id: 82, name: 'Vases', slug: 'vases', parent_id: 15 }, { id: 84, name: 'Rugs', slug: 'rugs', parent_id: 15 }, { id: 20, name: 'Gifts', slug: 'gifts', parent_id: null }];
+  const site = (o: Record<number, number>) => [{ id: 80, name: 'Lamps', slug: 'lamps', parent: 15, menu_order: o[80] ?? 0, translations: { en: 80, ar: 81 } }, { id: 82, name: 'Vases', slug: 'vases', parent: 15, menu_order: o[82] ?? 0, translations: { en: 82, ar: 83 } }, { id: 84, name: 'Rugs', slug: 'rugs', parent: 15, menu_order: o[84] ?? 0, translations: { en: 84 } }];
+  const batch = (c: any) => ({ body: { update: c.body.update.map((u: any) => ({ id: u.id, menu_order: u.menu_order })) } });
+  const routes = { 'GET wc/v3/products/categories': { body: site({ 84: 1 }) }, 'POST wc/v3/products/categories/batch': batch };
+  const off = setup({ seed: { woo_categories: mirror }, routes });
+  assertEquals([(await call(off.deps, { action: 'category_order', parent: 15, ids: [84, 80, 82] }, { jwt: 'jwt-padd' })).body.reason, off.woo.calls.length], ['push_disabled', 0]);
+  const { woo, db, deps } = setup({ seed: { woo_categories: mirror }, routes, env: PUSH_ON });
+  assertEquals((await call(deps, { action: 'category_order', parent: 15, ids: [84, 80, 82] }, { jwt: 'jwt-pedit' })).res.status, 401, 'products.edit alone');
+  assertEquals((await call(deps, { action: 'category_order', parent: 15, ids: [84, 80, 82] })).res.status, 401, 'never the sync secret');
+  for (const [body, field] of [[{ parent: 'x', ids: [80, 82] }, 'parent'], [{ parent: 15, ids: [80] }, 'ids'], [{ parent: 15, ids: [80, 80, 82] }, 'ids'], [{ parent: 15, ids: [80, 'b'] }, 'ids'], [{ parent: 15 }, 'ids']] as [any, string][]) assertEquals((await call(deps, { action: 'category_order', ...body }, { jwt: 'jwt-padd' })).body.field, field);
+  // not that parent's children as the mirror has them: one missing, one of another parent, the wrong parent
+  for (const body of [{ parent: 15, ids: [80, 82] }, { parent: 15, ids: [80, 82, 20] }, { parent: 20, ids: [80, 82, 84] }]) { const r = await call(deps, { action: 'category_order', ...body }, { jwt: 'jwt-padd' }); assertEquals([r.res.status, r.body.error], [409, 'stale']); }
+  assertEquals(woo.calls.length, 0, 'nothing asked of the site so far');
+  // Rugs stays first (already 1 on the site): only the two that move are written; their Arabic terms take the same numbers
+  const { res, body } = await call(deps, { action: 'category_order', parent: 15, ids: [84, 82, 80] }, { jwt: 'jwt-padd' });
+  assertEquals([res.status, body.result, body.count, body.moved, body.ar], [200, 'ok', 3, 2, 'ok']);
+  assertEquals(woo.calls.map((c) => [c.method, c.path, c.query]), [['GET', 'wc/v3/products/categories', { include: '84,82,80', per_page: '100' }], ['POST', 'wc/v3/products/categories/batch', {}], ['POST', 'wc/v3/products/categories/batch', { lang: 'ar' }]]);
+  assertEquals(woo.calls.filter((c) => c.method === 'POST').map((c) => c.body), [{ update: [{ id: 80, menu_order: 3 }, { id: 82, menu_order: 2 }] }, { update: [{ id: 81, menu_order: 3 }, { id: 83, menu_order: 2 }] }]);
+  assertEquals(db.rows('woo_categories').filter((c: any) => c.parent_id === 15).map((c: any) => [c.id, c.menu_order]).sort((a: any, b: any) => a[1] - b[1]), [[84, 1], [82, 2], [80, 3]]);
+  assertEquals(db.rows('woo_categories').find((c: any) => c.id === 80).name, 'Lamps', 'the names are as they were');
+  const log = db.rows('woo_sync_log').at(-1);
+  assertEquals([log.action, log.entity_id, log.result, log.detail], ['category_order', '15', 'ok', { count: 3, moved: 2, ar: 'ok' }]);
+  // the main categories (parent 0); the same order again: read, nothing written
+  const top = setup({ seed: { woo_categories: mirror }, routes: { 'GET wc/v3/products/categories': { body: [{ id: 20, name: 'Gifts', parent: 0, menu_order: 1 }, { id: 15, name: 'Home', parent: 0, menu_order: 2 }] }, 'POST wc/v3/products/categories/batch': batch }, env: PUSH_ON });
+  const r2 = await call(top.deps, { action: 'category_order', parent: 0, ids: [20, 15] }, { jwt: 'jwt-padd' });
+  assertEquals([r2.body.result, r2.body.moved, r2.body.ar, wooWrites(top.woo)], ['ok', 0, 'none', []]);
+  // the site kept another number for one of them: said, the mirror not touched
+  const kept = setup({ seed: { woo_categories: mirror }, routes: { ...routes, 'POST wc/v3/products/categories/batch': (c: any) => ({ body: { update: c.body.update.map((u: any) => (u.id === 82 ? { id: 82, error: { code: 'woocommerce_rest_term_invalid' } } : u)) } }) }, env: PUSH_ON });
+  const r3 = await call(kept.deps, { action: 'category_order', parent: 15, ids: [84, 82, 80] }, { jwt: 'jwt-padd' });
+  assertEquals([r3.res.status, r3.body.error, r3.body.kept], [502, 'woo_kept_order', 1]);
+  assertEquals(kept.db.rows('woo_categories').find((c: any) => c.id === 80).menu_order ?? 0, 0);
+  // the Arabic batch refused: the English order stands, the answer says so
+  const soft = setup({ seed: { woo_categories: mirror }, routes: { ...routes, 'POST wc/v3/products/categories/batch': (c: any) => (c.query.lang === 'ar' ? { status: 500, body: { code: 'internal' } } : batch(c)) }, env: PUSH_ON });
+  const r4 = await call(soft.deps, { action: 'category_order', parent: 15, ids: [84, 82, 80] }, { jwt: 'jwt-padd' });
+  assertEquals([r4.body.result, r4.body.moved, r4.body.ar === 'ok' || r4.body.ar === 'none'], ['ok', 2, false]);
+  // a category the site no longer has: stale, nothing written
+  const gone = setup({ seed: { woo_categories: mirror }, routes: { ...routes, 'GET wc/v3/products/categories': { body: site({}).slice(0, 2) } }, env: PUSH_ON });
+  const r5 = await call(gone.deps, { action: 'category_order', parent: 15, ids: [84, 82, 80] }, { jwt: 'jwt-padd' });
+  assertEquals([r5.res.status, r5.body.error, wooWrites(gone.woo)], [409, 'stale', []]);
+});
+
+Deno.test('wooApi.orderCategories (comments decision 56): the categories\' batch route with `update` alone — an id and its menu_order, nothing else passed on; lang=ar for the Arabic terms; a bad list is refused before any request', async () => {
+  const woo = fakeWoo({ 'POST wc/v3/products/categories/batch': (c: any) => ({ body: { update: c.body.update } }) });
+  const api = wooApi(ENV, woo.fetch);
+  await api.orderCategories([{ id: 80, menu_order: 2, name: 'x', delete: true }, { id: '82', menu_order: '1' }]);
+  await api.orderCategories([{ id: 81, menu_order: 2 }], 'ar');
+  assertEquals(woo.calls.map((c: any) => [c.method, c.path, c.query, c.body]), [['POST', 'wc/v3/products/categories/batch', {}, { update: [{ id: 80, menu_order: 2 }, { id: 82, menu_order: 1 }] }], ['POST', 'wc/v3/products/categories/batch', { lang: 'ar' }, { update: [{ id: 81, menu_order: 2 }] }]]);
+  for (const bad of [[], 'x', [{ id: 0, menu_order: 1 }], [{ id: 5, menu_order: -1 }], [{ id: 5 }], Array.from({ length: 101 }, (_, i) => ({ id: i + 1, menu_order: i }))]) {
+    let threw = false; try { await api.orderCategories(bad as any); } catch (e) { threw = e instanceof ConfigError; }
+    assert(threw, JSON.stringify(bad).slice(0, 40));
+  }
+  assertEquals(woo.calls.length, 2);
+});
+
+Deno.test('before 0108 is applied: the categories are still written — without menu_order, the column asked for once a run; with the column there every row carries it (0 when the site gave none)', async () => {
+  const { writeCategories } = await import('../_shared/woo-write.js');
+  const stub = (has: boolean) => { const writes: any[] = []; let asked = 0;
+    const db = { from: () => ({ select: () => ({ limit: () => { asked += 1; return Promise.resolve(has ? { data: [], error: null } : { data: null, error: { code: '42703', message: 'column woo_categories.menu_order does not exist' } }); } }), upsert: (rows: any[]) => { writes.push(...rows); return Promise.resolve({ data: null, error: null }); } }) };
+    return { ctx: { db, now: () => '2026-11-16T00:00:00Z', woo: { scrub: (x: string) => x } } as any, writes, asked: () => asked }; };
+  const before = stub(false);
+  const r = await writeCategories(before.ctx, [{ id: 5, name: 'A', parent: 0, menu_order: 3 }]); await writeCategories(before.ctx, [{ id: 6, name: 'B', parent: 5, menu_order: 1 }]);
+  assertEquals([r.written, before.asked(), before.writes.map((x) => [x.id, 'menu_order' in x])], [[5], 1, [[5, false], [6, false]]]);
+  const after = stub(true);
+  await writeCategories(after.ctx, [{ id: 5, name: 'A', parent: 0, menu_order: 3 }, { id: 6, name: 'B', parent: 5 }, { id: 7, name: 'C', parent: 5, menu_order: 'x' }]);
+  assertEquals(after.writes.map((x) => [x.id, x.menu_order]), [[5, 3], [6, 0], [7, 0]]);
+});
+
 Deno.test('B4 category_update: the English name and image, then the linked Arabic translation (lang=ar) — only what changed; a translation not linked is never written; none yet → made under the parent\'s translation; the switch off → skipped with no call', async () => {
   const seed = { woo_categories: [{ id: 80, name: 'Lamps', slug: 'lamps', parent_id: 15 }] };
   const routes = { 'GET wc/v3/products/categories/80': { body: catEn() }, 'GET wc/v3/products/categories/81': arRoute(catAr()),

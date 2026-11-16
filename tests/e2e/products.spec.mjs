@@ -387,6 +387,69 @@ test('decision 16 on a variable product: a maker price per variation → its two
   expect(w.variations).toEqual([{ id: 9901, sale_price: String(sale), regular_price: String(reg) }]);
 });
 
+// drag a category's six-dot grip onto another category's row (comments decision 56): the pointer goes down on the grip, moves in
+// steps past the middle of the target and is released there
+async function dragCat(page, from, to, after) {
+  const g = page.locator(`#pg-products [data-cat-grip="${from}"]`); await g.scrollIntoViewIfNeeded();
+  const a = await g.boundingBox(); const t = await page.locator(`#pg-products [data-cat-item="${to}"]`).boundingBox();
+  const y = after ? t.y + t.height - 3 : t.y + 3;
+  await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2); await page.mouse.down();
+  await page.mouse.move(a.x + a.width / 2, (a.y + y) / 2, { steps: 4 }); await page.mouse.move(a.x + a.width / 2, y, { steps: 6 });
+  await page.mouse.up();
+}
+
+test('comment 56 — the categories are ordered by their six-dot grip, main and sub: the new order goes to the site (category_order) and the tree follows it; the arrow keys too; a search hides the grips; a refusal puts the order back', async ({ page }) => {
+  mock.wooCategories.push({ id: 153, name: 'شموع', slug: 'candles', parent_id: 15, updated_at: '2026-10-20T08:00:00Z' }, { id: 154, name: 'مرايات', slug: 'mirrors', parent_id: 15, updated_at: '2026-10-20T08:00:00Z' });
+  await openProducts(page);
+  await page.locator('#pg-products [role=tab]', { hasText: 'الأقسام' }).click();
+  const pg = page.locator('#pg-products');
+  const mains = () => pg.locator('.cat-mains > .cat-main').evaluateAll((l) => l.map((x) => Number(x.dataset.cat)));
+  const subs = (parent) => pg.locator(`[data-cat-kids="${parent}"] > .cat-item`).evaluateAll((l) => l.map((x) => Number(x.dataset.catItem)));
+  await expect(pg.locator('.cat-sum')).toContainText('اسحب القسم من النقط');
+  expect(await mains()).toEqual([15, 22]); // never ordered on the site: by name
+  // the main categories: «هدايا» dragged above «ديكور»
+  await dragCat(page, 22, 15, false);
+  await expect(page.locator('.toast.show').filter({ hasText: 'اتحفظ ترتيب الأقسام على الموقع' })).toBeVisible();
+  expect(mock.categoryWrites.at(-1)).toEqual({ action: 'category_order', parent: 0, ids: [22, 15], by: ADMIN });
+  expect(await mains()).toEqual([22, 15]);
+  // the sub-categories of «ديكور»: three siblings, the last one dragged to the top
+  await pg.locator('[data-cat-tog="15"]').click();
+  const before = await subs(15); expect(before.length).toBe(3);
+  await dragCat(page, before[2], before[0], false);
+  await expect.poll(() => mock.categoryWrites.at(-1).parent).toBe(15);
+  expect(mock.categoryWrites.at(-1).ids).toEqual([before[2], before[0], before[1]]);
+  await expect.poll(() => subs(15)).toEqual([before[2], before[0], before[1]]);
+  expect(mock.wooCategories.filter((c) => c.parent_id === 15).sort((a, b) => a.menu_order - b.menu_order).map((c) => c.id)).toEqual([before[2], before[0], before[1]]);
+  // a category with no sibling has no grip (the one sub-category of «إضاءة»)
+  await pg.locator('[data-cat-tog="151"]').click();
+  await expect(pg.locator('[data-cat-grip="152"]')).toHaveCount(0);
+  // the keyboard: the focused grip's item goes down with the arrow — several presses, one write
+  const n0 = mock.categoryWrites.length;
+  await pg.locator(`[data-cat-grip="${before[2]}"]`).focus(); await page.keyboard.press('ArrowDown'); await page.keyboard.press('ArrowDown');
+  await expect.poll(() => mock.categoryWrites.length).toBe(n0 + 1);
+  expect(mock.categoryWrites.at(-1).ids).toEqual([before[0], before[1], before[2]]);
+  // the site refuses: said, and the tree goes back to the order the mirror has
+  mock.catOrderFail = 'woocommerce_rest_cannot_edit';
+  await expect.poll(() => subs(15)).toEqual([before[0], before[1], before[2]]);
+  await dragCat(page, before[0], before[2], true);
+  await expect(page.locator('.toast.show').filter({ hasText: 'الترتيب ماتحفظش على الموقع' })).toBeVisible();
+  await expect.poll(() => subs(15)).toEqual([before[0], before[1], before[2]]);
+  mock.catOrderFail = null;
+  // a search narrows the tree: nothing to drag there
+  await pg.locator('[data-cat-q]').fill('شم');
+  await expect(pg.locator('[data-cat-grip]')).toHaveCount(0);
+  expect(mock.activity.some((r) => r.action === 'product.category.order' && /3 categories/.test(String(r.new_value)))).toBe(true);
+});
+
+test('comment 56 — before 0108 is applied the mirror has no order: the tab loads as before, by name, without the grips; a member who cannot write categories has none either', async ({ page }) => {
+  mock.noCatOrder = true;
+  await openProducts(page);
+  await page.locator('#pg-products [role=tab]', { hasText: 'الأقسام' }).click();
+  await expect(page.locator('#pg-products .cat-main')).toHaveCount(2);
+  await expect(page.locator('#pg-products [data-cat-grip]')).toHaveCount(0);
+  await expect(page.locator('#pg-products .cat-sum')).not.toContainText('اسحب');
+});
+
 // a small real picture drawn in the page (the upload draws every file again in the browser, so it has to be one the browser reads)
 const pngBytes = (page, w, h, color) => page.evaluate(async ([w, h, color]) => { const c = document.createElement('canvas'); c.width = w; c.height = h; const x = c.getContext('2d'); x.fillStyle = color; x.fillRect(0, 0, w, h);
   const b = await new Promise((r) => c.toBlob(r, 'image/png')); return [...new Uint8Array(await b.arrayBuffer())]; }, [w, h, color]);

@@ -227,6 +227,18 @@
     quiet(() => window.IBActivity && window.IBActivity.log('product.category.update', '#' + row.id + ' · ' + what, { entity: 'woo_categories', entity_id: String(row.id) }));
     return { ok: true, ar: r.body.ar || 'none', image: r.body.image || null };
   }
+  // comments decision 56 (the owner 15 Nov — the categories' order written to the site): one parent's children in their new order
+  // (parent 0 = the main categories) → woo-sync category_order → { ok, moved, ar } | { ok: false, reason: 'stale' | … }
+  async function categoryOrder(parent, ids) {
+    const list = (ids || []).map(Number).filter((x) => Number.isInteger(x) && x > 0);
+    if (list.length < 2) return { ok: false, reason: 'invalid' };
+    const r = await invoke({ action: 'category_order', parent: Number(parent) || 0, ids: list });
+    if (!r.ok) return r.status === 409 || r.error === 'stale' ? Object.assign(r, { reason: 'stale' }) : r;
+    if (r.body.result !== 'ok') return { ok: false, reason: r.body.reason || r.body.result };
+    quiet(() => window.IBProducts && window.IBProducts.orderCategories && window.IBProducts.orderCategories(list));
+    quiet(() => window.IBActivity && window.IBActivity.log('product.category.order', (Number(parent) ? '#' + Number(parent) : 'main') + ' · ' + list.length + ' categories', { entity: 'woo_categories', entity_id: Number(parent) ? String(Number(parent)) : null }));
+    return { ok: true, moved: Number(r.body.moved) || 0, ar: r.body.ar || 'none' };
+  }
   // for good (no trash for a category on WooCommerce) → { ok } | { ok: false, reason: 'conflict', error: has_products | has_children | has_makers, count }
   async function categoryDelete(id, name) {
     const r = await invoke({ action: 'category_delete', id: Number(id) });
@@ -268,6 +280,6 @@
     batches: () => batches.slice(), colors: () => colors.slice(), nextSerial: () => nextSerial,
     open, create, save, archive, addColor, takeSerials, toWebp, uploadImage, removeImage, imageUrl, upload, createCategory, readSheetLink, siteStyles, loadStyles,
     media, bytesOf, // the three flows (14 Nov)
-    categoryGet, categoryUpdate, categoryDelete, // B4 (11 Nov): the categories tab
+    categoryGet, categoryUpdate, categoryDelete, categoryOrder, // B4 (11 Nov): the categories tab · categoryOrder: comments decision 56
   };
 })();

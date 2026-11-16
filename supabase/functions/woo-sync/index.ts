@@ -176,11 +176,11 @@ type Run = { db: Db; env: Deps['env']; woo: () => ReturnType<typeof wooApi>; ctx
 
 const ACTIONS = ['states', 'categories', 'orders', 'vendors', 'products', 'all', 'push_status', 'push_vendor', 'register_webhooks', 'probe_store', 'probe_dokan', 'accounts', 'statement', 'withdraw_approve', 'withdraw_create', 'withdrawals', 'order_trash', 'suborder_trash', 'line_trash', 'line_qty', 'line_add', 'suborder_status', 'order_create', 'order_pay_link',
   'vendor_photo', 'vendor_store', 'product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'studio_media', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push', 'product_duplicate', 'carts',
-  'category_get', 'category_update', 'category_delete', 'thumbs', 'styles'];
+  'category_get', 'category_update', 'category_delete', 'category_order', 'thumbs', 'styles'];
 // phase 5: the product actions a person runs (never the sync secret); phase 5.2: the studio's upload, a new category, a sheet link;
 // phase 5.4: the images tool's results onto a product; B4 (11 Nov): the categories tab's read, edit and delete
 const PRODUCT_ACTIONS = ['product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'studio_media', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push', 'product_duplicate',
-  'category_get', 'category_update', 'category_delete', 'thumbs', 'styles'];
+  'category_get', 'category_update', 'category_delete', 'category_order', 'thumbs', 'styles'];
 const PRODUCT_BATCH_MAX = 100;
 const ACCOUNTS_BATCH = 50; // stats requests per run (one per maker; the hourly cron goes round the list)
 const STATEMENT_MAX_DAYS = 400;
@@ -237,7 +237,7 @@ async function authorize(req: Request, deps: Deps, action: string, args: Json): 
   // phase 5.2 (decisions 7 / 8 / 13): the studio's upload, a new category and reading a sheet link need products.add = F
   if (action === 'studio_upload' || action === 'studio_media' || action === 'category_create' || action === 'studio_sheet') return (await admin()) || (await perm('products.add')) ? 'member' : null;
   // B4 (the owner, 11 Nov): the categories tab — reading one for «تعديل», editing and deleting it — the same people who add one
-  if (action === 'category_get' || action === 'category_update' || action === 'category_delete') return (await admin()) || (await perm('products.add')) ? 'member' : null;
+  if (action === 'category_get' || action === 'category_update' || action === 'category_delete' || action === 'category_order') return (await admin()) || (await perm('products.add')) ? 'member' : null;
   // phase 12 T2 (decision 9): a copy of a product is a new product — products.add = F, like the studio
   if (action === 'product_duplicate') return (await admin()) || (await perm('products.add')) ? 'member' : null;
   // phase 7 (decision 1 c): the site quantity from the hub — the admin, or inventory.edit = F AND products.edit = F (a person, never the
@@ -2378,6 +2378,53 @@ async function categoryUpdate(run: Run, args: Json) {
   return json(200, { action: 'category_update', result: 'ok', id, ar, image: catView(c)?.image ?? null });
 }
 
+// category_order { parent, ids } (comments decision 56 — the owner 15 Nov: «الترتيب ال 6 نقط … في الكاتيجوري و يسمع علي الويبسايت ف الاقسام —
+// سواء رئيسي او فرعي»): the order of one parent's children (parent 0 = the main categories) as the member dragged them, written as
+// WooCommerce's own category order (menu_order 1, 2, 3 … — what «Category order» sorts by on the shop). The list must be exactly
+// that parent's children in the mirror (409 stale otherwise: someone added, moved or deleted one — the page reads them again). One
+// read of the terms, then one batch with only the categories whose number changes; their Arabic translations (WPML — each term
+// keeps its own number) take the same numbers in a second batch, softly. The mirror follows (0108); the log holds counts.
+const ORDER_MAX = 100;
+async function categoryOrder(run: Run, args: Json) {
+  const parent = args.parent === undefined || args.parent === null || args.parent === 0 ? 0 : wooId(args.parent);
+  if (parent === null) return json(400, { error: 'bad_request', field: 'parent' });
+  const ids = (Array.isArray(args.ids) ? args.ids : []).map(wooId);
+  if (ids.length < 2 || ids.length > ORDER_MAX || ids.some((x) => x === null) || new Set(ids).size !== ids.length) return json(400, { error: 'bad_request', field: 'ids' });
+  const list = ids as number[];
+  const { data: tree, error: treeErr } = await run.db.from('woo_categories').select('id, parent_id').range(0, 9999);
+  if (treeErr) throw new Error(`woo_categories: ${treeErr.message}`);
+  const kids = (tree ?? []).filter((r: Json) => (Number(r.parent_id) || 0) === parent).map((r: Json) => Number(r.id));
+  if (kids.length !== list.length || !kids.every((k: number) => list.includes(k))) return json(409, { error: 'stale' });
+  const entry = { kind: 'push', direction: 'out', entity: 'woo_categories', entity_id: parent ? String(parent) : null, action: 'category_order' };
+  if (!pushEnabled(run.env)) { await logSync(run.db, { ...entry, result: 'skipped', detail: { reason: 'push_disabled' } }); return json(200, { action: 'category_order', result: 'skipped', reason: 'push_disabled' }); }
+  const ctx = await run.ctx();
+  const want = new Map<number, number>(list.map((id, i) => [id, i + 1] as [number, number]));
+  let terms: Json[];
+  try {
+    const got = (await ctx.woo.get(CATEGORIES_PATH, { include: list.join(','), per_page: ORDER_MAX })).data;
+    terms = (Array.isArray(got) ? got : []).filter((t: Json) => isObj(t) && want.has(wooId(t.id) ?? -1));
+    if (terms.length !== list.length) return json(409, { error: 'stale' });
+    const moved = terms.filter((t) => Number(t.menu_order) !== want.get(wooId(t.id) as number)).map((t) => ({ id: wooId(t.id) as number, menu_order: want.get(wooId(t.id) as number) as number }));
+    if (moved.length) {
+      const ans = (await ctx.woo.orderCategories(moved)).data;
+      const done = new Map<number, number>((isObj(ans) && Array.isArray(ans.update) ? ans.update : []).filter((u: Json) => isObj(u) && wooId(u.id) !== null && !isObj(u.error)).map((u: Json) => [wooId(u.id) as number, Number(u.menu_order)] as [number, number]));
+      const kept = moved.filter((m) => done.get(m.id) !== m.menu_order);
+      if (kept.length) { await logSync(run.db, { ...entry, result: 'error', detail: { error: 'woo_kept_order', count: list.length, kept: kept.length } }); return json(502, { error: 'woo_kept_order', kept: kept.length }); }
+    }
+    // the translations: soft — a failure there is said in the answer (ar), never undoes the English terms
+    let ar = 'none';
+    const arItems = terms.map((t) => ({ id: wooId(isObj(t.translations) ? t.translations.ar : null), menu_order: want.get(wooId(t.id) as number) as number })).filter((x) => x.id !== null && !want.has(x.id as number));
+    if (arItems.length) { try { await ctx.woo.orderCategories(arItems, 'ar'); ar = 'ok'; } catch (e) { if (!(e instanceof WooError)) throw e; ar = wooCode(e); } }
+    await writeCategories(ctx, terms.map((t) => ({ ...t, menu_order: want.get(wooId(t.id) as number) })));
+    await logSync(run.db, { ...entry, result: 'ok', detail: { count: list.length, moved: moved.length, ar } });
+    return json(200, { action: 'category_order', result: 'ok', parent, count: list.length, moved: moved.length, ar, stored: (ctx as Json).catOrder === true });
+  } catch (e) {
+    if (!(e instanceof WooError)) throw e;
+    await logSync(run.db, { ...entry, result: 'error', detail: { error: wooCode(e), count: list.length } });
+    return json(200, { action: 'category_order', result: 'error', reason: wooCode(e) });
+  }
+}
+
 // category_delete { id }: WooCommerce has no trash for a category, so it goes for good — refused first (409, nothing on the site)
 // while anything still uses it: a product in the mirror (any status, the trash too — the site would take the category off it), a
 // sub-category (ours or the site's), a maker's «الفئة الأساسية» (0080), or the site's own count. Then DELETE force=true on the
@@ -2535,6 +2582,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'category_get') return await categoryGet(run, args);
     if (action === 'category_update') return await categoryUpdate(run, args);
     if (action === 'category_delete') return await categoryDelete(run, args);
+    if (action === 'category_order') return await categoryOrder(run, args);
     if (action === 'studio_sheet') return await studioSheet(args, deps.fetch);
     if (action === 'thumbs') return await thumbs(run, args, deps.fetch);
     if (action === 'styles') return await siteStyles(run);

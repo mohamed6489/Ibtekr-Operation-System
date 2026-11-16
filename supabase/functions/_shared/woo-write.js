@@ -771,7 +771,14 @@ async function writeTerms(ctx, table, categories) {
   const now = ctx.now();
   // owner batch 14 Nov (decision 9, 0088): a category's image (https only) beside its name — the brands table has no such column
   const img = (c) => (table === 'woo_categories' ? { image_url: isObj(c.image) && typeof c.image.src === 'string' && /^https:\/\//.test(c.image.src) ? c.image.src.slice(0, 600) : null } : {});
-  const rows = lastById(valid).map((c) => ({ id: wooId(c.id), name: c.name.trim(), slug: orNull(c.slug), parent_id: wooId(c.parent), ...img(c), updated_at: now }));
+  // comments decision 56 (0108): a category's place among its siblings on the site (WooCommerce's menu_order). Before 0108 is applied
+  // the column is not there — asked once a run (a read of that column alone), and the rows go without it as before
+  let order = () => ({});
+  if (table === 'woo_categories') {
+    if (ctx.catOrder === undefined) { try { const { error } = await ctx.db.from(table).select('menu_order').limit(1); ctx.catOrder = !error; } catch { ctx.catOrder = false; } }
+    if (ctx.catOrder) order = (c) => { const n = Number(c.menu_order); return { menu_order: c.menu_order != null && c.menu_order !== '' && Number.isInteger(n) && n >= 0 ? n : 0 }; };
+  }
+  const rows = lastById(valid).map((c) => ({ id: wooId(c.id), name: c.name.trim(), slug: orNull(c.slug), parent_id: wooId(c.parent), ...img(c), ...order(c), updated_at: now }));
   const { bad } = await save(ctx, table, rows, 'id');
   return { written: rows.map((r) => r.id).filter((id) => !bad.has(String(id))), skipped: list.length - valid.length, failed: bad.size };
 }

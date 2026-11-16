@@ -25,7 +25,7 @@ const COLUMNS: Record<string, string[]> = {
   roles: ['id', 'name', 'description', 'is_system', 'permissions', 'level_perms', 'sort'],
   hr_members: ['member_id', 'shift_start', 'shift_end', 'hire_date', 'leave_days', 'contract_path', 'notes', 'updated_by', 'updated_at'],
   vendor_category_rates: ['id', 'vendor_id', 'woo_category_id', 'rate', 'flat', 'since', 'set_by', 'created_at'],
-  woo_categories: ['id', 'name', 'slug', 'parent_id', 'image_url', 'updated_at'], // image_url: 0088
+  woo_categories: ['id', 'name', 'slug', 'parent_id', 'image_url', 'menu_order', 'updated_at'], // image_url: 0088 · menu_order: 0108
   woo_brands: ['id', 'name', 'slug', 'parent_id', 'updated_at'], // 0021 (phase 5)
   product_commissions: ['product_id', 'rate', 'type', 'fee', 'updated_at'], // 0021 (phase 5, decision 12)
   // 0011 + 0017 (phase 3.5): the five Dokan bank columns

@@ -77,7 +77,7 @@ function baseUrl(raw) {
 }
 
 /**
- * { get(path, query), put(path, body, query), post(path, body), del(path), delCategory(id, lang), upload(path, bytes, filename, mime), eachPage(path, query, onPage, { maxPages, startPage }), scrub }.
+ * { get(path, query), put(path, body, query), post(path, body), del(path), delCategory(id, lang), orderCategories(items, lang), upload(path, bytes, filename, mime), eachPage(path, query, onPage, { maxPages, startPage }), scrub }.
  * get/put/post → { data, total, pages } (X-WP-Total / X-WP-TotalPages as numbers or null).
  */
 export function wooApi(env, fetchFn) {
@@ -143,6 +143,14 @@ export function wooApi(env, fetchFn) {
       const n = Number(id);
       if (!Number.isInteger(n) || n <= 0) throw new ConfigError('a category id is required');
       return request('DELETE', `wc/v3/products/categories/${n}`, { query: { force: true, ...(lang === 'ar' ? { lang: 'ar' } : {}) } });
+    },
+    // comments decision 56 (the owner 15 Nov — the categories' order written to the site): sibling categories' order in one request —
+    // the categories' batch route with `update` alone (nothing is ever created or deleted through it), each item an id and its
+    // menu_order and nothing else; `lang` reaches the Arabic terms (WPML).
+    orderCategories: (items, lang) => {
+      const update = (Array.isArray(items) ? items : []).map((x) => ({ id: Number(x && x.id), menu_order: Number(x && x.menu_order) }));
+      if (!update.length || update.length > 100 || update.some((x) => !Number.isInteger(x.id) || x.id <= 0 || !Number.isInteger(x.menu_order) || x.menu_order < 0)) throw new ConfigError('category order: 1–100 items of { id, menu_order }');
+      return request('POST', 'wc/v3/products/categories/batch', { body: { update }, query: lang === 'ar' ? { lang: 'ar' } : null });
     },
     options: (path) => request('OPTIONS', path), // a route's schema, read-only (probe_dokan options, phase 5)
     // a file to the media library (phase 5.2): the bytes as they are, the file name ASCII-safe in Content-Disposition

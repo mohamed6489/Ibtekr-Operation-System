@@ -86,7 +86,7 @@ const COLUMNS = { // supabase/migrations/0001_identity.sql, 0002_system.sql (act
     'contact_name', 'address_parts', 'social', 'logo_url', 'banner_url', 'woo_payment_methods', 'woo_snapshot', 'push_pending', 'woo_synced_at', 'photo_path'], // 0075 photo_path; 0014 (phase 3.3): woo_snapshot is service_role only (a select naming it → 42501, like commission_pct)
   vendor_rates: ['id', 'vendor_id', 'rate', 'flat', 'since', 'set_by', 'created_at', 'commission_type'], // 0014: flat; 0016: commission_type
   vendor_category_rates: ['id', 'vendor_id', 'woo_category_id', 'rate', 'flat', 'since', 'set_by', 'created_at'], // 0014: sensitive.commission, add-only
-  woo_categories: ['id', 'name', 'slug', 'parent_id', 'image_url', 'updated_at'], // 0014: the sync's, vendors.view; image_url 0088
+  woo_categories: ['id', 'name', 'slug', 'parent_id', 'image_url', 'menu_order', 'updated_at'], // 0014: the sync's, vendors.view; image_url 0088; menu_order 0108 (mock.noCatOrder = before it is applied)
   vendor_bank: ['vendor_id', 'method', 'bank_name', 'holder', 'iban', 'wallet', 'updated_by', 'updated_at', 'account_number', 'account_type', 'bank_address', 'routing_number', 'swift'], // 0017: + Dokan's bank fields
   vendor_logins: ['vendor_id', 'username', 'email', 'pw_mode', 'status', 'must_change', 'invite_sent_at', 'password_set_at', 'secret_id', 'created_by', 'created_at', 'updated_at', 'fails', 'locked_until', 'own_password', 'last_login_at'], // 0065 (phase 13 T4): the portal's four columns, readable // 0012 (plan 3.1): secret_id is never granted to the client; created_by is the member's name
   products: ['id', 'sku', 'name', 'image_url', 'permalink', 'vendor_id', 'price', 'status', 'raw', 'updated_at',
@@ -1447,6 +1447,7 @@ export async function installSupabaseMock(page, opts = {}) {
           if (t === 'vendor_logins' && asked.split(',').some((c) => c.trim() === '*' || c.trim() === 'secret_id')) return denied('permission denied for table vendor_logins'); // 0012: the select grant is a column list without secret_id
           const sel = readSelect(t, asked);
           if (sel.bad) return json(400, { code: '42703', details: null, hint: null, message: `column ${sel.bad} does not exist` });
+          if (t === 'woo_categories' && mock.noCatOrder && /menu_order/.test(asked || '')) return json(400, { code: '42703', details: null, hint: null, message: 'column woo_categories.menu_order does not exist' }); // before 0108 is applied
           const visible = t === 'woo_categories' ? hasPerm(u, 'vendors.view') !== 'N' || hasPerm(u, 'products.view') !== 'N' : t === 'vendors' || t === 'vendor_logins' ? hasPerm(u, 'vendors.view') !== 'N' : F;
           return json(200, pageOf(visible ? rows().filter(f.match) : [], url.searchParams).map(sel.pick));
         }
@@ -2324,7 +2325,7 @@ export async function installSupabaseMock(page, opts = {}) {
       }
       if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : (action === 'order_trash' || action === 'suborder_trash' || action === 'line_trash' || action === 'line_qty' || action === 'line_add' || action === 'suborder_status') ? hasPerm(u, 'orders.status') === 'F' && hasPerm(u, 'orders.view') !== 'N' : (action === 'order_create' || action === 'order_pay_link') ? (isAdmin(u) || hasPerm(u, 'orders.status') === 'F') : action === 'push_vendor' ? mayPushVendor() : (action === 'statement' || action === 'withdrawals') ? hasPerm(u, 'accounts.view') !== 'N' : action === 'thumbs' ? (hasPerm(u, 'orders.view') !== 'N' || hasPerm(u, 'products.view') !== 'N') : action === 'withdraw_approve' || action === 'withdraw_create' ? (isAdmin(u) || hasPerm(u, 'accounts.approve') === 'F')
         : action === 'product_get' || action === 'styles' ? hasPerm(u, 'products.view') !== 'N' : action === 'product_save' || action === 'product_images_add' ? (isAdmin(u) || hasPerm(u, 'products.edit') === 'F') : action === 'products_batch' || action === 'products_vendor' ? (isAdmin(u) || hasPerm(u, 'products.bulk') === 'F')
-          : action === 'products_trash' || action === 'products_restore' ? hasPerm(u, 'products.trash') === 'F' : action === 'studio_upload' || action === 'studio_media' || action === 'category_create' || action === 'studio_sheet' || action === 'product_duplicate' || action === 'category_get' || action === 'category_update' || action === 'category_delete' ? (isAdmin(u) || hasPerm(u, 'products.add') === 'F') : isAdmin(u))) return json(401, { error: 'unauthorized' });
+          : action === 'products_trash' || action === 'products_restore' ? hasPerm(u, 'products.trash') === 'F' : action === 'studio_upload' || action === 'studio_media' || action === 'category_create' || action === 'studio_sheet' || action === 'product_duplicate' || action === 'category_get' || action === 'category_update' || action === 'category_delete' || action === 'category_order' ? (isAdmin(u) || hasPerm(u, 'products.add') === 'F') : isAdmin(u))) return json(401, { error: 'unauthorized' });
       // phase 5.2: studio_upload — the item read from the batch and checked by the server's own buildStudio; the gate; a product
       // (draft, the mirror row) per item, the result on the batch; mock.studioFail = { [index]: 'product_invalid_sku' } refuses one;
       // mock.studioArFail = { [index]: true } refuses its Arabic translation only (arNote / arError on the result);
@@ -2415,6 +2416,20 @@ export async function installSupabaseMock(page, opts = {}) {
         const rec = { ...b, by: u.email }; delete rec.image; if (img) rec.image = true; mock.categoriesCreated.push(rec);
         (mock.catSite = mock.catSite || {})[id] = { ar: b.name_ar || null, image: img ? 'https://woo.test/cat-' + id + '.webp' : null, count: 0 };
         return json(200, { action, result: 'ok', id, ar_id: b.name_ar ? id + 1 : null, image: img ? 'https://woo.test/cat-' + id + '.webp' : null });
+      }
+      // comments decision 56: category_order — one parent's children in the dragged order (the list must be exactly its children:
+      // 409 stale otherwise); the gate; the mirror's menu_order 1, 2, 3 …; mock.categoryWrites records it; mock.catOrderFail = a code
+      if (action === 'category_order') {
+        const parent = Number(b.parent) || 0; const ids = Array.isArray(b.ids) ? b.ids.map(Number) : [];
+        if (ids.length < 2 || ids.length > 100 || ids.some((x) => !Number.isInteger(x) || x <= 0) || new Set(ids).size !== ids.length) return json(400, { error: 'bad_request', field: 'ids' });
+        const kids = mock.wooCategories.filter((x) => (x.parent_id || 0) === parent).map((x) => x.id);
+        if (kids.length !== ids.length || !kids.every((k) => ids.includes(k))) return json(409, { error: 'stale' });
+        if (!mock.pushEnabled) return json(200, { action, result: 'skipped', reason: 'push_disabled' });
+        mock.categoryWrites = mock.categoryWrites || [];
+        if (mock.catOrderFail) return json(200, { action, result: 'error', reason: mock.catOrderFail });
+        let moved = 0; ids.forEach((id, i) => { const c = mock.wooCategories.find((x) => x.id === id); if ((c.menu_order || 0) !== i + 1) { c.menu_order = i + 1; moved += 1; } });
+        mock.categoryWrites.push({ action, parent, ids, by: u.email });
+        return json(200, { action, result: 'ok', parent, count: ids.length, moved, ar: 'ok', stored: !mock.noCatOrder });
       }
       if (action === 'category_get' || action === 'category_update' || action === 'category_delete') {
         const cat = mock.wooCategories.find((x) => x.id === Number(b.id)); if (!cat) return json(404, { error: 'not_found' });

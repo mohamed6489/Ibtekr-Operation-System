@@ -169,10 +169,20 @@ test('the v6 header: the reports\' period (the calendar picker) compared with th
   await expect(P.locator('[data-ads-camp]').first()).toBeVisible();
 });
 
-test('«التقارير»: the campaigns (Meta next to Woo, the suggested decision, the status filter, the days) and the creatives (the picture, tired, the utm_content tip)', async ({ page }) => {
+// comments decision 74 (the owner 15 Nov — «ناخد تقارير بتاعت الحملات الاعلانية بالظبط نحطها بدل التقارير اللي في التسويق»): the tab is the
+// reports page's «الحملات الإعلانية» — the cards, the charts, «المنصة بتقول × ووكومرس», the campaigns and the creatives on one page
+// (no sub-tabs, no dropdowns over the campaigns: the table's own «فلتر» has the status)
+test('«التقارير» = the reports page\'s «الحملات الإعلانية» (comment 74): the cards, the charts and the platforms table, the campaigns (Meta next to Woo, the suggested decision, the table\'s own status filter, the days) and the creatives (the picture, tired, the utm_content tip) on one page', async ({ page }) => {
   await start(page);
   await openTab(page, ADMIN, 'التقارير');
   const P = pg(page);
+  await expect(kpi(P, 'الصرف الإعلاني')).toContainText('2,700.00');
+  await expect(kpi(P, 'الربح بعد الإعلانات')).toContainText('-1,900.00');
+  await expect(P.locator('.charts .card')).toHaveCount(2);
+  await expect(P.locator('.card', { hasText: 'المنصة بتقول × ووكومرس' }).first()).toBeVisible();
+  await expect(P.locator('.subtab')).toHaveCount(0);
+  await expect(P.locator('#ads-st, #ads-dec, #ads-q, [data-ads-filters], .org-tbl')).toHaveCount(0);
+  await expect(page.locator('#pg-marketing .page-head [data-panel-btn], #pg-marketing .page-head button', { hasText: 'تخصيص اللوحة' }).first()).toBeVisible();
   const rows = P.locator('.ads-camps tbody tr');
   await expect(rows).toHaveCount(3);
   await expect(rows.nth(0)).toContainText('Lamps — Broad'); // by spend
@@ -192,24 +202,25 @@ test('«التقارير»: the campaigns (Meta next to Woo, the suggested decis
   await expect(rows.nth(1)).toContainText('(+1 اتلغى)');
   await expect(rows.nth(2)).toContainText('Rug — Paused'); // a paused campaign's late order
   await expect(rows.nth(2)).toContainText('متوقفة');
-  await P.locator('#ads-st').click(); await page.getByRole('option', { name: 'الحالة: متوقفة' }).click();
-  await expect(rows).toHaveCount(1);
-  await P.locator('#ads-st').click(); await page.getByRole('option', { name: 'الحالة: الكل' }).click();
-  await expect(rows).toHaveCount(3);
-  // «القرار» (the v6 prototype): the campaigns with an open «زوّد» suggestion, then the ones without any
-  await P.locator('#ads-dec').click(); await page.getByRole('option', { name: 'القرار: زوّد' }).click();
-  await expect(rows).toHaveCount(1); await expect(rows.nth(0)).toContainText('Macrame — Retargeting');
-  await P.locator('#ads-dec').click(); await page.getByRole('option', { name: 'القرار: من غير قرار' }).click();
-  await expect(rows).toHaveCount(1); await expect(rows.nth(0)).toContainText('Rug — Paused');
-  await P.locator('#ads-dec').click(); await page.getByRole('option', { name: 'القرار: الكل' }).click();
-  await expect(rows).toHaveCount(3);
+  // the table's own «فلتر» narrows by the status (the kit hides the rows that do not pass)
+  const shown = P.locator('.ads-camps tbody tr:not(.dt-total):visible');
+  const campCard = P.locator('.card', { has: page.locator('.ads-camps') });
+  await campCard.locator('[data-fm-btn]').click();
+  const fm = page.locator('[data-fm-menu]').last();
+  await fm.locator('[data-fm-tab]', { hasText: 'الحالة' }).click();
+  await fm.locator('[data-fm]:visible', { hasText: 'متوقفة' }).click();
+  await fm.locator('[data-fm-apply]').dispatchEvent('click');
+  await expect(shown).toHaveCount(1); await expect(shown.first()).toContainText('Rug — Paused');
+  await campCard.locator('[data-fm-btn]').click();
+  await page.locator('[data-fm-menu]').last().locator('[data-fm-clear]').dispatchEvent('click'); // «مسح» empties the picks, «اعرض» shows them
+  await page.locator('[data-fm-menu]').last().locator('[data-fm-apply]').dispatchEvent('click');
+  await expect(shown).toHaveCount(3);
   await P.locator('[data-ads-camp="' + CA + '"]').click();
   const d = modal(page, 'Macrame — Retargeting — ميتا');
   await expect(d).toContainText('فيسبوك 3 · انستجرام 2');
   await expect(d.locator('tbody tr:not(.dt-total)')).toHaveCount(2);
   await close(d);
-  // the creatives
-  await P.getByRole('tab', { name: /الأعمال الفنية/ }).click();
+  // the creatives — on the same page, under the campaigns
   const cr = P.locator('.ads-cr tbody tr');
   await expect(cr).toHaveCount(2);
   await expect(cr.nth(0)).toContainText('Macrame carousel');
@@ -221,23 +232,23 @@ test('«التقارير»: the campaigns (Meta next to Woo, the suggested decis
   await expect(modal(page, 'Lamps video')).toContainText('جرّب نسخة جديدة');
 });
 
-test('the v6 «الأعمال الفنية»: the published posts with their own numbers beside the ads; «اعمل نسخ زيه» opens a new campaign on its idea, «اطلب نسخة جديدة» a designer request for a tired ad', async ({ page }) => {
+test('the creatives\' actions (the v6): «اطلب نسخة جديدة» = a designer request for a tired ad, «اعمل نسخ زيه» opens a new campaign on the ad\'s idea; the header\'s platform narrows the tab (comment 74: the published posts\' table left it — their numbers are in «سجل النشر»)', async ({ page }) => {
   await start(page, { mktPosts: [
-    { name: 'دفا الشتا بإيد مصرية', kind: 'بوست', caption: 'دفا الشتا', platform: 'انستجرام', day: D(-2), time: '19:00', status: 'اتنشر', how: 'publish', src: 'system', views: 4000, likes: 300, comments: 40, shares: 20, saves: 40, stats_at: D(-1) + 'T10:00:00Z' },
-    { name: 'خصم على المخدات', kind: 'بوست', caption: 'خصم', platform: 'تيك توك', day: D(-3), time: '20:00', status: 'اتنشر', how: 'download', src: 'system', views: 1000, likes: 50, comments: 0, shares: 0, saves: 0, stats_at: D(-1) + 'T10:00:00Z' },
-    { name: 'مجدول بكرة', kind: 'بوست', platform: 'فيسبوك', day: D(1), time: '19:00', status: 'مجدول', how: 'publish', src: 'system' }] });
+    { name: 'دفا الشتا بإيد مصرية', kind: 'بوست', caption: 'دفا الشتا', platform: 'انستجرام', day: D(-2), time: '19:00', status: 'اتنشر', how: 'publish', src: 'system', views: 4000, likes: 300, comments: 40, shares: 20, saves: 40, stats_at: D(-1) + 'T10:00:00Z' }] });
   await openTab(page, ADMIN, 'التقارير');
   const P = pg(page);
-  await P.getByRole('tab', { name: /الأعمال الفنية/ }).click();
-  const org = P.locator('.org-tbl tbody tr');
-  await expect(org).toHaveCount(2); // the scheduled one is not published yet
-  await expect(org.nth(0)).toContainText('دفا الشتا بإيد مصرية'); // the most viewed first
-  await expect(org.nth(0)).toContainText('4,000');
-  await expect(org.nth(0)).toContainText('400'); // 300 + 40 + 20 + 40
-  await expect(org.nth(0)).toContainText('10%');
-  // the header's platform: Meta = Facebook and Instagram
-  await P.locator('#mk-plat').click(); await page.getByRole('option', { name: 'المنصة: ميتا' }).click();
-  await expect(org).toHaveCount(1);
+  await expect(P.locator('.ads-cr tbody tr')).toHaveCount(2);
+  await expect(P.locator('.org-tbl')).toHaveCount(0);
+  await expect(P).not.toContainText('البوستات المنشورة');
+  // the published post keeps its numbers in «سجل النشر»
+  await pg(page).getByRole('tab', { name: /سجل النشر/ }).click();
+  await expect(P.locator('#pg-marketing, .panel').first()).toContainText('دفا الشتا بإيد مصرية');
+  await expect(P.locator('.panel')).toContainText('4,000');
+  await pg(page).getByRole('tab', { name: /^التقارير/ }).click();
+  // the header's platform: Google has no campaign with spend
+  await P.locator('#mk-plat').click(); await page.getByRole('option', { name: 'المنصة: جوجل' }).click();
+  await expect(P.locator('[data-ads-camp]')).toHaveCount(0);
+  await P.locator('#mk-plat').click(); await page.getByRole('option', { name: 'المنصة: الكل' }).click();
   // the tired ad → a designer request, prefilled
   await P.locator('.ads-cr tbody tr', { hasText: 'Lamps video' }).locator('.row-menu, [aria-haspopup=menu]').first().click();
   await page.getByRole('menuitem', { name: 'اطلب نسخة جديدة' }).click();
@@ -245,11 +256,11 @@ test('the v6 «الأعمال الفنية»: the published posts with their own
   await expect(f.locator('#mk-rq-title')).toHaveValue('نسخة جديدة من «Lamps video»');
   await f.locator('[data-mk-req-send]').click();
   await expect.poll(() => mock.tickets.some((t) => t.kind === 'design' && t.title === 'نسخة جديدة من «Lamps video»' && t.assignee_role === 'ديزاينر')).toBe(true);
-  // «اعمل نسخ زيه» on a post → a new campaign with its idea
-  await org.nth(0).locator('.row-menu, [aria-haspopup=menu]').first().click();
+  // «اعمل نسخ زيه» on an ad → a new campaign with its idea
+  await P.locator('.ads-cr tbody tr', { hasText: 'Macrame carousel' }).locator('.row-menu, [aria-haspopup=menu]').first().click();
   await page.getByRole('menuitem', { name: 'اعمل نسخ زيه' }).click();
   await expect(page).toHaveURL(/#marketing-campaign-1$/);
-  await expect(P.locator('textarea').first()).toHaveValue('دفا الشتا');
+  await expect(P.locator('textarea').first()).toHaveValue('Macrame carousel');
 });
 
 test('no accounts.view: no profit card and no share from the server; no «مزامنة دلوقتي» for a member', async ({ page }) => {

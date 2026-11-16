@@ -50,15 +50,20 @@
   function isoToUtc(s) { const [y, m, d] = s.split('-').map(Number); return Date.UTC(y, m - 1, d); }
   function utcToIso(ms) { const t = new Date(ms); return iso(t.getUTCFullYear(), t.getUTCMonth() + 1, t.getUTCDate()); }
   const addDays = (s, n) => utcToIso(isoToUtc(s) + n * 86400000);
+  // the owner 16 Nov (ش28): a date may be typed day first (20/10/2026) or year first (2026-10-20) — the tables show it the admin's way
   function parseDate(raw) {
-    const m = /^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/.exec(toLatinDigits(raw == null ? '' : raw).trim());
+    const t0 = toLatinDigits(raw == null ? '' : raw).trim();
+    const yf = /^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})$/.exec(t0);
+    const m = yf ? [yf[0], yf[3], yf[2], yf[1]] : /^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/.exec(t0);
     if (!m) return null;
     const d = Number(m[1]), mo = Number(m[2]), y = Number(m[3]);
     const t = new Date(Date.UTC(y, mo - 1, d));
     if (t.getUTCFullYear() !== y || t.getUTCMonth() !== mo - 1 || t.getUTCDate() !== d) return null;
     return iso(y, mo, d);
   }
-  function formatDateNumeric(s) { const [y, m, d] = s.split('-'); return d + '/' + m + '/' + y; }
+  // «الإعدادات › اللغة والمنطقة › تنسيق التاريخ» (0114): 'dmy' 20/10/2026 (the default) · 'ymd' 2026-10-20
+  const dateFmt = () => { try { const S = typeof window !== 'undefined' && window.IBSettings; return S && S.dateFmt ? S.dateFmt() : 'dmy'; } catch (e) { return 'dmy'; } };
+  function formatDateNumeric(s) { const [y, m, d] = s.split('-'); return dateFmt() === 'ymd' ? y + '-' + m + '-' + d : d + '/' + m + '/' + y; }
   function formatDateLong(s) { const [y, m, d] = s.split('-').map(Number); return d + ' ' + MONTHS[m - 1] + ' ' + y; }
   function rangeLabel(from, to) { return 'الفترة: ' + formatDateLong(from) + ' – ' + formatDateLong(to); }
   const monthName = (m1) => MONTHS[m1 - 1];
@@ -466,7 +471,7 @@
     SALES_GROUPS, liveSeed,
     get CATEGORIES() { return cats(); }, BASE_CATEGORIES: CATEGORIES, weekStartDow, VENDOR_TYPES, ACCOUNTS, OTHER, MAX_AMOUNT,
     parseAmount, formatMoney, formatPct, sanitizeText, round2,
-    parseDate, formatDateNumeric, formatDateLong, rangeLabel, monthName, presetRange, monthMatrix, addDays,
+    parseDate, formatDateNumeric, dateFmt, formatDateLong, rangeLabel, monthName, presetRange, monthMatrix, addDays,
     validateExpense, validateVendorMovement, validateAccountMovement,
     movementLog, SUB_NAMES, SUB_ALERTS, AD_PLATFORMS, REFUND_REASONS, validateExpenseCategory, subAlertDays, validateSubscription, subsDue, daysBetweenIso,
     categoryTotals, sortVendors, applyVendorMovement, vendorSummary, applyAccountMovement, deriveAccounts, deriveVendors, potential, createEventLog,

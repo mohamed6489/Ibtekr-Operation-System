@@ -20,8 +20,10 @@
   const hm = (min) => { const m = Math.max(0, Math.round(min)); return Math.floor(m / 60) + ':' + String(m % 60).padStart(2, '0'); };
   // owner batch 2 decision 9: the 12-hour clock everywhere it shows — «09:00» → «9:00 ص», «17:30» → «5:30 م» (a minutes number too);
   // what is stored stays HH:MM. Anything else passes as it is.
+  // ش28 (the owner 16 Nov — «فورمات الوقت … نظام ال12 ساعة و نظام ال24 ساعة»): «الإعدادات › اللغة والمنطقة › تنسيق الوقت» = '24' → «21:00»
+  const clock24 = () => { try { const S = window.IBSettings; return !!(S && S.clock && S.clock() === '24'); } catch (e) { return false; } };
   const t12 = (v) => { if (v == null || v === '') return '—'; const s0 = typeof v === 'number' ? String(Math.floor(v / 60) % 24).padStart(2, '0') + ':' + String(Math.round(v) % 60).padStart(2, '0') : String(v);
-    const m = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(s0.trim()); if (!m) return s0; const hh = Number(m[1]) % 24; return ((hh % 12) || 12) + ':' + m[2] + ' ' + (hh < 12 ? 'ص' : 'م'); };
+    const m = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(s0.trim()); if (!m) return s0; const hh = Number(m[1]) % 24; if (clock24()) return String(hh).padStart(2, '0') + ':' + m[2]; return ((hh % 12) || 12) + ':' + m[2] + ' ' + (hh < 12 ? 'ص' : 'م'); };
   const hrs = (min) => { const m = Math.round(min); const hh = Math.floor(m / 60), mm = m % 60; return (hh ? hh + ' س' : '') + (hh && mm ? ' ' : '') + (mm || !hh ? mm + ' د' : ''); };
   const daysBetween = (a, b) => Math.round((new Date(b + 'T00:00:00Z') - new Date(a + 'T00:00:00Z')) / 864e5);
 

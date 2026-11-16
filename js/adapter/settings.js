@@ -29,7 +29,7 @@
   const reasonOf = (err) => { const code = String((err && err.code) || ''); return code === '42501' ? 'forbidden' : code === 'P0002' || code === 'PGRST116' ? 'notfound' : code === '23505' ? 'exists' : code === '0A000' ? 'no_vault' : /^2[23]/.test(code) ? 'invalid' : 'server'; };
   const fieldOf = (err) => { const m = /invalid: (\w+)/.exec(String((err && err.message) || '')); return m ? m[1] : null; };
   const MESSAGES = { forbidden: 'مفيش صلاحية للإجراء ده', notfound: 'مش موجود أو اتحذف', network: 'تعذّر الاتصال — جرّب تاني', invalid: 'البيانات مش مقبولة', exists: 'الاسم ده موجود', stale: 'الإعدادات دي اتغيّرت من شوية (عضو تاني أو شاشة تانية) — اتحدّثت قدامك، راجعها واحفظ تاني', server: 'حصل خطأ في السيرفر', no_vault: 'الخزنة (Vault) مش متاحة في المشروع', last_admin: 'لازم يفضل أدمن واحد نشط على الأقل' };
-  const FIELD_MESSAGES = { qname: 'اسم الإجراء: لحد 60 حرف ومن غير < >', role: 'اختار الدور', link: 'اللينك لازم يكون لصفحة في السيستم (#…)', scope: 'اختار مين يشوف الإجراء', level: 'المستوى: مدير أو موظف أو مشاهد', id: 'معرّف الدور: حروف إنجليزية صغيرة وأرقام و _ بس', name: 'الاسم مطلوب (لحد 40 حرف) — اسم الدور الجاهز ثابت', base: 'اختار دور تبدأ منه', perms: 'الصلاحيات لازم تكون F أو P أو N', moves: 'كل عضو على الدور لازم يروح لدور تاني موجود', admin: 'الأدمن عنده كل الصلاحيات — مينفعش يتعدّل', self: 'مينفعش توقف نفسك', status: 'الحالة مش معروفة', reason: 'اكتب سبب الإيقاف', current: 'الجلسة الحالية بتتقفل بـ «تسجيل الخروج»', url: 'اكتب رابط الموقع كامل بـ https://', ck: 'Consumer key بيبدأ بـ ck_', cs: 'Consumer secret بيبدأ بـ cs_', key: 'المفتاح مش بالشكل المتوقع', token: 'التوكن مش بالشكل المتوقع', from: 'إيميل المرسل مش صحيح' };
+  const FIELD_MESSAGES = { above: 'مش ممكن تدّي صلاحية أعلى من صلاحياتك انت (أو تخلّي حد أدمن)', qname: 'اسم الإجراء: لحد 60 حرف ومن غير < >', role: 'اختار الدور', link: 'اللينك لازم يكون لصفحة في السيستم (#…)', scope: 'اختار مين يشوف الإجراء', level: 'المستوى: مدير أو موظف أو مشاهد', id: 'معرّف الدور: حروف إنجليزية صغيرة وأرقام و _ بس', name: 'الاسم مطلوب (لحد 40 حرف) — اسم الدور الجاهز ثابت', base: 'اختار دور تبدأ منه', perms: 'الصلاحيات لازم تكون F أو P أو N', moves: 'كل عضو على الدور لازم يروح لدور تاني موجود', admin: 'الأدمن عنده كل الصلاحيات — مينفعش يتعدّل', self: 'مينفعش توقف نفسك', status: 'الحالة مش معروفة', reason: 'اكتب سبب الإيقاف', current: 'الجلسة الحالية بتتقفل بـ «تسجيل الخروج»', url: 'اكتب رابط الموقع كامل بـ https://', ck: 'Consumer key بيبدأ بـ ck_', cs: 'Consumer secret بيبدأ بـ cs_', key: 'المفتاح مش بالشكل المتوقع', token: 'التوكن مش بالشكل المتوقع', from: 'إيميل المرسل مش صحيح' };
   const fail = (err) => { const msg = String((err && err.message) || ''); const reason = /last admin/.test(msg) ? 'last_admin' : reasonOf(err); const field = reason === 'invalid' ? fieldOf(err) : null; return { ok: false, reason, field, message: (field && FIELD_MESSAGES[field]) || MESSAGES[reason] || MESSAGES.server }; };
   const no = (reason, field) => ({ ok: false, reason, field: field || null, message: (field && FIELD_MESSAGES[field]) || MESSAGES[reason] || MESSAGES.server });
   const log = (action, detail, id) => { const L = window.IBActivity; if (L && L.log) quiet(() => L.log('settings.' + action, detail || '', { entity: 'settings', entity_id: id == null ? null : String(id) })); };
@@ -139,8 +139,11 @@
     const r = await rpc('role_level_perms_set', { p_role: String(role), p_level: level, p_perms: permsClean(perms) }); if (!r.ok) return r;
     await load(); if (window.IBDirectory && window.IBDirectory.refresh) quiet(() => window.IBDirectory.refresh()); return { ok: true };
   }
+  // 0111 (the owner 16 Nov): the member's direct manager edits his access too — up to his own permissions (the server checks and refuses
+  // «invalid: above»; never an admin)
+  const mayEdit = (uid) => !!(window.IBHR && window.IBHR.canEditMember && window.IBHR.canEditMember(uid));
   async function setMemberLevel(uid, level) {
-    if (!can().admin) return no('forbidden'); if (!UUID.test(String(uid || '')) || !MLEVELS.includes(level)) return no('invalid', 'level');
+    if (!can().admin && !mayEdit(uid)) return no('forbidden'); if (!UUID.test(String(uid || '')) || !MLEVELS.includes(level)) return no('invalid', 'level');
     const r = await rpc('member_level_set', { p_member: uid, p_level: level }); if (!r.ok) return r;
     if (window.IBDirectory && window.IBDirectory.refresh) quiet(() => window.IBDirectory.refresh()); return { ok: true };
   }
@@ -197,27 +200,27 @@
     await load(); if (window.IBDirectory && window.IBDirectory.refresh) quiet(() => window.IBDirectory.refresh()); return { ok: true };
   }
   async function setMemberRole(uid, role) {
-    if (!can().admin) return no('forbidden'); if (!UUID.test(String(uid))) return no('invalid');
+    if (!can().admin && !mayEdit(uid)) return no('forbidden'); if (!UUID.test(String(uid))) return no('invalid');
     const r = await rpc('member_role_set', { p_member: uid, p_role: String(role) }); if (!r.ok) return r;
     if (window.IBDirectory && window.IBDirectory.refresh) quiet(() => window.IBDirectory.refresh()); return { ok: true };
   }
   // 0081 (the owner 12 Nov): a member's extra roles — the whole list, [] = none; the server checks each (existing, not hidden, never
   // «أدمن», never the main role, 6 at most)
   async function setMemberRoles(uid, ids) {
-    if (!can().admin) return no('forbidden'); if (!UUID.test(String(uid))) return no('invalid');
+    if (!can().admin && !mayEdit(uid)) return no('forbidden'); if (!UUID.test(String(uid))) return no('invalid');
     const list = [...new Set((Array.isArray(ids) ? ids : []).map(String).filter((x) => /^[a-z][a-z0-9_]{1,30}$/.test(x)))];
     if (list.length > 6) return no('invalid', 'roles');
     const r = await rpc('member_roles_set', { p_member: uid, p_roles: list }); if (!r.ok) return r;
     if (window.IBDirectory && window.IBDirectory.refresh) quiet(() => window.IBDirectory.refresh()); return { ok: true };
   }
   async function setMemberPerms(uid, perms) {
-    if (!can().admin) return no('forbidden'); if (!UUID.test(String(uid))) return no('invalid');
+    if (!can().admin && !mayEdit(uid)) return no('forbidden'); if (!UUID.test(String(uid))) return no('invalid');
     const r = await rpc('member_perms_set', { p_member: uid, p_perms: permsClean(perms) }); if (!r.ok) return r;
     if (window.IBDirectory && window.IBDirectory.refresh) quiet(() => window.IBDirectory.refresh()); return { ok: true };
   }
   // suspend / reactivate: settings-admin (the RPC + the Auth ban); the reason is the admin's note, logged by the server
   async function setMemberStatus(uid, status, reason) {
-    if (!can().admin) return no('forbidden'); if (!UUID.test(String(uid))) return no('invalid');
+    if (!can().admin && !mayEdit(uid)) return no('forbidden'); if (!UUID.test(String(uid))) return no('invalid');
     const r = await invoke('settings-admin', { action: 'member_status', member_id: uid, status: String(status), reason: clean(reason, 300) }); if (!r.ok) return r;
     if (window.IBDirectory && window.IBDirectory.refresh) quiet(() => window.IBDirectory.refresh()); return { ok: true };
   }

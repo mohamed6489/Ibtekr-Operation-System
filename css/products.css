@@ -133,6 +133,18 @@
 .cat-main-h .icon-btn{color:var(--color-text-on-brand)}
 .cat-main-h .cat-hit{background:rgba(255,247,239,.18);border-radius:4px;padding:0 4px}
 .cat-subs{display:flex;flex-direction:column}
+/* comments decision 56: a category's six-dot grip (its place among its siblings, written to the site) — an item = its row and its own children */
+.cat-kids,.cat-item{display:flex;flex-direction:column}
+.cat-grip{flex:none;width:28px;height:28px;display:grid;place-items:center;border:0;background:transparent;border-radius:var(--radius-xs,4px);color:var(--color-text-secondary);cursor:grab;touch-action:none}
+.cat-grip:hover{background:rgba(46,42,27,.08);color:var(--color-text-primary)}
+.cat-grip:active{cursor:grabbing}
+.cat-grip:focus-visible{outline:2px solid var(--color-action-default);outline-offset:1px}
+.cat-grip[disabled]{opacity:.45;cursor:progress}
+.cat-main-h .cat-grip{color:var(--color-text-on-brand)}
+.cat-main-h .cat-grip:hover{background:rgba(255,247,239,.16);color:var(--color-text-on-brand)}
+.cat-main-h .cat-grip .ic{color:var(--color-text-on-brand);stroke:var(--color-text-on-brand)}
+.cat-item.dragging,.cat-main.dragging{position:relative;z-index:2;box-shadow:var(--shadow-popover);opacity:.96}
+.cat-mains.sorting,.cat-subs.sorting,.cat-kids.sorting{cursor:grabbing;user-select:none}
 .cat-sub{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-height:44px;padding:6px 12px;padding-inline-start:calc(12px + (var(--d, 1) - 1) * 20px);background:var(--color-bg-container);border-top:1px solid var(--color-bg-tint)}
 .cat-sub .cat-hit{background:var(--color-brand-subtle-bg);border-radius:4px;padding:0 4px}
 .cat-dash{min-width:14px;color:var(--color-text-secondary);font-weight:700;letter-spacing:1px}

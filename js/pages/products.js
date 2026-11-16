@@ -233,7 +233,8 @@
   function catModel() {
     const L = PR().categories(); const byId = new Map(L.map((c) => [c.id, c]));
     const kids = new Map(); L.forEach((c) => { const k = c.parentId && byId.has(c.parentId) ? c.parentId : 0; if (!kids.has(k)) kids.set(k, []); kids.get(k).push(c); });
-    kids.forEach((l) => l.sort((a, b) => a.name.localeCompare(b.name)));
+    // comments decision 56: a parent's children in the site's own order (0108 — menu_order), the ones never ordered after them by name
+    kids.forEach((l) => l.sort((a, b) => ((a.order || 1e9) - (b.order || 1e9)) || a.name.localeCompare(b.name)));
     const own = new Map(); all().forEach((p) => (p.categoryIds || []).forEach((id) => { if (!own.has(id)) own.set(id, new Set()); own.get(id).add(p.id); }));
     const under = new Map();
     const sum = (id, seen = new Set()) => { if (under.has(id)) return under.get(id); if (seen.has(id)) return new Set(); seen.add(id); const set = new Set(own.get(id) || []); (kids.get(id) || []).forEach((k) => sum(k.id, seen).forEach((x) => set.add(x))); under.set(id, set); return set; };
@@ -241,6 +242,50 @@
     return { L, byId, kids, sum, subtree };
   }
   const subsLabel = (n) => K.n0(n) + (n > 2 && n < 11 ? ' أقسام فرعية' : ' قسم فرعي');
+  // comments decision 56 (the owner 15 Nov — «اضافة الترتيب ال 6 نقط بتوع الترتيب في الكاتيجوري و يسمع علي الويبسايت ف الاقسام — سواء رئيسي او
+  // فرعي»): a parent's children are dragged by their grips into a new order — the main categories too. The tree is nested, so this
+  // is the page's own small sorter: it moves the direct items of one container only (the others move round the dragged one, which
+  // keeps the pointer), the arrow keys move the focused grip's item, and the new order goes to the site at once
+  // (IBStudio.categoryOrder → woo-sync category_order: WooCommerce's own category order, the Arabic terms with it).
+  function catSortable(box, parent) {
+    const items = () => [...box.children].filter((x) => x.hasAttribute('data-cat-item'));
+    const ids = () => items().map((x) => Number(x.getAttribute('data-cat-item')));
+    const before = ids().join(); let timer = null;
+    const commit = () => { clearTimeout(timer); const now = ids(); if (now.join() !== before) saveCatOrder(parent, now); };
+    items().forEach((item) => {
+      const g = item.querySelector(':scope > .cat-main-h > [data-cat-grip], :scope > .cat-sub > [data-cat-grip]'); if (!g) return;
+      let drag = false;
+      g.addEventListener('pointerdown', (e) => { if (e.button || st.catOrdering) return; drag = true; try { g.setPointerCapture(e.pointerId); } catch (x) { /* a synthetic pointer */ } e.preventDefault(); item.classList.add('dragging'); box.classList.add('sorting'); });
+      g.addEventListener('pointermove', (e) => {
+        if (!drag) return;
+        for (const o of items()) {
+          if (o === item) continue;
+          const b = o.getBoundingClientRect(); const mid = b.top + b.height / 2; const below = !!(item.compareDocumentPosition(o) & Node.DOCUMENT_POSITION_FOLLOWING);
+          if (!below && e.clientY < mid) { box.insertBefore(o, item.nextSibling); break; }
+          if (below && e.clientY > mid) { box.insertBefore(o, item); break; }
+        }
+      });
+      const end = (e) => { if (!drag) return; drag = false; try { g.releasePointerCapture(e.pointerId); } catch (x) { /* released */ } item.classList.remove('dragging'); box.classList.remove('sorting'); commit(); };
+      g.addEventListener('pointerup', end); g.addEventListener('pointercancel', end);
+      g.addEventListener('keydown', (e) => {
+        if ((e.key !== 'ArrowUp' && e.key !== 'ArrowDown') || st.catOrdering) return; e.preventDefault();
+        const l = items(); const i = l.indexOf(item); const j = e.key === 'ArrowUp' ? i - 1 : i + 1; if (j < 0 || j >= l.length) return;
+        if (j < i) box.insertBefore(item, l[j]); else box.insertBefore(l[j], item);
+        g.focus(); clearTimeout(timer); timer = setTimeout(commit, 700); // several presses, one write
+      });
+    });
+  }
+  async function saveCatOrder(parent, ids) {
+    const S0 = window.IBStudio; if (!S0 || !S0.categoryOrder) { K.toast(MSG.network, 'error'); R(); return; }
+    if (st.catOrdering) { R(); return; }
+    st.catOrdering = true;
+    const r = await S0.categoryOrder(parent, ids);
+    st.catOrdering = false;
+    if (r.ok) K.toast('اتحفظ ترتيب الأقسام على الموقع' + (r.ar !== 'ok' && r.ar !== 'none' ? ' — الترجمة العربي ماترتّبتش، رتّبها من الموقع' : ''), r.ar !== 'ok' && r.ar !== 'none' ? 'error' : 'success');
+    else if (r.reason === 'stale') { K.toast('الأقسام اتغيّرت على الموقع — حدّثنا القايمة، رتّب تاني', 'error'); if (PR().load) PR().load({ quiet: true }); }
+    else K.toast(MSG[r.reason] || (r.reason === 'push_disabled' ? MSG.push_disabled : 'الترتيب ماتحفظش على الموقع — جرّب تاني'), 'error');
+    R(); // the tree as the mirror has it now: the new order, or the old one back
+  }
   function catsView() {
     const C = can(); const M = catModel(); const { L, byId, kids } = M;
     const q = st.catQ.trim().toLowerCase(); const hit = (c) => !q || c.name.toLowerCase().includes(q);
@@ -259,22 +304,33 @@
     const pick = (c) => (C.add ? h('span', { class: 'cat-cb', 'data-cat-cb': String(c.id) }, K.Checkbox({ label: '', checked: st.catSel.has(c.id), onChange: (v) => { if (v) st.catSel.add(c.id); else st.catSel.delete(c.id); R(); } })) : null);
     const thumb = (c) => (c.image ? h('img', { class: 'cat-thumb', src: safeSrc(c.image), alt: '', loading: 'lazy', 'data-cat-thumb': String(c.id) }) : h('span', { class: 'cat-thumb none', 'aria-hidden': 'true' }, Icon('box', 'sm')));
     const slug = (c) => (c.slug ? h('code', { class: 'cat-slug', dir: 'ltr', 'data-cat-slug': String(c.id) }, c.slug) : null);
-    const subRows = (list, depth) => list.flatMap((c) => {
-      if (q && !shown.has(c.id)) return [];
-      const ch = kids.get(c.id) || []; const open = q ? true : st.catOpen.has(c.id);
-      const row = h('div', { class: 'cat-sub lvl-' + Math.min(depth, 3), 'data-cat': String(c.id), 'data-cat-lvl': String(Math.min(depth, 3)), role: 'listitem', style: '--d:' + Math.min(depth, 4) },
-        pick(c), h('span', { class: 'cat-dash', 'aria-hidden': 'true' }, '-'.repeat(Math.min(depth, 3))),
-        ch.length ? tog(c, open) : h('span', { class: 'cat-tog sp', 'aria-hidden': 'true' }), thumb(c), name(c, 'cat-name'), slug(c),
-        ch.length ? h('span', { class: 't-small help cat-n' }, subsLabel(ch.length)) : null, h('span', { class: 'grow' }), count(c), menuOf(c));
-      return [row].concat(open && ch.length ? subRows(ch, depth + 1) : []);
-    });
+    // comments decision 56: the six-dot grip of a category that has siblings — when the mirror keeps the site's order (0108), the
+    // member may write categories, and the tree is not narrowed by a search (a parent's children are all there)
+    const sortable = C.add && !q && PR().categoriesOrdered && PR().categoriesOrdered();
+    const grip = (c, sibs) => (sortable && sibs > 1 ? h('button', { type: 'button', class: 'cat-grip', id: 'cat-grip-' + c.id, 'data-cat-grip': String(c.id), disabled: st.catOrdering ? '' : null, 'aria-label': 'اسحب لترتيب ' + c.name + ' (أو السهم لفوق وتحت)', title: 'اسحب للترتيب' }, Icon('grip', 'sm')) : null);
+    // a parent's children: one item each (its row, then its own children under it), so a level is sorted on its own
+    const subBox = (parent, list, depth) => {
+      const box = h('div', { class: depth === 1 ? 'cat-subs' : 'cat-kids', role: 'list', 'aria-label': 'الأقسام الفرعية في ' + parent.name, 'data-cat-kids': String(parent.id) }, list.map((c) => {
+        if (q && !shown.has(c.id)) return null;
+        const ch = kids.get(c.id) || []; const open = q ? true : st.catOpen.has(c.id);
+        const row = h('div', { class: 'cat-sub lvl-' + Math.min(depth, 3), 'data-cat': String(c.id), 'data-cat-lvl': String(Math.min(depth, 3)), style: '--d:' + Math.min(depth, 4) },
+          grip(c, list.length), pick(c), h('span', { class: 'cat-dash', 'aria-hidden': 'true' }, '-'.repeat(Math.min(depth, 3))),
+          ch.length ? tog(c, open) : h('span', { class: 'cat-tog sp', 'aria-hidden': 'true' }), thumb(c), name(c, 'cat-name'), slug(c),
+          ch.length ? h('span', { class: 't-small help cat-n' }, subsLabel(ch.length)) : null, h('span', { class: 'grow' }), count(c), menuOf(c));
+        return h('div', { class: 'cat-item', role: 'listitem', 'data-cat-item': String(c.id) }, row, open && ch.length ? subBox(c, ch, depth + 1) : null);
+      }));
+      if (sortable && list.length > 1) catSortable(box, parent.id);
+      return box;
+    };
     const mains = (kids.get(0) || []).filter((c) => !q || shown.has(c.id)).map((c) => {
       const ch = kids.get(c.id) || []; const open = q ? true : st.catOpen.has(c.id);
-      return h('section', { class: 'cat-main' + (open && ch.length ? ' open' : ''), 'data-cat': String(c.id) },
-        h('div', { class: 'cat-main-h' }, pick(c), ch.length ? tog(c, open) : h('span', { class: 'cat-tog sp', 'aria-hidden': 'true' }), thumb(c), name(c, 'cat-name'), slug(c),
+      return h('section', { class: 'cat-main' + (open && ch.length ? ' open' : ''), 'data-cat': String(c.id), 'data-cat-item': String(c.id) },
+        h('div', { class: 'cat-main-h' }, grip(c, (kids.get(0) || []).length), pick(c), ch.length ? tog(c, open) : h('span', { class: 'cat-tog sp', 'aria-hidden': 'true' }), thumb(c), name(c, 'cat-name'), slug(c),
           ch.length ? h('span', { class: 'cat-n' }, subsLabel(ch.length)) : null, h('span', { class: 'grow' }), count(c), menuOf(c)),
-        open && ch.length ? h('div', { class: 'cat-subs', role: 'list', 'aria-label': 'الأقسام الفرعية في ' + c.name }, subRows(ch, 1)) : null);
+        open && ch.length ? subBox(c, ch, 1) : null);
     });
+    const mainsBox = mains.length ? h('div', { class: 'cat-mains', 'data-cat-kids': '0' }, mains) : null;
+    if (mainsBox && sortable && mains.length > 1) catSortable(mainsBox, 0);
     const search = h('input', { type: 'search', class: 'input', placeholder: 'دوّر على قسم…', 'aria-label': 'دوّر على قسم', value: st.catQ, onInput: (e) => { st.catQ = e.target.value; R(); setTimeout(() => { const i = document.querySelector('[data-cat-q]'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }, 0); }, 'data-cat-q': '' });
     const tops = (kids.get(0) || []).length;
     return [
@@ -282,9 +338,9 @@
         Button({ type: 'text', size: 'sm', label: 'افتح الكل', onClick: () => { L.forEach((c) => { if ((kids.get(c.id) || []).length) st.catOpen.add(c.id); }); R(); } }),
         Button({ type: 'text', size: 'sm', label: 'اقفل الكل', onClick: () => { st.catOpen.clear(); R(); } }),
         C.add ? Button({ type: 'primary', size: 'sm', icon: 'plus', label: 'قسم رئيسي جديد', attrs: { 'data-cat-new': '' }, onClick: () => newCat(null) }) : null),
-      h('p', { class: 't-small help cat-sum' }, 'أقسام الموقع · ' + K.n0(L.length) + ' — ' + K.n0(tops) + ' قسم رئيسي'),
+      h('p', { class: 't-small help cat-sum' }, 'أقسام الموقع · ' + K.n0(L.length) + ' — ' + K.n0(tops) + ' قسم رئيسي' + (sortable ? ' · اسحب القسم من النقط عشان ترتّبه — الترتيب بيتحفظ على الموقع' : '')),
       catBulkBar(M),
-      mains.length ? h('div', { class: 'cat-mains' }, mains) : K.Empty(q ? 'مفيش قسم بالاسم ده' : 'مفيش أقسام لسه', q ? 'جرّب كلمة تانية.' : 'الأقسام بتيجي من الموقع مع المزامنة.'),
+      mainsBox || K.Empty(q ? 'مفيش قسم بالاسم ده' : 'مفيش أقسام لسه', q ? 'جرّب كلمة تانية.' : 'الأقسام بتيجي من الموقع مع المزامنة.'),
       C.add ? null : h('p', { class: 't-small help' }, 'إضافة الأقسام وتعديلها لصلاحية «إضافة منتجات».')];
   }
   // owner batch 14 Nov decision 9: the categories' bulk bar — «تغيير القسم الأب» (category_update parent, one by one) and «حذف» (the

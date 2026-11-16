@@ -28,6 +28,7 @@
   let st = 'idle'; let gen = 0;
   let rows = new Map(); // id → mirror row (every language)
   let cats = new Map(); let brands = new Map(); let comm = new Map(); // comm: product id → its own Dokan commission (decision 12)
+  let catOrdered = false; // the mirror holds the categories' order (0108 applied)
 
   // ---------- rows → the page's shape ----------
   const vendorName = (id) => { const V = window.IBVendors; const v = id && V && V.store && V.store.get ? quiet(() => V.store.get(id)) : null; return v ? v.name : ''; };
@@ -83,7 +84,10 @@
         pages(() => cl.from('products').select(COLS).or('lang.is.null,lang.neq.ar').order('id', { ascending: true }), g),
         pages(() => cl.from('products').select(AR_COLS).eq('lang', 'ar').order('id', { ascending: true }), g),
         // owner batch 14 Nov decision 9: the slug and the image (0088) — before 0088 is live the old columns still load the tab
-        pages(() => cl.from('woo_categories').select('id, name, parent_id, slug, image_url').order('id', { ascending: true }), g).catch(() => pages(() => cl.from('woo_categories').select('id, name, parent_id').order('id', { ascending: true }), g)),
+        // comments decision 56: the site's order of a category among its siblings (0108) — before 0108 is live the columns before it
+        pages(() => cl.from('woo_categories').select('id, name, parent_id, slug, image_url, menu_order').order('id', { ascending: true }), g).then((l) => { catOrdered = true; return l; })
+          .catch(() => { catOrdered = false; return pages(() => cl.from('woo_categories').select('id, name, parent_id, slug, image_url').order('id', { ascending: true }), g); })
+          .catch(() => pages(() => cl.from('woo_categories').select('id, name, parent_id').order('id', { ascending: true }), g)),
         pages(() => cl.from('woo_brands').select('id, name, parent_id').order('name', { ascending: true }), g),
         canComm ? pages(() => cl.from('product_commissions').select('product_id, rate, type, fee').not('rate', 'is', null).order('product_id', { ascending: true }), g) : Promise.resolve([]),
       ]);
@@ -377,7 +381,11 @@
 
   window.IBProducts = {
     load, ensure, refresh, clear, state: () => st, list, trash, get, toRecord, can, rateOf, commissionOf, commissionParams, vendorPriceOf, STATUS, report, reportFailed, reportRetry, addImages, uploadImages, moveVendor,
-    categories: () => [...cats.values()].map((x) => ({ id: Number(x.id), name: x.name, parentId: x.parent_id ? Number(x.parent_id) : null, path: catPath(x.id), slug: x.slug || '', image: /^https:\/\//.test(x.image_url || '') ? x.image_url : null })).sort((a, b) => a.path.localeCompare(b.path)),
+    categories: () => [...cats.values()].map((x) => ({ id: Number(x.id), name: x.name, parentId: x.parent_id ? Number(x.parent_id) : null, path: catPath(x.id), slug: x.slug || '', image: /^https:\/\//.test(x.image_url || '') ? x.image_url : null, order: Number(x.menu_order) > 0 ? Number(x.menu_order) : 0 })).sort((a, b) => a.path.localeCompare(b.path)),
+    // comments decision 56: the categories can be ordered from the page (the mirror keeps the site's order); a parent's children in
+    // their new order after category_order answered
+    categoriesOrdered: () => catOrdered,
+    orderCategories: (ids) => { let any = false; (ids || []).forEach((id, i) => { const x = cats.get(Number(id)); if (x) { cats.set(Number(id), Object.assign({}, x, { menu_order: i + 1 })); any = true; } }); if (any) emit({ categories: true }); },
     brands: () => [...brands.values()].map((x) => ({ id: Number(x.id), name: x.name })),
     // phase 5.2: a category the studio just made on the site (category_create) shows at once
     addCategory: (row) => { cats.set(Number(row.id), { id: Number(row.id), name: row.name, parent_id: row.parent_id || null, slug: row.slug || null, image_url: row.image_url || null }); emit({ categories: true }); },

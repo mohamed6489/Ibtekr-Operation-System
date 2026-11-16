@@ -2634,7 +2634,8 @@ export async function installSupabaseMock(page, opts = {}) {
         if (open) return done(200, { result: 'skipped', reason: 'pending_exists', id: open.id });
         if (!mock.pushEnabled) return done(200, { result: 'skipped', reason: 'push_disabled' });
         if (mock.wooDown) return json(502, { error: 'woo_error' });
-        if (mock.withdrawRefuse) return done(409, { result: 'refused', reason: mock.withdrawRefuse });
+        if (mock.withdrawRefuse) return done(409, { result: 'refused', reason: mock.withdrawRefuse, ...(mock.withdrawHint ? { hint: mock.withdrawHint } : {}) });
+        if (mock.withdrawNoBank) return done(200, { result: 'skipped', reason: 'no_bank' }); // the store has no bank account on Dokan (the owner 16 Nov)
         const balRow = mock.acc.dokan_balances.find((x) => x.vendor_id === vid); const amount = balRow && Number(balRow.balance) > 0 ? Math.floor(Number(balRow.balance) * 100) / 100 : 0;
         if (!(amount > 0)) return done(200, { result: 'skipped', reason: 'no_balance', balance: balRow ? balRow.balance : null });
         const nid = Math.max(700, ...mock.acc.dokan_withdrawals.map((x) => Number(x.id))) + 1;

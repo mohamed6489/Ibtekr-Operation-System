@@ -2948,6 +2948,8 @@ Deno.test('order_create: orders.status = F (a person, never the sync secret); th
 
 // ---------------------------------------------------------------- 0078: the settlement and «تسوية دلوقتي» (withdraw_create)
 
+const STORE_BANK = { id: 44, payment: { bank: { ac_name: 'Art Craft', ac_number: '123456789012', bank_name: 'CIB' } } }; // a store with its bank account on Dokan
+
 Deno.test('0078 withdrawals: a request that turned approved on Dokan (pending here before, or new and asked from 11 Nov) settles the maker; the history and an already-approved one never', async () => {
   const wd = (id: number, status: string, created: string) => ({ id, user: { id: 44 }, amount: '900.00', status, method: 'bank', created });
   const seed = { dokan_withdrawals: [
@@ -2979,6 +2981,7 @@ Deno.test('0078 withdrawals: a settlement the database refuses is logged with it
 Deno.test('0078 withdraw_create: the admin or accounts.approve = F only (never the sync secret); a request for the maker\'s whole Dokan balance by bank, pending, mirrored at once', async () => {
   const routes = {
     'GET dokan/v1/stores/44/stats': { body: { others: { balance: 25000 }, revenue: { earning: 30000 } } },
+    'GET dokan/v1/stores/44': { body: STORE_BANK },
     'POST dokan/v1/withdraw': (c: any) => ({ status: 201, body: { id: 77, user: { id: c.body.user_id }, amount: String(c.body.amount), status: 'pending', method: c.body.method, created: '2026-11-11 15:00:00', note: c.body.note, details: { bank: { ac_number: '123456789012' } } } }),
   };
   const { db, woo, deps } = setup({ routes, env: PUSH_ON });
@@ -2988,14 +2991,14 @@ Deno.test('0078 withdraw_create: the admin or accounts.approve = F only (never t
   const { res, body } = await call(deps, { action: 'withdraw_create', vendor_id: vendorId(44), amount: 1, user_id: 2376 }, { jwt: 'jwt-approver' });
   assertEquals(res.status, 200);
   assertEquals(body, { action: 'withdraw_create', result: 'ok', id: 77, amount: 25000, status: 'pending' });
-  assertEquals(woo.calls.map((c: any) => [c.method, c.path, c.body ?? null]), [['GET', 'dokan/v1/stores/44/stats', null], ['POST', 'dokan/v1/withdraw', { user_id: 44, amount: 25000, method: 'bank', note: 'تسوية من سيستم إبتكر' }]]);
+  assertEquals(woo.calls.map((c: any) => [c.method, c.path, c.body ?? null]), [['GET', 'dokan/v1/stores/44/stats', null], ['GET', 'dokan/v1/stores/44', null], ['POST', 'dokan/v1/withdraw', { user_id: 44, amount: 25000, method: 'bank', note: 'تسوية من سيستم إبتكر' }]]);
   const row = db.row('dokan_withdrawals', 77);
   assertEquals([row.woo_vendor_id, row.vendor_id, row.amount, row.status, row.method], [44, vendorId(44), 25000, 'pending', 'bank']);
   assertFalse(JSON.stringify(db.rows('dokan_withdrawals')).includes('123456789012'), 'never the bank details');
   // a second ask while it is pending → skipped, no call
   const again = await call(deps, { action: 'withdraw_create', vendor_id: vendorId(44) }, { jwt: 'jwt-admin' });
   assertEquals([again.body.result, again.body.reason, again.body.id], ['skipped', 'pending_exists', 77]);
-  assertEquals(woo.calls.length, 2);
+  assertEquals(woo.calls.length, 3);
 });
 
 Deno.test('0078 withdraw_create: WOO_PUSH_ENABLED off, no balance, no store, a bad id — and Dokan\'s refusal comes back with its code', async () => {
@@ -3010,10 +3013,23 @@ Deno.test('0078 withdraw_create: WOO_PUSH_ENABLED off, no balance, no store, a b
   const none = setup({ seed: { vendors: [{ ...vendorRow(44), woo_vendor_id: null }] }, env: PUSH_ON });
   assertEquals((await call(none.deps, { action: 'withdraw_create', vendor_id: vendorId(44) }, { jwt: 'jwt-admin' })).res.status, 409);
   assertEquals((await call(none.deps, { action: 'withdraw_create', vendor_id: 'x' }, { jwt: 'jwt-admin' })).res.status, 400);
-  const refused = setup({ routes: { 'GET dokan/v1/stores/44/stats': { body: { others: { balance: 300 } } }, 'POST dokan/v1/withdraw': { status: 400, body: { code: 'dokan_rest_withdraw_error', message: 'Withdraw amount must be greater than 500' } } }, env: PUSH_ON });
+  const refused = setup({ routes: { 'GET dokan/v1/stores/44/stats': { body: { others: { balance: 300 } } }, 'GET dokan/v1/stores/44': { body: STORE_BANK }, 'POST dokan/v1/withdraw': { status: 400, body: { code: 'dokan_rest_withdraw_error', message: 'Withdraw amount must be greater than 500' } } }, env: PUSH_ON });
   const c = await call(refused.deps, { action: 'withdraw_create', vendor_id: vendorId(44) }, { jwt: 'jwt-admin' });
-  assertEquals([c.res.status, c.body.result, c.body.reason], [409, 'refused', 'dokan_rest_withdraw_error']);
+  assertEquals([c.res.status, c.body.result, c.body.reason, c.body.hint], [409, 'refused', 'dokan_rest_withdraw_error', 'limit']);
   assertEquals(refused.db.rows('dokan_withdrawals').length, 0);
+  const log = refused.db.rows('woo_sync_log').find((r: any) => r.action === 'withdraw_create');
+  assertEquals(log.detail, { reason: 'refused', code: 'dokan_rest_withdraw_error', hint: 'limit' });
+  assertFalse(JSON.stringify(refused.db.rows('woo_sync_log')).includes('greater'), 'never Dokan\'s text');
+});
+
+Deno.test('the owner 16 Nov: withdraw_create for a store with no bank account on Dokan stops before the request (no_bank) — nothing of the account kept', async () => {
+  for (const bank of [null, {}, { ac_name: 'x', ac_number: '  ', iban: '' }]) {
+    const { woo, db, deps } = setup({ routes: { 'GET dokan/v1/stores/44/stats': { body: { others: { balance: 1206 } } }, 'GET dokan/v1/stores/44': { body: { id: 44, payment: bank === null ? {} : { bank } } } }, env: PUSH_ON });
+    const { res, body } = await call(deps, { action: 'withdraw_create', vendor_id: vendorId(44) }, { jwt: 'jwt-admin' });
+    assertEquals([res.status, body.result, body.reason], [200, 'skipped', 'no_bank']);
+    assert(woo.calls.every((c: any) => c.method === 'GET'), 'no request on Dokan');
+    assertEquals(db.rows('woo_sync_log').find((r: any) => r.action === 'withdraw_create').detail, { reason: 'no_bank' });
+  }
 });
 
 Deno.test('owner batch 14 Nov (decision 9): category_create / category_update take a slug (small letters, digits, «-»); category_update moves a category under another parent — never itself or one under it — and its Arabic translation under that parent\'s', async () => {

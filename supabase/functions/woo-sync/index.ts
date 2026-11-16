@@ -1546,6 +1546,13 @@ async function withdrawCreate(run: Run, args: Json) {
   const { data: stats } = await woo.get(`dokan/v1/stores/${store}/stats`);
   const balance = numOrNull(isObj(stats) && isObj(stats.others) ? stats.others.balance : null);
   if (balance === null || balance <= 0) return await skip('no_balance', { balance });
+  // the owner 16 Nov («شوف ال error ده»): Dokan refuses a bank request (dokan_rest_withdraw_error) for a store with no bank account
+  // in its payment settings — every refusal on the live site was such a store. Read the store first and say so; nothing of the
+  // account is kept or logged, only whether it has a number.
+  const { data: shop } = await woo.get(`dokan/v1/stores/${store}`);
+  const bank = isObj(shop) && isObj(shop.payment) && isObj(shop.payment.bank) ? shop.payment.bank : null;
+  const has = (k: string) => !!bank && String(bank[k] ?? '').trim() !== '';
+  if (!has('ac_number') && !has('iban')) return await skip('no_bank');
   const amount = Math.floor(balance * 100) / 100;
   let created: Json;
   try {
@@ -1554,8 +1561,10 @@ async function withdrawCreate(run: Run, args: Json) {
     if (e instanceof WooError && e.status >= 400 && e.status < 500 && e.status !== 401 && e.status !== 403) {
       // Dokan's own code (e.g. dokan_rest_withdraw_error) from the answer's excerpt in the message; never its text
       const code = (/"code"\s*:\s*"([a-z0-9_]{1,60})"/i.exec(String(e.message)) ?? [])[1] ?? String(e.status);
-      await logSync(run.db, { ...entry, result: 'skipped', detail: { reason: 'refused', code } });
-      return json(409, { action: 'withdraw_create', result: 'refused', reason: code });
+      // what kind of refusal, from Dokan's message (only the kind travels, never the text): the limit, the method or the balance
+      const msg = String(e.message); const hint = /minimum|maximum|greater than|less than|at least|limit/i.test(msg) ? 'limit' : /method|payment/i.test(msg) ? 'method' : /balance|insufficient|enough/i.test(msg) ? 'balance' : null;
+      await logSync(run.db, { ...entry, result: 'skipped', detail: { reason: 'refused', code, ...(hint ? { hint } : {}) } });
+      return json(409, { action: 'withdraw_create', result: 'refused', reason: code, ...(hint ? { hint } : {}) });
     }
     throw e;
   }

@@ -309,6 +309,32 @@ test('comment 11 — «تقفيل حساب» is the short report\'s own popup; �
   await expect(page.locator('.modal[role=dialog]')).toHaveCount(1);
 });
 
+test('the owner 16 Nov («شوف ال error ده»): a maker with no bank account on Dokan — «اعمل طلب سحب» says so in words with «افتح ملف المبتكر»; Dokan\'s refusal is named by its kind, never a bare code', async ({ page }) => {
+  await makersAccounts(page);
+  mock.withdrawNoBank = true;
+  await page.locator('#vpanel table tbody tr', { hasText: 'Antikiano' }).getByRole('button', { name: /إجراءات/ }).click();
+  await page.locator('[role=menu] .opt, [role=menu] [role=menuitem]', { hasText: 'تسوية دلوقتي (تقفيل الحساب)' }).first().click();
+  const m = page.locator('.modal.vb-modal');
+  await m.locator('[data-vb-create]').click();
+  await expect(m.locator('[data-vb-res]')).toContainText('المبتكر ده مالوش حساب بنكي متسجّل على Dokan');
+  await expect(m.locator('[data-vb-res]')).not.toContainText('dokan_rest_withdraw_error');
+  expect(mock.withdrawCreates.at(-1)).toMatchObject({ result: 'skipped', reason: 'no_bank' });
+  // «افتح ملف المبتكر»: the popup closes and his file opens with «الحساب البنكي»
+  await m.locator('[data-vb-file]').click();
+  await expect(m).toHaveCount(0);
+  const file = page.getByRole('dialog', { name: 'ملف المبتكر Antikiano' });
+  await expect(file).toBeVisible(); await expect(file.getByRole('button', { name: 'الحساب البنكي' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  // a refusal Dokan explains (the limit) reads in words
+  mock.withdrawNoBank = false; mock.withdrawRefuse = 'dokan_rest_withdraw_error'; mock.withdrawHint = 'limit';
+  await page.locator('#vpanel table tbody tr', { hasText: 'Antikiano' }).getByRole('button', { name: /إجراءات/ }).click();
+  await page.locator('[role=menu] .opt, [role=menu] [role=menuitem]', { hasText: 'تسوية دلوقتي (تقفيل الحساب)' }).first().click();
+  await m.locator('[data-vb-create]').click();
+  await expect(m.locator('[data-vb-res]')).toContainText('المبلغ برّه حدود السحب المسموحة على Dokan');
+  await expect(m.locator('[data-vb-file]')).toHaveCount(0);
+  mock.withdrawRefuse = null; mock.withdrawHint = null;
+});
+
 test('comment 12 — no «افتح في صفحة التقارير» on any page\'s own reports tab', async ({ page }) => {
   await page.setViewportSize({ width: 1366, height: 900 });
   await signIn(page);

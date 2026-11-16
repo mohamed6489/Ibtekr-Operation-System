@@ -89,7 +89,7 @@ const COLUMNS = { // supabase/migrations/0001_identity.sql, 0002_system.sql (act
   order_items: ['id', 'order_id', 'sub_order_id', 'product_id', 'sku', 'name', 'qty', 'total', 'vendor_id', 'status', 'expected_at', 'comment', 'ready_at', 'waybill', 'pulled', 'ret', 'store', 'removed', 'updated_at', 'commission_rate', 'commission_fee'],
   sub_orders: ['id', 'order_id', 'vendor_id', 'woo_order_id', 'woo_status', 'total', 'dokan_earning', 'commission', 'updated_at'],
   vendors: ['id', 'woo_vendor_id', 'site_removed_at', 'name', 'aliases', 'phone', 'email', 'status', 'commission_pct', 'raw', 'created_at', 'updated_at', 'legal_name', 'category', 'main_categories', 'alt_phone', 'address', 'instagram', 'store_url', 'lead_days', 'deposit_policy', 'notes', 'joined_at', 'contract', 'opening_balance',
-    'contact_name', 'address_parts', 'social', 'logo_url', 'banner_url', 'woo_payment_methods', 'woo_snapshot', 'push_pending', 'woo_synced_at', 'photo_path'], // 0075 photo_path; 0014 (phase 3.3): woo_snapshot is service_role only (a select naming it → 42501, like commission_pct)
+    'contact_name', 'address_parts', 'social', 'logo_url', 'banner_url', 'woo_payment_methods', 'woo_snapshot', 'push_pending', 'woo_synced_at', 'photo_path', 'store_error', 'archived_at'], // 0112 store_error / archived_at; 0075 photo_path; 0014 (phase 3.3): woo_snapshot is service_role only (a select naming it → 42501, like commission_pct)
   vendor_rates: ['id', 'vendor_id', 'rate', 'flat', 'since', 'set_by', 'created_at', 'commission_type'], // 0014: flat; 0016: commission_type
   vendor_category_rates: ['id', 'vendor_id', 'woo_category_id', 'rate', 'flat', 'since', 'set_by', 'created_at'], // 0014: sensitive.commission, add-only
   woo_categories: ['id', 'name', 'slug', 'parent_id', 'image_url', 'menu_order', 'updated_at'], // 0014: the sync's, vendors.view; image_url 0088; menu_order 0108 (mock.noCatOrder = before it is applied)
@@ -2329,13 +2329,15 @@ export async function installSupabaseMock(page, opts = {}) {
         const login = (mock.vendorLogins || []).find((l) => l.vendor_id === v.id);
         if (!login || !login.username) return json(409, { error: 'no_login' });
         if (!mock.pushEnabled) return json(200, { action, result: 'skipped', reason: 'push_disabled' });
-        if (mock.wooDown) return json(502, { error: 'woo_error', action });
-        if (mock.storeRefuse) return json(409, { error: mock.storeRefuse });
-        const commission = isAdmin(u) || hasPerm(u, 'sensitive.commission') === 'F'; const bank = (isAdmin(u) || hasPerm(u, 'sensitive.vendor_bank') === 'F') && (mock.vendorBank || []).some((x) => x.vendor_id === v.id);
+        // 0112: a failed try is on the row (store_error) — «جرّب عمل المتجر تاني» in his file
+        if (mock.wooDown) { v.store_error = 'woo_error'; return json(502, { error: 'woo_error', action }); }
+        if (mock.storeRefuse) { v.store_error = mock.storeRefuse; return json(409, { error: mock.storeRefuse }); }
+        // the owner 16 Nov: the commission saved here goes with the store whoever makes it
+        const commission = (mock.vendorRates || []).some((r) => r.vendor_id === v.id); const bank = (isAdmin(u) || hasPerm(u, 'sensitive.vendor_bank') === 'F') && (mock.vendorBank || []).some((x) => x.vendor_id === v.id);
         mock.nextStore = (mock.nextStore || 900) + 1; const store = mock.nextStore;
         const shop = String(b.shop_url || String(login.username).replace(/[._]+/g, '-'));
         (mock.storeCalls = mock.storeCalls || []).push({ vendor_id: v.id, by: u.email, username: login.username, email: login.email || v.email, pwLength: pw.length, shop_url: shop, notify: b.notify !== false, trusted: b.trusted === true, featured: b.featured === true, commission, bank, store });
-        v.woo_vendor_id = store; v.woo_synced_at = new Date().toISOString(); v.push_pending = null;
+        v.woo_vendor_id = store; v.woo_synced_at = new Date().toISOString(); v.push_pending = null; v.store_error = null;
         return json(200, { action, result: 'ok', store, adopted: false, commission, bank, photo: 'none', shop_url: 'https://woo.test/store/' + shop + '/' });
       }
       if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : (action === 'order_trash' || action === 'suborder_trash' || action === 'line_trash' || action === 'line_qty' || action === 'line_add' || action === 'suborder_status') ? hasPerm(u, 'orders.status') === 'F' && hasPerm(u, 'orders.view') !== 'N' : (action === 'order_create' || action === 'order_pay_link') ? (isAdmin(u) || hasPerm(u, 'orders.status') === 'F') : action === 'push_vendor' ? mayPushVendor() : (action === 'statement' || action === 'withdrawals') ? hasPerm(u, 'accounts.view') !== 'N' : action === 'thumbs' ? (hasPerm(u, 'orders.view') !== 'N' || hasPerm(u, 'products.view') !== 'N') : action === 'withdraw_approve' || action === 'withdraw_create' ? (isAdmin(u) || hasPerm(u, 'accounts.approve') === 'F')

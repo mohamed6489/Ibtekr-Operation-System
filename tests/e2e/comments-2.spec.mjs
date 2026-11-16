@@ -166,7 +166,7 @@ test('comment 9 — «إضافة مبتكر» in steps: بيانات المبت�
   await m.locator('[data-mk-next]').click();
   // step 3: the store
   await expect(m.locator('[data-mk-body]')).toHaveAttribute('data-mk-body', 'store');
-  await expect(m.getByRole('switch', { name: 'اعمل له متجر على الموقع' })).toBeVisible();
+  await expect(m.locator('#v-shop')).toBeVisible(); // the owner 16 Nov: the store always comes with the maker — no switch
   await steps.nth(0).locator('button').click(); // a done step is one click away
   await expect(m.locator('[data-mk-body]')).toHaveAttribute('data-mk-body', 'maker');
   await expect(steps.nth(2).locator('button')).toBeDisabled(); // forward is «التالي» only — every step is checked on the way

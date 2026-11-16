@@ -1003,8 +1003,9 @@ async function storePhoto(run: Run, ctx: Ctx, vendorId: string, storeId: number,
 //   typed (the portal's temporary one, the owner's choice): sent to Dokan once, never stored, logged nor returned here;
 // - user_nicename = the shop URL given, else the username's (a-z 0-9 -); Dokan refuses one another store has (shop-url-error);
 // - the store's fields come from the row (toDokanStore: name, phone, owner's name, address, social, enabled = not inactive), the
-//   commission only for the admin or sensitive.commission = F (else none: the site's global one applies), the bank only for the
-//   admin or sensitive.vendor_bank = F; trusted («نشر المنتجات مباشرة») / featured («مبتكر مميز») off unless asked; notify_vendor =
+//   commission saved here whoever makes the store (the owner 16 Nov — «النسبة علي حسب القسم مش بتسمع في الويب سايت»: a member without
+//   sensitive.commission made store 2480 and it went without; the figures were set by someone allowed to and none comes back to the
+//   caller), the bank only for the admin or sensitive.vendor_bank = F; trusted («نشر المنتجات مباشرة») / featured («مبتكر مميز») off unless asked; notify_vendor =
 //   Dokan's «Send an email to vendor about account» (on unless asked off).
 // Then our row takes the store (only while it still has none): woo_vendor_id, the snapshot of the site's answer, the mirrors, no
 // push pending; the maker's own brand (the automatic one) is tied to the store as a synced store's is; a photo kept before the store
@@ -1016,7 +1017,23 @@ async function storePhoto(run: Run, ctx: Ctx, vendorId: string, storeId: number,
 const SHOP_URL = /^[a-z0-9](?:[a-z0-9-]{0,48}[a-z0-9])?$/;
 const shopOf = (s: string) => s.toLowerCase().replace(/[._]+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/-{2,}/g, '-').replace(/^-+|-+$/g, '').slice(0, 50);
 const STORE_TOGGLES = ['notify', 'trusted', 'featured'];
+// 0112 (the owner 16 Nov — «جرّب تاني» in the maker's file only when his store failed): the outcome on the row — store_error = the
+// refusal's code (or woo_error), store_try_at = now; cleared when the store is made or linked. A bad request (the page's own check),
+// a maker not found or one with a store leave the row as it is. Never blocks the answer (before 0112 the columns are not there).
 async function vendorStore(run: Run, args: Json, member: ReturnType<NonNullable<Deps['userDb']>> | null) {
+  const res = await vendorStoreRun(run, args, member);
+  const vendorId = typeof args.vendor_id === 'string' && UUID.test(args.vendor_id) ? args.vendor_id.toLowerCase() : null;
+  if (vendorId) {
+    let b: Json = {}; try { b = await res.clone().json(); } catch { b = {}; }
+    const code = res.status === 200 && b.result === 'ok' ? null : res.status === 400 || res.status === 404 || b.error === 'has_store' ? undefined
+      : typeof b.error === 'string' ? b.error.slice(0, 60) : typeof b.reason === 'string' ? b.reason.slice(0, 60) : 'failed';
+    if (code !== undefined) {
+      try { await run.db.from('vendors').update({ store_error: code, store_try_at: run.now() }).eq('id', vendorId); } catch { /* before 0112 */ }
+    }
+  }
+  return res;
+}
+async function vendorStoreRun(run: Run, args: Json, member: ReturnType<NonNullable<Deps['userDb']>> | null) {
   const vendorId = typeof args.vendor_id === 'string' && UUID.test(args.vendor_id) ? args.vendor_id.toLowerCase() : null;
   const password = typeof args.password === 'string' ? args.password : '';
   if (vendorId === null) return json(400, { error: 'bad_request', field: 'vendor_id' });
@@ -1047,7 +1064,7 @@ async function vendorStore(run: Run, args: Json, member: ReturnType<NonNullable<
   // what the member may send: the commission and the bank follow their own rules (as push_vendor's)
   const isAdmin = member ? (await member.rpc('is_admin')).data === true : false;
   const may = async (key: string) => { if (!member) return false; if (isAdmin) return true; const { data, error: e } = await member.rpc('has_perm', { key }); return !e && data === 'F'; };
-  const withRates = await may('sensitive.commission');
+  const withRates = true; // the saved commission always (see above)
   const withBank = await may('sensitive.vendor_bank');
   const ctx = await run.ctx();
   const rates = withRates ? (await effectiveRates(ctx, [vendorId], run.now())).get(vendorId) : undefined;

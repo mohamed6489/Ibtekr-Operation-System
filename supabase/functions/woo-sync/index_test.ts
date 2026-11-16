@@ -2305,13 +2305,16 @@ Deno.test('vendor_store: a maker without a store → one POST dokan/v1/stores (h
   assertEquals((await call(deps, { action: 'vendor_store', vendor_id: NEW_V, password: PW, shop_url: 'Bad URL!' }, { jwt: 'jwt-vf' })).body.field, 'shop_url');
   assertEquals((await call(deps, { action: 'vendor_store', vendor_id: NEW_V, password: PW, trusted: 'yes' }, { jwt: 'jwt-vf' })).body.field, 'toggles');
   assertEquals(woo.calls.length, 0);
-  // vendors.edit F without sensitive.commission / vendor_bank: the store without the commission and the bank
+  // vendors.edit F without sensitive.commission / vendor_bank: the store carries the commission saved here (the owner 16 Nov — set by
+  // someone allowed to; no figure comes back) but not the bank
   const { res, body } = await call(deps, { action: 'vendor_store', vendor_id: NEW_V, password: PW, trusted: true }, { jwt: 'jwt-vf' });
-  assertEquals([res.status, body.result, body.store, body.adopted, body.commission, body.bank, body.shop_url], [200, 'ok', 901, false, false, false, 'https://woo.test/store/warsha-new/']);
+  assertEquals([res.status, body.result, body.store, body.adopted, body.commission, body.bank, body.shop_url], [200, 'ok', 901, false, true, false, 'https://woo.test/store/warsha-new/']);
+  assert(!/"(25|5)"/.test(JSON.stringify(body)), 'no figure in the answer');
   const p = posted[0];
   assertEquals([p.user_login, p.email, p.user_pass, p.user_nicename, p.store_name, p.phone, p.first_name, p.last_name, p.enabled, p.notify_vendor, p.trusted, p.featured],
     ['warsha.new', 'new@maker.test', PW, 'warsha-new', 'ورشة جديدة', '01011112222', 'سلمى', 'علي', true, true, true, false]);
-  assertEquals([p.address.city, p.address.state, p.social.fb, 'admin_commission' in p, 'payment' in p], ['الجيزة', 'EG-21', 'https://fb.test/new', false, false]);
+  assertEquals([p.address.city, p.address.state, p.social.fb, p.admin_commission_type, p.admin_commission, p.admin_additional_fee, 'payment' in p], ['الجيزة', 'EG-21', 'https://fb.test/new', 'fixed', '25', '5', false]);
+  assertEquals(db.rows('vendors').find((v: any) => v.id === NEW_V).store_error, null, 'a made store clears the flag');
   // the create dropped the phone (as the live site): the same fields went again as one PUT — never the login or the password
   assertEquals([body.followup, put.length, put[0].phone, put[0].store_name, 'user_pass' in put[0], 'user_login' in put[0], 'payment' in put[0]], ['ok', 1, '01011112222', 'ورشة جديدة', false, false, false]);
   const linked = db.rows('vendors').find((v: any) => v.id === NEW_V);
@@ -2393,6 +2396,7 @@ Deno.test('vendor_store: the site\'s login / e-mail taken → the Dokan store wi
   const d = setup({ seed: NEW_SEED(), env: WP_ENV, routes: { 'POST dokan/v1/stores': () => ({ status: 400, body: { code: 'shop-url-error', message: 'Shop URL is not available' } }) } });
   const r4 = await call(d.deps, { action: 'vendor_store', vendor_id: NEW_V, password: PW }, { jwt: 'jwt-vf' });
   assertEquals([r4.res.status, r4.body.error], [409, 'shop_url_taken']);
+  assertEquals([d.db.rows('vendors')[0].store_error, d.db.rows('vendors')[0].store_try_at], ['shop_url_taken', NOW], '0112: the failure is on the row for «جرّب تاني»');
   // a 500 on the way: maybe made — 502, the maker stays without a store (a retry links it); an answer that echoes the request
   // (a proxy's error page) never puts the password in the log
   const e = setup({ seed: NEW_SEED(), env: WP_ENV, routes: { 'POST dokan/v1/stores': () => ({ status: 500, text: `<html><body>Bad gateway — the request was: warsha.new ${PW}</body></html>` }) } });

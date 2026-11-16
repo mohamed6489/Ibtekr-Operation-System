@@ -165,7 +165,7 @@ test('phase 13 decision 51: the bank is optional, the photo and the contract are
   await expect(m.locator('[data-v-photo-pick]')).toHaveText('غيّر الصورة');
   await toStep(page, 'login'); await m.locator('#v-login-email').fill('clay.dev@ibtekr.local');
   await m.locator('[data-genpw]').click();
-  await toStep(page, 'store'); await m.getByRole('switch', { name: 'اعمل له متجر على الموقع' }).click(); // the owner, 11 Nov: here without the store (the photo stays in the system)
+  mock.storeRefuse = 'login_taken'; // the store fails on the site (the owner 16 Nov: no switch any more) — the photo stays in the system
   await toStep(page, 'bank'); await expect(m.locator('#v-bank-method')).not.toHaveAttribute('aria-required', 'true');
   await m.locator('[data-v-contract]').setInputFiles({ name: 'contract.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\n%mock\n') });
   await toStep(page, 'maker'); await expect(m.locator('[data-v-photo-prev] img')).toHaveCount(1); // a step back keeps what was picked
@@ -196,7 +196,7 @@ test('the owner, 11 Nov: «المتجر على الموقع» — the admin adds
   await m.locator('[data-genpw]').click();
   const pw = await m.locator('#v-login-pw').inputValue();
   await toStep(page, 'store');
-  await expect(m.getByRole('switch', { name: 'اعمل له متجر على الموقع' })).toHaveAttribute('aria-checked', 'true'); // on by default
+  await expect(m.getByRole('switch', { name: 'اعمل له متجر على الموقع' })).toHaveCount(0); // the owner 16 Nov: always with the maker
   await expect(m.locator('#v-shop')).toHaveValue('wood-rope'); // from the username
   await expect(m.getByRole('switch', { name: 'نشر المنتجات مباشرة' })).toHaveAttribute('aria-checked', 'false');
   await expect(m.getByRole('switch', { name: 'ابعت إيميل للمبتكر بحسابه' })).toHaveAttribute('aria-checked', 'true');
@@ -225,7 +225,7 @@ test('the owner, 11 Nov: «المتجر على الموقع» — the admin adds
   await expect(page.locator('body')).not.toContainText(pw);
 });
 
-test('the owner, 11 Nov: the store refused by the site (the username taken there) → the maker is added here and the note says why; his file offers «اعمل متجر على الموقع» — a strong password, then the store; without the switch nothing is asked of the site', async ({ page }) => {
+test('the owner, 11 Nov / 16 Nov: the store refused by the site (the username taken there) → the maker is added here and the note says why; his file offers «جرّب عمل المتجر تاني» (only after a failed try) — a strong password, then the store, and the button is gone', async ({ page }) => {
   mock.storeRefuse = 'login_taken';
   await openVendors(page);
   const m = await openAdd(page);
@@ -242,7 +242,8 @@ test('the owner, 11 Nov: the store refused by the site (the username taken there
   // from his file, once the site takes it
   mock.storeRefuse = null;
   const btn = drawer(page).locator('[data-make-store]');
-  await expect(btn).toBeVisible();
+  await expect(btn).toBeVisible(); await expect(btn).toHaveText('جرّب عمل المتجر تاني');
+  expect(mock.vendors.find((v) => v.id === NEW1).store_error).toBe('login_taken'); // 0112: on the row
   await btn.click();
   const sm = page.locator('.modal[role=dialog]', { hasText: 'متجر على الموقع — Clay Home' });
   await expect(sm).toContainText('clay.home');
@@ -256,21 +257,10 @@ test('the owner, 11 Nov: the store refused by the site (the username taken there
   expect(mock.storeCalls[0]).toMatchObject({ vendor_id: NEW1, username: 'clay.home', shop_url: 'clay-home', notify: true, trusted: false, featured: false });
   await expect(note(page)).toContainText('اتعمل متجر Clay Home على الموقع');
   await expect(drawer(page).locator('[data-make-store]')).toHaveCount(0);
-  // a maker added with the switch off: nothing asked of the site
+  // a maker of the registry without a store and no failed try: no button (the store comes with «إضافة المبتكر»)
   await drawer(page).getByRole('button', { name: 'إغلاق' }).click();
-  const m2 = await openAdd(page);
-  await m2.locator('#v-name').fill('Glass Art');
-  await pickCats(page, 'v-cat', ['ديكور']);
-  await m2.locator('#v-phone').fill('01000000029');
-  await toStep(page, 'login'); await m2.locator('#v-login-email').fill('glass.dev@ibtekr.local');
-  await m2.locator('[data-genpw]').click();
-  await toStep(page, 'store'); await m2.getByRole('switch', { name: 'اعمل له متجر على الموقع' }).click();
-  await expect(m2.locator('#v-shop')).toHaveCount(0);
-  await addMaker(page);
-  await expect(drawer(page)).toBeVisible();
-  await expect(note(page)).toContainText('اتضاف المبتكر Glass Art');
-  expect(mock.storeCalls.length).toBe(1);
-  await expect(drawer(page).locator('[data-make-store]')).toBeVisible();
+  await openDrawer(page, V1);
+  await expect(drawer(page).locator('[data-make-store]')).toHaveCount(0);
 });
 
 test('the owner, 11 Nov: a member without vendors.edit F sees no store section and no «اعمل متجر على الموقع»; a commission by category shows its tree in «إضافة مبتكر»', async ({ page }) => {

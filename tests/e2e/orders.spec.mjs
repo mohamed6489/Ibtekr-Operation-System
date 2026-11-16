@@ -696,6 +696,23 @@ test('the date picker and the «more» menu hold a full redraw; closing them dra
   expect(mock.patches).toEqual([]);
 });
 
+// the owner 16 Nov: «التقويم يبقي ملاصق لfield تاريخ التاكيد او التبليغ تحته» — the picker opens right under its field even with the
+// page scrolled, and stays under it when the page scrolls on
+test('the date picker opens right under its field with the page scrolled, and follows it on scroll', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 640 });
+  await openOrders(page);
+  const dp = page.locator('#orders #dpop');
+  const field = page.locator('#orders [data-fi="cd:181668"]');
+  await field.scrollIntoViewIfNeeded();
+  await page.evaluate(() => window.scrollBy(0, 120));
+  await field.click();
+  await expect(dp).toHaveCount(1);
+  const gap = async () => { const f = await field.evaluate((n) => (n.closest('.dpf') || n).getBoundingClientRect().bottom); const d = await dp.evaluate((n) => n.getBoundingClientRect().top); return Math.round(d - f); };
+  expect(await gap()).toBe(4);
+  await page.evaluate(() => window.scrollBy(0, -60));
+  await expect.poll(gap).toBe(4);
+});
+
 test('Escape on a sub-order comment drops what was typed (a redraw keeps only unsaved comments)', async ({ page }) => {
   await openOrders(page);
   const cm = page.locator('#orders textarea[data-ce="5002"]');

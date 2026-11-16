@@ -552,20 +552,19 @@ const gatherMenu = async (page, id) => { await page.locator(`#orders .card[data-
 const hubLot = (id, order, item, name, extra) => ({ id, reason: 'تجميع أوردر', status: 'وصل المخزن', sku: 'IBTA4040PAHC000013', name, vendor_id: 'a0000000-0000-4000-8000-000000000001', order_id: order, item_id: item, ref: 'IB-' + order, loc: 'T', mode: 'أمانة', cost: 650, condition: null, condition_note: null, note: null, product_id: null, since: '2026-11-10', closed_at: null, created_by: null, created_at: '2026-11-10T10:00:00Z', ...(extra || {}) });
 const hubIn = (id, lot) => ({ id, lot_id: lot, type: 'in', qty: 1, label: 'دخول — تجميع', reason: 'تجميع أوردر', ref: null, note: null, by: null, at: '2026-11-10T10:00:00Z' });
 
-test('comment 21 — the open count has no fixed «المكان: رف B» / «العرض: الكل» dropdowns and no «العدّ بيتحفظ تلقائي» beside them; the card\'s «بحث» finds a product', async ({ page }) => {
+test('comment 21 — the open count has no fixed «المكان: رف B» / «العرض: الكل» dropdowns and no «العدّ بيتحفظ تلقائي» beside them; its search finds a product', async ({ page }) => {
   mock.inv.inv_lots.push(hubLot('b7000000-0000-4000-8000-0000000000c1', null, null, 'Cushion', { reason: 'متاح للبيع', status: 'متاح', ref: null }), hubLot('b7000000-0000-4000-8000-0000000000c2', null, null, 'Macrame Curtain', { reason: 'متاح للبيع', status: 'متاح', ref: null, sku: 'IBTAMCTOWM200X10014' }));
   mock.inv.inv_moves.push(hubIn(81, 'b7000000-0000-4000-8000-0000000000c1'), hubIn(82, 'b7000000-0000-4000-8000-0000000000c2'));
   await signIn(page); await go(page, '#inventory-count');
   await page.locator('#pg-inventory').getByRole('button', { name: 'جرد جديد' }).first().click();
   await dlg(page, 'جرد جديد').getByRole('button', { name: 'ابدأ الجرد' }).click();
-  const card = page.locator('#pg-inventory section.card').filter({ hasText: 'CNT-' }).first();
+  const card = page.locator('.modal.cnt-modal'); await expect(card).toBeVisible(); // comments decision 34: the count is a popup now
   await expect(card.locator('table tbody tr')).toHaveCount(2);
   await expect(card.locator('#cn-l, #cn-v')).toHaveCount(0);
   await expect(card).not.toContainText('رف B'); await expect(card).not.toContainText('العرض: الكل'); await expect(card.locator('.toolbar')).toHaveCount(0);
-  await card.locator('[data-tq-btn]').click();
-  await card.locator('[data-tq-row] input').fill('Macrame');
-  await expect(card.locator('table tbody tr:visible')).toHaveCount(1);
-  await expect(card.locator('table tbody tr:visible')).toContainText('Macrame Curtain');
+  await card.locator('[data-count-q]').fill('Macrame');
+  await expect(card.locator('table tbody tr')).toHaveCount(1);
+  await expect(card.locator('table tbody tr')).toContainText('Macrame Curtain');
 });
 
 test('comments 22 and 25 — «تجميع في المخزن»: the products as a table (photo, product, maker, status now), the place one of the hub\'s normal places, and one product of one maker is enough', async ({ page }) => {
@@ -890,20 +889,20 @@ test('comment 32 — an open count is paused and resumed: «إيقاف مؤقت�
   await signIn(page); await go(page, '#inventory-count');
   await page.getByRole('tabpanel', { name: 'الجرد' }).getByRole('button', { name: 'جرد جديد' }).click();
   await dlg(page, 'جرد جديد').getByRole('button', { name: /ابدأ/ }).click();
-  const pg = page.locator('#pg-inventory');
-  const input = pg.locator('tr', { hasText: 'Cushion' }).locator('input.cnt-in');
-  await input.fill('1'); await input.press('Tab');
-  await expect.poll(() => (mock.inv.inv_count_lines.find((l) => l.lot_id === L) || {}).counted).toBe(1);
-  // pause: the server's stamp, the page shows it and nothing else to do but resume
-  await pg.locator('[data-count-pause]').click();
+  const pg = page.locator('#pg-inventory'); const pop = page.locator('.modal.cnt-modal');
+  const input = pop.locator('tr', { hasText: 'Cushion' }).locator('input.cnt-in');
+  await input.fill('1');
+  // pause from the count's popup: what was typed is saved first, then the server's stamp; the tab shows it and one thing to do
+  await pop.locator('[data-count-pause]').click();
   await expect.poll(() => mock.inv.inv_counts[0].paused_at).toBeTruthy();
+  expect(mock.inv.inv_count_lines.find((l) => l.lot_id === L).counted).toBe(1);
   expect(mock.inv.inv_counts[0].paused_by).toBe('00000000-0000-4000-8000-000000000001'); // the member who pressed it (the dev admin)
+  await expect(pop).toHaveCount(0);
   const note = pg.locator('[data-count-paused]');
   await expect(note).toContainText('الجرد متوقف مؤقتًا من النهارده');
   await expect(note).toContainText('بواسطة');
   await expect(pg.locator('.count-prog')).toContainText('1 من');
-  await expect(pg.locator('input.cnt-in')).toHaveCount(0);
-  await expect(pg.getByRole('button', { name: 'اعتماد الجرد' })).toHaveCount(0);
+  await expect(pg.locator('[data-count-open]')).toHaveCount(0);
   await expect(pg.locator('[data-count-pause]')).toHaveCount(0);
   // the server refuses a count and the approval while it is paused
   const refused = await page.evaluate(async (k) => [await window.IBInventory.countLine(window.IBInventory.countId(), k, 2, ''), await window.IBInventory.approveCount(window.IBInventory.countId())], L);
@@ -913,19 +912,93 @@ test('comment 32 — an open count is paused and resumed: «إيقاف مؤقت�
   // a reload still shows it paused (it is the server's)
   await page.evaluate(() => window.IBInventory.load());
   await expect(note).toBeVisible();
-  // resume: the lines are back with what was counted
+  // resume: the count opens again with what was counted
   await pg.locator('[data-count-resume]').click();
   await expect.poll(() => mock.inv.inv_counts[0].paused_at).toBeNull();
+  await expect(pop).toBeVisible();
   await expect(input).toHaveValue('1');
-  await expect(pg.getByRole('button', { name: 'اعتماد الجرد' })).toBeVisible();
   expect(mock.invWrites.filter((w) => w.table === 'inv_counts' && w.op === 'update').map((w) => w.paused)).toEqual([true, false]);
+  await pop.locator('[data-count-cancel]').click(); await expect(pop).toHaveCount(0);
+  // the tab's own «إيقاف مؤقت» does the same
+  await pg.locator('[data-count-pause]').click();
+  await expect(note).toBeVisible();
+  await pg.locator('[data-count-resume]').click(); await expect(pop).toBeVisible();
+  await pop.locator('[data-count-cancel]').click();
   // before 0107 is applied: the hub loads, the button says the pause is not available yet, the count goes on
   mock.noCountPause = true;
   await page.evaluate(() => window.IBInventory.load());
-  await expect(input).toHaveValue('1');
   await pg.locator('[data-count-pause]').click();
   await expect(page.locator('.toast', { hasText: 'هيشتغل بعد تحديث قاعدة البيانات' })).toBeVisible();
-  await expect(input).toBeVisible(); await expect(note).toHaveCount(0);
+  await expect(pg.locator('[data-count-open]')).toBeVisible(); await expect(note).toHaveCount(0);
+});
+
+test('comment 34 — the count is a big popup: the progress and the search stay on top while the lines scroll; nothing is saved while typing — «حفظ» writes the changed lines once, «مطابقة» shows the differences and approves them, «إلغاء» asks before unsaved counting is dropped', async ({ page }) => {
+  const mk = (n, name) => { const id = 'b7000000-0000-4000-8000-0000000034' + String(n).padStart(2, '0'); mock.inv.inv_lots.push(hubLot(id, null, null, name, { reason: 'متاح للبيع', status: 'متاح', ref: null })); mock.inv.inv_moves.push({ ...hubIn(300 + n, id), qty: 2, label: 'دخول — للبيع', reason: 'متاح للبيع' }); return id; };
+  const ids = Array.from({ length: 14 }, (_, i) => mk(i + 1, 'قطعة جرد ' + (i + 1)));
+  await signIn(page); await go(page, '#inventory-count');
+  await page.getByRole('tabpanel', { name: 'الجرد' }).getByRole('button', { name: 'جرد جديد' }).click();
+  await dlg(page, 'جرد جديد').getByRole('button', { name: /ابدأ/ }).click();
+  const pop = page.locator('.modal.cnt-modal'); await expect(pop).toBeVisible();
+  // a big popup: most of the screen, the foot's buttons in order
+  const vp = page.viewportSize(); const bb = await pop.boundingBox();
+  expect(bb.width).toBeGreaterThan(vp.width * 0.8); expect(bb.height).toBeGreaterThan(vp.height * 0.85);
+  await expect(pop.locator('.modal-f button')).toHaveText(['مطابقة', 'حفظ', 'إيقاف مؤقت', 'إلغاء']);
+  await expect(pop.locator('table tbody tr')).toHaveCount(14);
+  await expect(pop.locator('[data-count-save]')).toBeDisabled(); // nothing to save yet
+  // typing writes nothing: the difference and the progress follow at once, the server has no count
+  const inputs = pop.locator('input.cnt-in');
+  await inputs.nth(0).fill('2'); await inputs.nth(0).press('Enter'); // Enter goes to the next box
+  await expect(inputs.nth(1)).toBeFocused();
+  await inputs.nth(1).fill('5'); await inputs.nth(2).fill('0');
+  await expect(pop.locator('[data-count-done]')).toHaveText('3 من 14 منتج اتعدّوا · 2 فروق لحد دلوقتي · 3 لسه ماتحفظوش');
+  await expect(pop.locator('table tbody tr').nth(0)).toContainText('مطابق');
+  await expect(pop.locator('table tbody tr').nth(1)).toContainText('+ 3');
+  expect(mock.inv.inv_count_lines.filter((l) => l.counted != null)).toHaveLength(0);
+  expect(mock.invWrites.filter((w) => w.table === 'inv_count_lines' && w.op === 'update')).toHaveLength(0);
+  // the top stays while the lines scroll (the progress and the table's head)
+  const top0 = await pop.locator('[data-count-top]').boundingBox(); const th0 = await pop.locator('table thead th').first().boundingBox();
+  await pop.locator('[data-count-lines]').evaluate((el) => { el.scrollTop = el.scrollHeight; });
+  const top1 = await pop.locator('[data-count-top]').boundingBox(); const th1 = await pop.locator('table thead th').first().boundingBox();
+  expect(Math.round(top1.y)).toBe(Math.round(top0.y)); expect(Math.abs(th1.y - th0.y)).toBeLessThan(2);
+  expect(await pop.locator('[data-count-lines]').evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+  // «إلغاء» with unsaved counting asks first; «رجوع للجرد» keeps it
+  await pop.locator('[data-count-cancel]').click();
+  const ask = dlg(page, 'فيه عدّ ما اتحفظش');
+  await expect(ask).toContainText('3 منتج');
+  await ask.getByRole('button', { name: 'رجوع للجرد' }).click();
+  await expect(pop).toBeVisible(); await expect(inputs.nth(1)).toHaveValue('5');
+  await page.keyboard.press('Escape'); await expect(ask).toBeVisible(); // × and Esc ask the same
+  await ask.getByRole('button', { name: 'رجوع للجرد' }).click();
+  // «حفظ»: the three lines, once
+  await pop.locator('[data-count-save]').click();
+  await expect.poll(() => mock.inv.inv_count_lines.filter((l) => l.counted != null).map((l) => l.counted).sort()).toEqual([0, 2, 5]);
+  expect(mock.invWrites.filter((w) => w.table === 'inv_count_lines' && w.op === 'update')).toHaveLength(3);
+  await expect(pop.locator('[data-count-done]')).toHaveText('3 من 14 منتج اتعدّوا · 2 فروق لحد دلوقتي');
+  await expect(pop.locator('[data-count-save]')).toBeDisabled();
+  await expect(pop).toBeVisible(); // «حفظ» keeps the count open
+  // the search narrows the lines; the typed figures stay
+  await pop.locator('[data-count-q]').fill('قطعة جرد 14');
+  await expect(pop.locator('table tbody tr')).toHaveCount(1);
+  await pop.locator('input.cnt-in').fill('1');
+  await pop.locator('[data-count-q]').fill('');
+  await expect(pop.locator('table tbody tr')).toHaveCount(14);
+  await expect(pop.locator('[data-count-done]')).toContainText('1 لسه ماتحفظوش');
+  // «مطابقة»: saves what is typed, then the differences — approved from there
+  await pop.locator('[data-count-match-btn]').click();
+  const match = dlg(page, 'مطابقة الجرد');
+  await expect(match.locator('dl.kv')).toContainText('4 من 14 منتج');
+  await expect(match.locator('table tbody tr')).toHaveCount(3);
+  await expect(match).toContainText('10 منتج لسه متعدّش وهيفضل زي ما هو');
+  expect(mock.inv.inv_count_lines.filter((l) => l.counted != null)).toHaveLength(4);
+  await match.getByRole('button', { name: 'رجوع للجرد' }).click();
+  await expect(pop).toBeVisible();
+  await pop.locator('[data-count-match-btn]').click();
+  await match.locator('[data-count-approve]').click();
+  await expect.poll(() => mock.inv.inv_counts[0].status).toBe('approved');
+  expect(mock.inv.inv_moves.filter((x) => x.type === 'adjust').map((x) => x.qty).sort((a, b) => a - b)).toEqual([-2, -1, 3]);
+  await expect(pop).toHaveCount(0);
+  await expect(page.locator('#pg-inventory')).toContainText('مفيش جرد شغال');
+  expect(ids).toHaveLength(14);
 });
 
 test('comment 30 — a maker\'s orders popup shares through the one popup too: the orders as a file to his number, and the share is logged without the file', async ({ page }) => {

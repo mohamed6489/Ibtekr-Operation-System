@@ -94,6 +94,24 @@ test('the open count\'s pause: read on its own (who, when — Cairo), written as
   eq((await p.I.pauseCount('x', true)).reason, 'invalid');
 });
 
+// comments decision 34: «حفظ» in the count's popup
+test('saveCount writes the changed lines together and logs once with the number only; the first refusal stops it and says how many went; a viewer cannot', async () => {
+  const a = load(); await a.I.load();
+  eq(await a.I.saveCount(4, [{ key: L1, counted: '3', note: '' }, { key: L2, counted: '', note: 'ناقصة' }, { key: 'not-a-uuid', counted: '1' }]), { ok: true, saved: 2 });
+  const ups = opsOf(a.stub.calls, 'inv_count_lines').filter((c) => c.op === 'update').map((c) => c.args[0]);
+  eq(ups, [{ counted: 3, note: null }, { counted: null, note: 'ناقصة' }]);
+  eq(a.logs.at(-1).slice(0, 2), ['inventory.count.save', 'CNT-4 · 2']);
+  eq(await a.I.saveCount(4, []), { ok: true, saved: 0 });
+  eq(a.logs.filter((l) => l[0] === 'inventory.count.save').length, 1, 'nothing saved, nothing logged');
+  // the server refuses (the count was paused elsewhere): nothing is logged
+  const r = load({ responses: { inv_count_lines: (q) => (q.some((x) => x.op === 'update') ? { data: null, error: { code: '42501', message: 'the count is paused' } } : ok([{ count_id: 4, lot_id: L2, system: 2, counted: 1, note: 'ناقصة' }])) } }); await r.I.load();
+  const out = await r.I.saveCount(4, [{ key: L1, counted: '3' }]);
+  eq([out.ok, out.reason, out.saved], [false, 'forbidden', 0]);
+  eq(r.logs.filter((l) => l[0] === 'inventory.count.save').length, 0);
+  const v = load({ perms: { 'inventory.view': 'F' } }); await v.I.load();
+  eq((await v.I.saveCount(4, [{ key: L1, counted: '3' }])).reason, 'forbidden');
+});
+
 // comments decision 23 (the owner 15 Nov): «تجميع أوردر» pieces in the hub for an order with no open consolidation
 test('an order whose «تجميع أوردر» pieces are on hand with no open consolidation is listed too (derived, no id): its open lines, the arrived one «وصل المخزن»; not after the team cancelled its consolidation, not a closed order, not a piece that left', async () => {
   const L4 = 'b0000000-0000-4000-8000-000000000004', L5 = 'b0000000-0000-4000-8000-000000000005', L6 = 'b0000000-0000-4000-8000-000000000006', L7 = 'b0000000-0000-4000-8000-000000000007';

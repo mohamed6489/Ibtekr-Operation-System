@@ -277,17 +277,21 @@
 
   // ---- Modal ----
   let modalRoot = null;
-  function Modal({ title, body, footer, onClose, share }) {
+  // canClose (comments decision 34): asked when the member leaves by ×, Esc or a click outside — false keeps the popup (the caller
+  // shows why); api.close() from the caller's own buttons always closes.
+  function Modal({ title, body, footer, onClose, share, canClose }) {
     const prev = document.activeElement;
     const titleId = 'm-title-' + Math.random().toString(36).slice(2, 7);
     const close = () => { scrim.remove(); document.removeEventListener('keydown', keys, true); if (prev && prev.focus) prev.focus(); onClose && onClose(); };
+    const leave = () => { if (typeof canClose === 'function' && canClose() === false) return; close(); };
     const bodyEl = h('div', { class: 'modal-b' }); const footEl = h('div', { class: 'modal-f' });
     const dialog = h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': titleId },
-      h('div', { class: 'modal-h' }, h('h2', { class: 't-h4', id: titleId }, title), h('div', { class: 'modal-h-actions' }, share !== true ? null : ShareButton({ icon: true, get: () => ({ title: typeof title === 'string' ? title : dialog.querySelector('#' + titleId).textContent, text: bodyShareText(typeof title === 'string' ? title : dialog.querySelector('#' + titleId).textContent, bodyEl), el: bodyEl }) }), IconButton({ icon: 'close', label: 'إغلاق', onClick: close }))), bodyEl, footEl);
+      h('div', { class: 'modal-h' }, h('h2', { class: 't-h4', id: titleId }, title), h('div', { class: 'modal-h-actions' }, share !== true ? null : ShareButton({ icon: true, get: () => ({ title: typeof title === 'string' ? title : dialog.querySelector('#' + titleId).textContent, text: bodyShareText(typeof title === 'string' ? title : dialog.querySelector('#' + titleId).textContent, bodyEl), el: bodyEl }) }), IconButton({ icon: 'close', label: 'إغلاق', onClick: leave }))), bodyEl, footEl);
     const scrim = h('div', { class: 'scrim' }, dialog);
-    scrim.addEventListener('mousedown', (e) => { if (e.target === scrim) close(); });
+    scrim.addEventListener('mousedown', (e) => { if (e.target === scrim) leave(); });
     const keys = (e) => {
-      if (e.key === 'Escape' && !openClose) { e.preventDefault(); close(); }
+      // Esc is the top popup's alone: one under another popup stays (its own question, if it has one, is not asked twice)
+      if (e.key === 'Escape' && !openClose) { const all = document.querySelectorAll('.scrim'); if (all[all.length - 1] !== scrim) return; e.preventDefault(); leave(); }
       if (e.key === 'Tab') { const f = [...dialog.querySelectorAll('button:not([disabled]),input,[tabindex]:not([tabindex="-1"])')].filter((x) => x.offsetParent !== null); if (!f.length) return; const i = f.indexOf(document.activeElement);
         if (e.shiftKey && i <= 0) { e.preventDefault(); f[f.length - 1].focus(); } else if (!e.shiftKey && i === f.length - 1) { e.preventDefault(); f[0].focus(); } }
     };

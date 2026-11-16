@@ -22,7 +22,7 @@
   const TABS = [{ id: 'overview', label: 'نظرة عامة' }, { id: 'now', label: 'سجل المخزون' }, { id: 'consolidate', label: 'تجميع أوردرات' }, { id: 'returns', label: 'المرتجعات' }, { id: 'moves', label: 'حركات المخزن' }, { id: 'count', label: 'الجرد' }, { id: 'reports', label: 'التقارير' }]; // B6: the settings moved to «الإعدادات › المخزن"
   const st = { tab: 'overview', f: { reason: [], status: [], vendor: [], loc: [], late: false }, sort: 'new', q: '', mq: '', mtype: '' };
   const R = () => window.IBPages.render('inventory');
-  const rerender = () => { if (window.IBPages.current === 'inventory') R(); else window.OrdersSetSub && window.OrdersSetSub('__redraw__', null); document.dispatchEvent(new CustomEvent('ib:notify')); };
+  const rerender = () => { if (window.IBPages.current === 'inventory') R(); else window.OrdersSetSub && window.OrdersSetSub('__redraw__', null); if (countPop) countPop.refresh(); document.dispatchEvent(new CustomEvent('ib:notify')); };
   const REASON_TONE = { 'تجميع أوردر': 'info', 'مرتجع': 'orange', 'تصوير': 'gold', 'متاح للبيع': 'success' };
   const STATUS_TONE = { 'وصل المخزن': 'info', 'جاهز يطلع كامل': 'success', 'بانتظار الفحص': 'orange', 'مستني تصوير': 'gold', 'اتصور': 'brand', 'متاح': 'success', 'محجوز لأوردر': 'orange', 'راجع للمبتكر': 'neutral', 'تالف': 'error' };
   const STATUSES = ['وصل المخزن', 'جاهز يطلع كامل', 'بانتظار الفحص', 'مستني تصوير', 'اتصور', 'متاح', 'محجوز لأوردر', 'راجع للمبتكر', 'تالف'];
@@ -297,25 +297,105 @@
         h('p', { class: 't-small help', style: 'margin:0' }, 'الحجز والشحن وفك الحجز بيعملهم السيستم لوحده من الأوردرات. الاستلام والتسوية والتالف والإرجاع للمبتكر بيعملهم الفريق بسبب. أي غلطة بتتصلح بحركة عكسية — مفيش مسح.')], null, { noun: ['حركة', 'الحركات'], when: perName, count: [list.length, month.length], total: 'دخول ' + sum(ins) + ' · خروج ' + sum(outs) })].filter(Boolean);
   }
   // ---------- الجرد ----------
+  // comments decision 34 (the owner 15 Nov — «بلاش الحفظ بتاع الجرد يبقي في كل خطوة و زر مطابقة و حفظ و الغاء — الحتة اللي فوق تبقي sticky
+  // في الجرد — و الجرد يبقي في صفحة جديدة زي بوب اب كبير»): the tab shows the open count as a card (its progress, «افتح الجرد»); the
+  // counting itself is a big popup (openCount below) — nothing is written while the member types.
+  const savedDone = (c) => (c.base || 0) + c.lines.filter((l) => l.counted !== '').length;
+  const savedDiffs = (c) => c.lines.filter((l) => l.counted !== '' && Number(l.counted) !== l.system).length;
   function countTab() {
     const c = S.count;
     if (!c) return [K.Section('الجرد', K.Empty('مفيش جرد شغال', 'ابدأ جرد جديد لرف أو للمخزن كله.', Button({ type: 'primary', label: 'جرد جديد', onClick: () => newCount() }))), history()];
-    const diffs = c.lines.filter((l) => l.counted !== '' && Number(l.counted) !== l.system);
-    const done = (c.base || 0) + c.lines.filter((l) => l.counted !== '').length;
-    const prog = () => h('div', { class: 'count-prog' }, h('b', null, 'التقدّم'), h('span', null, done + ' من ' + c.total + ' منتج اتعدّوا · ' + diffs.length + ' فروق لحد دلوقتي'), U.ProgressBar('brand', c.total ? done / c.total : 0));
+    const done = savedDone(c); const diffs = savedDiffs(c);
+    const prog = () => h('div', { class: 'count-prog' }, h('b', null, 'التقدّم'), h('span', null, done + ' من ' + c.total + ' منتج اتعدّوا · ' + diffs + ' فروق لحد دلوقتي'), U.ProgressBar('brand', c.total ? done / c.total : 0));
     // comments decision 32 (the owner 15 Nov — «ممكن اوقف الجرد مؤقتاً و اكمله بعدين عايز زر بكده»): a paused count shows what is
     // counted so far and one button — «كمّل الجرد»; no counting and no approval until then (the server refuses both, 0107)
     if (c.paused) { const at = String(c.paused.at || ''); const day = at.slice(0, 10); const when = day ? (day === TODAY ? 'النهارده' : K.dshort(day)) + (at.length > 11 ? ' ' + K.t12(at.slice(11, 16)) : '') : '';
       return [K.Section(c.id + ' — ' + c.zone, [h('div', { 'data-count-paused': '' }, U.InlineNote({ kind: 'warning', children: 'الجرد متوقف مؤقتًا' + (when ? ' من ' + when : '') + (c.paused.by ? ' · بواسطة ' + c.paused.by : '') + ' — العدّ اللي اتسجل محفوظ، ومفيش عدّ ولا اعتماد لحد ما تكمّله.' })), prog()],
         [canEdit() ? Button({ type: 'primary', label: 'كمّل الجرد', attrs: { 'data-count-resume': '' }, onClick: () => pauseCount(false) }) : null], { sub: 'متوقف مؤقتًا' }), history()]; }
-    return [K.Section(c.id + ' — ' + c.zone, [prog(),
-      // comments decision 21 (the owner 15 Nov — «شيل دول ملهمش لازمة»): the two fixed dropdowns («المكان: رف B» / «العرض: الكل») and the
-      // hint beside them left the open count; its search is the kit's «بحث» in the card's head (the page's own input did nothing)
-      U.Table({ headers: ['المنتج', 'المكان', 'في السيستم', 'العدد الفعلي', 'الفرق', 'القيمة', 'ملاحظة'].concat(canEdit() ? [''] : []), rows: c.lines.map((l) => { const gone = removedOf(l); const inp = h('input', { class: 'cnt-in', inputmode: 'numeric', value: l.counted, title: gone ? 'اتشال جزء من المخزن أثناء الجرد — العدد = اللي فاضل' : null, 'aria-label': 'العدد الفعلي — ' + l.name, 'data-cnt-key': l.key }); inp.addEventListener('change', () => { l.counted = O.toLatin(inp.value); if (live() && c.dbId) saved(A().countLine(c.dbId, l.key, l.counted, l.note)); K.toast('اتحفظ العدّ'); R(); });
-        const d = l.counted === '' ? null : Number(l.counted) - l.system;
-        return [prodCell(l), K.Num(l.loc), String(l.system), inp, gone ? K.Tag('orange', String(l.note).split(' — ')[0]) : d == null ? K.Tag('neutral', 'لسه') : d === 0 ? K.Tag('success', 'مطابق') : h('b', { class: d < 0 ? 'neg' : 'pos' }, K.Num((d > 0 ? '+ ' : '− ') + Math.abs(d))), d ? K.Num((d > 0 ? '+ ' : '− ') + K.money(Math.abs(d) * l.cost)) : '—', l.note || '—'].concat(canEdit() ? [countLineMenu(c, l)] : []); }) }),
-      h('p', { class: 't-small help', style: 'margin:0' }, 'أثناء الجرد «في السيستم» بيتثبت على لحظة بداية الجرد، والحجوزات الجديدة بتتحسب لوحدها. «اعتماد الجرد» بيعمل حركة «تسوية جرد» لكل فرق بالسبب. المنتجات اللي متعدتش بتفضل زي ما هي.')],
-      [canEdit() ? Button({ label: 'إيقاف مؤقت', attrs: { 'data-count-pause': '' }, onClick: () => pauseCount(true) }) : null, canEdit() ? Button({ label: '+ قطعة', attrs: { 'data-count-add': '' }, onClick: () => receiveManual() }) : null, canApprove() ? Button({ type: 'primary', label: 'اعتماد الجرد', onClick: () => approveCount() }) : null], { sub: 'بدأ ' + c.started.slice(11) + ' النهارده' }), history()];
+    return [K.Section(c.id + ' — ' + c.zone, [prog(), h('p', { class: 't-small help', style: 'margin:0' }, 'العدّ بيتم في شاشة الجرد: اكتب الأعداد براحتك و«حفظ» بيسجّلها مرة واحدة، و«مطابقة» بتقارن العدّ بالسيستم وتعتمد الفروق.')],
+      [canEdit() ? Button({ label: 'إيقاف مؤقت', attrs: { 'data-count-pause': '' }, onClick: () => pauseCount(true) }) : null, Button({ type: 'primary', label: canEdit() ? 'افتح الجرد' : 'عرض الجرد', attrs: { 'data-count-open': '' }, onClick: () => openCount() })], { sub: 'بدأ ' + c.started.slice(11) + ' النهارده' }), history()];
+  }
+  // ---- the count's popup: the progress and the search stay on top, the lines scroll under them, the counting is a draft until «حفظ»
+  let countPop = null;
+  function openCount() {
+    const c0 = S.count; if (!c0 || c0.paused || countPop) return;
+    const draft = new Map(); let q = ''; let m = null; let busy = false;
+    const cur = () => S.count; const typed = (l) => (draft.has(l.key) ? draft.get(l.key) : l.counted);
+    const changed = () => { const c = cur(); return c ? c.lines.filter((l) => draft.has(l.key) && draft.get(l.key) !== l.counted) : []; };
+    const top = h('div', { class: 'cnt-top', 'data-count-top': '' }); const box = h('div', { class: 'cnt-lines', 'data-count-lines': '' });
+    const search = h('input', { class: 'input', type: 'search', placeholder: 'ابحث بالمنتج أو الـ SKU أو المكان', 'aria-label': 'بحث في الجرد', 'data-count-q': '' });
+    search.addEventListener('input', () => { q = search.value.trim(); drawRows(); });
+    const progEl = h('div', { class: 'count-prog' });
+    top.append(progEl, h('div', { class: 'cnt-tools' }, search, canEdit() ? Button({ label: '+ قطعة', attrs: { 'data-count-add': '' }, onClick: () => receiveManual() }) : null));
+    function drawTop() {
+      const c = cur(); if (!c) return; const done = (c.base || 0) + c.lines.filter((l) => typed(l) !== '').length; const diffs = c.lines.filter((l) => typed(l) !== '' && Number(typed(l)) !== l.system).length; const n = changed().length;
+      progEl.replaceChildren(h('b', null, 'التقدّم'), h('span', { 'data-count-done': '' }, done + ' من ' + c.total + ' منتج اتعدّوا · ' + diffs + ' فروق لحد دلوقتي' + (n ? ' · ' + n + ' لسه ماتحفظوش' : '')), U.ProgressBar('brand', c.total ? done / c.total : 0));
+      if (m) { const sv = m.el.querySelector('[data-count-save]'); if (sv) sv.disabled = busy || !n; }
+    }
+    const diffOf = (l) => { const v = typed(l); const gone = removedOf(l); const d = v === '' ? null : Number(v) - l.system;
+      return [gone ? K.Tag('orange', String(l.note).split(' — ')[0]) : d == null ? K.Tag('neutral', 'لسه') : d === 0 ? K.Tag('success', 'مطابق') : h('b', { class: d < 0 ? 'neg' : 'pos' }, K.Num((d > 0 ? '+ ' : '− ') + Math.abs(d))), d ? K.Num((d > 0 ? '+ ' : '− ') + K.money(Math.abs(d) * l.cost)) : '—']; };
+    const fold = (x) => (K.foldAr ? K.foldAr(String(x || '')) : String(x || '')).toLowerCase();
+    function drawRows() {
+      const c = cur(); if (!c) return; const f = fold(q); const hit = (l) => !f || [l.name, l.sku, l.loc].some((x) => fold(x).includes(f));
+      const list = c.lines.filter(hit);
+      if (!list.length) { box.replaceChildren(U.EmptyState(c.lines.length ? 'مفيش منتج بالبحث ده' : 'مفيش منتجات في الجرد ده', c.lines.length ? 'جرّب اسم تاني أو امسح البحث.' : '«+ قطعة» بيضيف اللي لقيته.')); return; }
+      box.replaceChildren(U.Table({ cls: 'cnt-table', headers: ['المنتج', 'المكان', 'في السيستم', 'العدد الفعلي', 'الفرق', 'القيمة', 'ملاحظة'].concat(canEdit() ? [''] : []), rows: list.map((l) => {
+        const gone = removedOf(l); const dEl = h('span', { 'data-cnt-diff': l.key }); const vEl = h('span', null); const paint = () => { const [d, v] = diffOf(l); dEl.replaceChildren(d); vEl.replaceChildren(v); };
+        const inp = h('input', { class: 'cnt-in', inputmode: 'numeric', value: typed(l), disabled: canEdit() ? null : '', title: gone ? 'اتشال جزء من المخزن أثناء الجرد — العدد = اللي فاضل' : null, 'aria-label': 'العدد الفعلي — ' + l.name, 'data-cnt-key': l.key });
+        // the figure is the member's draft: digits only, kept here until «حفظ» (no write, no redraw — the next box keeps the focus)
+        inp.addEventListener('input', () => { const v = O.toLatin(inp.value).replace(/\D/g, '').slice(0, 5); if (inp.value !== v) inp.value = v; if (v === l.counted) draft.delete(l.key); else draft.set(l.key, v); paint(); drawTop(); });
+        inp.addEventListener('keydown', (e) => { if (e.key !== 'Enter') return; e.preventDefault(); const all = [...box.querySelectorAll('input.cnt-in:not([disabled])')]; const nx = all[all.indexOf(inp) + 1]; if (nx) { nx.focus(); nx.select(); } });
+        paint();
+        return [prodCell(l), K.Num(l.loc), String(l.system), inp, dEl, vEl, l.note || '—'].concat(canEdit() ? [countLineMenu(c, l)] : []); }) }));
+    }
+    const fail = (r) => K.toast(r && r.reason === 'forbidden' ? 'ماتحفظش — الجرد متوقف أو الصلاحية مش عندك' : 'ماتحفظش — جرّب تاني', 'error');
+    // «حفظ»: the changed lines together; what could not be written stays in the draft
+    async function save(quiet) {
+      const c = cur(); const list = changed(); if (!c) return false; if (!list.length) { if (!quiet) K.toast('مفيش عدّ جديد يتحفظ'); return true; }
+      if (busy) return false; busy = true; foot();
+      let ok = true;
+      if (live() && c.dbId) { const r = await A().saveCount(c.dbId, list.map((l) => ({ key: l.key, counted: draft.get(l.key), note: l.note }))); ok = !!(r && r.ok); if (!ok) { fail(r); await A().load(); } }
+      if (ok) { list.forEach((l) => { l.counted = draft.get(l.key); draft.delete(l.key); }); K.logEvent('stock.count.save', c.id + ' · ' + list.length); if (!quiet) K.toast('اتحفظ العدّ — ' + list.length + ' منتج', 'success'); }
+      busy = false; if (countPop) { countPop.refresh(); foot(); } R(); return ok;
+    }
+    // «مطابقة»: what was counted against the system — the lines that differ — then the approval writes a «تسوية جرد» move a difference
+    async function reconcile() {
+      if (!(await save(true))) return; const c = cur(); if (!c) return;
+      const counted = c.lines.filter((l) => l.counted !== ''); const diff = counted.filter((l) => Number(l.counted) !== l.system); const left = c.lines.length - counted.length;
+      const d = O.countDiff(counted.map((l) => ({ system: l.system, counted: Number(l.counted), cost: l.cost })));
+      const units = diff.reduce((x, l) => x + Number(l.counted) - l.system, 0);
+      const body = [K.Kv([['اتعدّ', counted.length + ' من ' + c.lines.length + ' منتج'], ['مطابق', String(counted.length - diff.length)], ['فيها فرق', String(diff.length)], ['صافي الفرق', (units > 0 ? '+ ' : units < 0 ? '− ' : '') + Math.abs(units) + ' قطعة · ' + K.money(d.value) + ' ج.م']]),
+        diff.length ? U.Table({ cls: 'mini-table', headers: ['المنتج', 'في السيستم', 'العدد الفعلي', 'الفرق', 'القيمة'], rows: diff.map((l) => { const x = Number(l.counted) - l.system; return [l.name, String(l.system), String(l.counted), h('b', { class: x < 0 ? 'neg' : 'pos' }, K.Num((x > 0 ? '+ ' : '− ') + Math.abs(x))), K.Num((x > 0 ? '+ ' : '− ') + K.money(Math.abs(x) * l.cost))]; }) })
+          : U.InlineNote({ children: counted.length ? 'كل اللي اتعدّ مطابق للسيستم — مفيش فروق.' : 'لسه مفيش منتج اتعدّ.' }),
+        h('p', { class: 't-small help', style: 'margin:0' }, 'الاعتماد بيعمل حركة «تسوية جرد» لكل فرق وبيقفل الجرد.' + (left ? ' ' + left + ' منتج لسه متعدّش وهيفضل زي ما هو.' : '') + (canApprove() ? '' : ' الاعتماد محتاج صلاحية اعتماد المخزن.'))];
+      let rm = null;
+      rm = U.Modal({ title: 'مطابقة الجرد — ' + c.id, share: false, body: [h('div', { class: 'cnt-match', 'data-count-match': '' }, body)],
+        footer: [canApprove() ? Button({ type: 'primary', label: 'اعتماد المطابقة', attrs: { 'data-count-approve': '' }, disabled: !counted.length, onClick: () => { rm.close(); approve(c, d); } }) : null, Button({ type: canApprove() ? 'text' : 'primary', label: 'رجوع للجرد', onClick: () => rm.close() })] });
+      rm.el.classList.add('wide');
+    }
+    function approve(c, d) {
+      if (live() && c.dbId) { saved(A().approveCount(c.dbId), 'اتعتمد ' + c.id).then((r) => { if (r.ok) { shut(); reload(); } }); return; }
+      c.lines.filter((l) => l.counted !== '' && Number(l.counted) !== l.system).forEach((l) => move({ key: l.key || l.sku, type: 'adjust', qty: Number(l.counted) - l.system, label: 'تسوية جرد', reason: 'جرد ' + c.id, ref: c.id, note: l.note || '', name: l.name, sku: l.sku }));
+      S.counts.unshift({ id: c.id, date: TODAY, zone: c.zone, by: K.member(K.ME).name, items: d.items, value: d.value, status: 'اتعتمد' }); S.count = null; K.logEvent('stock.count.approve', c.id); K.toast('اتعتمد ' + c.id, 'success'); shut(); R();
+    }
+    const shut = () => { const x = m; countPop = null; m = null; if (x) x.close(); };
+    // «إلغاء» / × / Esc: counting not saved yet is asked about first
+    function cancel() {
+      const n = changed().length; if (!n) { shut(); return; }
+      K.confirm({ title: 'فيه عدّ ما اتحفظش', text: n + ' منتج اتعدّوا ولسه ماتحفظوش. لو خرجت دلوقتي العدّ ده هيروح.', okLabel: 'تجاهل التغييرات', okType: 'danger', cancelLabel: 'رجوع للجرد', onOk: () => shut() });
+    }
+    function foot() {
+      if (!m) return; const n = changed().length;
+      m.setFooter(Button({ type: 'primary', label: 'مطابقة', attrs: { 'data-count-match-btn': '' }, disabled: busy, onClick: () => reconcile() }),
+        canEdit() ? Button({ label: busy ? 'بيتحفظ…' : 'حفظ', attrs: { 'data-count-save': '' }, disabled: busy || !n, onClick: () => save() }) : null,
+        canEdit() ? Button({ label: 'إيقاف مؤقت', attrs: { 'data-count-pause': '' }, disabled: busy, onClick: async () => { if (await save(true)) { shut(); pauseCount(true); } } }) : null,
+        Button({ type: 'text', label: canEdit() ? 'إلغاء' : 'إغلاق', attrs: { 'data-count-cancel': '' }, disabled: busy, onClick: () => cancel() }));
+    }
+    m = U.Modal({ title: c0.id + ' — ' + c0.zone, share: false, body: [top, box], canClose: () => { if (busy) return false; if (!changed().length) return true; cancel(); return false; }, onClose: () => { countPop = null; m = null; } });
+    m.el.classList.add('cnt-modal'); m.el.dataset.countModal = String(c0.dbId || c0.id);
+    countPop = { refresh() { const c = cur(); if (!c || c.paused) { shut(); return; } [...draft.keys()].forEach((k) => { const l = c.lines.find((x) => x.key === k); if (!l || draft.get(k) === l.counted) draft.delete(k); }); drawRows(); drawTop(); }, forget(k) { draft.delete(k); } };
+    drawRows(); drawTop(); foot();
+    setTimeout(() => { const f = box.querySelector('input.cnt-in:not([disabled])'); if (f) f.focus(); }, 0);
   }
   // «إيقاف مؤقت» / «كمّل الجرد» (comments decision 32). Before 0107 is applied the server has no place for the pause: the counting
   // done so far is saved anyway (it is written line by line), and the member is told the mark itself is not available yet.
@@ -323,24 +403,25 @@
     const c = S.count; if (!c) return;
     const okMsg = on ? 'الجرد اتوقف مؤقتًا — كمّله وقت ما تحب' : 'كمّل الجرد من مكان ما وقفت';
     if (live() && c.dbId) { Promise.resolve(A().pauseCount(c.dbId, on)).then((r) => {
-      if (r && r.ok) { K.toast(okMsg, 'success'); reload(); return; }
+      if (r && r.ok) { K.toast(okMsg, 'success'); reload().then(() => { if (!on) openCount(); }); return; }
       if (r && r.reason === 'unavailable') K.toast('الإيقاف المؤقت هيشتغل بعد تحديث قاعدة البيانات — العدّ اللي اتسجل محفوظ وتقدر تكمّله في أي وقت', 'warning');
       else { K.toast(r && r.reason === 'forbidden' ? 'مش مسموح — الصلاحية دي مش عندك' : 'ماتحفظش — جرّب تاني', 'error'); reload(); } }); return; }
-    c.paused = on ? { at: TODAY + ' ' + K.clockNow(), by: K.member(K.ME).name } : null; K.logEvent(on ? 'stock.count.pause' : 'stock.count.resume', c.id); K.toast(okMsg, 'success'); R();
+    c.paused = on ? { at: TODAY + ' ' + K.clockNow(), by: K.member(K.ME).name } : null; K.logEvent(on ? 'stock.count.pause' : 'stock.count.resume', c.id); K.toast(okMsg, 'success'); R(); if (!on) openCount();
   }
   // owner batch 14 Nov decision 10: in an open count — «+ قطعة» (the manual receive: the piece found joins the hub with an «in» move),
   // ⋮ on a line: the place and the status of its lot, and «شيل من المخزن» with a reason (an «out» move with the reason; the line's
   // count becomes what is left — inv_count_approve compares a count with the quantity NOW, so the approval adds no second adjustment)
+  const RC = () => { R(); if (countPop) countPop.refresh(); }; // the tab behind and the count's popup
   const REMOVE_REASONS = ['طلعت أوردر ونسيت أسجلها', 'حصلها تلف من التخزين', 'حصلها تلف من الشحن', 'أخرى'];
   const removedOf = (l) => /^اتشال /.test(String(l.note || ''));
   function countLineMenu(c, l) {
     const lot = () => S.stock.find((x) => x.key === l.key) || null;
     return K.RowMenu([
       { label: 'تعديل المكان', icon: 'sliders', run: () => K.form({ title: 'مكان ' + l.name, values: { loc: l.loc || '' }, fields: (f, e, set) => [K.field.select('loc', 'المكان', LOC_OPTS(), f, e, set)], submitLabel: 'حفظ',
-        submit: (f) => { l.loc = f.loc || null; const it = lot(); if (it) it.loc = f.loc || null; patchLot(l.key, { loc: f.loc || null }, 'inventory.loc'); K.logEvent('stock.count.loc', l.sku); K.toast('اتغيّر المكان', 'success'); R(); } }) },
+        submit: (f) => { l.loc = f.loc || null; const it = lot(); if (it) it.loc = f.loc || null; patchLot(l.key, { loc: f.loc || null }, 'inventory.loc'); K.logEvent('stock.count.loc', l.sku); K.toast('اتغيّر المكان', 'success'); RC(); } }) },
       { label: 'تعديل الحالة', icon: 'edit', run: () => { const it = lot(); const opts = it && O.STATUS_BY_REASON[it.reason] ? O.STATUS_BY_REASON[it.reason] : []; if (!opts.length) { K.toast('مفيش حالات تانية للقطعة دي', 'error'); return; }
         K.form({ title: 'حالة ' + l.name, values: { status: it.status }, fields: (f, e, set) => [K.field.select('status', 'الحالة', opts, f, e, set, { required: true })], submitLabel: 'حفظ',
-          submit: (f) => { it.status = f.status; patchLot(l.key, { status: f.status }, 'inventory.status'); K.logEvent('stock.count.status', l.sku); K.toast('اتغيّرت الحالة', 'success'); R(); } }); } },
+          submit: (f) => { it.status = f.status; patchLot(l.key, { status: f.status }, 'inventory.status'); K.logEvent('stock.count.status', l.sku); K.toast('اتغيّرت الحالة', 'success'); RC(); } }); } },
       { label: 'شيل من المخزن', icon: 'trash', danger: true, run: () => removeFromHub(c, l) }], 'إجراءات ' + l.name);
   }
   function removeFromHub(c, l) {
@@ -355,7 +436,8 @@
         move({ key: l.key, type: 'out', qty: n, label: 'شيل من المخزن', reason: why, ref: c.id, note: why, name: l.name, sku: l.sku });
         l.counted = String(have - n); l.note = 'اتشال ' + n + ' — ' + why;
         if (live() && c.dbId) saved(A().countLine(c.dbId, l.key, l.counted, l.note));
-        K.logEvent('stock.count.remove', l.sku + ' × ' + n); K.toast('اتشالت من المخزن', 'success'); R(); } });
+        if (countPop) countPop.forget(l.key); // the line's count is what is left now — a figure typed before is dropped
+        K.logEvent('stock.count.remove', l.sku + ' × ' + n); K.toast('اتشالت من المخزن', 'success'); RC(); } });
   }
   const history = () => K.Section('جرد سابق', U.Table({ cls: 'mini-table', headers: ['رقم الجرد', 'التاريخ', 'النطاق', 'بواسطة', 'أصناف فيها فرق', 'صافي الفرق', 'الحالة'], rows: S.counts.map((c) => [K.Num(c.id), K.dshort(c.date), c.zone, c.by, String(c.items), K.Num(K.money(c.value) + ' ج'), K.Tag('success', c.status)]) }), null, { noun: ['جرد', 'عمليات الجرد'] });
   // ---------- إعدادات ----------
@@ -585,15 +667,7 @@
   function newCount() {
     if (S.count) { st.tab = 'count'; R(); return K.toast('فيه جرد شغال (' + S.count.id + ') — كمّله أو اعتمده الأول'); }
     K.form({ title: 'جرد جديد', values: { zone: 'كل المخزن' }, fields: (f, e, set) => [K.field.select('zone', 'النطاق', ['كل المخزن', 'منطقة التجميع T', 'المرتجعات R', 'التصوير P'], f, e, set, { required: true }), h('p', { class: 't-small help', style: 'margin:0' }, '«في السيستم» هيتثبت على لحظة البداية. العدّ بيتحفظ تلقائي.')], submitLabel: 'ابدأ الجرد',
-      submit: (f) => { const items = K.stockNow().filter((s) => s.onHand > 0); if (live()) { saved(A().startCount(f.zone, items.map((s) => s.key)), 'بدأ الجرد').then((r) => { if (r.ok) { st.tab = 'count'; reload(); } }); return; } S.count = { id: 'CNT-' + String(8 + S.counts.length).padStart(2, '0'), zone: f.zone, started: TODAY + ' ' + K.clockNow(), total: items.length, base: 0, lines: items.map((s) => ({ key: s.key, sku: s.sku, name: s.name, loc: s.loc, system: s.onHand, counted: '', cost: s.cost, note: '' })) }; st.tab = 'count'; K.logEvent('stock.count.start', f.zone); R(); } });
-  }
-  function approveCount() {
-    const c = S.count; const d = O.countDiff(c.lines.filter((l) => l.counted !== '').map((l) => ({ system: l.system, counted: Number(l.counted), cost: l.cost })));
-    const left = c.lines.filter((l) => l.counted === '').length;
-    K.confirm({ title: 'اعتماد الجرد ' + c.id, text: d.items + ' أصناف فيها فرق · صافي ' + (d.units > 0 ? '+' : '') + d.units + ' قطعة · ' + K.money(d.value) + ' ج. هيتعمل حركة «تسوية جرد» لكل فرق.' + (left ? ' ' + left + ' منتج لسه متعدّش وهيفضل زي ما هو.' : ''), okLabel: 'اعتماد الجرد', onOk: () => {
-      if (live() && c.dbId) { saved(A().approveCount(c.dbId), 'اتعتمد ' + c.id).then((r) => { if (r.ok) reload(); }); return; }
-      c.lines.filter((l) => l.counted !== '' && Number(l.counted) !== l.system).forEach((l) => move({ key: l.key || l.sku, type: 'adjust', qty: Number(l.counted) - l.system, label: 'تسوية جرد', reason: 'جرد ' + c.id, ref: c.id, note: l.note || '', name: l.name, sku: l.sku }));
-      S.counts.unshift({ id: c.id, date: TODAY, zone: c.zone, by: K.member(K.ME).name, items: d.items, value: d.value, status: 'اتعتمد' }); S.count = null; K.logEvent('stock.count.approve', c.id); K.toast('اتعتمد ' + c.id, 'success'); R(); } });
+      submit: (f) => { const items = K.stockNow().filter((s) => s.onHand > 0); if (live()) { saved(A().startCount(f.zone, items.map((s) => s.key)), 'بدأ الجرد').then((r) => { if (r.ok) { st.tab = 'count'; reload().then(() => openCount()); } }); return; } S.count = { id: 'CNT-' + String(8 + S.counts.length).padStart(2, '0'), zone: f.zone, started: TODAY + ' ' + K.clockNow(), total: items.length, base: 0, lines: items.map((s) => ({ key: s.key, sku: s.sku, name: s.name, loc: s.loc, system: s.onHand, counted: '', cost: s.cost, note: '' })) }; st.tab = 'count'; K.logEvent('stock.count.start', f.zone); R(); openCount(); } });
   }
   // phase 7 decision 10 (d) (owner, 4 Nov — «أيوه، بس بتأكيد»): the orders page shows «في المخزن» on a line whose SKU is held
   // «متاح للبيع» with enough available, and its menu offers «اسحب من المخزن»: the team confirms → a reserve move on the lot for the

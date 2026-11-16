@@ -271,6 +271,21 @@
     try { const { error } = await cl.from('inv_count_lines').update({ counted: v, note: note ? String(note).slice(0, 300) : null }).eq('count_id', countId).eq('lot_id', key); return error ? fail(error) : { ok: true }; }
     catch (e) { return { ok: false, reason: 'network' }; }
   }
+  // comments decision 34: «حفظ» in the count's popup — the lines the member changed, written together (six at a time); the first
+  // refusal stops it and says how many went. Logged once, with the number only.
+  async function saveCount(countId, lines) {
+    const cl = c(); if (!cl) return { ok: false, reason: 'network' };
+    if (!can().edit) return { ok: false, reason: 'forbidden' };
+    const list = (lines || []).filter((l) => l && UUID.test(String(l.key)));
+    let done = 0;
+    for (let i = 0; i < list.length; i += 6) {
+      const rs = await Promise.all(list.slice(i, i + 6).map((l) => countLine(countId, l.key, l.counted, l.note)));
+      const bad = rs.find((r) => !r.ok); done += rs.filter((r) => r.ok).length;
+      if (bad) return Object.assign({ saved: done }, bad);
+    }
+    if (done) log('inventory.count.save', 'CNT-' + countId + ' · ' + done, String(countId));
+    return { ok: true, saved: done };
+  }
   // comments decision 32 (0107): «إيقاف مؤقت» / «كمّل الجرد» on the open count — the server stamps who and when; while it is paused
   // its lines take no write and it is not approved. `unavailable`: the columns are not there yet (the migration not applied).
   async function pauseCount(countId, on) {
@@ -310,6 +325,6 @@
   }
 
   window.IBInventory = { load, clear, media: mediaOf, state: () => st, can, today, cairo, newKey, settings: () => Object.assign({}, data.settings), DEFAULTS, PLACES, RETURN_DEFAULTS, loadSettings,
-    addLot, addMove, updateLot, consolidate, addToConsolidation, closeConsolidation, startCount, countLine, pauseCount, approveCount, saveSettings, countId: () => (countRow ? countRow.id : null),
+    addLot, addMove, updateLot, consolidate, addToConsolidation, closeConsolidation, startCount, countLine, saveCount, pauseCount, approveCount, saveSettings, countId: () => (countRow ? countRow.id : null),
     _test: { toStock, toMove, toReturn, lotRow, moveRow, locCode, modeIn, modeOut } };
 })();

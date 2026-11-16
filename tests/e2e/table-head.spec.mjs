@@ -111,8 +111,9 @@ test('the owner 14 Nov: a TableCard head («جدول المبتكرين — ال
   const head = page.locator('.table-card:visible', { hasText: 'جدول المبتكرين — الفترة المحددة' }).locator('.table-title');
   await expect(head.locator('[data-th-sub]')).toContainText('مبتكر');
   await expect(head.locator(':scope > .count')).toHaveCount(0); // no count next to the buttons any more
-  const gaps = await head.locator(':scope > .acts').evaluate((a) => { const r = [...a.children].filter((x) => x.offsetParent).map((x) => x.getBoundingClientRect()).sort((p, q) => q.right - p.right);
+  // the head's controls are added a tick after the card is drawn (the kit's sweep): measured once they are all there and laid out
+  const gapsOf = () => head.locator(':scope > .acts').evaluate((a) => { const r = [...a.children].filter((x) => x.offsetParent).map((x) => x.getBoundingClientRect()).sort((p, q) => q.right - p.right);
     return r.slice(1).map((x, i) => Math.round(r[i].left - x.right)); });
-  expect(gaps.length).toBeGreaterThanOrEqual(3); // بحث · فلتر · ترتيب · columns
-  gaps.forEach((g) => expect(g).toBe(8));
+  await expect.poll(async () => (await gapsOf()).length).toBeGreaterThanOrEqual(3); // بحث · فلتر · ترتيب · columns
+  await expect.poll(gapsOf).toEqual((await gapsOf()).map(() => 8));
 });

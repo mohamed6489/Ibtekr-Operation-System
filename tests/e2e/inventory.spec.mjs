@@ -112,21 +112,27 @@ test('view only (accounts): no receiving, no count, no actions but the details',
   expect(mock.invWrites).toEqual([]);
 });
 
-test('a count: its lines carry the server\'s quantity, a counted figure is saved, the approval writes the adjustment', async ({ page }) => {
+test('a count: its lines carry the server\'s quantity, a counted figure is saved by «حفظ», «مطابقة» shows the difference and its approval writes the adjustment', async ({ page }) => {
   await openInventory(page);
   await page.getByRole('button', { name: 'جرد جديد' }).click();
   const m = modal(page, 'جرد جديد');
   await m.getByRole('button', { name: /ابدأ/ }).click();
   await expect.poll(() => mock.inv.inv_count_lines.length).toBe(2);
   expect(mock.inv.inv_count_lines.find((l) => l.lot_id === L1).system).toBe(2);
-  await expect(page.locator('#pg-inventory')).toContainText('اعتماد الجرد');
-  const input = page.locator('#pg-inventory tr', { hasText: 'سلة كروشيه' }).locator('input').first();
+  // comments decision 34: the counting is a big popup — nothing is written while the member types
+  const pop = page.locator('.modal.cnt-modal'); await expect(pop).toBeVisible();
+  const input = pop.locator('tr', { hasText: 'سلة كروشيه' }).locator('input').first();
   await input.fill('5'); await input.press('Tab');
+  expect(mock.inv.inv_count_lines.find((l) => l.lot_id === L1).counted).toBeNull();
+  await pop.locator('[data-count-save]').click();
   await expect.poll(() => (mock.inv.inv_count_lines.find((l) => l.lot_id === L1) || {}).counted).toBe(5);
-  await page.getByRole('button', { name: 'اعتماد الجرد' }).click();
-  await modal(page, 'اعتماد الجرد').getByRole('button', { name: 'اعتماد الجرد' }).click();
+  await pop.locator('[data-count-match-btn]').click();
+  const rm = modal(page, 'مطابقة الجرد');
+  await expect(rm.locator('table tbody tr')).toHaveCount(1); await expect(rm.locator('table tbody tr')).toContainText('سلة كروشيه');
+  await rm.locator('[data-count-approve]').click();
   await expect.poll(() => mock.inv.inv_moves.find((x) => x.type === 'adjust')).toMatchObject({ lot_id: L1, qty: 3, ref: 'CNT-1' });
   expect(mock.inv.inv_counts[0].status).toBe('approved');
+  await expect(pop).toHaveCount(0);
 });
 
 test('the reports tab (decision 6): the pieces and the value now from the lots × their quantity', async ({ page }) => {
@@ -411,7 +417,8 @@ test('owner batch 14 Nov decision 10: in an open count — ⋮ changes a lot\'s 
   await page.getByRole('button', { name: 'جرد جديد' }).click();
   await modal(page, 'جرد جديد').getByRole('button', { name: /ابدأ/ }).click();
   await expect.poll(() => mock.inv.inv_count_lines.length).toBe(2);
-  const row = page.locator('#pg-inventory tr', { hasText: 'سلة كروشيه' });
+  const pop = page.locator('.modal.cnt-modal'); await expect(pop).toBeVisible(); // comments decision 34: the count's popup
+  const row = pop.locator('tr', { hasText: 'سلة كروشيه' });
   // the place
   await row.getByRole('button', { name: 'إجراءات سلة كروشيه' }).click();
   await page.getByRole('menuitem', { name: 'تعديل المكان' }).click();
@@ -432,8 +439,8 @@ test('owner batch 14 Nov decision 10: in an open count — ⋮ changes a lot\'s 
   await expect.poll(() => (mock.inv.inv_count_lines.find((l) => l.lot_id === L1) || {}).note).toMatch(/^اتشال 1 — حصلها تلف من الشحن/);
   await expect(row.locator('input')).toHaveValue('1'); // what is left (2 − 1): the approval compares with the quantity now
   // the approval: the removed line adds no second adjustment
-  await page.getByRole('button', { name: 'اعتماد الجرد' }).click();
-  await modal(page, 'اعتماد الجرد').getByRole('button', { name: 'اعتماد الجرد' }).click();
+  await pop.locator('[data-count-match-btn]').click();
+  await modal(page, 'مطابقة الجرد').locator('[data-count-approve]').click();
   await expect.poll(() => (mock.inv.inv_counts[0] || {}).status).toBe('approved');
   expect(mock.inv.inv_moves.filter((m) => m.lot_id === L1 && m.type === 'adjust')).toEqual([]);
 });

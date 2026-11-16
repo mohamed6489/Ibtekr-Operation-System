@@ -915,19 +915,22 @@
     'hr.holiday.create': ['ضاف عطلة رسمية', 'الإعدادات'], 'hr.holiday.confirm': ['أكّد عطلة رسمية', 'الإعدادات'], 'hr.holiday.delete': ['شال عطلة رسمية', 'الإعدادات'], 'hr.settings': ['عدّل إعدادات الموارد البشرية', 'الإعدادات'] };
   const logLabel = (action) => LOG_LABELS[action] || [String(action || '').replace(/^hr\./, ''), 'أخرى'];
   const TASK_WORD = { ok: 'اتقبلت', back: 'رجعت' }; // a review's word (the status itself is already Arabic)
-  let logRows = null; let logAt = 0; let logGen = 0;
-  async function loadLog(force) {
+  let logRows = null; let logAt = 0; let logGen = 0; let logKey = '';
+  // comments decision 80 (the owner 15 Nov): with a period ({ from, to } — Cairo days) the rows of that period (up to 1000), else the newest 300
+  async function loadLog(force, range) {
     const cl = c(); if (!cl) return { ok: false, reason: 'network' };
-    if (!force && logRows && Date.now() - logAt < 60000) return { ok: true, items: logRows };
+    const b = range && window.IBActivity && window.IBActivity.dayBounds ? window.IBActivity.dayBounds(range.from, range.to) : null; const per = !!(b && b.gte && b.lte); const key = per ? range.from + '|' + range.to : '';
+    if (!force && logRows && key === logKey && Date.now() - logAt < 60000) return { ok: true, items: logRows };
     const g = ++logGen;
     try {
-      const { data: d, error } = await cl.from('activity_log').select('id, at, actor, action, entity, entity_id, new_value').like('action', 'hr.%').order('at', { ascending: false }).limit(300);
+      let q = cl.from('activity_log').select('id, at, actor, action, entity, entity_id, new_value').like('action', 'hr.%'); if (per) q = q.gte('at', b.gte).lte('at', b.lte);
+      const { data: d, error } = await q.order('at', { ascending: false }).limit(per ? 1000 : 300);
       if (error) return fail(error);
       if (g !== logGen) return { ok: false, reason: 'stale' };
       logRows = (Array.isArray(d) ? d : []).map((x) => { const [label, group] = logLabel(x.action); const on = x.entity_id && byUid(String(x.entity_id)) ? nameOf(String(x.entity_id)) : (x.entity_id ? String(x.entity_id) : '');
         const v = typeof x.new_value === 'string' ? x.new_value : x.new_value == null ? '' : JSON.stringify(x.new_value);
         return { id: Number(x.id), at: x.at, action: x.action, label, group, by: nameOf(x.actor), byUid: x.actor || null, on, detail: x.action === 'hr.task.review' ? (TASK_WORD[v] || v) : v }; });
-      logAt = Date.now(); return { ok: true, items: logRows };
+      logAt = Date.now(); logKey = key; return { ok: true, items: logRows };
     } catch (e) { return { ok: false, reason: 'network' }; }
   }
   const logNow = () => logRows;

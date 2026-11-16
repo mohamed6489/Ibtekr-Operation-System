@@ -1233,7 +1233,7 @@
   // ---------- date range picker ----------
   function DateRangeField(target = 'accounts') {
     const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' });
-    const trig = h('button', { type: 'button', class: 'date-field', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', 'aria-label': 'اختيار الفترة' }, Icon('cal', 'sm'), h('span', { class: 'range-label' }, target === 'dash' ? dashRangeLabel(rangeOf(target)) : target === 'vledger' && !state.vlrange ? 'كل الفترات' : D.rangeLabel(rangeOf(target).from, rangeOf(target).to)), Icon('chevD', 'sm'));
+    const trig = h('button', { type: 'button', class: 'date-field', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', 'aria-label': 'اختيار الفترة' }, Icon('cal', 'sm'), h('span', { class: 'range-label' }, target === 'dash' ? dashRangeLabel(rangeOf(target)) : (target === 'vledger' && !state.vlrange) || (logKey(target) && !state.lranges[logKey(target)]) ? 'كل الفترات' : D.rangeLabel(rangeOf(target).from, rangeOf(target).to)), Icon('chevD', 'sm'));
     const pop = U.popover(wrap, trig, (close) => RangePicker(close, target));
     trig.addEventListener('click', pop.toggle);
     wrap.append(trig); return wrap;
@@ -1241,7 +1241,21 @@
   // dashboard: the preset name + what it is compared with (Figma «الفترة: النهارده · مقارنة بإمبارح»)
   const dashRangeLabel = (r) => { const p = PRESETS.find((x) => x[0] === r.preset); const cmp = r.compare !== false; const own = r.cfrom && r.cto ? 'مقارنة بـ ' + D.rangeLabel(r.cfrom, r.cto) : null; // comments decision 14: the member's own comparison period
     if (!p || r.preset === 'custom') return D.rangeLabel(r.from, r.to) + (cmp ? ' · ' + (own || 'مقارنة بالفترة اللي قبلها') : ''); return 'الفترة: ' + p[1] + (cmp ? ' · ' + (own || (r.preset === 'today' ? 'مقارنة بأمس' : 'مقارنة بالفترة اللي قبلها')) : ''); };
-  const rangeOf = (target) => (target === 'reports' ? state.rrange : target === 'dash' ? state.drange : target === 'mlog' ? (state.mrange = state.mrange || { from: '2026-09-01', to: TODAY, preset: 'custom' }) : target === 'plan' ? (state.prange = state.prange || planDefault()) : target === 'vledger' ? (state.vlrange || { from: TODAY.slice(0, 8) + '01', to: TODAY, preset: 'thisMonth' }) : state.range); // mlog (phase 5.5 decision 4, owner 1 Nov): the moves log's own period, wide by default
+  // comments decisions 26, 27 and 80 (the owner 15 Nov — «اي سجل حركات لازم يبقي فيه ال فلتر التاريخ الكبير» · «مكانه فوق الجدول زي كل صفحات سجل
+  // الحركات» · «مش عايز اتنين فلتر تاريخ جنب بعض»): every movement log has this same picker above its table, one period per log
+  // (target `log:<key>` — state.lranges), «كل الفترات» until the member picks one. LogPeriod(key) is the bar a log puts above its
+  // table (the picker + «كل الفترات» to clear it), logRange(key) its period or null, logIn(key, at) whether a stamp is inside it.
+  state.lranges = state.lranges || {};
+  const logKey = (target) => (typeof target === 'string' && target.indexOf('log:') === 0 ? target.slice(4) : '');
+  const logRange = (key) => { const r = state.lranges[key]; return r && r.from && r.to ? { from: r.from, to: r.to } : null; };
+  const logIn = (key, at) => { const A0 = window.IBActivity; const r = logRange(key); return !r || (A0 && A0.inPeriod ? A0.inPeriod(r, at) : String(at || '').slice(0, 10) >= r.from && String(at || '').slice(0, 10) <= r.to); };
+  const logRedraw = () => { if (state.page === 'vendors') renderVendors(); else if (window.IBPages && window.IBPages.all()[state.page]) window.IBPages.render(state.page); else render(); };
+  function LogPeriod(key, extra) {
+    return h('div', { class: 'toolbar mlog-bar log-period', 'data-log-period': key }, DateRangeField('log:' + key),
+      state.lranges[key] ? Button({ type: 'text', size: 'sm', label: 'كل الفترات', attrs: { 'data-log-all': key }, onClick: () => { delete state.lranges[key]; logRedraw(); } }) : null,
+      extra ? h('span', { class: 'grow' }) : null, extra || null);
+  }
+  const rangeOf = (target) => (logKey(target) ? (state.lranges[logKey(target)] || { from: TODAY.slice(0, 8) + '01', to: TODAY, preset: 'thisMonth' }) : target === 'reports' ? state.rrange : target === 'dash' ? state.drange : target === 'mlog' ? (state.mrange = state.mrange || { from: '2026-09-01', to: TODAY, preset: 'custom' }) : target === 'plan' ? (state.prange = state.prange || planDefault()) : target === 'vledger' ? (state.vlrange || { from: TODAY.slice(0, 8) + '01', to: TODAY, preset: 'thisMonth' }) : state.range); // mlog (phase 5.5 decision 4, owner 1 Nov): the moves log's own period, wide by default
   // plan (phase 9.5.1 decision 16, the v5's): the marketing plan calendar's period — from last week's Saturday, three weeks
   function planDefault() { const W = window.IbtekrCampWiz; if (W && W.planDefault) return W.planDefault(TODAY); return { from: TODAY, to: TODAY, preset: 'custom' }; }
   // the owner 13 Nov (decisions 7–8 of docs/superpowers/plans/2026-11-13-owner-ui-batch.md): «مقارنة بفترة سابقة» lives in the calendar and
@@ -1301,7 +1315,7 @@
           Button({ label: 'إلغاء', onClick: close }),
           Button({ type: 'primary', label: 'تحديث', disabled: !draft.from || !draft.to || !!err || (cmpOn && (!!cerr || !draft.cfrom || !draft.cto)), onClick: () => { const nr = { from: draft.from, to: draft.to, preset: draft.preset };
             if (canCmp) { nr.compare = !!draft.compare; if (draft.compare && !draft.cauto) { nr.cfrom = draft.cfrom; nr.cto = draft.cto; } }
-            if (target === 'reports') { state.rrange = nr; state.rcompare = !!draft.compare; close(); renderReports(); if (window.IBPages && (window.IBPages.current === 'products' || window.IBPages.current === 'hr' || window.IBPages.current === 'marketing')) window.IBPages.render(window.IBPages.current); } else if (target === 'dash') { state.drange = nr; close(); window.IBPages.render('dashboard'); } else if (target === 'mlog') { state.mrange = nr; close(); render(); } else if (target === 'plan') { state.prange = nr; close(); window.IBPages.render('marketing'); } else if (target === 'vledger') { state.vlrange = nr; close(); render(); } else { state.range = nr; close(); render(); } } }))].filter(Boolean));
+            if (target === 'reports') { state.rrange = nr; state.rcompare = !!draft.compare; close(); renderReports(); if (window.IBPages && (window.IBPages.current === 'products' || window.IBPages.current === 'hr' || window.IBPages.current === 'marketing')) window.IBPages.render(window.IBPages.current); } else if (target === 'dash') { state.drange = nr; close(); window.IBPages.render('dashboard'); } else if (target === 'mlog') { state.mrange = nr; close(); render(); } else if (target === 'plan') { state.prange = nr; close(); window.IBPages.render('marketing'); } else if (target === 'vledger') { state.vlrange = nr; close(); render(); } else if (logKey(target)) { state.lranges[logKey(target)] = nr; close(); logRedraw(); } else { state.range = nr; close(); render(); } } }))].filter(Boolean));
     }
     draw(); return dp;
   }
@@ -3390,11 +3404,12 @@
   // on — the kind chips, the kit's sort and the columns button are gone; the newest first, as the server sends it
   const LOG_KIND = { create: 'إضافة مبتكر', remove: 'مسح', active: 'تنشيط', inactive: 'توقيف', leave: 'إجازة', site: 'اتغيرت الحالة من الموقع' };
   const VLOG_F0 = () => ({ kind: [], maker: [], by: [] });
-  let vlogAsked = false; state.vlogF = VLOG_F0();
+  let vlogAsked = null; state.vlogF = VLOG_F0(); // vlogAsked: the period the log was last asked for ('' = the newest 200)
   function makersLogTab() {
     const V = window.IBVendors;
-    if (V && V.loadMakersLog && !vlogAsked) { vlogAsked = true; V.loadMakersLog().then(() => { if (state.page === 'vendors' && state.vtab === 'log') renderVendors(); }); }
-    const raw = V && V.makersLog ? V.makersLog() : null;
+    const per = logRange('makers'); const perKey = per ? per.from + '|' + per.to : ''; // comments decision 27: the log's own period
+    if (V && V.loadMakersLog && vlogAsked !== perKey) { vlogAsked = perKey; V.loadMakersLog(per).then(() => { if (state.page === 'vendors' && state.vtab === 'log') renderVendors(); }); }
+    const raw0 = V && V.makersLog ? V.makersLog() : null; const raw = raw0 == null ? null : raw0.filter((e) => logIn('makers', e.at));
     const kindOf = (e) => (e.kind === 'status' ? (e.action === 'vendor.sync' ? 'site' : ['active', 'inactive', 'leave'].includes(e.value) ? e.value : 'site') : e.kind);
     const nameOf = (e) => { const v = e.vendorId && vstore.get(e.vendorId); return v ? v.name : (e.kind === 'create' || e.kind === 'remove') && e.value ? e.value : '—'; };
     const byOf = (e) => (e.actor && e.actor.name) || (e.k === 'site' ? 'الموقع' : '—');
@@ -3411,11 +3426,11 @@
         remove: () => { state.vlogF = Object.assign({}, F, { [g.key]: F[g.key].filter((x) => x !== v) }); renderVendors(); } }))) });
     const tone = { create: 'success', remove: 'error', active: 'success', inactive: 'neutral', leave: 'gold', site: 'neutral' };
     const body = raw == null ? U.InlineNote({ children: 'بنحمّل سجل الحركات…' }) : rows.length ? U.Table({ cls: 'tickets-table', headers: ['التاريخ', 'المبتكر', 'الحركة', 'بواسطة'], rows: rows.map((e) => [fmtTime(e.at), (() => { const v = e.vendorId && vstore.get(e.vendorId); return v ? h('a', { href: '#makers/' + v.id, 'data-vlog-open': v.id, onClick: (ev) => { ev.preventDefault(); openVendor(v.id); } }, v.name) : e.maker; })(), h('span', { class: 'tg tg-' + (tone[e.k] || 'neutral'), 'data-vlog-row': e.k }, LOG_KIND[e.k] || e.k), e.by]) })
-      : U.EmptyState(all.length ? 'مفيش حركات بالفلتر ده' : 'لسه مفيش حركات', all.length ? 'شيل اختيار من «فلتر» أو اضغط «مسح الكل».' : 'إضافة مبتكر وتوقيفه وتنشيطه ومسحه بيتسجلوا هنا.');
+      : U.EmptyState(all.length ? 'مفيش حركات بالفلتر ده' : per ? 'مفيش حركات في الفترة دي' : 'لسه مفيش حركات', all.length ? 'شيل اختيار من «فلتر» أو اضغط «مسح الكل».' : per ? 'غيّر الفترة من فوق الجدول، أو اضغط «كل الفترات».' : 'إضافة مبتكر وتوقيفه وتنشيطه ومسحه بيتسجلوا هنا.');
     const card = TableCard({ title: 'سجل الحركات', cols: false, cls: 'own-filter', count: raw == null ? '' : num(rows.length + ' حركة'), pre: chips, // the owner 12 Nov: «فلتر» back in the header
-      action: h('span', { class: 'acts-inline' }, filterBtn, Button({ type: 'text', size: 'sm', icon: 'refresh', label: 'تحديث', attrs: { 'data-vlog-refresh': '' }, onClick: () => { vlogAsked = false; renderVendors(); } })), body });
+      action: h('span', { class: 'acts-inline' }, filterBtn, Button({ type: 'text', size: 'sm', icon: 'refresh', label: 'تحديث', attrs: { 'data-vlog-refresh': '' }, onClick: () => { vlogAsked = null; renderVendors(); } })), body });
     card.setAttribute('data-no-cols', ''); // one button only (the owner): the kit's sweep leaves this card without «أعمدة الجدول»
-    return [card, h('p', { class: 'source' }, 'المصدر: سجل النشاط — إضافة مبتكر، تغيير حالته (نشط / غير نشط / في إجازة) من الفريق أو من الموقع، ومسحه من السيستم · آخر 200 حركة.')];
+    return [LogPeriod('makers'), card, h('p', { class: 'source' }, 'المصدر: سجل النشاط — إضافة مبتكر، تغيير حالته (نشط / غير نشط / في إجازة) من الفريق أو من الموقع، ومسحه من السيستم · ' + (per ? 'حركات الفترة المختارة.' : 'آخر 200 حركة — اختار فترة من فوق لحركات أقدم.'))];
   }
   function renderVendors(keepFocus) {
     U.closePopover(); const main = document.getElementById('vendors'); if (!main) return; const sc = window.scrollY; const had = keepFocus && document.activeElement && document.activeElement.type === 'search';
@@ -4293,7 +4308,7 @@
   };
   // an order popup lives inside the orders page, so it is opened there (owner 22 Oct: before this, «فتح الأوردر» from other pages stayed hidden until you visited الأوردرات)
   // phase 5.1 (decision 20 in the phase 5 plan): the products page's «التقارير» tab shares the reports page's range (state.rrange)
-  window.IBReportBlocks = { range: () => DateRangeField('reports'), get: () => state.rrange, staff: () => StaffReportView(), rangeField: (t) => DateRangeField(t), rangeOf: (t) => rangeOf(t), compare: (key) => CompareCard('reports', CMP[key]), compareOn: (t) => compareOf(t || 'reports'), previous: (t) => R.previousRange(rangeOf(t || 'reports')) }; // rangeField / rangeOf: the v5's (phase 9.5.1 — the marketing plan's «plan») // staff: the HR page's own «التقارير» (phase 10 T8)
+  window.IBReportBlocks = { range: () => DateRangeField('reports'), get: () => state.rrange, staff: () => StaffReportView(), rangeField: (t) => DateRangeField(t), rangeOf: (t) => rangeOf(t), logPeriod: (key, extra) => LogPeriod(key, extra), logRange: (key) => logRange(key), logIn: (key, at) => logIn(key, at), compare: (key) => CompareCard('reports', CMP[key]), compareOn: (t) => compareOf(t || 'reports'), previous: (t) => R.previousRange(rangeOf(t || 'reports')) }; // rangeField / rangeOf: the v5's (phase 9.5.1 — the marketing plan's «plan») // staff: the HR page's own «التقارير» (phase 10 T8)
   window.IBShowOrders = () => { if (state.page !== 'orders') go('orders'); };
   // the owner 15 Nov («لما أدوس على إضافة مبتكر يفتحلي بوب أب إضافة المبتكر»): the add-maker popup over another page (the products
   // studio) — done(maker) after the save instead of his drawer; false when the member may not add makers

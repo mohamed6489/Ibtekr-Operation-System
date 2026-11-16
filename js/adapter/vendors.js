@@ -929,8 +929,10 @@
   // that changed a status, newest first (200); each as the drawer's event plus the maker's id and kind ('create' | 'status' | 'remove')
   const LOG_ACTIONS = ['vendor.create', 'vendor.status', 'vendor.remove', 'vendor.sync'];
   let makersLog = null;
-  async function loadMakersLog() {
-    const r = await call((cl) => cl.from('activity_log').select(COLS.event + ', entity_id').eq('entity', 'vendor').in('action', LOG_ACTIONS).order('at', { ascending: false }).limit(200));
+  // comments decision 27 (the owner 15 Nov): with a period ({ from, to } — Cairo days) the rows of that period (up to 1000), else the newest 200
+  async function loadMakersLog(range) {
+    const b = range && window.IBActivity && window.IBActivity.dayBounds ? window.IBActivity.dayBounds(range.from, range.to) : null; const per = !!(b && b.gte && b.lte);
+    const r = await call((cl) => { let q = cl.from('activity_log').select(COLS.event + ', entity_id').eq('entity', 'vendor').in('action', LOG_ACTIONS); if (per) q = q.gte('at', b.gte).lte('at', b.lte); return q.order('at', { ascending: false }).limit(per ? 1000 : 200); });
     if (!r.ok) return makersLog || null;
     makersLog = (r.data || []).filter((x) => x.action !== 'vendor.sync' || /(^|, )status(,|$)/.test(String(x.new_value || '')))
       .map((x) => Object.assign(toEvent(x), { vendorId: x.entity_id ? String(x.entity_id) : null, kind: x.action === 'vendor.create' ? 'create' : x.action === 'vendor.remove' ? 'remove' : 'status', value: typeof x.new_value === 'string' ? x.new_value : '' }));

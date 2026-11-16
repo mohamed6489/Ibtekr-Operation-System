@@ -145,17 +145,22 @@
 
   // ================= سجل الحركات (owner 12 Nov) =================
   // the HR rows of the activity log (IBHR.loadLog — RLS: hr.view F reads the team's, everyone else their own), newest first
-  const LG = { rows: null, busy: false, at: 0 };
+  // comments decision 80 (the owner 15 Nov — «كل سجلات الحركات يبقي فيها فلتر التاريخ»): the log's own period — the system's picker above
+  // the table (IBReportBlocks.logPeriod('hr')); with a period the server is asked for that period's rows, else the newest 300
+  const LG = { rows: null, busy: false, at: 0, key: '' };
+  const logPer = () => { const RB = window.IBReportBlocks; return RB && RB.logRange ? RB.logRange('hr') : null; };
   function logLoad(force) {
-    if (LG.busy || (!force && LG.rows && Date.now() - LG.at < 60000)) return; LG.busy = true;
-    H().loadLog(force).then((r) => { LG.busy = false; if (r && r.ok) { LG.rows = r.items; LG.at = Date.now(); } else if (!LG.rows) LG.rows = []; if (window.IBPages.current === 'hr' && st.tab === 'log' && !document.querySelector('.scrim')) R(); });
+    const per = logPer(); const key = per ? per.from + '|' + per.to : '';
+    if (LG.busy || (!force && LG.rows && LG.key === key && Date.now() - LG.at < 60000)) return; LG.busy = true;
+    H().loadLog(force || LG.key !== key, per).then((r) => { LG.busy = false; if (r && r.ok) { LG.rows = r.items; LG.at = Date.now(); LG.key = key; } else if (!LG.rows) LG.rows = []; if (window.IBPages.current === 'hr' && st.tab === 'log' && !document.querySelector('.scrim')) R(); });
   }
   function logTab() {
     logLoad(false);
-    const L = LG.rows; const stamp = (iso) => { const d = new Date(iso); if (isNaN(d)) return '—'; const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d); return K.dshort(day) + ' ' + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Africa/Cairo' }); }; // Cairo's day and time
-    const body = L == null ? K.Empty('بيحمّل…', 'لحظة واحدة') : !L.length ? K.Empty('لسه مفيش حركات', 'أي حضور أو طلب أو قرار أو تعديل في الموارد البشرية بيتسجل هنا.')
+    const RB = window.IBReportBlocks; const per = logPer();
+    const L = LG.rows == null ? null : LG.rows.filter((x) => !RB || !RB.logIn || RB.logIn('hr', x.at)); const stamp = (iso) => { const d = new Date(iso); if (isNaN(d)) return '—'; const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d); return K.dshort(day) + ' ' + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Africa/Cairo' }); }; // Cairo's day and time
+    const body = L == null ? K.Empty('بيحمّل…', 'لحظة واحدة') : !L.length ? (per ? K.Empty('مفيش حركات في الفترة دي', 'غيّر الفترة من فوق الجدول، أو اضغط «كل الفترات».') : K.Empty('لسه مفيش حركات', 'أي حضور أو طلب أو قرار أو تعديل في الموارد البشرية بيتسجل هنا.'))
       : U.Table({ cls: 'hr-log', headers: ['الوقت', 'الحركة', 'النوع', 'على', 'بواسطة', 'التفاصيل'], rows: L.map((x) => [K.Num(stamp(x.at)), x.label, x.group, x.on || '—', x.by, x.detail ? K.Num(x.detail) : '—']) });
-    return [K.Section('سجل الحركات', [body, note('الحضور والانصراف، الطلبات وقراراتها، الوقت الإضافي، الأعضاء، المرتبات، التقييم، المهام والإعدادات — آخر 300 حركة. التفاصيل أكواد وشهور وأرقام بس (من غير مبالغ ولا نصوص).')], [Button({ size: 'sm', label: LG.busy ? 'بيحدّث…' : 'تحديث', icon: 'refresh', disabled: LG.busy, attrs: { 'data-hr-log-refresh': '' }, onClick: () => logLoad(true) })], { noun: ['حركة', 'الحركات'] })];
+    return [RB && RB.logPeriod ? RB.logPeriod('hr') : null, K.Section('سجل الحركات', [body, note('الحضور والانصراف، الطلبات وقراراتها، الوقت الإضافي، الأعضاء، المرتبات، التقييم، المهام والإعدادات — ' + (per ? 'حركات الفترة المختارة' : 'آخر 300 حركة (اختار فترة من فوق لحركات أقدم)') + '. التفاصيل أكواد وشهور وأرقام بس (من غير مبالغ ولا نصوص).')], [Button({ size: 'sm', label: LG.busy ? 'بيحدّث…' : 'تحديث', icon: 'refresh', disabled: LG.busy, attrs: { 'data-hr-log-refresh': '' }, onClick: () => logLoad(true) })], { noun: ['حركة', 'الحركات'] })].filter(Boolean);
   }
   // the owner 15 Nov (2026-11-15-comments.md decision 8 — «خليني لما ادوس علي العضو يفتحلي بياناته في سايد بار زي السايد بار بتاع المبتكر و
   // يبقي فيه زر افتح ملف العضو»): a member's name opens a drawer over the page — their data in boxes like the maker's drawer (the same

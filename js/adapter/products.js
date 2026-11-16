@@ -319,10 +319,13 @@
   // the admin all of them, a member his own), newest 200: { id, at, action, text (the ids and field names as logged), actor, productId }
   const LOG_ACTIONS = ['product.save', 'product.bulk', 'product.trash', 'product.restore', 'product.duplicate', 'product.create', 'product.images.add', 'product.lead', 'product.category.create', 'product.category.update', 'product.category.delete']; // B4: the categories tab's edits
   let prodLog = null;
-  async function loadLog() {
+  // comments decision 80 (the owner 15 Nov): with a period ({ from, to } — Cairo days) the rows of that period (up to 1000), else the newest 200
+  async function loadLog(range) {
     const cl = c(); if (!cl) return prodLog;
+    const b = range && window.IBActivity && window.IBActivity.dayBounds ? window.IBActivity.dayBounds(range.from, range.to) : null; const per = !!(b && b.gte && b.lte);
     try {
-      const { data, error } = await cl.from('activity_log').select('id, at, action, new_value, entity_id, actor:profiles(name)').in('action', LOG_ACTIONS).order('at', { ascending: false }).limit(200);
+      let q = cl.from('activity_log').select('id, at, action, new_value, entity_id, actor:profiles(name)').in('action', LOG_ACTIONS); if (per) q = q.gte('at', b.gte).lte('at', b.lte);
+      const { data, error } = await q.order('at', { ascending: false }).limit(per ? 1000 : 200);
       if (error) return prodLog;
       prodLog = (data || []).map((r) => ({ id: r.id, at: r.at, action: r.action, text: typeof r.new_value === 'string' ? r.new_value : '', actor: (r.actor && r.actor.name) || '—', productId: r.entity_id && /^\d+$/.test(String(r.entity_id)) ? Number(r.entity_id) : null }));
     } catch (e) { /* keep what we had */ }

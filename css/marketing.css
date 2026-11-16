@@ -553,3 +553,10 @@ a.mk-lib.disabled { opacity:.5;pointer-events:none }
 @media (max-width:1023px) { #pg-marketing .mk-ov-row { grid-template-columns:1fr } }
 /* the × on a file / link chip: its hover circle centred on the icon at the chip's own size (the touch rule made it 44px wide) */
 .cw-f .icon-btn { width:24px !important;height:24px !important;min-width:24px;min-height:24px;padding:0;margin:0;flex:none;display:inline-grid;place-items:center }
+/* the owner 16 Nov: the agents' chats too — my words on the right, the assistant's (with its mark) on the left */
+#pg-marketing .mk-chat .mk-row { align-self:flex-end }
+#pg-marketing .mk-chat .mk-row.user { align-self:flex-start }
+#pg-marketing .mk-chat .mk-row .mk-col { align-items:flex-end }
+#pg-marketing .mk-chat .mk-row.user .mk-col { align-items:flex-start }
+#pg-marketing .mk-msg.ai { border-start-start-radius:14px;border-start-end-radius:4px }
+#pg-marketing .mk-msg.user { border-start-end-radius:14px;border-start-start-radius:4px }

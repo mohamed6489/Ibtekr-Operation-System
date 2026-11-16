@@ -367,6 +367,52 @@
     try { const { data: s, error } = await cl.storage.from(LOGO_BUCKET).createSignedUrl(path, 7 * 86400); if (error || !s || !s.signedUrl) return null; logoCache.set(path, { url: s.signedUrl, until: Date.now() + 6 * 86400 * 1000 }); return s.signedUrl; } catch (e) { return null; }
   }
 
+  // ---------- the brand's own fonts (ش34 — the owner 16 Nov «زود اني ارفع فونت من عندي»): bucket settings (0116 lets the four font
+  // types in, 2 MB), the admin uploads; every member's browser reads the file by a signed link (connect-src) and adds it with the FontFace
+  // API from its bytes — no font host in the CSP. The type is taken from the file's first four bytes (woff2 / woff / otf / ttf), never its
+  // name; the CSS family is our own id (ibf-…) and the name the admin typed is a label only
+  const FONT_MAX = 2 * 1024 * 1024; const FONTS_MAX = 6;
+  const FONT_SIGS = [['wOF2', 'woff2', 'font/woff2'], ['wOFF', 'woff', 'font/woff'], ['OTTO', 'otf', 'font/otf'], ['\u0000\u0001\u0000\u0000', 'ttf', 'font/ttf'], ['true', 'ttf', 'font/ttf']];
+  const fontIdOk = (f) => typeof f === 'string' && /^ibf-[a-z0-9]{4,16}$/.test(f);
+  function fontList(fonts) {
+    const l = fonts && Array.isArray(fonts.custom) ? fonts.custom : [];
+    return l.filter((x) => x && fontIdOk(x.id) && typeof x.path === 'string' && /^brand\/font-[a-z0-9]{4,16}\.(woff2|woff|otf|ttf)$/.test(x.path)).slice(0, FONTS_MAX)
+      .map((x) => ({ id: x.id, name: clean(x.name, 40).replace(/[<>"'`]/g, '') || 'خط مرفوع', path: x.path }));
+  }
+  async function fontKind(file) {
+    const b = new Uint8Array(await file.slice(0, 4).arrayBuffer()); const sig = String.fromCharCode.apply(null, Array.from(b));
+    const hit = FONT_SIGS.find(([x]) => x === sig); return hit ? { ext: hit[1], type: hit[2] } : null;
+  }
+  async function uploadFont(file, name) {
+    const cl = c(); if (!cl) return no('network'); if (!can().admin) return no('forbidden');
+    if (!file || !(file.size > 0 && file.size <= FONT_MAX)) return no('invalid', 'file');
+    let kind = null; try { kind = await fontKind(file); } catch (e) { kind = null; } if (!kind) return no('invalid', 'file');
+    const fonts = Object.assign({}, section('brand').fonts || {}); const list = fontList(fonts); if (list.length >= FONTS_MAX) return no('invalid', 'count');
+    const key = (Date.now().toString(36) + Math.random().toString(36).slice(2, 6)).slice(0, 14); const id = 'ibf-' + key; const path = 'brand/font-' + key + '.' + kind.ext;
+    const label = clean(name, 40).replace(/[<>"'`]/g, '') || 'خط مرفوع';
+    try {
+      const up = await cl.storage.from(LOGO_BUCKET).upload(path, file, { contentType: kind.type, upsert: false }); if (up.error) return no('server');
+      const r = await save('brand', { fonts: Object.assign(fonts, { custom: list.concat([{ id, name: label, path }]) }) });
+      if (!r.ok) { quiet(() => cl.storage.from(LOGO_BUCKET).remove([path])); return r; }
+      log('brand.font', kind.ext, null); return { ok: true, font: { id, name: label, path } };
+    } catch (e) { return no('network'); }
+  }
+  async function removeFont(id) {
+    const cl = c(); if (!cl) return no('network'); if (!can().admin) return no('forbidden');
+    const fonts = Object.assign({}, section('brand').fonts || {}); const list = fontList(fonts); const f = list.find((x) => x.id === id); if (!f) return no('invalid');
+    const next = Object.assign(fonts, { custom: list.filter((x) => x.id !== id) }); ['body', 'head'].forEach((k) => { if (next[k] === id) next[k] = 'Cairo'; });
+    const r = await save('brand', { fonts: next }); if (!r.ok) return r;
+    quiet(() => cl.storage.from(LOGO_BUCKET).remove([f.path])); log('brand.font.remove', '', null); return { ok: true, fonts: next };
+  }
+  const fontLoads = new Map();
+  function loadFont(entry) {
+    if (!entry || !fontIdOk(entry.id) || typeof FontFace !== 'function' || !document.fonts) return Promise.resolve(false);
+    if (fontLoads.has(entry.id)) return fontLoads.get(entry.id);
+    const p = (async () => { const url = await logoUrl(entry.path); if (!url) return false; const res = await fetch(url); if (!res.ok) return false;
+      const ff = new FontFace(entry.id, await res.arrayBuffer()); await ff.load(); document.fonts.add(ff); return true; })().catch(() => false);
+    fontLoads.set(entry.id, p); p.then((ok) => { if (!ok) fontLoads.delete(entry.id); }); return p;
+  }
+
   // ---------- the saved lists (phase 12 T3, decision 10): the cancel / return reasons the admin keeps in the row «lists» ----------
   // lists() → { cancel: [...], returns: [...] }: the public slice first (every member gets it with the sign-in), then the row itself
   // (the admin's page), else the defaults of block 12 (IbtekrOps.CANCEL_REASONS / RETURN_REASONS). «أخرى» is always the last item.
@@ -557,5 +603,5 @@
 
   window.IBSettings = { loginLocks, loginUnlock, load, ensure, loadPublic, clear, data, section, sections: () => Object.assign({}, data.sections), roles, liveRoles, public: () => data.public, can, PERMS, PERM_KEYS, lists, saveLists, statusLabel, STATUS_KINDS, setRoleLevelPerms, setMemberLevel, levelPermsOf, MEMBER_LEVELS: MLEVELS, quickList, quickSave, quickDelete, quickOrder, QUICK_SCOPES: Q_SCOPES, expenseKinds, statusList, addedStatuses, delayRules, fakeRule, saveFake, orderStatuses, orderStatusAdd, orderStatusSlug, orderStatusDelete, orderStatusOrder, ADDED_MAX, ADDED_LEN, weekStart, clock, dateFmt, KIND_MAX, KINDS_MAX,
     save, setRolePerms, createRole, updateRole, deleteRole, setMemberRole, setMemberRoles, setMemberPerms, setMemberStatus, sessions, revokeSession, deviceOf,
-    links, setSecret, wooSet, testSecret, unlink, connections, notifyStatus, notifyTick, activity, pageOf, docs, addDoc, updateDoc, removeDoc, docUrl, uploadLogo, logoUrl, LOGO_SLOTS };
+    links, setSecret, wooSet, testSecret, unlink, connections, notifyStatus, notifyTick, activity, pageOf, docs, addDoc, updateDoc, removeDoc, docUrl, uploadLogo, logoUrl, LOGO_SLOTS, uploadFont, removeFont, loadFont, fontList, FONT_MAX, FONTS_MAX };
 })();

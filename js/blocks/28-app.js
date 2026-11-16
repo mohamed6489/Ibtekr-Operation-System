@@ -427,7 +427,8 @@
   // the menu, the bottom nav and its sheet, and any way in (a link, an alert, a typed hash) lands on the dashboard; the dashboard and
   // «ملفي» are everyone's. Before the member's rows load nothing is barred (the data is the RLS's either way).
   const PAGE_PERM = { orders: 'orders.view', vendors: 'vendors.view', accounts: 'accounts.view', inventory: 'inventory.view', products: 'products.view', cs: 'cs.view', autoreply: 'cs.view', tickets: 'tickets.view', reports: 'reports.view', marketing: 'marketing.view', hr: 'hr.view', settings: 'settings.view' };
-  const barred = (page) => { const k = PAGE_PERM[page]; return !!k && !!(window.IBDirectory && window.IBDirectory.me && window.IBDirectory.me()) && rperm(k) === 'N'; };
+  // the owner 16 Nov (ش30 — «يبقوا ظاهرين للادمنز و للحسابات»): «الموارد البشرية» opens for sensitive.salaries F too (its «المرتبات» tab)
+  const barred = (page) => { const k = PAGE_PERM[page]; return !!k && !!(window.IBDirectory && window.IBDirectory.me && window.IBDirectory.me()) && rperm(k) === 'N' && !(page === 'hr' && rperm('sensitive.salaries') === 'F'); };
   const barNote = () => { if (window.IBKit && window.IBKit.toast) window.IBKit.toast('الصفحة دي مش متاحة لدورك — لو محتاجها كلّم الأدمن'); };
   // the menus follow the member's permissions (the rows land after the first draw, and the roles may change from the settings)
   const navPerms = () => document.querySelectorAll('.sidebar .nav-item[data-page], .bottom-nav .bn-item[data-page]').forEach((b) => { b.hidden = barred(b.dataset.page); });
@@ -4507,8 +4508,10 @@
     Object.entries(b.colors || {}).forEach(([k, v]) => { if (/^--color-[a-z0-9-]+$/.test(k) && /^#[0-9a-f]{6}$/i.test(String(v))) r.setProperty(k, String(v)); });
     const fonts = b.fonts && typeof b.fonts === 'object' ? b.fonts : {};
     const loadFont = (f) => { if (!f || f === 'Cairo' || !/^[A-Za-z ]{2,40}$/.test(f) || document.querySelector('link[data-font="' + f + '"]')) return; const l = document.createElement('link'); l.rel = 'stylesheet'; l.dataset.font = f; l.href = 'https://fonts.googleapis.com/css2?family=' + f.replace(/ /g, '+') + ':wght@400;500;600;700&display=swap'; document.head.append(l); };
-    if (typeof fonts.body === 'string' && fonts.body !== 'Cairo') { loadFont(fonts.body); r.setProperty('--font', "'" + fonts.body.replace(/[^A-Za-z ]/g, '') + "',system-ui,-apple-system,'Segoe UI',Tahoma,sans-serif"); }
-    if (typeof fonts.head === 'string') { loadFont(fonts.head); r.setProperty('--font-head', "'" + fonts.head.replace(/[^A-Za-z ]/g, '') + "',var(--font)"); }
+    // ش34 (the owner 16 Nov): a font the admin uploaded = our own family id (ibf-…), its file read by IBSettings.loadFont (FontFace from the bytes)
+    const own = S0.fontList ? S0.fontList(fonts) : []; const fam = (f) => { const o = own.find((x) => x.id === f); if (o) { S0.loadFont(o); return o.id; } loadFont(f); return String(f).replace(/[^A-Za-z ]/g, ''); };
+    if (typeof fonts.body === 'string' && fonts.body !== 'Cairo') r.setProperty('--font', "'" + fam(fonts.body) + "',system-ui,-apple-system,'Segoe UI',Tahoma,sans-serif");
+    if (typeof fonts.head === 'string') r.setProperty('--font-head', "'" + fam(fonts.head) + "',var(--font)");
     const logos = b.logos && typeof b.logos === 'object' ? b.logos : {};
     if (window.IBLogo && window.IBLogo.set) Object.keys(logos).forEach((t) => { S0.logoUrl(logos[t]).then((u) => { if (u) window.IBLogo.set(t, u); }); });
     if (window.IBQuick && window.IBQuick.refresh) window.IBQuick.refresh(); // owner batch 2 decision 16 (0098): the table quick_actions, by visibility

@@ -67,6 +67,33 @@ test('a return inspected sound: its lot\'s day is the inspection\'s (since), the
   eq(w.S.returns[0].at, w.S.stock.find((x) => x.key === L3).since);
 });
 
+// comments decision 32 (0107): a count paused and resumed
+test('the open count\'s pause: read on its own (who, when — Cairo), written as a stamp request the server fills; `unavailable` before the migration; a viewer cannot', async () => {
+  const p = load({ responses: { inv_counts: (q) => (q.some((x) => x.op === 'update') ? ok([{ id: 4 }])
+    : q.some((x) => x.op === 'select' && /paused_at/.test(String(x.args[0]))) ? ok({ id: 4, paused_at: '2026-11-15T15:30:00Z', paused_by: ME })
+    : ok([{ id: 4, zone: 'رف A', status: 'open', started_by: ME, started_at: '2026-11-04T08:00:00Z' }])) } });
+  eq((await p.I.load()).ok, true);
+  eq(p.S.count.paused, { at: '2026-11-15 17:30', by: 'سارة أحمد' });
+  eq(await p.I.pauseCount(4, false), { ok: true });
+  const up = opsOf(p.stub.calls, 'inv_counts').find((c) => c.op === 'update');
+  eq(up.args[0], { paused_at: null });
+  eq(p.logs.at(-1).slice(0, 2), ['inventory.count.resume', 'CNT-4']);
+  eq(await p.I.pauseCount(4, true), { ok: true });
+  assert.match(opsOf(p.stub.calls, 'inv_counts').filter((c) => c.op === 'update').at(-1).args[0].paused_at, /^\d{4}-\d{2}-\d{2}T/);
+  eq(p.logs.at(-1).slice(0, 2), ['inventory.count.pause', 'CNT-4']);
+  // not paused: the plain load
+  const n = load(); await n.I.load(); eq(n.S.count.paused, null);
+  // before 0107: the pause columns are unknown — the hub loads, the write says `unavailable`
+  const old = load({ responses: { inv_counts: (q) => (q.some((x) => x.op === 'update') ? { data: null, error: { code: 'PGRST204', message: "Could not find the 'paused_at' column" } }
+    : q.some((x) => x.op === 'select' && /paused_at/.test(String(x.args[0]))) ? { data: null, error: { code: '42703', message: 'column inv_counts.paused_at does not exist' } }
+    : ok([{ id: 4, zone: 'رف A', status: 'open', started_by: ME, started_at: '2026-11-04T08:00:00Z' }])) } });
+  eq((await old.I.load()).ok, true); eq(old.S.count.paused, null); eq(old.S.count.dbId, 4);
+  eq(await old.I.pauseCount(4, true), { ok: false, reason: 'unavailable' });
+  const v = load({ perms: { 'inventory.view': 'F' } }); await v.I.load();
+  eq((await v.I.pauseCount(4, true)).reason, 'forbidden');
+  eq((await p.I.pauseCount('x', true)).reason, 'invalid');
+});
+
 // comments decision 23 (the owner 15 Nov): «تجميع أوردر» pieces in the hub for an order with no open consolidation
 test('an order whose «تجميع أوردر» pieces are on hand with no open consolidation is listed too (derived, no id): its open lines, the arrived one «وصل المخزن»; not after the team cancelled its consolidation, not a closed order, not a piece that left', async () => {
   const L4 = 'b0000000-0000-4000-8000-000000000004', L5 = 'b0000000-0000-4000-8000-000000000005', L6 = 'b0000000-0000-4000-8000-000000000006', L7 = 'b0000000-0000-4000-8000-000000000007';

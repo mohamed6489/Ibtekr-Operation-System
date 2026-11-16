@@ -302,14 +302,31 @@
     if (!c) return [K.Section('الجرد', K.Empty('مفيش جرد شغال', 'ابدأ جرد جديد لرف أو للمخزن كله.', Button({ type: 'primary', label: 'جرد جديد', onClick: () => newCount() }))), history()];
     const diffs = c.lines.filter((l) => l.counted !== '' && Number(l.counted) !== l.system);
     const done = (c.base || 0) + c.lines.filter((l) => l.counted !== '').length;
-    return [K.Section(c.id + ' — ' + c.zone, [h('div', { class: 'count-prog' }, h('b', null, 'التقدّم'), h('span', null, done + ' من ' + c.total + ' منتج اتعدّوا · ' + diffs.length + ' فروق لحد دلوقتي'), U.ProgressBar('brand', done / c.total)),
+    const prog = () => h('div', { class: 'count-prog' }, h('b', null, 'التقدّم'), h('span', null, done + ' من ' + c.total + ' منتج اتعدّوا · ' + diffs.length + ' فروق لحد دلوقتي'), U.ProgressBar('brand', c.total ? done / c.total : 0));
+    // comments decision 32 (the owner 15 Nov — «ممكن اوقف الجرد مؤقتاً و اكمله بعدين عايز زر بكده»): a paused count shows what is
+    // counted so far and one button — «كمّل الجرد»; no counting and no approval until then (the server refuses both, 0107)
+    if (c.paused) { const at = String(c.paused.at || ''); const day = at.slice(0, 10); const when = day ? (day === TODAY ? 'النهارده' : K.dshort(day)) + (at.length > 11 ? ' ' + K.t12(at.slice(11, 16)) : '') : '';
+      return [K.Section(c.id + ' — ' + c.zone, [h('div', { 'data-count-paused': '' }, U.InlineNote({ kind: 'warning', children: 'الجرد متوقف مؤقتًا' + (when ? ' من ' + when : '') + (c.paused.by ? ' · بواسطة ' + c.paused.by : '') + ' — العدّ اللي اتسجل محفوظ، ومفيش عدّ ولا اعتماد لحد ما تكمّله.' })), prog()],
+        [canEdit() ? Button({ type: 'primary', label: 'كمّل الجرد', attrs: { 'data-count-resume': '' }, onClick: () => pauseCount(false) }) : null], { sub: 'متوقف مؤقتًا' }), history()]; }
+    return [K.Section(c.id + ' — ' + c.zone, [prog(),
       // comments decision 21 (the owner 15 Nov — «شيل دول ملهمش لازمة»): the two fixed dropdowns («المكان: رف B» / «العرض: الكل») and the
       // hint beside them left the open count; its search is the kit's «بحث» in the card's head (the page's own input did nothing)
       U.Table({ headers: ['المنتج', 'المكان', 'في السيستم', 'العدد الفعلي', 'الفرق', 'القيمة', 'ملاحظة'].concat(canEdit() ? [''] : []), rows: c.lines.map((l) => { const gone = removedOf(l); const inp = h('input', { class: 'cnt-in', inputmode: 'numeric', value: l.counted, title: gone ? 'اتشال جزء من المخزن أثناء الجرد — العدد = اللي فاضل' : null, 'aria-label': 'العدد الفعلي — ' + l.name, 'data-cnt-key': l.key }); inp.addEventListener('change', () => { l.counted = O.toLatin(inp.value); if (live() && c.dbId) saved(A().countLine(c.dbId, l.key, l.counted, l.note)); K.toast('اتحفظ العدّ'); R(); });
         const d = l.counted === '' ? null : Number(l.counted) - l.system;
         return [prodCell(l), K.Num(l.loc), String(l.system), inp, gone ? K.Tag('orange', String(l.note).split(' — ')[0]) : d == null ? K.Tag('neutral', 'لسه') : d === 0 ? K.Tag('success', 'مطابق') : h('b', { class: d < 0 ? 'neg' : 'pos' }, K.Num((d > 0 ? '+ ' : '− ') + Math.abs(d))), d ? K.Num((d > 0 ? '+ ' : '− ') + K.money(Math.abs(d) * l.cost)) : '—', l.note || '—'].concat(canEdit() ? [countLineMenu(c, l)] : []); }) }),
       h('p', { class: 't-small help', style: 'margin:0' }, 'أثناء الجرد «في السيستم» بيتثبت على لحظة بداية الجرد، والحجوزات الجديدة بتتحسب لوحدها. «اعتماد الجرد» بيعمل حركة «تسوية جرد» لكل فرق بالسبب. المنتجات اللي متعدتش بتفضل زي ما هي.')],
-      [canEdit() ? Button({ label: '+ قطعة', attrs: { 'data-count-add': '' }, onClick: () => receiveManual() }) : null, canApprove() ? Button({ type: 'primary', label: 'اعتماد الجرد', onClick: () => approveCount() }) : null], { sub: 'بدأ ' + c.started.slice(11) + ' النهارده' }), history()];
+      [canEdit() ? Button({ label: 'إيقاف مؤقت', attrs: { 'data-count-pause': '' }, onClick: () => pauseCount(true) }) : null, canEdit() ? Button({ label: '+ قطعة', attrs: { 'data-count-add': '' }, onClick: () => receiveManual() }) : null, canApprove() ? Button({ type: 'primary', label: 'اعتماد الجرد', onClick: () => approveCount() }) : null], { sub: 'بدأ ' + c.started.slice(11) + ' النهارده' }), history()];
+  }
+  // «إيقاف مؤقت» / «كمّل الجرد» (comments decision 32). Before 0107 is applied the server has no place for the pause: the counting
+  // done so far is saved anyway (it is written line by line), and the member is told the mark itself is not available yet.
+  function pauseCount(on) {
+    const c = S.count; if (!c) return;
+    const okMsg = on ? 'الجرد اتوقف مؤقتًا — كمّله وقت ما تحب' : 'كمّل الجرد من مكان ما وقفت';
+    if (live() && c.dbId) { Promise.resolve(A().pauseCount(c.dbId, on)).then((r) => {
+      if (r && r.ok) { K.toast(okMsg, 'success'); reload(); return; }
+      if (r && r.reason === 'unavailable') K.toast('الإيقاف المؤقت هيشتغل بعد تحديث قاعدة البيانات — العدّ اللي اتسجل محفوظ وتقدر تكمّله في أي وقت', 'warning');
+      else { K.toast(r && r.reason === 'forbidden' ? 'مش مسموح — الصلاحية دي مش عندك' : 'ماتحفظش — جرّب تاني', 'error'); reload(); } }); return; }
+    c.paused = on ? { at: TODAY + ' ' + K.clockNow(), by: K.member(K.ME).name } : null; K.logEvent(on ? 'stock.count.pause' : 'stock.count.resume', c.id); K.toast(okMsg, 'success'); R();
   }
   // owner batch 14 Nov decision 10: in an open count — «+ قطعة» (the manual receive: the piece found joins the hub with an «in» move),
   // ⋮ on a line: the place and the status of its lot, and «شيل من المخزن» with a reason (an «out» move with the reason; the line's

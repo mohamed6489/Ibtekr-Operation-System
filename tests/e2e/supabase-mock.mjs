@@ -618,6 +618,7 @@ export async function installSupabaseMock(page, opts = {}) {
         const out = (list) => (single ? (list.length ? json(200, { ...list[0] }) : refuse(406, 'PGRST116', 'no rows')) : json(method === 'POST' ? 201 : 200, list.map((r) => ({ ...r }))));
         if (method === 'GET') {
           if (!view) return json(200, []);
+          if (t === 'inv_counts' && mock.noCountPause && /paused_at/.test(url.searchParams.get('select') || '')) return refuse(400, '42703', 'column inv_counts.paused_at does not exist');
           let list = rows.filter(match); if (t === 'inv_moves') list = list.slice().sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : b.id - a.id)); if (t === 'inv_counts') list = list.slice().sort((a, b) => b.id - a.id);
           return out(list);
         }
@@ -636,8 +637,8 @@ export async function installSupabaseMock(page, opts = {}) {
             } else if (t === 'inv_lots') rec = { product_id: null, vendor_id: null, order_id: null, item_id: null, ref: null, loc: null, cost: 0, condition: null, condition_note: null, note: null, ...r, closed_at: null, created_by: u.id, created_at: now };
             else if (t === 'inv_consolidations') { if (rows.some((x) => x.order_id === r.order_id && x.status === 'open')) return refuse(409, '23505', 'inv_consolidations_open_idx'); rec = { zone: 'T', ...r, status: 'open', carrier: null, since: now.slice(0, 10), created_by: u.id, created_at: now }; }
             else if (t === 'inv_consolidation_items') { const c = mock.inv.inv_consolidations.find((x) => x.id === r.consolidation_id); const it = mock.orderItems.find((x) => String(x.id) === String(r.item_id)); if (!c || c.status !== 'open' || !it || Number(it.order_id) !== Number(c.order_id)) return rls(); rec = { ...r }; }
-            else if (t === 'inv_counts') rec = { note: null, ...r, id: rows.reduce((n, x) => Math.max(n, x.id), 0) + 1, status: 'open', started_by: u.id, started_at: now, approved_by: null, approved_at: null };
-            else if (t === 'inv_count_lines') rec = { counted: null, note: null, ...r, system: onHand(r.lot_id) };
+            else if (t === 'inv_counts') rec = { note: null, ...r, id: rows.reduce((n, x) => Math.max(n, x.id), 0) + 1, status: 'open', started_by: u.id, started_at: now, approved_by: null, approved_at: null, paused_at: null, paused_by: null };
+            else if (t === 'inv_count_lines') { if ((mock.inv.inv_counts.find((x) => x.id === r.count_id) || {}).paused_at) return refuse(403, '42501', 'the count is paused'); rec = { counted: null, note: null, ...r, system: onHand(r.lot_id) }; }
             else { if (rows.some((x) => x.code === r.code)) return refuse(409, '23505', 'inv_locations_pkey'); rec = { note: null, ...r }; }
             made.push(rec);
           }
@@ -645,12 +646,27 @@ export async function installSupabaseMock(page, opts = {}) {
           return out(made);
         }
         if (method === 'PATCH') {
-          if (!['inv_lots', 'inv_consolidations', 'inv_count_lines'].includes(t)) return refuse(403, '42501', 'permission denied for table ' + t);
+          if (!['inv_lots', 'inv_consolidations', 'inv_count_lines', 'inv_counts'].includes(t)) return refuse(403, '42501', 'permission denied for table ' + t);
           if (!edit) return json(200, []);
           const b = body(); const list = rows.filter(match);
+          // 0107 (comments decision 32): a count paused / resumed — the pause is the server's stamp (now, the member); with
+          // mock.noCountPause the columns are not there yet (the migration not applied): PostgREST refuses the unknown column
+          if (t === 'inv_counts') {
+            if ('paused_at' in b && mock.noCountPause) return refuse(400, 'PGRST204', "Could not find the 'paused_at' column of 'inv_counts' in the schema cache");
+            for (const r of list) {
+              if (r.status !== 'open') return refuse(403, '42501', 'a closed count stays closed');
+              if (b.status && b.status !== r.status && b.status !== 'cancelled') return refuse(403, '42501', 'a count is approved through inv_count_approve');
+              if ('paused_at' in b) { if (b.paused_at && !r.paused_at) Object.assign(r, { paused_at: now, paused_by: u.id }); else if (!b.paused_at) Object.assign(r, { paused_at: null, paused_by: null }); }
+              if (b.status === 'cancelled') Object.assign(r, { status: 'cancelled', paused_at: null, paused_by: null });
+              if ('note' in b) r.note = b.note;
+              mock.invWrites.push({ table: t, op: 'update', id: r.id, ...('paused_at' in b ? { paused: !!r.paused_at } : {}), ...(b.status ? { status: b.status } : {}) });
+            }
+            return out(list);
+          }
           for (const r of list) {
             if (t === 'inv_consolidations' && r.status !== 'open') return refuse(403, '42501', 'a closed consolidation is final');
             if (t === 'inv_count_lines' && (mock.inv.inv_counts.find((x) => x.id === r.count_id) || {}).status !== 'open') return refuse(403, '42501', 'an approved count is final');
+            if (t === 'inv_count_lines' && (mock.inv.inv_counts.find((x) => x.id === r.count_id) || {}).paused_at) return refuse(403, '42501', 'the count is paused');
             const { system, created_by, created_at, ...patch } = b; Object.assign(r, patch); if (t === 'inv_consolidations' && patch.status && patch.status !== 'open') Object.assign(r, { closed_at: now, closed_by: u.id });
             mock.invWrites.push({ table: t, op: 'update', ...patch, id: r.id || r.lot_id });
           }
@@ -767,6 +783,7 @@ export async function installSupabaseMock(page, opts = {}) {
       if (method === 'POST' && path === '/rest/v1/rpc/inv_count_approve') {
         if (hasPerm(u, 'inventory.approve') !== 'F') return json(403, { code: '42501', details: null, hint: null, message: 'inventory.approve is needed' });
         const b = body(); const c = mock.inv.inv_counts.find((x) => x.id === Number(b.p_id)); if (!c || c.status !== 'open') return json(400, { code: '22023', details: null, hint: null, message: 'not an open count' });
+        if (c.paused_at) return json(400, { code: '22023', details: null, hint: null, message: 'the count is paused' });
         let n = 0; const now = new Date().toISOString();
         for (const l of mock.inv.inv_count_lines.filter((x) => x.count_id === c.id && x.counted != null)) { const d = l.counted - onHand(l.lot_id); if (d) { n += 1; mock.inv.inv_moves.push({ id: mock.inv.inv_moves.reduce((k, m) => Math.max(k, m.id), 0) + 1, lot_id: l.lot_id, type: 'adjust', qty: d, label: 'تسوية جرد', reason: 'جرد', ref: 'CNT-' + c.id, note: l.note, by: u.id, at: now }); } }
         Object.assign(c, { status: 'approved', approved_by: u.id, approved_at: now }); mock.invWrites.push({ table: 'inv_counts', op: 'approve', id: c.id, adjusted: n });

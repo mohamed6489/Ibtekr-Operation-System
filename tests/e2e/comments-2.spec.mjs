@@ -883,6 +883,51 @@ test('comment 31 — a return has not «entered the hub» until it is inspected:
   await expect(page.locator('#pg-inventory table tbody tr', { hasText: 'Cushion' }).first()).toContainText('اتفحص — سليم');
 });
 
+test('comment 32 — an open count is paused and resumed: «إيقاف مؤقت» keeps what was counted and shows who paused it and when, nothing is counted or approved meanwhile, «كمّل الجرد» brings the count back; before the migration the button says so and the count stays', async ({ page }) => {
+  const L = 'b7000000-0000-4000-8000-0000000000c2';
+  mock.inv.inv_lots.push(hubLot(L, null, null, 'Cushion', { reason: 'متاح للبيع', status: 'متاح', ref: null }));
+  mock.inv.inv_moves.push({ ...hubIn(91, L), qty: 2, label: 'دخول — للبيع', reason: 'متاح للبيع' });
+  await signIn(page); await go(page, '#inventory-count');
+  await page.getByRole('tabpanel', { name: 'الجرد' }).getByRole('button', { name: 'جرد جديد' }).click();
+  await dlg(page, 'جرد جديد').getByRole('button', { name: /ابدأ/ }).click();
+  const pg = page.locator('#pg-inventory');
+  const input = pg.locator('tr', { hasText: 'Cushion' }).locator('input.cnt-in');
+  await input.fill('1'); await input.press('Tab');
+  await expect.poll(() => (mock.inv.inv_count_lines.find((l) => l.lot_id === L) || {}).counted).toBe(1);
+  // pause: the server's stamp, the page shows it and nothing else to do but resume
+  await pg.locator('[data-count-pause]').click();
+  await expect.poll(() => mock.inv.inv_counts[0].paused_at).toBeTruthy();
+  expect(mock.inv.inv_counts[0].paused_by).toBe('00000000-0000-4000-8000-000000000001'); // the member who pressed it (the dev admin)
+  const note = pg.locator('[data-count-paused]');
+  await expect(note).toContainText('الجرد متوقف مؤقتًا من النهارده');
+  await expect(note).toContainText('بواسطة');
+  await expect(pg.locator('.count-prog')).toContainText('1 من');
+  await expect(pg.locator('input.cnt-in')).toHaveCount(0);
+  await expect(pg.getByRole('button', { name: 'اعتماد الجرد' })).toHaveCount(0);
+  await expect(pg.locator('[data-count-pause]')).toHaveCount(0);
+  // the server refuses a count and the approval while it is paused
+  const refused = await page.evaluate(async (k) => [await window.IBInventory.countLine(window.IBInventory.countId(), k, 2, ''), await window.IBInventory.approveCount(window.IBInventory.countId())], L);
+  expect(refused.map((r) => r.ok)).toEqual([false, false]);
+  expect(mock.inv.inv_count_lines.find((l) => l.lot_id === L).counted).toBe(1);
+  expect(mock.inv.inv_counts[0].status).toBe('open');
+  // a reload still shows it paused (it is the server's)
+  await page.evaluate(() => window.IBInventory.load());
+  await expect(note).toBeVisible();
+  // resume: the lines are back with what was counted
+  await pg.locator('[data-count-resume]').click();
+  await expect.poll(() => mock.inv.inv_counts[0].paused_at).toBeNull();
+  await expect(input).toHaveValue('1');
+  await expect(pg.getByRole('button', { name: 'اعتماد الجرد' })).toBeVisible();
+  expect(mock.invWrites.filter((w) => w.table === 'inv_counts' && w.op === 'update').map((w) => w.paused)).toEqual([true, false]);
+  // before 0107 is applied: the hub loads, the button says the pause is not available yet, the count goes on
+  mock.noCountPause = true;
+  await page.evaluate(() => window.IBInventory.load());
+  await expect(input).toHaveValue('1');
+  await pg.locator('[data-count-pause]').click();
+  await expect(page.locator('.toast', { hasText: 'هيشتغل بعد تحديث قاعدة البيانات' })).toBeVisible();
+  await expect(input).toBeVisible(); await expect(note).toHaveCount(0);
+});
+
 test('comment 30 — a maker\'s orders popup shares through the one popup too: the orders as a file to his number, and the share is logged without the file', async ({ page }) => {
   page.on('popup', (p) => p.close().catch(() => {}));
   await signIn(page); await go(page, '#makers/' + V1);

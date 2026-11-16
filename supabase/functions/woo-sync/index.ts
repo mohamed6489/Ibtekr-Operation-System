@@ -32,8 +32,11 @@
 //              since Dokan deletes and recreates the sub-orders of a multi-vendor parent on any REST update of it (getdokan/dokan PR
 //              #3454 — the numbers changed at every status change): PUT wc/v3/orders/{sub} { status } on each current sub-order
 //              (currentSubOrders — the ones the order's live lines point to; trashed ones never), like the owner's n8n automation;
-//              sub_orders.woo_status from each answer; 404 / 410 = gone; any other failure → 502 after the rest; orders.woo_status
-//              stays the site's parent.
+//              sub_orders.woo_status from each answer; a sub-order gone from the site is no failure (orderGone: 404 / 410, or
+//              WooCommerce's 400 woocommerce_rest_shop_order_invalid_id to an update of an order it cannot load — what a sub-order
+//              Dokan deleted in a re-split answers); any other failure → 502 after the rest; orders.woo_status stays the site's
+//              parent. The same answer on a sub-order a member acts on alone (suborder_status, line_trash, line_qty, line_add) →
+//              404 sub_gone, nothing written, logged skipped.
 //   'order_trash' { order_id }  (phase 5.5 decision 10, the owner 2 Nov: «لما أحذفه يتحذف من الموقع») the cancelled order and its
 //              Dokan sub-orders go to the site's trash: DELETE wc/v3/orders/{id} with no `force` (never deleted for good), the
 //              sub-orders (sub_orders.woo_order_id) first, then the parent; 404 / 410 (already trashed) count as done. The order
@@ -445,6 +448,15 @@ async function pushStatus(run: Run, args: Json) {
 // currentSubOrders: the order's Dokan sub-orders on the site now — the ones its live lines point to (a re-split by Dokan leaves older
 // rows behind), else every sub-order row of the order; a trashed one never. [] = an order of one maker (no sub-order).
 type SubRef = { id: number; woo: number; status: string | null };
+// An order that is not on the site any more: 404 / 410, or WooCommerce's own answer to an update of an order it cannot load —
+// 400 woocommerce_rest_shop_order_invalid_id («ID is invalid.»). Seen live 14–15 Nov: the status of an order whose older sub-orders
+// Dokan had deleted in a re-split answered 502 to the member every time, because only 404 / 410 counted as gone.
+const orderGone = (e: unknown) => e instanceof WooError && (e.status === 404 || e.status === 410 || (e.status === 400 && wooCode(e) === 'woocommerce_rest_shop_order_invalid_id'));
+// a sub-order the member acted on that the site no longer has: nothing written, 404 sub_gone (the page: «مش موجود»), logged skipped
+async function subGone(run: Run, entry: Json, sid: number, extra: Json = {}) {
+  await logSync(run.db, { ...entry, result: 'skipped', detail: { reason: 'sub_gone', sub: sid, ...extra } });
+  return json(404, { error: 'sub_gone', sub: sid });
+}
 async function currentSubOrders(db: Db, id: number): Promise<SubRef[]> {
   const { data: rows, error } = await db.from('sub_orders').select('id, woo_order_id, woo_status').eq('order_id', id);
   if (error) throw new Error(`sub_orders: ${error.message}`);
@@ -461,13 +473,14 @@ async function currentSubOrders(db: Db, id: number): Promise<SubRef[]> {
   return live.length ? live : all;
 }
 // push_status on an order with sub-orders: PUT wc/v3/orders/{sub} { status } on each, like the owner's n8n automation; the answer's
-// status kept in sub_orders.woo_status; 404 / 410 = gone (not a failure); any other refusal is counted and answered 502 after the rest.
+// status kept in sub_orders.woo_status; gone from the site (orderGone: 404 / 410 / 400 invalid id) is not a failure; any other refusal
+// is counted and answered 502 after the rest.
 async function pushSubStatuses(run: Run, woo: ReturnType<typeof wooApi>, entry: Json, status: string, slug: string, subs: SubRef[]) {
   const done: number[] = [], failed: number[] = []; let gone = 0, first: string | null = null;
   for (const s of subs) {
     let after: Json;
     try { after = (await woo.put(`wc/v3/orders/${s.woo}`, { status: slug })).data ?? {}; } catch (e) {
-      if (e instanceof WooError && (e.status === 404 || e.status === 410)) { gone += 1; continue; }
+      if (orderGone(e)) { gone += 1; continue; }
       if (!(e instanceof WooError)) throw e;
       failed.push(s.woo); first ??= errorText(e, woo.scrub); continue;
     }
@@ -554,7 +567,7 @@ async function orderTrash(run: Run, args: Json) {
   let trashed = 0, already = 0;
   for (const oid of [...subIds, id]) { // the sub-orders first: Dokan trashes them with the parent, a second DELETE is then 410
     try { await woo.del(`wc/v3/orders/${oid}`); trashed += 1; } catch (e) {
-      if (e instanceof WooError && (e.status === 404 || e.status === 410)) { already += 1; continue; }
+      if (orderGone(e)) { already += 1; continue; }
       throw e;
     }
   }
@@ -585,7 +598,7 @@ async function suborderTrash(run: Run, args: Json) {
   const woo = run.woo();
   let already = false;
   try { await woo.del(`wc/v3/orders/${sid}`); } catch (e) {
-    if (e instanceof WooError && (e.status === 404 || e.status === 410)) already = true;
+    if (orderGone(e)) already = true;
     else { await logSync(run.db, { ...entry, result: 'error', detail: { step: 'trash', sub: sid, error: errorText(e, woo.scrub) } }); if (e instanceof WooError) return json(502, { error: 'woo_error', step: 'trash' }); throw e; }
   }
   // the owner 11 Nov («زي الـ automation»): the parent on the site is never written (Dokan would recreate its sub-orders — PR #3454);
@@ -642,7 +655,7 @@ async function lineTrash(run: Run, args: Json) {
   };
   if (sid !== null) { // the maker's sub-order first: a refusal there leaves the parent as it was
     let subOrder: Json;
-    try { subOrder = (await woo.get(`wc/v3/orders/${sid}`)).data as Json; } catch (e) { return await fail('sub_read', e); }
+    try { subOrder = (await woo.get(`wc/v3/orders/${sid}`)).data as Json; } catch (e) { return orderGone(e) ? await subGone(run, entry, sid, { line: item }) : await fail('sub_read', e); }
     const pid = wooId(line.product_id); const qty = Number(line.qty) || 0; const tot = Number(line.total) || 0;
     const items = isObj(subOrder) && Array.isArray(subOrder.line_items) ? subOrder.line_items.filter(isObj) : [];
     let hits = items.filter((li: Json) => pid !== null && (wooId(li.product_id) === pid || wooId(li.variation_id) === pid));
@@ -650,7 +663,7 @@ async function lineTrash(run: Run, args: Json) {
     if (hits.length !== 1) { await logSync(run.db, { ...entry, result: 'skipped', detail: { reason: 'sub_line', line: item, sub: sid, matches: hits.length } }); return json(409, { error: 'sub_line', matches: hits.length }); }
     const subLine = wooId(hits[0].id);
     let after: Json;
-    try { after = (await woo.put(`wc/v3/orders/${sid}`, { line_items: [{ id: subLine, product_id: null }] })).data as Json; } catch (e) { return await fail('sub_line', e, { sub: sid }); }
+    try { after = (await woo.put(`wc/v3/orders/${sid}`, { line_items: [{ id: subLine, product_id: null }] })).data as Json; } catch (e) { return orderGone(e) ? await subGone(run, entry, sid, { line: item }) : await fail('sub_line', e, { sub: sid }); }
     if (isObj(after) && Array.isArray(after.line_items) && after.line_items.some((li: Json) => wooId(li?.id) === subLine)) return await fail('sub_line', null, { sub: sid, kept: 1 });
     // the owner 11 Nov («زي الـ automation»): the parent on the site is never written (Dokan would recreate its sub-orders — PR
     // #3454); the line leaves the order here (removed + dropped_at, 0079) and the parent keeps it and its total
@@ -716,7 +729,7 @@ async function lineQty(run: Run, args: Json) {
   };
   const target = sid ?? id;
   let live: Json;
-  try { live = (await woo.get(`wc/v3/orders/${target}`)).data as Json; } catch (e) { return await fail(sid !== null ? 'sub_read' : 'read', e, sid !== null ? { sub: sid } : {}); }
+  try { live = (await woo.get(`wc/v3/orders/${target}`)).data as Json; } catch (e) { return sid !== null && orderGone(e) ? await subGone(run, entry, sid, { line: item }) : await fail(sid !== null ? 'sub_read' : 'read', e, sid !== null ? { sub: sid } : {}); }
   const items = isObj(live) && Array.isArray(live.line_items) ? live.line_items.filter(isObj) : [];
   let hit: Json | undefined;
   if (sid !== null) { // the maker's sub-order: the line of the same product (else the same quantity and value) — like line_trash
@@ -729,7 +742,7 @@ async function lineQty(run: Run, args: Json) {
   const put = hit ? qtyLine(hit, qty) : null;
   if (!put || put.id === null) return await fail('line', null, sid !== null ? { sub: sid } : {});
   let after: Json;
-  try { after = (await woo.put(`wc/v3/orders/${target}`, { line_items: [put] })).data as Json; } catch (e) { return await fail('qty', e, sid !== null ? { sub: sid } : {}); }
+  try { after = (await woo.put(`wc/v3/orders/${target}`, { line_items: [put] })).data as Json; } catch (e) { return sid !== null && orderGone(e) ? await subGone(run, entry, sid, { line: item }) : await fail('qty', e, sid !== null ? { sub: sid } : {}); }
   const got = isObj(after) && Array.isArray(after.line_items) ? after.line_items.filter(isObj).find((li: Json) => wooId(li.id) === put.id) : undefined;
   if (!got || Number(got.quantity) !== qty) return await fail('qty', null, sid !== null ? { sub: sid, kept: 1 } : { kept: 1 });
   const lineTotal = Number.isFinite(Number(got.total)) ? Number(money(Number(got.total))) : Number(put.total);
@@ -812,12 +825,12 @@ async function lineAdd(run: Run, args: Json) {
   } else if (vid !== null) return json(400, { error: 'bad_request', field: 'variation' });
   const target = sid ?? id;
   let live: Json;
-  try { live = (await woo.get(`wc/v3/orders/${target}`)).data as Json; } catch (e) { return await fail(sid !== null ? 'sub_read' : 'read', e, sid !== null ? { sub: sid } : {}); }
+  try { live = (await woo.get(`wc/v3/orders/${target}`)).data as Json; } catch (e) { return sid !== null && orderGone(e) ? await subGone(run, entry, sid, { product: pid }) : await fail(sid !== null ? 'sub_read' : 'read', e, sid !== null ? { sub: sid } : {}); }
   const before = new Set((isObj(live) && Array.isArray(live.line_items) ? live.line_items.filter(isObj) : []).map((li: Json) => wooId(li.id)));
   const value = money(price * qty);
   const put = { product_id: pid, ...(vid !== null ? { variation_id: vid } : {}), quantity: qty, subtotal: value, total: value };
   let after: Json;
-  try { after = (await woo.put(`wc/v3/orders/${target}`, { line_items: [put] })).data as Json; } catch (e) { return await fail('add', e, sid !== null ? { sub: sid } : {}); }
+  try { after = (await woo.put(`wc/v3/orders/${target}`, { line_items: [put] })).data as Json; } catch (e) { return sid !== null && orderGone(e) ? await subGone(run, entry, sid, { product: pid }) : await fail('add', e, sid !== null ? { sub: sid } : {}); }
   const got = (isObj(after) && Array.isArray(after.line_items) ? after.line_items.filter(isObj) : []).find((li: Json) => !before.has(wooId(li.id))
     && (wooId(li.product_id) === pid || wooId(li.variation_id) === pid) && (vid === null || wooId(li.variation_id) === vid));
   const lineId = got ? wooId(got.id) : null;
@@ -862,6 +875,7 @@ async function suborderStatus(run: Run, args: Json) {
   const woo = run.woo();
   let after: Json;
   try { after = (await woo.put(`wc/v3/orders/${sid}`, { status })).data as Json; } catch (e) {
+    if (orderGone(e)) return await subGone(run, entry, sid, { status }); // Dokan deleted it (a re-split): nothing to move
     await logSync(run.db, { ...entry, result: 'error', detail: { sub: sid, status, error: errorText(e, woo.scrub) } });
     if (e instanceof WooError) return json(502, { error: 'woo_error' }); throw e;
   }

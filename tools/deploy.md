@@ -2207,7 +2207,7 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 
 #### 2.7.89 إيقاف الجرد مؤقتًا وتكملته (كومنتات 15 نوفمبر، قرار 32)
 الخطة `docs/superpowers/plans/2026-11-15-comments.md` قرار 32. الواجهة شغّالة قبل الـ migration: المخزن بيتحمّل عادي وزرار «إيقاف مؤقت» بيقول إنه هيشتغل بعد تحديث قاعدة البيانات (العدّ محفوظ في الحالتين).
-1. الـ migration `0107_count_pause.sql` (بتأكيد صاحب المشروع): عمودين على `inv_counts` (`paused_at` / `paused_by` — السيرفر هو اللي بيختمهم)، حارس `inv_count_pause_guard` على `inv_counts` و`inv_count_lines` (جرد متوقف = مفيش عدّ)، و`inv_count_approve` بيرفض الجرد المتوقف (22023).
+1. الـ migration `0107_count_pause.sql` (**اتطبّق على الحي 16 نوفمبر** بتأكيد صاحب المشروع؛ `rls_count_pause` عدّى على الحي — «RLS live» run 77): عمودين على `inv_counts` (`paused_at` / `paused_by` — السيرفر هو اللي بيختمهم)، حارس `inv_count_pause_guard` على `inv_counts` و`inv_count_lines` (جرد متوقف = مفيش عدّ)، و`inv_count_approve` بيرفض الجرد المتوقف (22023).
 2. `supabase/tests/rls_count_pause.sql` على الحي (`tools/rls-live.sh`) ← `rls_count_pause: ok`.
 3. الواجهة على `main` (مافيش Edge Function).
 4. تجربة: المخزون › الجرد ← «جرد جديد» ← عدّ قطعة ← «إيقاف مؤقت» ← الكارت يقول «الجرد متوقف مؤقتًا من … · بواسطة …» ومفيش خانات عدّ ولا «اعتماد الجرد» ← «كمّل الجرد» ← الخانات ترجع بالعدّ اللي اتسجل.
@@ -2215,7 +2215,7 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 #### 2.7.90 صفحة تعديل المنتج، رفع الصور من الجهاز، وترتيب الأقسام بالسحب (كومنتات 15 نوفمبر، القرارات 53–56)
 الخطة `docs/superpowers/plans/2026-11-15-comments.md` القرارات 53–56. الواجهة شغّالة قبل الـ migration: تاب «الأقسام» بيتحمّل زي ما هو بالاسم ومن غير نقط الترتيب لحد ما `0108` يتطبّق.
 1. «Deploy functions»: `woo-sync` (`product_images_add` بياخد `images: [{ data }]` — رفع صور المنتج من الجهاز —، و`category_order` الجديد، ومزامنة الأقسام بتكتب `menu_order` لما العمود يبقى موجود؛ `styles` بتاع قرار 51 معاه) و`ai-images` (قرار 49 — نسخة فلو Magnific في `state.mflow`).
-2. الـ migration `0108_category_order.sql` (بتأكيد صاحب المشروع): عمود `woo_categories.menu_order` (افتراضي 0) — السيرفر بس بيكتبه. `supabase/tests/rls_category_order.sql` على الحي (`tools/rls-live.sh`) ← `rls_category_order: ok`.
+2. الـ migration `0108_category_order.sql` (**اتطبّق على الحي 16 نوفمبر** بتأكيد صاحب المشروع؛ `rls_category_order` عدّى على الحي، ومزامنة الأقسام بعده كتبت ترتيب الموقع: 195 قسم من 198 ليهم `menu_order`): عمود `woo_categories.menu_order` (افتراضي 0) — السيرفر بس بيكتبه. `supabase/tests/rls_category_order.sql` على الحي (`tools/rls-live.sh`) ← `rls_category_order: ok`.
 3. بعد الـ migration: «مزامنة دلوقتي» للأقسام (woo-sync جزء `categories`) عشان ترتيب الموقع الحالي ينزل في المرآة.
 4. الواجهة على `main`.
 5. تجربة (الـ staging، `WOO_PUSH_ENABLED = 1`): المنتجات › الأقسام ← اسحب قسم رئيسي من الست نقط فوق قسم تاني ← «اتحفظ ترتيب الأقسام على الموقع» ← في ووردبريس: Products › Categories الترتيب اتغيّر (والترجمة العربي معاه) ← نفس الكلام لقسم فرعي جوه قسمه. قسم مالوش إخوات مالوش نقط، والبحث بيخفي النقط.
@@ -2224,7 +2224,7 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 
 #### 2.7.91 أقسام المساعدين الجديدة — «آخر التريندات» و«إعلانات المنافسين» وقسم المبرمج (كومنتات 15 نوفمبر، القرارات 69–71)
 الخطة `docs/superpowers/plans/2026-11-15-comments.md` القراران 69 و70. الواجهة شغّالة قبل الـ migration: الكارتين بيقولوا «القسم ده مستني تحديث قاعدة البيانات» ومفيش أي نداء بيتبعت.
-1. الـ migration `0109_marketing_sections.sql` (بتأكيد صاحب المشروع): `mkt_trends` (السيرفر بس بيكتب) · `mkt_competitors` (`marketing.create` بيضيف ويعدّل ويشيل — `archived_at`) · `site_checks` (آخر فحص لتحديثات ووردبريس — قرار 71) · و`ai_runs_source_check` بياخد `trends`. `supabase/tests/rls_marketing_sections.sql` على الحي (`tools/rls-live.sh`) ← `rls_marketing_sections: ok`.
+1. الـ migration `0109_marketing_sections.sql` (**اتطبّق على الحي 16 نوفمبر** بتأكيد صاحب المشروع؛ `rls_marketing_sections` عدّى على الحي): `mkt_trends` (السيرفر بس بيكتب) · `mkt_competitors` (`marketing.create` بيضيف ويعدّل ويشيل — `archived_at`) · `site_checks` (آخر فحص لتحديثات ووردبريس — قرار 71) · و`ai_runs_source_check` بياخد `trends`. `supabase/tests/rls_marketing_sections.sql` على الحي (`tools/rls-live.sh`) ← `rls_marketing_sections: ok`.
 2. «Deploy functions»: `ai-content` (أكشن `trends` الجديد — Claude بأداة البحث على الويب) ثم `woo-sync` (أكشن `wp_updates` — قرار 71)، واحدة واحدة.
 3. **البحث على الويب لازم يكون متفعّل على حساب Anthropic** (Console › إعدادات المنظمة — الأدمن بتاع الحساب). من غيره «حدّث التريندات» بيرد «Claude ماعرفش يبحث على الويب دلوقتي» (502 `no_search`) ومفيش حاجة بتتخزن. التكلفة: توكنز الموديل + $0.01 لكل بحث (لحد 5 في التحديث)، على سقف المحتوى الشهري.
 4. (اختياري) مواقع مفضّلة للتريندات: صف `settings` قسم `marketing` مفتاح `trends.sources` = قايمة host names (لحد 15، من غير https ولا مسار) — البحث بيتقفل عليها (`allowed_domains`). من غيرها Claude بيدوّر في أي موقع بينشر تريندات.
@@ -2237,7 +2237,7 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 
 #### 2.7.92 الموارد البشرية — مكافأة / خصم لعضو اتحوّل مرتبه (كومنتات 15 نوفمبر، قرار 78)
 الخطة `docs/superpowers/plans/2026-11-15-comments.md` قرار 78. مفيش Edge Function.
-1. الـ migration `0110_adjust_after_pay.sql` (بتأكيد صاحب المشروع): `hr_adjustments_guard` بيرفض بند جديد على عضو له صف في `hr_payroll_paid` لنفس الشهر (22023 `member paid`). `supabase/tests/rls_adjust_after_pay.sql` على المشروع الحي (بيرجع كل حاجة).
+1. الـ migration `0110_adjust_after_pay.sql` (**اتطبّق على الحي 16 نوفمبر** بتأكيد صاحب المشروع؛ `rls_adjust_after_pay` عدّى على الحي): `hr_adjustments_guard` بيرفض بند جديد على عضو له صف في `hr_payroll_paid` لنفس الشهر (22023 `member paid`). `supabase/tests/rls_adjust_after_pay.sql` على المشروع الحي (بيرجع كل حاجة).
 2. الواجهة على `main` (شغّالة قبل الـ migration — الفحص عندها والبند بيروح للشهر الجاي؛ الرفض على السيرفر بيبدأ بعد الـ migration).
 3. تجربة: الموارد البشرية › المرتبات ← ⋮ عضو ← «تحويل المرتب» ← بعدها «مكافأة / خصم» (من راس الصفحة أو من ⋮ نفس العضو) ← فوق البوب أب خطأ «… اتحوّله مرتب ‹الشهر› بالفعل …» والزرار «ضيفه على ‹الشهر الجاي›» ← البند بيظهر في مرتب الشهر الجاي لما كشفه يتفتح (أول الشهر) وبيدخل في صافيه.
 
@@ -2247,3 +2247,9 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 2. الواجهة على `main`. «ارفع صورة» شغّال من غير أي نشر للسيرفر (رفع عادي لـ bucket `marketing`).
 3. تجربة (الجسر مربوط): التسويق › كامبين جديدة ← التفاصيل ← «متابعة للبناء» ← فوق القطع شريط «Magnific» ← «ابعت لـ Magnific» ← «افتح الـ Space ↗»: في صفحة «كامبينات التسويق» panel باسم الكامبين، ولكل صورة مولّد ببرومبتها ومراجعها وقايمة مخرجات ← شغّل المولّدات هناك ← ارجع ودوس «هات النتائج من Magnific»: أحدث نتيجة لكل مولّد بتتحط على قطعتها (مرة واحدة). مفيش كريدت بيتخصم من سقف الصور.
 4. ملاحظات: كامبين كبيرة (لحد 30 صورة و24 صورة مرجعية جديدة) = نداءات كتير على Magnific في طلب واحد — ممكن ياخد دقيقة؛ إعادة «ابعت» بتعمل فلو جديد (القديم بيفضل على الـ Space ومابيتقريش) والصور المرجعية مابتترفعش تاني. السجل الموثوق في صف `settings` «magnific» مفتاح `campaigns` (والصفحة `mkt_page`).
+
+#### 2.7.94 أوردر فرعي اتمسح من الموقع — تغيير الحالة مابقاش بيرجّع خطأ (16 نوفمبر، من مراجعة سجل الحي)
+مفيش migration ولا تعديل في الواجهة. **اللي اتلقى في `woo_sync_log`:** أوردر الـ staging `182236` (5 مبتكرين — Dokan أعاد تقسيمه كذا مرة في تجارب 11–15 نوفمبر) كل تغيير لحالته كان بيرجّع 502 `woo_error` للعضو (6 مرات `status/error` ومرة `suborder_status/error`): تلات سطور لسه بتشاور على أوردرات فرعية Dokan مسحها، والموقع بيرد على `PUT wc/v3/orders/{id}` لأوردر مش موجود بـ **400 `woocommerce_rest_shop_order_invalid_id`** — والكود كان بيعتبر 404 / 410 بس «اتمسح».
+1. **`woo-sync`** من `deploy-functions.yml`: `orderGone(e)` (404 / 410 / 400 بالكود ده) في `push_status` على الأوردرات الفرعية (بيتعد `gone` والباقي بيتغيّر والرد ok)، وفي `order_trash` / `suborder_trash`، و`suborder_status` / `line_trash` / `line_qty` / `line_add` على أوردر فرعي اتمسح = 404 `sub_gone` (مسجّل `skipped` — من غير أي كتابة عندنا ولا على الموقع). أي 400 تاني (مثلًا `rest_invalid_param`) لسه رفض 502.
+2. تجربة (الـ staging): أوردر `182236` ← غيّر حالته ← مفيش رسالة خطأ، و`woo_sync_log` فيه `status / ok` بـ `gone: 3` و`subs` الاتنين اللي لسه موجودين. «تعديل الحالة على الموقع» على أوردر فرعي من التلاتة الممسوحين ← «مش موجود».
+3. ملاحظة: صفوف الأوردرات الفرعية القديمة بتفضل في المرآة بآخر حالة عرفناها (مفيش حذف صفوف)، والمزامنة بتربط سطور المبتكر بأوردره الفرعي الجديد أول ما تشوفه.

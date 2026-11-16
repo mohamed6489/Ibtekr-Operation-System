@@ -1100,6 +1100,30 @@ Deno.test('push_status on sub-orders: a refusal → 502 after the rest (counted,
   assertEquals(g.db.rows('woo_sync_log')[0].detail.gone, 1);
 });
 
+// Seen live 14–15 Nov (order 182236): WooCommerce answers an update of an order it cannot load with 400
+// woocommerce_rest_shop_order_invalid_id («ID is invalid.») — not 404. Dokan had deleted those sub-orders in a re-split, and every
+// status change of the order answered 502 to the member.
+const INVALID_ID = { status: 400, body: { code: 'woocommerce_rest_shop_order_invalid_id', message: 'ID is invalid.', data: { status: 400 } } };
+Deno.test('push_status on sub-orders: a sub-order Dokan deleted (PUT → 400 «ID is invalid.») is gone, not a failure — the rest move and the answer is ok; any other 400 is still a refusal', async () => {
+  const ok = (id: number) => (c: any) => ({ body: { id, status: c.body.status } });
+  const { db, woo, deps } = setup({ seed: multiSeed(), routes: { 'PUT wc/v3/orders/3002': INVALID_ID, 'PUT wc/v3/orders/3003': ok(3003) }, env: PUSH_ON });
+  const { res, body } = await call(deps, { action: 'push_status', order_id: 3001, status: 'جاهز للشحن' }, { jwt: 'jwt-ops' });
+  assertEquals([res.status, body], [200, { action: 'push_status', result: 'ok', conflict: false, subs: [3003], woo_status: 'ready-shipping', counts: { pushed: 1 } }]);
+  assertEquals(woo.calls.map((c) => [c.method, c.path]), [['PUT', 'wc/v3/orders/3002'], ['PUT', 'wc/v3/orders/3003']], 'the parent 3001 is never written');
+  const subs = new Map(db.rows('sub_orders').map((s: any) => [s.woo_order_id, s.woo_status]));
+  assertEquals([subs.get(3002), subs.get(3003)], ['processing', 'ready-shipping'], 'the gone one keeps the last status we knew');
+  const log = db.rows('woo_sync_log')[0];
+  assertEquals([log.result, log.detail], ['ok', { status: 'جاهز للشحن', woo_status: 'ready-shipping', subs: [3003], gone: 1 }]);
+  // every sub-order of the order gone: nothing to write, still no failure
+  const all = setup({ seed: multiSeed(), routes: { 'PUT wc/v3/orders/3002': INVALID_ID, 'PUT wc/v3/orders/3003': INVALID_ID }, env: PUSH_ON });
+  const a = await call(all.deps, { action: 'push_status', order_id: 3001, status: 'جاهز للشحن' }, { jwt: 'jwt-ops' });
+  assertEquals([a.res.status, a.body.result, a.body.subs, all.db.rows('woo_sync_log')[0].detail.gone], [200, 'ok', [], 2]);
+  // a 400 that is not «the order does not exist» stays a refusal
+  const bad = setup({ seed: multiSeed(), routes: { 'PUT wc/v3/orders/3002': { status: 400, body: { code: 'rest_invalid_param', message: 'Invalid parameter(s): status' } }, 'PUT wc/v3/orders/3003': ok(3003) }, env: PUSH_ON });
+  const b = await call(bad.deps, { action: 'push_status', order_id: 3001, status: 'جاهز للشحن' }, { jwt: 'jwt-ops' });
+  assertEquals([b.res.status, b.body], [502, { error: 'woo_error', subs: [3003], failed: [3002] }]);
+});
+
 // ---------------------------------------------------------------- register_webhooks
 
 Deno.test('register_webhooks creates ours next to the n8n ones, re-activates ours, never touches a foreign webhook', async () => {
@@ -2699,6 +2723,25 @@ Deno.test('suborder_status: the site status of a sub-order (a status_map slug), 
   const k = await call(kept.deps, a, { jwt: 'jwt-ops' });
   assertEquals([k.res.status, k.body.error], [502, 'woo_kept_status']);
   assertEquals(kept.db.rows('sub_orders').find((x: any) => x.woo_order_id === 3002).woo_status ?? null, null);
+});
+
+Deno.test('a sub-order the site no longer has (Dokan deleted it in a re-split): suborder_status / line_qty / line_trash answer 404 sub_gone, write nothing here and log it skipped', async () => {
+  const st = setup({ seed: lineSeed(), routes: { 'PUT wc/v3/orders/3002': INVALID_ID }, env: PUSH_ON });
+  const s = await call(st.deps, { action: 'suborder_status', order_id: 3001, sub_id: 3002, status: 'ready-shipping' }, { jwt: 'jwt-ops' });
+  assertEquals([s.res.status, s.body], [404, { error: 'sub_gone', sub: 3002 }]);
+  assertEquals(st.db.rows('sub_orders').find((x: any) => x.woo_order_id === 3002).woo_status ?? null, null, 'the mirror keeps the last status we knew (none in this seed)');
+  assertEquals(st.db.writes('sub_orders').length, 0);
+  const log = st.db.rows('woo_sync_log')[0];
+  assertEquals([log.action, log.result, log.detail], ['suborder_status', 'skipped', { reason: 'sub_gone', sub: 3002, status: 'ready-shipping' }]);
+  // the sub-order's read answers 404: the quantity, the delete and the add of a product stop there
+  const gone = { 'GET wc/v3/orders/3002': { status: 404, body: { code: 'woocommerce_rest_shop_order_invalid_id', message: 'Invalid ID.' } } };
+  const q = setup({ seed: lineSeed(), routes: gone, env: PUSH_ON });
+  const rq = await call(q.deps, { action: 'line_qty', order_id: 3001, item_id: 30011, qty: 3 }, { jwt: 'jwt-ops' });
+  assertEquals([rq.res.status, rq.body.error, wooWrites(q.woo)], [404, 'sub_gone', []]);
+  assertEquals(q.db.rows('woo_sync_log')[0].detail.reason, 'sub_gone');
+  const d = setup({ seed: lineSeed(), routes: gone, env: PUSH_ON });
+  const rd = await call(d.deps, { action: 'line_trash', order_id: 3001, item_id: 30010, reason: 'x' }, { jwt: 'jwt-ops' });
+  assertEquals([rd.res.status, rd.body.error, wooWrites(d.woo), d.db.rows('order_items').filter((i: any) => i.removed).length], [404, 'sub_gone', [], 0]);
 });
 
 // ---------------------------------------------------------------- line_qty (the owner 14 Nov — «تعديل كمية في الصب اوردر الفرعي»)

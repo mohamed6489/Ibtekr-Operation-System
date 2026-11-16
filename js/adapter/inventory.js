@@ -156,7 +156,12 @@
         consolidations.push({ id: null, derived: true, order: k, customer: custOf.get(k) || '', since: mine.map((l) => l.since).sort()[0], zone: (mine.find((l) => l.loc) || {}).loc || 'T', by: '', subs: rowsOf }); });
       const lotLines = (id) => lines.filter((l) => l.count_id === id).map((l) => { const lot = byKey.get(l.lot_id) || {}; return { key: l.lot_id, sku: lot.sku || '', name: lot.name || '', loc: lot.loc || '—', system: l.system, counted: l.counted == null ? '' : String(l.counted), cost: lot.cost || 0, note: l.note || '' }; });
       countRow = open;
-      const count = open ? { id: 'CNT-' + String(open.id).padStart(2, '0'), dbId: open.id, zone: open.zone, started: cairo(open.started_at), total: 0, base: 0, lines: lotLines(open.id) } : null;
+      // comments decision 32 (0107): the open count's pause — who and when. Read on its own and tolerantly: before the migration is
+      // applied the two columns are not there, and the hub must load all the same (the count is then simply not paused)
+      let pause = null;
+      if (open) { try { const { data: pr, error: pe } = await cl.from('inv_counts').select('id, paused_at, paused_by').eq('id', open.id).maybeSingle(); if (!pe && pr && pr.paused_at) pause = { at: cairo(pr.paused_at), by: nameOf(pr.paused_by) }; } catch (e) { /* not paused */ } }
+      if (g !== gen) return { ok: false, reason: 'stale' };
+      const count = open ? { id: 'CNT-' + String(open.id).padStart(2, '0'), dbId: open.id, zone: open.zone, started: cairo(open.started_at), total: 0, base: 0, lines: lotLines(open.id), paused: pause } : null;
       if (count) count.total = count.lines.length;
       const O = window.IbtekrOps;
       const countsHist = counts.filter((x) => x.status === 'approved').map((x) => { const ls = lotLines(x.id).filter((l) => l.counted !== ''); const d = O && O.countDiff ? O.countDiff(ls.map((l) => ({ system: l.system, counted: Number(l.counted), cost: l.cost }))) : { items: 0, value: 0 };
@@ -266,6 +271,19 @@
     try { const { error } = await cl.from('inv_count_lines').update({ counted: v, note: note ? String(note).slice(0, 300) : null }).eq('count_id', countId).eq('lot_id', key); return error ? fail(error) : { ok: true }; }
     catch (e) { return { ok: false, reason: 'network' }; }
   }
+  // comments decision 32 (0107): «إيقاف مؤقت» / «كمّل الجرد» on the open count — the server stamps who and when; while it is paused
+  // its lines take no write and it is not approved. `unavailable`: the columns are not there yet (the migration not applied).
+  async function pauseCount(countId, on) {
+    const cl = c(); if (!cl) return { ok: false, reason: 'network' };
+    if (!can().edit) return { ok: false, reason: 'forbidden' };
+    if (!Number.isInteger(Number(countId))) return { ok: false, reason: 'invalid' };
+    try {
+      const { data: d, error } = await cl.from('inv_counts').update({ paused_at: on ? new Date().toISOString() : null }).eq('id', Number(countId)).eq('status', 'open').select('id');
+      if (error) return /PGRST204|42703/.test(String(error.code || '')) ? { ok: false, reason: 'unavailable' } : fail(error);
+      if (!d || !d.length) return { ok: false, reason: 'forbidden' };
+      log(on ? 'inventory.count.pause' : 'inventory.count.resume', 'CNT-' + countId, String(countId)); return { ok: true };
+    } catch (e) { return { ok: false, reason: 'network' }; }
+  }
   async function approveCount(countId) {
     const cl = c(); if (!cl) return { ok: false, reason: 'network' };
     if (!can().approve) return { ok: false, reason: 'forbidden' };
@@ -292,6 +310,6 @@
   }
 
   window.IBInventory = { load, clear, media: mediaOf, state: () => st, can, today, cairo, newKey, settings: () => Object.assign({}, data.settings), DEFAULTS, PLACES, RETURN_DEFAULTS, loadSettings,
-    addLot, addMove, updateLot, consolidate, addToConsolidation, closeConsolidation, startCount, countLine, approveCount, saveSettings, countId: () => (countRow ? countRow.id : null),
+    addLot, addMove, updateLot, consolidate, addToConsolidation, closeConsolidation, startCount, countLine, pauseCount, approveCount, saveSettings, countId: () => (countRow ? countRow.id : null),
     _test: { toStock, toMove, toReturn, lotRow, moveRow, locCode, modeIn, modeOut } };
 })();

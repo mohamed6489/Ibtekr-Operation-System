@@ -1196,18 +1196,6 @@
   // the v6 prototype's «اعمل نسخ زيه» (a new campaign on the same idea) / «اطلب نسخة جديدة» (a request to the designer — the tired ones)
   function likeIt(idea) { if (!can().create) return; Object.assign(camp, blankCamp()); camp.w.idea = String(idea || '').slice(0, 500); go('marketing-campaign-1'); }
   const crActs = (name, tired) => (can().create ? [{ label: 'اعمل نسخ زيه', icon: 'sparkle', run: () => likeIt(name) }, tired && canAsk() ? { label: 'اطلب نسخة جديدة', icon: 'plus', run: () => reqForm('designer', { title: 'نسخة جديدة من «' + name + '»', details: 'الناس شافوا الإعلان كتير — نفس الفكرة بشكل جديد' }) } : null].filter(Boolean) : []);
-  // the published posts of the period with their own numbers (the v6 prototype's organic columns): views, engagement, likes, the rate
-  const PL_OF = { meta: ['فيسبوك', 'انستجرام'], tiktok: ['تيك توك'], google: [] };
-  function organicCard(rg, plat) {
-    const L = MK().posts().filter((x) => x.status === 'اتنشر' && x.day >= rg.from && x.day <= rg.to && (plat === 'all' || (PL_OF[plat] || []).includes(x.pl)))
-      .sort((a, b) => (Number(b.views) || 0) - (Number(a.views) || 0));
-    const T = W.postTotals(L);
-    const rows = L.map((x) => [h('button', { type: 'button', class: 'cr-cell link-btn', 'data-org-post': String(x.id), 'aria-label': 'تفاصيل ' + x.name, onClick: () => pubDetail(x) }, h('span', { class: 'cr-th' }, PostImg(x, 'fill', '')), h('span', { class: 'cr-tx' }, h('b', null, x.name), h('small', { class: 'help' }, x.kind + ' · ' + W.SRC_LABEL[x.src]))),
-      x.pl, K.Num(D2(x.day)), K.Num(n0(x.views)), K.Num(K.n0(W.engOf(x))), K.Num(x.likes == null ? '—' : K.n0(x.likes)), K.Num(x.views ? W.pct(W.engOf(x), x.views) : '—'),
-      K.RowMenu([{ label: 'التفاصيل', icon: 'eye', run: () => pubDetail(x) }].concat(crActs(x.caption || x.name, false)))]);
-    return Card('البوستات المنشورة', 'الأرقام من المنصة كل نص ساعة',
-      [L.length ? U.Table({ cls: 'dt cr-tbl org-tbl', headers: ['العمل الفني', 'المنصة', 'تاريخ النشر', 'المشاهدات', 'التفاعل', 'اللايكات', 'نسبة التفاعل', ''], rows }) : K.Empty('مفيش بوستات اتنشرت في الفترة دي', 'غيّر الفترة من فوق أو انشر من «إنشاء».')], null, null, { when: perLabel(rg), noun: ['بوست', 'البوستات'], total: K.n0(T.views) + ' مشاهدة · ' + K.n0(T.eng) + ' تفاعل' });
-  }
   function crTable(c) {
     const L = c.creatives; const tot = L.reduce((a, x) => ({ spend: a.spend + x.spend, imp: a.imp + x.impressions, clicks: a.clicks + x.clicks, purchases: a.purchases + x.purchases }), { spend: 0, imp: 0, clicks: 0, purchases: 0 });
     const th = (x) => h('span', { class: 'cr-th' }, x.thumb ? h('span', { class: 'thumb fill' }, h('img', { src: x.thumb, alt: '', loading: 'lazy', referrerpolicy: 'no-referrer' })) : Img(null, 'fill'));
@@ -1224,35 +1212,24 @@
     const c = adCalc(AD.r, rg, s);
     return [adsBar(s, redrawAds), adsNote(s), adKpis(c), h('div', { class: 'mk-row' }, suggCard(), adsConnCard(s, c)), h('div', { class: 'charts', 'data-rgroup': 'charts' }, merChart(c), spendChart(c)), vsCard(c), asstCards(), adsSource()].filter(Boolean);
   }
-  function reportsTab() {
-    const rg = adRange(); const s = adsState(null); adsLoad(loadRange(rg), redrawAds);
-    const sub = M.rsub || 'campaigns'; const c = AD.r && AD.r.ok ? adCalc(AD.r, rg, s) : null;
-    const tabs = K.SubTabs({ label: 'تقارير التسويق', active: sub, onChange: (id) => { M.rsub = id; R(); }, items: [{ id: 'campaigns', label: 'الحملات', count: c ? c.camps.length : null }, { id: 'creative', label: 'الأعمال الفنية', count: c ? c.creatives.length : null }] });
-    const gate = adsGate(loadRange(rg), redrawAds); if (gate) return [adsBar(s, redrawAds), tabs].concat(gate);
-    if (sub === 'creative') return [adsBar(s, redrawAds), tabs, adsNote(s), crTable(c), organicCard(rg, M.plat), adsSource()].filter(Boolean);
-    const f = M.cf = M.cf || { status: '', q: '', decision: '' }; const q = (f.q || '').trim().toLowerCase();
-    const sts = [...new Set(c.camps.map((x) => stOf(x.status)[0]))];
-    // «القرار» (the v6 prototype): the kind of the campaign's open suggestions, or none
-    byLoad(false); const dec = {}; byPending().forEach((x) => { (dec[x.campaign_id] = dec[x.campaign_id] || new Set()).add((SG_UI[x.kind] || SG_UI.tracking)[2]); });
-    const DEC = [...new Set(Object.values(SG_UI).map((u) => u[2]))].concat(['من غير قرار']);
-    const decOk = (x) => !f.decision || (f.decision === 'من غير قرار' ? !dec[x.id] : !!dec[x.id] && dec[x.id].has(f.decision));
-    const list = c.camps.filter((x) => (!f.status || stOf(x.status)[0] === f.status) && decOk(x) && (!q || x.name.toLowerCase().includes(q) || x.id.includes(q)));
-    const sb = h('input', { type: 'search', id: 'ads-q', placeholder: 'ابحث باسم الحملة أو رقمها', 'aria-label': 'ابحث في الحملات', value: f.q || '' });
-    sb.addEventListener('input', () => { f.q = sb.value; R(); setTimeout(() => { const x = document.getElementById('ads-q'); if (x) { x.focus(); x.setSelectionRange(x.value.length, x.value.length); } }, 0); });
-    const filt = h('div', { class: 'toolbar', 'data-ads-filters': '' }, U.Select({ id: 'ads-st', label: '', options: [{ value: '', label: 'الحالة: الكل' }].concat(sts.map((x) => ({ value: x, label: 'الحالة: ' + x }))), value: f.status, onChange: (v) => { f.status = v; R(); } }),
-      U.Select({ id: 'ads-dec', label: '', options: [{ value: '', label: 'القرار: الكل' }].concat(DEC.map((x) => ({ value: x, label: 'القرار: ' + x }))), value: f.decision || '', onChange: (v) => { f.decision = v; R(); } }),
-      h('span', { class: 'grow' }), h('label', { class: 'search search-field' }, Icon('search', 'sm'), sb));
-    return [adsBar(s, redrawAds), tabs, adsNote(s), filt, campTable(c, list), adsSource()].filter(Boolean);
-  }
-  // the reports page's «الحملات الإعلانية» (decision 47): the same numbers and blocks, its redraw; CSV = the campaigns
-  function reportBlocks(redraw) {
-    if (!MK() || !can().view) return { blocks: [K.Empty('مش مسموحلك تشوف التسويق', 'اطلب صلاحية «التسويق» من الأدمن.')], exp: null };
+  // comments 15 Nov decision 74 (the owner — «ناخد تقارير بتاعت الحملات الاعلانية بالظبط نحطها بدل التقارير اللي في التسويق»): the tab is the
+  // reports page's «الحملات الإعلانية» itself — one function draws both: the cards, the two charts, «المنصة بتقول × ووكومرس», the
+  // campaigns, the creatives and the sources. Here the page's own sync line stays over it and the header's platform narrows it
+  // («الكل» = the reports page's numbers). The two sub-tabs, the status / decision dropdowns over the campaigns (the table's own
+  // «فلتر» has both columns) and the published posts' table (their numbers are in «سجل النشر») left with the old tab.
+  function adReport(redraw, plat) {
     const rg = adRange(); const s = adsState(redraw); adsLoad(loadRange(rg), redraw);
     const gate = adsGate(loadRange(rg), redraw); if (gate) return { blocks: gate, exp: null };
-    const c = adCalc(AD.r, rg, s, 'all'); // the reports page has no platform filter
+    const c = adCalc(AD.r, rg, s, plat);
     const exp = { label: 'الحملات الإعلانية', headers: ['الحملة', 'رقم الحملة', 'المنصة', 'الحالة', 'الصرف', 'مشتريات ميتا', 'أوردرات ووكومرس', 'مبيعات ووكومرس', 'العائد الحقيقي', 'تكلفة الأوردر'],
       rows: c.camps.map((x) => [x.name, x.id, x.platform, stOf(x.status)[0], x.spend, x.purchases, x.orders, Math.round(x.sales * 100) / 100, x.mer == null ? '' : Math.round(x.mer * 100) / 100, x.cpa == null ? '' : Math.round(x.cpa)]) };
     return { exp, blocks: [adsNote(s), adKpis(c), h('div', { class: 'charts', 'data-rgroup': 'charts' }, merChart(c), spendChart(c)), vsCard(c), campTable(c, c.camps), crTable(c), adsSource()].filter(Boolean) };
+  }
+  function reportsTab() { return [adsBar(adsState(null), redrawAds)].concat(adReport(redrawAds, M.plat).blocks); }
+  // the reports page's «الحملات الإعلانية» (decision 47): the same numbers and blocks, its redraw; CSV = the campaigns
+  function reportBlocks(redraw) {
+    if (!MK() || !can().view) return { blocks: [K.Empty('مش مسموحلك تشوف التسويق', 'اطلب صلاحية «التسويق» من الأدمن.')], exp: null };
+    return adReport(redraw, 'all'); // the reports page has no platform filter
   }
 
   // ---------- 9.5.4: the assistants — the media buyer with approved execution, the designer's and the developer's requests ----------
@@ -1755,7 +1732,7 @@
     // today / this week / this month and the calendar), once in the header; the cards still compare with the period before it
     const per = ads && RB().rangeField ? h('span', { 'data-mk-range': '' }, RB().rangeField('reports')) : null;
     const plat = ads ? U.Select({ id: 'mk-plat', label: '', value: M.plat, options: PLATS.map(([k, l]) => ({ value: k, label: 'المنصة: ' + l })), onChange: (v) => { M.plat = v; R(); } }) : null;
-    return [st.tab === 'reports' ? null : K.PanelButton('marketing:' + st.tab, 'التسويق — ' + tab[1], () => document.querySelector('#pg-marketing .panel'), R), per, plat].filter(Boolean);
+    return [K.PanelButton('marketing:' + st.tab, 'التسويق — ' + tab[1], () => document.querySelector('#pg-marketing .panel'), R), per, plat].filter(Boolean); // decision 74: the reports tab is cards now — «تخصيص اللوحة» on it too
   }
   function view() {
     if (!MK() || !can().view) return [K.PageHead('التسويق', null, []), K.Empty('مفيش صلاحية', 'صفحة التسويق محتاجة صلاحية «التسويق — عرض».')];

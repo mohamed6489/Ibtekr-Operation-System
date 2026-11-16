@@ -176,6 +176,8 @@ tr.total td{background:var(--color-bg-tint)!important;font-weight:600}
 .radio[aria-checked=true] i{border-color:var(--color-brand-default)}
 .radio[aria-checked=true] i::after{content:"";width:8px;height:8px;border-radius:50%;background:var(--color-brand-default)}
 .cals{display:flex;gap:12px;padding:12px;flex:1;justify-content:center;flex-wrap:wrap}
+/* chat ش10 (16 Nov): the calendars pick the period or its comparison — the toggle above them; the comparison fields light while picked */
+.cals-wrap{flex:1;display:flex;flex-direction:column;min-width:0}.rp-mode{display:flex;gap:8px;justify-content:center;padding:12px 12px 0}.pcmp-fields .input.rp-on{border-color:var(--color-primary, #005642);box-shadow:0 0 0 2px rgba(0,86,66,.15)}
 .cal{width:252px}
 .cal-h{display:flex;align-items:center;justify-content:space-between;height:32px;margin-bottom:4px;font-weight:600}
 .cal-grid{display:grid;grid-template-columns:repeat(7,32px);justify-content:space-between;row-gap:2px}

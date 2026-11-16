@@ -448,9 +448,28 @@ test('comment 14 — the accounts page: the comparison period\'s own «من» / 
   await expect(card.locator('[data-cmp-per="was"]')).toHaveAttribute('data-range', cairoDay(-40) + '|' + cairoDay(-31));
   await expect(row('المرتبات').locator('.pcmp-v.was')).toContainText('8,000.00'); // day −33 is inside the typed period
   await expect(row('المصروفات').locator('.pcmp-v.was')).toContainText('2,500.00');
+  // chat ش10 (16 Nov): the comparison period picked from the calendars — «فترة المقارنة» above them (or a click in its field)
+  await main.locator('.date-field').first().click();
+  await expect(dp.locator('[data-rp-mode]')).toHaveAttribute('data-rp-mode', 'main');
+  await dp.locator('[data-rp-mode-btn="cmp"]').click();
+  await expect(dp.locator('[data-rp-mode]')).toHaveAttribute('data-rp-mode', 'cmp');
+  const dayBtn = async (iso) => dp.locator('.day:not(.outside)[aria-label="' + await page.evaluate((x) => window.IbtekrDomain.formatDateLong(x), iso) + '"]').first();
+  await (await dayBtn(cairoDay(-38))).click(); await (await dayBtn(cairoDay(-36))).click();
+  await expect(dp.locator('[data-rp-c="cfrom"]')).toHaveValue(dmy(cairoDay(-38)));
+  await expect(dp.locator('[data-rp-c="cto"]')).toHaveValue(dmy(cairoDay(-36)));
+  await expect(dp.locator('[role=alert]')).toHaveCount(0);
+  // the period itself stays as it was; «الفترة» picks it again
+  await expect(dp.locator('.range-row input[aria-label="من تاريخ"]')).toHaveValue(dmy(cairoDay(-29)));
+  await dp.locator('[data-rp-mode-btn="main"]').click();
+  await expect(dp.locator('[data-rp-mode]')).toHaveAttribute('data-rp-mode', 'main');
+  // a click in a comparison field turns the calendars to it
+  await dp.locator('[data-rp-c="cto"]').click();
+  await expect(dp.locator('[data-rp-mode]')).toHaveAttribute('data-rp-mode', 'cmp');
+  await update.click();
+  await expect(card.locator('[data-cmp-per="was"]')).toHaveAttribute('data-range', cairoDay(-38) + '|' + cairoDay(-36));
   // back to the same length before, then off: no fields, no card — the page as it was
   await main.locator('.date-field').first().click();
-  await expect(dp.locator('[data-rp-c="cfrom"]')).toHaveValue(dmy(cairoDay(-40)));
+  await expect(dp.locator('[data-rp-c="cfrom"]')).toHaveValue(dmy(cairoDay(-38)));
   await dp.locator('[data-rp-creset]').click();
   await expect(dp.locator('[data-rp-c="cfrom"]')).toHaveValue(dmy(cairoDay(-59)));
   await tick.uncheck();

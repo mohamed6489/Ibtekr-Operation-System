@@ -541,7 +541,8 @@ export function hrRoute(c) {
     const upsert = /resolution=merge-duplicates/.test(hd.prefer || ''); const made = [];
     for (const r of list) {
       if (t === 'hr_adjustments') { if ((r.kind || 'adjust') === 'achievement' && !(Number(r.amount) > 0)) return refuse(400, '23514', 'hr_adjustments_check');
-        if (H.payroll.some((p) => p.month === r.month && ['معتمد', 'مدفوع'].includes(p.status))) return refuse(400, '22023', 'sheet locked'); }
+        if (H.payroll.some((p) => p.month === r.month && ['معتمد', 'مدفوع'].includes(p.status))) return refuse(400, '22023', 'sheet locked');
+        if ((H.payroll_paid || []).some((x) => x.member_id === r.member_id && x.month === r.month)) return refuse(400, '22023', 'member paid'); } // 0110
       if (t === 'hr_documents' && !String(r.path || '').startsWith(r.member_id + '/')) return refuse(400, '23514', 'hr_documents_check');
       if (t === 'hr_pay' && Number(r.holdback || 0) > Number(r.salary || 0)) return refuse(400, '23514', 'hr_pay_check');
       const pk = t === 'hr_members' || t === 'hr_pay' ? 'member_id' : t === 'hr_leave_types' ? 'name' : null;

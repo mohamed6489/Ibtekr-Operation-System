@@ -605,6 +605,9 @@
     const amount = Number(f.amount); const kind = f.kind === 'achievement' ? 'achievement' : 'adjust';
     if (!(Math.abs(amount) > 0) || (kind === 'achievement' && amount < 0)) return no('invalid', 'amount');
     const r = await write(cl.from('hr_adjustments').insert({ member_id: uid, month: monthArg(f.month), amount, label: clean(f.label, 80), note: f.note ? clean(f.note, 300) : null, kind }));
+    // comments decision 78 (0110): the month is closed for him — his own pay went out, or the whole sheet did
+    if (r.error && /member paid/.test(String(r.error.message || ''))) return { ok: false, reason: 'paid', field: null, message: 'العضو اتحوّله مرتب الشهر ده بالفعل — ضيف البند على الشهر الجاي' };
+    if (r.error && /sheet locked/.test(String(r.error.message || ''))) return { ok: false, reason: 'locked', field: null, message: 'مرتبات الشهر ده اتحوّلت واتقفلت — ضيف البند على الشهر الجاي' };
     if (r.error) return fail(r.error); return after(kind === 'achievement' ? 'hr.achievement' : 'hr.payroll.adjust', (byUid(uid) || {}).id + ' · ' + monthKey(f.month || today()), uid); // no label, no amount
   }
   async function voidAdjustment(id) { const cl = c(); if (!cl) return no('network'); const r = await write(cl.from('hr_adjustments').update({ voided_at: new Date().toISOString() }).eq('id', id)); if (r.error) return fail(r.error); return after('hr.payroll.adjust.void', String(id)); }

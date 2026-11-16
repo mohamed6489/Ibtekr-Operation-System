@@ -44,6 +44,7 @@ async function openHr(page, hash) {
   await expect(page.locator('#pg-hr')).toBeVisible();
 }
 const P = (page) => page.locator('#pg-hr');
+async function pickIn(page, scope, id, label) { await scope.locator('#' + id).click(); await page.locator('[role=listbox] [role=option]', { hasText: label }).first().click(); }
 async function pick(page, id, label) { await P(page).locator('#' + id).click(); await page.locator('[role=listbox] [role=option]', { hasText: label }).first().click(); }
 // the system's period picker: its own dates typed, then «تحديث»
 async function period(page, field, from, to) {
@@ -196,4 +197,44 @@ test('comment 77 — «التقييمات»: the month by «الشهر» + «ا�
   await expect(qcard.locator('[data-cmp-per="cur"]')).toContainText('الربع ' + QN[qn - 1] + ' ' + MK.slice(0, 4));
   await expect(qcard.locator('[data-cmp-per="was"]')).toContainText(qn > 1 ? 'الربع ' + QN[qn - 2] + ' ' + MK.slice(0, 4) : 'الربع الرابع ' + (Number(MK.slice(0, 4)) - 1));
   await expect(qcard.locator('[data-cmp-row]')).toHaveCount(6);
+});
+
+// comments decision 78 (0110 — the owner 15 Nov: «المرتبات لما اعمل مكافأة لعضو اتحوله المرتب يطلعلي ايرور و يقولي انه اتحوله مرتبه بالفعل ف مفيش
+// خصم و يقولي نضيفه للشهر اللي جاى»): the popup names the member already paid as an error and its button puts the line on the month after
+test('comment 78 — «مكافأة / خصم» for a member already paid: the error in the popup, «ضيفه على ‹الشهر الجاي›» writes it on the next month; the server refuses the paid month by itself', async ({ page }) => {
+  const NEXT = addMonths(MK, 1);
+  mock.hr.payroll_paid.push({ month: MK + '-01', member_id: ACC_ID, amount: 8600, account: 'حساب البنك', early_reason: null, paid_by: null, paid_at: new Date().toISOString() });
+  await openHr(page, 'hr-payroll');
+  const sheet = P(page).locator('table.hr-pay');
+  await expect(sheet.locator('tbody tr', { hasText: 'منى حسن' })).toContainText('اتحوّل');
+  // from the toolbar: a member not paid yet is the ordinary popup
+  await P(page).locator('[data-hr-adjust]').click();
+  const f = page.locator('.modal[role=dialog]', { hasText: 'مكافأة / خصم' });
+  await pickIn(page, f, 'member', 'سارة أحمد');
+  await expect(f.locator('[data-hr-adj-paid]')).toHaveCount(0);
+  await expect(f.getByRole('button', { name: 'إضافة', exact: true })).toBeVisible();
+  // the paid member: the error names her and the month, the button offers the month after
+  await pickIn(page, f, 'member', 'منى حسن');
+  await expect(f.locator('.note.error, .inline-note.error, [role=alert]').filter({ hasText: 'اتحوّله مرتب' }).first()).toBeVisible();
+  await expect(f.locator('[data-hr-adj-paid]')).toHaveAttribute('data-hr-adj-paid', NEXT);
+  await expect(f.locator('[data-hr-adj-paid]')).toContainText('«منى حسن» اتحوّله مرتب ' + monLabel(MK) + ' بالفعل');
+  await expect(f.locator('[data-hr-adj-paid]')).toContainText('نضيف البند على مرتب ' + monLabel(NEXT));
+  await expect(f.getByRole('button', { name: 'إضافة', exact: true })).toHaveCount(0);
+  await f.locator('#label').fill('مكافأة مبيعات'); await f.locator('#amount').fill('500');
+  await f.getByRole('button', { name: 'ضيفه على ' + monLabel(NEXT) }).click();
+  await expect(f).toBeHidden();
+  await expect(page.locator('.toast.show')).toContainText('اتضاف البند على مرتب ' + monLabel(NEXT));
+  const adj = mock.hr.adjustments.filter((a) => a.member_id === ACC_ID);
+  expect(adj.map((a) => [a.month.slice(0, 7), a.amount, a.label])).toEqual([[NEXT, 500, 'مكافأة مبيعات']]);
+  // the row's ⋮ of the paid member opens the same popup with the error up front
+  await sheet.locator('tbody tr', { hasText: 'منى حسن' }).getByRole('button', { name: /إجراءات/ }).click();
+  await page.getByRole('menuitem', { name: 'مكافأة / خصم' }).click();
+  const g = page.locator('.modal[role=dialog]', { hasText: 'مكافأة / خصم' });
+  await expect(g.locator('[data-hr-adj-paid]')).toContainText('اتحوّله مرتب');
+  await g.getByRole('button', { name: 'إلغاء' }).click();
+  // the server's own refusal (the pay landed from another device after the popup opened): in words, nothing written
+  const before = mock.hr.adjustments.length;
+  const r = await page.evaluate((x) => window.IBHR.addAdjustment({ member: x.code, month: x.mk, label: 'خصم', amount: -50 }), { code: await page.evaluate((id) => (window.IBHR.data.team.find((m) => m.uid === id) || window.IBHR.everyone().find((m) => m.uid === id) || {}).id, ACC_ID), mk: MK });
+  expect(r.ok).toBe(false); expect(r.reason).toBe('paid'); expect(r.message).toContain('اتحوّله مرتب الشهر ده بالفعل');
+  expect(mock.hr.adjustments.length).toBe(before);
 });

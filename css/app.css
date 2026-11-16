@@ -60,6 +60,7 @@ button{cursor:pointer}
 .ic.sm{width:16px;height:16px}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:36px;padding:0 16px;border-radius:var(--radius-sm);border:1px solid transparent;font-weight:500;font-size:14px;line-height:20px;white-space:nowrap}
 .btn.sm{height:24px;padding:0 8px;font-size:12px}
+a.btn{text-decoration:none}
 .btn.lg{height:40px}
 .btn-primary{background:var(--color-action-default);color:var(--color-text-on-action)}
 .btn-primary:hover{background:var(--color-action-hover)}

@@ -9,21 +9,25 @@ import { ENV, NOW, fakeDb } from '../_test/fakes.ts';
 const ADMIN = '00000000-0000-4000-8000-0000000000a1';
 const ROLES = ['admin', 'ops', 'cs', 'accounts', 'vendors_followup', 'viewer'].map((id, i) => ({ id, name: id, description: '', is_system: true, permissions: {}, sort: i }));
 const PROFILES = [{ id: ADMIN, member_code: 'M01', name: 'صفوت كمال', email: 'owner@ibtekr.club', phone: '01000000001', role_id: 'admin', status: 'active' },
-  { id: '00000000-0000-4000-8000-0000000000a2', member_code: 'M07', name: 'سارة أحمد', email: 'sara@ibtekr.club', phone: '01000000002', role_id: 'ops', status: 'active' }];
-function setup(opts: { createErr?: string; profileFail?: boolean; resend?: boolean; linkErr?: boolean; mailStatus?: number } = {}) {
+  { id: '00000000-0000-4000-8000-0000000000a2', member_code: 'M07', name: 'سارة أحمد', email: 'sara@ibtekr.club', phone: '01000000002', role_id: 'ops', status: 'active' },
+  { id: '00000000-0000-4000-8000-0000000000a3', member_code: 'M03', name: 'منى تحت سارة', email: 'mona@ibtekr.club', phone: '01000000003', role_id: 'cs', status: 'active', manager_id: '00000000-0000-4000-8000-0000000000a2' }];
+function setup(opts: { emailErr?: string; createErr?: string; profileFail?: boolean; resend?: boolean; linkErr?: boolean; mailStatus?: number } = {}) {
   const db = fakeDb({ roles: ROLES, profiles: PROFILES.map((p) => ({ ...p })) }, opts.profileFail ? { fail: (c: any) => (c.table === 'profiles' && c.op === 'insert' ? { code: '23514', message: 'check' } : null) } : {});
-  const made: any[] = []; const removed: string[] = []; const passwords: any[] = []; const links: any[] = []; const mails: any[] = [];
+  const emails: any[] = []; const made: any[] = []; const removed: string[] = []; const passwords: any[] = []; const links: any[] = []; const mails: any[] = [];
   const auth = {
     create: async (email: string, password: string, name: string) => { if (opts.createErr) return { error: opts.createErr }; const id = '00000000-0000-4000-8000-0000000000f' + (made.length + 1); made.push({ id, email, password, name }); return { id }; },
     setPassword: async (id: string, password: string) => { passwords.push({ id, password }); return null; },
     remove: async (id: string) => { removed.push(id); },
+    setEmail: async (id: string, email: string) => { emails.push({ id, email }); return opts.emailErr ?? null; },
     setLink: async (email: string, redirectTo: string) => { links.push({ email, redirectTo }); return opts.linkErr ? { error: 'failed' } : { link: 'https://x.supabase.co/auth/v1/verify?token=tok-' + links.length + '&type=recovery&redirect_to=' + redirectTo }; },
   };
-  const userDb = (jwt: string) => fakeDb({}, { rpc: { is_admin: () => jwt === 'jwt-admin' } });
+  // 0111 member_can_edit: the admin any member but himself; sara (jwt-member) her own report only
+  const userDb = (jwt: string) => fakeDb({}, { rpc: { is_admin: () => jwt === 'jwt-admin',
+    member_can_edit: (a: any) => (jwt === 'jwt-admin' ? a.p_member !== ADMIN : jwt === 'jwt-member' && a.p_member === PROFILES[2].id) } });
   const fetchFake = async (url: string, init: any) => { mails.push({ url, body: JSON.parse(init.body), auth: init.headers.Authorization }); return new Response('{}', { status: opts.mailStatus ?? 200 }); };
   const deps = { env: { ...ENV, ...(opts.resend ? { RESEND_API_KEY: 're_test_key_123456', RESEND_FROM: 'team@ibtekr.club', APP_URL: 'https://ops.example.test/' } : {}) }, db, now: () => NOW, userDb,
     userId: async (jwt: string) => (jwt === 'jwt-admin' ? ADMIN : jwt === 'jwt-member' ? PROFILES[1].id : null), auth, fetch: fetchFake as any };
-  return { db, deps, made, removed, passwords, links, mails };
+  return { db, deps, made, removed, passwords, links, mails, emails };
 }
 async function call(deps: any, body: any, jwt = 'jwt-admin') {
   const res = await handler(new Request('http://x/team-admin', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + jwt }, body: JSON.stringify(body) }), deps);
@@ -98,7 +102,7 @@ Deno.test('decision 14 — member_invite: the link mailed again to an active mem
   const { res, body } = await call(deps, { action: 'member_invite', member_id: PROFILES[1].id });
   assertEquals([res.status, body.mailed], [200, true]); assertEquals(links[0].email, 'sara@ibtekr.club'); assertEquals(mails[0].body.to, ['sara@ibtekr.club']);
   assertEquals(db.rows('activity_log').map((r: any) => [r.action, r.new_value]), [['hr.member.invite', 'سارة أحمد']]);
-  assertEquals((await call(deps, { action: 'member_invite', member_id: ADMIN })).res.status, 400);
+  assertEquals((await call(deps, { action: 'member_invite', member_id: ADMIN })).res.status, 401); // 0111: never one's own (member_can_edit)
   assertEquals((await call(deps, { action: 'member_invite', member_id: '00000000-0000-4000-8000-0000000000ff' })).res.status, 404);
   assertEquals((await call(setup().deps, { action: 'member_invite', member_id: PROFILES[1].id })).body, { error: 'not_configured' });
   assertEquals((await call(setup({ resend: true, mailStatus: 500 }).deps, { action: 'member_invite', member_id: PROFILES[1].id })).body, { error: 'mail_failed' });
@@ -135,4 +139,21 @@ Deno.test('tempPassword / memberInput: the shape of a password; the input cleane
   for (let i = 0; i < 20; i++) { const p = tempPassword(); assertMatch(p, /^[a-zA-Z2-9]{12}$/); assert(/[a-zA-Z]/.test(p) && /[2-9]/.test(p)); assert(!/[01lIoO]/.test(p)); }
   const r: any = memberInput({ ...NEW, title: '<b>x</b>' });
   assertEquals([r.ok, r.v.title], [true, 'b x /b']);
+});
+
+// 0111 (the owner 16 Nov): the admin or the member's direct manager changes the login email (confirmed — the profile follows by 0047);
+// a taken one is refused; nobody else, never oneself; the address is never logged
+Deno.test('member_email: the admin and the direct manager; taken / bad / not his report refused; logged without the address', async () => {
+  const { deps, emails, db } = setup();
+  const r = await call(deps, { action: 'member_email', member_id: PROFILES[1].id, email: ' Sara.New@Ibtekr.club ' });
+  assertEquals(r.body, { ok: true, id: PROFILES[1].id }); assertEquals(emails, [{ id: PROFILES[1].id, email: 'sara.new@ibtekr.club' }]);
+  const log = db.rows('activity_log').at(-1); assertEquals([log.action, log.entity_id, log.new_value], ['hr.member.email', PROFILES[1].id, 'سارة أحمد']);
+  assertEquals((await call(deps, { action: 'member_email', member_id: PROFILES[1].id, email: 'mona@ibtekr.club' })).body, { error: 'exists', field: 'email' });
+  assertEquals((await call(deps, { action: 'member_email', member_id: PROFILES[1].id, email: 'nope' })).body, { error: 'invalid', field: 'email' });
+  const mgr = await call(deps, { action: 'member_email', member_id: PROFILES[2].id, email: 'mona2@ibtekr.club' }, 'jwt-member');
+  assertEquals(mgr.body.ok, true); assertEquals(emails.at(-1), { id: PROFILES[2].id, email: 'mona2@ibtekr.club' });
+  assertEquals((await call(deps, { action: 'member_email', member_id: ADMIN, email: 'x@ibtekr.club' }, 'jwt-member')).res.status, 401);
+  assertEquals((await call(deps, NEW, 'jwt-member')).res.status, 401, 'creating stays the admin\'s');
+  const taken = setup({ emailErr: 'exists' });
+  assertEquals((await call(taken.deps, { action: 'member_email', member_id: PROFILES[1].id, email: 'z@ibtekr.club' })).body, { error: 'exists', field: 'email' });
 });

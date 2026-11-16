@@ -17,8 +17,12 @@
 //   refused 409 { error: 'has_records', table } (0067: HR history that cascades counts too — only personal setup rows go with the
 //   member), the last active admin 409 { error: 'last_admin' }, the owner M01 409 { error: 'owner' }; a traceless one goes from
 //   auth.users (profiles and the member's own rows cascade) → { ok, id, name }.
+//   0111 (the owner 16 Nov — «المدير المباشر او الادمن يقدر يعدل اي بيانات لاي فرد في الفريق»): POST { action: 'member_email',
+//   member_id, email } → the member's login email changed in Auth (confirmed — the profile follows by 0047's trigger); a taken email
+//   → 409 { error: 'exists', field: 'email' }. It and member_invite are the admin's or the member's direct manager's (member_can_edit
+//   on the caller's own JWT: never oneself, never an admin unless the caller is one); create / password / delete stay the admin's.
 // activity_log: hr.member.create / hr.member.password / hr.member.invite / hr.member.delete with the member id and name only (no password,
-// no email, no phone, no link).
+// no email, no phone, no link); hr.member.email the same way (never the address).
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { withVault } from '../_shared/secrets.js';
 import { emailHtml } from '../_shared/notify.js';
@@ -32,11 +36,13 @@ export type AuthAdmin = {
   setPassword: (id: string, password: string) => Promise<string | null>; // null = ok, else an error code
   remove: (id: string) => Promise<void>;
   setLink?: (email: string, redirectTo: string) => Promise<{ link?: string; error?: string }>; // a set-your-password (recovery) link, not sent by Supabase
+  setEmail?: (id: string, email: string) => Promise<string | null>; // null = ok, 'exists' / 'failed'
 };
 export type Deps = { env: Record<string, string | undefined>; db: Db; now: () => string; userDb?: (jwt: string) => Db; userId?: (jwt: string) => Promise<string | null>; auth?: AuthAdmin;
   fetch?: typeof fetch };
 
-const ACTIONS = ['member_create', 'member_password', 'member_invite', 'member_delete'];
+const ACTIONS = ['member_create', 'member_password', 'member_invite', 'member_delete', 'member_email'];
+const EDITOR_ACTIONS = ['member_invite', 'member_email']; // the admin or the member's direct manager (member_can_edit)
 export const DEFAULT_APP_URL = 'https://operation-system.ibtekr.club/';
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Access-Control-Allow-Methods': 'POST, OPTIONS' };
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json' } });
@@ -65,6 +71,31 @@ async function adminOf(req: Request, deps: Deps): Promise<string | null> {
   const { data, error } = await deps.userDb(jwt).rpc('is_admin');
   if (error || data !== true) return null;
   return await deps.userId(jwt);
+}
+// the caller may edit this member (the admin, or his direct manager — 0111 member_can_edit on the caller's own JWT) → the caller's id
+async function editorOf(req: Request, deps: Deps, member: unknown): Promise<string | null> {
+  const jwt = /^Bearer\s+(\S+)$/i.exec(req.headers.get('authorization') ?? '')?.[1];
+  if (!jwt || !deps.userDb || !deps.userId || typeof member !== 'string' || !UUID.test(member)) return null;
+  const { data, error } = await deps.userDb(jwt).rpc('member_can_edit', { p_member: member.toLowerCase() });
+  if (error || data !== true) return null;
+  return await deps.userId(jwt);
+}
+async function memberEmail(deps: Deps, actor: string, args: Json) {
+  const id = typeof args.member_id === 'string' && UUID.test(args.member_id) ? args.member_id.toLowerCase() : null;
+  if (!id || id === actor) return json(400, { error: 'invalid', field: 'member_id' });
+  const email = typeof args.email === 'string' ? args.email.trim().toLowerCase() : '';
+  if (!EMAIL.test(email)) return json(400, { error: 'invalid', field: 'email' });
+  const { data: p } = await deps.db.from('profiles').select('id, name, email').eq('id', id).maybeSingle();
+  if (!p) return json(404, { error: 'not_found' });
+  if (String(p.email ?? '').toLowerCase() === email) return json(200, { ok: true, id, same: true });
+  const { data: other } = await deps.db.from('profiles').select('id').eq('email', email).neq('id', id).maybeSingle();
+  if (other) return json(409, { error: 'exists', field: 'email' });
+  if (!deps.auth || !deps.auth.setEmail) return json(500, { error: 'failed' });
+  const err = await deps.auth.setEmail(id, email);
+  if (err === 'exists') return json(409, { error: 'exists', field: 'email' });
+  if (err) return json(502, { error: 'auth_failed' });
+  await logActivity(deps, actor, 'hr.member.email', id, p.name);
+  return json(200, { ok: true, id });
 }
 async function logActivity(deps: Deps, actor: string, action: string, id: string, name: string) {
   try { await deps.db.from('activity_log').insert({ at: deps.now(), actor, action, entity: 'profile', entity_id: id, new_value: name }); } catch { /* never blocks */ }
@@ -194,14 +225,15 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
   let args: Json;
   try { args = await req.json(); } catch { return json(400, { error: 'bad_json' }); }
   if (!isObj(args)) return json(400, { error: 'bad_json' });
-  const admin = await adminOf(req, deps);
-  if (!admin) return json(401, { error: 'unauthorized' });
   const action = String(args.action ?? '');
+  const admin = EDITOR_ACTIONS.includes(action) ? await editorOf(req, deps, args.member_id) : await adminOf(req, deps);
+  if (!admin) return json(401, { error: 'unauthorized' });
   if (!ACTIONS.includes(action)) return json(400, { error: 'unknown_action' });
   try {
     if (action === 'member_create') return await memberCreate(deps, admin, args);
     if (action === 'member_invite') return await memberInvite(deps, admin, args);
     if (action === 'member_delete') return await memberDelete(deps, admin, args);
+    if (action === 'member_email') return await memberEmail(deps, admin, args);
     return await memberPassword(deps, admin, args);
   } catch (e) {
     console.error('team-admin ' + action + ': ' + errText(e));
@@ -226,6 +258,10 @@ function realDeps(): Deps {
       },
       setPassword: async (id, password) => { const { error } = await service.auth.admin.updateUserById(id, { password }); return error ? 'failed' : null; },
       remove: async (id) => { try { await service.auth.admin.deleteUser(id); } catch { /* best effort */ } },
+      setEmail: async (id, email) => { // the login email, confirmed at once (0047's trigger moves the profile along)
+        const { error } = await service.auth.admin.updateUserById(id, { email, email_confirm: true });
+        return error ? (/already|registered|exists/i.test(error.message ?? '') ? 'exists' : 'failed') : null;
+      },
       setLink: async (email, redirectTo) => { // a recovery link made here and mailed by us — Supabase's mailer never sends it
         const { data, error } = await service.auth.admin.generateLink({ type: 'recovery', email, options: { redirectTo } });
         const link = data?.properties?.action_link;

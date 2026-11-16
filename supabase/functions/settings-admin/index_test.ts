@@ -128,6 +128,19 @@ Deno.test('woo_set: the store and the media user probed first; without confirm n
   assertEquals((await call(deps, { action: 'woo_set', fields: { url: 'https://evil.example' } })).body, { error: 'missing', field: 'ck' }); assertEquals(calls.length, n0);
 });
 
+// 0111 (the owner 16 Nov): a member who is not an admin reaches member_status — the RPC decides (his direct report yes, others 42501),
+// and a refusal bans nobody; every other action stays the admin's
+Deno.test('member_status for the direct manager: through the RPC on his own JWT; refused = 403 and no ban; the rest stays admin-only', async () => {
+  const ok = setup();
+  const r = await call(ok.deps, { action: 'member_status', member_id: ADMIN, status: 'suspended', reason: 'غياب' }, 'jwt-member');
+  assertEquals(r.body.ok, true); assertEquals(ok.bans, [{ id: ADMIN, on: true }]);
+  const no = setup({ rpcFail: { code: '42501', message: 'not allowed' } });
+  const r2 = await call(no.deps, { action: 'member_status', member_id: ADMIN, status: 'suspended', reason: 'x' }, 'jwt-member');
+  assertEquals([r2.res.status, r2.body.error], [403, 'unauthorized']); assertEquals(no.bans, []);
+  assertEquals((await call(ok.deps, { action: 'status' }, 'jwt-member')).res.status, 401);
+  assertEquals((await call(ok.deps, { action: 'member_status', member_id: ADMIN, status: 'active' }, 'jwt-none')).res.status, 401);
+});
+
 Deno.test('member_status: the RPC with the caller\'s JWT, then the ban; the RPC\'s refusals come back in words', async () => {
   const { deps, rpcCalls, bans } = setup();
   const r = await call(deps, { action: 'member_status', member_id: MEMBER, status: 'suspended', reason: ' تأخير <متكرر> ' });

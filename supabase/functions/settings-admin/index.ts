@@ -46,6 +46,14 @@ async function adminOf(req: Request, deps: Deps): Promise<{ id: string; jwt: str
   const id = await deps.userId(jwt);
   return id ? { id, jwt } : null;
 }
+// 0111 (the owner 16 Nov — the direct manager edits his team too): member_status runs on the caller's own JWT and the RPC decides
+// (the admin, or the member's direct manager — member_can_edit); every other action stays the admin's
+async function memberOf(req: Request, deps: Deps): Promise<{ id: string; jwt: string } | null> {
+  const jwt = /^Bearer\s+(\S+)$/i.exec(req.headers.get('authorization') ?? '')?.[1];
+  if (!jwt || !deps.userId) return null;
+  const id = await deps.userId(jwt);
+  return id ? { id, jwt } : null;
+}
 async function log(deps: Deps, actor: string, action: string, name: string, value: Json | null) {
   try { await deps.db.from('activity_log').insert({ at: deps.now(), actor, action, entity: 'integration', entity_id: name, new_value: value }); } catch { /* never blocks */ }
 }
@@ -196,9 +204,9 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
   let args: Json;
   try { args = await req.json(); } catch { return json(400, { error: 'bad_json' }); }
   if (!isObj(args)) return json(400, { error: 'bad_json' });
-  const who = await adminOf(req, deps);
-  if (!who) return json(401, { error: 'unauthorized' });
   const action = String(args.action ?? '');
+  const who = action === 'member_status' ? await memberOf(req, deps) : await adminOf(req, deps);
+  if (!who) return json(401, { error: 'unauthorized' });
   if (!ACTIONS.includes(action)) return json(400, { error: 'unknown_action' });
   try {
     if (action === 'status') return await status(deps);

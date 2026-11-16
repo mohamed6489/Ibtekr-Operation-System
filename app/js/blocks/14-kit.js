@@ -135,7 +135,12 @@
     const f = Object.assign({}, values || {}); let errs = {}; let m = null;
     const set = (k, v, redraw) => { f[k] = v; if (errs[k]) { delete errs[k]; redraw = true; } if (redraw) draw(); };
     function draw() {
+      // the owner 16 Nov («المقدار … بيكتب رقم واحد و … محتاج ادوس علي الحقل تاني»): a redraw while typing (a field whose change draws the
+      // form again) gives the focus and the caret back to the same field (by its id) — never to another one
+      const a = m && m.el && document.activeElement && m.el.contains(document.activeElement) ? document.activeElement : null;
+      const aid = a && a.id; let s0 = null; let s1 = null; try { s0 = a.selectionStart; s1 = a.selectionEnd; } catch (x) { s0 = null; }
       m.setBody(...[note ? (typeof note === 'function' ? note(f) : note) : null].concat([].concat(fields(f, errs, set, draw))).filter(Boolean));
+      if (aid) { const n = m.el.querySelector('#' + (window.CSS && CSS.escape ? CSS.escape(aid) : aid)); if (n && n !== document.activeElement && typeof n.focus === 'function') { n.focus({ preventScroll: true }); if (s0 != null) try { n.setSelectionRange(s0, s1); } catch (x) { /* not a text field */ } } }
       m.setFooter(...[extraFooter ? extraFooter(f, m) : null, Button({ label: cancelLabel, onClick: () => m.close() }), Button({ type: submitType, label: typeof submitLabel === 'function' ? submitLabel(f) : submitLabel, onClick: go })].filter(Boolean));
     }
     function go() {

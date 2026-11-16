@@ -99,7 +99,7 @@ test('the admin: the automatic brand in «البراندات» (code, aliases, �
   await expect(brands(page)).not.toContainText('كان عنده');
   await expect(brands(page).getByRole('button', { name: 'إضافة براند' })).toBeVisible();
   await r.locator('[data-brand-menu]').click();
-  await expect(page.locator('[role=menu] [role=menuitem]')).toHaveText(['تعديل', 'اعمل البراند على الموقع', 'نقل لمبتكر تاني']); // no «النسبة الخاصة» (plan 3.4); with its origin: no «رجوع لصاحبه»; a maker with a store: «اعمل البراند على الموقع» (16 Nov)
+  await expect(page.locator('[role=menu] [role=menuitem]')).toHaveText(['تعديل', 'اعمل البراند على الموقع', 'تغيير صورة البراند', 'نقل لمبتكر تاني']); // no «النسبة الخاصة» (plan 3.4); with its origin: no «رجوع لصاحبه»; a maker with a store: «اعمل البراند على الموقع» (16 Nov)
   await page.keyboard.press('Escape');
   await drawer(page).getByRole('button', { name: 'إغلاق' }).first().click();
   // the search: the hand-added brand of Art Craft by its name and by its alias; the grey line under his name
@@ -183,7 +183,7 @@ test('ops (vendors.edit = P) and accounts read the section only: no button, no m
   await expect(brands(page).getByRole('button', { name: 'إضافة براند' })).toBeVisible();
   await expect(brands(page).locator('[data-brand-rate]')).toHaveCount(0);
   await brandRow(page, B2).locator('[data-brand-menu]').click();
-  await expect(page.locator('[role=menu] [role=menuitem]')).toHaveText(['تعديل', 'اعمل البراند على الموقع', 'نقل لمبتكر تاني']);
+  await expect(page.locator('[role=menu] [role=menuitem]')).toHaveText(['تعديل', 'اعمل البراند على الموقع', 'تغيير صورة البراند', 'نقل لمبتكر تاني']);
   await page.keyboard.press('Escape');
   await brands(page).getByRole('button', { name: 'إضافة براند' }).click();
   await expect(modal(page).locator('#br-rate')).toHaveCount(0); // no special rate (plan 3.4)
@@ -287,7 +287,7 @@ test('the brand special rate is retired (plan 3.4, decision 5): a brand_rates ro
   await tab(page, 'معلومات المبتكر').click();
   await expect(brands(page).locator('[data-brand-rate]')).toHaveCount(0);
   await brandRow(page, B2).locator('[data-brand-menu]').click();
-  await expect(page.locator('[role=menu] [role=menuitem]')).toHaveText(['تعديل', 'اعمل البراند على الموقع', 'نقل لمبتكر تاني']);
+  await expect(page.locator('[role=menu] [role=menuitem]')).toHaveText(['تعديل', 'اعمل البراند على الموقع', 'تغيير صورة البراند', 'نقل لمبتكر تاني']);
   await page.keyboard.press('Escape');
   expect(mock.requests.filter((r) => r === 'GET /rest/v1/brand_rates')).toEqual([]);
   expect(writes()).toEqual([]);
@@ -382,7 +382,7 @@ test('transfer Antikiano\'s brand to Bian eg from 8 days ago, temporarily: one o
   await expect(brandRow(page, B2)).toContainText(dmy(TODAY));
   await expect(brandRow(page, B2)).not.toContainText('مؤقت');
   await brandRow(page, B2).locator('[data-brand-menu]').click();
-  await expect(page.locator('[role=menu] [role=menuitem]')).toHaveText(['تعديل', 'اعمل البراند على الموقع', 'نقل لمبتكر تاني']);
+  await expect(page.locator('[role=menu] [role=menuitem]')).toHaveText(['تعديل', 'اعمل البراند على الموقع', 'تغيير صورة البراند', 'نقل لمبتكر تاني']);
   await page.keyboard.press('Escape');
 });
 
@@ -463,4 +463,48 @@ test('16 Nov — «اعمل البراند على الموقع» is not on the �
   await openVendors(page, ACCOUNTS);
   await openDrawer(page, V2);
   await expect(brands(page).locator('[data-brand-menu]')).toHaveCount(0);
+});
+
+// the owner 16 Nov («عايز امكانية تعديل اللوجو للبراند او المبتكر»)
+const PNG = { name: 'logo.png', mimeType: 'image/png', buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0x0d, 1, 2, 3]) };
+test('16 Nov — «تغيير صورة البراند» from the brand\'s ⋮: a picked picture is previewed, «احفظ» sends it with brand_site (the picture on the site), the note says so; a wrong file is refused before anything is sent', async ({ page }) => {
+  await setup(page);
+  await openVendors(page);
+  await openDrawer(page, V2);
+  await openBrandMenu(page, B2, 'تغيير صورة البراند');
+  const m = modal(page);
+  await expect(m).toContainText('صورة البراند «Antikiano»');
+  await m.locator('[data-pic-input]').setInputFiles({ name: 'logo.gif', mimeType: 'image/gif', buffer: Buffer.from('GIF89a') });
+  await expect(page.locator('.toast.show')).toContainText('PNG أو JPG أو WebP');
+  await expect(m.locator('[data-pic-prev]')).toHaveCount(0);
+  await m.locator('[data-pic-input]').setInputFiles(PNG);
+  await expect(m.locator('[data-pic-prev] img')).toBeVisible();
+  await m.locator('[data-pic-save]').click();
+  await expect.poll(() => (mock.brandSiteCalls || []).map((c) => [c.brand_id, c.image, c.by])).toEqual([[B2, true, ADMIN]]);
+  await expect(note(page)).toContainText('اتغيّرت صورة البراند «Antikiano» على الموقع.');
+});
+
+test('16 Nov — the maker\'s picture: the drawer\'s picture (and «تغيير صورة المبتكر» in ⋮) opens the popup, «احفظ» uploads it to vendor-photos and vendor_photo (his store\'s photo on the site too), the drawer shows it; a member without vendors.edit F has neither', async ({ page }) => {
+  await setup(page);
+  await openVendors(page);
+  const d = await openDrawer(page, V2);
+  await d.locator('[data-v-photo-edit]').click();
+  const m = modal(page);
+  await expect(m).toContainText('صورة «Antikiano»');
+  await m.locator('[data-pic-input]').setInputFiles(PNG);
+  await m.locator('[data-pic-save]').click();
+  await expect.poll(() => mock.photoCalls.map((c) => [c.vendor_id, c.site, c.by])).toEqual([[V2, 'ok', ADMIN]]);
+  await expect(note(page)).toContainText('اتغيّرت صورة «Antikiano» هنا وعلى متجره في الموقع.');
+  await expect(drawer(page).locator('[data-v-photo-img] img')).toBeVisible();
+  // the same popup from ⋮
+  await drawer(page).getByRole('button', { name: 'المزيد' }).click();
+  await page.locator('[role=menu] [role=menuitem]', { hasText: 'تغيير صورة المبتكر' }).click();
+  await expect(modal(page)).toContainText('صورة «Antikiano»');
+});
+
+test('16 Nov — no picture change for a member without vendors.edit F', async ({ page }) => {
+  await setup(page);
+  await openVendors(page, ACCOUNTS);
+  const d = await openDrawer(page, V2);
+  await expect(d.locator('[data-v-photo-edit]')).toHaveCount(0);
 });

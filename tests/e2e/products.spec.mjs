@@ -914,7 +914,7 @@ test('comment 82 — «تعديل سعر»: wider; «نسبة إبتكر» lists
   // the makers box shows with «نسبة إبتكر» only
   await expect(m.locator('[data-bp-makers]')).toHaveCount(0);
   await m.getByRole('radio', { name: 'نسبة إبتكر' }).click();
-  await m.getByRole('radio', { name: 'قيمة (نقط)' }).click();
+  await expect(m.getByRole('radio', { name: 'نسبة %' })).toHaveCount(0); // the owner 16 Nov: the rate moves by points — no unit choice
   await m.locator('#amount').fill('2');
   const box = m.locator('[data-bp-makers]');
   await expect(box).toHaveAttribute('data-bp-makers', '3');
@@ -969,4 +969,25 @@ test('comment 82 — «تعديل سعر»: wider; «نسبة إبتكر» lists
   await m2.getByRole('radio', { name: 'الخصم الوهمي' }).click();
   await expect(m2.locator('[data-bp-makers]')).toHaveCount(0);
   await expect(m2.getByRole('button', { name: 'طبّق السعر', exact: true })).toBeVisible();
+});
+
+test('owner 16 Nov — «تعديل السعر»: the amount takes several digits in a row (the redraw keeps the focus), and «نسبة إبتكر» +10 moves 40% to 50% (points), the maker price keeps «نسبة % / قيمة»', async ({ page }) => {
+  await openProducts(page);
+  await rowOf(page, 'Cushion').locator('[role=checkbox]').click();
+  await page.locator('.bulk-bar').getByRole('button', { name: 'تعديل السعر' }).click();
+  const m = page.locator('.modal.bp-modal');
+  await expect(m.getByRole('radio', { name: 'نسبة %' })).toHaveCount(1); // «سعر المبتكر»
+  await m.getByRole('radio', { name: 'نسبة إبتكر' }).click();
+  await expect(m.getByRole('radio', { name: 'نسبة %' })).toHaveCount(0);
+  const amt = m.locator('#amount');
+  await amt.click(); await amt.press('Control+a'); await amt.press('Backspace');
+  await page.keyboard.type('12'); // two keys, one after the other, no click between
+  await expect(amt).toHaveValue('12');
+  await expect(amt).toBeFocused();
+  await amt.press('Backspace'); await page.keyboard.type('0');
+  await expect(amt).toHaveValue('10');
+  const mk = m.locator('[data-bp-maker]').first();
+  const line = mk.locator('[data-bp-line="general"]');
+  const [from, to] = (await line.locator('.bp-fromto').innerText()).split('←').map((x) => parseFloat(x));
+  expect(to).toBe(from + 10);
 });

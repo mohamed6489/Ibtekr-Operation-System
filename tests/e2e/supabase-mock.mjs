@@ -294,9 +294,10 @@ const TK_OUTCOMES = ['اتحلت المشكلة', 'مش مشكلة', 'مكرر',
 const TK_STATUS = { open: 'مفتوح', in_progress: 'جاري العمل', waiting: 'بانتظار الرد', resolved: 'تم الحل', closed: 'مغلق' };
 const TK_PRIO = { urgent: 'عاجل', high: 'عالي', normal: 'عادي', low: 'منخفض' };
 const TK_MIME = ['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'application/pdf'];
+const TK_AUDIO = ['audio/webm', 'audio/ogg', 'audio/mp4', 'audio/mpeg']; // 0113: a voice note (≤ 3 MB, 1–60 s)
 const tkClean = (v, n) => String(v ?? '').replace(/[\u0001-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, n);
 const tkRoles = (u) => (u && u.status === 'active' ? [...new Set([u.role_id].concat(Array.isArray(u.extra_roles) ? u.extra_roles : []).flatMap((id) => { if (TK_ROLES[id]) return TK_ROLES[id]; if (id === 'viewer') return []; const r = ROLES.find((x) => x.id === id && !x.hidden); return r ? [r.name] : []; }))] : []);
-const tkSees = (u, t) => { const v = hasPerm(u, 'tickets.view'); return v === 'F' || (v === 'P' && (t.created_by === u.id || tkRoles(u).includes(t.assignee_role))) || (v !== 'N' && !!t.assignee_member && t.assignee_member === u.id); }; // 0097: the assigned member
+const tkSees = (u, t) => { const v = hasPerm(u, 'tickets.view'); return v === 'F' || (v === 'P' && (t.created_by === u.id || tkRoles(u).includes(t.assignee_role))) || (v !== 'N' && !!t.assignee_member && t.assignee_member === u.id) || (v !== 'N' && Array.isArray(t.members) && t.members.includes(u.id)); }; // 0097: the assigned member; 0113: the group
 // mask_phone of 0007: the first 3 and last 4 characters (10 or more), else •••• and the last 2
 // norm_phone (0034): Arabic / Persian digits → ASCII, digits only, 0020 / 20 (12 digits) stripped, a 10-digit number starting with 1 gets its 0
 const normPhone = (p) => { let d = String(p ?? '').replace(/[٠-٩۰-۹]/g, (ch) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(ch) >= 0 ? '٠١٢٣٤٥٦٧٨٩'.indexOf(ch) : '۰۱۲۳۴۵۶۷۸۹'.indexOf(ch))).replace(/\D/g, ''); if (d.startsWith('0020')) d = d.slice(4); else if (d.startsWith('20') && d.length === 12) d = d.slice(2); return d.length === 10 && d[0] === '1' ? '0' + d : d; };
@@ -428,7 +429,7 @@ export async function installSupabaseMock(page, opts = {}) {
   // phase 8 (0045): team tickets — rows as the database holds them (opts.tickets / opts.ticketEvents), the files of the bucket
   // «tickets» (path → { type, size }), and every RPC call the client sent as { fn, ...args }
   mock.tickets = (opts.tickets || []).map((x) => ({ order_number: null, order_id: null, customer: null, cs_customer_id: null, cs_conversation_id: null, vendor_id: null, vendor: null, reason: null, follow_up: null,
-    attachments: [], status: 'open', created_by: ADMIN, created_by_name: 'صفوت كمال', created_by_role: 'مدير النظام', created_at: T0, last_update: T0, reopen_count: 0, resolution_outcome: null, resolution_note: null,
+    attachments: [], members: [], status: 'open', created_by: ADMIN, created_by_name: 'صفوت كمال', created_by_role: 'مدير النظام', created_at: T0, last_update: T0, reopen_count: 0, resolution_outcome: null, resolution_note: null,
     resolved_by: null, resolved_by_name: null, resolved_at: null, closed_by: null, closed_by_name: null, closed_at: null, ...x }));
   mock.ticketEvents = (opts.ticketEvents || []).map((x, i) => ({ id: i + 1, kind: 'event', at: T0, actor: ADMIN, actor_name: 'صفوت كمال', actor_role: 'مدير النظام', old_value: null, new_value: null, attachments: [], ...x }));
   mock.ticketObjects = new Map(Object.entries(opts.ticketObjects || {})); mock.ticketWrites = []; mock.ticketsDown = false;
@@ -711,9 +712,18 @@ export async function installSupabaseMock(page, opts = {}) {
         const day = (v) => { if (v == null || String(v).trim() === '') return null; const x = String(v).trim(); const d = new Date(x + 'T00:00:00Z'); return /^\d{4}-\d{2}-\d{2}$/.test(x) && Number.isFinite(d.getTime()) && d.toISOString().slice(0, 10) === x ? x : undefined; };
         const filesOf = (a) => { if (a == null) return []; if (!Array.isArray(a) || a.length > 10) return undefined; const out = [];
           for (const f of a) { if (!f || typeof f.path !== 'string' || !new RegExp('^' + u.id + '/[A-Za-z0-9][A-Za-z0-9._-]{0,159}$').test(f.path)) return undefined; if (out.some((x) => x.path === f.path)) continue;
-            const obj = mock.ticketObjects.get(f.path); const type = obj ? obj.type : f.type; const size = obj ? obj.size : Number(f.size);
-            if (!TK_MIME.includes(type) || !(size >= 0 && size <= 10485760)) return undefined; out.push({ path: f.path, name: tkClean(f.name, 120) || f.path.replace(/^.*\//, ''), type, size }); }
+            const obj = mock.ticketObjects.get(f.path); const type = String(obj ? obj.type : f.type || '').split(';')[0]; const size = obj ? obj.size : Number(f.size);
+            const item = { path: f.path, name: tkClean(f.name, 120) || f.path.replace(/^.*\//, ''), type, size };
+            if (TK_AUDIO.includes(type)) { const d = Math.round(Number(f.duration) * 10) / 10; if (!(size >= 0 && size <= 3145728) || !(d >= 1 && d <= 60)) return undefined; item.duration = d; }
+            else if (!TK_MIME.includes(type) || !(size >= 0 && size <= 10485760)) return undefined;
+            out.push(item); }
           return out; };
+        // 0113: the group — active members with tickets.view <> N, deduped, the skipped (opener / assigned) left out
+        const membersOf = (list, skip) => { if (list == null) return []; if (!Array.isArray(list) || list.length > 30) return null; const out = [];
+          for (const id of list) { if (typeof id !== 'string') return null; if (skip.includes(id) || out.includes(id)) continue; const p = mock.profiles.find((x) => x.id === id);
+            if (!p || p.status !== 'active' || hasPerm(p, 'tickets.view') === 'N') return null; out.push(id); }
+          return out; };
+        const namesOf = (ids) => ids.map((id) => String((mock.profiles.find((x) => x.id === id) || {}).name || '').slice(0, 60)).join('، ');
         // 0082: ticket_request_create(kind, project, input) = ticket_create as an internal request of a kind, to the kind's role unless picked
         const reqKind = path.endsWith('ticket_request_create') ? b.p_kind : null;
         if (path.endsWith('ticket_request_create')) {
@@ -731,8 +741,9 @@ export async function installSupabaseMock(page, opts = {}) {
           const mem = i.assigneeMember ? mock.profiles.find((x) => x.id === i.assigneeMember) : null;
           if (i.assigneeMember && (!mem || !tkRoles(mem).includes(i.assigneeRole))) return bad('assigneeMember');
           const follow = day(i.followUp); if (follow === undefined) return bad('followUp');
+          const group = membersOf(i.members, [u.id, mem ? mem.id : null]); if (!group) return bad('members');
           const attachments = filesOf(i.attachments); if (!attachments) return bad('attachments');
-          const rec = { id: mock.tickets.reduce((m, t) => Math.max(m, t.id), 0) + 1, type: i.type, title, description, priority: i.priority, assignee_role: i.assigneeRole, assignee_member: mem ? mem.id : null, assignee_member_name: mem ? String(mem.name).slice(0, 120) : null, order_number: null, order_id: null,
+          const rec = { id: mock.tickets.reduce((m, t) => Math.max(m, t.id), 0) + 1, type: i.type, title, description, priority: i.priority, assignee_role: i.assigneeRole, assignee_member: mem ? mem.id : null, assignee_member_name: mem ? String(mem.name).slice(0, 120) : null, members: group, order_number: null, order_id: null,
             customer: tkClean(i.customer, 80) || null, cs_customer_id: null, cs_conversation_id: null, vendor_id: null, vendor: null, reason: null, follow_up: follow, attachments, status: 'open',
             created_by: u.id, created_by_name: who.name, created_by_role: who.role, created_at: now, last_update: now, reopen_count: 0, resolution_outcome: null, resolution_note: null,
             resolved_by: null, resolved_by_name: null, resolved_at: null, closed_by: null, closed_by_name: null, closed_at: null };
@@ -747,15 +758,16 @@ export async function installSupabaseMock(page, opts = {}) {
             const v = mock.vendors.find((x) => x.id === i.vendorId); if (!v) return bad('vendor'); if (!TK_VENDOR.includes(i.reason)) return bad('reason'); rec.vendor_id = v.id; rec.vendor = String(v.name).slice(0, 80); rec.reason = i.reason;
           }
           rec.kind = reqKind || null; rec.project = reqKind ? (tkClean(b.p_project, 60) || null) : null;
-          mock.tickets.push(rec); ev(rec, 'event', who.name + ' أنشأ التذكرة وعيّنها لدور «' + rec.assignee_role + '»' + (mem ? ' — ' + rec.assignee_member_name : '')); ev(rec, 'message', description);
+          mock.tickets.push(rec); ev(rec, 'event', who.name + ' أنشأ التذكرة وعيّنها لدور «' + rec.assignee_role + '»' + (mem ? ' — ' + rec.assignee_member_name : '')); if (group.length) ev(rec, 'event', who.name + ' ضاف للطلب: ' + namesOf(group)); ev(rec, 'message', description);
           return json(200, rec.id);
         }
         const tk = mock.tickets.find((t) => t.id === Number(b.p_id)); const a = b.p_args || {}; mock.ticketWrites.push({ fn: 'ticket_act', id: Number(b.p_id), action: b.p_action, ...JSON.parse(JSON.stringify(a)) });
         if (!tk || !tkSees(u, tk)) return refuse(404, 'P0002', 'ticket not found');
-        const work = isAdmin(u) || roles.includes(tk.assignee_role) || (!!tk.assignee_member && tk.assignee_member === u.id); const closer = isAdmin(u) || tk.created_by === u.id;
+        const inGroup = Array.isArray(tk.members) && tk.members.includes(u.id);
+        const work = isAdmin(u) || roles.includes(tk.assignee_role) || (!!tk.assignee_member && tk.assignee_member === u.id) || inGroup; const closer = isAdmin(u) || tk.created_by === u.id;
         const act = b.p_action;
         if (act === 'set_status') {
-          if (!['in_progress', 'waiting'].includes(a.status)) return bad('status'); if (!work) return deny('not the role of this ticket'); if (tk.status === 'closed') return bad('closed');
+          if (!['open', 'in_progress', 'waiting'].includes(a.status)) return bad('status'); if (!work) return deny('not the role of this ticket'); if (tk.status === 'closed') return bad('closed');
           if (tk.status !== a.status) { const old = tk.status; tk.status = a.status; ev(tk, 'event', who.name + ' غيّر الحالة من «' + TK_STATUS[old] + '» إلى «' + TK_STATUS[a.status] + '»', old, a.status); }
         } else if (act === 'resolve') {
           if (!work) return deny('not the role of this ticket'); if (!TK_OUTCOMES.includes(a.outcome)) return bad('outcome'); if (tk.status === 'closed') return bad('closed');
@@ -782,9 +794,19 @@ export async function installSupabaseMock(page, opts = {}) {
             ev(tk, 'event', who.name + ' خلّى الطلب ' + (nm ? 'مع ' + tk.assignee_member_name : 'لكل دور «' + nRole + '»'), old, tk.assignee_member_name); }
           if ('priority' in a) { if (!TK_PRIO[a.priority]) return bad('priority'); if (a.priority !== tk.priority) { const old = tk.priority; tk.priority = a.priority; ev(tk, 'event', who.name + ' غيّر الأولوية من «' + TK_PRIO[old] + '» إلى «' + TK_PRIO[a.priority] + '»', old, a.priority); } }
           if ('followUp' in a) { const d = day(a.followUp); if (d === undefined) return bad('followUp'); if (d !== tk.follow_up) { const old = tk.follow_up; tk.follow_up = d; ev(tk, 'event', who.name + ' غيّر تاريخ المتابعة من «' + (old || '—') + '» إلى «' + (d || '—') + '»', old, d); } }
+        } else if (act === 'add_members') {
+          if (!work && !closer) return deny('not in this request'); if (tk.status === 'closed') return bad('closed');
+          const have = Array.isArray(tk.members) ? tk.members : []; const add = membersOf(a.members, [tk.created_by, tk.assignee_member].concat(have)); if (!add) return bad('members');
+          if (add.length) { if (have.length + add.length > 30) return bad('members'); tk.members = have.concat(add); ev(tk, 'event', who.name + ' ضاف للطلب: ' + namesOf(add)); }
+        } else if (act === 'remove_member') {
+          const have = Array.isArray(tk.members) ? tk.members : []; if (!a.member || !have.includes(a.member)) return bad('member');
+          if (!closer && a.member !== u.id) return deny('not the opener of this ticket');
+          tk.members = have.filter((x) => x !== a.member); ev(tk, 'event', a.member === u.id ? who.name + ' خرج من الطلب' : who.name + ' شال من الطلب: ' + namesOf([a.member]));
         } else if (act === 'reply') {
-          const text = tkClean(a.text, 5000); if (!text) return bad('text'); if (tk.status === 'closed') return bad('closed');
-          const files = filesOf(a.attachments); if (!files) return bad('attachments'); ev(tk, 'message', text, null, null, files);
+          let text = tkClean(a.text, 5000); if (tk.status === 'closed') return bad('closed');
+          const files = filesOf(a.attachments); if (!files) return bad('attachments');
+          if (!text) { if (!files.length) return bad('text'); text = files.some((f) => String(f.type).startsWith('audio/')) ? 'رسالة صوتية' : 'مرفق'; }
+          ev(tk, 'message', text, null, null, files);
         } else return bad('action');
         return json(200, null);
       }
@@ -1700,7 +1722,8 @@ export async function installSupabaseMock(page, opts = {}) {
       // supabase-js sends a File / Blob as multipart/form-data: the file's own type and bytes are the part's (as Storage reads them)
       let type = hd['content-type'] || ''; let bytes = req.postDataBuffer() || Buffer.alloc(0);
       if (/^multipart\/form-data/.test(type)) { const raw = bytes.toString('latin1'); const m = /Content-Type:\s*([^\r\n]+)\r\n\r\n/i.exec(raw); type = m ? m[1].trim() : ''; if (m) { const start = m.index + m[0].length; const end = raw.indexOf('\r\n--', start); bytes = bytes.subarray(start, end < 0 ? undefined : end); } }
-      if (!TK_MIME.includes(type)) return json(415, { statusCode: '415', error: 'invalid_mime_type', message: 'mime type ' + type + ' is not supported' });
+      type = type.split(';')[0].trim();
+      if (!TK_MIME.includes(type) && !TK_AUDIO.includes(type)) return json(415, { statusCode: '415', error: 'invalid_mime_type', message: 'mime type ' + type + ' is not supported' });
       if (bytes.length > 10485760) return json(413, { statusCode: '413', error: 'Payload too large', message: 'The object exceeded the maximum allowed size' });
       if (mock.ticketObjects.has(key)) return json(409, { statusCode: '409', error: 'Duplicate', message: 'The resource already exists' });
       mock.ticketObjects.set(key, { type, size: bytes.length, by: u.id });

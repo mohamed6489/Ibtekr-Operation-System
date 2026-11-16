@@ -27,7 +27,7 @@ function load({ responses = {}, perms = { 'tickets.view': 'F', 'tickets.manage':
     IBActivity: { log: (action, detail, meta) => { logs.push([action, detail, meta]); return Promise.resolve(); } },
     IBVendors: { store: { findByName: (n) => (n === 'HANDS' ? { id: V1 } : null) } }, IBPrefs: prefs || undefined, crypto: { randomUUID: () => 'abcdef12-0000-4000-8000-000000000000' } };
   runInNewContext(src, { window, document: { dispatchEvent(e) { events.push(e.type); }, visibilityState: 'visible' }, CustomEvent: class { constructor(t) { this.type = t; } },
-    Promise, Date, Number, String, Array, Object, JSON, Map, Set, Math, Error, setTimeout, clearTimeout, setInterval: () => 1, clearInterval: () => {} });
+    Promise, Date, Number, String, Array, Object, JSON, Map, Set, Math, Error, Blob, setTimeout, clearTimeout, setInterval: () => 1, clearInterval: () => {} });
   return { T: window.IBTickets, stub, events, logs };
 }
 const rpcs = (stub) => stub.calls.filter((c) => c.op === 'rpc').map((c) => c.args);
@@ -187,4 +187,38 @@ test('the bell: from the first load on (no write at sign-in), a new ticket for m
   T.markSeen('TKT-0005');
   eq(store.get('tickets.seen').ids, { 5: 9 });
   eq(T.bell().map((b) => b.id), ['TKT-0001']);
+});
+
+test('0113: the group — members on the row, a member works it, add / remove go to ticket_act; a database before 0113 loads without the column', async () => {
+  const people = [{ uid: 'u3', name: 'بسمة', status: 'active', roleId: 'viewer' }, { uid: 'u4', name: 'كريم', status: 'active', roleId: 'cs' }, { uid: 'u5', name: 'موقوف', status: 'suspended', roleId: 'cs' }];
+  const grp = [row({ id: 7, assignee_role: 'خدمة العملاء', created_by: OTHER, members: [ME, 'u3'] })];
+  const { T, stub, logs } = load({ role: 'viewer', perms: { 'tickets.view': 'P', 'tickets.manage': 'F' }, members: people, responses: { tickets: ok(grp), ticket_events: ok([]) } });
+  await T.load();
+  const t = T.get('TKT-0007'); eq(t.members, [ME, 'u3']);
+  assert(T.inGroup(t) && T.canWork(t) && T.isMine(t) && T.canAddMembers(t)); assert(!T.canClose(t));
+  assert(T.canRemoveMember(t, ME)); assert(!T.canRemoveMember(t, 'u3'));
+  eq(T.addable(t).map((m) => m.uid), ['u4']);
+  assert.match(stub.calls.find((c) => c.table === 'tickets' && c.op === 'select').args[0], /, members$/);
+  await T.addMembers('TKT-0007', ['u4']);
+  eq(rpcs(stub).at(-1), ['ticket_act', { p_id: 7, p_action: 'add_members', p_args: { members: ['u4'] } }]);
+  await T.removeMember('TKT-0007', ME);
+  eq(rpcs(stub).at(-1), ['ticket_act', { p_id: 7, p_action: 'remove_member', p_args: { member: ME } }]);
+  assert(!JSON.stringify(logs).includes('u4'), 'no member id in the log');
+  // before 0113: 42703 on the column → the list again without it
+  let n = 0; const old = load({ responses: { tickets: () => (n++ === 0 ? { data: null, error: { code: '42703', message: 'column tickets.members does not exist' } } : ok(TICKETS)) } });
+  eq(await old.T.load(), { ok: true }); eq(old.T.all().length, 2);
+});
+
+test('0113: a voice note — the recorder\'s type without the codec, ≤ 3 MB, 1–60 s, a reply with the file alone', async () => {
+  const { T, stub } = load();
+  const blob = new Blob([new Uint8Array(2000)], { type: 'audio/webm;codecs=opus' });
+  const r = await T.uploadVoice(blob, 12.44);
+  eq(r.ok, true); eq(r.file, { path: ME + '/abcdef12-voice.webm', name: 'رسالة صوتية', type: 'audio/webm', size: 2000, duration: 12.4 });
+  const up = opsOf(stub.calls, 'storage:tickets').find((c) => c.op === 'upload'); eq(up.args[2], { contentType: 'audio/webm', upsert: false });
+  eq((await T.uploadVoice(blob, 0.4)).field, 'duration');
+  eq((await T.uploadVoice(new Blob([new Uint8Array(10)], { type: 'video/webm' }), 5)).field, 'type');
+  eq((await T.uploadVoice(new Blob([new Uint8Array(3 * 1024 * 1024 + 1)], { type: 'audio/mp4' }), 5)).field, 'size');
+  assert(T.isVoice(r.file)); assert(!T.isVoice({ type: 'image/png' }));
+  await T.load(); await T.reply('TKT-0001', '', [r.file]);
+  eq(rpcs(stub).at(-1), ['ticket_act', { p_id: 1, p_action: 'reply', p_args: { text: '', attachments: [r.file] } }]);
 });

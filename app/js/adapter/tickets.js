@@ -15,10 +15,16 @@
 (function () {
   'use strict';
   const COLS = 'id, type, kind, project, title, description, priority, assignee_role, assignee_member, assignee_member_name, order_number, order_id, customer, cs_customer_id, cs_conversation_id, vendor_id, vendor, reason, follow_up, attachments, status, created_by, created_by_name, created_by_role, created_at, last_update, reopen_count, resolution_outcome, resolution_note, resolved_by_name, resolved_at, closed_by_name, closed_at';
+  // 0113 (the owner 16 Nov): the group — read only once the column exists (a database before 0113 answers 42703 and the list loads without it)
+  let groupCol = true;
+  const cols = () => COLS + (groupCol ? ', members' : '');
+  const noGroup = (err) => { if (groupCol && err && (String(err.code) === '42703' || /members/.test(String(err.message || '')))) { groupCol = false; return true; } return false; };
   const EV_COLS = 'id, ticket_id, kind, at, actor, actor_name, actor_role, text, old_value, new_value, attachments';
   const LIMIT = 2000; const EV_LIMIT = 5000; const EV_DAYS = 30;
   const BUCKET = 'tickets'; const MAX_FILES = 10; const MAX_BYTES = 10 * 1024 * 1024;
   const MIME = ['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'application/pdf'];
+  // 0113: a voice note — ≤ 60 seconds, ≤ 3 MB, the types a browser records
+  const AUDIO = ['audio/webm', 'audio/ogg', 'audio/mp4', 'audio/mpeg']; const MAX_VOICE_SEC = 60; const MAX_VOICE_BYTES = 3 * 1024 * 1024;
   const ROLE_LABELS = { admin: ['مدير النظام'], cs: ['خدمة العملاء'], vendors_followup: ['متابعة المبتكرين'], accounts: ['الحسابات'], ops: ['اللوجستيك والشحن', 'المحتوى والتصوير'] };
   const OPEN = new Set(['open', 'in_progress', 'waiting']);
   const c = () => (window.IBSupabase && window.IBSupabase.client) || null;
@@ -37,9 +43,20 @@
   // owner batch 2 decision 32 (0097): a request may go to one member of the role — that member works it (even off the role); the
   // others of the role still read it, but it is «mine» (the bell, «مطلوبة مني») for that member only
   const assignedToMe = (t) => !!t && !!t.assigneeMember && t.assigneeMember === myUid();
-  const canWork = (t) => !!t && can().manage && (isAdmin() || myRoles().includes(t.assigneeRole) || assignedToMe(t));
+  // 0113: the people added to the request (a group) — they read it, write in it and work it like the role; close / reopen stay the opener's
+  const inGroup = (t) => !!t && Array.isArray(t.members) && !!myUid() && t.members.includes(myUid());
+  const canWork = (t) => !!t && can().manage && (isAdmin() || myRoles().includes(t.assigneeRole) || assignedToMe(t) || inGroup(t));
   const canClose = (t) => !!t && can().manage && (isAdmin() || (!!t.createdBy && !!t.createdBy.uid && t.createdBy.uid === myUid()));
-  const isMine = (t) => !!t && (t.assigneeMember ? assignedToMe(t) : myRoles().includes(t.assigneeRole));
+  const isMine = (t) => !!t && ((t.assigneeMember ? assignedToMe(t) : myRoles().includes(t.assigneeRole)) || inGroup(t));
+  // anyone in the request adds people (the owner: «أي حد في الطلب يضيف»); the opener or the admin takes them out, a member may leave
+  const canAddMembers = (t) => !!t && t.status !== 'closed' && (canWork(t) || canClose(t));
+  const canRemoveMember = (t, uid) => !!t && can().manage && Array.isArray(t.members) && t.members.includes(uid) && (canClose(t) || uid === myUid());
+  // who can be added: active members, not already in it (the opener, the assigned member, the group) — { uid, name, role }
+  const addable = (t) => { const D = window.IBDirectory; const all = D && D.members ? quiet(() => D.members()) || [] : [];
+    const skip = new Set([t && t.createdBy && t.createdBy.uid, t && t.assigneeMember].concat((t && t.members) || []).filter(Boolean));
+    return (Array.isArray(all) ? all : []).filter((m) => m && m.uid && m.status === 'active' && !skip.has(m.uid))
+      .map((m) => ({ uid: m.uid, name: m.name || '—', role: (labelsOf(m.roleId)[0]) || '' })).sort((a, b) => String(a.name).localeCompare(String(b.name), 'ar')); };
+  const nameOf = (uid) => { const D = window.IBDirectory; const all = D && D.members ? quiet(() => D.members()) || [] : []; const m = (Array.isArray(all) ? all : []).find((x) => x && x.uid === uid); return m ? (m.name || '—') : '—'; };
   // the active members who hold a ticket role (main or extra), for «المسؤول» → «الموظف» — { uid, name }
   const membersOf = (label) => { const D = window.IBDirectory; const all = D && D.members ? quiet(() => D.members()) || [] : [];
     return (Array.isArray(all) ? all : []).filter((m) => m && m.uid && m.status === 'active' && [m.roleId].concat(m.extraRoles || []).some((rid) => labelsOf(rid).includes(label)))
@@ -48,19 +65,21 @@
   const fieldOf = (err) => { const m = /invalid: (\w+)/.exec(String((err && err.message) || '')); return m ? m[1] : null; };
   const MESSAGES = { forbidden: 'مفيش صلاحية للإجراء ده', notfound: 'الطلب مش موجود أو مش متاح ليك', network: 'تعذّر الاتصال — جرّب تاني', invalid: 'راجع البيانات' };
   const FIELD_MESSAGES = { closed: 'الطلب مغلق — أعد فتحه الأول', status: 'الحالة دي مش متاحة للطلب ده', outcome: 'اختار نتيجة الحل', reason: 'اكتب السبب', text: 'اكتب الرد',
-    attachments: 'المرفقات: صور أو PDF، لحد ' + MAX_FILES + ' ملفات و10 ميجا للملف', followUp: 'اكتب التاريخ بالشكل يوم/شهر/سنة', orderId: 'اكتب رقم الأوردر', vendor: 'اختار المبتكر', title: 'العنوان أقصاه 80 حرف' };
+    attachments: 'المرفقات: صور أو PDF (لحد 10 ميجا) أو رسالة صوتية (لحد 60 ثانية)، لحد ' + MAX_FILES + ' ملفات', followUp: 'اكتب التاريخ بالشكل يوم/شهر/سنة', orderId: 'اكتب رقم الأوردر', vendor: 'اختار المبتكر', title: 'العنوان أقصاه 80 حرف',
+    members: 'العضو ده مش متاح يتضاف للطلب (لازم يكون شغّال وعنده «طلبات الفريق»)', member: 'العضو ده مش في الطلب' };
   const fail = (err) => { const reason = reasonOf(err); const field = reason === 'invalid' ? fieldOf(err) : null; return { ok: false, reason, field, message: (field && FIELD_MESSAGES[field]) || MESSAGES[reason] }; };
   const log = (action, detail, id) => { const L = window.IBActivity; if (L && L.log) quiet(() => L.log(action, detail, { entity: 'ticket', entity_id: id || null })); };
   const emit = (detail) => quiet(() => document.dispatchEvent(new CustomEvent('ib:tickets', { detail: detail || {} })));
 
   const tid = (n) => 'TKT-' + String(n).padStart(4, '0');
   const dbIdOf = (id) => { const s = String(id == null ? '' : id); const m = /^TKT-(\d+)$/.exec(s); return m ? Number(m[1]) : /^\d+$/.test(s) ? Number(s) : null; };
-  const files = (a) => (Array.isArray(a) ? a.filter((f) => f && typeof f.path === 'string').map((f) => ({ path: f.path, name: f.name || f.path.replace(/^.*\//, ''), type: f.type || '', size: Number(f.size) || 0 })) : []);
+  const files = (a) => (Array.isArray(a) ? a.filter((f) => f && typeof f.path === 'string').map((f) => Object.assign({ path: f.path, name: f.name || f.path.replace(/^.*\//, ''), type: f.type || '', size: Number(f.size) || 0 },
+    Number(f.duration) > 0 ? { duration: Math.round(Number(f.duration) * 10) / 10 } : {})) : []);
   // comments decision 13: a history line the server wrote says «طلب» (IbtekrTickets.words); in a description / a closing note only
   // the server's own sentences change (phrases) — what a member typed stays as typed
   const say = (how, t) => (window.IbtekrTickets && window.IbtekrTickets[how] && typeof t === 'string' ? window.IbtekrTickets[how](t) : t);
   const toTicket = (r) => ({ id: tid(r.id), dbId: Number(r.id), type: r.type, kind: r.kind || null, project: r.project || null, title: r.title, description: say('phrases', r.description), priority: r.priority, assigneeRole: r.assignee_role,
-    assigneeMember: r.assignee_member || null, assigneeMemberName: r.assignee_member ? (r.assignee_member_name || '—') : null, orderId: r.order_number || null, orderDbId: r.order_id != null ? Number(r.order_id) : null, customer: r.customer || null, csCustomerId: r.cs_customer_id || null, csConversationId: r.cs_conversation_id || null,
+    assigneeMember: r.assignee_member || null, assigneeMemberName: r.assignee_member ? (r.assignee_member_name || '—') : null, members: Array.isArray(r.members) ? r.members.filter((x) => typeof x === 'string') : [], orderId: r.order_number || null, orderDbId: r.order_id != null ? Number(r.order_id) : null, customer: r.customer || null, csCustomerId: r.cs_customer_id || null, csConversationId: r.cs_conversation_id || null,
     vendor: r.vendor || null, vendorId: r.vendor_id || null, reason: r.reason || null, followUp: r.follow_up || null, attachments: files(r.attachments), status: r.status,
     createdBy: { name: r.created_by_name, role: r.created_by_role, uid: r.created_by || null }, createdAt: r.created_at, lastUpdate: r.last_update, reopenCount: Number(r.reopen_count) || 0,
     resolution: r.resolution_outcome ? { outcome: r.resolution_outcome, note: say('phrases', r.resolution_note || ''), by: r.resolved_by_name || '', at: r.resolved_at } : null, closedBy: r.closed_by_name || null, closedAt: r.closed_at || null });
@@ -83,7 +102,7 @@
     try {
       const since = new Date(Date.now() - EV_DAYS * 86400000).toISOString();
       const [ts, evs] = await Promise.all([
-        rows(cl.from('tickets').select(COLS).order('last_update', { ascending: false }).limit(LIMIT)),
+        rows(cl.from('tickets').select(cols()).order('last_update', { ascending: false }).limit(LIMIT)).catch((e) => { if (noGroup(e)) return rows(cl.from('tickets').select(cols()).order('last_update', { ascending: false }).limit(LIMIT)); throw e; }),
         rows(cl.from('ticket_events').select(EV_COLS).gte('at', since).order('at', { ascending: true }).limit(EV_LIMIT)),
       ]);
       if (g !== gen) return { ok: false, reason: 'stale' };
@@ -115,7 +134,7 @@
   async function refresh(k) {
     const cl = c(); if (!cl) return;
     try {
-      const [t, evs] = await Promise.all([rows(cl.from('tickets').select(COLS).eq('id', k)), rows(cl.from('ticket_events').select(EV_COLS).eq('ticket_id', k).order('at', { ascending: true }))]);
+      const [t, evs] = await Promise.all([rows(cl.from('tickets').select(cols()).eq('id', k)).catch((e) => { if (noGroup(e)) return rows(cl.from('tickets').select(cols()).eq('id', k)); throw e; }), rows(cl.from('ticket_events').select(EV_COLS).eq('ticket_id', k).order('at', { ascending: true }))]);
       const i = data.tickets.findIndex((x) => x.dbId === k);
       if (!t.length) { if (i >= 0) data.tickets.splice(i, 1); data.events.delete(k); data.full.delete(k); }
       else { const nt = toTicket(t[0]); if (i >= 0) data.tickets[i] = nt; else data.tickets.unshift(nt); putEvents(evs, [k]); data.full.add(k); }
@@ -182,6 +201,7 @@
     const input = { type: f.type, title: f.title, description: f.description, priority: f.priority, assigneeRole: f.assigneeRole, reason: f.reason || null,
       followUp: f.followUp || null, attachments: files(f.attachments).slice(0, MAX_FILES) };
     if (f.assigneeMember) input.assigneeMember = f.assigneeMember;
+    if (Array.isArray(f.members) && f.members.length) input.members = f.members.filter((x) => typeof x === 'string').slice(0, 30);
     if (f.type === 'customer' || (f.orderId && clean(f.orderId, 20))) input.orderId = clean(f.orderId, 20);
     if (f.customer) input.customer = clean(f.customer, 80);
     if (f.type === 'vendor') input.vendorId = f.vendorId || vendorIdOf(f.vendor);
@@ -189,7 +209,7 @@
     if (f.csCustomerId) input.csCustomerId = f.csCustomerId;
     try {
       const { data: n, error } = await cl.rpc('ticket_create', { p_input: input }); if (error) return fail(error);
-      const k = Number(n); log('ticket.create', tid(k) + ' · ' + f.type + ' · ' + f.assigneeRole + (input.assigneeMember ? ' · عضو' : '') + (input.attachments.length ? ' · ' + input.attachments.length + ' مرفق' : ''), tid(k));
+      const k = Number(n); log('ticket.create', tid(k) + ' · ' + f.type + ' · ' + f.assigneeRole + (input.assigneeMember ? ' · عضو' : '') + (input.members ? ' · ' + input.members.length + ' عضو في الطلب' : '') + (input.attachments.length ? ' · ' + input.attachments.length + ' مرفق' : ''), tid(k));
       await refresh(k); return { ok: true, id: tid(k) };
     } catch (e) { return { ok: false, reason: 'network', message: MESSAGES.network }; }
   }
@@ -228,7 +248,10 @@
     // the log: the role and the priority by value, the member as «عضو» / «كل الدور» (no uuid in the activity text)
     return act(id, 'update', args, Object.keys(args).map((k) => (k === 'followUp' ? k : k === 'assigneeMember' ? k + '=' + (args[k] ? 'عضو' : 'كل الدور') : k + '=' + args[k])).join(', '));
   }
-  const reply = (id, text, attachments) => { const a = files(attachments).slice(0, MAX_FILES); return act(id, 'reply', { text, attachments: a }, a.length ? a.length + ' مرفق' : ''); };
+  // 0113: the group — the log says how many, never who
+  const addMembers = (id, uids) => { const list = (Array.isArray(uids) ? uids : []).filter((x) => typeof x === 'string').slice(0, 30); return act(id, 'add_members', { members: list }, list.length + ' عضو'); };
+  const removeMember = (id, uid) => act(id, 'remove_member', { member: uid }, uid === myUid() ? 'خرج' : 'شال عضو');
+  const reply = (id, text, attachments) => { const a = files(attachments).slice(0, MAX_FILES); return act(id, 'reply', { text, attachments: a }, a.some((f) => AUDIO.includes(f.type)) ? 'رسالة صوتية' : a.length ? a.length + ' مرفق' : ''); };
 
   // ---------- files (decision 2) ----------
   const safeName = (n) => { const base = String(n || 'file').replace(/^.*[\\/]/, ''); const ext = (/\.([A-Za-z0-9]{1,5})$/.exec(base) || [])[1] || '';
@@ -250,6 +273,22 @@
       return { ok: true, file: { path, name: clean(file.name, 120) || path.replace(/^.*\//, ''), type: file.type, size: file.size } };
     } catch (e) { return { ok: false, reason: 'network', message: 'تعذّر رفع الملف — جرّب تاني' }; }
   }
+  // 0113: a voice note from the recorder (a Blob) — its own type without the codec, ≤ 3 MB and 1–60 seconds
+  async function uploadVoice(blob, seconds) {
+    const cl = c(); const uid = myUid(); if (!cl || !uid) return { ok: false, reason: 'network', message: MESSAGES.network };
+    if (!can().manage) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
+    const type = String((blob && blob.type) || '').split(';')[0].trim(); const sec = Math.round(Number(seconds) * 10) / 10;
+    if (!blob || !AUDIO.includes(type)) return { ok: false, reason: 'invalid', field: 'type', message: 'المتصفح ده مش بيسجّل بصيغة مدعومة' };
+    if (blob.size > MAX_VOICE_BYTES) return { ok: false, reason: 'invalid', field: 'size', message: 'التسجيل أكبر من 3 ميجا' };
+    if (!(sec >= 1)) return { ok: false, reason: 'invalid', field: 'duration', message: 'التسجيل قصير أوي — سجّل ثانية على الأقل' };
+    const ext = { 'audio/webm': 'webm', 'audio/ogg': 'ogg', 'audio/mp4': 'm4a', 'audio/mpeg': 'mp3' }[type];
+    const path = uid + '/' + rand() + '-voice.' + ext; const body = new Blob([blob], { type });
+    try {
+      const { error } = await cl.storage.from(BUCKET).upload(path, body, { contentType: type, upsert: false }); if (error) return { ok: false, reason: 'network', message: 'تعذّر رفع التسجيل — جرّب تاني' };
+      return { ok: true, file: { path, name: 'رسالة صوتية', type, size: blob.size, duration: Math.min(MAX_VOICE_SEC, sec) } };
+    } catch (e) { return { ok: false, reason: 'network', message: 'تعذّر رفع التسجيل — جرّب تاني' }; }
+  }
+  const isVoice = (f) => !!f && AUDIO.includes(String(f.type || '').split(';')[0]);
   const urls = new Map(); // path → { url, until }
   async function fileUrl(path) {
     const cl = c(); if (!cl || !path) return null;
@@ -291,7 +330,7 @@
 
   // the ticket roles of a member's role (the owner 11 Nov — «مين اكتر حد عنده شغل» on the overview)
   const rolesOf = (roleId) => labelsOf(roleId);
-  window.IBTickets = { load, clear, loadEvents, subscribe, unsubscribe, check, state: () => st, can, myRoles, rolesOf, actor, canWork, canClose, canReopen: canClose, isMine, assignedToMe, membersOf,
+  window.IBTickets = { load, clear, loadEvents, subscribe, unsubscribe, check, state: () => st, can, myRoles, rolesOf, actor, canWork, canClose, canReopen: canClose, isMine, assignedToMe, membersOf, inGroup, canAddMembers, canRemoveMember, addable, nameOf, addMembers, removeMember, uploadVoice, isVoice,
     all, get, events, bell, markSeen, forOrder, forVendor, forCustomer, forConversation, create, createRequest, requests, REQ_KINDS, setStatus, resolve, close, reopen, update, reply, upload, fileUrl, checkFile,
-    MAX_FILES, MAX_BYTES, MIME, tid, dbIdOf, _test: { toTicket, toEvent, safeName, files, fail } };
+    MAX_FILES, MAX_BYTES, MIME, AUDIO, MAX_VOICE_SEC, MAX_VOICE_BYTES, tid, dbIdOf, _test: { toTicket, toEvent, safeName, files, fail } };
 })();

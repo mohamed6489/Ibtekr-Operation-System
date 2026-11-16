@@ -71,7 +71,7 @@
     const qty = first ? first.qty : 1;
     return { key: l.key, name: l.name, vendor: l.vendor, mode: l.mode === 'ملك' ? 'ملك ابتكر' : 'أمانة', sub: l.sub ? '#' + l.sub : (l.ref || '—'), sku: l.sku,
       type: l.status === 'راجع للمبتكر' ? 'مرتجع للمبتكر' : 'مرتجع للمخزن', reason: l.note || 'مرتجع', condition: l.condition, conditionNote: l.conditionNote,
-      at: K() && K().dshort ? K().dshort(l.since) : l.since, status, effect: status === 'بانتظار الفحص' ? '+ ' + qty + ' بعد الفحص' : status === 'اتفحص — تالف' ? '− تالف ' + (K() && K().money ? K().money(l.cost) : l.cost) + ' ج' : status === 'اتفحص — رجع للمبتكر' ? 'رجع لـ ' + l.vendor : '+ ' + qty + ' متاح',
+      at: K() && K().dshort ? K().dshort(l.returnedAt || l.since) : l.returnedAt || l.since, status, effect: status === 'بانتظار الفحص' ? '+ ' + qty + ' بعد الفحص' : status === 'اتفحص — تالف' ? '− تالف ' + (K() && K().money ? K().money(l.cost) : l.cost) + ' ج' : status === 'اتفحص — رجع للمبتكر' ? 'رجع لـ ' + l.vendor : '+ ' + qty + ' متاح',
       value: status === 'اتفحص — تالف' ? l.cost : 0 };
   }
 
@@ -136,6 +136,9 @@
       const stock = lots.map((r) => toStock(r, sidOf)); const byKey = new Map(stock.map((l) => [l.key, l]));
       const ledger = moves.map((m) => toMove(m, byKey));
       const firstIn = new Map(); for (let i = ledger.length - 1; i >= 0; i--) { const m = ledger[i]; if (m.type === 'in' && !firstIn.has(m.key)) firstIn.set(m.key, m); }
+      // comments decision 31: a piece that came back as a return and was inspected sound carries the day it arrived (`returnedAt`) —
+      // its `since` is the inspection's day from then on («دخل المخزن يتحسب من تاريخ الفحص»)
+      stock.forEach((l) => { const f = firstIn.get(l.key); if (f && f.reason === 'مرتجع' && l.reason !== 'مرتجع' && f.at) { const d = String(f.at).slice(0, 10); if (DAY_RE.test(d) && d < String(l.since)) l.returnedAt = d; } });
       const returns = stock.filter((l) => (firstIn.get(l.key) || {}).reason === 'مرتجع' || l.reason === 'مرتجع').map((l) => toReturn(l, firstIn.get(l.key)));
       const itemById = itemOf; const custOf = new Map(orders.map((o) => [String(o.id), o.customer_name || '']));
       const consolidations = cons.map((x) => ({ id: x.id, order: String(x.order_id), customer: custOf.get(String(x.order_id)) || '', since: x.since, zone: x.zone || 'T', by: nameOf(x.created_by),
@@ -200,12 +203,14 @@
     try { const { error } = await cl.from('inv_moves').insert(moveRow(m)); if (error) return fail(error); if (!silent) { log('inventory.move', m.type + ' ' + m.qty + (m.label ? ' · ' + m.label : ''), m.key); } return { ok: true }; }
     catch (e) { return { ok: false, reason: 'network' }; }
   }
-  const LOT_PATCH = { status: 'status', reason: 'reason', loc: 'loc', mode: 'mode', cost: 'cost', note: 'note', condition: 'condition', conditionNote: 'condition_note' };
+  // `since` (comments decision 31): a return «enters the hub» the day it is inspected — the inspection moves the lot's day (a valid day only)
+  const LOT_PATCH = { status: 'status', reason: 'reason', loc: 'loc', mode: 'mode', cost: 'cost', note: 'note', condition: 'condition', conditionNote: 'condition_note', since: 'since' };
+  const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
   async function updateLot(key, patch, action) {
     const cl = c(); if (!cl) return { ok: false, reason: 'network' };
     if (!can().edit) return { ok: false, reason: 'forbidden' };
     if (!UUID.test(String(key))) return { ok: false, reason: 'invalid' };
-    const row = {}; Object.keys(patch || {}).forEach((k) => { if (LOT_PATCH[k]) row[LOT_PATCH[k]] = k === 'loc' ? locCode(patch[k]) : k === 'mode' ? modeIn(patch[k]) : k === 'cost' ? num(patch[k]) : patch[k]; });
+    const row = {}; Object.keys(patch || {}).forEach((k) => { if (k === 'since' && !DAY_RE.test(String(patch[k] || ''))) return; if (LOT_PATCH[k]) row[LOT_PATCH[k]] = k === 'loc' ? locCode(patch[k]) : k === 'mode' ? modeIn(patch[k]) : k === 'cost' ? num(patch[k]) : patch[k]; });
     if (!Object.keys(row).length) return { ok: true };
     try { const { data: d, error } = await cl.from('inv_lots').update(row).eq('id', key).select('id'); if (error) return fail(error); if (!d || !d.length) return { ok: false, reason: 'forbidden' };
       log(action || 'inventory.lot', Object.keys(row).map((k) => k + ': ' + (k === 'note' || k === 'condition_note' ? '…' : row[k])).join(' · '), key);

@@ -141,9 +141,9 @@ Deno.test('tempPassword / memberInput: the shape of a password; the input cleane
   assertEquals([r.ok, r.v.title], [true, 'b x /b']);
 });
 
-// 0111 (the owner 16 Nov): the admin or the member's direct manager changes the login email (confirmed — the profile follows by 0047);
-// a taken one is refused; nobody else, never oneself; the address is never logged
-Deno.test('member_email: the admin and the direct manager; taken / bad / not his report refused; logged without the address', async () => {
+// 0111 (the owner 16 Nov): the admin changes the login email (confirmed — the profile follows by 0047); a taken one is refused; the
+// direct manager may not (security review — the email and the password link together would hand him the account); never logged
+Deno.test('member_email: the admin only; taken / bad refused; a direct manager refused; logged without the address', async () => {
   const { deps, emails, db } = setup();
   const r = await call(deps, { action: 'member_email', member_id: PROFILES[1].id, email: ' Sara.New@Ibtekr.club ' });
   assertEquals(r.body, { ok: true, id: PROFILES[1].id }); assertEquals(emails, [{ id: PROFILES[1].id, email: 'sara.new@ibtekr.club' }]);
@@ -151,7 +151,7 @@ Deno.test('member_email: the admin and the direct manager; taken / bad / not his
   assertEquals((await call(deps, { action: 'member_email', member_id: PROFILES[1].id, email: 'mona@ibtekr.club' })).body, { error: 'exists', field: 'email' });
   assertEquals((await call(deps, { action: 'member_email', member_id: PROFILES[1].id, email: 'nope' })).body, { error: 'invalid', field: 'email' });
   const mgr = await call(deps, { action: 'member_email', member_id: PROFILES[2].id, email: 'mona2@ibtekr.club' }, 'jwt-member');
-  assertEquals(mgr.body.ok, true); assertEquals(emails.at(-1), { id: PROFILES[2].id, email: 'mona2@ibtekr.club' });
+  assertEquals(mgr.res.status, 401, 'not the direct manager\'s'); assertEquals(emails.length, 1);
   assertEquals((await call(deps, { action: 'member_email', member_id: ADMIN, email: 'x@ibtekr.club' }, 'jwt-member')).res.status, 401);
   assertEquals((await call(deps, NEW, 'jwt-member')).res.status, 401, 'creating stays the admin\'s');
   const taken = setup({ emailErr: 'exists' });

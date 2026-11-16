@@ -19,8 +19,10 @@
 //   auth.users (profiles and the member's own rows cascade) → { ok, id, name }.
 //   0111 (the owner 16 Nov — «المدير المباشر او الادمن يقدر يعدل اي بيانات لاي فرد في الفريق»): POST { action: 'member_email',
 //   member_id, email } → the member's login email changed in Auth (confirmed — the profile follows by 0047's trigger); a taken email
-//   → 409 { error: 'exists', field: 'email' }. It and member_invite are the admin's or the member's direct manager's (member_can_edit
-//   on the caller's own JWT: never oneself, never an admin unless the caller is one); create / password / delete stay the admin's.
+//   → 409 { error: 'exists', field: 'email' }. The admin's only (security review: a manager who could set a report's login email and
+//   then send the password link would hold that account). member_invite (the link to the member's own address) is the admin's or the
+//   member's direct manager's (member_can_edit on the caller's own JWT: never oneself, never an admin unless the caller is one);
+//   create / password / delete stay the admin's.
 // activity_log: hr.member.create / hr.member.password / hr.member.invite / hr.member.delete with the member id and name only (no password,
 // no email, no phone, no link); hr.member.email the same way (never the address).
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
@@ -42,7 +44,7 @@ export type Deps = { env: Record<string, string | undefined>; db: Db; now: () =>
   fetch?: typeof fetch };
 
 const ACTIONS = ['member_create', 'member_password', 'member_invite', 'member_delete', 'member_email'];
-const EDITOR_ACTIONS = ['member_invite', 'member_email']; // the admin or the member's direct manager (member_can_edit)
+const EDITOR_ACTIONS = ['member_invite']; // the admin or the member's direct manager (member_can_edit) — the email stays the admin's
 export const DEFAULT_APP_URL = 'https://operation-system.ibtekr.club/';
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Access-Control-Allow-Methods': 'POST, OPTIONS' };
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json' } });

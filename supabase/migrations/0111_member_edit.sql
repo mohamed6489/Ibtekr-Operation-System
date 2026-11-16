@@ -14,9 +14,19 @@
 -- permission writes keep their alert for the admins. Re-runnable; no data dropped.
 
 -- ---------------------------------------------------------------- who may edit whom
+-- the caller's session passes the 2FA gate has_perm / is_admin use (0056): a member with 2FA (or the company forcing it) on an aal1
+-- session has nothing here either (security review)
+create or replace function public.caller_aal_ok() returns boolean
+language sql stable security definer set search_path = public as $$
+  select not exists (select 1 from public.profiles p where p.id = auth.uid()
+                      and (coalesce(p.twofa, false) or public.force2fa_on()) and coalesce(auth.jwt() ->> 'aal', 'aal1') <> 'aal2')
+$$;
+revoke execute on function public.caller_aal_ok() from public, anon;
+grant execute on function public.caller_aal_ok() to authenticated, service_role;
+
 create or replace function public.member_can_edit(p_member uuid) returns boolean
 language sql stable security definer set search_path = public as $$
-  select public.hr_active() and p_member is not null and p_member <> auth.uid()
+  select public.hr_active() and public.caller_aal_ok() and p_member is not null and p_member <> auth.uid()
      and exists (select 1 from public.profiles p where p.id = p_member
                   and (public.is_admin() or (p.manager_id = auth.uid() and p.role_id <> 'admin')))
 $$;
@@ -31,11 +41,11 @@ $$;
 revoke execute on function public.perm_rank(text) from public, anon;
 grant execute on function public.perm_rank(text) to authenticated, service_role;
 
--- every permission in the set is at most what the caller has himself (the admin: always)
+-- every permission in the set is at most what the caller has himself (the admin: always; an aal1 session behind 2FA: nothing)
 create or replace function public.perms_within_mine(p_perms jsonb) returns boolean
 language sql stable security definer set search_path = public as $$
   select public.is_admin() or (
-    p_perms is not null and jsonb_typeof(p_perms) = 'object'
+    public.caller_aal_ok() and p_perms is not null and jsonb_typeof(p_perms) = 'object'
     and not exists (select 1 from jsonb_each_text(p_perms) e
                      where public.perm_rank(e.value) > public.perm_rank(public.member_perm(auth.uid(), e.key))))
 $$;
@@ -106,15 +116,29 @@ grant execute on function public.member_job_set(uuid, text, text, date, numeric)
 create or replace function public.member_perms_set(p_member uuid, p_perms jsonb) returns void
 language plpgsql volatile security definer set search_path = public as $$
 declare
-  v_role text;
+  v_role text; v_old jsonb; v_keys text[]; v_before jsonb := '{}'; v_k text;
 begin
   if not (public.is_admin() or public.member_can_edit(p_member)) then raise exception 'not allowed' using errcode = '42501'; end if;
   if not public.perms_ok(p_perms) then raise exception 'invalid: perms' using errcode = '22023'; end if;
   if not public.perms_within_mine(p_perms) then raise exception 'invalid: above' using errcode = '22023'; end if;
-  select role_id into v_role from public.profiles where id = p_member for update;
+  select role_id, coalesce(custom_perms, '{}') into v_role, v_old from public.profiles where id = p_member for update;
   if v_role is null then raise exception 'no such member' using errcode = 'P0002'; end if;
   if v_role = 'admin' then raise exception 'invalid: admin' using errcode = '22023'; end if;
+  -- a manager: what the member really has on every touched key, before and after — taking an override off hands over the role's
+  -- value, so whatever rises must still be within the manager's own (security review)
+  if not public.is_admin() then
+    select array_agg(distinct x) into v_keys from (select jsonb_object_keys(v_old) x union select jsonb_object_keys(p_perms)) t;
+    foreach v_k in array coalesce(v_keys, '{}') loop v_before := v_before || jsonb_build_object(v_k, public.member_perm(p_member, v_k)); end loop;
+  end if;
   update public.profiles set custom_perms = p_perms where id = p_member;
+  if not public.is_admin() then
+    foreach v_k in array coalesce(v_keys, '{}') loop
+      if public.perm_rank(public.member_perm(p_member, v_k)) > public.perm_rank(v_before ->> v_k)
+         and public.perm_rank(public.member_perm(p_member, v_k)) > public.perm_rank(public.member_perm(auth.uid(), v_k)) then
+        raise exception 'invalid: above' using errcode = '22023';
+      end if;
+    end loop;
+  end if;
   perform public.log_activity('settings.member.perms', 'profile', p_member::text, null, to_jsonb((select coalesce(array_agg(k order by k), '{}') from jsonb_object_keys(p_perms) k)));
   perform public.perm_change_alert('اتغيّرت الصلاحيات المخصصة لعضو (' || (select count(*) from jsonb_object_keys(p_perms)) || ')', p_member::text);
 end
@@ -147,17 +171,20 @@ grant execute on function public.member_level_set(uuid, text) to authenticated, 
 create or replace function public.member_role_set(p_member uuid, p_role text) returns void
 language plpgsql volatile security definer set search_path = public as $$
 declare
-  v_old text;
+  v_old text; v_level text;
 begin
   if not (public.is_admin() or public.member_can_edit(p_member)) then raise exception 'not allowed' using errcode = '42501'; end if;
   if not exists (select 1 from public.roles where id = p_role and not hidden) then raise exception 'invalid: role' using errcode = '22023'; end if;
-  if not public.is_admin() then
-    -- a manager never makes anyone an admin, and the new role (at «موظف», where a new role starts) is within his own permissions
-    if p_role = 'admin' then raise exception 'invalid: admin' using errcode = '22023'; end if;
-    if not public.perms_within_mine((select r.permissions from public.roles r where r.id = p_role)) then raise exception 'invalid: above' using errcode = '22023'; end if;
-  end if;
-  select role_id into v_old from public.profiles where id = p_member for update;
+  select role_id, coalesce(level, 'employee') into v_old, v_level from public.profiles where id = p_member for update;
   if v_old is null then raise exception 'no such member' using errcode = 'P0002'; end if;
+  if not public.is_admin() then
+    -- a manager never makes anyone an admin, and the new role at the member's own level (the level stays with the member) is within
+    -- his own permissions (security review)
+    if p_role = 'admin' then raise exception 'invalid: admin' using errcode = '22023'; end if;
+    if not public.perms_within_mine((select public.role_level_perms(r, v_level) from public.roles r where r.id = p_role)) then
+      raise exception 'invalid: above' using errcode = '22023';
+    end if;
+  end if;
   if v_old = p_role then return; end if;
   if v_old = 'admin' and (select count(*) from public.profiles where role_id = 'admin' and status = 'active' and id <> p_member) = 0 then
     raise exception 'last admin' using errcode = '22023';

@@ -42,7 +42,8 @@ do $$ begin
   if has_function_privilege('anon', 'public.member_info_set(uuid, text, text, text)', 'EXECUTE')
      or has_function_privilege('anon', 'public.member_job_set(uuid, text, text, date, numeric)', 'EXECUTE')
      or has_function_privilege('anon', 'public.member_can_edit(uuid)', 'EXECUTE')
-     or has_function_privilege('anon', 'public.perms_within_mine(jsonb)', 'EXECUTE') then
+     or has_function_privilege('anon', 'public.perms_within_mine(jsonb)', 'EXECUTE')
+     or has_function_privilege('anon', 'public.caller_aal_ok()', 'EXECUTE') then
     raise exception 'case the grants failed';
   end if;
   if not has_function_privilege('authenticated', 'public.member_info_set(uuid, text, text, text)', 'EXECUTE') then raise exception 'case members may call failed'; end if;
@@ -78,6 +79,42 @@ do $$ begin
   if not pg_temp.fails($q$select public.member_perms_set('00000000-0000-4000-8000-0000000111a5', '{}')$q$, '42501') then raise exception 'case manager touches an admin failed'; end if;
 end $$;
 reset role;
+-- an override that holds the role's F back: taking it off hands the F over — refused for a manager without it
+update public.roles set permissions = permissions || '{"accounts.view":"F"}' where id = 'me_low111';
+update public.profiles set custom_perms = '{"accounts.view":"N"}', level = 'employee' where id = '00000000-0000-4000-8000-0000000111a3';
+select pg_temp.as_member('00000000-0000-4000-8000-0000000111a2');
+do $$ begin
+  if not pg_temp.fails($q$select public.member_perms_set('00000000-0000-4000-8000-0000000111a3', '{}')$q$, 'invalid: above') then raise exception 'case removing an override above failed'; end if;
+  perform public.member_perms_set('00000000-0000-4000-8000-0000000111a3', '{"accounts.view":"N","orders.view":"F"}');
+end $$;
+reset role;
+update public.roles set permissions = '{"orders.view":"P"}' where id = 'me_low111';
+update public.profiles set custom_perms = '{"orders.view":"F","orders.status":"P"}', level = 'viewer' where id = '00000000-0000-4000-8000-0000000111a3';
+-- the level stays with the member: a role whose «مدير» set is above the manager's own is refused for a member who is «مدير»
+update public.roles set level_perms = '{"manager":{"accounts.view":"F"}}' where id = 'me_big111';
+update public.roles set permissions = '{"orders.view":"P"}' where id = 'me_big111';
+update public.profiles set level = 'manager', custom_perms = '{}' where id = '00000000-0000-4000-8000-0000000111a3';
+select pg_temp.as_member('00000000-0000-4000-8000-0000000111a2');
+do $$ begin
+  if not pg_temp.fails($q$select public.member_role_set('00000000-0000-4000-8000-0000000111a3', 'me_big111')$q$, 'invalid: above') then raise exception 'case role above at the member''s level failed'; end if;
+end $$;
+reset role;
+update public.profiles set level = 'employee' where id = '00000000-0000-4000-8000-0000000111a3';
+select pg_temp.as_member('00000000-0000-4000-8000-0000000111a2');
+do $$ begin perform public.member_role_set('00000000-0000-4000-8000-0000000111a3', 'me_big111'); end $$;
+reset role;
+update public.profiles set role_id = 'me_low111', level = 'viewer', custom_perms = '{"orders.view":"F","orders.status":"P"}' where id = '00000000-0000-4000-8000-0000000111a3';
+update public.roles set permissions = '{"accounts.view":"F"}', level_perms = '{}' where id = 'me_big111';
+-- a manager behind 2FA on an aal1 session edits nobody
+update public.profiles set twofa = true where id = '00000000-0000-4000-8000-0000000111a2';
+set local role authenticated;
+select set_config('request.jwt.claims', json_build_object('sub', '00000000-0000-4000-8000-0000000111a2', 'role', 'authenticated', 'aal', 'aal1')::text, true);
+do $$ begin
+  if public.member_can_edit('00000000-0000-4000-8000-0000000111a3') then raise exception 'case aal1 manager edits failed'; end if;
+  if public.perms_within_mine('{}') then raise exception 'case aal1 within mine failed'; end if;
+end $$;
+reset role;
+update public.profiles set twofa = false where id = '00000000-0000-4000-8000-0000000111a2';
 do $$ declare p record; j record; begin
   select name, phone, title, level, custom_perms into p from public.profiles where id = '00000000-0000-4000-8000-0000000111a3';
   if p.name <> 'عضو جديد' or p.phone <> '01000111099' or p.title <> 'مصمم' then raise exception 'case info written failed: %', row_to_json(p); end if;

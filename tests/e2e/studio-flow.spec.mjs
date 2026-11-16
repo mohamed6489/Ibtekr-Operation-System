@@ -850,7 +850,7 @@ test('comment 51 — the style comes from the shop\'s own styles only: the list 
   await page.keyboard.press('Escape');
 });
 
-test('comments 39–41 — a ready sheet\'s photos: the sheet\'s own pictures stand on their rows, the uploads go to the row they look like whatever their names; each row\'s ⋮ replaces or empties it, «زوّد صور» only adds, «مسح الكل» empties all; a product without a photo or a photo without a row stops «التالي» with a note', async ({ page }) => {
+test('comments 39–41 — a ready sheet\'s photos: the sheet\'s own pictures are signatures only (16 Nov — never put on the rows), the uploads go to the row they look like whatever their names; each row\'s ⋮ replaces or empties it, «زوّد صور» only adds, «مسح الكل» empties all; a product without a photo or a photo without a row stops «التالي» with a note', async ({ page }) => {
   await signIn(page, ADMIN);
   const pics = await drawPics(page);
   // the maker's sheet: three rows, each with its picture in the cell (the same writer as «نسخة المبتكر»)
@@ -859,16 +859,18 @@ test('comments 39–41 — a ready sheet\'s photos: the sheet\'s own pictures st
   await choose(page, 'شيت جاهز', 'Simple');
   await pick(page, '[data-flow-sheet]', { name: 'maker.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: Buffer.from(xlsx) });
   const card = page.locator('#pg-products [data-fl-list="photos"]'); const gaps = page.locator('#pg-products [data-fl-gaps]'); const nextBtn = page.locator('.wiz-foot [data-flow-next]');
-  // 40: the sheet's pictures are taken onto their rows by themselves — every row has its photo, marked «من الشيت», and «التالي» is open
-  await expect(card.locator('[data-fl-photos-row]')).toHaveCount(3);
-  await expect(card.locator('[data-fl-from-sheet]')).toHaveCount(3);
-  await expect(gaps).toHaveAttribute('data-fl-gaps', 'ok'); await expect(nextBtn).toBeEnabled();
+  // the owner 16 Nov: the sheet's pictures are NOT put on the rows (low quality) — they are signatures only, for the matching; the
+  // rows wait for the real photos and «التالي» stops
   await expect.poll(() => Object.keys((batch().state || {}).sheetSigs || {}).length).toBe(3);
+  await expect(card.locator('[data-fl-from-sheet]')).toHaveCount(0);
+  expect(Object.keys(batch().state.sheetPhotos || {})).toEqual([]);
+  expect(Object.keys(batch().state.photoRows || {})).toEqual([]);
+  await expect(gaps).not.toHaveAttribute('data-fl-gaps', 'ok');
   // the maker's real photos, named in an order that is NOT the rows' (a = the third product, b = the first, c = the second)
-  await expect(page.locator('[data-flow-photos]')).toHaveText(/زوّد صور/); // 39: the button only adds
+  await expect(page.locator('[data-flow-photos]')).toHaveText(/ارفع الصور/); // no photo on any row yet (the sheet's pictures are not taken)
   await pick(page, '[data-flow-photos]', [bigPng('a.png', pics[2]), bigPng('b.png', pics[0]), bigPng('c.png', pics[1])]);
   await expect(page.locator('.toast.show').filter({ hasText: 'اتحطت على صفها لوحدها' })).toBeVisible();
-  await expect(card.locator('[data-fl-from-sheet]')).toHaveCount(0); // the small copies gave way to the real photos
+  await expect(card.locator('[data-fl-from-sheet]')).toHaveCount(0);
   // (the batch is saved a moment later: wait for the save that carries the uploads)
   await expect.poll(() => { const st = batch().state || {}; return [Object.keys(st.photoSigs || {}).length, Object.keys(st.sheetPhotos || {}).length].concat([1, 2, 3].map((k) => ((st.photoRows || {})[k] || []).length)); }).toEqual([3, 0, 1, 1, 1]);
   { // each row holds the photo that looks like its picture in the sheet — and not like another row's
@@ -912,7 +914,14 @@ test('comments 39–41 — a ready sheet\'s photos: the sheet\'s own pictures st
   // the photos uploaded again without numbers in the names still land on their rows (the sheet's pictures are remembered)
   await pick(page, '[data-flow-photos]', [bigPng('x.png', pics[1]), bigPng('y.png', pics[2]), bigPng('z.png', pics[0])]);
   await expect.poll(() => { const st = batch().state; return [1, 2, 3].every((k) => (st.photoRows[k] || []).length === 1 && F.sigDistance(st.sheetSigs[k], st.photoSigs[st.photoRows[k][0]]) < F.SIG_MAX); }).toBe(true);
-  await expect(nextBtn).toBeEnabled();
+  await expect(nextBtn).toBeEnabled();  // the owner 16 Nov: a batch saved before, with the sheet's small pictures standing on rows — opened again, they go (the real photos
+  // and the signatures stay)
+  const real = batch().state.photoRows[1][0];
+  batch().state.photoRows[1] = ['studio/old-sheet-1.webp']; batch().state.photoRows[4] = ['studio/old-sheet-4.webp'];
+  batch().state.sheetPhotos = { 'studio/old-sheet-1.webp': 1, 'studio/old-sheet-4.webp': 1 };
+  await page.reload();
+  await expect.poll(() => { const st = batch().state; return [Object.keys(st.sheetPhotos || {}).length, (st.photoRows[1] || []).length, (st.photoRows[4] || []).length, Object.keys(st.sheetSigs || {}).length]; }).toEqual([0, 0, 0, 3]);
+  expect(real).toBeTruthy();
 });
 
 test('the owner 15 Nov: «صور وعايز شيت» — «املأ بالـ AI» labels the sizes «مقاس 1 / 2», reads each color from its own photo (a product\'s second photo = its second color), and a row\'s photo is swapped in the sheet (its AI color read again)', async ({ page }) => {

@@ -54,7 +54,7 @@
     S.loading = false;
     if (!row || !row.state || row.state.flow !== 2) { S.err = 'الدفعة دي مش موجودة أو مش من فلو الاستوديو الجديد.'; R(); return; }
     row.state = Object.assign(blank(row.state.case, row.state.type), row.state);
-    S.row = row; R();
+    S.row = row; if (dropOldSheetPics()) touch(); R();
   }
   // auto-save: the state (the items rebuilt from the rows) and the furthest step, a moment after the last change
   function touch(now) {
@@ -227,7 +227,7 @@
   // a member's photo landed on a row: the sheet's own small picture of that row was only standing in for it
   function dropSheetPics(n) { const s = st(); const L = (s.photoRows || {})[n] || []; const keep = L.filter((p) => !isSheetPic(p)); if (keep.length && keep.length !== L.length) { L.filter(isSheetPic).forEach(dropPhoto); s.photoRows[n] = keep; } }
   // The sheet just read: its pictures' signatures by row (s.sheetSigs — what the uploads are matched to); the photos uploaded before
-  // it move to the rows they look like; and a row left without a photo takes the sheet's own picture (marked s.sheetPhotos).
+  // it move to the rows they look like. The sheet's pictures themselves never stand on a row (16 Nov — low quality).
   async function takeSheetPics(pics) {
     const s = st(); s.photoRows = s.photoRows || {};
     Object.keys(s.sheetPhotos || {}).forEach((p) => { Object.keys(s.photoRows).forEach((k) => { s.photoRows[k] = (s.photoRows[k] || []).filter((x) => x !== p); if (!s.photoRows[k].length) delete s.photoRows[k]; }); ST().removeImage(p); }); // the sheet before this one
@@ -236,8 +236,7 @@
     const first = new Map(); (pics || []).forEach((p) => { const src = byLine.get(p.line); if (src && !first.has(src)) first.set(src, p); }); // a row's first picture is its picture
     if (!first.size) return;
     S.busy = 'photos'; R();
-    const blobs = new Map();
-    for (const [src, p] of first) { const blob = new Blob([p.bytes], { type: 'image/' + p.ext }); const sig = await sigOf(blob); if (sig) { s.sheetSigs[src] = sig; blobs.set(src, blob); } }
+    for (const [src, p] of first) { const sig = await sigOf(new Blob([p.bytes], { type: 'image/' + p.ext })); if (sig) s.sheetSigs[src] = sig; }
     // the member's photos that were there before the sheet: each row's group goes to the row its first photo looks like
     const keys = Object.keys(s.photoRows).map(Number).filter((k) => (s.photoRows[k] || []).length).sort((a, b) => a - b);
     if (keys.length && Object.keys(s.sheetSigs).length) {
@@ -249,14 +248,16 @@
         s.photoRows = next; s.matched = (s.matched || 0) + m.pairs.length;
       }
     }
-    let n = 0;
-    for (const [src, blob] of blobs) {
-      if ((s.photoRows[src] || []).length) continue;
-      const r = await ST().uploadImage(S.id, new File([blob], 'sheet-' + src + '.' + (blob.type.split('/')[1] || 'png'), { type: blob.type }), 'x' + src, { webp: true });
-      if (r.ok) { s.photoRows[src] = [r.path]; s.sheetPhotos[r.path] = 1; n += 1; }
-    }
+    // the owner 16 Nov («الغي انه ياخد الصور من الشيت … عشان بياخده low quality بس سيب المطابقة»): the sheet's own pictures are
+    // never put on the rows any more — they stay signatures only, for matching the member's uploads to their rows
     S.busy = '';
-    if (n) K.toast('أخدنا ' + n + ' صورة من جوه الشيت على صفوفها — ارفع الصور الأصلية وهتتحط مكانها لوحدها', 'success');
+  }
+  // a batch saved before 16 Nov: the sheet's small pictures that stood on its rows go (the signatures stay for the matching)
+  function dropOldSheetPics() {
+    const s = st(); const old = Object.keys((s && s.sheetPhotos) || {}); if (!old.length) return false;
+    s.photoRows = s.photoRows || {};
+    old.forEach((p) => { Object.keys(s.photoRows).forEach((k) => { s.photoRows[k] = (s.photoRows[k] || []).filter((x) => x !== p); if (!s.photoRows[k].length) delete s.photoRows[k]; }); dropPhoto(p); });
+    s.sheetPhotos = {}; return true;
   }
   const sheetRefs = () => Object.keys(st().sheetSigs || {}).map((k) => ({ row: Number(k), sig: st().sheetSigs[k] }));
   // the photos by row number (decision 3): the sheet's row (case 1) or the product's number in the chat (case 2)

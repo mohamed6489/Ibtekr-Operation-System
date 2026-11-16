@@ -122,7 +122,7 @@ test('9.5.2 «تأكيد النشر» with «انشر»: the JPEG copies uploade
   await openMarketing(page, OPS);
   await pg(page).locator('[data-mk-open="' + C1 + '"]').click();
   await expect(pg(page).locator('[data-cw-pub="P1"]')).toHaveAttribute('aria-pressed', 'true');
-  await expect(pg(page).locator('[data-cw-auto="P1"]')).toContainText('انستجرام · فيسبوك');
+  await expect(pg(page).locator('[data-cw-auto]')).toHaveCount(0); // the owner 16 Nov: no «تلقائي: …» line under the buttons
   await pg(page).locator('[data-cw-pl="P1"] .chip', { hasText: 'تيك توك' }).click();
   await pg(page).locator('.cp-next').click();
   await expect(pg(page).locator('[role=tab][aria-selected=true]')).toContainText('سجل النشر');

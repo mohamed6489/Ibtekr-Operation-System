@@ -97,6 +97,10 @@ test('«نظرة عامة»: the spend, the Woo sales from ads, the real return 
   await expect(kpi(P, 'تكلفة الأوردر الحقيقية')).toContainText('450.00'); // 2,700 ÷ 6 Meta orders
   await expect(kpi(P, 'تكلفة الأوردر الحقيقية')).toContainText('المنصات بتقول 169'); // 9.5.6: the platforms' own count
   await expect(kpi(P, 'الربح بعد الإعلانات')).toContainText('-1,900.00'); // Ibtekr's 800 on Meta's orders − 2,700
+  // the owner 16 Nov («ظبط ال ui»): the suggestions and the link state side by side at equal widths over the whole row
+  const row = P.locator('[data-mk-ov-row]');
+  const geo = await row.evaluate((el) => { const r = el.getBoundingClientRect(); const k = [...el.children].map((c) => c.getBoundingClientRect()); const pr = el.parentElement.getBoundingClientRect(); return { w: r.width, pw: pr.width, a: k[0].width, b: k[1].width, top: Math.abs(k[0].top - k[1].top) }; });
+  expect(geo.w).toBeGreaterThan(geo.pw - 4); expect(Math.abs(geo.a - geo.b)).toBeLessThan(2); expect(geo.top).toBeLessThan(2);
   // the KPI's details: the sales by platform and their source
   await kpi(P, 'مبيعات ووكومرس من الإعلانات').locator('[data-details]').click();
   const det = modal(page, 'مبيعات ووكومرس من الإعلانات');

@@ -742,7 +742,6 @@
     const rows = camp.pieces.map((p, i) => { const s = sch(p, i);
       const pub = canPub(p, s); const on = pub && Array.isArray(s.how) && s.how.includes('انشر');
       const why = pub ? null : ((s.pl || []).map((pl) => pubOf(p, pl, cn).why).find(Boolean) || 'اختار منصة الأول');
-      const auto = (s.pl || []).filter((pl) => pubOf(p, pl, cn).ok);
       return [cbx('حدد ' + pieceLabel(p), sel.has(p.id), (v) => { v ? sel.add(p.id) : sel.delete(p.id); R(); }), h('span', { class: 'prod' }, Img(pieceImg(p)), h('span', null, h('b', null, pieceLabel(p)), h('small', null, W.hookOf(p)))),
         U.DateField({ id: 'sd-' + p.id, label: '', value: s.date, today: TODAY(), onChange: (v) => { s.date = v; persist(); R(); } }),
         U.Select({ id: 'st-' + p.id, label: '', options: W.timeOpts(s.time).map((x) => ({ value: x, label: x })), value: s.time, onChange: (v) => { s.time = v; persist(); R(); } }),
@@ -750,7 +749,7 @@
         h('div', { class: 'cw-how' }, h('div', { class: 'chips', 'data-cw-how': p.id },
           chip('انشر', on, () => { if (!pub) { K.toast(why, 'error'); return; } s.how = on ? ['داونلود'] : ['انشر']; persist(); R(); }, Object.assign({ 'data-cw-pub': p.id }, pub ? {} : { 'aria-disabled': 'true', title: why })),
           h('button', { type: 'button', class: 'chip cw-ic', 'data-cw-dl': p.id, title: 'داونلود — نزّل فولدر القطعة (الصور + التكست)', 'aria-label': 'داونلود ' + pieceLabel(p), onClick: () => downloadZip([zipItem(p)], pieceLabel(p)) }, Icon('download', 'sm'))),
-          on ? h('small', { class: 't-small help', 'data-cw-auto': p.id }, 'تلقائي: ' + auto.join(' · ')) : null),
+          null), // the owner 16 Nov: no «تلقائي: …» line under the buttons — the platforms column says where it goes
         K.RowMenu([{ label: 'نزّل فولدر (الصور + التكست)', icon: 'download', run: () => downloadZip([zipItem(p)], pieceLabel(p)) },
           { label: 'انسخ الكابشن', icon: 'copy', run: () => { try { navigator.clipboard.writeText((p.caption || camp.w.idea) + '\n' + W.TAGS); } catch (e) { /* the clipboard is the browser's */ } K.toast('اتنسخ الكابشن'); } },
           { label: 'افتح القطعة', icon: 'edit', run: () => { camp.rtab = p.kind === 'كاروسيل' ? 'carousel' : p.kind === 'فيديو' ? 'video' : 'post'; go('marketing-campaign-3'); } }])]; });
@@ -1305,7 +1304,7 @@
     const rg = adRange(); const s = adsState(null); adsLoad(loadRange(rg), redrawAds);
     const gate = adsGate(loadRange(rg), redrawAds); if (gate) return [adsBar(s, redrawAds)].concat(gate);
     const c = adCalc(AD.r, rg, s);
-    return [adsBar(s, redrawAds), adsNote(s), adKpis(c), h('div', { class: 'mk-row' }, suggCard(), adsConnCard(s, c)), h('div', { class: 'charts', 'data-rgroup': 'charts' }, merChart(c), spendChart(c)), vsCard(c), asstCards(), adsSource()].filter(Boolean);
+    return [adsBar(s, redrawAds), adsNote(s), adKpis(c), h('div', { class: 'mk-ov-row', 'data-mk-ov-row': '' }, suggCard(), adsConnCard(s, c)), h('div', { class: 'charts', 'data-rgroup': 'charts' }, merChart(c), spendChart(c)), vsCard(c), asstCards(), adsSource()].filter(Boolean);
   }
   // comments 15 Nov decision 74 (the owner — «ناخد تقارير بتاعت الحملات الاعلانية بالظبط نحطها بدل التقارير اللي في التسويق»): the tab is the
   // reports page's «الحملات الإعلانية» itself — one function draws both: the cards, the two charts, «المنصة بتقول × ووكومرس», the
@@ -1816,7 +1815,7 @@
   function suggCard() {
     byLoad(false); const pend = byPending(); const r = BY.rules;
     return Card('اقتراحات الميديا باير', 'مستنية موافقتك · من قواعد ثابتة على أرقامك الحقيقية بعد كل مزامنة', [BY.sugg ? (pend.length ? h('div', { class: 'mk-list', 'data-mk-pending': String(pend.length) }, pend.slice(0, 5).map((x) => sgItem(x, () => openSugg(x)))) : K.Empty('مفيش اقتراحات مستنية', 'الميديا باير بيبعت اقتراحاته مع كل مزامنة، وتقرير يومي الساعة ' + (r ? String(r.reportHour).padStart(2, '0') + ':00' : '9:00') + ' على الجرس.')) : K.Empty('بيحمّل…', ''),
-      Button({ type: 'text', size: 'sm', label: 'عرض كل الاقتراحات (' + K.n0(pend.length) + ') · القواعد والحدود من «مساعدين الذكاء الاصطناعي»', attrs: { 'data-mk-all-sugg': '' }, onClick: () => { BY.aiTab = 'buyer'; go('marketing-ai'); } })], null, 'mk-wide');
+      Button({ type: 'text', size: 'sm', label: 'كل الاقتراحات (' + K.n0(pend.length) + ') والقواعد', iconEnd: 'chevL', attrs: { 'data-mk-all-sugg': '' }, onClick: () => { BY.aiTab = 'buyer'; go('marketing-ai'); } })], null, 'mk-wide');
   }
 
   // ---------- the page ----------

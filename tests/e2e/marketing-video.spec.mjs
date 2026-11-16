@@ -65,6 +65,11 @@ test('the «فيديو» tool: a campaign with one video; the details (9:16, See
   // the scenes by Claude (no credit), with the durations of the length
   await pg(page).locator('[data-cw-plan="V1"]').click(); await page.locator('[data-ai-go]').click(); // the owner 15 Nov: the instructions popup first
   await expect(pg(page).locator('[data-cw-scene]')).toHaveCount(3);
+  // the owner 16 Nov: the preview boxes take the chosen ratio (9:16) — the piece's and every scene's
+  for (const box of await pg(page).locator('[data-cw-piece="V1"] .cw-pv').all()) {
+    const r = await box.evaluate((el) => { const b = el.getBoundingClientRect(); return { ar: el.getAttribute('data-cw-ar'), k: b.width / b.height }; });
+    expect(r.ar).toBe('9 / 16'); expect(Math.abs(r.k - 9 / 16)).toBeLessThan(0.02);
+  }
   await expect(pg(page).locator('#b-V1-sc0')).toHaveValue('لقطة قريبة على نقشة المنتج');
   await expect(pg(page).locator('#b-V1-tx0')).toHaveValue('دفا الشتا');
   expect(piece().scenes.map((s) => s.d)).toEqual([4, 4, 4]); // Seedance: 4 s at least a clip (fitScenes)

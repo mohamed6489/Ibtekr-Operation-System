@@ -545,3 +545,11 @@ a.mk-lib.disabled { opacity:.5;pointer-events:none }
 .cw-media-acts { display:flex;flex-direction:column;gap:6px }
 .cw-media-acts > .btn, .cw-media-acts > * { width:100%;justify-content:center }
 @media (max-width:720px) { .cw-grid { grid-template-columns:1fr } .cw-media { max-width:320px;margin-inline:auto;width:100% } }
+/* the owner 16 Nov («ظبط ال ui»): «اقتراحات الميديا باير» and «حالة الربط» side by side at equal widths over the whole row (they shared .mk-row
+   with the agents' chat rows, whose later rule squeezed them into one corner) */
+#pg-marketing .mk-ov-row { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:stretch }
+#pg-marketing .mk-ov-row > .card { min-width:0;margin:0 }
+#pg-marketing .mk-ov-row [data-mk-all-sugg] { white-space:normal;text-align:start;height:auto;min-height:32px }
+@media (max-width:1023px) { #pg-marketing .mk-ov-row { grid-template-columns:1fr } }
+/* the × on a file / link chip: its hover circle centred on the icon at the chip's own size (the touch rule made it 44px wide) */
+.cw-f .icon-btn { width:24px !important;height:24px !important;min-width:24px;min-height:24px;padding:0;margin:0;flex:none;display:inline-grid;place-items:center }

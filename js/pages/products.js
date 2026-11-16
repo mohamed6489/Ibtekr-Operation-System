@@ -478,10 +478,10 @@
       rows.forEach((r, i) => { if (r.id && !r.was) return; if (r.was || X[i].existing) { there += 1; return; } fresh += 1; if (X[i].parent < 0 && !(Number(f.under) || 0)) mains += 1; });
       const done = made();
       return (fresh ? 'هيتعمل ' + K.n0(fresh) + (fresh > 2 && fresh < 11 ? ' أقسام' : ' قسم') + ' على الموقع (' + K.n0(mains) + ' رئيسي · ' + K.n0(fresh - mains) + ' فرعي)' : 'مفيش قسم جديد يتعمل')
-        + (there ? ' · ' + K.n0(there) + ' موجود قبل كده وهيتساب زي ما هو' : '') + (done ? ' · اتعمل ' + K.n0(done) : ''); };
+        + (fresh && rows.some((r) => r.img && !r.id) ? ' · ' + K.n0(rows.filter((r) => r.img && !r.id).length) + ' بصورة' : '') + (there ? ' · ' + K.n0(there) + ' موجود قبل كده وهيتساب زي ما هو' : '') + (done ? ' · اتعمل ' + K.n0(done) : ''); };
     const refresh = (f) => { const X = resolve(f); refs.forEach((ref, i) => { const r = rows[i]; if (!ref || !r) return; const t = tagOf(r, X[i]); ref.tag.replaceChildren(...(t ? [t] : [])); ref.row.classList.toggle('exists', !r.id && !!X[i].existing); }); if (sumEl) sumEl.textContent = sumText(f); };
     const addRow = (f, at, level, draw) => { const r = { k: 'c' + (++seq), level, id: null, err: '', noAr: false }; rows.splice(at, 0, r); f['en_' + r.k] = ''; f['ar_' + r.k] = ''; focusK = r.k; draw(); };
-    K.form({ title: 'مراجعة الأقسام', wide: 'mid', cancelLabel: 'إغلاق', values, onClose: () => { closed = true; },
+    K.form({ title: 'مراجعة الأقسام', wide: 'mid', cancelLabel: 'إغلاق', values, onClose: () => { closed = true; rows.forEach((r) => { if (r.img) URL.revokeObjectURL(r.img.url); }); },
       submitLabel: () => (running ? 'بننشر…' : made() ? 'كمّل النشر' : 'نشر على الموقع'),
       note: U.InlineNote({ kind: 'warning', children: 'راجع الأسامي وعدّل اللي عايزه. الأقسام بتتعمل على ووكومرس نفسه بالإنجليزي وترجمتها العربي — القسم الرئيسي الأول وبعده اللي تحته — ومفيش حاجة هتتعمل قبل ما تضغط «نشر على الموقع».' }),
       fields: (f, e, set, draw) => {
@@ -489,13 +489,23 @@
         const inp = (r, key, lab, i, dir) => { const id = key + '_' + r.k; const off = running || !!r.id || (key === 'ar' && !r.id && !!X[i].existing);
           return h('span', { class: 'cp-cell' }, h('input', { type: 'text', class: 'input' + (e[id] ? ' err' : ''), id, dir: dir || null, value: f[id] || '', maxlength: '80', disabled: off ? '' : null, placeholder: lab, 'aria-label': lab + ' — القسم ' + K.n0(i + 1),
             'aria-invalid': e[id] ? 'true' : null, 'data-cp': key + ':' + (i + 1), onInput: (ev) => { r.err = ''; set(id, ev.target.value); refresh(f); } }), e[id] ? h('span', { class: 't-small err-text', 'data-cp-err': key + ':' + (i + 1) }, e[id]) : null); };
+        // the owner 16 Nov («يضيفلي ف البوب اب اني ارفع صور الاقسام بشكل احترافي و منظم»): a square picture per category — click or drop a
+        // file, it is cropped square from the middle (the categories tab's own rule) and goes up with the category; × takes it back off
+        const pic = (r, i) => { const off = running || !!r.id || !!X[i].existing; const name = (f['en_' + r.k] || f['ar_' + r.k] || 'القسم ' + K.n0(i + 1)).trim();
+          const take = async (file) => { if (!file) return; const sq = await squareImage(file); if (!sq) { K.toast('الصورة لازم تكون PNG أو JPG أو WebP (لحد 15 ميجا)', 'error'); return; } if (r.img) URL.revokeObjectURL(r.img.url); r.img = sq; draw(); };
+          const input = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp', class: 'sr-only', tabindex: '-1', 'aria-hidden': 'true', 'data-cp-img-input': String(i + 1), onChange: (ev) => { const fl = ev.target.files && ev.target.files[0]; ev.target.value = ''; take(fl); } });
+          const box = h('button', { type: 'button', class: 'cp-img' + (r.img ? ' has' : ''), disabled: off ? '' : null, 'data-cp-img': String(i + 1), 'aria-label': (r.img ? 'غيّر صورة «' : 'ارفع صورة «') + name + '»', title: off ? (r.id ? 'القسم اتعمل — الصورة من «تعديل» في تاب الأقسام' : 'القسم موجود على الموقع') : r.img ? 'غيّر الصورة' : 'ارفع صورة (مربعة)', onClick: () => input.click() },
+            r.img ? h('img', { src: r.img.url, alt: '' }) : h('span', { class: 'cp-img-0' }, U.Icon('image', 'sm'), h('small', null, 'صورة')));
+          if (!off) { box.addEventListener('dragover', (ev) => { ev.preventDefault(); box.classList.add('drop'); }); box.addEventListener('dragleave', () => box.classList.remove('drop'));
+            box.addEventListener('drop', (ev) => { ev.preventDefault(); box.classList.remove('drop'); take(ev.dataTransfer && ev.dataTransfer.files && ev.dataTransfer.files[0]); }); }
+          return h('span', { class: 'cp-pic' }, box, input, r.img && !off ? h('button', { type: 'button', class: 'cp-img-x', 'aria-label': 'شيل صورة «' + name + '»', 'data-cp-img-x': String(i + 1), onClick: () => { URL.revokeObjectURL(r.img.url); r.img = null; draw(); } }, U.Icon('close', 'sm')) : null); };
         refs = [];
         const list = rows.map((r, i) => {
           const tag = h('span', { class: 'cp-tag', 'data-cp-tag': String(i + 1) }, tagOf(r, X[i]));
           const name = (f['en_' + r.k] || f['ar_' + r.k] || 'القسم ' + K.n0(i + 1)).trim();
           const can2 = !running && r.level < PD.PLAN_DEPTH && rows.length < PD.PLAN_MAX;
           const row = h('div', { class: 'cp-row lvl-' + Math.min(r.level - 1, 3) + (r.id && !r.was ? ' done' : '') + (!r.id && X[i].existing ? ' exists' : ''), role: 'listitem', 'data-cp-row': String(i + 1), 'data-cp-level': String(r.level), style: '--d:' + (r.level - 1) },
-            h('span', { class: 'cp-dash', 'aria-hidden': 'true' }, r.level > 1 ? '-'.repeat(r.level - 1) : ''),
+            h('span', { class: 'cp-dash', 'aria-hidden': 'true' }, r.level > 1 ? '-'.repeat(r.level - 1) : ''), pic(r, i),
             inp(r, 'en', 'الاسم بالإنجليزي', i, 'ltr'), inp(r, 'ar', 'الاسم بالعربي', i), h('span', { class: 'cp-acts' },
             can2 ? U.IconButton({ icon: 'plus', label: 'قسم فرعي تحت «' + name + '»', attrs: { 'data-cp-sub': String(i + 1) }, onClick: () => addRow(f, PD.planEnd(rows, i), r.level + 1, draw) }) : null,
             !running && !r.id ? U.IconButton({ icon: 'trash', label: 'شيل «' + name + '»' + (PD.planEnd(rows, i) - i > 1 ? ' واللي تحته' : ''), attrs: { 'data-cp-del': String(i + 1) },
@@ -509,7 +519,7 @@
           wanted && !hitUnder ? U.InlineNote({ kind: 'error', children: 'مالقيناش قسم باسم «' + wanted + '» على الموقع — اختار مكان الأقسام من القايمة، أو سيبها أقسام رئيسية جديدة.' }) : null,
           U.Select({ id: 'cp-under', label: 'مكان الأقسام', options: [{ value: '0', label: 'أقسام رئيسية جديدة (من غير أب)' }].concat(L.map((c) => ({ value: String(c.id), label: 'تحت: ' + c.path }))), value: String(f.under || '0'), disabled: locked,
             help: locked && !running ? 'المكان اتثبّت — في أقسام اتعملت.' : null, onChange: (v) => set('under', v, true) }),
-          h('div', { class: 'cp-head', 'aria-hidden': 'true' }, h('span', { class: 'cp-dash' }), h('span', { class: 'cp-cell' }, 'الاسم بالإنجليزي'), h('span', { class: 'cp-cell' }, 'الاسم بالعربي'), h('span', { class: 'cp-acts' })),
+          h('div', { class: 'cp-head', 'aria-hidden': 'true' }, h('span', { class: 'cp-dash' }), h('span', { class: 'cp-pic' }, 'الصورة'), h('span', { class: 'cp-cell' }, 'الاسم بالإنجليزي'), h('span', { class: 'cp-cell' }, 'الاسم بالعربي'), h('span', { class: 'cp-acts' })),
           rows.length ? h('div', { class: 'cp-list', role: 'list', 'aria-label': 'الأقسام اللي هتتعمل', 'data-cat-plan': '' }, list) : K.Empty('مفيش أقسام في المراجعة', 'ضيف قسم من الزرار اللي تحت.'),
           e._ ? h('p', { class: 't-small err-text', 'data-cp-err': 'all', role: 'alert' }, e._) : null,
           h('div', { class: 'cp-foot' }, !running && rows.length < PD.PLAN_MAX ? Button({ size: 'sm', icon: 'plus', label: under ? 'قسم تحت «' + under.name + '»' : 'قسم رئيسي', attrs: { 'data-cp-main': '' }, onClick: () => addRow(f, rows.length, 1, draw) }) : null, sumEl)];
@@ -533,7 +543,7 @@
             if (x.existing) { r.id = x.existing; r.was = true; continue; }
             if (x.parentId == null) { r.err = 'القسم اللي فوقه ماتعملش'; stop = r; break; }
             n += 1; const en = String(f['en_' + r.k]).trim(); pill.set('بنعمل «' + en + '» — ' + K.n0(n) + ' من ' + K.n0(total));
-            let res; try { res = await S0.createCategory({ name_en: en, name_ar: String(f['ar_' + r.k]).trim(), parent: x.parentId || 0, slug: null, image: null }); } catch (er) { res = { ok: false, reason: 'network' }; }
+            let res; try { res = await S0.createCategory({ name_en: en, name_ar: String(f['ar_' + r.k]).trim(), parent: x.parentId || 0, slug: null, image: r.img ? r.img.blob : null }); } catch (er) { res = { ok: false, reason: 'network' }; }
             if (!res || !res.ok) { r.err = catFail(res || {}); stop = r; break; }
             r.id = res.id; r.noAr = !res.arId; if (x.parentId) st.catOpen.add(x.parentId); show();
           }

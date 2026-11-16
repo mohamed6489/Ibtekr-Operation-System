@@ -793,21 +793,24 @@
       if (!list.length) { if (m) m.close(); return; }
       write((pg) => batch(list, (p) => { const r = next(p, o); return r ? { sale_price: String(r.sale), regular_price: String(r.regular) } : {}; }, pg), 'اتعدل السعر على الموقع' + (okN ? ' ونسبة ' + K.n0(okN) + ' مبتكر' : ''), m, list.length);
     }
+    // the owner 16 Nov («كاتب نسبة ابتكر هزودها مثلا 10% ليه ظاهرلي انها هتزيد 4% من 40 بقت 44 بدل 50»): Ibtekr's rate and the fake
+    // discount are percentages already — the amount moves them by points (40% + 10 = 50%); «نسبة % / قيمة» is for the maker price only
+    const unitOf = (f) => (f.target === 'vendor' ? f.mode : 'value');
     K.form({ title: 'تعديل سعر ' + (simple.length === 1 ? 'منتج' : simple.length + ' منتجات'), wide: 'bp-modal', values: { target: TG[0][0], dir: '1', mode: 'pct', amount: '10' },
-      submitLabel: (f) => (f.target === 'rate' && Number(f.amount) > 0 && plansOf({ target: 'rate', mode: f.mode, dir: Number(f.dir), amount: Number(f.amount) }).some((x) => x.plan && x.plan.changed) ? 'طبّق السعر والنسبة' : 'طبّق السعر'),
-      fields: (f, e, set, draw) => { const opt = { target: f.target, mode: f.mode, dir: Number(f.dir), amount: Number(f.amount) }; const ok = Number(f.amount) > 0;
+      submitLabel: (f) => (f.target === 'rate' && Number(f.amount) > 0 && plansOf({ target: 'rate', mode: unitOf(f), dir: Number(f.dir), amount: Number(f.amount) }).some((x) => x.plan && x.plan.changed) ? 'طبّق السعر والنسبة' : 'طبّق السعر'),
+      fields: (f, e, set, draw) => { const opt = { target: f.target, mode: unitOf(f), dir: Number(f.dir), amount: Number(f.amount) }; const ok = Number(f.amount) > 0;
         const rows = ok ? items.slice(0, 8).map((p) => { const r = next(p, opt); return [nameOf(p), !r ? 'مالوش نسبة ظاهرة' : f.target === 'vendor' ? K.n0(p.vendorPrice) + ' ← ' + K.n0(r.vendorPrice) : f.target === 'rate' ? p.rate + '% ← ' + r.rate + '%' : p.disc + '% ← ' + r.disc + '%', r ? K.n0(p.sale) + ' ← ' + K.n0(r.sale) : '—']; }) : [];
         const seg = (key, opts) => h('div', { class: 'chips', role: 'radiogroup' }, opts.map(([v, lab]) => chipBtn(lab, f[key] === v, () => { f[key] = v; draw(); }, { role: 'radio', 'aria-checked': String(f[key] === v) })));
         return [U.FieldShell({ id: 'bp-t', label: 'تعدّل إيه؟', required: true, help: (C.commission ? 'سعر المبتكر أو النسبة بيحسبوا سعر البيع (لفوق لأقرب 10) وقبل الخصم (' + (fakeNow() ? 'بشرايح «الخصم الوهمي»' : '+15–30% عشوائي') + ') · النسبة والخصم بالنقط (%)' : 'الخصم الوهمي بيغيّر السعر قبل الخصم بس — سعر البيع زي ما هو') }, seg('target', TG)),
-          K.two(U.FieldShell({ id: 'bp-d', label: 'زيادة ولا نقص' }, seg('dir', [['1', 'زيادة'], ['-1', 'نقص']])), U.FieldShell({ id: 'bp-m', label: 'بنسبة ولا بقيمة' }, seg('mode', [['pct', 'نسبة %'], ['value', f.target === 'vendor' ? 'قيمة (ج.م)' : 'قيمة (نقط)']]))),
-          K.field.text('amount', 'المقدار', f, e, (k, v) => { set(k, v); draw(); }, { required: true, inputmode: 'numeric', help: 'مثال: 10' + (f.mode === 'pct' ? '%' : '') + ' ' + (f.dir === '1' ? 'زيادة' : 'نقص') + ' على ' + TG.find((x) => x[0] === f.target)[1] }),
+          K.two(U.FieldShell({ id: 'bp-d', label: 'زيادة ولا نقص' }, seg('dir', [['1', 'زيادة'], ['-1', 'نقص']])), f.target === 'vendor' ? U.FieldShell({ id: 'bp-m', label: 'بنسبة ولا بقيمة' }, seg('mode', [['pct', 'نسبة %'], ['value', 'قيمة (ج.م)']])) : null),
+          K.field.text('amount', 'المقدار', f, e, (k, v) => { set(k, v); draw(); }, { required: true, inputmode: 'numeric', help: f.target === 'vendor' ? 'مثال: 10' + (f.mode === 'pct' ? '%' : ' ج.م') + ' ' + (f.dir === '1' ? 'زيادة' : 'نقص') + ' على سعر المبتكر' : 'بالنقط: 10 ' + (f.dir === '1' ? 'زيادة يعني 40% تبقى 50%' : 'نقص يعني 40% تبقى 30%') + ' (' + TG.find((x) => x[0] === f.target)[1] + ')' }),
           f.target === 'rate' && ok && makers.length ? makersBox(opt) : null,
           rows.length ? U.FieldShell({ id: 'bp-p', label: h('span', null, 'قبل ← بعد', items.length > rows.length ? U.num(' (أول ' + rows.length + ' من ' + items.length + ')') : null) }, U.Table({ cls: 'dt', headers: ['المنتج', TG.find((x) => x[0] === f.target)[1], 'سعر البيع'], rows })) : null,
           U.InlineNote({ children: 'هيتطبق على ' + simple.length + ' منتجات وبيتحدث على ووكومرس بعد التأكيد.' + (simple.length < l.length ? ' (' + (l.length - simple.length) + ' Variable أو من غير سعر برّه التعديل ده.)' : '') })]; },
       validate: (f) => { if (!(Number(f.amount) > 0)) return { amount: 'اكتب رقم أكبر من صفر' };
-        if (f.target === 'rate' && plansOf({ target: 'rate', mode: f.mode, dir: Number(f.dir), amount: Number(f.amount) }).some((x) => x.plan && x.plan.over)) return { amount: 'النسبة الجديدة هتعدّي 65% عند مبتكر — قلّل المقدار' };
+        if (f.target === 'rate' && plansOf({ target: 'rate', mode: unitOf(f), dir: Number(f.dir), amount: Number(f.amount) }).some((x) => x.plan && x.plan.over)) return { amount: 'النسبة الجديدة هتعدّي 65% عند مبتكر — قلّل المقدار' };
         return {}; },
-      submit: (f, m) => { const o = { target: f.target, mode: f.mode, dir: Number(f.dir), amount: Number(f.amount) };
+      submit: (f, m) => { const o = { target: f.target, mode: unitOf(f), dir: Number(f.dir), amount: Number(f.amount) };
         if (f.target === 'rate' && plansOf(o).some((x) => x.plan && x.plan.changed)) { applyRates(o, m); return false; }
         write((pg) => batch(items, (p) => { const r = next(p, o); return r ? { sale_price: String(r.sale), regular_price: String(r.regular) } : {}; }, pg), 'اتعدل السعر على الموقع', m, items.length); return false; } });
   }

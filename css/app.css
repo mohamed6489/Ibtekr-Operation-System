@@ -2272,3 +2272,14 @@ img.ib-worm.ib-ldr-img.spin{animation:ib-ldr-spin var(--ldr-speed,1.7s) linear i
   .cnt-top{padding:12px 16px}.cnt-lines{padding:0 12px 12px}
   .cnt-tools{flex-wrap:wrap}
 }
+
+/* the owner 16 Nov («عايز امكانية تعديل اللوجو للبراند او المبتكر»): the maker drawer's picture is a button that changes it, and the
+   picture popup (the maker's photo / the brand's picture on the site) */
+.vlogo-edit{position:relative;display:inline-flex;padding:0;border:0;background:none;border-radius:var(--radius-md);cursor:pointer;flex:none}
+.vlogo-edit:focus-visible{outline:2px solid var(--color-border-focus);outline-offset:2px}
+.vlogo-cam{position:absolute;inset-inline:0;bottom:0;padding:3px 0;font-size:12px;font-weight:600;text-align:center;color:#F4ECDD;background:rgba(0,86,66,.85);border-radius:0 0 var(--radius-md) var(--radius-md);opacity:0;transition:opacity .15s}
+.vlogo-edit:hover .vlogo-cam,.vlogo-edit:focus-visible .vlogo-cam{opacity:1}
+@media (hover:none){.vlogo-cam{opacity:1}}
+.pic-edit{display:flex;align-items:center;gap:20px;flex-wrap:wrap}
+.pic-now{flex:none;display:flex}
+.pic-side{display:flex;flex-direction:column;align-items:flex-start;gap:8px;min-width:0;flex:1 1 200px}

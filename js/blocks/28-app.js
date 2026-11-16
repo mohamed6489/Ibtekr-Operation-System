@@ -3769,10 +3769,11 @@
     function moreMenu(v) {
       const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' }); const trig = IconButton({ icon: 'more', label: 'المزيد', attrs: { 'aria-haspopup': 'menu', 'aria-expanded': 'false' } });
       const MOVES = { active: [['leave', 'تحويل لـ «في إجازة»'], ['inactive', 'تحويل لغير نشط']], leave: [['active', 'تفعيل المبتكر'], ['inactive', 'تحويل لغير نشط']], inactive: [['active', 'تفعيل المبتكر'], ['leave', 'تحويل لـ «في إجازة»']] }; // decision 6: leave is a status like the others (vendors.toggle)
-      const opts = (vstore.canToggle() ? (MOVES[v.status] || MOVES.active).map(([st, label]) => ({ value: 'status:' + st, label })) : []).concat([vstore.canRate() ? { value: 'rate', label: 'تغيير النسبة (الأوردرات الجديدة فقط)' } : null, { value: 'copy', label: 'نسخ رابط الملف' }, { value: 'ticket', label: 'فتح طلب على المبتكر' }, vstore.canRemove && vstore.canRemove() && vstore.deleteVendor ? { value: 'remove', label: 'حذف المبتكر', danger: true } : null].filter(Boolean));
+      const opts = (vstore.canToggle() ? (MOVES[v.status] || MOVES.active).map(([st, label]) => ({ value: 'status:' + st, label })) : []).concat([vstore.canRate() ? { value: 'rate', label: 'تغيير النسبة (الأوردرات الجديدة فقط)' } : null, vstore.canPhoto && vstore.canPhoto() ? { value: 'photo', label: 'تغيير صورة المبتكر' } : null, { value: 'copy', label: 'نسخ رابط الملف' }, { value: 'ticket', label: 'فتح طلب على المبتكر' }, vstore.canRemove && vstore.canRemove() && vstore.deleteVendor ? { value: 'remove', label: 'حذف المبتكر', danger: true } : null].filter(Boolean));
       const pop = U.popover(wrap, trig, (close) => U.DropdownMenu({ role: 'menu', end: true, options: opts, onSelect: (val) => { close();
         if (val.startsWith('status:')) act(() => vstore.update(id, { status: val.slice(7) }, vstore.actor()), 'اتغيرت الحالة.');
         if (val === 'rate') editGroup(v, 'terms');
+        if (val === 'photo') makerPhoto(v); // the owner 16 Nov: «عايز امكانية تعديل اللوجو للبراند او المبتكر»
         if (val === 'copy') copyText(location.href.split('#')[0] + '#makers/' + id, 'رابط الملف');
         if (val === 'ticket') { vdrawer.close(); showTickets(); openNewTicket({ type: 'vendor', vendor: v.name, vendorId: v.id }); } // phase 8 decision 3
         // 0031 (the owner, 2 Nov): a maker whose store is gone from the site — the admin removes it here (the delete the server
@@ -4013,9 +4014,53 @@
       // the owner 16 Nov («عملت البراند في السيستم مش علي الويب سايت»): «اعمل البراند على الموقع» — the brand in both places on the
       // site (woo-sync brand_site: WooCommerce Brands + the Product Brand term); already there = updated, nothing doubled
       const site = vstore.brandSite && vstore.canStore && vstore.canStore() && v.wooVendorId;
-      const opts = [{ value: 'edit', label: 'تعديل' }, site ? { value: 'site', label: 'اعمل البراند على الموقع' } : null, { value: 'transfer', label: 'نقل لمبتكر تاني' }, b.owner !== b.origin ? { value: 'return', label: 'رجوع لصاحبه' } : null].filter(Boolean);
-      const pop = U.popover(wrap, trig, (close) => U.DropdownMenu({ role: 'menu', end: true, options: opts, onSelect: (val) => { close(); if (val === 'edit') brandForm(v, b); if (val === 'site') brandToSite(b); if (val === 'transfer') brandTransferForm(v, b); if (val === 'return') brandReturnForm(v, b); } }));
+      const opts = [{ value: 'edit', label: 'تعديل' }, site ? { value: 'site', label: 'اعمل البراند على الموقع' } : null, site ? { value: 'pic', label: 'تغيير صورة البراند' } : null, { value: 'transfer', label: 'نقل لمبتكر تاني' }, b.owner !== b.origin ? { value: 'return', label: 'رجوع لصاحبه' } : null].filter(Boolean);
+      const pop = U.popover(wrap, trig, (close) => U.DropdownMenu({ role: 'menu', end: true, options: opts, onSelect: (val) => { close(); if (val === 'edit') brandForm(v, b); if (val === 'site') brandToSite(b); if (val === 'pic') brandPhoto(b); if (val === 'transfer') brandTransferForm(v, b); if (val === 'return') brandReturnForm(v, b); } }));
       trig.addEventListener('click', pop.toggle); wrap.append(trig); return wrap;
+    }
+    // the owner 16 Nov («عايز امكانية تعديل اللوجو للبراند او المبتكر»): one popup to change a picture — the current one, «اختار صورة»
+    // with a preview, «احفظ»; the maker's photo (vendor_photo: here and his store's photo on the site) and the brand's picture on the
+    // site (brand_site with an image: WooCommerce Brands). A maker whose photo changed this session shows it over the site's old logo.
+    const freshPhoto = new Set();
+    function picPopup({ title, label, current, maxMb, note, save }) {
+      let file = null; let prev = null; let m = null;
+      const inp = h('input', { type: 'file', accept: '.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp', hidden: true, 'data-pic-input': '', 'aria-label': label });
+      const box = h('div', { class: 'pic-edit' });
+      const draw = () => box.replaceChildren(
+        h('div', { class: 'pic-now' }, prev ? h('span', { class: 'vlogo vlogo-lg vlogo-img', 'data-pic-prev': '' }, h('img', { src: prev, alt: label })) : current()),
+        h('div', { class: 'pic-side' }, h('b', null, file ? 'الصورة الجديدة' : 'الصورة دلوقتي'),
+          h('span', { class: 't-small help' }, file ? file.name : note),
+          Button({ label: file ? 'غيّر الصورة' : 'اختار صورة', icon: 'upload', attrs: { 'data-pic-pick': '' }, onClick: () => inp.click() })));
+      inp.addEventListener('change', () => { const f = inp.files && inp.files[0]; inp.value = ''; if (!f) return;
+        const e = String(f.name || '').split('.').pop().toLowerCase();
+        if (!['png', 'jpg', 'jpeg', 'webp'].includes(e) || f.size > maxMb * 1048576) { window.IBKit.toast(label + ' PNG أو JPG أو WebP ولحد ' + maxMb + ' ميجا.', 'error'); return; }
+        file = f; try { if (prev) URL.revokeObjectURL(prev); prev = URL.createObjectURL(f); } catch (x) { prev = null; } draw(); });
+      draw();
+      m = U.Modal({ title, body: h('div', null, box, inp), footer: [
+        Button({ type: 'primary', label: 'احفظ', attrs: { 'data-pic-save': '' }, onClick: () => {
+          if (!file) { window.IBKit.toast('اختار صورة الأول.', 'error'); return; }
+          if (m._busy) return; m._busy = true; m.close();
+          Promise.resolve(save(file)).catch(() => null).then(() => { try { if (prev) URL.revokeObjectURL(prev); } catch (x) { /* gone */ } }); } }),
+        Button({ label: 'إلغاء', onClick: () => m.close() })] });
+      return m;
+    }
+    function makerPhoto(v) {
+      picPopup({ title: 'صورة «' + v.name + '»', label: 'صورة المبتكر', maxMb: 5, current: () => vendorLogo(v),
+        note: 'PNG أو JPG أو WebP لحد 5 ميجا' + (v.wooVendorId ? ' — وهتبقى صورة متجره على الموقع كمان.' : '.'),
+        save: (file) => { const busy = window.IBKit && window.IBKit.busy ? window.IBKit.busy('بنغيّر صورة «' + v.name + '»…') : null;
+          return vstore.setPhoto(v.id, { file, name: file.name, size: file.size }).catch(() => ({ ok: false })).then((r) => {
+            if (!r || !r.ok) { if (busy) busy.fail('ماتغيّرتش'); vnotify('error', (r && r.message) || 'الصورة ماتغيّرتش — جرّب تاني.'); return; }
+            freshPhoto.add(String(v.id)); if (busy) busy.done('اتغيّرت الصورة');
+            vnotify(r.site === 'failed' ? 'warning' : 'success', 'اتغيّرت صورة «' + v.name + '»' + (r.site === 'ok' ? ' هنا وعلى متجره في الموقع.' : r.site === 'failed' ? ' هنا — متجره على الموقع ماتغيّرش، جرّب تاني.' : '.'));
+          }); } });
+    }
+    function brandPhoto(b) {
+      picPopup({ title: 'صورة البراند «' + b.name + '»', label: 'صورة البراند', maxMb: 2, current: () => U.VendorLogo({ letter: b.name, size: 'lg' }),
+        note: 'PNG أو JPG أو WebP لحد 2 ميجا — بتتحط على البراند في الموقع (Brands).',
+        save: (file) => { const busy = window.IBKit && window.IBKit.busy ? window.IBKit.busy('بنغيّر صورة البراند «' + b.name + '»…') : null;
+          return vstore.brandSite(b.id, file).catch(() => ({ ok: false })).then((r) => {
+            if (r && r.ok && r.image === 'ok') { if (busy) busy.done('اتغيّرت الصورة'); vnotify('success', 'اتغيّرت صورة البراند «' + b.name + '» على الموقع.'); return; }
+            if (busy) busy.fail('ماتغيّرتش'); vnotify('error', r && r.ok ? 'البراند على الموقع بس الصورة ماترفعتش — جرّب تاني.' : (r && r.message) || 'الصورة ماتغيّرتش — جرّب تاني.'); }); } });
     }
     function brandToSite(b) {
       const busy = window.IBKit && window.IBKit.busy ? window.IBKit.busy('بنعمل البراند «' + b.name + '» على الموقع…') : null;
@@ -4101,7 +4146,7 @@
     const HTTPS = /^https:\/\//;
     // the drawer header's picture: the site's logo when the maker has one, else the letter
     // phase 13 decision 51: no store image yet → the photo saved in the system (vendor-photos, a signed URL) replaces the letter
-    const vendorLogo = (v) => { if (v.logoUrl && HTTPS.test(v.logoUrl)) return h('span', { class: 'vlogo vlogo-lg vlogo-img' }, h('img', { src: v.logoUrl, alt: 'لوجو ' + v.name, loading: 'lazy', referrerpolicy: 'no-referrer' }));
+    const vendorLogo = (v) => { if (v.logoUrl && HTTPS.test(v.logoUrl) && !freshPhoto.has(String(v.id))) return h('span', { class: 'vlogo vlogo-lg vlogo-img' }, h('img', { src: v.logoUrl, alt: 'لوجو ' + v.name, loading: 'lazy', referrerpolicy: 'no-referrer' }));
       const el = U.VendorLogo({ letter: v.logoLetter, size: 'lg' }); const V = window.IBVendors;
       if (v.photoPath && V && V.photoUrl) V.photoUrl(v.id).then((url) => { if (url && el.isConnected) el.replaceWith(h('span', { class: 'vlogo vlogo-lg vlogo-img', 'data-v-photo-img': '' }, h('img', { src: url, alt: 'صورة ' + v.name }))); }).catch(() => undefined);
       return el; };
@@ -4143,7 +4188,7 @@
           ? h('button', { type: 'button', class: 'tg tg-orange miss-btn', 'data-missing-item': x, title: 'اضغط عشان تكمّل ' + x, onClick: go[x] }, x)
           : h('span', { class: 'tg tg-orange', 'data-missing-item': x }, x))); };
       const header = h('div', { class: 'drawer-h' },
-        h('div', { class: 'row1' }, h('div', { class: 'vdrawer-id' }, vendorLogo(v), h('div', { class: 'names' }, h('div', { class: 'name-row' }, h('h2', { class: 't-h4' }, v.name), U.VendorStatus(v.status), siteOffTag(v)), h('span', { class: 't-small' }, num((v.category || 'بدون فئة') + ' · نسبة إبتكر ' + (canRate && v.rate != null ? v.rate + '%' : '—') + ' · مبتكر من ' + D.formatDateLong(v.joinedAt) + (v.wooVendorId ? ' · متجر #' + v.wooVendorId : ' · بدون متجر على الموقع'))), missingTag())),
+        h('div', { class: 'row1' }, h('div', { class: 'vdrawer-id' }, vstore.canPhoto && vstore.canPhoto() ? h('button', { type: 'button', class: 'vlogo-edit', title: 'تغيير الصورة', 'aria-label': 'تغيير صورة ' + v.name, 'data-v-photo-edit': '', onClick: () => makerPhoto(v) }, vendorLogo(v), h('span', { class: 'vlogo-cam' }, 'تغيير')) : vendorLogo(v), h('div', { class: 'names' }, h('div', { class: 'name-row' }, h('h2', { class: 't-h4' }, v.name), U.VendorStatus(v.status), siteOffTag(v)), h('span', { class: 't-small' }, num((v.category || 'بدون فئة') + ' · نسبة إبتكر ' + (canRate && v.rate != null ? v.rate + '%' : '—') + ' · مبتكر من ' + D.formatDateLong(v.joinedAt) + (v.wooVendorId ? ' · متجر #' + v.wooVendorId : ' · بدون متجر على الموقع'))), missingTag())),
           // the owner 16 Nov (decision 4): the store comes with «إضافة المبتكر»; here only after a failed try
           h('div', { class: 'actions' }, !v.wooVendorId && v.storeError && vstore.canStore && vstore.canStore() ? Button({ type: 'brand', size: 'sm', icon: 'refresh', label: 'جرّب عمل المتجر تاني', attrs: { 'data-make-store': '' }, onClick: () => storePopup(v) }) : null, moreMenu(v), IconButton({ icon: 'close', label: 'إغلاق', onClick: () => vdrawer.close() }))),
         U.Tabs({ items: [{ id: 'info', label: 'معلومات المبتكر' }, { id: 'products', label: 'المنتجات' }, { id: 'orders', label: 'الأوردرات' }, { id: 'accounts', label: 'الحسابات' }], active: vtab, onChange: (t) => { vtab = t; if (t === 'products') { vpQ = ''; const a = PAPI(); if (a) a.ensure(); } draw(); } }));

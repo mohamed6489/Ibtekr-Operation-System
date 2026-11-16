@@ -174,11 +174,11 @@ type Run = { db: Db; env: Deps['env']; woo: () => ReturnType<typeof wooApi>; ctx
 
 const ACTIONS = ['states', 'categories', 'orders', 'vendors', 'products', 'all', 'push_status', 'push_vendor', 'register_webhooks', 'probe_store', 'probe_dokan', 'accounts', 'statement', 'withdraw_approve', 'withdraw_create', 'withdrawals', 'order_trash', 'suborder_trash', 'line_trash', 'line_qty', 'line_add', 'suborder_status', 'order_create', 'order_pay_link',
   'vendor_photo', 'vendor_store', 'product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'studio_media', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push', 'product_duplicate', 'carts',
-  'category_get', 'category_update', 'category_delete', 'thumbs'];
+  'category_get', 'category_update', 'category_delete', 'thumbs', 'styles'];
 // phase 5: the product actions a person runs (never the sync secret); phase 5.2: the studio's upload, a new category, a sheet link;
 // phase 5.4: the images tool's results onto a product; B4 (11 Nov): the categories tab's read, edit and delete
 const PRODUCT_ACTIONS = ['product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'studio_media', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push', 'product_duplicate',
-  'category_get', 'category_update', 'category_delete', 'thumbs'];
+  'category_get', 'category_update', 'category_delete', 'thumbs', 'styles'];
 const PRODUCT_BATCH_MAX = 100;
 const ACCOUNTS_BATCH = 50; // stats requests per run (one per maker; the hourly cron goes round the list)
 const STATEMENT_MAX_DAYS = 400;
@@ -228,7 +228,7 @@ async function authorize(req: Request, deps: Deps, action: string, args: Json): 
   // 0078 (the owner, 11 Nov — «تسوية دلوقتي»): a request for the maker's whole Dokan balance — the same people who approve one
   if (action === 'withdraw_create') return (await admin()) || (await perm('accounts.approve')) ? 'member' : null;
   // phase 5 (decision 5): reading a product live needs products.view <> N; editing products.edit = F; the trash products.trash = F
-  if (action === 'product_get') { const { data, error } = await member.rpc('has_perm', { key: 'products.view' }); return !error && (data === 'F' || data === 'P') ? 'member' : null; }
+  if (action === 'product_get' || action === 'styles') { const { data, error } = await member.rpc('has_perm', { key: 'products.view' }); return !error && (data === 'F' || data === 'P') ? 'member' : null; }
   if (action === 'product_save' || action === 'product_images_add') return (await admin()) || (await perm('products.edit')) ? 'member' : null;
   if (action === 'products_batch' || action === 'products_vendor') return (await admin()) || (await perm('products.bulk')) ? 'member' : null; // the owner, 28 Oct: bulk edit is its own permission
   if (action === 'products_trash' || action === 'products_restore') return (await admin()) || (await perm('products.trash')) ? 'member' : null;
@@ -2247,6 +2247,48 @@ async function categoryCreate(run: Run, args: Json) {
 
 // category_get { id }: the category live from the site for «تعديل» — its name, image and count, and its Arabic translation's
 // (read with lang=ar, kept only when linked). A read: nothing written, nothing logged.
+// styles (comments decision 51 — «الاستايل ييجي من الاستايلات اللي علي الويبسايت بس»): the terms of the site's «Product Style» attribute
+// (pa_style), each with its Arabic translation's name where WPML links one. GET only; whoever sees the products (the studio and
+// the product page read it); nothing stored, nothing logged. No such attribute on the site → an empty list (attribute: false).
+async function siteStyles(run: Run) {
+  const ctx = await run.ctx();
+  try {
+    const attrs = (await ctx.woo.get('wc/v3/products/attributes')).data;
+    const attr = (Array.isArray(attrs) ? attrs : []).find((a: Json) => isObj(a) && String(a.slug) === STUDIO_ATTRS.style);
+    const id = attr ? wooId(attr.id) : null;
+    if (id === null) return json(200, { action: 'styles', result: 'ok', attribute: false, styles: [] });
+    const read = async (lang: string | null) => {
+      const out: Json[] = [];
+      for (let page = 1; page <= 3; page++) {
+        const q: Record<string, string> = { per_page: '100', page: String(page) }; if (lang) q.lang = lang;
+        const list = (await ctx.woo.get(`wc/v3/products/attributes/${id}/terms`, q)).data;
+        if (!Array.isArray(list)) break;
+        out.push(...list.filter(isObj));
+        if (list.length < 100) break;
+      }
+      return out;
+    };
+    const en = await read(null);
+    let ar: Json[] = [];
+    try { ar = await read('ar'); } catch (e) { if (!(e instanceof WooError)) throw e; } // the English names alone still make the list
+    const arById = new Map<number, Json>(); ar.forEach((t) => { const k = wooId(t.id); if (k !== null) arById.set(k, t); });
+    const enIds = new Set(en.map((t) => wooId(t.id)));
+    const styles = en.map((t) => {
+      const tid = wooId(t.id); const name = plainName(t.name);
+      if (tid === null || !name) return null;
+      const linked = wooId(isObj(t.translations) ? t.translations.ar : null);
+      // the translation: the one this term names, else the Arabic term that names this one; never the term itself (WPML hands
+      // the English term back for lang=ar when it has no translation)
+      const a = (linked !== null && linked !== tid ? arById.get(linked) : null) ?? ar.find((x) => wooId(x.id) !== tid && !enIds.has(wooId(x.id)) && isObj(x.translations) && wooId(x.translations.en) === tid) ?? null;
+      return { id: tid, en: name, ar: a ? (plainName(a.name) ?? '') : '' };
+    }).filter((x) => x !== null).slice(0, 200);
+    return json(200, { action: 'styles', result: 'ok', attribute: true, styles });
+  } catch (e) {
+    if (!(e instanceof WooError)) throw e;
+    return json(200, { action: 'styles', result: 'error', reason: wooCode(e) });
+  }
+}
+
 async function categoryGet(run: Run, args: Json) {
   const id = wooId(args.id);
   if (id === null) return json(400, { error: 'bad_request' });
@@ -2477,6 +2519,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'category_delete') return await categoryDelete(run, args);
     if (action === 'studio_sheet') return await studioSheet(args, deps.fetch);
     if (action === 'thumbs') return await thumbs(run, args, deps.fetch);
+    if (action === 'styles') return await siteStyles(run);
     if (action === 'inventory_push') return await inventoryPush(run, args);
     if (action === 'product_duplicate') { const jwt = /^Bearer\s+(\S+)$/i.exec(req.headers.get('authorization') ?? '')?.[1] ?? ''; return await productDuplicate(run, args, deps.userDb && jwt ? deps.userDb(jwt) : null); }
     if (action === 'product_images_add') {

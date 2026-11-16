@@ -2978,6 +2978,28 @@ Deno.test('line_add: an order of one maker → the order itself (GET + PUT), mir
 
 // ---------------------------------------------------------------- thumbs (2026-11-15-comments.md decision 10)
 
+Deno.test('styles (comments decision 51): whoever sees the products, never the sync secret; the site\'s «Product Style» terms with their Arabic names where WPML links one; a term handed back in English for lang=ar has no Arabic; no such attribute → an empty list; GET only, nothing logged', async () => {
+  const EN = [{ id: 71, name: 'Boho', translations: { en: 71, ar: 171 } }, { id: 72, name: 'Wabi Sabi' }, { id: 73, name: 'Mid-Century', translations: { en: 73 } }, { id: 74, name: '<b>bad</b>' }];
+  const AR = [{ id: 171, name: 'بوهو', translations: { en: 71, ar: 171 } }, { id: 72, name: 'Wabi Sabi' }, { id: 173, name: 'ميد سنشري', translations: { en: 73, ar: 173 } }];
+  const routes = { 'GET wc/v3/products/attributes': { body: [{ id: 12, slug: 'pa_color' }, { id: 14, slug: 'pa_style' }] },
+    'GET wc/v3/products/attributes/14/terms': (c: any) => ({ body: c.query.lang === 'ar' ? AR : EN }) };
+  const { woo, db, deps } = setup({ routes });
+  assertEquals((await call(deps, { action: 'styles' })).res.status, 401, 'never the sync secret');
+  assertEquals((await call(deps, { action: 'styles' }, { jwt: 'jwt-bank' })).res.status, 401, 'products.view N');
+  assertEquals(woo.calls.length, 0);
+  const { res, body } = await call(deps, { action: 'styles' }, { jwt: 'jwt-pview' });
+  assertEquals(res.status, 200);
+  assertEquals(body, { action: 'styles', result: 'ok', attribute: true, styles: [{ id: 71, en: 'Boho', ar: 'بوهو' }, { id: 72, en: 'Wabi Sabi', ar: '' }, { id: 73, en: 'Mid-Century', ar: 'ميد سنشري' }] });
+  assertEquals(woo.calls.every((c: any) => c.method === 'GET'), true);
+  assertEquals(db.rows('woo_sync_log').length, 0);
+  // the site has no style attribute
+  const none = setup({ routes: { 'GET wc/v3/products/attributes': { body: [{ id: 12, slug: 'pa_color' }] } } });
+  assertEquals((await call(none.deps, { action: 'styles' }, { jwt: 'jwt-pview' })).body, { action: 'styles', result: 'ok', attribute: false, styles: [] });
+  // the Arabic read refused: the English names alone
+  const half = setup({ routes: { 'GET wc/v3/products/attributes': { body: [{ id: 14, slug: 'pa_style' }] }, 'GET wc/v3/products/attributes/14/terms': (c: any) => (c.query.lang === 'ar' ? { status: 500, body: { code: 'x' } } : { body: EN.slice(0, 1) }) } });
+  assertEquals((await call(half.deps, { action: 'styles' }, { jwt: 'jwt-pview' })).body.styles, [{ id: 71, en: 'Boho', ar: '' }]);
+});
+
 Deno.test('thumbs (comments decision 10): a member who sees the orders or the products, never the sync secret; only the site\'s own uploads, the smallest copy first, never a redirect, by the bytes themselves; what cannot be read is null; nothing written or logged', async () => {
   const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0x0d, 1, 2, 3]);
   const JPG = Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46, 0x49, 0x46, 0, 1, 9]);

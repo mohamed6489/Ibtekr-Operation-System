@@ -147,8 +147,31 @@ export function parseStudio(b) {
   if (!Number.isInteger(b.index) || b.index < 0 || b.index > 999) return bad('index');
   const want = subset(b.want, WANTS); if (!want) return bad('want');
   const notes = memberNotes(b.notes); if (notes === null) return bad('notes');
-  return { req: { batchId: b.batch_id.toLowerCase(), index: b.index, want, notes } };
+  const styles = siteStyles(b.styles); if (styles === null) return bad('styles');
+  return { req: { batchId: b.batch_id.toLowerCase(), index: b.index, want, notes, styles } };
 }
+/**
+ * The shop's own styles (comments decision 51 — «الاستايل ييجي من الاستايلات اللي علي الويبسايت بس»): the page reads them from the site
+ * (woo-sync `styles`) and sends them with the ask — [{ en, ar }], 200 at most, each a short plain name. → the clean list ([] when
+ * none is sent), or null for anything that is not such a list.
+ */
+export const STYLES_MAX = 200;
+export function siteStyles(v) {
+  if (v == null) return [];
+  if (!Array.isArray(v) || v.length > STYLES_MAX) return null;
+  const out = []; const seen = new Set();
+  for (const x of v) {
+    if (!isObj(x) || typeof x.en !== 'string' || (x.ar != null && typeof x.ar !== 'string')) return null;
+    if (/[<>\n\r]/.test(x.en) || /[<>\n\r]/.test(x.ar || '')) return null;
+    const en = line(x.en, 40, true); const ar = line(x.ar || '', 40, true);
+    if (!en || x.en.trim().length > 40 || (x.ar || '').trim().length > 40) return null;
+    const k = en.toLowerCase(); if (seen.has(k)) continue; seen.add(k); out.push({ en, ar });
+  }
+  return out;
+}
+const styleKey = (v) => String(v == null ? '' : v).normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+/** the shop's style an answer names, by its English or its Arabic name → { en, ar } | null */
+export const styleOf = (styles, en, ar) => { const e = styleKey(en); const a = styleKey(ar); return (Array.isArray(styles) ? styles : []).find((x) => (e && styleKey(x.en) === e) || (a && x.ar && styleKey(x.ar) === a)) || null; };
 
 /**
  * The studio's «data on WhatsApp» flow (docs/superpowers/plans/2026-11-14-studio-flows.md, decision 11): the maker's chat
@@ -416,7 +439,10 @@ export function studioRequest(item, ctx) {
   const rw = [ctx.want.includes('rewriteName') && 'the name', ctx.want.includes('rewriteDesc') && 'the short description'].filter(Boolean);
   const rewrite = rw.length
     ? '\nRewrite ' + rw.join(' and ') + ': the current one is in the data — write a new, better version, different from it (clearer and more appealing), with the same facts (material, color, size) and nothing invented; both languages say the same thing.' : '';
-  const text = dataBlock(rows) + '\n\nFill these fields: ' + keys.join(', ') + '.\nTone: warm.' + translate + rewrite + (ctx.image ? '\nThe image shows the product.' : '') + notesText(ctx.notes);
+  // comments decision 51: the style is one of the shop's own — the closest to the product, never another word
+  const styles = Array.isArray(ctx.styles) && ctx.styles.length && ctx.want.includes('attrs')
+    ? '\nShop styles: ' + ctx.styles.map((x) => x.en).join(', ') + '.\nstyle must be exactly one of these shop styles — the closest one to this product (from its photo and data), even when the data names another style; styleAr is its Arabic name.' : '';
+  const text = dataBlock(rows) + '\n\nFill these fields: ' + keys.join(', ') + '.\nTone: warm.' + translate + rewrite + styles + (ctx.image ? '\nThe image shows the product.' : '') + notesText(ctx.notes);
   const catalog = 'Shop categories (id: path)\n' + (categoryLines(ctx.cats).join('\n') || '(none)') + '\n\nColors (code: name)\n' + (colorLines(ctx.colors).join('\n') || '(none)');
   return {
     model: ctx.model, max_tokens: MAX_TOKENS, ...FALLBACK,
@@ -477,7 +503,7 @@ export function cleanWrite(json, outputs, langs) {
  * categories only from the site's ids (at most 3), colors only from sku_colors' codes, sizes plain (at most 12); a name or
  * description in the wrong language is left out. `sizes` may be an empty list (none given in the data).
  */
-export function cleanStudio(json, want, { categoryIds, colorCodes }) {
+export function cleanStudio(json, want, { categoryIds, colorCodes, styles }) {
   const src = isObj(json) ? json : {}; const fields = {}; const missing = [];
   const put = (k, v, lang) => { if (v && (!lang || inLang(v, lang))) fields[k] = v; else missing.push(k); };
   if (want.includes('nameEn')) put('nameEn', line(src.nameEn, LIM.name, true), 'en');
@@ -494,7 +520,12 @@ export function cleanStudio(json, want, { categoryIds, colorCodes }) {
   }
   if (want.includes('attrs')) {
     put('material', line(src.material, DATA_LIM.material, true), 'en'); put('materialAr', line(src.materialAr, DATA_LIM.material, true), 'ar');
-    put('style', line(src.style, DATA_LIM.style, true), 'en'); put('styleAr', line(src.styleAr, DATA_LIM.style, true), 'ar');
+    if (Array.isArray(styles) && styles.length) {
+      // decision 51: only a style the shop has — written as the shop writes it, in both languages; anything else is left out
+      const hit = styleOf(styles, src.style, src.styleAr);
+      if (hit) { fields.style = hit.en; const ar = hit.ar || line(src.styleAr, DATA_LIM.style, true); if (ar && inLang(ar, 'ar')) fields.styleAr = ar; else missing.push('styleAr'); }
+      else missing.push('style', 'styleAr');
+    } else { put('style', line(src.style, DATA_LIM.style, true), 'en'); put('styleAr', line(src.styleAr, DATA_LIM.style, true), 'ar'); }
   }
   const once = (k, v, lang) => { if (!(k in fields) && !missing.includes(k)) put(k, v, lang); };
   if (want.includes('translate')) {

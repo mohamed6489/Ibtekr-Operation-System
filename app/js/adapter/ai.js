@@ -61,9 +61,11 @@
   }
   // the studio: one batch item (read by the server from the saved batch) → { ok, result, fields, missing, model, cost }
   // notes = the member's instructions from the popup (IBAIAsk, the owner 15 Nov) — sent only when written; the server cleans them again
-  async function studio(batchId, index, want, notes) {
+  // styles: the shop's own styles ([{ en, ar }] from IBStudio.siteStyles — comments decision 51); the AI's style is one of them
+  async function studio(batchId, index, want, notes, styles) {
     const n = cleanNotes(notes);
-    const r = await invoke(Object.assign({ action: 'studio', batch_id: batchId, index, want }, n ? { notes: n } : {}));
+    const sty = Array.isArray(styles) && styles.length && want.includes('attrs') ? styles.slice(0, 200).map((x) => ({ en: String(x.en || '').slice(0, 40), ar: String(x.ar || '').slice(0, 40) })).filter((x) => x.en) : null;
+    const r = await invoke(Object.assign({ action: 'studio', batch_id: batchId, index, want }, n ? { notes: n } : {}, sty && sty.length ? { styles: sty } : {}));
     if (!r.ok) return r;
     const out = Object.assign(answer(r.body), { fields: r.body.fields && typeof r.body.fields === 'object' ? r.body.fields : {} });
     log('product.ai.studio', ['#' + (index + 1), want.join(', ')].concat(out.result === 'refused' ? ['refused'] : []).join(' · '), 'studio_batches', batchId);

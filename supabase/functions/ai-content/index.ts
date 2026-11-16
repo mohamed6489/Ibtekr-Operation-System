@@ -244,7 +244,7 @@ async function itemPhoto(db: Db, batchId: string, item: Json) {
 async function studio(deps: Deps, uid: string, args: Json) {
   const parsed = parseStudio(args);
   if ('error' in parsed) return json(400, parsed);
-  const { batchId, index, want, notes } = parsed.req;
+  const { batchId, index, want, notes, styles } = parsed.req;
   const { data: batch } = await deps.db.from('studio_batches').select('id, brand_id, state, archived_at').eq('id', batchId).maybeSingle();
   const items = isObj(batch?.state) && Array.isArray(batch.state.items) ? batch.state.items : [];
   const item = batch && !batch.archived_at ? items[index] : null;
@@ -256,8 +256,8 @@ async function studio(deps: Deps, uid: string, args: Json) {
   const cfg = await configOf(deps, 'studio');
   const label = line(item.nameEn || item.nameAr || '', 200) || '#' + (index + 1);
   const base = { created_by: uid, action: 'studio', source: 'studio', label, batch_id: batchId, item_index: index };
-  const sets = { categoryIds: new Set(cats.map((c: Json) => Number(c.id))), colorCodes: new Set(colors.map((c: Json) => c.code)) };
-  return await runAi(deps, base, cfg, studioRequest(item, { model: cfg.model, effort: cfg.effort, want, brand, cats, colors, image, notes }),
+  const sets = { categoryIds: new Set(cats.map((c: Json) => Number(c.id))), colorCodes: new Set(colors.map((c: Json) => c.code)), styles };
+  return await runAi(deps, base, cfg, studioRequest(item, { model: cfg.model, effort: cfg.effort, want, brand, cats, colors, image, notes, styles }),
     (answer) => cleanStudio(answer, want, sets));
 }
 

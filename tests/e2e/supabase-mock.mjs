@@ -2266,7 +2266,7 @@ export async function installSupabaseMock(page, opts = {}) {
           shortDesc: req.want.includes('rewriteDesc') ? 'A rewritten short description.' : req.want.includes('translate') ? 'Translated short description.' : 'A warm bamboo desk lamp.',
           shortDescAr: req.want.includes('rewriteDesc') ? 'وصف قصير متكتب من جديد.' : 'أباجورة مكتب من البامبو بإضاءة دافية.', categories: cats.slice(0, 1), colors: [typeof mock.studioColor === 'function' ? mock.studioColor(item) : 'BE'], sizes: [],
           material: 'Rattan', materialAr: 'راتان', style: 'Boho', styleAr: 'بوهيمي' }; // the owner 15 Nov: attrs (material/style) and translate (Arabic → English)
-      const cleaned = action === 'write' ? cleanWrite(answer, req.outputs, req.langs) : action === 'prompts' ? cleanPrompts(answer) : cleanStudio(answer, req.want, { categoryIds: new Set(cats), colorCodes: new Set(mock.skuColors.map((c) => c.code)) });
+      const cleaned = action === 'write' ? cleanWrite(answer, req.outputs, req.langs) : action === 'prompts' ? cleanPrompts(answer) : cleanStudio(answer, req.want, { categoryIds: new Set(cats), colorCodes: new Set(mock.skuColors.map((c) => c.code)), styles: req.styles });
       const run = { ...base, status: 'ok', error: null, input_tokens: 3000, output_tokens: 2000, cost_usd: cost, output: cleaned };
       mock.aiRuns.push(run);
       if (action === 'prompts' && cleaned.prompts.length === 3) {
@@ -2322,7 +2322,7 @@ export async function installSupabaseMock(page, opts = {}) {
         return json(200, { action, result: 'ok', store, adopted: false, commission, bank, photo: 'none', shop_url: 'https://woo.test/store/' + shop + '/' });
       }
       if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : (action === 'order_trash' || action === 'suborder_trash' || action === 'line_trash' || action === 'line_qty' || action === 'line_add' || action === 'suborder_status') ? hasPerm(u, 'orders.status') === 'F' && hasPerm(u, 'orders.view') !== 'N' : (action === 'order_create' || action === 'order_pay_link') ? (isAdmin(u) || hasPerm(u, 'orders.status') === 'F') : action === 'push_vendor' ? mayPushVendor() : (action === 'statement' || action === 'withdrawals') ? hasPerm(u, 'accounts.view') !== 'N' : action === 'thumbs' ? (hasPerm(u, 'orders.view') !== 'N' || hasPerm(u, 'products.view') !== 'N') : action === 'withdraw_approve' || action === 'withdraw_create' ? (isAdmin(u) || hasPerm(u, 'accounts.approve') === 'F')
-        : action === 'product_get' ? hasPerm(u, 'products.view') !== 'N' : action === 'product_save' || action === 'product_images_add' ? (isAdmin(u) || hasPerm(u, 'products.edit') === 'F') : action === 'products_batch' || action === 'products_vendor' ? (isAdmin(u) || hasPerm(u, 'products.bulk') === 'F')
+        : action === 'product_get' || action === 'styles' ? hasPerm(u, 'products.view') !== 'N' : action === 'product_save' || action === 'product_images_add' ? (isAdmin(u) || hasPerm(u, 'products.edit') === 'F') : action === 'products_batch' || action === 'products_vendor' ? (isAdmin(u) || hasPerm(u, 'products.bulk') === 'F')
           : action === 'products_trash' || action === 'products_restore' ? hasPerm(u, 'products.trash') === 'F' : action === 'studio_upload' || action === 'studio_media' || action === 'category_create' || action === 'studio_sheet' || action === 'product_duplicate' || action === 'category_get' || action === 'category_update' || action === 'category_delete' ? (isAdmin(u) || hasPerm(u, 'products.add') === 'F') : isAdmin(u))) return json(401, { error: 'unauthorized' });
       // phase 5.2: studio_upload — the item read from the batch and checked by the server's own buildStudio; the gate; a product
       // (draft, the mirror row) per item, the result on the batch; mock.studioFail = { [index]: 'product_invalid_sku' } refuses one;
@@ -2334,6 +2334,9 @@ export async function installSupabaseMock(page, opts = {}) {
       // product carries the site's WooCommerce brand named like the batch's (matchWooBrand over mock.wooBrands; none = wooBrand null).
       // category_create — a new woo_categories row (id 9500+). studio_sheet (decision 13) — the server's own sheetCsvUrl check
       // (400 bad_link), then mock.sheetLinks[url] = { csv } | { reason } (else not_published); mock.sheetReads lists the links.
+      // styles (comments decision 51): the site's «Product Style» terms — mock.siteStyles ([{ id, en, ar }]; none by default: the
+      // page then keeps its own list); mock.styleReads counts the reads
+      if (action === 'styles') { mock.styleReads = (mock.styleReads || 0) + 1; const list = Array.isArray(mock.siteStyles) ? mock.siteStyles : []; return json(200, { action, result: 'ok', attribute: Array.isArray(mock.siteStyles), styles: list }); }
       if (action === 'studio_sheet') {
         if (!sheetCsvUrl(b.url)) return json(400, { error: 'bad_link', field: 'url' });
         mock.sheetReads.push(b.url);

@@ -777,6 +777,34 @@ test('comments 43–48 and 50 — the data step\'s picture opens a popup (replac
   mock.imgFail = null;
 });
 
+test('comment 51 — the style comes from the shop\'s own styles only: the list is the site\'s (its Arabic names), the AI is handed that list and its pick is written as the shop writes it, and there is no «+ جديد…»', async ({ page }) => {
+  mock.siteStyles = [{ id: 71, en: 'Boho', ar: 'بوهو' }, { id: 72, en: 'Wabi Sabi', ar: '' }, { id: 73, en: 'Mid-Century', ar: 'ميد سنشري' }];
+  await signIn(page, ADMIN);
+  await choose(page, 'شيت جاهز', 'Simple');
+  await pick(page, '[data-flow-sheet]', { name: 'a.csv', mimeType: 'text/csv', buffer: Buffer.from('#,SKU,Product Name EN,Product Name AR,Product Colors,Product Colors AR,Size,Vendor Price,Product Category\n1,,Boho Cushion,مخدة بوهيمي,Beige,بيج,40 × 40 cm,1000,ديكور\n') });
+  await photosFor(page, 1);
+  await next(page); await makerArtCraft(page); await next(page);
+  const card = page.locator('#pg-products .fl-dcard').first();
+  // the AI filled the style: «Boho» is the shop's, with the shop's own Arabic name (not the page's «بوهيمي»)
+  await expect(card.locator('[data-fl-pick="styleEn"] button.select')).toContainText('Boho');
+  await expect(card.locator('[data-fl-pick="styleAr"] button.select')).toContainText('بوهو');
+  await expect.poll(() => { const r = (batch().state.rows || [])[0] || {}; return [r.styleEn, r.styleAr]; }).toEqual(['Boho', 'بوهو']);
+  // the ask carried the shop's list (a style with no Arabic on the site goes with its English name)
+  const call = mock.aiCalls.filter((c) => c.action === 'studio' && (c.want || []).includes('attrs')).at(-1);
+  expect(call.styles).toEqual([{ en: 'Boho', ar: 'بوهو' }, { en: 'Wabi Sabi', ar: 'Wabi Sabi' }, { en: 'Mid-Century', ar: 'ميد سنشري' }]);
+  expect(mock.styleReads).toBe(1); // read once a session
+  // the list a member picks from: the shop's three, nothing else, no «+ جديد…»
+  await card.locator('[data-fl-pick="styleAr"] button.select').evaluate((e) => e.scrollIntoView({ block: 'center' }));
+  await card.locator('[data-fl-pick="styleAr"] button.select').click();
+  await expect(page.getByRole('option')).toHaveText(['—', 'بوهو', 'Wabi Sabi', 'ميد سنشري']);
+  await page.getByRole('option', { name: 'ميد سنشري' }).click();
+  await expect.poll(() => { const r = batch().state.rows[0]; return [r.styleEn, r.styleAr]; }).toEqual(['Mid-Century', 'ميد سنشري']);
+  // the material keeps «+ جديد…» — only the style is the shop's list
+  await card.locator('[data-fl-pick="materialAr"] button.select').click();
+  await expect(page.getByRole('option', { name: '+ جديد…' })).toHaveCount(1);
+  await page.keyboard.press('Escape');
+});
+
 test('comments 39–41 — a ready sheet\'s photos: the sheet\'s own pictures stand on their rows, the uploads go to the row they look like whatever their names; each row\'s ⋮ replaces or empties it, «زوّد صور» only adds, «مسح الكل» empties all; a product without a photo or a photo without a row stops «التالي» with a note', async ({ page }) => {
   await signIn(page, ADMIN);
   const pics = await drawPics(page);

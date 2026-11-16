@@ -2280,7 +2280,10 @@ async function vendorDelete(run: Run, args: Json, uid: string | null) {
   const { data: row, error } = await run.db.from('vendors').select('id, name, woo_vendor_id').eq('id', vendorId).maybeSingle();
   if (error) throw new Error(`vendors: ${error.message}`);
   if (!row) return json(404, { error: 'vendor_not_found' });
-  if (await isArchived(run, vendorId)) return json(409, { error: 'archived' });
+  // before 0112 there is no archive: refused before the store is touched (a maker with orders could not be archived after it)
+  const ready = await run.db.from('vendors').select('archived_at').eq('id', vendorId).maybeSingle();
+  if (ready.error) return json(503, { error: 'not_ready' });
+  if (isObj(ready.data) && ready.data.archived_at != null) return json(409, { error: 'archived' });
   const storeId = wooId(row.woo_vendor_id);
   const entry = { kind: 'push', direction: 'out', entity: 'vendor', entity_id: vendorId, action: 'vendor_delete' };
   if (storeId !== null) {

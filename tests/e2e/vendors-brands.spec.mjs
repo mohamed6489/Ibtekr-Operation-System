@@ -99,7 +99,7 @@ test('the admin: the automatic brand in «البراندات» (code, aliases, �
   await expect(brands(page)).not.toContainText('كان عنده');
   await expect(brands(page).getByRole('button', { name: 'إضافة براند' })).toBeVisible();
   await r.locator('[data-brand-menu]').click();
-  await expect(page.locator('[role=menu] [role=menuitem]')).toHaveText(['تعديل', 'نقل لمبتكر تاني']); // no «النسبة الخاصة» (plan 3.4); with its origin: no «رجوع لصاحبه»
+  await expect(page.locator('[role=menu] [role=menuitem]')).toHaveText(['تعديل', 'اعمل البراند على الموقع', 'نقل لمبتكر تاني']); // no «النسبة الخاصة» (plan 3.4); with its origin: no «رجوع لصاحبه»; a maker with a store: «اعمل البراند على الموقع» (16 Nov)
   await page.keyboard.press('Escape');
   await drawer(page).getByRole('button', { name: 'إغلاق' }).first().click();
   // the search: the hand-added brand of Art Craft by its name and by its alias; the grey line under his name
@@ -183,7 +183,7 @@ test('ops (vendors.edit = P) and accounts read the section only: no button, no m
   await expect(brands(page).getByRole('button', { name: 'إضافة براند' })).toBeVisible();
   await expect(brands(page).locator('[data-brand-rate]')).toHaveCount(0);
   await brandRow(page, B2).locator('[data-brand-menu]').click();
-  await expect(page.locator('[role=menu] [role=menuitem]')).toHaveText(['تعديل', 'نقل لمبتكر تاني']);
+  await expect(page.locator('[role=menu] [role=menuitem]')).toHaveText(['تعديل', 'اعمل البراند على الموقع', 'نقل لمبتكر تاني']);
   await page.keyboard.press('Escape');
   await brands(page).getByRole('button', { name: 'إضافة براند' }).click();
   await expect(modal(page).locator('#br-rate')).toHaveCount(0); // no special rate (plan 3.4)
@@ -287,7 +287,7 @@ test('the brand special rate is retired (plan 3.4, decision 5): a brand_rates ro
   await tab(page, 'معلومات المبتكر').click();
   await expect(brands(page).locator('[data-brand-rate]')).toHaveCount(0);
   await brandRow(page, B2).locator('[data-brand-menu]').click();
-  await expect(page.locator('[role=menu] [role=menuitem]')).toHaveText(['تعديل', 'نقل لمبتكر تاني']);
+  await expect(page.locator('[role=menu] [role=menuitem]')).toHaveText(['تعديل', 'اعمل البراند على الموقع', 'نقل لمبتكر تاني']);
   await page.keyboard.press('Escape');
   expect(mock.requests.filter((r) => r === 'GET /rest/v1/brand_rates')).toEqual([]);
   expect(writes()).toEqual([]);
@@ -382,7 +382,7 @@ test('transfer Antikiano\'s brand to Bian eg from 8 days ago, temporarily: one o
   await expect(brandRow(page, B2)).toContainText(dmy(TODAY));
   await expect(brandRow(page, B2)).not.toContainText('مؤقت');
   await brandRow(page, B2).locator('[data-brand-menu]').click();
-  await expect(page.locator('[role=menu] [role=menuitem]')).toHaveText(['تعديل', 'نقل لمبتكر تاني']);
+  await expect(page.locator('[role=menu] [role=menuitem]')).toHaveText(['تعديل', 'اعمل البراند على الموقع', 'نقل لمبتكر تاني']);
   await page.keyboard.press('Escape');
 });
 
@@ -443,4 +443,24 @@ test('the page note stays through the redraws for the server\'s answer (the relo
   await expect(note(page)).toHaveCount(0);
   await serverRedraws();
   await expect(note(page)).toHaveCount(0);
+});
+
+test('16 Nov — «اعمل البراند على الموقع» from the brand\'s ⋮ (a maker with a store): woo-sync brand_site for that brand, the note says made / failed', async ({ page }) => {
+  await setup(page);
+  await openVendors(page);
+  await openDrawer(page, V2);
+  await openBrandMenu(page, B2, 'اعمل البراند على الموقع');
+  await expect.poll(() => (mock.brandSiteCalls || []).map((c) => [c.brand_id, c.image, c.by])).toEqual([[B2, false, ADMIN]]);
+  await expect(note(page)).toContainText('البراند «Antikiano» اتعمل على الموقع.');
+  mock.pushEnabled = false; // WOO_PUSH_ENABLED off → said, nothing written
+  await openBrandMenu(page, B2, 'اعمل البراند على الموقع');
+  await expect(note(page)).toContainText('الكتابة على الموقع مقفولة.');
+  expect(mock.brandSiteCalls.length).toBe(1);
+});
+
+test('16 Nov — «اعمل البراند على الموقع» is not on the ⋮ of a member without vendors.edit F, nor for a maker with no store', async ({ page }) => {
+  await setup(page);
+  await openVendors(page, ACCOUNTS);
+  await openDrawer(page, V2);
+  await expect(brands(page).locator('[data-brand-menu]')).toHaveCount(0);
 });

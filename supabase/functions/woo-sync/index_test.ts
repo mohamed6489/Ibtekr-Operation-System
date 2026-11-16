@@ -3332,4 +3332,9 @@ Deno.test('vendor_delete: admin only with a reason; the Dokan store deleted with
   // the switch off → refused before the site
   const e = setup({ env: { WOO_PUSH_ENABLED: '0' }, routes });
   assertEquals([(await call(e.deps, { action: 'vendor_delete', vendor_id: V44, reason: 'x' }, { jwt: 'jwt-admin' })).body.error, e.woo.calls.length], ['push_disabled', 0]);
+  // before 0112 (no archived_at): refused before the site — a maker with orders could not be archived after his store went
+  const f = setup({ env: PUSH_ON, routes, fail: (c) => (c.table === 'vendors' && c.op === 'select' && JSON.stringify(c).includes('archived_at') ? { code: '42703', message: 'column vendors.archived_at does not exist' } : null) });
+  const before = dels.length;
+  const rf = await call(f.deps, { action: 'vendor_delete', vendor_id: V44, reason: 'x' }, { jwt: 'jwt-admin' });
+  assertEquals([rf.res.status, rf.body.error, dels.length - before, f.db.rows('vendors').some((v: any) => v.id === V44)], [503, 'not_ready', 0, true]);
 });

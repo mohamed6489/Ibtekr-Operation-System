@@ -207,7 +207,7 @@ const clone = <T>(v: T): T => structuredClone(v);
 const err = (code: string, message: string, details?: string): DbErr => ({ code, message, ...(details ? { details } : {}) });
 const colsOf = (spec: string) => spec.split(',').map((c) => c.trim()).filter(Boolean);
 
-export type Call = { table?: string; op: string; rows?: Row[]; patch?: Row; filters?: unknown[]; onConflict?: string; returning?: string | null; name?: string; args?: unknown; error?: DbErr | null };
+export type Call = { table?: string; op: string; columns?: string; rows?: Row[]; patch?: Row; filters?: unknown[]; onConflict?: string; returning?: string | null; name?: string; args?: unknown; error?: DbErr | null };
 
 export function fakeDb(seed: Record<string, Row[]> = {}, opts: { rpc?: Record<string, (args: any) => unknown>; fail?: (call: Call) => DbErr | null; storage?: Record<string, Uint8Array> } = {}) {
   const tables: Record<string, Row[]> = Object.fromEntries(Object.keys(COLUMNS).map((t) => [t, []]));
@@ -270,7 +270,7 @@ export function fakeDb(seed: Record<string, Row[]> = {}, opts: { rpc?: Record<st
   const project = (rows: Row[], spec: string) => rows.map((r) => (spec.trim() === '*' ? clone(r) : Object.fromEntries(colsOf(spec).map((c) => [c, clone(r[c])]))));
 
   function run(q: any): { data: any; error: DbErr | null } {
-    const call: Call = { table: q.table, op: q.op, filters: q.filters, ...(q.rows ? { rows: clone(q.rows) } : {}), ...(q.patch ? { patch: clone(q.patch) } : {}), ...(q.onConflict ? { onConflict: q.onConflict } : {}), returning: q.returning };
+    const call: Call = { table: q.table, op: q.op, ...(q.op === 'select' ? { columns: q.columns } : {}), filters: q.filters, ...(q.rows ? { rows: clone(q.rows) } : {}), ...(q.patch ? { patch: clone(q.patch) } : {}), ...(q.onConflict ? { onConflict: q.onConflict } : {}), returning: q.returning };
     calls.push(call);
     const done = (data: any, error: DbErr | null = null) => { call.error = error; return { data: error ? null : data, error }; };
     const injected = opts.fail?.(call);

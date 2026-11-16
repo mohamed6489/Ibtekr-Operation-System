@@ -216,8 +216,14 @@ test('comment 10 — «تقرير مختصر»: five numbers, the request\'s box
   await expect(m.locator('[data-vb-req]')).toHaveAttribute('data-vb-req', 'pending');
   // the orders: the number and the product with its own photo (the site's)
   const row = m.locator('[data-vb-table] tbody tr').first();
-  await expect(row).toContainText('#181668'); await expect(row).toContainText('Cushion'); await expect(row).toContainText('1,002.00');
+  await expect(row).toContainText('#181669'); await expect(row).not.toContainText('#181668'); await expect(row).toContainText('Cushion'); // ش6: the sub-order 181669 of order 181668 await expect(row).toContainText('1,002.00');
   await expect(row.locator('.vr-prod img')).toHaveAttribute('src', new RegExp('^' + SITE.replace(/\./g, '\\.') + '/wp-content/uploads/'));
+  // chat ش6 (16 Nov): the number is the sub-order's alone (the order's when it has none), and the product column starts on the right
+  for (const t of await m.locator('[data-vb-table] tbody tr.dt-click td:nth-child(2)').allInnerTexts()) expect(t.trim()).toMatch(/^#\d+$/);
+  expect(await row.locator('td').first().evaluate((td) => getComputedStyle(td).textAlign)).toBe('right');
+  expect(await m.locator('[data-vb-table] thead th').first().evaluate((th) => getComputedStyle(th).textAlign)).toBe('right');
+  const [pic, txt] = await Promise.all([row.locator('.vr-prod .thumb').boundingBox(), row.locator('td').first().boundingBox()]);
+  expect(Math.abs(pic.x + pic.width - (txt.x + txt.width))).toBeLessThan(24); // the photo sits at the cell's right edge
   // the buttons: «مشاركة» · «التقرير الكامل» · «إغلاق» — «كشف حساب Dokan» and «نسخ CSV» are gone
   await expect(m.locator('.modal-f button')).toHaveText(['مشاركة', 'التقرير الكامل', 'إغلاق']);
   await expect(m).not.toContainText('نسخ CSV'); await expect(m.getByRole('button', { name: 'كشف حساب Dokan' })).toHaveCount(0);

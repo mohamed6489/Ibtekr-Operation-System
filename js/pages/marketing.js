@@ -1348,7 +1348,7 @@
   // كلها»): each assistant's chats, the member's own — the history on the side (new, rename, delete), the turns from the server, the
   // quick suggestions inside the chat, ⚙️ the admin's settings, «تقديم طلب» and the expand button (the same icon shrinks it back);
   // nothing runs from a chat — the designer's picture is made only by «ولّد الصورة» under its answer (the image credits) ----------
-  const AG = { chats: {}, active: {}, turns: {}, prompts: {}, reqs: {}, draft: {}, asking: false, gen: null, full: false, loading: {}, cfgAsked: false, seen: {}, atBottom: {}, pos: {} };
+  const AG = { chats: {}, active: {}, turns: {}, prompts: {}, reqs: {}, draft: {}, asking: false, gen: null, full: false, side: false, loading: {}, cfgAsked: false, seen: {}, atBottom: {}, pos: {} };
   const AG_INTRO = {
     buyer: 'أنا الميديا باير. بقرا أرقام ميتا بتاعة آخر 7 أيام جنب أوردرات ووكومرس الحقيقية وبقترح — والتنفيذ بموافقتك من «مستني موافقتك». اسألني عن حملة أو العائد أو تكلفة الأوردر.',
     designer: 'أنا الديزاينر. بساعدك في أفكار البوستات والكاروسيل والستوري والريلز بالبراند، ولما تطلب صورة بكتبلك وصفها وتقدر تولّدها بزرار «ولّد الصورة» (من كريدت الصور). الشغل الكبير بيروح للديزاينر البشري من «تقديم طلب».',
@@ -1367,7 +1367,7 @@
     if (!AG.cfgAsked && MK().agentSettings) { AG.cfgAsked = true; MK().agentSettings(false).then(() => agRefresh()); }
   }
   function agOpen(a, id) {
-    AG.active[a] = id || null;
+    AG.active[a] = id || null; AG.side = false; // decision 72: the phone's drawer closes on a pick
     if (id && !AG.turns[id] && !AG.loading['t' + id]) {
       AG.loading['t' + id] = true;
       MK().agentTurns(id).then((r) => { AG.loading['t' + id] = false; AG.turns[id] = r.ok ? r.items : []; if (!r.ok) K.toast(r.message, 'error'); agRefresh(); });
@@ -1419,52 +1419,85 @@
       submit: async (f) => { const r = await MK().agentSettingsSet(a, { intro: f.intro, instructions: f.instr, suggestions: String(f.sugg).split('\n').map((x) => x.trim()).filter(Boolean) });
         K.toast(r.ok ? 'اتحفظت إعدادات ' + A.name : r.message, r.ok ? 'success' : 'error'); agRefresh(); } });
   }
+  // comments 15 Nov (decision 72 — «ظبط صفحة مساعدين الذكاء الاصطناعي — الui بتاع الشاتات بالذات و كل حاجة بشكل احترافي و منظم»): the
+  // chat is one frame of a fixed height — the history by day on the side (a drawer on a phone: «الشاتات» in the head), the assistant's
+  // mark and what it does in the head, a new chat opens on a welcome (the intro and the suggestions as cards), the turns as rows (the
+  // assistant's mark beside its bubble, my words green with beige text like the header's assistant, who and when under the bubble),
+  // the suggestions as one strip over the box, and the box itself grows with what is typed (Enter sends, Shift + Enter = a new line).
+  // Decision 73 («غير الايقون دي لايقونة التكبير و لما اجي اصغر تبقي ايقونة التصغير»): «كبّر» carries the expand mark and «صغّر» the shrink one
+  const AG_ICON = { buyer: 'chart', designer: 'image', dev: 'code' };
+  const agMark = (a, cls) => h('span', { class: 'mk-av' + (cls ? ' ' + cls : ''), 'aria-hidden': 'true' }, Icon(AG_ICON[a], 'sm'));
+  const agDay = (iso) => { const d = new Date(iso); return isNaN(d) ? '' : new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo' }).format(d); };
+  // the history by day — today, the last week, older — in the order the server sent it (the newest first)
+  function agGroups(chats) {
+    const today = TODAY(); const week = W.addD(today, -7); const G = [['النهارده', []], ['آخر 7 أيام', []], ['أقدم', []]];
+    chats.forEach((c) => { const d = agDay(c.updatedAt); G[d === today ? 0 : d > week ? 1 : 2][1].push(c); });
+    return G.filter((g) => g[1].length);
+  }
+  const agGrow = (x) => { if (!x) return; x.style.height = 'auto'; x.style.height = Math.min(x.scrollHeight, 132) + 'px'; };
   function agentChat(a) {
     agLoad(a, false);
     const A = AGENTS[a]; const cfg = agCfg(a); const chats = AG.chats[a]; const cid = AG.active[a] || null; const key = cid || 'new-' + a;
     const turns = AG.turns[key] || []; const intro = (cfg && cfg.intro) || AG_INTRO[a];
     const sugg = (cfg && cfg.suggestions && cfg.suggestions.length ? cfg.suggestions : AG_SUGG[a]);
-    const side = h('aside', { class: 'mk-agent-side', 'aria-label': 'شاتات ' + A.name },
+    const chatRow = (c) => h('div', { class: 'mk-agent-row' + (c.id === cid ? ' on' : ''), 'data-mk-chat-item': c.id },
+      h('button', { type: 'button', class: 'mk-agent-open', 'aria-current': c.id === cid ? 'true' : null, onClick: () => agOpen(a, c.id) }, h('b', null, c.title), h('small', { class: 'help' }, agTime(c.updatedAt))),
+      K.RowMenu([{ label: 'تغيير الاسم', icon: 'edit', run: () => agRename(a, c) }, { label: 'امسح الشات', icon: 'trash', danger: true, run: () => agDelete(a, c) }], 'خيارات الشات'));
+    const side = h('aside', { class: 'mk-agent-side' + (AG.side ? ' open' : ''), 'aria-label': 'شاتات ' + A.name },
+      h('div', { class: 'mk-agent-side-head' }, h('b', null, 'الشاتات'), chats && chats.length ? h('span', { class: 'mk-agent-n' }, K.Num(K.n0(chats.length))) : null),
       Button({ size: 'sm', type: 'primary', icon: 'plus', label: 'شات جديد', attrs: { 'data-mk-chat-new': a }, onClick: () => agOpen(a, null) }),
-      chats ? (chats.length ? h('div', { class: 'mk-agent-list', 'data-mk-chats': String(chats.length) }, chats.map((c) => h('div', { class: 'mk-agent-row' + (c.id === cid ? ' on' : ''), 'data-mk-chat-item': c.id },
-        h('button', { type: 'button', class: 'mk-agent-open', 'aria-current': c.id === cid ? 'true' : null, onClick: () => agOpen(a, c.id) }, h('b', null, c.title), h('small', { class: 'help' }, agTime(c.updatedAt))),
-        K.RowMenu([{ label: 'تغيير الاسم', icon: 'edit', run: () => agRename(a, c) }, { label: 'امسح الشات', icon: 'trash', danger: true, run: () => agDelete(a, c) }], 'خيارات الشات'))))
-        : h('p', { class: 't-small help mk-agent-none' }, 'لسه مفيش شاتات — ابدأ بسؤال.')) : h('p', { class: 't-small help' }, 'بيحمّل…'));
-    const bubbles = turns.map((t) => h('div', { class: 'mk-msg ' + (t.role === 'user' ? 'user' : 'ai'), 'data-mk-turn': String(t.id) },
-      t.text ? h('p', null, t.text) : null,
-      t.images.length ? h('div', { class: 'mk-msg-imgs' }, t.images.map((pth) => Img(pth, 'mk-agent-img', 'صورة من الديزاينر'))) : null,
-      a === 'designer' && t.role === 'assistant' && AG.prompts[t.id] ? h('div', { class: 'mk-msg-gen' }, h('small', { class: 'help' }, 'وصف الصورة: ' + AG.prompts[t.id]),
-        can().create ? Button({ size: 'sm', type: 'primary', icon: 'sparkle', label: AG.gen === t.id ? 'بتتعمل…' : 'ولّد الصورة', disabled: !!AG.gen, attrs: { 'data-mk-gen': String(t.id) }, onClick: () => agGen(a, t.id) }) : h('small', { class: 'help' }, 'التوليد محتاج «التسويق: إنشاء»')) : null,
-      // owner batch 14 Nov decision 14: the job the assistant handed back — «قدّم الطلب ده» opens «تقديم طلب» filled with it
-      t.role === 'assistant' && AG.reqs[t.id] && canAsk() ? h('div', { class: 'mk-msg-req' }, h('small', { class: 'help' }, 'طلب جاهز: ' + AG.reqs[t.id].title),
-        Button({ size: 'sm', type: 'primary', icon: 'send', label: 'قدّم الطلب ده', attrs: { 'data-mk-req-from': String(t.id) }, onClick: () => reqForm(a, { title: AG.reqs[t.id].title, details: AG.reqs[t.id].details }) })) : null,
-      h('small', { class: 'help' }, t.role === 'user' ? meName() + ' · ' + agTime(t.at) : A.name + ' · ' + agTime(t.at))));
+      chats ? (chats.length ? h('div', { class: 'mk-agent-list', 'data-mk-chats': String(chats.length) }, agGroups(chats).reduce((all, g) => all.concat([h('small', { class: 'mk-agent-day' }, g[0])], g[1].map(chatRow)), []))
+        : h('p', { class: 't-small help mk-agent-none' }, 'لسه مفيش شاتات — ابدأ بسؤال.')) : h('p', { class: 't-small help mk-agent-none' }, 'بنحمّل الشاتات…'));
+    const send = (x) => (a === 'buyer' && x === 'اعمل حملة لمنتج' ? go('marketing-campaign-1') : agSend(a, x));
+    const chips = h('div', { class: 'chips mk-agent-chips' }, h('span', { class: 't-small help' }, 'اقتراحات سريعة:'), sugg.map((x) => h('button', { type: 'button', class: 'chip', onClick: () => send(x) }, x)));
+    const bubbles = turns.map((t) => { const mine = t.role === 'user';
+      return h('div', { class: 'mk-row ' + (mine ? 'user' : 'ai') }, mine ? null : agMark(a),
+        h('div', { class: 'mk-col' },
+          h('div', { class: 'mk-msg ' + (mine ? 'user' : 'ai'), 'data-mk-turn': String(t.id) },
+            t.text ? h('p', null, t.text) : null,
+            t.images.length ? h('div', { class: 'mk-msg-imgs' }, t.images.map((pth) => Img(pth, 'mk-agent-img', 'صورة من الديزاينر'))) : null,
+            a === 'designer' && t.role === 'assistant' && AG.prompts[t.id] ? h('div', { class: 'mk-msg-gen' }, h('small', { class: 'help' }, 'وصف الصورة: ' + AG.prompts[t.id]),
+              can().create ? Button({ size: 'sm', type: 'primary', icon: 'sparkle', label: AG.gen === t.id ? 'بتتعمل…' : 'ولّد الصورة', disabled: !!AG.gen, attrs: { 'data-mk-gen': String(t.id) }, onClick: () => agGen(a, t.id) }) : h('small', { class: 'help' }, 'التوليد محتاج «التسويق: إنشاء»')) : null,
+            // owner batch 14 Nov decision 14: the job the assistant handed back — «قدّم الطلب ده» opens «تقديم طلب» filled with it
+            t.role === 'assistant' && AG.reqs[t.id] && canAsk() ? h('div', { class: 'mk-msg-req' }, h('small', { class: 'help' }, 'طلب جاهز: ' + AG.reqs[t.id].title),
+              Button({ size: 'sm', type: 'primary', icon: 'send', label: 'قدّم الطلب ده', attrs: { 'data-mk-req-from': String(t.id) }, onClick: () => reqForm(a, { title: AG.reqs[t.id].title, details: AG.reqs[t.id].details }) })) : null),
+          h('small', { class: 'mk-meta help' }, (mine ? meName() : A.name) + ' · ' + agTime(t.at)))); });
+    const waiting = !!(cid && !AG.turns[cid]); const fresh = !turns.length && !waiting && !AG.asking;
+    const worm = () => (window.IBLoader && window.IBLoader.mark ? window.IBLoader.mark(18) : null);
     // owner batch 14 Nov decision 14: the chat stays on its last message — a new turn, «بيفكر…» or another chat goes to the bottom; any
     // other redraw keeps where the member scrolled (a new .mk-chat starts at the top otherwise)
     const sk = key + ':' + turns.length + ':' + (AG.asking ? 1 : 0);
-    const msgs = h('div', { class: 'mk-chat', 'data-mk-chat': String(turns.length), 'aria-live': 'polite', onScroll: (e) => { const el = e.currentTarget; AG.pos[a] = el.scrollTop; AG.atBottom[a] = el.scrollHeight - el.scrollTop - el.clientHeight < 40; } },
-      h('div', { class: 'mk-msg ai mk-intro' }, h('p', null, intro), h('small', { class: 'help' }, a === 'buyer' ? 'الأرقام من آخر مزامنة' : A.name)),
-      cid && !AG.turns[cid] ? h('p', { class: 't-small help' }, 'بيحمّل الرسايل…') : null,
-      bubbles, AG.asking ? h('div', { class: 'mk-msg ai', 'data-mk-thinking': '' }, h('p', null, 'بيفكر…')) : null);
+    const msgs = h('div', { class: 'mk-chat' + (fresh ? ' fresh' : ''), 'data-mk-chat': String(turns.length), 'aria-live': 'polite', onScroll: (e) => { const el = e.currentTarget; AG.pos[a] = el.scrollTop; AG.atBottom[a] = el.scrollHeight - el.scrollTop - el.clientHeight < 40; } },
+      fresh ? h('div', { class: 'mk-welcome' }, agMark(a, 'xl'), h('b', { class: 'mk-welcome-t' }, A.name), h('p', { class: 'mk-intro' }, intro),
+        a === 'buyer' ? h('small', { class: 'help' }, 'الأرقام من آخر مزامنة') : null, chips) : null,
+      waiting ? h('p', { class: 't-small help mk-chat-wait' }, worm(), h('span', null, 'بنحمّل الرسايل…')) : null,
+      bubbles, AG.asking ? h('div', { class: 'mk-row ai' }, agMark(a), h('div', { class: 'mk-col' }, h('div', { class: 'mk-msg ai mk-think', 'data-mk-thinking': '' }, worm(), h('p', null, 'بيفكر…')))) : null);
     const toEnd = AG.seen[a] !== sk || AG.atBottom[a] !== false; AG.seen[a] = sk;
     requestAnimationFrame(() => {
       const el = document.querySelector('[data-mk-agent="' + a + '"] .mk-chat'); if (!el) return;
+      agGrow(document.getElementById('mk-ask'));
       if (toEnd) { el.scrollTop = el.scrollHeight; AG.atBottom[a] = true; AG.pos[a] = el.scrollTop; } else el.scrollTop = AG.pos[a] || 0; // a second redraw in the same frame lands where the first put it
       el.querySelectorAll('img').forEach((im) => { if (!im.complete) im.addEventListener('load', () => { if (AG.atBottom[a] !== false) el.scrollTop = el.scrollHeight; }, { once: true }); });
     });
-    const inp = h('input', { type: 'text', class: 'input grow', id: 'mk-ask', placeholder: a === 'buyer' ? 'اسأل الميديا باير عن أرقامك…' : 'اكتب رسالة ل' + A.name + '…', 'aria-label': 'رسالة ل' + A.name, maxlength: '1000', value: AG.draft[a] || '', onInput: () => { AG.draft[a] = inp.value; }, onKeydown: (e) => { if (e.key === 'Enter') agSend(a, inp.value); } });
+    const inp = h('textarea', { class: 'mk-ask-in', id: 'mk-ask', rows: '1', placeholder: a === 'buyer' ? 'اسأل الميديا باير عن أرقامك…' : 'اكتب رسالة ل' + A.name + '…', 'aria-label': 'رسالة ل' + A.name, maxlength: '1000',
+      onInput: () => { AG.draft[a] = inp.value; agGrow(inp); }, onKeydown: (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); agSend(a, inp.value); } } });
+    inp.value = AG.draft[a] || '';
     // a re-render (the chats or the turns landing) keeps what was being typed and the cursor in the box — right after the render, in
     // the same task (IBPages.render is synchronous): a frame later a key typed in between went to the removed box (CI 989 on 14 Nov:
     // the text typed while the designer's chats landed was lost)
     if (document.activeElement && document.activeElement.id === 'mk-ask') queueMicrotask(() => { const x = document.getElementById('mk-ask'); if (x && document.activeElement !== x) { x.focus(); const n = x.value.length; quietSel(x, n); } });
-    const chips = h('div', { class: 'chips mk-agent-chips' }, h('span', { class: 't-small help' }, 'اقتراحات سريعة:'),
-      sugg.map((x) => h('button', { type: 'button', class: 'chip', onClick: () => (a === 'buyer' && x === 'اعمل حملة لمنتج' ? go('marketing-campaign-1') : agSend(a, x)) }, x)));
-    const head = h('div', { class: 'mk-agent-head' }, h('div', { class: 'mk-agent-title' }, h('b', null, A.name), h('small', { class: 'help' }, AG_SUB[a])),
-      h('div', { class: 'mk-agent-tools' }, isAdmin() ? Button({ size: 'sm', icon: 'gear', label: 'الإعدادات', attrs: { 'data-mk-agent-cfg': a }, onClick: () => agSettings(a) }) : null, askBtn(a),
-        Button({ size: 'sm', icon: 'external', label: AG.full ? 'صغّر' : 'كبّر', attrs: { 'data-mk-agent-full': AG.full ? 'on' : 'off', 'aria-pressed': AG.full ? 'true' : 'false' }, onClick: () => { AG.full = !AG.full; R(); } })));
-    const main = h('section', { class: 'mk-agent-main' }, head, msgs, chips,
-      h('div', { class: 'mk-ask' }, inp, Button({ type: 'primary', icon: 'send', label: 'ابعت', attrs: { 'data-mk-ask': '' }, disabled: AG.asking, onClick: () => agSend(a, inp.value) })));
-    return h('div', { class: 'mk-agent card' + (AG.full ? ' mk-agent-full' : ''), 'data-mk-agent': a }, side, main);
+    const head = h('div', { class: 'mk-agent-head' }, agMark(a, 'lg'), h('div', { class: 'mk-agent-title' }, h('b', null, A.name), h('small', { class: 'help' }, AG_SUB[a])),
+      h('div', { class: 'mk-agent-tools' },
+        h('button', { type: 'button', class: 'btn btn-default sm mk-agent-toggle', 'data-mk-chats-toggle': AG.side ? 'on' : 'off', 'aria-expanded': AG.side ? 'true' : 'false', onClick: () => { AG.side = !AG.side; R(); } }, Icon('msg', 'sm'), 'الشاتات' + (chats && chats.length ? ' (' + K.n0(chats.length) + ')' : '')),
+        isAdmin() ? Button({ size: 'sm', icon: 'gear', label: 'الإعدادات', attrs: { 'data-mk-agent-cfg': a }, onClick: () => agSettings(a) }) : null, askBtn(a),
+        Button({ size: 'sm', icon: AG.full ? 'shrink' : 'expand', label: AG.full ? 'صغّر' : 'كبّر', attrs: { 'data-mk-agent-full': AG.full ? 'on' : 'off', 'aria-pressed': AG.full ? 'true' : 'false' }, onClick: () => { AG.full = !AG.full; R(); } })));
+    const main = h('section', { class: 'mk-agent-main' }, head, msgs, fresh ? null : chips,
+      h('div', { class: 'mk-compose' },
+        h('div', { class: 'mk-ask' }, inp, Button({ type: 'primary', icon: 'send', label: 'ابعت', attrs: { 'data-mk-ask': '' }, disabled: AG.asking, onClick: () => agSend(a, inp.value) })),
+        h('small', { class: 'help mk-ask-hint' }, 'Enter بيبعت · Shift + Enter سطر جديد' + (a === 'buyer' ? ' · مفيش أي تنفيذ من الشات' : ''))));
+    // on a phone the history is a drawer over the chat: the veil behind it closes it
+    const veil = AG.side ? h('button', { type: 'button', class: 'mk-agent-veil', 'aria-label': 'اقفل الشاتات', onClick: () => { AG.side = false; R(); } }) : null;
+    return h('div', { class: 'mk-agent card' + (AG.full ? ' mk-agent-full' : ''), 'data-mk-agent': a }, side, veil, main);
   }
   // 0082 (the owner 12 Nov — «زرار تقديم طلب… بوب أب فيه تقديم طلب جديد للديزاينر البشري أو للميديا باير البشري… بنفس طريقة بوب أب
   // طلبات الفريق… ولما يتعمل يتسجل هنا في صفحة الديزاينر أو المبرمج ونقول مين مقدم الطلب… ويبقى مربوط بصفحة طلبات الفريق»): a request

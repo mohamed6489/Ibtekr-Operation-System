@@ -781,3 +781,80 @@ test('comment 28 — «متابعة للبناء» writes every piece with the A
   await expect(pg.locator('[data-cw-fill="P1"]')).toBeVisible();
   expect(fills().length).toBe(4); // one more try only: it did not go on to the other pieces
 });
+
+test('comments 29 and 30 — «تفاصيل المنتج» in order (head, the three quantities, labelled boxes, the moves table); every «مشاركة» is the one share popup: a file (Excel / PDF) or, when the product is on the site, its link', async ({ page }) => {
+  const L = 'b7000000-0000-4000-8000-0000000000f1';
+  mock.inv.inv_lots.push(hubLot(L, null, null, 'Cushion', { reason: 'متاح للبيع', status: 'متاح', ref: null, note: 'على الرف التاني' }));
+  mock.inv.inv_moves.push({ ...hubIn(51, L), qty: 3, label: 'دخول — للبيع', reason: 'متاح للبيع' }, { id: 52, lot_id: L, type: 'reserve', qty: 1, label: 'حجز لأوردر', reason: 'متاح للبيع', ref: 'IB-181668', note: 'سحب من المخزن', by: null, at: '2026-11-12T10:00:00Z' });
+  page.on('popup', (p) => p.close().catch(() => {}));
+  await signIn(page); await go(page, '#inventory-now');
+  const row = page.locator('#pg-inventory table tbody tr', { hasText: 'Cushion' }).first();
+  await row.getByRole('button', { name: /إجراءات/ }).click();
+  await page.getByRole('menuitem', { name: 'تفاصيل المنتج' }).click();
+  const m = page.locator('.modal.pd-modal');
+  // 29 — the head, the quantities, the boxes, the moves
+  await expect(m.locator('.pd-head .pd-name')).toHaveText('Cushion');
+  await expect(m.locator('.pd-head')).toContainText('IBTA4040PAHC000013');
+  await expect(m.locator('.pd-tags')).toContainText('متاح للبيع');
+  await expect(m.locator('.pd-tags a[data-inv-site]')).toHaveAttribute('href', SITE + '/product/cushion/');
+  await expect(m.locator('.pd-qty .pd-q')).toHaveText(['3في المخزن', '2متاح', '1محجوز']);
+  await expect(m.locator('.pd-grid .pd-box .pd-l')).toHaveText(['المبتكر', 'المكان', 'دخل المخزن', 'بقاله', 'قيمة القطعة', 'الخطوة الجاية', 'ملاحظة']);
+  await expect(m.locator('.pd-grid .pd-box', { hasText: 'المكان' }).locator('.pd-v')).toHaveText('T — تجميع');
+  await expect(m.locator('table.pd-moves thead th')).toHaveText(['التاريخ', 'الحركة', 'الكمية', 'بواسطة', 'ملاحظة']);
+  await expect(m.locator('table.pd-moves tbody tr')).toHaveCount(2);
+  await expect(m.locator('.kv')).toHaveCount(0); // no bare label / value list any more
+  const cols = await m.locator('.pd-grid').evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(' ').length); expect(cols).toBe(2);
+  // 30 — «مشاركة»: the one popup; the product has a page on the site, so its link is offered beside the file
+  await expect(page.locator('.share-menu')).toHaveCount(0);
+  await m.locator('.modal-f [data-share]').click();
+  const sh = page.locator('[data-share-modal]');
+  await expect(sh.locator('[data-sh-type]')).toHaveText([/Excel/, /PDF/, /لينك/]);
+  await expect(page.locator('.share-menu')).toHaveCount(0); // no WhatsApp / e-mail menu with a screenshot
+  await sh.locator('[data-sh-type="link"]').click(); await sh.locator('[data-sh-via="whatsapp"]').click();
+  await sh.locator('[data-sh-go]').click();
+  let last = await page.evaluate(() => window.__lastShare);
+  expect(last).toMatchObject({ type: 'link', via: 'whatsapp' });
+  expect(decodeURIComponent(last.href)).toContain(SITE + '/product/cushion/');
+  // the same button, a file this time: the piece's facts and its moves
+  await m.locator('.modal-f [data-share]').click();
+  await sh.locator('[data-sh-type="excel"]').click(); await sh.locator('[data-sh-via="download"]').click();
+  const [file] = await Promise.all([page.waitForEvent('download'), sh.locator('[data-sh-go]').click()]);
+  const fs = await import('node:fs'); expect(fs.readFileSync(await file.path()).subarray(0, 2).toString('latin1')).toBe('PK');
+  last = await page.evaluate(() => window.__lastShare);
+  expect(last).toMatchObject({ type: 'excel', via: 'download', name: 'تفاصيل Cushion.xlsx' });
+  expect(last.text).toContain('في المخزن: 3'); expect(last.text).toContain('المبتكر: Art Craft');
+  // any popup's «مشاركة» reads the popup as a report: its label / value list, and its table without the columns of controls
+  const spec = await page.evaluate(() => {
+    const U = window.IBUI, h = U.h;
+    const el = h('div', null, h('dl', { class: 'kv' }, h('dt', null, 'العضو'), h('dd', null, 'سارة'), h('dt', null, 'اليوم'), h('dd', null, 'الأحد')),
+      h('table', null, h('thead', null, h('tr', null, h('th', null, ''), h('th', null, 'المنتج'), h('th', null, 'الكمية'), h('th', null, ''))),
+        h('tbody', null, h('tr', null, h('td', null, h('button', { role: 'checkbox' })), h('td', null, h('img', { src: 'https://example.com/a.jpg' }), 'كوشن'), h('td', null, '2'), h('td', null, h('button', null, '⋮'))),
+          h('tr', null, h('td', null, h('button', { role: 'checkbox' })), h('td', null, 'ستارة'), h('td', null, '1'), h('td', null, h('button', null, '⋮'))))));
+    return U.shareSpecOf({ title: 'تفاصيل يوم', el, phone: '01000000000' });
+  });
+  expect(spec).toMatchObject({ title: 'تفاصيل يوم', phone: '01000000000', summary: [{ label: 'العضو', value: 'سارة' }, { label: 'اليوم', value: 'الأحد' }], headers: ['المنتج', 'الكمية'],
+    rows: [[{ text: 'كوشن', img: 'https://example.com/a.jpg' }, '2'], ['ستارة', '1']] });
+});
+
+test('comment 30 — a maker\'s orders popup shares through the one popup too: the orders as a file to his number, and the share is logged without the file', async ({ page }) => {
+  page.on('popup', (p) => p.close().catch(() => {}));
+  await signIn(page); await go(page, '#makers/' + V1);
+  const drawer = page.locator('.drawer[aria-label^="ملف المبتكر"]'); await expect(drawer).toBeVisible();
+  await drawer.getByRole('tab', { name: 'الأوردرات' }).click();
+  await drawer.locator('.kpi[data-kind="all"]').click();
+  const m = page.locator('.modal[data-vorders="all"]'); await expect(m).toBeVisible();
+  const n = await m.locator('table.vlo-table tbody tr').count(); expect(n).toBeGreaterThan(0);
+  await expect(m.locator('[aria-haspopup="menu"]')).toHaveCount(0); // no WhatsApp / e-mail menu
+  await m.locator('.modal-f [data-share]').click();
+  const sh = page.locator('[data-share-modal]');
+  await expect(sh.locator('[data-sh-type]')).toHaveText([/Excel/, /PDF/]); // a table → a file, no link
+  await sh.locator('[data-sh-type="excel"]').click(); await sh.locator('[data-sh-via="whatsapp"]').click();
+  const [file] = await Promise.all([page.waitForEvent('download'), sh.locator('[data-sh-go]').click()]);
+  const fs = await import('node:fs'); expect(fs.readFileSync(await file.path()).subarray(0, 2).toString('latin1')).toBe('PK');
+  const last = await page.evaluate(() => window.__lastShare);
+  expect(last).toMatchObject({ type: 'excel', via: 'whatsapp' });
+  expect(last.name).toMatch(/Art Craft\.xlsx$/);
+  expect(last.href).toMatch(/^https:\/\/wa\.me\/20\d+\?text=/); // the maker's own number
+  expect(await page.evaluate(() => window.__vLastShare())).toMatchObject({ via: 'whatsapp', type: 'excel' });
+  await expect(sh).toHaveCount(0); await expect(m).toBeVisible(); // the share popup closed, the orders stay
+});

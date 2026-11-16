@@ -6,7 +6,8 @@
 // IBShare.open(spec) opens that popup. spec:
 //   { title, sub, name (the file's name), phone, email (who it goes to — optional), text (the message — else built),
 //     summary: [{ label, value }], headers: [..], rows: [[cell..]], total: [..], note,
-//     link (a page to share instead of a file — optional; with no table the popup offers the link only) }
+//     link (a page to share instead of a file — optional; with no table the popup offers the link only),
+//     onDone({ type, via }) (called once the share went — the caller's activity log) }
 //   a cell is a string / number, or { text, img, n } — img: the https photo shown beside the text (a product's); n: the cell's
 //   number for the sheet (the text is what the screen and the PDF show: «1,002.00»)
 // The file is built in the browser: the Excel by the sheet writer of the studio (IbtekrFlow.xlsx — a photo inside its cell), the
@@ -236,6 +237,8 @@
         const r = await send(spec, st.type, st.via, (i, n) => { st.step = 'بنجهّز الملف… صفحة ' + i + ' من ' + n; const b = m && m.el.querySelector('[data-sh-step]'); if (b) b.textContent = st.step; });
         st.busy = false;
         if (r && r.cancelled) { draw(); return; }
+        // the caller's own record of the share (the activity log) — what went and how, never the file
+        if (typeof spec.onDone === 'function') { try { spec.onDone({ type: st.type, via: st.via }); } catch (e) { /* the share itself went */ } }
         m.close();
       } catch (e) { st.busy = false; st.step = ''; draw(); if (K() && K().toast) K().toast('الملف ما اتجهّزش — جرّب تاني أو اختار النوع التاني.', 'error'); }
     };

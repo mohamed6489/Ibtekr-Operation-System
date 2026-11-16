@@ -400,28 +400,27 @@ test('the 5-minute refresh re-reads «آخر نشاط» from the server log; a f
 
 // app/.htaccess's Content-Security-Policy header, put on the page here: npm run serve (http-server) does not read .htaccess
 const CSP = /Header always set Content-Security-Policy "([^"]+)"/.exec(readFileSync(new URL('../../app/.htaccess', import.meta.url), 'utf8'))[1];
-test('under the production CSP the dashboard loads with nothing refused, a shared popup becomes an image, and both export libraries load from js/vendor', async ({ page }) => {
+test('under the production CSP the dashboard loads with nothing refused, a shared popup becomes a PDF file, and both export libraries load from js/vendor', async ({ page }) => {
   mockOnly(); // its connect-src names the production project; the live run talks to the staging one
   const refused = []; page.on('console', (m) => { if (/Refused to|Content Security Policy/i.test(m.text())) refused.push(m.text()); });
   await page.route((url) => url.port === '4173' && /^\/(index\.html)?$/.test(url.pathname), async (route) => {
     const res = await route.fetch();
     await route.fulfill({ response: res, headers: { ...res.headers(), 'content-security-policy': CSP } });
   });
-  page.on('popup', (p) => p.close().catch(() => {})); // the mailto: tab shareVia opens
   await signIn(page, ADMIN.id, ADMIN.pw);
   await expect(card(page, 'activity')).toContainText('سجّل دخول');
-  // share a KPI's details by email (block 10: DetailsModal → ShareButton → shareVia): html2canvas comes from its lazy loader
-  // (js/vendor, script-src 'self'); the browser refuses the clipboard, so the image is shown as <img src="blob:…"> (img-src blob:)
-  await page.evaluate(() => { navigator.clipboard.write = () => Promise.reject(new DOMException('denied', 'NotAllowedError')); });
+  // share a KPI's details as a PDF (comments decision 30: the kit's «مشاركة» — block 10: DetailsModal → ShareButton — opens the one
+  // share popup, IBShare): html2canvas comes from its lazy loader (js/vendor, script-src 'self') and the file is built in the browser
   expect(await page.evaluate(() => typeof window.html2canvas)).toBe('undefined');
   await page.locator('.dash-kpis .kpi-details').first().click();
   const details = page.locator('[role=dialog][data-details]');
   await details.locator('[data-share]').click();
-  await page.getByRole('menuitem', { name: /^إيميل/ }).click();
-  const img = page.locator('img.share-img');
-  await expect(img).toHaveAttribute('src', /^blob:http:\/\/localhost:4173\//);
-  await expect.poll(() => img.evaluate((el) => el.complete && el.naturalWidth)).toBeGreaterThan(0);
-  await expect(page.locator('.toast[role=status]')).toContainText('الصورة جاهزة في النافذة');
+  const sh = page.locator('[data-share-modal]');
+  await expect(sh.locator('[data-sh-type]')).toHaveCount(2); // Excel · PDF — a report has no page of its own to link
+  await sh.locator('[data-sh-type="pdf"]').click(); await sh.locator('[data-sh-via="download"]').click();
+  const [pdf] = await Promise.all([page.waitForEvent('download'), sh.locator('[data-sh-go]').click()]);
+  const fs = await import('node:fs'); expect(fs.readFileSync(await pdf.path()).subarray(0, 8).toString('latin1')).toBe('%PDF-1.4');
+  await expect(sh).toHaveCount(0);
   expect(await page.evaluate(() => [typeof window.html2canvas, document.querySelectorAll('script[src="js/vendor/html2canvas.min.js"]').length])).toEqual(['function', 1]);
   // block 17's SheetJS: the same <script src="js/vendor/…"> as its loadXLSX
   expect(await page.evaluate(() => new Promise((res, rej) => {

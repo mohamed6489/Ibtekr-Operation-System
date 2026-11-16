@@ -144,11 +144,17 @@ test('decision 23: «تفاصيل» opens the read data as a report (chips + tab
   await expect(r.locator('td', { hasText: '180672' })).toBeVisible(); // an order number has no thousands comma
   await expect(r.locator('th', { hasText: 'القيمة (ج.م)' })).toBeVisible(); // a row's total is its amount
   await expect(r.locator('th', { hasText: /^id$/ })).toHaveCount(0);
+  // comments decision 30: «مشاركة» is the system's one share popup — the report's table as an Excel / a PDF by WhatsApp, e-mail or a download
   await r.getByRole('button', { name: 'مشاركة' }).click();
-  await page.locator('[data-via="whatsapp"]').click();
+  const sh = page.locator('[data-share-modal]');
+  await sh.locator('[data-sh-type="excel"]').click(); await sh.locator('[data-sh-via="whatsapp"]').click();
+  page.on('popup', (p) => p.close().catch(() => {}));
+  const [file] = await Promise.all([page.waitForEvent('download'), sh.locator('[data-sh-go]').click()]);
+  expect(await file.path()).toBeTruthy(); // the file itself is saved (this browser names an Arabic file «download» — the name asked for is below)
   const shared = await page.evaluate(() => window.__lastShare);
-  expect(shared.via).toBe('whatsapp'); expect(shared.href.startsWith('https://wa.me/')).toBe(true);
-  expect(shared.text).toContain('فيه أوردرات متأخرة؟'); expect(shared.text).toContain('ريهام صفوت');
+  expect(shared).toMatchObject({ type: 'excel', via: 'whatsapp' }); expect(shared.href.startsWith('https://wa.me/')).toBe(true);
+  expect(shared.name).toMatch(/^تقرير فيه أوردرات متأخرة.*\.xlsx$/);
+  expect(shared.title).toContain('فيه أوردرات متأخرة؟');
   await r.locator('.modal-f').getByRole('button', { name: 'إغلاق' }).click(); await expect(r).toBeHidden();
   // drag by the header: the panel moves with the pointer
   const head = P.locator('.ai-head'); const hb = await head.boundingBox();

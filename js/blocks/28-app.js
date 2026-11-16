@@ -125,9 +125,9 @@
     const scope = () => (state.whole ? 'ده التقرير الكامل للمبتكر: كل أوردراته المكتملة والملغية من أول ما بدأ معانا' + (since() ? ' (' + since() + ')' : '') + ' لحد النهارده.'
       : 'الأوردرات المكتملة والملغية في آخر 12 شهر (اللي على الشاشة) — التاريخ الكامل ماتقراش دلوقتي.');
     const tiles = (r) => [{ label: 'الرصيد', value: fmt(r.balance) + ' ج.م' }, { label: 'الأوردرات', value: String(r.orders) }, { label: 'مكتمل', value: String(r.completed) }, { label: 'ملغي', value: String(r.cancelled) }, { label: 'قيمة الأوردرات', value: fmt(r.value) + ' ج.م' }];
-    const oidCell = (x) => h('span', { class: 'vr-oid' }, h('bdi', { dir: 'ltr' }, '#' + x.oid), x.sid !== x.oid ? h('small', null, ' · فرعي ', h('bdi', { dir: 'ltr' }, '#' + x.sid)) : null);
+    const oidCell = (x) => h('span', { class: 'vr-oid' }, h('bdi', { dir: 'ltr' }, '#' + (x.sid || x.oid))); // chat ش6 (16 Nov): the sub-order's number only (the order's when it has none)
     const spec = (r) => ({ title, name: 'التقرير الكامل ' + name, sub: scope(), phone: v && v.phone, email: v && v.email, summary: tiles(r),
-      headers: ['المنتج', 'رقم الأوردر', 'القيمة (ج.م)', 'حالة الأوردر'], rows: r.rows.map((x) => [{ text: x.prod, img: prodImage(x.sku) }, '#' + x.oid + (x.sid !== x.oid ? ' · فرعي #' + x.sid : ''), { text: fmt(x.tot), n: x.tot }, x.status]),
+      headers: ['المنتج', 'رقم الأوردر', 'القيمة (ج.م)', 'حالة الأوردر'], rows: r.rows.map((x) => [{ text: x.prod, img: prodImage(x.sku) }, '#' + (x.sid || x.oid), { text: fmt(x.tot), n: x.tot }, x.status]),
       total: r.rows.length ? ['الإجمالي', r.orders + ' أوردر', { text: fmt(r.value), n: r.value }, ''] : null, empty: 'مفيش أوردرات مكتملة أو ملغية للمبتكر ده.' });
     function draw() {
       const r = state.r || screen();
@@ -1952,7 +1952,7 @@
         h('table', { class: 'vlo-table dt-table' }, h('thead', null, h('tr', null, ['التاريخ', 'الحركة', 'البيان', 'المبلغ (ج.م)'].map((x) => h('th', { scope: 'col' }, x)))), h('tbody', null, rows.map((r) => h('tr', null, r.map((c, k) => h('td', { 'data-l': ['التاريخ', 'الحركة', 'البيان', 'المبلغ (ج.م)'][k], class: 'nw' }, num(c))))))));
     }
     const HEAD = ['المنتج', 'رقم الأوردر', 'القيمة (ج.م)', 'الحالة'];
-    const oidText = (x) => '#' + x.oid + (x.sid !== x.oid ? ' · فرعي #' + x.sid : '');
+    const oidText = (x) => '#' + (x.sid || x.oid); // chat ش6 (16 Nov): the sub-order's number only (the order's when it has none)
     function spec(b) {
       const v = vstore.findByName(name); const req = reqOf(b); const extra = briefExtra(b, fmt);
       return { title, name: (settle ? 'تقفيل حساب ' : 'تقرير ') + name, phone: v && v.phone, email: v && v.email,
@@ -1971,7 +1971,7 @@
         reqBox(b), movesBox(b),
         h('div', { class: 'vb-h' }, h('h3', { class: 't-h5' }, 'الأوردرات'), h('span', { class: 't-small' }, 'اضغط على أي أوردر يفتحه')),
         b.rows.length ? h('div', { class: 'vb-table-wrap' }, h('table', { class: 'vlo-table dt-table vb-table', 'data-vb-table': '' }, h('thead', null, h('tr', null, HEAD.map((x) => h('th', { scope: 'col' }, x)))),
-          h('tbody', null, b.rows.map((x) => { const tr = h('tr', { class: 'dt-click', tabindex: '0', role: 'button' }, h('td', { 'data-l': HEAD[0] }, prodThumb(x.sku, x.prod)), h('td', { 'data-l': HEAD[1], class: 'nw' }, h('span', { class: 'vr-oid' }, h('bdi', { dir: 'ltr' }, '#' + x.oid), x.sid !== x.oid ? h('small', null, ' · فرعي ', h('bdi', { dir: 'ltr' }, '#' + x.sid)) : null)),
+          h('tbody', null, b.rows.map((x) => { const tr = h('tr', { class: 'dt-click', tabindex: '0', role: 'button' }, h('td', { 'data-l': HEAD[0] }, prodThumb(x.sku, x.prod)), h('td', { 'data-l': HEAD[1], class: 'nw' }, h('span', { class: 'vr-oid' }, h('bdi', { dir: 'ltr' }, oidText(x)))),
               h('td', { 'data-l': HEAD[2], class: 'nw' }, num(fmt(x.tot))), h('td', { 'data-l': HEAD[3], class: 'nw' }, x.status));
             const go = () => { m.close(); showOrders({ q: x.oid }); }; tr.addEventListener('click', go); tr.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); }); return tr; })
             .concat([h('tr', { class: 'dt-total' }, h('td', null, 'الإجمالي'), h('td', { class: 'nw' }, num(b.orders + ' أوردر')), h('td', { class: 'nw' }, num(fmt(b.value))), h('td', { class: 'dt-empty' }, ''))])))) : U.EmptyState('مفيش بيانات', 'مفيش أوردرات مكتملة أو ملغية للمبتكر ده.'),

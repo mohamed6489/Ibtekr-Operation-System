@@ -501,12 +501,36 @@
       validate: (f) => { const e = K.req(f, ['qty', 'why']); if (f.qty !== '' && !(Number(O.toLatin(f.qty)) >= 0)) e.qty = 'رقم 0 أو أكتر'; else if (Number(O.toLatin(f.qty)) < s.reserved) e.qty = 'مينفعش أقل من المحجوز (' + s.reserved + ')'; return e; },
       submitLabel: 'حفظ التسوية', submit: (f) => { const d = Number(O.toLatin(f.qty)) - s.onHand; if (d) move({ key: s.key, type: 'adjust', qty: d, label: f.why === 'تالف' ? 'تالف' : 'تسوية', reason: f.why, ref: '—', note: f.note || '' }); K.logEvent('stock.adjust', s.name + ' ' + d); K.toast(d ? 'اتسجلت تسوية ' + (d > 0 ? '+' : '') + d : 'مفيش فرق'); rerender(); } });
   }
+  // comments decision 29 (the owner 15 Nov — «ظبط ال ui بتاع البوب اب ده يبقي بشكل احترافي و منظم»): the piece's popup in order — its
+  // head (the photo, the name, the SKU, why it is here and its state, its page on the site), the three quantities as boxes, what
+  // is known about it in a grid of labelled boxes, then its moves as a table. Decision 30: «مشاركة» is the system's share popup —
+  // the piece's report as a file, or its page's link when the product is on the site.
   function details(s) {
-    const mv = S.ledger.filter((m) => m.key === s.key);
-    const md = U.Modal({ title: 'تفاصيل المنتج', share: true, body: [h('div', { class: 'prod lg' }, Thumb(s.sku, s.name, true), h('span', null, h('b', null, s.name), h('small', { dir: 'ltr' }, s.sku))),
-      K.Kv([['المبتكر', s.vendor + (s.mode ? ' · ' + s.mode : '')], ['السبب', K.Tag(REASON_TONE[s.reason], s.reason)], ['الحالة', K.Tag(STATUS_TONE[s.status] || 'neutral', s.status)], ['الخطوة الجاية', nextStep(s)], ['بقاله', ageTxt(age(s)) + ' (من ' + K.dlabel(s.since) + ')'], ['الكمية', s.onHand + ' · متاح ' + s.available + ' · محجوز ' + s.reserved], ['المكان', s.loc], s.ref ? ['المرجع', s.ref] : null, s.condition ? ['حالة المنتج عند الاستلام', (O.RETURN_CONDITIONS.find((c) => c.value === s.condition) || {}).label + (s.conditionNote ? ' — ' + s.conditionNote : '')] : null]),
-      h('h3', { class: 't-label' }, 'الحركات'), U.Table({ cls: 'mini-table', headers: ['التاريخ', 'الحركة', 'الكمية', 'بواسطة'], rows: mv.map((m) => [K.dshort(m.at.slice(0, 10)), m.label, String(m.qty), m.by]) })],
-      footer: [canApprove() ? Button({ label: 'تسوية كمية', onClick: () => { md.close(); adjust(s); } }) : null, Button({ type: 'primary', label: 'إغلاق', onClick: () => md.close() })] });
+    const mv = S.ledger.filter((m) => m.key === s.key); const site = siteOf(s.sku).link; const link = /^https:\/\//.test(site) ? site : '';
+    const cond = s.condition ? (O.RETURN_CONDITIONS.find((c) => c.value === s.condition) || {}).label + (s.conditionNote ? ' — ' + s.conditionNote : '') : '';
+    const box = (label, value, wide) => (value == null || value === '' ? null : h('div', { class: 'pd-box' + (wide ? ' wide' : '') }, h('span', { class: 'pd-l' }, label), h('span', { class: 'pd-v' }, value)));
+    const qty = (label, n, tone) => h('div', { class: 'pd-q' + (tone ? ' ' + tone : '') }, h('b', null, K.Num(String(n))), h('span', null, label));
+    const sign = (m) => (m.type === 'in' ? '+ ' : m.type === 'out' || m.type === 'ship' || m.type === 'reserve' ? '− ' : m.type === 'adjust' ? (m.qty >= 0 ? '+ ' : '− ') : '');
+    const body = h('div', { class: 'pd', 'data-pd': String(s.key) },
+      h('div', { class: 'pd-head' }, Thumb(s.sku, s.name, true),
+        h('div', { class: 'pd-id' }, h('b', { class: 'pd-name' }, s.name), h('small', { dir: 'ltr' }, s.sku || '—'),
+          h('div', { class: 'pd-tags' }, K.Tag(REASON_TONE[s.reason], s.reason), K.Tag(STATUS_TONE[s.status] || 'neutral', s.status), siteLink(s.sku, s.name)))),
+      h('div', { class: 'pd-qty', role: 'group', 'aria-label': 'الكمية' }, qty('في المخزن', s.onHand), qty('متاح', s.available, s.available > 0 ? 'ok' : ''), qty('محجوز', s.reserved, s.reserved > 0 ? 'hold' : '')),
+      h('div', { class: 'pd-grid' }, (() => { // the short facts two a row (an odd last one takes the row), then the long ones a row each
+        const small = [box('المبتكر', s.vendor + (s.mode ? ' · ' + s.mode : '')), box('المكان', s.loc && s.loc !== '—' ? locName(s.loc) : '—'),
+          box('دخل المخزن', K.dlabel(s.since)), box('بقاله', h('span', { class: tooLong(s) ? 'late' : '' }, ageTxt(age(s)) + (tooLong(s) ? ' ⚠' : ''))),
+          s.ref ? box('المرجع', h('span', { class: 'num', dir: 'ltr' }, s.ref)) : null, canEdit() && s.cost ? box('قيمة القطعة', K.money(s.cost) + ' ج.م') : null].filter(Boolean);
+        if (small.length % 2) small[small.length - 1].classList.add('wide');
+        return small.concat([box('الخطوة الجاية', nextStep(s), true), box('حالة المنتج عند الاستلام', cond, true), box('ملاحظة', s.note || '', true)].filter(Boolean)); })()),
+      h('div', { class: 'pd-sec' }, h('h3', { class: 't-label' }, 'الحركات', h('span', { class: 'pd-n' }, K.Num(String(mv.length)))),
+        mv.length ? U.Table({ cls: 'mini-table pd-moves', headers: ['التاريخ', 'الحركة', 'الكمية', 'بواسطة', 'ملاحظة'], rows: mv.map((m) => [K.dshort(m.at.slice(0, 10)), K.Tag(m.type === 'in' ? 'success' : m.type === 'reserve' ? 'orange' : m.label === 'تالف' ? 'error' : 'neutral', m.label), K.Num(sign(m) + Math.abs(m.qty)), m.by || '—', h('span', { class: 't-small' }, m.note || '—')]) })
+          : h('p', { class: 't-small help', style: 'margin:0' }, 'لسه مفيش حركات على القطعة دي.')));
+    const md = U.Modal({ title: 'تفاصيل المنتج', share: false, body: [body],
+      footer: [U.ShareButton({ primary: false, get: () => ({ title: 'تفاصيل المنتج — ' + s.name, link, spec: { title: 'تفاصيل المنتج — ' + s.name, name: 'تفاصيل ' + s.name, sub: s.sku || '',
+        summary: [['المبتكر', s.vendor + (s.mode ? ' · ' + s.mode : '')], ['السبب', s.reason], ['الحالة', s.status], ['المكان', s.loc && s.loc !== '—' ? locName(s.loc) : '—'], ['دخل المخزن', K.dlabel(s.since) + ' (' + ageTxt(age(s)) + ')'],
+          ['في المخزن', String(s.onHand)], ['متاح', String(s.available)], ['محجوز', String(s.reserved)], s.ref ? ['المرجع', s.ref] : null, ['الخطوة الجاية', nextStep(s)], cond ? ['حالة المنتج عند الاستلام', cond] : null].filter(Boolean).map(([label, value]) => ({ label, value })),
+        headers: ['التاريخ', 'الحركة', 'الكمية', 'بواسطة', 'ملاحظة'], rows: mv.map((m) => [K.dshort(m.at.slice(0, 10)), m.label, sign(m) + Math.abs(m.qty), m.by || '—', m.note || '']) } }) }), canApprove() ? Button({ label: 'تسوية كمية', onClick: () => { md.close(); adjust(s); } }) : null, Button({ type: 'primary', label: 'إغلاق', onClick: () => md.close() })] });
+    md.el.classList.add('pd-modal');
   }
   function photoDecision(s) {
     K.form({ title: 'قرار بعد التصوير — ' + s.name, values: { decision: 'back', mode: 'أمانة', loc: s.loc && s.loc !== '—' ? s.loc : '' }, note: U.InlineNote({ children: s.vendor + ' · في المخزن من ' + K.dlabel(s.since) + ' (' + ageTxt(age(s)) + ')' }),

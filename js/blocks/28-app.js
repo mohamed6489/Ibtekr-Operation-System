@@ -855,32 +855,17 @@
         h('td', { 'data-l': 'حالة المنتج' }, r.ss || '— اختر الحالة —'),
         h('td', { 'data-l': 'تاريخ تبليغ المبتكر' }, r.exp ? D.formatDateNumeric(r.exp) : 'أضف تاريخ الإبلاغ'),
         h('td', { 'data-l': 'عمر الأوردر' }, r.age + ' يوم')))));
-    const sub = h('p', { class: 't-small', style: 'margin:0;color:var(--color-text-secondary)' }, String(rows.length) + (kind === 'all' ? ' أوردر — ' + lateN + ' متأخر · ' + riskN + ' قابل للتأخير' : kind === 'risk' ? ' أوردر قابل للتأخير' : ' أوردر متأخر') + (oldest ? ' · أقدمها ' + oldest + ' يوم' : '') + (v && v.phone ? ' · الموبايل ' + v.phone : '') + ' · «مشاركة» بتبعت البوب أب كصورة على واتساب أو إيميل');
-    const shareWrap = h('div', { class: 'pop-anchor', 'data-popover-root': '', style: 'position:relative' });
-    const shareBtn = Button({ type: 'primary', label: 'مشاركة', onClick: () => sharePop.toggle() }); shareBtn.setAttribute('aria-haspopup', 'menu');
-    const sharePop = U.popover(shareWrap, shareBtn, (close) => { const menu = h('div', { class: 'menu', role: 'menu', style: 'top:auto;bottom:calc(100% + 4px)' },
-      h('button', { type: 'button', class: 'opt', role: 'menuitem', onClick: () => { close(); shareImage('whatsapp'); } }, Icon('whatsapp', 'sm'), 'واتساب'),
-      h('button', { type: 'button', class: 'opt', role: 'menuitem', onClick: () => { close(); shareImage('email'); } }, Icon('mail', 'sm'), 'إيميل')); return menu; });
-    shareWrap.append(shareBtn);
+    const subText = String(rows.length) + (kind === 'all' ? ' أوردر — ' + lateN + ' متأخر · ' + riskN + ' قابل للتأخير' : kind === 'risk' ? ' أوردر قابل للتأخير' : ' أوردر متأخر') + (oldest ? ' · أقدمها ' + oldest + ' يوم' : '');
+    const sub = h('p', { class: 't-small', style: 'margin:0;color:var(--color-text-secondary)' }, subText + (v && v.phone ? ' · الموبايل ' + v.phone : ''));
     const body = h('div', { style: 'display:flex;flex-direction:column;gap:12px' }, sub, h('div', { style: 'overflow-x:auto' }, table));
-    m = U.Modal({ title, body, footer: [shareWrap, Button({ type: 'text', label: 'إغلاق', onClick: () => m.close() })] });
-    m.el.classList.add('wide'); m.el.dataset.share = '1';
-    async function shareImage(via) {
-      const text = title + ' — ' + rows.map((r) => 'IB-' + r.id + ' (' + r.age + ' يوم)').join('، ');
-      const phone = v && v.phone ? '20' + String(v.phone).replace(/^0/, '') : '';
-      const href = via === 'whatsapp' ? 'https://wa.me/' + phone + '?text=' + encodeURIComponent(text) : 'mailto:' + (v && v.email ? v.email : '') + '?subject=' + encodeURIComponent(title) + '&body=' + encodeURIComponent(text);
-      let note = '';
-      try {
-        if (!window.html2canvas) await new Promise((res, rej) => { const s = document.createElement('script'); s.src = 'js/vendor/html2canvas.min.js'; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
-        const canvas = await window.html2canvas(m.el.querySelector('.modal-b'), { backgroundColor: getComputedStyle(document.body).backgroundColor, scale: 2 });
-        const blob = await new Promise((res) => canvas.toBlob(res, 'image/png'));
-        try { await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]); note = 'الصورة اتنسخت — الصقها في الرسالة.'; }
-        catch (e) { const url = URL.createObjectURL(blob); const im = U.Modal({ title: 'صورة البوب أب', body: [h('p', { class: 't-small' }, 'المتصفح ما سمحش بنسخ الصورة تلقائي — اضغط عليها بزر الماوس اليمين وانسخها أو احفظها.'), h('img', { class: 'share-img', src: url, alt: title })], footer: [Button({ type: 'primary', label: 'تمام', onClick: () => im.close() })] }); note = 'الصورة جاهزة في النافذة.'; }
-      } catch (e) { note = 'ما قدرتش أعمل الصورة — اتبعت النص بس.'; }
-      log.append({ action: 'vendor.notify', actor: ACTOR, newValue: vendor + ' · ' + (via === 'whatsapp' ? 'واتساب' : 'إيميل') + ' · ' + rows.length + ' أوردر' });
-      const a = document.createElement('a'); a.href = href; a.target = '_blank'; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove();
-      vnotify('success', 'اتفتح ' + (via === 'whatsapp' ? 'واتساب' : 'الإيميل') + ' للمبتكر. ' + note);
-    }
+    // «مشاركة» (comments decision 30): the one share popup — the table as an Excel / PDF file by WhatsApp / e-mail / download
+    const shareSpec = () => ({ title, name: title, sub: subText, phone: v && v.phone, email: v && v.email,
+      text: title + ' — ' + rows.map((r) => 'IB-' + r.id + ' (' + r.age + ' يوم)').join('، '),
+      headers: ['رقم الأوردر'].concat(kind === 'all' ? ['التأخير'] : [], ['العميل', 'المنتج', 'SKU', 'الكمية', 'حالة المنتج', 'تاريخ تبليغ المبتكر', 'عمر الأوردر']),
+      rows: rows.map((r) => ['IB-' + r.id].concat(kind === 'all' ? [r.state === 'late' ? 'متأخر' : 'قابل للتأخير'] : [], [r.name, { text: r.prod, img: OA().thumb(r.sku) || '' }, r.sku || '—', r.qty, r.ss || '—', r.exp ? D.formatDateNumeric(r.exp) : '—', r.age + ' يوم'])),
+      onDone: (x) => log.append({ action: 'vendor.notify', actor: ACTOR, newValue: vendor + ' · ' + ({ whatsapp: 'واتساب', email: 'إيميل', download: 'تحميل' }[x.via] || x.via) + ' · ' + rows.length + ' أوردر' }) });
+    m = U.Modal({ title, body, share: false, footer: [Button({ type: 'primary', icon: 'share', label: 'مشاركة', disabled: !rows.length, attrs: { 'data-share': '' }, onClick: () => window.IBShare.open(shareSpec()) }), Button({ type: 'text', label: 'إغلاق', onClick: () => m.close() })] });
+    m.el.classList.add('wide'); m.el.dataset.share = '1'; m.el.dataset.vlate = kind;
   }
 
   // ---------- AI assistant (header button + panel). Phase 12 T1 (decision 8): a Claude conversation on the server (ai-content `assistant` via IBAI —
@@ -1177,7 +1162,7 @@
       p.subs.map(sec));
     const body = h('div', { class: 'air-body', 'data-ai-report': '' }, h('p', { class: 'air-answer' }, m.text || ''), parts.map(sec));
     const title = 'تقرير: ' + (m.question || 'مساعد AI').slice(0, 60);
-    const md = U.Modal({ title, body: [body], share: false, footer: [U.ShareButton({ get: () => ({ title, text: airText(m, parts) }) }), Button({ icon: 'download', label: 'تنزيل Excel', onClick: () => aiExcel(m) }), Button({ type: 'text', label: 'إغلاق', onClick: () => md.close() })] });
+    const md = U.Modal({ title, body: [body], share: false, footer: [U.ShareButton({ get: () => ({ title, el: body, text: airText(m, parts) }) }), Button({ icon: 'download', label: 'تنزيل Excel', onClick: () => aiExcel(m) }), Button({ type: 'text', label: 'إغلاق', onClick: () => md.close() })] });
     md.el.classList.add('wide'); md.el.dataset.aiReport = '1';
   }
   // ---- phase 13 decision 23: the panel moves by its header and resizes from its corner; every open from the AI button puts it back to the
@@ -3906,30 +3891,16 @@
           h('td', { 'data-l': 'الإجمالي' }, num(D.formatMoney(o.total))),
           h('td', { 'data-l': 'حصته' }, num(D.formatMoney(o.share || 0)))))));
       const body = h('div', { style: 'display:flex;flex-direction:column;gap:12px' }, sub, rows.length ? h('div', { style: 'overflow-x:auto' }, table) : U.EmptyState('مفيش أوردرات هنا', delay ? 'مفيش أوردرات مفتوحة في الحالة دي للمبتكر ده.' : 'مفيش أوردرات في الحالة دي للمبتكر ده.'));
-      // «مشاركة» (owner, 22 Oct): WhatsApp to the vendor's number or email — same pattern as Modal / Vendor late orders.
-      const shareWrap = h('div', { class: 'pop-anchor', 'data-popover-root': '', style: 'position:relative' });
-      const shareBtn = Button({ type: 'primary', label: 'مشاركة', disabled: !rows.length, onClick: () => sharePop.toggle(), attrs: { 'aria-haspopup': 'menu', 'data-share': '' } });
-      const sharePop = U.popover(shareWrap, shareBtn, (close) => h('div', { class: 'menu', role: 'menu', style: 'top:auto;bottom:calc(100% + 4px)' },
-        h('button', { type: 'button', class: 'opt', role: 'menuitem', 'data-via': 'whatsapp', onClick: () => { close(); share('whatsapp'); } }, Icon('whatsapp', 'sm'), 'واتساب' + (v.phone ? ' — ' + v.phone : '')),
-        h('button', { type: 'button', class: 'opt', role: 'menuitem', 'data-via': 'email', onClick: () => { close(); share('email'); } }, Icon('mail', 'sm'), 'إيميل' + (v.email ? ' — ' + v.email : ''))));
-      shareWrap.append(shareBtn);
-      async function share(via) {
-        const text = VD.shareText(title, rows) + (brandNote(v) ? '\n' + brandNote(v) : ''); const phone = VD.waPhone(v.phone);
-        const href = via === 'whatsapp' ? 'https://wa.me/' + phone + '?text=' + encodeURIComponent(text) : 'mailto:' + (v.email || '') + '?subject=' + encodeURIComponent(title) + '&body=' + encodeURIComponent(text);
-        let note = '';
-        try {
-          if (!window.html2canvas) await new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = 'js/vendor/html2canvas.min.js'; sc.onload = res; sc.onerror = rej; document.head.appendChild(sc); });
-          const canvas = await window.html2canvas(m.el.querySelector('.modal-b'), { backgroundColor: getComputedStyle(document.body).backgroundColor, scale: 2 });
-          const blob = await new Promise((res) => canvas.toBlob(res, 'image/png'));
-          try { await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]); note = 'صورة الجدول اتنسخت — الصقها في الرسالة.'; }
-          catch (e) { const url = URL.createObjectURL(blob); const im = U.Modal({ title: 'صورة الأوردرات', body: [h('p', { class: 't-small' }, 'المتصفح ما سمحش بنسخ الصورة تلقائي — اضغط عليها بزر الماوس اليمين وانسخها أو احفظها.'), h('img', { class: 'share-img', src: url, alt: title })], footer: [Button({ type: 'primary', label: 'تمام', onClick: () => im.close() })] }); note = 'الصورة جاهزة في النافذة.'; }
-        } catch (e) { note = 'اتبعت النص بس (الصورة ما اتعملتش).'; }
-        log.append({ action: 'vendor.share', actor: ME.name, newValue: v.id + ' · ' + kind + ' · ' + (via === 'whatsapp' ? 'واتساب' : 'إيميل') + ' · ' + rows.length + ' أوردر' });
-        const a = document.createElement('a'); a.href = href; a.target = '_blank'; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove();
-        lastShare = { via, href, text };
-        vnotify('success', 'اتفتح ' + (via === 'whatsapp' ? 'واتساب' : 'الإيميل') + (via === 'whatsapp' ? (phone ? ' على رقم المبتكر' : ' — اختار الرقم من واتساب') : (v.email ? ' لإيميل المبتكر' : ' — اكتب الإيميل')) + '. ' + note);
-      }
-      m = U.Modal({ title, body, footer: [shareWrap, Button({ label: 'فتح في الأوردرات', onClick: () => { m.close(); vdrawer.close(); showOrders({ vendor: v.name }); } }), Button({ type: 'text', label: 'إغلاق', onClick: () => m.close() })] });
+      // «مشاركة» (comments decision 30): the one share popup — the orders as an Excel / PDF file by WhatsApp / e-mail / download
+      const subText = num(rows.length + ' أوردر · بقيمة ' + D.formatMoney(tot) + ' ج.م · حصته ' + D.formatMoney(hisShare) + ' ج.م');
+      const shareSpec = () => ({ title, name: title, sub: subText, phone: v.phone, email: v.email,
+        text: VD.shareText(title, rows) + (brandNote(v) ? '\n' + brandNote(v) : ''),
+        headers: ['رقم الأوردر', 'العميل', 'التاريخ', 'الحالة', 'حالة التأخير', 'عمر الأوردر', 'الإجمالي', 'حصته'],
+        rows: rows.map((o) => ['IB-' + o.id, o.customer, D.formatDateNumeric(R.orderDate(o, VTODAY())), o.status, open(o) ? ({ late: 'متأخر', risk: 'قابل للتأخير' }[o.delivery] || 'غير متأخر') : '—', o.ageDays + ' يوم',
+          { text: D.formatMoney(o.total), n: Number(o.total) || 0 }, { text: D.formatMoney(o.share || 0), n: Number(o.share) || 0 }]),
+        total: ['الإجمالي', '', '', '', '', '', { text: D.formatMoney(tot), n: tot }, { text: D.formatMoney(hisShare), n: hisShare }],
+        onDone: (x) => { lastShare = { via: x.via, type: x.type }; log.append({ action: 'vendor.share', actor: ME.name, newValue: v.id + ' · ' + kind + ' · ' + ({ whatsapp: 'واتساب', email: 'إيميل', download: 'تحميل' }[x.via] || x.via) + ' · ' + rows.length + ' أوردر' }); } });
+      m = U.Modal({ title, body, share: false, footer: [Button({ type: 'primary', icon: 'share', label: 'مشاركة', disabled: !rows.length, attrs: { 'data-share': '' }, onClick: () => window.IBShare.open(shareSpec()) }), Button({ label: 'فتح في الأوردرات', onClick: () => { m.close(); vdrawer.close(); showOrders({ vendor: v.name }); } }), Button({ type: 'text', label: 'إغلاق', onClick: () => m.close() })] });
       m.el.classList.add('wide'); m.el.dataset.vorders = kind; m.el.dataset.share = '1';
     }
     // ----- brands (phase 3.2, decision 5 a / b): «البراندات» after the agreement — the brands the maker holds today (name, code, aliases,

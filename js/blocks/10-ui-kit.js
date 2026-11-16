@@ -368,14 +368,43 @@
     const a = document.createElement('a'); a.href = href; a.target = '_blank'; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove();
     toastMsg('اتفتح ' + (via === 'whatsapp' ? 'واتساب' : 'الإيميل') + '. ' + note, 'success');
   }
-  // ShareButton: «مشاركة» + menu (واتساب / إيميل). get() → { title, text, el, phone, email } at click time.
+  // Comments decision 30 (the owner 15 Nov — «كل المشاركة في السيستم تبقي مشاركة زي ما قولنا اكسيل او pdf وواتس او ايميل — و فيه حاجات ممكن نشارك
+  // فيها لينك مش ملف ف اللي ينفع كده اعمله كده و اللي لازم جداول مشيها كده»): every «مشاركة» of the kit opens the one share popup
+  // (IBShare — the file's kind, then how it goes) instead of the WhatsApp / e-mail menu with a screenshot. What is shared is the
+  // popup's own content read as a report (shareSpecOf): its numbers (a .kv list, info rows, the summary chips) and its table — or
+  // the report a caller hands itself (spec). With a page's link (link, https) the popup offers «لينك» too.
+  const shTxt = (n) => (n == null ? '' : String(typeof n === 'object' ? (n.innerText != null ? n.innerText : n.textContent || '') : n).replace(/\s+/g, ' ').trim());
+  function shareSpecOf(d) {
+    d = d || {}; const base = { title: String(d.title || ''), name: String(d.title || '') || 'تقرير', phone: d.phone, email: d.email, link: d.link };
+    if (d.spec && typeof d.spec === 'object') return Object.assign(base, d.spec);
+    const spec = Object.assign(base, { summary: [], headers: [], rows: [] }); const el = d.el && d.el.querySelectorAll ? d.el : null;
+    if (el) {
+      el.querySelectorAll('dl.kv').forEach((dl) => { const k = [...dl.children]; for (let i = 0; i + 1 < k.length; i += 2) if (k[i].tagName === 'DT' && shTxt(k[i])) spec.summary.push({ label: shTxt(k[i]), value: shTxt(k[i + 1]) }); });
+      el.querySelectorAll('.info-row').forEach((r) => { const c = [...r.children].map(shTxt).filter(Boolean); if (c.length >= 2) spec.summary.push({ label: c[0], value: c.slice(1).join(' ') }); });
+      el.querySelectorAll('.dt-chip').forEach((c) => { const l = shTxt(c.querySelector('span')); if (l) spec.summary.push({ label: l, value: shTxt(c.querySelector('b')) }); });
+      let best = null; el.querySelectorAll('table').forEach((t) => { const n = t.tBodies[0] ? t.tBodies[0].rows.length : 0; if (n && (!best || n > best.n)) best = { t, n }; });
+      if (best) {
+        const t = best.t; const hs = t.tHead && t.tHead.rows[0] ? [...t.tHead.rows[0].cells] : []; const body = [...t.tBodies[0].rows].filter((tr) => !tr.hidden && !tr.classList.contains('dt-total'));
+        const width = Math.max(hs.length, ...body.map((tr) => tr.cells.length), 0);
+        // a column with no title that holds only controls (a select box, a row menu) is not part of the report
+        const keep = Array.from({ length: width }, (_, i) => i).filter((i) => (hs[i] && shTxt(hs[i])) || body.some((tr) => tr.cells[i] && shTxt(tr.cells[i]) && !tr.cells[i].querySelector('button,[role=checkbox]')));
+        spec.headers = keep.map((i) => (hs[i] ? shTxt(hs[i]) : '') || '—');
+        spec.rows = body.map((tr) => keep.map((i) => { const td = tr.cells[i]; if (!td) return ''; const im = td.querySelector('img'); const src = im ? String(im.currentSrc || im.src || '') : ''; const text = shTxt(td); return /^https:\/\//.test(src) ? { text, img: src } : text; }));
+        const tot = t.querySelector('tr.dt-total') || (t.tFoot && t.tFoot.rows[0]) || null; if (tot) spec.total = keep.map((i) => (tot.cells[i] ? shTxt(tot.cells[i]) : ''));
+      }
+    }
+    if (!spec.summary.length && !spec.headers.length) { // free text: a line a row
+      const lines = String(d.text || (el ? (el.innerText != null ? el.innerText : el.textContent) : '') || '').split('\n').map((x) => x.trim()).filter(Boolean).slice(0, 300);
+      if (lines.length) { spec.headers = ['البيان']; spec.rows = lines.map((l) => [l]); }
+    }
+    return spec;
+  }
+  // ShareButton: «مشاركة» → the share popup. get() → { title, el | text | spec, phone, email, link } at click time.
   function ShareButton({ get, primary = true, icon = false, label = 'مشاركة', disabled }) {
     const wrap = h('div', { class: 'pop-anchor share-anchor', 'data-popover-root': '', style: 'position:relative' });
-    const trig = icon ? IconButton({ icon: 'share', label: 'مشاركة', attrs: { 'aria-haspopup': 'menu', 'data-share': '' } }) : Button({ type: primary ? 'primary' : 'default', label, disabled, attrs: { 'aria-haspopup': 'menu', 'data-share': '' } });
-    const pop = popover(wrap, trig, (close) => h('div', { class: 'menu share-menu', role: 'menu', style: icon ? '' : 'top:auto;bottom:calc(100% + 4px)' },
-      ...['whatsapp', 'email'].map((via) => { const g = get(); const who = via === 'whatsapp' ? g.phone : g.email;
-        return h('button', { type: 'button', class: 'opt', role: 'menuitem', 'data-via': via, onClick: () => { close(); shareVia(via, get()); } }, Icon(via === 'whatsapp' ? 'whatsapp' : 'mail', 'sm'), (via === 'whatsapp' ? 'واتساب' : 'إيميل') + (who ? ' — ' + who : '')); })));
-    trig.addEventListener('click', pop.toggle); wrap.append(trig); return wrap;
+    const trig = icon ? IconButton({ icon: 'share', label: 'مشاركة', attrs: { 'aria-haspopup': 'dialog', 'data-share': '' } }) : Button({ type: primary ? 'primary' : 'default', label, disabled, attrs: { 'aria-haspopup': 'dialog', 'data-share': '' } });
+    trig.addEventListener('click', () => { const d = get() || {}; if (window.IBShare && window.IBShare.open) window.IBShare.open(shareSpecOf(d)); else shareVia('whatsapp', Object.assign({ text: d.title || '' }, d)); });
+    wrap.append(trig); return wrap;
   }
   // text of any popup body: tables → rows, info rows → «label: value», else paragraphs
   function bodyShareText(title, body) {
@@ -398,8 +427,11 @@
         if (s.onRow) { const go = () => { m.close(); s.onRow(i); }; tr.addEventListener('click', go); tr.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); }); } return tr; }).concat(s.total ? [h('tr', { class: 'dt-total' }, s.total.map((c, j) => h('td', { 'data-l': j ? s.headers[j] || '' : '', class: c === '' ? 'dt-empty' : null }, typeof c === 'string' || typeof c === 'number' ? num(String(c)) : c)))] : [])))) : EmptyState('مفيش بيانات', s.empty)) : null;
     const body = h('div', { class: 'dt-body', style: 'display:flex;flex-direction:column;gap:12px' }, s.sub ? h('p', { class: 't-small', style: 'margin:0;color:var(--color-text-secondary)' }, num(s.sub)) : null, sum, table,
       s.note ? InlineNote({ children: s.note }) : null, s.source ? h('p', { class: 't-small dt-source', style: 'margin:0;color:var(--color-text-secondary)' }, 'المصدر: ' + s.source) : null);
-    const plain = (c) => (c == null ? '' : typeof c === 'object' && c.textContent != null ? c.textContent : String(c));
-    const share = ShareButton({ get: () => ({ title: s.title, text: details.shareText ? String(details.shareText) : DT.detailsText({ title: s.title, sub: s.sub, summary: s.summary.map((x) => ({ label: x.label, value: plain(x.value) })), rows: s.rows.map((r) => r.map(plain)), total: s.total && s.total.map(plain) }), el: m.el.querySelector('.modal-b'), phone: s.phone, email: s.email }) });
+    // comments decision 30: the popup's own report goes to the share popup as it is — the numbers, the table, its total, the note
+    const cell = (c) => (typeof c === 'number' ? c : shTxt(c));
+    const share = ShareButton({ get: () => ({ title: s.title, phone: s.phone, email: s.email, spec: { title: s.title, name: s.title, sub: shTxt(s.sub), text: details.shareText ? String(details.shareText) : undefined,
+      summary: s.summary.map((x) => ({ label: shTxt(x.label), value: shTxt(x.value) })), headers: s.headers.map(shTxt), rows: s.rows.map((r) => r.map(cell)), total: s.total ? s.total.map(cell) : undefined,
+      note: [shTxt(s.note), s.source ? 'المصدر: ' + shTxt(s.source) : ''].filter(Boolean).join(' · ') } }) });
     m = Modal({ title: s.title, body, share: false, footer: [share].concat(s.actions.map((a) => Button({ label: a.label, onClick: () => { m.close(); a.onClick(); } })), [Button({ type: 'text', label: 'إغلاق', onClick: () => m.close() })]) });
     m.el.dataset.details = tile && tile.label || s.title; m.el.dataset.share = '1'; if (s.headers.length >= 4) m.el.classList.add('wide'); else if (s.headers.length) m.el.classList.add('mid');
     return m;
@@ -488,6 +520,6 @@
     return h('div', { class: 'contract contract-' + status }, Icon(icon, 'sm'), h('div', { class: 'txt' }, h('div', { class: 't-label' }, title), h('div', { class: 't-small' }, sub)), h('div', { class: 'acts' }, actions));
   }
 
-  window.IBUI = { h, num, Icon, Button, IconButton, ShareButton, DetailsModal, shareVia, popover, closePopover, DropdownMenu, Select, FieldShell, Calendar, shiftMonth, DateField, TextInput, Modal, CategoryCard, ProgressBar, KpiTile, BarRow, ChartCard, FreshnessNote, DelayBadge, Textarea, Avatar, VendorLogo, VendorStatus, InfoRow, SecureField, ContractCard, TicketStatus, PriorityTag, TimelineMessage, TimelineEvent, ReplyBox, Drawer, TICKET_STATUS, PRIORITY, InlineNote, EmptyState, Tabs, Table, setModalRoot: (n) => { modalRoot = n; } };
+  window.IBUI = { h, num, Icon, Button, IconButton, ShareButton, shareSpecOf, DetailsModal, shareVia, popover, closePopover, DropdownMenu, Select, FieldShell, Calendar, shiftMonth, DateField, TextInput, Modal, CategoryCard, ProgressBar, KpiTile, BarRow, ChartCard, FreshnessNote, DelayBadge, Textarea, Avatar, VendorLogo, VendorStatus, InfoRow, SecureField, ContractCard, TicketStatus, PriorityTag, TimelineMessage, TimelineEvent, ReplyBox, Drawer, TICKET_STATUS, PRIORITY, InlineNote, EmptyState, Tabs, Table, setModalRoot: (n) => { modalRoot = n; } };
 })();
 

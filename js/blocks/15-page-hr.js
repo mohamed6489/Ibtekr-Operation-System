@@ -327,8 +327,11 @@
   const yearsOf = (keys) => { const y1 = Number(thisMonth().slice(0, 4)); const seen = (keys || []).map((k) => Number(String(k).slice(0, 4))).filter((n) => n > 2000 && n <= y1);
     const y0 = Math.min(y1 - 1, ...seen); return Array.from({ length: y1 - y0 + 1 }, (_, i) => String(y1 - i)); };
   const monRange = (mk) => ({ from: mk + '-01', to: H().addDays(addMonths(mk, 1) + '-01', -1) });
-  function monthPick(id, mk, years, set) {
-    const cap = thisMonth(); const y = mk.slice(0, 4); const fit = (k) => (k > cap ? cap : k);
+  // ahead (chat ش9, the owner 16 Nov — «عايز ازود شهر ديسمبر بحيث الشهور كلها تبقي موجودة ممكن انزله مكافاة في شهر قادم او اخصم»):
+  // the payroll's picker has every month of the year and next year — a bonus / deduction goes on a month to come; the other pickers
+  // stop at this month
+  function monthPick(id, mk, years, set, ahead) {
+    const cap = ahead ? addMonths(thisMonth(), 12) : thisMonth(); const y = mk.slice(0, 4); const fit = (k) => (k > cap ? cap : k);
     return [U.Select({ id: id + '-m', label: '', options: K.AR_MON.map((n, i) => ({ value: String(i + 1).padStart(2, '0'), label: 'الشهر: ' + n })).filter((o) => y + '-' + o.value <= cap), value: mk.slice(5, 7), onChange: (v) => set(fit(y + '-' + v)) }),
       U.Select({ id: id + '-y', label: '', options: years.map((x) => ({ value: x, label: 'السنة: ' + x })), value: y, onChange: (v) => set(fit(v + '-' + mk.slice(5, 7))) })];
   }
@@ -359,25 +362,26 @@
   function payrollTab() {
     if (!can().salaries) return [K.Section('المرتبات', K.Empty('المرتبات للأدمن بس', 'كل عضو بيشوف قسيمته في «ملفي».'))];
     const mk = st.sheetMonth || thisMonth(); const sh = S.sheets[mk] || null; const done = !!sh && sh.status === 'مدفوع';
-    const years = yearsOf(Object.keys(S.sheets)); const cmk = st.sheetCmp && st.sheetCmp <= thisMonth() && st.sheetCmp !== mk ? st.sheetCmp : addMonths(mk, -1);
-    const pick = monthPick('sh', mk, years, (v) => { st.sheetMonth = v; R(); })
+    const next = String(Number(thisMonth().slice(0, 4)) + 1); const years = [next].concat(yearsOf(Object.keys(S.sheets))); const cmk = st.sheetCmp && st.sheetCmp <= thisMonth() && st.sheetCmp !== mk ? st.sheetCmp : addMonths(mk, -1);
+    const ahead = mk > thisMonth(); // a month to come: bonuses and deductions only — its salaries are not transferred before it starts
+    const pick = monthPick('sh', mk, years, (v) => { st.sheetMonth = v; R(); }, true)
       .concat(cmpTick('pay', !!st.sheetCmpOn, (on) => { st.sheetCmpOn = on; R(); }, monthPick('sh-c', cmk, yearsOf(Object.keys(S.sheets).concat([cmk])), (v) => { st.sheetCmp = v; R(); })));
     const cmp = st.sheetCmpOn ? cmpCard('hr-pay', { cur: monRange(mk), was: monRange(cmk), names: [monLabel(mk), monLabel(cmk)], lines: (r) => payCmpLines(r.from.slice(0, 7)), note: 'الأرقام من كشف كل شهر: اللي اتحوّل للشهر المدفوع، والمحسوب لحد دلوقتي للشهر المفتوح.' }) : null;
     const L = linesOf(mk); const lines = L.lines; const T = H().sheetTotals(lines); const payDay = H().payDayOf(mk);
     const status = (p) => (p.transfer ? K.Tag('success', 'اتحوّل' + (p.transfer.early ? ' (مبكر)' : '')) : done ? K.Tag('success', 'اتحوّل') : K.Tag('neutral', 'لسه'));
-    const menu = (p) => { const open = !p.transfer && !done; return K.RowMenu([open ? { label: 'تحويل المرتب', icon: 'send', run: () => payOne(p, mk) } : null, { label: 'تحويل سلفة', icon: 'briefcase', run: () => giveAdvance(M(p.member)) },
+    const menu = (p) => { const open = !p.transfer && !done && !ahead; return K.RowMenu([open ? { label: 'تحويل المرتب', icon: 'send', run: () => payOne(p, mk) } : null, { label: 'تحويل سلفة', icon: 'briefcase', run: () => giveAdvance(M(p.member)) },
       open ? { label: 'تصحيح الأوفر تايم', icon: 'clock', run: () => fixOt(p, mk) } : null, { label: 'مكافأة / خصم', icon: 'plus', run: () => addAdjustment(mk, p.member) },
       { label: 'القسيمة', icon: 'file', run: () => payslipModal(p, mk) }].filter(Boolean), 'إجراءات ' + p.name); };
     const cards = h('div', { class: 'cards', 'data-hr-pay-cards': '' }, K.Stat(done ? 'اتحوّل' : 'هيتحوّل', K.money(done ? T.net : T.toTransfer), 'ج.م', done ? 'من ' + ((sh && sh.paidAccount) || '—') : T.left + ' من ' + T.members + ' عضو لسه'),
       K.Stat('المرتبات', K.money(T.salaries), 'ج.م', 'المصروف كل شهر'), K.Stat('الأوفر تايم', K.money(T.overtime), 'ج.م', 'المتأكد + أيام الراحة ×2'), K.Stat('الخصومات والسُلف', K.money(T.cuts), 'ج.م', 'بتتخصم من الصافي'));
-    const transferBtn = Button({ type: 'primary', label: done ? 'المرتبات اتحوّلت' : 'تحويل المرتبات', icon: 'send', disabled: done || L.status !== 'ok' || !T.left, attrs: { 'data-hr-transfer': '' }, onClick: () => transferAll(mk, lines) });
+    const transferBtn = Button({ type: 'primary', label: done ? 'المرتبات اتحوّلت' : 'تحويل المرتبات', icon: 'send', disabled: done || ahead || L.status !== 'ok' || !T.left, attrs: { 'data-hr-transfer': '' }, onClick: () => transferAll(mk, lines) });
     const table = lines.length ? U.Table({ cls: 'hr-pay', headers: ['العضو', 'المرتب', 'البونص', 'الأوفر تايم', 'إضافات', 'خصومات وسُلف', 'الصافي', 'التحويل', ''],
       rows: lines.map((p) => [mcell(p.member), K.Num(K.money(p.paid)), p.quarterBonus ? K.Num(K.money(p.quarterBonus)) : '—', otOf(p) ? K.Num(K.money(otOf(p))) : '—', extraOf(p) ? K.Num(K.money(extraOf(p))) : '—',
         cutsOf(p) ? K.Num('− ' + K.money(cutsOf(p))) : '—', h('b', null, K.Num(K.money(p.net))), status(p), menu(p)]),
       totalRow: ['الإجمالي', K.Num(K.money(T.salaries)), K.Num(K.money(T.bonus)), K.Num(K.money(T.overtime)), K.Num(K.money(T.extras)), K.Num('− ' + K.money(T.cuts)), h('b', null, K.Num(K.money(T.net))), '', ''] })
       : L.status === 'loading' ? K.Empty('بيتحسب…', 'لحظة واحدة') : K.Empty('مفيش أعضاء بمرتب', 'المرتب بيتسجل من «إضافة عضو» أو ملف العضو.');
     return [h('div', { class: 'toolbar hr-mpick', 'data-hr-month-pick': mk }, pick, h('span', { class: 't-small help' }, 'يوم الصرف ' + K.dshort(payDay)), h('span', { class: 'grow' }), Button({ label: 'مكافأة / خصم', icon: 'plus', attrs: { 'data-hr-adjust': '' }, onClick: () => addAdjustment(mk) }), transferBtn),
-      cards, cmp, K.Section('مرتبات ' + monLabel(mk), [L.status === 'error' ? U.InlineNote({ kind: 'error', children: 'تعذّر حساب المرتبات — جرّب تاني.' }) : null, table,
+      cards, cmp, K.Section('مرتبات ' + monLabel(mk), [ahead ? h('div', { 'data-hr-ahead': '' }, U.InlineNote({ children: monLabel(mk) + ' لسه مابدأش — تقدر تضيف مكافأة أو خصم على الشهر ده، والتحويل بيتفتح لما الشهر يبدأ.' })) : null, L.status === 'error' ? U.InlineNote({ kind: 'error', children: 'تعذّر حساب المرتبات — جرّب تاني.' }) : null, table,
         note('الصافي = المرتب الشهري (من غير البونص المحجوز) + الأوفر تايم المتأكد + أيام الراحة ×2 + الإضافات − الخصومات والسُلف وأيام الإجازة بدون أجر. البونص بيتصرف مع آخر شهر في الربع: محجوز كل شهر تقييمه ' + (S.hrSettings.bonusMin || 3) + ' من 5 أو أكتر كامل، والشهر اللي تقييمه أقل أو ماتقيّمش = صفر. السُلفة بتتخصم كلها من مرتب الشهر. ' + (mk.slice(5) === '12' && S.hrSettings.leaveYearEnd !== 'carry' ? 'ديسمبر: رصيد الإجازات الباقي بيتصرف مع المرتب (في «إضافات»).' : ''))], null, { when: monLabel(mk), noun: ['عضو', 'الأعضاء'], total: done ? 'اتحوّلت' : T.paidAlready ? 'اتحوّل لـ ' + (T.members - T.left) + ' بدري' : '' })];
   }
   // the month's lines (live from the server until paid; a member paid already keeps the line they were paid on) — fetched once per state

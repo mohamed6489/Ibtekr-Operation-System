@@ -77,6 +77,7 @@
   // يبقي متاح» · «البوب اب هنا يبقي علي شكل جدول اسم المبتكر و صورة و حالة الاوردر الحالي»): the products are a table — a box, the
   // photo, the product, its maker and its status now —, the place is one of the hub's normal places (T / R / P, as the hub's own
   // popups), and one product of one maker is enough.
+  const starting = new Map(); // order id → the promise of its consolidation being written and read back
   const PLACES = [['T', 'T — تجميع'], ['R', 'R — مرتجعات'], ['P', 'P — تصوير']];
   const placeName = (c) => (PLACES.find((x) => x[0] === c) || [c, c])[1];
   const photoOf = (sku) => { const k = String(sku || '').trim(); if (!k) return ''; const D = window.IBOrders && window.IBOrders.data ? window.IBOrders.data() : null;
@@ -98,7 +99,8 @@
         K.field.select('zone', 'منطقة التجميع', PLACES.map(([value, label]) => ({ value, label })), f, e, set, { required: true })],
       validate: (f) => { const n = Object.values(pick).filter(Boolean).length; const e = {}; if (n < 1) e.subs = 'اختار منتج واحد على الأقل'; if (!f.zone) e.zone = 'اختار المنطقة'; return e; },
       submitLabel: 'ابدأ التجميع', submit: (f) => { const subs = o.subs.filter((s) => pick[pk(s)]).map((s) => [s.sid, s.vendor, s.ss === 'وصل المخزن' ? 'وصل المخزن' : s.ss || 'قيد التنفيذ', s.prod, s.itemId]);
-        if (live()) told(A().consolidate(o.id, subs.map((x) => x[4]), f.zone)).then((r) => { if (r.ok) reload(); });
+        // the row is being written: a product that joins the gathering before the server answered waits for it (starting)
+        if (live()) { const k = String(o.id); const p = told(A().consolidate(o.id, subs.map((x) => x[4]), f.zone)).then((r) => (r.ok && live() ? A().load().then(rerenderInv) : null)).then(() => { if (starting.get(k) === p) starting.delete(k); }, () => { if (starting.get(k) === p) starting.delete(k); }); starting.set(k, p); }
         S.consolidations.unshift({ order: o.id, customer: o.name, subs, since: DAY(), zone: f.zone, by: K.member(K.ME).name }); K.logEvent('order.consolidate', 'IB-' + o.id + ' · ' + subs.length + ' منتج · ' + f.zone); K.toast('IB-' + o.id + ' بيتجمع في المخزن (' + placeName(f.zone) + ')', 'success'); window.OrdersSetSub && window.OrdersSetSub('__redraw__', null); rerenderInv(); } });
   }
   // comments decision 24 (the owner 15 Nov — «مجرد ما اخلي الحالة دي جاهز للشحن من المبتكر للمخزن يطلعلي بوب اب هتجمع الاوردر ده ف المخزن
@@ -106,12 +108,17 @@
   // gathered → the question; «أيوه» opens the popup above. An order already gathered takes the product into its consolidation.
   const asking = new Set();
   function askConsolidate(o, s) {
-    const c = cons(o.id);
+    const c = cons(o.id); const k = String(o.id);
     if (c) { const id = s && s.itemId != null ? String(s.itemId) : ''; if (!id || c.subs.some((x) => String(x[4]) === id)) return;
       c.subs.push([s.sid, s.vendor, s.ss || 'قيد التنفيذ', s.prod, s.itemId]);
-      if (live() && c.id) told(A().addToConsolidation(c.id, [id])).then((r) => { if (r.ok) reload(); });
+      if (live()) {
+        const add = (x) => { if (x && x.id) told(A().addToConsolidation(x.id, [id])).then((r) => { if (r.ok) reload(); }); };
+        if (c.id) add(c);
+        else if (starting.has(k)) starting.get(k).then(() => add(cons(o.id))); // «ابدأ التجميع» a moment ago: its row first, then the product joins it
+        else if (c.derived) told(A().consolidate(c.order, c.subs.map((x) => x[4]).filter(Boolean), c.zone)).then((r) => { if (r.ok) reload(); }); // pieces in the hub with no row yet: the row is written with this product in it
+      }
       K.toast('اتضاف لتجميع IB-' + o.id, 'success'); rerenderInv(); return; }
-    const k = String(o.id); if (asking.has(k)) return; asking.add(k);
+    if (asking.has(k)) return; asking.add(k);
     let m = null; let yes = false;
     m = U.Modal({ title: 'تجميع في المخزن — IB-' + o.id, onClose: () => { asking.delete(k); if (yes) consPopup(o); },
       body: [h('p', { class: 't-body', style: 'margin:0', 'data-cons-ask': k }, 'هتجمّع الأوردر ده في المخزن؟')],

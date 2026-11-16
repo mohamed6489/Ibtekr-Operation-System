@@ -620,13 +620,17 @@ test('comment 24 — a product set «جاهز للشحن من المبتكر ل�
   const m = dlg(page, 'المنتجات اللي هتتجمع');
   await expect(m.locator('[data-cons-line="5002"]')).toHaveAttribute('aria-checked', 'true');
   await m.locator('[data-cons-line="5001"]').click(); // gather the second only
+  // the server is slow to write the gathering: a product that joins before it answered must not be lost
+  let started = 0;
+  await page.route('**/rest/v1/inv_consolidations*', async (route) => { if (route.request().method() === 'POST') { started++; await new Promise((r) => setTimeout(r, 900)); } await route.fallback(); });
   await m.getByRole('button', { name: 'ابدأ التجميع' }).click();
-  await expect.poll(() => mock.inv.inv_consolidation_items.map((x) => x.item_id)).toEqual([5002]);
   await expect(page.locator('#orders .card[data-o="181668"] .consbar')).toContainText('0 من 1 وصلوا');
-  // the order is gathered now: the first product set ready again joins it — no question
+  // the order is gathered now: the first product set ready again joins it — no question — even while the gathering is still being written
   await page.locator('#orders select[data-ss="5001"]').selectOption('مؤكد');
   await page.locator('#orders select[data-ss="5001"]').selectOption(READY);
+  expect(mock.inv.inv_consolidations).toHaveLength(0); // the write has not landed yet
   await expect.poll(() => mock.inv.inv_consolidation_items.map((x) => x.item_id).sort()).toEqual([5001, 5002]);
+  expect(started).toBe(1); expect(mock.inv.inv_consolidations).toHaveLength(1); // one gathering, the product joined it
   await expect(ask).toHaveCount(0);
   await expect(page.locator('#orders .card[data-o="181668"] .consbar')).toContainText('0 من 2 وصلوا');
 });

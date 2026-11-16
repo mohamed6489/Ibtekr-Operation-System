@@ -710,7 +710,7 @@ Deno.test('magnificMcp (the real layer against a fake fetch): discovery, PKCE, t
 
 const NID = (n: number) => '00000000-0000-4000-8000-' + String(n).padStart(12, '0');
 const TEMPLATE = 'a24c0027-cdcc-461c-bc94-74a2a275c599';
-function flowBridge(extra: Record<string, (args: any) => unknown> = {}) {
+function flowBridge(extra: Record<string, (args: any) => unknown> = {}, opts: { refs?: boolean } = {}) {
   let nodeSeq = 100; const spaces: any[] = []; const pages: any[] = []; const created: any[] = []; const connections: any[] = [];
   const outputs: Record<string, string[]> = {}; // out node id → the creation ids the site produced
   const tools: Record<string, (args: any) => unknown> = {
@@ -728,7 +728,8 @@ function flowBridge(extra: Record<string, (args: any) => unknown> = {}) {
       : outputs[id] ? [{ elementId: id, key: 'itemType', value: 'image' }, { elementId: id, key: 'items', value: JSON.stringify(outputs[id].map((c) => ({ type: 'image', creationIdentifier: c }))) }] : []) }),
     spaces_create: ({ name, projectReference }: any) => { const id = 'a3000000-0000-4000-8000-' + String(spaces.length + 1).padStart(12, '0'); spaces.push({ id, name, projectReference }); return { space: { id, name, webUrl: 'https://www.magnific.com/app/spaces/' + id + '?utm_source=mcp' } }; },
     spaces_create_page: ({ spaceId, name }: any) => { const id = 'page-' + (pages.length + 1); pages.push({ spaceId, name, id }); return { pageId: id }; },
-    spaces_create_node: ({ spaceId, pageId, nodes }: any) => { const results = nodes.map((n: any) => { const nodeId = NID(++nodeSeq); created.push({ spaceId, pageId, ...n, nodeId }); return { ok: true, nodeId, nodeType: n.nodeType, ref: n.ref }; }); return { ok: true, results }; },
+    // Magnific's answer since 16 Nov: index · ok · nodeId · label — no ref (the bridge maps by index); `opts.refs` = the older answer with ref
+    spaces_create_node: ({ spaceId, pageId, nodes }: any) => { const results = nodes.map((n: any, index: number) => { const nodeId = NID(++nodeSeq); created.push({ spaceId, pageId, ...n, nodeId }); return opts.refs ? { ok: true, nodeId, nodeType: n.nodeType, ref: n.ref } : { index, ok: true, nodeId, label: n.nodeType }; }); return { ok: true, results }; },
     spaces_add_connection: ({ spaceId, connections: cs }: any) => { connections.push(...cs.map((c: any) => ({ spaceId, ...c }))); return { ok: true, results: cs.map((_: any, i: number) => ({ index: i, ok: true, connectionId: 'conn-' + i })) }; },
     creations_get: ({ identifiers }: any) => ({ creations: identifiers.map((id: string) => ({ identifier: id, url: id === 'OFF' ? 'https://elsewhere.test/x.png' : 'https://pikaso.cdnpk.net/p/' + id + '.png' })) }),
     ...extra,
@@ -754,6 +755,21 @@ Deno.test('bridge_prompts_sync (the admin): the owner\'s template read, its gene
   // another template id → read instead; a board with no generators → nothing written
   const r2 = await call(deps, { action: 'bridge_prompts_sync', template_space: 'b24c0027-cdcc-461c-bc94-74a2a275c599' }, 'jwt-admin');
   assertEquals(r2.body, { result: 'ok', template_space: 'b24c0027-cdcc-461c-bc94-74a2a275c599', categories: 0, rows: 0 });
+});
+
+Deno.test('bridge_flow: Magnific\'s answer to spaces_create_node with or without `ref` (16 Nov — index · ok · nodeId only) → the nodes are named by their place in the call and wired', async () => {
+  for (const refs of [false, true]) {
+    const F = flowBridge({}, { refs });
+    const seed = { ...SEED, studio_batches: [batch({ created_by: U.add, state: { items: [item()] } })],
+      image_shares: [{ id: 1, created_by: U.add, batch_id: SB, item_index: 0, name: 'a.webp', path: SB + '/row1-main.webp', url: 'https://s/1', expires_at: NOW, status: 'sent', creation_ref: 'UP1', sent_at: NOW }] };
+    const { deps } = setup({ vault: { ...LINKED }, bridge: F.bridge, seed });
+    const r = await call(deps, { action: 'bridge_flow', batch_id: SB, category: 'كرسي' });
+    assertEquals([r.res.status, r.body.result], [200, 'ok'], 'refs: ' + refs);
+    const ids = new Set(F.created.map((n: any) => n.nodeId));
+    assert(F.connections.length >= 6 && F.connections.every((c: any) => ids.has(c.sourceElementId) && ids.has(c.targetElementId)), 'every link between the nodes made');
+    const gen1 = F.created.find((n: any) => n.ref === 'gen1'); const list = F.created.find((n: any) => n.ref === 'list');
+    assert(F.connections.some((c: any) => c.sourceElementId === list.nodeId && c.targetElementId === gen1.nodeId), 'the list feeds the first generator');
+  }
 });
 
 Deno.test('bridge_flow (products.add): the one Space made once and kept in settings, a page a category made once, the batch\'s flow (the sent photos as the list in product order, three generators with the category rows — or the generic words —, three output lists, six connections), the node ids kept on the batch; nothing sent → 409', async () => {

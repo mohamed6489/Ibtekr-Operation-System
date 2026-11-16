@@ -964,7 +964,14 @@ async function createNodes(deps: Deps, token: string, spaceId: string, pageId: s
   for (const chunk of nodeChunks(nodes) as PlanNode[][]) {
     const created = await bridge.callTool(token, 'spaces_create_node', { spaceId, pageId, nodes: resolveChunk(chunk, idOf) }) as Json;
     const results: Json[] = Array.isArray(created?.results) ? created.results : [];
-    for (const r of results) if (isObj(r) && r.ok !== false && typeof r.ref === 'string' && typeof r.nodeId === 'string') idOf[r.ref] = r.nodeId;
+    // each result names its node by `ref` (before 16 Nov) or only by its `index` in the call (Magnific's answer since 16 Nov:
+    // index · ok · nodeId · label …) — by position as the last resort
+    results.forEach((r, k) => {
+      if (!isObj(r) || r.ok === false || typeof r.nodeId !== 'string') return;
+      const at = Number.isInteger(r.index) ? Number(r.index) : k;
+      const ref = typeof r.ref === 'string' && r.ref ? r.ref : chunk[at]?.ref;
+      if (ref) idOf[ref] = r.nodeId;
+    });
     const missing = chunk.map((n) => n.ref).filter((ref) => !idOf[ref]);
     if (missing.length) throw new BridgeError('mcp_error', null, 'nodes not created: ' + missing.join(','));
   }

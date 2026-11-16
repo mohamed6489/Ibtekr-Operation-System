@@ -2738,9 +2738,12 @@
   const offline = { ok: false, message: 'تعذّر الاتصال — جرّب تاني' };
   state.tfilter = { status: 'open_any', type: 'all', priority: 'all', role: 'all', mine: false, q: '' };
   // فلتر + ترتيب جنب زرار الأعمدة (owner 1 Nov) — اختيارات متعددة، والافتراضي «مفتوحة»
-  state.tf = { status: ['open_any'], type: [], priority: [], role: [], mine: [] }; state.tsort = 'prio'; state.tsub = 'overview'; // the owner 11 Nov: «نظرة عامة» first
+  state.tf = { status: ['open_any'], type: [], priority: [], role: [], member: [], by: [], mine: [] }; state.tsort = 'prio'; state.tsub = 'overview'; // the owner 11 Nov: «نظرة عامة» first
   const TSORTS = [['prio', 'الأولوية ثم آخر تحديث'], ['upd', 'آخر تحديث'], ['new', 'الأحدث إنشاءً'], ['old', 'الأقدم إنشاءً'], ['follow', 'أقرب موعد متابعة']];
-  const tMatch = (t, f) => (!f.status.length || f.status.some((v) => (v === 'open_any' ? TK.OPEN.has(t.status) : t.status === v))) && (!f.type.length || f.type.includes(t.type)) && (!f.priority.length || f.priority.includes(t.priority)) && (!f.role.length || f.role.includes(t.assigneeRole)) && (!f.mine.length || (TA() && TA().isMine(t)));
+  // comments decision 61 (the owner 15 Nov — «اضافة كل الفلاتر الناقصة»): the requests' filter also takes «الموظف» (the member a request was
+  // given to — «كل الدور» when none) and «فاتح الطلب»
+  const tWho = (t) => (t.assigneeMember ? (t.assigneeMemberName || '—') : 'كل الدور'); const tBy = (t) => (t.createdBy && t.createdBy.name) || '—';
+  const tMatch = (t, f) => (!f.status.length || f.status.some((v) => (v === 'open_any' ? TK.OPEN.has(t.status) : t.status === v))) && (!f.type.length || f.type.includes(t.type)) && (!f.priority.length || f.priority.includes(t.priority)) && (!f.role.length || f.role.includes(t.assigneeRole)) && (!(f.member || []).length || f.member.includes(tWho(t))) && (!(f.by || []).length || f.by.includes(tBy(t))) && (!f.mine.length || (TA() && TA().isMine(t)));
   const tSort = (l) => { const k = state.tsort; const c = (x, y) => (x < y ? -1 : x > y ? 1 : 0); if (k === 'upd') return l.sort((a, b) => c(b.lastUpdate, a.lastUpdate)); if (k === 'new') return l.sort((a, b) => c(b.createdAt, a.createdAt)); if (k === 'old') return l.sort((a, b) => c(a.createdAt, b.createdAt)); if (k === 'follow') return l.sort((a, b) => c(a.followUp || '9999', b.followUp || '9999')); return l; };
   state.tpage = 1; const TPAGE = 8;
   const typeLabel = (t) => TK.label(TK.TYPES, t);
@@ -2891,11 +2894,12 @@
     const tkTabs = K2.SubTabs({ items: [{ id: 'overview', label: 'نظرة عامة' }, { id: 'log', label: 'السجل', count: all.filter((t) => TK.OPEN.has(t.status)).length }, { id: 'reports', label: 'التقارير' }], active: state.tsub, onChange: (id) => { state.tsub = id; renderTickets(); }, label: 'أقسام الطلبات' });
     if (state.tsub === 'overview') return [tkHead, tkTabs].concat(TicketsOverview()); // the owner 11 Nov: the first tab
     if (state.tsub === 'reports') return [tkHead, tkTabs].concat(TicketsReport());
-    const TFG = [{ key: 'status', label: 'الحالة', options: [['open_any', 'مفتوحة (كل الحالات المفتوحة)']].concat(TK.STATUSES) }, { key: 'type', label: 'النوع', options: TK.TYPES }, { key: 'priority', label: 'الأولوية', options: TK.PRIORITIES.map((x) => [x[0], x[1]]) }, { key: 'role', label: 'المسؤول', options: TK.ROLES.map((r) => [r, r]) }, { key: 'mine', label: 'طلباتي', options: [['mine', 'طلبات دوري بس']] }];
+    const tUniq = (f) => [...new Set(all.map(f))].sort((x, y) => (x === 'كل الدور' ? -1 : y === 'كل الدور' ? 1 : x.localeCompare(y, 'ar')));
+    const TFG = [{ key: 'status', label: 'الحالة', options: [['open_any', 'مفتوحة (كل الحالات المفتوحة)']].concat(TK.STATUSES) }, { key: 'type', label: 'النوع', options: TK.TYPES }, { key: 'priority', label: 'الأولوية', options: TK.PRIORITIES.map((x) => [x[0], x[1]]) }, { key: 'role', label: 'المسؤول', options: TK.ROLES.map((r) => [r, r]) }, { key: 'member', label: 'الموظف', options: tUniq(tWho).map((n) => [n, n]) }, { key: 'by', label: 'فاتح الطلب', options: tUniq(tBy).map((n) => [n, n]) }, { key: 'mine', label: 'طلباتي', options: [['mine', 'طلبات دوري بس']] }];
     const tCount = (f) => TK.filterTickets(all, { q: state.tfilter.q }).filter((t) => tMatch(t, f)).length;
     const tFM = K2.FilterMenu({ id: 'tickets', groups: TFG, value: state.tf, count: tCount, noun: 'طلب', label: 'فلتر الطلبات', onApply: (d) => { state.tf = d; state.tpage = 1; renderTickets(); } });
     const tSM = K2.SortMenu({ id: 'tickets', options: TSORTS, value: state.tsort, label: 'ترتيب الطلبات', onChange: (v) => { state.tsort = v; state.tpage = 1; renderTickets(); } });
-    const tChips = []; const none = { status: [], type: [], priority: [], role: [], mine: [] };
+    const tChips = []; const none = { status: [], type: [], priority: [], role: [], member: [], by: [], mine: [] };
     if (state.tfilter.q) tChips.push({ key: 'q', label: 'بحث: ' + state.tfilter.q, count: list.length, remove: () => { state.tfilter.q = ''; renderTickets(); } });
     TFG.forEach((g) => (state.tf[g.key] || []).forEach((v) => { const o = g.options.find((x) => x[0] === v); tChips.push({ key: g.key + ':' + v, label: (g.key === 'mine' ? '' : g.label + ': ') + (o ? o[1] : v).replace(' (كل الحالات المفتوحة)', ''), count: tCount(Object.assign({}, none, { [g.key]: [v] })), remove: () => { state.tf = Object.assign({}, state.tf, { [g.key]: state.tf[g.key].filter((x) => x !== v) }); state.tpage = 1; renderTickets(); } }); }));
     const tAF = K2.ActiveFilters({ id: 'tickets', chips: tChips, total: list.length, noun: 'طلب', onClear: () => { state.tf = Object.assign({}, none); state.tfilter.q = ''; state.tpage = 1; renderTickets(); } });

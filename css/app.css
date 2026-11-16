@@ -69,11 +69,11 @@ a.btn{text-decoration:none}
 .btn-default{background:var(--color-bg-container);border-color:var(--color-border-default);color:var(--color-text-primary)}
 .btn-default:hover{border-color:var(--color-brand-default);color:var(--color-brand-default)}
 .btn-text{background:transparent;color:var(--color-brand-default)}
-.btn-text:hover{background:var(--color-brand-subtle-bg)}
+.btn-text:hover{background:var(--color-bg-hover)}
 .btn-danger{background:var(--color-error-base);color:#fff}
 .btn:disabled{background:var(--color-bg-disabled);color:var(--color-text-disabled);border-color:transparent;cursor:not-allowed}
 .icon-btn{width:32px;height:32px;display:inline-grid;place-items:center;border:0;background:transparent;border-radius:var(--radius-sm);color:var(--color-text-secondary)}
-.icon-btn:hover{background:var(--color-bg-container);color:var(--color-text-primary)}
+.icon-btn:hover{background:var(--color-bg-hover);color:var(--color-text-primary)}
 
 /* Tabs */
 .tabs{display:flex;gap:0;border-bottom:1px solid var(--color-border-subtle);overflow-x:auto}
@@ -91,7 +91,7 @@ a.btn{text-decoration:none}
 .menu{position:absolute;top:calc(100% + 4px);inset-inline-start:0;min-width:100%;width:max-content;max-width:90vw;max-height:300px;overflow:auto;padding:4px;background:var(--color-bg-elevated);border:1px solid var(--color-border-subtle);border-radius:var(--radius-sm);box-shadow:var(--shadow-popover);z-index:30}
 .menu.end{inset-inline-start:auto;inset-inline-end:0}
 .opt{height:40px;display:flex;align-items:center;padding:0 12px;border-radius:var(--radius-sm);width:100%;border:0;background:transparent;text-align:start;font-size:14px;line-height:24px;gap:8px}
-.opt:hover,.opt:focus-visible{background:var(--color-bg-container)}
+.opt:hover,.opt:focus-visible{background:var(--color-bg-hover)}
 .opt[aria-selected=true],.opt[aria-checked=true]{background:var(--color-brand-subtle-bg);color:var(--color-brand-default);font-weight:600}
 .opt.danger{color:var(--color-error-text)}
 
@@ -171,7 +171,7 @@ tr.total td{background:var(--color-bg-tint)!important;font-weight:600}
 .dp-body{display:flex;min-height:0}
 .presets{width:220px;flex:none;padding:12px;border-inline-end:1px solid var(--color-border-subtle);display:flex;flex-direction:column;gap:0}
 .radio{display:flex;align-items:center;gap:8px;height:28px;border:0;background:transparent;width:100%;text-align:start;padding:0 4px;border-radius:var(--radius-sm)}
-.radio:hover{background:var(--color-bg-container)}
+.radio:hover{background:var(--color-bg-hover)}
 .radio i{width:16px;height:16px;border-radius:50%;border:1px solid var(--color-border-default);flex:none;display:grid;place-items:center;background:var(--color-bg-base)}
 .radio[aria-checked=true] i{border-color:var(--color-brand-default)}
 .radio[aria-checked=true] i::after{content:"";width:8px;height:8px;border-radius:50%;background:var(--color-brand-default)}
@@ -181,7 +181,7 @@ tr.total td{background:var(--color-bg-tint)!important;font-weight:600}
 .cal-grid{display:grid;grid-template-columns:repeat(7,32px);justify-content:space-between;row-gap:2px}
 .dow{height:28px;display:grid;place-items:center;font-size:12px;color:var(--color-text-secondary)}
 .day{width:32px;height:32px;border:0;background:transparent;border-radius:var(--radius-sm);display:grid;place-items:center;font-size:14px;position:relative}
-.day:hover{background:var(--color-bg-container)}
+.day:hover{background:var(--color-bg-hover)}
 .day.outside{color:var(--color-text-disabled)}
 .day.today{box-shadow:inset 0 0 0 1px var(--color-action-default)}
 .day.inrange{background:var(--color-brand-subtle-bg);border-radius:0}
@@ -212,7 +212,7 @@ tr.total td{background:var(--color-bg-tint)!important;font-weight:600}
 .ntf-nav{width:176px;flex:none;display:flex;flex-direction:column;gap:4px;padding:8px;background:var(--color-bg-container);border-inline-start:1px solid var(--color-border-subtle)}
 .ntf-nav .t-h5{color:var(--color-brand-default);padding:4px 8px 8px;margin:0}
 .ntf-nav-item{display:flex;align-items:center;gap:8px;height:40px;padding:0 12px;border:0;border-radius:4px;background:transparent;color:var(--color-text-primary);font:inherit;text-align:start;width:100%;cursor:pointer}
-.ntf-nav-item .lbl{flex:1}.ntf-nav-item:hover{background:var(--color-bg-tint)}
+.ntf-nav-item .lbl{flex:1}.ntf-nav-item:hover{background:var(--color-bg-hover)}
 .ntf-nav-item[aria-current=true]{background:var(--color-bg-tint);color:var(--color-brand-default);font-weight:600}
 .ntf-nav-item .cnt{min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:var(--color-brand-default);color:var(--color-bg-base);font-size:11px;line-height:16px;text-align:center}
 .ntf-nav-item .cnt.zero{background:var(--color-bg-tint);color:var(--color-text-secondary)}
@@ -223,7 +223,7 @@ tr.total td{background:var(--color-bg-tint)!important;font-weight:600}
 .ntf-main .tabs{padding:0 16px}.ntf-main .tab{padding:8px 12px}
 .ntf-list{flex:1;min-height:0;overflow:auto;padding:8px;display:flex;flex-direction:column;gap:2px}
 .ntf-item{display:flex;align-items:center;gap:12px;padding:8px 12px;border:0;border-radius:4px;background:transparent;font:inherit;text-align:start;width:100%;cursor:pointer;color:var(--color-text-primary)}
-.ntf-item:hover,.ntf-item:focus-visible{background:var(--color-bg-container);outline:0}
+.ntf-item:hover,.ntf-item:focus-visible{background:var(--color-bg-hover);outline:0}
 .ntf-item .av{width:32px;height:32px;border-radius:16px;flex:none;display:grid;place-items:center;background:var(--color-bg-container);color:var(--color-text-secondary)}
 .ntf-item .av.warning{background:var(--color-warning-bg);color:var(--color-warning-text)}.ntf-item .av.error{background:var(--color-error-bg);color:var(--color-error-text)}.ntf-item .av.orange{background:var(--color-orange-bg);color:var(--color-orange-text)}
 .ntf-item .txt{flex:1;min-width:0;display:flex;flex-direction:column}.ntf-item .txt b{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ntf-item .txt small{color:var(--color-text-secondary);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -510,7 +510,7 @@ tr.total td{background:var(--color-bg-tint)!important;font-weight:600}
 .dt-chip .t-small{color:var(--color-text-secondary)}
 .dt-chip b{font-weight:700;color:var(--color-text-primary)}
 .dt-click{cursor:pointer}
-.dt-click:hover td{background:var(--color-bg-tint)}
+.dt-click:hover td{background:var(--color-bg-hover)}
 .dt-click:focus-visible{outline:2px solid var(--color-brand-default);outline-offset:-2px}
 .dt-table td{white-space:normal}.dt-table td.nw{white-space:nowrap}
 .share-menu{min-width:220px}
@@ -613,7 +613,7 @@ input::placeholder,textarea::placeholder{text-align:right}
 .dx-errs{display:flex;flex-direction:column;gap:2px;color:var(--color-error-text);font-size:12px}
 /* owner 22 Oct: role popup */
 .list-chip.role-chip{font:inherit;color:var(--color-text-primary);cursor:pointer;min-height:36px;padding:4px 12px;gap:4px}
-.list-chip.role-chip:hover{border-color:var(--color-action-default);background:var(--color-bg-tint)}
+.list-chip.role-chip:hover{border-color:var(--color-action-default);background:var(--color-bg-hover)}
 .list-chip.role-chip:focus-visible{outline:2px solid var(--color-border-focus);outline-offset:2px}
 .rp-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .rp-list{display:flex;flex-direction:column;gap:16px}
@@ -662,7 +662,7 @@ input::placeholder,textarea::placeholder{text-align:right}
 .dash-need{display:flex;flex-direction:column}
 .dn-item{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px;padding:10px 4px;border:0;border-bottom:1px solid var(--color-border-subtle);background:none;font:inherit;color:inherit;text-align:right;cursor:pointer;min-height:44px}
 .dn-item:last-child{border-bottom:0}
-.dn-item:hover{background:var(--color-bg-tint)}
+.dn-item:hover{background:var(--color-bg-hover)}
 .dn-item:focus-visible{outline:2px solid var(--color-border-focus);outline-offset:-2px}
 .dn-ic{display:inline-flex;width:28px;height:28px;border-radius:999px;align-items:center;justify-content:center;background:var(--color-bg-tint);color:var(--color-text-secondary)}
 .dn-item.tone-error .dn-ic{background:var(--color-error-bg);color:var(--color-error-text)}
@@ -672,7 +672,7 @@ input::placeholder,textarea::placeholder{text-align:right}
 .dn-txt small,.dn-sec{color:var(--color-text-secondary)}
 .dash-bars{display:flex;flex-direction:column;gap:4px}
 .dash-barbtn{display:block;width:100%;border:0;background:none;padding:2px 0;font:inherit;color:inherit;text-align:right;cursor:pointer;border-radius:4px}
-.dash-barbtn:hover{background:var(--color-bg-tint)}
+.dash-barbtn:hover{background:var(--color-bg-hover)}
 .dash-barbtn:focus-visible{outline:2px solid var(--color-border-focus)}
 .dash-team{display:flex;flex-direction:column;gap:8px}
 .dt-row{display:flex;align-items:center;gap:8px}
@@ -753,7 +753,7 @@ input::placeholder,textarea::placeholder{text-align:right}
 /* Sub tabs (segmented) */
 .subtabs{display:inline-flex;gap:4px;padding:4px;background:var(--color-bg-container);border-radius:var(--radius-md);flex-wrap:wrap;align-self:flex-start;max-width:100%}
 .subtab{height:32px;padding:0 12px;border:0;border-radius:var(--radius-sm);background:transparent;color:var(--color-text-secondary);font-weight:500;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
-.subtab:hover{background:var(--color-bg-tint)}
+.subtab:hover{background:var(--color-bg-hover)}
 .subtab[aria-selected=true]{background:var(--color-bg-base);color:var(--color-brand-default);font-weight:700;box-shadow:0 1px 2px rgba(46,42,27,.12)}
 .subtab .cnt,.chip .cnt{min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:var(--color-bg-tint);color:var(--color-text-primary);font-size:12px;line-height:20px;text-align:center}
 /* a main tab's count (ملفي › طلباتي: the open requests of each tab — 2026-11-15-comments.md decision 3) */
@@ -859,7 +859,7 @@ a.mlink:hover b{color:var(--color-brand-default);text-decoration:underline}
 .set-nav-item{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:0;background:transparent;border-radius:var(--radius-sm);text-align:start;color:var(--color-text-primary)}
 .set-nav-item .ic{margin-top:4px;color:var(--color-text-secondary)}
 .set-nav-item span{display:flex;flex-direction:column;line-height:20px}.set-nav-item small{color:var(--color-text-secondary);font-size:12px}
-.set-nav-item:hover{background:var(--color-bg-container)}
+.set-nav-item:hover{background:var(--color-bg-hover)}
 .set-nav-item[aria-current=page]{background:var(--color-brand-subtle-bg);box-shadow:inset -3px 0 0 var(--color-action-default)}
 .set-nav-item[aria-current=page] b,.set-nav-item[aria-current=page] .ic{color:var(--color-brand-default)}
 .set-body{display:flex;flex-direction:column;gap:16px;min-width:0;max-width:920px}
@@ -922,7 +922,7 @@ button.pm:disabled{opacity:.7;cursor:not-allowed}
 .clock-pop .kv{grid-template-columns:90px 1fr}
 .clock-pop .demo{display:flex;align-items:center;gap:4px;flex-wrap:wrap;border-top:1px dashed var(--color-border-subtle);padding-top:8px}
 .user-btn{display:flex;align-items:center;gap:8px;border:0;background:transparent;padding:4px 6px;border-radius:var(--radius-sm);color:var(--color-text-primary)}
-.user-btn:hover{background:var(--color-bg-container)}
+.user-btn:hover{background:var(--color-bg-hover)}
 .menu.acct{width:240px}.acct-h{padding:8px 12px 10px;border-bottom:1px solid var(--color-border-subtle);margin-bottom:4px;display:flex;flex-direction:column}.acct-h small{color:var(--color-text-secondary)}
 /* decision 30: the name and the e-mail sit on the right (the e-mail is ltr text in an rtl menu) */
 .acct-h{align-items:stretch;text-align:right}.acct-h small{text-align:right}
@@ -1042,7 +1042,7 @@ b.pos{color:var(--color-success-text)}
 .cs-disc{display:flex;align-items:center;gap:6px;padding:6px 12px;background:var(--color-error-bg);color:var(--color-error-text);border-bottom:1px solid var(--color-error-border)}
 .cs-items{flex:1;overflow-y:auto;min-height:0}.cs-items .empty{border:0}
 .cv{display:flex;gap:12px;align-items:flex-start;width:100%;padding:12px 16px;border:0;border-bottom:1px solid var(--color-border-subtle);background:var(--color-bg-base);text-align:start;font:inherit;color:inherit;cursor:pointer}
-.cv:hover{background:var(--color-bg-container)}.cv.sel{background:var(--color-brand-subtle-bg);box-shadow:inset -3px 0 0 var(--color-brand-default)}
+.cv:hover{background:var(--color-bg-hover)}.cv.sel{background:var(--color-brand-subtle-bg);box-shadow:inset -3px 0 0 var(--color-brand-default)}
 .cv-b{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
 .cv-r1,.cv-r2,.cv-r3{display:flex;align-items:center;gap:6px;min-width:0}
 .cv-r1 .nm{flex:1;min-width:0;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cv.unread .nm{font-weight:700}
@@ -1205,7 +1205,7 @@ b.pos{color:var(--color-success-text)}
 .star-pick .sp .ic{width:24px;height:24px}
 .star-pick .sp.on{color:var(--color-chart-2)}
 .star-pick .sp.on .ic{fill:currentColor}
-.star-pick .sp:hover{background:var(--color-bg-tint)}
+.star-pick .sp:hover{background:var(--color-bg-hover)}
 .star-pick .sp:focus-visible{outline:2px solid var(--color-border-focus);outline-offset:1px}
 .star-pick[aria-invalid=true] .sp{color:var(--color-status-error-border,var(--color-status-error-base))}
 .sp-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
@@ -1326,7 +1326,7 @@ tr.is-sel td{background:var(--color-brand-subtle-bg)}
 .af-x{display:inline-flex;width:16px;height:16px;align-items:center;justify-content:center;flex:none}.af-x svg{width:14px;height:14px}
 .af-n{font-size:13px;color:var(--color-text-secondary);font-weight:600;white-space:nowrap}
 .af-clr{display:inline-flex;align-items:center;white-space:nowrap;flex:none;height:32px;padding-inline:14px;border:0;border-radius:6px;background:var(--color-bg-container);color:var(--color-brand-default);font:inherit;font-size:13px;font-weight:600;cursor:pointer}
-.af-clr:hover{background:var(--color-brand-subtle-bg,var(--color-bg-container))}
+.af-clr:hover{background:var(--color-bg-hover)}
 @media (max-width:1023px){.af-chip,.af-clr{height:44px}}
 tr.af-hide{display:none!important}
 .af-empty{margin:12px 0}
@@ -1392,7 +1392,7 @@ tr.af-hide{display:none!important}
 @media (max-width:767px){.mlog-bar>input[type=search],.mlog-bar>.pop-anchor{flex:1 1 100%;width:100%!important}.mlog-bar>.pop-anchor .date-field{width:100%}}
 /* ترتيب بالسحب في «تخصيص اللوحة» (owner 28 Oct) */
 .dash-cust .dc-row .dc-grip{order:-1;flex:none;width:28px;height:28px;display:grid;place-items:center;border:0;background:transparent;border-radius:var(--radius-xs,4px);color:var(--color-text-secondary);cursor:grab;touch-action:none}
-.dash-cust .dc-row .dc-grip:hover{background:var(--color-bg-tint);color:var(--color-text-primary)}
+.dash-cust .dc-row .dc-grip:hover{background:var(--color-bg-hover);color:var(--color-text-primary)}
 .dash-cust .dc-row .dc-grip:active{cursor:grabbing}
 .dash-cust .dc-row .dc-grip:focus-visible{outline:2px solid var(--color-action-default);outline-offset:1px}
 .dash-cust .dc-row.dragging{background:var(--color-bg-tint);box-shadow:var(--shadow-popover);border-radius:var(--radius-sm);position:relative;z-index:2}
@@ -1586,7 +1586,7 @@ td :is(.select,.date-field,.input:not(textarea)){height:var(--ctl-sm);min-height
 .tk-order-opts { position: absolute; inset-inline: 0; top: 100%; z-index: 30; margin-top: 4px; max-height: 260px; overflow: auto; background: var(--color-surface, #fff); border: 1px solid var(--color-border, #ddd); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, .12); display: flex; flex-direction: column; }
 .tk-order-opts[hidden] { display: none; }
 .tk-order-opt { text-align: start; background: none; border: 0; padding: 8px 12px; cursor: pointer; font: inherit; color: inherit; }
-.tk-order-opt:hover, .tk-order-opt:focus { background: var(--color-surface-2, #f4f4f4); outline: none; }
+.tk-order-opt:hover, .tk-order-opt:focus { background: var(--color-bg-hover); outline: none; }
 /* phase 9: «قريبًا» on a reports tab (staff / campaigns until their pages) */
 .tabs .tab .soon { margin-inline-start: 6px; background: var(--color-bg-tint); color: var(--color-text-secondary); }
 /* ===== phase 5.5 decision 12 (owner 5 Nov): الجدول القياسي tbl-v2 على كل الجداول — ترويسة كارت + صف عناوين أخضر + صفوف متبادلة
@@ -1710,7 +1710,7 @@ tbody tr:nth-child(even) td{background:var(--color-bg-tint)}
 .reason-cell .dc-grip-sp{flex:none;width:28px}
 table:has(.reason-cell) :is(th,td):first-child{text-align:start}
 .reason-cell .dc-grip{flex:none;width:28px;height:28px;display:grid;place-items:center;border:0;background:transparent;border-radius:var(--radius-xs,4px);color:var(--color-text-secondary);cursor:grab;touch-action:none}
-.reason-cell .dc-grip:hover{background:var(--color-bg-tint);color:var(--color-text-primary)}
+.reason-cell .dc-grip:hover{background:var(--color-bg-hover);color:var(--color-text-primary)}
 .reason-cell .dc-grip:active{cursor:grabbing}
 .reason-cell .dc-grip:focus-visible{outline:2px solid var(--color-action-default);outline-offset:1px}
 tr.dragging{background:var(--color-bg-tint)}
@@ -1883,8 +1883,9 @@ td > :is(.mlink,.prod,.who-cell) .avatar{flex:none}
 .table-title>.acts{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .table-title>.acts>[data-cols]{margin-inline-start:0}
 /* the owner 14 Nov (docs/superpowers/plans/2026-11-14-owner-batch.md decision 1): the dark beige (--color-brand-subtle-bg) marks what is
-   selected only; a hover anywhere is one middle shade between the page's beige and that selected beige (--color-bg-hover) */
-:root{--color-bg-hover:#efe2c9}
+   selected only; a hover anywhere is one shade (--color-bg-hover) — the owner 16 Nov: «لون الهوفر لاي background بيتعملها hover يبقي
+   #F9F0E2» (every light hover background in the CSS files and the orders page's --bg-hover; filled buttons keep their darker shade) */
+:root{--color-bg-hover:#F9F0E2}
 :is(.btn-text,.icon-btn,.opt,.radio,.day,.ntf-nav-item,.ntf-item,.list-chip.role-chip,.dn-item,.dash-barbtn,.subtab,.set-nav-item,.user-btn,.cv,.af-clr,.star-pick .sp,.dc-grip,.th-sort):hover{background:var(--color-bg-hover)}
 .dt-click:hover td{background:var(--color-bg-hover)}
 :is(.opt,.ntf-item):focus-visible{background:var(--color-bg-hover)}

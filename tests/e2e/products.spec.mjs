@@ -926,7 +926,8 @@ test('comment 82 — «تعديل سعر»: wider; «نسبة إبتكر» lists
   await expect(a.locator('[data-bp-line="15"]')).toContainText('ديكور'); await expect(a.locator('[data-bp-line="15"]')).toContainText('30% ← 32%');
   // all his products of one category (not all his products): that category alone, and his commission turns «حسب القسم»
   await expect(b).toHaveAttribute('data-bp-scope', 'cats');
-  await expect(b).toContainText('كل منتجاته في: إضاءة');
+  await expect(b.locator('.bp-mk-what')).toContainText('كل منتجاته في'); await expect(b.locator('.bp-cat')).toHaveText(['إضاءة']); // owner 16 Nov: the categories as chips
+  await expect(b.locator('.bp-scope')).toHaveText('أقسام بعينها'); await expect(a.locator('.bp-scope')).toHaveText('النسبة كلها'); await expect(c.locator('.bp-scope')).toHaveText('السعر بس');
   await expect(b.locator('[data-bp-line]')).toHaveCount(1);
   await expect(b.locator('[data-bp-line="151"]')).toContainText('45% ← 47%');
   await expect(b).toContainText('حسب القسم');

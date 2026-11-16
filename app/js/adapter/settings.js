@@ -115,7 +115,7 @@
     data.sections[sec] = next; emit();
     log(sec + '.save', Object.keys(patch).sort().join(', '), sec);
     // the owner 15 Nov: an instruction template added here shows in a campaign right away (settings_public().aiTemplates)
-    if (sec === 'ai_rules') Promise.resolve(loadPublic()).catch(() => {});
+    if (sec === 'ai_rules' || sec === 'brand') Promise.resolve(loadPublic()).catch(() => {}); // brand: the preloader and the favicon every page applies from the public copy (the owner 16 Nov)
     return { ok: true };
   }
 

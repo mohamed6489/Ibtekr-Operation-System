@@ -290,3 +290,53 @@ test('data (phase 12): no «حذف بيانات الشركة» any more; «تص�
   const detail = mock.activity.find((a) => a.action === 'settings.export.full').new_value;
   expect(detail).toMatch(/orders:\d+/); expect(detail).not.toMatch(/01[0-9]{9}/);
 });
+
+// the owner 16 Nov: «اعمل ف الاعدادات مكان اعدل منه ال preloader و ال fav icon ف اعدادات الهوية البصرية» — the row brand { loader, favicon },
+// applied for every member from settings_public (loader.js), and remembered in the browser for the first paint
+test('the brand page: «شاشة التحميل» (the worm\'s colours, speed, a picture of one\'s own, back to the original) and «أيقونة المتصفح» — saved in the row brand, applied for every member', async ({ page }) => {
+  await signIn(page, ADMIN);
+  await openSettings(page, 'brand');
+  const pg = page.locator('#pg-settings');
+  await expect(pg.locator('[data-ldr-pv] .ib-worm').first()).toBeVisible();
+  // a colour of the palette first; the preloader's saves keep it (the row is saved whole)
+  const hex = page.locator('#clr-color-brand-default');
+  await hex.fill('#114433'); await hex.press('Enter'); await hex.dispatchEvent('change');
+  await expect.poll(() => settingsRow('brand') && settingsRow('brand').data.colors && settingsRow('brand').data.colors['--color-brand-default']).toBe('#114433');
+  // the head's colour
+  const head = pg.locator('[data-ldr-color="head"] input');
+  await head.evaluate((i) => { i.value = '#123456'; i.dispatchEvent(new Event('change', { bubbles: true })); });
+  await expect.poll(() => (settingsRow('brand') && settingsRow('brand').data.loader || {}).head).toBe('#123456');
+  await expect.poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue('--ldr-head').trim())).toBe('#123456');
+  await pg.locator('#ldr-speed').click(); await page.getByRole('option', { name: 'سريعة' }).click();
+  await expect.poll(() => settingsRow('brand').data.loader.speed).toBe(1.1);
+  await expect.poll(() => settingsRow('brand').data.colors['--color-brand-default']).toBe('#114433'); // the colour saved first is kept by the preloader's saves
+  // a picture of one's own in place of the worm
+  const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+  await pg.locator('#ldr-up').setInputFiles({ name: 'loader.png', mimeType: 'image/png', buffer: PNG });
+  await expect.poll(() => settingsRow('brand').data.loader.kind).toBe('image');
+  await expect(pg.locator('[data-ldr-pv] img.ib-ldr-img').first()).toBeVisible();
+  // the favicon: drawn 64 × 64 here, saved as a PNG, in the page's head
+  await pg.locator('#fav-up').setInputFiles({ name: 'icon.png', mimeType: 'image/png', buffer: PNG });
+  await expect.poll(() => String(settingsRow('brand').data.favicon || '')).toMatch(/^data:image\/png;base64,/);
+  await expect(page.locator('head link[data-ib-fav]')).toHaveCount(1);
+  expect(mock.activityRows.map((r) => r.action).concat(mock.activity.map((a) => a.action))).toEqual(expect.arrayContaining(['settings.brand.loader', 'settings.brand.favicon']));
+  await page.locator('[data-set-save]').click().catch(() => {});
+  // another member signs in: the same preloader and icon
+  await relogin(page);
+  await page.fill('#lg-id', OPS); await page.fill('#lg-pw', DEV_PW); await page.getByRole('button', { name: 'دخول', exact: true }).click(); await expect(page.locator('#root')).toBeVisible();
+  await expect(page.locator('head link[data-ib-fav]')).toHaveCount(1);
+  await expect.poll(() => page.evaluate(() => window.IBLoader.config().kind)).toBe('image');
+  // back to the original (the admin)
+  await relogin(page);
+  await page.fill('#lg-id', ADMIN); await page.fill('#lg-pw', DEV_PW); await page.getByRole('button', { name: 'دخول', exact: true }).click(); await expect(page.locator('#root')).toBeVisible();
+  await openSettings(page, 'brand');
+  await page.locator('#pg-settings [data-ldr-reset]').click();
+  await expect.poll(() => settingsRow('brand').data.loader === undefined).toBe(true);
+  await page.locator('#pg-settings [data-fav-reset]').click();
+  await expect.poll(() => settingsRow('brand').data.favicon === undefined).toBe(true);
+  await expect(page.locator('head link[data-ib-fav]')).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => window.IBLoader.config().kind)).toBe('worm');
+  // the original icon = the logo itself
+  await expect(page.locator('head link[data-ib-fav-logo]')).toHaveCount(1);
+  expect(await page.locator('head link[data-ib-fav-logo]').getAttribute('href')).toMatch(/^data:image\/svg\+xml,/);
+});

@@ -1973,13 +1973,25 @@ tr.is-sel td,#vendors .tickets-table tr.is-sel td,.vprod-row.is-sel{background:v
    the head (the green square, 4.75) = a dash of ~0 at the corner (2.375 along) · the body 13.75 → 9 from 9.5, and 27.375 → 22.625
    from 25.625. One round forward, the green head first, then a moment at rest as the logo. */
 .ib-worm{display:block;flex:none}
-.ib-worm .w-tile{fill:#FFF3E6}
-.ib-worm .w-body,.ib-worm .w-head{fill:none;stroke-width:4.75;stroke-linejoin:miter;stroke-linecap:square;animation:1.7s cubic-bezier(.62,.04,.38,.96) infinite}
-.ib-worm .w-body{stroke:#C9A259;stroke-dasharray:9 7.125 22.625 14.25;stroke-dashoffset:-9.5;animation-name:ib-worm-body}
-.ib-worm .w-head{stroke:#015642;stroke-dasharray:.02 52.98;stroke-dashoffset:-2.365;animation-name:ib-worm-head}
+.ib-worm .w-tile{fill:var(--ldr-tile,#FFF3E6)}
+.ib-worm .w-body,.ib-worm .w-head{fill:none;stroke-width:4.75;stroke-linejoin:miter;stroke-linecap:square;animation:var(--ldr-speed,1.7s) cubic-bezier(.62,.04,.38,.96) infinite}
+.ib-worm .w-body{stroke:var(--ldr-body,#C9A259);stroke-dasharray:9 7.125 22.625 14.25;stroke-dashoffset:-9.5;animation-name:ib-worm-body}
+.ib-worm .w-head{stroke:var(--ldr-head,#015642);stroke-dasharray:.02 52.98;stroke-dashoffset:-2.365;animation-name:ib-worm-head}
 @keyframes ib-worm-body{0%{stroke-dashoffset:-9.5}84%,100%{stroke-dashoffset:-62.5}}
 @keyframes ib-worm-head{0%{stroke-dashoffset:-2.365}84%,100%{stroke-dashoffset:-55.365}}
 @media (prefers-reduced-motion:reduce){.ib-worm .w-body,.ib-worm .w-head{animation-duration:8s;animation-timing-function:linear}}
+/* «الإعدادات › الهوية البصرية › شاشة التحميل»: a picture of the company's own in place of the worm (loader.js), turning if asked */
+img.ib-worm.ib-ldr-img{object-fit:contain}
+img.ib-worm.ib-ldr-img.spin{animation:ib-ldr-spin var(--ldr-speed,1.7s) linear infinite}
+@keyframes ib-ldr-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){img.ib-worm.ib-ldr-img.spin{animation-duration:8s}}
+.ldr-pv{display:flex;align-items:center;justify-content:center;gap:24px;padding:20px;border:1px solid var(--color-border-default,#e5dccb);border-radius:12px;background:var(--color-bg-layout,#FFF3E6)}
+.ldr-pv .ib-worm{width:88px;height:88px;border-radius:17px}
+.ldr-pv .ldr-sm .ib-worm{width:24px;height:24px;border-radius:5px}
+.fav-pv{display:flex;align-items:center;gap:16px}
+.fav-pv .fav-tab{display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border-radius:8px 8px 0 0;background:#eee;font-size:13px;max-width:220px}
+.fav-pv img{width:16px;height:16px}
+.fav-pv .fav-big{width:48px;height:48px;border-radius:8px;border:1px solid var(--color-border-default,#e5dccb)}
 /* the first-paint cover (#ib-boot, in index.html): up until the sign-in screen or the app shows */
 .ib-boot{position:fixed;inset:0;z-index:1000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;background:var(--color-bg-base,#FFF8EF);transition:opacity .28s ease}
 .ib-boot .ib-worm{width:88px;height:88px;border-radius:17px;box-shadow:var(--shadow-card,0 0 6px rgba(0,0,0,.25))}

@@ -32,7 +32,7 @@ test('the track: the centre line of the logo\'s square ring, round twice, starti
 test('at rest the dashes are the logo: the green head in the corner cell, the two gold pieces where the owner\'s SVG has them', () => {
   const body = rule('.ib-worm .w-body'); const head = rule('.ib-worm .w-head'); const both = rule('.ib-worm .w-body,.ib-worm .w-head');
   assert.match(both, /stroke-width:4\.75/); assert.match(both, /stroke-linecap:square/); assert.match(both, /stroke-linejoin:miter/);
-  assert.match(body, /stroke:#C9A259/i); assert.match(head, /stroke:#015642/i); assert.match(rule('.ib-worm .w-tile'), /fill:#FFF3E6/i);
+  assert.match(body, /stroke:var\(--ldr-body,#C9A259\)/i); assert.match(head, /stroke:var\(--ldr-head,#015642\)/i); assert.match(rule('.ib-worm .w-tile'), /fill:var\(--ldr-tile,#FFF3E6\)/i); // the logo's own colours unless the settings say otherwise
   // a square end adds half the thickness on each side: what is seen of a dash [a, b] is [a − 2.375, b + 2.375]
   const bd = num(body, 'stroke-dasharray'); const b0 = -num(body, 'stroke-dashoffset')[0];
   assert.equal(bd.reduce((s, n) => s + n, 0), ROUND, 'the body pattern is one round long');
@@ -70,4 +70,32 @@ test('the first-paint cover in index.html is the same drawing, and the loader is
   assert.match(read('app/portal.html'), /<script src="js\/pages\/loader\.js"><\/script>/);
   // the Supabase client hands its requests to the busy adapter (every member-started request shows the running pill)
   assert.match(read('app/js/adapter/supabase-client.js'), /global: \{ fetch: viaBusy \}/);
+});
+
+// «الإعدادات › الهوية البصرية» (the owner 16 Nov): the row «brand» may change the preloader and the favicon — loader.js keeps only what is safe
+test('the preloader and the favicon from the settings: colours, speed and a picture of one\'s own are cleaned; anything else falls back', async () => {
+  const store = new Map(); const set = new Map(); const links = [];
+  const docEl = { style: { setProperty: (k, v) => set.set(k, v) } };
+  const sandbox = { window: {}, localStorage: { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, v), removeItem: (k) => store.delete(k) },
+    document: { body: null, documentElement: docEl, head: { appendChild: (l) => links.push(l) }, querySelectorAll: () => [], addEventListener: () => {}, createElement: () => ({ setAttribute() {} }) } };
+  new Function('window', 'document', 'localStorage', js)(sandbox.window, sandbox.document, sandbox.localStorage);
+  const L = sandbox.window.IBLoader;
+  assert.deepEqual(L.clean(null), L.DEFAULTS);
+  assert.deepEqual(L.clean({ head: '#123456', body: 'red', tile: '#ABCDEF', speed: 2.24 }), { ...L.DEFAULTS, head: '#123456', tile: '#ABCDEF', speed: 2.2 });
+  assert.equal(L.clean({ speed: 9 }).speed, 1.7); assert.equal(L.clean({ speed: 0.2 }).speed, 1.7);
+  const png = 'data:image/png;base64,iVBORw0KGgo=';
+  assert.equal(L.clean({ kind: 'image', image: png, spin: true }).kind, 'image');
+  assert.equal(L.clean({ kind: 'image' }).kind, 'worm', 'no picture: the worm');
+  assert.equal(L.clean({ kind: 'image', image: 'data:image/svg+xml;base64,PHN2Zz4=' }).kind, 'worm', 'an SVG picture is not taken (scripts)');
+  assert.equal(L.clean({ kind: 'image', image: 'https://evil.example/x.gif' }).kind, 'worm', 'a link is not taken — a data: picture only');
+  assert.equal(L.clean({ kind: 'image', image: 'data:image/png;base64,' + 'A'.repeat(300000) }).kind, 'worm', 'too big');
+  assert.equal(L.cleanFavicon(png), png); assert.equal(L.cleanFavicon('data:image/gif;base64,R0lG'), null); assert.equal(L.cleanFavicon('javascript:alert(1)'), null);
+  // applied: the CSS variables, and remembered for the next first paint
+  L.apply({ head: '#111111', speed: 1.1 });
+  assert.equal(set.get('--ldr-head'), '#111111'); assert.equal(set.get('--ldr-speed'), '1.1s'); assert.ok(JSON.parse(store.get('ib.loader')).head === '#111111');
+  L.apply(null); assert.equal(store.has('ib.loader'), false, 'back to the original: nothing remembered');
+  // the original favicon = the logo standing still, in the loader's colours, an SVG with no script
+  const logo = decodeURIComponent(L.logoIcon({ ...L.DEFAULTS, head: '#123456' }).replace('data:image/svg+xml,', ''));
+  assert.match(logo, /stroke="#123456"/); assert.match(logo, /stroke="#C9A259"/); assert.doesNotMatch(logo, /script|on\w+=/i);
+  assert.equal(links.at(-1).href.startsWith('data:image/svg+xml,'), true, 'no icon saved: the logo is in the head');
 });

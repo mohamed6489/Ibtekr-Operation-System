@@ -533,3 +533,9 @@ a.mk-lib.disabled { opacity:.5;pointer-events:none }
 .mk-dv-cr-n { font-size:20px;font-weight:600 } .mk-dv-cr-n small { font-size:13px;font-weight:400;color:var(--color-text-secondary) }
 .mk-dv-bar { height:8px;border-radius:999px;background:var(--color-bg-container);overflow:hidden }
 .mk-dv-bar i { display:block;height:100%;background:var(--color-brand-default);border-radius:999px } .mk-dv-bar i.hot { background:var(--color-error-base) }
+/* comments decision 52: «ارفع صورة» on a piece (a label over a hidden file input) and the build step's Magnific bar (the studio's .fl-mg look) */
+.cw-up { display:inline-flex }
+.cw-up>label.btn { display:inline-flex;align-items:center;gap:6px;cursor:pointer }
+.cw-up>label.btn.disabled { opacity:.5;pointer-events:none }
+.cw-mg { margin-bottom:0 }
+@media (max-width:767px) { .cw-up>label.btn { min-height:44px } .cw-mg .acts-inline .btn,.cw-mg .acts-inline a.btn { min-height:44px } }

@@ -378,6 +378,14 @@
           onChange: (v) => { const m = makers.find((x) => x.id === v); s.vendorId = m ? m.id : null; s.vendorName = m ? m.name : ''; s.brandId = null; s.brandName = ''; s.code = ''; s.rate = null; s.fee = null; touch(); R(); },
           error: noStore ? 'المبتكر ده مالوش متجر على الموقع — اعمله متجر من ملفه الأول' : null }),
         h('div', { class: 'fl-new' }, Button({ size: 'sm', icon: 'plus', label: 'مبتكر جديد', attrs: { 'data-fl-new-maker': '' }, onClick: newMaker }))),
+      // comments decision 35 (the owner 15 Nov — «ضيف هنا البراند تحت المبتكر — و يجيب بس البراندات اللي تحت المبتكر اللي اختاره مع
+      // امكانية اضافة براند من هنا»): the brand under the maker — his brands only (the one taken for him is picked already), and
+      // «براند جديد» adds one to him (vendors.edit, like his file's «إضافة براند»)
+      mk ? h('div', { class: 'grid2', 'data-fl-brand-row': '' },
+        U.Select({ id: 'fl-brand', label: 'البراند', required: true, value: s.brandId || '', placeholder: brands.length ? 'اختار البراند' : 'مفيش براند على المبتكر ده لسه',
+          options: brands.map((b) => ({ value: b.id, label: b.name })), help: brands.length ? 'براندات ' + mk.name + ' بس — اسمه بيتكتب في الشيت وكوده في الـ SKU' : 'المنتجات هتتكتب باسم المبتكر لحد ما تضيف براند',
+          onChange: (v) => { const b = brands.find((x) => String(x.id) === String(v)); if (!b) return; setBrand(b); touch(); R(); } }),
+        canBrand() ? h('div', { class: 'fl-new' }, Button({ size: 'sm', icon: 'plus', label: 'براند جديد', attrs: { 'data-fl-new-brand': '' }, onClick: () => newBrand(mk) })) : null) : null,
       mk ? h('div', { class: 'fl-maker-info', 'data-fl-maker-info': '' },
         h('div', { class: 'fl-mk-rate' }, h('span', { class: 't-small help' }, catRates.length ? 'نسبة إبتكر العامة' : 'نسبة إبتكر'), h('b', { class: 'num', 'data-fl-rate': '' }, r == null ? '—' : U.num(r + '%')),
           h('small', { class: 'help' }, feeNow() ? '+ ' + K.n0(feeNow()) + ' ج.م رسوم ثابتة' : 'من غير رسوم ثابتة')),
@@ -392,6 +400,31 @@
       mk && !FD.validCode(s.code) ? U.InlineNote({ kind: 'warning', children: 'كود البراند لازم 2–4 حروف إنجليزي.' }) : null];
     const ok = !!mk && FD.validCode(s.code) && (s.case === 'photos' || mk.wooVendorId != null);
     return [Card('المبتكر', 'المنتجات بتترفع على متجر المبتكر، وبراندُه بيتكتب في الشيت وكوده في الـ SKU.', body), Foot(ok, !mk ? 'اختار المبتكر' : 'كود البراند')];
+  }
+  // «براند جديد» (comments decision 35): a brand added to the batch's maker from here — the name (not one taken already) and its
+  // code; written like his file's «إضافة براند» (IBVendors.store.addBrand: the brand, then his ownership from his joining date) and
+  // picked for the batch at once
+  const canBrand = () => { const Vs = V(); return !!(Vs && Vs.store && Vs.store.canBrands && Vs.store.canBrands()); };
+  function newBrand(mk) {
+    const Vs = V(); if (!canBrand()) { K.toast('إضافة البراندات لأدمن أو اللي عنده صلاحية تعديل المبتكرين', 'error'); return; }
+    touch(true);
+    K.form({ title: 'براند جديد — ' + mk.name, values: { name: '', code: '' }, submitLabel: 'إضافة البراند',
+      note: U.InlineNote({ children: 'البراند هيتضاف على ' + mk.name + ' ويتختار للدفعة دي.' }),
+      fields: (f, e, set) => [K.field.text('name', 'اسم البراند', f, e, set, { required: true, maxlength: 80, help: 'الاسم اللي المنتجات بتتباع بيه' }),
+        K.field.text('code', 'كود البراند في الـ SKU (2–4 حروف)', f, e, set, { maxlength: 4, placeholder: f.name ? FD.brandCode3(f.name) : 'GLS', help: 'لو سبته فاضي هيتاخد من الاسم' })],
+      validate: (f) => { const e = {}; const name = String(f.name || '').trim(); const code = String(f.code || '').trim().toUpperCase();
+        if (!name) e.name = 'اكتب اسم البراند'; else if (name.length > 80) e.name = 'اسم البراند لحد 80 حرف';
+        else { const dup = Vs.store.brandByName ? Vs.store.brandByName(name) : null; if (dup) e.name = 'فيه براند بنفس الاسم (' + dup.name + ') — اختار اسم تاني'; }
+        if (code && !FD.validCode(code)) e.code = 'الكود من 2 لـ 4 حروف إنجليزي';
+        return e; },
+      submit: (f, m) => { const name = String(f.name).trim(); const code = String(f.code || '').trim().toUpperCase(); m._busy = true;
+        // the brand's own code is 1–3 characters (the makers' rule); the batch keeps the 2–4 letters typed here for the SKU
+        Promise.resolve().then(() => Vs.store.addBrand(mk.id, { name, code: code.slice(0, 3), aliases: '' }, Vs.store.actor ? Vs.store.actor() : null)).then((res) => {
+          m.close(); const s = st(); if (!s || String(s.vendorId) !== String(mk.id)) return;
+          setBrand(res.brand); if (FD.validCode(code)) s.code = code;
+          touch(true); R(); K.toast('اتضاف البراند ' + res.brand.name + ' واتختار للدفعة', 'success');
+        }, (err) => { m._busy = false; K.toast((err && err.message) || 'البراند ما اتضافش — جرّب تاني', 'error'); });
+        return false; } });
   }
   // the owner 15 Nov («لما أدوس على إضافة مبتكر يفتحلي بوباب إضافة المبتكر»): the add-maker popup itself over the studio (IBMakerAdd,
   // block 28) — the new maker is picked for the batch right after the save; the batch stays where it is
@@ -469,7 +502,7 @@
     if (pick) { setBrand(pick); return; }
     if (s.brandName !== mk.name || !s.code) { s.brandId = null; s.brandName = mk.name; if (!FD.validCode(s.code)) s.code = FD.brandCode3(mk.name); s.rows.forEach((r) => { if (!r.brand) r.brand = mk.name; }); }
   }
-  function setBrand(b) { const s = st(); s.brandId = b.id; s.brandName = b.name; const c = String(b.code || '').toUpperCase(); s.code = FD.validCode(c) && c.length >= 3 ? c : FD.brandCode3(b.name); s.rows.forEach((r) => { if (!r.brand) r.brand = b.name; }); }
+  function setBrand(b) { const s = st(); const was = s.brandName; s.brandId = b.id; s.brandName = b.name; const c = String(b.code || '').toUpperCase(); s.code = FD.validCode(c) && c.length >= 3 ? c : FD.brandCode3(b.name); s.rows.forEach((r) => { if (!r.brand || (was && r.brand === was)) r.brand = b.name; }); }
 
 
   // ---------------- 3 البيانات (decision 6) ----------------

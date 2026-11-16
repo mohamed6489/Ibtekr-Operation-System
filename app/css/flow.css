@@ -6,6 +6,8 @@
 .fl .fl-card>.sec-h+*{margin-top:16px}
 .fl .sub-h{margin:16px 0 8px}
 .fl-new{display:flex;align-items:flex-end;padding-bottom:4px}
+/* comments decision 35: the brand's row has a help line under its list — its «براند جديد» sits on the list's line, not the help's */
+[data-fl-brand-row] .fl-new{align-items:flex-start;padding:28px 0 0}
 .rate-field{display:flex;flex-direction:column;gap:4px;justify-content:flex-end;padding-bottom:4px}
 .rate-field b{font-size:18px;color:var(--color-brand-default)}
 

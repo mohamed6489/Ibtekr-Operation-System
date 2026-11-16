@@ -39,9 +39,9 @@ async function choose(page, kase, type) {
 }
 async function makerArtCraft(page) {
   await page.locator('#fl-maker').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
-  // the owner 15 Nov: the maker alone — no brand list (his own brand is taken); then his rate alone — no sale-price formula, no store,
-  // no brand — and beside it his categories with their own rate (Art Craft is «category_based»: ديكور 30%)
-  await expect(page.locator('#fl-brand')).toHaveCount(0);
+  // the owner 15 Nov: his rate alone — no sale-price formula, no store — and beside it his categories with their own rate (Art Craft
+  // is «category_based»: ديكور 30%). Comments decision 35: the brand is back under the maker — his brands only, his own picked already
+  await expect(page.locator('#fl-brand')).toContainText('Art Craft');
   await expect(page.locator('[data-fl-rate]')).toContainText('%');
   const info = page.locator('[data-fl-maker-info]');
   for (const gone of ['سعر البيع', 'المتجر على الموقع', 'البراند']) await expect(info).not.toContainText(gone);
@@ -180,6 +180,12 @@ test('flow 1 «شيت جاهز» Simple: the sheet + photos by row → maker/bra
 
 // the owner 15 Nov («التعديلات اللي طلبتها في صفحة المبتكر والبراند تطبق على صفحات إضافة المنتجات التلاتة»): the three cases share one
 // maker step — the maker alone (no brand list, no «+ براند جديد»), his rate with his details, the brand code under it
+// a second batch in the same test: the mock numbers it after the first
+async function choose2(page, kase, type) {
+  await page.getByRole('button', { name: 'استوديو المنتجات — ابدأ دفعة' }).click();
+  const m = page.locator('.modal'); await m.getByRole('radio', { name: new RegExp(kase) }).click(); await m.getByRole('radio', { name: new RegExp('^' + type) }).click(); await m.locator('[data-flow-start]').click();
+  await expect(page).toHaveURL(/#products-flow-[0-9a-f-]+-1$/);
+}
 test('the maker step is the same new one in the three cases (sheet · WhatsApp · photos for a sheet)', async ({ page }) => {
   await signIn(page, ADMIN);
   const cases = [['شيت جاهز', 'Simple', async () => pick(page, '[data-flow-sheet]', { name: 'a.csv', mimeType: 'text/csv', buffer: Buffer.from('#,SKU,Product Name EN,Product Name AR,Vendor Price\n1,,Lamp,أباجورة,500\n') })],
@@ -221,6 +227,54 @@ test('the maker step: «+ مبتكر جديد» opens the add-maker popup over t
   await expect(page.locator('#fl-maker')).toContainText('Wood & Rope');
   await expect.poll(() => (batch().state || {}).vendorName).toBe('Wood & Rope');
   await expect.poll(() => (batch().state || {}).brandName).toBe('Wood & Rope');
+});
+
+// comments decision 35 (the owner 15 Nov — «ضيف هنا البراند تحت المبتكر — و يجيب بس البراندات اللي تحت المبتكر اللي اختاره مع امكانية اضافة براند من هنا»)
+test('comment 35 — the brand under the maker: his brands only, his own picked; another of his is picked from the list; «براند جديد» adds one to him and takes it for the batch; a member without vendors.edit has no «براند جديد»', async ({ page }) => {
+  await signIn(page, ADMIN);
+  await choose(page, 'صور وعايز شيت', 'Simple');
+  await next(page); // the maker's step
+  await expect(page.locator('#fl-brand')).toHaveCount(0); // no maker yet, no brand list
+  await page.locator('#fl-maker').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
+  // his brands only: Art Craft's own — not Antikiano's, not Bian eg's
+  await expect(page.locator('#fl-brand')).toContainText('Art Craft');
+  await page.locator('#fl-brand').click();
+  await expect(page.locator('[role="listbox"]:visible [role="option"]')).toHaveText(['Art Craft']);
+  await page.keyboard.press('Escape');
+  await expect.poll(() => [(batch().state || {}).brandName, batch().brand_id]).toEqual(['Art Craft', mock.brands[0].id]);
+  // «براند جديد»: a taken name is refused here; a new one is written on him and picked
+  await page.locator('[data-fl-new-brand]').click();
+  const m = page.locator('.modal[role=dialog]', { hasText: 'براند جديد — Art Craft' });
+  await m.locator('#name').fill('Antikiano');
+  await m.getByRole('button', { name: 'إضافة البراند' }).click();
+  await expect(m).toContainText('فيه براند بنفس الاسم');
+  await m.locator('#name').fill('Glasstora'); await m.locator('#code').fill('gls');
+  await m.getByRole('button', { name: 'إضافة البراند' }).click();
+  await expect(m).toHaveCount(0);
+  const made = () => mock.brands.find((b) => b.name === 'Glasstora');
+  await expect.poll(() => !!made()).toBe(true);
+  expect(mock.brandOwners.find((o) => o.brand_id === made().id)).toMatchObject({ vendor_id: mock.vendors.find((v) => v.name === 'Art Craft').id });
+  await expect(page.locator('#fl-brand')).toContainText('Glasstora');
+  await expect(page.locator('#fl-code')).toHaveValue('GLS');
+  await expect.poll(() => [(batch().state || {}).brandName, batch().brand_id, (batch().state || {}).code]).toEqual(['Glasstora', made().id, 'GLS']);
+  // both are his now; picking the first again brings its name and code back
+  await page.locator('#fl-brand').click();
+  await expect(page.locator('[role="listbox"]:visible [role="option"]')).toHaveText(['Art Craft', 'Glasstora']);
+  await page.locator('[role="listbox"]:visible [role="option"]', { hasText: 'Art Craft' }).click();
+  await expect(page.locator('#fl-code')).toHaveValue('ART');
+  await expect.poll(() => (batch().state || {}).brandName).toBe('Art Craft');
+  // another maker: his own brands, never the first maker's
+  await page.locator('#fl-maker').click(); await page.getByRole('option', { name: 'Antikiano' }).click();
+  await page.locator('#fl-brand').click();
+  await expect(page.locator('[role="listbox"]:visible [role="option"]')).toHaveText(['Antikiano']);
+  await page.keyboard.press('Escape');
+  // ops adds products but not brands (vendors.edit is partial): the list, no «براند جديد»
+  await page.evaluate(() => window.IBAuth.signOut()); await expect(page.locator('#login')).toBeVisible();
+  await signIn(page, 'ops.dev@ibtekr.local');
+  await choose2(page, 'صور وعايز شيت', 'Simple'); await next(page);
+  await page.locator('#fl-maker').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
+  await expect(page.locator('#fl-brand')).toContainText('Art Craft');
+  await expect(page.locator('[data-fl-new-brand]')).toHaveCount(0);
 });
 
 // the owner 15 Nov («شيل سعر البيع والمتجر على الموقع والبراند وخلّي بس نسبته تبان، ويبقى فيه إمكانية لتعديلها: النسبة العامة أو نسبة

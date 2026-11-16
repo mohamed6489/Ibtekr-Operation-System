@@ -880,18 +880,42 @@
         t.addEventListener('click', (e) => { e.stopPropagation(); show(g.key, true); }); tabs[String(g.key)] = t; return t; }));
       strip.addEventListener('keydown', (e) => { if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return; e.preventDefault(); const keys = groups.map((g) => String(g.key)); const i = keys.indexOf(cur);
         const n = keys[(i + (e.key === 'ArrowLeft' ? 1 : -1) + keys.length) % keys.length]; show(n); tabs[n].focus(); });
+      // the owner 16 Nov («اي فلتر في السيستم يبقي فلتر الشجرة الشكل الاحترافي و المنظم»): a group whose options carry a depth (the
+      // site's categories) is a tree — each branch with + / −, the levels indented (no «-»), the picked ones' branches open; the search
+      // shows what matches with the branches above it
+      const treeOf = (g) => {
+        const O = g.options; const par = []; const stack = [];
+        O.forEach((o, i) => { const dp = Math.max(0, Number(o[2]) || 0); stack.length = dp; par[i] = dp ? (stack[dp - 1] == null ? -1 : stack[dp - 1]) : -1; stack[dp] = i; });
+        const kids = O.map((o, i) => par.some((p) => p === i)); const open = new Set();
+        const up = (i, f) => { let p = par[i]; while (p > -1) { f(p); p = par[p]; } };
+        O.forEach((o, i) => { if (has(g.key, o[0])) up(i, (p) => open.add(p)); });
+        const rows = O.map((o, i) => {
+          const tog = kids[i] ? h('button', { type: 'button', class: 'fm-tog', 'data-fm-tog': String(o[0]), 'aria-label': 'افتح / اقفل ' + o[1] }) : h('span', { class: 'fm-tog sp', 'aria-hidden': 'true' });
+          if (kids[i]) tog.addEventListener('click', (e) => { e.stopPropagation(); if (open.has(i)) open.delete(i); else open.add(i); paint(cur0); });
+          return h('div', { class: 'fm-tr', 'data-fm-row': '', 'data-depth': String(Math.max(0, Number(o[2]) || 0)), style: '--fm-d:' + Math.max(0, Number(o[2]) || 0) }, tog, opt(g, [o[0], o[1], 0])); });
+        let cur0 = '';
+        function paint(k) { cur0 = k; const keep = new Set();
+          if (k) O.forEach((o, i) => { if (foldAr(o[1]).includes(k)) { keep.add(i); up(i, (p) => keep.add(p)); } });
+          let n = 0;
+          rows.forEach((r, i) => { let show = true; if (k) show = keep.has(i); else up(i, (p) => { if (!open.has(p)) show = false; });
+            r.hidden = !show; if (show) n++;
+            if (kids[i]) { const on = k ? O.some((x, j) => par[j] === i && keep.has(j)) : open.has(i); const t = r.firstChild; t.textContent = on ? '−' : '+'; t.setAttribute('aria-expanded', String(on)); } });
+          return n; }
+        paint(''); return { rows, paint };
+      };
       groups.forEach((g) => {
-        const list = h('div', { class: 'fm-list', role: 'group', 'aria-label': g.label }, g.options.map((o) => opt(g, o)));
+        const T = g.options.some((o) => Number(o[2]) > 0) ? treeOf(g) : null;
+        const list = h('div', { class: 'fm-list' + (T ? ' fm-tree' : ''), role: 'group', 'aria-label': g.label }, T ? T.rows : g.options.map((o) => opt(g, o)));
         const q = h('input', { type: 'search', placeholder: 'دوّر في ' + g.label + '…', 'aria-label': 'دوّر في ' + g.label, 'data-fm-q': String(g.key), autocomplete: 'off' });
         const none = h('p', { class: 't-small help fm-none', hidden: '' }, 'مفيش نتايج');
-        q.addEventListener('input', () => { const k = foldAr(q.value); let n = 0; [...list.children].forEach((b) => { b.hidden = !!k && !foldAr(b.textContent).includes(k); if (!b.hidden) n++; }); none.hidden = n > 0; });
-        q.addEventListener('keydown', (e) => { if (e.key === 'ArrowDown') { const f = [...list.children].find((b) => !b.hidden); if (f) { e.preventDefault(); f.focus(); } } });
+        q.addEventListener('input', () => { const k = foldAr(q.value); if (T) { none.hidden = T.paint(k) > 0; return; } let n = 0; [...list.children].forEach((b) => { b.hidden = !!k && !foldAr(b.textContent).includes(k); if (!b.hidden) n++; }); none.hidden = n > 0; });
+        q.addEventListener('keydown', (e) => { if (e.key === 'ArrowDown') { const f = [...list.querySelectorAll('.opt')].find((b) => !b.closest('[hidden]')); if (f) { e.preventDefault(); f.focus(); } } });
         secs[String(g.key)] = h('div', { class: 'fm-sec', role: 'tabpanel', 'data-fm-key': String(g.key), hidden: String(g.key) === cur ? false : '' }, h('label', { class: 'input fm-q' }, Icon('search', 'sm'), q), list, none);
       });
       const m = h('div', { class: 'menu view-menu fm-menu', role: 'menu', 'aria-label': label || 'فلتر', 'data-fm-menu': id, 'data-focus': 'no' }, strip, groups.map((g) => secs[String(g.key)]),
         h('div', { class: 'view-foot' }, Button({ size: 'sm', type: 'text', label: 'مسح', attrs: { 'data-fm-clear': '' }, onClick: () => { groups.forEach((g) => { d[g.key] = []; tabs[String(g.key)].replaceChildren(...tabText(g)); }); items.forEach(mark); upd(); } }),
           Button({ size: 'sm', type: 'primary', label: cnt, attrs: { 'data-fm-apply': '' }, onClick: () => { close(); onApply(d); } })));
-      m.addEventListener('keydown', (e) => { if (e.target && e.target.matches && e.target.matches('input, [role=tab]')) return; const vis = items.filter((x) => !x.hidden && !x.closest('.fm-sec').hidden); const i = vis.indexOf(document.activeElement); if (!vis.length) return;
+      m.addEventListener('keydown', (e) => { if (e.target && e.target.matches && e.target.matches('input, [role=tab]')) return; const vis = items.filter((x) => !x.closest('[hidden]')); const i = vis.indexOf(document.activeElement); if (!vis.length) return;
         if (e.key === 'ArrowDown') { e.preventDefault(); vis[(i + 1) % vis.length].focus(); } if (e.key === 'ArrowUp') { e.preventDefault(); vis[(i - 1 + vis.length) % vis.length].focus(); } });
       upd(); setTimeout(() => { if (!m.contains(document.activeElement) && tabs[cur]) tabs[cur].focus(); const t = tabs[cur]; if (t && t.scrollIntoView) t.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }); return m; });
     btn.addEventListener('click', pop.toggle); wrap.append(btn); return wrap;

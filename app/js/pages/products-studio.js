@@ -839,7 +839,10 @@
       const r = rows(tree.roots, 0, false);
       list.replaceChildren(...(r.length ? r : [h('p', { class: 't-small help cat-none' }, found ? 'مافيش قسم بالاسم ده' : 'أقسام الموقع لسه ماتزامنتش — بتتجاب كل ربع ساعة.')]));
     }
-    function set(id, on) { sel = PD.catToggle(tree, sel, Number(id), on); drawChips(); drawList(); refocus('[data-cat-pick="' + Number(id) + '"]'); }
+    // opts.single (the owner 16 Nov — «فلتر الشجرة» in every category pick): one category — a tick picks it and closes the tree
+    function set(id, on) {
+      if (opts.single) { if (on) { m.close(); onDone([Number(id)]); } else { sel = { chosen: new Set(), auto: new Set() }; drawChips(); drawList(); } return; }
+      sel = PD.catToggle(tree, sel, Number(id), on); drawChips(); drawList(); refocus('[data-cat-pick="' + Number(id) + '"]'); }
     inp.addEventListener('input', () => { found = PD.catSearch(tree, inp.value); shut.clear(); drawList(); });
     drawChips(); drawList();
     m.setBody(...[inp, chips, list, opts.noNew ? null : Button({ size: 'sm', type: 'text', label: '+ قسم جديد', onClick: () => { m.close(); newCategory(); } })].filter(Boolean));
@@ -988,4 +991,16 @@
 
   window.IBStudioView = { route, view, savedWork, start: () => { S.id = null; S.state = null; go('products-studio-new-1'); }, state: S };
   window.IBCatsPicker = catsPicker; // the products page's «تغيير القسم» uses the same tree (the owner, 1 Nov)
+  // the owner 16 Nov («اي فلتر في السيستم يبقي فلتر الشجرة الشكل الاحترافي و المنظم»): every category pick is this tree — a field that
+  // looks like a dropdown (the chosen path, or the placeholder) and opens catsPicker; single = one category; onClear adds «×»
+  function catField({ id, label, ids, single, onPick, onClear, placeholder, error, required, help, title, compact }) {
+    const L = (ids || []).map(Number).filter((x) => Number.isFinite(x) && x > 0);
+    const txt = L.length ? L.map(catPath).join('، ') : placeholder || (single ? 'اختار القسم من الشجرة' : 'اختار الأقسام من الشجرة');
+    const open = () => catsPicker(title || label || 'اختار القسم', L, (got) => onPick((got || []).map(Number)), { noNew: true, single: !!single });
+    const btn = h('button', { type: 'button', class: 'select cat-field' + (compact ? ' sm' : '') + (L.length ? ' has-val' : ''), id: id || null, 'data-cat-field': '', 'aria-haspopup': 'dialog', 'aria-label': (label || 'القسم') + (L.length ? ' — ' + txt : ''), title: L.length ? txt : null, onClick: open },
+      h('span', { class: 'val', dir: 'auto' }, txt), Icon('chevD', 'sm'));
+    const box = onClear && L.length ? h('div', { class: 'cat-field-row' }, btn, h('button', { type: 'button', class: 'cat-field-x', 'aria-label': 'شيل القسم', 'data-cat-field-clear': '', onClick: () => onClear() }, Icon('close', 'sm'))) : btn;
+    return label == null ? box : U.FieldShell({ id, label, required, error, help }, box);
+  }
+  window.IBCatField = catField;
 })();

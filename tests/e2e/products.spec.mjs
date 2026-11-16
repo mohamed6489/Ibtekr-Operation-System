@@ -81,12 +81,21 @@ test('filters and sort: status chips, brand / category multi-selects, search by 
   await expect(page.locator('#pg-products .af-chip .af-t')).toHaveText(['البراند: Antikiano']);
   await page.getByRole('button', { name: 'مسح الفلاتر' }).click();
   await expect(rows).toHaveCount(4);
-  // the categories: main then sub with dashes; a main one takes what is under it, two picks are either
+  // the categories (the owner 16 Nov — «فلتر الشجرة»): a tree — the main ones, each branch with + to open it, the levels indented without
+  // dashes; the search shows what matches with the branch above it; a main one takes what is under it, two picks are either
   await fbtn.click();
   await fm.locator('[data-fm-tab="category"]').click();
   const cm = fm.locator('[data-fm-key="category"]');
-  await expect(cm.locator('[role=menuitemcheckbox]')).toHaveText(['ديكور', '- إضاءة', '-- أباجورات', 'هدايا']);
-  await cm.locator('[role=menuitemcheckbox]', { hasText: '- إضاءة' }).click();
+  const shown = () => cm.locator('[data-fm-row]:visible [role=menuitemcheckbox]');
+  await expect(shown()).toHaveText(['ديكور', 'هدايا']);
+  await cm.locator('[data-fm-row]', { hasText: 'ديكور' }).first().locator('[data-fm-tog]').click();
+  await expect(shown()).toHaveText(['ديكور', 'إضاءة', 'هدايا']);
+  await expect(cm.locator('[data-fm-row][data-depth="1"]').first()).toHaveCSS('padding-inline-start', '18px');
+  await cm.locator('[data-fm-q]').fill('أباج');
+  await expect(shown()).toHaveText(['ديكور', 'إضاءة', 'أباجورات']);
+  await cm.locator('[data-fm-q]').fill('');
+  await expect(shown()).toHaveText(['ديكور', 'إضاءة', 'هدايا']);
+  await cm.locator('[role=menuitemcheckbox]', { hasText: 'إضاءة' }).click();
   await fm.locator('[data-fm-apply]').dispatchEvent('click');
   const lit = await rows.count();
   await fbtn.click();
@@ -990,4 +999,22 @@ test('owner 16 Nov — «تعديل السعر»: the amount takes several digit
   const line = mk.locator('[data-bp-line="general"]');
   const [from, to] = (await line.locator('.bp-fromto').innerText()).split('←').map((x) => parseFloat(x));
   expect(to).toBe(from + 10);
+});
+
+test('owner 16 Nov — «فلتر الشجرة»: the product page\'s categories come from the site\'s tree (search, + / −, a sub ticks its parents), not a list of paths; «احفظ على الموقع» sends them', async ({ page }) => {
+  await openProducts(page);
+  await page.locator('[data-pedit="9001"]').click();
+  await expect(page.locator('#e-en')).toHaveValue('Cushion');
+  await page.getByRole('tab', { name: 'الأقسام' }).click();
+  const f = page.locator('#pg-products #e-addcat');
+  await expect(f).toHaveAttribute('data-cat-field', '');
+  await f.click();
+  const tree = page.locator('.cat-pick');
+  await expect(tree.getByRole('checkbox', { name: 'هدايا' })).toBeVisible();
+  await page.locator('.modal input[type=search]').fill('أباج');
+  await tree.getByRole('checkbox', { name: 'أباجورات' }).click(); // the sub ticks إضاءة and ديكور above it
+  await page.locator('.modal').getByRole('button', { name: 'تمام' }).click();
+  await expect(f).toContainText('أباجورات');
+  await page.getByRole('button', { name: 'احفظ على الموقع' }).first().click();
+  await expect.poll(() => { const w = mock.productWrites.at(-1); return w && w.fields && w.fields.categories ? [...w.fields.categories].sort((a, b) => a - b) : null; }).toEqual(expect.arrayContaining([151, 152]));
 });

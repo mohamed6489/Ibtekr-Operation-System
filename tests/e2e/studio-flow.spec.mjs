@@ -343,7 +343,8 @@ test('the maker step: a category rate on a «fixed» maker keeps his general rat
   await expect(m).toContainText('هتبقى «حسب القسم» على الموقع'); await expect(m).toContainText('(45%)');
   await m.getByRole('button', { name: 'احفظ النسبة' }).click();
   await expect(m).toContainText('اختار القسم'); // no category picked (the batch has none)
-  await m.locator('#flRateCat').click(); await page.getByRole('option', { name: 'هدايا' }).click();
+  await m.locator('#flRateCat').click(); await page.locator('.cat-pick').getByRole('checkbox', { name: 'هدايا' }).click(); // the tree (16 Nov)
+  await expect(m.locator('#flRateCat')).toContainText('هدايا');
   await expect(m.locator('#flRate')).toHaveValue('45'); // what it takes today: the general rate
   await m.locator('#flRate').fill('30'); await m.getByRole('button', { name: 'احفظ النسبة' }).click();
   await expect(page.locator('[data-fl-cat-rates] [data-cat="22"]')).toHaveText('هدايا30%');
@@ -477,7 +478,9 @@ test('the data step: «تعديل مشترك» with dropdowns (one pick = both l
   const m = page.locator('.modal').filter({ hasText: 'تعديل مشترك' });
   await expect(m).not.toContainText(' AR'); await expect(m.locator('#catAr, #styleAr, #materialAr')).toHaveCount(0);
   const sel = async (id, q, name) => { const b = m.locator('#' + id); await b.evaluate((e) => e.scrollIntoView({ block: 'center' })); await b.click(); const box = page.locator('.menu [data-select-search]'); if (await box.count()) await box.fill(q); await page.getByRole('option', { name, exact: true }).dispatchEvent('click'); }; // the menu follows the modal's scroll — a direct click
-  await sel('style', 'مودرن', 'مودرن — Modern'); await page.screenshot({ path: process.env.SHOT ? process.env.SHOT + '/bulk.png' : 'test-results/bulk.png' }); await sel('material', 'راتان', 'راتان — Rattan'); await sel('cat', 'هدايا', 'هدايا');
+  await sel('style', 'مودرن', 'مودرن — Modern'); await page.screenshot({ path: process.env.SHOT ? process.env.SHOT + '/bulk.png' : 'test-results/bulk.png' }); await sel('material', 'راتان', 'راتان — Rattan');
+  await m.locator('#cat').click(); await page.locator('.cat-pick').getByRole('checkbox', { name: 'هدايا' }).click(); // the owner 16 Nov: the category from the site's tree (one = picked and closed)
+  await expect(m.locator('#cat')).toContainText('هدايا');
   await m.getByRole('button', { name: 'طبّق على المحدد' }).click();
   await expect.poll(() => batch().state.rows.map((r) => [r.styleEn, r.styleAr, r.materialEn, r.materialAr, r.catEn])).toEqual([['Modern', 'مودرن', 'Rattan', 'راتان', 'هدايا'], ['Modern', 'مودرن', 'Rattan', 'راتان', 'هدايا']]);
   // the header: rewrite the names and descriptions too, with instructions

@@ -2467,14 +2467,19 @@ export async function installSupabaseMock(page, opts = {}) {
       if (action === 'product_images_add') {
         mock.productWrites = mock.productWrites || []; mock.productWrites.push({ action, by: u.email, ...b });
         const p = mock.products.find((x) => x.id === Number(b.id)); const paths = Array.isArray(b.paths) ? b.paths : [];
+        // comments decision 55: pictures from the member's device as { data: base64 } (PNG / JPEG / WebP by their bytes, four a request);
+        // productWrites keeps their count and kinds, not the bytes
+        const ups = b.images == null ? [] : b.images; const kindOf = (x) => { try { const t = atob(String(x && x.data || '').slice(0, 24)); return t.startsWith('\x89PNG') ? 'png' : t.startsWith('\xff\xd8\xff') ? 'jpg' : t.startsWith('RIFF') && t.slice(8, 12) === 'WEBP' ? 'webp' : null; } catch (e) { return null; } };
+        if (Array.isArray(ups) && ups.length) { const w = mock.productWrites.at(-1); w.images = ups.map(kindOf); w.bytes = ups.map((x) => Math.floor(String(x && x.data || '').length * 3 / 4)); }
         if (!p || !Number.isInteger(Number(b.id))) return json(400, { error: 'bad_request', field: 'id' });
-        if (!paths.length || paths.length > 10 || !paths.every((k) => typeof k === 'string' && /^[0-9a-f-]{36}\/[A-Za-z0-9._-]+\.(webp|png|jpe?g)$/i.test(k))) return json(400, { error: 'bad_request', field: 'paths' });
-        if (!isAdmin(u) && !paths.every((k) => k.startsWith(u.id + '/'))) return json(401, { error: 'unauthorized' });
+        if (!Array.isArray(ups) || ups.length > 4 || ups.some((x) => !kindOf(x))) return json(400, { error: 'bad_request', field: 'images' });
+        if ((!paths.length && !ups.length) || paths.length > 10 || !paths.every((k) => typeof k === 'string' && /^[0-9a-f-]{36}\/[A-Za-z0-9._-]+\.(webp|png|jpe?g)$/i.test(k))) return json(400, { error: 'bad_request', field: 'paths' });
+        if (paths.length && !isAdmin(u) && !paths.every((k) => k.startsWith(u.id + '/'))) return json(401, { error: 'unauthorized' });
         if (!mock.pushEnabled) return json(200, { action, result: 'skipped', reason: 'push_disabled' });
         if (!paths.every((k) => mock.imgObjects.has(k))) return json(404, { error: 'not_found', field: 'paths' });
         if (mock.wooDown) return json(502, { error: 'woo_error' });
-        const media = paths.map((_, i) => 9000 + (mock.productWrites.length * 10) + i);
-        p.image_count = (p.image_count || 0) + paths.length; if (b.first === true && !p.image_url) p.image_url = 'https://ibtekr.stage.test/wp-content/uploads/ai.webp';
+        const media = paths.concat(ups).map((_, i) => 9000 + (mock.productWrites.length * 10) + i);
+        p.image_count = (p.image_count || 0) + media.length; if ((b.first === true || ups.length) && !p.image_url) p.image_url = 'https://ibtekr.stage.test/wp-content/uploads/ai.webp';
         return json(200, { action, result: 'ok', media, count: media.length, images: p.image_count });
       }
       // phase 12 T2: product_duplicate — a draft copy row (and its Arabic row) in the mirror under a new SKU from the serial; the gate

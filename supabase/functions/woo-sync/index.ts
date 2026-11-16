@@ -147,6 +147,8 @@
 //   'product_images_add' { id, paths, first? }  products.edit = F (phase 5.4 T8): the images tool's results (bucket ai-images,
 //              the member's own folder — the admin any) onto a site product: each downloaded and sent to wp/v2/media, then one
 //              PUT with the product's current images + the new ones (first: ahead of them). WOO_PUSH_ENABLED gates it.
+//     comments decision 55 (the owner 15 Nov — «اضافة صورة من الجهاز»): or images: [{ data: base64 }] (1–4, a PNG / JPEG / WebP of 3 MB
+//     at most each, checked by its own bytes) — the member's own pictures from the product page, sent the same way.
 //   'register_webhooks' { delivery_url? }  ensures one active `ibtekr-ops:<topic>` webhook per topic pointing at
 //              {SUPABASE_URL}/functions/v1/woo-webhook; any other webhook on the site (n8n's) is never touched.
 // Answer: 200 { action, result, counts, … } or 4xx / 5xx { error }. CORS for the browser's functions.invoke.
@@ -2425,28 +2427,44 @@ async function categoryDelete(run: Run, args: Json) {
 
 // ---------------------------------------------------------------- product_images_add (phase 5.4 T8)
 
-// product_images_add { id, paths, first? }: the images tool's results (bucket ai-images — a member sends paths of their own
-// folder only, the admin any) onto a site product: every path downloaded first (one missing → 404, nothing sent), each sent to
+// product_images_add { id, paths?, images?, first? }: the images tool's results (bucket ai-images — a member sends paths of their own
+// folder only, the admin any) and / or pictures from the member's device (images: [{ data: base64 }] — comments decision 55) onto a
+// site product: every path downloaded first (one missing → 404, nothing sent), each sent to
 // wp/v2/media, then one PUT with the current images + the new media (first → ahead of them); the translation shares the gallery
 // through WPML; the mirror follows the answer; the log holds counts only.
 const TOOL_BUCKET = 'ai-images';
 const TOOL_PATH = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/[A-Za-z0-9._-]{1,120}\.(webp|png|jpe?g)$/i;
 const IMAGES_ADD_MAX = 10;
+// comments decision 55: a picture from the member's device comes in the request as { data: base64 } — a PNG / JPEG / WebP of
+// 3 MB at most, known by its own bytes (never a stated type or name); four a request at most (the page sends more in turns)
+const UPLOAD_MAX = 4;
+const UPLOAD_BYTES = 3 * 1048576;
+function uploadBytes(v: unknown): Uint8Array | false {
+  if (!isObj(v) || typeof v.data !== 'string' || !v.data.length || v.data.length > Math.ceil(UPLOAD_BYTES / 3) * 4 || !/^[A-Za-z0-9+/]+={0,2}$/.test(v.data)) return false;
+  let bytes: Uint8Array;
+  try { bytes = Uint8Array.from(atob(v.data), (ch) => ch.charCodeAt(0)); } catch { return false; }
+  return isPhotoBytes(bytes) && bytes.length <= UPLOAD_BYTES ? bytes : false;
+}
 async function productImagesAdd(run: Run, args: Json, who: { uid: string | null; admin: boolean }) {
   const id = wooId(args.id);
   if (id === null) return json(400, { error: 'bad_request', field: 'id' });
   const paths = Array.isArray(args.paths) ? [...new Set(args.paths)] : [];
-  if (!paths.length || paths.length > IMAGES_ADD_MAX || !paths.every((p) => typeof p === 'string' && TOOL_PATH.test(p))) return json(400, { error: 'bad_request', field: 'paths' });
-  if (!who.admin && !(who.uid && paths.every((p) => (p as string).startsWith(who.uid + '/')))) return json(401, { error: 'unauthorized' });
+  const sent = args.images === undefined || args.images === null ? [] : args.images;
+  if (!Array.isArray(sent) || sent.length > UPLOAD_MAX) return json(400, { error: 'bad_request', field: 'images' });
+  const ups = sent.map(uploadBytes);
+  if (ups.some((b) => b === false)) return json(400, { error: 'bad_request', field: 'images' });
+  if ((!paths.length && !ups.length) || paths.length > IMAGES_ADD_MAX || !paths.every((p) => typeof p === 'string' && TOOL_PATH.test(p))) return json(400, { error: 'bad_request', field: 'paths' });
+  if (paths.length && !who.admin && !(who.uid && paths.every((p) => (p as string).startsWith(who.uid + '/')))) return json(401, { error: 'unauthorized' });
   const first = args.first === true;
-  const detail = { count: paths.length, first };
+  const detail = { count: paths.length + ups.length, first, ...(ups.length ? { uploaded: ups.length } : {}) };
   if (!pushEnabled(run.env)) return await pushSkip(run, 'product_images_add', id, detail);
-  const blobs: { path: string; bytes: Uint8Array; ext: string }[] = [];
+  const blobs: { tag: string; bytes: Uint8Array; ext: string }[] = [];
   for (const path of paths as string[]) {
     const { data: blob, error } = await run.db.storage.from(TOOL_BUCKET).download(path);
     if (error || !blob) return json(404, { error: 'not_found', field: 'paths' });
-    blobs.push({ path, bytes: new Uint8Array(await blob.arrayBuffer()), ext: path.split('.').pop()!.toLowerCase() });
+    blobs.push({ tag: 'ai', bytes: new Uint8Array(await blob.arrayBuffer()), ext: path.split('.').pop()!.toLowerCase() });
   }
+  for (const bytes of ups as Uint8Array[]) blobs.push({ tag: 'up', bytes, ext: bytes[0] === 0x89 ? 'png' : bytes[0] === 0xff ? 'jpg' : 'webp' });
   const ctx = await run.ctx();
   const p = (await ctx.woo.get(`wc/v3/products/${id}`)).data;
   if (!isObj(p)) return json(502, { error: 'woo_error' });
@@ -2454,7 +2472,7 @@ async function productImagesAdd(run: Run, args: Json, who: { uid: string | null;
   const media: number[] = [];
   const stamp = run.now().replace(/[^0-9]/g, '').slice(2, 12);
   for (const [k, b] of blobs.entries()) {
-    const m = (await ctx.woo.upload('wp/v2/media', b.bytes, `${fileBase(p.name)}-ai-${stamp}-${String(k + 1).padStart(2, '0')}.${b.ext}`, MIME[b.ext] ?? 'image/webp')).data;
+    const m = (await ctx.woo.upload('wp/v2/media', b.bytes, `${fileBase(p.name)}-${b.tag}-${stamp}-${String(k + 1).padStart(2, '0')}.${b.ext}`, MIME[b.ext] ?? 'image/webp')).data;
     const mid = wooId(isObj(m) ? m.id : null);
     if (mid === null) { await logSync(run.db, { ...productEntry(id, 'product_images_add'), result: 'error', detail: { ...detail, media: media.length, error: 'media_refused' } }); return json(502, { error: 'media_refused', media }); }
     media.push(mid);

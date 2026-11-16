@@ -215,11 +215,9 @@ test('the product page and the bulk price: «قبل الخصم» from the defaul
   await page.getByRole('tab', { name: 'السعر والمخزون' }).click();
   await expect(page.locator('[data-vcalc]')).toContainText('قبل الخصم = سعر البيع + زيادة شريحته من «الخصم الوهمي»');
   await page.fill('#e-vin', '1000');
-  await page.locator('[data-vapply]').click();
   await expect(page.locator('#e-sale')).toHaveValue('1270'); // 1010 ÷ 0.8 = 1262.5 → 1270
   await expect(page.locator('#e-reg')).toHaveValue('2270'); // the second tier: + 1,000
   await page.fill('#e-vin', '2000');
-  await page.locator('[data-vapply]').click();
   await expect(page.locator('#e-sale')).toHaveValue('2520'); // 2010 ÷ 0.8 = 2512.5 → 2520
   await expect(page.locator('#e-reg')).toHaveValue('4020'); // «فيما فوق»: + 1,500
   // the bulk price: «سعر المبتكر» +10% on one product → its new sale price + its tier's addition, exactly
@@ -248,6 +246,5 @@ test('before 0106: the admin has the default tiers without opening the settings 
   await page.getByRole('tab', { name: 'السعر والمخزون' }).click();
   await expect(page.locator('[data-vcalc]')).toContainText('زيادة شريحته من «الخصم الوهمي»'); // drawn again once the rows came
   await page.fill('#e-vin', '1000');
-  await page.locator('[data-vapply]').click();
   await expect(page.locator('#e-reg')).toHaveValue('2270');
 });

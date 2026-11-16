@@ -2352,6 +2352,55 @@ Deno.test('product_images_add: the member\'s own ai-images paths onto a product 
   assertEquals([r3.body.result, r3.body.reason, off.woo.calls.length], ['skipped', 'push_disabled', 0]);
 });
 
+Deno.test('product_images_add (comments decision 55 — «اضافة صورة من الجهاز»): pictures sent as { data: base64 } — known by their own bytes (PNG / JPEG / WebP, 3 MB each, four a request), each to wp/v2/media as «…-up-…» and one PUT after the current images; with paths too; products.edit = F; the log counts only', async () => {
+  const UID = '00000000-0000-4000-8000-0000000000e1';
+  const b64 = (bytes: number[]) => btoa(String.fromCharCode(...bytes));
+  const PNG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4];
+  const JPG = [0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4, 5, 6, 7, 8];
+  const WEBP = [0x52, 0x49, 0x46, 0x46, 4, 0, 0, 0, 0x57, 0x45, 0x42, 0x50, 1, 2];
+  let media = 900;
+  const routes = {
+    'GET wc/v3/products/501': () => ({ body: wooProduct(501, 44, { name: 'Boho Lamp', images: [{ id: 7, src: 'https://woo.test/img/7.jpg' }] }) }),
+    'POST wp/v2/media': () => ({ body: { id: ++media } }),
+    'PUT wc/v3/products/501': (c: any) => ({ body: wooProduct(501, 44, { name: 'Boho Lamp', images: c.body.images.map((i: any) => ({ id: i.id, src: `https://woo.test/img/${i.id}.jpg` })) }) }),
+  };
+  const userId = async (jwt: string) => (jwt === 'jwt-pedit' ? UID : null);
+  const storage = { [`ai-images/${UID}/abc-1.webp`]: new Uint8Array([137, 80, 78, 71, 1, 2, 3]) };
+  const { db, woo, deps } = setup({ seed: prodSeed, routes, env: WP_ENV, storage });
+  const d = { ...deps, userId };
+  const images = [{ data: b64(PNG) }, { data: b64(JPG) }, { data: b64(WEBP) }];
+  assertEquals((await call(d, { action: 'product_images_add', id: 501, images }, { jwt: 'jwt-pview' })).res.status, 401, 'products.view alone');
+  assertEquals((await call(d, { action: 'product_images_add', id: 501, images })).res.status, 401, 'never the sync secret');
+  // not a picture by its bytes, not base64, not a list, too many: nothing sent
+  for (const bad of [[{ data: b64([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]) }], [{ data: '<svg onload=x>' }], [{ data: '' }], [{ url: 'https://x.test/a.png' }], 'x', Array(5).fill({ data: b64(PNG) }), [images[0], { data: b64([0x47, 0x49, 0x46, 0x38, 1, 2, 3, 4, 5, 6, 7, 8]) }]]) {
+    const r = await call(d, { action: 'product_images_add', id: 501, images: bad }, { jwt: 'jwt-pedit' });
+    assertEquals([r.res.status, r.body.field], [400, 'images'], JSON.stringify(bad).slice(0, 40));
+  }
+  assertEquals((await call(d, { action: 'product_images_add', id: 501, images: [] }, { jwt: 'jwt-pedit' })).body.field, 'paths', 'neither paths nor pictures');
+  assertEquals(woo.calls.length, 0, 'nothing sent so far');
+  const { res, body } = await call(d, { action: 'product_images_add', id: 501, images }, { jwt: 'jwt-pedit' });
+  assertEquals([res.status, body.result, body.media, body.count, body.images], [200, 'ok', [901, 902, 903], 3, 4]);
+  const up = woo.calls.filter((c) => c.path === 'wp/v2/media');
+  assertEquals(up.map((c) => c.headers['content-type']), ['image/png', 'image/jpeg', 'image/webp']);
+  assert(/^attachment; filename="Boho-Lamp-up-\d{10}-01\.png"$/.test(up[0].headers['content-disposition']), up[0].headers['content-disposition']);
+  assert(/-up-\d{10}-03\.webp"$/.test(up[2].headers['content-disposition']), up[2].headers['content-disposition']);
+  assertEquals(up.map((c) => c.body), [{ bytes: 12 }, { bytes: 12 }, { bytes: 14 }]);
+  assertEquals(woo.calls.filter((c) => c.method === 'PUT').map((c) => c.body), [{ images: [{ id: 7 }, { id: 901 }, { id: 902 }, { id: 903 }] }]);
+  const log = db.rows('woo_sync_log').at(-1);
+  assertEquals([log.action, log.result, log.detail], ['product_images_add', 'ok', { count: 3, first: false, uploaded: 3, media: 3, images: 4 }]);
+  assertFalse(JSON.stringify(log).includes(b64(PNG)), 'no picture in the log');
+  // the tool's paths and the device's pictures in one request: the paths first
+  const r2 = await call(d, { action: 'product_images_add', id: 501, paths: [`${UID}/abc-1.webp`], images: [images[1]], first: true }, { jwt: 'jwt-pedit' });
+  assertEquals([r2.res.status, r2.body.media, r2.body.count], [200, [904, 905], 2]);
+  const last2 = woo.calls.filter((c) => c.path === 'wp/v2/media').slice(-2).map((c) => c.headers['content-disposition']);
+  assert(/-ai-\d{10}-01\.webp"$/.test(last2[0]) && /-up-\d{10}-02\.jpg"$/.test(last2[1]), last2.join(' | '));
+  assertEquals(woo.calls.filter((c) => c.method === 'PUT').at(-1)?.body, { images: [{ id: 904 }, { id: 905 }, { id: 7 }] });
+  // the gate
+  const off = setup({ seed: prodSeed, routes });
+  const r3 = await call({ ...off.deps, userId }, { action: 'product_images_add', id: 501, images }, { jwt: 'jwt-pedit' });
+  assertEquals([r3.body.result, r3.body.reason, off.woo.calls.length], ['skipped', 'push_disabled', 0]);
+});
+
 // ---------------------------------------------------------------- order_trash (phase 5.5 decision 10)
 
 const trashSeed = {

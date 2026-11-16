@@ -10,7 +10,15 @@
   const U = window.IBUI, K = window.IBKit, PD = window.IbtekrProducts;
   const { h, Icon, Button } = U;
   const PR = () => window.IBProducts;
-  const R = () => window.IBPages.render('products');
+  // a redraw replaces the page's nodes: the field being typed in gets the focus and its caret back by its id (the edit page lost
+  // them at the first letter typed — comments decision 53)
+  const R = () => {
+    const root = document.getElementById('pg-products'); const a = document.activeElement; const id = a && a.id && root && root.contains(a) ? a.id : null; let s0 = null, e0 = null;
+    if (id) { try { s0 = a.selectionStart; e0 = a.selectionEnd; } catch (x) { s0 = null; } }
+    window.IBPages.render('products');
+    const n = id ? document.getElementById(id) : null;
+    if (n && n !== document.activeElement && !n.disabled) { try { n.focus({ preventScroll: true }); if (s0 != null && n.setSelectionRange) n.setSelectionRange(s0, e0); } catch (x) { /* not a text field */ } }
+  };
   const setHash = (hs) => { try { history.replaceState(null, '', '#' + hs); } catch (e) { /* sandbox */ } };
   const go = (hs) => { setHash(hs); route(hs); R(); window.scrollTo(0, 0); };
   const Tag = K.Tag; const money = (n) => (n == null ? '—' : K.n0(n) + ' ج.م');
@@ -878,7 +886,7 @@
   // decision 16 (the owner, 28 Oct): the maker's price is typed for the calculation only (never stored) → the sale price =
   // (maker + fee) ÷ (1 − rate) up to the next 10, the regular («قبل الخصم», shown crossed) = sale + 15–30% at random up to the
   // next 10. One random markup per product / variation while the page is open, so pressing «احسب» again gives the same prices.
-  function resetCalc() { st.vin = ''; st.vinErr = ''; st.vvin = {}; st.marks = {}; }
+  function resetCalc() { st.vin = null; st.vinErr = ''; st.vvin = {}; st.vvErr = {}; st.marks = {}; }
   const digits = (v) => String(v == null ? '' : v).replace(/[٠-٩]/g, (c) => '٠١٢٣٤٥٦٧٨٩'.indexOf(c)).replace(/[٬,]/g, '').trim();
   function fromVendor(params, val, key) {
     const t = digits(val); if (!/^\d+(\.\d{1,2})?$/.test(t)) return null;
@@ -893,6 +901,7 @@
   const calcHelp = (c) => 'سعر البيع = (سعر المبتكر' + (c.fee ? ' + ' + K.n0(c.fee) : '') + ') ÷ ' + (c.rate ? (1 - c.rate / 100).toFixed(2).replace(/0+$/, '').replace(/\.$/, '') : '1') + ' لفوق لأقرب 10 · قبل الخصم = ' + fakeHelp() + ' · ' + paramsLabel(c);
   function editView() {
     const id = st.editId; const C = can(); const rec = byId(id);
+    st.hadRec = !!rec;
     const back = Button({ type: 'text', size: 'sm', label: '→ رجوع للسجل', onClick: () => leaveGuard(() => go('products-records')) });
     if (!st.live || st.liveFor !== id) {
       if (!st.loadingLive && !st.liveErr) fetchLive(id);
@@ -913,22 +922,24 @@
     const firstImg = (p.images[0] || {}).src;
     const head = h('div', { class: 'page-head row edit-head' }, h('div', { class: 'eh-l' }, Thumb(firstImg, 'lg2'), h('div', null, back, h('h1', { class: 't-h3' }, [p.name, d.arName].filter(Boolean).join(' · ')), meta)), h('div', { class: 'actions' }, acts));
     const tabs = K.MainTabs({ items: ETABS.filter(([k]) => k !== 'variants' || p.type === 'variable').map(([k, label]) => ({ id: k, label })), active: st.etab, onChange: (k) => { st.etab = k; setHash('products-edit-' + id + '-' + k); R(); }, label: 'أقسام المنتج' });
-    let body;
-    if (st.etab === 'data') body = h('div', { class: 'side-layout' }, Card('البيانات الأساسية', null, [K.two(inp('en', 'الاسم (EN)', 'name', { required: true }), st.live.ar ? inp('ar', 'الاسم (AR)', 'arName') : U.InlineNote({ children: 'المنتج ده ملوش ترجمة عربي على الموقع.' })),
-      K.two(inp('sku', 'SKU', 'sku', { help: 'تغيير الـ SKU بيغيّر الباركود واللينكات القديمة.' }), inp('w', 'الوزن (كجم)', 'weight', { inputmode: 'decimal' })),
-      K.two(U.Select({ id: 'e-brand', label: 'البراند', options: [{ value: '', label: '—' }].concat(PR().brands().map((b) => ({ value: String(b.id), label: b.name }))), value: d.brands[0] != null ? String(d.brands[0]) : '', disabled: dis, help: 'بيتحفظ على الموقع في المكانين: براند المنتج (WooCommerce Brands) وخاصية Brand', onChange: (v) => { d.brands = v ? [Number(v)] : []; R(); } }),
-        makerField(id, p, rec, C)),
-      K.two(U.TextInput({ id: 'e-type', label: 'النوع', value: p.type === 'variable' ? 'Variable' : p.type === 'simple' ? 'Simple' : p.type, disabled: true, onInput: () => {}, help: 'النوع بيتغير من الاستوديو بس' }), leadField(id, rec, C))], null, 'grow'),
-      h('div', { class: 'stack side-card' }, Card('الحالة والظهور', null, [U.Select({ id: 'e-status', label: 'الحالة', options: [{ value: 'publish', label: 'منشور' }, { value: 'draft', label: 'مسودة' }, { value: 'pending', label: 'قيد المراجعة' }].concat(['publish', 'draft', 'pending'].includes(p.status) ? [] : [{ value: p.status, label: status }]), value: d.status, disabled: dis, onChange: (v) => { d.status = v; R(); } }),
-        K.Switch({ id: 'e-feat', label: 'منتج مميز', checked: d.featured, disabled: dis, onChange: (v) => { d.featured = v; R(); } }),
-        arStatusNote(p, dis)]), priceCard(p, inp, dis, rec)));
-    else if (st.etab === 'price') body = priceCard(p, inp, dis, rec);
-    else if (st.etab === 'images') body = imagesCard(p, dis);
-    else if (st.etab === 'variants') body = variantsCard(dis, rec);
-    else if (st.etab === 'cats') body = catsCard(dis);
-    else if (st.etab === 'desc') body = h('div', { class: 'stack' }, Card('الأوصاف (EN)', null, [area('short', 'وصف قصير', 'short', 4), area('desc', 'الوصف', 'desc', 8)]), st.live.ar ? Card('الأوصاف (AR)', null, [area('ars', 'وصف قصير (AR)', 'arShort', 4), area('ard', 'الوصف (AR)', 'arDesc', 8)]) : null,
-      window.IBAI && window.IBAI.can().write ? h('div', null, Button({ size: 'sm', icon: 'sparkle', label: 'اكتب بالذكاء الاصطناعي', attrs: { 'data-pai': '' }, onClick: () => leaveGuard(() => go('products-tool-content-' + id)) })) : null);
-    else body = seoCard(p, dis);
+    // comments decision 53 (the owner 15 Nov — «نظبط ال ui بشكل منظم و احترافي»): every tab = its cards beside one rail (the status
+    // card and the product's summary), so the status and the figures are in sight whatever is being edited and no form is drawn twice
+    const sec = (title, ...rows) => h('div', { class: 'pe-sec' }, h('h3', { class: 'pe-sec-h' }, title), rows);
+    let main;
+    if (st.etab === 'data') main = Card('البيانات الأساسية', null, [
+      sec('الاسم', K.two(inp('en', 'الاسم (EN)', 'name', { required: true }), st.live.ar ? inp('ar', 'الاسم (AR)', 'arName') : U.InlineNote({ children: 'المنتج ده ملوش ترجمة عربي على الموقع.' }))),
+      sec('التعريف', K.two(inp('sku', 'SKU', 'sku', { help: 'تغيير الـ SKU بيغيّر الباركود واللينكات القديمة.' }), inp('w', 'الوزن (كجم)', 'weight', { inputmode: 'decimal' })),
+        K.two(U.TextInput({ id: 'e-type', label: 'النوع', value: p.type === 'variable' ? 'Variable' : p.type === 'simple' ? 'Simple' : p.type, disabled: true, onInput: () => {}, help: 'النوع بيتغير من الاستوديو بس' }), leadField(id, rec, C))),
+      sec('البراند والمبتكر', K.two(U.Select({ id: 'e-brand', label: 'البراند', options: [{ value: '', label: '—' }].concat(PR().brands().map((b) => ({ value: String(b.id), label: b.name }))), value: d.brands[0] != null ? String(d.brands[0]) : '', disabled: dis, help: 'بيتحفظ على الموقع في المكانين: براند المنتج (WooCommerce Brands) وخاصية Brand', onChange: (v) => { d.brands = v ? [Number(v)] : []; R(); } }),
+        makerField(id, p, rec, C)))]);
+    else if (st.etab === 'price') main = priceCards(p, inp, dis, rec);
+    else if (st.etab === 'images') main = imagesCard(p, dis);
+    else if (st.etab === 'variants') main = variantsCard(dis, rec);
+    else if (st.etab === 'cats') main = catsCard(dis);
+    else if (st.etab === 'desc') main = [Card('الأوصاف (EN)', null, [area('short', 'وصف قصير', 'short', 4), area('desc', 'الوصف', 'desc', 8)]), st.live.ar ? Card('الأوصاف (AR)', null, [area('ars', 'وصف قصير (AR)', 'arShort', 4), area('ard', 'الوصف (AR)', 'arDesc', 8)]) : null,
+      window.IBAI && window.IBAI.can().write ? h('div', null, Button({ size: 'sm', icon: 'sparkle', label: 'اكتب بالذكاء الاصطناعي', attrs: { 'data-pai': '' }, onClick: () => leaveGuard(() => go('products-tool-content-' + id)) })) : null];
+    else main = seoCard(p, dis);
+    const body = h('div', { class: 'side-layout pe-layout', 'data-pe': st.etab }, h('div', { class: 'grow stack pe-main' }, main), editRail(p, dis, rec, status));
     const n = dirtyCount();
     return [head, tabs, body, n && C.edit ? h('div', { class: 'unsaved', role: 'status' }, h('b', null, 'عندك ' + n + ' تعديلات مش محفوظة'), Button({ type: 'text', size: 'sm', label: 'تجاهل', onClick: discard }), Button({ type: 'primary', size: 'sm', label: 'احفظ على الموقع', disabled: st.saving, onClick: save })) : null];
   }
@@ -945,35 +956,103 @@
     const preview = (titleKey, descKey, name, url) => h('div', { class: 'seo-prev', 'aria-label': 'شكلها في جوجل' },
       h('small', { dir: 'ltr', class: 't-small help' }, url || ''), h('b', { 'data-seo-prev': titleKey, 'data-fallback': name }, d[titleKey].trim() || name),
       h('span', { class: 't-small', 'data-seo-prev': descKey, 'data-fallback': '—' }, d[descKey].trim() || '—'));
-    return h('div', { class: 'stack' },
-      Card('SEO (EN)', 'عنوان ووصف صفحة المنتج في نتايج البحث (Rank Math).', [field('seo-t', 'عنوان الصفحة', 'seoTitle', 60), field('seo-d', 'وصف الصفحة', 'seoDesc', 160, true), preview('seoTitle', 'seoDesc', p.name, p.permalink)]),
-      st.live.ar ? Card('SEO (AR)', null, [field('seo-at', 'عنوان الصفحة (AR)', 'arSeoTitle', 60), field('seo-ad', 'وصف الصفحة (AR)', 'arSeoDesc', 160, true), preview('arSeoTitle', 'arSeoDesc', d.arName || p.name, '')]) : U.InlineNote({ children: 'المنتج ده ملوش ترجمة عربي على الموقع.' }));
+    return [Card('SEO (EN)', 'عنوان ووصف صفحة المنتج في نتايج البحث (Rank Math).', [field('seo-t', 'عنوان الصفحة', 'seoTitle', 60), field('seo-d', 'وصف الصفحة', 'seoDesc', 160, true), preview('seoTitle', 'seoDesc', p.name, p.permalink)]),
+      st.live.ar ? Card('SEO (AR)', null, [field('seo-at', 'عنوان الصفحة (AR)', 'arSeoTitle', 60), field('seo-ad', 'وصف الصفحة (AR)', 'arSeoDesc', 160, true), preview('arSeoTitle', 'arSeoDesc', d.arName || p.name, '')]) : U.InlineNote({ children: 'المنتج ده ملوش ترجمة عربي على الموقع.' })];
   }
-  function priceCard(p, inp, dis, rec) {
+  // the figures of a simple product's price as it is typed now: Dokan's commission on the sale price (the product's own, else the
+  // category's / the store's) and what is left for the maker (decision 12)
+  function priceNow(rec) {
+    const d = st.draft; const sale = Number(d.sale || d.regular) || 0; const cm = rec && sale ? PR().commissionOf(Object.assign({}, rec, { sale })) : null;
+    const src = cm ? (cm.source === 'product' ? 'عمولة المنتج' : cm.source === 'category' ? 'نسبة القسم' : 'نسبة المتجر') + (cm.rate != null ? ' ' + cm.rate + '%' : '') + (cm.fee ? ' + ' + K.n0(cm.fee) : '') : '';
+    return { sale, cm, src, vp: cm ? Math.round((sale - cm.amount) * 100) / 100 : null };
+  }
+  const stockNow = (d) => (d.onDemand ? 'حسب الطلب' : d.manage ? PD.stockState(Number(d.qty) || 0, false, d.alert === '' ? 3 : Number(d.alert)) : 'متاح');
+  // the rail of every tab (comments decision 53): «الحالة والظهور» and the product's summary — the prices, the maker's price and
+  // Ibtekr's commission (sensitive.commission), the stock, the categories and the pictures as the draft has them now
+  function editRail(p, dis, rec, status) {
+    const d = st.draft; const C = can(); const isVar = p.type === 'variable';
+    const range = (key) => { const l = d.vars.map((v) => Number(v[key])).filter((x) => x > 0); if (!l.length) return '—'; const lo = Math.min(...l), hi = Math.max(...l); return lo === hi ? money(lo) : K.n0(lo) + ' – ' + money(hi); };
+    const now = isVar ? null : priceNow(rec);
+    const row = (k, label, value) => (value == null ? null : [h('dt', null, label), h('dd', { 'data-pe-sum': k }, value)]);
+    const stock = isVar ? (d.vars.some((v) => v.onDemand) ? 'حسب الطلب' : PD.stockState(d.vars.reduce((a, v) => a + (Number(v.qty) || 0), 0), false, 3)) : stockNow(d);
+    const cats = PR().categories().filter((c) => d.cats.includes(c.id));
+    const jump = (tab, label) => h('button', { type: 'button', class: 'link-btn', onClick: () => { st.etab = tab; setHash('products-edit-' + st.editId + '-' + tab); R(); window.scrollTo(0, 0); } }, label);
+    return h('div', { class: 'stack side-card pe-rail' },
+      Card('الحالة والظهور', null, [U.Select({ id: 'e-status', label: 'الحالة', options: [{ value: 'publish', label: 'منشور' }, { value: 'draft', label: 'مسودة' }, { value: 'pending', label: 'قيد المراجعة' }].concat(['publish', 'draft', 'pending'].includes(p.status) ? [] : [{ value: p.status, label: status }]), value: d.status, disabled: dis, onChange: (v) => { d.status = v; R(); } }),
+        K.Switch({ id: 'e-feat', label: 'منتج مميز', checked: d.featured, disabled: dis, onChange: (v) => { d.featured = v; R(); } }),
+        arStatusNote(p, dis)]),
+      Card('ملخص المنتج', null, [h('dl', { class: 'kv pe-sum', 'data-pe-summary': '' },
+        row('sale', 'سعر البيع', isVar ? range('sale') : d.sale ? h('b', { class: 'brand-t' }, K.Num(money(Number(d.sale)))) : '—'),
+        row('regular', 'قبل الخصم', isVar ? range('regular') : d.regular ? K.Num(money(Number(d.regular))) : '—'),
+        C.commission && now && now.vp != null ? row('maker', 'سعر المبتكر', K.Num(money(now.vp))) : null,
+        C.commission && now && now.cm ? row('fee', 'عمولة إبتكر', K.Num(money(now.cm.amount))) : null,
+        row('stock', 'المخزون', h('span', { class: 'stk' }, Tag(STOCK_TONE[stock], stock), !isVar && !d.onDemand && d.manage ? h('span', { class: 't-small help num' }, K.n0(Number(d.qty) || 0) + ' قطعة') : null)),
+        row('cats', 'الأقسام', cats.length ? h('span', { title: cats.map((c) => c.path).join(' · ') }, cats.length === 1 ? cats[0].name || cats[0].path : K.n0(cats.length) + ' أقسام') : '—'),
+        row('images', 'الصور', d.images.length ? K.n0(d.images.length) + (d.images.length === 1 ? ' صورة' : ' صور') : 'مفيش صور'),
+        isVar ? row('vars', 'التركيبات', K.n0(d.vars.length)) : null),
+      st.etab === 'price' || st.etab === 'variants' ? null : h('div', { class: 'pe-jump' }, jump(isVar ? 'variants' : 'price', 'عدّل السعر والمخزون'))]));
+  }
+  // «السعر والمخزون» (comments decisions 53 and 54): a price card and a stock card. The maker's price is a field of its own (the owner
+  // 15 Nov — «ممكن اعدل سعر المبتكر من هنا كمان … و يحسب حساباته لوحده»): it opens on what the maker gets from the price now, and
+  // typing it writes the two prices at once by decision 16 — sale = (maker + fee) ÷ (1 − rate) up to the next 10, «قبل الخصم» by the
+  // fake-discount rule; a sale price typed by hand puts the maker's price back on what that price leaves him. It is never stored.
+  function priceCards(p, inp, dis, rec) {
     const d = st.draft; const C = can();
     if (p.type === 'variable') return Card('السعر والمخزون', null, [U.InlineNote({ children: 'السعر والمخزون بيتعدلوا لكل تركيبة من تاب «المتغيرات».' })]);
-    // decision 12: Dokan's commission on this sale price (the product's own, else the store's / category's) — the vendor price is what is left
-    const sale = Number(d.sale || d.regular) || 0; const cm = rec && sale ? PR().commissionOf(Object.assign({}, rec, { sale })) : null; const vp = cm ? Math.round((sale - cm.amount) * 100) / 100 : null;
-    const src = cm ? (cm.source === 'product' ? 'عمولة المنتج' : cm.source === 'category' ? 'نسبة القسم' : 'نسبة المتجر') + (cm.rate != null ? ' ' + cm.rate + '%' : '') + (cm.fee ? ' + ' + K.n0(cm.fee) : '') : '';
-    const stockState = d.onDemand ? 'حسب الطلب' : d.manage ? PD.stockState(Number(d.qty) || 0, false, d.alert === '' ? 3 : Number(d.alert)) : 'متاح';
+    const now = priceNow(rec); const cm = now.cm; const vp = now.vp;
+    const stockState = stockNow(d);
     const params = C.commission && rec && !dis ? PR().commissionParams(rec) : null;
-    const calc = params ? h('div', { class: 'vcalc', 'data-vcalc': '' }, K.two(U.TextInput({ id: 'e-vin', label: 'سعر المبتكر (للحساب)', value: st.vin || '', inputmode: 'decimal', error: st.vinErr, help: calcHelp(params), onInput: (v) => { st.vin = v; } }),
-      h('div', { class: 'field' }, h('span', { class: 'flabel' }, ' '), Button({ label: 'احسب السعرين', attrs: { 'data-vapply': '' }, onClick: () => {
-        const r = fromVendor(params, st.vin, 'p'); if (!r) { st.vinErr = 'اكتب سعر المبتكر رقم أكبر من صفر'; R(); return; }
-        st.vinErr = ''; d.sale = String(r.sale); d.regular = String(r.regular); R(); } })))) : null;
-    return Card('السعر والمخزون', null, [K.two(inp('sale', 'سعر البيع', 'sale', { inputmode: 'numeric' }), inp('reg', 'قبل الخصم', 'regular', { inputmode: 'numeric' })), calc,
-      C.commission && vp != null ? K.two(h('div', { class: 'field', 'data-vprice': '' }, h('span', { class: 'flabel' }, 'سعر المبتكر'), h('b', null, K.Num(K.n0(vp) + ' ج.م'))), h('div', { class: 'field', 'data-commission': '' }, h('span', { class: 'flabel' }, 'عمولة إبتكر (' + src + ')'), h('b', { class: 'brand-t' }, K.Num(K.n0(cm.amount) + ' ج.م')))) : null,
-      K.Switch({ id: 'e-dem', label: 'حسب الطلب (بيتصنع بعد الأوردر)', checked: d.onDemand, disabled: dis, onChange: (v) => { d.onDemand = v; R(); } }),
-      d.onDemand ? null : K.Switch({ id: 'e-man', label: 'تتبع الكمية', checked: d.manage, disabled: dis, onChange: (v) => { d.manage = v; R(); } }),
-      !d.onDemand && d.manage ? K.two(inp('stk', 'المخزون', 'qty', { inputmode: 'numeric' }), U.Select({ id: 'e-al', label: 'نبّهني تحت', options: [{ value: '', label: 'افتراضي الموقع' }].concat(['0', '1', '2', '3', '4', '5'].map((x) => ({ value: x, label: x }))), value: d.alert, disabled: dis, onChange: (v) => { d.alert = v; R(); } })) : null,
-      h('div', { class: 'stk' }, h('span', { class: 't-small help' }, 'حالة المخزون:'), Tag(STOCK_TONE[stockState], stockState))]);
+    const typed = (key) => (v) => { if (dis) return; d[key] = v; if (key === 'sale') { st.vin = null; st.vinErr = ''; } R(); };
+    const maker = params ? U.TextInput({ id: 'e-vin', label: 'سعر المبتكر', value: st.vin != null ? st.vin : vp != null ? String(vp) : '', inputmode: 'decimal', error: st.vinErr,
+      onInput: (v) => { st.vin = v; const t = digits(v); const r = t && Number(t) > 0 ? fromVendor(params, v, 'p') : null;
+        if (r) { st.vinErr = ''; d.sale = String(r.sale); d.regular = String(r.regular); } else st.vinErr = t === '' ? '' : 'اكتب سعر المبتكر رقم أكبر من صفر';
+        R(); } }) : null;
+    const off = Number(d.regular) > 0 && Number(d.sale) > 0 && Number(d.regular) > Number(d.sale) ? Math.round((1 - Number(d.sale) / Number(d.regular)) * 100) : null;
+    const box = (attr, label, value, cls) => h('div', { class: 'pe-box' + (cls ? ' ' + cls : ''), [attr]: '' }, h('span', { class: 't-small' }, label), h('b', null, value));
+    return [Card('السعر', params ? 'اكتب سعر المبتكر والسعرين بيتحسبوا لوحدهم — أو اكتب سعر البيع بإيدك.' : null, [
+      h('div', { class: 'pe-calc', 'data-vcalc': '' }, h('div', { class: 'pe-prices' + (maker ? '' : ' two') }, maker, inp('sale', 'سعر البيع', 'sale', { inputmode: 'numeric', onInput: typed('sale') }), inp('reg', 'قبل الخصم', 'regular', { inputmode: 'numeric', onInput: typed('regular') })),
+        params ? h('p', { class: 't-small help pe-formula' }, calcHelp(params)) : null),
+      C.commission && vp != null || off != null ? h('div', { class: 'pe-boxes' },
+        C.commission && vp != null ? box('data-commission', 'عمولة إبتكر (' + now.src + ')', K.Num(K.n0(cm.amount) + ' ج.م'), 'brand') : null,
+        C.commission && vp != null ? box('data-vprice', 'المبتكر بياخد', K.Num(K.n0(vp) + ' ج.م')) : null,
+        off != null ? box('data-poff', 'الخصم الظاهر للعميل', K.Num(off + '%')) : null) : null]),
+      Card('المخزون', null, [
+        K.Switch({ id: 'e-dem', label: 'حسب الطلب (بيتصنع بعد الأوردر)', checked: d.onDemand, disabled: dis, onChange: (v) => { d.onDemand = v; R(); } }),
+        d.onDemand ? null : K.Switch({ id: 'e-man', label: 'تتبع الكمية', checked: d.manage, disabled: dis, onChange: (v) => { d.manage = v; R(); } }),
+        !d.onDemand && d.manage ? K.two(inp('stk', 'المخزون', 'qty', { inputmode: 'numeric', onInput: typed('qty') }), U.Select({ id: 'e-al', label: 'نبّهني تحت', options: [{ value: '', label: 'افتراضي الموقع' }].concat(['0', '1', '2', '3', '4', '5'].map((x) => ({ value: x, label: x }))), value: d.alert, disabled: dis, onChange: (v) => { d.alert = v; R(); } })) : null,
+        h('div', { class: 'stk' }, h('span', { class: 't-small help' }, 'حالة المخزون:'), Tag(STOCK_TONE[stockState], stockState))])];
+  }
+  // comments decision 55 (the owner 15 Nov — «ممكن يبقي فيه اضافة صورة من الجهاز كمان»): the member's own pictures onto the product —
+  // written on the site at once (woo-sync product_images_add, products.edit), after the product's own images; unsaved edits are saved
+  // first (the page reads the product again after the upload)
+  const UP_MAX = 12;
+  function uploadFromDevice(p) {
+    if (st.uploading) return;
+    if (dirtyCount()) { K.toast('احفظ تعديلاتك الأول وبعدين ارفع الصور', 'error'); return; }
+    const input = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp', multiple: true, class: 'sr-only', tabindex: '-1', 'aria-hidden': 'true', 'data-pup-file': '' });
+    input.addEventListener('change', async () => {
+      const files = [...(input.files || [])]; input.remove(); if (!files.length) return;
+      if (files.length > UP_MAX) { K.toast('اختار ' + UP_MAX + ' صورة بالكتير في المرة', 'error'); return; }
+      st.uploading = true; R();
+      const r = await PR().uploadImages(p.id, files);
+      st.uploading = false;
+      if (!r.ok && !r.count) { K.toast(r.reason === 'not_image' ? 'في ملف مش صورة مقروءة — ارفع PNG أو JPEG أو WebP' : fail(r), 'error'); R(); return; }
+      if (r.result === 'skipped') { K.toast(MSG[r.reason] || MSG.push_disabled, 'error'); R(); return; }
+      K.toast(r.failed ? 'اترفعت ' + K.n0(r.count) + ' صورة — ' + K.n0(r.failed) + ' ماترفعتش، جرّب تاني' : r.count === 1 ? 'اترفعت الصورة على المنتج' : 'اترفعت ' + K.n0(r.count) + ' صور على المنتج', r.failed ? 'error' : 'success');
+      if (st.editId === p.id) { st.live = null; st.draft = null; st.liveFor = null; st.imgSel = null; fetchLive(p.id); }
+      R();
+    });
+    document.body.appendChild(input); input.click();
   }
   function imagesCard(p, dis) {
     const d = st.draft; const imgs = d.images.map((iid) => p.images.find((i) => i.id === iid)).filter(Boolean);
     const sel = st.imgSel != null && st.imgSel < imgs.length ? st.imgSel : null;
+    const up = !dis ? Button({ size: 'sm', icon: 'upload', label: st.uploading ? 'بنرفع…' : 'ارفع صور من الجهاز', disabled: !!st.uploading, attrs: { 'data-pup': '' }, onClick: () => uploadFromDevice(p) }) : null;
     const ai = !dis && window.IBImages && window.IBImages.can().tool ? Button({ size: 'sm', icon: 'sparkle', label: 'ولّد صور بالذكاء الاصطناعي', attrs: { 'data-pimg': '' }, onClick: () => leaveGuard(() => go('products-tool-images-' + p.id)) }) : null;
-    return Card('صور المنتج', 'أول صورة هي الرئيسية. الترتيب والشيل بيتحفظوا على الموقع؛ صور جديدة من أداة الصور (بالـ AI) أو مع الاستوديو.', [ai ? h('div', null, ai) : null, h('div', { class: 'img-grid' }, imgs.map((im, i) => h('button', { type: 'button', class: 'img-it' + (sel === i ? ' on' : ''), 'aria-pressed': String(sel === i), onClick: () => { st.imgSel = sel === i ? null : i; R(); } }, Thumb(im.src, 'xl'), i === 0 ? Tag('brand', 'رئيسية') : null, h('figcaption', { dir: 'ltr' }, im.name || ('#' + im.id))))),
-      !imgs.length ? K.Empty('مفيش صور', 'اعمل صور بأداة الصور (بالـ AI) أو ارفعها مع استوديو المنتجات.') : null,
+    return Card('صور المنتج', 'أول صورة هي الرئيسية — دوس على صورة عشان ترتّبها أو تشيلها.', [
+      up || ai ? h('div', { class: 'acts-inline start pe-img-acts' }, up, ai, h('span', { class: 't-small help' }, 'الصور الجديدة بتترفع على الموقع على طول — الترتيب والشيل مع «احفظ على الموقع».')) : null,
+      h('div', { class: 'img-grid' }, imgs.map((im, i) => h('button', { type: 'button', class: 'img-it' + (sel === i ? ' on' : ''), 'aria-pressed': String(sel === i), 'aria-label': 'الصورة ' + (i + 1) + (i === 0 ? ' — الرئيسية' : ''), onClick: () => { st.imgSel = sel === i ? null : i; R(); } }, Thumb(im.src, 'xl'), h('span', { class: 'img-n num', 'aria-hidden': 'true' }, String(i + 1)), i === 0 ? Tag('brand', 'رئيسية') : null, h('figcaption', { dir: 'ltr' }, im.name || ('#' + im.id))))),
+      !imgs.length ? K.Empty('مفيش صور', dis ? 'المنتج ده لسه من غير صور.' : 'ارفع صور من جهازك، أو اعملها بأداة الصور (بالـ AI) أو مع استوديو المنتجات.') : null,
       sel != null && !dis ? h('div', { class: 'sel-acts' }, h('b', null, 'الصورة ' + (sel + 1) + ' محددة:'), sel ? Button({ size: 'sm', label: 'خليها الرئيسية', onClick: () => { const x = d.images.splice(sel, 1)[0]; d.images.unshift(x); st.imgSel = 0; R(); } }) : null,
         sel ? Button({ size: 'sm', label: '→ قدّم', onClick: () => { const x = d.images.splice(sel, 1)[0]; d.images.splice(sel - 1, 0, x); st.imgSel = sel - 1; R(); } }) : null,
         sel < imgs.length - 1 ? Button({ size: 'sm', label: 'أخّر ←', onClick: () => { const x = d.images.splice(sel, 1)[0]; d.images.splice(sel + 1, 0, x); st.imgSel = sel + 1; R(); } }) : null,
@@ -982,21 +1061,22 @@
   function variantsCard(dis, rec) {
     const d = st.draft; const vs = st.live.variations;
     if (!vs.length) return Card('التركيبات', null, [K.Empty('مفيش تركيبات', 'إضافة تركيبات مع الاستوديو.')]);
-    // decision 16: a maker price per variation (for the calculation only) → its sale and regular prices; the placeholder is the
-    // maker price the variation's sale price gives now (read-only, decision 12)
-    const params = can().commission && rec && !dis ? PR().commissionParams(rec) : null; st.vvin = st.vvin || {};
-    const nowVp = (v) => { const sale = Number(v.sale || v.regular); return params && sale ? K.n0(Math.round((sale - (sale * (params.rate || 0) / 100 + params.fee)) * 100) / 100) : ''; };
-    const applyAll = () => { let n = 0, bad = 0; d.vars.forEach((v) => { const raw = st.vvin[v.id]; if (!raw || !String(raw).trim()) return; const r = fromVendor(params, raw, 'v' + v.id); if (!r) { bad++; return; } v.sale = String(r.sale); v.regular = String(r.regular); n++; });
-      if (bad) K.toast(bad + ' تركيبة سعر المبتكر بتاعها مش رقم صحيح', 'error'); else if (!n) K.toast('اكتب سعر المبتكر قدام التركيبات الأول', 'error'); R(); };
+    // decision 16: a maker price per variation (for the calculation only) → its sale and regular prices. Comments decision 54: the
+    // field opens on what the variation's price leaves the maker now and writes the two prices as it is typed; a sale price typed
+    // by hand puts it back on what that price leaves him.
+    const params = can().commission && rec && !dis ? PR().commissionParams(rec) : null; st.vvin = st.vvin || {}; st.vvErr = st.vvErr || {};
+    const nowVp = (v) => { const sale = Number(v.sale || v.regular); return params && sale ? String(Math.round((sale - (sale * (params.rate || 0) / 100 + params.fee)) * 100) / 100) : ''; };
     const rows = d.vars.map((v, i) => { const lv = vs[i]; const ss = v.onDemand ? 'حسب الطلب' : PD.stockState(Number(v.qty) || 0, false, 3);
-      const upd = (k) => (x) => { const was = dirtyCount(); v[k] = x; if (!was !== !dirtyCount()) R(); else { const b = document.querySelector('#pg-products .unsaved b'); if (b) b.textContent = 'عندك ' + dirtyCount() + ' تعديلات مش محفوظة'; } };
-      const vin = params ? [U.TextInput({ id: 'vv-v' + i, label: '', value: st.vvin[v.id] || '', placeholder: nowVp(v), inputmode: 'decimal', onInput: (x) => { st.vvin[v.id] = x; } })] : [];
+      const upd = (k) => (x) => { v[k] = x; if (k === 'sale') { delete st.vvin[v.id]; delete st.vvErr[v.id]; } R(); };
+      const vin = params ? [U.TextInput({ id: 'vv-v' + i, label: '', value: st.vvin[v.id] != null ? st.vvin[v.id] : nowVp(v), inputmode: 'decimal', error: st.vvErr[v.id], onInput: (x) => { st.vvin[v.id] = x; const t = digits(x); const r = t && Number(t) > 0 ? fromVendor(params, x, 'v' + v.id) : null;
+        if (r) { delete st.vvErr[v.id]; v.sale = String(r.sale); v.regular = String(r.regular); } else if (t === '') delete st.vvErr[v.id]; else st.vvErr[v.id] = 'اكتب رقم';
+        R(); } })] : [];
       return [lv.attributes.map((a) => a.option).join(' · ') || '—', h('span', { dir: 'ltr', class: 't-small' }, lv.sku || '—')].concat(vin, [U.TextInput({ id: 'vv-r' + i, label: '', value: v.regular, inputmode: 'numeric', disabled: dis, onInput: upd('regular') }), U.TextInput({ id: 'vv-s' + i, label: '', value: v.sale, inputmode: 'numeric', disabled: dis, onInput: upd('sale') }),
         v.onDemand ? '—' : U.TextInput({ id: 'vv-q' + i, label: '', value: v.qty, inputmode: 'numeric', disabled: dis, onInput: upd('qty') }), K.Switch({ id: 'vv-d' + i, label: 'حسب الطلب', checked: v.onDemand, disabled: dis, onChange: (x) => { v.onDemand = x; R(); } }), Tag(STOCK_TONE[ss], ss)]); });
     const headers = ['التركيبة', 'SKU'].concat(params ? ['سعر المبتكر'] : [], ['قبل الخصم', 'سعر البيع', 'المخزون', 'حسب الطلب', 'الحالة']);
-    return h('div', { class: 'stack' }, Card('التركيبات (' + vs.length + ')', 'السعر والمخزون بيتحدثوا على ووكومرس أول ما تحفظ. إضافة أو شيل تركيبة مع الاستوديو.', [
-      params ? h('div', { class: 'vcalc', 'data-vcalc': '' }, h('p', { class: 't-small help', style: 'margin:0' }, 'اكتب سعر المبتكر قدام التركيبة (الرقم الرمادي = سعره دلوقتي) ودوس «احسب». ' + calcHelp(params)), Button({ size: 'sm', label: 'احسب الأسعار من سعر المبتكر', attrs: { 'data-vapply': '' }, onClick: applyAll })) : null,
-      U.Table({ cls: 'dt', headers, rows })]));
+    return Card('التركيبات (' + vs.length + ')', 'السعر والمخزون بيتحدثوا على ووكومرس أول ما تحفظ. إضافة أو شيل تركيبة مع الاستوديو.', [
+      params ? h('div', { class: 'pe-calc', 'data-vcalc': '' }, h('p', { class: 't-small help pe-formula' }, 'اكتب سعر المبتكر قدام التركيبة والسعرين بيتحسبوا لوحدهم. ' + calcHelp(params))) : null,
+      U.Table({ cls: 'dt', headers, rows })]);
   }
   function catsCard(dis) {
     const d = st.draft; const cats = PR().categories(); const on = new Set(d.cats);
@@ -1180,7 +1260,9 @@
     if (custom && K.applyPanelPrefs) setTimeout(() => K.applyPanelPrefs(pkey, panel), 0);
     return [head, mainTabs(), panel];
   }
-  document.addEventListener('ib:products', () => { if (window.IBPages.current === 'products' && st.view !== 'edit') R(); });
+  // the edit page is not drawn again under the member's typing — but for once: when it was opened by its link before the list came
+  // (no record yet → no maker, no commission figures, no categories), it is drawn when the product's record arrives
+  document.addEventListener('ib:products', () => { if (window.IBPages.current !== 'products') return; if (st.view !== 'edit') R(); else if (!st.hadRec && byId(st.editId)) R(); });
   // a deep link opened before the sign-in finished: draw again once the permissions are known
   document.addEventListener('ib:directory', () => { if (window.IBPages.current === 'products') R(); });
 

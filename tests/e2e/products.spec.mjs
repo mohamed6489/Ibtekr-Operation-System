@@ -347,19 +347,22 @@ test('decision 16: the maker price (for the calculation only) → sale = (maker 
   await page.locator('[data-pedit="9003"]').click(); // its own commission 20% + 10
   await page.getByRole('tab', { name: 'السعر والمخزون' }).click();
   await expect(page.locator('[data-vcalc]')).toContainText('عمولة المنتج 20% + 10');
+  // comments decision 54: the field opens on what the price leaves the maker now, and typing it writes the two prices by itself
+  await expect(page.locator('#e-vin')).toHaveValue('950');
+  await expect(page.locator('[data-vapply]')).toHaveCount(0);
   await page.fill('#e-vin', 'abc');
-  await page.locator('[data-vapply]').click();
   await expect(page.locator('#pg-products')).toContainText('اكتب سعر المبتكر رقم أكبر من صفر');
+  await expect(page.locator('#e-sale')).toHaveValue('1200'); // nothing computed from a wrong price
   await page.fill('#e-vin', '1000');
-  await page.locator('[data-vapply]').click();
   await expect(page.locator('#e-sale')).toHaveValue('1270'); // 1010 ÷ 0.8 = 1262.5 → 1270
   const regular = Number(await page.locator('#e-reg').inputValue());
   expect(regular % 10).toBe(0);
   expect(regular).toBeGreaterThanOrEqual(1470); // 1270 × 1.15 = 1460.5 → 1470
   expect(regular).toBeLessThanOrEqual(1660); // 1270 × 1.30 = 1651 → 1660
   await expect(page.locator('[data-vprice]')).toContainText('1,006'); // read only: 1270 − (254 + 10)
-  await page.locator('[data-vapply]').click(); // the same markup while the page is open
+  await page.fill('#e-vin', '500'); await page.fill('#e-vin', '1000'); // the same markup while the page is open
   await expect(page.locator('#e-reg')).toHaveValue(String(regular));
+  await expect(page.locator('#e-vin')).toHaveValue('1000'); // what was typed stays in the field; the box says what the rounded price leaves
   const n0 = (mock.productWrites || []).length;
   await page.locator('[data-psave]').click();
   await expect(page.locator('.unsaved')).toHaveCount(0);
@@ -372,8 +375,8 @@ test('decision 16 on a variable product: a maker price per variation → its two
   await openProducts(page);
   await page.locator('[data-pedit="9002"]').click();
   await page.getByRole('tab', { name: 'المتغيرات' }).click();
+  await expect(page.locator('[data-vapply]')).toHaveCount(0); // comments decision 54: no button — the prices follow the typing
   await page.fill('#vv-v0', '600');
-  await page.locator('[data-vapply]').click();
   const sale = Number(await page.locator('#vv-s0').inputValue()); const reg = Number(await page.locator('#vv-r0').inputValue());
   expect(sale % 10).toBe(0); expect(reg % 10).toBe(0); expect(reg).toBeGreaterThan(sale);
   const n0 = (mock.productWrites || []).length;
@@ -382,6 +385,90 @@ test('decision 16 on a variable product: a maker price per variation → its two
   await expect.poll(() => (mock.productWrites || []).length).toBeGreaterThan(n0); // the write lands after the page settles (CI, 5 Nov)
   const w = mock.productWrites.at(-1);
   expect(w.variations).toEqual([{ id: 9901, sale_price: String(sale), regular_price: String(reg) }]);
+});
+
+// a small real picture drawn in the page (the upload draws every file again in the browser, so it has to be one the browser reads)
+const pngBytes = (page, w, h, color) => page.evaluate(async ([w, h, color]) => { const c = document.createElement('canvas'); c.width = w; c.height = h; const x = c.getContext('2d'); x.fillStyle = color; x.fillRect(0, 0, w, h);
+  const b = await new Promise((r) => c.toBlob(r, 'image/png')); return [...new Uint8Array(await b.arrayBuffer())]; }, [w, h, color]);
+
+test('comments 53–55 — the edit page: one rail on every tab (the status + the product\'s summary) and no price form on «البيانات»; a field keeps the focus while it is typed in; the maker\'s price is a field that writes the two prices by itself and follows a sale price typed by hand; pictures are added from the device', async ({ page }) => {
+  await openProducts(page);
+  await page.locator('[data-pedit="9001"]').click();
+  await expect(page.locator('#e-en')).toHaveValue('Cushion');
+  // 53: the rail — the status card and the summary as the product is now; the price is edited in its own tab only
+  const sum = page.locator('#pg-products [data-pe-summary]');
+  for (const [k, text] of [['sale', '1,200'], ['regular', '1,500'], ['maker', '840'], ['fee', '360'], ['stock', 'متاح'], ['images', '3 صور']]) await expect(sum.locator('[data-pe-sum="' + k + '"]')).toContainText(text);
+  await expect(page.locator('#pg-products #e-status')).toBeVisible();
+  await expect(page.locator('#pg-products #e-sale')).toHaveCount(0);
+  for (const t of ['البيانات الأساسية', 'الاسم', 'التعريف', 'البراند والمبتكر', 'الحالة والظهور', 'ملخص المنتج']) await expect(page.locator('#pg-products .pe-layout')).toContainText(t);
+  // the field being typed in keeps the focus and the caret (it lost them at the first letter)
+  await page.locator('#e-en').click(); await page.keyboard.press('End'); await page.keyboard.type(' Deluxe', { delay: 15 });
+  await expect(page.locator('#e-en')).toHaveValue('Cushion Deluxe');
+  expect(await page.evaluate(() => document.activeElement.id)).toBe('e-en');
+  await expect(page.locator('.unsaved')).toContainText('عندك 1 تعديلات');
+  // «عدّل السعر والمخزون» in the summary opens the price tab; the rail is there too
+  await sum.locator('xpath=..').getByRole('button', { name: 'عدّل السعر والمخزون' }).click();
+  await expect(page).toHaveURL(/#products-edit-9001-price$/);
+  await expect(page.locator('#pg-products #e-status')).toBeVisible();
+  for (const t of ['السعر', 'المخزون']) await expect(page.locator('#pg-products .pe-main .card-h, #pg-products .pe-main h2').filter({ hasText: new RegExp('^' + t) }).first()).toBeVisible();
+  // 54: the maker's price opens on what the price leaves him (1,200 − 30%) and writes the two prices as it is typed
+  await expect(page.locator('#e-vin')).toHaveValue('840');
+  await page.locator('#e-vin').click(); await page.keyboard.press('ControlOrMeta+a'); await page.keyboard.type('1000', { delay: 15 });
+  await expect(page.locator('#e-sale')).toHaveValue('1430'); // 1000 ÷ 0.7 = 1428.6 → 1430
+  expect(Number(await page.locator('#e-reg').inputValue())).toBeGreaterThan(1430);
+  expect(await page.evaluate(() => document.activeElement.id)).toBe('e-vin');
+  await expect(page.locator('#e-vin')).toHaveValue('1000');
+  await expect(page.locator('[data-vprice]')).toContainText('1,001'); // what the rounded price leaves him
+  await expect(page.locator('[data-commission]')).toContainText('429');
+  await expect(sum.locator('[data-pe-sum="sale"]')).toContainText('1,430'); await expect(sum.locator('[data-pe-sum="maker"]')).toContainText('1,001');
+  // a sale price typed by hand: the maker's price follows it
+  await page.fill('#e-sale', '1300');
+  await expect(page.locator('#e-vin')).toHaveValue('910');
+  await page.fill('#e-reg', '1600');
+  await expect(page.locator('[data-poff]')).toContainText('19%');
+  await page.locator('[data-psave]').click();
+  await expect(page.locator('.unsaved')).toHaveCount(0);
+  expect(mock.productWrites.at(-1)).toEqual({ action: 'product_save', by: ADMIN, id: 9001, fields: { name: 'Cushion Deluxe', sale_price: '1300', regular_price: '1600' } }); // the maker's price is never sent
+  // 55: pictures from the device — after the unsaved edits are saved; drawn again in the browser, sent to the product at once
+  await page.getByRole('tab', { name: 'الصور' }).click();
+  await expect(page.locator('#pg-products .img-it')).toHaveCount(3);
+  await page.locator('#pg-products .img-it').nth(1).click(); await page.getByRole('button', { name: 'خليها الرئيسية' }).click();
+  await page.locator('[data-pup]').click();
+  await expect(page.locator('.toast.show')).toContainText('احفظ تعديلاتك الأول');
+  await page.getByRole('button', { name: 'تجاهل' }).click();
+  const [a, b] = [await pngBytes(page, 900, 600, '#c8a05a'), await pngBytes(page, 300, 2400, '#1f4d3a')];
+  let fc = page.waitForEvent('filechooser'); await page.locator('[data-pup]').click();
+  await (await fc).setFiles([{ name: 'front.png', mimeType: 'image/png', buffer: Buffer.from(a) }, { name: 'side.png', mimeType: 'image/png', buffer: Buffer.from(b) }]);
+  await expect(page.locator('.toast.show').filter({ hasText: 'اترفعت 2 صور على المنتج' })).toBeVisible();
+  const up = mock.productWrites.at(-1);
+  expect([up.action, up.id, up.paths, up.first, up.images]).toEqual(['product_images_add', 9001, undefined, false, ['webp', 'webp']]); // real WebP files, not the PNGs
+  expect(up.bytes.every((n) => n > 0 && n < 3 * 1048576)).toBe(true);
+  await expect(page.locator('#pg-products .img-it')).toHaveCount(5);
+  await expect(page.locator('#pg-products [data-pe-sum="images"]')).toContainText('5 صور');
+  expect(mock.activity.some((r) => r.action === 'product.images.add' && /2 images uploaded/.test(String(r.new_value)))).toBe(true);
+  // a file that is not a picture: nothing sent
+  const n0 = mock.productWrites.length;
+  fc = page.waitForEvent('filechooser'); await page.locator('[data-pup]').click();
+  await (await fc).setFiles([{ name: 'notes.png', mimeType: 'image/png', buffer: Buffer.from('not a picture') }]);
+  await expect(page.locator('.toast.show').filter({ hasText: 'مش صورة مقروءة' })).toBeVisible();
+  expect(mock.productWrites.length).toBe(n0);
+  // the switch off on the server: said, nothing changed
+  mock.pushEnabled = false;
+  fc = page.waitForEvent('filechooser'); await page.locator('[data-pup]').click();
+  await (await fc).setFiles([{ name: 'front.png', mimeType: 'image/png', buffer: Buffer.from(a) }]);
+  await expect(page.locator('.toast.show').filter({ hasText: 'الكتابة على الموقع مقفولة' })).toBeVisible();
+  await expect(page.locator('#pg-products .img-it')).toHaveCount(5);
+});
+
+test('comments 53–55 — a member who cannot edit products sees the same page read-only: no upload, no maker\'s price field', async ({ page }) => {
+  await openProducts(page, ACCOUNTS);
+  await page.locator('[data-pedit="9001"]').click();
+  await expect(page.locator('#pg-products [data-pe-summary]')).toBeVisible();
+  await page.getByRole('tab', { name: 'السعر والمخزون' }).click();
+  await expect(page.locator('#e-sale')).toBeDisabled();
+  await expect(page.locator('#e-vin')).toHaveCount(0);
+  await page.getByRole('tab', { name: 'الصور' }).click();
+  await expect(page.locator('[data-pup]')).toHaveCount(0);
 });
 
 test('reports tab (decision 20): best sellers and categories from our orders in the range (products_report), out of stock from the mirror; names open the edit page', async ({ page }) => {

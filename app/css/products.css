@@ -38,10 +38,12 @@
 .thumb.xl{width:96px;height:110px}
 .thumb.big{width:100%;height:auto;aspect-ratio:7/8}
 .thumb.fill{width:100%;height:100%;border-radius:0}
-.img-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:12px}
+.img-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:16px}
 .img-it{position:relative;display:flex;flex-direction:column;gap:4px;margin:0;padding:0;border:0;background:transparent;font:inherit;cursor:pointer;text-align:start}
 .img-it .thumb.xl{width:100%}
 .img-it .tg{position:absolute;top:6px;inset-inline-start:6px}
+.img-it .img-n{position:absolute;top:6px;inset-inline-end:6px;min-width:22px;height:22px;padding:0 6px;border-radius:11px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;background:var(--color-bg-base);color:var(--color-text-primary);border:1px solid var(--color-border-subtle)}
+.img-it .thumb.xl{aspect-ratio:7/8;height:auto;border-radius:var(--radius-md)}
 .img-it figcaption{font-size:11px;color:var(--color-text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .img-it.on .thumb{outline:2px solid var(--color-action-default);outline-offset:2px}
 .sel-acts{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;border-radius:var(--radius-md);background:var(--color-bg-tint)}
@@ -234,3 +236,32 @@
   .fk-to,.fk-add{grid-column:1 / 2}
   .fk-row > .icon-btn,.fk-row > button:last-child{grid-row:2;grid-column:2}
 }
+
+/* the edit page (comments decisions 53–55 — the owner 15 Nov: «نظبط ال ui بشكل منظم و احترافي»): the tab's cards beside one rail
+   (the status card + the product's summary) on every tab; sections inside «البيانات الأساسية»; the price as three fields in a row
+   with its figures in boxes under them */
+#pg-products .pe-layout>.pe-main,#pg-products .pe-layout>.pe-rail{gap:16px}
+@media (min-width:1280px){.pe-layout>.pe-rail{position:sticky;top:108px}}
+.pe-sec{display:flex;flex-direction:column;gap:12px}
+.pe-sec+.pe-sec{padding-top:16px;border-top:1px solid var(--color-border-subtle)}
+.pe-sec-h{margin:0;font-size:13px;line-height:20px;font-weight:600;color:var(--color-text-secondary)}
+.pe-sum{grid-template-columns:auto minmax(0,1fr);gap:10px 16px;margin:0;align-items:center}
+.pe-sum dt{white-space:nowrap}
+.pe-sum dd{display:flex;justify-content:flex-end;text-align:end;min-width:0;overflow-wrap:anywhere}
+.pe-jump{display:flex;justify-content:flex-end;padding-top:12px;border-top:1px solid var(--color-border-subtle)}
+.pe-prices{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;align-items:start}
+.pe-prices.two{grid-template-columns:repeat(2,minmax(0,1fr))}
+.pe-formula{margin:8px 0 0}
+.pe-boxes{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+.pe-box{display:flex;flex-direction:column;gap:4px;min-width:0;padding:12px 16px;border:1px solid var(--color-border-subtle);border-radius:var(--radius-md);background:var(--color-bg-container)}
+.pe-box .t-small{color:var(--color-text-secondary)}
+.pe-box b{font-size:18px;line-height:26px}
+.pe-box.brand b{color:var(--color-brand-default)}
+.pe-img-acts{margin-bottom:4px}
+/* the variations' table needs the page's width: its rail goes under it, the two cards side by side */
+.pe-layout[data-pe="variants"]{flex-direction:column}
+.pe-layout[data-pe="variants"]>.pe-main{width:100%}
+.pe-layout[data-pe="variants"]>.pe-rail{flex:1 1 auto;width:100%;position:static}
+@media (min-width:768px){#pg-products .pe-layout[data-pe="variants"]>.pe-rail{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start}}
+@media (max-width:767px){.pe-prices,.pe-prices.two{grid-template-columns:1fr}.pe-boxes{grid-template-columns:1fr 1fr}
+  .edit-head .actions .pop-anchor{width:auto}.edit-head .actions>.btn{flex:1 1 auto}}

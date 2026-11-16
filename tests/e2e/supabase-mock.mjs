@@ -28,6 +28,12 @@ import { settingsState, settingsRoute } from './settings-mock.mjs';
 // phase 11 (0056): the team RPCs, settings-admin / notify, company_docs, the buckets company-docs / settings, activity_log filters
 import { portalState, portalRoute } from './portal-mock.mjs'; // phase 13 T4 (0065): the maker portal's Edge Function on the mock's rows
 export const SUPABASE_URL = 'https://fsynculhaupcktzkfkdd.supabase.co';
+// what the developer's «تحديثات ووردبريس» check answers when a spec gives no list of its own (the demo copy shows this)
+const WP_STATUS = { core: { version: '6.7.2', latest: '6.8.3', update: true, known: true }, woo: { version: '9.8.1' }, php: '8.2.20',
+  theme: { name: 'Woodmart', version: '8.0.4', latest: '8.1.0', active: true, update: true },
+  plugins: [{ name: 'Dokan Pro', version: '4.0.2', latest: '4.0.5', active: true, update: true }, { name: 'WPML Multilingual CMS', version: '4.7.1', latest: '4.7.3', active: true, update: true },
+    { name: 'Rank Math SEO', version: '1.0.240', latest: '', active: true, update: false }, { name: 'WooCommerce', version: '9.8.1', latest: '', active: true, update: false },
+    { name: 'WP All Import Pro', version: '4.9.9', latest: '', active: true, update: false }, { name: 'Hello Dolly', version: '1.7.2', latest: '', active: false, update: false }], updates: 4 };
 export const LIVE = process.env.E2E_SUPABASE_LIVE === '1';
 const LIVE_URL = process.env.E2E_SUPABASE_URL || ''; const LIVE_KEY = process.env.E2E_SUPABASE_ANON_KEY || '';
 export const LIVE_MISSING = LIVE && !(LIVE_URL && LIVE_KEY) ? 'E2E_SUPABASE_URL/E2E_SUPABASE_ANON_KEY (staging project) not set' : '';
@@ -2324,6 +2330,7 @@ export async function installSupabaseMock(page, opts = {}) {
         return json(200, { action, result: 'ok', store, adopted: false, commission, bank, photo: 'none', shop_url: 'https://woo.test/store/' + shop + '/' });
       }
       if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : (action === 'order_trash' || action === 'suborder_trash' || action === 'line_trash' || action === 'line_qty' || action === 'line_add' || action === 'suborder_status') ? hasPerm(u, 'orders.status') === 'F' && hasPerm(u, 'orders.view') !== 'N' : (action === 'order_create' || action === 'order_pay_link') ? (isAdmin(u) || hasPerm(u, 'orders.status') === 'F') : action === 'push_vendor' ? mayPushVendor() : (action === 'statement' || action === 'withdrawals') ? hasPerm(u, 'accounts.view') !== 'N' : action === 'thumbs' ? (hasPerm(u, 'orders.view') !== 'N' || hasPerm(u, 'products.view') !== 'N') : action === 'withdraw_approve' || action === 'withdraw_create' ? (isAdmin(u) || hasPerm(u, 'accounts.approve') === 'F')
+        : action === 'wp_updates' ? (isAdmin(u) || hasPerm(u, 'marketing.create') === 'F')
         : action === 'product_get' || action === 'styles' ? hasPerm(u, 'products.view') !== 'N' : action === 'product_save' || action === 'product_images_add' ? (isAdmin(u) || hasPerm(u, 'products.edit') === 'F') : action === 'products_batch' || action === 'products_vendor' ? (isAdmin(u) || hasPerm(u, 'products.bulk') === 'F')
           : action === 'products_trash' || action === 'products_restore' ? hasPerm(u, 'products.trash') === 'F' : action === 'studio_upload' || action === 'studio_media' || action === 'category_create' || action === 'studio_sheet' || action === 'product_duplicate' || action === 'category_get' || action === 'category_update' || action === 'category_delete' || action === 'category_order' ? (isAdmin(u) || hasPerm(u, 'products.add') === 'F') : isAdmin(u))) return json(401, { error: 'unauthorized' });
       // phase 5.2: studio_upload — the item read from the batch and checked by the server's own buildStudio; the gate; a product
@@ -2338,6 +2345,15 @@ export async function installSupabaseMock(page, opts = {}) {
       // (400 bad_link), then mock.sheetLinks[url] = { csv } | { reason } (else not_published); mock.sheetReads lists the links.
       // styles (comments decision 51): the site's «Product Style» terms — mock.siteStyles ([{ id, en, ar }]; none by default: the
       // page then keeps its own list); mock.styleReads counts the reads
+      // comments decision 71: the site's WordPress / plugin updates (mock.wpStatus = the list the «site» answers, mock.wpFail = the
+      // site's refusal code); kept as the one row site_checks('wp_updates') unless the migration is not applied (mkt.noSections)
+      if (action === 'wp_updates') {
+        (mock.wpChecks = mock.wpChecks || []).push({ by: u.email });
+        if (mock.wpFail) return json(200, { action, result: 'error', reason: mock.wpFail });
+        const data = mock.wpStatus || WP_STATUS; const at = new Date().toISOString(); const H = mock.mkt; const stored = !!H && !H.noSections;
+        if (stored) { H.siteChecks = H.siteChecks.filter((r) => r.kind !== 'wp_updates'); H.siteChecks.push({ kind: 'wp_updates', data, checked_at: at, checked_by: u.id }); }
+        return json(200, { action, result: 'ok', data, checked_at: at, stored });
+      }
       if (action === 'styles') { mock.styleReads = (mock.styleReads || 0) + 1; const list = Array.isArray(mock.siteStyles) ? mock.siteStyles : []; return json(200, { action, result: 'ok', attribute: Array.isArray(mock.siteStyles), styles: list }); }
       if (action === 'studio_sheet') {
         if (!sheetCsvUrl(b.url)) return json(400, { error: 'bad_link', field: 'url' });

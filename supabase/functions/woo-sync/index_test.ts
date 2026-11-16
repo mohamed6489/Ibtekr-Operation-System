@@ -13,7 +13,7 @@ const OURS = `${ENV.SUPABASE_URL}/functions/v1/woo-webhook`;
 // Member tokens → what has_perm('orders.status') / is_admin() answer for them, plus (phase 3.3) has_perm('vendors.edit') /
 // has_perm('sensitive.commission') for push_vendor: ops = vendors.edit P, vf = vendors follow-up (vendors.edit F, commission N),
 // acct = accounts (nothing). (the last three answer "truthy" values that are not the exact true / 'F' the function requires).
-const MEMBERS: Record<string, { perm: unknown; admin: unknown; view?: unknown; edit?: unknown; commission?: unknown; bank?: unknown; accounts?: unknown; approve?: unknown; pview?: unknown; pedit?: unknown; pbulk?: unknown; ptrash?: unknown; padd?: unknown; iedit?: unknown }> = {
+const MEMBERS: Record<string, { perm: unknown; admin: unknown; view?: unknown; edit?: unknown; commission?: unknown; bank?: unknown; accounts?: unknown; approve?: unknown; pview?: unknown; pedit?: unknown; pbulk?: unknown; ptrash?: unknown; padd?: unknown; iedit?: unknown; mkt?: unknown }> = {
   'jwt-admin': { perm: 'F', admin: true }, 'jwt-ops': { perm: 'F', admin: false, edit: 'P' }, 'jwt-acct': { perm: 'P', admin: false, edit: 'N', accounts: 'P' },
   'jwt-vf': { perm: 'N', admin: false, edit: 'F', commission: 'N' },
   'jwt-bank': { perm: 'N', admin: false, edit: 'N', bank: 'F' }, // phase 3.5: accounts — sensitive.vendor_bank = F, vendors.edit = N
@@ -26,6 +26,7 @@ const MEMBERS: Record<string, { perm: unknown; admin: unknown; view?: unknown; e
   'jwt-invonly': { perm: 'N', admin: false, iedit: 'F' }, // inventory.edit = F without products.edit: never pushes
   'jwt-admin-text': { perm: 'f', admin: 'true' }, 'jwt-admin-one': { perm: 'F ', admin: 1 },
   'jwt-noview': { perm: 'F', admin: false, view: 'N' }, // phase 5.5 decision 10: orders.status F without orders.view — never deletes
+  'jwt-mkt': { perm: 'N', admin: false, mkt: 'F' }, // comments decision 71: marketing.create = F (the developer's site check)
 };
 
 type Opts = { seed?: Record<string, any[]>; routes?: Record<string, any>; env?: Record<string, string>; secretAnswer?: (ok: boolean) => unknown; fail?: (c: any) => any; storage?: Record<string, Uint8Array>; rpc?: Record<string, (args: any) => unknown> };
@@ -37,7 +38,7 @@ function setup({ seed = {}, routes = {}, env = {}, secretAnswer = (ok) => ok, fa
   const members: any[] = [];
   const userDb = (jwt: string) => {
     const m = MEMBERS[jwt];
-    const client = fakeDb({}, { rpc: m ? { sku_serial_take: () => 1234, has_perm: ({ key }: any) => (key === 'orders.status' ? m.perm : key === 'orders.view' ? m.view ?? (m.perm === 'F' || m.perm === 'P' ? 'F' : 'N') : key === 'vendors.edit' ? m.edit ?? 'N' : key === 'sensitive.commission' ? m.commission ?? 'N' : key === 'sensitive.vendor_bank' ? m.bank ?? 'N' : key === 'accounts.view' ? m.accounts ?? 'N' : key === 'accounts.approve' ? m.approve ?? 'N' : key === 'products.view' ? m.pview ?? 'N' : key === 'products.edit' ? m.pedit ?? 'N' : key === 'products.bulk' ? m.pbulk ?? 'N' : key === 'products.trash' ? m.ptrash ?? 'N' : key === 'products.add' ? m.padd ?? 'N' : key === 'inventory.edit' ? m.iedit ?? 'N' : 'N'), is_admin: () => m.admin } : {} });
+    const client = fakeDb({}, { rpc: m ? { sku_serial_take: () => 1234, has_perm: ({ key }: any) => (key === 'orders.status' ? m.perm : key === 'orders.view' ? m.view ?? (m.perm === 'F' || m.perm === 'P' ? 'F' : 'N') : key === 'vendors.edit' ? m.edit ?? 'N' : key === 'sensitive.commission' ? m.commission ?? 'N' : key === 'sensitive.vendor_bank' ? m.bank ?? 'N' : key === 'accounts.view' ? m.accounts ?? 'N' : key === 'accounts.approve' ? m.approve ?? 'N' : key === 'products.view' ? m.pview ?? 'N' : key === 'products.edit' ? m.pedit ?? 'N' : key === 'products.bulk' ? m.pbulk ?? 'N' : key === 'products.trash' ? m.ptrash ?? 'N' : key === 'products.add' ? m.padd ?? 'N' : key === 'inventory.edit' ? m.iedit ?? 'N' : key === 'marketing.create' ? m.mkt ?? 'N' : 'N'), is_admin: () => m.admin } : {} });
     members.push({ jwt, client });
     return client;
   };
@@ -3153,4 +3154,48 @@ Deno.test('thumbs (comments decision 10): a member who sees the orders or the pr
   const none = setup({ env: { WOO_URL: '' } });
   assertEquals((await call(none.deps, { action: 'thumbs', urls: [U + 'lamp.webp'] }, { jwt: 'jwt-ops' })).body.images, [{ url: U + 'lamp.webp', type: null, data: null }]);
   assertEquals(none.woo.calls.length, 0);
+});
+
+// comments decision 71 («تحديثات ووردبريس» — the developer's section): WooCommerce's system status report + WordPress.org's newest
+// release → names and versions only, kept as the one row site_checks('wp_updates')
+const SYS = {
+  environment: { wp_version: '6.7.2', version: '9.8.1', php_version: '8.2.20', home_url: 'https://woo.test', log_directory: '/home/site/wc-logs/' },
+  theme: { name: 'Woodmart', version: '8.0.4', version_latest: '8.1.0' },
+  active_plugins: [{ plugin: 'woocommerce/woocommerce.php', name: 'WooCommerce', version: '9.8.1', version_latest: '9.8.1' }, { plugin: 'dokan-pro/dokan-pro.php', name: 'Dokan Pro', version: '4.0.2', version_latest: '4.0.5' }],
+  inactive_plugins: [{ name: 'Hello Dolly', version: '1.7.2', version_latest: '1.7.2' }] };
+Deno.test('wp_updates (comments decision 71): the admin or marketing.create, never the sync secret; two GETs (the system status with the WC keys, WordPress.org); the list of names and versions is answered and kept as one row — no path or address of the server in it', async () => {
+  const routes = { 'GET wc/v3/system_status': { body: SYS }, 'GET /core/version-check/1.7/': { body: { offers: [{ response: 'upgrade', current: '6.8.3' }] } } };
+  const { woo, db, deps } = setup({ routes });
+  assertEquals((await call(deps, { action: 'wp_updates' })).res.status, 401, 'never the sync secret');
+  assertEquals((await call(deps, { action: 'wp_updates' }, { jwt: 'jwt-pedit' })).res.status, 401, 'marketing.create N');
+  assertEquals(woo.calls.length, 0);
+  const { res, body } = await call(deps, { action: 'wp_updates' }, { jwt: 'jwt-mkt' });
+  assertEquals([res.status, body.result, body.stored, body.checked_at], [200, 'ok', true, NOW]);
+  assertEquals(body.data.core, { version: '6.7.2', latest: '6.8.3', update: true, known: true });
+  assertEquals([body.data.woo, body.data.php, body.data.updates], [{ version: '9.8.1' }, '8.2.20', 3]);
+  assertEquals(body.data.theme, { name: 'Woodmart', version: '8.0.4', latest: '8.1.0', active: true, update: true });
+  assertEquals(body.data.plugins.map((p: any) => [p.name, p.version, p.latest, p.active, p.update]), [['Dokan Pro', '4.0.2', '4.0.5', true, true], ['WooCommerce', '9.8.1', '', true, false], ['Hello Dolly', '1.7.2', '', false, false]]);
+  // the two reads: the report with the WC keys and its four parts only; WordPress.org with no key at all
+  assertEquals(woo.calls.map((c: any) => [c.method, c.path]), [['GET', 'wc/v3/system_status'], ['GET', '/core/version-check/1.7/']]);
+  assertEquals([woo.calls[0].query._fields, woo.calls[0].headers.authorization, woo.calls[1].headers.authorization], ['environment,active_plugins,inactive_plugins,theme', WC_AUTH, undefined]);
+  // kept as one row, by who checked; a second check replaces it
+  assertEquals(db.rows('site_checks').map((r: any) => [r.kind, r.checked_by, r.checked_at, r.data.updates]), [['wp_updates', 'uid-jwt-mkt', NOW, 3]]);
+  await call(deps, { action: 'wp_updates' }, { jwt: 'jwt-admin' });
+  assertEquals(db.rows('site_checks').map((r: any) => r.checked_by), ['uid-jwt-admin']);
+  const kept = JSON.stringify(db.rows('site_checks')) + JSON.stringify(body);
+  for (const leak of ['wc-logs', 'woo.test', 'woocommerce.php', 'ck_test']) assertEquals(kept.includes(leak), false, leak);
+  assertEquals(db.rows('woo_sync_log').length, 0);
+});
+
+Deno.test('wp_updates: WordPress.org not answering claims no core update; the site refusing the report is an error with its code and nothing kept; before 0109 the list is answered without being kept', async () => {
+  const a = setup({ routes: { 'GET wc/v3/system_status': { body: SYS } } }); // WordPress.org → 404
+  const one = await call(a.deps, { action: 'wp_updates' }, { jwt: 'jwt-admin' });
+  assertEquals([one.body.result, one.body.data.core, one.body.data.updates], ['ok', { version: '6.7.2', latest: '', update: false, known: false }, 2]);
+  const b = setup({ routes: { 'GET wc/v3/system_status': { status: 401, body: { code: 'woocommerce_rest_cannot_view', message: 'Sorry' } } } });
+  const two = await call(b.deps, { action: 'wp_updates' }, { jwt: 'jwt-admin' });
+  assertEquals([two.res.status, two.body], [200, { action: 'wp_updates', result: 'error', reason: 'woocommerce_rest_cannot_view' }]);
+  assertEquals([b.db.rows('site_checks').length, b.woo.calls.length], [0, 1]);
+  const c = setup({ routes: { 'GET wc/v3/system_status': { body: SYS } }, fail: (q: any) => (q.table === 'site_checks' ? { code: '42P01', message: 'relation "public.site_checks" does not exist' } : null) });
+  const three = await call(c.deps, { action: 'wp_updates' }, { jwt: 'jwt-admin' });
+  assertEquals([three.body.result, three.body.stored, three.body.data.plugins.length], ['ok', false, 3]);
 });

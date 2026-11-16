@@ -39,8 +39,9 @@ const COLS = {
   // 0109 (comments decisions 69 / 70): the designer's trends (the server's rows) and the media buyer's competitors (marketing.create writes)
   mkt_trends: ['id', 'batch', 'title', 'summary', 'source', 'url', 'kind', 'found_at', 'created_by'],
   mkt_competitors: ['id', 'name', 'page_id', 'page_url', 'keyword', 'note', 'created_by', 'created_at', 'updated_by', 'updated_at', 'archived_at'],
+  site_checks: ['kind', 'data', 'checked_at', 'checked_by'], // the last WordPress updates check (the server's row — decision 71)
 };
-const KEY = { mkt_campaigns: 'campaigns', mkt_posts: 'posts', mkt_templates: 'templates', mkt_ad_objects: 'adObjects', mkt_ad_stats: 'adStats', mkt_suggestions: 'suggestions', mkt_requests: 'requests', mkt_video_jobs: 'videoJobs', mkt_agent_chats: 'agentChats', mkt_agent_messages: 'agentMsgs', mkt_trends: 'trends', mkt_competitors: 'competitors' };
+const KEY = { mkt_campaigns: 'campaigns', mkt_posts: 'posts', mkt_templates: 'templates', mkt_ad_objects: 'adObjects', mkt_ad_stats: 'adStats', mkt_suggestions: 'suggestions', mkt_requests: 'requests', mkt_video_jobs: 'videoJobs', mkt_agent_chats: 'agentChats', mkt_agent_messages: 'agentMsgs', mkt_trends: 'trends', mkt_competitors: 'competitors', site_checks: 'siteChecks' };
 const GRANT = { mkt_campaigns: { insert: ['name', 'goal', 'step', 'state'], update: ['name', 'goal', 'step', 'state', 'archived_at'] },
   mkt_templates: { insert: ['name', 'kind', 'image', 'descr'], update: ['name', 'kind', 'image', 'descr', 'deleted_at'] },
   mkt_requests: { insert: [], update: [] } }; // 0082: nothing writes it from a member any more (the requests are team requests)
@@ -115,12 +116,13 @@ export function mktState(opts = {}) {
     trends: (opts.mktTrends || []).map((x, i) => ({ id: i + 1, batch: 'b0000000-0000-4000-8000-000000000001', summary: null, kind: 'image', found_at: now, created_by: null, ...x })),
     competitors: (opts.mktCompetitors || []).map((x, i) => ({ id: i + 1, page_id: null, page_url: null, keyword: null, note: null, created_by: null, created_at: now, updated_by: null, updated_at: now, archived_at: null, ...x })),
     noSections: !!opts.mktNoSections, trendsFail: null, trendsAnswer: null, trendsResults: null,
+    siteChecks: (opts.siteChecks || []).map((x) => ({ kind: 'wp_updates', data: {}, checked_at: now, checked_by: null, ...x })),
   };
 }
 
 export function mktRoute(c) {
   const { method, path, url, hd, u, hasPerm, isAdmin, json, mock, route } = c; const H = mock.mkt; if (!H) return null;
-  const rest = /^\/rest\/v1\/(mkt_[a-z_]+)$/.exec(path); const rpc = /^\/rest\/v1\/rpc\/(mkt_[a-z_]+)$/.exec(path);
+  const rest = /^\/rest\/v1\/(mkt_[a-z_]+|site_checks)$/.exec(path); const rpc = /^\/rest\/v1\/rpc\/(mkt_[a-z_]+)$/.exec(path);
   const sto = /^\/storage\/v1\/object\/(sign\/)?marketing\/(.+)$/.exec(path);
   const fn = method === 'POST' && (path === '/functions/v1/ai-images' || path === '/functions/v1/ai-content' || path === '/functions/v1/mkt-publish' || path === '/functions/v1/mkt-ads');
   if (!(rest && COLS[rest[1]]) && !rpc && !sto && !fn) return null;
@@ -277,7 +279,7 @@ export function mktRoute(c) {
   if (miss) return refuse(400, '42703', 'column ' + t + '.' + miss + ' does not exist');
   const pick = (r) => (sel.includes('*') ? { ...r } : Object.fromEntries(sel.map((x) => [x, r[x] === undefined ? null : r[x]])));
   const answer = (list) => (single ? (list.length ? json(200, pick(list[0])) : refuse(406, 'PGRST116', 'no rows')) : json(200, list.map(pick)));
-  if (t === 'mkt_trends' || t === 'mkt_competitors') { // 0109
+  if (t === 'mkt_trends' || t === 'mkt_competitors' || t === 'site_checks') { // 0109
     if (H.noSections) return refuse(404, 'PGRST205', "Could not find the table 'public." + t + "' in the schema cache");
     if (method === 'GET') {
       let list = view ? H[key].filter(match) : [];
@@ -286,7 +288,7 @@ export function mktRoute(c) {
       const lim = Number(url.searchParams.get('limit')); if (lim > 0) list = list.slice(0, lim);
       return answer(list);
     }
-    if (t === 'mkt_trends') return refuse(403, '42501', 'permission denied for table mkt_trends'); // the server's rows
+    if (t === 'mkt_trends' || t === 'site_checks') return refuse(403, '42501', 'permission denied for table ' + t); // the server's rows
     const b = c.body(); const ALLOW = method === 'POST' ? ['name', 'page_id', 'page_url', 'keyword', 'note'] : ['name', 'page_id', 'page_url', 'keyword', 'note', 'archived_at'];
     if (Object.keys(b || {}).some((k) => !ALLOW.includes(k))) return refuse(403, '42501', 'permission denied for table mkt_competitors');
     if (!create) return refuse(403, '42501', 'new row violates row-level security policy for table "mkt_competitors"');

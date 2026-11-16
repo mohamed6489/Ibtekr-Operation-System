@@ -523,3 +523,69 @@ test('comment 70 — «إعلانات المنافسين» in the media buyer\'s
   await pg(page).getByRole('tab', { name: /الديزاينر/ }).click();
   await expect(pg(page).locator('.mk-comp')).toHaveCount(0);
 });
+
+// comments decision 71 (the owner 15 Nov — «زودلي قسم المبرمج يجيبله ابديتس للوردر بريس و الاشتراكات بتاعت ورد بريس و الكريديتس»): the
+// developer's tab gets three cards — the site's updates (woo-sync wp_updates: names and versions, kept as one row), the
+// subscriptions of the accounts page with what is left of each (for whoever sees the accounts), and the month's AI credits
+const DAY = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+const SUBS = [
+  { id: 1, on_date: '2026-01-10', direction: 'withdraw', category: 'الاشتراكات', amount: 1800, sub_name: 'Canva', sub_ends: DAY(90), sub_alerts: ['week'], voided_at: null },
+  { id: 2, on_date: '2026-01-10', direction: 'withdraw', category: 'الاشتراكات', amount: 4200, sub_name: 'استضافة الموقع (Hostinger)', sub_ends: DAY(12), sub_alerts: ['month'], voided_at: null },
+  { id: 3, on_date: '2025-01-10', direction: 'withdraw', category: 'الاشتراكات', amount: 3900, sub_name: 'استضافة الموقع (Hostinger)', sub_ends: DAY(-300), sub_alerts: ['month'], voided_at: null },
+  { id: 4, on_date: '2026-03-01', direction: 'withdraw', category: 'المصروفات', amount: 500, sub_name: null, sub_ends: null, voided_at: null }];
+test('comment 71 — the developer\'s tab: «افحص دلوقتي» lists WordPress, the theme and the plugins with what waits an update (kept for the next visit); the site\'s subscriptions first with the days left; the month\'s credits; a refusal in words', async ({ page }) => {
+  await start(page);
+  mock.acc.acc_expenses.push(...SUBS);
+  await openAi(page, ADMIN, 'المبرمج');
+  const up = pg(page).locator('.mk-dv');
+  await expect(up).toContainText('تحديثات ووردبريس');
+  await expect(up).toContainText('لسه مفيش فحص');
+  // the check: one call, the versions as chips, a row per part, what waits first
+  await up.locator('[data-dv-check]').click();
+  await expect(up.locator('[data-dv-updates]')).toHaveAttribute('data-dv-updates', '4');
+  expect(mock.wpChecks).toEqual([{ by: ADMIN }]);
+  await expect(up.locator('.mk-dv-sum')).toContainText('6.7.2');
+  await expect(up.locator('thead th')).toHaveText(['الاسم', 'النوع', 'النسخة على الموقع', 'آخر نسخة', 'الحالة']);
+  const rows = await up.locator('tbody tr').evaluateAll((trs) => trs.map((tr) => [tr.querySelector('[data-dv-item]').textContent, tr.children[1].textContent, tr.children[2].textContent, tr.children[3].textContent, tr.querySelector('[data-dv-st]').getAttribute('data-dv-st')]));
+  expect(rows.slice(0, 4)).toEqual([['WordPress', 'ووردبريس', '6.7.2', '6.8.3', 'update'], ['Woodmart', 'الثيم', '8.0.4', '8.1.0', 'update'], ['Dokan Pro', 'إضافة', '4.0.2', '4.0.5', 'update'], ['WPML Multilingual CMS', 'إضافة', '4.7.1', '4.7.3', 'update']]);
+  expect(rows.slice(-2)).toEqual([['WP All Import Pro', 'إضافة', '4.9.9', '—', 'ok'], ['Hello Dolly', 'إضافة', '1.7.2', '—', 'off']]);
+  await expect(page.locator('body')).toContainText('4 تحديث مستني');
+  await expect.poll(() => mock.activityRows.filter((a) => a.action === 'mkt.site.check').map((a) => a.new_value)).toEqual(['4']);
+  expect(mock.mkt.siteChecks.map((r) => [r.kind, r.data.updates])).toEqual([['wp_updates', 4]]);
+  // the subscriptions: the latest payment of each name, the site's own first, the days left; the ordinary expense is not one
+  const subs = pg(page).locator('.mk-dv-subs');
+  await expect(subs.locator('[data-dv-sub]')).toHaveCount(2);
+  expect(await subs.locator('[data-dv-sub]').evaluateAll((els) => els.map((e) => e.getAttribute('data-dv-sub')))).toEqual(['استضافة الموقع (Hostinger)', 'Canva']);
+  await expect(subs.locator('[data-dv-sub]').first()).toContainText('باقي 12 يوم');
+  await expect(subs.locator('[data-dv-sub]').first()).toContainText('4,200');
+  await expect(subs).toContainText('1 محتاج تجديد');
+  // the credits: the image credits against the cap, the AI spend for the admin
+  const cr = pg(page).locator('.mk-dv-credits');
+  await expect(cr.locator('[data-dv-credit="images"]')).toContainText('5,000');
+  await expect(cr.locator('[data-dv-credit="ai"]')).toContainText('$');
+  // the site refuses the report: the reason in words, the last list stays
+  mock.wpFail = 'woocommerce_rest_cannot_view';
+  await up.locator('[data-dv-check]').click();
+  await expect(page.locator('body')).toContainText('مفتاح ووكومرس مالوش صلاحية يقرا تقرير حالة الموقع');
+  await expect(up.locator('tbody tr')).toHaveCount(8);
+  // the next visit reads the kept row
+  await page.reload(); await expect(page.locator('#root')).toBeVisible();
+  await page.locator('.sidebar .nav-item[data-page="marketing"]').click();
+  await pg(page).getByRole('tab', { name: /مساعدين الذكاء الاصطناعي/ }).click();
+  await pg(page).getByRole('tab', { name: /المبرمج/ }).click();
+  await expect(pg(page).locator('.mk-dv tbody tr')).toHaveCount(8);
+  // the designer's tab has none of the three
+  await pg(page).getByRole('tab', { name: /الديزاينر/ }).click();
+  await expect(pg(page).locator('.mk-dv, .mk-dv-subs, .mk-dv-credits')).toHaveCount(0);
+});
+
+test('comment 71 — a member who does not see the accounts gets no subscriptions (a note instead) and no dollar spend', async ({ page }) => {
+  await start(page);
+  mock.acc.acc_expenses.push(...SUBS);
+  mock.profiles.find((p) => p.id === OPS_ID).role_id = 'developer'; // 0081: the viewer's permissions + marketing — no accounts
+  await openAi(page, OPS, 'المبرمج');
+  await expect(pg(page).locator('.mk-dv-subs')).toContainText('محتاجة صلاحية الحسابات');
+  await expect(pg(page).locator('.mk-dv-subs [data-dv-sub]')).toHaveCount(0);
+  await expect(pg(page).locator('.mk-dv-credits [data-dv-credit="images"]')).toBeVisible();
+  await expect(pg(page).locator('.mk-dv-credits [data-dv-credit="ai"]')).toHaveCount(0);
+});

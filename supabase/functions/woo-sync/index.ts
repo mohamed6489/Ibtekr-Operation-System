@@ -164,6 +164,7 @@ import { duplicateAr, duplicatePayload, duplicateSku, duplicateVariation, variat
 import { OWNED, siteQuantities, skuList } from '../_shared/woo-inventory.js';
 import { CART_HOURS, CART_PATH, cartRows } from '../_shared/woo-carts.js';
 import { imageHosts, imageKind, siteImage, thumbCandidates, thumbUrls } from '../_shared/site-image.js';
+import { CORE_CHECK, SYSTEM_FIELDS, coreLatest, wpStatus } from '../_shared/wp-updates.js';
 import { VENDOR_SYNC_COLUMNS, applyPushResult, effectiveRates, gmtIso, loadBanks, loadTree, logActivity, markPushPending, pushStoreFields, retryablePush, saveVendors, wooId, writeBrands, writeCategories, releaseLines, writeContext, writeOrderPage, writeOrders, writeProducts, writeStates } from '../_shared/woo-write.js';
 
 // deno-lint-ignore no-explicit-any
@@ -176,7 +177,7 @@ type Run = { db: Db; env: Deps['env']; woo: () => ReturnType<typeof wooApi>; ctx
 
 const ACTIONS = ['states', 'categories', 'orders', 'vendors', 'products', 'all', 'push_status', 'push_vendor', 'register_webhooks', 'probe_store', 'probe_dokan', 'accounts', 'statement', 'withdraw_approve', 'withdraw_create', 'withdrawals', 'order_trash', 'suborder_trash', 'line_trash', 'line_qty', 'line_add', 'suborder_status', 'order_create', 'order_pay_link',
   'vendor_photo', 'vendor_store', 'product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'studio_media', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push', 'product_duplicate', 'carts',
-  'category_get', 'category_update', 'category_delete', 'category_order', 'thumbs', 'styles'];
+  'category_get', 'category_update', 'category_delete', 'category_order', 'thumbs', 'styles', 'wp_updates'];
 // phase 5: the product actions a person runs (never the sync secret); phase 5.2: the studio's upload, a new category, a sheet link;
 // phase 5.4: the images tool's results onto a product; B4 (11 Nov): the categories tab's read, edit and delete
 const PRODUCT_ACTIONS = ['product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'studio_media', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push', 'product_duplicate',
@@ -209,6 +210,7 @@ async function authorize(req: Request, deps: Deps, action: string, args: Json): 
     if (action === 'order_create' || action === 'order_pay_link') return null; // a person makes an order from the chat (phase 13 T3)
     if (action === 'vendor_photo' || action === 'vendor_store') return null; // a person sets a maker's photo / makes his store (phase 13 decision 51; 11 Nov)
     if (PRODUCT_ACTIONS.includes(action)) return null; // a person edits products, never the cron / sync secret (phase 5)
+    if (action === 'wp_updates') return null; // a person checks the site's updates (comments decision 71)
     const { data, error } = await deps.db.rpc('sync_secret_matches', { candidate: secret });
     return !error && data === true ? 'system' : null;
   }
@@ -223,6 +225,8 @@ async function authorize(req: Request, deps: Deps, action: string, args: Json): 
   // phase 13 T3 (decision 7): an order from the customer-service chat and its pay link — the admin or orders.status = F
   if (action === 'order_create' || action === 'order_pay_link') return (await admin()) || (await perm('orders.status')) ? 'member' : null;
   if (action === 'statement' || action === 'withdrawals') { const { data, error } = await member.rpc('has_perm', { key: 'accounts.view' }); return !error && (data === 'F' || data === 'P') ? 'member' : null; }
+  // comments decision 71: the site's WordPress / plugin updates for the developer's section — the admin or marketing.create = F
+  if (action === 'wp_updates') return (await admin()) || (await perm('marketing.create')) ? 'member' : null;
   // comments decision 10: the photos of a report's products — whoever sees the orders or the products
   if (action === 'thumbs') { for (const key of ['orders.view', 'products.view']) { const { data, error } = await member.rpc('has_perm', { key }); if (!error && (data === 'F' || data === 'P')) return 'member'; } return null; }
   // phase 4.1 (decision 1): approving a Dokan withdraw request — the admin or accounts.approve = F (has_perm carries aal2)
@@ -2245,6 +2249,27 @@ async function categoryCreate(run: Run, args: Json) {
   return json(200, { action: 'category_create', result: 'ok', id, ar_id: arId, image: catView(c)?.image ?? null });
 }
 
+// ---------------------------------------------------------------- the site's updates (comments decision 71)
+
+// wp_updates (the owner 15 Nov — «زودلي قسم المبرمج يجيبله ابديتس للوردر بريس»): what WooCommerce's own system status report says
+// about the site — the WordPress, WooCommerce and PHP versions, the theme and every plugin with the version installed and the
+// newest one the site knows of — and WordPress.org's newest release (a fixed public address; not read = no core update is
+// claimed). Two GETs, nothing written on the site; the list (names and versions only — _shared/wp-updates.js) is kept as the
+// one row site_checks('wp_updates') for the developer's section (0109; not there yet = answered without being kept).
+async function wpUpdates(run: Run, fetchFn: typeof fetch, uid: string | null) {
+  let sys: Json;
+  try { sys = (await run.woo().get('wc/v3/system_status', { _fields: SYSTEM_FIELDS })).data; }
+  catch (e) { if (e instanceof ConfigError) throw e; return json(200, { action: 'wp_updates', result: 'error', reason: wooCode(e) }); }
+  let latest = '';
+  try {
+    const r = await fetchFn(CORE_CHECK, { headers: { Accept: 'application/json' }, redirect: 'error', signal: AbortSignal.timeout(8000) });
+    if (r.ok) latest = coreLatest(await r.json());
+  } catch { latest = ''; }
+  const data = wpStatus(sys, latest); const now = run.now();
+  const { error } = await run.db.from('site_checks').upsert({ kind: 'wp_updates', data, checked_at: now, checked_by: uid }, { onConflict: 'kind' });
+  return json(200, { action: 'wp_updates', result: 'ok', data, checked_at: now, stored: !error });
+}
+
 // ---------------------------------------------------------------- the categories tab (B4, the owner 11 Nov)
 
 // category_get { id }: the category live from the site for «تعديل» — its name, image and count, and its Arabic translation's
@@ -2586,6 +2611,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'studio_sheet') return await studioSheet(args, deps.fetch);
     if (action === 'thumbs') return await thumbs(run, args, deps.fetch);
     if (action === 'styles') return await siteStyles(run);
+    if (action === 'wp_updates') { const jwt = /^Bearer\s+(\S+)$/i.exec(req.headers.get('authorization') ?? '')?.[1] ?? ''; return await wpUpdates(run, deps.fetch, deps.userId && jwt ? await deps.userId(jwt) : null); }
     if (action === 'inventory_push') return await inventoryPush(run, args);
     if (action === 'product_duplicate') { const jwt = /^Bearer\s+(\S+)$/i.exec(req.headers.get('authorization') ?? '')?.[1] ?? ''; return await productDuplicate(run, args, deps.userDb && jwt ? deps.userDb(jwt) : null); }
     if (action === 'product_images_add') {

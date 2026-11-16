@@ -745,3 +745,39 @@ test('comments 26, 27 and 80 — every movement log has the system\'s period fil
   await expect(page.locator('[data-mlog-csv]')).toBeVisible();
   await expect(page.locator('#panel .date-field:visible')).toHaveCount(1);
 });
+
+test('comment 28 — «متابعة للبناء» writes every piece with the AI by itself (each piece once, in order, no popup); going back and forth asks nothing again; a refusal stops the run and says so, «املأ بالـ AI» stays on the piece', async ({ page }) => {
+  await signIn(page); await go(page, '#marketing-create');
+  const pg = page.locator('#pg-marketing');
+  const fills = () => mock.mkt.calls.filter((c) => c.fn === 'ai-content' && c.task === 'fill').map((c) => c.piece);
+  await pg.locator('[data-mk-start]').click();
+  await pg.locator('#cw-idea').fill('كولكشن الشتا');
+  await pg.locator('.cp-next').click(); // «متابعة للبناء» — 2 posts and a carousel by default
+  await expect(pg.locator('.wstepper .stp-cur')).toContainText('البناء');
+  await expect.poll(fills).toEqual(['P1', 'P2', 'C1']);
+  await expect(pg.locator('[data-cw-autofill]')).toHaveCount(0);
+  await expect(page.locator('[data-ai-go]')).toHaveCount(0); // no instructions popup on the way
+  for (const id of ['P1', 'P2', 'C1']) await expect(pg.locator('#b-' + id + '-idea')).not.toHaveValue('');
+  await expect(pg.locator('#b-P2-t')).toHaveValue('دفا الشتا');
+  await expect(page.locator('.busy-stack')).toContainText('اتكتب محتوى 3 قطعة');
+  // what the member wrote stays, and back and forth asks nothing again
+  await pg.locator('#b-P1-t').fill('عنواني');
+  await pg.locator('.wiz-foot').getByRole('button', { name: 'رجوع' }).click();
+  await expect(pg.locator('.wstepper .stp-cur')).toContainText('تفاصيل الكامبين');
+  await pg.locator('.cp-next').click();
+  await expect(pg.locator('.wstepper .stp-cur')).toContainText('البناء');
+  await expect(pg.locator('#b-P1-t')).toHaveValue('عنواني');
+  expect(fills()).toEqual(['P1', 'P2', 'C1']);
+  // a new campaign while the AI refuses: the run stops at the first piece and says so; the piece keeps its button
+  mock.mkt.aiFail = 'ai_cap';
+  await go(page, '#marketing-create');
+  await pg.locator('[data-mk-start]').click();
+  await pg.locator('#cw-idea').fill('كولكشن تاني');
+  await pg.locator('.cp-next').click();
+  await expect(pg.locator('.wstepper .stp-cur')).toContainText('البناء');
+  await expect(page.locator('.busy-stack')).toContainText('المحتوى ماتكتبش');
+  await expect(pg.locator('[data-cw-autofill]')).toHaveCount(0);
+  await expect(pg.locator('#b-P1-t')).toHaveValue('');
+  await expect(pg.locator('[data-cw-fill="P1"]')).toBeVisible();
+  expect(fills().length).toBe(4); // one more try only: it did not go on to the other pieces
+});

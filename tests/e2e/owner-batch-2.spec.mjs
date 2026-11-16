@@ -567,7 +567,8 @@ test('T11 — decisions 27, 28: the login lock (attempts and minutes from «ال
   await go(page, '#settings-activity');
   const act = st.locator('.card', { hasText: 'سجل النشاط' }).first();
   await expect(act.locator('[data-tq-btn]')).toBeVisible();
-  await expect(act.locator('#ac-from')).toBeVisible();
+  await expect(st.locator('[data-log-period="activity"] .date-field')).toBeVisible(); // comments decision 80: the one period filter above the table (the two «من» / «إلى» fields are gone)
+  await expect(st.locator('#ac-from, #ac-to')).toHaveCount(0);
   await go(page, '#settings-general');
   await expect(st.locator('[data-tq-btn]')).toHaveCount(0); // the other settings tables stay plain
 });

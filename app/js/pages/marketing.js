@@ -312,7 +312,7 @@
     const sum = U.InlineNote({ kind: w.balance != null && est > w.balance ? 'warning' : 'info', children: h('span', { 'data-cw-est': String(est) }, 'التكلفة المتوقعة لصور الكامبين كلها تقريبًا ' + K.n0(est) + ' كريديت' + (estV ? ' · والفيديو ≈ ' + K.n0(estV) + ' كريديت على حساب Magnific المربوط (مش من رصيد الصور)' : '') + ' · ' + (w.balance != null ? 'رصيدك ' + K.n0(w.balance) + ' كريديت' : 'اتصرف الشهر ده ' + K.n0(w.used) + ' كريديت') + '. التكلفة الفعلية بتظهر قبل كل توليد، والكتابة بالـ AI مابتصرفش كريدت.') });
     return [goal, idea, media, err.media ? U.InlineNote({ kind: 'error', children: err.media }) : null, sum,
       Foot(1, 4, cback, 'متابعة للبناء', async () => { camp.tried1 = true; if (Object.keys(W.validateDetails(c)).length) { R(); K.toast('كمّل البيانات الناقصة', 'error'); return; }
-        camp.pieces = W.buildPieces(c, camp.pieces); if (!(await ensureCampaign())) return; go('marketing-campaign-2'); }, !can().create)];
+        camp.pieces = W.buildPieces(c, camp.pieces); if (!(await ensureCampaign())) return; go('marketing-campaign-2'); autoFill(); }, !can().create)];
   }
   function ensurePieces() { if (!camp.pieces.length) camp.pieces = W.buildPieces(camp.w, []); }
 
@@ -345,6 +345,31 @@
     ['idea', 'caption', 'title', 'sub', 'badge'].forEach((k) => { if (f[k] && !p[k]) p[k] = f[k]; });
     if (Array.isArray(f.slides) && Array.isArray(p.slides)) p.slides.forEach((s, i) => { const x = f.slides[i] || {}; ['idea', 'title', 'sub'].forEach((k) => { if (x[k] && !s[k]) s[k] = x[k]; }); });
     persist(0); return true;
+  }
+  // comments decision 28 (the owner 15 Nov — «مجرد ما ادوس هنا عايز كل ال الكونتنت و الافكار تتكتب بال ai و مبقاش محتاج ادوس املأ بال ai»):
+  // «متابعة للبناء» writes the pieces' empty texts with the AI by itself — a piece after the other, what is written stays, the
+  // campaign's own instructions («تعليمات») are the guide, so no instructions popup. A video piece with no scenes gets its scenes
+  // too. A piece is asked once (p.af — going back and forth never rewrites it), and a refusal stops the run: «املأ بالـ AI» on
+  // each piece is still there.
+  const needsText = (p) => (p.kind === 'فيديو' ? !p.idea || !p.caption : !p.idea || !p.caption || !p.title || (Array.isArray(p.slides) && p.slides.some((x) => !x.idea || !x.title)));
+  const needsScenes = (p) => p.kind === 'فيديو' && !(p.scenes || []).length;
+  async function autoFill() {
+    const mine = camp; if (!can().create || mine.filling) return;
+    const todo = mine.pieces.filter((p) => !p.af && (needsText(p) || needsScenes(p))); if (!todo.length) return;
+    mine.filling = { done: 0, total: todo.length }; R();
+    const say = (n) => 'بنكتب محتوى القطع بالـ AI… ' + K.n0(n) + ' من ' + K.n0(todo.length);
+    const pill = K.busy ? K.busy(say(1)) : null; let ok = 0;
+    for (const p of todo) {
+      if (camp !== mine) break; // the member left this campaign
+      if (pill && pill.set) pill.set(say(ok + 1));
+      let good = !needsText(p) || await aiFill(p);
+      if (good && camp === mine && needsScenes(p)) good = await planScenes(p);
+      if (!good || camp !== mine) break;
+      p.af = 1; ok += 1; mine.filling.done = ok; persist(0); if (st.view === 'campaign' && st.step === 2) R();
+    }
+    mine.filling = null;
+    if (pill) { if (ok === todo.length) pill.done('اتكتب محتوى ' + K.n0(ok) + ' قطعة — راجعه'); else if (camp !== mine) pill.close(); else pill.fail(ok ? 'اتكتب ' + K.n0(ok) + ' من ' + K.n0(todo.length) + ' — كمّل الباقي من «املأ بالـ AI»' : 'المحتوى ماتكتبش — جرّب «املأ بالـ AI» على القطعة'); }
+    if (camp === mine && st.view === 'campaign') R();
   }
   function fieldsFor(p, pre, o) {
     o = o || {}; const id = pre + p.id + (o.k != null ? '-' + o.k : ''); const t = o.target || p; const ctx = { piece: p.id, slide: o.k != null ? o.k : null };
@@ -423,7 +448,9 @@
   function w2() {
     ensurePieces(); const ps = camp.pieces; const pr = W.progress(ps, W.built);
     const jump = h('nav', { class: 'cw-jump', 'aria-label': 'القطع' }, ps.map((p) => h('a', { href: '#cw-' + p.id, class: 'chip' + (W.built(p) ? ' on' : ''), onClick: (e) => { e.preventDefault(); const el = document.getElementById('cw-' + p.id); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); el.focus({ preventScroll: true }); } } }, W.built(p) ? Icon('check', 'sm') : null, p.kind + ' ' + p.n)));
-    return [h('div', { class: 'cw-bar card' }, h('span', { 'data-cw-built': pr.done + '/' + pr.total }, 'اتولد ', K.Num(pr.done + ' من ' + pr.total)), h('span', { class: 'grow' }), jump), ...ps.map(buildCard),
+    return [h('div', { class: 'cw-bar card' }, h('span', { 'data-cw-built': pr.done + '/' + pr.total }, 'اتولد ', K.Num(pr.done + ' من ' + pr.total)), h('span', { class: 'grow' }), jump),
+      camp.filling ? U.InlineNote({ children: h('span', { 'data-cw-autofill': camp.filling.done + '/' + camp.filling.total }, 'بنحمّل المحتوى: الـ AI بيكتب أفكار القطع وكلامها لوحده (' + K.n0(camp.filling.done) + ' من ' + K.n0(camp.filling.total) + ') — اللي مكتوب بيفضل، وتقدر تعدّل أي خانة.') }) : null,
+      ...ps.map(buildCard),
       pr.done < pr.total ? U.InlineNote({ children: 'ولّد كل القطع عشان تكمّل للمراجعة.' }) : null,
       Foot(2, 4, cback, 'متابعة للمراجعة', () => { camp.rtab = ps.some((p) => p.kind === 'بوست' || p.kind === 'ملف إضافي') ? 'post' : ps.some((p) => p.kind === 'كاروسيل') ? 'carousel' : 'video'; go('marketing-campaign-3'); }, !W.canBuildNext(ps))];
   }

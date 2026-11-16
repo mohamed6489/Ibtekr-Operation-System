@@ -80,10 +80,20 @@ test('a new campaign: the details (the row created) → the AI fills the piece �
   await expect.poll(() => mock.mkt.campaigns.length).toBe(2);
   const made = mock.mkt.campaigns.find((c) => c.id !== C1);
   expect(made.name).toBe('كولكشن الربيع — شنط مكرمية مشغولة يدويًا');
-  // «املأ بالـ AI» fills the empty fields (no credit)
-  await pg(page).locator('[data-cw-fill="P1"]').click(); await page.locator('[data-ai-go]').click(); // the owner 15 Nov: the instructions popup first
+  // comments decision 28 (the owner 15 Nov — «مجرد ما ادوس هنا عايز كل الكونتنت و الافكار تتكتب بال ai»): «متابعة للبناء» fills the
+  // pieces' empty texts with the AI by itself (no credit) — no «املأ بالـ AI» press, no instructions popup
+  const fills = () => mock.mkt.calls.filter((c) => c.fn === 'ai-content' && c.task === 'fill' && c.piece === 'P1');
   await expect(pg(page).locator('#b-P1-t')).toHaveValue('دفا الشتا');
-  expect(mock.mkt.calls.some((c) => c.fn === 'ai-content' && c.task === 'fill' && c.piece === 'P1')).toBe(true);
+  await expect(pg(page).locator('#b-P1-idea')).not.toHaveValue('');
+  await expect(pg(page).locator('[data-cw-autofill]')).toHaveCount(0);
+  expect(fills().length).toBe(1); expect(fills()[0].notes || '').toBe('');
+  await expect(page.locator('[data-ai-go]')).toHaveCount(0);
+  // «املأ بالـ AI» is still on the piece (the instructions popup first, the owner 15 Nov): what is written stays
+  await pg(page).locator('#b-P1-t').fill('عنواني');
+  await pg(page).locator('[data-cw-fill="P1"]').click(); await page.locator('[data-ai-go]').click();
+  await expect.poll(() => fills().length).toBe(2);
+  await expect(pg(page).locator('#b-P1-t')).toHaveValue('عنواني');
+  await page.mouse.move(0, 0); // off the fields: the sparkle's look below is its resting one
   // «إعادة كتابة بالـ AI» on the subheadline, then «تراجع»
   await pg(page).locator('#b-P1-s').fill('قديم');
   // the owner 15 Nov: the sparkle has no background and is green; under the pointer a green round with a beige icon

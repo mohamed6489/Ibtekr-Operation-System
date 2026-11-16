@@ -3556,6 +3556,18 @@
       f.ctype === 'category_based' && ctk ? ctk.editor() : null].filter(Boolean));
     // the photo (decision 51 — «System + Dokan store») and the contract (canBank, like the drawer's) picked here; uploaded after the save
     const canPhoto = !!(vstore.setPhoto && vstore.canPhoto && vstore.canPhoto()); let photo = null; let photoPrev = null; let contract = null; let cExp = '';
+    // the owner 16 Nov (plan 2026-11-16 decision 6): the brand under the maker's name has its own picture — on the site in both places
+    const canBrandSite = !existing && !!(vstore.brandSite && vstore.canStore && vstore.canStore()); let brandPic = null; let brandPrev = null;
+    const brandBox = () => {
+      const inp = h('input', { type: 'file', accept: '.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp', hidden: true, 'data-v-brand-photo': '', 'aria-label': 'صورة البراند' });
+      inp.addEventListener('change', () => { const file = inp.files && inp.files[0]; if (!file) return; const e = String(file.name).split('.').pop().toLowerCase();
+        if (!['png', 'jpg', 'jpeg', 'webp'].includes(e) || file.size > 2 * 1048576) { window.IBKit.toast('صورة البراند PNG أو JPG أو WebP ولحد 2 ميجا.', 'error'); return; }
+        brandPic = file; try { if (brandPrev) URL.revokeObjectURL(brandPrev); brandPrev = URL.createObjectURL(file); } catch (x) { brandPrev = null; } draw(); });
+      const pic = brandPrev ? h('span', { class: 'vlogo vlogo-lg vlogo-img', 'data-v-brand-prev': '' }, h('img', { src: brandPrev, alt: 'صورة البراند' })) : U.VendorLogo({ letter: f.name || '؟', size: 'lg' });
+      return h('div', { style: 'flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:8px' }, h('span', { class: 't-label' }, 'صورة البراند'), pic, inp,
+        Button({ type: 'text', size: 'sm', label: brandPic ? 'غيّر الصورة' : 'ارفع صورة', attrs: { 'data-v-brand-pick': '' }, onClick: () => inp.click() }),
+        h('span', { class: 't-small', style: 'color:var(--color-text-secondary);text-align:center;max-width:150px' }, brandPic ? brandPic.name : 'البراند «' + (f.name || 'باسم المبتكر') + '» على الموقع: Brands وخاصية Brand'));
+    };
     const photoBox = () => {
       const inp = h('input', { type: 'file', accept: '.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp', hidden: true, 'data-v-photo': '', 'aria-label': 'صورة المبتكر' });
       inp.addEventListener('change', () => { const file = inp.files && inp.files[0]; if (!file) return; const e = String(file.name).split('.').pop().toLowerCase();
@@ -3563,7 +3575,7 @@
         photo = file; try { if (photoPrev) URL.revokeObjectURL(photoPrev); photoPrev = URL.createObjectURL(file); } catch (x) { photoPrev = null; } draw(); });
       const cur = photoPrev || (existing && existing.logoUrl && /^https:\/\//.test(existing.logoUrl) ? existing.logoUrl : null);
       const pic = cur ? h('span', { class: 'vlogo vlogo-lg vlogo-img', 'data-v-photo-prev': '' }, h('img', { src: cur, alt: 'صورة المبتكر', referrerpolicy: 'no-referrer' })) : U.VendorLogo({ letter: f.name || '؟', size: 'lg' });
-      return h('div', { style: 'flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:8px' }, pic,
+      return h('div', { style: 'flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:8px' }, !existing ? h('span', { class: 't-label' }, 'صورة المتجر') : null, pic,
         canPhoto ? [inp, Button({ type: 'text', size: 'sm', label: photo || (existing && existing.photoPath) ? 'غيّر الصورة' : 'ارفع صورة', attrs: { 'data-v-photo-pick': '' }, onClick: () => inp.click() }),
           h('span', { class: 't-small', style: 'color:var(--color-text-secondary);text-align:center;max-width:140px' }, photo ? photo.name : 'بتتحفظ هنا وبتبقى صورة متجره على الموقع')]
           : h('span', { class: 't-small', style: 'color:var(--color-text-secondary);text-align:center' }, 'الصورة بتيجي من متجره على الموقع'));
@@ -3628,7 +3640,7 @@
     function draw() {
       const makerPart = [
         h('div', { class: 'row cols2' }, h('div', { style: 'flex:1;display:flex;flex-direction:column;gap:16px;min-width:0' }, txt('v-name', 'اسم المبتكر (المعروض)', 'name', { required: true, maxlength: 80, onInput: (v) => { f.name = v; if (!existing && !f.userTouched) { f.username = VD.suggestUsername(v, (u) => vstore.usernameTaken(u)); const el = document.getElementById('v-login-user'); if (el) el.value = f.username; } } }), catPick('v-cat', f, errs)),
-          photoBox()), // phase 3.3 (decision 1): the logo was the site's gravatar only; phase 13 decision 51: a photo uploaded here becomes it
+          photoBox(), canBrandSite ? brandBox() : null), // phase 3.3 (decision 1): the logo was the site's gravatar only; phase 13 decision 51: a photo uploaded here becomes it; 16 Nov: the brand's own
         two(txt('v-phone', 'الهاتف (واتساب)', 'phone', { required: true, inputmode: 'tel', placeholder: '01xxxxxxxxx' }), existing ? txt('v-alt', 'هاتف بديل', 'altPhone', { inputmode: 'tel' }) : txt('v-rate', f.ctype === 'category_based' ? 'نسبة الفئات اللي مالهاش رقم' : 'نسبة إبتكر', 'rate', { required: true, inputmode: 'decimal', suffix: '%', help: 'تنطبق على الأوردرات الجديدة من تاريخ الإضافة', onInput: (x) => { f.rate = x; if (ctk) ctk.refresh(); } })),
         ...commissionFields(),
         two(txt('v-lead', 'مدة التجهيز (أيام)', 'leadDays', { required: true, inputmode: 'numeric', help: 'بتغذي قاعدة التأخير بدل الرقم الثابت' }), U.Select({ id: 'v-status', label: 'الحالة', required: true, options: statusOpts, value: f.status, error: errs.status, onChange: (v) => { f.status = v; draw(); } })),
@@ -3681,6 +3693,12 @@
           storeNote = sr.ok ? (sr.adopted ? ' · اتربط بمتجره اللي على الموقع (#' + sr.store + ') — باسورد حسابه على الموقع زي ما كان.' : ' · واتعمل متجره على الموقع (#' + sr.store + ')' + (sr.commission ? ' بالعمولة' : '') + '.') : ' · المتجر على الموقع ماتعملش: ' + (sr.message || VMSG[sr.reason] || 'جرّب تاني') + ' — تقدر تعمله بعدين من ملفه.';
           if (!sr.ok) miss.push('المتجر على الموقع');
         } else if (storeOpts) { storeOpts.password = ''; storeNote = ' · المتجر على الموقع مستني بيانات الدخول — اعمله من ملفه بعد ما تكمّلها.'; }
+        // the owner 16 Nov (decision 6): his brand (the automatic one, his name) on the site in both places, with its own picture
+        if (canBrandSite) {
+          const b = (vstore.allBrands ? vstore.allBrands() : []).find((x) => x.origin === String(v.id));
+          if (b) { const br = await vstore.brandSite(b.id, brandPic).catch(() => ({ ok: false })); brandPic = null;
+            storeNote += br.ok ? ' · والبراند «' + b.name + '» على الموقع' + (br.image === 'failed' ? ' (صورته ماترفعتش)' : '') + (br.attr === 'failed' ? ' (خاصية Brand ماتكتبتش)' : '') + '.' : ' · البراند على الموقع ماتعملش: ' + (br.message || 'جرّب تاني') + '.'; }
+        }
         vnotify(miss.length ? 'warning' : 'success', 'اتضاف المبتكر ' + v.name + (miss.filter((x) => x !== 'المتجر على الموقع').length ? ' — ناقص: ' + miss.filter((x) => x !== 'المتجر على الموقع').join('، ') + '. كمّله من ملفه.' : ' · الباسورد المؤقت جاهز تبعته له.') + storeNote);
         if (typeof done === 'function') done(v); else openVendor(v.id);
         afterSave(v.id).then((did) => { if (did && vredraw) vredraw(); });

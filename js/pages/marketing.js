@@ -50,6 +50,10 @@
   const IMGM = () => (window.IBImages && Array.isArray(window.IBImages.MODELS) ? window.IBImages.MODELS : []);
   const Tag = K.Tag;
   const chip = (label, on, onClick, attrs) => h('button', Object.assign({ type: 'button', class: 'chip', 'aria-pressed': String(!!on), onClick }, attrs || {}), label);
+  // comments decision 66 (the owner 15 Nov — «عايز اخلي الاسماء دي تبقي ايقونات»): a platform in the publish table is its icon — the name
+  // stays for the screen reader and the tooltip
+  const PL_ICON = { 'انستجرام': 'instagram', 'فيسبوك': 'facebook', 'تيك توك': 'tiktok' };
+  const plChip = (pl, on, onClick) => h('button', { type: 'button', class: 'chip cw-ic', 'aria-pressed': String(!!on), 'data-pl': pl, title: pl, onClick }, Icon(PL_ICON[pl] || 'send', 'sm'), h('span', { class: 'sr-only' }, pl));
   // th: a big table's head (2026-11-13-table-head.md) — { noun, when, total, count } for the kit's line «‹إمتى› · N من M ‹اسم› · ‹إجمالي›»
   const Card = (title, sub, body, acts, cls, th) => K.Section(title, [].concat(body).filter(Boolean), acts, Object.assign({ sub, cls }, th));
   const soonTag = () => h('span', { class: 'soon', 'data-soon': '' }, 'قريبًا');
@@ -647,10 +651,10 @@
       return [cbx('حدد ' + pieceLabel(p), sel.has(p.id), (v) => { v ? sel.add(p.id) : sel.delete(p.id); R(); }), h('span', { class: 'prod' }, Img(pieceImg(p)), h('span', null, h('b', null, pieceLabel(p)), h('small', null, W.hookOf(p)))),
         U.DateField({ id: 'sd-' + p.id, label: '', value: s.date, today: TODAY(), onChange: (v) => { s.date = v; persist(); R(); } }),
         U.Select({ id: 'st-' + p.id, label: '', options: W.timeOpts(s.time).map((x) => ({ value: x, label: x })), value: s.time, onChange: (v) => { s.time = v; persist(); R(); } }),
-        h('div', { class: 'chips', 'data-cw-pl': p.id }, W.PLATFORMS.map((pl) => chip(pl, s.pl.includes(pl), () => { s.pl = s.pl.includes(pl) ? s.pl.filter((x) => x !== pl) : s.pl.concat(pl); persist(); R(); }))),
+        h('div', { class: 'chips cw-pls', 'data-cw-pl': p.id }, W.PLATFORMS.map((pl) => plChip(pl, s.pl.includes(pl), () => { s.pl = s.pl.includes(pl) ? s.pl.filter((x) => x !== pl) : s.pl.concat(pl); persist(); R(); }))),
         h('div', { class: 'cw-how' }, h('div', { class: 'chips', 'data-cw-how': p.id },
           chip('انشر', on, () => { if (!pub) { K.toast(why, 'error'); return; } s.how = on ? ['داونلود'] : ['انشر']; persist(); R(); }, Object.assign({ 'data-cw-pub': p.id }, pub ? {} : { 'aria-disabled': 'true', title: why })),
-          chip('داونلود', true, () => {}, { 'aria-disabled': 'true' })),
+          h('button', { type: 'button', class: 'chip cw-ic', 'data-cw-dl': p.id, title: 'داونلود — نزّل فولدر القطعة (الصور + التكست)', 'aria-label': 'داونلود ' + pieceLabel(p), onClick: () => downloadZip([zipItem(p)], pieceLabel(p)) }, Icon('download', 'sm'))),
           on ? h('small', { class: 't-small help', 'data-cw-auto': p.id }, 'تلقائي: ' + auto.join(' · ')) : null),
         K.RowMenu([{ label: 'نزّل فولدر (الصور + التكست)', icon: 'download', run: () => downloadZip([zipItem(p)], pieceLabel(p)) },
           { label: 'انسخ الكابشن', icon: 'copy', run: () => { try { navigator.clipboard.writeText((p.caption || camp.w.idea) + '\n' + W.TAGS); } catch (e) { /* the clipboard is the browser's */ } K.toast('اتنسخ الكابشن'); } },

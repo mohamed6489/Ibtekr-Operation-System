@@ -384,7 +384,9 @@ test('T8 — decisions 13–15: the six shot rules of the studio; «+ تعليم
   await go(page, '#marketing-create');
   const mk = page.locator('#pg-marketing');
   await mk.locator('[data-mk-start]').click();
-  await mk.locator('#cw-idea').fill('كولكشن الشتا — مخدات مشغولة');
+  // the picker reads the public templates again as the wizard opens and draws the step again when they changed — a fill that lands
+  // on the field being replaced is lost (CI 1105 / 1106: no idea → «كمّل البيانات الناقصة», no campaign), so it is typed until it holds
+  await expect(async () => { await mk.locator('#cw-idea').fill('كولكشن الشتا — مخدات مشغولة'); await expect(mk.locator('#cw-idea')).toHaveValue('كولكشن الشتا — مخدات مشغولة', { timeout: 1000 }); }).toPass();
   await expect(mk.locator('[data-cw-tpl="post"]')).toBeVisible();
   // the owner 15 Nov: «غير محدد» first (and picked while nothing is), then the images' new templates — the images' «البوست» is applied
   // to every post already
@@ -410,6 +412,7 @@ test('T8 — decisions 13–15: the six shot rules of the studio; «+ تعليم
   expect(await page.locator('[role=listbox]').last().locator('[role=option]').count()).toBe(2); // «غير محدد» + the videos' «البوست»
   await page.keyboard.press('Escape');
   await mk.locator('.subtab', { hasText: 'بوستات' }).click();
+  await expect(mk.locator('#cw-idea')).toHaveValue('كولكشن الشتا — مخدات مشغولة');
   await mk.locator('.cp-next').click();
   // the campaign is made on «التالي» and its state follows by the page's own delayed save — a loaded runner needs more than the default 5 s (CI 1073)
   await expect.poll(() => { const c = mock.mkt.campaigns.find((x) => x.name === 'كولكشن الشتا — مخدات مشغولة'); const m = c && c.state && c.state.w ? c.state.w.media.post : null; return m ? [m.tpl, m.notes] : null; }, { timeout: 20000 })

@@ -594,7 +594,8 @@
           { value: 'all', label: 'النسبة العامة', hint: 'على كل الأقسام اللي مالهاش نسبة لوحدها' },
           { value: 'cat', label: 'نسبة قسم معيّن', hint: 'القسم ده بس (وأقسامه الفرعية اللي مالهاش نسبة)' }],
         onChange: (k) => { if (k === f.kind) return; f.flRate = k === 'cat' ? (f.flRateCat ? effOf(f.flRateCat) : '') : v.rate == null ? '' : String(v.rate); set('kind', k, true); } })];
-        if (f.kind === 'cat') out.push(K.field.select('flRateCat', 'القسم', sorted, f, e, (k, val, rd) => { f.flRate = effOf(val); set(k, val, rd); }, { required: true, placeholder: 'اختار القسم — اكتب أول حروف اسمه' }));
+        if (f.kind === 'cat') out.push(window.IBCatField ? window.IBCatField({ id: 'flRateCat', label: 'القسم', required: true, error: e.flRateCat, single: true, ids: f.flRateCat ? [Number(f.flRateCat)] : [], onPick: (ids) => { const val = ids.length ? String(ids[0]) : ''; f.flRate = val ? effOf(val) : f.flRate; set('flRateCat', val, true); } })
+          : K.field.select('flRateCat', 'القسم', sorted, f, e, (k, val, rd) => { f.flRate = effOf(val); set(k, val, rd); }, { required: true, placeholder: 'اختار القسم — اكتب أول حروف اسمه' }));
         const cur = f.kind === 'cat' && f.flRateCat ? catComm(v.id, f.flRateCat) : null;
         out.push(K.field.text('flRate', f.kind === 'cat' ? 'نسبة القسم (%)' : 'النسبة العامة (%)', f, e, set, { required: true, inputmode: 'decimal',
           help: f.kind === 'cat' ? (cur ? 'دلوقتي ' + cur.rate + '%' + (cur.source === 'category' ? ' (نسبة القسم)' : ' (النسبة العامة)') : 'من 0 لـ 65') : 'من 0 لـ 65 — النسبة بتتطبق على الأوردرات الجديدة من النهارده' }));
@@ -753,7 +754,7 @@
     K.form({ title: 'تعديل مشترك لـ ' + S.sel.size + ' صف', values: { cat: '', brand: '', color: '', material: '', style: '', nameAr: '', nameEn: '' }, submitLabel: 'طبّق على المحدد',
       note: U.InlineNote({ children: 'اللي مسيبه «من غير تغيير» أو فاضي مابيتغيّرش. اللون والخامة والستايل بيتحطوا بالعربي والإنجليزي مع بعض.' }),
       fields: (f, e, set) => [
-        catOpts.length > 1 ? K.field.select('cat', 'القسم', catOpts, f, e, set, { placeholder: 'اختار القسم — اكتب أول حروف اسمه' }) : null,
+        catOpts.length > 1 ? (window.IBCatField ? window.IBCatField({ id: 'cat', label: 'القسم', single: true, ids: f.cat ? [Number(f.cat)] : [], placeholder: 'من غير تغيير — اختار من الشجرة', onPick: (ids) => set('cat', ids.length ? String(ids[0]) : '', true), onClear: () => set('cat', '', true) }) : K.field.select('cat', 'القسم', catOpts, f, e, set, { placeholder: 'اختار القسم — اكتب أول حروف اسمه' })) : null,
         brands.length > 1 ? K.field.select('brand', 'البراند', [keep].concat(brands.map((b) => ({ value: b, label: b }))), f, e, set) : null,
         K.two(K.field.select('color', 'اللون', pairs(colorList()), f, e, set), K.field.select('material', 'الخامة', pairs(FD.MATERIALS), f, e, set)),
         K.field.select('style', 'الستايل', pairs(styleList()), f, e, set),
@@ -843,6 +844,10 @@
     const r = rs[0]; const id = 'fl-cat-' + r.key; const list = cats(); const now = catIdOf(r.catEn); const ai = !!(r.ai && r.ai.catEn);
     if (!list.length) return textField(rs, 'catEn', 'القسم', { dir: 'ltr' });
     const options = list.map((c) => ({ value: String(c.id), label: c.path })).concat(now == null && r.catEn ? [{ value: '__cur', label: r.catEn + ' (مش على الموقع)' }] : []);
+    // the owner 16 Nov («فلتر الشجرة»): one category from the site's tree
+    if (window.IBCatField) return h('div', { class: 'fl-f fl-pick fl-cat' + (ai ? ' is-ai' : ''), 'data-fl-pick': 'catEn' },
+      window.IBCatField({ id, label: ai ? 'القسم · AI' : 'القسم', single: true, ids: now != null ? [now] : [], title: 'قسم «' + (r.nameAr || r.nameEn || 'المنتج') + '»', placeholder: now == null && r.catEn ? r.catEn + ' (مش على الموقع)' : 'اختار القسم من الشجرة',
+        onPick: (ids) => { if (!ids.length) return; setAll(rs, 'catEn', pathOfId(String(ids[0]))); touch(); R(); } }));
     return h('div', { class: 'fl-f fl-pick fl-cat' + (ai ? ' is-ai' : ''), 'data-fl-pick': 'catEn' },
       U.Select({ id, label: ai ? 'القسم · AI' : 'القسم', options, value: now != null ? String(now) : r.catEn ? '__cur' : '', placeholder: 'اختار القسم', onChange: (v) => { if (v === '__cur') return; setAll(rs, 'catEn', pathOfId(v)); touch(); R(); } }));
   }
@@ -1493,6 +1498,8 @@
     const x = fillOf(r.product); const list = cats(); const now = catIdOf(x.catEn);
     if (!list.length) return sheetInput(r, 'cat', x.catEn, (v) => { x.catEn = v.trim(); }, { label: 'القسم', dir: 'ltr' });
     const options = [{ value: '', label: '— من غير —' }].concat(list.map((c) => ({ value: String(c.id), label: c.path }))).concat(now == null && x.catEn ? [{ value: '__cur', label: x.catEn + ' (مش على الموقع)' }] : []);
+    if (window.IBCatField) return h('div', { class: 'fl-sh-sel fl-sh-cat', 'data-sh': 'cat:' + r.n }, window.IBCatField({ id: 'fl-sh-cat-' + r.n, single: true, compact: true, ids: now != null ? [now] : [], title: 'القسم — ' + r.n,
+      placeholder: now == null && x.catEn ? x.catEn + ' (مش على الموقع)' : 'اختار القسم', onPick: (ids) => { x.catEn = ids.length ? pathOfId(String(ids[0])) : ''; touch(); R(); }, onClear: x.catEn ? () => { x.catEn = ''; touch(); R(); } : null }));
     return named('القسم — ' + r.n, h('div', { class: 'fl-sh-sel fl-sh-cat', 'data-sh': 'cat:' + r.n }, U.Select({ id: 'fl-sh-cat-' + r.n, label: '', options, value: now != null ? String(now) : x.catEn ? '__cur' : '', placeholder: 'اختار القسم',
       onChange: (v) => { if (v === '__cur') return; x.catEn = v ? pathOfId(v) : ''; touch(); R(); } })));
   }

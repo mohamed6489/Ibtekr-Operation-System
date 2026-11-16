@@ -1220,7 +1220,9 @@
     const d = st.draft; const cats = PR().categories(); const on = new Set(d.cats);
     const chosen = cats.filter((c) => on.has(c.id));
     return Card('الأقسام', 'تقدر تختار أكتر من قسم — المنتج بيظهر في كلهم.', [h('div', { class: 'chips', role: 'group', 'aria-label': 'الأقسام المختارة' }, chosen.length ? chosen.map((c) => chipBtn(c.path + (dis ? '' : ' ×'), true, () => { if (dis) return; d.cats = d.cats.filter((x) => x !== c.id); R(); })) : h('span', { class: 'help' }, 'مفيش أقسام')),
-      dis ? null : U.Select({ id: 'e-addcat', label: 'ضيف قسم', options: cats.filter((c) => !on.has(c.id)).map((c) => ({ value: String(c.id), label: c.path })), value: '', placeholder: 'اختار قسم…', onChange: (v) => { if (v) { d.cats = d.cats.concat(Number(v)); R(); } } })]);
+      // the owner 16 Nov («فلتر الشجرة»): the categories from the site's tree (search, + / −, the sub ticks its parents)
+      dis ? null : window.IBCatField ? window.IBCatField({ id: 'e-addcat', label: 'ضيف أو شيل أقسام', ids: d.cats, title: 'أقسام المنتج', placeholder: 'اختار الأقسام من الشجرة', onPick: (ids) => { d.cats = ids; R(); } })
+        : U.Select({ id: 'e-addcat', label: 'ضيف قسم', options: cats.filter((c) => !on.has(c.id)).map((c) => ({ value: String(c.id), label: c.path })), value: '', placeholder: 'اختار قسم…', onChange: (v) => { if (v) { d.cats = d.cats.concat(Number(v)); R(); } } })]);
   }
   // leaving an edit with unsaved changes asks first (the prototype's guard)
   function leaveGuard(proceed) {

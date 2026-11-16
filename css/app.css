@@ -2283,3 +2283,14 @@ img.ib-worm.ib-ldr-img.spin{animation:ib-ldr-spin var(--ldr-speed,1.7s) linear i
 .pic-edit{display:flex;align-items:center;gap:20px;flex-wrap:wrap}
 .pic-now{flex:none;display:flex}
 .pic-side{display:flex;flex-direction:column;align-items:flex-start;gap:8px;min-width:0;flex:1 1 200px}
+
+/* the owner 16 Nov («اي فلتر في السيستم يبقي فلتر الشجرة»): a «فلتر» group of levels (the site's categories) is a tree */
+.fm-menu .fm-tree{display:flex;flex-direction:column;gap:1px}
+.fm-tr{display:flex;align-items:center;gap:6px;padding-inline-start:calc(var(--fm-d, 0) * 18px)}
+.fm-tr[hidden]{display:none}
+.fm-tr .opt{flex:1 1 auto;min-width:0}
+.fm-tr[data-depth="0"] .opt .mp-l{font-weight:600}
+.fm-tog{width:24px;height:24px;flex:none;display:grid;place-items:center;padding:0;border:1px solid var(--color-border-subtle);border-radius:6px;background:var(--color-bg-container);color:#005642;font-weight:700;font-size:15px;line-height:1;cursor:pointer}
+.fm-tog:hover{background:#005642;color:#F4ECDD;border-color:#005642}
+.fm-tog:focus-visible{outline:2px solid var(--color-border-focus);outline-offset:1px}
+.fm-tog.sp{border:0;background:none;cursor:default}

@@ -293,7 +293,7 @@ test('data (phase 12): no «حذف بيانات الشركة» any more; «تص�
 
 // the owner 16 Nov: «اعمل ف الاعدادات مكان اعدل منه ال preloader و ال fav icon ف اعدادات الهوية البصرية» — the row brand { loader, favicon },
 // applied for every member from settings_public (loader.js), and remembered in the browser for the first paint
-test('the brand page: «شاشة التحميل» (the worm\'s colours, speed, a picture of one\'s own, back to the original) and «أيقونة المتصفح» — saved in the row brand, applied for every member', async ({ page }) => {
+test('the brand page: «شاشة التحميل» (speed, a picture of one\'s own, back to the original) and «أيقونة المتصفح» — saved in the row brand, applied for every member', async ({ page }) => {
   await signIn(page, ADMIN);
   await openSettings(page, 'brand');
   const pg = page.locator('#pg-settings');
@@ -302,11 +302,8 @@ test('the brand page: «شاشة التحميل» (the worm\'s colours, speed, a
   const hex = page.locator('#clr-color-brand-default');
   await hex.fill('#114433'); await hex.press('Enter'); await hex.dispatchEvent('change');
   await expect.poll(() => settingsRow('brand') && settingsRow('brand').data.colors && settingsRow('brand').data.colors['--color-brand-default']).toBe('#114433');
-  // the head's colour
-  const head = pg.locator('[data-ldr-color="head"] input');
-  await head.evaluate((i) => { i.value = '#123456'; i.dispatchEvent(new Event('change', { bubbles: true })); });
-  await expect.poll(() => (settingsRow('brand') && settingsRow('brand').data.loader || {}).head).toBe('#123456');
-  await expect.poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue('--ldr-head').trim())).toBe('#123456');
+  // the owner 16 Nov: no «دودة اللوجو» button and no colours row — the worm keeps the logo's colours
+  await expect(pg.locator('[data-ldr-kind], [data-ldr-color]')).toHaveCount(0);
   await pg.locator('#ldr-speed').click(); await page.getByRole('option', { name: 'سريعة' }).click();
   await expect.poll(() => settingsRow('brand').data.loader.speed).toBe(1.1);
   await expect.poll(() => settingsRow('brand').data.colors['--color-brand-default']).toBe('#114433'); // the colour saved first is kept by the preloader's saves

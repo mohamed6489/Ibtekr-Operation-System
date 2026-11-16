@@ -1801,20 +1801,19 @@
     const L = window.IBLoader; if (!L || !L.clean) return [];
     const b = SETT().section('brand') || {}; const cur = L.clean(b.loader); const fav = L.cleanFavicon(b.favicon); const custom = !!b.loader;
     const saveLoader = async (next, what) => { const v = next ? L.clean(next) : null; const r = await SETT().save('brand', { loader: v }); if (!r.ok) return fail(r, 'الحفظ'); L.apply(v); LOGV('settings.brand.loader', what); K.toast(v ? 'اتحفظت شاشة التحميل' : 'رجعت شاشة التحميل الأصلية', 'success'); R(); };
-    const set = (k, v, what) => saveLoader(Object.assign({}, cur, { [k]: v }), what);
+    // the owner 16 Nov: no colours and no «دودة اللوجو» button — the worm stays in the logo's colours; a picture of one's own or «رجّع الأصلي»
+    const keep = { kind: cur.kind, image: cur.image, spin: cur.spin, speed: cur.speed };
+    const set = (k, v, what) => saveLoader(Object.assign({}, keep, { [k]: v }), what);
     const readData = (f) => new Promise((ok) => { const r = new FileReader(); r.onload = () => ok(String(r.result || '')); r.onerror = () => ok(''); r.readAsDataURL(f); });
     const imgIn = h('input', { type: 'file', class: 'sr-file', id: 'ldr-up', accept: 'image/png,image/gif,image/webp', onChange: async () => { const f = imgIn.files[0]; imgIn.value = ''; if (!f) return;
       if (!/^image\/(png|gif|webp)$/.test(f.type)) { K.toast('ارفع PNG أو GIF أو WebP', 'error'); return; } if (f.size > 200 * 1024) { K.toast('الصورة أكبر من 200KB — صغّرها الأول', 'error'); return; }
       const d = await readData(f); if (!L.clean({ kind: 'image', image: d }).image) { K.toast('الصورة دي مش مقبولة', 'error'); return; }
-      saveLoader(Object.assign({}, cur, { kind: 'image', image: d }), 'صورة'); } });
+      saveLoader(Object.assign({}, keep, { kind: 'image', image: d }), 'صورة'); } });
     const upLabel = (txt) => h('label', { class: 'btn btn-default sm', for: 'ldr-up', tabindex: '0', role: 'button', 'data-ldr-up': '', onKeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); imgIn.click(); } } }, Icon('upload', 'sm'), h('span', null, txt));
-    const color = (k, label) => h('label', { class: 'ldr-clr', 'data-ldr-color': k }, h('input', { type: 'color', value: cur[k], 'aria-label': label, onChange: (e) => set(k, e.target.value, label + ' ' + e.target.value) }), h('span', null, label));
-    const kindBtn = (k, label) => Button({ size: 'sm', type: cur.kind === k ? 'brand' : 'default', label, attrs: { 'data-ldr-kind': k, 'aria-pressed': String(cur.kind === k) }, onClick: () => { if (k === 'image' && !cur.image) { imgIn.click(); return; } if (k !== cur.kind) set('kind', k, k === 'image' ? 'صورة' : 'دودة اللوجو'); } });
     const pv = h('div', { class: 'ldr-pv', 'data-ldr-pv': '' }, L.mark(88), h('span', { class: 'ldr-sm acts-inline' }, L.mark(24), h('span', { class: 't-small help' }, 'بنحمّل…')));
     const loaderSec = K.Section('شاشة التحميل (Preloader)', [pv,
-      vrow('الشكل', 'دودة اللوجو بتلف حوالين نفسها، أو صورة متحركة من عندك (GIF / PNG / WebP لحد 200KB)', h('div', { class: 'acts-inline start' }, kindBtn('worm', 'دودة اللوجو'), kindBtn('image', 'صورة من عندي'), imgIn)),
-      cur.kind === 'worm' ? vrow('الألوان', 'الراس (النقطة اللي بتلف قدام) · الجسم · الخلفية', h('div', { class: 'acts-inline start' }, color('head', 'الراس'), color('body', 'الجسم'), color('tile', 'الخلفية'))) : null,
-      cur.kind === 'image' ? vrow('الصورة', 'بتظهر مكان الدودة في كل تحميل', h('div', { class: 'acts-inline start' }, upLabel('غيّر الصورة'), h('label', { class: 'acts-inline', 'data-ldr-spin': '' }, h('input', { type: 'checkbox', id: 'ldr-spin', checked: cur.spin, onChange: (e) => set('spin', !!e.target.checked, 'لف ' + (e.target.checked ? 'شغال' : 'واقف')) }), h('span', null, 'لفّ الصورة')))) : null,
+      vrow('الصورة', cur.kind === 'image' ? 'بتظهر مكان دودة اللوجو في كل تحميل — «رجّع الأصلي» يرجّع الدودة' : 'صورة متحركة من عندك مكان دودة اللوجو (GIF / PNG / WebP لحد 200KB)', h('div', { class: 'acts-inline start' }, upLabel(cur.kind === 'image' ? 'غيّر الصورة' : 'صورة من عندي'), imgIn,
+        cur.kind === 'image' ? h('label', { class: 'acts-inline', 'data-ldr-spin': '' }, h('input', { type: 'checkbox', id: 'ldr-spin', checked: cur.spin, onChange: (e) => set('spin', !!e.target.checked, 'لف ' + (e.target.checked ? 'شغال' : 'واقف')) }), h('span', null, 'لفّ الصورة')) : null)),
       vrow('السرعة', 'لفّة كاملة كل قد إيه', U.Select({ id: 'ldr-speed', label: 'السرعة', value: String(cur.speed), options: [['2.6', 'بطيئة'], ['1.7', 'عادية'], ['1.1', 'سريعة']].concat([['2.6', '1.7', '1.1'].includes(String(cur.speed)) ? [] : [[String(cur.speed), cur.speed + ' ثانية']]]).map(([v, l]) => ({ value: v, label: l })), onChange: (v) => set('speed', Number(v), 'السرعة ' + v) })),
     ].filter(Boolean), custom ? Button({ type: 'text', size: 'sm', label: 'رجّع الأصلي', attrs: { 'data-ldr-reset': '' }, onClick: () => saveLoader(null, 'الأصلي') }) : null, { sub: 'بتظهر أول ما السيستم يفتح ومع أي تحميل أو حفظ · بتتغير عند الكل على طول', cols: false, th: false });
     // the favicon: any picture → a 64 × 64 PNG drawn here (centred, whole) → the row

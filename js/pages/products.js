@@ -189,12 +189,19 @@
     // the owner 12 Nov («إنقل خانة البحث جمب ايقونة الفلتر وخلي الزراير سنتر … مع التايتل … طبقوا بس على المنتجات»): the search sits in the
     // records card's header next to «فلتر», the header's buttons centred on the title block
     const filters = any ? h('div', { class: 'toolbar pr-filters' }, Button({ type: 'text', size: 'sm', label: 'مسح الفلاتر', onClick: () => { clearFilters(); R(); } })) : null;
-    const sel = [...st.sel].map(byId).filter(Boolean);
-    const bulk = sel.length && (C.bulk || C.trash) ? h('div', { class: 'bulk-bar', role: 'region', 'aria-label': 'إجراءات على المحدد' }, h('b', null, 'محدد ' + K.n0(sel.length)), h('span', { class: 'grow' }),
+    // the owner 16 Nov («لما اعمل فلتر في صفحة المنتجات ال bulk edit يشتغل علي المنتجات المتفلترة ولو اخترت منهم يبقي انا عايز اعدل
+    // المتحددين دول بس»): a filter (or the search, or a status tab) with nothing ticked → the bulk actions take every product it shows;
+    // ticked ones → those alone
+    const picked = [...st.sel].map(byId).filter(Boolean);
+    const narrowed = !!(any || (st.status && st.status !== 'all'));
+    const sel = picked.length ? picked : narrowed ? list : [];
+    const scopeTag = picked.length ? h('b', { 'data-pbulk-scope': 'picked' }, 'محدد ' + K.n0(picked.length))
+      : h('span', { class: 'pbulk-scope', 'data-pbulk-scope': 'filtered' }, h('b', null, 'كل المتفلتر — ' + K.n0(list.length) + ' منتج'), h('small', { class: 'help' }, 'علّم منتجات لو عايز تعدّل جزء منهم بس'));
+    const bulk = sel.length && (C.bulk || C.trash) ? h('div', { class: 'bulk-bar', role: 'region', 'aria-label': picked.length ? 'إجراءات على المحدد' : 'إجراءات على المنتجات المتفلترة', 'data-pbulk': picked.length ? 'picked' : 'filtered' }, scopeTag, h('span', { class: 'grow' }),
       C.bulk ? Button({ size: 'sm', label: 'تعديل السعر', onClick: () => bulkPrice(sel) }) : null, C.bulk ? Button({ size: 'sm', label: 'تعديل المخزون', onClick: () => bulkStock(sel) }) : null,
       C.bulk ? Button({ size: 'sm', label: 'نقل لبراند تاني', onClick: () => moveBrand(sel) }) : null, C.bulk ? Button({ size: 'sm', label: 'نقل لمبتكر تاني', onClick: () => moveVendor(sel) }) : null, C.bulk ? Button({ size: 'sm', label: 'تغيير القسم', onClick: () => changeCat(sel) }) : null,
       C.bulk ? Button({ size: 'sm', label: 'تحويل لمسودة', onClick: () => toDraft(sel) }) : null, C.bulk ? Button({ size: 'sm', label: 'تحويل لفي انتظار المراجعة', attrs: { 'data-pbulk-pending': '' }, onClick: () => toPending(sel) }) : null, C.bulk ? Button({ size: 'sm', label: 'نشر', onClick: () => publish(sel) }) : null,
-      C.trash ? Button({ type: 'danger', size: 'sm', label: 'مسح', onClick: () => toTrash(sel) }) : null, Button({ size: 'sm', label: 'إلغاء التحديد', onClick: () => { st.sel.clear(); R(); } })) : null;
+      C.trash ? Button({ type: 'danger', size: 'sm', label: 'مسح', onClick: () => toTrash(sel) }) : null, picked.length ? Button({ size: 'sm', label: 'إلغاء التحديد', onClick: () => { st.sel.clear(); R(); } }) : null) : null;
     const pages = Math.max(1, Math.ceil(list.length / PAGE)); if (st.pageN >= pages) st.pageN = pages - 1;
     const shown = list.slice(st.pageN * PAGE, st.pageN * PAGE + PAGE);
     const allSel = shown.length && shown.every((p) => st.sel.has(p.id));

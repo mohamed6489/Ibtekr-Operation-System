@@ -220,21 +220,40 @@
   .cp-acts{order:2}
 }
 
-/* «الخصم الوهمي» بالشرايح (the owner 15 Nov — fake-discount.js): the tiers popup — من · لحد · نزوّد · نوع الزيادة · مسح */
-.fk-list{display:flex;flex-direction:column;gap:8px}
-.fk-row{display:grid;grid-template-columns:88px minmax(0,1.2fr) minmax(0,1.6fr) 36px;gap:12px;align-items:start;padding:10px 12px;border:1px solid var(--color-border-subtle);border-radius:var(--radius-md);background:var(--color-bg-base)}
+/* «الخصم الوهمي» بالشرايح (the owner 15 Nov — fake-discount.js): the tiers popup — one table: # · من · لحد · نزوّد · النوع · مسح
+   (16 Nov: «ظبط ال ui بشكل احترافي و منظم» — a header once, the rows under it, «لحد» says its error under the field while typed) */
+.fk-table{border:1px solid var(--color-border-subtle);border-radius:var(--radius-md);overflow:hidden;background:var(--color-bg-base)}
+.fk-head,.fk-row{display:grid;grid-template-columns:28px 84px minmax(0,1fr) minmax(0,1fr) 108px 36px;column-gap:12px;padding:8px 12px}
+.fk-head{background:var(--color-brand-default);color:var(--color-text-on-brand);font-size:13px;font-weight:700;align-items:center;min-height:40px}
+.fk-list{display:flex;flex-direction:column}
+.fk-row{align-items:start;border-top:1px solid var(--color-border-subtle)}
+.fk-list .fk-row:first-child{border-top:0}
+.fk-list .fk-row:nth-child(even){background:var(--color-bg-subtle, #f6f1e7)}
+.fk-idx{line-height:36px;color:var(--color-text-secondary);font-weight:700}
 .fk-from,.fk-to,.fk-add{display:flex;flex-direction:column;gap:4px;min-width:0}
 .fk-from b{line-height:36px}
-.fk-open.on{min-height:36px;font-weight:700;font-size:14px}
+.fk-lab{display:none;color:var(--color-text-secondary)}
 .fk-cell{display:flex;flex-direction:column;gap:2px;min-width:0}
 .fk-cell .input{width:100%;text-align:center}
-.fk-add{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:8px;row-gap:4px}
-.fk-add > small{grid-column:1 / -1}
+.fk-cell .err-text{color:var(--color-danger, #b42318);line-height:1.4}
 .fk-type{display:flex;gap:4px;align-items:center;height:36px}
-.fk-type .chip{min-width:44px;justify-content:center}
+.fk-type .chip{min-width:46px;justify-content:center}
+.fk-del{display:flex;align-items:center;height:36px}
 .fk-open,.fk-default{display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer}
+.fk-open.on{min-height:36px;font-weight:700;font-size:14px}
 .fk-sample{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 12px;border-radius:var(--radius-md);background:var(--color-bg-subtle, #f6f1e7)}
 .fk-sample .input{width:120px;text-align:center}
+@media (max-width:640px){
+  .fk-head{display:none}
+  .fk-row{grid-template-columns:minmax(0,1fr) minmax(0,1fr) 36px;grid-template-areas:"idx idx del" "from to to" "add add type";row-gap:8px;column-gap:10px}
+  .fk-lab{display:block}
+  .fk-idx{grid-area:idx;line-height:24px}
+  .fk-idx::before{content:'الشريحة '}
+  .fk-from{grid-area:from}.fk-to{grid-area:to}.fk-add{grid-area:add}
+  .fk-type{grid-area:type;align-self:end;height:36px}
+  .fk-del{grid-area:del;height:24px;justify-content:flex-end}
+  .fk-type{grid-column:auto}
+}
 .fl-fake{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:10px 12px;border:1px solid var(--color-border-subtle);border-radius:var(--radius-md);background:var(--color-bg-subtle, #f6f1e7)}
 .fl-fake .fl-fake-text{flex:1 1 240px;min-width:0}
 @media (max-width:640px){

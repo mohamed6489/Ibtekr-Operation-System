@@ -2261,3 +2261,11 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 3. **`team-admin`** (`member_email` للأدمن، و`member_invite` للأدمن أو المدير المباشر) و**`settings-admin`** (`member_status` للأدمن أو المدير المباشر) من `deploy-functions.yml` — **بعد** الـ migration (الدالتين بينادوا `member_can_edit`).
 4. تجربة: عضو مديره المباشر حد مش أدمن ← المدير يفتح ملفه ← «تعديل البيانات» (الإيميل مقفول) ← «الدور والصلاحيات» (صلاحية مش عنده مش متاحة) ← `activity_log` فيه `hr.member.info` بأسامي الخانات بس.
 
+#### 2.7.96 «إضافة مبتكر» من غير خطوة تانية + البراند بصورته + «حذف المبتكر» (16 نوفمبر، `0112`)
+الخطة `docs/superpowers/plans/2026-11-16-maker-add-delete.md`. الواجهة من `main` زي العادة. **الترتيب:**
+1. **`0112_maker_store_archive.sql`** (بعد «طبّق»): `vendors.store_error` / `store_try_at` (محاولة المتجر اللي فشلت) و`archived_at` / `archived_by` / `archive_reason` (المبتكر المتأرشف) + الحارس `vendors_archived_guard`. قبلها الواجهة بتشتغل عادي (بتقرا الأعمدة القديمة لوحدها)، بس «جرّب عمل المتجر تاني» والأرشيف مش هيظهروا.
+2. اختبار الحي: `supabase/tests/rls_maker_archive.sql` و`rls_vendors` (عدد الأعمدة 38).
+3. **`woo-sync`** من `deploy-functions.yml`: العمولة المحفوظة مع `vendor_store` دايمًا، `store_error`، و**`brand_site`** و**`vendor_delete`** الجداد. `vendor_delete` بينقل منتجات المتجر لأدمن الموقع — `WOO_REASSIGN_USER` (سر اختياري = رقم حساب الأدمن على ووردبريس) وإلا أول administrator من `wc/v3/customers?role=administrator`.
+4. تجربة على الـ staging: مبتكر جديد «حسب الفئة» ← المتجر بيتعمل مع «إضافة المبتكر» بالعمولة (Dokan › Vendors › Commission) ← البراند على الموقع في المكانين بصورته ← «حذف المبتكر» لمبتكر تجريبي ← متجره اتمسح ومنتجاته بقت باسم الأدمن.
+5. **المتجر `#2480` (karam)** اتعمل من غير العمولة: بعد النشر «تعديل» الاتفاق التجاري بتاعه (حفظ زي ما هو) بيبعتها؛ والمبتكر المكرر (`karam` التاني من الضغطة المزدوجة) يتمسح بـ «حذف المبتكر».
+

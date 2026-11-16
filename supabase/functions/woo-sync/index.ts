@@ -180,7 +180,7 @@ type Run = { db: Db; env: Deps['env']; woo: () => ReturnType<typeof wooApi>; ctx
 
 const ACTIONS = ['states', 'categories', 'orders', 'vendors', 'products', 'all', 'push_status', 'push_vendor', 'register_webhooks', 'probe_store', 'probe_dokan', 'accounts', 'statement', 'withdraw_approve', 'withdraw_create', 'withdrawals', 'order_trash', 'suborder_trash', 'line_trash', 'line_qty', 'line_add', 'suborder_status', 'order_create', 'order_pay_link',
   'vendor_photo', 'vendor_store', 'product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'studio_media', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push', 'product_duplicate', 'carts',
-  'category_get', 'category_update', 'category_delete', 'category_order', 'thumbs', 'styles', 'wp_updates', 'brand_site'];
+  'category_get', 'category_update', 'category_delete', 'category_order', 'thumbs', 'styles', 'wp_updates', 'brand_site', 'vendor_delete'];
 // phase 5: the product actions a person runs (never the sync secret); phase 5.2: the studio's upload, a new category, a sheet link;
 // phase 5.4: the images tool's results onto a product; B4 (11 Nov): the categories tab's read, edit and delete
 const PRODUCT_ACTIONS = ['product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'studio_media', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push', 'product_duplicate',
@@ -211,7 +211,7 @@ async function authorize(req: Request, deps: Deps, action: string, args: Json): 
     if (action === 'withdraw_approve' || action === 'withdraw_create') return null; // a person approves / asks, never the cron / sync secret (phase 4.1; 0078)
     if (action === 'order_trash' || action === 'suborder_trash' || action === 'line_trash' || action === 'line_qty' || action === 'line_add' || action === 'suborder_status') return null; // a person deletes an order / a sub-order, never the cron / sync secret (phase 5.5 decision 10, phase 13 decision 54)
     if (action === 'order_create' || action === 'order_pay_link') return null; // a person makes an order from the chat (phase 13 T3)
-    if (action === 'vendor_photo' || action === 'vendor_store' || action === 'brand_site') return null; // a person sets a maker's photo / makes his store / his brand on the site (phase 13 decision 51; 11 Nov; 16 Nov)
+    if (action === 'vendor_photo' || action === 'vendor_store' || action === 'brand_site' || action === 'vendor_delete') return null; // a person sets a maker's photo / makes his store / his brand on the site (phase 13 decision 51; 11 Nov; 16 Nov)
     if (PRODUCT_ACTIONS.includes(action)) return null; // a person edits products, never the cron / sync secret (phase 5)
     if (action === 'wp_updates') return null; // a person checks the site's updates (comments decision 71)
     const { data, error } = await deps.db.rpc('sync_secret_matches', { candidate: secret });
@@ -253,6 +253,7 @@ async function authorize(req: Request, deps: Deps, action: string, args: Json): 
   // phase 13 decision 51: the maker's photo (recorded, then set as the Dokan store's photo) — the admin or vendors.edit = F
   if (action === 'vendor_photo') return (await admin()) || (await perm('vendors.edit')) ? 'member' : null;
   if (action === 'brand_site') return (await admin()) || (await perm('vendors.edit')) ? 'member' : null; // the owner 16 Nov: the maker's brand on the site
+  if (action === 'vendor_delete') return (await admin()) ? 'member' : null; // the owner 16 Nov: «حذف المبتكر» — the admin only
   // the owner, 11 Nov: a maker's store on the site — the people who add a maker (the commission and the bank follow their own rules inside)
   if (action === 'vendor_store') return (await admin()) || (await perm('vendors.edit')) ? 'member' : null;
   if (action === 'push_vendor') {
@@ -2254,6 +2255,57 @@ async function catArabic(ctx: Ctx, id: number, en: Json): Promise<Json | null> {
   const linked = isObj(a) && wooId(a.id) === arId && (!isObj(a.translations) || wooId(a.translations.en) === id);
   return linked ? a : null;
 }
+// ---------------------------------------------------------------- vendor_delete (the owner 16 Nov — plan 2026-11-16 decision 7)
+// vendor_delete { vendor_id, reason }: «حذف المبتكر» — the admin only, a person only, WOO_PUSH_ENABLED for a maker with a store.
+// The store goes first: DELETE dokan/v1/stores/{id}?reassign=<the site's admin> — his WordPress user and store are deleted, his
+// products move to the site's admin (never deleted); the site's admin = WOO_REASSIGN_USER, else the administrator with the lowest id
+// (wc/v3/customers?role=administrator). A store already gone (404 / 410) counts as deleted; any other failure = nothing changed here.
+// Then here: a maker nothing points at is deleted (his brands, login and rows go with him); one with orders / account moves / … (23503)
+// is archived — archived_at, archived_by, the reason (≤ 300), status inactive — and keeps his name on them. → { result, store, mode:
+// deleted | archived }. The log: ids and the mode only (the reason stays on the row).
+async function vendorDelete(run: Run, args: Json, uid: string | null) {
+  const vendorId = typeof args.vendor_id === 'string' && UUID.test(args.vendor_id) ? args.vendor_id.toLowerCase() : null;
+  const reason = typeof args.reason === 'string' ? args.reason.replace(/[\u0000-\u001f<>]/g, ' ').trim().slice(0, 300) : '';
+  if (!vendorId) return json(400, { error: 'bad_request', field: 'vendor_id' });
+  if (!reason) return json(400, { error: 'bad_request', field: 'reason' });
+  const { data: row, error } = await run.db.from('vendors').select('id, name, woo_vendor_id').eq('id', vendorId).maybeSingle();
+  if (error) throw new Error(`vendors: ${error.message}`);
+  if (!row) return json(404, { error: 'vendor_not_found' });
+  if (await isArchived(run, vendorId)) return json(409, { error: 'archived' });
+  const storeId = wooId(row.woo_vendor_id);
+  const entry = { kind: 'push', direction: 'out', entity: 'vendor', entity_id: vendorId, action: 'vendor_delete' };
+  if (storeId !== null) {
+    if (!pushEnabled(run.env)) { await logSync(run.db, { ...entry, result: 'skipped', detail: { reason: 'push_disabled' } }); return json(409, { error: 'push_disabled' }); }
+    const ctx = await run.ctx();
+    try {
+      let to = wooId(run.env.WOO_REASSIGN_USER ?? null);
+      if (to === null) {
+        const admins = (await ctx.woo.get('wc/v3/customers', { role: 'administrator', orderby: 'id', order: 'asc', per_page: '5' })).data;
+        to = (Array.isArray(admins) ? admins : []).map((a: Json) => wooId(isObj(a) ? a.id : null)).find((x) => x !== null && x !== storeId) ?? null;
+      }
+      if (to === null || to === storeId) { await logSync(run.db, { ...entry, result: 'skipped', detail: { reason: 'no_admin' } }); return json(409, { error: 'no_admin' }); }
+      try { await ctx.woo.delStore(storeId, to); }
+      catch (e) { if (!(e instanceof WooError) || ![404, 410].includes(e.status)) throw e; }
+    } catch (e) {
+      if (!(e instanceof WooError)) throw e;
+      await logSync(run.db, { ...entry, at: run.now(), result: 'error', detail: { store: storeId, error: errorText(e, (x: string) => ctx.woo.scrub(x)) } });
+      return json(502, { error: 'woo_error', action: 'vendor_delete' });
+    }
+  }
+  // here: delete, or archive when something points at him
+  let mode = 'deleted';
+  const del = await run.db.from('vendors').delete().eq('id', vendorId);
+  if (del.error) {
+    if (String(del.error.code) !== '23503') throw new Error(`vendors: ${del.error.message}`);
+    const { error: aErr } = await run.db.from('vendors').update({ archived_at: run.now(), archived_by: uid, archive_reason: reason, status: 'inactive' }).eq('id', vendorId);
+    if (aErr) throw new Error(`vendors archive: ${aErr.message}`);
+    mode = 'archived';
+  }
+  await logSync(run.db, { ...entry, entity_id: storeId === null ? vendorId : String(storeId), result: 'ok', detail: { vendor_id: vendorId, store: storeId, mode } });
+  await logActivity(await run.ctx(), mode === 'archived' ? 'vendor.archive' : 'vendor.delete', vendorId, storeId === null ? [mode] : ['#' + storeId, mode]);
+  return json(200, { action: 'vendor_delete', result: 'ok', store: storeId, mode });
+}
+
 // ---------------------------------------------------------------- brand_site (the owner 16 Nov — plan 2026-11-16 decision 6)
 // brand_site { brand_id, image?: { data: base64 } }: the maker's brand on the site in both places — WooCommerce Brands (the term with
 // this name, made when there is none; more than one with the name = left unset, said) with its own picture (2 MB, PNG / JPEG / WebP
@@ -2689,6 +2741,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'push_vendor') return await pushVendor(run, args);
     if (action === 'vendor_photo') return await vendorPhoto(run, args);
     if (action === 'brand_site') return await brandSite(run, args);
+    if (action === 'vendor_delete') { const jwt = /^Bearer\s+(\S+)$/i.exec(req.headers.get('authorization') ?? '')?.[1] ?? ''; return await vendorDelete(run, args, deps.userId && jwt ? await deps.userId(jwt) : null); }
     if (action === 'vendor_store') { const jwt = /^Bearer\s+(\S+)$/i.exec(req.headers.get('authorization') ?? '')?.[1] ?? ''; return await vendorStore(run, args, deps.userDb && jwt ? deps.userDb(jwt) : null); }
     if (action === 'register_webhooks') return await registerWebhooks(run, args);
     if (action === 'probe_store') return await probeStore(run, args);

@@ -77,7 +77,7 @@ function baseUrl(raw) {
 }
 
 /**
- * { get(path, query), put(path, body, query), post(path, body), del(path), delCategory(id, lang), orderCategories(items, lang), upload(path, bytes, filename, mime), eachPage(path, query, onPage, { maxPages, startPage }), scrub }.
+ * { get(path, query), put(path, body, query), post(path, body), del(path), delStore(id, reassign), delCategory(id, lang), orderCategories(items, lang), upload(path, bytes, filename, mime), eachPage(path, query, onPage, { maxPages, startPage }), scrub }.
  * get/put/post → { data, total, pages } (X-WP-Total / X-WP-TotalPages as numbers or null).
  */
 export function wooApi(env, fetchFn) {
@@ -137,6 +137,13 @@ export function wooApi(env, fetchFn) {
     post: (path, body) => request('POST', path, { body }),
     // DELETE with no query at all: a product goes to the trash (never `force`, which deletes it for good; phase 5)
     del: (path) => request('DELETE', path),
+    // the owner 16 Nov (plan 2026-11-16 decision 7): a Dokan store deleted (its WordPress user) with its posts reassigned to another
+    // user — never without `reassign` (that would delete the maker's products with him)
+    delStore: (id, reassign) => {
+      const n = Number(id); const r = Number(reassign);
+      if (!Number.isInteger(n) || n <= 0 || !Number.isInteger(r) || r <= 0 || r === n) throw new ConfigError('a store id and another user to reassign to are required');
+      return request('DELETE', `dokan/v1/stores/${n}`, { query: { reassign: r } });
+    },
     // B4 (the owner, 11 Nov): a product category has no trash on WooCommerce — its DELETE needs force=true. Only a category's own
     // route takes it (never a product's: `del` above stays without a query); `lang` reaches a category's Arabic term (WPML).
     delCategory: (id, lang) => {

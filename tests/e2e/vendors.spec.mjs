@@ -125,7 +125,7 @@ test('the vendors page lists the sync\'s makers with the team columns and no see
   await expect(page.getByRole('button', { name: 'إضافة مبتكر' })).toBeEnabled();
 });
 
-test('0031 (the owner, 2 Nov): a maker whose store is gone from the site is marked, not deleted — «اتحذف من الموقع» in the drawer; the admin removes it from «المزيد» (a maker without orders); the mark lifts with the sync', async ({ page }) => {
+test('0031 + the owner 16 Nov: a maker whose store is gone from the site is marked «اتحذف من الموقع»; «حذف المبتكر» (the admin, a reason) deletes a maker nothing points at and archives one with orders — his store on the site deleted too', async ({ page }) => {
   const V4 = 'a0000000-0000-4000-8000-000000000004';
   mock.vendors.push({ ...mock.vendors[2], id: V4, woo_vendor_id: 7777, name: 'Gone Store', aliases: [], status: 'inactive', site_removed_at: '2026-11-01T10:00:00Z', raw: { id: 7777, shop_url: 'https://woo.test/store/gone-store/' } });
   await openVendors(page, ADMIN);
@@ -133,17 +133,26 @@ test('0031 (the owner, 2 Nov): a maker whose store is gone from the site is mark
   await expect(drawer(page).locator('[data-site-removed]')).toHaveText('اتحذف من الموقع');
   await expect(drawer(page).locator('[data-site-off]')).toHaveCount(0); // the removed tag replaces «موقوف على الموقع»
   await drawer(page).getByRole('button', { name: 'المزيد' }).click();
-  await page.getByRole('menuitem', { name: 'احذف من السيستم' }).click();
-  await expect(modal(page)).toContainText('حذف «Gone Store» من السيستم؟');
-  await modal(page).getByRole('button', { name: 'احذف من السيستم' }).click();
+  await page.getByRole('menuitem', { name: 'حذف المبتكر' }).click();
+  await expect(modal(page)).toContainText('متجره على الموقع (#7777) هيتمسح');
+  await modal(page).getByRole('button', { name: 'احذف المبتكر' }).click();
+  await expect(modal(page).locator('#reason-err')).toContainText('اكتب السبب'); // the reason is required
+  await modal(page).locator('#reason').fill('مكرر');
+  await modal(page).getByRole('button', { name: 'احذف المبتكر' }).click();
   await expect(drawer(page)).toBeHidden();
-  await expect.poll(() => mock.vendors.some((v) => v.id === V4)).toBe(false);
-  // a maker still on the site has no such item
-  await openByHash(page, V3);
-  await expect(drawer(page).locator('[data-site-removed]')).toHaveCount(0);
-  await expect(drawer(page).locator('[data-site-off]')).toHaveText('موقوف على الموقع'); // inactive with a store
+  await expect.poll(() => mock.vendors.some((v) => v.id === V4)).toBe(false); // nothing pointed at him: deleted
+  expect(mock.storeDeletes).toEqual([{ store: 7777, reassign: 1 }]);
+  await expect(page.locator('#vendors .note')).toContainText('اتحذف «Gone Store» ومتجره من الموقع');
+  // a maker with orders: archived — gone from the registry, his row kept
+  const withOrders = mock.vendors.find((v) => (mock.orderItems || []).some((x) => x.vendor_id === v.id));
+  await openByHash(page, withOrders.id);
   await drawer(page).getByRole('button', { name: 'المزيد' }).click();
-  await expect(page.getByRole('menuitem', { name: 'احذف من السيستم' })).toHaveCount(0);
+  await page.getByRole('menuitem', { name: 'حذف المبتكر' }).click();
+  await modal(page).locator('#reason').fill('وقف التعامل');
+  await modal(page).getByRole('button', { name: 'احذف المبتكر' }).click();
+  await expect(page.locator('#vendors .note')).toContainText('اتأرشف «' + withOrders.name + '»');
+  expect(mock.vendors.find((v) => v.id === withOrders.id).archived_at).toBeTruthy();
+  await expect(page.locator('#vendors tr[data-id="' + withOrders.id + '"]')).toHaveCount(0);
 });
 
 test('search finds a maker by an alias', async ({ page }) => {
@@ -609,7 +618,7 @@ test('«في إجازة» (phase 3.1): a status like the others — from «ال�
   await page.locator('#vendors [role=tab]', { hasText: 'سجل المبتكرين' }).click();
   await openDrawer(page, V2);
   await drawer(page).getByRole('button', { name: 'المزيد' }).click();
-  await expect(page.locator('[role=menu] [role=menuitem]')).toHaveText(['تحويل لـ «في إجازة»', 'تحويل لغير نشط', 'تغيير النسبة (الأوردرات الجديدة فقط)', 'نسخ رابط الملف', 'فتح طلب على المبتكر']);
+  await expect(page.locator('[role=menu] [role=menuitem]')).toHaveText(['تحويل لـ «في إجازة»', 'تحويل لغير نشط', 'تغيير النسبة (الأوردرات الجديدة فقط)', 'نسخ رابط الملف', 'فتح طلب على المبتكر', 'حذف المبتكر']); // the owner 16 Nov: «حذف المبتكر» for the admin
   await page.locator('[role=menu] [role=menuitem]', { hasText: 'في إجازة' }).click();
   await expect(drawer(page).locator('.drawer-h .vstatus')).toHaveText('في إجازة');
   await expect.poll(() => writes()).toEqual([{ table: 'vendors', op: 'update', id: V2, status: 'leave' }]);

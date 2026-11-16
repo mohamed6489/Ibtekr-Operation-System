@@ -330,7 +330,7 @@ export function fakeDb(seed: Record<string, Row[]> = {}, opts: { rpc?: Record<st
       upsert(rows: Row | Row[], o: { onConflict?: string } = {}) { q.op = 'upsert'; q.rows = Array.isArray(rows) ? rows : [rows]; q.onConflict = o.onConflict ?? 'id'; return b; },
       update(patch: Row) { q.op = 'update'; q.patch = patch; return b; },
       // B4: the one delete a function makes — a category gone from the site leaves the mirror (woo-sync category_delete)
-      delete() { if (table !== 'woo_categories') throw new Error('fakeDb: the functions must never delete'); q.op = 'delete'; return b; },
+      delete() { if (table !== 'woo_categories' && table !== 'vendors') throw new Error('fakeDb: the functions must never delete'); q.op = 'delete'; return b; },
       eq(col: string, v: unknown) { q.filters.push(['eq', col, v]); return b; },
       in(col: string, v: unknown[]) { q.filters.push(['in', col, v]); return b; },
       is(col: string, v: unknown) { q.filters.push(['is', col, v]); return b; },

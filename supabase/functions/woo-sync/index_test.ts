@@ -3283,3 +3283,37 @@ Deno.test('brand_site: the brand made on WooCommerce Brands with its picture, th
   assertEquals((await call(off.deps, { action: 'brand_site', brand_id: BR }, { jwt: 'jwt-vf' })).body.result, 'skipped');
   assertEquals(off.woo.calls.length, 0);
 });
+
+// the owner 16 Nov (plan 2026-11-16 decision 7): «حذف المبتكر» — the admin only, a reason; the store deleted on the site with its
+// products reassigned to the site's admin (never without reassign); here deleted, or archived when something points at him; the
+// site refusing = nothing changed here; a store already gone counts as deleted
+Deno.test('vendor_delete: admin only with a reason; the Dokan store deleted with reassign; deleted here or archived on 23503; a site failure changes nothing', async () => {
+  const dels: any[] = [];
+  const routes = { 'GET wc/v3/customers': { body: [{ id: 1, role: 'administrator' }] },
+    'DELETE dokan/v1/stores/44': (c: any) => { dels.push(c.query); return { body: { id: 44 } }; } };
+  const V44 = vendorId(44);
+  const a = setup({ env: PUSH_ON, routes });
+  assertEquals((await call(a.deps, { action: 'vendor_delete', vendor_id: V44, reason: 'x' }, { jwt: 'jwt-vf' })).res.status, 401, 'vendors.edit is not enough');
+  assertEquals((await call(a.deps, { action: 'vendor_delete', vendor_id: V44, reason: 'x' })).res.status, 401, 'never the sync secret');
+  assertEquals((await call(a.deps, { action: 'vendor_delete', vendor_id: V44, reason: '  ' }, { jwt: 'jwt-admin' })).body.field, 'reason');
+  const r = await call(a.deps, { action: 'vendor_delete', vendor_id: V44, reason: 'مكرر' }, { jwt: 'jwt-admin' });
+  assertEquals([r.res.status, r.body.mode, r.body.store], [200, 'deleted', 44]);
+  assertEquals(dels, [{ reassign: '1' }], 'the store deleted, its products to the site\'s admin');
+  assertEquals(a.db.rows('vendors').some((v: any) => v.id === V44), false);
+  assertEquals(a.db.rows('activity_log').map((x: any) => [x.action, x.new_value]), [['vendor.delete', '#44, deleted']]);
+  // orders point at him → archived with the reason, inactive
+  const b = setup({ env: PUSH_ON, routes, fail: (c) => (c.table === 'vendors' && c.op === 'delete' ? { code: '23503', message: 'update or delete on table "vendors" violates foreign key constraint' } : null) });
+  const rb = await call(b.deps, { action: 'vendor_delete', vendor_id: V44, reason: 'وقف التعامل' }, { jwt: 'jwt-admin' });
+  const row = b.db.rows('vendors').find((v: any) => v.id === V44);
+  assertEquals([rb.body.mode, row.archived_by, row.archive_reason, row.status, typeof row.archived_at], ['archived', 'uid-jwt-admin', 'وقف التعامل', 'inactive', 'string']);
+  // the site refuses → nothing changed here
+  const c = setup({ env: PUSH_ON, routes: { ...routes, 'DELETE dokan/v1/stores/44': { status: 500, body: { code: 'x' } } } });
+  const rc = await call(c.deps, { action: 'vendor_delete', vendor_id: V44, reason: 'x' }, { jwt: 'jwt-admin' });
+  assertEquals([rc.res.status, c.db.rows('vendors').some((v: any) => v.id === V44)], [502, true]);
+  // a store already gone from the site (404) → deleted here all the same
+  const d = setup({ env: PUSH_ON, routes: { ...routes, 'DELETE dokan/v1/stores/44': { status: 404, body: { code: 'dokan_rest_invalid_store' } } } });
+  assertEquals((await call(d.deps, { action: 'vendor_delete', vendor_id: V44, reason: 'x' }, { jwt: 'jwt-admin' })).body.mode, 'deleted');
+  // the switch off → refused before the site
+  const e = setup({ env: { WOO_PUSH_ENABLED: '0' }, routes });
+  assertEquals([(await call(e.deps, { action: 'vendor_delete', vendor_id: V44, reason: 'x' }, { jwt: 'jwt-admin' })).body.error, e.woo.calls.length], ['push_disabled', 0]);
+});

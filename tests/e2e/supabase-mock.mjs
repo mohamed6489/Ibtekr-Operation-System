@@ -2340,6 +2340,19 @@ export async function installSupabaseMock(page, opts = {}) {
         v.woo_vendor_id = store; v.woo_synced_at = new Date().toISOString(); v.push_pending = null; v.store_error = null;
         return json(200, { action, result: 'ok', store, adopted: false, commission, bank, photo: 'none', shop_url: 'https://woo.test/store/' + shop + '/' });
       }
+      // the owner 16 Nov: vendor_delete — the admin, a reason; the store on the site deleted (mock.storeDeletes, its products to the
+      // site's admin), then here deleted, or archived when order lines point at him (mock.orderItems)
+      if (action === 'vendor_delete') {
+        if (!u || !isAdmin(u)) return json(401, { error: 'unauthorized' });
+        const v = mock.vendors.find((x) => x.id === String(b.vendor_id || '').toLowerCase()); if (!v) return json(404, { error: 'vendor_not_found' });
+        const why = String(b.reason || '').trim(); if (!why) return json(400, { error: 'bad_request', field: 'reason' });
+        if (v.archived_at) return json(409, { error: 'archived' });
+        if (v.woo_vendor_id != null) { if (!mock.pushEnabled) return json(409, { error: 'push_disabled' }); if (mock.wooDown) return json(502, { error: 'woo_error', action }); (mock.storeDeletes = mock.storeDeletes || []).push({ store: v.woo_vendor_id, reassign: 1 }); }
+        const used = (mock.orderItems || []).some((x) => x.vendor_id === v.id);
+        if (used) Object.assign(v, { archived_at: new Date().toISOString(), archive_reason: why.slice(0, 300), status: 'inactive' });
+        else { mock.vendors.splice(mock.vendors.indexOf(v), 1); mock.brands = (mock.brands || []).filter((x) => x.origin_vendor_id !== v.id); }
+        return json(200, { action, result: 'ok', store: v.woo_vendor_id ?? null, mode: used ? 'archived' : 'deleted' });
+      }
       // the owner 16 Nov: brand_site — the maker's brand on the site (WooCommerce Brands + the pa_brand term), the picture optional;
       // the admin or vendors.edit F; mock.brandSiteCalls records { brand_id, image: has a picture, by }
       if (action === 'brand_site') {

@@ -3724,7 +3724,7 @@
     function moreMenu(v) {
       const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' }); const trig = IconButton({ icon: 'more', label: 'المزيد', attrs: { 'aria-haspopup': 'menu', 'aria-expanded': 'false' } });
       const MOVES = { active: [['leave', 'تحويل لـ «في إجازة»'], ['inactive', 'تحويل لغير نشط']], leave: [['active', 'تفعيل المبتكر'], ['inactive', 'تحويل لغير نشط']], inactive: [['active', 'تفعيل المبتكر'], ['leave', 'تحويل لـ «في إجازة»']] }; // decision 6: leave is a status like the others (vendors.toggle)
-      const opts = (vstore.canToggle() ? (MOVES[v.status] || MOVES.active).map(([st, label]) => ({ value: 'status:' + st, label })) : []).concat([vstore.canRate() ? { value: 'rate', label: 'تغيير النسبة (الأوردرات الجديدة فقط)' } : null, { value: 'copy', label: 'نسخ رابط الملف' }, { value: 'ticket', label: 'فتح طلب على المبتكر' }, v.siteRemovedAt && vstore.canRemove && vstore.canRemove() ? { value: 'remove', label: 'احذف من السيستم', danger: true } : null].filter(Boolean));
+      const opts = (vstore.canToggle() ? (MOVES[v.status] || MOVES.active).map(([st, label]) => ({ value: 'status:' + st, label })) : []).concat([vstore.canRate() ? { value: 'rate', label: 'تغيير النسبة (الأوردرات الجديدة فقط)' } : null, { value: 'copy', label: 'نسخ رابط الملف' }, { value: 'ticket', label: 'فتح طلب على المبتكر' }, vstore.canRemove && vstore.canRemove() && vstore.deleteVendor ? { value: 'remove', label: 'حذف المبتكر', danger: true } : null].filter(Boolean));
       const pop = U.popover(wrap, trig, (close) => U.DropdownMenu({ role: 'menu', end: true, options: opts, onSelect: (val) => { close();
         if (val.startsWith('status:')) act(() => vstore.update(id, { status: val.slice(7) }, vstore.actor()), 'اتغيرت الحالة.');
         if (val === 'rate') editGroup(v, 'terms');
@@ -3732,8 +3732,17 @@
         if (val === 'ticket') { vdrawer.close(); showTickets(); openNewTicket({ type: 'vendor', vendor: v.name, vendorId: v.id }); } // phase 8 decision 3
         // 0031 (the owner, 2 Nov): a maker whose store is gone from the site — the admin removes it here (the delete the server
         // allows: a maker with orders is refused by the database and the message says so)
-        if (val === 'remove') window.IBKit.confirm({ title: 'حذف «' + v.name + '» من السيستم؟', text: 'متجره اتحذف من الموقع. الحذف هنا نهائي: براناته وبيانات دخوله بتتمسح معاه. مبتكر عليه أوردرات مابيتحذفش — يفضل «غير نشط» عشان الأوردرات والحسابات.', okLabel: 'احذف من السيستم', okType: 'danger',
-          onOk: () => act(() => vstore.remove(id, vstore.actor()), 'اتحذف المبتكر من السيستم.') }); } }));
+        // the owner 16 Nov (plan 2026-11-16 decision 7): «حذف المبتكر» — the admin, with a reason: his store on the site goes (his
+        // products move to the site's admin), and here he is deleted, or archived when orders / account moves point at him
+        if (val === 'remove') window.IBKit.form({ title: 'حذف «' + v.name + '»', values: { reason: '' },
+          fields: (f, e, set) => [U.InlineNote({ kind: 'warning', children: (v.wooVendorId ? 'متجره على الموقع (#' + v.wooVendorId + ') هيتمسح ومنتجاته هتتنقل لحساب الأدمن على الموقع. ' : '') + 'لو عليه أوردرات أو حركات حسابات هيتأرشف ويختفي من القوايم وأوردراته وحساباته تفضل باسمه؛ غير كده بيتمسح نهائي هو وبراناته وبيانات دخوله.' }),
+            window.IBKit.field.text('reason', 'السبب', f, e, set, { required: true, maxlength: 300 })],
+          validate: (f) => (String(f.reason || '').trim() ? {} : { reason: 'اكتب السبب' }), submitLabel: 'احذف المبتكر',
+          submit: (f, md) => { if (md._busy) return false; md._busy = true;
+            vstore.deleteVendor(id, f.reason).then((r) => { md._busy = false;
+              if (!r.ok) { window.IBKit.toast(r.message || 'مااتحذفش — جرّب تاني.', 'error'); return; }
+              md.close(); if (vdrawer) vdrawer.close(); vnotify('success', r.mode === 'archived' ? 'اتأرشف «' + v.name + '» — عليه أوردرات أو حركات' + (r.store ? '، ومتجره اتمسح من الموقع' : '') + '.' : 'اتحذف «' + v.name + '»' + (r.store ? ' ومتجره من الموقع' : '') + '.'); });
+            return false; } }); } }));
       trig.addEventListener('click', pop.toggle); wrap.append(trig); return wrap;
     }
     // the owner, 11 Nov: a maker without a store gets one on the site from his file — Dokan's «Add New Vendor» with his portal login (woo-sync

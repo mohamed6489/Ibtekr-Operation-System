@@ -695,6 +695,24 @@
     if (!d || d.result !== 'ok') return { ok: false, reason: (d && d.reason) || 'network', message: d && d.reason === 'push_disabled' ? 'الكتابة على الموقع مقفولة.' : 'البراند ماتعملش على الموقع — جرّب تاني.' };
     return { ok: true, brand: d.brand, made: !!d.made, image: d.image || 'none', attr: d.attr || 'same' };
   }
+  // the owner 16 Nov (plan 2026-11-16 decision 7): «حذف المبتكر» — the admin; woo-sync vendor_delete deletes his store on the site
+  // (his products to the site's admin) and then deletes him here, or archives him when orders / moves point at him. → { ok, mode }
+  async function deleteVendor(id, reason) {
+    const v = vendors.get(String(id)); if (!v) return fail('not_found');
+    if (!isAdmin()) return fail('forbidden');
+    const why = String(reason || '').trim(); if (!why) return { ok: false, reason: 'invalid', field: 'reason', message: 'اكتب السبب' };
+    let d = null;
+    try {
+      const res = await c().functions.invoke('woo-sync', { body: { action: 'vendor_delete', vendor_id: String(id), reason: why.slice(0, 300) } }); d = res.data;
+      if (res.error) { let b = null; try { b = res.error.context && typeof res.error.context.json === 'function' ? await res.error.context.json() : null; } catch (x) { b = null; }
+        const e = b && typeof b.error === 'string' ? b.error : 'network';
+        return { ok: false, reason: e, message: e === 'push_disabled' ? 'الكتابة على الموقع مقفولة — متجره مااتمسحش ولا حاجة اتغيّرت.' : e === 'no_admin' ? 'مالقيناش حساب أدمن على الموقع ننقل له منتجاته — مفيش حاجة اتغيّرت.' : e === 'woo_error' ? 'الموقع ماردش — متجره مااتمسحش ولا حاجة اتغيّرت. جرّب تاني.' : 'مااتحذفش — جرّب تاني.' }; }
+    } catch (x) { return fail('network'); }
+    if (!d || d.result !== 'ok') return fail('network');
+    await load();
+    emit({ id, removed: d.mode === 'deleted', changed: ['archived'] });
+    return { ok: true, mode: d.mode, store: d.store || null };
+  }
   // the photo for the drawer: a signed URL (10 min), kept for the session
   const photoCache = new Map();
   async function photoUrl(id) {
@@ -1040,6 +1058,6 @@
     mainCategories, mainCategoryIds, // B2 (0080)
     canSyncNow, syncing, syncNow, // plan 3.4 decision 10
     setPhoto, photoUrl, canPhoto, // phase 13 decision 51
-    createStore, canStore, STORE_MSG, brandSite }; // the owner, 11 Nov: the maker's store on the site (woo-sync vendor_store)
+    createStore, canStore, STORE_MSG, brandSite, deleteVendor }; // the owner, 11 Nov: the maker's store on the site (woo-sync vendor_store)
   window.IBVendors = { load, state: () => st, data, clear, store, loadEvents, events, loadMakersLog, makersLog: () => makersLog, setContract, contractUrl, setPhoto, photoUrl, PHOTO_BUCKET, stats, toVendor, toBrand, lineShare, rateAt, rateFor, storeOwnerAt, safeName, norm, today, MESSAGES, BUCKET, SYNC_FIELDS, toEvent, categories };
 })();

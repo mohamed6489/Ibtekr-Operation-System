@@ -2328,6 +2328,10 @@ Deno.test('vendor_store: a maker without a store → one POST dokan/v1/stores (h
   // a second call: the maker has a store now — nothing sent
   const again = await call(deps, { action: 'vendor_store', vendor_id: NEW_V, password: PW }, { jwt: 'jwt-vf' });
   assertEquals([again.res.status, again.body.error, posted.length], [409, 'has_store', 1]);
+  // 0112 (security review): an archived maker gets no store — nothing asked of the site, the row left as it is
+  const ar = setup({ seed: { ...NEW_SEED(), vendors: [{ ...NEW_ROW, archived_at: NOW }] }, routes: storeRoutes([], {}, []), env: WP_ENV });
+  const ra = await call(ar.deps, { action: 'vendor_store', vendor_id: NEW_V, password: PW }, { jwt: 'jwt-vf' });
+  assertEquals([ra.res.status, ra.body.error, ar.woo.calls.length, ar.db.rows('vendors')[0].store_error ?? null], [409, 'archived', 0, null]);
 });
 
 Deno.test('vendor_store: the admin\'s store carries the commission and the bank (Dokan keys); notify off and the shop URL as asked; switch off → skipped, nothing sent; no login → 409', async () => {
@@ -3245,4 +3249,37 @@ Deno.test('wp_updates: WordPress.org not answering claims no core update; the si
   const c = setup({ routes: { 'GET wc/v3/system_status': { body: SYS } }, fail: (q: any) => (q.table === 'site_checks' ? { code: '42P01', message: 'relation "public.site_checks" does not exist' } : null) });
   const three = await call(c.deps, { action: 'wp_updates' }, { jwt: 'jwt-admin' });
   assertEquals([three.body.result, three.body.stored, three.body.data.plugins.length], ['ok', false, 3]);
+});
+
+// the owner 16 Nov (plan 2026-11-16 decision 6): the maker's brand on the site in both places — WooCommerce Brands (made when the
+// site has none by that name) with its own picture, and the «Product Brand» term with its Arabic translation; vendors.edit F, never
+// the secret; a bad picture refused before any call; the switch off → skipped
+Deno.test('brand_site: the brand made on WooCommerce Brands with its picture, the pa_brand term and its Arabic one; an existing brand reused; bad picture 400; switch off skipped', async () => {
+  const BR = 'c0000000-0000-4000-8000-000000000001';
+  const png = btoa(String.fromCharCode(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52));
+  const terms: any[] = [];
+  const routes = { ...ATTRS,
+    'POST wc/v3/products/brands': (c: any) => ({ body: { id: 77, name: c.body.name, slug: 'karam' } }),
+    'PUT wc/v3/products/brands/77': (c: any) => ({ body: { id: 77, name: 'Karam', slug: 'karam', image: { id: c.body.image.id, src: 'https://woo.test/k.png' } } }),
+    'POST wp/v2/media': { body: { id: 555 } },
+    'GET wc/v3/products/attributes/13/terms': (c: any) => ({ body: c.query.lang === 'ar' ? terms.filter((t) => t.lang === 'ar') : terms.filter((t) => !t.lang) }),
+    'POST wc/v3/products/attributes/13/terms': (c: any) => { const t = { id: 6000 + terms.length, name: c.body.name, lang: c.body.lang }; terms.push(t); return { body: { id: t.id } }; } };
+  const seed = { brands: [{ id: BR, name: 'Karam', origin_vendor_id: NEW_V, created_by: 'system' }], woo_brands: [] };
+  const { db, woo, deps } = setup({ seed, env: WP_ENV, routes });
+  assertEquals((await call(deps, { action: 'brand_site', brand_id: BR })).res.status, 401, 'never the sync secret');
+  assertEquals((await call(deps, { action: 'brand_site', brand_id: BR }, { jwt: 'jwt-bank' })).res.status, 401, 'vendors.edit N');
+  assertEquals((await call(deps, { action: 'brand_site', brand_id: BR, image: { data: btoa('not an image at all') } }, { jwt: 'jwt-vf' })).body.field, 'image');
+  assertEquals(woo.calls.length, 0);
+  const r = await call(deps, { action: 'brand_site', brand_id: BR, image: { data: png } }, { jwt: 'jwt-vf' });
+  assertEquals([r.res.status, r.body.result, r.body.brand, r.body.made, r.body.image, r.body.attr], [200, 'ok', 77, true, 'ok', 'ok']);
+  assertEquals(terms.map((t) => [t.name, t.lang ?? null]), [['Karam', null], ['Karam', 'ar']], 'the term and its Arabic translation');
+  assertEquals(db.rows('woo_brands').map((b: any) => [b.id, b.name]), [[77, 'Karam']]);
+  assertEquals(db.rows('activity_log').map((a: any) => [a.action, a.entity_id, a.new_value]), [['vendor.brand.site', NEW_V, '#77']]);
+  // a second call: the brand is in the mirror now — reused, nothing made, the term already there
+  const again = await call(deps, { action: 'brand_site', brand_id: BR }, { jwt: 'jwt-vf' });
+  assertEquals([again.body.brand, again.body.made, again.body.image, again.body.attr], [77, false, 'none', 'same']);
+  // the switch off: nothing asked of the site
+  const off = setup({ seed, env: { ...WP_ENV, WOO_PUSH_ENABLED: '0' }, routes });
+  assertEquals((await call(off.deps, { action: 'brand_site', brand_id: BR }, { jwt: 'jwt-vf' })).body.result, 'skipped');
+  assertEquals(off.woo.calls.length, 0);
 });

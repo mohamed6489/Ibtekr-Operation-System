@@ -192,6 +192,10 @@ test('the owner, 11 Nov: «المتجر على الموقع» — the admin adds
   await pickCats(page, 'v-cat', ['ديكور']);
   await m.locator('#v-phone').fill('01000000009');
   await m.locator('#v-flat').fill('5');
+  // the owner 16 Nov (decision 6): the brand's own picture, next to the store's
+  await expect(m.getByText('صورة المتجر', { exact: true })).toBeVisible(); await expect(m.getByText('صورة البراند', { exact: true })).toBeVisible();
+  await m.locator('[data-v-brand-photo]').setInputFiles({ name: 'brand.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64') });
+  await expect(m.locator('[data-v-brand-prev] img')).toHaveCount(1);
   await toStep(page, 'login'); await m.locator('#v-login-email').fill('wood.dev@ibtekr.local');
   await m.locator('[data-genpw]').click();
   const pw = await m.locator('#v-login-pw').inputValue();
@@ -219,6 +223,10 @@ test('the owner, 11 Nov: «المتجر على الموقع» — the admin adds
   expect(writes().find((w) => w.table === 'vendors' && w.op === 'insert')).toMatchObject({ contact_name: 'سلمى علي', address_parts: { city: 'الجيزة', country: 'EG' } });
   await expect(note(page)).toContainText('اتضاف المبتكر Wood & Rope');
   await expect(note(page)).toContainText('واتعمل متجره على الموقع (#901) بالعمولة');
+  // … and his brand on the site in both places, with its picture
+  await expect.poll(() => (mock.brandSiteCalls || []).length).toBe(1);
+  expect(mock.brandSiteCalls[0]).toMatchObject({ name: 'Wood & Rope', image: true, by: ADMIN });
+  await expect(note(page)).toContainText('والبراند «Wood & Rope» على الموقع');
   await expect(drawer(page)).toContainText('متجر #901');
   await expect(drawer(page).locator('[data-make-store]')).toHaveCount(0);
   expect(JSON.stringify([mock.vendorWrites, mock.activity, mock.activityRows, mock.storeCalls])).not.toContain(pw);

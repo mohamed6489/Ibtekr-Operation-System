@@ -180,7 +180,7 @@ type Run = { db: Db; env: Deps['env']; woo: () => ReturnType<typeof wooApi>; ctx
 
 const ACTIONS = ['states', 'categories', 'orders', 'vendors', 'products', 'all', 'push_status', 'push_vendor', 'register_webhooks', 'probe_store', 'probe_dokan', 'accounts', 'statement', 'withdraw_approve', 'withdraw_create', 'withdrawals', 'order_trash', 'suborder_trash', 'line_trash', 'line_qty', 'line_add', 'suborder_status', 'order_create', 'order_pay_link',
   'vendor_photo', 'vendor_store', 'product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'studio_media', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push', 'product_duplicate', 'carts',
-  'category_get', 'category_update', 'category_delete', 'category_order', 'thumbs', 'styles', 'wp_updates'];
+  'category_get', 'category_update', 'category_delete', 'category_order', 'thumbs', 'styles', 'wp_updates', 'brand_site'];
 // phase 5: the product actions a person runs (never the sync secret); phase 5.2: the studio's upload, a new category, a sheet link;
 // phase 5.4: the images tool's results onto a product; B4 (11 Nov): the categories tab's read, edit and delete
 const PRODUCT_ACTIONS = ['product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'studio_media', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push', 'product_duplicate',
@@ -211,7 +211,7 @@ async function authorize(req: Request, deps: Deps, action: string, args: Json): 
     if (action === 'withdraw_approve' || action === 'withdraw_create') return null; // a person approves / asks, never the cron / sync secret (phase 4.1; 0078)
     if (action === 'order_trash' || action === 'suborder_trash' || action === 'line_trash' || action === 'line_qty' || action === 'line_add' || action === 'suborder_status') return null; // a person deletes an order / a sub-order, never the cron / sync secret (phase 5.5 decision 10, phase 13 decision 54)
     if (action === 'order_create' || action === 'order_pay_link') return null; // a person makes an order from the chat (phase 13 T3)
-    if (action === 'vendor_photo' || action === 'vendor_store') return null; // a person sets a maker's photo / makes his store (phase 13 decision 51; 11 Nov)
+    if (action === 'vendor_photo' || action === 'vendor_store' || action === 'brand_site') return null; // a person sets a maker's photo / makes his store / his brand on the site (phase 13 decision 51; 11 Nov; 16 Nov)
     if (PRODUCT_ACTIONS.includes(action)) return null; // a person edits products, never the cron / sync secret (phase 5)
     if (action === 'wp_updates') return null; // a person checks the site's updates (comments decision 71)
     const { data, error } = await deps.db.rpc('sync_secret_matches', { candidate: secret });
@@ -252,6 +252,7 @@ async function authorize(req: Request, deps: Deps, action: string, args: Json): 
   if (action === 'inventory_push') return (await admin()) || ((await perm('inventory.edit')) && (await perm('products.edit'))) ? 'member' : null;
   // phase 13 decision 51: the maker's photo (recorded, then set as the Dokan store's photo) — the admin or vendors.edit = F
   if (action === 'vendor_photo') return (await admin()) || (await perm('vendors.edit')) ? 'member' : null;
+  if (action === 'brand_site') return (await admin()) || (await perm('vendors.edit')) ? 'member' : null; // the owner 16 Nov: the maker's brand on the site
   // the owner, 11 Nov: a maker's store on the site — the people who add a maker (the commission and the bank follow their own rules inside)
   if (action === 'vendor_store') return (await admin()) || (await perm('vendors.edit')) ? 'member' : null;
   if (action === 'push_vendor') {
@@ -1020,12 +1021,17 @@ const STORE_TOGGLES = ['notify', 'trusted', 'featured'];
 // 0112 (the owner 16 Nov — «جرّب تاني» in the maker's file only when his store failed): the outcome on the row — store_error = the
 // refusal's code (or woo_error), store_try_at = now; cleared when the store is made or linked. A bad request (the page's own check),
 // a maker not found or one with a store leave the row as it is. Never blocks the answer (before 0112 the columns are not there).
+// 0112: a maker archived by «حذف المبتكر» (before 0112 the column is not there: never archived)
+async function isArchived(run: Run, vendorId: string): Promise<boolean> {
+  const { data, error } = await run.db.from('vendors').select('archived_at').eq('id', vendorId).maybeSingle();
+  return !error && isObj(data) && data.archived_at != null;
+}
 async function vendorStore(run: Run, args: Json, member: ReturnType<NonNullable<Deps['userDb']>> | null) {
   const res = await vendorStoreRun(run, args, member);
   const vendorId = typeof args.vendor_id === 'string' && UUID.test(args.vendor_id) ? args.vendor_id.toLowerCase() : null;
   if (vendorId) {
     let b: Json = {}; try { b = await res.clone().json(); } catch { b = {}; }
-    const code = res.status === 200 && b.result === 'ok' ? null : res.status === 400 || res.status === 404 || b.error === 'has_store' ? undefined
+    const code = res.status === 200 && b.result === 'ok' ? null : res.status === 400 || res.status === 404 || b.error === 'has_store' || b.error === 'archived' ? undefined
       : typeof b.error === 'string' ? b.error.slice(0, 60) : typeof b.reason === 'string' ? b.reason.slice(0, 60) : 'failed';
     if (code !== undefined) {
       try { await run.db.from('vendors').update({ store_error: code, store_try_at: run.now() }).eq('id', vendorId); } catch { /* before 0112 */ }
@@ -1045,6 +1051,7 @@ async function vendorStoreRun(run: Run, args: Json, member: ReturnType<NonNullab
   const { data: row, error } = await run.db.from('vendors').select(VENDOR_SYNC_COLUMNS + ', photo_path').eq('id', vendorId).maybeSingle();
   if (error) throw new Error(`vendors: ${error.message}`);
   if (!row) return json(404, { error: 'vendor_not_found' });
+  if (await isArchived(run, vendorId)) return json(409, { error: 'archived' }); // 0112 (security review): an archived maker gets no store
   if (wooId(row.woo_vendor_id) !== null) return json(409, { error: 'has_store' });
   const { data: login, error: lErr } = await run.db.from('vendor_logins').select('username, email').eq('vendor_id', vendorId).maybeSingle();
   if (lErr) throw new Error(`vendor_logins: ${lErr.message}`);
@@ -2247,6 +2254,68 @@ async function catArabic(ctx: Ctx, id: number, en: Json): Promise<Json | null> {
   const linked = isObj(a) && wooId(a.id) === arId && (!isObj(a.translations) || wooId(a.translations.en) === id);
   return linked ? a : null;
 }
+// ---------------------------------------------------------------- brand_site (the owner 16 Nov — plan 2026-11-16 decision 6)
+// brand_site { brand_id, image?: { data: base64 } }: the maker's brand on the site in both places — WooCommerce Brands (the term with
+// this name, made when there is none; more than one with the name = left unset, said) with its own picture (2 MB, PNG / JPEG / WebP
+// by its bytes → wp/v2/media → the brand's `image`), and a term of the «Product Brand» attribute (pa_brand) with its Arabic
+// translation (as the studio's terms). Admin or vendors.edit = F; a person only; WOO_PUSH_ENABLED. The mirror woo_brands takes the
+// site's answer. → { result, brand, made, image: ok | none | failed, attr: ok | same | no_attribute | failed }; nothing named is logged
+// but the brand's id.
+async function brandSite(run: Run, args: Json) {
+  const brandId = typeof args.brand_id === 'string' && UUID.test(args.brand_id) ? args.brand_id.toLowerCase() : null;
+  if (!brandId) return json(400, { error: 'bad_request', field: 'brand_id' });
+  const img = catImageBytes(args.image);
+  if (img === false) return json(400, { error: 'bad_request', field: 'image' });
+  const { data: brand, error } = await run.db.from('brands').select('id, name, aliases, origin_vendor_id').eq('id', brandId).maybeSingle();
+  if (error) throw new Error(`brands: ${error.message}`);
+  if (!brand) return json(404, { error: 'brand_not_found' });
+  if (typeof brand.origin_vendor_id === 'string' && await isArchived(run, brand.origin_vendor_id)) return json(409, { error: 'archived' });
+  const name = String(brand.name ?? '').trim();
+  if (!name || name.length > 80 || /[<>]/.test(name)) return json(409, { error: 'bad_name' });
+  const entry = { kind: 'push', direction: 'out', entity: 'brand', entity_id: brandId, action: 'brand_site' };
+  if (!pushEnabled(run.env)) { await logSync(run.db, { ...entry, result: 'skipped', detail: { reason: 'push_disabled' } }); return json(200, { action: 'brand_site', result: 'skipped', reason: 'push_disabled' }); }
+  const ctx = await run.ctx();
+  const { data: mirror } = await run.db.from('woo_brands').select('id, name, slug');
+  let siteId = matchWooBrand(brand, mirror ?? []) as number | null; let made = false;
+  if (siteId === null) {
+    if ((wooBrandIds(brand, mirror ?? []) as number[]).length !== 0) { await logSync(run.db, { ...entry, result: 'skipped', detail: { reason: 'ambiguous' } }); return json(409, { error: 'ambiguous' }); }
+    try {
+      const got = (await ctx.woo.post('wc/v3/products/brands', { name })).data;
+      if (isObj(got) && wooId(got.id) !== null) { siteId = wooId(got.id); made = true; await writeBrands(ctx, [got]); }
+    } catch (e) {
+      if (!(e instanceof WooError)) throw e;
+      siteId = /term_exists/.test(e.message) ? wooId(/"resource_id":\s*(\d+)/.exec(e.message)?.[1]) : null;
+      if (siteId === null) { await logSync(run.db, { ...entry, at: run.now(), result: 'error', detail: { error: errorText(e, (x: string) => ctx.woo.scrub(x)) } }); return json(502, { error: 'woo_error', action: 'brand_site' }); }
+    }
+  }
+  // the picture (soft: the brand stands either way)
+  let image = 'none';
+  if (img) {
+    try {
+      const media = await catMedia(run, ctx, img, 'brand-' + siteId);
+      if (media === null) image = 'failed';
+      else { const got = (await ctx.woo.put(`wc/v3/products/brands/${siteId}`, { image: { id: media } })).data; if (isObj(got)) await writeBrands(ctx, [got]); image = 'ok'; }
+    } catch (e) { if (!(e instanceof WooError)) throw e; image = 'failed'; }
+  }
+  // the «Product Brand» attribute's term and its Arabic translation (soft)
+  let attr = 'same';
+  try {
+    const attrId = wooId((await attributeIds(run, ctx)).brand);
+    if (attrId === null) attr = 'no_attribute';
+    else {
+      const list = (await ctx.woo.get(`wc/v3/products/attributes/${attrId}/terms`, { search: name, per_page: '100' })).data;
+      const there = (Array.isArray(list) ? list : []).some((t: Json) => isObj(t) && termKey(t.name) === termKey(name));
+      if (!there) {
+        try { await ctx.woo.post(`wc/v3/products/attributes/${attrId}/terms`, { name }); attr = 'ok'; }
+        catch (e) { if (!(e instanceof WooError)) throw e; if (!/term_exists/.test(e.message)) attr = 'failed'; }
+      }
+      if (attr !== 'failed' && !(await ensureArTerms(ctx, [{ id: attrId, options: [name] }], [{ id: attrId, options: [name] }]))) attr = 'failed';
+    }
+  } catch (e) { if (!(e instanceof WooError)) throw e; attr = 'failed'; }
+  await logSync(run.db, { ...entry, entity_id: String(siteId), result: 'ok', detail: { brand_id: brandId, made, image, attr } });
+  await logActivity(ctx, 'vendor.brand.site', typeof brand.origin_vendor_id === 'string' ? brand.origin_vendor_id : null, ['#' + siteId]);
+  return json(200, { action: 'brand_site', result: 'ok', brand: siteId, made, image, attr });
+}
 async function categoryCreate(run: Run, args: Json) {
   const name = plainName(args.name_en); const nameAr = args.name_ar == null || args.name_ar === '' ? null : plainName(args.name_ar);
   const parent = args.parent == null || args.parent === 0 ? 0 : wooId(args.parent);
@@ -2619,6 +2688,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'order_pay_link') return await orderPayLink(run, args);
     if (action === 'push_vendor') return await pushVendor(run, args);
     if (action === 'vendor_photo') return await vendorPhoto(run, args);
+    if (action === 'brand_site') return await brandSite(run, args);
     if (action === 'vendor_store') { const jwt = /^Bearer\s+(\S+)$/i.exec(req.headers.get('authorization') ?? '')?.[1] ?? ''; return await vendorStore(run, args, deps.userDb && jwt ? deps.userDb(jwt) : null); }
     if (action === 'register_webhooks') return await registerWebhooks(run, args);
     if (action === 'probe_store') return await probeStore(run, args);

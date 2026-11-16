@@ -675,6 +675,26 @@
     emit({ id, changed: ['store'] });
     return { ok: true, store: d.store, adopted: !!d.adopted, commission: !!d.commission, bank: !!d.bank, photo: d.photo || 'none', shopUrl: d.shop_url || null };
   }
+  // the owner 16 Nov (plan 2026-11-16 decision 6): a maker's brand on the site in both places — WooCommerce Brands with its own
+  // picture and the «Product Brand» term (woo-sync brand_site); the picture as base64 (PNG / JPEG / WebP up to 2 MB, checked again by
+  // its bytes on the server). → { ok, brand, made, image, attr } or { ok: false, reason, message }
+  async function brandSite(brandId, file) {
+    if (!canStore()) return fail('forbidden');
+    const body = { action: 'brand_site', brand_id: String(brandId) };
+    if (file) {
+      if (file.size > 2 * 1048576 || !/\.(png|jpe?g|webp)$/i.test(String(file.name || ''))) return { ok: false, reason: 'invalid', message: 'صورة البراند PNG أو JPG أو WebP ولحد 2 ميجا.' };
+      try { const buf = new Uint8Array(await file.arrayBuffer()); let bin = ''; for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000)); body.image = { data: btoa(bin) }; } catch (x) { return fail('invalid'); }
+    }
+    let d = null;
+    try {
+      const res = await c().functions.invoke('woo-sync', { body }); d = res.data;
+      if (res.error) { let b = null; try { b = res.error.context && typeof res.error.context.json === 'function' ? await res.error.context.json() : null; } catch (x) { b = null; }
+        const why = b && typeof b.error === 'string' ? b.error : 'network';
+        return { ok: false, reason: why, message: why === 'ambiguous' ? 'فيه أكتر من براند بنفس الاسم على الموقع — اربطه من هناك.' : why === 'woo_error' ? STORE_MSG.woo_down : 'البراند ماتعملش على الموقع — جرّب تاني.' }; }
+    } catch (x) { return fail('network'); }
+    if (!d || d.result !== 'ok') return { ok: false, reason: (d && d.reason) || 'network', message: d && d.reason === 'push_disabled' ? 'الكتابة على الموقع مقفولة.' : 'البراند ماتعملش على الموقع — جرّب تاني.' };
+    return { ok: true, brand: d.brand, made: !!d.made, image: d.image || 'none', attr: d.attr || 'same' };
+  }
   // the photo for the drawer: a signed URL (10 min), kept for the session
   const photoCache = new Map();
   async function photoUrl(id) {
@@ -1020,6 +1040,6 @@
     mainCategories, mainCategoryIds, // B2 (0080)
     canSyncNow, syncing, syncNow, // plan 3.4 decision 10
     setPhoto, photoUrl, canPhoto, // phase 13 decision 51
-    createStore, canStore, STORE_MSG }; // the owner, 11 Nov: the maker's store on the site (woo-sync vendor_store)
+    createStore, canStore, STORE_MSG, brandSite }; // the owner, 11 Nov: the maker's store on the site (woo-sync vendor_store)
   window.IBVendors = { load, state: () => st, data, clear, store, loadEvents, events, loadMakersLog, makersLog: () => makersLog, setContract, contractUrl, setPhoto, photoUrl, PHOTO_BUCKET, stats, toVendor, toBrand, lineShare, rateAt, rateFor, storeOwnerAt, safeName, norm, today, MESSAGES, BUCKET, SYNC_FIELDS, toEvent, categories };
 })();

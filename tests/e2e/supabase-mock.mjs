@@ -2340,6 +2340,16 @@ export async function installSupabaseMock(page, opts = {}) {
         v.woo_vendor_id = store; v.woo_synced_at = new Date().toISOString(); v.push_pending = null; v.store_error = null;
         return json(200, { action, result: 'ok', store, adopted: false, commission, bank, photo: 'none', shop_url: 'https://woo.test/store/' + shop + '/' });
       }
+      // the owner 16 Nov: brand_site — the maker's brand on the site (WooCommerce Brands + the pa_brand term), the picture optional;
+      // the admin or vendors.edit F; mock.brandSiteCalls records { brand_id, image: has a picture, by }
+      if (action === 'brand_site') {
+        if (!u || !(isAdmin(u) || hasPerm(u, 'vendors.edit') === 'F')) return json(401, { error: 'unauthorized' });
+        const br = (mock.brands || []).find((x) => x.id === String(b.brand_id || '')); if (!br) return json(404, { error: 'brand_not_found' });
+        if (b.image !== undefined && !(b.image && typeof b.image.data === 'string' && /^[A-Za-z0-9+/]+={0,2}$/.test(b.image.data))) return json(400, { error: 'bad_request', field: 'image' });
+        if (!mock.pushEnabled) return json(200, { action, result: 'skipped', reason: 'push_disabled' });
+        (mock.brandSiteCalls = mock.brandSiteCalls || []).push({ brand_id: br.id, name: br.name, image: !!b.image, by: u.email });
+        return json(200, { action, result: 'ok', brand: 700 + mock.brandSiteCalls.length, made: true, image: b.image ? 'ok' : 'none', attr: 'ok' });
+      }
       if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : (action === 'order_trash' || action === 'suborder_trash' || action === 'line_trash' || action === 'line_qty' || action === 'line_add' || action === 'suborder_status') ? hasPerm(u, 'orders.status') === 'F' && hasPerm(u, 'orders.view') !== 'N' : (action === 'order_create' || action === 'order_pay_link') ? (isAdmin(u) || hasPerm(u, 'orders.status') === 'F') : action === 'push_vendor' ? mayPushVendor() : (action === 'statement' || action === 'withdrawals') ? hasPerm(u, 'accounts.view') !== 'N' : action === 'thumbs' ? (hasPerm(u, 'orders.view') !== 'N' || hasPerm(u, 'products.view') !== 'N') : action === 'withdraw_approve' || action === 'withdraw_create' ? (isAdmin(u) || hasPerm(u, 'accounts.approve') === 'F')
         : action === 'wp_updates' ? (isAdmin(u) || hasPerm(u, 'marketing.create') === 'F')
         : action === 'product_get' || action === 'styles' ? hasPerm(u, 'products.view') !== 'N' : action === 'product_save' || action === 'product_images_add' ? (isAdmin(u) || hasPerm(u, 'products.edit') === 'F') : action === 'products_batch' || action === 'products_vendor' ? (isAdmin(u) || hasPerm(u, 'products.bulk') === 'F')

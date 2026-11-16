@@ -372,7 +372,7 @@ test('the bell: a new ticket for my role and a reply by someone else reach it li
     { id: 91, ticket_id: 1, kind: 'message', at: now, actor: OPS_ID, actor_name: 'سارة أحمد', actor_role: 'اللوجستيك والشحن', text: 'العميلة اتصلت تاني', old_value: null, new_value: null, attachments: [] });
   await page.evaluate(() => window.IBTickets.load()); // the live ping (no Realtime socket in the mock) = one load()
   await page.locator('.notif-btn').click();
-  await bell(page).locator('.ntf-nav-item', { has: page.locator('.lbl', { hasText: /^مهام$/ }) }).click();
+  await bell(page).locator('.ntf-nav-item', { has: page.locator('.lbl', { hasText: /^طلبات الفريق$/ }) }).click(); // the owner 16 Nov: the team requests' own group
   await expect(bell(page).locator('.ntf-item', { hasText: 'TKT-0009' })).toContainText('طلب جديد لدور «الحسابات» من سارة أحمد');
   await expect(bell(page).locator('.ntf-item', { hasText: 'TKT-0001' }).first()).toContainText('رد من سارة أحمد: العميلة اتصلت تاني');
   await bell(page).locator('.ntf-item', { hasText: 'TKT-0009' }).click();
@@ -406,4 +406,18 @@ test('decision 19: «رقم الأوردر» lists the matching orders as it is 
   await m.getByRole('button', { name: 'إنشاء الطلب' }).click();
   await expect(drawer(page)).toContainText('اختيار من القايمة');
   expect(mock.ticketWrites.find((x) => x.fn === 'ticket_create')).toMatchObject({ orderId: '181668', customer: 'سلوى زيتوني' });
+});
+
+test('owner 16 Nov — the bell: «طلبات الفريق» is the requests\' group and «مهام» lists what the system asks of the member (the same as «ملفي › مهامي»)', async ({ page }) => {
+  await openTickets(page, ADMIN); // the admin has system tasks (the unconfirmed orders, the open requests); a member without any sees no «مهام»
+  await expect.poll(() => page.evaluate(() => window.IBTickets.state())).toBe('ready');
+  const auto = await page.evaluate(() => window.IBPages.all().profile.api.autoTasks().map((t) => t.title));
+  await page.locator('.notif-btn').click();
+  const labels = await bell(page).locator('.ntf-nav-item .lbl').allTextContents();
+  expect(labels).toContain('طلبات الفريق');
+  expect(labels).toContain('مهام');
+  expect(labels.indexOf('مهام')).toBe(labels.indexOf('طلبات الفريق') + 1);
+  await bell(page).locator('.ntf-nav-item', { has: page.locator('.lbl', { hasText: /^مهام$/ }) }).click();
+  expect(auto.length).toBeGreaterThan(0);
+  await expect(bell(page).locator('.ntf-item').first()).toContainText(auto[0]);
 });

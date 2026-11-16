@@ -326,13 +326,14 @@
     const blobs = [];
     for (const p of list) { const b = await ST().bytesOf(p); if (b) blobs.push(new Blob([b], { type: /\.webp$/i.test(p) ? 'image/webp' : 'image/jpeg' })); }
     if (!blobs.length) { S.busy = ''; K.toast('مقدرناش نقرا السكرين شوتس — ارفعها تاني', 'error'); R(); return; }
-    const r = await AI().extract(blobs, s.type, Object.keys(s.photoRows || {}).length);
+    const r = await AI().extract(blobs, s.type, Object.keys(s.photoRows || {}).length, s.kinds);
     S.busy = '';
     if (!r.ok) { K.toast(why(r.reason, r.field), 'error'); R(); return; }
     if (r.result === 'refused' || !r.rows.length) { K.toast('الـ AI مالقاش منتجات في السكرين شوتس', 'warning'); R(); return; }
     s.rows = r.rows.map((x) => Object.assign(FD.blankRow(), x, { key: newKey(), src: x.product, ai: { extract: true } }));
+    const added = fitShape(); // comments decision 42: the sheet's shape the member chose
     s.screens = blobs.length; s.screensDirty = false; attachPhotos(); touch(); R();
-    K.toast('الـ AI طلّع ' + r.rows.length + ' صف — راجعهم', 'success');
+    K.toast('الـ AI طلّع ' + r.rows.length + ' صف' + (added ? ' — و' + added + ' صف فاضي على شكل الشيت اللي اخترته، تملاهم في «البيانات»' : ' — راجعهم'), 'success');
   }
   // a list in the order it is in, each row with the six dots (K.Grip / K.sortableRows) — the same row height on both sides, so a photo
   // sits beside its screenshot
@@ -414,14 +415,21 @@
     const photosBtn = Button({ label: photosN ? 'زوّد صور' : 'ارفع الصور', icon: 'upload', disabled: S.busy === 'photos', attrs: { 'data-flow-photos': '' }, onClick: () => filePick('image/*', true, takePhotos) });
     const clearBtn = photosN ? Button({ type: 'text', icon: 'trash', label: 'مسح الكل', disabled: S.busy === 'photos', attrs: { 'data-flow-photos-clear': '' }, onClick: () => clearPhotos() }) : null;
     const nameHelp = U.InlineNote({ children: 'الصور بتتحط على الصفوف بالترتيب، صورة لكل صف. ولو عايز تحدد: سمّيها برقم الصف «1»، «2»… وأكتر من صورة لنفس المنتج «1-1»، «1-2». أول صورة هي المرجعية.' });
+    s.kinds = s.kinds || { sizes: 0, colors: 0 };
+    // «الشيت هيبقى عامل إزاي»: the photos flow's first step, and (comments decision 42 — «محتاجها تبقي موجودة ف فلو … الواتساب») the
+    // WhatsApp flow's first card — there the shape is a choice (0 = as the chat says) and the rows read from the chat are fitted to it
+    const kind = (k, label) => U.Select({ id: 'fl-k-' + k, label, value: String(s.kinds[k] || 0), options: [0, 1, 2, 3, 4, 5].map((x) => ({ value: String(x), label: x ? x + ' ' + label : 'من غير' })), onChange: (v) => { s.kinds[k] = Number(v); if (s.case === 'whatsapp' && s.rows.length) { fitShape(); attachPhotos(); } touch(); R(); } });
     if (s.case === 'photos') {
-      const kind = (k, label) => U.Select({ id: 'fl-k-' + k, label, value: String(s.kinds[k] || 0), options: [0, 1, 2, 3, 4, 5].map((x) => ({ value: String(x), label: x ? x + ' ' + label : 'من غير' })), onChange: (v) => { s.kinds[k] = Number(v); touch(); R(); } });
       const ok = s.type === 'Simple' || s.kinds.sizes > 0 || s.kinds.colors > 0;
       return [Card('الشيت هيبقى عامل إزاي', 'النوع ' + s.type + (s.type === 'Variable' ? ' — المتغيرات لحد 5 من كل نوع، وكل واحد بسعره.' : ''), [
         s.type === 'Variable' ? h('div', { class: 'grid2' }, kind('sizes', 'مقاسات'), kind('colors', 'ألوان')) : U.InlineNote({ children: 'كل منتج صف واحد.' }),
         s.type === 'Variable' && !ok ? U.InlineNote({ kind: 'warning', children: 'اختار مقاسات أو ألوان (أو الاتنين).' }) : null]),
       Foot(ok, 'اختار المتغيرات')];
     }
+    const per = Math.max(1, s.kinds.colors || 0) * Math.max(1, s.kinds.sizes || 0);
+    const shape = s.case === 'whatsapp' ? h('div', { 'data-fl-shape': '' }, Card('الشيت هيبقى عامل إزاي', 'النوع ' + s.type + (s.type === 'Variable' ? ' — المتغيرات لحد 5 من كل نوع، وكل واحد بسعره.' : ''), [
+      s.type === 'Variable' ? h('div', { class: 'grid2' }, kind('sizes', 'مقاسات'), kind('colors', 'ألوان')) : U.InlineNote({ children: 'كل منتج صف واحد.' }),
+      s.type === 'Variable' ? U.InlineNote({ children: s.kinds.sizes || s.kinds.colors ? 'كل منتج هياخد ' + per + ' صف (ألوان × مقاسات): الـ AI بيملا اللي مكتوب في الشات، والباقي بينزل فاضي تملاه في «البيانات».' : 'من غير عدد = الصفوف زي ما الشات بيقول. اختار عدد المقاسات أو الألوان لو عايز كل منتج ينزل بالشكل ده.' }) : null])) : null;
     // the owner 15 Nov («خلي الصور والسكرين شوتس قد بعض … الصور بتتحط جوا نفس السكشن … تحت بعض … وأقدر أغيّر الترتيب بحيث كل صورة
     // أجيبها قدام الصورة بتاعتها»): each list inside its own card, the two cards side by side on one grid (title · buttons · list ·
     // notes as shared rows), so a photo sits in front of its screenshot (or of its sheet row); empty, the two lists are the same box
@@ -456,7 +464,14 @@
     if (s.case === 'whatsapp') dropZone(src, isImage, takeScreens, () => S.busy === 'extract' || (s.screenList || []).length >= 8, 'اسحب صور (السكرين شوتس) بس');
     else dropZone(src, isSheet, (f) => takeSheet(f[0]), () => false, 'الشيت لازم يكون xlsx أو csv');
     dropZone(pics, isImage, takePhotos, () => S.busy === 'photos', 'اسحب صور بس (JPG أو PNG أو WebP)');
-    return [h('div', { class: 'fl-pair', 'data-fl-match': '' }, src, pics), Foot(s.rows.length > 0 && !gapWhy && S.busy !== 'photos', !s.rows.length ? (s.case === 'whatsapp' ? 'اقرا السكرين شوتس الأول' : 'ارفع الشيت الأول') : gapWhy || 'استنى لما الصور تترفع')];
+    return [shape, h('div', { class: 'fl-pair', 'data-fl-match': '' }, src, pics), Foot(s.rows.length > 0 && !gapWhy && S.busy !== 'photos', !s.rows.length ? (s.case === 'whatsapp' ? 'اقرا السكرين شوتس الأول' : 'ارفع الشيت الأول') : gapWhy || 'استنى لما الصور تترفع')];
+  }
+  // the chat's rows on the shape chosen in «الشيت هيبقى عامل إزاي» (FD.fitKinds) → how many empty variation rows were added
+  function fitShape() {
+    const s = st(); if (!s || s.case !== 'whatsapp') return 0;
+    const before = s.rows.filter((r) => r.added).length;
+    s.rows = FD.fitKinds(s.rows, s.type, s.kinds).map((r) => (r.key ? r : Object.assign(r, { key: newKey(), src: r.product, ref: null, photos: [] })));
+    return Math.max(0, s.rows.filter((r) => r.added).length - before);
   }
   // the first step's rows against the photos (FD.photoGaps): a Variable product's rows share its photos
   function photoGapsNow() {

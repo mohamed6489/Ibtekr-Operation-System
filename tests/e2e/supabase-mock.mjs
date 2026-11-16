@@ -2224,7 +2224,7 @@ export async function installSupabaseMock(page, opts = {}) {
       // answers the rows; else two products, the second with two colors); mock.extractCalls keeps the shots' count only
       if (action === 'extract') {
         const parsed = parseExtract(b); if (parsed.error) return json(400, parsed);
-        (mock.extractCalls = mock.extractCalls || []).push({ by: u.email, shots: parsed.req.images.length, type: parsed.req.type, photos: parsed.req.photos });
+        (mock.extractCalls = mock.extractCalls || []).push({ by: u.email, shots: parsed.req.images.length, type: parsed.req.type, photos: parsed.req.photos, kinds: parsed.req.kinds });
         if (mock.aiFail) return json(mock.aiFail === 'not_configured' ? 503 : mock.aiFail === 'busy' ? 429 : 502, { error: mock.aiFail });
         const a = typeof mock.aiAnswer === 'function' ? mock.aiAnswer('extract', parsed.req) : null;
         const cleaned = cleanExtract(a || { rows: [

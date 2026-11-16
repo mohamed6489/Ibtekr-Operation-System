@@ -381,7 +381,7 @@ test('step 1: drag & drop — photos and screenshots dropped on their cards go u
   await expect(page.locator('#pg-products [data-fl-list="photos"] [data-fl-photos-row]')).toHaveCount(2);
   await dropFiles(page, screens, [png('chat-1.png'), png('chat-2.png')]);
   await expect(page.locator('#pg-products')).toContainText('اتقرا 3 صف');
-  expect(mock.extractCalls).toEqual([{ by: ADMIN, shots: 2, type: 'Variable', photos: 2 }]);
+  expect(mock.extractCalls).toEqual([{ by: ADMIN, shots: 2, type: 'Variable', photos: 2, kinds: { colors: 0, sizes: 0 } }]); // no shape chosen: as the chat says
   // a file let go anywhere else on the studio does not open in the tab (the batch would be left)
   expect(await page.evaluate(() => { const dt = new DataTransfer(); dt.items.add(new File(['x'], 'a.png', { type: 'image/png' }));
     return !document.querySelector('.fl .wiz-foot').dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true })); })).toBe(true);
@@ -495,7 +495,7 @@ test('flow 2 «داتا على الواتساب» Variable: the screenshots read
   await pick(page, '[data-flow-photos]', [png('1.png'), png('2.png')]);
   await pick(page, '[data-flow-screens]', [png('chat-1.png'), png('chat-2.png')]);
   await expect(page.locator('#pg-products')).toContainText('اتقرا 3 صف');
-  expect(mock.extractCalls).toEqual([{ by: ADMIN, shots: 2, type: 'Variable', photos: 2 }]);
+  expect(mock.extractCalls).toEqual([{ by: ADMIN, shots: 2, type: 'Variable', photos: 2, kinds: { colors: 0, sizes: 0 } }]); // no shape chosen: as the chat says
   await next(page);
   await makerArtCraft(page);
   await next(page);
@@ -522,6 +522,33 @@ test('flow 2 «داتا على الواتساب» Variable: the screenshots read
 
 // the owner 15 Nov: «لما ارفع الصور توريني الصور بحجم صغير … ونفس الكلام في السكرين شوتس، وجنب كل واحدة الست نقط … بحيث أحط كل صورة
 // جنبها الناحية التانية السكرين شوت»
+test('comment 42 — «الشيت هيبقى عامل إزاي» in the WhatsApp flow: the sizes / colours chosen go to the AI as a hint, every product takes that many rows — the chat\'s rows as read, the rest empty — and a smaller shape drops the empty ones', async ({ page }) => {
+  await signIn(page, ADMIN);
+  await choose(page, 'داتا على الواتساب', 'Variable');
+  const shape = page.locator('#pg-products [data-fl-shape]');
+  await expect(shape).toContainText('الشيت هيبقى عامل إزاي');
+  await expect(shape).toContainText('من غير عدد = الصفوف زي ما الشات بيقول');
+  // two colours × two sizes = four rows a product
+  await page.locator('#fl-k-colors').click(); await page.getByRole('option', { name: '2 ألوان' }).click();
+  await page.locator('#fl-k-sizes').click(); await page.getByRole('option', { name: '2 مقاسات' }).click();
+  await expect(shape).toContainText('كل منتج هياخد 4 صف');
+  await pick(page, '[data-flow-photos]', [png('1.png'), png('2.png')]);
+  await pick(page, '[data-flow-screens]', [png('chat-1.png')]);
+  await expect(page.locator('.toast.show').filter({ hasText: 'صف فاضي على شكل الشيت' })).toBeVisible();
+  expect(mock.extractCalls).toEqual([{ by: ADMIN, shots: 1, type: 'Variable', photos: 2, kinds: { colors: 2, sizes: 2 } }]);
+  // the chat gave 1 row of product 1 and 2 of product 2 → 3 + 2 empty ones; the empty rows carry the product's names, no colour, no price
+  await expect.poll(() => ((batch().state || {}).rows || []).map((r) => [r.product, r.nameEn, r.colorEn, r.vendorPrice, !!r.added])).toEqual([
+    [1, 'Rattan Wall Basket', 'Beige', 520, false], [1, 'Rattan Wall Basket', '', null, true], [1, 'Rattan Wall Basket', '', null, true], [1, 'Rattan Wall Basket', '', null, true],
+    [2, 'Clay Table Vase', 'Black', 300, false], [2, 'Clay Table Vase', 'Beige', 300, false], [2, 'Clay Table Vase', '', null, true], [2, 'Clay Table Vase', '', null, true]]);
+  await expect(page.locator('#pg-products [data-fl-gaps]')).toHaveAttribute('data-fl-gaps', 'ok'); // a photo a product — the variations share it
+  // a smaller shape: the empty rows that are no longer needed go, what the chat gave stays
+  await page.locator('#fl-k-sizes').click(); await page.getByRole('option', { name: 'من غير' }).click();
+  await expect.poll(() => batch().state.rows.map((r) => [r.product, r.colorEn, !!r.added])).toEqual([[1, 'Beige', false], [1, '', true], [2, 'Black', false], [2, 'Beige', false]]);
+  // the data step shows them as the product's variations
+  await next(page); await makerArtCraft(page); await next(page);
+  await expect(page.locator('#pg-products [data-fl="sku"]')).toHaveCount(4);
+});
+
 test('flow 2: the screenshots and the photos show small side by side, each row with the six dots — a photo moved takes the other row; screenshots moved are read again in their new order', async ({ page }) => {
   await signIn(page, ADMIN);
   await choose(page, 'داتا على الواتساب', 'Simple');

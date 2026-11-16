@@ -120,6 +120,31 @@
     return out.sort((a, b) => a.row - b.row || a.order - b.order || a.i - b.i);
   }
 
+  // ---------------------------------------------------------------- the chat's rows on the sheet's shape (comments decision 42)
+  /**
+   * The owner 15 Nov: «الشيت هيبقى عامل إزاي» in the WhatsApp flow too. A Variable batch with a shape — kinds { colors, sizes }, 0–5 each —
+   * gives every product at least max(1, colors) × max(1, sizes) rows: the rows read from the chat stay as they are and where they
+   * are; the variations the chat did not give are added after them (`added`), with the product's own names / material / style /
+   * description and an empty colour, size and price for the member to fill. An added row still empty is dropped first, so a smaller
+   * shape shrinks. Simple, or no shape: only the added-and-empty rows go.
+   */
+  function fitKinds(rows, type, kinds) {
+    const emptyAdded = (r) => r && r.added && !r.colorEn && !r.colorAr && !r.size && !r.sizeAr && r.vendorPrice == null && !r.sku;
+    const L = (Array.isArray(rows) ? rows : []).filter((r) => r && !emptyAdded(r));
+    const k = kinds || {}; const n = (v) => Math.max(0, Math.min(5, Math.trunc(Number(v) || 0)));
+    const want = type === 'Variable' && (n(k.colors) || n(k.sizes)) ? Math.max(1, n(k.colors)) * Math.max(1, n(k.sizes)) : 0;
+    if (!want) return L;
+    const order = []; const by = new Map();
+    L.forEach((r) => { const p = Number(r.product) || 1; if (!by.has(p)) { by.set(p, []); order.push(p); } by.get(p).push(r); });
+    const out = [];
+    order.forEach((p) => {
+      const mine = by.get(p); const first = mine[0]; out.push(...mine);
+      for (let i = mine.length; i < want; i++) out.push(Object.assign(blankRow(), { product: p, nameEn: first.nameEn || '', nameAr: first.nameAr || '', materialEn: first.materialEn || '', materialAr: first.materialAr || '',
+        styleEn: first.styleEn || '', styleAr: first.styleAr || '', shortEn: first.shortEn || '', shortAr: first.shortAr || '', catEn: first.catEn || '', added: true }));
+    });
+    return out;
+  }
+
   // ---------------------------------------------------------------- a picture's signature (comments decision 40)
   // The owner 15 Nov: «محتاج السيستم يعمل ماتشينج للصور ف الترتيب لوحده بناءا علي الصور اللي جوة الشيت» — the photos a member uploads
   // are put on their rows by looking like the picture the sheet has on that row. Pure: the page hands the pixels.
@@ -443,6 +468,6 @@
     return (clean(maker).slice(0, 60) || 'Products') + (clean(tag) ? ' - ' + clean(tag).slice(0, 30) : '') + ' - ' + d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + '.xlsx'; };
 
   return { FIELDS, LABELS, NUMERIC, TEMPLATE, HEAD_SIMPLE, HEAD_VARIABLE, PREVIEWS, mapHeaders, readSheet, blankRow, photoIndex, assignPhotos, placePhotos, brandCode3, validCode, sizeCode, skuOf, validSku, skuBase, baseName,
-    groupRows, slugName, imageSku, fileName, siteUrl, pricesOf, rowIssues, sheetOf, makerSheetOf, MAKER_HEAD, photoSig, sigDistance, matchPhotos, photoGaps, SIG_MAX, blankSheetRows, colName, xlsxParts, xlsx, sheetFileName, norm,
+    groupRows, slugName, imageSku, fileName, siteUrl, pricesOf, rowIssues, sheetOf, makerSheetOf, MAKER_HEAD, photoSig, sigDistance, matchPhotos, photoGaps, SIG_MAX, fitKinds, blankSheetRows, colName, xlsxParts, xlsx, sheetFileName, norm,
     MATERIALS, STYLES, pairOf, sizeEnOf, nameOrder };
 });

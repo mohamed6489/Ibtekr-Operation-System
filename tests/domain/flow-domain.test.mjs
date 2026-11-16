@@ -292,3 +292,24 @@ test('the pictures inside a workbook (decision 40): a drawing\'s cell and a «Pl
   assert.deepEqual(await PD.xlsxPhotos(new Uint8Array([1, 2, 3])), []);
   assert.deepEqual(await PD.xlsxPhotos(F.xlsx({ ...sh, freeze: 'C2' })), []);
 });
+
+test('fitKinds (decision 42): a Variable batch with a shape gives every product colours × sizes rows — the chat\'s rows as read, the rest added empty with the product\'s names; a smaller shape drops the empty ones', () => {
+  const row = (o) => Object.assign(F.blankRow(), o);
+  const chat = [row({ product: 1, nameEn: 'Basket', nameAr: 'سلة', colorEn: 'Beige', materialEn: 'Rattan', vendorPrice: 520 }), row({ product: 2, nameEn: 'Vase', colorEn: 'Black', vendorPrice: 300 }), row({ product: 2, nameEn: 'Vase', colorEn: 'Beige', vendorPrice: 300 })];
+  const fit = F.fitKinds(chat, 'Variable', { colors: 2, sizes: 2 });
+  assert.deepEqual(fit.map((r) => [r.product, r.colorEn, r.vendorPrice, !!r.added]), [[1, 'Beige', 520, false], [1, '', null, true], [1, '', null, true], [1, '', null, true], [2, 'Black', 300, false], [2, 'Beige', 300, false], [2, '', null, true], [2, '', null, true]]);
+  assert.deepEqual([fit[1].nameEn, fit[1].nameAr, fit[1].materialEn, fit[1].sku], ['Basket', 'سلة', 'Rattan', '']);
+  assert.equal(fit[0], chat[0]); // what the chat gave is the same row, untouched
+  // again with the same shape: nothing more; a smaller one: the empty rows go; none: only the chat's rows
+  assert.equal(F.fitKinds(fit, 'Variable', { colors: 2, sizes: 2 }).length, 8);
+  assert.deepEqual(F.fitKinds(fit, 'Variable', { colors: 2, sizes: 0 }).map((r) => [r.product, !!r.added]), [[1, false], [1, true], [2, false], [2, false]]);
+  assert.deepEqual(F.fitKinds(fit, 'Variable', { colors: 0, sizes: 0 }).map((r) => r.product), [1, 2, 2]);
+  // an added row the member filled is his: it stays whatever the shape
+  fit[1].colorEn = 'White';
+  assert.deepEqual(F.fitKinds(fit, 'Variable', {}).map((r) => [r.product, r.colorEn]), [[1, 'Beige'], [1, 'White'], [2, 'Black'], [2, 'Beige']]);
+  // a product with more rows than the shape keeps them all; a Simple batch has no shape; the counts stop at 5
+  assert.equal(F.fitKinds(chat, 'Variable', { colors: 1, sizes: 0 }).length, 3);
+  assert.equal(F.fitKinds(chat, 'Simple', { colors: 3, sizes: 3 }).length, 3);
+  assert.equal(F.fitKinds([chat[0]], 'Variable', { colors: 9, sizes: 9 }).length, 25);
+  assert.deepEqual(F.fitKinds(null, 'Variable', { colors: 2 }), []);
+});

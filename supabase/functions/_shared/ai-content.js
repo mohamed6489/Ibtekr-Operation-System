@@ -163,7 +163,14 @@ export function parseExtract(b) {
   const images = b.images.map(parseImage); if (images.some((x) => !x)) return bad('images');
   const type = b.type === 'Variable' ? 'Variable' : b.type === 'Simple' ? 'Simple' : null; if (!type) return bad('type');
   const photos = b.photos == null ? 0 : Number(b.photos); if (!Number.isInteger(photos) || photos < 0 || photos > 300) return bad('photos');
-  return { req: { images, type, photos } };
+  // the sheet's shape the member chose for a Variable batch (comments decision 42): how many colours / sizes each product takes, 0–5
+  // each (0 = as the chat says). Counts only — never text.
+  const kinds = { colors: 0, sizes: 0 };
+  if (b.kinds != null) {
+    if (!isObj(b.kinds)) return bad('kinds');
+    for (const k of ['colors', 'sizes']) { const n = b.kinds[k] == null ? 0 : Number(b.kinds[k]); if (!Number.isInteger(n) || n < 0 || n > 5) return bad('kinds'); kinds[k] = type === 'Variable' ? n : 0; }
+  }
+  return { req: { images, type, photos, kinds } };
 }
 
 // ---------------------------------------------------------------- the instructions (decision 5)
@@ -225,7 +232,10 @@ export const extractSchema = () => obj({ rows: { type: 'array', items: obj({ pro
   materialEn: STR(), materialAr: STR(), styleEn: STR(), styleAr: STR(), vendorPrice: { type: 'number' }, shortEn: STR(), shortAr: STR() }) } });
 /** The WhatsApp call: the screenshots first, then the ask. ctx: { model, effort }. */
 export function extractRequest(req, ctx) {
-  const text = 'The ' + req.images.length + ' image(s) above are the maker\'s chat screenshots, in order. Batch type: ' + req.type + (req.photos ? '. He sent ' + req.photos + ' product photo(s) with them.' : '.') + '\nList the rows.';
+  const k = req.kinds || {}; const shape = [k.colors > 0 ? k.colors + ' color(s)' : '', k.sizes > 0 ? k.sizes + ' size(s)' : ''].filter(Boolean).join(' and ');
+  const text = 'The ' + req.images.length + ' image(s) above are the maker\'s chat screenshots, in order. Batch type: ' + req.type + (req.photos ? '. He sent ' + req.photos + ' product photo(s) with them.' : '.')
+    + (shape ? '\nOur sheet takes ' + shape + ' for each product: look for that many in the chat and give one row per variation you find. Never invent a color, a size or a price the chat does not give — a variation the chat does not have is simply left out.' : '')
+    + '\nList the rows.';
   return {
     model: ctx.model, max_tokens: MAX_TOKENS, ...FALLBACK,
     system: [{ type: 'text', text: BASE + '\n\n' + EXTRACT_FIELDS }],

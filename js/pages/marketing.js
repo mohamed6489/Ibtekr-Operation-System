@@ -1626,12 +1626,79 @@
         U.InlineNote({ children: 'الإعلانات بتتفتح في مكتبة إعلانات ميتا نفسها (تاب جديد). ميتا مابتدّيش الإعلانات التجارية بتاعة مصر عن طريق الـ API — للاتحاد الأوروبي وبريطانيا بس — فالسيستم بيفتحلك كل منافس على إعلاناته هناك.' })]],
       edit && ready ? Button({ size: 'sm', type: 'primary', icon: 'plus', label: 'منافس', attrs: { 'data-mk-comp-add': '' }, onClick: () => compForm(null) }) : null, 'mk-comp mk-wide', { noun: 'منافس' });
   }
+  // ---------- the developer's section (comments decision 71 — the owner 15 Nov: «زودلي قسم المبرمج يجيبله ابديتس للوردر بريس و
+  // الاشتراكات بتاعت ورد بريس و الكريديتس»): three cards under the developer's requests — the site's updates (WordPress, the
+  // theme and every plugin: installed version → the newest the site knows of; «افحص دلوقتي» = woo-sync wp_updates), the
+  // subscriptions of the accounts page with what is left of each (for whoever sees the accounts), and the month's AI credits ----------
+  const DV = { at: 0, busy: false, checking: false };
+  function dvLoad(force) {
+    if (!MK() || !MK().siteCheck || !can().view || DV.busy || (!force && DV.at && Date.now() - DV.at < 60000)) return;
+    DV.busy = true;
+    Promise.all([MK().siteCheck(force), MK().siteSubs(force), MK().aiSpend(force), MK().credits ? MK().credits(true) : null]).then(() => { DV.at = Date.now(); DV.busy = false; if (window.IBPages.current === 'marketing' && st.view === 'hub' && !document.querySelector('.scrim')) R(); });
+  }
+  async function dvCheck() {
+    if (DV.checking) return; DV.checking = true; R();
+    const pill = K.busy ? K.busy('بنفحص تحديثات الموقع…') : null;
+    const r = await MK().siteCheckRun();
+    DV.checking = false; DV.at = Date.now();
+    if (!r.ok) { if (pill) pill.fail(r.message); else K.toast(r.message, 'error'); R(); return; }
+    const n = Number(r.check.data.updates) || 0;
+    if (pill) pill.done(n ? K.n0(n) + ' تحديث مستني' : 'كله محدّث'); else K.toast(n ? K.n0(n) + ' تحديث مستني' : 'كله محدّث', 'success');
+    R();
+  }
+  const verCell = (x) => (x.version ? K.Num(x.version) : '—');
+  function updatesCard() {
+    const ch = MK().siteCheckNow ? MK().siteCheckNow() : null; const ready = !MK().siteReadyNow || MK().siteReadyNow(); const d = ch && ch.data;
+    const st2 = (x) => (x.update ? h('span', { 'data-dv-st': 'update' }, Tag('orange', 'تحديث متاح')) : x.active === false ? h('span', { 'data-dv-st': 'off' }, Tag('neutral', 'مش مفعّل')) : h('span', { 'data-dv-st': 'ok' }, Tag('success', 'محدّث')));
+    const row = (kind, x) => [h('b', { 'data-dv-item': x.name }, x.name), kind, verCell(x), x.latest ? K.Num(x.latest) : '—', st2(x)];
+    const rows = d ? [].concat(
+      d.core && d.core.version ? [row('ووردبريس', { name: 'WordPress', version: d.core.version, latest: d.core.latest, update: d.core.update, active: true })] : [],
+      d.theme ? [row('الثيم', d.theme)] : [], (d.plugins || []).map((p) => row('إضافة', p))) : [];
+    const n = d ? Number(d.updates) || 0 : 0;
+    const sum = d ? h('div', { class: 'mk-dv-sum', 'data-dv-updates': String(n) }, [['WordPress', d.core && d.core.version], ['WooCommerce', d.woo && d.woo.version], ['PHP', d.php]].filter(([, v]) => v).map(([l, v]) => h('span', { class: 'mk-dv-chip' }, h('small', null, l), h('b', null, K.Num(v)))),
+      h('span', { class: 'mk-dv-chip ' + (n ? 'warn' : 'ok') }, h('small', null, 'مستني تحديث'), h('b', null, K.n0(n)))) : null;
+    const go = can().create ? Button({ size: 'sm', type: 'primary', icon: 'refresh', label: DV.checking ? 'بيفحص…' : 'افحص دلوقتي', disabled: DV.checking, attrs: { 'data-dv-check': '' }, onClick: dvCheck }) : null;
+    return Card('تحديثات ووردبريس', d ? 'من تقرير حالة الموقع — ووردبريس والثيم والإضافات' : 'ووردبريس والثيم والإضافات — النسخة اللي على الموقع وآخر نسخة',
+      [ch === undefined ? K.Empty('بيحمّل…', '') : !d ? K.Empty('لسه مفيش فحص', can().create ? 'دوس «افحص دلوقتي» — بنقرا تقرير حالة الموقع ونقولك إيه مستني تحديث.' : 'اللي معاه «التسويق: إنشاء» بيفحص.')
+        : [sum, U.Table({ cls: 'dt mk-dv-t', headers: ['الاسم', 'النوع', 'النسخة على الموقع', 'آخر نسخة', 'الحالة'], rows }),
+          d.core && !d.core.known ? h('p', { class: 't-small help', style: 'margin:0' }, 'ماقدرناش نقرا آخر نسخة ووردبريس من wordpress.org المرة دي — جرّب الفحص تاني.') : null,
+          h('p', { class: 't-small help', style: 'margin:0' }, 'الفحص قراية بس — التحديث نفسه بيتعمل من لوحة ووردبريس. «آخر نسخة» هي اللي الموقع نفسه عارفها.' + (ready ? '' : ' (الفحص مش بيتحفظ لحد تحديث قاعدة البيانات الجاي.)'))]],
+      go, 'mk-dv mk-wide', { noun: 'عنصر', when: ch && ch.at ? 'آخر فحص ' + agTime(ch.at) : '' });
+  }
+  const SITE_SUB = /wordpress|ووردبريس|وورد بريس|woo|ووكومرس|plugin|بلجن|إضاف|dokan|wpml|rank ?math|elementor|theme|ثيم|hosting|استضاف|hostinger|دومين|domain|ssl|cdn|cloudflare/i;
+  const subLeft = (x) => (x.expired ? 'انتهى من ' + K.n0(Math.abs(x.daysLeft)) + ' يوم' : x.daysLeft === 0 ? 'بينتهي النهاردة' : 'باقي ' + K.n0(x.daysLeft) + ' يوم');
+  function subsCard() {
+    const L = MK().siteSubsNow ? MK().siteSubsNow() : undefined;
+    const openAcc = Button({ size: 'sm', label: 'كل الاشتراكات في الحسابات', iconEnd: 'chevL', attrs: { 'data-dv-subs-all': '' }, onClick: () => { location.hash = 'subscriptions'; } });
+    if (L === null) return Card('اشتراكات الموقع', 'من «الحسابات › الاشتراكات»', [K.Empty('محتاجة صلاحية الحسابات', 'الاشتراكات ومواعيد تجديدها بتظهر للي بيشوف صفحة الحسابات.')], null, 'mk-dv-subs');
+    const list = (L || []).slice().sort((a, b) => (Number(SITE_SUB.test(b.name)) - Number(SITE_SUB.test(a.name))) || (a.daysLeft - b.daysLeft));
+    const due = list.filter((x) => x.due).length;
+    return Card('اشتراكات الموقع' + (L ? ' (' + K.n0(list.length) + ')' : ''), due ? K.n0(due) + ' محتاج تجديد · من «الحسابات › الاشتراكات»' : 'من «الحسابات › الاشتراكات» · الموقع والإضافات الأول',
+      [L === undefined ? K.Empty('بيحمّل…', '') : list.length ? h('div', { class: 'mk-list', 'data-dv-subs': String(list.length) }, list.map((x) => h('div', { class: 'mk-item', 'data-dv-sub': x.name },
+        h('span', { class: 'mk-ic tone-' + (x.expired ? 'error' : x.due ? 'orange' : 'success') }, Icon(x.due ? 'clock' : 'check', 'sm')),
+        h('span', { class: 'mk-txt' }, h('b', null, x.name), h('small', null, U.num('بينتهي ' + D2(x.ends) + (x.amount ? ' · آخر دفعة ' + K.n0(x.amount) + ' ج.م' : '')))),
+        Tag(x.expired ? 'error' : x.due ? 'orange' : 'success', subLeft(x)))))
+        : K.Empty('مفيش اشتراكات متسجلة', 'الاشتراك بيتسجل مصروف من نوع «الاشتراكات» في الحسابات بتاريخ انتهائه.')],
+      L && L !== null ? openAcc : null, 'mk-dv-subs');
+  }
+  function creditsCard() {
+    const w = wallet(); const sp = MK().aiSpendNow ? MK().aiSpendNow() : undefined;
+    const bar = (used, cap) => (cap ? h('div', { class: 'mk-dv-bar', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': String(cap), 'aria-valuenow': String(Math.min(used, cap)) }, h('i', { class: used / cap >= 0.9 ? 'hot' : '', style: 'width:' + Math.min(100, Math.round(used / cap * 100)) + '%' })) : null);
+    const usd = (v) => '$' + (Math.round(v * 100) / 100).toFixed(2);
+    const items = [h('div', { class: 'mk-dv-cr', 'data-dv-credit': 'images' }, h('div', { class: 'mk-dv-cr-h' }, h('b', null, 'كريدت الصور (Magnific API)'), h('span', { class: 't-small help' }, 'الشهر ده')),
+      h('div', { class: 'mk-dv-cr-n' }, K.Num(K.n0(w.used)), h('small', null, w.cap == null ? ' كريديت اتصرف · من غير سقف' : ' من ' + K.n0(w.cap) + ' · باقي ' + K.n0(w.balance))), bar(w.used, w.cap))];
+    if (sp) items.push(h('div', { class: 'mk-dv-cr', 'data-dv-credit': 'ai' }, h('div', { class: 'mk-dv-cr-h' }, h('b', null, 'الـ AI للكتابة والبحث (Claude)'), h('span', { class: 't-small help' }, 'الشهر ده · ' + K.n0(sp.runs) + ' نداء')),
+      h('div', { class: 'mk-dv-cr-n' }, K.Num(usd(sp.used)), h('small', null, sp.cap == null ? ' اتصرف · من غير سقف' : ' من ' + usd(sp.cap) + ' · باقي ' + usd(Math.max(0, sp.cap - sp.used)))), bar(sp.used, sp.cap)));
+    return Card('الكريدت', 'اللي اتصرف الشهر ده قصاد السقف', [h('div', { class: 'mk-dv-crs' }, items),
+      h('p', { class: 't-small help', style: 'margin:0' }, sp === null && !isAdmin() ? 'صرف الـ AI بالدولار بيظهر للأدمن.' : 'السقوف بتتغيّر من الإعدادات › الذكاء الاصطناعي. فيديو وصور Magnific من الموقع نفسه (Unlimited) على حساب Magnific مش هنا.')], null, 'mk-dv-credits');
+  }
+  function devCards() { dvLoad(false); return [updatesCard(), h('div', { class: 'grid2 mk-agent-under' }, subsCard(), creditsCard())]; }
   function aiTab() {
     byLoad(false);
     const cnt = (kind) => (reqsOf(kind) || []).filter((q) => q.open).length || null;
     const sub = K.SubTabs({ items: [{ id: 'buyer', label: 'الميديا باير', count: byPending().length || null }, { id: 'designer', label: 'الديزاينر', count: cnt('designer') }, { id: 'dev', label: 'المبرمج', count: cnt('dev') }], active: BY.aiTab, onChange: (id) => { BY.aiTab = id; R(); }, label: 'المساعدين' });
     const chat = agentChat(BY.aiTab);
-    if (BY.aiTab !== 'buyer') return [sub, chat, reqsCard(BY.aiTab), BY.aiTab === 'designer' ? trendsCard() : null];
+    if (BY.aiTab !== 'buyer') return [sub, chat, reqsCard(BY.aiTab)].concat(BY.aiTab === 'designer' ? [trendsCard()] : devCards());
     const pend = byPending(); const past = (BY.sugg || []).filter((x) => x.status !== 'pending').slice(0, 8);
     const under = h('div', { class: 'grid2 mk-agent-under' },
       Card('مستني موافقتك (' + K.n0(pend.length) + ')', 'وافق أو ارفض · كل إجراء بيتسجل في سجل النشاط', [BY.sugg ? (pend.length ? h('div', { class: 'mk-list', 'data-mk-pending': String(pend.length) }, pend.map((x) => sgItem(x, () => openSugg(x)))) : K.Empty('مفيش حاجة مستنية', 'الاقتراحات بتتجدد مع كل مزامنة لأرقام ميتا.')) : K.Empty('بيحمّل…', ''),

@@ -466,3 +466,16 @@ body.cal-dragging,body.cal-dragging * { cursor:grabbing !important;user-select:n
 .mk-lib-row .input { min-width:200px;max-width:420px }
 a.mk-lib { display:inline-flex;align-items:center;gap:6px;white-space:nowrap }
 a.mk-lib.disabled { opacity:.5;pointer-events:none }
+
+/* comments decision 71: the developer's section — the site's versions as chips over the table, the credits as two meters */
+.mk-dv-sum { display:flex;flex-wrap:wrap;gap:8px }
+.mk-dv-chip { display:inline-flex;flex-direction:column;gap:2px;padding:8px 14px;border:1px solid var(--color-border-subtle);border-radius:var(--radius-md);background:var(--color-bg-base);min-width:96px }
+.mk-dv-chip small { color:var(--color-text-secondary);font-size:12px }
+.mk-dv-chip.warn { border-color:var(--color-warning-border);background:var(--color-warning-bg) }
+.mk-dv-chip.ok { border-color:var(--color-success-border) }
+.mk-dv-crs { display:flex;flex-direction:column;gap:16px }
+.mk-dv-cr { display:flex;flex-direction:column;gap:6px }
+.mk-dv-cr-h { display:flex;justify-content:space-between;gap:8px;align-items:baseline;flex-wrap:wrap }
+.mk-dv-cr-n { font-size:20px;font-weight:600 } .mk-dv-cr-n small { font-size:13px;font-weight:400;color:var(--color-text-secondary) }
+.mk-dv-bar { height:8px;border-radius:999px;background:var(--color-bg-container);overflow:hidden }
+.mk-dv-bar i { display:block;height:100%;background:var(--color-brand-default);border-radius:999px } .mk-dv-bar i.hot { background:var(--color-error-base) }

@@ -793,6 +793,72 @@
     } catch (e) { return fail(null); }
   }
 
+  // ---------- the developer's section (comments decision 71): the site's WordPress / plugin updates (the one row the server keeps —
+  // woo-sync `wp_updates` reads WooCommerce's own system status: names and versions only), the subscriptions the accounts page
+  // holds (read under its own RLS — accounts.view), and the AI credits of the month. The log carries the number of updates only.
+  let siteRow; let siteAt = 0; let siteReady = true; // siteRow: undefined = not read yet, null = never checked
+  const toSite = (r) => (r && r.data && typeof r.data === 'object' ? { data: r.data, at: r.checked_at || null } : null);
+  async function siteCheck(force) {
+    if (!can().view) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
+    if (!force && siteRow !== undefined && Date.now() - siteAt < 60000) return { ok: true, check: siteRow, ready: siteReady };
+    const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
+    try {
+      const { data: d, error } = await cl.from('site_checks').select('kind, data, checked_at').eq('kind', 'wp_updates').maybeSingle();
+      if (error) { if (!noTable(error)) return fail(error); siteRow = null; siteReady = false; siteAt = Date.now(); return { ok: true, check: null, ready: false }; }
+      siteRow = toSite(d); siteReady = true; siteAt = Date.now();
+      return { ok: true, check: siteRow, ready: true };
+    } catch (e) { return fail(null); }
+  }
+  const siteCheckNow = () => siteRow;
+  const siteReadyNow = () => siteReady;
+  const SITE_MESSAGES = { config: 'مفاتيح الموقع (WooCommerce) مش متظبطة — من الإعدادات › الربط بالمنصات', woocommerce_rest_cannot_view: 'مفتاح ووكومرس مالوش صلاحية يقرا تقرير حالة الموقع — لازم يكون مفتاح أدمن',
+    rest_no_route: 'الموقع مافيهوش تقرير حالة ووكومرس (نسخة قديمة؟)' };
+  async function siteCheckRun() {
+    if (!can().create) return { ok: false, reason: 'forbidden', message: 'فحص الموقع محتاج «التسويق: إنشاء»' };
+    const r = await invoke('woo-sync', { action: 'wp_updates' });
+    if (!r.ok) return Object.assign(r, { message: r.reason === 'forbidden' ? MESSAGES.forbidden : 'الموقع ماردش — جرّب تاني' });
+    const b = r.body || {};
+    if (b.result !== 'ok' || !b.data) { const code = typeof b.reason === 'string' ? b.reason.slice(0, 60) : ''; return { ok: false, reason: 'site', code, message: SITE_MESSAGES[code] || 'الموقع رفض الفحص' + (code ? ' (' + code + ')' : '') + ' — جرّب تاني' }; }
+    siteRow = { data: b.data, at: b.checked_at || new Date().toISOString() }; siteAt = Date.now();
+    log('site.check', String(Number(b.data.updates) || 0), null); emit();
+    return { ok: true, check: siteRow, stored: b.stored !== false };
+  }
+  // the subscriptions of the accounts page (the latest payment of each name): null when the member does not see the accounts
+  let subRows; let subsAt = 0;
+  const dayNow = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo' }).format(new Date());
+  async function siteSubs(force) {
+    const D = window.IBDirectory; const see = !!D && (D.perm ? D.perm('accounts.view') !== 'N' : false);
+    if (!see) { subRows = null; return { ok: true, items: null }; }
+    if (!force && subRows !== undefined && Date.now() - subsAt < 60000) return { ok: true, items: subRows };
+    const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
+    try {
+      const { data: d, error } = await cl.from('acc_expenses').select('id, on_date, direction, category, amount, sub_name, sub_ends, sub_alerts, sub_note').eq('category', 'الاشتراكات').is('voided_at', null).limit(1000);
+      if (error) return fail(error);
+      const last = new Map();
+      for (const r of d || []) { if (r.category !== 'الاشتراكات' || r.direction === 'deposit' || !r.sub_name || !r.sub_ends) continue;
+        const k = String(r.sub_name).trim().toLowerCase(); const o = last.get(k); if (!o || String(r.sub_ends) > String(o.sub_ends)) last.set(k, r); }
+      const Dm = window.IbtekrDomain;
+      const list = [...last.values()].map((r) => ({ subName: clean(r.sub_name, 80), subEnds: String(r.sub_ends).slice(0, 10), amount: Number(r.amount) || 0, subAlerts: Array.isArray(r.sub_alerts) ? r.sub_alerts : [], subNote: clean(r.sub_note, 200) }));
+      subRows = Dm && Dm.subsDue ? Dm.subsDue(list, dayNow()) : []; subsAt = Date.now();
+      return { ok: true, items: subRows };
+    } catch (e) { return fail(null); }
+  }
+  const siteSubsNow = () => subRows;
+  // the month's AI spend against its cap (the admin's numbers — ai_month_cost and the settings row «ai»); null for anyone else
+  let spendRow; let spendAt = 0;
+  async function aiSpend(force) {
+    if (!isAdmin()) { spendRow = null; return { ok: true, spend: null }; }
+    if (!force && spendRow !== undefined && Date.now() - spendAt < 60000) return { ok: true, spend: spendRow };
+    const A = window.IBAI; if (!A || !A.monthSpend) { spendRow = null; return { ok: true, spend: null }; }
+    try {
+      const [m, st] = await Promise.all([A.monthSpend(), A.settings ? A.settings() : Promise.resolve(null)]);
+      const cap = st && st.ok && st.cap != null ? Number(st.cap) : null;
+      spendRow = m && m.ok ? { used: Number(m.total) || 0, runs: Number(m.runs) || 0, cap: Number.isFinite(cap) && cap > 0 ? cap : null } : null; spendAt = Date.now();
+      return { ok: true, spend: spendRow };
+    } catch (e) { spendRow = null; return { ok: true, spend: null }; }
+  }
+  const aiSpendNow = () => spendRow;
+
   // ---------- 0084: the assistants' chats like Claude's (the owner 12 Nov — decisions 5 and 6) ----------
   // the member's own chats only (RLS); the server writes the turns (ai-content agent) and the designer's picture (ai-images
   // agent_image); the member renames and deletes; the assistants' settings (intro, instructions, quick suggestions) are the admin's.
@@ -974,6 +1040,7 @@
     suggestions, suggNow, decide, rules, rulesNow, rulesSet, setLive, requests, reqsNow, addRequest, REQ_KIND: KIND_OF, buyerChat,
     agentChats, agentTurns, agentAsk, agentImage, agentRename, agentDelete, agentSettings, agentSettingsNow, agentSettingsSet, AGENT_KEYS,
     trends, trendsNow, trendsReadyNow, trendsRefresh, competitors, competitorsNow, competitorsReadyNow, competitorSave, competitorArchive,
+    siteCheck, siteCheckNow, siteReadyNow, siteCheckRun, siteSubs, siteSubsNow, aiSpend, aiSpendNow,
     addTemplate, editTemplate, removeTemplate, templateUsed, subscribe, unsubscribe, check, MAX_BYTES, MIME, BUCKET,
     _test: { toCampaign, toPost, toTemplate, fail, aiMessage, fieldsOf, tplRow, pubMessage, toSuggestion, toRequest, toRules, toChat, toTurn } };
 })();

@@ -67,8 +67,8 @@ test('the «فيديو» tool: a campaign with one video; the details (9:16, See
   await expect(pg(page).locator('[data-cw-scene]')).toHaveCount(3);
   // the owner 16 Nov: the preview boxes take the chosen ratio (9:16) — the piece's and every scene's
   for (const box of await pg(page).locator('[data-cw-piece="V1"] .cw-pv').all()) {
-    const r = await box.evaluate((el) => { const b = el.getBoundingClientRect(); return { ar: el.getAttribute('data-cw-ar'), k: b.width / b.height }; });
-    expect(r.ar).toBe('9 / 16'); expect(Math.abs(r.k - 9 / 16)).toBeLessThan(0.02);
+    await expect(box).toHaveAttribute('data-cw-ar', '9 / 16');
+    await expect.poll(() => box.evaluate((el) => { const b = el.getBoundingClientRect(); return b.height ? Math.abs(b.width / b.height - 9 / 16) < 0.02 : null; })).toBe(true); // once laid out
   }
   await expect(pg(page).locator('#b-V1-sc0')).toHaveValue('لقطة قريبة على نقشة المنتج');
   await expect(pg(page).locator('#b-V1-tx0')).toHaveValue('دفا الشتا');

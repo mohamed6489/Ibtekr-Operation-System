@@ -438,8 +438,8 @@ test('owner batch 14 Nov decision 13 — the evaluation ⋮: a low month offers 
   await P(page).getByRole('tab', { name: 'التقييم الربع سنوي' }).click();
   await expect(P(page).locator('table.hr-evals-q tbody tr', { hasText: 'منى حسن' }).getByRole('button', { name: 'إجراءات تقييم منى حسن' })).toBeVisible();
   // منى herself: «ملفي › أدائي» lists what was sent
-  await page.evaluate(() => window.IBAuth && window.IBAuth.signOut && window.IBAuth.signOut());
-  await page.goto('/'); await page.fill('#lg-id', 'accounts.dev@ibtekr.local'); await page.fill('#lg-pw', DEV_PW);
+  await Promise.all([page.waitForEvent('load'), page.evaluate(() => { window.IBAuth.signOut(); })]); // the SIGNED_OUT reloads the page first
+  await expect(page.locator('#lg-id')).toBeVisible(); await page.fill('#lg-id', 'accounts.dev@ibtekr.local'); await page.fill('#lg-pw', DEV_PW);
   await page.getByRole('button', { name: 'دخول', exact: true }).click();
   await expect(page.locator('#root')).toBeVisible();
   await page.evaluate(() => { location.hash = 'profile-performance'; });

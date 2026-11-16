@@ -840,6 +840,49 @@ test('comments 29 and 30 — «تفاصيل المنتج» in order (head, the t
     rows: [[{ text: 'كوشن', img: 'https://example.com/a.jpg' }, '2'], ['ستارة', '1']] });
 });
 
+test('comment 31 — a return has not «entered the hub» until it is inspected: no «دخل المخزن» day and its days are days of waiting; the inspection that keeps it makes that day its «دخل المخزن», and the return keeps the day it came back', async ({ page }) => {
+  const L = 'b7000000-0000-4000-8000-0000000000e1'; const back = cairoDay(-10); const today = cairoDay(0);
+  mock.inv.inv_lots.push(hubLot(L, null, null, 'Cushion', { reason: 'مرتجع', status: 'بانتظار الفحص', loc: 'R', ref: '#181669', since: back, note: 'العميل رفض الاستلام' }));
+  mock.inv.inv_moves.push({ ...hubIn(81, L), label: 'دخول — مرتجع', reason: 'مرتجع', at: back + 'T10:00:00Z' });
+  await signIn(page); await go(page, '#inventory-now');
+  const row = page.locator('#pg-inventory table tbody tr', { hasText: 'Cushion' }).first();
+  // waiting: no entry day, and the days are the wait (late past the settings' days)
+  await expect(row.locator('[data-inv-wait]')).toHaveText('بعد الفحص');
+  await expect(row.locator('.late')).toHaveText('مستني الفحص · 10 أيام ⚠');
+  await row.getByRole('button', { name: /إجراءات/ }).click();
+  await page.getByRole('menuitem', { name: 'تفاصيل المنتج' }).click();
+  const m = page.locator('.modal.pd-modal');
+  const box = (label) => m.locator('.pd-grid .pd-box').filter({ has: page.locator('.pd-l', { hasText: new RegExp('^' + label + '$') }) }).locator('.pd-v');
+  await expect(box('دخل المخزن')).toHaveText('لسه — بيتحسب من يوم الفحص');
+  const label = (d) => page.evaluate((x) => window.IBKit.dlabel(x), d);
+  await expect(box('وصل مرتجع')).toHaveText(await label(back));
+  await expect(box('مستني الفحص')).toHaveText('10 أيام ⚠');
+  await expect(m.locator('.pd-grid .pd-l', { hasText: /^بقاله$/ })).toHaveCount(0);
+  await m.locator('.modal-f').getByRole('button', { name: 'إغلاق', exact: true }).click();
+  // the inspection keeps it for sale → today is its «دخل المخزن»
+  await row.getByRole('button', { name: /إجراءات/ }).click();
+  await page.getByRole('menuitem', { name: 'فحص مرتجع' }).click();
+  const f = dlg(page, 'فحص مرتجع — Cushion');
+  await f.getByRole('radio', { name: 'سليم', exact: true }).click();
+  await f.getByRole('radio', { name: /متاح للبيع من المخزن/ }).click();
+  await f.getByRole('button', { name: 'حفظ الفحص' }).click();
+  await expect.poll(() => mock.inv.inv_lots.find((x) => x.id === L)).toMatchObject({ reason: 'متاح للبيع', status: 'متاح', since: today });
+  await page.evaluate(() => window.IBInventory.load());
+  await expect(row.locator('[data-inv-wait]')).toHaveCount(0);
+  await expect(row.locator('td').filter({ hasText: /^النهارده$/ })).toHaveCount(2); // «دخل المخزن» and «بقاله» both start today
+  await row.getByRole('button', { name: /إجراءات/ }).click();
+  await page.getByRole('menuitem', { name: 'تفاصيل المنتج' }).click();
+  await expect(box('دخل المخزن')).toHaveText(await label(today));
+  await expect(box('وصل مرتجع')).toHaveText(await label(back)); // the day it came back is kept
+  await expect(box('بقاله')).toHaveText('النهارده');
+  await m.locator('.modal-f').getByRole('button', { name: 'إغلاق', exact: true }).click();
+  // the returns log keeps the return's own day
+  await go(page, '#inventory-returns');
+  const short = await page.evaluate((x) => window.IBKit.dshort(x), back);
+  await expect(page.locator('#pg-inventory table tbody tr', { hasText: 'Cushion' }).first()).toContainText(short);
+  await expect(page.locator('#pg-inventory table tbody tr', { hasText: 'Cushion' }).first()).toContainText('اتفحص — سليم');
+});
+
 test('comment 30 — a maker\'s orders popup shares through the one popup too: the orders as a file to his number, and the share is logged without the file', async ({ page }) => {
   page.on('popup', (p) => p.close().catch(() => {}));
   await signIn(page); await go(page, '#makers/' + V1);

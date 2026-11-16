@@ -29,6 +29,13 @@
   const age = (s) => K.daysBetween(s.since, TODAY);
   const ageTxt = (d) => (d === 0 ? 'النهارده' : d === 1 ? 'يوم' : d === 2 ? 'يومين' : d <= 10 ? d + ' أيام' : d + ' يوم');
   const sinceTxt = (iso) => { const d = age({ since: iso }); return d === 0 ? 'النهارده' : d === 1 ? 'أمس' : K.dshort(iso); };
+  // comments decision 31 (the owner 15 Nov — «لو هو مرتجع ميعتبرش دخل المخزن يتحسب من تاريخ الفحص»): a return waiting for its inspection
+  // has not entered the hub yet — no «دخل المخزن» day, and its days are days of waiting (late past the settings' «المرتجع مستني كتير»);
+  // the inspection that keeps it («متاح للبيع») makes that day its «دخل المخزن»
+  const waiting = (s) => s.reason === 'مرتجع' && s.status === 'بانتظار الفحص';
+  const waitLate = (s) => waiting(s) && age(s) > (Number(S.invSettings.returnWait) || 7);
+  const enteredTxt = (s, long) => (waiting(s) ? 'بعد الفحص' : long ? K.dlabel(s.since) : sinceTxt(s.since));
+  const stayTxt = (s) => (waiting(s) ? 'مستني الفحص · ' : '') + ageTxt(age(s));
   const cons = (orderId) => S.consolidations.find((c) => String(c.order) === String(orderId));
   function nextStep(s) {
     if (s.reason === 'تجميع أوردر') { const c = cons(s.order); if (!c) return '—'; const wait = c.subs.filter((x) => x[2] !== 'وصل المخزن').map((x) => x[1]); return wait.length ? 'مستني ' + wait.join('، ') : 'شحن كامل'; }
@@ -42,7 +49,7 @@
 
   // «التفاصيل» on every KPI (owner, 22 Oct): data behind the number → U.DetailsModal (shareable).
   const SRC = 'المخزن المؤقت — الكميات محسوبة من سجل الحركات';
-  const stockRows = (l) => l.map((x) => [x.name, x.sku, x.vendor, x.reason, x.status, x.loc, String(x.onHand), ageTxt(age(x))]);
+  const stockRows = (l) => l.map((x) => [x.name, x.sku, x.vendor, x.reason, x.status, x.loc, String(x.onHand), stayTxt(x)]);
   const STOCK_H = ['المنتج', 'SKU', 'المبتكر', 'السبب', 'الحالة', 'المكان', 'الكمية', 'بقاله'];
   const openLot = (l) => (i) => details(l[i]);
   const consRow = (c) => { const p = O.consolidation(c.subs.map((x) => x[2])); const d = K.daysBetween(c.since, TODAY); const late = !p.ready && O.consolidationLate(d) && c.subs.some((x) => x[2] === 'قيد التنفيذ');
@@ -141,7 +148,7 @@
       // B6: one of the three fixed places (or none), saved on each lot
       { id: 'loc', label: 'نقل لمكان', icon: 'box', run: (ids, done) => K.form({ title: 'نقل ' + ids.length + ' منتجات لمكان تاني', values: { loc: '' }, submitLabel: 'انقل', fields: (f, e, set) => [K.field.select('loc', 'المكان الجديد', LOC_OPTS(), f, e, set)], submit: (f) => { list.filter((x) => ids.includes(String(x.key))).forEach((x) => { const it = S.stock.find((y) => y.key === x.key); if (it) it.loc = f.loc || '—'; patchLot(x.key, { loc: f.loc }, 'inventory.place'); K.logEvent('stock.move', x.name + ' → ' + (f.loc || '—')); }); done(f.loc ? 'اتنقلوا لـ ' + locName(f.loc) : 'اتشال مكانهم'); } }) },
       { id: 'export', label: 'تصدير', icon: 'download', run: (ids, done) => { K.xlsxExport('ibtekr-stock-' + TODAY + '.xlsx', 'المخزن', [['المنتج', 'SKU', 'المبتكر', 'السبب', 'الحالة', 'المكان', 'الكمية']].concat(list.filter((x) => ids.includes(String(x.key))).map((x) => [x.name, x.sku, x.vendor, x.reason, x.status, x.loc, x.onHand]))); done(); } }] });
-    const rows = list.map((s) => [IB.box(s.key, s.name), prodCell(s), s.vendor, K.Tag(REASON_TONE[s.reason], s.reason), K.Tag(STATUS_TONE[s.status] || 'neutral', s.status), s.ref ? h('a', { href: '#orders', class: 'num' }, s.ref) : '—', K.Num(s.loc), h('span', null, K.Num(String(s.onHand))), sinceTxt(s.since), h('span', { class: tooLong(s) ? 'late' : '' }, ageTxt(age(s)), tooLong(s) ? ' ⚠' : ''), K.RowMenu(actionsFor(s), 'إجراءات ' + s.name)]); // comments decision 17: «الخطوة الجاية» left the table (it stays in the piece's details)
+    const rows = list.map((s) => [IB.box(s.key, s.name), prodCell(s), s.vendor, K.Tag(REASON_TONE[s.reason], s.reason), K.Tag(STATUS_TONE[s.status] || 'neutral', s.status), s.ref ? h('a', { href: '#orders', class: 'num' }, s.ref) : '—', K.Num(s.loc), h('span', null, K.Num(String(s.onHand))), h('span', waiting(s) ? { class: 't-small', 'data-inv-wait': '' } : null, enteredTxt(s)), h('span', { class: tooLong(s) || waitLate(s) ? 'late' : '' }, stayTxt(s), tooLong(s) || waitLate(s) ? ' ⚠' : ''), K.RowMenu(actionsFor(s), 'إجراءات ' + s.name)]); // comments decision 17: «الخطوة الجاية» left the table (it stays in the piece's details)
     // the owner 13 Nov (decision 2 of docs/superpowers/plans/2026-11-13-owner-ui-batch.md): «فلتر» and «ترتيب» in the table card's head next to
     // «بحث» like the other big tables — the search moves into the search row (the kit's tableSearch); the «فلاتر المخزن» card is gone
     return [K.Section('سجل المخزون', [h('div', { class: 'toolbar', 'data-inv-toolbar': '' }, search('ابحث بالمنتج أو الأوردر أو الـ SKU', 'q', 'بحث في المخزن')), activeRow(all, list), IB.bar(), list.length ? U.Table({ cls: 'inv-table', headers: [IB.head(), 'المنتج', 'المبتكر', 'السبب', 'الحالة', 'المرجع', 'المكان', 'الكمية', 'دخل المخزن', 'بقاله', ''], rows }) : K.Empty('مفيش قطع بالفلتر ده', 'غيّر الفلتر أو البحث، أو سجّل استلام جديد.', Button({ type: 'primary', label: 'استلام في المخزن', onClick: () => receive() })),
@@ -518,7 +525,8 @@
       h('div', { class: 'pd-qty', role: 'group', 'aria-label': 'الكمية' }, qty('في المخزن', s.onHand), qty('متاح', s.available, s.available > 0 ? 'ok' : ''), qty('محجوز', s.reserved, s.reserved > 0 ? 'hold' : '')),
       h('div', { class: 'pd-grid' }, (() => { // the short facts two a row (an odd last one takes the row), then the long ones a row each
         const small = [box('المبتكر', s.vendor + (s.mode ? ' · ' + s.mode : '')), box('المكان', s.loc && s.loc !== '—' ? locName(s.loc) : '—'),
-          box('دخل المخزن', K.dlabel(s.since)), box('بقاله', h('span', { class: tooLong(s) ? 'late' : '' }, ageTxt(age(s)) + (tooLong(s) ? ' ⚠' : ''))),
+          box('دخل المخزن', waiting(s) ? 'لسه — بيتحسب من يوم الفحص' : K.dlabel(s.since)), waiting(s) ? box('وصل مرتجع', K.dlabel(s.since)) : s.returnedAt ? box('وصل مرتجع', K.dlabel(s.returnedAt)) : null,
+          box(waiting(s) ? 'مستني الفحص' : 'بقاله', h('span', { class: tooLong(s) || waitLate(s) ? 'late' : '' }, ageTxt(age(s)) + (tooLong(s) || waitLate(s) ? ' ⚠' : ''))),
           s.ref ? box('المرجع', h('span', { class: 'num', dir: 'ltr' }, s.ref)) : null, canEdit() && s.cost ? box('قيمة القطعة', K.money(s.cost) + ' ج.م') : null].filter(Boolean);
         if (small.length % 2) small[small.length - 1].classList.add('wide');
         return small.concat([box('الخطوة الجاية', nextStep(s), true), box('حالة المنتج عند الاستلام', cond, true), box('ملاحظة', s.note || '', true)].filter(Boolean)); })()),
@@ -527,7 +535,7 @@
           : h('p', { class: 't-small help', style: 'margin:0' }, 'لسه مفيش حركات على القطعة دي.')));
     const md = U.Modal({ title: 'تفاصيل المنتج', share: false, body: [body],
       footer: [U.ShareButton({ primary: false, get: () => ({ title: 'تفاصيل المنتج — ' + s.name, link, spec: { title: 'تفاصيل المنتج — ' + s.name, name: 'تفاصيل ' + s.name, sub: s.sku || '',
-        summary: [['المبتكر', s.vendor + (s.mode ? ' · ' + s.mode : '')], ['السبب', s.reason], ['الحالة', s.status], ['المكان', s.loc && s.loc !== '—' ? locName(s.loc) : '—'], ['دخل المخزن', K.dlabel(s.since) + ' (' + ageTxt(age(s)) + ')'],
+        summary: [['المبتكر', s.vendor + (s.mode ? ' · ' + s.mode : '')], ['السبب', s.reason], ['الحالة', s.status], ['المكان', s.loc && s.loc !== '—' ? locName(s.loc) : '—'], waiting(s) ? ['دخل المخزن', 'لسه — بانتظار الفحص (وصل ' + K.dlabel(s.since) + ')'] : ['دخل المخزن', K.dlabel(s.since) + ' (' + ageTxt(age(s)) + ')'],
           ['في المخزن', String(s.onHand)], ['متاح', String(s.available)], ['محجوز', String(s.reserved)], s.ref ? ['المرجع', s.ref] : null, ['الخطوة الجاية', nextStep(s)], cond ? ['حالة المنتج عند الاستلام', cond] : null].filter(Boolean).map(([label, value]) => ({ label, value })),
         headers: ['التاريخ', 'الحركة', 'الكمية', 'بواسطة', 'ملاحظة'], rows: mv.map((m) => [K.dshort(m.at.slice(0, 10)), m.label, sign(m) + Math.abs(m.qty), m.by || '—', m.note || '']) } }) }), canApprove() ? Button({ label: 'تسوية كمية', onClick: () => { md.close(); adjust(s); } }) : null, Button({ type: 'primary', label: 'إغلاق', onClick: () => md.close() })] });
     md.el.classList.add('pd-modal');
@@ -553,7 +561,8 @@
       submit: (f) => { const it = S.stock.find((x) => x.key === s.key);
         if (f.result === 'تالف') { move({ key: s.key, type: 'out', qty: s.onHand, label: 'تالف', reason: 'مرتجع', ref: 'فحص ' + (s.ref || ''), note: f.note }); it.status = 'تالف'; patchLot(s.key, { status: 'تالف' }, 'inventory.inspect'); if (r) { r.status = 'اتفحص — تالف'; r.effect = '− تالف ' + K.money(s.cost) + ' ج'; r.value = s.cost; } }
         else if (f.next === 'رجوع للمبتكر') { move({ key: s.key, type: 'out', qty: s.onHand, label: 'رجوع للمبتكر', reason: 'مرتجع', ref: s.ref || '—', note: f.note || '' }); it.status = 'راجع للمبتكر'; patchLot(s.key, { status: 'راجع للمبتكر' }, 'inventory.inspect'); if (r) { r.status = 'اتفحص — رجع للمبتكر'; r.effect = 'رجع لـ ' + s.vendor; } }
-        else { it.reason = 'متاح للبيع'; it.status = 'متاح'; patchLot(s.key, { reason: 'متاح للبيع', status: 'متاح' }, 'inventory.inspect'); if (r) { r.status = 'اتفحص — سليم'; r.effect = '+ 1 متاح'; } }
+        else { it.reason = 'متاح للبيع'; it.status = 'متاح'; if (!it.returnedAt && it.since < TODAY) it.returnedAt = it.since; it.since = TODAY; // decision 31: it enters the hub today
+          patchLot(s.key, { reason: 'متاح للبيع', status: 'متاح', since: TODAY }, 'inventory.inspect'); if (r) { r.status = 'اتفحص — سليم'; r.effect = '+ 1 متاح'; } }
         K.logEvent('stock.return.inspect', s.name + ' ' + f.result); K.toast('اتسجل الفحص: ' + f.result, 'success'); rerender(); } });
   }
   function newCount() {

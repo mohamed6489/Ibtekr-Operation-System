@@ -53,6 +53,20 @@ test('load: the lots, moves (newest first, Cairo time), returns, the open consol
   assert(events.includes('ib:inventory'));
 });
 
+// comments decision 31 (the owner 15 Nov — «لو هو مرتجع ميعتبرش دخل المخزن يتحسب من تاريخ الفحص»)
+test('a return inspected sound: its lot\'s day is the inspection\'s (since), the day it came back stays on it (returnedAt) and is the return\'s own day; a return still waiting has no returnedAt', async () => {
+  const lots = LOTS.map((l) => (l.id === L3 ? { ...l, reason: 'متاح للبيع', status: 'متاح', since: '2026-11-08' } : l));
+  const { I, S } = load({ responses: { inv_lots: ok(lots) } });
+  eq((await I.load()).ok, true);
+  const it = S.stock.find((x) => x.key === L3);
+  eq([it.reason, it.since, it.returnedAt], ['متاح للبيع', '2026-11-08', '2026-11-03']);
+  eq(S.returns.map((r) => [r.key, r.status, r.at]), [[L3, 'اتفحص — سليم', '2026-11-03']]);
+  eq(S.stock.find((x) => x.key === L2).returnedAt, undefined, 'a piece that never was a return');
+  const w = load(); await w.I.load();
+  eq(w.S.stock.find((x) => x.key === L3).returnedAt, undefined, 'still waiting for its inspection: the day it arrived is its since');
+  eq(w.S.returns[0].at, w.S.stock.find((x) => x.key === L3).since);
+});
+
 // comments decision 23 (the owner 15 Nov): «تجميع أوردر» pieces in the hub for an order with no open consolidation
 test('an order whose «تجميع أوردر» pieces are on hand with no open consolidation is listed too (derived, no id): its open lines, the arrived one «وصل المخزن»; not after the team cancelled its consolidation, not a closed order, not a piece that left', async () => {
   const L4 = 'b0000000-0000-4000-8000-000000000004', L5 = 'b0000000-0000-4000-8000-000000000005', L6 = 'b0000000-0000-4000-8000-000000000006', L7 = 'b0000000-0000-4000-8000-000000000007';
@@ -108,6 +122,11 @@ test('permissions: a viewer cannot write; ops cannot adjust (approve); a lot pat
   eq((await u.I.updateLot(L3, { status: 'متاح', reason: 'متاح للبيع', loc: 'رف A', mode: 'أمانة', bogus: 1 }, 'inventory.inspect')).ok, true);
   eq(opsOf(u.stub.calls, 'inv_lots').find((c) => c.op === 'update').args[0], { status: 'متاح', reason: 'متاح للبيع', loc: 'A', mode: 'أمانة' });
   eq(u.logs.at(-1)[0], 'inventory.inspect');
+  // comments decision 31: the inspection moves the lot's day — a real day only
+  eq((await u.I.updateLot(L3, { status: 'متاح', since: '2026-11-08' }, 'inventory.inspect')).ok, true);
+  eq(opsOf(u.stub.calls, 'inv_lots').filter((c) => c.op === 'update').at(-1).args[0], { status: 'متاح', since: '2026-11-08' });
+  eq((await u.I.updateLot(L3, { status: 'متاح', since: 'النهارده' }, 'inventory.inspect')).ok, true);
+  eq(opsOf(u.stub.calls, 'inv_lots').filter((c) => c.op === 'update').at(-1).args[0], { status: 'متاح' }, 'a day that is not a day is dropped');
   const a = load({ perms: { ...BASE, 'inventory.approve': 'F' }, responses: { 'rpc:inv_count_approve': ok(2) } }); await a.I.load();
   eq(await a.I.approveCount(4), { ok: true, adjusted: 2 });
   eq(opsOf(a.stub.calls).find((c) => c.op === 'rpc').args, ['inv_count_approve', { p_id: 4 }]);

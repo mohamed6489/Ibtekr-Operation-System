@@ -622,6 +622,11 @@ test('comments 17–19 — «سجل المخزون»: no «الخطوة الجا
   await expect(link).toHaveAttribute('target', '_blank');
   await expect(link).toHaveAttribute('rel', /noopener/);
   await expect(r2.locator('a[data-inv-site]')).toHaveCount(0);
+  // chat ش11 (16 Nov): the SKU starts on the right, under the name
+  const sku = r1.locator('.prod small[dir="ltr"]');
+  expect(await sku.evaluate((x) => getComputedStyle(x).textAlign)).toBe('right');
+  const [nb, sb] = await Promise.all([r1.locator('.prod b').first().boundingBox(), sku.boundingBox()]);
+  expect(Math.abs((nb.x + nb.width) - (sb.x + sb.width))).toBeLessThan(4);
 });
 
 test('comment 20 — the campaign\'s file / link chips are green pills with beige content (the icon, the name and the ×)', async ({ page }) => {

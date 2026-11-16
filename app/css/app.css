@@ -2196,6 +2196,8 @@ img.ib-worm.ib-ldr-img.spin{animation:ib-ldr-spin var(--ldr-speed,1.7s) linear i
 /* المخزن › سجل المخزون (comments decision 19): the product's page on the site, under its name */
 .inv-site{display:inline-flex;align-items:center;gap:4px;width:max-content;max-width:100%;font-size:12px;line-height:18px;font-weight:600;color:var(--color-brand-default);text-decoration:none}
 .inv-site:hover,.inv-site:focus-visible{text-decoration:underline}
+/* chat ش11 (16 Nov — «عايز ال sku يبقي alighn يمين»): the SKU under a product's name (written left to right) starts on the right like the name */
+.prod small[dir="ltr"]{display:block;text-align:right}
 .inv-site svg{width:12px;height:12px;flex:none}
 /* comments decisions 22 and 25 (the owner 15 Nov): «تجميع في المخزن» — the order's products as a table (a box, the photo, the product, its
    maker and its status now), the head green as the system's tables */

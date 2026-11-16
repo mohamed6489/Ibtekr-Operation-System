@@ -37,8 +37,11 @@
     if (floating) { closeFloating(); return; }
     const list = items(ids, first); const r = btn.getBoundingClientRect();
     const menu = U.DropdownMenu({ role: 'menu', options: list.map((x) => ({ value: x.value, label: x.label, icon: x.icon })), onSelect: (v) => { closeFloating(); const it = list.find((x) => x.value === v); setTimeout(() => it && it.run()); } });
-    menu.classList.add('float-menu'); menu.style.top = Math.round(r.bottom + 4) + 'px'; menu.style.left = Math.max(8, Math.round(r.left)) + 'px';
-    document.body.append(menu); floating = menu; const f = menu.querySelector('[role=menuitem]'); if (f) f.focus();
+    menu.classList.add('float-menu'); menu.style.left = Math.max(8, Math.round(r.left)) + 'px';
+    document.body.append(menu);
+    // ش35 (the owner 16 Nov — «اي دروب داون لو تحت خالص تطلع فوق الفيلد»): no room under the button → the menu opens above it
+    const mh = menu.offsetHeight, up = r.bottom + 4 + mh > window.innerHeight - 8 && r.top > window.innerHeight - r.bottom;
+    menu.style.top = Math.round(up ? Math.max(8, r.top - 4 - mh) : r.bottom + 4) + 'px'; menu.dataset.dir = up ? 'up' : 'down'; floating = menu; const f = menu.querySelector('[role=menuitem]'); if (f) f.focus();
     setTimeout(() => { document.addEventListener('mousedown', outside, true); document.addEventListener('keydown', esc, true); });
   }
   // which sheets each page offers (first = main)

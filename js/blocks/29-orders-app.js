@@ -885,7 +885,7 @@ function dpOpen(inp){
 // the owner 16 Nov: «التقويم يبقي ملاصق لfield تاريخ التاكيد او التبليغ تحته» — the picker was placed with the page's scroll added
 // while its box is laid out from the screen (the page scrolls inside <body> on the desktop, and the orders host can be a positioned
 // box), so it opened far below the field. It is fixed to the screen now, right under its field, and follows the field on any scroll.
-function dpPlace(){var w=R.getElementById('dpop'),inp=DP&&dpInput();if(!w||!inp)return;var f=inp.closest('.dpf')||inp,r=f.getBoundingClientRect(),W=288,vw=document.documentElement.clientWidth,left=Math.min(Math.max(8,r.right-W),vw-W-8);w.style.left=left+'px';w.style.top=(r.bottom+4)+'px'}
+function dpPlace(){var w=R.getElementById('dpop'),inp=DP&&dpInput();if(!w||!inp)return;var f=inp.closest('.dpf')||inp,r=f.getBoundingClientRect(),W=288,vw=document.documentElement.clientWidth,left=Math.min(Math.max(8,r.right-W),vw-W-8);w.style.left=left+'px';var h=w.offsetHeight,vh=window.innerHeight,up=r.bottom+4+h>vh-8&&r.top>vh-r.bottom;w.style.top=Math.round(up?Math.max(8,r.top-4-h):r.bottom+4)+'px';w.dataset.dir=up?'up':'down'}/* ش35 (the owner 16 Nov): no room under the field → the calendar opens above it */
 // the owner 16 Nov («ال dropdowns بتبعد لما بدوس علي 3 نقط وانا عامل scroll لتحت … المفروض دايما تبقي تحت ال3نقط بالظبط»): the ⋮ menu and
 // the «فلتر» popup sit on the screen (position:fixed) at their button's box, not at page coordinates — on the desktop <body> is the
 // page's scroller (page-scroll.js), so «+ scrollY» put them as far off as the page was scrolled; they follow the button while the page

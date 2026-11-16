@@ -155,10 +155,10 @@ test('0078: createWithdraw → woo-sync withdraw_create { vendor_id }; logged on
   answer = { data: { action: 'withdraw_create', result: 'skipped', reason: 'pending_exists', id: 501 }, error: null };
   assert.deepEqual(plain(await A.createWithdraw(V1)), { ok: true, result: 'skipped', reason: 'pending_exists', id: 501, amount: null });
   assert.equal(logs.length, n, 'a skip is not logged');
-  answer = { data: null, error: { context: { status: 409, json: async () => ({ action: 'withdraw_create', result: 'refused', reason: 'dokan_rest_withdraw_error' }) } } };
-  assert.deepEqual(plain(await A.createWithdraw(V1)), { ok: true, result: 'refused', reason: 'dokan_rest_withdraw_error' });
+  answer = { data: null, error: { context: { status: 409, json: async () => ({ action: 'withdraw_create', result: 'refused', reason: 'dokan_rest_withdraw_error', hint: 'limit' }) } } };
+  assert.deepEqual(plain(await A.createWithdraw(V1)), { ok: true, result: 'refused', reason: 'dokan_rest_withdraw_error', hint: 'limit' }); // the kind of Dokan's refusal (the owner 16 Nov)
   answer = { data: null, error: { context: { status: 409, json: async () => ({ error: 'no_store' }) } } };
-  assert.deepEqual(plain(await A.createWithdraw(V1)), { ok: true, result: 'refused', reason: 'no_store' });
+  assert.deepEqual(plain(await A.createWithdraw(V1)), { ok: true, result: 'refused', reason: 'no_store', hint: null });
   answer = { data: null, error: { context: { status: 401 } } };
   assert.deepEqual(plain(await A.createWithdraw(V1)), { ok: false, reason: 'forbidden' });
   assert.equal((await A.createWithdraw('')).reason, 'invalid');

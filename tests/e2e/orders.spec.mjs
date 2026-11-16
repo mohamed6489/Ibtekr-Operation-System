@@ -713,6 +713,25 @@ test('the date picker opens right under its field with the page scrolled, and fo
   await expect.poll(gap).toBe(4);
 });
 
+// ش35 (the owner 16 Nov — «خلي اي دروب داون لو تحت خالص تطلع فوق الفيلد»): a field near the bottom of the screen opens its calendar
+// above it, glued to it, and the whole calendar is on the screen
+test('ش35: the date picker of a field at the bottom of the screen opens above it', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 640 });
+  await openOrders(page);
+  const dp = page.locator('#orders #dpop');
+  const field = page.locator('#orders [data-fi="cd:181668"]');
+  // the field ~40px over the bottom edge: a screen just that tall under it (the page scrolled to the top first)
+  await page.evaluate(() => { window.scrollTo(0, 0); const sp = document.createElement('div'); sp.style.height = '420px'; document.getElementById('orders').before(sp); });
+  const fb = await field.evaluate((n) => (n.closest('.dpf') || n).getBoundingClientRect().bottom);
+  await page.setViewportSize({ width: 1280, height: Math.max(420, Math.round(fb + 40)) });
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await field.click();
+  await expect(dp).toHaveAttribute('data-dir', 'up');
+  const [f, d] = await Promise.all([field.evaluate((n) => (n.closest('.dpf') || n).getBoundingClientRect().top), dp.evaluate((n) => { const r = n.getBoundingClientRect(); return { top: r.top, bottom: r.bottom }; })]);
+  expect(Math.round(f - d.bottom)).toBe(4);
+  expect(d.top).toBeGreaterThanOrEqual(0);
+});
+
 // the owner 16 Nov: «اظبط ال ui بتاع البوب اب ده بشكل احترافي و منظم و كمان زود زر اني افتح الاوردر في صفحة الاوردارات» — the order popup
 // opens on its states as pills and a money strip, and «افتح في صفحة الأوردرات» shows that one order on the page, open
 test('the order popup: states as pills, a money strip, and «افتح في صفحة الأوردرات» shows that order open on the page', async ({ page }) => {

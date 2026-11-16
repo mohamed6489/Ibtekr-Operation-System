@@ -150,3 +150,19 @@ test('decision 4: the week start is a choice in «عام» (Saturday by default)
   // the other region rows stay facts with their reason
   await expect(page.locator('#pg-settings')).toContainText('المنطقة واللغة والعملة ثابتة');
 });
+
+// ش28 (the owner 16 Nov — «فورمات الوقت يبقي فيها اختيارات نظام ال12 ساعة و نظام ال24 ساعة»): the clock and the tables' date format
+test('ش28: the clock (12 / 24) and the date format are choices in «اللغة والمنطقة» — the times and the tables follow after «حفظ»', async ({ page }) => {
+  expect(await page.evaluate(() => [window.IBKit.t12('21:05'), window.IbtekrDomain.formatDateNumeric('2026-10-20'), window.IbtekrDomain.parseDate('2026-10-20'), window.IbtekrDomain.parseDate('20/10/2026')]))
+    .toEqual(['9:05 م', '20/10/2026', '2026-10-20', '2026-10-20']);
+  await go(page, 'settings-general');
+  await page.locator('#g-clock').click();
+  await page.locator('[role=listbox] [role=option]', { hasText: 'نظام 24 ساعة' }).click();
+  await page.locator('#g-datefmt').click();
+  await page.locator('[role=listbox] [role=option]', { hasText: 'سنة-شهر-يوم' }).click();
+  await page.locator('#pg-settings [data-set-save]').click();
+  await expect.poll(() => { const g = (mock.settings.find((r) => r.section === 'general') || {}).data || {}; return [g.clock, g.dateFmt]; }).toEqual(['24', 'ymd']);
+  await expect.poll(() => page.evaluate(() => [window.IBKit.t12('21:05'), window.IBKit.t12('09:00'), window.IbtekrDomain.formatDateNumeric('2026-10-20')])).toEqual(['21:05', '09:00', '2026-10-20']);
+  // every member reads them from settings_public (0114)
+  expect(await page.evaluate(() => window.IBSupabase.client.rpc('settings_public').then((r) => [r.data.general.clock, r.data.general.dateFmt]))).toEqual(['24', 'ymd']);
+});

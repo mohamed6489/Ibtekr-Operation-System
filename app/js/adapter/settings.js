@@ -473,6 +473,10 @@
   // decision 4: the first day of the week (settings «general».week, read with the sign-in) as a JS weekday — السبت 6 · الأحد 0 · الاتنين 1
   const WEEK_DAYS = { 'السبت': 6, 'الأحد': 0, 'الاتنين': 1, 'الإثنين': 1 };
   // the admin's own row first (fresher right after «حفظ»), else the public slice every member gets with the sign-in
+  // ش28 (0114): the clock '12' | '24' and the tables' date format 'dmy' | 'ymd' — the admin's row first, else the public slice
+  const genPick = (k, ok, def) => { const sg = section('general') || {}; const pg = (data.public && data.public.general) || {}; const v = ok.includes(String(sg[k])) ? sg[k] : pg[k]; return ok.includes(String(v)) ? String(v) : def; };
+  const clock = () => genPick('clock', ['12', '24'], '12');
+  const dateFmt = () => genPick('dateFmt', ['dmy', 'ymd'], 'dmy');
   function weekStart() { const sg = section('general'); const g = (sg && sg.week ? sg : null) || (data.public && data.public.general) || sg || {}; const d = WEEK_DAYS[String(g.week || '').trim()]; return d === undefined ? 6 : d; }
   // the admin saves the lists (each 1–30 items of at most 60 characters, no repeats; «أخرى» is added last by the reader where it belongs)
   // → { ok } · logged as settings.lists.save (counts only). A key left out keeps what is saved; cancel / returns are always written.
@@ -551,7 +555,7 @@
     return after(await orderRpc('order_status_order', { p_names: names.map(String) }, 'names'), 'order', 'order · ' + names.length);
   }
 
-  window.IBSettings = { loginLocks, loginUnlock, load, ensure, loadPublic, clear, data, section, sections: () => Object.assign({}, data.sections), roles, liveRoles, public: () => data.public, can, PERMS, PERM_KEYS, lists, saveLists, statusLabel, STATUS_KINDS, setRoleLevelPerms, setMemberLevel, levelPermsOf, MEMBER_LEVELS: MLEVELS, quickList, quickSave, quickDelete, quickOrder, QUICK_SCOPES: Q_SCOPES, expenseKinds, statusList, addedStatuses, delayRules, fakeRule, saveFake, orderStatuses, orderStatusAdd, orderStatusSlug, orderStatusDelete, orderStatusOrder, ADDED_MAX, ADDED_LEN, weekStart, KIND_MAX, KINDS_MAX,
+  window.IBSettings = { loginLocks, loginUnlock, load, ensure, loadPublic, clear, data, section, sections: () => Object.assign({}, data.sections), roles, liveRoles, public: () => data.public, can, PERMS, PERM_KEYS, lists, saveLists, statusLabel, STATUS_KINDS, setRoleLevelPerms, setMemberLevel, levelPermsOf, MEMBER_LEVELS: MLEVELS, quickList, quickSave, quickDelete, quickOrder, QUICK_SCOPES: Q_SCOPES, expenseKinds, statusList, addedStatuses, delayRules, fakeRule, saveFake, orderStatuses, orderStatusAdd, orderStatusSlug, orderStatusDelete, orderStatusOrder, ADDED_MAX, ADDED_LEN, weekStart, clock, dateFmt, KIND_MAX, KINDS_MAX,
     save, setRolePerms, createRole, updateRole, deleteRole, setMemberRole, setMemberRoles, setMemberPerms, setMemberStatus, sessions, revokeSession, deviceOf,
     links, setSecret, wooSet, testSecret, unlink, connections, notifyStatus, notifyTick, activity, pageOf, docs, addDoc, updateDoc, removeDoc, docUrl, uploadLogo, logoUrl, LOGO_SLOTS };
 })();

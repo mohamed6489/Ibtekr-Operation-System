@@ -255,10 +255,11 @@
   // ---- Date field (single date): typed input + calendar popup ----
   function DateField({ id, label, required, value, error, today, onChange, help }) {
     const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '', style: 'display:block' });
-    const input = h('input', { id, type: 'text', inputmode: 'numeric', dir: 'ltr', placeholder: 'dd/mm/yyyy', value: value ? D.formatDateNumeric(value) : '', 'aria-invalid': error ? 'true' : false, 'aria-describedby': error ? id + '-err' : false });
+    const ymd = D.dateFmt && D.dateFmt() === 'ymd'; // ش28: the admin's date format (typing either way is read)
+    const input = h('input', { id, type: 'text', inputmode: 'numeric', dir: 'ltr', placeholder: ymd ? 'yyyy-mm-dd' : 'dd/mm/yyyy', value: value ? D.formatDateNumeric(value) : '', 'aria-invalid': error ? 'true' : false, 'aria-describedby': error ? id + '-err' : false });
     const calBtn = h('button', { type: 'button', class: 'icb', 'aria-label': 'اختيار التاريخ', 'aria-haspopup': 'dialog', 'aria-expanded': 'false' }, Icon('cal', 'sm'));
     const box = h('div', { class: 'input' + (error ? ' err' : '') }, calBtn, input);
-    input.addEventListener('change', () => { const iso = D.parseDate(input.value); if (iso) { value = iso; onChange(iso, null); } else onChange(value, 'اكتب التاريخ بالشكل يوم/شهر/سنة، مثال 20/10/2026'); });
+    input.addEventListener('change', () => { const iso = D.parseDate(input.value); if (iso) { value = iso; onChange(iso, null); } else onChange(value, ymd ? 'اكتب التاريخ بالشكل سنة-شهر-يوم، مثال 2026-10-20' : 'اكتب التاريخ بالشكل يوم/شهر/سنة، مثال 20/10/2026'); });
     const pop = popover(wrap, calBtn, (close) => {
       let [y, m] = (value || today).split('-').map(Number);
       const dp = h('div', { class: 'dp single', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'اختيار التاريخ', 'data-popover-root': '', 'data-focus': 'no' });
@@ -271,7 +272,7 @@
     });
     calBtn.addEventListener('click', pop.toggle);
     wrap.append(box);
-    return FieldShell({ id, label, required, error, help: help || 'الشكل: يوم/شهر/سنة' }, wrap);
+    return FieldShell({ id, label, required, error, help: help || (ymd ? 'الشكل: سنة-شهر-يوم' : 'الشكل: يوم/شهر/سنة') }, wrap);
   }
 
   function TextInput({ id, label, required, value, error, placeholder, onInput, inputmode, suffix, help, maxlength, disabled, type, autocomplete, dir, trail }) {

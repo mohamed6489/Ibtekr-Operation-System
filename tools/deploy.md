@@ -2293,3 +2293,9 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
    (≤ 3 ميجا، 1–60 ث) + أنواع الصوت على bucket `tickets`. بعدها `supabase/tests/rls_ticket_group.sql` على الحي (rollback).
 2. قبل الـ migration الواجهة شغّالة زي ما هي: قراية `members` بترجع 42703 والـ adapter بيقرا من غيرها، و«أعضاء في الطلب» / التسجيل بيترفضوا من السيرفر برسالة.
 3. تجربة: «فتح طلب» بعضو في «أعضاء في الطلب» → العضو يشوفه ويرد ويغيّر الحالة؛ تسجيل صوتي من الموبايل والكمبيوتر (المتصفح بيسأل على إذن المايك).
+
+#### 2.7.100 «اللغة والمنطقة»: تنسيق الوقت 12 / 24 وتنسيق التاريخ (16 نوفمبر — `0114`، مافيش Edge Function)
+1. **`0114_settings_public_clock.sql`** (بعد «طبّق»): `settings_public()` بيرجّع `general.clock` / `general.dateFmt` لكل عضو. بعدها
+   `supabase/tests/rls_settings_clock.sql` على الحي (rollback).
+2. قبلها الأدمن بس بيشوف اختياره (بيقرا صف «general» نفسه)، والباقيين على الافتراضي (12 ساعة، يوم/شهر/سنة).
+

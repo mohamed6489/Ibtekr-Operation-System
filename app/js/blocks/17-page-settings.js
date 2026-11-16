@@ -385,10 +385,16 @@
         K.two(U.TextInput({ id: 'g-ad', label: 'العنوان', value: g.address, onInput: ed('address') }), U.TextInput({ id: 'g-ph', label: 'هاتف الشركة', value: g.phone, onInput: ed('phone') }))], null, { sub: 'بتظهر في الفواتير وإيميلات الفريق وملفات التصدير · الشعار: بيت لكل مبتكر' }),
       // phase 12 T3 (decision 3): no pretend choices — the system runs on Cairo time, Arabic RTL and the pound; these are facts, not settings
       K.Section('اللغة والمنطقة', [vrow('المنطقة الزمنية', 'كل التواريخ والأيام في السيستم والتقارير بتوقيت القاهرة', K.Tag('neutral', '(GMT+2/+3) القاهرة')), vrow('اللغة', 'الواجهة عربي RTL باللهجة المصرية — مفيش نسخة إنجليزية', K.Tag('neutral', 'العربية')),
-        vrow('العملة', 'الجنيه المصري في كل الأرقام', K.Tag('neutral', 'ج.م')), vrow('تنسيق التاريخ والأرقام', 'التواريخ «20 أكتوبر 2026» وفي الجداول 20/10/2026 · الأرقام 1,234.56 · الهواتف وSKU LTR', K.Tag('neutral', 'ثابت')),
+        vrow('العملة', 'الجنيه المصري في كل الأرقام', K.Tag('neutral', 'ج.م')),
+        // ش28 (the owner 16 Nov — «خلي الجزء ده قابل للتعديل و فورمات الوقت يبقي فيها اختيارات نظام ال12 ساعة و نظام ال24 ساعة»): the clock
+        // and the tables' dates are real choices (0114 — settings_public hands them to every member; IBKit.t12 / D.formatDateNumeric read them)
+        K.two(h('div', { 'data-set-clock': '' }, U.Select({ id: 'g-clock', label: 'تنسيق الوقت', required: true, value: String(g.clock || '12'), options: [{ value: '12', label: 'نظام 12 ساعة — 9:00 م' }, { value: '24', label: 'نظام 24 ساعة — 21:00' }], onChange: (v) => { ed('clock')(v); R(); } }),
+            h('div', { class: 't-small help' }, 'كل الأوقات في السيستم: ساعة الدوام، الطلبات، السجلات، الجدولة')),
+          h('div', { 'data-set-datefmt': '' }, U.Select({ id: 'g-datefmt', label: 'تنسيق التاريخ في الجداول', required: true, value: String(g.dateFmt || 'dmy'), options: [{ value: 'dmy', label: 'يوم/شهر/سنة — 20/10/2026' }, { value: 'ymd', label: 'سنة-شهر-يوم — 2026-10-20' }], onChange: (v) => { ed('dateFmt')(v); R(); } }),
+            h('div', { class: 't-small help' }, 'الجداول وخانات التاريخ — التاريخ الطويل «20 أكتوبر 2026» زي ما هو، والكتابة بالشكلين بتتقري'))),
         // 2026-11-14-settings-lists.md decision 4: the week start is a real choice (IBSettings.weekStart() — the calendar's weeks, the weekly
         // reports, the ad plan's weeks and the HR calendar); the rest stay facts with their reason
-        sel('week', 'g-week', 'بداية الأسبوع', ['السبت', 'الأحد', 'الاتنين'], '«هذا الأسبوع» في الكاليندر، تقسيم التقارير بالأسبوع، أسابيع الخطة الإعلانية، وتقويم «الفريق والحضور»')], null, { sub: 'المنطقة واللغة والعملة ثابتة: السيرفر والموقع وDokan بتوقيت القاهرة وبالجنيه، والواجهة عربي بس' }),
+        sel('week', 'g-week', 'بداية الأسبوع', ['السبت', 'الأحد', 'الاتنين'], '«هذا الأسبوع» في الكاليندر، تقسيم التقارير بالأسبوع، أسابيع الخطة الإعلانية، وتقويم «الفريق والحضور»')], null, { sub: 'تنسيق الوقت والتاريخ وبداية الأسبوع بيتغيّروا من هنا · المنطقة واللغة والعملة ثابتة: السيرفر والموقع وDokan بتوقيت القاهرة وبالجنيه، والواجهة عربي بس' }),
       K.Section('تفضيلات العرض', [row('إظهار صور المنتجات في الأوردرات', 'صورة مصغّرة 40px في صف الأوردر الفرعي', g.thumbs, ed('thumbs')), row('تذكّر آخر فلاتر لكل صفحة', 'الأوردرات والتقارير بتفتح على آخر فلتر استخدمته', g.rememberFilters, ed('rememberFilters')), row('إخفاء أرقام هواتف العملاء في القوائم', 'تظهر كاملة عند الفتح فقط لمن يملك الصلاحية', g.hidePhones, ed('hidePhones'))], null, { sub: 'إعدادات واجهة على مستوى الشركة — كل عضو يقدر يغيّرها لنفسه من ملفه' })];
   }
 

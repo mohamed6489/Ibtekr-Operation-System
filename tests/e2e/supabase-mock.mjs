@@ -1846,7 +1846,7 @@ export async function installSupabaseMock(page, opts = {}) {
           const sizeGens = order.filter((i) => { const it = (batch.state.items || [])[i]; return it && Array.isArray(it.sizes) && it.sizes.some((s) => /\d/.test(String(s)) && !/[A-Za-z؀-ۿ]/.test(String(s).replace(/cm|سم/gi, ''))); }).map((i) => ({ shot: 4, index: i, id: 'gen-' + n + '-4-' + i, out: 'out-' + n + '-4-' + i }));
           const flow = { space_id: M.space.id, url: M.space.url, page_id: M.pages[category], category, panel: 'panel-' + n, list: 'list-' + n, gens: [1, 2, 3].map((s) => ({ shot: s, id: 'gen-' + n + '-' + s, out: 'out-' + n + '-' + s })).concat(sizeGens), order, made_at: new Date().toISOString(), prompts: prompts.map((p) => p.prompt) };
           M.flows.push({ batch_id: bid, ...flow });
-          batch.state = { ...batch.state, flow }; batch.updated_at = new Date().toISOString();
+          batch.state = batch.state.flow === 2 ? { ...batch.state, mflow: flow } : { ...batch.state, flow }; batch.updated_at = new Date().toISOString(); // comments decision 49: the three flows keep their marker
           return json(200, { result: 'ok', batch_id: bid, url: M.space.url, space_id: M.space.id, page_id: M.pages[category], photos: order.length, sizes: sizeGens.length, category, prompts: prompts.length });
         }
         // bridge_fetch
@@ -1860,9 +1860,10 @@ export async function installSupabaseMock(page, opts = {}) {
           mock.aiRuns.push(run); Object.assign(row, { status: 'ok', paths, run_id: run.id, done_at: new Date().toISOString() });
           return { paths, placed, run };
         };
-        if (batch.state.flow && batch.state.flow.space_id) {
+        const mflow = batch.state.flow && batch.state.flow.space_id ? batch.state.flow : batch.state.mflow && batch.state.mflow.space_id ? batch.state.mflow : null;
+        if (mflow) {
           // decision 12: the flow's output lists in order — shot s of photo k → product order[k], slot s−1
-          const flow = batch.state.flow; const outs = M.flowResults[bid] || {}; const known = new Set(); mock.imageImports.filter((x) => x.batch_id === bid).forEach((x) => (x.refs || []).forEach((r) => known.add(r)));
+          const flow = mflow; const outs = M.flowResults[bid] || {}; const known = new Set(); mock.imageImports.filter((x) => x.batch_id === bid).forEach((x) => (x.refs || []).forEach((r) => known.add(r)));
           const picks = []; [1, 2, 3].forEach((s) => (outs[s] || []).forEach((id, k) => { if (k < flow.order.length && !known.has(id)) picks.push({ id, index: flow.order[k], slot: s - 1 }); }));
           // decision 15: flowResults[bid][4] = { [index]: [ids] } — a product's size drawings → its slot 3
           Object.entries(outs[4] || {}).forEach(([idx, ids]) => (ids || []).forEach((id) => { if (!known.has(id) && (flow.gens || []).some((g) => g.shot === 4 && g.index === Number(idx))) picks.push({ id, index: Number(idx), slot: 3 }); }));

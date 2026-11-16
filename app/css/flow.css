@@ -336,3 +336,9 @@ textarea.fl-in{display:block;width:100%}
 /* an empty slot's two buttons — «ولّد بالـ AI» and «رفع» (decision 48) */
 .fl-sacts [data-gen]{flex:1 1 0;min-width:0;padding-inline:6px}
 .fl-sacts [data-shot-up]{flex:0 0 auto;padding-inline:8px}
+/* Magnific in the photos step (comments decision 49): a bar over the products — the three steps in a row */
+.fl-mg{display:flex;flex-direction:column;gap:10px;padding:12px 14px;margin-bottom:12px;border:1px solid var(--color-border-subtle);border-radius:12px;background:var(--color-bg-container)}
+.fl-mg-h{display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--color-brand-default)}
+.fl-mg-h small{color:var(--color-text-secondary)}
+.fl-mg .acts-inline{flex-wrap:wrap;align-items:center}
+.fl-mg .field{margin:0;min-width:180px}

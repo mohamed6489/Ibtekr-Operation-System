@@ -758,8 +758,10 @@ test('comments 43–48 and 50 — the data step\'s picture opens a popup (replac
   await next(page);
   // 50: the five slots in the middle of the card
   const card = page.locator('#pg-products .fl-ucard').nth(1); const shots = card.locator('.fl-shots');
-  const [wrap, first, last] = [await box(shots), await box(shots.locator(':scope > *').first()), await box(shots.locator(':scope > *').last())];
-  expect(Math.abs(((wrap.x + wrap.width) - (first.x + first.width)) - (last.x - wrap.x))).toBeLessThan(3);
+  await expect(async () => { // the step draws again once the Magnific bar's state loads (comment 49) — measure the settled card
+    const [wrap, first, last] = [await box(shots), await box(shots.locator(':scope > *').first()), await box(shots.locator(':scope > *').last())];
+    expect(Math.abs(((wrap.x + wrap.width) - (first.x + first.width)) - (last.x - wrap.x))).toBeLessThan(3);
+  }).toPass({ timeout: 5000 });
   // the first product's first slot holds the picture made in the data step
   await expect(page.locator('#pg-products .fl-ucard').first().locator('.fl-slot:not(.is-empty)')).toHaveCount(1);
   // 48: «رفع» beside «ولّد بالـ AI» in an empty slot → the member's own photo fills it
@@ -775,6 +777,49 @@ test('comments 43–48 and 50 — the data step\'s picture opens a popup (replac
   await expect(page.locator('.toast.show').filter({ hasText: 'وقفنا التوليد' })).toHaveCount(1);
   expect(mock.imgCalls.filter((c) => c.action === 'generate').length).toBe(before + 1);
   mock.imgFail = null;
+});
+
+test('comment 49 — «ابعت لـ Magnific» in the flows\' photos step: the products\' photos go to the project, «جهّز فلو» builds the category\'s flow (the batch stays a flow batch), and «هات النتائج» puts what it made in the slots — «في النص», «البيئة», «التفاصيل» and the size drawing', async ({ page }) => {
+  mock.magnific.linked = true;
+  await signIn(page, ADMIN);
+  await choose(page, 'شيت جاهز', 'Simple');
+  await pick(page, '[data-flow-sheet]', { name: 'a.csv', mimeType: 'text/csv', buffer: Buffer.from('#,SKU,Product Name EN,Product Name AR,Product Colors,Product Colors AR,Size,Vendor Price,Product Category\n1,,Oak Chair,كرسي بلوط,Beige,بيج,40×90,1000,ديكور\n2,,Rattan Chair,كرسي راتان,Black,أسود,,450,ديكور\n') });
+  await photosFor(page, 2);
+  await next(page); await makerArtCraft(page); await next(page);
+  await expect(page.locator('#pg-products [data-fl="shortEn"]').first()).toHaveValue(/./);
+  await next(page); await next(page);
+  const bar = page.locator('#pg-products [data-fl-magnific]');
+  await expect(bar).toHaveAttribute('data-fl-magnific', 'new'); // nothing sent yet: the one button
+  await expect(bar.locator('[data-mg-flow]')).toHaveCount(0);
+  await bar.locator('[data-mg-send]').click();
+  await expect(page.locator('.toast.show').filter({ hasText: 'اترفعت 2 صورة على مشروع «ابتكر»' })).toBeVisible();
+  await expect(bar).toHaveAttribute('data-fl-magnific', 'sent'); await expect(bar.locator('[data-mg-state]')).toContainText('2 صورة مبعوتة');
+  // the flow needs a category
+  await bar.locator('[data-mg-flow]').click();
+  await expect(page.locator('.toast.show').filter({ hasText: 'اختار فئة المنتجات الأول' })).toBeVisible();
+  await page.locator('#fl-mg-cat').click(); await page.getByRole('option', { name: 'كرسي' }).click();
+  await bar.locator('[data-mg-flow]').click();
+  await expect(page.locator('.toast.show').filter({ hasText: 'اتعمل فلو «كرسي» بـ 2 صورة وبرومبتات الفئة' })).toBeVisible();
+  await expect(bar.locator('[data-mg-open]')).toHaveAttribute('href', 'https://www.magnific.com/app/spaces/a3000000-0000-4000-8000-000000000001');
+  const id = batch().id;
+  expect(mock.magnific.flows.map((f) => [f.batch_id, f.category, f.order])).toEqual([[id, 'كرسي', [0, 1]]]);
+  // the batch is still one of the three flows (its marker untouched), the Magnific flow's copy beside it
+  await expect.poll(() => [batch().state.flow, (batch().state.mflow || {}).category, batch().state.mcat]).toEqual([2, 'كرسي', 'كرسي']);
+  expect(mock.magnific.flows[0].gens.filter((g) => g.shot === 4).map((g) => g.index)).toEqual([0]); // the oak chair has a size → its drawing
+  // the owner ran the flow on the site: the three shots of both chairs and the oak chair's size drawing
+  mock.magnific.flowResults[id] = { 1: ['F11', 'F12'], 2: ['F21', 'F22'], 3: ['F31', 'F32'], 4: { 0: ['F41'] } };
+  await bar.locator('[data-mg-fetch]').click();
+  await expect(page.locator('.toast.show').filter({ hasText: 'نزلت 7 صورة من Magnific في خانات المنتجات' })).toBeVisible();
+  const cards = page.locator('#pg-products .fl-ucard');
+  // chair 1: slots 1, 2 and 4 + the size drawing (its second «البيئة» slot stays for the AI or an upload); chair 2: slots 1, 2 and 4
+  const filled = async (card) => card.locator('.fl-shots > *').evaluateAll((els) => els.map((e) => e.classList.contains('fl-slot') && !e.classList.contains('is-empty')));
+  expect(await filled(cards.nth(0))).toEqual([true, true, false, true, true]);
+  expect(await filled(cards.nth(1))).toEqual([true, true, false, true, false]);
+  await expect.poll(() => { const st = batch().state; return [Object.values(st.shots).map((l) => l.filter(Boolean).length).sort(), Object.values(st.sizeShot || {}).filter(Boolean).length]; }).toEqual([[3, 3], 1]);
+  // nothing new the second time
+  await bar.locator('[data-mg-fetch]').click();
+  await expect(page.locator('.toast.show').filter({ hasText: 'مفيش نتائج جديدة على Magnific لسه' })).toBeVisible();
+  expect(batch().state.flow).toBe(2); // still one of the three flows after the fetch
 });
 
 test('comment 51 — the style comes from the shop\'s own styles only: the list is the site\'s (its Arabic names), the AI is handed that list and its pick is written as the shop writes it, and there is no «+ جديد…»', async ({ page }) => {

@@ -1044,7 +1044,9 @@ async function bridgeFlow(deps: Deps, who: Who, args: Json) {
     // the record the fetch trusts lives with the server (settings «magnific».flows — members cannot write it); the batch keeps a copy for the page
     const latest = await magnificSettings(deps);
     await saveMagnificSettings(deps, { flows: { ...(isObj(latest.flows) ? latest.flows : {}), [batchId]: flow } });
-    await deps.db.from('studio_batches').update({ state: { ...state, flow } }).eq('id', batchId);
+    // a batch of the studio's three flows keeps state.flow = 2 as its own marker (products-flow.js opens it by that): its copy of the
+    // Magnific flow goes under `mflow` (comments decision 49); the old wizard's batch keeps it under `flow` as before
+    await deps.db.from('studio_batches').update({ state: state.flow === 2 ? { ...state, mflow: flow } : { ...state, flow } }).eq('id', batchId);
     return json(200, { result: 'ok', batch_id: batchId, url: spaceUrl, space_id: spaceId, page_id: pageId, photos: order.length, sizes: plan.sizeGens.length, category, prompts: Array.isArray(promptRows) ? promptRows.length : 0 });
   } catch (e) { return bridgeFail(e); }
 }

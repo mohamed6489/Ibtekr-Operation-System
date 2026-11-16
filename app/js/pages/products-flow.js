@@ -1117,6 +1117,101 @@
     }
     return el;
   }
+  // ---------------- Magnific in the photos step (comments decision 49) ----------------
+  // «هنزود زر ابعت ل magnific — بالفلو بتاعه اللي كنا عاملينه»: the old wizard's bridge in the three flows too. The products' photos go to the
+  // «ابتكر» project on Magnific (the account linked in the settings — without one they wait in the queue), «جهّز فلو» builds the batch's
+  // flow on the studio's Space from the category's prompts (run there, on the owner's plan — no API credit), and «هات النتائج» brings
+  // what it made back into the slots: the flow's three shots are «في النص», «البيئة» and «التفاصيل» (slots 1, 2 and 4), its size
+  // drawing the fifth. The copy of the flow for this page is state.mflow (state.flow = 2 stays this batch's own marker).
+  const MG = { of: null, shares: undefined, cats: undefined, busy: '' };
+  const mgShares = () => { const I = IM(); if (!I || !S.id || (MG.of === S.id && MG.shares !== undefined)) return; MG.of = S.id; MG.shares = null; I.shares(S.id).then((r) => { if (MG.of !== S.id) return; MG.shares = r.ok ? r : null; R(); }); };
+  const mgCats = () => { const I = IM(); if (!I || MG.cats !== undefined) return; MG.cats = null; I.shotCategories().then((r) => { MG.cats = r.ok ? r.rows : []; R(); }); };
+  const mgWhy = (r) => (r.reason === 'not_linked' ? ((IM().why && IM().why(r)) || 'حساب Magnific مش مربوط بالسيستم') : r.reason === 'forbidden' ? 'مش مسموحلك' : r.reason === 'missing' ? 'الدفعة مش موجودة' : r.reason === 'busy' ? 'Magnific مشغول دلوقتي — جرّب كمان دقيقة'
+    : r.reason === 'nothing_sent' ? 'ابعت الصور لـ Magnific الأول — الفلو بياخد الصور اللي اتبعتت' : r.reason === 'ai_error' ? 'النتائج موجودة بس ماقدرناش ننزّلها — جرّب تاني' : 'في مشكلة في الاتصال — جرّب تاني');
+  async function mgSend() {
+    const I = IM(); if (!I || !S.id || MG.busy) return;
+    await touch(true); MG.busy = 'send'; R();
+    let r = await I.bridgeUpload(S.id); let queued = false;
+    if (!r.ok && (r.reason === 'not_linked' || r.reason === 'not_configured')) { r = await I.share(S.id); queued = true; }
+    MG.busy = '';
+    if (!r.ok) { K.toast(mgWhy(r), 'error'); R(); return; }
+    const n = queued ? r.shared : r.uploaded;
+    K.toast(queued ? (n ? 'اتحضّرت ' + n + ' صورة — حساب Magnific مش مربوط، فهتستنى لحد ما الأدمن يربطه من «الإعدادات › الربط بالمنصات»' : 'مفيش صور جديدة تتبعت — كل الصور اتبعتت قبل كده أو المنتج من غير صورة')
+      : n ? 'اترفعت ' + n + ' صورة على مشروع «ابتكر» في Magnific' + (r.failed ? ' · ' + r.failed + ' فشلت' : '') : r.failed ? 'مفيش صورة اترفعت — ' + r.failed + ' فشلت، جرّب تاني' : 'مفيش صور جديدة تتبعت — كل الصور اتبعتت قبل كده أو المنتج من غير صورة', n ? 'success' : r.failed ? 'error' : 'warning');
+    MG.of = null; MG.shares = undefined; R();
+  }
+  function mgNewCat() {
+    K.form({ title: 'فئة منتجات جديدة', submitLabel: 'اختار الفئة', values: { catName: '' },
+      fields: (f, e, set) => [K.field.text('catName', 'اسم الفئة', f, e, set, { required: true, placeholder: 'مثال: مزهرية', help: 'لو مالهاش برومبتات في المكتبة، الـ AI بيكتب برومبتات لقطاتها وقت «جهّز فلو» وبيحفظهم للدفعات الجاية.' })],
+      validate: (f) => { const e = {}; const v = String(f.catName || '').trim(); if (v.length < 2 || v.length > 80 || /[<>%]/.test(v)) e.catName = 'اكتب اسم الفئة (من حرفين لـ 80، من غير < > %)'; return e; },
+      submit: (f) => { st().mcat = String(f.catName).trim(); touch(); R(); } });
+  }
+  async function mgFlow() {
+    const I = IM(); const s = st(); if (!I || !S.id || MG.busy) return;
+    const category = String(s.mcat || '').trim();
+    if (!category) { K.toast('اختار فئة المنتجات الأول — برومبتات الفلو بتيجي منها', 'warning'); return; }
+    await touch(true);
+    if (!(MG.cats || []).some((x) => x.category === category)) { // no prompts for it yet: the AI writes them into the library first
+      const A = AI(); MG.busy = 'prompts'; R();
+      const p = A && A.shotPrompts ? await A.shotPrompts(category) : { ok: false, reason: 'forbidden' };
+      if ((!p.ok && p.reason !== 'exists') || (p.ok && (p.result !== 'ok' || p.rows < 3))) { MG.busy = ''; K.toast(p.ok ? 'الـ AI ماكتبش برومبتات الفئة دي — جرّب تاني أو غيّر الاسم' : p.reason === 'invalid' ? 'اسم الفئة مش صالح' : why(p.reason), 'error'); R(); return; }
+      MG.cats = undefined;
+    }
+    MG.busy = 'flow'; R();
+    const r = await I.bridgeFlow(S.id, category);
+    MG.busy = '';
+    if (!r.ok) { K.toast(mgWhy(r), 'error'); R(); return; }
+    const row = await ST().open(S.id); const mf = row && row.state && row.state.mflow;
+    st().mflow = mf && typeof mf === 'object' ? mf : { url: r.url || null, category: r.category, order: [] };
+    touch(); R();
+    K.toast('اتعمل فلو «' + r.category + '» بـ ' + r.photos + ' صورة' + (r.prompts ? ' وبرومبتات الفئة' : ' بالبرومبتات العامة') + ' — افتح الـ Space ودوس Run', 'success');
+  }
+  // the results the server put on the products (items[i].slots — the old wizard's slots) into this flow's shots
+  function mgPlace(items) {
+    const s = st(); const us = units(); const to = [0, 1, 3]; let n = 0;
+    const has = new Set(Object.values(s.shots || {}).flat().concat(Object.values(s.sizeShot || {})).filter(Boolean));
+    (Array.isArray(items) ? items : []).forEach((it, gi) => {
+      const u = us.find((x) => x.gi === gi); if (!u || !it || !Array.isArray(it.slots)) return;
+      const sh = shotsOf(u);
+      it.slots.forEach((p, k) => {
+        if (typeof p !== 'string' || !p || has.has(p)) return;
+        if (k === 3) { if (!s.sizeShot[groupKey(gi)]) { s.sizeShot[groupKey(gi)] = p; has.add(p); n += 1; } return; }
+        let t = k < 3 ? to[k] : -1; if (t < 0 || sh[t]) t = [0, 1, 2, 3].find((x) => !sh[x]);
+        if (t != null && t >= 0 && !sh[t]) { sh[t] = p; has.add(p); n += 1; }
+      });
+    });
+    return n;
+  }
+  async function mgFetch() {
+    const I = IM(); if (!I || !S.id || MG.busy) return;
+    await touch(true); MG.busy = 'fetch'; R();
+    const r = await I.bridgeFetch(S.id);
+    MG.busy = '';
+    if (!r.ok) { K.toast(mgWhy(r), 'error'); R(); return; }
+    let put = 0;
+    if (r.placed) { const row = await ST().open(S.id); if (row && row.state) { put = mgPlace(row.state.items); if (put) touch(); } }
+    K.toast(put ? 'نزلت ' + put + ' صورة من Magnific في خانات المنتجات' + (r.unmatched ? ' · ' + r.unmatched + ' مش معروف منتجها' : '') + (r.failed ? ' · ' + r.failed + ' فشلت' : '')
+      : r.found ? 'لقينا ' + r.found + ' صورة بس خاناتها مليانة أو مش معروف منتجها' : 'مفيش نتائج جديدة على Magnific لسه — شغّل الفلو (Run) على الـ Space الأول', put ? 'success' : 'warning');
+    R();
+  }
+  function magnificBar() {
+    const I = IM(); const s = st(); if (!I || !S.id || !s || s.case === 'photos') return null;
+    mgShares(); const sh = MG.shares; const sent = sh ? sh.sent : 0; const mf = s.mflow && typeof s.mflow === 'object' ? s.mflow : null;
+    const state = sh && sh.rows.length ? sh.sent + ' صورة مبعوتة' + (sh.pending ? ' · ' + sh.pending + ' مستنية الربط' : '') + (sh.failed ? ' · ' + sh.failed + ' فشلت' : '') : '';
+    const send = Button({ size: 'sm', icon: 'upload', label: MG.busy === 'send' ? 'بنبعت…' : 'ابعت لـ Magnific', disabled: !!MG.busy || !rows().some((r) => r.ref), attrs: { 'data-mg-send': '' }, onClick: mgSend });
+    const head = h('div', { class: 'fl-mg-h' }, Icon('sparkle', 'sm'), h('b', null, 'Magnific'), h('small', { class: 'help' }, 'ولّد على موقع Magnific بباقتك — من غير كريدت الـ API: ابعت صور المنتجات، جهّز الفلو وشغّله هناك، وهات النتائج في الخانات.'));
+    if (!sent) return h('div', { class: 'fl-mg', 'data-fl-magnific': 'new' }, head, h('div', { class: 'acts-inline start' }, send, state ? h('span', { class: 't-small help', 'data-mg-state': '' }, state) : null));
+    mgCats(); const cats = MG.cats || [];
+    const opts = cats.map((x) => ({ value: x.category, label: x.category + (x.shots < 3 ? ' (' + x.shots + ' لقطات)' : '') }));
+    if (s.mcat && !cats.some((x) => x.category === s.mcat)) opts.unshift({ value: s.mcat, label: s.mcat + ' (جديدة — البرومبتات بالـ AI)' });
+    opts.push({ value: '__new__', label: '+ فئة جديدة…' });
+    return h('div', { class: 'fl-mg', 'data-fl-magnific': mf ? 'flow' : 'sent' }, head, h('div', { class: 'acts-inline start' }, send,
+      U.Select({ id: 'fl-mg-cat', label: null, placeholder: 'فئة المنتجات', options: opts, value: s.mcat || '', onChange: (v) => { if (v === '__new__') { mgNewCat(); return; } s.mcat = v; touch(); R(); } }),
+      Button({ size: 'sm', icon: 'sparkle', label: MG.busy === 'prompts' ? 'بنكتب البرومبتات…' : MG.busy === 'flow' ? 'بنجهّز…' : mf ? 'جهّز فلو جديد' : 'جهّز فلو على Magnific', disabled: !!MG.busy, attrs: { 'data-mg-flow': '' }, onClick: mgFlow }),
+      mf && typeof mf.url === 'string' && /^https:\/\//.test(mf.url) ? h('a', { class: 'btn btn-default sm', href: mf.url, target: '_blank', rel: 'noopener', 'data-mg-open': '' }, 'افتح الـ Space ↗') : null,
+      Button({ size: 'sm', icon: 'download', label: MG.busy === 'fetch' ? 'بنجيب…' : 'هات النتائج من Magnific', disabled: !!MG.busy, attrs: { 'data-mg-fetch': '' }, onClick: mgFetch }),
+      h('span', { class: 't-small help', 'data-mg-state': '' }, state + (mf ? ' · فلو «' + (mf.category || '') + '»' : ''))));
+  }
   function step5() {
     const s = st(); const us = units();
     const features = Card('صورة المميزات', 'صورة واحدة للدفعة كلها — بتتحط في آخر صور كل المنتجات.', [h('div', { class: 'fl-feat' }, Thumb(s.features, 'st-big'),
@@ -1135,7 +1230,7 @@
         h('div', { class: 'fl-shots' }, [0, 1, 2, 3].map((k) => slot(u, k)), sizeCell));
     });
     const sel = us.filter((u) => S.sel.has(u.key));
-    return [features, Card('صور المنتجات', us.length + ' ' + (isVar() ? 'لون' : 'منتج') + ' · 1 في النص · 2 و3 البيئة · 4 التفاصيل (4 أجزاء) · المقاس رسم بالـ AI. اسحب الصورة على خانة تانية تبدّلهم.', [BulkBar([Button({ size: 'sm', icon: 'sparkle', label: 'ولّد الناقص للمحدد', disabled: !!S.busy, onClick: () => genMissing(sel) })]), h('div', { class: 'fl-units' }, list)],
+    return [features, Card('صور المنتجات', us.length + ' ' + (isVar() ? 'لون' : 'منتج') + ' · 1 في النص · 2 و3 البيئة · 4 التفاصيل (4 أجزاء) · المقاس رسم بالـ AI. اسحب الصورة على خانة تانية تبدّلهم.', [magnificBar(), BulkBar([Button({ size: 'sm', icon: 'sparkle', label: 'ولّد الناقص للمحدد', disabled: !!S.busy, onClick: () => genMissing(sel) })]), h('div', { class: 'fl-units' }, list)],
       [Button({ size: 'sm', type: 'primary', icon: 'sparkle', label: 'ولّد الناقص بالـ AI', disabled: !!S.busy, attrs: { 'data-flow-genall': '' }, onClick: () => genMissing(us) })]), Foot(true)];
   }
 

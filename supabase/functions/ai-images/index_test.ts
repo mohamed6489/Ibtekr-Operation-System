@@ -798,6 +798,14 @@ Deno.test('bridge_flow (products.add): the one Space made once and kept in setti
   assert(F.created.at(-9)!.data.prompt.startsWith('A professional product photograph'), 'no rows for the category: the generic words (8 nodes + the one product\'s 3 size nodes)');
   const r3 = await call(deps, { action: 'bridge_flow', batch_id: SB, category: 'كرسي' });
   assertEquals([r3.body.page_id, F.pages.length], ['page-1', 2]);
+  // comments decision 49: a batch of the three flows (state.flow = 2 — its own marker) keeps the marker; the Magnific flow's copy is `mflow`
+  const third = '0b6f2f5e-1d2c-4a8b-9e3f-1234567890ad';
+  await db.from('studio_batches').insert({ id: third, title: 'فلو جديد', type: 'Simple', state: { flow: 2, case: 'sheet', items: [item()] }, step: 5, status: 'draft', created_by: U.add });
+  await db.from('image_shares').insert({ created_by: U.add, batch_id: third, item_index: 0, name: 'N.webp', path: third + '/p1-0.webp', url: 'https://s/4', expires_at: NOW, status: 'sent', creation_ref: 'UP4', sent_at: NOW });
+  assertEquals((await call(deps, { action: 'bridge_flow', batch_id: third, category: 'كرسي' })).body.result, 'ok');
+  const st3 = db.rows('studio_batches').find((b: any) => b.id === third).state;
+  assertEquals([st3.flow, st3.case, st3.mflow.category, st3.mflow.order, typeof st3.mflow.space_id], [2, 'sheet', 'كرسي', [0], 'string']);
+  assertEquals(db.rows('settings').find((x: any) => x.section === 'magnific').data.flows[third].order, [0]);
 });
 
 Deno.test('bridge_fetch on a batch with a flow: the output lists read in order → shot s of photo k lands in slot s−1 of product order[k]; a second call finds nothing new; a link off the allowed hosts fails without stopping the rest', async () => {

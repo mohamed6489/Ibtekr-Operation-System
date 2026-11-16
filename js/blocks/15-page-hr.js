@@ -365,7 +365,7 @@
     const L = linesOf(mk); const lines = L.lines; const T = H().sheetTotals(lines); const payDay = H().payDayOf(mk);
     const status = (p) => (p.transfer ? K.Tag('success', 'اتحوّل' + (p.transfer.early ? ' (مبكر)' : '')) : done ? K.Tag('success', 'اتحوّل') : K.Tag('neutral', 'لسه'));
     const menu = (p) => { const open = !p.transfer && !done; return K.RowMenu([open ? { label: 'تحويل المرتب', icon: 'send', run: () => payOne(p, mk) } : null, { label: 'تحويل سلفة', icon: 'briefcase', run: () => giveAdvance(M(p.member)) },
-      open ? { label: 'تصحيح الأوفر تايم', icon: 'clock', run: () => fixOt(p, mk) } : null, open ? { label: 'مكافأة / خصم', icon: 'plus', run: () => addAdjustment(mk, p.member) } : null,
+      open ? { label: 'تصحيح الأوفر تايم', icon: 'clock', run: () => fixOt(p, mk) } : null, { label: 'مكافأة / خصم', icon: 'plus', run: () => addAdjustment(mk, p.member) },
       { label: 'القسيمة', icon: 'file', run: () => payslipModal(p, mk) }].filter(Boolean), 'إجراءات ' + p.name); };
     const cards = h('div', { class: 'cards', 'data-hr-pay-cards': '' }, K.Stat(done ? 'اتحوّل' : 'هيتحوّل', K.money(done ? T.net : T.toTransfer), 'ج.م', done ? 'من ' + ((sh && sh.paidAccount) || '—') : T.left + ' من ' + T.members + ' عضو لسه'),
       K.Stat('المرتبات', K.money(T.salaries), 'ج.م', 'المصروف كل شهر'), K.Stat('الأوفر تايم', K.money(T.overtime), 'ج.م', 'المتأكد + أيام الراحة ×2'), K.Stat('الخصومات والسُلف', K.money(T.cuts), 'ج.م', 'بتتخصم من الصافي'));
@@ -375,7 +375,7 @@
         cutsOf(p) ? K.Num('− ' + K.money(cutsOf(p))) : '—', h('b', null, K.Num(K.money(p.net))), status(p), menu(p)]),
       totalRow: ['الإجمالي', K.Num(K.money(T.salaries)), K.Num(K.money(T.bonus)), K.Num(K.money(T.overtime)), K.Num(K.money(T.extras)), K.Num('− ' + K.money(T.cuts)), h('b', null, K.Num(K.money(T.net))), '', ''] })
       : L.status === 'loading' ? K.Empty('بيتحسب…', 'لحظة واحدة') : K.Empty('مفيش أعضاء بمرتب', 'المرتب بيتسجل من «إضافة عضو» أو ملف العضو.');
-    return [h('div', { class: 'toolbar hr-mpick', 'data-hr-month-pick': mk }, pick, h('span', { class: 't-small help' }, 'يوم الصرف ' + K.dshort(payDay)), h('span', { class: 'grow' }), Button({ label: 'مكافأة / خصم', icon: 'plus', disabled: done, onClick: () => addAdjustment(mk) }), transferBtn),
+    return [h('div', { class: 'toolbar hr-mpick', 'data-hr-month-pick': mk }, pick, h('span', { class: 't-small help' }, 'يوم الصرف ' + K.dshort(payDay)), h('span', { class: 'grow' }), Button({ label: 'مكافأة / خصم', icon: 'plus', attrs: { 'data-hr-adjust': '' }, onClick: () => addAdjustment(mk) }), transferBtn),
       cards, cmp, K.Section('مرتبات ' + monLabel(mk), [L.status === 'error' ? U.InlineNote({ kind: 'error', children: 'تعذّر حساب المرتبات — جرّب تاني.' }) : null, table,
         note('الصافي = المرتب الشهري (من غير البونص المحجوز) + الأوفر تايم المتأكد + أيام الراحة ×2 + الإضافات − الخصومات والسُلف وأيام الإجازة بدون أجر. البونص بيتصرف مع آخر شهر في الربع: محجوز كل شهر تقييمه ' + (S.hrSettings.bonusMin || 3) + ' من 5 أو أكتر كامل، والشهر اللي تقييمه أقل أو ماتقيّمش = صفر. السُلفة بتتخصم كلها من مرتب الشهر. ' + (mk.slice(5) === '12' && S.hrSettings.leaveYearEnd !== 'carry' ? 'ديسمبر: رصيد الإجازات الباقي بيتصرف مع المرتب (في «إضافات»).' : ''))], null, { when: monLabel(mk), noun: ['عضو', 'الأعضاء'], total: done ? 'اتحوّلت' : T.paidAlready ? 'اتحوّل لـ ' + (T.members - T.left) + ' بدري' : '' })];
   }
@@ -429,10 +429,19 @@
       validate: (f) => { const e = K.req(f, ['reason']); const n = (Number(f.hours) || 0) * 60 + (Number(f.minutes) || 0); if (!(n > 0) || n > 6000) e.minutes = 'اكتب المدة (لحد 100 ساعة)'; else if (f.dir === 'sub' && n > p.otMin) e.minutes = 'أكتر من الأوفر تايم المحسوب (' + K.hm(p.otMin) + ')'; return e; },
       submitLabel: 'سجّل التصحيح', submit: (f, md) => busy(md, () => H().otAdjust(p.member, mk, (f.dir === 'sub' ? -1 : 1) * ((Number(f.hours) || 0) * 60 + (Number(f.minutes) || 0)), f.reason), () => K.toast('اتسجل التصحيح', 'success')) });
   }
+  // decision 78: is the member's pay of that month out already (his own transfer, or the whole sheet closed), and the first month after it that is not
+  const paidIn = (mk, code) => { const sh = S.sheets[mk]; return !!(sh && (sh.status === 'مدفوع' || sh.status === 'معتمد')) || !!(code && (S.paid[mk] || {})[code]); };
+  const openAfter = (mk, code) => { let k = addMonths(mk, 1); for (let i = 0; i < 24 && paidIn(k, code); i += 1) k = addMonths(k, 1); return k; };
   function addAdjustment(mk, member, preset) { // preset (decision 13): «أضف مكافأة» from the evaluation ⋮ comes with its line's label
-    K.form({ title: 'مكافأة / خصم — ' + monLabel(mk), values: { kind: 'بدل', member: member || '', label: (preset && preset.label) || '' }, fields: (f, e, set) => [member ? null : K.field.select('member', 'العضو', members(), f, e, set, { required: true }), K.Radios({ label: 'النوع', value: f.kind, onChange: (v) => set('kind', v, true), options: [{ value: 'بدل', label: 'مكافأة / إضافة' }, { value: 'خصم', label: 'خصم' }] }), K.two(K.field.text('label', 'البند', f, e, set, { required: true, placeholder: f.kind === 'خصم' ? 'مثلاً: غياب' : 'مثلاً: بدل انتقالات' }), K.field.text('amount', 'المبلغ', f, e, set, { required: true, inputmode: 'decimal', suffix: 'ج.م' }))],
-      validate: (f) => { const e = K.req(f, ['member', 'label', 'amount']); if (f.amount && !(Number(f.amount) > 0)) e.amount = 'اكتب مبلغ أكبر من صفر'; return e; }, submitLabel: 'إضافة',
-      submit: (f, m) => busy(m, H().addAdjustment({ member: f.member, month: mk, label: f.label, amount: (f.kind === 'خصم' ? -1 : 1) * Number(f.amount) }), () => K.toast('اتضاف البند', 'success')) });
+    // comments 15 Nov decision 78 (0110 — the owner: «لما اعمل مكافأة لعضو اتحوله المرتب يطلعلي ايرور و يقولي انه اتحوله مرتبه بالفعل ف مفيش
+    // خصم و يقولي نضيفه للشهر اللي جاى»): the popup says so as an error the moment such a member is in it (or the month's sheet is
+    // closed), and its button becomes «ضيفه على ‹الشهر›» — the first month still open for him; the server refuses the paid month too
+    const to = (f) => (paidIn(mk, f.member) ? openAfter(mk, f.member) : mk);
+    const paidNote = (f) => { if (!paidIn(mk, f.member)) return null; const who = (S.paid[mk] || {})[f.member] ? '«' + ((M(f.member) || {}).name || 'العضو') + '» اتحوّله مرتب ' + monLabel(mk) + ' بالفعل' : 'مرتبات ' + monLabel(mk) + ' اتحوّلت واتقفلت';
+      return U.InlineNote({ kind: 'error', children: h('span', { 'data-hr-adj-paid': to(f) }, who + ' — مفيش مكافأة ولا خصم هيدخلوا في الشهر ده. نضيف البند على مرتب ' + monLabel(to(f)) + '؟') }); };
+    K.form({ title: 'مكافأة / خصم — ' + monLabel(mk), values: { kind: 'بدل', member: member || '', label: (preset && preset.label) || '' }, note: paidNote, fields: (f, e, set) => [member ? null : K.field.select('member', 'العضو', members(), f, e, set, { required: true }), K.Radios({ label: 'النوع', value: f.kind, onChange: (v) => set('kind', v, true), options: [{ value: 'بدل', label: 'مكافأة / إضافة' }, { value: 'خصم', label: 'خصم' }] }), K.two(K.field.text('label', 'البند', f, e, set, { required: true, placeholder: f.kind === 'خصم' ? 'مثلاً: غياب' : 'مثلاً: بدل انتقالات' }), K.field.text('amount', 'المبلغ', f, e, set, { required: true, inputmode: 'decimal', suffix: 'ج.م' }))],
+      validate: (f) => { const e = K.req(f, ['member', 'label', 'amount']); if (f.amount && !(Number(f.amount) > 0)) e.amount = 'اكتب مبلغ أكبر من صفر'; return e; }, submitLabel: (f) => (paidIn(mk, f.member) ? 'ضيفه على ' + monLabel(to(f)) : 'إضافة'),
+      submit: (f, m) => { const k = to(f); return busy(m, () => H().addAdjustment({ member: f.member, month: k, label: f.label, amount: (f.kind === 'خصم' ? -1 : 1) * Number(f.amount) }), () => K.toast(k === mk ? 'اتضاف البند' : 'اتضاف البند على مرتب ' + monLabel(k), 'success')); } });
   }
   function payslipModal(p, mk, status) { // status: «ملفي» passes it (a member does not read the months' states)
     const m = M(p.member); const r = O.rates(p.salary); const adj = S.adjustments.filter((a) => a.member === p.member && a.month === mk);

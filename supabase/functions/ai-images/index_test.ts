@@ -1149,3 +1149,131 @@ Deno.test('ref_link (the owner 15 Nov — «السيستم مش قابل اي ل
   assertEquals((await go('https://cdn.example.com/a.png', 'jwt-mkt', CMP_OLD)).res.status, 404, 'an archived campaign');
   assertEquals((await go('https://cdn.example.com/a.png', 'jwt-mkt', 'nope')).body.field, 'campaign_id');
 });
+
+// ---------------------------------------------------------------- comments decision 52: the campaign's images on Magnific
+
+// The owner 15 Nov on the campaign: «عايز ابعت الصور لmagnific او ابعت الprompt اللي يتعملي بيه صورة … و كمان زرار استلم بيه الصور من magnific»
+const cstate52 = () => ({
+  w: { goal: 'منتج جديد', idea: 'كولكشن الشتا', media: { post: { notes: 'ألوان دافية', use: [{ t: 'file', path: CMP + '/up-logo.png' }], ref: [{ t: 'tpl', tpl: TPL }] }, carousel: { use: [{ t: 'file', path: CMP + '/up-logo.png' }], ref: [] }, video: { use: [], ref: [] } }, extra: {} },
+  pieces: [{ id: 'P1', kind: 'بوست', n: 1, size: '1080x1350', idea: 'المخدة على كنبة', title: 'دفا الشتا', use: [{ t: 'product', id: 4001 }], ref: [] },
+    { id: 'C1', kind: 'كاروسيل', n: 1, size: '1080x1080', idea: 'تفاصيل الشغل', slides: [{ n: 1, idea: 'الغرزة' }] },
+    { id: 'V1', kind: 'فيديو', n: 1, size: '9:16', idea: 'ريل الكولكشن', scenes: [{ n: 1, d: 5, idea: 'لقطة قريبة' }] },
+    { id: 'V2', kind: 'فيديو', n: 2, size: '9:16', idea: 'من غير مشاهد' }],
+});
+function campaignBridge(F: ReturnType<typeof flowBridge>) {
+  const uploads: any[] = [];
+  F.bridge.callTool = ((orig) => async (token: string, name: string, args: any) => {
+    if (name === 'creations_upload_image') { F.bridge.calls.push({ op: 'tool', accessToken: token, name, args: structuredClone(args) }); if (/gone/.test(args.url)) throw new BridgeError('mcp_error', null, 'unreadable'); uploads.push(args); return { identifier: 'CR' + uploads.length }; }
+    if (name === 'creations_request_upload') { F.bridge.calls.push({ op: 'tool', accessToken: token, name, args: structuredClone(args) }); return { url: 'https://uploads.magnific.test/put/1', path: 'tmp/1' }; }
+    if (name === 'creations_finalize_upload') { F.bridge.calls.push({ op: 'tool', accessToken: token, name, args: structuredClone(args) }); uploads.push(args); return { creations: [{ identifier: 'CRB' + uploads.length }] }; }
+    return orig(token, name, args);
+  })(F.bridge.callTool);
+  return uploads;
+}
+
+Deno.test('bridge_campaign (comments decision 52): marketing.create and a linked account; each image of the campaign (post, carousel cover + slides, a video scene) gets its references as creations (a photo uploaded once, kept for the next send), a generator with the credits path\'s own prompt and the piece\'s ratio, and an output list — in calls of 12 nodes; the record kept in settings «magnific».campaigns; nothing to send → 409', async () => {
+  const F = flowBridge(); const ups = campaignBridge(F);
+  const seed = { ...MKT_SEED, mkt_campaigns: [{ id: CMP, name: 'كولكشن الشتا', state: cstate52(), archived_at: null }, { id: CMP_OLD, name: 'قديمة', state: cstate52(), archived_at: '2026-11-01T00:00:00Z' }] };
+  const { deps, db, fetched } = setup({ seed, storage: { ...MKT_FILES }, vault: { ...LINKED }, bridge: F.bridge });
+  assertEquals((await call(deps, { action: 'bridge_campaign', campaign_id: CMP }, 'jwt-add')).res.status, 401, 'products.add is not marketing.create');
+  assertEquals((await call(deps, { action: 'bridge_campaign', campaign_id: 'nope' }, 'jwt-mkt')).body.field, 'campaign_id');
+  assertEquals((await call(deps, { action: 'bridge_campaign', campaign_id: CMP_OLD }, 'jwt-mkt')).res.status, 404, 'an archived campaign');
+  const unlinked = setup({ seed, storage: { ...MKT_FILES }, vault: { magnific_mcp_client: LINKED.magnific_mcp_client }, bridge: flowBridge().bridge });
+  assertEquals([(await call(unlinked.deps, { action: 'bridge_campaign', campaign_id: CMP }, 'jwt-mkt')).res.status, (await call(unlinked.deps, { action: 'bridge_campaign', campaign_id: CMP }, 'jwt-mkt')).body.error], [503, 'not_linked']);
+  const r = await call(deps, { action: 'bridge_campaign', campaign_id: CMP }, 'jwt-mkt');
+  assertEquals(r.res.status, 200);
+  assertEquals([r.body.result, r.body.targets, r.body.refs, r.body.uploaded, r.body.left, r.body.page_id, r.body.url], ['ok', 4, 3, 3, 0, 'page-1', 'https://www.magnific.com/app/spaces/' + F.spaces[0].id]);
+  // the references: the site's product photo by its own link, the campaign's upload and the template's image by a signed link — each once
+  assertEquals(ups.length, 3);
+  assert(ups[0].url.endsWith('/c.jpg') && ups[0].folderReference === PROJECT, 'the product photo of the site');
+  assert(ups.every((u) => /^https:\/\//.test(u.url) && /^campaign-ref-\d+\.(png|jpg|webp)$/.test(u.fileName)));
+  assert(fetched.some((u) => u.endsWith('/c.jpg')));
+  assertEquals(F.pages.map((p) => [p.spaceId, p.name]), [[F.spaces[0].id, 'كامبينات التسويق']]);
+  // the nodes: the panel, P1 (3 refs + generator + list), the carousel's cover and slide (1 ref each — the same creation), the video scene (none)
+  assertEquals(F.created.map((n) => n.nodeType), ['panel', 'creation', 'creation', 'creation', 'image-generator', 'list', 'creation', 'image-generator', 'list', 'creation', 'image-generator', 'list', 'image-generator', 'list']);
+  const calls = F.bridge.calls.filter((c) => c.op === 'tool' && c.name === 'spaces_create_node');
+  assertEquals(calls.map((c) => c.args.nodes.length), [12, 2], 'never more than a call takes');
+  assertEquals(calls[1].args.nodes[0].layout.groupId, F.created[0].nodeId, 'the second call names the panel by its id');
+  const gens = F.created.filter((n) => n.nodeType === 'image-generator');
+  assertEquals(gens.map((g) => [g.name, g.data.aspectRatio, g.data.mode, g.data.numberOfGenerations]), [['بوست 1', '4:5', 'imagen-nano-banana-2', 1], ['كاروسيل 1 · الغلاف', '1:1', 'imagen-nano-banana-2', 1], ['كاروسيل 1 · صورة 1', '1:1', 'imagen-nano-banana-2', 1], ['فيديو 1 · المشهد 1', '9:16', 'imagen-nano-banana-2', 1]]);
+  for (const bit of ['«دفا الشتا»', '«المنتج في النص»', 'The first 2 reference images', '«ألوان دافية»', 'The other 1 reference image']) assert(gens[0].data.prompt.includes(bit), bit);
+  assert(gens[3].data.prompt.includes('key frame') && gens[3].data.prompt.includes('«لقطة قريبة»'));
+  assertEquals(F.created.filter((n) => n.nodeType === 'creation').map((n) => n.data.creationIdentifier), ['CR1', 'CR2', 'CR3', 'CR2', 'CR2']);
+  assertEquals(F.connections.length, 3 + 1 + 1 + 1 + 1 + 1 + 1);
+  assertEquals([F.connections[0].sourcePort, F.connections[0].targetPort, F.connections[0].targetElementId, F.connections[3].targetPort], ['output', 'reference', gens[0].nodeId, 'images']);
+  const rec = db.rows('settings').find((s: any) => s.section === 'magnific').data.campaigns[CMP];
+  assertEquals([rec.space_id, rec.page_id, rec.gens.map((g: any) => g.key), rec.seen, rec.by], [F.spaces[0].id, 'page-1', ['P1', 'C1:-1', 'C1:0', 'V1:0'], [], U.mkt]);
+  assertEquals(rec.gens[0].id, gens[0].nodeId);
+  assertEquals(Object.keys(rec.sent).sort(), ['f:' + CMP + '/up-logo.png', 'f:templates/t1.png', 'p:4001']);
+  assertEquals(db.rows('ai_runs').length, 0, 'sending costs nothing of the images\' credits');
+  // again (the texts changed): a new flow on the same page, no photo uploaded twice
+  const r2 = await call(deps, { action: 'bridge_campaign', campaign_id: CMP }, 'jwt-mkt');
+  assertEquals([r2.body.targets, r2.body.uploaded, r2.body.refs, ups.length, F.pages.length, F.spaces.length], [4, 0, 3, 3, 1, 1]);
+  // a photo the project could not read by its link goes up as bytes (request_upload → PUT → finalize)
+  const F2 = flowBridge(); const ups2 = campaignBridge(F2);
+  const st = cstate52(); st.pieces = [{ id: 'P1', kind: 'بوست', n: 1, size: '1080x1920', idea: 'x', use: [{ t: 'file', path: CMP + '/gone-1.png' }], ref: [] }] as any; st.w.media.post = { notes: '', use: [], ref: [] } as any;
+  const b = setup({ seed: { ...seed, mkt_campaigns: [{ id: CMP, name: 'ك', state: st, archived_at: null }] }, storage: { ...MKT_FILES, [`marketing/${CMP}/gone-1.png`]: PNG }, vault: { ...LINKED }, bridge: F2.bridge });
+  const r3 = await call(b.deps, { action: 'bridge_campaign', campaign_id: CMP }, 'jwt-mkt');
+  assertEquals([r3.body.result, r3.body.targets, r3.body.uploaded], ['ok', 1, 1]);
+  assertEquals(F2.bridge.calls.filter((c: any) => c.op === 'tool').map((c: any) => c.name).slice(0, 3), ['creations_upload_image', 'creations_request_upload', 'creations_finalize_upload']);
+  assertEquals([ups2[0].fileName, F2.created.find((n) => n.nodeType === 'image-generator')!.data.aspectRatio], ['campaign-ref-1.png', '9:16']);
+  // a campaign with no image to make
+  const none = setup({ seed: { ...seed, mkt_campaigns: [{ id: CMP, name: 'فاضية', state: { w: {}, pieces: [{ id: 'V2', kind: 'فيديو', n: 1 }] }, archived_at: null }] }, vault: { ...LINKED }, bridge: flowBridge().bridge });
+  assertEquals([(await call(none.deps, { action: 'bridge_campaign', campaign_id: CMP }, 'jwt-mkt')).res.status, (await call(none.deps, { action: 'bridge_campaign', campaign_id: CMP }, 'jwt-mkt')).body.error], [409, 'nothing']);
+  // bridge_status answers a marketing member too (linked only)
+  assertEquals((await call(deps, { action: 'bridge_status' }, 'jwt-mkt')).body, { result: 'ok', linked: true, project: PROJECT });
+});
+
+Deno.test('bridge_campaign_fetch (comments decision 52): the recorded flow\'s output lists → the newest new result of each generator into the campaign\'s folder, { placed } for the page; a second call finds nothing; a link off the allowed hosts is never fetched; a flow only in another Space / no flow → 409 no_flow; a piece no longer in the campaign is skipped', async () => {
+  const F = flowBridge();
+  const SPACE = 'a3000000-0000-4000-8000-000000000001';
+  const gens = [{ key: 'P1', id: NID(201), out: NID(301) }, { key: 'C1:-1', id: NID(202), out: NID(302) }, { key: 'C1:0', id: NID(203), out: NID(303) }, { key: 'V1:0', id: NID(204), out: NID(304) }, { key: 'P9', id: NID(205), out: NID(305) }];
+  F.outputs[NID(301)] = ['A1', 'A2']; F.outputs[NID(302)] = ['OFF']; F.outputs[NID(303)] = []; F.outputs[NID(304)] = ['S1']; F.outputs[NID(305)] = ['Z1'];
+  const flow = { space_id: SPACE, url: 'https://www.magnific.com/app/spaces/' + SPACE, page_id: 'page-1', panel: NID(100), gens, sent: {}, seen: [], made_at: NOW, by: U.mkt };
+  const seed = { ...MKT_SEED, mkt_campaigns: [{ id: CMP, name: 'كولكشن الشتا', state: cstate52(), archived_at: null }], settings: [{ section: 'magnific', data: { space_id: SPACE, mkt_page: 'page-1', campaigns: { [CMP]: flow } } }] };
+  const { deps, db, storage, fetched } = setup({ seed, storage: { ...MKT_FILES }, vault: { ...LINKED }, bridge: F.bridge });
+  assertEquals((await call(deps, { action: 'bridge_campaign_fetch', campaign_id: CMP }, 'jwt-add')).res.status, 401);
+  // no flow recorded / a record on another Space
+  const noflow = setup({ seed: { ...seed, settings: [{ section: 'magnific', data: { space_id: SPACE, campaigns: {} } }] }, vault: { ...LINKED }, bridge: flowBridge().bridge });
+  assertEquals((await call(noflow.deps, { action: 'bridge_campaign_fetch', campaign_id: CMP }, 'jwt-mkt')).body, { error: 'no_flow' });
+  const other = setup({ seed: { ...seed, settings: [{ section: 'magnific', data: { space_id: 'a3000000-0000-4000-8000-000000000009', campaigns: { [CMP]: flow } } }] }, vault: { ...LINKED }, bridge: flowBridge().bridge });
+  assertEquals((await call(other.deps, { action: 'bridge_campaign_fetch', campaign_id: CMP }, 'jwt-mkt')).body, { error: 'no_flow' });
+  const r = await call(deps, { action: 'bridge_campaign_fetch', campaign_id: CMP }, 'jwt-mkt');
+  assertEquals([r.res.status, r.body.result, r.body.found, r.body.failed, r.body.offhost, r.body.placed.map((p: any) => [p.piece, p.slide])], [200, 'ok', 3, 0, 1, [['P1', null], ['V1', 0]]]);
+  assertEquals(F.bridge.calls.filter((c) => c.op === 'tool').map((c) => [c.name, c.name === 'spaces_get_nodes' ? c.args.nodeIds.length : c.args.identifiers]), [['spaces_get_nodes', 4], ['creations_get', ['A2', 'OFF', 'S1']]], 'P9 is no piece of the campaign any more; the newest result of a generator');
+  assert(/\/gen-P1-mg[0-9a-z]+\.png$/.test(r.body.placed[0].path) && /\/gen-V1-s1-mg[0-9a-z]+\.png$/.test(r.body.placed[1].path), JSON.stringify(r.body.placed));
+  assert(r.body.placed.every((p: any) => p.path.startsWith(CMP + '/') && storage['marketing/' + p.path]), 'kept under the campaign');
+  assertFalse(fetched.some((u) => u.includes('elsewhere.test')), 'a link off the allowed hosts is never fetched');
+  const run = db.rows('ai_runs').at(-1); assertEquals([run.action, run.source, run.credits, run.status, run.created_by, run.output.paths.length, run.output.campaign_id], ['image', 'import', 0, 'ok', U.mkt, 2, CMP]);
+  // the saved campaign carries them too (a member who left before the answer finds them): the post, and the video's key frame with its cut stale
+  const savedPieces = db.rows('mkt_campaigns').find((c: any) => c.id === CMP).state.pieces;
+  assertEquals([savedPieces[0].img, savedPieces[0].approved, savedPieces[2].scenes[0].img, savedPieces[2].assembled, savedPieces[1].img ?? null], [r.body.placed[0].path, false, r.body.placed[1].path, false, null]);
+  assertEquals(db.rows('settings').find((s: any) => s.section === 'magnific').data.campaigns[CMP].seen.sort(), ['A1', 'A2', 'S1'], 'the older result of the same generator is passed over with it; the off-host one stays for a retry');
+  // again: only the off-host one is still new (and still refused); then the site makes the cover again on its own host → placed
+  const r2 = await call(deps, { action: 'bridge_campaign_fetch', campaign_id: CMP }, 'jwt-mkt');
+  assertEquals([r2.body.found, r2.body.placed.length, r2.body.offhost, db.rows('ai_runs').length], [1, 0, 1, 1]);
+  F.outputs[NID(302)].push('B2'); F.outputs[NID(303)].push('B3');
+  const r3 = await call(deps, { action: 'bridge_campaign_fetch', campaign_id: CMP }, 'jwt-mkt');
+  assertEquals(r3.body.placed.map((p: any) => [p.piece, p.slide, /gen-C1-(cv|s1)-mg/.test(p.path)]), [['C1', -1, true], ['C1', 0, true]]);
+  // a download that fails is counted and stays new
+  const down = setup({ seed, storage: { ...MKT_FILES }, vault: { ...LINKED }, bridge: F.bridge, photo: null });
+  const r4 = await call(down.deps, { action: 'bridge_campaign_fetch', campaign_id: CMP }, 'jwt-mkt');
+  assertEquals([r4.res.status, r4.body.placed.length, r4.body.failed > 0, down.db.rows('ai_runs').length], [200, 0, true, 0]);
+});
+
+Deno.test('bridge_flow with many sized products: more than 20 nodes go up in calls of 12 and are all wired (a call takes 20 at most)', async () => {
+  const F = flowBridge();
+  const items = Array.from({ length: 6 }, (_, i) => item({ nameEn: 'P' + i, main: SB + '/row' + (i + 1) + '-main.webp', refs: [] }));
+  const seed = { ...SEED, studio_batches: [batch({ created_by: U.add, state: { items } })],
+    image_shares: items.map((_, i) => ({ id: i + 1, created_by: U.add, batch_id: SB, item_index: i, name: 'P' + i + '.webp', path: SB + '/row' + (i + 1) + '-main.webp', url: 'https://s/' + i, expires_at: NOW, status: 'sent', creation_ref: 'UP' + (i + 1), sent_at: NOW })) };
+  const { deps, db } = setup({ vault: { ...LINKED }, bridge: F.bridge, seed });
+  const r = await call(deps, { action: 'bridge_flow', batch_id: SB, category: 'كرسي' });
+  assertEquals([r.res.status, r.body.photos, r.body.sizes], [200, 6, 6]);
+  assertEquals(F.created.length, 8 + 6 * 3);
+  assertEquals(F.bridge.calls.filter((c) => c.op === 'tool' && c.name === 'spaces_create_node').map((c) => c.args.nodes.length), [12, 12, 2]);
+  assertEquals(F.bridge.calls.filter((c) => c.op === 'tool' && c.name === 'spaces_add_connection').map((c) => c.args.connections.length), [12, 6]);
+  assert(F.connections.every((c) => /^00000000-/.test(c.sourceElementId) && /^00000000-/.test(c.targetElementId)), 'every wire names real nodes');
+  const later = F.bridge.calls.filter((c) => c.op === 'tool' && c.name === 'spaces_create_node')[1].args.nodes;
+  assert(later.every((n: any) => n.layout.groupId === F.created[0].nodeId), 'a later call names the panel by its id');
+  assertEquals(db.rows('studio_batches')[0].state.flow.gens.length, 3 + 6);
+});

@@ -28,7 +28,7 @@
     'ai-content': { write: 'الذكاء الاصطناعي بيكتب…', studio: 'الذكاء الاصطناعي بيملا بيانات المنتجات…', prompts: 'الذكاء الاصطناعي بيكتب البرومبتات…', marketing: 'الذكاء الاصطناعي بيكتب…' },
     'ai-images': { generate: 'بنعمل الصورة…', create: 'بنعمل الصورة…', edit: 'بنعدّل الصورة…', campaign: 'بنعمل تصميم الكامبين…', campaign_edit: 'بنعدّل التصميم…',
       import: 'بنجيب الصور…', share: 'بنبعت الصور لـ Magnific…', bridge_upload: 'بنبعت الصور لـ Magnific…', bridge_fetch: 'بنجيب النتايج من Magnific…',
-      bridge_flow: 'بنجهّز الفلو على Magnific…', bridge_prompts_sync: 'بنحدّث البرومبتات من الـ template…', bridge_link: 'بنربط حساب Magnific…', bridge_callback: 'بنربط حساب Magnific…',
+      bridge_flow: 'بنجهّز الفلو على Magnific…', bridge_campaign: 'بنبعت قطع الكامبين لـ Magnific…', bridge_campaign_fetch: 'بنجيب النتايج من Magnific…', bridge_prompts_sync: 'بنحدّث البرومبتات من الـ template…', bridge_link: 'بنربط حساب Magnific…', bridge_callback: 'بنربط حساب Magnific…',
       bridge_unlink: 'بنفصل حساب Magnific…', webp: 'بنجهّز الصورة…', video_clip: 'بنعمل مشهد الفيديو…', video_voice: 'بنعمل الفويس…', video_music: 'بنعمل الموسيقى…',
       video_upload: 'بنرفع الصوت…', video_assemble: 'بنجمّع الفيديو…' },
     'cs-channel': { send: 'بنبعت الرسالة…', comment_private: 'بنبعت الرد الخاص…', comment_hide: 'بنخفي التعليق…', connect_start: 'بنربط الصفحة…', connect_callback: 'بنربط الصفحة…',

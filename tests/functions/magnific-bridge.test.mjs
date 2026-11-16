@@ -153,3 +153,32 @@ test('decision 15 (the owner, 2 Nov) — parseSize / sizePrompt / flowNodes size
   assert.equal(templatePrompts([{ id: 'a3000000-0000-4000-8000-000000000011', type: 'image-generator', name: 'كرسي 4 — المقاسات', x: 0, y: 0 }], { 'a3000000-0000-4000-8000-000000000011': { prompt: 'P4' } })[0].shot, 4, 'the template library takes a fourth shot');
   assert.equal(SIZE_PROMPT.includes('{W} CM') && SIZE_PROMPT.includes('{H} CM') && SIZE_PROMPT.includes('{D}'), true);
 });
+
+// comments decision 52 (the owner 15 Nov — the campaign's pieces on Magnific): a generator an image of the campaign
+test('decision 52 — campaignFlowNodes: a panel, then for each image its reference creations (4 at most), one generator with its own prompt and ratio and its output list, wired in that order; a target without a prompt is left out; nodeChunks / resolveChunk send a long plan in calls of 12 with earlier nodes named by their ids', async () => {
+  const { campaignFlowNodes, nodeChunks, resolveChunk, FLOW_MODEL } = await import('../../supabase/functions/_shared/magnific-bridge.js');
+  const f = campaignFlowNodes({ title: 'كولكشن الشتا · 2026-11-16', targets: [
+    { key: 'P1', name: 'بوست 1', prompt: 'POST PROMPT', aspect: '4:5', refs: ['UPa', 'UPb'] },
+    { key: 'C1:-1', name: 'كاروسيل 1 · الغلاف', prompt: 'COVER PROMPT', aspect: '1:1', refs: [] },
+    { key: 'C1:0', name: 'كاروسيل 1 · صورة 1', prompt: '', aspect: '1:1', refs: ['UPa'] }, // nothing to ask
+    { key: 'V1:0', name: 'فيديو 1 · المشهد 1', prompt: 'SCENE PROMPT', aspect: 'wide', refs: ['UPa', 'bad id!', 'UPb', 'UPc', 'UPd', 'UPe'] }] });
+  assert.deepEqual(f.nodes.map((n) => [n.nodeType, n.ref]), [['panel', 'panel'], ['creation', 'r0_0'], ['creation', 'r0_1'], ['image-generator', 'g0'], ['list', 'o0'], ['image-generator', 'g1'], ['list', 'o1'],
+    ['creation', 'r3_0'], ['creation', 'r3_1'], ['creation', 'r3_2'], ['creation', 'r3_3'], ['image-generator', 'g3'], ['list', 'o3']]);
+  assert.deepEqual(f.gens, [{ key: 'P1', gen: 'g0', out: 'o0' }, { key: 'C1:-1', gen: 'g1', out: 'o1' }, { key: 'V1:0', gen: 'g3', out: 'o3' }]);
+  assert.deepEqual(f.nodes[1].data, { creationIdentifier: 'UPa' });
+  assert.deepEqual(f.nodes[3].data, { prompt: 'POST PROMPT', mode: FLOW_MODEL, aspectRatio: '4:5', resolution: '1k', numberOfGenerations: 1 });
+  assert.equal(f.nodes[11].data.aspectRatio, 'auto', 'a ratio the generator does not know is left to the prompt');
+  assert.deepEqual(f.nodes[4].data, { itemType: 'image', mode: 'accumulate' });
+  // the layout: a row an image (its references, the generator, the list), each row under the one before
+  assert.deepEqual([f.nodes[1].layout, f.nodes[2].layout, f.nodes[3].layout, f.nodes[4].layout], [{ groupId: 'panel' }, { groupId: 'panel', relativeToNodeId: 'r0_0', direction: 'right' }, { groupId: 'panel', relativeToNodeId: 'r0_1', direction: 'right' }, { groupId: 'panel', relativeToNodeId: 'g0', direction: 'right' }]);
+  assert.deepEqual([f.nodes[5].layout, f.nodes[7].layout], [{ groupId: 'panel', relativeToNodeId: 'r0_0', direction: 'below' }, { groupId: 'panel', relativeToNodeId: 'g1', direction: 'below' }]);
+  assert.deepEqual(f.connections.slice(0, 4), [{ from: 'r0_0', fromPort: 'output', to: 'g0', toPort: 'reference' }, { from: 'r0_1', fromPort: 'output', to: 'g0', toPort: 'reference' }, { from: 'g0', fromPort: 'output', to: 'o0', toPort: 'images' }, { from: 'g1', fromPort: 'output', to: 'o1', toPort: 'images' }]);
+  assert.equal(f.connections.length, 2 + 1 + 1 + 4 + 1);
+  // the calls: 13 nodes → 12 + 1; the second call names the panel and the node beside it by their ids
+  const chunks = nodeChunks(f.nodes);
+  assert.deepEqual(chunks.map((c) => c.length), [12, 1]);
+  const sent = resolveChunk(chunks[1], { panel: 'ID-PANEL', g3: 'ID-G3', r0_0: 'ID-R' });
+  assert.deepEqual(sent[0].layout, { groupId: 'ID-PANEL', relativeToNodeId: 'ID-G3', direction: 'right' });
+  assert.deepEqual(resolveChunk(chunks[0], { panel: 'ID-PANEL' })[1].layout, { groupId: 'panel' }, 'an alias of the same call stays an alias');
+  assert.deepEqual(nodeChunks([], 12), []);
+});

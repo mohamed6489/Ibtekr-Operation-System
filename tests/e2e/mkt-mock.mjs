@@ -6,7 +6,7 @@
 // rows only through mkt_schedule / mkt_post_act with marketing.publish F and the day / hour rules on Cairo's clock). The AI actions
 // (ai-images campaign / campaign_edit, ai-content marketing) are answered here too (mktAi). Every RPC / function call lands in
 // mkt.calls, every write the client sent in mkt.writes ({ table, op, ...columns }).
-import { agentImagePath, agentTitle, campaignGenPath, campaignPathOk, campaignTarget, cleanAgent, cleanBuyer, cleanMarketing, parseAgent, parseAgentImage, parseBuyer, parseCampaign, parseCampaignEdit, parseMarketing } from '../../supabase/functions/_shared/marketing.js';
+import { agentImagePath, agentTitle, campaignGenPath, campaignPathOk, campaignTarget, cleanAgent, cleanBuyer, cleanMarketing, parseAgent, parseAgentImage, parseBuyer, parseCampaign, parseCampaignEdit, parseMarketing, campaignTargets, flowKey, campaignRefs, placeImage } from '../../supabase/functions/_shared/marketing.js';
 import { BUYER_DEFAULTS, MAX_STEP, budgetPlan, rulesPatch } from '../../supabase/functions/_shared/mkt-ads.js';
 import { PLATFORMS as AD_PLATFORMS, linkAccount, linkPublic, linkReady, parseLink, platformOf } from '../../supabase/functions/_shared/mkt-ads-link.js';
 import { MAX_OPEN_JOBS, cleanScenes, jobView, mixPlan, nextMix, parseVideo, videoPath } from '../../supabase/functions/_shared/mkt-video.js';
@@ -130,7 +130,7 @@ export function mktRoute(c) {
   if (sto && sto[1] && method === 'GET') { const obj = H.objects.get(decodeURIComponent(sto[2])); return obj ? route.fulfill({ status: 200, headers: { 'access-control-allow-origin': '*', 'content-type': obj.type || 'image/png' }, body: PNG_1PX }) : json(400, { statusCode: '400', error: 'not_found', message: 'Object not found' }); }
   if (fn && path === '/functions/v1/mkt-publish') return mktPublish(c, c.body());
   if (fn && path === '/functions/v1/mkt-ads') return mktAds(c, c.body());
-  if (fn) { const b = c.body(); if (path === '/functions/v1/ai-images' ? !(['campaign', 'campaign_edit', 'agent_image', 'ref_link'].includes(b.action) || /^video_/.test(String(b.action))) : !['marketing', 'buyer', 'agent', 'trends'].includes(b.action)) return null; return mktAi(c, b); }
+  if (fn) { const b = c.body(); if (path === '/functions/v1/ai-images' ? !(['campaign', 'campaign_edit', 'agent_image', 'ref_link', 'bridge_campaign', 'bridge_campaign_fetch'].includes(b.action) || /^video_/.test(String(b.action))) : !['marketing', 'buyer', 'agent', 'trends'].includes(b.action)) return null; return mktAi(c, b); }
   const refuse = (status, code, message) => json(status, { code, details: null, hint: null, message });
   if (!u) return sto ? json(401, { statusCode: '401', error: 'Unauthorized', message: 'invalid JWT' }) : refuse(401, '42501', 'permission denied');
   const view = hasPerm(u, 'marketing.view') !== 'N'; const create = hasPerm(u, 'marketing.create') === 'F'; const publish = hasPerm(u, 'marketing.publish') === 'F';
@@ -467,6 +467,40 @@ function mktAi(c, b) {
     H.seq += 1; return json(200, { result: 'ok', ...cleanMarketing(answer, p.req, target), model: 'claude-opus-5-5', cost_usd: 0.004, run_id: H.seq });
   }
   if (/^video_/.test(String(b.action))) return mktVideo(c, b, campaign);
+  // comments decision 52: the campaign's images on Magnific as ai-images answers — bridge_campaign (marketing.create F or the
+  // admin; the linked account of the base mock, mock.magnific.linked; every image of the saved campaign a generator → H.mgFlows) and
+  // bridge_campaign_fetch (the recorded flow's results: H.mgResults[campaign] = { key: [ids] } when a spec sets it, else one new
+  // result for every image the first time — as if the member ran the generators —; the newest new one of each → a file in the
+  // campaign's folder and { placed }). H.mgFail = 'busy' | 'mcp_error' answers the next call with that.
+  if (b.action === 'bridge_campaign' || b.action === 'bridge_campaign_fetch') {
+    if (!u || !(isAdmin(u) || hasPerm(u, 'marketing.create') === 'F')) return json(401, { error: 'unauthorized' });
+    const camp = typeof b.campaign_id === 'string' ? campaign(b.campaign_id) : null; if (!camp) return json(404, { error: 'not_found' });
+    const M = mock.magnific || { linked: false }; H.mgFlows = H.mgFlows || {};
+    const targets = campaignTargets(camp.state);
+    if (b.action === 'bridge_campaign') {
+      if (!targets.length) return json(409, { error: 'nothing' });
+      if (!M.linked) return json(503, { error: 'not_linked', status: null, detail: null });
+      if (H.mgFail) { const f = H.mgFail; H.mgFail = null; return json(f === 'busy' ? 429 : 502, { error: f }); }
+      if (!M.space) M.space = { id: 'a3000000-0000-4000-8000-000000000001', url: 'https://www.magnific.com/app/spaces/a3000000-0000-4000-8000-000000000001', name: 'استوديو ابتكر' };
+      const past = H.mgFlows[camp.id] || { sent: [] }; const refs = new Set();
+      targets.forEach((w) => { const t = campaignTarget(camp.state, w.piece, w.slide); if (!t) return; const r = campaignRefs(t, camp.id); r.use.concat(r.style).forEach((x) => refs.add(JSON.stringify(x))); });
+      const fresh = [...refs].filter((k) => !past.sent.includes(k));
+      H.mgFlows[camp.id] = { keys: targets.map((w) => flowKey(w.piece, w.slide)), seen: [], sent: past.sent.concat(fresh), n: (past.n || 0) + 1 };
+      H.calls[H.calls.length - 1].targets = targets.length;
+      return json(200, { result: 'ok', campaign_id: camp.id, url: M.space.url, space_id: M.space.id, page_id: 'page-mkt', targets: targets.length, refs: refs.size, uploaded: fresh.length, left: 0 });
+    }
+    const flow = H.mgFlows[camp.id]; if (!flow) return json(409, { error: 'no_flow' });
+    if (!M.linked) return json(503, { error: 'not_linked', status: null, detail: null });
+    if (H.mgFail) { const f = H.mgFail; H.mgFail = null; return json(f === 'busy' ? 429 : 502, { error: f }); }
+    const outs = (H.mgResults && H.mgResults[camp.id]) || Object.fromEntries(flow.keys.map((k) => [k, ['MG' + flow.n + '-' + k]]));
+    const placed = []; let found = 0;
+    targets.forEach((w) => { const key = flowKey(w.piece, w.slide); if (!flow.keys.includes(key)) return;
+      const ids = (outs[key] || []).filter((id) => !flow.seen.includes(id)); if (!ids.length) return; found += 1;
+      H.seq += 1; const path = campaignGenPath(camp.id, w.piece, w.slide, 'mgmk' + H.seq, 'png', false);
+      H.objects.set(path, { type: 'image/png', size: 68, by: u.id }); ids.forEach((id) => flow.seen.push(id)); placed.push({ piece: w.piece, slide: w.slide, path }); });
+    placed.forEach((x) => { camp.state = placeImage(camp.state, x.piece, x.slide, x.path) || camp.state; }); // the server puts them on the saved campaign too
+    return json(200, { result: 'ok', campaign_id: camp.id, found, placed, failed: 0, offhost: 0 });
+  }
   // the owner 15 Nov: any link — the server's rules (refUrl), then H.refWeb[url] = 'image' | 'page' (its og:image) | 'none' | 'big';
   // unknown = an image; the image kept as <campaign>/ref-mkN.jpg (the bytes are the server's business, not the page's)
   if (b.action === 'ref_link') {

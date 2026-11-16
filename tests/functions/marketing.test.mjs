@@ -289,3 +289,39 @@ test('parseMarketing / marketingRequest / scenesRequest: the member notes', () =
   const sc = scenesRequest({ model: 'm', effort: 'low', w: { goal: 'مبيعات' }, piece: { idea: 'فكرة' }, n: 3, dur: 15, memberNotes: 'مشاهد أهدى' }).messages[0].content[0].text;
   assert.match(sc, /<member_notes>\nمشاهد أهدى\n<\/member_notes>/);
 });
+
+// comments decision 52 (the owner 15 Nov — the campaign's pieces on Magnific): which images a campaign needs, and a generator's ratio
+test('decision 52 — campaignTargets / flowKey / aspectOf: a post and an extra file are one image, a carousel its cover then its slides, a video the key frame of each scene it has; 30 at most; a size snaps to the nearest ratio a generator takes', async () => {
+  const { campaignTargets, flowKey, aspectOf, MAX_FLOW_TARGETS } = await import('../../supabase/functions/_shared/marketing.js');
+  const state = { pieces: [{ id: 'P1', kind: 'بوست' }, { id: 'C1', kind: 'كاروسيل', slides: [{ n: 1 }, null, { n: 3 }] }, { id: 'V1', kind: 'فيديو', scenes: [{ n: 1 }, { n: 2 }] }, { id: 'V2', kind: 'فيديو' },
+    { id: 'X1', kind: 'ملف إضافي' }, { id: 'bad id', kind: 'بوست' }, { id: 'Z1', kind: 'حاجة تانية' }, null] };
+  assert.deepEqual(campaignTargets(state), [{ piece: 'P1', slide: null }, { piece: 'C1', slide: -1 }, { piece: 'C1', slide: 0 }, { piece: 'C1', slide: 2 }, { piece: 'V1', slide: 0 }, { piece: 'V1', slide: 1 }, { piece: 'X1', slide: null }]);
+  assert.deepEqual(campaignTargets(state).map((t) => flowKey(t.piece, t.slide)), ['P1', 'C1:-1', 'C1:0', 'C1:2', 'V1:0', 'V1:1', 'X1']);
+  // every one of them is a piece the image prompt can be built for
+  const full = { w: { media: {} }, pieces: state.pieces.filter(Boolean).map((p) => ({ n: 1, ...p, slides: p.slides ? p.slides.map((x) => x || { n: 2 }) : undefined })) };
+  for (const t of campaignTargets(full)) assert.ok(campaignTarget(full, t.piece, t.slide), flowKey(t.piece, t.slide));
+  assert.deepEqual(campaignTargets(null), []); assert.deepEqual(campaignTargets({ pieces: 'x' }), []);
+  const many = { pieces: Array.from({ length: 40 }, (_, i) => ({ id: 'P' + (i + 1), kind: 'بوست' })) };
+  assert.equal(campaignTargets(many).length, MAX_FLOW_TARGETS);
+  assert.deepEqual(['1080x1350', '1080x1080', '1080x1920', '1600x900', 'nope', null].map((x) => aspectOf(x)), ['4:5', '1:1', '9:16', '16:9', '4:5', '4:5']);
+  assert.deepEqual([aspectOf({ w: 1200, h: 628 }), aspectOf({ w: 1000, h: 1500 }), aspectOf({ w: 0, h: 10 })], ['16:9', '2:3', '4:5']);
+});
+
+test('decision 52 — placeImage: an image on a post, a carousel\'s cover or slide, a video scene — reviewed again, the video\'s cut stale; no such place → null; the state it was given is not touched', async () => {
+  const { placeImage } = await import('../../supabase/functions/_shared/marketing.js');
+  const state = { w: { idea: 'x' }, pieces: [{ id: 'P1', kind: 'بوست', img: 'c/old.png', gen: 1, approved: true }, { id: 'C1', kind: 'كاروسيل', approved: true, slides: [{ n: 1, approved: true }, { n: 2 }] },
+    { id: 'V1', kind: 'فيديو', assembled: true, video: 'c/v.mp4', approved: true, scenes: [{ n: 1 }] }] };
+  const keep = JSON.stringify(state);
+  const a = placeImage(state, 'P1', null, 'c/new.png');
+  assert.deepEqual(a.pieces[0], { id: 'P1', kind: 'بوست', img: 'c/new.png', gen: 2, approved: false, v: 2 });
+  assert.equal(a.w, state.w); assert.equal(a.pieces[1], state.pieces[1], 'the other pieces as they were');
+  const b = placeImage(state, 'C1', -1, 'c/cv.png');
+  assert.deepEqual([b.pieces[1].img, b.pieces[1].gen, b.pieces[1].approved, b.pieces[1].slides[0].approved], ['c/cv.png', 1, false, true]);
+  const c = placeImage(state, 'C1', 1, 'c/s2.png');
+  assert.deepEqual([c.pieces[1].slides[1], c.pieces[1].approved, c.pieces[1].img], [{ n: 2, img: 'c/s2.png', gen: 1, approved: false }, false, undefined]);
+  const d = placeImage(state, 'V1', 0, 'c/k.png');
+  assert.deepEqual([d.pieces[2].scenes[0].img, d.pieces[2].assembled, d.pieces[2].video, d.pieces[2].approved], ['c/k.png', false, null, false]);
+  for (const bad of [['V1', null], ['V1', 3], ['C1', 5], ['P1', 0], ['Z9', null]]) assert.equal(placeImage(state, bad[0], bad[1], 'c/x.png'), null, JSON.stringify(bad));
+  assert.equal(placeImage(state, 'P1', null, ''), null); assert.equal(placeImage(null, 'P1', null, 'c/x.png'), null);
+  assert.equal(JSON.stringify(state), keep);
+});

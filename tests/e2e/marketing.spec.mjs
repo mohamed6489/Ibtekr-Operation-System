@@ -381,3 +381,68 @@ test('the owner 12 Nov: «إنشاء» has the campaign card only; the campaign\
   await expect.poll(() => sc.evaluate((e) => e.getBoundingClientRect().width).catch(() => 0)).toBeGreaterThan(600); // redrawn as the studio loads
   expect(await sc.evaluate((e) => e.getBoundingClientRect().width)).toBeLessThanOrEqual(1040);
 });
+
+// comments decision 52 (the owner 15 Nov on the campaign — «عايز اضيف upload للصور عشان لو معايا صور و كمان عايز ابعت الصور لmagnific او ابعت
+// الprompt اللي يتعملي بيه صورة زي اللي كنت عامله في صفحة المنتجات … و كمان زرار استلم بيه الصور من magnific») and the campaign half of 49
+test('comment 52 — the build step: «ارفع صورة» puts a ready image on a piece (no credit); the Magnific bar sends every image of the campaign as a generator, links the Space, and «هات النتائج» places the newest result of each on its piece — once', async ({ page }) => {
+  const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  await openMarketing(page);
+  await pg(page).locator('[data-mk-start]').click();
+  await pg(page).locator('#cw-idea').fill('كولكشن الشتا — مخدات مشغولة يدويًا');
+  await pg(page).locator('[data-num="cw-n-post-"]').click(); // 2 → 1 post; the carousel stays (a cover + its slides)
+  await pg(page).locator('.cp-next').click();
+  await expect(pg(page).locator('.wstepper .stp-cur')).toContainText('البناء');
+  await expect.poll(() => mock.mkt.campaigns.length).toBe(2);
+  const made = mock.mkt.campaigns.find((c) => c.id !== C1); const saved = () => mock.mkt.campaigns.find((c) => c.id === made.id).state;
+  await expect(pg(page).locator('[data-cw-autofill]')).toHaveCount(0); // the texts are written
+  const slides = saved().pieces.find((p) => p.id === 'C1').slides.length; const total = 1 + 1 + slides;
+  const bar = pg(page).locator('[data-cw-magnific]');
+  await expect(bar).toHaveAttribute('data-cw-magnific', 'new');
+  await expect(bar.locator('[data-cw-mg-state]')).toContainText(total + ' صورة في الكامبين');
+  await expect(bar.locator('[data-cw-mg-fetch]')).toHaveCount(0); await expect(bar.locator('[data-cw-mg-open]')).toHaveCount(0);
+  // the account is not linked: the bar says so, and a send answers in words — nothing is sent
+  await expect(bar.locator('[data-cw-mg-unlinked]')).toBeVisible();
+  await bar.locator('[data-cw-mg-send]').click();
+  await expect(page.locator('.toast.show')).toContainText('حساب Magnific مش مربوط');
+  await expect(bar).toHaveAttribute('data-cw-magnific', 'new');
+  // linked: every image of the campaign goes as a generator; the Space's link and «هات النتائج» show
+  mock.magnific.linked = true;
+  await bar.locator('[data-cw-mg-send]').click();
+  await expect(bar).toHaveAttribute('data-cw-magnific', 'sent');
+  await expect(bar.locator('[data-cw-mg-state]')).toHaveAttribute('data-cw-mg-state', String(total));
+  await expect(bar.locator('[data-cw-mg-open]')).toHaveAttribute('href', /^https:\/\/www\.magnific\.com\/app\/spaces\//);
+  await expect(bar.locator('[data-cw-mg-unlinked]')).toHaveCount(0);
+  const sent = mock.mkt.calls.filter((c) => c.action === 'bridge_campaign').pop(); expect(sent.targets).toBe(total);
+  await expect.poll(() => (saved().mg || {}).n).toBe(total); // the link is kept with the campaign
+  // a ready image of mine on the post: no cost popup, no credit — the piece counts as made
+  await pg(page).locator('#cw-up-P1').setInputFiles({ name: 'my-post.png', mimeType: 'image/png', buffer: PNG });
+  await expect(page.locator('.toast.show')).toContainText('اترفعت الصورة');
+  await expect(pg(page).locator('[data-cw-built]')).toHaveAttribute('data-cw-built', '1/2');
+  await expect.poll(() => saved().pieces.find((p) => p.id === 'P1').img || '').toMatch(new RegExp('^' + made.id + '/up-'));
+  await expect(pg(page).locator('#cw-P1 .cw-pv img')).toHaveCount(1);
+  await expect(pg(page).locator('label[for="cw-up-P1"]')).toContainText('ارفع صورة تانية');
+  // and on a carousel's slide
+  await pg(page).locator('#cw-up-C1-0').setInputFiles({ name: 'slide.png', mimeType: 'image/png', buffer: PNG });
+  await expect.poll(() => saved().pieces.find((p) => p.id === 'C1').slides[0].img || '').toMatch(new RegExp('^' + made.id + '/up-'));
+  // a file that is no image is refused in words
+  await pg(page).locator('#cw-up-C1-cv').setInputFiles({ name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('x') });
+  await expect.poll(() => saved().pieces.find((p) => p.id === 'C1').img || null).toBe(null);
+  // «هات النتائج»: the newest result of each generator on its piece (the upload is replaced by the newer result), all made
+  await bar.locator('[data-cw-mg-fetch]').click();
+  await expect(page.locator('.toast.show')).toContainText('اتحطت ' + total + ' صورة من Magnific');
+  await expect(pg(page).locator('[data-cw-built]')).toHaveAttribute('data-cw-built', '2/2');
+  const c1 = () => saved().pieces.find((p) => p.id === 'C1');
+  await expect.poll(() => saved().pieces.find((p) => p.id === 'P1').img || '').toMatch(new RegExp('^' + made.id + '/gen-P1-mgmk'));
+  expect(c1().img).toMatch(/\/gen-C1-cv-mgmk/); expect(c1().slides.every((x, k) => new RegExp('/gen-C1-s' + (k + 1) + '-mgmk').test(x.img))).toBe(true);
+  // again: nothing new — the pieces stay
+  const before = saved().pieces.find((p) => p.id === 'P1').img;
+  await bar.locator('[data-cw-mg-fetch]').click();
+  await expect(page.locator('.toast.show')).toContainText('مفيش نتايج جديدة على Magnific');
+  expect(saved().pieces.find((p) => p.id === 'P1').img).toBe(before);
+  // nothing of it touched the images' credits or asked for a paid generation
+  expect(mock.mkt.calls.filter((c) => c.action === 'campaign').length).toBe(0);
+  await expect(pg(page).locator('.cw-wallet')).toHaveAttribute('data-cw-balance', '5000');
+  // the review opens with these images
+  await pg(page).locator('.cp-next').click();
+  await expect(pg(page).locator('.wstepper .stp-cur')).toContainText('المراجعة');
+});

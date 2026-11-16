@@ -10,6 +10,8 @@ const page = {
   unroute: async () => {},
 };
 D.mock = await installSupabaseMock(page, {});
+// the stand-in's Magnific account reads as linked here, so the studio's and the campaign's Magnific bars can be tried (demo data only)
+if (D.mock.magnific) { D.mock.magnific.linked = true; D.mock.magnific.account = 'demo'; }
 D.open();
 
 const admin = USERS.find((u) => u.role_id === 'admin' && u.status === 'active');

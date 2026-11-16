@@ -205,6 +205,45 @@ export function flowNodes({ title, category, photos, prompts, sizes, model = FLO
   });
   return { nodes, connections, sizeGens };
 }
+/**
+ * Comments decision 52 (the owner 15 Nov — the campaign's pieces on Magnific): the nodes of one campaign's flow — a panel, and for
+ * each image the campaign needs: its reference photos as creation nodes (MAX 4, already uploaded to the project), one image
+ * generator with that image's own prompt and ratio, and its output list. targets: [{ key, name, prompt, aspect, refs: [creation
+ * ids] }] → { nodes, connections, gens: [{ key, gen, out }] } — `refs` here are the aliases of spaces_create_node (letters, digits,
+ * _ and -); a target without a prompt is left out.
+ */
+export function campaignFlowNodes({ title, targets, model = FLOW_MODEL }) {
+  const nodes = [{ nodeType: 'panel', ref: 'panel', name: title, data: { name: title } }];
+  const connections = []; const gens = []; let above = null;
+  (Array.isArray(targets) ? targets : []).forEach((t, i) => {
+    const prompt = text(t && t.prompt, 6000); if (!prompt) return;
+    const name = text(t.name, 120) || 'صورة ' + (i + 1);
+    const refs = (Array.isArray(t.refs) ? t.refs : []).filter((id) => typeof id === 'string' && REF.test(id)).slice(0, 4);
+    const gen = 'g' + i; const out = 'o' + i; let prev = null; let first = null;
+    const place = (ref) => { const layout = { groupId: 'panel' }; if (prev) Object.assign(layout, { relativeToNodeId: prev, direction: 'right' }); else if (above) Object.assign(layout, { relativeToNodeId: above, direction: 'below' }); if (!first) first = ref; prev = ref; return layout; };
+    refs.forEach((id, j) => { const ref = 'r' + i + '_' + j; nodes.push({ nodeType: 'creation', ref, name: name + ' — مرجع ' + (j + 1), data: { creationIdentifier: id }, layout: place(ref) }); connections.push({ from: ref, fromPort: 'output', to: gen, toPort: 'reference' }); });
+    nodes.push({ nodeType: 'image-generator', ref: gen, name, data: { prompt, mode: model, aspectRatio: /^\d{1,2}:\d{1,2}$/.test(String(t.aspect || '')) ? t.aspect : 'auto', resolution: '1k', numberOfGenerations: 1 }, layout: place(gen) });
+    nodes.push({ nodeType: 'list', ref: out, name: 'مخرجات — ' + name, data: { itemType: 'image', mode: 'accumulate' }, layout: place(out) });
+    connections.push({ from: gen, fromPort: 'output', to: out, toPort: 'images' });
+    gens.push({ key: String(t.key), gen, out }); above = first;
+  });
+  return { nodes, connections, gens };
+}
+/**
+ * spaces_create_node takes 20 nodes a call (about 10 is its sweet spot): the plan's nodes in calls of `size`, in order — a later
+ * call names a node of an earlier one by its real id, so `idOf` (alias → id, filled after each call) is applied to its layout.
+ */
+export function nodeChunks(nodes, size = 12) {
+  const out = []; const list = Array.isArray(nodes) ? nodes : [];
+  for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));
+  return out;
+}
+/** A chunk ready to send: the aliases of nodes made by earlier calls replaced by their ids (the chunk's own aliases stay). */
+export function resolveChunk(chunk, idOf) {
+  const own = new Set(chunk.map((n) => n.ref));
+  const fix = (v) => (typeof v === 'string' && !own.has(v) && idOf && idOf[v] ? idOf[v] : v);
+  return chunk.map((n) => (n.layout ? { ...n, layout: { ...n.layout, ...(n.layout.groupId != null ? { groupId: fix(n.layout.groupId) } : {}), ...(n.layout.relativeToNodeId != null ? { relativeToNodeId: fix(n.layout.relativeToNodeId) } : {}) } } : n));
+}
 /** An output list's items (spaces_get_nodes nodeData) → the creation identifiers in order. */
 export function listIdsOf(nodeData, nodeId) {
   const items = nodeData && nodeData[nodeId] ? nodeData[nodeId].items : null;

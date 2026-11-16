@@ -108,6 +108,59 @@ export function campaignRefs(t, campaignId) {
 }
 
 /**
+ * Comments decision 52 (docs/superpowers/plans/2026-11-15-comments.md — the owner 15 Nov on the campaign: «عايز ابعت الصور لmagnific او
+ * ابعت الprompt اللي يتعملي بيه صورة … و كمان زرار استلم بيه الصور من magnific»): the images a campaign needs, in the order the page
+ * shows them — a post / an extra file is one (slide null), a carousel its cover (-1) then its slides, a video the key frame of each
+ * scene it has. MAX_FLOW_TARGETS at most (one generator each on the Magnific flow).
+ */
+export const MAX_FLOW_TARGETS = 30;
+/** One image's name on the flow and in the answers: «P1», «C1:-1», «C1:0», «V1:2». */
+export const flowKey = (piece, slide) => String(piece) + (slide == null ? '' : ':' + slide);
+export function campaignTargets(state) {
+  const s = isObj(state) ? state : {}; const out = [];
+  for (const p of Array.isArray(s.pieces) ? s.pieces : []) {
+    if (!isObj(p) || typeof p.id !== 'string' || !PIECE.test(p.id)) continue;
+    const kind = typeof p.kind === 'string' ? p.kind : '';
+    if (kind === 'كاروسيل') { out.push({ piece: p.id, slide: -1 }); (Array.isArray(p.slides) ? p.slides : []).slice(0, MAX_SLIDES).forEach((x, k) => { if (isObj(x)) out.push({ piece: p.id, slide: k }); }); }
+    else if (kind === VIDEO_KIND) (Array.isArray(p.scenes) ? p.scenes : []).slice(0, MAX_SLIDES).forEach((x, k) => { if (isObj(x)) out.push({ piece: p.id, slide: k }); });
+    else if (IMAGE_KINDS.includes(kind)) out.push({ piece: p.id, slide: null });
+  }
+  return out.slice(0, MAX_FLOW_TARGETS);
+}
+/**
+ * An image put on its place in a campaign's state, as the page's own setImg does (a post / an extra file, a carousel's cover -1 or
+ * slide, a video scene's key frame): the place is to be reviewed again, a new key frame makes the video's clips and cut stale.
+ * → the new state (the pieces copied) or null when there is no such place. The server uses it for Magnific's results, so they
+ * stand even if the member left the campaign before the answer came.
+ */
+export function placeImage(state, piece, slide, path) {
+  const s = isObj(state) ? state : null; if (!s || !Array.isArray(s.pieces) || typeof path !== 'string' || !path) return null;
+  const i = s.pieces.findIndex((x) => isObj(x) && x.id === piece); if (i < 0) return null;
+  const p = { ...s.pieces[i] }; const vid = p.kind === VIDEO_KIND; let t = p;
+  if (slide != null && slide >= 0) {
+    const key = vid ? 'scenes' : p.kind === 'كاروسيل' ? 'slides' : null;
+    if (!key || !Array.isArray(p[key]) || !isObj(p[key][slide])) return null;
+    p[key] = p[key].slice(); t = { ...p[key][slide] }; p[key][slide] = t;
+  } else if (vid || !(IMAGE_KINDS.includes(p.kind))) return null;
+  t.img = path; t.gen = (Number(t.gen) || 0) + 1; t.approved = false; if (t.gen > 1) t.v = t.gen;
+  if (t !== p) p.approved = false;
+  if (vid) { p.assembled = false; p.video = null; }
+  const pieces = s.pieces.slice(); pieces[i] = p;
+  return { ...s, pieces };
+}
+// the ratios a flow generator takes; a piece's size snaps to the nearest (1080x1350 → 4:5, 1080x1920 → 9:16, 1600x900 → 16:9)
+const FLOW_RATIOS = [['1:1', 1], ['4:5', 4 / 5], ['3:4', 3 / 4], ['2:3', 2 / 3], ['9:16', 9 / 16], ['5:4', 5 / 4], ['4:3', 4 / 3], ['3:2', 3 / 2], ['16:9', 16 / 9], ['21:9', 21 / 9]];
+/** A size ({ w, h } or a size id) → the generator's aspect ratio; no usable size → the feed's 4:5. */
+export function aspectOf(size) {
+  const z = typeof size === 'string' ? sizeOf(size) : size;
+  const w = isObj(z) ? Number(z.w) : NaN; const hh = isObj(z) ? Number(z.h) : NaN;
+  if (!(w > 0) || !(hh > 0)) return '4:5';
+  const r = w / hh; let best = FLOW_RATIOS[0];
+  for (const x of FLOW_RATIOS) if (Math.abs(Math.log(Number(x[1]) / r)) < Math.abs(Math.log(Number(best[1]) / r))) best = x;
+  return String(best[0]);
+}
+
+/**
  * Owner batch 2 decision 14 (docs/superpowers/plans/2026-11-14-owner-batch-2.md): the instruction templates the member picked for a
  * piece's media (state.w.media.<key>.tpl — ids) → their text, read on the server from the admin's «ai_rules» sections («الصور» for the
  * images, «الفيديو» for a video) and never from the page. «البوست» is in the house style already; an unknown id is skipped. ≤ 1200.

@@ -76,8 +76,8 @@ import { secretOf } from '../_shared/secrets.js';
 import { aiSettings } from '../_shared/ai-content.js';
 import { vaultEnv } from '../_shared/secrets.js';
 import { BridgeError, magnificMcp, randomText, type Bridge, type Tokens } from './providers/magnific-mcp.ts';
-import { REF, creationsOf, familyOf, flowNodes, importShape, lastPageOf, lineageIds, listIdsOf, matchResults, nodeDataOf, nodesOf, templatePrompts, uploadedId, urlsById } from '../_shared/magnific-bridge.js';
-import { DEFAULT_SIZE, agentImagePath, campaignGenPath, campaignPathOk, campaignPrompt, campaignRefs, campaignTarget, parseAgentImage, templateNotes, parseCampaign, parseCampaignEdit, pinsPrompt } from '../_shared/marketing.js';
+import { REF, campaignFlowNodes, creationsOf, familyOf, flowNodes, importShape, lastPageOf, lineageIds, listIdsOf, matchResults, nodeChunks, nodeDataOf, nodesOf, resolveChunk, templatePrompts, uploadedId, urlsById } from '../_shared/magnific-bridge.js';
+import { DEFAULT_SIZE, agentImagePath, aspectOf, campaignGenPath, campaignPathOk, campaignPrompt, campaignRefs, campaignTarget, campaignTargets, flowKey, parseAgentImage, placeImage, templateNotes, parseCampaign, parseCampaignEdit, pinsPrompt } from '../_shared/marketing.js';
 import { REF_HOPS, REF_PAGE_MAX, imageKind, pageImage, privateIp, refName, refUrl } from '../_shared/ref-link.js';
 import { MAX_OPEN_JOBS, MAX_VIDEO_BYTES, MEDIA_EXT, chainedArgs, clipArgs, jobView, mixPlan, modelOf as videoModelOf, musicArgs, nextMix, parseVideo, queuedIds, ttsArgs, videoPath, videoPathOk, waitOf } from '../_shared/mkt-video.js';
 
@@ -97,7 +97,7 @@ export type Deps = {
   veo?: { start: (req: { model: string; prompt: string; image: { bytes: Uint8Array; mime: string } | null; aspect: string; seconds: number }) => Promise<string>; poll: (op: string) => Promise<{ done: boolean; uri?: string; error?: string }>; download: (uri: string) => Promise<{ bytes: Uint8Array; mime: string }> }; // phase 11: Veo direct
 };
 
-const ACTIONS = ['generate', 'edit', 'create', 'probe', 'webp', 'import', 'share', 'bridge_status', 'bridge_link', 'bridge_callback', 'bridge_unlink', 'bridge_upload', 'bridge_fetch', 'bridge_prompts_sync', 'bridge_flow', 'campaign', 'campaign_edit', 'agent_image', 'ref_link',
+const ACTIONS = ['generate', 'edit', 'create', 'probe', 'webp', 'import', 'share', 'bridge_status', 'bridge_link', 'bridge_callback', 'bridge_unlink', 'bridge_upload', 'bridge_fetch', 'bridge_prompts_sync', 'bridge_flow', 'bridge_campaign', 'bridge_campaign_fetch', 'campaign', 'campaign_edit', 'agent_image', 'ref_link',
   'video_clip', 'video_voice', 'video_music', 'video_upload', 'video_assemble', 'video_poll']; // 9.5.5 (decisions 57–64)
 const SHARE_SECONDS = 7 * 24 * 3600; // a shared photo's link lives a week (the bridge uploads it to the site within that)
 const MAX_WEBP_B64 = 14_000_000; // ≈ 10 MB of WebP
@@ -858,7 +858,7 @@ const bridgeFail = (e: unknown) => {
 };
 
 async function bridgeStatus(deps: Deps, who: Who) {
-  if (!who.add && !who.edit) return json(401, { error: 'unauthorized' });
+  if (!who.add && !who.edit && !who.mkt) return json(401, { error: 'unauthorized' }); // the campaign's Magnific bar asks too (comments decision 52)
   const tokens = await tokensOf(deps);
   const out: Json = { result: 'ok', linked: !!tokens, project: projectRef(deps.env) };
   if (who.admin) { out.account = tokens?.account ?? null; out.configured = !!(await clientOf(deps)); out.redirect = redirectUri(deps.env); }
@@ -955,6 +955,45 @@ async function saveMagnificSettings(deps: Deps, patch: Json) {
   const { error } = await deps.db.from('settings').upsert({ section: 'magnific', data: { ...cur, ...patch } }, { onConflict: 'section' });
   if (error) throw new BridgeError('mcp_error', null, 'settings');
 }
+// spaces_create_node / spaces_add_connection take 20 items a call: a plan goes up in calls of 12, a later call naming the nodes of
+// an earlier one by their ids → alias → node id of every node (a node the server did not make = mcp_error, nothing is wired)
+type PlanNode = { ref: string; [k: string]: unknown };
+type PlanLink = { from: string; fromPort: string; to: string; toPort: string };
+async function createNodes(deps: Deps, token: string, spaceId: string, pageId: string, nodes: PlanNode[]): Promise<Record<string, string>> {
+  const bridge = deps.bridge!; const idOf: Record<string, string> = {};
+  for (const chunk of nodeChunks(nodes) as PlanNode[][]) {
+    const created = await bridge.callTool(token, 'spaces_create_node', { spaceId, pageId, nodes: resolveChunk(chunk, idOf) }) as Json;
+    const results: Json[] = Array.isArray(created?.results) ? created.results : [];
+    for (const r of results) if (isObj(r) && r.ok !== false && typeof r.ref === 'string' && typeof r.nodeId === 'string') idOf[r.ref] = r.nodeId;
+    const missing = chunk.map((n) => n.ref).filter((ref) => !idOf[ref]);
+    if (missing.length) throw new BridgeError('mcp_error', null, 'nodes not created: ' + missing.join(','));
+  }
+  return idOf;
+}
+async function connectNodes(deps: Deps, token: string, spaceId: string, pageId: string, links: PlanLink[], idOf: Record<string, string>) {
+  const all = links.map((c) => ({ sourceElementId: idOf[c.from], sourcePort: c.fromPort, targetElementId: idOf[c.to], targetPort: c.toPort, dataType: 'image', pageId }));
+  for (const chunk of nodeChunks(all)) await deps.bridge!.callTool(token, 'spaces_add_connection', { spaceId, connections: chunk });
+}
+// the one Space of the system on the linked account (made on the first flow, kept in settings «magnific»)
+async function ensureSpace(deps: Deps, token: string, cfg: Json): Promise<{ spaceId: string; spaceUrl: string | null }> {
+  const spaceId = typeof cfg.space_id === 'string' && /^[0-9a-f-]{36}$/i.test(cfg.space_id) ? cfg.space_id : null;
+  const spaceUrl = typeof cfg.space_url === 'string' && /^https:\/\//.test(cfg.space_url) ? cfg.space_url : null;
+  if (spaceId) return { spaceId, spaceUrl };
+  const made = await deps.bridge!.callTool(token, 'spaces_create', { name: STUDIO_SPACE_NAME, description: 'فلو لكل دفعة من استوديو المنتجات — بيتعمل من نظام ابتكر', projectReference: projectRef(deps.env) }) as Json;
+  const sp = isObj(made?.space) ? made.space : made;
+  const id = typeof sp?.id === 'string' && /^[0-9a-f-]{36}$/i.test(sp.id) ? sp.id : null;
+  const url = typeof sp?.webUrl === 'string' && /^https:\/\//.test(sp.webUrl) ? sp.webUrl.split('?')[0] : null;
+  if (!id) throw new BridgeError('mcp_error', null, 'no space id');
+  await saveMagnificSettings(deps, { space_id: id, space_url: url, pages: {} });
+  return { spaceId: id, spaceUrl: url };
+}
+async function makePage(deps: Deps, token: string, spaceId: string, name: string): Promise<string> {
+  const made = await deps.bridge!.callTool(token, 'spaces_create_page', { spaceId, name }) as Json;
+  const pid = made?.pageId ?? made?.page?.id ?? made?.id;
+  const pageId = typeof pid === 'string' && pid ? pid : typeof pid === 'number' ? String(pid) : null;
+  if (!pageId) throw new BridgeError('mcp_error', null, 'no page id');
+  return pageId;
+}
 // the admin: the owner's template Space read page by page (spaces_state is one answer a page), its generators' prompts fetched in
 // batches of 50 (spaces_get_nodes) → shot_prompts upserted (category + shot) → { categories, rows }
 async function bridgePromptsSync(deps: Deps, who: Who, args: Json) {
@@ -1006,23 +1045,11 @@ async function bridgeFlow(deps: Deps, who: Who, args: Json) {
   try { token = await accessToken(deps); } catch (e) { return bridgeFail(e); }
   try {
     const cfg = await magnificSettings(deps);
-    let spaceId = typeof cfg.space_id === 'string' && /^[0-9a-f-]{36}$/i.test(cfg.space_id) ? cfg.space_id : null;
-    let spaceUrl = typeof cfg.space_url === 'string' && /^https:\/\//.test(cfg.space_url) ? cfg.space_url : null;
-    if (!spaceId) {
-      const made = await bridge.callTool(token, 'spaces_create', { name: STUDIO_SPACE_NAME, description: 'فلو لكل دفعة من استوديو المنتجات — بيتعمل من نظام ابتكر', projectReference: projectRef(deps.env) }) as Json;
-      const sp = isObj(made?.space) ? made.space : made;
-      spaceId = typeof sp?.id === 'string' && /^[0-9a-f-]{36}$/i.test(sp.id) ? sp.id : null;
-      spaceUrl = typeof sp?.webUrl === 'string' && /^https:\/\//.test(sp.webUrl) ? sp.webUrl.split('?')[0] : null;
-      if (!spaceId) throw new BridgeError('mcp_error', null, 'no space id');
-      await saveMagnificSettings(deps, { space_id: spaceId, space_url: spaceUrl, pages: {} });
-    }
+    const { spaceId, spaceUrl } = await ensureSpace(deps, token, cfg);
     const pages: Json = isObj(cfg.pages) ? { ...cfg.pages } : {};
     let pageId = typeof pages[category] === 'string' ? pages[category] : null;
     if (!pageId) {
-      const made = await bridge.callTool(token, 'spaces_create_page', { spaceId, name: category }) as Json;
-      const pid = made?.pageId ?? made?.page?.id ?? made?.id;
-      pageId = typeof pid === 'string' && pid ? pid : typeof pid === 'number' ? String(pid) : null;
-      if (!pageId) throw new BridgeError('mcp_error', null, 'no page id');
+      pageId = await makePage(deps, token, spaceId, category);
       pages[category] = pageId;
       await saveMagnificSettings(deps, { pages });
     }
@@ -1030,13 +1057,9 @@ async function bridgeFlow(deps: Deps, who: Who, args: Json) {
     // decision 15: the size drawing a product (its own numbers) — the item's sizes as the studio keeps them (strings)
     const sizes = order.map((i) => (Array.isArray(items[i]?.sizes) ? items[i].sizes.filter((s: unknown) => typeof s === 'string') : []));
     const plan = flowNodes({ title, category, photos: order.map((i) => byIndex.get(i) as string), prompts: Array.isArray(promptRows) ? promptRows : [], sizes });
-    const created = await bridge.callTool(token, 'spaces_create_node', { spaceId, pageId, nodes: plan.nodes }) as Json;
-    const results: Json[] = Array.isArray(created?.results) ? created.results : [];
-    const idOf: Record<string, string> = {};
-    for (const r of results) if (isObj(r) && r.ok !== false && typeof r.ref === 'string' && typeof r.nodeId === 'string') idOf[r.ref] = r.nodeId;
-    const missing = plan.nodes.map((n) => n.ref).filter((ref) => !idOf[ref]);
-    if (missing.length) throw new BridgeError('mcp_error', null, 'nodes not created: ' + missing.join(','));
-    await bridge.callTool(token, 'spaces_add_connection', { spaceId, connections: plan.connections.map((c) => ({ sourceElementId: idOf[c.from], sourcePort: c.fromPort, targetElementId: idOf[c.to], targetPort: c.toPort, dataType: 'image', pageId })) });
+    // a batch of many sized products is more than one call's 20 nodes: the plan goes up in chunks (createNodes / connectNodes)
+    const idOf = await createNodes(deps, token, spaceId, pageId, plan.nodes as PlanNode[]);
+    await connectNodes(deps, token, spaceId, pageId, plan.connections as PlanLink[], idOf);
     // the three shots read the list (shot s, item k → product order[k]); a size generator carries its product (index) — its output goes to slot 3
     const gens: Json[] = [1, 2, 3].map((s) => ({ shot: s, id: idOf['gen' + s], out: idOf['out' + s] }));
     for (const g of plan.sizeGens) gens.push({ shot: 4, index: order[g.k], id: idOf[g.gen], out: idOf[g.out] });
@@ -1143,6 +1166,158 @@ async function bridgeFetch(deps: Deps, who: Who, args: Json) {
   } catch (e) { return bridgeFail(e); }
 }
 
+// ---------------------------------------------------------------- the campaign's images on Magnific (comments decision 52)
+
+// The owner 15 Nov on the campaign: «عايز ابعت الصور لmagnific او ابعت الprompt اللي يتعملي بيه صورة زي اللي كنت عامله في صفحة المنتجات …
+// و كمان زرار استلم بيه الصور من magnific». One flow a campaign on the system's Space (the page «كامبينات التسويق»): for each image the
+// campaign needs (a post, an extra file, a carousel's cover and slides, a video scene's key frame) its reference photos as
+// creations, one generator with the very prompt the credits path would send (campaignPrompt + the house style) and its output
+// list. The record the fetch trusts lives in settings «magnific».campaigns (the members cannot write it); the page only gets the
+// Space's link and the counts. Generating there is the account's own (Unlimited) — nothing of the images' monthly credits.
+const MKT_PAGE_NAME = 'كامبينات التسويق';
+const MAX_FLOW_UPLOADS = 24; // new reference photos one send puts on the project (the rest of the pieces go without them)
+const MAX_FLOW_SEEN = 600;
+const NODE_ID = /^[0-9a-f-]{36}$/i;
+const campaignIdOf = (args: Json) => (typeof args.campaign_id === 'string' && UUID_ID.test(args.campaign_id) ? args.campaign_id.toLowerCase() : null);
+
+async function bridgeCampaign(deps: Deps, who: Who, args: Json) {
+  if (!who.mkt) return json(401, { error: 'unauthorized' });
+  const bridge = deps.bridge; if (!bridge) return json(503, { error: 'not_configured', configured: false });
+  const cid = campaignIdOf(args); if (!cid) return json(400, { error: 'bad_request', field: 'campaign_id' });
+  const camp = await readCampaign(deps, cid); if (!camp) return json(404, { error: 'not_found' });
+  const wanted = campaignTargets(camp.state);
+  if (!wanted.length) return json(409, { error: 'nothing' });
+  let token: string;
+  try { token = await accessToken(deps); } catch (e) { return bridgeFail(e); }
+  try {
+    const cfg = await magnificSettings(deps);
+    const hadSpace = typeof cfg.space_id === 'string' && NODE_ID.test(cfg.space_id);
+    const past: Json = isObj(cfg.campaigns) && isObj(cfg.campaigns[cid]) ? cfg.campaigns[cid] : {};
+    // a reference photo already on the project (an earlier send of this campaign) is not uploaded again
+    const sent: Record<string, string> = {};
+    if (isObj(past.sent)) for (const [k, v] of Object.entries(past.sent)) if (typeof v === 'string' && REF.test(v)) sent[k] = v;
+    const rules = (await settingsOf(deps)).rules;
+    const style = styleOf(rules, 'post');
+    let uploads = 0; const missed = new Set<string>();
+    const refId = async (key: string, load: () => Promise<Ref | null>): Promise<string | null> => {
+      if (sent[key]) return sent[key];
+      if (missed.has(key) || uploads >= MAX_FLOW_UPLOADS) return null;
+      const ref = await load(); if (!ref) { missed.add(key); return null; }
+      const name = 'campaign-ref-' + (Object.keys(sent).length + 1) + '.' + extOf(ref.mime);
+      let id: string | null = null;
+      // by its link first (a signed link of the bucket, the site's own photo); the bytes when the project could not read the link
+      if (ref.url) { try { id = uploadedId(await bridge.callTool(token, 'creations_upload_image', { url: ref.url, fileName: name, folderReference: projectRef(deps.env) })); } catch (e) { if (!(e instanceof BridgeError) || e.kind !== 'mcp_error') throw e; } }
+      if (!id) id = await bridgeUploadBytes(deps, token, ref.bytes, ref.mime, name);
+      if (!REF.test(id)) { missed.add(key); return null; }
+      sent[key] = id; uploads += 1; return id;
+    };
+    const tplRows = new Map<string, Json | null>();
+    const tplOf = async (id: string) => {
+      if (!tplRows.has(id)) { const { data: tp } = await deps.db.from('mkt_templates').select('id, kind, image, descr, deleted_at').eq('id', id).maybeSingle(); tplRows.set(id, isObj(tp) && !tp.deleted_at ? tp : null); }
+      return tplRows.get(id) ?? null;
+    };
+    const targets: { key: string; name: string; prompt: string; aspect: string; refs: string[] }[] = [];
+    for (const w of wanted) {
+      const t = campaignTarget(camp.state, w.piece, w.slide) as Json | null; if (!t) continue;
+      const r = campaignRefs(t, cid); const refs: string[] = []; const templates: Json[] = []; let useCount = 0; let styleCount = 0;
+      for (const x of r.use as Json[]) {
+        const id = x.path ? await refId('f:' + x.path, () => download(deps.db, MKT_BUCKET, x.path)) : x.product ? await refId('p:' + x.product, () => productPhoto(deps, x.product)) : null;
+        if (id && refs.length < MAX_REFS) { refs.push(id); useCount += 1; }
+      }
+      for (const x of r.style as Json[]) {
+        let id: string | null = null;
+        if (x.path) id = await refId('f:' + x.path, () => download(deps.db, MKT_BUCKET, x.path));
+        else if (x.tpl) {
+          const tp = await tplOf(x.tpl);
+          if (tp) {
+            if (typeof tp.descr === 'string' && tp.descr.trim()) templates.push({ kind: tp.kind, descr: tp.descr });
+            if (typeof tp.image === 'string' && /^templates\/[A-Za-z0-9._-]{1,120}$/.test(tp.image)) id = await refId('f:' + tp.image, () => download(deps.db, MKT_BUCKET, tp.image));
+          }
+        }
+        if (id && refs.length < MAX_REFS) { refs.push(id); styleCount += 1; }
+      }
+      const tplNotes = templateNotes(rules, t.media, t.kind === 'فيديو');
+      const prompt = campaignPrompt(t, { useCount, styleCount, templates, tplNotes }) + style;
+      // a video piece keeps its ratio itself («9:16»); an image piece a size id
+      const aspect = typeof t.size === 'string' && /^\d{1,2}:\d{1,2}$/.test(t.size) ? t.size : aspectOf(sizeOf(t.size ?? '') ?? sizeOf(DEFAULT_SIZE));
+      targets.push({ key: flowKey(w.piece, w.slide), name: String(t.label ?? ''), prompt, aspect, refs });
+    }
+    if (!targets.length) return json(409, { error: 'nothing' });
+    // the photos that went up are kept even if the flow's own calls fail below (the next send starts from them)
+    if (uploads) { const now = await magnificSettings(deps); await saveMagnificSettings(deps, { campaigns: { ...(isObj(now.campaigns) ? now.campaigns : {}), [cid]: { ...past, sent } } }); }
+    const { spaceId, spaceUrl } = await ensureSpace(deps, token, cfg);
+    let pageId = hadSpace && typeof cfg.mkt_page === 'string' && cfg.mkt_page ? cfg.mkt_page : null;
+    if (!pageId) { pageId = await makePage(deps, token, spaceId, MKT_PAGE_NAME); await saveMagnificSettings(deps, { mkt_page: pageId }); }
+    const title = (line(String(camp.name ?? ''), 80) || 'كامبين') + ' · ' + deps.now().slice(0, 10);
+    const plan = campaignFlowNodes({ title, targets });
+    const idOf = await createNodes(deps, token, spaceId, pageId, plan.nodes as PlanNode[]);
+    await connectNodes(deps, token, spaceId, pageId, plan.connections as PlanLink[], idOf);
+    const gens = plan.gens.map((g: Json) => ({ key: g.key, id: idOf[g.gen], out: idOf[g.out] }));
+    const record = { space_id: spaceId, url: spaceUrl, page_id: pageId, panel: idOf.panel, gens, sent, seen: [], made_at: deps.now(), by: who.uid };
+    const latest = await magnificSettings(deps);
+    await saveMagnificSettings(deps, { campaigns: { ...(isObj(latest.campaigns) ? latest.campaigns : {}), [cid]: record } });
+    return json(200, { result: 'ok', campaign_id: cid, url: spaceUrl, space_id: spaceId, page_id: pageId, targets: gens.length, refs: new Set(targets.flatMap((x) => x.refs)).size, uploaded: uploads, left: Math.max(0, campaignTargetsLeft(camp.state, wanted.length)) });
+  } catch (e) { return bridgeFail(e); }
+}
+// how many images of the campaign did not fit the flow (over MAX_FLOW_TARGETS) — the page says so
+function campaignTargetsLeft(state: Json, taken: number): number {
+  let n = 0;
+  for (const p of Array.isArray(state?.pieces) ? state.pieces : []) {
+    if (!isObj(p)) continue;
+    n += p.kind === 'كاروسيل' ? 1 + (Array.isArray(p.slides) ? p.slides.length : 0) : p.kind === 'فيديو' ? (Array.isArray(p.scenes) ? p.scenes.length : 0) : (p.kind === 'بوست' || p.kind === 'ملف إضافي') ? 1 : 0;
+  }
+  return n - taken;
+}
+// the flow's output lists read back: the newest result of each generator not taken before → the campaign's folder (an allowed
+// host only, no redirects, the size limit) → { placed: [{ piece, slide, path }] } for the page to put on its pieces
+async function bridgeCampaignFetch(deps: Deps, who: Who, args: Json) {
+  if (!who.mkt) return json(401, { error: 'unauthorized' });
+  const bridge = deps.bridge; if (!bridge) return json(503, { error: 'not_configured', configured: false });
+  const cid = campaignIdOf(args); if (!cid) return json(400, { error: 'bad_request', field: 'campaign_id' });
+  const camp = await readCampaign(deps, cid); if (!camp) return json(404, { error: 'not_found' });
+  const cfg = await magnificSettings(deps);
+  const rec: Json | null = isObj(cfg.campaigns) && isObj(cfg.campaigns[cid]) ? cfg.campaigns[cid] : null;
+  // the flow as the server recorded it, on the system's own Space
+  const flow = rec && typeof rec.space_id === 'string' && rec.space_id === cfg.space_id && Array.isArray(rec.gens) ? rec : null;
+  if (!flow) return json(409, { error: 'no_flow' });
+  const want = new Map<string, { piece: string; slide: number | null }>((campaignTargets(camp.state) as { piece: string; slide: number | null }[]).map((w) => [flowKey(w.piece, w.slide), w]));
+  const gens: Json[] = flow.gens.filter((g: unknown): g is Json => isObj(g) && typeof g.key === 'string' && typeof g.out === 'string' && NODE_ID.test(g.out) && want.has(g.key));
+  const empty = { result: 'ok', campaign_id: cid, found: 0, placed: [], failed: 0, offhost: 0 };
+  if (!gens.length) return json(200, empty);
+  let token: string;
+  try { token = await accessToken(deps); } catch (e) { return bridgeFail(e); }
+  try {
+    const nodeData = nodeDataOf(await bridge.callTool(token, 'spaces_get_nodes', { spaceId: flow.space_id, nodeIds: gens.map((g) => g.out) }));
+    const seen = new Set<string>(Array.isArray(flow.seen) ? flow.seen.filter((x: unknown): x is string => typeof x === 'string') : []);
+    // a generator run more than once: its newest result is the piece's image, the older new ones are passed over with it
+    const picks: { id: string; fresh: string[]; piece: string; slide: number | null }[] = [];
+    for (const g of gens) { const fresh = listIdsOf(nodeData, String(g.out)).filter((id: string) => !seen.has(id)); if (fresh.length) picks.push({ id: fresh[fresh.length - 1], fresh, ...want.get(g.key)! }); }
+    if (!picks.length) return json(200, empty);
+    const urls = urlsById(await bridge.callTool(token, 'creations_get', { identifiers: picks.map((p) => p.id) })) as Record<string, string>;
+    const hosts = importHosts(deps.env);
+    const onHost = (u: string | undefined) => { try { return !!u && hosts.has(new URL(u).hostname.toLowerCase()); } catch { return false; } };
+    const st = stamp(deps); const placed: { piece: string; slide: number | null; path: string }[] = []; let failed = 0; let offhost = 0;
+    for (const p of picks) {
+      if (!onHost(urls[p.id])) { offhost += 1; continue; } // a link off the allowed hosts is never fetched
+      const img = await importOne(deps, urls[p.id]);
+      const path = campaignGenPath(cid, p.piece, p.slide, 'mg' + st, img ? extOf(img.mime) : 'png', false);
+      const up = img && campaignPathOk(cid, path) ? await upload(deps.db, MKT_BUCKET, path, img) : null;
+      if (!up) { failed += 1; continue; }
+      placed.push({ piece: p.piece, slide: p.slide, path }); p.fresh.forEach((id) => seen.add(id));
+    }
+    if (placed.length) {
+      // the images onto their pieces in the saved campaign too (the page does the same on its own copy): a member who left the
+      // campaign before the answer finds them there — the results are marked taken below and would not come a second time
+      const fresh = await readCampaign(deps, cid);
+      if (fresh) { let state: Json = fresh.state; for (const x of placed) state = placeImage(state, x.piece, x.slide, x.path) ?? state; await deps.db.from('mkt_campaigns').update({ state }).eq('id', cid); }
+      await deps.db.from('ai_runs').insert({ created_by: who.uid, action: 'image', source: 'import', label: line('نتائج Magnific — ' + String(camp.name ?? ''), 200), model: null, status: 'ok', error: null, credits: 0, cost_usd: 0, output: { paths: placed.map((x) => x.path), bucket: MKT_BUCKET, campaign_id: cid, failed: failed + offhost } });
+      const latest = await magnificSettings(deps); const cur: Json = isObj(latest.campaigns) && isObj(latest.campaigns[cid]) ? latest.campaigns[cid] : flow;
+      await saveMagnificSettings(deps, { campaigns: { ...(isObj(latest.campaigns) ? latest.campaigns : {}), [cid]: { ...cur, seen: [...seen].slice(-MAX_FLOW_SEEN) } } });
+    }
+    return json(200, { result: 'ok', campaign_id: cid, found: picks.length, placed, failed, offhost });
+  } catch (e) { return bridgeFail(e); }
+}
+
 // ---------------------------------------------------------------- handler
 
 export async function handler(req: Request, deps: Deps): Promise<Response> {
@@ -1170,6 +1345,8 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'bridge_fetch') return await bridgeFetch(deps, who, args);
     if (action === 'bridge_prompts_sync') return await bridgePromptsSync(deps, who, args);
     if (action === 'bridge_flow') return await bridgeFlow(deps, who, args);
+    if (action === 'bridge_campaign') return await bridgeCampaign(deps, who, args);
+    if (action === 'bridge_campaign_fetch') return await bridgeCampaignFetch(deps, who, args);
     if (action === 'campaign') return await campaign(deps, who, args);
     if (action === 'campaign_edit') return await campaignEdit(deps, who, args);
     if (action === 'agent_image') return await agentImage(deps, who, args);

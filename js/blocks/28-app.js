@@ -1894,7 +1894,10 @@
   // «كشف حساب Dokan» and «نسخ CSV» left the popup (the statement stays in the row's ⋮). A Dokan call runs under the kit's busy pill
   // and its result stays in the box and as the page's note.
   const WD_SKIP = { push_disabled: 'الكتابة على Dokan مقفولة دلوقتي — الطلب ما اتوافقش عليه.', stale: 'الطلب اتغيّر على Dokan قبل الموافقة — حدّثنا حالته عندنا.', not_pending: 'الطلب مش مستني الموافقة — حدّثنا حالته عندنا.' };
-  const WC_SKIP = { pending_exists: 'فيه طلب سحب مستني الموافقة للمبتكر ده على Dokan بالفعل — راجعه ووافق عليه.', push_disabled: 'الكتابة على Dokan مقفولة دلوقتي — الطلب ما اتعملش.', no_balance: 'رصيد المبتكر على Dokan صفر — مفيش طلب يتعمل.', no_store: 'المبتكر ده مالوش متجر على Dokan.' };
+  const WC_SKIP = { pending_exists: 'فيه طلب سحب مستني الموافقة للمبتكر ده على Dokan بالفعل — راجعه ووافق عليه.', push_disabled: 'الكتابة على Dokan مقفولة دلوقتي — الطلب ما اتعملش.', no_balance: 'رصيد المبتكر على Dokan صفر — مفيش طلب يتعمل.', no_store: 'المبتكر ده مالوش متجر على Dokan.',
+    no_bank: 'المبتكر ده مالوش حساب بنكي متسجّل على Dokan، وDokan مابيعملش طلب سحب بالتحويل البنكي من غيره — ضيف حسابه البنكي من ملفه («الحساب البنكي») وبعدين جرّب تاني.' };
+  // the owner 16 Nov («شوف ال error ده»): Dokan's refusal in words, by the kind woo-sync read from it (never Dokan's own text)
+  const WC_REFUSED = { limit: 'Dokan رفض الطلب: المبلغ برّه حدود السحب المسموحة على Dokan (الحد الأدنى أو الأقصى) — راجعها من Dokan › Settings › Withdraw.', method: 'Dokan رفض الطلب: طريقة الدفع «التحويل البنكي» مش متفعّلة للمبتكر ده على Dokan — راجع حسابه البنكي على المتجر.', balance: 'Dokan رفض الطلب: الرصيد المتاح للسحب على Dokan أقل من المبلغ (فيه جزء لسه في فترة الانتظار) — جرّب بعدين.' };
   // the owner (11 Nov — «ال loading مش باين … خلي يبقي زي popup notification»): a Dokan call runs under the kit's busy pill (bottom
   // centre), which then shows the result for a moment; the result stays on the page as its note too
   const busyNote = (pill) => (n) => { setNote(n); if (pill) pill.done(n.text, n.kind); };
@@ -1915,13 +1918,13 @@
       return 'Dokan هيخصم ' + fmt(amount) + ' ج.م من رصيده' + (p.consumed ? '، والخصومات المفتوحة (' + fmt(p.consumed) + ' ج.م) بتتصفّى منه' : '') + '، واللي بيتحوّل للمبتكر ' + fmt(p.cash) + ' ج.م' + (p.carryOut > 0 ? ' وفاضل عليه ' + fmt(p.carryOut) + ' ج.م لحد التسوية الجاية' : '') + '.'; };
     const say = (pill, n) => { flow.res = n; busyNote(pill)(n); };
     function create(b) {
-      if (flow.busy) return; flow.busy = 'create'; flow.res = null; draw();
+      if (flow.busy) return; flow.busy = 'create'; flow.res = null; flow.fix = false; draw();
       const pill = K.busy ? K.busy('بنعمل طلب السحب على Dokan لـ ' + name + '…') : null;
       AC().createWithdraw(b.vendorId).then((r) => {
         flow.busy = '';
         if (r.ok && r.result === 'ok') { flow.made = { id: r.id, amount: r.amount }; flow.step = 'ask'; busyNote(pill)({ kind: 'success', text: 'اتعمل طلب سحب #' + r.id + ' لـ ' + name + ' بمبلغ ' + fmt(r.amount) + ' ج.م على Dokan — مستني موافقتك.' }); } // the box itself asks now
-        else if (r.ok && r.result === 'skipped') say(pill, { kind: 'warning', text: WC_SKIP[r.reason] || 'الطلب ما اتعملش.' });
-        else if (r.ok) say(pill, { kind: 'error', text: r.reason === 'no_store' ? WC_SKIP.no_store : 'Dokan رفض الطلب (' + r.reason + ') — راجع حدود السحب على Dokan.' });
+        else if (r.ok && r.result === 'skipped') { flow.fix = r.reason === 'no_bank'; say(pill, { kind: 'warning', text: WC_SKIP[r.reason] || 'الطلب ما اتعملش.' }); }
+        else if (r.ok) { flow.fix = r.hint === 'method'; say(pill, { kind: 'error', text: r.reason === 'no_store' ? WC_SKIP.no_store : WC_REFUSED[r.hint] || 'Dokan رفض الطلب (' + r.reason + ') — راجع حساب المبتكر البنكي وحدود السحب على Dokan.' }); }
         else say(pill, { kind: 'error', text: r.reason === 'forbidden' ? 'مش من صلاحياتك تعمل طلب سحب.' : r.reason === 'woo_down' ? 'Dokan مش بيرد دلوقتي — جرّب كمان شوية.' : 'مقدرناش نعمل الطلب على Dokan دلوقتي — جرّب تاني.' });
         render(); draw();
       });
@@ -1965,6 +1968,8 @@
           : dokan <= 0 ? 'مفيش رصيد على Dokan يتطلب دلوقتي — الخصومات المفتوحة بتفضل عليه لحد ما يبقى له رصيد.' : b.payable > 0 ? 'المبتكر ليه رصيد صافي ' + fmt(b.payable) + ' ج.م.' : 'مفيش رصيد مستحق للمبتكر.'));
       }
       if (flow.res) kids.push(h('p', { class: 'vb-req-res ' + flow.res.kind, role: 'status', 'data-vb-res': flow.res.kind }, num(flow.res.text)));
+      // no bank account on Dokan: the way to add it — the maker's file over this popup («الحساب البنكي» is there)
+      if (flow.res && flow.fix && b.vendorId) kids.push(h('div', { class: 'vb-req-a' }, Button({ label: 'افتح ملف المبتكر', icon: 'users', attrs: { 'data-vb-file': '' }, onClick: () => { m.close(); openVendor(b.vendorId, { inPlace: true }); } })));
       return h('section', { class: 'vb-req ' + tone, 'data-vb-req': tone, 'aria-label': 'طلب السحب' }, h('span', { class: 'vb-req-i' }, Icon('wallet', 'md')), h('div', { class: 'vb-req-b' }, kids));
     }
     // the deductions not settled yet — folded: the numbers above already carry their totals

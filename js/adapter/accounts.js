@@ -276,7 +276,7 @@
       if (error || !body) {
         const status = error && error.context && error.context.status;
         let b = null; try { b = error && error.context && typeof error.context.json === 'function' ? await error.context.json() : null; } catch (e) { b = null; }
-        if (status === 409 && b) return { ok: true, result: b.result || 'refused', reason: b.reason || b.error || 'refused' };
+        if (status === 409 && b) return { ok: true, result: b.result || 'refused', reason: b.reason || b.error || 'refused', hint: typeof b.hint === 'string' ? b.hint : null }; // hint: the kind of Dokan's refusal (limit / method / balance)
         return { ok: false, reason: status === 401 ? 'forbidden' : status === 502 ? 'woo_down' : 'network' };
       }
       if (body.result === 'ok') {

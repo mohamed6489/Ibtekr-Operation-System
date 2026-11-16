@@ -2291,6 +2291,6 @@ img.ib-worm.ib-ldr-img.spin{animation:ib-ldr-spin var(--ldr-speed,1.7s) linear i
 .fm-tr .opt{flex:1 1 auto;min-width:0}
 .fm-tr[data-depth="0"] .opt .mp-l{font-weight:600}
 .fm-tog{width:24px;height:24px;flex:none;display:grid;place-items:center;padding:0;border:1px solid var(--color-border-subtle);border-radius:6px;background:var(--color-bg-container);color:#005642;font-weight:700;font-size:15px;line-height:1;cursor:pointer}
-.fm-tog:hover{background:#005642;color:#F4ECDD;border-color:#005642}
+.fm-tog:hover{background:var(--color-bg-hover);border-color:#005642}
 .fm-tog:focus-visible{outline:2px solid var(--color-border-focus);outline-offset:1px}
 .fm-tog.sp{border:0;background:none;cursor:default}

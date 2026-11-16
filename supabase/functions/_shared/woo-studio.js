@@ -221,3 +221,43 @@ export async function fetchSheetCsv(link, fetchFn, { timeoutMs = 20_000, maxByte
     clearTimeout(timer);
   }
 }
+
+// ------------------------------------------------------------------ the shop's styles (comments decision 51, owner 16 Nov)
+// «عايزه ياخد من الاستايلات اللي موجودة علي الويب سايت بس اللي هم داخل attributes اللي اسمها style»: the list is the terms of
+// the site's style attribute, one entry per style — { id, en, ar }. WPML may hand the Arabic terms back with the English read
+// (and the English term itself for lang=ar), so an Arabic term never stands as its own entry when an English term owns it; a
+// term with no English is still the site's (its name both ways). Same style twice (same English or same Arabic name) = once.
+const AR_SCRIPT = /[؀-ۿ]/;
+const termId = (v) => { const n = Number(v); return Number.isInteger(n) && n > 0 ? n : null; };
+const trOf = (t, lang) => termId(t && t.translations && typeof t.translations === 'object' ? t.translations[lang] : null);
+const styleKey = (s) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+
+/** @param {any[]} enTerms the English read  @param {any[]} arTerms the Arabic read  @param {(v: unknown) => string | null} clean a term name → the name, or null when unusable
+ * @returns {{ id: number, en: string, ar: string }[]} */
+export function styleTerms(enTerms, arTerms, clean) {
+  const all = new Map();
+  for (const t of [...(Array.isArray(enTerms) ? enTerms : []), ...(Array.isArray(arTerms) ? arTerms : [])]) {
+    const id = termId(t && t.id); const name = id !== null ? clean(t.name) : null;
+    if (id !== null && name && !all.has(id)) all.set(id, { id, name, en: trOf(t, 'en'), ar: trOf(t, 'ar'), arabic: AR_SCRIPT.test(name) });
+  }
+  // an Arabic term = Arabic script, or named as another term's Arabic translation
+  const arIds = new Set([...all.values()].filter((t) => t.arabic).map((t) => t.id));
+  all.forEach((t) => { if (t.ar !== null && t.ar !== t.id && all.has(t.ar)) arIds.add(t.ar); });
+  const english = [...all.values()].filter((t) => !arIds.has(t.id));
+  const claimed = new Set();
+  const out = [];
+  for (const t of english) {
+    const linked = t.ar !== null && t.ar !== t.id && arIds.has(t.ar) ? all.get(t.ar) : [...all.values()].find((x) => arIds.has(x.id) && x.en === t.id) || null;
+    if (linked) claimed.add(linked.id);
+    out.push({ id: t.id, en: t.name, ar: linked ? linked.name : '' });
+  }
+  // an Arabic term no English term owns (and that names no English term on the list) is a style of its own
+  const enIds = new Set(english.map((t) => t.id));
+  for (const id of arIds) { const t = all.get(id); if (!claimed.has(id) && !(t.en !== null && t.en !== id && enIds.has(t.en))) out.push({ id, en: t.name, ar: t.name }); }
+  const seenEn = new Set(); const seenAr = new Set();
+  return out.filter((s) => {
+    const e = styleKey(s.en); const a = styleKey(s.ar);
+    if (seenEn.has(e) || (a && (seenAr.has(a) || seenEn.has(a))) || seenAr.has(e)) return false;
+    seenEn.add(e); if (a) seenAr.add(a); return true;
+  }).slice(0, 200);
+}

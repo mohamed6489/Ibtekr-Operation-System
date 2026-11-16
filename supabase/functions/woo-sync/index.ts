@@ -162,7 +162,7 @@ import { PAY_STATUSES, orderCreateInput, orderPayable, payUrl, wooOrderBody } fr
 import { vaultEnv } from '../_shared/secrets.js';
 import { ConfigError, WooError, errorText, makeScrubber, wooApi } from '../_shared/woo-api.js';
 import { AR_FIELDS, BATCH_FIELDS, EDIT_FIELDS, VARIATION_FIELDS, brandNamesOf, cleanFields, editView, sharedOf, toWoo, variationView, withBrandAttr } from '../_shared/woo-products.js';
-import { STUDIO_ATTRS, VARIATION_GALLERY_KEY, buildStudio, fetchSheetCsv, matchWooBrand, wooBrandIds } from '../_shared/woo-studio.js';
+import { STUDIO_ATTRS, VARIATION_GALLERY_KEY, buildStudio, fetchSheetCsv, matchWooBrand, styleTerms, wooBrandIds } from '../_shared/woo-studio.js';
 import { duplicateAr, duplicatePayload, duplicateSku, duplicateVariation, variationSku } from '../_shared/woo-duplicate.js';
 import { OWNED, siteQuantities, skuList } from '../_shared/woo-inventory.js';
 import { CART_HOURS, CART_PATH, cartRows } from '../_shared/woo-carts.js';
@@ -2459,20 +2459,12 @@ async function siteStyles(run: Run) {
       }
       return out;
     };
-    const en = await read(null);
+    const en = await read('en');
     let ar: Json[] = [];
     try { ar = await read('ar'); } catch (e) { if (!(e instanceof WooError)) throw e; } // the English names alone still make the list
-    const arById = new Map<number, Json>(); ar.forEach((t) => { const k = wooId(t.id); if (k !== null) arById.set(k, t); });
-    const enIds = new Set(en.map((t) => wooId(t.id)));
-    const styles = en.map((t) => {
-      const tid = wooId(t.id); const name = plainName(t.name);
-      if (tid === null || !name) return null;
-      const linked = wooId(isObj(t.translations) ? t.translations.ar : null);
-      // the translation: the one this term names, else the Arabic term that names this one; never the term itself (WPML hands
-      // the English term back for lang=ar when it has no translation)
-      const a = (linked !== null && linked !== tid ? arById.get(linked) : null) ?? ar.find((x) => wooId(x.id) !== tid && !enIds.has(wooId(x.id)) && isObj(x.translations) && wooId(x.translations.en) === tid) ?? null;
-      return { id: tid, en: name, ar: a ? (plainName(a.name) ?? '') : '' };
-    }).filter((x) => x !== null).slice(0, 200);
+    // one entry per style: the Arabic terms WPML hands back with the English read are folded into their English term, and the
+    // same style twice is once (owner 16 Nov — `styleTerms`)
+    const styles = styleTerms(en, ar, plainName);
     return json(200, { action: 'styles', result: 'ok', attribute: true, styles });
   } catch (e) {
     if (!(e instanceof WooError)) throw e;

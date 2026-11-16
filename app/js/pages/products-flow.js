@@ -105,7 +105,11 @@
   // «Product Style» attribute (IBStudio.siteStyles), each with its Arabic name (the site's, else this page's, else the English one).
   // While they are not read yet, or the site has none, the page's own list stands in.
   const shopStyles = () => !!(ST() && ST().siteStyles && ST().siteStyles().length);
-  const styleList = () => { const L = ST() && ST().siteStyles ? ST().siteStyles() : []; return L.length ? L.map((x) => [x.en, x.ar || (FD.pairOf(FD.STYLES, x.en, '') || [])[1] || x.en]) : FD.STYLES; };
+  // one entry per style even if the site repeats one (owner 16 Nov: «بوهيمي» twice) — same English or same Arabic name = once
+  const styleList = () => { const L = ST() && ST().siteStyles ? ST().siteStyles() : []; if (!L.length) return FD.STYLES;
+    const seen = new Set(); const key = (v) => String(v || '').trim().toLowerCase();
+    return L.map((x) => [x.en, x.ar || (FD.pairOf(FD.STYLES, x.en, '') || [])[1] || x.en]).filter(([en, ar]) => { const e = key(en); const a = key(ar);
+      if (seen.has(e) || seen.has(a)) return false; seen.add(e); seen.add(a); return true; }); };
   const colorOf = (r) => { const n = String(r.colorEn || '').trim().toLowerCase(); const a = String(r.colorAr || '').trim(); return colors().find((c) => (n && c.name_en.toLowerCase() === n) || (a && String(c.name_ar).trim() === a)) || null; };
   const codeOfRow = (r) => { const c = colorOf(r); if (c) return c.code; const m = /-([A-Z]{2})(?:-[A-Z0-9]+)?$/.exec(String(r.sku || '')); return m && colors().some((x) => x.code === m[1]) ? m[1] : null; };
   // the photos' units: a Simple = its row; a Variable = one unit per color (the sizes of a color share their photos)
@@ -680,7 +684,7 @@
         fill('nameEn', f.nameEn); fill('nameAr', f.nameAr); fill('shortEn', f.shortDesc); fill('shortAr', f.shortDescAr);
         if (Array.isArray(f.categories) && f.categories.length && !catIdOf(x.catEn)) { x.catEn = pathOfId(f.categories[0]); x.ai.catEn = true; }
         fill('materialEn', mat ? mat[0] : f.material); fill('materialAr', mat ? mat[1] : f.materialAr);
-        fill('styleEn', sty ? sty[0] : f.style); fill('styleAr', sty ? sty[1] : f.styleAr);
+        if (sty || !shopStyles()) { fill('styleEn', sty ? sty[0] : f.style); fill('styleAr', sty ? sty[1] : f.styleAr); } // the shop's styles only
         const c = g.type === 'Simple' && !x.colorEn && !x.colorAr && Array.isArray(f.colors) && f.colors.length ? colors().find((y) => y.code === f.colors[0]) : null;
         if (c) { const old = codeOfRow(x); fill('colorEn', c.name_en); fill('colorAr', c.name_ar); recolorSku(x, old, c.code); } });
       done += 1; touch(); RF();
@@ -820,7 +824,7 @@
   function pairField(rs, kEn, kAr, list, lang, label, onPick, fixed) {
     const r = rs[0]; const k = lang === 'ar' ? kAr : kEn; const id = 'fl-' + k + '-' + r.key;
     const hit = FD.pairOf(list, r[kEn], r[kAr]); const cur = (lang === 'ar' ? r[kAr] || r[kEn] : r[kEn] || r[kAr]) || '';
-    const options = [{ value: '', label: '—' }].concat(list.map(([en, ar]) => ({ value: en, label: lang === 'ar' ? ar : en })), !hit && cur ? [{ value: '__cur', label: cur }] : [],
+    const options = [{ value: '', label: '—' }].concat(list.map(([en, ar]) => ({ value: en, label: lang === 'ar' ? ar : en })), !hit && cur ? [{ value: '__cur', label: fixed ? cur + (lang === 'ar' ? ' (مش على الموقع)' : ' (not on the site)') : cur }] : [],
       fixed ? [] : [{ value: '__new', label: lang === 'ar' ? '+ جديد…' : '+ New…' }]);
     const ai = !!(r.ai && (r.ai[kEn] || r.ai[kAr]));
     return h('div', { class: 'fl-f fl-pick' + (ai ? ' is-ai' : ''), 'data-fl-pick': k, dir: lang === 'ar' ? 'rtl' : 'ltr' },

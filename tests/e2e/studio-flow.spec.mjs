@@ -850,6 +850,27 @@ test('comment 51 — the style comes from the shop\'s own styles only: the list 
   await page.keyboard.press('Escape');
 });
 
+test('owner 16 Nov — the style list is the site\'s style terms once each: a style the site repeats shows once, the AI\'s pick lands on it, and a style not on the site is marked so', async ({ page }) => {
+  mock.siteStyles = [{ id: 1, en: 'Bohemian', ar: 'بوهيمي' }, { id: 2, en: 'bohemian', ar: 'بوهيمي' }, { id: 3, en: 'Minimal', ar: 'بسيط' }];
+  await signIn(page, ADMIN);
+  await choose(page, 'شيت جاهز', 'Simple');
+  await pick(page, '[data-flow-sheet]', { name: 'a.csv', mimeType: 'text/csv', buffer: Buffer.from('#,SKU,Product Name EN,Product Name AR,Product Colors,Product Colors AR,Size,Vendor Price,Product Category\n1,,Boho Cushion,مخدة بوهيمي,Beige,بيج,40 × 40 cm,1000,ديكور\n') });
+  await photosFor(page, 1);
+  await next(page); await makerArtCraft(page); await next(page);
+  const card = page.locator('#pg-products .fl-dcard').first();
+  // the AI said «بوهيمي» — the site's «Bohemian»
+  await expect.poll(() => { const r = (batch().state.rows || [])[0] || {}; return [r.styleEn, r.styleAr]; }).toEqual(['Bohemian', 'بوهيمي']);
+  await card.locator('[data-fl-pick="styleAr"] button.select').evaluate((e) => e.scrollIntoView({ block: 'center' }));
+  await card.locator('[data-fl-pick="styleAr"] button.select').click();
+  await expect(page.getByRole('option')).toHaveText(['—', 'بوهيمي', 'بسيط']);
+  await page.keyboard.press('Escape');
+  // a style the site does not have (an older batch) is shown as such, not as one of the site's
+  const b = batch(); b.state.rows[0].styleEn = 'Rustic'; b.state.rows[0].styleAr = 'ريفي';
+  await page.reload();
+  const card2 = page.locator('#pg-products .fl-dcard').first();
+  await expect(card2.locator('[data-fl-pick="styleAr"] button.select')).toContainText('ريفي (مش على الموقع)');
+});
+
 test('comments 39–41 — a ready sheet\'s photos: the sheet\'s own pictures are signatures only (16 Nov — never put on the rows), the uploads go to the row they look like whatever their names; each row\'s ⋮ replaces or empties it, «زوّد صور» only adds, «مسح الكل» empties all; a product without a photo or a photo without a row stops «التالي» with a note', async ({ page }) => {
   await signIn(page, ADMIN);
   const pics = await drawPics(page);

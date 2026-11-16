@@ -149,3 +149,17 @@ test('fetchSheetCsv: the built URL only, redirects by hand to Google hosts only,
   assert.deepEqual(await fetchSheetCsv('https://evil.example/a.csv', none.fetch), { error: 'bad_link' });
   assert.equal(none.calls.length, 0, 'a link outside docs.google.com is never fetched');
 });
+
+test('styleTerms (owner 16 Nov — «الاستايلات … اللي داخل attributes اللي اسمها style»): one entry per style of the site — the Arabic terms handed back with the English read are folded into their English term, the same style twice is once, an Arabic term with no English is a style of its own', async () => {
+  const { styleTerms } = await import('../../supabase/functions/_shared/woo-studio.js');
+  const clean = (v) => (typeof v === 'string' && v.trim() && !/[<>%]/.test(v) ? v.trim() : null);
+  // WPML hands every language back with the English read
+  const EN = [{ id: 1, name: 'Bohemian', translations: { en: 1, ar: 11 } }, { id: 11, name: 'بوهيمي', translations: { en: 1, ar: 11 } },
+    { id: 2, name: 'Minimal', translations: { en: 2, ar: 12 } }, { id: 12, name: 'بسيط', translations: { en: 2, ar: 12 } },
+    { id: 3, name: 'Handmade' }, { id: 13, name: 'هاند ميد', translations: { en: 3 } }, { id: 4, name: 'bohemian ' }, { id: 5, name: '<b>x</b>' }];
+  const AR = [{ id: 11, name: 'بوهيمي' }, { id: 12, name: 'بسيط' }, { id: 13, name: 'هاند ميد' }, { id: 14, name: 'ريفي' }, { id: 3, name: 'Handmade' }];
+  assert.deepEqual(styleTerms(EN, AR, clean), [{ id: 1, en: 'Bohemian', ar: 'بوهيمي' }, { id: 2, en: 'Minimal', ar: 'بسيط' }, { id: 3, en: 'Handmade', ar: 'هاند ميد' }, { id: 14, en: 'ريفي', ar: 'ريفي' }]);
+  // no Arabic read: the English names alone
+  assert.deepEqual(styleTerms([{ id: 1, name: 'Boho' }], [], clean), [{ id: 1, en: 'Boho', ar: '' }]);
+  assert.deepEqual(styleTerms(null, null, clean), []);
+});

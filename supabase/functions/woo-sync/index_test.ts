@@ -3183,6 +3183,11 @@ Deno.test('styles (comments decision 51): whoever sees the products, never the s
   // the Arabic read refused: the English names alone
   const half = setup({ routes: { 'GET wc/v3/products/attributes': { body: [{ id: 14, slug: 'pa_style' }] }, 'GET wc/v3/products/attributes/14/terms': (c: any) => (c.query.lang === 'ar' ? { status: 500, body: { code: 'x' } } : { body: EN.slice(0, 1) }) } });
   assertEquals((await call(half.deps, { action: 'styles' }, { jwt: 'jwt-pview' })).body.styles, [{ id: 71, en: 'Boho', ar: '' }]);
+  // the English read handed every language back (owner 16 Nov — «بوهيمي» twice): one entry per style, asked for in English
+  const mixed = [{ id: 81, name: 'Bohemian', translations: { en: 81, ar: 181 } }, { id: 181, name: 'بوهيمي', translations: { en: 81, ar: 181 } }, { id: 82, name: 'Minimal' }];
+  const both = setup({ routes: { 'GET wc/v3/products/attributes': { body: [{ id: 14, slug: 'pa_style' }] }, 'GET wc/v3/products/attributes/14/terms': (c: any) => ({ body: c.query.lang === 'ar' ? mixed.slice(1, 2) : mixed }) } });
+  assertEquals((await call(both.deps, { action: 'styles' }, { jwt: 'jwt-pview' })).body.styles, [{ id: 81, en: 'Bohemian', ar: 'بوهيمي' }, { id: 82, en: 'Minimal', ar: '' }]);
+  assertEquals(both.woo.calls.filter((c: any) => c.path.endsWith('/terms')).map((c: any) => c.query.lang), ['en', 'ar']);
 });
 
 Deno.test('thumbs (comments decision 10): a member who sees the orders or the products, never the sync secret; only the site\'s own uploads, the smallest copy first, never a redirect, by the bytes themselves; what cannot be read is null; nothing written or logged', async () => {

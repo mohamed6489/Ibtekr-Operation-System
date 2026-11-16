@@ -526,7 +526,7 @@
         h('div', { class: 'fl-mk-cats', 'data-fl-cat-rates': '' },
           h('span', { class: 't-small help' }, catRates.length ? 'أقسام ليها نسبة لوحدها' : r == null ? 'نسبة المبتكر مش ظاهرة لك' : 'نفس النسبة على كل الأقسام'),
           catRates.length ? h('div', { class: 'fl-mk-chips' }, catRates.slice(0, 8).map((c) => h('span', { class: 'fl-mk-chip', 'data-cat': c.wooCategoryId }, h('span', null, c.name), h('b', { class: 'num' }, U.num(c.rate + '%')))),
-            catRates.length > 8 ? h('span', { class: 't-small help' }, '+' + U.num(catRates.length - 8)) : null) : null),
+            catRates.length > 8 ? h('span', { class: 't-small help' }, U.num('+' + (catRates.length - 8))) : null) : null),
         canRate() ? h('div', { class: 'fl-mk-act' }, Button({ size: 'sm', icon: 'edit', label: 'تعديل النسبة', attrs: { 'data-fl-rate-edit': '' }, onClick: () => rateModal(mk) })) : null) : null,
       mk ? h('div', { class: 'grid2' }, U.FieldShell({ id: 'fl-code', label: 'كود البراند في الـ SKU (2–4 حروف)', help: 'مثال: glasstora → GLS — IBTGLS1020-OW' }, h('div', { class: 'input' }, h('input', { id: 'fl-code', dir: 'ltr', maxlength: 4, value: s.code || '', 'data-flow-code': '',
           onChange: (ev) => { s.code = String(ev.target.value || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4); touch(); R(); } }))),

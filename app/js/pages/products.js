@@ -788,7 +788,7 @@
           K.two(U.FieldShell({ id: 'bp-d', label: 'زيادة ولا نقص' }, seg('dir', [['1', 'زيادة'], ['-1', 'نقص']])), U.FieldShell({ id: 'bp-m', label: 'بنسبة ولا بقيمة' }, seg('mode', [['pct', 'نسبة %'], ['value', f.target === 'vendor' ? 'قيمة (ج.م)' : 'قيمة (نقط)']]))),
           K.field.text('amount', 'المقدار', f, e, (k, v) => { set(k, v); draw(); }, { required: true, inputmode: 'numeric', help: 'مثال: 10' + (f.mode === 'pct' ? '%' : '') + ' ' + (f.dir === '1' ? 'زيادة' : 'نقص') + ' على ' + TG.find((x) => x[0] === f.target)[1] }),
           f.target === 'rate' && ok && makers.length ? makersBox(opt) : null,
-          rows.length ? U.FieldShell({ id: 'bp-p', label: 'قبل ← بعد' + (items.length > rows.length ? U.num(' (أول ' + rows.length + ' من ' + items.length + ')') : '') }, U.Table({ cls: 'dt', headers: ['المنتج', TG.find((x) => x[0] === f.target)[1], 'سعر البيع'], rows })) : null,
+          rows.length ? U.FieldShell({ id: 'bp-p', label: h('span', null, 'قبل ← بعد', items.length > rows.length ? U.num(' (أول ' + rows.length + ' من ' + items.length + ')') : null) }, U.Table({ cls: 'dt', headers: ['المنتج', TG.find((x) => x[0] === f.target)[1], 'سعر البيع'], rows })) : null,
           U.InlineNote({ children: 'هيتطبق على ' + simple.length + ' منتجات وبيتحدث على ووكومرس بعد التأكيد.' + (simple.length < l.length ? ' (' + (l.length - simple.length) + ' Variable أو من غير سعر برّه التعديل ده.)' : '') })]; },
       validate: (f) => { if (!(Number(f.amount) > 0)) return { amount: 'اكتب رقم أكبر من صفر' };
         if (f.target === 'rate' && plansOf({ target: 'rate', mode: f.mode, dir: Number(f.dir), amount: Number(f.amount) }).some((x) => x.plan && x.plan.over)) return { amount: 'النسبة الجديدة هتعدّي 65% عند مبتكر — قلّل المقدار' };

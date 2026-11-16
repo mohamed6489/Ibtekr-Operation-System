@@ -217,6 +217,8 @@ test('decision 16 in bulk: «سعر المبتكر» +10% → the sale price fro
   await page.locator('.bulk-bar').getByRole('button', { name: 'تعديل السعر' }).click();
   await page.locator('.modal').getByRole('radio', { name: 'سعر المبتكر' }).click();
   await page.fill('.modal #amount', '10');
+  await expect(page.locator('.modal')).toContainText('قبل ← بعد');
+  await expect(page.locator('.modal')).not.toContainText('[object'); // owner 16 Nov: «قبل ← بعد[object HTMLSpanElement]»
   await page.locator('.modal').getByRole('button', { name: 'طبّق السعر' }).click();
   await expect(page.locator('.modal')).toHaveCount(0);
   const w = mock.productWrites.at(-1); const sale = Number(w.fields.sale_price); const reg = Number(w.fields.regular_price);

@@ -121,6 +121,37 @@ test('the admin: the automatic brand in «البراندات» (code, aliases, �
   expect(writes()).toEqual([]);
 });
 
+test('comment 57 — the makers table has a «البراندات» column of its own (the maker\'s brands that are not simply his name) and «البراند» is a group of the table\'s filter', async ({ page }) => {
+  await setup(page);
+  mock.brands.push({ id: BRAND(8), name: 'Wood & Rope', code: 'W', aliases: [], store_vendor_id: null, origin_vendor_id: V1, created_by: 'system', created_at: '2026-10-01T00:00:00Z', updated_at: '2026-10-01T00:00:00Z' },
+    { id: BRAND(9), name: 'Nile Glass', code: 'N', aliases: [], store_vendor_id: null, origin_vendor_id: V2, created_by: 'system', created_at: '2026-10-01T00:00:00Z', updated_at: '2026-10-01T00:00:00Z' });
+  mock.brandOwners.push({ id: 8, brand_id: BRAND(8), vendor_id: V1, since: '2026-03-01', return_on: null, reason: null, set_by: 'system', created_at: '2026-10-01T00:00:00Z' },
+    { id: 9, brand_id: BRAND(9), vendor_id: V2, since: '2026-03-01', return_on: null, reason: null, set_by: 'system', created_at: '2026-10-01T00:00:00Z' });
+  await openVendors(page);
+  // the column, right after the maker's name; the name's own cell no longer carries the brands line
+  const heads = await page.locator('#vendors table thead th').allTextContents();
+  expect(heads.slice(1, 4).map((x) => x.trim())).toEqual(['المبتكر', 'البراندات', 'الحالة']);
+  await expect(row(page, V1).locator('td').nth(2)).toHaveText('Wood & Rope');
+  await expect(row(page, V2).locator('td').nth(2)).toHaveText('Nile Glass');
+  await expect(row(page, V1).locator('td').nth(1).locator('[data-brands]')).toHaveCount(0);
+  // the filter: «البراند» lists those brands (never a maker's own-name brand); one picked → his maker alone, a chip with its count
+  await page.locator('#vendors [data-fm-btn="vendors"]').click();
+  const menu = page.locator('[data-fm-menu="vendors"]');
+  await menu.locator('[data-fm-tab="brand"]').click();
+  await expect(menu.locator('[data-fm^="brand:"]')).toHaveCount(2);
+  await expect(menu.locator('[data-fm^="brand:"]')).toHaveText(['Nile Glass', 'Wood & Rope']);
+  await menu.locator(`[data-fm="brand:${BRAND(8)}"]`).click();
+  await expect(menu.locator('[data-fm-apply]')).toHaveText('اعرض 1 مبتكر');
+  await menu.locator('[data-fm-apply]').dispatchEvent('click');
+  await expect(rows(page)).toHaveCount(1);
+  await expect(row(page, V1)).toBeVisible();
+  await expect(page.locator(`#vendors [data-af-chip="brand:${BRAND(8)}"]`)).toContainText('البراند: Wood & Rope');
+  await page.locator('#vendors [data-af-clear]').click();
+  await expect(rows(page)).toHaveCount(3);
+  // a maker with only his own-name brand: a dash in the column
+  await expect(row(page, V3).locator('td').nth(2)).toHaveText('—');
+});
+
 test('ops (vendors.edit = P) and accounts read the section only: no button, no menu, no rate column; a store call is refused before any request; vendors follow-up (edit = F) may add but sees no rate', async ({ page }) => {
   await setup(page);
   await openVendors(page, OPS);

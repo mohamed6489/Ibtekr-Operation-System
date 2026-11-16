@@ -198,7 +198,9 @@
     const rows = shown.map((p) => { const ss = stockStateOf(p);
       return [K.Checkbox({ label: '', checked: st.sel.has(p.id), onChange: (v) => pickRange(shown.map((x) => x.id), p.id, v) }),
         h('button', { type: 'button', class: 'prod link', 'data-pedit': String(p.id), onClick: () => go('products-edit-' + p.id) }, Thumb(p.img), h('span', null, h('b', null, nameOf(p)))), // the owner, 28 Oct: the English name alone (no Arabic name, no «ناقص: …» under it; the «ناقصها بيانات» filter stays)
-        h('span', { dir: 'ltr', class: 't-small' }, p.sku || '—'), h('span', { class: 'brand-cell' }, h('span', null, brandOf(p)), h('small', { class: 't-small help' }, p.vendor || '—')),
+        h('span', { dir: 'ltr', class: 't-small' }, p.sku || '—'),
+        // comments decision 58 (the owner 15 Nov — «نفصل صف البراند عن صف المبتكر»): the brand and the maker each in a column of its own
+        h('span', { 'data-pbrand': '' }, brandOf(p)), h('span', { 'data-pmaker': '' }, p.vendor || '—'),
         h('span', { class: 'cat-list t-small' }, p.cats.length ? p.cats.map((c) => h('span', { class: catHit(c) ? 'cat-hit' : null }, c)) : '—'), h('span', { class: 't-small' }, p.type),
         p.type === 'Variable' && p.price != null ? h('span', null, 'من ', money(p.price)) : money(p.type === 'Variable' ? null : p.sale),
         h('span', { class: 'stk' }, ss === 'حسب الطلب' || p.stock == null ? null : K.Num(String(p.stock)), ss !== 'متاح' ? Tag(STOCK_TONE[ss], ss) : null),
@@ -211,7 +213,7 @@
           C.edit ? (p.wooStatus === 'publish' ? { label: 'تحويل لمسودة', icon: 'eyeoff', run: () => toDraft([p]) } : { label: 'نشر', icon: 'eye', run: () => publish([p]) }) : null,
           C.trash ? { label: 'مسح', icon: 'trash', danger: true, run: () => toTrash([p]) } : null], 'إجراءات ' + nameOf(p))]; });
     const salesHead = () => h('button', { type: 'button', class: 'th-sort', 'data-sort-sales': '', 'aria-sort': st.sort === 'sales-desc' ? 'descending' : st.sort === 'sales-asc' ? 'ascending' : 'none', title: 'رتّب بمرات الشراء', onClick: () => { st.sort = st.sort === 'sales-desc' ? 'sales-asc' : st.sort === 'sales-asc' ? '' : 'sales-desc'; R(); } }, 'مرات الشراء', h('span', { 'aria-hidden': 'true', class: 'sort-ic' }, st.sort === 'sales-desc' ? ' ↓' : st.sort === 'sales-asc' ? ' ↑' : ' ↕'));
-    const table = list.length ? U.Table({ cls: 'dt pr-table', headers: [K.Checkbox({ label: '', checked: allSel, onChange: (v) => { shown.forEach((p) => (v ? st.sel.add(p.id) : st.sel.delete(p.id))); R(); } }), 'المنتج', 'SKU', 'البراند · المبتكر', 'القسم', 'النوع', 'السعر', 'المخزون', salesHead(), 'الحالة', ''], rows })
+    const table = list.length ? U.Table({ cls: 'dt pr-table', headers: [K.Checkbox({ label: '', checked: allSel, onChange: (v) => { shown.forEach((p) => (v ? st.sel.add(p.id) : st.sel.delete(p.id))); R(); } }), 'المنتج', 'SKU', 'البراند', 'المبتكر', 'القسم', 'النوع', 'السعر', 'المخزون', salesHead(), 'الحالة', ''], rows })
       : K.Empty('مفيش منتجات بالفلاتر دي', 'امسح الفلاتر أو جرّب اسم أو SKU تاني.', Button({ size: 'sm', label: 'مسح الفلاتر', onClick: () => { clearFilters(); st.status = 'all'; R(); } }));
     // the kit labels each cell (data-l, the phone card) with its header: an element header gets its text instead
     if (list.length) table.querySelectorAll('td[data-l^="[object"]').forEach((td) => { const th = table.querySelectorAll('thead th')[td.cellIndex]; td.dataset.l = th ? th.textContent.replace(/[↓↑↕]/g, '').trim() : ''; });

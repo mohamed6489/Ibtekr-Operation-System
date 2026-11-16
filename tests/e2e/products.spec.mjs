@@ -387,6 +387,17 @@ test('decision 16 on a variable product: a maker price per variation → its two
   expect(w.variations).toEqual([{ id: 9901, sale_price: String(sale), regular_price: String(reg) }]);
 });
 
+test('comment 58 — the records table: «البراند» and «المبتكر» are two columns (they were one cell)', async ({ page }) => {
+  await openProducts(page);
+  const heads = (await page.locator('#pg-products .pr-table thead th').allTextContents()).map((x) => x.trim());
+  expect(heads.slice(1, 6)).toEqual(['المنتج', 'SKU', 'البراند', 'المبتكر', 'القسم']);
+  const r = rowOf(page, 'Cushion');
+  await expect(r.locator('[data-pbrand]')).toHaveText('Art Craft');
+  await expect(r.locator('[data-pmaker]')).toHaveText('Art Craft');
+  expect(await r.locator('[data-pbrand]').evaluate((x) => x.closest('td') !== x.closest('tr').querySelector('[data-pmaker]').closest('td'))).toBe(true);
+  await expect(page.locator('#pg-products .brand-cell')).toHaveCount(0);
+});
+
 // drag a category's six-dot grip onto another category's row (comments decision 56): the pointer goes down on the grip, moves in
 // steps past the middle of the target and is released there
 async function dragCat(page, from, to, after) {

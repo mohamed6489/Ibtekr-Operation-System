@@ -3209,7 +3209,7 @@
   document.addEventListener('ib:notify', () => { if (state.page === 'vendors' && !document.querySelector('.pop-anchor .menu, .pop-anchor [role=dialog]')) { vkeep(); renderVendors(true); } if (vredraw) vredraw(); });
   state.vfilter = { status: 'active', category: 'all', balance: 'all', contract: 'all', late: false, tickets: false, q: '' }; state.vsort = 'open'; state.vpage = 1; const VPAGE = 9;
   // phase 5.5 decision 3 (owner 1 Nov): the closed filter picks several values per group; «نشط» ticked by default. decision 3 (owner 31 Oct): the selection for the bulk actions
-  const VF0 = () => ({ status: ['active'], category: [], balance: [], contract: [], other: [] }); state.vf = VF0(); state.vsel = new Set(); state.vtab = 'overview'; // phase 13 decision 57
+  const VF0 = () => ({ status: ['active'], category: [], brand: [], balance: [], contract: [], other: [] }); state.vf = VF0(); state.vsel = new Set(); state.vtab = 'overview'; // phase 13 decision 57
   const PAPI = () => ((window.IBPages && window.IBPages.all().products) || {}).api || null;
   const prodCount = (ids) => { const a = PAPI(); return a ? a.makerItems(ids).length : 0; };
   // the actions on one or more makers (decision 3): their products through the products page's own popups; the rate through the store (vendor_rate_set + push)
@@ -3290,7 +3290,11 @@
   }
   function VendorsPageView() {
     const { all, stats, sum, vdet } = makerSummary();
-    const vPass = (f) => (v) => ['status', 'category', 'balance', 'contract', 'other'].every((k) => !(f[k] || []).length || f[k].some((val) => VD.filterVendors([v], stats, k === 'other' ? { status: 'all', [val]: true } : { status: 'all', [k]: val }, VTODAY()).length));
+    // comments decision 57 (the owner 15 Nov — «البراندات تتضاف في جدول المبتكرين و تتضاف للفلتر بتاعه»): the maker's brands (the ones that are
+    // not simply his own name — what the column shows) are a filter group too: a maker passes when he owns one of the picked brands
+    const extraBrands = (v) => (v.brands || []).filter((b) => VD.norm(b.name) !== VD.norm(v.name));
+    const brandPass = (f) => (v) => !(f.brand || []).length || extraBrands(v).some((b) => f.brand.includes(String(b.id)));
+    const vPass = (f) => (v) => brandPass(f)(v) && ['status', 'category', 'balance', 'contract', 'other'].every((k) => !(f[k] || []).length || f[k].some((val) => VD.filterVendors([v], stats, k === 'other' ? { status: 'all', [val]: true } : { status: 'all', [k]: val }, VTODAY()).length));
     const base0 = vfilter(all, stats, { status: 'all', q: state.vfilter.q });
     const list = VD.sortVendors(base0.filter(vPass(state.vf)), stats, state.vsort);
     const pages = Math.max(1, Math.ceil(list.length / VPAGE)); if (state.vpage > pages) state.vpage = pages;
@@ -3304,7 +3308,8 @@
     const check = (key, label) => h('label', { class: 'check', style: 'display:flex;align-items:center;gap:8px;cursor:pointer' }, (() => { const c = h('input', { type: 'checkbox', checked: state.vfilter[key] }); c.addEventListener('change', () => setF(key, c.checked)); return c; })(), label);
     // «فلتر» + «ترتيب» (phase 5.5 decision 3, owner 1 Nov): the kit's closed multi-value filter and sort next to the columns button, the picks as chips with their counts
     const VF = { status: [['active', 'نشط'], ['leave', 'في إجازة'], ['inactive', 'غير نشط']], balance: [['due', 'ليه رصيد'], ['negative', 'عليه (عربون / مواصلات)'], ['zero', 'متصفّي']], contract: [['uploaded', 'مرفوع وساري'], ['expiring', 'بينتهي خلال 30 يوم'], ['expired', 'منتهي'], ['missing', 'غير مرفوع']] };
-    const VG = () => [{ key: 'status', label: 'الحالة', options: VF.status }, { key: 'category', label: 'الفئة', options: mainCats().map((c) => [String(c.id), c.name]) }, { key: 'balance', label: 'الرصيد', options: VF.balance }, { key: 'contract', label: 'العقد', options: VF.contract }, { key: 'other', label: 'المتابعة', options: [['late', 'عنده تأخير'], ['tickets', 'عليه طلبات']] }];
+    const brandOpts = () => { const m = new Map(); all.forEach((v) => extraBrands(v).forEach((b) => m.set(String(b.id), b.name))); return [...m.entries()].sort((x, y) => x[1].localeCompare(y[1])); };
+    const VG = () => [{ key: 'status', label: 'الحالة', options: VF.status }, { key: 'category', label: 'الفئة', options: mainCats().map((c) => [String(c.id), c.name]) }, { key: 'brand', label: 'البراند', options: brandOpts() }, { key: 'balance', label: 'الرصيد', options: VF.balance }, { key: 'contract', label: 'العقد', options: VF.contract }, { key: 'other', label: 'المتابعة', options: [['late', 'عنده تأخير'], ['tickets', 'عليه طلبات']] }];
     function vFilterBtn() {
       return window.IBKit.FilterMenu({ id: 'vendors', label: 'فلتر المبتكرين', noun: 'مبتكر', groups: VG(), value: state.vf, count: (d) => base0.filter(vPass(d)).length, onApply: (d) => { state.vf = d; state.vpage = 1; renderVendors(); } });
     }
@@ -3315,16 +3320,16 @@
       const f = state.vf; const chips = [];
       VG().forEach((g) => (f[g.key] || []).forEach((val) => { const lbl = (g.options.find((o) => o[0] === val) || [, val])[1];
         chips.push({ key: g.key + ':' + val, label: (g.key === 'other' ? '' : g.label + ': ') + lbl, count: base0.filter(vPass({ [g.key]: [val] })).length, remove: () => { f[g.key] = f[g.key].filter((x) => x !== val); state.vpage = 1; renderVendors(); } }); }));
-      return window.IBKit.ActiveFilters({ id: 'vendors', chips, total: list.length, noun: 'مبتكر', onClear: () => { state.vf = { status: [], category: [], balance: [], contract: [], other: [] }; state.vpage = 1; renderVendors(); } });
+      return window.IBKit.ActiveFilters({ id: 'vendors', chips, total: list.length, noun: 'مبتكر', onClear: () => { state.vf = { status: [], category: [], brand: [], balance: [], contract: [], other: [] }; state.vpage = 1; renderVendors(); } });
     }
     // the bulk selection (decision 3, owner 31 Oct): a checkbox per row, «حدد كل الصفحة», the bar with the three actions
     const VS = state.vsel; [...VS].forEach((i) => { if (!vstore.get(i)) VS.delete(i); });
     const KK = window.IBKit; const stop = (el) => { el.addEventListener('click', (e) => e.stopPropagation()); el.addEventListener('keydown', (e) => e.stopPropagation()); return el; };
     const selBox = (v) => { const c = KK.Checkbox({ label: '', checked: VS.has(v.id), onChange: (on) => { if (on) VS.add(v.id); else VS.delete(v.id); renderVendors(); } }); c.setAttribute('data-vsel', v.id); c.setAttribute('aria-label', 'حدد ' + v.name); return stop(c); };
     const rowMenu = (v) => stop(KK.RowMenu(makerMenuItems(v), 'إجراءات ' + v.name));
-    const headers = ['المبتكر', 'الحالة', 'النسبة', 'أوردرات مفتوحة', 'قابلة للتأخير', 'العربون', 'المواصلات', 'مستحقاته (من 1 أكتوبر)', 'آخر أوردر', 'طلبات مفتوحة'];
+    const headers = ['المبتكر', 'البراندات', 'الحالة', 'النسبة', 'أوردرات مفتوحة', 'قابلة للتأخير', 'العربون', 'المواصلات', 'مستحقاته (من 1 أكتوبر)', 'آخر أوردر', 'طلبات مفتوحة']; // «البراندات»: comments decision 57 — a column of its own (it was a line under the name)
     const later = (phase) => h('span', { class: 't-small', style: 'color:var(--color-text-secondary)', title: 'من مرحلة ' + phase }, '—'); // decision 4: deposits / transport with phase 4, tickets with phase 7
-    const cells = (v) => { const st = stats[v.id]; return [h('span', { class: 'vendor-cell' }, U.VendorLogo({ letter: v.logoLetter, size: 'sm' }), h('span', { class: 'vnames' }, h('span', { class: 't-label' }, v.name), brandLine(v))), v.siteRemovedAt ? h('span', { class: 'chips' }, U.VendorStatus(v.status), h('span', { class: 'tg tg-error', 'data-site-removed': '' }, 'اتحذف من الموقع')) : U.VendorStatus(v.status), v.rate == null ? '—' : num(v.rate + '%'), num(String(st.open)), num(String(st.late)), later(4), later(4), h('span', { class: st.balance < 0 ? 'bal-neg' : '' }, num(D.formatMoney(st.balance))), num(ageLabel(st.lastAge)), later(7)]; }; // مستحقاته = الافتتاحي + حقه من الأوردرات المكتملة
+    const cells = (v) => { const st = stats[v.id]; return [h('span', { class: 'vendor-cell' }, U.VendorLogo({ letter: v.logoLetter, size: 'sm' }), h('span', { class: 'vnames' }, h('span', { class: 't-label' }, v.name))), brandLine(v) || h('span', { class: 't-small help' }, '—'), v.siteRemovedAt ? h('span', { class: 'chips' }, U.VendorStatus(v.status), h('span', { class: 'tg tg-error', 'data-site-removed': '' }, 'اتحذف من الموقع')) : U.VendorStatus(v.status), v.rate == null ? '—' : num(v.rate + '%'), num(String(st.open)), num(String(st.late)), later(4), later(4), h('span', { class: st.balance < 0 ? 'bal-neg' : '' }, num(D.formatMoney(st.balance))), num(ageLabel(st.lastAge)), later(7)]; }; // مستحقاته = الافتتاحي + حقه من الأوردرات المكتملة
     const pageAll = slice.length > 0 && slice.every((v) => VS.has(v.id));
     const allBox = (() => { const c = KK.Checkbox({ label: '', checked: pageAll, onChange: (on) => { slice.forEach((v) => (on ? VS.add(v.id) : VS.delete(v.id))); renderVendors(); } }); c.setAttribute('aria-label', 'حدد كل الصفحة'); c.setAttribute('data-vsel-all', ''); if (!pageAll && slice.some((v) => VS.has(v.id))) c.setAttribute('aria-checked', 'mixed'); return c; })();
     const selIds = [...VS]; const selN = selIds.length;

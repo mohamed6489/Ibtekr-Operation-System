@@ -106,17 +106,17 @@ test('the vendors page lists the sync\'s makers with the team columns and no see
   await openVendors(page);
   await expect(row(page, V1)).toContainText('Art Craft');
   await expect(row(page, V2)).toContainText('Antikiano');
-  await expect(row(page, V1).locator('td').nth(3)).toHaveText('35%'); // the rate effective today (sensitive.commission = F)
-  await expect(row(page, V2).locator('td').nth(3)).toHaveText('45%'); // raised in October
-  await expect(row(page, V1).locator('td').nth(4)).toHaveText('2'); // open orders
-  for (const i of [6, 7, 10]) await expect(row(page, V1).locator('td').nth(i)).toHaveText('—'); // العربون / المواصلات / تذاكر: later phases
+  await expect(row(page, V1).locator('td').nth(4)).toHaveText('35%'); // the rate effective today (sensitive.commission = F)
+  await expect(row(page, V2).locator('td').nth(4)).toHaveText('45%'); // raised in October
+  await expect(row(page, V1).locator('td').nth(5)).toHaveText('2'); // open orders
+  for (const i of [7, 8, 11]) await expect(row(page, V1).locator('td').nth(i)).toHaveText('—'); // العربون / المواصلات / تذاكر: later phases
   await expect(page.locator('#vendors thead')).toContainText('مستحقاته (من 1 أكتوبر)');
   await expect(page.locator('#vendors')).not.toContainText('Medo .crafts'); // the prototype's seed is gone
   await expect(page.locator('#vendors')).not.toContainText('Balances_Payouts');
   await expect(page.locator('#vendors')).not.toContainText('Bian eg'); // inactive: not in the default list
   await statusFilter(page, 'الكل');
   await expect(rows(page)).toHaveCount(3);
-  await expect(row(page, V3).locator('td').nth(3)).toHaveText('—'); // no rate yet
+  await expect(row(page, V3).locator('td').nth(4)).toHaveText('—'); // no rate yet
   expect(mock.requests.filter((r) => r === 'GET /rest/v1/vendors').length).toBeGreaterThanOrEqual(1);
   expect(mock.requests).toContain('GET /rest/v1/vendor_rates');
   expect(mock.requests).toContain('GET /rest/v1/vendor_bank');
@@ -222,7 +222,7 @@ test('ops (vendors.edit = P) changes a phone: written, logged with the vendor as
   await page.keyboard.press('Escape');
   await expect(info(section(page, 'الاتفاق التجاري'), page, 'نسبة إبتكر')).toHaveText('—');
   await expect(drawer(page).locator('.drawer-h')).toContainText('نسبة إبتكر —');
-  await expect(row(page, V1).locator('td').nth(3)).toHaveText('—');
+  await expect(row(page, V1).locator('td').nth(4)).toHaveText('—');
 });
 
 test('the admin toggles the status and sets the rate (no date — decision 12: from today; a second change the same day replaces it); the history shows both rates', async ({ page }) => {
@@ -451,7 +451,7 @@ test('the shares (decision 4): a completed order counts in «حقه من الم�
   await expect(byStatus.locator('tbody tr').nth(1).locator('td').nth(3)).toHaveText('651.30'); // قيد التنفيذ
   await expect(section(page, 'الحركات المالية')).toContainText('بتتسجل من مرحلة الحسابات');
   await expect(info(section(page, 'ملخص حسابه معانا'), page, 'مستحقاته (من 1 أكتوبر)')).toContainText('651.30 (له)');
-  await expect(row(page, V1).locator('td').nth(8)).toHaveText('651.30');
+  await expect(row(page, V1).locator('td').nth(9)).toHaveText('651.30');
   // Antikiano: 2539 − (1015.60 + 10) on the completed order; the on-hold order is open (its line has no rate: 45% since October)
   await drawer(page).getByRole('button', { name: 'إغلاق' }).first().click();
   await openDrawer(page, V2);
@@ -482,7 +482,7 @@ test('a rename reloads the orders (their makers carry vendors.name) and the draw
   await expect(drawer(page).locator('.drawer-h h2')).toHaveText('Art Craft Studio');
   await tab(page, 'الأوردرات').click();
   await expect(kindTile(page, 'all').locator('.t-h3')).toHaveText('2');
-  await expect(row(page, V1).locator('td').nth(4)).toHaveText('2');
+  await expect(row(page, V1).locator('td').nth(5)).toHaveText('2');
 });
 
 test('a maker name and a note with html render as text in the list, the search and the drawer', async ({ page }) => {
@@ -657,7 +657,7 @@ test('5.5 / the owner 12 Nov: «فلتر» next to the sort in the card header h
   await expect(page.locator('#vendors [data-fm-btn="vendors"] .val')).toHaveText('فلتر (1)');
   const menu = page.locator('[data-fm-menu="vendors"]');
   await page.locator('#vendors [data-fm-btn="vendors"]').click();
-  await expect(menu.locator('[data-fm-tab]')).toHaveCount(5);
+  await expect(menu.locator('[data-fm-tab]')).toHaveCount(6); // + «البراند» (comments decision 57)
   await menu.locator('[data-fm-tab="status"]').click();
   await expect(menu.locator('[data-fm="status:active"]')).toHaveAttribute('aria-checked', 'true'); // «نشط» by default
   await menu.locator('[data-fm="status:inactive"]').click();

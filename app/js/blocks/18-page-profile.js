@@ -212,12 +212,10 @@
       submitLabel: 'حفظ', submit: (f, md) => {
         if (md._busy) return false; md._busy = true; const uid = d.uid;
         (async () => {
-          // the level stays with the member across a role change (0111) and the server checks the role at it: a lower level first, a
-          // higher one after the role
-          const LR = { viewer: 0, employee: 1, manager: 2 }; const lv0 = d.level || 'employee'; const lvDown = LR[f.level] < LR[lv0];
-          if (f.level !== lv0 && lvDown) { const r = await S.setMemberLevel(uid, f.level); if (!r.ok) return r; }
-          if (f.role && f.role !== d.roleId) { const r = await S.setMemberRole(uid, f.role); if (!r.ok) return r; }
-          if (f.level !== lv0 && !lvDown) { const r = await S.setMemberLevel(uid, f.level); if (!r.ok) return r; }
+          // a new main role starts the member at «موظف» (0096 profiles_level_on_role): the role first, then the level if it differs
+          const roleNew = !!f.role && f.role !== d.roleId;
+          if (roleNew) { const r = await S.setMemberRole(uid, f.role); if (!r.ok) return r; }
+          if (f.level !== (roleNew ? 'employee' : (d.level || 'employee'))) { const r = await S.setMemberLevel(uid, f.level); if (!r.ok) return r; }
           const extras = roles.map((r) => r.id).filter((x) => f['x:' + x] && x !== f.role); const was = (d.extraRoles || []).slice().sort().join(',');
           if (extras.slice().sort().join(',') !== was) { const r = await S.setMemberRoles(uid, extras); if (!r.ok) return r; }
           const perms = {}; S.PERM_KEYS.forEach((k) => { const v = f['p:' + k]; if (v && v !== 'role') perms[k] = v; });

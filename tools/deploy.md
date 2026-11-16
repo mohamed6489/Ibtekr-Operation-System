@@ -2256,7 +2256,7 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 
 #### 2.7.95 المدير المباشر أو الأدمن يعدّل بيانات أي عضو وصلاحياته (16 نوفمبر، `0111`)
 الواجهة من `main` زي العادة. **الترتيب:**
-1. **`0111_member_edit.sql`** (بعد «طبّق» من صاحب المشروع): `caller_aal_ok` / `member_can_edit` / `perm_rank` / `perms_within_mine` / `member_info_set` / `member_job_set`، و`member_role_set` / `member_roles_set` / `member_level_set` / `member_perms_set` / `member_status_set` بيدخّلوا المدير المباشر لحد صلاحياته. re-runnable ومفيش داتا بتتمسح.
+1. **`0111_member_edit.sql`** (بعد «طبّق» من صاحب المشروع): `caller_aal_ok` / `member_can_edit` / `perm_rank` / `perms_within_mine` / `member_perm_raw` / `member_access_snapshot` / `member_access_guard` / `member_info_set` / `member_job_set`، و`member_role_set` / `member_roles_set` / `member_level_set` / `member_perms_set` / `member_status_set` بيدخّلوا المدير المباشر لحد صلاحياته. re-runnable ومفيش داتا بتتمسح.
 2. اختبار الحي: `supabase/tests/rls_member_edit.sql` (transaction بـ rollback — بيطبع `rls_member_edit: ok`)، و`rls_security_advisor`.
 3. **`team-admin`** (`member_email` للأدمن، و`member_invite` للأدمن أو المدير المباشر) و**`settings-admin`** (`member_status` للأدمن أو المدير المباشر) من `deploy-functions.yml` — **بعد** الـ migration (الدالتين بينادوا `member_can_edit`).
 4. تجربة: عضو مديره المباشر حد مش أدمن ← المدير يفتح ملفه ← «تعديل البيانات» (الإيميل مقفول) ← «الدور والصلاحيات» (صلاحية مش عنده مش متاحة) ← `activity_log` فيه `hr.member.info` بأسامي الخانات بس.

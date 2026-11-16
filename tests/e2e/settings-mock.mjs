@@ -121,7 +121,7 @@ export function settingsRoute(c) {
     }
     if (!admin && canEdit && ['member_role_set', 'member_roles_set', 'member_level_set', 'member_perms_set', 'member_status_set'].includes(name)) {
       const r0 = S.roles.find((r) => r.id === target.role_id);
-      if (name === 'member_role_set') { if (body.p_role === 'admin') return refuse(400, '22023', 'invalid: admin'); if (!within(lvlSet(S.roles.find((r) => r.id === body.p_role), target.level || 'employee'))) return refuse(400, '22023', 'invalid: above'); }
+      if (name === 'member_role_set') { if (body.p_role === 'admin') return refuse(400, '22023', 'invalid: admin'); if (!within(lvlSet(S.roles.find((r) => r.id === body.p_role), 'employee'))) return refuse(400, '22023', 'invalid: above'); }
       if (name === 'member_level_set' && !within(lvlSet(r0, body.p_level))) return refuse(400, '22023', 'invalid: above');
       if (name === 'member_roles_set' && (body.p_roles || []).filter((x) => !(target.extra_roles || []).includes(x)).some((x) => !within((S.roles.find((r) => r.id === x) || {}).permissions))) return refuse(400, '22023', 'invalid: above');
       if (name === 'member_perms_set') { const keys = [...new Set(Object.keys(target.custom_perms || {}).concat(Object.keys(body.p_perms || {})))]; const before = Object.fromEntries(keys.map((k) => [k, hasPerm(target, k)])); const old = target.custom_perms; target.custom_perms = { ...(body.p_perms || {}) };

@@ -52,6 +52,56 @@ $$;
 revoke execute on function public.perms_within_mine(jsonb) from public, anon;
 grant execute on function public.perms_within_mine(jsonb) to authenticated, service_role;
 
+-- what a member's role, level, extra roles and overrides give on a key, whatever the member's status (security review: member_perm
+-- answers N for a suspended member, which would make any change on one look harmless)
+create or replace function public.member_perm_raw(p_member uuid, key text) returns text
+language sql stable security definer set search_path = public as $$
+  select coalesce((
+    select case
+      when p.role_id = 'admin' then 'F'
+      when p.custom_perms ? key then p.custom_perms ->> key
+      else (select case max(case (case when r.id = p.role_id then public.role_level_perms(r, p.level) else r.permissions end) ->> key
+                                 when 'F' then 2 when 'P' then 1 else 0 end) when 2 then 'F' when 1 then 'P' else 'N' end
+              from public.roles r
+             where r.id = p.role_id or (r.id = any (coalesce(p.extra_roles, '{}'::text[])) and not r.hidden and r.id <> 'admin'))
+    end
+    from public.profiles p where p.id = p_member
+  ), 'N')
+$$;
+revoke execute on function public.member_perm_raw(uuid, text) from public, anon, authenticated;
+grant execute on function public.member_perm_raw(uuid, text) to service_role;
+
+-- every key any role or this member's overrides name → what the member has on it (status-blind)
+create or replace function public.member_access_snapshot(p_member uuid) returns jsonb
+language sql stable security definer set search_path = public as $$
+  select coalesce(jsonb_object_agg(k, public.member_perm_raw(p_member, k)), '{}'::jsonb)
+    from (select jsonb_object_keys(r.permissions) k from public.roles r
+          union select jsonb_object_keys(lp.value) from public.roles r, jsonb_each(coalesce(r.level_perms, '{}'::jsonb)) lp where jsonb_typeof(lp.value) = 'object'
+          union select jsonb_object_keys(coalesce(p.custom_perms, '{}'::jsonb)) from public.profiles p where p.id = p_member) t
+$$;
+revoke execute on function public.member_access_snapshot(uuid) from public, anon, authenticated;
+grant execute on function public.member_access_snapshot(uuid) to service_role;
+
+-- after a manager's write on a member's access: whatever the member now has above what he had must stay within the manager's own
+-- (has_perm's rows for the caller: member_perm on auth.uid()); p_before = member_access_snapshot before the write, or null to hold
+-- every key (a reactivation hands everything back). The admin: nothing to check.
+create or replace function public.member_access_guard(p_member uuid, p_before jsonb) returns void
+language plpgsql stable security definer set search_path = public as $$
+declare
+  e record;
+begin
+  if public.is_admin() then return; end if;
+  for e in select key, value from jsonb_each_text(public.member_access_snapshot(p_member)) loop
+    if public.perm_rank(e.value) > public.perm_rank(public.member_perm(auth.uid(), e.key))
+       and (p_before is null or public.perm_rank(e.value) > public.perm_rank(coalesce(p_before ->> e.key, 'N'))) then
+      raise exception 'invalid: above' using errcode = '22023';
+    end if;
+  end loop;
+end
+$$;
+revoke execute on function public.member_access_guard(uuid, jsonb) from public, anon, authenticated;
+grant execute on function public.member_access_guard(uuid, jsonb) to service_role;
+
 -- ---------------------------------------------------------------- the data
 -- the name (2–80), the mobile (an Egyptian mobile, unique — 23505 «taken»), the job title (up to 80, may be empty); null = unchanged
 create or replace function public.member_info_set(p_member uuid, p_name text, p_phone text, p_title text) returns jsonb
@@ -116,29 +166,19 @@ grant execute on function public.member_job_set(uuid, text, text, date, numeric)
 create or replace function public.member_perms_set(p_member uuid, p_perms jsonb) returns void
 language plpgsql volatile security definer set search_path = public as $$
 declare
-  v_role text; v_old jsonb; v_keys text[]; v_before jsonb := '{}'; v_k text;
+  v_role text; v_before jsonb;
 begin
   if not (public.is_admin() or public.member_can_edit(p_member)) then raise exception 'not allowed' using errcode = '42501'; end if;
   if not public.perms_ok(p_perms) then raise exception 'invalid: perms' using errcode = '22023'; end if;
   if not public.perms_within_mine(p_perms) then raise exception 'invalid: above' using errcode = '22023'; end if;
-  select role_id, coalesce(custom_perms, '{}') into v_role, v_old from public.profiles where id = p_member for update;
+  select role_id into v_role from public.profiles where id = p_member for update;
   if v_role is null then raise exception 'no such member' using errcode = 'P0002'; end if;
   if v_role = 'admin' then raise exception 'invalid: admin' using errcode = '22023'; end if;
-  -- a manager: what the member really has on every touched key, before and after — taking an override off hands over the role's
-  -- value, so whatever rises must still be within the manager's own (security review)
-  if not public.is_admin() then
-    select array_agg(distinct x) into v_keys from (select jsonb_object_keys(v_old) x union select jsonb_object_keys(p_perms)) t;
-    foreach v_k in array coalesce(v_keys, '{}') loop v_before := v_before || jsonb_build_object(v_k, public.member_perm(p_member, v_k)); end loop;
-  end if;
+  -- a manager: what the member really has before and after (status-blind) — taking an override off hands over the role's value, so
+  -- whatever rises must still be within the manager's own (security review)
+  v_before := public.member_access_snapshot(p_member);
   update public.profiles set custom_perms = p_perms where id = p_member;
-  if not public.is_admin() then
-    foreach v_k in array coalesce(v_keys, '{}') loop
-      if public.perm_rank(public.member_perm(p_member, v_k)) > public.perm_rank(v_before ->> v_k)
-         and public.perm_rank(public.member_perm(p_member, v_k)) > public.perm_rank(public.member_perm(auth.uid(), v_k)) then
-        raise exception 'invalid: above' using errcode = '22023';
-      end if;
-    end loop;
-  end if;
+  perform public.member_access_guard(p_member, v_before);
   perform public.log_activity('settings.member.perms', 'profile', p_member::text, null, to_jsonb((select coalesce(array_agg(k order by k), '{}') from jsonb_object_keys(p_perms) k)));
   perform public.perm_change_alert('اتغيّرت الصلاحيات المخصصة لعضو (' || (select count(*) from jsonb_object_keys(p_perms)) || ')', p_member::text);
 end
@@ -149,7 +189,7 @@ grant execute on function public.member_perms_set(uuid, jsonb) to authenticated,
 create or replace function public.member_level_set(p_member uuid, p_level text) returns void
 language plpgsql volatile security definer set search_path = public as $$
 declare
-  v_old text; v_role text;
+  v_old text; v_role text; v_before jsonb;
 begin
   if not (public.is_admin() or public.member_can_edit(p_member)) then raise exception 'not allowed' using errcode = '42501'; end if;
   if p_level is null or p_level not in ('manager', 'employee', 'viewer') then raise exception 'invalid: level' using errcode = '22023'; end if;
@@ -160,7 +200,9 @@ begin
   if not public.perms_within_mine((select public.role_level_perms(r, p_level) from public.roles r where r.id = v_role)) then
     raise exception 'invalid: above' using errcode = '22023';
   end if;
+  v_before := public.member_access_snapshot(p_member);
   update public.profiles set level = p_level where id = p_member;
+  perform public.member_access_guard(p_member, v_before);
   perform public.log_activity('settings.member.level', 'profile', p_member::text, to_jsonb(v_old), to_jsonb(p_level));
   perform public.perm_change_alert('اتغيّر مستوى عضو في دوره', p_member::text);
 end
@@ -171,20 +213,19 @@ grant execute on function public.member_level_set(uuid, text) to authenticated, 
 create or replace function public.member_role_set(p_member uuid, p_role text) returns void
 language plpgsql volatile security definer set search_path = public as $$
 declare
-  v_old text; v_level text;
+  v_old text; v_before jsonb;
 begin
   if not (public.is_admin() or public.member_can_edit(p_member)) then raise exception 'not allowed' using errcode = '42501'; end if;
   if not exists (select 1 from public.roles where id = p_role and not hidden) then raise exception 'invalid: role' using errcode = '22023'; end if;
-  select role_id, coalesce(level, 'employee') into v_old, v_level from public.profiles where id = p_member for update;
+  select role_id into v_old from public.profiles where id = p_member for update;
   if v_old is null then raise exception 'no such member' using errcode = 'P0002'; end if;
   if not public.is_admin() then
-    -- a manager never makes anyone an admin, and the new role at the member's own level (the level stays with the member) is within
-    -- his own permissions (security review)
+    -- a manager never makes anyone an admin, and the new role at «موظف» (a new main role starts there — profiles_level_on_role, 0096)
+    -- is within his own permissions; the guard after the write checks what the member really has
     if p_role = 'admin' then raise exception 'invalid: admin' using errcode = '22023'; end if;
-    if not public.perms_within_mine((select public.role_level_perms(r, v_level) from public.roles r where r.id = p_role)) then
-      raise exception 'invalid: above' using errcode = '22023';
-    end if;
+    if not public.perms_within_mine((select r.permissions from public.roles r where r.id = p_role)) then raise exception 'invalid: above' using errcode = '22023'; end if;
   end if;
+  v_before := public.member_access_snapshot(p_member);
   if v_old = p_role then return; end if;
   if v_old = 'admin' and (select count(*) from public.profiles where role_id = 'admin' and status = 'active' and id <> p_member) = 0 then
     raise exception 'last admin' using errcode = '22023';
@@ -193,6 +234,7 @@ begin
   update public.profiles set role_id = p_role,
          extra_roles = case when p_role = 'admin' then '{}'::text[] else array_remove(extra_roles, p_role) end
    where id = p_member;
+  perform public.member_access_guard(p_member, v_before);
   perform public.log_activity('settings.member.role', 'profile', p_member::text, to_jsonb(v_old), to_jsonb(p_role));
   perform public.perm_change_alert('اتغيّر دور عضو: ' || v_old || ' ← ' || p_role, p_member::text);
 end
@@ -203,7 +245,7 @@ grant execute on function public.member_role_set(uuid, text) to authenticated, s
 create or replace function public.member_roles_set(p_member uuid, p_roles text[]) returns void
 language plpgsql volatile security definer set search_path = public as $$
 declare
-  v_main text; v_old text[]; v_new text[];
+  v_main text; v_old text[]; v_new text[]; v_before jsonb;
 begin
   if not (public.is_admin() or public.member_can_edit(p_member)) then raise exception 'not allowed' using errcode = '42501'; end if;
   select role_id, extra_roles into v_main, v_old from public.profiles where id = p_member for update;
@@ -216,7 +258,9 @@ begin
                                         and not public.perms_within_mine(r.permissions)) then
     raise exception 'invalid: above' using errcode = '22023';
   end if;
+  v_before := public.member_access_snapshot(p_member);
   update public.profiles set extra_roles = v_new where id = p_member; -- the guard checks every role
+  perform public.member_access_guard(p_member, v_before);
   perform public.log_activity('settings.member.roles', 'profile', p_member::text, to_jsonb(v_old), to_jsonb(v_new));
   perform public.perm_change_alert('اتغيّرت الأدوار الإضافية لعضو (' || cardinality(v_new) || ')', p_member::text);
 end
@@ -240,6 +284,8 @@ begin
     raise exception 'last admin' using errcode = '22023';
   end if;
   update public.profiles set status = p_status where id = p_member;
+  -- a manager hands back on reactivation everything the member has: all of it must be within his own (security review)
+  if p_status = 'active' then perform public.member_access_guard(p_member, null); end if;
   if p_status = 'suspended' then delete from auth.sessions s where s.user_id = p_member; end if;
   perform public.log_activity('settings.member.' || case when p_status = 'suspended' then 'suspend' else 'reactivate' end, 'profile', p_member::text,
     to_jsonb(v_old.status), jsonb_strip_nulls(jsonb_build_object('status', p_status, 'reason', nullif(left(btrim(coalesce(p_reason, '')), 300), ''))));

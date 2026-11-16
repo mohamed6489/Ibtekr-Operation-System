@@ -90,18 +90,35 @@ end $$;
 reset role;
 update public.roles set permissions = '{"orders.view":"P"}' where id = 'me_low111';
 update public.profiles set custom_perms = '{"orders.view":"F","orders.status":"P"}', level = 'viewer' where id = '00000000-0000-4000-8000-0000000111a3';
--- the level stays with the member: a role whose «مدير» set is above the manager's own is refused for a member who is «مدير»
-update public.roles set level_perms = '{"manager":{"accounts.view":"F"}}' where id = 'me_big111';
-update public.roles set permissions = '{"orders.view":"P"}' where id = 'me_big111';
+-- a role change starts the member at «موظف» (0096): a role whose «موظف» set is within the manager's own goes through even for a member
+-- who was «مدير»
+update public.roles set level_perms = '{"manager":{"accounts.view":"F"}}', permissions = '{"orders.view":"P"}' where id = 'me_big111';
 update public.profiles set level = 'manager', custom_perms = '{}' where id = '00000000-0000-4000-8000-0000000111a3';
 select pg_temp.as_member('00000000-0000-4000-8000-0000000111a2');
+do $$ begin perform public.member_role_set('00000000-0000-4000-8000-0000000111a3', 'me_big111'); end $$;
+reset role;
 do $$ begin
-  if not pg_temp.fails($q$select public.member_role_set('00000000-0000-4000-8000-0000000111a3', 'me_big111')$q$, 'invalid: above') then raise exception 'case role above at the member''s level failed'; end if;
+  if (select level from public.profiles where id = '00000000-0000-4000-8000-0000000111a3') <> 'employee' then raise exception 'case level reset on role failed'; end if;
+end $$;
+-- a suspended member: taking off an override that holds the role's F back is refused all the same (status-blind)
+update public.roles set permissions = '{"orders.view":"P","accounts.view":"F"}', level_perms = '{}' where id = 'me_low111';
+update public.profiles set role_id = 'me_low111', level = 'employee', custom_perms = '{"accounts.view":"N"}', status = 'suspended' where id = '00000000-0000-4000-8000-0000000111a3';
+select pg_temp.as_member('00000000-0000-4000-8000-0000000111a2');
+do $$ begin
+  if not pg_temp.fails($q$select public.member_perms_set('00000000-0000-4000-8000-0000000111a3', '{}')$q$, 'invalid: above') then raise exception 'case suspended override removal failed'; end if;
+  -- reactivating hands everything back: refused while the member has a permission above the manager's
+  perform public.member_perms_set('00000000-0000-4000-8000-0000000111a3', '{"accounts.view":"N"}');
 end $$;
 reset role;
-update public.profiles set level = 'employee' where id = '00000000-0000-4000-8000-0000000111a3';
+update public.profiles set custom_perms = '{}' where id = '00000000-0000-4000-8000-0000000111a3';
 select pg_temp.as_member('00000000-0000-4000-8000-0000000111a2');
-do $$ begin perform public.member_role_set('00000000-0000-4000-8000-0000000111a3', 'me_big111'); end $$;
+do $$ begin
+  if not pg_temp.fails($q$select public.member_status_set('00000000-0000-4000-8000-0000000111a3', 'active', null)$q$, 'invalid: above') then raise exception 'case reactivation above failed'; end if;
+end $$;
+reset role;
+update public.roles set permissions = '{"orders.view":"P"}' where id = 'me_low111';
+select pg_temp.as_member('00000000-0000-4000-8000-0000000111a2');
+do $$ begin perform public.member_status_set('00000000-0000-4000-8000-0000000111a3', 'active', null); end $$;
 reset role;
 update public.profiles set role_id = 'me_low111', level = 'viewer', custom_perms = '{"orders.view":"F","orders.status":"P"}' where id = '00000000-0000-4000-8000-0000000111a3';
 update public.roles set permissions = '{"accounts.view":"F"}', level_perms = '{}' where id = 'me_big111';

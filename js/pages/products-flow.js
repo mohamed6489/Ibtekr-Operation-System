@@ -101,6 +101,11 @@
   const newKey = () => 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const groups = () => FD.groupRows(rows(), st().type);
   const colors = () => (ST() ? ST().colors() : []);
+  // comments decision 51 («الاستايل ييجي من الاستايلات اللي علي الويبسايت بس»): the styles are the shop's own — the terms of the site's
+  // «Product Style» attribute (IBStudio.siteStyles), each with its Arabic name (the site's, else this page's, else the English one).
+  // While they are not read yet, or the site has none, the page's own list stands in.
+  const shopStyles = () => !!(ST() && ST().siteStyles && ST().siteStyles().length);
+  const styleList = () => { const L = ST() && ST().siteStyles ? ST().siteStyles() : []; return L.length ? L.map((x) => [x.en, x.ar || (FD.pairOf(FD.STYLES, x.en, '') || [])[1] || x.en]) : FD.STYLES; };
   const colorOf = (r) => { const n = String(r.colorEn || '').trim().toLowerCase(); const a = String(r.colorAr || '').trim(); return colors().find((c) => (n && c.name_en.toLowerCase() === n) || (a && String(c.name_ar).trim() === a)) || null; };
   const codeOfRow = (r) => { const c = colorOf(r); if (c) return c.code; const m = /-([A-Z]{2})(?:-[A-Z0-9]+)?$/.exec(String(r.sku || '')); return m && colors().some((x) => x.code === m[1]) ? m[1] : null; };
   // the photos' units: a Simple = its row; a Variable = one unit per color (the sizes of a color share their photos)
@@ -663,10 +668,10 @@
     if (!todo.length) { if (!auto) K.toast('مفيش بيانات ناقصة', 'success'); return; }
     await touch(true); S.busy = 'ai'; R(); let done = 0; let stop = '';
     for (const { g, gi, want } of todo) {
-      const r = await AI().studio(S.id, gi, want, notes);
+      const r = await AI().studio(S.id, gi, want, notes, styleList().map(([en, ar]) => ({ en, ar })));
       if (!r.ok) { stop = why(r.reason); break; }
       const f = r.fields || {};
-      const mat = FD.pairOf(FD.MATERIALS, f.material, f.materialAr); const sty = FD.pairOf(FD.STYLES, f.style, f.styleAr);
+      const mat = FD.pairOf(FD.MATERIALS, f.material, f.materialAr); const sty = FD.pairOf(styleList(), f.style, f.styleAr);
       g.rows.forEach((ri) => { const x = rows()[ri]; x.ai = Object.assign({}, x.ai);
         const fill = (k, v) => { if (v && !x[k]) { x[k] = v; x.ai[k] = true; } };
         const put = (k, v) => { if (v) { x[k] = v; x.ai[k] = true; } };
@@ -746,11 +751,11 @@
         catOpts.length > 1 ? K.field.select('cat', 'القسم', catOpts, f, e, set, { placeholder: 'اختار القسم — اكتب أول حروف اسمه' }) : null,
         brands.length > 1 ? K.field.select('brand', 'البراند', [keep].concat(brands.map((b) => ({ value: b, label: b }))), f, e, set) : null,
         K.two(K.field.select('color', 'اللون', pairs(colorList()), f, e, set), K.field.select('material', 'الخامة', pairs(FD.MATERIALS), f, e, set)),
-        K.field.select('style', 'الستايل', pairs(FD.STYLES), f, e, set),
+        K.field.select('style', 'الستايل', pairs(styleList()), f, e, set),
         K.two(K.field.text('nameAr', 'الاسم بالعربي', f, e, set, {}), K.field.text('nameEn', 'الاسم بالإنجليزي', f, e, set, { dir: 'ltr' }))],
       submit: async (f) => {
         const sel = rows().filter((r) => S.sel.has(r.key)); const pick = (list, v) => list.find(([en]) => en === v) || null;
-        const col = f.color ? pick(colorList(), f.color) : null; const mat = f.material ? pick(FD.MATERIALS, f.material) : null; const sty = f.style ? pick(FD.STYLES, f.style) : null;
+        const col = f.color ? pick(colorList(), f.color) : null; const mat = f.material ? pick(FD.MATERIALS, f.material) : null; const sty = f.style ? pick(styleList(), f.style) : null;
         const code = col ? await codeForColor(col[0], col[1]) : null;
         sel.forEach((r) => {
           const put = (k, v) => { if (v) { r[k] = v; if (r.ai) delete r.ai[k]; } };
@@ -810,11 +815,12 @@
       submit: (f) => done(String(f.en).trim().slice(0, 40), String(f.ar).trim().slice(0, 40)) });
   }
   // a dropdown of [English, Arabic] pairs: the Arabic column shows the Arabic names, the English the English; a pick sets both
-  function pairField(rs, kEn, kAr, list, lang, label, onPick) {
+  // fixed: the list is all there is (the shop's own styles — comments decision 51): no «+ جديد…»
+  function pairField(rs, kEn, kAr, list, lang, label, onPick, fixed) {
     const r = rs[0]; const k = lang === 'ar' ? kAr : kEn; const id = 'fl-' + k + '-' + r.key;
     const hit = FD.pairOf(list, r[kEn], r[kAr]); const cur = (lang === 'ar' ? r[kAr] || r[kEn] : r[kEn] || r[kAr]) || '';
     const options = [{ value: '', label: '—' }].concat(list.map(([en, ar]) => ({ value: en, label: lang === 'ar' ? ar : en })), !hit && cur ? [{ value: '__cur', label: cur }] : [],
-      [{ value: '__new', label: lang === 'ar' ? '+ جديد…' : '+ New…' }]);
+      fixed ? [] : [{ value: '__new', label: lang === 'ar' ? '+ جديد…' : '+ New…' }]);
     const ai = !!(r.ai && (r.ai[kEn] || r.ai[kAr]));
     return h('div', { class: 'fl-f fl-pick' + (ai ? ' is-ai' : ''), 'data-fl-pick': k, dir: lang === 'ar' ? 'rtl' : 'ltr' },
       U.Select({ id, label: ai ? label + ' · AI' : label, options, value: hit ? hit[0] : cur ? '__cur' : '', onChange: (v) => {
@@ -893,11 +899,11 @@
     const ar = h('div', { class: 'fl-dcol', lang: 'ar', dir: 'rtl' }, h('div', { class: 'fl-dcol-h' }, 'عربي'),
       textField(rs, 'nameAr', 'الاسم', { after: nameAfter, rw: { key: g.key, what: 'name', lang: 'ar' } }), textField(rs, 'shortAr', 'الوصف', { after: descAfter, rw: { key: g.key, what: 'desc', lang: 'ar' } }),
       vari ? null : h('div', { class: 'fl-2' }, pairField(rs, 'colorEn', 'colorAr', colorList(), 'ar', 'اللون', pickColor), textField(rs, 'sizeAr', 'المقاس', { after: sizeAfter(rs) })),
-      h('div', { class: 'fl-2' }, pairField(rs, 'materialEn', 'materialAr', FD.MATERIALS, 'ar', 'الخامة', pickBoth('materialEn', 'materialAr')), pairField(rs, 'styleEn', 'styleAr', FD.STYLES, 'ar', 'الستايل', pickBoth('styleEn', 'styleAr'))));
+      h('div', { class: 'fl-2' }, pairField(rs, 'materialEn', 'materialAr', FD.MATERIALS, 'ar', 'الخامة', pickBoth('materialEn', 'materialAr')), pairField(rs, 'styleEn', 'styleAr', styleList(), 'ar', 'الستايل', pickBoth('styleEn', 'styleAr'), shopStyles())));
     const en = h('div', { class: 'fl-dcol', lang: 'en', dir: 'ltr' }, h('div', { class: 'fl-dcol-h' }, 'English', tr ? h('span', { class: 'fl-trans', role: 'status' }, 'بيترجم…') : null),
       textField(rs, 'nameEn', 'Product name', { dir: 'ltr', rw: { key: g.key, what: 'name', lang: 'en' } }), textField(rs, 'shortEn', 'Description', { dir: 'ltr', rw: { key: g.key, what: 'desc', lang: 'en' } }),
       vari ? null : h('div', { class: 'fl-2' }, pairField(rs, 'colorEn', 'colorAr', colorList(), 'en', 'Colour', pickColor), textField(rs, 'size', 'Size', { dir: 'ltr' })),
-      h('div', { class: 'fl-2' }, pairField(rs, 'materialEn', 'materialAr', FD.MATERIALS, 'en', 'Material', pickBoth('materialEn', 'materialAr')), pairField(rs, 'styleEn', 'styleAr', FD.STYLES, 'en', 'Style', pickBoth('styleEn', 'styleAr'))));
+      h('div', { class: 'fl-2' }, pairField(rs, 'materialEn', 'materialAr', FD.MATERIALS, 'en', 'Material', pickBoth('materialEn', 'materialAr')), pairField(rs, 'styleEn', 'styleAr', styleList(), 'en', 'Style', pickBoth('styleEn', 'styleAr'), shopStyles())));
     const photos = (R0.photos || []).length;
     // comments decision 43: the picture — the card's or a variation's — is a button: it opens the picture's popup
     const picBtn = (x, cls) => h('button', { type: 'button', class: 'fl-pic-btn', 'data-fl-photo': x.key, title: 'افتح الصورة — بدّلها أو ولّد صورة بالذكاء الاصطناعي', 'aria-label': 'صورة ' + (x.nameAr || x.nameEn || x.sku || 'المنتج') + ' — افتحها', onClick: () => photoPopup(x) },
@@ -1429,7 +1435,7 @@
   }
   function view(head) {
     if (!ST() || !ST().can()) return [head, K.Empty('مش مسموحلك تضيف منتجات', 'اطلب صلاحية «إضافة منتجات» من الأدمن.')];
-    ST().ensure();
+    ST().ensure(); if (ST().loadStyles) ST().loadStyles(); // the shop's own styles (comments decision 51)
     if (S.err) return [head, K.Empty('الدفعة مش متاحة', S.err, Button({ size: 'sm', label: 'رجوع لإضافة', onClick: () => go('products-add') }))];
     if (S.loading || !st()) return [head, U.InlineNote({ children: 'بنفتح الدفعة…' })];
     const s = st(); const photos = s.case === 'photos';

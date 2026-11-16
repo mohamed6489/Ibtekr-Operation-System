@@ -246,12 +246,27 @@
     return { ok: true, csv: r.body.csv };
   }
 
-  function clear() { gen++; st = 'idle'; batches = []; colors = []; nextSerial = null; urls.clear(); }
+  // the shop's own styles (comments decision 51): the terms of the site's «Product Style» attribute with their Arabic names — read
+  // once a session (woo-sync `styles`, a read), [] while they are not known (the page then keeps its own list)
+  let styles = null; let stylesP = null;
+  function siteStyles() { return styles || []; }
+  async function loadStyles(force) {
+    if (styles && !force) return styles;
+    if (!stylesP) stylesP = (async () => {
+      const r = await invoke({ action: 'styles' });
+      const list = r.ok && r.body && r.body.result === 'ok' && Array.isArray(r.body.styles) ? r.body.styles : null;
+      if (list) { styles = list.filter((x) => x && typeof x.en === 'string' && x.en.trim()).map((x) => ({ en: x.en.trim(), ar: typeof x.ar === 'string' ? x.ar.trim() : '' })); emit({ styles: true }); }
+      stylesP = null; return styles || [];
+    })();
+    return stylesP;
+  }
+
+  function clear() { gen++; st = 'idle'; batches = []; colors = []; nextSerial = null; urls.clear(); styles = null; stylesP = null; }
 
   window.IBStudio = {
     load, ensure, clear, state: () => st, can, BUCKET,
     batches: () => batches.slice(), colors: () => colors.slice(), nextSerial: () => nextSerial,
-    open, create, save, archive, addColor, takeSerials, toWebp, uploadImage, removeImage, imageUrl, upload, createCategory, readSheetLink,
+    open, create, save, archive, addColor, takeSerials, toWebp, uploadImage, removeImage, imageUrl, upload, createCategory, readSheetLink, siteStyles, loadStyles,
     media, bytesOf, // the three flows (14 Nov)
     categoryGet, categoryUpdate, categoryDelete, // B4 (11 Nov): the categories tab
   };

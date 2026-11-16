@@ -310,6 +310,43 @@
     return { ok: true, path, credits: n, model: typeof b.model === 'string' ? b.model : a.model };
   }
   const generate = (cid, a) => imageCall('campaign', cid, a || {});
+  // ---------- the campaign's images on Magnific (comments decision 52 — the owner 15 Nov: «عايز ابعت الصور لmagnific او ابعت الprompt
+  // اللي يتعملي بيه صورة … و كمان زرار استلم بيه الصور من magnific») ----------
+  // The server (ai-images bridge_campaign) builds one flow on the linked account's Space: a generator an image of the campaign with
+  // the very prompt the credits path sends and its reference photos; generating there is the account's own, no credit of ours.
+  // bridge_campaign_fetch brings the newest result of each generator into the campaign's folder — the page puts it on the piece.
+  const MG_MESSAGES = { not_linked: 'حساب Magnific مش مربوط — الأدمن بيربطه من «الإعدادات › الربط بالمنصات»', nothing: 'مفيش قطع صور تتبعت — كمّل «التفاصيل» الأول (والفيديو محتاج «توليد المشاهد»)',
+    no_flow: 'ابعت القطع لـ Magnific الأول', busy: 'Magnific مشغول دلوقتي — استنى دقيقة وجرّب تاني', refused: 'Magnific رفض الطلب — جرّب تاني', mcp_error: 'Magnific ماردش زي المتوقع — جرّب تاني' };
+  const mgMessage = (r) => (r.reason === 'forbidden' ? MESSAGES.forbidden : r.reason === 'notfound' ? 'الكامبين دي اتمسحت — افتحها من «آخر الشغل»' : r.reason === 'network' ? 'تعذّر الاتصال — جرّب تاني'
+    : (r.code && MG_MESSAGES[r.code]) || (r.reason === 'not_configured' ? MG_MESSAGES.not_linked : r.reason === 'busy' ? MG_MESSAGES.busy : MG_MESSAGES.mcp_error));
+  const httpsOf = (v) => (typeof v === 'string' && /^https:\/\/[^\s<>"]+$/.test(v) ? v : null);
+  async function magnificStatus() {
+    const r = await invoke('ai-images', { action: 'bridge_status' });
+    return r.ok ? { ok: true, linked: !!(r.body && r.body.linked) } : { ok: false, linked: false };
+  }
+  async function magnificSend(cid) {
+    if (!can().create) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
+    if (!cid) return { ok: false, reason: 'invalid', message: 'احفظ الكامبين الأول' };
+    await flush(cid); // the server reads the pieces as saved
+    const r = await invoke('ai-images', { action: 'bridge_campaign', campaign_id: cid });
+    if (!r.ok) return Object.assign(r, { message: mgMessage(r) });
+    const b = r.body || {}; const n = (v) => (Number.isInteger(Number(v)) && Number(v) > 0 ? Number(v) : 0);
+    log('magnific.send', n(b.targets) + ' images · ' + n(b.uploaded) + ' photos', cid);
+    return { ok: true, url: httpsOf(b.url), targets: n(b.targets), refs: n(b.refs), uploaded: n(b.uploaded), left: n(b.left) };
+  }
+  async function magnificFetch(cid) {
+    if (!can().create) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
+    if (!cid) return { ok: false, reason: 'invalid', message: 'احفظ الكامبين الأول' };
+    await flush(cid);
+    const r = await invoke('ai-images', { action: 'bridge_campaign_fetch', campaign_id: cid });
+    if (!r.ok) return Object.assign(r, { message: mgMessage(r) });
+    const b = r.body || {}; const n = (v) => (Number.isInteger(Number(v)) && Number(v) > 0 ? Number(v) : 0);
+    // a path of this campaign's own folder only, on a piece named like one
+    const placed = (Array.isArray(b.placed) ? b.placed : []).filter((x) => x && typeof x.piece === 'string' && /^[A-Z][0-9]{1,2}$/.test(x.piece) && typeof x.path === 'string' && x.path.indexOf(cid + '/') === 0 && (x.slide == null || Number.isInteger(x.slide)))
+      .map((x) => ({ piece: x.piece, slide: x.slide == null ? null : x.slide, path: x.path }));
+    log('magnific.fetch', placed.length + ' images', cid);
+    return { ok: true, placed, found: n(b.found), failed: n(b.failed), offhost: n(b.offhost) };
+  }
   const edit = (cid, a) => { const x = a || {}; const pins = (Array.isArray(x.pins) ? x.pins : []).filter((p) => p && String(p.text || '').trim()).slice(0, 10)
     .map((p) => ({ x: Math.max(0, Math.min(100, Math.round(Number(p.x) || 0))), y: Math.max(0, Math.min(100, Math.round(Number(p.y) || 0))), text: clean(p.text, 200) }));
     return imageCall('campaign_edit', cid, x, { note: clean(x.note, 500), pins }); };
@@ -1033,7 +1070,7 @@
   function clear() { gen += 1; unsubscribe(); pend.forEach((p) => { if (p.timer) clearTimeout(p.timer); }); pend.clear(); chains.clear(); urls.clear(); data.campaigns = []; data.posts = []; data.templates = []; data.credits = null; conn = null; connAt = 0; ads = null; adsAt = 0; adsCache.clear(); sugg = null; suggAt = 0; rulesCache = null; rulesAt = 0; st = 'idle'; }
 
   window.IBMarketing = { load, ensure, clear, state: () => st, can, campaigns, posts, templates, getPost, wallet, credits, open, create, save, saveSoon, flush, archive,
-    upload, uploadTemplate, url, cachedUrl, blob, product, refLink, checkFile, generate, edit, write, schedule, move, caption, published, remove,
+    upload, uploadTemplate, url, cachedUrl, blob, product, refLink, checkFile, generate, magnificStatus, magnificSend, magnificFetch, edit, write, schedule, move, caption, published, remove,
     videoClip, videoVoice, videoMusic, videoAssemble, videoPoll, videoUpload, videoScenes,
     connection, connNow, setAutopublish, publishNow, deleteLive, preparePublish,
     adsStatus, adsNow, adsSync, adsData, adsLinkSet, adsLinkStart, adsLinkPick, adsUnlink, adsWhy,

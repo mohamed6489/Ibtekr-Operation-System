@@ -123,7 +123,7 @@
   const TABS = [['overview', 'نظرة عامة'], ['create', 'إنشاء'], ['publog', 'سجل النشر'], ['calendar', 'الخطة الإعلانية'], ['templates', 'قوالب التصميم'], ['ai', 'مساعدين الذكاء الاصطناعي'], ['reports', 'التقارير']];
   const CSTEPS = ['تفاصيل الكامبين', 'البناء', 'المراجعة', 'النشر والتحميل'];
   const st = { tab: 'overview', view: 'hub', step: 1 }; // the v6 prototype (owner 11 Nov): the page opens on «نظرة عامة»
-  const blankCamp = () => ({ id: null, w: W.defaults(), pieces: [], sched: {}, rtab: 'post', tried1: false, pubSel: new Set(), busy: {}, vjobs: {}, vurl: {} });
+  const blankCamp = () => ({ id: null, w: W.defaults(), pieces: [], sched: {}, rtab: 'post', tried1: false, pubSel: new Set(), busy: {}, vjobs: {}, vurl: {}, mg: null, mgBusy: null, mgLinked: null, mgAsked: false });
   const camp = blankCamp();
   const M = { plq: '', tplk: 'all', tplq: '', plat: 'all' }; // the tabs' filters; plat = the header's ad platform (the v6 prototype)
 
@@ -144,7 +144,7 @@
   };
 
   // ---------- the campaign row (decision 7): created on the first need, autosaved while it is edited ----------
-  const snapshot = () => ({ w: camp.w, pieces: camp.pieces, sched: camp.sched, rtab: camp.rtab });
+  const snapshot = () => Object.assign({ w: camp.w, pieces: camp.pieces, sched: camp.sched, rtab: camp.rtab }, camp.mg ? { mg: camp.mg } : {}); // mg: the Magnific flow's link, for the page (comments decision 52)
   const fields = () => ({ name: W.campaignName(camp.w.idea), goal: camp.w.goal, step: st.step, state: snapshot() });
   const persist = (ms) => { if (camp.id && can().create && MK()) MK().saveSoon(camp.id, fields, ms == null ? 1200 : ms); };
   async function ensureCampaign() {
@@ -159,7 +159,7 @@
   async function openCampaign(id) {
     const r = await MK().open(id); if (!r.ok) { K.toast(r.message, 'error'); return; }
     const s = r.campaign.state || {};
-    Object.assign(camp, blankCamp(), { id, w: Object.assign(W.defaults(), s.w || {}), pieces: Array.isArray(s.pieces) ? s.pieces : [], sched: s.sched || {}, rtab: s.rtab || 'post' });
+    Object.assign(camp, blankCamp(), { id, w: Object.assign(W.defaults(), s.w || {}), pieces: Array.isArray(s.pieces) ? s.pieces : [], sched: s.sched || {}, rtab: s.rtab || 'post', mg: s.mg && typeof s.mg === 'object' ? s.mg : null });
     go('marketing-campaign-' + Math.max(1, Math.min(4, r.campaign.step || 1)));
   }
 
@@ -325,7 +325,7 @@
   // ===== ٢. البناء =====
   const busyKey = (p, slide) => p.id + (slide == null ? '' : ':' + slide);
   const pv = (src, cls, label, busy) => h('div', { class: 'cw-pv' + (cls ? ' ' + cls : ''), role: src ? null : 'img', 'aria-label': src ? null : 'لسه ما اتولدتش', 'aria-busy': busy ? 'true' : null },
-    src ? Img(src, 'fill') : h('span', { class: 'cw-pv-e' }, Icon('image'), h('small', null, label || 'المعاينة هنا')), busy ? h('span', { class: 'cw-pv-busy', 'data-cw-busy': '' }, 'بيتولد…') : null);
+    src ? Img(src, 'fill') : h('span', { class: 'cw-pv-e' }, Icon('image'), h('small', null, label || 'المعاينة هنا')), busy ? h('span', { class: 'cw-pv-busy', 'data-cw-busy': '' }, busy === 'up' ? 'بيترفع…' : 'بيتولد…') : null);
   const vcls = (p) => szCls(p.size).trim();
   // one image of a piece (slide null = a post / an extra file, -1 = a carousel's cover, k = its slide) → the path into the piece
   async function genImage(p, slide) {
@@ -336,10 +336,84 @@
     const r = await MK().generate(camp.id, { piece: p.id, slide, model: vid ? W.DEFAULT_MODEL : p.model, size: vid ? W.videoImgSize(p.size) : p.size });
     delete camp.busy[key];
     if (!r.ok) { K.toast(r.message, 'error'); R(); return false; }
-    const t = slide == null || slide < 0 ? p : vid ? p.scenes[slide] : p.slides[slide];
-    t.img = r.path; t.gen = (t.gen || 0) + 1; t.approved = false; t.v = t.gen > 1 ? t.gen : t.v; if (t !== p) p.approved = false;
-    if (vid) { p.assembled = false; p.video = null; } // a new key frame: the clips and the cut are stale
+    setImg(p, slide, r.path);
     persist(0); R(); return true;
+  }
+  // an image onto its place — a post / an extra file (slide null), a carousel's cover (-1) or slide, a video scene's key frame: the
+  // piece is to be reviewed again; a new key frame makes the clips and the cut stale
+  function setImg(p, slide, path) {
+    const vid = p.kind === 'فيديو'; const t = slide == null || slide < 0 ? (vid ? null : p) : vid ? (p.scenes || [])[slide] : (p.slides || [])[slide];
+    if (!t) return false;
+    t.img = path; t.gen = (t.gen || 0) + 1; t.approved = false; t.v = t.gen > 1 ? t.gen : t.v; if (t !== p) p.approved = false;
+    if (vid) { p.assembled = false; p.video = null; }
+    return true;
+  }
+  // comments decision 52 (the owner 15 Nov on the campaign — «عايز اضيف upload للصور عشان لو معايا صور»): a ready image of the member's as
+  // the piece's own — it goes to the campaign's folder like a generated one (no credit), and the review / the publishing treat it the same
+  function upBtn(p, slide, label) {
+    if (!can().create) return null;
+    const id = 'cw-up-' + p.id + (slide == null ? '' : slide < 0 ? '-cv' : '-' + slide); const key = busyKey(p, slide);
+    const inp = h('input', { type: 'file', class: 'sr-file', id, accept: 'image/png,image/jpeg,image/webp', 'data-cw-up': p.id + (slide == null ? '' : ':' + slide), onChange: async () => {
+      const f = inp.files[0]; inp.value = ''; if (!f || camp.busy[key]) return;
+      if (!(await ensureCampaign())) return;
+      const cid = camp.id; camp.busy[key] = 'up'; R();
+      const r = await MK().upload(cid, f);
+      // `camp` is one object a new campaign refills: the answer counts only while this campaign and this piece are still the open ones
+      if (camp.id !== cid || !camp.pieces.includes(p)) return;
+      delete camp.busy[key];
+      if (!r.ok) { K.toast(r.message, 'error'); R(); return; }
+      if (!setImg(p, slide, r.path)) { R(); return; }
+      K.logEvent('mkt.campaign.image_upload', p.id + (slide == null ? '' : slide < 0 ? '·cover' : '·' + (slide + 1)));
+      persist(0); R(); K.toast('اترفعت الصورة', 'success');
+    } });
+    return h('span', { class: 'cw-up' }, h('label', { class: 'btn btn-default sm' + (camp.busy[key] ? ' disabled' : ''), for: id, tabindex: '0', role: 'button', 'aria-disabled': camp.busy[key] ? 'true' : null, onKeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); inp.click(); } } }, Icon('upload', 'sm'), h('span', null, label || 'ارفع صورة')), inp);
+  }
+  // comments decision 52 (the same comment — «عايز ابعت الصور لmagnific او ابعت الprompt اللي يتعملي بيه صورة زي اللي كنت عامله في صفحة المنتجات
+  // … و كمان زرار استلم بيه الصور من magnific») and the campaign half of decision 49: the build step's Magnific bar, the studio's own
+  // look. «ابعت لـ Magnific» puts a generator for every image of the campaign on the account's Space — its prompt (the one the
+  // credits path would send) and its reference photos; the member runs them there (no credit of ours) and «هات النتائج» brings the
+  // newest result of each onto its piece. The link is kept with the campaign for the page; the server trusts its own record.
+  function mgStatus() { if (camp.mgLinked != null || camp.mgAsked || !MK() || !MK().magnificStatus) return; camp.mgAsked = true; MK().magnificStatus().then((r) => { camp.mgLinked = !!(r && r.linked); if (st.view === 'campaign' && st.step === 2) R(); }); }
+  const mgCount = () => camp.pieces.reduce((n, p) => n + (p.kind === 'فيديو' ? (p.scenes || []).length : p.kind === 'كاروسيل' ? 1 + (p.slides || []).length : 1), 0);
+  async function mgSend() {
+    if (camp.mgBusy || !can().create) return;
+    if (!(await ensureCampaign())) return;
+    const cid = camp.id; camp.mgBusy = 'send'; R();
+    const r = await MK().magnificSend(cid);
+    if (camp.id !== cid) { if (r.ok) K.toast('اتبعتت قطع الكامبين لـ Magnific — افتحها من «آخر الشغل» عشان تجيب النتايج', 'success'); return; } // another campaign is open now: its own bar is untouched
+    camp.mgBusy = null;
+    if (!r.ok) { if (r.code === 'not_linked' || r.reason === 'not_configured') camp.mgLinked = false; K.toast(r.message, 'error'); R(); return; }
+    camp.mgLinked = true; camp.mg = { url: r.url, n: r.targets, at: new Date().toISOString() }; persist(0);
+    R();
+    K.toast('اتبعت ' + K.n0(r.targets) + ' صورة لـ Magnific' + (r.refs ? ' بـ ' + K.n0(r.refs) + ' صورة مرجعية' : '') + (r.left ? ' — ' + K.n0(r.left) + ' صورة زيادة ما دخلتش الفلو' : '') + ' — افتح الـ Space وشغّل المولّدات', 'success');
+  }
+  async function mgFetch() {
+    if (camp.mgBusy || !can().create || !camp.id) return;
+    const cid = camp.id; camp.mgBusy = 'fetch'; R();
+    const r = await MK().magnificFetch(cid);
+    // another campaign is open now: the server put the results on the saved campaign itself — they are there when it is opened
+    if (camp.id !== cid) { if (r.ok && r.placed.length) K.toast('نتايج Magnific اتحطت على قطع الكامبين — افتحها من «آخر الشغل»', 'success'); return; }
+    camp.mgBusy = null;
+    if (!r.ok) { if (r.code === 'not_linked') camp.mgLinked = false; K.toast(r.message, 'error'); R(); return; }
+    let n = 0;
+    r.placed.forEach((x) => { const p = camp.pieces.find((y) => y.id === x.piece); if (p && setImg(p, x.slide, x.path)) n += 1; });
+    if (n) persist(0);
+    R();
+    const rest = (r.offhost + r.failed) ? ' · ' + K.n0(r.offhost + r.failed) + ' ما اتنزّلتش — جرّب تاني' : '';
+    K.toast(n ? 'اتحطت ' + K.n0(n) + ' صورة من Magnific على قطعها — راجعها' + rest : r.found ? 'النتايج ما اتنزّلتش' + rest : 'مفيش نتايج جديدة على Magnific — شغّل المولّدات في الـ Space الأول', n ? 'success' : r.found ? 'error' : 'info');
+  }
+  function magnificBar() {
+    if (!can().create || !MK() || !MK().magnificSend) return null;
+    mgStatus(); const mg = camp.mg; const n = mgCount(); const busy = camp.mgBusy;
+    const url = mg && typeof mg.url === 'string' && /^https:\/\//.test(mg.url) ? mg.url : null;
+    const head = h('div', { class: 'fl-mg-h' }, Icon('sparkle', 'sm'), h('b', null, 'Magnific'), h('small', { class: 'help' }, 'ولّد على موقع Magnific بباقتك — من غير كريدت الـ API: ابعت القطع (صورها المرجعية والبرومبت بتاع كل صورة)، شغّل المولّدات هناك، وهات النتائج على القطع.'));
+    return h('div', { class: 'fl-mg cw-mg', 'data-cw-magnific': mg ? 'sent' : 'new' }, head,
+      camp.mgLinked === false ? U.InlineNote({ kind: 'warning', children: h('span', { 'data-cw-mg-unlinked': '' }, 'حساب Magnific مش مربوط — الأدمن بيربطه من «الإعدادات › الربط بالمنصات».') }) : null,
+      h('div', { class: 'acts-inline start' },
+        Button({ size: 'sm', icon: 'upload', label: busy === 'send' ? 'بنبعت…' : mg ? 'ابعت تاني لـ Magnific' : 'ابعت لـ Magnific', disabled: !!busy || !n, attrs: { 'data-cw-mg-send': '', title: 'كل صور الكامبين (' + n + ') ببرومبتاتها وصورها المرجعية' }, onClick: mgSend }),
+        url ? h('a', { class: 'btn btn-default sm', href: url, target: '_blank', rel: 'noopener', 'data-cw-mg-open': '' }, 'افتح الـ Space ↗') : null,
+        mg ? Button({ size: 'sm', icon: 'download', label: busy === 'fetch' ? 'بنجيب…' : 'هات النتائج من Magnific', disabled: !!busy, attrs: { 'data-cw-mg-fetch': '' }, onClick: mgFetch }) : null,
+        h('span', { class: 't-small help', 'data-cw-mg-state': mg ? String(mg.n || 0) : '0' }, U.num(mg ? 'اتبعت ' + (mg.n || 0) + ' صورة' + (mg.at ? ' · ' + dayLabel(String(mg.at).slice(0, 10)) : '') + ' — لو غيّرت الكلام ابعت تاني' : n ? n + ' صورة في الكامبين' : 'مفيش صور لسه'))));
   }
   async function genCarousel(p) { if (!(await genImage(p, -1))) return false; for (let k = 0; k < p.slides.length; k++) if (!(await genImage(p, k))) return false; return true; }
   // «املأ بالـ AI»: the empty fields of the piece (and its slides) from its campaign — the filled ones stay
@@ -409,14 +483,14 @@
     if (p.kind === 'كاروسيل') {
       const n = W.cost('carousel', p, IMGM()); const any = Object.keys(camp.busy).some((k) => k.startsWith(p.id + ':'));
       return h('section', Object.assign({ class: 'card cw-piece' }, anchor), pieceHead(p),
-        h('div', { class: 'cw-grid' }, pv(p.img, vcls(p), 'الغلاف', camp.busy[busyKey(p, -1)]), h('div', { class: 'cw-fields' }, h('h3', { class: 't-h6' }, 'الغلاف'), ...fieldsFor(p, 'b-', { ideaLabel: 'فكرة الغلاف' }))),
+        h('div', { class: 'cw-grid' }, pv(p.img, vcls(p), 'الغلاف', camp.busy[busyKey(p, -1)]), h('div', { class: 'cw-fields' }, h('h3', { class: 't-h6' }, 'الغلاف'), ...fieldsFor(p, 'b-', { ideaLabel: 'فكرة الغلاف' }), h('div', { class: 'acts-inline start' }, upBtn(p, -1, 'ارفع صورة الغلاف')))),
         h('h3', { class: 't-h6 cw-sub' }, 'صور الكاروسيل (' + p.slides.length + ')'),
-        h('div', { class: 'cw-slides' }, p.slides.map((s, k) => h('div', { class: 'cw-slide' }, h('div', { class: 'cw-grid' }, pv(s.img, vcls(p), 'صورة ' + (k + 1), camp.busy[busyKey(p, k)]), h('div', { class: 'cw-fields' }, h('b', null, 'صورة ' + (k + 1)), ...fieldsFor(p, 'b-', { k, target: s, caption: false, ideaLabel: 'فكرة الصورة' })))))),
+        h('div', { class: 'cw-slides' }, p.slides.map((s, k) => h('div', { class: 'cw-slide' }, h('div', { class: 'cw-grid' }, pv(s.img, vcls(p), 'صورة ' + (k + 1), camp.busy[busyKey(p, k)]), h('div', { class: 'cw-fields' }, h('b', null, 'صورة ' + (k + 1)), ...fieldsFor(p, 'b-', { k, target: s, caption: false, ideaLabel: 'فكرة الصورة' }), h('div', { class: 'acts-inline start' }, upBtn(p, k, 'ارفع صورة ' + (k + 1)))))))),
         h('div', { class: 'acts-inline start' }, costBtn(p.img ? 'ولّد الكاروسيل تاني' : 'توليد الكاروسيل', n, async () => { if (await genCarousel(p)) K.toast('اتولد الغلاف و' + p.slides.length + ' صور', 'success'); }, { 'data-cw-gen': p.id }, null, any)));
     }
     const n = W.cost('image', p, IMGM()); const busy = camp.busy[busyKey(p, null)];
     return h('section', Object.assign({ class: 'card cw-piece' }, anchor), pieceHead(p), h('div', { class: 'cw-grid' }, pv(p.img, vcls(p), null, busy), h('div', { class: 'cw-fields' }, ...fieldsFor(p, 'b-', { caption: p.kind === 'بوست' }),
-      h('div', { class: 'acts-inline start' }, costBtn(p.img ? 'ولّد تاني' : 'توليد الصورة', n, async () => { if (await genImage(p, null)) K.toast('اتولدت الصورة', 'success'); }, { 'data-cw-gen': p.id }, null, busy)))));
+      h('div', { class: 'acts-inline start' }, costBtn(p.img ? 'ولّد تاني' : 'توليد الصورة', n, async () => { if (await genImage(p, null)) K.toast('اتولدت الصورة', 'success'); }, { 'data-cw-gen': p.id }, null, busy), upBtn(p, null, p.img ? 'ارفع صورة تانية' : 'ارفع صورة')))));
   }
   // the video piece in the build step (the v6): the idea and the caption, the scenes count, «توليد المشاهد» by Claude, a key frame a scene
   function buildVideo(p, anchor) {
@@ -434,7 +508,7 @@
       txt('b-' + p.id + '-sc' + k, 'فكرة المشهد', s.idea, (v) => { s.idea = v; }, true, { piece: p.id, slide: k }),
       K.two(U.Select({ id: 'b-' + p.id + '-cam' + k, label: 'الكاميرا', value: VCAMS.includes(s.cam) ? s.cam : 'ثابتة', options: VCAMS.map((x) => ({ value: x, label: x })), onChange: (v) => { s.cam = v; persist(); } }),
         U.TextInput({ id: 'b-' + p.id + '-tx' + k, label: 'كلام على الشاشة', value: s.text || '', maxlength: 60, placeholder: '—', onInput: (v) => { s.text = v; persist(); } })),
-      h('div', { class: 'acts-inline start' }, costBtn(s.img ? 'ولّد صورة المشهد تاني' : 'توليد صورة المشهد', W.cost('scene', p, IMGM()), async () => { if (await genImage(p, k)) K.toast('اتولدت صورة المشهد ' + (k + 1), 'success'); }, { 'data-cw-scene-gen': p.id + '-' + k }, null, camp.busy[busyKey(p, k)])))));
+      h('div', { class: 'acts-inline start' }, costBtn(s.img ? 'ولّد صورة المشهد تاني' : 'توليد صورة المشهد', W.cost('scene', p, IMGM()), async () => { if (await genImage(p, k)) K.toast('اتولدت صورة المشهد ' + (k + 1), 'success'); }, { 'data-cw-scene-gen': p.id + '-' + k }, null, camp.busy[busyKey(p, k)]), upBtn(p, k, 'ارفع صورة المشهد')))));
     const allN = sc.length ? W.cost('scenes-img', Object.assign({}, p, { scenes: sc.filter((x) => !x.img) }), IMGM()) : 0;
     return h('section', Object.assign({ class: 'card cw-piece cw-vid' }, anchor), pieceHead(p),
       h('div', { class: 'cw-grid' }, pv(sc[0] && sc[0].img, vcls(p), 'فيديو ' + K.n0(p.dur) + ' ث'), h('div', { class: 'cw-fields' }, txt('b-' + p.id + '-idea', 'فكرة الفيديو', p.idea, (v) => { p.idea = v; }, true, ctx), txt('b-' + p.id + '-cap', 'الكابشن المقترح', p.caption, (v) => { p.caption = v; }, true, ctx),
@@ -469,6 +543,7 @@
     ensurePieces(); const ps = camp.pieces; const pr = W.progress(ps, W.built);
     const jump = h('nav', { class: 'cw-jump', 'aria-label': 'القطع' }, ps.map((p) => h('a', { href: '#cw-' + p.id, class: 'chip' + (W.built(p) ? ' on' : ''), onClick: (e) => { e.preventDefault(); const el = document.getElementById('cw-' + p.id); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); el.focus({ preventScroll: true }); } } }, W.built(p) ? Icon('check', 'sm') : null, p.kind + ' ' + p.n)));
     return [h('div', { class: 'cw-bar card' }, h('span', { 'data-cw-built': pr.done + '/' + pr.total }, 'اتولد ', K.Num(pr.done + ' من ' + pr.total)), h('span', { class: 'grow' }), jump),
+      magnificBar(),
       camp.filling ? U.InlineNote({ children: h('span', { 'data-cw-autofill': camp.filling.done + '/' + camp.filling.total }, 'بنحمّل المحتوى: الـ AI بيكتب أفكار القطع وكلامها لوحده (' + K.n0(camp.filling.done) + ' من ' + K.n0(camp.filling.total) + ') — اللي مكتوب بيفضل، وتقدر تعدّل أي خانة.') }) : null,
       ...ps.map(buildCard),
       pr.done < pr.total ? U.InlineNote({ children: 'ولّد كل القطع عشان تكمّل للمراجعة.' }) : null,

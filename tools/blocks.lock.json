@@ -37,7 +37,7 @@
   },
   "10-ui-kit.js": {
     "prototype": "6d7129cf7ed40e7276739b75c131c31935f1f1a10c57d62a509dcbfd5e340cca",
-    "current": "ee03fb4641a562affd13916b37f09f5144113313e1aa3057b59e1901ddbd75f2"
+    "current": "2ae1d41b90e50c197e9fd27c00d973ad45ec339349573cc5f6257d418d6902ab"
   },
   "11-seed-product-images.js": {
     "prototype": "e378804fb28fedc3fccfbf1a287ebfb2ac99a23d28529f86e8e0afd319be6187",
@@ -109,7 +109,7 @@
   },
   "28-app.js": {
     "prototype": "28f47321b1a78201e81b34cffa6e20cba67b15788396c9ce0def7cd7e17243c9",
-    "current": "65d04591de7358b625cf44bd1186deba3b5ab7720c9589508702da6b48fa5623"
+    "current": "792d92d6b2f669ab54788c4368df91a03112848d0e2a5f6b2509e0162819ec52"
   },
   "29-orders-app.js": {
     "prototype": "2e80a15f203c79adc2931c3682297119b4e1926b9e40f10a0b906007acff23bd",

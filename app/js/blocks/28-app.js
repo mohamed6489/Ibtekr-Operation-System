@@ -3584,7 +3584,7 @@
       if (notes.length) window.IBKit.toast(notes.join(' · ') + '.', notes.some((x) => /ماترفع|رفضها/.test(x)) ? 'error' : 'success');
       return notes.length > 0;
     };
-    let errs = {}; let modal = null; let dup = null;
+    let errs = {}; let modal = null; let dup = null; let busy = false; // busy: the owner 16 Nov — a second click made a second maker
     const txt = (id, label, key, opts = {}) => U.TextInput(Object.assign({ id, label, value: f[key], error: errs[key], onInput: (v) => { f[key] = v; } }, opts));
     const two = (a, b) => h('div', { class: 'row cols2' }, a, b);
     const statusOpts = VD.STATUSES.map(([value, label]) => ({ value, label }));
@@ -3646,6 +3646,7 @@
         !existing && step > 0 ? Button({ label: 'السابق', attrs: { 'data-mk-prev': '' }, onClick: () => goStep(step - 1) }) : null, Button({ label: 'إلغاء', onClick: modal.close })].filter(Boolean));
     }
     function submit() {
+      if (busy) return;
       dup = null;
       if (existing) errs = VD.validateVendor(f);
       else {
@@ -3667,6 +3668,7 @@
           ...(Object.values(f.social).some((x) => String(x || '').trim()) ? { social: Object.assign({}, f.social) } : {}) } : {}) };
       const storeOpts = canStoreMk && f.mkStore ? { password: f.password, shopUrl: f.shopUrl || shopOf(f.username), notify: f.notify, trusted: f.trusted, featured: f.featured } : null;
       const STEP = { categories: 'الفئة الأساسية', rate: 'النسبة', login: 'بيانات الدخول', password: 'الباسورد المؤقت', bank: 'الحساب البنكي' };
+      busy = true; const addBtn = modal.el.querySelector('[data-mk-next="add"]'); if (addBtn) { addBtn.disabled = true; addBtn.setAttribute('aria-busy', 'true'); }
       Promise.resolve().then(() => vstore.create(input, vstore.actor())).then(async (res) => {
         const v = res.vendor; const miss = (res.missing || []).map((k) => STEP[k] + (res.reasons && VMSG[res.reasons[k]] ? ' (' + VMSG[res.reasons[k]] + ')' : ''));
         input.login.password = ''; f.password = '';
@@ -3682,7 +3684,7 @@
         vnotify(miss.length ? 'warning' : 'success', 'اتضاف المبتكر ' + v.name + (miss.filter((x) => x !== 'المتجر على الموقع').length ? ' — ناقص: ' + miss.filter((x) => x !== 'المتجر على الموقع').join('، ') + '. كمّله من ملفه.' : ' · الباسورد المؤقت جاهز تبعته له.') + storeNote);
         if (typeof done === 'function') done(v); else openVendor(v.id);
         afterSave(v.id).then((did) => { if (did && vredraw) vredraw(); });
-      }, (e) => { errs._form = e.message; draw(); });
+      }, (e) => { busy = false; errs._form = e.message; draw(); });
     }
     modal = U.Modal({ title: existing ? 'تعديل بيانات ' + existing.name : 'إضافة مبتكر', body: [], footer: [] }); if (!existing) modal.el.classList.add('mk-modal'); draw(); const first = modal.el.querySelector('#v-name'); if (first) first.focus();
   }

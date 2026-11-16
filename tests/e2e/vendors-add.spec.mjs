@@ -287,6 +287,34 @@ test('the owner, 11 Nov: a member without vendors.edit F sees no store section a
   await expect(drawer(page).locator('[data-make-store]')).toHaveCount(0);
 });
 
+// the owner 16 Nov (docs/superpowers/plans/2026-11-16-maker-add-delete.md decisions 1–3)
+test('16 Nov: the commission tree keeps name · rate · fee on one line and «+» opens the sub-categories right under their parent, indented; the contract date picked from the calendar is written; a double click on «إضافة المبتكر» adds one maker', async ({ page }) => {
+  await openVendors(page);
+  const m = await openAdd(page);
+  await m.locator('#v-name').fill('Double Clay');
+  await pickCats(page, 'v-cat', ['ديكور']);
+  await m.locator('#v-phone').fill('01000000039');
+  await pickOption(page, 'v-ctype', 'حسب الفئة (Category based)');
+  const line = async (id) => { const [a, r, f] = await Promise.all([m.locator('[data-cat="' + id + '"] .cat-name').boundingBox(), m.locator('#cr-' + id).boundingBox(), m.locator('#cf-' + id).boundingBox()]); return { a, r, f }; };
+  const top = await line(15);
+  expect(Math.abs(top.r.y - top.f.y)).toBeLessThan(4); expect(Math.abs((top.a.y + top.a.height / 2) - (top.r.y + top.r.height / 2))).toBeLessThan(12); // one line
+  await m.locator('[data-cat-toggle="15"]').click();
+  const order = await m.locator('[data-cat]').evaluateAll((els) => els.map((e) => e.getAttribute('data-cat')));
+  expect(order.slice(0, 2)).toEqual(['15', '151']); // the child right under its parent
+  const child = await line(151);
+  expect(child.a.x + child.a.width).toBeLessThan(top.a.x + top.a.width - 8); // indented (RTL: the name starts further left)
+  expect(Math.abs(child.r.x - top.r.x)).toBeLessThan(2); // the figures stay in their columns
+  await toStep(page, 'login'); await m.locator('#v-login-email').fill('double.dev@ibtekr.local'); await m.locator('[data-genpw]').click();
+  await toStep(page, 'bank');
+  await m.locator('#v-contract-exp').locator('xpath=..').locator('button.icb').click();
+  await page.locator('.dp.single').getByRole('button', { name: 'اليوم الحالي' }).click();
+  await expect(m.locator('#v-contract-exp')).toHaveValue(/^\d{2}\/\d{2}\/\d{4}$/);
+  const add = m.locator('[data-mk-next="add"]');
+  await add.evaluate((b) => { b.click(); b.click(); });
+  await expect(drawer(page)).toBeVisible();
+  await expect.poll(() => mock.vendors.filter((v) => v.name === 'Double Clay').length).toBe(1);
+});
+
 test('phase 13 decision 51: a photo of the wrong type is refused in the popup before any request; a member without vendors.edit F sees no photo button', async ({ page }) => {
   await openVendors(page);
   const m = await openAdd(page);

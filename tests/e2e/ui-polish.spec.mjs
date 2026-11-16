@@ -43,9 +43,9 @@ test('no two controls touch on any page or tab (a row of buttons keeps its gap)'
   expect(bad).toEqual([]);
 });
 
-test('a hover is the middle beige, the selected is the light beige with a green ring (owner batch 2 decision 34); a text button on a green header stays readable under the pointer', async ({ page }) => {
+test('a hover is #F9F0E2 (the owner 16 Nov), the selected is the light beige with a green ring (owner batch 2 decision 34); a text button on a green header stays readable under the pointer', async ({ page }) => {
   const rgb = (page, sel) => page.locator(sel).first().evaluate((e) => getComputedStyle(e).backgroundColor);
-  const HOVER = 'rgb(239, 226, 201)', SELECTED = 'rgb(246, 234, 214)', DARK = 'rgb(232, 213, 179)';
+  const HOVER = 'rgb(249, 240, 226)', SELECTED = 'rgb(246, 234, 214)', DARK = 'rgb(232, 213, 179)';
   await page.locator('.sidebar .nav-item[data-page="marketing"]').click();
   const b = page.getByRole('button', { name: 'افتح الميديا باير' }).first();
   await b.hover();

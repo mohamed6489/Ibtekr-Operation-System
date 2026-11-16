@@ -200,8 +200,8 @@ i.sw-0{background:var(--color-chart-2)}i.sw-1{background:var(--color-chart-3)}i.
 .cat-pick .cat-row.cat-pk-sub{background:var(--color-bg-container);grid-template-columns:auto 28px minmax(0,1fr)}
 .cat-pick .cat-pk-main.cat-hit .cb span,.cat-pick .cat-pk-main .cat-hit span{color:var(--color-text-gold)}
 /* the owner 14 Nov (decision 1): a step you can go back to takes the middle hover shade; the current step keeps the selected beige */
-.stp-b:not(:disabled):hover{background:var(--color-bg-hover,#efe2c9)}
-.stp-cur .stp-b:hover{background:var(--color-brand-subtle-bg)}
+.stp-b:not(:disabled):hover{background:var(--color-bg-hover)}
+.stp-cur .stp-b:hover{background:var(--color-bg-hover)}
 /* owner batch 14 Nov decision 9: the picker's sub rows get lighter by level like the categories tab (- / -- / ---) */
 .cat-pick .cat-row.cat-pk-sub[style*="--d:1"]{background:var(--lvl-1,#efe2c9)}
 .cat-pick .cat-row.cat-pk-sub[style*="--d:2"]{background:var(--lvl-2,#f5eddc)}

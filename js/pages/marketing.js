@@ -223,10 +223,12 @@
     const lo = min || 0; const digits = (v) => String(v == null ? '' : v).replace(/[٠-٩]/g, (c) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(c))).replace(/\D/g, '');
     // once per box: the redraw removes the focused box, and its blur «change» must not commit (and redraw) a second time
     let done = false;
-    const put = (v) => { if (done) return; const n = W.clamp(v, lo, max); if (n !== val) { done = true; set(n); persist(); R(); } else inp.value = String(val); };
+    // `later`: the commit comes from the box losing focus — that can be a redraw taking the box away (the AI filling the pieces in the
+    // background, a live update), and a redraw inside that redraw breaks it; the value is kept and the page drawn right after
+    const put = (v, later) => { if (done) return; const n = W.clamp(v, lo, max); if (n !== val) { done = true; set(n); persist(); if (later) setTimeout(R, 0); else R(); } else inp.value = String(val); };
     const inp = h('input', { type: 'text', inputmode: 'numeric', id, class: 'cnt-in', dir: 'ltr', autocomplete: 'off', value: String(val), 'aria-label': label, disabled: disabled || null });
     inp.addEventListener('input', () => { const d = digits(inp.value).slice(0, 3); if (inp.value !== d) inp.value = d; });
-    inp.addEventListener('change', () => { const d = digits(inp.value); put(d === '' ? val : Number(d)); });
+    inp.addEventListener('change', () => { const d = digits(inp.value); put(d === '' ? val : Number(d), true); });
     inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); const d = digits(inp.value); put(d === '' ? val : Number(d)); } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); put(val + (e.key === 'ArrowUp' ? 1 : -1)); } });
     const b = (s, d) => Button({ size: 'sm', type: d > 0 ? 'primary' : 'default', label: s, attrs: { 'aria-label': (d > 0 ? 'زوّد ' : 'قلّل ') + label, 'data-num': id + (d > 0 ? '+' : '-') }, disabled: disabled || (d > 0 ? val >= max : val <= lo), onClick: () => put(val + d) });
     return h('div', { class: 'counter' }, h('label', { class: 't-label', for: id }, label), h('div', { class: 'cnt-ctl' }, b('+', 1), inp, b('−', -1))); };
@@ -385,7 +387,9 @@
     const r = await MK().videoScenes(camp.id, p.id, p.voice && p.voice.mode === 'ai', notes);
     if (!r.ok) { K.toast(r.message, 'error'); return false; }
     const old = p.scenes || [];
-    p.scenes = r.scenes.map((s, k) => Object.assign({ n: k + 1, d: s.d, idea: s.idea, text: s.text, cam: s.cam, ref: [], use: [] }, old.length === r.scenes.length && old[k] && old[k].img ? { img: old[k].img, gen: old[k].gen } : {}));
+    // comments decision 65: the seconds a member set on a scene stay when the same number of scenes is planned again
+    p.scenes = W.keepSceneDurs(r.scenes.map((s, k) => Object.assign({ n: k + 1, d: s.d, idea: s.idea, text: s.text, cam: s.cam, ref: [], use: [] }, old.length === r.scenes.length && old[k] && old[k].img ? { img: old[k].img, gen: old[k].gen } : {})), old);
+    if (p.scenes.some((x) => x.dh)) p.dur = p.scenes.reduce((x, y) => x + (Number(y.d) || 0), 0);
     if (p.voice && !p.voice.text && r.voice) p.voice.text = r.voice;
     p.assembled = false; p.video = null; p.approved = false; persist(0); return true;
   }
@@ -413,7 +417,16 @@
   // the video piece in the build step (the v6): the idea and the caption, the scenes count, «توليد المشاهد» by Claude, a key frame a scene
   function buildVideo(p, anchor) {
     const ctx = { piece: p.id, slide: null }; const sc = p.scenes || [];
-    const scene = (s, k) => h('div', { class: 'cw-scene', 'data-cw-scene': p.id + '-' + k }, h('div', { class: 'cw-grid' }, pv(s.img, vcls(p), 'المشهد ' + (k + 1), camp.busy[busyKey(p, k)]), h('div', { class: 'cw-fields' }, h('b', null, 'المشهد ' + (k + 1) + ' (المدة ' + K.n0(s.d) + ' ثواني)'),
+    // comments decisions 33 and 65 (the owner 15 Nov): «مدة المشهد الواحد» beside the scenes count (every scene the same seconds —
+    // the video's length follows) and each scene's own seconds on its card; the seconds a model takes and the video's 30 are the
+    // domain's (W.sceneSeconds / setSceneDur / setSceneD). A changed length means the assembled video no longer matches.
+    const stale = (x) => { x.assembled = false; x.video = null; x.approved = false; };
+    const secs = (id, label, val, opts, set) => { const L = opts.includes(val) ? opts : opts.concat(val).sort((a, b) => a - b); const run = L.every((x, i) => i === 0 || x === L[i - 1] + 1);
+      return run ? num(id, label, val, L[L.length - 1], set, L[0]) : U.Select({ id, label, value: String(val), options: L.map((x) => ({ value: String(x), label: x + ' ث' })), onChange: (v) => { set(Number(v)); persist(); R(); } }); };
+    const total = W.videoSeconds(p); const pending = W.scenesPending(p); // before a plan for this count: what its scenes will add up to
+    const sceneOpts = (k) => { const others = sc.reduce((x, y, i) => x + (i === k ? 0 : Number(y.d) || 0), 0); const m = W.CLIP[p.model] || W.CLIP['seedance-2.5']; const cap = W.VIDEO_MAX - others;
+      if (m.fixed) return m.fixed.filter((x) => x <= cap); const out = []; for (let x = m.min; x <= Math.min(m.max, cap); x++) out.push(x); return out; };
+    const scene = (s, k) => h('div', { class: 'cw-scene', 'data-cw-scene': p.id + '-' + k }, h('div', { class: 'cw-grid' }, pv(s.img, vcls(p), 'المشهد ' + (k + 1), camp.busy[busyKey(p, k)]), h('div', { class: 'cw-fields' }, h('div', { class: 'cw-scene-h' }, h('b', null, 'المشهد ' + (k + 1)), secs('b-' + p.id + '-d' + k, 'مدة المشهد (ث)', W.clipSeconds(s.d, p.model), sceneOpts(k), (v) => { const why = W.setSceneD(p, k, v); if (why) { K.toast(why, 'error'); return; } stale(p); })),
       txt('b-' + p.id + '-sc' + k, 'فكرة المشهد', s.idea, (v) => { s.idea = v; }, true, { piece: p.id, slide: k }),
       K.two(U.Select({ id: 'b-' + p.id + '-cam' + k, label: 'الكاميرا', value: VCAMS.includes(s.cam) ? s.cam : 'ثابتة', options: VCAMS.map((x) => ({ value: x, label: x })), onChange: (v) => { s.cam = v; persist(); } }),
         U.TextInput({ id: 'b-' + p.id + '-tx' + k, label: 'كلام على الشاشة', value: s.text || '', maxlength: 60, placeholder: '—', onInput: (v) => { s.text = v; persist(); } })),
@@ -422,7 +435,10 @@
     return h('section', Object.assign({ class: 'card cw-piece cw-vid' }, anchor), pieceHead(p),
       h('div', { class: 'cw-grid' }, pv(sc[0] && sc[0].img, vcls(p), 'فيديو ' + K.n0(p.dur) + ' ث'), h('div', { class: 'cw-fields' }, txt('b-' + p.id + '-idea', 'فكرة الفيديو', p.idea, (v) => { p.idea = v; }, true, ctx), txt('b-' + p.id + '-cap', 'الكابشن المقترح', p.caption, (v) => { p.caption = v; }, true, ctx),
         Files('b-' + p.id + '-ref', 'مثال للمطابقة', p.ref, null, 'video'), Files('b-' + p.id + '-use', 'صور أو لينكات للاستخدام', p.use),
-        h('div', { class: 'cw-row' }, num('b-' + p.id + '-n', 'عدد المشاهد', p.sceneCount, W.MAX.scenes, (v) => { p.sceneCount = v; }, 1)),
+        h('div', { class: 'cw-row', 'data-cw-scene-set': p.id }, num('b-' + p.id + '-n', 'عدد المشاهد', p.sceneCount, W.MAX.scenes, (v) => { W.setSceneCount(p, v); }, 1),
+          secs('b-' + p.id + '-sd', 'مدة المشهد الواحد (ث)', W.sceneDurOf(p), W.sceneSeconds(p.model, pending || !sc.length ? p.sceneCount : sc.length), (v) => { const why = W.setSceneDur(p, v); if (why) { K.toast(why, 'error'); return; } stale(p); }),
+          h('div', { class: 'cw-total', 'data-cw-total': p.id }, h('span', { class: 't-label' }, 'مدة الفيديو'), h('b', null, K.n0(total) + ' ث'),
+            pending ? h('small', { 'data-cw-replan': '' }, 'العدد اتغيّر — «وزّع المشاهد تاني»') : sc.length && !sc.every((x) => Number(x.d) === Number(sc[0].d)) ? h('small', null, 'المشاهد مددها مختلفة') : null)),
         h('div', { class: 'acts-inline start' }, aiBtn(sc.length ? 'وزّع المشاهد تاني' : 'توليد المشاهد', async () => { const a = await window.IBAIAsk({ title: sc.length ? 'وزّع المشاهد تاني بالـ AI' : 'توليد المشاهد بالـ AI', intro: 'فكرة كل مشهد والكلام اللي على الشاشة وحركة الكاميرا' + (p.voice && p.voice.mode === 'ai' ? ' ونص الفويس.' : '.') }); if (a && await planScenes(p, a.notes)) K.toast('اتقسم الفيديو ' + K.n0(p.scenes.length) + ' مشاهد — ولّد صورة كل مشهد', 'success'); }, { 'data-cw-plan': p.id })))),
       sc.length ? [h('div', { class: 'grp-h cw-sub' }, h('h3', { class: 't-h6' }, 'المشاهد (' + K.n0(sc.length) + ')'), h('span', { class: 'grow' }), allN ? costBtn('ولّد صور كل المشاهد', allN, async () => { for (let k = 0; k < sc.length; k++) { if (!sc[k].img && !(await genImage(p, k))) return; } K.toast('اتولدت صور المشاهد', 'success'); }, { 'data-cw-scenes-all': p.id }) : null), h('div', { class: 'cw-scenes' }, sc.map(scene))] : null);
   }

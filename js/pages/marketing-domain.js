@@ -63,6 +63,72 @@
     n = clamp(n, 1, MAX.scenes); const base = Math.floor(dur / n); let rest = dur - base * n;
     return Array.from({ length: n }, (_, i) => { const d = base + (rest-- > 0 ? 1 : 0); const o = (prev || [])[i] || {}; return { n: i + 1, d, idea: o.idea || '', text: o.text || '', ref: o.ref || [], use: o.use || [], img: o.img || null }; });
   }
+  // comments decisions 33 and 65 (the owner 15 Nov — «احدد مدة المشهد الواحد» · «تعديل مدة المشهد الواحد لكل مشهد»): the seconds of
+  // one scene. The clip a model takes is the server's rule (_shared/mkt-video.js VIDEO_MODELS — a test compares the two): Kling
+  // 5 or 10 only, the others a range; a video is VIDEO_MAX seconds at most, whatever its scenes.
+  const CLIP = Object.freeze({ 'seedance-2.5': { min: 4, max: 30 }, 'seedance-2.0': { min: 4, max: 15 }, 'kling-2.5': { fixed: [5, 10] }, 'minimax-h3': { min: 5, max: 15 } });
+  const VIDEO_MAX = 30;
+  const clipRange = (model) => CLIP[model] || CLIP['seedance-2.5'];
+  function clipSeconds(d, model) {
+    const m = clipRange(model); const n = Math.max(1, Math.round(Number(d) || 0));
+    if (m.fixed) return m.fixed.reduce((best, x) => (Math.abs(x - n) < Math.abs(best - n) ? x : best), m.fixed[0]);
+    return Math.max(m.min, Math.min(m.max, n));
+  }
+  // the seconds one scene of n can take: the model's, cut so that n scenes stay within the video's length ([] = n scenes do not fit)
+  function sceneSeconds(model, n) {
+    const m = clipRange(model); const cnt = Math.max(1, Math.round(Number(n) || 1)); const cap = Math.floor(VIDEO_MAX / cnt);
+    if (m.fixed) return m.fixed.filter((x) => x <= cap);
+    const out = []; for (let x = m.min; x <= Math.min(m.max, cap); x++) out.push(x); return out;
+  }
+  // a piece's scenes wait for a new plan when the count was changed after they were planned («وزّع المشاهد تاني»)
+  const scenesPending = (p) => { const sc = p.scenes || []; return sc.length > 0 && sc.length !== clamp(p.sceneCount, 1, MAX.scenes); };
+  const planCount = (p) => { const sc = p.scenes || []; return sc.length && !scenesPending(p) ? sc.length : clamp(p.sceneCount, 1, MAX.scenes); };
+  const nearest = (opts, want) => opts.reduce((best, x) => (Math.abs(x - want) < Math.abs(best - want) ? x : best), opts[0]);
+  // «مدة المشهد الواحد» of a piece as it stands: its scenes' own seconds when they agree, else what the member chose, else the even
+  // share — for the count the next plan will have when the scenes wait for one
+  function sceneDurOf(p) {
+    const sc = p.scenes || []; const n = planCount(p);
+    if (sc.length && !scenesPending(p) && sc.every((x) => Number(x.d) === Number(sc[0].d))) return clipSeconds(sc[0].d, p.model);
+    const opts = sceneSeconds(p.model, n); const want = clipSeconds(p.sceneDur || Math.round((Number(p.dur) || 0) / n), p.model);
+    return opts.length ? nearest(opts, want) : want;
+  }
+  // the video's length as it stands: the scenes' sum, or count × seconds while there is no plan for that count yet
+  function videoSeconds(p) {
+    const sc = p.scenes || [];
+    return sc.length && !scenesPending(p) ? sc.reduce((x, y) => x + (Number(y.d) || 0), 0) : sceneDurOf(p) * planCount(p);
+  }
+  // every scene the same seconds: the video's length follows (count × seconds). → '' | the reason it was refused
+  function setSceneDur(p, d) {
+    const n = planCount(p); const opts = sceneSeconds(p.model, n);
+    const v = clipSeconds(d, p.model);
+    if (!opts.includes(v)) return opts.length ? 'مدة المشهد مع ' + n + ' مشاهد من ' + opts[0] + ' لـ ' + opts[opts.length - 1] + ' ثانية — الفيديو كله لحد ' + VIDEO_MAX + ' ثانية' : n + ' مشاهد أكتر من اللي الموديل ده يشيله في ' + VIDEO_MAX + ' ثانية — قلّل عدد المشاهد';
+    p.sceneDur = v; p.dur = v * n; if (!scenesPending(p)) (p.scenes || []).forEach((x) => { x.d = v; delete x.dh; });
+    return '';
+  }
+  // one scene's own seconds (the member's — kept when the scenes are planned again): the video's length is the scenes' sum
+  function setSceneD(p, k, d) {
+    const sc = p.scenes || []; const s = sc[k]; if (!s) return 'المشهد مش موجود';
+    const v = clipSeconds(d, p.model); const total = sc.reduce((x, y, i) => x + (i === k ? v : Number(y.d) || 0), 0);
+    if (total > VIDEO_MAX) return 'الفيديو كله لحد ' + VIDEO_MAX + ' ثانية — قلّل مشهد تاني الأول';
+    s.d = v; s.dh = true;
+    if (!scenesPending(p)) { p.dur = total; p.sceneDur = sc.every((x) => Number(x.d) === v) ? v : null; }
+    return '';
+  }
+  // the scenes count changed: back on the planned scenes' own count the video is their sum again; else the next plan's length
+  // follows the chosen «مدة المشهد الواحد» (cut to what the count allows) or keeps the even share of the video's length
+  function setSceneCount(p, n) {
+    const sc = p.scenes || []; const was = sceneDurOf(p);
+    p.sceneCount = clamp(n, 1, MAX.scenes);
+    if (sc.length && !scenesPending(p)) { p.dur = sc.reduce((x, y) => x + (Number(y.d) || 0), 0); p.sceneDur = sc.every((x) => Number(x.d) === Number(sc[0].d)) ? Number(sc[0].d) : null; return p; }
+    const opts = sceneSeconds(p.model, p.sceneCount);
+    if (opts.length) { const v = nearest(opts, p.sceneDur || was); p.sceneDur = v; p.dur = v * p.sceneCount; }
+    return p;
+  }
+  // the scenes the server planned (even seconds), with the seconds the member set by hand kept where the count did not change
+  function keepSceneDurs(next, old) {
+    const o = Array.isArray(old) ? old : []; if (o.length !== next.length) return next;
+    return next.map((s, k) => (o[k] && o[k].dh ? Object.assign({}, s, { d: o[k].d, dh: true }) : s));
+  }
   // التكلفة قبل التوليد (كريدت الصور؛ الكتابة بالـ AI = 0 كريدت — قرار 10)
   function cost(action, p, models) {
     if (action === 'fill') return TEXT_FILL;
@@ -458,7 +524,7 @@
   }
   const xr = (v) => (v == null ? '—' : Number(v).toFixed(2) + '×');
 
-  const api = { PRICE_DEMO, VIDEO_SOON, VSIZES, videoImgSize, videoMethod, estimateVideo, METHOD_RATE, GOALS, MEDIA, VIDEO_RATE, METHODS, MAX, TEXT_FILL, DEFAULT_MODEL, clamp, defaults, buildPieces, splitScenes, cost, spend, built, approvable, approved, approveAll, progress, canBuildNext, canReviewNext, validateDetails, estimate, imgRate, videoRate,
+  const api = { PRICE_DEMO, VIDEO_SOON, VSIZES, videoImgSize, videoMethod, estimateVideo, METHOD_RATE, GOALS, MEDIA, VIDEO_RATE, METHODS, MAX, TEXT_FILL, DEFAULT_MODEL, clamp, defaults, buildPieces, splitScenes, CLIP, VIDEO_MAX, clipSeconds, sceneSeconds, scenesPending, sceneDurOf, videoSeconds, setSceneDur, setSceneD, setSceneCount, keepSceneDurs, cost, spend, built, approvable, approved, approveAll, progress, canBuildNext, canReviewNext, validateDetails, estimate, imgRate, videoRate,
     campaignStatus, campaignName, PLATFORMS, CONNECTED, POST_STATUSES, CAP_MAX, TAGS, TIMES, timeOpts, postKind, pieceImages, hookOf, addD, suggest, scheduleItems, isPast, canMove, moveCheck, safeName, zipPlan,
     PUBLISHABLE, PUB_KINDS, MAX_IMAGES, PL_KEY, pubText, notReady, publishable, pubImages, isVideoPath, igFit, jpegSize, isJpeg, PUB_ERRORS, pubError, seenSt, engOf, postTotals, SRC_LABEL,
     get DAYS() { return days(); }, dayIdx, wkStart, weeksOf, planDefault, D2, dayLabel, relDay, pct, linkKeys,

@@ -530,14 +530,32 @@
       footer: [Button({ label: 'إغلاق', onClick: () => md.close() })] });
   }
   // «قيّم»: the attendance (automatic), the month's tasks for the evaluator, then the performance and the communication out of 5
+  // comments 15 Nov decision 79 (the owner on this popup — «غيرلي ال ui لشكل احترافي و منظم»): who and which month in a head box, the
+  // three parts of the month as three boxes side by side (the attendance read-only with its bar, the performance and the
+  // communication as stars), the month's tasks in a box of two columns, the month's score as a strip that follows the stars (and
+  // which side of the bonus bar it is on), then the note
   function rateMember(m, mk) {
-    const x = (S.evals[m.id] || {})[mk] || {}; const tasks = H().monthTasks(m.id, mk);
-    const list = (title, l) => h('div', { class: 'ev-tasks' }, h('b', { class: 't-small' }, title + ' (' + l.length + ')'), l.length ? h('ul', { class: 't-small' }, l.slice(0, 6).map((t) => h('li', null, t.title))) : h('span', { class: 't-small help' }, '—'));
-    K.form({ title: 'تقييم ' + m.name + ' — ' + monLabel(mk), values: { perf: x.perf || 0, comm: x.comm || 0, note: x.note || '' },
-      note: h('div', { class: 'ev-head' }, K.Kv([['الحضور (تلقائي)', x.att == null ? 'مفيش أيام شغل الشهر ده' : x.att + ' من 5']]), h('div', { class: 'ev-task-cols', 'data-hr-rate-tasks': '' }, list('مهام خلصت', tasks.done), list('مهام لسه مفتوحة', tasks.open))),
-      fields: (f, e, set) => [K.StarPicker({ id: 'ev-perf', label: 'الأداء — حسب المهام', value: f.perf, onChange: (v) => set('perf', v, true), error: e.perf, required: true }),
-        K.StarPicker({ id: 'ev-comm', label: 'التواصل — مع الفريق والعملاء والمبتكرين', value: f.comm, onChange: (v) => set('comm', v, true), error: e.comm, required: true }),
-        f.perf && f.comm ? U.InlineNote({ kind: 'success', children: 'تقييم الشهر: ' + H().evalTotal(x.att == null ? null : x.att, f.perf, f.comm) + ' من 5' }) : null, K.field.area('note', 'ملاحظة', f, e, set, { placeholder: 'اختياري' })],
+    const x = (S.evals[m.id] || {})[mk] || {}; const tasks = H().monthTasks(m.id, mk); const bar = Number(S.hrSettings.bonusMin) || 3;
+    const list = (title, l, tone) => h('div', { class: 'ev-tasks' }, h('div', { class: 'ev-tasks-h' }, h('b', null, title), K.Tag(tone, String(l.length))),
+      l.length ? h('ul', { class: 't-small' }, l.slice(0, 6).map((t) => h('li', null, t.title)), l.length > 6 ? h('li', { class: 'help' }, U.num('+ ' + (l.length - 6) + ' كمان')) : null) : h('span', { class: 't-small help' }, 'مفيش'));
+    const att = x.att == null ? null : Number(x.att);
+    const head = h('div', { class: 'ev-who' }, U.Avatar(m.name), h('div', { class: 'ev-who-t' }, h('b', null, m.name), h('small', { class: 'help' }, [m.title, m.role].filter(Boolean).join(' · ') || '—')),
+      h('span', { class: 'ev-who-tags' }, K.Tag('neutral', monLabel(mk)), x.total == null ? K.Tag('orange', 'لسه ماتقيّمش') : K.Tag(evalTone(x.total), U.num('متقيّم ' + String(x.total).replace(/\.0$/, '') + ' من 5'))));
+    const attBox = h('div', { class: 'ev-box ev-att' }, h('span', { class: 'flabel' }, 'الحضور (تلقائي)'),
+      att == null ? h('b', { class: 'ev-num' }, '—') : h('b', { class: 'ev-num' }, K.Num(String(att).replace(/\.0$/, '')), h('small', null, ' من 5')),
+      h('span', { class: 'ev-bar', 'aria-hidden': 'true' }, h('i', { style: 'width:' + Math.round(Math.max(0, Math.min(5, att || 0)) / 5 * 100) + '%' })),
+      h('small', { class: 'help' }, att == null ? 'مفيش أيام شغل الشهر ده' : 'من أيام الحضور على أيام الشغل — مابيتعدّلش بالإيد'));
+    K.form({ title: 'تقييم ' + m.name + ' — ' + monLabel(mk), wide: 'ev-modal', values: { perf: x.perf || 0, comm: x.comm || 0, note: x.note || '' },
+      fields: (f, e, set) => { const total = f.perf && f.comm ? H().evalTotal(att, f.perf, f.comm) : null; const over = total != null && total >= bar;
+        return [head,
+          h('div', { class: 'ev-grid' }, attBox,
+            h('div', { class: 'ev-box' }, K.StarPicker({ id: 'ev-perf', label: 'الأداء', value: f.perf, onChange: (v) => set('perf', v, true), error: e.perf, required: true, help: 'حسب المهام اللي خلصت واللي لأ' })),
+            h('div', { class: 'ev-box' }, K.StarPicker({ id: 'ev-comm', label: 'التواصل', value: f.comm, onChange: (v) => set('comm', v, true), error: e.comm, required: true, help: 'مع الفريق والعملاء والمبتكرين' }))),
+          h('div', { class: 'ev-box ev-task-box', 'data-hr-rate-tasks': '' }, h('span', { class: 'flabel' }, 'مهام ' + monLabel(mk)), h('div', { class: 'ev-task-cols' }, list('مهام خلصت', tasks.done, 'success'), list('مهام لسه مفتوحة', tasks.open, tasks.open.length ? 'orange' : 'neutral'))),
+          h('div', { class: 'ev-total' + (total == null ? '' : over ? ' over' : ' under'), 'data-hr-rate-total': total == null ? '' : String(total), 'aria-live': 'polite' }, h('span', { class: 'ev-total-l' }, 'تقييم الشهر'),
+            total == null ? h('span', { class: 't-small help' }, 'اختار الأداء والتواصل — التقييم = متوسط التلاتة')
+              : [h('b', { class: 'ev-total-n' }, K.Num(String(total).replace(/\.0$/, '')), h('small', null, ' من 5')), h('span', { class: 't-small' }, U.num(over ? 'على حد البونص (' + bar + ') أو فوقه' + (can().salaries ? ' — بونص الشهر هيتصرف' : '') : 'تحت حد البونص (' + bar + ')' + (can().salaries ? ' — بونص الشهر مش هيتصرف' : '')))]),
+          K.field.area('note', 'ملاحظة', f, e, set, { placeholder: 'اختياري — اللي اتبنى عليه التقييم' })]; },
       validate: (f) => { const e = {}; if (!(f.perf >= 1)) e.perf = 'اختار تقييم الأداء'; if (!(f.comm >= 1)) e.comm = 'اختار تقييم التواصل'; return e; }, submitLabel: 'حفظ التقييم',
       submit: (f, md) => busy(md, () => H().evaluate(m.id, mk, f.perf, f.comm, f.note), (r) => K.toast('اتحفظ التقييم: ' + r.total + ' من 5', 'success')) });
   }

@@ -1814,10 +1814,28 @@ tr.tq-hide{display:none}
 .hr-in-list .hr-in:last-child{border-bottom:0}
 /* the HR rebuild (12 Nov): the totals under «تحويل المرتبات», the evaluator's view of the month's tasks */
 .hr-transfer-sum{margin-top:12px;padding:12px;border:1px solid var(--color-border-subtle);border-radius:var(--radius-md,8px);background:var(--color-bg-subtle,transparent)}
-.ev-head{display:flex;flex-direction:column;gap:12px;margin-bottom:8px}
-.ev-task-cols{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.ev-tasks{display:flex;flex-direction:column;gap:4px;min-width:0}
-.ev-tasks ul{margin:0;padding-inline-start:18px}
+/* comments 15 Nov decision 79: the evaluation popup — the member in a head box, the three parts as three boxes, the month's tasks, the score strip */
+.modal.ev-modal{width:min(760px, calc(100vw - 32px))}
+.ev-who{display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--color-border-subtle);border-radius:var(--radius-md);background:var(--color-bg-container);flex-wrap:wrap}
+.ev-who-t{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1 1 160px}.ev-who-t b{font-size:16px}
+.ev-who-tags{display:inline-flex;gap:8px;flex-wrap:wrap}
+.ev-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.ev-box{display:flex;flex-direction:column;gap:8px;padding:12px 14px;border:1px solid var(--color-border-subtle);border-radius:var(--radius-md);background:var(--color-bg-base);min-width:0}
+.ev-box .field{gap:8px;min-width:0}.ev-box .sp-row{flex-wrap:wrap;row-gap:4px}
+.ev-box .flabel{font-weight:600;color:var(--color-brand-default)}
+.ev-att{background:var(--color-bg-container)}
+.ev-num{font-size:28px;line-height:36px;font-weight:700}.ev-num small{font-size:13px;font-weight:500;color:var(--color-text-secondary)}
+.ev-bar{display:block;height:6px;border-radius:999px;background:var(--color-bg-tint);overflow:hidden}.ev-bar i{display:block;height:100%;border-radius:999px;background:var(--color-brand-default)}
+.ev-task-cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.ev-tasks{display:flex;flex-direction:column;gap:6px;min-width:0}
+.ev-tasks-h{display:flex;align-items:center;gap:8px}
+.ev-tasks ul{margin:0;padding-inline-start:18px;display:flex;flex-direction:column;gap:2px}.ev-tasks li{overflow-wrap:anywhere}
+.ev-total{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 14px;border-radius:var(--radius-md);border:1px dashed var(--color-border-default);background:var(--color-bg-container)}
+.ev-total-l{font-weight:600}
+.ev-total-n{font-size:24px;line-height:32px;font-weight:700}.ev-total-n small{font-size:13px;font-weight:500}
+.ev-total.over{border-style:solid;border-color:var(--color-success-border);background:var(--color-success-bg);color:var(--color-success-text)}
+.ev-total.under{border-style:solid;border-color:var(--color-error-border, #e8a4a4);background:var(--color-error-bg, #fbe9e7);color:var(--color-error-text, #a8281b)}
+@media (max-width:719px){.ev-grid{grid-template-columns:minmax(0,1fr)}}
 @media (max-width:600px){.ev-task-cols{grid-template-columns:1fr}}
 .hr-in-list .hr-in>span:nth-of-type(2){flex:1;min-width:0}
 /* the owner 12 Nov — the person / product cell in every table: the picture at the start (the right), the name right next to it aligned to the

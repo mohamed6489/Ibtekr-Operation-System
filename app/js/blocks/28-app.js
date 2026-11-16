@@ -3357,7 +3357,9 @@
     // comments decision 57 (the owner 15 Nov — «البراندات تتضاف في جدول المبتكرين و تتضاف للفلتر بتاعه»): the maker's brands (the ones that are
     // not simply his own name — what the column shows) are a filter group too: a maker passes when he owns one of the picked brands
     const extraBrands = (v) => (v.brands || []).filter((b) => VD.norm(b.name) !== VD.norm(v.name));
-    const brandPass = (f) => (v) => !(f.brand || []).length || extraBrands(v).some((b) => f.brand.includes(String(b.id)));
+    // the owner 16 Nov («فين البراندات اللي هفلتر بيها»): the filter takes every brand a maker owns — his automatic one (his own name) too;
+    // only the column hides that one
+    const brandPass = (f) => (v) => !(f.brand || []).length || (v.brands || []).some((b) => f.brand.includes(String(b.id)));
     const vPass = (f) => (v) => brandPass(f)(v) && ['status', 'category', 'balance', 'contract', 'other'].every((k) => !(f[k] || []).length || f[k].some((val) => VD.filterVendors([v], stats, k === 'other' ? { status: 'all', [val]: true } : { status: 'all', [k]: val }, VTODAY()).length));
     const base0 = vfilter(all, stats, { status: 'all', q: state.vfilter.q });
     const list = VD.sortVendors(base0.filter(vPass(state.vf)), stats, state.vsort);
@@ -3372,7 +3374,7 @@
     const check = (key, label) => h('label', { class: 'check', style: 'display:flex;align-items:center;gap:8px;cursor:pointer' }, (() => { const c = h('input', { type: 'checkbox', checked: state.vfilter[key] }); c.addEventListener('change', () => setF(key, c.checked)); return c; })(), label);
     // «فلتر» + «ترتيب» (phase 5.5 decision 3, owner 1 Nov): the kit's closed multi-value filter and sort next to the columns button, the picks as chips with their counts
     const VF = { status: [['active', 'نشط'], ['leave', 'في إجازة'], ['inactive', 'غير نشط']], balance: [['due', 'ليه رصيد'], ['negative', 'عليه (عربون / مواصلات)'], ['zero', 'متصفّي']], contract: [['uploaded', 'مرفوع وساري'], ['expiring', 'بينتهي خلال 30 يوم'], ['expired', 'منتهي'], ['missing', 'غير مرفوع']] };
-    const brandOpts = () => { const m = new Map(); all.forEach((v) => extraBrands(v).forEach((b) => m.set(String(b.id), b.name))); return [...m.entries()].sort((x, y) => x[1].localeCompare(y[1])); };
+    const brandOpts = () => { const m = new Map(); all.forEach((v) => (v.brands || []).forEach((b) => { if (b && b.name) m.set(String(b.id), b.name); })); return [...m.entries()].sort((x, y) => x[1].localeCompare(y[1])); };
     const VG = () => [{ key: 'status', label: 'الحالة', options: VF.status }, { key: 'category', label: 'الفئة', options: mainCats().map((c) => [String(c.id), c.name]) }, { key: 'brand', label: 'البراند', options: brandOpts() }, { key: 'balance', label: 'الرصيد', options: VF.balance }, { key: 'contract', label: 'العقد', options: VF.contract }, { key: 'other', label: 'المتابعة', options: [['late', 'عنده تأخير'], ['tickets', 'عليه طلبات']] }];
     function vFilterBtn() {
       return window.IBKit.FilterMenu({ id: 'vendors', label: 'فلتر المبتكرين', noun: 'مبتكر', groups: VG(), value: state.vf, count: (d) => base0.filter(vPass(d)).length, onApply: (d) => { state.vf = d; state.vpage = 1; renderVendors(); } });

@@ -134,12 +134,17 @@ test('comment 57 — the makers table has a «البراندات» column of its
   await expect(row(page, V1).locator('td').nth(2)).toHaveText('Wood & Rope');
   await expect(row(page, V2).locator('td').nth(2)).toHaveText('Nile Glass');
   await expect(row(page, V1).locator('td').nth(1).locator('[data-brands]')).toHaveCount(0);
-  // the filter: «البراند» lists those brands (never a maker's own-name brand); one picked → his maker alone, a chip with its count
+  // the filter: «البراند» lists every brand — the makers' own-name brands too (the owner 16 Nov: «فين البراندات اللي هفلتر بيها»);
+  // one picked → its maker alone, a chip with its count
   await page.locator('#vendors [data-fm-btn="vendors"]').click();
   const menu = page.locator('[data-fm-menu="vendors"]');
   await menu.locator('[data-fm-tab="brand"]').click();
-  await expect(menu.locator('[data-fm^="brand:"]')).toHaveCount(2);
-  await expect(menu.locator('[data-fm^="brand:"]')).toHaveText(['Nile Glass', 'Wood & Rope']);
+  const names = await menu.locator('[data-fm^="brand:"]').allTextContents();
+  expect(names).toEqual(expect.arrayContaining(['Antikiano', 'Art Craft', 'Nile Glass', 'Wood & Rope']));
+  expect(names).toEqual([...names].sort((x, y) => x.localeCompare(y)));
+  await menu.locator(`[data-fm="brand:${BRAND(2)}"]`).click(); // Antikiano's own-name brand
+  await expect(menu.locator('[data-fm-apply]')).toHaveText('اعرض 1 مبتكر');
+  await menu.locator(`[data-fm="brand:${BRAND(2)}"]`).click();
   await menu.locator(`[data-fm="brand:${BRAND(8)}"]`).click();
   await expect(menu.locator('[data-fm-apply]')).toHaveText('اعرض 1 مبتكر');
   await menu.locator('[data-fm-apply]').dispatchEvent('click');

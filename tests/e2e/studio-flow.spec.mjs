@@ -558,8 +558,8 @@ test('flow 2: the screenshots and the photos show small side by side, each row w
   const m = page.locator('#pg-products [data-fl-match]');
   const cards = m.locator(':scope > .fl-card');
   await expect(cards).toHaveCount(2);
-  const [c1, c2] = [await cards.nth(0).boundingBox(), await cards.nth(1).boundingBox()];
-  expect(Math.abs(c1.height - c2.height)).toBeLessThan(2); expect(Math.abs(c1.y - c2.y)).toBeLessThan(2);
+  // the two cards side by side, the same height — read both in one go (the popup may draw again while the shop's lists land)
+  await expect.poll(() => cards.evaluateAll((els) => { if (els.length !== 2) return null; const [a, b] = els.map((e) => e.getBoundingClientRect()); return Math.abs(a.height - b.height) < 2 && Math.abs(a.y - b.y) < 2; })).toBe(true);
   await expect(m.locator('[data-fl-list="screens"] .fl-list-empty')).toHaveCount(1);
   await expect(m.locator('[data-fl-list="photos"] .fl-list-empty')).toHaveCount(1);
   await pick(page, '[data-flow-photos]', [png('1.png'), png('2.png')]);

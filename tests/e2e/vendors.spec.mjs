@@ -618,7 +618,7 @@ test('«في إجازة» (phase 3.1): a status like the others — from «ال�
   await page.locator('#vendors [role=tab]', { hasText: 'سجل المبتكرين' }).click();
   await openDrawer(page, V2);
   await drawer(page).getByRole('button', { name: 'المزيد' }).click();
-  await expect(page.locator('[role=menu] [role=menuitem]')).toHaveText(['تحويل لـ «في إجازة»', 'تحويل لغير نشط', 'تغيير النسبة (الأوردرات الجديدة فقط)', 'نسخ رابط الملف', 'فتح طلب على المبتكر', 'حذف المبتكر']); // the owner 16 Nov: «حذف المبتكر» for the admin
+  await expect(page.locator('[role=menu] [role=menuitem]')).toHaveText(['تحويل لـ «في إجازة»', 'تحويل لغير نشط', 'تغيير النسبة (الأوردرات الجديدة فقط)', 'تغيير صورة المبتكر', 'نسخ رابط الملف', 'فتح طلب على المبتكر', 'حذف المبتكر']); // the owner 16 Nov: «حذف المبتكر» for the admin
   await page.locator('[role=menu] [role=menuitem]', { hasText: 'في إجازة' }).click();
   await expect(drawer(page).locator('.drawer-h .vstatus')).toHaveText('في إجازة');
   await expect.poll(() => writes()).toEqual([{ table: 'vendors', op: 'update', id: V2, status: 'leave' }]);

@@ -258,12 +258,15 @@
     const input = h('input', { id, type: 'text', inputmode: 'numeric', dir: 'ltr', placeholder: 'dd/mm/yyyy', value: value ? D.formatDateNumeric(value) : '', 'aria-invalid': error ? 'true' : false, 'aria-describedby': error ? id + '-err' : false });
     const calBtn = h('button', { type: 'button', class: 'icb', 'aria-label': 'اختيار التاريخ', 'aria-haspopup': 'dialog', 'aria-expanded': 'false' }, Icon('cal', 'sm'));
     const box = h('div', { class: 'input' + (error ? ' err' : '') }, calBtn, input);
-    input.addEventListener('change', () => { const iso = D.parseDate(input.value); if (iso) onChange(iso, null); else onChange(value, 'اكتب التاريخ بالشكل يوم/شهر/سنة، مثال 20/10/2026'); });
+    input.addEventListener('change', () => { const iso = D.parseDate(input.value); if (iso) { value = iso; onChange(iso, null); } else onChange(value, 'اكتب التاريخ بالشكل يوم/شهر/سنة، مثال 20/10/2026'); });
     const pop = popover(wrap, calBtn, (close) => {
       let [y, m] = (value || today).split('-').map(Number);
       const dp = h('div', { class: 'dp single', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'اختيار التاريخ', 'data-popover-root': '', 'data-focus': 'no' });
-      const draw = () => { dp.replaceChildren(Calendar({ year: y, month: m, today, from: value, to: value, onPick: (iso) => { close(); onChange(iso, null); }, onNav: (d) => { ({ year: y, month: m } = shiftMonth(y, m, d)); draw(); } }),
-        h('div', { class: 'range-row', style: 'padding:8px 0 0;border:0' }, Button({ type: 'text', size: 'sm', label: 'اليوم الحالي', onClick: () => { close(); onChange(today, null); } }))); };
+      // the owner 16 Nov («التاريخ لا يتم كتابته بعد الاختيار»): the pick is written in the field itself — a caller that does not draw
+      // again keeps it shown
+      const put = (iso) => { input.value = D.formatDateNumeric(iso); value = iso; close(); onChange(iso, null); };
+      const draw = () => { dp.replaceChildren(Calendar({ year: y, month: m, today, from: value, to: value, onPick: put, onNav: (d) => { ({ year: y, month: m } = shiftMonth(y, m, d)); draw(); } }),
+        h('div', { class: 'range-row', style: 'padding:8px 0 0;border:0' }, Button({ type: 'text', size: 'sm', label: 'اليوم الحالي', onClick: () => put(today) }))); };
       draw(); return dp;
     });
     calBtn.addEventListener('click', pop.toggle);

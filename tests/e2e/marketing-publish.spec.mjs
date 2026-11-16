@@ -50,6 +50,43 @@ async function openMarketing(page, email = ADMIN, hash = '') {
 const pg = (page) => page.locator('#pg-marketing');
 const modal = (page, text) => page.locator('.modal[role=dialog]', { hasText: text });
 
+// comments decisions 66–68 (the owner 15 Nov — «عايز اخلي الاسماء دي تبقي ايقونات» · «خلي ال داونلود تبقي ايقون و النشر تفضل انشر تيكست» ·
+// «خليهم center align راسيا و افقيا»): in «تفاصيل نشر الكامبين» a platform is its icon (the name in the tooltip and for the screen
+// reader), the download is an icon that brings the piece's folder, «انشر» stays a word, and every cell is centred across and down
+test('comments 66–68 — the publish table: the platforms as icons, the download as an icon beside «انشر», every cell centred', async ({ page }) => {
+  await start(page);
+  await openMarketing(page);
+  await pg(page).locator('[data-mk-open="' + C1 + '"]').click();
+  await expect(pg(page).locator('.wstepper .stp-cur')).toContainText('النشر والتحميل');
+  // 66: three round icon chips, each named by its platform; a press still picks the platform
+  const pls = pg(page).locator('[data-cw-pl="P1"] .chip');
+  await expect(pls).toHaveCount(3);
+  expect(await pls.evaluateAll((els) => els.map((el) => [el.getAttribute('data-pl'), el.title, !!el.querySelector('svg'), (el.querySelector('.sr-only') || {}).textContent, Math.round(el.getBoundingClientRect().width), Math.round(el.getBoundingClientRect().height)])))
+    .toEqual([['انستجرام', 'انستجرام', true, 'انستجرام', 32, 32], ['فيسبوك', 'فيسبوك', true, 'فيسبوك', 32, 32], ['تيك توك', 'تيك توك', true, 'تيك توك', 32, 32]]);
+  const tt = pg(page).locator('[data-cw-pl="P1"] [data-pl="تيك توك"]');
+  const was = await tt.getAttribute('aria-pressed');
+  await tt.click();
+  await expect(pg(page).locator('[data-cw-pl="P1"] [data-pl="تيك توك"]')).toHaveAttribute('aria-pressed', was === 'true' ? 'false' : 'true');
+  // 67: «انشر» a word, the download an icon with its name — a press brings the piece's folder
+  await expect(pg(page).locator('[data-cw-pub="P1"]')).toHaveText('انشر');
+  const dl = pg(page).locator('[data-cw-dl="P1"]');
+  expect(await dl.evaluate((el) => [el.textContent.trim(), !!el.querySelector('svg'), el.getAttribute('aria-label')])).toEqual(['', true, 'داونلود بوست 1']);
+  await expect(pg(page).locator('[data-cw-how="P1"]')).not.toContainText('داونلود');
+  const got = page.waitForEvent('download');
+  await dl.click();
+  await got;
+  await expect(page.locator('body')).toContainText('اتنزل فولدر «بوست 1»');
+  // 68: each cell's content sits on the middle of its cell — across and down
+  const off = await pg(page).locator('.cw-pub table.dt tbody tr').first().locator('td').evaluateAll((tds) => tds.map((td) => {
+    const c = td.getBoundingClientRect(); const kids = [...td.children].filter((k) => k.getBoundingClientRect().width); if (!kids.length) return [0, 0];
+    const l = Math.min(...kids.map((k) => k.getBoundingClientRect().left)); const r = Math.max(...kids.map((k) => k.getBoundingClientRect().right));
+    const t = Math.min(...kids.map((k) => k.getBoundingClientRect().top)); const b = Math.max(...kids.map((k) => k.getBoundingClientRect().bottom));
+    return [Math.abs((l + r) / 2 - (c.left + c.right) / 2), Math.abs((t + b) / 2 - (c.top + c.bottom) / 2)]; }));
+  expect(off.length).toBe(7);
+  off.forEach(([x, y]) => { expect(x).toBeLessThanOrEqual(2); expect(y).toBeLessThanOrEqual(2); });
+  expect(await pg(page).locator('.cw-pub table.dt thead th').evaluateAll((ths) => ths.every((th) => getComputedStyle(th).textAlign === 'center'))).toBe(true);
+});
+
 test('9.5.2 the connection card: the platforms\' state, the switch the admin turns on (with a confirm), a member sees it only', async ({ page }) => {
   await start(page);
   await openMarketing(page);

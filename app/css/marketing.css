@@ -343,7 +343,17 @@ body.cal-dragging,body.cal-dragging * { cursor:grabbing !important;user-select:n
 /* 9.5.2: the master switch row of «الربط بالمنصات» and the «انشر / داونلود» column of the publishing step */
 .mk-auto { display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:12px }
 .mk-auto .btn { margin-inline-start:auto }
-.cw-how { display:flex;flex-direction:column;gap:4px;align-items:flex-start }
+.cw-how { display:flex;flex-direction:column;gap:4px;align-items:center }
+/* comments decisions 66–68 (the owner 15 Nov): the platforms as icons, the download as an icon beside «انشر», and every cell of the
+   publish table centred — across and down (the date field's format hint is not drawn here: it pushed its box off the row's middle) */
+.chip.cw-ic { width:32px;padding:0;justify-content:center;flex:none }
+.cw-pub .chips { justify-content:center;flex-wrap:nowrap }
+.cw-pub table.dt :is(th,td) { text-align:center;vertical-align:middle }
+.cw-pub table.dt td>* { margin-inline:auto }
+.cw-pub table.dt td .prod { display:inline-flex;text-align:start }
+.cw-pub table.dt td :is(.field,.select-w,.dd) { margin-inline:auto }
+.cw-pub table.dt td .field>:is(.help,.hint,small) { display:none }
+@media (max-width:1023px) { .chip.cw-ic { width:44px } }
 .cw-how .chip[aria-disabled="true"] { opacity:.55;cursor:not-allowed }
 @media (max-width: 640px) { .mk-auto .btn { margin-inline-start:0 } }
 

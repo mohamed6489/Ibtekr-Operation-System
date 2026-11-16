@@ -589,3 +589,89 @@ test('comment 71 — a member who does not see the accounts gets no subscription
   await expect(pg(page).locator('.mk-dv-credits [data-dv-credit="images"]')).toBeVisible();
   await expect(pg(page).locator('.mk-dv-credits [data-dv-credit="ai"]')).toHaveCount(0);
 });
+
+// comments decisions 72 and 73 (the owner 15 Nov — «ظبط صفحة مساعدين الذكاء الاصطناعي — الui بتاع الشاتات بالذات و كل حاجة بشكل احترافي
+// و منظم» · «غير الايقون دي لايقونة التكبير و لما اجي اصغر تبقي ايقونة التصغير»): the chat's frame — the history by day, a welcome with the
+// suggestions as cards on a new chat, the turns as rows (the assistant's mark, who and when under the bubble), a box that takes
+// lines, and the expand / shrink marks on the one button
+test('comments 72 and 73 — the assistants\' chat: the history by day, a welcome on a new chat, rows with the assistant\'s mark and the name under the bubble, Shift + Enter = a new line and Enter sends, «كبّر» with the expand mark and «صغّر» with the shrink one', async ({ page }) => {
+  const ADMIN_ID = '00000000-0000-4000-8000-000000000001'; const CH = (n) => 'c7200000-0000-4000-8000-00000000000' + n;
+  await start(page, { mktAgentChats: [{ id: CH(1), member_id: ADMIN_ID, agent: 'designer', title: 'شات النهارده', updated_at: new Date().toISOString() },
+    { id: CH(2), member_id: ADMIN_ID, agent: 'designer', title: 'شات الأسبوع', updated_at: D(-3) + 'T10:00:00Z' }, { id: CH(3), member_id: ADMIN_ID, agent: 'designer', title: 'شات قديم', updated_at: D(-20) + 'T10:00:00Z' }] });
+  await openAi(page, ADMIN, 'الديزاينر');
+  const P = pg(page); const box = P.locator('[data-mk-agent="designer"]');
+  // the history: its count, the days as labels, the newest first
+  await expect(box.locator('[data-mk-chats="3"]')).toBeVisible();
+  await expect(box.locator('.mk-agent-n')).toHaveText('3');
+  await expect(box.locator('.mk-agent-day')).toHaveText(['النهارده', 'آخر 7 أيام', 'أقدم']);
+  await expect(box.locator('[data-mk-chat-item] b')).toHaveText(['شات النهارده', 'شات الأسبوع', 'شات قديم']);
+  // a new chat: the welcome — the assistant's mark, its name, the intro and the four suggestions as cards inside it
+  const hello = box.locator('.mk-chat.fresh .mk-welcome');
+  await expect(hello.locator('.mk-av.xl svg')).toBeVisible();
+  await expect(hello.locator('.mk-welcome-t')).toHaveText('الديزاينر');
+  await expect(hello.locator('.mk-intro')).toContainText('أنا الديزاينر');
+  await expect(hello.locator('.mk-agent-chips .chip')).toHaveCount(4);
+  await expect(box.locator('.mk-agent-head .mk-av.lg')).toBeVisible();
+  // the box takes lines: Shift + Enter adds one and sends nothing, Enter sends the lot
+  await expect(P.locator('#mk-ask')).toHaveAttribute('placeholder', /الديزاينر/);
+  expect(await P.locator('#mk-ask').evaluate((el) => el.tagName)).toBe('TEXTAREA');
+  await P.locator('#mk-ask').fill('بوست لمخدات الشتا');
+  await P.locator('#mk-ask').press('Shift+Enter');
+  await page.keyboard.insertText('وبالألوان البيج');
+  await expect(P.locator('#mk-ask')).toHaveValue('بوست لمخدات الشتا\nوبالألوان البيج');
+  expect(mock.mkt.calls.filter((x) => x.action === 'agent').length).toBe(0);
+  await P.locator('#mk-ask').press('Enter');
+  await expect(box.locator('[data-mk-chat="2"]')).toBeVisible();
+  await expect(P.locator('#mk-ask')).toHaveValue('');
+  // the turns: my words at one side with my name under them, the assistant's with its mark beside the bubble and its name under it
+  await expect(box.locator('.mk-welcome')).toHaveCount(0);
+  await expect(box.locator('.mk-row.user .mk-msg.user')).toContainText('بوست لمخدات الشتا\nوبالألوان البيج');
+  await expect(box.locator('.mk-row.user .mk-av')).toHaveCount(0);
+  await expect(box.locator('.mk-row.user .mk-meta')).toContainText('صفوت كمال');
+  await expect(box.locator('.mk-row.ai .mk-av')).toHaveCount(1);
+  await expect(box.locator('.mk-row.ai .mk-meta')).toContainText('الديزاينر');
+  await expect(box.locator('.mk-msg .mk-meta')).toHaveCount(0); // who and when are under the bubble, not in it
+  const sides = await box.evaluate((el) => { const r = (q) => el.querySelector(q).getBoundingClientRect(); const c = r('.mk-chat'); return { mine: r('.mk-row.user').left - c.left, its: c.right - r('.mk-row.ai').right }; });
+  expect(sides.mine).toBeLessThan(40); expect(sides.its).toBeLessThan(40); // RTL: the assistant at the start (right), my words at the end (left)
+  expect(await box.locator('.mk-msg.user').evaluate((el) => getComputedStyle(el).backgroundColor)).toBe('rgb(0, 86, 66)');
+  // the suggestions are one strip over the box now, and the new chat is the first of today's
+  await expect(box.locator('.mk-agent-main > .mk-agent-chips .chip')).toHaveCount(4);
+  await expect(box.locator('[data-mk-chat-item] b').first()).toHaveText('بوست لمخدات الشتا وبالألوان البيج');
+  // decision 73: one button — the expand mark while small, the shrink mark (and «صغّر») while it fills the page
+  const full = box.locator('[data-mk-agent-full]');
+  await expect(full).toHaveText('كبّر');
+  await expect(full.locator('svg path')).toHaveAttribute('d', 'M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7');
+  await full.click();
+  await expect(P.locator('.mk-agent-full')).toBeVisible();
+  await expect(full).toHaveText('صغّر');
+  await expect(full.locator('svg path')).toHaveAttribute('d', 'M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7');
+  const fills = await P.locator('.mk-agent-full').evaluate((el) => { const r = el.getBoundingClientRect(); return [Math.round(r.left), Math.round(r.top), Math.round(innerWidth - r.right), Math.round(innerHeight - r.bottom)]; });
+  expect(fills).toEqual([12, 12, 12, 12]);
+  await full.click();
+  await expect(P.locator('.mk-agent-full')).toHaveCount(0);
+  await expect(full.locator('svg path')).toHaveAttribute('d', 'M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7');
+});
+
+test('comment 72 — on a phone the history is a drawer: «الشاتات» in the chat\'s head opens it over the chat, a pick (or the veil) closes it, and nothing scrolls sideways', async ({ page }) => {
+  const ADMIN_ID = '00000000-0000-4000-8000-000000000001'; const CH1 = 'c7210000-0000-4000-8000-000000000001';
+  await page.setViewportSize({ width: 390, height: 800 });
+  await start(page, { mktAgentChats: [{ id: CH1, member_id: ADMIN_ID, agent: 'dev', title: 'صفحة العروض', updated_at: D(-1) + 'T10:00:00Z' }], mktAgentMsgs: [{ chat_id: CH1, role: 'user', text: 'عايز صفحة عروض' }, { chat_id: CH1, role: 'assistant', text: 'تمام — صفحة هبوط بسيطة' }] });
+  await signIn(page, ADMIN);
+  await page.evaluate(() => { location.hash = 'marketing-ai'; });
+  const P = pg(page);
+  await P.getByRole('tab', { name: /المبرمج/ }).click();
+  const box = P.locator('[data-mk-agent="dev"]');
+  const toggle = box.locator('[data-mk-chats-toggle]');
+  await expect(toggle).toBeVisible(); await expect(toggle).toHaveText('الشاتات (1)');
+  await expect(box.locator('.mk-agent-side')).toBeHidden();
+  await toggle.click();
+  await expect(box.locator('.mk-agent-side.open')).toBeVisible();
+  await expect(box.locator('.mk-agent-veil')).toBeVisible();
+  await box.locator('[data-mk-chat-item] .mk-agent-open', { hasText: 'صفحة العروض' }).click();
+  await expect(box.locator('.mk-agent-side')).toBeHidden();
+  await expect(box.locator('[data-mk-chat="2"]')).toContainText('صفحة هبوط بسيطة');
+  await toggle.click(); await box.locator('.mk-agent-veil').click({ position: { x: 8, y: 200 } });
+  await expect(box.locator('.mk-agent-side')).toBeHidden();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+  expect(await box.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+});

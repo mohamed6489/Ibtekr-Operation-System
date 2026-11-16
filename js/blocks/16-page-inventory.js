@@ -15,7 +15,7 @@
   const canApprove = () => !live() || A().can().approve;
   const reload = () => (live() ? A().load().then(() => rerender()) : Promise.resolve());
   // a write through IBInventory: kept on the page at once; a refusal says why and reloads the hub from the server
-  const saved = (p, okMsg) => Promise.resolve(p).then((r) => { if (r && r.ok) { if (okMsg) K.toast(okMsg, 'success'); return r; } K.toast(r && r.reason === 'forbidden' ? 'مش مسموح — الصلاحية دي مش عندك' : 'ماتحفظش — جرّب تاني', 'error'); reload(); return r || { ok: false }; });
+  const saved = (p, okMsg) => Promise.resolve(p).then((r) => { if (r && r.ok) { if (okMsg) K.toast(okMsg, 'success'); return r; } K.toast(r && r.message ? r.message : r && r.reason === 'forbidden' ? 'مش مسموح — الصلاحية دي مش عندك' : 'ماتحفظش — جرّب تاني', 'error'); reload(); return r || { ok: false }; }); // live-sync decision 6: «حد تاني غيّر القطعة دي» says itself
   const newKey = () => (live() ? A().newKey() : 'L-' + Date.now());
   const patchLot = (key, patch, action) => { if (live()) saved(A().updateLot(key, patch, action)); };
   // phase 13 decision 58 (owner 11 Nov — «المخزن الآن لقسمين: نظرة عامة وسجل المخزون وبعدهم باقي الأقسام»)

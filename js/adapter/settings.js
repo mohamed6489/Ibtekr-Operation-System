@@ -28,7 +28,7 @@
   const can = () => ({ view: isAdmin() || perm('settings.view') !== 'N', team: isAdmin() || perm('settings.team') === 'F', admin: isAdmin() });
   const reasonOf = (err) => { const code = String((err && err.code) || ''); return code === '42501' ? 'forbidden' : code === 'P0002' || code === 'PGRST116' ? 'notfound' : code === '23505' ? 'exists' : code === '0A000' ? 'no_vault' : /^2[23]/.test(code) ? 'invalid' : 'server'; };
   const fieldOf = (err) => { const m = /invalid: (\w+)/.exec(String((err && err.message) || '')); return m ? m[1] : null; };
-  const MESSAGES = { forbidden: 'مفيش صلاحية للإجراء ده', notfound: 'مش موجود أو اتحذف', network: 'تعذّر الاتصال — جرّب تاني', invalid: 'البيانات مش مقبولة', exists: 'الاسم ده موجود', server: 'حصل خطأ في السيرفر', no_vault: 'الخزنة (Vault) مش متاحة في المشروع', last_admin: 'لازم يفضل أدمن واحد نشط على الأقل' };
+  const MESSAGES = { forbidden: 'مفيش صلاحية للإجراء ده', notfound: 'مش موجود أو اتحذف', network: 'تعذّر الاتصال — جرّب تاني', invalid: 'البيانات مش مقبولة', exists: 'الاسم ده موجود', stale: 'الإعدادات دي اتغيّرت من شوية (عضو تاني أو شاشة تانية) — اتحدّثت قدامك، راجعها واحفظ تاني', server: 'حصل خطأ في السيرفر', no_vault: 'الخزنة (Vault) مش متاحة في المشروع', last_admin: 'لازم يفضل أدمن واحد نشط على الأقل' };
   const FIELD_MESSAGES = { qname: 'اسم الإجراء: لحد 60 حرف ومن غير < >', role: 'اختار الدور', link: 'اللينك لازم يكون لصفحة في السيستم (#…)', scope: 'اختار مين يشوف الإجراء', level: 'المستوى: مدير أو موظف أو مشاهد', id: 'معرّف الدور: حروف إنجليزية صغيرة وأرقام و _ بس', name: 'الاسم مطلوب (لحد 40 حرف) — اسم الدور الجاهز ثابت', base: 'اختار دور تبدأ منه', perms: 'الصلاحيات لازم تكون F أو P أو N', moves: 'كل عضو على الدور لازم يروح لدور تاني موجود', admin: 'الأدمن عنده كل الصلاحيات — مينفعش يتعدّل', self: 'مينفعش توقف نفسك', status: 'الحالة مش معروفة', reason: 'اكتب سبب الإيقاف', current: 'الجلسة الحالية بتتقفل بـ «تسجيل الخروج»', url: 'اكتب رابط الموقع كامل بـ https://', ck: 'Consumer key بيبدأ بـ ck_', cs: 'Consumer secret بيبدأ بـ cs_', key: 'المفتاح مش بالشكل المتوقع', token: 'التوكن مش بالشكل المتوقع', from: 'إيميل المرسل مش صحيح' };
   const fail = (err) => { const msg = String((err && err.message) || ''); const reason = /last admin/.test(msg) ? 'last_admin' : reasonOf(err); const field = reason === 'invalid' ? fieldOf(err) : null; return { ok: false, reason, field, message: (field && FIELD_MESSAGES[field]) || MESSAGES[reason] || MESSAGES.server }; };
   const no = (reason, field) => ({ ok: false, reason, field: field || null, message: (field && FIELD_MESSAGES[field]) || MESSAGES[reason] || MESSAGES.server });
@@ -84,16 +84,33 @@
   function clear() { data.sections = {}; data.roles = []; data.loaded = false; data.public = null; data.meta = {}; pub = null; }
 
   // ---------- a section's data (the admin; team / integrations / security with settings.team) ----------
-  async function save(name, patch, opts) {
+  // «لسه زي ما أنا شايفه» (live-sync plan decision 6): a section is written only while it still carries the stamp the screen was read
+  // with (settings.updated_at — the server's); one section's saves go one after the other, each with the stamp the last one left
+  const secQueue = new Map();
+  function save(name, patch, opts) {
+    const key = String(name); const prev = secQueue.get(key) || Promise.resolve();
+    const run = prev.then(() => saveNow(name, patch, opts));
+    const tail = run.then(() => {}, () => {}); secQueue.set(key, tail); tail.then(() => { if (secQueue.get(key) === tail) secQueue.delete(key); });
+    return run;
+  }
+  async function saveNow(name, patch, opts) {
     const cl = c(); if (!cl) return no('network');
     const sec = clean(name, 40); if (!/^[a-z_]{1,40}$/.test(sec)) return no('invalid');
     if (!(TEAM_SECTIONS.includes(sec) ? can().team : can().admin)) return no('forbidden');
     if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return no('invalid');
     const merge = !(opts && opts.merge === false); const next = merge ? Object.assign({}, section(sec), patch) : Object.assign({}, patch);
     for (const k of Object.keys(next)) if (next[k] === undefined || next[k] === null) delete next[k];
+    const L = window.IBLive; const seen = data.meta && data.meta[sec] && data.meta[sec].updatedAt;
     try {
-      const { error } = await cl.from('settings').upsert({ section: sec, data: next }, { onConflict: 'section' });
-      if (error) return fail(error);
+      if (L && L.guarded && seen) {
+        const r = await L.guarded(cl, 'settings', { section: sec }, { data: next }, { updated_at: seen });
+        if (!r.ok) { if (r.reason === 'stale' || r.reason === 'missing') { const p = quiet(() => load()); if (p && p.catch) p.catch(() => {}); return no('stale'); } return no(r.reason); }
+        const { data: d } = await cl.from('settings').select('updated_at, updated_by').eq('section', sec).maybeSingle();
+        data.meta[sec] = { updatedAt: (d && d.updated_at) || null, updatedBy: (d && d.updated_by) || null };
+      } else {
+        const { error } = await cl.from('settings').upsert({ section: sec, data: next }, { onConflict: 'section' });
+        if (error) return fail(error);
+      }
     } catch (e) { return no('network'); }
     data.sections[sec] = next; emit();
     log(sec + '.save', Object.keys(patch).sort().join(', '), sec);

@@ -88,7 +88,7 @@
   const SYNC_OF = { name: 'name', phone: 'phone', email: 'email', contactName: 'contact_name', addressParts: 'address_parts', social: 'social', status: 'status' };
   const SYNC_FIELDS = ['name', 'phone', 'email', 'contact_name', 'address_parts', 'social', 'status', 'rate', 'category_rates', 'bank']; // phase 3.5: bank
   const ADDRESS_KEYS = ['street_1', 'street_2', 'city', 'state', 'zip', 'country']; const SOCIAL_KEYS = ['fb', 'instagram', 'twitter', 'youtube', 'linkedin', 'pinterest', 'threads', 'flickr'];
-  const MESSAGES = { forbidden: 'مش من صلاحياتك', network: 'الشبكة مش متاحة — التغيير ما اتحفظش، جرّب تاني', in_use: 'ماينفعش يتمسح — عليه أوردرات', too_large: 'الملف أكبر من 10 ميجا', bad_type: 'نوع الملف مش مقبول — PDF أو صورة (PNG / JPG) بس', duplicate: 'فيه نسبة متسجلة بنفس تاريخ السريان — اختار تاريخ تاني',
+  const MESSAGES = { stale: 'حد تاني غيّر بيانات المبتكر ده من شوية — اتحدّثت قدامك، راجعها وعدّل تاني لو لسه محتاج', missing: 'المبتكر ده مابقاش موجود', forbidden: 'مش من صلاحياتك', network: 'الشبكة مش متاحة — التغيير ما اتحفظش، جرّب تاني', in_use: 'ماينفعش يتمسح — عليه أوردرات', too_large: 'الملف أكبر من 10 ميجا', bad_type: 'نوع الملف مش مقبول — PDF أو صورة (PNG / JPG) بس', duplicate: 'فيه نسبة متسجلة بنفس تاريخ السريان — اختار تاريخ تاني',
     // phase 3.3: the push to the site and the per-category commission
     push_failed: 'اتحفظ في السيستم، ومابعتش للموقع — هيتبعت مع المزامنة الجاية', push_lost: 'اتحفظ في السيستم، ومابعتش للموقع — ومش هيتبعت لوحده: افتح التعديل واحفظ تاني', push_refused: 'اتحفظ في السيستم بس — الموقع رفض التعديل ده، راجع القيم', push_forbidden: 'اتحفظ في السيستم بس — إرسال التعديل للموقع محتاج صلاحية تعديل المبتكرين الكاملة', category_duplicate: 'فيه عمولة للفئة دي بنفس تاريخ السريان — اختار تاريخ تاني', bad_rate: 'النسبة من 0% إلى 65% والرسوم الثابتة من 0 أو أكتر', bad_category: 'اختار فئة من فئات الموقع', bad_main_category: 'اختار من الأقسام الرئيسية بتاعة الموقع', // 0080
     duplicate_username: 'اسم المستخدم ده مستخدم قبل كده', login_exists: 'المبتكر ده عنده بيانات دخول — عدّلها من ملفه', weak_password: 'الباسورد لازم: 8 حروف على الأقل، حرف إنجليزي، رقم، من غير مسافات', no_vault: 'الباسورد المؤقت مش متاح على السيرفر ده دلوقتي (Vault مش شغّال)', no_login: 'اعمل اسم مستخدم الأول', long_password: 'الباسورد أطول من 128 حرف',
@@ -98,6 +98,9 @@
   const PW_MAX = 128; // the server's cap (22023 past it)
   const LOGIN_STATUSES = ['invited', 'active', 'disabled'];
   const DONE = ['مكتمل']; const OUT = ['ملغي', 'استرجاع', 'فشل', 'مرتجع', 'مسترد', 'ملغي / مرتجع'];
+  // «لسه زي ما أنا شايفه» (live-sync plan decision 6): vendor id → its editable columns as the last read had them (IBLive holds the
+  // reads while a popup is open, so this is what the member edits from); my saved write moves them on
+  let seenV = new Map();
   let vendors = new Map(); const timeline = new Map(); const revealed = new Map(); let gen = 0; let st = 'idle'; let ratesOk = false;
   let brands = new Map(); let brandRatesOk = false; // phase 3.2: id → { id, name, code, aliases, store, origin, history, rates, … }
   let catRates = new Map(); let catRatesOk = false; let categoriesMap = new Map(); // phase 3.3: vendor → vendor_category_rates rows (since ascending); woo_categories by id
@@ -325,12 +328,13 @@
       const bankOf = new Map((bs.error ? [] : bs.data || []).map((b) => [String(b.vendor_id), b]));
       const loginOf = new Map((ls.error ? [] : ls.data || []).map((l) => [String(l.vendor_id), l])); // refused or empty: no login known
       const T = today();
+      seenV = new Map(vs.map((r) => [String(r.id), Object.fromEntries(Object.values(COL).filter((k) => r[k] !== undefined).map((k) => [k, r[k]]))]));
       vendors = new Map(vs.map((r) => [String(r.id), toVendor(r, byVendor.get(String(r.id)) || [], bankOf.get(String(r.id)) || null, { ratesVisible: visible, today: T, login: loginOf.get(String(r.id)) || null, categoryRates: catRates.get(String(r.id)) || [] })]));
       syncVendorBrands();
       if (soft && st === 'ready') emit({ state: 'ready', live: true }); else setState('ready');
     } catch (e) { if (g === gen && !soft) setState('error'); /* offline or refused: the screen keeps what it had; cleared: 'idle' */ }
   }
-  function clear() { gen += 1; makersLog = null; vendors = new Map(); brands = new Map(); catRates = new Map(); categoriesMap = new Map(); timeline.clear(); revealed.clear(); ratesOk = false; brandRatesOk = false; catRatesOk = false; setState('idle'); }
+  function clear() { gen += 1; makersLog = null; seenV = new Map(); vendors = new Map(); brands = new Map(); catRates = new Map(); categoriesMap = new Map(); timeline.clear(); revealed.clear(); ratesOk = false; brandRatesOk = false; catRatesOk = false; setState('idle'); }
   // phase 3.3: the site's product categories for the pickers, by name
   const categories = () => [...categoriesMap.values()].sort((a, b) => a.name.localeCompare(b.name, 'ar')).map((c) => Object.assign({}, c));
   // B2 (0080, the owner 11 Nov): the site's main categories (no parent; never «Uncategorized») for «الفئة الأساسية», by name
@@ -405,7 +409,9 @@
     if (!r.ok) {
       const now = vendors.get(id); // a removed row: v is null and the map has nothing
       if (v ? now === v : now === undefined) { if (old) vendors.set(id, old); else vendors.delete(id); }
-      emit({ id, reason: r.reason }); return r;
+      emit({ id, reason: r.reason });
+      if (r.reason === 'stale' || r.reason === 'missing') quiet(() => load({ quiet: true })); // theirs on the screen
+      return r;
     }
     const p = push && push.length ? await pushVendor(id, push) : null;
     await Promise.all([logged ? logged() : undefined, load()]);
@@ -455,7 +461,13 @@
     emit({ id, changed });
     const fields = changed.filter((k) => k !== 'status');
     const push = changed.map((k) => SYNC_OF[k]).filter(Boolean); // the synced fields among the change → push_vendor after the row
-    const writeRow = () => (Object.keys(row).length ? call((cl) => cl.from('vendors').update(row).eq('id', id)) : Promise.resolve({ ok: true }));
+    const writeRow = () => {
+      if (!Object.keys(row).length) return Promise.resolve({ ok: true });
+      const L = window.IBLive; const sn = seenV.get(String(id));
+      if (!L || !L.guarded || !sn) return call((cl) => cl.from('vendors').update(row).eq('id', id));
+      const was = {}; Object.keys(row).forEach((k) => { if (Object.prototype.hasOwnProperty.call(sn, k)) was[k] = sn[k]; });
+      return L.guarded(c(), 'vendors', { id }, row, was).then((r) => { if (r.ok) Object.assign(sn, row); return r.ok ? { ok: true } : fail(r.reason); });
+    };
     write(id, v, old, () => writeRow().then((r) => (r.ok && cats ? call((cl) => cl.rpc('vendor_main_categories_set', { p_vendor: id, p_ids: cats })) : r)), () => Promise.all([
       changed.includes('status') ? logEvent('vendor.status', v.status, id) : undefined,
       fields.length ? logEvent('vendor.update', fields.join(', '), id) : undefined,

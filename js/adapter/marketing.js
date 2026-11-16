@@ -39,7 +39,7 @@
   const can = () => ({ view: perm('marketing.view') !== 'N', create: perm('marketing.create') === 'F', publish: perm('marketing.publish') === 'F' });
   const reasonOf = (err) => { const code = String((err && err.code) || ''); return code === '42501' ? 'forbidden' : code === 'P0002' || code === 'PGRST116' ? 'notfound' : /^2[23]/.test(code) ? 'invalid' : 'network'; };
   const fieldOf = (err) => { const m = /invalid: (\w+)/.exec(String((err && err.message) || '')); return m ? m[1] : null; };
-  const MESSAGES = { forbidden: 'مفيش صلاحية للإجراء ده', notfound: 'مش موجود أو اتحذف', network: 'تعذّر الاتصال — جرّب تاني', invalid: 'البيانات مش مظبوطة — راجعها' };
+  const MESSAGES = { stale: 'حد تاني عدّل الكامبين دي من شوية — تعديلاتك من ساعتها مااتحفظتش لسه', forbidden: 'مفيش صلاحية للإجراء ده', notfound: 'مش موجود أو اتحذف', network: 'تعذّر الاتصال — جرّب تاني', invalid: 'البيانات مش مظبوطة — راجعها' };
   const FIELD_MESSAGES = { day: 'اليوم ده فات أو بعيد أوي — اختار من النهارده لحد سنة', time: 'الساعة دي فاتت — اختار ساعة جاية', same: 'ده نفس الميعاد الحالي',
     status: 'الإجراء ده مش متاح للبوست في حالته دي', caption: 'الكابشن أطول من 2200 حرف', url: 'اللينك لازم يبدأ بـ https://', images: 'الصور لازم تكون من الكامبين دي',
     platform: 'المنصة مش معروفة', items: 'مفيش قطع تتجدول، أو فيه قطعة مكررة على نفس المنصة', piece: 'في قطعة من غير رقم', kind: 'نوع قطعة مش معروف', tags: 'التاجات أطول من 300 حرف' };
@@ -118,7 +118,7 @@
     try {
       const { data: r, error } = await cl.from('mkt_campaigns').insert(fieldsOf(Object.assign({ step: 1, state: {} }, f))).select(CAMP_COLS).single();
       if (error || !r) return fail(error);
-      const camp = toCampaign(r); data.campaigns = [camp].concat(data.campaigns.filter((x) => x.id !== camp.id)); emit();
+      const camp = toCampaign(r); if (r.updated_at) seenC.set(camp.id, r.updated_at); data.campaigns = [camp].concat(data.campaigns.filter((x) => x.id !== camp.id)); emit();
       log('campaign.add', camp.goal || '', camp.id); return { ok: true, id: camp.id, campaign: camp };
     } catch (e) { return fail(e); }
   }
@@ -127,18 +127,38 @@
     try {
       const { data: r, error } = await cl.from('mkt_campaigns').select(OPEN_COLS).eq('id', id).maybeSingle();
       if (error) return fail(error); if (!r || r.archived_at) return { ok: false, reason: 'notfound', message: MESSAGES.notfound };
+      if (r.updated_at) seenC.set(id, r.updated_at);
       return { ok: true, campaign: Object.assign(toCampaign(r), { state: r.state && typeof r.state === 'object' ? r.state : {} }) };
     } catch (e) { return fail(e); }
   }
   const chains = new Map(); // campaign id → its last save (the saves of a campaign go one after the other, the newest last)
+  // «لسه زي ما أنا شايفه» (live-sync plan decision 6): campaign id → the stamp (updated_at) of the row the wizard was opened on / last
+  // saved. A save is written only while the row still carries it; a teammate's save in between → 'stale' (nothing written) and an
+  // `ib:marketing` event { stale: id, by } — the page asks: open theirs, or save mine over it (save(id, f, { force: true })).
+  // A stamp moved by the server (Magnific results placed on the saved campaign keep the last saver) or by me elsewhere is mine:
+  // the save goes on the new stamp. The autosave of a stale campaign stops writing until the member chooses.
+  const seenC = new Map(); const staleC = new Set();
   const pend = new Map();   // campaign id → { timer, get } of saveSoon
-  async function doSave(id, f) {
+  async function doSave(id, f, opts) {
     const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
     const patch = fieldsOf(f); if (!Object.keys(patch).length) return { ok: true };
+    const force = !!(opts && opts.force);
+    if (force) staleC.delete(id); else if (staleC.has(id)) { quiet(() => document.dispatchEvent(new CustomEvent('ib:marketing', { detail: { stale: id, by: staleC.by && staleC.by[id] } }))); return { ok: false, reason: 'stale', message: MESSAGES.stale }; }
     try {
-      const { data: r, error } = await cl.from('mkt_campaigns').update(patch).eq('id', id).select(CAMP_COLS);
+      const write = (stamp) => { let q = cl.from('mkt_campaigns').update(patch).eq('id', id); if (stamp) q = q.eq('updated_at', stamp); return q.select(CAMP_COLS); };
+      let { data: r, error } = await write(force ? null : seenC.get(id));
       if (error) return fail(error);
+      if ((!Array.isArray(r) || !r.length) && !force && seenC.has(id)) {
+        const { data: now } = await cl.from('mkt_campaigns').select('id, updated_at, updated_by, archived_at').eq('id', id).maybeSingle();
+        if (!now || now.archived_at) return { ok: false, reason: 'notfound', message: 'الكامبين دي اتحذفت أو مش متاحة' };
+        if (now.updated_by && now.updated_by !== myUid()) {
+          staleC.add(id); staleC.by = Object.assign(staleC.by || {}, { [id]: now.updated_by }); quiet(() => document.dispatchEvent(new CustomEvent('ib:marketing', { detail: { stale: id, by: now.updated_by } })));
+          return { ok: false, reason: 'stale', message: MESSAGES.stale, by: now.updated_by };
+        }
+        ({ data: r, error } = await write(now.updated_at)); if (error) return fail(error);
+      }
       if (!Array.isArray(r) || !r.length) return { ok: false, reason: 'notfound', message: 'الكامبين دي اتحذفت أو مش متاحة' };
+      if (r[0].updated_at) seenC.set(id, r[0].updated_at);
       const camp = toCampaign(r[0]); const i = data.campaigns.findIndex((x) => x.id === id);
       const before = i >= 0 ? data.campaigns[i] : null;
       if (i >= 0) data.campaigns[i] = camp; else data.campaigns.unshift(camp);
@@ -148,10 +168,12 @@
       return { ok: true, campaign: camp };
     } catch (e) { return fail(e); }
   }
-  function save(id, f) {
+  // the member opened the teammate's copy: no stale mark, no pending autosave of the old one (open() takes the new stamp)
+  function forget(id) { staleC.delete(id); const p = pend.get(id); if (p && p.timer) clearTimeout(p.timer); pend.delete(id); }
+  function save(id, f, opts) {
     if (!can().create) return Promise.resolve({ ok: false, reason: 'forbidden', message: MESSAGES.forbidden });
     const prev = chains.get(id) || Promise.resolve();
-    const next = prev.then(() => doSave(id, f), () => doSave(id, f));
+    const next = prev.then(() => doSave(id, f, opts), () => doSave(id, f, opts));
     chains.set(id, next.catch(() => null)); return next;
   }
   // the wizard's autosave: the last get() wins after ms of quiet; flush(id) saves it now (before an AI call reads the state)
@@ -1067,9 +1089,9 @@
     if (lv && c()) { try { Promise.resolve(c().removeChannel(lv)).catch(() => {}); } catch (e) { /* already closed */ } }
   }
   // the sign-out wipe
-  function clear() { gen += 1; unsubscribe(); pend.forEach((p) => { if (p.timer) clearTimeout(p.timer); }); pend.clear(); chains.clear(); urls.clear(); data.campaigns = []; data.posts = []; data.templates = []; data.credits = null; conn = null; connAt = 0; ads = null; adsAt = 0; adsCache.clear(); sugg = null; suggAt = 0; rulesCache = null; rulesAt = 0; st = 'idle'; }
+  function clear() { gen += 1; unsubscribe(); pend.forEach((p) => { if (p.timer) clearTimeout(p.timer); }); pend.clear(); chains.clear(); seenC.clear(); staleC.clear(); urls.clear(); data.campaigns = []; data.posts = []; data.templates = []; data.credits = null; conn = null; connAt = 0; ads = null; adsAt = 0; adsCache.clear(); sugg = null; suggAt = 0; rulesCache = null; rulesAt = 0; st = 'idle'; }
 
-  window.IBMarketing = { load, ensure, clear, state: () => st, can, campaigns, posts, templates, getPost, wallet, credits, open, create, save, saveSoon, flush, archive,
+  window.IBMarketing = { load, ensure, clear, state: () => st, can, campaigns, posts, templates, getPost, wallet, credits, open, create, save, saveSoon, flush, forget, archive,
     upload, uploadTemplate, url, cachedUrl, blob, product, refLink, checkFile, generate, magnificStatus, magnificSend, magnificFetch, edit, write, schedule, move, caption, published, remove,
     videoClip, videoVoice, videoMusic, videoAssemble, videoPoll, videoUpload, videoScenes,
     connection, connNow, setAutopublish, publishNow, deleteLive, preparePublish,

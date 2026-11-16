@@ -119,7 +119,11 @@ test('the attendance log: the month day by day, a missing end fixed by hand on t
   await openHr(page);
   await P(page).getByRole('tab', { name: 'سجل الحضور' }).click();
   await pick(page, P(page), 'log-m', 'العضو: منى حسن');
-  if (W1.slice(0, 7) !== T.slice(0, 7)) await pick(page, P(page), 'log-mo', 'الشهر: ' + monLabel(W1));
+  if (W1.slice(0, 7) !== T.slice(0, 7)) { // comments decision 75: the month list is the system's period picker — last month by its own dates
+    await P(page).locator('[data-hr-att-period] .date-field').click();
+    const dp = page.locator('.dp.range'); await dp.getByLabel('من تاريخ').fill(dmy(W1.slice(0, 8) + '01')); await dp.getByLabel('من تاريخ').press('Tab');
+    await dp.getByLabel('إلى تاريخ').fill(dmy(W1)); await dp.getByLabel('إلى تاريخ').press('Tab'); await dp.getByRole('button', { name: 'تحديث' }).click();
+  }
   const row = P(page).locator('tbody tr', { hasText: 'انصراف ناقص' }).first();
   await expect(row).toContainText('9:00 ص'); // batch 2 decision 9: the 12-hour clock
   await row.getByRole('button', { name: 'تصحيح' }).click();

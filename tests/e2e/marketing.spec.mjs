@@ -146,6 +146,48 @@ test('a new campaign: the details (the row created) → the AI fills the piece �
 
 // 15 Nov: the AI texts of a «فيديو» piece itself were refused on the server (400 «piece» — the writing asked for an image target, and a
 // video piece with no scene has none): «فكرة الفيديو» rewritten, and «املأ بالـ AI» fills its idea and caption only
+// comments decisions 62–64 (the owner 15 Nov — «غير كلمة تعديل لتعديل علي الصورة» · «حط margin ما بينهم» · «طبق كومنت تعديل زرار تعديل علي كل
+// الصفحة دي»): the review's button on every picture — a post, a carousel's cover, each of its pictures — reads «تعديل على الصورة» and
+// opens the pins popup under that name; a carousel's pictures are boxes with a gap between them (they stood on each other)
+test('comments 62–64 — the review: «تعديل على الصورة» on every picture, and a carousel\'s pictures apart from each other', async ({ page }) => {
+  const C2 = MKT_ID(2); const img = (n) => C2 + '/gen-' + n + '.png';
+  const piece = (o) => Object.assign({ size: '1080x1350', model: 'seedream-5-pro', idea: 'المخدة', caption: 'كابشن', title: 'دفا', sub: '', badge: '', ref: [], use: [], gen: 1, approved: false }, o);
+  const state = { w: { goal: 'منتج جديد', idea: 'كولكشن الشتا', mediaTab: 'post', media: { video: { count: 0, size: '9:16', dur: 15, model: 'seedance-2.5', notes: '', use: [], ref: [] }, post: { count: 1, size: '1080x1350', model: 'seedream-5-pro', notes: '', use: [], ref: [] }, carousel: { count: 1, slides: 3, size: '1080x1350', model: 'seedream-5-pro', notes: '', use: [], ref: [] } }, extra: { count: 0, model: 'seedream-5-pro', notes: '', use: [], ref: [] } },
+    pieces: [piece({ id: 'P1', kind: 'بوست', n: 1, img: img('P1'), pins: [{ x: 40, y: 40, text: 'كبّر اللوجو' }] }),
+      piece({ id: 'C1', kind: 'كاروسيل', n: 1, img: img('C1'), slides: [0, 1, 2].map((k) => ({ idea: 'تفصيلة ' + (k + 1), title: 'شريحة ' + (k + 1), sub: '', badge: '', ref: [], use: [], img: img('C1-' + k), approved: false })) })], sched: {}, rtab: 'post' };
+  const now = new Date().toISOString();
+  mock.mkt.campaigns.push({ id: C2, name: 'كولكشن الشتا', goal: 'منتج جديد', step: 3, state, scheduled_at: null, created_by: null, created_at: now, updated_by: null, updated_at: now, archived_at: null, archived_by: null });
+  ['P1', 'C1', 'C1-0', 'C1-1', 'C1-2'].forEach((n) => { mock.mkt.objects[img(n)] = { type: 'image/png' }; });
+  await openMarketing(page);
+  await pg(page).locator('[data-mk-open="' + C2 + '"]').click();
+  await expect(pg(page).locator('.wstepper .stp-cur')).toContainText('المراجعة');
+  // the post: the button's new name, and the note about its saved pins names it too
+  const post = pg(page).locator('[data-cw-rev="P1"]');
+  await expect(post.locator('[data-cw-edit]')).toHaveText('تعديل على الصورة');
+  await expect(post).toContainText('«تعديل على الصورة» عشان تولّد بيهم');
+  await post.locator('[data-cw-edit]').click();
+  const m = modal(page, 'تعديل على الصورة — بوست 1');
+  await expect(m).toBeVisible();
+  await expect(m.locator('[data-cw-regen]')).toBeVisible();
+  await m.getByRole('button', { name: 'إلغاء' }).click();
+  // the carousel: the cover and its three pictures — the same name on each, no bare «تعديل» left on the page
+  await pg(page).locator('.subtab', { hasText: 'الكاروسيلز' }).click();
+  const car = pg(page).locator('section[data-cw-rev="C1"]');
+  await expect(car.locator('[data-cw-edit]')).toHaveText(['تعديل على الصورة', 'تعديل على الصورة', 'تعديل على الصورة', 'تعديل على الصورة']);
+  await expect(pg(page).getByRole('button', { name: 'تعديل', exact: true })).toHaveCount(0);
+  // the pictures are apart: each one a box of its own, 12px or more between two of them, and between the cover and the first
+  const boxes = await car.locator('.cw-slide').evaluateAll((els) => els.map((el) => { const r = el.getBoundingClientRect(); return [Math.round(r.top), Math.round(r.bottom), getComputedStyle(el).borderTopWidth]; }));
+  expect(boxes.length).toBe(4);
+  for (let i = 1; i < boxes.length; i++) expect(boxes[i][0] - boxes[i - 1][1]).toBeGreaterThanOrEqual(12);
+  expect(boxes.every((b) => b[2] === '1px')).toBe(true);
+  // the build step's carousel uses the same boxes
+  await pg(page).locator('.wiz-foot').getByRole('button', { name: 'رجوع' }).click();
+  await expect(pg(page).locator('.wstepper .stp-cur')).toContainText('البناء');
+  const built = await pg(page).locator('[data-cw-piece="C1"] .cw-slide').evaluateAll((els) => els.map((el) => { const r = el.getBoundingClientRect(); return [Math.round(r.top), Math.round(r.bottom)]; }));
+  expect(built.length).toBe(3);
+  for (let i = 1; i < built.length; i++) expect(built[i][0] - built[i - 1][1]).toBeGreaterThanOrEqual(12);
+});
+
 test('a video piece\'s own texts: «إعادة كتابة بالـ AI» on «فكرة الفيديو» (the instructions popup first, «تراجع»), and «املأ بالـ AI» fills its empty caption — the written idea stays, no headline or badge lands on the piece', async ({ page }) => {
   const C2 = MKT_ID(2);
   const state = { w: { goal: 'منتج جديد', idea: 'ريل لمخدة بوهيمي', mediaTab: 'video', media: { video: { count: 1, size: '9:16', dur: 10, model: 'seedance-2.5', notes: 'حركة هادية', use: [], ref: [] }, post: { count: 0, size: '1080x1350', model: 'seedream-5-pro', notes: '', use: [], ref: [] }, carousel: { count: 0, slides: 4, size: '1080x1350', model: 'seedream-5-pro', notes: '', use: [], ref: [] } }, extra: { count: 0, model: 'seedream-5-pro', notes: '', use: [], ref: [] } },

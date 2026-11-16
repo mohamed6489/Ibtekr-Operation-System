@@ -1018,3 +1018,25 @@ test('owner 16 Nov — «فلتر الشجرة»: the product page\'s categories
   await page.getByRole('button', { name: 'احفظ على الموقع' }).first().click();
   await expect.poll(() => { const w = mock.productWrites.at(-1); return w && w.fields && w.fields.categories ? [...w.fields.categories].sort((a, b) => a - b) : null; }).toEqual(expect.arrayContaining([151, 152]));
 });
+
+test('owner 16 Nov — the bulk actions follow the filter: nothing ticked → every product the filter shows («كل المتفلتر — N منتج»), ticked ones → those alone; no filter and nothing ticked → no bar', async ({ page }) => {
+  await openProducts(page);
+  await expect(page.locator('#pg-products .bulk-bar')).toHaveCount(0); // the whole catalog, nothing ticked
+  const fbtn = page.locator('#pg-products [data-fm-btn="products"]'); const fm = page.locator('[data-fm-menu="products"]');
+  await fbtn.click(); await fm.locator('[data-fm-tab="brand"]').click(); await fm.locator('[data-fm="brand:Antikiano"]').click();
+  await fm.locator('[data-fm-apply]').dispatchEvent('click');
+  const bar = page.locator('#pg-products .bulk-bar');
+  await expect(bar).toHaveAttribute('data-pbulk', 'filtered');
+  await expect(bar.locator('[data-pbulk-scope]')).toContainText('كل المتفلتر — 2 منتج');
+  await expect(bar.getByRole('button', { name: 'إلغاء التحديد' })).toHaveCount(0);
+  await bar.getByRole('button', { name: 'تعديل السعر' }).click();
+  await expect(page.locator('.modal.bp-modal')).toContainText(/تعديل سعر (2 منتجات|منتج)/);
+  await page.locator('.modal.bp-modal').getByRole('button', { name: 'إلغاء' }).click();
+  // one ticked → that one alone
+  await page.locator('#pg-products table tbody tr').first().locator('[role=checkbox]').click();
+  await expect(bar).toHaveAttribute('data-pbulk', 'picked');
+  await expect(bar.locator('[data-pbulk-scope]')).toHaveText('محدد 1');
+  await expect(bar.getByRole('button', { name: 'إلغاء التحديد' })).toBeVisible();
+  await bar.getByRole('button', { name: 'إلغاء التحديد' }).click();
+  await expect(bar).toHaveAttribute('data-pbulk', 'filtered');
+});

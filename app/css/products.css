@@ -328,3 +328,6 @@
 .cat-field-row .select.cat-field{flex:1 1 auto;min-width:0}
 .cat-field-x{flex:none;width:32px;height:32px;display:grid;place-items:center;border:1px solid var(--color-border-subtle);border-radius:var(--radius-sm,6px);background:var(--color-bg-base);cursor:pointer;color:var(--color-text-secondary)}
 .cat-field-x:hover{background:var(--color-bg-hover);color:#005642;border-color:#005642}
+/* the owner 16 Nov: the bulk bar on what the filter shows — its count and the hint to tick part of it */
+.pbulk-scope{display:flex;flex-direction:column;gap:2px;line-height:1.3}
+.pbulk-scope small{font-size:12px}

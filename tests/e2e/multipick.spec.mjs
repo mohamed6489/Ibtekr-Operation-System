@@ -124,7 +124,9 @@ test('FilterMenu = one «فلتر» button: the panel holds every group, a long 
   await expect(menu.locator('[data-fm-key="s"]')).toBeVisible();
   await expect(menu.locator('[data-fm-key="c"]')).toBeHidden();
   await menu.locator('[data-fm-tab="c"]').click();
-  await expect(menu.locator('[data-fm-key="c"] [role=menuitemcheckbox]')).toHaveText(['ديكور', '- هدايا']); // a sub-level with «-»
+  // a group of levels is a tree (the owner 16 Nov — «فلتر الشجرة»): no «-», the sub-level under its branch's + (open when one of it is picked)
+  await expect(menu.locator('[data-fm-key="c"] [role=menuitemcheckbox]')).toHaveText(['ديكور', 'هدايا']);
+  await expect(menu.locator('[data-fm-key="c"] [data-fm-row][data-depth="1"]')).toHaveCount(1);
   await expect(menu.locator('[data-fm-key="s"]')).toBeHidden();
   await menu.locator('[data-fm-tab="p"]').click();
   await expect(menu.locator('[data-fm-q="p"]')).toBeFocused(); // the tab's search takes the focus

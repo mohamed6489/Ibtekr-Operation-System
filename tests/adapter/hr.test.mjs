@@ -64,7 +64,7 @@ function load({ now = NOW, meId = A, meCode = 'M01', responses = {}, perms = { '
   const events = []; const logs = []; const store = { members: MEMBERS() };
   const window = { IBSupabase: { client: stub.client }, IB_CONFIG: { realtime }, IBKit: { store },
     IBDirectory: { perm: (k) => perms[k] || 'N', me: () => ({ id: meId, member_code: meCode, name: 'صفوت كمال', role_id: role, status: 'active' }), refresh: async () => { store.members.push({ id: 'M04', uid: 'a0000000-0000-4000-8000-000000000004', name: 'كريم', status: 'active', shift: ['09:00', '17:00'] }); } },
-    IBActivity: { log: (action, detail, meta) => { logs.push([action, detail, meta]); return Promise.resolve(); } }, IBAccounts: accounts || undefined,
+    IBActivity: { dayBounds: (f, t) => ({ gte: /^\d{4}-\d{2}-\d{2}$/.test(f || '') ? 'G:' + f : null, lte: /^\d{4}-\d{2}-\d{2}$/.test(t || '') ? 'L:' + t : null }), log: (action, detail, meta) => { logs.push([action, detail, meta]); return Promise.resolve(); } }, IBAccounts: accounts || undefined,
     crypto: { randomUUID: () => 'abcdef12-0000-4000-8000-000000000000' } };
   runInNewContext(src, { window, document: { dispatchEvent(e) { events.push(e.type); }, visibilityState: 'visible' }, CustomEvent: class { constructor(t) { this.type = t; } },
     Promise, Date: clock(now), Number, String, Array, Object, JSON, Map, Set, Math, Error, RegExp, Intl, setTimeout, clearTimeout, setInterval: () => 1, clearInterval: () => {} });
@@ -510,6 +510,21 @@ test('the owner 12 Nov — loadLog: the HR rows of the activity log (action like
   await H.loadLog(); eq(stub.calls.filter((c) => c.table === 'activity_log' && c.op === 'from').length, 1, 'cached a minute');
   await H.loadLog(true); eq(stub.calls.filter((c) => c.table === 'activity_log' && c.op === 'from').length, 2, 'forced');
   H.clear(); eq(H.logNow(), null);
+});
+
+test('comments decision 80 — loadLog with a period: the rows of those Cairo days from the server (up to 1000), cached by the period', async () => {
+  const { H, stub } = load({ responses: { activity_log: ok([{ id: 9, at: '2026-11-10T10:00:00Z', actor: A, action: 'hr.attendance.manual', entity: 'hr', entity_id: B, new_value: 'M02 2026-11-10' }]) } });
+  await H.load();
+  const froms = () => stub.calls.filter((c) => c.table === 'activity_log' && c.op === 'from').length;
+  const r = await H.loadLog(false, { from: '2026-11-10', to: '2026-11-12' });
+  eq(r.items.map((x) => x.id), [9]);
+  const q = stub.calls.filter((c) => c.table === 'activity_log');
+  eq(q.filter((c) => c.op === 'gte' || c.op === 'lte').map((c) => [c.op].concat(c.args)), [['gte', 'at', 'G:2026-11-10'], ['lte', 'at', 'L:2026-11-12']]);
+  assert(q.some((c) => c.op === 'limit' && c.args[0] === 1000));
+  await H.loadLog(false, { from: '2026-11-10', to: '2026-11-12' }); eq(froms(), 1, 'the same period: cached');
+  await H.loadLog(false, { from: '2026-11-01', to: '2026-11-12' }); eq(froms(), 2, 'another period is asked');
+  await H.loadLog(false); eq(froms(), 3, 'back to the newest 300');
+  assert(stub.calls.filter((c) => c.table === 'activity_log' && c.op === 'limit').slice(-1)[0].args[0] === 300);
 });
 
 test('the HR rebuild (0083): «تحويل المرتبات» / one member\'s pay (early = a reason) / an advance / the overtime fix — the RPCs, the accounts reloaded, nothing logged from here', async () => {

@@ -269,8 +269,10 @@
       if (o.actor && UUID.test(String(o.actor))) q = q.eq('actor', o.actor);
       if (o.action) q = q.eq('action', clean(o.action, 60));
       else if (o.prefix && /^[a-z_]{1,30}$/.test(o.prefix)) q = q.like('action', o.prefix + '.%');
-      if (o.from && /^\d{4}-\d{2}-\d{2}$/.test(o.from)) q = q.gte('at', o.from + 'T00:00:00Z');
-      if (o.to && /^\d{4}-\d{2}-\d{2}$/.test(o.to)) q = q.lte('at', o.to + 'T23:59:59Z');
+      // the days are Cairo's (comments decision 80): the instants they cover, not UTC midnights
+      const B = window.IBActivity && window.IBActivity.dayBounds ? window.IBActivity.dayBounds(o.from, o.to) : { gte: null, lte: null };
+      if (B.gte) q = q.gte('at', B.gte);
+      if (B.lte) q = q.lte('at', B.lte);
       const { data: rows, error } = await q; if (error) return fail(error);
       const list = Array.isArray(rows) ? rows : []; const more = list.length > size;
       const names = new Map((window.IBDirectory && window.IBDirectory.members ? window.IBDirectory.members() : []).map((m) => [m.uid, m.name]));

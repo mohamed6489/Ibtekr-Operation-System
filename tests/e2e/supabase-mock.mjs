@@ -133,11 +133,12 @@ const IN_FILTERS = { alert_reads: ['alert_id'], orders_v: ['id'], order_items: [
 const OR_FILTERS = { products: { '(lang.is.null,lang.neq.ar)': (r) => r.lang == null || r.lang !== 'ar' } };
 // products.js: product_commissions with a rate only (rate=not.is.null)
 const NOT_NULL = { product_commissions: ['rate'], orders: ['status_custom'] };
-const GTE_FILTERS = { orders_v: ['placed_at'], orders: ['placed_at'] }; // orders.js: the last 12 months
+const GTE_FILTERS = { orders_v: ['placed_at'], orders: ['placed_at'], activity_log: ['at'] }; // orders.js: the last 12 months; the logs' period (gte. + lte. on at)
+const LTE_FILTERS = { activity_log: ['at'] };
 // the horizontal filters of a PostgREST request (eq. everywhere; in.(a,b) on IN_FILTERS, gte. on GTE_FILTERS only) → { match(row) } | { bad: 'param=value' }
 function readFilters(params, table) {
   const f = [...params].filter(([k]) => !NOT_FILTERS.has(k));
-  const bad = f.find(([k, v]) => !(k === 'or' && (OR_FILTERS[table] || {})[v]) && !((NOT_NULL[table] || []).includes(k) && v === 'not.is.null') && !v.startsWith('eq.') && !/^is\.(null|true|false)$/.test(v) && !((IN_FILTERS[table] || []).includes(k) && /^in\.\(.*\)$/.test(v)) && !((GTE_FILTERS[table] || []).includes(k) && v.startsWith('gte.')) && !((LIKE_FILTERS[table] || []).includes(k) && v.startsWith('like.')));
+  const bad = f.find(([k, v]) => !(k === 'or' && (OR_FILTERS[table] || {})[v]) && !((NOT_NULL[table] || []).includes(k) && v === 'not.is.null') && !v.startsWith('eq.') && !/^is\.(null|true|false)$/.test(v) && !((IN_FILTERS[table] || []).includes(k) && /^in\.\(.*\)$/.test(v)) && !((GTE_FILTERS[table] || []).includes(k) && v.startsWith('gte.')) && !((LTE_FILTERS[table] || []).includes(k) && v.startsWith('lte.')) && !((LIKE_FILTERS[table] || []).includes(k) && v.startsWith('like.')));
   const one = ([k, v]) => {
     if (k === 'or') return OR_FILTERS[table][v];
     if (v === 'not.is.null') return (r) => r[k] != null;
@@ -146,6 +147,7 @@ function readFilters(params, table) {
     // null = anything is never true; a json column is compared as json (PostgREST casts the literal), never as «[object Object]»
     if (v.startsWith('eq.')) return (r) => { if (r[k] == null) return false; if (typeof r[k] !== 'object') return String(r[k]) === v.slice(3); try { return JSON.stringify(JSON.parse(v.slice(3))) === JSON.stringify(r[k]); } catch (e) { return false; } };
     if (v.startsWith('gte.')) { const t = Date.parse(v.slice(4)); return (r) => Date.parse(r[k]) >= t; }
+    if (v.startsWith('lte.')) { const t = Date.parse(v.slice(4)); return (r) => Date.parse(r[k]) <= t; }
     if (v.startsWith('like.')) { const re = new RegExp('^' + v.slice(5).replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/[%*]/g, '.*') + '$', 's'); return (r) => re.test(String(r[k] ?? '')); }
     const set = v.slice(4, -1).split(',').map((x) => x.replace(/^"(.*)"$/, '$1')); return (r) => set.includes(String(r[k]));
   };

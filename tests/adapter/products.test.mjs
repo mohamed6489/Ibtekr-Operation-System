@@ -21,7 +21,7 @@ function load({ responses = {}, perms = { 'products.view': 'F', 'products.edit':
     woo_categories: ok([{ id: 15, name: 'ديكور', parent_id: null }, { id: 16, name: 'إضاءة', parent_id: 15 }]), woo_brands: ok([{ id: 3, name: 'Lusso', parent_id: null }]), ...responses } });
   const events = []; const logs = [];
   const window = { IBSupabase: { client: stub.client }, IBDirectory: { perm: (k) => perms[k] || 'N' },
-    IBActivity: { log: (action, detail, meta) => { logs.push([action, detail, meta]); return Promise.resolve(); } },
+    IBActivity: { dayBounds: (f, t) => ({ gte: /^\d{4}-\d{2}-\d{2}$/.test(f || '') ? 'G:' + f : null, lte: /^\d{4}-\d{2}-\d{2}$/.test(t || '') ? 'L:' + t : null }), log: (action, detail, meta) => { logs.push([action, detail, meta]); return Promise.resolve(); } },
     IBVendors: { store: { get: (id) => (id === V1 ? { id: V1, name: 'Art Craft', ratesVisible: true, rateHistory: [{ since: '2026-01-01', rate: 25 }] } : null) }, rateAt: (v, d) => v.rateHistory[0].rate, today: () => '2026-10-28' } };
   runInNewContext(src, { window, document: { dispatchEvent(e) { events.push(e.type); } }, CustomEvent: class { constructor(t, o) { this.type = t; this.detail = o && o.detail; } }, Promise, Date, Number, String, Array, Object, JSON, Map, Set, Error });
   return { P: window.IBProducts, stub, events, logs };
@@ -169,3 +169,15 @@ test('load({ quiet }) (IBLive — 0104): a live re-read stays «ready» (the pag
   await P.load({ quiet: true });
   assert.equal(P.state(), 'ready'); assert.equal(P.list().length, n); assert.equal(events.length, 0);
 });
+
+// comments decision 80 (the owner 15 Nov): the products' log has the period filter
+test('loadLog with a period: the rows of those Cairo days from the server (up to 1000); without one the newest 200', async () => {
+  const { P, stub } = load({ responses: { activity_log: { data: [{ id: 5, at: '2026-11-05T10:00:00Z', action: 'product.save', new_value: '#12 · name', entity_id: '12', actor: { name: 'سارة' } }], error: null } } });
+  const ops = () => stub.calls.filter((c) => c.table === 'activity_log' && ['gte', 'lte', 'limit'].includes(c.op)).map((c) => [c.op].concat(c.args));
+  const a = await P.loadLog();
+  assert.deepEqual(JSON.parse(JSON.stringify(a.map((x) => [x.id, x.action, x.actor, x.productId]))), [[5, 'product.save', 'سارة', 12]]);
+  assert.deepEqual(ops(), [['limit', 200]]);
+  await P.loadLog({ from: '2026-11-01', to: '2026-11-10' });
+  assert.deepEqual(ops().slice(1), [['gte', 'at', 'G:2026-11-01'], ['lte', 'at', 'L:2026-11-10'], ['limit', 1000]]);
+});
+

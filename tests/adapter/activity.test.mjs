@@ -112,3 +112,23 @@ test('vendor.* is forwarded with the entity columns of its third argument (IBVen
     { fn: 'log_activity', args: { action: 'vendor.update', entity: 'vendor', entity_id: 'a0000000-0000-4000-8000-000000000001', old_value: null, new_value: 'phone, email' } },
     { fn: 'log_activity', args: { action: 'auth.signin', entity: null, entity_id: null, old_value: null, new_value: 'x' } }]);
 });
+
+// comments decisions 26, 27 and 80 (the owner 15 Nov): the movement logs' period — whole days in Cairo
+test('dayBounds: the instants a period of Cairo days covers (winter +2, summer +3); cairoDay: the day a stamp falls on; inPeriod: inside the period, or no period at all', () => {
+  const { A } = load();
+  const plain = (v) => JSON.parse(JSON.stringify(v));
+  assert.deepEqual(plain(A.dayBounds('2026-11-15', '2026-11-16')), { gte: '2026-11-14T22:00:00.000Z', lte: '2026-11-16T21:59:59.999Z' });
+  assert.deepEqual(plain(A.dayBounds('2026-07-01', '2026-07-01')), { gte: '2026-06-30T21:00:00.000Z', lte: '2026-07-01T20:59:59.999Z' }, 'summer time');
+  assert.deepEqual(plain(A.dayBounds('', 'x')), { gte: null, lte: null }, 'not a day → no bound');
+  assert.equal(A.cairoDay('2026-11-15T22:30:00Z'), '2026-11-16', 'after midnight in Cairo');
+  assert.equal(A.cairoDay('2026-11-15T21:30:00Z'), '2026-11-15');
+  assert.equal(A.cairoDay('2026-11-15 09:00'), '2026-11-15', 'a stamp already in Cairo time');
+  assert.equal(A.cairoDay(''), '');
+  const P = { from: '2026-11-16', to: '2026-11-16' };
+  assert.equal(A.inPeriod(P, '2026-11-15T22:30:00Z'), true);
+  assert.equal(A.inPeriod(P, '2026-11-15T21:30:00Z'), false);
+  assert.equal(A.inPeriod(P, '2026-11-17 00:05'), false);
+  assert.equal(A.inPeriod(null, '2026-01-01T00:00:00Z'), true, 'no period = every day');
+  assert.equal(A.inPeriod({ from: '2026-11-16' }, 'x'), true, 'half a period is no period');
+});
+

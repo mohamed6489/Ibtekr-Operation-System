@@ -1699,25 +1699,30 @@
   // ---------- the activity log (decision 18) ----------
   const ACT_PAGES = [['', 'الصفحة: الكل'], ['auth', 'الدخول'], ['dashboard', 'لوحة التحكم'], ['order', 'الأوردرات'], ['vendor', 'المبتكرين'], ['accounts', 'الحسابات'], ['product', 'المنتجات'], ['cs', 'خدمة العملاء'], ['inventory', 'المخزون'], ['ticket', 'طلبات الفريق'], ['hr', 'الموارد البشرية'], ['mkt', 'التسويق'], ['settings', 'الإعدادات'], ['profile', 'ملفي']];
   const AF = () => (st.act = st.act || { actor: '', prefix: '', from: '', to: '', page: 0, rows: null, more: false, loading: false, key: '' });
+  // comments decision 80 (the owner 15 Nov — «كل سجلات الحركات يبقي فيها فلتر التاريخ … ملقيكش عاملي اتنين فلتر تاريخ جنب بعض»): the
+  // log's period is the system's one picker (IBReportBlocks.logPeriod('activity')) — the two «من» / «إلى» fields are gone
+  const actPer = () => { const RB = window.IBReportBlocks; return RB && RB.logRange ? RB.logRange('activity') : null; };
   async function loadActivity() {
-    const a = AF(); const key = JSON.stringify([a.actor, a.prefix, a.from, a.to, a.page]); if (a.key === key && a.rows) return; a.key = key; a.loading = true; R();
+    const a = AF(); const per = actPer(); a.from = per ? per.from : ''; a.to = per ? per.to : '';
+    const key = JSON.stringify([a.actor, a.prefix, a.from, a.to, a.page]); if (a.key === key && a.rows) return; a.key = key; a.loading = true; R();
     const r = await SETT().activity({ actor: a.actor || undefined, prefix: a.prefix || undefined, from: a.from || undefined, to: a.to || undefined, page: a.page });
     if (a.key !== key) return; a.loading = false; a.rows = r.ok ? r.rows : []; a.more = !!(r.ok && r.more); if (!r.ok) K.toast(r.message || 'تعذّر قراية السجل', 'error'); R();
   }
   const fmtAt = (iso) => { const d = new Date(iso); if (isNaN(d)) return '—'; return d.toLocaleDateString('ar-EG', { day: 'numeric', month: 'short' }) + ' ' + d.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }); };
   const valText = (v) => (v == null ? '' : typeof v === 'string' ? v : Array.isArray(v) ? v.join('، ') : typeof v === 'object' ? Object.entries(v).map(([k, x]) => k + ': ' + (typeof x === 'object' ? JSON.stringify(x) : x)).join(' · ') : String(v)).slice(0, 160);
   function activity() {
-    const a = AF(); if (a.rows === null && !a.loading) loadActivity();
+    const a = AF(); const RB = window.IBReportBlocks; const per = actPer();
+    if ((a.from || '') !== (per ? per.from : '') || (a.to || '') !== (per ? per.to : '')) { a.page = 0; a.rows = null; } // the period changed: the first page of it
+    if (a.rows === null && !a.loading) loadActivity();
     const members = S.members.slice().sort((x, y) => x.name.localeCompare(y.name, 'ar'));
     const sel = (id, label, value, opts, on) => U.Select({ id, label: '', options: opts.map(([v, l]) => ({ value: v, label: l })), value, onChange: (v) => { on(v); a.page = 0; a.rows = null; loadActivity(); } });
-    const date = (id, k, label) => U.DateField({ id, label: '', placeholder: label, value: a[k], today: K.TODAY, onChange: (v) => { a[k] = v || ''; a.page = 0; a.rows = null; loadActivity(); } });
     const rows = (a.rows || []).map((r) => [h('span', { class: 't-small', dir: 'ltr' }, fmtAt(r.at)), r.actorName, r.page, h('code', { dir: 'ltr' }, r.action), h('span', { class: 'wrap t-small' }, [r.entityId ? r.entity + ' ' + r.entityId : r.entity, valText(r.oldValue) && valText(r.newValue) ? valText(r.oldValue) + ' ← ' + valText(r.newValue) : valText(r.newValue) || valText(r.oldValue)].filter(Boolean).join(' · '))]);
     const csv = () => { const lines = [['الوقت', 'العضو', 'الصفحة', 'الإجراء', 'التفاصيل']].concat((a.rows || []).map((r) => [r.at, r.actorName, r.page, r.action, [r.entity, r.entityId, valText(r.oldValue), valText(r.newValue)].filter(Boolean).join(' · ')])); const esc = (v) => { let s = String(v == null ? '' : v); if (/^[=+\-@]/.test(s)) s = "'" + s; return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }; K.saveFile('activity-' + K.TODAY + '.csv', new Blob(['﻿' + lines.map((l) => l.map(esc).join(',')).join('\n')], { type: 'text/csv;charset=utf-8' })); LOGV('settings.activity.export', (a.rows || []).length + ' صف'); };
-    return [K.Section('سجل النشاط', [h('div', { class: 'toolbar act-bar' }, sel('ac-m', 'العضو', a.actor, [['', 'العضو: الكل']].concat(members.map((m) => [m.uid, m.name])), (v) => { a.actor = v; }), sel('ac-p', 'الصفحة', a.prefix, ACT_PAGES, (v) => { a.prefix = v; }), date('ac-from', 'from', 'من'), date('ac-to', 'to', 'إلى'), h('span', { class: 'grow' }), Button({ size: 'sm', type: 'text', label: 'CSV', icon: 'download', disabled: !(a.rows && a.rows.length), onClick: csv })),
+    return [RB && RB.logPeriod ? RB.logPeriod('activity') : null, K.Section('سجل النشاط', [h('div', { class: 'toolbar act-bar' }, sel('ac-m', 'العضو', a.actor, [['', 'العضو: الكل']].concat(members.map((m) => [m.uid, m.name])), (v) => { a.actor = v; }), sel('ac-p', 'الصفحة', a.prefix, ACT_PAGES, (v) => { a.prefix = v; }), h('span', { class: 'grow' }), Button({ size: 'sm', type: 'text', label: 'CSV', icon: 'download', disabled: !(a.rows && a.rows.length), onClick: csv })),
       a.loading && !a.rows ? h('p', { class: 't-small help' }, 'بنحمّل…') : rows.length ? U.Table({ cls: 'act-tbl', headers: ['الوقت', 'العضو', 'الصفحة', 'الإجراء', 'التفاصيل'], rows }) : K.Empty('مفيش أحداث بالفلاتر دي', 'غيّر الفلاتر أو الفترة.'),
       h('div', { class: 'acts-inline' }, Button({ size: 'sm', label: '‹ الأحدث', disabled: !a.page, onClick: () => { a.page = Math.max(0, a.page - 1); a.rows = null; loadActivity(); } }), h('span', { class: 't-small help' }, 'صفحة ' + (a.page + 1) + (a.rows ? ' · ' + a.rows.length + ' حدث' : '')), Button({ size: 'sm', label: 'الأقدم ›', disabled: !a.more, onClick: () => { a.page += 1; a.rows = null; loadActivity(); } }))],
       null, { noun: ['حدث', 'الأحداث'], sub: 'كل كتابة في السيستم بتتسجل بالعضو والصفحة والإجراء — 100 حدث في الصفحة · الأرقام والنصوص الحساسة مش بتتسجل' }),
-      K.Section('إعدادات السجل', [row('تسجيل عمليات العرض للبيانات الحساسة', 'مين شاف رقم هاتف عميل أو حساب بنكي لمبتكر — بيتسجل دايمًا (الكشف بيتسجل في السيرفر)', C.actSet.sensitiveViews !== false, (v) => { C.actSet.sensitiveViews = v; }), row('تنبيه عند تغيير صلاحيات أو أدوار', 'يروح للأدمن في الجرس فورًا', C.actSet.permAlert !== false, (v) => { C.actSet.permAlert = v; })], null, { sub: 'الاحتفاظ بالسجل من «البيانات»' })];
+      K.Section('إعدادات السجل', [row('تسجيل عمليات العرض للبيانات الحساسة', 'مين شاف رقم هاتف عميل أو حساب بنكي لمبتكر — بيتسجل دايمًا (الكشف بيتسجل في السيرفر)', C.actSet.sensitiveViews !== false, (v) => { C.actSet.sensitiveViews = v; }), row('تنبيه عند تغيير صلاحيات أو أدوار', 'يروح للأدمن في الجرس فورًا', C.actSet.permAlert !== false, (v) => { C.actSet.permAlert = v; })], null, { sub: 'الاحتفاظ بالسجل من «البيانات»' })].filter(Boolean);
   }
 
   // ---------- the security section (decision 19): my sessions + the company policies ----------

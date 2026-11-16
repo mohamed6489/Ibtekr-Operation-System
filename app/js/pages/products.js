@@ -1119,11 +1119,13 @@
   const LOG_LABEL = { 'product.save': 'تعديل منتج', 'product.bulk': 'تعديل جماعي', 'product.trash': 'نقل للمهملات', 'product.restore': 'رجوع من المهملات', 'product.duplicate': 'تكرار كمنتج جديد', 'product.create': 'منتج جديد (الاستوديو)', 'product.images.add': 'إضافة صور', 'product.lead': 'مدة التصنيع', 'product.category.create': 'قسم جديد', 'product.category.update': 'تعديل قسم', 'product.category.delete': 'حذف قسم' };
   // B3 (the owner, 11 Nov — «سجل الحركة … ال ui مش مظبوط»): the card like the other tables — its title and count, a dropdown per filter
   // (the move · by whom, several picks each, «اعرض N حركة») and «تحديث» in its header, the table under it
-  let logAsked = false; st.logF = st.logF || { kind: [], by: [] };
+  // comments decision 80 (the owner 15 Nov — «كل سجلات الحركات يبقي فيها فلتر التاريخ»): the log's own period — the system's picker above
+  // the table (IBReportBlocks.logPeriod('products')); with a period the server is asked for that period's rows, else the newest 200
+  let logAsked = null; st.logF = st.logF || { kind: [], by: [] }; // logAsked: the period the log was last asked for ('' = the newest)
   function logView() {
-    const P = PR();
-    if (!logAsked && P.loadLog) { logAsked = true; P.loadLog().then(() => { if (window.IBPages.current === 'products' && st.view === 'log') R(); }); }
-    const raw = P.log ? P.log() : null; const all0 = raw || [];
+    const P = PR(); const RB = window.IBReportBlocks; const per = RB && RB.logRange ? RB.logRange('products') : null; const perKey = per ? per.from + '|' + per.to : '';
+    if (logAsked !== perKey && P.loadLog) { logAsked = perKey; P.loadLog(per).then(() => { if (window.IBPages.current === 'products' && st.view === 'log') R(); }); }
+    const raw = P.log ? P.log() : null; const all0 = (raw || []).filter((e) => !RB || !RB.logIn || RB.logIn('products', e.at));
     const who = (e) => e.actor || '—';
     const pass = (f) => (e) => (!f.kind.length || f.kind.includes(e.action)) && (!f.by.length || f.by.includes(who(e)));
     const rows = all0.filter(pass(st.logF));
@@ -1133,11 +1135,11 @@
       count: (d) => all0.filter(pass(Object.assign({ kind: [], by: [] }, d))).length, onApply: (d) => { st.logF = Object.assign({ kind: [], by: [] }, d); R(); } }); // the owner 12 Nov: one «فلتر»
     const when = (iso) => { try { return new Date(iso).toLocaleString('ar-EG', { timeZone: 'Africa/Cairo', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); } catch (e) { return String(iso || '').slice(0, 16); } };
     const body = raw == null ? U.InlineNote({ children: 'بنحمّل سجل الحركة…' }) : rows.length ? U.Table({ cls: 'dt plog', headers: ['الوقت', 'الحركة', 'المنتجات / التفاصيل', 'بواسطة'], rows: rows.map((e) => [when(e.at), h('span', { 'data-plog-row': e.action }, LOG_LABEL[e.action] || e.action), e.productId ? h('button', { type: 'button', class: 'link-btn', onClick: () => go('products-edit-' + e.productId + '-data') }, e.text || '#' + e.productId) : e.text || '—', who(e)]) })
-      : K.Empty(all0.length ? 'مفيش حركات بالفلاتر دي' : 'لسه مفيش حركات', all0.length ? 'غيّر الفلاتر من فوق.' : 'التعديل والمهملات والتكرار والصور ومدة التصنيع بيتسجلوا هنا.');
+      : K.Empty(all0.length ? 'مفيش حركات بالفلاتر دي' : per ? 'مفيش حركات في الفترة دي' : 'لسه مفيش حركات', all0.length ? 'غيّر الفلاتر من فوق.' : per ? 'غيّر الفترة من فوق الجدول، أو اضغط «كل الفترات».' : 'التعديل والمهملات والتكرار والصور ومدة التصنيع بيتسجلوا هنا.');
     const actions = h('span', { class: 'acts-inline' }, logFilter,
-      Button({ type: 'text', size: 'sm', icon: 'refresh', label: 'تحديث', attrs: { 'data-plog-refresh': '' }, onClick: () => { logAsked = false; R(); } }));
-    return [K.TableSection({ title: 'سجل الحركة', sub: raw == null ? '' : K.n0(rows.length) + ' من ' + K.n0(all0.length) + ' حركة', actions, body, cls: 'own-filter plog-card' }),
-      h('p', { class: 'source t-small help' }, 'المصدر: سجل النشاط — أرقام المنتجات وأسماء الحقول بس · آخر 200 حركة (الأدمن بيشوف الكل، والباقي حركاتهم).')];
+      Button({ type: 'text', size: 'sm', icon: 'refresh', label: 'تحديث', attrs: { 'data-plog-refresh': '' }, onClick: () => { logAsked = null; R(); } }));
+    return [RB && RB.logPeriod ? RB.logPeriod('products') : null, K.TableSection({ title: 'سجل الحركة', sub: raw == null ? '' : K.n0(rows.length) + ' من ' + K.n0(all0.length) + ' حركة', actions, body, cls: 'own-filter plog-card' }),
+      h('p', { class: 'source t-small help' }, 'المصدر: سجل النشاط — أرقام المنتجات وأسماء الحقول بس · ' + (per ? 'حركات الفترة المختارة' : 'آخر 200 حركة — اختار فترة من فوق لحركات أقدم') + ' (الأدمن بيشوف الكل، والباقي حركاتهم).')].filter(Boolean);
   }
   function reportsView() {
     const RB = window.IBReportBlocks; const rg = RB ? RB.get() : null;

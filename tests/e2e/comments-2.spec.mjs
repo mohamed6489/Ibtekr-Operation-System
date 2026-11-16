@@ -659,3 +659,89 @@ test('comment 23 — «تجميع أوردرات» lists every order gathered in
   await page.evaluate(() => window.IBInventory.load());
   await expect(cards).toHaveCount(1); await expect(cards).toContainText('IB-181668'); // a cancelled gathering is not listed again
 });
+
+// ---------- comments 26, 27 and 80: the system's period filter above every movement log, one each ----------
+const stampAgo = (days) => new Date(Date.now() - days * 86400000).toISOString();
+async function pickLast7(page, key) {
+  await page.locator(`[data-log-period="${key}"] .date-field`).click();
+  const dp = page.locator('.dp.range');
+  await dp.getByRole('radio', { name: 'آخر 7 أيام' }).click();
+  await dp.getByRole('button', { name: 'تحديث' }).click();
+  await expect(dp).toHaveCount(0);
+}
+test('comments 26, 27 and 80 — every movement log has the system\'s period filter above its table (the hub\'s moves, the makers\', the products\', HR\'s, the settings\' activity): «كل الفترات» until a period is picked, the rows follow it, and no log has two date filters', async ({ page }) => {
+  const V1 = 'a0000000-0000-4000-8000-000000000001';
+  // the hub: a move 40 days ago and one 2 days ago
+  const L1 = 'b7000000-0000-4000-8000-0000000000e1', L2 = 'b7000000-0000-4000-8000-0000000000e2';
+  mock.inv.inv_lots.push(hubLot(L1, null, null, 'Cushion', { reason: 'متاح للبيع', status: 'متاح', ref: null }), hubLot(L2, null, null, 'Macrame Curtain', { reason: 'متاح للبيع', status: 'متاح', ref: null, sku: 'IBTAMCTOWM200X10014' }));
+  mock.inv.inv_moves.push({ ...hubIn(61, L1), qty: 5, at: stampAgo(40) }, { ...hubIn(62, L2), qty: 2, at: stampAgo(2) });
+  // the activity log: an old and a fresh row for the makers, the products and HR
+  let n = 9000; const act = (action, entity, entity_id, days, value) => ({ id: ++n, at: stampAgo(days), actor: null, action, entity, entity_id, old_value: null, new_value: value });
+  mock.activityRows.push(act('vendor.create', 'vendor', V1, 40, 'Art Craft'), act('vendor.status', 'vendor', V1, 2, 'inactive'),
+    act('product.save', 'product', '9001', 40, '#9001 · name'), act('product.trash', 'product', '9002', 2, '#9002'),
+    act('hr.attendance.manual', 'hr', null, 40, 'M02'), act('hr.settings', 'hr', null, 2, 'workDays'));
+  await signIn(page);
+  const one = async (root) => { await expect(page.locator(root + ' .date-field:visible')).toHaveCount(1); }; // never two date filters side by side
+  const above = async (key, table) => expect(await page.locator(`[data-log-period="${key}"]`).evaluate((bar, sel) => { const t = document.querySelector(sel); return !!t && !!(bar.compareDocumentPosition(t) & Node.DOCUMENT_POSITION_FOLLOWING); }, table)).toBe(true);
+
+  // 26 — the hub's moves: no fixed month dropdown; the cards and the table follow the period
+  await go(page, '#inventory-moves');
+  const inv = page.locator('#pg-inventory');
+  await expect(inv.locator('[data-log-period="inventory"] .range-label')).toHaveText('كل الفترات');
+  await expect(inv.locator('#mv-p')).toHaveCount(0); await expect(inv).not.toContainText('أكتوبر 2026');
+  await one('#pg-inventory'); await above('inventory', '#pg-inventory table');
+  await expect(inv.locator('table tbody tr')).toHaveCount(2);
+  await expect(inv.locator('.cards .card').first()).toContainText('+ 7');
+  await pickLast7(page, 'inventory');
+  await expect(inv.locator('table tbody tr')).toHaveCount(1); await expect(inv.locator('table tbody tr')).toContainText('Macrame Curtain');
+  await expect(inv.locator('.cards .card').first()).toContainText('+ 2');
+  await expect(inv.locator('[data-log-period="inventory"] .range-label')).not.toHaveText('كل الفترات');
+  await one('#pg-inventory');
+  await inv.locator('[data-log-all="inventory"]').click();
+  await expect(inv.locator('table tbody tr')).toHaveCount(2);
+  await expect(inv.locator('[data-log-all]')).toHaveCount(0);
+
+  // 27 — the makers' log
+  await go(page, '#makers'); await page.getByRole('tab', { name: 'سجل الحركات' }).click();
+  await expect(page.locator('[data-log-period="makers"] .range-label')).toHaveText('كل الفترات');
+  await expect(page.locator('[data-vlog-row]')).toHaveCount(2);
+  await above('makers', '#vendors table');
+  await pickLast7(page, 'makers');
+  await expect(page.locator('[data-vlog-row]')).toHaveCount(1); await expect(page.locator('[data-vlog-row]')).toHaveText('توقيف');
+  await expect(page.locator('#vendors .date-field:visible')).toHaveCount(1);
+
+  // 80 — the products' log
+  await go(page, '#products-log');
+  const pr = page.locator('#pg-products');
+  await expect(pr.locator('[data-log-period="products"] .range-label')).toHaveText('كل الفترات');
+  await expect(pr.locator('[data-plog-row]')).toHaveCount(2);
+  await pickLast7(page, 'products');
+  await expect(pr.locator('[data-plog-row]')).toHaveCount(1); await expect(pr.locator('[data-plog-row]')).toHaveText('نقل للمهملات');
+  await one('#pg-products');
+
+  // 80 — HR's log
+  await go(page, '#hr-log');
+  const hr = page.locator('#pg-hr');
+  await expect(hr.locator('[data-log-period="hr"] .range-label')).toHaveText('كل الفترات');
+  await expect(hr.locator('table.hr-log tbody tr')).toHaveCount(2);
+  await pickLast7(page, 'hr');
+  await expect(hr.locator('table.hr-log tbody tr')).toHaveCount(1); await expect(hr.locator('table.hr-log tbody tr')).toContainText('عدّل إعدادات الموارد البشرية');
+  await one('#pg-hr');
+
+  // 80 — the settings' activity log: the two «من» / «إلى» fields became the one filter
+  await go(page, '#settings-activity');
+  const se = page.locator('#pg-settings');
+  await expect(se.locator('[data-log-period="activity"] .range-label')).toHaveText('كل الفترات');
+  await expect(se.locator('#ac-from, #ac-to')).toHaveCount(0);
+  await one('#pg-settings');
+  const before = await se.locator('table.act-tbl tbody tr').count(); expect(before).toBeGreaterThanOrEqual(6);
+  await pickLast7(page, 'activity');
+  await expect.poll(() => se.locator('table.act-tbl tbody tr').count()).toBeLessThan(before);
+  await expect(se.locator('table.act-tbl')).not.toContainText('vendor.create'); await expect(se.locator('table.act-tbl')).toContainText('vendor.status');
+  await one('#pg-settings');
+
+  // the accounts' moves log keeps its one filter
+  await go(page, '#moves-log');
+  await expect(page.locator('[data-mlog-csv]')).toBeVisible();
+  await expect(page.locator('#panel .date-field:visible')).toHaveCount(1);
+});

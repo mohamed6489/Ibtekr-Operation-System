@@ -18,7 +18,7 @@ function load({ responses = {}, role = 'admin', perms = {} } = {}) {
   const events = []; const logs = [];
   const window = { IBSupabase: { client: stub.client },
     IBDirectory: { perm: (k) => (role === 'admin' ? 'F' : perms[k] || 'N'), me: () => ({ id: A, name: 'صفوت', role_id: role, status: 'active' }), members: () => [{ uid: A, name: 'صفوت كمال' }, { uid: B, name: 'سارة أحمد' }], refresh: async () => { events.push('refresh'); } },
-    IBActivity: { log: (action, detail, meta) => { logs.push([action, detail, meta]); return Promise.resolve(); } },
+    IBActivity: { dayBounds: (f, t) => ({ gte: /^\d{4}-\d{2}-\d{2}$/.test(f || '') ? 'G:' + f : null, lte: /^\d{4}-\d{2}-\d{2}$/.test(t || '') ? 'L:' + t : null }), log: (action, detail, meta) => { logs.push([action, detail, meta]); return Promise.resolve(); } },
     crypto: { randomUUID: () => 'abcdef12-3456-4000-8000-000000000000' } };
   const ctx = { window, document: { dispatchEvent(e) { events.push(e.type); } }, CustomEvent: class { constructor(t) { this.type = t; } }, Promise, Date, Number, String, Array, Object, JSON, Map, Set, Math, Error, RegExp };
   ctx.globalThis = ctx; runInNewContext(src, ctx);
@@ -114,7 +114,7 @@ test('the activity log: the filters as PostgREST calls, pages of 100 (one more r
   eq([r.ok, r.rows.length, r.more, r.page], [true, 100, true, 2]);
   eq(r.rows[0], { id: 500, at: '2026-11-07T10:00:00Z', actor: B, actorName: 'سارة أحمد', action: 'settings.role.perms', page: 'الإعدادات', entity: 'x', entityId: '0', oldValue: null, newValue: { k: 0 } });
   const ops = opsOf(stub.calls, 'activity_log').map((c) => [c.op, ...c.args]);
-  eq(ops, [['select', 'id, at, actor, action, entity, entity_id, old_value, new_value'], ['order', 'at', { ascending: false }], ['range', 200, 300], ['eq', 'actor', B], ['like', 'action', 'settings.%'], ['gte', 'at', '2026-11-01T00:00:00Z'], ['lte', 'at', '2026-11-07T23:59:59Z']]);
+  eq(ops, [['select', 'id, at, actor, action, entity, entity_id, old_value, new_value'], ['order', 'at', { ascending: false }], ['range', 200, 300], ['eq', 'actor', B], ['like', 'action', 'settings.%'], ['gte', 'at', 'G:2026-11-01'], ['lte', 'at', 'L:2026-11-07']]); // the days are Cairo's: IBActivity.dayBounds gives the instants (comments decision 80)
   const r2 = await S.activity({ action: 'order.status', prefix: 'settings', actor: 'M01', from: 'bad' }); eq(opsOf(stub.calls, 'activity_log').slice(-4).map((c) => c.op), ['select', 'order', 'range', 'eq'], 'action wins over prefix; a bad actor / date is ignored');
   eq(r2.rows[1].page, 'الأوردرات'); eq(S.pageOf('mkt.post.publish'), 'التسويق'); eq(S.pageOf('zzz'), 'أخرى');
 });
@@ -236,7 +236,7 @@ test('the fake-discount tiers: fakeRule() = the admin\'s row first, else the pub
     const stub = stubClient({ responses: { settings: ok(SETTINGS), roles: ok(ROLES), ...(o.responses || {}) } }); const logs = []; const events = [];
     const role = o.role || 'admin';
     const window = { IbtekrProducts: PD, IBSupabase: { client: stub.client }, IBDirectory: { perm: (k) => (role === 'admin' ? 'F' : (o.perms || {})[k] || 'N'), me: () => ({ id: A, name: 'صفوت', role_id: role, status: 'active' }), members: () => [], refresh: async () => {} },
-      IBActivity: { log: (action, detail, meta) => { logs.push([action, detail, meta]); return Promise.resolve(); } }, crypto: { randomUUID: () => 'abcdef12-3456-4000-8000-000000000000' } };
+      IBActivity: { dayBounds: (f, t) => ({ gte: /^\d{4}-\d{2}-\d{2}$/.test(f || '') ? 'G:' + f : null, lte: /^\d{4}-\d{2}-\d{2}$/.test(t || '') ? 'L:' + t : null }), log: (action, detail, meta) => { logs.push([action, detail, meta]); return Promise.resolve(); } }, crypto: { randomUUID: () => 'abcdef12-3456-4000-8000-000000000000' } };
     const ctx = { window, document: { dispatchEvent(e) { events.push(e.type); } }, CustomEvent: class { constructor(t) { this.type = t; } }, Promise, Date, Number, String, Array, Object, JSON, Map, Set, Math, Error, RegExp };
     ctx.globalThis = ctx; runInNewContext(src, ctx);
     return { S: window.IBSettings, stub, logs, events };

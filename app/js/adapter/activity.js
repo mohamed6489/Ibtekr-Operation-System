@@ -45,5 +45,16 @@
     return c.rpc('log_activity', { action, entity, entity_id: entityId, old_value: null, new_value: detail === undefined ? null : detail })
       .then((res) => ((res && res.error) || action === 'auth.signout' ? undefined : refresh()));
   }
-  window.IBActivity = { log, LOGGED_PREFIXES, LOGGED_ACTIONS, recent, cached: () => rows, refresh, clear: () => { rows = null; } };
+  // The movement logs' period (comments decisions 26, 27 and 80 — the owner 15 Nov: «اي سجل حركات لازم يبقي فيه ال فلتر التاريخ الكبير»): a
+  // period is whole days in Cairo — dayBounds gives the instants it covers for a server read (the zone's own offset on each day,
+  // so summer time is right), cairoDay the day a stamp falls on, and inPeriod whether a stamp is inside a period (none = every day).
+  const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+  const CAIRO = { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit' };
+  const cairoOffset = (day) => { const d = new Date(day + 'T12:00:00Z'); const p = new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Cairo', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(d);
+    const n = (t) => Number((p.find((x) => x.type === t) || {}).value) || 0; return (n('hour') % 24) * 60 + n('minute') - 720; }; // minutes ahead of UTC that day
+  const instant = (day, h, m, s, ms) => new Date(Date.UTC(Number(day.slice(0, 4)), Number(day.slice(5, 7)) - 1, Number(day.slice(8, 10)), h, m, s, ms) - cairoOffset(day) * 60000).toISOString();
+  const dayBounds = (from, to) => ({ gte: ISO_DAY.test(String(from || '')) ? instant(from, 0, 0, 0, 0) : null, lte: ISO_DAY.test(String(to || '')) ? instant(to, 23, 59, 59, 999) : null });
+  const cairoDay = (at) => { const s0 = String(at == null ? '' : at); if (!s0) return ''; if (s0.indexOf('T') < 0) return s0.slice(0, 10); const d = new Date(s0); return isNaN(d) ? s0.slice(0, 10) : new Intl.DateTimeFormat('en-CA', CAIRO).format(d); };
+  const inPeriod = (range, at) => { if (!range || !ISO_DAY.test(String(range.from || '')) || !ISO_DAY.test(String(range.to || ''))) return true; const d = cairoDay(at); return !!d && d >= range.from && d <= range.to; };
+  window.IBActivity = { log, LOGGED_PREFIXES, LOGGED_ACTIONS, recent, cached: () => rows, refresh, clear: () => { rows = null; }, dayBounds, cairoDay, inPeriod };
 })();

@@ -70,7 +70,7 @@ function load({ responses = seed(), admin = true, perms = OPS, signedIn = true, 
   const window = { IBSupabase: { client: stub.client }, IBAuth: { session: () => (signedIn ? { user: { id: 'u1' } } : null) },
     IBDirectory: { perm: (k) => (admin ? 'F' : perms[k] || 'N'), me: () => me },
     IBKit: { ME: 'M02', member: () => ({ id: 'M02', name: me.name, role: admin ? 'أدمن' : 'عمليات' }) },
-    IBActivity: { log: (action, detail, meta) => { logs.push(plain([action, detail, meta])); return Promise.resolve(); } },
+    IBActivity: { dayBounds: (f, t) => ({ gte: /^\d{4}-\d{2}-\d{2}$/.test(f || '') ? 'G:' + f : null, lte: /^\d{4}-\d{2}-\d{2}$/.test(t || '') ? 'L:' + t : null }), log: (action, detail, meta) => { logs.push(plain([action, detail, meta])); return Promise.resolve(); } },
     IBOrders: { data: () => orders, load: () => { logs.push(['orders.load']); return Promise.resolve(); } } };
   if (app) window.OrdersApp = app;
   const ctx = { window, document: { dispatchEvent(e) { events.push(plain({ type: e.type, detail: e.detail })); } }, Event, URL, Date: clockAt(NOW) }; // URL: block 06 / the adapter judge the https links with it, as the browser does
@@ -1243,3 +1243,15 @@ test('load({ quiet }) (IBLive — 0104): a live re-read stays «ready» and anno
   await t.V.load({ quiet: true });
   assert.equal(t.V.state(), 'ready'); assert.equal(t.V.data().vendors.length, n, 'a failed live read keeps the makers'); assert.equal(t.events.length, 0);
 });
+
+// comments decision 27 (the owner 15 Nov): the makers' log has the period filter
+test('loadMakersLog with a period: the rows of those Cairo days from the server (up to 1000); without one the newest 200', async () => {
+  const { V, calls } = load();
+  await V.load();
+  const ops = () => calls.filter((c) => c.table === 'activity_log' && ['gte', 'lte', 'limit'].includes(c.op)).map((c) => [c.op].concat(c.args));
+  await V.loadMakersLog();
+  assert.deepEqual(plain(ops()), [['limit', 200]]);
+  await V.loadMakersLog({ from: '2026-11-01', to: '2026-11-10' });
+  assert.deepEqual(plain(ops().slice(1)), [['gte', 'at', 'G:2026-11-01'], ['lte', 'at', 'L:2026-11-10'], ['limit', 1000]]);
+});
+

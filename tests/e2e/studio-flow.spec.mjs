@@ -555,7 +555,7 @@ test('flow 2: the screenshots and the photos show small side by side, each row w
   await expect(page.locator('[data-flow-read]')).toHaveCount(0);
 });
 
-test('flow 3 «صور وعايز شيت» Variable: two colors × two products → the empty template with the reference picture in its cell → download, WhatsApp share', async ({ page }) => {
+test('flow 3 «صور وعايز شيت» Variable: two colors × two products → the empty template with the reference picture in its cell → «حفظ كمسودة», the two copies to download, the share popup (comments 36–38)', async ({ page }) => {
   await signIn(page, ADMIN);
   await choose(page, 'صور وعايز شيت', 'Variable');
   await page.locator('#fl-k-colors').click(); await page.getByRole('option', { name: '2 ألوان' }).click();
@@ -579,22 +579,83 @@ test('flow 3 «صور وعايز شيت» Variable: two colors × two products �
   await expect(sheet.locator('[data-sh="color:1-2"]')).toContainText('Black');
   // the category picked, the Arabic name typed over the AI's, then «حفظ» → the batch keeps them
   await sheet.locator('[data-sh="nameAr:2-1"]').fill('أباجورة أرضية'); await sheet.locator('[data-sh="nameAr:2-1"]').press('Tab');
+  // comment 38: the button says what it does — «حفظ كمسودة»
+  await expect(page.locator('[data-flow-save]')).toHaveText(/حفظ كمسودة/);
   await page.locator('[data-flow-save]').click();
-  await expect(page.locator('.toast.show')).toContainText('اتحفظت التعديلات');
+  await expect(page.locator('.toast.show')).toContainText('اتحفظت كمسودة');
   await expect.poll(() => { const f = (batch().state || {}).fill || {}; return [f[0] && f[0].sizes && f[0].sizes[0], f[0] && f[0].prices && f[0].prices[2], f[0] && f[0].colors && f[0].colors[2] && f[0].colors[2][0], f[1] && f[1].nameAr]; })
     .toEqual(['٤٠×٦٠ سم', 850, 'Black', 'أباجورة أرضية']);
-  const dl = page.waitForEvent('download');
+  // comment 36: «تحميل على الجهاز» opens a popup split in two — the maker's copy and the system's
   await page.locator('[data-flow-download]').click();
-  const file = await dl; expect(file.suggestedFilename()).toMatch(/^Art Craft - \d{4}-\d{2}-\d{2}\.xlsx$/);
+  const pop = page.locator('.modal[data-fl-download]');
+  await expect(pop.locator('[data-fl-copy]')).toHaveCount(2);
+  await expect(pop.locator('[data-fl-copy="maker"]')).toContainText('نسخة المبتكر');
+  await expect(pop.locator('[data-fl-copy="maker"] li')).toHaveText(['الصورة المرجعية', 'الاسم بالإنجليزي والعربي', 'اللون', 'المقاس', 'سعر المبتكر']);
+  await expect(pop.locator('[data-fl-copy="system"]')).toContainText('نسخة السيستم');
+  const [a, b] = [await pop.locator('[data-fl-copy="maker"]').boundingBox(), await pop.locator('[data-fl-copy="system"]').boundingBox()];
+  expect(Math.abs(a.y - b.y)).toBeLessThan(2); expect(Math.abs(a.height - b.height)).toBeLessThan(2); // side by side, the same size
+  // the system's copy: the whole template, as before
+  const dl = page.waitForEvent('download');
+  await pop.locator('[data-fl-copy-go="system"]').click();
+  const file = await dl;
+  expect(await page.evaluate(() => window.__lastSheet)).toMatchObject({ copy: 'system', name: expect.stringMatching(/^Art Craft - نسخة السيستم - \d{4}-\d{2}-\d{2}\.xlsx$/) });
+  await expect(pop).toHaveCount(0);
   const bytes = readFileSync(await file.path()).toString('latin1');
   expect(bytes).toContain('xl/drawings/drawing1.xml'); expect(bytes).toContain('xl/media/image4.jpeg'); // a picture for each row
   expect(bytes).toMatch(/<v>850<\/v>/); expect(bytes).toMatch(/>40 .{1,2} 60 cm</); /* the ×, read as latin1 */ // what was typed in the step is in the file (stored zip, plain XML)
-  await page.evaluate(() => { navigator.canShare = () => false; window.open = (u) => { window.__opened = u; return null; }; });
-  const dl2 = page.waitForEvent('download');
+  expect(bytes).toContain('Product Name EN'); expect(bytes).toContain('Image for review'); // the Variable template's own head
+  // the maker's copy: seven columns only, read from the right, a picture for each row; no SKU, no category, no description
+  await page.locator('[data-flow-download]').click();
+  const dlm = page.waitForEvent('download');
+  await page.locator('.modal[data-fl-download] [data-fl-copy-go="maker"]').click();
+  const mfile = await dlm;
+  expect(await page.evaluate(() => window.__lastSheet)).toMatchObject({ copy: 'maker', name: expect.stringMatching(/^Art Craft - نسخة المبتكر - \d{4}-\d{2}-\d{2}\.xlsx$/) });
+  const mk = readFileSync(await mfile.path());
+  const mtext = mk.toString('utf8'); const mlatin = mk.toString('latin1');
+  for (const head of ['الصورة المرجعية', 'الاسم بالإنجليزي', 'الاسم بالعربي', 'اللون', 'المقاس', 'سعر المبتكر']) expect(mtext).toContain('>' + head + '<');
+  expect(mtext).toContain('rightToLeft="1"'); expect(mlatin).toContain('xl/media/image4.jpeg'); expect(mtext).toMatch(/<v>850<\/v>/);
+  expect(mtext).toContain('أباجورة أرضية'); expect(mtext).toContain('٤٠×٦٠ سم');
+  const mhead = (mtext.match(/<row r="1"[^>]*>(.*?)<\/row>/) || ['', ''])[1];
+  expect(mhead.match(/<c /g).length).toBe(7); expect(mhead).not.toContain('SKU'); expect(mhead).not.toContain('Product'); expect(mhead).not.toContain('القسم');
+  // comment 37: «مشاركة» is the system's one share popup — the kind of file and the way — and what goes out is the maker's copy
+  await page.evaluate(() => { navigator.canShare = () => false; });
   await page.locator('[data-flow-share]').click();
-  await page.getByRole('menuitem', { name: 'واتساب' }).click();
-  await dl2;
-  expect(await page.evaluate(() => window.__opened)).toMatch(/^https:\/\/wa\.me\/\?text=/);
+  const sh = page.locator('.modal[data-share-modal]');
+  await expect(sh.locator('[data-sh-type]')).toHaveCount(2); // Excel / PDF
+  await expect(sh.locator('[data-sh-via]')).toHaveCount(3);  // WhatsApp / e-mail / download
+  await sh.locator('[data-sh-type="excel"]').click(); await sh.locator('[data-sh-via="download"]').click();
+  const [xl] = await Promise.all([page.waitForEvent('download'), sh.locator('[data-sh-go]').click()]);
+  const last = await page.evaluate(() => window.__lastShare);
+  expect(last).toMatchObject({ type: 'excel', via: 'download', ok: true }); expect(last.name).toMatch(/^Art Craft - نسخة المبتكر - \d{4}-\d{2}-\d{2}\.xlsx$/);
+  const xtext = readFileSync(await xl.path()).toString('utf8');
+  expect(xtext).toContain('>سعر المبتكر<'); expect(xtext).not.toContain('Product Name EN'); // the same file «نسخة المبتكر» downloads
+  // the PDF by WhatsApp: the file comes down and the chat opens with the message (a computer)
+  await page.locator('[data-flow-share]').click();
+  await sh.locator('[data-sh-type="pdf"]').click(); await sh.locator('[data-sh-via="whatsapp"]').click();
+  const [pdf] = await Promise.all([page.waitForEvent('download'), sh.locator('[data-sh-go]').click()]);
+  expect(readFileSync(await pdf.path()).subarray(0, 5).toString('latin1')).toBe('%PDF-');
+  const last2 = await page.evaluate(() => window.__lastShare);
+  expect(last2).toMatchObject({ type: 'pdf', via: 'whatsapp', ok: true }); expect(last2.photos).toBeGreaterThan(0); expect(last2.href).toMatch(/^https:\/\/wa\.me\//);
+  expect(decodeURIComponent(last2.href)).toContain('املا سعر المبتكر');
+});
+
+test('comment 36 — the maker\'s copy returned starts a «شيت جاهز» batch as it is: its Arabic headers are read, the English size is written from the Arabic one and the colour matched by its Arabic name', async ({ page }) => {
+  await signIn(page, ADMIN);
+  await choose(page, 'شيت جاهز', 'Simple');
+  // the maker's copy as it comes back: the seven columns, the price filled by the maker
+  await pick(page, '[data-flow-sheet]', { name: 'Art Craft - نسخة المبتكر.csv', mimeType: 'text/csv',
+    buffer: Buffer.from('#,الصورة المرجعية,الاسم بالإنجليزي,الاسم بالعربي,اللون,المقاس,سعر المبتكر\n1,,Bamboo Lamp,أباجورة بامبو,بيج,٤٠ × ٦٠ سم,700\n2,,Wool Rug,سجادة صوف,Black,M,1500\n', 'utf8') });
+  await expect(page.locator('#pg-products')).toContainText('2 صف');
+  // (the batch is saved a moment after the sheet is read)
+  await expect.poll(() => ((batch().state || {}).rows || []).map((r) => [r.nameEn, r.nameAr, r.colorAr, r.sizeAr, r.vendorPrice])).toEqual([['Bamboo Lamp', 'أباجورة بامبو', 'بيج', '٤٠ × ٦٠ سم', 700], ['Wool Rug', 'سجادة صوف', 'Black', 'M', 1500]]);
+  expect(batch().state.unknown || []).toEqual([]); // the photo column and # are not data, nothing is left unread
+  await next(page);
+  await makerArtCraft(page);
+  await next(page);
+  // the data step: the English size from the Arabic one; «بيج» is Beige of the colours table, and «Black» typed in the one column is Black
+  await expect.poll(() => batch().state.rows.map((r) => [r.size, r.colorEn, r.colorAr])).toEqual([['40 × 60 cm', 'Beige', mock.skuColors.find((c) => c.code === 'BE').name_ar], ['M', 'Black', mock.skuColors.find((c) => c.code === 'BK').name_ar]]);
+  await expect(page.locator('#pg-products [data-fl="sku"]').first()).toHaveValue(/^IBTART\d{4}-BE$/);
+  await expect(page.locator('#pg-products [data-fl="sku"]').nth(1)).toHaveValue(/^IBTART\d{4}-BK$/);
 });
 
 test('the owner 15 Nov: «صور وعايز شيت» — «املأ بالـ AI» labels the sizes «مقاس 1 / 2», reads each color from its own photo (a product\'s second photo = its second color), and a row\'s photo is swapped in the sheet (its AI color read again)', async ({ page }) => {

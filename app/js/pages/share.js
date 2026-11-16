@@ -7,8 +7,10 @@
 //   { title, sub, name (the file's name), phone, email (who it goes to — optional), text (the message — else built),
 //     summary: [{ label, value }], headers: [..], rows: [[cell..]], total: [..], note,
 //     link (a page to share instead of a file — optional; with no table the popup offers the link only),
+//     excel (optional: () => Blob — the caller's own workbook as the Excel file, the PDF still drawn from the table),
 //     onDone({ type, via }) (called once the share went — the caller's activity log) }
-//   a cell is a string / number, or { text, img, n } — img: the https photo shown beside the text (a product's); n: the cell's
+//   a cell is a string / number, or { text, img, n } — img: the photo shown beside the text (a product's https photo, or a
+//   data: picture the page already holds); n: the cell's
 //   number for the sheet (the text is what the screen and the PDF show: «1,002.00»)
 // The file is built in the browser: the Excel by the sheet writer of the studio (IbtekrFlow.xlsx — a photo inside its cell), the
 // PDF from the same report drawn as A4 pages (html2canvas → one JPEG a page → a small PDF written here), so Arabic reads as it
@@ -25,7 +27,9 @@
 
   // ---------------------------------------------------------------- pure
   const cellText = (c) => (c == null ? '' : typeof c === 'object' ? String(c.text == null ? '' : c.text) : String(c));
-  const cellImg = (c) => (c && typeof c === 'object' && typeof c.img === 'string' && /^https:\/\//.test(c.img) ? c.img : '');
+  // a cell's photo: a https one (the site's — read through IBOrders.thumbs) or a picture the page already holds as a data: URL
+  // (JPEG / PNG / WebP only — never an SVG)
+  const cellImg = (c) => (c && typeof c === 'object' && typeof c.img === 'string' && /^(https:\/\/|data:image\/(jpeg|png|webp);base64,)/.test(c.img) ? c.img : '');
   const hasImgCell = (rows, i) => (rows || []).some((r) => r && r[i] && typeof r[i] === 'object' && 'img' in r[i]);
   // a file name the device accepts: no path or reserved characters, one space between words, 80 characters
   const fileBase = (name) => (String(name == null ? '' : name).replace(/[\\/:*?"<>|\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || 'تقرير');
@@ -90,8 +94,11 @@
   // the photos of the table's cells as data: URLs (IBOrders.thumbs); none readable → an empty map
   async function photosOf(spec) {
     const urls = [...new Set((spec.rows || []).flatMap((r) => (r || []).map(cellImg)).filter(Boolean))];
-    if (!urls.length || !window.IBOrders || !window.IBOrders.thumbs) return new Map();
-    try { return await window.IBOrders.thumbs(urls.slice(0, 600)); } catch (e) { return new Map(); }
+    const out = new Map(); const far = [];
+    urls.forEach((u) => { if (u.startsWith('data:')) out.set(u, u); else far.push(u); }); // a picture the page holds is its own data
+    if (!far.length || !window.IBOrders || !window.IBOrders.thumbs) return out;
+    try { (await window.IBOrders.thumbs(far.slice(0, 600))).forEach((v, k) => out.set(k, v)); } catch (e) { /* the boxes stay empty */ }
+    return out;
   }
   // a photo for the sheet's cell: a JPEG of 96 px a side at most (Excel reads neither WebP nor a huge picture)
   async function cellJpeg(dataUrl) {
@@ -199,7 +206,8 @@
       toast('اتفتح ' + (via === 'whatsapp' ? 'واتساب' : 'الإيميل') + ' باللينك', 'success'); return done({ ok: true, href });
     }
     const photos = await photosOf(spec);
-    const made = type === 'pdf' ? await pdfBlob(spec, photos, onStep) : { blob: await excelBlob(spec, photos), pages: 0 };
+    // spec.excel: the caller's own workbook (the studio's sheet — the file its maker fills and returns) instead of the report's
+    const made = type === 'pdf' ? await pdfBlob(spec, photos, onStep) : { blob: typeof spec.excel === 'function' ? await spec.excel() : await excelBlob(spec, photos), pages: 0 };
     const name = fileBase(spec.name || title) + (type === 'pdf' ? '.pdf' : '.xlsx');
     const info = { ok: true, name, size: made.blob.size, pages: made.pages, photos: photos.size };
     if (via === 'download') { await K().saveFile(name, made.blob); toast('الملف اتنزل على جهازك: ' + name, 'success'); return done(info); }

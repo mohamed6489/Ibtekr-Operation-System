@@ -49,6 +49,11 @@ test('the sheet: the photo column first when the table has photos; a cell that s
   assert.deepEqual(n.rows, [['Lamp', 1002], ['Vase', '—'], ['الإجمالي', 1002], [], ['الصافي', 900]]);
   // a photo that is not https is no photo; a table without photo cells has no photo column
   assert.equal(P.cellImg({ text: 'x', img: 'javascript:alert(1)' }), '');
+  // a picture the page already holds (the studio's reference photo — comments decision 37) is taken as a data: URL: JPEG / PNG / WebP only
+  assert.equal(P.cellImg({ text: '1', img: 'data:image/jpeg;base64,AAAA' }), 'data:image/jpeg;base64,AAAA');
+  assert.equal(P.cellImg({ text: '1', img: 'data:image/svg+xml;base64,AAAA' }), '');
+  assert.equal(P.cellImg({ text: '1', img: 'data:text/html;base64,AAAA' }), '');
+  assert.equal(P.cellImg({ text: '1', img: 'http://shop.test/a.png' }), '');
   const t = plain(P.sheetOf({ headers: ['أ', 'ب'], rows: [['1', '2']] }));
   assert.deepEqual([t.head, t.rows, t.withImg, t.images], [['أ', 'ب'], [['1', '2']], false, []]);
   assert.deepEqual(plain(P.sheetOf({})).rows, []);

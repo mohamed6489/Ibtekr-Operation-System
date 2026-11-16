@@ -73,7 +73,7 @@
     if (!all.length) return { rows: [], map: {}, unknown: [] };
     const head = all[0]; const map = mapHeaders(head);
     const taken = new Set(Object.values(map));
-    const unknown = head.map((x, i) => (taken.has(i) || !String(x == null ? '' : x).trim() || /^#$|^preview|image|refrance|reference/i.test(String(x)) ? null : String(x).trim())).filter(Boolean);
+    const unknown = head.map((x, i) => (taken.has(i) || !String(x == null ? '' : x).trim() || /^#$|^preview|image|refrance|reference|صور/i.test(String(x)) ? null : String(x).trim())).filter(Boolean);
     const rows = all.slice(1).map((r) => {
       const o = blankRow();
       Object.keys(map).forEach((f) => { const v = r[map[f]]; if (NUMERIC.includes(f)) o[f] = num(v); else o[f] = text(v, f.startsWith('short') ? 2000 : 200); });
@@ -223,6 +223,20 @@
     });
     return { sheet: t.sheet, head, widths: WIDTHS.concat(t.previews ? PREVIEWS.map(() => 13) : []), fill: t.fill, refCol: FIELDS.indexOf('ref'), rows };
   }
+  /**
+   * The maker's copy of the sheet (comments decision 36 — «نسخة الفيندور تبقي بسيطة»): only what the maker reads and fills — the
+   * reference photo, the two names, the colour, the size and his price. Its headers are Arabic and read back by mapHeaders
+   * (the photo column is skipped by readSheet), so the sheet he returns starts a «شيت جاهز» batch as it is.
+   */
+  const MAKER_HEAD = ['#', 'الصورة المرجعية', 'الاسم بالإنجليزي', 'الاسم بالعربي', 'اللون', 'المقاس', 'سعر المبتكر'];
+  function makerSheetOf(batch) {
+    const rows = (batch && Array.isArray(batch.rows) ? batch.rows : []).map((r, i) => {
+      const p = Number(r.vendorPrice);
+      return [r.n != null && r.n !== '' ? r.n : i + 1, '', String(r.nameEn || ''), String(r.nameAr || ''), String(r.colorAr || r.colorEn || ''), String(r.sizeAr || r.size || ''),
+        r.vendorPrice != null && r.vendorPrice !== '' && Number.isFinite(p) && p > 0 ? p : ''];
+    });
+    return { sheet: 'المنتجات', head: MAKER_HEAD.slice(), widths: [6, 17, 32, 32, 16, 18, 14], fill: 'FF005642', refCol: 1, rtl: true, rows };
+  }
 
   // ---------------------------------------------------------------- the photos → a sheet for the maker (case 3, decision 12)
   /**
@@ -267,7 +281,7 @@
     let pane = '';
     if (fz) { const xs = fz[1].split('').reduce((a, ch) => a * 26 + ch.charCodeAt(0) - 64, 0) - 1; const ys = Number(fz[2]) - 1; pane = '<pane xSplit="' + xs + '" ySplit="' + ys + '" topLeftCell="' + at + '" activePane="bottomRight" state="frozen"/>'; }
     const sheetXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="' + NS + 'spreadsheetml/2006/main" xmlns:r="' + NS + 'officeDocument/2006/relationships">'
-      + '<sheetViews><sheetView workbookViewId="0">' + pane + '</sheetView></sheetViews><sheetFormatPr defaultRowHeight="15"/>' + cols + '<sheetData>' + headXml + body + '</sheetData>'
+      + '<sheetViews><sheetView' + (o.rtl ? ' rightToLeft="1"' : '') + ' workbookViewId="0">' + pane + '</sheetView></sheetViews><sheetFormatPr defaultRowHeight="15"/>' + cols + '<sheetData>' + headXml + body + '</sheetData>'
       + (imgs.length ? '<drawing r:id="rId1"/>' : '') + '</worksheet>';
     const styles = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="' + NS + 'spreadsheetml/2006/main">'
       + '<numFmts count="1"><numFmt numFmtId="164" formatCode="#,##0"/></numFmts>'
@@ -333,9 +347,10 @@
 
   const xlsx = (o) => PD.zip(xlsxParts(o));
   /** the sheet's file name: «<maker> - <yyyy-mm-dd>.xlsx» (signs a file system refuses dropped). */
-  const sheetFileName = (maker, when) => { const d = when instanceof Date ? when : new Date(); return (String(maker || 'Products').replace(/[\\/:*?"<>|]+/g, '-').trim().slice(0, 60) || 'Products') + ' - ' + d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + '.xlsx'; };
+  const sheetFileName = (maker, when, tag) => { const d = when instanceof Date ? when : new Date(); const clean = (x) => String(x || '').replace(/[\\/:*?"<>|]+/g, '-').trim();
+    return (clean(maker).slice(0, 60) || 'Products') + (clean(tag) ? ' - ' + clean(tag).slice(0, 30) : '') + ' - ' + d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + '.xlsx'; };
 
   return { FIELDS, LABELS, NUMERIC, TEMPLATE, HEAD_SIMPLE, HEAD_VARIABLE, PREVIEWS, mapHeaders, readSheet, blankRow, photoIndex, assignPhotos, placePhotos, brandCode3, validCode, sizeCode, skuOf, validSku, skuBase, baseName,
-    groupRows, slugName, imageSku, fileName, siteUrl, pricesOf, rowIssues, sheetOf, blankSheetRows, colName, xlsxParts, xlsx, sheetFileName, norm,
+    groupRows, slugName, imageSku, fileName, siteUrl, pricesOf, rowIssues, sheetOf, makerSheetOf, MAKER_HEAD, blankSheetRows, colName, xlsxParts, xlsx, sheetFileName, norm,
     MATERIALS, STYLES, pairOf, sizeEnOf, nameOrder };
 });

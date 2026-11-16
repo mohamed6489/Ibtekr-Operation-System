@@ -150,6 +150,40 @@ test('the .xlsx: a styled green head, frozen at C2, prices #,##0, the reference 
   assert.equal(F.sheetFileName('Glas/stora', new Date(2026, 10, 14)), 'Glas-stora - 2026-11-14.xlsx');
 });
 
+// comments decision 36 («نسخة الفيندور تبقي بسيطة … الصورة المرجعية و الاسم انجليزي و عربي و اللون و المقاس و سعر المبتكر»)
+test('the maker\'s copy: seven columns — #, the reference photo, the two names, the colour, the size, his price — read from the right, and read back as a ready sheet', () => {
+  const rows = [
+    Object.assign(F.blankRow(), { n: '1-2', sku: 'IBTART-0999-RD', nameEn: 'Vase', nameAr: 'فازة', colorEn: 'Red', colorAr: 'أحمر', size: '40 cm', sizeAr: '40 سم', vendorPrice: 250, sale: 400, catEn: 'Decor', shortEn: 'a vase' }),
+    Object.assign(F.blankRow(), { nameEn: 'Lamp', colorEn: 'Blue', size: 'M', vendorPrice: null }), // English only → the one column still filled; no price → an empty cell
+    Object.assign(F.blankRow(), { nameAr: 'طبق', vendorPrice: 0 }),
+  ];
+  const s = F.makerSheetOf({ rows });
+  assert.deepEqual(plain(s.head), ['#', 'الصورة المرجعية', 'الاسم بالإنجليزي', 'الاسم بالعربي', 'اللون', 'المقاس', 'سعر المبتكر']);
+  assert.deepEqual(plain(s.head), plain(F.MAKER_HEAD));
+  assert.deepEqual(plain(s.rows), [['1-2', '', 'Vase', 'فازة', 'أحمر', '40 سم', 250], [2, '', 'Lamp', '', 'Blue', 'M', ''], [3, '', '', 'طبق', '', '', '']]);
+  assert.equal(s.refCol, 1); assert.equal(s.rtl, true); assert.equal(s.widths.length, 7);
+  // nothing of the system's copy: no SKU, no category, no description, no sale price
+  assert.ok(!JSON.stringify(s.rows).includes('IBTART') && !JSON.stringify(s.rows).includes('Decor') && !JSON.stringify(s.rows).includes('400'));
+  // the file: the sheet opens right-to-left, the photo drawn in column B, the price a number
+  const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4]);
+  const files = unzip(F.xlsx({ ...s, freeze: 'C2', images: [{ row: 0, col: s.refCol, bytes: png, ext: 'png', w: 105, h: 120 }] }));
+  const td = (n) => new TextDecoder().decode(files[n]);
+  assert.match(td('xl/worksheets/sheet1.xml'), /<sheetView rightToLeft="1" workbookViewId="0">/);
+  assert.match(td('xl/worksheets/sheet1.xml'), /<c r="G2" s="2"><v>250<\/v><\/c>/);
+  assert.match(td('xl/drawings/drawing1.xml'), /<xdr:col>1<\/xdr:col>.*<xdr:row>1<\/xdr:row>/s);
+  assert.match(td('xl/styles.xml'), /FF005642/);
+  assert.doesNotMatch(new TextDecoder().decode(unzip(F.xlsx({ ...F.sheetOf({ type: 'Simple', rows }), freeze: 'C2' }))['xl/worksheets/sheet1.xml']), /rightToLeft/); // the system's copy as it was
+  // the maker returns it: every column is read (the photo column and # are not data) — a «شيت جاهز» batch starts from it
+  const back = F.readSheet([s.head].concat(s.rows.map((r) => r.map((c, k) => (k === 6 && c === '' ? 300 : c)))));
+  assert.deepEqual(plain(back.map), { nameEn: 2, nameAr: 3, colorAr: 4, sizeAr: 5, vendorPrice: 6 });
+  assert.deepEqual(plain(back.unknown), []);
+  assert.deepEqual(back.rows.map((r) => [r.nameEn, r.nameAr, r.colorAr, r.sizeAr, r.vendorPrice]), [['Vase', 'فازة', 'أحمر', '40 سم', 250], ['Lamp', '', 'Blue', 'M', 300], ['', 'طبق', '', '', 300]]);
+  assert.equal(F.sizeEnOf('40 سم'), '40 cm'); // the English size is written from the Arabic one when the batch opens
+  // the two copies' file names
+  assert.equal(F.sheetFileName('Art Craft', new Date(2026, 10, 16), 'نسخة المبتكر'), 'Art Craft - نسخة المبتكر - 2026-11-16.xlsx');
+  assert.equal(F.sheetFileName('Art Craft', new Date(2026, 10, 16), 'a/b'), 'Art Craft - a-b - 2026-11-16.xlsx');
+});
+
 // the owner 15 Nov (the data step: Arabic and English side by side, «لو غير اي حاجة في العربي تتغير اوتوماتيك في الانجليزي»)
 test('the data step: material / style pairs found by either language; an Arabic size written in English', () => {
   assert.deepEqual(plain(F.pairOf(F.MATERIALS, '', 'راتان')), ['Rattan', 'راتان']);

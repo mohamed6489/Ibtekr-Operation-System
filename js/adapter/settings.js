@@ -413,6 +413,20 @@
     fontLoads.set(entry.id, p); p.then((ok) => { if (!ok) fontLoads.delete(entry.id); }); return p;
   }
 
+  // ---------- «منطقة الخطر» (2026-11-16-data-page.md decision 6, 0117): data_wipe — the admin only; a dry run first (the tables, their rows,
+  // what is unlinked or deleted with them, what blocks), then the real run with the phrase the admin typed. Logged by the server.
+  const WIPE_SECTIONS = ['orders', 'vendors', 'products', 'accounts', 'inventory', 'cs', 'tickets', 'marketing', 'hr', 'logs'];
+  async function wipe(sections, opts) {
+    const cl = c(); if (!cl) return no('network'); if (!can().admin) return no('forbidden');
+    const list = (sections || []).filter((x) => WIPE_SECTIONS.includes(x)); if (!list.length) return no('invalid');
+    const dry = !(opts && opts.confirm); const args = { p_sections: list, p_dry: dry, p_confirm: dry ? null : String(opts.confirm) };
+    try {
+      const { data: d, error } = await cl.rpc('data_wipe', args);
+      if (error) { const m = String(error.message || ''); if (/^blocked: /.test(m)) return { ok: false, reason: 'blocked', message: 'فيه جداول تانية لسه مرتبطة بالبيانات دي (' + m.slice(9, 120) + ') — اختارها معاها' }; return fail(error); }
+      return { ok: true, dry: !!(d && d.dry), tables: (d && d.tables) || [], rows: Number(d && d.rows) || 0, blocked: (d && d.blocked) || [] };
+    } catch (e) { return no('network'); }
+  }
+
   // ---------- the saved lists (phase 12 T3, decision 10): the cancel / return reasons the admin keeps in the row «lists» ----------
   // lists() → { cancel: [...], returns: [...] }: the public slice first (every member gets it with the sign-in), then the row itself
   // (the admin's page), else the defaults of block 12 (IbtekrOps.CANCEL_REASONS / RETURN_REASONS). «أخرى» is always the last item.
@@ -603,5 +617,5 @@
 
   window.IBSettings = { loginLocks, loginUnlock, load, ensure, loadPublic, clear, data, section, sections: () => Object.assign({}, data.sections), roles, liveRoles, public: () => data.public, can, PERMS, PERM_KEYS, lists, saveLists, statusLabel, STATUS_KINDS, setRoleLevelPerms, setMemberLevel, levelPermsOf, MEMBER_LEVELS: MLEVELS, quickList, quickSave, quickDelete, quickOrder, QUICK_SCOPES: Q_SCOPES, expenseKinds, statusList, addedStatuses, delayRules, fakeRule, saveFake, orderStatuses, orderStatusAdd, orderStatusSlug, orderStatusDelete, orderStatusOrder, ADDED_MAX, ADDED_LEN, weekStart, clock, dateFmt, KIND_MAX, KINDS_MAX,
     save, setRolePerms, createRole, updateRole, deleteRole, setMemberRole, setMemberRoles, setMemberPerms, setMemberStatus, sessions, revokeSession, deviceOf,
-    links, setSecret, wooSet, testSecret, unlink, connections, notifyStatus, notifyTick, activity, pageOf, docs, addDoc, updateDoc, removeDoc, docUrl, uploadLogo, logoUrl, LOGO_SLOTS, uploadFont, removeFont, loadFont, fontList, FONT_MAX, FONTS_MAX };
+    links, setSecret, wooSet, testSecret, unlink, connections, notifyStatus, notifyTick, activity, pageOf, docs, addDoc, updateDoc, removeDoc, docUrl, uploadLogo, logoUrl, LOGO_SLOTS, uploadFont, removeFont, loadFont, fontList, FONT_MAX, FONTS_MAX, wipe, WIPE_SECTIONS };
 })();

@@ -371,3 +371,93 @@
 /* ش34: the brand's own fonts */
 #pg-settings .own-fonts{display:grid;gap:var(--space-2,8px);margin:var(--space-3,12px) 0;padding:var(--space-3,12px);border:1px dashed var(--color-border-default,#ddd);border-radius:var(--radius-md,8px)}
 #pg-settings .own-font{display:flex;align-items:center;gap:var(--space-2,8px);padding:6px 10px;background:var(--color-bg-subtle,#faf6ef);border-radius:var(--radius-sm,6px)}
+/* ق1 (the owner 16 Nov): «القوائم والحالات» — a side menu of the lists by group with counts, the chosen list's card beside it */
+#pg-settings .lst-layout{display:grid;grid-template-columns:240px minmax(0,1fr);gap:16px;align-items:start}
+#pg-settings .lst-nav{position:sticky;top:calc(var(--topbar-h,56px) + 12px);display:flex;flex-direction:column;gap:12px;padding:12px;background:var(--color-bg-container);border:1px solid var(--color-border-subtle);border-radius:var(--radius-md,10px);box-shadow:var(--shadow-card)}
+#pg-settings .lst-grp{display:flex;flex-direction:column;gap:2px}
+#pg-settings .lst-gt{padding:4px 10px;color:var(--color-text-secondary);font-weight:700;letter-spacing:.2px}
+#pg-settings .lst-item{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:40px;padding:8px 10px;border:0;border-radius:var(--radius-sm,8px);background:transparent;color:var(--color-text-primary);font:inherit;text-align:start;cursor:pointer}
+#pg-settings .lst-item:hover{background:var(--color-bg-hover)}
+#pg-settings .lst-item.on{background:var(--color-brand-default);color:var(--color-text-on-brand);font-weight:700}
+#pg-settings .lst-item:focus-visible{outline:2px solid var(--color-border-focus);outline-offset:1px}
+#pg-settings .lst-n{min-width:26px;padding:1px 8px;border-radius:999px;background:var(--color-bg-tint,#f5ecdc);color:var(--color-text-secondary);font-size:12px;text-align:center}
+#pg-settings .lst-item.on .lst-n{background:rgba(255,255,255,.18);color:var(--color-text-on-brand)}
+#pg-settings .lst-main{min-width:0;display:flex;flex-direction:column;gap:16px}
+#pg-settings .lst-main>.sec{margin:0}
+@media (max-width:899px){
+  #pg-settings .lst-layout{grid-template-columns:1fr}
+  #pg-settings .lst-nav{position:static;flex-direction:row;overflow-x:auto;padding:8px;gap:4px;scrollbar-width:none}
+  #pg-settings .lst-grp{flex-direction:row;gap:4px;flex:none}
+  #pg-settings .lst-gt{display:none}
+  #pg-settings .lst-item{flex:none;white-space:nowrap;min-height:44px}
+}
+/* 2026-11-16-data-page.md: «البيانات» in tabs, the import, the template popup and «منطقة الخطر» */
+#pg-settings .dx-tabs{display:flex;gap:6px;flex-wrap:wrap;padding:6px;background:var(--color-bg-container);border:1px solid var(--color-border-subtle);border-radius:var(--radius-md,10px);box-shadow:var(--shadow-card);margin-bottom:4px}
+#pg-settings .dx-tab{display:inline-flex;align-items:center;gap:8px;min-height:40px;padding:0 16px;border:0;border-radius:var(--radius-sm,8px);background:transparent;color:var(--color-text-secondary);font:inherit;font-weight:600;cursor:pointer}
+#pg-settings .dx-tab:hover{background:var(--color-bg-hover);color:var(--color-text-primary)}
+#pg-settings .dx-tab.on{background:var(--color-brand-default);color:var(--color-text-on-brand)}
+#pg-settings .dx-tab.danger{margin-inline-start:auto;color:var(--color-error-text)}
+#pg-settings .dx-tab.danger.on{background:var(--color-error-text);color:#fff}
+#pg-settings .dx-howto{list-style:none;margin:0 0 16px;padding:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+#pg-settings .dx-howto li{display:flex;gap:12px;align-items:flex-start;padding:14px;border:1px solid var(--color-border-subtle);border-radius:var(--radius-md,10px);background:var(--color-bg-base)}
+#pg-settings .dx-howto li b{display:block;margin-bottom:2px}
+.dx-n{flex:none;display:grid;place-items:center;width:28px;height:28px;border-radius:50%;background:var(--color-brand-default);color:var(--color-text-on-brand);font-weight:700}
+#pg-settings .dx-pick{display:grid;grid-template-columns:minmax(220px,320px) minmax(0,1fr);gap:12px 20px;align-items:end;padding:16px;border:1px solid var(--color-border-subtle);border-radius:var(--radius-md,10px)}
+#pg-settings .dx-pick>.acts-inline{grid-column:1 / -1}
+.dx-pick-meta,.dx-meta{display:flex;flex-direction:column;gap:6px;min-width:0}
+.dx-meta{flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}
+.dx-caps{display:flex;gap:6px;flex-wrap:wrap}
+@media (max-width:767px){#pg-settings .dx-howto{grid-template-columns:1fr}#pg-settings .dx-pick{grid-template-columns:1fr}#pg-settings .dx-tab.danger{margin-inline-start:0}}
+/* the popups (outside #pg-settings) */
+.dx-modal .dx-choices{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+.dx-modal .dx-choice{display:flex;flex-direction:column;align-items:flex-start;gap:4px;padding:14px 16px;border:1.5px solid var(--color-border-default);border-radius:var(--radius-md,10px);background:var(--color-bg-base);font:inherit;text-align:start;cursor:pointer}
+.dx-modal .dx-choice:hover{background:var(--color-bg-hover)}
+.dx-modal .dx-choice.on{border-color:var(--color-brand-default);background:var(--color-bg-selected,#f5ecdc);box-shadow:inset 0 0 0 1px var(--color-brand-default)}
+.dx-modal .dx-lang{display:flex;align-items:center;gap:12px}
+.dx-modal .seg{display:inline-flex;border:1px solid var(--color-border-default);border-radius:999px;overflow:hidden}
+.dx-modal .seg button{border:0;background:transparent;padding:6px 16px;font:inherit;cursor:pointer;color:var(--color-text-secondary)}
+.dx-modal .seg button.on{background:var(--color-brand-default);color:var(--color-text-on-brand)}
+.dx-modal .dx-colwrap{max-height:320px;overflow:auto;border:1px solid var(--color-border-subtle);border-radius:var(--radius-md,10px)}
+.dx-modal .dx-colwrap table{margin:0}
+.dx-modal .dx-hint{color:var(--color-text-secondary);word-break:break-word}
+.dx-modal .dx-steps{list-style:none;display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:0 0 16px;padding:0}
+.dx-modal .dx-steps li{display:flex;align-items:center;gap:8px;padding-bottom:10px;border-bottom:3px solid var(--color-border-subtle);color:var(--color-text-secondary);font-size:13px}
+.dx-modal .dx-steps li.on{border-color:var(--color-action-default,#c9a46a);color:var(--color-text-primary);font-weight:700}
+.dx-modal .dx-steps li.done{border-color:var(--color-brand-default);color:var(--color-brand-default)}
+.dx-modal .dx-sn{display:grid;place-items:center;width:22px;height:22px;border-radius:50%;border:1.5px solid currentColor;font-size:12px;flex:none}
+.dx-modal .dx-steps li.done .dx-sn{background:var(--color-brand-default);color:var(--color-text-on-brand);border-color:var(--color-brand-default)}
+.dx-modal .dx-drop{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-height:150px;padding:20px;border:2px dashed var(--color-border-default);border-radius:var(--radius-md,10px);background:var(--color-bg-base);text-align:center;cursor:pointer;color:var(--color-brand-default)}
+.dx-modal .dx-drop:hover,.dx-modal .dx-drop.over{border-color:var(--color-brand-default);background:var(--color-bg-hover)}
+.dx-modal .dx-drop b{color:var(--color-text-primary)}
+.dx-modal .dx-paste summary{cursor:pointer;color:var(--color-brand-default);font-weight:600;padding:6px 0}
+.dx-modal .dx-paste textarea{width:100%;margin-top:6px}
+.dx-modal .dx-sum{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.dx-modal .dx-stat{display:flex;flex-direction:column;gap:2px;align-items:flex-start;padding:12px 14px;border:1px solid var(--color-border-subtle);border-radius:var(--radius-md,10px);background:var(--color-bg-base);font:inherit;text-align:start}
+button.dx-stat{cursor:pointer}button.dx-stat:hover{background:var(--color-bg-hover)}
+.dx-modal .dx-stat b{font-size:22px;line-height:1.2}
+.dx-modal .dx-stat.gold b{color:var(--color-warning-text,#8a5a00)}.dx-modal .dx-stat.success b{color:var(--color-success-text)}.dx-modal .dx-stat.error b{color:var(--color-error-text)}.dx-modal .dx-stat.neutral b{color:var(--color-text-secondary)}
+.dx-modal .dx-stat.on{border-color:var(--color-brand-default);box-shadow:inset 0 0 0 1px var(--color-brand-default)}
+.dx-modal .dx-who{display:flex;flex-direction:column}
+.dx-modal .dx-chg{display:flex;flex-direction:column;gap:4px}
+.dx-modal .dx-chg-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:13px}
+.dx-modal .dx-from{color:var(--color-text-secondary)}.dx-modal .dx-to{color:var(--color-brand-default)}.dx-modal .dx-arrow{color:var(--color-text-secondary)}
+.dx-modal tr.dx-err td{background:var(--color-error-bg)}
+.dx-modal tr.dx-off td{opacity:.65}
+.dx-modal .dx-errs{display:flex;flex-direction:column;gap:2px;color:var(--color-error-text);font-size:13px}
+@media (max-width:767px){.dx-modal .dx-sum{grid-template-columns:repeat(2,minmax(0,1fr))}.dx-modal .dx-steps{grid-template-columns:repeat(2,1fr)}}
+/* «منطقة الخطر» */
+#pg-settings .dz{border:1.5px solid var(--color-error-text);border-radius:var(--radius-md,10px);background:var(--color-bg-container);overflow:hidden}
+#pg-settings .dz-head{display:flex;gap:14px;align-items:flex-start;padding:16px 20px;background:var(--color-error-bg)}
+#pg-settings .dz-head h3{margin:0 0 4px;color:var(--color-error-text)}
+#pg-settings .dz-head p{margin:0}
+#pg-settings .dz-ic{flex:none;display:grid;place-items:center;width:40px;height:40px;border-radius:50%;background:var(--color-error-text);color:#fff}
+#pg-settings .dz-body{display:flex;flex-direction:column;gap:14px;padding:16px 20px}
+#pg-settings .dz-top{display:flex;align-items:center;justify-content:space-between}
+#pg-settings .dz-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+#pg-settings .dz-item{display:flex;gap:10px;align-items:flex-start;padding:12px;border:1px solid var(--color-border-subtle);border-radius:var(--radius-sm,8px);cursor:pointer}
+#pg-settings .dz-item:hover{background:var(--color-bg-hover)}
+#pg-settings .dz-item.on{border-color:var(--color-error-text);background:var(--color-error-bg)}
+#pg-settings .dz-item b{display:block}
+#pg-settings .dz-item input{margin-top:4px;accent-color:var(--color-error-text)}
+@media (max-width:767px){#pg-settings .dz-grid{grid-template-columns:1fr}}
+.dz-modal .dz-tables{max-height:300px;overflow:auto;border:1px solid var(--color-border-subtle);border-radius:var(--radius-md,10px);margin:10px 0}

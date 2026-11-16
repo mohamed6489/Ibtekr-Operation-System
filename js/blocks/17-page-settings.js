@@ -1083,13 +1083,6 @@
   }
 
   // ---------- البيانات ----------
-  function data() {
-    const b = C.backup;
-    return [exportSec(), ...importSec(),
-      K.Section('النسخ الاحتياطي والاحتفاظ', [row('نسخة احتياطية يومية تلقائية', 'الساعة 03:00 · آخر نسخة: اليوم 03:00 (نجحت) · الاحتفاظ 30 نسخة', b.daily, (v) => { b.daily = v; }), row('نسخة أسبوعية إلى Google Drive', 'مجلد Ibtekr-Backups — يحتاج ربط Google Drive من الربط بالمنصات', b.drive, (v) => { b.drive = v; }),
-        h('div', { class: 'grid3' }, pick(b, 'inactive', 'd-in', 'حذف بيانات العملاء غير النشطين', ['لا — يدوي فقط', 'عميل بدون أوردر لمدة 24 شهر']), pick(b, 'orders', 'd-or', 'الاحتفاظ بالأوردرات المغلقة', ['بلا حد (أرشفة بعد 12 شهر)', '5 سنين']), pick(b, 'log', 'd-lg', 'الاحتفاظ بسجل النشاط', ['12 شهر', '24 شهر'])), h('div', { class: 'acts-inline start' }, Button({ type: 'primary', size: 'sm', label: 'إنشاء نسخة الآن', onClick: () => K.toast('اتعملت نسخة احتياطية', 'success') }))]),
-      fullExportSec()];
-  }
 
 
   // ---------- owner 22 Oct: export with options + import wizard ----------
@@ -1104,8 +1097,9 @@
     // تحديد جماعي (owner 31 Oct): تصدير كذا مجموعة مرة واحدة (ملف لكل مجموعة · من غير البيانات الحساسة)
     const XB = K.Bulk({ key: 'set-export', ids: G.map((g) => g.id), noun: 'مجموعة', render: R, actions: [
       { id: 'export', label: 'تصدير المحدد (من غير الحساس)', icon: 'download', run: (ids, done) => { const X = DX(); let n = 0; G.filter((g) => ids.includes(g.id)).forEach((g) => { try { const F = g.fields(); const cols = X.presetCols(F, 'safe'); const lab = cols.map((k) => (F.find((x) => x.key === k) || { label: k }).label); K.xlsxExport('ibtekr-' + g.id + '-' + K.TODAY + '.xlsx', g.label, [lab].concat(g.rows().map((r) => cols.map((k) => (r[k] == null ? '' : r[k]))))); XS.last[g.id] = K.TODAY; LOGV('data.export', g.id + ' (تحديد جماعي)'); n++; } catch (e) { /* skip */ } }); done('اتصدّر ' + n + ' ملف'); } }] });
-    return K.Section('تصدير البيانات', [XB.bar(), U.Table({ headers: [XB.head(), 'المجموعة', 'السجلات', 'آخر تصدير', 'متكرر', ''], rows: G.map((g) => { let n = '—'; try { n = K.Num(g.rows().length); } catch (e) { /* not ready */ }
-      return [XB.box(g.id, g.label), h('b', null, g.label), n, XS.last[g.id] || '—', XS.sched[g.id] ? K.Tag('brand', XS.sched[g.id]) : h('span', { class: 't-small help' }, '—'), Button({ size: 'sm', label: 'تصدير', icon: 'download', attrs: { 'data-export': g.id }, onClick: () => exportDialog(g) })]; }) })],
+    // 2026-11-16-data-page.md decision 2: the «متكرر» column / option was a label that sent nothing — out
+    return K.Section('تصدير البيانات', [XB.bar(), U.Table({ headers: [XB.head(), 'المجموعة', 'السجلات', 'بيقبل', 'آخر تصدير', ''], rows: G.map((g) => { let n = '—'; try { n = K.Num(g.rows().length); } catch (e) { /* not ready */ }
+      return [XB.box(g.id, g.label), h('b', null, g.label), n, capsOf(g), XS.last[g.id] || '—', Button({ size: 'sm', label: 'تصدير', icon: 'download', attrs: { 'data-export': g.id }, onClick: () => exportDialog(g) })]; }) })],
       null, { sub: 'كل مجموعة: تختار الفترة والفلتر والأعمدة والصيغة وتشوف معاينة قبل التصدير — CSV بترميز UTF-8 يفتح في Excel وGoogle Sheets · كل تصدير بيتسجل في سجل النشاط' });
   }
   // owner 22 Oct: a file download (CSV / Excel); the shared artifact link blocks downloads, so the copy box stays as the fallback
@@ -1128,8 +1122,7 @@
           U.Select({ id: 'x-lang', label: 'عناوين الأعمدة', options: [{ value: 'ar', label: 'عربي' }, { value: 'en', label: 'English' }], value: f.lang, onChange: (v) => { f.lang = v; draw(); } })),
         h('div', { class: 'cb-group dx-cols', id: 'x-cols', role: 'group', 'aria-label': 'الأعمدة' }, F.map((c) => K.Checkbox({ label: c.label + (c.sensitive ? ' 🔒' : ''), checked: f.cols.includes(c.key), onChange: (v) => { f.cols = v ? F.filter((x) => x.key === c.key || f.cols.includes(x.key)).map((x) => x.key) : f.cols.filter((k) => k !== c.key); f.preset = 'custom'; draw(); } }))),
         sens.length ? U.InlineNote({ kind: 'warning', children: 'فيه بيانات حساسة (' + sens.map((c) => c.label).join('، ') + ') — بتظهر بس للي معاه صلاحية «بيانات حساسة»، والتصدير بيتسجل باسمك.' }) : null,
-        K.two(U.Select({ id: 'x-fmt', label: 'الصيغة', options: FORMATS.map(([v, l]) => ({ value: v, label: l })), value: f.fmt, onChange: (v) => { f.fmt = v; out = null; draw(); } }),
-          U.Select({ id: 'x-rep', label: 'تصدير متكرر', options: [{ value: '', label: 'مرة واحدة' }, { value: 'كل أسبوع (السبت) · إيميل', label: 'كل أسبوع (السبت) · إيميل' }, { value: 'كل شهر (يوم 1) · إيميل', label: 'كل شهر (يوم 1) · إيميل' }, { value: 'كل أسبوع · Google Drive', label: 'كل أسبوع · Google Drive' }], value: f.repeat, onChange: (v) => { f.repeat = v; draw(); } })),
+        U.Select({ id: 'x-fmt', label: 'الصيغة', options: FORMATS.map(([v, l]) => ({ value: v, label: l })), value: f.fmt, onChange: (v) => { f.fmt = v; out = null; draw(); } }),
         h('div', { class: 'dx-prev' }, h('b', { class: 't-label' }, 'معاينة — ' + rows.length + ' سجل · ' + cols.length + ' عمود'),
           cols.length && rows.length ? h('div', { class: 'scroll-x' }, h('table', { class: 'vlo-table dt-table dx-table' }, h('thead', null, h('tr', null, cols.map((c) => h('th', null, f.lang === 'en' ? c.en : c.label)))), h('tbody', null, rows.slice(0, 5).map((r) => h('tr', null, cols.map((c) => h('td', null, String(r[c.key] == null ? '' : r[c.key])))))))) : K.Empty('مفيش حاجة تتصدّر', cols.length ? 'وسّع الفترة أو شيل الفلتر' : 'اختار عمود واحد على الأقل')),
         out ? h('div', { class: 'dx-out' }, h('b', { class: 't-label' }, out.fmt === 'TSV' ? 'جاهز للصق — اضغط «نسخ» والصقه في أول خانة في Google Sheets أو Excel' : 'الملف اتنزّل: ' + out.name), h('textarea', { class: 'input dx-text', readonly: '', rows: '6', dir: 'auto', 'aria-label': 'محتوى الملف' }, out.text), out.fmt === 'TSV' ? null : h('div', { class: 't-small help' }, 'لو الملف مانزلش (اللينك المشترك بيمنع التنزيل) — اضغط «تنزيل تاني» من الملف على جهازك، أو انسخ المحتوى والصقه في Google Sheets.')) : null));
@@ -1137,116 +1130,164 @@
         Button({ type: 'primary', label: 'تصدير ' + rows.length + ' سجل', disabled: !rows.length || !cols.length, attrs: { 'data-xgo': '' }, onClick: () => { const name = 'ibtekr-' + g.id + '-' + K.TODAY + (f.fmt === 'XLSX' ? '.xlsx' : f.fmt === 'TSV' ? '.tsv' : '.csv');
           const text = f.fmt === 'CSV' ? X.toCSV(rows, cols, { lang: f.lang }) : X.toTSV(rows, cols, { lang: f.lang });
           const save = f.fmt === 'XLSX' ? () => loadXLSX().then((XL) => { const wb = XL.utils.book_new(); const ws = XL.utils.aoa_to_sheet(X.toAOA(rows, cols, { lang: f.lang })); ws['!views'] = [{ RTL: true }]; XL.utils.book_append_sheet(wb, ws, g.label.slice(0, 31).replace(/[\\/?*\[\]:]/g, ' ')); XL.writeFile(wb, name); }).catch(() => K.toast('معرفناش نجهّز ملف Excel — صدّره CSV أو انسخ المحتوى')) : f.fmt === 'CSV' ? () => saveFile(name, text) : () => {};
-          out = { text, name, fmt: f.fmt, save }; save(); if (f.fmt === 'TSV') { try { navigator.clipboard.writeText(text).then(() => K.toast('اتنسخ — الصقه في الشيت', 'success'), () => {}); } catch (e) { /* manual copy */ } } XS.last[g.id] = 'دلوقتي · ' + rows.length + ' سجل'; if (f.repeat) XS.sched[g.id] = f.repeat; else delete XS.sched[g.id]; LOGV('settings.export', g.label + ' · ' + rows.length + ' سجل · ' + cols.length + ' عمود' + (sens.length ? ' · فيه بيانات حساسة' : '')); draw(); R(); } }));
+          out = { text, name, fmt: f.fmt, save }; save(); if (f.fmt === 'TSV') { try { navigator.clipboard.writeText(text).then(() => K.toast('اتنسخ — الصقه في الشيت', 'success'), () => {}); } catch (e) { /* manual copy */ } } XS.last[g.id] = 'دلوقتي · ' + rows.length + ' سجل'; LOGV('settings.export', g.label + ' · ' + rows.length + ' سجل · ' + cols.length + ' عمود' + (sens.length ? ' · فيه بيانات حساسة' : '')); draw(); R(); } }));
     };
     draw();
   }
   // owner 22 Oct: every sheet has its template, and every import says up front if it adds new data or edits what's already there
   const FORMATS = [['XLSX', 'Excel (‎.xlsx)'], ['CSV', 'CSV (Excel / Google Sheets)'], ['TSV', 'نسخ للصق في Google Sheets']];
-  const MODES = { add: ['إضافة بيانات جديدة', 'الصفوف الجديدة بتتضاف · اللي موجود بالفعل بيتخطّى ومش بيتكرر'], update: ['تعديل بيانات موجودة', 'بنلاقي السجل بالمفتاح ونعدّل الخانات المكتوبة بس · الخانة الفاضية بتفضل زي ما هي'] };
-  const modesOf = (g) => g.modes || ['add'];
-  const keyLabel = (g) => { const ks = DX().keysOf(g.key); return ks.map((k) => (g.fields().find((x) => x.key === k) || {}).label).join(' + '); };
-  const keyText = (g, d) => DX().keysOf(g.key).map((k) => (d[k] == null || d[k] === '' ? '—' : d[k])).join(' · ');
-  function importSec() {
-    const G = DG() ? DG().groups() : []; const imp = G.filter((g) => g.apply); const b = C.backup; if (!imp.some((g) => g.id === b.importSet)) b.importSet = imp[0] ? imp[0].id : '';
-    const g = DG().group(b.importSet); if (!modesOf(g).includes(b.importMode)) b.importMode = modesOf(g)[0];
-    const last = XS.imports.slice(-5).reverse(); const X = DX();
-    const modeRadios = K.Radios({ label: 'نوع الاستيراد', name: 'imp-mode', value: b.importMode, onChange: (v) => { b.importMode = v; R(); }, options: ['add', 'update'].filter((m) => modesOf(g).includes(m)).map((m) => ({ value: m, label: MODES[m][0], hint: m === 'update' ? MODES[m][1] + ' · المفتاح: ' + keyLabel(g) : MODES[m][1] })) });
-    const tplRows = imp.map((x) => { const F = x.fields(); return [h('b', null, x.label), modesOf(x).includes('add') ? U.num(String(X.templateCols(F, 'add', x.key).length)) : h('span', { class: 't-small help' }, 'تعديل بس'), modesOf(x).includes('update') ? h('span', null, U.num(String(X.templateCols(F, 'update', x.key).length)), h('small', { class: 't-small help' }, ' · المفتاح: ' + keyLabel(x))) : h('span', { class: 't-small help' }, 'إضافة بس'),
-      h('div', { class: 'acts-inline' }, modesOf(x).includes('add') ? Button({ size: 'sm', label: 'قالب إضافة', attrs: { 'data-tpl': x.id + ':add' }, onClick: () => templateDialog(x, 'add') }) : null, modesOf(x).includes('update') ? Button({ size: 'sm', label: 'قالب تعديل', attrs: { 'data-tpl': x.id + ':update' }, onClick: () => templateDialog(x, 'update') }) : null)]; });
-    return [K.Section('استيراد البيانات', [h('div', { class: 'grid3 dx-imp' }, h('div', null, U.Select({ id: 'd-set', label: 'الشيت', options: imp.map((x) => ({ value: x.id, label: x.label })), value: b.importSet, onChange: (v) => { b.importSet = v; R(); } }), h('div', { class: 't-small help' }, 'الأوردرات الجديدة بتيجي من الموقع / Airtable — هنا بتعدّل بياناتها بس')),
-        modeRadios,
-        h('div', { class: 'acts-inline start dx-acts' }, Button({ label: 'القالب', icon: 'download', onClick: () => templateDialog(g, b.importMode) }), Button({ type: 'primary', label: 'ابدأ الاستيراد', attrs: { 'data-import': '' }, onClick: () => importWizard(g, b.importMode) }))),
-      g.id === 'expenses' ? U.InlineNote({ children: 'المصروفات مالهاش مفتاح ثابت، فالاستيراد إضافة بس — التعديل من صفحة الحسابات.' }) : null,
-      g.note ? U.InlineNote({ kind: g.sensitive ? 'warning' : 'info', children: g.note }) : null,
-      last.length ? h('div', null, h('b', { class: 't-label' }, 'آخر عمليات الاستيراد'), U.Table({ cls: 'mini-table', headers: ['الوقت', 'الشيت', 'النوع', 'النتيجة', 'بواسطة', ''], rows: last.map((x) => [x.at, x.label, x.mode ? MODES[x.mode][0] : '—', x.undone ? K.Tag('neutral', 'اتلغى') : h('span', null, x.created + ' جديد · ' + x.updated + ' اتعدّل' + (x.skipped ? ' · ' + x.skipped + ' اتخطّى' : '') + (x.errors ? ' · ' + x.errors + ' أخطاء' : '')), x.by,
-        x.undone ? h('span', { class: 't-small help' }, '—') : Button({ type: 'text', size: 'sm', label: 'تراجع', onClick: () => K.confirm({ title: 'تراجع عن الاستيراد', text: 'هيتمسح اللي اتضاف (' + x.created + ') ويرجع اللي اتعدّل (' + x.updated + ') زي ما كان.', okLabel: 'تراجع', onOk: () => { x.undo(); x.undone = true; LOGV('settings.import.undo', x.label); K.toast('اتلغى الاستيراد', 'success'); R(); } }) })]) })) : null],
-      null, { th: false, sub: 'اختار الشيت ونوع الاستيراد ← حمّل القالب واملاه ← ارفع الملف أو الصق من Google Sheets ← راجع ← أكّد. مفيش حاجة بتتكتب قبل ما توافق، وتقدر تتراجع بعدها' }),
-      K.Section('قوالب الشيتات', [U.Table({ cls: 'mini-table dx-tpls', headers: ['الشيت', 'أعمدة الإضافة', 'أعمدة التعديل', ''], rows: tplRows }), note('كل قالب فيه كل الأعمدة اللي السيستم محتاجها بنفس الأسماء (عربي أو English) + صف مثال. الأعمدة المطلوبة عليها *. اللصق في Google Sheets بيحط كل عمود في خانة.')], null, { sub: 'قالب لكل شيت — واحد للإضافة وواحد للتعديل' })];
-  }
-  function templateDialog(g, mode, opts) {
-    if (!modesOf(g).includes(mode)) mode = modesOf(g)[0]; const X = DX(); const F = g.fields(); const cols = X.templateCols(F, mode, g.key); const st3 = { lang: 'ar' };
-    const ex = g.rows()[0] || {}; const example = cols.map((c) => { const v = ex[c.key]; const f = F.find((x) => x.key === c.key); return v == null || v === '' ? '' : f.type === 'date' ? String(v).split('-').reverse().join('/') : String(v); });
-    const head = () => cols.map((c) => (st3.lang === 'en' ? c.en : c.label) + (c.required ? ' *' : ''));
-    const tsv = () => [head().join('\t'), example.join('\t')].join('\n'); const csv = () => X.toCSV([Object.fromEntries(cols.map((c, i) => [c.key, example[i]]))], cols.map((c) => Object.assign({}, c, { label: c.label + (c.required ? ' *' : ''), en: c.en + (c.required ? ' *' : '') })), { lang: st3.lang });
-    const copy = (t, msg) => { try { navigator.clipboard.writeText(t).then(() => K.toast(msg, 'success'), () => K.toast('حدّد النص وانسخه بإيدك')); } catch (e) { K.toast('حدّد النص وانسخه بإيدك'); } };
-    const md = U.Modal({ title: 'قالب ' + MODES[mode][0] + ' — ' + g.label, body: [] }); md.el.classList.add('wide'); md.el.dataset.template = g.id + ':' + mode;
-    const draw = () => md.setBody(...[sheetPick(opts, g, (ng) => { md.close(); templateDialog(ng, mode, opts); }), modesOf(g).length > 1 ? K.Radios({ label: 'القالب', name: 'tpl-mode', value: mode, onChange: (v) => { md.close(); templateDialog(g, v, opts); }, options: modesOf(g).map((m) => ({ value: m, label: MODES[m][0] })) }) : null, U.InlineNote({ children: MODES[mode][1] + (mode === 'update' ? ' · المفتاح: ' + keyLabel(g) : '') }),
-      K.Radios({ label: 'أسماء الأعمدة', name: 'tpl-lang', value: st3.lang, onChange: (v) => { st3.lang = v; draw(); }, options: [{ value: 'ar', label: 'عربي' }, { value: 'en', label: 'English' }] }),
-      U.Table({ cls: 'mini-table dx-cols', headers: ['العمود', 'مطلوب', 'الشكل / القيم المسموحة', 'مثال'], rows: cols.map((c, i) => [h('b', null, st3.lang === 'en' ? c.en : c.label), c.required ? K.Tag('error', 'مطلوب') : h('span', { class: 't-small help' }, mode === 'update' ? 'سيبه فاضي لو مش هتغيّره' : 'اختياري'), h('span', { class: 't-small' }, c.hint), h('span', { class: 't-small' }, example[i] || '—')]) }),
-      mode === 'update' && F.some((x) => x.noUpdate) ? h('div', { class: 't-small help' }, 'مش في قالب التعديل: ' + F.filter((x) => x.noUpdate).map((x) => x.label).join('، ') + ' — بيتغيّر من الملف نفسه (بتاريخ سريان)') : null,
-      h('textarea', { class: 'input dx-text', readonly: '', rows: '4', dir: 'auto', 'aria-label': 'القالب' }, tsv())].filter(Boolean)); // owner batch 2 (decision 29): a part that is not there is left out — never «null»
-    draw();
-    md.setFooter(Button({ type: 'text', label: 'إغلاق', onClick: () => md.close() }), Button({ label: 'نسخ CSV', onClick: () => copy(csv(), 'اتنسخ القالب CSV') }), Button({ type: 'primary', label: 'نسخ للصق في Google Sheets', attrs: { 'data-copy-sheet': '' }, onClick: () => copy(tsv(), 'اتنسخ — الصقه في أول خانة في الشيت') }));
-  }
   // Excel files are read with SheetJS (cdnjs) only when someone picks one
   const loadXLSX = () => (window.XLSX ? Promise.resolve(window.XLSX) : new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = 'js/vendor/xlsx.full.min.js'; sc.onload = () => res(window.XLSX); sc.onerror = rej; document.head.appendChild(sc); }));
-  function importWizard(g, mode0, opts) {
-    const X = DX(); const st2 = { step: 1, mode: modesOf(g).includes(mode0) ? mode0 : modesOf(g)[0], text: '', name: '', parsed: null, map: {}, res: null, applied: null, err: '', sheets: null, wb: null };
-    const F = () => { const all = g.fields(); return X.templateCols(all, st2.mode, g.key).map((c) => Object.assign({}, all.find((x) => x.key === c.key), { required: c.required })); };
-    const md = U.Modal({ title: 'استيراد — ' + g.label, body: [] }); md.el.classList.add('wide');
+  // 2026-11-16-data-page.md decision 2 (the owner 16 Nov — «عايز الصفحة تتقسم تابس كل جدول بتاب»): تصدير · استيراد · القوالب · النسخة
+  // الكاملة · منطقة الخطر (admin). The old «النسخ الاحتياطي والاحتفاظ» switches did nothing (a toast) — out; the database's own backups are Supabase's.
+  const DTABS = [['export', 'تصدير', 'download'], ['import', 'استيراد', 'upload'], ['templates', 'القوالب', 'sheet'], ['backup', 'النسخة الكاملة', 'file'], ['danger', 'منطقة الخطر', 'alert']];
+  function data() {
+    const tabs = DTABS.filter(([id]) => id !== 'danger' || isAdminMe()); const cur = tabs.some(([id]) => id === st.dtab) ? st.dtab : 'export';
+    const bar = h('div', { class: 'dx-tabs', role: 'tablist', 'aria-label': 'البيانات', 'data-dtabs': '' }, tabs.map(([id, label, icon]) => h('button', { type: 'button', role: 'tab', class: 'dx-tab' + (id === cur ? ' on' : '') + (id === 'danger' ? ' danger' : ''), 'aria-selected': String(id === cur), 'data-dtab': id, onClick: () => { st.dtab = id; R(); } }, Icon(icon, 'sm'), h('span', null, label))));
+    const body = cur === 'import' ? importSec() : cur === 'templates' ? [templatesSec()] : cur === 'backup' ? [fullExportSec(), U.InlineNote({ children: 'نسخ قاعدة البيانات نفسها بتتاخد من Supabase (لوحة المشروع › Database › Backups) — الملف ده نسخة تقراها في Excel.' })] : cur === 'danger' ? [dangerSec()] : [exportSec()];
+    return [bar, ...body];
+  }
+  const impGroups = () => (DG() ? DG().groups() : []).filter((g) => g.apply && !g.exportOnly);
+  const capsOf = (g) => h('div', { class: 'dx-caps' }, g.ids ? K.Tag('gold', 'تعديل بالـ ID') : null, g.canAdd ? K.Tag('success', 'إضافة جديد') : null, !g.ids && !g.canAdd ? K.Tag('neutral', 'تصدير بس') : null, g.sensitive ? K.Tag('error', 'بيانات حساسة') : null);
+  // the columns of a sheet's template / import (decision 3): the ID first, every writable column; «مطلوب» for a new row only
+  const colsOf = (g) => { const all = g.fields(); return DX().templateCols(all, 'mixed', g.key).map((c) => Object.assign({}, all.find((x) => x.key === c.key), { required: c.required, hint: c.hint })); };
+  function importSec() {
+    const imp = impGroups(); const b = C.backup; if (!imp.some((g) => g.id === b.importSet)) b.importSet = imp[0] ? imp[0].id : '';
+    const g = DG().group(b.importSet); const last = XS.imports.slice(-8).reverse();
+    const howto = h('ol', { class: 'dx-howto', 'data-dx-howto': '' }, [['نزّل القالب', 'بالبيانات الحالية لو هتعدّل (فيه عمود ID) — أو فاضي لو هتضيف جديد'], ['املاه في Excel أو Google Sheets', 'غيّر الخانات اللي عايزها بس · الخانة الفاضية بتفضل زي ما هي · صف من غير ID = جديد'], ['ارفعه وراجع', 'بتشوف كل تغيير قبل ← بعد، ومفيش حاجة بتتكتب قبل ما توافق']]
+      .map(([t, d], i) => h('li', null, h('span', { class: 'dx-n' }, String(i + 1)), h('div', null, h('b', null, t), h('small', { class: 't-small help' }, d)))));
+    const card = g ? h('div', { class: 'dx-pick' }, U.Select({ id: 'd-set', label: 'الشيت', options: imp.map((x) => ({ value: x.id, label: x.label })), value: b.importSet, onChange: (v) => { b.importSet = v; R(); } }),
+      h('div', { class: 'dx-pick-meta' }, capsOf(g), g.note ? h('div', { class: 't-small help' }, g.note) : null),
+      h('div', { class: 'acts-inline start' }, Button({ label: 'نزّل القالب', icon: 'download', attrs: { 'data-tpl-open': g.id }, onClick: () => templateDialog(g) }), Button({ type: 'primary', label: 'ابدأ الاستيراد', icon: 'upload', attrs: { 'data-import': '' }, onClick: () => importWizard(g) }))) : K.Empty('مفيش شيتات للاستيراد', '');
+    return [K.Section('استيراد البيانات', [howto, card], null, { th: false, sub: 'تحديث بيانات السيستم من Excel أو Google Sheets — اللي ليه نسخة على الموقع (بيانات متجر المبتكر، البنك، النسبة) بيتبعت للموقع زي التعديل باليد' }),
+      last.length ? K.Section('آخر عمليات الاستيراد', U.Table({ cls: 'mini-table', headers: ['الوقت', 'الشيت', 'اتعدّل', 'جديد', 'اترفض', 'بواسطة'], rows: last.map((x) => [x.at, x.label, U.num(String(x.updated || 0)), U.num(String(x.created || 0)), x.failed ? K.Tag('error', U.num(String(x.failed))) : '—', x.by]) }), null, { th: false }) : null].filter(Boolean);
+  }
+  function templatesSec() {
+    const imp = impGroups();
+    return K.Section('قوالب الاستيراد', [U.Table({ cls: 'dx-tpls', headers: ['الشيت', 'بيقبل', 'الأعمدة', ''], rows: imp.map((g) => [h('b', null, g.label), capsOf(g), U.num(String(colsOf(g).length)),
+      h('div', { class: 'acts-inline' }, g.ids ? Button({ size: 'sm', label: 'بالبيانات الحالية', icon: 'download', attrs: { 'data-tpl-xlsx': g.id + ':data' }, onClick: () => tplDownload(g, 'data', 'ar') }) : null, g.canAdd ? Button({ size: 'sm', label: 'فاضي', icon: 'download', attrs: { 'data-tpl-xlsx': g.id + ':empty' }, onClick: () => tplDownload(g, 'empty', 'ar') }) : null,
+        Button({ type: 'text', size: 'sm', label: 'الأعمدة', attrs: { 'data-tpl': g.id }, onClick: () => templateDialog(g) }))]) }),
+      note('«بالبيانات الحالية» = كل السجلات بالـ ID بتاعها — عدّل اللي عايزه وارفعه. «فاضي» = العناوين بس لصفوف جديدة. الشيت التاني في الملف «تعليمات» فيه الأعمدة المطلوبة والقيم المسموحة.')], null, { th: false, sub: 'قالب لكل شيت — ملف Excel بيتفتح من اليمين' });
+  }
+  // an Excel template (decision 5): the header in the sheet's language, the current rows with their IDs (data) or none (empty), and a
+  // second sheet «تعليمات» with each column's rule and the allowed values
+  function tplDownload(g, kind, lang) {
+    const cols = colsOf(g); const en = lang === 'en'; const head = cols.map((c) => (en ? c.en : c.label) + (c.required ? ' *' : ''));
+    let rows = []; if (kind === 'data') { try { rows = g.rows(); } catch (e) { rows = []; } }
+    return loadXLSX().then((XL) => { const wb = XL.utils.book_new();
+      const ws = XL.utils.aoa_to_sheet([head].concat(rows.map((r) => cols.map((c) => (r[c.key] == null ? '' : r[c.key]))))); ws['!views'] = [{ RTL: !en }]; ws['!cols'] = cols.map((c) => ({ wch: Math.max(12, Math.min(40, String(en ? c.en : c.label).length + 6)) }));
+      XL.utils.book_append_sheet(wb, ws, g.label.slice(0, 31).replace(/[\\/?*[\]:]/g, ' '));
+      const help = XL.utils.aoa_to_sheet([['العمود', 'مطلوب', 'الشكل / القيم المسموحة']].concat(cols.map((c) => [en ? c.en : c.label, c.id ? 'للتعديل — سيبه زي ما هو' : c.required ? 'مطلوب للصف الجديد' : 'اختياري', c.hint || ''])));
+      help['!views'] = [{ RTL: true }]; help['!cols'] = [{ wch: 28 }, { wch: 26 }, { wch: 60 }]; XL.utils.book_append_sheet(wb, help, 'تعليمات');
+      XL.writeFile(wb, 'ibtekr-' + g.id + '-' + (kind === 'data' ? 'data' : 'template') + '-' + K.TODAY + '.xlsx'); LOGV('settings.template', g.id + ' · ' + kind + ' · ' + rows.length);
+      K.toast('اتنزّل القالب' + (kind === 'data' ? ' — ' + rows.length + ' سجل' : ''), 'success'); }).catch(() => K.toast('معرفناش نجهّز ملف Excel — جرّب «نسخ للصق في Google Sheets»', 'error'));
+  }
+  function templateDialog(g, _mode, opts) {
+    const st3 = { kind: g.ids ? 'data' : 'empty', lang: 'ar' };
+    const md = U.Modal({ title: 'قالب الاستيراد — ' + g.label, body: [] }); md.el.classList.add('wide', 'dx-modal'); md.el.dataset.template = g.id;
+    const copy = (t) => { try { navigator.clipboard.writeText(t).then(() => K.toast('اتنسخ — الصقه في أول خانة في الشيت', 'success'), () => K.toast('حدّد النص وانسخه بإيدك')); } catch (e) { K.toast('حدّد النص وانسخه بإيدك'); } };
+    const tsv = () => { const cols = colsOf(g); let rows = []; if (st3.kind === 'data') { try { rows = g.rows(); } catch (e) { rows = []; } } return DX().toTSV(rows, cols.map((c) => Object.assign({}, c, { label: c.label + (c.required ? ' *' : ''), en: c.en + (c.required ? ' *' : '') })), { lang: st3.lang }); };
+    const choice = (v, title, sub, off) => h('button', { type: 'button', role: 'radio', class: 'dx-choice' + (st3.kind === v ? ' on' : ''), 'aria-checked': String(st3.kind === v), disabled: off ? '' : false, 'data-tpl-kind': v, onClick: () => { st3.kind = v; draw(); } }, h('b', null, title), h('small', { class: 't-small help' }, sub));
+    const draw = () => { const cols = colsOf(g); let n = 0; try { n = g.rows().length; } catch (e) { n = 0; }
+      md.setBody(...[sheetPick(opts, g, (ng) => { md.close(); templateDialog(ng, null, opts); }), h('div', { class: 'dx-meta' }, capsOf(g), g.note ? h('span', { class: 't-small help' }, g.note) : null),
+        h('div', { class: 'dx-choices', role: 'radiogroup', 'aria-label': 'نوع القالب' }, g.ids ? choice('data', 'بالبيانات الحالية', String(n) + ' سجل بالـ ID — للتعديل') : null, g.canAdd ? choice('empty', 'فاضي', 'العناوين بس — لصفوف جديدة') : null),
+        h('div', { class: 'dx-lang' }, h('span', { class: 't-label-s' }, 'أسماء الأعمدة'), h('div', { class: 'seg', role: 'radiogroup', 'aria-label': 'أسماء الأعمدة' }, [['ar', 'عربي'], ['en', 'English']].map(([v, l]) => h('button', { type: 'button', role: 'radio', class: st3.lang === v ? 'on' : '', 'aria-checked': String(st3.lang === v), onClick: () => { st3.lang = v; draw(); } }, l)))),
+        h('div', { class: 'dx-colwrap' }, U.Table({ cls: 'mini-table dx-cols', headers: ['العمود', '', 'الشكل / القيم المسموحة'], rows: cols.map((c) => [h('b', null, st3.lang === 'en' ? c.en : c.label), c.id ? K.Tag('gold', 'ID') : c.required ? K.Tag('error', 'مطلوب للجديد') : h('span', { class: 't-small help' }, 'اختياري'), h('span', { class: 't-small dx-hint' }, c.hint || '')]) }))].filter(Boolean));
+      md.setFooter(Button({ type: 'text', label: 'إغلاق', onClick: () => md.close() }), Button({ label: 'نسخ للصق في Google Sheets', icon: 'copy', attrs: { 'data-copy-sheet': '' }, onClick: () => copy(tsv()) }), Button({ type: 'primary', label: 'نزّل Excel', icon: 'download', attrs: { 'data-tpl-go': '' }, onClick: () => tplDownload(g, st3.kind, st3.lang) })); };
+    draw();
+  }
+  // the import (decisions 3 and 4): file → columns → review (before → after) → apply row by row through the sheet's adapter → result
+  function importWizard(g, _mode, opts) {
+    const X = DX(); const st2 = { step: 1, parsed: null, map: {}, res: null, applied: null, err: '', sheets: null, wb: null, show: 'all', busy: false };
+    const F = () => colsOf(g);
+    const md = U.Modal({ title: 'استيراد — ' + g.label, body: [] }); md.el.classList.add('wide', 'dx-modal'); md.el.dataset.importWizard = g.id;
     const steps = ['الملف', 'ربط الأعمدة', 'المراجعة', 'النتيجة'];
-    const multi = Array.isArray(g.key);
-    const current = (k) => g.rows().find((r) => (multi ? X.keyOf(r, g.key) === X.keyOf(k, g.key) : X.norm(r[g.key]) === X.norm(k)));
-    // each sheet can add its own checks (vendor exists, balance enough, valid for the reason …) — shown in the review before anything is saved
-    const runValidate = () => { st2.res = X.validate(st2.parsed.rows, st2.map, F(), { key: g.key, existing: g.existing ? g.existing() : [], mode: st2.mode, current });
-      if (g.check) st2.res.forEach((r) => { if (r.status === 'error') return; const c = g.check(r.data, st2.mode) || {}; if (c.errors && c.errors.length) { r.errors = r.errors.concat(c.errors); r.status = 'error'; } }); };
-    const load = (text, name) => { const p = X.parseCSV(text); if (!p.headers.length || !p.rows.length) { st2.err = 'الملف فاضي أو مافيهوش صفوف تحت العناوين'; draw(); return; } p.headers = p.headers.map((x) => x.replace(/\s*\*$/, '')); st2.text = text; st2.name = name; st2.parsed = p; st2.map = X.autoMap(p.headers, F()); st2.err = ''; st2.step = 2; draw(); };
-    const readExcel = (fl) => { st2.err = ''; loadXLSX().then((XL) => fl.arrayBuffer().then((buf) => { const wb = XL.read(buf, { type: 'array' }); st2.wb = wb; st2.sheets = wb.SheetNames; const name = wb.SheetNames.find((n) => X.norm(n) === X.norm(g.label)) || wb.SheetNames[0];
-      if (wb.SheetNames.length > 1) { st2.pickName = name; st2.fileName = fl.name; draw(); return; } load(XL.utils.sheet_to_csv(wb.Sheets[name], { FS: '\t' }), fl.name + ' › ' + name); })).catch(() => { st2.err = 'معرفناش نقرا ملف Excel هنا — احفظه CSV، أو حدّد الخلايا في الشيت وانسخها والصقها تحت'; draw(); }); };
-    const sampleText = () => { const s = g.rows().slice(0, 2).map((r) => Object.assign({}, r)); const cols = F();
-      if (st2.mode === 'update') { if (g.id === 'vendors') return X.toCSV([{ name: s[0].name, status: 'غير نشط' }, { name: s[1].name, leadDays: '14' }, { name: 'مبتكر مش موجود', status: 'نشط' }], cols, { lang: 'ar' }); if (g.id === 'team') { const m = s[0]; return X.toCSV([{ email: m.email, title: 'مدير العمليات' }, { email: 'nobody@ibtekr.club', dept: 'المخزن' }], cols, { lang: 'ar' }); } }
-      if (g.id === 'vendors') { s.push({ name: 'ورشة نور', category: 'ديكور منزلى', status: 'نشط', phone: '01012345678', rate: '٣٥', leadDays: '10' }); s.push({ name: '', category: 'هدايا', status: 'نشط', phone: '0101', rate: '40', leadDays: '12' }); }
-      if (g.id === 'expenses') s.push({ date: '22/10/2026', amount: '1,250', category: 'الإعلانات', direction: 'سحب', beneficiary: 'Meta' }, { date: '32/10/2026', amount: 'ألف', category: 'اعلانات', direction: 'سحب' });
-      if (g.id === 'team') s.push({ name: 'ليلى حسن', email: 'laila@ibtekr.club', role: 'خدمة العملاء', title: 'خدمة العملاء' });
-      if (g.id === 'lists') s.push({ list: 'أسباب الإلغاء', value: 'العميل طلب منتج تاني' }, { list: 'أسباب الإيقاف', value: 'تأخير متكرر' });
-      return X.toCSV(s, cols, { lang: 'ar' }); };
-    const tagOf = (r) => (r.status === 'error' ? ['error', 'خطأ'] : r.status === 'exists' ? ['neutral', 'موجود — هيتخطّى'] : r.status === 'same' ? ['neutral', 'مفيش تغيير'] : r.status === 'update' ? ['gold', 'هيتعدّل'] : ['success', 'جديد']);
+    const runValidate = () => { st2.res = X.validate(st2.parsed.rows, st2.map, F(), { mode: 'mixed', canAdd: !!g.canAdd, key: g.key, existing: g.existing ? g.existing() : [], byId: g.byId || (() => null) });
+      if (g.check) st2.res.forEach((r) => { if (r.status !== 'new' && r.status !== 'update') return; const c = g.check(r.data) || {}; if (c.errors && c.errors.length) { r.errors = r.errors.concat(c.errors); r.status = 'error'; } }); };
+    const load = (text, name) => { const p = X.parseCSV(text); if (!p.headers.length || !p.rows.length) { st2.err = 'الملف فاضي أو مافيهوش صفوف تحت العناوين'; draw(); return; } p.headers = p.headers.map((x) => x.replace(/\s*\*$/, '')); st2.name = name; st2.parsed = p; st2.map = X.autoMap(p.headers, F()); st2.err = ''; st2.step = 2; draw(); };
+    const readExcel = (fl) => { st2.err = ''; loadXLSX().then((XL) => fl.arrayBuffer().then((buf) => { const wb = XL.read(buf, { type: 'array' }); st2.wb = wb; st2.sheets = wb.SheetNames.filter((n) => n !== 'تعليمات'); const name = st2.sheets.find((n) => X.norm(n) === X.norm(g.label.slice(0, 31))) || st2.sheets[0];
+      if (st2.sheets.length > 1) { st2.pickName = name; st2.fileName = fl.name; draw(); return; } load(XL.utils.sheet_to_csv(wb.Sheets[name], { FS: '\t' }), fl.name); })).catch(() => { st2.err = 'معرفناش نقرا ملف Excel ده — احفظه CSV، أو حدّد الخلايا في الشيت وانسخها والصقها تحت'; draw(); }); };
+    const pickFile = (fl) => { if (!fl) return; if (fl.size > 10 * 1024 * 1024) { st2.err = 'الملف أكبر من 10 ميجا'; draw(); return; } if (/\.xlsx?$/i.test(fl.name)) { readExcel(fl); return; } const rd = new FileReader(); rd.onload = () => load(String(rd.result), fl.name); rd.readAsText(fl, 'utf-8'); };
+    const tagOf = (r) => (r.status === 'error' ? ['error', 'فيه خطأ'] : r.status === 'exists' ? ['neutral', 'موجود — هيتخطّى'] : r.status === 'same' ? ['neutral', 'مفيش تغيير'] : r.status === 'update' ? ['gold', 'هيتعدّل'] : ['success', 'جديد']);
+    const whoOf = (r) => { const id = r.data[X.ID_KEY]; const cur = id && g.byId ? g.byId(id) : null; const nm = r.data.name || r.data.title || (cur && (cur.name || cur.title || cur.oid || cur.product)) || (g.key ? DX().keysOf(g.key).map((k) => r.data[k]).filter(Boolean).join(' · ') : '');
+      return h('span', { class: 'dx-who' }, h('b', null, String(nm || '—')), id ? h('small', { class: 't-small help', dir: 'ltr' }, 'ID ' + String(id).slice(0, 12)) : null); };
     const draw = () => {
-      const head = h('ol', { class: 'steps' }, steps.map((s, i) => h('li', { class: i + 1 === st2.step ? 'on' : i + 1 < st2.step ? 'done' : '' }, s)));
-      const modeLine = h('div', { class: 'dx-mode' }, K.Tag(st2.mode === 'update' ? 'gold' : 'success', MODES[st2.mode][0]), h('span', { class: 't-small help' }, MODES[st2.mode][1] + (st2.mode === 'update' ? ' · المفتاح: ' + keyLabel(g) : '')));
-      let body = null, foot = [Button({ type: 'text', label: st2.step === 4 ? 'إغلاق' : 'إلغاء', onClick: () => md.close() })];
+      const head = h('ol', { class: 'dx-steps' }, steps.map((s, i) => h('li', { class: i + 1 === st2.step ? 'on' : i + 1 < st2.step ? 'done' : '' }, h('span', { class: 'dx-sn' }, i + 1 < st2.step ? '✓' : String(i + 1)), h('span', null, s))));
+      let body = null; const foot = [Button({ type: 'text', label: st2.step === 4 ? 'إغلاق' : 'إلغاء', onClick: () => md.close() })];
       if (st2.step === 1) {
-        body = [sheetPick(opts, g, (ng) => { md.close(); importWizard(ng, st2.mode, opts); }), modesOf(g).length > 1 ? K.Radios({ label: 'نوع الاستيراد', name: 'wz-mode', value: st2.mode, onChange: (v) => { st2.mode = v; draw(); }, options: modesOf(g).map((m) => ({ value: m, label: MODES[m][0], hint: MODES[m][1] })) }) : modeLine,
-          h('div', { class: 'dx-tplline t-small' }, 'محتاج القالب؟ ', Button({ type: 'text', size: 'sm', label: 'قالب ' + MODES[st2.mode][0], onClick: () => templateDialog(g, st2.mode, opts) })),
-          h('label', { class: 'upload drop', for: 'imp-f2' }, Icon('attach', 'sm'), h('span', null, h('b', null, 'ارفع الشيت — Excel أو CSV'), h('small', { class: 't-small help' }, ' · ‎.xlsx · ‎.csv · الحد 10 ميجا · لو فيه أكتر من تاب هتختار التاب')), h('input', { type: 'file', id: 'imp-f2', class: 'sr-file', accept: '.csv,.tsv,.txt,.xlsx,.xls,text/csv', onChange: (e) => { const fl = e.target.files[0]; if (!fl) return; if (fl.size > 10 * 1024 * 1024) { st2.err = 'الملف أكبر من 10 ميجا'; draw(); return; } if (/\.xlsx?$/i.test(fl.name)) { readExcel(fl); return; } const rd = new FileReader(); rd.onload = () => load(String(rd.result), fl.name); rd.readAsText(fl, 'utf-8'); } })),
+        const inp = h('input', { type: 'file', id: 'imp-f2', class: 'sr-file', accept: '.csv,.tsv,.txt,.xlsx,.xls,text/csv', onChange: (e) => pickFile(e.target.files[0]) });
+        const drop = h('label', { class: 'dx-drop', for: 'imp-f2', 'data-dx-drop': '' }, Icon('upload'), h('b', null, 'اسحب الملف هنا أو اضغط تختاره'), h('small', { class: 't-small help' }, 'Excel ‎(.xlsx) أو CSV · لحد 10 ميجا'), inp);
+        ['dragover', 'dragenter'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('over'); })); drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+        drop.addEventListener('drop', (e) => { e.preventDefault(); drop.classList.remove('over'); pickFile(e.dataTransfer && e.dataTransfer.files[0]); });
+        body = [sheetPick(opts, g, (ng) => { md.close(); importWizard(ng, null, opts); }), h('div', { class: 'dx-meta' }, capsOf(g), Button({ type: 'text', size: 'sm', label: 'نزّل القالب', icon: 'download', onClick: () => templateDialog(g, null, opts) })), drop,
           st2.sheets && st2.sheets.length > 1 ? h('div', { class: 'dx-sheetpick' }, U.Select({ id: 'imp-sheet', label: 'التاب في ' + st2.fileName, options: st2.sheets.map((n) => ({ value: n, label: n })), value: st2.pickName, onChange: (v) => { st2.pickName = v; draw(); } }), Button({ size: 'sm', label: 'افتح التاب', onClick: () => load(window.XLSX.utils.sheet_to_csv(st2.wb.Sheets[st2.pickName], { FS: '\t' }), st2.fileName + ' › ' + st2.pickName) })) : null,
-          h('div', { class: 't-small help' }, 'أو من Google Sheets: حدّد الخلايا مع العناوين ← Ctrl+C ← الصق هنا:'), h('textarea', { class: 'input', id: 'imp-paste', rows: '5', dir: 'auto', placeholder: 'الصق الخلايا هنا (العناوين في أول صف)' }),
+          h('details', { class: 'dx-paste' }, h('summary', null, 'أو الصق من Google Sheets'), h('div', { class: 't-small help' }, 'حدّد الخلايا مع العناوين ← Ctrl+C ← الصق هنا:'), h('textarea', { class: 'input', id: 'imp-paste', rows: '5', dir: 'auto', placeholder: 'الصق الخلايا هنا (العناوين في أول صف)' })),
           st2.err ? h('div', { class: 'err-msg', role: 'alert' }, st2.err) : null];
-        foot.push(Button({ label: 'جرّب بملف مثال', onClick: () => load(sampleText(), 'مثال.csv') }), Button({ type: 'primary', label: 'التالي', onClick: () => { const t = (md.el.querySelector('#imp-paste') || {}).value || ''; if (!t.trim()) { st2.err = 'ارفع ملف أو الصق الخلايا'; draw(); return; } load(t, 'لصق من الشيت'); } }));
+        foot.push(Button({ type: 'primary', label: 'التالي', onClick: () => { const t = (md.el.querySelector('#imp-paste') || {}).value || ''; if (!t.trim()) { st2.err = 'ارفع ملف أو الصق الخلايا'; draw(); return; } load(t, 'لصق من الشيت'); } }));
       } else if (st2.step === 2) {
-        const P = st2.parsed; const FF = F(); const used = Object.values(st2.map).filter(Boolean); const missing = FF.filter((x) => x.required && !used.includes(x.key)); const extra = P.headers.filter((hd, i) => !st2.map[i]);
-        body = [modeLine, h('div', { class: 't-small help' }, st2.name + ' · ' + P.rows.length + ' صف · ' + P.headers.length + ' عمود — السيستم ربط اللي يقدر عليه، راجع الباقي'),
-          h('div', { class: 'scroll-x' }, h('table', { class: 'vlo-table dt-table dx-map' }, h('thead', null, h('tr', null, h('th', null, 'عمود الشيت'), h('th', null, 'مثال'), h('th', null, 'الحقل في السيستم'))),
-            h('tbody', null, P.headers.map((hd, i) => h('tr', null, h('td', null, h('b', null, hd)), h('td', { class: 't-small' }, String(P.rows[0][i] || '').slice(0, 30)), h('td', null, U.Select({ id: 'map-' + i, label: '', options: [{ value: '', label: '— تجاهل العمود —' }].concat(FF.map((x) => ({ value: x.key, label: x.label + (x.required ? ' *' : '') }))), value: st2.map[i] || '', onChange: (v) => { Object.keys(st2.map).forEach((k) => { if (v && st2.map[k] === v) st2.map[k] = ''; }); st2.map[i] = v; draw(); } }))))))),
-          missing.length ? U.InlineNote({ kind: 'warning', children: 'حقول مطلوبة مش مربوطة: ' + missing.map((x) => x.label).join('، ') + (st2.mode === 'update' ? ' — التعديل محتاج المفتاح عشان يلاقي السجل' : '') }) : null,
-          extra.length && st2.mode === 'update' ? h('div', { class: 't-small help' }, 'الأعمدة المتجاهلة مش هتتغيّر') : null];
-        foot.push(Button({ label: 'رجوع', onClick: () => { st2.step = 1; draw(); } }), Button({ type: 'primary', label: 'التالي: المراجعة', disabled: !!missing.length, onClick: () => { runValidate(); st2.step = 3; draw(); } }));
+        const P = st2.parsed; const FF = F(); const used = Object.values(st2.map).filter(Boolean); const noId = g.ids && !g.canAdd && !used.includes(X.ID_KEY);
+        body = [h('div', { class: 'dx-meta' }, h('span', { class: 't-small help' }, st2.name + ' · ' + P.rows.length + ' صف · ' + P.headers.length + ' عمود — السيستم ربط اللي يقدر عليه، راجع الباقي')),
+          h('div', { class: 'scroll-x' }, h('table', { class: 'vlo-table dt-table dx-map' }, h('thead', null, h('tr', null, h('th', null, 'عمود الملف'), h('th', null, 'مثال'), h('th', null, 'الحقل في السيستم'))),
+            h('tbody', null, P.headers.map((hd, i) => h('tr', { class: st2.map[i] ? '' : 'dx-off' }, h('td', null, h('b', null, hd)), h('td', { class: 't-small' }, String(P.rows[0][i] || '').slice(0, 30)), h('td', null, U.Select({ id: 'map-' + i, label: '', options: [{ value: '', label: '— تجاهل العمود —' }].concat(FF.map((x) => ({ value: x.key, label: x.label + (x.required ? ' *' : '') }))), value: st2.map[i] || '', onChange: (v) => { Object.keys(st2.map).forEach((k) => { if (v && st2.map[k] === v) st2.map[k] = ''; }); st2.map[i] = v; draw(); } }))))))),
+          noId ? U.InlineNote({ kind: 'warning', children: 'الشيت ده تعديل بس — لازم عمود «ID» من التصدير أو القالب.' }) : g.ids && !used.includes(X.ID_KEY) ? U.InlineNote({ children: 'مفيش عمود ID — كل الصفوف هتتعامل كجديدة.' }) : null];
+        foot.push(Button({ label: 'رجوع', onClick: () => { st2.step = 1; draw(); } }), Button({ type: 'primary', label: 'التالي: المراجعة', disabled: noId, onClick: () => { runValidate(); st2.step = 3; st2.show = 'all'; draw(); } }));
       } else if (st2.step === 3) {
-        const sm = X.summary(st2.res, st2.mode); const shown = st2.res.slice(0, 50); const up = st2.mode === 'update';
-        const chips = up ? [['هيتعدّل', sm.update], ['مفيش تغيير', sm.skip], ['فيه أخطاء (مش هيدخل)', sm.error]] : [['جديد', sm.create], ['موجود بالفعل (هيتخطّى)', sm.skip], ['فيه أخطاء (مش هيدخل)', sm.error]];
-        body = [modeLine, h('div', { class: 'dt-sum' }, chips.map(([l, v]) => h('div', { class: 'dt-chip' }, h('span', { class: 't-small' }, l), h('b', null, String(v))))),
-          h('div', { class: 'scroll-x' }, h('table', { class: 'vlo-table dt-table dx-rev' }, h('thead', null, h('tr', null, h('th', null, 'صف'), h('th', null, 'الحالة'), h('th', null, g.key ? keyLabel(g) : 'البيانات'), h('th', null, up ? 'التغيير' : 'الملاحظات'))),
-            h('tbody', null, shown.map((r) => { const t = tagOf(r); return h('tr', { class: r.status === 'error' ? 'dx-err' : '' }, h('td', null, String(r.row)), h('td', null, K.Tag(t[0], t[1])),
-              h('td', null, String(g.key ? keyText(g, r.data) : Object.values(r.data).slice(0, 3).join(' · '))),
+        const R0 = st2.res; const cnt = (s) => R0.filter((r) => (Array.isArray(s) ? s.includes(r.status) : r.status === s)).length;
+        const sums = [['update', 'هيتعدّل', cnt('update'), 'gold'], ['new', 'جديد', cnt('new'), 'success'], ['skip', 'مفيش تغيير / موجود', cnt(['same', 'exists']), 'neutral'], ['error', 'فيه أخطاء (مش هيدخل)', cnt('error'), 'error']];
+        const shown = R0.filter((r) => st2.show === 'all' || (st2.show === 'skip' ? ['same', 'exists'].includes(r.status) : r.status === st2.show)).slice(0, 100);
+        body = [h('div', { class: 'dx-sum' }, sums.map(([k, l, v, tone]) => h('button', { type: 'button', class: 'dx-stat ' + tone + (st2.show === k ? ' on' : ''), 'data-dx-show': k, 'aria-pressed': String(st2.show === k), onClick: () => { st2.show = st2.show === k ? 'all' : k; draw(); } }, h('b', null, U.num(String(v))), h('span', { class: 't-small' }, l)))),
+          h('div', { class: 'scroll-x' }, h('table', { class: 'vlo-table dt-table dx-rev' }, h('thead', null, h('tr', null, h('th', null, 'صف'), h('th', null, 'الحالة'), h('th', null, 'السجل'), h('th', null, 'التغيير'))),
+            h('tbody', null, shown.map((r) => { const t = tagOf(r); return h('tr', { class: r.status === 'error' ? 'dx-err' : '' }, h('td', null, U.num(String(r.row))), h('td', null, K.Tag(t[0], t[1])), h('td', null, whoOf(r)),
               h('td', null, r.errors.length ? h('div', { class: 'dx-errs' }, r.errors.map((e) => h('div', null, e)), r.suggest ? Object.keys(r.suggest).map((k) => Button({ type: 'text', size: 'sm', label: 'صحّحها لـ «' + r.suggest[k] + '»', onClick: () => { const ci = Object.keys(st2.map).find((c) => st2.map[c] === k); st2.parsed.rows[r.row - 1][ci] = r.suggest[k]; runValidate(); draw(); } })) : null)
-                : r.changes && r.changes.length ? h('div', { class: 'dx-chg' }, r.changes.map((c) => h('div', { class: 't-small' }, h('b', null, c.label + ': '), String(c.from) + ' ← ' + String(c.to))))
-                : h('span', { class: 't-small help' }, r.note || '—'))); })))),
-          st2.res.length > 50 ? h('div', { class: 't-small help' }, 'معروض أول 50 صف من ' + st2.res.length) : null];
-        const go = up ? sm.update : sm.create;
-        foot.push(Button({ label: 'رجوع', onClick: () => { st2.step = 2; draw(); } }), Button({ type: 'primary', label: (up ? 'تعديل ' : 'إضافة ') + go + ' سجل', disabled: !go, attrs: { 'data-imp-go': '' }, onClick: () => {
-          const okRows = st2.res.filter((r) => r.status === (up ? 'update' : 'new')); let out;
-          try { out = g.apply(okRows, up ? 'تحديث السجل الموجود' : 'تخطّي'); } catch (e) { st2.err = 'حصل خطأ أثناء الحفظ: ' + e.message; draw(); return; }
-          const rec = { at: K.TODAY + ' ' + (K.NOW_MIN != null ? K.hm(K.NOW_MIN) : ''), label: g.label, mode: st2.mode, created: out.done.created.length, updated: out.done.updated.length, skipped: sm.skip, errors: sm.error, by: K.member(K.ME).name, undo: out.undo, undone: false };
-          XS.imports.push(rec); st2.applied = rec; LOGV('settings.import', g.label + ' · ' + MODES[st2.mode][0] + ' · ' + rec.created + ' جديد · ' + rec.updated + ' اتعدّل · ' + sm.skip + ' اتخطّى · ' + sm.error + ' أخطاء'); st2.step = 4; draw(); R(); document.dispatchEvent(new Event('ib:notify')); } }));
+                : r.changes && r.changes.length ? h('div', { class: 'dx-chg' }, r.changes.map((c) => h('div', { class: 'dx-chg-row' }, h('span', { class: 't-small help' }, c.label), h('s', { class: 'dx-from' }, String(c.from)), h('span', { class: 'dx-arrow', 'aria-hidden': 'true' }, '←'), h('b', { class: 'dx-to' }, String(c.to)))))
+                : r.status === 'new' ? h('span', { class: 't-small' }, Object.keys(r.data).filter((k) => k !== X.ID_KEY).length + ' خانة') : h('span', { class: 't-small help' }, r.note || '—'))); })))),
+          R0.length > 100 && shown.length === 100 ? h('div', { class: 't-small help' }, 'معروض أول 100 صف') : null,
+          U.InlineNote({ children: 'اللي ليه نسخة على الموقع (بيانات متجر المبتكر، البنك، النسبة) بيتبعت للموقع مع الحفظ — زي التعديل من الصفحة نفسها.' })];
+        const go = cnt('update') + cnt('new');
+        foot.push(Button({ label: 'رجوع', onClick: () => { st2.step = 2; draw(); } }), Button({ type: 'primary', label: st2.busy ? 'بيتحفظ…' : 'طبّق ' + go + ' تغيير', disabled: !go || st2.busy, attrs: { 'data-imp-go': '' }, onClick: async () => {
+          st2.busy = true; draw(); const okRows = R0.filter((r) => r.status === 'update' || r.status === 'new'); let out;
+          try { out = await g.apply(okRows); } catch (e) { st2.busy = false; st2.err = 'حصل خطأ أثناء الحفظ — جرّب تاني'; draw(); return; }
+          const res = (out && out.results) || []; const okSet = new Set(res.filter((x) => x.ok).map((x) => x.row)); const failed = res.filter((x) => !x.ok);
+          const rec = { at: K.TODAY + ' ' + (K.NOW_MIN != null ? K.hm(K.NOW_MIN) : ''), label: g.label, updated: okRows.filter((r) => r.status === 'update' && okSet.has(r.row)).length, created: okRows.filter((r) => r.status === 'new' && okSet.has(r.row)).length, failed: failed.length, by: (K.member(K.ME) || {}).name || '' };
+          XS.imports.push(rec); st2.applied = Object.assign({ fails: failed, skipped: cnt(['same', 'exists']), errors: cnt('error') }, rec); st2.busy = false; st2.step = 4;
+          LOGV('settings.import', g.id + ' · ' + rec.updated + ' اتعدّل · ' + rec.created + ' جديد · ' + rec.failed + ' اترفض'); draw(); R(); document.dispatchEvent(new Event('ib:notify')); } }));
       } else {
         const a = st2.applied;
-        body = [U.InlineNote({ kind: 'success', children: (a.mode === 'update' ? 'اتعدّل ' + a.updated + ' سجل' : 'اتضاف ' + a.created + ' سجل جديد') + (a.skipped ? ' · ' + a.skipped + ' اتخطّى' : '') + (a.errors ? ' · ' + a.errors + ' صف فيه أخطاء ماتدخلش' : '') + '.' }), h('div', { class: 't-small help' }, 'تقدر تتراجع دلوقتي أو بعدين من «آخر عمليات الاستيراد».')];
-        foot.push(a.undone ? null : Button({ label: 'تراجع', onClick: () => { a.undo(); a.undone = true; LOGV('settings.import.undo', a.label); K.toast('اتلغى الاستيراد', 'success'); md.close(); R(); } }));
+        body = [h('div', { class: 'dx-sum' }, [['اتعدّل', a.updated, 'gold'], ['اتضاف', a.created, 'success'], ['اترفض', a.failed, 'error'], ['اتخطّى', a.skipped + a.errors, 'neutral']].map(([l, v, tone]) => h('div', { class: 'dx-stat ' + tone }, h('b', null, U.num(String(v))), h('span', { class: 't-small' }, l)))),
+          a.fails.length ? h('div', null, h('b', { class: 't-label' }, 'الصفوف اللي اترفضت'), U.Table({ cls: 'mini-table', headers: ['صف', 'السبب'], rows: a.fails.map((x) => [U.num(String(x.row)), x.reason || 'اترفض']) })) : U.InlineNote({ kind: 'success', children: 'كل الصفوف اتحفظت.' })];
       }
       md.setBody(head, ...[].concat(body).filter(Boolean)); md.setFooter(...foot.filter(Boolean));
     };
     draw();
+  }
+  // decision 6 (0117): «منطقة الخطر» — wipe the chosen sections (before moving from the staging site to the live one): the admin only,
+  // a dry run first (the rows of each table and what goes with them), then the phrase «امسح البيانات». The team, roles, settings and lists stay.
+  const WIPE = [['orders', 'الأوردرات', 'الأوردرات والأوردرات الفرعية وسطورها وأحداثها وتقييمات العملاء'], ['vendors', 'المبتكرين', 'المبتكرين والبراندات والنسب والحسابات البنكية وبيانات الدخول'], ['products', 'المنتجات', 'مرآة المنتجات والأقسام والبراندات ودفعات الاستوديو'],
+    ['accounts', 'الحسابات', 'المصروفات وحركات المبتكرين والحسابات والتسويات ومرايا Dokan'], ['inventory', 'المخزن', 'القطع والحركات والتجميع والجرد (الأماكن بتفضل)'], ['cs', 'خدمة العملاء', 'العملاء والمحادثات والرسايل والشرايح والحملات (القوالب والردود بتفضل)'],
+    ['tickets', 'طلبات الفريق', 'الطلبات وأحداثها'], ['marketing', 'التسويق', 'الكامبينات والبوستات وأرقام الإعلانات والاقتراحات وشاتات المساعدين'], ['hr', 'سجلات الموارد البشرية', 'الحضور والوقت الإضافي والطلبات والكشوف والتقييمات (الفريق ومرتباتهم بيفضلوا)'], ['logs', 'السجلات', 'سجل النشاط والتنبيهات وسجلات المزامنة والـ AI']];
+  function dangerSec() {
+    const pick = (st.wipe = st.wipe || {}); const chosen = WIPE.filter(([k]) => pick[k]).map(([k]) => k);
+    const rows = WIPE.map(([k, label, sub]) => h('label', { class: 'dz-item' + (pick[k] ? ' on' : ''), 'data-wipe': k }, h('input', { type: 'checkbox', checked: pick[k] ? '' : false, onChange: (e) => { pick[k] = e.target.checked; R(); } }), h('span', null, h('b', null, label), h('small', { class: 't-small help' }, sub))));
+    const all = Button({ type: 'text', size: 'sm', label: chosen.length === WIPE.length ? 'شيل الكل' : 'اختار الكل', onClick: () => { const on = chosen.length !== WIPE.length; WIPE.forEach(([k]) => { pick[k] = on; }); R(); } });
+    return h('section', { class: 'sec dz', 'data-danger-zone': '' }, h('div', { class: 'dz-head' }, h('span', { class: 'dz-ic' }, Icon('alert')), h('div', null, h('h3', null, 'منطقة الخطر — مسح بيانات السيستم'), h('p', { class: 't-small' }, 'للنقل من الـ staging للموقع الحقيقي أو لموقع تاني. المسح نهائي ومالوش تراجع — صدّر «النسخة الكاملة» الأول.'))),
+      h('div', { class: 'dz-body' }, h('div', { class: 'dz-top' }, h('b', { class: 't-label' }, 'اختار اللي يتمسح'), all), h('div', { class: 'dz-grid' }, rows),
+        U.InlineNote({ kind: 'warning', children: 'بيفضلوا دايمًا: الفريق وحساباتهم، الأدوار والصلاحيات، كل الإعدادات والقوائم، والبراند. الملفات المرفوعة مابتتمسحش. لو الموقع لسه مربوط، المزامنة هترجّع أوردراته ومبتكريه ومنتجاته — غيّر الربط من «الربط بالمنصات» الأول.' }),
+        h('div', { class: 'acts-inline start' }, Button({ type: 'danger', label: 'راجع اللي هيتمسح (' + chosen.length + ')', icon: 'alert', disabled: !chosen.length, attrs: { 'data-wipe-go': '' }, onClick: () => wipeReview(chosen) }))));
+  }
+  async function wipeReview(sections) {
+    const S0 = SETT(); if (!S0 || !S0.wipe) return; const b0 = K.busy ? K.busy('بنحسب اللي هيتمسح…') : null;
+    const dry = await S0.wipe(sections, { dry: true }); if (b0) b0.close();
+    if (!dry.ok) return K.toast(dry.message || (dry.reason === 'forbidden' ? 'المسح للأدمن بس — وبالتحقق بخطوتين لو مفعّله' : 'تعذّر الحساب — جرّب تاني'), 'error');
+    const tables = dry.tables || []; const total = tables.reduce((n, t) => n + (Number(t.rows) || 0), 0); let typed = '';
+    const md = U.Modal({ title: 'مسح نهائي — راجع قبل ما تأكّد', body: [] }); md.el.classList.add('wide', 'dz-modal');
+    const input = h('input', { class: 'input', id: 'wipe-confirm', dir: 'rtl', placeholder: 'امسح البيانات', autocomplete: 'off', 'aria-label': 'اكتب: امسح البيانات' });
+    const go = Button({ type: 'danger', label: 'امسح نهائي', disabled: true, attrs: { 'data-wipe-confirm': '' }, onClick: async () => { go.disabled = true; const b1 = K.busy ? K.busy('بنمسح…') : null; const r = await S0.wipe(sections, { confirm: typed.trim() }); if (b1) b1.close();
+      if (!r.ok) { go.disabled = false; return K.toast(r.message || 'تعذّر المسح — جرّب تاني', 'error'); } md.close(); st.wipe = {}; K.toast('اتمسح ' + String(r.rows || 0) + ' صف — الصفحة هتتحمّل من الأول', 'success'); setTimeout(() => location.reload(), 1200); } });
+    input.addEventListener('input', () => { typed = input.value; go.disabled = typed.trim() !== 'امسح البيانات'; });
+    md.setBody(U.InlineNote({ kind: 'error', children: 'هيتمسح ' + String(total) + ' صف من ' + String(tables.filter((t) => t.kind === 'wipe').length) + ' جدول — نهائي ومالوش تراجع.' }),
+      h('div', { class: 'dz-tables' }, U.Table({ cls: 'mini-table', headers: ['القسم', 'الجدول', 'الصفوف'], rows: tables.map((t) => [(WIPE.find((w) => w[0] === t.section) || [, t.section])[1], h('code', { dir: 'ltr' }, t.table), U.num(String(t.rows))]) })),
+      h('label', { class: 'field' }, h('span', { class: 't-label-s' }, 'عشان تأكّد اكتب: «امسح البيانات»'), input));
+    md.setFooter(Button({ type: 'text', label: 'إلغاء', onClick: () => md.close() }), go); setTimeout(() => input.focus(), 50);
   }
 
   // ---------- popups ----------
@@ -2059,14 +2100,30 @@
   function lists() {
     const L = C.otherLists; const tabs = [{ id: 'order', label: 'حالات الأوردر' }, { id: 'confirm', label: 'حالات التأكيد' }, { id: 'sub', label: 'حالات المنتج' }, { id: 'cancel', label: 'أسباب الإلغاء والمسح' }, { id: 'returns', label: 'أسباب المرتجع' }, { id: 'stop', label: 'أسباب إيقاف المبتكر' }, { id: 'shipping', label: 'شركات الشحن' }, { id: 'expenses', label: 'أنواع المصروفات' }, { id: 'categories', label: 'فئات المبتكرين' }, { id: 'priorities', label: 'الأولويات' }];
     const cur = tabs.some((t) => t.id === st.list) ? st.list : 'order';
-    const out = [K.SubTabs({ items: tabs, active: cur, onChange: (id) => { st.list = id; R(); }, label: 'القوائم' })];
+    // ق1 (the owner 16 Nov — «ظبط ال ui بتاع هنا بشكل احترافي و منظم»): the lists in a side menu by group with their counts (tabs on a
+    // phone — one row that scrolls), the chosen list in its card beside it; the items keep role=tab so the keyboard and the tests still work
+    const S0 = SETT(); const LL = (S0 && S0.lists ? S0.lists() : {}) || {};
+    const countOf = (id) => { try {
+      if (id === 'order') { askStatuses(); return statusRows ? statusRows.length : null; }
+      if (id === 'confirm' || id === 'sub') return S0 && S0.statusList ? S0.statusList(id).length : null;
+      if (SAVED_LISTS[id]) return Array.isArray(LL[id]) ? LL[id].length : (L[id] || []).length;
+      if (id === 'expenses') return ((S0 && S0.STATUS_KINDS && S0.STATUS_KINDS.expense) || []).length + (LL.expenseKinds || []).length;
+      if (id === 'priorities') return ((S0 && S0.STATUS_KINDS && S0.STATUS_KINDS.priority) || ['urgent', 'high', 'normal', 'low']).length;
+      if (id === 'categories') return mainCatNames().length;
+    } catch (e) { /* not loaded yet */ } return null; };
+    const GROUPS_L = [['الحالات', ['order', 'confirm', 'sub']], ['الأسباب', ['cancel', 'returns', 'stop']], ['قوائم تانية', ['shipping', 'expenses', 'categories', 'priorities']]];
+    const label = (id) => (tabs.find((t) => t.id === id) || {}).label;
+    const nav = h('nav', { class: 'lst-nav', role: 'tablist', 'aria-label': 'القوائم', 'data-lists-nav': '' }, GROUPS_L.map(([g, ids]) => h('div', { class: 'lst-grp' }, h('div', { class: 'lst-gt t-small' }, g),
+      ids.map((id) => { const n = countOf(id); return h('button', { type: 'button', role: 'tab', class: 'lst-item' + (id === cur ? ' on' : ''), 'aria-selected': String(id === cur), 'data-list-tab': id, onClick: () => { st.list = id; R(); } },
+        h('span', { class: 'lst-l' }, label(id)), n == null ? null : h('span', { class: 'lst-n' }, U.num(String(n)))); }))));
+    const out = [];
     if (STATUS_LISTS[cur]) out.push(statusSec(cur));
     else if (SAVED_LISTS[cur]) out.push(reasonsSec(cur));
     else if (cur === 'expenses') out.push(expensesSec());
     else if (cur === 'priorities') out.push(prioritySec());
     else if (cur === 'categories') out.push(makerCatsSec());
     else { const titles = Object.fromEntries(tabs.map((t) => [t.id, t.label])); const items = L[cur] || []; out.push(K.Section(titles[cur], U.Table({ headers: ['الاسم'], rows: items.map((x) => [x]) }), null, { th: false })); }
-    return out;
+    return [h('div', { class: 'lst-layout', 'data-lists': cur }, nav, h('div', { class: 'lst-main', role: 'tabpanel', 'aria-label': label(cur) }, ...out))];
   }
   // ---------- the makers' defaults (decision 17): the row «makers» + the real rules of the makers ----------
   function loginBankSec(m) {

@@ -16,7 +16,7 @@
       { value: 'tsv', label: 'نسخ للصق في Google Sheets', icon: 'copy', run: ex('TSV') },
     ].concat(imp.length ? [
       { value: 'import', label: 'استيراد من Excel / CSV / Google Sheets', icon: 'attach', run: () => api().importData(mainImp, null, { sheets: imp.map((g) => g.id) }) },
-      { value: 'tpl', label: 'قوالب الاستيراد', icon: 'sliders', run: () => api().templates(mainImp, null, { sheets: imp.map((g) => g.id) }) },
+      { value: 'tpl', label: 'قالب الاستيراد (Excel)', icon: 'sliders', run: () => api().templates(mainImp, null, { sheets: imp.map((g) => g.id) }) },
     ] : []);
   }
   // normal pages: a Button + popover menu. first = the sheet that fits the current tab
@@ -42,8 +42,10 @@
     setTimeout(() => { document.addEventListener('mousedown', outside, true); document.addEventListener('keydown', esc, true); });
   }
   // which sheets each page offers (first = main)
-  const PAGES = { orders: ['orders', 'orderEdit', 'subEdit'], vendors: ['vendors', 'vendorSecure', 'delayRules', 'vendorMoves'], accounts: ['expenses', 'vendorMoves', 'accountMoves', 'transport'],
-    inventory: ['stock'], cs: ['customers', 'templates', 'quick'], tickets: ['tickets'], hr: ['team', 'attendance', 'leaves', 'scores', 'holidays'], reports: ['orders', 'vendors', 'expenses', 'transport'] };
+  // 2026-11-16-data-page.md decision 4: the sheets that write to the real data only (the old per-maker delay rules, the trips sheet and
+  // the KPI scores are gone; the stock, attendance and leaves are export only)
+  const PAGES = { orders: ['orders', 'orderEdit', 'subEdit'], vendors: ['vendors', 'vendorSecure', 'vendorMoves'], accounts: ['expenses', 'vendorMoves', 'accountMoves'],
+    inventory: ['stock'], cs: ['customers'], tickets: ['tickets'], hr: ['team', 'attendance', 'leaves', 'holidays'], reports: ['orders', 'vendors', 'expenses'] };
   window.IBDataActions = { Menu, openAt, close: closeFloating, PAGES, items };
 })();
 

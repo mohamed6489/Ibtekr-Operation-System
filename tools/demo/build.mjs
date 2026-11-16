@@ -39,7 +39,7 @@ export function build(out) {
   writeFileSync(join(out, 'config.js'), `// the demo copy: the stand-in's address (never resolves) and its made-up key\nwindow.IB_CONFIG = { supabaseUrl: 'https://${DEMO_HOST}', supabaseAnonKey: 'mock-anon-key', realtime: false };\n`);
   // 2) the stand-in backend, as browser modules next to the shim
   for (const f of mockFiles()) { const to = join(out, 'demo', f.replace(/\.mjs$/, '.js')); mkdirSync(dirname(to), { recursive: true }); writeFileSync(to, demoText(readFileSync(join(ROOT, f), 'utf8'))); }
-  for (const f of ['shim.js', 'boot.js']) cpSync(join(ROOT, 'tools', 'demo', f), join(out, 'demo', f));
+  for (const f of ['shim.js', 'boot.js', 'seed.js']) cpSync(join(ROOT, 'tools', 'demo', f), join(out, 'demo', f));
   // 3) the page: the Artifact wraps it in its own <html><head><body>, so only the head's links and the body's content go in
   const html = readFileSync(join(ROOT, 'app', 'index.html'), 'utf8');
   const links = (html.match(/<link\b[^>]*>/g) || []).join('');

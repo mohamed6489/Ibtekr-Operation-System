@@ -61,7 +61,7 @@ test('«الموارد البشرية» is open: the team from the server (the t
   await expect(table.locator('tbody tr', { hasText: 'مشاهد تجريبي' })).toContainText('موقوف');
   const offToday = dow(T) === 5 || dow(T) === 6; const after17 = cairoMin() > 17 * 60; // no day of hers today: absent once her shift is over
   await expect(table.locator('tbody tr', { hasText: 'منى حسن' })).toContainText(offToday ? 'راحة أسبوعية' : after17 ? 'غائب' : 'انصراف ناقص أمس');
-  await expect(table.locator('tbody tr', { hasText: 'هدى سمير' })).toContainText('10:00–18:00');
+  await expect(table.locator('tbody tr', { hasText: 'هدى سمير' })).toContainText('10:00 ص – 6:00 م');
   // the owner 12 Nov (every table): the picture at the right with the name next to it, aligned to the start; a long name cut with «…»
   await expect(table.locator('thead th.c-person')).toHaveCount(1);
   expect(await table.locator('tbody tr td:has(> .mlink)').first().evaluate((td) => getComputedStyle(td).textAlign)).toBe('start');

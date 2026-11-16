@@ -88,18 +88,32 @@
   // --- pictures: an <img> may not load from another host here. One kept by the stand-in (an upload of this visit) is read through
   // the handlers; any other remote picture (the made-up site's product photos, the 1-pixel stand-ins) shows a neutral tile.
   var TILE = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80"><rect width="80" height="80" fill="#efe6d5"/><path d="M22 54l12-14 9 10 6-7 9 11z" fill="#c9b892"/><circle cx="52" cy="29" r="5" fill="#c9b892"/></svg>');
+  // a picture of the made-up site's uploads (a product's photo): a tile of its own colour with the file's first letters, so two
+  // products do not look the same and the page shows where the photo goes
+  var HUES = [['#e9d8c2', '#8a6a3b'], ['#d7e3d4', '#3f6b4f'], ['#e6d3d8', '#8a4a5c'], ['#d5dfe8', '#3d5f80'], ['#efe2b8', '#7d6a1f'], ['#e3d9ee', '#5d4a80']];
+  function productTile(src) {
+    var m = /\/wp-content\/uploads\/[^?#]*\/([^/?#]+?)\.[a-z0-9]+(?:[?#]|$)/i.exec(src); if (!m) return null;
+    var name = decodeURIComponent(m[1]).replace(/-\d+x\d+$/, ''); var h = 0; for (var i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+    var c = HUES[h % HUES.length]; var letters = name.replace(/[^A-Za-z\u0600-\u06FF]+/g, ' ').trim().split(' ').slice(0, 2).map(function (w) { return w.charAt(0).toUpperCase(); }).join('') || '•';
+    return 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80"><rect width="80" height="80" fill="' + c[0] + '"/><rect x="14" y="18" width="52" height="44" rx="8" fill="#fff" opacity=".55"/><text x="40" y="48" text-anchor="middle" font-family="Arial,sans-serif" font-size="20" font-weight="700" fill="' + c[1] + '">' + letters + '</text></svg>');
+  }
   function fixImg(img) {
     var src = img.getAttribute('src') || ''; if (!/^https?:/i.test(src)) return;
-    img.setAttribute('src', TILE);
+    img.setAttribute('src', (src.indexOf(HOST) !== 0 && productTile(src)) || TILE);
     if (src.indexOf(HOST) !== 0) return;
     window.fetch(src).then(function (r) { return r.ok ? r.blob() : null; }).then(function (b) { if (b && b.size > 200 && img.getAttribute('src') === TILE) img.setAttribute('src', URL.createObjectURL(b)); }).catch(function () { /* stays the tile */ });
   }
-  new MutationObserver(function (list) {
+  var imgWatch = new MutationObserver(function (list) {
     list.forEach(function (m) {
       if (m.type === 'attributes') { if (m.target.tagName === 'IMG') fixImg(m.target); return; }
       m.addedNodes.forEach(function (n) { if (n.nodeType !== 1) return; if (n.tagName === 'IMG') fixImg(n); if (n.querySelectorAll) n.querySelectorAll('img[src]').forEach(fixImg); });
     });
-  }).observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['src'] });
+  });
+  var watchImgs = function (root) { imgWatch.observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ['src'] }); };
+  watchImgs(document.documentElement);
+  // the orders page draws inside a shadow root, which the document's observer does not see: every shadow root is watched too
+  var attachShadow = Element.prototype.attachShadow;
+  Element.prototype.attachShadow = function (init) { var root = attachShadow.call(this, init); try { watchImgs(root); } catch (e) { /* a closed root keeps its pictures */ } return root; };
 
   // --- a cover until boot.js has signed in (the sign-in screen would flash), and a small mark that this is not the live system
   var cover = document.createElement('div'); cover.id = 'demo-cover'; cover.textContent = 'جاري فتح النسخة التجريبية…';

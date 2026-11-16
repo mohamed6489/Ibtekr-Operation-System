@@ -115,7 +115,7 @@ test('the admin on a member\'s file: the job and pay card, «تعديل» writes
   await open(page, ADMIN, 'member-M02');
   await expect(P(page)).toContainText('بتشوف ملف سارة أحمد كأدمن');
   const job = P(page).locator('.card.admin', { hasText: 'الوظيفة والمرتب' });
-  await expect(job).toContainText('12,000'); await expect(job).toContainText('09:00 – 17:00');
+  await expect(job).toContainText('12,000'); await expect(job).toContainText('9:00 ص – 5:00 م');
   await job.getByRole('button', { name: 'تعديل' }).click();
   const f = modal(page, 'تعديل الوظيفة والمرتب — سارة أحمد');
   await expect(f.locator('#salary')).toBeFocused();
@@ -124,7 +124,7 @@ test('the admin on a member\'s file: the job and pay card, «تعديل» writes
   await expect(f).toBeHidden();
   expect(mock.hr.pay.find((r) => r.member_id === OPS_ID)).toMatchObject({ salary: 13000, holdback: 1500, allowances: 500 });
   expect(mock.hr.members.find((r) => r.member_id === OPS_ID)).toMatchObject({ shift_start: '10:00', shift_end: '18:00' });
-  await expect(P(page).locator('.card.admin', { hasText: 'الوظيفة والمرتب' })).toContainText('10:00 – 18:00');
+  await expect(P(page).locator('.card.admin', { hasText: 'الوظيفة والمرتب' })).toContainText('10:00 ص – 6:00 م');
   const notes = P(page).locator('.card.admin', { hasText: 'ملاحظات داخلية' }).locator('textarea');
   await notes.fill('ممتازة في الشحن'); await notes.press('Tab');
   await expect.poll(() => (mock.hr.members.find((r) => r.member_id === OPS_ID) || {}).notes).toBe('ممتازة في الشحن');

@@ -238,3 +238,52 @@ test('comment 78 — «مكافأة / خصم» for a member already paid: the er
   expect(r.ok).toBe(false); expect(r.reason).toBe('paid'); expect(r.message).toContain('اتحوّله مرتب الشهر ده بالفعل');
   expect(mock.hr.adjustments.length).toBe(before);
 });
+
+// comments decision 79 (the owner on «تقييم ‹عضو› — ‹شهر›»: «غيرلي ال ui لشكل احترافي و منظم»): the member in a head box, the three parts of
+// the month as three boxes, the month's tasks in a box, the score as a strip that follows the stars
+test('comment 79 — the evaluation popup: who and which month in the head, the attendance / the performance / the communication as three boxes, the tasks box, the score strip follows the stars and says which side of the bonus bar', async ({ page }) => {
+  await openHr(page, 'hr-evals');
+  await P(page).locator('table.hr-evals tbody tr', { hasText: 'هدى سمير' }).locator('[data-hr-rate]').click(); // not rated yet
+  const f = page.locator('.modal.ev-modal[role=dialog]');
+  await expect(f).toBeVisible();
+  await expect(f.locator('.ev-who')).toContainText('هدى سمير');
+  await expect(f.locator('.ev-who')).toContainText(monLabel(MK));
+  await expect(f.locator('.ev-who')).toContainText('لسه ماتقيّمش');
+  await expect(f.locator('.ev-grid > .ev-box')).toHaveCount(3);
+  await expect(f.locator('.ev-grid > .ev-att')).toContainText('الحضور (تلقائي)');
+  await expect(f.locator('.ev-grid > .ev-att .ev-bar')).toBeVisible();
+  await expect(f.locator('.ev-grid #ev-perf [data-star]')).toHaveCount(5);
+  await expect(f.locator('.ev-grid #ev-comm [data-star]')).toHaveCount(5);
+  // the three boxes sit side by side on a desktop
+  const tops = await f.locator('.ev-grid > .ev-box').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)));
+  expect(new Set(tops).size).toBe(1);
+  await expect(f.locator('[data-hr-rate-tasks]')).toContainText('مهام خلصت');
+  await expect(f.locator('[data-hr-rate-tasks]')).toContainText('مهام لسه مفتوحة');
+  // the strip: nothing until both are picked, then the month's score and the bar's side
+  const strip = f.locator('[data-hr-rate-total]');
+  await expect(strip).toHaveAttribute('data-hr-rate-total', '');
+  await expect(strip).toContainText('اختار الأداء والتواصل');
+  await f.locator('#ev-perf [data-star="1"]').click();
+  await expect(strip).toHaveAttribute('data-hr-rate-total', '');
+  await f.locator('#ev-comm [data-star="1"]').click();
+  await expect(strip).toHaveClass(/under/);
+  await expect(strip).toContainText('تحت حد البونص (3)');
+  await f.locator('#ev-perf [data-star="5"]').click(); await f.locator('#ev-comm [data-star="5"]').click();
+  await expect(strip).toHaveClass(/over/);
+  await expect(strip).toContainText('على حد البونص (3) أو فوقه');
+  const shown = Number(await strip.getAttribute('data-hr-rate-total'));
+  expect(shown).toBeGreaterThanOrEqual(3);
+  // an already rated member opens with his stars and his score in the head
+  await f.getByRole('button', { name: 'إلغاء' }).click();
+  await P(page).locator('table.hr-evals tbody tr', { hasText: 'منى حسن' }).locator('[data-hr-rate]').click();
+  const g = page.locator('.modal.ev-modal[role=dialog]');
+  await expect(g.locator('.ev-who')).toContainText('متقيّم');
+  await expect(g.locator('#ev-perf [data-star="5"]')).toHaveAttribute('aria-checked', 'true');
+  await expect(g.locator('#ev-comm [data-star="4"]')).toHaveAttribute('aria-checked', 'true');
+  // on a phone the boxes stack and nothing leaves the popup
+  await page.setViewportSize({ width: 390, height: 800 });
+  const box = await g.evaluate((el) => { const r = el.getBoundingClientRect(); return { l: r.left, r: innerWidth - r.right, over: el.querySelector('.modal-b').scrollWidth - el.querySelector('.modal-b').clientWidth }; });
+  expect(box.l).toBeGreaterThanOrEqual(0); expect(box.r).toBeGreaterThanOrEqual(0); expect(box.over).toBeLessThanOrEqual(1);
+  const stacked = await g.locator('.ev-grid > .ev-box').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)));
+  expect(new Set(stacked).size).toBe(3);
+});

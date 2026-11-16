@@ -4010,9 +4010,19 @@
     const dateCell = (iso) => num(D.formatDateNumeric(iso));
     function brandMenu(v, b) {
       const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' }); const trig = IconButton({ icon: 'more', label: 'خيارات البراند ' + b.name, attrs: { 'aria-haspopup': 'menu', 'aria-expanded': 'false', 'data-brand-menu': b.id } });
-      const opts = [{ value: 'edit', label: 'تعديل' }, { value: 'transfer', label: 'نقل لمبتكر تاني' }, b.owner !== b.origin ? { value: 'return', label: 'رجوع لصاحبه' } : null].filter(Boolean);
-      const pop = U.popover(wrap, trig, (close) => U.DropdownMenu({ role: 'menu', end: true, options: opts, onSelect: (val) => { close(); if (val === 'edit') brandForm(v, b); if (val === 'transfer') brandTransferForm(v, b); if (val === 'return') brandReturnForm(v, b); } }));
+      // the owner 16 Nov («عملت البراند في السيستم مش علي الويب سايت»): «اعمل البراند على الموقع» — the brand in both places on the
+      // site (woo-sync brand_site: WooCommerce Brands + the Product Brand term); already there = updated, nothing doubled
+      const site = vstore.brandSite && vstore.canStore && vstore.canStore() && v.wooVendorId;
+      const opts = [{ value: 'edit', label: 'تعديل' }, site ? { value: 'site', label: 'اعمل البراند على الموقع' } : null, { value: 'transfer', label: 'نقل لمبتكر تاني' }, b.owner !== b.origin ? { value: 'return', label: 'رجوع لصاحبه' } : null].filter(Boolean);
+      const pop = U.popover(wrap, trig, (close) => U.DropdownMenu({ role: 'menu', end: true, options: opts, onSelect: (val) => { close(); if (val === 'edit') brandForm(v, b); if (val === 'site') brandToSite(b); if (val === 'transfer') brandTransferForm(v, b); if (val === 'return') brandReturnForm(v, b); } }));
       trig.addEventListener('click', pop.toggle); wrap.append(trig); return wrap;
+    }
+    function brandToSite(b) {
+      const busy = window.IBKit && window.IBKit.busy ? window.IBKit.busy('بنعمل البراند «' + b.name + '» على الموقع…') : null;
+      vstore.brandSite(b.id, null).catch(() => ({ ok: false, message: 'البراند ماتعملش على الموقع — جرّب تاني.' })).then((r) => {
+        if (r.ok) { if (busy) busy.done('البراند على الموقع'); vnotify('success', 'البراند «' + b.name + '» ' + (r.made ? 'اتعمل' : 'اتحدّث') + ' على الموقع' + (r.attr === 'failed' ? ' — خاصية Brand ماتكتبتش' : '') + '.'); }
+        else { if (busy) busy.fail(r.message || 'ماتعملش'); vnotify('error', r.message || 'البراند ماتعملش على الموقع — جرّب تاني.'); }
+      });
     }
     function brandsSection(v) {
       const edit = canBrands(); // plan 3.4 decision 5: no rate column — the brand has no rate of its own

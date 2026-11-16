@@ -706,7 +706,7 @@
       const res = await c().functions.invoke('woo-sync', { body: { action: 'vendor_delete', vendor_id: String(id), reason: why.slice(0, 300) } }); d = res.data;
       if (res.error) { let b = null; try { b = res.error.context && typeof res.error.context.json === 'function' ? await res.error.context.json() : null; } catch (x) { b = null; }
         const e = b && typeof b.error === 'string' ? b.error : 'network';
-        return { ok: false, reason: e, message: e === 'push_disabled' ? 'الكتابة على الموقع مقفولة — متجره مااتمسحش ولا حاجة اتغيّرت.' : e === 'no_admin' ? 'مالقيناش حساب أدمن على الموقع ننقل له منتجاته — مفيش حاجة اتغيّرت.' : e === 'woo_error' ? 'الموقع ماردش — متجره مااتمسحش ولا حاجة اتغيّرت. جرّب تاني.' : 'مااتحذفش — جرّب تاني.' }; }
+        return { ok: false, reason: e, message: e === 'push_disabled' ? 'الكتابة على الموقع مقفولة — متجره مااتمسحش ولا حاجة اتغيّرت.' : e === 'no_admin' ? 'مالقيناش حساب أدمن على الموقع ننقل له منتجاته — مفيش حاجة اتغيّرت.' : e === 'woo_error' ? 'الموقع ماردش — متجره مااتمسحش ولا حاجة اتغيّرت. جرّب تاني.' : e === 'not_ready' ? 'الحذف لسه مااتفعّلش على السيرفر — مفيش حاجة اتغيّرت.' : 'مااتحذفش — جرّب تاني.' }; }
     } catch (x) { return fail('network'); }
     if (!d || d.result !== 'ok') return fail('network');
     await load();

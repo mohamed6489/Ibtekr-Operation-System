@@ -196,7 +196,10 @@ test('«متضيفهوش» from the overtime\'s popup: the refusal with its reas
 test('the rebuild — «المرتبات»: the month\'s lines; ⋮ «تحويل المرتب» for one (early = its reason); «تحويل المرتبات» shows the rest with the totals and pays them = an «المرتبات» expense each + one withdrawal; then locked', async ({ page }) => {
   await openHr(page, ADMIN, 'hr-payroll');
   const sheet = P(page).locator('table.hr-pay');
-  await expect(sheet.locator('tbody tr')).toHaveCount(2);
+  // ش31 (the owner 16 Nov — «حط كل الفريق حتي الادمنز و المالك»): the paid lines, then every other active member as «مالوش مرتب»
+  await expect(sheet.locator('tbody tr').filter({ hasNotText: 'مالوش مرتب' })).toHaveCount(2);
+  await expect(sheet.locator('tbody tr', { hasText: 'مالوش مرتب' }).first()).toBeVisible();
+  await expect(sheet.locator('tbody tr', { hasText: 'مالوش مرتب' }).filter({ hasText: /سارة أحمد|منى حسن/ })).toHaveCount(0);
   await expect(sheet.locator('tbody tr', { hasText: 'سارة أحمد' })).toContainText('11,000'); // 12000 − 1500 + 500
   await expect(sheet.locator('tbody tr', { hasText: 'منى حسن' })).toContainText('8,600');
   // one member first: before the pay day (28) the reason is a must
@@ -446,4 +449,24 @@ test('owner batch 14 Nov decision 13 — the evaluation ⋮: a low month offers 
   const pf = page.locator('table.pf-notes');
   await expect(pf.locator('tbody tr')).toHaveCount(2);
   await expect(pf).toContainText('القيود اتأخرت أكتر من مرة'); await expect(pf).toContainText('ميتنج فردي');
+});
+
+test('ش31 (the owner 16 Nov): «المرتبات» lists the whole team — the paid lines and every other active member (the admins too) as «مالوش مرتب» with «حدد المرتب»; «الحسابات» (sensitive.salaries F — 0115) opens «الموارد البشرية › المرتبات» too', async ({ page }) => {
+  await openHr(page, ADMIN, 'hr-payroll');
+  const sheet = P(page).locator('table.hr-pay');
+  await expect(sheet.locator('tbody tr', { hasText: 'سارة أحمد' })).toContainText('11,000');
+  const none = sheet.locator('tbody tr', { hasText: 'مالوش مرتب' });
+  expect(await none.count()).toBeGreaterThanOrEqual(2);
+  await expect(none.filter({ hasText: /مدير|أدمن|Admin/ }).first()).toBeVisible(); // an admin is on the sheet as well
+  await none.first().getByRole('button', { name: /إجراءات/ }).click();
+  await expect(page.getByRole('menuitem', { name: 'حدد المرتب' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  // «الحسابات» signs in: the HR page is in the menu for the salaries, and the sheet shows the same lines
+  await Promise.all([page.waitForEvent('load'), page.evaluate(() => { window.IBAuth.signOut(); })]);
+  await expect(page.locator('#lg-id')).toBeVisible(); await page.fill('#lg-id', 'accounts.dev@ibtekr.local'); await page.fill('#lg-pw', DEV_PW);
+  await page.getByRole('button', { name: 'دخول', exact: true }).click();
+  await expect(page.locator('#root')).toBeVisible();
+  await expect(page.locator('.sidebar .nav-item[data-page="hr"]')).toBeVisible();
+  await page.evaluate(() => { location.hash = 'hr-payroll'; });
+  await expect(P(page).locator('table.hr-pay tbody tr', { hasText: 'سارة أحمد' })).toContainText('11,000');
 });

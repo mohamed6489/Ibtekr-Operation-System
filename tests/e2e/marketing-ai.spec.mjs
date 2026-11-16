@@ -631,8 +631,8 @@ test('comments 72 and 73 — the assistants\' chat: the history by day, a welcom
   await expect(box.locator('.mk-row.ai .mk-av')).toHaveCount(1);
   await expect(box.locator('.mk-row.ai .mk-meta')).toContainText('الديزاينر');
   await expect(box.locator('.mk-msg .mk-meta')).toHaveCount(0); // who and when are under the bubble, not in it
-  const sides = await box.evaluate((el) => { const r = (q) => el.querySelector(q).getBoundingClientRect(); const c = r('.mk-chat'); return { mine: r('.mk-row.user').left - c.left, its: c.right - r('.mk-row.ai').right }; });
-  expect(sides.mine).toBeLessThan(40); expect(sides.its).toBeLessThan(40); // RTL: the assistant at the start (right), my words at the end (left)
+  const sides = await box.evaluate((el) => { const r = (q) => el.querySelector(q).getBoundingClientRect(); const c = r('.mk-chat'); return { mine: c.right - r('.mk-row.user').right, its: r('.mk-row.ai').left - c.left }; });
+  expect(sides.mine).toBeLessThan(40); expect(sides.its).toBeLessThan(40); // the owner 16 Nov: my words on the right, the assistant on the left
   expect(await box.locator('.mk-msg.user').evaluate((el) => getComputedStyle(el).backgroundColor)).toBe('rgb(0, 86, 66)');
   // the suggestions are one strip over the box now, and the new chat is the first of today's
   await expect(box.locator('.mk-agent-main > .mk-agent-chips .chip')).toHaveCount(4);

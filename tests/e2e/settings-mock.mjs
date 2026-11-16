@@ -31,7 +31,7 @@ export function settingsRoute(c) {
   const { method, path, url, hd, u, hasPerm, isAdmin, json, mock } = c; const S = mock.st; if (!S) return null;
   const rpc = /^\/rest\/v1\/rpc\/(quick_actions_list|quick_action_save|quick_action_delete|quick_action_order|role_level_perms_set|member_level_set|role_perms_set|role_create|role_update|role_delete|role_manager_set|member_manager_set|member_can_edit|member_info_set|member_job_set|member_role_set|member_roles_set|member_perms_set|member_status_set|my_sessions|my_session_revoke|settings_public)$/.exec(path);
   const fn = method === 'POST' && (path === '/functions/v1/settings-admin' || path === '/functions/v1/notify');
-  const docs = path === '/rest/v1/company_docs'; const sto = /^\/storage\/v1\/object\/(sign\/)?(company-docs|settings)\/(.+)$/.exec(path);
+  const docs = path === '/rest/v1/company_docs'; const sto = /^\/storage\/v1\/object\/(sign\/)?(company-docs|settings)(?:\/(.+))?$/.exec(path); // no path = a remove with { prefixes } in the body
   const act = method === 'GET' && path === '/rest/v1/activity_log' && [...url.searchParams].some(([k, v]) => k === 'action' && v.startsWith('like.') || (k === 'at' && /^(lte|gte)\./.test(v))) || (method === 'GET' && path === '/rest/v1/activity_log' && (hd.range || url.searchParams.has('offset')));
   if (!rpc && !fn && !docs && !sto && !act) return null;
   const refuse = (status, code, message) => json(status, { code, details: null, hint: null, message });
@@ -250,7 +250,7 @@ export function settingsRoute(c) {
     if (method === 'DELETE') { const i = S.docs.findIndex((d) => d.id === idEq); if (i >= 0) { S.writes.push({ table: 'company_docs', op: 'delete', id: S.docs[i].id }); S.docs.splice(i, 1); } return json(200, []); }
   }
   if (sto) {
-    const bucket = sto[2]; const key = bucket + '/' + decodeURIComponent(sto[3]);
+    const bucket = sto[2]; const key = bucket + '/' + decodeURIComponent(sto[3] || '');
     if (sto[1]) { // a signed link: the admin for the papers; every active member for the logos
       if (!active || (bucket === 'company-docs' && !admin) || !S.objects.has(key)) return json(400, { statusCode: '400', error: 'not_found', message: 'Object not found' });
       S.calls.push({ sign: key }); return json(200, { signedURL: '/object/sign/' + key + '?token=st-' + (++S.seq) });
@@ -258,7 +258,7 @@ export function settingsRoute(c) {
     if (method === 'DELETE') { if (!admin) return json(403, { statusCode: '403', error: 'Unauthorized', message: 'rls' }); for (const p of body.prefixes || []) S.objects.delete(bucket + '/' + p); return json(200, []); }
     if (!admin) return json(403, { statusCode: '403', error: 'Unauthorized', message: 'new row violates row-level security policy' });
     if (S.objects.has(key) && !/true/i.test(hd['x-upsert'] || '')) return json(409, { statusCode: '409', error: 'Duplicate', message: 'The resource already exists' });
-    const type = (hd['content-type'] || '').split(';')[0]; const allowed = bucket === 'company-docs' ? ['application/pdf', 'image/png', 'image/jpeg', 'image/webp'] : ['image/png', 'image/svg+xml', 'image/webp', 'image/jpeg'];
+    const type = (hd['content-type'] || '').split(';')[0]; const allowed = bucket === 'company-docs' ? ['application/pdf', 'image/png', 'image/jpeg', 'image/webp'] : ['image/png', 'image/svg+xml', 'image/webp', 'image/jpeg', 'font/woff2', 'font/woff', 'font/ttf', 'font/otf'] /* 0116 */;
     if (type && !allowed.includes(type) && !type.startsWith('multipart/')) return json(415, { statusCode: '415', error: 'invalid_mime_type', message: 'mime type not supported' });
     S.objects.set(key, { type }); S.writes.push({ table: 'storage', op: 'upload', key }); return json(200, { Key: key });
   }

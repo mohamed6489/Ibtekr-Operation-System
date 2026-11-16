@@ -19,7 +19,7 @@ begin
     raise exception 'case the media buyer keeps the marketing and the reports only failed (%)', v;
   end if;
   -- the sensitive keys stay closed for every role but the ones whose job it is
-  if exists (select 1 from public.roles where id <> 'admin' and permissions ->> 'sensitive.salaries' is distinct from 'N') then raise exception 'case the salaries are the admin''s only failed'; end if;
+  if exists (select 1 from public.roles where id not in ('admin', 'accounts') and permissions ->> 'sensitive.salaries' is distinct from 'N') then raise exception 'case the salaries are the admin''s and the accounts'' only (0115) failed'; end if;
   if exists (select 1 from public.roles where id in ('designer', 'developer', 'media_buyer', 'viewer')
              and (permissions ->> 'sensitive.customer_phone' = 'F' or permissions ->> 'sensitive.commission' = 'F' or permissions ->> 'sensitive.vendor_bank' = 'F')) then
     raise exception 'case no sensitive key on the marketing roles or the viewer failed';

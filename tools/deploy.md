@@ -2299,3 +2299,9 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
    `supabase/tests/rls_settings_clock.sql` على الحي (rollback).
 2. قبلها الأدمن بس بيشوف اختياره (بيقرا صف «general» نفسه)، والباقيين على الافتراضي (12 ساعة، يوم/شهر/سنة).
 
+#### 2.7.101 «المرتبات» لـ «الحسابات» والخطوط المرفوعة (16 نوفمبر — `0115` و`0116`، مافيش Edge Function)
+1. **`0115_accounts_salaries.sql`** (بعد «طبّق»): دور «الحسابات» بياخد `sensitive.salaries = F` في `roles.permissions` وكل مستويات `level_perms`.
+   بعدها `supabase/tests/rls_accounts_salaries.sql` و`rls_hr.sql` على الحي (rollback). لو صاحب المشروع عايز يرجّعها: من الإعدادات › الأدوار والصلاحيات.
+2. **`0116_brand_fonts.sql`** (بعد «طبّق»): bucket `settings` بياخد `font/woff2` / `font/woff` / `font/ttf` / `font/otf` (نفس الـ 2MB). من غيره «ارفع خط»
+   بيرجع «تعذّر» والباقي شغّال.
+3. الواجهة على `main` (الكتل 15 و17 و28 و`adapter/settings.js` و`app.css` / `settings.css` / `marketing.css`)؛ مافيش تغيير في الـ CSP.

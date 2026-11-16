@@ -58,11 +58,12 @@ test('the team: the matrix from the roles\' real permissions; a cell toggles rol
   await openSettings(page, 'team');
   await page.getByRole('tab', { name: 'الأدوار والصلاحيات' }).click();
   // the ops column of «الأوردرات › عرض» is F (the seed), «الحسابات › عرض» for ops is P
-  const cell = (perm, role) => page.locator(`.matrix .pm[aria-label^="${perm} — ${role}"]`);
+  // ش32 (the owner 16 Nov): each permission = three choices (مسموح / عرض بس / لا), the current one checked and filled
+  const cell = (perm, role) => page.locator(`.matrix .pm[aria-label^="${perm} — ${role}"][aria-checked="true"]`);
   await expect(cell('عرض', 'عمليات').first()).toHaveClass(/pm-full/);
-  const opsAccView = page.locator('.mx-group', { hasText: 'الحسابات' }).locator('.pm[aria-label^="عرض — عمليات"]');
-  await expect(opsAccView).toHaveClass(/pm-part/);
-  await opsAccView.click(); // P → N
+  const opsAcc = page.locator('.mx-group', { hasText: 'الحسابات' });
+  await expect(opsAcc.locator('.pm[aria-label^="عرض — عمليات"][aria-checked="true"]')).toHaveClass(/pm-part/);
+  await opsAcc.locator('.pm.pm-none[aria-label^="عرض — عمليات"]').click(); // P → N
   await expect.poll(() => mock.st.writes.filter((w) => w.table === 'roles' && w.op === 'perms').length).toBe(1);
   expect(mock.st.writes.find((w) => w.op === 'perms')).toMatchObject({ id: 'ops', changed: ['accounts.view'] });
   expect(mock.roles.find((r) => r.id === 'ops').permissions['accounts.view']).toBe('N');

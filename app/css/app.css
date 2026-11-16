@@ -2352,3 +2352,35 @@ img.ib-worm.ib-ldr-img.spin{animation:ib-ldr-spin var(--ldr-speed,1.7s) linear i
 .tk-person .icon-btn{width:22px;height:22px}
 .tk-group-pick{display:block}
 @media (max-width:640px){.tk-bub{max-width:92%}.vn{min-width:180px}}
+/* the owner 16 Nov («الشاتات كلها اعكس خلي الرسل علي اليمين و المستقبل علي الشمال»): in every chat what I send sits on the right (RTL start)
+   and what reaches me on the left — the AI assistant, customer service (ours out on the right), as «طلبات الفريق» already does */
+.ai-msg.user{align-self:flex-start}
+.ai-msg.ai{align-self:flex-end}
+.brow.out{justify-content:flex-start}
+.brow.in{justify-content:flex-end}
+/* the owner 16 Nov (ش31 — «خلي البار اللي تحت يبقي اخضر و يبقي ضيق قد عرض الجداول اللي جوة»): the unsaved-changes bar in green with beige
+   text, as wide as the settings' own column (1040 — data-set-wrap) and centred under it */
+.save-bar{background:var(--color-brand-default);color:var(--color-text-on-brand);width:min(1040px,calc(100% - 32px));margin-inline:auto;box-sizing:border-box}
+.save-bar svg{color:var(--color-text-on-brand)}
+/* ش32 (the owner 16 Nov — «ظبطلي الجدول ده يبقي بشكل احترافي و منظم و الصفحة كلها»): the permissions matrix of one role — each group a
+   rounded block, each permission a row with its name and three choices (مسموح · عرض بس · لا) under named columns, the current one filled */
+.matrix.mx-one{border:1px solid var(--color-border-subtle);border-radius:var(--radius-md);background:var(--color-bg-base)} /* no overflow:hidden — it would trap the sticky head */
+.matrix.mx-one .mx-head{border-radius:var(--radius-md) var(--radius-md) 0 0}
+.matrix.mx-one .mx-row{grid-template-columns:minmax(200px,1fr) 312px;padding:8px 16px;gap:16px;border-bottom:1px solid var(--color-border-subtle)}
+.matrix.mx-one .mx-row:not(.mx-head):hover{background:var(--color-bg-hover)}
+.matrix.mx-one .mx-head{padding:10px 16px;align-items:end}
+.mx-rolehead{display:flex;flex-direction:column;gap:2px;align-items:stretch;text-align:center}
+.mx-rolehead .mx-opts{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:6px;font-size:12px;color:var(--color-text-secondary);font-weight:600}
+.pm-seg{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.pm-seg .pm{width:100%;height:32px;cursor:pointer;transition:background .12s,border-color .12s}
+.pm-seg .pm.off{background:transparent;border-color:var(--color-border-subtle);color:var(--color-text-disabled);opacity:.55}
+.pm-seg .pm.off:hover{opacity:1;background:var(--color-bg-hover);border-color:var(--color-border-default)}
+.pm-seg .pm.on{opacity:1;cursor:default;box-shadow:inset 0 0 0 1px currentColor}
+.pm-seg .pm.on.pm-full{background:var(--color-success-bg);color:var(--color-success-text)}
+.pm-seg .pm.on.pm-part{background:var(--color-brand-subtle-bg);color:var(--color-text-primary)}
+.pm-seg .pm.on.pm-none{background:var(--color-bg-tint);color:var(--color-text-secondary)}
+.matrix.mx-one .mx-group{border-bottom:1px solid var(--color-border-subtle)}
+.matrix.mx-one .mx-group:last-child{border-bottom:0}
+.matrix.mx-one .mx-gh{padding:12px 16px;background:var(--color-bg-container)}
+.matrix.mx-one .mx-row.sens>span:first-child{font-weight:600}
+@media (max-width:720px){.matrix.mx-one .mx-row{grid-template-columns:1fr;gap:8px}.mx-rolehead .mx-opts{display:none}}

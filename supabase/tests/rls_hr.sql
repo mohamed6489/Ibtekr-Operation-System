@@ -27,7 +27,7 @@ grant all on hr_ids to authenticated;
 do $$
 begin
   if (select permissions ->> 'hr.view' from public.roles where id = 'admin') <> 'F' or (select permissions ->> 'sensitive.salaries' from public.roles where id = 'admin') <> 'F'
-     or (select permissions ->> 'hr.view' from public.roles where id = 'ops') <> 'P' or (select permissions ->> 'sensitive.salaries' from public.roles where id = 'accounts') <> 'N'
+     or (select permissions ->> 'hr.view' from public.roles where id = 'ops') <> 'P' or (select permissions ->> 'sensitive.salaries' from public.roles where id = 'accounts') <> 'F' /* 0115 (ش30): the accounts role reads the payroll */
      or (select permissions ->> 'hr.view' from public.roles where id = 'viewer') <> 'N' then
     raise exception 'case the HR permissions of decision 11 failed';
   end if;

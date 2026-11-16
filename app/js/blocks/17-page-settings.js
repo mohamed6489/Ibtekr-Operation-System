@@ -173,7 +173,7 @@
     const body = h('div', Object.assign({ class: 'set-body set-page' }, st.sec === 'activity' ? { 'data-std-table': '' } : { 'data-no-tq': '', 'data-no-cols': '' }), ...section());
     const mark = () => { if (st.dirty) return; st.dirty = true; note.hidden = false; const pg = document.getElementById('pg-settings'); if (pg && !pg.querySelector('.save-bar')) pg.append(saveBar()); };
     // التحديد في الجداول والفلاتر والتابات مش «تغيير» — مش بيطلّع تذكير الحفظ
-    const skip = (t) => !t || t.type === 'search' || !!t.closest('.search-field, [role=search], .toolbar label.search, [data-bulk-box], [data-bulk], .bulk-bar, [role=tab], .subtabs, [data-fm], [data-af], [data-sm-btn], .pop-anchor[data-popover-root] .menu');
+    const skip = (t) => !t || t.type === 'search' || !!t.closest('.search-field, [role=search], .toolbar label.search, [data-bulk-box], [data-bulk], .bulk-bar, [role=tab], .subtabs, [data-fm], [data-af], [data-sm-btn], .pop-anchor[data-popover-root] .menu, .pm-seg');
     body.addEventListener('input', (e) => { if (!skip(e.target)) mark(); }, true);
     body.addEventListener('change', (e) => { if (!skip(e.target)) mark(); }, true);
     body.addEventListener('click', (e) => { if (!skip(e.target) && e.target.closest('[role=switch], [role=radio], [role=checkbox], .chip, [role=option]')) mark(); }, true);
@@ -382,7 +382,13 @@
     return [K.Section('بيانات الشركة', [vrow('اللوجو', 'PNG أو SVG · مربع 512×512 · يُستخدم في الفاتورة ورأس الصفحة', h('div', { class: 'acts-inline' }, window.IBLogo.Logo({ tone: 'color', width: 150 }), Button({ size: 'sm', label: 'غيّر اللوجو', onClick: () => { st.sec = 'brand'; try { history.replaceState(null, '', '#settings-brand'); } catch (e) { /* */ } R(); } }))),
         K.two(U.TextInput({ id: 'g-co', label: 'اسم الشركة', required: true, value: g.company, onInput: ed('company') }), U.TextInput({ id: 'g-lg', label: 'الاسم القانوني', value: g.legal, onInput: ed('legal') })),
         K.two(U.TextInput({ id: 'g-em', label: 'إيميل التواصل', required: true, value: g.email, onInput: ed('email') }), U.TextInput({ id: 'g-site', label: 'الموقع الإلكتروني', value: g.site, onInput: ed('site') })),
-        K.two(U.TextInput({ id: 'g-ad', label: 'العنوان', value: g.address, onInput: ed('address') }), U.TextInput({ id: 'g-ph', label: 'هاتف الشركة', value: g.phone, onInput: ed('phone') }))], null, { sub: 'بتظهر في الفواتير وإيميلات الفريق وملفات التصدير · الشعار: بيت لكل مبتكر' }),
+        K.two(U.TextInput({ id: 'g-ad', label: 'العنوان', value: g.address, onInput: ed('address') }), U.TextInput({ id: 'g-ph', label: 'هاتف الشركة', value: g.phone, onInput: ed('phone') })),
+        // ش33 (the owner 16 Nov — «ضيف الحاجات اللي الشركة بتحتاج تسجلها زي البطاقة الضريبية و رقم السجل التجاري»): the company's official numbers
+        // (the admin's row «general» only — not in settings_public); the papers themselves stay in «الأوراق الرسمية»
+        h('div', { class: 't-label set-sub', 'data-set-legal': '' }, 'البيانات الرسمية'),
+        K.two(U.TextInput({ id: 'g-cr', label: 'رقم السجل التجاري', value: g.crNo, dir: 'ltr', onInput: ed('crNo') }), U.TextInput({ id: 'g-cro', label: 'مكتب السجل التجاري', value: g.crOffice, onInput: ed('crOffice') })),
+        K.two(U.TextInput({ id: 'g-tax', label: 'رقم البطاقة الضريبية', value: g.taxNo, dir: 'ltr', onInput: ed('taxNo') }), U.TextInput({ id: 'g-taxo', label: 'مأمورية الضرائب', value: g.taxOffice, onInput: ed('taxOffice') })),
+        K.two(U.TextInput({ id: 'g-vat', label: 'رقم تسجيل القيمة المضافة', value: g.vatNo, dir: 'ltr', help: 'لو الشركة مسجلة في ضريبة القيمة المضافة', onInput: ed('vatNo') }), U.TextInput({ id: 'g-einv', label: 'كود الفاتورة الإلكترونية (ETA)', value: g.etaCode, dir: 'ltr', help: 'كود النشاط / الفرع على منظومة الفاتورة الإلكترونية', onInput: ed('etaCode') }))], null, { sub: 'بتظهر في الفواتير وإيميلات الفريق وملفات التصدير · الشعار: بيت لكل مبتكر' }),
       // phase 12 T3 (decision 3): no pretend choices — the system runs on Cairo time, Arabic RTL and the pound; these are facts, not settings
       K.Section('اللغة والمنطقة', [vrow('المنطقة الزمنية', 'كل التواريخ والأيام في السيستم والتقارير بتوقيت القاهرة', K.Tag('neutral', '(GMT+2/+3) القاهرة')), vrow('اللغة', 'الواجهة عربي RTL باللهجة المصرية — مفيش نسخة إنجليزية', K.Tag('neutral', 'العربية')),
         vrow('العملة', 'الجنيه المصري في كل الأرقام', K.Tag('neutral', 'ج.م')),
@@ -453,7 +459,12 @@
     ['الرسوم البيانية', 'الترتيب ثابت: أول سلسلة دايمًا اللون 1', [['--color-chart-1', 'لون 1', 'أول سلسلة', '#005642', '--color-brand-default'], ['--color-chart-2', 'لون 2', 'تاني سلسلة', '#c39e57', '--color-action-default'], ['--color-chart-3', 'لون 3', 'تالت سلسلة', '#e6ba65', '--color-text-gold'], ['--color-chart-4', 'لون 4', 'الباقي / أخرى', '#8f887b', '--color-border-default']]]];
   const TOK = {}; BRAND_ROWS.forEach(([, , rows]) => rows.forEach(([k, label, use, def, link, f]) => { TOK[k] = { k, label, use, def, link, f }; }));
   const BRAND_DEF = Object.freeze(Object.fromEntries(Object.keys(TOK).map((k) => [k, TOK[k].def])));
-  const FONTS = [['Cairo', 'كايرو — الحالي'], ['Tajawal', 'تجوّل'], ['IBM Plex Sans Arabic', 'IBM Plex عربي'], ['Almarai', 'المراعي'], ['Noto Kufi Arabic', 'نوتو كوفي'], ['Readex Pro', 'ريدكس برو'], ['Rubik', 'روبيك']];
+  // ش34 (the owner 16 Nov — «زود فونتات»): more Google fonts that carry Arabic, plus the brand's own uploaded fonts (ibf-…, IBSettings.uploadFont)
+  const FONTS = [['Cairo', 'كايرو — الحالي'], ['Tajawal', 'تجوّل'], ['IBM Plex Sans Arabic', 'IBM Plex عربي'], ['Almarai', 'المراعي'], ['Noto Kufi Arabic', 'نوتو كوفي'], ['Readex Pro', 'ريدكس برو'], ['Rubik', 'روبيك'],
+    ['Alexandria', 'ألكسندريا'], ['Changa', 'تشانجا'], ['El Messiri', 'المسيري'], ['Reem Kufi', 'ريم كوفي'], ['Baloo Bhaijaan 2', 'بالو بهيجان'], ['Mada', 'مدى'], ['Harmattan', 'هرمتان'], ['Markazi Text', 'مركزي'],
+    ['Noto Sans Arabic', 'نوتو سانس عربي'], ['Noto Naskh Arabic', 'نوتو نسخ'], ['Amiri', 'أميري'], ['Vazirmatn', 'فزيرمتن'], ['Lemonada', 'ليمونادة'], ['Kufam', 'كوفام'], ['Zain', 'زين'], ['Marhey', 'مرهي'], ['Lalezar', 'لاله‌زار — للعناوين'], ['Aref Ruqaa', 'عارف رقعة — للعناوين']];
+  const ownFonts = () => (window.IBSettings && window.IBSettings.fontList ? window.IBSettings.fontList(brand.fonts) : []);
+  const fontOptions = () => FONTS.concat(ownFonts().map((f) => [f.id, f.name + ' — مرفوع']));
   const FONT_DEF = { body: 'Cairo', head: 'Cairo' };
   const SKEY = 'ib-brand-v2';
   const hexOk = (v) => /^#[0-9a-f]{6}$/i.test(v);
@@ -464,7 +475,7 @@
   const brand = (C.brand = C.brand || (() => { let s = null; try { s = JSON.parse(localStorage.getItem(SKEY) || 'null'); } catch (e) { s = null; } return { colors: Object.assign({}, (s && s.colors) || {}), fonts: Object.assign({}, FONT_DEF, (s && s.fonts) || {}) }; })());
   function eff(k) { const t = TOK[k]; if (brand.colors[k]) return brand.colors[k]; if (t.link) { const b = eff(t.link); if (b !== TOK[t.link].def) return t.f ? shade(b, t.f) : b; } return t.def; }
   const loaded = new Set(['Cairo']);
-  function loadFont(f) { if (loaded.has(f)) return; loaded.add(f); try { const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = 'https://fonts.googleapis.com/css2?family=' + f.replace(/ /g, '+') + ':wght@400;500;600;700&display=swap'; document.head.append(l); } catch (e) { /* offline */ } }
+  function loadFont(f) { if (/^ibf-/.test(String(f))) { const e = ownFonts().find((x) => x.id === f); if (e && window.IBSettings && window.IBSettings.loadFont) window.IBSettings.loadFont(e); return; } if (loaded.has(f)) return; loaded.add(f); try { const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = 'https://fonts.googleapis.com/css2?family=' + f.replace(/ /g, '+') + ':wght@400;500;600;700&display=swap'; document.head.append(l); } catch (e) { /* offline */ } }
   function applyBrand() {
     const r = document.documentElement.style;
     Object.keys(TOK).forEach((k) => { const v = eff(k); if (v === TOK[k].def && !brand.colors[k]) r.removeProperty(k); else r.setProperty(k, v); });
@@ -506,7 +517,7 @@
     const preview = h('div', { class: 'brand-pv', 'data-brand-pv': '' }, h('div', { class: 'bp-side' }, window.IBLogo.Logo({ tone: 'reversed', width: 120 }), h('span', { class: 'bp-nav on' }, 'الأوردرات'), h('span', { class: 'bp-nav' }, 'المنتجات')),
       h('div', { class: 'bp-main' }, window.IBLogo.Logo({ tone: 'color', width: 140 }), h('b', { class: 'bp-h' }, 'عنوان بالأخضر'), h('p', { class: 'bp-p' }, 'ده كلام عادي على الخلفية، ', h('span', { class: 'help' }, 'وده نص ثانوي.')), h('div', { class: 'acts-inline start' }, Button({ type: 'primary', size: 'sm', label: 'زرار أساسي' }), Button({ type: 'brand', size: 'sm', label: 'زرار أخضر' }), Button({ size: 'sm', label: 'ثانوي' })),
         h('div', { class: 'acts-inline start' }, K.Tag('success', 'مكتمل'), K.Tag('error', 'ملغي'), K.Tag('warning', 'تحذير'), K.Tag('orange', 'قابل للتأخير')), h('div', { class: 'bp-chart', 'aria-hidden': 'true' }, [1, 2, 3, 4].map((i) => h('i', { style: 'background:var(--color-chart-' + i + ');height:' + [36, 26, 18, 10][i - 1] + 'px' })))));
-    const fsel = (k, id, label, help) => U.Select({ id, label, help, value: brand.fonts[k], options: FONTS.map(([v, l]) => ({ value: v, label: l })), onChange: (v) => { brand.fonts[k] = v; applyBrand(); saveBrand(); LOGV('settings.brand.font', label + ' = ' + v); R(); } });
+    const fsel = (k, id, label, help) => U.Select({ id, label, help, value: brand.fonts[k], options: fontOptions().map(([v, l]) => ({ value: v, label: l })), onChange: (v) => { brand.fonts[k] = v; applyBrand(); saveBrand(); LOGV('settings.brand.font', label + ' = ' + v); R(); } });
     const nEdit = Object.keys(brand.colors).length; const anyChanged = nEdit || brand.fonts.body !== FONT_DEF.body || brand.fonts.head !== FONT_DEF.head;
     const q = (st.clrq || '').trim();
     const search = h('input', { type: 'search', class: 'input', id: 'clr-q', placeholder: 'دوّر على لون — مثلًا: خطأ، خلفية، chart', 'aria-label': 'بحث في الألوان', value: st.clrq || '' });
@@ -518,7 +529,30 @@
       h('div', { class: 'toolbar' }, h('label', { class: 'search search-field' }, Icon('search', 'sm'), search), h('span', { class: 't-small help', 'data-clr-count': '' }, nEdit ? nEdit + ' لون متعدّل' : 'كل الألوان أصلية')),
       ...(groups.length ? groups.map(([t, sub, ks]) => K.Section(t + ' (' + ks.length + ')', h('div', { class: 'clr-list' }, ks.map(colorRow)), null, sub ? { sub } : {})) : [K.Empty('مفيش لون بالاسم ده', 'جرّب كلمة تانية.')]),
       K.Section('الخطوط', [U.InlineNote({ children: 'اختيار مبدئي للتجربة — الخط النهائي هيتثبت في البرمجة.' }), K.two(fsel('body', 'f-body', 'خط الكلام', 'الجداول والحقول والكلام العادي'), fsel('head', 'f-head', 'خط العناوين', 'عناوين الصفحات والكروت')),
-        h('div', { class: 'type-pv', 'data-type-pv': '' }, [['t-h3', 'عنوان صفحة · 24'], ['t-h4', 'عنوان كارت · 20'], ['t-h5', 'عنوان قسم · 16'], ['', 'كلام عادي · 14 — بيت لكل مبتكر 0123456789'], ['t-small', 'ملاحظة · 12']].map(([cls, s]) => h('div', { class: 'tp-row' }, h('span', { class: cls || 'tp-body' }, s))))], null, { sub: 'من Google Fonts — كلها بتدعم العربي' })];
+        ownFontsBox(),
+        h('div', { class: 'type-pv', 'data-type-pv': '' }, [['t-h3', 'عنوان صفحة · 24'], ['t-h4', 'عنوان كارت · 20'], ['t-h5', 'عنوان قسم · 16'], ['', 'كلام عادي · 14 — بيت لكل مبتكر 0123456789'], ['t-small', 'ملاحظة · 12']].map(([cls, s]) => h('div', { class: 'tp-row' }, h('span', { class: cls || 'tp-body' }, s))))], null, { sub: FONTS.length + ' خط من Google Fonts — كلها بتدعم العربي · أو ارفع خط من عندك' })];
+  }
+  // ش34: the brand's own fonts — «ارفع خط» (WOFF2 / WOFF / TTF / OTF, لحد 2MB) and the uploaded ones with «مسح»
+  function ownFontsBox() {
+    const S0 = window.IBSettings; if (!S0 || !S0.uploadFont) return null;
+    const list = ownFonts(); const full = list.length >= (S0.FONTS_MAX || 6);
+    const inp = h('input', { type: 'file', class: 'sr-file', id: 'font-up', accept: '.woff2,.woff,.ttf,.otf,font/woff2,font/woff,font/ttf,font/otf', onChange: async () => {
+      const f = inp.files[0]; inp.value = ''; if (!f) return; if (f.size > (S0.FONT_MAX || 2097152)) { K.toast('الخط أكبر من 2MB', 'error'); return; }
+      const name = f.name.replace(/\.[A-Za-z0-9]+$/, '').replace(/[_-]+/g, ' ').trim();
+      const r = await S0.uploadFont(f, name);
+      if (!r.ok) { K.toast(r.field === 'file' ? 'ارفع ملف خط WOFF2 أو WOFF أو TTF أو OTF' : r.field === 'count' ? 'وصلت لأقصى عدد خطوط — امسح واحد الأول' : (r.message || 'تعذّر رفع الخط — جرّب تاني'), 'error'); return; }
+      brand.fonts.custom = (brand.fonts.custom || []).filter((x) => x && x.id !== r.font.id).concat([r.font]); saveBrand(); S0.loadFont(r.font);
+      LOGV('settings.brand.font', 'خط مرفوع'); K.toast('اترفع الخط «' + r.font.name + '» — اختاره من القايمة فوق', 'success'); R(); } });
+    const row = (f) => h('div', { class: 'own-font', 'data-own-font': f.id }, h('span', { class: 'grow', style: "font-family:'" + f.id + "',var(--font)" }, f.name + ' — بيت لكل مبتكر'),
+      [brand.fonts.body === f.id ? K.Tag('success', 'خط الكلام') : null, brand.fonts.head === f.id ? K.Tag('success', 'خط العناوين') : null],
+      Button({ type: 'text', size: 'sm', label: 'مسح', attrs: { 'aria-label': 'مسح الخط ' + f.name }, onClick: () => K.confirm({ title: 'تمسح الخط «' + f.name + '»؟', text: 'لو مستخدم هيرجع لخط Cairo.', okLabel: 'امسح', okType: 'danger', onOk: async () => {
+        const r = await S0.removeFont(f.id); if (!r.ok) { K.toast(r.message || 'تعذّر المسح', 'error'); return; }
+        brand.fonts = Object.assign({}, FONT_DEF, r.fonts); applyBrand(); saveBrand(); LOGV('settings.brand.font', 'خط اتمسح'); K.toast('اتمسح الخط', 'success'); R(); } }) }));
+    list.forEach((f) => S0.loadFont(f));
+    return h('div', { class: 'own-fonts', 'data-own-fonts': '' }, h('div', { class: 'acts-inline start' }, h('b', null, 'خطوط مرفوعة'),
+      full ? h('span', { class: 't-small help' }, 'وصلت لأقصى عدد (' + (S0.FONTS_MAX || 6) + ')') : h('label', { class: 'btn btn-default sm', for: 'font-up', tabindex: '0', role: 'button', 'data-font-up': '', onKeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); inp.click(); } } }, Icon('upload', 'sm'), h('span', null, 'ارفع خط من عندك')), inp,
+      h('span', { class: 't-small help' }, 'WOFF2 أو WOFF أو TTF أو OTF · لحد 2MB')),
+      list.length ? list.map(row) : h('div', { class: 't-small help' }, 'مفيش خطوط مرفوعة لسه.'));
   }
 
   // ---------- الفريق والصلاحيات ----------
@@ -586,15 +620,22 @@
       // owner batch 14 Nov decision 6: the same look as «التنبيهات حسب الدور» — marks with icons (✓ مسموح · 👁 عرض بس · ○ لا), a legend on
       // top, each group a header with its permissions and a count, the role row sticky under the top bar until the matrix ends
       K.Section('مصفوفة الصلاحيات' + (open ? ' — ' + open[0] + (open[1] === 0 ? '' : ' · ' + lvName) : ''), [h('div', { class: 'legend t-small' }, ...Object.keys(SYM).map((k) => h('span', { class: 'pm pm-' + SYM[k][2] }, pmMark(k), ' ' + SYM[k][1])), h('span', { class: 'pm sens' }, Icon('alert', 'sm'), ' صلاحية حساسة')),
-        h('p', { class: 't-small help ntf-hint' }, 'اضغط على الخانة للتغيير (مسموح ← عرض بس ← لا). الصفوف الحساسة تغييرها بيطلب تأكيد وبيتسجل في سجل النشاط. التجاوز لعضو: الأعضاء ← ⋮ ← صلاحيات مخصصة.'),
-        h('div', { class: 'mx-wrap', 'data-perm-matrix': '' }, h('div', { class: 'matrix', style: '--cols:' + one.length }, h('div', { class: 'mx-row mx-head' }, h('span', null, 'الصلاحية'), one.map(([r, ci]) => h('span', { class: 't-label-s' }, r + (ci === 0 ? '' : ' · ' + lvName.replace('صلاحيات ', '')), h('small', { class: 't-small help', style: 'display:block' }, fullCount(ci) + ' كاملة')))),
+        h('p', { class: 't-small help ntf-hint' }, 'اختار لكل صلاحية: مسموح أو عرض بس أو لا. الصفوف الحساسة تغييرها بيطلب تأكيد وبيتسجل في سجل النشاط. التجاوز لعضو: الأعضاء ← ⋮ ← صلاحيات مخصصة.'),
+        h('div', { class: 'mx-wrap', 'data-perm-matrix': '' }, h('div', { class: 'matrix mx-one', style: '--cols:' + one.length }, h('div', { class: 'mx-row mx-head' }, h('span', null, 'الصلاحية'), one.map(([r, ci]) => h('span', { class: 't-label-s mx-rolehead' }, h('span', null, r + (ci === 0 ? '' : ' · ' + lvName.replace('صلاحيات ', ''))), h('small', { class: 't-small help' }, fullCount(ci) + ' كاملة'),
+            h('span', { class: 'mx-opts', 'aria-hidden': 'true' }, ['F', 'P', 'N'].map((o) => h('span', null, o === 'F' ? 'مسموح' : o === 'P' ? 'عرض بس' : 'لا')))))),
           C.perms.map(([g, rows]) => h('div', { class: 'mx-group' + (isOpen(g) ? ' open' : '') }, h('div', { class: 'mx-gh' }, h('button', { type: 'button', class: 'acc-t', 'aria-expanded': String(isOpen(g)), onClick: () => { st.open[g] = !isOpen(g); R(); } }, h('span', { class: 't-label' }, g), h('span', { class: 't-small acc-d' }, rows.slice(0, 3).map((x) => x[0]).join(' · ') + (rows.length > 3 ? ' …' : ''))), h('span', { class: 't-small meta' }, rows.length + ' صلاحيات'), IconButton({ icon: isOpen(g) ? 'chevU' : 'chevD', label: (isOpen(g) ? 'طي ' : 'فتح ') + g, onClick: () => { st.open[g] = !isOpen(g); R(); }, attrs: { class: 'icon-btn acc-tog', 'aria-expanded': String(isOpen(g)) } })),
-            isOpen(g) ? rows.map(([name, v, sens], ri) => h('div', { class: 'mx-row' + (sens ? ' sens' : '') }, h('span', null, sens ? Icon('alert', 'sm') : null, name), one.map(([r, ci]) => { const c = v[ci] || 'N'; return h('button', { type: 'button', class: 'pm pm-' + SYM[c][2], disabled: ci === 0, 'aria-label': name + ' — ' + r + ': ' + SYM[c][1], title: ci === 0 ? 'الأدمن عنده كل الصلاحيات' : SYM[c][1] + ' — اضغط للتغيير', onClick: () => togglePerm(g, rows, ri, ci, c, !!sens, name, r) }, pmMark(c)); }))) : null)))),
+            isOpen(g) ? rows.map(([name, v, sens], ri) => h('div', { class: 'mx-row' + (sens ? ' sens' : '') }, h('span', null, sens ? Icon('alert', 'sm') : null, name), one.map(([r, ci]) => { const c = ci === 0 ? 'F' : (v[ci] || 'N');
+              // ش32 (the owner 16 Nov — «ظبطلي الجدول ده يبقي بشكل احترافي و منظم»): the three choices side by side, the current one filled —
+              // a click picks it (no more cycling); the admin's row is all granted and fixed
+              return h('div', { class: 'pm-seg', role: 'radiogroup', 'aria-label': name + ' — ' + r }, ['F', 'P', 'N'].map((o) => { const on = o === c;
+                return h('button', { type: 'button', class: 'pm pm-' + SYM[o][2] + (on ? ' on' : ' off'), role: 'radio', 'aria-checked': String(on), disabled: ci === 0 || on,
+                  'aria-label': name + ' — ' + r + ': ' + SYM[o][1] + (on ? ' (الحالي)' : ''), title: ci === 0 ? 'الأدمن عنده كل الصلاحيات' : on ? SYM[o][1] + ' — الحالي' : 'خليها ' + SYM[o][1],
+                  onClick: () => togglePerm(g, rows, ri, ci, c, !!sens, name, r, o) }, pmMark(o)); })); }))) : null)))),
         note('الأدمن لا يقدر يشيل صلاحية «تعديل الفريق والربط» من نفسه لو هو آخر أدمن (self-lockout guard). التجاوز الفردي لعضو بيتعمل من صفحة الأعضاء ← ⋮ ← «صلاحيات مخصصة».')],
         [Button({ label: 'فتح الكل', onClick: () => { C.perms.forEach(([g]) => { st.open[g] = true; }); R(); } }), Button({ label: 'اغلاق الكل', onClick: () => { C.perms.forEach(([g]) => { st.open[g] = false; }); R(); } })], { th: false, sub: 'مين يقدر يعمل إيه — نفس شكل «التنبيهات حسب الدور»' })];
   }
-  function togglePerm(g, rows, ri, ci, c, sens, name, role) {
-    const nx = c === 'F' ? 'P' : c === 'P' ? 'N' : 'F'; const apply = () => { const v = rows[ri][1].padEnd(ci + 1, 'N'); rows[ri][1] = v.slice(0, ci) + nx + v.slice(ci + 1); LOGV('settings.perm', g + ' / ' + name + ' / ' + role + ': ' + SYM[c][0] + ' ← ' + SYM[nx][0]); R(); };
+  function togglePerm(g, rows, ri, ci, c, sens, name, role, to) {
+    const nx = to || (c === 'F' ? 'P' : c === 'P' ? 'N' : 'F'); if (nx === c) return; const apply = () => { const v = rows[ri][1].padEnd(ci + 1, 'N'); rows[ri][1] = v.slice(0, ci) + nx + v.slice(ci + 1); LOGV('settings.perm', g + ' / ' + name + ' / ' + role + ': ' + SYM[c][0] + ' ← ' + SYM[nx][0]); R(); };
     if (sens) K.confirm({ title: 'تغيير صلاحية حساسة', text: '«' + name + '» لدور «' + role + '»: ' + SYM[c][1] + ' ← ' + SYM[nx][1] + '. التغيير هيتسجل في سجل النشاط ويتبعت تنبيه للأدمن.', okLabel: 'تأكيد التغيير', onOk: apply }); else apply();
   }
 

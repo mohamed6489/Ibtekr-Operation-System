@@ -35,7 +35,7 @@
   const leaveLeft = (m) => (Number(m.leave) || 0) - (Number(m.used) || 0);
   const daysOf = (r) => H().leaveDays(r.from, r.to, holidayDates());
   const pendingCount = () => S.requests.filter(isPending).length + S.overtime.filter((o) => o.status === 'مستني').length;
-  const mcell = (id) => { const m = M(id); return h('span', { class: 'mlink' }, U.Avatar(m.name), h('span', null, h('b', null, m.name), h('small', null, m.title))); };
+  const mcell = (id, name) => { const m0 = M(id); const m = m0 && m0.name && m0.name !== '—' ? m0 : { name: name || (m0 && m0.name) || '—', title: (m0 && m0.title) || '' }; return h('span', { class: 'mlink' }, U.Avatar(m.name), h('span', null, h('b', null, m.name), h('small', null, m.title))); };
   const note = (t) => h('p', { class: 't-small help', style: 'margin:0' }, t);
   const toMember = (list) => (i) => { const x = list[i]; if (x) location.hash = 'member-' + (x.member || x.id); };
   const money = (n) => (can().salaries ? K.money(n) : '••••');
@@ -371,13 +371,23 @@
     const status = (p) => (p.transfer ? K.Tag('success', 'اتحوّل' + (p.transfer.early ? ' (مبكر)' : '')) : done ? K.Tag('success', 'اتحوّل') : K.Tag('neutral', 'لسه'));
     const menu = (p) => { const open = !p.transfer && !done && !ahead; return K.RowMenu([open ? { label: 'تحويل المرتب', icon: 'send', run: () => payOne(p, mk) } : null, { label: 'تحويل سلفة', icon: 'briefcase', run: () => giveAdvance(M(p.member)) },
       open ? { label: 'تصحيح الأوفر تايم', icon: 'clock', run: () => fixOt(p, mk) } : null, { label: 'مكافأة / خصم', icon: 'plus', run: () => addAdjustment(mk, p.member) },
-      { label: 'القسيمة', icon: 'file', run: () => payslipModal(p, mk) }].filter(Boolean), 'إجراءات ' + p.name); };
+      { label: 'القسيمة', icon: 'file', run: () => payslipModal(p, mk) }].filter(Boolean), 'إجراءات ' + (p.name || (M(p.member) || {}).name || '')); };
     const cards = h('div', { class: 'cards', 'data-hr-pay-cards': '' }, K.Stat(done ? 'اتحوّل' : 'هيتحوّل', K.money(done ? T.net : T.toTransfer), 'ج.م', done ? 'من ' + ((sh && sh.paidAccount) || '—') : T.left + ' من ' + T.members + ' عضو لسه'),
       K.Stat('المرتبات', K.money(T.salaries), 'ج.م', 'المصروف كل شهر'), K.Stat('الأوفر تايم', K.money(T.overtime), 'ج.م', 'المتأكد + أيام الراحة ×2'), K.Stat('الخصومات والسُلف', K.money(T.cuts), 'ج.م', 'بتتخصم من الصافي'));
     const transferBtn = Button({ type: 'primary', label: done ? 'المرتبات اتحوّلت' : 'تحويل المرتبات', icon: 'send', disabled: done || ahead || L.status !== 'ok' || !T.left, attrs: { 'data-hr-transfer': '' }, onClick: () => transferAll(mk, lines) });
-    const table = lines.length ? U.Table({ cls: 'hr-pay', headers: ['العضو', 'المرتب', 'البونص', 'الأوفر تايم', 'إضافات', 'خصومات وسُلف', 'الصافي', 'التحويل', ''],
-      rows: lines.map((p) => [mcell(p.member), K.Num(K.money(p.paid)), p.quarterBonus ? K.Num(K.money(p.quarterBonus)) : '—', otOf(p) ? K.Num(K.money(otOf(p))) : '—', extraOf(p) ? K.Num(K.money(extraOf(p))) : '—',
-        cutsOf(p) ? K.Num('− ' + K.money(cutsOf(p))) : '—', h('b', null, K.Num(K.money(p.net))), status(p), menu(p)]),
+    // ش31: a salaries viewer outside HR (the accounts — 0115) sees only their own profile in the directory, so the names come from the
+    // active team's list (hr_task_people — names and codes only) and every active member is on the sheet
+    const people = (H() && H().data && H().data.people) || []; const pname = (id) => (people.find((x) => x.uid === id || x.code === id) || {}).name || null;
+    const pool = (H() && H().everyone ? H().everyone() : []).filter((m) => m.status === 'active').map((m) => ({ id: m.id, name: m.name }));
+    people.forEach((x) => { if (x.code && !pool.some((m) => m.id === x.uid || m.id === x.code)) pool.push({ id: x.code, uid: x.uid, name: x.name }); });
+    const onSheet = new Set(lines.flatMap((p) => [p.member, p.memberUid])); const noPay = L.status === 'ok' ? pool.filter((m) => !onSheet.has(m.id) && !(m.uid && onSheet.has(m.uid))) : [];
+    const table = lines.length || noPay.length ? U.Table({ cls: 'hr-pay', headers: ['العضو', 'المرتب', 'البونص', 'الأوفر تايم', 'إضافات', 'خصومات وسُلف', 'الصافي', 'التحويل', ''],
+      rows: lines.map((p) => [mcell(p.member, p.name || pname(p.member)), K.Num(K.money(p.paid)), p.quarterBonus ? K.Num(K.money(p.quarterBonus)) : '—', otOf(p) ? K.Num(K.money(otOf(p))) : '—', extraOf(p) ? K.Num(K.money(extraOf(p))) : '—',
+        cutsOf(p) ? K.Num('− ' + K.money(cutsOf(p))) : '—', h('b', null, K.Num(K.money(p.net))), status(p), menu(p)])
+      // ش30 (the owner 16 Nov — «حط كل الفريق حتي الادمنز و المالك و كله كله»): every active member I see is on the sheet — the ones with
+      // no salary set (an admin, the owner) on a row of their own: «مالوش مرتب» and «حدد المرتب» from their job card
+      .concat(noPay.map((m) => [mcell(m.id, m.name), '—', '—', '—', '—', '—', h('b', null, '—'), K.Tag('neutral', 'مالوش مرتب'),
+        K.RowMenu([{ label: 'حدد المرتب', icon: 'edit', run: () => { location.hash = 'member-' + m.id; } }, { label: 'مكافأة / خصم', icon: 'plus', run: () => addAdjustment(mk, m.id) }], 'إجراءات ' + m.name)])),
       totalRow: ['الإجمالي', K.Num(K.money(T.salaries)), K.Num(K.money(T.bonus)), K.Num(K.money(T.overtime)), K.Num(K.money(T.extras)), K.Num('− ' + K.money(T.cuts)), h('b', null, K.Num(K.money(T.net))), '', ''] })
       : L.status === 'loading' ? K.Empty('بيتحسب…', 'لحظة واحدة') : K.Empty('مفيش أعضاء بمرتب', 'المرتب بيتسجل من «إضافة عضو» أو ملف العضو.');
     return [h('div', { class: 'toolbar hr-mpick', 'data-hr-month-pick': mk }, pick, h('span', { class: 't-small help' }, 'يوم الصرف ' + K.dshort(payDay)), h('span', { class: 'grow' }), Button({ label: 'مكافأة / خصم', icon: 'plus', attrs: { 'data-hr-adjust': '' }, onClick: () => addAdjustment(mk) }), transferBtn),

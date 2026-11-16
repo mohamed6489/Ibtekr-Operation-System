@@ -366,3 +366,8 @@
   .stmt-preview .stmt-img { width: 22px; height: 22px; }
 }
 .stmt-img { display: inline-grid; place-items: center; width: 32px; height: 32px; flex: none; border-radius: 6px; background: var(--color-bg-tint, #f5ecdc); color: var(--color-text-subtle, #6b6458); }
+/* ش33: «البيانات الرسمية» under the company data */
+#pg-settings .set-sub{margin:var(--space-4,16px) 0 var(--space-2,8px);padding-top:var(--space-3,12px);border-top:1px solid var(--color-border-subtle,#eee);color:var(--color-brand-default)}
+/* ش34: the brand's own fonts */
+#pg-settings .own-fonts{display:grid;gap:var(--space-2,8px);margin:var(--space-3,12px) 0;padding:var(--space-3,12px);border:1px dashed var(--color-border-default,#ddd);border-radius:var(--radius-md,8px)}
+#pg-settings .own-font{display:flex;align-items:center;gap:var(--space-2,8px);padding:6px 10px;background:var(--color-bg-subtle,#faf6ef);border-radius:var(--radius-sm,6px)}

@@ -168,6 +168,48 @@
     if (r.body.result === 'ok') { logged('product.images.add', [Number(id)], [list.length + ' images' + (first ? ' first' : '')]); await refresh([Number(id)]); }
     return { ok: true, result: r.body.result, reason: r.body.reason || null, media: Array.isArray(r.body.media) ? r.body.media : [], count: Number(r.body.count) || 0 };
   }
+  // comments decision 55 (the owner 15 Nov — «اضافة صورة من الجهاز»): the member's own pictures onto a product. Each is drawn again in
+  // the browser (a real WebP where the browser writes one, else JPEG; 1600px at most on its long side — the picture as it is, not
+  // cropped) and sent as base64 to the same action, three a request; the site names them. → { ok, result, count, failed }
+  const UPLOAD_SIDE = 1600, UPLOAD_CHUNK = 3, UPLOAD_MAX = 12, UPLOAD_BYTES = 3 * 1048576;
+  function drawn(file) {
+    return new Promise((resolve) => {
+      let url = null; try { url = URL.createObjectURL(file); } catch (e) { return resolve(null); }
+      const im = new Image();
+      im.onload = () => {
+        try {
+          const k = Math.min(1, UPLOAD_SIDE / Math.max(im.naturalWidth, im.naturalHeight));
+          const cv = document.createElement('canvas'); cv.width = Math.max(1, Math.round(im.naturalWidth * k)); cv.height = Math.max(1, Math.round(im.naturalHeight * k));
+          const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height); ctx.drawImage(im, 0, 0, cv.width, cv.height);
+          cv.toBlob((b) => { URL.revokeObjectURL(url); if (b && b.type === 'image/webp') return resolve(b); cv.toBlob((j) => resolve(j), 'image/jpeg', 0.9); }, 'image/webp', 0.88);
+        } catch (e) { URL.revokeObjectURL(url); resolve(null); }
+      };
+      im.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+      im.src = url;
+    });
+  }
+  async function base64Of(blob) {
+    const bytes = new Uint8Array(await blob.arrayBuffer()); let out = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) out += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(out);
+  }
+  async function uploadImages(id, files, first) {
+    const list = [].concat(files || []).filter(Boolean);
+    if (!list.length || list.length > UPLOAD_MAX) return { ok: false, reason: 'invalid', field: 'images' };
+    const data = [];
+    for (const f of list) { const b = await drawn(f); if (!b || b.size > UPLOAD_BYTES) return { ok: false, reason: 'not_image' }; data.push({ data: await base64Of(b) }); }
+    let count = 0; let skipped = null;
+    // «first»: every turn goes ahead of the product's images, so the turns are sent last-first and the member's order is kept
+    const turns = []; for (let i = 0; i < data.length; i += UPLOAD_CHUNK) turns.push(data.slice(i, i + UPLOAD_CHUNK)); if (first) turns.reverse();
+    for (const part of turns) {
+      const r = await invoke({ action: 'product_images_add', id: Number(id), images: part, first: !!first });
+      if (!r.ok) { if (count) { logged('product.images.add', [Number(id)], [count + ' images uploaded']); await refresh([Number(id)]); } return Object.assign(r, { count, failed: data.length - count }); }
+      if (r.body.result !== 'ok') { skipped = r.body; break; }
+      count += Number(r.body.count) || part.length;
+    }
+    if (count) { logged('product.images.add', [Number(id)], [count + ' images uploaded' + (first ? ' first' : '')]); await refresh([Number(id)]); }
+    return skipped && !count ? { ok: true, result: skipped.result, reason: skipped.reason || null, count: 0, failed: data.length } : { ok: true, result: 'ok', count, failed: data.length - count };
+  }
   // the owner (1 Nov): the products' maker on the site (Dokan's post_author — the studio's own way; the admin or products.bulk)
   // → { ok, result, moved, failedIds } · a maker without a store on the site: reason no_store
   async function moveVendor(ids, vendorId) {
@@ -334,7 +376,7 @@
   function clear() { prodLog = null; gen++; leadCache.clear(); st = 'idle'; rows = new Map(); cats = new Map(); brands = new Map(); comm = new Map(); repCache = new Map(); }
 
   window.IBProducts = {
-    load, ensure, refresh, clear, state: () => st, list, trash, get, toRecord, can, rateOf, commissionOf, commissionParams, vendorPriceOf, STATUS, report, reportFailed, reportRetry, addImages, moveVendor,
+    load, ensure, refresh, clear, state: () => st, list, trash, get, toRecord, can, rateOf, commissionOf, commissionParams, vendorPriceOf, STATUS, report, reportFailed, reportRetry, addImages, uploadImages, moveVendor,
     categories: () => [...cats.values()].map((x) => ({ id: Number(x.id), name: x.name, parentId: x.parent_id ? Number(x.parent_id) : null, path: catPath(x.id), slug: x.slug || '', image: /^https:\/\//.test(x.image_url || '') ? x.image_url : null })).sort((a, b) => a.path.localeCompare(b.path)),
     brands: () => [...brands.values()].map((x) => ({ id: Number(x.id), name: x.name })),
     // phase 5.2: a category the studio just made on the site (category_create) shows at once

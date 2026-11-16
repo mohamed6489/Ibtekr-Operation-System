@@ -477,7 +477,7 @@
     const t = slide == null || slide < 0 ? p : p.slides[slide]; let note = '';
     const pins = (t.pins || []).map((x) => Object.assign({}, x)); let adding = true;
     const before = { title: t.title || '', sub: t.sub || '', badge: t.badge || '' };
-    const m = U.Modal({ title: 'تعديل ' + label, body: [], footer: [] }); m.el.classList.add('wide');
+    const m = U.Modal({ title: 'تعديل على الصورة — ' + label, body: [], footer: [] }); m.el.classList.add('wide');
     const n = W.imgRate(IMGM(), p.model);
     const draw = () => {
       const stage = h('div', { class: 'cw-pin-stage' + (adding ? ' adding' : ''), 'data-pin-stage': '', role: 'application', 'aria-label': 'الصورة — دوس في أي مكان تحط تعليق' }, pv(t.img, vcls(p)),
@@ -515,12 +515,12 @@
     return h('div', { class: 'acts-inline start' }, ok ? Tag('success', 'اتوافق') : null,
       ok ? Button({ size: 'sm', label: 'رجّع للتعديل', onClick: () => { t.approved = false; if (t !== p) p.approved = false; persist(0); R(); } })
         : Button({ type: 'primary', size: 'sm', icon: 'check', label: 'موافقة', disabled: !t.img, attrs: { 'data-cw-ok': label }, onClick: () => { t.approved = true; persist(0); R(); } }),
-      Button({ size: 'sm', icon: 'edit', label: 'تعديل', disabled: !t.img || !can().create, attrs: { 'data-cw-edit': label }, onClick: () => editRegen(p, slide, label) })); };
+      Button({ size: 'sm', icon: 'edit', label: 'تعديل على الصورة', disabled: !t.img || !can().create, attrs: { 'data-cw-edit': label }, onClick: () => editRegen(p, slide, label) })); };
   function reviewPost(p) {
     const ctx = { piece: p.id, slide: null }; const busy = camp.busy[busyKey(p, null)];
     return h('section', { class: 'card cw-piece cw-rev' + (p.approved ? ' ok' : ''), 'data-cw-rev': p.id }, h('div', { class: 'cw-ph' }, h('b', { class: 't-h5' }, p.kind + ' ' + p.n), h('span', { class: 'cw-meta' }, h('span', null, szName(p.size)), h('span', null, mdlName(p.model))), p.v > 1 ? Tag('gold', 'نسخة ' + p.v) : null),
       h('div', { class: 'cw-grid' }, h('div', { class: 'cw-pv-w' }, pv(p.img, vcls(p), null, busy)), h('div', { class: 'cw-fields' }, p.kind === 'بوست' ? txt('r-' + p.id + '-cap', 'الكابشن', p.caption, (v) => { p.caption = v; }, true, ctx) : null,
-        (p.pins || []).length ? U.InlineNote({ children: (p.pins || []).length + ' تعليق محفوظ على الصورة — «تعديل» عشان تولّد بيهم' }) : null, okBtns(p, null, p.kind + ' ' + p.n))));
+        (p.pins || []).length ? U.InlineNote({ children: (p.pins || []).length + ' تعليق محفوظ على الصورة — «تعديل على الصورة» عشان تولّد بيهم' }) : null, okBtns(p, null, p.kind + ' ' + p.n))));
   }
   function reviewCarousel(p) {
     const done = W.approved(p);

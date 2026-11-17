@@ -1478,6 +1478,31 @@
     return true;
   }
   // ش45 decision 4: the designer's (or the header's) filled campaign — «كامبين جديدة» on its details, nothing saved or generated
+  // the owner 17 Nov («حط جمب زر صفحته — اعمل زيه و توديني علي صفحة انشاء محتوي و يملالي الداتا كلها بناءا علي الفيديو و يبقي ك مرجع»):
+  // «اعمل زيه» on a trend (its video or post) and on a competitor — «كامبين جديدة» opens filled (the idea from it, a reel for a video and a
+  // post for a picture) with its link under «فايلز أو لينكات أمثلة للمطابقة» (the server takes its picture — ai-images ref_link) and in
+  // the notes; nothing generated — the build step writes the pieces as usual
+  async function copyFrom(src) {
+    if (!can().create || !src) return false;
+    const video = src.kind === 'video';
+    const title = String(src.title || src.name || '').replace(/\s+/g, ' ').trim().slice(0, 160);
+    const about = String(src.summary || src.note || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+    const idea = (src.from === 'competitor' ? 'محتوى بنفس روح إعلانات «' + title + '»' : 'محتوى زي «' + title + '»' + (src.platform && TR_PF[src.platform] && TR_PF[src.platform][0] ? ' على ' + TR_PF[src.platform][0] : ''))
+      + (about ? ' — ' + about : '') + ' — بمنتجات إبتكر وبأسلوبنا، مش نسخة';
+    const w = W.draftOf ? W.draftOf({ goal: 'منتج جديد', idea, post: video ? 0 : 1, carousel: 0, video: video ? 1 : 0, dur: 15 }) : null; if (!w) return false;
+    const tab = video ? 'video' : 'post'; const link = /^https:\/\//.test(String(src.url || '')) ? String(src.url) : '';
+    if (link) w.media[tab].notes = 'المرجع: ' + link;
+    Object.assign(camp, blankCamp()); camp.w = w;
+    go('marketing-campaign-1');
+    if (!link) return true;
+    // the reference: its picture fetched into the campaign's folder (a draft campaign is saved for it); a page that gives none stays a note
+    const mine = camp; if (!(await ensureCampaign())) return true;
+    const r = await MK().refLink(mine.id, link);
+    if (camp !== mine || !camp.w || camp.w !== w) return true;
+    if (r.ok) { w.media[tab].ref.push({ t: 'file', name: r.name, path: r.path }); persist(); R(); K.toast('اتفتحت الكامبين متملّية — والمرجع اتحط في «أمثلة للمطابقة»', 'success'); }
+    else K.toast('اتفتحت الكامبين متملّية — ماقدرناش ناخد صورة المرجع (اللينك في الملاحظات)', 'info');
+    return true;
+  }
   function openDraft(d) {
     if (!can().create) return false;
     const w = W.draftOf ? W.draftOf(d) : null; if (!w) return false;
@@ -1738,23 +1763,27 @@
   // post's picture (kept by the server — ai-images trend_thumbs) with the platform, the numbers and the title on it, opening the post
   // itself in a new tab. The tags and sites are the admin's, in «الإعدادات › تعليمات الذكاء الاصطناعي › المساعدين › المصمم الاصطناعي».
   const TR_PF = { tiktok: ['TikTok', 'tt'], instagram: ['Instagram', 'ig'], facebook: ['Facebook', 'fb'], web: ['', 'web'] };
-  const TRV = { tab: 'video', tag: '' };
+  const TRV = { tab: 'video', f: { tag: [], pf: [] } };
   const compact = (n) => (n == null ? '' : n >= 1e6 ? (Math.round(n / 1e5) / 10) + 'M' : n >= 1e3 ? (Math.round(n / 100) / 10) + 'K' : String(n));
   function trTile(x) {
     const pf = TR_PF[x.platform] || TR_PF.web; const src = x.thumb ? MK().trendThumbNow(x.thumb) : null;
     const num = x.views != null ? ['eye', compact(x.views)] : x.likes != null ? ['star', compact(x.likes)] : null;
-    return h('a', { class: 'mk-tile' + (src ? '' : ' no-pic') + ' pf-' + pf[1], href: x.url, target: '_blank', rel: 'noopener noreferrer', title: x.title + (x.summary ? ' — ' + x.summary : ''), 'data-mk-trend': String(x.id), 'data-mk-trend-kind': x.kind },
+    const copy = can().create ? h('button', { type: 'button', class: 'mk-tile-copy', 'data-mk-copy-trend': String(x.id), title: 'اعمل زيه — كامبين جديدة متملّية والبوست ده مرجع', onClick: (e) => { e.preventDefault(); e.stopPropagation(); copyFrom({ from: 'trend', kind: x.kind, title: x.title, summary: x.summary, url: x.url, platform: x.platform }); } }, Icon('sparkle', 'sm'), h('span', null, 'اعمل زيه')) : null;
+    return h('div', { class: 'mk-tile-box' }, h('a', { class: 'mk-tile' + (src ? '' : ' no-pic') + ' pf-' + pf[1], href: x.url, target: '_blank', rel: 'noopener noreferrer', title: x.title + (x.summary ? ' — ' + x.summary : ''), 'data-mk-trend': String(x.id), 'data-mk-trend-kind': x.kind },
       src ? h('img', { src, alt: '', loading: 'lazy', referrerpolicy: 'no-referrer' }) : h('span', { class: 'mk-tile-ph', 'aria-hidden': 'true' }, Icon(x.kind === 'video' ? 'play' : 'image')),
       x.kind === 'video' ? h('span', { class: 'mk-tile-kind', 'aria-label': 'فيديو' }, Icon('play', 'sm')) : null,
       h('span', { class: 'mk-tile-top' }, h('span', { class: 'mk-tile-pf', 'data-mk-trend-src': String(x.id) }, x.platform !== 'web' ? Icon(x.platform, 'sm') : null, pf[0] || x.source), x.tag ? h('span', { class: 'mk-tile-tag' }, '#' + x.tag) : null),
-      h('span', { class: 'mk-tile-cap' }, h('b', null, x.title), h('small', null, [x.author, num ? null : x.source !== pf[0] ? x.source : null].filter(Boolean).join(' · ') || ' '), num ? h('span', { class: 'mk-tile-num' }, Icon(num[0], 'sm'), K.Num(num[1])) : null));
+      h('span', { class: 'mk-tile-cap' }, h('b', null, x.title), h('small', null, [x.author, num ? null : x.source !== pf[0] ? x.source : null].filter(Boolean).join(' · ') || ' '), num ? h('span', { class: 'mk-tile-num' }, Icon(num[0], 'sm'), K.Num(num[1])) : null)), copy);
   }
   function trendsCard() {
     trLoad(false);
     if (MK().trendSettings && !MK().trendSettingsNow()) MK().trendSettings().then(() => { if (here() && !document.querySelector('.scrim')) R(); });
     const L = MK().trendsNow ? MK().trendsNow() : []; const ready = !MK().trendsReadyNow || MK().trendsReadyNow();
     const cfg = (MK().trendSettingsNow && MK().trendSettingsNow()) || { tags: [] };
-    const all = L || []; const tagged = TRV.tag ? all.filter((x) => x.tag === TRV.tag) : all;
+    const all = L || [];
+    // the owner 17 Nov («حط التاجز جوة زر الفلتر و حط لو فيه فلاتر تانية محتاجينها»): the kit's «فلتر» — the tag and the platform
+    const pass = (f) => (x) => (!f.tag.length || f.tag.includes(x.tag || '')) && (!f.pf.length || f.pf.includes(x.platform));
+    const tagged = all.filter(pass(TRV.f));
     const vids = tagged.filter((x) => x.kind === 'video'); const posts = tagged.filter((x) => x.kind !== 'video');
     const shown = TRV.tab === 'video' ? vids : posts;
     const need = shown.filter((x) => x.thumb && !MK().trendThumbNow(x.thumb)).map((x) => x.thumb);
@@ -1763,13 +1792,20 @@
     const go = can().create && ready ? Button({ size: 'sm', type: 'primary', icon: 'sparkle', label: TR.asking ? 'بيدوّر…' : 'حدّث التريندات', disabled: TR.asking, attrs: { 'data-mk-trends-go': '' }, onClick: trRefresh }) : null;
     const tabs = h('div', { 'data-mk-trend-tabs': '' }, K.SubTabs({ label: 'نوع التريند', active: TRV.tab, onChange: (id) => { TRV.tab = id; R(); }, items: [{ id: 'video', label: 'فيديوهات', count: String(vids.length) }, { id: 'post', label: 'بوستات', count: String(posts.length) }] }));
     const tags = [...new Set(cfg.tags.concat(all.map((x) => x.tag).filter(Boolean)))];
-    const chips = tags.length ? h('div', { class: 'chips mk-trend-tags', role: 'group', 'aria-label': 'التاجز' }, ['', ...tags].map((t) => h('button', { type: 'button', class: 'chip', 'aria-pressed': String(TRV.tag === t), 'data-mk-trend-tag': t, onClick: () => { TRV.tag = t; R(); } }, t ? '#' + t : 'الكل'))) : null;
+    const pfs = Object.keys(TR_PF).filter((k) => all.some((x) => x.platform === k));
+    const groups = [tags.length ? { key: 'tag', label: 'التاج', options: tags.map((t) => [t, '#' + t]) } : null,
+      pfs.length ? { key: 'pf', label: 'المنصة', options: pfs.map((k) => [k, TR_PF[k][0] || 'مواقع']) } : null].filter(Boolean);
+    const fbtn = groups.length && K.FilterMenu ? K.FilterMenu({ id: 'mk-trends', label: 'فلتر التريندات', noun: 'تريند', groups, value: TRV.f,
+      count: (d) => all.filter(pass({ tag: d.tag || [], pf: d.pf || [] })).filter((x) => (TRV.tab === 'video') === (x.kind === 'video')).length,
+      onApply: (d) => { TRV.f = { tag: (d.tag || []).slice(), pf: (d.pf || []).slice() }; R(); } }) : null;
+    const chips = h('div', { class: 'mk-trend-bar', 'data-mk-trend-filter': '' }, tabs, fbtn);
+    const picked = TRV.f.tag.length + TRV.f.pf.length;
     const set = window.IBDirectory && window.IBDirectory.me && (window.IBDirectory.me() || {}).role_id === 'admin'
       ? Button({ size: 'sm', type: 'text', icon: 'gear', label: 'التاجز والمصادر', attrs: { 'data-mk-trends-settings': '' }, onClick: () => { const s2 = window.IBPages.all().settings; if (s2 && s2.api && s2.api.openAgents) s2.api.openAgents('designer'); else location.hash = '#settings-ai'; } }) : null;
     const body = !L ? [K.Empty('بيحمّل…', '')] : !ready ? [U.InlineNote({ children: 'القسم ده مستني تحديث قاعدة البيانات — هيشتغل بعد التحديث الجاي.' })]
       : !all.length ? [K.Empty('لسه مفيش تريندات', can().create ? (cfg.tags.length ? 'دوس «حدّث التريندات» — بيدوّر على تيك توك وإنستجرام وفيسبوك بالتاجز بتاعتك.' : 'دوس «حدّث التريندات»' + (set ? '، وحط تاجز مجالك من «التاجز والمصادر» عشان يجيب فيديوهات وبوستات ليها علاقة بيه.' : '.')) : 'اللي معاه «التسويق: إنشاء» بيحدّثها.')]
-      : [tabs, chips, shown.length ? h('div', { class: 'mk-reels' + (TRV.tab === 'video' ? ' is-video' : ''), 'data-mk-reels': TRV.tab }, shown.map(trTile))
-        : K.Empty(TRV.tab === 'video' ? 'مفيش فيديوهات' + (TRV.tag ? ' للتاج ده' : '') + ' لسه' : 'مفيش بوستات' + (TRV.tag ? ' للتاج ده' : '') + ' لسه', 'حدّث التريندات أو اختار تاج تاني.'),
+      : [chips, shown.length ? h('div', { class: 'mk-reels' + (TRV.tab === 'video' ? ' is-video' : ''), 'data-mk-reels': TRV.tab }, shown.map(trTile))
+        : K.Empty(TRV.tab === 'video' ? 'مفيش فيديوهات' + (picked ? ' بالفلتر ده' : '') + ' لسه' : 'مفيش بوستات' + (picked ? ' بالفلتر ده' : '') + ' لسه', picked ? 'غيّر الفلتر أو حدّث التريندات.' : 'حدّث التريندات.'),
         h('p', { class: 't-small help', style: 'margin:0' }, (cfg.tags.length ? 'بالتاجز: ' + cfg.tags.map((t) => '#' + t).join(' ') + ' — من تيك توك وإنستجرام وفيسبوك. ' : '') + 'كل كارت بيفتح البوست نفسه في تاب جديد — راجعه قبل ما تبني عليه. التحديث على سقف الـ AI الشهري.')];
     return Card('آخر التريندات', last ? 'آخر تحديث ' + D2(last) + (cfg.tags.length ? ' · فيديوهات وبوستات بتاجز مجالك' : ' · من مواقع بتنشر التريندات') : 'فيديوهات وبوستات من تيك توك وإنستجرام وفيسبوك',
       body, [set, go].filter(Boolean), 'mk-trends', { noun: 'تريند' });
@@ -1814,7 +1850,8 @@
       h('div', { class: 'mk-cc-who' }, av, h('div', null, h('b', null, x.name), h('small', null, x.pageId ? 'إعلانات الصفحة نفسها' : 'بحث بـ «' + (x.keyword || x.name) + '»'))),
       x.note ? h('p', { class: 'mk-cc-note' }, x.note) : null,
       h('div', { class: 'mk-cc-acts' }, libLink(x, 'افتح كل إعلاناته على ميتا', { 'data-mk-comp-ads': String(x.id), class: 'btn btn-default mk-lib mk-cc-go' }),
-        x.pageUrl ? h('a', { class: 'mk-out', href: x.pageUrl, target: '_blank', rel: 'noopener noreferrer', title: 'افتح صفحته' }, h('span', null, 'صفحته'), Icon('external', 'sm')) : null));
+        h('div', { class: 'mk-cc-links' }, x.pageUrl ? h('a', { class: 'mk-out', href: x.pageUrl, target: '_blank', rel: 'noopener noreferrer', title: 'افتح صفحته' }, h('span', null, 'صفحته'), Icon('external', 'sm')) : null,
+          can().create ? Button({ size: 'sm', type: 'text', icon: 'sparkle', label: 'اعمل زيه', attrs: { 'data-mk-copy-comp': String(x.id) }, onClick: () => copyFrom({ from: 'competitor', kind: 'post', name: x.name, note: x.note, url: x.pageUrl || '' }) }) : null)));
   }
   function competitorsCard() {
     cpLoad(false);

@@ -30,13 +30,14 @@
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, Math.round(Number(v) || 0)));
   const files = () => ({ use: [], ref: [] });
 
+  // ش38 (the owner 17 Nov — «لما ابدء كامبين خلي الكرياتيفس كلها عددها صفر»): a new campaign starts with no piece of any kind; «التالي» asks for one
   function defaults() {
     return {
       goal: 'منتج جديد', idea: '', mediaTab: 'post',
       media: {
         video: Object.assign({ count: 0, size: '9:16', dur: 15, model: 'seedance-2.5', notes: '' }, files()),
-        post: Object.assign({ count: 2, size: '1080x1350', model: DEFAULT_MODEL, notes: '' }, files()),
-        carousel: Object.assign({ count: 1, slides: 4, size: '1080x1350', model: DEFAULT_MODEL, notes: '' }, files()),
+        post: Object.assign({ count: 0, size: '1080x1350', model: DEFAULT_MODEL, notes: '' }, files()),
+        carousel: Object.assign({ count: 0, slides: 4, size: '1080x1350', model: DEFAULT_MODEL, notes: '' }, files()),
       },
       extra: Object.assign({ count: 0, model: DEFAULT_MODEL, notes: '' }, files()),
     };

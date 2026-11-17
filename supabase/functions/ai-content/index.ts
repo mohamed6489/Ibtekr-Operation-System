@@ -45,6 +45,7 @@
 // the secrets AI_CONTENT_MODEL / AI_CONTENT_EFFORT / AI_MONTHLY_LIMIT_USD are the fallback, then the defaults — read before every call.
 import Anthropic from 'npm:@anthropic-ai/sdk@1.3.0';
 import { bestName, nameMatches } from '../_shared/names.js';
+import { filesLine } from '../_shared/agent-files.js';
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { aiSettings, categoryLines, cleanExtract, cleanPrompts, cleanStudio, cleanWrite, costOf, extractRequest, line, parseExtract, parsePrompts, parseStudio, parseWrite, promptsRequest, readAnswer, shotPromptRows, studioRequest, usageOf, writeRequest } from '../_shared/ai-content.js';
 import { vaultEnv } from '../_shared/secrets.js';
@@ -512,7 +513,7 @@ async function agent(deps: Deps, uid: string, args: Json, jwt = '') {
       await deps.db.from('mkt_agent_chats').update({ updated_at: now }).eq('id', chat.id);
     }
     const { data: turns, error } = await deps.db.from('mkt_agent_messages').insert([
-      { chat_id: chat.id, role: 'user', text: req.question, created_at: now },
+      { chat_id: chat.id, role: 'user', text: [req.question, filesLine(req.files)].filter(Boolean).join('\n'), created_at: now }, // the files' names only
       { chat_id: chat.id, role: 'assistant', text: out.text, created_at: now },
     ]).select('id, role, text, images, created_at');
     if (error || !Array.isArray(turns)) return false;

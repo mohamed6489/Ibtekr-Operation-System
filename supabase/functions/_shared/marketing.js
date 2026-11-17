@@ -13,6 +13,7 @@ import { speedLine } from './site-speed.js';
 import { DRAFT_RULE, DRAFT_SCHEMA, campaignDraft } from './campaign-draft.js';
 import { pixelText } from './mkt-pixel.js';
 import { NAME_RULE } from './names.js';
+import { fileBlocks, parseFiles } from './agent-files.js';
 import { CLIENT_TOOL_DEFS, FORMS, PAGES, cleanAction } from './ai-assistant.js';
 
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -494,9 +495,11 @@ export function parseAgent(b) {
   if (typeof b.agent !== 'string' || !AGENT_ID.test(b.agent)) return bad('agent'); // 0120: any assistant of the registry — the server checks it is there and the member's
   const chatId = b.chat_id == null || b.chat_id === '' ? null : typeof b.chat_id === 'string' && UUID.test(b.chat_id) ? b.chat_id.toLowerCase() : undefined;
   if (chatId === undefined) return bad('chat_id');
-  const question = paras(b.question, AGENT_Q_MAX);
+  // the owner 17 Nov: files with the message (agent-files.js) — a message of files only asks about them
+  const pf = parseFiles(b.files); if (pf.error) return bad('files');
+  const question = paras(b.question, AGENT_Q_MAX) || (pf.files.length ? 'بص على ' + (pf.files.length > 1 ? 'الملفات دي' : 'الملف ده') + ' وقولّي رأيك' : '');
   if (!question) return bad('question');
-  return { req: { agent: b.agent, chatId, question } };
+  return { req: { agent: b.agent, chatId, question, files: pf.files } };
 }
 /** A new chat's name: its first question on one line, cut at a word within 60 characters. */
 export function agentTitle(question) {
@@ -532,7 +535,7 @@ export function agentRequest(req, ctx) {
   const head = req.agent === 'buyer' ? adsBlock(ctx.data) + '\n\n' : req.agent === 'dev' ? siteBlock(ctx.site) + '\n\n' : ctx.dataText ? String(ctx.dataText) + '\n\n' : '';
   const messages = (Array.isArray(ctx.history) ? ctx.history : []).map((h) => ({ role: h.role, content: [{ type: 'text', text: h.text }] }));
   if (messages.length && messages[messages.length - 1].role === 'user') messages.pop(); // a turn left without an answer is not repeated
-  messages.push({ role: 'user', content: [{ type: 'text', text: head + req.question }] });
+  messages.push({ role: 'user', content: [...fileBlocks(req.files), { type: 'text', text: head + req.question }] });
   const hand = tb ? { handoff: HANDOFF_SCHEMA() } : {};
   system.push({ type: 'text', text: ACT_RULE.trim() }); hand.forms = FORMS_SCHEMA(); hand.page = PAGE_SCHEMA(); // agents-brain T3
   const schema = req.agent === 'designer' ? obj({ text: STR(), image_prompt: STR(), request: REQ_SCHEMA(), campaign: DRAFT_SCHEMA(), ...hand })

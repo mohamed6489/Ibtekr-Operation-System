@@ -20,7 +20,7 @@ AddCharset UTF-8 .html .js .css
   # (blocks 10, 17, 28) are vendored under js/vendor/ (README.md there), so every script is same-origin.
   # Inline styles come from the prototype. blob: images: the share-as-image fallback (blocks 10, 28) shows its
   # canvas as URL.createObjectURL(blob); only our own scripts (script-src 'self') can mint one.
-  Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; connect-src 'self' https://fsynculhaupcktzkfkdd.supabase.co wss://fsynculhaupcktzkfkdd.supabase.co; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; frame-src https://www.tiktok.com https://www.instagram.com https://www.facebook.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
+  Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; connect-src 'self' https://fsynculhaupcktzkfkdd.supabase.co wss://fsynculhaupcktzkfkdd.supabase.co; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; media-src 'self' blob: https:; frame-src https://www.tiktok.com https://www.instagram.com https://www.facebook.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
 </IfModule>
 
 # Phase 6 decision 26: the WhatsApp sign-in page alone loads Meta's JavaScript SDK (Embedded Signup needs FB.login; the plain

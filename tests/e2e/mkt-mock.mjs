@@ -6,6 +6,7 @@
 // rows only through mkt_schedule / mkt_post_act with marketing.publish F and the day / hour rules on Cairo's clock). The AI actions
 // (ai-images campaign / campaign_edit, ai-content marketing) are answered here too (mktAi). Every RPC / function call lands in
 // mkt.calls, every write the client sent in mkt.writes ({ table, op, ...columns }).
+import { filesLine } from '../../supabase/functions/_shared/agent-files.js';
 import { agentImagePath, agentTitle, campaignGenPath, campaignPathOk, campaignTarget, cleanAgent, cleanBuyer, cleanMarketing, parseAgent, parseAgentImage, parseBuyer, parseCampaign, parseCampaignEdit, parseMarketing, campaignTargets, flowKey, campaignRefs, placeImage } from '../../supabase/functions/_shared/marketing.js';
 import { BUYER_DEFAULTS, MAX_STEP, budgetPlan, rulesPatch } from '../../supabase/functions/_shared/mkt-ads.js';
 import { PLATFORMS as AD_PLATFORMS, linkAccount, linkPublic, linkReady, parseLink, platformOf } from '../../supabase/functions/_shared/mkt-ads-link.js';
@@ -543,6 +544,8 @@ export function mktRoute(c) {
 // ai-content marketing (fill from the saved piece, rewrite, describe — the answer H.aiAnswer(req, target) or the default below,
 // cleaned by the server's own cleanMarketing). H.imgFail / H.aiFail = 'ai_cap' | 'busy' | 'not_configured' | 'ai_error' | 'refused'.
 function mktAi(c, b) {
+  // the owner 17 Nov (the chat's queue): a test holds the next agent answer until it resolves H.agentHold
+  if (b.action === 'agent' && c.mock.mkt.agentHold) { const hold = c.mock.mkt.agentHold; c.mock.mkt.agentHold = null; return hold.then(() => mktAi(c, b)); }
   const { u, json, hasPerm, isAdmin, mock } = c; const H = mock.mkt;
   const agentCan = agentCanOf(H, isAdmin, hasPerm);
   H.calls.push({ fn: b.action === 'marketing' || b.action === 'buyer' || b.action === 'agent' || b.action === 'kb' ? 'ai-content' : 'ai-images', action: b.action, task: b.task || null, by: u ? u.id : null, piece: b.piece || null, slide: b.slide == null ? null : b.slide, scene: b.scene == null ? null : b.scene, kind: b.kind || null, model: b.model || null, pins: Array.isArray(b.pins) ? b.pins.length : 0, notes: b.notes || null });
@@ -591,7 +594,7 @@ function mktAi(c, b) {
     let chat = null;
     if (p.req.chatId) { chat = H.agentChats.find((x) => x.id === p.req.chatId) || null; if (!chat || chat.member_id !== u.id || chat.deleted_at || chat.agent !== p.req.agent) return json(404, { error: 'not_found' }); }
     const hist = chat ? H.agentMsgs.filter((m) => m.chat_id === chat.id) : [];
-    H.calls[H.calls.length - 1].agent = p.req.agent; H.calls[H.calls.length - 1].history = hist.length; H.calls[H.calls.length - 1].chat = chat ? chat.id : null;
+    H.calls[H.calls.length - 1].agent = p.req.agent; H.calls[H.calls.length - 1].files = (p.req.files || []).map((f) => f.kind + ':' + f.name); H.calls[H.calls.length - 1].question = p.req.question; H.calls[H.calls.length - 1].history = hist.length; H.calls[H.calls.length - 1].chat = chat ? chat.id : null;
     if (H.agentFail) return H.agentFail === 'refused' ? json(200, { result: 'refused', model: 'mock' }) : json(H.agentFail === 'ai_cap' ? 402 : H.agentFail === 'busy' ? 429 : H.agentFail === 'not_configured' ? 503 : 502, { error: H.agentFail });
     const cfg = H.agents[p.req.agent] || {};
     const raw = H.agentAnswer ? H.agentAnswer(p.req, cfg) : { text: 'سؤالك: ' + p.req.question + (p.req.agent === 'buyer' ? '\nالأرقام من آخر 7 أيام على ' + H.adObjects.filter((o) => o.kind === 'campaign').length + ' حملة. أنا ببص بس — التنفيذ من الاقتراحات بموافقتك.' : '') + (hist.length ? '\n(فاكر ' + hist.length + ' رسالة قبل كده)' : ''),
@@ -605,7 +608,7 @@ function mktAi(c, b) {
     if (!chat) { H.nchat += 1; chat = { id: 'c0000000-0000-4000-8000-' + String(H.nchat).padStart(12, '0'), member_id: u.id, agent: p.req.agent, title: agentTitle(p.req.question), created_at: now, updated_at: now, deleted_at: null }; H.agentChats.push(chat); }
     else chat.updated_at = now;
     const mk = (role, text) => { const id = H.agentMsgs.reduce((m, x) => Math.max(m, x.id), 0) + 1; const r = { id, chat_id: chat.id, role, text, images: [], run_id: null, created_at: now }; H.agentMsgs.push(r); return r; };
-    const turns = [mk('user', p.req.question), mk('assistant', out.text)];
+    const turns = [mk('user', [p.req.question, filesLine(p.req.files)].filter(Boolean).join('\n')), mk('assistant', out.text)];
     H.seq += 1; return json(200, { result: 'ok', ...out, chat: { id: chat.id, agent: chat.agent, title: chat.title, updated_at: now }, turns: turns.map((x) => ({ id: x.id, role: x.role, text: x.text, images: x.images, created_at: x.created_at })), model: 'claude-opus-5-5', cost_usd: 0.004, run_id: H.seq });
   }
   if (!u || !(isAdmin(u) || hasPerm(u, 'marketing.create') === 'F')) return json(401, { error: 'unauthorized' });

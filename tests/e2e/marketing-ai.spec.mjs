@@ -931,3 +931,29 @@ test('the owner 17 Nov — «البيكسل» under the media buyer: «افحص 
   await expect(P.locator('#mk-ask')).toHaveValue(/البيكسل.*Purchase/);
   expect(mock.mkt.calls.filter((x) => x.fn === 'ai-content').length).toBe(asks);
 });
+
+test('the owner 17 Nov — the chat bar like Claude\'s: «+» files (an image read in the browser, a chip with ×), a message sent while the answer is coming waits in the queue and goes after it, in order; the mic button is there', async ({ page }) => {
+  await start(page);
+  await openAi(page, ADMIN);
+  const P = pg(page);
+  await expect(P.locator('[data-mk-pending]')).toBeVisible();
+  await expect(P.locator('.mk-ask [data-mk-mic]')).toBeVisible();
+  await expect(P.locator('.mk-ask [data-mk-attach]')).toBeVisible();
+  // a file: a 1px PNG through «+»
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const chooser = page.waitForEvent('filechooser'); await P.locator('[data-mk-attach]').click();
+  await (await chooser).setFiles({ name: 'post.png', mimeType: 'image/png', buffer: png });
+  await expect(P.locator('[data-mk-file="post.png"] img')).toBeVisible();
+  // the answer is held: the second message waits in the queue
+  let release; mock.mkt.agentHold = new Promise((r) => { release = r; });
+  await P.locator('#mk-ask').fill('بص على البوست ده'); await P.locator('#mk-ask').press('Enter');
+  await expect(P.locator('[data-mk-files]')).toHaveCount(0); // the files went with the message
+  await P.locator('#mk-ask').fill('وكمان قولّي أحسن وقت للنشر'); await P.locator('#mk-ask').press('Enter');
+  await expect(P.locator('[data-mk-queue="1"]')).toContainText('أحسن وقت للنشر');
+  release();
+  await expect(P.locator('[data-mk-queue]')).toHaveCount(0);
+  await expect.poll(() => mock.mkt.calls.filter((x) => x.fn === 'ai-content' && x.action === 'agent').length).toBe(2);
+  const calls = mock.mkt.calls.filter((x) => x.fn === 'ai-content' && x.action === 'agent');
+  expect(calls.map((x) => [x.question, x.files])).toEqual([['بص على البوست ده', ['image:post.png']], ['وكمان قولّي أحسن وقت للنشر', []]]);
+  await expect(P.locator('.mk-msg.user').first()).toContainText('📎 post.png');
+});

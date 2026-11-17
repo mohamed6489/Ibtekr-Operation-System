@@ -211,7 +211,7 @@ test('marketingRequest / cleanMarketing for a video piece: rewrite its idea or i
 // ---------------------------------------------------------------- 0084: the assistants' chats (decisions 5 and 6)
 test('parseAgent: the assistant, an optional chat uuid, the question (≤ 1000); agentTitle: the first question on one line, cut at a word', () => {
   const U = 'c0000000-0000-4000-8000-0000000000aa';
-  assert.deepEqual(parseAgent({ agent: 'designer', question: '  بوست\r\nللشتا ' }), { req: { agent: 'designer', chatId: null, question: 'بوست\nللشتا' } });
+  assert.deepEqual(parseAgent({ agent: 'designer', question: '  بوست\r\nللشتا ' }), { req: { agent: 'designer', chatId: null, question: 'بوست\nللشتا', files: [] } });
   assert.deepEqual(parseAgent({ agent: 'dev', chat_id: U.toUpperCase(), question: 'x' }).req.chatId, U);
   assert.deepEqual(parseAgent({ agent: 'SEO!', question: 'x' }), { error: 'bad_request', field: 'agent' });
   assert.equal(parseAgent({ agent: 'stock', question: 'x' }).req.agent, 'stock', '0120: any assistant id — the server checks the registry');

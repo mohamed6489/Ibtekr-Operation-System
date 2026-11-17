@@ -1121,11 +1121,14 @@
     catch (e) { return fail(null); }
   }
   // a question → the server's answer, written in the chat (made on the first message, named by it)
-  async function agentAsk(agent, chatId, question) {
+  // the owner 17 Nov: files with the message (IBChatFiles.read — images / PDFs as base64, sheets and text as text; 4 at most)
+  async function agentAsk(agent, chatId, question, files) {
     if (!AGENT_RE.test(String(agent || ''))) return { ok: false, reason: 'invalid', field: 'agent', message: MESSAGES.invalid };
-    const q = String(question == null ? '' : question).trim().slice(0, 1000); if (!q) return { ok: false, reason: 'invalid', field: 'question', message: 'اكتب رسالتك الأول' };
-    const r = await invoke('ai-content', { action: 'agent', agent, chat_id: chatId || null, question: q });
-    if (!r.ok) return Object.assign(r, { message: r.reason === 'notfound' ? 'الشات ده اتمسح أو مش بتاعك (أو المساعد اتأرشف) — افتح شات جديد' : r.reason === 'unauthorized' || r.reason === 'forbidden' ? 'المساعد ده مش متاح لدورك' : r.reason === 'invalid' ? 'اكتب رسالتك الأول' : aiMessage(r, 'text') });
+    const fs = (Array.isArray(files) ? files : []).slice(0, 4).map((f) => ({ name: String(f.name || '').slice(0, 120), kind: f.kind, data: f.data || undefined, text: f.text || undefined, note: f.note || '' }));
+    const q = String(question == null ? '' : question).trim().slice(0, 1000); if (!q && !fs.length) return { ok: false, reason: 'invalid', field: 'question', message: 'اكتب رسالتك الأول' };
+    const r = await invoke('ai-content', fs.length ? { action: 'agent', agent, chat_id: chatId || null, question: q, files: fs } : { action: 'agent', agent, chat_id: chatId || null, question: q });
+    if (!r.ok) return Object.assign(r, { message: r.reason === 'notfound' ? 'الشات ده اتمسح أو مش بتاعك (أو المساعد اتأرشف) — افتح شات جديد' : r.reason === 'unauthorized' || r.reason === 'forbidden' ? 'المساعد ده مش متاح لدورك'
+      : r.reason === 'invalid' ? (r.field === 'files' ? 'ملف من الملفات مش مقبول (الصور لحد 5 ميجا، الـ PDF لحد 8، والمجموع لحد 12)' : 'اكتب رسالتك الأول') : aiMessage(r, 'text') });
     const b = r.body || {};
     if (b.result === 'refused') return { ok: false, reason: 'refused', message: aiMessage({ reason: 'refused' }, 'text') };
     const chat = b.chat && b.chat.id ? toChat(b.chat) : null;

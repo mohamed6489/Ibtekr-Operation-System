@@ -553,6 +553,8 @@
   // settings_public().store; no row = WooCommerce + Dokan (marketplace) as always. storeCaps() says what the pages may show.
   const STORE_PLATFORMS = ['woo', 'shopify', 'easyorders'];
   const STORE_READY = ['woo'];
+  // single-seller mode is offered in «الإعدادات › عام» once it is finished (the owner 17 Nov: «قريبًا» until then); the row «store» still rules
+  const SINGLE_READY = false;
   const STORE_CAPS = {
     woo: { vendors: true, suborders: true, translations: true, seo: true, brands: true, media: true, carts: true, categories: true, variations: true, statusWrite: true, productWrite: true, studio: true },
     shopify: { vendors: false, suborders: false, translations: false, seo: true, brands: true, media: true, carts: false, categories: true, variations: true, statusWrite: true, productWrite: true, studio: true },
@@ -688,7 +690,7 @@
     log('brand.menu', String(what || '').slice(0, 60), 'brand'); return { ok: true, menu: v };
   }
 
-  window.IBSettings = { MENU_ICONS, MENU_LOCKED, MENU_LABEL_MAX, cleanMenu, menuOf, menuNow, saveMenu, loginLocks, loginUnlock, load, ensure, loadPublic, clear, data, section, sections: () => Object.assign({}, data.sections), roles, liveRoles, public: () => data.public, can, PERMS, PERM_KEYS, lists, saveLists, statusLabel, STATUS_KINDS, setRoleLevelPerms, setMemberLevel, levelPermsOf, MEMBER_LEVELS: MLEVELS, quickList, quickSave, quickDelete, quickOrder, QUICK_SCOPES: Q_SCOPES, expenseKinds, statusList, addedStatuses, delayRules, fakeRule, saveFake, orderStatuses, orderStatusAdd, orderStatusSlug, orderStatusDelete, orderStatusOrder, ADDED_MAX, ADDED_LEN, weekStart, imageProvider, magnificOn, store, single, storeCaps, storeOf, STORE_PLATFORMS, STORE_READY, STORE_CAPS, clock, dateFmt, KIND_MAX, KINDS_MAX,
+  window.IBSettings = { MENU_ICONS, MENU_LOCKED, MENU_LABEL_MAX, cleanMenu, menuOf, menuNow, saveMenu, loginLocks, loginUnlock, load, ensure, loadPublic, clear, data, section, sections: () => Object.assign({}, data.sections), roles, liveRoles, public: () => data.public, can, PERMS, PERM_KEYS, lists, saveLists, statusLabel, STATUS_KINDS, setRoleLevelPerms, setMemberLevel, levelPermsOf, MEMBER_LEVELS: MLEVELS, quickList, quickSave, quickDelete, quickOrder, QUICK_SCOPES: Q_SCOPES, expenseKinds, statusList, addedStatuses, delayRules, fakeRule, saveFake, orderStatuses, orderStatusAdd, orderStatusSlug, orderStatusDelete, orderStatusOrder, ADDED_MAX, ADDED_LEN, weekStart, imageProvider, magnificOn, store, single, storeCaps, storeOf, STORE_PLATFORMS, STORE_READY, SINGLE_READY, STORE_CAPS, clock, dateFmt, KIND_MAX, KINDS_MAX,
     save, setRolePerms, createRole, updateRole, deleteRole, setMemberRole, setMemberRoles, setMemberPerms, setMemberStatus, sessions, revokeSession, deviceOf,
     links, setSecret, wooSet, testSecret, unlink, connections, notifyStatus, notifyTick, activity, pageOf, docs, addDoc, updateDoc, removeDoc, docUrl, uploadLogo, logoUrl, LOGO_SLOTS, uploadFont, removeFont, loadFont, fontList, FONT_MAX, FONTS_MAX, wipe, WIPE_SECTIONS };
 })();

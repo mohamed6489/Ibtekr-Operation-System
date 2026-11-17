@@ -554,9 +554,13 @@
   // draft), with a confirm that says what goes and that nothing is deleted; the system reloads so every page draws the new way. Locked on
   // «فردي» for a store without Dokan. The admin only (IBSettings.save refuses anyone else).
   const PLATFORM_NAME = { woo: 'WooCommerce', shopify: 'Shopify', easyorders: 'EasyOrders' };
+  const STORE_SOON = ['shopify', 'easyorders'];
+  const storeReady = (id) => { const SS = window.IBSettings; return !!(SS && SS.STORE_READY && SS.STORE_READY.includes(id)); };
   function sellSec() {
     const SS = window.IBSettings; if (!SS || !SS.store) return null;
     const sto = SS.store(); const on = sto.mode === 'single'; const locked = !sto.dokan;
+    // the owner 17 Nov («و كمان البيع الفردي … لو مخلصتوش»): the switch says «قريبًا» until single-seller mode is finished (IBSettings.SINGLE_READY)
+    const ready = !!SS.SINGLE_READY;
     const apply = async (single) => {
       const r = await SS.save('store', { mode: single ? 'single' : 'marketplace' });
       if (!r.ok) { K.toast(r.message || 'ماتحفظش — جرّب تاني', 'error'); return; }
@@ -567,11 +571,15 @@
     const ask = () => K.confirm(on
       ? { title: 'ترجّع البيع بالمبتكرين؟', text: 'المبتكرين والأوردرات الفرعية وحسابات المبتكرين هيرجعوا يظهروا زي ما كانوا بداتاهم.', okLabel: 'رجّع', onOk: () => apply(false) }
       : { title: 'تفعّل البيع الفردي؟', text: 'السيستم هيشتغل لبايع واحد (مصنع أو صاحب براند): المبتكرين وبوابتهم والأوردرات الفرعية وحسابات المبتكرين وتقاريرهم هيستخبوا، والسعر هيتحسب من التكلفة + هامش الربح. مفيش داتا هتتمسح، وتقدر ترجّعه في أي وقت.', okLabel: 'فعّل البيع الفردي', onOk: () => apply(true) });
-    const ctl = locked ? K.Tag('success', 'شغّال دايمًا مع ' + (PLATFORM_NAME[sto.platform] || sto.platform))
+    const ctl = !ready && !on ? K.Tag('neutral', 'قريبًا') : locked ? K.Tag('success', 'شغّال دايمًا مع ' + (PLATFORM_NAME[sto.platform] || sto.platform))
       : h('button', { type: 'button', role: 'switch', class: 'sw', 'aria-checked': String(on), 'aria-label': 'تفعيل البيع الفردي', 'data-store-single': '', onClick: ask }, h('i'));
     const sec = K.Section('طريقة البيع', [
       vrow('تفعيل البيع الفردي', locked ? 'المتجر المربوط (' + (PLATFORM_NAME[sto.platform] || sto.platform) + ') مالوش مبتكرين — السيستم شغّال لبايع واحد' : 'للمصنع أو صاحب البراند اللي بيبيع اللي بيصنعه: من غير مبتكرين ولا أوردرات فرعية', ctl),
-      vrow('المتجر', 'المنصة اللي السيستم بيقرا منها الأوردرات والمنتجات وبيكتب عليها', K.Tag('neutral', PLATFORM_NAME[sto.platform] || sto.platform))],
+      vrow('المتجر', 'المنصة اللي السيستم بيقرا منها الأوردرات والمنتجات وبيكتب عليها', h('div', { class: 'acts-inline', 'data-store-platforms': '' },
+        ['woo', 'shopify', 'easyorders'].map((id) => K.Tag(id === sto.platform ? 'success' : 'neutral', PLATFORM_NAME[id] + (id === sto.platform ? ' ✓' : storeReady(id) ? '' : ' · قريبًا'))))),
+      // the margin (single mode): the studio's price = the cost + this markup — written on its own when the field is left
+      on ? vrow('هامش الربح', 'سعر البيع في الاستوديو = التكلفة + الهامش ده (والخصم الوهمي زي ما هو)', h('div', { class: 'input', style: 'max-width:120px' }, h('input', { type: 'number', min: 0, max: 500, step: 1, dir: 'ltr', value: String(sto.margin), 'aria-label': 'هامش الربح %', 'data-store-margin': '',
+        onChange: async (ev) => { const v = Number(ev.target.value); if (!Number.isFinite(v) || v < 0 || v > 500) { K.toast('الهامش من 0 لـ 500%', 'error'); return; } const r = await SS.save('store', { margin: Math.round(v * 100) / 100 }); if (!r.ok) { K.toast(r.message || 'ماتحفظش', 'error'); return; } LOGV('settings.store.margin', ''); K.toast('اتحفظ الهامش', 'success'); } }), h('span', { class: 'sfx' }, '%'))) : null].filter(Boolean),
       null, { sub: on ? 'البيع الفردي شغّال' : 'البيع بالمبتكرين (WooCommerce + Dokan)', th: false, cols: false });
     if (sec && sec.setAttribute) sec.setAttribute('data-store-sec', on ? 'single' : 'marketplace');
     return sec;
@@ -840,7 +848,7 @@
       K.Section(tabLabel, h('div', { class: 'integ-grid' }, inTab.map((p) => h('div', { class: 'card integ', 'data-integ': p.id }, h('div', { class: 'integ-h' }, h('span', { class: 'vlogo vlogo-md' }, p.letter), h('div', null, h('b', null, p.name), h('div', { class: 't-small help' }, p.desc)), K.Tag(tagFor(p.status), p.status)),
         p.conn ? h('div', { class: 'integ-conn' }, K.Tag('neutral', 'ربط: ' + p.conn)) : null,
         h('div', { class: 't-small' }, p.last), h('div', { class: 't-small help' }, p.dir),
-        h('div', { class: 'acts-inline start' }, p.status === 'غير متصل' ? Button({ type: 'primary', size: 'sm', label: p.multi === 'wa' ? 'إدارة الأرقام' : 'ربط', attrs: p.multi === 'wa' ? { 'data-wa-open': '' } : undefined, onClick: () => (p.id === 'woo' ? wooWizard() : p.cs || p.multi ? csConnect(p) : connect(p)) }) : Button({ size: 'sm', label: p.multi === 'wa' ? 'إدارة الأرقام' : 'الإعدادات', attrs: p.multi === 'wa' ? { 'data-wa-open': '' } : undefined, onClick: () => { if (p.id === 'woo') { st.integ = 'woo'; R(); window.scrollTo(0, 0); } else if (p.multi === 'wa') { st.integ = 'wa'; R(); window.scrollTo(0, 0); } else K.toast('إعدادات ' + p.name + ' — نفس هيكل صفحة WooCommerce'); } }), Button({ size: 'sm', label: 'اختبار الاتصال', onClick: () => K.toast(p.status === 'غير متصل' ? 'المنصة مش متصلة' : p.status.startsWith('خطأ') ? 'فشل — الربط فصل، اعمل ربط تاني' : 'الاتصال سليم · 120ms', p.status === 'متصل' ? 'success' : 'error') }),
+        p.soon ? h('div', { class: 'acts-inline start' }, h('button', { type: 'button', class: 'btn btn-sm', disabled: true, 'data-integ-soon': p.id }, 'قريبًا')) : h('div', { class: 'acts-inline start' }, p.status === 'غير متصل' ? Button({ type: 'primary', size: 'sm', label: p.multi === 'wa' ? 'إدارة الأرقام' : 'ربط', attrs: p.multi === 'wa' ? { 'data-wa-open': '' } : undefined, onClick: () => (p.id === 'woo' ? wooWizard() : p.cs || p.multi ? csConnect(p) : connect(p)) }) : Button({ size: 'sm', label: p.multi === 'wa' ? 'إدارة الأرقام' : 'الإعدادات', attrs: p.multi === 'wa' ? { 'data-wa-open': '' } : undefined, onClick: () => { if (p.id === 'woo') { st.integ = 'woo'; R(); window.scrollTo(0, 0); } else if (p.multi === 'wa') { st.integ = 'wa'; R(); window.scrollTo(0, 0); } else K.toast('إعدادات ' + p.name + ' — نفس هيكل صفحة WooCommerce'); } }), Button({ size: 'sm', label: 'اختبار الاتصال', onClick: () => K.toast(p.status === 'غير متصل' ? 'المنصة مش متصلة' : p.status.startsWith('خطأ') ? 'فشل — الربط فصل، اعمل ربط تاني' : 'الاتصال سليم · 120ms', p.status === 'متصل' ? 'success' : 'error') }),
           p.multi === 'wa' ? Button({ type: 'text', size: 'sm', label: 'الأرقام (' + waChannels().length + ')', onClick: () => csConnect(p) }) : p.status === 'غير متصل' || p.status.startsWith('خطأ') ? Button({ type: 'text', size: 'sm', label: p.status.startsWith('خطأ') ? 'ربط تاني' : 'حذف', onClick: () => (p.status.startsWith('خطأ') ? (p.cs ? csConnect(p) : connect(p)) : K.toast('اتشالت من القائمة')) }) : Button({ type: 'text', size: 'sm', label: 'فصل', onClick: () => disconnect(p) }))))), [Button({ size: 'sm', icon: 'plus', label: 'ربط أداة تانية', attrs: { 'data-integ-add': '' }, onClick: () => addIntegration(tab) })], { sub: SUBS[tab] }),
       K.Section('سجل المزامنة', U.Table({ headers: ['الوقت', 'المنصة', 'الكيان', 'الحدث', 'الاتجاه', 'النتيجة'], rows: C.syncLog.map((r) => [r[0], r[1], K.Num(r[2]), r[3], h('span', { class: 't-small' }, r[4]), K.Tag(r[5] === 'تم' ? 'success' : r[5] === 'فشل' ? 'error' : 'orange', r[5])]) }), [Button({ label: 'عرض السجل الكامل', onClick: () => K.toast('بيفتح السجل الكامل') }), Button({ type: 'primary', label: 'إعادة محاولة الفاشلة', onClick: () => { C.syncLog.forEach((r) => { if (r[5] === 'فشل') r[5] = 'تم'; }); K.toast('اتعادت المحاولة', 'success'); R(); } })], { noun: ['حدث', 'الأحداث'], sub: 'آخر 50 حدث عبر كل المنصات — الأخطاء بتظهر كمان في التنبيهات (قسم «مهام»)' })];
   }
@@ -1868,10 +1876,15 @@
       if (card.id === 'magnific') { const api = link && link.ready; const br = mg && mg.linked; status = api || br ? 'متصل' : 'غير متصل'; last = (api ? 'مفتاح API' : 'من غير مفتاح API') + ' · ' + (br ? 'حساب الموقع مربوط' + (mg.account ? ' (' + mg.account + ')' : '') : 'حساب الموقع مش مربوط'); }
       if (card.id === 'resend' && nt) last += (nt.email && nt.email.ready ? ' · محرك التنبيهات جاهز للإيميل' : ''); if (card.id === 'tiktok') { status = 'غير متصل'; last = 'مفيش API رسايل عام'; }
       const pk = PAUSE_KEY[card.id] || (card.kind === 'ads' ? 'ads_tiktok' : null); const pu = pausedUntil(pk); if (pu) { status = 'موقوف مؤقتًا'; last = 'موقوف لحد ' + untilLabel(pu) + ' — السيستم بيتعامل معاه كأنه مش مربوط'; }
-      return { id: card.id, kind: card.kind || 'site', conn: CONN_OF[card.id] || 'API', name: card.name, short: card.name, letter: String(card.name).charAt(0), status, desc: CARD_DESC[card.id] || '', last, dir, secret: card.secret, used: !!card.used, link, paused: pu, bridge: card.id === 'magnific' && mg ? { linked: !!mg.linked, configured: mg.configured !== false } : null };
+      // the owner 17 Nov («خلي ايزي اوردر و شوبيفاي يبقوا سون لو لسة مخلصتهمش»): a store platform the system cannot run on yet (not in
+      // IBSettings.STORE_READY) shows «قريبًا» with no link button
+      const soon = STORE_SOON.includes(card.id) && !storeReady(card.id); if (soon) { status = 'قريبًا'; last = 'الربط والمزامنة مع ' + card.name + ' بيتجهّزوا — هيتفتحوا أول ما يخلصوا'; }
+      return { soon, id: card.id, kind: card.kind || 'site', conn: CONN_OF[card.id] || 'API', name: card.name, short: card.name, letter: String(card.name).charAt(0), status, desc: CARD_DESC[card.id] || '', last, dir, secret: card.secret, used: !!card.used, link, paused: pu, bridge: card.id === 'magnific' && mg ? { linked: !!mg.linked, configured: mg.configured !== false } : null };
     });
     // the MCP servers and the custom tools the admin linked (names from the links)
     Object.keys(LINKS.links).forEach((n) => { if (!/^(mcp|custom)_/.test(n)) return; const l = LINKS.links[n]; const nm = (l.fields && l.fields.name) || n; list.push({ id: n, kind: 'ai', conn: n.startsWith('mcp_') ? 'MCP' : (l.fields && l.fields.conn) || 'API', name: nm, short: nm, letter: String(nm).charAt(0), status: l.ready ? 'متصل' : 'غير متصل', desc: (l.fields && l.fields.desc) || (n.startsWith('mcp_') ? 'سيرفر MCP — السيستم بيستعمل أدواته' : 'أداة مربوطة'), last: l.linked_at ? 'اتربط ' + ago(l.linked_at) : '', dir: '', secret: n, used: true, link: l, custom: true }); });
+    // EasyOrders: listed as a store platform to come (no card on the server yet)
+    if (!list.some((x) => x.id === 'easyorders') && !storeReady('easyorders')) list.push({ soon: true, id: 'easyorders', kind: 'site', conn: 'API', name: 'EasyOrders', short: 'EasyOrders', letter: 'E', status: 'قريبًا', desc: 'متجر EasyOrders — الأوردرات والمنتجات', last: 'الربط والمزامنة مع EasyOrders بيتجهّزوا — هيتفتحوا أول ما يخلصوا', dir: '', secret: null, used: false, link: null });
     C.integrations.splice(0, C.integrations.length, ...list);
   }
   async function loadLinks(force) {
@@ -1889,6 +1902,7 @@
     const tabs = K.MainTabs({ items: ITABS.map(([id, label]) => ({ id, label: label + ' · ' + I.filter((x) => (x.kind || 'site') === id).length })), active: tab, onChange: (id) => { st.itab = id; R(); }, label: 'أنواع الربط' });
     const actions = (p) => {
       const out = [];
+      if (p.soon) { out.push(h('button', { type: 'button', class: 'btn btn-sm', disabled: true, 'data-integ-soon': p.id }, 'قريبًا')); return out; } // a store platform not ready yet (the owner 17 Nov)
       if (p.id === 'woo') out.push(Button({ type: p.status === 'متصل' ? 'default' : 'primary', size: 'sm', label: p.status === 'متصل' ? 'الإعدادات' : 'ربط', attrs: { 'data-integ-open': p.id }, onClick: () => { st.integ = 'woo'; R(); window.scrollTo(0, 0); } }));
       else if (p.id === 'messenger' || p.id === 'instagram' || p.id === 'wa') { // decision 12: the channels link here
         const on = p.status === 'متصل' || !!p.paused;

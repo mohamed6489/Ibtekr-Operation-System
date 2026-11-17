@@ -763,7 +763,9 @@
     const Vs = window.IBVendors; const canRate = !!(C.commission && Vs && Vs.store && Vs.store.canRate && Vs.store.canRate());
     const catsAll = PR().categories(); const catBy = new Map(catsAll.map((c) => [Number(c.id), c])); const parentOf = (id) => { const c = catBy.get(Number(id)); return c && c.parentId != null ? Number(c.parentId) : null; };
     const catName = (id) => (catBy.get(Number(id)) || {}).name || '#' + id;
-    const scopes = canRate ? PD.rateScopes(l, PR().list(), parentOf) : [];
+    // the owner 17 Nov: the category the records are filtered on is the one whose rate moves; only the site's (English) categories count
+    const focus = catsAll.filter((c) => st.f.category.includes(c.path)).map((c) => Number(c.id));
+    const scopes = canRate ? PD.rateScopes(l, PR().list(), parentOf, { known: (id) => catBy.has(Number(id)), focus }) : [];
     const makers = scopes.map((sc) => { const v = Vs.store.get(sc.vendorId); const mine = l.filter((p) => String(p.vendorId) === String(sc.vendorId));
       return { sc, v, name: (v && v.name) || (mine[0] && mine[0].vendor) || 'مبتكر', brands: [...new Set(mine.reduce((a, p) => a.concat(p.brands || []), []))] }; });
     const plansOf = (o) => makers.map((mk) => Object.assign({}, mk, { plan: mk.v && mk.v.ratesVisible ? PD.ratePlan(mk.sc, mk.v, o, parentOf) : null }));

@@ -63,3 +63,21 @@ test('a store without Dokan (Shopify) is single and the switch is locked', async
   await expect(page.locator('[data-store-sec]')).toContainText('شغّال دايمًا مع Shopify');
   await expect(page.locator('[data-store-single]')).toHaveCount(0);
 });
+
+test('single mode: a column headed «المبتكر» leaves every table (the products records), and stays out through the columns prefs', async ({ page }) => {
+  setStore({ mode: 'single' });
+  await signIn(page);
+  await page.locator('.sidebar .nav-item[data-page="products"]').click();
+  await page.locator('#pg-products [role=tab]', { hasText: 'سجل المنتجات' }).click();
+  const table = page.locator('#pg-products table.pr-table').first();
+  await expect(table).toBeVisible();
+  await expect(table.locator('thead th:visible', { hasText: 'SKU' })).toHaveCount(1);
+  await expect(table.locator('thead th:visible', { hasText: /^المبتكر$/ })).toHaveCount(0);
+});
+
+test('marketplace (default): the products records keep «المبتكر»', async ({ page }) => {
+  await signIn(page);
+  await page.locator('.sidebar .nav-item[data-page="products"]').click();
+  await page.locator('#pg-products [role=tab]', { hasText: 'سجل المنتجات' }).click();
+  await expect(page.locator('#pg-products table.pr-table thead th:visible', { hasText: /^المبتكر$/ }).first()).toBeVisible();
+});

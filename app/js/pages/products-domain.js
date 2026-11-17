@@ -151,16 +151,29 @@
   //   cats  — the picked ones are all his products of some categories → those categories' rates move (the top-most such categories);
   //   rest  — what is left of his picked products belongs to no such category: only their price is recalculated.
   // picked / all: [{ id, vendorId, categoryIds }]; parentOf(catId) → its parent's id or null.
-  function rateScopes(picked, all, parentOf) {
+  // the owner 17 Nov («انا مفلتر علي categorey معينة لمبتكر … المفروض و انا بعدل نسبة ابتكر اعدل النسبة في ال categorey دي عند المبتكر»):
+  //   opt.known(catId) — a category of the site's tree (the mirror: the English terms a commission is set on); an Arabic term id or a
+  //     category no longer on the site is never a scope;
+  //   opt.focus — the categories the records are filtered on: then only those move (a product in it or in a category under it counts),
+  //     still when the picked ones are all the maker's products of it — never the other categories the same products sit in.
+  function rateScopes(picked, all, parentOf, opt) {
+    const known = opt && typeof opt.known === 'function' ? opt.known : () => true;
+    const focus = opt && Array.isArray(opt.focus) ? opt.focus.map(Number).filter((c) => Number.isInteger(c) && known(c)) : [];
     const by = (list) => { const m = new Map(); (list || []).forEach((p) => { if (!p || !p.vendorId) return; const k = String(p.vendorId); if (!m.has(k)) m.set(k, []); m.get(k).push(p); }); return m; };
     const P = by(picked); const A = by(all); const out = [];
     const up = (id) => { const seen = new Set(); const l = []; let cur = parentOf ? parentOf(id) : null; while (cur != null && !seen.has(cur)) { seen.add(cur); l.push(Number(cur)); cur = parentOf(cur); } return l; };
     P.forEach((sel, vid) => {
       const mine = A.get(vid) || sel; const ids = new Set(sel.map((p) => String(p.id)));
-      const whole = mine.every((p) => ids.has(String(p.id)));
+      const whole = !focus.length && mine.every((p) => ids.has(String(p.id))); // filtered on a category: that category, even when it is all he has
       let cats = []; let rest = 0;
-      if (!whole) {
-        const cand = new Set(); sel.forEach((p) => (p.categoryIds || []).forEach((c) => cand.add(Number(c))));
+      if (!whole && focus.length) {
+        // in the category or anywhere under it
+        const inCat = (p, c) => (p.categoryIds || []).some((x) => Number(x) === c || up(Number(x)).includes(c));
+        cats = focus.filter((c) => sel.some((p) => inCat(p, c)) && mine.filter((p) => inCat(p, c)).every((p) => ids.has(String(p.id))));
+        cats = cats.filter((c) => !up(c).some((x) => cats.includes(x))).sort((x, y) => x - y);
+        rest = sel.filter((p) => !cats.some((c) => inCat(p, c))).length;
+      } else if (!whole) {
+        const cand = new Set(); sel.forEach((p) => (p.categoryIds || []).forEach((c) => { if (known(Number(c))) cand.add(Number(c)); }));
         const covered = new Set([...cand].filter((c) => mine.filter((p) => (p.categoryIds || []).map(Number).includes(c)).every((p) => ids.has(String(p.id)))));
         cats = [...covered].filter((c) => !up(c).some((x) => covered.has(x))).sort((x, y) => x - y);
         rest = sel.filter((p) => !(p.categoryIds || []).some((c) => covered.has(Number(c)))).length;

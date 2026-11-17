@@ -1002,6 +1002,35 @@ test('comment 82 + owner 17 Nov — «تعديل سعر» for one maker at a tim
   expect(mock.vendorRates.filter((r) => r.vendor_id === VC).length).toBe(0);
 });
 
+// the owner 17 Nov («انا مفلتر علي categorey معينة لمبتكر … المفروض و انا بعدل نسبة ابتكر اعدل النسبة في ال categorey دي عند المبتكر»): the records
+// filtered on a maker and a category — «نسبة إبتكر» moves that category's rate alone, even when it is all his products, never his general rate
+test('owner 17 Nov — «نسبة إبتكر» on a category filter: only the filtered category\'s rate moves for the maker', async ({ page }) => {
+  await openProducts(page);
+  const VA = mock.vendors.find((v) => v.name === 'Art Craft').id;
+  const fbtn = page.locator('#pg-products [data-fm-btn="products"]'); const fm = page.locator('[data-fm-menu="products"]');
+  await fbtn.click();
+  await fm.locator('[data-fm-tab="vendor"]').click(); await fm.locator('[data-fm="vendor:Art Craft"]').click();
+  await fm.locator('[data-fm-tab="category"]').click(); await fm.locator('[data-fm-key="category"] [role=menuitemcheckbox]', { hasText: 'ديكور' }).first().click();
+  await fm.locator('[data-fm-apply]').dispatchEvent('click');
+  await expect(page.locator('.bulk-bar')).toHaveAttribute('data-pbulk', 'filtered');
+  await page.locator('.bulk-bar').getByRole('button', { name: 'تعديل السعر' }).click();
+  const m = page.locator('.modal.bp-modal');
+  await m.getByRole('radio', { name: 'نسبة إبتكر' }).click();
+  await m.locator('#amount').fill('2');
+  const a = m.locator('[data-bp-maker="' + VA + '"]');
+  await expect(a).toHaveAttribute('data-bp-scope', 'cats');
+  await expect(a.locator('.bp-cat')).toHaveText(['ديكور']);
+  await expect(a.locator('[data-bp-line="general"]')).toHaveCount(0);
+  await expect(a.locator('[data-bp-line="15"]')).toContainText('30% ← 32%');
+  const n = mock.vendorRates.filter((r) => r.vendor_id === VA).length;
+  await m.getByRole('button', { name: 'طبّق السعر والنسبة' }).click();
+  await expect(m).toBeHidden({ timeout: 15000 });
+  await expect.poll(() => Number((mock.vendorCategoryRates.filter((r) => r.vendor_id === VA && Number(r.woo_category_id) === 15).at(-1) || {}).rate)).toBe(32);
+  const last = mock.vendorRates.filter((r) => r.vendor_id === VA).at(-1);
+  expect(mock.vendorRates.filter((r) => r.vendor_id === VA).length).toBe(n + 1);
+  expect([Number(last.rate), last.commission_type]).toEqual([35, 'category_based']); // the general rate stays
+});
+
 test('owner 16 Nov — «تعديل السعر»: the amount takes several digits in a row (the redraw keeps the focus), and «نسبة إبتكر» +10 moves 40% to 50% (points), the maker price keeps «نسبة % / قيمة»', async ({ page }) => {
   await openProducts(page);
   await rowOf(page, 'Cushion').locator('[role=checkbox]').click();

@@ -430,6 +430,27 @@ test('decision 82 — rateScopes: every product of a maker = the whole maker; al
   // a product without a maker is nobody's
   assert.deepEqual(plain(PD.rateScopes(pick([8]), all, parentOf)), []);
 });
+// the owner 17 Nov («انا مفلتر علي categorey معينة لمبتكر … المفروض … اعدل النسبة في ال categorey دي عند المبتكر»): his live case — cushions
+// sitting in «Best seller › Textiles › Cushions» and «Textiles › CUSHIONS › Wool cushions», an Arabic-only record with the Arabic term ids
+test('owner 17 Nov — rateScopes: filtered on a category, only that category moves (even all he has); Arabic or unknown category ids are never a scope', () => {
+  const parent = new Map([[4117, null], [4123, 4117], [4125, 4123], [3672, null], [53, 3672], [5311, 53], [99, null]]);
+  const parentOf = (id) => (parent.has(Number(id)) ? parent.get(Number(id)) : null); const known = (id) => parent.has(Number(id));
+  const EN = [4117, 4123, 4125, 3672, 53, 5311]; const AR = [4118, 4124, 177, 4126, 3678, 5312];
+  const all = [{ id: 1, vendorId: 'R', categoryIds: EN }, { id: 2, vendorId: 'R', categoryIds: EN }, { id: 3, vendorId: 'R', categoryIds: AR }, { id: 4, vendorId: 'R', categoryIds: [99] }];
+  const pick = (ids) => all.filter((p) => ids.includes(p.id));
+  // no filter: the Arabic term ids are out; the top-most English categories the picked ones fill (both roots — «Textiles» and «Best seller»)
+  assert.deepEqual(plain(PD.rateScopes(pick([1, 2, 3]), all, parentOf, { known })), [{ vendorId: 'R', picked: 3, total: 4, whole: false, cats: [3672, 4117], rest: 1 }]);
+  // filtered on «Textiles › CUSHIONS» (53): that one alone — not «Best seller» nor «Cushions»; the Arabic-only record keeps its price
+  assert.deepEqual(plain(PD.rateScopes(pick([1, 2, 3]), all, parentOf, { known, focus: [53] })), [{ vendorId: 'R', picked: 3, total: 4, whole: false, cats: [53], rest: 1 }]);
+  // filtered on the sub-category «Wool cushions»: a product in it counts
+  assert.deepEqual(plain(PD.rateScopes(pick([1, 2]), all, parentOf, { known, focus: [5311] })), [{ vendorId: 'R', picked: 2, total: 4, whole: false, cats: [5311], rest: 0 }]);
+  // every product of his picked but a category filter on: the category, not his whole commission
+  assert.deepEqual(plain(PD.rateScopes(pick([1, 2, 3, 4]), all, parentOf, { known, focus: [99] })), [{ vendorId: 'R', picked: 4, total: 4, whole: false, cats: [99], rest: 3 }]);
+  // a filtered category some of his products in it are not picked: nothing of the commission moves
+  assert.deepEqual(plain(PD.rateScopes(pick([1]), all, parentOf, { known, focus: [53] })), [{ vendorId: 'R', picked: 1, total: 4, whole: false, cats: [], rest: 1 }]);
+  // an Arabic or unknown focus id is dropped
+  assert.deepEqual(plain(PD.rateScopes(pick([1, 2]), all, parentOf, { known, focus: [4126] }))[0].cats, [3672, 4117]);
+});
 test('decision 82 — ratePlan: the whole maker moves his general rate and each category rate of his; a category moves from what it pays today (its own, its parent\'s, else the general) and the maker turns «حسب القسم»; past 65 is flagged', () => {
   const parent = new Map([[10, null], [11, 10], [12, 10], [20, null]]); const parentOf = (id) => (parent.has(Number(id)) ? parent.get(Number(id)) : null);
   const up2 = { mode: 'value', dir: 1, amount: 2 }; const pct10 = { mode: 'pct', dir: -1, amount: 10 };

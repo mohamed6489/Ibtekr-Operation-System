@@ -1420,7 +1420,7 @@
   // كلها»): each assistant's chats, the member's own — the history on the side (new, rename, delete), the turns from the server, the
   // quick suggestions inside the chat, ⚙️ the admin's settings, «تقديم طلب» and the expand button (the same icon shrinks it back);
   // nothing runs from a chat — the designer's picture is made only by «ولّد الصورة» under its answer (the image credits) ----------
-  const AG = { chats: {}, active: {}, turns: {}, prompts: {}, reqs: {}, drafts: {}, draft: {}, asking: false, gen: null, full: false, side: false, loading: {}, cfgAsked: false, seen: {}, atBottom: {}, pos: {} };
+  const AG = { chats: {}, active: {}, turns: {}, prompts: {}, reqs: {}, drafts: {}, acts: {}, draft: {}, asking: false, gen: null, full: false, side: false, loading: {}, cfgAsked: false, seen: {}, atBottom: {}, pos: {} };
   const AG_INTRO = {
     buyer: 'أنا الميديا باير. بقرا أرقام ميتا بتاعة آخر 7 أيام جنب أوردرات ووكومرس الحقيقية وبقترح — والتنفيذ بموافقتك من «مستني موافقتك». اسألني عن حملة أو العائد أو تكلفة الأوردر.',
     designer: 'أنا الديزاينر. بساعدك في أفكار البوستات والكاروسيل والستوري والريلز بالبراند، ولما تطلب صورة بكتبلك وصفها وتقدر تولّدها بزرار «ولّد الصورة» (من كريدت الصور). الشغل الكبير بيروح للديزاينر البشري من «تقديم طلب».',
@@ -1446,11 +1446,12 @@
     }
     R();
   }
-  // ش45 decision 3: the header's assistant hands a question to one of the three — open its tab on a new chat and send it there
+  // ش45 decision 3: the header's assistant hands a question to one of the three — open its tab on a new chat with the question written in
+  // the box; the member presses «ابعت» (security review: a turn the model was led to by data it read never spends or writes on its own)
   function askAgent(a, q) {
     if (!['buyer', 'designer', 'dev'].includes(a) || !can().view) return false;
-    BY.aiTab = a; AG.active[a] = null; go('marketing-ai');
-    setTimeout(() => agSend(a, String(q || '').slice(0, 1000)), 60);
+    BY.aiTab = a; AG.active[a] = null; AG.draft[a] = String(q || '').slice(0, 1000); go('marketing-ai');
+    setTimeout(() => { const el = document.getElementById('mk-ask'); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }, 80);
     return true;
   }
   // ش45 decision 4: the designer's (or the header's) filled campaign — «كامبين جديدة» on its details, nothing saved or generated
@@ -1460,6 +1461,22 @@
     Object.assign(camp, blankCamp()); camp.w = w;
     go('marketing-campaign-1');
     return true;
+  }
+  // ش45 decision 5 — the buyer's «اقفل / افتح الحملة» under its answer: a confirm card; «أيوه» runs it on Meta (mkt-ads campaign_set — the
+  // admin or marketing.publish, the execution switch on), «لأ» drops it. Nothing runs from the chat itself.
+  const campName = (cid) => { const d = MK().adsDataNow ? MK().adsDataNow() : null; const o = d && Array.isArray(d.objects) ? d.objects.find((x) => x.kind === 'campaign' && String(x.id) === cid) : null; return o && o.name ? o.name : '#' + cid; };
+  function actCard(tid, x) {
+    const pause = x.action === 'pause'; const nm = campName(x.campaignId);
+    if (x.done) return h('div', { class: 'mk-msg-req', 'data-mk-camp-done': x.done }, h('small', { class: 'help' }, x.doneText || ''));
+    const may = isAdmin() || can().publish;
+    return h('div', { class: 'mk-msg-req mk-camp-act', 'data-mk-camp-act': x.action + ':' + x.campaignId },
+      h('small', null, h('b', null, (pause ? 'اقفل' : 'افتح') + ' الحملة «' + nm + '» على ميتا؟'), ' — مفيش حاجة هتتغيّر غير لما تأكد.'),
+      may ? [Button({ size: 'sm', type: pause ? 'danger' : 'primary', icon: pause ? 'x' : 'play', label: AG.acting === tid ? 'بيتنفّذ…' : pause ? 'أيوه، اقفلها' : 'أيوه، افتحها', disabled: !!AG.acting, attrs: { 'data-mk-camp-yes': '' },
+          onClick: async () => { AG.acting = tid; R(); const r = await MK().campaignSet(x.campaignId, !pause); AG.acting = null;
+            if (!r.ok) { K.toast(r.message, 'error'); R(); return; }
+            x.done = r.same ? 'same' : 'ok'; x.doneText = r.message; K.toast(r.message, 'success'); R(); } }),
+        Button({ size: 'sm', type: 'text', label: 'لأ', attrs: { 'data-mk-camp-no': '' }, onClick: () => { x.done = 'no'; x.doneText = 'اتلغى — الحملة زي ما هي'; R(); } })]
+        : h('small', { class: 'help' }, 'التنفيذ محتاج «التسويق: نشر» أو الأدمن'));
   }
   async function agSend(a, txt) {
     const q = String(txt || '').trim(); if (!q || AG.asking) return;
@@ -1472,6 +1489,7 @@
     const prev = (AG.turns[key] || []).filter((t) => t.id !== 'tmp'); if (!id) delete AG.turns[key];
     AG.turns[cid] = prev.concat(r.turns);
     const ans = r.turns.find((t) => t.role === 'assistant'); if (ans && r.imagePrompt) AG.prompts[ans.id] = r.imagePrompt; if (ans && r.request) AG.reqs[ans.id] = r.request;
+    if (ans && r.campaignAction) AG.acts[ans.id] = r.campaignAction; // ش45 decision 5: the buyer's confirm card
     if (ans && r.campaign) { AG.drafts[ans.id] = r.campaign; if (a === 'designer' && openDraft(r.campaign)) { K.toast('فتحتلك الكامبين متملّية — راجعها واضغط توليد', 'success'); return; } }
     if (chat) { AG.chats[a] = [chat].concat((AG.chats[a] || []).filter((c) => c.id !== chat.id)); AG.active[a] = chat.id; }
     agRefresh();
@@ -1549,6 +1567,7 @@
             // owner batch 14 Nov decision 14: the job the assistant handed back — «قدّم الطلب ده» opens «تقديم طلب» filled with it
             t.role === 'assistant' && AG.reqs[t.id] && canAsk() ? h('div', { class: 'mk-msg-req' }, h('small', { class: 'help' }, 'طلب جاهز: ' + AG.reqs[t.id].title),
               Button({ size: 'sm', type: 'primary', icon: 'send', label: 'قدّم الطلب ده', attrs: { 'data-mk-req-from': String(t.id) }, onClick: () => reqForm(a, { title: AG.reqs[t.id].title, details: AG.reqs[t.id].details }) })) : null,
+            t.role === 'assistant' && AG.acts[t.id] ? actCard(t.id, AG.acts[t.id]) : null,
             t.role === 'assistant' && AG.drafts[t.id] && can().create ? h('div', { class: 'mk-msg-req' }, h('small', { class: 'help' }, 'كامبين جاهزة: ' + String(AG.drafts[t.id].idea || '').slice(0, 80)),
               Button({ size: 'sm', type: 'primary', icon: 'megaphone', label: 'افتح الكامبين', attrs: { 'data-mk-draft-from': String(t.id) }, onClick: () => openDraft(AG.drafts[t.id]) })) : null),
           h('small', { class: 'mk-meta help' }, (mine ? meName() : A.name) + ' · ' + agTime(t.at)))); });

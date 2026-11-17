@@ -31,7 +31,7 @@ do $$ begin
   insert into public.mkt_trends (batch, title, source, url, kind, thumb) values (gen_random_uuid(), 'بصورة', 's', 'https://a.example/y', 'image', 'trends/2026-11/12.jpg');
   -- two web pages without an id are never the same post
   insert into public.mkt_trends (batch, title, source, url, kind) values (gen_random_uuid(), 'صفحة 1', 's', 'https://a.example/1', 'image'), (gen_random_uuid(), 'صفحة 2', 's', 'https://a.example/2', 'image');
-  if has_function_privilege('anon', 'public.mkt_agent_kb_set(text, text, jsonb)', 'execute') or has_function_privilege('anon', 'public.mkt_trend_settings()', 'execute')
+  if has_function_privilege('anon', 'public.mkt_ad_tags_set(jsonb)', 'execute') or has_function_privilege('anon', 'public.mkt_agent_kb_set(text, text, jsonb)', 'execute') or has_function_privilege('anon', 'public.mkt_trend_settings()', 'execute')
     or has_function_privilege('anon', 'public.mkt_trend_settings_set(jsonb, jsonb)', 'execute') then raise exception 'case the functions are closed to anon failed'; end if;
 end $$;
 
@@ -43,7 +43,8 @@ do $$ begin
   if (select count(*) from public.mkt_trends where platform = 'instagram' and tag = 'macrame') <> 1 then raise exception 'case ops reads the trend post failed'; end if;
   begin perform thumb_src from public.mkt_trends; raise exception 'case the picture source is the server''s failed'; exception when insufficient_privilege then null; end;
   begin perform 1 from public.mkt_trends where thumb_tries > 0; raise exception 'case the tries are the server''s failed'; exception when insufficient_privilege then null; end;
-  if public.mkt_trend_settings() <> '{"tags": [], "sources": []}'::jsonb then raise exception 'case no tags yet failed'; end if;
+  if public.mkt_trend_settings() <> '{"tags": [], "sources": [], "adTags": []}'::jsonb then raise exception 'case no tags yet failed'; end if;
+  begin perform public.mkt_ad_tags_set('["x"]'); raise exception 'case a member never sets the ad tags failed'; exception when insufficient_privilege then null; end;
   begin perform public.mkt_agent_kb_set('designer', 'rules', '[]'); raise exception 'case a member never sets the rules failed'; exception when insufficient_privilege then null; end;
   begin perform public.mkt_trend_settings_set('["x"]', '[]'); raise exception 'case a member never sets the tags failed'; exception when insufficient_privilege then null; end;
 end $$;
@@ -77,17 +78,21 @@ begin
   -- the tags: the # dropped, lowered, kept once; Arabic words; a host list
   r := public.mkt_trend_settings_set('["#Macrame", "macrame", "ديكور_منزلي"]', '["later.com", "Creative.TikTok.com"]');
   if r <> '{"tags": ["macrame", "ديكور_منزلي"], "sources": ["later.com", "creative.tiktok.com"]}'::jsonb then raise exception 'case the tags are cleaned failed: %', r; end if;
-  if public.mkt_trend_settings() <> r then raise exception 'case the tags are read back failed'; end if;
+  if public.mkt_trend_settings() <> (r || '{"adTags": []}'::jsonb) then raise exception 'case the tags are read back failed'; end if;
+  -- ش44: the buyer's ad tags — a search (spaces kept, collapsed), the # dropped, each once; kept beside the trend tags
+  if public.mkt_ad_tags_set('["#مكرمية", "ديكور   منزلي", "مكرمية"]') <> '["مكرمية", "ديكور منزلي"]'::jsonb then raise exception 'case the ad tags are cleaned failed'; end if;
+  if public.mkt_trend_settings() -> 'tags' <> '["macrame", "ديكور_منزلي"]'::jsonb or public.mkt_trend_settings() -> 'adTags' <> '["مكرمية", "ديكور منزلي"]'::jsonb then raise exception 'case the ad tags sit beside the trend tags failed'; end if;
+  begin perform public.mkt_ad_tags_set('["<b>"]'); raise exception 'case an ad tag without tags failed'; exception when invalid_parameter_value then null; end;
   begin perform public.mkt_trend_settings_set('["two words"]', '[]'); raise exception 'case a tag is one word failed'; exception when invalid_parameter_value then null; end;
   begin perform public.mkt_trend_settings_set('[]', '["https://later.com/x"]'); raise exception 'case a site is a host failed'; exception when invalid_parameter_value then null; end;
   begin perform public.mkt_trend_settings_set((select jsonb_agg('t' || g) from generate_series(1, 31) g), '[]'); raise exception 'case at most 30 tags failed'; exception when invalid_parameter_value then null; end;
-  if (select count(*) from public.activity_log where action in ('mkt.agent.kb', 'mkt.trends.settings') and actor = '00000000-0000-4000-8000-0000000118a1') < 5 then raise exception 'case the changes are logged failed'; end if;
+  if (select count(*) from public.activity_log where action in ('mkt.agent.kb', 'mkt.trends.settings', 'mkt.ads.tags') and actor = '00000000-0000-4000-8000-0000000118a1') < 5 then raise exception 'case the changes are logged failed'; end if;
 end $$;
 
 -- ================================================================ accounts (marketing.view N): nothing
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000118a3","role":"authenticated"}', true);
 do $$ begin
-  if public.mkt_trend_settings() <> '{"tags": [], "sources": []}'::jsonb then raise exception 'case no marketing.view reads no tags failed'; end if;
+  if public.mkt_trend_settings() <> '{"tags": [], "sources": [], "adTags": []}'::jsonb then raise exception 'case no marketing.view reads no tags failed'; end if;
   if public.mkt_agent_settings() <> '{}'::jsonb then raise exception 'case no marketing.view reads no rules failed'; end if;
   if (select count(*) from public.mkt_trends) <> 0 then raise exception 'case no marketing.view reads no trend failed'; end if;
 end $$;

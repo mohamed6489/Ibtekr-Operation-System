@@ -1714,13 +1714,14 @@
   // الميديا باير و يجيبها من [مكتبة إعلانات ميتا]»): the media buyer's second section — the competitors the team follows, each
   // opened in Meta's Ad Library on its running ads (the page's own list by its number, else a search by a word), and a search
   // of the library by any word. Nothing is pulled: the library's API gives commercial ads for the EU / UK only ----------
-  const CP = { at: 0, busy: false, q: '' };
+  const CP = { at: 0, busy: false, q: '', who: '', tag: '', type: '' }; // ش44: the filter bar — a competitor, a tag, video / post
   function cpLoad(force) {
     if (!MK() || !MK().competitors || !can().view || CP.busy || (!force && CP.at && Date.now() - CP.at < 60000)) return;
     CP.busy = true;
     MK().competitors(force).then(() => { CP.at = Date.now(); CP.busy = false; if (window.IBPages.current === 'marketing' && st.view === 'hub' && !document.querySelector('.scrim')) R(); });
   }
-  const libLink = (c, label, attrs) => h('a', Object.assign({ class: 'btn btn-default sm mk-lib', href: W.adLibraryUrl(c), target: '_blank', rel: 'noopener noreferrer', title: 'يفتح مكتبة إعلانات ميتا في تاب جديد' }, attrs || {}), Icon('external', 'sm'), h('span', null, label));
+  const libLink = (c, label, attrs) => h('a', Object.assign({ class: 'btn btn-default sm mk-lib', href: W.adLibraryUrl(c, 'EG', CP.type), target: '_blank', rel: 'noopener noreferrer', title: 'يفتح مكتبة إعلانات ميتا في تاب جديد' }, attrs || {}), Icon('external', 'sm'), h('span', null, label));
+  window.IBCompForm = (x) => compForm(x || null); // ش44: the settings' «المنافسين» opens the same popup
   function compForm(x) {
     const isNew = !x;
     K.form({ title: isNew ? 'منافس جديد' : 'تعديل «' + x.name + '»', submitLabel: isNew ? 'ضيف المنافس' : 'احفظ',
@@ -1736,27 +1737,54 @@
     K.confirm({ title: 'تشيل «' + x.name + '» من المنافسين؟', text: 'بيتشال من القايمة هنا بس.', okLabel: 'شيله', okType: 'danger',
       onOk: async () => { const r = await MK().competitorArchive(x.id); K.toast(r.ok ? 'اتشال من القايمة' : r.message, r.ok ? 'success' : 'error'); CP.at = Date.now(); R(); } });
   }
+  // ش44 (the owner 17 Nov — «بدل شكل جدول اعلانات المنافسين بحاجة شبه الصفحة اللي في الصورة الاولي [مكتبة إعلانات ميتا] و تحتيها اسم المنافس و لينك
+  // افتح بيه كل اعلانات المنافس علي ميتا» and the ad tags in the media buyer's settings; he chose «كروت + روابط ميتا»): a card per competitor —
+  // its page's picture (Graph's public page picture by the page's number, else its first letter), the name, what the library opens on, the
+  // note, and «افتح كل إعلاناته على ميتا»; under them «أقوى الإعلانات بالتاجز» — a chip per tag opening the library on it. No ad is pulled.
+  const pagePic = (x) => (/^[0-9]{5,20}$/.test(String(x.pageId || '')) ? 'https://graph.facebook.com/' + x.pageId + '/picture?type=large' : null);
+  function compCard(x, edit) {
+    const pic = pagePic(x); const letter = h('span', { class: 'mk-cc-letter', 'aria-hidden': 'true' }, (x.name || '؟').trim().charAt(0).toUpperCase());
+    const av = h('span', { class: 'mk-cc-av' }, pic ? h('img', { src: pic, alt: '', loading: 'lazy', referrerpolicy: 'no-referrer', onError: (e) => { e.target.replaceWith(letter); } }) : letter);
+    return h('article', { class: 'mk-cc', 'data-mk-comp': String(x.id) },
+      h('div', { class: 'mk-cc-top' }, h('span', { class: 'mk-cc-live' }, Icon('check', 'sm'), 'إعلانات شغّالة في مصر'), edit ? K.RowMenu([{ label: 'تعديل', icon: 'edit', run: () => compForm(x) }, { label: 'شيله من القايمة', icon: 'trash', danger: true, run: () => compRemove(x) }], 'خيارات ' + x.name) : null),
+      h('div', { class: 'mk-cc-who' }, av, h('div', null, h('b', null, x.name), h('small', null, x.pageId ? 'إعلانات الصفحة نفسها' : 'بحث بـ «' + (x.keyword || x.name) + '»'))),
+      x.note ? h('p', { class: 'mk-cc-note' }, x.note) : null,
+      h('div', { class: 'mk-cc-acts' }, libLink(x, 'افتح كل إعلاناته على ميتا', { 'data-mk-comp-ads': String(x.id), class: 'btn btn-default mk-lib mk-cc-go' }),
+        x.pageUrl ? h('a', { class: 'mk-out', href: x.pageUrl, target: '_blank', rel: 'noopener noreferrer', title: 'افتح صفحته' }, h('span', null, 'صفحته'), Icon('external', 'sm')) : null));
+  }
   function competitorsCard() {
     cpLoad(false);
+    if (MK().trendSettings && !MK().trendSettingsNow()) MK().trendSettings().then(() => { if (window.IBPages.current === 'marketing' && !document.querySelector('.scrim')) R(); });
     const L = MK().competitorsNow ? MK().competitorsNow() : []; const ready = !MK().competitorsReadyNow || MK().competitorsReadyNow(); const edit = can().create;
-    const rows = (L || []).map((x) => [h('span', { class: 'mk-trend', 'data-mk-comp': String(x.id) }, h('b', null, x.name), x.note ? h('small', null, x.note) : null),
-      x.pageUrl ? h('a', { class: 'mk-out', href: x.pageUrl, target: '_blank', rel: 'noopener noreferrer', title: 'افتح صفحته' }, h('span', null, 'صفحته'), Icon('external', 'sm')) : x.pageId ? K.Num(x.pageId) : '—',
-      h('span', { class: 't-small' }, x.pageId ? 'إعلانات الصفحة نفسها' : 'بحث بـ «' + (x.keyword || x.name) + '»'),
-      libLink(x, 'إعلاناته دلوقتي', { 'data-mk-comp-ads': String(x.id) }),
-      edit ? K.RowMenu([{ label: 'تعديل', icon: 'edit', run: () => compForm(x) }, { label: 'شيله من القايمة', icon: 'trash', danger: true, run: () => compRemove(x) }], 'خيارات ' + x.name) : '']);
+    const cfg = (MK().trendSettingsNow && MK().trendSettingsNow()) || { adTags: [] }; const adTags = cfg.adTags || [];
     const inp = h('input', { type: 'text', class: 'input grow', id: 'mk-lib-q', maxlength: '80', placeholder: 'اسم منتج أو براند أو كلمة… (مثلًا: مكرمية)', 'aria-label': 'كلمة البحث في مكتبة الإعلانات', value: CP.q,
-      onInput: () => { CP.q = inp.value; const a = document.querySelector('[data-mk-lib-go]'); if (a) { const on = !!inp.value.trim(); a.setAttribute('href', on ? W.adLibraryUrl({ keyword: inp.value }) : '#'); a.classList.toggle('disabled', !on); a.setAttribute('aria-disabled', String(!on)); } },
+      onInput: () => { CP.q = inp.value; const p = inp.selectionStart; R(); const n = document.getElementById('mk-lib-q'); if (n) { n.focus(); try { n.setSelectionRange(p, p); } catch (e) { /* */ } } },
       onKeydown: (e) => { if (e.key === 'Enter' && inp.value.trim()) { const a = document.querySelector('[data-mk-lib-go]'); if (a) a.click(); } } });
     const go = libLink({ keyword: CP.q }, 'دوّر في المكتبة', { 'data-mk-lib-go': '', 'aria-disabled': String(!CP.q.trim()), class: 'btn btn-default sm mk-lib' + (CP.q.trim() ? '' : ' disabled'), onClick: (e) => { if (!CP.q.trim()) e.preventDefault(); } });
     if (!CP.q.trim()) go.setAttribute('href', '#');
+    // the search narrows the cards (name, word, note); the filters: one competitor, one tag, the ads' kind (the library's own media filter)
+    const q = CP.q.trim().toLowerCase();
+    const shown = (L || []).filter((x) => (!CP.who || String(x.id) === CP.who) && (!q || [x.name, x.keyword, x.note].some((v) => String(v || '').toLowerCase().includes(q))));
+    const fsel = (id, label, value, opts, on) => U.Select({ id, label: '', options: opts.map(([v, l]) => ({ value: v, label: l })), value, onChange: (v) => { on(v); R(); } });
+    const bar = h('div', { class: 'mk-comp-bar', 'data-mk-comp-filter': '' }, inp, go,
+      fsel('mk-cf-who', 'المنافس', CP.who, [['', 'المنافس: الكل']].concat((L || []).map((x) => [String(x.id), x.name])), (v) => { CP.who = v; }),
+      fsel('mk-cf-tag', 'التاج', CP.tag, [['', 'التاج: الكل']].concat(adTags.map((t) => [t, t])), (v) => { CP.tag = v; }),
+      fsel('mk-cf-type', 'النوع', CP.type, [['', 'النوع: الكل'], ['video', 'فيديو'], ['image', 'بوست (صورة)']], (v) => { CP.type = v; }));
+    const isAdmin = window.IBDirectory && window.IBDirectory.me && (window.IBDirectory.me() || {}).role_id === 'admin';
+    const tagsBox = h('div', { class: 'mk-strong', 'data-mk-strong': '' }, h('div', { class: 'mk-strong-h' }, h('b', null, 'أقوى الإعلانات بالتاجز'), h('small', null, 'كل تاج بيفتح مكتبة ميتا على الإعلانات الشغّالة بالكلمة دي في مصر — الإعلان اللي شغّال من مدة طويلة غالبًا هو اللي بيجيب نتيجة.')),
+      adTags.length ? h('div', { class: 'chips' }, adTags.filter((t) => !CP.tag || t === CP.tag).map((t) => libLink({ keyword: t }, t, { class: 'chip mk-strong-tag', 'data-mk-strong-tag': t }))) : h('p', { class: 't-small help', style: 'margin:0' }, isAdmin ? 'لسه مفيش تاجز — حطها من «الإعدادات › تعليمات الذكاء الاصطناعي › المساعدين › الميديا باير الاصطناعي».' : 'الأدمن بيحط التاجز من الإعدادات.'));
+    const set = isAdmin ? Button({ size: 'sm', type: 'text', icon: 'gear', label: 'المنافسين والتاجز', attrs: { 'data-mk-comp-settings': '' }, onClick: () => { const s2 = window.IBPages.all().settings; if (s2 && s2.api && s2.api.openAgents) s2.api.openAgents('buyer'); else location.hash = '#settings-ai'; } }) : null;
     return Card('إعلانات المنافسين', 'من مكتبة إعلانات ميتا · الإعلانات الشغّالة دلوقتي في مصر',
       [!L ? K.Empty('بيحمّل…', '') : !ready ? U.InlineNote({ children: 'القسم ده مستني تحديث قاعدة البيانات — هيشتغل بعد التحديث الجاي.' }) : [
-        h('div', { class: 'mk-lib-row' }, inp, go),
-        rows.length ? U.Table({ cls: 'dt mk-comp-t', headers: ['المنافس', 'الصفحة', 'المكتبة بتفتح على', 'الإعلانات', ''], rows })
+        bar,
+        !L.length ? null : shown.length ? h('div', { class: 'mk-comp-grid', 'data-mk-comp-grid': '' }, shown.map((x) => compCard(x, edit))) : K.Empty('مفيش منافس بالبحث أو الفلتر ده', 'غيّر البحث أو الفلتر.'),
+        L.length ? null
           : K.Empty('لسه مفيش منافسين', edit ? 'ضيف المنافسين اللي بتتابعهم — كل واحد بيتفتح على إعلاناته الشغّالة في مكتبة ميتا.' : 'اللي معاه «التسويق: إنشاء» بيضيفهم.'),
+        tagsBox,
         U.InlineNote({ children: 'الإعلانات بتتفتح في مكتبة إعلانات ميتا نفسها (تاب جديد). ميتا مابتدّيش الإعلانات التجارية بتاعة مصر عن طريق الـ API — للاتحاد الأوروبي وبريطانيا بس — فالسيستم بيفتحلك كل منافس على إعلاناته هناك.' })]],
-      edit && ready ? Button({ size: 'sm', type: 'primary', icon: 'plus', label: 'منافس', attrs: { 'data-mk-comp-add': '' }, onClick: () => compForm(null) }) : null, 'mk-comp mk-wide', { noun: 'منافس' });
+      [set, edit && ready ? Button({ size: 'sm', type: 'primary', icon: 'plus', label: 'منافس', attrs: { 'data-mk-comp-add': '' }, onClick: () => compForm(null) }) : null].filter(Boolean), 'mk-comp mk-wide', { noun: 'منافس' });
   }
+
   // ---------- the developer's section (comments decision 71 — the owner 15 Nov: «زودلي قسم المبرمج يجيبله ابديتس للوردر بريس و
   // الاشتراكات بتاعت ورد بريس و الكريديتس»): three cards under the developer's requests — the site's updates (WordPress, the
   // theme and every plugin: installed version → the newest the site knows of; «افحص دلوقتي» = woo-sync wp_updates), the

@@ -502,10 +502,10 @@ test('comment 70 — «إعلانات المنافسين» in the media buyer\'s
   await openAi(page, ADMIN);
   const card = pg(page).locator('.mk-comp');
   await expect(card).toContainText('إعلانات المنافسين');
-  await expect(card.locator('thead th')).toHaveText(['المنافس', 'الصفحة', 'المكتبة بتفتح على', 'الإعلانات', '']);
+  await expect(card.locator('table')).toHaveCount(0); // ش44: cards like the Ad Library, no table
   const params = async (loc) => Object.fromEntries(new URL(await loc.getAttribute('href')).searchParams);
   // the seeded one has no page number: a search by its word
-  const boho = card.locator('tbody tr', { hasText: 'Boho Corner' });
+  const boho = card.locator('[data-mk-comp]', { hasText: 'Boho Corner' });
   await expect(boho).toContainText('بحث بـ «بوهو ديكور»');
   expect(await params(boho.locator('[data-mk-comp-ads]'))).toEqual({ active_status: 'active', ad_type: 'all', country: 'EG', media_type: 'all', q: 'بوهو ديكور', search_type: 'keyword_unordered' });
   expect(await boho.locator('[data-mk-comp-ads]').evaluate((a) => [a.origin + a.pathname, a.target, a.rel])).toEqual(['https://www.facebook.com/ads/library/', '_blank', 'noopener noreferrer']);
@@ -524,26 +524,40 @@ test('comment 70 — «إعلانات المنافسين» in the media buyer\'s
   await expect(m).toHaveCount(0);
   const w = mock.mkt.writes.filter((x) => x.table === 'mkt_competitors').pop();
   expect([w.op, w.name, w.page_id, w.page_url, w.keyword, w.note]).toEqual(['insert', 'Macrame House', '100064812345678', 'https://facebook.com/profile.php?id=100064812345678', null, 'مكرمية وديكور حيطان']);
-  const mac = card.locator('tbody tr', { hasText: 'Macrame House' });
+  const mac = card.locator('[data-mk-comp]', { hasText: 'Macrame House' });
   await expect(mac).toContainText('إعلانات الصفحة نفسها');
   expect(await params(mac.locator('[data-mk-comp-ads]'))).toEqual({ active_status: 'active', ad_type: 'all', country: 'EG', media_type: 'all', view_all_page_id: '100064812345678' });
+  // ش44: the card shows the page's picture (by its number) and «افتح كل إعلاناته على ميتا»
+  await expect(mac.locator('.mk-cc-av img')).toHaveAttribute('src', 'https://graph.facebook.com/100064812345678/picture?type=large');
+  await expect(mac.locator('[data-mk-comp-ads]')).toContainText('افتح كل إعلاناته على ميتا');
+  // ش44 — the filter bar: one competitor, the ads' kind (the library's own media filter), the search narrows the cards
+  await card.locator('#mk-cf-type').click(); await page.getByRole('option', { name: 'فيديو' }).click();
+  expect((await params(card.locator('[data-mk-comp]', { hasText: 'Macrame House' }).locator('[data-mk-comp-ads]'))).media_type).toBe('video');
+  await card.locator('#mk-cf-who').click(); await page.getByRole('option', { name: 'Boho Corner' }).click();
+  await expect(card.locator('[data-mk-comp]')).toHaveCount(1);
+  await card.locator('#mk-cf-who').click(); await page.getByRole('option', { name: 'المنافس: الكل' }).click();
+  await card.locator('#mk-cf-type').click(); await page.getByRole('option', { name: 'النوع: الكل' }).click();
+  await expect(card.locator('[data-mk-comp]')).toHaveCount(2);
   // the library's own search: off until a word is typed
   const go = card.locator('[data-mk-lib-go]');
   await expect(go).toHaveAttribute('aria-disabled', 'true');
   await card.locator('#mk-lib-q').fill('مكرمية');
-  await expect(go).toHaveAttribute('aria-disabled', 'false');
-  expect((await params(go)).q).toBe('مكرمية');
+  await expect(card.locator('[data-mk-lib-go]')).toHaveAttribute('aria-disabled', 'false');
+  expect((await params(card.locator('[data-mk-lib-go]'))).q).toBe('مكرمية');
+  await expect(card.locator('[data-mk-comp]')).toHaveCount(1); // the search narrows the cards too (the note «مكرمية وديكور حيطان»)
+  await card.locator('#mk-lib-q').fill('');
+  await expect(card.locator('[data-mk-comp]')).toHaveCount(2);
   // edit: a word for the one without a number; remove: it leaves the list (archived, not deleted)
   await boho.getByRole('button', { name: 'خيارات Boho Corner' }).click();
   await page.getByRole('menuitem', { name: 'تعديل' }).click();
   const e = modal(page, 'تعديل «Boho Corner»');
   await e.locator('#keyword').fill('ديكور بوهيمي');
   await e.getByRole('button', { name: 'احفظ' }).click();
-  await expect(card.locator('tbody tr', { hasText: 'Boho Corner' })).toContainText('بحث بـ «ديكور بوهيمي»');
-  await card.locator('tbody tr', { hasText: 'Boho Corner' }).getByRole('button', { name: 'خيارات Boho Corner' }).click();
+  await expect(card.locator('[data-mk-comp]', { hasText: 'Boho Corner' })).toContainText('بحث بـ «ديكور بوهيمي»');
+  await card.locator('[data-mk-comp]', { hasText: 'Boho Corner' }).getByRole('button', { name: 'خيارات Boho Corner' }).click();
   await page.getByRole('menuitem', { name: 'شيله من القايمة' }).click();
   await page.locator('.modal[role=dialog]').getByRole('button', { name: 'شيله' }).click();
-  await expect(card.locator('tbody tr')).toHaveCount(1);
+  await expect(card.locator('[data-mk-comp]')).toHaveCount(1);
   expect(mock.mkt.competitors.find((c) => c.name === 'Boho Corner').archived_at).not.toBeNull();
   // the log: the row's id only
   const logs = mock.activityRows.filter((a) => String(a.action).startsWith('mkt.competitor.'));
@@ -552,6 +566,18 @@ test('comment 70 — «إعلانات المنافسين» in the media buyer\'s
   // the designer's tab does not have the section
   await pg(page).getByRole('tab', { name: /الديزاينر/ }).click();
   await expect(pg(page).locator('.mk-comp')).toHaveCount(0);
+});
+
+// ش44 — «أقوى الإعلانات بالتاجز»: the media buyer's ad tags (set in the settings) as chips opening the library on each word; the tag filter keeps one
+test('ش44 — the ad tags open the library on each word; the tag filter keeps one; the admin sets them in the settings', async ({ page }) => {
+  await start(page, { mktAdTags: ['مكرمية', 'ديكور منزلي'] });
+  await openAi(page, ADMIN);
+  const card = pg(page).locator('.mk-comp');
+  const chips = card.locator('[data-mk-strong-tag]');
+  await expect(chips).toHaveText(['مكرمية', 'ديكور منزلي']);
+  expect(Object.fromEntries(new URL(await chips.nth(1).getAttribute('href')).searchParams).q).toBe('ديكور منزلي');
+  await card.locator('#mk-cf-tag').click(); await page.getByRole('option', { name: 'مكرمية', exact: true }).click();
+  await expect(chips).toHaveText(['مكرمية']);
 });
 
 // comments decision 71 (the owner 15 Nov — «زودلي قسم المبرمج يجيبله ابديتس للوردر بريس و الاشتراكات بتاعت ورد بريس و الكريديتس»): the

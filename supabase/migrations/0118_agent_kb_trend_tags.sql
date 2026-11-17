@@ -93,8 +93,9 @@ language sql stable security definer set search_path = public as $$
   select case when public.has_perm('marketing.view') <> 'N' or public.is_admin()
     then jsonb_build_object(
       'tags', coalesce((select data -> 'trends' -> 'tags' from public.settings where section = 'marketing'), '[]'::jsonb),
-      'sources', coalesce((select data -> 'trends' -> 'sources' from public.settings where section = 'marketing'), '[]'::jsonb))
-    else jsonb_build_object('tags', '[]'::jsonb, 'sources', '[]'::jsonb) end
+      'sources', coalesce((select data -> 'trends' -> 'sources' from public.settings where section = 'marketing'), '[]'::jsonb),
+      'adTags', coalesce((select data -> 'trends' -> 'adTags' from public.settings where section = 'marketing'), '[]'::jsonb))
+    else jsonb_build_object('tags', '[]'::jsonb, 'sources', '[]'::jsonb, 'adTags', '[]'::jsonb) end
 $$;
 revoke execute on function public.mkt_trend_settings() from public, anon;
 grant execute on function public.mkt_trend_settings() to authenticated, service_role;
@@ -128,3 +129,28 @@ end
 $$;
 revoke execute on function public.mkt_trend_settings_set(jsonb, jsonb) from public, anon;
 grant execute on function public.mkt_trend_settings_set(jsonb, jsonb) to authenticated, service_role;
+
+-- ش44 (the owner 17 Nov — «ضيفلي في الستينج بتاعة الميديا باير اني اضيف اسماء المنافسين و الاعلانات الاكثر قوة بناء علي التاجز اللي اضيفها
+-- هناك»): the media buyer's ad tags — each opens Meta's Ad Library on that word (the library's own pages; no ad is pulled). Up to 30 words
+-- (spaces allowed — a search, not a hashtag), 1–40 characters, no < >; the admin only. Kept in settings.marketing.trends.adTags.
+create or replace function public.mkt_ad_tags_set(p_tags jsonb) returns jsonb
+language plpgsql volatile security definer set search_path = public as $$
+declare v_tags jsonb := '[]'::jsonb; x jsonb; t text;
+begin
+  if not public.is_admin() then raise exception 'admin only' using errcode = '42501'; end if;
+  if p_tags is null or jsonb_typeof(p_tags) <> 'array' or jsonb_array_length(p_tags) > 30 then raise exception 'invalid: tags' using errcode = '22023'; end if;
+  for x in select * from jsonb_array_elements(p_tags) loop
+    t := btrim(regexp_replace(regexp_replace(coalesce(x #>> '{}', ''), '^#+', ''), '\s+', ' ', 'g'));
+    if jsonb_typeof(x) <> 'string' or t = '' or char_length(t) > 40 or t ~ '[<>]' then raise exception 'invalid: tags' using errcode = '22023'; end if;
+    if not v_tags @> to_jsonb(t) then v_tags := v_tags || to_jsonb(t); end if;
+  end loop;
+  insert into public.settings (section, data) values ('marketing', jsonb_build_object('trends', jsonb_build_object('adTags', v_tags)))
+  on conflict (section) do update set data = jsonb_set(coalesce(public.settings.data, '{}'::jsonb), '{trends}',
+    coalesce(public.settings.data -> 'trends', '{}'::jsonb) || jsonb_build_object('adTags', v_tags));
+  insert into public.activity_log (actor, action, entity, entity_id, new_value)
+  values (auth.uid(), 'mkt.ads.tags', 'settings', 'trends', jsonb_build_object('tags', jsonb_array_length(v_tags)));
+  return v_tags;
+end
+$$;
+revoke execute on function public.mkt_ad_tags_set(jsonb) from public, anon;
+grant execute on function public.mkt_ad_tags_set(jsonb) to authenticated, service_role;

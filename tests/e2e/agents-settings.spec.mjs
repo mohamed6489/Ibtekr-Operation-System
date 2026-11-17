@@ -79,3 +79,21 @@ test('ش42: «تعليمات الذكاء الاصطناعي» in tabs — the p
   await expect(st.locator('[data-agent-tabs]')).toBeVisible();
   await expect(st).not.toContainText('قواعد اللقطات');
 });
+
+test('ش44: the media buyer\'s settings — the competitors (the same list) and the ad tags', async ({ page }) => {
+  await signIn(page);
+  await page.evaluate(() => { location.hash = 'settings-ai'; });
+  const st = page.locator('#pg-settings');
+  await st.getByRole('tab', { name: 'المساعدين' }).click();
+  await page.locator('[data-agent-tabs]').getByRole('tab', { name: 'الميديا باير الاصطناعي' }).click();
+  await page.locator('[data-set-comp-add]').click();
+  await page.locator('.modal #name').fill('Boho Corner');
+  await page.getByRole('button', { name: 'ضيف المنافس' }).click();
+  await expect(page.locator('[data-set-comp]')).toContainText(['Boho Corner']);
+  expect(mock.mkt.competitors.map((c) => c.name)).toContain('Boho Corner');
+  await page.locator('[data-ad-tag-add]').click();
+  await page.locator('.modal input').first().fill('مكرمية، #ديكور   منزلي');
+  await page.locator('.modal').getByRole('button', { name: /حفظ|ضيف|تم/ }).last().click();
+  await expect(page.locator('[data-ad-tags] .chip')).toHaveText(['مكرمية ✕', 'ديكور منزلي ✕']);
+  expect(mock.mkt.trendCfg.adTags).toEqual(['مكرمية', 'ديكور منزلي']);
+});

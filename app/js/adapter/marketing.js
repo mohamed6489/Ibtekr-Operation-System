@@ -852,13 +852,28 @@
     const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
     try {
       const { data: d, error } = await cl.rpc('mkt_trend_settings');
-      if (error) { if (/function .* does not exist|PGRST202/i.test(String(error.message || '') + (error.code || ''))) { trendCfg = { tags: [], sources: [], ready: false }; return { ok: true, ...trendCfg }; } return fail(error); }
+      if (error) { if (/function .* does not exist|PGRST202/i.test(String(error.message || '') + (error.code || ''))) { trendCfg = { tags: [], sources: [], adTags: [], ready: false }; return { ok: true, ...trendCfg }; } return fail(error); }
       const o = d && typeof d === 'object' ? d : {};
-      trendCfg = { tags: (Array.isArray(o.tags) ? o.tags : []).filter((t) => typeof t === 'string'), sources: (Array.isArray(o.sources) ? o.sources : []).filter((t) => typeof t === 'string'), ready: true };
+      trendCfg = { tags: (Array.isArray(o.tags) ? o.tags : []).filter((t) => typeof t === 'string'), sources: (Array.isArray(o.sources) ? o.sources : []).filter((t) => typeof t === 'string'), adTags: (Array.isArray(o.adTags) ? o.adTags : []).filter((t) => typeof t === 'string'), ready: true };
       return { ok: true, ...trendCfg };
     } catch (e) { return fail(null); }
   }
   const trendSettingsNow = () => trendCfg;
+  // ش44: the media buyer's ad tags — words Meta's Ad Library is searched for (a search, so spaces stay); the admin only (0118 mkt_ad_tags_set)
+  async function adTagsSet(tags) {
+    if (!isAdmin()) return { ok: false, reason: 'forbidden', message: 'تاجز الإعلانات للأدمن بس' };
+    const T = [...new Set((tags || []).map((v) => String(v || '').trim().replace(/^#+/, '').replace(/\s+/g, ' ')).filter(Boolean))];
+    if (T.length > 30) return { ok: false, reason: 'invalid', field: 'tags', message: 'لحد 30 تاج' };
+    const bad = T.find((t) => t.length > 40 || /[<>]/.test(t)); if (bad) return { ok: false, reason: 'invalid', field: 'tags', message: '«' + bad.slice(0, 40) + '» — التاج لحد 40 حرف ومن غير < >' };
+    const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
+    try {
+      const { data: d, error } = await cl.rpc('mkt_ad_tags_set', { p_tags: T });
+      if (error) return fail(error);
+      trendCfg = Object.assign({ tags: [], sources: [], ready: true }, trendCfg || {}, { adTags: Array.isArray(d) ? d : T });
+      log('ads.tags', String(T.length), null);
+      return { ok: true, adTags: trendCfg.adTags };
+    } catch (e) { return fail(null); }
+  }
   async function trendSettingsSet(tags, sources) {
     if (!isAdmin()) return { ok: false, reason: 'forbidden', message: 'إعدادات التريندات للأدمن بس' };
     const T = [...new Set((tags || []).map(tagOf).filter(Boolean))]; const S = [...new Set((sources || []).map(hostOf).filter(Boolean))];
@@ -870,7 +885,7 @@
     try {
       const { data: d, error } = await cl.rpc('mkt_trend_settings_set', { p_tags: T, p_sources: S });
       if (error) return fail(error);
-      trendCfg = { tags: (d && d.tags) || T, sources: (d && d.sources) || S, ready: true };
+      trendCfg = { tags: (d && d.tags) || T, sources: (d && d.sources) || S, adTags: (trendCfg && trendCfg.adTags) || [], ready: true };
       log('trends.settings', String(T.length), null);
       return { ok: true, ...trendCfg };
     } catch (e) { return fail(null); }
@@ -1215,7 +1230,7 @@
     adsStatus, adsNow, adsSync, adsData, adsLinkSet, adsLinkStart, adsLinkPick, adsUnlink, adsWhy,
     suggestions, suggNow, decide, rules, rulesNow, rulesSet, setLive, requests, reqsNow, addRequest, REQ_KIND: KIND_OF, buyerChat,
     agentChats, agentTurns, agentAsk, agentImage, agentRename, agentDelete, agentSettings, agentSettingsNow, agentSettingsSet, AGENT_KEYS,
-    trends, trendsNow, trendsReadyNow, trendsRefresh, trendThumbs, trendThumbNow, trendSettings, trendSettingsNow, trendSettingsSet, agentKbSet, KB, competitors, competitorsNow, competitorsReadyNow, competitorSave, competitorArchive,
+    trends, trendsNow, trendsReadyNow, trendsRefresh, trendThumbs, trendThumbNow, trendSettings, trendSettingsNow, trendSettingsSet, adTagsSet, agentKbSet, KB, competitors, competitorsNow, competitorsReadyNow, competitorSave, competitorArchive,
     siteCheck, siteCheckNow, siteReadyNow, siteCheckRun, siteSubs, siteSubsNow, aiSpend, aiSpendNow,
     addTemplate, editTemplate, removeTemplate, templateUsed, subscribe, unsubscribe, check, MAX_BYTES, MIME, BUCKET,
     _test: { toCampaign, toPost, toTemplate, fail, aiMessage, fieldsOf, tplRow, pubMessage, toSuggestion, toRequest, toRules, toChat, toTurn } };

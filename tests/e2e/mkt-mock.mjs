@@ -120,7 +120,7 @@ export function mktState(opts = {}) {
     // the rows the model «found» (cleaned against trendsResults — the pages the search returned)
     trends: (opts.mktTrends || []).map((x, i) => ({ id: i + 1, batch: 'b0000000-0000-4000-8000-000000000001', summary: null, kind: 'image', found_at: now, created_by: null, platform: 'web', tag: null, thumb: null, author: null, views: null, likes: null, comments: null, posted_at: null, external_id: null, ...x })),
     // 0118 (ش39): the designer's tags and sites; igOff = Instagram's hashtag search refused (the feature not granted) or not linked
-    trendCfg: { tags: [...(opts.mktTrendTags || [])], sources: [...(opts.mktTrendSources || [])] }, igOff: opts.mktIgOff || null,
+    trendCfg: { tags: [...(opts.mktTrendTags || [])], sources: [...(opts.mktTrendSources || [])], adTags: [...(opts.mktAdTags || [])] }, igOff: opts.mktIgOff || null,
     competitors: (opts.mktCompetitors || []).map((x, i) => ({ id: i + 1, page_id: null, page_url: null, keyword: null, note: null, created_by: null, created_at: now, updated_by: null, updated_at: now, archived_at: null, ...x })),
     noSections: !!opts.mktNoSections, trendsFail: null, trendsAnswer: null, trendsResults: null,
     siteChecks: (opts.siteChecks || []).map((x) => ({ kind: 'wp_updates', data: {}, checked_at: now, checked_by: null, ...x })),
@@ -219,14 +219,20 @@ export function mktRoute(c) {
       H.agents[b.p_agent] = { ...(H.agents[b.p_agent] || {}), [b.p_kind]: out }; H.writes.push({ table: 'settings', op: 'agent_kb', agent: b.p_agent, kind: b.p_kind, sections: out.length });
       return json(200, out);
     }
-    if (name === 'mkt_trend_settings') return json(200, view || isAdmin(u) ? JSON.parse(JSON.stringify(H.trendCfg)) : { tags: [], sources: [] });
+    if (name === 'mkt_trend_settings') return json(200, view || isAdmin(u) ? JSON.parse(JSON.stringify(H.trendCfg)) : { tags: [], sources: [], adTags: [] });
+    if (name === 'mkt_ad_tags_set') { // ش44
+      if (!isAdmin(u)) return refuse(403, '42501', 'admin only');
+      if (!Array.isArray(b.p_tags) || b.p_tags.length > 30) return bad('tags');
+      const T = []; for (const x of b.p_tags) { const t = String(x || '').trim().replace(/^#+/, '').replace(/\s+/g, ' '); if (!t || t.length > 40 || /[<>]/.test(t)) return bad('tags'); if (!T.includes(t)) T.push(t); }
+      H.trendCfg = { ...H.trendCfg, adTags: T }; H.writes.push({ table: 'settings', op: 'adTags', tags: T.length }); return json(200, T);
+    }
     if (name === 'mkt_trend_settings_set') {
       if (!isAdmin(u)) return refuse(403, '42501', 'admin only');
       const T = []; const S = [];
       if (!Array.isArray(b.p_tags) || b.p_tags.length > 30 || !Array.isArray(b.p_sources) || b.p_sources.length > 15) return bad('tags');
       for (const x of b.p_tags) { const t = String(x || '').trim().replace(/^#+/, '').toLowerCase(); if (!/^[A-Za-z0-9_\u0621-\u064A\u0660-\u0669\u0671-\u06D3]{1,40}$/.test(t)) return bad('tags'); if (!T.includes(t)) T.push(t); }
       for (const x of b.p_sources) { const t = String(x || '').trim().toLowerCase(); if (!/^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}$/.test(t)) return bad('sources'); if (!S.includes(t)) S.push(t); }
-      H.trendCfg = { tags: T, sources: S }; H.writes.push({ table: 'settings', op: 'trends', tags: T.length, sources: S.length });
+      H.trendCfg = { ...H.trendCfg, tags: T, sources: S }; H.writes.push({ table: 'settings', op: 'trends', tags: T.length, sources: S.length });
       return json(200, { tags: T, sources: S });
     }
     if (name === 'mkt_buyer_rules') return view ? json(200, { ...H.rules }) : refuse(403, '42501', 'marketing.view is needed');

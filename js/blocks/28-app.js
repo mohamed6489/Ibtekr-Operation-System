@@ -3349,7 +3349,7 @@
   const makerMenuItems = (v) => [{ label: 'تعديل الأسعار', icon: 'edit', run: () => makerAct('price', [v.id]) }, vstore.canRate() ? { label: 'تعديل نسبة إبتكر', icon: 'sliders', run: () => makerAct('rate', [v.id]) } : null, { label: 'نقل المنتجات لمبتكر تاني', icon: 'users', run: () => makerAct('move', [v.id]) }, { label: 'منتجاته', icon: 'box', run: () => goMakerProducts(v) }, { label: 'أوردراته', icon: 'external', run: () => { if (vdrawer) vdrawer.close(); showOrders({ vendor: v.name }); } }];
   function goMakerProducts(v) { const a = PAPI(); if (vdrawer) vdrawer.close(); if (!a) return; go('products'); a.openRecords({ vendor: v.name }); }
   // the drawer's products tab follows the mirror (a load, a write); the makers list carries no product counts of its own
-  document.addEventListener('ib:products', () => { if (vredraw && vtab === 'products') vredraw(); if (state.page === 'vendors' && state.vsel.size && !document.querySelector('.pop-anchor .menu, .modal[role=dialog]')) { vkeep(); renderVendors(true); } });
+  document.addEventListener('ib:products', () => { if (vredraw && vtab === 'products') vredraw(); if (state.page === 'vendors' && (state.vsel.size || state.vtab === 'records') && !document.querySelector('.pop-anchor .menu, .modal[role=dialog]')) { vkeep(); renderVendors(true); } }); // records: the brands column / filter read the products' brands
   let vnote = null; const vnotify = (kind, text) => { vnote = { kind, text }; renderVendors(); };
   // the owner 15 Nov (docs/superpowers/plans/2026-11-15-page-notes.md — «Keep the makers page note visible after a save»): the note
   // was taken by the first draw, and the redraw for the save's own reload (ib:vendors), the bell's recount or a teammate's change drew
@@ -3387,7 +3387,6 @@
     return more.length ? base.concat(VD.filterVendors(more, stats, Object.assign({}, f, { q: '' }), VTODAY())) : base;
   }
   // decision 5 (d): under the maker's name, the brands he holds whose name is not his (after a transfer) — a grey line, text only
-  const brandLine = (v) => { const names = (v.brands || []).map((b) => b.name).filter((n) => VD.norm(n) !== VD.norm(v.name)); return names.length ? h('span', { class: 't-small brand-line', 'data-brands': '' }, names.join(' · ')) : null; };
   // the makers' numbers + their «التفاصيل» — shared by the makers page and the reports page's makers tab (phase 9: the v2's makerSummary);
   // opts.inPlace: a row opens the maker's drawer where you are (the reports page) instead of on the makers page
   function makerSummary(opts) {
@@ -3406,10 +3405,14 @@
     const { all, stats, sum, vdet } = makerSummary();
     // comments decision 57 (the owner 15 Nov — «البراندات تتضاف في جدول المبتكرين و تتضاف للفلتر بتاعه»): the maker's brands (the ones that are
     // not simply his own name — what the column shows) are a filter group too: a maker passes when he owns one of the picked brands
-    const extraBrands = (v) => (v.brands || []).filter((b) => VD.norm(b.name) !== VD.norm(v.name));
-    // the owner 16 Nov («فين البراندات اللي هفلتر بيها»): the filter takes every brand a maker owns — his automatic one (his own name) too;
-    // only the column hides that one
-    const brandPass = (f) => (v) => !(f.brand || []).length || (v.brands || []).some((b) => f.brand.includes(String(b.id)));
+    // the owner 17 Nov («عايز براندات كل مبتكر تظهر في الجدول و كمان في الفلتر … انت حاططلي المبتكرين تحت البراندات»): a maker's brands =
+    // the site's brands on his products (WooCommerce Brands — the products mirror, loaded here when it is not yet) and the brands he
+    // holds here that are not simply his own name (the automatic brand is the maker, not a brand) — in the column and in the filter
+    const pa0 = PAPI(); if (state.vtab === 'records' && pa0 && !pa0.ready()) pa0.ensure();
+    const prodBrands = new Map(); if (pa0 && pa0.ready()) pa0.makerItems(all.map((v) => v.id)).forEach((p) => (p.brands || []).forEach((b) => { const k = String(p.vendorId); if (!prodBrands.has(k)) prodBrands.set(k, []); prodBrands.get(k).push(b); }));
+    const brandNames = (v) => { const out = []; const seen = new Set(); const add = (n) => { const k = VD.norm(n || ''); if (!k || seen.has(k)) return; seen.add(k); out.push(String(n).trim()); };
+      (prodBrands.get(String(v.id)) || []).forEach(add); (v.brands || []).forEach((b) => { if (b && VD.norm(b.name) !== VD.norm(v.name)) add(b.name); }); return out; };
+    const brandPass = (f) => (v) => !(f.brand || []).length || brandNames(v).some((n) => f.brand.includes(VD.norm(n)));
     const vPass = (f) => (v) => brandPass(f)(v) && ['status', 'category', 'balance', 'contract', 'other'].every((k) => !(f[k] || []).length || f[k].some((val) => VD.filterVendors([v], stats, k === 'other' ? { status: 'all', [val]: true } : { status: 'all', [k]: val }, VTODAY()).length));
     const base0 = vfilter(all, stats, { status: 'all', q: state.vfilter.q });
     const list = VD.sortVendors(base0.filter(vPass(state.vf)), stats, state.vsort);
@@ -3424,7 +3427,7 @@
     const check = (key, label) => h('label', { class: 'check', style: 'display:flex;align-items:center;gap:8px;cursor:pointer' }, (() => { const c = h('input', { type: 'checkbox', checked: state.vfilter[key] }); c.addEventListener('change', () => setF(key, c.checked)); return c; })(), label);
     // «فلتر» + «ترتيب» (phase 5.5 decision 3, owner 1 Nov): the kit's closed multi-value filter and sort next to the columns button, the picks as chips with their counts
     const VF = { status: [['active', 'نشط'], ['leave', 'في إجازة'], ['inactive', 'غير نشط']], balance: [['due', 'ليه رصيد'], ['negative', 'عليه (عربون / مواصلات)'], ['zero', 'متصفّي']], contract: [['uploaded', 'مرفوع وساري'], ['expiring', 'بينتهي خلال 30 يوم'], ['expired', 'منتهي'], ['missing', 'غير مرفوع']] };
-    const brandOpts = () => { const m = new Map(); all.forEach((v) => (v.brands || []).forEach((b) => { if (b && b.name) m.set(String(b.id), b.name); })); return [...m.entries()].sort((x, y) => x[1].localeCompare(y[1])); };
+    const brandOpts = () => { const m = new Map(); all.forEach((v) => brandNames(v).forEach((n) => { if (!m.has(VD.norm(n))) m.set(VD.norm(n), n); })); return [...m.entries()].sort((x, y) => x[1].localeCompare(y[1])); };
     const VG = () => [{ key: 'status', label: 'الحالة', options: VF.status }, { key: 'category', label: 'الفئة', options: mainCats().map((c) => [String(c.id), c.name]) }, { key: 'brand', label: 'البراند', options: brandOpts() }, { key: 'balance', label: 'الرصيد', options: VF.balance }, { key: 'contract', label: 'العقد', options: VF.contract }, { key: 'other', label: 'المتابعة', options: [['late', 'عنده تأخير'], ['tickets', 'عليه طلبات']] }];
     function vFilterBtn() {
       return window.IBKit.FilterMenu({ id: 'vendors', label: 'فلتر المبتكرين', noun: 'مبتكر', groups: VG(), value: state.vf, count: (d) => base0.filter(vPass(d)).length, onApply: (d) => { state.vf = d; state.vpage = 1; renderVendors(); } });
@@ -3445,7 +3448,7 @@
     const rowMenu = (v) => stop(KK.RowMenu(makerMenuItems(v), 'إجراءات ' + v.name));
     const headers = ['المبتكر', 'البراندات', 'الحالة', 'النسبة', 'أوردرات مفتوحة', 'قابلة للتأخير', 'العربون', 'المواصلات', 'مستحقاته (من 1 أكتوبر)', 'آخر أوردر', 'طلبات مفتوحة']; // «البراندات»: comments decision 57 — a column of its own (it was a line under the name)
     const later = (phase) => h('span', { class: 't-small', style: 'color:var(--color-text-secondary)', title: 'من مرحلة ' + phase }, '—'); // decision 4: deposits / transport with phase 4, tickets with phase 7
-    const cells = (v) => { const st = stats[v.id]; return [h('span', { class: 'vendor-cell' }, U.VendorLogo({ letter: v.logoLetter, size: 'sm' }), h('span', { class: 'vnames' }, h('span', { class: 't-label' }, v.name))), brandLine(v) || h('span', { class: 't-small help' }, '—'), v.siteRemovedAt ? h('span', { class: 'chips' }, U.VendorStatus(v.status), h('span', { class: 'tg tg-error', 'data-site-removed': '' }, 'اتحذف من الموقع')) : U.VendorStatus(v.status), v.rate == null ? '—' : num(v.rate + '%'), num(String(st.open)), num(String(st.late)), later(4), later(4), h('span', { class: st.balance < 0 ? 'bal-neg' : '' }, num(D.formatMoney(st.balance))), num(ageLabel(st.lastAge)), later(7)]; }; // مستحقاته = الافتتاحي + حقه من الأوردرات المكتملة
+    const cells = (v) => { const st = stats[v.id]; return [h('span', { class: 'vendor-cell' }, U.VendorLogo({ letter: v.logoLetter, size: 'sm' }), h('span', { class: 'vnames' }, h('span', { class: 't-label' }, v.name))), (() => { const bn = brandNames(v); return bn.length ? h('span', { class: 'chips v-brands', 'data-brands': '' }, bn.map((n) => h('span', { class: 'chip' }, n))) : h('span', { class: 't-small help' }, '—'); })(), v.siteRemovedAt ? h('span', { class: 'chips' }, U.VendorStatus(v.status), h('span', { class: 'tg tg-error', 'data-site-removed': '' }, 'اتحذف من الموقع')) : U.VendorStatus(v.status), v.rate == null ? '—' : num(v.rate + '%'), num(String(st.open)), num(String(st.late)), later(4), later(4), h('span', { class: st.balance < 0 ? 'bal-neg' : '' }, num(D.formatMoney(st.balance))), num(ageLabel(st.lastAge)), later(7)]; }; // مستحقاته = الافتتاحي + حقه من الأوردرات المكتملة
     const pageAll = slice.length > 0 && slice.every((v) => VS.has(v.id));
     const allBox = (() => { const c = KK.Checkbox({ label: '', checked: pageAll, onChange: (on) => { slice.forEach((v) => (on ? VS.add(v.id) : VS.delete(v.id))); renderVendors(); } }); c.setAttribute('aria-label', 'حدد كل الصفحة'); c.setAttribute('data-vsel-all', ''); if (!pageAll && slice.some((v) => VS.has(v.id))) c.setAttribute('aria-checked', 'mixed'); return c; })();
     const selIds = [...VS]; const selN = selIds.length;

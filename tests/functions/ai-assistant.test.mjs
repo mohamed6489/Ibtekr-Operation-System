@@ -35,13 +35,13 @@ test('assistantRequest: the cached base + the screen block, the turns as message
   assert.deepEqual(p.system[0].cache_control, { type: 'ephemeral' }); assert.match(p.system[0].text, /get_data/); assert.match(p.system[0].text, /expense_add/); assert.match(p.system[0].text, /إيداع ولا سحب/); assert.match(p.system[0].text, /حط المعلومات هنا/); // decision 41 assert.doesNotMatch(p.system[0].text, /propose_entry/); assert.match(p.system[0].text, /متعرضش أرقام تليفونات/);
   assert.equal(p.system[1].text, 'النهارده (القاهرة): 2026-11-08\nالمستخدم: منى (خدمة العملاء)\nالصفحة المفتوحة: الحسابات / expenses\nالفترة المعروضة: 2026-11-01 → 2026-11-08');
   assert.deepEqual(p.messages.map((m) => [m.role, m.content[0].text]), [['user', 'أهلًا'], ['assistant', 'أهلًا بيك'], ['user', 'افتح الأوردرات']]);
-  assert.deepEqual(p.tools.map((t) => t.name), ['get_data', 'navigate', 'filter_orders', 'set_period', 'sort_vendors', 'offer_file', 'open_form', 'plan_categories']); // decision 40 / 42: the money entries are open_form popups; + plan_categories (15 Nov)
+  assert.deepEqual(p.tools.map((t) => t.name), ['get_data', 'navigate', 'filter_orders', 'set_period', 'sort_vendors', 'offer_file', 'open_form', 'plan_categories', 'plan_requests']); // decision 40 / 42: the money entries are open_form popups; + plan_categories (15 Nov)
   assert.equal(p.tool_choice, undefined);
   assert.deepEqual(p.tools[1].input_schema.properties.page.enum, PAGES);
   const f = assistantRequest(parseAssistant({ mode: 'filter', turns: [{ role: 'user', text: 'المتأخر بتاع Art Craft' }], context: { vendors: ['Art Craft'], statuses: ['مكتمل', 'ملغي'] } }).req, CTX);
   assert.deepEqual(f.tools.map((t) => t.name), ['set_filter']); assert.deepEqual(f.tool_choice, { type: 'tool', name: 'set_filter' });
   assert.equal(f.system[1].text, 'المبتكرين المتاحين: Art Craft\nحالات الأوردر: مكتمل، ملغي');
-  assert.deepEqual(toolsOf('chat').length, 8); // + open_form (decision 36), − propose_entry (decision 40: the money entries are popups), + offer_file (decision 42), + plan_categories (15 Nov)
+  assert.deepEqual(toolsOf('chat').length, 9); // + open_form (decision 36), − propose_entry (decision 40: the money entries are popups), + offer_file (decision 42), + plan_categories (15 Nov)
 });
 
 test('readTurn: text, tool uses (ids kept for the results), a refusal, a cut-off without text; toolResults shapes the next user message', () => {
@@ -276,4 +276,15 @@ test('plan_categories: an outline of new categories the page reviews — the lev
   // at most CAT_PLAN_MAX rows; nothing usable → not an action
   assert.equal(cleanAction('plan_categories', { items: Array.from({ length: 60 }, (_, i) => ({ level: 1, en: 'C' + i, ar: 'ق' + i })) }).input.items.length, CAT_PLAN_MAX);
   assert.equal(cleanAction('plan_categories', { items: [] }), null); assert.equal(cleanAction('plan_categories', { items: [{ level: 1 }] }), null); assert.equal(cleanAction('plan_categories', {}), null);
+});
+
+// the owner 17 Nov — «المدير … لما اديلو مجموعة تاسكات يوزعهم و يقسمهم صح علي الفريق»: plan_requests cleaned (titles, roles, a priority
+// known or «normal», 15 at most); the team block goes to the model as data
+test('plan_requests: the requests the manager split, cleaned; the team in the request', async () => {
+  const { cleanAction, assistantRequest } = await import('../../supabase/functions/_shared/ai-assistant.js');
+  const a = cleanAction('plan_requests', { items: [{ title: 'صوّر <b>الكراسي</b>', details: 'قبل الخميس', role: 'المحتوى والتصوير', member: 'سارة', priority: 'high' }, { title: 'x', role: '' }, { title: 'رد على العملاء', role: 'خدمة العملاء', priority: 'boom' }] });
+  assert.deepEqual(a.input.items.map((x) => [x.title, x.role, x.member, x.priority]), [['صوّر b الكراسي /b', 'المحتوى والتصوير', 'سارة', 'high'], ['رد على العملاء', 'خدمة العملاء', '', 'normal']]);
+  assert.equal(cleanAction('plan_requests', { items: [] }), null);
+  const p = assistantRequest({ mode: 'chat', turns: [{ role: 'user', text: 'وزّع' }], context: { page: '', tab: '', period: null, vendors: [], statuses: [] } }, { model: 'm', effort: 'low', today: '2026-11-17', people: '<team>\nخدمة العملاء: منى\n</team>' });
+  assert.ok(p.system.some((b) => /خدمة العملاء: منى/.test(b.text)));
 });

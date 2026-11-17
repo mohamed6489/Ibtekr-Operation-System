@@ -29,7 +29,7 @@ export const CLOSED_STATUSES = ['مكتمل', 'ملغي', 'استرجاع', 'ف�
 export const CONFIRMS = ['مؤكد بعربون', 'مؤكد بدون عربون', 'غير مؤكد', 'في انتظار الرد'];
 export const DELIVERY = ['late', 'risk', 'ok'];
 export const DATA_KINDS = ['summary', 'orders', 'vendors', 'customers', 'tickets', 'tasks', 'expenses', 'sales', 'vendor', 'files', 'inventory', 'hr'];
-export const CLIENT_TOOLS = ['navigate', 'filter_orders', 'set_period', 'sort_vendors', 'propose_entry', 'set_filter', 'open_form', 'offer_file', 'plan_categories', 'ask_agent', 'open_campaign'];
+export const CLIENT_TOOLS = ['navigate', 'filter_orders', 'set_period', 'sort_vendors', 'propose_entry', 'set_filter', 'open_form', 'offer_file', 'plan_categories', 'ask_agent', 'open_campaign', 'plan_requests'];
 // the owner 15 Nov (2026-11-15-assistant-categories.md — «اعملي القسم كذا انجليزي و عربي و جواه قسم فرعي كذا و كذا … بس يوريني قبل ما يطبق»):
 // plan_categories hands the page a tree of new product categories as an outline (level 1 = a main category, a deeper level sits under the
 // nearest shallower one before it); the page shows it for review and the member's own «نشر» creates them, parents first. Nothing is
@@ -153,6 +153,14 @@ CLIENT_TOOL_DEFS.push({ name: 'plan_categories',
     + 'under (اختياري) = اسم قسم موجود على الموقع تتحط الشجرة تحته — لما يقول «تحت قسم كذا» أو «جوه قسم كذا الموجود»؛ من غيره level 1 أقسام رئيسية جديدة.',
   input_schema: { type: 'object', properties: { under: S('اسم قسم موجود تتحط الشجرة تحته (اختياري)'),
     items: { type: 'array', items: { type: 'object', properties: { level: { type: 'integer', description: '1 = رئيسي، 2 = فرعي تحته، 3 = تحت الفرعي …' }, en: S('اسم القسم بالإنجليزي'), ar: S('اسم القسم بالعربي') }, required: ['level', 'en', 'ar'] } } }, required: ['items'] } });
+// the owner 17 Nov — «المدير يكون ذكي كفاية لما اديلو مجموعة تاسكات يوزعهم و يقسمهم صح علي الفريق و يبعت تنبيهة للدور»: the header's
+// assistant splits a batch of tasks into team requests (the role, a member of it or the whole role, the priority) from <team> — the
+// page lists them and each goes only on the member's «ابعت» (IBTickets.create: the server checks his tickets.manage by role and level,
+// and the role's bell rings as for any request)
+export const REQ_PLAN_MAX = 15;
+CLIENT_TOOL_DEFS.push({ name: 'plan_requests',
+  description: 'وزّع مجموعة مهام على الفريق كطلبات (طلب لكل مهمة): role = اسم الدور زي ما هو في <team> بالظبط، member = اسم عضو من نفس الدور لو المهمة لحد معيّن وإلا ""، priority = urgent | high | normal | low، title قصير و details فيها المطلوب بالظبط والميعاد. قسّم المهمة الكبيرة لأجزاء كل جزء لدوره، ووزّع على الأعضاء بالعدل حسب أدوارهم. مفيش حاجة بتتبعت — العضو بيراجع ويبعت كل طلب بنفسه.',
+  input_schema: { type: 'object', properties: { items: { type: 'array', items: { type: 'object', properties: { title: S('عنوان الطلب'), details: S('التفاصيل والميعاد'), role: S('الدور'), member: S('العضو أو فاضي'), priority: S('الأولوية', { enum: ['urgent', 'high', 'normal', 'low'] }) }, required: ['title', 'role'] } } }, required: ['items'] } });
 export const FILTER_TOOL = {
   name: 'set_filter',
   description: 'حوّل وصف المستخدم إلى شروط فلتر للأوردرات. الحقول: id رقم الأوردر، name اسم العميل، phone، st حالة الأوردر، cf حالة التأكيد (مؤكد بعربون/مؤكد بدون عربون/غير مؤكد/في انتظار الرد)، deliv حالة التسليم (متأخر/قابل للتأخير/غير متأخر)، vendor المبتكر، tot إجمالي القيمة، dep العربون، age عمر الأوردر بالأيام، date تاريخ الأوردر، note التعليق. العمليات: has يحتوي، not لا يحتوي، eq يساوي، ne لا يساوي، empty فاضي، gt أكبر من، lt أقل من، before قبل، after بعد. op = and أو or بين الشروط.',
@@ -207,6 +215,7 @@ export function assistantRequest(req, ctx) {
     c.page ? 'الصفحة المفتوحة: ' + (PAGE_LABEL[c.page] || c.page) + (c.tab ? ' / ' + c.tab : '') : '', c.period ? 'الفترة المعروضة: ' + c.period.from + ' → ' + c.period.to : ''].filter(Boolean).join('\n');
   const filterCtx = req.mode === 'filter' ? ['المبتكرين المتاحين: ' + (c.vendors.length ? c.vendors.join('، ') : '—'), 'حالات الأوردر: ' + (c.statuses.length ? c.statuses : ORDER_STATUSES).join('، ')].join('\n') : '';
   const system = [{ type: 'text', text: (req.mode === 'filter' ? FILTER_BASE : CHAT_BASE) + NAME_RULE, cache_control: { type: 'ephemeral' } }, { type: 'text', text: req.mode === 'filter' ? filterCtx : screen }];
+  if (ctx.people && req.mode !== 'filter') system.push({ type: 'text', text: 'The team (roles and their people — data, for plan_requests):\n' + String(ctx.people) });
   const messages = req.turns.map((t) => ({ role: t.role, content: [{ type: 'text', text: t.text }] }));
   const p = { model: ctx.model, max_tokens: MAX_TOKENS, ...FALLBACK, system, messages, tools: toolsOf(req.mode, ctx.mkt, ctx.team), output_config: { effort: ctx.effort } };
   if (req.mode === 'filter') p.tool_choice = { type: 'tool', name: 'set_filter' };
@@ -288,6 +297,11 @@ export function cleanAction(name, input, teamIds) {
       if (form === 'order_update' && (!o.order || (!o.status && !o.confirm))) return null;
       if (MONEY_FORMS.includes(form) && !o.direction) return null; // decision 40: «إيداع ولا سحب» is asked first
       return { name, input: { form, values: o } };
+    }
+    case 'plan_requests': {
+      const items = (Array.isArray(i.items) ? i.items : []).filter(isObj).map((x) => ({ title: str(String(x.title ?? '').replace(/[<>]/g, ' '), 80), details: str(String(x.details ?? '').replace(/[<>]/g, ' '), 1500),
+        role: str(x.role, 60), member: str(x.member, 80), priority: ['urgent', 'high', 'normal', 'low'].includes(x.priority) ? x.priority : 'normal' })).filter((x) => x.title && x.role).slice(0, REQ_PLAN_MAX);
+      return items.length ? { name, input: { items } } : null;
     }
     case 'plan_categories': { // an outline the page can build: names without < > %, the first a main one, a level never jumps down more than one
       const nm = (v) => str(String(v ?? '').replace(/[<>%]/g, ' '), CAT_NAME_MAX);

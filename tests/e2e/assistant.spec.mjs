@@ -407,3 +407,24 @@ test('ش45: a member without marketing gets no developer assistant — the panel
   await expect(panel(page)).toContainText('ما قدرتش أفتح المساعد');
   await expect(page.locator('#pg-ai')).toBeHidden();
 });
+
+// the owner 17 Nov — «المدير يكون ذكي كفاية لما اديلو مجموعة تاسكات يوزعهم و يقسمهم صح علي الفريق و يبعت تنبيهة للدور»: plan_requests is a
+// link under the answer; the review lists each request (the role, the member or the whole role, the priority) and each goes only on its «ابعت»
+test('plan_requests: «راجع الطلبات» lists the split requests; one «ابعت» sends one team request, nothing before it', async ({ page }) => {
+  const items = [{ title: 'صوّر الكراسي الجديدة', details: 'قبل الخميس', role: 'خدمة العملاء', member: '', priority: 'high' }, { title: 'رد على شكاوى الأسبوع', details: '', role: 'خدمة العملاء', member: '', priority: 'normal' }];
+  mock.aiAnswer = (action) => (action === 'assistant' ? { text: 'قسمتهملك — راجعهم.', actions: [{ name: 'plan_requests', input: { items } }] } : null);
+  await signIn(page, ADMIN);
+  const n0 = mock.tickets.length;
+  await page.getByRole('button', { name: 'مساعد AI' }).click();
+  await ask(page, 'وزّع المهام دي على الفريق');
+  const link = panel(page).locator('[data-ai-open="request_plan"]');
+  await expect(link).toHaveText(/راجع الطلبات \(2\)/);
+  expect(mock.tickets.length).toBe(n0); // nothing sent by the answer
+  await link.click();
+  const M = page.locator('.modal').filter({ hasText: 'توزيع المهام على الفريق' });
+  await expect(M.locator('[data-req-plan="0"]')).toContainText('لـ خدمة العملاء · كل الدور · عالي');
+  await M.locator('[data-req-send="0"]').click();
+  await expect(M.locator('[data-req-plan="0"] [data-req-result="ok"]')).toContainText('اتبعت');
+  expect(mock.tickets.length).toBe(n0 + 1);
+  await expect(M.locator('[data-req-plan="1"] [data-req-result]')).toHaveCount(0);
+});

@@ -732,7 +732,17 @@ async function assistant(deps: Deps, uid: string, args: Json, jwt: string) {
   const pv = async (key: string) => { try { const { data, error } = await member.rpc('has_perm', { key }); return error ? 'N' : String(data ?? 'N'); } catch { return 'N'; } };
   const mkt = { view: (await pv('marketing.view')) !== 'N', create: (await pv('marketing.create')) === 'F' };
   const team = req.mode === 'filter' ? [] : await teamOf(member, mkt.view); const teamIds = team.map((a) => a.id);
-  const params = assistantRequest(req, { model: cfg.model, effort: cfg.effort, today, actor, role, mkt, team });
+  // the owner 17 Nov — «المدير … يوزعهم و يقسمهم صح علي الفريق»: the roles a request may go to and the people of each (names only — the
+  // member's own reads: ticket_people() is empty for whoever cannot open requests), for plan_requests
+  let people = '';
+  if (req.mode !== 'filter') {
+    try {
+      const [rl, pp] = await Promise.all([member.rpc('ticket_roles'), member.rpc('ticket_people')]);
+      const roles = Array.isArray(rl.data) ? rl.data.filter(isObj) : []; const ppl = Array.isArray(pp.data) ? pp.data.filter(isObj) : [];
+      if (roles.length && ppl.length) people = '<team>\n' + roles.slice(0, 30).map((r: Json) => line(r.label, 60) + ': ' + (ppl.filter((x: Json) => x.role_id === r.role_id).map((x: Json) => line(x.name, 60)).join('، ') || '—')).join('\n') + '\n</team>';
+    } catch { /* before 0113 */ }
+  }
+  const params = assistantRequest(req, { model: cfg.model, effort: cfg.effort, today, actor, role, mkt, team, people });
   const spent = { model: cfg.model, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, cost_usd: 0 };
   const actions: Json[] = []; const tools: string[] = []; let text = ''; let reads = 0; const got: Json[] = []; // got: the reads for the «تفاصيل» report (decision 23)
   const typedAmounts = amountsIn(req.question); // propose_entry only for an amount the member typed (never one read from data)

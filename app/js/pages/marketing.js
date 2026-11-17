@@ -1983,7 +1983,7 @@
       h('span', { class: 'mk-dv-chip ' + (n ? 'warn' : 'ok') }, h('small', null, 'مستني تحديث'), h('b', null, K.n0(n)))) : null;
     const go = can().create ? Button({ size: 'sm', type: 'primary', icon: 'refresh', label: DV.checking ? 'بيفحص…' : 'افحص دلوقتي', disabled: DV.checking, attrs: { 'data-dv-check': '' }, onClick: dvCheck }) : null;
     return Card('تحديثات ووردبريس', d ? 'من تقرير حالة الموقع — ووردبريس والثيم والإضافات' : 'ووردبريس والثيم والإضافات — النسخة اللي على الموقع وآخر نسخة',
-      [ch === undefined ? K.Empty('بيحمّل…', '') : !d ? K.Empty('لسه مفيش فحص', can().create ? 'دوس «افحص دلوقتي» — بنقرا تقرير حالة الموقع ونقولك إيه مستني تحديث.' : 'اللي معاه «التسويق: إنشاء» بيفحص.')
+      [ch === undefined && PX.loading ? K.Empty('بيحمّل…', '') : !d ? K.Empty('لسه مفيش فحص', can().create ? 'دوس «افحص دلوقتي» — بنقرا تقرير حالة الموقع ونقولك إيه مستني تحديث.' : 'اللي معاه «التسويق: إنشاء» بيفحص.')
         : [sum, U.Table({ cls: 'dt mk-dv-t', headers: ['الاسم', 'النوع', 'النسخة على الموقع', 'آخر نسخة', 'الحالة'], rows }),
           d.core && !d.core.known ? h('p', { class: 't-small help', style: 'margin:0' }, 'ماقدرناش نقرا آخر نسخة ووردبريس من wordpress.org المرة دي — جرّب الفحص تاني.') : null,
           h('p', { class: 't-small help', style: 'margin:0' }, 'الفحص قراية بس — التحديث نفسه بيتعمل من لوحة ووردبريس. «آخر نسخة» هي اللي الموقع نفسه عارفها.' + (ready ? '' : ' (الفحص مش بيتحفظ لحد تحديث قاعدة البيانات الجاي.)'))]],
@@ -2049,6 +2049,39 @@
           h('p', { class: 't-small help', style: 'margin:0' }, 'الفحص قراية بس من جوجل — اسأل «المبرمج» هنا عن أي رقم أو تصليح، والتصليح نفسه بيتعمل على الـ staging الأول.')]],
       go, 'mk-sp mk-wide', { noun: 'صفحة', when: ch && ch.at ? 'آخر فحص ' + agTime(ch.at) : '' });
   }
+  // the owner 17 Nov — «الميديا باير يقدر يبص علي البيكسل و لو في حاجة محتاجة تتصلح يقدر يساعدني نصلحها»: the last check (mkt-ads `pixel`
+  // — read only on Meta and the site), each issue with its fix, and «ساعدني أصلحها» writes the question in the buyer's chat box (the member
+  // sends it); the check also runs once a day and notes the buyer in the bell when something is broken
+  const PX = { loading: false, tried: false, running: false };
+  async function pixelRun() {
+    if (PX.running) return; PX.running = true; R();
+    const pill = K.busy ? K.busy('بنفحص البيكسل على ميتا والموقع…') : null;
+    const r = await MK().pixelRun();
+    PX.running = false;
+    if (!r.ok) { if (pill) pill.fail(r.message); else K.toast(r.message, 'error'); R(); return; }
+    const bad = (r.check.data.issues || []).filter((i) => i.level === 'bad').length;
+    if (pill) pill.done(bad ? K.n0(bad) + ' مشكلة لازم تتصلح' : 'البيكسل تمام'); else K.toast('خلص الفحص', 'success');
+    R();
+  }
+  function pixelCard() {
+    if (!MK() || !MK().pixel) return null;
+    const ch = MK().pixelNow();
+    if (ch === undefined && !PX.loading && !PX.tried) { PX.loading = true; PX.tried = true; MK().pixel(false).then(() => { PX.loading = false; if (MK().pixelNow() !== undefined && here() && window.IBPages.current === 'ai' && !document.querySelector('.scrim')) R(); }); }
+    const d = ch && ch.data; const issues = d && Array.isArray(d.issues) ? d.issues : [];
+    const p = d && d.pixel;
+    const evs = d && Array.isArray(d.events) ? h('div', { class: 'mk-chips', 'data-px-events': '' }, d.events.map((e) => h('span', { 'data-px-event': e.name }, Tag(e.count ? 'success' : 'error', e.name + ' · ' + K.n0(e.count))))) : null;
+    const list = issues.length ? h('div', { class: 'mk-list', 'data-px-issues': String(issues.length) }, issues.map((i) => h('div', { class: 'mk-item', 'data-px-issue': i.key },
+      h('span', { class: 'mk-ic tone-' + (i.level === 'bad' ? 'error' : 'orange') }, Icon(i.level === 'bad' ? 'alert' : 'zap', 'sm')),
+      h('span', { class: 'mk-txt' }, h('b', null, i.title), h('small', null, i.detail), h('small', { class: 'help' }, 'الحل: ' + i.fix))))) : d ? K.Empty('البيكسل شغّال تمام', 'مفيش مشاكل في آخر فحص.') : null;
+    const help = issues.length ? Button({ size: 'sm', icon: 'sparkle', label: 'ساعدني أصلحها', attrs: { 'data-px-help': '' },
+      onClick: () => askAgent('buyer', 'افحص معايا مشاكل البيكسل اللي طلعت (' + issues.slice(0, 4).map((i) => i.title).join('، ') + ') وقولّي أصلحها خطوة خطوة.') }) : null;
+    const go = Button({ size: 'sm', type: 'primary', icon: 'refresh', label: PX.running ? 'بيفحص…' : 'افحص البيكسل', disabled: !!PX.running, attrs: { 'data-px-check': '' }, onClick: pixelRun });
+    return Card('البيكسل', p ? 'بيكسل ميتا ' + p.id + (p.name ? ' — ' + p.name : '') + ' · الأحداث آخر 7 أيام' : 'بيكسل ميتا: بيبعت؟ متركّب صح على الموقع؟ المشتريات بتتعد زي الأوردرات؟',
+      [ch === undefined ? K.Empty('بيحمّل…', '') : !d ? K.Empty('لسه مفيش فحص', 'دوس «افحص البيكسل» — بقرا حساب ميتا وصفحة الموقع والأوردرات وأقولك إيه اللي محتاج يتصلح. والفحص بيتعمل لوحده كل يوم.')
+        : [evs, d.purchases != null ? h('p', { class: 't-small', style: 'margin:0', 'data-px-buys': '' }, K.n0(d.purchases) + ' Purchase على ميتا قصاد ' + K.n0(d.orders) + ' أوردر على الموقع في نفس الأيام') : null, list,
+          h('p', { class: 't-small help', style: 'margin:0' }, 'الفحص قراية بس — التصليح من Events Manager أو إضافة البيكسل في ووردبريس، وأنا معاك خطوة خطوة في الشات.')]],
+      [help, go].filter(Boolean), 'mk-px mk-wide', { when: ch && ch.at ? 'آخر فحص ' + agTime(ch.at) : '' });
+  }
   function devCards() { dvLoad(false); return [speedCard(), updatesCard(), h('div', { class: 'grid2 mk-agent-under' }, subsCard(), creditsCard())]; }
   // ---------- «الذكاء الاصطناعي» (0120 — the owner 17 Nov: «انقل مساعدين الذكاء الاصطناعي من جوه التسويق و حطها في قسم رئيسي…
   // ضيف المخزن الذكي و خدمة العملاء الذكية و خدمة المبتكرين الذكية… المحاسب الذكي و الموارد البشرية الذكية… امكانية لاضافة مساعدين
@@ -2107,7 +2140,7 @@
         Card('مستني موافقتك (' + K.n0(pend.length) + ')', 'وافق أو ارفض · كل إجراء بيتسجل في سجل النشاط', [BY.sugg ? (pend.length ? h('div', { class: 'mk-list', 'data-mk-pending': String(pend.length) }, pend.map((x) => sgItem(x, () => openSugg(x)))) : K.Empty('مفيش حاجة مستنية', 'الاقتراحات بتتجدد مع كل مزامنة لأرقام ميتا.')) : K.Empty('بيحمّل…', ''),
           h('p', { class: 't-small help', style: 'margin:0' }, 'الضغط على اقتراح بيفتحه: الأرقام · السبب · «وافق» / «ارفض» / «عدّل»')]),
         past.length ? Card('آخر القرارات', 'آخر 30 يوم', [h('div', { class: 'mk-list', 'data-mk-past': String(past.length) }, past.map((x) => h('button', { type: 'button', class: 'mk-item', 'data-mk-sugg': String(x.id), onClick: () => openSugg(x) }, h('span', { class: 'mk-txt' }, h('b', null, x.title), h('small', null, U.num(decidedLine(x)))), Tag((SG_ST[x.status] || SG_ST.pending)[1], (SG_ST[x.status] || SG_ST.pending)[0]))))]) : null,
-        reqsCard('buyer'), rulesCard()), competitorsCard()];
+        reqsCard('buyer'), rulesCard()), pixelCard(), competitorsCard()].filter(Boolean);
     }
     const panel = h('div', { class: 'panel', role: 'tabpanel', 'data-ai-agent': a }, chat, ...under.filter(Boolean));
     return [K.PageHead('الذكاء الاصطناعي', me.about || null, [edit, add].filter(Boolean)), tabs, panel];

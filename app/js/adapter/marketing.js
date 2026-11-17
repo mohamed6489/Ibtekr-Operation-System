@@ -1034,6 +1034,32 @@
     log('site.speed', String(b.data.score == null ? '' : Number(b.data.score)), null); emit();
     return { ok: true, check: speedRow, stored: b.stored !== false };
   }
+  // the owner 17 Nov — «الميديا باير يقدر يبص علي البيكسل و لو في حاجة محتاجة تتصلح يقدر يساعدني نصلحها»: the last pixel check (site_checks
+  // 'pixel', 0126) and «افحص دلوقتي» = mkt-ads `pixel` (read only on Meta and the site); the log carries the count of issues only
+  let pixelRow; let pixelAt = 0;
+  async function pixel(force) {
+    if (!can().view) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
+    if (!force && pixelRow !== undefined && Date.now() - pixelAt < 60000) return { ok: true, check: pixelRow };
+    const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
+    try {
+      const { data: d, error } = await cl.from('site_checks').select('kind, data, checked_at').eq('kind', 'pixel').maybeSingle();
+      if (error) { if (!noTable(error)) return fail(error); pixelRow = null; pixelAt = Date.now(); return { ok: true, check: null }; }
+      pixelRow = toSite(d); pixelAt = Date.now();
+      return { ok: true, check: pixelRow };
+    } catch (e) { return fail(null); }
+  }
+  const pixelNow = () => pixelRow;
+  const PIXEL_MESSAGES = { not_configured: 'حساب إعلانات ميتا مش مربوط — اربطه من الإعدادات › الربط بالمنصات', permission: 'التوكن بتاع ميتا مالوش صلاحية على البيكسل — محتاج ads_read على حساب الإعلانات',
+    token: 'توكن ميتا انتهى أو اتلغى — اربط الحساب تاني من الإعدادات', rate: 'ميتا وقفت الطلبات شوية — جرّب بعد دقايق', timeout: 'ميتا طوّلت — جرّب تاني' };
+  async function pixelRun() {
+    if (!can().view) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
+    const r = await invoke('mkt-ads', { action: 'pixel' });
+    const b = r.body || {};
+    if (!r.ok || !b.report) { const code = String((r.ok ? b.error : r.code || r.reason) || '').slice(0, 40); return { ok: false, reason: 'pixel', code, message: PIXEL_MESSAGES[code] || 'الفحص ماخلصش' + (code ? ' (' + code + ')' : '') + ' — جرّب تاني' }; }
+    pixelRow = { data: b.report, at: b.checked_at || new Date().toISOString() }; pixelAt = Date.now();
+    emit(); // the server logs mkt.ads.pixel
+    return { ok: true, check: pixelRow };
+  }
   // the subscriptions of the accounts page (the latest payment of each name): null when the member does not see the accounts
   let subRows; let subsAt = 0;
   const dayNow = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo' }).format(new Date());
@@ -1454,7 +1480,7 @@
     agentChats, agentTurns, agentAsk, agentImage, agentRename, agentDelete, agentSettings, agentSettingsNow, agentSettingsSet, AGENT_KEYS,
     agents, agentsNow, agentOf, agentSave, agentArchive, agentOrder, kbList, kbListNow, kbSetAll, kbReset, kbRewrite, AGENT_PERMS, AGENT_SEES,
     trends, trendsNow, trendsReadyNow, trendsRefresh, trendThumbsFill, trendThumbs, trendThumbNow, trendSettings, trendSettingsNow, trendSettingsSet, adTagsSet, agentKbSet, KB, competitors, competitorsNow, competitorsReadyNow, competitorSave, competitorArchive,
-    siteCheck, siteCheckNow, siteReadyNow, siteCheckRun, siteSpeed, siteSpeedNow, siteSpeedRun, siteSubs, siteSubsNow, aiSpend, aiSpendNow,
+    siteCheck, siteCheckNow, siteReadyNow, siteCheckRun, siteSpeed, siteSpeedNow, siteSpeedRun, pixel, pixelNow, pixelRun, siteSubs, siteSubsNow, aiSpend, aiSpendNow,
     addTemplate, editTemplate, removeTemplate, templateUsed, subscribe, unsubscribe, check, MAX_BYTES, MIME, BUCKET,
     _test: { toCampaign, toPost, toTemplate, fail, aiMessage, fieldsOf, tplRow, pubMessage, toSuggestion, toRequest, toRules, toChat, toTurn } };
 })();

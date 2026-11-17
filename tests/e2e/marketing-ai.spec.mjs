@@ -913,3 +913,21 @@ test('«اعمل زيه» — a trend video opens «كامبين جديدة» fi
   await expect(page.locator('#pg-marketing')).toBeVisible();
   await expect(page.locator('#pg-marketing textarea').first()).toHaveValue(/بنفس روح إعلانات/);
 });
+
+test('the owner 17 Nov — «البيكسل» under the media buyer: «افحص البيكسل» (mkt-ads pixel) → the events and each issue with its fix; «ساعدني أصلحها» writes the question in the chat box, nothing sent', async ({ page }) => {
+  await start(page);
+  mock.mkt.pixelReport = { pixel: { id: '1234567890', name: 'Ibtekr', lastFired: null }, events: [{ name: 'PageView', count: 50 }, { name: 'Purchase', count: 0 }], purchases: 0, orders: 12,
+    issues: [{ key: 'event_Purchase', level: 'bad', title: 'حدث Purchase مش واصل', detail: 'مفيش ولا Purchase في آخر 7 أيام.', fix: 'فعّل أحداث ووكومرس' }], ok: false };
+  await openAi(page, ADMIN);
+  const P = pg(page);
+  const card = P.locator('.mk-px');
+  await expect(card).toContainText('لسه مفيش فحص');
+  await card.locator('[data-px-check]').click();
+  await expect(card.locator('[data-px-issue="event_Purchase"]')).toContainText('الحل: فعّل أحداث ووكومرس');
+  await expect(card.locator('[data-px-event="Purchase"]')).toContainText('0');
+  expect(mock.mkt.calls.filter((x) => x.fn === 'mkt-ads' && x.action === 'pixel')).toHaveLength(1);
+  const asks = mock.mkt.calls.filter((x) => x.fn === 'ai-content').length;
+  await card.locator('[data-px-help]').click();
+  await expect(P.locator('#mk-ask')).toHaveValue(/البيكسل.*Purchase/);
+  expect(mock.mkt.calls.filter((x) => x.fn === 'ai-content').length).toBe(asks);
+});

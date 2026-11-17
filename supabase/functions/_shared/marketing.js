@@ -11,6 +11,7 @@ import { kbBlocks } from './agent-kb.js';
 import { AGENT_ID } from './ai-agents.js';
 import { speedLine } from './site-speed.js';
 import { DRAFT_RULE, DRAFT_SCHEMA, campaignDraft } from './campaign-draft.js';
+import { pixelText } from './mkt-pixel.js';
 import { CLIENT_TOOL_DEFS, FORMS, PAGES, cleanAction } from './ai-assistant.js';
 
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -395,7 +396,9 @@ export function adsBlock(data) {
     + 'Rules: daily cap ' + n0(R.dailyCap) + ' · max cost per order ' + n0(R.maxCpa) + ' · auto-stop after ' + n0(R.autoStop) + ' spent without an order (' + line(R.autoStopMode, 10) + ') · execution switch ' + (R.live ? 'on' : 'off') + '\n'
     + "The owner's written rules (guidance for your advice only — nothing runs from them):\n" + ((Array.isArray(R.notes) ? R.notes : []).slice(0, 20).map((x) => '- [' + line(x && x.kind, 10) + '] ' + line(x && x.title, 80) + ': ' + line(x && x.details, 300)).join('\n') || '(none)') + '\n'
     + 'Last 7 days per campaign (Meta id | name | status | spend | meta purchases | woo orders | woo sales | MER | cost/order | daily budget):\n' + (camps.length ? camps.join('\n') : '(no campaign numbers yet — the sync has not run)') + '\n'
-    + 'Open suggestions waiting for the admin:\n' + (sugg.length ? sugg.join('\n') : '(none)') + '\n</ads_data>';
+    + 'Open suggestions waiting for the admin:\n' + (sugg.length ? sugg.join('\n') : '(none)') + '\n'
+    // the owner 17 Nov: the last Meta Pixel check (site_checks 'pixel') — data, the issues with their fixes
+    + 'The last Meta Pixel check:\n' + (pixelText(d.pixel).replace(/[<>]/g, ' ') || '(never checked — the member presses «افحص البيكسل» under the chat)') + '\n</ads_data>';
 }
 export function buyerRequest(req, ctx) {
   const block = adsBlock(ctx.data);

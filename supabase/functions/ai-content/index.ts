@@ -365,6 +365,7 @@ async function adsData(deps: Deps) {
     deps.db.from('mkt_suggestions').select('kind, title, sub').eq('status', 'pending').limit(50),
     deps.db.from('settings').select('data').eq('section', 'marketing').maybeSingle(),
   ]);
+  const { data: pixel } = await deps.db.from('site_checks').select('data, checked_at').eq('kind', 'pixel').maybeSingle(); // the owner 17 Nov (0126; before it: none)
   const camps: Record<string, Json> = {};
   for (const o of Array.isArray(objects) ? objects : []) camps[o.id] = { id: String(o.id), name: o.name || '#' + o.id, status: o.status, spend: 0, purchases: 0, orders: 0, sales: 0, daily_budget: isObj(o.meta) ? o.meta.daily_budget ?? null : null };
   for (const s of Array.isArray(stats) ? stats : []) { const c = camps[s.object_id]; if (c) { c.spend += Number(s.spend) || 0; c.purchases += Number(s.purchases) || 0; } }
@@ -374,7 +375,7 @@ async function adsData(deps: Deps) {
   }
   const campaigns = Object.values(camps).filter((c) => c.spend > 0 || c.orders > 0 || c.status === 'ACTIVE' || c.status === 'PAUSED').sort((a, b) => b.spend - a.spend); // ش45: a paused one too (to resume)
   const rules = buyerRules(isObj(set) && isObj(set.data) ? set.data.buyer : null);
-  return { today, rules, campaigns, suggestions: Array.isArray(sugg) ? sugg : [] };
+  return { today, rules, campaigns, suggestions: Array.isArray(sugg) ? sugg : [], pixel: isObj(pixel) ? pixel : null };
 }
 async function buyer(deps: Deps, uid: string, args: Json) {
   const parsed = parseBuyer(args);

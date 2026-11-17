@@ -817,6 +817,13 @@ function mktAds(c, b) {
   const admin = isAdmin(u); const view = admin || hasPerm(u, 'marketing.view') !== 'N';
   if (b.action === 'status') return view ? json(200, adsStatusBody(H)) : json(401, { error: 'unauthorized' });
   if (b.action === 'rules') return view ? json(200, { result: 'ok', rules: { ...H.rules } }) : json(401, { error: 'unauthorized' });
+  // the owner 17 Nov: the Pixel check — the report the test set (H.pixelReport) kept as site_checks 'pixel'
+  if (b.action === 'pixel') {
+    if (!view) return json(401, { error: 'unauthorized' });
+    if (!H.pixelReport) return json(503, { error: 'not_configured' });
+    const at = new Date().toISOString(); H.siteChecks = H.siteChecks.filter((x) => x.kind !== 'pixel').concat([{ kind: 'pixel', data: H.pixelReport, checked_at: at, checked_by: null }]);
+    return json(200, { report: H.pixelReport, checked_at: at });
+  }
   // ش45 decision 5: open / close a Meta campaign from the buyer's confirm card — the admin or marketing.publish = F, the switch on, a known campaign
   if (b.action === 'campaign_set') {
     if (!(admin || hasPerm(u, 'marketing.publish') === 'F')) return json(401, { error: 'unauthorized' });

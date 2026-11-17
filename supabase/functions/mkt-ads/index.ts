@@ -12,6 +12,9 @@
 //              Supabase secret, never echoed), link_start { platform } → the platform's OAuth url (a state kept ten minutes in
 //              cs_oauth_states), link_callback { code, state } → the code exchanged, the account(s) read (one = linked, several =
 //              choose), link_pick { platform, account }, unlink { platform }.
+//     pixel  (marketing.view; the owner 17 Nov) → the Meta Pixel looked at (read only: the account's pixels, 7 days of events,
+//              Meta's checks, the site's page, the purchases against our orders) → site_checks 'pixel' + the report; the cron's
+//              sync looks once a day and notes the media buyer (ai_agent_note_add) when something is broken.
 //     9.5.4 — rules / rules_set / live / decide / report as before; a decision on a TikTok or Google suggestion is recorded only
 //              (the execution is Meta's).
 // Secrets: the links live in Vault (mkt_secret_get / mkt_secret_set, service_role); Meta's owner secrets META_ADS_TOKEN /
@@ -25,6 +28,8 @@ import { gAccountRowOf, gBody, gCode, gCustomersOf, gNextPage, gObjectRowOf, gPa
 import { cairoParts } from '../_shared/mkt-publish.js';
 import { graphErrorCode } from '../_shared/cs-channel.js';
 import { ourCode } from '../_shared/mkt-publish.js';
+import { PIXEL_DAYS, SITE_MAX_BYTES, checksOf, eventCounts, pixelPath, pixelReport, pixelsOf, siteScan } from '../_shared/mkt-pixel.js';
+import { vaultEnv } from '../_shared/secrets.js';
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -37,7 +42,7 @@ export type Deps = {
 };
 type Link = Record<string, string>;
 
-const ACTIONS = ['status', 'sync', 'rules', 'rules_set', 'live', 'decide', 'campaign_set', 'link_set', 'link_start', 'link_callback', 'link_pick', 'unlink'];
+const ACTIONS = ['status', 'pixel', 'sync', 'rules', 'rules_set', 'live', 'decide', 'campaign_set', 'link_set', 'link_start', 'link_callback', 'link_pick', 'unlink'];
 const CRON_ACTIONS = ['sync', 'report'];
 const GRAPH_MS = 30_000;
 const CHUNK = 500;
@@ -282,6 +287,69 @@ async function run(deps: Deps, daysArg: number | null, only: string | null): Pro
   if (!ok.length) { const f = failed[0]; return json(502, { error: f.error, text: f.text ?? null, platform: f.platform, platforms: out }); }
   const sum = (k: string) => ok.reduce((s, r) => s + (Number(r[k]) || 0), 0);
   return json(200, { result: 'ok', days: ok[0].days, since: ok[0].since, until: ok[0].until, campaigns: sum('campaigns'), ads: sum('ads'), stats: sum('stats'), suggestions: sum('suggestions'), platforms: out });
+}
+
+// ---------------------------------------------------------------- the pixel (the owner 17 Nov — «يبص علي البيكسل … يساعدني نصلحها»)
+
+const PIXEL_EVERY_H = 20;
+// the site's home page (the WooCommerce site the system is linked to — never a host from the request), 2 MB at most; null = not read
+async function sitePage(deps: Deps): Promise<string | null> {
+  const env = await vaultEnv(deps.db, deps.env);
+  let url: URL;
+  try { url = new URL(String(env.WOO_URL ?? '').trim()); } catch { return null; }
+  if (url.protocol !== 'https:') return null;
+  const f = deps.fetch ?? fetch; const ctl = new AbortController(); const timer = setTimeout(() => ctl.abort(), 20_000);
+  try {
+    const res = await f(url.origin + '/', { headers: { accept: 'text/html' }, signal: ctl.signal, redirect: 'follow' });
+    if (!res.ok || !res.body) return null;
+    if (new URL(res.url || url.origin).host !== url.host) return null; // a redirect away from the site is not the site
+    const reader = res.body.getReader(); const parts: Uint8Array[] = []; let size = 0;
+    while (size < SITE_MAX_BYTES) { const { done, value } = await reader.read(); if (done) break; parts.push(value); size += value.length; }
+    try { await reader.cancel(); } catch { /* done */ }
+    const all = new Uint8Array(Math.min(size, SITE_MAX_BYTES)); let o = 0;
+    for (const p of parts) { const n = Math.min(p.length, all.length - o); all.set(p.subarray(0, n), o); o += n; if (o >= all.length) break; }
+    return new TextDecoder().decode(all);
+  } catch { return null; } finally { clearTimeout(timer); }
+}
+// the check itself → { report } or { error, text }; the last report kept in site_checks 'pixel'
+async function pixelRun(deps: Deps): Promise<Json> {
+  const link = await linkOf(deps, 'meta');
+  if (!linkReady('meta', link)) return { error: 'not_configured' };
+  const token = link.access_token; const a = link.account_id; const at = deps.now(); const nowMs = Date.parse(at);
+  let pixels: Json[];
+  try { pixels = pixelsOf(await get(deps, pixelPath.pixels(a), token)); } catch (e) { if (e instanceof GraphError) return { error: ourCode(e.code), text: e.text }; throw e; }
+  let events: Json = {}; let checks: Json[] = [];
+  if (pixels[0]) {
+    const end = Math.floor(nowMs / 1000); const start = end - PIXEL_DAYS * 86_400;
+    try { events = eventCounts(await get(deps, pixelPath.stats(pixels[0].id, start, end), token)); } catch (e) { if (!(e instanceof GraphError)) throw e; }
+    try { checks = checksOf(await get(deps, pixelPath.checks(pixels[0].id), token)); } catch (e) { if (!(e instanceof GraphError)) throw e; }
+  }
+  const since = new Date(nowMs - PIXEL_DAYS * 86_400_000).toISOString();
+  const { count } = await deps.db.from('orders').select('id', { count: 'exact', head: true }).gte('placed_at', since).is('deleted_at', null);
+  const html = await sitePage(deps);
+  const report = pixelReport({ pixels, events, checks, site: html === null ? null : siteScan(html), orders: count ?? 0, now: at });
+  await deps.db.from('site_checks').upsert({ kind: 'pixel', data: report, checked_at: at }, { onConflict: 'kind' });
+  return { report, checked_at: at };
+}
+async function pixelCheck(deps: Deps, who: Who): Promise<Response> {
+  if (!who.view) return json(401, { error: 'unauthorized' });
+  const r = await pixelRun(deps);
+  if (r.error === 'not_configured') return json(503, { error: 'not_configured' });
+  if (r.error) return json(502, { error: r.error, text: r.text ?? null });
+  await log(deps, who.uid, 'mkt.ads.pixel', 'meta', String(r.report.issues.length));
+  return json(200, r);
+}
+// the cron: once in PIXEL_EVERY_H hours; each broken thing a note to who sees the media buyer (0124 — the same ref refreshes its row)
+async function pixelDaily(deps: Deps) {
+  try {
+    const { data: last } = await deps.db.from('site_checks').select('checked_at').eq('kind', 'pixel').maybeSingle();
+    if (isObj(last) && last.checked_at && Date.parse(deps.now()) - Date.parse(last.checked_at) < PIXEL_EVERY_H * 3_600_000) return;
+    const r = await pixelRun(deps);
+    if (!r.report) return;
+    for (const i of r.report.issues.filter((x: Json) => x.level === 'bad').slice(0, 5)) {
+      try { await deps.db.rpc('ai_agent_note_add', { p_agent: 'buyer', p_kind: 'problem', p_title: 'البيكسل: ' + i.title, p_body: i.detail + '\n\nالحل: ' + i.fix, p_ref: 'pixel:' + i.key, p_link: null }); } catch { /* before 0124 */ }
+    }
+  } catch (e) { console.error('mkt-ads pixel: ' + quiet(e)); }
 }
 
 // ---------------------------------------------------------------- 9.5.4: the media buyer (decisions 49–52)
@@ -632,7 +700,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
   const syncSecret = req.headers.get('x-sync-secret');
   if (syncSecret && !req.headers.get('authorization')) {
     if (!CRON_ACTIONS.includes(action) || !(await syncAllowed(deps, syncSecret))) return json(401, { error: 'unauthorized' });
-    try { return action === 'report' ? await report(deps) : await run(deps, null, null); } catch (e) { console.error('mkt-ads ' + action + ': ' + quiet(e)); return json(500, { error: 'failed' }); }
+    try { if (action === 'report') return await report(deps); const res = await run(deps, null, null); await pixelDaily(deps); return res; } catch (e) { console.error('mkt-ads ' + action + ': ' + quiet(e)); return json(500, { error: 'failed' }); }
   }
   const who = await whoIs(req, deps);
   if (!who) return json(401, { error: 'unauthorized' });
@@ -640,6 +708,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
   try {
     switch (action) {
       case 'status': return await status(deps, who);
+      case 'pixel': return await pixelCheck(deps, who);
       case 'rules': return await rulesGet(deps, who);
       case 'rules_set': return await rulesSet(deps, who, args);
       case 'live': return await liveSet(deps, who, args);

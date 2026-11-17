@@ -331,8 +331,9 @@
   // so nothing is pulled — the link opens the library on the page's list (its number known) or on a search (a word, else the name).
   const AD_LIBRARY = 'https://www.facebook.com/ads/library/';
   const PAGE_HOST = /^https:\/\/([a-z0-9-]+\.)?(facebook|instagram)\.com\/[^\s<>"]{1,300}$/i;
-  function adLibraryUrl(c, country) {
-    const q = new URLSearchParams({ active_status: 'active', ad_type: 'all', country: /^[A-Z]{2}$/.test(String(country || '')) ? country : 'EG', media_type: 'all' });
+  // ش44: media = 'video' | 'image' narrows the library to the ads of that kind (its own media_type filter); anything else = all
+  function adLibraryUrl(c, country, media) {
+    const q = new URLSearchParams({ active_status: 'active', ad_type: 'all', country: /^[A-Z]{2}$/.test(String(country || '')) ? country : 'EG', media_type: media === 'video' || media === 'image' ? media : 'all' });
     const id = String((c && c.pageId) || '').trim();
     if (/^[0-9]{5,20}$/.test(id)) q.set('view_all_page_id', id);
     else { q.set('q', String((c && (c.keyword || c.name)) || '').replace(/\s+/g, ' ').trim().slice(0, 80)); q.set('search_type', 'keyword_unordered'); }

@@ -99,11 +99,14 @@
         K.two(U.Select({ id: 'pat-op', label: 'الشفافية', options: [10, 18, 25, 35].map((x) => ({ value: String(x), label: x + '%' })), value: String(A.patOp || 18), onChange: (v) => { A.patOp = Number(v); applyPattern(A); R(); } }), U.Select({ id: 'pat-size', label: 'حجم التكرار', options: [80, 120, 200, 400].map((x) => ({ value: String(x), label: x + 'px' })), value: String(A.patSize || 120), onChange: (v) => { A.patSize = Number(v); applyPattern(A); R(); } })), h('small', { class: 't-small help' }, 'PNG أو SVG شفاف · بيتكرر على الصورة كلها · بيتطبق على كل الدفعات الجاية.')));
   }
   function aiSecV6() {
-    S.aiRules = S.aiRules || AI_DEF(); const A = S.aiRules; st.aiTab = st.aiTab || 'img';
+    S.aiRules = S.aiRules || AI_DEF(); const A = S.aiRules; st.aiTab = st.aiTab || 'prov'; // ش42: the providers are the first tab
     const area = (id, label, key, i) => U.Textarea({ id: 'ai-' + id, label, rows: 3, value: i == null ? A[key] : A[key][i], onInput: (v) => { if (i == null) A[key] = v; else A[key][i] = v; } });
     const sel = (id, label, key, opts) => U.Select({ id: 'ai-' + id, label, options: opts.map((x) => ({ value: x, label: x })), value: A[key], onChange: (v) => { A[key] = v; R(); } });
     const words = (id, label, key) => U.FieldShell({ id: 'ai-' + id, label }, h('div', { class: 'chips' }, A[key].map((w) => h('button', { type: 'button', class: 'chip', 'aria-pressed': 'true', 'aria-label': 'شيل ' + w, onClick: () => { A[key] = A[key].filter((x) => x !== w); R(); } }, w + ' ✕')), Button({ size: 'sm', label: '+ ضيف', onClick: () => K.form({ title: 'ضيف لـ «' + label + '»', values: { w: '' }, fields: (f, e, set) => [K.field.text('w', 'الكلمة', f, e, set, { required: true })], validate: (f) => K.req(f, ['w']), submit: (f) => { A[key] = A[key].concat(f.w); R(); } }) })));
-    const aiTabs = K.MainTabs({ items: [{ id: 'img', label: 'الصور' }, { id: 'vid', label: 'الفيديو' }, { id: 'txt', label: 'المحتوى' }, { id: 'agents', label: 'المساعدين' }], active: st.aiTab, onChange: (id) => { st.aiTab = id; R(); }, label: 'نوع التعليمات' });
+    const aiTabs = K.MainTabs({ items: [{ id: 'prov', label: 'المزوّدين' }, { id: 'img', label: 'الصور' }, { id: 'vid', label: 'الفيديو' }, { id: 'txt', label: 'المحتوى' }, { id: 'agents', label: 'المساعدين' }], active: st.aiTab, onChange: (id) => { st.aiTab = id; R(); }, label: 'نوع التعليمات' });
+    // ش42 (the owner 17 Nov — «ممكن تقسم اقسام الذكاء الاصطناعي لتابس بدل ما هما تحت بعض في نفس الصفحة»): one tab at a time — the providers,
+    // the images, the video, the content, the assistants
+    if (st.aiTab === 'prov') return [K.Section('تعليمات الذكاء الاصطناعي', [aiTabs], null, { sub: 'مين بيعمل إيه: مزوّد افتراضي لكل قسم وتبديل لكل أداة.' }), providersSec()];
     if (st.aiTab === 'agents') return [K.Section('تعليمات الذكاء الاصطناعي', [aiTabs], null, { sub: 'المساعدين: قواعد كل مساعد وسكيلزه — بتتبعت مع كل سؤال ليه، وعمرها ما بتخليه ينفّذ حاجة لوحده.' })].concat(agentsSec());
     const head = K.Section('تعليمات الذكاء الاصطناعي', [aiTabs], [Button({ type: 'text', label: 'رجّع للافتراضي', onClick: () => K.confirm({ title: 'ترجّع التعليمات للافتراضي؟', text: 'كل التعديلات اللي عملتها هنا هتتشال.', okLabel: 'رجّع', onOk: () => { S.aiRules = AI_DEF(); R(); } }) }), Button({ type: 'primary', label: 'احفظ التعليمات', onClick: () => { LOGV('settings.ai.save', st.aiTab); K.toast('اتحفظت التعليمات — هتتطبق على أي حاجة جديدة بتتولد', 'success'); } })], { sub: 'بتتطبق على كل حاجة بتتولد في «المنتجات» و«التسويق» — اكتبها مرة واحدة.' });
     A.sections = A.sections || AI_SECTIONS_DEF(); st.aiSub = st.aiSub || {}; const T = st.aiTab; const secs = A.sections[T]; const sub = st.aiSub[T] && (st.aiSub[T] === 'products' || secs.some((x) => x.id === st.aiSub[T])) ? st.aiSub[T] : 'products';
@@ -134,6 +137,7 @@
     const out = [tabs, U.InlineNote({ children: me[1] + ' — ' + me[2] + '. القواعد والسكيلز بتتبعت مع كل سؤال ليه في «التسويق › مساعدين الذكاء الاصطناعي»' + (A === 'designer' ? ' ومع «حدّث التريندات»' : '') + '.' }),
       kbSec(A, 'rules', (cfg[A] && cfg[A].rules) || []), kbSec(A, 'skills', (cfg[A] && cfg[A].skills) || [])];
     if (A === 'designer') out.push(trendTagsSec());
+    if (A === 'buyer') out.push(compsSec(), adTagsSec()); // ش44: the competitors and the ad tags
     return out;
   }
   const kbClone = (L) => JSON.parse(JSON.stringify(L || []));
@@ -167,6 +171,33 @@
         : h('p', { class: 't-small help kb-empty' }, 'لسه مفيش — دوس «' + one + '» تضيف أول واحدة.')));
     return K.Section(title, groups.length ? [h('div', { class: 'kb-groups', 'data-kb': kind }, cards)] : [K.Empty('لسه مفيش ' + title, help + ' ابدأ بـ «قسم جديد».')],
       [Button({ size: 'sm', type: 'primary', icon: 'plus', label: 'قسم جديد', attrs: { 'data-kb-add-group': kind }, onClick: addGroup })], { sub: help + (n ? ' · ' + K.n0(groups.length) + ' قسم · ' + K.n0(n) + ' ' + one : '') });
+  }
+  // ش44 (the owner 17 Nov — «ضيفلي في الستينج بتاعة الميديا باير اني اضيف اسماء المنافسين و الاعلانات الاكثر قوة بناء علي التاجز اللي اضيفها هناك»):
+  // the competitors (the same list «إعلانات المنافسين» shows — IBMarketing.competitorSave / competitorArchive) and the ad tags (mkt_ad_tags_set)
+  function compsSec() {
+    const M = MKA(); const L = M.competitorsNow ? M.competitorsNow() : null;
+    if (!L) { if (!st.compLoading && M.competitors) { st.compLoading = true; M.competitors(true).then(() => { st.compLoading = false; R(); }); } return K.Section('المنافسين', [K.Empty('بنحمّل…', '')]); }
+    const W2 = window.IbtekrCampWiz;
+    const form = (x) => K.form({ title: x ? 'تعديل «' + x.name + '»' : 'منافس جديد', submitLabel: x ? 'احفظ' : 'ضيف المنافس',
+      values: { name: x ? x.name : '', page: x ? (x.pageUrl || x.pageId) : '', keyword: x ? x.keyword : '', note: x ? x.note : '' },
+      fields: (f, e, set) => [K.field.text('name', 'اسم المنافس', f, e, set, { required: true, placeholder: 'اسم البراند أو الصفحة' }), K.field.text('page', 'صفحته على فيسبوك أو إنستجرام (اختياري)', f, e, set, { placeholder: 'لينك الصفحة أو رقمها', help: 'برقم الصفحة المكتبة بتفتح على إعلاناته هو بالظبط، وصورة صفحته بتظهر على الكارت.' }),
+        K.field.text('keyword', 'كلمة البحث في المكتبة (اختياري)', f, e, set, {}), K.field.area('note', 'ملاحظة (اختياري)', f, e, set, { rows: 2 })],
+      validate: (f) => { const v = W2 && W2.competitorRow ? W2.competitorRow(f) : {}; return v.error ? { [v.error === 'text' ? 'name' : v.error]: { name: 'اكتب اسم المنافس (لحد 80 حرف)', page: 'لينك صفحة فيسبوك أو إنستجرام، أو رقم الصفحة', keyword: 'لحد 80 حرف', note: 'لحد 300 حرف', text: 'من غير < أو >' }[v.error] } : {}; },
+      submit: async (f, md) => { const r = await M.competitorSave(x ? x.id : null, f); if (!r.ok) { K.toast(r.message, 'error'); return; } md.close(); K.toast(x ? 'اتحفظ' : 'اتضاف المنافس', 'success'); R(); } });
+    const list = L.length ? h('ul', { class: 'kb-items comp-list', 'data-set-comps': '' }, L.map((x) => h('li', { 'data-set-comp': String(x.id) }, h('div', { class: 'kb-item-t' }, h('b', null, x.name), h('small', null, [x.pageId ? 'صفحة رقم ' + x.pageId : 'بحث بـ «' + (x.keyword || x.name) + '»', x.note].filter(Boolean).join(' · '))),
+      K.RowMenu([{ label: 'تعديل', icon: 'edit', run: () => form(x) }, { label: 'شيله من القايمة', icon: 'trash', danger: true, run: () => K.confirm({ title: 'تشيل «' + x.name + '»؟', okType: 'danger', okLabel: 'شيله', onOk: async () => { const r = await M.competitorArchive(x.id); K.toast(r.ok ? 'اتشال' : r.message, r.ok ? 'success' : 'error'); R(); } }) }], 'إجراءات ' + x.name))))
+      : K.Empty('لسه مفيش منافسين', 'ضيف المنافسين اللي بتتابعهم — بيظهروا كروت في «التسويق › الميديا باير › إعلانات المنافسين».');
+    return K.Section('المنافسين', [list], [Button({ size: 'sm', type: 'primary', icon: 'plus', label: 'منافس', attrs: { 'data-set-comp-add': '' }, onClick: () => form(null) })], { sub: 'كل منافس بيتفتح على إعلاناته الشغّالة في مكتبة إعلانات ميتا' });
+  }
+  function adTagsSec() {
+    const M = MKA(); const cfg = M.trendSettingsNow ? M.trendSettingsNow() : null;
+    if (!cfg) { if (!st.trendLoading && M.trendSettings) { st.trendLoading = true; M.trendSettings(true).then(() => { st.trendLoading = false; R(); }); } return K.Section('تاجز الإعلانات', [K.Empty('بنحمّل…', '')]); }
+    const T = cfg.adTags || [];
+    const save = async (L, msg) => { const r = await M.adTagsSet(L); if (!r.ok) { K.toast(r.message || 'ماتحفظش', 'error'); return false; } K.toast(msg, 'success'); R(); return true; };
+    return K.Section('تاجز الإعلانات', [U.FieldShell({ id: 'adt', label: 'كلمات «أقوى الإعلانات»' }, h('div', { class: 'chips', 'data-ad-tags': '' }, T.map((w) => h('button', { type: 'button', class: 'chip', 'aria-pressed': 'true', 'aria-label': 'شيل ' + w, onClick: () => save(T.filter((x) => x !== w), 'اتشال «' + w + '»') }, w + ' ✕')),
+      Button({ size: 'sm', label: '+ ضيف', attrs: { 'data-ad-tag-add': '' }, onClick: () => K.form({ title: 'ضيف تاجز الإعلانات', values: { w: '' }, fields: (f, e, set) => [K.field.text('w', 'الكلمة (ممكن أكتر من واحدة بفاصلة)', f, e, set, { required: true, placeholder: 'مثلًا: مكرمية، ديكور منزلي، هدايا' })], validate: (f) => K.req(f, ['w']),
+        submit: async (f, md) => { if (await save(T.concat(String(f.w).split(/[,،\n]+/).map((x) => x.trim()).filter(Boolean)), 'اتضاف')) md.close(); } }) }))),
+      U.InlineNote({ children: 'كل كلمة بتبقى زرار في «إعلانات المنافسين › أقوى الإعلانات بالتاجز» بيفتح مكتبة ميتا على الإعلانات الشغّالة بيها في مصر (لحد 30 كلمة).' })], null, { sub: 'الإعلانات الأقوى في مجالك' });
   }
   // the designer's trends: the tags (what TikTok / Instagram / Facebook are searched for) and the preferred sites
   function trendTagsSec() {
@@ -244,7 +275,12 @@
     body.addEventListener('change', (e) => { if (!skip(e.target)) mark(); }, true);
     body.addEventListener('click', (e) => { if (!skip(e.target) && e.target.closest('[role=switch], [role=radio], [role=checkbox], .chip, [role=option]')) mark(); }, true);
     // the owner 14 Nov (decision 3): every settings page in the middle at one width, «حفظ» at the left end of that width
-    return [h('div', { class: 'set-wrap', 'data-set-wrap': st.sec }, h('div', { class: 'set-back' }, Button({ type: 'text', size: 'sm', icon: 'chevR', label: 'رجوع للإعدادات', attrs: { 'data-set-back': '' }, onClick: goHub })), K.PageHead(x[1], x[2], [note, save]), body), st.dirty ? saveBar() : null];
+    // ش43: «الملفات» beside «حفظ» on the activity log — the same button and menu as the other pages (the rows of the period)
+    const files = st.sec === 'activity' ? (() => { const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' }); const trig = Button({ label: 'الملفات', iconEnd: 'chevD', attrs: { 'aria-haspopup': 'menu', 'data-act-files': '' } });
+      const opts = [['xlsx', 'تصدير Excel (‎.xlsx)', 'download'], ['csv', 'تصدير CSV', 'file'], ['tsv', 'نسخ للصق في Google Sheets', 'copy']];
+      const pop = U.popover(wrap, trig, (close) => U.DropdownMenu({ role: 'menu', end: true, options: opts.map(([value, label, icon]) => ({ value, label, icon })), onSelect: (v) => { close(); const F = st.actFiles; setTimeout(() => F && F[v] && F[v]()); } }));
+      trig.addEventListener('click', pop.toggle); wrap.append(trig); return wrap; })() : null;
+    return [h('div', { class: 'set-wrap', 'data-set-wrap': st.sec }, h('div', { class: 'set-back' }, Button({ type: 'text', size: 'sm', icon: 'chevR', label: 'رجوع للإعدادات', attrs: { 'data-set-back': '' }, onClick: goHub })), K.PageHead(x[1], x[2], [note, files, save].filter(Boolean)), body), st.dirty ? saveBar() : null];
   }
   // «تجاهل التغييرات» بيرجّع البيانات فعلًا: لقطة من الإعدادات أول ما القسم يفتح (وبعد كل حفظ)
   const LOGO_T = ['color', 'reversed', 'mark'];
@@ -1873,7 +1909,12 @@
     const sel = (id, label, value, opts, on) => U.Select({ id, label: '', options: opts.map(([v, l]) => ({ value: v, label: l })), value, onChange: (v) => { on(v); a.page = 0; a.rows = null; loadActivity(); } });
     const rows = (a.rows || []).map((r) => [h('span', { class: 't-small', dir: 'ltr' }, fmtAt(r.at)), r.actorName, r.page, h('code', { dir: 'ltr' }, r.action), h('span', { class: 'wrap t-small' }, [r.entityId ? r.entity + ' ' + r.entityId : r.entity, valText(r.oldValue) && valText(r.newValue) ? valText(r.oldValue) + ' ← ' + valText(r.newValue) : valText(r.newValue) || valText(r.oldValue)].filter(Boolean).join(' · '))]);
     const csv = () => { const lines = [['الوقت', 'العضو', 'الصفحة', 'الإجراء', 'التفاصيل']].concat((a.rows || []).map((r) => [r.at, r.actorName, r.page, r.action, [r.entity, r.entityId, valText(r.oldValue), valText(r.newValue)].filter(Boolean).join(' · ')])); const esc = (v) => { let s = String(v == null ? '' : v); if (/^[=+\-@]/.test(s)) s = "'" + s; return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }; K.saveFile('activity-' + K.TODAY + '.csv', new Blob(['﻿' + lines.map((l) => l.map(esc).join(',')).join('\n')], { type: 'text/csv;charset=utf-8' })); LOGV('settings.activity.export', (a.rows || []).length + ' صف'); };
-    return [RB && RB.logPeriod ? RB.logPeriod('activity') : null, K.Section('سجل النشاط', [h('div', { class: 'toolbar act-bar' }, sel('ac-m', 'العضو', a.actor, [['', 'العضو: الكل']].concat(members.map((m) => [m.uid, m.name])), (v) => { a.actor = v; }), sel('ac-p', 'الصفحة', a.prefix, ACT_PAGES, (v) => { a.prefix = v; }), h('span', { class: 'grow' }), Button({ size: 'sm', type: 'text', label: 'CSV', icon: 'download', disabled: !(a.rows && a.rows.length), onClick: csv })),
+    // ش43 (the owner 17 Nov — «شيل العضو و الصفحة من برا و ضيف زرار ملفات جمب زرار حفظ … اقدر اعمل منه اكسبورت زي بقية السيستم و الغي السطر ده
+    // كله من الجدول»): no row over the table — the member and the page are in the head's «فلتر» (autoFilter), and the export is «الملفات» by «حفظ»
+    st.actFiles = { csv, xlsx: () => { const L = a.rows || []; if (!L.length) { K.toast('مفيش أحداث تتصدّر'); return; } K.xlsxExport('activity-' + K.TODAY + '.xlsx', 'سجل النشاط', [['الوقت', 'العضو', 'الصفحة', 'الإجراء', 'التفاصيل']].concat(L.map((r) => [r.at, r.actorName, r.page, r.action, [r.entity, r.entityId, valText(r.oldValue), valText(r.newValue)].filter(Boolean).join(' · ')]))); LOGV('settings.activity.export', L.length + ' صف'); },
+      tsv: () => { const L = a.rows || []; const t = [['الوقت', 'العضو', 'الصفحة', 'الإجراء', 'التفاصيل']].concat(L.map((r) => [r.at, r.actorName, r.page, r.action, [r.entity, r.entityId, valText(r.newValue)].filter(Boolean).join(' · ')])).map((l) => l.map((v) => String(v == null ? '' : v).replace(/[\t\n]/g, ' ')).join('\t')).join('\n'); (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(() => K.toast('اتنسخ — الصقه في Google Sheets', 'success'), () => K.toast('ماقدرناش ننسخ — نزّله Excel', 'error')); } };
+    void sel; void members; // the member / page filters are the head's «فلتر» now
+    return [RB && RB.logPeriod ? RB.logPeriod('activity') : null, K.Section('سجل النشاط', [
       a.loading && !a.rows ? h('p', { class: 't-small help' }, 'بنحمّل…') : rows.length ? U.Table({ cls: 'act-tbl', headers: ['الوقت', 'العضو', 'الصفحة', 'الإجراء', 'التفاصيل'], rows }) : K.Empty('مفيش أحداث بالفلاتر دي', 'غيّر الفلاتر أو الفترة.'),
       h('div', { class: 'acts-inline' }, Button({ size: 'sm', label: '‹ الأحدث', disabled: !a.page, onClick: () => { a.page = Math.max(0, a.page - 1); a.rows = null; loadActivity(); } }), h('span', { class: 't-small help' }, 'صفحة ' + (a.page + 1) + (a.rows ? ' · ' + a.rows.length + ' حدث' : '')), Button({ size: 'sm', label: 'الأقدم ›', disabled: !a.more, onClick: () => { a.page += 1; a.rows = null; loadActivity(); } }))],
       null, { noun: ['حدث', 'الأحداث'], sub: 'كل كتابة في السيستم بتتسجل بالعضو والصفحة والإجراء — 100 حدث في الصفحة · الأرقام والنصوص الحساسة مش بتتسجل' }),
@@ -2000,7 +2041,7 @@
       return h('div', { class: 'prov-block', 'data-prov': k }, K.two(sel('prov-' + k, d.label + ' — المزوّد الافتراضي', cur.default, d.options, (v) => { cur.default = v; }), d.tools.length ? h('div', { class: 'prov-tools' }, d.tools.map(([t, tl]) => sel('prov-' + k + '-' + t, tl, (cur.tools || {})[t] || '', opts, (v) => { cur.tools = cur.tools || {}; if (v) cur.tools[t] = v; else delete cur.tools[t]; }))) : h('div', null))); });
     return K.Section('مزوّدي الذكاء الاصطناعي', [U.InlineNote({ children: 'المفاتيح من «الربط بالمنصات › الذكاء الاصطناعي» — المزوّد اللي مالوش مفتاح بيرجّع «اربطه من الإعدادات». Magnific بالكريدت، والباقي بالدولار على سقف المحتوى الشهري.' }), ...blocks], null, { sub: 'افتراضي لكل قسم + تبديل لكل أداة (قرار صاحب المشروع، 7 نوفمبر)' });
   }
-  function aiSec() { return [providersSec()].concat(aiSecV6()); }
+  function aiSec() { return aiSecV6(); } // ش42: the providers are a tab of their own
 
   // ---------- the lists (decision 8; phase 12 T3 decision 10; owner batch 14 Nov decisions 4 and 8) ----------
   // The statuses (order / confirmation / sub-order) keep their value — accounts_sales, products_report, order_delete, the auto-reply engine

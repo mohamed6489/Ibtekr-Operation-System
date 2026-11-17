@@ -52,7 +52,11 @@ async function openAi(page, email, sub) {
   await signIn(page, email);
   await page.locator('.sidebar .nav-item[data-page="ai"]').click(); // 0120: «الذكاء الاصطناعي» is its own page
   await expect(page.locator('#pg-ai')).toBeVisible();
-  if (sub) await pg(page).getByRole('tab', { name: new RegExp(sub) }).click();
+  if (sub) {
+    await pg(page).getByRole('tab', { name: new RegExp(sub) }).click();
+    // the tab goes through the hash: type only once the box is that assistant's (a slow machine redraws after the click)
+    await expect(pg(page).locator('#mk-ask')).toHaveAttribute('placeholder', new RegExp(sub));
+  }
 }
 const pg = (page) => page.locator('main.content.mod:not([hidden])'); // 0120: «التسويق» or «الذكاء الاصطناعي», whichever is open
 async function signOut(page) { await page.locator('.user-btn').click(); await page.getByRole('menuitem', { name: 'تسجيل الخروج' }).click(); await expect(page.locator('#login')).toBeVisible(); await expect(page.locator('#root')).toBeHidden(); await page.waitForLoadState('load').catch(() => {}); }
@@ -836,3 +840,4 @@ test('0120 — «المخزن الذكي»: a tab of its own, its chat asks the 
   await expect(box.locator('.mk-chat')).toContainText('سؤالك: إيه أقدم قطعة في المخزن؟');
   await expect(box.locator('[data-mk-chat-item]')).toHaveCount(1);
 });
+

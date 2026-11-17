@@ -1513,8 +1513,8 @@
     AG.turns[cid] = prev.concat(r.turns);
     const ans = r.turns.find((t) => t.role === 'assistant'); if (ans && r.imagePrompt) AG.prompts[ans.id] = r.imagePrompt; if (ans && r.request) AG.reqs[ans.id] = r.request;
     if (ans && r.campaignAction) AG.acts[ans.id] = r.campaignAction; // ش45 decision 5: the buyer's confirm card
-    if (ans && r.campaign) { AG.drafts[ans.id] = r.campaign; if (a === 'designer' && openDraft(r.campaign)) { K.toast('فتحتلك الكامبين متملّية — راجعها واضغط توليد', 'success'); return; } }
     if (chat) { AG.chats[a] = [chat].concat((AG.chats[a] || []).filter((c) => c.id !== chat.id)); AG.active[a] = chat.id; }
+    if (ans && r.campaign) { AG.drafts[ans.id] = r.campaign; if (a === 'designer' && openDraft(r.campaign)) { K.toast('فتحتلك الكامبين متملّية — راجعها واضغط توليد', 'success'); return; } }
     agRefresh();
   }
   async function agGen(a, turnId) {
@@ -1611,7 +1611,7 @@
       if (toEnd) { el.scrollTop = el.scrollHeight; AG.atBottom[a] = true; AG.pos[a] = el.scrollTop; } else el.scrollTop = AG.pos[a] || 0; // a second redraw in the same frame lands where the first put it
       el.querySelectorAll('img').forEach((im) => { if (!im.complete) im.addEventListener('load', () => { if (AG.atBottom[a] !== false) el.scrollTop = el.scrollHeight; }, { once: true }); });
     });
-    const inp = h('textarea', { class: 'mk-ask-in', id: 'mk-ask', rows: '1', placeholder: a === 'buyer' ? 'اسأل الميديا باير عن أرقامك…' : 'اكتب رسالة ل' + A.name + '…', 'aria-label': 'رسالة ل' + A.name, maxlength: '1000',
+    const inp = h('textarea', { class: 'mk-ask-in', id: 'mk-ask', rows: '1', placeholder: a === 'buyer' ? 'اسأل الميديا باير عن أرقامك…' : 'اكتب رسالة ' + A.to + '…', 'aria-label': 'رسالة ' + A.to, maxlength: '1000',
       onInput: () => { AG.draft[a] = inp.value; agGrow(inp); }, onKeydown: (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); agSend(a, inp.value); } } });
     inp.value = AG.draft[a] || '';
     // a re-render (the chats or the turns landing) keeps what was being typed and the cursor in the box — right after the render, in

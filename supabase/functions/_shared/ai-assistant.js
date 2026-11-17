@@ -59,6 +59,11 @@ export const FORMS = {
   expense_add: ['direction', 'amount', 'category', 'beneficiary', 'details', 'note', 'source'],
   account_move: ['direction', 'amount', 'account'],
   vendor_move: ['direction', 'amount', 'vendor', 'type', 'otherName', 'note'],
+  // agents-brain T4 (the owner 17 Nov — «عايز ادفع او اخصم او اكافيء … يطلعلي الاسكرين المناسبة»): the payroll's «مكافأة / خصم» and
+  // «تحويل المرتب» (sensitive.salaries — the page checks), and the maker's «تسوية دلوقتي» (the accounts' own popup)
+  salary_adjust: ['member', 'kind', 'label', 'amount'],
+  salary_pay: ['member'],
+  vendor_settle: ['vendor'],
 };
 export const MONEY_FORMS = ['expense_add', 'account_move', 'vendor_move'];
 export const FORM_DATES = ['from', 'to', 'hire'];
@@ -138,7 +143,8 @@ CLIENT_TOOL_DEFS.push({ name: 'open_form',
     + 'order_update (تحديث أوردر: order رقمه، status من ' + AI_ORDER_STATUSES.join(' / ') + '، أو confirm من ' + CONFIRMS.join(' / ') + ') · '
     + 'expense_add (مصروف: direction withdraw (سحب) | deposit (إيداع — فلوس راجعة) مطلوب، amount، category من ' + CATEGORIES.join(' / ') + '، beneficiary المستفيد (اسم مبتكر أو اسم حر)، details، note، source مصدر المبلغ في الإيداع) · '
     + 'account_move (حركة على الحساب الفعلي: direction مطلوب، amount، account من ' + ACCOUNTS.join(' / ') + ') · '
-    + 'vendor_move (حركة مبتكر: direction مطلوب — withdraw = سحب بيتخصم من صافي المبتكر (عربون أو مواصلات أو أي مبلغ اتدفعله، type من ' + VENDOR_TYPES.join(' / ') + ')، deposit = إيداع لتصحيح رصيده بس (otherName عنوان المعاملة، note الوصف، من غير type)؛ amount، vendor اسم المبتكر).',
+    + 'vendor_move (حركة مبتكر: direction مطلوب — withdraw = سحب بيتخصم من صافي المبتكر (عربون أو مواصلات أو أي مبلغ اتدفعله، type من ' + VENDOR_TYPES.join(' / ') + ')، deposit = إيداع لتصحيح رصيده بس (otherName عنوان المعاملة، note الوصف، من غير type)؛ amount، vendor اسم المبتكر) · '
+    + 'salary_adjust (مكافأة أو خصم على مرتب عضو الشهر ده: member اسم العضو، kind مكافأة | خصم، label البند (مثلًا: بدل انتقالات، غياب)، amount) · salary_pay (تحويل مرتب عضو الشهر ده: member اسم العضو) · vendor_settle (تسوية حساب مبتكر وطلب السحب على Dokan: vendor اسم المبتكر).',
   input_schema: { type: 'object', properties: { form: S('البوب أب', { enum: Object.keys(FORMS) }), values: { type: 'object', description: 'قيم الخانات اللي المستخدم قالها بس — نص' } }, required: ['form'] } });
 CLIENT_TOOL_DEFS.push({ name: 'plan_categories',
   description: 'جهّز شجرة أقسام منتجات جديدة للموقع من وصف المستخدم (قسم رئيسي وتحته أقسام فرعية بأي عدد مستويات لحد ' + CAT_PLAN_DEPTH + ') — بيظهر له لينك «راجع الأقسام» تحت ردك: بيراجع الشجرة ويعدّل الأسامي ويضغط «نشر» والسيستم يعمل القسم الرئيسي ثم اللي تحته على الموقع بالترتيب. الأداة ما بتعملش حاجة على الموقع، فمتقولش إن الأقسام اتعملت. '
@@ -271,6 +277,7 @@ export function cleanAction(name, input, teamIds) {
         if (form === 'order_update' && k === 'status' && !AI_ORDER_STATUSES.includes(val)) continue;
         if (form === 'order_update' && k === 'confirm' && !CONFIRMS.includes(val)) continue;
         if (k === 'type' && !(form === 'vendor_move' ? VENDOR_TYPES : TICKET_TYPES).includes(val)) continue;
+        if (k === 'kind' && form === 'salary_adjust' && !['مكافأة', 'خصم'].includes(val)) continue; // agents-brain T4
         if (k === 'direction' && !['withdraw', 'deposit'].includes(val)) continue;
         if (k === 'category' && form === 'expense_add' && !CATEGORIES.includes(val)) continue;
         if (k === 'account' && !ACCOUNTS.includes(val)) continue;

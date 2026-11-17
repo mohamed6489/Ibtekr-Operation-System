@@ -29,3 +29,28 @@ test('T3 — the accountant answers with «افتح البوب أب — مصرو
   await expect(md.locator('input[inputmode="decimal"], input[type="number"], input').filter({ hasNotText: 'x' }).first()).toBeVisible();
   await expect(page.locator('#pg-accounts, main.content:not([hidden])').first()).toBeVisible();
 });
+
+test('T4 — the accountant: «افتح البوب أب — مكافأة / خصم» opens the payroll\'s popup filled (deduction, label, amount) for the member named; «تسوية المبتكر» opens the maker\'s settle popup', async ({ page }) => {
+  await page.goto('/'); await page.fill('#lg-id', ADMIN); await page.fill('#lg-pw', DEV_PW); await page.getByRole('button', { name: 'دخول', exact: true }).click();
+  await expect(page.locator('#root')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => (window.IBHR && window.IBHR.everyone ? window.IBHR.everyone().length : 0))).toBeGreaterThan(1);
+  const who = await page.evaluate(() => window.IBHR.everyone().find((m) => m.salary || true).name);
+  const maker = await page.evaluate(() => { const V = window.IBVendors && window.IBVendors.store && window.IBVendors.store.all ? window.IBVendors.store.all() : []; return V.length ? V[0].name : ''; });
+  await page.evaluate(() => { location.hash = 'ai-accountant'; });
+  await expect(pg(page).locator('#mk-ask')).toBeVisible();
+  mock.mkt.agentAnswer = () => ({ text: 'حطيتلك البيانات', forms: [{ form: 'salary_adjust', values: [{ key: 'member', value: who }, { key: 'kind', value: 'خصم' }, { key: 'label', value: 'غياب' }, { key: 'amount', value: '300' }] }]
+    .concat(maker ? [{ form: 'vendor_settle', values: [{ key: 'vendor', value: maker }] }] : []), page: { page: '', tab: '' }, request: { title: '', details: '' } });
+  await pg(page).locator('#mk-ask').fill('اخصم 300 من ' + who + ' غياب'); await pg(page).locator('[data-mk-ask]').click();
+  await pg(page).locator('[data-mk-form="salary_adjust"]').click();
+  const md = page.locator('.modal[role=dialog]', { hasText: 'مكافأة / خصم' });
+  await expect(md).toBeVisible();
+  await expect(md.getByRole('radio', { name: 'خصم' })).toBeChecked();
+  await expect(md.locator('input[value="غياب"]')).toHaveCount(1);
+  await expect(md.locator('input[value="300"]')).toHaveCount(1);
+  if (maker) {
+    await md.getByRole('button', { name: /إلغاء|إغلاق/ }).first().click();
+    await page.evaluate(() => { location.hash = 'ai-accountant'; });
+    await pg(page).locator('[data-mk-form="vendor_settle"]').click();
+    await expect(page.locator('.modal[role=dialog]').last()).toContainText(maker);
+  }
+});

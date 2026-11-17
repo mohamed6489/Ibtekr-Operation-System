@@ -189,7 +189,8 @@ test('open_form: the known forms and their fields only; dates, amounts and numbe
   // 0078: a «إيداع» (a correction) carries its title and description
   assert.deepEqual(cleanAction('open_form', { form: 'vendor_move', values: { direction: 'deposit', vendor: 'Art Craft', otherName: 'فرق مقاس', note: 'العميل طلب مقاس أكبر' } }).input.values, { direction: 'deposit', vendor: 'Art Craft', otherName: 'فرق مقاس', note: 'العميل طلب مقاس أكبر' });
   for (const st of ['ملغي', 'استرجاع', 'فشل']) { assert.ok(!AI_ORDER_STATUSES.includes(st)); assert.equal(cleanAction('open_form', { form: 'order_update', values: { order: '1', status: st } }), null); }
-  assert.deepEqual(Object.keys(FORMS).sort(), ['account_move', 'customer_add', 'expense_add', 'hr_advance', 'hr_leave', 'hr_remote', 'member_add', 'order_update', 'task_add', 'ticket_new', 'vendor_add', 'vendor_move']);
+  assert.deepEqual(Object.keys(FORMS).sort(), ['account_move', 'customer_add', 'expense_add', 'hr_advance', 'hr_leave', 'hr_remote', 'member_add', 'order_update', 'salary_adjust', 'salary_pay', 'task_add', 'ticket_new', 'vendor_add', 'vendor_move', 'vendor_settle']); // agents-brain T4
+  assert.deepEqual(cleanAction('open_form', { form: 'salary_adjust', values: { member: 'سارة', kind: 'غرامة', label: 'غياب', amount: '1,200' } }).input.values, { member: 'سارة', label: 'غياب', amount: '1200' }); // an unknown kind dropped
   assert.ok(toolsOf('chat').some((t) => t.name === 'open_form')); assert.ok(!toolsOf('filter').some((t) => t.name === 'open_form'));
 });
 

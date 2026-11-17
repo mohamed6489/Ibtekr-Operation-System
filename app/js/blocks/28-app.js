@@ -1002,6 +1002,22 @@
         if (state.page !== 'accounts') go('accounts'); else render();
         setTimeout(() => openForm(kind, dir, null, false, pre), 60); return 'form ' + form;
       }
+      // agents-brain T4 (the owner 17 Nov — «عايز ادفع او اخصم او اكافيء … يطلعلي الاسكرين المناسبة»): the payroll's «مكافأة / خصم» /
+      // «تحويل المرتب» (sensitive.salaries F — the page's own rule) and the maker's «تسوية دلوقتي» (accounts.approve F), filled
+      case 'salary_adjust': case 'salary_pay': {
+        if (!admin() && can('sensitive.salaries') !== 'F') no(); const api = hrApi();
+        const mem = (window.IBHR.everyone ? window.IBHR.everyone() : []).find((m) => String(m.name || '').trim() === String(v.member || '').trim())
+          || (window.IBHR.everyone ? window.IBHR.everyone() : []).find((m) => v.member && String(m.name || '').includes(String(v.member).trim()));
+        if (form === 'salary_pay') { if (!mem) throw new Error('مش لاقي العضو ده'); if (location.hash.slice(1) !== 'hr-payroll') location.hash = 'hr-payroll'; const r = api.payPopup(mem.id); if (r === 'paid') throw new Error('مرتب ' + mem.name + ' اتحوّل الشهر ده'); if (r === 'loading') throw new Error('الكشف لسه بيتحمّل — جرّب كمان ثانية'); return 'form salary_pay'; }
+        const amt = Number(String(v.amount || '').replace(/[,٬]/g, ''));
+        if (location.hash.slice(1) !== 'hr-payroll') location.hash = 'hr-payroll';
+        setTimeout(() => api.adjustPopup(mem ? mem.id : null, { kind: v.kind === 'خصم' ? 'خصم' : 'بدل', label: String(v.label || '').slice(0, 80), amount: Number.isFinite(amt) && amt > 0 ? String(amt) : '' }), 60); return 'form salary_adjust'; }
+      case 'vendor_settle': { if (!admin() && can('accounts.approve') !== 'F') no();
+        // the accounts' makers load with the page: open it first, then find the maker (up to ~4 s), then its «تسوية دلوقتي» popup
+        state.tab = 'vendors'; if (state.page !== 'accounts') go('accounts'); else render();
+        const want = String(v.vendor || '').trim(); let tries = 0;
+        const find = () => { const n = aiVendorName(want) || (SEED.vendors.find((x) => want && x.name.toLowerCase().includes(want.toLowerCase())) || {}).name; if (n) { openSettle(n); return; } if (++tries < 20) setTimeout(find, 200); else if (window.IBKit) window.IBKit.toast('مش لاقي المبتكر «' + want + '» في الحسابات', 'error'); };
+        setTimeout(find, 60); return 'form vendor_settle'; }
       default: throw new Error('النوع ده مش من الإجراءات المتاحة');
     }
   }

@@ -85,7 +85,9 @@
         pages(() => cl.from('products').select(AR_COLS).eq('lang', 'ar').order('id', { ascending: true }), g),
         // owner batch 14 Nov decision 9: the slug and the image (0088) — before 0088 is live the old columns still load the tab
         // comments decision 56: the site's order of a category among its siblings (0108) — before 0108 is live the columns before it
-        pages(() => cl.from('woo_categories').select('id, name, parent_id, slug, image_url, menu_order').order('id', { ascending: true }), g).then((l) => { catOrdered = true; return l; })
+        // 0121 (the owner 17 Nov): each category's Arabic translation id — an Arabic-only product's terms map to their English category
+        pages(() => cl.from('woo_categories').select('id, name, parent_id, slug, image_url, menu_order, ar_id').order('id', { ascending: true }), g).then((l) => { catOrdered = true; return l; })
+          .catch(() => pages(() => cl.from('woo_categories').select('id, name, parent_id, slug, image_url, menu_order').order('id', { ascending: true }), g).then((l) => { catOrdered = true; return l; }))
           .catch(() => { catOrdered = false; return pages(() => cl.from('woo_categories').select('id, name, parent_id, slug, image_url').order('id', { ascending: true }), g); })
           .catch(() => pages(() => cl.from('woo_categories').select('id, name, parent_id').order('id', { ascending: true }), g)),
         pages(() => cl.from('woo_brands').select('id, name, parent_id').order('name', { ascending: true }), g),
@@ -287,6 +289,13 @@
   }
   // the commission's figures without a price (decision 16: the prices are computed from the maker's price) →
   // { rate (% or null for a flat-only product commission), fee, source } or null (no visible rate / not sensitive.commission = F)
+  // 0121 (the owner 17 Nov): a site category id in English — itself, or the English category whose Arabic translation it is (null when
+  // neither is in the mirror)
+  function categoryEn(id) {
+    const n = Number(id); if (cats.has(n)) return n;
+    for (const x of cats.values()) if (Number(x.ar_id) === n) return Number(x.id);
+    return null;
+  }
   function commissionParams(rec) {
     if (!rec || perm('sensitive.commission') !== 'F') return null;
     const own = comm.get(Number(rec.id));
@@ -295,7 +304,8 @@
     let rate = rateOf(rec.vendorId); let fee = v.rateFlat || 0; let source = 'store';
     if (v.commissionType === 'category_based') {
       const byCat = new Map((v.categoryRates || []).map((c) => [Number(c.wooCategoryId), c]));
-      for (const id of rec.categoryIds) {
+      for (const raw of rec.categoryIds) {
+        const id = categoryEn(raw); // 0121: an Arabic-only product's term → its English category
         let cur = cats.get(Number(id)); const seen = new Set(); let hit = null;
         while (cur && !seen.has(cur.id) && !hit) { seen.add(cur.id); hit = byCat.get(Number(cur.id)) || null; cur = cur.parent_id ? cats.get(Number(cur.parent_id)) : null; }
         if (!hit && byCat.has(Number(id))) hit = byCat.get(Number(id));
@@ -381,7 +391,8 @@
 
   window.IBProducts = {
     load, ensure, refresh, clear, state: () => st, list, trash, get, toRecord, can, rateOf, commissionOf, commissionParams, vendorPriceOf, STATUS, report, reportFailed, reportRetry, addImages, uploadImages, moveVendor,
-    categories: () => [...cats.values()].map((x) => ({ id: Number(x.id), name: x.name, parentId: x.parent_id ? Number(x.parent_id) : null, path: catPath(x.id), slug: x.slug || '', image: /^https:\/\//.test(x.image_url || '') ? x.image_url : null, order: Number(x.menu_order) > 0 ? Number(x.menu_order) : 0 })).sort((a, b) => a.path.localeCompare(b.path)),
+    categoryEn,
+    categories: () => [...cats.values()].map((x) => ({ id: Number(x.id), name: x.name, parentId: x.parent_id ? Number(x.parent_id) : null, path: catPath(x.id), slug: x.slug || '', image: /^https:\/\//.test(x.image_url || '') ? x.image_url : null, order: Number(x.menu_order) > 0 ? Number(x.menu_order) : 0, arId: Number(x.ar_id) > 0 ? Number(x.ar_id) : null })).sort((a, b) => a.path.localeCompare(b.path)),
     // comments decision 56: the categories can be ordered from the page (the mirror keeps the site's order); a parent's children in
     // their new order after category_order answered
     categoriesOrdered: () => catOrdered,

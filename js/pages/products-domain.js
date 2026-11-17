@@ -146,39 +146,44 @@
   }
   // comments 15 Nov decision 82 (the owner on «تعديل سعر منتج» — «لما اعدل نسبة ابتكر … يظهرلي تحتيها ال vendors … و المقدار اللي هزوده يزيد علي
   // الفيندور كله لو انا محدد كل منتجات الفيندور ده مش محدد قسم معين و في حالة تحديد قسم معين … يظهرلي الاقسام … و كل اللي انا بقوله ده مرتبط بالنسبة
-  // بتاعة المبتكرين»): whose commission a change of Ibtekr's rate on the picked products touches. Per maker of the picked products:
-  //   whole — every product of his in the records is picked → his whole commission moves (the general rate and each category's own);
-  //   cats  — the picked ones are all his products of some categories → those categories' rates move (the top-most such categories);
-  //   rest  — what is left of his picked products belongs to no such category: only their price is recalculated.
-  // picked / all: [{ id, vendorId, categoryIds }]; parentOf(catId) → its parent's id or null.
-  // the owner 17 Nov («انا مفلتر علي categorey معينة لمبتكر … المفروض و انا بعدل نسبة ابتكر اعدل النسبة في ال categorey دي عند المبتكر»):
-  //   opt.known(catId) — a category of the site's tree (the mirror: the English terms a commission is set on); an Arabic term id or a
-  //     category no longer on the site is never a scope;
-  //   opt.focus — the categories the records are filtered on: then only those move (a product in it or in a category under it counts),
-  //     still when the picked ones are all the maker's products of it — never the other categories the same products sit in.
+  // بتاعة المبتكرين»), its rules as the owner settled them on 17 Nov (4 answers): whose commission a change of Ibtekr's rate on the picked
+  // products touches. Per maker of the picked products:
+  //   whole — every product of his in the records is picked → his whole commission moves (the general rate and each category's own),
+  //           a category filter or not;
+  //   cats  — otherwise one category of his moves, even when only some of his products in it are picked («منتجات القسم نسبتها تتغير
+  //           عادي»): the category the records are filtered on (opt.focus), else the deepest category all the picked ones share
+  //           («أعمق قسم مشترك» — every deepest one when two branches tie); none shared = the price alone;
+  //   rest  — the picked ones in none of those categories: only their price is recalculated;
+  //   affected — every product of his in those categories (in them or under them): their prices follow the new rate, picked or not.
+  // picked / all: [{ id, vendorId, categoryIds }]; parentOf(catId) → its parent's id or null; opt.toEn(catId) → the site category in
+  // English (the commission tree — an Arabic-only product's term maps to its English category: «لو موجود انجليزي بس او عربي بس يتغير
+  // عادي») or null for one the site does not know.
   function rateScopes(picked, all, parentOf, opt) {
-    const known = opt && typeof opt.known === 'function' ? opt.known : () => true;
-    const focus = opt && Array.isArray(opt.focus) ? opt.focus.map(Number).filter((c) => Number.isInteger(c) && known(c)) : [];
+    const toEn = opt && typeof opt.toEn === 'function' ? opt.toEn : (c) => c;
+    const enOf = (c) => { const e = toEn(Number(c)); return e == null || !Number.isInteger(Number(e)) ? null : Number(e); };
+    const focus = [...new Set((opt && Array.isArray(opt.focus) ? opt.focus : []).map(enOf).filter((c) => c != null))];
     const by = (list) => { const m = new Map(); (list || []).forEach((p) => { if (!p || !p.vendorId) return; const k = String(p.vendorId); if (!m.has(k)) m.set(k, []); m.get(k).push(p); }); return m; };
     const P = by(picked); const A = by(all); const out = [];
     const up = (id) => { const seen = new Set(); const l = []; let cur = parentOf ? parentOf(id) : null; while (cur != null && !seen.has(cur)) { seen.add(cur); l.push(Number(cur)); cur = parentOf(cur); } return l; };
+    const catsOfP = (p) => [...new Set((p.categoryIds || []).map(enOf).filter((c) => c != null))];
+    const inCat = (p, c) => catsOfP(p).some((x) => x === c || up(x).includes(c)); // in the category or anywhere under it
     P.forEach((sel, vid) => {
       const mine = A.get(vid) || sel; const ids = new Set(sel.map((p) => String(p.id)));
-      const whole = !focus.length && mine.every((p) => ids.has(String(p.id))); // filtered on a category: that category, even when it is all he has
-      let cats = []; let rest = 0;
+      const whole = mine.every((p) => ids.has(String(p.id)));
+      let cats = [];
       if (!whole && focus.length) {
-        // in the category or anywhere under it
-        const inCat = (p, c) => (p.categoryIds || []).some((x) => Number(x) === c || up(Number(x)).includes(c));
-        cats = focus.filter((c) => sel.some((p) => inCat(p, c)) && mine.filter((p) => inCat(p, c)).every((p) => ids.has(String(p.id))));
-        cats = cats.filter((c) => !up(c).some((x) => cats.includes(x))).sort((x, y) => x - y);
-        rest = sel.filter((p) => !cats.some((c) => inCat(p, c))).length;
+        cats = focus.filter((c) => sel.some((p) => inCat(p, c)));
+        cats = cats.filter((c) => !up(c).some((x) => cats.includes(x)));
       } else if (!whole) {
-        const cand = new Set(); sel.forEach((p) => (p.categoryIds || []).forEach((c) => { if (known(Number(c))) cand.add(Number(c)); }));
-        const covered = new Set([...cand].filter((c) => mine.filter((p) => (p.categoryIds || []).map(Number).includes(c)).every((p) => ids.has(String(p.id)))));
-        cats = [...covered].filter((c) => !up(c).some((x) => covered.has(x))).sort((x, y) => x - y);
-        rest = sel.filter((p) => !(p.categoryIds || []).some((c) => covered.has(Number(c)))).length;
+        let common = null;
+        sel.forEach((p) => { const s2 = new Set(catsOfP(p).flatMap((c) => [c].concat(up(c)))); common = common == null ? s2 : new Set([...common].filter((c) => s2.has(c))); });
+        const l = [...(common || [])]; const deep = l.length ? Math.max(...l.map((c) => up(c).length)) : 0;
+        cats = l.filter((c) => up(c).length === deep);
       }
-      out.push({ vendorId: vid, picked: sel.length, total: mine.length, whole, cats, rest });
+      cats.sort((x, y) => x - y);
+      const rest = whole ? 0 : sel.filter((p) => !cats.some((c) => inCat(p, c))).length;
+      const affected = whole ? [] : mine.filter((p) => cats.some((c) => inCat(p, c))).map((p) => p.id);
+      out.push({ vendorId: vid, picked: sel.length, total: mine.length, whole, cats, rest, affected });
     });
     return out;
   }

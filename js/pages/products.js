@@ -763,12 +763,20 @@
     const Vs = window.IBVendors; const canRate = !!(C.commission && Vs && Vs.store && Vs.store.canRate && Vs.store.canRate());
     const catsAll = PR().categories(); const catBy = new Map(catsAll.map((c) => [Number(c.id), c])); const parentOf = (id) => { const c = catBy.get(Number(id)); return c && c.parentId != null ? Number(c.parentId) : null; };
     const catName = (id) => (catBy.get(Number(id)) || {}).name || '#' + id;
-    // the owner 17 Nov: the category the records are filtered on is the one whose rate moves; only the site's (English) categories count
+    // the owner 17 Nov: the category the records are filtered on is the one whose rate moves (else the deepest one the picked share); an
+    // Arabic-only product's terms count as their English category (0121 — PR().categoryEn)
     const focus = catsAll.filter((c) => st.f.category.includes(c.path)).map((c) => Number(c.id));
-    const scopes = canRate ? PD.rateScopes(l, PR().list(), parentOf, { known: (id) => catBy.has(Number(id)), focus }) : [];
+    const scopes = canRate ? PD.rateScopes(l, PR().list(), parentOf, { toEn: (id) => (PR().categoryEn ? PR().categoryEn(id) : (catBy.has(Number(id)) ? Number(id) : null)), focus }) : [];
     const makers = scopes.map((sc) => { const v = Vs.store.get(sc.vendorId); const mine = l.filter((p) => String(p.vendorId) === String(sc.vendorId));
       return { sc, v, name: (v && v.name) || (mine[0] && mine[0].vendor) || 'مبتكر', brands: [...new Set(mine.reduce((a, p) => a.concat(p.brands || []), []))] }; });
     const plansOf = (o) => makers.map((mk) => Object.assign({}, mk, { plan: mk.v && mk.v.ratesVisible ? PD.ratePlan(mk.sc, mk.v, o, parentOf) : null }));
+    // the owner 17 Nov («يتحسب سعرهم هما كمان»): a category's rate moves for all his products in it — the ones not picked get their price
+    // recalculated with it (simple ones with a price; their own rate shifts by the same points)
+    const pickedIds = new Set(l.map((p) => String(p.id)));
+    const extraOf = (vid) => { const sc = scopes.find((x) => String(x.vendorId) === String(vid)); const want = new Set(((sc && sc.affected) || []).map(String));
+      return PR().list().filter((p) => want.has(String(p.id)) && !pickedIds.has(String(p.id)) && p.type !== 'Variable' && p.sale).map(withRate); };
+    const extras = new Map(makers.map((mk) => [String(mk.sc.vendorId), extraOf(mk.sc.vendorId)]));
+    const extrasFor = (o) => plansOf(o).filter((mk) => mk.plan && mk.plan.changed && !mk.sc.whole).flatMap((mk) => extras.get(String(mk.sc.vendorId)) || []);
     const pc = (n) => String(n).replace(/\.0+$/, '') + '%';
     // owner 16 Nov («ظبط ال ui بشكل احترافي و منظم»): a card per maker — his name and brands with what moves for him (a chip), the
     // products picked, then every rate that moves as a cell in a grid (the name over «before ← after»), the notes under it
@@ -779,7 +787,8 @@
     function makersBox(o) {
       const cards = plansOf(o).map((mk) => { const sc = mk.sc; const pl = mk.plan; const kind = !pl ? 'price' : sc.whole ? 'whole' : 'cats';
         const what = sc.whole ? h('span', null, U.num('كل منتجاته (' + K.n0(sc.total) + ')'))
-          : sc.cats.length ? h('span', { class: 'bp-cats' }, h('span', null, 'كل منتجاته في'), sc.cats.map((id) => h('span', { class: 'chip bp-cat' }, catName(id))),
+          : sc.cats.length ? h('span', { class: 'bp-cats' }, h('span', null, 'نسبة القسم'), sc.cats.map((id) => h('span', { class: 'chip bp-cat' }, catName(id))),
+            h('span', { class: 'help' }, U.num('(' + K.n0((sc.affected || []).length) + ' منتج عنده فيه)')),
             sc.rest ? h('span', { class: 'help' }, U.num('و' + K.n0(sc.rest) + ' منتج متفرق')) : null)
           : h('span', null, U.num(K.n0(sc.picked) + ' من ' + K.n0(sc.total) + ' منتج (متفرقين)'));
         const notes = [
@@ -812,7 +821,7 @@
       const okN = todo.length - failed.size;
       if (pill) { if (failed.size) pill.fail(U.num('نسبة ' + failed.size + ' مبتكر ما اتغيّرتش — أسعار منتجاته زي ما هي')); else if (todo.length) pill.done(U.num('اتغيّرت نسبة ' + okN + ' مبتكر')); else pill.close(); }
       // the prices follow: every picked product but the ones of a maker whose commission did not move
-      const list = items.filter((p) => !failed.has(String(p.vendorId)));
+      const list = items.concat(extrasFor(o)).filter((p) => !failed.has(String(p.vendorId)));
       if (!list.length) { if (m) m.close(); return; }
       write((pg) => batch(list, (p) => { const r = next(p, o); return r ? { sale_price: String(r.sale), regular_price: String(r.regular) } : {}; }, pg), 'اتعدل السعر على الموقع' + (okN ? ' ونسبة ' + K.n0(okN) + ' مبتكر' : ''), m, list.length);
     }
@@ -823,14 +832,16 @@
       submitLabel: (f) => (f.target === 'rate' && Number(f.amount) > 0 && plansOf({ target: 'rate', mode: unitOf(f), dir: Number(f.dir), amount: Number(f.amount) }).some((x) => x.plan && x.plan.changed) ? 'طبّق السعر والنسبة' : 'طبّق السعر'),
       fields: (f, e, set, draw) => { const opt = { target: f.target, mode: unitOf(f), dir: Number(f.dir), amount: Number(f.amount) }; const ok = Number(f.amount) > 0;
         // the owner 17 Nov («زودلي عمودى لل sku و عمود للمبتكر بشكل احترافي و منظم»): the product with its picture, then its SKU and maker
-        const rows = ok ? items.slice(0, 8).map((p) => { const r = next(p, opt); return [h('span', { class: 'prod bp-prod' }, Thumb(p.img), h('b', null, nameOf(p))), h('span', { dir: 'ltr', class: 'bp-sku' }, p.sku || '—'), h('span', { class: 'bp-maker' }, p.vendor || '—'), !r ? 'مالوش نسبة ظاهرة' : f.target === 'vendor' ? K.n0(p.vendorPrice) + ' ← ' + K.n0(r.vendorPrice) : f.target === 'rate' ? p.rate + '% ← ' + r.rate + '%' : p.disc + '% ← ' + r.disc + '%', r ? K.n0(p.sale) + ' ← ' + K.n0(r.sale) : '—']; }) : [];
+        const more = f.target === 'rate' && ok ? extrasFor(opt) : []; const shown = items.concat(more);
+        const rows = ok ? shown.slice(0, 8).map((p) => { const r = next(p, opt); return [h('span', { class: 'prod bp-prod' }, Thumb(p.img), h('b', null, nameOf(p))), h('span', { dir: 'ltr', class: 'bp-sku' }, p.sku || '—'), h('span', { class: 'bp-maker' }, p.vendor || '—'), !r ? 'مالوش نسبة ظاهرة' : f.target === 'vendor' ? K.n0(p.vendorPrice) + ' ← ' + K.n0(r.vendorPrice) : f.target === 'rate' ? p.rate + '% ← ' + r.rate + '%' : p.disc + '% ← ' + r.disc + '%', r ? K.n0(p.sale) + ' ← ' + K.n0(r.sale) : '—']; }) : [];
         const seg = (key, opts) => h('div', { class: 'chips', role: 'radiogroup' }, opts.map(([v, lab]) => chipBtn(lab, f[key] === v, () => { f[key] = v; draw(); }, { role: 'radio', 'aria-checked': String(f[key] === v) })));
         return [U.FieldShell({ id: 'bp-t', label: 'تعدّل إيه؟', required: true, help: (C.commission ? 'سعر المبتكر أو النسبة بيحسبوا سعر البيع (لفوق لأقرب 10) وقبل الخصم (' + (fakeNow() ? 'بشرايح «الخصم الوهمي»' : '+15–30% عشوائي') + ') · النسبة والخصم بالنقط (%)' : 'الخصم الوهمي بيغيّر السعر قبل الخصم بس — سعر البيع زي ما هو') }, seg('target', TG)),
           K.two(U.FieldShell({ id: 'bp-d', label: 'زيادة ولا نقص' }, seg('dir', [['1', 'زيادة'], ['-1', 'نقص']])), f.target === 'vendor' ? U.FieldShell({ id: 'bp-m', label: 'بنسبة ولا بقيمة' }, seg('mode', [['pct', 'نسبة %'], ['value', 'قيمة (ج.م)']])) : null),
           K.field.text('amount', 'المقدار', f, e, (k, v) => { set(k, v); draw(); }, { required: true, inputmode: 'numeric', help: f.target === 'vendor' ? 'مثال: 10' + (f.mode === 'pct' ? '%' : ' ج.م') + ' ' + (f.dir === '1' ? 'زيادة' : 'نقص') + ' على سعر المبتكر' : 'بالنقط: 10 ' + (f.dir === '1' ? 'زيادة يعني 40% تبقى 50%' : 'نقص يعني 40% تبقى 30%') + ' (' + TG.find((x) => x[0] === f.target)[1] + ')' }),
           f.target === 'rate' && ok && makers.length ? makersBox(opt) : null,
-          rows.length ? U.FieldShell({ id: 'bp-p', label: h('span', null, 'قبل ← بعد', items.length > rows.length ? U.num(' (أول ' + rows.length + ' من ' + items.length + ')') : null) }, h('div', { class: 'bp-preview' }, U.Table({ cls: 'dt', headers: ['المنتج', 'SKU', 'المبتكر', TG.find((x) => x[0] === f.target)[1], 'سعر البيع'], rows }))) : null,
-          U.InlineNote({ children: 'هيتطبق على ' + simple.length + ' منتجات وبيتحدث على ووكومرس بعد التأكيد.' + (simple.length < l.length ? ' (' + (l.length - simple.length) + ' Variable أو من غير سعر برّه التعديل ده.)' : '') })]; },
+          rows.length ? U.FieldShell({ id: 'bp-p', label: h('span', null, 'قبل ← بعد', shown.length > rows.length ? U.num(' (أول ' + rows.length + ' من ' + shown.length + ')') : null) }, h('div', { class: 'bp-preview' }, U.Table({ cls: 'dt', headers: ['المنتج', 'SKU', 'المبتكر', TG.find((x) => x[0] === f.target)[1], 'سعر البيع'], rows }))) : null,
+          U.InlineNote({ children: 'هيتطبق على ' + simple.length + ' منتجات وبيتحدث على ووكومرس بعد التأكيد.' + (simple.length < l.length ? ' (' + (l.length - simple.length) + ' Variable أو من غير سعر برّه التعديل ده.)' : '') }),
+          more.length ? h('div', { 'data-bp-extra': String(more.length) }, U.InlineNote({ kind: 'warning', children: U.num('و' + more.length + ' منتج تاني للمبتكر في نفس القسم مش متحدد — نسبة القسم بتتغيّر عليهم كمان فسعرهم هيتحسب على النسبة الجديدة.') })) : null]; },
       validate: (f) => { if (!(Number(f.amount) > 0)) return { amount: 'اكتب رقم أكبر من صفر' };
         if (f.target === 'rate' && plansOf({ target: 'rate', mode: unitOf(f), dir: Number(f.dir), amount: Number(f.amount) }).some((x) => x.plan && x.plan.over)) return { amount: 'النسبة الجديدة هتعدّي 65% عند مبتكر — قلّل المقدار' };
         return {}; },

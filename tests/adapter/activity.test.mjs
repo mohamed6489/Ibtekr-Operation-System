@@ -42,7 +42,7 @@ test('dashboard.customize is sent', async () => {
 
 test('the orders writes IBOrders logs are sent by name; block 22\'s demo order.* / suborder.* events are not', async () => {
   const { log, calls, A } = load();
-  const OWN = ['order.status', 'order.confirm', 'order.patch', 'suborder.status', 'suborder.waybill', 'suborder.pulled', 'order.rating', 'order.delete', 'suborder.delete', 'order.line_delete', 'order.line_qty', 'order.line_add', 'suborder.site_status', 'profile.password', 'profile.edit'];
+  const OWN = ['order.status', 'order.confirm', 'order.patch', 'suborder.status', 'suborder.waybill', 'suborder.pulled', 'order.rating', 'order.delete', 'suborder.delete', 'order.line_delete', 'order.line_qty', 'order.line_add', 'suborder.site_status', 'profile.password', 'profile.edit', 'app.crash']; // app.crash: the blank-page guard (ش37) — kind and file:line only
   assert.deepEqual(JSON.parse(JSON.stringify(A.LOGGED_ACTIONS)), OWN);
   for (const a of OWN) await log(a, 'IB-181668 · #5001');
   // logged by block 22 / 29 before any server write (a free-text reason, sample stock): never reach activity_log

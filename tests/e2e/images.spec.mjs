@@ -160,7 +160,7 @@ test('not_configured told apart: the secret missing on the server names the secr
   await page.fill('#ig-prompt', 'a mug');
   mock.imgFail = 'not_configured';
   await page.locator('[data-igrun]').click();
-  await expect(page.locator('#pg-products')).toContainText('السر MAGNIFIC_API_KEY مش موجود في أسرار السيرفر');
+  await expect(page.locator('#pg-products')).toContainText('مفتاح Magnific API مش متحط (الإعدادات › الربط بالمنصات › Magnific API)');
   mock.imgFail = 'key_refused';
   await page.locator('[data-igrun]').click();
   await expect(page.locator('#pg-products')).toContainText('Magnific رفض المفتاح (HTTP 401)');

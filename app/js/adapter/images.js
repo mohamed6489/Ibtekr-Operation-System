@@ -69,7 +69,7 @@
   // the words of a refusal for the pages (not_configured told apart: the secret missing on the server / the provider refusing the key)
   const why = (r) => {
     if (!r || r.ok) return '';
-    if (r.reason === 'not_configured') return r.configured === false ? 'الـ AI للصور لسه مش متوصّل — السر MAGNIFIC_API_KEY مش موجود في أسرار السيرفر (Supabase › Edge Functions › Secrets)' : 'Magnific رفض المفتاح' + (r.status ? ' (HTTP ' + r.status + ')' : '') + ' — المفتاح نفسه أو شكل الـ API محتاج يتظبط';
+    if (r.reason === 'not_configured') return r.configured === false ? 'الـ AI للصور لسه مش متوصّل — مفتاح Magnific API مش متحط (الإعدادات › الربط بالمنصات › Magnific API)، أو ابعت الصور من شريط Magnific (حسابك المربوط) من غير كريدت' : 'Magnific رفض المفتاح' + (r.status ? ' (HTTP ' + r.status + ')' : '') + ' — المفتاح نفسه أو شكل الـ API محتاج يتظبط';
     if (r.reason === 'ai_error' && r.status === 402) return 'رصيد كريدت Magnific API خلص أو الموديل ده مش متاح في الباقة (HTTP 402) — اشحن الرصيد من لوحة Magnific API أو جرّب موديل تاني';
     if (r.reason === 'not_linked') return 'حساب Magnific مش مربوط بالسيستم — الأدمن بيربطه من «إعدادات الصور»';
     return '';

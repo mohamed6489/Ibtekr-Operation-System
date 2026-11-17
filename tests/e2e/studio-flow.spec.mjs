@@ -727,6 +727,7 @@ test('comments 43–48 and 50 — the data step\'s picture opens a popup (replac
   // 44: «القسم» is as wide as its field and starts where its label starts; the head's labels are on one line
   const head = page.locator('#pg-products .fl-dhead').first();
   await expect(head.locator('.fl-cat button.select')).toBeVisible();
+  await expect(head.locator('.fl-cat label')).toBeVisible(); await expect(head.locator('.fl-dbrand small').first()).toBeVisible(); // laid out before their boxes are read
   const [lab, sel, brand] = [await box(head.locator('.fl-cat label')), await box(head.locator('.fl-cat button.select')), await box(head.locator('.fl-dbrand small').first())];
   expect(Math.abs((lab.x + lab.width) - (sel.x + sel.width))).toBeLessThan(2); expect(Math.abs(lab.width - sel.width)).toBeLessThan(2);
   expect(Math.abs(lab.y - brand.y)).toBeLessThan(2);

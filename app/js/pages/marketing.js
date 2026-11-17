@@ -1657,32 +1657,58 @@
   }
   async function trRefresh() {
     if (TR.asking) return;
-    const a = await window.IBAIAsk({ title: 'حدّث التريندات', intro: 'Claude هيدوّر على الويب على آخر تريندات السوشيال والتصميم ويحط اللي لقاه في الجدول بمصدره. لو مهتم بحاجة معينة اكتبها (مثلًا: هدايا الشتا) — أو سيبها فاضية.' });
+    const a = await window.IBAIAsk({ title: 'حدّث التريندات', intro: 'هيدوّر على تيك توك وإنستجرام وفيسبوك على الفيديوهات والبوستات اللي ماشية دلوقتي بتاجز مجالك (من الإعدادات)، وكل واحد بصورته ولينكه. لو مهتم بحاجة معينة اكتبها (مثلًا: هدايا الشتا) — أو سيبها فاضية.' });
     if (!a) return;
     TR.asking = true; R();
     const pill = K.busy ? K.busy('بندوّر على آخر التريندات… ممكن ياخد دقيقة') : null;
     const r = await MK().trendsRefresh(a.notes || '');
     TR.asking = false; TR.at = Date.now();
     if (!r.ok) { if (pill) pill.fail(r.message); else K.toast(r.message, 'error'); R(); return; }
-    if (pill) pill.done('اتحدّثت التريندات — ' + K.n0(r.count) + ' تريند'); else K.toast('اتحدّثت التريندات', 'success');
+    // ش39: what Instagram's official hashtag search said (its feature waits for Meta's approval — the rest came from the web search)
+    const igNote = r.ig && r.ig.off === 'permission' ? ' — إنستجرام الرسمي مستني موافقة ميتا على «Instagram Public Content Access»' : r.ig && r.ig.off === 'not_linked' ? ' — إنستجرام الرسمي محتاج ربط صفحة الفيسبوك بحساب الإنستجرام من الإعدادات' : r.ig && r.ig.off === 'token' ? ' — ربط إنستجرام محتاج يتعمل تاني من الإعدادات' : '';
+    if (pill) pill.done('اتحدّثت التريندات — ' + K.n0(r.count) + ' جديد' + igNote); else K.toast('اتحدّثت التريندات' + igNote, 'success');
     R();
   }
-  const TR_KIND = { image: ['صورة', 'gold', 'image'], video: ['فيديو', 'info', 'play'] };
+  // ش39 (the owner 17 Nov — «عايز بدل الشكل ده يكون زي الصورة التانية [شبكة إنستجرام] و يبقا متقسم فيديوهات و بوستات»، و«التريندات … ليها علاقة
+  // بالمجال بتاعي و اقدر اضيف تاجز»): a grid of tiles like Instagram's — «فيديوهات» / «بوستات» tabs and a chip per tag; each tile is the
+  // post's picture (kept by the server — ai-images trend_thumbs) with the platform, the numbers and the title on it, opening the post
+  // itself in a new tab. The tags and sites are the admin's, in «الإعدادات › تعليمات الذكاء الاصطناعي › المساعدين › المصمم الاصطناعي».
+  const TR_PF = { tiktok: ['TikTok', 'tt'], instagram: ['Instagram', 'ig'], facebook: ['Facebook', 'fb'], web: ['', 'web'] };
+  const TRV = { tab: 'video', tag: '' };
+  const compact = (n) => (n == null ? '' : n >= 1e6 ? (Math.round(n / 1e5) / 10) + 'M' : n >= 1e3 ? (Math.round(n / 100) / 10) + 'K' : String(n));
+  function trTile(x) {
+    const pf = TR_PF[x.platform] || TR_PF.web; const src = x.thumb ? MK().trendThumbNow(x.thumb) : null;
+    const num = x.views != null ? ['eye', compact(x.views)] : x.likes != null ? ['star', compact(x.likes)] : null;
+    return h('a', { class: 'mk-tile' + (src ? '' : ' no-pic') + ' pf-' + pf[1], href: x.url, target: '_blank', rel: 'noopener noreferrer', title: x.title + (x.summary ? ' — ' + x.summary : ''), 'data-mk-trend': String(x.id), 'data-mk-trend-kind': x.kind },
+      src ? h('img', { src, alt: '', loading: 'lazy', referrerpolicy: 'no-referrer' }) : h('span', { class: 'mk-tile-ph', 'aria-hidden': 'true' }, Icon(x.kind === 'video' ? 'play' : 'image')),
+      x.kind === 'video' ? h('span', { class: 'mk-tile-kind', 'aria-label': 'فيديو' }, Icon('play', 'sm')) : null,
+      h('span', { class: 'mk-tile-top' }, h('span', { class: 'mk-tile-pf', 'data-mk-trend-src': String(x.id) }, x.platform !== 'web' ? Icon(x.platform, 'sm') : null, pf[0] || x.source), x.tag ? h('span', { class: 'mk-tile-tag' }, '#' + x.tag) : null),
+      h('span', { class: 'mk-tile-cap' }, h('b', null, x.title), h('small', null, [x.author, num ? null : x.source !== pf[0] ? x.source : null].filter(Boolean).join(' · ') || ' '), num ? h('span', { class: 'mk-tile-num' }, Icon(num[0], 'sm'), K.Num(num[1])) : null));
+  }
   function trendsCard() {
     trLoad(false);
+    if (MK().trendSettings && !MK().trendSettingsNow()) MK().trendSettings().then(() => { if (window.IBPages.current === 'marketing' && !document.querySelector('.scrim')) R(); });
     const L = MK().trendsNow ? MK().trendsNow() : []; const ready = !MK().trendsReadyNow || MK().trendsReadyNow();
-    const rows = (L || []).map((x) => { const k = TR_KIND[x.kind] || TR_KIND.image;
-      return [h('span', { class: 'mk-trend', 'data-mk-trend': String(x.id) }, h('b', null, x.title), x.summary ? h('small', null, x.summary) : null), h('span', { 'data-mk-trend-kind': x.kind }, Tag(k[1], k[0])),
-        h('a', { class: 'mk-out', href: x.url, target: '_blank', rel: 'noopener noreferrer', title: 'افتح المصدر في تاب جديد', 'data-mk-trend-src': String(x.id) }, h('span', null, x.source), Icon('external', 'sm')),
-        K.Num(x.at ? D2(dayOf(x.at)) : '—')]; });
-    const last = L && L.length ? dayOf(L[0].at) : null;
+    const cfg = (MK().trendSettingsNow && MK().trendSettingsNow()) || { tags: [] };
+    const all = L || []; const tagged = TRV.tag ? all.filter((x) => x.tag === TRV.tag) : all;
+    const vids = tagged.filter((x) => x.kind === 'video'); const posts = tagged.filter((x) => x.kind !== 'video');
+    const shown = TRV.tab === 'video' ? vids : posts;
+    const need = shown.filter((x) => x.thumb && !MK().trendThumbNow(x.thumb)).map((x) => x.thumb);
+    if (need.length) MK().trendThumbs(need).then((m) => { if (Object.keys(m).length && window.IBPages.current === 'marketing' && !document.querySelector('.scrim')) R(); });
+    const last = all.length ? dayOf(all[0].at) : null;
     const go = can().create && ready ? Button({ size: 'sm', type: 'primary', icon: 'sparkle', label: TR.asking ? 'بيدوّر…' : 'حدّث التريندات', disabled: TR.asking, attrs: { 'data-mk-trends-go': '' }, onClick: trRefresh }) : null;
-    return Card('آخر التريندات', last ? 'آخر تحديث ' + D2(last) + ' · من مواقع بتنشر التريندات، وكل تريند بمصدره' : 'من مواقع بتنشر التريندات — كل تريند بمصدره ونوعه',
-      [!L ? K.Empty('بيحمّل…', '') : !ready ? U.InlineNote({ children: 'القسم ده مستني تحديث قاعدة البيانات — هيشتغل بعد التحديث الجاي.' })
-        : rows.length ? U.Table({ cls: 'dt mk-trends-t', headers: ['التريند', 'النوع', 'المصدر', 'اتلقى'], rows })
-        : K.Empty('لسه مفيش تريندات', can().create ? 'دوس «حدّث التريندات» — Claude بيدوّر على الويب ويجيب آخر التريندات بمصادرها.' : 'اللي معاه «التسويق: إنشاء» بيحدّثها.'),
-      rows.length ? h('p', { class: 't-small help', style: 'margin:0' }, 'المصادر من نتايج البحث على الويب — افتح المصدر وراجعه قبل ما تبني عليه. التحديث بيتحسب على سقف الـ AI الشهري.') : null],
-      go, 'mk-trends', { noun: 'تريند' });
+    const tabs = h('div', { 'data-mk-trend-tabs': '' }, K.SubTabs({ label: 'نوع التريند', active: TRV.tab, onChange: (id) => { TRV.tab = id; R(); }, items: [{ id: 'video', label: 'فيديوهات', count: String(vids.length) }, { id: 'post', label: 'بوستات', count: String(posts.length) }] }));
+    const tags = [...new Set(cfg.tags.concat(all.map((x) => x.tag).filter(Boolean)))];
+    const chips = tags.length ? h('div', { class: 'chips mk-trend-tags', role: 'group', 'aria-label': 'التاجز' }, ['', ...tags].map((t) => h('button', { type: 'button', class: 'chip', 'aria-pressed': String(TRV.tag === t), 'data-mk-trend-tag': t, onClick: () => { TRV.tag = t; R(); } }, t ? '#' + t : 'الكل'))) : null;
+    const set = window.IBDirectory && window.IBDirectory.me && (window.IBDirectory.me() || {}).role_id === 'admin'
+      ? Button({ size: 'sm', type: 'text', icon: 'gear', label: 'التاجز والمصادر', attrs: { 'data-mk-trends-settings': '' }, onClick: () => { const s2 = window.IBPages.all().settings; if (s2 && s2.api && s2.api.openAgents) s2.api.openAgents('designer'); else location.hash = '#settings-ai'; } }) : null;
+    const body = !L ? [K.Empty('بيحمّل…', '')] : !ready ? [U.InlineNote({ children: 'القسم ده مستني تحديث قاعدة البيانات — هيشتغل بعد التحديث الجاي.' })]
+      : !all.length ? [K.Empty('لسه مفيش تريندات', can().create ? (cfg.tags.length ? 'دوس «حدّث التريندات» — بيدوّر على تيك توك وإنستجرام وفيسبوك بالتاجز بتاعتك.' : 'دوس «حدّث التريندات»' + (set ? '، وحط تاجز مجالك من «التاجز والمصادر» عشان يجيب فيديوهات وبوستات ليها علاقة بيه.' : '.')) : 'اللي معاه «التسويق: إنشاء» بيحدّثها.')]
+      : [tabs, chips, shown.length ? h('div', { class: 'mk-reels' + (TRV.tab === 'video' ? ' is-video' : ''), 'data-mk-reels': TRV.tab }, shown.map(trTile))
+        : K.Empty(TRV.tab === 'video' ? 'مفيش فيديوهات' + (TRV.tag ? ' للتاج ده' : '') + ' لسه' : 'مفيش بوستات' + (TRV.tag ? ' للتاج ده' : '') + ' لسه', 'حدّث التريندات أو اختار تاج تاني.'),
+        h('p', { class: 't-small help', style: 'margin:0' }, (cfg.tags.length ? 'بالتاجز: ' + cfg.tags.map((t) => '#' + t).join(' ') + ' — من تيك توك وإنستجرام وفيسبوك. ' : '') + 'كل كارت بيفتح البوست نفسه في تاب جديد — راجعه قبل ما تبني عليه. التحديث على سقف الـ AI الشهري.')];
+    return Card('آخر التريندات', last ? 'آخر تحديث ' + D2(last) + (cfg.tags.length ? ' · فيديوهات وبوستات بتاجز مجالك' : ' · من مواقع بتنشر التريندات') : 'فيديوهات وبوستات من تيك توك وإنستجرام وفيسبوك',
+      body, [set, go].filter(Boolean), 'mk-trends', { noun: 'تريند' });
   }
   // ---------- «إعلانات المنافسين» (comments decision 70 — the owner 15 Nov: «اعملي قسم تاني يبقي فيه اعلانات اللي المنافسين في
   // الميديا باير و يجيبها من [مكتبة إعلانات ميتا]»): the media buyer's second section — the competitors the team follows, each

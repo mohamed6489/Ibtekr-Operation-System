@@ -446,7 +446,7 @@ test('0084 agentImage / rename / delete / settings: the picture needs marketing.
   const rn = await M.agentRename(CH, '  حملات   الأسبوع '); eq([rn.ok, rn.chat.title], [true, 'حملات الأسبوع']);
   eq(opsOf(stub.calls, 'mkt_agent_chats').find((o) => o.op === 'update').args[0], { title: 'حملات الأسبوع' });
   eq((await M.agentDelete(CH)).ok, true); eq(rpcs(stub).find((x) => x[0] === 'mkt_agent_chat_delete')[1], { p_id: CH });
-  const st = await M.agentSettings(true); eq(st.agents.designer, { intro: 'أهلا', instructions: '', suggestions: ['بوست'] }); eq(st.agents.dev, { intro: '', instructions: '', suggestions: null });
+  const st = await M.agentSettings(true); eq(st.agents.designer, { intro: 'أهلا', instructions: '', suggestions: ['بوست'], rules: [], skills: [] }); eq(st.agents.dev, { intro: '', instructions: '', suggestions: null, rules: [], skills: [] });
   eq((await M.agentSettingsSet('designer', { instructions: '<script>' })).field, 'text');
   eq((await M.agentSettingsSet('designer', { suggestions: Array.from({ length: 9 }, (_, i) => 's' + i) })).field, 'suggestions');
   const sv = await M.agentSettingsSet('designer', { instructions: ' بيج\r\n', suggestions: [' بوست ', ''] }); eq([sv.ok, sv.cfg.instructions], [true, 'بيج']);
@@ -490,4 +490,41 @@ test('9.5.5 videoUpload: an audio file (MP3 / M4A / WAV, ≤ 50 MB) into the cam
   eq(seen[0].path, up.args[0]); eq(seen[0].role, 'voice');
   const sc = await M.videoScenes(C1, 'V1', true);
   eq([sc.ok, sc.scenes.length, sc.voice], [true, 1, 'الدفا']); eq([seen[1].task, seen[1].piece, seen[1].voice], ['scenes', 'V1', true]);
+});
+
+// ش40 — the assistants' rules and skills: the admin only; 0118's checks before the RPC; the saved sections become the cached settings
+test('ش40 agentKbSet: the admin only, the checks (name / title / text / size), the RPC with the cleaned sections; the log names the assistant and the kind only', async () => {
+  const saved = [{ id: 'g1', name: 'البراند', items: [{ id: 'i1', title: 'الألوان', text: 'أخضر' }] }];
+  const { M, stub, logs } = load({ role: 'admin', responses: { 'rpc:mkt_agent_kb_set': ok(saved), 'rpc:mkt_agent_settings': ok({}) } });
+  eq((await load().M.agentKbSet('designer', 'rules', [])).reason, 'forbidden');
+  eq((await M.agentKbSet('robot', 'rules', [])).reason, 'invalid');
+  eq((await M.agentKbSet('designer', 'notes', [])).reason, 'invalid');
+  eq((await M.agentKbSet('designer', 'rules', [{ name: '' }])).field, 'name');
+  eq((await M.agentKbSet('designer', 'rules', [{ name: 'x', items: [{ title: '<b>' }] }])).field, 'title');
+  eq((await M.agentKbSet('designer', 'rules', [{ name: 'x', items: [{ title: 't', text: 'a'.repeat(1501) }] }])).field, 'text');
+  eq((await M.agentKbSet('designer', 'rules', Array.from({ length: 12 }, () => ({ name: 'x', items: [{ title: 't', text: 'a'.repeat(1500) }, { title: 't', text: 'a'.repeat(1500) }] })))).field, 'size');
+  await M.agentSettings(true);
+  const r = await M.agentKbSet('designer', 'rules', [{ id: 'g1', name: ' البراند ', items: [{ id: 'i1', title: ' الألوان ', text: 'أخضر\r\n' }] }]);
+  eq([r.ok, r.groups], [true, saved]);
+  eq(rpcs(stub).find((x) => x[0] === 'mkt_agent_kb_set')[1], { p_agent: 'designer', p_kind: 'rules', p_groups: [{ id: 'g1', name: 'البراند', items: [{ id: 'i1', title: 'الألوان', text: 'أخضر' }] }] });
+  eq(M.agentSettingsNow().designer.rules, saved);
+  eq(logs.filter((l) => l[0] === 'mkt.agent.kb').map((l) => l[1]), ['designer · rules']);
+});
+
+// ش39 — the trend tags and sites; the rows' new columns; the refresh's three steps; the pictures' signed links
+test('ش39 trendSettingsSet: the admin only; # dropped, spaces to _, a tag of one word, a site a host; trends read the post\'s platform, tag, picture and numbers; the refresh asks Instagram with tags and then the pictures', async () => {
+  const ROW = { id: 5, batch: 'b', title: 'ريل', summary: '', source: 'TikTok', url: 'https://www.tiktok.com/@a/video/1', kind: 'video', found_at: '2026-11-17T08:00:00Z', platform: 'tiktok', tag: 'macrame', thumb: 'trends/2026-11/5.jpg', author: '@a', views: '1200', likes: null, comments: null, posted_at: null };
+  const { M, stub } = load({ role: 'admin', responses: { 'rpc:mkt_trend_settings_set': ok({ tags: ['macrame', 'ديكور_منزلي'], sources: ['later.com'] }), mkt_trends: ok([ROW]),
+    'fn:ai-content': ok({ result: 'ok', count: 2, tags: 2 }), 'fn:mkt-publish': ok({ result: 'unavailable', code: 'permission', count: 0 }), 'fn:ai-images': ok({ result: 'ok', done: 1, tried: 1 }) } });
+  eq((await load().M.trendSettingsSet(['x'], [])).reason, 'forbidden');
+  eq((await M.trendSettingsSet(['خصم!'], [])).field, 'tags');
+  eq((await M.trendSettingsSet(['ok'], ['not a host'])).field, 'sources');
+  const s = await M.trendSettingsSet(['#Macrame', 'ديكور منزلي', 'macrame'], ['https://www.Later.com/blog']);
+  eq(s.ok, true);
+  eq(rpcs(stub).find((x) => x[0] === 'mkt_trend_settings_set')[1], { p_tags: ['macrame', 'ديكور_منزلي'], p_sources: ['later.com'] });
+  const t = await M.trends(true);
+  eq([t.items[0].platform, t.items[0].tag, t.items[0].thumb, t.items[0].views, t.items[0].likes], ['tiktok', 'macrame', 'trends/2026-11/5.jpg', 1200, null]);
+  const r = await M.trendsRefresh('');
+  eq([r.ok, r.count, r.ig], [true, 2, { off: 'permission' }]);
+  eq(invokes(stub).map((x) => [x[0], x[1].body.action]), [['ai-content', 'trends'], ['mkt-publish', 'trends_ig'], ['ai-images', 'trend_thumbs']]);
 });

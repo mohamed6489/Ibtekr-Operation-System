@@ -417,41 +417,71 @@ test('owner batch 14 Nov decision 14: the chat stays on its last message (openin
 // يبقي في عمود للموقع ال source و خانة للنوع ده صورة ولا فيديو»): the designer's section «آخر التريندات» — the server's rows
 // (ai-content `trends`: Claude's web search), a table with the trend, its kind, the source's site as a link and the day;
 // «حدّث التريندات» asks what the team cares about first; the buyer's and the developer's tabs do not have it
-test('comment 69 — «آخر التريندات» in the designer\'s tab: the table with the source and the kind; «حدّث التريندات» asks first and brings a batch; a failed search in words; the other assistants have no such section', async ({ page }) => {
+test('comment 69 / ش39 — «آخر التريندات» in the designer\'s tab: a grid like Instagram\'s (فيديوهات / بوستات), each tile the post\'s picture opening the post; «حدّث التريندات» asks first, brings a batch and its pictures; a failed search in words; the other assistants have no such section', async ({ page }) => {
   const NOW = new Date().toISOString();
   await start(page, { mktTrends: [{ title: 'كاروسيل «قبل وبعد»', summary: 'صورتين للمنتج قبل وبعد.', source: 'Later', url: 'https://later.com/blog/instagram-trends/', kind: 'image', found_at: NOW }] });
   await openAi(page, ADMIN, 'الديزاينر');
   const card = pg(page).locator('.mk-trends');
   await expect(card.locator('h2, .sec-h b').first()).toContainText('آخر التريندات');
-  await expect(card.locator('thead th')).toHaveText(['التريند', 'النوع', 'المصدر', 'اتلقى']);
-  const row = card.locator('tbody tr').first();
-  await expect(row).toContainText('كاروسيل «قبل وبعد»');
-  await expect(row.locator('[data-mk-trend-kind]')).toHaveAttribute('data-mk-trend-kind', 'image');
-  await expect(row.locator('[data-mk-trend-kind]')).toHaveText('صورة');
-  // the source is a link that opens outside, safely
-  const src = row.locator('a[data-mk-trend-src]');
-  expect(await src.evaluate((a) => [a.textContent.trim(), a.getAttribute('href'), a.target, a.rel])).toEqual(['Later', 'https://later.com/blog/instagram-trends/', '_blank', 'noopener noreferrer']);
-  // a refresh: the instructions popup first, the focus sent, the new batch on top with its kinds
+  await expect(card.locator('table')).toHaveCount(0); // ش39: no table any more
+  // the tabs: videos first (none yet), the post under «بوستات»
+  const tabs = card.locator('[data-mk-trend-tabs]');
+  await expect(tabs.getByRole('tab')).toHaveText([/فيديوهات\s*0/, /بوستات\s*1/]);
+  await tabs.getByRole('tab', { name: /بوستات/ }).click();
+  const tile = card.locator('[data-mk-reels] a.mk-tile').first();
+  await expect(tile).toContainText('كاروسيل «قبل وبعد»');
+  await expect(tile).toHaveAttribute('data-mk-trend-kind', 'image');
+  expect(await tile.evaluate((a) => [a.getAttribute('href'), a.target, a.rel])).toEqual(['https://later.com/blog/instagram-trends/', '_blank', 'noopener noreferrer']);
+  // a refresh: the instructions popup first, the focus sent, the new batch with its kinds, then the pictures (ai-images trend_thumbs)
   await card.locator('[data-mk-trends-go]').click();
   await page.fill('#ai-ask-notes', 'هدايا الشتا');
   await page.locator('[data-ai-go]').click();
-  await expect(card.locator('tbody tr')).toHaveCount(7);
+  await expect(page.locator('body')).toContainText('اتحدّثت التريندات — 6 جديد');
   const call = mock.mkt.calls.filter((c) => c.action === 'trends').pop();
   expect([call.fn, call.focus]).toEqual(['ai-content', 'هدايا الشتا']);
-  expect(await card.locator('tbody tr [data-mk-trend-kind]').evaluateAll((els) => els.map((e) => e.getAttribute('data-mk-trend-kind')))).toEqual(['video', 'image', 'video', 'image', 'image', 'video', 'image']);
-  await expect(page.locator('body')).toContainText('اتحدّثت التريندات — 6 تريند');
+  expect(mock.mkt.calls.some((c) => c.action === 'trend_thumbs')).toBe(true);
+  expect(mock.mkt.calls.some((c) => c.action === 'trends_ig')).toBe(false); // no tags yet → no hashtag search
+  await expect(tabs.getByRole('tab')).toHaveText([/فيديوهات\s*3/, /بوستات\s*4/]);
+  await tabs.getByRole('tab', { name: /فيديوهات/ }).click();
+  await expect(card.locator('[data-mk-reels="video"] a.mk-tile')).toHaveCount(3);
+  await expect(card.locator('[data-mk-reels="video"] a.mk-tile img').first()).toHaveAttribute('src', /\/object\/sign\/marketing\/trends\//);
   await expect.poll(() => mock.activityRows.filter((a) => a.action === 'mkt.trends.refresh').map((a) => a.new_value)).toEqual(['6']);
   expect(JSON.stringify(mock.activityRows)).not.toContain('هدايا الشتا'); // the focus is not logged
-  // the search answered nothing: its reason in words, the table as it was
+  // the search answered nothing: its reason in words, the grid as it was
   mock.mkt.trendsFail = 'no_search';
   await card.locator('[data-mk-trends-go]').click(); await page.locator('[data-ai-go]').click();
   await expect(page.locator('body')).toContainText('Claude ماعرفش يبحث على الويب دلوقتي');
-  await expect(card.locator('tbody tr')).toHaveCount(7);
+  await expect(card.locator('[data-mk-reels] a.mk-tile')).toHaveCount(3);
   // the other assistants' tabs do not have the section
   await pg(page).getByRole('tab', { name: /المبرمج/ }).click();
   await expect(pg(page).locator('.mk-trends')).toHaveCount(0);
   await pg(page).getByRole('tab', { name: /الميديا باير/ }).click();
   await expect(pg(page).locator('.mk-trends')).toHaveCount(0);
+});
+
+// ش39 (the owner 17 Nov — «عايز اجيب الفيديوهات التيرندس و يبقا ليها علاقة بالمجال بتاعي و اقدر اضيف تاجز … من تريندات التيكتوك و الانستجرام
+// و الفيسبوك»): with the admin's tags the refresh brings the posts themselves (TikTok / Facebook from the search, Instagram from its hashtag
+// search), a chip per tag narrows the grid; Instagram's search not granted yet is said in words
+test('ش39 — by the tags: TikTok, Facebook and Instagram posts, a chip per tag, Instagram waiting for Meta said in words', async ({ page }) => {
+  await start(page, { mktTrendTags: ['macrame', 'ديكور_منزلي'] });
+  await openAi(page, ADMIN, 'الديزاينر');
+  const card = pg(page).locator('.mk-trends');
+  await card.locator('[data-mk-trends-go]').click(); await page.locator('[data-ai-go]').click();
+  await expect(page.locator('body')).toContainText('اتحدّثت التريندات');
+  expect(mock.mkt.calls.filter((c) => c.action === 'trends_ig').length).toBe(1);
+  await expect(card.locator('[data-mk-reels="video"] a.mk-tile')).toHaveCount(5); // TikTok, Facebook, a web roundup's reel, two Instagram reels
+  const pfs = (await card.locator('[data-mk-reels="video"] .mk-tile-pf').allTextContents()).map((t) => t.trim());
+  for (const p2 of ['TikTok', 'Facebook', 'Instagram']) expect(pfs).toContain(p2);
+  await expect(card.locator('[data-mk-trend-tag]')).toHaveText(['الكل', '#macrame', '#ديكور_منزلي']);
+  await card.locator('[data-mk-trend-tag="ديكور_منزلي"]').click();
+  await expect(card.locator('[data-mk-reels] a.mk-tile')).not.toHaveCount(0);
+  for (const t of await card.locator('[data-mk-reels] .mk-tile-tag').allTextContents()) expect(t).toBe('#ديكور_منزلي');
+  // the posts are kept once: a second refresh adds none of them again
+  const before = mock.mkt.trends.length;
+  mock.mkt.igOff = 'permission';
+  await card.locator('[data-mk-trends-go]').click(); await page.locator('[data-ai-go]').click();
+  await expect(page.locator('body')).toContainText('إنستجرام الرسمي مستني موافقة ميتا');
+  expect(mock.mkt.trends.length).toBe(before + 2); // the two web articles only — the posts already there are skipped
 });
 
 test('comment 69 — before the migration the section says it waits (no button, no call)', async ({ page }) => {

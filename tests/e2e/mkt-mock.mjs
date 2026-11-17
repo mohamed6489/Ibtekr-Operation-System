@@ -37,7 +37,7 @@ const COLS = {
   mkt_agent_chats: ['id', 'member_id', 'agent', 'title', 'created_at', 'updated_at', 'deleted_at'],
   mkt_agent_messages: ['id', 'chat_id', 'role', 'text', 'images', 'run_id', 'created_at'],
   // 0109 (comments decisions 69 / 70): the designer's trends (the server's rows) and the media buyer's competitors (marketing.create writes)
-  mkt_trends: ['id', 'batch', 'title', 'summary', 'source', 'url', 'kind', 'found_at', 'created_by'],
+  mkt_trends: ['id', 'batch', 'title', 'summary', 'source', 'url', 'kind', 'found_at', 'created_by', 'platform', 'tag', 'thumb', 'author', 'views', 'likes', 'comments', 'posted_at', 'external_id'], // + 0118 (thumb_src / thumb_tries: the server's)
   mkt_competitors: ['id', 'name', 'page_id', 'page_url', 'keyword', 'note', 'created_by', 'created_at', 'updated_by', 'updated_at', 'archived_at'],
   site_checks: ['kind', 'data', 'checked_at', 'checked_by'], // the last WordPress updates check (the server's row — decision 71)
 };
@@ -64,6 +64,11 @@ const TREND_PAGES = [
   { url: 'https://newsroom.tiktok.com/en-us/whats-next-trend-report', title: "What's Next trend report", host: 'newsroom.tiktok.com' },
   { url: 'https://www.canva.com/design-trends/', title: 'Design trends', host: 'canva.com' },
   { url: 'https://newsroom.pinterest.com/pinterest-predicts/', title: 'Pinterest Predicts', host: 'newsroom.pinterest.com' }];
+// ش39: the posts by the tags — a TikTok video and a Facebook reel the «search» returns (each row gets the first tag)
+const TREND_POSTS = [{ url: 'https://www.tiktok.com/@craft.eg/video/7431000000000000001', title: 'TikTok', host: 'tiktok.com' }, { url: 'https://www.facebook.com/reel/1234567890123', title: 'Facebook', host: 'facebook.com' }];
+const TREND_POST_ROWS = (tags) => [
+  { title: 'فيديو تشكيل الفخار في 15 ثانية', summary: 'إيد بتشكّل القطعة من الأول للآخر بسرعة — اعمل زيه لأي منتج يدوي.', source: 'TikTok', url: TREND_POSTS[0].url, kind: 'video', tag: tags[0], author: '@craft.eg', views: 184000 },
+  { title: 'ريل «ركن قبل وبعد»', summary: 'الركن فاضي وبعدين بالقطعة — النهاية بتوقف السكرول.', source: 'Facebook', url: TREND_POSTS[1].url, kind: 'video', tag: tags[1] || tags[0], views: 52000 }];
 const TREND_ROWS = [
   { title: 'ريلز «يوم في الورشة» (Behind the craft)', summary: 'لقطات سريعة لإيد المبتكر وهو بيشتغل على القطعة — تنفع لكل منتج مشغول يدوي.', source: 'Later', url: TREND_PAGES[0].url, kind: 'video' },
   { title: 'كاروسيل «قبل وبعد» للديكور', summary: 'صورة الركن قبل وبعد ما القطعة تتحط فيه — أول صورة «بعد» عشان توقف السكرول.', source: 'Hootsuite', url: TREND_PAGES[1].url, kind: 'image' },
@@ -113,7 +118,9 @@ export function mktState(opts = {}) {
     // 0109: the trends and the competitors as the database holds them (opts.mktTrends / mktCompetitors); noSections = the migration
     // is not applied yet (the two tables are not there); trendsFail = our code the next refresh answers with; trendsAnswer(req) =
     // the rows the model «found» (cleaned against trendsResults — the pages the search returned)
-    trends: (opts.mktTrends || []).map((x, i) => ({ id: i + 1, batch: 'b0000000-0000-4000-8000-000000000001', summary: null, kind: 'image', found_at: now, created_by: null, ...x })),
+    trends: (opts.mktTrends || []).map((x, i) => ({ id: i + 1, batch: 'b0000000-0000-4000-8000-000000000001', summary: null, kind: 'image', found_at: now, created_by: null, platform: 'web', tag: null, thumb: null, author: null, views: null, likes: null, comments: null, posted_at: null, external_id: null, ...x })),
+    // 0118 (ش39): the designer's tags and sites; igOff = Instagram's hashtag search refused (the feature not granted) or not linked
+    trendCfg: { tags: [...(opts.mktTrendTags || [])], sources: [...(opts.mktTrendSources || [])] }, igOff: opts.mktIgOff || null,
     competitors: (opts.mktCompetitors || []).map((x, i) => ({ id: i + 1, page_id: null, page_url: null, keyword: null, note: null, created_by: null, created_at: now, updated_by: null, updated_at: now, archived_at: null, ...x })),
     noSections: !!opts.mktNoSections, trendsFail: null, trendsAnswer: null, trendsResults: null,
     siteChecks: (opts.siteChecks || []).map((x) => ({ kind: 'wp_updates', data: {}, checked_at: now, checked_by: null, ...x })),
@@ -124,19 +131,24 @@ export function mktRoute(c) {
   const { method, path, url, hd, u, hasPerm, isAdmin, json, mock, route } = c; const H = mock.mkt; if (!H) return null;
   const rest = /^\/rest\/v1\/(mkt_[a-z_]+|site_checks)$/.exec(path); const rpc = /^\/rest\/v1\/rpc\/(mkt_[a-z_]+)$/.exec(path);
   const sto = /^\/storage\/v1\/object\/(sign\/)?marketing\/(.+)$/.exec(path);
+  const signMany = method === 'POST' && path === '/storage/v1/object/sign/marketing'; // createSignedUrls (ش39 — the trends' pictures)
   const fn = method === 'POST' && (path === '/functions/v1/ai-images' || path === '/functions/v1/ai-content' || path === '/functions/v1/mkt-publish' || path === '/functions/v1/mkt-ads');
-  if (!(rest && COLS[rest[1]]) && !rpc && !sto && !fn) return null;
+  if (!(rest && COLS[rest[1]]) && !rpc && !sto && !fn && !signMany) return null;
   // a signed URL opened with no key (an <img>): any token the mock signed opens the object
   if (sto && sto[1] && method === 'GET') { const obj = H.objects.get(decodeURIComponent(sto[2])); return obj ? route.fulfill({ status: 200, headers: { 'access-control-allow-origin': '*', 'content-type': obj.type || 'image/png' }, body: PNG_1PX }) : json(400, { statusCode: '400', error: 'not_found', message: 'Object not found' }); }
   if (fn && path === '/functions/v1/mkt-publish') return mktPublish(c, c.body());
   if (fn && path === '/functions/v1/mkt-ads') return mktAds(c, c.body());
-  if (fn) { const b = c.body(); if (path === '/functions/v1/ai-images' ? !(['campaign', 'campaign_edit', 'agent_image', 'ref_link', 'bridge_campaign', 'bridge_campaign_fetch'].includes(b.action) || /^video_/.test(String(b.action))) : !['marketing', 'buyer', 'agent', 'trends'].includes(b.action)) return null; return mktAi(c, b); }
+  if (fn) { const b = c.body(); if (path === '/functions/v1/ai-images' ? !(['campaign', 'campaign_edit', 'agent_image', 'ref_link', 'bridge_campaign', 'bridge_campaign_fetch', 'trend_thumbs'].includes(b.action) || /^video_/.test(String(b.action))) : !['marketing', 'buyer', 'agent', 'trends'].includes(b.action)) return null; return mktAi(c, b); }
   const refuse = (status, code, message) => json(status, { code, details: null, hint: null, message });
   if (!u) return sto ? json(401, { statusCode: '401', error: 'Unauthorized', message: 'invalid JWT' }) : refuse(401, '42501', 'permission denied');
   const view = hasPerm(u, 'marketing.view') !== 'N'; const create = hasPerm(u, 'marketing.create') === 'F'; const publish = hasPerm(u, 'marketing.publish') === 'F';
   const now = new Date().toISOString(); const { day: today, hm } = cairo();
   const open = (id) => H.campaigns.find((x) => x.id === id && !x.archived_at) || null;
 
+  if (signMany) {
+    const b = c.body() || {}; const paths = Array.isArray(b.paths) ? b.paths : [];
+    return json(200, paths.map((p) => { const ok = view && !/^agents\//.test(p) && H.objects.has(p); if (ok) H.signed += 1; return ok ? { path: p, signedURL: '/object/sign/marketing/' + p + '?token=mk-' + H.signed, error: null } : { path: p, signedURL: null, error: 'Either the object does not exist or you do not have access to it' }; }));
+  }
   // ---------- Storage, bucket «marketing» ----------
   if (sto) {
     const key = decodeURIComponent(sto[2]);
@@ -185,6 +197,37 @@ export function mktRoute(c) {
       if ('instructions' in cfg) { const t = String(cfg.instructions || '').trim(); if (t.length > 4000 || /[<>]/.test(t)) return bad('instructions'); cur.instructions = t; }
       if ('suggestions' in cfg) { const L = cfg.suggestions; if (!Array.isArray(L) || L.length > 8 || L.some((x) => typeof x !== 'string' || !x.trim() || x.trim().length > 80 || /[<>]/.test(x))) return bad('suggestions'); cur.suggestions = L.map((x) => x.trim()); }
       H.agents[b.p_agent] = cur; H.writes.push({ table: 'settings', op: 'agents', agent: b.p_agent, keys: Object.keys(cfg) }); return json(200, cur);
+    }
+    // 0118 (ش40): the assistants' rules and skills — the admin, sections of { title, text } within their limits
+    if (name === 'mkt_agent_kb_set') {
+      if (!isAdmin(u)) return refuse(403, '42501', 'admin only');
+      if (!['buyer', 'designer', 'dev'].includes(b.p_agent)) return bad('agent'); if (!['rules', 'skills'].includes(b.p_kind)) return bad('kind');
+      const G = b.p_groups; if (!Array.isArray(G) || G.length > 12) return bad('groups');
+      let total = 0; const out = [];
+      for (let gi = 0; gi < G.length; gi += 1) {
+        const g = G[gi]; const nm = String((g && g.name) || '').trim(); if (!nm || nm.length > 60 || /[<>]/.test(nm)) return bad('name');
+        const items = Array.isArray(g.items) ? g.items : []; if (items.length > 30) return bad('items');
+        const its = [];
+        for (let ii = 0; ii < items.length; ii += 1) {
+          const it = items[ii]; const t = String((it && it.title) || '').trim(); const x = String((it && it.text) || '').trim();
+          if (!t || t.length > 80 || /[<>]/.test(t)) return bad('title'); if (x.length > 1500 || /[<>]/.test(x)) return bad('text');
+          total += t.length + x.length; its.push({ id: it.id || 'i' + (gi + 1) + '_' + (ii + 1), title: t, text: x });
+        }
+        total += nm.length; out.push({ id: g.id || 'g' + (gi + 1), name: nm, items: its });
+      }
+      if (total > 20000) return bad('size');
+      H.agents[b.p_agent] = { ...(H.agents[b.p_agent] || {}), [b.p_kind]: out }; H.writes.push({ table: 'settings', op: 'agent_kb', agent: b.p_agent, kind: b.p_kind, sections: out.length });
+      return json(200, out);
+    }
+    if (name === 'mkt_trend_settings') return json(200, view || isAdmin(u) ? JSON.parse(JSON.stringify(H.trendCfg)) : { tags: [], sources: [] });
+    if (name === 'mkt_trend_settings_set') {
+      if (!isAdmin(u)) return refuse(403, '42501', 'admin only');
+      const T = []; const S = [];
+      if (!Array.isArray(b.p_tags) || b.p_tags.length > 30 || !Array.isArray(b.p_sources) || b.p_sources.length > 15) return bad('tags');
+      for (const x of b.p_tags) { const t = String(x || '').trim().replace(/^#+/, '').toLowerCase(); if (!/^[A-Za-z0-9_\u0621-\u064A\u0660-\u0669\u0671-\u06D3]{1,40}$/.test(t)) return bad('tags'); if (!T.includes(t)) T.push(t); }
+      for (const x of b.p_sources) { const t = String(x || '').trim().toLowerCase(); if (!/^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}$/.test(t)) return bad('sources'); if (!S.includes(t)) S.push(t); }
+      H.trendCfg = { tags: T, sources: S }; H.writes.push({ table: 'settings', op: 'trends', tags: T.length, sources: S.length });
+      return json(200, { tags: T, sources: S });
     }
     if (name === 'mkt_buyer_rules') return view ? json(200, { ...H.rules }) : refuse(403, '42501', 'marketing.view is needed');
     if (name === 'mkt_ads_orders') {
@@ -392,12 +435,20 @@ function mktAi(c, b) {
     if (H.noSections) return json(503, { error: 'not_ready' });
     if (H.trendsFail) return H.trendsFail === 'refused' ? json(200, { result: 'refused', model: 'mock' }) : H.trendsFail === 'no_search' ? json(502, { error: 'no_search', code: 'unavailable' })
       : json(H.trendsFail === 'ai_cap' ? 402 : H.trendsFail === 'busy' ? 429 : H.trendsFail === 'not_configured' ? 503 : 502, { error: H.trendsFail });
-    const results = H.trendsResults || TREND_PAGES;
-    const rows = cleanTrends(H.trendsAnswer ? H.trendsAnswer(p.req) : TREND_ROWS, results);
+    const tags = H.trendCfg.tags; // ش39: with the tags the posts themselves (the mock's TikTok and Facebook pages), each once
+    const results = H.trendsResults || (tags.length ? TREND_PAGES.concat(TREND_POSTS) : TREND_PAGES);
+    const rows = cleanTrends(H.trendsAnswer ? H.trendsAnswer(p.req) : tags.length ? TREND_POST_ROWS(tags).concat(TREND_ROWS.slice(0, 2)) : TREND_ROWS, results, tags)
+      .filter((r) => !r.external_id || !H.trends.some((x) => x.platform === r.platform && x.external_id === r.external_id));
     if (!rows.length) return json(502, { error: 'ai_error' });
     H.seq += 1; const batch = 'b0000000-0000-4000-8000-' + String(H.seq).padStart(12, '0'); const at = new Date().toISOString(); let id = H.trends.reduce((m, r) => Math.max(m, r.id), 0);
-    for (const r of rows) { id += 1; H.trends.push({ id, batch, ...r, found_at: at, created_by: u.id }); }
-    return json(200, { result: 'ok', count: rows.length, model: 'claude-opus-5-5', cost_usd: 0.09, run_id: H.seq });
+    for (const r of rows) { id += 1; H.trends.push({ id, batch, likes: null, comments: null, posted_at: null, thumb: null, ...r, found_at: at, created_by: u.id }); }
+    return json(200, { result: 'ok', count: rows.length, batch, tags: tags.length, model: 'claude-opus-5-5', cost_usd: 0.09, run_id: H.seq });
+  }
+  if (b.action === 'trend_thumbs') { // ش39: the newest rows without a picture get one (a 1px image in the bucket)
+    if (!u || !(isAdmin(u) || hasPerm(u, 'marketing.create') === 'F')) return json(401, { error: 'unauthorized' });
+    const L = H.trends.filter((r) => !r.thumb && !r.noPic && (r.thumb_tries || 0) < 2).slice(0, 12); let done = 0;
+    for (const r of L) { r.thumb_tries = (r.thumb_tries || 0) + 1; const pth = 'trends/' + String(r.found_at).slice(0, 7) + '/' + r.id + '.jpg'; H.objects.set(pth, { type: 'image/jpeg', size: 1 }); r.thumb = pth; done += 1; }
+    return json(200, { result: 'ok', done, tried: L.length });
   }
   if (b.action === 'buyer') { // the buyer's chat: marketing.view (P too); the numbers come from the server, the answer is text only
     if (!u || !(isAdmin(u) || hasPerm(u, 'marketing.view') !== 'N')) return json(401, { error: 'unauthorized' });
@@ -536,6 +587,19 @@ function mktPublish(c, b) {
   const admin = isAdmin(u); const view = admin || hasPerm(u, 'marketing.view') !== 'N'; const publish = admin || hasPerm(u, 'marketing.publish') === 'F';
   const now = new Date().toISOString(); const { day, hm } = cairo();
   if (b.action === 'status') return view ? json(200, { result: 'ok', ...JSON.parse(JSON.stringify(H.conn)) }) : json(401, { error: 'unauthorized' });
+  if (b.action === 'trends_ig') { // ش39: Instagram's hashtag search (the linked account) — the tags' top posts, each once
+    if (!(admin || hasPerm(u, 'marketing.create') === 'F')) return json(401, { error: 'unauthorized' });
+    const tags = H.trendCfg.tags; if (!tags.length) return json(200, { result: 'no_tags', count: 0 });
+    if (H.igOff) return json(200, H.igOff === 'not_linked' ? { result: 'not_linked', count: 0 } : { result: 'unavailable', code: H.igOff, count: 0 });
+    H.seq += 1; const batch = 'b0000000-0000-4000-8000-' + String(H.seq).padStart(12, '0'); let id = H.trends.reduce((m, r) => Math.max(m, r.id), 0); let count = 0;
+    tags.slice(0, 3).forEach((t, i) => [0, 1].forEach((k) => {
+      const code = 'IG' + t.replace(/[^A-Za-z0-9]/g, '').slice(0, 6) + i + k + 'x'; if (H.trends.some((x) => x.platform === 'instagram' && x.external_id === code)) return;
+      id += 1; count += 1;
+      H.trends.push({ id, batch, title: (k ? 'ريل ' : 'بوست ') + '#' + t, summary: 'من أعلى بوستات الهاشتاج دلوقتي', source: 'Instagram', url: 'https://www.instagram.com/' + (k ? 'reel' : 'p') + '/' + code + '/', kind: k ? 'video' : 'image',
+        platform: 'instagram', tag: t, thumb: null, author: null, views: null, likes: 1200 - i * 100 - k * 50, comments: 30, posted_at: now, external_id: code, found_at: now, created_by: u.id });
+    }));
+    return json(200, { result: 'ok', count, found: count, skipped: [] });
+  }
   if (b.action === 'autopublish') {
     if (!admin) return json(401, { error: 'unauthorized' }); if (typeof b.on !== 'boolean') return json(400, { error: 'bad_request', field: 'on' });
     H.conn.autopublish = b.on; H.writes.push({ table: 'settings', op: 'autopublish', on: b.on }); return json(200, { result: 'ok', autopublish: b.on });

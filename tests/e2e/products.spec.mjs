@@ -953,6 +953,9 @@ test('comment 82 + owner 17 Nov — «تعديل سعر» for one maker at a tim
   await m.locator('#amount').fill('2');
   let before = (mock.productWrites || []).length;
   await m.getByRole('button', { name: 'طبّق السعر والنسبة' }).click();
+  // the owner 17 Nov: the busy pill said «[object HTMLSpanElement]» — words only
+  await expect(page.locator('.busy-pill .busy-txt').first()).toContainText('نسبة');
+  expect((await page.locator('.busy-pill .busy-txt').allTextContents()).join(' ')).not.toContain('[object');
   await expect(m).toBeHidden({ timeout: 15000 });
   const last = (list, f) => list.filter(f).at(-1);
   await expect.poll(() => mock.vendorRates.filter((r) => r.vendor_id === VA).length).toBe(ratesA + 1);

@@ -735,7 +735,11 @@
   }
   // bulk price (Figma 703:4632): زيادة/نقص · نسبة/قيمة · على سعر المبتكر أو نسبة إبتكر (sensitive.commission) أو الخصم الوهمي.
   // Variable products are priced per variation (their page); a product without a sale price or a visible rate is left out.
+  // the owner 17 Nov («عايز احجمها اخلي تعديل السعر بال bulk يبقي لمنتجات مبتكر واحد بس بحيث انا متلغبطش»): every picked product of one
+  // maker, for every kind of change — a mix is refused before the popup opens and the member fixes the selection himself
+  const oneMaker = (l) => new Set(l.map((p) => (p.vendorId == null ? '' : String(p.vendorId)))).size === 1 && l.every((p) => p.vendorId != null);
   function bulkPrice(l) {
+    if (!oneMaker(l)) { K.toast('حدد منتجات مبتكر واحد بس — تعديل السعر بالجملة لمنتجات مبتكر واحد في المرة', 'error'); return; }
     const C = can(); const simple = l.filter((p) => p.type !== 'Variable' && p.sale);
     if (!simple.length) { K.toast('المنتجات دي Variable أو من غير سعر — السعر بيتعدل من صفحة كل منتج', 'error'); return; }
     // decision 12: the vendor price = the sale price − Dokan's commission on it (the product's own, else the store's / category's)

@@ -1055,9 +1055,9 @@
     // decision 41 (owner 10 Nov — «يقولي حط المعلومات هنا ويديني لينك أفتح منه البوب أب… خلّي كل الأكشنز نفس الكلام»): an open_form is
     // a link under the answer, the popup opens when the member clicks it; the other actions run as before
     // the owner 15 Nov (2026-11-15-assistant-categories.md): a plan_categories is a link too — «راجع الأقسام» opens the review, the member publishes
-    const acts = r.actions || []; m.forms = acts.filter((a) => a.name === 'open_form' || a.name === 'plan_categories'); m.files = acts.filter((a) => a.name === 'offer_file').slice(0, 5);
+    const acts = r.actions || []; m.forms = acts.filter((a) => a.name === 'open_form' || a.name === 'plan_categories' || a.name === 'plan_requests'); m.files = acts.filter((a) => a.name === 'offer_file').slice(0, 5);
     aiBusy(false); aiDraw();
-    aiExecActions(acts.filter((a) => a.name !== 'open_form' && a.name !== 'plan_categories' && a.name !== 'offer_file'));
+    aiExecActions(acts.filter((a) => a.name !== 'open_form' && a.name !== 'plan_categories' && a.name !== 'plan_requests' && a.name !== 'offer_file'));
   }
   const AI_FORM_LABEL = { vendor_add: 'إضافة مبتكر', member_add: 'إضافة عضو', customer_add: 'إضافة عميل', ticket_new: 'طلب جديد', hr_leave: 'طلب إجازة', hr_advance: 'طلب سُلفة', hr_remote: 'شغل عن بُعد',
     task_add: 'إضافة مهمة', order_update: 'تحديث الأوردر', expense_add: 'المصروفات', account_move: 'الحساب الفعلي', vendor_move: 'حركة المبتكر' };
@@ -1068,7 +1068,31 @@
     Promise.resolve(api.planCategories(i || {})).then((r) => { if (r === 'forbidden') aiSay('الصلاحية دي مش معاك — إضافة الأقسام لصلاحية «إضافة منتجات».'); else if (r !== true) aiSay('ما قدرتش أفتح مراجعة الأقسام — جرّب تاني.'); },
       () => aiSay('ما قدرتش أفتح مراجعة الأقسام — جرّب تاني.'));
   }
-  function aiOpenLink(a) { if (a.name === 'plan_categories') { aiOpenPlan(a.input); return; } try { aiTools().open_form(a.input || {}); } catch (e) { aiSay('ما قدرتش أفتح البوب أب: ' + (e && e.message ? e.message : '')); } }
+  // agents-brain (the owner 17 Nov — «المدير … لما اديلو مجموعة تاسكات يوزعهم و يقسمهم صح علي الفريق و يبعت تنبيهة للدور»): the
+  // requests the assistant split, one a row (the role → the member or the whole role, the priority); each goes only on its «ابعت»
+  // (IBTickets.create — the server checks tickets.manage by the member's role and level; the role's bell rings as for any request)
+  function aiOpenRequests(i) {
+    const T = window.IBTickets; const items = (i && Array.isArray(i.items) ? i.items : []).slice(0, 15); const done = {}; let m = null;
+    if (!T || !T.create) { aiSay('طلبات الفريق مش متاحة.'); return; }
+    if (!T.can().manage) { aiSay('فتح الطلبات للفريق محتاج صلاحية «طلبات الفريق — إدارة».'); return; }
+    const PRI = { urgent: 'عاجل', high: 'عالي', normal: 'عادي', low: 'منخفض' };
+    const memberOf = (x) => { if (!x.member || !T.membersOf) return ''; const ms = T.membersOf(x.role) || []; const hit = ms.find((p) => p.name === x.member) || ms.find((p) => String(p.name || '').includes(x.member) || String(x.member).includes(p.name || '~')); return hit ? hit.uid : ''; };
+    const send = async (k) => {
+      const x = items[k]; done[k] = { running: true }; draw();
+      const r = await T.create({ type: 'internal', title: x.title, description: x.details || x.title, priority: x.priority || 'normal', assigneeRole: x.role, assigneeMember: memberOf(x) || undefined, attachments: [] });
+      done[k] = r && r.ok ? { ok: true, message: 'اتبعت' + (r.id ? ' — ' + r.id : '') } : { ok: false, message: (r && r.message) || 'ماتبعتش' }; draw();
+    };
+    const row = (x, k) => { const d = done[k]; const mem = memberOf(x);
+      return h('div', { class: 'mk-plan-step' + (d && d.ok ? ' done' : ''), 'data-req-plan': String(k) }, h('span', { class: 'mk-txt' }, h('b', null, (k + 1) + '. ' + x.title),
+        h('small', null, 'لـ ' + x.role + (x.member ? ' · ' + (mem ? x.member : x.member + ' (مش في الدور — هتروح لكل الدور)') : ' · كل الدور') + ' · ' + (PRI[x.priority] || 'عادي')), x.details ? h('small', { class: 'help' }, x.details) : null,
+        d && !d.running ? h('small', { class: d.ok ? 'help' : 'err-msg', 'data-req-result': d.ok ? 'ok' : 'fail' }, d.message) : null),
+      d && d.ok ? h('span', { class: 'tg tg-success' }, 'اتبعت') : U.Button({ size: 'sm', type: 'primary', label: d && d.running ? 'بيتبعت…' : 'ابعت', disabled: !!(d && d.running), attrs: { 'data-req-send': String(k) }, onClick: () => send(k) })); };
+    const body = () => [h('p', { class: 't-small help', style: 'margin:0' }, 'راجع كل طلب — الدور والموظف والأولوية — ودوس «ابعت». الطلب بيوصل لجرس الدور زي أي طلب.'), h('div', { class: 'mk-list' }, items.map(row))];
+    const draw = () => { if (m) m.setBody(...body()); };
+    m = U.Modal({ title: 'توزيع المهام على الفريق (' + items.length + ')', body: body(), footer: [U.Button({ label: 'اقفل', onClick: () => m.close() }),
+      U.Button({ type: 'primary', label: 'ابعت الباقي', attrs: { 'data-req-send-all': '' }, onClick: async () => { for (let k = 0; k < items.length; k += 1) if (!(done[k] && done[k].ok)) await send(k); } })] });
+  }
+  function aiOpenLink(a) { if (a.name === 'plan_requests') { aiOpenRequests(a.input); return; } if (a.name === 'plan_categories') { aiOpenPlan(a.input); return; } try { aiTools().open_form(a.input || {}); } catch (e) { aiSay('ما قدرتش أفتح البوب أب: ' + (e && e.message ? e.message : '')); } }
   // ---- phase 13 decision 42: a file the assistant found → a download link; the page's own adapter signs it (the Storage policies decide)
   async function aiFile(a) {
     const i = a.input || {}; let url = null; let why = '';
@@ -1115,8 +1139,8 @@
     if (!aiList) return;
     aiList.replaceChildren(...ai.msgs.map((m) => {
       const kids = [h('p', { class: 'ai-text' }, m.live && !m.text ? 'بفكّر…' : m.welcome ? aiWelcome() : m.text)];
-      if (m.forms && m.forms.length && !m.live) kids.push(h('div', { class: 'ai-actions ai-forms' }, m.forms.map((a) => h('a', { href: '#', class: 'ai-form-link', 'data-ai-open': a.name === 'plan_categories' ? 'category_plan' : (a.input && a.input.form) || '',
-        onClick: (e) => { e.preventDefault(); aiOpenLink(a); } }, Icon('plus', 'sm'), a.name === 'plan_categories' ? 'راجع الأقسام (' + ((a.input && a.input.items) || []).length + ') ↗' : 'افتح بوب أب «' + aiFormLabel(a) + '» ↗'))));
+      if (m.forms && m.forms.length && !m.live) kids.push(h('div', { class: 'ai-actions ai-forms' }, m.forms.map((a) => h('a', { href: '#', class: 'ai-form-link', 'data-ai-open': a.name === 'plan_categories' ? 'category_plan' : a.name === 'plan_requests' ? 'request_plan' : (a.input && a.input.form) || '',
+        onClick: (e) => { e.preventDefault(); aiOpenLink(a); } }, Icon('plus', 'sm'), a.name === 'plan_categories' ? 'راجع الأقسام (' + ((a.input && a.input.items) || []).length + ') ↗' : a.name === 'plan_requests' ? 'راجع الطلبات (' + ((a.input && a.input.items) || []).length + ') ↗' : 'افتح بوب أب «' + aiFormLabel(a) + '» ↗'))));
       if (m.files && m.files.length && !m.live) kids.push(h('div', { class: 'ai-actions ai-forms' }, m.files.map((a) => h('a', { href: '#', class: 'ai-form-link', 'data-ai-file': (a.input && a.input.source) || '',
         onClick: (e) => { e.preventDefault(); aiFile(a); } }, Icon('download', 'sm'), 'تنزيل «' + String((a.input && a.input.name) || 'الملف') + '»'))));
       if (m.report && m.report.length && !m.live) kids.push(h('div', { class: 'ai-actions' }, Button({ size: 'sm', icon: 'file', label: 'تفاصيل', attrs: { 'data-ai-details': '' }, onClick: () => aiReport(m) }),

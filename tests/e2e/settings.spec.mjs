@@ -169,13 +169,11 @@ test('the activity log on the server: filters as PostgREST calls, pages of 100; 
   const total = mock.activityRows.filter((r) => r.entity !== 'hr').length; // the 120 seeded + the sign-in rows the mock logged
   await page.getByRole('button', { name: 'الأقدم ›' }).click();
   await expect(tbl.locator('tbody tr')).toHaveCount(total - 100);
-  const pick = async (id, label) => { await page.locator('#' + id).click(); await page.getByRole('option', { name: label }).click(); }; // U.Select is a popover button
-  await pick('ac-m', 'سارة أحمد');
-  await expect(tbl.locator('tbody tr')).toHaveCount(60);
-  await expect(tbl.locator('tbody tr').first()).toContainText('سارة أحمد');
-  await pick('ac-p', 'الإعدادات');
-  await expect(tbl.locator('tbody tr')).toHaveCount(20);
-  await expect(tbl.locator('tbody tr').first()).toContainText('settings.role.perms');
+  // ش43: no «العضو» / «الصفحة» row over the table (they are in the head's «فلتر»), and «الملفات» beside «حفظ» exports the rows
+  await expect(page.locator('#ac-m, #ac-p, .act-bar')).toHaveCount(0);
+  await page.locator('[data-act-files]').click();
+  await expect(page.getByRole('menuitem')).toHaveText([/تصدير Excel/, /تصدير CSV/, /نسخ للصق في Google Sheets/]);
+  await page.keyboard.press('Escape');
   // security: my two sessions, the current one tagged; the other revoked
   await openSettings(page, 'security');
   const rows = page.locator('#pg-settings table tbody tr', { hasText: /Chrome|Safari/ });

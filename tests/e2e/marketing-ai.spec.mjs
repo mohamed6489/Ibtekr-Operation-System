@@ -854,9 +854,18 @@ test('«اعمل زيه» — a trend video opens «كامبين جديدة» fi
   const card = pg(page).locator('.mk-trends');
   await card.locator('[data-mk-trends-go]').click(); await page.locator('[data-ai-go]').click();
   await expect(card.locator('[data-mk-reels="video"] a.mk-tile').first()).toBeVisible();
+  // the owner 17 Nov: a TikTok video plays on hover (its own muted player over the picture) and stops when the pointer leaves
+  await page.route(/^https:\/\/www\.(tiktok|instagram|facebook)\.com\//, (r) => r.fulfill({ status: 200, contentType: 'text/html', body: '<html></html>' }));
+  const tt = card.locator('[data-mk-reels="video"] a.mk-tile[data-mk-embed][href*="tiktok.com"]').first();
+  await tt.hover();
+  await expect(tt.locator('iframe.mk-tile-play')).toHaveAttribute('src', /^https:\/\/www\.tiktok\.com\/player\/v1\/\d+\?autoplay=1&muted=1/);
+  await page.mouse.move(0, 0);
+  await expect(tt.locator('iframe.mk-tile-play')).toHaveCount(0);
+  // «اعمل زيه» on every tile, without a hover
+  await expect(card.locator('[data-mk-reels="video"] [data-mk-copy-trend]').first()).toBeVisible();
   const tile = card.locator('[data-mk-reels="video"] .mk-tile-box').first();
   const title = await tile.locator('.mk-tile-cap b').textContent();
-  await tile.hover(); await tile.locator('[data-mk-copy-trend]').click();
+  await tile.locator('[data-mk-copy-trend]').click();
   await expect(page.locator('#pg-marketing')).toBeVisible();
   const mk = page.locator('#pg-marketing');
   await expect(mk.locator('textarea').first()).toHaveValue(new RegExp('زي «' + title.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));

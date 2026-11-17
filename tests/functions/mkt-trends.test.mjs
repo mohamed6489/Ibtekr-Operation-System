@@ -2,7 +2,7 @@
 // and of the answer, the cleaning of the rows.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { POSTS_MAX, SEARCH_USES, TAG_SEARCH_USES, TRENDS_MAX, cleanTrends, postId, trendPlatform, trendRowV1, trendTags, parseTrends, readTrends, searchCount, searchError, searchResults, trendSources, trendsRequest, trendsText } from '../../supabase/functions/_shared/mkt-trends.js';
+import { POSTS_MAX, SEARCH_USES, TAG_SEARCH_USES, TRENDS_MAX, cleanTrends, nearTag, postId, trendPlatform, trendRowV1, trendTags, parseTrends, readTrends, searchCount, searchError, searchResults, trendSources, trendsRequest, trendsText } from '../../supabase/functions/_shared/mkt-trends.js';
 
 const page = (url, title = 't') => ({ type: 'web_search_result', url, title });
 const block = (list) => ({ type: 'web_search_tool_result', tool_use_id: 'srvtoolu_1', content: list });
@@ -110,7 +110,7 @@ test('ش39: a post row gets its platform, id, tag (the admin\'s only), author an
     { title: 'فيديو مكرمية', url: 'https://www.tiktok.com/@shop/video/7412345678901234567', kind: 'image', tag: '#Macrame', author: '@shop', views: 120000.7 },
     { title: 'نفس الفيديو بعنوان تاني', url: 'https://www.tiktok.com/@shop/video/7412345678901234567', tag: 'macrame' },
     { title: 'ريل', url: 'https://www.instagram.com/reel/C9xYz12_ab/', kind: 'video', tag: 'مش من التاجز', views: 'كتير' },
-    { title: 'مقال', url: 'https://later.com/blog/a/', kind: 'image', tag: 'macrame' }], results, ['macrame']);
+    { title: 'مقال', url: 'https://later.com/blog/a/', kind: 'image', tag: 'macrame' }], results, ['macrame', 'ديكور']);
   assert.deepEqual(rows.map((r) => [r.platform, r.external_id, r.kind, r.tag, r.author, r.views]), [
     ['tiktok', '7412345678901234567', 'video', 'macrame', '@shop', 120000],
     ['instagram', 'C9xYz12_ab', 'video', null, null, null],
@@ -118,4 +118,13 @@ test('ش39: a post row gets its platform, id, tag (the admin\'s only), author an
   const many = cleanTrends(Array.from({ length: 40 }, (_, i) => ({ title: 'بوست ' + i, url: 'https://later.com/blog/a/' })), results, ['macrame']);
   assert.equal(many.length, POSTS_MAX);
   assert.deepEqual(trendRowV1(rows[0]), { title: 'فيديو مكرمية', summary: '', source: 'TikTok', url: 'https://www.tiktok.com/@shop/video/7412345678901234567', kind: 'video' });
+});
+
+test('the owner 17 Nov: a near tag goes to the admin\'s closest one — exact, one inside the other, or the only tag; else none', () => {
+  assert.equal(nearTag('#Macrame', ['macrame', 'boho']), 'macrame');
+  assert.equal(nearTag('macrame wall hanging', ['macrame', 'boho']), 'macrame');
+  assert.equal(nearTag('boho', ['macrame', 'boho_decor']), 'boho_decor');
+  assert.equal(nearTag('خزف', ['macrame', 'boho']), null);
+  assert.equal(nearTag('خزف', ['هاندميد']), 'هاندميد');
+  assert.equal(nearTag('', []), null);
 });

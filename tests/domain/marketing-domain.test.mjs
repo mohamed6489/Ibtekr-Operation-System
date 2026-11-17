@@ -427,3 +427,13 @@ test('the Ad Library link: active ads of every type in Egypt — the page\'s lis
   assert.deepEqual(W.competitorRow({ name: 'a <b>' }), { error: 'text' });
   assert.deepEqual(W.competitorRow({ name: 'a', page: 'https://example.com/x' }), { error: 'page' });
 });
+
+test('the owner 17 Nov — a trend video plays on hover: the platform\'s own player from the post\'s link; anything else none', () => {
+  assert.match(W.trendEmbed({ kind: 'video', url: 'https://www.tiktok.com/@shop/video/7412345678901234567' }), /^https:\/\/www\.tiktok\.com\/player\/v1\/7412345678901234567\?autoplay=1&muted=1/);
+  assert.equal(W.trendEmbed({ kind: 'video', url: 'https://www.instagram.com/reel/C9xYz12_ab/' }), 'https://www.instagram.com/reel/C9xYz12_ab/embed/');
+  assert.equal(W.trendEmbed({ kind: 'video', url: 'https://www.instagram.com/p/C9xYz12_ab/?igsh=1' }), 'https://www.instagram.com/p/C9xYz12_ab/embed/');
+  assert.match(W.trendEmbed({ kind: 'video', url: 'https://www.facebook.com/reel/123456789012' }), /^https:\/\/www\.facebook\.com\/plugins\/video\.php\?href=https%3A%2F%2Fwww\.facebook\.com%2Freel%2F123456789012&autoplay=true&mute=true/);
+  for (const x of [{ kind: 'image', url: 'https://www.tiktok.com/@shop/video/7412345678901234567' }, { kind: 'video', url: 'http://www.tiktok.com/@shop/video/7412345678901234567' },
+    { kind: 'video', url: 'https://tiktok.com.evil.io/@a/video/7412345678901234567' }, { kind: 'video', url: 'https://later.com/blog/a/' }, { kind: 'video', url: 'javascript:alert(1)' }, null])
+    assert.equal(W.trendEmbed(x), null);
+});

@@ -2210,7 +2210,9 @@
   // 0124 (agents-brain decision 1): a note's click in the bell — the assistant's tab on the chat the server made for it (the list reloads
   // so the new chat is in the side bar)
   window.IBAiOpen = (a, chatId) => { BY.aiTab = a; AG.chats[a] = null; agLoad(a, true); agOpen(a, chatId); goAi(a); };
-  const aiList = () => { const L = (MK() && MK().agentsNow && MK().agentsNow()) || null; return L ? L.filter((x) => !x.archived) : null; };
+  // the plan 2026-11-17-stores-single.md decision 3: single-seller mode has no makers — «خدمة المبتكرين الذكية» stays out
+  const singleSell = () => !!(window.IBSettings && window.IBSettings.single && window.IBSettings.single());
+  const aiList = () => { const L = (MK() && MK().agentsNow && MK().agentsNow()) || null; return L ? L.filter((x) => !x.archived && !(x.id === 'makers' && singleSell())) : null; };
   let aiAsked = false;
   function agentForm(x) {
     const MKa = MK(); const P = MKa.AGENT_PERMS || []; const S2 = MKa.AGENT_SEES || []; const T = TKD(); const roles = (T && T.ROLES) || [];

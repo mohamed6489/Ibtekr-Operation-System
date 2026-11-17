@@ -175,6 +175,15 @@
         values: { section: cur.section, title: cur.title, text: cur.text, agents: cur.agents.slice() },
         fields: (f, e, set) => [K.field.text('section', 'القسم', f, e, set, { required: true, placeholder: sections.length ? 'مثلًا: ' + sections.slice(0, 3).join('، ') : (kind === 'rules' ? 'مثلًا: البراند، الممنوعات، الكلام' : 'مثلًا: الريلز، التحليل') }),
           K.field.text('title', 'العنوان', f, e, set, { required: true }), K.field.area('text', 'التفاصيل', f, e, set, { rows: 5, help: 'لحد 1500 حرف — اكتبها زي ما بتشرح لزميل.' }),
+          // the owner 17 Nov («لو انا بضيف اسكيلز او قواعد اقدر اعيد كتابتها بالذكاء الاصطناعي»): the instructions popup, then the AI's version
+          // fills the title and the details — the admin reads it and presses «احفظ»
+          h('div', { class: 'kb-ai-row' }, Button({ size: 'sm', icon: 'sparkle', label: st.kbAiBusy ? 'الـ AI بيكتب…' : 'أعد الكتابة بالـ AI', disabled: !!st.kbAiBusy, attrs: { 'data-kb-ai': kind },
+            onClick: async () => { if (!(f.title || '').trim() && !(f.text || '').trim()) { K.toast('اكتب العنوان أو التفاصيل الأول', 'error'); return; }
+              const a = window.IBAIAsk ? await window.IBAIAsk({ title: 'أعد كتابة ' + (kind === 'rules' ? 'القاعدة' : 'السكيل') + ' بالـ AI', go: 'اكتبها' }) : { notes: '' }; if (!a) return;
+              st.kbAiBusy = true; set('text', f.text, true);
+              const r = await M.kbRewrite({ kind, section: f.section, title: f.title, text: f.text, agents: f.agents.map(nameOf) }, a.notes); st.kbAiBusy = false;
+              if (!r.ok) { K.toast(r.message || 'ماتكتبش', 'error'); set('text', f.text, true); return; }
+              if (r.title) set('title', r.title); set('text', r.text || f.text, true); K.toast('الـ AI كتبها — راجعها واحفظ', 'success'); } })),
           U.FieldShell({ id: 'kb-ag', label: 'المساعد (ممكن أكتر من واحد — من غير اختيار = كل المساعدين)' }, h('div', { class: 'chips', 'data-kb-agents': '' },
             h('button', { type: 'button', class: 'chip' + (f.agents.length ? '' : ' on'), 'aria-pressed': String(!f.agents.length), 'data-kb-agent': 'all', onClick: () => set('agents', [], true) }, 'كل المساعدين'),
             live.map((x) => h('button', { type: 'button', class: 'chip' + (f.agents.includes(x.id) ? ' on' : ''), 'aria-pressed': String(f.agents.includes(x.id)), 'data-kb-agent': x.id,

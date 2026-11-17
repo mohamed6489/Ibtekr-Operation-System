@@ -157,7 +157,7 @@ export function mktRoute(c) {
   if (sto && sto[1] && method === 'GET') { const obj = H.objects.get(decodeURIComponent(sto[2])); return obj ? route.fulfill({ status: 200, headers: { 'access-control-allow-origin': '*', 'content-type': obj.type || 'image/png' }, body: PNG_1PX }) : json(400, { statusCode: '400', error: 'not_found', message: 'Object not found' }); }
   if (fn && path === '/functions/v1/mkt-publish') return mktPublish(c, c.body());
   if (fn && path === '/functions/v1/mkt-ads') return mktAds(c, c.body());
-  if (fn) { const b = c.body(); if (path === '/functions/v1/ai-images' ? !(['campaign', 'campaign_edit', 'agent_image', 'ref_link', 'bridge_campaign', 'bridge_campaign_fetch', 'trend_thumbs'].includes(b.action) || /^video_/.test(String(b.action))) : !['marketing', 'buyer', 'agent', 'trends'].includes(b.action)) return null; return mktAi(c, b); }
+  if (fn) { const b = c.body(); if (path === '/functions/v1/ai-images' ? !(['campaign', 'campaign_edit', 'agent_image', 'ref_link', 'bridge_campaign', 'bridge_campaign_fetch', 'trend_thumbs'].includes(b.action) || /^video_/.test(String(b.action))) : !['marketing', 'buyer', 'agent', 'trends', 'kb'].includes(b.action)) return null; return mktAi(c, b); }
   const refuse = (status, code, message) => json(status, { code, details: null, hint: null, message });
   if (!u) return sto ? json(401, { statusCode: '401', error: 'Unauthorized', message: 'invalid JWT' }) : refuse(401, '42501', 'permission denied');
   const view = hasPerm(u, 'marketing.view') !== 'N'; const create = hasPerm(u, 'marketing.create') === 'F'; const publish = hasPerm(u, 'marketing.publish') === 'F';
@@ -545,7 +545,7 @@ export function mktRoute(c) {
 function mktAi(c, b) {
   const { u, json, hasPerm, isAdmin, mock } = c; const H = mock.mkt;
   const agentCan = agentCanOf(H, isAdmin, hasPerm);
-  H.calls.push({ fn: b.action === 'marketing' || b.action === 'buyer' || b.action === 'agent' ? 'ai-content' : 'ai-images', action: b.action, task: b.task || null, by: u ? u.id : null, piece: b.piece || null, slide: b.slide == null ? null : b.slide, scene: b.scene == null ? null : b.scene, kind: b.kind || null, model: b.model || null, pins: Array.isArray(b.pins) ? b.pins.length : 0, notes: b.notes || null });
+  H.calls.push({ fn: b.action === 'marketing' || b.action === 'buyer' || b.action === 'agent' || b.action === 'kb' ? 'ai-content' : 'ai-images', action: b.action, task: b.task || null, by: u ? u.id : null, piece: b.piece || null, slide: b.slide == null ? null : b.slide, scene: b.scene == null ? null : b.scene, kind: b.kind || null, model: b.model || null, pins: Array.isArray(b.pins) ? b.pins.length : 0, notes: b.notes || null });
   if (b.action === 'trends') { // 0109 (comments decision 69): marketing.create or the admin; the rows a search page stands behind are stored
     if (!u || !(isAdmin(u) || hasPerm(u, 'marketing.create') === 'F')) return json(401, { error: 'unauthorized' });
     const p = parseTrends(b); if ('error' in p) return json(400, p);
@@ -574,6 +574,13 @@ function mktAi(c, b) {
     if (H.buyerFail) return H.buyerFail === 'refused' ? json(200, { result: 'refused', model: 'mock' }) : json(H.buyerFail === 'ai_cap' ? 402 : H.buyerFail === 'busy' ? 429 : H.buyerFail === 'not_configured' ? 503 : 502, { error: H.buyerFail });
     const answer = H.buyerAnswer ? H.buyerAnswer(p.req) : { text: 'سؤالك: ' + p.req.question + '\nالأرقام من آخر 7 أيام على ' + H.adObjects.filter((o) => o.kind === 'campaign').length + ' حملة. أنا ببص بس — التنفيذ من الاقتراحات بموافقتك.' };
     H.seq += 1; return json(200, { result: 'ok', ...cleanBuyer(answer), model: 'claude-opus-5-5', cost_usd: 0.003, run_id: H.seq });
+  }
+  // the owner 17 Nov: «أعد الكتابة بالـ AI» for a rule / skill — the admin only; the answer is the draft made clearer (kbRewriteAnswer overrides)
+  if (b.action === 'kb') {
+    if (!u || !isAdmin(u)) return json(401, { error: 'unauthorized' });
+    if (!['rules', 'skills'].includes(b.kind) || (!String(b.title || '').trim() && !String(b.text || '').trim())) return json(400, { error: 'bad_request', field: 'text' });
+    const out = H.kbRewriteAnswer ? H.kbRewriteAnswer(b) : { title: String(b.title || '').trim() + ' (أوضح)', text: 'مكتوبة بالـ AI: ' + String(b.text || '').trim() };
+    return json(200, { result: 'ok', ...out, model: 'claude-opus-5-5', cost_usd: 0.002 });
   }
   if (b.action === 'agent') { // 0084: a member's chat — their own, the history from the table, the turns written here after the answer
     const p = parseAgent(b); if ('error' in p) return json(400, p);

@@ -1,7 +1,7 @@
 // ش40 — the assistants' rules and skills (0118): the cleaning, the admin's checks (0118's limits) and the prompt text.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { KB_ITEMS, KB_PROMPT, KB_SECTIONS, kbBlocks, kbCheck, kbOf, kbText } from '../../supabase/functions/_shared/agent-kb.js';
+import { KB_ITEMS, KB_PROMPT, KB_SECTIONS, kbBlocks, kbCheck, kbOf, kbText, parseKbRewrite, kbRewriteRequest, cleanKbRewrite } from '../../supabase/functions/_shared/agent-kb.js';
 import { agentRequest, buyerRequest } from '../../supabase/functions/_shared/marketing.js';
 
 test('ش40: the stored sections are cleaned — names and titles one line, no < >, ids kept or given, the limits', () => {
@@ -48,4 +48,19 @@ test('ش40: the chats carry the assistant\'s rules and skills after the admin\'s
   const b = buyerRequest({ question: 'ازاي؟', history: [] }, { model: 'm', effort: 'low', data: {}, cfg: { rules: cfg.rules } });
   assert.equal(b.system.length, 2);
   assert.equal(buyerRequest({ question: 'ازاي؟', history: [] }, { model: 'm', effort: 'low', data: {} }).system.length, 1);
+});
+
+// the owner 17 Nov — «لو انا بضيف اسكيلز او قواعد اقدر اعيد كتابتها بالذكاء الاصطناعي»: action 'kb' = one item rewritten, nothing saved.
+test('kb rewrite: the request is checked, the draft goes as data, the answer is cut to the limits without < >', () => {
+  assert.equal(parseKbRewrite({ kind: 'x', text: 'a' }).error, 'bad_request');
+  assert.equal(parseKbRewrite({ kind: 'rules' }).field, 'text');
+  const { req } = parseKbRewrite({ kind: 'skills', section: 'س<1>', title: 'عنوان', text: 'نص <b>', agents: ['الميديا باير'], notes: 'أقصر' });
+  assert.equal(req.section, 'س1'); assert.equal(req.text, 'نص b'); assert.deepEqual(req.agents, ['الميديا باير']);
+  const body = kbRewriteRequest(req, { model: 'm', effort: 'low' });
+  const draft = body.messages[0].content[0].text;
+  assert.match(draft, /<draft>[\s\S]*الميديا باير[\s\S]*<\/draft>/); assert.match(draft, /أقصر/);
+  assert.deepEqual(body.output_config.format.schema.required, ['title', 'text']);
+  const out = cleanKbRewrite({ title: 'ع<>'.repeat(60), text: 'x'.repeat(5000) });
+  assert.ok(out.title.length <= 80 && !/[<>]/.test(out.title)); assert.ok(out.text.length <= 1500);
+  assert.equal(cleanKbRewrite({ title: '', text: '' }), null);
 });

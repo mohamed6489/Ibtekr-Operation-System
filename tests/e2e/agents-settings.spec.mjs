@@ -155,3 +155,21 @@ test('0125 — rules: pick two → delete; pick a changed default → back to it
   await expect(rules.locator('li')).toHaveCount(2);
   expect(mock.mkt.writes.filter((w) => w.table === 'ai_agent_kb' && w.op === 'reset').map((w) => w.keys)).toEqual([['team.style'], 'all']);
 });
+
+test('the owner 17 Nov — «أعد الكتابة بالـ AI» in a rule\'s popup: the instructions popup, then the AI\'s title and details fill the form; «احفظ» saves them', async ({ page }) => {
+  await signIn(page);
+  await page.evaluate(() => { location.hash = 'settings-ai'; });
+  await page.locator('#pg-settings').getByRole('tab', { name: 'المساعدين' }).click();
+  await page.locator('[data-kb-add="rules"]').click();
+  const md = page.locator('.modal[role=dialog]', { hasText: 'جديدة' });
+  await md.locator('input').nth(0).fill('الأرقام'); await md.locator('input').nth(1).fill('متخترعش');
+  await md.locator('textarea').first().fill('ماتقولش رقم من دماغك');
+  await md.locator('[data-kb-ai="rules"]').click();
+  await page.locator('[data-ai-ask] textarea').fill('خليها أقصر');
+  await page.locator('[data-ai-go]').click();
+  await expect(md.locator('textarea').first()).toHaveValue('مكتوبة بالـ AI: ماتقولش رقم من دماغك');
+  await expect(md.locator('input').nth(1)).toHaveValue('متخترعش (أوضح)');
+  expect(mock.mkt.calls.find((c) => c.action === 'kb')).toMatchObject({ notes: 'خليها أقصر' });
+  await md.getByRole('button', { name: 'ضيف' }).click();
+  await expect.poll(() => mock.mkt.aiKb.some((k) => k.title === 'متخترعش (أوضح)' && /^مكتوبة بالـ AI/.test(k.text))).toBe(true);
+});

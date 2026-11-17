@@ -49,6 +49,7 @@ import { aiSettings, categoryLines, cleanExtract, cleanPrompts, cleanStudio, cle
 import { vaultEnv } from '../_shared/secrets.js';
 import { AGENT_NAME } from '../_shared/campaign-draft.js';
 import { LEGACY_AGENTS, agentBase, dataBlock, kbFor, seesOf } from '../_shared/ai-agents.js';
+import { cleanKbRewrite, kbRewriteRequest, parseKbRewrite } from '../_shared/agent-kb.js';
 import { AGENT_HISTORY, REQ_RULE, agentHistory, agentRequest, agentTitle, buyerRequest, campaignTarget, cleanAgent, cleanBuyer, cleanMarketing, marketingRequest, parseAgent, parseBuyer, parseMarketing, templateNotes } from '../_shared/marketing.js';
 import { SUGGEST_DAYS, buyerRules, windowOf } from '../_shared/mkt-ads.js';
 import { cleanScenes, scenesRequest } from '../_shared/mkt-video.js';
@@ -69,7 +70,7 @@ export type Deps = {
   text?: (provider: string, params: Json) => Promise<Json>; // phase 11: OpenAI / Gemini (the Claude dep stays the Claude path)
 };
 
-const ACTIONS = ['write', 'studio', 'prompts', 'marketing', 'buyer', 'assistant', 'agent', 'extract', 'trends'];
+const ACTIONS = ['write', 'studio', 'prompts', 'marketing', 'buyer', 'assistant', 'agent', 'extract', 'trends', 'kb'];
 const STUDIO_BUCKET = 'studio';
 const THROTTLE = 60; // calls of one member in THROTTLE_MINUTES (the studio fills a batch one item at a time)
 const THROTTLE_MINUTES = 10;
@@ -303,6 +304,16 @@ async function prompts(deps: Deps, uid: string, args: Json) {
     out.category = category; out.rows = list.length;
     return true;
   });
+}
+
+// ---------------------------------------------------------------- «أعد الكتابة بالـ AI» for a rule / skill (the owner 17 Nov — the admin only;
+// the answer fills the settings' form, nothing is written here). ai_runs marketing / agent, label «kb»; the text never goes to a log.
+async function kbRewrite(deps: Deps, uid: string, args: Json) {
+  const parsed = parseKbRewrite(args);
+  if ('error' in parsed) return json(400, parsed);
+  const cfg = await configOf(deps, 'assistant');
+  return await runAi(deps, { created_by: uid, action: 'marketing', source: 'agent', label: 'kb · ' + parsed.req.kind }, cfg, kbRewriteRequest(parsed.req, { model: cfg.model, effort: cfg.effort }),
+    (answer) => cleanKbRewrite(answer) ?? { title: '', text: '' });
 }
 
 // ---------------------------------------------------------------- marketing (phase 9.5.1, decision 10)
@@ -694,7 +705,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
   if (!ACTIONS.includes(action)) return json(400, { error: 'unknown_action' });
   try {
     return action === 'write' ? await write(deps, uid, args) : action === 'prompts' ? await prompts(deps, uid, args) : action === 'marketing' ? await marketing(deps, uid, args) : action === 'buyer' ? await buyer(deps, uid, args) : action === 'agent' ? await agent(deps, uid, args, jwtOf(req))
-      : action === 'assistant' ? await assistant(deps, uid, args, jwtOf(req)) : action === 'extract' ? await extract(deps, uid, args) : action === 'trends' ? await trends(deps, uid, args) : await studio(deps, uid, args);
+      : action === 'assistant' ? await assistant(deps, uid, args, jwtOf(req)) : action === 'extract' ? await extract(deps, uid, args) : action === 'trends' ? await trends(deps, uid, args) : action === 'kb' ? await kbRewrite(deps, uid, args) : await studio(deps, uid, args);
   } catch (e) {
     console.error('ai-content failed', e instanceof Error ? e.name : typeof e);
     return json(500, { error: 'failed' });

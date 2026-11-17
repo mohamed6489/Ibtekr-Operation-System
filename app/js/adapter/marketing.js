@@ -1337,6 +1337,20 @@
     catch (e) { return fail(null); }
   }
 
+  // the owner 17 Nov («لو انا بضيف اسكيلز او قواعد اقدر اعيد كتابتها بالذكاء الاصطناعي»): one rule / skill rewritten by the AI — ai-content
+  // action «kb» (the admin) → { title, text } for the form; nothing is saved until the admin presses «احفظ»
+  async function kbRewrite(item, notes) {
+    if (!isAdmin()) return { ok: false, reason: 'forbidden', message: 'قواعد المساعدين وسكيلزهم للأدمن بس' };
+    const it = item || {}; if (!['rules', 'skills'].includes(it.kind)) return { ok: false, reason: 'invalid', message: MESSAGES.invalid };
+    if (!String(it.title || '').trim() && !String(it.text || '').trim()) return { ok: false, reason: 'invalid', field: 'text', message: 'اكتب العنوان أو التفاصيل الأول' };
+    const r = await invoke('ai-content', { action: 'kb', kind: it.kind, section: String(it.section || '').slice(0, 60), title: String(it.title || '').slice(0, 80), text: String(it.text || '').slice(0, 1500),
+      agents: (Array.isArray(it.agents) ? it.agents : []).map((a) => String(a).slice(0, 40)).slice(0, 12), notes: String(notes || '').slice(0, 500) });
+    if (!r.ok) return Object.assign(r, { message: aiMessage(r, 'text') });
+    const b = r.body || {}; if (b.result === 'refused') return { ok: false, reason: 'refused', message: aiMessage({ reason: 'refused' }, 'text') };
+    const title = typeof b.title === 'string' ? b.title.replace(/[<>]/g, '').trim().slice(0, 80) : ''; const text = typeof b.text === 'string' ? b.text.replace(/[<>]/g, '').trim().slice(0, 1500) : '';
+    if (!title && !text) return { ok: false, reason: 'invalid', message: 'الـ AI مارجّعش حاجة — جرّب تاني' };
+    log('agent.kb.ai', it.kind, null); return { ok: true, title, text };
+  }
   // 0125 «رجّع الافتراضي»: keys = the defaults to bring back (null = all of the kind; dropAdded = the admin's own rows of the kind go too)
   async function kbReset(kind, keys, dropAdded) {
     if (!isAdmin()) return { ok: false, reason: 'forbidden', message: 'قواعد المساعدين وسكيلزهم للأدمن بس' };
@@ -1438,7 +1452,7 @@
     adsStatus, adsNow, adsSync, adsData, adsLinkSet, adsLinkStart, adsLinkPick, adsUnlink, adsWhy,
     suggestions, suggNow, decide, campaignSet, adsDataNow, rules, rulesNow, rulesSet, setLive, requests, reqsNow, addRequest, REQ_KIND: KIND_OF, buyerChat,
     agentChats, agentTurns, agentAsk, agentImage, agentRename, agentDelete, agentSettings, agentSettingsNow, agentSettingsSet, AGENT_KEYS,
-    agents, agentsNow, agentOf, agentSave, agentArchive, agentOrder, kbList, kbListNow, kbSetAll, kbReset, AGENT_PERMS, AGENT_SEES,
+    agents, agentsNow, agentOf, agentSave, agentArchive, agentOrder, kbList, kbListNow, kbSetAll, kbReset, kbRewrite, AGENT_PERMS, AGENT_SEES,
     trends, trendsNow, trendsReadyNow, trendsRefresh, trendThumbsFill, trendThumbs, trendThumbNow, trendSettings, trendSettingsNow, trendSettingsSet, adTagsSet, agentKbSet, KB, competitors, competitorsNow, competitorsReadyNow, competitorSave, competitorArchive,
     siteCheck, siteCheckNow, siteReadyNow, siteCheckRun, siteSpeed, siteSpeedNow, siteSpeedRun, siteSubs, siteSubsNow, aiSpend, aiSpendNow,
     addTemplate, editTemplate, removeTemplate, templateUsed, subscribe, unsubscribe, check, MAX_BYTES, MIME, BUCKET,

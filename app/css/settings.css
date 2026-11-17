@@ -495,3 +495,5 @@ button.dx-stat{cursor:pointer}button.dx-stat:hover{background:var(--color-bg-hov
 .kb-items li .kb-pick { margin-top:3px; flex:none; accent-color:var(--color-primary,#005642) }
 .kb-bulk { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:8px 12px; margin-bottom:10px; border-radius:10px; background:var(--color-bg-hover,#F9F0E2) }
 .kb-item-t b .tag { margin-inline-start:6px; font-weight:500; vertical-align:middle }
+/* the owner 17 Nov: «أعد الكتابة بالـ AI» under a rule / skill's details */
+.kb-ai-row { display:flex; justify-content:flex-start; margin-top:-4px }

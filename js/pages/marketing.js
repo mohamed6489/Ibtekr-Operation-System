@@ -1459,7 +1459,7 @@
   // كلها»): each assistant's chats, the member's own — the history on the side (new, rename, delete), the turns from the server, the
   // quick suggestions inside the chat, ⚙️ the admin's settings, «تقديم طلب» and the expand button (the same icon shrinks it back);
   // nothing runs from a chat — the designer's picture is made only by «ولّد الصورة» under its answer (the image credits) ----------
-  const AG = { chats: {}, active: {}, turns: {}, prompts: {}, reqs: {}, drafts: {}, acts: {}, hand: {}, forms: {}, draft: {}, asking: false, gen: null, full: false, side: false, loading: {}, cfgAsked: false, seen: {}, atBottom: {}, pos: {} };
+  const AG = { chats: {}, active: {}, turns: {}, prompts: {}, reqs: {}, drafts: {}, acts: {}, hand: {}, forms: {}, draft: {}, asking: false, gen: null, full: false, side: false, loading: {}, cfgAsked: false, seen: {}, atBottom: {}, pos: {}, files: {}, queue: {}, reading: 0, mic: null };
   const AG_INTRO = {
     buyer: 'أنا الميديا باير. بقرا أرقام ميتا بتاعة آخر 7 أيام جنب أوردرات ووكومرس الحقيقية وبقترح — والتنفيذ بموافقتك من «مستني موافقتك». اسألني عن حملة أو العائد أو تكلفة الأوردر.',
     designer: 'أنا الديزاينر. بساعدك في أفكار البوستات والكاروسيل والستوري والريلز بالبراند، ولما تطلب صورة بكتبلك وصفها وتقدر تولّدها بزرار «ولّد الصورة» (من كريدت الصور). الشغل الكبير بيروح للديزاينر البشري من «تقديم طلب».',
@@ -1574,12 +1574,61 @@
         Button({ size: 'sm', type: 'text', label: 'لأ', attrs: { 'data-mk-camp-no': '' }, onClick: () => { x.done = 'no'; x.doneText = 'اتلغى — الحملة زي ما هي'; R(); } })]
         : h('small', { class: 'help' }, 'التنفيذ محتاج «التسويق: نشر» أو الأدمن'));
   }
+  // the owner 17 Nov — «اقدر ارفع فايل سواء كان شيت او صورة او اين كان نوع الملف فيديو او بوست» و«اقدر ابعتلهم فويس»: files read in the
+  // browser (IBChatFiles — 4 at most), chips over the bar with ×, and the mic typing the words into the box (the member presses send)
+  function agPickFiles(a) {
+    const inp = h('input', { type: 'file', multiple: true, hidden: true, 'data-mk-file-in': '' });
+    inp.addEventListener('change', () => { agAddFiles(a, inp.files); inp.remove(); }); document.body.appendChild(inp); inp.click();
+  }
+  async function agAddFiles(a, list) {
+    const F = window.IBChatFiles; if (!F) return;
+    const have = AG.files[a] || []; const room = 4 - have.length;
+    const picked = [...(list || [])].slice(0, Math.max(0, room)); if ((list || []).length > room) K.toast('لحد 4 ملفات في الرسالة', 'info');
+    if (!picked.length) return;
+    AG.reading = (AG.reading || 0) + 1; R();
+    for (const f of picked) { const r = await F.read(f); if (r.ok) AG.files[a] = (AG.files[a] || []).concat([Object.assign({ id: 'f' + Math.random().toString(36).slice(2, 8) }, r.file)]); else K.toast(r.message, 'error'); }
+    AG.reading -= 1; R();
+  }
+  function agFileChips(a) {
+    const fs = AG.files[a] || []; if (!fs.length && !AG.reading) return null;
+    return h('div', { class: 'mk-files', 'data-mk-files': String(fs.length) }, fs.map((f) => h('span', { class: 'mk-file', 'data-mk-file': f.name },
+      f.thumb ? h('img', { src: f.thumb, alt: '' }) : h('span', { class: 'mk-file-ic' }, Icon(f.kind === 'pdf' ? 'file' : 'sheet', 'sm')),
+      h('span', { class: 'mk-file-t' }, h('b', null, f.name), f.note ? h('small', null, f.note) : null),
+      h('button', { type: 'button', class: 'mk-file-x', 'aria-label': 'شيل ' + f.name, onClick: () => { AG.files[a] = (AG.files[a] || []).filter((x) => x.id !== f.id); R(); } }, Icon('close', 'sm')))),
+    AG.reading ? h('span', { class: 'mk-file is-loading' }, h('small', null, 'بنقرا الملف…')) : null);
+  }
+  function agQueueList(a) {
+    const qs = AG.queue[a] || []; if (!qs.length) return null;
+    return h('div', { class: 'mk-queue', 'data-mk-queue': String(qs.length) }, h('small', { class: 'help' }, 'في الطابور (' + K.n0(qs.length) + ') — هتتبعت بالترتيب بعد الرد'),
+      qs.map((x, i) => h('div', { class: 'mk-queue-it', 'data-mk-queued': String(i) }, h('span', null, (x.q || 'ملفات') + (x.files.length ? ' · 📎 ' + K.n0(x.files.length) : '')),
+        h('button', { type: 'button', class: 'mk-file-x', 'aria-label': 'شيلها من الطابور', onClick: () => { AG.queue[a] = (AG.queue[a] || []).filter((y) => y.id !== x.id); R(); } }, Icon('close', 'sm')))));
+  }
+  function agMicBtn(a, inp) {
+    const F = window.IBChatFiles; const on = AG.mic && AG.mic.a === a;
+    return h('button', { type: 'button', class: 'mk-ask-ic mk-ask-mic' + (on ? ' on' : ''), 'data-mk-mic': on ? 'on' : 'off', 'aria-pressed': on ? 'true' : 'false', title: on ? 'وقّف التسجيل' : 'اتكلم والكلام يتكتب', 'aria-label': on ? 'وقّف التسجيل' : 'اتكلم',
+      onClick: () => {
+        if (on) { AG.mic.rec.stop(); return; }
+        if (!F || !F.supportsVoice()) { K.toast('المتصفح ده مابيكتبش بالصوت — جرّب Chrome أو Edge أو Safari', 'error'); return; }
+        const rec = F.dictation({ onText: (t) => { AG.draft[a] = t; const x = document.getElementById('mk-ask'); if (x) { x.value = t; agGrow(x); } },
+          onError: (m) => K.toast(m, 'error'), onEnd: () => { AG.mic = null; R(); } });
+        AG.mic = { a, rec }; rec.start(String(inp.value || '').trim()); R();
+      } }, Icon('mic', 'sm'));
+  }
+  // the owner 17 Nov — «عايز الشات يبقا فيه فكرة الكيو»: a message sent while the assistant is still answering waits in a queue under the
+  // box (each can be dropped) and goes by itself, in order, once the answer lands; the files ride with their message
   async function agSend(a, txt) {
-    const q = String(txt || '').trim(); if (!q || AG.asking) return;
-    AG.draft[a] = '';
+    const q = String(txt || '').trim(); const files = (AG.files[a] || []).slice(); if (!q && !files.length) return;
+    if (AG.reading) { K.toast('استنى الملفات تخلص قراية', 'info'); return; }
+    AG.draft[a] = ''; AG.files[a] = [];
+    if (AG.asking) { AG.queue[a] = (AG.queue[a] || []).concat([{ id: 'q' + Date.now() + Math.random().toString(36).slice(2, 6), q, files }]); R(); return; }
+    await agSendNow(a, q, files);
+    while (!AG.asking && (AG.queue[a] || []).length) { const n = AG.queue[a].shift(); await agSendNow(a, n.q, n.files); }
+  }
+  async function agSendNow(a, q, files) {
     const id = AG.active[a] || null; const key = id || 'new-' + a;
-    AG.turns[key] = (AG.turns[key] || []).concat([{ id: 'tmp', role: 'user', text: q, images: [], at: new Date().toISOString() }]); AG.asking = true; R();
-    const r = await MK().agentAsk(a, id, q); AG.asking = false;
+    const fl = files.length ? '📎 ' + files.map((f) => f.name).join('، ') : '';
+    AG.turns[key] = (AG.turns[key] || []).concat([{ id: 'tmp', role: 'user', text: [q, fl].filter(Boolean).join('\n'), images: [], at: new Date().toISOString() }]); AG.asking = true; R();
+    const r = await MK().agentAsk(a, id, q, files); AG.asking = false;
     if (!r.ok) { AG.turns[key] = (AG.turns[key] || []).filter((t) => t.id !== 'tmp'); K.toast(r.message, 'error'); if (r.reason === 'notfound' && id) { AG.chats[a] = (AG.chats[a] || []).filter((c) => c.id !== id); AG.active[a] = null; } agRefresh(); return; }
     const chat = r.chat; const cid = chat ? chat.id : id;
     const prev = (AG.turns[key] || []).filter((t) => t.id !== 'tmp'); if (!id) delete AG.turns[key];
@@ -1692,7 +1741,7 @@
       el.querySelectorAll('img').forEach((im) => { if (!im.complete) im.addEventListener('load', () => { if (AG.atBottom[a] !== false) el.scrollTop = el.scrollHeight; }, { once: true }); });
     });
     const inp = h('textarea', { class: 'mk-ask-in', id: 'mk-ask', rows: '1', placeholder: a === 'buyer' ? 'اسأل الميديا باير عن أرقامك…' : 'اكتب رسالة ' + A.to + '…', 'aria-label': 'رسالة ' + A.to, maxlength: '1000',
-      onInput: () => { AG.draft[a] = inp.value; agGrow(inp); }, onKeydown: (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); agSend(a, inp.value); } } });
+      onInput: () => { AG.draft[a] = inp.value; agGrow(inp); }, onPaste: (e) => { const fs = e.clipboardData && e.clipboardData.files; if (fs && fs.length) { e.preventDefault(); agAddFiles(a, fs); } }, onKeydown: (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); agSend(a, inp.value); } } });
     inp.value = AG.draft[a] || '';
     // a re-render (the chats or the turns landing) keeps what was being typed and the cursor in the box — right after the render, in
     // the same task (IBPages.render is synchronous): a frame later a key typed in between went to the removed box (CI 989 on 14 Nov:
@@ -1704,9 +1753,14 @@
         isAdmin() ? Button({ size: 'sm', icon: 'gear', label: 'الإعدادات', attrs: { 'data-mk-agent-cfg': a }, onClick: () => agSettings(a) }) : null, askBtn(a),
         Button({ size: 'sm', icon: AG.full ? 'shrink' : 'expand', label: AG.full ? 'صغّر' : 'كبّر', attrs: { 'data-mk-agent-full': AG.full ? 'on' : 'off', 'aria-pressed': AG.full ? 'true' : 'false' }, onClick: () => { AG.full = !AG.full; R(); } })));
     const main = h('section', { class: 'mk-agent-main' }, head, msgs, fresh ? null : chips,
-      h('div', { class: 'mk-compose' },
-        h('div', { class: 'mk-ask' }, inp, Button({ type: 'primary', icon: 'send', label: 'ابعت', attrs: { 'data-mk-ask': '' }, disabled: AG.asking, onClick: () => agSend(a, inp.value) })),
-        h('small', { class: 'help mk-ask-hint' }, 'Enter بيبعت · Shift + Enter سطر جديد' + (a === 'buyer' ? ' · مفيش أي تنفيذ من الشات' : ''))));
+      h('div', { class: 'mk-compose', onDragover: (e) => { if (e.dataTransfer && [...(e.dataTransfer.types || [])].includes('Files')) e.preventDefault(); }, onDrop: (e) => { if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) { e.preventDefault(); agAddFiles(a, e.dataTransfer.files); } } },
+        agQueueList(a), agFileChips(a),
+        // the owner 17 Nov («عايز بار الشات زيك بالظبط بنفس الشكل»): one rounded bar — the mic and send on one end, the box, «+» (files) on the other
+        h('div', { class: 'mk-ask' }, agMicBtn(a, inp),
+          h('button', { type: 'button', class: 'mk-ask-ic mk-ask-send', 'data-mk-ask': '', title: AG.asking ? 'هتتبعت بعد الرد (في الطابور)' : 'ابعت (Enter)', 'aria-label': 'ابعت', onClick: () => agSend(a, inp.value) }, Icon('send', 'sm')),
+          inp,
+          h('button', { type: 'button', class: 'mk-ask-ic mk-ask-plus', 'data-mk-attach': '', title: 'ارفع ملف — صورة · فيديو · PDF · شيت', 'aria-label': 'ارفع ملف', onClick: () => agPickFiles(a) }, Icon('plus', 'sm'))),
+        h('small', { class: 'help mk-ask-hint' }, 'Enter بيبعت · Shift + Enter سطر جديد · + ملف · 🎙 كلام' + (a === 'buyer' ? ' · مفيش أي تنفيذ من الشات' : ''))));
     // on a phone the history is a drawer over the chat: the veil behind it closes it
     const veil = AG.side ? h('button', { type: 'button', class: 'mk-agent-veil', 'aria-label': 'اقفل الشاتات', onClick: () => { AG.side = false; R(); } }) : null;
     return h('div', { class: 'mk-agent card' + (AG.full ? ' mk-agent-full' : ''), 'data-mk-agent': a }, side, veil, main);

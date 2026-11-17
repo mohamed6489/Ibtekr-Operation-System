@@ -481,6 +481,25 @@ body.cal-dragging,body.cal-dragging * { cursor:grabbing !important;user-select:n
 :is(#pg-marketing,#pg-ai) .mk-ask:focus-within { border-color:var(--color-border-focus);box-shadow:0 0 0 3px rgba(0,86,66,.12) }
 :is(#pg-marketing,#pg-ai) .mk-ask-in { flex:1;min-width:0;border:0;outline:0;box-shadow:none;background:none;font:inherit;color:inherit;line-height:24px;padding:6px 10px;resize:none;height:36px;max-height:132px;overflow-y:auto }
 :is(#pg-marketing,#pg-ai) .mk-ask .btn { flex:none;border-radius:10px }
+/* the owner 17 Nov — «عايز بار الشات زيك بالظبط بنفس الشكل»: one rounded bar — the mic and send at one end, «+» at the other, round icon buttons */
+:is(#pg-marketing,#pg-ai) .mk-ask { align-items:center;gap:4px;padding:6px 8px;border-radius:18px;background:var(--color-bg-base);box-shadow:0 1px 2px rgba(46,42,27,.06) }
+:is(#pg-marketing,#pg-ai) .mk-ask-ic { flex:none;display:inline-grid;place-items:center;width:36px;height:36px;border:0;border-radius:50%;background:none;color:var(--color-text-secondary, #5c5647);cursor:pointer }
+:is(#pg-marketing,#pg-ai) .mk-ask-ic:hover { background:var(--color-bg-hover);color:var(--color-text-primary, #2e2a1b) }
+:is(#pg-marketing,#pg-ai) .mk-ask-ic:focus-visible { outline:2px solid var(--color-border-focus);outline-offset:1px }
+:is(#pg-marketing,#pg-ai) .mk-ask-send { color:var(--color-brand-default, #005642) }
+:is(#pg-marketing,#pg-ai) .mk-ask-mic.on { background:#DA0001;color:#fff;animation:mk-mic 1.2s ease-in-out infinite }
+@keyframes mk-mic { 50% { box-shadow:0 0 0 6px rgba(218,0,1,.18) } }
+:is(#pg-marketing,#pg-ai) .mk-files { display:flex;flex-wrap:wrap;gap:6px }
+:is(#pg-marketing,#pg-ai) .mk-file { display:inline-flex;align-items:center;gap:6px;max-width:260px;padding:4px 6px;border:1px solid var(--color-border-subtle);border-radius:10px;background:var(--color-bg-base) }
+:is(#pg-marketing,#pg-ai) .mk-file img { width:36px;height:36px;object-fit:cover;border-radius:6px;flex:none }
+:is(#pg-marketing,#pg-ai) .mk-file-ic { display:inline-grid;place-items:center;width:36px;height:36px;border-radius:6px;background:var(--color-bg-hover);flex:none }
+:is(#pg-marketing,#pg-ai) .mk-file-t { display:flex;flex-direction:column;min-width:0 }
+:is(#pg-marketing,#pg-ai) .mk-file-t b, :is(#pg-marketing,#pg-ai) .mk-file-t small { overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px }
+:is(#pg-marketing,#pg-ai) .mk-file-x { flex:none;display:inline-grid;place-items:center;width:24px;height:24px;border:0;border-radius:50%;background:none;cursor:pointer;color:inherit }
+:is(#pg-marketing,#pg-ai) .mk-file-x:hover { background:var(--color-bg-hover) }
+:is(#pg-marketing,#pg-ai) .mk-queue { display:flex;flex-direction:column;gap:4px }
+:is(#pg-marketing,#pg-ai) .mk-queue-it { display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 10px;border:1px dashed var(--color-border-default);border-radius:10px;font-size:13px;background:var(--color-bg-hover) }
+:is(#pg-marketing,#pg-ai) .mk-queue-it span { overflow:hidden;text-overflow:ellipsis;white-space:nowrap }
 :is(#pg-marketing,#pg-ai) .mk-ask-hint { font-size:12px;padding:0 6px }
 :is(#pg-marketing,#pg-ai) .mk-msg-imgs { display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 }
 :is(#pg-marketing,#pg-ai) .mk-msg-imgs .thumb { width:220px;height:auto;aspect-ratio:4/5;border-radius:var(--radius-md);overflow:hidden }

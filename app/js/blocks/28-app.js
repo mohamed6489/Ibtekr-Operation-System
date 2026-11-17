@@ -936,6 +936,10 @@
       // أملاها وبعد كده ياخد الأكشن»): the system's own popup opens with the values the member gave; nothing is written until the member
       // presses the popup's own button (the confirmation) — through the same adapter and the same server checks as by hand
       open_form: (i) => aiOpenForm(String(i.form || ''), i.values && typeof i.values === 'object' ? i.values : {}),
+      // ش45 decisions 3 and 4 (the owner 17 Nov — «الايه اي اللي في الهيدر ده المدير»): a question for the developer / designer / media
+      // buyer opens that assistant's chat with the question sent; a content ask opens «كامبين جديدة» filled — nothing saved or generated
+      ask_agent: (i) => { const api = window.IBPages.all().marketing && window.IBPages.all().marketing.api; if (!api || !api.askAgent || !api.askAgent(String(i.agent || ''), String(i.question || ''))) throw new Error('المساعدين مش متاحين ليك'); if (state.page !== 'marketing') go('marketing'); return 'asked ' + i.agent; },
+      open_campaign: (i) => { const api = window.IBPages.all().marketing && window.IBPages.all().marketing.api; if (!api || !api.openDraft || !api.openDraft(i)) throw new Error('الكامبين مش متاحة ليك'); if (state.page !== 'marketing') go('marketing'); return 'campaign opened'; },
       propose_entry: (i) => {
         const base = { direction: i.direction, amount: String(i.amount) };
         let cmd;
@@ -992,7 +996,7 @@
   // the server's actions in order; a failing one is said in the panel (the model already answered)
   function aiExecActions(actions) {
     const tools = aiTools(); const failed = [];
-    for (const a of actions || []) { const fn = tools[a.name]; if (!fn) continue; try { fn(a.input || {}); } catch (e) { failed.push(a.name === 'propose_entry' ? 'ما قدرتش أجهّز الحركة: ' + (e && e.message ? e.message : '') : a.name === 'open_form' ? 'ما قدرتش أفتح البوب أب: ' + (e && e.message ? e.message : '') : 'ما قدرتش أنفّذ ' + a.name + '.'); } }
+    for (const a of actions || []) { const fn = tools[a.name]; if (!fn) continue; try { fn(a.input || {}); } catch (e) { failed.push(a.name === 'propose_entry' ? 'ما قدرتش أجهّز الحركة: ' + (e && e.message ? e.message : '') : a.name === 'open_form' ? 'ما قدرتش أفتح البوب أب: ' + (e && e.message ? e.message : '') : (a.name === 'ask_agent' || a.name === 'open_campaign') ? 'ما قدرتش أفتح التسويق: ' + (e && e.message ? e.message : '') : 'ما قدرتش أنفّذ ' + a.name + '.'); } }
     for (const f of failed) aiSay(f);
   }
   function aiBusy(b) { ai.busy = b; if (aiInput) aiInput.disabled = b; if (aiSendBtn) aiSendBtn.hidden = b; if (aiStopBtn) aiStopBtn.hidden = !b; if (!b && aiInput && aiPanel && !aiPanel.hidden) aiInput.focus(); }

@@ -564,7 +564,10 @@ async function assistant(deps: Deps, uid: string, args: Json, jwt: string) {
   if (run.result === 'cap') return json(402, { error: 'ai_cap' });
   if (run.result !== 'ok') return json(502, { error: 'ai_error' });
   if (!deps.env.ANTHROPIC_API_KEY?.trim()) { await finishRun(deps, run.id, { status: 'error', error: 'not_configured', cost_usd: 0 }); return json(503, { error: 'not_configured', provider: 'claude' }); }
-  const params = assistantRequest(req, { model: cfg.model, effort: cfg.effort, today, actor, role });
+  // ش45 decisions 3 and 4: the marketing assistants and the filled campaign — only for whoever may open them
+  const pv = async (key: string) => { try { const { data, error } = await member.rpc('has_perm', { key }); return error ? 'N' : String(data ?? 'N'); } catch { return 'N'; } };
+  const mkt = { view: (await pv('marketing.view')) !== 'N', create: (await pv('marketing.create')) === 'F' };
+  const params = assistantRequest(req, { model: cfg.model, effort: cfg.effort, today, actor, role, mkt });
   const spent = { model: cfg.model, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, cost_usd: 0 };
   const actions: Json[] = []; const tools: string[] = []; let text = ''; let reads = 0; const got: Json[] = []; // got: the reads for the «تفاصيل» report (decision 23)
   const typedAmounts = amountsIn(req.question); // propose_entry only for an amount the member typed (never one read from data)
@@ -597,6 +600,7 @@ async function assistant(deps: Deps, uid: string, args: Json, jwt: string) {
       } else {
         const act = cleanAction(use.name, use.input);
         if (act && use.name === 'propose_entry' && !typedAmounts.includes(Number((act.input as Json).amount))) { results.push({ id: use.id, content: 'refused: the amount is not in the user\'s own message — ask them for it', error: true }); continue; }
+        if (act && ((use.name === 'ask_agent' && !mkt.view) || (use.name === 'open_campaign' && !mkt.create))) { results.push({ id: use.id, content: 'refused: not allowed for this member', error: true }); continue; }
         if (act && use.name === 'open_form') { const vals = (act.input as Json).values as Json; if (vals.amount != null && !typedAll.includes(Number(vals.amount))) delete vals.amount; }
         if (act) { actions.push(act); results.push({ id: use.id, content: use.name === 'propose_entry' ? 'the confirm card will be shown to the user after your answer — not recorded yet' : use.name === 'open_form' ? 'a link «افتح البوب أب» is shown under your answer; the popup opens when the user clicks it, filled with these values — nothing is saved until they press its button' : use.name === 'offer_file' ? 'a download link is shown under your answer' : use.name === 'plan_categories' ? 'a link «راجع الأقسام» is shown under your answer; the user reviews and edits the tree and presses «نشر» himself — nothing is created yet' : 'will run on the user\'s screen after your answer' }); }
         else results.push({ id: use.id, content: 'invalid input for ' + line(use.name, 40), error: true });

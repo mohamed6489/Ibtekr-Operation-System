@@ -560,9 +560,25 @@
     }).sort((x, y) => y.spend - x.spend);
   }
   const xr = (v) => (v == null ? '—' : Number(v).toFixed(2) + '×');
+  // ش45 decision 4 — the designer's (or the header assistant's) filled campaign → the details of «كامبين جديدة» (defaults() + the goal,
+  // the idea and the counts within MAX / VIDEO_MAX — the server's campaignDraft limits); null when it names nothing to make
+  function draftOf(d) {
+    if (!d || typeof d !== 'object') return null;
+    const idea = String(d.idea == null ? '' : d.idea).replace(/[\u0000-\u001f\u007f<>]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 500);
+    const n = (v) => clamp(v, 0, MAX.count);
+    const post = n(d.post), carousel = n(d.carousel), video = n(d.video);
+    if (!idea || !(post + carousel + video)) return null;
+    const w = defaults();
+    w.goal = GOALS.includes(d.goal) ? d.goal : GOALS[0]; w.idea = idea;
+    w.media.post.count = post; w.media.carousel.count = carousel; w.media.video.count = video;
+    if (carousel) w.media.carousel.slides = clamp(d.slides || 4, 2, MAX.slides);
+    if (video) w.media.video.dur = clamp(d.dur || 15, 5, VIDEO_MAX);
+    w.mediaTab = post ? 'post' : carousel ? 'carousel' : 'video';
+    return w;
+  }
 
   const api = { PRICE_DEMO, VIDEO_SOON, VSIZES, videoImgSize, videoMethod, estimateVideo, METHOD_RATE, GOALS, MEDIA, VIDEO_RATE, METHODS, MAX, TEXT_FILL, DEFAULT_MODEL, clamp, defaults, buildPieces, splitScenes, CLIP, VIDEO_MAX, clipSeconds, sceneSeconds, scenesPending, sceneDurOf, videoSeconds, setSceneDur, setSceneD, setSceneCount, keepSceneDurs, cost, spend, built, approvable, approved, approveAll, progress, canBuildNext, canReviewNext, validateDetails, estimate, imgRate, videoRate,
-    adLibraryUrl, competitorPage, competitorRow,
+    adLibraryUrl, competitorPage, competitorRow, draftOf,
     campaignStatus, campaignName, PLATFORMS, CONNECTED, POST_STATUSES, CAP_MAX, TAGS, TIMES, timeOpts, postKind, pieceImages, hookOf, addD, suggest, scheduleItems, isPast, canMove, moveCheck, safeName, zipPlan,
     PUBLISHABLE, PUB_KINDS, MAX_IMAGES, PL_KEY, pubText, notReady, publishable, pubImages, isVideoPath, igFit, jpegSize, isJpeg, PUB_ERRORS, pubError, seenSt, engOf, postTotals, SRC_LABEL,
     get DAYS() { return days(); }, dayIdx, wkStart, weeksOf, planDefault, D2, dayLabel, relDay, pct, linkKeys,

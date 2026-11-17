@@ -229,7 +229,7 @@ test('agentHistory: the table\'s turns → alternating, the member first, the la
   const d = agentRequest({ agent: 'designer', question: 'صورة بوست' }, { model: 'm', effort: 'low', history: [{ role: 'user', text: 'a' }, { role: 'assistant', text: 'b' }], cfg: { instructions: 'الألوان بيج' } });
   assert.equal(d.system.length, 2); assert.match(d.system[0].text, /designer assistant/); assert.match(d.system[1].text, /الألوان بيج/);
   assert.deepEqual(d.messages.map((m) => [m.role, m.content[0].text]), [['user', 'a'], ['assistant', 'b'], ['user', 'صورة بوست']]);
-  assert.deepEqual(d.output_config.format.schema.required, ['text', 'image_prompt', 'request']);
+  assert.deepEqual(d.output_config.format.schema.required, ['text', 'image_prompt', 'request', 'campaign']); // ش45 decision 4
   assert.match(d.system[0].text, /«تقديم طلب»[\s\S]*fill request/); // owner batch 14 Nov decision 14
   const b = agentRequest({ agent: 'buyer', question: 'أحسن حملة؟' }, { model: 'm', effort: 'low', history: [{ role: 'user', text: 'سؤال من غير رد' }], cfg: {}, data: { today: '2026-11-12', rules: {}, campaigns: [{ name: 'Macrame', spend: 100, orders: 2, sales: 500 }] } });
   assert.equal(b.system.length, 1); assert.equal(b.messages.length, 1); // a turn left without an answer is not repeated
@@ -241,7 +241,7 @@ test('agentHistory: the table\'s turns → alternating, the member first, the la
 });
 test('cleanAgent: the text limit; the image prompt for the designer only, without markup; parseAgentImage and the member\'s folder', () => {
   assert.equal(cleanAgent({ text: 'x'.repeat(5000) }, 'buyer').text.length, AGENT_ANSWER_MAX);
-  assert.deepEqual(cleanAgent({ text: 'تمام', image_prompt: 'a <b>cozy</b> flat lay' }, 'designer'), { text: 'تمام', imagePrompt: 'a cozy flat lay', request: null });
+  assert.deepEqual(cleanAgent({ text: 'تمام', image_prompt: 'a <b>cozy</b> flat lay' }, 'designer'), { text: 'تمام', imagePrompt: 'a cozy flat lay', campaign: null, request: null });
   assert.deepEqual(cleanAgent({ text: 'تمام', image_prompt: 'x' }, 'dev'), { text: 'تمام', request: null });
   // owner batch 14 Nov decision 14: a ready request — one line of 80 for the title, the details within 1500; no title = none
   const rq = cleanAgent({ text: 'قدّمه', request: { title: 'صفحة هبوط\nلعروض الشتا ' + 'x'.repeat(100), details: 'd'.repeat(2000) } }, 'dev').request;

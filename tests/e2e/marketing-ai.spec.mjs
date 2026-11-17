@@ -764,3 +764,24 @@ test('comment 72 — on a phone the history is a drawer: «الشاتات» in t
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
   expect(await box.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
 });
+
+// ش45 decision 4 — the designer trusted with content: its answer carries a filled campaign → «كامبين جديدة» opens by itself on the
+// details (the goal, the idea, the counts); nothing saved or generated; «افتح الكامبين» under the answer opens it again
+test('ش45 — the designer\'s content task: after its questions it fills the campaign and the page opens «كامبين جديدة» with it, nothing generated', async ({ page }) => {
+  await start(page);
+  mock.mkt.agentAnswer = (req) => (/عرض/.test(req.question)
+    ? { text: 'تمام — جهزتلك الكامبين: 2 بوست وريل 15 ثانية لعرض المكرمية. هتفتح متملّية في التسويق، راجعها واضغط توليد.', image_prompt: '', request: { title: '', details: '' },
+      campaign: { goal: 'عرض / خصم', idea: 'عرض الشتا على المكرمية — خصم 20% لحد آخر الشهر', post: 2, carousel: 0, slides: 0, video: 1, dur: 15 } }
+    : { text: 'عن إيه المحتوى؟ والهدف إيه؟ وعايز كام بوست / ريل؟', image_prompt: '', request: { title: '', details: '' }, campaign: { goal: '', idea: '', post: 0, carousel: 0, slides: 0, video: 0, dur: 0 } });
+  await openAi(page, ADMIN, 'الديزاينر');
+  const input = pg(page).locator('#mk-ask');
+  await input.fill('عايز اعمل محتوى'); await input.press('Enter');
+  await expect(pg(page)).toContainText('عن إيه المحتوى؟');
+  await expect(pg(page).locator('[data-mk-draft-from]')).toHaveCount(0);
+  await input.fill('عرض الشتا على المكرمية 2 بوست وريل'); await input.press('Enter');
+  await expect(pg(page).locator('[data-cw-goal] [aria-checked="true"]')).toHaveText('عرض / خصم');
+  await expect(pg(page).locator('textarea').first()).toHaveValue('عرض الشتا على المكرمية — خصم 20% لحد آخر الشهر');
+  await expect(page.locator('body')).toContainText('فتحتلك الكامبين متملّية');
+  expect(mock.mkt.campaigns.length, 'nothing saved').toBe(0);
+  expect(mock.mkt.calls.filter((c) => ['marketing', 'campaign', 'campaign_edit', 'video_clip'].includes(c.action)).length, 'nothing generated').toBe(0);
+});

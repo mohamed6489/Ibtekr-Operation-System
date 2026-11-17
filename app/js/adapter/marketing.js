@@ -1071,7 +1071,9 @@
     log('agent.chat', agent, chat ? chat.id : null);
     // owner batch 14 Nov decision 14: a job for a person comes back as a ready request (title + details) — the page offers «قدّم الطلب ده»
     const rq = b.request && typeof b.request === 'object' && typeof b.request.title === 'string' && b.request.title.trim() ? { title: b.request.title.trim().slice(0, 80), details: typeof b.request.details === 'string' ? b.request.details.slice(0, 1500) : '' } : null;
-    return { ok: true, text: typeof b.text === 'string' ? b.text : '', imagePrompt: typeof b.imagePrompt === 'string' ? b.imagePrompt : '', request: rq, chat, turns: (Array.isArray(b.turns) ? b.turns : []).map(toTurn) };
+    // ش45 decision 4: the designer's filled campaign (the page clamps it with IbtekrCampWiz.draftOf before opening it)
+    const cp = agent === 'designer' && b.campaign && typeof b.campaign === 'object' && !Array.isArray(b.campaign) ? b.campaign : null;
+    return { ok: true, text: typeof b.text === 'string' ? b.text : '', imagePrompt: typeof b.imagePrompt === 'string' ? b.imagePrompt : '', request: rq, campaign: cp, chat, turns: (Array.isArray(b.turns) ? b.turns : []).map(toTurn) };
   }
   // the designer's picture from the prompt of its answer (the image credits) — the turn comes back with the image's path
   async function agentImage(chatId, prompt) {

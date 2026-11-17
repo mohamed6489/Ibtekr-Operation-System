@@ -415,8 +415,9 @@ Deno.test('agent (0084): marketing.view; a first message makes the member\'s cha
   assertEquals([r.res.status, r.body.result, r.body.text, r.body.imagePrompt, r.body.chat.title, r.body.turns.map((t: any) => t.role)], [200, 'ok', 'فكرة: الماكرامية على لينن', 'A macrame flat lay on linen', 'بوست للشتا بالماكرامية', ['user', 'assistant']]);
   assertEquals(asked[0].messages.map((m: any) => m.content[0].text), ['بوست للشتا بالماكرامية'], 'the body\'s history is ignored');
   assert(asked[0].system.some((b: any) => b.text.includes('الألوان بيج وأخضر')), 'the admin\'s instructions');
-  assertEquals(asked[0].output_config.format.schema.required, ['text', 'image_prompt', 'request']); // + request: owner batch 14 Nov decision 14
+  assertEquals(asked[0].output_config.format.schema.required, ['text', 'image_prompt', 'request', 'campaign']); // + request: owner batch 14 Nov decision 14; + campaign: ش45 decision 4
   assertEquals(r.body.request, null, 'no job for a person in this answer');
+  assertEquals(r.body.campaign, null, 'no campaign to open in this answer');
   const chat = db.rows('mkt_agent_chats').find((c: any) => c.id === r.body.chat.id);
   assertEquals([chat.member_id, chat.agent], [U.view, 'designer']);
   const r2 = await call(deps, { action: 'agent', agent: 'designer', chat_id: chat.id, question: 'أفتح شوية' }, 'jwt-mview');
@@ -546,6 +547,33 @@ Deno.test('assistant: any active member; the tool loop — get_data runs with th
   assertFalse(db.calls.some((c: any) => ['orders_v', 'tickets', 'hr_tasks', 'acc_expenses', 'cs_conversations'].includes(c.table)));
   // the reservation covered the whole loop: RESERVE_USD × (MAX_TOOL_CALLS + 2) = 3.5 while the calls ran
   assertEquals(db.calls.find((c: any) => c.op === 'rpc' && c.name === 'ai_run_start').args.p_reserve, 3.5);
+});
+
+// ش45 decisions 3 and 4: the marketing assistants and the filled campaign — offered to whoever may open them (has_perm with the member's
+// client), refused when the model calls them for anyone else
+Deno.test('assistant ش45: ask_agent / open_campaign offered with marketing.view / marketing.create, cleaned into actions; refused for a member without', async () => {
+  const replies = () => [
+    toolUse([{ id: 'tu_1', name: 'ask_agent', input: { agent: 'dev', question: 'ليه الموقع بطيء؟' } }, { id: 'tu_2', name: 'open_campaign', input: { goal: 'عرض / خصم', idea: 'خصم الشتا', post: 2, video: 1, dur: 99 } }]),
+    msg('حوّلت سؤالك للمبرمج وفتحتلك الكامبين.', { stop_reason: 'end_turn', content: [{ type: 'text', text: 'حوّلت سؤالك للمبرمج وفتحتلك الكامبين.' }] }),
+  ];
+  const a = setup({ memberSeed: MEMBER_SEED, memberRpc: { has_perm: ({ key }: any) => (key === 'marketing.view' || key === 'marketing.create' ? 'F' : 'N') }, replies: replies() });
+  const r = await call(a.deps, ASSIST('سؤال'), 'jwt-view');
+  assertEquals(r.res.status, 200, JSON.stringify(r.body));
+  const names = a.asked[0].tools.map((t: any) => t.name);
+  assert(names.includes('ask_agent') && names.includes('open_campaign'), names.join(','));
+  assertEquals(r.body.actions, [{ name: 'ask_agent', input: { agent: 'dev', question: 'ليه الموقع بطيء؟' } },
+    { name: 'open_campaign', input: { goal: 'عرض / خصم', idea: 'خصم الشتا', post: 2, carousel: 0, video: 1, dur: 30 } }]);
+  // view only: no open_campaign offered; called anyway → refused as a tool error, no action
+  const b = setup({ memberSeed: MEMBER_SEED, memberRpc: { has_perm: ({ key }: any) => (key === 'marketing.view' ? 'P' : 'N') }, replies: replies() });
+  const r2 = await call(b.deps, ASSIST('سؤال'), 'jwt-view');
+  assertFalse(b.asked[0].tools.some((t: any) => t.name === 'open_campaign'));
+  assertEquals(r2.body.actions.map((x: any) => x.name), ['ask_agent']);
+  assertEquals(b.asked[1].messages.at(-1).content.map((x: any) => [x.tool_use_id, x.is_error ?? false]), [['tu_1', false], ['tu_2', true]]);
+  // no marketing at all: neither tool offered nor kept
+  const c = setup({ memberSeed: MEMBER_SEED, replies: replies() });
+  const r3 = await call(c.deps, ASSIST('سؤال'), 'jwt-view');
+  assertFalse(c.asked[0].tools.some((t: any) => t.name === 'ask_agent'));
+  assertEquals(r3.body.actions, []);
 });
 
 Deno.test('assistant: propose_entry is an action with the confirm wording (nothing recorded); the data reads stop at MAX_TOOL_CALLS; a stopped member is 401; the filter mode forces set_filter and answers in one call', async () => {

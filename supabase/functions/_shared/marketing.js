@@ -9,6 +9,7 @@ import { DEFAULT_MODEL, MAX_PROMPT, MODEL_IDS, line as imgLine, sizeOf } from '.
 import { FALLBACK, IMAGE_TYPES, MAX_IMAGE_B64, MAX_TOKENS, line, memberNotes, notesText, paras } from './ai-content.js';
 import { kbBlocks } from './agent-kb.js';
 import { speedLine } from './site-speed.js';
+import { DRAFT_RULE, DRAFT_SCHEMA, campaignDraft } from './campaign-draft.js';
 
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -445,7 +446,7 @@ export const AGENT_REQ_TITLE_MAX = 80;
 export const AGENT_REQ_DETAILS_MAX = 1500;
 const REQ_RULE = `
 - When the ask is a real job for a person (a design to make, a page or a feature to build, a campaign to set up and run, anything you cannot finish inside the chat), or the member wants to hand it to the team, suggest «تقديم طلب» in your text and fill request: title (Egyptian Arabic, at most ${AGENT_REQ_TITLE_MAX} characters, what is wanted) and details (Egyptian Arabic, at most ${AGENT_REQ_DETAILS_MAX} characters: the brief the human needs — sizes, products, deadline, links, steps). The member reviews it and sends it themself. Otherwise request.title and request.details are "".`;
-const AGENT_BASE = { buyer: BUYER_AGENT_BASE + REQ_RULE, designer: DESIGNER_BASE + REQ_RULE, dev: DEV_BASE + REQ_RULE };
+const AGENT_BASE = { buyer: BUYER_AGENT_BASE + REQ_RULE, designer: DESIGNER_BASE + REQ_RULE + DRAFT_RULE, dev: DEV_BASE + REQ_RULE };
 const REQ_SCHEMA = () => obj({ title: STR(), details: STR() });
 /** agent { agent, chat_id: uuid | null, question (≤ 1000) } → { req } | { error, field }. */
 export function parseAgent(b) {
@@ -490,7 +491,7 @@ export function agentRequest(req, ctx) {
   const messages = (Array.isArray(ctx.history) ? ctx.history : []).map((h) => ({ role: h.role, content: [{ type: 'text', text: h.text }] }));
   if (messages.length && messages[messages.length - 1].role === 'user') messages.pop(); // a turn left without an answer is not repeated
   messages.push({ role: 'user', content: [{ type: 'text', text: head + req.question }] });
-  const schema = req.agent === 'designer' ? obj({ text: STR(), image_prompt: STR(), request: REQ_SCHEMA() }) : obj({ text: STR(), request: REQ_SCHEMA() });
+  const schema = req.agent === 'designer' ? obj({ text: STR(), image_prompt: STR(), request: REQ_SCHEMA(), campaign: DRAFT_SCHEMA() }) : obj({ text: STR(), request: REQ_SCHEMA() });
   return { model: ctx.model, max_tokens: MAX_TOKENS, ...FALLBACK, system, messages, output_config: { effort: ctx.effort, format: { type: 'json_schema', schema } } };
 }
 /**
@@ -516,7 +517,7 @@ export function siteBlock(rows) {
 export function cleanAgent(json, agent) {
   const src = isObj(json) ? json : {};
   const out = { text: paras(src.text, AGENT_ANSWER_MAX) };
-  if (agent === 'designer') out.imagePrompt = imgLine(src.image_prompt, AGENT_PROMPT_MAX);
+  if (agent === 'designer') { out.imagePrompt = imgLine(src.image_prompt, AGENT_PROMPT_MAX); out.campaign = campaignDraft(src.campaign); } // ش45 decision 4: the filled campaign
   const rq = isObj(src.request) ? src.request : {}; const title = line(rq.title, AGENT_REQ_TITLE_MAX);
   out.request = title ? { title, details: paras(rq.details, AGENT_REQ_DETAILS_MAX) } : null;
   return out;

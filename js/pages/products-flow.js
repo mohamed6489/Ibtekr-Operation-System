@@ -1204,8 +1204,9 @@
       : r.found ? 'لقينا ' + r.found + ' صورة بس خاناتها مليانة أو مش معروف منتجها' : 'مفيش نتائج جديدة على Magnific لسه — شغّل الفلو (Run) على الـ Space الأول', put ? 'success' : 'warning');
     R();
   }
+  const mgOn = (tool) => !window.IBSettings || !window.IBSettings.magnificOn || window.IBSettings.magnificOn(tool); // 0123: the bridge's buttons only while Magnific is the image provider
   function magnificBar() {
-    const I = IM(); const s = st(); if (!I || !S.id || !s || s.case === 'photos') return null;
+    const I = IM(); const s = st(); if (!I || !S.id || !s || s.case === 'photos' || !mgOn('studio')) return null;
     mgShares(); const sh = MG.shares; const sent = sh ? sh.sent : 0; const mf = s.mflow && typeof s.mflow === 'object' ? s.mflow : null;
     const state = sh && sh.rows.length ? sh.sent + ' صورة مبعوتة' + (sh.pending ? ' · ' + sh.pending + ' مستنية الربط' : '') + (sh.failed ? ' · ' + sh.failed + ' فشلت' : '') : '';
     const send = Button({ size: 'sm', icon: 'upload', label: MG.busy === 'send' ? 'بنبعت…' : 'ابعت لـ Magnific', disabled: !!MG.busy || !rows().some((r) => r.ref), attrs: { 'data-mg-send': '' }, onClick: mgSend });

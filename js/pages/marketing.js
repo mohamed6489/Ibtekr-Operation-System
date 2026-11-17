@@ -426,8 +426,9 @@
     const rest = (r.offhost + r.failed) ? ' · ' + K.n0(r.offhost + r.failed) + ' ما اتنزّلتش — جرّب تاني' : '';
     K.toast(n ? 'اتحطت ' + K.n0(n) + ' صورة من Magnific على قطعها — راجعها' + rest : r.found ? 'النتايج ما اتنزّلتش' + rest : 'مفيش نتايج جديدة على Magnific — شغّل المولّدات في الـ Space الأول', n ? 'success' : r.found ? 'error' : 'info');
   }
+  // 0123 (the owner 17 Nov): the bridge's bar only while Magnific is the campaign's image provider in «الإعدادات»
   function magnificBar() {
-    if (!can().create || !MK() || !MK().magnificSend) return null;
+    if (!can().create || !MK() || !MK().magnificSend || (window.IBSettings && window.IBSettings.magnificOn && !window.IBSettings.magnificOn('campaign'))) return null;
     mgStatus(); const mg = camp.mg; const n = mgCount(); const busy = camp.mgBusy;
     const url = mg && typeof mg.url === 'string' && /^https:\/\//.test(mg.url) ? mg.url : null;
     const head = h('div', { class: 'fl-mg-h' }, Icon('sparkle', 'sm'), h('b', null, 'Magnific'), h('small', { class: 'help' }, 'ولّد على موقع Magnific بباقتك — من غير كريدت الـ API: ابعت القطع (صورها المرجعية والبرومبت بتاع كل صورة)، شغّل المولّدات هناك، وهات النتائج على القطع.'));

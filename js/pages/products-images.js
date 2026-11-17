@@ -109,7 +109,9 @@
     S.sel = new Set(r.paths);
     K.toast('اتستوردت ' + r.imported + ' صورة من Magnific' + (r.failed ? ' — ' + r.failed + ' ماتنزّلتش' : '') + ' — راجعها قبل ما تحفظها', r.failed ? 'warn' : 'success'); R();
   }
+  const mgOn = (tool) => !window.IBSettings || !window.IBSettings.magnificOn || window.IBSettings.magnificOn(tool); // 0123: the bridge's buttons only while Magnific is the image provider
   function importsCard() {
+    if (!mgOn('tool')) return null;
     const rows = S.imports || []; const last = S.lastBatch; if (!rows.length && !last) return null;
     const ST = { pending: ['info', 'جاهزة'], partial: ['warn', 'ناقصة'], error: ['error', 'فشلت'] };
     const list = rows.map((x) => { const p = x.productId && PR() ? PR().get(x.productId) : null; const st = ST[x.status] || ST.pending; const busy = S.importing === x.id; const studio = x.target === 'studio';
@@ -190,9 +192,9 @@
       U.Select({ id: 'img-def-model', label: 'الموديل الافتراضي', options: I.MODELS.map((x) => ({ value: x.id, label: x.name + ' — ' + x.credits + ' كريدت' })), value: f.model, help: (I.modelOf(f.model) || {}).note || '', onChange: (v) => { f.model = v; m.setBody(...body()); } }),
       U.TextInput({ id: 'img-cap', label: 'سقف الشهر بالكريدت', value: f.cap, dir: 'ltr', inputmode: 'numeric', placeholder: 'من غير سقف', help: 'لما الكريدت توصله الصور بتقف لحد أول الشهر الجاي. فاضي = من غير سقف. (1 كريدت ≈ $' + I.CREDIT_USD + ')', onInput: (v) => { f.cap = v; } }),
       U.InlineNote({ children: 'التغيير بيمشي على الصور الجاية على طول، لكل الفريق؛ موديل دفعة في الاستوديو بيتغيّر من جواها.' }),
-      linkBox(), promptsBox(),
+      mgOn('tool') ? linkBox() : null, mgOn('tool') ? promptsBox() : null,
       // T2: the connection test — the provider's account answer as keys and types only (no values), or the error with its HTTP status
-      h('div', { class: 'acts-inline' }, Button({ size: 'sm', label: probe.busy ? 'بيتصل…' : 'اختبار الاتصال بـ Magnific', disabled: probe.busy, attrs: { 'data-img-probe': '' }, onClick: async () => { probe.busy = true; m.setBody(...body()); const r = await I.probe(); probe.busy = false; probe.out = r.ok ? 'متصل ✓ — شكل رد الحساب: ' + JSON.stringify(r.shape) : I.why(r) || (MSG[r.reason] || MSG.network) + (r.status ? ' (HTTP ' + r.status + ')' : ''); m.setBody(...body()); } })),
+      !mgOn('tool') ? null : h('div', { class: 'acts-inline' }, Button({ size: 'sm', label: probe.busy ? 'بيتصل…' : 'اختبار الاتصال بـ Magnific', disabled: probe.busy, attrs: { 'data-img-probe': '' }, onClick: async () => { probe.busy = true; m.setBody(...body()); const r = await I.probe(); probe.busy = false; probe.out = r.ok ? 'متصل ✓ — شكل رد الحساب: ' + JSON.stringify(r.shape) : I.why(r) || (MSG[r.reason] || MSG.network) + (r.status ? ' (HTTP ' + r.status + ')' : ''); m.setBody(...body()); } })),
       probe.out ? h('pre', { class: 't-small', dir: 'ltr', style: 'margin:0;white-space:pre-wrap;overflow-wrap:anywhere', 'data-img-probe-out': '' }, probe.out) : null];
     const save = async () => {
       const r = await I.saveSettings({ model: f.model, monthlyCredits: f.cap.trim() === '' ? null : f.cap.trim() });

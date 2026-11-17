@@ -537,6 +537,17 @@
   const genPick = (k, ok, def) => { const sg = section('general') || {}; const pg = (data.public && data.public.general) || {}; const v = ok.includes(String(sg[k])) ? sg[k] : pg[k]; return ok.includes(String(v)) ? String(v) : def; };
   const clock = () => genPick('clock', ['12', '24'], '12');
   const dateFmt = () => genPick('dateFmt', ['dmy', 'ymd'], 'dmy');
+  // 0123 (the owner 17 Nov — «عايز اي زراير ليها علاقة ب magnific تختفي لو انا غيرت ال api بتاع magnific بحاجة تانية»): the image provider of
+  // a tool (studio · campaign · tool) — the admin's own row «ai» when it is loaded, else settings_public().ai — and whether the Magnific
+  // bridge's buttons belong on that tool's page (Magnific as shipped, and before 0123 hands it out)
+  const IMG_PROVIDERS = ['magnific', 'openai', 'gemini'];
+  function imageProvider(tool) {
+    const own = section('ai'); const P = own && own.providers && own.providers.image;
+    const img = P && typeof P === 'object' ? P : ((data.public && data.public.ai && data.public.ai.image) || {});
+    const t = img.tools && IMG_PROVIDERS.includes(img.tools[tool]) ? img.tools[tool] : null;
+    return t || (IMG_PROVIDERS.includes(img.default) ? img.default : 'magnific');
+  }
+  const magnificOn = (tool) => imageProvider(tool) === 'magnific';
   function weekStart() { const sg = section('general'); const g = (sg && sg.week ? sg : null) || (data.public && data.public.general) || sg || {}; const d = WEEK_DAYS[String(g.week || '').trim()]; return d === undefined ? 6 : d; }
   // the admin saves the lists (each 1–30 items of at most 60 characters, no repeats; «أخرى» is added last by the reader where it belongs)
   // → { ok } · logged as settings.lists.save (counts only). A key left out keeps what is saved; cancel / returns are always written.
@@ -653,7 +664,7 @@
     log('brand.menu', String(what || '').slice(0, 60), 'brand'); return { ok: true, menu: v };
   }
 
-  window.IBSettings = { MENU_ICONS, MENU_LOCKED, MENU_LABEL_MAX, cleanMenu, menuOf, menuNow, saveMenu, loginLocks, loginUnlock, load, ensure, loadPublic, clear, data, section, sections: () => Object.assign({}, data.sections), roles, liveRoles, public: () => data.public, can, PERMS, PERM_KEYS, lists, saveLists, statusLabel, STATUS_KINDS, setRoleLevelPerms, setMemberLevel, levelPermsOf, MEMBER_LEVELS: MLEVELS, quickList, quickSave, quickDelete, quickOrder, QUICK_SCOPES: Q_SCOPES, expenseKinds, statusList, addedStatuses, delayRules, fakeRule, saveFake, orderStatuses, orderStatusAdd, orderStatusSlug, orderStatusDelete, orderStatusOrder, ADDED_MAX, ADDED_LEN, weekStart, clock, dateFmt, KIND_MAX, KINDS_MAX,
+  window.IBSettings = { MENU_ICONS, MENU_LOCKED, MENU_LABEL_MAX, cleanMenu, menuOf, menuNow, saveMenu, loginLocks, loginUnlock, load, ensure, loadPublic, clear, data, section, sections: () => Object.assign({}, data.sections), roles, liveRoles, public: () => data.public, can, PERMS, PERM_KEYS, lists, saveLists, statusLabel, STATUS_KINDS, setRoleLevelPerms, setMemberLevel, levelPermsOf, MEMBER_LEVELS: MLEVELS, quickList, quickSave, quickDelete, quickOrder, QUICK_SCOPES: Q_SCOPES, expenseKinds, statusList, addedStatuses, delayRules, fakeRule, saveFake, orderStatuses, orderStatusAdd, orderStatusSlug, orderStatusDelete, orderStatusOrder, ADDED_MAX, ADDED_LEN, weekStart, imageProvider, magnificOn, clock, dateFmt, KIND_MAX, KINDS_MAX,
     save, setRolePerms, createRole, updateRole, deleteRole, setMemberRole, setMemberRoles, setMemberPerms, setMemberStatus, sessions, revokeSession, deviceOf,
     links, setSecret, wooSet, testSecret, unlink, connections, notifyStatus, notifyTick, activity, pageOf, docs, addDoc, updateDoc, removeDoc, docUrl, uploadLogo, logoUrl, LOGO_SLOTS, uploadFont, removeFont, loadFont, fontList, FONT_MAX, FONTS_MAX, wipe, WIPE_SECTIONS };
 })();

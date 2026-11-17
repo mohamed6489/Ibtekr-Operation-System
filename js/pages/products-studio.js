@@ -545,8 +545,9 @@
       flow && flow.url ? h('a', { class: 'btn btn-default sm', href: flow.url, target: '_blank', rel: 'noopener', 'data-flow-open': '' }, 'افتح الـ Space ↗') : null,
       flow ? h('span', { class: 't-small help', 'data-flow-state': '' }, 'فلو «' + (flow.category || '') + '» · ' + (Array.isArray(flow.order) ? flow.order.length : 0) + ' صورة · 3 لقطات + صورة المقاس لكل منتج له مقاس') : null);
   }
+  const mgOn = (tool) => !window.IBSettings || !window.IBSettings.magnificOn || window.IBSettings.magnificOn(tool); // 0123: the bridge's buttons only while Magnific is the image provider
   function shareBar() {
-    const I = IM(); if (!I || !S.id || !canImgAI()) return null;
+    const I = IM(); if (!I || !S.id || !canImgAI() || !mgOn('studio')) return null;
     readShares();
     const sh = S.shares; const L = items();
     const txt = !sh ? null : sh.rows.length ? (sh.sent + ' مبعوتة · ' + sh.pending + ' مستنية الرفع' + (sh.failed ? ' · ' + sh.failed + ' فشلت' : '')) : null;

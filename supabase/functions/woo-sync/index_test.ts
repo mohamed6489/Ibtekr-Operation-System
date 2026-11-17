@@ -3406,3 +3406,15 @@ Deno.test('no row «store» (or platform woo) → WooCommerce as always', async 
   const { res } = await call(deps, { action: 'orders' });
   assertEquals(res.status, 200);
 });
+
+Deno.test('single-seller mode: Dokan actions are skipped (200 single_mode, no call); «all» pulls everything but the stores', async () => {
+  const { woo, deps } = setup({ seed: { settings: [{ section: 'store', data: { mode: 'single' } }] }, routes: { 'GET wc/v3/orders': page([]) } });
+  for (const action of ['vendors', 'accounts', 'withdrawals', 'statement']) {
+    const { res, body } = await call(deps, { action, vendor_id: 'x' });
+    assertEquals(res.status, 200);
+    assertEquals(body, { action, result: 'skipped', reason: 'single_mode' });
+  }
+  assertEquals(woo.calls.length, 0);
+  const r = await call(deps, { action: 'orders' });
+  assertEquals(r.res.status, 200);
+});

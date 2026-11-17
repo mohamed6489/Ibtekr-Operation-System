@@ -160,7 +160,7 @@ import { START_DATE, SYNC_FIELDS, bankDigest, mapStore, nextCursor, outgoingWooS
 import { getState, logSync, setState, upsertRows } from '../_shared/db.js';
 import { PAY_STATUSES, orderCreateInput, orderPayable, payUrl, wooOrderBody } from '../_shared/woo-order-create.js';
 import { vaultEnv } from '../_shared/secrets.js';
-import { readStore, STORE_FREE_ACTIONS, wooActive } from '../_shared/store/index.js';
+import { isSingle, readStore, SINGLE_OFF_ACTIONS, STORE_FREE_ACTIONS, wooActive } from '../_shared/store/index.js';
 import { ConfigError, WooError, errorText, makeScrubber, wooApi } from '../_shared/woo-api.js';
 import { AR_FIELDS, BATCH_FIELDS, EDIT_FIELDS, VARIATION_FIELDS, brandNamesOf, cleanFields, editView, sharedOf, toWoo, variationView, withBrandAttr } from '../_shared/woo-products.js';
 import { STUDIO_ATTRS, VARIATION_GALLERY_KEY, buildStudio, fetchSheetCsv, matchWooBrand, styleTerms, wooBrandIds } from '../_shared/woo-studio.js';
@@ -178,7 +178,7 @@ type Db = any;
 type Json = Record<string, any>;
 export type Deps = { env: Record<string, string | undefined>; fetch: typeof fetch; db: Db; now: () => string; userDb?: (jwt: string) => Db; userId?: (jwt: string) => Promise<string | null> };
 type Ctx = Awaited<ReturnType<typeof writeContext>>;
-type Run = { db: Db; env: Deps['env']; woo: () => ReturnType<typeof wooApi>; ctx: () => Promise<Ctx>; kind: 'cron' | 'manual'; now: () => string };
+type Run = { db: Db; env: Deps['env']; woo: () => ReturnType<typeof wooApi>; ctx: () => Promise<Ctx>; kind: 'cron' | 'manual'; now: () => string; single?: boolean };
 
 const ACTIONS = ['states', 'categories', 'orders', 'vendors', 'products', 'all', 'push_status', 'push_vendor', 'register_webhooks', 'probe_store', 'probe_dokan', 'accounts', 'statement', 'withdraw_approve', 'withdraw_create', 'withdrawals', 'order_trash', 'suborder_trash', 'line_trash', 'line_qty', 'line_add', 'suborder_status', 'order_create', 'order_pay_link',
   'vendor_photo', 'vendor_store', 'product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'studio_media', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push', 'product_duplicate', 'carts',
@@ -399,6 +399,7 @@ async function pull(run: Run, action: string) {
   const failed: string[] = [];
   let upstream = false;
   for (const part of action === 'all' ? Object.keys(PULLS) : [action]) {
+    if (run.single && part === 'vendors') { counts[part] = { skipped: 'single_mode' }; continue; } // single-seller mode: no Dokan stores
     try {
       counts[part] = await PULLS[part](run);
       await logSync(run.db, { kind: run.kind, direction: 'in', entity: part, action: 'sync', result: 'ok', detail: counts[part] });
@@ -2752,12 +2753,17 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
   if (!mode) return json(401, { error: 'unauthorized' });
   if (!ACTIONS.includes(action)) return json(400, { error: 'unknown_action' });
   // 0127: WooCommerce is no longer the store (the admin switched to another platform) — nothing here reaches it any more
-  if (!STORE_FREE_ACTIONS.includes(action) && !wooActive(await readStore(deps.db))) return json(409, { error: 'store_off', action });
+  const store = STORE_FREE_ACTIONS.includes(action) ? null : await readStore(deps.db);
+  if (store && !wooActive(store)) return json(409, { error: 'store_off', action });
+  // single-seller mode (the plan 2026-11-17-stores-single.md T3): nothing of Dokan (stores, sub-orders, balances, withdrawals) is read or
+  // written — skipped, not an error (the crons keep calling); the pages hide these actions anyway
+  const single = !!store && isSingle(store);
+  if (single && SINGLE_OFF_ACTIONS.includes(action)) return json(200, { action, result: 'skipped', reason: 'single_mode' });
 
   let woo: ReturnType<typeof wooApi> | null = null;
   let ctx: Promise<Ctx> | null = null;
   const run: Run = {
-    db: deps.db, env: deps.env, now: deps.now, kind: mode === 'system' ? 'cron' : 'manual',
+    db: deps.db, env: deps.env, now: deps.now, kind: mode === 'system' ? 'cron' : 'manual', single,
     woo: () => (woo ??= wooApi(deps.env, deps.fetch)),
     ctx: () => (ctx ??= writeContext({ db: deps.db, woo: run.woo(), kind: 'sync', now: deps.now, pushEnabled: pushEnabled(deps.env) })),
   };

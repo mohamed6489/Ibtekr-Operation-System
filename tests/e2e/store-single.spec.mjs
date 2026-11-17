@@ -22,18 +22,15 @@ async function signIn(page) {
 const storeRow = () => ((mock.settings || []).find((r) => r.section === 'store') || {}).data || null;
 const setStore = (data) => { mock.settings = (mock.settings || []).filter((r) => r.section !== 'store').concat([{ section: 'store', data, updated_at: '2026-11-17T10:00:00Z', updated_by: null }]); };
 
-test('the switch in «عام» writes the row «store» after a confirm — off by default, the makers page in the menu', async ({ page }) => {
+test('«تفعيل البيع الفردي» says «قريبًا» until it is finished (no switch) — the makers page stays in the menu', async ({ page }) => {
   await signIn(page);
   await expect(page.locator('.sidebar .nav-item[data-page="vendors"]')).toBeVisible();
   await page.evaluate(() => { location.hash = 'settings-general'; });
-  const sw = page.locator('[data-store-single]');
-  await expect(sw).toHaveAttribute('aria-checked', 'false');
-  await expect(page.locator('[data-store-sec]')).toContainText('WooCommerce');
-  await page.evaluate(() => { window.__noReload = true; location.reload = () => { window.__reloaded = true; }; });
-  await sw.click();
-  await expect(page.locator('.modal[role=dialog]')).toContainText('مفيش داتا هتتمسح');
-  await page.locator('.modal[role=dialog]').getByRole('button', { name: 'فعّل البيع الفردي' }).click();
-  await expect.poll(() => storeRow()).toEqual({ mode: 'single' });
+  const sec = page.locator('[data-store-sec]');
+  await expect(sec).toContainText('WooCommerce');
+  await expect(sec).toContainText('قريبًا');
+  await expect(page.locator('[data-store-single]')).toHaveCount(0);
+  expect(storeRow()).toBeNull();
 });
 
 test('single mode: no makers page, no makers tabs in accounts and reports, the order lines are «المنتجات» without a maker', async ({ page }) => {
@@ -90,4 +87,56 @@ test('single mode: the dashboard has no makers\' tiles or cards', async ({ page 
   await expect(page.locator('.dash-kpis', { hasText: 'رصيد المبتكرين' })).toHaveCount(0);
   await expect(page.locator('.dash-kpis', { hasText: 'مبتكرين متأخرين' })).toHaveCount(0);
   await expect(page.locator('.dash-grid', { hasText: 'المبتكرين المحتاجين متابعة' })).toHaveCount(0);
+});
+
+test('single mode: the margin is saved from «عام»', async ({ page }) => {
+  setStore({ mode: 'single' });
+  await signIn(page);
+  await page.evaluate(() => { location.hash = 'settings-general'; });
+  const m = page.locator('[data-store-margin]');
+  await expect(m).toHaveValue('30');
+  await m.fill('45'); await m.press('Tab');
+  await expect.poll(() => storeRow()).toEqual({ mode: 'single', margin: 45 });
+});
+
+test('single mode: the studio\'s second step is «البراند» (its name + the SKU code) — no maker', async ({ page }) => {
+  setStore({ mode: 'single' });
+  await signIn(page);
+  await page.locator('.sidebar .nav-item[data-page="products"]').click();
+  await page.locator('#pg-products [role=tab]', { hasText: 'إضافة' }).click();
+  await page.getByRole('button', { name: 'استوديو المنتجات — ابدأ دفعة' }).click();
+  const m = page.locator('.modal'); await expect(m).toContainText('دفعة منتجات جديدة');
+  await m.getByRole('radio', { name: /شيت جاهز/ }).click();
+  await m.getByRole('radio', { name: /^Simple/ }).click();
+  await m.locator('[data-flow-start]').click();
+  await expect(page.locator('#pg-products ol.wstepper')).toContainText('البراند');
+  await expect(page.locator('#pg-products ol.wstepper').first()).not.toContainText('المبتكر');
+});
+
+test('marketplace (default): the studio\'s second step is «المبتكر»', async ({ page }) => {
+  await signIn(page);
+  await page.locator('.sidebar .nav-item[data-page="products"]').click();
+  await page.locator('#pg-products [role=tab]', { hasText: 'إضافة' }).click();
+  await page.getByRole('button', { name: 'استوديو المنتجات — ابدأ دفعة' }).click();
+  const m = page.locator('.modal');
+  await m.getByRole('radio', { name: /شيت جاهز/ }).click();
+  await m.getByRole('radio', { name: /^Simple/ }).click();
+  await m.locator('[data-flow-start]').click();
+  await expect(page.locator('#pg-products ol.wstepper').first()).toContainText('المبتكر');
+});
+
+test('Shopify and EasyOrders say «قريبًا» until the system runs on them: the platforms row in «عام» and their cards in «الربط بالمنصات» (no link button)', async ({ page }) => {
+  await signIn(page);
+  await page.evaluate(() => { location.hash = 'settings-general'; });
+  const row = page.locator('[data-store-platforms]');
+  await expect(row).toContainText('WooCommerce ✓');
+  await expect(row).toContainText('Shopify · قريبًا');
+  await expect(row).toContainText('EasyOrders · قريبًا');
+  await page.evaluate(() => { location.hash = 'settings-integrations'; });
+  await expect(page.locator('[data-integ="woo"]')).toBeVisible();
+  const eo = page.locator('[data-integ="easyorders"]');
+  await expect(eo).toContainText('قريبًا');
+  await expect(eo.locator('[data-integ-soon]')).toBeDisabled();
+  const sh = page.locator('[data-integ="shopify"]');
+  if (await sh.count()) { await expect(sh).toContainText('قريبًا'); await expect(sh.locator('[data-integ-connect]')).toHaveCount(0); }
 });

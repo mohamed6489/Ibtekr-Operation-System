@@ -37,7 +37,12 @@
   const S = { id: null, row: null, step: 1, loading: false, err: '', timer: null, sel: new Set(), busy: '', tr: new Set(), prog: { img: null, sheet: null }, results: null };
   const st = () => S.row && S.row.state;
   const blank = (kase, type) => ({ flow: 2, case: kase, type, vendorId: null, vendorName: '', brandId: null, brandName: '', code: '', rate: null, fee: null, rows: [], kinds: { sizes: 0, colors: 0 }, products: [], shots: {}, sizeShot: {}, features: null, sheetName: '', items: [], screens: 0 });
-  const steps = () => (st() && st().case === 'photos' ? STEPS.photos : STEPS.data);
+  // the plan 2026-11-17-stores-single.md (T3): single-seller mode — no maker: the second step is «البراند» (its name and its SKU code), and
+  // the price comes from the cost + the store's margin (settings «store».margin: a markup — sale = cost × (1 + margin%), the rate the
+  // pricing already reads = margin ÷ (100 + margin)); the marketplace (the default) is untouched
+  const SINGLE = () => !!(window.IBSettings && window.IBSettings.single && window.IBSettings.single());
+  const singleRate = () => { const m = (window.IBSettings && window.IBSettings.store) ? Number(window.IBSettings.store().margin) : 30; return Math.round((m / (100 + m)) * 10000) / 100; };
+  const steps = () => { const L = st() && st().case === 'photos' ? STEPS.photos : STEPS.data; return SINGLE() ? L.map((x) => (x === 'المبتكر' ? 'البراند' : x)) : L; };
   const isVar = () => st() && st().type === 'Variable';
   const hashFor = (n) => 'products-flow-' + (S.id || 'new') + '-' + n;
 
@@ -148,15 +153,15 @@
   const pathOfId = (id) => { const c = cats().find((x) => x.id === Number(id)); return c ? c.path.replace(/\s*›\s*/g, ' > ') : ''; };
 
   // ---------------- the items the server reads (one per product, flow 2) ----------------
-  const rateNow = () => { const s = st(); if (s.rate != null) return Number(s.rate); return PR() && s.vendorId ? PR().rateOf(s.vendorId) : null; };
-  const feeNow = () => { const s = st(); if (s.fee != null) return Number(s.fee); const v = V() && V().store && s.vendorId ? V().store.get(s.vendorId) : null; return v && v.rateFlat ? Number(v.rateFlat) : 0; };
+  const rateNow = () => { const s = st(); if (s.rate != null) return Number(s.rate); if (SINGLE()) return singleRate(); return PR() && s.vendorId ? PR().rateOf(s.vendorId) : null; };
+  const feeNow = () => { const s = st(); if (s.fee != null) return Number(s.fee); if (SINGLE()) return 0; const v = V() && V().store && s.vendorId ? V().store.get(s.vendorId) : null; return v && v.rateFlat ? Number(v.rateFlat) : 0; };
   // a row's group head (a Variable's variations share its category)
   const headOf = (r) => { const i = rows().indexOf(r); const g = groups().find((x) => x.rows.includes(i)); return g ? rows()[g.rows[0]] : r; };
   // the rate a product is priced with (the owner 15 Nov — a category can have its own rate): the batch's own when set, else what Dokan
   // takes on it — a «category_based» maker's rate on the product's category or its nearest parent with one, else his general rate
   // (IBProducts.commissionParams, the same reading as the products' «Commission»). → { rate, fee, byCat } or null (not visible)
   function commOf(r) {
-    const s = st(); if (s.rate != null) return { rate: Number(s.rate), fee: feeNow(), byCat: false };
+    const s = st(); if (s.rate != null || SINGLE()) return { rate: rateNow(), fee: feeNow(), byCat: false };
     const cid = catIdOf((r && r.catEn) || headOf(r).catEn);
     const c = s.vendorId && PR() && PR().commissionParams ? PR().commissionParams({ vendorId: s.vendorId, categoryIds: cid == null ? [] : [cid] }) : null;
     if (c && c.rate != null) return { rate: Number(c.rate), fee: Number(c.fee) || 0, byCat: c.source === 'category' };
@@ -497,7 +502,21 @@
   }
 
   // ---------------- 2 المبتكر والبراند (decision 4) ----------------
+  // single-seller mode: the brand's name (written on the products) and its SKU code — no maker, no store, no rate
+  function step2Single() {
+    const s = st();
+    const body = [h('div', { class: 'grid2' },
+        U.TextInput({ id: 'fl-brand-name', label: 'اسم البراند', value: s.brandName || '', help: 'بيتكتب على المنتجات — فاضي = من غير براند', onInput: (v) => { s.brandName = String(v || '').slice(0, 80); touch(); } }),
+        U.FieldShell({ id: 'fl-code', label: 'كود البراند في الـ SKU (2–4 حروف)', help: 'مثال: GLS — IBTGLS1020-OW' }, h('div', { class: 'input' }, h('input', { id: 'fl-code', dir: 'ltr', maxlength: 4, value: s.code || '', 'data-flow-code': '',
+          onChange: (ev) => { s.code = String(ev.target.value || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4); touch(); R(); } })))),
+      h('div', { class: 'fl-sku-ex t-small help', 'data-fl-sku-ex': '' }, FD.validCode(s.code) ? 'الـ SKU هيبقى: ' : '', FD.validCode(s.code) ? h('b', { dir: 'ltr' }, 'IBT' + s.code + '1020-OW') : null),
+      U.InlineNote({ kind: 'info', children: ['السعر بيتحسب من التكلفة + هامش الربح (', U.num(String((window.IBSettings && window.IBSettings.store) ? window.IBSettings.store().margin : 30) + '%'), ') — بيتغيّر من «الإعدادات › عام».'] }),
+      !FD.validCode(s.code) ? U.InlineNote({ kind: 'warning', children: 'كود البراند لازم 2–4 حروف إنجليزي.' }) : null];
+    const card = Card('البراند', 'البيع الفردي: المنتجات بتترفع باسم المتجر نفسه — البراند بيتكتب على المنتجات وكوده في الـ SKU.', body); card.setAttribute('data-fl-single', '');
+    return [card, Foot(FD.validCode(s.code), 'كود البراند')];
+  }
   function step2() {
+    if (SINGLE()) return step2Single();
     const s = st(); const Vs = V(); const vd = Vs && Vs.data ? Vs.data() : null;
     if (Vs && Vs.state && Vs.state() === 'idle') Vs.load();
     const makers = Vs && Vs.store && Vs.store.all ? Vs.store.all().slice().sort((a, b) => a.name.localeCompare(b.name, 'ar')) : [];

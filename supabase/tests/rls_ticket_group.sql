@@ -23,6 +23,18 @@ insert into public.profiles (id, name, email, phone, role_id, status, custom_per
   ('00000000-0000-4000-8000-000000113a05', 'من غير طلبات', 'tg-none.dev@ibtekr.local', '0100000113a5', 'viewer', 'active', '{"tickets.view":"N"}', '{}'),
   ('00000000-0000-4000-8000-000000113a06', 'موقوف', 'tg-off.dev@ibtekr.local', '0100000113a6', 'viewer', 'suspended', '{"tickets.view":"P","tickets.manage":"F"}', '{}');
 
+-- the voice notes the member "uploaded" (Storage holds the type and size on the live project; locally the client's are used)
+do $$
+begin
+  if to_regclass('storage.objects') is not null then
+    execute $q$insert into storage.objects (bucket_id, name, owner, metadata) values
+      ('tickets', '00000000-0000-4000-8000-000000113a03/v1-voice.webm', '00000000-0000-4000-8000-000000113a03', '{"mimetype":"audio/webm","size":40000}'),
+      ('tickets', '00000000-0000-4000-8000-000000113a03/v2-voice.webm', '00000000-0000-4000-8000-000000113a03', '{"mimetype":"audio/webm","size":40000}'),
+      ('tickets', '00000000-0000-4000-8000-000000113a03/v3-voice.mp4', '00000000-0000-4000-8000-000000113a03', '{"mimetype":"audio/mp4","size":4000000}'),
+      ('tickets', '00000000-0000-4000-8000-000000113a03/v4-voice.webm', '00000000-0000-4000-8000-000000113a03', '{"mimetype":"audio/webm","size":1000}')$q$;
+  end if;
+end $$;
+
 create or replace function pg_temp.as_member(p_uid text) returns void language plpgsql as $$
 begin
   set local role authenticated;

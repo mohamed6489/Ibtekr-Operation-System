@@ -1305,29 +1305,46 @@
         KBL = out; return { ok: true, items: KBL, legacy: true };
       }
       const { data: d, error } = await cl.rpc('ai_agent_kb_list'); if (error) return fail(error);
-      KBL = (Array.isArray(d) ? d : []).map((x) => ({ id: String(x.id), kind: x.kind === 'skills' ? 'skills' : 'rules', section: String(x.section || ''), title: String(x.title || ''), text: typeof x.text === 'string' ? x.text : '', agents: Array.isArray(x.agents) ? x.agents.map(String) : [] }));
+      KBL = (Array.isArray(d) ? d : []).map((x) => ({ id: String(x.id), kind: x.kind === 'skills' ? 'skills' : 'rules', section: String(x.section || ''), title: String(x.title || ''), text: typeof x.text === 'string' ? x.text : '', agents: Array.isArray(x.agents) ? x.agents.map(String) : [],
+        key: typeof x.key === 'string' && x.key ? x.key : null, changed: x.changed === true })); // 0125: a system default (its key) and whether the admin changed it
       return { ok: true, items: KBL, legacy: false };
     } catch (e) { return fail(null); }
   }
   const kbListNow = () => KBL;
-  // a kind's whole list in its order (0120 ai_agent_kb_set — 200 items, 40000 characters; the checks are the server's too)
+  // a kind's whole list in its order (0120 ai_agent_kb_set — 0125: 300 items, 80000 characters, a default's key kept; the checks are the server's too)
   async function kbSetAll(kind, items) {
     if (!isAdmin()) return { ok: false, reason: 'forbidden', message: 'قواعد المساعدين وسكيلزهم للأدمن بس' };
     if (REG.legacy) return NEED_0120;
     if (!['rules', 'skills'].includes(kind)) return { ok: false, reason: 'invalid', message: MESSAGES.invalid };
-    const L = Array.isArray(items) ? items : []; if (L.length > 200) return { ok: false, reason: 'invalid', field: 'items', message: 'لحد 200 بند' };
+    const L = Array.isArray(items) ? items : []; if (L.length > 300) return { ok: false, reason: 'invalid', field: 'items', message: 'لحد 300 بند' };
     let total = 0; const body = [];
     for (const it of L) {
       const sec = clean(it.section, 60); const t = clean(it.title, 80); const x = String(it.text || '').replace(/\r\n?/g, '\n').trim();
       if (!sec || /[<>]/.test(String(it.section))) return { ok: false, reason: 'invalid', field: 'section', message: 'اسم القسم لحد 60 حرف ومن غير < >' };
       if (!t || /[<>]/.test(String(it.title))) return { ok: false, reason: 'invalid', field: 'title', message: 'العنوان لحد 80 حرف ومن غير < >' };
       if (x.length > 1500 || /[<>]/.test(x)) return { ok: false, reason: 'invalid', field: 'text', message: 'التفاصيل لحد 1500 حرف ومن غير < >' };
-      total += sec.length + t.length + x.length; body.push({ section: sec, title: t, text: x, agents: (Array.isArray(it.agents) ? it.agents : []).filter((a) => AGENT_RE.test(String(a))) });
+      total += sec.length + t.length + x.length; body.push(Object.assign({ section: sec, title: t, text: x, agents: (Array.isArray(it.agents) ? it.agents : []).filter((a) => AGENT_RE.test(String(a))) },
+        typeof it.key === 'string' && /^[a-z0-9_.-]{2,60}$/.test(it.key) ? { key: it.key } : {}));
     }
-    if (total > 40000) return { ok: false, reason: 'invalid', field: 'size', message: 'الكلام كله أكتر من 40000 حرف — قصّر شوية' };
+    if (total > 80000) return { ok: false, reason: 'invalid', field: 'size', message: 'الكلام كله أكتر من 80000 حرف — قصّر شوية' };
     const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
     try { const { error } = await cl.rpc('ai_agent_kb_set', { p_kind: kind, p_items: body }); if (error) return fail(error); log('agent.kb', kind + ' · ' + body.length, null); await kbList(true); return { ok: true }; }
     catch (e) { return fail(null); }
+  }
+
+  // 0125 «رجّع الافتراضي»: keys = the defaults to bring back (null = all of the kind; dropAdded = the admin's own rows of the kind go too)
+  async function kbReset(kind, keys, dropAdded) {
+    if (!isAdmin()) return { ok: false, reason: 'forbidden', message: 'قواعد المساعدين وسكيلزهم للأدمن بس' };
+    if (REG.legacy) return NEED_0120;
+    if (!['rules', 'skills'].includes(kind)) return { ok: false, reason: 'invalid', message: MESSAGES.invalid };
+    const K2 = keys == null ? null : (Array.isArray(keys) ? keys : []).filter((k) => /^[a-z0-9_.-]{2,60}$/.test(String(k)));
+    if (K2 && !K2.length) return { ok: false, reason: 'invalid', message: 'مفيش حاجة افتراضية في اللي اخترته' };
+    const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
+    try {
+      const { data, error } = await cl.rpc('ai_agent_kb_reset', { p_kind: kind, p_keys: K2, p_drop_added: K2 == null && !!dropAdded });
+      if (error) return error.code === 'PGRST202' ? { ok: false, reason: 'invalid', message: 'محتاج تحديث الداتا بيز (0125) الأول' } : fail(error);
+      log('agent.kb.reset', kind + ' · ' + (K2 ? K2.length : 'all'), null); await kbList(true); return { ok: true, n: Number(data) || 0 };
+    } catch (e) { return fail(null); }
   }
 
   // ---------- the templates (decision 17) ----------
@@ -1416,7 +1433,7 @@
     adsStatus, adsNow, adsSync, adsData, adsLinkSet, adsLinkStart, adsLinkPick, adsUnlink, adsWhy,
     suggestions, suggNow, decide, campaignSet, adsDataNow, rules, rulesNow, rulesSet, setLive, requests, reqsNow, addRequest, REQ_KIND: KIND_OF, buyerChat,
     agentChats, agentTurns, agentAsk, agentImage, agentRename, agentDelete, agentSettings, agentSettingsNow, agentSettingsSet, AGENT_KEYS,
-    agents, agentsNow, agentOf, agentSave, agentArchive, agentOrder, kbList, kbListNow, kbSetAll, AGENT_PERMS, AGENT_SEES,
+    agents, agentsNow, agentOf, agentSave, agentArchive, agentOrder, kbList, kbListNow, kbSetAll, kbReset, AGENT_PERMS, AGENT_SEES,
     trends, trendsNow, trendsReadyNow, trendsRefresh, trendThumbsFill, trendThumbs, trendThumbNow, trendSettings, trendSettingsNow, trendSettingsSet, adTagsSet, agentKbSet, KB, competitors, competitorsNow, competitorsReadyNow, competitorSave, competitorArchive,
     siteCheck, siteCheckNow, siteReadyNow, siteCheckRun, siteSpeed, siteSpeedNow, siteSpeedRun, siteSubs, siteSubsNow, aiSpend, aiSpendNow,
     addTemplate, editTemplate, removeTemplate, templateUsed, subscribe, unsubscribe, check, MAX_BYTES, MIME, BUCKET,

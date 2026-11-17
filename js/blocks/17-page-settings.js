@@ -161,7 +161,13 @@
     const mine = all.filter((x) => x.kind === kind);
     const shows = (x) => st.kbAgent === 'all' || !x.agents.length || x.agents.includes(st.kbAgent);
     const nameOf = (id) => ((live.find((x) => x.id === id) || {}).name || id);
-    const save = async (L, msg) => { const r = await M.kbSetAll(kind, L.map((x) => ({ section: x.section, title: x.title, text: x.text, agents: x.agents }))); if (!r.ok) { K.toast(r.message || 'ماتحفظش', 'error'); return false; } K.toast(msg, 'success'); R(); return true; };
+    const save = async (L, msg) => { const r = await M.kbSetAll(kind, L.map((x) => ({ section: x.section, title: x.title, text: x.text, agents: x.agents, key: x.key || undefined }))); if (!r.ok) { K.toast(r.message || 'ماتحفظش', 'error'); return false; } K.toast(msg, 'success'); R(); return true; };
+    // 0125 (agents-brain decision 8): pick several — «امسح المحدد» / «رجّع الافتراضي» for them; «رجّع الافتراضي» for the whole kind in the head
+    const pick = st.kbPick || (st.kbPick = {}); const picked = mine.filter((x) => pick[kind + ':' + x.id]); const unpick = () => { mine.forEach((x) => { delete pick[kind + ':' + x.id]; }); };
+    const reset = async (keys, drop) => { const r = await M.kbReset(kind, keys, drop); if (!r.ok) { K.toast(r.message || 'مارجعش', 'error'); return; } unpick(); K.toast('رجع الافتراضي (' + K.n0(r.n) + ')', 'success'); R(); };
+    const resetAll = () => K.form({ title: 'ترجّع ' + title + ' الافتراضية؟', submitLabel: 'رجّع الافتراضي', values: { drop: false },
+      fields: (f, e, set) => [h('p', { class: 't-small' }, 'اللي السيستم كاتبه هيرجع بنصه الأصلي — واللي اتمسح منه هيرجع.'), h('label', { class: 'chk-row' }, h('input', { type: 'checkbox', 'data-kb-drop': '', checked: f.drop, onChange: (ev) => set('drop', ev.target.checked) }), ' امسح اللي ضفته أنا كمان')],
+      submit: async (f, md) => { md.close(); await reset(null, !!f.drop); } });
     const sections = []; mine.forEach((x) => { if (!sections.includes(x.section)) sections.push(x.section); });
     const itemForm = (it, sec) => {
       const cur = it || { section: sec || '', title: '', text: '', agents: st.kbAgent !== 'all' ? [st.kbAgent] : [] };
@@ -185,13 +191,20 @@
           K.RowMenu([{ label: 'تغيير اسم القسم', icon: 'edit', run: () => K.form({ title: 'اسم القسم', values: { name: sec }, fields: (f, e, set) => [K.field.text('name', 'الاسم', f, e, set, { required: true })], validate: (f) => { const v = (f.name || '').trim(); if (!v) return { name: 'اكتب الاسم' }; if (v.length > 60) return { name: 'لحد 60 حرف' }; return {}; }, submitLabel: 'احفظ', submit: async (f, md) => { if (await save(mine.map((x) => (x.section === sec ? Object.assign({}, x, { section: f.name.trim() }) : x)), 'اتغيّر الاسم')) md.close(); } }) },
             { label: 'امسح القسم', icon: 'trash', danger: true, run: () => K.confirm({ title: 'تمسح قسم «' + sec + '»؟', text: 'هيتمسح هو و' + K.n0(mine.filter((x) => x.section === sec).length) + ' جوه.', okType: 'danger', okLabel: 'امسح', onOk: () => save(mine.filter((x) => x.section !== sec), 'اتمسح القسم') }) }], 'إجراءات ' + sec)),
         items.length ? h('ul', { class: 'kb-items' }, items.map((it) => h('li', { 'data-kb-item': it.id || it.title },
-          h('div', { class: 'kb-item-t' }, h('b', null, it.title), it.text ? h('small', null, it.text) : null,
+          h('input', { type: 'checkbox', class: 'kb-pick', 'data-kb-pick': it.id, 'aria-label': 'اختار «' + it.title + '»', checked: !!pick[kind + ':' + it.id], onChange: (ev) => { if (ev.target.checked) pick[kind + ':' + it.id] = true; else delete pick[kind + ':' + it.id]; R(); } }),
+          h('div', { class: 'kb-item-t' }, h('b', null, it.title, it.key ? h('span', { class: 'tag ' + (it.changed ? 'warning' : 'neutral'), 'data-kb-def': it.changed ? 'changed' : 'default' }, it.changed ? 'افتراضي — متعدّل' : 'افتراضي') : null), it.text ? h('small', null, it.text) : null,
             h('span', { class: 'kb-to', 'data-kb-to': it.agents.length ? it.agents.join(',') : 'all' }, it.agents.length ? it.agents.map(nameOf).join(' · ') : 'كل المساعدين')),
           K.RowMenu([{ label: 'تعديل', icon: 'edit', run: () => itemForm(it) }, { label: 'امسح', icon: 'trash', danger: true, run: () => K.confirm({ title: 'تمسح «' + it.title + '»؟', okType: 'danger', okLabel: 'امسح', onOk: () => save(mine.filter((x) => x !== it), 'اتمسحت') }) }], 'إجراءات ' + it.title))))
           : h('p', { class: 't-small help kb-empty' }, 'مفيش حاجة للمساعد ده في القسم ده.')); }).filter(Boolean);
     const n = mine.filter(shows).length;
-    return K.Section(title, cards.length ? [h('div', { class: 'kb-groups', 'data-kb': kind }, cards)] : [K.Empty('لسه مفيش ' + title, help + ' ابدأ بـ «' + one + ' جديدة».')],
-      [Button({ size: 'sm', type: 'primary', icon: 'plus', label: one + ' جديدة', attrs: { 'data-kb-add': kind }, onClick: () => itemForm(null, null) })], { sub: help + (n ? ' · ' + K.n0(n) + ' ' + one : '') });
+    const pickedKeys = picked.filter((x) => x.key).map((x) => x.key);
+    const bar = picked.length ? h('div', { class: 'bulk-bar kb-bulk', 'data-kb-bulk': kind }, h('b', null, 'محدد ' + K.n0(picked.length)),
+      Button({ size: 'sm', type: 'danger', icon: 'trash', label: 'امسح المحدد', attrs: { 'data-kb-del-sel': kind }, onClick: () => K.confirm({ title: 'تمسح ' + K.n0(picked.length) + ' ' + one + '؟', okType: 'danger', okLabel: 'امسح', onOk: async () => { if (await save(mine.filter((x) => !picked.includes(x)), 'اتمسحت')) unpick(); } }) }),
+      pickedKeys.length ? Button({ size: 'sm', icon: 'refresh', label: 'رجّع الافتراضي للمحدد', attrs: { 'data-kb-reset-sel': kind }, onClick: () => reset(pickedKeys, false) }) : null,
+      Button({ size: 'sm', type: 'text', label: 'إلغاء التحديد', onClick: () => { unpick(); R(); } })) : null;
+    return K.Section(title, cards.length ? [bar, h('div', { class: 'kb-groups', 'data-kb': kind }, cards)].filter(Boolean) : [K.Empty('لسه مفيش ' + title, help + ' ابدأ بـ «' + one + ' جديدة».')],
+      [Button({ size: 'sm', icon: 'refresh', label: 'رجّع الافتراضي', attrs: { 'data-kb-reset': kind }, onClick: resetAll }),
+        Button({ size: 'sm', type: 'primary', icon: 'plus', label: one + ' جديدة', attrs: { 'data-kb-add': kind }, onClick: () => itemForm(null, null) })], { sub: help + (n ? ' · ' + K.n0(n) + ' ' + one : '') });
   }
   // ش44 (the owner 17 Nov — «ضيفلي في الستينج بتاعة الميديا باير اني اضيف اسماء المنافسين و الاعلانات الاكثر قوة بناء علي التاجز اللي اضيفها هناك»):
   // the competitors (the same list «إعلانات المنافسين» shows — IBMarketing.competitorSave / competitorArchive) and the ad tags (mkt_ad_tags_set)

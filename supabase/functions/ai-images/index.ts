@@ -81,7 +81,7 @@ import { vaultEnv } from '../_shared/secrets.js';
 import { BridgeError, magnificMcp, randomText, type Bridge, type Tokens } from './providers/magnific-mcp.ts';
 import { REF, campaignFlowNodes, creationsOf, familyOf, flowNodes, importShape, lastPageOf, lineageIds, listIdsOf, matchResults, nodeChunks, nodeDataOf, nodesOf, resolveChunk, templatePrompts, uploadedId, urlsById } from '../_shared/magnific-bridge.js';
 import { DEFAULT_SIZE, agentImagePath, aspectOf, campaignGenPath, campaignPathOk, campaignPrompt, campaignRefs, campaignTarget, campaignTargets, flowKey, parseAgentImage, placeImage, templateNotes, parseCampaign, parseCampaignEdit, pinsPrompt } from '../_shared/marketing.js';
-import { REF_HOPS, REF_PAGE_MAX, imageKind, pageImage, privateIp, refName, refUrl } from '../_shared/ref-link.js';
+import { REF_HOPS, REF_PAGE_MAX, imageKind, pageImage, privateIp, refName, refUrl, tiktokCover } from '../_shared/ref-link.js';
 import { MAX_OPEN_JOBS, MAX_VIDEO_BYTES, MEDIA_EXT, chainedArgs, clipArgs, jobView, mixPlan, modelOf as videoModelOf, musicArgs, nextMix, parseVideo, queuedIds, ttsArgs, videoPath, videoPathOk, waitOf } from '../_shared/mkt-video.js';
 
 // deno-lint-ignore no-explicit-any
@@ -529,6 +529,15 @@ async function trendPicture(deps: Deps, row: Json): Promise<{ img: { bytes: Uint
         if (isObj(j) && typeof j.author_name === 'string') author = line(j.author_name.replace(/[<>]/g, ''), 80) || null;
       } catch { /* no oEmbed answer */ }
     }
+    // TikTok's oEmbed stopped naming a thumbnail (17 Nov): the cover from the video's own page (its data names the item and its cover)
+    const id = /\/video\/(\d{6,30})/.exec(String(row.url))?.[1]; const pg = id ? refUrl(String(row.url)) : null;
+    const page = pg ? await refGet(deps, pg, 'text/html') : { error: 'blocked' };
+    if (!('error' in page)) {
+      const raw = await readCapped(page.res, REF_PAGE_MAX, true);
+      const cover = raw ? refUrl(tiktokCover(new TextDecoder().decode(raw), id) ?? '') : null; if (cover) tries.push(cover);
+    }
+    for (const u of tries) { const got = await refImage(deps, u); if (!('error' in got)) return { img: got, author }; }
+    return { img: null, author };
   }
   const page = refUrl(String(row.url)); if (page) tries.push(page);
   for (const u of tries) { const got = await refImage(deps, u); if (!('error' in got)) return { img: got, author }; }

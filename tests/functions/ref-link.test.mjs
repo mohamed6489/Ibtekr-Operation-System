@@ -1,5 +1,5 @@
 import { test } from 'node:test'; import assert from 'node:assert/strict';
-import { refUrl, privateIp, pageImage, imageKind, refName, REF_HOPS } from '../../supabase/functions/_shared/ref-link.js';
+import { refUrl, privateIp, pageImage, imageKind, refName, tiktokCover, REF_HOPS } from '../../supabase/functions/_shared/ref-link.js';
 // The owner 15 Nov («السيستم مش قابل اي لينكات»): a campaign's examples / photos take any public link — the pure rules the server
 // (ai-images ref_link) fetches under: which links, which addresses, the page's picture, the image's type by its bytes.
 
@@ -36,4 +36,14 @@ test('imageKind: PNG / JPEG / WebP by the first bytes; GIF, SVG, HTML and short 
   assert.equal(imageKind(new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"></svg>')), null);
   assert.equal(imageKind(new Uint8Array([255, 216])), null);
   assert.equal(refName(new URL('https://www.pinterest.com/pin/1')), 'لينك — pinterest.com');
+});
+
+test('tiktokCover (the owner 17 Nov — TikTok\'s oEmbed names no thumbnail): the cover after that video\'s id in the page data, decoded; another id, none, a bad link → null', () => {
+  const html = '<script>{"a":{"id":"7499","cover":"https:\\u002F\\u002Fp16.tiktokcdn.com\\u002Fother.jpg"},"b":{"id":"7400000000000000002","video":{"cover":"https:\\u002F\\u002Fp16.tiktokcdn-eu.com\\u002Fc.image?x-expires=1&s=a%3D"}}}</script>';
+  assert.equal(tiktokCover(html, '7400000000000000002'), 'https://p16.tiktokcdn-eu.com/c.image?x-expires=1&s=a%3D');
+  assert.equal(tiktokCover(html, '7400000000000000003'), null);
+  assert.equal(tiktokCover('<p>"id":"7400000000000000002"</p>', '7400000000000000002'), null);
+  assert.equal(tiktokCover('{"id":"7400000000000000002","cover":"javascript:alert(1)//aaaaaaaa"}', '7400000000000000002'), null);
+  assert.equal(tiktokCover(html, 'x"'), null);
+  assert.equal(tiktokCover(null, '7400000000000000002'), null);
 });

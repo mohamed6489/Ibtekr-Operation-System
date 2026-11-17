@@ -62,6 +62,17 @@ export function pageImage(html, base) {
   try { return new URL(pick, base).href; } catch { return null; }
 }
 
+/** A TikTok video's cover from its page (the owner 17 Nov — the trends' videos had no picture: TikTok's oEmbed stopped naming a
+ *  thumbnail_url and the page has no og:image): the page's data names the item by its id, and its "cover" follows it → an https link,
+ *  else null. Only the cover of that id (never the first picture of the page — another video's). */
+export function tiktokCover(html, id) {
+  if (typeof html !== 'string' || !/^\d{6,30}$/.test(String(id || ''))) return null;
+  const at = html.indexOf('"id":"' + id + '"'); if (at < 0) return null;
+  const m = /"(?:cover|originCover|dynamicCover)":"((?:[^"\\]|\\.){10,2000})"/.exec(html.slice(at, at + 40000)); if (!m) return null;
+  let s; try { s = JSON.parse('"' + m[1] + '"'); } catch { return null; }
+  return /^https:\/\/[^\s"<>]+$/.test(s) ? s : null;
+}
+
 /** The image type by its first bytes (PNG / JPEG / WebP — what the campaign's folder takes), else null. */
 export function imageKind(bytes) {
   const b = bytes instanceof Uint8Array ? bytes : null; if (!b || b.length < 12) return null;

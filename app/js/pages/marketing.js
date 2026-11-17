@@ -1747,7 +1747,10 @@
   function trLoad(force) {
     if (!MK() || !MK().trends || !can().view || TR.busy || (!force && TR.at && Date.now() - TR.at < 60000)) return;
     TR.busy = true;
-    MK().trends(force).then(() => { TR.at = Date.now(); TR.busy = false; if (here() && (st.view === 'hub' || window.IBPages.current === 'ai') && !document.querySelector('.scrim')) R(); });
+    const again = () => { if (here() && (st.view === 'hub' || window.IBPages.current === 'ai') && !document.querySelector('.scrim')) R(); };
+    MK().trends(force).then(() => { TR.at = Date.now(); TR.busy = false; again();
+      // the rows that still have no picture get one now (once a session) — not only after «حدّث التريندات»
+      if (MK().trendThumbsFill) MK().trendThumbsFill().then((r) => { if (r && r.changed) again(); }); });
   }
   async function trRefresh() {
     if (TR.asking) return;

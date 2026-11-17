@@ -1302,12 +1302,17 @@ Deno.test('ش39 trend_thumbs: marketing.create; the newest trends without a pict
     { id: 12, batch: B, title: 'تيك توك', source: 'TikTok', url: 'https://www.tiktok.com/@shop/video/7400000000000000001', kind: 'video', platform: 'tiktok', external_id: '7400000000000000001', found_at: '2026-11-17T08:00:00Z' },
     { id: 13, batch: B, title: 'مقال', source: 'Later', url: 'https://later.com/blog/a/', kind: 'image', platform: 'web', found_at: '2026-11-17T08:00:00Z' },
     { id: 14, batch: B, title: 'من غير صورة', source: 'X', url: 'https://nopic.example.com/p', kind: 'image', platform: 'web', found_at: '2026-11-17T08:00:00Z' },
+    { id: 16, batch: B, title: 'تيك توك 2', source: 'TikTok', url: 'https://www.tiktok.com/@shop/video/7400000000000000002', kind: 'video', platform: 'tiktok', external_id: '7400000000000000002', found_at: '2026-11-17T08:00:00Z' },
     { id: 15, batch: B, title: 'خلص', source: 'X', url: 'https://later.com/blog/b/', kind: 'image', platform: 'web', thumb: 'trends/2026-11/15.jpg', found_at: '2026-11-17T08:00:00Z' },
   ];
   const web: Record<string, () => Response> = {
     'https://scontent.cdninstagram.com/v/a.jpg': () => new Response(JPG as BlobPart, { status: 200, headers: { 'content-type': 'image/jpeg' } }),
     ['https://www.tiktok.com/oembed?url=' + encodeURIComponent('https://www.tiktok.com/@shop/video/7400000000000000001')]: () => new Response(JSON.stringify({ thumbnail_url: 'https://p16-sign.tiktokcdn.com/t.jpg', author_name: 'Shop <b>' }), { status: 200, headers: { 'content-type': 'application/json' } }),
     'https://p16-sign.tiktokcdn.com/t.jpg': () => new Response(JPG as BlobPart, { status: 200, headers: { 'content-type': 'image/jpeg' } }),
+    // the owner 17 Nov: TikTok's oEmbed without a thumbnail_url — the cover of that id from the video's page (not another video's)
+    ['https://www.tiktok.com/oembed?url=' + encodeURIComponent('https://www.tiktok.com/@shop/video/7400000000000000002')]: () => new Response(JSON.stringify({ type: 'video', author_name: 'Shop2' }), { status: 200, headers: { 'content-type': 'application/json' } }),
+    'https://www.tiktok.com/@shop/video/7400000000000000002': () => new Response('<html><head><title>TikTok</title></head><body><script>{"x":{"id":"7499","cover":"https:\\u002F\\u002Fp16.tiktokcdn-eu.com\\u002Fother.jpg"},"y":{"id":"7400000000000000002","video":{"cover":"https:\\u002F\\u002Fp16.tiktokcdn-eu.com\\u002Fc2.image?x-expires=1"}}}</script></body></html>', { status: 200, headers: { 'content-type': 'text/html' } }),
+    'https://p16.tiktokcdn-eu.com/c2.image?x-expires=1': () => new Response(JPG as BlobPart, { status: 200, headers: { 'content-type': 'image/jpeg' } }),
     'https://later.com/blog/a/': () => new Response('<html><head><meta property="og:image" content="https://later.com/img/a.jpg"></head></html>', { status: 200, headers: { 'content-type': 'text/html' } }),
     'https://later.com/img/a.jpg': () => new Response(JPG as BlobPart, { status: 200, headers: { 'content-type': 'image/jpeg' } }),
     'https://nopic.example.com/p': () => new Response('<html><head></head></html>', { status: 200, headers: { 'content-type': 'text/html' } }),
@@ -1317,11 +1322,12 @@ Deno.test('ش39 trend_thumbs: marketing.create; the newest trends without a pict
   (deps as any).resolve = async () => ['151.101.0.84'];
   assertEquals((await call(deps, { action: 'trend_thumbs' }, 'jwt-add')).res.status, 401, 'products.add is not marketing.create');
   const r = await call(deps, { action: 'trend_thumbs' }, 'jwt-mkt');
-  assertEquals([r.res.status, r.body.done, r.body.tried], [200, 3, 4]);
+  assertEquals([r.res.status, r.body.done, r.body.tried], [200, 4, 5]);
   const row = (id: number) => db.rows('mkt_trends').find((x: any) => x.id === id);
   assertEquals([row(11).thumb, row(11).thumb_src, row(11).thumb_tries], ['trends/2026-11/11.jpg', null, 1]);
   assertEquals([row(12).thumb, row(12).author], ['trends/2026-11/12.jpg', 'Shop b']);
   assertEquals(row(13).thumb, 'trends/2026-11/13.jpg');
+  assertEquals([row(16).thumb, row(16).author], ['trends/2026-11/16.jpg', 'Shop2']);
   assertEquals([row(14).thumb ?? null, row(14).thumb_tries], [null, 1]);
   assertEquals(storage['marketing/trends/2026-11/11.jpg'], JPG);
   // a second call tries the miss once more, then never again

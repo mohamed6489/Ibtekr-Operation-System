@@ -55,7 +55,7 @@ async function openAi(page, email, sub) {
   if (sub) {
     await pg(page).getByRole('tab', { name: new RegExp(sub) }).click();
     // the tab goes through the hash: type only once the box is that assistant's (a slow machine redraws after the click)
-    await expect(pg(page).locator('#mk-ask')).toHaveAttribute('placeholder', new RegExp(sub));
+    await expect(pg(page).locator('#mk-ask')).toHaveAttribute('placeholder', new RegExp(sub.replace(/^ال/, ''))); // «للمخزن الذكي» / «اسأل الميديا باير»
   }
 }
 const pg = (page) => page.locator('main.content.mod:not([hidden])'); // 0120: «التسويق» or «الذكاء الاصطناعي», whichever is open
@@ -295,7 +295,7 @@ test('0084 decision 6: the designer\'s picture — its answer carries an image p
   const P = pg(page); const box = P.locator('[data-mk-agent="designer"]');
   // CI 14 Nov (three times): the text went into the previous agent's box while the «الديزاينر» tab was still drawing (its draft is
   // per agent), so «ابعت» sent nothing — wait for the designer's own input first
-  await expect(box).toBeVisible(); await expect(P.locator('#mk-ask')).toHaveAttribute('placeholder', /الديزاينر/);
+  await expect(box).toBeVisible(); await expect(P.locator('#mk-ask')).toHaveAttribute('placeholder', /للديزاينر الذكي/);
   // CI 989 (14 Nov): fill = focus, then the text in a second step — the designer's chats landing in between re-drew the box and the
   // focus came back a frame later, so the text went nowhere; a render between the focus and the typing keeps the box focused now
   await page.evaluate(() => { document.getElementById('mk-ask').focus(); window.IBPages.render('marketing'); });
@@ -393,7 +393,7 @@ test('owner batch 14 Nov decision 14: the chat stays on its last message (openin
   await start(page, { mktAgentChats: [{ id: CH1, member_id: ADMIN_ID, agent: 'dev', title: 'شات طويل', updated_at: D(-1) + 'T10:00:00Z' }], mktAgentMsgs: msgs });
   await openAi(page, ADMIN, 'المبرمج');
   const P = pg(page); const box = P.locator('[data-mk-agent="dev"]'); const chat = box.locator('.mk-chat');
-  await expect(box).toBeVisible(); await expect(P.locator('#mk-ask')).toHaveAttribute('placeholder', /المبرمج/);
+  await expect(box).toBeVisible(); await expect(P.locator('#mk-ask')).toHaveAttribute('placeholder', /للمبرمج الذكي/);
   const atEnd = () => chat.evaluate((el) => el.scrollHeight > el.clientHeight + 50 && el.scrollHeight - el.scrollTop - el.clientHeight < 40);
   await box.locator('[data-mk-chat-item] .mk-agent-open', { hasText: 'شات طويل' }).click();
   await expect(chat).toContainText('رسالة رقم 24');
@@ -710,7 +710,7 @@ test('comments 72 and 73 — the assistants\' chat: the history by day, a welcom
   await expect(hello.locator('.mk-agent-chips .chip')).toHaveCount(4);
   await expect(box.locator('.mk-agent-head .mk-av.lg')).toBeVisible();
   // the box takes lines: Shift + Enter adds one and sends nothing, Enter sends the lot
-  await expect(P.locator('#mk-ask')).toHaveAttribute('placeholder', /الديزاينر/);
+  await expect(P.locator('#mk-ask')).toHaveAttribute('placeholder', /للديزاينر الذكي/);
   expect(await P.locator('#mk-ask').evaluate((el) => el.tagName)).toBe('TEXTAREA');
   await P.locator('#mk-ask').fill('بوست لمخدات الشتا');
   await P.locator('#mk-ask').press('Shift+Enter');
@@ -834,7 +834,7 @@ test('0120 — «المخزن الذكي»: a tab of its own, its chat asks the 
   await openAi(page, OPS, 'المخزن الذكي');
   const P = pg(page); const box = P.locator('[data-mk-agent="stock"]');
   await expect(box).toBeVisible();
-  await expect(P.locator('#mk-ask')).toHaveAttribute('placeholder', /المخزن الذكي/);
+  await expect(P.locator('#mk-ask')).toHaveAttribute('placeholder', /للمخزن الذكي/);
   await P.locator('#mk-ask').fill('إيه أقدم قطعة في المخزن؟'); await P.locator('#mk-ask').press('Enter');
   await expect.poll(() => mock.mkt.calls.filter((c) => c.action === 'agent').map((c) => c.agent)).toEqual(['stock']);
   await expect(box.locator('.mk-chat')).toContainText('سؤالك: إيه أقدم قطعة في المخزن؟');

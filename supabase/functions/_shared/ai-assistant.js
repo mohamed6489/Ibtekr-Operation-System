@@ -4,6 +4,7 @@
 // its prototype functions: navigate / filter_orders / set_period / sort_vendors / propose_entry, and set_filter for the orders
 // filter builder), the request, reading a turn, the actions' cleaning and the data shaping (never a phone, never an address).
 // No I/O here.
+import { NAME_RULE, nameHas } from './names.js';
 import { confirmAge, delayRules, orderDelayOf, orderElapsed } from './delay.js';
 import { FALLBACK, line, paras } from './ai-content.js';
 import { AGENT_IDS, AGENT_NAME, ASK_MAX, DRAFT_DUR, DRAFT_GOALS, DRAFT_IDEA, DRAFT_MAX, agentAsk, campaignDraft } from './campaign-draft.js';
@@ -205,7 +206,7 @@ export function assistantRequest(req, ctx) {
   const screen = ['النهارده (القاهرة): ' + line(ctx.today, 10), 'المستخدم: ' + (line(ctx.actor, 80) || 'عضو') + (ctx.role ? ' (' + line(ctx.role, 40) + ')' : ''),
     c.page ? 'الصفحة المفتوحة: ' + (PAGE_LABEL[c.page] || c.page) + (c.tab ? ' / ' + c.tab : '') : '', c.period ? 'الفترة المعروضة: ' + c.period.from + ' → ' + c.period.to : ''].filter(Boolean).join('\n');
   const filterCtx = req.mode === 'filter' ? ['المبتكرين المتاحين: ' + (c.vendors.length ? c.vendors.join('، ') : '—'), 'حالات الأوردر: ' + (c.statuses.length ? c.statuses : ORDER_STATUSES).join('، ')].join('\n') : '';
-  const system = [{ type: 'text', text: req.mode === 'filter' ? FILTER_BASE : CHAT_BASE, cache_control: { type: 'ephemeral' } }, { type: 'text', text: req.mode === 'filter' ? filterCtx : screen }];
+  const system = [{ type: 'text', text: (req.mode === 'filter' ? FILTER_BASE : CHAT_BASE) + NAME_RULE, cache_control: { type: 'ephemeral' } }, { type: 'text', text: req.mode === 'filter' ? filterCtx : screen }];
   const messages = req.turns.map((t) => ({ role: t.role, content: [{ type: 'text', text: t.text }] }));
   const p = { model: ctx.model, max_tokens: MAX_TOKENS, ...FALLBACK, system, messages, tools: toolsOf(req.mode, ctx.mkt, ctx.team), output_config: { effort: ctx.effort } };
   if (req.mode === 'filter') p.tool_choice = { type: 'tool', name: 'set_filter' };
@@ -330,7 +331,8 @@ export const deliveryOf = (status, age, rules, maxLead) => { if (CLOSED_STATUSES
 const cAge = (o, today, rules) => (rules ? orderElapsed({ confirm: o.confirm, confirmAt: o.confirm_at, placedAt: o.placed_at }, today, rules) : confirmAge({ confirm: o.confirm, confirmAt: o.confirm_at, placedAt: o.placed_at }, today));
 const STATUS_ALIAS = { 'قيد التنفيذ': 'جاري التنفيذ', 'تم الشحن': 'قيد الشحن', 'معلق': 'معلّق', 'متأخر': 'late', 'قابل للتأخير': 'risk' };
 const count = (rows, key) => { const o = {}; for (const r of rows) { const k = key(r) ?? '—'; o[k] = (o[k] || 0) + 1; } return o; };
-const hasQ = (q, ...vals) => !q || vals.some((v) => String(v ?? '').toLowerCase().includes(q));
+// the owner 17 Nov: a name written either way (Arabic letters for a Latin name, a missing hamza) still matches — names.js
+const hasQ = (q, ...vals) => !q || vals.some((v) => String(v ?? '').toLowerCase().includes(q)) || nameHas(q, ...vals);
 
 /** orders_v rows (id, number, customer_name, customer_city, status, confirm, deposit, total, placed_at) → counts and the first rows. */
 export function ordersData(rows, dq, today, rules) {

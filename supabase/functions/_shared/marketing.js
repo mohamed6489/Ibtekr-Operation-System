@@ -12,6 +12,7 @@ import { AGENT_ID } from './ai-agents.js';
 import { speedLine } from './site-speed.js';
 import { DRAFT_RULE, DRAFT_SCHEMA, campaignDraft } from './campaign-draft.js';
 import { pixelText } from './mkt-pixel.js';
+import { NAME_RULE } from './names.js';
 import { CLIENT_TOOL_DEFS, FORMS, PAGES, cleanAction } from './ai-assistant.js';
 
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -485,7 +486,8 @@ export const ACT_RULE = `
 Actions in the system (you never save, send or change anything yourself):
 - When the ask needs an action the system has a popup for, fill forms (up to ${AGENT_FORMS_MAX}): form = one of ${Object.keys(FORMS).join(', ')}; values = [{ key, value }] with only what the member said or what the data shows (never invent an amount, a phone or an email). The popups: ${FORM_DESC}
   Say in your text «حطيتلك البيانات في البوب أب — راجعها واضغط زراره» (a link opens it under your answer). Otherwise forms is [].
-- When the answer lives on a page, fill page: page = one of ${PAGES.join(', ')} and tab (optional, else ""). Otherwise page.page is "".`;
+- When the answer lives on a page, fill page: page = one of ${PAGES.join(', ')} and tab (optional, else ""). Otherwise page.page is "".
+${NAME_RULE}`;
 /** agent { agent, chat_id: uuid | null, question (≤ 1000) } → { req } | { error, field }. */
 export function parseAgent(b) {
   if (!isObj(b)) return bad('body');

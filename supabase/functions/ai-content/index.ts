@@ -44,6 +44,7 @@
 // The model, the effort and the monthly cap (decision 8): the settings row «ai» (the admin changes it from the content tool) wins,
 // the secrets AI_CONTENT_MODEL / AI_CONTENT_EFFORT / AI_MONTHLY_LIMIT_USD are the fallback, then the defaults — read before every call.
 import Anthropic from 'npm:@anthropic-ai/sdk@1.3.0';
+import { bestName, nameMatches } from '../_shared/names.js';
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { aiSettings, categoryLines, cleanExtract, cleanPrompts, cleanStudio, cleanWrite, costOf, extractRequest, line, parseExtract, parsePrompts, parseStudio, parseWrite, promptsRequest, readAnswer, shotPromptRows, studioRequest, usageOf, writeRequest } from '../_shared/ai-content.js';
 import { vaultEnv } from '../_shared/secrets.js';
@@ -555,7 +556,13 @@ async function readData(member: Db, uid: string, dq: DQ, today: string): Promise
   const vendor = async () => {
     const vs = await rows(member.from('vendors').select('id, name, status').ilike('name', '%' + dq.q.replace(/[%_\\,()]/g, ' ') + '%').limit(20));
     if (!vs) return FORBIDDEN;
-    const v = pickVendor(vs, dq.q); if (!v) return vendorData({ vendors: vs }, dq, today);
+    // the owner 17 Nov: a name in Arabic letters for a Latin one (or misspelt) — by its sound among every maker the member sees
+    let v = pickVendor(vs, dq.q);
+    if (!v) {
+      const all = await rows(member.from('vendors').select('id, name, status').limit(3000));
+      v = all ? bestName(dq.q, all, (x: Json) => x.name) : null;
+      if (!v) { const near = all ? nameMatches(dq.q, all, (x: Json) => x.name, 6).map((m) => m.item.name) : []; return { found: false, q: dq.q, note: near.length ? 'مفيش مبتكر بالاسم ده بالظبط — الأقرب ليه' : 'مفيش مبتكر بالاسم ده', didYouMean: near }; }
+    }
     const id = v.id;
     const [items, ords, sales, bal, moves, wd, sets] = await Promise.all([
       rows(member.from('order_items').select('order_id, status, total, removed').eq('vendor_id', id).limit(5000)),

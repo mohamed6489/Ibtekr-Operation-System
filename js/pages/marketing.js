@@ -1498,7 +1498,8 @@
   // agents-brain T3: «افتح البوب أب» / «افتح الصفحة» under an answer — the header assistant's own handlers (block 28, window.IBAiAction):
   // the system's popup opens filled and its own button is the confirmation
   const FORM_LABEL = { vendor_add: 'إضافة مبتكر', member_add: 'إضافة عضو', customer_add: 'عميل جديد', ticket_new: 'طلب جديد', hr_leave: 'طلب إجازة', hr_advance: 'طلب سلفة', hr_remote: 'شغل عن بُعد', task_add: 'طلب جديد',
-    order_update: 'تحديث الأوردر', expense_add: 'مصروف', account_move: 'حركة على الحساب', vendor_move: 'حركة مبتكر' };
+    order_update: 'تحديث الأوردر', expense_add: 'مصروف', account_move: 'حركة على الحساب', vendor_move: 'حركة مبتكر',
+    salary_adjust: 'مكافأة / خصم', salary_pay: 'تحويل المرتب', vendor_settle: 'تسوية المبتكر' }; // agents-brain T4
   const PAGE_LABEL = { dashboard: 'اللوحة', orders: 'الأوردرات', vendors: 'المبتكرين', accounts: 'الحسابات', inventory: 'المخزون', products: 'المنتجات', cs: 'خدمة العملاء', autoreply: 'الرد الآلي', tickets: 'طلبات الفريق', reports: 'التقارير', marketing: 'التسويق', hr: 'الموارد البشرية', settings: 'الإعدادات' };
   const runAct = (name, input) => { try { if (typeof window.IBAiAction !== 'function') throw new Error('مش جاهز'); window.IBAiAction(name, input); } catch (e) { K.toast((name === 'open_form' ? 'ما قدرتش أفتح البوب أب: ' : 'ما قدرتش أفتح الصفحة: ') + (e && e.message ? e.message : ''), 'error'); } };
   function formLinks(id) {

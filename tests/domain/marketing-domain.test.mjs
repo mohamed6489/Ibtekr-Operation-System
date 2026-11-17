@@ -7,16 +7,20 @@ const W = loadUmd(new URL('../../app/js/pages/marketing-domain.js', import.meta.
 const plain = (v) => JSON.parse(JSON.stringify(v));
 const MODELS = [{ id: 'seedream-5-pro', credits: 75 }, { id: 'gpt-image-2', credits: 60 }, { id: 'gemini-2-5-flash', credits: 20 }];
 
-test('defaults: posts and a carousel, no video (soon), an empty idea, the real default model', () => {
+// the shape the tests below were written on (2 posts + 1 carousel — the defaults before ش38)
+const old = () => { const c = W.defaults(); c.media.post.count = 2; c.media.carousel.count = 1; return c; };
+
+test('defaults (ش38 — the owner 17 Nov: «لما ابدء كامبين خلي الكرياتيفس كلها عددها صفر»): every count 0, an empty idea, the real default model', () => {
   const c = W.defaults();
   assert.equal(c.idea, ''); assert.equal(c.mediaTab, 'post');
-  assert.equal(c.media.video.count, 0); assert.equal(c.media.post.count, 2); assert.equal(c.media.carousel.count, 1); assert.equal(c.extra.count, 0);
+  assert.equal(c.media.video.count, 0); assert.equal(c.media.post.count, 0); assert.equal(c.media.carousel.count, 0); assert.equal(c.extra.count, 0);
+  assert.equal(W.validateDetails(Object.assign(c, { idea: 'x' })).media, 'اختار قطعة واحدة على الأقل'); // «التالي» asks for one
   assert.equal(c.media.post.model, 'seedream-5-pro');
   assert.equal(W.PRICE_DEMO, false); assert.equal(W.VIDEO_SOON, false); // 9.5.5 assert.equal(W.TEXT_FILL, 0);
 });
 
 test('buildPieces: V / P / C / X ids (9.5.5: the video pieces with their scenes and tracks), the carousel slides, old pieces kept', () => {
-  const c = W.defaults(); c.media.video.count = 2; c.extra.count = 1;
+  const c = old(); c.media.video.count = 2; c.extra.count = 1;
   const ps = W.buildPieces(c, []);
   assert.deepEqual(ps.map((p) => p.id), ['V1', 'V2', 'P1', 'P2', 'C1', 'X1']);
   const v = ps[0]; assert.deepEqual([v.kind, v.size, v.model, v.dur, v.res, v.sceneCount, v.scenes, v.method, v.music.type, v.voice.voice, v.video], ['فيديو', '9:16', 'seedance-2.5', 15, '1080p', 3, [], 'separate', 'دافية هادية', 'm-eg-1', null]);
@@ -36,7 +40,7 @@ test('cost: the model credits per image, the carousel = cover + slides, the AI w
 });
 
 test('estimate: posts + carousels (cover + slides) + extras + the videos\' scene images (3 a video); the video seconds beside, on the Magnific account (estimateVideo)', () => {
-  const c = W.defaults(); c.media.video.count = 3; c.extra.count = 2; c.extra.model = 'gemini-2-5-flash';
+  const c = old(); c.media.video.count = 3; c.extra.count = 2; c.extra.model = 'gemini-2-5-flash';
   // 2 × 75 + 1 × 5 × 75 + 3 × 3 × 75 + 2 × 20
   assert.equal(W.estimate(c, MODELS), 150 + 375 + 675 + 40);
   assert.equal(W.estimateVideo(c), 3 * 5 * 15);
@@ -45,7 +49,7 @@ test('estimate: posts + carousels (cover + slides) + extras + the videos\' scene
 });
 
 test('validateDetails: the idea, the goal and one piece at least (a video counts from 9.5.5)', () => {
-  const c = W.defaults();
+  const c = old();
   assert.deepEqual(plain(W.validateDetails(c)), { idea: 'اكتب الفكرة العامة' });
   c.idea = 'كولكشن الشتا'; c.media.post.count = 0; c.media.carousel.count = 0; c.media.video.count = 0;
   assert.deepEqual(plain(W.validateDetails(c)), { media: 'اختار قطعة واحدة على الأقل' });
@@ -54,7 +58,7 @@ test('validateDetails: the idea, the goal and one piece at least (a video counts
 });
 
 test('built / approved / approveAll: a carousel needs its cover and every slide', () => {
-  const c = W.defaults(); const [p1, , c1] = W.buildPieces(c, []);
+  const c = old(); const [p1, , c1] = W.buildPieces(c, []);
   assert.equal(W.built(p1), false); p1.img = 'x.png'; assert.equal(W.built(p1), true);
   c1.img = 'cover.png'; assert.equal(W.built(c1), false); c1.slides.forEach((s, k) => { s.img = 's' + k + '.png'; }); assert.equal(W.built(c1), true);
   assert.equal(W.approveAll([p1, c1]), 2); assert.equal(W.approved(c1), true); assert.equal(W.canReviewNext([p1, c1]), true);
@@ -85,7 +89,7 @@ test('campaignName: the idea first line, 120 at most, a name when empty', () => 
 });
 
 test('scheduleItems: a row per piece × platform, the images in order, the kind of the log, the caption capped', () => {
-  const c = W.defaults(); c.extra.count = 1; const ps = W.buildPieces(c, []);
+  const c = old(); c.extra.count = 1; const ps = W.buildPieces(c, []);
   ps[0].img = 'c/p1.png'; ps[0].title = 'دفا الشتا'; ps[0].caption = 'x'.repeat(2500);
   const car = ps[2]; car.img = 'c/cover.png'; car.slides.forEach((s, k) => { s.img = 'c/s' + k + '.png'; });
   ps[3].img = 'c/x1.png';
@@ -105,7 +109,7 @@ test('scheduleItems: a row per piece × platform, the images in order, the kind 
 const LIVE = { autopublish: true, facebook: { linked: true, publish: true }, instagram: { linked: true, publish: true } };
 
 test('9.5.2 scheduleItems: «انشر» on the piece → publish where the platform can take it, TikTok and the video stay a download', () => {
-  const c = W.defaults(); const ps = W.buildPieces(c, []);
+  const c = old(); const ps = W.buildPieces(c, []);
   ps[0].img = 'c/p1.jpg'; ps[2].img = 'c/cover.jpg'; ps[2].slides.forEach((s, k) => { s.img = 'c/s' + k + '.jpg'; });
   const sched = { P1: { date: '2026-11-08', time: '19:00', pl: ['انستجرام', 'فيسبوك', 'تيك توك'], how: ['انشر'] }, C1: { date: '2026-11-09', time: '21:00', pl: ['فيسبوك'], how: ['داونلود'] } };
   const items = W.scheduleItems(ps, sched, 'الفكرة', LIVE);

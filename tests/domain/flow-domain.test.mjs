@@ -313,3 +313,10 @@ test('fitKinds (decision 42): a Variable batch with a shape gives every product 
   assert.equal(F.fitKinds([chat[0]], 'Variable', { colors: 9, sizes: 9 }).length, 25);
   assert.deepEqual(F.fitKinds(null, 'Variable', { colors: 2 }), []);
 });
+
+// ش38 (the owner 17 Nov — «خلي كتابة سعر المبتكر سهلة و دايما الحساب الجنية المصري»): a price as the member types it
+test('ش38 money: Arabic / Persian digits, commas, the decimal marks and a typed «ج.م» read as EGP; anything else is null', () => {
+  const ok = [['١٢٠', 120], ['120', 120], ['1,250', 1250], ['١٬٢٥٠', 1250], ['120,50', 120.5], ['١٢٠٫٥', 120.5], ['٣٥٠ ج.م', 350], ['350جنيه', 350], ['  90  ', 90], ['۴۵۰', 450], ['12.5', 12.5], [75, 75]];
+  for (const [v, n] of ok) assert.equal(F.money(v), n, String(v));
+  for (const v of ['', 'abc', '12a', '1.2.3', null, undefined, NaN]) assert.equal(F.money(v), null, String(v));
+});

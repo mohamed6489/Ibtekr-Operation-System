@@ -971,10 +971,10 @@
     const L = rows(); const rate = rateNow();
     const fkey = fakeKey();
     L.forEach((r) => { if (r.vendorPrice == null) return; if (r.sale == null || (!r.priceHand && (r.rateAt !== commKey(commOf(r)) || (r.fakeAt || '') !== fkey))) reprice(r); });
-    const num = (r, k, onSet) => h('input', { class: 'input fl-num', inputmode: 'decimal', 'data-fl': k, 'aria-label': FD.LABELS[k] + ' — ' + (r.sku || ''), value: r[k] == null ? '' : String(r[k]), onChange: (ev) => { const v = ev.target.value.trim(); r[k] = v === '' ? null : Number(v); onSet(); touch(); RF(); } });
+    const num = (r, k, onSet) => moneyBox(h('input', { class: 'input fl-num', type: 'text', inputmode: 'decimal', autocomplete: 'off', 'data-fl': k, 'aria-label': FD.LABELS[k] + ' — ' + (r.sku || ''), value: r[k] == null ? '' : String(r[k]), onChange: (ev) => { r[k] = FD.money(ev.target.value); onSet(); touch(); RF(); } }));
     const bulk = () => K.form({ title: 'سعر المبتكر لـ ' + S.sel.size + ' صف', values: { v: '' }, submitLabel: 'طبّق',
-      fields: (f, e, set) => [K.field.text('v', 'سعر المبتكر (ج.م)', f, e, set, { required: true, inputmode: 'decimal' })], validate: (f) => (Number(f.v) > 0 ? {} : { v: 'رقم أكبر من صفر' }),
-      submit: (f) => { L.filter((r) => S.sel.has(r.key)).forEach((r) => { r.vendorPrice = Number(f.v); r.priceHand = false; r.regHand = false; reprice(r, true); }); touch(); R(); } });
+      fields: (f, e, set) => [K.field.text('v', 'سعر المبتكر (ج.م)', f, e, set, { required: true, inputmode: 'decimal' })], validate: (f) => (FD.money(f.v) > 0 ? {} : { v: 'رقم أكبر من صفر' }),
+      submit: (f) => { L.filter((r) => S.sel.has(r.key)).forEach((r) => { r.vendorPrice = FD.money(f.v); r.priceHand = false; r.regHand = false; reprice(r, true); }); touch(); R(); } });
     // the owner 15 Nov («صلح شكل الجدول و إظهر بيانات المنتج العربي بس»): a grid, not a <table> (the system's table sweeps — the sticky
     // first column, the person cell — broke its columns), the photo inside the product cell, the product's Arabic data only (its
     // Arabic name, the SKU, the Arabic color and size; the English one only while the Arabic is missing); on a phone a card each
@@ -1475,14 +1475,18 @@
       headers: sh.head.filter((_, k) => k !== sh.refCol), rows: sh.rows.map((r, i) => r.filter((_, k) => k !== sh.refCol).map((c, k) => (k === 0 ? { text: String(c), img: photos[i] } : c))),
       note: 'اللي فاضي املاه وابعت الشيت تاني.', excel: () => sheetFile(L, s.type, null, 'maker') });
   }
+  // ش38 (the owner 17 Nov — «خلي كتابة سعر المبتكر سهلة و دايما الحساب الجنية المصري و شيل الاسهم»): a price is typed as text — no
+  // browser arrows — with «ج.م» written beside it; Arabic / Persian digits, the Arabic decimal mark, thousands commas and a «ج.م» typed in
+  // are all read as the one number (FD.money)
+  const moneyBox = (el) => h('span', { class: 'fl-money' }, el, h('span', { class: 'fl-cur', 'aria-hidden': 'true' }, 'ج.م'));
   // one cell's control: a text / number box (kept as typed; the rows sharing it redraw when it is left) or a dropdown
   function sheetInput(r, key, val, set, o) {
     const x = o || {};
-    const el = h('input', { class: 'input sm', type: x.num ? 'number' : 'text', inputmode: x.num ? 'decimal' : false, min: x.num ? '0' : false, dir: x.dir || 'auto', value: val == null ? '' : String(val), placeholder: x.ph || '',
-      'aria-label': x.label + ' — ' + r.n, 'data-sh': key + ':' + r.n });
+    const el = h('input', { class: 'input sm', type: 'text', inputmode: x.num ? 'decimal' : false, dir: x.dir || 'auto', value: val == null ? '' : String(val), placeholder: x.ph || '',
+      'aria-label': x.label + ' — ' + r.n, 'data-sh': key + ':' + r.n, autocomplete: 'off' });
     el.addEventListener('input', () => { set(el.value); touch(); });
     el.addEventListener('change', () => R());
-    return el;
+    return x.num ? moneyBox(el) : el;
   }
   function sheetColor(r) {
     const x = fillOf(r.product); const slot = r.colorSlot || 0; const cur = colorOfSlot(x, slot)[0];
@@ -1523,7 +1527,7 @@
             h('td', null, sheetInput(r, 'nameAr', x.nameAr, (v) => { x.nameAr = v.trim(); }, { label: 'الاسم AR', dir: 'rtl' })),
             h('td', null, sheetColor(r)),
             h('td', null, sheetInput(r, 'size', (x.sizes || {})[r.sizeSlot || 0], (v) => { x.sizes = Object.assign({}, x.sizes, { [r.sizeSlot || 0]: v.trim() }); }, { label: 'المقاس', ph: r.sizeSlot ? 'مقاس ' + r.sizeSlot + ' — مثلًا 40×60 سم' : 'مثلًا 40×60 سم' })),
-            h('td', null, sheetInput(r, 'price', (x.prices || {})[r.variant || 0], (v) => { const n = Number(String(v).replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))); x.prices = Object.assign({}, x.prices, { [r.variant || 0]: Number.isFinite(n) && n > 0 ? n : null }); }, { label: 'سعر المبتكر', num: true, dir: 'ltr', ph: 'ج.م' })),
+            h('td', null, sheetInput(r, 'price', (x.prices || {})[r.variant || 0], (v) => { const n = FD.money(v); x.prices = Object.assign({}, x.prices, { [r.variant || 0]: n != null && n > 0 ? n : null }); }, { label: 'سعر المبتكر', num: true, dir: 'ltr', ph: '0' })),
             h('td', null, sheetCat(r))); }))))])];
   }
 

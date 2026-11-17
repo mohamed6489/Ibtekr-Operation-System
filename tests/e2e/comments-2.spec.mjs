@@ -863,8 +863,12 @@ test('comment 28 — «متابعة للبناء» writes every piece with the A
   const pg = page.locator('#pg-marketing');
   const fills = () => mock.mkt.calls.filter((c) => c.fn === 'ai-content' && c.task === 'fill').map((c) => c.piece);
   await pg.locator('[data-mk-start]').click();
-  await pg.locator('#cw-idea').fill('كولكشن الشتا');
-  await pg.locator('.cp-next').click(); // «متابعة للبناء» — 2 posts and a carousel by default
+  // 2 posts and a carousel — every count starts at 0 (ش38); the idea typed last, until it holds (the step is drawn again as it opens)
+  await pg.locator('#cw-n-post').fill('2'); await pg.locator('#cw-n-post').press('Enter');
+  await pg.locator('.subtab', { hasText: 'كاروسيل' }).click();
+  await pg.locator('#cw-n-carousel').fill('1'); await pg.locator('#cw-n-carousel').press('Enter');
+  await expect(async () => { await pg.locator('#cw-idea').fill('كولكشن الشتا'); await expect(pg.locator('#cw-idea')).toHaveValue('كولكشن الشتا', { timeout: 1000 }); }).toPass();
+  await pg.locator('.cp-next').click(); // «متابعة للبناء»
   await expect(pg.locator('.wstepper .stp-cur')).toContainText('البناء');
   await expect.poll(fills).toEqual(['P1', 'P2', 'C1']);
   await expect(pg.locator('[data-cw-autofill]')).toHaveCount(0);
@@ -884,7 +888,8 @@ test('comment 28 — «متابعة للبناء» writes every piece with the A
   mock.mkt.aiFail = 'ai_cap';
   await go(page, '#marketing-create');
   await pg.locator('[data-mk-start]').click();
-  await pg.locator('#cw-idea').fill('كولكشن تاني');
+  await pg.locator('#cw-n-post').fill('2'); await pg.locator('#cw-n-post').press('Enter'); // every count starts at 0 (ش38)
+  await expect(async () => { await pg.locator('#cw-idea').fill('كولكشن تاني'); await expect(pg.locator('#cw-idea')).toHaveValue('كولكشن تاني', { timeout: 1000 }); }).toPass();
   await pg.locator('.cp-next').click();
   await expect(pg.locator('.wstepper .stp-cur')).toContainText('البناء');
   await expect(page.locator('.busy-stack')).toContainText('المحتوى ماتكتبش');

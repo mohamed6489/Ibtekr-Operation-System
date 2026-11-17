@@ -451,6 +451,17 @@
   const bare = (v) => norm(String(v == null ? '' : v).normalize('NFD').replace(/\p{M}/gu, '')); // «Bouclé» = «boucle»; the Arabic marks off too
   const pairOf = (list, en, ar) => { const e = bare(en); const a = bare(ar); return (e || a) ? list.find(([x, y]) => (e && bare(x) === e) || (a && bare(y) === a)) || null : null; };
   const AR_DIGITS = '٠١٢٣٤٥٦٧٨٩';
+  // ش38 (the owner 17 Nov): a price as the member types it → a number in EGP, or null — Arabic / Persian digits, the Arabic decimal
+  // mark «٫» or a comma before two digits at the end, thousands separators, spaces and a «ج.م» / «جنيه» / «EGP» typed in are all fine
+  function money(v) {
+    if (v == null) return null; if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+    let s = String(v).replace(/[٠-٩]/g, (d) => String(AR_DIGITS.indexOf(d))).replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)))
+      .replace(/ج\.?\s*م\.?|جنيه(ا|ات)?|egp|le/gi, '').replace(/[\s\u00a0\u200f\u200e]/g, '').replace(/٫/g, '.').replace(/٬/g, ',');
+    if (/^\d+,\d{1,2}$/.test(s)) s = s.replace(',', '.'); // 120,50 → 120.50
+    s = s.replace(/[,،]/g, '');
+    if (!/^\d+(\.\d+)?$/.test(s)) return null;
+    const n = Number(s); return Number.isFinite(n) ? n : null;
+  }
   const SIZE_WORDS = [[/سنتيمتر|سنتي|سم/g, 'cm'], [/مليمتر|ملي|مم/g, 'mm'], [/كيلو\s*جرام|كيلو|كجم/g, 'kg'], [/متر/g, 'm'], [/عرض/g, 'W'], [/طول/g, 'L'],
     [/ارتفاع|إرتفاع/g, 'H'], [/عمق/g, 'D'], [/قطر/g, 'Ø'], [/مقاس/g, ''], [/صغير/g, 'S'], [/وسط|متوسط/g, 'M'], [/كبير/g, 'L']];
   /** an Arabic size → its English (the digits Latin, the units and the dimension words in English): «عرض ١٢٠ × طول ٧٠ سم» → «W 120 × L 70 cm»;
@@ -467,7 +478,7 @@
   const sheetFileName = (maker, when, tag) => { const d = when instanceof Date ? when : new Date(); const clean = (x) => String(x || '').replace(/[\\/:*?"<>|]+/g, '-').trim();
     return (clean(maker).slice(0, 60) || 'Products') + (clean(tag) ? ' - ' + clean(tag).slice(0, 30) : '') + ' - ' + d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + '.xlsx'; };
 
-  return { FIELDS, LABELS, NUMERIC, TEMPLATE, HEAD_SIMPLE, HEAD_VARIABLE, PREVIEWS, mapHeaders, readSheet, blankRow, photoIndex, assignPhotos, placePhotos, brandCode3, validCode, sizeCode, skuOf, validSku, skuBase, baseName,
+  return { money, FIELDS, LABELS, NUMERIC, TEMPLATE, HEAD_SIMPLE, HEAD_VARIABLE, PREVIEWS, mapHeaders, readSheet, blankRow, photoIndex, assignPhotos, placePhotos, brandCode3, validCode, sizeCode, skuOf, validSku, skuBase, baseName,
     groupRows, slugName, imageSku, fileName, siteUrl, pricesOf, rowIssues, sheetOf, makerSheetOf, MAKER_HEAD, photoSig, sigDistance, matchPhotos, photoGaps, SIG_MAX, fitKinds, blankSheetRows, colName, xlsxParts, xlsx, sheetFileName, norm,
     MATERIALS, STYLES, pairOf, sizeEnOf, nameOrder };
 });

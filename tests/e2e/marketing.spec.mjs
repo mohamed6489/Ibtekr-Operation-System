@@ -75,9 +75,13 @@ test('a new campaign: the details (the row created) → the AI fills the piece �
   await expect(pg(page)).toContainText('اكتب الفكرة العامة');
   await pg(page).locator('#cw-idea').fill('كولكشن الربيع — شنط مكرمية مشغولة يدويًا');
   await expect(pg(page)).not.toContainText('ملفات إضافية'); // the owner 13 Nov: no extra files on a new campaign
-  await pg(page).locator('[data-num="cw-n-post-"]').click(); // 2 → 1 post
+  // ش38 (the owner 17 Nov): a new campaign starts at 0 of every kind — «التالي» asks for one, then 1 post
+  await expect(pg(page).locator('#cw-n-post')).toHaveValue('0');
+  await pg(page).locator('.cp-next').click();
+  await expect(pg(page)).toContainText('اختار قطعة واحدة على الأقل');
+  await pg(page).locator('#cw-n-post').fill('1'); await pg(page).locator('#cw-n-post').press('Enter');
   await pg(page).locator('.subtab', { hasText: 'كاروسيل' }).click();
-  await pg(page).locator('[data-num="cw-n-carousel-"]').click(); // 1 → 0 carousels
+  await expect(pg(page).locator('#cw-n-carousel')).toHaveValue('0');
   await expect(pg(page).locator('[data-cw-est]')).toHaveAttribute('data-cw-est', '75');
   await pg(page).locator('.cp-next').click();
   await expect(pg(page).locator('.wstepper .stp-cur')).toContainText('البناء');
@@ -402,7 +406,10 @@ test('comment 52 — the build step: «ارفع صورة» puts a ready image on
   await openMarketing(page);
   await pg(page).locator('[data-mk-start]').click();
   await pg(page).locator('#cw-idea').fill('كولكشن الشتا — مخدات مشغولة يدويًا');
-  await pg(page).locator('[data-num="cw-n-post-"]').click(); // 2 → 1 post; the carousel stays (a cover + its slides)
+  // 1 post and a carousel (a cover + its slides) — every count starts at 0 (ش38)
+  await pg(page).locator('#cw-n-post').fill('1'); await pg(page).locator('#cw-n-post').press('Enter');
+  await pg(page).locator('.subtab', { hasText: 'كاروسيل' }).click();
+  await pg(page).locator('#cw-n-carousel').fill('1'); await pg(page).locator('#cw-n-carousel').press('Enter');
   await pg(page).locator('.cp-next').click();
   await expect(pg(page).locator('.wstepper .stp-cur')).toContainText('البناء');
   await expect.poll(() => mock.mkt.campaigns.length).toBe(2);

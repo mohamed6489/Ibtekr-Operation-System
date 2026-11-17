@@ -407,6 +407,7 @@ test('T8 — decisions 13–15: the six shot rules of the studio; «+ تعليم
   await expect(mk.locator('#cw-tpl-post')).toContainText('ألوان الشتا');
   await expect(mk.locator('#cw-tpl-post')).not.toContainText('بجرب');
   await mk.locator('#cw-notes-post').fill('من غير ناس');
+  await mk.locator('#cw-n-post').fill('1'); await mk.locator('#cw-n-post').press('Enter'); // every count starts at 0 (ش38)
   // the video: «غير محدد» and the videos' templates — its «البوست» too (nothing applies it to a video by itself)
   await mk.locator('.subtab', { hasText: 'فيديو' }).click();
   await expect(mk.locator('#cw-tpl-video')).toContainText('غير محدد');

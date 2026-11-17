@@ -970,6 +970,33 @@
     log('site.check', String(Number(b.data.updates) || 0), null); emit();
     return { ok: true, check: siteRow, stored: b.stored !== false };
   }
+  // ش45 decision 1: the site's speed (Google PageSpeed — the one row the server keeps; woo-sync `site_speed` reads it, read only). The
+  // log carries the lowest mobile score only.
+  let speedRow; let speedAt = 0; // undefined = not read yet, null = never checked
+  async function siteSpeed(force) {
+    if (!can().view) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
+    if (!force && speedRow !== undefined && Date.now() - speedAt < 60000) return { ok: true, check: speedRow };
+    const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
+    try {
+      const { data: d, error } = await cl.from('site_checks').select('kind, data, checked_at').eq('kind', 'pagespeed').maybeSingle();
+      if (error) { if (!noTable(error)) return fail(error); speedRow = null; speedAt = Date.now(); return { ok: true, check: null }; }
+      speedRow = toSite(d); speedAt = Date.now();
+      return { ok: true, check: speedRow };
+    } catch (e) { return fail(null); }
+  }
+  const siteSpeedNow = () => speedRow;
+  const SPEED_MESSAGES = { config: 'لينك الموقع (WooCommerce) مش متظبط — من الإعدادات › الربط بالمنصات', http_429: 'جوجل وقف الفحص شوية (حد الاستخدام) — جرّب بعد شوية',
+    timeout: 'الفحص طوّل أكتر من اللازم — جرّب تاني', network: 'جوجل ماردش — جرّب تاني' };
+  async function siteSpeedRun() {
+    if (!can().create) return { ok: false, reason: 'forbidden', message: 'فحص سرعة الموقع محتاج «التسويق: إنشاء»' };
+    const r = await invoke('woo-sync', { action: 'site_speed' });
+    if (!r.ok) return Object.assign(r, { message: r.reason === 'forbidden' ? MESSAGES.forbidden : 'الفحص ماخلصش — جرّب تاني' });
+    const b = r.body || {};
+    if (b.result !== 'ok' || !b.data) { const code = typeof b.reason === 'string' ? b.reason.slice(0, 40) : ''; return { ok: false, reason: 'site', code, message: SPEED_MESSAGES[code] || 'الفحص ماخلصش' + (code ? ' (' + code + ')' : '') + ' — جرّب تاني' }; }
+    speedRow = { data: b.data, at: b.checked_at || new Date().toISOString() }; speedAt = Date.now();
+    log('site.speed', String(b.data.score == null ? '' : Number(b.data.score)), null); emit();
+    return { ok: true, check: speedRow, stored: b.stored !== false };
+  }
   // the subscriptions of the accounts page (the latest payment of each name): null when the member does not see the accounts
   let subRows; let subsAt = 0;
   const dayNow = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo' }).format(new Date());
@@ -1231,7 +1258,7 @@
     suggestions, suggNow, decide, rules, rulesNow, rulesSet, setLive, requests, reqsNow, addRequest, REQ_KIND: KIND_OF, buyerChat,
     agentChats, agentTurns, agentAsk, agentImage, agentRename, agentDelete, agentSettings, agentSettingsNow, agentSettingsSet, AGENT_KEYS,
     trends, trendsNow, trendsReadyNow, trendsRefresh, trendThumbs, trendThumbNow, trendSettings, trendSettingsNow, trendSettingsSet, adTagsSet, agentKbSet, KB, competitors, competitorsNow, competitorsReadyNow, competitorSave, competitorArchive,
-    siteCheck, siteCheckNow, siteReadyNow, siteCheckRun, siteSubs, siteSubsNow, aiSpend, aiSpendNow,
+    siteCheck, siteCheckNow, siteReadyNow, siteCheckRun, siteSpeed, siteSpeedNow, siteSpeedRun, siteSubs, siteSubsNow, aiSpend, aiSpendNow,
     addTemplate, editTemplate, removeTemplate, templateUsed, subscribe, unsubscribe, check, MAX_BYTES, MIME, BUCKET,
     _test: { toCampaign, toPost, toTemplate, fail, aiMessage, fieldsOf, tplRow, pubMessage, toSuggestion, toRequest, toRules, toChat, toTurn } };
 })();

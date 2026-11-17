@@ -45,5 +45,14 @@ test('secretPublic shows a secret as its tail only; probesOf names a safe read o
   assert.equal(probesOf('higgsfield', { key: 'x' }), null); assert.equal(probesOf('mcp_x', { url: 'https://m' }), null);
   assert.equal(probesOf('gemini', { key: 'k' })[0].headers['x-goog-api-key'], 'k');
   assert.deepEqual([401, 403, 404, 429, 500, 400, 200].map(probeCode), ['unauthorized', 'unauthorized', 'not_found', 'rate', 'provider', 'refused', 'ok']);
-  assert.equal(CARDS.length, 22); assert.ok(CARDS.every((c) => !c.secret || nameOk(c.secret)));
+  assert.equal(CARDS.length, 23); // + Shopify (17 Nov) assert.ok(CARDS.every((c) => !c.secret || nameOk(c.secret)));
+});
+
+test('shopify (the owner 17 Nov): the myshopify domain and an Admin API token; the probe reads the shop with the token header', async () => {
+  const { parseSecret, probesOf, linkReady } = await import('../../supabase/functions/_shared/settings-link.js');
+  assert.equal(parseSecret('shopify', { shop: 'evil.com', key: 'shpat_' + 'a'.repeat(32) }, null).field, 'shop');
+  const ok = parseSecret('shopify', { shop: 'ibtekr.myshopify.com', key: 'shpat_' + 'a'.repeat(32) }, null);
+  assert.ok(linkReady('shopify', ok.link));
+  const p = probesOf('shopify', ok.link)[0];
+  assert.equal(p.url, 'https://ibtekr.myshopify.com/admin/api/2025-07/shop.json'); assert.equal(p.headers['X-Shopify-Access-Token'], 'shpat_' + 'a'.repeat(32));
 });

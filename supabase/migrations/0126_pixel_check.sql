@@ -9,3 +9,11 @@ alter table public.site_checks add constraint site_checks_kind_check check (kind
 alter table public.ai_runs drop constraint if exists ai_runs_source_check;
 alter table public.ai_runs add constraint ai_runs_source_check
   check (source is null or source in ('data', 'image', 'product', 'studio', 'tool', 'edit', 'import', 'campaign', 'template', 'post', 'buyer', 'video', 'chat', 'filter', 'agent', 'trends', 'research'));
+
+-- and Shopify in «الربط بالمنصات» (the owner 17 Nov — «تحط في الربط بالمنصات امكانية الربط بشوبيفاي»): its key in Vault like the others
+create or replace function public.app_secret_name_ok(p_name text) returns boolean
+language sql immutable set search_path = public as $$
+  select p_name in ('woo', 'anthropic', 'openai', 'gemini', 'elevenlabs', 'higgsfield', 'magnific_api', 'resend',
+                    'airtable', 'sheets', 'paymob', 'bosta', 'n8n', 'github', 'figma', 'shopify')
+      or p_name ~ '^(mcp|custom)_[a-z0-9][a-z0-9_]{0,39}$'
+$$;

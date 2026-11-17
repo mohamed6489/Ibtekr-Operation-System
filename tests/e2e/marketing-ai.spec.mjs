@@ -470,7 +470,7 @@ test('comment 69 / ش39 — «آخر التريندات» in the designer\'s tab
 // ش39 (the owner 17 Nov — «عايز اجيب الفيديوهات التيرندس و يبقا ليها علاقة بالمجال بتاعي و اقدر اضيف تاجز … من تريندات التيكتوك و الانستجرام
 // و الفيسبوك»): with the admin's tags the refresh brings the posts themselves (TikTok / Facebook from the search, Instagram from its hashtag
 // search), a chip per tag narrows the grid; Instagram's search not granted yet is said in words
-test('ش39 — by the tags: TikTok, Facebook and Instagram posts, a chip per tag, Instagram waiting for Meta said in words', async ({ page }) => {
+test('ش39 — by the tags: TikTok, Facebook and Instagram posts, the tags in «فلتر», Instagram waiting for Meta said in words', async ({ page }) => {
   await start(page, { mktTrendTags: ['macrame', 'ديكور_منزلي'] });
   await openAi(page, ADMIN, 'الديزاينر');
   const card = pg(page).locator('.mk-trends');
@@ -480,8 +480,12 @@ test('ش39 — by the tags: TikTok, Facebook and Instagram posts, a chip per tag
   await expect(card.locator('[data-mk-reels="video"] a.mk-tile')).toHaveCount(5); // TikTok, Facebook, a web roundup's reel, two Instagram reels
   const pfs = (await card.locator('[data-mk-reels="video"] .mk-tile-pf').allTextContents()).map((t) => t.trim());
   for (const p2 of ['TikTok', 'Facebook', 'Instagram']) expect(pfs).toContain(p2);
-  await expect(card.locator('[data-mk-trend-tag]')).toHaveText(['الكل', '#macrame', '#ديكور_منزلي']);
-  await card.locator('[data-mk-trend-tag="ديكور_منزلي"]').click();
+  // the tags (and the platform) in the kit's «فلتر» next to the tabs (the owner 17 Nov)
+  await card.locator('[data-fm-btn="mk-trends"]').click();
+  await expect(page.locator('[data-fm-tab]')).toHaveText(['التاج', 'المنصة']);
+  await expect(page.locator('[data-fm^="tag:"]')).toHaveText(['#macrame', '#ديكور_منزلي']);
+  await page.locator('[data-fm="tag:ديكور_منزلي"]').click();
+  await page.getByRole('button', { name: /^اعرض/ }).click();
   await expect(card.locator('[data-mk-reels] a.mk-tile')).not.toHaveCount(0);
   for (const t of await card.locator('[data-mk-reels] .mk-tile-tag').allTextContents()) expect(t).toBe('#ديكور_منزلي');
   // the posts are kept once: a second refresh adds none of them again
@@ -841,3 +845,29 @@ test('0120 — «المخزن الذكي»: a tab of its own, its chat asks the 
   await expect(box.locator('[data-mk-chat-item]')).toHaveCount(1);
 });
 
+
+// the owner 17 Nov — «اعمل زيه»: on a trend tile and on a competitor's card → «كامبين جديدة» filled from it (a reel for a video, a post
+// for a picture), its link in the notes and its picture under «أمثلة للمطابقة» (ref_link); nothing generated
+test('«اعمل زيه» — a trend video opens «كامبين جديدة» filled with it as the reference; a competitor\'s card too', async ({ page }) => {
+  await start(page, { mktTrendTags: ['macrame'], mktCompetitors: [{ name: 'Boho Corner', keyword: 'بوهو ديكور', page_url: 'https://www.facebook.com/bohocorner' }] });
+  await openAi(page, ADMIN, 'الديزاينر');
+  const card = pg(page).locator('.mk-trends');
+  await card.locator('[data-mk-trends-go]').click(); await page.locator('[data-ai-go]').click();
+  await expect(card.locator('[data-mk-reels="video"] a.mk-tile').first()).toBeVisible();
+  const tile = card.locator('[data-mk-reels="video"] .mk-tile-box').first();
+  const title = await tile.locator('.mk-tile-cap b').textContent();
+  await tile.hover(); await tile.locator('[data-mk-copy-trend]').click();
+  await expect(page.locator('#pg-marketing')).toBeVisible();
+  const mk = page.locator('#pg-marketing');
+  await expect(mk.locator('textarea').first()).toHaveValue(new RegExp('زي «' + title.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  await expect.poll(() => mock.mkt.calls.filter((c) => c.action === 'ref_link').length).toBe(1);
+  await expect(mk.locator('[data-cw-files^="cw-ref-video"] .cw-f')).toHaveCount(1);
+  expect(mock.mkt.calls.filter((c) => ['marketing', 'campaign', 'video_clip'].includes(c.action)).length, 'nothing generated').toBe(0);
+  // the competitor's card (the media buyer's tab)
+  await page.locator('.sidebar .nav-item[data-page="ai"]').click();
+  await pg(page).getByRole('tab', { name: /الميديا باير/ }).click();
+  const comp = pg(page).locator('[data-mk-comp]').first();
+  await comp.locator('[data-mk-copy-comp]').click();
+  await expect(page.locator('#pg-marketing')).toBeVisible();
+  await expect(page.locator('#pg-marketing textarea').first()).toHaveValue(/بنفس روح إعلانات/);
+});

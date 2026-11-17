@@ -375,9 +375,12 @@
     fn();
     if (inside && a.isConnected && document.activeElement !== a) { try { a.focus({ preventScroll: true }); if (s != null) a.setSelectionRange(s, e); } catch (x) { /* not a text field */ } }
   }
+  // the owner 17 Nov («ال 3 نقط يبقو علي الشمال»): the row menu's column (th.act-col — ⋮) stays the last one whatever order was saved
+  const actCols = (t) => new Set([...t.querySelectorAll(':scope > thead > tr > th')].map((th, i) => (th.classList.contains('act-col') ? i : -1)).filter((i) => i >= 0));
   function applyColumnPrefs(key, table) {
     if (!table) return; const p = colPrefs(key); const heads = colHeads(table); if (!heads.length) return;
-    const rank = (lb, i) => { const k = p.order.indexOf(lb); return k < 0 ? 1000 + i : k; };
+    const acts = actCols(table);
+    const rank = (lb, i) => { if (acts.has(i)) return 100000 + i; const k = p.order.indexOf(lb); return k < 0 ? 1000 + i : k; };
     const order = heads.map((lb, i) => ({ lb, i, r: i === 0 ? -1 : rank(lb, i) })).sort((a, b) => a.r - b.r || a.i - b.i);
     const moved = order.some((o, k) => o.i !== k);
     const rows = [...table.querySelectorAll(':scope > thead > tr, :scope > tbody > tr, :scope > tfoot > tr')];
@@ -386,15 +389,16 @@
         const cells = [...tr.children];
         if (cells.length !== heads.length) continue; // صف مدموج (زي صف إجمالي بخلية واحدة) — سيبه زي ما هو
         if (moved) order.forEach((o) => tr.append(cells[o.i]));
-        order.forEach((o) => { cells[o.i].hidden = o.i !== 0 && p.hidden.includes(o.lb); });
+        order.forEach((o) => { cells[o.i].hidden = o.i !== 0 && !acts.has(o.i) && p.hidden.includes(o.lb); });
       }
     });
   }
   function customizeColumns(key, label, table, done) {
     if (!table) { toast('مفيش جدول هنا'); return; }
-    const p = colPrefs(key); const heads = colHeads(table);
+    const p = colPrefs(key); const heads = colHeads(table); const acts = actCols(table);
     const rank = (lb, i) => { const k = p.order.indexOf(lb); return k < 0 ? 1000 + i : k; };
     const list = heads.map((lb, i) => ({ id: lb, label: lb || '—', hidden: i !== 0 && p.hidden.includes(lb), fixed: i === 0 && !!lb, r: i === 0 ? -1 : rank(lb, i), i }))
+      .filter((c) => !acts.has(c.i)) // the ⋮ column is not a column to show / hide or move
       .sort((a, b) => a.r - b.r || a.i - b.i);
     form({ title: 'أعمدة الجدول — ' + label, wide: true, values: { list },
       note: U.InlineNote({ children: 'اختار الأعمدة اللي تظهر ورتّبها بالسحب من المسكة اللي جنب الاسم. التخصيص بيتحفظ ليك انت بس ولكل جدول لوحده. العمود الأول ثابت: مينفعش يتخفي ولا يتحرك من أوله.' }),

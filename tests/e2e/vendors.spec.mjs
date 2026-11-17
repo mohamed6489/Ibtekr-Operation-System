@@ -874,3 +874,18 @@ test('decision 57: a member without accounts.view has no «حسابات المب
   await page.locator('.sidebar .nav-item[data-page="vendors"]').click();
   await expect(page.locator('#vendors [role=tablist][aria-label="أقسام المبتكرين"] [role=tab]', { hasText: 'حسابات المبتكرين' })).toHaveCount(0);
 });
+
+// the owner 17 Nov («ال 3 نقط يبقو علي الشمال»): the row menu's ⋮ column stays the table's last one even when a saved column order
+// (from before a column was added) would put it in the middle; it is not in «أعمدة الجدول»
+test('owner 17 Nov — the makers table: the ⋮ column stays last whatever column order was saved, and is not a column to move', async ({ page }) => {
+  // a member's saved order from before the brands column (its old ⋮ label in the middle of the list)
+  mock.prefs.push({ user_id: '00000000-0000-4000-8000-000000000001', key: 'table.cols', data: { 'tbl:المبتكرين': { order: ['المبتكر', 'الحالة', 'النسبة', 'آخر أوردر', 'إجراءات', 'البراندات', 'طلبات مفتوحة'], hidden: [] } } });
+  await openVendors(page);
+  const heads = () => page.locator('#vendors table thead th').evaluateAll((ts) => ts.map((t) => (t.classList.contains('act-col') ? '⋮' : t.textContent.trim())));
+  await expect.poll(async () => (await heads()).indexOf('آخر أوردر')).toBeLessThan((await heads()).indexOf('البراندات')); // the saved order is applied
+  expect((await heads()).at(-1)).toBe('⋮');
+  await expect(rows(page).first().locator('td:last-child')).toHaveClass(/act-col/);
+  await page.locator('#vendors [data-cols]').first().click();
+  await expect(page.locator('.modal [data-col-item]').first()).toBeVisible();
+  await expect(page.locator('.modal [data-col-item="إجراءات"]')).toHaveCount(0);
+});

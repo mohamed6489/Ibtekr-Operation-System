@@ -103,8 +103,9 @@ test('the admin: the automatic brand in «البراندات» (code, aliases, �
   await page.keyboard.press('Escape');
   await drawer(page).getByRole('button', { name: 'إغلاق' }).first().click();
   // the search: the hand-added brand of Art Craft by its name and by its alias; the grey line under his name
-  await expect(row(page, V1).locator('[data-brands]')).toHaveText('Wood & Rope');
-  await expect(row(page, V2).locator('[data-brands]')).toHaveCount(0); // the automatic brand carries his own name
+  // the owner 17 Nov: the site's brands on his products (Cushion → «Art Craft») and the ones he holds here that are not his own name
+  await expect(row(page, V1).locator('[data-brands] .chip')).toHaveText(['Art Craft', 'Wood & Rope']);
+  await expect(row(page, V2).locator('[data-brands] .chip')).toHaveText(['Antikiano']); // his products' site brand (his automatic one is not listed twice)
   await page.locator('#vendors [data-tq-btn]').click(); // «بحث» opens the search row (the owner 12 Nov)
   const search = page.locator('#vendors input[type=search]');
   await search.fill('wood');
@@ -131,8 +132,8 @@ test('comment 57 — the makers table has a «البراندات» column of its
   // the column, right after the maker's name; the name's own cell no longer carries the brands line
   const heads = await page.locator('#vendors table thead th').allTextContents();
   expect(heads.slice(1, 4).map((x) => x.trim())).toEqual(['المبتكر', 'البراندات', 'الحالة']);
-  await expect(row(page, V1).locator('td').nth(2)).toHaveText('Wood & Rope');
-  await expect(row(page, V2).locator('td').nth(2)).toHaveText('Nile Glass');
+  await expect(row(page, V1).locator('td').nth(2).locator('.chip')).toHaveText(['Art Craft', 'Wood & Rope']);
+  await expect(row(page, V2).locator('td').nth(2).locator('.chip')).toHaveText(['Antikiano', 'Nile Glass']);
   await expect(row(page, V1).locator('td').nth(1).locator('[data-brands]')).toHaveCount(0);
   // the filter: «البراند» lists every brand — the makers' own-name brands too (the owner 16 Nov: «فين البراندات اللي هفلتر بيها»);
   // one picked → its maker alone, a chip with its count
@@ -142,19 +143,21 @@ test('comment 57 — the makers table has a «البراندات» column of its
   const names = await menu.locator('[data-fm^="brand:"]').allTextContents();
   expect(names).toEqual(expect.arrayContaining(['Antikiano', 'Art Craft', 'Nile Glass', 'Wood & Rope']));
   expect(names).toEqual([...names].sort((x, y) => x.localeCompare(y)));
-  await menu.locator(`[data-fm="brand:${BRAND(2)}"]`).click(); // Antikiano's own-name brand
+  expect(names.filter((n) => n === 'Bian eg')).toEqual([]); // the owner 17 Nov: a maker's own-name brand is not a brand of the filter
+  const pickB = (n) => menu.locator('[data-fm^="brand:"]', { hasText: n }).first();
+  await pickB('Antikiano').click(); // the site's brand on Antikiano's products
   await expect(menu.locator('[data-fm-apply]')).toHaveText('اعرض 1 مبتكر');
-  await menu.locator(`[data-fm="brand:${BRAND(2)}"]`).click();
-  await menu.locator(`[data-fm="brand:${BRAND(8)}"]`).click();
+  await pickB('Antikiano').click();
+  await pickB('Wood & Rope').click();
   await expect(menu.locator('[data-fm-apply]')).toHaveText('اعرض 1 مبتكر');
   await menu.locator('[data-fm-apply]').dispatchEvent('click');
   await expect(rows(page)).toHaveCount(1);
   await expect(row(page, V1)).toBeVisible();
-  await expect(page.locator(`#vendors [data-af-chip="brand:${BRAND(8)}"]`)).toContainText('البراند: Wood & Rope');
+  await expect(page.locator('#vendors [data-af-chip^="brand:"]')).toContainText('البراند: Wood & Rope');
   await page.locator('#vendors [data-af-clear]').click();
   await expect(rows(page)).toHaveCount(3);
-  // a maker with only his own-name brand: a dash in the column
-  await expect(row(page, V3).locator('td').nth(2)).toHaveText('—');
+  // Bian eg: no brand of his own but his own name — the site's brand on his product (Boho mirror → «Art Craft») is what shows
+  await expect(row(page, V3).locator('td').nth(2).locator('.chip')).toHaveText(['Art Craft']);
 });
 
 test('ops (vendors.edit = P) and accounts read the section only: no button, no menu, no rate column; a store call is refused before any request; vendors follow-up (edit = F) may add but sees no rate', async ({ page }) => {
@@ -220,7 +223,7 @@ test('add a brand: the code suggested from the name until typed, no rate field (
   expect(mock.brands.find((b) => b.id === nb)).toMatchObject({ store_vendor_id: null, origin_vendor_id: V1 });
   await expect.poll(() => acts('vendor.brand')).toEqual([{ entity: 'vendor', entity_id: V1, new_value: 'add: wood & rope' }]);
   await expect(section(page, 'سجل النشاط')).toContainText('صفوت كمال أضاف البراند wood & rope');
-  await expect(row(page, V1).locator('[data-brands]')).toHaveText('wood & rope');
+  await expect(row(page, V1).locator('[data-brands]')).toContainText('wood & rope');
   // a taken name (the automatic brand of Antikiano, by its alias too): refused in the popup, nothing sent
   await brands(page).getByRole('button', { name: 'إضافة براند' }).click();
   await modal(page).locator('#br-name').fill(' ANTIKIANO ');
@@ -263,13 +266,13 @@ test('edit a brand: the changed columns only (a PATCH, no returning row), logged
   expect(mock.requests.filter((r) => r.startsWith('PATCH /rest/v1/brands'))).toHaveLength(1);
   await expect.poll(() => acts('vendor.brand')).toEqual([{ entity: 'vendor', entity_id: V1, new_value: 'update: Art Craft Studio (name, code)' }]);
   await expect(section(page, 'سجل النشاط')).toContainText('صفوت كمال عدّل البراند Art Craft Studio (name, code)');
-  await expect(row(page, V1).locator('[data-brands]')).toHaveText('Art Craft Studio'); // the brand's name is not his any more
+  await expect(row(page, V1).locator('[data-brands]')).toContainText('Art Craft Studio'); // the brand's name is not his any more
   // html in the name: text everywhere
   await openBrandMenu(page, B1, 'تعديل');
   await modal(page).locator('#br-name').fill(EVIL);
   await modal(page).getByRole('button', { name: 'حفظ' }).click();
   await expect(brandRow(page, B1).locator('b').first()).toHaveText(EVIL);
-  await expect(row(page, V1).locator('[data-brands]')).toHaveText(EVIL);
+  await expect(row(page, V1).locator('[data-brands] .chip').last()).toHaveText(EVIL); // text, never markup
   await expect(section(page, 'سجل النشاط')).toContainText('عدّل البراند ' + EVIL);
   await openBrandMenu(page, B1, 'تعديل');
   await expect(modal(page).locator('h2')).toHaveText('تعديل البراند — ' + EVIL);
@@ -346,7 +349,7 @@ test('transfer Antikiano\'s brand to Bian eg from 8 days ago, temporarily: one o
   await tab(page, 'معلومات المبتكر').click();
   await drawer(page).getByRole('button', { name: 'إغلاق' }).first().click();
   await statusFilter(page, 'الكل');
-  await expect(row(page, V3).locator('[data-brands]')).toHaveText('Antikiano');
+  await expect(row(page, V3).locator('[data-brands]')).toContainText('Antikiano');
   await openDrawer(page, V3);
   // a transfer dated before the last one and to the same maker are refused before any request
   await openBrandMenu(page, B2, 'نقل لمبتكر تاني');

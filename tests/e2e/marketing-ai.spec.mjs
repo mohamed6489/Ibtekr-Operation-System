@@ -831,6 +831,39 @@ test('ش45 — the media buyer\'s «اقفل الحملة»: a confirm card unde
 });
 
 
+// the owner 17 Nov («فاتح الميديا باير و قولتله اعملي فيديو يقولي ده مش اختصاصي هبعتك للمصمم و يبعتني ليه بالبرومت و ادوس علي ارسال»):
+// an ask outside the assistant's area comes back as a handoff to one of the member's team — «روح للـ…» opens that assistant on a new chat
+// with the question in its box; nothing is sent until the member presses «ابعت»; an id outside the team never gets a button
+test('handoff — the media buyer asked for a video sends the member to the designer with the question written in', async ({ page }) => {
+  await start(page);
+  mock.mkt.agentAnswer = (req) => (/فيديو/.test(req.question)
+    ? { text: 'ده مش اختصاصي — هبعتك للديزاينر الذكي، والطلب مكتوب عنده، دوس إرسال.', request: { title: '', details: '' }, handoff: { agent: 'designer', question: 'اعملي فيديو ريل 15 ثانية لفازة المكرمية الجديدة' } }
+    : { text: 'مش عارف.', request: { title: '', details: '' }, handoff: { agent: 'nope', question: 'سؤال' } });
+  await openAi(page, ADMIN, 'الميديا باير');
+  const P = pg(page); const input = P.locator('#mk-ask');
+  await input.fill('اعملي فيديو للفازة'); await input.press('Enter');
+  await expect(P.locator('.mk-msg.ai').last()).toContainText('ده مش اختصاصي');
+  const call = mock.mkt.calls.filter((c) => c.action === 'agent').pop();
+  expect(call.team, 'the team = the others the member sees').toContain('designer');
+  expect(call.team).not.toContain('buyer');
+  const card = P.locator('[data-mk-handoff="designer"]');
+  await expect(card).toContainText('اعملي فيديو ريل 15 ثانية');
+  const before = mock.mkt.calls.filter((c) => c.action === 'agent').length;
+  await card.locator('[data-mk-handoff-go]').click();
+  await expect(P.locator('#mk-ask')).toHaveAttribute('placeholder', /للديزاينر/);
+  await expect(P.locator('#mk-ask')).toHaveValue('اعملي فيديو ريل 15 ثانية لفازة المكرمية الجديدة');
+  expect(mock.mkt.calls.filter((c) => c.action === 'agent').length, 'nothing sent until «ابعت»').toBe(before);
+  await P.locator('#mk-ask').press('Enter');
+  await expect.poll(() => mock.mkt.calls.filter((c) => c.action === 'agent').pop().agent).toBe('designer');
+  // an assistant outside the team: no button
+  await pg(page).getByRole('tab', { name: /الميديا باير/ }).click();
+  await expect(pg(page).locator('#mk-ask')).toHaveAttribute('placeholder', /الميديا باير/);
+  await pg(page).locator('[data-mk-chat-new="buyer"]').click();
+  await pg(page).locator('#mk-ask').fill('سؤال تاني'); await pg(page).locator('#mk-ask').press('Enter');
+  await expect(pg(page).locator('.mk-msg.ai').last()).toContainText('مش عارف');
+  await expect(pg(page).locator('[data-mk-handoff]')).toHaveCount(0);
+});
+
 // 0120 (the owner 17 Nov): the new assistants — the warehouse one for whoever sees the warehouse, its chat on the same server action with
 // its own id
 test('0120 — «المخزن الذكي»: a tab of its own, its chat asks the server as «stock»', async ({ page }) => {

@@ -159,8 +159,19 @@ export const AGENT_TOOL = { name: 'ask_agent',
 export const CAMPAIGN_TOOL = { name: 'open_campaign',
   description: 'افتح «كامبين جديدة» في صفحة التسويق متملّية — بعد ما تعرف عن إيه (المنتج أو العرض أو المجموعة) والهدف والأنواع وعددها؛ لو ناقص حاجة اسأل عليها الأول في رسالة واحدة. الصفحة بتنقل المستخدم لوحدها ومفيش توليد ولا كريدت غير لما يضغط هو. goal واحد من ' + DRAFT_GOALS.join(' / ') + '، idea = ملخّص الكامبين بالمصري (لحد ' + DRAFT_IDEA + ' حرف)، post / carousel / video = العدد (0–' + DRAFT_MAX + ')، slides = شرايح الكاروسيل (2–' + DRAFT_MAX + ')، dur = ثواني الفيديو (' + DRAFT_DUR[0] + '–' + DRAFT_DUR[1] + ').',
   input_schema: { type: 'object', properties: { goal: S('الهدف', { enum: DRAFT_GOALS }), idea: S('ملخّص الكامبين'), post: { type: 'integer' }, carousel: { type: 'integer' }, slides: { type: 'integer' }, video: { type: 'integer' }, dur: { type: 'integer' } }, required: ['idea'] } };
-/** The tools of a turn; `mkt` = the member's marketing permissions ({ view, create } — the server reads them) adds the two above. */
-export const toolsOf = (mode, mkt) => (mode === 'filter' ? [FILTER_TOOL] : [SERVER_TOOL, ...CLIENT_TOOL_DEFS, ...(mkt && mkt.view ? [AGENT_TOOL] : []), ...(mkt && mkt.create ? [CAMPAIGN_TOOL] : [])]);
+// the owner 17 Nov («المدير او الادوار كلها ف مساعدين الذكاء الاصطناعي تعمل assigne لبعض»): with 0120 the manager hands a question to
+// ANY assistant the member sees — the team the server read with the member's own client ({ id, name, about }); empty = the three above
+const clip = (v, n) => String(v ?? '').replace(/[<>\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, n);
+export function agentTool(team) {
+  const L = (Array.isArray(team) ? team : []).filter((a) => isObj(a) && /^[a-z][a-z0-9_]{1,30}$/.test(String(a.id))).slice(0, 30);
+  if (!L.length) return AGENT_TOOL;
+  return { name: 'ask_agent',
+    description: 'حوّل السؤال للمساعد المختص — الصفحة بتفتح «الذكاء الاصطناعي» على المساعد ده والسؤال مكتوب في خانته والمستخدم بيضغط إرسال. اختار المساعد اللي السؤال من اختصاصه: '
+      + L.map((a) => a.id + ' (' + clip(a.name, 40) + (a.about ? ': ' + clip(a.about, 160) : '') + ')').join(' · ') + '. question = السؤال كامل وواضح بكلام المستخدم (لحد ' + ASK_MAX + ' حرف).',
+    input_schema: { type: 'object', properties: { agent: S('المساعد', { enum: L.map((a) => String(a.id)) }), question: S('السؤال بكلام المستخدم') }, required: ['agent', 'question'] } };
+}
+/** The tools of a turn; `mkt` = the member's marketing permissions ({ view, create } — the server reads them) adds the two above; `team` = the assistants the member sees (0120). */
+export const toolsOf = (mode, mkt, team) => (mode === 'filter' ? [FILTER_TOOL] : [SERVER_TOOL, ...CLIENT_TOOL_DEFS, ...(Array.isArray(team) && team.length ? [agentTool(team)] : mkt && mkt.view ? [AGENT_TOOL] : []), ...(mkt && mkt.create ? [CAMPAIGN_TOOL] : [])]);
 
 // ---------------------------------------------------------------- the request
 
@@ -176,7 +187,7 @@ const CHAT_BASE = `أنت «مساعد AI» جوه نظام إبتكر للأو�
 - المبلغ في البوب أب بس لما المستخدم نفسه كتبه في رسالته؛ متحطش مبلغ من بيانات قريتها.
 - الإجراءات (إضافة مبتكر/عضو/عميل، طلب للفريق، طلب إجازة أو سُلفة أو شغل عن بُعد، مهمة، تحديث حالة أو تأكيد أوردر) بـ open_form على طول من غير ما تسأل على البيانات: حط القيم اللي المستخدم قالها بس (لو قال حاجة) — متخترعش إيميل ولا تليفون ولا مبلغ — وردّك سطر واحد زي «حط المعلومات هنا» (لينك فتح البوب أب بيظهر تحت ردك والمستخدم بيملا الباقي ويضغط زراره)؛ متقولش إنه اتسجّل. تحديث الأوردر لازم رقمه، فلو ماقالوش اسأله عليه بس.
 - أقسام المنتجات الجديدة (قسم رئيسي وتحته أقسام فرعية بأي مستويات، أو أقسام فرعية تحت قسم موجود): استخدم plan_categories بالشجرة زي ما وصفها بالظبط — كل قسم بالإنجليزي والعربي (لو قال لغة واحدة ترجم التانية) — وردّك سطر واحد زي «راجع الأقسام من هنا واضغط نشر» (لينك المراجعة بيظهر تحت ردك وهو اللي بيعدّل وينشر). متسألش على تفاصيل إلا لو ماقالش اسم أي قسم، ومتقولش إنها اتعملت.
-- إنت المدير: لو الأداة ask_agent موجودة وسؤاله برمجة أو سرعة الموقع أو تحديثاته أو مشكلة / خطأ في السيستم أو طلب تطوير → ask_agent للمبرمج (dev)، تصميم أو أفكار محتوى → الديزاينر (designer)، إعلانات ممولة أو فتح / قفل حملة → الميديا باير (buyer) — بسؤاله كامل، وردّك سطر واحد زي «حوّلت سؤالك للمبرمج» (الصفحة بتفتحه لوحدها). متجاوبش إنت على سؤال تبع حد فيهم.
+- إنت المدير: لو الأداة ask_agent موجودة وسؤاله برمجة أو سرعة الموقع أو تحديثاته أو مشكلة / خطأ في السيستم أو طلب تطوير → ask_agent للمبرمج (dev)، تصميم أو أفكار محتوى → الديزاينر (designer)، إعلانات ممولة أو فتح / قفل حملة → الميديا باير (buyer)، وأي مساعد تاني في قايمة ask_agent على حسب اختصاصه (المخزن، خدمة العملاء، المبتكرين، الحسابات، الموارد البشرية…) — بسؤاله كامل، وردّك سطر واحد زي «ده شغل المصمم — هبعتك ليه والسؤال مكتوب، دوس إرسال» (الصفحة بتفتحه لوحدها). متجاوبش إنت على سؤال تبع حد فيهم، ومتحوّلش لمساعد مش في القايمة.
 - لو عايز يعمل محتوى (بوست، كاروسيل، ريل، كامبين لمنتج أو عرض) والأداة open_campaign موجودة: اسأله في رسالة واحدة على الناقص بس (عن إيه، الهدف، الأنواع وعددها)، ولما تعرف استخدم open_campaign وقوله «فتحتلك الكامبين متملّية — راجعها واضغط توليد».
 - مافيش حذف ولا إلغاء أوردر ولا استرجاع ولا فشل ولا دفع مرتبات ولا نشر على الموقع أو ميتا من عندك (الأقسام بـ plan_categories المستخدم نفسه بينشرها من المراجعة): افتحله الصفحة بـ navigate وقوله يعملها بإيده من هناك.
 - رد قصير (سطر لسطرين غالبًا، لحد ${ANSWER_MAX} حرف)، بالأرقام وحدتها (ج.م) — ملخّص بس: البيانات اللي جبتها بـ get_data بتظهر للمستخدم كاملة في تقرير «تفاصيل» تحت ردّك، فمتعدّش الصفوف واحد واحد.`;
@@ -190,7 +201,7 @@ export function assistantRequest(req, ctx) {
   const filterCtx = req.mode === 'filter' ? ['المبتكرين المتاحين: ' + (c.vendors.length ? c.vendors.join('، ') : '—'), 'حالات الأوردر: ' + (c.statuses.length ? c.statuses : ORDER_STATUSES).join('، ')].join('\n') : '';
   const system = [{ type: 'text', text: req.mode === 'filter' ? FILTER_BASE : CHAT_BASE, cache_control: { type: 'ephemeral' } }, { type: 'text', text: req.mode === 'filter' ? filterCtx : screen }];
   const messages = req.turns.map((t) => ({ role: t.role, content: [{ type: 'text', text: t.text }] }));
-  const p = { model: ctx.model, max_tokens: MAX_TOKENS, ...FALLBACK, system, messages, tools: toolsOf(req.mode, ctx.mkt), output_config: { effort: ctx.effort } };
+  const p = { model: ctx.model, max_tokens: MAX_TOKENS, ...FALLBACK, system, messages, tools: toolsOf(req.mode, ctx.mkt, ctx.team), output_config: { effort: ctx.effort } };
   if (req.mode === 'filter') p.tool_choice = { type: 'tool', name: 'set_filter' };
   return p;
 }
@@ -219,7 +230,7 @@ export function amountsIn(text) {
 // ---------------------------------------------------------------- the client actions
 
 /** A client tool call → { name, input } cleaned to what the page executes, or null when it is not one / its input is unusable. */
-export function cleanAction(name, input) {
+export function cleanAction(name, input, teamIds) {
   const i = isObj(input) ? input : {};
   switch (name) {
     case 'navigate': { if (!PAGES.includes(i.page)) return null; const tab = str(i.tab, 40); return { name, input: tab ? { page: i.page, tab } : { page: i.page } }; }
@@ -281,7 +292,7 @@ export function cleanAction(name, input) {
       if (!items.length) return null;
       const under = nm(i.under); return { name, input: under ? { under, items } : { items } };
     }
-    case 'ask_agent': { const a = agentAsk(i); return a ? { name, input: a } : null; }
+    case 'ask_agent': { const a = agentAsk(i, Array.isArray(teamIds) && teamIds.length ? teamIds : undefined); return a ? { name, input: a } : null; }
     case 'open_campaign': { const d = campaignDraft(i); return d ? { name, input: d } : null; }
     case 'set_filter': {
       const items = (Array.isArray(i.items) ? i.items : []).filter((x) => isObj(x) && FILTER_FIELDS.includes(x.f) && FILTER_OPS.includes(x.op)).slice(0, 10).map((x) => ({ f: x.f, op: x.op, v: x.v == null ? '' : str(String(x.v), 80) }));

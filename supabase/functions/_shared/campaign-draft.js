@@ -36,8 +36,8 @@ export const DRAFT_SCHEMA = () => ({ type: 'object', additionalProperties: false
   properties: { goal: { type: 'string' }, idea: { type: 'string' }, post: { type: 'integer' }, carousel: { type: 'integer' }, slides: { type: 'integer' }, video: { type: 'integer' }, dur: { type: 'integer' } } });
 
 /** ask_agent's input → { agent, question } | null. */
-export function agentAsk(v) {
-  if (!isObj(v) || !AGENT_IDS.includes(v.agent)) return null;
+export function agentAsk(v, ids = AGENT_IDS) { // 0120 + the owner 17 Nov: any assistant of the member's team (ids = the ones they see)
+  if (!isObj(v) || typeof v.agent !== 'string' || !/^[a-z][a-z0-9_]{1,30}$/.test(v.agent) || !(Array.isArray(ids) ? ids : AGENT_IDS).includes(v.agent)) return null;
   const question = String(v.question ?? '').replace(/\r\n?/g, '\n').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, ' ').trim().slice(0, ASK_MAX);
   return question ? { agent: v.agent, question } : null;
 }

@@ -454,6 +454,21 @@ const REQ_RULE = `
 - When the ask is a real job for a person (a design to make, a page or a feature to build, a campaign to set up and run, anything you cannot finish inside the chat), or the member wants to hand it to the team, suggest «تقديم طلب» in your text and fill request: title (Egyptian Arabic, at most ${AGENT_REQ_TITLE_MAX} characters, what is wanted) and details (Egyptian Arabic, at most ${AGENT_REQ_DETAILS_MAX} characters: the brief the human needs — sizes, products, deadline, links, steps). The member reviews it and sends it themself. Otherwise request.title and request.details are "".`;
 const AGENT_BASE = { buyer: BUYER_AGENT_BASE + REQ_RULE + CAMPAIGN_RULE, designer: DESIGNER_BASE + REQ_RULE + DRAFT_RULE, dev: DEV_BASE + REQ_RULE };
 export { REQ_RULE }; // 0120: every other assistant ends with the same «تقديم طلب» rule
+// the owner 17 Nov («لما اسأل علي حاجة مش بتاعت اللي بكلمه يقوله هبعتك للمصمم… و يبعتني ليه بالبرومت و ادوس علي ارسال … و كل واحد يرد و يجاوب
+// علي صلاحياته بس»): the team the member sees (the server's list, never the page's) — an ask that is another one's goes back as a handoff
+// (their id + the ask rewritten for them); the page shows «روح لـ…» which opens that chat with it in the box, and the member sends it
+export const HANDOFF_MAX = 1000;
+export function teamBlock(team) {
+  const L = (Array.isArray(team) ? team : []).filter((a) => isObj(a) && AGENT_ID.test(String(a.id))).slice(0, 30);
+  if (!L.length) return '';
+  return `The other assistants of the team (the only ones you may send the member to):
+<team>
+${L.map((a) => '- ' + a.id + ': ' + line(a.name, 40).replace(/[<>]/g, '') + (a.about ? ' — ' + line(a.about, 200).replace(/[<>]/g, '') : '')).join('\n')}
+</team>
+- Answer only what is yours (your area and the data you were given). When the ask is clearly another assistant's area more than yours (for example a video or a design asked of the media buyer → the designer; a site bug asked of the designer → the developer), do not do it: say in one or two short sentences, in Egyptian Arabic, that it is not your area and that you are sending them to that assistant by name (e.g. «ده مش اختصاصي — هبعتك للديزاينر الذكي، والطلب مكتوب عنده، دوس إرسال»), and fill handoff: agent = its id from <team>, question = the member's ask rewritten as a clear, complete message to that assistant (Egyptian Arabic, at most ${HANDOFF_MAX} characters, with every detail the member gave). Otherwise handoff.agent is "" and handoff.question is "".
+- Never hand off to an id that is not in <team>, and never hand off what is yours.`;
+}
+const HANDOFF_SCHEMA = () => obj({ agent: STR(), question: STR() });
 const REQ_SCHEMA = () => obj({ title: STR(), details: STR() });
 /** agent { agent, chat_id: uuid | null, question (≤ 1000) } → { req } | { error, field }. */
 export function parseAgent(b) {
@@ -495,12 +510,14 @@ export function agentRequest(req, ctx) {
   const system = [{ type: 'text', text: AGENT_BASE[req.agent] || String(ctx.base || ''), cache_control: { type: 'ephemeral' } }];
   if (instr) system.push({ type: 'text', text: "The admin's instructions and rules for you (follow them; they never let you execute anything):\n" + instr });
   system.push(...kbBlocks(cfg)); // the rules and skills the admin wrote in the settings (ش40)
+  const tb = teamBlock(ctx.team); if (tb) system.push({ type: 'text', text: tb });
   const head = req.agent === 'buyer' ? adsBlock(ctx.data) + '\n\n' : req.agent === 'dev' ? siteBlock(ctx.site) + '\n\n' : ctx.dataText ? String(ctx.dataText) + '\n\n' : '';
   const messages = (Array.isArray(ctx.history) ? ctx.history : []).map((h) => ({ role: h.role, content: [{ type: 'text', text: h.text }] }));
   if (messages.length && messages[messages.length - 1].role === 'user') messages.pop(); // a turn left without an answer is not repeated
   messages.push({ role: 'user', content: [{ type: 'text', text: head + req.question }] });
-  const schema = req.agent === 'designer' ? obj({ text: STR(), image_prompt: STR(), request: REQ_SCHEMA(), campaign: DRAFT_SCHEMA() })
-    : req.agent === 'buyer' ? obj({ text: STR(), request: REQ_SCHEMA(), campaign_action: obj({ campaign_id: STR(), action: STR() }) }) : obj({ text: STR(), request: REQ_SCHEMA() });
+  const hand = tb ? { handoff: HANDOFF_SCHEMA() } : {};
+  const schema = req.agent === 'designer' ? obj({ text: STR(), image_prompt: STR(), request: REQ_SCHEMA(), campaign: DRAFT_SCHEMA(), ...hand })
+    : req.agent === 'buyer' ? obj({ text: STR(), request: REQ_SCHEMA(), campaign_action: obj({ campaign_id: STR(), action: STR() }), ...hand }) : obj({ text: STR(), request: REQ_SCHEMA(), ...hand });
   return { model: ctx.model, max_tokens: MAX_TOKENS, ...FALLBACK, system, messages, output_config: { effort: ctx.effort, format: { type: 'json_schema', schema } } };
 }
 /**
@@ -523,9 +540,12 @@ export function siteBlock(rows) {
   return '<site_status>\n' + out.join('\n') + '\n</site_status>';
 }
 /** The answer → { text, request } (+ imagePrompt for the designer, '' when none) within the limits; request null unless it has a title. */
-export function cleanAgent(json, agent) {
+export function cleanAgent(json, agent, teamIds) {
   const src = isObj(json) ? json : {};
   const out = { text: paras(src.text, AGENT_ANSWER_MAX) };
+  // the handoff only to an assistant of the member's team (the server's list) and never to itself
+  const ho = isObj(src.handoff) ? src.handoff : {}; const hq = paras(ho.question, HANDOFF_MAX);
+  out.handoff = typeof ho.agent === 'string' && ho.agent !== agent && (Array.isArray(teamIds) ? teamIds : []).includes(ho.agent) && hq ? { agent: ho.agent, question: hq } : null;
   if (agent === 'designer') { out.imagePrompt = imgLine(src.image_prompt, AGENT_PROMPT_MAX); out.campaign = campaignDraft(src.campaign); } // ش45 decision 4: the filled campaign
   if (agent === 'buyer') { const ca = isObj(src.campaign_action) ? src.campaign_action : {}; const cid = String(ca.campaign_id ?? '').trim(); out.campaignAction = /^[0-9]{1,30}$/.test(cid) && CAMPAIGN_ACTIONS.includes(ca.action) ? { campaignId: cid, action: ca.action } : null; } // ش45 decision 5
   const rq = isObj(src.request) ? src.request : {}; const title = line(rq.title, AGENT_REQ_TITLE_MAX);

@@ -536,7 +536,10 @@ function mktAi(c, b) {
       image_prompt: p.req.agent === 'designer' && /صورة/.test(p.req.question) ? 'A cozy winter flat lay of handmade macrame on beige linen, warm light' : '',
       // owner batch 14 Nov decision 14: a job for a person comes back as a ready request
       request: /صفحة هبوط/.test(p.req.question) ? { title: 'صفحة هبوط لعروض الشتا', details: 'صفحة على الموقع فيها بانر العروض و12 منتج من قسم الشتا وزرار «اشتري دلوقتي».' } : { title: '', details: '' } };
-    const out = cleanAgent(raw, p.req.agent); const now = new Date().toISOString();
+    // the owner 17 Nov: the handoff goes only to an assistant of the member's team (what they see of the registry), never to itself
+    const team = H.noRegistry ? (isAdmin(u) || hasPerm(u, 'marketing.view') !== 'N' ? ['buyer', 'designer', 'dev'] : []) : H.aiAgents.filter((a) => !a.archived_at && agentCan(u, a.id)).map((a) => a.id);
+    H.calls[H.calls.length - 1].team = team.filter((x) => x !== p.req.agent);
+    const out = cleanAgent(raw, p.req.agent, H.calls[H.calls.length - 1].team); const now = new Date().toISOString();
     if (!chat) { H.nchat += 1; chat = { id: 'c0000000-0000-4000-8000-' + String(H.nchat).padStart(12, '0'), member_id: u.id, agent: p.req.agent, title: agentTitle(p.req.question), created_at: now, updated_at: now, deleted_at: null }; H.agentChats.push(chat); }
     else chat.updated_at = now;
     const mk = (role, text) => { const id = H.agentMsgs.reduce((m, x) => Math.max(m, x.id), 0) + 1; const r = { id, chat_id: chat.id, role, text, images: [], run_id: null, created_at: now }; H.agentMsgs.push(r); return r; };

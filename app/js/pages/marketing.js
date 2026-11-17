@@ -1424,7 +1424,7 @@
   // كلها»): each assistant's chats, the member's own — the history on the side (new, rename, delete), the turns from the server, the
   // quick suggestions inside the chat, ⚙️ the admin's settings, «تقديم طلب» and the expand button (the same icon shrinks it back);
   // nothing runs from a chat — the designer's picture is made only by «ولّد الصورة» under its answer (the image credits) ----------
-  const AG = { chats: {}, active: {}, turns: {}, prompts: {}, reqs: {}, drafts: {}, acts: {}, draft: {}, asking: false, gen: null, full: false, side: false, loading: {}, cfgAsked: false, seen: {}, atBottom: {}, pos: {} };
+  const AG = { chats: {}, active: {}, turns: {}, prompts: {}, reqs: {}, drafts: {}, acts: {}, hand: {}, draft: {}, asking: false, gen: null, full: false, side: false, loading: {}, cfgAsked: false, seen: {}, atBottom: {}, pos: {} };
   const AG_INTRO = {
     buyer: 'أنا الميديا باير. بقرا أرقام ميتا بتاعة آخر 7 أيام جنب أوردرات ووكومرس الحقيقية وبقترح — والتنفيذ بموافقتك من «مستني موافقتك». اسألني عن حملة أو العائد أو تكلفة الأوردر.',
     designer: 'أنا الديزاينر. بساعدك في أفكار البوستات والكاروسيل والستوري والريلز بالبراند، ولما تطلب صورة بكتبلك وصفها وتقدر تولّدها بزرار «ولّد الصورة» (من كريدت الصور). الشغل الكبير بيروح للديزاينر البشري من «تقديم طلب».',
@@ -1538,6 +1538,7 @@
     AG.turns[cid] = prev.concat(r.turns);
     const ans = r.turns.find((t) => t.role === 'assistant'); if (ans && r.imagePrompt) AG.prompts[ans.id] = r.imagePrompt; if (ans && r.request) AG.reqs[ans.id] = r.request;
     if (ans && r.campaignAction) AG.acts[ans.id] = r.campaignAction; // ش45 decision 5: the buyer's confirm card
+    if (ans && r.handoff) AG.hand[ans.id] = r.handoff; // the owner 17 Nov: «ده مش اختصاصي — هبعتك لـ…» → «روح لـ…» under the answer
     if (chat) { AG.chats[a] = [chat].concat((AG.chats[a] || []).filter((c) => c.id !== chat.id)); AG.active[a] = chat.id; }
     if (ans && r.campaign) { AG.drafts[ans.id] = r.campaign; if (a === 'designer' && openDraft(r.campaign)) { K.toast('فتحتلك الكامبين متملّية — راجعها واضغط توليد', 'success'); return; } }
     agRefresh();
@@ -1616,6 +1617,10 @@
             t.role === 'assistant' && AG.reqs[t.id] && canAsk() ? h('div', { class: 'mk-msg-req' }, h('small', { class: 'help' }, 'طلب جاهز: ' + AG.reqs[t.id].title),
               Button({ size: 'sm', type: 'primary', icon: 'send', label: 'قدّم الطلب ده', attrs: { 'data-mk-req-from': String(t.id) }, onClick: () => reqForm(a, { title: AG.reqs[t.id].title, details: AG.reqs[t.id].details }) })) : null,
             t.role === 'assistant' && AG.acts[t.id] ? actCard(t.id, AG.acts[t.id]) : null,
+            t.role === 'assistant' && AG.hand[t.id] ? h('div', { class: 'mk-msg-req mk-handoff', 'data-mk-handoff': AG.hand[t.id].agent },
+              h('small', { class: 'help' }, 'هيتكتب في الشات: ' + AG.hand[t.id].question.slice(0, 140)),
+              Button({ size: 'sm', type: 'primary', icon: 'send', label: 'روح ' + AGENTS[AG.hand[t.id].agent].to, attrs: { 'data-mk-handoff-go': String(t.id) },
+                onClick: () => { const x = AG.hand[t.id]; if (!askAgent(x.agent, x.question)) K.toast('المساعد ده مش متاح لدورك', 'error'); } })) : null,
             t.role === 'assistant' && AG.drafts[t.id] && can().create ? h('div', { class: 'mk-msg-req' }, h('small', { class: 'help' }, 'كامبين جاهزة: ' + String(AG.drafts[t.id].idea || '').slice(0, 80)),
               Button({ size: 'sm', type: 'primary', icon: 'megaphone', label: 'افتح الكامبين', attrs: { 'data-mk-draft-from': String(t.id) }, onClick: () => openDraft(AG.drafts[t.id]) })) : null),
           h('small', { class: 'mk-meta help' }, (mine ? meName() : A.name) + ' · ' + agTime(t.at)))); });

@@ -242,8 +242,8 @@ test('agentHistory: the table\'s turns → alternating, the member first, the la
 });
 test('cleanAgent: the text limit; the image prompt for the designer only, without markup; parseAgentImage and the member\'s folder', () => {
   assert.equal(cleanAgent({ text: 'x'.repeat(5000) }, 'buyer').text.length, AGENT_ANSWER_MAX);
-  assert.deepEqual(cleanAgent({ text: 'تمام', image_prompt: 'a <b>cozy</b> flat lay' }, 'designer'), { text: 'تمام', imagePrompt: 'a cozy flat lay', campaign: null, request: null });
-  assert.deepEqual(cleanAgent({ text: 'تمام', image_prompt: 'x' }, 'dev'), { text: 'تمام', request: null });
+  assert.deepEqual(cleanAgent({ text: 'تمام', image_prompt: 'a <b>cozy</b> flat lay' }, 'designer'), { text: 'تمام', handoff: null, imagePrompt: 'a cozy flat lay', campaign: null, request: null });
+  assert.deepEqual(cleanAgent({ text: 'تمام', image_prompt: 'x' }, 'dev'), { text: 'تمام', handoff: null, request: null });
   // owner batch 14 Nov decision 14: a ready request — one line of 80 for the title, the details within 1500; no title = none
   const rq = cleanAgent({ text: 'قدّمه', request: { title: 'صفحة هبوط\nلعروض الشتا ' + 'x'.repeat(100), details: 'd'.repeat(2000) } }, 'dev').request;
   assert.equal(rq.title.length, 80); assert.doesNotMatch(rq.title, /\n/); assert.equal(rq.details.length, 1500);

@@ -4,8 +4,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadUmd } from '../helpers/load-umd.mjs';
 import { DRAFT_GOALS, DRAFT_MAX, DRAFT_DUR, agentAsk, campaignDraft } from '../../supabase/functions/_shared/campaign-draft.js';
-import { CLIENT_TOOLS, assistantRequest, cleanAction, toolsOf } from '../../supabase/functions/_shared/ai-assistant.js';
-import { agentRequest, cleanAgent } from '../../supabase/functions/_shared/marketing.js';
+import { CLIENT_TOOLS, agentTool, assistantRequest, cleanAction, toolsOf } from '../../supabase/functions/_shared/ai-assistant.js';
+import { agentRequest, cleanAgent, teamBlock } from '../../supabase/functions/_shared/marketing.js';
 const W = loadUmd(new URL('../../app/js/pages/marketing-domain.js', import.meta.url));
 
 test('ش45: a draft within the limits — goal fallback, counts capped, slides only with a carousel, the video length only with a video; nothing to make = null', () => {
@@ -70,4 +70,36 @@ test('ش45: the media buyer\'s pause / resume — its schema and rule; a listed 
   assert.equal(cleanAgent({ text: 'x', campaign_action: { campaign_id: '', action: '' } }, 'buyer').campaignAction, null);
   assert.equal('campaignAction' in cleanAgent({ text: 'x', campaign_action: { campaign_id: '12', action: 'pause' } }, 'designer'), false);
   assert.match(adsBlock({ campaigns: [{ id: 'x<y', name: 'A' }] }), /\nA \| /, 'an id that is not a number is left out');
+});
+
+// the owner 17 Nov — «لما اسأل علي حاجة مش بتاعت اللي بكلمه يقوله هبعتك للمصمم … و يبعتني ليه بالبرومت و ادوس علي ارسال … و كل واحد يرد و يجاوب علي صلاحياته بس»
+const TEAM = [{ id: 'designer', name: 'الديزاينر الذكي', about: 'تصميم وصور وفيديو' }, { id: 'inventory', name: 'المخزن الذكي', about: '' }];
+test('handoff: only to an assistant of the member team, never to itself, with a question', () => {
+  const ids = TEAM.map((a) => a.id);
+  assert.deepEqual(cleanAgent({ text: 'ده مش اختصاصي — هبعتك للديزاينر', handoff: { agent: 'designer', question: ' اعملي فيديو ريل للفازة ' } }, 'buyer', ids).handoff, { agent: 'designer', question: 'اعملي فيديو ريل للفازة' });
+  assert.equal(cleanAgent({ text: 'x', handoff: { agent: 'hr', question: 'سؤال' } }, 'buyer', ids).handoff, null); // not in the team
+  assert.equal(cleanAgent({ text: 'x', handoff: { agent: 'designer', question: 'سؤال' } }, 'designer', ids).handoff, null); // itself
+  assert.equal(cleanAgent({ text: 'x', handoff: { agent: 'designer', question: '  ' } }, 'buyer', ids).handoff, null); // nothing to send
+  assert.equal(cleanAgent({ text: 'x', handoff: { agent: 'designer', question: 'سؤال' } }, 'buyer').handoff, null); // no team given = none
+  assert.equal(cleanAgent({ text: 'x', handoff: { agent: '', question: '' } }, 'buyer', ids).handoff, null);
+});
+test('handoff: the team block lists the others only and the schema asks for handoff only with a team', () => {
+  const blk = teamBlock(TEAM.concat([{ id: 'Bad Id', name: 'x' }, { id: 'x', name: '<script>' }]));
+  assert.match(blk, /<team>[\s\S]*- designer: الديزاينر الذكي — تصميم وصور وفيديو[\s\S]*- inventory: المخزن الذكي/);
+  assert.doesNotMatch(blk, /Bad Id|<script>/);
+  assert.equal(teamBlock([]), '');
+  const req = (team) => agentRequest({ agent: 'buyer', question: 'اعملي فيديو', chatId: null }, { model: 'm', effort: 'low', history: [], cfg: {}, team });
+  const props = (p) => p.output_config.format.schema.properties;
+  assert.ok('handoff' in props(req(TEAM)));
+  assert.ok(!('handoff' in props(req([]))));
+  assert.match(JSON.stringify(req(TEAM).system), /<team>/);
+});
+test('handoff: the header assistant offers ask_agent with the member team only', () => {
+  const t = agentTool(TEAM);
+  assert.deepEqual(t.input_schema.properties.agent.enum, ['designer', 'inventory']);
+  assert.ok(toolsOf('chat', { view: false, create: false }, TEAM).some((x) => x.name === 'ask_agent'));
+  assert.ok(!toolsOf('chat', { view: false, create: false }, []).some((x) => x.name === 'ask_agent'));
+  assert.ok(!toolsOf('filter', { view: true }, TEAM).some((x) => x.name === 'ask_agent'));
+  assert.deepEqual(cleanAction('ask_agent', { agent: 'inventory', question: 'كام قطعة في المخزن؟' }, ['designer', 'inventory']).input, { agent: 'inventory', question: 'كام قطعة في المخزن؟' });
+  assert.equal(cleanAction('ask_agent', { agent: 'hr', question: 'x' }, ['designer', 'inventory']), null);
 });

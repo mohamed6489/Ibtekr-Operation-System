@@ -47,6 +47,7 @@ import Anthropic from 'npm:@anthropic-ai/sdk@1.3.0';
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { aiSettings, categoryLines, cleanExtract, cleanPrompts, cleanStudio, cleanWrite, costOf, extractRequest, line, parseExtract, parsePrompts, parseStudio, parseWrite, promptsRequest, readAnswer, shotPromptRows, studioRequest, usageOf, writeRequest } from '../_shared/ai-content.js';
 import { vaultEnv } from '../_shared/secrets.js';
+import { AGENT_NAME } from '../_shared/campaign-draft.js';
 import { LEGACY_AGENTS, agentBase, dataBlock, kbFor, seesOf } from '../_shared/ai-agents.js';
 import { AGENT_HISTORY, REQ_RULE, agentHistory, agentRequest, agentTitle, buyerRequest, campaignTarget, cleanAgent, cleanBuyer, cleanMarketing, marketingRequest, parseAgent, parseBuyer, parseMarketing, templateNotes } from '../_shared/marketing.js';
 import { SUGGEST_DAYS, buyerRules, windowOf } from '../_shared/mkt-ads.js';
@@ -486,8 +487,9 @@ async function agent(deps: Deps, uid: string, args: Json, jwt = '') {
   const cfg = await configOf(deps, req.agent === 'designer' ? 'marketing' : 'buyer'); // the designer writes with the house style
   const run0 = { created_by: uid, action: 'marketing', source: 'agent', label: line(req.question, 200) };
   const base = LEGACY_AGENTS.includes(req.agent) ? '' : agentBase(row) + REQ_RULE;
-  const params = agentRequest(req, { model: cfg.model, effort: cfg.effort, history: agentHistory((Array.isArray(rows) ? rows : []).slice().reverse()), cfg: agentCfg, data, site, base, dataText });
-  return await runAi(deps, run0, cfg, params, (answer) => cleanAgent(answer, req.agent), async (out) => {
+  const team = await teamOf(member, legacy, req.agent); const teamIds = team.map((a) => a.id);
+  const params = agentRequest(req, { model: cfg.model, effort: cfg.effort, history: agentHistory((Array.isArray(rows) ? rows : []).slice().reverse()), cfg: agentCfg, data, site, base, dataText, team });
+  return await runAi(deps, run0, cfg, params, (answer) => cleanAgent(answer, req.agent, teamIds), async (out) => {
     const now = deps.now();
     if (!chat) {
       const { data: made, error } = await deps.db.from('mkt_agent_chats').insert({ member_id: uid, agent: req.agent, title: agentTitle(req.question), created_at: now, updated_at: now }).select('id, agent, title, created_at, updated_at').single();
@@ -505,6 +507,16 @@ async function agent(deps: Deps, uid: string, args: Json, jwt = '') {
     out.turns = turns;
     return true;
   });
+}
+
+// the owner 17 Nov — the team of assistants the member sees (0120 ai_agents_list with the member's own client: their permissions decide);
+// before 0120 the three of marketing for whoever sees marketing; `but` leaves one out (the assistant answering)
+async function teamOf(member: Db, mktView: boolean, but = ''): Promise<Json[]> {
+  try {
+    const { data, error } = await member.rpc('ai_agents_list');
+    if (!error && Array.isArray(data)) return data.filter((a: Json) => isObj(a) && !a.archived_at && a.id !== but).map((a: Json) => ({ id: String(a.id), name: String(a.name ?? ''), about: String(a.about ?? '') }));
+  } catch { /* before 0120 */ }
+  return mktView ? LEGACY_AGENTS.filter((a) => a !== but).map((a) => ({ id: a, name: (AGENT_NAME as Json)[a] || a, about: '' })) : [];
 }
 
 // ---------------------------------------------------------------- the header's assistant (phase 12 T1, decision 8)
@@ -619,7 +631,8 @@ async function assistant(deps: Deps, uid: string, args: Json, jwt: string) {
   // ش45 decisions 3 and 4: the marketing assistants and the filled campaign — only for whoever may open them
   const pv = async (key: string) => { try { const { data, error } = await member.rpc('has_perm', { key }); return error ? 'N' : String(data ?? 'N'); } catch { return 'N'; } };
   const mkt = { view: (await pv('marketing.view')) !== 'N', create: (await pv('marketing.create')) === 'F' };
-  const params = assistantRequest(req, { model: cfg.model, effort: cfg.effort, today, actor, role, mkt });
+  const team = req.mode === 'filter' ? [] : await teamOf(member, mkt.view); const teamIds = team.map((a) => a.id);
+  const params = assistantRequest(req, { model: cfg.model, effort: cfg.effort, today, actor, role, mkt, team });
   const spent = { model: cfg.model, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, cost_usd: 0 };
   const actions: Json[] = []; const tools: string[] = []; let text = ''; let reads = 0; const got: Json[] = []; // got: the reads for the «تفاصيل» report (decision 23)
   const typedAmounts = amountsIn(req.question); // propose_entry only for an amount the member typed (never one read from data)
@@ -650,9 +663,9 @@ async function assistant(deps: Deps, uid: string, args: Json, jwt: string) {
         const data = await readData(member, uid, dq as DQ, today); got.push({ kind: dq.kind, data });
         results.push({ id: use.id, content: data });
       } else {
-        const act = cleanAction(use.name, use.input);
+        const act = cleanAction(use.name, use.input, teamIds);
         if (act && use.name === 'propose_entry' && !typedAmounts.includes(Number((act.input as Json).amount))) { results.push({ id: use.id, content: 'refused: the amount is not in the user\'s own message — ask them for it', error: true }); continue; }
-        if (act && ((use.name === 'ask_agent' && !mkt.view) || (use.name === 'open_campaign' && !mkt.create))) { results.push({ id: use.id, content: 'refused: not allowed for this member', error: true }); continue; }
+        if (act && ((use.name === 'ask_agent' && !teamIds.includes(String((act.input as Json).agent))) || (use.name === 'open_campaign' && !mkt.create))) { results.push({ id: use.id, content: 'refused: not allowed for this member', error: true }); continue; }
         if (act && use.name === 'open_form') { const vals = (act.input as Json).values as Json; if (vals.amount != null && !typedAll.includes(Number(vals.amount))) delete vals.amount; }
         if (act) { actions.push(act); results.push({ id: use.id, content: use.name === 'propose_entry' ? 'the confirm card will be shown to the user after your answer — not recorded yet' : use.name === 'open_form' ? 'a link «افتح البوب أب» is shown under your answer; the popup opens when the user clicks it, filled with these values — nothing is saved until they press its button' : use.name === 'offer_file' ? 'a download link is shown under your answer' : use.name === 'plan_categories' ? 'a link «راجع الأقسام» is shown under your answer; the user reviews and edits the tree and presses «نشر» himself — nothing is created yet' : 'will run on the user\'s screen after your answer' }); }
         else results.push({ id: use.id, content: 'invalid input for ' + line(use.name, 40), error: true });

@@ -1095,7 +1095,11 @@
     const cp = agent === 'designer' && b.campaign && typeof b.campaign === 'object' && !Array.isArray(b.campaign) ? b.campaign : null;
     // ش45 decision 5: the buyer's pause / resume proposal — a confirm card on the page, nothing runs from the chat
     const ca = agent === 'buyer' && b.campaignAction && /^[0-9]{1,30}$/.test(String(b.campaignAction.campaignId || '')) && ['pause', 'resume'].includes(b.campaignAction.action) ? { campaignId: String(b.campaignAction.campaignId), action: b.campaignAction.action } : null;
-    return { ok: true, text: typeof b.text === 'string' ? b.text : '', imagePrompt: typeof b.imagePrompt === 'string' ? b.imagePrompt : '', request: rq, campaign: cp, campaignAction: ca, chat, turns: (Array.isArray(b.turns) ? b.turns : []).map(toTurn) };
+    // the owner 17 Nov («لما اسأل علي حاجة مش بتاعت اللي بكلمه يقوله هبعتك للمصمم … و يبعتني ليه بالبرومت و ادوس علي ارسال»): a question
+    // for another assistant of the team comes back as a handoff — the page offers «روح لـ…» (that assistant's chat, the question in its box)
+    const hd = b.handoff && typeof b.handoff === 'object' && AGENT_RE.test(String(b.handoff.agent || '')) && b.handoff.agent !== agent && typeof b.handoff.question === 'string' && b.handoff.question.trim()
+      ? { agent: String(b.handoff.agent), question: b.handoff.question.trim().slice(0, 1000) } : null;
+    return { ok: true, text: typeof b.text === 'string' ? b.text : '', imagePrompt: typeof b.imagePrompt === 'string' ? b.imagePrompt : '', request: rq, campaign: cp, campaignAction: ca, handoff: hd, chat, turns: (Array.isArray(b.turns) ? b.turns : []).map(toTurn) };
   }
   // the designer's picture from the prompt of its answer (the image credits) — the turn comes back with the image's path
   async function agentImage(chatId, prompt) {

@@ -417,7 +417,7 @@ Deno.test('agent (0084): marketing.view; a first message makes the member\'s cha
   assertEquals([r.res.status, r.body.result, r.body.text, r.body.imagePrompt, r.body.chat.title, r.body.turns.map((t: any) => t.role)], [200, 'ok', 'فكرة: الماكرامية على لينن', 'A macrame flat lay on linen', 'بوست للشتا بالماكرامية', ['user', 'assistant']]);
   assertEquals(asked[0].messages.map((m: any) => m.content[0].text), ['بوست للشتا بالماكرامية'], 'the body\'s history is ignored');
   assert(asked[0].system.some((b: any) => b.text.includes('الألوان بيج وأخضر')), 'the admin\'s instructions');
-  assertEquals(asked[0].output_config.format.schema.required, ['text', 'image_prompt', 'request', 'campaign']); // + request: owner batch 14 Nov decision 14; + campaign: ش45 decision 4
+  assertEquals(asked[0].output_config.format.schema.required, ['text', 'image_prompt', 'request', 'campaign', 'handoff']); // + request: owner batch 14 Nov decision 14; + campaign: ش45 decision 4; + handoff: the team (17 Nov)
   assertEquals(r.body.request, null, 'no job for a person in this answer');
   assertEquals(r.body.campaign, null, 'no campaign to open in this answer');
   const chat = db.rows('mkt_agent_chats').find((c: any) => c.id === r.body.chat.id);

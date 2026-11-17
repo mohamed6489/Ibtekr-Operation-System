@@ -87,7 +87,8 @@ do $$ declare v text; n int; l jsonb; begin
     jsonb_build_object('section', 'عام', 'title', 'اللهجة', 'text', 'مصري', 'agents', '[]'::jsonb),
     jsonb_build_object('section', 'المخزن', 'title', 'المرتجع', 'text', 'افحص الأول', 'agents', jsonb_build_array('stock', v))));
   if n <> 3 then raise exception 'case three rules failed'; end if;
-  l := public.ai_agent_kb_list();
+  -- the rules alone (a live database may already hold the admin's skills)
+  select coalesce(jsonb_agg(x), '[]'::jsonb) into l from jsonb_array_elements(public.ai_agent_kb_list()) x where x ->> 'kind' = 'rules';
   if jsonb_array_length(l) <> 3 or l -> 0 ->> 'title' <> 'الألوان' or l -> 1 -> 'agents' <> '[]'::jsonb then raise exception 'case the list back failed: %', l; end if;
   perform public.ai_agent_kb_set('skills', '[{"section":"الريلز","title":"Hook","text":"أول ثانيتين","agents":["designer"]}]');
   if jsonb_array_length(public.ai_agent_kb_list()) <> 4 then raise exception 'case rules and skills apart failed'; end if;

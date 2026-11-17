@@ -187,6 +187,7 @@
 .cal-it { display:flex;flex-direction:column;gap:2px;text-align:start;padding:8px;border-radius:var(--radius-sm);border:0;border-inline-start:3px solid var(--color-brand-default);background:var(--color-brand-subtle-bg);color:var(--color-text-primary);font:inherit;cursor:pointer;min-width:0 }
 .cal-it.platform { border-inline-start-color:var(--color-border-default);background:var(--color-bg-container) }
 .cal-it.sched { background:transparent;outline:1px dashed var(--color-action-default);outline-offset:-1px }
+.cal-it.paused { background:transparent;outline:1px dashed var(--color-warning-default, #d97706);outline-offset:-1px;opacity:.8 }
 .cal-it.fail { border-inline-start-color:var(--color-error-base);background:var(--color-error-bg) }
 .cal-it:hover { filter:brightness(.97) }
 .cal-it:focus-visible { outline:2px solid var(--color-border-focus);outline-offset:1px }

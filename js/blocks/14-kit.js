@@ -389,7 +389,7 @@
         const cells = [...tr.children];
         if (cells.length !== heads.length) continue; // صف مدموج (زي صف إجمالي بخلية واحدة) — سيبه زي ما هو
         if (moved) order.forEach((o) => tr.append(cells[o.i]));
-        order.forEach((o) => { cells[o.i].hidden = o.i !== 0 && !acts.has(o.i) && p.hidden.includes(o.lb); });
+        order.forEach((o) => { cells[o.i].hidden = (o.i !== 0 && !acts.has(o.i) && p.hidden.includes(o.lb)) || (o.lb === 'المبتكر' && kitSingle()); });
       }
     });
   }
@@ -565,10 +565,23 @@
     if (inp._tqHad) { const [a, b] = inp._tqHad; inp._tqHad = null; inp.focus(); try { inp.setSelectionRange(a, b); } catch (e) { /* a search box without a caret */ } }
     if (!own && inp.value) run();
   }
+  // the plan 2026-11-17-stores-single.md decision 3: single-seller mode (IBSettings.single) has no makers — a column headed «المبتكر» leaves
+  // every table (its head and its cells), the same in all pages, before the columns are counted
+  function kitSingle() { const S = window.IBSettings; return !!(S && S.single && S.single()); }
+  function makerCols(t) {
+    if (!kitSingle()) return;
+    const head = t.tHead && t.tHead.rows[0]; if (!head) return;
+    [...head.cells].forEach((th, i) => {
+      if (th.textContent.trim() !== 'المبتكر') return;
+      th.hidden = true; th.setAttribute('data-single-off', '');
+      [...t.tBodies].forEach((b) => [...b.rows].forEach((tr) => { const td = tr.cells[i]; if (td && td.colSpan === 1 && tr.cells.length === head.cells.length) td.hidden = true; }));
+    });
+  }
   function sweepColumns(root) {
     if (!root || !root.querySelectorAll) return;
     emptyCards(root);
     root.querySelectorAll('table').forEach((t) => {
+      makerCols(t);
       personCols(t);
       if (t.closest('.modal, .drawer, [role=dialog]')) return;
       tableSearch(stdCard(t), t);

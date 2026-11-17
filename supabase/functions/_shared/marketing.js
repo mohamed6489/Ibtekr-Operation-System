@@ -385,14 +385,14 @@ export function adsBlock(data) {
   const d = isObj(data) ? data : {}; const R = isObj(d.rules) ? d.rules : {};
   const camps = (Array.isArray(d.campaigns) ? d.campaigns : []).slice(0, 25).map((c) => {
     const spend = n0(c.spend), orders = n0(c.orders), sales = n0(c.sales);
-    return line(c.name, 80) + ' | ' + line(c.status, 20) + ' | spend ' + spend + ' | meta purchases ' + n0(c.purchases) + ' | woo orders ' + orders + ' | woo sales ' + sales
+    return (/^[0-9]{1,30}$/.test(String(c.id ?? '')) ? String(c.id) + ' | ' : '') + line(c.name, 80) + ' | ' + line(c.status, 20) + ' | spend ' + spend + ' | meta purchases ' + n0(c.purchases) + ' | woo orders ' + orders + ' | woo sales ' + sales
       + ' | MER ' + (spend > 0 ? (sales / spend).toFixed(2) : '—') + ' | cost/order ' + (orders > 0 ? Math.round(spend / orders) : '—') + (c.daily_budget ? ' | daily budget ' + n0(c.daily_budget) : '');
   });
   const sugg = (Array.isArray(d.suggestions) ? d.suggestions : []).slice(0, 20).map((s) => line(s.kind, 20) + ': ' + line(s.title, 120) + (s.sub ? ' — ' + line(s.sub, 200) : ''));
   return '<ads_data>\n' + 'Today (Cairo): ' + line(d.today, 10) + '\nCurrency: EGP\n'
     + 'Rules: daily cap ' + n0(R.dailyCap) + ' · max cost per order ' + n0(R.maxCpa) + ' · auto-stop after ' + n0(R.autoStop) + ' spent without an order (' + line(R.autoStopMode, 10) + ') · execution switch ' + (R.live ? 'on' : 'off') + '\n'
     + "The owner's written rules (guidance for your advice only — nothing runs from them):\n" + ((Array.isArray(R.notes) ? R.notes : []).slice(0, 20).map((x) => '- [' + line(x && x.kind, 10) + '] ' + line(x && x.title, 80) + ': ' + line(x && x.details, 300)).join('\n') || '(none)') + '\n'
-    + 'Last 7 days per campaign (name | status | spend | meta purchases | woo orders | woo sales | MER | cost/order | daily budget):\n' + (camps.length ? camps.join('\n') : '(no campaign numbers yet — the sync has not run)') + '\n'
+    + 'Last 7 days per campaign (Meta id | name | status | spend | meta purchases | woo orders | woo sales | MER | cost/order | daily budget):\n' + (camps.length ? camps.join('\n') : '(no campaign numbers yet — the sync has not run)') + '\n'
     + 'Open suggestions waiting for the admin:\n' + (sugg.length ? sugg.join('\n') : '(none)') + '\n</ads_data>';
 }
 export function buyerRequest(req, ctx) {
@@ -440,13 +440,18 @@ const DEV_BASE = `You are the developer assistant of Ibtekr Club (ibtekr.club). 
 - You never deploy, publish or change anything yourself: real work goes to the human developer through «تقديم طلب», and nothing reaches the live site without the owner's approval.
 - Plain text, at most ${AGENT_ANSWER_MAX} characters, no Markdown and no HTML.`;
 const BUYER_AGENT_BASE = BUYER_BASE.replace(/at most \d+ characters/, 'at most ' + AGENT_ANSWER_MAX + ' characters');
+// ش45 decision 5 (the owner 17 Nov — «مساعد الميديا باينج يقدر يساعدني اني افتح اقفل كامبين»): the buyer proposes pausing or resuming a
+// Meta campaign; the page shows a confirm card and only the member's «أيوه» runs it (mkt-ads campaign_set — marketing.publish, the switch)
+export const CAMPAIGN_ACTIONS = ['pause', 'resume'];
+const CAMPAIGN_RULE = `
+- When the member asks to stop / pause / close a campaign, or to run / resume / open one again, fill campaign_action: campaign_id = the campaign's Meta id from <ads_data> (the number before its name — only an id listed there; ask which campaign when it is not clear) and action = pause or resume; say in your text that a confirm card appears under your answer and nothing changes on Meta until they press it. Only Meta campaigns. Otherwise campaign_action.campaign_id is "" and action is "".`;
 // owner batch 14 Nov decision 14: a job bigger than the chat (or one the member wants a person to do) comes back as a ready request —
 // the page shows «قدّم الطلب ده» under the answer, which opens «تقديم طلب» filled; nothing is sent until the member presses «ابعت الطلب»
 export const AGENT_REQ_TITLE_MAX = 80;
 export const AGENT_REQ_DETAILS_MAX = 1500;
 const REQ_RULE = `
 - When the ask is a real job for a person (a design to make, a page or a feature to build, a campaign to set up and run, anything you cannot finish inside the chat), or the member wants to hand it to the team, suggest «تقديم طلب» in your text and fill request: title (Egyptian Arabic, at most ${AGENT_REQ_TITLE_MAX} characters, what is wanted) and details (Egyptian Arabic, at most ${AGENT_REQ_DETAILS_MAX} characters: the brief the human needs — sizes, products, deadline, links, steps). The member reviews it and sends it themself. Otherwise request.title and request.details are "".`;
-const AGENT_BASE = { buyer: BUYER_AGENT_BASE + REQ_RULE, designer: DESIGNER_BASE + REQ_RULE + DRAFT_RULE, dev: DEV_BASE + REQ_RULE };
+const AGENT_BASE = { buyer: BUYER_AGENT_BASE + REQ_RULE + CAMPAIGN_RULE, designer: DESIGNER_BASE + REQ_RULE + DRAFT_RULE, dev: DEV_BASE + REQ_RULE };
 const REQ_SCHEMA = () => obj({ title: STR(), details: STR() });
 /** agent { agent, chat_id: uuid | null, question (≤ 1000) } → { req } | { error, field }. */
 export function parseAgent(b) {
@@ -491,7 +496,8 @@ export function agentRequest(req, ctx) {
   const messages = (Array.isArray(ctx.history) ? ctx.history : []).map((h) => ({ role: h.role, content: [{ type: 'text', text: h.text }] }));
   if (messages.length && messages[messages.length - 1].role === 'user') messages.pop(); // a turn left without an answer is not repeated
   messages.push({ role: 'user', content: [{ type: 'text', text: head + req.question }] });
-  const schema = req.agent === 'designer' ? obj({ text: STR(), image_prompt: STR(), request: REQ_SCHEMA(), campaign: DRAFT_SCHEMA() }) : obj({ text: STR(), request: REQ_SCHEMA() });
+  const schema = req.agent === 'designer' ? obj({ text: STR(), image_prompt: STR(), request: REQ_SCHEMA(), campaign: DRAFT_SCHEMA() })
+    : req.agent === 'buyer' ? obj({ text: STR(), request: REQ_SCHEMA(), campaign_action: obj({ campaign_id: STR(), action: STR() }) }) : obj({ text: STR(), request: REQ_SCHEMA() });
   return { model: ctx.model, max_tokens: MAX_TOKENS, ...FALLBACK, system, messages, output_config: { effort: ctx.effort, format: { type: 'json_schema', schema } } };
 }
 /**
@@ -518,6 +524,7 @@ export function cleanAgent(json, agent) {
   const src = isObj(json) ? json : {};
   const out = { text: paras(src.text, AGENT_ANSWER_MAX) };
   if (agent === 'designer') { out.imagePrompt = imgLine(src.image_prompt, AGENT_PROMPT_MAX); out.campaign = campaignDraft(src.campaign); } // ش45 decision 4: the filled campaign
+  if (agent === 'buyer') { const ca = isObj(src.campaign_action) ? src.campaign_action : {}; const cid = String(ca.campaign_id ?? '').trim(); out.campaignAction = /^[0-9]{1,30}$/.test(cid) && CAMPAIGN_ACTIONS.includes(ca.action) ? { campaignId: cid, action: ca.action } : null; } // ش45 decision 5
   const rq = isObj(src.request) ? src.request : {}; const title = line(rq.title, AGENT_REQ_TITLE_MAX);
   out.request = title ? { title, details: paras(rq.details, AGENT_REQ_DETAILS_MAX) } : null;
   return out;

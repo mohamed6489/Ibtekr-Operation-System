@@ -37,7 +37,7 @@ export type Deps = {
 };
 type Link = Record<string, string>;
 
-const ACTIONS = ['status', 'sync', 'rules', 'rules_set', 'live', 'decide', 'link_set', 'link_start', 'link_callback', 'link_pick', 'unlink'];
+const ACTIONS = ['status', 'sync', 'rules', 'rules_set', 'live', 'decide', 'campaign_set', 'link_set', 'link_start', 'link_callback', 'link_pick', 'unlink'];
 const CRON_ACTIONS = ['sync', 'report'];
 const GRAPH_MS = 30_000;
 const CHUNK = 500;
@@ -168,7 +168,7 @@ async function adsSettingsWrite(deps: Deps, platform: string, patch: Json | null
 
 // ---------------------------------------------------------------- the members
 
-type Who = { uid: string; admin: boolean; view: boolean };
+type Who = { uid: string; admin: boolean; view: boolean; publish?: boolean };
 async function whoIs(req: Request, deps: Deps): Promise<Who | null> {
   const jwt = /^Bearer\s+(\S+)$/i.exec(req.headers.get('authorization') ?? '')?.[1];
   if (!jwt || !deps.userDb || !deps.userId) return null;
@@ -179,7 +179,10 @@ async function whoIs(req: Request, deps: Deps): Promise<Who | null> {
   if (!uid) return null;
   let view = admin;
   if (!view) { const { data, error } = await member.rpc('has_perm', { key: 'marketing.view' }); view = !error && String(data ?? 'N') !== 'N'; }
-  return { uid, admin, view };
+  // ش45 decision 5: who opens / closes a campaign from the chat — the admin or marketing.publish = F (the owner's choice)
+  let publish = admin;
+  if (!publish) { const { data, error } = await member.rpc('has_perm', { key: 'marketing.publish' }); publish = !error && String(data ?? 'N') === 'F'; }
+  return { uid, admin, view, publish };
 }
 async function syncAllowed(deps: Deps, secret: string) {
   const { data, error } = await deps.db.rpc('sync_secret_matches', { candidate: secret });
@@ -437,6 +440,40 @@ async function decide(deps: Deps, who: Who, args: Json): Promise<Response> {
     return json(502, { error: code, text: e.text });
   }
 }
+// ش45 decision 5 (the owner 17 Nov — «مساعد الميديا باينج يقدر يساعدني اني افتح اقفل كامبين»): pause or resume a Meta campaign after the
+// member pressed the confirm card under the buyer's answer — the admin or marketing.publish = F, the execution switch on (like the
+// suggestions), a campaign the sync knows (mkt_ad_objects), Meta only. GET its status first (the same = nothing written), then the POST
+// and the mirror's status. A new write on Meta by the owner's decision (before: pausing only, from a suggestion the admin approved).
+async function campaignSet(deps: Deps, who: Who, args: Json): Promise<Response> {
+  if (!who.admin && !who.publish) return json(401, { error: 'unauthorized' });
+  const id = String(args.campaign_id ?? '').trim();
+  if (!/^[0-9]{1,30}$/.test(id)) return json(400, { error: 'bad_request', field: 'campaign_id' });
+  const want = args.status === 'ACTIVE' || args.status === 'PAUSED' ? String(args.status) : null;
+  if (!want) return json(400, { error: 'bad_request', field: 'status' });
+  const { data: obj } = await deps.db.from('mkt_ad_objects').select('id, name, status').eq('platform', 'meta').eq('kind', 'campaign').eq('id', id).maybeSingle();
+  if (!isObj(obj)) return json(404, { error: 'not_found' });
+  const rules = await rulesOf(deps); const link = await linkOf(deps, 'meta');
+  if (!linkReady('meta', link)) return json(409, { error: 'not_linked' });
+  if (!rules.live) return json(409, { error: 'live_off' });
+  const verb = want === 'PAUSED' ? 'pause' : 'resume';
+  try {
+    const cur = await get(deps, path.node(id) + '?fields=' + encodeURIComponent('id,status,effective_status'), link.access_token);
+    if (isObj(cur) && String(cur.status ?? '') === want) {
+      await deps.db.from('mkt_ad_objects').update({ status: want }).eq('platform', 'meta').eq('kind', 'campaign').eq('id', id);
+      await log(deps, who.uid, 'mkt.buyer.campaign', id, verb + ' · same');
+      return json(200, { result: 'same', status: want });
+    }
+    await post(deps, path.node(id), link.access_token, { status: want });
+    await deps.db.from('mkt_ad_objects').update({ status: want }).eq('platform', 'meta').eq('kind', 'campaign').eq('id', id);
+    await log(deps, who.uid, 'mkt.buyer.campaign', id, verb + ' · ok');
+    return json(200, { result: 'ok', status: want });
+  } catch (e) {
+    if (!(e instanceof GraphError)) throw e;
+    const code = ourCode(e.code);
+    await log(deps, who.uid, 'mkt.buyer.campaign', id, verb + ' · ' + code);
+    return json(502, { error: code, text: e.text });
+  }
+}
 // the daily report (decision 52): once a day at the rule's Cairo hour, to the bell of the admin and ops roles — every platform's spend
 async function report(deps: Deps): Promise<Response> {
   const at = deps.now(); const nowMs = Date.parse(at); const p = cairoParts(nowMs); const rules = await rulesOf(deps);
@@ -607,6 +644,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
       case 'rules_set': return await rulesSet(deps, who, args);
       case 'live': return await liveSet(deps, who, args);
       case 'decide': return await decide(deps, who, args);
+      case 'campaign_set': return await campaignSet(deps, who, args);
       case 'link_set': return await linkSet(deps, who, args);
       case 'link_start': return await linkStart(deps, who, args);
       case 'link_callback': return await linkCallback(deps, who, args);

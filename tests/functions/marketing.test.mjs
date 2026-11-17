@@ -234,7 +234,7 @@ test('agentHistory: the table\'s turns → alternating, the member first, the la
   const b = agentRequest({ agent: 'buyer', question: 'أحسن حملة؟' }, { model: 'm', effort: 'low', history: [{ role: 'user', text: 'سؤال من غير رد' }], cfg: {}, data: { today: '2026-11-12', rules: {}, campaigns: [{ name: 'Macrame', spend: 100, orders: 2, sales: 500 }] } });
   assert.equal(b.system.length, 1); assert.equal(b.messages.length, 1); // a turn left without an answer is not repeated
   assert.match(b.messages[0].content[0].text, /<ads_data>[\s\S]*Macrame[\s\S]*<\/ads_data>\n\nأحسن حملة؟$/);
-  assert.deepEqual(b.output_config.format.schema.required, ['text', 'request']);
+  assert.deepEqual(b.output_config.format.schema.required, ['text', 'request', 'campaign_action']); // ش45 decision 5
   assert.deepEqual(b.output_config.format.schema.properties.request.required, ['title', 'details']);
   const v = agentRequest({ agent: 'dev', question: 'صفحة هبوط' }, { model: 'm', effort: 'low', history: [], cfg: null, data: { campaigns: [{ name: 'X' }] } });
   assert.match(v.system[0].text, /staging site first/); assert.doesNotMatch(v.messages[0].content[0].text, /ads_data/);

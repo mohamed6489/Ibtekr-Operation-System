@@ -785,3 +785,36 @@ test('ش45 — the designer\'s content task: after its questions it fills the ca
   expect(mock.mkt.campaigns.length, 'nothing saved').toBe(0);
   expect(mock.mkt.calls.filter((c) => ['marketing', 'campaign', 'campaign_edit', 'video_clip'].includes(c.action)).length, 'nothing generated').toBe(0);
 });
+
+// ش45 decision 5 — the media buyer opens / closes a campaign: its answer carries the proposal, a confirm card under it; «أيوه» runs it
+// on Meta (mkt-ads campaign_set) only with the execution switch on; «لأ» drops it; nothing runs from the chat itself
+test('ش45 — the media buyer\'s «اقفل الحملة»: a confirm card under the answer; the switch off says so; on, «أيوه» pauses it on Meta; «لأ» drops it', async ({ page }) => {
+  await start(page);
+  mock.mkt.agentAnswer = (req) => (/اقفل/.test(req.question)
+    ? { text: 'تمام — هقفل «Macrame — Retargeting». أكّد من الكارت تحت.', request: { title: '', details: '' }, campaign_action: { campaign_id: CA, action: 'pause' } }
+    : { text: 'افتحها؟ أكّد من تحت.', request: { title: '', details: '' }, campaign_action: { campaign_id: CB, action: 'resume' } });
+  await openAi(page, ADMIN, 'الميديا باير');
+  const input = pg(page).locator('#mk-ask');
+  await input.fill('اقفل حملة المكرمية'); await input.press('Enter');
+  const card = pg(page).locator('[data-mk-camp-act="pause:' + CA + '"]');
+  await expect(card).toContainText('اقفل الحملة «');
+  expect(mock.mkt.campaignSets || [], 'nothing ran from the chat').toEqual([]);
+  // the switch off: the server refuses in words, nothing changed
+  mock.mkt.rules.live = false;
+  await card.locator('[data-mk-camp-yes]').click();
+  await expect(page.locator('body')).toContainText('مفتاح التنفيذ على ميتا مقفول');
+  expect(mock.mkt.adObjects.find((o) => o.id === CA).status).toBe('ACTIVE');
+  // the switch on: paused on Meta, the card says it, logged with the id only
+  mock.mkt.rules.live = true;
+  await card.locator('[data-mk-camp-yes]').click();
+  await expect(pg(page).locator('[data-mk-camp-done="ok"]')).toContainText('اتقفلت الحملة على ميتا');
+  expect(mock.mkt.adObjects.find((o) => o.id === CA).status).toBe('PAUSED');
+  expect(mock.mkt.campaignSets.map((x) => [x.id, x.status])).toEqual([[CA, 'PAUSED']]);
+  await expect.poll(() => mock.activityRows.filter((a) => a.action === 'mkt.buyer.campaign').map((a) => [a.entity_id, a.new_value])).toEqual([[CA, 'pause · live_off'], [CA, 'pause · ok']]);
+  // «لأ» drops the next one
+  await input.fill('افتح حملة اللمبات'); await input.press('Enter');
+  await pg(page).locator('[data-mk-camp-act="resume:' + CB + '"] [data-mk-camp-no]').click();
+  await expect(pg(page).locator('[data-mk-camp-done="no"]')).toContainText('اتلغى');
+  expect(mock.mkt.campaignSets.length).toBe(1);
+});
+

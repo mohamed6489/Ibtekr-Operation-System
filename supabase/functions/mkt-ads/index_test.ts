@@ -10,7 +10,7 @@ import { ENV, NOW, fakeDb } from '../_test/fakes.ts';
 const TOKEN = 'EAAG' + 'x'.repeat(40);
 const ADS_ENV = { ...ENV, META_ADS_TOKEN: TOKEN, META_AD_ACCOUNT_ID: 'act_1122334455' };
 const U = { admin: '00000000-0000-4000-8000-0000000052d1', view: '00000000-0000-4000-8000-0000000052d2', none: '00000000-0000-4000-8000-0000000052d3' };
-const MEMBERS: Record<string, { uid: string; admin?: boolean; view?: string }> = { 'jwt-admin': { uid: U.admin, admin: true }, 'jwt-view': { uid: U.view, view: 'F' }, 'jwt-none': { uid: U.none, view: 'N' } };
+const MEMBERS: Record<string, { uid: string; admin?: boolean; view?: string; pub?: string }> = { 'jwt-admin': { uid: U.admin, admin: true }, 'jwt-view': { uid: U.view, view: 'F' }, 'jwt-none': { uid: U.none, view: 'N' }, 'jwt-pub': { uid: U.view, view: 'F', pub: 'F' } };
 const C1 = '120252323303340228';
 type Call = { method: string; path: string; query: Record<string, string>; auth: string | null; host: string; headers: Record<string, string>; body: any };
 type Route = { status?: number; body?: unknown } | ((c: Call) => { status?: number; body?: unknown } | Error);
@@ -47,7 +47,7 @@ function setup({ routes = OK_ROUTES, env = ADS_ENV, objects = [], stats = [], va
     ticket_request_server: (a: any) => { requests.push(a); return 7001; },
     mkt_secret_get: ({ p_name }: any) => secrets[p_name] ?? null, mkt_secret_set: ({ p_name, p_value }: any) => { if (p_value == null) delete secrets[p_name]; else secrets[p_name] = p_value; return null; } };
   const db = fakeDb({ mkt_ad_objects: objects, mkt_ad_stats: stats, activity_log: [] }, { rpc });
-  const userDb = (jwt: string) => { const m = MEMBERS[jwt]; return fakeDb({}, { rpc: m ? { has_perm: ({ key }: any) => (key === 'marketing.view' ? m.view ?? 'N' : 'N'), is_admin: () => !!m.admin } : {} }); };
+  const userDb = (jwt: string) => { const m = MEMBERS[jwt]; return fakeDb({}, { rpc: m ? { has_perm: ({ key }: any) => (key === 'marketing.view' ? m.view ?? 'N' : key === 'marketing.publish' ? m.pub ?? 'N' : 'N'), is_admin: () => !!m.admin } : {} }); };
   const g = fakeGraph(routes);
   const deps = { env, db, now: () => NOW, userDb, userId: async (jwt: string) => MEMBERS[jwt]?.uid ?? null, fetch: g.fetch };
   return { deps, db, calls: g.calls, secrets, requests };
@@ -227,6 +227,37 @@ Deno.test('decide: the admin only; reject; the switch off → the decision kept 
   assertEquals((await call(deps, { action: 'decide', id: 3, decision: 'approve' })).res.status, 409);
   assertEquals(db.rows('activity_log').map((l: any) => l.new_value), ['stop · reject · ' + C1, 'stop · approve · ' + C1 + ' · live_off', 'stop · approve · ' + C1 + ' · ok']);
   assertFalse(JSON.stringify(db.rows('activity_log')).includes('300'));
+});
+
+// ش45 decision 5: open / close a campaign from the buyer's confirm card — the admin or marketing.publish F, the switch on, a known Meta
+// campaign; GET first (the same = no write), then the POST and the mirror's status; logged with the id and the action only
+Deno.test('campaign_set (ش45): marketing.publish or the admin; the switch; a known campaign; GET then POST status; the same = no write; Meta refusing = 502 with our code', async () => {
+  const objects = [{ platform: 'meta', kind: 'campaign', id: C1, name: 'Macrame', status: 'ACTIVE' }];
+  let live = 'ACTIVE';
+  const routes = { ...OK_ROUTES, ['GET ' + C1]: () => ({ body: { id: C1, status: live, effective_status: live } }), ['POST ' + C1]: (c: any) => { live = c.body.status; return { body: { success: true } }; } };
+  const { deps, db, calls } = setup({ routes, objects });
+  await seedBuyer(db, {});
+  assertEquals((await call(deps, { action: 'campaign_set', campaign_id: C1, status: 'PAUSED' }, 'jwt-view')).res.status, 401, 'marketing.view only');
+  assertEquals((await call(deps, { action: 'campaign_set', campaign_id: 'x1', status: 'PAUSED' }, 'jwt-pub')).body.field, 'campaign_id');
+  assertEquals((await call(deps, { action: 'campaign_set', campaign_id: C1, status: 'DELETED' }, 'jwt-pub')).body.field, 'status');
+  assertEquals((await call(deps, { action: 'campaign_set', campaign_id: '999', status: 'PAUSED' }, 'jwt-pub')).res.status, 404);
+  const off = await call(deps, { action: 'campaign_set', campaign_id: C1, status: 'PAUSED' }, 'jwt-pub');
+  assertEquals([off.res.status, off.body.error, calls.length], [409, 'live_off', 0]);
+  await db.from('settings').insert(ON);
+  const ok = await call(deps, { action: 'campaign_set', campaign_id: C1, status: 'PAUSED' }, 'jwt-pub');
+  assertEquals([ok.res.status, ok.body], [200, { result: 'ok', status: 'PAUSED' }]);
+  assertEquals(calls.map((c: any) => [c.method, c.path]), [['GET', C1], ['POST', C1]]);
+  assertEquals([calls[1].body.status, calls[1].auth], ['PAUSED', 'Bearer ' + TOKEN]);
+  assertEquals(db.rows('mkt_ad_objects')[0].status, 'PAUSED');
+  const same = await call(deps, { action: 'campaign_set', campaign_id: C1, status: 'PAUSED' }, 'jwt-admin');
+  assertEquals([same.body.result, calls.filter((c: any) => c.method === 'POST').length], ['same', 1]);
+  assertEquals(db.rows('activity_log').filter((l: any) => l.action === 'mkt.buyer.campaign').map((l: any) => [l.entity_id, l.new_value]), [[C1, 'pause · ok'], [C1, 'pause · same']]);
+  // Meta refusing the write
+  const b = setup({ routes: { ...OK_ROUTES, ['GET ' + C1]: { body: { id: C1, status: 'PAUSED' } }, ['POST ' + C1]: { status: 400, body: { error: { message: 'no', code: 100 } } } }, objects: [{ ...objects[0], status: 'PAUSED' }] });
+  await seedBuyer(b.db, {}); await b.db.from('settings').insert(ON);
+  const bad = await call(b.deps, { action: 'campaign_set', campaign_id: C1, status: 'ACTIVE' }, 'jwt-pub');
+  assertEquals(bad.res.status, 502);
+  assertEquals(b.db.rows('mkt_ad_objects')[0].status, 'PAUSED');
 });
 
 Deno.test('decide a budget: the campaign\'s own daily budget (CBO) by the step, edited to another step, the cap and the 30% ceiling refused, the ad sets when the campaign has none', async () => {

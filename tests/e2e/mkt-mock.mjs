@@ -692,6 +692,18 @@ function mktAds(c, b) {
   const admin = isAdmin(u); const view = admin || hasPerm(u, 'marketing.view') !== 'N';
   if (b.action === 'status') return view ? json(200, adsStatusBody(H)) : json(401, { error: 'unauthorized' });
   if (b.action === 'rules') return view ? json(200, { result: 'ok', rules: { ...H.rules } }) : json(401, { error: 'unauthorized' });
+  // ش45 decision 5: open / close a Meta campaign from the buyer's confirm card — the admin or marketing.publish = F, the switch on, a known campaign
+  if (b.action === 'campaign_set') {
+    if (!(admin || hasPerm(u, 'marketing.publish') === 'F')) return json(401, { error: 'unauthorized' });
+    const id = String(b.campaign_id || ''); if (!/^[0-9]{1,30}$/.test(id)) return json(400, { error: 'bad_request', field: 'campaign_id' });
+    if (b.status !== 'ACTIVE' && b.status !== 'PAUSED') return json(400, { error: 'bad_request', field: 'status' });
+    const o = H.adObjects.find((x) => (x.platform || 'meta') === 'meta' && x.kind === 'campaign' && String(x.id) === id); if (!o) return json(404, { error: 'not_found' });
+    if (!H.rules.live) return json(409, { error: 'live_off' });
+    (H.campaignSets = H.campaignSets || []).push({ id, status: b.status, by: u.id });
+    if (o.status === b.status) return json(200, { result: 'same', status: b.status });
+    o.status = b.status; H.writes.push({ table: 'meta', op: 'campaign_status', id, status: b.status });
+    return json(200, { result: 'ok', status: b.status });
+  }
   if (!['sync', 'rules_set', 'live', 'decide', 'link_set', 'link_start', 'link_pick', 'unlink'].includes(b.action)) return json(400, { error: 'unknown_action' });
   if (!admin) return json(401, { error: 'unauthorized' });
   const now0 = new Date().toISOString();

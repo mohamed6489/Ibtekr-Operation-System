@@ -57,3 +57,17 @@ test('ش45: the designer\'s answer carries the campaign (its schema and rule); t
   assert.equal(cleanAgent({ text: 'سؤال؟', campaign: { idea: '', post: 0 } }, 'designer').campaign, null);
   assert.equal('campaign' in cleanAgent({ text: 'x', campaign: { idea: 'y', post: 1 } }, 'dev'), false);
 });
+
+test('ش45: the media buyer\'s pause / resume — its schema and rule; a listed Meta id and pause | resume only; the ids in <ads_data>', async () => {
+  const { adsBlock } = await import('../../supabase/functions/_shared/marketing.js');
+  const b = agentRequest({ agent: 'buyer', question: 'اقفل المكرمية' }, { model: 'm', effort: 'low', history: [], cfg: {}, data: { today: '2026-11-17', rules: {}, campaigns: [{ id: '120252323303340228', name: 'Macrame', status: 'ACTIVE', spend: 100 }] } });
+  assert.ok(b.output_config.format.schema.properties.campaign_action);
+  assert.match(b.system[0].text, /campaign_action/);
+  assert.match(b.messages.at(-1).content[0].text, /\n120252323303340228 \| Macrame \| ACTIVE \| spend 100/);
+  assert.deepEqual(cleanAgent({ text: 'x', campaign_action: { campaign_id: ' 120252323303340228 ', action: 'pause' } }, 'buyer').campaignAction, { campaignId: '120252323303340228', action: 'pause' });
+  assert.equal(cleanAgent({ text: 'x', campaign_action: { campaign_id: '12a', action: 'pause' } }, 'buyer').campaignAction, null);
+  assert.equal(cleanAgent({ text: 'x', campaign_action: { campaign_id: '12', action: 'delete' } }, 'buyer').campaignAction, null);
+  assert.equal(cleanAgent({ text: 'x', campaign_action: { campaign_id: '', action: '' } }, 'buyer').campaignAction, null);
+  assert.equal('campaignAction' in cleanAgent({ text: 'x', campaign_action: { campaign_id: '12', action: 'pause' } }, 'designer'), false);
+  assert.match(adsBlock({ campaigns: [{ id: 'x<y', name: 'A' }] }), /\nA \| /, 'an id that is not a number is left out');
+});

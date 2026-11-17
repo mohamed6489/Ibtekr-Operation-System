@@ -652,6 +652,9 @@
     } catch (e) { return fail(e); }
   }
 
+  // the newest ads read already in memory (the names of the campaigns for the buyer's confirm card — ش45); null before any read
+  const adsDataNow = () => { let best = null; for (const v of adsCache.values()) if (!best || v.at > best.at) best = v; return best ? best.r : null; };
+
   // ---------- the media buyer (phase 9.5.4, decisions 49–56) ----------
   // the suggestions the server wrote after each sync, the admin's decisions through mkt-ads (the switch off = recorded only),
   // the rules and the execution switch, the designer / developer requests, and the buyer's chat (text only — nothing runs from it)
@@ -696,6 +699,24 @@
     log('buyer.decide', body.decision + ' · ' + status + (b.live === false ? ' · live_off' : ''), id);
     return { ok: true, status, live: b.live !== false, before: b.before == null ? null : Number(b.before), after: b.after == null ? null : Number(b.after), updates: b.updates == null ? null : Number(b.updates), request: b.request === true,
       message: status === 'rejected' ? 'اترفض' : b.live === false ? 'اتسجلت الموافقة — مفتاح التنفيذ مقفول، فمفيش حاجة اتغيّرت على ميتا' : b.request ? 'اتبعت للديزاينر كطلب جديد' : b.after != null ? 'اتنفّذ على ميتا — الميزانية بقت ' + Number(b.after) + ' ج.م/يوم' : 'اتنفّذ على ميتا' };
+  }
+  // ش45 decision 5: open / close a Meta campaign from the buyer's confirm card — the admin or marketing.publish = F, the switch on (the server
+  // checks it all); the log carries the campaign id and the action only
+  const CAMPAIGN_MESSAGES = { live_off: 'مفتاح التنفيذ على ميتا مقفول — الأدمن يشغّله من «القواعد والحدود»', not_linked: 'حساب إعلانات ميتا مش مربوط', not_found: 'الحملة دي مش في أرقام ميتا اللي عندنا — اعمل مزامنة الأول' };
+  async function campaignSet(id, on) {
+    if (!(isAdmin() || can().publish)) return { ok: false, reason: 'forbidden', message: 'فتح وقفل الحملات محتاج «التسويق: نشر»' };
+    const cid = String(id == null ? '' : id); if (!/^[0-9]{1,30}$/.test(cid)) return { ok: false, reason: 'invalid', message: MESSAGES.invalid };
+    const status = on ? 'ACTIVE' : 'PAUSED';
+    const r = await invoke('mkt-ads', { action: 'campaign_set', campaign_id: cid, status });
+    if (!r.ok) {
+      const code = r.code || (r.reason === 'notfound' ? 'not_found' : null);
+      log('buyer.campaign', (on ? 'resume' : 'pause') + ' · ' + (code || r.reason), cid);
+      return Object.assign(r, { message: r.reason === 'forbidden' ? 'فتح وقفل الحملات محتاج «التسويق: نشر»' : CAMPAIGN_MESSAGES[code] || adsWhy(code, r.text) || MESSAGES.network });
+    }
+    const b = r.body || {};
+    log('buyer.campaign', (on ? 'resume' : 'pause') + ' · ' + (b.result === 'same' ? 'same' : 'ok'), cid);
+    adsCache.clear(); emit();
+    return { ok: true, same: b.result === 'same', status, message: b.result === 'same' ? (on ? 'الحملة شغّالة أصلًا' : 'الحملة واقفة أصلًا') : on ? 'اتفتحت الحملة على ميتا' : 'اتقفلت الحملة على ميتا' };
   }
   // the rules and limits (marketing.view reads; the admin writes the numbers and the switch)
   const RULE_KEYS = ['dailyCap', 'maxCpa', 'autoStop', 'autoStopMode', 'reportHour', 'live'];
@@ -1073,7 +1094,9 @@
     const rq = b.request && typeof b.request === 'object' && typeof b.request.title === 'string' && b.request.title.trim() ? { title: b.request.title.trim().slice(0, 80), details: typeof b.request.details === 'string' ? b.request.details.slice(0, 1500) : '' } : null;
     // ش45 decision 4: the designer's filled campaign (the page clamps it with IbtekrCampWiz.draftOf before opening it)
     const cp = agent === 'designer' && b.campaign && typeof b.campaign === 'object' && !Array.isArray(b.campaign) ? b.campaign : null;
-    return { ok: true, text: typeof b.text === 'string' ? b.text : '', imagePrompt: typeof b.imagePrompt === 'string' ? b.imagePrompt : '', request: rq, campaign: cp, chat, turns: (Array.isArray(b.turns) ? b.turns : []).map(toTurn) };
+    // ش45 decision 5: the buyer's pause / resume proposal — a confirm card on the page, nothing runs from the chat
+    const ca = agent === 'buyer' && b.campaignAction && /^[0-9]{1,30}$/.test(String(b.campaignAction.campaignId || '')) && ['pause', 'resume'].includes(b.campaignAction.action) ? { campaignId: String(b.campaignAction.campaignId), action: b.campaignAction.action } : null;
+    return { ok: true, text: typeof b.text === 'string' ? b.text : '', imagePrompt: typeof b.imagePrompt === 'string' ? b.imagePrompt : '', request: rq, campaign: cp, campaignAction: ca, chat, turns: (Array.isArray(b.turns) ? b.turns : []).map(toTurn) };
   }
   // the designer's picture from the prompt of its answer (the image credits) — the turn comes back with the image's path
   async function agentImage(chatId, prompt) {
@@ -1257,7 +1280,7 @@
     videoClip, videoVoice, videoMusic, videoAssemble, videoPoll, videoUpload, videoScenes,
     connection, connNow, setAutopublish, publishNow, deleteLive, preparePublish,
     adsStatus, adsNow, adsSync, adsData, adsLinkSet, adsLinkStart, adsLinkPick, adsUnlink, adsWhy,
-    suggestions, suggNow, decide, rules, rulesNow, rulesSet, setLive, requests, reqsNow, addRequest, REQ_KIND: KIND_OF, buyerChat,
+    suggestions, suggNow, decide, campaignSet, adsDataNow, rules, rulesNow, rulesSet, setLive, requests, reqsNow, addRequest, REQ_KIND: KIND_OF, buyerChat,
     agentChats, agentTurns, agentAsk, agentImage, agentRename, agentDelete, agentSettings, agentSettingsNow, agentSettingsSet, AGENT_KEYS,
     trends, trendsNow, trendsReadyNow, trendsRefresh, trendThumbs, trendThumbNow, trendSettings, trendSettingsNow, trendSettingsSet, adTagsSet, agentKbSet, KB, competitors, competitorsNow, competitorsReadyNow, competitorSave, competitorArchive,
     siteCheck, siteCheckNow, siteReadyNow, siteCheckRun, siteSpeed, siteSpeedNow, siteSpeedRun, siteSubs, siteSubsNow, aiSpend, aiSpendNow,

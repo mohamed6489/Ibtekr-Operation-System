@@ -393,8 +393,9 @@ Deno.test('buyer (9.5.4): marketing.view (P too); the week\'s numbers per campai
   const r = await call(deps, { action: 'buyer', question: 'أزوّد Macrame؟', history: [{ role: 'user', text: 'أهلًا' }, { role: 'assistant', text: 'أهلًا بيك' }], campaigns: 'ignored' }, 'jwt-mview');
   assertEquals([r.res.status, r.body.result, r.body.text.startsWith('Macrame جابت')], [200, 'ok', true]);
   const sent = asked[0].messages.at(-1).content[0].text;
-  assert(sent.includes('Macrame | ACTIVE | spend 500 | meta purchases 4 | woo orders 2 | woo sales 1000 | MER 2.00 | cost/order 250 | daily budget 300'), sent);
-  assertFalse(sent.includes('9999') || sent.includes('Old |')); // the old week and a paused campaign without spend stay out; the cancelled order too
+  assert(sent.includes(CAMP + ' | Macrame | ACTIVE | spend 500 | meta purchases 4 | woo orders 2 | woo sales 1000 | MER 2.00 | cost/order 250 | daily budget 300'), sent);
+  assertFalse(sent.includes('9999')); // the old week and the cancelled order stay out
+  assert(sent.includes('\n2 | Old | PAUSED | spend 0'), 'ش45 decision 5: a paused campaign is listed (with its id) so the buyer can resume it');
   assert(sent.includes('max cost per order 400') && sent.includes('daily cap 5000') && sent.includes('execution switch off') && sent.includes('budget_up: زوّد «Macrame» 20% — العائد 2×') && sent.endsWith('أزوّد Macrame؟'));
   assertEquals(asked[0].messages.map((m: any) => m.role), ['user', 'assistant', 'user']);
   assert(asked[0].system[0].text.includes('never change anything yourself'));

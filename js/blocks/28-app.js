@@ -1005,6 +1005,9 @@
       default: throw new Error('النوع ده مش من الإجراءات المتاحة');
     }
   }
+  // agents-brain T3: the assistants of «الذكاء الاصطناعي» open the same popups and pages as this assistant (the member's click; the
+  // popup's own button is the confirmation) — only these two
+  window.IBAiAction = (name, input) => { if (name !== 'open_form' && name !== 'navigate') throw new Error('الإجراء ده مش متاح'); return aiTools()[name](input || {}); };
   // the server's actions in order; a failing one is said in the panel (the model already answered)
   function aiExecActions(actions) {
     const tools = aiTools(); const failed = [];

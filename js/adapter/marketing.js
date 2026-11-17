@@ -1114,7 +1114,12 @@
     // for another assistant of the team comes back as a handoff — the page offers «روح لـ…» (that assistant's chat, the question in its box)
     const hd = b.handoff && typeof b.handoff === 'object' && AGENT_RE.test(String(b.handoff.agent || '')) && b.handoff.agent !== agent && typeof b.handoff.question === 'string' && b.handoff.question.trim()
       ? { agent: String(b.handoff.agent), question: b.handoff.question.trim().slice(0, 1000) } : null;
-    return { ok: true, text: typeof b.text === 'string' ? b.text : '', imagePrompt: typeof b.imagePrompt === 'string' ? b.imagePrompt : '', request: rq, campaign: cp, campaignAction: ca, handoff: hd, chat, turns: (Array.isArray(b.turns) ? b.turns : []).map(toTurn) };
+    // agents-brain T3: the system's popups filled by the answer (the header assistant's forms) and a page it points at — the page opens
+    // them only on the member's click; the popup is the confirmation
+    const fm = (Array.isArray(b.forms) ? b.forms : []).filter((f) => f && typeof f.form === 'string' && /^[a-z_]{2,30}$/.test(f.form) && f.values && typeof f.values === 'object' && !Array.isArray(f.values)).slice(0, 3)
+      .map((f) => ({ form: f.form, values: Object.fromEntries(Object.entries(f.values).filter(([k, v]) => /^[A-Za-z]{1,20}$/.test(k) && v != null).map(([k, v]) => [k, String(v).slice(0, 1000)])) }));
+    const pg = b.page && typeof b.page === 'object' && /^[a-z]{2,20}$/.test(String(b.page.page || '')) ? { page: String(b.page.page), tab: typeof b.page.tab === 'string' ? b.page.tab.slice(0, 40) : '' } : null;
+    return { ok: true, text: typeof b.text === 'string' ? b.text : '', imagePrompt: typeof b.imagePrompt === 'string' ? b.imagePrompt : '', request: rq, campaign: cp, campaignAction: ca, handoff: hd, forms: fm, page: pg, chat, turns: (Array.isArray(b.turns) ? b.turns : []).map(toTurn) };
   }
   // the designer's picture from the prompt of its answer (the image credits) — the turn comes back with the image's path
   async function agentImage(chatId, prompt) {

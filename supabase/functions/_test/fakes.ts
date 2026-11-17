@@ -85,7 +85,8 @@ const COLUMNS: Record<string, string[]> = {
   mkt_video_jobs: ['id', 'campaign_id', 'piece', 'kind', 'scene', 'creation_ref', 'status', 'url', 'path', 'bytes', 'duration', 'error', 'data', 'created_by', 'created_at', 'updated_at', 'done_at'], // 0054 (phase 9.5.5)
   mkt_agent_chats: ['id', 'member_id', 'agent', 'title', 'created_at', 'updated_at', 'deleted_at'], // 0084 (the assistants' chats)
   mkt_agent_messages: ['id', 'chat_id', 'role', 'text', 'images', 'run_id', 'created_at'],
-  mkt_trends: ['id', 'batch', 'title', 'summary', 'source', 'url', 'kind', 'found_at', 'created_by'], // 0109 (the designer's «آخر التريندات»)
+  mkt_trends: ['id', 'batch', 'title', 'summary', 'source', 'url', 'kind', 'found_at', 'created_by', // 0109 (the designer's «آخر التريندات»)
+    'platform', 'tag', 'thumb', 'thumb_src', 'thumb_tries', 'author', 'views', 'likes', 'comments', 'posted_at', 'external_id'], // 0118 (ش39)
   site_checks: ['kind', 'data', 'checked_at', 'checked_by'], // 0109 (the last WordPress updates check)
   alerts: ['id', 'at', 'kind', 'title', 'body', 'role_id', 'user_id', 'entity', 'entity_id', 'read_at', 'source_key', 'expires_at'], // 0056: source_key / expires_at
   // 0006 + 0056 (phase 11): the read marks and the notifications engine's memory
@@ -142,6 +143,7 @@ const DEFAULTS: Record<string, Row> = {
   cs_templates: { lib: 'customers', cat: 'متابعة', tone: 'brand', trig_kind: 'manual', trig_on: [], trig_when: 'فورًا', channels: 'كل القنوات', wa_vars: [], used: 0, active: true }, cs_quick_replies: {},
   cs_auto_rules: { conds: [], action: 'send', delay_min: 0, once: true, ticket_if_silent: false, enabled: false, runs: 0 }, cs_auto_runs: {}, cs_carts: { email: '', phone: '', name: '', total: 0, items: 0, status: 'normal', unsubscribed: false, url: '' }, ticket_events: { kind: 'event', attachments: [] },
   cs_wa_state: { status: 'offline' }, cs_campaigns: { status: 'مسودة', cap_per_day: 300, min_delay_s: 20, size: 0, stats: {} }, cs_campaign_recipients: { status: 'queued' },
+  mkt_trends: { platform: 'web', thumb_tries: 0 }, // 0118
   mkt_posts: { src: 'system', how: 'download', status: 'مجدول', was_live: false, attempts: 0, images: [], caption: '', caption_orig: '', tags: '' },
   mkt_suggestions: { platform: 'meta', status: 'pending', data: {} }, mkt_requests: { status: 'جديد' }, mkt_video_jobs: { status: 'queued', data: {} }, mkt_agent_chats: { title: 'شات جديد' }, mkt_agent_messages: { text: '', images: [] },
   alert_state: { sent_count: 0, channel_log: [] }, tickets: { status: 'open', attachments: [], reopen_count: 0 }, hr_requests: { status: 'جديد' }, hr_overtime: { status: 'مستني', kind: 'hours', paid_minutes: 0 }, hr_meetings: { status: 'مطلوب', goals: [] },
@@ -296,11 +298,12 @@ export function fakeDb(seed: Record<string, Row[]> = {}, opts: { rpc?: Record<st
       const key = colsOf(q.onConflict ?? 'id');
       const hit = new Set<Row>();
       for (const r of q.rows) {
-        const found = next[table].find((x) => key.every((c) => same(x[c], r[c])));
+        const found = next[table].find((x) => key.every((c) => r[c] != null && same(x[c], r[c]))); // nulls never conflict (Postgres)
         // Postgres forms the proposed tuple before `on conflict`: a not-null column without a default that is missing from the
         // upserted row fails even when the conflicting row carries it (seen live on vendors.name, 26 Oct)
         for (const c of NOT_NULL[table] ?? []) if ((!(c in r) && !(c in (DEFAULTS[table] ?? {}))) || r[c] === null) return done(null, err('23502', `null value in column "${c}" of relation "${table}" violates not-null constraint`));
         if (found && hit.has(found)) return done(null, err('21000', 'ON CONFLICT DO UPDATE command cannot affect row a second time'));
+        if (found && q.ignore) continue; // on conflict do nothing: not touched, not returned
         if (found) { Object.assign(found, clone(r)); hit.add(found); touched.push(found); } else { const row = complete(table, r); next[table].push(row); hit.add(row); touched.push(row); }
       }
     } else if (q.op === 'update') {
@@ -327,7 +330,7 @@ export function fakeDb(seed: Record<string, Row[]> = {}, opts: { rpc?: Record<st
     const b: any = {
       select(columns = '*') { if (q.op === 'select') q.columns = columns; else q.returning = columns; return b; },
       insert(rows: Row | Row[]) { q.op = 'insert'; q.rows = Array.isArray(rows) ? rows : [rows]; return b; },
-      upsert(rows: Row | Row[], o: { onConflict?: string } = {}) { q.op = 'upsert'; q.rows = Array.isArray(rows) ? rows : [rows]; q.onConflict = o.onConflict ?? 'id'; return b; },
+      upsert(rows: Row | Row[], o: { onConflict?: string; ignoreDuplicates?: boolean } = {}) { q.op = 'upsert'; q.rows = Array.isArray(rows) ? rows : [rows]; q.onConflict = o.onConflict ?? 'id'; q.ignore = !!o.ignoreDuplicates; return b; },
       update(patch: Row) { q.op = 'update'; q.patch = patch; return b; },
       // B4: the one delete a function makes — a category gone from the site leaves the mirror (woo-sync category_delete)
       delete() { if (table !== 'woo_categories' && table !== 'vendors') throw new Error('fakeDb: the functions must never delete'); q.op = 'delete'; return b; },

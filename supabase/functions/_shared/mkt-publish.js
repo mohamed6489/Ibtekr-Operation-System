@@ -61,6 +61,9 @@ export function ourCode(code) {
 // the Graph calls (decisions 32–37)
 const enc = encodeURIComponent;
 export const path = {
+  // ش39 — Instagram's hashtag search and a hashtag's most liked posts (read only; the token in the header)
+  igHashtag: (ig, tag) => GRAPH + '/ig_hashtag_search?' + new URLSearchParams({ user_id: ig, q: tag }).toString(),
+  igTopMedia: (hashtag, ig, fields) => GRAPH + '/' + hashtag + '/top_media?' + new URLSearchParams({ user_id: ig, fields, limit: '12' }).toString(),
   fbPhotos: (page) => GRAPH + '/' + page + '/photos',
   fbFeed: (page) => GRAPH + '/' + page + '/feed',
   fbStory: (page) => GRAPH + '/' + page + '/photo_stories',

@@ -50,7 +50,7 @@ import { vaultEnv } from '../_shared/secrets.js';
 import { AGENT_HISTORY, agentHistory, agentRequest, agentTitle, buyerRequest, campaignTarget, cleanAgent, cleanBuyer, cleanMarketing, marketingRequest, parseAgent, parseBuyer, parseMarketing, templateNotes } from '../_shared/marketing.js';
 import { SUGGEST_DAYS, buyerRules, windowOf } from '../_shared/mkt-ads.js';
 import { cleanScenes, scenesRequest } from '../_shared/mkt-video.js';
-import { SEARCH_USD, TREND_CONTINUES, cleanTrends, parseTrends, readTrends, searchCount, searchError, searchResults, trendSources, trendsRequest, trendsText } from '../_shared/mkt-trends.js';
+import { SEARCH_USD, TREND_CONTINUES, cleanTrends, parseTrends, readTrends, searchCount, searchError, searchResults, trendRowV1, trendSources, trendTags, trendsRequest, trendsText } from '../_shared/mkt-trends.js';
 import { TEXT_PROVIDERS, TEXT_TOOL_OF, houseStyle, textPick } from '../_shared/ai-providers.js';
 import { MAX_TOOL_CALLS, amountsIn, reportOf, assistantMessage, assistantRequest, cleanAction, cleanAnswer, customersData, dataQuery, expensesData, filesData, ordersData, parseAssistant, readTurn, salesData, summaryData, tasksData, pickVendor, ticketsData, toolResults, vendorData, vendorsData } from '../_shared/ai-assistant.js';
 import { completeText } from './providers/text.ts';
@@ -334,6 +334,12 @@ async function marketing(deps: Deps, uid: string, args: Json) {
 
 // ---------------------------------------------------------------- the media buyer's chat (phase 9.5.4, decision 53)
 
+// the row «marketing» of the settings (the assistants' instructions, rules and skills; the trends' tags and sites) — {} when none
+async function marketingSettings(deps: Deps): Promise<Json> {
+  const { data: set } = await deps.db.from('settings').select('data').eq('section', 'marketing').maybeSingle();
+  return isObj(set) && isObj(set.data) ? set.data : {};
+}
+
 // the last 7 days per campaign (Meta's numbers beside the orders that carry the campaign's UTM), the open suggestions and the rules —
 // read here, never from the body; the answer is text only: nothing is executed from the chat
 async function adsData(deps: Deps) {
@@ -362,7 +368,8 @@ async function buyer(deps: Deps, uid: string, args: Json) {
   const data = await adsData(deps);
   const cfg = await configOf(deps, 'buyer');
   const base = { created_by: uid, action: 'marketing', source: 'buyer', label: line(parsed.req.question, 200) };
-  return await runAi(deps, base, cfg, buyerRequest(parsed.req, { model: cfg.model, effort: cfg.effort, data }), cleanBuyer);
+  const agents = (await marketingSettings(deps)).agents;
+  return await runAi(deps, base, cfg, buyerRequest(parsed.req, { model: cfg.model, effort: cfg.effort, data, cfg: isObj(agents) ? agents.buyer : null }), cleanBuyer);
 }
 
 // ---------------------------------------------------------------- «آخر التريندات» (comments decision 69)
@@ -376,15 +383,18 @@ async function trends(deps: Deps, uid: string, args: Json) {
   if ('error' in parsed) return json(400, parsed);
   const probe = await deps.db.from('mkt_trends').select('id').limit(1);
   if (probe.error) return json(503, { error: 'not_ready' });
-  const { data: set } = await deps.db.from('settings').select('data').eq('section', 'marketing').maybeSingle();
-  const sources = trendSources(isObj(set) && isObj(set.data) && isObj(set.data.trends) ? set.data.trends.sources : null);
+  const mset = await marketingSettings(deps); const tset = isObj(mset.trends) ? mset.trends : {};
+  const sources = trendSources(tset.sources); const tags = trendTags(tset.tags);
+  const designer = isObj(mset.agents) && isObj(mset.agents.designer) ? mset.agents.designer : null; // its rules and skills (ش40)
+  // 0118 added the post's platform, tag and id (one row per post): before it is applied the rows are stored as they were
+  const posts = !(await deps.db.from('mkt_trends').select('id, platform').limit(1)).error;
   const cfg = await configOf(deps, 'trends');
   const run = await startRun(deps, { created_by: uid, action: 'marketing', source: 'trends', label: line(parsed.req.focus, 200) || 'trends', model: cfg.model }, cfg.cap);
   if (run.result === 'busy') return json(429, { error: 'busy' });
   if (run.result === 'cap') return json(402, { error: 'ai_cap' });
   if (run.result !== 'ok') return json(502, { error: 'ai_error' });
   if (!deps.env.ANTHROPIC_API_KEY?.trim()) { await finishRun(deps, run.id, { status: 'error', error: 'not_configured', cost_usd: 0 }); return json(503, { error: 'not_configured', provider: 'claude' }); }
-  const params: Json = trendsRequest(parsed.req, { model: cfg.model, effort: cfg.effort, sources, today: deps.now() });
+  const params: Json = trendsRequest(parsed.req, { model: cfg.model, effort: cfg.effort, sources, tags, cfg: designer, today: deps.now() });
   const spent = { model: cfg.model, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, cost_usd: 0 };
   const seen: Json[] = []; let msg: Json | null = null;
   for (let turn = 0; turn <= TREND_CONTINUES; turn++) {
@@ -409,13 +419,15 @@ async function trends(deps: Deps, uid: string, args: Json) {
     await finishRun(deps, run.id, { ...spent, status: 'error', error: 'no_search' });
     return json(502, { error: 'no_search', code: searchError(seen) });
   }
-  const rows = cleanTrends(readTrends(trendsText(Array.isArray(msg.content) ? msg.content : [])), results);
+  const rows = cleanTrends(readTrends(trendsText(Array.isArray(msg.content) ? msg.content : [])), results, tags);
   if (!rows.length) { await finishRun(deps, run.id, { ...spent, status: 'error', error: 'ai_error' }); return json(502, { error: 'ai_error' }); }
   const batch = crypto.randomUUID(); const now = deps.now();
-  const { error } = await deps.db.from('mkt_trends').insert(rows.map((r) => ({ ...r, batch, found_at: now, created_by: uid })));
+  const stored = rows.map((r) => (posts ? { ...r, batch, found_at: now, created_by: uid } : { ...trendRowV1(r), batch, found_at: now, created_by: uid }));
+  // a post met again (the same platform and id) is skipped, not doubled
+  const { error } = posts ? await deps.db.from('mkt_trends').upsert(stored, { onConflict: 'platform,external_id', ignoreDuplicates: true }) : await deps.db.from('mkt_trends').insert(stored);
   if (error) { await finishRun(deps, run.id, { ...spent, status: 'error', error: 'failed' }); return json(500, { error: 'failed' }); }
   await finishRun(deps, run.id, { ...spent, status: 'ok', output: { count: rows.length, searches: results.length } });
-  return json(200, { result: 'ok', count: rows.length, model: spent.model, cost_usd: spent.cost_usd, run_id: run.id });
+  return json(200, { result: 'ok', count: rows.length, batch, tags: tags.length, model: spent.model, cost_usd: spent.cost_usd, run_id: run.id });
 }
 
 // ---------------------------------------------------------------- the assistants' chats (0084 — decision 5)

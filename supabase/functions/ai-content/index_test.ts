@@ -697,3 +697,36 @@ Deno.test('trends: a paused turn is sent back as it is and resumed (its searches
   assertEquals((await call(d.deps, { action: 'trends' }, 'jwt-admin')).res.status, 502);
   assertEquals(d.db.rows('mkt_trends').length, 0);
 });
+
+Deno.test('ش39 / ش40 trends by the tags: the search kept to the three platforms (and the admin\'s sites), the designer\'s rules in the system, each post once (its platform and id), a post met again skipped', async () => {
+  const designer = { rules: [{ id: 'g1', name: 'البراند', items: [{ id: 'i1', title: 'الألوان', text: 'أخضر غامق' }] }] };
+  const seed = { settings: [{ section: 'ai', data: { model: 'claude-sonnet-5-5', effort: 'low' } }, { section: 'marketing', data: { trends: { tags: ['macrame', '#Decor'], sources: ['later.com'] }, agents: { designer } } }],
+    mkt_trends: [{ id: 1, batch: '00000000-0000-4000-8000-0000000000b1', title: 'قديم', source: 'TikTok', url: 'https://www.tiktok.com/@a/video/7400000000000000001', kind: 'video', platform: 'tiktok', external_id: '7400000000000000001', found_at: NOW }] };
+  const posts = { trends: [
+    { title: 'فيديو مكرمية', summary: 'اعمل زيه', source: 'TikTok', url: 'https://www.tiktok.com/@a/video/7400000000000000001', kind: 'video', tag: 'macrame', views: 50000 },
+    { title: 'ريل ديكور', source: 'Instagram', url: 'https://www.instagram.com/reel/AbCdE12345/', kind: 'video', tag: 'decor', author: '@home', views: 9000 }] };
+  const reply = { ...msg('', { model: 'claude-sonnet-5-5' }), content: [
+    ...searched('srvtoolu_1', [found('https://www.tiktok.com/@a/video/7400000000000000001', 'v'), found('https://www.instagram.com/reel/AbCdE12345/', 'r')]),
+    { type: 'text', text: '```json\n' + JSON.stringify(posts) + '\n```' }], usage: { input_tokens: 1000, output_tokens: 200, server_tool_use: { web_search_requests: 2 } } };
+  const { deps, asked, db } = setup({ seed, replies: [reply] });
+  const { res, body } = await call(deps, { action: 'trends' }, 'jwt-mkt');
+  assertEquals([res.status, body.result, body.count, body.tags], [200, 'ok', 2, 2]);
+  const p = asked[0];
+  assertEquals(p.tools[0].allowed_domains, ['tiktok.com', 'instagram.com', 'facebook.com', 'later.com']);
+  assert(p.messages[0].content[0].text.includes('<tags>macrame decor</tags>'));
+  assert(p.system.some((b: any) => /## البراند\n- الألوان: أخضر غامق/.test(b.text)), 'the designer\'s rules');
+  const rows = db.rows('mkt_trends');
+  assertEquals(rows.length, 2, 'the TikTok already there is skipped, not doubled');
+  const ig = rows.find((r: any) => r.platform === 'instagram');
+  assertEquals([ig.external_id, ig.tag, ig.author, ig.views, ig.kind], ['AbCdE12345', 'decor', '@home', 9000, 'video']);
+});
+
+Deno.test('ش40 the chats carry the assistant\'s rules and skills; the buyer\'s chat too', async () => {
+  const buyer = { rules: [{ name: 'الميزانية', items: [{ title: 'سقف', text: '5000 في اليوم' }] }], skills: [{ name: 'التحليل', items: [{ title: 'MER', text: 'المبيعات ÷ الصرف' }] }] };
+  const seed = { settings: [{ section: 'marketing', data: { agents: { buyer } } }] };
+  const { deps, asked } = setup({ seed, replies: [msg(JSON.stringify({ text: 'تمام' }))] });
+  const r = await call(deps, { action: 'buyer', question: 'أعمل إيه؟', history: [] }, 'jwt-mview');
+  assertEquals(r.res.status, 200);
+  const sys = asked[0].system.map((b: any) => b.text).join('\n');
+  assert(sys.includes('- سقف: 5000 في اليوم') && sys.includes('- MER: المبيعات ÷ الصرف'), sys.slice(-300));
+});

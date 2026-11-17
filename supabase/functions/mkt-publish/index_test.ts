@@ -9,8 +9,8 @@ import { handler } from './index.ts';
 import { ENV, NOW, fakeDb } from '../_test/fakes.ts';
 
 const U = { admin: '00000000-0000-4000-8000-0000000051d1', pub: '00000000-0000-4000-8000-0000000051d2', view: '00000000-0000-4000-8000-0000000051d3', none: '00000000-0000-4000-8000-0000000051d4' };
-const MEMBERS: Record<string, { uid: string; admin?: boolean; view?: string; publish?: string }> = {
-  'jwt-admin': { uid: U.admin, admin: true }, 'jwt-pub': { uid: U.pub, view: 'F', publish: 'F' }, 'jwt-view': { uid: U.view, view: 'F', publish: 'N' }, 'jwt-none': { uid: U.none, view: 'N', publish: 'N' },
+const MEMBERS: Record<string, { uid: string; admin?: boolean; view?: string; publish?: string; create?: string }> = {
+  'jwt-admin': { uid: U.admin, admin: true }, 'jwt-pub': { uid: U.pub, view: 'F', publish: 'F', create: 'F' }, 'jwt-view': { uid: U.view, view: 'F', publish: 'N' }, 'jwt-none': { uid: U.none, view: 'N', publish: 'N' },
 };
 const META_ENV = { ...ENV, META_APP_ID: '1234567890', META_APP_SECRET: 'app-secret-0123456789abcdef' };
 const PAGE = { id: '111', name: 'Ibtekr Club', token: 'EAAB'.repeat(12), ig: { id: '777', username: 'ibtekr.club' } };
@@ -34,8 +34,8 @@ function fakeGraph(routes: Record<string, Route> = {}) {
 }
 const timeout = () => Object.assign(new Error('aborted'), { name: 'AbortError' });
 const post = (extra: Record<string, any> = {}) => ({ id: 5001, src: 'system', campaign_id: CID, piece: 'P1', kind: 'بوست', name: 'دفا الشتا', caption: 'كابشن', tags: '#إبتكر', images: [CID + '/pub-a.jpg'], platform: 'فيسبوك', day: '2026-10-24', time: '19:00', how: 'publish', status: 'مجدول', attempts: 0, ...extra });
-type Opts = { posts?: any[]; routes?: Record<string, Route>; auto?: boolean | null; linked?: boolean | 'no_ig'; storage?: Record<string, Uint8Array>; env?: Record<string, string> };
-function setup({ posts = [], routes = {}, auto = true, linked = true, storage, env = META_ENV }: Opts = {}) {
+type Opts = { posts?: any[]; routes?: Record<string, Route>; auto?: boolean | null; linked?: boolean | 'no_ig'; storage?: Record<string, Uint8Array>; env?: Record<string, string>; trends?: any; trendRows?: any[] };
+function setup({ posts = [], routes = {}, auto = true, linked = true, storage, env = META_ENV, trends, trendRows = [] }: Opts = {}) {
   const ref: { db: any } = { db: null };
   const nowMs = Date.parse(NOW);
   const busy = (r: any) => r.claimed_at && nowMs - Date.parse(r.claimed_at) < 300_000;
@@ -53,10 +53,10 @@ function setup({ posts = [], routes = {}, auto = true, linked = true, storage, e
     mkt_stats_put: async ({ p_rows }: any) => { for (const x of p_rows) await ref.db.from('mkt_posts').update({ views: x.views, reach: x.reach, likes: x.likes, comments: x.comments, shares: x.shares, saves: x.saves, eng: x.eng, stats_at: NOW }).eq('id', x.id); return p_rows.length; },
   };
   const files = storage ?? Object.fromEntries(['pub-a.jpg', 'pub-b.jpg', 'pub-c.jpg', 'p.png'].map((f) => [`marketing/${CID}/${f}`, new Uint8Array([1])]));
-  const settings = auto == null ? [] : [{ section: 'marketing', data: { autopublish: auto } }];
-  const db = fakeDb({ mkt_posts: posts, settings }, { rpc, storage: files });
+  const settings = auto == null ? [] : [{ section: 'marketing', data: { autopublish: auto, ...(trends ? { trends } : {}) } }];
+  const db = fakeDb({ mkt_posts: posts, settings, mkt_trends: trendRows }, { rpc, storage: files });
   ref.db = db;
-  const userDb = (jwt: string) => { const m = MEMBERS[jwt]; return fakeDb({}, { rpc: m ? { has_perm: ({ key }: any) => (key === 'marketing.view' ? m.view ?? 'N' : key === 'marketing.publish' ? m.publish ?? 'N' : 'N'), is_admin: () => !!m.admin } : {} }); };
+  const userDb = (jwt: string) => { const m = MEMBERS[jwt]; return fakeDb({}, { rpc: m ? { has_perm: ({ key }: any) => (key === 'marketing.view' ? m.view ?? 'N' : key === 'marketing.publish' ? m.publish ?? 'N' : key === 'marketing.create' ? m.create ?? 'N' : 'N'), is_admin: () => !!m.admin } : {} }); };
   const g = fakeGraph(routes);
   const deps = { env, db, now: () => NOW, userDb, userId: async (jwt: string) => MEMBERS[jwt]?.uid ?? null, fetch: g.fetch, sleep: async () => {} };
   return { deps, db, graph: g };
@@ -301,4 +301,32 @@ Deno.test('autopublish: the admin only; the settings row written (merged) and lo
   assert(db.rows('activity_log').some((l: any) => l.action === 'mkt.autopublish' && l.new_value === 'on'));
   await call(deps, { action: 'autopublish', on: false }, 'jwt-admin');
   assertEquals(db.row('settings', 'marketing', 'section').data.autopublish, false);
+});
+
+Deno.test('ش39 trends_ig: marketing.create; each tag through Instagram\'s hashtag search (the token in the header), its most liked posts stored once with their CDN picture; a post met again skipped; no tags / no Instagram / Meta\'s refusal say so and write nothing', async () => {
+  const media = (code: string, likes: number, type = 'IMAGE') => ({ id: '1789' + likes, media_type: type, media_url: 'https://scontent-cai1-1.cdninstagram.com/v/' + code + '.jpg', permalink: 'https://www.instagram.com/' + (type === 'VIDEO' ? 'reel' : 'p') + '/' + code + '/', caption: 'بوست ' + code + '\n#macrame', like_count: likes, comments_count: 3, timestamp: '2026-11-15T10:00:00+0000' });
+  const routes: Record<string, Route> = {
+    'GET ig_hashtag_search': (c) => ({ body: { data: [{ id: c.query.q === 'macrame' ? '17841562' : '17841999' }] } }),
+    'GET 17841562/top_media': { body: { data: [media('AAAAA1', 50), media('BBBBB2', 900, 'VIDEO'), { id: 'x', permalink: 'https://evil.example/p/1/' }] } },
+    'GET 17841999/top_media': { body: { data: [media('AAAAA1', 50)] } },
+  };
+  const old = [{ id: 7, batch: '00000000-0000-4000-8000-0000000000b1', title: 'قديم', source: 'Instagram', url: 'https://www.instagram.com/p/BBBBB2/', kind: 'video', platform: 'instagram', external_id: 'BBBBB2', found_at: NOW }];
+  const { deps, db, graph } = setup({ routes, trends: { tags: ['macrame', 'decor'] }, trendRows: old });
+  assertEquals((await call(deps, { action: 'trends_ig' }, 'jwt-view')).res.status, 401, 'marketing.view is not create');
+  const r = await call(deps, { action: 'trends_ig' }, 'jwt-pub');
+  assertEquals([r.res.status, r.body.result, r.body.count, r.body.found], [200, 'ok', 1, 2]);
+  assertEquals(graph.calls.map((c) => c.path), ['ig_hashtag_search', '17841562/top_media', 'ig_hashtag_search', '17841999/top_media']);
+  assertEquals([graph.calls[0].query.user_id, graph.calls[0].query.q, graph.calls[0].auth], ['777', 'macrame', 'Bearer ' + PAGE.token]);
+  assert(!graph.calls.some((c) => Object.values(c.query).includes(PAGE.token)), 'the token never in a link');
+  const rows = db.rows('mkt_trends');
+  assertEquals(rows.length, 2);
+  const a = rows.find((x: any) => x.external_id === 'AAAAA1');
+  assertEquals([a.platform, a.kind, a.tag, a.likes, a.title, a.thumb_src], ['instagram', 'image', 'macrame', 50, 'بوست AAAAA1', 'https://scontent-cai1-1.cdninstagram.com/v/AAAAA1.jpg']);
+  assert(db.rows('activity_log').some((l: any) => l.action === 'mkt.trends.ig' && l.new_value.count === 1));
+  // no tags, no Instagram account, Meta's refusal (the feature not granted)
+  assertEquals((await call(setup({ trends: { tags: [] } }).deps, { action: 'trends_ig' }, 'jwt-pub')).body, { result: 'no_tags', count: 0 });
+  assertEquals((await call(setup({ linked: 'no_ig', trends: { tags: ['macrame'] } }).deps, { action: 'trends_ig' }, 'jwt-pub')).body, { result: 'not_linked', count: 0 });
+  const refused = setup({ trends: { tags: ['macrame'] }, routes: { 'GET ig_hashtag_search': { status: 400, body: { error: { code: 10, message: 'Application does not have permission' } } } } });
+  const no = await call(refused.deps, { action: 'trends_ig' }, 'jwt-pub');
+  assertEquals([no.body.result, no.body.code, refused.db.rows('mkt_trends').length], ['unavailable', 'permission', 0]);
 });

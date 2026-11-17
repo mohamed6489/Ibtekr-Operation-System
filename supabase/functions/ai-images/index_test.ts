@@ -1293,3 +1293,39 @@ Deno.test('bridge_flow with many sized products: more than 20 nodes go up in cal
   assert(later.every((n: any) => n.layout.groupId === F.created[0].nodeId), 'a later call names the panel by its id');
   assertEquals(db.rows('studio_batches')[0].state.flow.gens.length, 3 + 6);
 });
+
+Deno.test('ش39 trend_thumbs: marketing.create; the newest trends without a picture get one — Instagram\'s kept CDN link, TikTok\'s oEmbed thumbnail (and its author), else the page\'s og:image — kept under marketing/trends/<month>/<id>; a miss counts a try and keeps the tile', async () => {
+  const JPG = new Uint8Array([255, 216, 255, 224, 0, 16, 74, 70, 73, 70, 0, 1, 1, 1]);
+  const B = '00000000-0000-4000-8000-0000000000b1';
+  const rows = [
+    { id: 11, batch: B, title: 'ريل', source: 'Instagram', url: 'https://www.instagram.com/reel/AbC12345/', kind: 'video', platform: 'instagram', external_id: 'AbC12345', thumb_src: 'https://scontent.cdninstagram.com/v/a.jpg', found_at: '2026-11-17T08:00:00Z' },
+    { id: 12, batch: B, title: 'تيك توك', source: 'TikTok', url: 'https://www.tiktok.com/@shop/video/7400000000000000001', kind: 'video', platform: 'tiktok', external_id: '7400000000000000001', found_at: '2026-11-17T08:00:00Z' },
+    { id: 13, batch: B, title: 'مقال', source: 'Later', url: 'https://later.com/blog/a/', kind: 'image', platform: 'web', found_at: '2026-11-17T08:00:00Z' },
+    { id: 14, batch: B, title: 'من غير صورة', source: 'X', url: 'https://nopic.example.com/p', kind: 'image', platform: 'web', found_at: '2026-11-17T08:00:00Z' },
+    { id: 15, batch: B, title: 'خلص', source: 'X', url: 'https://later.com/blog/b/', kind: 'image', platform: 'web', thumb: 'trends/2026-11/15.jpg', found_at: '2026-11-17T08:00:00Z' },
+  ];
+  const web: Record<string, () => Response> = {
+    'https://scontent.cdninstagram.com/v/a.jpg': () => new Response(JPG as BlobPart, { status: 200, headers: { 'content-type': 'image/jpeg' } }),
+    ['https://www.tiktok.com/oembed?url=' + encodeURIComponent('https://www.tiktok.com/@shop/video/7400000000000000001')]: () => new Response(JSON.stringify({ thumbnail_url: 'https://p16-sign.tiktokcdn.com/t.jpg', author_name: 'Shop <b>' }), { status: 200, headers: { 'content-type': 'application/json' } }),
+    'https://p16-sign.tiktokcdn.com/t.jpg': () => new Response(JPG as BlobPart, { status: 200, headers: { 'content-type': 'image/jpeg' } }),
+    'https://later.com/blog/a/': () => new Response('<html><head><meta property="og:image" content="https://later.com/img/a.jpg"></head></html>', { status: 200, headers: { 'content-type': 'text/html' } }),
+    'https://later.com/img/a.jpg': () => new Response(JPG as BlobPart, { status: 200, headers: { 'content-type': 'image/jpeg' } }),
+    'https://nopic.example.com/p': () => new Response('<html><head></head></html>', { status: 200, headers: { 'content-type': 'text/html' } }),
+  };
+  const { deps, db, storage } = setup({ seed: { ...SEED, mkt_trends: rows }, storage: { ...FILES } });
+  (deps as any).fetch = (async (url: string) => { const f = web[url]; return f ? f() : new Response('nope', { status: 404 }); }) as any;
+  (deps as any).resolve = async () => ['151.101.0.84'];
+  assertEquals((await call(deps, { action: 'trend_thumbs' }, 'jwt-add')).res.status, 401, 'products.add is not marketing.create');
+  const r = await call(deps, { action: 'trend_thumbs' }, 'jwt-mkt');
+  assertEquals([r.res.status, r.body.done, r.body.tried], [200, 3, 4]);
+  const row = (id: number) => db.rows('mkt_trends').find((x: any) => x.id === id);
+  assertEquals([row(11).thumb, row(11).thumb_src, row(11).thumb_tries], ['trends/2026-11/11.jpg', null, 1]);
+  assertEquals([row(12).thumb, row(12).author], ['trends/2026-11/12.jpg', 'Shop b']);
+  assertEquals(row(13).thumb, 'trends/2026-11/13.jpg');
+  assertEquals([row(14).thumb ?? null, row(14).thumb_tries], [null, 1]);
+  assertEquals(storage['marketing/trends/2026-11/11.jpg'], JPG);
+  // a second call tries the miss once more, then never again
+  await call(deps, { action: 'trend_thumbs' }, 'jwt-mkt');
+  assertEquals(row(14).thumb_tries, 2);
+  assertEquals((await call(deps, { action: 'trend_thumbs' }, 'jwt-mkt')).body.tried, 0);
+});

@@ -26,6 +26,7 @@
 // Errors are our codes (_shared/mkt-publish.js ourCode): token / permission / image / rate / gone / timeout / container / … — the
 // page says them in words. Nothing here logs a token, a caption or a signed link.
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
+import { IG_FIELDS, igTrendRows, trendTags } from '../_shared/mkt-trends.js';
 import {
   STATS_DAYS, body, cairoParts, connectionOf, containerState, fbStatsOf, graphErrorCode, idOf, igStatsOf, linkOf, ourCode, path, planOf, platformRowsOf, scopesOf,
 } from '../_shared/mkt-publish.js';
@@ -40,7 +41,7 @@ export type Deps = {
   fetch?: typeof fetch; sleep?: (ms: number) => Promise<void>;
 };
 
-const ACTIONS = ['status', 'autopublish', 'publish_now', 'delete', 'due', 'stats'];
+const ACTIONS = ['status', 'autopublish', 'publish_now', 'delete', 'due', 'stats', 'trends_ig'];
 const GRAPH_MS = 20_000;
 const SIGN_SECONDS = 900;
 const VIDEO_SIGN_SECONDS = 3600; // a reel's video (decision 63): Meta fetches it while it processes
@@ -90,7 +91,7 @@ const autopublishOf = async (deps: Deps) => (await settingsOf(deps)).autopublish
 
 // ---------------------------------------------------------------- the members
 
-type Who = { uid: string; admin: boolean; view: boolean; publish: boolean };
+type Who = { uid: string; admin: boolean; view: boolean; publish: boolean; create: boolean };
 async function whoIs(req: Request, deps: Deps): Promise<Who | null> {
   const jwt = /^Bearer\s+(\S+)$/i.exec(req.headers.get('authorization') ?? '')?.[1];
   if (!jwt || !deps.userDb || !deps.userId) return null;
@@ -100,9 +101,9 @@ async function whoIs(req: Request, deps: Deps): Promise<Who | null> {
   const admin = !adminErr && adminData === true;
   const uid = await deps.userId(jwt);
   if (!uid) return null;
-  return { uid, admin, view: admin || (await perm('marketing.view')) !== 'N', publish: admin || (await perm('marketing.publish')) === 'F' };
+  return { uid, admin, view: admin || (await perm('marketing.view')) !== 'N', publish: admin || (await perm('marketing.publish')) === 'F', create: admin || (await perm('marketing.create')) === 'F' };
 }
-async function logActivity(deps: Deps, who: Who, action: string, entityId: string, value: string | null) {
+async function logActivity(deps: Deps, who: Who, action: string, entityId: string, value: string | Json | null) {
   try { await deps.db.from('activity_log').insert({ at: deps.now(), actor: who.uid, action, entity: 'mkt_post', entity_id: entityId, new_value: value }); } catch { /* the log never blocks the action */ }
 }
 async function syncAllowed(deps: Deps, secret: string) {
@@ -271,6 +272,48 @@ async function stats(deps: Deps): Promise<Response> {
   return json(200, { result: 'ok', added, numbers: rows.length, gone, errors: [...new Set(errors)].slice(0, 5) });
 }
 
+// ---------------------------------------------------------------- the designer's trends from Instagram's hashtags (ش39)
+
+// The admin's tags (settings «marketing».trends.tags, 0118) through Instagram's official hashtag search with the page link's own
+// Instagram account: each tag's most liked posts now → mkt_trends (one row per post — a post met again is skipped), their picture's
+// CDN link kept for ai-images `trend_thumbs` (thumb_src, the server's only). Without Meta's «Instagram Public Content Access» the
+// first call is refused: 200 { result: 'unavailable', code } and nothing is written. Read only — nothing is posted.
+const IG_TAG_PAUSE = new Set(['permission', 'token', 'rate']);
+async function trendsIg(deps: Deps, who: Who): Promise<Response> {
+  if (!who.create) return json(401, { error: 'unauthorized' });
+  if ((await deps.db.from('mkt_trends').select('id, platform').limit(1)).error) return json(503, { error: 'not_ready' }); // 0118
+  const set = await settingsOf(deps);
+  const tags = trendTags(isObj(set.trends) ? set.trends.tags : null);
+  if (!tags.length) return json(200, { result: 'no_tags', count: 0 });
+  const page = await pageOf(deps);
+  if (!page || !page.ig || !/^\d{1,30}$/.test(String(page.ig.id))) return json(200, { result: 'not_linked', count: 0 });
+  const ig = String(page.ig.id); const rows: Json[] = []; const skipped: Json[] = [];
+  for (const tag of tags) {
+    try {
+      const found = await graph(deps, 'GET', path.igHashtag(ig, tag), { token: page.token });
+      const hid = Array.isArray(found.data) && isObj(found.data[0]) ? String(found.data[0].id ?? '') : '';
+      if (!/^\d{3,40}$/.test(hid)) { skipped.push({ tag, code: 'no_hashtag' }); continue; }
+      const top = await graph(deps, 'GET', path.igTopMedia(hid, ig, IG_FIELDS), { token: page.token });
+      rows.push(...igTrendRows(top.data, tag));
+    } catch (e) {
+      const code = ourCode(e instanceof GraphError ? e.code : 'failed');
+      if (!rows.length && !skipped.length && IG_TAG_PAUSE.has(code)) return json(200, { result: 'unavailable', code, count: 0 }); // the feature, the token, the limit
+      skipped.push({ tag, code });
+      if (IG_TAG_PAUSE.has(code)) break; // no use asking the next tags
+    }
+  }
+  const seen = new Set<string>(); const fresh = rows.filter((r) => { const k = r.external_id; if (seen.has(k)) return false; seen.add(k); return true; });
+  let count = 0;
+  if (fresh.length) {
+    const batch = crypto.randomUUID(); const at = deps.now();
+    const { data, error } = await deps.db.from('mkt_trends').upsert(fresh.map((r) => ({ ...r, batch, found_at: at, created_by: who.uid })), { onConflict: 'platform,external_id', ignoreDuplicates: true }).select('id');
+    if (error) return json(500, { error: 'failed' });
+    count = Array.isArray(data) ? data.length : 0;
+  }
+  await logActivity(deps, who, 'mkt.trends.ig', 'trends', { tags: tags.length, count, skipped: skipped.length });
+  return json(200, { result: 'ok', count, found: fresh.length, skipped: skipped.slice(0, 30) });
+}
+
 // ---------------------------------------------------------------- the members' actions
 
 async function status(deps: Deps, who: Who): Promise<Response> {
@@ -356,6 +399,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'autopublish') return await setAutopublish(deps, who, args);
     if (action === 'publish_now') return await publishNow(deps, who, args);
     if (action === 'delete') return await deleteLive(deps, who, args);
+    if (action === 'trends_ig') return await trendsIg(deps, who);
     if (!who.admin) return json(401, { error: 'unauthorized' }); // due / stats by hand: the admin
     return action === 'due' ? await due(deps) : await stats(deps);
   } catch (e) {

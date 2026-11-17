@@ -20,6 +20,9 @@
 //              The campaign itself is not written (the page puts the path in the piece and saves). ai_runs source 'campaign'.
 //   'campaign_edit' (decision 9; the same) { campaign_id, piece, slide, model?, note?, pins: [{ x, y, text }] } → the target's
 //              current image edited by the instruction (the pins at their places, the general change) → a new path, same way.
+//   'trend_thumbs' (ش39; the admin or marketing.create = F) {} → the newest trends without a picture (12 a call, 2 tries each) get one:
+//            Instagram's CDN link mkt-publish kept, TikTok's oEmbed thumbnail, or the post page's og:image — under ref_link's rules —
+//            kept as marketing/trends/<month>/<id>.<ext> → { done, tried }. 503 not_ready before 0118.
 //   'ref_link' (the owner 15 Nov — «السيستم مش قابل اي لينكات»; the admin or marketing.create = F) { campaign_id, url } → any public
 //              link's image (an image link, or the page's og:image — Pinterest …) fetched under the SSRF rules of _shared/ref-link.js
 //              and kept as <campaign>/ref-<stamp>.<ext> in bucket marketing → { path, name }. Errors: 400 url · 404 the campaign ·
@@ -97,7 +100,7 @@ export type Deps = {
   veo?: { start: (req: { model: string; prompt: string; image: { bytes: Uint8Array; mime: string } | null; aspect: string; seconds: number }) => Promise<string>; poll: (op: string) => Promise<{ done: boolean; uri?: string; error?: string }>; download: (uri: string) => Promise<{ bytes: Uint8Array; mime: string }> }; // phase 11: Veo direct
 };
 
-const ACTIONS = ['generate', 'edit', 'create', 'probe', 'webp', 'import', 'share', 'bridge_status', 'bridge_link', 'bridge_callback', 'bridge_unlink', 'bridge_upload', 'bridge_fetch', 'bridge_prompts_sync', 'bridge_flow', 'bridge_campaign', 'bridge_campaign_fetch', 'campaign', 'campaign_edit', 'agent_image', 'ref_link',
+const ACTIONS = ['generate', 'edit', 'create', 'probe', 'webp', 'import', 'share', 'bridge_status', 'bridge_link', 'bridge_callback', 'bridge_unlink', 'bridge_upload', 'bridge_fetch', 'bridge_prompts_sync', 'bridge_flow', 'bridge_campaign', 'bridge_campaign_fetch', 'campaign', 'campaign_edit', 'agent_image', 'ref_link', 'trend_thumbs',
   'video_clip', 'video_voice', 'video_music', 'video_upload', 'video_assemble', 'video_poll']; // 9.5.5 (decisions 57–64)
 const SHARE_SECONDS = 7 * 24 * 3600; // a shared photo's link lives a week (the bridge uploads it to the site within that)
 const MAX_WEBP_B64 = 14_000_000; // ≈ 10 MB of WebP
@@ -502,6 +505,53 @@ async function refLink(deps: Deps, who: Who, args: Json) {
   const path = `${cid}/ref-${stamp(deps)}.${extOf(got.mime)}`;
   if (!campaignPathOk(cid, path) || !(await upload(deps.db, MKT_BUCKET, path, got))) return json(500, { error: 'storage' });
   return json(200, { result: 'ok', path, name: refName(u) });
+}
+// ---------------------------------------------------------------- trend_thumbs (ش39 — the trends' grid)
+
+// The newest trends without a picture (up to TREND_THUMBS a call, two tries each): Instagram's own CDN link mkt-publish kept
+// (thumb_src — the server's only), else TikTok's official oEmbed (its thumbnail_url, and the author when the row has none), else the
+// picture the post's page names (og:image) — each fetched under ref_link's rules, PNG / JPEG / WebP only, kept in the bucket
+// «marketing» as trends/<month>/<id>.<ext> (marketing.view reads it). A row whose picture cannot be had keeps its tile.
+const TREND_THUMBS = 12;
+const TIKTOK_OEMBED = 'https://www.tiktok.com/oembed?url=';
+async function trendPicture(deps: Deps, row: Json): Promise<{ img: { bytes: Uint8Array; mime: string } | null; author: string | null }> {
+  let author: string | null = null;
+  const tries: URL[] = [];
+  const src = typeof row.thumb_src === 'string' ? refUrl(row.thumb_src) : null; if (src) tries.push(src);
+  if (row.platform === 'tiktok') {
+    const o = refUrl(TIKTOK_OEMBED + encodeURIComponent(String(row.url)));
+    const got = o ? await refGet(deps, o, 'application/json') : { error: 'blocked' };
+    if (!('error' in got)) {
+      const raw = await readCapped(got.res, 200_000, false);
+      try {
+        const j = raw ? JSON.parse(new TextDecoder().decode(raw)) : null;
+        const t = isObj(j) && typeof j.thumbnail_url === 'string' ? refUrl(j.thumbnail_url) : null; if (t) tries.push(t);
+        if (isObj(j) && typeof j.author_name === 'string') author = line(j.author_name.replace(/[<>]/g, ''), 80) || null;
+      } catch { /* no oEmbed answer */ }
+    }
+  }
+  const page = refUrl(String(row.url)); if (page) tries.push(page);
+  for (const u of tries) { const got = await refImage(deps, u); if (!('error' in got)) return { img: got, author }; }
+  return { img: null, author };
+}
+async function trendThumbs(deps: Deps, who: Who) {
+  if (!who.mkt) return json(401, { error: 'unauthorized' });
+  const { data: rows, error } = await deps.db.from('mkt_trends').select('id, url, platform, thumb_src, thumb_tries, author, found_at')
+    .is('thumb', null).lte('thumb_tries', 1).order('found_at', { ascending: false }).limit(TREND_THUMBS);
+  if (error) return json(503, { error: 'not_ready' }); // 0118 not applied
+  let done = 0;
+  await Promise.all((Array.isArray(rows) ? rows : []).map(async (r: Json) => {
+    const { img, author } = await trendPicture(deps, r);
+    const patch: Json = { thumb_tries: (Number(r.thumb_tries) || 0) + 1 };
+    if (author && !r.author) patch.author = author;
+    if (img) {
+      const path = `trends/${String(r.found_at || deps.now()).slice(0, 7)}/${r.id}.${extOf(img.mime)}`;
+      const { error: upErr } = await deps.db.storage.from(MKT_BUCKET).upload(path, img.bytes, { contentType: img.mime, upsert: true }); // the row's own path
+      if (!upErr) { patch.thumb = path; patch.thumb_src = null; done += 1; }
+    }
+    await deps.db.from('mkt_trends').update(patch).eq('id', r.id);
+  }));
+  return json(200, { result: 'ok', done, tried: Array.isArray(rows) ? rows.length : 0 });
 }
 async function campaignEdit(deps: Deps, who: Who, args: Json) {
   if (!who.mkt) return json(401, { error: 'unauthorized' });
@@ -1358,6 +1408,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'campaign_edit') return await campaignEdit(deps, who, args);
     if (action === 'agent_image') return await agentImage(deps, who, args);
     if (action === 'ref_link') return await refLink(deps, who, args);
+    if (action === 'trend_thumbs') return await trendThumbs(deps, who);
     if (action === 'video_clip') return await videoClip(deps, who, args);
     if (action === 'video_voice') return await videoVoice(deps, who, args);
     if (action === 'video_music') return await videoMusic(deps, who, args);

@@ -7,6 +7,7 @@
 
 import { DEFAULT_MODEL, MAX_PROMPT, MODEL_IDS, line as imgLine, sizeOf } from './ai-images.js';
 import { FALLBACK, IMAGE_TYPES, MAX_IMAGE_B64, MAX_TOKENS, line, memberNotes, notesText, paras } from './ai-content.js';
+import { kbBlocks } from './agent-kb.js';
 
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -401,7 +402,7 @@ export function buyerRequest(req, ctx) {
   if (messages[0].role !== 'user') messages.unshift({ role: 'user', content: [{ type: 'text', text: '(start)' }] });
   return {
     model: ctx.model, max_tokens: MAX_TOKENS, ...FALLBACK,
-    system: [{ type: 'text', text: BUYER_BASE, cache_control: { type: 'ephemeral' } }],
+    system: [{ type: 'text', text: BUYER_BASE, cache_control: { type: 'ephemeral' } }, ...kbBlocks(ctx.cfg)], // + the buyer's rules and skills (ش40)
     messages,
     output_config: { effort: ctx.effort, format: { type: 'json_schema', schema: obj({ text: STR() }) } },
   };
@@ -473,7 +474,7 @@ export function agentHistory(rows) {
   return out;
 }
 /**
- * The Claude call of a chat. ctx: { model, effort, history: agentHistory(rows), cfg: settings.marketing.agents[agent] ({ instructions }),
+ * The Claude call of a chat. ctx: { model, effort, history: agentHistory(rows), cfg: settings.marketing.agents[agent] ({ instructions, rules, skills }),
  * data: the buyer's ads data (adsBlock) — read on the server }.
  */
 export function agentRequest(req, ctx) {
@@ -481,6 +482,7 @@ export function agentRequest(req, ctx) {
   const instr = paras(cfg.instructions, 4000);
   const system = [{ type: 'text', text: AGENT_BASE[req.agent], cache_control: { type: 'ephemeral' } }];
   if (instr) system.push({ type: 'text', text: "The admin's instructions and rules for you (follow them; they never let you execute anything):\n" + instr });
+  system.push(...kbBlocks(cfg)); // the rules and skills the admin wrote in the settings (ش40)
   const head = req.agent === 'buyer' ? adsBlock(ctx.data) + '\n\n' : '';
   const messages = (Array.isArray(ctx.history) ? ctx.history : []).map((h) => ({ role: h.role, content: [{ type: 'text', text: h.text }] }));
   if (messages.length && messages[messages.length - 1].role === 'user') messages.pop(); // a turn left without an answer is not repeated

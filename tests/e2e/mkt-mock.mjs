@@ -126,7 +126,7 @@ export function mktState(opts = {}) {
     // 0120: the assistants' registry (the eight built-ins unless opts.mktAiAgents) and their one list of rules and skills;
     // noRegistry = 0120 not applied yet (the RPCs are not there — the page falls back to the three of marketing)
     aiAgents: (opts.mktAiAgents || AI_BUILTINS).map((x, i) => ({ about: '', intro: '', instructions: '', suggestions: [], role: null, sees: [], builtin: false, sort: (i + 1) * 10, archived_at: null, ...x })),
-    aiKb: (opts.mktAiKb || []).map((x, i) => ({ id: i + 1, text: '', agents: [], ...x })), noRegistry: !!opts.mktNoRegistry, nagent: 0,
+    aiKb: (opts.mktAiKb || []).map((x, i) => ({ id: i + 1, text: '', agents: [], ...x })), aiKbDefaults: (opts.mktAiKbDefaults || []).map((x) => ({ text: '', agents: [], ...x })), noRegistry: !!opts.mktNoRegistry, nagent: 0,
     // 0124: the assistants' notes (opts.agentNotes — { agent, kind, title, body?, link? }); noNotes = 0124 not applied yet
     agentNotes: (opts.agentNotes || []).map((x, i) => ({ id: i + 1, body: '', link: null, ref: null, created_at: now, ...x })), agentNoteReads: [], noNotes: !!opts.noAgentNotes,
     // 0109: the trends and the competitors as the database holds them (opts.mktTrends / mktCompetitors); noSections = the migration
@@ -250,16 +250,32 @@ export function mktRoute(c) {
       const ids = b.p_ids || []; const rest = H.aiAgents.filter((a) => !ids.includes(a.id)).sort((a, b2) => a.sort - b2.sort);
       ids.map((id) => H.aiAgents.find((a) => a.id === id)).filter(Boolean).concat(rest).forEach((a, i) => { a.sort = (i + 1) * 10; }); H.writes.push({ table: 'ai_agents', op: 'order', n: ids.length }); return json(200, null);
     }
-    if (name === 'ai_agent_kb_list') return json(200, isAdmin(u) ? H.aiKb.map((k) => ({ id: k.id, kind: k.kind, section: k.section, title: k.title, text: k.text, agents: k.agents })) : []);
+    // 0125: a default's key and whether the admin changed it (opts.mktAiKbDefaults — { key, kind, section, title, text, agents })
+    const defOf = (key) => H.aiKbDefaults.find((d) => d.key === key);
+    const changedOf = (k) => { const d = k.key && defOf(k.key); return !!d && (d.title !== k.title || d.text !== k.text || d.section !== k.section || JSON.stringify(d.agents) !== JSON.stringify(k.agents)); };
+    if (name === 'ai_agent_kb_list') return json(200, isAdmin(u) ? H.aiKb.map((k) => ({ id: k.id, kind: k.kind, section: k.section, title: k.title, text: k.text, agents: k.agents, key: k.key || null, changed: changedOf(k) })) : []);
+    if (name === 'ai_agent_kb_reset') {
+      if (!isAdmin(u)) return refuse(403, '42501', 'admin only');
+      if (!['rules', 'skills'].includes(b.p_kind)) return bad('kind');
+      const keys = b.p_keys == null ? null : b.p_keys; if (keys && !keys.length) return bad('keys');
+      if (!keys && b.p_drop_added) H.aiKb = H.aiKb.filter((k) => !(k.kind === b.p_kind && !k.key));
+      let nid = H.aiKb.reduce((m, k) => Math.max(m, k.id), 0); let n = 0;
+      for (const d of H.aiKbDefaults.filter((x) => x.kind === b.p_kind && (!keys || keys.includes(x.key)))) {
+        const i = H.aiKb.findIndex((k) => k.key === d.key); const row = { id: ++nid, kind: d.kind, section: d.section, title: d.title, text: d.text, agents: d.agents.slice(), key: d.key };
+        if (i >= 0) H.aiKb[i] = row; else H.aiKb.push(row); n += 1;
+      }
+      H.writes.push({ table: 'ai_agent_kb', op: 'reset', kind: b.p_kind, keys: keys || 'all', drop: !keys && !!b.p_drop_added }); return json(200, n);
+    }
     if (name === 'ai_agent_kb_set') {
       if (!isAdmin(u)) return refuse(403, '42501', 'admin only');
-      if (!['rules', 'skills'].includes(b.p_kind)) return bad('kind'); const L = b.p_items; if (!Array.isArray(L) || L.length > 200) return bad('items');
+      if (!['rules', 'skills'].includes(b.p_kind)) return bad('kind'); const L = b.p_items; if (!Array.isArray(L) || L.length > 300) return bad('items');
       const out = [];
       for (const it of L) {
         const sec = String(it.section || '').trim(); const t = String(it.title || '').trim(); const x = String(it.text || '').trim();
         if (!sec || sec.length > 60 || /[<>]/.test(sec)) return bad('section'); if (!t || t.length > 80 || /[<>]/.test(t)) return bad('title'); if (x.length > 1500 || /[<>]/.test(x)) return bad('text');
         const ag = [...new Set(it.agents || [])]; if (ag.some((a) => !H.aiAgents.some((r) => r.id === a))) return bad('agents');
-        out.push({ kind: b.p_kind, section: sec, title: t, text: x, agents: ag });
+        const key = it.key && defOf(it.key) && defOf(it.key).kind === b.p_kind && !out.some((o) => o.key === it.key) ? it.key : null; // 0125: a default's key kept
+        out.push({ kind: b.p_kind, section: sec, title: t, text: x, agents: ag, ...(key ? { key } : {}) });
       }
       let nid = H.aiKb.reduce((m, k) => Math.max(m, k.id), 0); H.aiKb = H.aiKb.filter((k) => k.kind !== b.p_kind).concat(out.map((k) => ({ id: ++nid, ...k })));
       H.writes.push({ table: 'ai_agent_kb', op: 'set', kind: b.p_kind, items: out.length }); return json(200, out.length);

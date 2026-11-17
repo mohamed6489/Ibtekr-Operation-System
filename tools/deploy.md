@@ -2380,3 +2380,11 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 2. الواجهة: `IBAlerts.agentSection()` = قسم «المساعدين» في الجرس (بيظهر بس لو فيه تنبيهات)، والضغطة `noteOpen` → `window.IBAiOpen(agent,
    chat)` في صفحة «الذكاء الاصطناعي»؛ «الإعدادات › التنبيهات › المساعدين» مفتاح لكل مساعد (`agents` في صف `notif`). e2e
    `tests/e2e/agent-notes.spec.mjs`.
+
+#### 2.7.110 قواعد وسكيلز المساعدين الافتراضية + الريسيت والمسح الجماعي (17 نوفمبر — `0125`)
+1. `0125_agent_kb_defaults.sql`: `ai_agent_kb_defaults` (نسخة السيستم بمفتاح ثابت — الفريق كله، المبرمج، الديزاينر، الميديا باير، المحاسب،
+   خدمة العملاء، خدمة المبتكرين، المخزن، الموارد البشرية) بتتحط في `ai_agent_kb` مرة لكل مفتاح (`seeded` — اللي الأدمن مسحه مابيرجعش لوحده)،
+   `ai_agent_kb.def_key`، `ai_agent_kb_set` بيحافظ على المفتاح (300 بند / 80000 حرف)، و`ai_agent_kb_reset(kind, keys, drop_added)` للأدمن.
+   الاختبار `supabase/tests/rls_agent_kb_defaults.sql`.
+2. الواجهة (الكتلة 17): علامة «افتراضي» / «افتراضي — متعدّل»، تحديد جماعي بـ «امسح المحدد» و«رجّع الافتراضي للمحدد»، و«رجّع الافتراضي» للكل
+   (و«امسح اللي ضفته أنا كمان» اختياري) — `IBMarketing.kbReset`. e2e في `tests/e2e/agents-settings.spec.mjs`.

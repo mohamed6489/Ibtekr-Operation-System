@@ -491,3 +491,7 @@ button.dx-stat{cursor:pointer}button.dx-stat:hover{background:var(--color-bg-hov
 @media (max-width:640px){#pg-settings .mn-row{grid-template-columns:auto auto minmax(0,1fr);row-gap:6px}#pg-settings .mn-row>:nth-child(4),#pg-settings .mn-row>:nth-child(5){grid-column:3}}
 /* 0120: whom a rule / skill is for, under its text */
 .kb-item-t .kb-to { display:inline-block;margin-top:4px;padding:1px 8px;border-radius:999px;background:var(--color-bg-subtle,#f6efe2);color:var(--color-brand-default,#005642);font-size:12px }
+/* 0125 (agents-brain decision 8): pick several rules / skills — the bar above the groups, the box beside each item, the «افتراضي» tag */
+.kb-items li .kb-pick { margin-top:3px; flex:none; accent-color:var(--color-primary,#005642) }
+.kb-bulk { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:8px 12px; margin-bottom:10px; border-radius:10px; background:var(--color-bg-hover,#F9F0E2) }
+.kb-item-t b .tag { margin-inline-start:6px; font-weight:500; vertical-align:middle }

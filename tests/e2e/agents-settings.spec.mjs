@@ -118,3 +118,40 @@ test('ش44: the media buyer\'s settings — the competitors (the same list) and 
   await expect(page.locator('[data-ad-tags] .chip')).toHaveText(['مكرمية ✕', 'ديكور منزلي ✕']);
   expect(mock.mkt.trendCfg.adTags).toEqual(['مكرمية', 'ديكور منزلي']);
 });
+
+// 0125 (agents-brain decisions 6 and 8 — «ريسيت او مسح لاكتر من قاعدة او اسكيلز»): the system's items carry «افتراضي» (and «متعدّل» once
+// changed); pick several → «امسح المحدد» / «رجّع الافتراضي للمحدد»; «رجّع الافتراضي» in the head brings the kind back (the admin's own
+// rows stay unless he ticks the box)
+test('0125 — rules: pick two → delete; pick a changed default → back to its text; «رجّع الافتراضي» brings all back, the admin\'s own stays', async ({ page }) => {
+  const DEF = [{ key: 'team.truth', kind: 'rules', section: 'الفريق كله', title: 'الأرقام من السيستم بس', text: 'نص أصلي 1' },
+    { key: 'team.style', kind: 'rules', section: 'الفريق كله', title: 'طريقة الكلام', text: 'نص أصلي 2' }];
+  mock = await installSupabaseMock(page, { mktAiKbDefaults: DEF, mktAiKb: [
+    { kind: 'rules', section: 'الفريق كله', title: 'الأرقام من السيستم بس', text: 'نص أصلي 1', key: 'team.truth' },
+    { kind: 'rules', section: 'الفريق كله', title: 'طريقة الكلام', text: 'متغيّر', key: 'team.style' },
+    { kind: 'rules', section: 'بتاعتي', title: 'قاعدتي', text: 'نصي' }] });
+  await signIn(page);
+  await page.evaluate(() => { location.hash = 'settings-ai'; });
+  await page.locator('#pg-settings').getByRole('tab', { name: 'المساعدين' }).click();
+  const rules = page.locator('[data-kb="rules"]');
+  await expect(rules.locator('[data-kb-def="default"]')).toHaveCount(1);
+  await expect(rules.locator('[data-kb-def="changed"]')).toHaveCount(1);
+  // the changed default back to its text
+  await rules.locator('li', { hasText: 'طريقة الكلام' }).locator('[data-kb-pick]').check();
+  await page.locator('[data-kb-reset-sel="rules"]').click();
+  await expect(rules.locator('[data-kb-def="changed"]')).toHaveCount(0);
+  expect(mock.mkt.aiKb.find((k) => k.key === 'team.style').text).toBe('نص أصلي 2');
+  // pick two and delete them
+  await rules.locator('li', { hasText: 'الأرقام من السيستم بس' }).locator('[data-kb-pick]').check();
+  await rules.locator('li', { hasText: 'قاعدتي' }).locator('[data-kb-pick]').check();
+  await expect(page.locator('[data-kb-bulk="rules"]')).toContainText('محدد 2');
+  await page.locator('[data-kb-del-sel="rules"]').click();
+  await page.locator('.modal[role=dialog]').getByRole('button', { name: 'امسح' }).click();
+  await expect(rules.locator('li')).toHaveCount(1);
+  expect(mock.mkt.aiKb.filter((k) => k.kind === 'rules').map((k) => k.title)).toEqual(['طريقة الكلام']);
+  expect(mock.mkt.aiKb.find((k) => k.title === 'طريقة الكلام').key).toBe('team.style');
+  // «رجّع الافتراضي» for all: the deleted default comes back
+  await page.locator('[data-kb-reset="rules"]').click();
+  await page.locator('.modal[role=dialog]').getByRole('button', { name: 'رجّع الافتراضي' }).click();
+  await expect(rules.locator('li')).toHaveCount(2);
+  expect(mock.mkt.writes.filter((w) => w.table === 'ai_agent_kb' && w.op === 'reset').map((w) => w.keys)).toEqual([['team.style'], 'all']);
+});

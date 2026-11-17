@@ -108,12 +108,14 @@ test('scheduleItems: a row per piece × platform, the images in order, the kind 
 
 const LIVE = { autopublish: true, facebook: { linked: true, publish: true }, instagram: { linked: true, publish: true } };
 
-test('9.5.2 scheduleItems: «انشر» on the piece → publish where the platform can take it, TikTok and the video stay a download', () => {
+test('scheduleItems (the owner 17 Nov — no «الطريقة» column): publish wherever the platform can take it — an old «داونلود» choice is gone; TikTok stays a download; `only` = the picked pieces', () => {
   const c = old(); const ps = W.buildPieces(c, []);
   ps[0].img = 'c/p1.jpg'; ps[2].img = 'c/cover.jpg'; ps[2].slides.forEach((s, k) => { s.img = 'c/s' + k + '.jpg'; });
   const sched = { P1: { date: '2026-11-08', time: '19:00', pl: ['انستجرام', 'فيسبوك', 'تيك توك'], how: ['انشر'] }, C1: { date: '2026-11-09', time: '21:00', pl: ['فيسبوك'], how: ['داونلود'] } };
   const items = W.scheduleItems(ps, sched, 'الفكرة', LIVE);
-  assert.deepEqual(items.map((x) => [x.piece, x.platform, x.how]), [['P1', 'انستجرام', 'publish'], ['P1', 'فيسبوك', 'publish'], ['P1', 'تيك توك', 'download'], ['C1', 'فيسبوك', 'download']]);
+  assert.deepEqual(items.map((x) => [x.piece, x.platform, x.how]), [['P1', 'انستجرام', 'publish'], ['P1', 'فيسبوك', 'publish'], ['P1', 'تيك توك', 'download'], ['C1', 'فيسبوك', 'publish']]);
+  assert.deepEqual(W.scheduleItems(ps, sched, 'x', LIVE, ['C1']).map((x) => x.piece), ['C1']);
+  assert.deepEqual(W.scheduleItems(ps, sched, 'x', LIVE, []), []);
   // the switch off (or no permission) → nothing is published
   assert.ok(W.scheduleItems(ps, sched, 'x', { ...LIVE, autopublish: false }).every((x) => x.how === 'download'));
   assert.ok(W.scheduleItems(ps, sched, 'x', null).every((x) => x.how === 'download'));
@@ -436,4 +438,22 @@ test('the owner 17 Nov — a trend video plays on hover: the platform\'s own pla
   for (const x of [{ kind: 'image', url: 'https://www.tiktok.com/@shop/video/7412345678901234567' }, { kind: 'video', url: 'http://www.tiktok.com/@shop/video/7412345678901234567' },
     { kind: 'video', url: 'https://tiktok.com.evil.io/@a/video/7412345678901234567' }, { kind: 'video', url: 'https://later.com/blog/a/' }, { kind: 'video', url: 'javascript:alert(1)' }, null])
     assert.equal(W.trendEmbed(x), null);
+});
+
+test('0122 (the owner 17 Nov — «وقف نشر»): a waiting system post pauses, a paused one resumes and moves; a piece\'s state from its posts', () => {
+  assert.equal(W.canPause({ src: 'system', status: 'مجدول' }), true);
+  assert.equal(W.canPause({ src: 'system', status: 'فشل' }), true);
+  assert.equal(W.canPause({ src: 'system', status: 'مجدول', busy: true }), false);
+  assert.equal(W.canPause({ src: 'platform', status: 'مجدول' }), false);
+  assert.equal(W.canPause({ src: 'system', status: 'متوقف' }), false);
+  assert.equal(W.canResume({ status: 'متوقف' }), true);
+  assert.equal(W.canResume({ status: 'مجدول' }), false);
+  assert.equal(W.canMove({ status: 'متوقف' }), true);
+  assert.ok(W.POST_STATUSES.includes('متوقف'));
+  const P = [{ campaignId: 'c', piece: 'P1', status: 'متوقف' }, { campaignId: 'c', piece: 'P1', status: 'مجدول' }, { campaignId: 'c', piece: 'P2', status: 'متوقف' },
+    { campaignId: 'c', piece: 'P3', status: 'اتنشر' }, { campaignId: 'c', piece: 'P4', status: 'اتحذف' }, { campaignId: 'd', piece: 'P5', status: 'مجدول' }, { campaignId: 'c', piece: 'P6', status: 'فشل' }, { campaignId: 'c', piece: 'P6', status: 'اتنشر' }];
+  assert.deepEqual(['P1', 'P2', 'P3', 'P4', 'P5', 'P6'].map((k) => W.pieceState(P, 'c', k).status), ['مجدول', 'متوقف', 'اتنشر', 'مسودة', 'مسودة', 'فشل']);
+  assert.equal(W.pieceState(P, 'c', 'P1').posts.length, 2);
+  // a campaign with paused posts only is still «اتجدولت» (something waits)
+  assert.deepEqual(W.campaignStatus({ id: 'c', step: 4, scheduledAt: 'x' }, [{ campaignId: 'c', status: 'متوقف' }, { campaignId: 'c', status: 'اتنشر' }]), ['اتجدولت', 'success']);
 });

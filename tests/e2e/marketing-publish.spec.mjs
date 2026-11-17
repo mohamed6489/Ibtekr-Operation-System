@@ -67,15 +67,15 @@ test('comments 66–68 — the publish table: the platforms as icons, the downlo
   const was = await tt.getAttribute('aria-pressed');
   await tt.click();
   await expect(pg(page).locator('[data-cw-pl="P1"] [data-pl="تيك توك"]')).toHaveAttribute('aria-pressed', was === 'true' ? 'false' : 'true');
-  // 67: «انشر» a word, the download an icon with its name — a press brings the piece's folder
-  await expect(pg(page).locator('[data-cw-pub="P1"]')).toHaveText('انشر');
-  const dl = pg(page).locator('[data-cw-dl="P1"]');
-  expect(await dl.evaluate((el) => [el.textContent.trim(), !!el.querySelector('svg'), el.getAttribute('aria-label')])).toEqual(['', true, 'داونلود بوست 1']);
-  await expect(pg(page).locator('[data-cw-how="P1"]')).not.toContainText('داونلود');
+  // the owner 17 Nov: no «الطريقة» column (no «انشر» button) — the piece's state instead; «تحميل المحدد» brings the picked pieces' folder
+  expect(await pg(page).locator('.cw-pub table.dt thead th').allTextContents()).not.toContain('الطريقة');
+  await expect(pg(page).locator('[data-cw-pub="P1"], [data-cw-how="P1"]')).toHaveCount(0);
+  await expect(pg(page).locator('[data-cw-state="P1"]')).toHaveText('مسودة');
+  await pg(page).getByRole('checkbox', { name: 'حدد بوست 1' }).check();
+  await expect(pg(page).locator('[data-cw-bulk]')).toHaveAttribute('data-cw-bulk', '1');
   const got = page.waitForEvent('download');
-  await dl.click();
+  await pg(page).locator('[data-cw-dl-sel]').click();
   await got;
-  await expect(page.locator('body')).toContainText('اتنزل فولدر «بوست 1»');
   // 68: each cell's content sits on the middle of its cell — across and down
   const off = await pg(page).locator('.cw-pub table.dt tbody tr').first().locator('td').evaluateAll((tds) => tds.map((td) => {
     const c = td.getBoundingClientRect(); const kids = [...td.children].filter((k) => k.getBoundingClientRect().width); if (!kids.length) return [0, 0];
@@ -95,15 +95,14 @@ test('9.5.2 the connection card: the platforms\' state, the switch the admin tur
   await expect(pg(page).locator('[data-conn-pl="فيسبوك"]')).toContainText('مربوط للنشر · Ibtekr Club');
   await expect(pg(page).locator('[data-conn-pl="انستجرام"]')).toContainText('@ibtekr.club');
   await expect(pg(page).locator('[data-mk-auto]')).toHaveAttribute('data-mk-auto', 'off');
-  await expect(pg(page).locator('[data-cw-pub="P1"]')).toHaveAttribute('aria-disabled', 'true');
+  await expect(pg(page).locator('[data-cw-state="P1"]')).toHaveAttribute('title', /^داونلود — النشر التلقائي متوقف/);
   await pg(page).locator('[data-mk-auto-toggle]').click();
   await modal(page, 'تشغّل النشر التلقائي').getByRole('button', { name: 'شغّل النشر' }).click();
   await expect(pg(page).locator('[data-mk-auto]')).toHaveAttribute('data-mk-auto', 'on');
   expect(mock.mkt.conn.autopublish).toBe(true);
   expect(mock.mkt.calls.some((c) => c.fn === 'mkt-publish' && c.action === 'autopublish' && c.on === true)).toBe(true);
-  // «انشر» can be picked now
-  await expect(pg(page).locator('[data-cw-pub="P1"]')).not.toHaveAttribute('aria-disabled', 'true');
-  await expect(pg(page).locator('[data-cw-pub="P1"]')).toHaveAttribute('aria-pressed', 'true');
+  // published by itself now (no button to press — the owner 17 Nov)
+  await expect(pg(page).locator('[data-cw-state="P1"]')).toHaveAttribute('title', 'بيتنشر لوحده في ميعاده');
 });
 
 test('9.5.2 a link without the publishing permission: in «سجل النشر» with no campaign at all (decision 41) the card says it and the admin\'s «اربط تاني» opens Meta\'s dialog for the same page', async ({ page }) => {
@@ -117,11 +116,11 @@ test('9.5.2 a link without the publishing permission: in «سجل النشر» w
   expect(mock.metaCalls.map((c) => c.action)).toEqual(['connect_start']); // no «فصل» first: the same page linked again
 });
 
-test('9.5.2 «تأكيد النشر» with «انشر»: the JPEG copies uploaded first, Facebook and Instagram scheduled to publish, TikTok a download', async ({ page }) => {
+test('9.5.2 «تأكيد النشر»: the JPEG copies uploaded first, Facebook and Instagram scheduled to publish, TikTok a download', async ({ page }) => {
   await start(page, { mktConn: { autopublish: true } });
   await openMarketing(page, OPS);
   await pg(page).locator('[data-mk-open="' + C1 + '"]').click();
-  await expect(pg(page).locator('[data-cw-pub="P1"]')).toHaveAttribute('aria-pressed', 'true');
+  await pg(page).getByRole('checkbox', { name: 'حدد الكل' }).check();
   await expect(pg(page).locator('[data-cw-auto]')).toHaveCount(0); // the owner 16 Nov: no «تلقائي: …» line under the buttons
   await pg(page).locator('[data-cw-pl="P1"] .chip', { hasText: 'تيك توك' }).click();
   await pg(page).locator('.cp-next').click();
@@ -189,4 +188,47 @@ test('9.5.2 the plan: the platform\'s own posts with «من المنصة مبا�
   await pg(page).locator('[data-cal-src-filter] [data-src="platform"]').click();
   await expect(pg(page).locator('[data-cal-src="system"]')).toHaveCount(0);
   await expect(pg(page).locator('[data-cal-src="platform"]')).toHaveCount(1);
+});
+
+// the owner 17 Nov («عايز احط حاجة تخليني احدد البوستات اللي عايز اجدولها او اوقف نشر»; his answers: a checkbox per row + a bar, «وقف نشر»
+// keeps the post in the plan «متوقف» until «كمّل النشر», «تأكيد النشر» schedules the picked ones only): two pieces — one picked and
+// scheduled, the other stays a draft; then paused and resumed from the bar; the log's popup pauses / resumes too (0122)
+test('the publish step: pick → «تأكيد النشر» schedules the picked only; «وقف نشر المحدد» → «متوقف» in the plan; «كمّل النشر» back', async ({ page }) => {
+  const P2 = Object.assign({}, PIECE, { id: 'P2', n: 2, title: 'تاني', img: C1 + '/gen-P2.png' });
+  const st2 = JSON.parse(JSON.stringify(STATE)); st2.w.media.post.count = 2; st2.pieces = [PIECE, P2];
+  await start(page, { mktCampaigns: [{ id: C1, name: 'كولكشن الشتا', goal: 'منتج جديد', step: 4, state: st2 }], mktConn: { autopublish: true }, mktObjects: { [C1 + '/gen-P1.png']: { type: 'image/png' }, [C1 + '/gen-P2.png']: { type: 'image/png' } } });
+  await openMarketing(page, OPS);
+  await pg(page).locator('[data-mk-open="' + C1 + '"]').click();
+  await expect(pg(page).locator('.wstepper .stp-cur')).toContainText('النشر والتحميل');
+  await expect(pg(page).locator('.cp-next')).toBeDisabled();
+  await pg(page).getByRole('checkbox', { name: 'حدد بوست 1' }).check();
+  await expect(pg(page).locator('.cp-next')).toContainText('تأكيد النشر (1)');
+  await pg(page).locator('[data-cw-sched-sel]').click();
+  await expect(pg(page).locator('[data-cw-state="P1"]')).toHaveText('مجدول');
+  await expect(pg(page).locator('[data-cw-state="P2"]')).toHaveText('مسودة'); // not picked → stays a draft, the step stays open
+  const sch = mock.mkt.writes.find((w) => w.op === 'schedule');
+  expect([sch.keep, sch.pieces]).toEqual([true, ['P1']]);
+  // pause from the bar → «متوقف» (in the plan, never published)
+  await pg(page).getByRole('checkbox', { name: 'حدد بوست 1' }).check();
+  await pg(page).locator('[data-cw-pause-sel]').click();
+  await expect(pg(page).locator('[data-cw-state="P1"]')).toHaveText('متوقف');
+  expect(mock.mkt.posts.filter((x) => x.piece === 'P1').every((x) => x.status === 'متوقف')).toBe(true);
+  // scheduling P2 now leaves P1 paused (p_keep)
+  await pg(page).getByRole('checkbox', { name: 'حدد بوست 2' }).check();
+  await pg(page).getByRole('checkbox', { name: 'حدد بوست 1' }).uncheck();
+  await pg(page).locator('[data-cw-sched-sel]').click();
+  await expect(pg(page).locator('[role=tab][aria-selected=true]')).toContainText('سجل النشر'); // nothing left as a draft → the log
+  expect(mock.mkt.posts.filter((x) => x.piece === 'P1').every((x) => x.status === 'متوقف')).toBe(true);
+  // the log: the paused post's popup — «كمّل النشر» (no «انشر دلوقتي» / «علّمه اتنشر»)
+  const row = pg(page).locator('.pub-tbl tbody tr', { hasText: 'متوقف' }).first();
+  await row.locator('[data-post-row]').click();
+  const m = page.locator('.modal[role=dialog]').last();
+  await expect(m).toContainText('النشر متوقف');
+  await expect(m.locator('[data-post-publish], [data-post-published], [data-post-pause]')).toHaveCount(0);
+  await m.locator('[data-post-resume]').click();
+  await expect.poll(() => mock.mkt.posts.filter((x) => x.piece === 'P1' && x.status === 'مجدول').length).toBe(1);
+  // and pause it again from the popup
+  await pg(page).locator('.pub-tbl tbody tr', { hasText: 'دفا' }).filter({ hasText: 'مجدول' }).first().locator('[data-post-row]').click();
+  await page.locator('.modal[role=dialog]').last().locator('[data-post-pause]').click();
+  await expect.poll(() => mock.mkt.writes.filter((w) => w.op === 'pause').length).toBe(3); // two platforms from the bar, one from the popup
 });

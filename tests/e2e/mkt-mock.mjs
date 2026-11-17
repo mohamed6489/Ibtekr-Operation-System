@@ -333,28 +333,37 @@ export function mktRoute(c) {
       }
       for (const p of plan) {
         const ex = H.posts.find((x) => x.campaign_id === camp.id && x.piece === p.piece && x.platform === p.platform && x.status !== 'اتحذف');
-        if (ex) { if (['مجدول', 'فشل'].includes(ex.status)) Object.assign(ex, p, { caption_orig: p.caption, status: 'مجدول', updated_by: u.id, updated_at: now }); }
+        if (ex) { if (['مجدول', 'فشل', 'متوقف'].includes(ex.status)) Object.assign(ex, p, { caption_orig: p.caption, status: 'مجدول', updated_by: u.id, updated_at: now }); }
         else { H.seq += 1; H.posts.push({ id: H.seq, campaign_id: camp.id, ...POST_9_5_2, ...p, caption_orig: p.caption, status: 'مجدول', was_live: false, post_url: null, published_at: null, published_by: null, deleted_at: null, deleted_by: null, created_by: u.id, created_at: now, updated_by: u.id, updated_at: now }); }
       }
-      H.posts.filter((x) => x.campaign_id === camp.id && ['مجدول', 'فشل'].includes(x.status) && !keys.includes(x.piece + '|' + x.platform)).forEach((x) => Object.assign(x, { status: 'اتحذف', deleted_at: now, deleted_by: u.id, updated_at: now }));
+      if (!b.p_keep) H.posts.filter((x) => x.campaign_id === camp.id && ['مجدول', 'فشل'].includes(x.status) && !keys.includes(x.piece + '|' + x.platform)).forEach((x) => Object.assign(x, { status: 'اتحذف', deleted_at: now, deleted_by: u.id, updated_at: now }));
       Object.assign(camp, { scheduled_at: now, step: 4, updated_at: now, updated_by: u.id });
-      H.writes.push({ table: 'mkt_posts', op: 'schedule', campaign: camp.id, items: plan.length, publish: plan.filter((p) => p.how === 'publish').length, images: plan.filter((p) => p.how === 'publish').flatMap((p) => p.images) });
+      H.writes.push({ table: 'mkt_posts', op: 'schedule', campaign: camp.id, keep: !!b.p_keep, pieces: [...new Set(plan.map((p) => p.piece))], items: plan.length, publish: plan.filter((p) => p.how === 'publish').length, images: plan.filter((p) => p.how === 'publish').flatMap((p) => p.images) });
       return json(200, H.posts.filter((x) => x.campaign_id === camp.id && ['مجدول', 'فشل'].includes(x.status)).length);
     }
     if (name === 'mkt_post_act') {
       const a = b.p_args && typeof b.p_args === 'object' ? b.p_args : {};
       if (!publish) return refuse(403, '42501', 'not allowed');
       const x = H.posts.find((p) => p.id === Number(b.p_id)); if (!x) return refuse(404, 'P0002', 'not found');
-      const waiting = ['مجدول', 'فشل'].includes(x.status);
+      const waiting = ['مجدول', 'فشل'].includes(x.status); const paused = x.status === 'متوقف'; // 0122
+      if (b.p_action === 'pause') {
+        if (!waiting || x.src === 'platform') return bad('status');
+        Object.assign(x, { status: 'متوقف', updated_by: u.id, updated_at: now }); H.writes.push({ table: 'mkt_posts', op: 'pause', id: x.id }); return json(200, 'متوقف');
+      }
+      if (b.p_action === 'resume') {
+        if (!paused) return bad('status'); if (x.day < today || (x.day === today && x.time <= hm)) return bad('time');
+        Object.assign(x, { status: 'مجدول', error: null, updated_by: u.id, updated_at: now }); H.writes.push({ table: 'mkt_posts', op: 'resume', id: x.id }); return json(200, 'مجدول');
+      }
       if (b.p_action === 'move') {
-        if (!waiting) return bad('status');
+        if (!waiting && !paused) return bad('status');
         const d = String(a.day || ''); if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || d < today || d > mktAddDays(today, 365)) return bad('day');
         if (!HM.test(String(a.time || '')) || (d === today && a.time <= hm)) return bad('time');
         if (d === x.day && a.time === x.time) return bad('same');
-        Object.assign(x, { day: d, time: a.time, status: 'مجدول', updated_by: u.id, updated_at: now }); H.writes.push({ table: 'mkt_posts', op: 'move', id: x.id, day: d, time: a.time }); return json(200, 'مجدول');
+        const st2 = paused ? 'متوقف' : 'مجدول';
+        Object.assign(x, { day: d, time: a.time, status: st2, updated_by: u.id, updated_at: now }); H.writes.push({ table: 'mkt_posts', op: 'move', id: x.id, day: d, time: a.time }); return json(200, st2);
       }
       if (b.p_action === 'caption') {
-        if (!waiting) return bad('status'); const t = lines(a.text); if (t.length > 2200) return bad('caption');
+        if (!waiting && !paused) return bad('status'); const t = lines(a.text); if (t.length > 2200) return bad('caption');
         Object.assign(x, { caption: t, updated_by: u.id, updated_at: now }); H.writes.push({ table: 'mkt_posts', op: 'caption', id: x.id }); return json(200, x.status);
       }
       if (b.p_action === 'published') {
@@ -363,7 +372,7 @@ export function mktRoute(c) {
         Object.assign(x, { status: 'اتنشر', published_at: now, published_by: u.id, post_url: link, updated_by: u.id, updated_at: now }); H.writes.push({ table: 'mkt_posts', op: 'published', id: x.id }); return json(200, 'اتنشر');
       }
       if (b.p_action === 'delete') {
-        if (!(waiting || x.status === 'اتنشر')) return bad('status');
+        if (!(waiting || paused || x.status === 'اتنشر')) return bad('status');
         Object.assign(x, { was_live: x.status === 'اتنشر', status: 'اتحذف', deleted_at: now, deleted_by: u.id, updated_by: u.id, updated_at: now }); H.writes.push({ table: 'mkt_posts', op: 'delete', id: x.id }); return json(200, 'اتحذف');
       }
       return bad('action');

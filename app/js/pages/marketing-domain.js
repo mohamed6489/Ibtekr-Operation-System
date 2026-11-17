@@ -181,7 +181,7 @@
     const r = row || {}; const step = clamp(r.step, 1, 4);
     if (r.scheduledAt) {
       const L = (posts || []).filter((x) => x.campaignId === r.id);
-      const waiting = L.some((x) => x.status === 'مجدول' || x.status === 'فشل');
+      const waiting = L.some((x) => x.status === 'مجدول' || x.status === 'فشل' || x.status === 'متوقف');
       if (!waiting && L.some((x) => x.status === 'اتنشر')) return ['اتنشرت', 'brand'];
       return ['اتجدولت', 'success'];
     }
@@ -195,7 +195,7 @@
   const PLATFORMS = Object.freeze(['انستجرام', 'فيسبوك', 'تيك توك']);
   // decision 14: nothing connected by default (9.5.1); from 9.5.2 the live connection (mkt-publish status) decides — publishable / notReady
   const CONNECTED = Object.freeze({ 'انستجرام': false, 'فيسبوك': false, 'تيك توك': false });
-  const POST_STATUSES = Object.freeze(['مجدول', 'اتنشر', 'فشل', 'اتحذف']);
+  const POST_STATUSES = Object.freeze(['مجدول', 'اتنشر', 'فشل', 'اتحذف', 'متوقف']); // «متوقف» (0122): in the plan, never published until «كمّل النشر»
   const CAP_MAX = 2200; // أقل حد بين المنصات (انستجرام)
   const TAGS = '#إبتكر #هاندميد #ديكور_بوهيمي';
   const TIMES = Object.freeze(Array.from({ length: 16 }, (_, i) => String(8 + i).padStart(2, '0') + ':00'));
@@ -222,17 +222,17 @@
   const addD = (iso, n) => new Date(Date.parse(iso + 'T00:00:00Z') + n * 864e5).toISOString().slice(0, 10);
   // the suggested time of the i-th piece (the v5: every other day from tomorrow, at the evening's busy hours)
   const suggest = (i, today) => ({ date: addD(today, 1 + 2 * (i % 6)), time: ['19:00', '21:00', '20:00'][i % 3] });
-  // step 4 → mkt_schedule's items: a row per piece × platform it goes to; `how` (9.5.2) = publish where the piece's «انشر» is on and
-  // that platform can take it now (publishable), else a download
-  function scheduleItems(pieces, sched, fallbackCaption, conn) {
-    const out = [];
+  // step 4 → mkt_schedule's items: a row per piece × platform it goes to; `how` = publish where that platform can take it now
+  // (publishable), else a download — by itself (the owner 17 Nov: the «الطريقة» column is gone); `only` = the picked pieces' ids
+  function scheduleItems(pieces, sched, fallbackCaption, conn, only) {
+    const out = []; const pick = only ? new Set(only) : null;
     (pieces || []).forEach((p) => {
+      if (pick && !pick.has(p.id)) return;
       const s = (sched || {})[p.id]; if (!s || !Array.isArray(s.pl)) return;
       const caption = String(p.caption || fallbackCaption || '').slice(0, CAP_MAX);
       const kind = postKind(p), images = pubImages(p), tags = String(p.tags || TAGS).slice(0, 300);
-      const wants = Array.isArray(s.how) && s.how.includes('انشر');
       s.pl.filter((x) => PLATFORMS.includes(x)).forEach((platform) => out.push({ piece: p.id, kind, name: hookOf(p), caption, tags, images, platform, day: s.date, time: s.time,
-        how: wants && publishable(kind, images, platform, conn, { caption, tags }).ok ? 'publish' : 'download' }));
+        how: publishable(kind, images, platform, conn, { caption, tags }).ok ? 'publish' : 'download' }));
     });
     return out;
   }
@@ -314,7 +314,17 @@
   }
   const SRC_LABEL = Object.freeze({ system: 'من السيستم', platform: 'من المنصة مباشرة' });
   const isPast = (day, time, today, now) => day < today || (day === today && time <= now);
-  const canMove = (x) => x.status === 'مجدول' || x.status === 'فشل';
+  const canMove = (x) => x.status === 'مجدول' || x.status === 'فشل' || x.status === 'متوقف';
+  // the owner 17 Nov — «وقف نشر» / «كمّل النشر» (0122): a waiting system post pauses; a paused one resumes
+  const canPause = (x) => !!x && x.src !== 'platform' && (x.status === 'مجدول' || x.status === 'فشل') && !x.busy;
+  const canResume = (x) => !!x && x.status === 'متوقف';
+  // a campaign piece's state in the publish step, from its posts (all platforms): مسودة (none) · فشل · مجدول · متوقف · اتنشر
+  function pieceState(posts, campaignId, piece) {
+    const L = (posts || []).filter((x) => x.campaignId === campaignId && x.piece === piece && x.status !== 'اتحذف');
+    if (!L.length) return { status: 'مسودة', posts: [] };
+    const has = (s) => L.some((x) => x.status === s);
+    return { status: has('فشل') ? 'فشل' : has('مجدول') ? 'مجدول' : has('متوقف') ? 'متوقف' : 'اتنشر', posts: L };
+  }
   // the v5's moveCheck: a day, not a past day or hour (Cairo's today / now), not the same time
   function moveCheck(x, day, time, today, now) {
     if (!day) return { day: 'اختار اليوم' };
@@ -592,7 +602,7 @@
 
   const api = { PRICE_DEMO, VIDEO_SOON, VSIZES, videoImgSize, videoMethod, estimateVideo, METHOD_RATE, GOALS, MEDIA, VIDEO_RATE, METHODS, MAX, TEXT_FILL, DEFAULT_MODEL, clamp, defaults, buildPieces, splitScenes, CLIP, VIDEO_MAX, clipSeconds, sceneSeconds, scenesPending, sceneDurOf, videoSeconds, setSceneDur, setSceneD, setSceneCount, keepSceneDurs, cost, spend, built, approvable, approved, approveAll, progress, canBuildNext, canReviewNext, validateDetails, estimate, imgRate, videoRate,
     adLibraryUrl, competitorPage, competitorRow, draftOf, trendEmbed,
-    campaignStatus, campaignName, PLATFORMS, CONNECTED, POST_STATUSES, CAP_MAX, TAGS, TIMES, timeOpts, postKind, pieceImages, hookOf, addD, suggest, scheduleItems, isPast, canMove, moveCheck, safeName, zipPlan,
+    campaignStatus, campaignName, PLATFORMS, CONNECTED, POST_STATUSES, CAP_MAX, TAGS, TIMES, timeOpts, postKind, pieceImages, hookOf, addD, suggest, scheduleItems, isPast, canMove, canPause, canResume, pieceState, moveCheck, safeName, zipPlan,
     PUBLISHABLE, PUB_KINDS, MAX_IMAGES, PL_KEY, pubText, notReady, publishable, pubImages, isVideoPath, igFit, jpegSize, isJpeg, PUB_ERRORS, pubError, seenSt, engOf, postTotals, SRC_LABEL,
     get DAYS() { return days(); }, dayIdx, wkStart, weeksOf, planDefault, D2, dayLabel, relDay, pct, linkKeys,
     ADS_RULES, AD_PLATFORM, AD_LINK_FIELDS, AD_OAUTH, linkFieldsBody, SOLD, adOrders, adCampaignRows, adTotals, merWeeks, adAlerts, adCreatives, xr };

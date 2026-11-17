@@ -425,12 +425,14 @@
   async function videoScenes(cid, piece, voice, notes) { const r = await write(cid, { task: 'scenes', piece, voice: voice === true, notes }); return r.ok ? { ok: true, scenes: r.scenes || [], voice: r.voice || '' } : r; }
 
   // ---------- the schedule and the log (decisions 14–16) ----------
-  async function schedule(cid, items) {
+  // opts.keep (0122, the owner 17 Nov — «تأكيد النشر» schedules the picked pieces only): the other pieces' rows stay as they are
+  async function schedule(cid, items, opts) {
     const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
     if (!can().publish) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
     await flush(cid);
     try {
-      const { data: n, error } = await cl.rpc('mkt_schedule', { p_campaign: cid, p_items: items }); if (error) return fail(error);
+      const args = { p_campaign: cid, p_items: items }; if (opts && opts.keep) args.p_keep = true;
+      const { data: n, error } = await cl.rpc('mkt_schedule', args); if (error) return fail(error);
       const pls = [...new Set((items || []).map((x) => x.platform))].join(', ');
       const pub = (items || []).filter((x) => x.how === 'publish').length;
       log('campaign.schedule', (items || []).length + ' posts · ' + pls + (pub ? ' · ' + pub + ' publish' : ''), cid);
@@ -444,7 +446,9 @@
     try {
       const { data: s, error } = await cl.rpc('mkt_post_act', { p_id: Number(id), p_action: action, p_args: args || {} }); if (error) return fail(error);
       if (p) {
-        if (action === 'move') Object.assign(p, { day: args.day, time: args.time, status: 'مجدول' });
+        if (action === 'move') Object.assign(p, { day: args.day, time: args.time, status: p.status === 'متوقف' ? 'متوقف' : 'مجدول' });
+        else if (action === 'pause') Object.assign(p, { status: 'متوقف' });
+        else if (action === 'resume') Object.assign(p, { status: 'مجدول', error: null });
         else if (action === 'caption') p.caption = String(args.text || '');
         else if (action === 'published') Object.assign(p, { status: 'اتنشر', url: args.url || null, publishedAt: new Date().toISOString() });
         else if (action === 'delete') Object.assign(p, { status: 'اتحذف', wasLive: p.status === 'اتنشر', delAt: cairoDay(new Date().toISOString()) });
@@ -457,6 +461,9 @@
   const caption = (id, text) => postAct(id, 'caption', { text: String(text == null ? '' : text).slice(0, 2200) });
   const published = (id, link) => postAct(id, 'published', { url: link ? String(link).trim() : '' });
   const remove = (id) => { const p = getPost(id); return postAct(id, 'delete', {}, p ? p.status : ''); };
+  // the owner 17 Nov (0122): «وقف نشر» — stays in the plan, never published until «كمّل النشر» (its time must still be ahead)
+  const pause = (id) => postAct(id, 'pause', {});
+  const resume = (id) => postAct(id, 'resume', {});
 
   // ---------- publishing (9.5.2, decisions 29–39) ----------
   let conn = null; let connAt = 0; const CONN_MS = 60000;
@@ -1403,7 +1410,7 @@
   function clear() { gen += 1; unsubscribe(); pend.forEach((p) => { if (p.timer) clearTimeout(p.timer); }); pend.clear(); chains.clear(); seenC.clear(); staleC.clear(); urls.clear(); data.campaigns = []; data.posts = []; data.templates = []; data.credits = null; conn = null; connAt = 0; ads = null; adsAt = 0; adsCache.clear(); sugg = null; suggAt = 0; rulesCache = null; rulesAt = 0; st = 'idle'; }
 
   window.IBMarketing = { load, ensure, clear, state: () => st, can, campaigns, posts, templates, getPost, wallet, credits, open, create, save, saveSoon, flush, forget, archive,
-    upload, uploadTemplate, url, cachedUrl, blob, product, refLink, checkFile, generate, magnificStatus, magnificSend, magnificFetch, edit, write, schedule, move, caption, published, remove,
+    upload, uploadTemplate, url, cachedUrl, blob, product, refLink, checkFile, generate, magnificStatus, magnificSend, magnificFetch, edit, write, schedule, move, caption, published, remove, pause, resume,
     videoClip, videoVoice, videoMusic, videoAssemble, videoPoll, videoUpload, videoScenes,
     connection, connNow, setAutopublish, publishNow, deleteLive, preparePublish,
     adsStatus, adsNow, adsSync, adsData, adsLinkSet, adsLinkStart, adsLinkPick, adsUnlink, adsWhy,

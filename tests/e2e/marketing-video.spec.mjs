@@ -113,7 +113,7 @@ test('the «فيديو» tool: a campaign with one video; the details (9:16, See
   // the schedule: a reel is a download (9.5.2 rule, until T30), the zip carries the video
   await pg(page).locator('.cp-next').click();
   await expect(pg(page).locator('.wstepper .stp-cur')).toContainText('النشر والتحميل');
-  await expect(pg(page).locator('[data-cw-pub="V1"]')).toHaveAttribute('aria-disabled', 'true');
+  await pg(page).getByRole('checkbox', { name: 'حدد الكل' }).check(); // the owner 17 Nov: «تأكيد النشر» schedules the picked pieces only
   await pg(page).locator('.cp-next').click();
   await expect(pg(page).locator('[role=tab][aria-selected=true]')).toContainText('سجل النشر');
   const sch = mock.mkt.calls.find((c) => c.rpc === 'mkt_schedule');
@@ -227,10 +227,9 @@ test('9.5.5 decision 63: an assembled reel with the page linked and the switch o
   await openMarketing(page);
   await pg(page).locator('[data-mk-open="' + C + '"]').click();
   await expect(pg(page).locator('.wstepper .stp-cur')).toContainText('النشر والتحميل');
-  const pub = pg(page).locator('[data-cw-pub="V1"]');
-  await expect(pub).not.toHaveAttribute('aria-disabled', 'true');
-  await expect(pub).toHaveAttribute('aria-pressed', 'true'); // «انشر» is the default where the platform can take it
+  await expect(pg(page).locator('[data-cw-state="V1"]')).toHaveAttribute('title', 'بيتنشر لوحده في ميعاده'); // published by itself where the platform can take it
   await pg(page).locator('[data-cw-pl="V1"] .chip', { hasText: 'تيك توك' }).click();
+  await pg(page).getByRole('checkbox', { name: 'حدد الكل' }).check(); // the owner 17 Nov: «تأكيد النشر» schedules the picked pieces only
   await pg(page).locator('.cp-next').click();
   await expect(pg(page).locator('[role=tab][aria-selected=true]')).toContainText('سجل النشر');
   const sch = mock.mkt.calls.find((c) => c.rpc === 'mkt_schedule');

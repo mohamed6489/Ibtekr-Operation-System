@@ -26,39 +26,39 @@
 .conn-row { display:flex;gap:12px;flex-wrap:wrap }
 .conn { display:flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid var(--color-border-subtle);border-radius:var(--radius-md) }
 .post-pv.story { width:62%;margin-inline:auto }
-#pg-marketing .mk-row { display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:16px;align-items:start }
-#pg-marketing .mk-list { display:flex;flex-direction:column }
-#pg-marketing .mk-item { display:flex;align-items:center;gap:12px;padding:10px 0;border:0;border-bottom:1px solid var(--color-border-subtle);background:transparent;font:inherit;color:inherit;text-align:start;width:100%;min-height:44px }
-#pg-marketing .mk-item:last-child { border-bottom:0 }
-#pg-marketing button.mk-item { cursor:pointer }
-#pg-marketing button.mk-item:hover b { color:var(--color-brand-default) }
-#pg-marketing button.mk-item:focus-visible { outline:2px solid var(--color-border-focus) }
-#pg-marketing .mk-ic { width:32px;height:32px;border-radius:50%;display:grid;place-items:center;flex:none;background:var(--color-bg-tint);color:var(--color-text-secondary) }
-#pg-marketing .mk-ic.tone-success { background:var(--color-success-bg);color:var(--color-success-text) }
-#pg-marketing .mk-ic.tone-orange { background:var(--color-orange-bg);color:var(--color-orange-text) }
-#pg-marketing .mk-ic.tone-error { background:var(--color-error-bg);color:var(--color-error-text) }
-#pg-marketing .mk-ic.tone-gold { background:var(--color-warning-bg);color:var(--color-text-gold) }
-#pg-marketing .mk-txt { display:flex;flex-direction:column;gap:2px;flex:1;min-width:0 }
-#pg-marketing .mk-txt small { color:var(--color-text-secondary);font-size:12px;line-height:18px }
-#pg-marketing .mk-tag { flex:none }
-#pg-marketing .mk-src { margin:0 }
-#pg-marketing .mk-cr-grid { display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px }
-#pg-marketing .mk-cr { display:flex;flex-direction:column;gap:12px;padding:16px }
-#pg-marketing .mk-cr-h h2 { margin:2px 0 0 }
-#pg-marketing .mk-cr-img { aspect-ratio:1;border-radius:var(--radius-md);overflow:hidden;background:var(--color-bg-tint) }
-#pg-marketing .mk-cr>.tg { align-self:flex-start }
-#pg-marketing .mk-cr-m { display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;margin:0 }
-#pg-marketing .mk-cr-m dt { font-size:12px;color:var(--color-text-secondary) }
-#pg-marketing .mk-cr-m dd { margin:0;font-weight:600 }
-#pg-marketing .mk-cr>.btn { margin-top:auto;align-self:flex-start }
+:is(#pg-marketing,#pg-ai) .mk-row { display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:16px;align-items:start }
+:is(#pg-marketing,#pg-ai) .mk-list { display:flex;flex-direction:column }
+:is(#pg-marketing,#pg-ai) .mk-item { display:flex;align-items:center;gap:12px;padding:10px 0;border:0;border-bottom:1px solid var(--color-border-subtle);background:transparent;font:inherit;color:inherit;text-align:start;width:100%;min-height:44px }
+:is(#pg-marketing,#pg-ai) .mk-item:last-child { border-bottom:0 }
+:is(#pg-marketing,#pg-ai) button.mk-item { cursor:pointer }
+:is(#pg-marketing,#pg-ai) button.mk-item:hover b { color:var(--color-brand-default) }
+:is(#pg-marketing,#pg-ai) button.mk-item:focus-visible { outline:2px solid var(--color-border-focus) }
+:is(#pg-marketing,#pg-ai) .mk-ic { width:32px;height:32px;border-radius:50%;display:grid;place-items:center;flex:none;background:var(--color-bg-tint);color:var(--color-text-secondary) }
+:is(#pg-marketing,#pg-ai) .mk-ic.tone-success { background:var(--color-success-bg);color:var(--color-success-text) }
+:is(#pg-marketing,#pg-ai) .mk-ic.tone-orange { background:var(--color-orange-bg);color:var(--color-orange-text) }
+:is(#pg-marketing,#pg-ai) .mk-ic.tone-error { background:var(--color-error-bg);color:var(--color-error-text) }
+:is(#pg-marketing,#pg-ai) .mk-ic.tone-gold { background:var(--color-warning-bg);color:var(--color-text-gold) }
+:is(#pg-marketing,#pg-ai) .mk-txt { display:flex;flex-direction:column;gap:2px;flex:1;min-width:0 }
+:is(#pg-marketing,#pg-ai) .mk-txt small { color:var(--color-text-secondary);font-size:12px;line-height:18px }
+:is(#pg-marketing,#pg-ai) .mk-tag { flex:none }
+:is(#pg-marketing,#pg-ai) .mk-src { margin:0 }
+:is(#pg-marketing,#pg-ai) .mk-cr-grid { display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px }
+:is(#pg-marketing,#pg-ai) .mk-cr { display:flex;flex-direction:column;gap:12px;padding:16px }
+:is(#pg-marketing,#pg-ai) .mk-cr-h h2 { margin:2px 0 0 }
+:is(#pg-marketing,#pg-ai) .mk-cr-img { aspect-ratio:1;border-radius:var(--radius-md);overflow:hidden;background:var(--color-bg-tint) }
+:is(#pg-marketing,#pg-ai) .mk-cr>.tg { align-self:flex-start }
+:is(#pg-marketing,#pg-ai) .mk-cr-m { display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;margin:0 }
+:is(#pg-marketing,#pg-ai) .mk-cr-m dt { font-size:12px;color:var(--color-text-secondary) }
+:is(#pg-marketing,#pg-ai) .mk-cr-m dd { margin:0;font-weight:600 }
+:is(#pg-marketing,#pg-ai) .mk-cr>.btn { margin-top:auto;align-self:flex-start }
 @media (max-width:1279px) {
-  #pg-marketing .mk-cr-grid { grid-template-columns:repeat(2,minmax(0,1fr)) }
+  :is(#pg-marketing,#pg-ai) .mk-cr-grid { grid-template-columns:repeat(2,minmax(0,1fr)) }
 }
 @media (max-width:1023px) {
-  #pg-marketing .mk-row { grid-template-columns:1fr }
+  :is(#pg-marketing,#pg-ai) .mk-row { grid-template-columns:1fr }
 }
 @media (max-width:599px) {
-  #pg-marketing .mk-cr-grid { grid-template-columns:1fr }
+  :is(#pg-marketing,#pg-ai) .mk-cr-grid { grid-template-columns:1fr }
 }
 .tool-card.featured { background:var(--color-brand-default);border-color:var(--color-brand-default);box-shadow:var(--shadow-popover);color:var(--color-text-on-brand) }
 .tool-card.featured:hover { background:var(--color-brand-hover);border-color:var(--color-brand-hover) }
@@ -358,13 +358,13 @@ body.cal-dragging,body.cal-dragging * { cursor:grabbing !important;user-select:n
 @media (max-width: 640px) { .mk-auto .btn { margin-inline-start:0 } }
 
 /* 9.5.3: «نظرة عامة» / «التقارير» on the ads numbers — the period bar, and one chart per row on a phone (app.css's tablet rule comes later) */
-#pg-marketing .ads-bar { flex-wrap:wrap;gap:12px;align-items:center }
-#pg-marketing .ads-bar .fresh { margin:0 }
-@media (max-width:767px){ #pg-marketing .charts { grid-template-columns:1fr } }
+:is(#pg-marketing,#pg-ai) .ads-bar { flex-wrap:wrap;gap:12px;align-items:center }
+:is(#pg-marketing,#pg-ai) .ads-bar .fresh { margin:0 }
+@media (max-width:767px){ :is(#pg-marketing,#pg-ai) .charts { grid-template-columns:1fr } }
 
 /* 9.5.4: the media buyer's decisions (the chat's rules are with the assistants' chats below — comments decision 72) */
-#pg-marketing .mk-done { margin-top:8px }
-#pg-marketing .mk-done summary { cursor:pointer;padding:6px 0 }
+:is(#pg-marketing,#pg-ai) .mk-done { margin-top:8px }
+:is(#pg-marketing,#pg-ai) .mk-done summary { cursor:pointer;padding:6px 0 }
 
 /* 9.5.5: the video piece (the v6 rules) — the scenes in the build, the timeline, the tracks, the player */
 .tools-grid.c2 { grid-template-columns:repeat(2,minmax(0,1fr)) }
@@ -421,92 +421,92 @@ body.cal-dragging,body.cal-dragging * { cursor:grabbing !important;user-select:n
    history by day on a tinted side (a drawer over the chat under 1024px), the assistant's mark in the head and beside its bubbles,
    my words green with beige text (like the header's assistant — decision 43), who and when under the bubble, a welcome with the
    suggestions as cards on a new chat, the suggestions as one strip over the box, and the box one rounded field with «ابعت» in it */
-#pg-marketing .mk-agent { display:grid;grid-template-columns:264px minmax(0,1fr);gap:0;padding:0;overflow:hidden;margin-bottom:16px;height:min(720px, calc(100vh - 200px));min-height:480px;position:relative }
-#pg-marketing .mk-agent-side { display:flex;flex-direction:column;gap:10px;padding:14px 12px;border-inline-end:1px solid var(--color-border-subtle);background:var(--color-bg-container);min-height:0;overflow:auto }
-#pg-marketing .mk-agent-side-head { display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 4px;min-height:24px }
-#pg-marketing .mk-agent-n { min-width:22px;height:22px;padding:0 7px;border-radius:999px;background:var(--color-brand-default);color:var(--color-text-on-brand);font-size:12px;font-weight:600;display:inline-flex;align-items:center;justify-content:center }
-#pg-marketing .mk-agent-side > .btn { width:100%;justify-content:center;flex:none }
-#pg-marketing .mk-agent-none { margin:8px 4px;line-height:22px }
-#pg-marketing .mk-agent-list { display:flex;flex-direction:column;gap:2px }
-#pg-marketing .mk-agent-day { padding:10px 6px 4px;font-size:12px;font-weight:600;color:var(--color-text-secondary) }
-#pg-marketing .mk-agent-day:first-child { padding-top:2px }
-#pg-marketing .mk-agent-row { display:flex;align-items:center;gap:2px;border-radius:var(--radius-md);border-inline-start:3px solid transparent }
-#pg-marketing .mk-agent-row:hover { background:var(--color-bg-hover) }
-#pg-marketing .mk-agent-row.on { background:var(--color-bg-base);border-inline-start-color:var(--color-brand-default) }
-#pg-marketing .mk-agent-open { flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:8px 8px;border:0;background:none;font:inherit;text-align:start;cursor:pointer;border-radius:var(--radius-md);color:inherit }
-#pg-marketing .mk-agent-open b { display:block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600;font-size:14px }
-#pg-marketing .mk-agent-open small { font-size:12px }
-#pg-marketing .mk-agent-main { display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--color-bg-base) }
-#pg-marketing .mk-agent-head { display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 16px;border-bottom:1px solid var(--color-border-subtle) }
-#pg-marketing .mk-agent-title { display:flex;flex-direction:column;gap:2px;min-width:0;flex:1 1 220px }
-#pg-marketing .mk-agent-title b { font-size:16px }
-#pg-marketing .mk-agent-title small { line-height:20px }
-#pg-marketing .mk-agent-tools { display:flex;gap:8px;flex-wrap:wrap;align-items:center }
-#pg-marketing .mk-agent-toggle { display:none }
-#pg-marketing .mk-agent-veil { display:none }
-#pg-marketing .mk-av { width:32px;height:32px;border-radius:50%;background:var(--color-brand-default);color:var(--color-text-on-brand);display:inline-flex;align-items:center;justify-content:center;flex:none }
-#pg-marketing .mk-av.lg { width:40px;height:40px }
-#pg-marketing .mk-av.lg .ic { width:20px;height:20px }
-#pg-marketing .mk-av.xl { width:56px;height:56px }
-#pg-marketing .mk-av.xl .ic { width:26px;height:26px }
-#pg-marketing .mk-chat { flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:16px;padding:20px 16px;background:var(--color-bg-layout) }
-#pg-marketing .mk-chat-wait { display:flex;align-items:center;gap:8px;justify-content:center;margin:8px 0 }
-#pg-marketing .mk-row { display:flex;gap:10px;align-items:flex-start;max-width:min(78%, 760px);align-self:flex-start }
-#pg-marketing .mk-row.user { align-self:flex-end }
-#pg-marketing .mk-col { display:flex;flex-direction:column;gap:4px;min-width:0;align-items:flex-start }
-#pg-marketing .mk-row.user .mk-col { align-items:flex-end }
-#pg-marketing .mk-msg { padding:10px 14px;border-radius:14px;border:1px solid var(--color-border-subtle);background:var(--color-bg-base);min-width:0;max-width:100%;overflow-wrap:anywhere;box-shadow:0 1px 2px rgba(46,42,27,.06) }
-#pg-marketing .mk-msg.ai { border-start-start-radius:4px }
-#pg-marketing .mk-msg.user { background:var(--color-brand-default);border-color:var(--color-brand-default);color:var(--color-text-on-brand);border-start-end-radius:4px }
-#pg-marketing .mk-msg p { margin:0;line-height:24px;white-space:pre-wrap }
-#pg-marketing .mk-msg p + * { margin-top:8px }
-#pg-marketing .mk-meta { font-size:12px;padding:0 4px }
-#pg-marketing .mk-think { display:flex;align-items:center;gap:8px;color:var(--color-text-secondary) }
-#pg-marketing .mk-think p + * { margin-top:0 }
-#pg-marketing .mk-chat.fresh { justify-content:center }
-#pg-marketing .mk-welcome { margin:auto;display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;width:100%;max-width:560px;padding:8px }
-#pg-marketing .mk-welcome-t { font-size:18px;font-weight:700;margin-top:4px }
-#pg-marketing .mk-intro { margin:0;line-height:26px;color:var(--color-text-primary) }
-#pg-marketing .mk-welcome .mk-agent-chips { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;width:100%;margin:12px 0 0;padding:0;overflow:visible }
-#pg-marketing .mk-welcome .mk-agent-chips > span { grid-column:1 / -1;text-align:start }
-#pg-marketing .mk-welcome .mk-agent-chips .chip { height:auto;min-height:44px;padding:10px 14px;border-radius:12px;justify-content:flex-start;text-align:start;white-space:normal;line-height:22px;background:var(--color-bg-base);border:1px solid var(--color-border-subtle);cursor:pointer }
-#pg-marketing .mk-agent-chips { margin:0;display:flex;flex-wrap:nowrap;align-items:center;gap:8px;overflow-x:auto;padding:10px 16px 0;scrollbar-width:none }
-#pg-marketing .mk-agent-chips::-webkit-scrollbar { display:none }
-#pg-marketing .mk-agent-chips > * { flex:none }
-#pg-marketing .mk-agent-chips .chip { cursor:pointer }
-#pg-marketing .mk-agent-chips .chip:hover { border-color:var(--color-brand-default);background:var(--color-bg-hover) }
-#pg-marketing .mk-compose { display:flex;flex-direction:column;gap:4px;padding:10px 16px 12px }
-#pg-marketing .mk-ask { display:flex;gap:8px;align-items:flex-end;padding:6px;border:1px solid var(--color-border-default);border-radius:14px;background:var(--color-bg-base) }
-#pg-marketing .mk-ask:focus-within { border-color:var(--color-border-focus);box-shadow:0 0 0 3px rgba(0,86,66,.12) }
-#pg-marketing .mk-ask-in { flex:1;min-width:0;border:0;outline:0;box-shadow:none;background:none;font:inherit;color:inherit;line-height:24px;padding:6px 10px;resize:none;height:36px;max-height:132px;overflow-y:auto }
-#pg-marketing .mk-ask .btn { flex:none;border-radius:10px }
-#pg-marketing .mk-ask-hint { font-size:12px;padding:0 6px }
-#pg-marketing .mk-msg-imgs { display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 }
-#pg-marketing .mk-msg-imgs .thumb { width:220px;height:auto;aspect-ratio:4/5;border-radius:var(--radius-md);overflow:hidden }
-#pg-marketing .mk-msg-imgs img { width:100%;height:100%;object-fit:cover;display:block }
-#pg-marketing .mk-msg-gen { display:flex;flex-direction:column;gap:6px;align-items:flex-start;padding-top:8px;border-top:1px dashed var(--color-border-subtle) }
-#pg-marketing .mk-msg-req { display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 10px;border-radius:10px;background:var(--color-bg-hover, #efe2c9) } /* owner batch 14 Nov decision 14 */
-#pg-marketing .mk-agent-under { margin-top:0;align-items:start }
-#pg-marketing .mk-agent-under > .card { margin:0 }
-#pg-marketing .mk-agent-under > .card:first-child:nth-last-child(odd) { grid-column:1 / -1 } /* an odd count: the first card takes the row — no hole beside the last */
-#pg-marketing .mk-agent-full { position:fixed;inset:12px;z-index:60;margin:0;height:auto;min-height:0;box-shadow:0 0 0 100vmax rgba(46,42,27,.45), 0 8px 32px rgba(0,0,0,.3) } /* the page behind is dimmed */
+:is(#pg-marketing,#pg-ai) .mk-agent { display:grid;grid-template-columns:264px minmax(0,1fr);gap:0;padding:0;overflow:hidden;margin-bottom:16px;height:min(720px, calc(100vh - 200px));min-height:480px;position:relative }
+:is(#pg-marketing,#pg-ai) .mk-agent-side { display:flex;flex-direction:column;gap:10px;padding:14px 12px;border-inline-end:1px solid var(--color-border-subtle);background:var(--color-bg-container);min-height:0;overflow:auto }
+:is(#pg-marketing,#pg-ai) .mk-agent-side-head { display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 4px;min-height:24px }
+:is(#pg-marketing,#pg-ai) .mk-agent-n { min-width:22px;height:22px;padding:0 7px;border-radius:999px;background:var(--color-brand-default);color:var(--color-text-on-brand);font-size:12px;font-weight:600;display:inline-flex;align-items:center;justify-content:center }
+:is(#pg-marketing,#pg-ai) .mk-agent-side > .btn { width:100%;justify-content:center;flex:none }
+:is(#pg-marketing,#pg-ai) .mk-agent-none { margin:8px 4px;line-height:22px }
+:is(#pg-marketing,#pg-ai) .mk-agent-list { display:flex;flex-direction:column;gap:2px }
+:is(#pg-marketing,#pg-ai) .mk-agent-day { padding:10px 6px 4px;font-size:12px;font-weight:600;color:var(--color-text-secondary) }
+:is(#pg-marketing,#pg-ai) .mk-agent-day:first-child { padding-top:2px }
+:is(#pg-marketing,#pg-ai) .mk-agent-row { display:flex;align-items:center;gap:2px;border-radius:var(--radius-md);border-inline-start:3px solid transparent }
+:is(#pg-marketing,#pg-ai) .mk-agent-row:hover { background:var(--color-bg-hover) }
+:is(#pg-marketing,#pg-ai) .mk-agent-row.on { background:var(--color-bg-base);border-inline-start-color:var(--color-brand-default) }
+:is(#pg-marketing,#pg-ai) .mk-agent-open { flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:8px 8px;border:0;background:none;font:inherit;text-align:start;cursor:pointer;border-radius:var(--radius-md);color:inherit }
+:is(#pg-marketing,#pg-ai) .mk-agent-open b { display:block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600;font-size:14px }
+:is(#pg-marketing,#pg-ai) .mk-agent-open small { font-size:12px }
+:is(#pg-marketing,#pg-ai) .mk-agent-main { display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--color-bg-base) }
+:is(#pg-marketing,#pg-ai) .mk-agent-head { display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 16px;border-bottom:1px solid var(--color-border-subtle) }
+:is(#pg-marketing,#pg-ai) .mk-agent-title { display:flex;flex-direction:column;gap:2px;min-width:0;flex:1 1 220px }
+:is(#pg-marketing,#pg-ai) .mk-agent-title b { font-size:16px }
+:is(#pg-marketing,#pg-ai) .mk-agent-title small { line-height:20px }
+:is(#pg-marketing,#pg-ai) .mk-agent-tools { display:flex;gap:8px;flex-wrap:wrap;align-items:center }
+:is(#pg-marketing,#pg-ai) .mk-agent-toggle { display:none }
+:is(#pg-marketing,#pg-ai) .mk-agent-veil { display:none }
+:is(#pg-marketing,#pg-ai) .mk-av { width:32px;height:32px;border-radius:50%;background:var(--color-brand-default);color:var(--color-text-on-brand);display:inline-flex;align-items:center;justify-content:center;flex:none }
+:is(#pg-marketing,#pg-ai) .mk-av.lg { width:40px;height:40px }
+:is(#pg-marketing,#pg-ai) .mk-av.lg .ic { width:20px;height:20px }
+:is(#pg-marketing,#pg-ai) .mk-av.xl { width:56px;height:56px }
+:is(#pg-marketing,#pg-ai) .mk-av.xl .ic { width:26px;height:26px }
+:is(#pg-marketing,#pg-ai) .mk-chat { flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:16px;padding:20px 16px;background:var(--color-bg-layout) }
+:is(#pg-marketing,#pg-ai) .mk-chat-wait { display:flex;align-items:center;gap:8px;justify-content:center;margin:8px 0 }
+:is(#pg-marketing,#pg-ai) .mk-row { display:flex;gap:10px;align-items:flex-start;max-width:min(78%, 760px);align-self:flex-start }
+:is(#pg-marketing,#pg-ai) .mk-row.user { align-self:flex-end }
+:is(#pg-marketing,#pg-ai) .mk-col { display:flex;flex-direction:column;gap:4px;min-width:0;align-items:flex-start }
+:is(#pg-marketing,#pg-ai) .mk-row.user .mk-col { align-items:flex-end }
+:is(#pg-marketing,#pg-ai) .mk-msg { padding:10px 14px;border-radius:14px;border:1px solid var(--color-border-subtle);background:var(--color-bg-base);min-width:0;max-width:100%;overflow-wrap:anywhere;box-shadow:0 1px 2px rgba(46,42,27,.06) }
+:is(#pg-marketing,#pg-ai) .mk-msg.ai { border-start-start-radius:4px }
+:is(#pg-marketing,#pg-ai) .mk-msg.user { background:var(--color-brand-default);border-color:var(--color-brand-default);color:var(--color-text-on-brand);border-start-end-radius:4px }
+:is(#pg-marketing,#pg-ai) .mk-msg p { margin:0;line-height:24px;white-space:pre-wrap }
+:is(#pg-marketing,#pg-ai) .mk-msg p + * { margin-top:8px }
+:is(#pg-marketing,#pg-ai) .mk-meta { font-size:12px;padding:0 4px }
+:is(#pg-marketing,#pg-ai) .mk-think { display:flex;align-items:center;gap:8px;color:var(--color-text-secondary) }
+:is(#pg-marketing,#pg-ai) .mk-think p + * { margin-top:0 }
+:is(#pg-marketing,#pg-ai) .mk-chat.fresh { justify-content:center }
+:is(#pg-marketing,#pg-ai) .mk-welcome { margin:auto;display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;width:100%;max-width:560px;padding:8px }
+:is(#pg-marketing,#pg-ai) .mk-welcome-t { font-size:18px;font-weight:700;margin-top:4px }
+:is(#pg-marketing,#pg-ai) .mk-intro { margin:0;line-height:26px;color:var(--color-text-primary) }
+:is(#pg-marketing,#pg-ai) .mk-welcome .mk-agent-chips { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;width:100%;margin:12px 0 0;padding:0;overflow:visible }
+:is(#pg-marketing,#pg-ai) .mk-welcome .mk-agent-chips > span { grid-column:1 / -1;text-align:start }
+:is(#pg-marketing,#pg-ai) .mk-welcome .mk-agent-chips .chip { height:auto;min-height:44px;padding:10px 14px;border-radius:12px;justify-content:flex-start;text-align:start;white-space:normal;line-height:22px;background:var(--color-bg-base);border:1px solid var(--color-border-subtle);cursor:pointer }
+:is(#pg-marketing,#pg-ai) .mk-agent-chips { margin:0;display:flex;flex-wrap:nowrap;align-items:center;gap:8px;overflow-x:auto;padding:10px 16px 0;scrollbar-width:none }
+:is(#pg-marketing,#pg-ai) .mk-agent-chips::-webkit-scrollbar { display:none }
+:is(#pg-marketing,#pg-ai) .mk-agent-chips > * { flex:none }
+:is(#pg-marketing,#pg-ai) .mk-agent-chips .chip { cursor:pointer }
+:is(#pg-marketing,#pg-ai) .mk-agent-chips .chip:hover { border-color:var(--color-brand-default);background:var(--color-bg-hover) }
+:is(#pg-marketing,#pg-ai) .mk-compose { display:flex;flex-direction:column;gap:4px;padding:10px 16px 12px }
+:is(#pg-marketing,#pg-ai) .mk-ask { display:flex;gap:8px;align-items:flex-end;padding:6px;border:1px solid var(--color-border-default);border-radius:14px;background:var(--color-bg-base) }
+:is(#pg-marketing,#pg-ai) .mk-ask:focus-within { border-color:var(--color-border-focus);box-shadow:0 0 0 3px rgba(0,86,66,.12) }
+:is(#pg-marketing,#pg-ai) .mk-ask-in { flex:1;min-width:0;border:0;outline:0;box-shadow:none;background:none;font:inherit;color:inherit;line-height:24px;padding:6px 10px;resize:none;height:36px;max-height:132px;overflow-y:auto }
+:is(#pg-marketing,#pg-ai) .mk-ask .btn { flex:none;border-radius:10px }
+:is(#pg-marketing,#pg-ai) .mk-ask-hint { font-size:12px;padding:0 6px }
+:is(#pg-marketing,#pg-ai) .mk-msg-imgs { display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 }
+:is(#pg-marketing,#pg-ai) .mk-msg-imgs .thumb { width:220px;height:auto;aspect-ratio:4/5;border-radius:var(--radius-md);overflow:hidden }
+:is(#pg-marketing,#pg-ai) .mk-msg-imgs img { width:100%;height:100%;object-fit:cover;display:block }
+:is(#pg-marketing,#pg-ai) .mk-msg-gen { display:flex;flex-direction:column;gap:6px;align-items:flex-start;padding-top:8px;border-top:1px dashed var(--color-border-subtle) }
+:is(#pg-marketing,#pg-ai) .mk-msg-req { display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 10px;border-radius:10px;background:var(--color-bg-hover, #efe2c9) } /* owner batch 14 Nov decision 14 */
+:is(#pg-marketing,#pg-ai) .mk-agent-under { margin-top:0;align-items:start }
+:is(#pg-marketing,#pg-ai) .mk-agent-under > .card { margin:0 }
+:is(#pg-marketing,#pg-ai) .mk-agent-under > .card:first-child:nth-last-child(odd) { grid-column:1 / -1 } /* an odd count: the first card takes the row — no hole beside the last */
+:is(#pg-marketing,#pg-ai) .mk-agent-full { position:fixed;inset:12px;z-index:60;margin:0;height:auto;min-height:0;box-shadow:0 0 0 100vmax rgba(46,42,27,.45), 0 8px 32px rgba(0,0,0,.3) } /* the page behind is dimmed */
 @media (max-width:1023px) {
-  #pg-marketing .mk-agent { grid-template-columns:minmax(0,1fr);height:min(640px, calc(100vh - 170px));min-height:420px }
-  #pg-marketing .mk-agent-toggle { display:inline-flex }
-  #pg-marketing .mk-agent-side { display:none }
-  #pg-marketing .mk-agent-side.open { display:flex;position:absolute;inset-block:0;inset-inline-start:0;width:min(86%, 320px);z-index:3;box-shadow:0 0 16px rgba(0,0,0,.25) }
-  #pg-marketing .mk-agent-veil { display:block;position:absolute;inset:0;z-index:2;border:0;padding:0;background:rgba(46,42,27,.35);cursor:pointer }
-  #pg-marketing .mk-row { max-width:92% }
-  #pg-marketing .mk-ask-hint { display:none }
-  #pg-marketing .mk-agent-head { padding:10px 12px }
-  #pg-marketing .mk-chat { padding:16px 12px }
-  #pg-marketing .mk-compose { padding:8px 12px 10px }
-  #pg-marketing .mk-agent-chips { padding:8px 12px 0 }
+  :is(#pg-marketing,#pg-ai) .mk-agent { grid-template-columns:minmax(0,1fr);height:min(640px, calc(100vh - 170px));min-height:420px }
+  :is(#pg-marketing,#pg-ai) .mk-agent-toggle { display:inline-flex }
+  :is(#pg-marketing,#pg-ai) .mk-agent-side { display:none }
+  :is(#pg-marketing,#pg-ai) .mk-agent-side.open { display:flex;position:absolute;inset-block:0;inset-inline-start:0;width:min(86%, 320px);z-index:3;box-shadow:0 0 16px rgba(0,0,0,.25) }
+  :is(#pg-marketing,#pg-ai) .mk-agent-veil { display:block;position:absolute;inset:0;z-index:2;border:0;padding:0;background:rgba(46,42,27,.35);cursor:pointer }
+  :is(#pg-marketing,#pg-ai) .mk-row { max-width:92% }
+  :is(#pg-marketing,#pg-ai) .mk-ask-hint { display:none }
+  :is(#pg-marketing,#pg-ai) .mk-agent-head { padding:10px 12px }
+  :is(#pg-marketing,#pg-ai) .mk-chat { padding:16px 12px }
+  :is(#pg-marketing,#pg-ai) .mk-compose { padding:8px 12px 10px }
+  :is(#pg-marketing,#pg-ai) .mk-agent-chips { padding:8px 12px 0 }
 }
 @media (max-width:767px) {
-  #pg-marketing .mk-msg-imgs .thumb { width:100% }
-  #pg-marketing .mk-agent-full { inset:0;border-radius:0 }
-  #pg-marketing .mk-welcome .mk-agent-chips { grid-template-columns:minmax(0,1fr) }
+  :is(#pg-marketing,#pg-ai) .mk-msg-imgs .thumb { width:100% }
+  :is(#pg-marketing,#pg-ai) .mk-agent-full { inset:0;border-radius:0 }
+  :is(#pg-marketing,#pg-ai) .mk-welcome .mk-agent-chips { grid-template-columns:minmax(0,1fr) }
 }
 
 /* comments decision 69: «آخر التريندات» — the trend's name over its two lines, the source a link with the «opens outside» mark */
@@ -547,19 +547,19 @@ a.mk-lib.disabled { opacity:.5;pointer-events:none }
 @media (max-width:720px) { .cw-grid { grid-template-columns:1fr } .cw-media { max-width:320px;margin-inline:auto;width:100% } }
 /* the owner 16 Nov («ظبط ال ui»): «اقتراحات الميديا باير» and «حالة الربط» side by side at equal widths over the whole row (they shared .mk-row
    with the agents' chat rows, whose later rule squeezed them into one corner) */
-#pg-marketing .mk-ov-row { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:stretch }
-#pg-marketing .mk-ov-row > .card { min-width:0;margin:0 }
-#pg-marketing .mk-ov-row [data-mk-all-sugg] { white-space:normal;text-align:start;height:auto;min-height:32px }
-@media (max-width:1023px) { #pg-marketing .mk-ov-row { grid-template-columns:1fr } }
+:is(#pg-marketing,#pg-ai) .mk-ov-row { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:stretch }
+:is(#pg-marketing,#pg-ai) .mk-ov-row > .card { min-width:0;margin:0 }
+:is(#pg-marketing,#pg-ai) .mk-ov-row [data-mk-all-sugg] { white-space:normal;text-align:start;height:auto;min-height:32px }
+@media (max-width:1023px) { :is(#pg-marketing,#pg-ai) .mk-ov-row { grid-template-columns:1fr } }
 /* the × on a file / link chip: its hover circle centred on the icon at the chip's own size (the touch rule made it 44px wide) */
 .cw-f .icon-btn { width:24px !important;height:24px !important;min-width:24px;min-height:24px;padding:0;margin:0;flex:none;display:inline-grid;place-items:center }
 /* the owner 16 Nov: the agents' chats too — my words on the right, the assistant's (with its mark) on the left */
-#pg-marketing .mk-chat .mk-row { align-self:flex-end }
-#pg-marketing .mk-chat .mk-row.user { align-self:flex-start }
-#pg-marketing .mk-chat .mk-row .mk-col { align-items:flex-end }
-#pg-marketing .mk-chat .mk-row.user .mk-col { align-items:flex-start }
-#pg-marketing .mk-msg.ai { border-start-start-radius:14px;border-start-end-radius:4px }
-#pg-marketing .mk-msg.user { border-start-end-radius:14px;border-start-start-radius:4px }
+:is(#pg-marketing,#pg-ai) .mk-chat .mk-row { align-self:flex-end }
+:is(#pg-marketing,#pg-ai) .mk-chat .mk-row.user { align-self:flex-start }
+:is(#pg-marketing,#pg-ai) .mk-chat .mk-row .mk-col { align-items:flex-end }
+:is(#pg-marketing,#pg-ai) .mk-chat .mk-row.user .mk-col { align-items:flex-start }
+:is(#pg-marketing,#pg-ai) .mk-msg.ai { border-start-start-radius:14px;border-start-end-radius:4px }
+:is(#pg-marketing,#pg-ai) .mk-msg.user { border-start-end-radius:14px;border-start-start-radius:4px }
 
 /* ش39 — «آخر التريندات» as a grid like Instagram's: tiles 3:4 (videos 9:16), the picture full, the platform and tag on top, the title and
    numbers on a dark gradient at the bottom; a tile without a picture shows a soft placeholder with the play / image mark */

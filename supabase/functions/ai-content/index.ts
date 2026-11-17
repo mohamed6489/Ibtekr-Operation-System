@@ -47,12 +47,13 @@ import Anthropic from 'npm:@anthropic-ai/sdk@1.3.0';
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { aiSettings, categoryLines, cleanExtract, cleanPrompts, cleanStudio, cleanWrite, costOf, extractRequest, line, parseExtract, parsePrompts, parseStudio, parseWrite, promptsRequest, readAnswer, shotPromptRows, studioRequest, usageOf, writeRequest } from '../_shared/ai-content.js';
 import { vaultEnv } from '../_shared/secrets.js';
-import { AGENT_HISTORY, agentHistory, agentRequest, agentTitle, buyerRequest, campaignTarget, cleanAgent, cleanBuyer, cleanMarketing, marketingRequest, parseAgent, parseBuyer, parseMarketing, templateNotes } from '../_shared/marketing.js';
+import { LEGACY_AGENTS, agentBase, dataBlock, kbFor, seesOf } from '../_shared/ai-agents.js';
+import { AGENT_HISTORY, REQ_RULE, agentHistory, agentRequest, agentTitle, buyerRequest, campaignTarget, cleanAgent, cleanBuyer, cleanMarketing, marketingRequest, parseAgent, parseBuyer, parseMarketing, templateNotes } from '../_shared/marketing.js';
 import { SUGGEST_DAYS, buyerRules, windowOf } from '../_shared/mkt-ads.js';
 import { cleanScenes, scenesRequest } from '../_shared/mkt-video.js';
 import { SEARCH_USD, TREND_CONTINUES, cleanTrends, parseTrends, readTrends, searchCount, searchError, searchResults, trendRowV1, trendSources, trendTags, trendsRequest, trendsText } from '../_shared/mkt-trends.js';
 import { TEXT_PROVIDERS, TEXT_TOOL_OF, houseStyle, textPick } from '../_shared/ai-providers.js';
-import { MAX_TOOL_CALLS, amountsIn, reportOf, assistantMessage, assistantRequest, cleanAction, cleanAnswer, customersData, dataQuery, expensesData, filesData, ordersData, parseAssistant, readTurn, salesData, summaryData, tasksData, pickVendor, ticketsData, toolResults, vendorData, vendorsData } from '../_shared/ai-assistant.js';
+import { MAX_TOOL_CALLS, amountsIn, reportOf, assistantMessage, assistantRequest, cleanAction, cleanAnswer, customersData, dataQuery, expensesData, filesData, hrData, inventoryData, ordersData, parseAssistant, readTurn, salesData, summaryData, tasksData, pickVendor, ticketsData, toolResults, vendorData, vendorsData } from '../_shared/ai-assistant.js';
 import { completeText } from './providers/text.ts';
 import { cairoParts } from '../_shared/mkt-publish.js';
 
@@ -110,7 +111,8 @@ async function authorize(req: Request, deps: Deps, action: string): Promise<stri
   const ok = action === 'write' ? (await admin()) || (await perm('products.add')) || (await perm('products.edit'))
     : action === 'studio' || action === 'prompts' || action === 'extract' ? (await admin()) || (await perm('products.add'))
     : action === 'marketing' || action === 'trends' ? (await admin()) || (await perm('marketing.create'))
-    : action === 'buyer' || action === 'agent' ? (await admin()) || (await perm('marketing.view', true))
+    : action === 'buyer' ? (await admin()) || (await perm('marketing.view', true))
+    : action === 'agent' ? true // 0120: any active member — agent() checks the assistant is theirs (ai_agent_can, the member's own client)
     : action === 'assistant' ? true // any signed-in member: the data they read is theirs by RLS, the actions run on their screen
     : await admin();
   return ok ? await deps.userId(jwt) : null;
@@ -434,10 +436,21 @@ async function trends(deps: Deps, uid: string, args: Json) {
 
 // the member's own chat (or a new one on the first message): the history from the table, the instructions from the settings; the
 // question and the answer are written by the server after the model answered (a failed call leaves nothing) — text only
-async function agent(deps: Deps, uid: string, args: Json) {
+async function agent(deps: Deps, uid: string, args: Json, jwt = '') {
   const parsed = parseAgent(args);
   if ('error' in parsed) return json(400, parsed);
   const req = parsed.req;
+  const member = deps.userDb && jwt ? deps.userDb(jwt) : null;
+  if (!member) return json(401, { error: 'unauthorized' });
+  // 0120: the assistant from the registry, and whether the member sees it (its page's permission — the member's own client); before
+  // 0120 is applied the three of marketing stand as they were (marketing.view, settings.marketing.agents)
+  const reg = await deps.db.from('ai_agents').select('id, name, about, perm, sees, role, instructions, archived_at').eq('id', req.agent).maybeSingle();
+  const legacy = LEGACY_AGENTS.includes(req.agent) && (!!reg.error || !isObj(reg.data)); // the three of marketing before 0120 (no table / no row)
+  if (!legacy && (reg.error || !isObj(reg.data) || reg.data.archived_at)) return json(404, { error: 'not_found' });
+  const allowed = legacy ? ((await member.rpc('has_perm', { key: 'marketing.view' })).data ?? 'N') !== 'N' || (await member.rpc('is_admin')).data === true
+    : (await member.rpc('ai_agent_can', { p_agent: req.agent })).data === true;
+  if (!allowed) return json(401, { error: 'unauthorized' });
+  const row: Json = legacy ? { id: req.agent } : reg.data;
   let chat: Json | null = null;
   if (req.chatId) {
     const { data } = await deps.db.from('mkt_agent_chats').select('id, member_id, agent, title, deleted_at').eq('id', req.chatId).maybeSingle();
@@ -445,15 +458,36 @@ async function agent(deps: Deps, uid: string, args: Json) {
     chat = data;
   }
   const rows = chat ? ((await deps.db.from('mkt_agent_messages').select('role, text, images').eq('chat_id', chat.id).order('id', { ascending: false }).limit(AGENT_HISTORY)).data ?? []) : [];
-  const { data: set } = await deps.db.from('settings').select('data').eq('section', 'marketing').maybeSingle();
-  const agents = isObj(set) && isObj(set.data) && isObj(set.data.agents) ? set.data.agents : {};
+  // the instructions (the registry's) and this assistant's rules and skills out of the one list (0120 ai_agent_kb); before 0120 the old row
+  let agentCfg: Json = {};
+  if (legacy) {
+    const { data: set } = await deps.db.from('settings').select('data').eq('section', 'marketing').maybeSingle();
+    const agents = isObj(set) && isObj(set.data) && isObj(set.data.agents) ? set.data.agents : {};
+    agentCfg = isObj(agents[req.agent]) ? agents[req.agent] : {};
+  } else {
+    const kb = (await deps.db.from('ai_agent_kb').select('kind, section, title, body, agents, sort').order('kind').order('sort').limit(400)).data ?? [];
+    agentCfg = { instructions: row.instructions || '', ...kbFor(kb, req.agent) };
+  }
   const data = req.agent === 'buyer' ? await adsData(deps) : null;
   // ش45 decision 2: the developer reads the site's last checks (PageSpeed, the WordPress updates) — numbers and versions only
   const site = req.agent === 'dev' ? ((await deps.db.from('site_checks').select('kind, data, checked_at').in('kind', ['pagespeed', 'wp_updates'])).data ?? []) : null;
+  // 0120: any other assistant reads its kinds of data with the member's own client (their RLS), the last 30 days
+  let dataText = '';
+  if (!LEGACY_AGENTS.includes(req.agent)) {
+    const today = cairoParts(Date.parse(deps.now())).day;
+    const from = new Date(Date.parse(today + 'T00:00:00Z') - 29 * 86_400_000).toISOString().slice(0, 10);
+    const parts: Json = {};
+    for (const kind of seesOf(row)) {
+      const dq = dataQuery({ kind, from, to: today, limit: 20 }, { today });
+      if (!('error' in dq)) { try { parts[kind] = await readData(member, uid, dq as DQ, today); } catch { parts[kind] = { failed: true }; } }
+    }
+    dataText = dataBlock(parts);
+  }
   const cfg = await configOf(deps, req.agent === 'designer' ? 'marketing' : 'buyer'); // the designer writes with the house style
-  const base = { created_by: uid, action: 'marketing', source: 'agent', label: line(req.question, 200) };
-  const params = agentRequest(req, { model: cfg.model, effort: cfg.effort, history: agentHistory((Array.isArray(rows) ? rows : []).slice().reverse()), cfg: agents[req.agent], data, site });
-  return await runAi(deps, base, cfg, params, (answer) => cleanAgent(answer, req.agent), async (out) => {
+  const run0 = { created_by: uid, action: 'marketing', source: 'agent', label: line(req.question, 200) };
+  const base = LEGACY_AGENTS.includes(req.agent) ? '' : agentBase(row) + REQ_RULE;
+  const params = agentRequest(req, { model: cfg.model, effort: cfg.effort, history: agentHistory((Array.isArray(rows) ? rows : []).slice().reverse()), cfg: agentCfg, data, site, base, dataText });
+  return await runAi(deps, run0, cfg, params, (answer) => cleanAgent(answer, req.agent), async (out) => {
     const now = deps.now();
     if (!chat) {
       const { data: made, error } = await deps.db.from('mkt_agent_chats').insert({ member_id: uid, agent: req.agent, title: agentTitle(req.question), created_at: now, updated_at: now }).select('id, agent, title, created_at, updated_at').single();
@@ -535,6 +569,24 @@ async function readData(member: Db, uid: string, dq: DQ, today: string): Promise
     case 'tasks': return await tasks();
     case 'expenses': return await expenses();
     case 'sales': return await sales();
+    // 0120 «المخزن الذكي» / «الموارد البشرية الذكية» (and the header's get_data): the member's own rows only, no cost / amount / note
+    case 'inventory': {
+      const [lots, cons] = await Promise.all([
+        rows(member.from('inv_lots').select('name, sku, reason, status, loc, mode, condition, since, closed_at').is('closed_at', null).limit(2000)),
+        rows(member.from('inv_consolidations').select('id, closed_at').is('closed_at', null).limit(500)),
+      ]);
+      return lots ? inventoryData(lots, cons ?? [], dq, today) : FORBIDDEN;
+    }
+    case 'hr': {
+      const [att, reqs, ppl] = await Promise.all([
+        rows(member.from('hr_attendance').select('member_id, day, in_at, out_at, remote').gte('day', dq.from).lte('day', dq.to).limit(3000)),
+        rows(member.from('hr_requests_v').select('member_id, type, from_day, to_day, status').order('from_day', { ascending: false }).limit(500)),
+        rows(member.rpc('hr_task_people')),
+      ]);
+      if (!att && !reqs) return FORBIDDEN;
+      const names = Object.fromEntries((ppl ?? []).map((x: Json) => [x.id, x.name]));
+      return hrData(att ?? [], reqs ?? [], names, dq);
+    }
     default: {
       const conv = await rows(member.from('cs_conversations').select('id, status').neq('status', 'اتحلت').limit(2000));
       const [o, t, k, e, s] = await Promise.all([orders(), tickets(), tasks(), expenses(), sales()]);
@@ -628,7 +680,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
   if (!uid) return json(401, { error: 'unauthorized' });
   if (!ACTIONS.includes(action)) return json(400, { error: 'unknown_action' });
   try {
-    return action === 'write' ? await write(deps, uid, args) : action === 'prompts' ? await prompts(deps, uid, args) : action === 'marketing' ? await marketing(deps, uid, args) : action === 'buyer' ? await buyer(deps, uid, args) : action === 'agent' ? await agent(deps, uid, args)
+    return action === 'write' ? await write(deps, uid, args) : action === 'prompts' ? await prompts(deps, uid, args) : action === 'marketing' ? await marketing(deps, uid, args) : action === 'buyer' ? await buyer(deps, uid, args) : action === 'agent' ? await agent(deps, uid, args, jwtOf(req))
       : action === 'assistant' ? await assistant(deps, uid, args, jwtOf(req)) : action === 'extract' ? await extract(deps, uid, args) : action === 'trends' ? await trends(deps, uid, args) : await studio(deps, uid, args);
   } catch (e) {
     console.error('ai-content failed', e instanceof Error ? e.name : typeof e);

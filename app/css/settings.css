@@ -489,3 +489,5 @@ button.dx-stat{cursor:pointer}button.dx-stat:hover{background:var(--color-bg-hov
 .mn-ico:focus-visible{outline:2px solid var(--color-border-focus);outline-offset:1px}
 .mn-icons{display:grid;grid-template-columns:repeat(auto-fill,minmax(44px,1fr));gap:8px;margin-bottom:12px}
 @media (max-width:640px){#pg-settings .mn-row{grid-template-columns:auto auto minmax(0,1fr);row-gap:6px}#pg-settings .mn-row>:nth-child(4),#pg-settings .mn-row>:nth-child(5){grid-column:3}}
+/* 0120: whom a rule / skill is for, under its text */
+.kb-item-t .kb-to { display:inline-block;margin-top:4px;padding:1px 8px;border-radius:999px;background:var(--color-bg-subtle,#f6efe2);color:var(--color-brand-default,#005642);font-size:12px }

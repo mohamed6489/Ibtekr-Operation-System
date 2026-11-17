@@ -755,21 +755,22 @@
   // keeps its history only (moved over once). The page lists them by the assistant: designer ← design, dev ← dev, buyer ← media.
   const TK = () => window.IBTickets;
   const KIND_OF = { designer: 'design', dev: 'dev', buyer: 'media' }; const AGENT_OF = { design: 'designer', dev: 'dev', media: 'buyer' };
+  // 0120: any other assistant's requests carry its own id as the kind (tickets.kind)
+  const kindOf = (a) => KIND_OF[a] || (AGENT_RE.test(String(a || '')) ? String(a) : null);
   const REQ_ST = { open: 'جديد', in_progress: 'بيتعمل', waiting: 'مستني رد', resolved: 'خلص', closed: 'اتقفل' };
-  const toRequest = (t) => ({ id: t.id, ticket: t.id, kind: AGENT_OF[t.kind] || 'designer', title: t.title || '', details: t.description || '', project: t.project || '', status: t.status, statusLabel: REQ_ST[t.status] || t.status,
+  const toRequest = (t) => ({ id: t.id, ticket: t.id, kind: AGENT_OF[t.kind] || t.kind || 'designer', title: t.title || '', details: t.description || '', project: t.project || '', status: t.status, statusLabel: REQ_ST[t.status] || t.status,
     open: ['open', 'in_progress', 'waiting'].includes(t.status), priority: t.priority, assigneeRole: t.assigneeRole, by: (t.createdBy && t.createdBy.name) || null, byRole: (t.createdBy && t.createdBy.role) || null,
     createdAt: t.createdAt || null, updatedAt: t.lastUpdate || null, doneAt: (t.resolution && t.resolution.at) || t.closedAt || null, attachments: t.attachments || [], mine: !!(t.createdBy && t.createdBy.uid) && t.createdBy.uid === myUid() });
   const reqsNow = () => { const T = TK(); return T && T.requests ? T.requests().map(toRequest) : []; };
   async function requests(force) {
     const T = TK(); if (!T || !T.requests) return { ok: false, reason: 'network', message: MESSAGES.network };
-    if (!can().view) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
     if (force || T.state() !== 'ready') { const r = await T.load(); if (r && !r.ok && r.reason !== 'stale' && T.state() !== 'ready') return { ok: false, reason: r.reason || 'network', message: MESSAGES.network }; }
     return { ok: true, items: reqsNow() };
   }
   // the popup's fields → ticket_request_create (tickets.manage F — the server's rule); the kind's role unless another was picked
   async function addRequest(f) {
     const T = TK(); const x = f || {}; if (!T || !T.createRequest) return { ok: false, reason: 'network', message: MESSAGES.network };
-    const kind = KIND_OF[x.kind]; if (!kind) return { ok: false, reason: 'invalid', field: 'kind', message: MESSAGES.invalid };
+    const kind = kindOf(x.kind); if (!kind) return { ok: false, reason: 'invalid', field: 'kind', message: MESSAGES.invalid };
     const title = clean(x.title, 80); if (!title) return { ok: false, reason: 'invalid', field: 'title', message: 'اكتب عنوان الطلب' };
     const description = String(x.details == null ? '' : x.details).replace(/\r\n?/g, '\n').trim().slice(0, 5000) || title;
     const r = await T.createRequest(kind, { title, description, project: clean(x.project, 60), priority: x.priority || 'normal', followUp: x.followUp || null, attachments: x.attachments || [], assigneeRole: x.assigneeRole || null });
@@ -1059,21 +1060,20 @@
   // agent_image); the member renames and deletes; the assistants' settings (intro, instructions, quick suggestions) are the admin's.
   // The log carries the assistant and the chat's id only — never a question, an answer, a title or a prompt.
   const AGENT_KEYS = ['buyer', 'designer', 'dev'];
+  const AGENT_RE = /^[a-z][a-z0-9_]{1,30}$/;
   const CHAT_COLS = 'id, agent, title, created_at, updated_at';
   const TURN_COLS = 'id, role, text, images, created_at';
   const toChat = (r) => ({ id: r.id, agent: r.agent, title: clean(r.title, 80) || 'شات جديد', createdAt: r.created_at || null, updatedAt: r.updated_at || r.created_at || null });
   const toTurn = (r) => ({ id: Number(r.id), role: r.role === 'user' ? 'user' : 'assistant', text: typeof r.text === 'string' ? r.text : '',
     images: (Array.isArray(r.images) ? r.images : []).filter((x) => typeof x === 'string' && /^agents\/[0-9a-f-]{36}\/[0-9a-f-]{36}\/[A-Za-z0-9._-]{1,80}\.(png|jpe?g|webp)$/.test(x)), at: r.created_at || null });
   async function agentChats(agent) {
-    if (!can().view) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
-    if (!AGENT_KEYS.includes(agent)) return { ok: false, reason: 'invalid', field: 'agent', message: MESSAGES.invalid };
+    if (!AGENT_RE.test(String(agent || ''))) return { ok: false, reason: 'invalid', field: 'agent', message: MESSAGES.invalid };
     const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
     try { const { data: d, error } = await cl.from('mkt_agent_chats').select(CHAT_COLS).eq('agent', agent).order('updated_at', { ascending: false }).limit(50);
       if (error) return fail(error); return { ok: true, items: (d || []).map(toChat) }; }
     catch (e) { return fail(null); }
   }
   async function agentTurns(chatId) {
-    if (!can().view) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
     const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
     try { const { data: d, error } = await cl.from('mkt_agent_messages').select(TURN_COLS).eq('chat_id', chatId).order('id', { ascending: true }).limit(300);
       if (error) return fail(error); return { ok: true, items: (d || []).map(toTurn) }; }
@@ -1081,11 +1081,10 @@
   }
   // a question → the server's answer, written in the chat (made on the first message, named by it)
   async function agentAsk(agent, chatId, question) {
-    if (!can().view) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
-    if (!AGENT_KEYS.includes(agent)) return { ok: false, reason: 'invalid', field: 'agent', message: MESSAGES.invalid };
+    if (!AGENT_RE.test(String(agent || ''))) return { ok: false, reason: 'invalid', field: 'agent', message: MESSAGES.invalid };
     const q = String(question == null ? '' : question).trim().slice(0, 1000); if (!q) return { ok: false, reason: 'invalid', field: 'question', message: 'اكتب رسالتك الأول' };
     const r = await invoke('ai-content', { action: 'agent', agent, chat_id: chatId || null, question: q });
-    if (!r.ok) return Object.assign(r, { message: r.reason === 'notfound' ? 'الشات ده اتمسح أو مش بتاعك — افتح شات جديد' : r.reason === 'invalid' ? 'اكتب رسالتك الأول' : aiMessage(r, 'text') });
+    if (!r.ok) return Object.assign(r, { message: r.reason === 'notfound' ? 'الشات ده اتمسح أو مش بتاعك (أو المساعد اتأرشف) — افتح شات جديد' : r.reason === 'unauthorized' || r.reason === 'forbidden' ? 'المساعد ده مش متاح لدورك' : r.reason === 'invalid' ? 'اكتب رسالتك الأول' : aiMessage(r, 'text') });
     const b = r.body || {};
     if (b.result === 'refused') return { ok: false, reason: 'refused', message: aiMessage({ reason: 'refused' }, 'text') };
     const chat = b.chat && b.chat.id ? toChat(b.chat) : null;
@@ -1171,8 +1170,11 @@
     } catch (e) { return fail(null); }
   }
   async function agentSettings(force) {
-    if (!can().view && !isAdmin()) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
     if (!force && agentCfg && Date.now() - agentCfgAt < 60000) return { ok: true, agents: agentCfg };
+    // 0120: the registry's intro / instructions / suggestions (every assistant the member sees); before 0120 the old marketing row
+    const reg = await agents(!!force);
+    if (reg.ok && !reg.legacy) { agentCfg = Object.fromEntries(reg.items.map((a) => [a.id, cfgOf(a)])); agentCfgAt = Date.now(); return { ok: true, agents: agentCfg }; }
+    if (!can().view && !isAdmin()) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
     const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
     try { const { data: d, error } = await cl.rpc('mkt_agent_settings'); if (error) return fail(error);
       const o = d && typeof d === 'object' ? d : {}; agentCfg = { buyer: cfgOf(o.buyer), designer: cfgOf(o.designer), dev: cfgOf(o.dev) }; agentCfgAt = Date.now();
@@ -1182,6 +1184,11 @@
   const agentSettingsNow = () => agentCfg;
   async function agentSettingsSet(agent, cfg) {
     if (!isAdmin()) return { ok: false, reason: 'forbidden', message: 'إعدادات المساعدين للأدمن بس' };
+    if (!AGENT_RE.test(String(agent || ''))) return { ok: false, reason: 'invalid', field: 'agent', message: MESSAGES.invalid };
+    if (!REG.legacy && REG.items) { // 0120: the registry row
+      const r = await agentSave(Object.assign({ id: agent }, cfg && typeof cfg === 'object' ? { intro: cfg.intro, instructions: cfg.instructions, suggestions: cfg.suggestions } : {}));
+      if (!r.ok) return r; const a = (REG.items || []).find((x) => x.id === agent); if (agentCfg && a) agentCfg[agent] = cfgOf(a); return { ok: true, cfg: a ? cfgOf(a) : null };
+    }
     if (!AGENT_KEYS.includes(agent)) return { ok: false, reason: 'invalid', field: 'agent', message: MESSAGES.invalid };
     const x = cfg && typeof cfg === 'object' ? cfg : {}; const body = {};
     if (x.intro !== undefined) body.intro = String(x.intro || '').trim();
@@ -1193,6 +1200,114 @@
     const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
     try { const { data: d, error } = await cl.rpc('mkt_agent_settings_set', { p_agent: agent, p_cfg: body }); if (error) return fail(error);
       if (agentCfg) agentCfg[agent] = cfgOf(d); log('agent.settings', agent + ' · ' + Object.keys(body).join(', '), null); return { ok: true, cfg: cfgOf(d) }; }
+    catch (e) { return fail(null); }
+  }
+
+  // ---------- «الذكاء الاصطناعي» (0120, docs/superpowers/plans/2026-11-17-ai-page.md): the assistants' registry and their one list of
+  // rules and skills. The registry is what the member sees (ai_agents_list — by each assistant's page permission, the admin all and the
+  // archived); before 0120 the three of marketing stand alone (legacy: marketing.view). The log carries ids, keys and counts only.
+  const AGENT_PERMS = [['marketing.view', 'التسويق'], ['inventory.view', 'المخزون'], ['cs.view', 'خدمة العملاء'], ['vendors.view', 'المبتكرين'], ['accounts.view', 'الحسابات'], ['hr.view', 'الموارد البشرية'], ['orders.view', 'الأوردرات'], ['products.view', 'المنتجات'], ['tickets.view', 'طلبات الفريق'], ['reports.view', 'التقارير']];
+  const AGENT_SEES = [['orders', 'الأوردرات'], ['vendors', 'المبتكرين'], ['customers', 'العملاء'], ['tickets', 'طلبات الفريق'], ['tasks', 'المهام'], ['expenses', 'المصروفات'], ['sales', 'المبيعات'], ['inventory', 'المخزن'], ['hr', 'الحضور وطلبات الموارد البشرية']];
+  const LEGACY_AGENTS = [{ id: 'buyer', name: 'الميديا باير الذكي', icon: 'chart', perm: 'marketing.view', sees: [], role: 'ميديا باير', builtin: true },
+    { id: 'designer', name: 'الديزاينر الذكي', icon: 'image', perm: 'marketing.view', sees: [], role: 'ديزاينر', builtin: true },
+    { id: 'dev', name: 'المبرمج الذكي', icon: 'code', perm: 'marketing.view', sees: [], role: 'مبرمج', builtin: true }];
+  const REG = { items: null, at: 0, legacy: false, loading: null };
+  const toAgent = (a) => ({ id: String(a.id), name: clean(a.name, 40) || String(a.id), icon: /^[A-Za-z]{2,20}$/.test(String(a.icon || '')) ? a.icon : 'sparkle', perm: a.perm || 'marketing.view',
+    sees: Array.isArray(a.sees) ? a.sees.filter((k) => AGENT_SEES.some(([v]) => v === k)) : [], role: typeof a.role === 'string' ? a.role : null, about: typeof a.about === 'string' ? a.about : '',
+    intro: typeof a.intro === 'string' ? a.intro : '', instructions: typeof a.instructions === 'string' ? a.instructions : '',
+    suggestions: Array.isArray(a.suggestions) ? a.suggestions.filter((v) => typeof v === 'string' && v.trim()).slice(0, 8) : [], builtin: !!a.builtin, archived: !!a.archived, sort: Number(a.sort) || 0 });
+  const legacyOf = () => (can().view || isAdmin() ? LEGACY_AGENTS.map((a) => toAgent(a)) : []);
+  async function agents(force) {
+    if (!force && REG.items && Date.now() - REG.at < 60000) return { ok: true, items: REG.items, legacy: REG.legacy };
+    if (REG.loading) return REG.loading;
+    const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
+    REG.loading = (async () => {
+      try {
+        const { data: d, error } = await cl.rpc('ai_agents_list');
+        if (error) { if (/ai_agents_list|function|schema cache/i.test(String(error.message || '')) || String(error.code) === 'PGRST202' || String(error.code) === '42883') { REG.items = legacyOf(); REG.legacy = true; REG.at = Date.now(); emit(); return { ok: true, items: REG.items, legacy: true }; } return fail(error); }
+        if (!Array.isArray(d)) { REG.items = legacyOf(); REG.legacy = true; REG.at = Date.now(); emit(); return { ok: true, items: REG.items, legacy: true }; } // the server always answers a list
+        REG.items = d.map(toAgent); REG.legacy = false; REG.at = Date.now(); emit();
+        return { ok: true, items: REG.items, legacy: false };
+      } catch (e) { return fail(null); } finally { REG.loading = null; }
+    })();
+    return REG.loading;
+  }
+  const agentsNow = () => REG.items;
+  const agentOf = (id) => (REG.items || []).find((a) => a.id === id) || null;
+  const NEED_0120 = { ok: false, reason: 'invalid', message: 'المساعدين الجداد محتاجين تحديث قاعدة البيانات (0120) — كلّم المبرمج' };
+  // p: { id?, name, icon, perm, sees, role, about, intro, instructions, suggestions } — the admin; a builtin keeps its permission and its data
+  async function agentSave(p) {
+    if (!isAdmin()) return { ok: false, reason: 'forbidden', message: 'المساعدين للأدمن بس' };
+    if (REG.legacy) return NEED_0120;
+    const x = p && typeof p === 'object' ? p : {}; const body = {};
+    if (x.id) body.id = String(x.id);
+    if (x.name !== undefined) { const n = clean(x.name, 40); if (n.length < 2 || /[<>]/.test(String(x.name))) return { ok: false, reason: 'invalid', field: 'name', message: 'الاسم من 2 لـ 40 حرف ومن غير < >' }; body.name = n; }
+    if (x.icon !== undefined) body.icon = String(x.icon || 'sparkle');
+    if (x.perm !== undefined) { if (!AGENT_PERMS.some(([v]) => v === x.perm)) return { ok: false, reason: 'invalid', field: 'perm', message: 'اختار الصفحة اللي بتفتحه' }; body.perm = x.perm; }
+    if (x.sees !== undefined) body.sees = (Array.isArray(x.sees) ? x.sees : []).filter((k) => AGENT_SEES.some(([v]) => v === k));
+    if (x.role !== undefined) body.role = x.role ? clean(x.role, 60) : '';
+    for (const [k, max] of [['about', 300], ['intro', 600], ['instructions', 4000]]) if (x[k] !== undefined) {
+      const v = String(x[k] || '').replace(/\r\n?/g, '\n').trim(); if (v.length > max || /[<>]/.test(v)) return { ok: false, reason: 'invalid', field: k, message: 'لحد ' + max + ' حرف ومن غير < >' }; body[k] = v; }
+    if (x.suggestions !== undefined) { const L = (Array.isArray(x.suggestions) ? x.suggestions : []).map((v) => clean(v, 80)).filter(Boolean); if (L.length > 8) return { ok: false, reason: 'invalid', field: 'suggestions', message: 'لحد 8 اقتراحات' }; body.suggestions = L; }
+    if (!body.id && (!body.name || !body.perm)) return { ok: false, reason: 'invalid', field: body.name ? 'perm' : 'name', message: body.name ? 'اختار الصفحة اللي بتفتحه' : 'اكتب اسم المساعد' };
+    const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
+    try {
+      const { data: id, error } = await cl.rpc('ai_agent_save', { p: body }); if (error) return fail(error);
+      log('agent.save', Object.keys(body).filter((k) => k !== 'id').sort().join(', '), id);
+      await agents(true); agentCfg = REG.items && !REG.legacy ? Object.fromEntries(REG.items.map((a) => [a.id, cfgOf(a)])) : null; agentCfgAt = Date.now(); return { ok: true, id };
+    } catch (e) { return fail(null); }
+  }
+  async function agentArchive(id, on) {
+    if (!isAdmin()) return { ok: false, reason: 'forbidden', message: 'المساعدين للأدمن بس' };
+    if (REG.legacy) return NEED_0120;
+    const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
+    try { const { error } = await cl.rpc('ai_agent_archive', { p_id: String(id), p_on: on !== false }); if (error) return fail(error); log(on !== false ? 'agent.archive' : 'agent.restore', '', id); await agents(true); return { ok: true }; }
+    catch (e) { return fail(null); }
+  }
+  async function agentOrder(ids) {
+    if (!isAdmin()) return { ok: false, reason: 'forbidden', message: 'المساعدين للأدمن بس' };
+    if (REG.legacy) return NEED_0120;
+    const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
+    try { const { error } = await cl.rpc('ai_agent_order', { p_ids: (ids || []).map(String) }); if (error) return fail(error); log('agent.order', String((ids || []).length), null); await agents(true); return { ok: true }; }
+    catch (e) { return fail(null); }
+  }
+  // the rules and skills, one list each — [{ id, kind, section, title, text, agents: [id…] (empty = all) }]; before 0120 the old sections, read only
+  let KBL = null;
+  async function kbList(force) {
+    if (!isAdmin()) return { ok: false, reason: 'forbidden', message: 'قواعد المساعدين وسكيلزهم للأدمن بس' };
+    if (!force && KBL) return { ok: true, items: KBL, legacy: REG.legacy };
+    await agents(false);
+    const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
+    try {
+      if (REG.legacy) {
+        const { data: d, error } = await cl.rpc('mkt_agent_settings'); if (error) return fail(error);
+        const o = d && typeof d === 'object' ? d : {}; const out = [];
+        for (const a of AGENT_KEYS) for (const kind of ['rules', 'skills']) for (const g of kbOf(o[a] && o[a][kind])) for (const it of g.items) out.push({ id: a + kind + it.id, kind, section: g.name, title: it.title, text: it.text, agents: [a] });
+        KBL = out; return { ok: true, items: KBL, legacy: true };
+      }
+      const { data: d, error } = await cl.rpc('ai_agent_kb_list'); if (error) return fail(error);
+      KBL = (Array.isArray(d) ? d : []).map((x) => ({ id: String(x.id), kind: x.kind === 'skills' ? 'skills' : 'rules', section: String(x.section || ''), title: String(x.title || ''), text: typeof x.text === 'string' ? x.text : '', agents: Array.isArray(x.agents) ? x.agents.map(String) : [] }));
+      return { ok: true, items: KBL, legacy: false };
+    } catch (e) { return fail(null); }
+  }
+  const kbListNow = () => KBL;
+  // a kind's whole list in its order (0120 ai_agent_kb_set — 200 items, 40000 characters; the checks are the server's too)
+  async function kbSetAll(kind, items) {
+    if (!isAdmin()) return { ok: false, reason: 'forbidden', message: 'قواعد المساعدين وسكيلزهم للأدمن بس' };
+    if (REG.legacy) return NEED_0120;
+    if (!['rules', 'skills'].includes(kind)) return { ok: false, reason: 'invalid', message: MESSAGES.invalid };
+    const L = Array.isArray(items) ? items : []; if (L.length > 200) return { ok: false, reason: 'invalid', field: 'items', message: 'لحد 200 بند' };
+    let total = 0; const body = [];
+    for (const it of L) {
+      const sec = clean(it.section, 60); const t = clean(it.title, 80); const x = String(it.text || '').replace(/\r\n?/g, '\n').trim();
+      if (!sec || /[<>]/.test(String(it.section))) return { ok: false, reason: 'invalid', field: 'section', message: 'اسم القسم لحد 60 حرف ومن غير < >' };
+      if (!t || /[<>]/.test(String(it.title))) return { ok: false, reason: 'invalid', field: 'title', message: 'العنوان لحد 80 حرف ومن غير < >' };
+      if (x.length > 1500 || /[<>]/.test(x)) return { ok: false, reason: 'invalid', field: 'text', message: 'التفاصيل لحد 1500 حرف ومن غير < >' };
+      total += sec.length + t.length + x.length; body.push({ section: sec, title: t, text: x, agents: (Array.isArray(it.agents) ? it.agents : []).filter((a) => AGENT_RE.test(String(a))) });
+    }
+    if (total > 40000) return { ok: false, reason: 'invalid', field: 'size', message: 'الكلام كله أكتر من 40000 حرف — قصّر شوية' };
+    const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
+    try { const { error } = await cl.rpc('ai_agent_kb_set', { p_kind: kind, p_items: body }); if (error) return fail(error); log('agent.kb', kind + ' · ' + body.length, null); await kbList(true); return { ok: true }; }
     catch (e) { return fail(null); }
   }
 
@@ -1282,6 +1397,7 @@
     adsStatus, adsNow, adsSync, adsData, adsLinkSet, adsLinkStart, adsLinkPick, adsUnlink, adsWhy,
     suggestions, suggNow, decide, campaignSet, adsDataNow, rules, rulesNow, rulesSet, setLive, requests, reqsNow, addRequest, REQ_KIND: KIND_OF, buyerChat,
     agentChats, agentTurns, agentAsk, agentImage, agentRename, agentDelete, agentSettings, agentSettingsNow, agentSettingsSet, AGENT_KEYS,
+    agents, agentsNow, agentOf, agentSave, agentArchive, agentOrder, kbList, kbListNow, kbSetAll, AGENT_PERMS, AGENT_SEES,
     trends, trendsNow, trendsReadyNow, trendsRefresh, trendThumbs, trendThumbNow, trendSettings, trendSettingsNow, trendSettingsSet, adTagsSet, agentKbSet, KB, competitors, competitorsNow, competitorsReadyNow, competitorSave, competitorArchive,
     siteCheck, siteCheckNow, siteReadyNow, siteCheckRun, siteSpeed, siteSpeedNow, siteSpeedRun, siteSubs, siteSubsNow, aiSpend, aiSpendNow,
     addTemplate, editTemplate, removeTemplate, templateUsed, subscribe, unsubscribe, check, MAX_BYTES, MIME, BUCKET,

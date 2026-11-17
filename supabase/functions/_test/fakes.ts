@@ -88,6 +88,10 @@ const COLUMNS: Record<string, string[]> = {
   mkt_trends: ['id', 'batch', 'title', 'summary', 'source', 'url', 'kind', 'found_at', 'created_by', // 0109 (the designer's «آخر التريندات»)
     'platform', 'tag', 'thumb', 'thumb_src', 'thumb_tries', 'author', 'views', 'likes', 'comments', 'posted_at', 'external_id'], // 0118 (ش39)
   site_checks: ['kind', 'data', 'checked_at', 'checked_by'], // 0109 (the last WordPress updates check)
+  ai_agents: ['id', 'name', 'icon', 'perm', 'sees', 'role', 'about', 'intro', 'instructions', 'suggestions', 'builtin', 'sort', 'created_at', 'updated_at', 'archived_at'], // 0120 (the assistants)
+  ai_agent_kb: ['id', 'kind', 'section', 'title', 'body', 'agents', 'sort', 'created_at'], // 0120 (their rules and skills)
+  hr_attendance: ['id', 'member_id', 'day', 'in_at', 'out_at', 'remote', 'source', 'note'],
+  hr_requests_v: ['id', 'member_id', 'type', 'from_day', 'to_day', 'status'],
   alerts: ['id', 'at', 'kind', 'title', 'body', 'role_id', 'user_id', 'entity', 'entity_id', 'read_at', 'source_key', 'expires_at'], // 0056: source_key / expires_at
   // 0006 + 0056 (phase 11): the read marks and the notifications engine's memory
   alert_reads: ['alert_id', 'user_id', 'read_at'],

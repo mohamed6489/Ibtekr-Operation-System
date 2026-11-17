@@ -370,20 +370,20 @@ test('plan_categories: the tree under a category of the site; a member without �
 
 // ش45 decisions 3 and 4 (the owner 17 Nov — «الايه اي اللي في الهيدر ده المدير»): a programming question goes to the developer's chat
 // (the marketing assistants open on it and the question is sent there); a content ask opens «كامبين جديدة» filled — nothing generated
-test('ش45: the header\'s assistant hands a programming question to the developer — the marketing assistants open on «المبرمج» with the question in the box, sent by the member', async ({ page }) => {
+test('ش45: the header\'s assistant hands a programming question to the developer — «الذكاء الاصطناعي» opens on «المبرمج الذكي» with the question in the box, sent by the member', async ({ page }) => {
   mock.aiAnswer = (action) => (action === 'assistant' ? { text: 'حوّلت سؤالك للمبرمج.', actions: [{ name: 'ask_agent', input: { agent: 'dev', question: 'ليه الموقع بطيء على الموبايل؟' } }] } : null);
   await signIn(page, OPS);
   await page.getByRole('button', { name: 'مساعد AI' }).click();
   await ask(page, 'ليه الموقع بطيء على الموبايل؟');
   await expect(panel(page).locator('.ai-msg.ai').last()).toHaveText('حوّلت سؤالك للمبرمج.');
-  await expect(page.locator('#pg-marketing')).toBeVisible();
-  await expect(page.locator('#pg-marketing').getByRole('tab', { name: /المبرمج/ })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('#pg-ai')).toBeVisible();
+  await expect(page.locator('#pg-ai').getByRole('tab', { name: /المبرمج/ })).toHaveAttribute('aria-selected', 'true');
   // the question waits in the box (nothing sent until the member presses) — then one call on a new chat
   await expect(page.locator('#mk-ask')).toHaveValue('ليه الموقع بطيء على الموبايل؟');
   expect(mock.mkt.calls.filter((c) => c.action === 'agent')).toEqual([]);
   await page.locator('#mk-ask').press('Enter');
   await expect.poll(() => mock.mkt.calls.filter((c) => c.action === 'agent').map((c) => [c.agent, c.chat])).toEqual([['dev', null]]);
-  await expect(page.locator('#pg-marketing')).toContainText('سؤالك: ليه الموقع بطيء على الموبايل؟');
+  await expect(page.locator('#pg-ai')).toContainText('سؤالك: ليه الموقع بطيء على الموبايل؟');
 });
 
 test('ش45: a content ask opens «كامبين جديدة» filled from the header (the goal, the idea, the counts) — nothing saved or generated', async ({ page }) => {
@@ -399,11 +399,11 @@ test('ش45: a content ask opens «كامبين جديدة» filled from the head
   expect(mock.mkt.calls.filter((c) => ['marketing', 'campaign', 'campaign_edit', 'video_clip'].includes(c.action)).length, 'nothing generated').toBe(0);
 });
 
-test('ش45: a member without marketing gets no assistants — the panel says so', async ({ page }) => {
+test('ش45: a member without marketing gets no developer assistant — the panel says so', async ({ page }) => {
   mock.aiAnswer = (action) => (action === 'assistant' ? { text: 'حوّلت سؤالك للمبرمج.', actions: [{ name: 'ask_agent', input: { agent: 'dev', question: 'سؤال' } }] } : null);
   await signIn(page, 'accounts.dev@ibtekr.local');
   await page.getByRole('button', { name: 'مساعد AI' }).click();
   await ask(page, 'سؤال برمجة');
-  await expect(panel(page)).toContainText('ما قدرتش أفتح التسويق');
-  await expect(page.locator('#pg-marketing')).toBeHidden();
+  await expect(panel(page)).toContainText('ما قدرتش أفتح المساعد');
+  await expect(page.locator('#pg-ai')).toBeHidden();
 });

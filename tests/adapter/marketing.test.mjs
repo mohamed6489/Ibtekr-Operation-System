@@ -336,7 +336,7 @@ test('9.5.4 suggestions: the open + the last 30 days in the page\'s shape (unkno
   const q = await M.requests(); eq(q.items.map((x) => [x.id, x.kind, x.statusLabel, x.open, x.mine, x.by, x.doneAt]), [['TKT-0001', 'designer', 'جديد', true, true, 'منى', null], ['TKT-0002', 'dev', 'خلص', false, false, 'سارة', '2026-11-06T09:00:00Z'], ['TKT-0003', 'buyer', 'بيتعمل', true, true, 'منى', null]]);
   eq(T.calls, [['load']]); await M.requests(); eq(T.calls, [['load']]); await M.requests(true); eq(T.calls, [['load'], ['load']]); // loaded once, again when forced
   eq(stub.calls.filter((c) => c.table === 'mkt_requests').length, 0); // the old table is never read
-  const none = load({ perms: {}, tickets: tkStub() }); eq((await none.M.suggestions()).reason, 'forbidden'); eq((await none.M.rules()).reason, 'forbidden'); eq((await none.M.requests()).reason, 'forbidden');
+  const none = load({ perms: {}, tickets: tkStub() }); eq((await none.M.suggestions()).reason, 'forbidden'); eq((await none.M.rules()).reason, 'forbidden'); eq((await none.M.requests()).ok, true); // 0120: any assistant's requests — the tickets' own RLS decides
 });
 
 test('9.5.4 decide: the admin only; reject / approve / edit through mkt-ads with the value and the note; the switch off = recorded; the refusals in words; the log carries the decision and the status only', async () => {
@@ -380,12 +380,13 @@ test('9.5.4 rulesSet / setLive: the admin only; the numbers and the modes go, ne
 test('0082 requests: «تقديم طلب» = IBTickets.createRequest with the kind (designer → design, dev → dev, buyer → media), the title required, the fields cleaned; logged with the kind only; no edit / status here', async () => {
   const T = tkStub(); const { M, stub, logs } = load({ tickets: T });
   eq((await M.addRequest({ kind: 'dev', title: '  ' })).field, 'title');
-  eq((await M.addRequest({ kind: 'video', title: 'x' })).field, 'kind');
+  eq((await M.addRequest({ kind: 'Video!', title: 'x' })).field, 'kind');
   const a = await M.addRequest({ kind: 'buyer', title: ' حملة   الشتا ', details: 'الوصف سري\r\n9:16', project: ' الشتا ', priority: 'high', followUp: '2026-11-20', attachments: [{ path: 'u1/a.png', name: 'a.png', type: 'image/png', size: 3 }], assigneeRole: 'ميديا باير' });
   eq([a.ok, a.id, a.request.kind, a.request.title, a.request.project, a.request.mine], [true, 'TKT-0009', 'buyer', 'حملة الشتا', 'الشتا', true]);
   eq(T.calls.at(-1), ['createRequest', 'media', { title: 'حملة الشتا', description: 'الوصف سري\n9:16', project: 'الشتا', priority: 'high', followUp: '2026-11-20', attachments: [{ path: 'u1/a.png', name: 'a.png', type: 'image/png', size: 3 }], assigneeRole: 'ميديا باير' }]);
   await M.addRequest({ kind: 'designer', title: 'بوست' }); eq(T.calls.at(-1)[1], 'design'); eq(T.calls.at(-1)[2].description, 'بوست'); // no details → the title
   eq(logs.map((l) => l[0] + ' ' + l[1]), ['mkt.request.add media', 'mkt.request.add design']);
+  await M.addRequest({ kind: 'stock', title: 'رف' }); eq(T.calls.at(-1)[1], 'stock', '0120: any other assistant\'s own id is its kind');
   assert.ok(!JSON.stringify(logs).includes('سري'));
   eq([typeof M.editRequest, typeof M.setRequestStatus], ['undefined', 'undefined']); // the work is in «طلبات الفريق»
   eq(stub.calls.filter((c) => c.table === 'mkt_requests').length, 0);
@@ -418,7 +419,7 @@ test('0084 agent chats: the member\'s own list (newest first) and turns; a quest
     'fn:ai-content': ok({ result: 'ok', text: 'فكرة', imagePrompt: 'a cozy flat lay', chat: { id: CH, agent: 'designer', title: 'سؤال سري', updated_at: 'z' }, turns: [{ id: 3, role: 'user', text: 'سؤال سري' }, { id: 4, role: 'assistant', text: 'فكرة' }] }) } });
   const L = await M.agentChats('designer'); eq(L.items.map((c) => [c.id, c.title]), [[CH, 'بوست الشتا']]);
   eq(opsOf(stub.calls, 'mkt_agent_chats').filter((o) => ['select', 'eq', 'order'].includes(o.op)), [{ op: 'select', args: ['id, agent, title, created_at, updated_at'] }, { op: 'eq', args: ['agent', 'designer'] }, { op: 'order', args: ['updated_at', { ascending: false }] }]);
-  eq((await M.agentChats('seo')).field, 'agent');
+  eq((await M.agentChats('SEO!')).field, 'agent');
   const T = await M.agentTurns(CH); eq(T.items.map((x) => [x.id, x.role, x.images]), [[1, 'user', []], [2, 'assistant', [IMG]]]); // only a chat image path survives
   eq((await M.agentAsk('designer', null, '   ')).field, 'question');
   const r = await M.agentAsk('designer', null, '  سؤال سري ');
@@ -430,7 +431,7 @@ test('0084 agent chats: the member\'s own list (newest first) and turns; a quest
   assert.match((await gone.M.agentAsk('buyer', CH, 'x')).message, /اتمسح/);
   const cap = load({ responses: { 'fn:ai-content': { data: null, error: { context: { status: 402, json: async () => ({ error: 'ai_cap' }) } } } } });
   assert.match((await cap.M.agentAsk('buyer', null, 'x')).message, /سقف الـ AI الشهري/);
-  eq((await load({ perms: {} }).M.agentAsk('buyer', null, 'x')).reason, 'forbidden');
+  eq((await load({ perms: {} }).M.agentAsk('Buyer!', null, 'x')).field, 'agent'); // 0120: who sees an assistant is the server's (ai_agent_can)
 });
 test('0084 agentImage / rename / delete / settings: the picture needs marketing.create (ai-images agent_image); the title only; the delete RPC; the settings for the admin with their limits — the log names keys, never the text', async () => {
   const IMG = 'agents/' + ME + '/' + CH + '/2.png';

@@ -14,47 +14,68 @@ async function signIn(page) {
   await expect(page.locator('#root')).toBeVisible();
 }
 
-test('ش40: «المساعدين» — a tab per assistant; rules and skills in named sections, each change saved at once (mkt_agent_kb_set); the designer\'s trend tags and sites', async ({ page }) => {
+test('0120: «المساعدين» — the assistants table (+ مساعد جديد · ⋮ أرشف), then the rules and skills as one list each: an item says its assistants, a filter by assistant; the designer\'s trend tags', async ({ page }) => {
   await signIn(page);
   await page.evaluate(() => { location.hash = 'settings-ai'; });
   await page.locator('#pg-settings').getByRole('tab', { name: 'المساعدين' }).click();
-  const tabs = page.locator('[data-agent-tabs]');
-  await expect(tabs.getByRole('tab')).toHaveText(['المصمم الاصطناعي', 'المبرمج الاصطناعي', 'الميديا باير الاصطناعي']);
-  // a rules section, then a rule in it
-  await page.locator('[data-kb-add-group="rules"]').click();
-  await page.locator('.modal input').first().fill('البراند');
-  await page.getByRole('button', { name: 'ضيف القسم' }).click();
-  await expect(page.locator('[data-kb="rules"] .kb-group')).toHaveCount(1);
-  await page.locator('[data-kb="rules"] [data-kb-add-item]').click();
-  await page.locator('.modal input').first().fill('الألوان');
-  await page.locator('.modal textarea').fill('أخضر غامق ودهبي — من غير ألوان نيون');
-  await page.getByRole('button', { name: 'ضيف', exact: true }).click();
+  // the eight of the system, in their order
+  await expect(page.locator('[data-ag-row] b')).toHaveText(['الميديا باير الذكي', 'الديزاينر الذكي', 'المبرمج الذكي', 'المخزن الذكي', 'خدمة العملاء الذكية', 'خدمة المبتكرين الذكية', 'المحاسب الذكي', 'الموارد البشرية الذكية']);
+  // a new assistant: the name, the page that opens it, the data it reads — it opens on its own tab in «الذكاء الاصطناعي»
+  await page.locator('[data-set-ag-add]').click();
+  const md = page.locator('.modal[role=dialog]', { hasText: 'مساعد جديد' });
+  await md.locator('input').first().fill('مساعد المنتجات');
+  await md.locator('[data-ag-sees] .chip', { hasText: 'الأوردرات' }).click();
+  await md.getByRole('button', { name: 'ضيف المساعد' }).click();
+  await expect(page.locator('#pg-ai [role=tab][aria-selected=true]')).toContainText('مساعد المنتجات');
+  const added = mock.mkt.aiAgents.find((a) => a.name === 'مساعد المنتجات');
+  expect(added).toMatchObject({ perm: 'orders.view', sees: ['orders'], builtin: false });
+  // back in the settings: a rule for two assistants, then one for all of them
+  await page.evaluate(() => { location.hash = 'settings-ai'; });
+  await page.locator('#pg-settings').getByRole('tab', { name: 'المساعدين' }).click();
+  await expect(page.locator('[data-ag-row] b')).toContainText(['مساعد المنتجات']);
+  await page.locator('[data-kb-add="rules"]').click();
+  let f = page.locator('.modal[role=dialog]', { hasText: 'قاعدة جديدة' });
+  await f.locator('input').nth(0).fill('البراند'); await f.locator('input').nth(1).fill('الألوان'); await f.locator('textarea').fill('أخضر غامق ودهبي');
+  await f.locator('[data-kb-agent="designer"]').click(); await f.locator('[data-kb-agent="buyer"]').click();
+  await f.getByRole('button', { name: 'ضيف', exact: true }).click();
   await expect(page.locator('[data-kb="rules"] [data-kb-item]')).toContainText('الألوان');
-  expect(mock.mkt.agents.designer.rules).toEqual([{ id: expect.any(String), name: 'البراند', items: [{ id: expect.any(String), title: 'الألوان', text: 'أخضر غامق ودهبي — من غير ألوان نيون' }] }]);
-  // a skill for the media buyer — its own tab, its own list
-  await tabs.getByRole('tab', { name: 'الميديا باير الاصطناعي' }).click();
-  await expect(page.locator('[data-kb="rules"]')).toHaveCount(0);
-  await page.locator('[data-kb-add-group="skills"]').click();
-  await page.locator('.modal input').first().fill('التحليل');
-  await page.getByRole('button', { name: 'ضيف القسم' }).click();
-  await expect.poll(() => (mock.mkt.agents.buyer && mock.mkt.agents.buyer.skills || []).map((g) => g.name)).toEqual(['التحليل']);
+  expect(mock.mkt.aiKb.filter((k) => k.kind === 'rules').map((k) => [k.section, k.title, k.agents])).toEqual([['البراند', 'الألوان', ['designer', 'buyer']]]);
+  await expect(page.locator('[data-kb="rules"] [data-kb-to]')).toHaveText('الديزاينر الذكي · الميديا باير الذكي');
+  await page.locator('[data-kb="rules"] [data-kb-add-item="rules:البراند"]').click();
+  f = page.locator('.modal[role=dialog]', { hasText: 'قاعدة جديدة' });
+  await f.locator('input').nth(1).fill('الكلام'); await f.getByRole('button', { name: 'ضيف', exact: true }).click();
+  await expect.poll(() => mock.mkt.aiKb.filter((k) => k.kind === 'rules').map((k) => [k.title, k.agents])).toEqual([['الألوان', ['designer', 'buyer']], ['الكلام', []]]);
+  // the filter: the accountant sees the one for all of them only, and a new rule under it is for him
+  await page.locator('[data-kb-filter-id="accountant"]').click();
+  await expect(page.locator('[data-kb="rules"] [data-kb-item]')).toHaveCount(1);
+  await expect(page.locator('[data-kb="rules"] [data-kb-to]')).toHaveText('كل المساعدين');
   await expect(page.locator('[data-trend-chips]')).toHaveCount(0); // the tags are the designer's
+  await page.locator('[data-kb-add="skills"]').click();
+  f = page.locator('.modal[role=dialog]', { hasText: 'سكيل جديدة' });
+  await expect(f.locator('[data-kb-agent="accountant"]')).toHaveAttribute('aria-pressed', 'true');
+  await f.locator('input').nth(0).fill('التحليل'); await f.locator('input').nth(1).fill('المصروفات الكبيرة');
+  await f.getByRole('button', { name: 'ضيف', exact: true }).click();
+  await expect.poll(() => mock.mkt.aiKb.filter((k) => k.kind === 'skills').map((k) => [k.section, k.agents])).toEqual([['التحليل', ['accountant']]]);
+  // ⋮ أرشف the new assistant — gone from «الذكاء الاصطناعي», «رجّعه» in the table
+  await page.locator('[data-kb-filter-id="all"]').click();
+  const row = page.locator('tr', { has: page.locator('[data-ag-row]', { hasText: 'مساعد المنتجات' }) });
+  await row.getByRole('button', { name: /إجراءات/ }).click();
+  await page.getByRole('menuitem', { name: 'أرشف' }).click();
+  await page.locator('.modal').getByRole('button', { name: 'أرشف' }).click();
+  await expect.poll(() => !!mock.mkt.aiAgents.find((a) => a.name === 'مساعد المنتجات').archived_at).toBe(true);
+  await expect(row).toContainText('مؤرشف');
   // the designer's tags: several at once, the # dropped; two words become one tag with _; a mark that is no letter is refused in words
-  await tabs.getByRole('tab', { name: 'المصمم الاصطناعي' }).click();
+  await page.locator('[data-kb-filter-id="designer"]').click();
   await page.locator('[data-trend-add="tags"]').click();
   await page.locator('.modal input').first().fill('#Macrame، ديكور_منزلي');
   await page.locator('.modal').getByRole('button', { name: /حفظ|ضيف|تم/ }).last().click();
   await expect(page.locator('[data-trend-chips="tags"] .chip')).toHaveText(['#macrame ✕', '#ديكور_منزلي ✕']);
   expect(mock.mkt.trendCfg.tags).toEqual(['macrame', 'ديكور_منزلي']);
   await page.locator('[data-trend-add="tags"]').click();
-  await page.locator('.modal input').first().fill('هدايا الشتا');
-  await page.locator('.modal').getByRole('button', { name: /حفظ|ضيف|تم/ }).last().click();
-  await expect.poll(() => mock.mkt.trendCfg.tags).toEqual(['macrame', 'ديكور_منزلي', 'هدايا_الشتا']);
-  await page.locator('[data-trend-add="tags"]').click();
   await page.locator('.modal input').first().fill('خصم!');
   await page.locator('.modal').getByRole('button', { name: /حفظ|ضيف|تم/ }).last().click();
   await expect(page.locator('body')).toContainText('التاج كلمة واحدة');
-  expect(mock.mkt.trendCfg.tags).toEqual(['macrame', 'ديكور_منزلي', 'هدايا_الشتا']);
+  expect(mock.mkt.trendCfg.tags).toEqual(['macrame', 'ديكور_منزلي']);
 });
 
 test('ش41: HR «الفريق» has no «الدور» dropdown of its own — the role is in the head\'s «فلتر»', async ({ page }) => {
@@ -76,7 +97,7 @@ test('ش42: «تعليمات الذكاء الاصطناعي» in tabs — the p
   await expect(st).toContainText('قواعد اللقطات');
   await expect(st.locator('[data-prov]')).toHaveCount(0);
   await st.getByRole('tab', { name: 'المساعدين' }).click();
-  await expect(st.locator('[data-agent-tabs]')).toBeVisible();
+  await expect(st.locator('[data-kb-filter]')).toBeVisible();
   await expect(st).not.toContainText('قواعد اللقطات');
 });
 
@@ -85,7 +106,7 @@ test('ش44: the media buyer\'s settings — the competitors (the same list) and 
   await page.evaluate(() => { location.hash = 'settings-ai'; });
   const st = page.locator('#pg-settings');
   await st.getByRole('tab', { name: 'المساعدين' }).click();
-  await page.locator('[data-agent-tabs]').getByRole('tab', { name: 'الميديا باير الاصطناعي' }).click();
+  await page.locator('[data-kb-filter-id="buyer"]').click();
   await page.locator('[data-set-comp-add]').click();
   await page.locator('.modal #name').fill('Boho Corner');
   await page.getByRole('button', { name: 'ضيف المنافس' }).click();

@@ -124,53 +124,74 @@
   // دي [تاجز التريندات] تيبقا موجودة في المصمم الاصطناعي»): a sub-tab per assistant; «القواعد» and «السكيلز» each in named sections of
   // { title, text } (IBMarketing.agentKbSet → 0118 mkt_agent_kb_set — every change saved at once); the designer also has «التريندات»: the tags
   // and the preferred sites (mkt_trend_settings_set). The server puts the rules and skills in the assistant's prompt. ----------
-  const AGENTS = [['designer', 'المصمم الاصطناعي', 'الصور والتصميم والتريندات'], ['dev', 'المبرمج الاصطناعي', 'الموقع والتحديثات والطلبات التقنية'], ['buyer', 'الميديا باير الاصطناعي', 'الإعلانات والميزانيات والاقتراحات']];
   const KB_WORD = { rules: ['القواعد', 'قاعدة', 'اللي المساعد لازم يلتزم بيه في كل رد — مثلًا: ألوان البراند، ممنوعات، أسلوب الكلام.'], skills: ['السكيلز', 'سكيل', 'طرق شغل وخبرات يستعملها لما تنفع — مثلًا: إزاي يكتب hook للريل، إزاي يحلل حملة.'] };
   const MKA = () => window.IBMarketing;
+  // 0120 (the owner 17 Nov — «خلي السيتنج بدل ما القواعد و الاسكيلز لكل واحد لوحده يبقا وانا بضيف القاعدة اقدر اختار المساعد و خلي فيه امكانية
+  // لاضافة مساعدين جدد»): the assistants of «الذكاء الاصطناعي» in a table (+ مساعد جديد · ⋮ تعديل / أرشف / رجّع), then «القواعد» and «السكيلز»
+  // as one list each — every item says which assistants it is for («كل المساعدين» when none), a filter by assistant over them; saved at once
+  // (IBMarketing.agentSave / kbSetAll — 0120). The designer's trends and the buyer's competitors and ad tags stay under them.
   function agentsSec() {
-    const M = MKA(); st.agentTab = st.agentTab || 'designer'; const A = st.agentTab;
-    if (!M || !M.agentSettings) return [U.InlineNote({ kind: 'warning', children: 'إعدادات المساعدين مش متاحة دلوقتي — جرّب تعمل رفريش.' })];
-    const cfg = M.agentSettingsNow ? M.agentSettingsNow() : null;
-    if (!cfg) { if (st.agentErr) return [U.InlineNote({ kind: 'warning', children: st.agentErr })]; if (!st.agentLoading) { st.agentLoading = true; M.agentSettings(true).then((r) => { st.agentLoading = false; if (!r.ok) st.agentErr = r.message || 'ماقدرناش نحمّل إعدادات المساعدين'; R(); }); } return [K.Empty('بنحمّل إعدادات المساعدين…', '')]; }
-    const tabs = h('div', { 'data-agent-tabs': '' }, K.SubTabs({ label: 'المساعد', active: A, onChange: (id) => { st.agentTab = id; R(); }, items: AGENTS.map(([id, l]) => ({ id, label: l })) }));
-    const me = AGENTS.find((x) => x[0] === A);
-    const out = [tabs, U.InlineNote({ children: me[1] + ' — ' + me[2] + '. القواعد والسكيلز بتتبعت مع كل سؤال ليه في «التسويق › مساعدين الذكاء الاصطناعي»' + (A === 'designer' ? ' ومع «حدّث التريندات»' : '') + '.' }),
-      kbSec(A, 'rules', (cfg[A] && cfg[A].rules) || []), kbSec(A, 'skills', (cfg[A] && cfg[A].skills) || [])];
-    if (A === 'designer') out.push(trendTagsSec());
-    if (A === 'buyer') out.push(compsSec(), adTagsSec()); // ش44: the competitors and the ad tags
+    const M = MKA();
+    if (!M || !M.agents) return [U.InlineNote({ kind: 'warning', children: 'إعدادات المساعدين مش متاحة دلوقتي — جرّب تعمل رفريش.' })];
+    const reg = M.agentsNow ? M.agentsNow() : null; const kbl = M.kbListNow ? M.kbListNow() : null;
+    if (!reg || !kbl) { if (st.agentErr) return [U.InlineNote({ kind: 'warning', children: st.agentErr })]; if (!st.agentLoading) { st.agentLoading = true; Promise.all([M.agents(true), M.kbList(true)]).then(([r1, r2]) => { st.agentLoading = false; if (!r1.ok || !r2.ok) st.agentErr = (r1.ok ? r2 : r1).message || 'ماقدرناش نحمّل المساعدين'; R(); }); } return [K.Empty('بنحمّل…', '')]; }
+    const AIP = window.IBPages.all().ai && window.IBPages.all().ai.api;
+    const permName = (k) => ((M.AGENT_PERMS || []).find(([v]) => v === k) || [k, k])[1];
+    const seesName = (k) => ((M.AGENT_SEES || []).find(([v]) => v === k) || [k, k])[1];
+    const rows = reg.map((x) => [h('span', { class: 'acts-inline', 'data-ag-row': x.id }, h('span', { class: 'mk-av' }, Icon(x.icon || 'sparkle', 'sm')), h('b', null, x.name)),
+      permName(x.perm), x.sees.length ? x.sees.map(seesName).join(' · ') : (x.builtin && ['buyer', 'designer', 'dev'].includes(x.id) ? 'بياناته الخاصة' : '—'), x.role || 'مدير النظام',
+      x.archived ? K.Tag('neutral', 'مؤرشف') : K.Tag('success', x.builtin ? 'من السيستم' : 'مساعد جديد'),
+      K.RowMenu([AIP ? { label: 'تعديل', icon: 'edit', run: () => AIP.agentForm(x) } : null,
+        !x.builtin && !x.archived ? { label: 'أرشف', icon: 'trash', danger: true, run: () => K.confirm({ title: 'تأرشف «' + x.name + '»؟', text: 'هيختفي من «الذكاء الاصطناعي» عند الكل وشاتاته بتفضل.', okType: 'danger', okLabel: 'أرشف', onOk: async () => { const r = await M.agentArchive(x.id, true); K.toast(r.ok ? 'اتأرشف' : r.message, r.ok ? 'success' : 'error'); R(); } }) } : null,
+        x.archived ? { label: 'رجّعه', icon: 'undo', run: async () => { const r = await M.agentArchive(x.id, false); K.toast(r.ok ? 'رجع' : r.message, r.ok ? 'success' : 'error'); R(); } } : null].filter(Boolean), 'إجراءات ' + x.name)]);
+    const list = K.Section('المساعدين', [U.Table({ headers: ['المساعد', 'بيظهر للي معاه «عرض»', 'البيانات اللي بيقراها', 'الطلبات بتروح لـ', 'النوع', ''], rows })],
+      AIP ? [Button({ size: 'sm', type: 'primary', icon: 'plus', label: 'مساعد جديد', attrs: { 'data-set-ag-add': '' }, onClick: () => AIP.agentForm(null) })] : null,
+      { th: false, sub: 'كل مساعد تاب في «الذكاء الاصطناعي» — بيقرا بصلاحيات اللي بيكلّمه، ومابينفّذش حاجة لوحده' });
+    const live = reg.filter((x) => !x.archived); st.kbAgent = st.kbAgent && (st.kbAgent === 'all' || live.some((x) => x.id === st.kbAgent)) ? st.kbAgent : 'all';
+    const filter = h('div', { class: 'chips', role: 'radiogroup', 'aria-label': 'المساعد', 'data-kb-filter': '' }, [['all', 'كل المساعدين']].concat(live.map((x) => [x.id, x.name])).map(([id, l]) =>
+      h('button', { type: 'button', class: 'chip' + (st.kbAgent === id ? ' on' : ''), role: 'radio', 'aria-checked': String(st.kbAgent === id), 'data-kb-filter-id': id, onClick: () => { st.kbAgent = id; R(); } }, l)));
+    const out = [list, U.FieldShell({ id: 'kb-f', label: 'وريني القواعد والسكيلز بتاعة' }, filter), kbAllSec('rules', kbl, live), kbAllSec('skills', kbl, live)];
+    if (st.kbAgent === 'all' || st.kbAgent === 'designer') out.push(trendTagsSec());
+    if (st.kbAgent === 'all' || st.kbAgent === 'buyer') out.push(compsSec(), adTagsSec()); // ش44: the competitors and the ad tags
     return out;
   }
-  const kbClone = (L) => JSON.parse(JSON.stringify(L || []));
-  const kbUid = (p) => p + Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36);
-  async function kbSave(agent, kind, groups, okMsg) {
-    const r = await MKA().agentKbSet(agent, kind, groups);
-    if (!r.ok) { K.toast(r.message || 'ماتحفظش', 'error'); return false; }
-    K.toast(okMsg, 'success'); R(); return true; // the server logs mkt.agent.kb
-  }
-  function kbSec(agent, kind, groups) {
-    const [title, one, help] = KB_WORD[kind]; const n = groups.reduce((t, g) => t + g.items.length, 0);
-    const addGroup = () => K.form({ title: 'قسم جديد — ' + title, values: { name: '' }, fields: (f, e, set) => [K.field.text('name', 'اسم القسم', f, e, set, { required: true, placeholder: kind === 'rules' ? 'مثلًا: البراند، الممنوعات، الكلام' : 'مثلًا: الريلز، التحليل، الكتابة' })],
-      validate: (f) => { const v = (f.name || '').trim(); if (!v) return { name: 'اكتب اسم القسم' }; if (v.length > 60) return { name: 'لحد 60 حرف' }; if (groups.some((g) => g.name.trim().toLowerCase() === v.toLowerCase())) return { name: 'فيه قسم بنفس الاسم' }; return {}; },
-      submitLabel: 'ضيف القسم', submit: async (f, md) => { const L = kbClone(groups); L.push({ id: kbUid('g'), name: f.name.trim(), items: [] }); if (await kbSave(agent, kind, L, 'اتضاف القسم «' + f.name.trim() + '»')) md.close(); } });
-    const itemForm = (gi, ii) => { const it = ii == null ? { title: '', text: '' } : groups[gi].items[ii];
-      K.form({ title: (ii == null ? one + ' جديدة' : 'تعديل ' + one) + ' — ' + groups[gi].name, values: { title: it.title, text: it.text },
-        fields: (f, e, set) => [K.field.text('title', 'العنوان', f, e, set, { required: true }), K.field.area('text', 'التفاصيل', f, e, set, { rows: 5, help: 'لحد 1500 حرف — اكتبها زي ما بتشرح لزميل.' })],
-        validate: (f) => { const t = (f.title || '').trim(); const x = (f.text || '').trim(); if (!t) return { title: 'اكتب العنوان' }; if (t.length > 80) return { title: 'لحد 80 حرف' }; if (/[<>]/.test(t + x)) return { text: 'من غير < أو >' }; if (x.length > 1500) return { text: 'لحد 1500 حرف' }; return {}; },
-        submitLabel: ii == null ? 'ضيف' : 'احفظ', submit: async (f, md) => { const L = kbClone(groups); const v = { id: ii == null ? kbUid('i') : it.id, title: f.title.trim(), text: (f.text || '').trim() };
-          if (ii == null) L[gi].items.push(v); else L[gi].items[ii] = v;
-          if (await kbSave(agent, kind, L, ii == null ? 'اتضافت' : 'اتحفظت')) md.close(); } }); };
-    const cards = groups.map((g, gi) => h('div', { class: 'kb-group', 'data-kb-group': kind + ':' + g.id },
-      h('div', { class: 'kb-group-h' }, h('b', null, g.name), h('span', { class: 'cnt' }, K.Num(g.items.length)),
-        Button({ size: 'sm', type: 'text', icon: 'plus', label: one, attrs: { 'data-kb-add-item': kind + ':' + g.id }, onClick: () => itemForm(gi, null) }),
-        K.RowMenu([{ label: 'تغيير اسم القسم', icon: 'edit', run: () => K.form({ title: 'اسم القسم', values: { name: g.name }, fields: (f, e, set) => [K.field.text('name', 'الاسم', f, e, set, { required: true })], validate: (f) => { const v = (f.name || '').trim(); if (!v) return { name: 'اكتب الاسم' }; if (v.length > 60) return { name: 'لحد 60 حرف' }; return {}; }, submit: async (f, md) => { const L = kbClone(groups); L[gi].name = f.name.trim(); if (await kbSave(agent, kind, L, 'اتغيّر الاسم')) md.close(); } }) },
-          gi > 0 ? { label: 'طلّعه لفوق', icon: 'undo', run: () => { const L = kbClone(groups); L.splice(gi - 1, 0, L.splice(gi, 1)[0]); kbSave(agent, kind, L, 'اتغيّر الترتيب'); } } : null,
-          { label: 'امسح القسم', icon: 'trash', danger: true, run: () => K.confirm({ title: 'تمسح قسم «' + g.name + '»؟', text: g.items.length ? 'هيتمسح هو و' + K.n0(g.items.length) + ' جوه.' : 'القسم فاضي.', okType: 'danger', okLabel: 'امسح', onOk: () => { const L = kbClone(groups); L.splice(gi, 1); kbSave(agent, kind, L, 'اتمسح القسم'); } }) }], 'إجراءات ' + g.name)),
-      g.items.length ? h('ul', { class: 'kb-items' }, g.items.map((it, ii) => h('li', { 'data-kb-item': it.id },
-        h('div', { class: 'kb-item-t' }, h('b', null, it.title), it.text ? h('small', null, it.text) : null),
-        K.RowMenu([{ label: 'تعديل', icon: 'edit', run: () => itemForm(gi, ii) }, { label: 'امسح', icon: 'trash', danger: true, run: () => K.confirm({ title: 'تمسح «' + it.title + '»؟', okType: 'danger', okLabel: 'امسح', onOk: () => { const L = kbClone(groups); L[gi].items.splice(ii, 1); kbSave(agent, kind, L, 'اتمسحت'); } }) }], 'إجراءات ' + it.title))))
-        : h('p', { class: 't-small help kb-empty' }, 'لسه مفيش — دوس «' + one + '» تضيف أول واحدة.')));
-    return K.Section(title, groups.length ? [h('div', { class: 'kb-groups', 'data-kb': kind }, cards)] : [K.Empty('لسه مفيش ' + title, help + ' ابدأ بـ «قسم جديد».')],
-      [Button({ size: 'sm', type: 'primary', icon: 'plus', label: 'قسم جديد', attrs: { 'data-kb-add-group': kind }, onClick: addGroup })], { sub: help + (n ? ' · ' + K.n0(groups.length) + ' قسم · ' + K.n0(n) + ' ' + one : '') });
+  // one kind's whole list, grouped by section in order; an item = { section, title, text, agents: [] (= all) }
+  function kbAllSec(kind, all, live) {
+    const M = MKA(); const [title, one, help] = KB_WORD[kind];
+    const mine = all.filter((x) => x.kind === kind);
+    const shows = (x) => st.kbAgent === 'all' || !x.agents.length || x.agents.includes(st.kbAgent);
+    const nameOf = (id) => ((live.find((x) => x.id === id) || {}).name || id);
+    const save = async (L, msg) => { const r = await M.kbSetAll(kind, L.map((x) => ({ section: x.section, title: x.title, text: x.text, agents: x.agents }))); if (!r.ok) { K.toast(r.message || 'ماتحفظش', 'error'); return false; } K.toast(msg, 'success'); R(); return true; };
+    const sections = []; mine.forEach((x) => { if (!sections.includes(x.section)) sections.push(x.section); });
+    const itemForm = (it, sec) => {
+      const cur = it || { section: sec || '', title: '', text: '', agents: st.kbAgent !== 'all' ? [st.kbAgent] : [] };
+      K.form({ title: it ? 'تعديل ' + one : one + ' جديدة', wide: true, submitLabel: it ? 'احفظ' : 'ضيف',
+        values: { section: cur.section, title: cur.title, text: cur.text, agents: cur.agents.slice() },
+        fields: (f, e, set) => [K.field.text('section', 'القسم', f, e, set, { required: true, placeholder: sections.length ? 'مثلًا: ' + sections.slice(0, 3).join('، ') : (kind === 'rules' ? 'مثلًا: البراند، الممنوعات، الكلام' : 'مثلًا: الريلز، التحليل') }),
+          K.field.text('title', 'العنوان', f, e, set, { required: true }), K.field.area('text', 'التفاصيل', f, e, set, { rows: 5, help: 'لحد 1500 حرف — اكتبها زي ما بتشرح لزميل.' }),
+          U.FieldShell({ id: 'kb-ag', label: 'المساعد (ممكن أكتر من واحد — من غير اختيار = كل المساعدين)' }, h('div', { class: 'chips', 'data-kb-agents': '' },
+            h('button', { type: 'button', class: 'chip' + (f.agents.length ? '' : ' on'), 'aria-pressed': String(!f.agents.length), 'data-kb-agent': 'all', onClick: () => set('agents', [], true) }, 'كل المساعدين'),
+            live.map((x) => h('button', { type: 'button', class: 'chip' + (f.agents.includes(x.id) ? ' on' : ''), 'aria-pressed': String(f.agents.includes(x.id)), 'data-kb-agent': x.id,
+              onClick: () => set('agents', f.agents.includes(x.id) ? f.agents.filter((k) => k !== x.id) : f.agents.concat(x.id), true) }, x.name))))],
+        validate: (f) => { const sv = (f.section || '').trim(); const t = (f.title || '').trim(); const x = (f.text || '').trim(); if (!sv) return { section: 'اكتب اسم القسم' }; if (sv.length > 60) return { section: 'لحد 60 حرف' }; if (!t) return { title: 'اكتب العنوان' }; if (t.length > 80) return { title: 'لحد 80 حرف' }; if (/[<>]/.test(sv + t + x)) return { text: 'من غير < أو >' }; if (x.length > 1500) return { text: 'لحد 1500 حرف' }; return {}; },
+        submit: async (f, md) => { const v = { section: f.section.trim(), title: f.title.trim(), text: (f.text || '').trim(), agents: f.agents.slice() };
+          const L = mine.slice(); if (it) L[L.indexOf(it)] = v; else { const last = L.map((x) => x.section).lastIndexOf(v.section); if (last >= 0) L.splice(last + 1, 0, v); else L.push(v); }
+          if (await save(L, it ? 'اتحفظت' : 'اتضافت')) md.close(); } });
+    };
+    const cards = sections.map((sec) => { const items = mine.filter((x) => x.section === sec && shows(x)); if (!items.length && st.kbAgent !== 'all') return null;
+      return h('div', { class: 'kb-group', 'data-kb-group': kind + ':' + sec },
+        h('div', { class: 'kb-group-h' }, h('b', null, sec), h('span', { class: 'cnt' }, K.Num(items.length)),
+          Button({ size: 'sm', type: 'text', icon: 'plus', label: one, attrs: { 'data-kb-add-item': kind + ':' + sec }, onClick: () => itemForm(null, sec) }),
+          K.RowMenu([{ label: 'تغيير اسم القسم', icon: 'edit', run: () => K.form({ title: 'اسم القسم', values: { name: sec }, fields: (f, e, set) => [K.field.text('name', 'الاسم', f, e, set, { required: true })], validate: (f) => { const v = (f.name || '').trim(); if (!v) return { name: 'اكتب الاسم' }; if (v.length > 60) return { name: 'لحد 60 حرف' }; return {}; }, submitLabel: 'احفظ', submit: async (f, md) => { if (await save(mine.map((x) => (x.section === sec ? Object.assign({}, x, { section: f.name.trim() }) : x)), 'اتغيّر الاسم')) md.close(); } }) },
+            { label: 'امسح القسم', icon: 'trash', danger: true, run: () => K.confirm({ title: 'تمسح قسم «' + sec + '»؟', text: 'هيتمسح هو و' + K.n0(mine.filter((x) => x.section === sec).length) + ' جوه.', okType: 'danger', okLabel: 'امسح', onOk: () => save(mine.filter((x) => x.section !== sec), 'اتمسح القسم') }) }], 'إجراءات ' + sec)),
+        items.length ? h('ul', { class: 'kb-items' }, items.map((it) => h('li', { 'data-kb-item': it.id || it.title },
+          h('div', { class: 'kb-item-t' }, h('b', null, it.title), it.text ? h('small', null, it.text) : null,
+            h('span', { class: 'kb-to', 'data-kb-to': it.agents.length ? it.agents.join(',') : 'all' }, it.agents.length ? it.agents.map(nameOf).join(' · ') : 'كل المساعدين')),
+          K.RowMenu([{ label: 'تعديل', icon: 'edit', run: () => itemForm(it) }, { label: 'امسح', icon: 'trash', danger: true, run: () => K.confirm({ title: 'تمسح «' + it.title + '»؟', okType: 'danger', okLabel: 'امسح', onOk: () => save(mine.filter((x) => x !== it), 'اتمسحت') }) }], 'إجراءات ' + it.title))))
+          : h('p', { class: 't-small help kb-empty' }, 'مفيش حاجة للمساعد ده في القسم ده.')); }).filter(Boolean);
+    const n = mine.filter(shows).length;
+    return K.Section(title, cards.length ? [h('div', { class: 'kb-groups', 'data-kb': kind }, cards)] : [K.Empty('لسه مفيش ' + title, help + ' ابدأ بـ «' + one + ' جديدة».')],
+      [Button({ size: 'sm', type: 'primary', icon: 'plus', label: one + ' جديدة', attrs: { 'data-kb-add': kind }, onClick: () => itemForm(null, null) })], { sub: help + (n ? ' · ' + K.n0(n) + ' ' + one : '') });
   }
   // ش44 (the owner 17 Nov — «ضيفلي في الستينج بتاعة الميديا باير اني اضيف اسماء المنافسين و الاعلانات الاكثر قوة بناء علي التاجز اللي اضيفها هناك»):
   // the competitors (the same list «إعلانات المنافسين» shows — IBMarketing.competitorSave / competitorArchive) and the ad tags (mkt_ad_tags_set)
@@ -2283,6 +2304,6 @@
   function hydrateMakerRules() { const V = window.IBVendors; const all = V && V.store && V.store.all ? V.store.all() : []; const risk = Number(C.makers.risk) || 9, late = Number(C.makers.late) || 11; C.makerRules.splice(0, C.makerRules.length, ...all.filter((v) => v.status !== 'inactive').map((v) => [v.name, (v.leadDays || 7) + ' يوم', 'يوم ' + risk, 'يوم ' + late, v.leadDays && v.leadDays !== 7 ? 'مدخل يدويًا' : 'الافتراضي', '—'])); }
   function makers() { return makersV6(); } // owner batch 2 decision 17: no per-maker rules — a maker's making days live in his file
 
-  window.IBPages.register('settings', { title: 'الإعدادات', adminOnly: true, hash: (hs) => { const m = /^settings(?:-([a-z]+))?$/.exec(hs); if (!m) return false; const target = m[1] && SECTIONS.some((s) => s[0] === m[1]) ? m[1] : 'home'; if (st.dirty && target !== st.sec) { setTimeout(() => leave(() => { st.sec = target; st.integ = null; try { history.replaceState(null, '', target === 'home' ? '#settings' : '#settings-' + target); } catch (e) { /* */ } R(); window.scrollTo(0, 0); }), 0); return true; } st.sec = target; return true; }, defaultHash: () => (st.sec === 'home' ? 'settings' : 'settings-' + st.sec), view, canLeave: (go) => leave(go), api: { aiRules: () => (S.aiRules = S.aiRules || AI_DEF()), reload: () => { hydrated = false; if (SETT()) SETT().load().then(() => { hydrateAll(); R(); }); }, hydrate: hydrateAll, exportData: (id, o) => exportDialog(DG().group(id), o), importData: (id, mode, o) => { const g = DG().group(id); importWizard(g, mode || modesOf(g)[0], o); }, templates: (id, mode, o) => { const g = DG().group(id); templateDialog(g, mode || modesOf(g)[0], o); }, setIntegration, memberChans: (id) => { const m = K.store.members.find((x) => x.id === id); if (m) memberChans(m); }, openSocial: () => { st.sec = 'integrations'; st.integ = null; st.itab = 'social'; R(); window.scrollTo(0, 0); }, openIntegrations: (tab) => { st.integ = null; st.itab = tab || 'site'; if (window.IBPages.current === 'settings' && st.sec === 'integrations') R(); else location.hash = '#settings-integrations'; }, openAgents: (a) => { st.aiTab = 'agents'; st.agentTab = a || 'designer'; if (window.IBPages.current === 'settings' && st.sec === 'ai') R(); else location.hash = '#settings-ai'; }, openWa: () => { st.sec = 'integrations'; st.integ = 'wa'; R(); window.scrollTo(0, 0); }, addWa: () => { st.sec = 'integrations'; st.integ = 'wa'; R(); waEdit(); }, makerRules: () => C.makerRules, integrations: () => C.integrations, activityLog: () => C.activity, backup: () => C.backup, perms: () => C.perms, roles: () => liveNames(), roleIndex, rolePopup: (r) => rolePopup(r, roleIndex(r)), lists: listsMap, addListValue, removeListValue } });
+  window.IBPages.register('settings', { title: 'الإعدادات', adminOnly: true, hash: (hs) => { const m = /^settings(?:-([a-z]+))?$/.exec(hs); if (!m) return false; const target = m[1] && SECTIONS.some((s) => s[0] === m[1]) ? m[1] : 'home'; if (st.dirty && target !== st.sec) { setTimeout(() => leave(() => { st.sec = target; st.integ = null; try { history.replaceState(null, '', target === 'home' ? '#settings' : '#settings-' + target); } catch (e) { /* */ } R(); window.scrollTo(0, 0); }), 0); return true; } st.sec = target; return true; }, defaultHash: () => (st.sec === 'home' ? 'settings' : 'settings-' + st.sec), view, canLeave: (go) => leave(go), api: { aiRules: () => (S.aiRules = S.aiRules || AI_DEF()), reload: () => { hydrated = false; if (SETT()) SETT().load().then(() => { hydrateAll(); R(); }); }, hydrate: hydrateAll, exportData: (id, o) => exportDialog(DG().group(id), o), importData: (id, mode, o) => { const g = DG().group(id); importWizard(g, mode || modesOf(g)[0], o); }, templates: (id, mode, o) => { const g = DG().group(id); templateDialog(g, mode || modesOf(g)[0], o); }, setIntegration, memberChans: (id) => { const m = K.store.members.find((x) => x.id === id); if (m) memberChans(m); }, openSocial: () => { st.sec = 'integrations'; st.integ = null; st.itab = 'social'; R(); window.scrollTo(0, 0); }, openIntegrations: (tab) => { st.integ = null; st.itab = tab || 'site'; if (window.IBPages.current === 'settings' && st.sec === 'integrations') R(); else location.hash = '#settings-integrations'; }, openAgents: (a) => { st.aiTab = 'agents'; st.kbAgent = a || 'all'; if (window.IBPages.current === 'settings' && st.sec === 'ai') R(); else location.hash = '#settings-ai'; }, openWa: () => { st.sec = 'integrations'; st.integ = 'wa'; R(); window.scrollTo(0, 0); }, addWa: () => { st.sec = 'integrations'; st.integ = 'wa'; R(); waEdit(); }, makerRules: () => C.makerRules, integrations: () => C.integrations, activityLog: () => C.activity, backup: () => C.backup, perms: () => C.perms, roles: () => liveNames(), roleIndex, rolePopup: (r) => rolePopup(r, roleIndex(r)), lists: listsMap, addListValue, removeListValue } });
 })();
 

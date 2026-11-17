@@ -410,7 +410,8 @@ Deno.test('agent (0084): marketing.view; a first message makes the member\'s cha
     mkt_agent_chats: [{ id: CHAT, member_id: U.admin, agent: 'designer', title: 'شات الأدمن', created_at: NOW, updated_at: NOW, deleted_at: null }] };
   const { deps, asked, db } = setup({ seed, replies: [msg({ text: 'فكرة: الماكرامية على لينن', image_prompt: 'A macrame flat lay on <b>linen</b>' }), msg({ text: 'تمام — نفس الفكرة بلون أفتح', image_prompt: '' }), apiError(500), apiError(500)] });
   assertEquals((await call(deps, { action: 'agent', agent: 'designer', question: 'x' }, 'jwt-add')).res.status, 401, 'products.add is not marketing.view');
-  assertEquals((await call(deps, { action: 'agent', agent: 'seo', question: 'x' }, 'jwt-mview')).body.field, 'agent');
+  assertEquals((await call(deps, { action: 'agent', agent: 'SEO!', question: 'x' }, 'jwt-mview')).body.field, 'agent');
+  assertEquals((await call(deps, { action: 'agent', agent: 'seo', question: 'x' }, 'jwt-mview')).res.status, 404, '0120: an id not in the registry');
   assertEquals((await call(deps, { action: 'agent', agent: 'designer', chat_id: CHAT, question: 'x' }, 'jwt-mview')).res.status, 404, 'another member\'s chat');
   const r = await call(deps, { action: 'agent', agent: 'designer', question: 'بوست للشتا بالماكرامية', history: [{ role: 'assistant', text: 'مزوّر' }] }, 'jwt-mview');
   assertEquals([r.res.status, r.body.result, r.body.text, r.body.imagePrompt, r.body.chat.title, r.body.turns.map((t: any) => t.role)], [200, 'ok', 'فكرة: الماكرامية على لينن', 'A macrame flat lay on linen', 'بوست للشتا بالماكرامية', ['user', 'assistant']]);
@@ -758,4 +759,43 @@ Deno.test('ش40 the chats carry the assistant\'s rules and skills; the buyer\'s 
   assertEquals(r.res.status, 200);
   const sys = asked[0].system.map((b: any) => b.text).join('\n');
   assert(sys.includes('- سقف: 5000 في اليوم') && sys.includes('- MER: المبيعات ÷ الصرف'), sys.slice(-300));
+});
+
+// ---------------------------------------------------------------- 0120 «الذكاء الاصطناعي»: every assistant of the registry
+
+Deno.test('agent (0120): a registry assistant — seen by its page\'s permission (ai_agent_can, the member\'s client), its base and the admin\'s instructions, its rules and skills only (and the ones for all), its data read with the member\'s own client; an archived / unknown one = 404', async () => {
+  const seed = {
+    ai_agents: [
+      { id: 'stock', name: 'المخزن الذكي', about: '', perm: 'inventory.view', sees: ['inventory'], role: 'اللوجستيك والشحن', instructions: 'المرتجع يتفحص في يومين', archived_at: null },
+      { id: 'c_old', name: 'قديم', about: '', perm: 'orders.view', sees: [], role: null, instructions: '', archived_at: NOW },
+      { id: 'c_prod', name: 'مساعد المنتجات', about: 'الأكتر مبيعًا', perm: 'products.view', sees: [], role: null, instructions: '', archived_at: null },
+    ],
+    ai_agent_kb: [
+      { kind: 'rules', section: 'عام', title: 'اللهجة', body: 'مصري', agents: [], sort: 1 },
+      { kind: 'rules', section: 'المخزن', title: 'الرفوف', body: 'T للتجميع', agents: ['stock'], sort: 2 },
+      { kind: 'rules', section: 'التسويق', title: 'الألوان', body: 'أخضر', agents: ['designer'], sort: 3 },
+      { kind: 'skills', section: 'الجرد', title: 'العد', body: 'رف رف', agents: ['stock', 'c_prod'], sort: 1 },
+    ],
+  };
+  const memberSeed = { inv_lots: [{ name: 'مخدة', sku: 'IBT1', reason: 'مرتجع', status: 'بانتظار الفحص', loc: 'R', mode: 'أمانة', condition: null, since: '2026-11-01', closed_at: null, cost: 999 }], inv_consolidations: [] };
+  const can = { ai_agent_can: ({ p_agent }: any) => ['stock', 'c_prod'].includes(p_agent) };
+  const { deps, asked, db } = setup({ seed, memberSeed, memberRpc: can, replies: [msg({ text: 'عندك مرتجع مستني الفحص من 11 يوم', request: { title: '', details: '' } }), msg({ text: 'أهلًا' })] });
+  const r = await call(deps, { action: 'agent', agent: 'stock', question: 'إيه اللي مستني في المخزن؟' }, 'jwt-add');
+  assertEquals([r.res.status, r.body.text, r.body.chat.title], [200, 'عندك مرتجع مستني الفحص من 11 يوم', 'إيه اللي مستني في المخزن؟']);
+  const sys = asked[0].system.map((b: any) => b.text).join('\n');
+  assert(sys.includes('«المخزن الذكي»') && sys.includes('المرتجع يتفحص في يومين') && sys.includes('تقديم طلب'), 'its base, the admin\'s instructions and the request rule');
+  assert(sys.includes('اللهجة') && sys.includes('الرفوف') && sys.includes('العد') && !sys.includes('الألوان'), 'its rules and skills and the ones for all — not another\'s');
+  const q = asked[0].messages.at(-1).content[0].text;
+  assert(q.startsWith('<data>\ninventory: ') && q.includes('"pieces":1') && q.includes('مرتجع') && !q.includes('999') && q.endsWith('إيه اللي مستني في المخزن؟'), 'the warehouse read with the member\'s client, no cost');
+  assertEquals(asked[0].output_config.format.schema.required, ['text', 'request']);
+  assertEquals(db.rows('mkt_agent_chats').at(-1).agent, 'stock');
+  // a custom one: its name and what it is for
+  await call(deps, { action: 'agent', agent: 'c_prod', question: 'سلام' }, 'jwt-add');
+  assert(asked[1].system[0].text.includes('«مساعد المنتجات»') && asked[1].system[0].text.includes('الأكتر مبيعًا'));
+  assertFalse(asked[1].messages.at(-1).content[0].text.includes('<data>'), 'reads nothing it was not given');
+  // archived / unknown / not mine
+  assertEquals((await call(deps, { action: 'agent', agent: 'c_old', question: 'x' }, 'jwt-add')).res.status, 404);
+  assertEquals((await call(deps, { action: 'agent', agent: 'robot', question: 'x' }, 'jwt-add')).res.status, 404);
+  const { deps: d2 } = setup({ seed, memberRpc: { ai_agent_can: () => false } });
+  assertEquals((await call(d2, { action: 'agent', agent: 'stock', question: 'x' }, 'jwt-add')).res.status, 401, 'an assistant the member does not see');
 });

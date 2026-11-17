@@ -27,7 +27,7 @@ export const ORDER_STATUSES = ['قيد الانتظار', 'جاري التنفي
 export const CLOSED_STATUSES = ['مكتمل', 'ملغي', 'استرجاع', 'فشل'];
 export const CONFIRMS = ['مؤكد بعربون', 'مؤكد بدون عربون', 'غير مؤكد', 'في انتظار الرد'];
 export const DELIVERY = ['late', 'risk', 'ok'];
-export const DATA_KINDS = ['summary', 'orders', 'vendors', 'customers', 'tickets', 'tasks', 'expenses', 'sales', 'vendor', 'files'];
+export const DATA_KINDS = ['summary', 'orders', 'vendors', 'customers', 'tickets', 'tasks', 'expenses', 'sales', 'vendor', 'files', 'inventory', 'hr'];
 export const CLIENT_TOOLS = ['navigate', 'filter_orders', 'set_period', 'sort_vendors', 'propose_entry', 'set_filter', 'open_form', 'offer_file', 'plan_categories', 'ask_agent', 'open_campaign'];
 // the owner 15 Nov (2026-11-15-assistant-categories.md — «اعملي القسم كذا انجليزي و عربي و جواه قسم فرعي كذا و كذا … بس يوريني قبل ما يطبق»):
 // plan_categories hands the page a tree of new product categories as an outline (level 1 = a main category, a deeper level sits under the
@@ -114,7 +114,7 @@ const ORDER_FILTER = {
 };
 export const SERVER_TOOL = {
   name: 'get_data',
-  description: 'اقرا أرقام وبيانات السيستم الحقيقية بصلاحيات المستخدم (اللي مش مسموحله بيه بيرجع forbidden). kind: summary (ملخص الأوردرات المفتوحة وطلبات الفريق والمحادثات ومهامي ومصروفات ومبيعات الفترة) | orders (أوردرات بفلتر: q رقم/اسم عميل، status، delivery، from/to تاريخ الطلب) | vendors (المبتكرين، q بالاسم) | customers (العملاء من غير أرقام تليفون، q بالاسم) | tickets (طلبات الفريق — المفتوحة افتراضيًا، status: open|in_progress|waiting|resolved|closed|all) | tasks (مهامي — all=true لكل اللي أشوفه) | expenses (مصروفات الفترة بالنوع + آخر الحركات) | sales (مبيعات الفترة وحصة إبتكر وأعلى المبتكرين) | vendor (حساب مبتكر واحد — q اسمه مطلوب: أوردراته في الفترة بحالاتها والملغي والمتأخر، مبيعاته وحصة إبتكر، رصيد Dokan والعرابين والمواصلات والصافي، آخر طلب سحب) | files (الملفات المرفوعة اللي المستخدم يقدر يفتحها: أوراق الشركة، عقود المبتكرين، مستندات الموظفين، مرفقات طلبات الفريق — q بالاسم أو صاحب الملف). الفترة الافتراضية = فترة الصفحة أو الشهر الحالي. استخدمها قبل أي إجابة فيها أرقام ومتخترعش أرقام أبدًا.',
+  description: 'اقرا أرقام وبيانات السيستم الحقيقية بصلاحيات المستخدم (اللي مش مسموحله بيه بيرجع forbidden). kind: summary (ملخص الأوردرات المفتوحة وطلبات الفريق والمحادثات ومهامي ومصروفات ومبيعات الفترة) | orders (أوردرات بفلتر: q رقم/اسم عميل، status، delivery، from/to تاريخ الطلب) | vendors (المبتكرين، q بالاسم) | customers (العملاء من غير أرقام تليفون، q بالاسم) | tickets (طلبات الفريق — المفتوحة افتراضيًا، status: open|in_progress|waiting|resolved|closed|all) | tasks (مهامي — all=true لكل اللي أشوفه) | expenses (مصروفات الفترة بالنوع + آخر الحركات) | sales (مبيعات الفترة وحصة إبتكر وأعلى المبتكرين) | vendor (حساب مبتكر واحد — q اسمه مطلوب: أوردراته في الفترة بحالاتها والملغي والمتأخر، مبيعاته وحصة إبتكر، رصيد Dokan والعرابين والمواصلات والصافي، آخر طلب سحب) | files (الملفات المرفوعة اللي المستخدم يقدر يفتحها: أوراق الشركة، عقود المبتكرين، مستندات الموظفين، مرفقات طلبات الفريق — q بالاسم أو صاحب الملف). الفترة الافتراضية = فترة الصفحة أو الشهر الحالي. استخدمها قبل أي إجابة فيها أرقام ومتخترعش أرقام أبدًا. | inventory (قطع المخزن المفتوحة بالسبب والحالة والمكان والتجميعات المفتوحة، q باسم أو SKU) | hr (الحضور لكل عضو في الفترة وطلبات الموارد البشرية — من غير مرتبات ولا مبالغ)',
   input_schema: { type: 'object', properties: {
     kind: S('نوع البيانات', { enum: DATA_KINDS }), q: S('بحث'), status: S('الحالة'), delivery: S('حالة التسليم', { enum: DELIVERY }),
     from: S('YYYY-MM-DD'), to: S('YYYY-MM-DD'), limit: { type: 'integer', description: 'عدد الصفوف (لحد 20)' }, all: { type: 'boolean', description: 'tasks: كل المهام اللي أشوفها مش بتاعتي بس' },
@@ -323,6 +323,36 @@ export function ordersData(rows, dq, today, rules) {
     .filter((o) => (!st || o.status === st) && (!deliv || o.delivery === deliv) && hasQ(dq.q, o.number, o.customer, o.id) && (!dq.from || o.placed_at >= dq.from) && (!dq.to || o.placed_at <= dq.to));
   const open = all.filter((o) => !CLOSED_STATUSES.includes(o.status));
   return { period: { from: dq.from, to: dq.to }, total: all.length, totalEgp: num(all.reduce((t, o) => t + o.total, 0)), byStatus: count(all, (o) => o.status), byConfirm: count(open, (o) => o.confirm), delivery: count(open, (o) => o.delivery), rows: all.slice(0, dq.limit) };
+}
+/**
+ * «المخزن الذكي» (docs/superpowers/plans/2026-11-17-ai-page.md decision 6): the open pieces in the warehouse (inv_lots, closed_at null —
+ * no cost, no note) and the open consolidations → counts by reason / status / place and the oldest pieces first.
+ */
+export function inventoryData(lots, cons, dq, today) {
+  const all = (Array.isArray(lots) ? lots : []).filter((l) => !l.closed_at && hasQ(dq.q, l.name, l.sku) && (!dq.status || l.status === dq.status || l.reason === dq.status))
+    .map((l) => ({ name: l.name, sku: l.sku || null, reason: l.reason, status: l.status, place: l.loc || null, mode: l.mode || null, condition: l.condition || null, since: l.since || null, days: l.since ? ageDays(l.since + 'T00:00:00Z', today) : null }))
+    .sort((a, b) => (b.days ?? 0) - (a.days ?? 0));
+  const openCons = (Array.isArray(cons) ? cons : []).filter((c) => !c.closed_at).length;
+  return { pieces: all.length, byReason: count(all, (l) => l.reason), byStatus: count(all, (l) => l.status), byPlace: count(all, (l) => l.place || 'من غير مكان'), openConsolidations: openCons, rows: all.slice(0, dq.limit) };
+}
+/**
+ * «الموارد البشرية الذكية»: the attendance sessions in the period (who, the days, the hours — the member's own RLS: «hr.view» F all, P
+ * mine and my team) and the HR requests (the type, the dates, the status — never an amount or a note) → per member and counts.
+ */
+export function hrData(att, reqs, names, dq) {
+  const nm = (id) => (names && names[id]) || 'عضو';
+  const per = {};
+  for (const a of Array.isArray(att) ? att : []) {
+    if (!a || a.day < dq.from || a.day > dq.to) continue;
+    const k = a.member_id; const x = per[k] || (per[k] = { member: nm(k), days: new Set(), minutes: 0, remote: 0, open: 0 });
+    x.days.add(a.day); if (a.remote) x.remote += 1;
+    if (a.out_at) { const m = (Date.parse(a.out_at) - Date.parse(a.in_at)) / 60000; if (Number.isFinite(m) && m > 0) x.minutes += m; } else x.open += 1;
+  }
+  const people = Object.values(per).map((x) => ({ member: x.member, days: x.days.size, hours: Math.round(x.minutes / 6) / 10, remoteDays: x.remote, openSessions: x.open }))
+    .filter((x) => hasQ(dq.q, x.member)).sort((a, b) => b.days - a.days);
+  const rq = (Array.isArray(reqs) ? reqs : []).filter((r) => r && hasQ(dq.q, nm(r.member_id), r.type)).map((r) => ({ member: nm(r.member_id), type: r.type, from: r.from_day, to: r.to_day, status: r.status }));
+  const open = rq.filter((r) => ['جديد', 'قيد المراجعة'].includes(r.status));
+  return { period: { from: dq.from, to: dq.to }, attendance: people.slice(0, dq.limit), requests: { total: rq.length, open: open.length, byType: count(rq, (r) => r.type), byStatus: count(rq, (r) => r.status), openRows: open.slice(0, dq.limit) } };
 }
 /** vendors rows (id, name, status, category, lead_days, joined_at) → counts and the first rows. */
 export function vendorsData(rows, dq) {

@@ -41,6 +41,11 @@ const COLS = {
   mkt_competitors: ['id', 'name', 'page_id', 'page_url', 'keyword', 'note', 'created_by', 'created_at', 'updated_by', 'updated_at', 'archived_at'],
   site_checks: ['kind', 'data', 'checked_at', 'checked_by'], // the last WordPress updates check (the server's row — decision 71)
 };
+// 0120: the eight assistants the system ships, as the migration seeds them
+const AI_BUILTINS = [['buyer', 'الميديا باير الذكي', 'chart', 'marketing.view', [], 'ميديا باير'], ['designer', 'الديزاينر الذكي', 'image', 'marketing.view', [], 'ديزاينر'], ['dev', 'المبرمج الذكي', 'code', 'marketing.view', [], 'مبرمج'],
+  ['stock', 'المخزن الذكي', 'tag', 'inventory.view', ['inventory', 'orders'], 'اللوجستيك والشحن'], ['cs', 'خدمة العملاء الذكية', 'headset', 'cs.view', ['customers', 'orders', 'tickets'], 'خدمة العملاء'],
+  ['makers', 'خدمة المبتكرين الذكية', 'users', 'vendors.view', ['vendors', 'orders', 'tickets'], 'متابعة المبتكرين'], ['accountant', 'المحاسب الذكي', 'wallet', 'accounts.view', ['expenses', 'sales'], 'الحسابات'],
+  ['hr', 'الموارد البشرية الذكية', 'briefcase', 'hr.view', ['hr', 'tasks'], 'مدير النظام']].map(([id, name, icon, perm, sees, role]) => ({ id, name, icon, perm, sees, role, builtin: true }));
 const KEY = { mkt_campaigns: 'campaigns', mkt_posts: 'posts', mkt_templates: 'templates', mkt_ad_objects: 'adObjects', mkt_ad_stats: 'adStats', mkt_suggestions: 'suggestions', mkt_requests: 'requests', mkt_video_jobs: 'videoJobs', mkt_agent_chats: 'agentChats', mkt_agent_messages: 'agentMsgs', mkt_trends: 'trends', mkt_competitors: 'competitors', site_checks: 'siteChecks' };
 const GRANT = { mkt_campaigns: { insert: ['name', 'goal', 'step', 'state'], update: ['name', 'goal', 'step', 'state', 'archived_at'] },
   mkt_templates: { insert: ['name', 'kind', 'image', 'descr'], update: ['name', 'kind', 'image', 'descr', 'deleted_at'] },
@@ -115,6 +120,10 @@ export function mktState(opts = {}) {
     agentChats: (opts.mktAgentChats || []).map((x) => ({ title: 'شات جديد', created_at: now, updated_at: now, deleted_at: null, ...x })),
     agentMsgs: (opts.mktAgentMsgs || []).map((x, i) => ({ id: i + 1, text: '', images: [], run_id: null, created_at: now, ...x })),
     agents: JSON.parse(JSON.stringify(opts.mktAgents || {})), agentFail: null, agentAnswer: null, agentImgFail: null, nchat: 0,
+    // 0120: the assistants' registry (the eight built-ins unless opts.mktAiAgents) and their one list of rules and skills;
+    // noRegistry = 0120 not applied yet (the RPCs are not there — the page falls back to the three of marketing)
+    aiAgents: (opts.mktAiAgents || AI_BUILTINS).map((x, i) => ({ about: '', intro: '', instructions: '', suggestions: [], role: null, sees: [], builtin: false, sort: (i + 1) * 10, archived_at: null, ...x })),
+    aiKb: (opts.mktAiKb || []).map((x, i) => ({ id: i + 1, text: '', agents: [], ...x })), noRegistry: !!opts.mktNoRegistry, nagent: 0,
     // 0109: the trends and the competitors as the database holds them (opts.mktTrends / mktCompetitors); noSections = the migration
     // is not applied yet (the two tables are not there); trendsFail = our code the next refresh answers with; trendsAnswer(req) =
     // the rows the model «found» (cleaned against trendsResults — the pages the search returned)
@@ -127,9 +136,14 @@ export function mktState(opts = {}) {
   };
 }
 
+// 0120: who sees an assistant — its page's permission (the admin all); before 0120 the three of marketing by marketing.view
+function agentCanOf(H, isAdmin, hasPerm) {
+  return (u2, a) => { if (!u2) return false; if (H.noRegistry) return ['buyer', 'designer', 'dev'].includes(a) && (isAdmin(u2) || hasPerm(u2, 'marketing.view') !== 'N'); const r = H.aiAgents.find((x) => x.id === a && !x.archived_at); return !!r && (isAdmin(u2) || hasPerm(u2, r.perm) !== 'N'); };
+}
 export function mktRoute(c) {
   const { method, path, url, hd, u, hasPerm, isAdmin, json, mock, route } = c; const H = mock.mkt; if (!H) return null;
-  const rest = /^\/rest\/v1\/(mkt_[a-z_]+|site_checks)$/.exec(path); const rpc = /^\/rest\/v1\/rpc\/(mkt_[a-z_]+)$/.exec(path);
+  const agentCan = agentCanOf(H, isAdmin, hasPerm);
+  const rest = /^\/rest\/v1\/(mkt_[a-z_]+|site_checks)$/.exec(path); const rpc = /^\/rest\/v1\/rpc\/(mkt_[a-z_]+|ai_agent[a-z_]*)$/.exec(path);
   const sto = /^\/storage\/v1\/object\/(sign\/)?marketing\/(.+)$/.exec(path);
   const signMany = method === 'POST' && path === '/storage/v1/object/sign/marketing'; // createSignedUrls (ش39 — the trends' pictures)
   const fn = method === 'POST' && (path === '/functions/v1/ai-images' || path === '/functions/v1/ai-content' || path === '/functions/v1/mkt-publish' || path === '/functions/v1/mkt-ads');
@@ -182,11 +196,53 @@ export function mktRoute(c) {
     if (name === 'mkt_credits') return json(200, create ? { cap: H.cap, used: H.used } : null);
     // 0084: the member deletes their own chat (final); the settings for marketing.view, written by the admin (the three keys, their limits)
     if (name === 'mkt_agent_chat_delete') {
-      if (!view) return refuse(403, '42501', 'marketing.view required');
-      const x = H.agentChats.find((r) => r.id === b.p_id && r.member_id === u.id && !r.deleted_at); if (!x) return refuse(404, 'P0002', 'chat not found');
+      const x = H.agentChats.find((r) => r.id === b.p_id && r.member_id === u.id && !r.deleted_at && agentCan(u, r.agent)); if (!x) return refuse(404, 'P0002', 'chat not found');
       x.deleted_at = now; H.writes.push({ table: 'mkt_agent_chats', op: 'delete', id: x.id }); return json(200, null);
     }
     if (name === 'mkt_agent_settings') return json(200, view || isAdmin(u) ? JSON.parse(JSON.stringify(H.agents)) : {});
+    // 0120: the registry — what the member sees (its page's permission; the admin all and the archived), the admin's writes as 0120's checks
+    if (/^ai_agent/.test(name) && H.noRegistry) return json(404, { code: 'PGRST202', message: 'Could not find the function public.' + name + ' in the schema cache' });
+    if (name === 'ai_agents_list') return json(200, H.aiAgents.filter((a) => (isAdmin(u) ? true : !a.archived_at && hasPerm(u, a.perm) !== 'N')).slice().sort((a, b2) => a.sort - b2.sort)
+      .map((a) => ({ id: a.id, name: a.name, icon: a.icon, perm: a.perm, sees: a.sees, role: a.role, about: a.about, intro: a.intro, instructions: isAdmin(u) ? a.instructions : '', suggestions: a.suggestions, builtin: a.builtin, sort: a.sort, archived: !!a.archived_at })));
+    if (name === 'ai_agent_can') return json(200, agentCan(u, b.p_agent));
+    if (name === 'ai_agent_save') {
+      if (!isAdmin(u)) return refuse(403, '42501', 'admin only');
+      const p = b.p || {}; if (Object.keys(p).some((k) => !['id', 'name', 'icon', 'perm', 'sees', 'role', 'about', 'intro', 'instructions', 'suggestions'].includes(k))) return bad('key');
+      let cur = p.id ? H.aiAgents.find((a) => a.id === p.id) : null; if (p.id && !cur) return refuse(404, 'P0002', 'agent not found');
+      const nm = String(p.name ?? (cur && cur.name) ?? '').trim(); if (nm.length < 2 || nm.length > 40 || /[<>]/.test(nm)) return bad('name');
+      const PERMS = ['marketing.view', 'inventory.view', 'cs.view', 'vendors.view', 'accounts.view', 'hr.view', 'orders.view', 'products.view', 'tickets.view', 'reports.view'];
+      const perm = cur && cur.builtin ? cur.perm : (p.perm || (cur && cur.perm)); if (!PERMS.includes(perm)) return bad('perm');
+      const sees = cur && cur.builtin ? cur.sees : Array.isArray(p.sees) ? [...new Set(p.sees)] : (cur ? cur.sees : []);
+      if (sees.some((k) => !['orders', 'vendors', 'customers', 'tickets', 'tasks', 'expenses', 'sales', 'inventory', 'hr'].includes(k))) return bad('sees');
+      for (const [k, max] of [['about', 300], ['intro', 600], ['instructions', 4000]]) if (p[k] != null && (String(p[k]).length > max || /[<>]/.test(String(p[k])))) return bad(k);
+      if (!cur) { H.nagent += 1; cur = { id: 'c_' + String(H.nagent).padStart(10, '0'), builtin: false, sort: 1000 + H.nagent, archived_at: null, about: '', intro: '', instructions: '', suggestions: [], role: null, sees: [] }; H.aiAgents.push(cur); }
+      Object.assign(cur, { name: nm, icon: p.icon || cur.icon || 'sparkle', perm, sees, role: 'role' in p ? (p.role || null) : cur.role, about: p.about ?? cur.about, intro: p.intro ?? cur.intro, instructions: p.instructions ?? cur.instructions, suggestions: p.suggestions ?? cur.suggestions });
+      H.writes.push({ table: 'ai_agents', op: p.id ? 'save' : 'add', id: cur.id, keys: Object.keys(p).filter((k) => k !== 'id').sort() }); return json(200, cur.id);
+    }
+    if (name === 'ai_agent_archive') {
+      if (!isAdmin(u)) return refuse(403, '42501', 'admin only');
+      const cur = H.aiAgents.find((a) => a.id === b.p_id); if (!cur) return refuse(404, 'P0002', 'agent not found'); if (cur.builtin) return bad('builtin');
+      cur.archived_at = b.p_on === false ? null : now; H.writes.push({ table: 'ai_agents', op: b.p_on === false ? 'restore' : 'archive', id: cur.id }); return json(200, null);
+    }
+    if (name === 'ai_agent_order') {
+      if (!isAdmin(u)) return refuse(403, '42501', 'admin only');
+      const ids = b.p_ids || []; const rest = H.aiAgents.filter((a) => !ids.includes(a.id)).sort((a, b2) => a.sort - b2.sort);
+      ids.map((id) => H.aiAgents.find((a) => a.id === id)).filter(Boolean).concat(rest).forEach((a, i) => { a.sort = (i + 1) * 10; }); H.writes.push({ table: 'ai_agents', op: 'order', n: ids.length }); return json(200, null);
+    }
+    if (name === 'ai_agent_kb_list') return json(200, isAdmin(u) ? H.aiKb.map((k) => ({ id: k.id, kind: k.kind, section: k.section, title: k.title, text: k.text, agents: k.agents })) : []);
+    if (name === 'ai_agent_kb_set') {
+      if (!isAdmin(u)) return refuse(403, '42501', 'admin only');
+      if (!['rules', 'skills'].includes(b.p_kind)) return bad('kind'); const L = b.p_items; if (!Array.isArray(L) || L.length > 200) return bad('items');
+      const out = [];
+      for (const it of L) {
+        const sec = String(it.section || '').trim(); const t = String(it.title || '').trim(); const x = String(it.text || '').trim();
+        if (!sec || sec.length > 60 || /[<>]/.test(sec)) return bad('section'); if (!t || t.length > 80 || /[<>]/.test(t)) return bad('title'); if (x.length > 1500 || /[<>]/.test(x)) return bad('text');
+        const ag = [...new Set(it.agents || [])]; if (ag.some((a) => !H.aiAgents.some((r) => r.id === a))) return bad('agents');
+        out.push({ kind: b.p_kind, section: sec, title: t, text: x, agents: ag });
+      }
+      let nid = H.aiKb.reduce((m, k) => Math.max(m, k.id), 0); H.aiKb = H.aiKb.filter((k) => k.kind !== b.p_kind).concat(out.map((k) => ({ id: ++nid, ...k })));
+      H.writes.push({ table: 'ai_agent_kb', op: 'set', kind: b.p_kind, items: out.length }); return json(200, out.length);
+    }
     if (name === 'mkt_agent_settings_set') {
       if (!isAdmin(u)) return refuse(403, '42501', 'admin only');
       if (!['buyer', 'designer', 'dev'].includes(b.p_agent)) return bad('agent');
@@ -363,7 +419,7 @@ export function mktRoute(c) {
   }
   if (t === 'mkt_agent_chats' || t === 'mkt_agent_messages') {
     const own = (r) => r.member_id === u.id && !r.deleted_at;
-    const vis = t === 'mkt_agent_chats' ? (r) => view && own(r) : (r) => view && H.agentChats.some((ch) => ch.id === r.chat_id && own(ch));
+    const vis = t === 'mkt_agent_chats' ? (r) => own(r) && agentCan(u, r.agent) : (r) => H.agentChats.some((ch) => ch.id === r.chat_id && own(ch) && agentCan(u, ch.agent));
     if (method === 'GET') {
       let list = H[key].filter((r) => vis(r) && match(r));
       const ord = url.searchParams.get('order'); if (ord) { const [col, dir] = ord.split('.'); list = list.slice().sort((a, b2) => (a[col] < b2[col] ? -1 : a[col] > b2[col] ? 1 : 0) * (dir === 'desc' ? -1 : 1)); }
@@ -433,6 +489,7 @@ export function mktRoute(c) {
 // cleaned by the server's own cleanMarketing). H.imgFail / H.aiFail = 'ai_cap' | 'busy' | 'not_configured' | 'ai_error' | 'refused'.
 function mktAi(c, b) {
   const { u, json, hasPerm, isAdmin, mock } = c; const H = mock.mkt;
+  const agentCan = agentCanOf(H, isAdmin, hasPerm);
   H.calls.push({ fn: b.action === 'marketing' || b.action === 'buyer' || b.action === 'agent' ? 'ai-content' : 'ai-images', action: b.action, task: b.task || null, by: u ? u.id : null, piece: b.piece || null, slide: b.slide == null ? null : b.slide, scene: b.scene == null ? null : b.scene, kind: b.kind || null, model: b.model || null, pins: Array.isArray(b.pins) ? b.pins.length : 0, notes: b.notes || null });
   if (b.action === 'trends') { // 0109 (comments decision 69): marketing.create or the admin; the rows a search page stands behind are stored
     if (!u || !(isAdmin(u) || hasPerm(u, 'marketing.create') === 'F')) return json(401, { error: 'unauthorized' });
@@ -464,8 +521,11 @@ function mktAi(c, b) {
     H.seq += 1; return json(200, { result: 'ok', ...cleanBuyer(answer), model: 'claude-opus-5-5', cost_usd: 0.003, run_id: H.seq });
   }
   if (b.action === 'agent') { // 0084: a member's chat — their own, the history from the table, the turns written here after the answer
-    if (!u || !(isAdmin(u) || hasPerm(u, 'marketing.view') !== 'N')) return json(401, { error: 'unauthorized' });
     const p = parseAgent(b); if ('error' in p) return json(400, p);
+    // 0120: the registry — an unknown or archived one 404, one the member does not see 401 (before 0120: the three by marketing.view)
+    if (!u) return json(401, { error: 'unauthorized' });
+    if (H.noRegistry) { if (!['buyer', 'designer', 'dev'].includes(p.req.agent)) return json(404, { error: 'not_found' }); if (!(isAdmin(u) || hasPerm(u, 'marketing.view') !== 'N')) return json(401, { error: 'unauthorized' }); }
+    else { const reg = H.aiAgents.find((a) => a.id === p.req.agent && !a.archived_at); if (!reg) return json(404, { error: 'not_found' }); if (!agentCan(u, reg.id)) return json(401, { error: 'unauthorized' }); }
     let chat = null;
     if (p.req.chatId) { chat = H.agentChats.find((x) => x.id === p.req.chatId) || null; if (!chat || chat.member_id !== u.id || chat.deleted_at || chat.agent !== p.req.agent) return json(404, { error: 'not_found' }); }
     const hist = chat ? H.agentMsgs.filter((m) => m.chat_id === chat.id) : [];

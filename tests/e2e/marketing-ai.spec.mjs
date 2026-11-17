@@ -50,12 +50,11 @@ async function signIn(page, email) {
 }
 async function openAi(page, email, sub) {
   await signIn(page, email);
-  await page.locator('.sidebar .nav-item[data-page="marketing"]').click();
-  await expect(page.locator('#pg-marketing')).toBeVisible();
-  await pg(page).getByRole('tab', { name: /مساعدين الذكاء الاصطناعي/ }).click();
+  await page.locator('.sidebar .nav-item[data-page="ai"]').click(); // 0120: «الذكاء الاصطناعي» is its own page
+  await expect(page.locator('#pg-ai')).toBeVisible();
   if (sub) await pg(page).getByRole('tab', { name: new RegExp(sub) }).click();
 }
-const pg = (page) => page.locator('#pg-marketing');
+const pg = (page) => page.locator('main.content.mod:not([hidden])'); // 0120: «التسويق» or «الذكاء الاصطناعي», whichever is open
 async function signOut(page) { await page.locator('.user-btn').click(); await page.getByRole('menuitem', { name: 'تسجيل الخروج' }).click(); await expect(page.locator('#login')).toBeVisible(); await expect(page.locator('#root')).toBeHidden(); await page.waitForLoadState('load').catch(() => {}); }
 const modal = (page, text) => page.locator('.modal[role=dialog]', { hasText: text });
 const close = (m) => m.locator('button.btn-text', { hasText: 'إغلاق' }).click();
@@ -147,7 +146,7 @@ test('the switch on (the admin, confirmed): a stop pauses the campaign on Meta; 
   expect(mock.mkt.rules.dailyCap).toBe(5000);
   mock.mkt.suggestions.push({ ...mock.mkt.suggestions[1], id: 9, status: 'pending', error: null, value: null, result: null, decided_at: null, decided_by: null });
   await page.reload(); await expect(page.locator('#root')).toBeVisible();
-  await pg(page).getByRole('tab', { name: /مساعدين الذكاء الاصطناعي/ }).click();
+  await page.locator('.sidebar .nav-item[data-page="ai"]').click();
   await pg(page).locator('[data-mk-sugg="9"]').click();
   await suggModal(page).locator('[data-mk-approve]').click();
   await modal(page, 'تنفّذ على ميتا؟').getByRole('button', { name: 'أيوه، نفّذ' }).click();
@@ -220,8 +219,12 @@ test('the chat (0084): the question and the answer in the thread (ai-content age
   await signOut(page);
   await signIn(page, ACC);
   await expect(page.locator('.sidebar .nav-item[data-page="marketing"]')).toBeHidden();
-  await page.evaluate(() => { location.hash = 'marketing-ai'; });
+  await page.evaluate(() => { location.hash = 'marketing-overview'; });
   await expect.poll(() => page.evaluate(() => location.hash)).toBe('#dashboard');
+  // 0120: «الذكاء الاصطناعي» opens for them — their own assistants only (by each one's page), never the three of marketing
+  await page.locator('.sidebar .nav-item[data-page="ai"]').click();
+  await expect(page.locator('#pg-ai [role=tab]', { hasText: 'المحاسب الذكي' })).toBeVisible();
+  await expect(page.locator('#pg-ai [role=tab]', { hasText: 'الميديا باير' })).toHaveCount(0);
 });
 
 test('0084 the chats like Claude\'s: the history on the side (the member\'s own, newest first), a new chat named by its first question, rename, delete; ⚙️ the admin\'s settings (the intro, the instructions, the chips); expand / shrink with the same button', async ({ page }) => {
@@ -265,7 +268,7 @@ test('0084 the chats like Claude\'s: the history on the side (the member\'s own,
   await cfg.locator('textarea').nth(2).fill('بوست عيد الأم\nريل لمنتج جديد');
   await cfg.getByRole('button', { name: 'احفظ الإعدادات' }).click();
   await expect(toast(page)).toContainText('اتحفظت إعدادات الديزاينر');
-  expect(mock.mkt.agents.designer).toEqual({ intro: 'أنا ديزاينر إبتكر — قولّي المنتج والمناسبة', instructions: 'الألوان بيج وأخضر', suggestions: ['بوست عيد الأم', 'ريل لمنتج جديد'] });
+  expect((({ intro, instructions, suggestions }) => ({ intro, instructions, suggestions }))(mock.mkt.aiAgents.find((a) => a.id === 'designer'))).toEqual({ intro: 'أنا ديزاينر إبتكر — قولّي المنتج والمناسبة', instructions: 'الألوان بيج وأخضر', suggestions: ['بوست عيد الأم', 'ريل لمنتج جديد'] });
   await box.locator('[data-mk-chat-new]').click();
   await expect(box.locator('.mk-intro')).toContainText('أنا ديزاينر إبتكر');
   await expect(box.locator('.mk-agent-chips .chip')).toHaveText(['بوست عيد الأم', 'ريل لمنتج جديد']);
@@ -361,7 +364,7 @@ test('0082 «تقديم طلب»: the requests are team requests — the list wi
   await page.keyboard.press('Escape');
   // the designer's tab and the buyer's: their own lists and «تقديم طلب»
   await page.locator('.sidebar .nav-item[data-page="marketing"]').click();
-  await pg(page).getByRole('tab', { name: /مساعدين الذكاء الاصطناعي/ }).click();
+  await page.locator('.sidebar .nav-item[data-page="ai"]').click();
   await pg(page).getByRole('tab', { name: /الديزاينر/ }).click();
   await expect(pg(page).locator('[data-mk-reqs="designer"]')).toContainText('فيديو Macrame');
   await expect(pg(page).locator('[data-mk-reqs="designer"]')).toContainText('سارة أحمد');
@@ -369,7 +372,8 @@ test('0082 «تقديم طلب»: the requests are team requests — the list wi
   await expect(pg(page).locator('[data-mk-req-add="buyer"]').first()).toBeVisible();
   await signOut(page);
   await openAi(page, ADMIN, 'الديزاينر');
-  // the overview's assistant cards
+  // the marketing overview's assistant cards (they open «الذكاء الاصطناعي» on the assistant)
+  await page.locator('.sidebar .nav-item[data-page="marketing"]').click();
   await pg(page).getByRole('tab', { name: /نظرة عامة/ }).click();
   const cards = pg(page).locator('[data-ads-assistants="live"]');
   await expect(cards).toContainText('4 اقتراح مستني موافقتك');
@@ -627,7 +631,7 @@ test('comment 71 — the developer\'s tab: «افحص دلوقتي» lists WordP
   // the next visit reads the kept row
   await page.reload(); await expect(page.locator('#root')).toBeVisible();
   await page.locator('.sidebar .nav-item[data-page="marketing"]').click();
-  await pg(page).getByRole('tab', { name: /مساعدين الذكاء الاصطناعي/ }).click();
+  await page.locator('.sidebar .nav-item[data-page="ai"]').click();
   await pg(page).getByRole('tab', { name: /المبرمج/ }).click();
   await expect(pg(page).locator('.mk-dv tbody tr')).toHaveCount(8);
   // the designer's tab has none of the three
@@ -663,7 +667,7 @@ test('ش45 — the developer\'s «أداء الموقع»: «افحص دلوقت
   // the next visit reads the kept row
   await page.reload(); await expect(page.locator('#root')).toBeVisible();
   await page.locator('.sidebar .nav-item[data-page="marketing"]').click();
-  await pg(page).getByRole('tab', { name: /مساعدين الذكاء الاصطناعي/ }).click();
+  await page.locator('.sidebar .nav-item[data-page="ai"]').click();
   await pg(page).getByRole('tab', { name: /المبرمج/ }).click();
   await expect(pg(page).locator('.mk-sp [data-sp-page]')).toHaveCount(6);
 });
@@ -697,7 +701,7 @@ test('comments 72 and 73 — the assistants\' chat: the history by day, a welcom
   // a new chat: the welcome — the assistant's mark, its name, the intro and the four suggestions as cards inside it
   const hello = box.locator('.mk-chat.fresh .mk-welcome');
   await expect(hello.locator('.mk-av.xl svg')).toBeVisible();
-  await expect(hello.locator('.mk-welcome-t')).toHaveText('الديزاينر');
+  await expect(hello.locator('.mk-welcome-t')).toHaveText('الديزاينر الذكي');
   await expect(hello.locator('.mk-intro')).toContainText('أنا الديزاينر');
   await expect(hello.locator('.mk-agent-chips .chip')).toHaveCount(4);
   await expect(box.locator('.mk-agent-head .mk-av.lg')).toBeVisible();
@@ -818,3 +822,17 @@ test('ش45 — the media buyer\'s «اقفل الحملة»: a confirm card unde
   expect(mock.mkt.campaignSets.length).toBe(1);
 });
 
+
+// 0120 (the owner 17 Nov): the new assistants — the warehouse one for whoever sees the warehouse, its chat on the same server action with
+// its own id
+test('0120 — «المخزن الذكي»: a tab of its own, its chat asks the server as «stock»', async ({ page }) => {
+  await start(page);
+  await openAi(page, OPS, 'المخزن الذكي');
+  const P = pg(page); const box = P.locator('[data-mk-agent="stock"]');
+  await expect(box).toBeVisible();
+  await expect(P.locator('#mk-ask')).toHaveAttribute('placeholder', /المخزن الذكي/);
+  await P.locator('#mk-ask').fill('إيه أقدم قطعة في المخزن؟'); await P.locator('#mk-ask').press('Enter');
+  await expect.poll(() => mock.mkt.calls.filter((c) => c.action === 'agent').map((c) => c.agent)).toEqual(['stock']);
+  await expect(box.locator('.mk-chat')).toContainText('سؤالك: إيه أقدم قطعة في المخزن؟');
+  await expect(box.locator('[data-mk-chat-item]')).toHaveCount(1);
+});

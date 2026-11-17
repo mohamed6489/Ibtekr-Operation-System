@@ -46,7 +46,9 @@
   const { h, Icon, Button } = U;
   const MK = () => window.IBMarketing;
   const can = () => (MK() ? MK().can() : { view: false, create: false, publish: false });
-  const R = () => window.IBPages.render('marketing');
+  // 0120: the assistants live on their own page «الذكاء الاصطناعي» (registered below) — R draws whichever of the two is open
+  const here = () => ['marketing', 'ai'].includes(window.IBPages.current);
+  const R = () => window.IBPages.render(window.IBPages.current === 'ai' ? 'ai' : 'marketing');
   const IMGM = () => (window.IBImages && Array.isArray(window.IBImages.MODELS) ? window.IBImages.MODELS : []);
   const Tag = K.Tag;
   const chip = (label, on, onClick, attrs) => h('button', Object.assign({ type: 'button', class: 'chip', 'aria-pressed': String(!!on), onClick }, attrs || {}), label);
@@ -80,7 +82,7 @@
   let connAsk = 0;
   function needConn() {
     const cn = conn(); if (cn || !MK() || !MK().connection) return cn;
-    if (Date.now() - connAsk > 15000) { connAsk = Date.now(); MK().connection().then((r) => { if (r && r.ok && window.IBPages.current === 'marketing' && !document.querySelector('.scrim')) R(); }); }
+    if (Date.now() - connAsk > 15000) { connAsk = Date.now(); MK().connection().then((r) => { if (r && r.ok && here() && !document.querySelector('.scrim')) R(); }); }
     return null;
   }
   const PL_TAG = (pl, cn) => {
@@ -120,7 +122,7 @@
 
   // ---------- the page's state ----------
   // 9.5.3: «نظرة عامة» and «التقارير» are on the ads numbers; 9.5.4: the assistants (the media buyer, the designer, the developer) are open
-  const TABS = [['overview', 'نظرة عامة'], ['create', 'إنشاء'], ['publog', 'سجل النشر'], ['calendar', 'الخطة الإعلانية'], ['templates', 'قوالب التصميم'], ['ai', 'مساعدين الذكاء الاصطناعي'], ['reports', 'التقارير']];
+  const TABS = [['overview', 'نظرة عامة'], ['create', 'إنشاء'], ['publog', 'سجل النشر'], ['calendar', 'الخطة الإعلانية'], ['templates', 'قوالب التصميم'], ['reports', 'التقارير']]; // 0120: «مساعدين الذكاء الاصطناعي» moved to its own page «الذكاء الاصطناعي»
   const CSTEPS = ['تفاصيل الكامبين', 'البناء', 'المراجعة', 'النشر والتحميل'];
   const st = { tab: 'overview', view: 'hub', step: 1 }; // the v6 prototype (owner 11 Nov): the page opens on «نظرة عامة»
   const blankCamp = () => ({ id: null, w: W.defaults(), pieces: [], sched: {}, rtab: 'post', tried1: false, pubSel: new Set(), busy: {}, vjobs: {}, vurl: {}, mg: null, mgBusy: null, mgLinked: null, mgAsked: false });
@@ -129,12 +131,14 @@
 
   function route(hs) {
     let m;
-    if ((m = /^marketing(?:-(overview|create|publog|calendar|templates|ai|reports))?$/.exec(hs))) { st.tab = m[1] || 'overview'; st.view = 'hub'; return true; }
+    if ((m = /^marketing(?:-(overview|create|publog|calendar|templates|reports))?$/.exec(hs))) { st.tab = m[1] || 'overview'; st.view = 'hub'; return true; }
     if ((m = /^marketing-campaign-([1-4])$/.exec(hs))) { st.tab = 'create'; st.view = 'campaign'; st.step = Number(m[1]); return true; }
     return false;
   }
   const defaultHash = () => (st.view === 'campaign' ? 'marketing-campaign-' + st.step : 'marketing-' + st.tab);
   const go = (hs) => {
+    // from the «الذكاء الاصطناعي» page (a draft campaign, «اعمل نسخ زيه»…) the marketing page opens on that hash
+    if (window.IBPages.current === 'ai' && /^marketing/.test(hs)) { try { location.hash = '#' + hs; } catch (e) { /* sandboxed */ } return; }
     const was = st.view === 'campaign' ? st.step : null;
     try { history.replaceState(null, '', '#' + hs); } catch (e) { /* sandboxed */ }
     route(hs);
@@ -1259,9 +1263,9 @@
     const asst = (title, sub, items, label, onClick) => Card(title, sub, [h('div', { class: 'mk-list' }, items.map(([t, x, tag, tone]) => h('div', { class: 'mk-item' }, h('span', { class: 'mk-ic tone-' + tone }, Icon(tone === 'success' ? 'users' : 'clock', 'sm')), h('span', { class: 'mk-txt' }, h('b', null, t), h('small', null, U.num(x))), h('span', { class: 't-small help mk-tag' }, tag))))], Button({ type: 'text', size: 'sm', label, onClick }));
     return h('div', { class: 'grid3', 'data-ads-assistants': BY.sugg ? 'live' : 'loading' },
       asst('الميديا باير', 'تقرير يومي · اقتراحات بموافقتك · حدود صرف', [[K.n0(pend.length) + ' اقتراح مستني موافقتك', kinds(pend), 'اقتراحات', pend.length ? 'orange' : 'success'], ['حد الصرف اليومي: ' + (r ? K.n0(r.dailyCap) + ' ج.م' : '…'), 'أي زيادة فوقه بتترفض', 'قاعدة', 'success'],
-        ['التنفيذ على ميتا: ' + (r ? (r.live ? 'شغّال' : 'متوقف') : '…'), r && r.live ? 'الموافقة بتتنفّذ فورًا' : 'الموافقة بتتسجل من غير تغيير', 'مفتاح', r && r.live ? 'success' : 'neutral']], 'افتح الميديا باير', () => { BY.aiTab = 'buyer'; go('marketing-ai'); }),
-      asst('الديزاينر', 'بوستات وفيديوهات بالبراند · Magnific', reqRows('designer'), canAsk() ? 'تقديم طلب للديزاينر' : 'افتح الديزاينر', () => { if (canAsk()) reqForm('designer'); else { BY.aiTab = 'designer'; go('marketing-ai'); } }),
-      asst('المبرمج', 'صفحات الموقع وتطوير مشاريع إبتكر · Staging الأول', reqRows('dev'), canAsk() ? 'تقديم طلب للمبرمج' : 'افتح المبرمج', () => { if (canAsk()) reqForm('dev'); else { BY.aiTab = 'dev'; go('marketing-ai'); } }));
+        ['التنفيذ على ميتا: ' + (r ? (r.live ? 'شغّال' : 'متوقف') : '…'), r && r.live ? 'الموافقة بتتنفّذ فورًا' : 'الموافقة بتتسجل من غير تغيير', 'مفتاح', r && r.live ? 'success' : 'neutral']], 'افتح الميديا باير', () => goAi('buyer')),
+      asst('الديزاينر', 'بوستات وفيديوهات بالبراند · Magnific', reqRows('designer'), canAsk() ? 'تقديم طلب للديزاينر' : 'افتح الديزاينر', () => { if (canAsk()) reqForm('designer'); else goAi('designer'); }),
+      asst('المبرمج', 'صفحات الموقع وتطوير مشاريع إبتكر · Staging الأول', reqRows('dev'), canAsk() ? 'تقديم طلب للمبرمج' : 'افتح المبرمج', () => { if (canAsk()) reqForm('dev'); else goAi('dev'); }));
   }
   function campDetail(x) {
     U.DetailsModal({ title: x.name + ' — ' + x.platform, sub: 'الحالة: ' + stOf(x.status)[0] + ' · ' + K.n0(x.days.length) + ' يوم فيه صرف أو أوردرات' + (srcText(x.sources) ? ' · الأوردرات: ' + srcText(x.sources) : ''),
@@ -1340,7 +1344,7 @@
       if (b.ok) BY.rules = b.rules;
       if (c.ok) BY.reqs = c.items; else if (!BY.reqs) BY.reqs = [];
       BY.at = Date.now(); BY.busy = false;
-      if (window.IBPages.current === 'marketing' && st.view === 'hub' && !document.querySelector('.scrim')) R();
+      if (here() && (st.view === 'hub' || window.IBPages.current === 'ai') && !document.querySelector('.scrim')) R();
     }).catch(() => { BY.busy = false; });
   }
   const byPending = () => (BY.sugg || []).filter((x) => x.status === 'pending');
@@ -1427,11 +1431,29 @@
     dev: 'أنا المبرمج. بساعدك تخطط لصفحة على الموقع أو تعديل في السيستم وأكتبلك المطلوب بالظبط — والتنفيذ بيروح للمبرمج البشري من «تقديم طلب»، ومفيش حاجة بتوصل للموقع اللايف من غير موافقتك.' };
   const AG_SUGG = { buyer: ['حلل آخر 7 أيام', 'إيه أحسن حملة؟', 'قارن ميتا بووكومرس', 'اعمل حملة لمنتج'], designer: ['فكرة بوست لمنتج جديد', 'كاروسيل لعروض الشتا', 'ستوري لخصم', 'اعمل صورة لبوست'],
     dev: ['صفحة هبوط لعرض', 'تعديل في صفحة المنتج', 'اكتب مواصفات طلب', 'إيه أسرع طريقة؟'] };
+  // 0120: the five new built-ins' words; a custom one speaks from its «about»
+  Object.assign(AG_INTRO, {
+    stock: 'أنا المخزن الذكي. بشوف القطع اللي في المخزن والتجميع والمرتجعات اللي مستنية فحص — اسألني إيه اللي مستني وإيه الأقدم.',
+    cs: 'أنا خدمة العملاء الذكية. بشوف العملاء وأوردراتهم والطلبات المفتوحة، وبكتبلك الرد على العميل بأسلوبنا.',
+    makers: 'أنا خدمة المبتكرين الذكية. بشوف المبتكرين وأوردراتهم والمتأخر منها، وبكتبلك رسالة المتابعة للمبتكر.',
+    accountant: 'أنا المحاسب الذكي. بقرا المصروفات والمبيعات وحصة إبتكر بأرقامك الحقيقية — ومابسجّلش ولا بحرّك فلوس.',
+    hr: 'أنا الموارد البشرية الذكية. بشوف الحضور والطلبات والمهام — من غير المرتبات — وبقولك إيه المستني قرار.' });
+  Object.assign(AG_SUGG, { stock: ['إيه اللي مستني في المخزن؟', 'المرتجعات اللي مستنية فحص', 'أقدم القطع', 'التجميعات المفتوحة'],
+    cs: ['مين العملاء الزعلانين؟', 'اكتب رد لعميل اتأخر أوردره', 'الأوردرات غير المؤكدة', 'الطلبات المفتوحة'],
+    makers: ['مين المتأخر؟', 'اكتب رسالة متابعة لمبتكر', 'المبتكرين الجداد', 'طلبات المبتكرين المفتوحة'],
+    accountant: ['مصروفات الشهر', 'أكبر مصروف', 'المبيعات وحصة إبتكر', 'قارن بالشهر اللي فات'],
+    hr: ['مين ناقصه ساعات؟', 'الطلبات المستنية قرار', 'الحضور الأسبوع ده', 'المهام المفتوحة'] });
+  const AG_DEF_ICON = { buyer: 'chart', designer: 'image', dev: 'code', stock: 'tag', cs: 'headset', makers: 'users', accountant: 'wallet', hr: 'briefcase' };
+  const agReg = (a) => (MK() && MK().agentOf ? MK().agentOf(a) : null);
+  const agName = (a) => { const r = agReg(a); return (r && r.name) || ({ buyer: 'الميديا باير الذكي', designer: 'الديزاينر الذكي', dev: 'المبرمج الذكي' })[a] || a; };
+  const agIcon = (a) => { const r = agReg(a); return (r && r.icon) || AG_DEF_ICON[a] || 'sparkle'; };
+  const agIntro = (a) => AG_INTRO[a] || ('أنا ' + agName(a) + '.' + ((agReg(a) || {}).about ? ' ' + agReg(a).about : ''));
+  const agSugg = (a) => AG_SUGG[a] || [];
   const AG_SUB = { buyer: 'بيقرا أرقام ميتا + أوردرات ووكومرس · بيقترح وانت توافق — مابينفّذش حاجة من الشات', designer: 'أفكار وتصميمات بالبراند · بيولّد صورة لما تطلب — بكريدت الصور', dev: 'صفحات الموقع وتطوير السيستم · بيكتب المواصفات — والتنفيذ من «تقديم طلب»' };
   const agCfg = (a) => { const x = MK() && MK().agentSettingsNow && MK().agentSettingsNow(); return (x && x[a]) || null; };
   const agTime = (iso) => { if (!iso) return ''; const d = new Date(iso); if (isNaN(d)) return ''; const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo' }).format(d); const t = new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Cairo', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(d); return day === TODAY() ? t : D2(day) + ' · ' + t; };
   const quietSel = (x, n) => { try { x.setSelectionRange(n, n); } catch (e) { /* not a text box */ } };
-  const agRefresh = () => { if (window.IBPages.current === 'marketing' && !document.querySelector('.scrim')) R(); };
+  const agRefresh = () => { if (here() && !document.querySelector('.scrim')) R(); };
   function agLoad(a, force) {
     if (!MK() || !MK().agentChats || AG.loading[a] || (!force && AG.chats[a])) return;
     AG.loading[a] = true;
@@ -1449,8 +1471,9 @@
   // ش45 decision 3: the header's assistant hands a question to one of the three — open its tab on a new chat with the question written in
   // the box; the member presses «ابعت» (security review: a turn the model was led to by data it read never spends or writes on its own)
   function askAgent(a, q) {
-    if (!['buyer', 'designer', 'dev'].includes(a) || !can().view) return false;
-    BY.aiTab = a; AG.active[a] = null; AG.draft[a] = String(q || '').slice(0, 1000); go('marketing-ai');
+    const list = (MK() && MK().agentsNow && MK().agentsNow()) || null;
+    if (list ? !list.some((x) => x.id === a && !x.archived) : !(['buyer', 'designer', 'dev'].includes(a) && can().view)) return false;
+    BY.aiTab = a; AG.active[a] = null; AG.draft[a] = String(q || '').slice(0, 1000); goAi(a);
     setTimeout(() => { const el = document.getElementById('mk-ask'); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }, 80);
     return true;
   }
@@ -1515,8 +1538,8 @@
   function agSettings(a) {
     const A = AGENTS[a]; const cur = agCfg(a) || { intro: '', instructions: '', suggestions: null };
     K.form({ title: 'إعدادات ' + A.name, wide: true, submitLabel: 'احفظ الإعدادات', note: 'التعليمات بيقراها المساعد في كل رسالة ويمشي عليها — مابتخليهوش ينفّذ حاجة لوحده.',
-      values: { intro: cur.intro || '', instr: cur.instructions || '', sugg: (cur.suggestions || AG_SUGG[a]).join('\n') },
-      fields: (f, e, set) => [K.field.area('intro', 'رسالة التعريف (أول الشات)', f, e, set, { placeholder: AG_INTRO[a] }),
+      values: { intro: cur.intro || '', instr: cur.instructions || '', sugg: (cur.suggestions || agSugg(a)).join('\n') },
+      fields: (f, e, set) => [K.field.area('intro', 'رسالة التعريف (أول الشات)', f, e, set, { placeholder: agIntro(a) }),
         K.field.area('instr', 'التعليمات والقواعد', f, e, set, { placeholder: a === 'designer' ? 'مثال: الألوان بيج وأخضر — الخط عربي واضح — من غير أسود' : a === 'dev' ? 'مثال: أي تعديل على الموقع يتجرّب على الـ staging الأول' : 'مثال: ركّز على العائد الحقيقي من ووكومرس' }),
         K.field.area('sugg', 'الاقتراحات السريعة (سطر لكل اقتراح — لحد 8)', f, e, set)],
       validate: (f) => { const e = {}; if (String(f.intro).trim().length > 600) e.intro = 'لحد 600 حرف'; if (String(f.instr).trim().length > 4000) e.instr = 'لحد 4000 حرف';
@@ -1532,7 +1555,7 @@
   // the suggestions as one strip over the box, and the box itself grows with what is typed (Enter sends, Shift + Enter = a new line).
   // Decision 73 («غير الايقون دي لايقونة التكبير و لما اجي اصغر تبقي ايقونة التصغير»): «كبّر» carries the expand mark and «صغّر» the shrink one
   const AG_ICON = { buyer: 'chart', designer: 'image', dev: 'code' };
-  const agMark = (a, cls) => h('span', { class: 'mk-av' + (cls ? ' ' + cls : ''), 'aria-hidden': 'true' }, Icon(AG_ICON[a], 'sm'));
+  const agMark = (a, cls) => h('span', { class: 'mk-av' + (cls ? ' ' + cls : ''), 'aria-hidden': 'true' }, Icon(agIcon(a), 'sm'));
   const agDay = (iso) => { const d = new Date(iso); return isNaN(d) ? '' : new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo' }).format(d); };
   // the history by day — today, the last week, older — in the order the server sent it (the newest first)
   function agGroups(chats) {
@@ -1544,8 +1567,8 @@
   function agentChat(a) {
     agLoad(a, false);
     const A = AGENTS[a]; const cfg = agCfg(a); const chats = AG.chats[a]; const cid = AG.active[a] || null; const key = cid || 'new-' + a;
-    const turns = AG.turns[key] || []; const intro = (cfg && cfg.intro) || AG_INTRO[a];
-    const sugg = (cfg && cfg.suggestions && cfg.suggestions.length ? cfg.suggestions : AG_SUGG[a]);
+    const turns = AG.turns[key] || []; const intro = (cfg && cfg.intro) || agIntro(a);
+    const sugg = (cfg && cfg.suggestions && cfg.suggestions.length ? cfg.suggestions : agSugg(a));
     const chatRow = (c) => h('div', { class: 'mk-agent-row' + (c.id === cid ? ' on' : ''), 'data-mk-chat-item': c.id },
       h('button', { type: 'button', class: 'mk-agent-open', 'aria-current': c.id === cid ? 'true' : null, onClick: () => agOpen(a, c.id) }, h('b', null, c.title), h('small', { class: 'help' }, agTime(c.updatedAt))),
       K.RowMenu([{ label: 'تغيير الاسم', icon: 'edit', run: () => agRename(a, c) }, { label: 'امسح الشات', icon: 'trash', danger: true, run: () => agDelete(a, c) }], 'خيارات الشات'));
@@ -1595,7 +1618,7 @@
     // the same task (IBPages.render is synchronous): a frame later a key typed in between went to the removed box (CI 989 on 14 Nov:
     // the text typed while the designer's chats landed was lost)
     if (document.activeElement && document.activeElement.id === 'mk-ask') queueMicrotask(() => { const x = document.getElementById('mk-ask'); if (x && document.activeElement !== x) { x.focus(); const n = x.value.length; quietSel(x, n); } });
-    const head = h('div', { class: 'mk-agent-head' }, agMark(a, 'lg'), h('div', { class: 'mk-agent-title' }, h('b', null, A.name), h('small', { class: 'help' }, AG_SUB[a])),
+    const head = h('div', { class: 'mk-agent-head' }, agMark(a, 'lg'), h('div', { class: 'mk-agent-title' }, h('b', null, A.name), h('small', { class: 'help' }, AG_SUB[a] || (agReg(a) || {}).about || '')),
       h('div', { class: 'mk-agent-tools' },
         h('button', { type: 'button', class: 'btn btn-default sm mk-agent-toggle', 'data-mk-chats-toggle': AG.side ? 'on' : 'off', 'aria-expanded': AG.side ? 'true' : 'false', onClick: () => { AG.side = !AG.side; R(); } }, Icon('msg', 'sm'), 'الشاتات' + (chats && chats.length ? ' (' + K.n0(chats.length) + ')' : '')),
         isAdmin() ? Button({ size: 'sm', icon: 'gear', label: 'الإعدادات', attrs: { 'data-mk-agent-cfg': a }, onClick: () => agSettings(a) }) : null, askBtn(a),
@@ -1612,7 +1635,11 @@
   // طلبات الفريق… ولما يتعمل يتسجل هنا في صفحة الديزاينر أو المبرمج ونقول مين مقدم الطلب… ويبقى مربوط بصفحة طلبات الفريق»): a request
   // = a team request of a kind (IBTickets.createRequest → ticket_request_create) to the kind's role; listed here under its assistant
   // with who asked, worked (status, replies) in «طلبات الفريق»
-  const AGENTS = { buyer: { name: 'الميديا باير', role: 'ميديا باير', to: 'للميديا باير' }, designer: { name: 'الديزاينر', role: 'ديزاينر', to: 'للديزاينر' }, dev: { name: 'المبرمج', role: 'مبرمج', to: 'للمبرمج' } };
+  // 0120: every assistant from the registry — its name, the role a request goes to («تقديم طلب»), «لـ…»
+  const AG_ROLE = { buyer: 'ميديا باير', designer: 'ديزاينر', dev: 'مبرمج' };
+  // «لـ» + the name, the article joined the Egyptian way: «للمبرمج الذكي» / «لخدمة العملاء الذكية»
+  const toOf = (name) => (/^ال/.test(name) ? 'ل' + name.slice(1) : /^[\u0621-\u064a]/.test(name) ? 'ل' + name : 'لـ ' + name);
+  const AGENTS = new Proxy({}, { get: (o, a) => { if (typeof a !== 'string') return undefined; const r = agReg(a); const name = agName(a); return { name, role: (r && r.role) || AG_ROLE[a] || 'مدير النظام', to: toOf(name) }; } });
   const TKA = () => window.IBTickets; const TKD = () => window.IbtekrTickets;
   const canAsk = () => !!(TKA() && TKA().can().manage);
   const REQ_TONE = { open: 'orange', in_progress: 'gold', waiting: 'gold', resolved: 'success', closed: 'neutral' };
@@ -1690,7 +1717,7 @@
   function trLoad(force) {
     if (!MK() || !MK().trends || !can().view || TR.busy || (!force && TR.at && Date.now() - TR.at < 60000)) return;
     TR.busy = true;
-    MK().trends(force).then(() => { TR.at = Date.now(); TR.busy = false; if (window.IBPages.current === 'marketing' && st.view === 'hub' && !document.querySelector('.scrim')) R(); });
+    MK().trends(force).then(() => { TR.at = Date.now(); TR.busy = false; if (here() && (st.view === 'hub' || window.IBPages.current === 'ai') && !document.querySelector('.scrim')) R(); });
   }
   async function trRefresh() {
     if (TR.asking) return;
@@ -1724,14 +1751,14 @@
   }
   function trendsCard() {
     trLoad(false);
-    if (MK().trendSettings && !MK().trendSettingsNow()) MK().trendSettings().then(() => { if (window.IBPages.current === 'marketing' && !document.querySelector('.scrim')) R(); });
+    if (MK().trendSettings && !MK().trendSettingsNow()) MK().trendSettings().then(() => { if (here() && !document.querySelector('.scrim')) R(); });
     const L = MK().trendsNow ? MK().trendsNow() : []; const ready = !MK().trendsReadyNow || MK().trendsReadyNow();
     const cfg = (MK().trendSettingsNow && MK().trendSettingsNow()) || { tags: [] };
     const all = L || []; const tagged = TRV.tag ? all.filter((x) => x.tag === TRV.tag) : all;
     const vids = tagged.filter((x) => x.kind === 'video'); const posts = tagged.filter((x) => x.kind !== 'video');
     const shown = TRV.tab === 'video' ? vids : posts;
     const need = shown.filter((x) => x.thumb && !MK().trendThumbNow(x.thumb)).map((x) => x.thumb);
-    if (need.length) MK().trendThumbs(need).then((m) => { if (Object.keys(m).length && window.IBPages.current === 'marketing' && !document.querySelector('.scrim')) R(); });
+    if (need.length) MK().trendThumbs(need).then((m) => { if (Object.keys(m).length && here() && !document.querySelector('.scrim')) R(); });
     const last = all.length ? dayOf(all[0].at) : null;
     const go = can().create && ready ? Button({ size: 'sm', type: 'primary', icon: 'sparkle', label: TR.asking ? 'بيدوّر…' : 'حدّث التريندات', disabled: TR.asking, attrs: { 'data-mk-trends-go': '' }, onClick: trRefresh }) : null;
     const tabs = h('div', { 'data-mk-trend-tabs': '' }, K.SubTabs({ label: 'نوع التريند', active: TRV.tab, onChange: (id) => { TRV.tab = id; R(); }, items: [{ id: 'video', label: 'فيديوهات', count: String(vids.length) }, { id: 'post', label: 'بوستات', count: String(posts.length) }] }));
@@ -1755,7 +1782,7 @@
   function cpLoad(force) {
     if (!MK() || !MK().competitors || !can().view || CP.busy || (!force && CP.at && Date.now() - CP.at < 60000)) return;
     CP.busy = true;
-    MK().competitors(force).then(() => { CP.at = Date.now(); CP.busy = false; if (window.IBPages.current === 'marketing' && st.view === 'hub' && !document.querySelector('.scrim')) R(); });
+    MK().competitors(force).then(() => { CP.at = Date.now(); CP.busy = false; if (here() && (st.view === 'hub' || window.IBPages.current === 'ai') && !document.querySelector('.scrim')) R(); });
   }
   const libLink = (c, label, attrs) => h('a', Object.assign({ class: 'btn btn-default sm mk-lib', href: W.adLibraryUrl(c, 'EG', CP.type), target: '_blank', rel: 'noopener noreferrer', title: 'يفتح مكتبة إعلانات ميتا في تاب جديد' }, attrs || {}), Icon('external', 'sm'), h('span', null, label));
   window.IBCompForm = (x) => compForm(x || null); // ش44: the settings' «المنافسين» opens the same popup
@@ -1791,7 +1818,7 @@
   }
   function competitorsCard() {
     cpLoad(false);
-    if (MK().trendSettings && !MK().trendSettingsNow()) MK().trendSettings().then(() => { if (window.IBPages.current === 'marketing' && !document.querySelector('.scrim')) R(); });
+    if (MK().trendSettings && !MK().trendSettingsNow()) MK().trendSettings().then(() => { if (here() && !document.querySelector('.scrim')) R(); });
     const L = MK().competitorsNow ? MK().competitorsNow() : []; const ready = !MK().competitorsReadyNow || MK().competitorsReadyNow(); const edit = can().create;
     const cfg = (MK().trendSettingsNow && MK().trendSettingsNow()) || { adTags: [] }; const adTags = cfg.adTags || [];
     const inp = h('input', { type: 'text', class: 'input grow', id: 'mk-lib-q', maxlength: '80', placeholder: 'اسم منتج أو براند أو كلمة… (مثلًا: مكرمية)', 'aria-label': 'كلمة البحث في مكتبة الإعلانات', value: CP.q,
@@ -1830,7 +1857,7 @@
   function dvLoad(force) {
     if (!MK() || !MK().siteCheck || !can().view || DV.busy || (!force && DV.at && Date.now() - DV.at < 60000)) return;
     DV.busy = true;
-    Promise.all([MK().siteCheck(force), MK().siteSpeed ? MK().siteSpeed(force) : null, MK().siteSubs(force), MK().aiSpend(force), MK().credits ? MK().credits(true) : null]).then(() => { DV.at = Date.now(); DV.busy = false; if (window.IBPages.current === 'marketing' && st.view === 'hub' && !document.querySelector('.scrim')) R(); });
+    Promise.all([MK().siteCheck(force), MK().siteSpeed ? MK().siteSpeed(force) : null, MK().siteSubs(force), MK().aiSpend(force), MK().credits ? MK().credits(true) : null]).then(() => { DV.at = Date.now(); DV.busy = false; if (here() && (st.view === 'hub' || window.IBPages.current === 'ai') && !document.querySelector('.scrim')) R(); });
   }
   async function dvCheck() {
     if (DV.checking) return; DV.checking = true; R();
@@ -1922,25 +1949,70 @@
       go, 'mk-sp mk-wide', { noun: 'صفحة', when: ch && ch.at ? 'آخر فحص ' + agTime(ch.at) : '' });
   }
   function devCards() { dvLoad(false); return [speedCard(), updatesCard(), h('div', { class: 'grid2 mk-agent-under' }, subsCard(), creditsCard())]; }
-  function aiTab() {
-    byLoad(false);
+  // ---------- «الذكاء الاصطناعي» (0120 — the owner 17 Nov: «انقل مساعدين الذكاء الاصطناعي من جوه التسويق و حطها في قسم رئيسي…
+  // ضيف المخزن الذكي و خدمة العملاء الذكية و خدمة المبتكرين الذكية… المحاسب الذكي و الموارد البشرية الذكية… امكانية لاضافة مساعدين
+  // جدد»): a tab per assistant the member sees (the registry — IBMarketing.agents), the same chat, and under it the assistant's own cards
+  // (the buyer's decisions and rules, the designer's trends, the developer's site); the admin adds and edits assistants here too ----------
+  const goAi = (a) => { if (a) BY.aiTab = a; const hs = 'ai' + (BY.aiTab ? '-' + BY.aiTab : ''); if (location.hash.slice(1) === hs) R(); else location.hash = '#' + hs; };
+  const aiList = () => { const L = (MK() && MK().agentsNow && MK().agentsNow()) || null; return L ? L.filter((x) => !x.archived) : null; };
+  let aiAsked = false;
+  function agentForm(x) {
+    const MKa = MK(); const P = MKa.AGENT_PERMS || []; const S2 = MKa.AGENT_SEES || []; const T = TKD(); const roles = (T && T.ROLES) || [];
+    const ICONS = ['sparkle', 'bot', 'chart', 'image', 'code', 'tag', 'stock', 'truck', 'headset', 'msg', 'users', 'wallet', 'briefcase', 'package', 'box', 'megaphone', 'ticket', 'calendar', 'mail', 'star', 'zap', 'sliders', 'file', 'sheet'];
+    const builtin = !!(x && x.builtin);
+    K.form({ title: x ? 'تعديل «' + x.name + '»' : 'مساعد جديد', wide: true, submitLabel: x ? 'احفظ' : 'ضيف المساعد',
+      note: builtin ? 'مساعد السيستم: الصفحة اللي بتفتحه والبيانات اللي بيقراها ثابتين — الاسم والأيقونة والدور والكلام بيتغيّروا.' : 'المساعد بيقرا البيانات اللي تختارها بصلاحيات اللي بيكلّمه، ومابينفّذش حاجة — الشغل الحقيقي «تقديم طلب» للدور.',
+      values: { name: x ? x.name : '', icon: x ? x.icon : 'sparkle', perm: x ? x.perm : 'orders.view', sees: x ? x.sees.slice() : [], role: x && x.role ? x.role : '', about: x ? x.about : '', instructions: x ? x.instructions : '' },
+      fields: (f, e, set) => [K.two(K.field.text('name', 'الاسم', f, e, set, { required: true, placeholder: 'مثلًا: مساعد المنتجات' }), K.field.select('icon', 'الأيقونة', ICONS.map((v) => ({ value: v, label: v })), f, e, set)),
+        builtin ? null : K.field.select('perm', 'بيظهر للي معاه «عرض»', P.map(([v, l]) => ({ value: v, label: l })), f, e, set),
+        builtin ? null : U.FieldShell({ id: 'ag-sees', label: 'البيانات اللي بيقراها (آخر 30 يوم، بصلاحيات اللي بيكلّمه)' }, h('div', { class: 'chips', 'data-ag-sees': '' }, S2.map(([v, l]) => h('button', { type: 'button', class: 'chip' + (f.sees.includes(v) ? ' on' : ''), 'aria-pressed': String(f.sees.includes(v)), 'data-ag-see': v,
+          onClick: () => set('sees', f.sees.includes(v) ? f.sees.filter((k) => k !== v) : f.sees.concat(v), true) }, l)))),
+        K.field.select('role', 'الطلبات بتروح لدور', [{ value: '', label: 'مدير النظام' }].concat(roles.map((r) => ({ value: r, label: r }))), f, e, set),
+        K.field.area('about', 'بيعمل إيه (سطر بيظهر تحت اسمه)', f, e, set, { rows: 2 }),
+        K.field.area('instructions', 'التعليمات', f, e, set, { rows: 4, help: 'بيقراها في كل رسالة — والقواعد والسكيلز من «الإعدادات › الذكاء الاصطناعي › المساعدين».' })].filter(Boolean),
+      validate: (f) => { const n = String(f.name || '').trim(); if (n.length < 2 || n.length > 40) return { name: 'من 2 لـ 40 حرف' }; if (/[<>]/.test(n + f.about + f.instructions)) return { about: 'من غير < أو >' }; if (String(f.about || '').length > 300) return { about: 'لحد 300 حرف' }; return {}; },
+      submit: async (f, md) => {
+        const body = { name: f.name, icon: f.icon, role: f.role, about: f.about, instructions: f.instructions };
+        if (x) body.id = x.id; if (!builtin) { body.perm = f.perm; body.sees = f.sees; }
+        const r = await MKa.agentSave(body); if (!r.ok) { K.toast(r.message, 'error'); return; }
+        md.close(); K.toast(x ? 'اتحفظ' : 'اتضاف «' + String(f.name).trim() + '»', 'success'); if (!x && r.id) goAi(r.id); else R(); } });
+  }
+  function agentArchiveAsk(x) {
+    K.confirm({ title: 'تأرشف «' + x.name + '»؟', text: 'هيختفي من «الذكاء الاصطناعي» عند الكل، وشاتاته بتفضل محفوظة — وتقدر ترجّعه من الإعدادات.', okType: 'danger', okLabel: 'أرشف',
+      onOk: async () => { const r = await MK().agentArchive(x.id, true); if (!r.ok) { K.toast(r.message, 'error'); return; } K.toast('اتأرشف', 'success'); BY.aiTab = null; goAi(null); } });
+  }
+  function aiView() {
+    const MKa = MK(); if (!MKa) return [K.PageHead('الذكاء الاصطناعي', null, []), K.Empty('مش متاح دلوقتي', 'جرّب تعمل رفريش.')];
+    const L = aiList();
+    if (!L) { if (!aiAsked) { aiAsked = true; MKa.agents(false).then((r) => { aiAsked = false; if (!r.ok) K.toast(r.message, 'error'); if (window.IBPages.current === 'ai') R(); }); } return [K.PageHead('الذكاء الاصطناعي', null, []), K.Empty('بنحمّل…', 'لحظة واحدة')]; }
+    const add = isAdmin() ? Button({ type: 'primary', icon: 'plus', label: 'مساعد جديد', attrs: { 'data-ai-add': '' }, onClick: () => agentForm(null) }) : null;
+    if (!L.length) return [K.PageHead('الذكاء الاصطناعي', null, [add].filter(Boolean)), K.Empty('مفيش مساعدين متاحين لدورك', 'كل مساعد بيظهر للي معاه صلاحية «عرض» صفحته — كلّم الأدمن لو محتاج واحد.')];
+    if (!BY.aiTab || !L.some((x) => x.id === BY.aiTab)) BY.aiTab = L[0].id;
+    const a = BY.aiTab; const me = L.find((x) => x.id === a);
+    if (a === 'buyer' || a === 'designer' || a === 'dev') byLoad(false);
     const cnt = (kind) => (reqsOf(kind) || []).filter((q) => q.open).length || null;
-    const sub = K.SubTabs({ items: [{ id: 'buyer', label: 'الميديا باير', count: byPending().length || null }, { id: 'designer', label: 'الديزاينر', count: cnt('designer') }, { id: 'dev', label: 'المبرمج', count: cnt('dev') }], active: BY.aiTab, onChange: (id) => { BY.aiTab = id; R(); }, label: 'المساعدين' });
-    const chat = agentChat(BY.aiTab);
-    if (BY.aiTab !== 'buyer') return [sub, chat, reqsCard(BY.aiTab)].concat(BY.aiTab === 'designer' ? [trendsCard()] : devCards());
-    const pend = byPending(); const past = (BY.sugg || []).filter((x) => x.status !== 'pending').slice(0, 8);
-    const under = h('div', { class: 'grid2 mk-agent-under' },
-      Card('مستني موافقتك (' + K.n0(pend.length) + ')', 'وافق أو ارفض · كل إجراء بيتسجل في سجل النشاط', [BY.sugg ? (pend.length ? h('div', { class: 'mk-list', 'data-mk-pending': String(pend.length) }, pend.map((x) => sgItem(x, () => openSugg(x)))) : K.Empty('مفيش حاجة مستنية', 'الاقتراحات بتتجدد مع كل مزامنة لأرقام ميتا.')) : K.Empty('بيحمّل…', ''),
-        h('p', { class: 't-small help', style: 'margin:0' }, 'الضغط على اقتراح بيفتحه: الأرقام · السبب · «وافق» / «ارفض» / «عدّل»')]),
-      past.length ? Card('آخر القرارات', 'آخر 30 يوم', [h('div', { class: 'mk-list', 'data-mk-past': String(past.length) }, past.map((x) => h('button', { type: 'button', class: 'mk-item', 'data-mk-sugg': String(x.id), onClick: () => openSugg(x) }, h('span', { class: 'mk-txt' }, h('b', null, x.title), h('small', null, U.num(decidedLine(x)))), Tag((SG_ST[x.status] || SG_ST.pending)[1], (SG_ST[x.status] || SG_ST.pending)[0]))))]) : null,
-      reqsCard('buyer'), rulesCard());
-    return [sub, chat, under, competitorsCard()];
+    const tabs = K.MainTabs({ items: L.map((x) => ({ id: x.id, label: x.name, count: x.id === 'buyer' ? (byPending().length || null) : cnt(x.id) })), active: a, onChange: (id) => goAi(id), label: 'المساعدين' });
+    const edit = isAdmin() ? K.RowMenu([{ label: 'تعديل المساعد', icon: 'edit', run: () => agentForm(me) }, me.builtin ? null : { label: 'أرشف المساعد', icon: 'trash', danger: true, run: () => agentArchiveAsk(me) }].filter(Boolean), 'إجراءات ' + me.name) : null;
+    const chat = agentChat(a);
+    let under = [reqsCard(a)];
+    if (a === 'designer') under = [reqsCard(a), trendsCard()];
+    else if (a === 'dev') under = [reqsCard(a)].concat(devCards());
+    else if (a === 'buyer') {
+      const pend = byPending(); const past = (BY.sugg || []).filter((x) => x.status !== 'pending').slice(0, 8);
+      under = [h('div', { class: 'grid2 mk-agent-under' },
+        Card('مستني موافقتك (' + K.n0(pend.length) + ')', 'وافق أو ارفض · كل إجراء بيتسجل في سجل النشاط', [BY.sugg ? (pend.length ? h('div', { class: 'mk-list', 'data-mk-pending': String(pend.length) }, pend.map((x) => sgItem(x, () => openSugg(x)))) : K.Empty('مفيش حاجة مستنية', 'الاقتراحات بتتجدد مع كل مزامنة لأرقام ميتا.')) : K.Empty('بيحمّل…', ''),
+          h('p', { class: 't-small help', style: 'margin:0' }, 'الضغط على اقتراح بيفتحه: الأرقام · السبب · «وافق» / «ارفض» / «عدّل»')]),
+        past.length ? Card('آخر القرارات', 'آخر 30 يوم', [h('div', { class: 'mk-list', 'data-mk-past': String(past.length) }, past.map((x) => h('button', { type: 'button', class: 'mk-item', 'data-mk-sugg': String(x.id), onClick: () => openSugg(x) }, h('span', { class: 'mk-txt' }, h('b', null, x.title), h('small', null, U.num(decidedLine(x)))), Tag((SG_ST[x.status] || SG_ST.pending)[1], (SG_ST[x.status] || SG_ST.pending)[0]))))]) : null,
+        reqsCard('buyer'), rulesCard()), competitorsCard()];
+    }
+    const panel = h('div', { class: 'panel', role: 'tabpanel', 'data-ai-agent': a }, chat, ...under.filter(Boolean));
+    return [K.PageHead('الذكاء الاصطناعي', me.about || null, [edit, add].filter(Boolean)), tabs, panel];
   }
   // the overview's card (the v5): the open suggestions, the whole list from the assistants' tab
   function suggCard() {
     byLoad(false); const pend = byPending(); const r = BY.rules;
     return Card('اقتراحات الميديا باير', 'مستنية موافقتك · من قواعد ثابتة على أرقامك الحقيقية بعد كل مزامنة', [BY.sugg ? (pend.length ? h('div', { class: 'mk-list', 'data-mk-pending': String(pend.length) }, pend.slice(0, 5).map((x) => sgItem(x, () => openSugg(x)))) : K.Empty('مفيش اقتراحات مستنية', 'الميديا باير بيبعت اقتراحاته مع كل مزامنة، وتقرير يومي الساعة ' + (r ? String(r.reportHour).padStart(2, '0') + ':00' : '9:00') + ' على الجرس.')) : K.Empty('بيحمّل…', ''),
-      Button({ type: 'text', size: 'sm', label: 'كل الاقتراحات (' + K.n0(pend.length) + ') والقواعد', iconEnd: 'chevL', attrs: { 'data-mk-all-sugg': '' }, onClick: () => { BY.aiTab = 'buyer'; go('marketing-ai'); } })], null, 'mk-wide');
+      Button({ type: 'text', size: 'sm', label: 'كل الاقتراحات (' + K.n0(pend.length) + ') والقواعد', iconEnd: 'chevL', attrs: { 'data-mk-all-sugg': '' }, onClick: () => goAi('buyer') })], null, 'mk-wide');
   }
 
   // ---------- the page ----------
@@ -1960,7 +2032,7 @@
     if (st.view === 'campaign') return campaign();
     const tabs = K.MainTabs({ items: TABS.map(([id, label]) => ({ id, label })), active: st.tab, onChange: (id) => go('marketing-' + id), label: 'أقسام التسويق' });
     const loading = MK().state() !== 'ready';
-    const body = loading ? [K.Empty('بيحمّل…', 'لحظة واحدة')] : ({ overview: overviewTab, create: hub, publog: publogTab, calendar: calendarTab, templates: templatesTab, ai: aiTab, reports: reportsTab })[st.tab]();
+    const body = loading ? [K.Empty('بيحمّل…', 'لحظة واحدة')] : ({ overview: overviewTab, create: hub, publog: publogTab, calendar: calendarTab, templates: templatesTab, reports: reportsTab })[st.tab]();
     const panel = h('div', { class: 'panel', role: 'tabpanel', 'aria-labelledby': 'tab-' + st.tab }, ...body);
     if (!loading) setTimeout(() => K.applyPanelPrefs('marketing:' + st.tab, panel), 0);
     return [K.PageHead('التسويق', null, headActs()), tabs, panel];
@@ -1970,5 +2042,9 @@
   document.addEventListener('ib:marketing', () => { if (window.IBPages.current !== 'marketing' || st.view !== 'hub') return; if (document.querySelector('.scrim')) return; R(); });
 
   window.IBAdsLinkUI = { popup: linkPopup, unlink: unlinkAsk }; // owner batch 2 decision 12: the settings page opens them
+  // 0120: «الذكاء الاصطناعي» — #ai / #ai-<assistant>; the old #marketing-ai lands here too
+  window.IBPages.register('ai', { title: 'الذكاء الاصطناعي', hash: (hs) => { const m = /^(?:ai|marketing-ai)(?:-([a-z][a-z0-9_]{1,30}))?$/.exec(hs); if (!m) return false; if (m[1] && hs.startsWith('ai')) BY.aiTab = m[1]; if (window.IBPages.current !== 'ai' && MK() && MK().state && MK().state() === 'idle') MK().ensure(); return true; },
+    defaultHash: () => 'ai' + (BY.aiTab ? '-' + BY.aiTab : ''), view: aiView, api: { goAi, agentForm } });
+  document.addEventListener('ib:marketing', () => { if (window.IBPages.current === 'ai' && !document.querySelector('.scrim')) R(); });
   window.IBPages.register('marketing', { title: 'التسويق', hash: (hs) => route(hs), defaultHash, view, api: { st, camp, go, openCampaign, reportBlocks, askAgent, openDraft } });
 })();

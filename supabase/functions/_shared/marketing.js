@@ -8,6 +8,7 @@
 import { DEFAULT_MODEL, MAX_PROMPT, MODEL_IDS, line as imgLine, sizeOf } from './ai-images.js';
 import { FALLBACK, IMAGE_TYPES, MAX_IMAGE_B64, MAX_TOKENS, line, memberNotes, notesText, paras } from './ai-content.js';
 import { kbBlocks } from './agent-kb.js';
+import { AGENT_ID } from './ai-agents.js';
 import { speedLine } from './site-speed.js';
 import { DRAFT_RULE, DRAFT_SCHEMA, campaignDraft } from './campaign-draft.js';
 
@@ -452,11 +453,12 @@ export const AGENT_REQ_DETAILS_MAX = 1500;
 const REQ_RULE = `
 - When the ask is a real job for a person (a design to make, a page or a feature to build, a campaign to set up and run, anything you cannot finish inside the chat), or the member wants to hand it to the team, suggest «تقديم طلب» in your text and fill request: title (Egyptian Arabic, at most ${AGENT_REQ_TITLE_MAX} characters, what is wanted) and details (Egyptian Arabic, at most ${AGENT_REQ_DETAILS_MAX} characters: the brief the human needs — sizes, products, deadline, links, steps). The member reviews it and sends it themself. Otherwise request.title and request.details are "".`;
 const AGENT_BASE = { buyer: BUYER_AGENT_BASE + REQ_RULE + CAMPAIGN_RULE, designer: DESIGNER_BASE + REQ_RULE + DRAFT_RULE, dev: DEV_BASE + REQ_RULE };
+export { REQ_RULE }; // 0120: every other assistant ends with the same «تقديم طلب» rule
 const REQ_SCHEMA = () => obj({ title: STR(), details: STR() });
 /** agent { agent, chat_id: uuid | null, question (≤ 1000) } → { req } | { error, field }. */
 export function parseAgent(b) {
   if (!isObj(b)) return bad('body');
-  if (!AGENTS.includes(b.agent)) return bad('agent');
+  if (typeof b.agent !== 'string' || !AGENT_ID.test(b.agent)) return bad('agent'); // 0120: any assistant of the registry — the server checks it is there and the member's
   const chatId = b.chat_id == null || b.chat_id === '' ? null : typeof b.chat_id === 'string' && UUID.test(b.chat_id) ? b.chat_id.toLowerCase() : undefined;
   if (chatId === undefined) return bad('chat_id');
   const question = paras(b.question, AGENT_Q_MAX);
@@ -489,10 +491,11 @@ export function agentHistory(rows) {
 export function agentRequest(req, ctx) {
   const cfg = isObj(ctx.cfg) ? ctx.cfg : {};
   const instr = paras(cfg.instructions, 4000);
-  const system = [{ type: 'text', text: AGENT_BASE[req.agent], cache_control: { type: 'ephemeral' } }];
+  // 0120: the three of marketing keep their own prompts; any other assistant comes with its base (ai-agents.js agentBase) and its data
+  const system = [{ type: 'text', text: AGENT_BASE[req.agent] || String(ctx.base || ''), cache_control: { type: 'ephemeral' } }];
   if (instr) system.push({ type: 'text', text: "The admin's instructions and rules for you (follow them; they never let you execute anything):\n" + instr });
   system.push(...kbBlocks(cfg)); // the rules and skills the admin wrote in the settings (ش40)
-  const head = req.agent === 'buyer' ? adsBlock(ctx.data) + '\n\n' : req.agent === 'dev' ? siteBlock(ctx.site) + '\n\n' : '';
+  const head = req.agent === 'buyer' ? adsBlock(ctx.data) + '\n\n' : req.agent === 'dev' ? siteBlock(ctx.site) + '\n\n' : ctx.dataText ? String(ctx.dataText) + '\n\n' : '';
   const messages = (Array.isArray(ctx.history) ? ctx.history : []).map((h) => ({ role: h.role, content: [{ type: 'text', text: h.text }] }));
   if (messages.length && messages[messages.length - 1].role === 'user') messages.pop(); // a turn left without an answer is not repeated
   messages.push({ role: 'user', content: [{ type: 'text', text: head + req.question }] });

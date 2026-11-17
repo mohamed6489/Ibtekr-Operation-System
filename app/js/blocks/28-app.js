@@ -376,7 +376,10 @@
   // «ملفي» are everyone's. Before the member's rows load nothing is barred (the data is the RLS's either way).
   const PAGE_PERM = { orders: 'orders.view', vendors: 'vendors.view', accounts: 'accounts.view', inventory: 'inventory.view', products: 'products.view', cs: 'cs.view', autoreply: 'cs.view', tickets: 'tickets.view', reports: 'reports.view', marketing: 'marketing.view', hr: 'hr.view', settings: 'settings.view' };
   // the owner 16 Nov (ش30 — «يبقوا ظاهرين للادمنز و للحسابات»): «الموارد البشرية» opens for sensitive.salaries F too (its «المرتبات» tab)
-  const barred = (page) => { const k = PAGE_PERM[page]; return !!k && !!(window.IBDirectory && window.IBDirectory.me && window.IBDirectory.me()) && rperm(k) === 'N' && !(page === 'hr' && rperm('sensitive.salaries') === 'F'); };
+  // 0120: «الذكاء الاصطناعي» opens for anyone who sees one assistant at least — each carries a page's «عرض» (the admin all)
+  const AI_PERMS = ['marketing.view', 'inventory.view', 'cs.view', 'vendors.view', 'accounts.view', 'hr.view', 'orders.view', 'products.view', 'tickets.view', 'reports.view'];
+  const barredAi = () => !!(window.IBDirectory && window.IBDirectory.me && window.IBDirectory.me()) && AI_PERMS.every((k) => rperm(k) === 'N');
+  const barred = (page) => { if (page === 'ai') return barredAi(); const k = PAGE_PERM[page]; return !!k && !!(window.IBDirectory && window.IBDirectory.me && window.IBDirectory.me()) && rperm(k) === 'N' && !(page === 'hr' && rperm('sensitive.salaries') === 'F'); };
   const barNote = () => { if (window.IBKit && window.IBKit.toast) window.IBKit.toast('الصفحة دي مش متاحة لدورك — لو محتاجها كلّم الأدمن'); };
   // the menus follow the member's permissions (the rows land after the first draw, and the roles may change from the settings)
   const navPerms = () => document.querySelectorAll('.sidebar .nav-item[data-page], .bottom-nav .bn-item[data-page]').forEach((b) => { b.hidden = barred(b.dataset.page); });
@@ -400,7 +403,7 @@
   const setNote = (n) => { state.note = n; };
 
   // ---------- shell ----------
-  const NAV = [['home', 'لوحة التحكم', 'dashboard'], ['box', 'الأوردرات', 'orders'], ['users', 'المبتكرين', 'vendors'], ['wallet', 'الحسابات', 'accounts'], ['tag', 'المخزون', 'inventory'], ['package', 'المنتجات', 'products'], ['headset', 'خدمة العملاء', 'cs'], ['bot', 'الرد الآلي', 'autoreply'], ['ticket', 'طلبات الفريق', 'tickets'], ['chart', 'التقارير', 'reports'], ['megaphone', 'التسويق', 'marketing'], ['briefcase', 'الموارد البشرية', 'hr'], ['gear', 'الإعدادات', 'settings']];
+  const NAV = [['home', 'لوحة التحكم', 'dashboard'], ['box', 'الأوردرات', 'orders'], ['users', 'المبتكرين', 'vendors'], ['wallet', 'الحسابات', 'accounts'], ['tag', 'المخزون', 'inventory'], ['package', 'المنتجات', 'products'], ['headset', 'خدمة العملاء', 'cs'], ['bot', 'الرد الآلي', 'autoreply'], ['ticket', 'طلبات الفريق', 'tickets'], ['chart', 'التقارير', 'reports'], ['megaphone', 'التسويق', 'marketing'], ['sparkle', 'الذكاء الاصطناعي', 'ai'], ['briefcase', 'الموارد البشرية', 'hr'], ['gear', 'الإعدادات', 'settings']];
   const soonTag = () => h('span', { class: 'soon' }, 'soon');
   // the owner 17 Nov («الهوية البصرية»): the menu as the admin set it — names, icons, order, the hidden ones out (IBSettings.menuOf on
   // settings_public().brand.menu); a hidden page leaves the menus only (its link and the permissions stay). NAV stays the pages' own.
@@ -945,7 +948,7 @@
       open_form: (i) => aiOpenForm(String(i.form || ''), i.values && typeof i.values === 'object' ? i.values : {}),
       // ش45 decisions 3 and 4 (the owner 17 Nov — «الايه اي اللي في الهيدر ده المدير»): a question for the developer / designer / media
       // buyer opens that assistant's chat with the question sent; a content ask opens «كامبين جديدة» filled — nothing saved or generated
-      ask_agent: (i) => { const api = window.IBPages.all().marketing && window.IBPages.all().marketing.api; if (!api || !api.askAgent || !api.askAgent(String(i.agent || ''), String(i.question || ''))) throw new Error('المساعدين مش متاحين ليك'); if (state.page !== 'marketing') go('marketing'); return 'asked ' + i.agent; },
+      ask_agent: (i) => { const api = window.IBPages.all().marketing && window.IBPages.all().marketing.api; if (!api || !api.askAgent || !api.askAgent(String(i.agent || ''), String(i.question || ''))) throw new Error('المساعدين مش متاحين ليك'); return 'asked ' + i.agent; }, // 0120: askAgent itself opens «الذكاء الاصطناعي» on the assistant
       open_campaign: (i) => { const api = window.IBPages.all().marketing && window.IBPages.all().marketing.api; if (!api || !api.openDraft || !api.openDraft(i)) throw new Error('الكامبين مش متاحة ليك'); if (state.page !== 'marketing') go('marketing'); return 'campaign opened'; },
       propose_entry: (i) => {
         const base = { direction: i.direction, amount: String(i.amount) };
@@ -1003,7 +1006,7 @@
   // the server's actions in order; a failing one is said in the panel (the model already answered)
   function aiExecActions(actions) {
     const tools = aiTools(); const failed = [];
-    for (const a of actions || []) { const fn = tools[a.name]; if (!fn) continue; try { fn(a.input || {}); } catch (e) { failed.push(a.name === 'propose_entry' ? 'ما قدرتش أجهّز الحركة: ' + (e && e.message ? e.message : '') : a.name === 'open_form' ? 'ما قدرتش أفتح البوب أب: ' + (e && e.message ? e.message : '') : (a.name === 'ask_agent' || a.name === 'open_campaign') ? 'ما قدرتش أفتح التسويق: ' + (e && e.message ? e.message : '') : 'ما قدرتش أنفّذ ' + a.name + '.'); } }
+    for (const a of actions || []) { const fn = tools[a.name]; if (!fn) continue; try { fn(a.input || {}); } catch (e) { failed.push(a.name === 'propose_entry' ? 'ما قدرتش أجهّز الحركة: ' + (e && e.message ? e.message : '') : a.name === 'open_form' ? 'ما قدرتش أفتح البوب أب: ' + (e && e.message ? e.message : '') : a.name === 'ask_agent' ? 'ما قدرتش أفتح المساعد: ' + (e && e.message ? e.message : '') : a.name === 'open_campaign' ? 'ما قدرتش أفتح التسويق: ' + (e && e.message ? e.message : '') : 'ما قدرتش أنفّذ ' + a.name + '.'); } }
     for (const f of failed) aiSay(f);
   }
   function aiBusy(b) { ai.busy = b; if (aiInput) aiInput.disabled = b; if (aiSendBtn) aiSendBtn.hidden = b; if (aiStopBtn) aiStopBtn.hidden = !b; if (!b && aiInput && aiPanel && !aiPanel.hidden) aiInput.focus(); }

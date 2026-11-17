@@ -190,7 +190,7 @@ const CHECK: Record<string, Record<string, unknown[]>> = {
   vendors: { status: ['active', 'leave', 'inactive'] },
   woo_webhook_events: { status: ['ok', 'ignored', 'duplicate', 'error'] },
   woo_sync_log: { kind: ['webhook', 'sync', 'push', 'manual', 'cron'], direction: [null, 'in', 'out'], result: ['ok', 'error', 'conflict', 'skipped'] },
-  ai_runs: { action: ['write', 'studio', 'image', 'marketing', 'assistant'], source: [null, 'data', 'image', 'product', 'studio', 'tool', 'edit', 'import', 'campaign', 'template', 'post', 'buyer', 'video', 'chat', 'filter', 'agent', 'trends'], status: ['pending', 'ok', 'refused', 'error', 'cap'] }, // image: 0025, import: 0026 (phase 5.4), buyer: 0053, video: 0054, assistant / chat / filter: 0059 (phase 12), agent: 0084
+  ai_runs: { action: ['write', 'studio', 'image', 'marketing', 'assistant'], source: [null, 'data', 'image', 'product', 'studio', 'tool', 'edit', 'import', 'campaign', 'template', 'post', 'buyer', 'video', 'chat', 'filter', 'agent', 'trends', 'research'], status: ['pending', 'ok', 'refused', 'error', 'cap'] }, // image: 0025, import: 0026 (phase 5.4), buyer: 0053, video: 0054, assistant / chat / filter: 0059 (phase 12), agent: 0084
   image_imports: { source: ['magnific'], status: ['pending', 'ok', 'partial', 'error'], target: [null, 'tool', 'studio', 'batch'], batch_type: [null, 'Simple', 'Variable'] },
   image_shares: { status: ['pending', 'sent', 'error'] },
   mkt_posts: { src: ['system', 'platform'], how: ['download', 'publish'], status: ['مجدول', 'اتنشر', 'فشل', 'اتحذف'], platform: ['انستجرام', 'فيسبوك', 'تيك توك'], kind: ['بوست', 'كاروسيل', 'ريل', 'ستوري'] },

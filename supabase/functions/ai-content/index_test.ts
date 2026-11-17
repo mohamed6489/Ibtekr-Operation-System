@@ -417,7 +417,7 @@ Deno.test('agent (0084): marketing.view; a first message makes the member\'s cha
   assertEquals([r.res.status, r.body.result, r.body.text, r.body.imagePrompt, r.body.chat.title, r.body.turns.map((t: any) => t.role)], [200, 'ok', 'فكرة: الماكرامية على لينن', 'A macrame flat lay on linen', 'بوست للشتا بالماكرامية', ['user', 'assistant']]);
   assertEquals(asked[0].messages.map((m: any) => m.content[0].text), ['بوست للشتا بالماكرامية'], 'the body\'s history is ignored');
   assert(asked[0].system.some((b: any) => b.text.includes('الألوان بيج وأخضر')), 'the admin\'s instructions');
-  assertEquals(asked[0].output_config.format.schema.required, ['text', 'image_prompt', 'request', 'campaign', 'handoff']); // + request: owner batch 14 Nov decision 14; + campaign: ش45 decision 4; + handoff: the team (17 Nov)
+  assertEquals(asked[0].output_config.format.schema.required, ['text', 'image_prompt', 'request', 'campaign', 'handoff', 'forms', 'page', 'need']); // + request: owner batch 14 Nov decision 14; + campaign: ش45 decision 4; + handoff: the team (17 Nov)
   assertEquals(r.body.request, null, 'no job for a person in this answer');
   assertEquals(r.body.campaign, null, 'no campaign to open in this answer');
   const chat = db.rows('mkt_agent_chats').find((c: any) => c.id === r.body.chat.id);
@@ -787,7 +787,7 @@ Deno.test('agent (0120): a registry assistant — seen by its page\'s permission
   assert(sys.includes('اللهجة') && sys.includes('الرفوف') && sys.includes('العد') && !sys.includes('الألوان'), 'its rules and skills and the ones for all — not another\'s');
   const q = asked[0].messages.at(-1).content[0].text;
   assert(q.startsWith('<data>\ninventory: ') && q.includes('"pieces":1') && q.includes('مرتجع') && !q.includes('999') && q.endsWith('إيه اللي مستني في المخزن؟'), 'the warehouse read with the member\'s client, no cost');
-  assertEquals(asked[0].output_config.format.schema.required, ['text', 'request']);
+  assertEquals(asked[0].output_config.format.schema.required, ['text', 'request', 'forms', 'page', 'need']);
   assertEquals(db.rows('mkt_agent_chats').at(-1).agent, 'stock');
   // a custom one: its name and what it is for
   await call(deps, { action: 'agent', agent: 'c_prod', question: 'سلام' }, 'jwt-add');
@@ -798,4 +798,22 @@ Deno.test('agent (0120): a registry assistant — seen by its page\'s permission
   assertEquals((await call(deps, { action: 'agent', agent: 'robot', question: 'x' }, 'jwt-add')).res.status, 404);
   const { deps: d2 } = setup({ seed, memberRpc: { ai_agent_can: () => false } });
   assertEquals((await call(d2, { action: 'agent', agent: 'stock', question: 'x' }, 'jwt-add')).res.status, 401, 'an assistant the member does not see');
+});
+
+// the owner 17 Nov — «فكرة البحث صح و في مصادر قوية و متعددة»: the first answer asks to search; the server researches (web search, its
+// own ai_runs row) and asks again with <research>; only the second answer is kept, with the sources under it
+Deno.test('agent (17 Nov): need.research → a web-search call, then the answer again with <research> and the sources kept under it', async () => {
+  const seed = { ...BUYER_SEED, settings: [{ section: 'marketing', data: { agents: { designer: { instructions: '' } } } }] };
+  const page = { type: 'web_search_result', url: 'https://www.facebook.com/business/help/123', title: 'Meta Business Help' };
+  const research = { ...msg('x'), content: [{ type: 'server_tool_use', id: 's1', name: 'web_search', input: { query: 'reels length 2026' } }, { type: 'web_search_tool_result', tool_use_id: 's1', content: [page] }, { type: 'text', text: '- Reels up to 3 minutes (Meta Business Help, 2026)' }] };
+  const { deps, asked, db } = setup({ seed, replies: [msg({ text: 'بدوّر…', need: { research: ['reels max length 2026'] } }), research, msg({ text: 'الريل لحد 3 دقايق حسب ميتا', need: { research: [] } })] });
+  const r = await call(deps, { action: 'agent', agent: 'designer', question: 'الريل أقصاه كام؟' }, 'jwt-mview');
+  assertEquals(r.res.status, 200, JSON.stringify(r.body));
+  assertEquals(asked.length, 3);
+  assert(asked[1].tools?.[0]?.type === 'web_search_20260209', 'the research call has the web search');
+  assert(asked[2].messages.at(-1).content.at(-1).text.includes('<research>') && asked[2].messages.at(-1).content.at(-1).text.includes('https://www.facebook.com/business/help/123'));
+  assertEquals(r.body.text, 'الريل لحد 3 دقايق حسب ميتا');
+  assertEquals(r.body.sources.map((x: any) => x.url), ['https://www.facebook.com/business/help/123']);
+  assert(db.rows('mkt_agent_messages').at(-1).text.includes('المصادر:'));
+  assertEquals(db.rows('ai_runs').map((x: any) => x.source), ['agent', 'research', 'agent']);
 });

@@ -4,3 +4,8 @@
 -- (marketing.view), written by the server only. Re-runnable.
 alter table public.site_checks drop constraint if exists site_checks_kind_check;
 alter table public.site_checks add constraint site_checks_kind_check check (kind in ('wp_updates', 'pagespeed', 'pixel'));
+
+-- and the assistants' web research (the owner 17 Nov — «فكرة البحث صح و في مصادر قوية و متعددة»): its own ai_runs row, source 'research'
+alter table public.ai_runs drop constraint if exists ai_runs_source_check;
+alter table public.ai_runs add constraint ai_runs_source_check
+  check (source is null or source in ('data', 'image', 'product', 'studio', 'tool', 'edit', 'import', 'campaign', 'template', 'post', 'buyer', 'video', 'chat', 'filter', 'agent', 'trends', 'research'));

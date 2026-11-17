@@ -46,6 +46,7 @@
 import Anthropic from 'npm:@anthropic-ai/sdk@1.3.0';
 import { bestName, nameMatches } from '../_shared/names.js';
 import { filesLine } from '../_shared/agent-files.js';
+import { liveAdsBlock, liveAdsRows, liveAdsUrl, researchBlock, researchOut, researchRequest } from '../_shared/agent-need.js';
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { aiSettings, categoryLines, cleanExtract, cleanPrompts, cleanStudio, cleanWrite, costOf, extractRequest, line, parseExtract, parsePrompts, parseStudio, parseWrite, promptsRequest, readAnswer, shotPromptRows, studioRequest, usageOf, writeRequest } from '../_shared/ai-content.js';
 import { vaultEnv } from '../_shared/secrets.js';
@@ -168,30 +169,37 @@ async function finishRun(deps: Deps, id: number, row: Json) {
 // The common path of the actions: the reservation, the key, the call, the answer, the row; `save` (the prompts) writes the
 // cleaned answer where it lives and may refuse (false → 500 failed; the run row keeps the answer and its cost).
 async function runAi(deps: Deps, base: Json, cfg: Cfg, params: Json, clean: (answer: Json) => Json, save?: (out: Json) => Promise<boolean>): Promise<Response> {
+  const c = await aiCall(deps, base, cfg, params, clean);
+  if ('res' in c) return c.res;
+  if (save && !(await save(c.out))) return json(500, { error: 'failed' });
+  return json(200, { result: 'ok', ...c.out, model: c.model, cost_usd: c.cost, run_id: c.runId });
+}
+// one Claude call on its ai_runs row → the cleaned answer, or the Response of the failure (runAi without the saving)
+async function aiCall(deps: Deps, base: Json, cfg: Cfg, params: Json, clean: (answer: Json) => Json): Promise<{ res: Response } | { out: Json; model: string; cost: number; runId: number }> {
+  const fail = (r: Response) => ({ res: r });
   const run = await startRun(deps, { ...base, model: cfg.model }, cfg.cap); // the model id names the provider
-  if (run.result === 'busy') return json(429, { error: 'busy' });
-  if (run.result === 'cap') return json(402, { error: 'ai_cap' });
-  if (run.result !== 'ok') return json(502, { error: 'ai_error' });
+  if (run.result === 'busy') return fail(json(429, { error: 'busy' }));
+  if (run.result === 'cap') return fail(json(402, { error: 'ai_cap' }));
+  if (run.result !== 'ok') return fail(json(502, { error: 'ai_error' }));
   const envKey = TEXT_PROVIDERS[cfg.provider as keyof typeof TEXT_PROVIDERS]?.env ?? 'ANTHROPIC_API_KEY';
-  if (!deps.env[envKey]?.trim()) { await finishRun(deps, run.id, { status: 'error', error: 'not_configured', cost_usd: 0 }); return json(503, { error: 'not_configured', provider: cfg.provider }); }
+  if (!deps.env[envKey]?.trim()) { await finishRun(deps, run.id, { status: 'error', error: 'not_configured', cost_usd: 0 }); return fail(json(503, { error: 'not_configured', provider: cfg.provider })); }
   if (cfg.style) params = { ...params, model: cfg.model, system: [...(Array.isArray(params.system) ? params.system : []), { type: 'text', text: cfg.style }] };
   else if (params.model !== cfg.model) params = { ...params, model: cfg.model };
   const asked = await ask(deps, params, cfg.provider);
   if ('error' in asked) {
     await finishRun(deps, run.id, { status: 'error', error: asked.error, cost_usd: asked.status === null ? RESERVE_USD : 0 });
-    return json(asked.error === 'not_configured' ? 503 : asked.error === 'busy' ? 429 : 502, { error: asked.error });
+    return fail(json(asked.error === 'not_configured' ? 503 : asked.error === 'busy' ? 429 : 502, { error: asked.error }));
   }
   const msg = asked.msg;
   const model = modelId(msg.model) ?? cfg.model;
   const u = usageOf(msg.usage); const cost = costOf(model, msg.usage);
   const spent = { model, input_tokens: u.input, output_tokens: u.output, cache_read_tokens: u.cacheRead, cache_write_tokens: u.cacheWrite, cost_usd: cost };
   const answer = readAnswer(msg);
-  if (answer.status === 'refused') { await finishRun(deps, run.id, { ...spent, status: 'refused', error: 'refused' }); return json(200, { result: 'refused', model, cost_usd: cost }); }
-  if (answer.status !== 'ok') { await finishRun(deps, run.id, { ...spent, status: 'error', error: 'ai_error' }); return json(502, { error: 'ai_error' }); }
+  if (answer.status === 'refused') { await finishRun(deps, run.id, { ...spent, status: 'refused', error: 'refused' }); return fail(json(200, { result: 'refused', model, cost_usd: cost })); }
+  if (answer.status !== 'ok') { await finishRun(deps, run.id, { ...spent, status: 'error', error: 'ai_error' }); return fail(json(502, { error: 'ai_error' })); }
   const out = clean(answer.json);
   await finishRun(deps, run.id, { ...spent, status: 'ok', output: out });
-  if (save && !(await save(out))) return json(500, { error: 'failed' });
-  return json(200, { result: 'ok', ...out, model, cost_usd: cost, run_id: run.id });
+  return { out, model, cost, runId: run.id };
 }
 
 // ---------------------------------------------------------------- write (the content tool)
@@ -502,25 +510,87 @@ async function agent(deps: Deps, uid: string, args: Json, jwt = '') {
   const run0 = { created_by: uid, action: 'marketing', source: 'agent', label: line(req.question, 200) };
   const base = LEGACY_AGENTS.includes(req.agent) ? '' : agentBase(row) + REQ_RULE;
   const team = await teamOf(member, legacy, req.agent); const teamIds = team.map((a) => a.id);
-  const params = agentRequest(req, { model: cfg.model, effort: cfg.effort, history: agentHistory((Array.isArray(rows) ? rows : []).slice().reverse()), cfg: agentCfg, data, site, base, dataText, team });
-  return await runAi(deps, run0, cfg, params, (answer) => cleanAgent(answer, req.agent, teamIds), async (out) => {
-    const now = deps.now();
-    if (!chat) {
-      const { data: made, error } = await deps.db.from('mkt_agent_chats').insert({ member_id: uid, agent: req.agent, title: agentTitle(req.question), created_at: now, updated_at: now }).select('id, agent, title, created_at, updated_at').single();
-      if (error || !isObj(made)) return false;
-      chat = made;
-    } else {
-      await deps.db.from('mkt_agent_chats').update({ updated_at: now }).eq('id', chat.id);
-    }
-    const { data: turns, error } = await deps.db.from('mkt_agent_messages').insert([
-      { chat_id: chat.id, role: 'user', text: [req.question, filesLine(req.files)].filter(Boolean).join('\n'), created_at: now }, // the files' names only
-      { chat_id: chat.id, role: 'assistant', text: out.text, created_at: now },
-    ]).select('id, role, text, images, created_at');
-    if (error || !Array.isArray(turns)) return false;
-    out.chat = { id: chat.id, agent: req.agent, title: chat.title, updated_at: now };
-    out.turns = turns;
-    return true;
-  });
+  const ctx0: Json = { model: cfg.model, effort: cfg.effort, history: agentHistory((Array.isArray(rows) ? rows : []).slice().reverse()), cfg: agentCfg, data, site, base, dataText, team };
+  const clean = (answer: Json) => cleanAgent(answer, req.agent, teamIds);
+  let c = await aiCall(deps, run0, cfg, agentRequest(req, ctx0), clean);
+  if ('res' in c) return c.res;
+  // the owner 17 Nov: the first answer may ask to read first — the web (any assistant) or Meta's live numbers (the buyer); read only,
+  // then the assistant answers again with them as data; only the second answer is kept
+  let cost = c.cost; let sources: Json[] = [];
+  const need = c.out.need;
+  if (need) {
+    const extra: string[] = [];
+    if (need.research.length) { const r = await research(deps, uid, cfg, need.research, req.question); cost += r.cost; sources = r.sources; extra.push(researchBlock(r)); }
+    // the owner 17 Nov: each member reads by his role and level — Meta's live numbers only for whoever sees marketing (his own has_perm)
+    if (need.ads) { const { data: mv } = member ? await member.rpc('has_perm', { key: 'marketing.view' }) : { data: 'N' }; extra.push(String(mv ?? 'N') !== 'N' ? liveAdsBlock(await liveAds(deps, need.ads), need.ads) : '<ads_live>\nThis member does not see the ads — say it is outside his permissions.\n</ads_live>'); }
+    const c2 = await aiCall(deps, { ...run0, label: line('↻ ' + req.question, 200) }, cfg, agentRequest(req, { ...ctx0, extra: extra.join('\n\n') }), clean);
+    if ('res' in c2) return c2.res;
+    c = c2; cost += c2.cost;
+  }
+  const out = c.out; out.need = null; out.sources = sources;
+  const now = deps.now();
+  if (!chat) {
+    const { data: made, error } = await deps.db.from('mkt_agent_chats').insert({ member_id: uid, agent: req.agent, title: agentTitle(req.question), created_at: now, updated_at: now }).select('id, agent, title, created_at, updated_at').single();
+    if (error || !isObj(made)) return json(500, { error: 'failed' });
+    chat = made;
+  } else {
+    await deps.db.from('mkt_agent_chats').update({ updated_at: now }).eq('id', chat.id);
+  }
+  // the sources the research stood on go under the answer in the chat too (the links only)
+  const kept = sources.length ? out.text + '\n\nالمصادر:\n' + sources.slice(0, 8).map((x) => '- ' + x.title + ' — ' + x.url).join('\n') : out.text;
+  const { data: turns, error } = await deps.db.from('mkt_agent_messages').insert([
+    { chat_id: chat.id, role: 'user', text: [req.question, filesLine(req.files)].filter(Boolean).join('\n'), created_at: now }, // the files' names only
+    { chat_id: chat.id, role: 'assistant', text: kept, created_at: now },
+  ]).select('id, role, text, images, created_at');
+  if (error || !Array.isArray(turns)) return json(500, { error: 'failed' });
+  out.chat = { id: chat.id, agent: req.agent, title: chat.title, updated_at: now };
+  out.turns = turns;
+  return json(200, { result: 'ok', ...out, model: c.model, cost_usd: Math.round(cost * 1e6) / 1e6, run_id: c.runId });
+}
+// the web research of an assistant's answer (Claude's web search, several strong sources): its own ai_runs row on the content cap;
+// nothing found / a failure = an empty brief (the assistant says so), never the answer's failure
+async function research(deps: Deps, uid: string, cfg: Cfg, queries: string[], q: string): Promise<{ text: string; sources: Json[]; cost: number }> {
+  const none = { text: '', sources: [] as Json[], cost: 0 };
+  if (cfg.provider && cfg.provider !== 'claude') return none;
+  const run = await startRun(deps, { created_by: uid, action: 'marketing', source: 'research', label: line(q, 200), model: cfg.model }, cfg.cap);
+  if (run.result !== 'ok') return none;
+  if (!deps.env.ANTHROPIC_API_KEY?.trim()) { await finishRun(deps, run.id, { status: 'error', error: 'not_configured', cost_usd: 0 }); return none; }
+  const params: Json = researchRequest(queries, { model: cfg.model, effort: cfg.effort, today: deps.now() });
+  const spent = { model: cfg.model, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, cost_usd: 0 };
+  const seen: Json[] = []; let msg: Json | null = null;
+  for (let turn = 0; turn <= TREND_CONTINUES; turn++) {
+    const asked = await ask(deps, params);
+    if ('error' in asked) { await finishRun(deps, run.id, { ...spent, status: 'error', error: asked.error, cost_usd: spent.cost_usd + (asked.status === null ? RESERVE_USD : 0) }); return { ...none, cost: spent.cost_usd }; }
+    msg = asked.msg;
+    const model = modelId(msg.model) ?? cfg.model; const u = usageOf(msg.usage);
+    spent.model = model; spent.input_tokens += u.input; spent.output_tokens += u.output; spent.cache_read_tokens += u.cacheRead; spent.cache_write_tokens += u.cacheWrite;
+    spent.cost_usd = Math.round((spent.cost_usd + costOf(model, msg.usage) + searchCount(msg.usage) * SEARCH_USD) * 1e6) / 1e6;
+    const content: Json[] = Array.isArray(msg.content) ? msg.content : [];
+    seen.push(...content);
+    if (msg.stop_reason !== 'pause_turn') break;
+    params.messages = [params.messages[0], { role: 'assistant', content }];
+  }
+  const r = researchOut(seen);
+  await finishRun(deps, run.id, { ...spent, status: r.text ? 'ok' : 'error', error: r.text ? null : 'no_search' });
+  return { ...r, cost: spent.cost_usd };
+}
+// the buyer's live read of Meta (the owner 17 Nov — «دايما ليه اكسيس عندي علي الاعلانات»): the ads link the page saved in Vault (9.5.6)
+// or the owner's secrets; GET insights only — null when not linked or Meta refused
+async function liveAds(deps: Deps, ads: Json): Promise<Json[] | null> {
+  let token = ''; let account = '';
+  try {
+    const { data } = await deps.db.rpc('mkt_secret_get', { p_name: 'ads_meta' });
+    const v = typeof data === 'string' && data ? JSON.parse(data) : null;
+    if (isObj(v)) { token = String(v.access_token || ''); account = String(v.account_id || ''); }
+  } catch { /* none */ }
+  if (!token || !account) { token = String(deps.env.META_ADS_TOKEN || '').trim(); account = String(deps.env.META_AD_ACCOUNT_ID || '').replace(/^act_/, '').trim(); }
+  if (token.length < 20 || !/^[0-9]{1,30}$/.test(account)) return null;
+  const ctl = new AbortController(); const timer = setTimeout(() => ctl.abort(), 25_000);
+  try {
+    const res = await fetch(liveAdsUrl(account, ads, cairoParts(Date.parse(deps.now())).day), { headers: { authorization: 'Bearer ' + token, accept: 'application/json' }, signal: ctl.signal, redirect: 'manual' });
+    if (!res.ok) return null;
+    return liveAdsRows(await res.json(), ads);
+  } catch { return null; } finally { clearTimeout(timer); }
 }
 
 // the owner 17 Nov — the team of assistants the member sees (0120 ai_agents_list with the member's own client: their permissions decide);

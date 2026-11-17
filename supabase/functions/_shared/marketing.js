@@ -14,6 +14,7 @@ import { DRAFT_RULE, DRAFT_SCHEMA, campaignDraft } from './campaign-draft.js';
 import { pixelText } from './mkt-pixel.js';
 import { NAME_RULE } from './names.js';
 import { fileBlocks, parseFiles } from './agent-files.js';
+import { NEED_SCHEMA, cleanNeed, needRule } from './agent-need.js';
 import { CLIENT_TOOL_DEFS, FORMS, PAGES, cleanAction } from './ai-assistant.js';
 
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -535,9 +536,10 @@ export function agentRequest(req, ctx) {
   const head = req.agent === 'buyer' ? adsBlock(ctx.data) + '\n\n' : req.agent === 'dev' ? siteBlock(ctx.site) + '\n\n' : ctx.dataText ? String(ctx.dataText) + '\n\n' : '';
   const messages = (Array.isArray(ctx.history) ? ctx.history : []).map((h) => ({ role: h.role, content: [{ type: 'text', text: h.text }] }));
   if (messages.length && messages[messages.length - 1].role === 'user') messages.pop(); // a turn left without an answer is not repeated
-  messages.push({ role: 'user', content: [...fileBlocks(req.files), { type: 'text', text: head + req.question }] });
+  messages.push({ role: 'user', content: [...fileBlocks(req.files), { type: 'text', text: head + req.question + (ctx.extra ? '\n\n' + String(ctx.extra) : '') }] }); // extra = <research> / <ads_live> (agent-need.js)
   const hand = tb ? { handoff: HANDOFF_SCHEMA() } : {};
   system.push({ type: 'text', text: ACT_RULE.trim() }); hand.forms = FORMS_SCHEMA(); hand.page = PAGE_SCHEMA(); // agents-brain T3
+  system.push({ type: 'text', text: needRule(req.agent).trim() }); hand.need = NEED_SCHEMA(req.agent); // the owner 17 Nov: research / live ads first
   const schema = req.agent === 'designer' ? obj({ text: STR(), image_prompt: STR(), request: REQ_SCHEMA(), campaign: DRAFT_SCHEMA(), ...hand })
     : req.agent === 'buyer' ? obj({ text: STR(), request: REQ_SCHEMA(), campaign_action: obj({ campaign_id: STR(), action: STR() }), ...hand }) : obj({ text: STR(), request: REQ_SCHEMA(), ...hand });
   return { model: ctx.model, max_tokens: MAX_TOKENS, ...FALLBACK, system, messages, output_config: { effort: ctx.effort, format: { type: 'json_schema', schema } } };
@@ -579,6 +581,7 @@ export function cleanAgent(json, agent, teamIds) {
   const pg = isObj(src.page) && src.page.page ? cleanAction('navigate', { page: String(src.page.page), tab: String(src.page.tab ?? '') }) : null; out.page = pg ? pg.input : null;
   const rq = isObj(src.request) ? src.request : {}; const title = line(rq.title, AGENT_REQ_TITLE_MAX);
   out.request = title ? { title, details: paras(rq.details, AGENT_REQ_DETAILS_MAX) } : null;
+  out.need = cleanNeed(src, agent); // the owner 17 Nov — the server reads it and asks again (ai-content)
   return out;
 }
 /** agent_image { chat_id, prompt (≤ 1000), size? } → { req } | { error, field } (ai-images, decision 6). */

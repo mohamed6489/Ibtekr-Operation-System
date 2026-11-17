@@ -228,22 +228,22 @@ test('agentHistory: the table\'s turns → alternating, the member first, the la
   assert.deepEqual(agentHistory(rows), [{ role: 'user', text: 'a\n\nb' }, { role: 'assistant', text: '(an image was generated here)' }]);
   assert.equal(agentHistory(Array.from({ length: 30 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', text: 't' + i }))).length, AGENT_HISTORY);
   const d = agentRequest({ agent: 'designer', question: 'صورة بوست' }, { model: 'm', effort: 'low', history: [{ role: 'user', text: 'a' }, { role: 'assistant', text: 'b' }], cfg: { instructions: 'الألوان بيج' } });
-  assert.equal(d.system.length, 3); assert.match(d.system[0].text, /designer assistant/); assert.match(d.system[1].text, /الألوان بيج/); assert.match(d.system[2].text, /open_form|expense_add/); // agents-brain T3
+  assert.equal(d.system.length, 4); assert.match(d.system[0].text, /designer assistant/); assert.match(d.system[1].text, /الألوان بيج/); assert.match(d.system[2].text, /open_form|expense_add/); // agents-brain T3
   assert.deepEqual(d.messages.map((m) => [m.role, m.content[0].text]), [['user', 'a'], ['assistant', 'b'], ['user', 'صورة بوست']]);
-  assert.deepEqual(d.output_config.format.schema.required, ['text', 'image_prompt', 'request', 'campaign', 'forms', 'page']); // ش45 decision 4 · agents-brain T3
+  assert.deepEqual(d.output_config.format.schema.required, ['text', 'image_prompt', 'request', 'campaign', 'forms', 'page', 'need']); // ش45 decision 4 · agents-brain T3
   assert.match(d.system[0].text, /«تقديم طلب»[\s\S]*fill request/); // owner batch 14 Nov decision 14
   const b = agentRequest({ agent: 'buyer', question: 'أحسن حملة؟' }, { model: 'm', effort: 'low', history: [{ role: 'user', text: 'سؤال من غير رد' }], cfg: {}, data: { today: '2026-11-12', rules: {}, campaigns: [{ name: 'Macrame', spend: 100, orders: 2, sales: 500 }] } });
-  assert.equal(b.system.length, 2); assert.equal(b.messages.length, 1); // a turn left without an answer is not repeated
+  assert.equal(b.system.length, 3); assert.equal(b.messages.length, 1); // a turn left without an answer is not repeated
   assert.match(b.messages[0].content[0].text, /<ads_data>[\s\S]*Macrame[\s\S]*<\/ads_data>\n\nأحسن حملة؟$/);
-  assert.deepEqual(b.output_config.format.schema.required, ['text', 'request', 'campaign_action', 'forms', 'page']); // ش45 decision 5 · agents-brain T3
+  assert.deepEqual(b.output_config.format.schema.required, ['text', 'request', 'campaign_action', 'forms', 'page', 'need']); // ش45 decision 5 · agents-brain T3
   assert.deepEqual(b.output_config.format.schema.properties.request.required, ['title', 'details']);
   const v = agentRequest({ agent: 'dev', question: 'صفحة هبوط' }, { model: 'm', effort: 'low', history: [], cfg: null, data: { campaigns: [{ name: 'X' }] } });
   assert.match(v.system[0].text, /staging site first/); assert.doesNotMatch(v.messages[0].content[0].text, /ads_data/);
 });
 test('cleanAgent: the text limit; the image prompt for the designer only, without markup; parseAgentImage and the member\'s folder', () => {
   assert.equal(cleanAgent({ text: 'x'.repeat(5000) }, 'buyer').text.length, AGENT_ANSWER_MAX);
-  assert.deepEqual(cleanAgent({ text: 'تمام', image_prompt: 'a <b>cozy</b> flat lay' }, 'designer'), { text: 'تمام', handoff: null, imagePrompt: 'a cozy flat lay', campaign: null, forms: [], page: null, request: null });
-  assert.deepEqual(cleanAgent({ text: 'تمام', image_prompt: 'x' }, 'dev'), { text: 'تمام', handoff: null, forms: [], page: null, request: null });
+  assert.deepEqual(cleanAgent({ text: 'تمام', image_prompt: 'a <b>cozy</b> flat lay' }, 'designer'), { text: 'تمام', handoff: null, imagePrompt: 'a cozy flat lay', campaign: null, forms: [], page: null, request: null, need: null });
+  assert.deepEqual(cleanAgent({ text: 'تمام', image_prompt: 'x' }, 'dev'), { text: 'تمام', handoff: null, forms: [], page: null, request: null, need: null });
   // agents-brain T3: the popups pass the header assistant's rules (an unknown form or key dropped, at most 3), the page one of the pages
   const fa = cleanAgent({ text: 'x', forms: [{ form: 'expense_add', values: [{ key: 'direction', value: 'withdraw' }, { key: 'amount', value: '1,500' }, { key: 'evil', value: 'y' }] }, { form: 'drop_db', values: [] }], page: { page: 'nowhere', tab: '' } }, 'accountant');
   assert.deepEqual(fa.forms, [{ form: 'expense_add', values: { direction: 'withdraw', amount: '1500' } }]); assert.equal(fa.page, null);

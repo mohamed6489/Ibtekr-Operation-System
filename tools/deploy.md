@@ -2388,3 +2388,14 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
    الاختبار `supabase/tests/rls_agent_kb_defaults.sql`.
 2. الواجهة (الكتلة 17): علامة «افتراضي» / «افتراضي — متعدّل»، تحديد جماعي بـ «امسح المحدد» و«رجّع الافتراضي للمحدد»، و«رجّع الافتراضي» للكل
    (و«امسح اللي ضفته أنا كمان» اختياري) — `IBMarketing.kbReset`. e2e في `tests/e2e/agents-settings.spec.mjs`.
+
+#### 2.7.111 المساعدين — البيكسل، البحث، الإعلانات لايف، الخطط، الملفات، وShopify (17 نوفمبر — `0126`)
+1. `0126` على الحي (`apply_migration`): `site_checks` بياخد `pixel`، و`ai_runs.source` بياخد `research`، و`app_secret_name_ok` بياخد
+   `shopify`. الاختبار `supabase/tests/rls_pixel_check.sql`. (`0124` و`0125` قبلها بالترتيب — §2.7.109 / §2.7.110.)
+2. الدوال: `ai-content` (أي مساعد يطلب بحث على الويب قبل ما يرد — صف `ai_runs` بـ `research` —، الميديا باير يقرا ميتا لايف لـ
+   `marketing.view`، ملفات الشات `files` — صور / PDF / نص — بتتشيّك بالبايتات ومابتتخزنش، خطة المنتجات لمساعد المخزن، `plan_requests` و`<team>`
+   لمساعد الهيدر، مطابقة الأسامي بالصوت) و`mkt-ads` (`pixel` + فحص يومي مع المزامنة + الملخص اليومي للميديا باير في الجرس) و`settings-admin`
+   (Shopify في الربط) — من `deploy-functions.yml`.
+3. الموقع: CSP بقى فيه `media-src 'self' blob: https:` (فريم الفيديو في الشات وفيديوهات الكامبين باللينك الموقّع) — `app/.htaccess`.
+4. على الحي: «الذكاء الاصطناعي › الميديا باير» → كارت «البيكسل» → «افحص البيكسل» (محتاج ربط إعلانات ميتا)؛ وShopify من «الإعدادات › الربط
+   بالمنصات» بدومين `xxx.myshopify.com` وتوكن Admin API (`shpat_…`) بصلاحية قراية الأقل.

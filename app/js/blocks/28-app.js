@@ -760,7 +760,9 @@
     const raw = notifSections(); const m = viewer(); const NR = NRM();
     let secs = NR && m ? NR.filterSections(raw, accFor(m), {}) : raw.map((s) => Object.assign({}, s, { received: s.tabs[0][2].length }));
     // server alerts (IBAlerts, already filtered by RLS) first, after the role filter; only for the signed-in member, never «عرض تنبيهات» another one
-    if (window.IBAlerts && (ntfState.viewer || window.IBKit.ME) === window.IBKit.ME) { const s = window.IBAlerts.section(); if (s) secs = [s].concat(secs); }
+    if (window.IBAlerts && (ntfState.viewer || window.IBKit.ME) === window.IBKit.ME) { const s = window.IBAlerts.section(); if (s) secs = [s].concat(secs);
+      // 0124 (agents-brain decision 1): «المساعدين» — what the assistants tell the member, first; the click opens their chat on it
+      const ag = window.IBAlerts.agentSection && window.IBAlerts.agentSection(); if (ag) secs = [ag].concat(secs); }
     // «مهام» (the owner 16 Nov): the member's own system tasks — not a role's alert, so after the role filter, for the signed-in member only,
     // right after «طلبات الفريق» (or where it would be)
     if ((ntfState.viewer || window.IBKit.ME) === window.IBKit.ME) { const au = autoSection(TA() ? TA().actor().name : null); if (au.tabs[0][2].length) { const at = secs.findIndex((x) => x.id === 'tasks');

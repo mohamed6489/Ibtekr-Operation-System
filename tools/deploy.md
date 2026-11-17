@@ -2371,3 +2371,12 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
    المزوّدين المعروفة بس — `magnific` / `openai` / `gemini`؛ من غير صف = Magnific). الاختبار `supabase/tests/rls_public_image_provider.sql`.
 2. الواجهة: `IBSettings.imageProvider(tool)` / `magnificOn(tool)` — شريط Magnific في الاستوديو (الفلوهات والويزارد القديم) وفي بناء
    الكامبين، وكارت «وارد من Magnific» وربط الجسر و«اختبار الاتصال» في أداة الصور، بيظهروا بس لما مزوّد الصور للأداة دي Magnific.
+
+#### 2.7.109 المساعدين بيكلّموك من التنبيهات (17 نوفمبر — `0124`)
+1. `0124_agent_notes.sql`: `ai_agent_notes` (السيرفر بيكتب بـ `ai_agent_note_add` — `service_role` بس، صف واحد لكل `(agent, ref)`، ومقفول
+   لو `settings.notif.agents.<id>.on = false`) و`ai_agent_note_reads` (علامة القراية بتاعة العضو والشات اللي التنبيه فتحه)، والقراية لمين
+   بيشوف المساعد (`ai_agent_can`) آخر 30 يوم؛ `ai_agent_note_read(ids)` و`ai_agent_note_open(id)` (شات للعضو أول رسالة فيه التنبيه —
+   مرة واحدة)؛ تريجر `ai_agent_notes_live` على إشارة `alerts` (0104). الاختبار `supabase/tests/rls_agent_notes.sql`.
+2. الواجهة: `IBAlerts.agentSection()` = قسم «المساعدين» في الجرس (بيظهر بس لو فيه تنبيهات)، والضغطة `noteOpen` → `window.IBAiOpen(agent,
+   chat)` في صفحة «الذكاء الاصطناعي»؛ «الإعدادات › التنبيهات › المساعدين» مفتاح لكل مساعد (`agents` في صف `notif`). e2e
+   `tests/e2e/agent-notes.spec.mjs`.

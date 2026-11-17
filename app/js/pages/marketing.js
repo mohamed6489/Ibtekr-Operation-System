@@ -2040,6 +2040,9 @@
   // جدد»): a tab per assistant the member sees (the registry — IBMarketing.agents), the same chat, and under it the assistant's own cards
   // (the buyer's decisions and rules, the designer's trends, the developer's site); the admin adds and edits assistants here too ----------
   const goAi = (a) => { if (a) BY.aiTab = a; const hs = 'ai' + (BY.aiTab ? '-' + BY.aiTab : ''); if (location.hash.slice(1) === hs) R(); else location.hash = '#' + hs; };
+  // 0124 (agents-brain decision 1): a note's click in the bell — the assistant's tab on the chat the server made for it (the list reloads
+  // so the new chat is in the side bar)
+  window.IBAiOpen = (a, chatId) => { BY.aiTab = a; AG.chats[a] = null; agLoad(a, true); agOpen(a, chatId); goAi(a); };
   const aiList = () => { const L = (MK() && MK().agentsNow && MK().agentsNow()) || null; return L ? L.filter((x) => !x.archived) : null; };
   let aiAsked = false;
   function agentForm(x) {

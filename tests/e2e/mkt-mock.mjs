@@ -39,14 +39,17 @@ const COLS = {
   // 0109 (comments decisions 69 / 70): the designer's trends (the server's rows) and the media buyer's competitors (marketing.create writes)
   mkt_trends: ['id', 'batch', 'title', 'summary', 'source', 'url', 'kind', 'found_at', 'created_by', 'platform', 'tag', 'thumb', 'author', 'views', 'likes', 'comments', 'posted_at', 'external_id'], // + 0118 (thumb_src / thumb_tries: the server's)
   mkt_competitors: ['id', 'name', 'page_id', 'page_url', 'keyword', 'note', 'created_by', 'created_at', 'updated_by', 'updated_at', 'archived_at'],
-  site_checks: ['kind', 'data', 'checked_at', 'checked_by'], // the last WordPress updates check (the server's row — decision 71)
+  site_checks: ['kind', 'data', 'checked_at', 'checked_by'],
+  // 0124 (agents-brain decision 1): the assistants' notes (the server's rows, read by who sees the assistant) and the member's own read marks
+  ai_agent_notes: ['id', 'agent', 'kind', 'title', 'body', 'link', 'ref', 'created_at'],
+  ai_agent_note_reads: ['note_id', 'member_id', 'read_at', 'chat_id'], // the last WordPress updates check (the server's row — decision 71)
 };
 // 0120: the eight assistants the system ships, as the migration seeds them
 const AI_BUILTINS = [['buyer', 'الميديا باير الذكي', 'chart', 'marketing.view', [], 'ميديا باير'], ['designer', 'الديزاينر الذكي', 'image', 'marketing.view', [], 'ديزاينر'], ['dev', 'المبرمج الذكي', 'code', 'marketing.view', [], 'مبرمج'],
   ['stock', 'المخزن الذكي', 'tag', 'inventory.view', ['inventory', 'orders'], 'اللوجستيك والشحن'], ['cs', 'خدمة العملاء الذكية', 'headset', 'cs.view', ['customers', 'orders', 'tickets'], 'خدمة العملاء'],
   ['makers', 'خدمة المبتكرين الذكية', 'users', 'vendors.view', ['vendors', 'orders', 'tickets'], 'متابعة المبتكرين'], ['accountant', 'المحاسب الذكي', 'wallet', 'accounts.view', ['expenses', 'sales'], 'الحسابات'],
   ['hr', 'الموارد البشرية الذكية', 'briefcase', 'hr.view', ['hr', 'tasks'], 'مدير النظام']].map(([id, name, icon, perm, sees, role]) => ({ id, name, icon, perm, sees, role, builtin: true }));
-const KEY = { mkt_campaigns: 'campaigns', mkt_posts: 'posts', mkt_templates: 'templates', mkt_ad_objects: 'adObjects', mkt_ad_stats: 'adStats', mkt_suggestions: 'suggestions', mkt_requests: 'requests', mkt_video_jobs: 'videoJobs', mkt_agent_chats: 'agentChats', mkt_agent_messages: 'agentMsgs', mkt_trends: 'trends', mkt_competitors: 'competitors', site_checks: 'siteChecks' };
+const KEY = { mkt_campaigns: 'campaigns', mkt_posts: 'posts', mkt_templates: 'templates', mkt_ad_objects: 'adObjects', mkt_ad_stats: 'adStats', mkt_suggestions: 'suggestions', mkt_requests: 'requests', mkt_video_jobs: 'videoJobs', mkt_agent_chats: 'agentChats', mkt_agent_messages: 'agentMsgs', mkt_trends: 'trends', mkt_competitors: 'competitors', site_checks: 'siteChecks', ai_agent_notes: 'agentNotes', ai_agent_note_reads: 'agentNoteReads' };
 const GRANT = { mkt_campaigns: { insert: ['name', 'goal', 'step', 'state'], update: ['name', 'goal', 'step', 'state', 'archived_at'] },
   mkt_templates: { insert: ['name', 'kind', 'image', 'descr'], update: ['name', 'kind', 'image', 'descr', 'deleted_at'] },
   mkt_requests: { insert: [], update: [] } }; // 0082: nothing writes it from a member any more (the requests are team requests)
@@ -124,6 +127,8 @@ export function mktState(opts = {}) {
     // noRegistry = 0120 not applied yet (the RPCs are not there — the page falls back to the three of marketing)
     aiAgents: (opts.mktAiAgents || AI_BUILTINS).map((x, i) => ({ about: '', intro: '', instructions: '', suggestions: [], role: null, sees: [], builtin: false, sort: (i + 1) * 10, archived_at: null, ...x })),
     aiKb: (opts.mktAiKb || []).map((x, i) => ({ id: i + 1, text: '', agents: [], ...x })), noRegistry: !!opts.mktNoRegistry, nagent: 0,
+    // 0124: the assistants' notes (opts.agentNotes — { agent, kind, title, body?, link? }); noNotes = 0124 not applied yet
+    agentNotes: (opts.agentNotes || []).map((x, i) => ({ id: i + 1, body: '', link: null, ref: null, created_at: now, ...x })), agentNoteReads: [], noNotes: !!opts.noAgentNotes,
     // 0109: the trends and the competitors as the database holds them (opts.mktTrends / mktCompetitors); noSections = the migration
     // is not applied yet (the two tables are not there); trendsFail = our code the next refresh answers with; trendsAnswer(req) =
     // the rows the model «found» (cleaned against trendsResults — the pages the search returned)
@@ -143,7 +148,7 @@ function agentCanOf(H, isAdmin, hasPerm) {
 export function mktRoute(c) {
   const { method, path, url, hd, u, hasPerm, isAdmin, json, mock, route } = c; const H = mock.mkt; if (!H) return null;
   const agentCan = agentCanOf(H, isAdmin, hasPerm);
-  const rest = /^\/rest\/v1\/(mkt_[a-z_]+|site_checks)$/.exec(path); const rpc = /^\/rest\/v1\/rpc\/(mkt_[a-z_]+|ai_agent[a-z_]*)$/.exec(path);
+  const rest = /^\/rest\/v1\/(mkt_[a-z_]+|site_checks|ai_agent_notes|ai_agent_note_reads)$/.exec(path); const rpc = /^\/rest\/v1\/rpc\/(mkt_[a-z_]+|ai_agent[a-z_]*)$/.exec(path);
   const sto = /^\/storage\/v1\/object\/(sign\/)?marketing\/(.+)$/.exec(path);
   const signMany = method === 'POST' && path === '/storage/v1/object/sign/marketing'; // createSignedUrls (ش39 — the trends' pictures)
   const fn = method === 'POST' && (path === '/functions/v1/ai-images' || path === '/functions/v1/ai-content' || path === '/functions/v1/mkt-publish' || path === '/functions/v1/mkt-ads');
@@ -195,6 +200,22 @@ export function mktRoute(c) {
     const bad = (field) => refuse(400, '22023', 'invalid: ' + field);
     if (name === 'mkt_credits') return json(200, create ? { cap: H.cap, used: H.used } : null);
     // 0084: the member deletes their own chat (final); the settings for marketing.view, written by the admin (the three keys, their limits)
+    // 0124: the member's read marks (notes he sees) and the bell's click — his chat for the note, made once with the note as its first turn
+    if ((name === 'ai_agent_note_read' || name === 'ai_agent_note_open') && H.noNotes) return refuse(404, 'PGRST202', 'Could not find the function public.' + name);
+    if (name === 'ai_agent_note_read') {
+      const ids = (b.p_ids || []).filter((id) => H.agentNotes.some((n) => n.id === id && agentCan(u, n.agent)) && !H.agentNoteReads.some((r) => r.note_id === id && r.member_id === u.id));
+      ids.forEach((id) => H.agentNoteReads.push({ note_id: id, member_id: u.id, read_at: now, chat_id: null })); H.writes.push({ table: 'ai_agent_note_reads', op: 'read', ids }); return json(200, ids.length);
+    }
+    if (name === 'ai_agent_note_open') {
+      const n = H.agentNotes.find((x) => x.id === b.p_id && agentCan(u, x.agent)); if (!n) return refuse(404, 'P0002', 'note not found');
+      const r0 = H.agentNoteReads.find((r) => r.note_id === n.id && r.member_id === u.id);
+      if (r0 && r0.chat_id && H.agentChats.some((ch) => ch.id === r0.chat_id && !ch.deleted_at)) return json(200, r0.chat_id);
+      const id = 'c' + String(++H.nchat).padStart(7, '0') + '-0000-4000-8000-000000000124';
+      H.agentChats.push({ id, member_id: u.id, agent: n.agent, title: n.title.slice(0, 80), created_at: now, updated_at: now, deleted_at: null });
+      H.agentMsgs.push({ id: H.agentMsgs.length + 1, chat_id: id, role: 'assistant', text: n.title + (n.body ? '\n\n' + n.body : ''), images: [], run_id: null, created_at: now });
+      if (r0) r0.chat_id = id; else H.agentNoteReads.push({ note_id: n.id, member_id: u.id, read_at: now, chat_id: id });
+      H.writes.push({ table: 'ai_agent_notes', op: 'open', id: n.id }); return json(200, id);
+    }
     if (name === 'mkt_agent_chat_delete') {
       const x = H.agentChats.find((r) => r.id === b.p_id && r.member_id === u.id && !r.deleted_at && agentCan(u, r.agent)); if (!x) return refuse(404, 'P0002', 'chat not found');
       x.deleted_at = now; H.writes.push({ table: 'mkt_agent_chats', op: 'delete', id: x.id }); return json(200, null);
@@ -425,6 +446,15 @@ export function mktRoute(c) {
       return answer(rows);
     }
     return refuse(403, '42501', 'permission denied for table mkt_competitors');
+  }
+  if (t === 'ai_agent_notes' || t === 'ai_agent_note_reads') { // 0124: select only, the server writes
+    if (H.noNotes) return refuse(404, 'PGRST205', "Could not find the table 'public." + t + "' in the schema cache");
+    if (method !== 'GET') return refuse(403, '42501', 'permission denied for table ' + t);
+    const vis = t === 'ai_agent_notes' ? (r) => agentCan(u, r.agent) : (r) => r.member_id === u.id;
+    let list = H[key].filter((r) => vis(r) && match(r));
+    const ord = url.searchParams.get('order'); if (ord) { const [col, dir] = ord.split('.'); list = list.slice().sort((a, b2) => (a[col] < b2[col] ? -1 : a[col] > b2[col] ? 1 : 0) * (dir === 'desc' ? -1 : 1)); }
+    const lim = Number(url.searchParams.get('limit')); if (lim > 0) list = list.slice(0, lim);
+    return answer(list);
   }
   if (t === 'mkt_agent_chats' || t === 'mkt_agent_messages') {
     const own = (r) => r.member_id === u.id && !r.deleted_at;

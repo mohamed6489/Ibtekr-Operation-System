@@ -971,7 +971,7 @@ test('comment 82 + owner 17 Nov — «تعديل سعر» for one maker at a tim
   await m.locator('#amount').fill('2');
   const b = m.locator('[data-bp-maker="' + VB + '"]');
   await expect(b).toHaveAttribute('data-bp-scope', 'cats');
-  await expect(b.locator('.bp-mk-what')).toContainText('كل منتجاته في'); await expect(b.locator('.bp-cat')).toHaveText(['إضاءة']);
+  await expect(b.locator('.bp-mk-what')).toContainText('نسبة القسم'); await expect(b.locator('.bp-cat')).toHaveText(['إضاءة']);
   await expect(b.locator('.bp-scope')).toHaveText('أقسام بعينها');
   await expect(b.locator('[data-bp-line]')).toHaveCount(1);
   await expect(b.locator('[data-bp-line="151"]')).toContainText('45% ← 47%');
@@ -1002,33 +1002,53 @@ test('comment 82 + owner 17 Nov — «تعديل سعر» for one maker at a tim
   expect(mock.vendorRates.filter((r) => r.vendor_id === VC).length).toBe(0);
 });
 
-// the owner 17 Nov («انا مفلتر علي categorey معينة لمبتكر … المفروض و انا بعدل نسبة ابتكر اعدل النسبة في ال categorey دي عند المبتكر»): the records
-// filtered on a maker and a category — «نسبة إبتكر» moves that category's rate alone, even when it is all his products, never his general rate
-test('owner 17 Nov — «نسبة إبتكر» on a category filter: only the filtered category\'s rate moves for the maker', async ({ page }) => {
+// the owner 17 Nov («انا مفلتر علي categorey معينة لمبتكر … اعدل النسبة في ال categorey دي عند المبتكر», then his four answers): the records
+// filtered on a maker and a category — «نسبة إبتكر» on one of his products there moves that category's rate, and his other product in it
+// (not picked) gets its price from the new rate too; with all his products picked it is his whole commission, a filter or not
+test('owner 17 Nov — «نسبة إبتكر» on a category filter: the filtered category\'s rate moves on one picked product, the unpicked one in it follows; all his products = the whole maker', async ({ page }) => {
+  const twin = JSON.parse(JSON.stringify(mock.products.find((p) => Number(p.id) === 9003)));
+  Object.assign(twin, { id: 9005, sku: 'IBTB0CSW6RFTL', name: 'Macrame Lamp', status: 'publish', sale_price: 1200, regular_price: 1500, permalink: twin.permalink.replace('macrame-feathers', 'macrame-lamp'), raw: { id: 9005 }, translation_ids: { en: 9005 } });
+  mock.products.push(twin);
   await openProducts(page);
-  const VA = mock.vendors.find((v) => v.name === 'Art Craft').id;
+  const VB = mock.vendors.find((v) => v.name === 'Antikiano').id; const VA = mock.vendors.find((v) => v.name === 'Art Craft').id;
   const fbtn = page.locator('#pg-products [data-fm-btn="products"]'); const fm = page.locator('[data-fm-menu="products"]');
   await fbtn.click();
-  await fm.locator('[data-fm-tab="vendor"]').click(); await fm.locator('[data-fm="vendor:Art Craft"]').click();
-  await fm.locator('[data-fm-tab="category"]').click(); await fm.locator('[data-fm-key="category"] [role=menuitemcheckbox]', { hasText: 'ديكور' }).first().click();
+  await fm.locator('[data-fm-tab="vendor"]').click(); await fm.locator('[data-fm="vendor:Antikiano"]').click();
+  await fm.locator('[data-fm-tab="category"]').click();
+  const cm = fm.locator('[data-fm-key="category"]');
+  await cm.locator('[data-fm-row]', { hasText: 'ديكور' }).first().locator('[data-fm-tog]').click();
+  await cm.locator('[role=menuitemcheckbox]', { hasText: 'إضاءة' }).click();
   await fm.locator('[data-fm-apply]').dispatchEvent('click');
-  await expect(page.locator('.bulk-bar')).toHaveAttribute('data-pbulk', 'filtered');
+  await rowOf(page, 'Macrame Feathers').locator('[role=checkbox]').click();
   await page.locator('.bulk-bar').getByRole('button', { name: 'تعديل السعر' }).click();
   const m = page.locator('.modal.bp-modal');
   await m.getByRole('radio', { name: 'نسبة إبتكر' }).click();
   await m.locator('#amount').fill('2');
-  const a = m.locator('[data-bp-maker="' + VA + '"]');
-  await expect(a).toHaveAttribute('data-bp-scope', 'cats');
-  await expect(a.locator('.bp-cat')).toHaveText(['ديكور']);
-  await expect(a.locator('[data-bp-line="general"]')).toHaveCount(0);
-  await expect(a.locator('[data-bp-line="15"]')).toContainText('30% ← 32%');
-  const n = mock.vendorRates.filter((r) => r.vendor_id === VA).length;
+  const b = m.locator('[data-bp-maker="' + VB + '"]');
+  await expect(b).toHaveAttribute('data-bp-scope', 'cats');
+  await expect(b.locator('.bp-cat')).toHaveText(['إضاءة']);
+  await expect(b.locator('[data-bp-line="general"]')).toHaveCount(0);
+  await expect(m.locator('[data-bp-extra]')).toHaveAttribute('data-bp-extra', '1');
+  await expect(m.locator('.bp-preview')).toContainText('Macrame Lamp');
+  const before = (mock.productWrites || []).length; const nB = mock.vendorRates.filter((r) => r.vendor_id === VB).length;
   await m.getByRole('button', { name: 'طبّق السعر والنسبة' }).click();
   await expect(m).toBeHidden({ timeout: 15000 });
-  await expect.poll(() => Number((mock.vendorCategoryRates.filter((r) => r.vendor_id === VA && Number(r.woo_category_id) === 15).at(-1) || {}).rate)).toBe(32);
-  const last = mock.vendorRates.filter((r) => r.vendor_id === VA).at(-1);
-  expect(mock.vendorRates.filter((r) => r.vendor_id === VA).length).toBe(n + 1);
-  expect([Number(last.rate), last.commission_type]).toEqual([35, 'category_based']); // the general rate stays
+  await expect.poll(() => Number((mock.vendorCategoryRates.filter((r) => r.vendor_id === VB && Number(r.woo_category_id) === 151).at(-1) || {}).rate)).toBe(47);
+  expect(mock.vendorRates.filter((r) => r.vendor_id === VB).length).toBe(nB + 1);
+  expect(Number(mock.vendorRates.filter((r) => r.vendor_id === VB).at(-1).rate)).toBe(45); // the general rate stays
+  await expect.poll(() => (mock.productWrites || []).length).toBeGreaterThan(before);
+  const ups = mock.productWrites.slice(before).flatMap((w) => (Array.isArray(w.update) ? w.update : w.id != null ? [{ id: w.id, ...(w.fields || {}) }] : []));
+  expect(ups.map((u) => Number(u.id)).sort()).toEqual([9003, 9005]); // the unpicked one in the category too
+  // Art Craft filtered on «ديكور»: Cushion is all he has → his whole commission (the owner: «نسبته العامة»)
+  await page.getByRole('button', { name: 'مسح الفلاتر' }).click();
+  await fbtn.click();
+  await fm.locator('[data-fm-tab="vendor"]').click(); await fm.locator('[data-fm="vendor:Art Craft"]').click();
+  await fm.locator('[data-fm-tab="category"]').click(); await cm.locator('[role=menuitemcheckbox]', { hasText: 'ديكور' }).first().click();
+  await fm.locator('[data-fm-apply]').dispatchEvent('click');
+  await page.locator('.bulk-bar').getByRole('button', { name: 'تعديل السعر' }).click();
+  await m.getByRole('radio', { name: 'نسبة إبتكر' }).click();
+  await m.locator('#amount').fill('2');
+  await expect(m.locator('[data-bp-maker="' + VA + '"]')).toHaveAttribute('data-bp-scope', 'whole');
 });
 
 test('owner 16 Nov — «تعديل السعر»: the amount takes several digits in a row (the redraw keeps the focus), and «نسبة إبتكر» +10 moves 40% to 50% (points), the maker price keeps «نسبة % / قيمة»', async ({ page }) => {

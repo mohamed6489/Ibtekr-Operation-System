@@ -2117,10 +2117,19 @@ Deno.test('before 0108 is applied: the categories are still written — without 
     return { ctx: { db, now: () => '2026-11-16T00:00:00Z', woo: { scrub: (x: string) => x } } as any, writes, asked: () => asked }; };
   const before = stub(false);
   const r = await writeCategories(before.ctx, [{ id: 5, name: 'A', parent: 0, menu_order: 3 }]); await writeCategories(before.ctx, [{ id: 6, name: 'B', parent: 5, menu_order: 1 }]);
-  assertEquals([r.written, before.asked(), before.writes.map((x) => [x.id, 'menu_order' in x])], [[5], 1, [[5, false], [6, false]]]);
+  assertEquals([r.written, before.asked(), before.writes.map((x) => [x.id, 'menu_order' in x, 'ar_id' in x])], [[5], 2, [[5, false, false], [6, false, false]]]); // menu_order (0108) and ar_id (0121), each asked once a run
   const after = stub(true);
   await writeCategories(after.ctx, [{ id: 5, name: 'A', parent: 0, menu_order: 3 }, { id: 6, name: 'B', parent: 5 }, { id: 7, name: 'C', parent: 5, menu_order: 'x' }]);
   assertEquals(after.writes.map((x) => [x.id, x.menu_order]), [[5, 3], [6, 0], [7, 0]]);
+});
+
+Deno.test('0121 (the owner 17 Nov): each English category keeps its Arabic translation id — WPML translations.ar, never itself; none = null', async () => {
+  const { writeCategories } = await import('../_shared/woo-write.js');
+  const writes: any[] = [];
+  const db = { from: () => ({ select: () => ({ limit: () => Promise.resolve({ data: [], error: null }) }), upsert: (rows: any[]) => { writes.push(...rows); return Promise.resolve({ data: null, error: null }); } }) };
+  const ctx = { db, now: () => '2026-11-17T00:00:00Z', woo: { scrub: (x: string) => x } } as any;
+  await writeCategories(ctx, [{ id: 53, name: 'CUSHIONS', parent: 3672, translations: { en: 53, ar: 177 } }, { id: 99, name: 'Solo', parent: 0, translations: { en: 99, ar: 99 } }, { id: 98, name: 'None', parent: 0 }]);
+  assertEquals(writes.map((x) => [x.id, x.ar_id]), [[53, 177], [99, null], [98, null]]);
 });
 
 Deno.test('B4 category_update: the English name and image, then the linked Arabic translation (lang=ar) — only what changed; a translation not linked is never written; none yet → made under the parent\'s translation; the switch off → skipped with no call', async () => {

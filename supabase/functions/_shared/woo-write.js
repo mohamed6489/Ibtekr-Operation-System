@@ -778,7 +778,14 @@ async function writeTerms(ctx, table, categories) {
     if (ctx.catOrder === undefined) { try { const { error } = await ctx.db.from(table).select('menu_order').limit(1); ctx.catOrder = !error; } catch { ctx.catOrder = false; } }
     if (ctx.catOrder) order = (c) => { const n = Number(c.menu_order); return { menu_order: c.menu_order != null && c.menu_order !== '' && Number.isInteger(n) && n >= 0 ? n : 0 }; };
   }
-  const rows = lastById(valid).map((c) => ({ id: wooId(c.id), name: c.name.trim(), slug: orNull(c.slug), parent_id: wooId(c.parent), ...img(c), ...order(c), updated_at: now }));
+  // 0121 (the owner 17 Nov): the category's Arabic translation (WPML's translations.ar on the English term) — the page maps an Arabic-only
+  // product's terms to their English category with it; before 0121 the column is not there and the rows go without it
+  let ar = () => ({});
+  if (table === 'woo_categories') {
+    if (ctx.catAr === undefined) { try { const { error } = await ctx.db.from(table).select('ar_id').limit(1); ctx.catAr = !error; } catch { ctx.catAr = false; } }
+    if (ctx.catAr) ar = (c) => { const a = wooId(isObj(c.translations) ? c.translations.ar : null); return { ar_id: a !== null && a !== wooId(c.id) ? a : null }; };
+  }
+  const rows = lastById(valid).map((c) => ({ id: wooId(c.id), name: c.name.trim(), slug: orNull(c.slug), parent_id: wooId(c.parent), ...img(c), ...order(c), ...ar(c), updated_at: now }));
   const { bad } = await save(ctx, table, rows, 'id');
   return { written: rows.map((r) => r.id).filter((id) => !bad.has(String(id))), skipped: list.length - valid.length, failed: bad.size };
 }

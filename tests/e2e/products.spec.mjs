@@ -927,6 +927,11 @@ test('comment 82 — «تعديل سعر»: wider; «نسبة إبتكر» lists
   await m.locator('#amount').fill('2');
   const box = m.locator('[data-bp-makers]');
   await expect(box).toHaveAttribute('data-bp-makers', '3');
+  // the owner 17 Nov: the «قبل ← بعد» table has the SKU and the maker in their own columns
+  const prev = m.locator('.bp-preview table');
+  await expect(prev.locator('thead th')).toHaveText(['المنتج', 'SKU', 'المبتكر', 'نسبة إبتكر', 'سعر البيع']);
+  await expect(prev.locator('.bp-maker').first()).not.toHaveText('');
+  await expect(prev.locator('.bp-sku').first()).not.toHaveText('');
   const a = box.locator('[data-bp-maker="' + VA + '"]'); const b = box.locator('[data-bp-maker="' + VB + '"]'); const c = box.locator('[data-bp-maker="' + VC + '"]');
   // the whole maker: his general rate and the rate of his category move together
   await expect(a).toHaveAttribute('data-bp-scope', 'whole');

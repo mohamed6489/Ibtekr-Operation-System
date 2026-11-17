@@ -448,9 +448,11 @@ async function agent(deps: Deps, uid: string, args: Json) {
   const { data: set } = await deps.db.from('settings').select('data').eq('section', 'marketing').maybeSingle();
   const agents = isObj(set) && isObj(set.data) && isObj(set.data.agents) ? set.data.agents : {};
   const data = req.agent === 'buyer' ? await adsData(deps) : null;
+  // ش45 decision 2: the developer reads the site's last checks (PageSpeed, the WordPress updates) — numbers and versions only
+  const site = req.agent === 'dev' ? ((await deps.db.from('site_checks').select('kind, data, checked_at').in('kind', ['pagespeed', 'wp_updates'])).data ?? []) : null;
   const cfg = await configOf(deps, req.agent === 'designer' ? 'marketing' : 'buyer'); // the designer writes with the house style
   const base = { created_by: uid, action: 'marketing', source: 'agent', label: line(req.question, 200) };
-  const params = agentRequest(req, { model: cfg.model, effort: cfg.effort, history: agentHistory((Array.isArray(rows) ? rows : []).slice().reverse()), cfg: agents[req.agent], data });
+  const params = agentRequest(req, { model: cfg.model, effort: cfg.effort, history: agentHistory((Array.isArray(rows) ? rows : []).slice().reverse()), cfg: agents[req.agent], data, site });
   return await runAi(deps, base, cfg, params, (answer) => cleanAgent(answer, req.agent), async (out) => {
     const now = deps.now();
     if (!chat) {

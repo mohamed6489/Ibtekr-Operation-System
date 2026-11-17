@@ -3272,6 +3272,42 @@ Deno.test('wp_updates: WordPress.org not answering claims no core update; the si
   assertEquals([three.body.result, three.body.stored, three.body.data.plugins.length], ['ok', false, 3]);
 });
 
+// ش45 decision 1 («أداء الموقع» for the developer): Google PageSpeed on the linked site's pages, mobile and desktop — read only, kept as
+// site_checks('pagespeed'); the daily cron by the sync secret
+const PSI_BODY = (score: number) => ({ lighthouseResult: { categories: { performance: { score } }, audits: { 'largest-contentful-paint': { numericValue: 3100 },
+  'render-blocking-resources': { title: 'Eliminate render-blocking resources', score: 0.1, details: { overallSavingsMs: 900, items: [{ url: 'https://woo.test/wp-content/x.js' }] } } } } });
+Deno.test('site_speed (ش45): the admin, marketing.create or the sync secret; PageSpeed reads of the site\'s own pages (2 devices each); numbers and titles kept, no resource address', async () => {
+  const routes = { 'GET /pagespeedonline/v5/runPagespeed': { body: PSI_BODY(0.52) } };
+  const seed = { products: [{ id: 7, status: 'publish', permalink: 'https://woo.test/product/vase/' }, { id: 9, status: 'publish', permalink: 'https://other.test/product/x/' }, { id: 12, status: 'draft', permalink: 'https://woo.test/product/d/' }] };
+  const { woo, db, deps } = setup({ routes, seed });
+  assertEquals((await call(deps, { action: 'site_speed' }, { jwt: 'jwt-pedit' })).res.status, 401, 'marketing.create N');
+  assertEquals(woo.calls.length, 0);
+  const { res, body } = await call(deps, { action: 'site_speed' }, { jwt: 'jwt-mkt' });
+  assertEquals([res.status, body.result, body.stored, body.data.score, body.data.ok], [200, 'ok', true, 52, 4]);
+  const urls = woo.calls.map((c: any) => [c.query.url, c.query.strategy, c.query.category]);
+  assertEquals(urls.length, 4);
+  assertEquals(new Set(urls.map((u: any) => u[0])), new Set(['https://woo.test/', 'https://woo.test/shop/']), 'the newest product is on another host — left out');
+  assertEquals(new Set(urls.map((u: any) => u[1] + u[2])), new Set(['mobileperformance', 'desktopperformance']));
+  assertEquals(woo.calls.every((c: any) => c.headers.authorization === undefined && !('key' in c.query)), true, 'no WC keys and no PageSpeed key');
+  assertEquals(db.rows('site_checks').map((r: any) => [r.kind, r.checked_by]), [['pagespeed', 'uid-jwt-mkt']]);
+  assertEquals(JSON.stringify(db.rows('site_checks')).includes('wp-content'), false);
+  assertEquals(body.data.pages[0].mobile.opps, [{ title: 'Eliminate render-blocking resources', ms: 900 }]);
+  // the cron by the sync secret, with the key when set
+  const k = setup({ routes, seed: { products: [{ id: 7, status: 'publish', permalink: 'https://woo.test/product/vase/' }] }, env: { PAGESPEED_API_KEY: 'psi-key' } });
+  const cron = await call(k.deps, { action: 'site_speed' });
+  assertEquals([cron.body.result, k.woo.calls.length, k.woo.calls[0].query.key], ['ok', 6, 'psi-key']);
+  assertEquals(new Set(k.woo.calls.map((c: any) => c.query.url)), new Set(['https://woo.test/', 'https://woo.test/product/vase/', 'https://woo.test/shop/']));
+  assertEquals(k.db.rows('site_checks')[0].checked_by, null);
+});
+
+Deno.test('site_speed: Google refusing every read is an error with its code and nothing kept; no site link = config', async () => {
+  const a = setup({ routes: { 'GET /pagespeedonline/v5/runPagespeed': { status: 429, body: { error: { code: 429 } } } } });
+  const one = await call(a.deps, { action: 'site_speed' }, { jwt: 'jwt-admin' });
+  assertEquals([one.body.result, one.body.reason, a.db.rows('site_checks').length], ['error', 'http_429', 0]);
+  const b = setup({ env: { WOO_URL: '' } });
+  assertEquals((await call(b.deps, { action: 'site_speed' }, { jwt: 'jwt-admin' })).body, { action: 'site_speed', result: 'error', reason: 'config' });
+});
+
 // the owner 16 Nov (plan 2026-11-16 decision 6): the maker's brand on the site in both places — WooCommerce Brands (made when the
 // site has none by that name) with its own picture, and the «Product Brand» term with its Arabic translation; vendors.edit F, never
 // the secret; a bad picture refused before any call; the switch off → skipped

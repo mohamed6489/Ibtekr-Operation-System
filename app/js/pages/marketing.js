@@ -1793,7 +1793,7 @@
   function dvLoad(force) {
     if (!MK() || !MK().siteCheck || !can().view || DV.busy || (!force && DV.at && Date.now() - DV.at < 60000)) return;
     DV.busy = true;
-    Promise.all([MK().siteCheck(force), MK().siteSubs(force), MK().aiSpend(force), MK().credits ? MK().credits(true) : null]).then(() => { DV.at = Date.now(); DV.busy = false; if (window.IBPages.current === 'marketing' && st.view === 'hub' && !document.querySelector('.scrim')) R(); });
+    Promise.all([MK().siteCheck(force), MK().siteSpeed ? MK().siteSpeed(force) : null, MK().siteSubs(force), MK().aiSpend(force), MK().credits ? MK().credits(true) : null]).then(() => { DV.at = Date.now(); DV.busy = false; if (window.IBPages.current === 'marketing' && st.view === 'hub' && !document.querySelector('.scrim')) R(); });
   }
   async function dvCheck() {
     if (DV.checking) return; DV.checking = true; R();
@@ -1851,7 +1851,40 @@
     return Card('الكريدت', 'اللي اتصرف الشهر ده قصاد السقف', [h('div', { class: 'mk-dv-crs' }, items),
       h('p', { class: 't-small help', style: 'margin:0' }, sp === null && !isAdmin() ? 'صرف الـ AI بالدولار بيظهر للأدمن.' : 'السقوف بتتغيّر من الإعدادات › الذكاء الاصطناعي. فيديو وصور Magnific من الموقع نفسه (Unlimited) على حساب Magnific مش هنا.')], null, 'mk-dv-credits');
   }
-  function devCards() { dvLoad(false); return [updatesCard(), h('div', { class: 'grid2 mk-agent-under' }, subsCard(), creditsCard())]; }
+  // ش45 decision 1 — «أداء الموقع»: the last Google PageSpeed run (the server's row; «افحص دلوقتي» = woo-sync site_speed, a minute or so)
+  const SPEED_PAGE = { home: 'الصفحة الرئيسية', product: 'صفحة منتج', shop: 'صفحة المتجر' };
+  const speedTone = (v) => (v == null ? 'neutral' : v >= 90 ? 'success' : v >= 50 ? 'orange' : 'error');
+  const secs = (ms) => (ms == null ? '—' : K.Num((Math.round(ms / 100) / 10).toFixed(1) + ' ث'));
+  const mb = (b) => (b == null ? '—' : K.Num((Math.round(b / 104857.6) / 10).toFixed(1) + ' ميجا'));
+  async function speedCheck() {
+    if (DV.speeding) return; DV.speeding = true; R();
+    const pill = K.busy ? K.busy('بنفحص سرعة الموقع من جوجل… (ممكن تاخد دقيقة)') : null;
+    const r = await MK().siteSpeedRun();
+    DV.speeding = false;
+    if (!r.ok) { if (pill) pill.fail(r.message); else K.toast(r.message, 'error'); R(); return; }
+    const sc = r.check.data.score;
+    if (pill) pill.done(sc == null ? 'خلص الفحص' : 'أقل درجة على الموبايل ' + K.n0(sc) + '/100'); else K.toast('خلص الفحص', 'success');
+    R();
+  }
+  function speedCard() {
+    const ch = MK().siteSpeedNow ? MK().siteSpeedNow() : undefined; const d = ch && ch.data;
+    const score = (x) => (x && x.score != null ? h('span', { 'data-sp-score': String(x.score) }, Tag(speedTone(x.score), K.n0(x.score) + '/100')) : h('span', { class: 't-small help' }, x && x.error ? 'ماردش' : '—'));
+    const rows = d && Array.isArray(d.pages) ? d.pages.flatMap((p) => ['mobile', 'desktop'].map((dev) => { const x = p[dev]; const lab = x && x.lab ? x.lab : {};
+      return [h('b', { 'data-sp-page': p.kind + ':' + dev }, SPEED_PAGE[p.kind] || p.kind), dev === 'mobile' ? 'موبايل' : 'كمبيوتر', score(x), secs(lab.lcp), lab.tbt == null ? '—' : K.Num(K.n0(lab.tbt) + ' م.ث'), lab.cls == null ? '—' : K.Num(String(lab.cls)), mb(lab.bytes)]; })) : [];
+    const home = d && Array.isArray(d.pages) ? (d.pages.find((p) => p.mobile && p.mobile.opps && p.mobile.opps.length) || {}).mobile : null;
+    const fixes = home && home.opps.length ? h('div', { class: 'mk-list', 'data-sp-fixes': String(home.opps.length) }, home.opps.map((o) => h('div', { class: 'mk-item' },
+      h('span', { class: 'mk-ic tone-orange' }, Icon('zap', 'sm')), h('span', { class: 'mk-txt' }, h('b', { dir: 'ltr' }, o.title), h('small', null, 'ممكن يوفّر ' + (Math.round(o.ms / 100) / 10) + ' ثانية'))))) : null;
+    const field = d && Array.isArray(d.pages) ? (d.pages.find((p) => p.mobile && p.mobile.field) || {}).mobile : null;
+    const real = field && field.field ? h('p', { class: 't-small', style: 'margin:0', 'data-sp-real': '' }, 'تجربة الزوار الحقيقيين (جوجل، آخر 28 يوم): ' + [field.field.lcp != null ? 'LCP ' + (Math.round(field.field.lcp / 100) / 10) + ' ث' : '', field.field.inp != null ? 'INP ' + field.field.inp + ' م.ث' : '', field.field.cls != null ? 'CLS ' + field.field.cls : ''].filter(Boolean).join(' · ')) : null;
+    const go = can().create ? Button({ size: 'sm', type: 'primary', icon: 'refresh', label: DV.speeding ? 'بيفحص…' : 'افحص دلوقتي', disabled: !!DV.speeding, attrs: { 'data-sp-check': '' }, onClick: speedCheck }) : null;
+    return Card('أداء الموقع', d ? 'من Google PageSpeed — الدرجة من 100 لكل صفحة على الموبايل والكمبيوتر' : 'سرعة الموقع من Google PageSpeed — الرئيسية وصفحة منتج وصفحة المتجر',
+      [ch === undefined ? K.Empty('بيحمّل…', '') : !d ? K.Empty('لسه مفيش فحص', can().create ? 'دوس «افحص دلوقتي» — جوجل بيفحص الموقع ويقولك الدرجة وإيه اللي مبطّأه. والفحص بيتعمل لوحده كل يوم الصبح.' : 'الفحص بيتعمل لوحده كل يوم الصبح.')
+        : [U.Table({ cls: 'dt mk-sp-t', headers: ['الصفحة', 'الجهاز', 'الدرجة', 'أكبر عنصر (LCP)', 'وقت التعليق (TBT)', 'الاهتزاز (CLS)', 'حجم الصفحة'], rows }), real,
+          fixes ? h('div', null, h('b', { class: 't-small' }, 'أكبر حاجات مبطّأة الموقع (الموبايل)'), fixes) : null,
+          h('p', { class: 't-small help', style: 'margin:0' }, 'الفحص قراية بس من جوجل — اسأل «المبرمج» هنا عن أي رقم أو تصليح، والتصليح نفسه بيتعمل على الـ staging الأول.')]],
+      go, 'mk-sp mk-wide', { noun: 'صفحة', when: ch && ch.at ? 'آخر فحص ' + agTime(ch.at) : '' });
+  }
+  function devCards() { dvLoad(false); return [speedCard(), updatesCard(), h('div', { class: 'grid2 mk-agent-under' }, subsCard(), creditsCard())]; }
   function aiTab() {
     byLoad(false);
     const cnt = (kind) => (reqsOf(kind) || []).filter((q) => q.open).length || null;

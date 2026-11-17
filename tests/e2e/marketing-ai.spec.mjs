@@ -635,6 +635,39 @@ test('comment 71 — the developer\'s tab: «افحص دلوقتي» lists WordP
   await expect(pg(page).locator('.mk-dv, .mk-dv-subs, .mk-dv-credits')).toHaveCount(0);
 });
 
+// ش45 decision 1 — «أداء الموقع»: Google PageSpeed per page and device (woo-sync site_speed, kept as one row), the biggest fixes, the
+// real users' numbers; a refusal in words
+test('ش45 — the developer\'s «أداء الموقع»: «افحص دلوقتي» shows each page on mobile and desktop with its score and numbers, the fixes, kept for the next visit; Google\'s limit in words', async ({ page }) => {
+  await start(page);
+  await openAi(page, ADMIN, 'المبرمج');
+  const sp = pg(page).locator('.mk-sp');
+  await expect(sp).toContainText('أداء الموقع');
+  await expect(sp).toContainText('لسه مفيش فحص');
+  await sp.locator('[data-sp-check]').click();
+  await expect(sp.locator('[data-sp-page]')).toHaveCount(6);
+  expect(mock.speedChecks).toEqual([{ by: ADMIN }]);
+  await expect(sp.locator('thead th')).toHaveText(['الصفحة', 'الجهاز', 'الدرجة', 'أكبر عنصر (LCP)', 'وقت التعليق (TBT)', 'الاهتزاز (CLS)', 'حجم الصفحة']);
+  expect(await sp.locator('[data-sp-score]').evaluateAll((els) => els.map((e) => e.getAttribute('data-sp-score')))).toEqual(['41', '78', '55', '86', '47', '91']);
+  await expect(sp.locator('[data-sp-page="home:mobile"]').locator('xpath=ancestor::tr')).toContainText('6.2 ث');
+  await expect(sp.locator('[data-sp-fixes]')).toHaveAttribute('data-sp-fixes', '3');
+  await expect(sp.locator('[data-sp-fixes]')).toContainText('Eliminate render-blocking resources');
+  await expect(sp.locator('[data-sp-real]')).toContainText('INP 290');
+  await expect(page.locator('body')).toContainText('أقل درجة على الموبايل 41/100');
+  await expect.poll(() => mock.activityRows.filter((a) => a.action === 'mkt.site.speed').map((a) => a.new_value)).toEqual(['41']);
+  expect(mock.mkt.siteChecks.map((r) => r.kind)).toEqual(['pagespeed']);
+  // Google's limit: in words, the last numbers stay
+  mock.speedFail = 'http_429';
+  await sp.locator('[data-sp-check]').click();
+  await expect(page.locator('body')).toContainText('جوجل وقف الفحص شوية');
+  await expect(sp.locator('[data-sp-page]')).toHaveCount(6);
+  // the next visit reads the kept row
+  await page.reload(); await expect(page.locator('#root')).toBeVisible();
+  await page.locator('.sidebar .nav-item[data-page="marketing"]').click();
+  await pg(page).getByRole('tab', { name: /مساعدين الذكاء الاصطناعي/ }).click();
+  await pg(page).getByRole('tab', { name: /المبرمج/ }).click();
+  await expect(pg(page).locator('.mk-sp [data-sp-page]')).toHaveCount(6);
+});
+
 test('comment 71 — a member who does not see the accounts gets no subscriptions (a note instead) and no dollar spend', async ({ page }) => {
   await start(page);
   mock.acc.acc_expenses.push(...SUBS);

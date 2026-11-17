@@ -168,6 +168,7 @@ import { OWNED, siteQuantities, skuList } from '../_shared/woo-inventory.js';
 import { CART_HOURS, CART_PATH, cartRows } from '../_shared/woo-carts.js';
 import { imageHosts, imageKind, siteImage, thumbCandidates, thumbUrls } from '../_shared/site-image.js';
 import { CORE_CHECK, SYSTEM_FIELDS, coreLatest, wpStatus } from '../_shared/wp-updates.js';
+import { STRATEGIES, psiUrl, speedPages, speedReport } from '../_shared/site-speed.js';
 import { VENDOR_SYNC_COLUMNS, applyPushResult, effectiveRates, gmtIso, loadBanks, loadTree, logActivity, markPushPending, pushStoreFields, retryablePush, saveVendors, wooId, writeBrands, writeCategories, releaseLines, writeContext, writeOrderPage, writeOrders, writeProducts, writeStates } from '../_shared/woo-write.js';
 
 // deno-lint-ignore no-explicit-any
@@ -180,7 +181,7 @@ type Run = { db: Db; env: Deps['env']; woo: () => ReturnType<typeof wooApi>; ctx
 
 const ACTIONS = ['states', 'categories', 'orders', 'vendors', 'products', 'all', 'push_status', 'push_vendor', 'register_webhooks', 'probe_store', 'probe_dokan', 'accounts', 'statement', 'withdraw_approve', 'withdraw_create', 'withdrawals', 'order_trash', 'suborder_trash', 'line_trash', 'line_qty', 'line_add', 'suborder_status', 'order_create', 'order_pay_link',
   'vendor_photo', 'vendor_store', 'product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'studio_media', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push', 'product_duplicate', 'carts',
-  'category_get', 'category_update', 'category_delete', 'category_order', 'thumbs', 'styles', 'wp_updates', 'brand_site', 'vendor_delete'];
+  'category_get', 'category_update', 'category_delete', 'category_order', 'thumbs', 'styles', 'wp_updates', 'site_speed', 'brand_site', 'vendor_delete'];
 // phase 5: the product actions a person runs (never the sync secret); phase 5.2: the studio's upload, a new category, a sheet link;
 // phase 5.4: the images tool's results onto a product; B4 (11 Nov): the categories tab's read, edit and delete
 const PRODUCT_ACTIONS = ['product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'studio_media', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push', 'product_duplicate',
@@ -230,6 +231,8 @@ async function authorize(req: Request, deps: Deps, action: string, args: Json): 
   if (action === 'statement' || action === 'withdrawals') { const { data, error } = await member.rpc('has_perm', { key: 'accounts.view' }); return !error && (data === 'F' || data === 'P') ? 'member' : null; }
   // comments decision 71: the site's WordPress / plugin updates for the developer's section — the admin or marketing.create = F
   if (action === 'wp_updates') return (await admin()) || (await perm('marketing.create')) ? 'member' : null;
+  // ش45 decision 1: the site's speed for the developer (Google PageSpeed, read only) — the same people; the daily cron by the sync secret
+  if (action === 'site_speed') return (await admin()) || (await perm('marketing.create')) ? 'member' : null;
   // comments decision 10: the photos of a report's products — whoever sees the orders or the products
   if (action === 'thumbs') { for (const key of ['orders.view', 'products.view']) { const { data, error } = await member.rpc('has_perm', { key }); if (!error && (data === 'F' || data === 'P')) return 'member'; } return null; }
   // phase 4.1 (decision 1): approving a Dokan withdraw request — the admin or accounts.approve = F (has_perm carries aal2)
@@ -2434,6 +2437,29 @@ async function wpUpdates(run: Run, fetchFn: typeof fetch, uid: string | null) {
   return json(200, { action: 'wp_updates', result: 'ok', data, checked_at: now, stored: !error });
 }
 
+// site_speed (ش45 decision 1 — the owner 17 Nov: «خلي المبرمج يقدر يعرف البيرفورمانس بتاع الموقع عندي»): Google PageSpeed Insights on the
+// linked site's home page, its newest published product (the mirror's link, same host only) and /shop/, mobile and desktop, in
+// parallel — read only, nothing written on the site. The numbers (_shared/site-speed.js) are kept as site_checks('pagespeed') (0119;
+// not there yet = answered without being kept). PAGESPEED_API_KEY is optional (without it Google gives a small quota).
+const SPEED_TIMEOUT = 90_000;
+async function siteSpeed(run: Run, fetchFn: typeof fetch, uid: string | null) {
+  const { data: prod } = await run.db.from('products').select('permalink').eq('status', 'publish').not('permalink', 'is', null).order('id', { ascending: false }).limit(1).maybeSingle();
+  const pages = speedPages(run.env.WOO_URL ?? '', isObj(prod) ? prod.permalink : null);
+  if (!pages.length) return json(200, { action: 'site_speed', result: 'error', reason: 'config' });
+  const key = (run.env.PAGESPEED_API_KEY ?? '').trim();
+  const runs: { kind: string; url: string; strategy: string; body: Json | null; error?: string }[] = await Promise.all(pages.flatMap((p) => STRATEGIES.map(async (strategy) => {
+    try {
+      const r = await fetchFn(psiUrl(p.url, strategy, key && key !== '__unset' ? key : ''), { headers: { Accept: 'application/json' }, redirect: 'error', signal: AbortSignal.timeout(SPEED_TIMEOUT) });
+      if (!r.ok) return { ...p, strategy, body: null, error: 'http_' + r.status };
+      return { ...p, strategy, body: await r.json() };
+    } catch (e) { return { ...p, strategy, body: null, error: e instanceof DOMException && e.name === 'TimeoutError' ? 'timeout' : 'network' }; }
+  })));
+  const data = speedReport(runs); const now = run.now();
+  if (!data.ok) return json(200, { action: 'site_speed', result: 'error', reason: runs.find((x) => x.error)?.error ?? 'no_score' });
+  const { error } = await run.db.from('site_checks').upsert({ kind: 'pagespeed', data, checked_at: now, checked_by: uid }, { onConflict: 'kind' });
+  return json(200, { action: 'site_speed', result: 'ok', data, checked_at: now, stored: !error });
+}
+
 // ---------------------------------------------------------------- the categories tab (B4, the owner 11 Nov)
 
 // category_get { id }: the category live from the site for «تعديل» — its name, image and count, and its Arabic translation's
@@ -2769,6 +2795,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'studio_sheet') return await studioSheet(args, deps.fetch);
     if (action === 'thumbs') return await thumbs(run, args, deps.fetch);
     if (action === 'styles') return await siteStyles(run);
+    if (action === 'site_speed') { const jwt = /^Bearer\s+(\S+)$/i.exec(req.headers.get('authorization') ?? '')?.[1] ?? ''; return await siteSpeed(run, deps.fetch, deps.userId && jwt ? await deps.userId(jwt) : null); }
     if (action === 'wp_updates') { const jwt = /^Bearer\s+(\S+)$/i.exec(req.headers.get('authorization') ?? '')?.[1] ?? ''; return await wpUpdates(run, deps.fetch, deps.userId && jwt ? await deps.userId(jwt) : null); }
     if (action === 'inventory_push') return await inventoryPush(run, args);
     if (action === 'product_duplicate') { const jwt = /^Bearer\s+(\S+)$/i.exec(req.headers.get('authorization') ?? '')?.[1] ?? ''; return await productDuplicate(run, args, deps.userDb && jwt ? deps.userDb(jwt) : null); }

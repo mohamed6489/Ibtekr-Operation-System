@@ -166,3 +166,38 @@ test('ش28: the clock (12 / 24) and the date format are choices in «اللغة 
   // every member reads them from settings_public (0114)
   expect(await page.evaluate(() => window.IBSupabase.client.rpc('settings_public').then((r) => [r.data.general.clock, r.data.general.dateFmt]))).toEqual(['24', 'ymd']);
 });
+
+test('the side menu (the owner 17 Nov — «القوائم والحالات»): rename, icon, hide, reorder, back to the original — saved in brand.menu and the menu redrawn', async ({ page }) => {
+  const menu = () => (((mock.settings || []).find((r) => r.section === 'brand') || {}).data || {}).menu || null;
+  await go(page, 'settings-lists');
+  const body = page.locator('#pg-settings');
+  await body.getByRole('tab', { name: 'القائمة الجانبية' }).click();
+  const rows = body.locator('[data-menu-item]');
+  await expect(rows).toHaveCount(await page.locator('.sidebar .nav-item[data-page]').count());
+  // the dashboard and the settings show always
+  await expect(body.locator('[data-menu-locked="dashboard"]')).toBeVisible(); await expect(body.locator('[data-menu-locked="settings"]')).toBeVisible();
+  // a name
+  const lbl = body.locator('[data-menu-label="orders"]'); await lbl.fill('طلبات العملاء'); await lbl.press('Enter');
+  await expect.poll(menu).toMatchObject({ items: { orders: { label: 'طلبات العملاء' } } });
+  await expect(page.locator('.sidebar .nav-item[data-page="orders"]')).toContainText('طلبات العملاء');
+  // an icon
+  await body.locator('[data-menu-icon-btn="vendors"]').click();
+  await modal(page).locator('[data-menu-icon="truck"]').click();
+  await expect.poll(() => (menu() || {}).items && menu().items.vendors).toEqual({ icon: 'truck' });
+  // hidden: out of the side menu, the page itself still opens by its link
+  await body.locator('[data-menu-show="inventory"]').uncheck();
+  await expect.poll(() => menu().items.inventory).toEqual({ hidden: true });
+  await expect(page.locator('.sidebar .nav-item[data-page="inventory"]')).toHaveCount(0);
+  // the order, by keyboard on the grip
+  const grip = body.locator('[data-menu-item="reports"] [data-grip]'); await grip.focus(); await page.keyboard.press('ArrowUp');
+  await expect.poll(() => (menu().order || []).indexOf('reports') < (menu().order || []).indexOf('tickets')).toBe(true);
+  await expect.poll(async () => { const side = await page.locator('.sidebar .nav-item[data-page]').evaluateAll((els) => els.map((e) => e.dataset.page)); return side.indexOf('reports') < side.indexOf('tickets'); }).toBe(true);
+  // the original name back when the box is emptied; then everything back
+  await body.locator('[data-menu-reset="vendors"]').click();
+  await expect.poll(() => (menu().items || {}).vendors).toBeUndefined();
+  await body.locator('[data-menu-reset-all]').click(); await page.getByRole('button', { name: 'رجّع', exact: true }).last().click();
+  await expect.poll(menu).toBeNull();
+  await expect(page.locator('.sidebar .nav-item[data-page="orders"]')).toContainText('الأوردرات');
+  await expect(page.locator('.sidebar .nav-item[data-page="inventory"]')).toHaveCount(1);
+  await expect(page.locator('#pg-settings [data-set-dirty]')).toBeHidden(); // saved on the spot — no «تغييرات مش محفوظة»
+});

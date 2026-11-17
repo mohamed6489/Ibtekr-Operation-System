@@ -269,3 +269,29 @@ test('the fake-discount tiers: fakeRule() = the admin\'s row first, else the pub
   eq(await cold.S.saveFake(OWNER), { ok: true });
   eq(opsOf(cold.stub.calls, 'settings').filter((c) => c.op === 'upsert').at(-1).args[0].data, { delay: { lead: 9 }, rate: '40%', fake: OWNER });
 });
+
+test('the side menu (the owner 17 Nov — «الهوية البصرية»): cleanMenu keeps only what differs (a label 2–30 without <>, a known icon, hidden but never the dashboard or the settings, a real order); menuOf draws it; saveMenu = the admin, into brand.menu', async () => {
+  const { S, stub, logs } = load(); await S.load();
+  const BASE = [['home', 'لوحة التحكم', 'dashboard'], ['box', 'الأوردرات', 'orders'], ['users', 'المبتكرين', 'vendors'], ['gear', 'الإعدادات', 'settings']];
+  eq(S.cleanMenu(null, BASE), null);
+  eq(S.cleanMenu({ order: ['dashboard', 'orders', 'vendors', 'settings'], items: { orders: { label: 'الأوردرات', icon: 'box' } } }, BASE), null, 'the page\'s own = nothing kept');
+  eq(S.cleanMenu({ order: ['vendors', 'x', 'vendors', 'orders'], items: { orders: { label: '  <b>طلبات</b>  العملاء ', icon: 'nope', hidden: true }, dashboard: { hidden: true }, settings: { hidden: true, icon: 'sliders' }, vendors: { label: 'م' }, ghost: { label: 'شبح' } } }, BASE),
+    { order: ['vendors', 'orders', 'dashboard', 'settings'], items: { orders: { label: 'bطلبات/b العملاء', hidden: true }, settings: { icon: 'sliders' } } });
+  eq(S.cleanMenu({ items: { orders: { label: 'ا'.repeat(31) } } }, BASE), null, 'a label over 30 letters is dropped');
+  const shown = S.menuOf(BASE, { order: ['vendors'], items: { orders: { label: 'طلبات', icon: 'truck', hidden: true } } });
+  eq(shown.map((x) => [x.page, x.icon, x.label, x.hidden]), [['vendors', 'users', 'المبتكرين', false], ['dashboard', 'home', 'لوحة التحكم', false], ['orders', 'truck', 'طلبات', true], ['settings', 'gear', 'الإعدادات', false]]);
+  eq(shown[2].base, { icon: 'box', label: 'الأوردرات' });
+  assert.ok(S.MENU_ICONS.includes('home') && S.MENU_LOCKED.includes('settings'));
+  const r = await S.saveMenu({ items: { orders: { label: 'طلبات' } } }, BASE, 'الأوردرات · اسم'); assert.equal(r.ok, true);
+  const up = opsOf(stub.calls, 'settings').filter((c) => c.op === 'upsert').pop(); eq(up.args[0], { section: 'brand', data: { menu: { items: { orders: { label: 'طلبات' } } } } });
+  assert.ok(logs.some(([a, d]) => a === 'settings.brand.menu' && d === 'الأوردرات · اسم'));
+  await S.saveMenu(null, BASE, 'الأصلي'); eq(opsOf(stub.calls, 'settings').filter((c) => c.op === 'upsert').pop().args[0], { section: 'brand', data: {} }, 'back to the original = the key out');
+  const viewer = load({ role: 'viewer', perms: { 'settings.view': 'F' } }); assert.equal((await viewer.S.saveMenu({}, BASE)).reason, 'forbidden');
+});
+
+test('the menu icons are all in the kit (block 10 ICONS)', () => {
+  const kit = readFileSync(new URL('../../app/js/blocks/10-ui-kit.js', import.meta.url), 'utf8');
+  const body = kit.slice(kit.indexOf('const ICONS = {'), kit.indexOf('};', kit.indexOf('const ICONS = {')));
+  const names = new Set([...body.matchAll(/(?:^|[\s,{])([A-Za-z][A-Za-z0-9]*)\s*:\s*'/g)].map((m) => m[1]));
+  const { S } = load(); eq(S.MENU_ICONS.filter((n) => !names.has(n)), []);
+});

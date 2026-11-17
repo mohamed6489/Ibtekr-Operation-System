@@ -473,3 +473,19 @@ button.dx-stat{cursor:pointer}button.dx-stat:hover{background:var(--color-bg-hov
 .kb-item-t { flex:1;min-width:0;display:flex;flex-direction:column;gap:2px }
 .kb-item-t small { color:var(--color-text-secondary);white-space:pre-line;line-height:1.6 }
 .kb-empty { margin:0;padding:10px 12px }
+/* «القائمة الجانبية» in «القوائم والحالات» (the owner 17 Nov): a row per page — grip · icon · name · shown · reset */
+#pg-settings .mn-list{display:flex;flex-direction:column;gap:6px}
+#pg-settings .mn-row{display:grid;grid-template-columns:auto auto minmax(0,1fr) auto auto;align-items:center;gap:10px;padding:6px 10px;border:1px solid var(--color-border-subtle);border-radius:var(--radius-sm,8px);background:var(--color-bg-container)}
+#pg-settings .mn-row.dragging{box-shadow:var(--shadow-card);background:var(--color-bg-hover)}
+#pg-settings .mn-row.off .mn-name input{color:var(--color-text-secondary)}
+#pg-settings .mn-row.off .mn-ico.cur{opacity:.55}
+#pg-settings .mn-name{display:flex;flex-direction:column;gap:2px;min-width:0}
+#pg-settings .mn-name .input{max-width:320px}
+#pg-settings .mn-vis{gap:6px;white-space:nowrap}
+.mn-ico{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border:1px solid var(--color-border-subtle);border-radius:var(--radius-sm,8px);background:var(--color-bg-base);color:var(--color-brand-default);cursor:pointer}
+.mn-ico:hover{background:var(--color-bg-hover)}
+.mn-ico.on{background:var(--color-brand-default);color:var(--color-text-on-brand);border-color:var(--color-brand-default)}
+.mn-ico:disabled{cursor:default;opacity:.7}
+.mn-ico:focus-visible{outline:2px solid var(--color-border-focus);outline-offset:1px}
+.mn-icons{display:grid;grid-template-columns:repeat(auto-fill,minmax(44px,1fr));gap:8px;margin-bottom:12px}
+@media (max-width:640px){#pg-settings .mn-row{grid-template-columns:auto auto minmax(0,1fr);row-gap:6px}#pg-settings .mn-row>:nth-child(4),#pg-settings .mn-row>:nth-child(5){grid-column:3}}

@@ -30,6 +30,8 @@ import { graphErrorCode } from '../_shared/cs-channel.js';
 import { ourCode } from '../_shared/mkt-publish.js';
 import { PIXEL_DAYS, SITE_MAX_BYTES, checksOf, eventCounts, pixelPath, pixelReport, pixelsOf, siteScan } from '../_shared/mkt-pixel.js';
 import { vaultEnv } from '../_shared/secrets.js';
+import { dailySummary } from '../_shared/mkt-ads-daily.js';
+import { liveAdsRows, liveAdsUrl } from '../_shared/agent-need.js';
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -557,6 +559,18 @@ async function report(deps: Deps): Promise<Response> {
   const t = reportText({ day: y, spend, orders: sold.length, sales: sold.reduce((s, o) => s + o.sales, 0), pending: Array.isArray(pending) ? pending.length : 0 });
   const { error } = await deps.db.from('alerts').insert(['admin', 'ops'].map((role) => ({ at, kind: 'marketing', title: t.title, body: t.body, role_id: role, entity: 'marketing-ai', entity_id: 'report:' + p.day })));
   if (error) throw new Error('db alerts ' + (error.code ?? ''));
+  // the owner 17 Nov — the media buyer's daily summary in the bell (0124): each campaign's state and numbers next to the site's orders,
+  // the running ad sets and ads from Meta live (read only); a failure never fails the report
+  try {
+    const [{ data: objs }, { data: cst }] = await Promise.all([
+      deps.db.from('mkt_ad_objects').select('id, name, status').eq('platform', 'meta').eq('kind', 'campaign').limit(2000),
+      deps.db.from('mkt_ad_stats').select('object_id, spend, purchases').eq('platform', 'meta').eq('level', 'campaign').eq('day', y).limit(5000)]);
+    const camps = (Array.isArray(objs) ? objs : []).map((o: Json) => { const rs = (Array.isArray(cst) ? cst : []).filter((r: Json) => r.object_id === o.id); return { id: String(o.id), name: o.name || '#' + o.id, status: o.status, spend: rs.reduce((a: number, r: Json) => a + (Number(r.spend) || 0), 0), purchases: rs.reduce((a: number, r: Json) => a + (Number(r.purchases) || 0), 0) }; });
+    const link = await linkOf(deps, 'meta'); const one = { days: 1, breakdown: '', campaignId: '' };
+    const live = async (level: string) => { if (!linkReady('meta', link)) return null; try { return liveAdsRows(await get(deps, liveAdsUrl(link.account_id, { ...one, level }, y), link.access_token), { ...one, level }); } catch { return null; } };
+    const d = dailySummary({ day: y, campaigns: camps, orders: orders.filter((o) => o.day === y && o.platform === 'meta'), adsets: await live('adset'), ads: await live('ad'), pending: Array.isArray(pending) ? pending.length : 0, rules });
+    await deps.db.rpc('ai_agent_note_add', { p_agent: 'buyer', p_kind: 'report', p_title: d.title, p_body: d.body, p_ref: 'daily:' + y, p_link: null });
+  } catch (e) { console.error('mkt-ads daily summary: ' + quiet(e)); }
   return json(200, { result: 'ok', day: y });
 }
 

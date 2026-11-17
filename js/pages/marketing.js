@@ -1769,7 +1769,13 @@
     const pf = TR_PF[x.platform] || TR_PF.web; const src = x.thumb ? MK().trendThumbNow(x.thumb) : null;
     const num = x.views != null ? ['eye', compact(x.views)] : x.likes != null ? ['star', compact(x.likes)] : null;
     const copy = can().create ? h('button', { type: 'button', class: 'mk-tile-copy', 'data-mk-copy-trend': String(x.id), title: 'اعمل زيه — كامبين جديدة متملّية والبوست ده مرجع', onClick: (e) => { e.preventDefault(); e.stopPropagation(); copyFrom({ from: 'trend', kind: x.kind, title: x.title, summary: x.summary, url: x.url, platform: x.platform }); } }, Icon('sparkle', 'sm'), h('span', null, 'اعمل زيه')) : null;
-    return h('div', { class: 'mk-tile-box' }, h('a', { class: 'mk-tile' + (src ? '' : ' no-pic') + ' pf-' + pf[1], href: x.url, target: '_blank', rel: 'noopener noreferrer', title: x.title + (x.summary ? ' — ' + x.summary : ''), 'data-mk-trend': String(x.id), 'data-mk-trend-kind': x.kind },
+    // a video plays where it is on hover (or keyboard focus) — its platform's own muted player over the picture, no clicks on it (the
+    // click is the tile's: the post opens in a new tab); it goes when the pointer leaves
+    const embed = W.trendEmbed ? W.trendEmbed(x) : null; let tm = 0;
+    const play = embed ? (e) => { const a = e.currentTarget; clearTimeout(tm); tm = setTimeout(() => { if (a.querySelector('.mk-tile-play')) return;
+      a.classList.add('is-playing'); a.appendChild(h('iframe', { class: 'mk-tile-play', src: embed, title: x.title, tabindex: '-1', loading: 'lazy', allow: 'autoplay; encrypted-media; picture-in-picture', referrerpolicy: 'strict-origin-when-cross-origin', 'aria-hidden': 'true' })); }, 350); } : null;
+    const stop = embed ? (e) => { clearTimeout(tm); const a = e.currentTarget; a.classList.remove('is-playing'); a.querySelectorAll('.mk-tile-play').forEach((f) => f.remove()); } : null;
+    return h('div', { class: 'mk-tile-box' }, h('a', { class: 'mk-tile' + (src ? '' : ' no-pic') + ' pf-' + pf[1], href: x.url, 'data-mk-embed': embed ? '' : null, onMouseenter: play, onMouseleave: stop, onFocus: play, onBlur: stop, target: '_blank', rel: 'noopener noreferrer', title: x.title + (x.summary ? ' — ' + x.summary : ''), 'data-mk-trend': String(x.id), 'data-mk-trend-kind': x.kind },
       src ? h('img', { src, alt: '', loading: 'lazy', referrerpolicy: 'no-referrer' }) : h('span', { class: 'mk-tile-ph', 'aria-hidden': 'true' }, Icon(x.kind === 'video' ? 'play' : 'image')),
       x.kind === 'video' ? h('span', { class: 'mk-tile-kind', 'aria-label': 'فيديو' }, Icon('play', 'sm')) : null,
       h('span', { class: 'mk-tile-top' }, h('span', { class: 'mk-tile-pf', 'data-mk-trend-src': String(x.id) }, x.platform !== 'web' ? Icon(x.platform, 'sm') : null, pf[0] || x.source), x.tag ? h('span', { class: 'mk-tile-tag' }, '#' + x.tag) : null),

@@ -613,9 +613,11 @@ a.mk-lib.disabled { opacity:.5;pointer-events:none }
 /* the owner 17 Nov — «اعمل زيه» on a trend tile (over its picture, on hover / focus; always on touch) and on a competitor's card; the
    trends' tabs and the kit's «فلتر» in one row */
 .mk-tile-box { position:relative;min-width:0 }
-.mk-tile-copy { position:absolute;z-index:3;top:40px;inset-inline-end:8px;display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border:0;border-radius:999px;background:var(--color-brand-default,#005642);color:var(--color-text-on-brand,#f6ecd9);font:inherit;font-size:12px;font-weight:600;cursor:pointer;opacity:0;transition:opacity .15s ease;box-shadow:0 1px 4px rgba(0,0,0,.3) }
-.mk-tile-box:hover .mk-tile-copy, .mk-tile-box:focus-within .mk-tile-copy, .mk-tile-copy:focus-visible { opacity:1 }
+.mk-tile-copy { position:absolute;z-index:3;top:40px;inset-inline-end:8px;display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border:0;border-radius:999px;background:var(--color-brand-default,#005642);color:var(--color-text-on-brand,#f6ecd9);font:inherit;font-size:12px;font-weight:600;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.3) }
+.mk-tile-copy:hover { filter:brightness(1.12) }
 .mk-tile-copy:focus-visible { outline:2px solid #fff;outline-offset:2px }
-@media (hover:none) { .mk-tile-copy { opacity:1 } }
+/* a video playing in place on hover: the platform's player over the picture, the click still the tile's */
+.mk-tile-play { position:absolute;inset:0;z-index:1;width:100%;height:100%;border:0;pointer-events:none;background:#000 }
+.mk-tile.is-playing .mk-tile-cap, .mk-tile.is-playing .mk-tile-kind { opacity:0;transition:opacity .2s ease }
 .mk-trend-bar { display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap }
 .mk-cc-links { display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap }

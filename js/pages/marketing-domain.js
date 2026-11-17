@@ -562,6 +562,19 @@
   const xr = (v) => (v == null ? '—' : Number(v).toFixed(2) + '×');
   // ش45 decision 4 — the designer's (or the header assistant's) filled campaign → the details of «كامبين جديدة» (defaults() + the goal,
   // the idea and the counts within MAX / VIDEO_MAX — the server's campaignDraft limits); null when it names nothing to make
+  // the owner 17 Nov («الفيدوهات … لما اعمل هوفر عليها تشتغل ولما ادوس عليها تفتحلي»): a trend video's player on its own platform —
+  // TikTok's player (muted, looping, without its controls), Instagram's embed, Facebook's video plugin (muted) — from the post's link
+  // only (https on the platform's own host and its id), else null (a picture post, an article, any other link)
+  function trendEmbed(x) {
+    if (!x || x.kind !== 'video') return null;
+    let u; try { u = new URL(String(x.url || '')); } catch (e) { return null; }
+    if (u.protocol !== 'https:' || u.port || u.username || u.password) return null;
+    const host = u.hostname.toLowerCase(); const p = u.pathname; let m;
+    if (/(^|\.)tiktok\.com$/.test(host) && (m = /\/video\/(\d{6,30})/.exec(p))) return 'https://www.tiktok.com/player/v1/' + m[1] + '?autoplay=1&muted=1&loop=1&controls=0&progress_bar=0&play_button=0&volume_control=0&fullscreen_button=0&music_info=0&description=0&rel=0&native_context_menu=0&closed_caption=0';
+    if (/(^|\.)instagram\.com$/.test(host) && (m = /^\/(?:[^/]+\/)?(p|reel|reels|tv)\/([A-Za-z0-9_-]{5,40})/.exec(p))) return 'https://www.instagram.com/' + (m[1] === 'p' ? 'p' : 'reel') + '/' + m[2] + '/embed/';
+    if (/(^|\.)facebook\.com$/.test(host) && /\/(reel|videos|watch)\b/.test(p)) return 'https://www.facebook.com/plugins/video.php?href=' + encodeURIComponent(u.origin + u.pathname + (u.searchParams.get('v') ? '?v=' + u.searchParams.get('v') : '')) + '&autoplay=true&mute=true&show_text=false';
+    return null;
+  }
   function draftOf(d) {
     if (!d || typeof d !== 'object') return null;
     const idea = String(d.idea == null ? '' : d.idea).replace(/[\u0000-\u001f\u007f<>]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 500);
@@ -578,7 +591,7 @@
   }
 
   const api = { PRICE_DEMO, VIDEO_SOON, VSIZES, videoImgSize, videoMethod, estimateVideo, METHOD_RATE, GOALS, MEDIA, VIDEO_RATE, METHODS, MAX, TEXT_FILL, DEFAULT_MODEL, clamp, defaults, buildPieces, splitScenes, CLIP, VIDEO_MAX, clipSeconds, sceneSeconds, scenesPending, sceneDurOf, videoSeconds, setSceneDur, setSceneD, setSceneCount, keepSceneDurs, cost, spend, built, approvable, approved, approveAll, progress, canBuildNext, canReviewNext, validateDetails, estimate, imgRate, videoRate,
-    adLibraryUrl, competitorPage, competitorRow, draftOf,
+    adLibraryUrl, competitorPage, competitorRow, draftOf, trendEmbed,
     campaignStatus, campaignName, PLATFORMS, CONNECTED, POST_STATUSES, CAP_MAX, TAGS, TIMES, timeOpts, postKind, pieceImages, hookOf, addD, suggest, scheduleItems, isPast, canMove, moveCheck, safeName, zipPlan,
     PUBLISHABLE, PUB_KINDS, MAX_IMAGES, PL_KEY, pubText, notReady, publishable, pubImages, isVideoPath, igFit, jpegSize, isJpeg, PUB_ERRORS, pubError, seenSt, engOf, postTotals, SRC_LABEL,
     get DAYS() { return days(); }, dayIdx, wkStart, weeksOf, planDefault, D2, dayLabel, relDay, pct, linkKeys,

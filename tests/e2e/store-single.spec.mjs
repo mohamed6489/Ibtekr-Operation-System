@@ -81,3 +81,13 @@ test('marketplace (default): the products records keep «المبتكر»', asyn
   await page.locator('#pg-products [role=tab]', { hasText: 'سجل المنتجات' }).click();
   await expect(page.locator('#pg-products table.pr-table thead th:visible', { hasText: /^المبتكر$/ }).first()).toBeVisible();
 });
+
+test('single mode: the dashboard has no makers\' tiles or cards', async ({ page }) => {
+  setStore({ mode: 'single' });
+  await signIn(page);
+  await page.evaluate(() => { location.hash = 'dashboard'; });
+  await expect(page.locator('.dash-kpis .kpi').first()).toBeVisible();
+  await expect(page.locator('.dash-kpis', { hasText: 'رصيد المبتكرين' })).toHaveCount(0);
+  await expect(page.locator('.dash-kpis', { hasText: 'مبتكرين متأخرين' })).toHaveCount(0);
+  await expect(page.locator('.dash-grid', { hasText: 'المبتكرين المحتاجين متابعة' })).toHaveCount(0);
+});

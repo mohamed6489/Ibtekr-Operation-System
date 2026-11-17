@@ -193,6 +193,9 @@
   function render() { if (window.IBPages.current === 'dashboard') window.IBPages.render('dashboard'); }
   function refresh() { st.loading = true; render(); setTimeout(() => { st.loading = false; st.updated = K.clockNow(); render(); }, 500); }
   function skeleton() { return h('div', { class: 'dash-skel', 'aria-busy': 'true', 'aria-label': 'بيحمّل' }, h('div', { class: 'dash-kpis' }, [1, 2, 3, 4, 5].map(() => h('div', { class: 'card sk sk-kpi' }))), h('div', { class: 'dash-grid' }, [1, 2, 3, 4].map(() => h('div', { class: 'card sk sk-card' })))); }
+  // single-seller mode (the plan 2026-11-17-stores-single.md decision 3): the makers' tiles and cards leave the dashboard
+  const MAKER_KPIS = ['vendorBal', 'deposits', 'vendorsLate', 'vendorsRisk', 'subsUnnotified', 'nextStatement'];
+  const single = () => !!(window.IBSettings && window.IBSettings.single && window.IBSettings.single());
   function view() {
     const m = me(); const r = role(); const D = DATA(); st.updated = st.updated || K.clockNow();
     const min = new Date().getHours() * 60 + new Date().getMinutes();
@@ -208,8 +211,9 @@
     const prefsOwner = st.viewAs || K.ME; const L = DD.layout(r, prefsOf(prefsOwner)).filter((c) => !c.hidden);
     const grid = h('div', { class: 'dash-grid' }); const ids = [];
     L.forEach((c) => {
-      if (c.id === 'kpis') { const tiles = DD.kpisFor(r).filter((k) => !(DD.MONEY_KPIS.includes(k) && !S.money)); out.push(h('div', { class: 'dash-kpis', role: 'region', 'aria-label': 'المؤشرات', style: '--n:' + Math.max(3, tiles.length) }, DD.kpisFor(r).map((k) => { if (DD.MONEY_KPIS.includes(k) && !S.money) return null; const p = kpi(k, S); return p ? U.KpiTile(p) : null; }).filter(Boolean))); return; }
+      if (c.id === 'kpis') { const tiles = DD.kpisFor(r).filter((k) => !(DD.MONEY_KPIS.includes(k) && !S.money) && !(single() && MAKER_KPIS.includes(k))); out.push(h('div', { class: 'dash-kpis', role: 'region', 'aria-label': 'المؤشرات', style: '--n:' + Math.max(3, tiles.length) }, DD.kpisFor(r).map((k) => { if ((DD.MONEY_KPIS.includes(k) && !S.money) || (single() && MAKER_KPIS.includes(k))) return null; const p = kpi(k, S); return p ? U.KpiTile(p) : null; }).filter(Boolean))); return; }
       if (['money', 'expByType', 'statements'].includes(c.id) && !S.money) return;
+      if (['vendors', 'statements'].includes(c.id) && single()) return; // single-seller mode (2026-11-17-stores-single.md decision 3): no makers' cards
       if (CARDS[c.id]) ids.push(c.id);
     });
     DD.packRows(ids).forEach(([id, span]) => { const el = CARDS[id](S); el.style.setProperty('--span', span); grid.append(el); });

@@ -360,6 +360,7 @@ test('T7 — decision 11: «إيقاف مؤقت» for a day writes integrations.
 test('T8 — decisions 13–15: the six shot rules of the studio; «+ تعليمات جديدة» adds a template; a campaign picks it beside its own words (the ids only)', async ({ page }) => {
   await go(page, '#settings-ai');
   const st = page.locator('#pg-settings');
+  await st.getByRole('tab', { name: 'الصور', exact: true }).click(); // ش42: the providers tab opens first
   // decision 13: the studio's five shots + the features image, in its order
   await expect(st).toContainText('قواعد اللقطات');
   for (const l of ['1 · في النص', '2 · بيئة', '3 · بيئة تانية', '4 · تفاصيل 2×2', '5 · رسم المقاس', '6 · صورة المميزات']) await expect(st.getByText(l, { exact: true })).toBeVisible();

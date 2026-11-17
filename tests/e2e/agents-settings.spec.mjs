@@ -64,3 +64,18 @@ test('ش41: HR «الفريق» has no «الدور» dropdown of its own — th
   await expect(page.locator('#hr-role')).toHaveCount(0);
   await expect(page.locator('#pg-hr')).not.toContainText('الدور: الكل');
 });
+
+test('ش42: «تعليمات الذكاء الاصطناعي» in tabs — the providers first, one section at a time', async ({ page }) => {
+  await signIn(page);
+  await page.evaluate(() => { location.hash = 'settings-ai'; });
+  const st = page.locator('#pg-settings');
+  await expect(st.getByRole('tab')).toContainText(['المزوّدين', 'الصور', 'الفيديو', 'المحتوى', 'المساعدين']);
+  await expect(st.locator('[data-prov="text"]')).toBeVisible();
+  await expect(st).not.toContainText('قواعد اللقطات');
+  await st.getByRole('tab', { name: 'الصور', exact: true }).click();
+  await expect(st).toContainText('قواعد اللقطات');
+  await expect(st.locator('[data-prov]')).toHaveCount(0);
+  await st.getByRole('tab', { name: 'المساعدين' }).click();
+  await expect(st.locator('[data-agent-tabs]')).toBeVisible();
+  await expect(st).not.toContainText('قواعد اللقطات');
+});

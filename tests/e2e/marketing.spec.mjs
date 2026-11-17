@@ -54,6 +54,10 @@ test('«التسويق» is open on «نظرة عامة» (the v6 prototype), «
   await pg(page).getByRole('tab', { name: /إنشاء/ }).click();
   await expect(pg(page).locator('[role=tab][aria-selected=true]')).toContainText('إنشاء');
   await expect(pg(page).locator('[data-mk-start]')).toBeVisible();
+  // ش36 (the owner 17 Nov): the card reads «إنشاء محتوى» and spans the page as wide as «آخر الشغل»
+  await expect(pg(page).locator('[data-mk-start] .tc-t')).toHaveText('إنشاء محتوى');
+  const [cw, tw] = await Promise.all([pg(page).locator('[data-mk-start]').evaluate((n) => n.getBoundingClientRect().width), pg(page).locator('.card', { hasText: 'آخر الشغل' }).first().evaluate((n) => n.getBoundingClientRect().width)]);
+  expect(Math.abs(cw - tw)).toBeLessThanOrEqual(2);
   const row = pg(page).locator('tr', { hasText: 'كولكشن الشتا القديم' });
   await expect(row).toContainText('اتجدولت');
   await expect(pg(page).locator('[role=tab] [data-soon]')).toHaveCount(0); // 9.5.4: every tab is open

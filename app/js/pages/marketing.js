@@ -286,7 +286,7 @@
   // ---------- the hub (v5: the campaign card only — owner 1 Nov 22:54) + «آخر الشغل» (decision 18) ----------
   function hub() {
     const C = can();
-    const tool = h('button', { type: 'button', class: 'card tool-card featured', 'data-mk-start': '', disabled: !C.create || null, onClick: startCampaign, 'aria-label': 'كامبين — ابدأ كامبين' }, h('span', { class: 'tool-ic' }, Icon('megaphone')), h('span', { class: 't-h5 tc-t' }, 'كامبين'),
+    const tool = h('button', { type: 'button', class: 'card tool-card featured', 'data-mk-start': '', disabled: !C.create || null, onClick: startCampaign, 'aria-label': 'إنشاء محتوى — ابدأ كامبين' }, h('span', { class: 'tool-ic' }, Icon('megaphone')), h('span', { class: 't-h5 tc-t' }, 'إنشاء محتوى'),
       h('span', { class: 't-small tc-b' }, 'من الفكرة لحد النشر: البوستات والكاروسيل، المراجعة، والمواعيد على كل منصة.'), h('span', { class: 'tc-cta' }, 'ابدأ كامبين', Icon('chevL', 'sm')));
     const posts = MK().posts(); const list = MK().campaigns();
     const rows = list.map((c) => { const [label, tone] = W.campaignStatus(c, posts);
@@ -294,7 +294,8 @@
         h('div', { class: 'acts-inline' }, C.create ? Button({ size: 'sm', label: 'افتح', attrs: { 'data-mk-open': c.id }, onClick: () => openCampaign(c.id) }) : null,
           C.create ? K.RowMenu([{ label: 'احذف الكامبين', icon: 'trash', danger: true, run: () => K.confirm({ title: 'تحذف «' + c.name + '»؟', text: 'الكامبين هتختفي من «آخر الشغل». البوستات اللي اتجدولت منها بتفضل في سجل النشر.', okLabel: 'احذف', okType: 'danger', onOk: async () => { const r = await MK().archive(c.id); K.toast(r.ok ? 'اتحذفت الكامبين' : r.message, r.ok ? 'success' : 'error'); if (r.ok && camp.id === c.id) Object.assign(camp, blankCamp()); R(); } }) }]) : null)]; });
     // the owner 12 Nov: «شيل زر الفيديو خالص وسيب بس زر إنشاء كامبين جديدة» — the video is a piece inside the campaign
-    return [h('div', { class: 'tools-grid c2' }, tool),
+    // ش36 (the owner 17 Nov — «حول كلمة "كامبين" ل " إنشاء محتوى" و خليها بالعرض كامل نفس عرض الجدول»): the card spans the page like «آخر الشغل»
+    return [h('div', { class: 'tools-grid c1' }, tool),
       Card('آخر الشغل', 'الكامبينات اللي اتعملت — بتتحفظ أول بأول وتقدر تكمّلها من مكان ما وقفت.', list.length ? U.Table({ cls: 'dt', headers: ['الكامبين', 'آخر تعديل', 'الحالة', ''], rows })
         : K.Empty('لسه مفيش كامبينات', 'ابدأ كامبين من الكارت اللي فوق.'))];
   }

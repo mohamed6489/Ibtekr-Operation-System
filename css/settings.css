@@ -461,3 +461,15 @@ button.dx-stat{cursor:pointer}button.dx-stat:hover{background:var(--color-bg-hov
 #pg-settings .dz-item input{margin-top:4px;accent-color:var(--color-error-text)}
 @media (max-width:767px){#pg-settings .dz-grid{grid-template-columns:1fr}}
 .dz-modal .dz-tables{max-height:300px;overflow:auto;border:1px solid var(--color-border-subtle);border-radius:var(--radius-md,10px);margin:10px 0}
+
+/* ش40 — «المساعدين»: the rules / skills sections as cards, their items as rows (title + details) with ⋮ */
+.kb-groups { display:grid;gap:12px }
+.kb-group { border:1px solid var(--color-border,#e5dccb);border-radius:10px;background:var(--color-bg,#fff);overflow:hidden }
+.kb-group-h { display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--color-bg-subtle,#f6efe2) }
+.kb-group-h b { flex:1;min-width:0 }
+.kb-group-h .cnt { min-width:22px;padding:0 6px;border-radius:999px;background:var(--color-primary,#005642);color:#fff;font-size:12px;text-align:center;line-height:20px }
+.kb-items { list-style:none;margin:0;padding:0 }
+.kb-items li { display:flex;align-items:flex-start;gap:8px;padding:10px 12px;border-top:1px solid var(--color-border,#efe6d6) }
+.kb-item-t { flex:1;min-width:0;display:flex;flex-direction:column;gap:2px }
+.kb-item-t small { color:var(--color-text-secondary);white-space:pre-line;line-height:1.6 }
+.kb-empty { margin:0;padding:10px 12px }

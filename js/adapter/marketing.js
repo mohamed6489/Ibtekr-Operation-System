@@ -774,14 +774,24 @@
   // table is not there: the list is empty and `ready` is false. The log carries the count only.
   const noTable = (err) => !!err && (err.code === '42P01' || err.code === 'PGRST205' || /does not exist|schema cache/i.test(String(err.message || '')));
   let trendRows = null; let trendsAt = 0; let trendsReady = true;
+  const PLATFORMS = ['tiktok', 'instagram', 'facebook', 'web'];
+  const cnt = (v) => (v !== '' && num(v) != null && num(v) >= 0 ? num(v) : null);
   const toTrend = (r) => ({ id: r.id, batch: r.batch || null, title: clean(r.title, 160), summary: clean(r.summary, 600), source: clean(r.source, 80) || '—', url: /^https:\/\/[^\s<>"]+$/.test(String(r.url || '')) ? String(r.url) : '',
-    kind: r.kind === 'video' ? 'video' : 'image', at: r.found_at || null });
+    kind: r.kind === 'video' ? 'video' : 'image', at: r.found_at || null,
+    // ش39 (0118): the post's platform, the tag it came from, its picture (a path in the bucket — signed by trendThumbs), author and numbers
+    platform: PLATFORMS.includes(r.platform) ? r.platform : 'web', tag: clean(r.tag, 40), thumb: /^trends\/[0-9]{4}-[0-9]{2}\/[0-9]+\.(png|jpg|webp)$/.test(String(r.thumb || '')) ? r.thumb : null,
+    author: clean(r.author, 80), views: cnt(r.views), likes: cnt(r.likes), comments: cnt(r.comments), postedAt: r.posted_at || null });
+  const TREND_COLS = 'id, batch, title, summary, source, url, kind, found_at';
+  const TREND_COLS2 = TREND_COLS + ', platform, tag, thumb, author, views, likes, comments, posted_at';
+  const noColumn = (err) => !!err && (err.code === '42703' || /column .* does not exist/i.test(String(err.message || '')));
   async function trends(force) {
     if (!can().view) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
     if (!force && trendRows && Date.now() - trendsAt < 60000) return { ok: true, items: trendRows, ready: trendsReady };
     const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
     try {
-      const { data: d, error } = await cl.from('mkt_trends').select('id, batch, title, summary, source, url, kind, found_at').order('found_at', { ascending: false }).order('id', { ascending: true }).limit(60);
+      const q = (cols) => cl.from('mkt_trends').select(cols).order('found_at', { ascending: false }).order('id', { ascending: true }).limit(120);
+      let { data: d, error } = await q(TREND_COLS2);
+      if (error && noColumn(error)) ({ data: d, error } = await q(TREND_COLS)); // before 0118: the rows as they were
       if (error) { if (!noTable(error)) return fail(error); trendRows = []; trendsReady = false; trendsAt = Date.now(); return { ok: true, items: trendRows, ready: false }; }
       trendRows = (d || []).map(toTrend).filter((x) => x.title && x.url); trendsReady = true; trendsAt = Date.now();
       return { ok: true, items: trendRows, ready: true };
@@ -797,10 +807,73 @@
     if (!r.ok) return Object.assign(r, { message: (r.code && TREND_MESSAGES[r.code]) || aiMessage(r, 'text') });
     const b = r.body || {};
     if (b.result === 'refused') return { ok: false, reason: 'refused', message: aiMessage({ reason: 'refused' }, 'text') };
-    const n = Number(b.count) || 0;
+    let n = Number(b.count) || 0; let ig = null;
+    // ش39: with the team's tags, Instagram's official hashtag search too (mkt-publish), then the pictures of the new rows (ai-images)
+    if (b.tags) {
+      const g = await invoke('mkt-publish', { action: 'trends_ig' });
+      const gb = (g.ok && g.body) || {};
+      ig = g.ok ? (gb.result === 'ok' ? { count: Number(gb.count) || 0 } : { off: gb.result === 'unavailable' ? (gb.code === 'token' ? 'token' : 'permission') : gb.result === 'not_linked' ? 'not_linked' : null }) : { off: 'failed' };
+      n += ig.count || 0;
+    }
+    await trendThumbsFetch();
     log('trends.refresh', String(n), null);
     await trends(true); emit();
-    return { ok: true, count: n };
+    return { ok: true, count: n, ig };
+  }
+  // the pictures of the rows that have none yet (12 a call on the server; two calls at most here)
+  async function trendThumbsFetch() {
+    for (let i = 0; i < 2; i += 1) {
+      const t = await invoke('ai-images', { action: 'trend_thumbs' });
+      if (!t.ok || !t.body || !(Number(t.body.tried) >= 12)) break;
+    }
+  }
+  // the signed links of the trends' pictures (an hour), cached by path
+  const thumbUrl = new Map();
+  async function trendThumbs(paths) {
+    const want = [...new Set((paths || []).filter((p) => p && !thumbUrl.has(p)))];
+    const cl = c(); if (want.length && cl) {
+      try {
+        const { data } = await cl.storage.from(BUCKET).createSignedUrls(want, 3600);
+        (data || []).forEach((x) => { if (x && x.path && x.signedUrl) thumbUrl.set(x.path, x.signedUrl); });
+      } catch (e) { /* the tiles stay without a picture */ }
+    }
+    return Object.fromEntries((paths || []).filter((p) => thumbUrl.has(p)).map((p) => [p, thumbUrl.get(p)]));
+  }
+  const trendThumbNow = (p) => thumbUrl.get(p) || null;
+
+  // ---------- the designer's trend tags and sites (ش39, 0118 — the admin writes them in «الإعدادات › … › المصمم الاصطناعي»)
+  let trendCfg = null;
+  const TAG_RE = /^[A-Za-z0-9_\u0621-\u064A\u0660-\u0669\u0671-\u06D3]{1,40}$/;
+  const HOST_RE = /^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}$/;
+  const tagOf = (v) => String(v || '').trim().replace(/^#+/, '').replace(/\s+/g, '_').toLowerCase();
+  const hostOf = (v) => String(v || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '');
+  async function trendSettings(force) {
+    if (!force && trendCfg) return { ok: true, ...trendCfg };
+    const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
+    try {
+      const { data: d, error } = await cl.rpc('mkt_trend_settings');
+      if (error) { if (/function .* does not exist|PGRST202/i.test(String(error.message || '') + (error.code || ''))) { trendCfg = { tags: [], sources: [], ready: false }; return { ok: true, ...trendCfg }; } return fail(error); }
+      const o = d && typeof d === 'object' ? d : {};
+      trendCfg = { tags: (Array.isArray(o.tags) ? o.tags : []).filter((t) => typeof t === 'string'), sources: (Array.isArray(o.sources) ? o.sources : []).filter((t) => typeof t === 'string'), ready: true };
+      return { ok: true, ...trendCfg };
+    } catch (e) { return fail(null); }
+  }
+  const trendSettingsNow = () => trendCfg;
+  async function trendSettingsSet(tags, sources) {
+    if (!isAdmin()) return { ok: false, reason: 'forbidden', message: 'إعدادات التريندات للأدمن بس' };
+    const T = [...new Set((tags || []).map(tagOf).filter(Boolean))]; const S = [...new Set((sources || []).map(hostOf).filter(Boolean))];
+    if (T.length > 30) return { ok: false, reason: 'invalid', field: 'tags', message: 'لحد 30 تاج' };
+    const badT = T.find((t) => !TAG_RE.test(t)); if (badT) return { ok: false, reason: 'invalid', field: 'tags', message: '«' + badT + '» — التاج كلمة واحدة (حروف وأرقام و _)، لحد 40 حرف' };
+    if (S.length > 15) return { ok: false, reason: 'invalid', field: 'sources', message: 'لحد 15 موقع' };
+    const badS = S.find((h) => !HOST_RE.test(h) || h.length > 100); if (badS) return { ok: false, reason: 'invalid', field: 'sources', message: '«' + badS + '» — اكتب اسم الموقع بس (مثلاً later.com)' };
+    const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
+    try {
+      const { data: d, error } = await cl.rpc('mkt_trend_settings_set', { p_tags: T, p_sources: S });
+      if (error) return fail(error);
+      trendCfg = { tags: (d && d.tags) || T, sources: (d && d.sources) || S, ready: true };
+      log('trends.settings', String(T.length), null);
+      return { ok: true, ...trendCfg };
+    } catch (e) { return fail(null); }
   }
 
   // ---------- «إعلانات المنافسين» (comments decision 70): the media buyer's competitors — a list the team keeps (0109: added,
@@ -985,7 +1058,51 @@
   }
   let agentCfg = null; let agentCfgAt = 0;
   const cfgOf = (x) => { const o = x && typeof x === 'object' ? x : {}; return { intro: typeof o.intro === 'string' ? o.intro : '', instructions: typeof o.instructions === 'string' ? o.instructions : '',
-    suggestions: Array.isArray(o.suggestions) ? o.suggestions.filter((v) => typeof v === 'string' && v.trim()).slice(0, 8) : null }; };
+    suggestions: Array.isArray(o.suggestions) ? o.suggestions.filter((v) => typeof v === 'string' && v.trim()).slice(0, 8) : null,
+    rules: kbOf(o.rules), skills: kbOf(o.skills) }; }; // ش40 (0118)
+  // ---------- the assistants' rules and skills (ش40, 0118): named sections of { title, text } — the admin writes them in the settings,
+  // the server puts them in the assistant's prompt. The checks are 0118's (and _shared/agent-kb.js's kbCheck).
+  const KB = { sections: 12, items: 30, name: 60, title: 80, text: 1500, total: 20000 };
+  const kbId = (v, d) => (/^[A-Za-z0-9_-]{1,40}$/.test(String(v || '')) ? String(v) : d);
+  function kbOf(v) {
+    return (Array.isArray(v) ? v : []).filter((g) => g && typeof g === 'object' && typeof g.name === 'string' && g.name.trim()).slice(0, KB.sections).map((g, gi) => ({
+      id: kbId(g.id, 'g' + (gi + 1)), name: g.name.trim().slice(0, KB.name),
+      items: (Array.isArray(g.items) ? g.items : []).filter((it) => it && typeof it.title === 'string' && it.title.trim()).slice(0, KB.items)
+        .map((it, ii) => ({ id: kbId(it.id, 'i' + (gi + 1) + '_' + (ii + 1)), title: it.title.trim().slice(0, KB.title), text: typeof it.text === 'string' ? it.text : '' })) }));
+  }
+  function kbCheck(groups) {
+    if (!Array.isArray(groups) || groups.length > KB.sections) return { field: 'groups', message: 'لحد ' + KB.sections + ' قسم' };
+    let total = 0;
+    for (const g of groups) {
+      const n = String(g.name || '').trim();
+      if (!n || n.length > KB.name || /[<>]/.test(n)) return { field: 'name', message: 'اسم القسم لحد ' + KB.name + ' حرف ومن غير < >' };
+      const items = Array.isArray(g.items) ? g.items : []; if (items.length > KB.items) return { field: 'items', message: 'لحد ' + KB.items + ' في القسم الواحد' };
+      total += n.length;
+      for (const it of items) {
+        const t = String(it.title || '').trim(); const x = String(it.text || '').replace(/\r\n?/g, '\n').trim();
+        if (!t || t.length > KB.title || /[<>]/.test(t)) return { field: 'title', message: 'العنوان لحد ' + KB.title + ' حرف ومن غير < >' };
+        if (x.length > KB.text || /[<>]/.test(x)) return { field: 'text', message: 'التفاصيل لحد ' + KB.text + ' حرف ومن غير < >' };
+        total += t.length + x.length;
+      }
+    }
+    if (total > KB.total) return { field: 'size', message: 'الكلام كله أكتر من ' + KB.total + ' حرف — قصّر شوية' };
+    return null;
+  }
+  async function agentKbSet(agent, kind, groups) {
+    if (!isAdmin()) return { ok: false, reason: 'forbidden', message: 'قواعد المساعدين وسكيلزهم للأدمن بس' };
+    if (!AGENT_KEYS.includes(agent) || !['rules', 'skills'].includes(kind)) return { ok: false, reason: 'invalid', message: MESSAGES.invalid };
+    const bad = kbCheck(groups); if (bad) return { ok: false, reason: 'invalid', ...bad };
+    const body = groups.map((g) => ({ id: g.id, name: String(g.name).trim(), items: (g.items || []).map((it) => ({ id: it.id, title: String(it.title).trim(), text: String(it.text || '').replace(/\r\n?/g, '\n').trim() })) }));
+    const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
+    try {
+      const { data: d, error } = await cl.rpc('mkt_agent_kb_set', { p_agent: agent, p_kind: kind, p_groups: body });
+      if (error) return fail(error);
+      const saved = kbOf(d);
+      if (agentCfg && agentCfg[agent]) agentCfg[agent] = Object.assign({}, agentCfg[agent], { [kind]: saved });
+      log('agent.kb', agent + ' · ' + kind, null);
+      return { ok: true, groups: saved };
+    } catch (e) { return fail(null); }
+  }
   async function agentSettings(force) {
     if (!can().view && !isAdmin()) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
     if (!force && agentCfg && Date.now() - agentCfgAt < 60000) return { ok: true, agents: agentCfg };
@@ -1098,7 +1215,7 @@
     adsStatus, adsNow, adsSync, adsData, adsLinkSet, adsLinkStart, adsLinkPick, adsUnlink, adsWhy,
     suggestions, suggNow, decide, rules, rulesNow, rulesSet, setLive, requests, reqsNow, addRequest, REQ_KIND: KIND_OF, buyerChat,
     agentChats, agentTurns, agentAsk, agentImage, agentRename, agentDelete, agentSettings, agentSettingsNow, agentSettingsSet, AGENT_KEYS,
-    trends, trendsNow, trendsReadyNow, trendsRefresh, competitors, competitorsNow, competitorsReadyNow, competitorSave, competitorArchive,
+    trends, trendsNow, trendsReadyNow, trendsRefresh, trendThumbs, trendThumbNow, trendSettings, trendSettingsNow, trendSettingsSet, agentKbSet, KB, competitors, competitorsNow, competitorsReadyNow, competitorSave, competitorArchive,
     siteCheck, siteCheckNow, siteReadyNow, siteCheckRun, siteSubs, siteSubsNow, aiSpend, aiSpendNow,
     addTemplate, editTemplate, removeTemplate, templateUsed, subscribe, unsubscribe, check, MAX_BYTES, MIME, BUCKET,
     _test: { toCampaign, toPost, toTemplate, fail, aiMessage, fieldsOf, tplRow, pubMessage, toSuggestion, toRequest, toRules, toChat, toTurn } };

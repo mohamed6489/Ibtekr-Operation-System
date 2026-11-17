@@ -548,6 +548,30 @@
     return t || (IMG_PROVIDERS.includes(img.default) ? img.default : 'magnific');
   }
   const magnificOn = (tool) => imageProvider(tool) === 'magnific';
+  // 0127 (the plan 2026-11-17-stores-single.md): the store's platform and how the business sells — the same rules as
+  // supabase/functions/_shared/store/index.js (tests/functions/store.test.mjs compares them). The admin's own row «store» first, else
+  // settings_public().store; no row = WooCommerce + Dokan (marketplace) as always. storeCaps() says what the pages may show.
+  const STORE_PLATFORMS = ['woo', 'shopify', 'easyorders'];
+  const STORE_READY = ['woo'];
+  const STORE_CAPS = {
+    woo: { vendors: true, suborders: true, translations: true, seo: true, brands: true, media: true, carts: true, categories: true, variations: true, statusWrite: true, productWrite: true, studio: true },
+    shopify: { vendors: false, suborders: false, translations: false, seo: true, brands: true, media: true, carts: false, categories: true, variations: true, statusWrite: true, productWrite: true, studio: true },
+    easyorders: { vendors: false, suborders: false, translations: false, seo: false, brands: false, media: true, carts: false, categories: true, variations: true, statusWrite: true, productWrite: true, studio: true },
+  };
+  function storeOf(row) {
+    const r = row && typeof row === 'object' && !Array.isArray(row) ? row : {};
+    const platform = STORE_PLATFORMS.includes(r.platform) ? r.platform : 'woo';
+    const dokan = platform === 'woo' && r.dokan !== false && r.dokan !== 'false';
+    const mode = dokan && r.mode !== 'single' ? 'marketplace' : 'single';
+    const m = r.margin;
+    const margin = typeof m === 'number' && Number.isFinite(m) && m >= 0 && m <= 500 ? Math.round(m * 100) / 100 : 30;
+    const caps = Object.assign({}, STORE_CAPS[platform]);
+    if (mode === 'single') { caps.vendors = false; caps.suborders = false; }
+    return { platform, mode, dokan, margin, caps };
+  }
+  const store = () => storeOf((data.sections && data.sections.store) || (data.public && data.public.store) || null);
+  const single = () => store().mode === 'single';
+  const storeCaps = () => store().caps;
   function weekStart() { const sg = section('general'); const g = (sg && sg.week ? sg : null) || (data.public && data.public.general) || sg || {}; const d = WEEK_DAYS[String(g.week || '').trim()]; return d === undefined ? 6 : d; }
   // the admin saves the lists (each 1–30 items of at most 60 characters, no repeats; «أخرى» is added last by the reader where it belongs)
   // → { ok } · logged as settings.lists.save (counts only). A key left out keeps what is saved; cancel / returns are always written.
@@ -664,7 +688,7 @@
     log('brand.menu', String(what || '').slice(0, 60), 'brand'); return { ok: true, menu: v };
   }
 
-  window.IBSettings = { MENU_ICONS, MENU_LOCKED, MENU_LABEL_MAX, cleanMenu, menuOf, menuNow, saveMenu, loginLocks, loginUnlock, load, ensure, loadPublic, clear, data, section, sections: () => Object.assign({}, data.sections), roles, liveRoles, public: () => data.public, can, PERMS, PERM_KEYS, lists, saveLists, statusLabel, STATUS_KINDS, setRoleLevelPerms, setMemberLevel, levelPermsOf, MEMBER_LEVELS: MLEVELS, quickList, quickSave, quickDelete, quickOrder, QUICK_SCOPES: Q_SCOPES, expenseKinds, statusList, addedStatuses, delayRules, fakeRule, saveFake, orderStatuses, orderStatusAdd, orderStatusSlug, orderStatusDelete, orderStatusOrder, ADDED_MAX, ADDED_LEN, weekStart, imageProvider, magnificOn, clock, dateFmt, KIND_MAX, KINDS_MAX,
+  window.IBSettings = { MENU_ICONS, MENU_LOCKED, MENU_LABEL_MAX, cleanMenu, menuOf, menuNow, saveMenu, loginLocks, loginUnlock, load, ensure, loadPublic, clear, data, section, sections: () => Object.assign({}, data.sections), roles, liveRoles, public: () => data.public, can, PERMS, PERM_KEYS, lists, saveLists, statusLabel, STATUS_KINDS, setRoleLevelPerms, setMemberLevel, levelPermsOf, MEMBER_LEVELS: MLEVELS, quickList, quickSave, quickDelete, quickOrder, QUICK_SCOPES: Q_SCOPES, expenseKinds, statusList, addedStatuses, delayRules, fakeRule, saveFake, orderStatuses, orderStatusAdd, orderStatusSlug, orderStatusDelete, orderStatusOrder, ADDED_MAX, ADDED_LEN, weekStart, imageProvider, magnificOn, store, single, storeCaps, storeOf, STORE_PLATFORMS, STORE_READY, STORE_CAPS, clock, dateFmt, KIND_MAX, KINDS_MAX,
     save, setRolePerms, createRole, updateRole, deleteRole, setMemberRole, setMemberRoles, setMemberPerms, setMemberStatus, sessions, revokeSession, deviceOf,
     links, setSecret, wooSet, testSecret, unlink, connections, notifyStatus, notifyTick, activity, pageOf, docs, addDoc, updateDoc, removeDoc, docUrl, uploadLogo, logoUrl, LOGO_SLOTS, uploadFont, removeFont, loadFont, fontList, FONT_MAX, FONTS_MAX, wipe, WIPE_SECTIONS };
 })();

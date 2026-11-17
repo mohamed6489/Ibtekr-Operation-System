@@ -496,34 +496,18 @@ test('0113 — the chat: mine on the right in beige, the others on the left in g
   await expect(mine).not.toContainText('صفوت كمال'); // no name on my own bubble
 });
 
-test('0113 — a voice note: record (the microphone stubbed), the take waits with its player, «إرسال» sends it alone; 1x → 1.5x → 2x', async ({ page }) => {
-  await page.addInitScript(() => {
-    class FakeRec { constructor(s, o) { this.mimeType = (o && o.mimeType) || 'audio/webm'; this.state = 'inactive'; } start() { this.state = 'recording'; }
-      stop() { this.state = 'inactive'; this.ondataavailable({ data: new Blob([new Uint8Array(3000)], { type: this.mimeType }) }); this.onstop(); }
-      static isTypeSupported(t) { return t === 'audio/webm;codecs=opus'; } }
-    window.MediaRecorder = FakeRec;
-    Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: async () => ({ getTracks: () => [{ stop() {} }] }) } });
-  });
+test('voice notes removed (the owner 17 Nov — «شيل الريكورد و الفويس نوتس من طلبات الفريق خالص»): no microphone, and an old voice note shows nothing', async ({ page }) => {
   await openTickets(page);
   await page.locator('#tickets tr[data-id="TKT-0001"]').click();
   const d = drawer(page);
-  await d.locator('[data-vr-start]').click();
-  await expect(d.locator('[data-vr]')).toBeVisible();
-  await expect(d.locator('[data-vr-clock]')).toContainText('/ 1:00');
-  await page.waitForTimeout(1300);
-  await d.locator('[data-vr-stop]').click();
-  await expect(d.locator('[data-tk-take] [data-voice]')).toBeVisible();
-  const key = [...mock.ticketObjects.keys()].find((k) => /-voice\.webm$/.test(k));
-  expect(key).toMatch(new RegExp('^' + ADMIN_ID + '/'));
-  expect(mock.ticketObjects.get(key).type).toBe('audio/webm');
-  await d.locator('[data-tk-send]').click();
+  await expect(d.locator('[data-tk-send]')).toBeVisible();
+  await expect(d.locator('[data-vr-start], [data-vr], [data-tk-take]')).toHaveCount(0);
+  const before = await d.locator('.tk-bub').count();
+  mock.ticketObjects.set(ADMIN_ID + '/old-voice.webm', { type: 'audio/webm', size: 3000, by: ADMIN_ID }); // a voice note sent before the recorder went
+  const r = await page.evaluate((p) => window.IBTickets.reply('TKT-0001', '', [{ path: p, name: 'رسالة صوتية', type: 'audio/webm', size: 3000, duration: 4 }]), ADMIN_ID + '/old-voice.webm');
+  expect(r.ok).toBe(true);
   await expect.poll(() => mock.ticketWrites.filter((x) => x.action === 'reply').length).toBe(1);
-  const w = mock.ticketWrites.find((x) => x.action === 'reply');
-  expect(w.text).toBe(''); expect(w.attachments[0]).toMatchObject({ type: 'audio/webm', name: 'رسالة صوتية' });
-  expect(w.attachments[0].duration).toBeGreaterThanOrEqual(1);
-  const bub = d.locator('.tk-bub.is-mine [data-voice]').last();
-  await expect(bub).toBeVisible();
-  await expect(d.locator('.tk-bub.is-mine .tk-bub-t', { hasText: 'رسالة صوتية' })).toHaveCount(0); // a voice note alone: the player, not the word
-  const sp = bub.locator('[data-vn-speed]');
-  await expect(sp).toHaveText('1x'); await sp.click(); await expect(sp).toHaveText('1.5x'); await sp.click(); await expect(sp).toHaveText('2x'); await sp.click(); await expect(sp).toHaveText('1x');
+  await page.waitForTimeout(400);
+  await expect(d.locator('.tk-bub')).toHaveCount(before); // a message that was only a voice note has no bubble
+  await expect(d.locator('[data-voice], .vn')).toHaveCount(0);
 });

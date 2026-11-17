@@ -209,16 +209,8 @@ test('0113: the group — members on the row, a member works it, add / remove go
   eq(await old.T.load(), { ok: true }); eq(old.T.all().length, 2);
 });
 
-test('0113: a voice note — the recorder\'s type without the codec, ≤ 3 MB, 1–60 s, a reply with the file alone', async () => {
-  const { T, stub } = load();
-  const blob = new Blob([new Uint8Array(2000)], { type: 'audio/webm;codecs=opus' });
-  const r = await T.uploadVoice(blob, 12.44);
-  eq(r.ok, true); eq(r.file, { path: ME + '/abcdef12-voice.webm', name: 'رسالة صوتية', type: 'audio/webm', size: 2000, duration: 12.4 });
-  const up = opsOf(stub.calls, 'storage:tickets').find((c) => c.op === 'upload'); eq(up.args[2], { contentType: 'audio/webm', upsert: false });
-  eq((await T.uploadVoice(blob, 0.4)).field, 'duration');
-  eq((await T.uploadVoice(new Blob([new Uint8Array(10)], { type: 'video/webm' }), 5)).field, 'type');
-  eq((await T.uploadVoice(new Blob([new Uint8Array(3 * 1024 * 1024 + 1)], { type: 'audio/mp4' }), 5)).field, 'size');
-  assert(T.isVoice(r.file)); assert(!T.isVoice({ type: 'image/png' }));
-  await T.load(); await T.reply('TKT-0001', '', [r.file]);
-  eq(rpcs(stub).at(-1), ['ticket_act', { p_id: 1, p_action: 'reply', p_args: { text: '', attachments: [r.file] } }]);
+test('0113 voice notes removed (the owner 17 Nov): no recorder upload in the adapter; an old one is still known so the chat can leave it out', () => {
+  const { T } = load();
+  eq(typeof T.uploadVoice, 'undefined');
+  assert(T.isVoice({ type: 'audio/webm;codecs=opus' })); assert(!T.isVoice({ type: 'image/png' }));
 });

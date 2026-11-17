@@ -595,7 +595,7 @@ test('ش44 — the ad tags open the library on each word; the tag filter keeps o
 // comments decision 71 (the owner 15 Nov — «زودلي قسم المبرمج يجيبله ابديتس للوردر بريس و الاشتراكات بتاعت ورد بريس و الكريديتس»): the
 // developer's tab gets three cards — the site's updates (woo-sync wp_updates: names and versions, kept as one row), the
 // subscriptions of the accounts page with what is left of each (for whoever sees the accounts), and the month's AI credits
-const DAY = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+const DAY = (n) => new Date(Date.now() + n * 86400000).toLocaleDateString('en-CA', { timeZone: 'Africa/Cairo' }); // the page counts days in Cairo (UTC broke around Cairo's midnight)
 const SUBS = [
   { id: 1, on_date: '2026-01-10', direction: 'withdraw', category: 'الاشتراكات', amount: 1800, sub_name: 'Canva', sub_ends: DAY(90), sub_alerts: ['week'], voided_at: null },
   { id: 2, on_date: '2026-01-10', direction: 'withdraw', category: 'الاشتراكات', amount: 4200, sub_name: 'استضافة الموقع (Hostinger)', sub_ends: DAY(12), sub_alerts: ['month'], voided_at: null },

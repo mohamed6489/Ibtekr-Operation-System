@@ -956,6 +956,7 @@ test('the owner 17 Nov — the chat bar like Claude\'s: «+» files (an image re
   const calls = mock.mkt.calls.filter((x) => x.fn === 'ai-content' && x.action === 'agent');
   expect(calls.map((x) => [x.question, x.files])).toEqual([['بص على البوست ده', ['image:post.png']], ['وكمان قولّي أحسن وقت للنشر', []]]);
   await expect(P.locator('.mk-msg.user').first()).toContainText('📎 post.png');
+  await expect(P.locator('[data-mk-turn-files="1"] [data-mk-file-dl="post.png"]')).toBeVisible(); // the file stays under the message with «تنزيل»
 });
 
 test('the owner 17 Nov — the warehouse assistant\'s plan: «راجع الخطة» lists each step with its count and examples; a step runs only on its own «نفّذ» (a new category on the site)', async ({ page }) => {

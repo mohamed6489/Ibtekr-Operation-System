@@ -1459,7 +1459,7 @@
   // كلها»): each assistant's chats, the member's own — the history on the side (new, rename, delete), the turns from the server, the
   // quick suggestions inside the chat, ⚙️ the admin's settings, «تقديم طلب» and the expand button (the same icon shrinks it back);
   // nothing runs from a chat — the designer's picture is made only by «ولّد الصورة» under its answer (the image credits) ----------
-  const AG = { chats: {}, active: {}, turns: {}, prompts: {}, reqs: {}, drafts: {}, acts: {}, hand: {}, forms: {}, draft: {}, asking: false, gen: null, full: false, side: false, loading: {}, cfgAsked: false, seen: {}, atBottom: {}, pos: {}, files: {}, queue: {}, reading: 0, mic: null, plans: {} };
+  const AG = { chats: {}, active: {}, turns: {}, prompts: {}, reqs: {}, drafts: {}, acts: {}, hand: {}, forms: {}, draft: {}, asking: false, gen: null, full: false, side: false, loading: {}, cfgAsked: false, seen: {}, atBottom: {}, pos: {}, files: {}, queue: {}, reading: 0, mic: null, plans: {}, turnFiles: {} };
   const AG_INTRO = {
     buyer: 'أنا الميديا باير. بقرا أرقام ميتا بتاعة آخر 7 أيام جنب أوردرات ووكومرس الحقيقية وبقترح — والتنفيذ بموافقتك من «مستني موافقتك». اسألني عن حملة أو العائد أو تكلفة الأوردر.',
     designer: 'أنا الديزاينر. بساعدك في أفكار البوستات والكاروسيل والستوري والريلز بالبراند، ولما تطلب صورة بكتبلك وصفها وتقدر تولّدها بزرار «ولّد الصورة» (من كريدت الصور). الشغل الكبير بيروح للديزاينر البشري من «تقديم طلب».',
@@ -1634,6 +1634,22 @@
     for (const f of picked) { const r = await F.read(f); if (r.ok) AG.files[a] = (AG.files[a] || []).concat([Object.assign({ id: 'f' + Math.random().toString(36).slice(2, 8), raw: f }, r.file)]); else K.toast(r.message, 'error'); }
     AG.reading -= 1; R();
   }
+  // the owner 17 Nov — «يقدر يجب الفيلز اللي اتعملت في الشات و ارفعها من عندوا او انزلها علي حسب المساعد و انواع الفيلز»: the files sent with a
+  // message stay under it (this session — the chat keeps their names only): «تنزيل» each, and by the assistant: the warehouse's «اعمل
+  // منها منتجات» (the studio's «صور بس» with them), the designer's «استخدمها في كامبين» (the campaign's reference images)
+  function turnFiles(a, files) {
+    const raw = files.map((f) => f.raw).filter(Boolean); const imgs = raw.filter((f) => /^image\//.test(f.type || ''));
+    const dl = (f) => { try { const u = URL.createObjectURL(f.raw); const x = h('a', { href: u, download: f.name }); document.body.appendChild(x); x.click(); x.remove(); setTimeout(() => URL.revokeObjectURL(u), 4000); } catch (e) { K.toast('ماقدرتش أنزّله', 'error'); } };
+    const use = a === 'stock' && imgs.length && window.IBFlowView && window.IBFlowView.startWith ? Button({ size: 'sm', icon: 'plus', label: 'اعمل منها منتجات', attrs: { 'data-mk-files-studio': '' }, onClick: () => window.IBFlowView.startWith({ kase: 'photos', type: 'Simple', files: imgs }) })
+      : a === 'designer' && imgs.length && can().create ? Button({ size: 'sm', icon: 'megaphone', label: 'استخدمها في كامبين', attrs: { 'data-mk-files-camp': '' }, onClick: async () => {
+        if (!openDraft({ idea: 'كامبين من الصور اللي في الشات' })) return; if (!(await ensureCampaign())) return;
+        const media = camp.w && camp.w.media ? camp.w.media : {}; const t = Object.keys(media).find((k) => media[k] && Array.isArray(media[k].use)); if (!t) return;
+        for (const f of imgs) { const r = await MK().upload(camp.id, f); if (r.ok) media[t].use.push({ t: 'file', name: r.name, path: r.path }); else K.toast(r.message, 'error'); }
+        persist(); R(); K.toast('الصور في «فايلز للاستخدام» — كمّل الكامبين', 'success'); } }) : null;
+    return h('div', { class: 'mk-files mk-turn-files', 'data-mk-turn-files': String(files.length) }, files.map((f) => h('span', { class: 'mk-file' },
+      f.thumb ? h('img', { src: f.thumb, alt: '' }) : h('span', { class: 'mk-file-ic' }, Icon(f.kind === 'pdf' ? 'file' : 'sheet', 'sm')), h('span', { class: 'mk-file-t' }, h('b', null, f.name)),
+      f.raw ? h('button', { type: 'button', class: 'mk-file-x', 'aria-label': 'نزّل ' + f.name, title: 'تنزيل', 'data-mk-file-dl': f.name, onClick: () => dl(f) }, Icon('download', 'sm')) : null)), use);
+  }
   function agFileChips(a) {
     const fs = AG.files[a] || []; if (!fs.length && !AG.reading) return null;
     return h('div', { class: 'mk-files', 'data-mk-files': String(fs.length) }, fs.map((f) => h('span', { class: 'mk-file', 'data-mk-file': f.name },
@@ -1682,6 +1698,7 @@
     if (ans && r.campaignAction) AG.acts[ans.id] = r.campaignAction; // ش45 decision 5: the buyer's confirm card
     if (ans && r.handoff) AG.hand[ans.id] = r.handoff; // the owner 17 Nov: «ده مش اختصاصي — هبعتك لـ…» → «روح لـ…» under the answer
     if (ans && ((r.forms && r.forms.length) || r.page)) AG.forms[ans.id] = { forms: r.forms || [], page: r.page }; // agents-brain T3: the popups / the page under the answer
+    const userTurn = r.turns.find((t) => t.role === 'user'); if (userTurn && files.length) AG.turnFiles[userTurn.id] = files; // the owner 17 Nov: the chat's files stay under the message (this session)
     if (ans && r.plan && r.plan.length) AG.plans[ans.id] = { steps: r.plan, files: files.map((f) => f.raw).filter(Boolean), done: {} }; // the owner 17 Nov: the warehouse assistant's plan
     if (chat) { AG.chats[a] = [chat].concat((AG.chats[a] || []).filter((c) => c.id !== chat.id)); AG.active[a] = chat.id; }
     if (ans && r.campaign) { AG.drafts[ans.id] = r.campaign; if (a === 'designer' && openDraft(r.campaign)) { K.toast('فتحتلك الكامبين متملّية — راجعها واضغط توليد', 'success'); return; } }
@@ -1755,6 +1772,7 @@
           h('div', { class: 'mk-msg ' + (mine ? 'user' : 'ai'), 'data-mk-turn': String(t.id) },
             t.text ? h('p', null, t.text) : null,
             t.images.length ? h('div', { class: 'mk-msg-imgs' }, t.images.map((pth) => Img(pth, 'mk-agent-img', 'صورة من الديزاينر'))) : null,
+            mine && AG.turnFiles[t.id] ? turnFiles(a, AG.turnFiles[t.id]) : null,
             a === 'designer' && t.role === 'assistant' && AG.prompts[t.id] ? h('div', { class: 'mk-msg-gen' }, h('small', { class: 'help' }, 'وصف الصورة: ' + AG.prompts[t.id]),
               can().create ? Button({ size: 'sm', type: 'primary', icon: 'sparkle', label: AG.gen === t.id ? 'بتتعمل…' : 'ولّد الصورة', disabled: !!AG.gen, attrs: { 'data-mk-gen': String(t.id) }, onClick: () => agGen(a, t.id) }) : h('small', { class: 'help' }, 'التوليد محتاج «التسويق: إنشاء»')) : null,
             // owner batch 14 Nov decision 14: the job the assistant handed back — «قدّم الطلب ده» opens «تقديم طلب» filled with it

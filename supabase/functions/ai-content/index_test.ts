@@ -787,7 +787,7 @@ Deno.test('agent (0120): a registry assistant — seen by its page\'s permission
   assert(sys.includes('اللهجة') && sys.includes('الرفوف') && sys.includes('العد') && !sys.includes('الألوان'), 'its rules and skills and the ones for all — not another\'s');
   const q = asked[0].messages.at(-1).content[0].text;
   assert(q.startsWith('<data>\ninventory: ') && q.includes('"pieces":1') && q.includes('مرتجع') && !q.includes('999') && q.endsWith('إيه اللي مستني في المخزن؟'), 'the warehouse read with the member\'s client, no cost');
-  assertEquals(asked[0].output_config.format.schema.required, ['text', 'request', 'forms', 'page', 'need']);
+  assertEquals(asked[0].output_config.format.schema.required, ['text', 'request', 'forms', 'page', 'need', 'plan']);
   assertEquals(db.rows('mkt_agent_chats').at(-1).agent, 'stock');
   // a custom one: its name and what it is for
   await call(deps, { action: 'agent', agent: 'c_prod', question: 'سلام' }, 'jwt-add');

@@ -1148,7 +1148,7 @@
     const fm = (Array.isArray(b.forms) ? b.forms : []).filter((f) => f && typeof f.form === 'string' && /^[a-z_]{2,30}$/.test(f.form) && f.values && typeof f.values === 'object' && !Array.isArray(f.values)).slice(0, 3)
       .map((f) => ({ form: f.form, values: Object.fromEntries(Object.entries(f.values).filter(([k, v]) => /^[A-Za-z]{1,20}$/.test(k) && v != null).map(([k, v]) => [k, String(v).slice(0, 1000)])) }));
     const pg = b.page && typeof b.page === 'object' && /^[a-z]{2,20}$/.test(String(b.page.page || '')) ? { page: String(b.page.page), tab: typeof b.page.tab === 'string' ? b.page.tab.slice(0, 40) : '' } : null;
-    return { ok: true, text: typeof b.text === 'string' ? b.text : '', imagePrompt: typeof b.imagePrompt === 'string' ? b.imagePrompt : '', request: rq, campaign: cp, campaignAction: ca, handoff: hd, forms: fm, page: pg, chat, turns: (Array.isArray(b.turns) ? b.turns : []).map(toTurn) };
+    return { ok: true, text: typeof b.text === 'string' ? b.text : '', imagePrompt: typeof b.imagePrompt === 'string' ? b.imagePrompt : '', request: rq, campaign: cp, campaignAction: ca, handoff: hd, forms: fm, page: pg, plan: Array.isArray(b.plan) ? b.plan.slice(0, 10) : [], sources: Array.isArray(b.sources) ? b.sources.slice(0, 12) : [], chat, turns: (Array.isArray(b.turns) ? b.turns : []).map(toTurn) };
   }
   // the designer's picture from the prompt of its answer (the image credits) — the turn comes back with the image's path
   async function agentImage(chatId, prompt) {

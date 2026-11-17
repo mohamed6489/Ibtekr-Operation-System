@@ -15,6 +15,7 @@ import { pixelText } from './mkt-pixel.js';
 import { NAME_RULE } from './names.js';
 import { fileBlocks, parseFiles } from './agent-files.js';
 import { NEED_SCHEMA, cleanNeed, needRule } from './agent-need.js';
+import { PLAN_RULE, PLAN_SCHEMA, cleanPlan } from './product-plan.js';
 import { CLIENT_TOOL_DEFS, FORMS, PAGES, cleanAction } from './ai-assistant.js';
 
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -540,6 +541,8 @@ export function agentRequest(req, ctx) {
   const hand = tb ? { handoff: HANDOFF_SCHEMA() } : {};
   system.push({ type: 'text', text: ACT_RULE.trim() }); hand.forms = FORMS_SCHEMA(); hand.page = PAGE_SCHEMA(); // agents-brain T3
   system.push({ type: 'text', text: needRule(req.agent).trim() }); hand.need = NEED_SCHEMA(req.agent); // the owner 17 Nov: research / live ads first
+  // the owner 17 Nov: the warehouse assistant plans product work (product-plan.js) — the server finds the names, the page asks per step
+  if (req.agent === 'stock') { system.push({ type: 'text', text: PLAN_RULE.trim() + (ctx.catalog ? '\n' + String(ctx.catalog) : '') }); hand.plan = PLAN_SCHEMA(); }
   const schema = req.agent === 'designer' ? obj({ text: STR(), image_prompt: STR(), request: REQ_SCHEMA(), campaign: DRAFT_SCHEMA(), ...hand })
     : req.agent === 'buyer' ? obj({ text: STR(), request: REQ_SCHEMA(), campaign_action: obj({ campaign_id: STR(), action: STR() }), ...hand }) : obj({ text: STR(), request: REQ_SCHEMA(), ...hand });
   return { model: ctx.model, max_tokens: MAX_TOKENS, ...FALLBACK, system, messages, output_config: { effort: ctx.effort, format: { type: 'json_schema', schema } } };
@@ -582,6 +585,7 @@ export function cleanAgent(json, agent, teamIds) {
   const rq = isObj(src.request) ? src.request : {}; const title = line(rq.title, AGENT_REQ_TITLE_MAX);
   out.request = title ? { title, details: paras(rq.details, AGENT_REQ_DETAILS_MAX) } : null;
   out.need = cleanNeed(src, agent); // the owner 17 Nov — the server reads it and asks again (ai-content)
+  if (agent === 'stock') out.plan = cleanPlan(src.plan); // the server resolves it (ai-content) before the page sees it
   return out;
 }
 /** agent_image { chat_id, prompt (≤ 1000), size? } → { req } | { error, field } (ai-images, decision 6). */

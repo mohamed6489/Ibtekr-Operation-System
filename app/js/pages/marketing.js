@@ -1459,7 +1459,7 @@
   // كلها»): each assistant's chats, the member's own — the history on the side (new, rename, delete), the turns from the server, the
   // quick suggestions inside the chat, ⚙️ the admin's settings, «تقديم طلب» and the expand button (the same icon shrinks it back);
   // nothing runs from a chat — the designer's picture is made only by «ولّد الصورة» under its answer (the image credits) ----------
-  const AG = { chats: {}, active: {}, turns: {}, prompts: {}, reqs: {}, drafts: {}, acts: {}, hand: {}, forms: {}, draft: {}, asking: false, gen: null, full: false, side: false, loading: {}, cfgAsked: false, seen: {}, atBottom: {}, pos: {}, files: {}, queue: {}, reading: 0, mic: null };
+  const AG = { chats: {}, active: {}, turns: {}, prompts: {}, reqs: {}, drafts: {}, acts: {}, hand: {}, forms: {}, draft: {}, asking: false, gen: null, full: false, side: false, loading: {}, cfgAsked: false, seen: {}, atBottom: {}, pos: {}, files: {}, queue: {}, reading: 0, mic: null, plans: {} };
   const AG_INTRO = {
     buyer: 'أنا الميديا باير. بقرا أرقام ميتا بتاعة آخر 7 أيام جنب أوردرات ووكومرس الحقيقية وبقترح — والتنفيذ بموافقتك من «مستني موافقتك». اسألني عن حملة أو العائد أو تكلفة الأوردر.',
     designer: 'أنا الديزاينر. بساعدك في أفكار البوستات والكاروسيل والستوري والريلز بالبراند، ولما تطلب صورة بكتبلك وصفها وتقدر تولّدها بزرار «ولّد الصورة» (من كريدت الصور). الشغل الكبير بيروح للديزاينر البشري من «تقديم طلب».',
@@ -1574,6 +1574,51 @@
         Button({ size: 'sm', type: 'text', label: 'لأ', attrs: { 'data-mk-camp-no': '' }, onClick: () => { x.done = 'no'; x.doneText = 'اتلغى — الحملة زي ما هي'; R(); } })]
         : h('small', { class: 'help' }, 'التنفيذ محتاج «التسويق: نشر» أو الأدمن'));
   }
+  // the owner 17 Nov — the warehouse assistant's plan (product-plan.js on the server found the names): a popup with each step, its count and
+  // examples; «نفّذ» runs that step alone through the page's adapters (the products page's writes and their permissions) — «دايما سالني
+  // علي موافقة قبل اي خطوة»
+  const PLAN_ICON = { category_create: 'plus', category_add: 'tag', category_set: 'tag', category_remove: 'tag', move_maker: 'users', brand_add: 'star', status: 'eye', trash: 'trash', studio: 'image' };
+  async function planRun(plan, i) {
+    const s = plan.steps[i]; const P = window.IBProducts; const ST = window.IBStudio; const V = window.IBVendors && window.IBVendors.store;
+    const made = plan.made || (plan.made = {});
+    const catId = (c) => (!c ? null : c.id ? c.id : made[c.name] || null);
+    if (P && P.ensure) P.ensure();
+    if (s.op === 'category_create') {
+      if (!ST || !ST.createCategory) return { ok: false, message: 'الأقسام مش متاحة' };
+      const r = await ST.createCategory({ name_en: s.newEn, name_ar: s.newAr || null, parent: catId(s.parent) || 0 });
+      if (!r.ok) return { ok: false, message: r.reason === 'forbidden' ? 'إضافة الأقسام محتاجة «إضافة منتجات»' : 'الموقع رفض القسم (' + (r.reason || 'error') + ')' };
+      made[s.newEn] = r.id; return { ok: true, message: 'اتعمل القسم #' + r.id };
+    }
+    if (s.op === 'brand_add') { if (!V || !V.addBrand || !s.maker) return { ok: false, message: 'المبتكرين مش متاحين' }; try { await V.addBrand(s.maker.id, { name: s.brand }, V.actor()); return { ok: true, message: 'اتضاف البراند' }; } catch (e) { return { ok: false, message: e && e.message ? e.message : 'ماتضافش' }; } }
+    if (s.op === 'studio') { const FV = window.IBFlowView; if (!FV || !FV.startWith) return { ok: false, message: 'الاستوديو مش متاح' }; FV.startWith({ kase: 'photos', type: 'Simple', files: plan.files || [] }); return { ok: true, message: 'اتفتح الاستوديو بالصور — اختار ودوس «ابدأ»' }; }
+    if (!P || !s.ids.length) return { ok: false, message: 'مفيش منتجات' };
+    const recs = s.ids.map((id) => P.get(id)).filter(Boolean);
+    if (s.op.startsWith('category_')) {
+      const cid = catId(s.category); if (!cid) return { ok: false, message: 'القسم لسه ماتعملش — نفّذ خطوة القسم الأول' };
+      const ups = recs.map((p) => { const cur = p.categoryIds || []; const nx = s.mode === 'set' ? [cid] : s.mode === 'remove' ? cur.filter((x) => x !== cid) : [...new Set(cur.concat([cid]))]; return nx.length && nx.join() !== cur.join() ? { id: p.id, categories: nx } : null; }).filter(Boolean);
+      if (!ups.length) return { ok: true, message: 'مفيش حاجة تتغيّر' };
+      const r = await P.batch(ups); return r.ok ? { ok: true, message: 'اتعدّل ' + K.n0(r.updated) + ' منتج' + (r.failedIds.length ? ' · ' + K.n0(r.failedIds.length) + ' ماتعدّلش' : '') } : { ok: false, message: 'ماتعدّلش (' + (r.reason || 'error') + ')' };
+    }
+    if (s.op === 'status') { const r = await P.batch(recs.map((p) => ({ id: p.id, status: s.status }))); return r.ok ? { ok: true, message: 'اتغيّرت حالة ' + K.n0(r.updated) + ' منتج' } : { ok: false, message: 'ماتغيّرتش (' + (r.reason || 'error') + ')' }; }
+    if (s.op === 'move_maker') { if (!s.toMaker) return { ok: false, message: 'المبتكر مش معروف' }; const r = await P.moveVendor(s.ids, s.toMaker.id); return r.ok ? { ok: true, message: r.result === 'skipped' ? 'الموقع موقف الكتابة دلوقتي' : 'اتنقل ' + K.n0(r.moved) + ' منتج' } : { ok: false, message: r.reason === 'no_store' ? 'المبتكر ده مالوش متجر على الموقع' : 'ماتنقلش (' + (r.reason || 'error') + ')' }; }
+    if (s.op === 'trash') { const r = await P.trashIds(s.ids); return r && r.ok ? { ok: true, message: 'اتحطّوا في المهملات' } : { ok: false, message: 'ماتحطّوش (' + ((r && r.reason) || 'error') + ')' }; }
+    return { ok: false, message: 'الخطوة دي مش معروفة' };
+  }
+  function planPopup(plan) {
+    const st = plan.done; let m = null;
+    const row = (s, i) => {
+      const d = st[i];
+      return h('div', { class: 'mk-plan-step' + (d && d.ok ? ' done' : ''), 'data-plan-step': String(i) },
+        h('span', { class: 'mk-ic tone-' + (s.problem ? 'error' : d && d.ok ? 'success' : 'gold') }, Icon(PLAN_ICON[s.op] || 'check', 'sm')),
+        h('span', { class: 'mk-txt' }, h('b', null, (i + 1) + '. ' + s.label), s.sample && s.sample.length ? h('small', null, 'زي: ' + s.sample.join('، ') + (s.count > s.sample.length ? ' و' + K.n0(s.count - s.sample.length) + ' كمان' : '')) : null,
+          s.problem ? h('small', { class: 'err-msg' }, s.problem) : null, d ? h('small', { class: d.ok ? 'help' : 'err-msg', 'data-plan-result': d.ok ? 'ok' : 'fail' }, d.message) : null),
+        d && d.ok ? Tag('success', 'اتنفّذت') : Button({ size: 'sm', type: 'primary', label: d && d.running ? 'بينفّذ…' : 'نفّذ', disabled: !!s.problem || !!(d && d.running), attrs: { 'data-plan-run': String(i) },
+          onClick: async () => { st[i] = { running: true }; draw(); const r = await planRun(plan, i); st[i] = r; draw(); if (r.ok) K.toast(r.message, 'success'); } }));
+    };
+    const body = () => [h('p', { class: 't-small help', style: 'margin:0' }, 'كل خطوة بزرارها — راجع العدد والأمثلة قبل ما تدوس. الحاجة اللي اتنفّذت بتتسجل في سجل الحركة.'), h('div', { class: 'mk-list' }, plan.steps.map(row))];
+    const draw = () => { if (m) m.setBody(...body()); };
+    m = U.Modal({ title: 'خطة المساعد (' + K.n0(plan.steps.length) + ' خطوات)', body: body(), footer: [Button({ label: 'اقفل', onClick: () => m.close() })] });
+  }
   // the owner 17 Nov — «اقدر ارفع فايل سواء كان شيت او صورة او اين كان نوع الملف فيديو او بوست» و«اقدر ابعتلهم فويس»: files read in the
   // browser (IBChatFiles — 4 at most), chips over the bar with ×, and the mic typing the words into the box (the member presses send)
   function agPickFiles(a) {
@@ -1586,7 +1631,7 @@
     const picked = [...(list || [])].slice(0, Math.max(0, room)); if ((list || []).length > room) K.toast('لحد 4 ملفات في الرسالة', 'info');
     if (!picked.length) return;
     AG.reading = (AG.reading || 0) + 1; R();
-    for (const f of picked) { const r = await F.read(f); if (r.ok) AG.files[a] = (AG.files[a] || []).concat([Object.assign({ id: 'f' + Math.random().toString(36).slice(2, 8) }, r.file)]); else K.toast(r.message, 'error'); }
+    for (const f of picked) { const r = await F.read(f); if (r.ok) AG.files[a] = (AG.files[a] || []).concat([Object.assign({ id: 'f' + Math.random().toString(36).slice(2, 8), raw: f }, r.file)]); else K.toast(r.message, 'error'); }
     AG.reading -= 1; R();
   }
   function agFileChips(a) {
@@ -1637,6 +1682,7 @@
     if (ans && r.campaignAction) AG.acts[ans.id] = r.campaignAction; // ش45 decision 5: the buyer's confirm card
     if (ans && r.handoff) AG.hand[ans.id] = r.handoff; // the owner 17 Nov: «ده مش اختصاصي — هبعتك لـ…» → «روح لـ…» under the answer
     if (ans && ((r.forms && r.forms.length) || r.page)) AG.forms[ans.id] = { forms: r.forms || [], page: r.page }; // agents-brain T3: the popups / the page under the answer
+    if (ans && r.plan && r.plan.length) AG.plans[ans.id] = { steps: r.plan, files: files.map((f) => f.raw).filter(Boolean), done: {} }; // the owner 17 Nov: the warehouse assistant's plan
     if (chat) { AG.chats[a] = [chat].concat((AG.chats[a] || []).filter((c) => c.id !== chat.id)); AG.active[a] = chat.id; }
     if (ans && r.campaign) { AG.drafts[ans.id] = r.campaign; if (a === 'designer' && openDraft(r.campaign)) { K.toast('فتحتلك الكامبين متملّية — راجعها واضغط توليد', 'success'); return; } }
     agRefresh();
@@ -1716,6 +1762,7 @@
               Button({ size: 'sm', type: 'primary', icon: 'send', label: 'قدّم الطلب ده', attrs: { 'data-mk-req-from': String(t.id) }, onClick: () => reqForm(a, { title: AG.reqs[t.id].title, details: AG.reqs[t.id].details }) })) : null,
             t.role === 'assistant' && AG.acts[t.id] ? actCard(t.id, AG.acts[t.id]) : null,
             t.role === 'assistant' && AG.forms[t.id] ? formLinks(t.id) : null,
+            t.role === 'assistant' && AG.plans[t.id] ? h('div', { class: 'mk-msg-req', 'data-mk-plan': String(AG.plans[t.id].steps.length) }, h('small', { class: 'help' }, 'خطة من ' + K.n0(AG.plans[t.id].steps.length) + ' خطوات — مفيش حاجة بتتنفّذ غير لما توافق على كل خطوة'), Button({ size: 'sm', type: 'primary', icon: 'check', label: 'راجع الخطة', attrs: { 'data-mk-plan-open': String(t.id) }, onClick: () => planPopup(AG.plans[t.id]) })) : null,
             t.role === 'assistant' && AG.hand[t.id] ? h('div', { class: 'mk-msg-req mk-handoff', 'data-mk-handoff': AG.hand[t.id].agent },
               h('small', { class: 'help' }, 'هيتكتب في الشات: ' + AG.hand[t.id].question.slice(0, 140)),
               Button({ size: 'sm', type: 'primary', icon: 'send', label: 'روح ' + AGENTS[AG.hand[t.id].agent].to, attrs: { 'data-mk-handoff-go': String(t.id) },

@@ -957,3 +957,24 @@ test('the owner 17 Nov — the chat bar like Claude\'s: «+» files (an image re
   expect(calls.map((x) => [x.question, x.files])).toEqual([['بص على البوست ده', ['image:post.png']], ['وكمان قولّي أحسن وقت للنشر', []]]);
   await expect(P.locator('.mk-msg.user').first()).toContainText('📎 post.png');
 });
+
+test('the owner 17 Nov — the warehouse assistant\'s plan: «راجع الخطة» lists each step with its count and examples; a step runs only on its own «نفّذ» (a new category on the site)', async ({ page }) => {
+  await start(page);
+  mock.mkt.planData = { vendors: [{ id: 'v-wood', name: 'Woodish' }], products: [{ id: 501, name: 'Wooden Chair', nameAr: 'كرسي خشب', sku: 'X', vendorId: 'v-wood', categoryIds: [], status: 'publish' }], categories: [] };
+  mock.mkt.agentAnswer = () => ({ text: 'دي الخطة — راجعها', plan: [
+    { op: 'category_create', maker: '', query: [], category: '', to_maker: '', brand: '', status: '', new_en: 'Living Room', new_ar: 'الليفنج', parent: '', note: '' },
+    { op: 'category_add', maker: 'وودش', query: ['chair', 'كرسي'], category: 'Living Room', to_maker: '', brand: '', status: '', new_en: '', new_ar: '', parent: '', note: '' }], request: { title: '', details: '' } });
+  await openAi(page, ADMIN, 'المخزن الذكي');
+  const P = pg(page);
+  await P.locator('#mk-ask').fill('هات كراسي وودش وحطها في قسم Living Room جديد'); await P.locator('#mk-ask').press('Enter');
+  await expect(P.locator('[data-mk-plan="2"]')).toBeVisible();
+  const before = mock.wooCalls ? mock.wooCalls.length : 0;
+  await P.locator('[data-mk-plan-open]').click();
+  const md = page.locator('.modal[role=dialog]', { hasText: 'خطة المساعد' });
+  await expect(md.locator('[data-plan-step="0"]')).toContainText('قسم جديد «Living Room / الليفنج» رئيسي');
+  await expect(md.locator('[data-plan-step="1"]')).toContainText('ضيف 1 منتج من Woodish لـ «Living Room»');
+  await expect(md.locator('[data-plan-step="1"]')).toContainText('كرسي خشب');
+  await md.locator('[data-plan-run="0"]').click();
+  await expect(md.locator('[data-plan-step="0"] [data-plan-result="ok"]')).toContainText('اتعمل القسم');
+  await expect(md.locator('[data-plan-step="1"] [data-plan-result]')).toHaveCount(0); // the next step waits for its own button
+});

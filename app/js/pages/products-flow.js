@@ -73,9 +73,13 @@
   }
 
   // ---------------- the chooser (decision 1) ----------------
-  function start() {
+  // the owner 17 Nov — the warehouse assistant's «منتجات جديدة من الصور»: pre = { kase, type, files } opens the same popup on those
+  // choices and, once the member presses «ابدأ», the chat's photos go into the new batch (takePhotos — as if dropped on it)
+  let PRE = null; // startWith's choices, taken by the next start (the #products-flow-new route)
+  function start(pre) {
+    if (!pre && PRE) { pre = PRE; PRE = null; }
     if (!ST() || !ST().can()) { K.toast('مش مسموحلك تضيف منتجات — اطلب صلاحية «إضافة منتجات»', 'error'); return; }
-    let kase = 'sheet'; let type = 'Simple'; let m = null;
+    let kase = pre && CASES[pre.kase] ? pre.kase : 'sheet'; let type = pre && pre.type === 'Variable' ? 'Variable' : 'Simple'; let m = null;
     const opt = (title, desc, on, onClick) => h('button', { type: 'button', role: 'radio', 'aria-checked': String(!!on), class: 'opt-card', onClick }, h('i', { class: 'rd' }), h('span', null, h('b', null, title), h('small', null, desc)));
     const body = () => [h('div', { class: 'opt-grid', role: 'radiogroup', 'aria-label': 'الحالة' },
       opt(CASES.sheet, 'المبتكر بعت شيت فيه البيانات + صور المنتجات.', kase === 'sheet', () => { kase = 'sheet'; draw(); }),
@@ -91,6 +95,8 @@
       const r = await ST().create({ title: CASES[kase] + ' — ' + type + ' · ' + new Date().toISOString().slice(0, 10), type, state: s, step: 1 });
       if (!r.ok) { K.toast('مقدرناش نعمل الدفعة — ' + why(r.reason), 'error'); return; }
       m.close(); S.id = r.id; S.row = { id: r.id, step: 1, status: 'draft', state: s }; S.step = 1; S.sel.clear(); S.results = null; go(hashFor(1));
+      const files = pre && Array.isArray(pre.files) ? pre.files.filter(isImage) : [];
+      if (files.length) setTimeout(() => { if (S.id === r.id) takePhotos(files); }, 250);
     } })] });
   }
 
@@ -1558,5 +1564,5 @@
     return [h('div', { class: 'wiz-col wiz-studio fl', 'data-wiz-col': 'flow', 'data-flow-case': s.case }, top, Stepper(), ...body.filter(Boolean))];
   }
 
-  window.IBFlowView = { route, view, start, state: S, CASES };
+  window.IBFlowView = { route, view, start, startWith: (pre) => { PRE = pre || null; location.hash = '#products-flow-new'; }, state: S, CASES };
 })();

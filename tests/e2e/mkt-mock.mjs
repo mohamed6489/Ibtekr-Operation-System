@@ -6,6 +6,7 @@
 // rows only through mkt_schedule / mkt_post_act with marketing.publish F and the day / hour rules on Cairo's clock). The AI actions
 // (ai-images campaign / campaign_edit, ai-content marketing) are answered here too (mktAi). Every RPC / function call lands in
 // mkt.calls, every write the client sent in mkt.writes ({ table, op, ...columns }).
+import { resolvePlan } from '../../supabase/functions/_shared/product-plan.js';
 import { filesLine } from '../../supabase/functions/_shared/agent-files.js';
 import { agentImagePath, agentTitle, campaignGenPath, campaignPathOk, campaignTarget, cleanAgent, cleanBuyer, cleanMarketing, parseAgent, parseAgentImage, parseBuyer, parseCampaign, parseCampaignEdit, parseMarketing, campaignTargets, flowKey, campaignRefs, placeImage } from '../../supabase/functions/_shared/marketing.js';
 import { BUYER_DEFAULTS, MAX_STEP, budgetPlan, rulesPatch } from '../../supabase/functions/_shared/mkt-ads.js';
@@ -605,6 +606,7 @@ function mktAi(c, b) {
     const team = H.noRegistry ? (isAdmin(u) || hasPerm(u, 'marketing.view') !== 'N' ? ['buyer', 'designer', 'dev'] : []) : H.aiAgents.filter((a) => !a.archived_at && agentCan(u, a.id)).map((a) => a.id);
     H.calls[H.calls.length - 1].team = team.filter((x) => x !== p.req.agent);
     const out = cleanAgent(raw, p.req.agent, H.calls[H.calls.length - 1].team); const now = new Date().toISOString();
+    out.need = null; out.plan = Array.isArray(out.plan) && out.plan.length && H.planData ? resolvePlan(out.plan, H.planData) : []; // the owner 17 Nov (ai-content resolves the names)
     if (!chat) { H.nchat += 1; chat = { id: 'c0000000-0000-4000-8000-' + String(H.nchat).padStart(12, '0'), member_id: u.id, agent: p.req.agent, title: agentTitle(p.req.question), created_at: now, updated_at: now, deleted_at: null }; H.agentChats.push(chat); }
     else chat.updated_at = now;
     const mk = (role, text) => { const id = H.agentMsgs.reduce((m, x) => Math.max(m, x.id), 0) + 1; const r = { id, chat_id: chat.id, role, text, images: [], run_id: null, created_at: now }; H.agentMsgs.push(r); return r; };

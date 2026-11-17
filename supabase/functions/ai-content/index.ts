@@ -46,6 +46,7 @@
 import Anthropic from 'npm:@anthropic-ai/sdk@1.3.0';
 import { bestName, nameMatches } from '../_shared/names.js';
 import { filesLine } from '../_shared/agent-files.js';
+import { planProducts, resolvePlan } from '../_shared/product-plan.js';
 import { liveAdsBlock, liveAdsRows, liveAdsUrl, researchBlock, researchOut, researchRequest } from '../_shared/agent-need.js';
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { aiSettings, categoryLines, cleanExtract, cleanPrompts, cleanStudio, cleanWrite, costOf, extractRequest, line, parseExtract, parsePrompts, parseStudio, parseWrite, promptsRequest, readAnswer, shotPromptRows, studioRequest, usageOf, writeRequest } from '../_shared/ai-content.js';
@@ -510,7 +511,15 @@ async function agent(deps: Deps, uid: string, args: Json, jwt = '') {
   const run0 = { created_by: uid, action: 'marketing', source: 'agent', label: line(req.question, 200) };
   const base = LEGACY_AGENTS.includes(req.agent) ? '' : agentBase(row) + REQ_RULE;
   const team = await teamOf(member, legacy, req.agent); const teamIds = team.map((a) => a.id);
-  const ctx0: Json = { model: cfg.model, effort: cfg.effort, history: agentHistory((Array.isArray(rows) ? rows : []).slice().reverse()), cfg: agentCfg, data, site, base, dataText, team };
+  // the owner 17 Nov: the warehouse assistant knows the makers' and categories' exact names (the member's reads) to plan product work
+  let plan: { vendors: Json[]; products: Json[]; categories: Json[] } | null = null; let catalog = '';
+  if (req.agent === 'stock' && member) {
+    const [v, pr, ct] = await Promise.all([member.from('vendors').select('id, name').limit(3000), member.from('products').select('id, name, sku, vendor_id, category_ids, status, lang, translation_ids').neq('status', 'trash').limit(8000), member.from('woo_categories').select('id, name, parent_id').limit(3000)]);
+    plan = { vendors: Array.isArray(v.data) ? v.data : [], products: planProducts(pr.data), categories: (Array.isArray(ct.data) ? ct.data : []).map((c: Json) => ({ id: c.id, name: c.name, nameAr: '', parentId: c.parent_id })) };
+    const path = (c: Json): string => { const p = plan!.categories.find((x) => Number(x.id) === Number(c.parentId)); return p ? path(p) + ' › ' + c.name : c.name; };
+    catalog = '<catalog>\nMakers: ' + plan.vendors.slice(0, 400).map((x) => x.name).join(' · ') + '\nCategories: ' + plan.categories.slice(0, 400).map(path).join(' · ') + '\n</catalog>';
+  }
+  const ctx0: Json = { model: cfg.model, effort: cfg.effort, history: agentHistory((Array.isArray(rows) ? rows : []).slice().reverse()), cfg: agentCfg, data, site, base, dataText, team, catalog };
   const clean = (answer: Json) => cleanAgent(answer, req.agent, teamIds);
   let c = await aiCall(deps, run0, cfg, agentRequest(req, ctx0), clean);
   if ('res' in c) return c.res;
@@ -528,6 +537,7 @@ async function agent(deps: Deps, uid: string, args: Json, jwt = '') {
     c = c2; cost += c2.cost;
   }
   const out = c.out; out.need = null; out.sources = sources;
+  if (Array.isArray(out.plan) && out.plan.length && plan) out.plan = resolvePlan(out.plan, plan); else out.plan = [];
   const now = deps.now();
   if (!chat) {
     const { data: made, error } = await deps.db.from('mkt_agent_chats').insert({ member_id: uid, agent: req.agent, title: agentTitle(req.question), created_at: now, updated_at: now }).select('id, agent, title, created_at, updated_at').single();

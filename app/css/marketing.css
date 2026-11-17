@@ -641,3 +641,8 @@ a.mk-lib.disabled { opacity:.5;pointer-events:none }
 .mk-tile.is-playing .mk-tile-cap, .mk-tile.is-playing .mk-tile-kind { opacity:0;transition:opacity .2s ease }
 .mk-trend-bar { display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap }
 .mk-cc-links { display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap }
+/* the owner 17 Nov — the warehouse assistant's plan: a step a row, its count and examples, its own «نفّذ» */
+.mk-plan-step { display:flex;align-items:flex-start;gap:10px;padding:10px;border:1px solid var(--color-border-subtle);border-radius:10px;background:var(--color-bg-base) }
+.mk-plan-step.done { background:var(--color-bg-hover) }
+.mk-plan-step .mk-txt { flex:1;min-width:0;display:flex;flex-direction:column;gap:2px }
+.mk-plan-step .btn, .mk-plan-step .tag { flex:none }

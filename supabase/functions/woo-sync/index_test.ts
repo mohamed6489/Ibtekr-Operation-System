@@ -3388,3 +3388,21 @@ Deno.test('vendor_delete: admin only with a reason; the Dokan store deleted with
   const rf = await call(f.deps, { action: 'vendor_delete', vendor_id: V44, reason: 'x' }, { jwt: 'jwt-admin' });
   assertEquals([rf.res.status, rf.body.error, dels.length - before, f.db.rows('vendors').some((v: any) => v.id === V44)], [503, 'not_ready', 0, true]);
 });
+
+// ---------------------------------------------------------------- 0127: the store is not WooCommerce any more
+
+Deno.test('the store switched off WooCommerce (settings «store» platform shopify) → 409 store_off, no Woo call; thumbs / studio_sheet stay open', async () => {
+  const { woo, deps } = setup({ seed: { ...pushSeed, settings: [{ section: 'store', data: { platform: 'shopify' } }] }, env: PUSH_ON });
+  for (const action of ['orders', 'products', 'push_status']) {
+    const { res, body } = await call(deps, { action, order_id: 1001 });
+    assertEquals(res.status, 409);
+    assertEquals(body, { error: 'store_off', action });
+  }
+  assertEquals(woo.calls.length, 0);
+});
+
+Deno.test('no row «store» (or platform woo) → WooCommerce as always', async () => {
+  const { deps } = setup({ seed: { settings: [{ section: 'store', data: { platform: 'woo', mode: 'single' } }] }, routes: { 'GET wc/v3/orders': page([]) } });
+  const { res } = await call(deps, { action: 'orders' });
+  assertEquals(res.status, 200);
+});

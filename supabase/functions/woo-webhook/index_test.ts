@@ -576,3 +576,14 @@ Deno.test('a new order whose line SKU sits «متاح للبيع» in the hub is
   await deliver(off.deps, order(3002));
   assertEquals([off.db.rows('inv_moves').length, off.db.rows('alerts').length, off.db.row('order_items', 30020).pulled], [1, 0, false]);
 });
+
+// ---------------------------------------------------------------- 0127: the store is not WooCommerce any more
+
+Deno.test('a signed delivery while the store is another platform → 200 ignored store_off, nothing written', async () => {
+  const { db, woo, deps } = setup({ seed: { settings: [{ section: 'store', data: { platform: 'easyorders' } }] } });
+  const { res, body } = await deliver(deps, wooOrder());
+  assertEquals(res.status, 200);
+  assertEquals(body, { status: 'ignored', reason: 'store_off' });
+  assertEquals(ops(db), []);
+  assertEquals(woo.calls.length, 0);
+});

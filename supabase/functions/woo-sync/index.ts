@@ -160,6 +160,7 @@ import { START_DATE, SYNC_FIELDS, bankDigest, mapStore, nextCursor, outgoingWooS
 import { getState, logSync, setState, upsertRows } from '../_shared/db.js';
 import { PAY_STATUSES, orderCreateInput, orderPayable, payUrl, wooOrderBody } from '../_shared/woo-order-create.js';
 import { vaultEnv } from '../_shared/secrets.js';
+import { readStore, STORE_FREE_ACTIONS, wooActive } from '../_shared/store/index.js';
 import { ConfigError, WooError, errorText, makeScrubber, wooApi } from '../_shared/woo-api.js';
 import { AR_FIELDS, BATCH_FIELDS, EDIT_FIELDS, VARIATION_FIELDS, brandNamesOf, cleanFields, editView, sharedOf, toWoo, variationView, withBrandAttr } from '../_shared/woo-products.js';
 import { STUDIO_ATTRS, VARIATION_GALLERY_KEY, buildStudio, fetchSheetCsv, matchWooBrand, styleTerms, wooBrandIds } from '../_shared/woo-studio.js';
@@ -2750,6 +2751,8 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
   const mode = await authorize(req, deps, action, args);
   if (!mode) return json(401, { error: 'unauthorized' });
   if (!ACTIONS.includes(action)) return json(400, { error: 'unknown_action' });
+  // 0127: WooCommerce is no longer the store (the admin switched to another platform) — nothing here reaches it any more
+  if (!STORE_FREE_ACTIONS.includes(action) && !wooActive(await readStore(deps.db))) return json(409, { error: 'store_off', action });
 
   let woo: ReturnType<typeof wooApi> | null = null;
   let ctx: Promise<Ctx> | null = null;

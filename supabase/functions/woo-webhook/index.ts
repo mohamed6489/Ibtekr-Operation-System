@@ -21,6 +21,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { isSubOrder, redactPII, verifySignature } from '../_shared/woo-core.js';
 import { logSync } from '../_shared/db.js';
 import { vaultEnv } from '../_shared/secrets.js';
+import { readStore, wooActive } from '../_shared/store/index.js';
 import { errorText, makeScrubber, wooApi } from '../_shared/woo-api.js';
 import { wooId, writeContext, writeOrders, writeProducts, writeSubOrders } from '../_shared/woo-write.js';
 
@@ -127,6 +128,8 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     await verifyFailed(deps.db, 'bad_signature');
     return json(401, { error: 'bad_signature' });
   }
+  // 0127: WooCommerce is no longer the store (the admin switched to another platform) — its deliveries change nothing here
+  if (!wooActive(await readStore(deps.db))) return json(200, { status: 'ignored', reason: 'store_off' });
 
   let body: unknown;
   try {

@@ -187,20 +187,24 @@ function notes(o){
  var body='<div class="cm inl"><textarea data-ne="'+o.id+'" data-orig="'+esc(o.note)+'" rows="2" placeholder="تعليق مهم عن الأوردر" aria-label="تعليق خدمة العملاء IB-'+o.id+'">'+esc(o.note)+'</textarea><button type="button" class="csv" data-ns="'+o.id+'" hidden>حفظ</button></div>';
  return'<div class="notes">'+webNote(o)
  +'<div class="note"><div class="nh"><b>تعليقات الأوردر الرئيسي (خدمة العملاء)</b></div><div class="nb">'+body+'</div></div></div>'}
+// the plan 2026-11-17-stores-single.md decision 3: single-seller mode (IBSettings.single — a factory or a brand owner) — the order's lines
+// are its products: no sub-order number, no maker, «التصنيع» from the start date, the comment is the workshop's
+function SG(){return!!(window.IBSettings&&window.IBSettings.single&&window.IBSettings.single())}
+function LBX(k){var sg=SG();return({subs:sg?'المنتجات':'الأوردرات الفرعية',sub:sg?'':'الأوردر الفرعي',maker:sg?'المخزن':'المبتكر',make:sg?'التصنيع · تاريخ بدء التصنيع':'التصنيع · تاريخ تبليغ المبتكر',cm:sg?'تعليق التصنيع':'تعليق المبتكر'})[k]}
 function subrow(o,s,l){
  var sc=scount(o,s),pct=sc.pct,sl=sstate(o,s);
  var ce=S.edit==='c'+s.n;
- return'<div class="row"><div class="c c1" data-l="الأوردر الفرعي"><span class="sid">#'+s.sid+'</span></div>'
+ return'<div class="row"><div class="c c1" data-l="'+LBX('sub')+'">'+(SG()?'':'<span class="sid">#'+s.sid+'</span>')+'</div>'
  +'<div class="c c2" data-l="المنتج"><div class="prod">'+pthumb(s)+'<div class="pt"><b>'+pname(s)+' × '+s.qty+'</b><span dir="ltr" style="text-align:right">'+esc(s.sku)+'</span></div></div></div>'
- +'<div class="c c3" data-l="المبتكر">'+vcell(s)+'</div>'
+ +'<div class="c c3" data-l="'+LBX('maker')+'">'+vcell(s)+'</div>'
  +'<div class="c c4" data-l="حالة المنتج">'+sdd(SSTY,s.ss,'data-ss="'+s.n+'"',110,SS,1)+'</div>'
  +'<div class="c c5" data-l="القيمة"><b style="font-weight:600">'+fmt(s.tot)+' ج.م</b></div>'
- +'<div class="c c6" data-l="التصنيع · تاريخ تبليغ المبتكر">'+(s.pulled?pullNote(s)+'</div>':'<div class="dc"><div class="dcr">'+sbadge(s,sl)+'<div class="cnt"><s>يوم</s><b>'+sc.t+'</b></div></div><div class="trk"><div class="fil" style="width:'+pct+'%;background:'+DB[sl][3]+'"></div></div></div>'
+ +'<div class="c c6" data-l="'+LBX('make')+'">'+(s.pulled?pullNote(s)+'</div>':'<div class="dc"><div class="dcr">'+sbadge(s,sl)+'<div class="cnt"><s>يوم</s><b>'+sc.t+'</b></div></div><div class="trk"><div class="fil" style="width:'+pct+'%;background:'+DB[sl][3]+'"></div></div></div>'
  +''+dfield('ex:'+s.n,s.exp,'تاريخ تبليغ المبتكر',1,'أضف تاريخ الإبلاغ')+'<span class="lead" data-lead="'+s.n+'">'+leadTxt(s)+'</span></div>')
- +'<div class="c c7" data-l="تعليق المبتكر"><div class="cm inl" data-cm="'+s.n+'"><textarea data-ce="'+s.n+'" data-orig="'+esc(s.cm)+'" rows="2" placeholder="اكتب تعليقك هنا" aria-label="تعليق المبتكر #'+s.sid+'">'+esc(s.cm)+'</textarea><button type="button" class="csv" data-cs="'+s.n+'" hidden>حفظ</button></div></div>'
+ +'<div class="c c7" data-l="'+LBX('cm')+'"><div class="cm inl" data-cm="'+s.n+'"><textarea data-ce="'+s.n+'" data-orig="'+esc(s.cm)+'" rows="2" placeholder="اكتب تعليقك هنا" aria-label="'+LBX('cm')+' #'+s.sid+'">'+esc(s.cm)+'</textarea><button type="button" class="csv" data-cs="'+s.n+'" hidden>حفظ</button></div></div>'
  +'<div class="c c8" data-l=""><button class="ibtn" data-more="s:'+s.n+'" aria-haspopup="menu" aria-expanded="false" aria-label="المزيد">'+ic('more')+'</button></div></div>'}
 function subs(o,l){if(MODE!=='d')return subsM(o,l,MODE==='m');
- return consBar(o)+'<div class="so"><div class="sh"><b>الأوردرات الفرعية ('+o.subs.length+')</b><span data-delay-start>'+startTxt()+'</span></div><div class="st"><div class="row h"><div class="c c1">الأوردر الفرعي</div><div class="c c2">المنتج</div><div class="c c3">المبتكر</div><div class="c c4">حالة المنتج</div><div class="c c5">القيمة</div><div class="c c6">التصنيع · تاريخ تبليغ المبتكر</div><div class="c c7">تعليق المبتكر</div><div class="c c8"></div></div>'
+ return consBar(o)+'<div class="so"><div class="sh"><b>'+LBX('subs')+' ('+o.subs.length+')</b><span data-delay-start>'+startTxt()+'</span></div><div class="st"><div class="row h"><div class="c c1">'+LBX('sub')+'</div><div class="c c2">المنتج</div><div class="c c3">'+LBX('maker')+'</div><div class="c c4">حالة المنتج</div><div class="c c5">القيمة</div><div class="c c6">'+LBX('make')+'</div><div class="c c7">'+LBX('cm')+'</div><div class="c c8"></div></div>'
  +o.subs.map(function(s){return subrow(o,s,l)}).join('')+'</div></div><div style="height:16px"></div>'}
 
 // ---------- mobile / tablet templates (Figma: Order card / Mobile 268:459 · Tablet 269:462 · Sub-order card / Mobile 268:390 · Tablet 269:390) ----------
@@ -208,7 +212,7 @@ function mode(){var w=window.innerWidth;return w<=767?'m':w<=1023?'t':'d'}
 var MODE=mode();
 window.addEventListener('resize',function(){var m=mode();if(m!==MODE){MODE=m;draw(true);if(DET&&DET.refresh)DET.refresh()}});
 function kpiStrip(o){return'<div class="kpis"><div><b>'+fmt(o.tot)+' ج.م</b><small>الإجمالي</small></div><div><b>'+fmt(Math.max(0,o.tot-o.dep))+' ج.م</b><small>المتبقي</small></div><div><b>'+fmt(o.dep||0)+' ج.م</b><small>العربون</small></div></div>'}
-function titleBlock(o){return'<div class="tt"><span class="oid">IB-'+o.id+'</span>'+tkChip(o)+'<small>'+esc(o.name)+' · '+dt(o.date)+' · '+o.subs.length+(o.subs.length>2?' أوردرات فرعية':' أوردر فرعي')+'</small></div>'}
+function titleBlock(o){return'<div class="tt"><span class="oid">IB-'+o.id+'</span>'+tkChip(o)+'<small>'+esc(o.name)+' · '+dt(o.date)+' · '+o.subs.length+(SG()?(o.subs.length>2?' منتجات':' منتج'):(o.subs.length>2?' أوردرات فرعية':' أوردر فرعي'))+'</small></div>'}
 function moreBtn(key){return'<button class="ibtn" data-more="'+key+'" aria-haspopup="menu" aria-expanded="false" aria-label="المزيد">'+ic('more')+'</button>'}
 function tgBtn(o,open){return'<button class="ibtn" data-tg="'+o.id+'" aria-label="'+(open?'طي':'فتح')+'" aria-expanded="'+(open?'true':'false')+'">'+ic(open?'up':'down')+'</button>'}
 function ocb(o){var on=!!SEL[o.id];return'<button type="button" class="ocb'+(on?' on':'')+'" role="checkbox" aria-checked="'+on+'" aria-label="حدد الأوردر '+o.id+'" data-osel="'+o.id+'">'+(on?ic('check'):'')+'</button>'}
@@ -249,16 +253,16 @@ function notesM(o){
 function subcard(o,s,l,m){
  var sc=scount(o,s),pct=sc.pct,sl=sstate(o,s),ce=S.edit==='c'+s.n;
  var thumb=pthumb(s);
- var pt='<div class="pt"><b>'+pname(s)+' × '+s.qty+'</b><span dir="ltr" style="text-align:right">'+esc(s.sku)+'</span><div class="vrow">'+(s.pulled?'<span class="vchip pull" title="مخزن ابتكر">مخزن ابتكر</span><small>سحب تلقائي · فرعي #'+s.sid+'</small>':'<span class="vchip" title="'+esc(s.vendor)+'">'+esc(s.vendor)+'</span>'+hubChip(s)+'<small>فرعي #'+s.sid+'</small>')+'</div></div>';
+ var pt='<div class="pt"><b>'+pname(s)+' × '+s.qty+'</b><span dir="ltr" style="text-align:right">'+esc(s.sku)+'</span><div class="vrow">'+(s.pulled?'<span class="vchip pull" title="مخزن ابتكر">مخزن ابتكر</span><small>سحب تلقائي · فرعي #'+s.sid+'</small>':SG()?hubChip(s):'<span class="vchip" title="'+esc(s.vendor)+'">'+esc(s.vendor)+'</span>'+hubChip(s)+'<small>فرعي #'+s.sid+'</small>')+'</div></div>';
  var st='<div class="fld">'+lbl('check','حالة المنتج')+sdd(SSTY,s.ss,'data-ss="'+s.n+'"',110,SS,1)+'</div>';
  var val='<div class="fld val">'+lbl('coins','القيمة')+'<div class="vv"><b>'+fmt(s.tot)+' ج.م</b></div></div>';
  var cnt=s.pulled?pullNote(s):'<div class="scnt"><div class="dcr"><div class="cnt"><s>يوم</s><b>'+sc.t+'</b></div>'+sbadge(s,sl)+'<span class="lead" data-lead="'+s.n+'">'+leadTxt(s)+'</span></div><div class="trk"><div class="fil" style="width:'+pct+'%;background:'+DB[sl][3]+'"></div></div></div>';
- var dtf=s.pulled?'':'<div class="fld dtf">'+lbl('cal','تاريخ تبليغ المبتكر')+dfield('ex:'+s.n,s.exp,'تاريخ تبليغ المبتكر',1,'أضف تاريخ الإبلاغ')+'</div>';
- var cm='<div class="fld"><div class="lb">'+ic('edit')+'<span>تعليق المبتكر</span></div><div class="cm inl" data-cm="'+s.n+'"><textarea data-ce="'+s.n+'" data-orig="'+esc(s.cm)+'" rows="2" placeholder="اكتب تعليقك للمبتكر هنا" aria-label="تعليق المبتكر #'+s.sid+'">'+esc(s.cm)+'</textarea><button type="button" class="csv" data-cs="'+s.n+'" hidden>حفظ</button></div></div>';
+ var dtf=s.pulled?'':'<div class="fld dtf">'+lbl('cal',SG()?'تاريخ بدء التصنيع':'تاريخ تبليغ المبتكر')+dfield('ex:'+s.n,s.exp,SG()?'تاريخ بدء التصنيع':'تاريخ تبليغ المبتكر',1,SG()?'أضف تاريخ البداية':'أضف تاريخ الإبلاغ')+'</div>';
+ var cm='<div class="fld"><div class="lb">'+ic('edit')+'<span>'+LBX('cm')+'</span></div><div class="cm inl" data-cm="'+s.n+'"><textarea data-ce="'+s.n+'" data-orig="'+esc(s.cm)+'" rows="2" placeholder="'+(SG()?'اكتب تعليقك هنا':'اكتب تعليقك للمبتكر هنا')+'" aria-label="'+LBX('cm')+' #'+s.sid+'">'+esc(s.cm)+'</textarea><button type="button" class="csv" data-cs="'+s.n+'" hidden>حفظ</button></div></div>';
  if(m)return'<div class="scard m" data-s="'+s.n+'"><div class="shd">'+thumb+pt+moreBtn('s:'+s.n)+'</div><div class="srow">'+st+val+'</div>'+cnt+'<div class="sfld">'+dtf+cm+'</div></div>';
  return'<div class="scard t" data-s="'+s.n+'"><div class="shd">'+thumb+pt+val+st+moreBtn('s:'+s.n)+'</div>'+cnt+'<div class="sfld">'+dtf+cm+'</div></div>'}
 function subsM(o,l,m){
- return consBar(o)+'<div class="sec subsm"><div class="sh"><b>الأوردرات الفرعية ('+o.subs.length+')</b><span data-delay-start>'+startTxt()+'</span></div><div class="slist">'
+ return consBar(o)+'<div class="sec subsm"><div class="sh"><b>'+LBX('subs')+' ('+o.subs.length+')</b><span data-delay-start>'+startTxt()+'</span></div><div class="slist">'
  +o.subs.map(function(s){return subcard(o,s,l,m)}).join('')+'</div></div>'}
 function cardM(o,l,op){return'<div class="card m" data-o="'+o.id+'">'+headerM(o,l,op)+(op?confSec(o,1)+custSec(o,1)+notesM(o)+subsM(o,l,1):'')+'</div>'}
 function cardT(o,l,op){return'<div class="card t" data-o="'+o.id+'">'+headerT(o,l,op)+(op?confSec(o,0)+custSec(o,0)+notes(o)+subsM(o,l,0):'')+'</div>'}
@@ -379,7 +383,7 @@ function subW(s,b){var ws=WS();if(!ws||!s)return;var id=s.itemId||String(s.n),f=
 function hubChip(s){return !s.pulled&&window.IBOrdersOps&&window.IBOrdersOps.hubHas&&['تم الشحن للعميل','مكتمل','ملغي'].indexOf(s.ss)<0&&window.IBOrdersOps.hubHas(s.sku,s.qty)?' <span class="vchip pull" data-hub-has title="فيه قطعة متاحة في مخزن ابتكر — «اسحب من المخزن» من قايمة السطر">في المخزن</span>':''}
 // phase 8 decision 3: the open tickets on the order (IBTickets.forOrder — what the member sees); a press opens them in «تذاكر الفريق»
 function tkChip(o){var T=window.IBTickets,n=T&&T.forOrder?T.forOrder(o.id).length:0;return n?' <button type="button" class="vchip tk" data-tk-order="'+esc(o.id)+'" title="طلبات مفتوحة على الأوردر — اضغط تشوفها">'+n+(n>2&&n<11?' طلبات':' طلب')+'</button>':''}
-function vcell(s){return s.pulled?'<span class="vchip pull">مخزن ابتكر</span><small class="pullsub">سحب تلقائي</small>':esc(s.vendor)+hubChip(s)}
+function vcell(s){return s.pulled?'<span class="vchip pull">مخزن ابتكر</span><small class="pullsub">سحب تلقائي</small>':(SG()?'':esc(s.vendor))+hubChip(s)}
 function pullNote(s){return'<div class="pulln">'+ic('box')+'<span>من مخزن ابتكر — مفيش تبليغ مبتكر ولا عدّاد</span></div>'}
 function consBar(o){var c=window.IBOrdersOps&&window.IBOrdersOps.cons(o.id);if(!c)return'';var a=c.subs.filter(function(x){return x[2]==='وصل المخزن'}).length,rd=a===c.subs.length;
  return'<div class="consbar'+(rd?' rdy':'')+'">'+ic('box')+'<b>بيتجمع في المخزن · '+a+' من '+c.subs.length+' وصلوا</b><span>منطقة '+esc(c.zone)+'</span>'+(rd?'<span class="tagok">جاهز يطلع كامل</span>':'')+'<div class="cbar"><i style="width:'+Math.round(a/c.subs.length*100)+'%"></i></div></div>'}

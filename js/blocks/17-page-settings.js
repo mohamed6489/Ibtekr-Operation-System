@@ -524,7 +524,7 @@
   function general() {
     const g = st.draft || C.general; const ed = (k) => (v) => { st.draft = Object.assign({}, st.draft || C.general, { [k]: v }); if (!st.dirty) { st.dirty = true; R(); } };
     const sel = (k, id, label, opts, help) => h('div', null, U.Select({ id, label, required: true, options: opts.map((x) => ({ value: x, label: x })), value: g[k], onChange: (v) => { ed(k)(v); R(); } }), help ? h('div', { class: 't-small help' }, help) : null);
-    return [K.Section('بيانات الشركة', [vrow('اللوجو', 'PNG أو SVG · مربع 512×512 · يُستخدم في الفاتورة ورأس الصفحة', h('div', { class: 'acts-inline' }, window.IBLogo.Logo({ tone: 'color', width: 150 }), Button({ size: 'sm', label: 'غيّر اللوجو', onClick: () => { st.sec = 'brand'; try { history.replaceState(null, '', '#settings-brand'); } catch (e) { /* */ } R(); } }))),
+    return [sellSec(), K.Section('بيانات الشركة', [vrow('اللوجو', 'PNG أو SVG · مربع 512×512 · يُستخدم في الفاتورة ورأس الصفحة', h('div', { class: 'acts-inline' }, window.IBLogo.Logo({ tone: 'color', width: 150 }), Button({ size: 'sm', label: 'غيّر اللوجو', onClick: () => { st.sec = 'brand'; try { history.replaceState(null, '', '#settings-brand'); } catch (e) { /* */ } R(); } }))),
         K.two(U.TextInput({ id: 'g-co', label: 'اسم الشركة', required: true, value: g.company, onInput: ed('company') }), U.TextInput({ id: 'g-lg', label: 'الاسم القانوني', value: g.legal, onInput: ed('legal') })),
         K.two(U.TextInput({ id: 'g-em', label: 'إيميل التواصل', required: true, value: g.email, onInput: ed('email') }), U.TextInput({ id: 'g-site', label: 'الموقع الإلكتروني', value: g.site, onInput: ed('site') })),
         K.two(U.TextInput({ id: 'g-ad', label: 'العنوان', value: g.address, onInput: ed('address') }), U.TextInput({ id: 'g-ph', label: 'هاتف الشركة', value: g.phone, onInput: ed('phone') })),
@@ -547,6 +547,34 @@
         // reports, the ad plan's weeks and the HR calendar); the rest stay facts with their reason
         sel('week', 'g-week', 'بداية الأسبوع', ['السبت', 'الأحد', 'الاتنين'], '«هذا الأسبوع» في الكاليندر، تقسيم التقارير بالأسبوع، أسابيع الخطة الإعلانية، وتقويم «الفريق والحضور»')], null, { sub: 'تنسيق الوقت والتاريخ وبداية الأسبوع بيتغيّروا من هنا · المنطقة واللغة والعملة ثابتة: السيرفر والموقع وDokan بتوقيت القاهرة وبالجنيه، والواجهة عربي بس' }),
       K.Section('تفضيلات العرض', [row('إظهار صور المنتجات في الأوردرات', 'صورة مصغّرة 40px في صف الأوردر الفرعي', g.thumbs, ed('thumbs')), row('تذكّر آخر فلاتر لكل صفحة', 'الأوردرات والتقارير بتفتح على آخر فلتر استخدمته', g.rememberFilters, ed('rememberFilters')), row('إخفاء أرقام هواتف العملاء في القوائم', 'تظهر كاملة عند الفتح فقط لمن يملك الصلاحية', g.hidePhones, ed('hidePhones'))], null, { sub: 'إعدادات واجهة على مستوى الشركة — كل عضو يقدر يغيّرها لنفسه من ملفه' })];
+  }
+
+  // the plan 2026-11-17-stores-single.md decisions 2 and 3 (the owner 17 Nov — «في الاعدادات العامة زرار اسموا تفعيل البيع الفردي بيلغي المبتكرين
+  // و الاوردرات الفرعية باعتبار انو المصنع او صاحب البراند»): «طريقة البيع» — the switch writes the row «store» right away (not the page's
+  // draft), with a confirm that says what goes and that nothing is deleted; the system reloads so every page draws the new way. Locked on
+  // «فردي» for a store without Dokan. The admin only (IBSettings.save refuses anyone else).
+  const PLATFORM_NAME = { woo: 'WooCommerce', shopify: 'Shopify', easyorders: 'EasyOrders' };
+  function sellSec() {
+    const SS = window.IBSettings; if (!SS || !SS.store) return null;
+    const sto = SS.store(); const on = sto.mode === 'single'; const locked = !sto.dokan;
+    const apply = async (single) => {
+      const r = await SS.save('store', { mode: single ? 'single' : 'marketplace' });
+      if (!r.ok) { K.toast(r.message || 'ماتحفظش — جرّب تاني', 'error'); return; }
+      LOGV('settings.store.mode', single ? 'single' : 'marketplace');
+      K.toast(single ? 'اتفعّل البيع الفردي — السيستم بيتحدّث' : 'رجع البيع بالمبتكرين — السيستم بيتحدّث', 'success');
+      setTimeout(() => { try { location.reload(); } catch (e) { /* tests */ } }, 900);
+    };
+    const ask = () => K.confirm(on
+      ? { title: 'ترجّع البيع بالمبتكرين؟', text: 'المبتكرين والأوردرات الفرعية وحسابات المبتكرين هيرجعوا يظهروا زي ما كانوا بداتاهم.', okLabel: 'رجّع', onOk: () => apply(false) }
+      : { title: 'تفعّل البيع الفردي؟', text: 'السيستم هيشتغل لبايع واحد (مصنع أو صاحب براند): المبتكرين وبوابتهم والأوردرات الفرعية وحسابات المبتكرين وتقاريرهم هيستخبوا، والسعر هيتحسب من التكلفة + هامش الربح. مفيش داتا هتتمسح، وتقدر ترجّعه في أي وقت.', okLabel: 'فعّل البيع الفردي', onOk: () => apply(true) });
+    const ctl = locked ? K.Tag('success', 'شغّال دايمًا مع ' + (PLATFORM_NAME[sto.platform] || sto.platform))
+      : h('button', { type: 'button', role: 'switch', class: 'sw', 'aria-checked': String(on), 'aria-label': 'تفعيل البيع الفردي', 'data-store-single': '', onClick: ask }, h('i'));
+    const sec = K.Section('طريقة البيع', [
+      vrow('تفعيل البيع الفردي', locked ? 'المتجر المربوط (' + (PLATFORM_NAME[sto.platform] || sto.platform) + ') مالوش مبتكرين — السيستم شغّال لبايع واحد' : 'للمصنع أو صاحب البراند اللي بيبيع اللي بيصنعه: من غير مبتكرين ولا أوردرات فرعية', ctl),
+      vrow('المتجر', 'المنصة اللي السيستم بيقرا منها الأوردرات والمنتجات وبيكتب عليها', K.Tag('neutral', PLATFORM_NAME[sto.platform] || sto.platform))],
+      null, { sub: on ? 'البيع الفردي شغّال' : 'البيع بالمبتكرين (WooCommerce + Dokan)', th: false, cols: false });
+    if (sec && sec.setAttribute) sec.setAttribute('data-store-sec', on ? 'single' : 'marketplace');
+    return sec;
   }
 
   // ---------- الأوراق الرسمية (owner 1 Nov 20:42): السجل التجاري والبطاقة الضريبية وأي ورقة تانية — بحث + اسم للملف + تاريخ انتهاء ----------

@@ -356,7 +356,10 @@
     { id: 'staff', label: 'تقارير الموظفين', perm: 'hr.view' }, { id: 'campaigns', label: 'الحملات الإعلانية', perm: 'marketing.view' }, { id: 'inventory', label: 'تقارير المخزن', perm: 'inventory.view' }, { id: 'cs', label: 'تقارير خدمة العملاء', perm: 'cs.view' }, { id: 'tickets', label: 'تقارير الطلبات', perm: 'tickets.view' }];
   const reportTabOf = (hash) => { const m = /^reports(?:-(orders|vendors|accounts|products|staff|campaigns|inventory|cs|tickets))?$/.exec(hash); return m ? (m[1] || 'orders') : null; };
   const rperm = (k) => (window.IBDirectory && window.IBDirectory.perm ? window.IBDirectory.perm(k) : 'N');
-  const reportTabs = () => (rperm('reports.view') === 'N' ? [] : REPORT_TABS.filter((t) => !t.perm || rperm(t.perm) !== 'N'));
+  const reportTabs = () => (rperm('reports.view') === 'N' ? [] : REPORT_TABS.filter((t) => (!t.perm || rperm(t.perm) !== 'N') && !(t.id === 'vendors' && singleOn())));
+  // single-seller mode (the plan 2026-11-17-stores-single.md decision 3): no makers' accounts — in the accounts tabs and the moves log
+  const accTabs = () => TABS.filter((t) => !(t.id === 'vendors' && singleOn()));
+  const mlogTabs = () => MLOG_TABS.filter((t) => !(t.id === 'vendorMoves' && singleOn()));
   const rCanExport = () => rperm('reports.export') === 'F';
   state.rtab = reportTabOf(location.hash.slice(1)) || 'orders';
   state.rrange = Object.assign(D.presetRange('last30', TODAY), { preset: 'last30' });
@@ -379,7 +382,9 @@
   // 0120: «الذكاء الاصطناعي» opens for anyone who sees one assistant at least — each carries a page's «عرض» (the admin all)
   const AI_PERMS = ['marketing.view', 'inventory.view', 'cs.view', 'vendors.view', 'accounts.view', 'hr.view', 'orders.view', 'products.view', 'tickets.view', 'reports.view'];
   const barredAi = () => !!(window.IBDirectory && window.IBDirectory.me && window.IBDirectory.me()) && AI_PERMS.every((k) => rperm(k) === 'N');
-  const barred = (page) => { if (page === 'ai') return barredAi(); const k = PAGE_PERM[page]; return !!k && !!(window.IBDirectory && window.IBDirectory.me && window.IBDirectory.me()) && rperm(k) === 'N' && !(page === 'hr' && rperm('sensitive.salaries') === 'F'); };
+  // the plan 2026-11-17-stores-single.md decision 3: single-seller mode (IBSettings.single — the row «store») has no makers' page
+  const singleOn = () => !!(window.IBSettings && window.IBSettings.single && window.IBSettings.single());
+  const barred = (page) => { if (page === 'ai') return barredAi(); if (page === 'vendors' && singleOn()) return true; const k = PAGE_PERM[page]; return !!k && !!(window.IBDirectory && window.IBDirectory.me && window.IBDirectory.me()) && rperm(k) === 'N' && !(page === 'hr' && rperm('sensitive.salaries') === 'F'); };
   const barNote = () => { if (window.IBKit && window.IBKit.toast) window.IBKit.toast('الصفحة دي مش متاحة لدورك — لو محتاجها كلّم الأدمن'); };
   // the menus follow the member's permissions (the rows land after the first draw, and the roles may change from the settings)
   const navPerms = () => document.querySelectorAll('.sidebar .nav-item[data-page], .bottom-nav .bn-item[data-page]').forEach((b) => { b.hidden = barred(b.dataset.page); });
@@ -1823,7 +1828,7 @@
     const search = h('input', { type: 'search', class: 'input', placeholder: 'ابحث بالبند أو الاسم أو المرجع', 'aria-label': 'بحث في سجل الحركات', value: state.mlogQ || '', style: 'width:300px;max-width:100%' });
     search.addEventListener('input', () => { state.mlogQ = search.value; const p = search.selectionStart; render(); const n = document.querySelector('#panel input[type=search]'); if (n) { n.focus(); n.setSelectionRange(p, p); } });
     return h('div', { style: 'display:flex;flex-direction:column;gap:24px;min-width:0' },
-      KK.SubTabs ? KK.SubTabs({ items: MLOG_TABS, active: kind, label: 'أقسام سجل الحركات', onChange: (id) => { state.mlog = id; state.mlogQ = ''; render(); } }) : null,
+      KK.SubTabs ? KK.SubTabs({ items: mlogTabs(), active: kind, label: 'أقسام سجل الحركات', onChange: (id) => { state.mlog = id; state.mlogQ = ''; render(); } }) : null,
       h('div', { class: 'cards four' },
         U.KpiTile(Object.assign({ label: 'عدد الحركات', value: String(r.count), unit: 'حركة', note: (MLOG_TABS.find((t) => t.id === kind) || {}).label + ' · في الفترة المختارة' }, cmpTile(r.count, P ? P.count : 0, true))),
         U.KpiTile(Object.assign({ label: 'داخل', value: D.formatMoney(r.inTotal), unit: 'ج.م', note: kind === 'accountMoves' ? 'إيداعات + الرصيد الافتتاحي' : 'إيداعات وعرابين' }, cmpTile(r.inTotal, P ? P.inTotal : 0, true))),
@@ -4437,7 +4442,8 @@
     U.closePopover(); refreshSeed();
     const main = document.getElementById('main'); const sc = window.scrollY;
     const note = state.note; state.note = null; shownNote = note;
-    const tabs = U.Tabs({ items: TABS, active: state.tab, onChange: (id, viaKey) => { state.tab = id; try { history.replaceState(null, '', '#' + id); } catch (e) { /* sandboxed */ } focusTab = !!viaKey; render(); } });
+    if (state.tab === 'vendors' && singleOn()) state.tab = 'acc-overview';
+    const tabs = U.Tabs({ items: accTabs(), active: state.tab, onChange: (id, viaKey) => { state.tab = id; try { history.replaceState(null, '', '#' + id); } catch (e) { /* sandboxed */ } focusTab = !!viaKey; render(); } });
     const noteEl = note ? U.InlineNote({ kind: note.kind, children: note.text, action: note.undo ? Button({ type: 'text', size: 'sm', label: 'تراجع', onClick: note.undo })
       : note.action ? Button({ type: 'text', size: 'sm', label: note.action.label, attrs: { 'data-note-act': '' }, onClick: note.action.run }) : IconButton({ icon: 'close', label: 'إخفاء', onClick: () => { noteEl.remove(); } }) }) : null;
     main.replaceChildren(...[

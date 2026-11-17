@@ -615,7 +615,45 @@
     return after(await orderRpc('order_status_order', { p_names: names.map(String) }, 'names'), 'order', 'order · ' + names.length);
   }
 
-  window.IBSettings = { loginLocks, loginUnlock, load, ensure, loadPublic, clear, data, section, sections: () => Object.assign({}, data.sections), roles, liveRoles, public: () => data.public, can, PERMS, PERM_KEYS, lists, saveLists, statusLabel, STATUS_KINDS, setRoleLevelPerms, setMemberLevel, levelPermsOf, MEMBER_LEVELS: MLEVELS, quickList, quickSave, quickDelete, quickOrder, QUICK_SCOPES: Q_SCOPES, expenseKinds, statusList, addedStatuses, delayRules, fakeRule, saveFake, orderStatuses, orderStatusAdd, orderStatusSlug, orderStatusDelete, orderStatusOrder, ADDED_MAX, ADDED_LEN, weekStart, clock, dateFmt, KIND_MAX, KINDS_MAX,
+  // ---------- the side menu (the owner 17 Nov — «الهوية البصرية»: «التحكم في المنيو الرئيسية سواء تعديل الاسم او الايقونة او تغيير
+  // الترتيب او ظهور و اخفاء»): the row «brand» { menu: { order: [page…], items: { page: { label?, icon?, hidden? } } } } — for everyone,
+  // the admin writes it. Only what differs from the page's own is kept; a hidden page leaves the menus only (its link and the permissions
+  // stay); «لوحة التحكم» and «الإعدادات» are never hidden (the home page and the way back here). base = [[icon, label, page]…] (block 28's NAV).
+  const MENU_ICONS = ['home', 'box', 'users', 'wallet', 'tag', 'package', 'stock', 'truck', 'headset', 'bot', 'msg', 'whatsapp', 'ticket', 'chart', 'activity', 'megaphone', 'sparkle', 'zap', 'image', 'play', 'music', 'briefcase', 'calendar', 'cal', 'clock', 'bell', 'mail', 'send', 'share', 'star', 'checkCircle', 'alert', 'file', 'sheet', 'attach', 'link', 'qr', 'lock', 'eye', 'search', 'sliders', 'gear', 'code', 'edit', 'upload', 'download'];
+  const MENU_LOCKED = ['dashboard', 'settings'];
+  const MENU_LABEL_MAX = 30;
+  const menuLabel = (v) => String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f<>]/g, '').replace(/\s+/g, ' ').trim();
+  function cleanMenu(m, base) {
+    const pages = (Array.isArray(base) ? base : []).map((b) => b && b[2]).filter(Boolean); const of = Object.fromEntries((base || []).filter((b) => b && b[2]).map((b) => [b[2], b]));
+    const src = m && typeof m === 'object' && !Array.isArray(m) ? m : {};
+    const order = []; (Array.isArray(src.order) ? src.order : []).forEach((p) => { if (pages.includes(p) && !order.includes(p)) order.push(p); });
+    const items = {}; const its = src.items && typeof src.items === 'object' && !Array.isArray(src.items) ? src.items : {};
+    for (const p of pages) {
+      const x = its[p]; if (!x || typeof x !== 'object') continue; const o = {};
+      const lb = menuLabel(x.label); if (lb.length >= 2 && lb.length <= MENU_LABEL_MAX && lb !== of[p][1]) o.label = lb;
+      if (MENU_ICONS.includes(x.icon) && x.icon !== of[p][0]) o.icon = x.icon;
+      if (x.hidden === true && !MENU_LOCKED.includes(p)) o.hidden = true;
+      if (Object.keys(o).length) items[p] = o;
+    }
+    const same = order.length === 0 || order.every((p, i) => p === pages[i]);
+    const out = {}; if (!same) out.order = order.concat(pages.filter((p) => !order.includes(p))); if (Object.keys(items).length) out.items = items;
+    return Object.keys(out).length ? out : null;
+  }
+  // the menu as it shows: [{ page, icon, label, hidden, base: { icon, label } }] in the saved order (new pages after it, in their place)
+  function menuOf(base, m) {
+    const cm = cleanMenu(m, base) || {}; const list = (base || []).filter((b) => b && b[2]);
+    const order = cm.order || list.map((b) => b[2]); const its = cm.items || {};
+    return order.map((p) => list.find((b) => b[2] === p)).filter(Boolean).map(([icon, label, page]) => { const x = its[page] || {};
+      return { page, icon: x.icon || icon, label: x.label || label, hidden: !!x.hidden, base: { icon, label } }; });
+  }
+  const menuNow = () => { const b = (data.public && data.public.brand) || section('brand') || {}; return b.menu || null; };
+  async function saveMenu(m, base, what) {
+    if (!can().admin) return no('forbidden');
+    const v = cleanMenu(m, base); const r = await save('brand', { menu: v }); if (!r.ok) return r;
+    log('brand.menu', String(what || '').slice(0, 60), 'brand'); return { ok: true, menu: v };
+  }
+
+  window.IBSettings = { MENU_ICONS, MENU_LOCKED, MENU_LABEL_MAX, cleanMenu, menuOf, menuNow, saveMenu, loginLocks, loginUnlock, load, ensure, loadPublic, clear, data, section, sections: () => Object.assign({}, data.sections), roles, liveRoles, public: () => data.public, can, PERMS, PERM_KEYS, lists, saveLists, statusLabel, STATUS_KINDS, setRoleLevelPerms, setMemberLevel, levelPermsOf, MEMBER_LEVELS: MLEVELS, quickList, quickSave, quickDelete, quickOrder, QUICK_SCOPES: Q_SCOPES, expenseKinds, statusList, addedStatuses, delayRules, fakeRule, saveFake, orderStatuses, orderStatusAdd, orderStatusSlug, orderStatusDelete, orderStatusOrder, ADDED_MAX, ADDED_LEN, weekStart, clock, dateFmt, KIND_MAX, KINDS_MAX,
     save, setRolePerms, createRole, updateRole, deleteRole, setMemberRole, setMemberRoles, setMemberPerms, setMemberStatus, sessions, revokeSession, deviceOf,
     links, setSecret, wooSet, testSecret, unlink, connections, notifyStatus, notifyTick, activity, pageOf, docs, addDoc, updateDoc, removeDoc, docUrl, uploadLogo, logoUrl, LOGO_SLOTS, uploadFont, removeFont, loadFont, fontList, FONT_MAX, FONTS_MAX, wipe, WIPE_SECTIONS };
 })();

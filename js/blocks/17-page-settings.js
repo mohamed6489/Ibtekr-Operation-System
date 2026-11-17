@@ -270,7 +270,7 @@
     const body = h('div', Object.assign({ class: 'set-body set-page' }, st.sec === 'activity' ? { 'data-std-table': '' } : { 'data-no-tq': '', 'data-no-cols': '' }), ...section());
     const mark = () => { if (st.dirty) return; st.dirty = true; note.hidden = false; const pg = document.getElementById('pg-settings'); if (pg && !pg.querySelector('.save-bar')) pg.append(saveBar()); };
     // التحديد في الجداول والفلاتر والتابات مش «تغيير» — مش بيطلّع تذكير الحفظ
-    const skip = (t) => !t || t.type === 'search' || !!t.closest('.search-field, [role=search], .toolbar label.search, [data-bulk-box], [data-bulk], .bulk-bar, [role=tab], .subtabs, [data-fm], [data-af], [data-sm-btn], .pop-anchor[data-popover-root] .menu, .pm-seg');
+    const skip = (t) => !t || t.type === 'search' || !!t.closest('.search-field, [role=search], .toolbar label.search, [data-bulk-box], [data-bulk], .bulk-bar, [role=tab], .subtabs, [data-fm], [data-af], [data-sm-btn], .pop-anchor[data-popover-root] .menu, .pm-seg, [data-set-instant]'); // data-set-instant: saved on the spot (the side menu)
     body.addEventListener('input', (e) => { if (!skip(e.target)) mark(); }, true);
     body.addEventListener('change', (e) => { if (!skip(e.target)) mark(); }, true);
     body.addEventListener('click', (e) => { if (!skip(e.target) && e.target.closest('[role=switch], [role=radio], [role=checkbox], .chip, [role=option]')) mark(); }, true);
@@ -2178,6 +2178,42 @@
   // how many makers chose each, «+ إضافة فئة» = a new main category on the site, ⋮ «تغيير الاسم» / «حذف» — the same woo-sync actions as
   // «المنتجات › الأقسام» (WOO_PUSH_ENABLED; a delete is refused while the category has products, sub-categories or makers)
   function mainCatNames() { const V = window.IBVendors; return V && V.store && V.store.mainCategories ? V.store.mainCategories().map((c) => c.name) : []; }
+  // ---------- «القائمة الجانبية» (the owner 17 Nov — «التحكم في المنيو الرئيسية سواء تعديل الاسم او الايقونة او تغيير الترتيب او ظهور و اخفاء»،
+  // في «القوائم والحالات»): the row «brand».menu through IBSettings.saveMenu — for everyone, the admin; each change saved at once and the
+  // menu redrawn (block 28 redrawNav on ib:settings). A hidden page leaves the menus only; «لوحة التحكم» and «الإعدادات» always show.
+  function menuSec() {
+    const S0 = SETT(); const NV = window.IBNav; if (!S0 || !S0.menuOf || !NV) return K.Section('القائمة الجانبية', K.Empty('مش متاحة دلوقتي', 'جرّب تفتح الصفحة تاني.'), null, { th: false });
+    const admin = isAdminMe(); const base = NV.base(); const items = S0.menuOf(base, S0.menuNow());
+    const cfgOf = (list) => ({ order: list.map((x) => x.page), items: Object.fromEntries(list.map((x) => [x.page, { label: x.label, icon: x.icon, hidden: x.hidden }])) });
+    const put = async (list, what, msg) => { const r = await S0.saveMenu(cfgOf(list), base, what); if (!r.ok) return fail(r, 'حفظ القائمة'); K.toast(msg || 'اتحفظت القائمة', 'success'); R(); };
+    const change = (page, patch, what, msg) => put(items.map((x) => (x.page === page ? Object.assign({}, x, patch) : x)), what, msg);
+    const pickIcon = (x) => { const m = U.Modal({ title: 'أيقونة «' + x.label + '»', body: [h('div', { class: 'mn-icons', role: 'listbox', 'aria-label': 'الأيقونات', 'data-menu-icons': x.page },
+      S0.MENU_ICONS.map((ic) => h('button', { type: 'button', class: 'mn-ico' + (ic === x.icon ? ' on' : ''), role: 'option', 'aria-selected': String(ic === x.icon), 'aria-label': ic, title: ic, 'data-menu-icon': ic,
+        onClick: () => { m.close(); if (ic !== x.icon) change(x.page, { icon: ic }, x.base.label + ' · أيقونة', 'اتغيّرت الأيقونة'); } }, Icon(ic)))),
+      x.icon !== x.base.icon ? h('div', { class: 'acts-inline start' }, Button({ type: 'text', size: 'sm', label: 'رجّع أيقونتها الأصلية', attrs: { 'data-menu-icon-reset': '' }, onClick: () => { m.close(); change(x.page, { icon: x.base.icon }, x.base.label + ' · أيقونة', 'رجعت الأيقونة الأصلية'); } })) : null] }); };
+    const row = (x) => {
+      const locked = (S0.MENU_LOCKED || []).includes(x.page);
+      const name = h('input', { class: 'input', type: 'text', id: 'mn-l-' + x.page, maxlength: String(S0.MENU_LABEL_MAX || 30), value: x.label, placeholder: x.base.label, 'aria-label': 'اسم «' + x.base.label + '» في القائمة', disabled: !admin, 'data-menu-label': x.page,
+        onChange: (e) => { const v = String(e.target.value || '').trim(); if (!v) { e.target.value = x.base.label; return change(x.page, { label: x.base.label }, x.base.label + ' · اسم', 'رجع الاسم الأصلي'); }
+          if (v.length < 2) { K.toast('الاسم حرفين على الأقل', 'error'); e.target.value = x.label; return; } if (v !== x.label) change(x.page, { label: v }, x.base.label + ' · اسم', 'اتغيّر الاسم'); },
+        onKeydown: (e) => { if (e.key === 'Enter') e.target.blur(); } });
+      const vis = locked ? h('span', { class: 't-small help', 'data-menu-locked': x.page }, 'ظاهرة دايمًا')
+        : h('label', { class: 'acts-inline mn-vis' }, h('input', { type: 'checkbox', checked: !x.hidden, disabled: !admin, 'data-menu-show': x.page, onChange: (e) => change(x.page, { hidden: !e.target.checked }, x.base.label + (e.target.checked ? ' · ظاهرة' : ' · مخفية'), e.target.checked ? 'رجعت في القائمة' : 'اتخفت من القائمة') }), h('span', null, x.hidden ? 'مخفية' : 'ظاهرة'));
+      const edited = x.label !== x.base.label || x.icon !== x.base.icon || x.hidden;
+      return h('div', { class: 'mn-row' + (x.hidden ? ' off' : ''), 'data-menu-item': x.page },
+        admin ? K.Grip(x.label) : h('span', { class: 'dc-grip-sp', 'aria-hidden': 'true' }),
+        h('button', { type: 'button', class: 'mn-ico cur', 'aria-label': 'غيّر أيقونة «' + x.label + '»', title: 'غيّر الأيقونة', disabled: !admin, 'data-menu-icon-btn': x.page, onClick: () => pickIcon(x) }, Icon(x.icon)),
+        h('div', { class: 'mn-name' }, name, x.label !== x.base.label ? h('small', { class: 't-small help' }, 'الأصلي: ' + x.base.label) : null),
+        vis,
+        admin && edited ? Button({ type: 'text', size: 'sm', label: 'رجّع', attrs: { 'data-menu-reset': x.page }, onClick: () => change(x.page, { label: x.base.label, icon: x.base.icon, hidden: false }, x.base.label + ' · الأصلي', 'رجعت زي الأصل') }) : h('span'));
+    };
+    const wrap = h('div', { class: 'mn-list', 'data-menu-list': '', 'data-set-instant': '' }, items.map(row));
+    if (admin) setTimeout(() => K.sortableRows(wrap, 'data-menu-item', (ids) => { const next = ids.map((id) => items.find((x) => x.page === id)).filter(Boolean); if (next.map((x) => x.page).join() !== items.map((x) => x.page).join()) put(next, 'الترتيب', 'اتغيّر الترتيب'); }), 0);
+    const custom = !!S0.menuNow();
+    return K.Section('القائمة الجانبية', [admin ? null : U.InlineNote({ children: 'التعديل للأدمن بس.' }), wrap],
+      admin && custom ? Button({ type: 'text', size: 'sm', label: 'رجّع الأصلي', attrs: { 'data-menu-reset-all': '' }, onClick: () => K.confirm({ title: 'ترجّع القائمة للأصل؟', text: 'الأسامي والأيقونات والترتيب والمخفي هيرجعوا زي ما كانوا.', okLabel: 'رجّع', onOk: async () => { const r = await S0.saveMenu(null, base, 'الأصلي'); if (!r.ok) return fail(r, 'الحفظ'); K.toast('رجعت القائمة الأصلية', 'success'); R(); } }) }) : null,
+      { th: false, cols: false, sub: 'الاسم والأيقونة والترتيب (اسحب من الست نقط) والظهور — بيتغيّر عند الكل على طول · الصفحة المخفية بتختفي من القائمة بس، ولينكها وصلاحياتها زي ما هي' });
+  }
   function makerCatsSec() {
     const V = window.IBVendors; const S1 = window.IBStudio; const admin = isAdminMe();
     const list = V && V.store && V.store.mainCategories ? V.store.mainCategories() : []; const all = V && V.store && V.store.all ? V.store.all() : [];
@@ -2205,7 +2241,7 @@
       { th: false, sub: 'أقسام الموقع الرئيسية — «الفئة الأساسية» في ملف المبتكر، وبتتعدّل كمان من «المنتجات › الأقسام»' });
   }
   function lists() {
-    const L = C.otherLists; const tabs = [{ id: 'order', label: 'حالات الأوردر' }, { id: 'confirm', label: 'حالات التأكيد' }, { id: 'sub', label: 'حالات المنتج' }, { id: 'cancel', label: 'أسباب الإلغاء والمسح' }, { id: 'returns', label: 'أسباب المرتجع' }, { id: 'stop', label: 'أسباب إيقاف المبتكر' }, { id: 'shipping', label: 'شركات الشحن' }, { id: 'expenses', label: 'أنواع المصروفات' }, { id: 'categories', label: 'فئات المبتكرين' }, { id: 'priorities', label: 'الأولويات' }];
+    const L = C.otherLists; const tabs = [{ id: 'order', label: 'حالات الأوردر' }, { id: 'confirm', label: 'حالات التأكيد' }, { id: 'sub', label: 'حالات المنتج' }, { id: 'cancel', label: 'أسباب الإلغاء والمسح' }, { id: 'returns', label: 'أسباب المرتجع' }, { id: 'stop', label: 'أسباب إيقاف المبتكر' }, { id: 'shipping', label: 'شركات الشحن' }, { id: 'expenses', label: 'أنواع المصروفات' }, { id: 'categories', label: 'فئات المبتكرين' }, { id: 'priorities', label: 'الأولويات' }, { id: 'menu', label: 'القائمة الجانبية' }];
     const cur = tabs.some((t) => t.id === st.list) ? st.list : 'order';
     // ق1 (the owner 16 Nov — «ظبط ال ui بتاع هنا بشكل احترافي و منظم»): the lists in a side menu by group with their counts (tabs on a
     // phone — one row that scrolls), the chosen list in its card beside it; the items keep role=tab so the keyboard and the tests still work
@@ -2217,8 +2253,9 @@
       if (id === 'expenses') return ((S0 && S0.STATUS_KINDS && S0.STATUS_KINDS.expense) || []).length + (LL.expenseKinds || []).length;
       if (id === 'priorities') return ((S0 && S0.STATUS_KINDS && S0.STATUS_KINDS.priority) || ['urgent', 'high', 'normal', 'low']).length;
       if (id === 'categories') return mainCatNames().length;
+      if (id === 'menu') return window.IBNav ? window.IBNav.base().length : null;
     } catch (e) { /* not loaded yet */ } return null; };
-    const GROUPS_L = [['الحالات', ['order', 'confirm', 'sub']], ['الأسباب', ['cancel', 'returns', 'stop']], ['قوائم تانية', ['shipping', 'expenses', 'categories', 'priorities']]];
+    const GROUPS_L = [['الحالات', ['order', 'confirm', 'sub']], ['الأسباب', ['cancel', 'returns', 'stop']], ['قوائم تانية', ['shipping', 'expenses', 'categories', 'priorities']], ['شكل السيستم', ['menu']]];
     const label = (id) => (tabs.find((t) => t.id === id) || {}).label;
     const nav = h('nav', { class: 'lst-nav', role: 'tablist', 'aria-label': 'القوائم', 'data-lists-nav': '' }, GROUPS_L.map(([g, ids]) => h('div', { class: 'lst-grp' }, h('div', { class: 'lst-gt t-small' }, g),
       ids.map((id) => { const n = countOf(id); return h('button', { type: 'button', role: 'tab', class: 'lst-item' + (id === cur ? ' on' : ''), 'aria-selected': String(id === cur), 'data-list-tab': id, onClick: () => { st.list = id; R(); } },
@@ -2229,6 +2266,7 @@
     else if (cur === 'expenses') out.push(expensesSec());
     else if (cur === 'priorities') out.push(prioritySec());
     else if (cur === 'categories') out.push(makerCatsSec());
+    else if (cur === 'menu') out.push(menuSec());
     else { const titles = Object.fromEntries(tabs.map((t) => [t.id, t.label])); const items = L[cur] || []; out.push(K.Section(titles[cur], U.Table({ headers: ['الاسم'], rows: items.map((x) => [x]) }), null, { th: false })); }
     return [h('div', { class: 'lst-layout', 'data-lists': cur }, nav, h('div', { class: 'lst-main', role: 'tabpanel', 'aria-label': label(cur) }, ...out))];
   }

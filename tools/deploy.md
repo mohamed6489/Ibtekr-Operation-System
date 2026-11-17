@@ -2365,3 +2365,9 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 3. `ai-images` (`trend_thumbs`): غلاف فيديو تيك توك من صفحة الفيديو نفسها (`tiktokCover`) لأن الـ oEmbed بطّل يرجّع `thumbnail_url`؛
    وبعد النشر صفّر `thumb_tries` لصفوف تيك توك اللي مالهاش صورة عشان تتجرّب تاني:
    `update public.mkt_trends set thumb_tries = 0 where thumb is null and platform = 'tiktok';`
+
+#### 2.7.108 زراير Magnific بتختفي لما المزوّد يتغيّر (17 نوفمبر — `0123`)
+1. `0123_public_image_provider.sql`: `settings_public()` بقى بيرجّع `ai.image` = `{ default, tools: { studio, campaign, tool } }` (أسامي
+   المزوّدين المعروفة بس — `magnific` / `openai` / `gemini`؛ من غير صف = Magnific). الاختبار `supabase/tests/rls_public_image_provider.sql`.
+2. الواجهة: `IBSettings.imageProvider(tool)` / `magnificOn(tool)` — شريط Magnific في الاستوديو (الفلوهات والويزارد القديم) وفي بناء
+   الكامبين، وكارت «وارد من Magnific» وربط الجسر و«اختبار الاتصال» في أداة الصور، بيظهروا بس لما مزوّد الصور للأداة دي Magnific.

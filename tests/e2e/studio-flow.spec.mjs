@@ -999,3 +999,18 @@ test('the owner 15 Nov («بجرب ارفع الصور … مبتترفعش»): 
   await expect(page.locator('#pg-products .fl-pcard b')).toHaveText(['منتج 1', 'منتج 2', 'منتج 3']);
   await expect.poll(() => Object.keys((batch().state || {}).photoRows || {}).sort()).toEqual(['1', '2', '3']);
 });
+
+// 0123 (the owner 17 Nov): the studio's image provider set to Gemini → the photos step has no Magnific bar
+test('0123 — the studio image provider is not Magnific: no Magnific bar in the flows\' photos step', async ({ page }) => {
+  mock.magnific.linked = true;
+  mock.settings.push({ section: 'ai', data: { providers: { image: { default: 'gemini' } } } });
+  await signIn(page, ADMIN);
+  await choose(page, 'شيت جاهز', 'Simple');
+  await pick(page, '[data-flow-sheet]', { name: 'a.csv', mimeType: 'text/csv', buffer: Buffer.from('#,SKU,Product Name EN,Product Name AR,Product Colors,Product Colors AR,Size,Vendor Price,Product Category\n1,,Oak Chair,كرسي بلوط,Beige,بيج,40×90,1000,ديكور\n') });
+  await photosFor(page, 1);
+  await next(page); await makerArtCraft(page); await next(page);
+  await expect(page.locator('#pg-products [data-fl="shortEn"]').first()).toHaveValue(/./);
+  await next(page); await next(page);
+  await expect(page.locator('#pg-products .fl-units')).toBeVisible();
+  await expect(page.locator('#pg-products [data-fl-magnific]')).toHaveCount(0);
+});

@@ -469,3 +469,20 @@ test('comment 52 — the build step: «ارفع صورة» puts a ready image on
   await pg(page).locator('.cp-next').click();
   await expect(pg(page).locator('.wstepper .stp-cur')).toContainText('المراجعة');
 });
+
+// 0123 (the owner 17 Nov — «عايز اي زراير ليها علاقة ب magnific تختفي لو انا غيرت ال api بتاع magnific بحاجة تانية من الاعدادات»): the
+// campaign's image provider set to OpenAI in «الإعدادات › المزوّدين» → no Magnific bar in the build step, for the admin and for a member
+for (const who of ['admin', 'ops']) {
+  test('0123 — the campaign image provider is not Magnific: no Magnific bar in the build step (' + who + ')', async ({ page }) => {
+    mock.settings.push({ section: 'ai', data: { providers: { image: { default: 'magnific', tools: { campaign: 'openai' } } } } });
+    await openMarketing(page, who === 'admin' ? ADMIN : 'ops.dev@ibtekr.local');
+    await pg(page).locator('[data-mk-start]').click();
+    await pg(page).locator('#cw-idea').fill('كولكشن الشتا — مخدات مشغولة يدويًا');
+    await pg(page).locator('#cw-n-post').fill('1'); await pg(page).locator('#cw-n-post').press('Enter');
+    await pg(page).locator('.cp-next').click();
+    await expect(pg(page).locator('.wstepper .stp-cur')).toContainText('البناء');
+    await expect(pg(page).locator('[data-cw-autofill]')).toHaveCount(0);
+    await expect(pg(page).locator('[data-cw-magnific]')).toHaveCount(0);
+    expect(await page.evaluate(() => [window.IBSettings.imageProvider('campaign'), window.IBSettings.magnificOn('studio')])).toEqual(['openai', true]);
+  });
+}

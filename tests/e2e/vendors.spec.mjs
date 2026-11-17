@@ -690,7 +690,7 @@ test('5.5 / the owner 12 Nov: «فلتر» next to the sort in the card header h
   expect(await rows(page).evaluateAll((l) => l.map((r) => r.dataset.id))).toEqual([V2, V1, V3]); // Antikiano · Art Craft · Bian eg
 });
 
-test('5.5: the bulk bar moves the selected makers\' products to another maker (products_vendor) and sets the rate of several at once (vendor_rate_set each); the row menu opens his orders', async ({ page }) => {
+test('5.5: the bulk bar moves the selected makers\' products to another maker (products_vendor) no bulk price / rate (owner 17 Nov); the row menu opens his orders', async ({ page }) => {
   await openVendors(page);
   await page.locator('#vendors [data-vsel="' + V1 + '"]').click();
   const bar = page.locator('#vendors [data-vbulk]');
@@ -706,15 +706,12 @@ test('5.5: the bulk bar moves the selected makers\' products to another maker (p
   await modal(page).getByRole('button', { name: 'انقل المنتجات' }).click();
   await expect.poll(() => (mock.productWrites || []).filter((w) => w.action === 'products_vendor')).toEqual([{ action: 'products_vendor', by: ADMIN, ids: [9001], vendor_id: V2 }]);
   await expect(bar).toHaveCount(0); // the selection is cleared after the move
-  // the rate of two makers at once
+  // the owner 17 Nov: the bulk bar has no «تعديل الأسعار» / «تعديل نسبة إبتكر» any more (one maker at a time, from his ⋮)
   await page.locator('#vendors [data-vsel-all]').click();
   await expect(bar.locator('b')).toHaveText('محدد 2 مبتكرين');
-  await bar.locator('[data-vbulk-rate]').click();
-  await modal(page).locator('#rate').fill('30');
-  await modal(page).getByRole('button', { name: 'غيّر النسبة' }).click();
-  await expect.poll(() => mock.vendorRates.filter((r) => r.rate === 30).map((r) => r.vendor_id).sort()).toEqual([V1, V2].sort());
-  await expect(page.locator('#vendors')).toContainText('اتغيرت نسبة إبتكر لـ 2 مبتكرين');
-  await expect(row(page, V1)).toContainText('30%');
+  await expect(bar.locator('[data-vbulk-rate]')).toHaveCount(0);
+  await expect(bar.locator('[data-vbulk-price]')).toHaveCount(0);
+  await expect(bar.getByRole('button', { name: /تعديل الأسعار|تعديل نسبة إبتكر/ })).toHaveCount(0);
   // the row menu → his orders
   await page.locator('#vendors tr[data-id="' + V2 + '"] .act-col button[aria-haspopup=menu]').click();
   await page.locator('[role=menu] [role=menuitem]', { hasText: 'أوردراته' }).click();

@@ -910,79 +910,96 @@ test('decision 62: the tabs are نظرة عامة · إضافة · سجل الم
 // comments decision 82 (the owner 15 Nov on «تعديل سعر منتج» — «لما اعدل نسبة ابتكر … يظهرلي تحتيها ال vendors … و المقدار اللي هزوده يزيد علي
 // الفيندور كله لو انا محدد كل منتجات الفيندور ده … و في حالة تحديد قسم معين … يظهرلي الاقسام … مرتبط بالنسبة بتاعة المبتكرين» · «و سع عرض الpopup ده»):
 // «نسبة إبتكر» is the maker's commission — the popup lists whose and what moves, and «طبّق» writes it before the prices
-test('comment 82 — «تعديل سعر»: wider; «نسبة إبتكر» lists the makers of the picked products with what moves (the whole maker = his general rate and his category rates; all his products of a category = that category; a maker without a rate = the price only), then writes the commission (vendor_commission_set) and the prices', async ({ page }) => {
+test('comment 82 + owner 17 Nov — «تعديل سعر» for one maker at a time: a mix is refused; «نسبة إبتكر» shows what moves for him (all his products = his general rate and his category rates; all his products of a category = that category; a maker without a rate = the price only), then writes the commission (vendor_commission_set) and the prices', async ({ page }) => {
   await openProducts(page);
   const idOf = (name) => mock.vendors.find((v) => v.name === name).id;
   const VA = idOf('Art Craft'); const VB = idOf('Antikiano'); const VC = idOf('Bian eg');
-  // Cushion is all of Art Craft's products; Macrame Feathers is Antikiano's only product of «إضاءة» (of his two); Bian eg has no rate
-  for (const n of ['Cushion', 'Macrame Feathers', 'Boho mirror']) await rowOf(page, n).locator('[role=checkbox]').click();
-  await page.locator('.bulk-bar').getByRole('button', { name: 'تعديل السعر' }).click();
+  const bar = () => page.locator('.bulk-bar');
   const m = page.locator('.modal.bp-modal');
+  const pick = async (names) => { for (const n of names) await rowOf(page, n).locator('[role=checkbox]').click(); };
+  // the owner 17 Nov («تعديل السعر بال bulk يبقي لمنتجات مبتكر واحد بس»): products of three makers → refused, no popup
+  await pick(['Cushion', 'Macrame Feathers', 'Boho mirror']);
+  await bar().getByRole('button', { name: 'تعديل السعر' }).click();
+  await expect(page.locator('body')).toContainText('حدد منتجات مبتكر واحد بس');
+  await expect(m).toHaveCount(0);
+  await pick(['Cushion', 'Macrame Feathers', 'Boho mirror']); // untick
+  // Art Craft alone — Cushion is all of his products: his general rate and his category's move together
+  await pick(['Cushion']);
+  await bar().getByRole('button', { name: 'تعديل السعر' }).click();
   await expect(m).toBeVisible();
   expect(await m.evaluate((el) => el.getBoundingClientRect().width)).toBeGreaterThan(820); // wider than the system's 800 popup
-  // the makers box shows with «نسبة إبتكر» only
-  await expect(m.locator('[data-bp-makers]')).toHaveCount(0);
+  await expect(m.locator('[data-bp-makers]')).toHaveCount(0); // the makers box shows with «نسبة إبتكر» only
   await m.getByRole('radio', { name: 'نسبة إبتكر' }).click();
   await expect(m.getByRole('radio', { name: 'نسبة %' })).toHaveCount(0); // the owner 16 Nov: the rate moves by points — no unit choice
   await m.locator('#amount').fill('2');
   const box = m.locator('[data-bp-makers]');
-  await expect(box).toHaveAttribute('data-bp-makers', '3');
+  await expect(box).toHaveAttribute('data-bp-makers', '1');
   // the owner 17 Nov: the «قبل ← بعد» table has the SKU and the maker in their own columns
   const prev = m.locator('.bp-preview table');
   await expect(prev.locator('thead th')).toHaveText(['المنتج', 'SKU', 'المبتكر', 'نسبة إبتكر', 'سعر البيع']);
-  await expect(prev.locator('.bp-maker').first()).not.toHaveText('');
+  await expect(prev.locator('.bp-maker').first()).toHaveText('Art Craft');
   await expect(prev.locator('.bp-sku').first()).not.toHaveText('');
-  const a = box.locator('[data-bp-maker="' + VA + '"]'); const b = box.locator('[data-bp-maker="' + VB + '"]'); const c = box.locator('[data-bp-maker="' + VC + '"]');
-  // the whole maker: his general rate and the rate of his category move together
+  const a = box.locator('[data-bp-maker="' + VA + '"]');
   await expect(a).toHaveAttribute('data-bp-scope', 'whole');
   await expect(a).toContainText('Art Craft'); await expect(a).toContainText('البراندات:'); await expect(a).toContainText('كل منتجاته (1)');
+  await expect(a.locator('.bp-scope')).toHaveText('النسبة كلها');
   await expect(a.locator('[data-bp-line="general"]')).toContainText('35% ← 37%');
   await expect(a.locator('[data-bp-line="15"]')).toContainText('ديكور'); await expect(a.locator('[data-bp-line="15"]')).toContainText('30% ← 32%');
-  // all his products of one category (not all his products): that category alone, and his commission turns «حسب القسم»
-  await expect(b).toHaveAttribute('data-bp-scope', 'cats');
-  await expect(b.locator('.bp-mk-what')).toContainText('كل منتجاته في'); await expect(b.locator('.bp-cat')).toHaveText(['إضاءة']); // owner 16 Nov: the categories as chips
-  await expect(b.locator('.bp-scope')).toHaveText('أقسام بعينها'); await expect(a.locator('.bp-scope')).toHaveText('النسبة كلها'); await expect(c.locator('.bp-scope')).toHaveText('السعر بس');
-  await expect(b.locator('[data-bp-line]')).toHaveCount(1);
-  await expect(b.locator('[data-bp-line="151"]')).toContainText('45% ← 47%');
-  await expect(b).toContainText('حسب القسم');
-  // a maker without a general rate: the price only
-  await expect(c).toHaveAttribute('data-bp-scope', 'price');
-  await expect(c).toContainText('السعر بس');
-  await expect(m.getByRole('button', { name: 'طبّق السعر والنسبة' })).toBeVisible();
   // past 65 the popup refuses before any write
   await m.locator('#amount').fill('40');
   await m.getByRole('button', { name: 'طبّق السعر والنسبة' }).click();
   await expect(m).toContainText('هتعدّي 65%');
   const ratesA = mock.vendorRates.filter((r) => r.vendor_id === VA).length; const ratesB = mock.vendorRates.filter((r) => r.vendor_id === VB).length;
   await m.locator('#amount').fill('2');
-  const before = (mock.productWrites || []).length;
+  let before = (mock.productWrites || []).length;
   await m.getByRole('button', { name: 'طبّق السعر والنسبة' }).click();
   await expect(m).toBeHidden({ timeout: 15000 });
-  // Art Craft: the general rate and his category's, the type as it was
   const last = (list, f) => list.filter(f).at(-1);
   await expect.poll(() => mock.vendorRates.filter((r) => r.vendor_id === VA).length).toBe(ratesA + 1);
   expect([last(mock.vendorRates, (r) => r.vendor_id === VA).rate, last(mock.vendorRates, (r) => r.vendor_id === VA).commission_type]).toEqual([37, 'category_based']);
   expect(Number(last(mock.vendorCategoryRates, (r) => r.vendor_id === VA && Number(r.woo_category_id) === 15).rate)).toBe(32);
-  // Antikiano: his general rate stays, the category takes its own, the type turns category_based; his flat fee is kept
-  expect(mock.vendorRates.filter((r) => r.vendor_id === VB).length).toBe(ratesB + 1);
-  const rb = last(mock.vendorRates, (r) => r.vendor_id === VB);
-  expect([Number(rb.rate), rb.commission_type, Number(rb.flat)]).toEqual([45, 'category_based', 10]);
-  expect(Number(last(mock.vendorCategoryRates, (r) => r.vendor_id === VB && Number(r.woo_category_id) === 151).rate)).toBe(47);
-  // Bian eg: nothing of his commission is written
-  expect(mock.vendorRates.filter((r) => r.vendor_id === VC).length).toBe(0);
-  // the prices were written after the commissions
   await expect.poll(() => (mock.productWrites || []).length).toBeGreaterThan(before);
-  const ups = mock.productWrites.slice(before).flatMap((w) => (Array.isArray(w.update) ? w.update : w.id != null ? [{ id: w.id, ...(w.fields || {}) }] : []));
-  expect(ups.map((u) => Number(u.id))).toEqual(expect.arrayContaining([9001, 9003]));
+  let ups = mock.productWrites.slice(before).flatMap((w) => (Array.isArray(w.update) ? w.update : w.id != null ? [{ id: w.id, ...(w.fields || {}) }] : []));
   // Cushion (1200 at 35%, no fee): the maker keeps 780 → at 37% the sale price is 780 ÷ 0.63 up to the next 10
   expect(Number(ups.find((u) => Number(u.id) === 9001).sale_price)).toBe(1240);
+  expect(mock.vendorRates.filter((r) => r.vendor_id === VB).length).toBe(ratesB); // nobody else's commission moved
+  // Antikiano alone — Macrame Feathers is his only product of «إضاءة» (of his two): that category alone, his commission turns «حسب القسم»
+  await expect(bar()).toHaveCount(0);
+  await pick(['Macrame Feathers']);
+  await bar().getByRole('button', { name: 'تعديل السعر' }).click();
+  await m.getByRole('radio', { name: 'نسبة إبتكر' }).click();
+  await m.locator('#amount').fill('2');
+  const b = m.locator('[data-bp-maker="' + VB + '"]');
+  await expect(b).toHaveAttribute('data-bp-scope', 'cats');
+  await expect(b.locator('.bp-mk-what')).toContainText('كل منتجاته في'); await expect(b.locator('.bp-cat')).toHaveText(['إضاءة']);
+  await expect(b.locator('.bp-scope')).toHaveText('أقسام بعينها');
+  await expect(b.locator('[data-bp-line]')).toHaveCount(1);
+  await expect(b.locator('[data-bp-line="151"]')).toContainText('45% ← 47%');
+  await expect(b).toContainText('حسب القسم');
+  before = (mock.productWrites || []).length;
+  await m.getByRole('button', { name: 'طبّق السعر والنسبة' }).click();
+  await expect(m).toBeHidden({ timeout: 15000 });
+  await expect.poll(() => mock.vendorRates.filter((r) => r.vendor_id === VB).length).toBe(ratesB + 1);
+  const rb = last(mock.vendorRates, (r) => r.vendor_id === VB);
+  expect([Number(rb.rate), rb.commission_type, Number(rb.flat)]).toEqual([45, 'category_based', 10]); // his general rate and flat fee stay
+  expect(Number(last(mock.vendorCategoryRates, (r) => r.vendor_id === VB && Number(r.woo_category_id) === 151).rate)).toBe(47);
+  await expect.poll(() => (mock.productWrites || []).length).toBeGreaterThan(before);
+  ups = mock.productWrites.slice(before).flatMap((w) => (Array.isArray(w.update) ? w.update : w.id != null ? [{ id: w.id, ...(w.fields || {}) }] : []));
+  expect(ups.map((u) => Number(u.id))).toEqual([9003]);
+  // Bian eg alone — no general rate: the price only, and his commission is never written
+  await expect(bar()).toHaveCount(0);
+  await pick(['Boho mirror']);
+  await bar().getByRole('button', { name: 'تعديل السعر' }).click();
+  await m.getByRole('radio', { name: 'نسبة إبتكر' }).click();
+  await m.locator('#amount').fill('2');
+  const c = m.locator('[data-bp-maker="' + VC + '"]');
+  await expect(c).toHaveAttribute('data-bp-scope', 'price');
+  await expect(c.locator('.bp-scope')).toHaveText('السعر بس');
   // «الخصم الوهمي» keeps the plain button and no makers box
-  await rowOf(page, 'Cushion').locator('[role=checkbox]').click();
-  await page.locator('.bulk-bar').getByRole('button', { name: 'تعديل السعر' }).click();
-  const m2 = page.locator('.modal.bp-modal');
-  await m2.getByRole('radio', { name: 'الخصم الوهمي' }).click();
-  await expect(m2.locator('[data-bp-makers]')).toHaveCount(0);
-  await expect(m2.getByRole('button', { name: 'طبّق السعر', exact: true })).toBeVisible();
+  await m.getByRole('radio', { name: 'الخصم الوهمي' }).click();
+  await expect(m.locator('[data-bp-makers]')).toHaveCount(0);
+  await expect(m.getByRole('button', { name: 'طبّق السعر', exact: true })).toBeVisible();
+  expect(mock.vendorRates.filter((r) => r.vendor_id === VC).length).toBe(0);
 });
 
 test('owner 16 Nov — «تعديل السعر»: the amount takes several digits in a row (the redraw keeps the focus), and «نسبة إبتكر» +10 moves 40% to 50% (points), the maker price keeps «نسبة % / قيمة»', async ({ page }) => {

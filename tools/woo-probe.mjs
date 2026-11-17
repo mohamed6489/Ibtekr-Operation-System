@@ -378,8 +378,46 @@ export async function run({ env = process.env, fetch = globalThis.fetch, out = c
         names: plugins.map(name).filter(Boolean).slice(0, 80).sort() }];
     }],
   ];
+  // PROBE=swatch (the owner 17 Nov — «صورة البراند متتحطش في ال image swatch في ال attribute brand … هتعرف ترفع الصورة عادي»): where
+  // the brand attribute term keeps WoodMart's «Image swatch» / «Term image» and which REST route can write it — route names, the
+  // taxonomies WordPress shows on REST and their rest_base, the term routes' arguments and the meta KEYS of one term (types only,
+  // never a value). GET / OPTIONS only.
+  const SWATCHY = /pa_|brand|swatch|woodmart|xts|term/i;
+  const swatchSteps = [
+    [['swatch_routes'], async () => {
+      const { data } = await wpGet('');
+      const routes = keysOf(data?.routes);
+      return [{ namespaces: Array.isArray(data?.namespaces) ? data.namespaces.filter((n) => typeof n === 'string').sort() : [], scanned: routes.length, items: routes.filter((r) => SWATCHY.test(r)).slice(0, 80).sort() }];
+    }],
+    [['rest_taxonomies'], async () => {
+      try {
+        const { data } = await wpGet('wp/v2/taxonomies?per_page=100');
+        const list = data && typeof data === 'object' ? Object.entries(data) : [];
+        return [{ count: list.length, items: list.map(([k, t]) => ({ slug: k, rest_base: t?.rest_base ?? null, rest_namespace: t?.rest_namespace ?? null, types: Array.isArray(t?.types) ? t.types : [] })) }];
+      } catch (e) { return [failOf(e)]; }
+    }],
+    [['brand_term_rest'], async () => {
+      const out = {};
+      for (const base of ['pa_brand', 'product_brand']) {
+        try { const o = (await get('wp/v2/' + base, 'OPTIONS', true)).data; out[base] = { args: argsOf(o), meta: keysOf(o?.schema?.properties?.meta?.properties) }; }
+        catch (e) { out[base] = failOf(e); }
+        try { const t = (await wpGet('wp/v2/' + base + '?per_page=1')).data; const one = Array.isArray(t) ? t[0] : null; out[base + '_item'] = { keys: keysOf(one).sort(), meta: Object.fromEntries(Object.entries(one?.meta ?? {}).map(([k, v]) => [k, v === null ? 'null' : Array.isArray(v) ? '<array>' : typeof v])) }; }
+        catch (e) { out[base + '_item'] = failOf(e); }
+      }
+      return [out];
+    }],
+    [['wc_brand_attribute'], async () => {
+      const { data } = await getList('wc/v3/products/attributes');
+      const a = data.find((x) => /^pa_brand$/i.test(String(x?.slug ?? ''))) || data.find((x) => /brand/i.test(String(x?.slug ?? '') + String(x?.name ?? '')));
+      if (!a) return [{ none: true, slugs: data.map((x) => String(x?.slug ?? '')).slice(0, 30) }];
+      const id = Number(a.id); const out = { attribute: pick(a, ['id', 'slug', 'type']) };
+      try { out.term_args = argsOf((await get('wc/v3/products/attributes/' + id + '/terms', 'OPTIONS')).data); } catch (e) { out.term_args = failOf(e); }
+      try { const t = (await getList('wc/v3/products/attributes/' + id + '/terms?per_page=1')).data[0]; out.term_keys = keysOf(t).sort(); out.term_meta = Array.isArray(t?.meta_data) ? t.meta_data.map((m) => String(m?.key ?? '')) : null; } catch (e) { out.term_keys = failOf(e); }
+      return [out];
+    }],
+  ];
   const mode = String(env.PROBE ?? '').trim();
-  const chosen = mode === 'products' ? productSteps : mode === 'commission' ? commissionSteps : mode === 'earning' ? earningSteps : mode === 'studio' ? studioSteps : mode === 'studio2' ? studio2Steps : mode === 'cart' ? cartSteps : steps;
+  const chosen = mode === 'products' ? productSteps : mode === 'commission' ? commissionSteps : mode === 'earning' ? earningSteps : mode === 'studio' ? studioSteps : mode === 'studio2' ? studio2Steps : mode === 'cart' ? cartSteps : mode === 'swatch' ? swatchSteps : steps;
 
   const print = (section, obj) => out(section + ' ' + JSON.stringify(redact(obj)));
   let failed = false;

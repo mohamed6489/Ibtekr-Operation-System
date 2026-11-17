@@ -400,3 +400,30 @@ test('PROBE=cart (phase 6.5): the REST namespaces, the cart-like routes and the 
   assert.ok(!out.join('\n').includes('Automattic'), 'authors are not printed');
   assert.ok(calls.every((m) => m === 'GET'));
 });
+
+test('PROBE=swatch (17 Nov): the brand term routes, REST taxonomies, term arguments and meta KEYS — never a meta value; GET / OPTIONS only', async () => {
+  const calls = [];
+  const fetch = async (url, init) => {
+    calls.push(init.method);
+    const u = new URL(url); const path = u.pathname.slice(u.pathname.indexOf('/wp-json/') + 9);
+    if (path === '') return json({ namespaces: ['wp/v2', 'wc/v3'], routes: { '/wp/v2/pa_brand': {}, '/wp/v2/posts': {}, '/wc/v3/products/attributes/(?P<attribute_id>[\\d]+)/terms': {} } });
+    if (path === 'wp/v2/taxonomies') return json({ pa_brand: { rest_base: 'pa_brand', rest_namespace: 'wp/v2', types: ['product'] } });
+    if (path === 'wp/v2/pa_brand' && init.method === 'OPTIONS') return json({ endpoints: [{ methods: ['POST'], args: { name: {}, meta: {} } }], schema: { properties: { meta: { properties: { image: {} } } } } });
+    if (path === 'wp/v2/pa_brand') return json([{ id: 5, name: 'Gemy', meta: { image: 'https://site.example/wp-content/uploads/secret.png', color: null } }]);
+    if (path === 'wc/v3/products/attributes' && init.method === 'GET') return json([{ id: 3, slug: 'pa_brand', name: 'Product Brand', type: 'select' }]);
+    if (path === 'wc/v3/products/attributes/3/terms' && init.method === 'OPTIONS') return json({ endpoints: [{ methods: ['POST'], args: { name: {} } }] });
+    if (path === 'wc/v3/products/attributes/3/terms') return json([{ id: 5, name: 'Gemy', slug: 'gemy' }]);
+    return json({ code: 'rest_no_route' }, { status: 404 });
+  };
+  const out = [];
+  const code = await run({ env: { ...ENV, PROBE: 'swatch' }, fetch, out: (s) => out.push(s), err: () => {} });
+  const by = Object.fromEntries(out.map((l) => [l.slice(0, l.indexOf(' ')), JSON.parse(l.slice(l.indexOf(' ') + 1))]));
+  assert.equal(code, 0);
+  assert.deepEqual(by.swatch_routes.items, ['/wc/v3/products/attributes/(?P<attribute_id>[\\d]+)/terms', '/wp/v2/pa_brand']);
+  assert.deepEqual(by.rest_taxonomies.items, [{ slug: 'pa_brand', rest_base: 'pa_brand', rest_namespace: 'wp/v2', types: ['product'] }]);
+  assert.deepEqual(by.brand_term_rest.pa_brand.meta, ['image']);
+  assert.deepEqual(by.brand_term_rest.pa_brand_item.meta, { image: 'string', color: 'null' });
+  assert.deepEqual(by.wc_brand_attribute.term_keys, ['id', 'name', 'slug']);
+  assert.ok(!out.join('\n').includes('secret.png'), 'no meta value printed');
+  assert.ok(calls.every((m) => m === 'GET' || m === 'OPTIONS'));
+});

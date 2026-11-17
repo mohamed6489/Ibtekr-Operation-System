@@ -1459,7 +1459,7 @@
   // كلها»): each assistant's chats, the member's own — the history on the side (new, rename, delete), the turns from the server, the
   // quick suggestions inside the chat, ⚙️ the admin's settings, «تقديم طلب» and the expand button (the same icon shrinks it back);
   // nothing runs from a chat — the designer's picture is made only by «ولّد الصورة» under its answer (the image credits) ----------
-  const AG = { chats: {}, active: {}, turns: {}, prompts: {}, reqs: {}, drafts: {}, acts: {}, hand: {}, draft: {}, asking: false, gen: null, full: false, side: false, loading: {}, cfgAsked: false, seen: {}, atBottom: {}, pos: {} };
+  const AG = { chats: {}, active: {}, turns: {}, prompts: {}, reqs: {}, drafts: {}, acts: {}, hand: {}, forms: {}, draft: {}, asking: false, gen: null, full: false, side: false, loading: {}, cfgAsked: false, seen: {}, atBottom: {}, pos: {} };
   const AG_INTRO = {
     buyer: 'أنا الميديا باير. بقرا أرقام ميتا بتاعة آخر 7 أيام جنب أوردرات ووكومرس الحقيقية وبقترح — والتنفيذ بموافقتك من «مستني موافقتك». اسألني عن حملة أو العائد أو تكلفة الأوردر.',
     designer: 'أنا الديزاينر. بساعدك في أفكار البوستات والكاروسيل والستوري والريلز بالبراند، ولما تطلب صورة بكتبلك وصفها وتقدر تولّدها بزرار «ولّد الصورة» (من كريدت الصور). الشغل الكبير بيروح للديزاينر البشري من «تقديم طلب».',
@@ -1494,6 +1494,18 @@
     AG.loading[a] = true;
     MK().agentChats(a).then((r) => { AG.loading[a] = false; AG.chats[a] = r.ok ? r.items : (AG.chats[a] || []); if (!r.ok) K.toast(r.message, 'error'); agRefresh(); });
     if (!AG.cfgAsked && MK().agentSettings) { AG.cfgAsked = true; MK().agentSettings(false).then(() => agRefresh()); }
+  }
+  // agents-brain T3: «افتح البوب أب» / «افتح الصفحة» under an answer — the header assistant's own handlers (block 28, window.IBAiAction):
+  // the system's popup opens filled and its own button is the confirmation
+  const FORM_LABEL = { vendor_add: 'إضافة مبتكر', member_add: 'إضافة عضو', customer_add: 'عميل جديد', ticket_new: 'طلب جديد', hr_leave: 'طلب إجازة', hr_advance: 'طلب سلفة', hr_remote: 'شغل عن بُعد', task_add: 'طلب جديد',
+    order_update: 'تحديث الأوردر', expense_add: 'مصروف', account_move: 'حركة على الحساب', vendor_move: 'حركة مبتكر' };
+  const PAGE_LABEL = { dashboard: 'اللوحة', orders: 'الأوردرات', vendors: 'المبتكرين', accounts: 'الحسابات', inventory: 'المخزون', products: 'المنتجات', cs: 'خدمة العملاء', autoreply: 'الرد الآلي', tickets: 'طلبات الفريق', reports: 'التقارير', marketing: 'التسويق', hr: 'الموارد البشرية', settings: 'الإعدادات' };
+  const runAct = (name, input) => { try { if (typeof window.IBAiAction !== 'function') throw new Error('مش جاهز'); window.IBAiAction(name, input); } catch (e) { K.toast((name === 'open_form' ? 'ما قدرتش أفتح البوب أب: ' : 'ما قدرتش أفتح الصفحة: ') + (e && e.message ? e.message : ''), 'error'); } };
+  function formLinks(id) {
+    const x = AG.forms[id];
+    return h('div', { class: 'mk-msg-req mk-forms', 'data-mk-forms': String(id) },
+      x.forms.map((f, i) => Button({ size: 'sm', type: 'primary', icon: 'edit', label: 'افتح البوب أب — ' + (FORM_LABEL[f.form] || f.form), attrs: { 'data-mk-form': f.form, 'data-mk-form-i': String(i) }, onClick: () => runAct('open_form', f) })),
+      x.page ? Button({ size: 'sm', icon: 'chevL', label: 'افتح ' + (PAGE_LABEL[x.page.page] || x.page.page), attrs: { 'data-mk-page': x.page.page }, onClick: () => runAct('navigate', x.page.tab ? x.page : { page: x.page.page }) }) : null);
   }
   function agOpen(a, id) {
     AG.active[a] = id || null; AG.side = false; // decision 72: the phone's drawer closes on a pick
@@ -1574,6 +1586,7 @@
     const ans = r.turns.find((t) => t.role === 'assistant'); if (ans && r.imagePrompt) AG.prompts[ans.id] = r.imagePrompt; if (ans && r.request) AG.reqs[ans.id] = r.request;
     if (ans && r.campaignAction) AG.acts[ans.id] = r.campaignAction; // ش45 decision 5: the buyer's confirm card
     if (ans && r.handoff) AG.hand[ans.id] = r.handoff; // the owner 17 Nov: «ده مش اختصاصي — هبعتك لـ…» → «روح لـ…» under the answer
+    if (ans && ((r.forms && r.forms.length) || r.page)) AG.forms[ans.id] = { forms: r.forms || [], page: r.page }; // agents-brain T3: the popups / the page under the answer
     if (chat) { AG.chats[a] = [chat].concat((AG.chats[a] || []).filter((c) => c.id !== chat.id)); AG.active[a] = chat.id; }
     if (ans && r.campaign) { AG.drafts[ans.id] = r.campaign; if (a === 'designer' && openDraft(r.campaign)) { K.toast('فتحتلك الكامبين متملّية — راجعها واضغط توليد', 'success'); return; } }
     agRefresh();
@@ -1652,6 +1665,7 @@
             t.role === 'assistant' && AG.reqs[t.id] && canAsk() ? h('div', { class: 'mk-msg-req' }, h('small', { class: 'help' }, 'طلب جاهز: ' + AG.reqs[t.id].title),
               Button({ size: 'sm', type: 'primary', icon: 'send', label: 'قدّم الطلب ده', attrs: { 'data-mk-req-from': String(t.id) }, onClick: () => reqForm(a, { title: AG.reqs[t.id].title, details: AG.reqs[t.id].details }) })) : null,
             t.role === 'assistant' && AG.acts[t.id] ? actCard(t.id, AG.acts[t.id]) : null,
+            t.role === 'assistant' && AG.forms[t.id] ? formLinks(t.id) : null,
             t.role === 'assistant' && AG.hand[t.id] ? h('div', { class: 'mk-msg-req mk-handoff', 'data-mk-handoff': AG.hand[t.id].agent },
               h('small', { class: 'help' }, 'هيتكتب في الشات: ' + AG.hand[t.id].question.slice(0, 140)),
               Button({ size: 'sm', type: 'primary', icon: 'send', label: 'روح ' + AGENTS[AG.hand[t.id].agent].to, attrs: { 'data-mk-handoff-go': String(t.id) },

@@ -11,6 +11,7 @@ import { kbBlocks } from './agent-kb.js';
 import { AGENT_ID } from './ai-agents.js';
 import { speedLine } from './site-speed.js';
 import { DRAFT_RULE, DRAFT_SCHEMA, campaignDraft } from './campaign-draft.js';
+import { CLIENT_TOOL_DEFS, FORMS, PAGES, cleanAction } from './ai-assistant.js';
 
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -470,6 +471,18 @@ ${L.map((a) => '- ' + a.id + ': ' + line(a.name, 40).replace(/[<>]/g, '') + (a.a
 }
 const HANDOFF_SCHEMA = () => obj({ agent: STR(), question: STR() });
 const REQ_SCHEMA = () => obj({ title: STR(), details: STR() });
+// agents-brain T3 (the owner 17 Nov — «يفتح الشاشات المناسبة لو محتاج اخد اي اكشنز … و بوباب باكشنز لو محتاجة اكشنز»): every assistant
+// opens the system's own popups filled (the header assistant's open_form — the popup is the confirmation) and points at a page; the values
+// come as [{ key, value }] (a strict schema), cleaned with the header's own rules (cleanAction) — nothing runs on the server
+export const AGENT_FORMS_MAX = 3;
+const FORMS_SCHEMA = () => ({ type: 'array', items: obj({ form: STR(), values: { type: 'array', items: obj({ key: STR(), value: STR() }) } }) });
+const PAGE_SCHEMA = () => obj({ page: STR(), tab: STR() });
+const FORM_DESC = ((CLIENT_TOOL_DEFS.find((t) => t.name === 'open_form') || {}).description || '').replace(/\s+/g, ' ');
+export const ACT_RULE = `
+Actions in the system (you never save, send or change anything yourself):
+- When the ask needs an action the system has a popup for, fill forms (up to ${AGENT_FORMS_MAX}): form = one of ${Object.keys(FORMS).join(', ')}; values = [{ key, value }] with only what the member said or what the data shows (never invent an amount, a phone or an email). The popups: ${FORM_DESC}
+  Say in your text «حطيتلك البيانات في البوب أب — راجعها واضغط زراره» (a link opens it under your answer). Otherwise forms is [].
+- When the answer lives on a page, fill page: page = one of ${PAGES.join(', ')} and tab (optional, else ""). Otherwise page.page is "".`;
 /** agent { agent, chat_id: uuid | null, question (≤ 1000) } → { req } | { error, field }. */
 export function parseAgent(b) {
   if (!isObj(b)) return bad('body');
@@ -516,6 +529,7 @@ export function agentRequest(req, ctx) {
   if (messages.length && messages[messages.length - 1].role === 'user') messages.pop(); // a turn left without an answer is not repeated
   messages.push({ role: 'user', content: [{ type: 'text', text: head + req.question }] });
   const hand = tb ? { handoff: HANDOFF_SCHEMA() } : {};
+  system.push({ type: 'text', text: ACT_RULE.trim() }); hand.forms = FORMS_SCHEMA(); hand.page = PAGE_SCHEMA(); // agents-brain T3
   const schema = req.agent === 'designer' ? obj({ text: STR(), image_prompt: STR(), request: REQ_SCHEMA(), campaign: DRAFT_SCHEMA(), ...hand })
     : req.agent === 'buyer' ? obj({ text: STR(), request: REQ_SCHEMA(), campaign_action: obj({ campaign_id: STR(), action: STR() }), ...hand }) : obj({ text: STR(), request: REQ_SCHEMA(), ...hand });
   return { model: ctx.model, max_tokens: MAX_TOKENS, ...FALLBACK, system, messages, output_config: { effort: ctx.effort, format: { type: 'json_schema', schema } } };
@@ -548,6 +562,13 @@ export function cleanAgent(json, agent, teamIds) {
   out.handoff = typeof ho.agent === 'string' && ho.agent !== agent && (Array.isArray(teamIds) ? teamIds : []).includes(ho.agent) && hq ? { agent: ho.agent, question: hq } : null;
   if (agent === 'designer') { out.imagePrompt = imgLine(src.image_prompt, AGENT_PROMPT_MAX); out.campaign = campaignDraft(src.campaign); } // ش45 decision 4: the filled campaign
   if (agent === 'buyer') { const ca = isObj(src.campaign_action) ? src.campaign_action : {}; const cid = String(ca.campaign_id ?? '').trim(); out.campaignAction = /^[0-9]{1,30}$/.test(cid) && CAMPAIGN_ACTIONS.includes(ca.action) ? { campaignId: cid, action: ca.action } : null; } // ش45 decision 5
+  // agents-brain T3: the popups (the header's open_form rules) and the page (navigate) — what does not pass is dropped
+  out.forms = (Array.isArray(src.forms) ? src.forms : []).map((f) => {
+    if (!isObj(f)) return null; const values = {};
+    for (const kv of Array.isArray(f.values) ? f.values : []) if (isObj(kv) && typeof kv.key === 'string' && kv.value != null && !(kv.key in values)) values[kv.key] = String(kv.value);
+    const a = cleanAction('open_form', { form: String(f.form ?? ''), values }); return a ? a.input : null;
+  }).filter(Boolean).slice(0, AGENT_FORMS_MAX);
+  const pg = isObj(src.page) && src.page.page ? cleanAction('navigate', { page: String(src.page.page), tab: String(src.page.tab ?? '') }) : null; out.page = pg ? pg.input : null;
   const rq = isObj(src.request) ? src.request : {}; const title = line(rq.title, AGENT_REQ_TITLE_MAX);
   out.request = title ? { title, details: paras(rq.details, AGENT_REQ_DETAILS_MAX) } : null;
   return out;

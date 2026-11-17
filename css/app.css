@@ -2296,7 +2296,7 @@ img.ib-worm.ib-ldr-img.spin{animation:ib-ldr-spin var(--ldr-speed,1.7s) linear i
 .fm-tog.sp{border:0;background:none;cursor:default}
 
 /* 0113 (the owner 16 Nov — طلبات الفريق زي أي شات): my messages on the right in beige, the others (a group too) on the left in green,
-   the changes as small centered lines, a day line; the status dropdown; the people in the request; voice notes (play · seek · 1x/1.5x/2x) */
+   the changes as small centered lines, a day line; the status dropdown; the people in the request (voice notes removed — the owner 17 Nov) */
 .tk-chat{gap:8px}
 .tk-day{display:flex;justify-content:center;margin:8px 0 2px}
 .tk-day span{background:var(--color-bg-container);color:var(--color-text-secondary);font-size:12px;line-height:22px;padding:0 12px;border-radius:999px}
@@ -2315,26 +2315,9 @@ img.ib-worm.ib-ldr-img.spin{animation:ib-ldr-spin var(--ldr-speed,1.7s) linear i
 .tk-bub .tk-files{margin:2px 0 0}
 .is-other .tk-bub-b .chip.tk-file{background:rgba(255,255,255,.14);color:inherit;border-color:transparent}
 .tk-bub-av .avatar{flex:none}
-.vn{display:flex;align-items:center;gap:8px;min-width:220px;color:inherit}
-.vn-play{flex:none;width:34px;height:34px;border-radius:50%;border:0;display:grid;place-items:center;cursor:pointer;background:var(--color-brand-default);color:var(--color-text-on-brand)}
-.is-other .vn-play{background:var(--color-text-on-brand);color:var(--color-brand-default)}
-.vn-pause{display:inline-block;width:10px;height:12px;border-inline:3px solid currentColor;box-sizing:border-box}
-.vn-mid{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
-.vn-bar{width:100%;margin:0;accent-color:var(--color-action-default);height:4px;cursor:pointer}
-.vn-time{font-size:11px;opacity:.8;font-variant-numeric:tabular-nums;direction:ltr;text-align:end}
-.vn-speed{flex:none;min-width:40px;height:24px;border-radius:999px;border:1px solid currentColor;background:transparent;color:inherit;font-size:12px;font-weight:700;cursor:pointer;direction:ltr}
-.vn-speed:hover{background:var(--color-bg-hover);color:var(--color-brand-default)}
 .tk-compose{display:flex;align-items:flex-end;gap:6px}
 .tk-compose .tk-ta{flex:1;min-height:40px;max-height:140px;resize:none;border-radius:20px;padding:9px 14px;line-height:1.5}
 .tk-attach-b{display:contents}
-.tk-take{display:flex;align-items:center;gap:8px;background:var(--color-bg-container);border-radius:16px;padding:6px 10px}
-.tk-take .vn{flex:1}
-.tk-vmsg{color:var(--color-text-secondary)}
-.vr-wrap{display:flex;align-items:center}
-.vr{display:flex;align-items:center;gap:8px;background:var(--color-error-bg, #fde8e8);border-radius:999px;padding:4px 6px 4px 12px}
-.vr-dot{width:10px;height:10px;border-radius:50%;background:var(--color-error-base, #d32f2f);animation:vr-pulse 1s ease-in-out infinite}
-.vr-clock{font-variant-numeric:tabular-nums;direction:ltr;font-size:13px;font-weight:600}
-@keyframes vr-pulse{50%{opacity:.25}}
 .tk-st-btn{cursor:pointer;gap:4px;font-family:inherit}
 .tk-st-btn:hover{filter:brightness(.97)}
 .tk-st-menu{min-width:230px;padding:6px}
@@ -2351,7 +2334,7 @@ img.ib-worm.ib-ldr-img.spin{animation:ib-ldr-spin var(--ldr-speed,1.7s) linear i
 .tk-person .avatar{width:22px;height:22px;font-size:11px}
 .tk-person .icon-btn{width:22px;height:22px}
 .tk-group-pick{display:block}
-@media (max-width:640px){.tk-bub{max-width:92%}.vn{min-width:180px}}
+@media (max-width:640px){.tk-bub{max-width:92%}}
 /* the owner 16 Nov («الشاتات كلها اعكس خلي الرسل علي اليمين و المستقبل علي الشمال»): in every chat what I send sits on the right (RTL start)
    and what reaches me on the left — the AI assistant, customer service (ours out on the right), as «طلبات الفريق» already does */
 .ai-msg.user{align-self:flex-start}

@@ -2820,7 +2820,7 @@
       return h('button', { type: 'button', class: 'tk-thumb-btn', onClick: () => openFile(f), 'aria-label': 'افتح ' + f.name }, img); }));
   }
   // the picker: a hidden input, uploads one by one, reports what was refused; files = the caller's array (kept between redraws)
-  // 0113: { icon: true } = a small icon button (the chat composer); a voice note in files keeps its own player, not a chip
+  // 0113: { icon: true } = a small icon button (the chat composer)
   function AttachPicker(files, redraw, opt) {
     const input = h('input', { type: 'file', multiple: true, accept: ACCEPT, hidden: true, 'data-tk-file': '' });
     const msg = h('span', { class: 't-small', 'aria-live': 'polite' });
@@ -2835,8 +2835,7 @@
     const full = !tCanManage() || files.length >= ((TA() && TA().MAX_FILES) || 10);
     const btn = opt && opt.icon ? IconButton({ icon: 'attach', label: 'إضافة صورة أو ملف', attrs: { 'data-tk-attach': '', disabled: full ? true : null }, onClick: () => input.click() })
       : Button({ label: 'إضافة صورة أو ملف', icon: 'attach', disabled: full, onClick: () => input.click() });
-    const plain = files.filter((x) => !(TA() && TA().isVoice && TA().isVoice(x)));
-    const chips = plain.length ? FileChips(plain, (i) => { files.splice(files.indexOf(plain[i]), 1); redraw(''); }) : null;
+    const chips = files.length ? FileChips(files, (i) => { files.splice(i, 1); redraw(''); }) : null;
     if (opt && opt.icon) return { msg, btn: h('span', { class: 'tk-attach-b' }, btn, input), chips }; // the composer places the parts itself
     return { el: h('div', { class: 'tk-attach' }, btn, input, chips, msg), msg };
   }
@@ -3107,62 +3106,17 @@
     return h('div', { class: 'tk-group-pick' }, window.IBKit.MultiPick({ id: 't-members', field: true, search: true, label: 'أعضاء في الطلب (اختياري)', placeholder: 'زي الجروب — اللي هتختارهم هيشوفوا الطلب ويكتبوا فيه',
       options: opts, value: f.members, error: errs.members, help: 'أي حد في الطلب يقدر يضيف أعضاء بعدين، وانت بس (صاحب الطلب) أو الأدمن تشيلهم', onChange: (v) => { f.members = v; errs.members = undefined; } }));
   }
-  // ----- voice notes (0113 — «تسجيل صوتي اقصي مدة ليه 60 ثانية و … تسريع الفويس 1x و 1.5x و 2x») -----
-  const mmss = (sec) => { const s2 = Math.max(0, Math.floor(Number(sec) || 0)); return Math.floor(s2 / 60) + ':' + String(s2 % 60).padStart(2, '0'); };
-  const SPEEDS = [1, 1.5, 2];
-  // the player: play / pause, a seek bar, the time, and the speed (1x → 1.5x → 2x); the file is read by a signed link when played
-  function VoiceNote(f) {
-    const audio = h('audio', { preload: 'none' }); let speed = 0; let loaded = false;
-    const playB = h('button', { type: 'button', class: 'vn-play', 'aria-label': 'شغّل الرسالة الصوتية', 'data-vn-play': '' }, Icon('play', 'sm'));
-    const bar = h('input', { type: 'range', class: 'vn-bar', min: 0, max: 1000, value: 0, step: 1, 'aria-label': 'مكان التشغيل' });
-    const time = h('span', { class: 'vn-time', 'data-vn-time': '' }, mmss(f.duration));
-    const speedB = h('button', { type: 'button', class: 'vn-speed', 'data-vn-speed': '1x', 'aria-label': 'سرعة التشغيل 1x' }, '1x');
-    const total = () => (Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : Number(f.duration) || 0);
-    const paint = () => { const on = !audio.paused; playB.replaceChildren(on ? h('span', { class: 'vn-pause', 'aria-hidden': 'true' }) : Icon('play', 'sm')); playB.setAttribute('aria-label', on ? 'إيقاف مؤقت' : 'شغّل الرسالة الصوتية');
-      const tt = total(); bar.value = tt ? String(Math.round((audio.currentTime / tt) * 1000)) : '0'; time.textContent = on || audio.currentTime ? mmss(audio.currentTime) + ' / ' + mmss(tt) : mmss(tt); };
-    ['play', 'pause', 'timeupdate', 'ended', 'loadedmetadata'].forEach((ev) => audio.addEventListener(ev, paint));
-    audio.addEventListener('ended', () => { audio.currentTime = 0; paint(); });
-    const load = () => (loaded ? Promise.resolve(true) : TA().fileUrl(f.path).then((url) => { if (!url) { notify('error', 'تعذّر تشغيل التسجيل.'); return false; } audio.src = url; audio.playbackRate = SPEEDS[speed]; loaded = true; return true; }));
-    playB.addEventListener('click', () => { if (!audio.paused) { audio.pause(); return; } load().then((ok) => { if (ok) { audio.playbackRate = SPEEDS[speed]; const p = audio.play(); if (p && p.catch) p.catch(() => notify('error', 'تعذّر تشغيل التسجيل.')); } }); });
-    bar.addEventListener('input', () => { const tt = total(); if (loaded && tt) audio.currentTime = (Number(bar.value) / 1000) * tt; });
-    speedB.addEventListener('click', () => { speed = (speed + 1) % SPEEDS.length; const l = SPEEDS[speed] + 'x'; audio.playbackRate = SPEEDS[speed]; speedB.textContent = l; speedB.setAttribute('data-vn-speed', l); speedB.setAttribute('aria-label', 'سرعة التشغيل ' + l); });
-    return h('div', { class: 'vn', 'data-voice': f.path }, playB, h('div', { class: 'vn-mid' }, bar, time), speedB, audio);
-  }
-  // the recorder: the microphone through MediaRecorder; stops by itself at 60 seconds; the take is uploaded and waits in the composer
-  function VoiceRecorder(onDone) {
-    const MR = window.MediaRecorder; const md = navigator.mediaDevices;
-    if (!MR || !md || !md.getUserMedia) return null;
-    const MAX = (TA() && TA().MAX_VOICE_SEC) || 60; let rec = null; let stream = null; let chunks = []; let t0 = 0; let tick = null; let keep = false;
-    const box = h('div', { class: 'vr', 'data-vr': '', hidden: true });
-    const clock = h('span', { class: 'vr-clock', 'data-vr-clock': '' }, '0:00 / ' + mmss(MAX));
-    const stopAll = () => { if (tick) clearInterval(tick); tick = null; if (stream) stream.getTracks().forEach((x) => x.stop()); stream = null; box.hidden = true; micB.hidden = false; };
-    const finish = () => { keep = true; if (rec && rec.state !== 'inactive') rec.stop(); };
-    const cancel = () => { keep = false; if (rec && rec.state !== 'inactive') rec.stop(); else stopAll(); };
-    box.append(h('span', { class: 'vr-dot', 'aria-hidden': 'true' }), h('span', { class: 't-small' }, 'بيسجّل…'), clock,
-      Button({ size: 'sm', label: 'إلغاء', attrs: { 'data-vr-cancel': '' }, onClick: cancel }), Button({ size: 'sm', type: 'primary', label: 'إيقاف', icon: 'check', attrs: { 'data-vr-stop': '' }, onClick: finish }));
-    const start = async () => {
-      try { stream = await md.getUserMedia({ audio: true }); } catch (e) { notify('error', 'محتاجين إذن المايك عشان نسجّل — اسمح بيه من المتصفح.'); return; }
-      const type = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/mp4', 'audio/webm'].find((x) => !MR.isTypeSupported || MR.isTypeSupported(x)) || '';
-      try { rec = type ? new MR(stream, { mimeType: type }) : new MR(stream); } catch (e) { stopAll(); notify('error', 'المتصفح ده مش بيسجّل صوت.'); return; }
-      chunks = []; keep = false; t0 = Date.now();
-      rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
-      rec.onstop = () => { const sec = Math.min(MAX, (Date.now() - t0) / 1000); const blob = new Blob(chunks, { type: (rec.mimeType || type || 'audio/webm') }); stopAll(); if (keep) onDone(blob, sec); };
-      rec.start(250); box.hidden = false; micB.hidden = true;
-      tick = setInterval(() => { const sec = (Date.now() - t0) / 1000; clock.textContent = mmss(sec) + ' / ' + mmss(MAX); if (sec >= MAX) finish(); }, 250);
-    };
-    const micB = IconButton({ icon: 'mic', label: 'سجّل رسالة صوتية (لحد ' + MAX + ' ثانية)', attrs: { 'data-vr-start': '' }, onClick: start });
-    return { el: h('div', { class: 'vr-wrap' }, micB, box), busy: () => !!tick };
-  }
-  // a chat bubble: mine on the right (beige), the others on the left (green), the files under the text; a voice note alone shows its player
+  // a chat bubble: mine on the right (beige), the others on the left (green), the files under the text
+  // the owner 17 Nov («شيل الريكورد و الفويس نوتس من طلبات الفريق خالص»): no recorder and no player — an old voice note doesn't show, and a message that was only one has no bubble
   function Bubble(e, mine) {
-    const files = e.attachments || []; const voices = files.filter((x) => TA() && TA().isVoice(x)); const rest = files.filter((x) => !(TA() && TA().isVoice(x)));
-    const onlyVoice = voices.length && (e.text === 'رسالة صوتية' || !String(e.text || '').trim());
+    const files = (e.attachments || []).filter((x) => !(TA() && TA().isVoice(x)));
+    if (files.length < (e.attachments || []).length && (e.text === 'رسالة صوتية' || !String(e.text || '').trim()) && !files.length) return null;
     return h('div', { class: 'tk-msg tk-bub ' + (mine ? 'is-mine' : 'is-other'), 'data-mine': mine ? '1' : '0' },
       mine ? null : h('span', { class: 'tk-bub-av' }, U.Avatar(e.author.name)),
       h('div', { class: 'tk-bub-b' },
         mine ? null : h('div', { class: 'tk-bub-who' }, h('b', null, e.author.name), h('span', null, e.author.role)),
-        onlyVoice ? null : h('div', { class: 'tk-bub-t' }, e.text),
-        voices.map(VoiceNote), rest.length ? Thumbs(rest) : null,
+        h('div', { class: 'tk-bub-t' }, e.text),
+        files.length ? Thumbs(files) : null,
         h('div', { class: 'tk-bub-time' }, fmtTime(e.at))));
   }
   const dayKey = (iso) => { const p = cairoParts(iso); return p ? p.day : ''; };
@@ -3172,7 +3126,7 @@
     const t0 = tstore.get(id); if (!t0) { notify('error', 'الطلب ' + id + ' مش موجود أو مش متاح ليك.'); return; }
     if (drawerApi) drawerApi.close();
     try { history.replaceState(null, '', '#tickets/' + id); } catch (e) { /* sandboxed */ }
-    let busy = false; const replyFiles = []; let replyMsg = ''; let replyDraft = ''; let recorder = null; let voiceMsg = '';
+    let busy = false; const replyFiles = []; let replyMsg = ''; let replyDraft = '';
     drawerApi = U.Drawer({ label: 'الطلب ' + id, onClose: () => { drawerApi = null; drawerRedraw = null; try { history.replaceState(null, '', '#tickets'); } catch (e) { /* sandboxed */ } renderTickets(); } });
     // a write: one at a time; the drawer redraws from the adapter after it (ib:tickets), the note says how it went
     const act = (run, okMsg) => { if (busy || !TA()) return; busy = true; Promise.resolve().then(run).catch(() => offline).then((r) => { busy = false; if (r && r.ok === false) notify('error', r.message || 'تعذّر الحفظ'); else if (okMsg) notify('success', okMsg); if (drawerApi) draw(); }); };
@@ -3314,21 +3268,17 @@
       }
       let reply = null;
       if (!closed && tCanManage()) {
-        // 0113: one row like any chat — the text, a file, the microphone (≤ 60 s) and «إرسال»; a take waits above it with its player and ×
-        if (recorder && recorder.busy()) return; // a redraw mid-recording would drop the microphone — the live update waits for the take
+        // 0113: one row like any chat — the text, a file and «إرسال» (the microphone is gone — the owner 17 Nov)
         const pick = AttachPicker(replyFiles, (m) => { replyMsg = m; draw(); }, { icon: true }); pick.msg.textContent = replyMsg;
-        const voice = replyFiles.find((x) => TA().isVoice(x));
         const ta = h('textarea', { class: 'textarea tk-ta', rows: 1, placeholder: 'اكتب رسالة…', 'aria-label': 'رد على الطلب' }); ta.value = replyDraft;
         const grow = () => { ta.style.height = 'auto'; ta.style.height = Math.min(140, ta.scrollHeight) + 'px'; };
         const send = () => { const text = ta.value.trim(); if (!text && !replyFiles.length) { ta.focus(); return; } replyDraft = ''; const files = replyFiles.slice();
-          act(() => TA().reply(id, text, files).then((r) => { if (r && r.ok) { replyFiles.length = 0; replyMsg = ''; voiceMsg = ''; } else replyDraft = text; return r; })); };
+          act(() => TA().reply(id, text, files).then((r) => { if (r && r.ok) { replyFiles.length = 0; replyMsg = ''; } else replyDraft = text; return r; })); };
         ta.addEventListener('input', () => { replyDraft = ta.value; grow(); });
         ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
-        recorder = voice ? null : VoiceRecorder((blob, sec) => { voiceMsg = 'بيترفع التسجيل…'; draw(); TA().uploadVoice(blob, sec).then((r) => { if (r.ok) { replyFiles.push(r.file); voiceMsg = ''; } else voiceMsg = r.message; if (drawerApi) draw(); }); });
-        const take = voice ? h('div', { class: 'tk-take', 'data-tk-take': '' }, VoiceNote(voice), IconButton({ icon: 'trash', label: 'امسح التسجيل', onClick: () => { replyFiles.splice(replyFiles.indexOf(voice), 1); draw(); } })) : null;
         const sendB = Button({ type: 'primary', label: 'إرسال', icon: 'send', attrs: { 'data-tk-send': '' }, onClick: send });
-        reply = h('div', { class: 'tk-reply reply' }, take, voiceMsg ? h('span', { class: 't-small tk-vmsg', 'aria-live': 'polite' }, voiceMsg) : null, pick.chips,
-          h('div', { class: 'tk-compose' }, pick.btn, recorder ? recorder.el : null, ta, sendB), pick.msg,
+        reply = h('div', { class: 'tk-reply reply' }, pick.chips,
+          h('div', { class: 'tk-compose' }, pick.btn, ta, sendB), pick.msg,
           h('span', { class: 't-small hint' }, 'Enter للإرسال · Shift+Enter سطر جديد'));
       }
       const typing = document.activeElement && document.activeElement.closest && document.activeElement.closest('.tk-reply textarea'); // a live redraw keeps the reply's focus (as decision 16 did for the inbox)

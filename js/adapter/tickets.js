@@ -23,8 +23,8 @@
   const LIMIT = 2000; const EV_LIMIT = 5000; const EV_DAYS = 30;
   const BUCKET = 'tickets'; const MAX_FILES = 10; const MAX_BYTES = 10 * 1024 * 1024;
   const MIME = ['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'application/pdf'];
-  // 0113: a voice note — ≤ 60 seconds, ≤ 3 MB, the types a browser records
-  const AUDIO = ['audio/webm', 'audio/ogg', 'audio/mp4', 'audio/mpeg']; const MAX_VOICE_SEC = 60; const MAX_VOICE_BYTES = 3 * 1024 * 1024;
+  // 0113 voice notes — the recorder is gone (the owner 17 Nov: «شيل الريكورد و الفويس نوتس من طلبات الفريق خالص»); the types stay so an old one is known and kept out of the chat
+  const AUDIO = ['audio/webm', 'audio/ogg', 'audio/mp4', 'audio/mpeg'];
   const ROLE_LABELS = { admin: ['مدير النظام'], cs: ['خدمة العملاء'], vendors_followup: ['متابعة المبتكرين'], accounts: ['الحسابات'], ops: ['اللوجستيك والشحن', 'المحتوى والتصوير'] };
   const OPEN = new Set(['open', 'in_progress', 'waiting']);
   const c = () => (window.IBSupabase && window.IBSupabase.client) || null;
@@ -279,21 +279,6 @@
       return { ok: true, file: { path, name: clean(file.name, 120) || path.replace(/^.*\//, ''), type: file.type, size: file.size } };
     } catch (e) { return { ok: false, reason: 'network', message: 'تعذّر رفع الملف — جرّب تاني' }; }
   }
-  // 0113: a voice note from the recorder (a Blob) — its own type without the codec, ≤ 3 MB and 1–60 seconds
-  async function uploadVoice(blob, seconds) {
-    const cl = c(); const uid = myUid(); if (!cl || !uid) return { ok: false, reason: 'network', message: MESSAGES.network };
-    if (!can().manage) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
-    const type = String((blob && blob.type) || '').split(';')[0].trim(); const sec = Math.round(Number(seconds) * 10) / 10;
-    if (!blob || !AUDIO.includes(type)) return { ok: false, reason: 'invalid', field: 'type', message: 'المتصفح ده مش بيسجّل بصيغة مدعومة' };
-    if (blob.size > MAX_VOICE_BYTES) return { ok: false, reason: 'invalid', field: 'size', message: 'التسجيل أكبر من 3 ميجا' };
-    if (!(sec >= 1)) return { ok: false, reason: 'invalid', field: 'duration', message: 'التسجيل قصير أوي — سجّل ثانية على الأقل' };
-    const ext = { 'audio/webm': 'webm', 'audio/ogg': 'ogg', 'audio/mp4': 'm4a', 'audio/mpeg': 'mp3' }[type];
-    const path = uid + '/' + rand() + '-voice.' + ext; const body = new Blob([blob], { type });
-    try {
-      const { error } = await cl.storage.from(BUCKET).upload(path, body, { contentType: type, upsert: false }); if (error) return { ok: false, reason: 'network', message: 'تعذّر رفع التسجيل — جرّب تاني' };
-      return { ok: true, file: { path, name: 'رسالة صوتية', type, size: blob.size, duration: Math.min(MAX_VOICE_SEC, sec) } };
-    } catch (e) { return { ok: false, reason: 'network', message: 'تعذّر رفع التسجيل — جرّب تاني' }; }
-  }
   const isVoice = (f) => !!f && AUDIO.includes(String(f.type || '').split(';')[0]);
   const urls = new Map(); // path → { url, until }
   async function fileUrl(path) {
@@ -336,7 +321,7 @@
 
   // the ticket roles of a member's role (the owner 11 Nov — «مين اكتر حد عنده شغل» on the overview)
   const rolesOf = (roleId) => labelsOf(roleId);
-  window.IBTickets = { load, clear, loadEvents, subscribe, unsubscribe, check, state: () => st, can, myRoles, rolesOf, actor, canWork, canClose, canReopen: canClose, isMine, assignedToMe, membersOf, inGroup, canAddMembers, canRemoveMember, addable, nameOf, addMembers, removeMember, uploadVoice, isVoice,
+  window.IBTickets = { load, clear, loadEvents, subscribe, unsubscribe, check, state: () => st, can, myRoles, rolesOf, actor, canWork, canClose, canReopen: canClose, isMine, assignedToMe, membersOf, inGroup, canAddMembers, canRemoveMember, addable, nameOf, addMembers, removeMember, isVoice,
     all, get, events, bell, markSeen, forOrder, forVendor, forCustomer, forConversation, create, createRequest, requests, REQ_KINDS, setStatus, resolve, close, reopen, update, reply, upload, fileUrl, checkFile,
-    MAX_FILES, MAX_BYTES, MIME, AUDIO, MAX_VOICE_SEC, MAX_VOICE_BYTES, tid, dbIdOf, _test: { toTicket, toEvent, safeName, files, fail } };
+    MAX_FILES, MAX_BYTES, MIME, AUDIO, tid, dbIdOf, _test: { toTicket, toEvent, safeName, files, fail } };
 })();

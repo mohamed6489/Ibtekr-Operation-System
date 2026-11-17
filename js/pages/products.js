@@ -815,11 +815,11 @@
     async function applyRates(o, m) {
       const todo = plansOf(o).filter((mk) => mk.plan && mk.plan.changed); const failed = new Set(); const pill = K.busy ? K.busy('بنغيّر نسبة المبتكرين…') : null; let i = 0;
       m._busy = true;
-      for (const mk of todo) { i += 1; if (pill && pill.set) pill.set(U.num('بنغيّر نسبة المبتكرين… ' + i + ' من ' + todo.length));
+      for (const mk of todo) { i += 1; if (pill && pill.set) pill.set('بنغيّر نسبة المبتكرين… ' + K.n0(i) + ' من ' + K.n0(todo.length));
         const d = await commit(mk.sc.vendorId, mk.plan.input); if (d.reason || d.timeout) failed.add(String(mk.sc.vendorId)); }
       m._busy = false;
       const okN = todo.length - failed.size;
-      if (pill) { if (failed.size) pill.fail(U.num('نسبة ' + failed.size + ' مبتكر ما اتغيّرتش — أسعار منتجاته زي ما هي')); else if (todo.length) pill.done(U.num('اتغيّرت نسبة ' + okN + ' مبتكر')); else pill.close(); }
+      if (pill) { if (failed.size) pill.fail('نسبة ' + K.n0(failed.size) + ' مبتكر ما اتغيّرتش — أسعار منتجاته زي ما هي'); else if (todo.length) pill.done('اتغيّرت نسبة ' + K.n0(okN) + ' مبتكر'); else pill.close(); }
       // the prices follow: every picked product but the ones of a maker whose commission did not move
       const list = items.concat(extrasFor(o)).filter((p) => !failed.has(String(p.vendorId)));
       if (!list.length) { if (m) m.close(); return; }

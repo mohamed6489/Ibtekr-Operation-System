@@ -974,13 +974,26 @@
   // ---------- التنبيهات ----------
   // تابس فوق بدل صفحة طويلة (owner 28 Oct): كل جزء في تاب لوحده
   const NTABS = [{ id: 'types', label: 'أنواع التنبيهات' }, { id: 'roles', label: 'حسب الدور' }, { id: 'escalation', label: 'التصعيد' },
-    { id: 'accounts', label: 'الحسابات والاشتراكات' }, { id: 'delivery', label: 'التوصيل' }, { id: 'digests', label: 'تقارير المهام' }, { id: 'quiet', label: 'ساعات الهدوء' }];
+    { id: 'accounts', label: 'الحسابات والاشتراكات' }, { id: 'delivery', label: 'التوصيل' }, { id: 'digests', label: 'تقارير المهام' }, { id: 'quiet', label: 'ساعات الهدوء' }, { id: 'agents', label: 'المساعدين' }];
   function notifSec() {
     const tabs = K.MainTabs({ items: NTABS, active: st.ntab, onChange: (id) => { st.ntab = id; R(); }, label: 'أقسام التنبيهات' });
     const panes = { types: () => [notifTypesSec()], roles: () => [alertRolesSec()], escalation: () => [escalationSec()],
-      accounts: () => [accAlertsSec(), subsAlertsSec()], delivery: () => [deliverySec()], digests: () => [digestsSec(), roleDigestsBlock()], quiet: () => [quietSec()] };
+      accounts: () => [accAlertsSec(), subsAlertsSec()], delivery: () => [deliverySec()], digests: () => [digestsSec(), roleDigestsBlock()], quiet: () => [quietSec()], agents: () => [agentNotesSec()] };
     const pane = (panes[st.ntab] || panes.types)();
     return [h('div', { class: 'ntab-bar', 'data-ntabs': '' }, tabs)].concat(pane);
+  }
+  // 0124 (agents-brain decision 1): «المساعدين» — each assistant's notes on or off (settings.notif.agents.<id>.on; the server's writer
+  // ai_agent_note_add reads it); who gets them = who sees the assistant (its page permission)
+  function agentNotesSec() {
+    const M = window.IBMarketing; const list = M && M.agentsNow ? (M.agentsNow() || []).filter((a) => !a.archived) : [];
+    if (!list.length && M && M.agents) M.agents().then(() => R());
+    const A = K.store.agentNotes || (K.store.agentNotes = {});
+    const on = (id) => !(A[id] && A[id].on === false);
+    return K.Section('تنبيهات المساعدين', list.length ? U.Table({ cls: 'mini-table', headers: ['المساعد', 'بيبعت تنبيهات', 'بتوصل لـ'], rows: list.map((a) => [
+      h('span', { class: 'ntf-name' }, a.name),
+      h('button', { type: 'button', role: 'switch', class: 'sw', 'aria-checked': String(on(a.id)), 'aria-label': a.name, 'data-agent-note': a.id, onClick: () => { A[a.id] = { on: !on(a.id) }; LOGV('settings.notif.toggle', a.name + ' · ' + (on(a.id) ? 'مفعّل' : 'مقفول')); R(); } }, h('i')),
+      h('span', { class: 'muted' }, 'الأدمن وأي حد بيشوف «' + a.name + '»')]) }) : K.Empty('بنحمّل المساعدين…', ''),
+      null, { th: false, sub: 'المساعد بيبعتلك تنبيه بالمشكلة أو الفكرة أو التقرير — الضغطة بتفتح شاته والموضوع جاهز فيه' });
   }
   function notifTypesSec() {
     const isOpen = (g) => st.nopen[g] !== false;
@@ -1674,7 +1687,7 @@
   const uidToCode = (o) => { const out = {}; Object.keys(o || {}).forEach((uid) => { const m = memberByUid(uid); if (m) out[m.id] = o[uid]; }); return out; };
   function notifPayload() {
     return { notif: C.notif, escalations: C.escalations, quiet: C.quiet, alertRoles: K.store.alertRoles, alertLevels: K.store.alertLevels || {}, alertOverrides: codeToUid(K.store.alertOverrides), digests: K.store.digests, roleDigests: K.store.roleDigests, roleDigestAt: K.store.roleDigestAt || {},
-      accAlerts: K.store.accAlerts, delivery: K.store.delivery, subsAlert: K.store.subsAlert || null, whatsappTemplate: C.whatsappTemplate || 'ibtekr_alert', channels: channelsOut() };
+      accAlerts: K.store.accAlerts, delivery: K.store.delivery, subsAlert: K.store.subsAlert || null, whatsappTemplate: C.whatsappTemplate || 'ibtekr_alert', channels: channelsOut(), agents: K.store.agentNotes || {} };
   }
   function hydrateNotif(n) {
     if (!n || typeof n !== 'object') return;
@@ -1692,6 +1705,7 @@
     if (n.subsAlert && typeof n.subsAlert === 'object') K.store.subsAlert = Object.assign(K.store.subsAlert || {}, n.subsAlert);
     if (typeof n.whatsappTemplate === 'string') C.whatsappTemplate = n.whatsappTemplate;
     if (n.channels && typeof n.channels === 'object') C.channelsOut = { email: n.channels.email === true, whatsapp: n.channels.whatsapp === true };
+    K.store.agentNotes = n.agents && typeof n.agents === 'object' ? JSON.parse(JSON.stringify(n.agents)) : {}; // 0124
   }
   // the outbound channels as a whole (owner 8 Nov: the system's alerts only — both off until the admin turns one on here)
   const channelsOut = () => (C.channelsOut = C.channelsOut || { email: false, whatsapp: false });

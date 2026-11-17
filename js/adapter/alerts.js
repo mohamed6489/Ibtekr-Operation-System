@@ -28,8 +28,49 @@
       if (r.error) return;
       const read = new Set((r.data || []).map((x) => x.alert_id));
       items = rows.map((x) => toAlert(x, read.has(x.id)));
+      await loadNotes(cl, id);
       notify(); // the bell was drawn before the alerts arrived
     } catch (e) { /* offline: no server section */ }
+  }
+  // 0124 — the assistants' notes (docs/superpowers/plans/2026-11-17-agents-brain.md decision 1): the ones the member sees (RLS: his
+  // assistants, the last 30 days) with his own read marks; before 0124 the table is missing and the section stays away
+  let notes = null;
+  async function loadNotes(cl, id) {
+    try {
+      const n = await cl.from('ai_agent_notes').select('id, agent, kind, title, body, link, created_at').order('created_at', { ascending: false }).limit(100);
+      if (n.error) { notes = null; return; }
+      const ids = (n.data || []).map((x) => x.id);
+      const r = ids.length ? await cl.from('ai_agent_note_reads').select('note_id').eq('member_id', id).in('note_id', ids) : { data: [] };
+      const read = new Set(((r && r.data) || []).map((x) => x.note_id));
+      notes = (n.data || []).map((x) => ({ id: x.id, agent: x.agent, kind: x.kind, title: x.title, body: x.body || '', link: x.link || null, at: x.created_at, read: read.has(x.id) }));
+    } catch (e) { notes = null; }
+  }
+  const noteList = () => (notes ? notes.slice() : []);
+  async function noteRead(ids) {
+    const cl = c(); const L = (ids || []).filter((i) => notes && notes.some((n) => n.id === i && !n.read)); if (!cl || !L.length) return { ok: true };
+    notes.forEach((n) => { if (L.includes(n.id)) n.read = true; }); notify();
+    try { const { error } = await cl.rpc('ai_agent_note_read', { p_ids: L }); return { ok: !error }; } catch (e) { return { ok: false }; }
+  }
+  // the click: the member's chat for the note (made on the server once) → «الذكاء الاصطناعي» on that assistant and that chat
+  async function noteOpen(id) {
+    const cl = c(); const n = notes && notes.find((x) => x.id === id); if (!cl || !n) return { ok: false };
+    n.read = true; notify();
+    try {
+      const { data, error } = await cl.rpc('ai_agent_note_open', { p_id: id });
+      if (error || !data) { window.location.hash = 'ai-' + n.agent; return { ok: false }; }
+      if (typeof window.IBAiOpen === 'function') window.IBAiOpen(n.agent, data); else window.location.hash = 'ai-' + n.agent;
+      return { ok: true, chat: data };
+    } catch (e) { window.location.hash = 'ai-' + n.agent; return { ok: false }; }
+  }
+  const NOTE_KIND = { problem: ['مشكلة', 'error', 'alert'], idea: ['فكرة', 'info', 'sparkle'], update: ['تحديث', 'neutral', 'bell'], report: ['تقرير', 'brand', 'chart'], alert: ['تنبيه', 'warning', 'bell'] };
+  function agentSection() {
+    if (!notes || !notes.length) return null; // nothing from the assistants yet: no empty section in the bell
+    const M = window.IBMarketing; const nameOf = (a) => { const r = M && M.agentOf ? M.agentOf(a) : null; return (r && r.name) || a; };
+    const all = notes.map((n) => { const k = NOTE_KIND[n.kind] || NOTE_KIND.update;
+      return { key: 'an:' + n.id, title: n.title, sub: nameOf(n.agent) + ' · ' + k[0], meta: relTime(n.at, Date.now()), tone: k[1], icon: k[2], muted: n.read, run: () => { noteOpen(n.id); } }; });
+    const unreadN = all.filter((x) => !x.muted).length;
+    return { id: 'agents', label: 'المساعدين', icon: 'sparkle', unit: 'تنبيه', received: unreadN, all: () => noteRead(notes.filter((n) => !n.read).map((n) => n.id)), allLabel: 'تعليم الكل كمقروء',
+      empty: 'المساعدين مابعتوش حاجة لسه.', tabs: [['all', 'الكل', all], ['unread', 'غير مقروء', all.filter((x) => !x.muted)], ['problem', 'مشاكل', all.filter((x, i) => notes[i].kind === 'problem')], ['read', 'مقروء', all.filter((x) => x.muted)]] };
   }
   async function write(build) {
     const cl = c(); const id = uid();
@@ -66,7 +107,7 @@
     const ch = channel; channel = null;
     if (ch && c()) { try { Promise.resolve(c().removeChannel(ch)).catch(() => {}); } catch (e) { /* already closed */ } }
   }
-  const clear = () => { items = null; };
+  const clear = () => { items = null; notes = null; };
   const toneOf = (kind) => { const k = String(kind || ''); return /fail|error|down|late|overdue/i.test(k) ? 'error' : /\.(ok|done|success|info)$/i.test(k) ? 'info' : 'warning'; };
   function relTime(iso, nowMs) {
     const t = Date.parse(iso); if (!Number.isFinite(t)) return '';
@@ -91,5 +132,5 @@
     return { id: 'server', label: 'النظام', icon: 'bell', unit: 'تنبيه', received: unread(), all: () => markAllRead(), allLabel: 'تعليم الكل كمقروء', empty: 'مفيش تنبيهات من السيستم.',
       tabs: [['all', 'الكل', all], ['unread', 'غير مقروء', all.filter((x) => !x.muted)], ['read', 'مقروء', all.filter((x) => x.muted)]] };
   }
-  window.IBAlerts = { load, list, unread, markRead, markAllRead, subscribe, unsubscribe, clear, section, toneOf, relTime };
+  window.IBAlerts = { load, list, unread, markRead, markAllRead, subscribe, unsubscribe, clear, section, toneOf, relTime, noteList, noteRead, noteOpen, agentSection };
 })();

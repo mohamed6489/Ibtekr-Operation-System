@@ -842,12 +842,20 @@
     await trends(true); emit();
     return { ok: true, count: n, ig };
   }
-  // the pictures of the rows that have none yet (12 a call on the server; two calls at most here)
+  // the pictures of the rows that have none yet (12 a call on the server; three calls at most here)
   async function trendThumbsFetch() {
-    for (let i = 0; i < 2; i += 1) {
+    for (let i = 0; i < 3; i += 1) {
       const t = await invoke('ai-images', { action: 'trend_thumbs' });
       if (!t.ok || !t.body || !(Number(t.body.tried) >= 12)) break;
     }
+  }
+  // the owner 17 Nov («البوستات الصور مش ظاهرة»): rows still without a picture get theirs when the grid opens too — not only after
+  // «حدّث التريندات» (once a session, marketing.create; the server tries each row twice) — then the list again
+  let thumbsFilled = false;
+  async function trendThumbsFill() {
+    if (thumbsFilled || !can().create || !(trendRows || []).some((x) => !x.thumb)) return { ok: true, changed: false };
+    thumbsFilled = true; await trendThumbsFetch(); await trends(true); emit();
+    return { ok: true, changed: true };
   }
   // the signed links of the trends' pictures (an hour), cached by path
   const thumbUrl = new Map();
@@ -1402,7 +1410,7 @@
     suggestions, suggNow, decide, campaignSet, adsDataNow, rules, rulesNow, rulesSet, setLive, requests, reqsNow, addRequest, REQ_KIND: KIND_OF, buyerChat,
     agentChats, agentTurns, agentAsk, agentImage, agentRename, agentDelete, agentSettings, agentSettingsNow, agentSettingsSet, AGENT_KEYS,
     agents, agentsNow, agentOf, agentSave, agentArchive, agentOrder, kbList, kbListNow, kbSetAll, AGENT_PERMS, AGENT_SEES,
-    trends, trendsNow, trendsReadyNow, trendsRefresh, trendThumbs, trendThumbNow, trendSettings, trendSettingsNow, trendSettingsSet, adTagsSet, agentKbSet, KB, competitors, competitorsNow, competitorsReadyNow, competitorSave, competitorArchive,
+    trends, trendsNow, trendsReadyNow, trendsRefresh, trendThumbsFill, trendThumbs, trendThumbNow, trendSettings, trendSettingsNow, trendSettingsSet, adTagsSet, agentKbSet, KB, competitors, competitorsNow, competitorsReadyNow, competitorSave, competitorArchive,
     siteCheck, siteCheckNow, siteReadyNow, siteCheckRun, siteSpeed, siteSpeedNow, siteSpeedRun, siteSubs, siteSubsNow, aiSpend, aiSpendNow,
     addTemplate, editTemplate, removeTemplate, templateUsed, subscribe, unsubscribe, check, MAX_BYTES, MIME, BUCKET,
     _test: { toCampaign, toPost, toTemplate, fail, aiMessage, fieldsOf, tplRow, pubMessage, toSuggestion, toRequest, toRules, toChat, toTurn } };

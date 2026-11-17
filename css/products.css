@@ -344,3 +344,12 @@
 .cp-img-x{position:absolute;top:-6px;inset-inline-end:-2px;width:20px;height:20px;padding:0;display:grid;place-items:center;border:1px solid var(--color-border-subtle);border-radius:50%;background:var(--color-bg-elevated);cursor:pointer;color:var(--color-text-secondary)}
 .cp-img-x:hover{background:var(--color-bg-hover);color:#005642}
 @media (max-width:767px){.cp-pic{width:52px}}
+/* the owner 17 Nov: the «قبل ← بعد» preview of the bulk price popup — product (picture + name), SKU, maker, the value, the sale price */
+.bp-preview{overflow-x:auto}
+.bp-preview table{min-width:640px}
+.bp-preview td:has(> .bp-prod){text-align:start}
+.bp-prod{display:flex;align-items:center;gap:8px;min-width:0;max-width:280px}
+.bp-prod b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.bp-sku{font-size:12px;color:var(--color-text-secondary);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;white-space:nowrap}
+.bp-maker{display:inline-block;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;padding:2px 10px;border-radius:999px;background:#F4ECDD;color:#005642;border:1px solid rgba(0,86,66,.25)}
+.bp-preview td:nth-last-child(-n+2){white-space:nowrap}

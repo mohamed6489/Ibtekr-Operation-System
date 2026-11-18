@@ -783,7 +783,7 @@ Deno.test('agent (0120): a registry assistant — seen by its page\'s permission
   const r = await call(deps, { action: 'agent', agent: 'stock', question: 'إيه اللي مستني في المخزن؟' }, 'jwt-add');
   assertEquals([r.res.status, r.body.text, r.body.chat.title], [200, 'عندك مرتجع مستني الفحص من 11 يوم', 'إيه اللي مستني في المخزن؟']);
   const sys = asked[0].system.map((b: any) => b.text).join('\n');
-  assert(sys.includes('«المخزن الذكي»') && sys.includes('المرتجع يتفحص في يومين') && sys.includes('تقديم طلب'), 'its base, the admin\'s instructions and the request rule');
+  assert(sys.includes('«التشغيل الذكي»') && sys.includes('المرتجع يتفحص في يومين') && sys.includes('تقديم طلب'), 'its base, the admin\'s instructions and the request rule');
   assert(sys.includes('اللهجة') && sys.includes('الرفوف') && sys.includes('العد') && !sys.includes('الألوان'), 'its rules and skills and the ones for all — not another\'s');
   const q = asked[0].messages.at(-1).content[0].text;
   assert(q.startsWith('<data>\ninventory: ') && q.includes('"pieces":1') && q.includes('مرتجع') && !q.includes('999') && q.endsWith('إيه اللي مستني في المخزن؟'), 'the warehouse read with the member\'s client, no cost');

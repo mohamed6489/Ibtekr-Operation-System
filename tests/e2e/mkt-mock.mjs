@@ -48,7 +48,7 @@ const COLS = {
 };
 // 0120: the eight assistants the system ships, as the migration seeds them
 const AI_BUILTINS = [['buyer', 'الميديا باير الذكي', 'chart', 'marketing.view', [], 'ميديا باير'], ['designer', 'الديزاينر الذكي', 'image', 'marketing.view', [], 'ديزاينر'], ['dev', 'المبرمج الذكي', 'code', 'marketing.view', [], 'مبرمج'],
-  ['stock', 'المخزن الذكي', 'tag', 'inventory.view', ['inventory', 'orders'], 'اللوجستيك والشحن'], ['cs', 'خدمة العملاء الذكية', 'headset', 'cs.view', ['customers', 'orders', 'tickets'], 'خدمة العملاء'],
+  ['stock', 'التشغيل الذكي', 'truck', 'inventory.view', ['orders', 'vendors', 'tickets', 'inventory'], 'العمليات والشحن'], ['cs', 'خدمة العملاء الذكية', 'headset', 'cs.view', ['customers', 'orders', 'tickets'], 'خدمة العملاء'],
   ['makers', 'خدمة المبتكرين الذكية', 'users', 'vendors.view', ['vendors', 'orders', 'tickets'], 'متابعة المبتكرين'], ['accountant', 'المحاسب الذكي', 'wallet', 'accounts.view', ['expenses', 'sales'], 'الحسابات'],
   ['hr', 'الموارد البشرية الذكية', 'briefcase', 'hr.view', ['hr', 'tasks'], 'مدير النظام']].map(([id, name, icon, perm, sees, role]) => ({ id, name, icon, perm, sees, role, builtin: true }));
 const KEY = { mkt_campaigns: 'campaigns', mkt_posts: 'posts', mkt_templates: 'templates', mkt_ad_objects: 'adObjects', mkt_ad_stats: 'adStats', mkt_suggestions: 'suggestions', mkt_requests: 'requests', mkt_video_jobs: 'videoJobs', mkt_agent_chats: 'agentChats', mkt_agent_messages: 'agentMsgs', mkt_trends: 'trends', mkt_competitors: 'competitors', site_checks: 'siteChecks', ai_agent_notes: 'agentNotes', ai_agent_note_reads: 'agentNoteReads' };

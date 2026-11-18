@@ -65,7 +65,7 @@ do $$ declare v text; n int; l jsonb; begin
   if (select x ->> 'perm' || '|' || (x -> 'sees')::text || '|' || (x ->> 'role') from jsonb_array_elements(public.ai_agents_list()) x where x ->> 'id' = v) <> 'products.view|["orders", "sales"]|الحسابات' then raise exception 'case a new one stored failed'; end if;
   -- a builtin: the name and the words change, its permission and what it reads do not
   perform public.ai_agent_save('{"id":"stock","name":"أمين المخزن","perm":"orders.view","sees":["hr"],"intro":"أهلًا"}');
-  if (select x ->> 'name' || '|' || (x ->> 'perm') || '|' || (x -> 'sees')::text || '|' || (x ->> 'intro') from jsonb_array_elements(public.ai_agents_list()) x where x ->> 'id' = 'stock') <> 'أمين المخزن|inventory.view|["inventory", "orders"]|أهلًا' then raise exception 'case a builtin keeps its permission failed'; end if;
+  if (select x ->> 'name' || '|' || (x ->> 'perm') || '|' || (x -> 'sees')::text || '|' || (x ->> 'intro') from jsonb_array_elements(public.ai_agents_list()) x where x ->> 'id' = 'stock') <> 'أمين المخزن|inventory.view|["orders", "vendors", "tickets", "inventory"]|أهلًا' then raise exception 'case a builtin keeps its permission failed'; end if;
   -- the limits
   begin perform public.ai_agent_save('{"name":"x"}'); raise exception 'case a name of 2 failed'; exception when invalid_parameter_value then null; end;
   begin perform public.ai_agent_save('{"name":"مساعد","perm":"settings.view"}'); raise exception 'case a page permission failed'; exception when invalid_parameter_value then null; end;

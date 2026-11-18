@@ -43,7 +43,7 @@ do $$ begin
      or not has_function_privilege('authenticated', 'public.member_roles_set(uuid, text[])', 'execute') or not has_function_privilege('authenticated', 'public.ticket_roles()', 'execute') then
     raise exception 'case member_roles_set / ticket_roles: closed to anon, open to the members failed';
   end if;
-  if (select count(*) from public.ticket_roles() t where t.label in ('الإدارة', 'خدمة العملاء', 'متابعة المبتكرين', 'الحسابات', 'العمليات والشحن', 'المحتوى والتصوير', 'التصميم', 'الإعلانات', 'البرمجة')) <> 9 then
+  if (select count(*) from public.ticket_roles() t where t.label in ('الإدارة', 'خدمة العملاء', 'متابعة المبتكرين', 'الحسابات', 'العمليات والشحن', 'المحتوى', 'التصميم', 'الإعلانات', 'البرمجة')) <> 9 then
     raise exception 'case ticket_roles lists the six old labels and the three new names failed';
   end if;
 end $$;

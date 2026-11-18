@@ -19,7 +19,7 @@ test('0120: «المساعدين» — the assistants table (+ مساعد جدي
   await page.evaluate(() => { location.hash = 'settings-ai'; });
   await page.locator('#pg-settings').getByRole('tab', { name: 'المساعدين' }).click();
   // the eight of the system, in their order
-  await expect(page.locator('[data-ag-row] b')).toHaveText(['الميديا باير الذكي', 'الديزاينر الذكي', 'المبرمج الذكي', 'المخزن الذكي', 'خدمة العملاء الذكية', 'خدمة المبتكرين الذكية', 'المحاسب الذكي', 'الموارد البشرية الذكية']);
+  await expect(page.locator('[data-ag-row] b')).toHaveText(['الميديا باير الذكي', 'الديزاينر الذكي', 'المبرمج الذكي', 'التشغيل الذكي', 'خدمة العملاء الذكية', 'خدمة المبتكرين الذكية', 'المحاسب الذكي', 'الموارد البشرية الذكية']);
   // a new assistant: the name, the page that opens it, the data it reads — it opens on its own tab in «الذكاء الاصطناعي»
   await page.locator('[data-set-ag-add]').click();
   const md = page.locator('.modal[role=dialog]', { hasText: 'مساعد جديد' });

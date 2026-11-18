@@ -99,8 +99,8 @@ test('decision 6: the permissions matrix looks like the alerts matrix (icon mark
   await expect(pm.locator('.mx-head')).toContainText('كاملة');
   await expect(pm.locator('.mx-gh .acc-t').first()).toBeVisible();
   await expect(pm.locator('.mx-gh .meta').first()).toContainText('صلاحيات');
-  await expect(pm.locator('button.pm-full svg').first()).toBeVisible(); // ✓ as an icon, like the alerts matrix
-  await expect(pm.locator('button.pm-none').first()).toHaveText('○');
+  await expect(pm.locator('button.pm.on .pm-dot svg').first()).toBeVisible(); // decision 21: the chosen radio holds ✓ (an icon)
+  await expect(pm.locator('[data-pm-head="N"]')).toContainText('غير مسموح');
   const s1 = await stuck('[data-perm-matrix]');
   expect(s1.top).toBeGreaterThanOrEqual(46); expect(s1.top).toBeLessThanOrEqual(50); expect(s1.inMatrix).toBe(true);
   // a click still changes a role's permission (✓ → 👁 → ○)
@@ -191,4 +191,19 @@ test('decision 16: the departments are out — «مديري الأدوار» set
   const add = page.locator('.modal', { hasText: 'إضافة عضو' });
   await expect(add.locator('#dept')).toHaveCount(0);
   await expect(add.locator('#manager')).toContainText('مدير الدور (تلقائي)');
+});
+
+// agents-brain decision 21 (the owner 18 Nov): the cells are round radios — only the chosen one holds ✓ — and the column heads carry
+// their marks with «مسموح» · «عرض بس» · «غير مسموح» («لا» no more)
+test('decision 21: the permission choices are radios with ✓ on the chosen one; the heads say «غير مسموح» with their icons', async ({ page }) => {
+  await go(page, 'settings-team');
+  await page.locator('#pg-settings').getByRole('tab', { name: 'الأدوار والصلاحيات' }).click();
+  const pm = page.locator('[data-perm-matrix]');
+  await expect(pm.locator('[data-pm-head]')).toHaveText([/مسموح/, /عرض بس/, /غير مسموح/]);
+  await expect(pm.locator('[data-pm-head] svg, [data-pm-head] .icon')).not.toHaveCount(0);
+  const seg = pm.locator('.pm-seg').first();
+  await expect(seg.locator('.pm-dot')).toHaveCount(3);
+  await expect(seg.locator('.pm.on .pm-dot > *')).toHaveCount(1);
+  await expect(seg.locator('.pm.off .pm-dot > *')).toHaveCount(0);
+  await expect(pm).not.toContainText(/(^|\s)لا(\s|$)/);
 });

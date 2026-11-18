@@ -868,7 +868,7 @@ test('handoff — the media buyer asked for a video sends the member to the desi
 // its own id
 test('0120 — «المخزن الذكي»: a tab of its own, its chat asks the server as «stock»', async ({ page }) => {
   await start(page);
-  await openAi(page, OPS, 'المخزن الذكي');
+  await openAi(page, OPS, 'التشغيل الذكي');
   const P = pg(page); const box = P.locator('[data-mk-agent="stock"]');
   await expect(box).toBeVisible();
   await expect(P.locator('#mk-ask')).toHaveAttribute('placeholder', /للمخزن الذكي/);
@@ -965,7 +965,7 @@ test('the owner 17 Nov — the warehouse assistant\'s plan: «راجع الخط�
   mock.mkt.agentAnswer = () => ({ text: 'دي الخطة — راجعها', plan: [
     { op: 'category_create', maker: '', query: [], category: '', to_maker: '', brand: '', status: '', new_en: 'Living Room', new_ar: 'الليفنج', parent: '', note: '' },
     { op: 'category_add', maker: 'وودش', query: ['chair', 'كرسي'], category: 'Living Room', to_maker: '', brand: '', status: '', new_en: '', new_ar: '', parent: '', note: '' }], request: { title: '', details: '' } });
-  await openAi(page, ADMIN, 'المخزن الذكي');
+  await openAi(page, ADMIN, 'التشغيل الذكي');
   const P = pg(page);
   await P.locator('#mk-ask').fill('هات كراسي وودش وحطها في قسم Living Room جديد'); await P.locator('#mk-ask').press('Enter');
   await expect(P.locator('[data-mk-plan="2"]')).toBeVisible();
@@ -1013,7 +1013,7 @@ const png1 = (name) => ({ name, mimeType: 'image/png', buffer: PNG1 });
 const pickIn = async (page, sel, files) => { const fc = page.waitForEvent('filechooser'); await pg(page).locator(sel).click(); await (await fc).setFiles(files); };
 test('decision 20 — «ارفع منتجات»: «شيت جاهز» asked in the chat → the review popup (data + prices) → «ارفع على الموقع» → «ارفع بالصور اللي معاك»: drafts, nothing generated', async ({ page }) => {
   await start(page);
-  await openAi(page, ADMIN, 'المخزن الذكي');
+  await openAi(page, ADMIN, 'التشغيل الذكي');
   const P = pg(page);
   await P.locator('.mk-agent-chips .chip', { hasText: 'ارفع منتجات' }).click();
   const card = P.locator('[data-mk-wiz] .sc-card');
@@ -1051,7 +1051,7 @@ test('decision 20 — the assistant hands over: «ضيف منتجات» → its 
   await start(page);
   mock.mkt.planData = { vendors: [{ id: 'v-wood', name: 'Woodish' }], products: [], categories: [] };
   mock.mkt.agentAnswer = () => ({ text: 'هسألك كام سؤال هنا', request: { title: '', details: '' }, plan: [{ op: 'studio', maker: '', query: [], category: '', to_maker: '', brand: '', status: '', new_en: '', new_ar: '', parent: '', note: '', kase: '', type: '', screens: [] }] });
-  await openAi(page, ADMIN, 'المخزن الذكي');
+  await openAi(page, ADMIN, 'التشغيل الذكي');
   const P = pg(page);
   await P.locator('#mk-ask').fill('ضيف منتجات'); await P.locator('#mk-ask').press('Enter');
   const card = P.locator('[data-mk-wiz] .sc-card');

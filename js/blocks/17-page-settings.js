@@ -1513,7 +1513,7 @@
     const changedSens = (f) => C.perms.flatMap(([g, rows]) => rows.filter(([n, v, sens]) => sens && (v[ci] || 'N') !== f.p[pk(g, n)]).map(([n]) => n));
     const apply = (f, m) => {
       const nm = String(f.name).trim(); let changes = 0;
-      if (!isAdmin && nm !== name) { if (custom) C.custom[C.custom.indexOf(name)] = nm; else ROLES = ROLES.map((x) => (x === name ? nm : x)); // 0128: a ready team renamed too S.members.forEach((x) => { if (x.role === name) x.role = nm; }); if (name in K.store.roleDigests) { K.store.roleDigests[nm] = K.store.roleDigests[name]; delete K.store.roleDigests[name]; } delete at[name]; if (C.roleInfo) delete C.roleInfo[name]; changes++; }
+      if (!isAdmin && nm !== name) { if (custom) C.custom[C.custom.indexOf(name)] = nm; else ROLES = ROLES.map((x) => (x === name ? nm : x)); /* 0128: a ready team renamed too */ S.members.forEach((x) => { if (x.role === name) x.role = nm; }); if (name in K.store.roleDigests) { K.store.roleDigests[nm] = K.store.roleDigests[name]; delete K.store.roleDigests[name]; } delete at[name]; if (C.roleInfo) delete C.roleInfo[name]; changes++; }
       C.roleInfo = Object.assign(C.roleInfo || {}, { [nm]: String(f.desc || '').trim() });
       if (!isAdmin) C.perms.forEach(([g, rows]) => rows.forEach((r) => { const c = f.p[pk(g, r[0])]; if ((r[1][ci] || 'N') !== c) { r[1] = NR.colSet(r[1], ci, c); changes++; } }));
       if (NR) NR.SOURCES.forEach((src) => { const cur = (K.store.alertRoles[src.key] || NR.DEFAULTS[src.key]); if ((cur[ci] || 'N') !== f.a[src.key]) { K.store.alertRoles[src.key] = NR.colSet(cur, ci, f.a[src.key]); changes++; } });

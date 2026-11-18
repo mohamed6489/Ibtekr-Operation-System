@@ -60,8 +60,11 @@ begin
   delete from public.woo_webhook_events where received_at < now() - interval '30 days';
   get diagnostics c = row_count; n := n || jsonb_build_object('webhook_events', c);
   if to_regclass('cron.job_run_details') is not null then
-    execute 'delete from cron.job_run_details where end_time < now() - interval ''7 days''';
-    get diagnostics c = row_count; n := n || jsonb_build_object('cron_log', c);
+    begin -- the scheduler's own table: a refusal there never stops the rest
+      execute 'delete from cron.job_run_details where end_time < now() - interval ''7 days''';
+      get diagnostics c = row_count; n := n || jsonb_build_object('cron_log', c);
+    exception when others then n := n || jsonb_build_object('cron_log', null);
+    end;
   end if;
   delete from public.cs_oauth_states where created_at < now() - interval '1 day';
   get diagnostics c = row_count; n := n || jsonb_build_object('oauth_states', c);

@@ -735,7 +735,9 @@
   }
   function accountsSection() {
     const p = payrollInfo(); const per = statementPeriod();
-    const pay = p && p.due.show ? [{ own: { role: 'الحسابات' }, key: 'pay:' + p.due.date, title: 'مرتبات الموظفين — يوم الصرف ' + arDate(p.due.date), sub: 'فاضل ' + p.due.daysLeft + ' يوم · ' + (p.ready && p.lines.length ? p.lines.length + ' موظف · صافي ' + D.formatMoney(p.net) + ' ج.م · ' : '') + 'الكشف «' + p.status + '»', meta: '', tone: p.due.daysLeft <= 3 ? 'error' : 'warning', icon: 'wallet', run: openPayrollAlert }] : [];
+    // data-real decision 7: no staff on the sheet (a wiped system) = no salaries reminder
+    const staff = window.IBHR && window.IBHR.team ? window.IBHR.team().length : 1;
+    const pay = p && p.due.show && staff ? [{ own: { role: 'الحسابات' }, key: 'pay:' + p.due.date, title: 'مرتبات الموظفين — يوم الصرف ' + arDate(p.due.date), sub: 'فاضل ' + p.due.daysLeft + ' يوم · ' + (p.ready && p.lines.length ? p.lines.length + ' موظف · صافي ' + D.formatMoney(p.net) + ' ج.م · ' : '') + 'الكشف «' + p.status + '»', meta: '', tone: p.due.daysLeft <= 3 ? 'error' : 'warning', icon: 'wallet', run: openPayrollAlert }] : [];
     const st = vendorStatements().map((x) => ({ own: { role: 'الحسابات' }, key: 'vs:' + x.name, title: 'كشف حساب ' + x.name, sub: 'الرصيد ' + D.formatMoney(x.r.balance) + ' ج.م · ناجحة ' + x.r.success + ' · فاشلة ' + x.r.failed + ' · عربون ' + D.formatMoney(x.mo.deposits) + ' · مواصلات ' + D.formatMoney(x.mo.transport), meta: 'من ' + per.from.slice(8) + '/' + per.from.slice(5, 7) + ' لـ ' + per.to.slice(8) + '/' + per.to.slice(5, 7), tone: x.r.balance < 0 ? 'orange' : 'neutral', icon: 'truck', run: () => openVendorStatement(x.name) }));
     return { id: 'accounts', label: 'الحسابات', icon: 'wallet', unit: 'تنبيه', all: () => go('accounts'), allLabel: 'عرض الكل في الحسابات', empty: 'مفيش تنبيهات حسابات.',
       tabs: [['all', 'الكل', pay.concat(st)], ['payroll', 'المرتبات', pay], ['vendors', 'كشوف المبتكرين', st]] };
@@ -755,7 +757,8 @@
     const K = window.IBKit, O = window.IbtekrOps; if (!K || !K.store.digests) return []; const src = digestSources();
     const m = arguments[0] || viewer(); const NR = NRM(); const mine = (d) => !m || m.role === 'أدمن' || d.to.some((t) => t === m.name || (NR && NR.normRole(t) === NR.normRole(m.role)));
     const roleD = NR && m && K.store.roleDigests[m.role] !== false ? [{ id: 'RD-' + m.role, name: 'الملخص اليومي — ' + m.role, keys: NR.roleDigestKeys(K.store.alertRoles, sPerms(), roleIdx(m)), to: [m.role], every: 'يوميًا', at: ((K.store.notifPrefs || {})[m.id] || {}).digestAt || (K.store.roleDigestAt || {})[m.role] || '12:00 ص', on: true, auto: true }] : [];
-    const items = roleD.concat(K.store.digests.filter((d) => d.on && mine(d))).map((d) => { const r = O.digest(src, d.keys); return { key: 'dg:' + d.id, title: d.name, sub: r.total + ' مهمة · ' + r.groups.filter((g) => g.count).map((g) => g.label + ' ' + g.count).join(' · '), meta: d.every + ' ' + d.at, tone: r.total ? 'warning' : 'neutral', icon: 'file', run: () => openDigest(d), n: r.total }; });
+    const items = roleD.concat(K.store.digests.filter((d) => d.on && mine(d))).map((d) => { const r = O.digest(src, d.keys); return { key: 'dg:' + d.id, title: d.name, sub: r.total + ' مهمة · ' + r.groups.filter((g) => g.count).map((g) => g.label + ' ' + g.count).join(' · '), meta: d.every + ' ' + d.at, tone: r.total ? 'warning' : 'neutral', icon: 'file', run: () => openDigest(d), n: r.total }; })
+      .filter((it) => it.n > 0); // data-real decision 7: a report with no task is not a notification
     return [{ id: 'digests', label: 'تقارير المهام', icon: 'file', unit: 'تقرير', all: () => { location.hash = 'settings-notifications'; }, allLabel: 'إدارة التقارير في الإعدادات', empty: 'مفيش تقارير مهام مفعّلة.', tabs: [['all', 'الكل', items]] }];
   }
   window.IBNotif = { sources: () => digestSources(), openDigest: (d) => openDigest(d), openVendorStatement, openVendorWeekly, vendorWeeklies, openVendorDaily, vendorDailies, waybills, openWaybill, openDeliveryDigest, openPayrollAlert };

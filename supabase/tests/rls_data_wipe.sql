@@ -36,5 +36,9 @@ do $$ declare r jsonb; v_order bigint; begin
   if exists (select 1 from jsonb_array_elements(r -> 'tables') t where t ->> 'table' = 'tickets' and t ->> 'kind' = 'wipe') then raise exception 'case orders keep tickets failed'; end if;
 end $$;
 reset role;
+-- 0138: the assistants' notes go with «السجلات» (the bell is empty after «امسح كل حاجة»)
+do $$ begin
+  if (select count(*) from public.data_wipe_map() where section = 'logs' and tbl in ('ai_agent_notes', 'ai_agent_note_reads')) <> 2 then raise exception 'case agent notes in logs failed'; end if;
+end $$;
 do $$ begin raise notice 'rls_data_wipe: ok'; end $$;
 rollback;

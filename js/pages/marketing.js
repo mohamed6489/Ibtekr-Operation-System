@@ -1875,7 +1875,9 @@
   // = a team request of a kind (IBTickets.createRequest → ticket_request_create) to the kind's role; listed here under its assistant
   // with who asked, worked (status, replies) in «طلبات الفريق»
   // 0120: every assistant from the registry — its name, the role a request goes to («تقديم طلب»), «لـ…»
-  const AG_ROLE = { buyer: 'الإعلانات', designer: 'التصميم', dev: 'البرمجة' }; // 0128: the teams' names (the registry's role wins)
+  // 0128: the team of each of the three by its role id — the server's current name (ticket_roles via IBTickets), the registry's role wins
+  const AG_ROLE_ID = { buyer: 'media_buyer', designer: 'designer', dev: 'developer' };
+  const AG_ROLE = new Proxy({}, { get: (o, a) => { const id = AG_ROLE_ID[a]; if (!id) return undefined; const T = window.IBTickets; const l = T && T.rolesOf ? T.rolesOf(id) : []; return (l && l[0]) || ({ buyer: 'الإعلانات', designer: 'التصميم', dev: 'البرمجة' })[a]; } });
   const ADMIN_TEAM = () => (window.IbtekrTickets && window.IbtekrTickets.ADMIN_ROLE) || 'الإدارة';
   // «لـ» + the name, the article joined the Egyptian way: «للمبرمج الذكي» / «لخدمة العملاء الذكية»
   const toOf = (name) => (/^ال/.test(name) ? 'ل' + name.slice(1) : /^[\u0621-\u064a]/.test(name) ? 'ل' + name : 'لـ ' + name);

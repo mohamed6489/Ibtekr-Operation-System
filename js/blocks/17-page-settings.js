@@ -1370,7 +1370,7 @@
   function data() {
     const tabs = DTABS.filter(([id]) => id !== 'danger' || isAdminMe()); const cur = tabs.some(([id]) => id === st.dtab) ? st.dtab : 'export';
     const bar = h('div', { class: 'dx-tabs', role: 'tablist', 'aria-label': 'البيانات', 'data-dtabs': '' }, tabs.map(([id, label, icon]) => h('button', { type: 'button', role: 'tab', class: 'dx-tab' + (id === cur ? ' on' : '') + (id === 'danger' ? ' danger' : ''), 'aria-selected': String(id === cur), 'data-dtab': id, onClick: () => { st.dtab = id; R(); } }, Icon(icon, 'sm'), h('span', null, label))));
-    const body = cur === 'import' ? importSec() : cur === 'templates' ? [templatesSec()] : cur === 'backup' ? [fullExportSec(), U.InlineNote({ children: 'نسخ قاعدة البيانات نفسها بتتاخد من Supabase (لوحة المشروع › Database › Backups) — الملف ده نسخة تقراها في Excel.' })] : cur === 'danger' ? [dangerSec()] : [exportSec()];
+    const body = cur === 'import' ? importSec() : cur === 'templates' ? [templatesSec()] : cur === 'backup' ? [fullExportSec(), U.InlineNote({ children: 'نسخ قاعدة البيانات نفسها بتتاخد من Supabase (لوحة المشروع › Database › Backups) — الملف ده نسخة تقراها في Excel.' })] : cur === 'danger' ? dangerSec() : [exportSec()];
     return [bar, ...body];
   }
   const impGroups = () => (DG() ? DG().groups() : []).filter((g) => g.apply && !g.exportOnly);
@@ -1487,18 +1487,83 @@
     draw();
   }
   // decision 6 (0117): «منطقة الخطر» — wipe the chosen sections (before moving from the staging site to the live one): the admin only,
-  // a dry run first (the rows of each table and what goes with them), then the phrase «امسح البيانات». The team, roles, settings and lists stay.
+  // a dry run first (the rows of each table and what goes with them), then the phrase. The team, roles, settings and lists stay.
+  // 2026-11-18-data-real.md decisions 4 and 5 (0133): one phrase for every wipe, and «امسح كل حاجة» on top — the phrase typed, «احذف» → a
+  // popup with every section and its rows → «ابدأ الحذف» → section by section with a progress bar; the popup can't close while it runs.
+  const WIPE_PHRASE = 'حذف الداتا من السيستم بشكل نهائي';
   const WIPE = [['orders', 'الأوردرات', 'الأوردرات والأوردرات الفرعية وسطورها وأحداثها وتقييمات العملاء'], ['vendors', 'المبتكرين', 'المبتكرين والبراندات والنسب والحسابات البنكية وبيانات الدخول'], ['products', 'المنتجات', 'مرآة المنتجات والأقسام والبراندات ودفعات الاستوديو'],
     ['accounts', 'الحسابات', 'المصروفات وحركات المبتكرين والحسابات والتسويات ومرايا Dokan'], ['inventory', 'المخزن', 'القطع والحركات والتجميع والجرد (الأماكن بتفضل)'], ['cs', 'خدمة العملاء', 'العملاء والمحادثات والرسايل والشرايح والحملات (القوالب والردود بتفضل)'],
     ['tickets', 'طلبات الفريق', 'الطلبات وأحداثها'], ['marketing', 'التسويق', 'الكامبينات والبوستات وأرقام الإعلانات والاقتراحات وشاتات المساعدين'], ['hr', 'سجلات الموارد البشرية', 'الحضور والوقت الإضافي والطلبات والكشوف والتقييمات (الفريق ومرتباتهم بيفضلوا)'], ['logs', 'السجلات', 'سجل النشاط والتنبيهات وسجلات المزامنة والـ AI']];
+  // the order of the run: what points at others first, the logs last (so the wipe's own line is what stays in the log)
+  const WIPE_ORDER = ['tickets', 'cs', 'marketing', 'inventory', 'accounts', 'orders', 'products', 'vendors', 'hr', 'logs'];
+  const wipeLabel = (k) => (WIPE.find((w) => w[0] === k) || [, k])[1];
+  const KEEP_NOTE = 'بيفضلوا دايمًا: الفريق وحساباتهم، الأدوار والصلاحيات، كل الإعدادات والقوائم، والبراند. الملفات المرفوعة مابتتمسحش. لو الموقع لسه مربوط، المزامنة هترجّع أوردراته ومبتكريه ومنتجاته — صفّر الموقع أو غيّر الربط من «الربط بالمنصات» الأول.';
+  function wipeAllCard() {
+    const input = h('input', { class: 'input', id: 'wipe-all-phrase', dir: 'rtl', autocomplete: 'off', placeholder: WIPE_PHRASE, 'aria-label': 'اكتب: ' + WIPE_PHRASE, 'data-wipe-all-phrase': '' });
+    const go = Button({ type: 'danger', icon: 'trash', label: 'احذف', disabled: true, attrs: { 'data-wipe-all': '' }, onClick: () => wipeAll() });
+    const same = () => input.value.trim() === WIPE_PHRASE;
+    input.addEventListener('input', () => { go.disabled = !same(); input.classList.toggle('ok', same()); });
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && same()) { e.preventDefault(); wipeAll(); } });
+    const cancel = Button({ label: 'إلغاء', attrs: { 'data-wipe-all-cancel': '' }, onClick: () => { input.value = ''; go.disabled = true; input.classList.remove('ok'); } });
+    const exp = Button({ type: 'text', icon: 'download', label: 'صدّر البيانات قبل الحذف', attrs: { 'data-wipe-export': '' }, onClick: () => fullExportRun() });
+    return h('section', { class: 'sec dz dz-all', 'data-wipe-all-card': '' }, h('div', { class: 'dz-head' }, h('span', { class: 'dz-ic' }, Icon('trash')), h('div', null, h('h3', null, 'امسح كل حاجة'), h('p', { class: 't-small' }, 'كل بيانات السيستم مرة واحدة — الأوردرات والمبتكرين والمنتجات والحسابات والمخزن وخدمة العملاء والطلبات والتسويق وسجلات الموارد البشرية والسجلات. نهائي ومالوش تراجع.'))),
+      h('div', { class: 'dz-body' }, U.InlineNote({ kind: 'warning', children: KEEP_NOTE }),
+        h('label', { class: 'field' }, h('span', { class: 't-label-s' }, 'عشان تأكّد اكتب الجملة دي بالظبط: «' + WIPE_PHRASE + '»'), input),
+        h('div', { class: 'acts-inline start dz-acts' }, go, cancel, exp)));
+  }
+  async function wipeAll() {
+    const S0 = SETT(); if (!S0 || !S0.wipe) return; const b0 = K.busy ? K.busy('بنحسب اللي هيتمسح…') : null;
+    const dry = await S0.wipe(WIPE_ORDER, { dry: true }); if (b0) b0.close();
+    if (!dry.ok) return K.toast(dry.message || (dry.reason === 'forbidden' ? 'المسح للأدمن بس — وبالتحقق بخطوتين لو مفعّله' : 'تعذّر الحساب — جرّب تاني'), 'error');
+    const tables = dry.tables || []; const rowsOf = (k) => tables.filter((t) => t.section === k && t.kind === 'wipe').reduce((n, t) => n + (Number(t.rows) || 0), 0);
+    const total = WIPE_ORDER.reduce((n, k) => n + rowsOf(k), 0); const tcount = tables.filter((t) => t.kind === 'wipe').length;
+    let running = false; let done = false;
+    const md = U.Modal({ title: 'امسح كل حاجة — راجع قبل ما تبدأ', body: [], canClose: () => !running }); md.el.classList.add('wide', 'dz-modal'); md.el.setAttribute('data-wipe-all-modal', '');
+    const list = h('div', { class: 'dz-run' }, WIPE_ORDER.map((k) => h('div', { class: 'dz-row', 'data-wipe-row': k }, h('span', { class: 'dz-st', 'aria-hidden': 'true' }, '•'), h('span', { class: 'dz-name' }, h('b', null, wipeLabel(k)), h('small', { class: 't-small help' }, (WIPE.find((w) => w[0] === k) || [, , ''])[2])), h('span', { class: 'dz-n' }, K.n0(rowsOf(k)) + ' صف'))));
+    const bar = h('div', { class: 'dz-bar', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': '0', 'aria-label': 'تقدّم المسح' }, h('i', { style: 'width:0%' }));
+    const stat = h('div', { class: 't-small dz-stat', 'aria-live': 'polite', 'data-wipe-status': '' });
+    const head = U.InlineNote({ kind: 'error', children: 'هيتمسح ' + K.n0(total) + ' صف من ' + K.n0(tcount) + ' جدول في ' + WIPE_ORDER.length + ' أقسام — نهائي ومالوش تراجع.' });
+    const start = Button({ type: 'danger', icon: 'trash', label: 'ابدأ الحذف', attrs: { 'data-wipe-start': '' }, onClick: () => run() });
+    const cancel = Button({ type: 'text', label: 'إلغاء', onClick: () => md.close() });
+    md.setBody(head, list, U.InlineNote({ kind: 'warning', children: KEEP_NOTE }));
+    md.setFooter(cancel, start);
+    const row = (k) => md.el.querySelector('[data-wipe-row="' + k + '"]');
+    const mark = (k, cls, sym, note) => { const r = row(k); if (!r) return; r.className = 'dz-row ' + cls; r.querySelector('.dz-st').textContent = sym; if (note != null) r.querySelector('.dz-n').textContent = note; };
+    const setBar = (n) => { const pct = Math.round((n / WIPE_ORDER.length) * 100); bar.firstChild.style.width = pct + '%'; bar.setAttribute('aria-valuenow', String(pct)); };
+    async function run() {
+      running = true; md.el.classList.add('running'); const x = md.el.querySelector('.modal-h-actions'); if (x) x.hidden = true;
+      md.setBody(head, bar, stat, list); md.setFooter(h('span', { class: 't-small help' }, 'متقفلش الصفحة لحد ما يخلص…'));
+      let queue = WIPE_ORDER.slice(); const out = {}; let n = 0; let gone = 0; let failed = null;
+      while (queue.length && !failed) {
+        const next = []; let moved = false;
+        for (const k of queue) {
+          mark(k, 'on', '…'); stat.textContent = 'بنمسح «' + wipeLabel(k) + '» (' + (n + 1) + ' من ' + WIPE_ORDER.length + ')';
+          const r = await S0.wipe([k], { confirm: WIPE_PHRASE });
+          if (r.ok) { n++; moved = true; gone += Number(r.rows) || 0; out[k] = r.rows; mark(k, 'ok', '✓', 'اتمسح ' + K.n0(Number(r.rows) || 0) + ' صف'); setBar(n); }
+          else if (r.reason === 'blocked') { mark(k, '', '•'); next.push(k); }
+          else { failed = { k, r }; mark(k, 'bad', '!', r.message || 'اترفض'); break; }
+        }
+        if (failed) break;
+        if (!moved && next.length) { failed = { k: next[0], r: { message: 'فيه بيانات تانية مرتبطة بيه لسه' } }; next.forEach((k) => mark(k, 'bad', '!', 'ماتمسحش')); break; }
+        queue = next;
+      }
+      running = false; done = true; md.el.classList.remove('running'); const x2 = md.el.querySelector('.modal-h-actions'); if (x2) x2.hidden = false;
+      LOGV('settings.data.wipe.all', n + '/' + WIPE_ORDER.length + ' قسم · ' + gone + ' صف');
+      stat.textContent = failed ? 'وقف عند «' + wipeLabel(failed.k) + '» — ' + (failed.r.message || 'اترفض') + '. اتمسح ' + n + ' من ' + WIPE_ORDER.length + ' أقسام.' : 'خلص — اتمسح ' + K.n0(gone) + ' صف من ' + WIPE_ORDER.length + ' أقسام.';
+      stat.className = 't-small dz-stat ' + (failed ? 'bad' : 'ok');
+      md.setFooter(Button({ type: 'primary', label: 'إغلاق', attrs: { 'data-wipe-close': '' }, onClick: () => { md.close(); st.wipe = {}; location.reload(); } }));
+    }
+    setTimeout(() => start.focus(), 50);
+    return { done: () => done };
+  }
   function dangerSec() {
     const pick = (st.wipe = st.wipe || {}); const chosen = WIPE.filter(([k]) => pick[k]).map(([k]) => k);
     const rows = WIPE.map(([k, label, sub]) => h('label', { class: 'dz-item' + (pick[k] ? ' on' : ''), 'data-wipe': k }, h('input', { type: 'checkbox', checked: pick[k] ? '' : false, onChange: (e) => { pick[k] = e.target.checked; R(); } }), h('span', null, h('b', null, label), h('small', { class: 't-small help' }, sub))));
     const all = Button({ type: 'text', size: 'sm', label: chosen.length === WIPE.length ? 'شيل الكل' : 'اختار الكل', onClick: () => { const on = chosen.length !== WIPE.length; WIPE.forEach(([k]) => { pick[k] = on; }); R(); } });
-    return h('section', { class: 'sec dz', 'data-danger-zone': '' }, h('div', { class: 'dz-head' }, h('span', { class: 'dz-ic' }, Icon('alert')), h('div', null, h('h3', null, 'منطقة الخطر — مسح بيانات السيستم'), h('p', { class: 't-small' }, 'للنقل من الـ staging للموقع الحقيقي أو لموقع تاني. المسح نهائي ومالوش تراجع — صدّر «النسخة الكاملة» الأول.'))),
+    return [wipeAllCard(), h('section', { class: 'sec dz', 'data-danger-zone': '' }, h('div', { class: 'dz-head' }, h('span', { class: 'dz-ic' }, Icon('alert')), h('div', null, h('h3', null, 'أو امسح أقسام بعينها'), h('p', { class: 't-small' }, 'للنقل من الـ staging للموقع الحقيقي أو لموقع تاني. المسح نهائي ومالوش تراجع — صدّر «النسخة الكاملة» الأول.'))),
       h('div', { class: 'dz-body' }, h('div', { class: 'dz-top' }, h('b', { class: 't-label' }, 'اختار اللي يتمسح'), all), h('div', { class: 'dz-grid' }, rows),
-        U.InlineNote({ kind: 'warning', children: 'بيفضلوا دايمًا: الفريق وحساباتهم، الأدوار والصلاحيات، كل الإعدادات والقوائم، والبراند. الملفات المرفوعة مابتتمسحش. لو الموقع لسه مربوط، المزامنة هترجّع أوردراته ومبتكريه ومنتجاته — غيّر الربط من «الربط بالمنصات» الأول.' }),
-        h('div', { class: 'acts-inline start' }, Button({ type: 'danger', label: 'راجع اللي هيتمسح (' + chosen.length + ')', icon: 'alert', disabled: !chosen.length, attrs: { 'data-wipe-go': '' }, onClick: () => wipeReview(chosen) }))));
+        U.InlineNote({ kind: 'warning', children: KEEP_NOTE }),
+        h('div', { class: 'acts-inline start' }, Button({ type: 'danger', label: 'راجع اللي هيتمسح (' + chosen.length + ')', icon: 'alert', disabled: !chosen.length, attrs: { 'data-wipe-go': '' }, onClick: () => wipeReview(chosen) }))))];
   }
   async function wipeReview(sections) {
     const S0 = SETT(); if (!S0 || !S0.wipe) return; const b0 = K.busy ? K.busy('بنحسب اللي هيتمسح…') : null;
@@ -1506,13 +1571,13 @@
     if (!dry.ok) return K.toast(dry.message || (dry.reason === 'forbidden' ? 'المسح للأدمن بس — وبالتحقق بخطوتين لو مفعّله' : 'تعذّر الحساب — جرّب تاني'), 'error');
     const tables = dry.tables || []; const total = tables.reduce((n, t) => n + (Number(t.rows) || 0), 0); let typed = '';
     const md = U.Modal({ title: 'مسح نهائي — راجع قبل ما تأكّد', body: [] }); md.el.classList.add('wide', 'dz-modal');
-    const input = h('input', { class: 'input', id: 'wipe-confirm', dir: 'rtl', placeholder: 'امسح البيانات', autocomplete: 'off', 'aria-label': 'اكتب: امسح البيانات' });
+    const input = h('input', { class: 'input', id: 'wipe-confirm', dir: 'rtl', placeholder: WIPE_PHRASE, autocomplete: 'off', 'aria-label': 'اكتب: ' + WIPE_PHRASE });
     const go = Button({ type: 'danger', label: 'امسح نهائي', disabled: true, attrs: { 'data-wipe-confirm': '' }, onClick: async () => { go.disabled = true; const b1 = K.busy ? K.busy('بنمسح…') : null; const r = await S0.wipe(sections, { confirm: typed.trim() }); if (b1) b1.close();
       if (!r.ok) { go.disabled = false; return K.toast(r.message || 'تعذّر المسح — جرّب تاني', 'error'); } md.close(); st.wipe = {}; K.toast('اتمسح ' + String(r.rows || 0) + ' صف — الصفحة هتتحمّل من الأول', 'success'); setTimeout(() => location.reload(), 1200); } });
-    input.addEventListener('input', () => { typed = input.value; go.disabled = typed.trim() !== 'امسح البيانات'; });
+    input.addEventListener('input', () => { typed = input.value; go.disabled = typed.trim() !== WIPE_PHRASE; });
     md.setBody(U.InlineNote({ kind: 'error', children: 'هيتمسح ' + String(total) + ' صف من ' + String(tables.filter((t) => t.kind === 'wipe').length) + ' جدول — نهائي ومالوش تراجع.' }),
-      h('div', { class: 'dz-tables' }, U.Table({ cls: 'mini-table', headers: ['القسم', 'الجدول', 'الصفوف'], rows: tables.map((t) => [(WIPE.find((w) => w[0] === t.section) || [, t.section])[1], h('code', { dir: 'ltr' }, t.table), U.num(String(t.rows))]) })),
-      h('label', { class: 'field' }, h('span', { class: 't-label-s' }, 'عشان تأكّد اكتب: «امسح البيانات»'), input));
+      h('div', { class: 'dz-tables' }, U.Table({ cls: 'mini-table', headers: ['القسم', 'الجدول', 'الصفوف'], rows: tables.map((t) => [wipeLabel(t.section), h('code', { dir: 'ltr' }, t.table), U.num(String(t.rows))]) })),
+      h('label', { class: 'field' }, h('span', { class: 't-label-s' }, 'عشان تأكّد اكتب: «' + WIPE_PHRASE + '»'), input));
     md.setFooter(Button({ type: 'text', label: 'إلغاء', onClick: () => md.close() }), go); setTimeout(() => input.focus(), 50);
   }
 
@@ -1641,9 +1706,10 @@
   // phase 12 T4 (decision 4 / 11): «تصدير نسخة كاملة من البيانات» replaces the v6's demo «حذف بيانات الشركة» — one Excel workbook, a sheet per
   // group of «تصدير البيانات» (the safe columns: nothing marked sensitive), from the data the admin's own session reads (RLS applies).
   // Nothing is deleted from here, ever: a stopped member, a trashed product or a cancelled order each has its own page and rule.
-  function fullExportSec() {
+  // 2026-11-18-data-real.md decision 4: the full export is also «صدّر البيانات قبل الحذف» in «منطقة الخطر»
+  function fullExportRun() {
     const G = DG() ? DG().groups() : [];
-    const run = () => K.confirm({ title: 'تصدير نسخة كاملة من البيانات؟', text: 'ملف Excel واحد فيه شيت لكل مجموعة (' + G.length + ' مجموعة) من غير البيانات الحساسة (أرقام التليفونات والحسابات البنكية). التصدير بيتسجل في سجل النشاط باسمك.', okLabel: 'صدّر الملف',
+    return K.confirm({ title: 'تصدير نسخة كاملة من البيانات؟', text: 'ملف Excel واحد فيه شيت لكل مجموعة (' + G.length + ' مجموعة) من غير البيانات الحساسة (أرقام التليفونات والحسابات البنكية). التصدير بيتسجل في سجل النشاط باسمك.', okLabel: 'صدّر الملف',
       onOk: () => loadXLSX().then((XL) => {
         const X = DX(); const wb = XL.utils.book_new(); const done = [];
         for (const g of G) { let rows = []; try { rows = g.rows(); } catch (e) { continue; } const F = g.fields(); const cols = X.presetCols(F, 'safe'); const lab = cols.map((k) => (F.find((x) => x.key === k) || { label: k }).label);
@@ -1651,6 +1717,9 @@
         if (!done.length) { K.toast('مفيش بيانات محمّلة تتصدّر — افتح الصفحات الأول', 'error'); return; }
         XL.writeFile(wb, 'ibtekr-full-' + K.TODAY + '.xlsx'); LOGV('settings.export.full', done.join(' · ')); K.toast('اتنزّل الملف — ' + done.length + ' شيت', 'success');
       }).catch(() => K.toast('معرفناش نجهّز ملف Excel — صدّر المجموعات واحدة واحدة من فوق', 'error')) });
+  }
+  function fullExportSec() {
+    const run = fullExportRun;
     return K.Section('نسخة كاملة من البيانات', [vrow('تصدير كل المجموعات في ملف Excel واحد', 'شيت لكل مجموعة · من غير البيانات الحساسة · من البيانات اللي السيستم محمّلها دلوقتي. مفيش حذف لبيانات الشركة من السيستم — كل سجل ليه قاعدته في صفحته.', Button({ type: 'primary', label: 'تصدير نسخة كاملة', icon: 'download', attrs: { 'data-full-export': '' }, onClick: run }))], null, { th: false }); // owner batch 2 (decision 31): a regular section, its padding
   }
 

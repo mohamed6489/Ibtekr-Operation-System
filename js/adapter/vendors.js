@@ -410,7 +410,12 @@
   // the server write of a local change already applied to `v` (the row in the map): a refusal puts `old` back (unless a reload
   // replaced the row meanwhile) and announces the reason; a success pushes the synced fields to the site (phase 3.3, when any),
   // logs, reloads (the server's row is the truth: woo_synced_at / push_pending among it) and announces { written, push }
-  async function write(id, v, old, run, logged, push) {
+  // 2026-11-18-data-real.md decision 1: the writes of each maker kept (the last 20) so an import row waits on its own answer —
+  // written(id) → the first refusal among them, or { ok: true } (and forgets them)
+  const pending = new Map();
+  function write(id, ...rest) { const p = writeNow(id, ...rest).catch(() => ({ ok: false, reason: 'network' })); const k = String(id); const l = (pending.get(k) || []).concat(p).slice(-20); pending.set(k, l); return p; }
+  async function written(id) { const k = String(id); const l = pending.get(k) || []; pending.delete(k); const rs = await Promise.all(l); return rs.find((r) => r && r.ok === false) || { ok: true }; }
+  async function writeNow(id, v, old, run, logged, push) {
     const r = await run();
     if (!r.ok) {
       const now = vendors.get(id); // a removed row: v is null and the map has nothing
@@ -1052,7 +1057,7 @@
     }
   }
 
-  const store = { get, all, events, update, setRate, setBank, reveal, setContract, findByName, remove, restoreMoney, create, addLogin, setLogin, setLoginStatus, setLoginPassword, revealPassword, usernameTaken, missing, canEdit, canBank, canToggle, canRate, canLogin, canBrands, canRemove: () => isAdmin(), actor,
+  const store = { get, all, events, update, written, setRate, setBank, reveal, setContract, findByName, remove, restoreMoney, create, addLogin, setLogin, setLoginStatus, setLoginPassword, revealPassword, usernameTaken, missing, canEdit, canBank, canToggle, canRate, canLogin, canBrands, canRemove: () => isAdmin(), actor,
     brand, allBrands, brandByName, namesOf, ownerAt, storeOwnerAt, rateFor, addBrand, updateBrand, transferBrand, returnBrand,
     setCategoryRate, setCommission, categories, canPush, pushVendor, // phase 3.3
     mainCategories, mainCategoryIds, // B2 (0080)

@@ -11,7 +11,10 @@
   const { h, Icon, Button } = U;
   const Tag = K.Tag;
   const ST = () => window.IBStudio, PR = () => window.IBProducts, AI = () => window.IBAI, IM = () => window.IBImages, V = () => window.IBVendors;
-  const R = () => window.IBPages.render('products');
+  // the stock assistant's chat (the owner 18 Nov — agents-brain decision 20): the same steps run from the chat — CH.draw is the chat's
+  // review popup while it is open (a no-op while the chat runs the steps), so the studio page is never drawn behind it
+  const CH = { draw: null };
+  const R = () => (CH.draw ? CH.draw() : window.IBPages.render('products'));
   // a render that keeps the field being typed in (the tables re-render on every change)
   const RF = () => {
     const a = document.activeElement; const tr = a && a.closest ? a.closest('[data-row]') : null; const key = tr ? tr.getAttribute('data-row') : null; const fl = a && a.getAttribute ? a.getAttribute('data-fl') : null;
@@ -47,6 +50,7 @@
   const hashFor = (n) => 'products-flow-' + (S.id || 'new') + '-' + n;
 
   function route(id, step) {
+    CH.draw = null; // the studio page itself (a batch the chat made opens here too)
     const n = Math.max(1, Math.min(6, Number(step) || 1));
     if (id === 'new') { start(); return; }
     S.step = n;
@@ -1476,6 +1480,8 @@
     const slot = r.colorSlot || 0; if ((x.aiColors || {})[slot]) { setSlotColor(x, slot, ['', ''], false); }
     await touch(true); R(); K.toast('اتبدلت صورة ' + r.n, 'success');
   }
+  // the sheet's rows as they are now: case 3's blank template with what was filled, the other two the template's own rows with their links
+  const sheetNow = () => (st().case === 'photos' ? blankRowsOf() : sheetRows());
   // the two copies of the sheet (comments decision 36 — «بوب اب تتقسم اتنين»)
   const COPIES = { maker: 'نسخة المبتكر', system: 'نسخة السيستم' };
   const copyName = (copy) => FD.sheetFileName(st().vendorName || st().brandName, null, COPIES[copy] || '');
@@ -1486,7 +1492,7 @@
     const take = async (copy) => {
       if (busy) return; busy = copy; draw();
       try {
-        await saveSheet(true); const s = st(); const blob = await sheetFile(blankRowsOf(), s.type, null, copy); const name = copyName(copy);
+        await saveSheet(true); const s = st(); const blob = await sheetFile(sheetNow(), s.type, null, copy); const name = copyName(copy);
         await K.saveFile(name, blob); window.__lastSheet = { copy, name, size: blob.size };
         K.toast('الملف اتنزل على جهازك: ' + name, 'success'); m.close();
       } catch (e) { busy = ''; draw(); K.toast('الملف ما اتجهّزش — جرّب تاني', 'error'); }
@@ -1517,11 +1523,11 @@
   // the way (WhatsApp / e-mail / download). What goes out is the maker's copy: the Excel is the same file «نسخة المبتكر» downloads.
   async function shareSheet() {
     if (!window.IBShare) { downloadPopup(); return; }
-    await saveSheet(true); const s = st(); const L = blankRowsOf(); const mk = V() && V().store && V().store.get && s.vendorId ? V().store.get(s.vendorId) : null;
+    await saveSheet(true); const s = st(); const L = sheetNow(); const mk = V() && V().store && V().store.get && s.vendorId ? V().store.get(s.vendorId) : null;
     const sh = FD.makerSheetOf({ rows: L }); const photos = [];
     for (let i = 0; i < L.length; i++) photos.push(await refDataUrl(L[i].ref));
     const who = s.vendorName || s.brandName || '';
-    window.IBShare.open({ title: 'شيت المنتجات' + (who ? ' — ' + who : ''), sub: L.length + ' صف · ' + s.products.length + ' منتج', name: copyName('maker').replace(/\.xlsx$/, ''),
+    window.IBShare.open({ title: 'شيت المنتجات' + (who ? ' — ' + who : ''), sub: L.length + ' صف · ' + (s.case === 'photos' ? (s.products || []).length : groups().length) + ' منتج', name: copyName('maker').replace(/\.xlsx$/, ''),
       phone: mk && mk.phone ? mk.phone : '', email: mk && mk.email ? mk.email : '', text: 'شيت المنتجات من إبتكر — املا سعر المبتكر والمقاس وابعته تاني.',
       headers: sh.head.filter((_, k) => k !== sh.refCol), rows: sh.rows.map((r, i) => r.filter((_, k) => k !== sh.refCol).map((c, k) => (k === 0 ? { text: String(c), img: photos[i] } : c))),
       note: 'اللي فاضي املاه وابعت الشيت تاني.', excel: () => sheetFile(L, s.type, null, 'maker') });
@@ -1608,5 +1614,84 @@
     return [h('div', { class: 'wiz-col wiz-studio fl', 'data-wiz-col': 'flow', 'data-flow-case': s.case }, top, Stepper(), ...body.filter(Boolean))];
   }
 
-  window.IBFlowView = { route, view, start, startWith: (pre) => { PRE = pre || null; location.hash = '#products-flow-new'; }, state: S, CASES };
+  // ---------------- the stock assistant's chat (agents-brain decision 20) ----------------
+  // the owner 18 Nov — «لما ابعت للمخزن صورة منتج تترفع يجيبلي نفس الخطوات بتاعة رفع الصورة في السيستم بس جوه الشات في شكل سؤال و جواب … و بعدين
+  // يبتدي يشتغل … عايز المساعد يطلع المعلومات جوه بوباب زي اللي بيحصل في السيستم قبل الرفع عشان لو عايز اعدل حاجة و بعديها يسالني علي الرفع
+  // او التحميل» و«يسالني و ما يولدش الا لما اوافق». The chat (studio-chat.js) asks; these run the studio's own steps on a new batch — the
+  // files go where the member would drop them, the AI fills what is missing, the prices are worked out — and the review popup shows the
+  // studio's own screens («البيانات» · «الأسعار», or «الشيت» for photos only) to edit before anything goes to the site.
+  const quiet = () => { CH.draw = () => {}; };
+  async function chatRun(pre, log) {
+    const say = typeof log === 'function' ? log : () => {};
+    if (!ST() || !ST().can()) return { ok: false, message: 'مش مسموحلك تضيف منتجات — اطلب صلاحية «إضافة منتجات»' };
+    if (SINGLE()) return { ok: false, message: 'في البيع الفردي كمّل من الاستوديو', studio: true };
+    const kase = CASES[pre.kase] ? pre.kase : 'photos'; const type = pre.type === 'Variable' ? 'Variable' : 'Simple';
+    const Vs = V(); const mk = pre.vendor && Vs && Vs.store && Vs.store.get ? Vs.store.get(pre.vendor.id) : null;
+    if (!mk) return { ok: false, message: 'اختار المبتكر الأول' };
+    if (kase !== 'photos' && mk.wooVendorId == null) return { ok: false, message: 'المبتكر ده مالوش متجر على الموقع — اعمله متجر من ملفه الأول' };
+    quiet(); ST().ensure(); if (PR() && PR().ensure) PR().ensure(); if (ST().loadStyles) ST().loadStyles();
+    const s0 = blank(kase, type); s0.vendorId = mk.id; s0.vendorName = mk.name;
+    if (pre.kinds) s0.kinds = { sizes: Math.max(0, Math.min(10, Number(pre.kinds.sizes) || 0)), colors: Math.max(0, Math.min(10, Number(pre.kinds.colors) || 0)) };
+    say('بعمل الدفعة…');
+    const r = await ST().create({ title: CASES[kase] + ' — ' + type + ' · ' + new Date().toISOString().slice(0, 10), type, state: s0, step: 1 });
+    if (!r.ok) return { ok: false, message: 'مقدرناش نعمل الدفعة — ' + why(r.reason) };
+    S.id = r.id; S.row = { id: r.id, step: 1, status: 'draft', state: s0 }; S.step = 1; S.sel.clear(); S.results = null; S.autoAi = r.id; S.autoSku = r.id; S.fromAgent = true;
+    const vd = Vs.data ? Vs.data() : null; autoBrand(mk, (vd ? vd.brands : []).filter((b) => String(b.owner) === String(mk.id)));
+    const files = Array.isArray(pre.files) ? pre.files : []; const scr = new Set((pre.screens || []).map(String));
+    const sheet = kase === 'sheet' ? files.find(isSheet) : null;
+    const imgs = files.filter(isImage); const shots = kase === 'whatsapp' ? imgs.filter((f) => scr.has(f.name)) : []; const photos = imgs.filter((f) => !shots.includes(f));
+    if (sheet) { say('بقرا الشيت…'); await takeSheet(sheet); if (!rows().length) return { ok: false, id: r.id, message: 'الشيت مافيهوش صفوف بأسماء أو أسعار' }; }
+    if (photos.length) { say('برفع ' + photos.length + ' صورة…'); await takePhotos(photos); }
+    if (shots.length) { say('الـ AI بيقرا السكرين شوتس…'); await takeScreens(shots); if (!rows().length) return { ok: false, id: r.id, message: 'الـ AI مالقاش منتجات في السكرين شوتس' }; }
+    if (kase === 'photos') {
+      if (!(st().products || []).length) return { ok: false, id: r.id, message: 'مفيش صور اترفعت' };
+      say('الـ AI بيكتب الأسامي والأقسام والألوان من الصور…'); await aiFillProducts('');
+    } else {
+      say('بعمل الـ SKU…'); await genSkus(true);
+      say('الـ AI بيملا الناقص (الاسم والوصف والقسم والخامة)…'); await aiFill(null, true);
+      rows().forEach((x) => { if (x.vendorPrice != null && (x.sale == null || !x.priceHand)) reprice(x); });
+    }
+    await touch(true); S.busy = '';
+    return { ok: true, id: r.id, count: kase === 'photos' ? st().products.length : groups().length };
+  }
+  // the review popup: the studio's own screens on this batch; «حفظ وكمّل» saves and hands back to the chat
+  function chatReview(onSave) {
+    const s = st(); if (!s) return;
+    const photos = s.case === 'photos'; let tab = photos ? 'sheet' : 'data'; let m = null;
+    const tabs = () => (photos ? null : h('div', { class: 'chips fl-rev-tabs', role: 'tablist' }, [['data', 'البيانات'], ['prices', 'الأسعار']].map(([k, l]) =>
+      h('button', { type: 'button', role: 'tab', class: 'chip' + (tab === k ? ' on' : ''), 'aria-selected': String(tab === k), 'data-fl-rev-tab': k, onClick: () => { tab = k; draw(); } }, l))));
+    const content = () => (tab === 'data' ? step3() : tab === 'prices' ? step4() : stepSheet()).filter(Boolean).filter((el) => !(el.classList && el.classList.contains('wiz-foot')));
+    const wrap = () => h('div', { class: 'wiz-col wiz-studio fl fl-rev', 'data-flow-case': s.case, 'data-fl-review': tab }, tabs(), ...content());
+    const draw = () => { if (!m) return; const b = m.el.querySelector('.modal-b'); const y = b ? b.scrollTop : 0; m.setBody(wrap()); if (b) b.scrollTop = y; };
+    const n = photos ? (s.products || []).length : groups().length;
+    m = U.Modal({ title: 'راجع المنتجات — ' + n + ' منتج' + (s.vendorName ? ' · ' + s.vendorName : ''), body: [wrap()], onClose: quiet,
+      footer: [Button({ type: 'text', label: 'إغلاق', onClick: () => m.close() }), Button({ type: 'primary', icon: 'check', label: 'حفظ وكمّل', attrs: { 'data-fl-rev-save': '' }, onClick: async () => { await touch(true); m.close(); if (onSave) onSave(); } })] });
+    m.el.classList.add('wide', 'fl-big'); CH.draw = draw;
+  }
+  // what is still missing before the site (every row its SKU, its Arabic name and a sale price)
+  function chatGaps() {
+    const s = st(); if (!s || s.case === 'photos') return [];
+    return groups().map((g) => rows()[g.rows[0]]).filter((r, i) => groups()[i].rows.some((ri) => { const x = rows()[ri]; return !FD.validSku(x.sku) || !(Number(x.sale) > 0) || !(x.nameAr || r.nameAr); }))
+      .map((r) => r.nameAr || r.nameEn || r.sku || '—');
+  }
+  async function chatImages() { quiet(); await genMissing(units()); await touch(true); return { ok: true, shots: units().reduce((t, u) => t + shotsOf(u).filter(Boolean).length, 0) }; }
+  // to the site: the photos, then the products as drafts — a product with no shot goes up with the maker's own photo (the owner: «من غير
+  // ما يولّد إلا لما أوافق»)
+  async function chatUpload(log) {
+    const say = typeof log === 'function' ? log : () => {}; quiet();
+    if (st().case === 'photos') return { ok: false, message: 'الصور بس بتطلع شيت للمبتكر — الرفع بعد ما يرجّعه' };
+    const gaps = chatGaps(); if (gaps.length) return { ok: false, gaps, message: gaps.length + ' منتج ناقصه بيانات (الـ SKU أو الاسم بالعربي أو سعر البيع)' };
+    units().forEach((u) => { const sh = shotsOf(u); if (!sh.some(Boolean)) { const r = unitRow(u); if (r && r.ref) sh[0] = r.ref; } });
+    await touch(true);
+    say('برفع الصور على الموقع…'); await uploadImages();
+    const have = resultOf().media || {}; if (mediaList().some((x) => !have[x.path])) return { ok: false, message: 'الصور مااترفعتش كلها — جرّب تاني' };
+    say('برفع المنتجات مسودة…'); await uploadSheet();
+    const res = S.results || []; const bad = res.filter((x) => x && x.error);
+    return { ok: !bad.length, done: res.length - bad.length, failed: bad.map((x) => why(x.error, x.field)), message: bad.length ? bad.length + ' منتج ماترفعش' : 'اترفعت ' + res.length + ' منتج مسودة على الموقع' };
+  }
+  const chat = { run: chatRun, review: chatReview, gaps: chatGaps, images: chatImages, previewImages: () => previewImages(), upload: chatUpload,
+    download: () => { quiet(); downloadPopup(); }, share: () => { quiet(); shareSheet(); }, id: () => S.id,
+    open: () => { CH.draw = null; if (S.id) { const s = st(); go(hashFor(s && s.case === 'photos' ? 4 : 3)); } } };
+
+  window.IBFlowView = { route, view, start, startWith: (pre) => { PRE = pre || null; location.hash = '#products-flow-new'; }, state: S, CASES, chat };
 })();

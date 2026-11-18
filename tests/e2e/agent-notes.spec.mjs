@@ -66,3 +66,15 @@ test('0124 — «الإعدادات › التنبيهات › المساعدي�
   await expect(sw).toHaveAttribute('aria-checked', 'false');
   await expect.poll(() => { const r = (mock.settings || []).find((x) => x.section === 'notif'); return r && r.data && r.data.agents && r.data.agents.dev && r.data.agents.dev.on; }).toBe(false);
 });
+
+// T7 / decision 7: the customer-service assistant's note with a ready reply opens that conversation with the reply in the box, no chat
+test('T7 — «رد جاهز»: the click opens the late conversation in «خدمة العملاء» with the assistant\'s reply in the box, nothing sent', async ({ page }) => {
+  const CID = 'd1000000-0000-4000-8000-000000000001';
+  await start(page, { agentNotes: [{ agent: 'cs', kind: 'alert', title: 'رد جاهز لـ «منى» — مستني ردنا من 90 دقيقة', body: 'منى مستني ردنا على واتساب من 90 دقيقة.\n\nالرد المقترح:\nأهلًا يا منى 🌿\nإحنا معاك دلوقتي', link: 'cs/' + CID }] });
+  await signIn(page, ADMIN);
+  await page.locator('.notif-btn').click(); await agentsNav(page).click();
+  await bell(page).locator('.ntf-item', { hasText: 'رد جاهز' }).click();
+  await expect(page).toHaveURL(/#cs-inbox$/);
+  await expect(page.locator('#cs-ta')).toHaveValue('أهلًا يا منى 🌿\nإحنا معاك دلوقتي');
+  expect(mock.mkt.writes.filter((w) => w.table === 'ai_agent_notes' && w.op === 'open')).toHaveLength(0);
+});

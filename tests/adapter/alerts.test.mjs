@@ -204,3 +204,26 @@ test('no client: load, subscribe and markRead never throw', async () => {
   assert.deepEqual(plain(await A.markRead(2)), { ok: false });
   assert.deepEqual(calls, []);
 });
+
+// agents-brain decision 7 (T7): a note with the action ready opens the place — the late conversation with the assistant's reply in the box
+test('noteOpen: a «cs/<conversation>» note opens that conversation with the reply after «الرد المقترح:», marks it read, makes no chat', async () => {
+  const CID = '11111111-2222-4333-8444-555555555555';
+  const N = { id: 7, agent: 'cs', kind: 'alert', title: 'رد جاهز لـ «منى»', body: 'منى مستني ردنا…\n\nالرد المقترح:\nأهلًا يا منى 🌿\nإحنا معاك دلوقتي', link: 'cs/' + CID, created_at: '2026-11-18T08:00:00Z' };
+  const responses = { ...loaded(), ai_agent_notes: { data: [N], error: null }, ai_agent_note_reads: { data: [], error: null } };
+  const { A, window, calls } = load({ responses });
+  const opened = [];
+  let status = 'مستنية ردنا';
+  window.IBPages = { all: () => ({ cs: { api: { data: { convs: [{ id: CID, status }] }, openConversation: (id, draft) => { opened.push([id, draft]); return true; } } } }) };
+  await A.load();
+  const r = await A.noteOpen(7);
+  assert.equal(r.ok, true);
+  assert.deepEqual(opened, [[CID, 'أهلًا يا منى 🌿\nإحنا معاك دلوقتي']]);
+  assert.ok(calls.some((c) => c.op === 'rpc' && c.args[0] === 'ai_agent_note_read'));
+  assert.ok(!calls.some((c) => c.op === 'rpc' && c.args[0] === 'ai_agent_note_open'));
+  assert.equal(A.noteList()[0].read, true);
+  // answered since: the conversation opens with no reply put in
+  status = 'مستنية العميل'; window.IBPages = { all: () => ({ cs: { api: { data: { convs: [{ id: CID, status }] }, openConversation: (id, draft) => { opened.push([id, draft]); return true; } } } }) };
+  await A.noteOpen(7);
+  assert.deepEqual(opened[1], [CID, '']);
+  assert.equal(A.draftOf('x\nالرد المقترح:\n  رد  '), 'رد'); assert.equal(A.draftOf('من غير رد'), '');
+});

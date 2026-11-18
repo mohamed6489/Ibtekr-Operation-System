@@ -21,6 +21,7 @@ import { cairoParts } from '../_shared/mkt-publish.js';
 import { SOURCES, digestPlan, emailHtml, plan, waText } from '../_shared/notify.js';
 import { delayRules, leadBy, lineDelayOf, lineElapsed, orderDelayOf, orderElapsed } from '../_shared/delay.js';
 import { OPEN as TEAM_OPEN, teamNotes } from '../_shared/agent-team.js';
+import { csLateNotes } from '../_shared/agent-actions.js';
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -257,7 +258,8 @@ export async function tick(deps: Deps, opts: { dry?: boolean } = {}): Promise<Re
   }
   if (p.state.length) { const { error } = await deps.db.from('alert_state').upsert(p.state, { onConflict: 'source_key,entity_id,target' }); if (error) throw new Error('db alert_state ' + (error.code ?? '')); }
   const team = await teamAgentNotes(deps, ctx); // decision 10: each team's assistant — its daily summary and what is late
-  const value = { ...summary, sent, team };
+  const ready = await readyActionNotes(deps, ctx, ctx.nowMs); // decision 7 / T7: the assistant prepares the action (a late reply written)
+  const value = { ...summary, sent, team, ready };
   await deps.db.from('sync_state').upsert({ key: 'notify', value, updated_at: ctx.now }, { onConflict: 'key' });
   return json(200, { result: 'ok', ...value });
 }
@@ -271,6 +273,22 @@ async function teamAgentNotes(deps: Deps, ctx: Ctx): Promise<number> {
   for (const r of ctx.roles) byTeam[String(r.name)] = ctx.members.filter((m) => m.role_id === r.id).map((m) => ({ id: m.id, name: m.name }));
   let n = 0;
   for (const x of teamNotes(ag, tk, byTeam, ctx.cairo) as Json[]) {
+    const { error } = await deps.db.rpc('ai_agent_note_add', { p_agent: x.agent, p_kind: x.kind, p_title: x.title, p_body: x.body, p_ref: x.ref, p_link: x.link });
+    if (!error) n++;
+  }
+  return n;
+}
+// agents-brain decision 7 / T7: the customer-service assistant writes a ready reply for every customer conversation waiting for us past the
+// SLA (the setting «sla_late_min», 60 by default) — the bell's click opens the conversation with the reply in its box; nothing is sent
+async function readyActionNotes(deps: Deps, ctx: Ctx, now: number): Promise<number> {
+  const ag = rows(await deps.db.from('ai_agents').select('id, archived_at').eq('id', 'cs').limit(1));
+  if (!ag.length || ag[0].archived_at) return 0;
+  const convs = rows(await deps.db.from('cs_conversations').select('id, seg, status, handle, platform, customer_id, waiting_since, snoozed_until').eq('status', 'مستنية ردنا').eq('seg', 'customers').limit(LIMIT));
+  const ids = [...new Set(convs.map((c) => c.customer_id).filter((x) => typeof x === 'string'))];
+  const names: Record<string, string> = {};
+  if (ids.length) for (const c of rows(await deps.db.from('cs_customers').select('id, name').in('id', ids.slice(0, 200)))) names[String(c.id)] = String(c.name ?? '');
+  let n = 0;
+  for (const x of csLateNotes(convs, names, now, Number((ctx.settings.cs ?? {}).sla_late_min) || 60) as Json[]) {
     const { error } = await deps.db.rpc('ai_agent_note_add', { p_agent: x.agent, p_kind: x.kind, p_title: x.title, p_body: x.body, p_ref: x.ref, p_link: x.link });
     if (!error) n++;
   }

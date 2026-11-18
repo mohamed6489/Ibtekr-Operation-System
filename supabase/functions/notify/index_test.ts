@@ -165,3 +165,22 @@ Deno.test('the team assistants: from 9:00 Cairo a summary and an alert for the t
   assertEquals(notes.map((n) => [n.p_agent, n.p_kind, n.p_ref, n.p_link]), [['cs', 'report', 'team:2026-11-08', 'tickets'], ['cs', 'alert', 'late:2026-11-08', 'tickets']]);
   assert(/TKT-0005/.test(notes[1].p_body));
 });
+
+// agents-brain decision 7 / T7: the customer-service assistant writes a ready reply for a conversation waiting past the SLA (sla_late_min)
+Deno.test('the ready reply: a customer conversation waiting past the SLA gets a cs note with the reply and its link; none within it', async () => {
+  const seed = SEED(); (seed as any).ai_agents = [{ id: 'cs', name: 'خدمة العملاء الذكية', role: null }];
+  (seed as any).cs_customers = [{ id: '00000000-0000-4000-8000-0000000000c1', name: 'منى أحمد', tags: [], consent: true, auto_consent: true, created_from: 'manual' }];
+  (seed as any).cs_conversations = [
+    { id: '00000000-0000-4000-8000-000000000001', seg: 'customers', platform: 'whatsapp', channel: 'wa1', customer_id: '00000000-0000-4000-8000-0000000000c1', handle: 'منى', status: 'مستنية ردنا', waiting_since: '2026-11-08T06:30:00.000Z', tags: [], unread: 1 },
+    { id: '00000000-0000-4000-8000-000000000002', seg: 'customers', platform: 'messenger', channel: 'messenger', handle: 'عميل ماسنجر', status: 'مستنية ردنا', waiting_since: '2026-11-08T07:40:00.000Z', tags: [], unread: 1 },
+  ];
+  const notes: any[] = [];
+  const { deps } = setup({ seed });
+  const rpc = deps.db.rpc.bind(deps.db);
+  (deps.db as any).rpc = (name: string, args: any) => { if (name === 'ai_agent_note_add') { notes.push(args); return Promise.resolve({ data: notes.length, error: null }); } return rpc(name, args); };
+  const { body } = await cron(deps);
+  assertEquals(body.ready, 1);
+  const n = notes.find((x) => x.p_ref?.startsWith('cs-late:'));
+  assertEquals([n.p_agent, n.p_kind, n.p_link], ['cs', 'alert', 'cs/00000000-0000-4000-8000-000000000001']);
+  assert(/الرد المقترح:\nأهلًا يا منى/.test(n.p_body));
+});

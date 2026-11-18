@@ -19,7 +19,7 @@ test('decision 1: «القوائم والحالات» — the lists in a side me
   await signIn(page); await open(page, 'lists');
   const nav = page.locator('[data-lists-nav]');
   await expect(nav.locator('.lst-gt')).toHaveText(['الحالات', 'الأسباب', 'قوائم تانية', 'شكل السيستم']); // the owner 17 Nov: «القائمة الجانبية» in its own group
-  await expect(nav.getByRole('tab')).toHaveCount(11);
+  await expect(nav.getByRole('tab')).toHaveCount(12);
   await expect(nav.getByRole('tab', { name: /أسباب الإلغاء/ }).locator('.lst-n')).toBeVisible();
   await nav.getByRole('tab', { name: /شركات الشحن/ }).click();
   await expect(nav.getByRole('tab', { name: /شركات الشحن/ })).toHaveAttribute('aria-selected', 'true');

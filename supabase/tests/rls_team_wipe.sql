@@ -52,4 +52,5 @@ do $$ begin
   if exists (select 1 from public.hr_documents) then raise exception 'case papers gone failed'; end if;
   if not exists (select 1 from public.activity_log where action = 'settings.team.wipe') then raise exception 'case logged failed'; end if;
 end $$;
+do $$ begin raise notice 'rls_team_wipe: ok'; end $$;
 rollback;

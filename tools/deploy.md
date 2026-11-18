@@ -2420,3 +2420,8 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 2. الرفض مشروط بـ `WOO_PUSH_ENABLED = 1` زي الموافقة. أول رفض حقيقي: من «الحسابات › حسابات المبتكرين» على طلب «مستني الموافقة» — اتأكد على Dokan إن الطلب بقى Cancelled والمبلغ رجع لرصيد المبتكر، و`woo_sync_log` فيه `withdraw_reject` من غير السبب.
 3. «تحديث من Dokan» بيقرا كل الأرصدة (4 في المرة) — لو الطلب طوّل عن 60 ثانية مع مبتكرين كتير، قلّل في `_shared/dokan-balances.js` أو قسّمه.
 
+#### 2.7.115 التنضيف التلقائي كل 48 ساعة (18 نوفمبر — `0132`)
+1. طبّق `0132_auto_cleanup.sql` (`cleanup_plan` / `data_cleanup`، `service_role` بس) وشغّل `rls_auto_cleanup.sql` على الحي من «RLS live».
+2. انشر `notify` من «Deploy functions» — التيك الجاي بيعمل أول تنضيف (والنتيجة في `sync_state` «cleanup»: `files` / `files_failed` / `rows` / `more`).
+3. لو أول تشغيلة لقت كتير (`more = true`) بتكمّل كل 15 دقيقة لحد ما تخلص، وبعدها مرة كل 48 ساعة.
+

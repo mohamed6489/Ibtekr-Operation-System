@@ -13,6 +13,8 @@
 //   POST { action } with a member's Authorization: Bearer <jwt>:
 //     status  (the admin) → the last tick (sync_state «notify»), the channels' readiness (Resend key / WhatsApp link / template).
 //     tick    (the admin, by hand) → the same as the cron; { dry: true } → the plan without any write or send (a preview).
+//   The same tick, once every 48 hours, runs the automatic clean-up (the owner 18 Nov — 0132, _shared/cleanup.js): the old logs, the
+//   expired links, the read alerts, the deleted chats and the old files go; sync_state «cleanup» keeps the last run's counts.
 // Nothing here logs a token, a phone number, an e-mail address or a message text.
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { vaultEnv } from '../_shared/secrets.js';
@@ -23,6 +25,7 @@ import { delayRules, leadBy, lineDelayOf, lineElapsed, orderDelayOf, orderElapse
 import { OPEN as TEAM_OPEN, teamNotes } from '../_shared/agent-team.js';
 import { csLateNotes } from '../_shared/agent-actions.js';
 import { DEV_PREFIX, devDue, devNotes } from '../_shared/dev-check.js';
+import { CLEANUP_LIMIT, chunks, cleanupDue, cleanupIds, cleanupWork } from '../_shared/cleanup.js';
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -261,7 +264,8 @@ export async function tick(deps: Deps, opts: { dry?: boolean } = {}): Promise<Re
   const team = await teamAgentNotes(deps, ctx); // decision 10: each team's assistant — its daily summary and what is late
   const ready = await readyActionNotes(deps, ctx, ctx.nowMs); // decision 7 / T7: the assistant prepares the action (a late reply written)
   const dev = await devCheckNotes(deps, ctx).catch((e) => { console.error('notify dev check: ' + quiet(e)); return null; }); // decision 5 «طريقة أ»: the developer's daily check — a note per problem with its fix
-  const value = { ...summary, sent, team, ready, ...(dev ? { dev } : {}) };
+  const clean = await autoCleanup(deps, ctx).catch((e) => { console.error('notify cleanup: ' + quiet(e)); return null; }); // the owner 18 Nov: the clean-up every 48 hours (0132)
+  const value = { ...summary, sent, team, ready, ...(dev ? { dev } : {}), ...(clean ? { clean } : {}) };
   await deps.db.from('sync_state').upsert({ key: 'notify', value, updated_at: ctx.now }, { onConflict: 'key' });
   return json(200, { result: 'ok', ...value });
 }
@@ -331,6 +335,32 @@ async function devCheckNotes(deps: Deps, ctx: Ctx): Promise<Json | null> {
   if (!ce && typeof c === 'number') cleared = c;
   const value = { day: ctx.cairo.day, notes: n, cleared, unread_sources: r.keep };
   await deps.db.from('sync_state').upsert({ key: 'dev_check', value, updated_at: ctx.now }, { onConflict: 'key' });
+  return value;
+}
+// the owner 18 Nov («تنظيف اتوماتيك للdatabase كل 48 ساعة للحاجة اللي ملهاش لازمة»): once every 48 hours the old logs, the expired
+// links, the read alerts, the assistants' old notes, the deleted chats, the archived studio batches, the images tool's old files and
+// the finished video jobs go (supabase/migrations/0132_auto_cleanup.sql has the rules). The files first through the Storage API, then
+// the rows whose files went (data_cleanup checks each one again); a run that hit the limit goes on at the next tick. Before 0132 = nothing.
+async function autoCleanup(deps: Deps, ctx: Ctx): Promise<Json | null> {
+  const last = await deps.db.from('sync_state').select('value').eq('key', 'cleanup').maybeSingle();
+  if (!cleanupDue(ctx.nowMs, isObj(last?.data) ? last.data.value : null)) return null;
+  const { data: plan, error } = await deps.db.rpc('cleanup_plan', { p_limit: CLEANUP_LIMIT });
+  if (error) return null; // 0132 not applied yet
+  const work = cleanupWork(plan, CLEANUP_LIMIT) as unknown as { buckets: Record<string, string[]>; rows: Json[]; full: boolean };
+  const failed = new Set<string>(); let files = 0;
+  for (const [bucket, list] of Object.entries(work.buckets)) {
+    for (const part of chunks(list)) {
+      try {
+        const { error: re } = await deps.db.storage.from(bucket).remove(part);
+        if (re) part.forEach((f: string) => failed.add(bucket + '/' + f)); else files += part.length;
+      } catch { part.forEach((f: string) => failed.add(bucket + '/' + f)); }
+    }
+  }
+  const ids = cleanupIds(work.rows, failed) as unknown as { studio: string[]; jobs: number[]; chats: string[] };
+  const { data: counts, error: de } = await deps.db.rpc('data_cleanup', { p_studio: ids.studio, p_jobs: ids.jobs, p_chats: ids.chats });
+  if (de) throw new Error('db data_cleanup ' + (de.code ?? ''));
+  const value = { last_at: ctx.now, more: work.full, files, files_failed: failed.size, rows: isObj(counts) ? counts : {} };
+  await deps.db.from('sync_state').upsert({ key: 'cleanup', value, updated_at: ctx.now }, { onConflict: 'key' });
   return value;
 }
 function countBy(items: Item[]) { const g: Record<string, number> = {}; for (const it of items) g[it.key] = (g[it.key] || 0) + 1; return g; }

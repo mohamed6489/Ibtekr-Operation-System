@@ -213,3 +213,31 @@ Deno.test('the developer\'s check: a note per problem with «للجلسة:», on
   assertEquals(notes.filter((x) => x.p_agent === 'dev').length, 0);
   assertEquals((again.body as any).dev, undefined);
 });
+
+Deno.test('the owner 18 Nov — the clean-up every 48 hours (0132): the files through Storage first, then the rows whose files went; not again before 48 hours', async () => {
+  const { db, deps } = setup();
+  (db as any).storage = (() => { const store = new Set(['studio/b1/a.webp', 'ai-images/m1/x.webp', 'marketing/agents/m1/c9/img.png']); const calls: any[] = [];
+    return { calls, from: (bucket: string) => ({ remove: async (paths: string[]) => { calls.push([bucket, paths]); if (bucket === 'studio') return { data: null, error: { message: 'down' } }; paths.forEach((p) => store.delete(bucket + '/' + p)); return { data: paths.map((name) => ({ name })), error: null }; } }) }; })();
+  const cleaned: any[] = [];
+  const rpc = db.rpc.bind(db);
+  (db as any).rpc = (name: string, args: any) => {
+    if (name === 'cleanup_plan') return Promise.resolve({ data: { studio: [{ id: 'b1', files: ['b1/a.webp'] }], images: ['m1/x.webp'], jobs: [{ id: 7, file: null }], chats: [{ id: 'c9', files: ['agents/m1/c9/img.png'] }] }, error: null });
+    if (name === 'data_cleanup') { cleaned.push(args); return Promise.resolve({ data: { sync_log: 3, alerts: 1 }, error: null }); }
+    return rpc(name, args);
+  };
+  const { body } = await cron(deps);
+  assertEquals(cleaned, [{ p_studio: [], p_jobs: [7], p_chats: ['c9'] }], 'the batch whose file would not delete waits for the next run');
+  assertEquals((body as any).clean.files, 2); assertEquals((body as any).clean.files_failed, 1); assertEquals((body as any).clean.rows, { sync_log: 3, alerts: 1 });
+  assertEquals(db.row('sync_state', 'cleanup', 'key').value.more, false);
+  const again = await cron(deps);
+  assertEquals(cleaned.length, 1, 'not again before 48 hours');
+  assertEquals((again.body as any).clean, undefined);
+});
+
+Deno.test('the clean-up before 0132 (no plan function) is nothing and never fails the tick', async () => {
+  const { db, deps } = setup();
+  const rpc = db.rpc.bind(db);
+  (db as any).rpc = (name: string, args: any) => (name === 'cleanup_plan' ? Promise.resolve({ data: null, error: { code: 'PGRST202' } }) : rpc(name, args));
+  const { res, body } = await cron(deps);
+  assertEquals(res.status, 200); assertEquals((body as any).clean, undefined);
+});

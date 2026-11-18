@@ -167,7 +167,7 @@ import { vaultEnv } from '../_shared/secrets.js';
 import { isSingle, readStore, SINGLE_OFF_ACTIONS, STORE_FREE_ACTIONS, wooActive } from '../_shared/store/index.js';
 import { ConfigError, WooError, errorText, makeScrubber, wooApi } from '../_shared/woo-api.js';
 import { AR_FIELDS, BATCH_FIELDS, EDIT_FIELDS, VARIATION_FIELDS, brandNamesOf, cleanFields, editView, sharedOf, toWoo, variationView, withBrandAttr } from '../_shared/woo-products.js';
-import { STUDIO_ATTRS, VARIATION_GALLERY_KEY, buildStudio, fetchSheetCsv, matchWooBrand, siteStylesOnly, styleTerms, wooBrandIds } from '../_shared/woo-studio.js';
+import { STUDIO_ATTRS, VARIATION_GALLERY_KEY, buildStudio, fetchSheetCsv, matchWooBrand, siteStylesOnly, styleKey, styleTerms, wooBrandIds } from '../_shared/woo-studio.js';
 import { duplicateAr, duplicatePayload, duplicateSku, duplicateVariation, variationSku } from '../_shared/woo-duplicate.js';
 import { OWNED, siteQuantities, skuList } from '../_shared/woo-inventory.js';
 import { CART_HOURS, CART_PATH, cartRows } from '../_shared/woo-carts.js';
@@ -184,12 +184,12 @@ export type Deps = { env: Record<string, string | undefined>; fetch: typeof fetc
 type Ctx = Awaited<ReturnType<typeof writeContext>>;
 type Run = { db: Db; env: Deps['env']; woo: () => ReturnType<typeof wooApi>; ctx: () => Promise<Ctx>; kind: 'cron' | 'manual'; now: () => string; single?: boolean };
 
-const ACTIONS = ['states', 'categories', 'orders', 'vendors', 'products', 'all', 'push_status', 'push_vendor', 'register_webhooks', 'probe_store', 'probe_dokan', 'accounts', 'statement', 'withdraw_approve', 'withdraw_reject', 'withdraw_create', 'withdrawals', 'order_trash', 'suborder_trash', 'line_trash', 'line_qty', 'line_add', 'suborder_status', 'order_create', 'order_pay_link',
+const ACTIONS = ['states', 'categories', 'orders', 'vendors', 'products', 'all', 'push_status', 'push_vendor', 'register_webhooks', 'probe_store', 'probe_dokan', 'accounts', 'statement', 'withdraw_approve', 'withdraw_reject', 'withdraw_create', 'withdrawals', 'style_create', 'style_update', 'order_trash', 'suborder_trash', 'line_trash', 'line_qty', 'line_add', 'suborder_status', 'order_create', 'order_pay_link',
   'vendor_photo', 'vendor_store', 'product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'studio_media', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push', 'product_duplicate', 'carts',
   'category_get', 'category_update', 'category_delete', 'category_order', 'thumbs', 'styles', 'wp_updates', 'site_speed', 'brand_site', 'vendor_delete'];
 // phase 5: the product actions a person runs (never the sync secret); phase 5.2: the studio's upload, a new category, a sheet link;
 // phase 5.4: the images tool's results onto a product; B4 (11 Nov): the categories tab's read, edit and delete
-const PRODUCT_ACTIONS = ['product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'studio_media', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push', 'product_duplicate',
+const PRODUCT_ACTIONS = ['product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'studio_media', 'category_create', 'studio_sheet', 'style_create', 'style_update', 'product_images_add', 'inventory_push', 'product_duplicate',
   'category_get', 'category_update', 'category_delete', 'category_order', 'thumbs', 'styles'];
 const PRODUCT_BATCH_MAX = 100;
 const ACCOUNTS_BATCH = 50; // stats requests per run (one per maker; the hourly cron goes round the list)
@@ -253,6 +253,8 @@ async function authorize(req: Request, deps: Deps, action: string, args: Json): 
   if (action === 'products_trash' || action === 'products_restore') return (await admin()) || (await perm('products.trash')) ? 'member' : null;
   // phase 5.2 (decisions 7 / 8 / 13): the studio's upload, a new category and reading a sheet link need products.add = F
   if (action === 'studio_upload' || action === 'studio_media' || action === 'category_create' || action === 'studio_sheet') return (await admin()) || (await perm('products.add')) ? 'member' : null;
+  // the owner 18 Nov: a style of the site added or renamed from the settings — the same people as the categories
+  if (action === 'style_create' || action === 'style_update') return (await admin()) || (await perm('products.add')) ? 'member' : null;
   // B4 (the owner, 11 Nov): the categories tab — reading one for «تعديل», editing and deleting it — the same people who add one
   if (action === 'category_get' || action === 'category_update' || action === 'category_delete' || action === 'category_order') return (await admin()) || (await perm('products.add')) ? 'member' : null;
   // phase 12 T2 (decision 9): a copy of a product is a new product — products.add = F, like the studio
@@ -2513,9 +2515,56 @@ async function siteStyles(run: Run) {
     return json(200, { action: 'styles', result: 'error', reason: wooCode(e) });
   }
 }
+// style_create { en, ar } / style_update { id, en?, ar? } (the owner 18 Nov — «لما اضيف استايل جديد … لو ضيفته علي السيستم ضيفه علي
+// الويبسايت انجليزي و عربي … اعملي مكان ليه فالاعدادات»; «المسح لا»): a style of the site's «Product Style» attribute — the English term,
+// then the Arabic one as its WPML translation; a rename writes the names given (the Arabic made when it has none). Never a delete. The
+// admin or products.add = F (the same people as the categories), never the sync secret, WOO_PUSH_ENABLED; a name another style already
+// has (styleKey — the Arabic letter forms fold) = 409 exists. woo_sync_log keeps the ids only.
+const styleName = (v: unknown) => { const t = typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : ''; return t.length >= 2 && t.length <= 40 && !/[<>%"\\]/.test(t) ? t : null; };
+const AR_LETTERS = /[\u0600-\u06FF]/;
+async function styleWrite(run: Run, args: Json, mode: 'create' | 'update') {
+  const action = mode === 'create' ? 'style_create' : 'style_update';
+  const id = mode === 'update' ? wooId(args.id) : null;
+  const en = args.en == null || args.en === '' ? null : styleName(args.en);
+  const ar = args.ar == null || args.ar === '' ? null : styleName(args.ar);
+  const bad = (args.en && !en) ? 'en' : (args.ar && (!ar || !AR_LETTERS.test(ar))) ? 'ar' : mode === 'create' && !en ? 'en' : mode === 'create' && !ar ? 'ar' : mode === 'update' && id === null ? 'id' : mode === 'update' && !en && !ar ? 'nothing' : null;
+  if (bad) return json(400, { error: 'bad_request', field: bad });
+  const entry = { kind: 'push', direction: 'out', entity: 'pa_style', entity_id: id === null ? null : String(id), action };
+  if (!pushEnabled(run.env)) { await logSync(run.db, { ...entry, result: 'skipped', detail: { reason: 'push_disabled' } }); return json(200, { action, result: 'skipped', reason: 'push_disabled' }); }
+  const ctx = await run.ctx();
+  const fail = async (e: unknown) => { if (!(e instanceof WooError)) throw e; await logSync(run.db, { ...entry, result: 'error', detail: { error: wooCode(e) } }); return json(200, { action, result: 'error', reason: wooCode(e) }); };
+  let site: { attribute: boolean; attr?: number; styles: Json[] };
+  try { site = await readStyles(ctx); } catch (e) { return await fail(e); }
+  if (!site.attribute || !site.attr) return json(409, { error: 'no_attribute' });
+  const path = `wc/v3/products/attributes/${site.attr}/terms`;
+  const cur = id === null ? null : site.styles.find((x) => wooId(x.id) === id) ?? null;
+  if (mode === 'update' && !cur) return json(404, { error: 'not_found' });
+  const others = site.styles.filter((x) => x !== cur);
+  if ((en && others.some((x) => styleKey(x.en) === styleKey(en) || styleKey(x.ar) === styleKey(en))) || (ar && others.some((x) => styleKey(x.ar) === styleKey(ar) || styleKey(x.en) === styleKey(ar))))
+    return json(409, { error: 'exists', field: en && others.some((x) => styleKey(x.en) === styleKey(en) || styleKey(x.ar) === styleKey(en)) ? 'en' : 'ar' });
+  // a style only in Arabic on the site (no English term): the term itself is the Arabic one
+  const arOnly = !!cur && wooId(cur.arId) === id; // styleTerms gives it its own id as arId (and its Arabic name as en)
+  let enId = id; let arId = cur && cur.arId != null && (arOnly || wooId(cur.arId) !== id) ? wooId(cur.arId) : null;
+  try {
+    if (mode === 'create') { const t = (await ctx.woo.post(path, { name: en, lang: 'en', wpml_language: 'en' })).data; enId = wooId(isObj(t) ? t.id : null); if (enId === null) return json(502, { error: 'woo_error' }); }
+    else if (en && en !== cur!.en && !arOnly) await ctx.woo.put(`${path}/${id}`, { name: en });
+  } catch (e) { return await fail(e); }
+  // the Arabic: soft — a failure is said in the answer, the English term stays
+  let arState = 'none';
+  if (ar && (mode === 'create' || ar !== cur!.ar || arId === null)) {
+    try {
+      if (arId !== null) await ctx.woo.put(`${path}/${arId}`, { name: ar }, { lang: 'ar' });
+      else { const t = (await ctx.woo.post(path, { name: ar, lang: 'ar', wpml_language: 'ar', translation_of: enId })).data; arId = wooId(isObj(t) ? t.id : null); }
+      arState = 'ok';
+    } catch (e) { if (!(e instanceof WooError)) throw e; arState = 'failed'; }
+  }
+  await logSync(run.db, { ...entry, entity_id: String(enId), result: 'ok', detail: { id: enId, ar_id: arId, ar: arState } });
+  return json(200, { action, result: 'ok', id: enId, arId, ar: arState });
+}
+
 // the site's style terms (a read) — also what studio_upload checks a product's style against (the owner 18 Nov: «الاستايل ييجي من
 // الاستايلات اللي علي الويبسايت فقط»)
-async function readStyles(ctx: Ctx): Promise<{ attribute: boolean; styles: Json[] }> {
+async function readStyles(ctx: Ctx): Promise<{ attribute: boolean; attr?: number; styles: Json[] }> {
   {
     const attrs = (await ctx.woo.get('wc/v3/products/attributes')).data;
     const attr = (Array.isArray(attrs) ? attrs : []).find((a: Json) => isObj(a) && String(a.slug) === STUDIO_ATTRS.style);
@@ -2538,7 +2587,7 @@ async function readStyles(ctx: Ctx): Promise<{ attribute: boolean; styles: Json[
     // one entry per style: the Arabic terms WPML hands back with the English read are folded into their English term, and the
     // same style twice is once (owner 16 Nov — `styleTerms`)
     const styles = styleTerms(en, ar, plainName) as Json[];
-    return { attribute: true, styles };
+    return { attribute: true, attr: id, styles };
   }
 }
 
@@ -2840,6 +2889,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'studio_upload') return await studioUpload(run, args);
     if (action === 'studio_media') return await studioMedia(run, args);
     if (action === 'category_create') return await categoryCreate(run, args);
+    if (action === 'style_create' || action === 'style_update') return await styleWrite(run, args, action === 'style_create' ? 'create' : 'update');
     if (action === 'category_get') return await categoryGet(run, args);
     if (action === 'category_update') return await categoryUpdate(run, args);
     if (action === 'category_delete') return await categoryDelete(run, args);

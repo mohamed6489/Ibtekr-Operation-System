@@ -175,7 +175,7 @@
         const s = error && error.context && error.context.status;
         let b = null; try { b = error && error.context && typeof error.context.json === 'function' ? await error.context.json() : null; } catch (e) { b = null; }
         // B4: a category still in use answers 409 { error: has_products | has_children | has_makers, count } — said as it is
-        if (s === 409) return { ok: false, reason: 'conflict', error: b && typeof b.error === 'string' ? b.error : 'conflict', count: b && Number.isInteger(b.count) ? b.count : null };
+        if (s === 409) return { ok: false, reason: 'conflict', error: b && typeof b.error === 'string' ? b.error : 'conflict', count: b && Number.isInteger(b.count) ? b.count : null, ...(b && b.field ? { field: String(b.field) } : {}) };
         return { ok: false, reason: s === 401 || s === 403 ? 'forbidden' : s === 400 ? 'invalid' : s === 404 ? 'missing' : 'network', field: b && b.field ? String(b.field) : null };
       }
       return { ok: true, body: data };
@@ -267,10 +267,23 @@
     if (!stylesP) stylesP = (async () => {
       const r = await invoke({ action: 'styles' });
       const list = r.ok && r.body && r.body.result === 'ok' && Array.isArray(r.body.styles) ? r.body.styles : null;
-      if (list) { styles = list.filter((x) => x && typeof x.en === 'string' && x.en.trim()).map((x) => ({ en: x.en.trim(), ar: typeof x.ar === 'string' ? x.ar.trim() : '' })); emit({ styles: true }); }
+      if (list) { styles = list.filter((x) => x && typeof x.en === 'string' && x.en.trim()).map((x) => ({ id: Number.isInteger(x.id) ? x.id : null, arId: Number.isInteger(x.arId) ? x.arId : null, en: x.en.trim(), ar: typeof x.ar === 'string' ? x.ar.trim() : '', count: Number(x.count) || 0 })); emit({ styles: true }); }
       stylesP = null; return styles || [];
     })();
     return stylesP;
+  }
+
+  // the owner 18 Nov («لما اضيف استايل … ضيفه علي الويبسايت انجليزي و عربي»; «المسح لا»): a style of the site added or renamed from the
+  // settings — woo-sync style_create / style_update (English, then the Arabic as its translation); the list is read again after
+  // → { ok, id, arId, ar: 'ok' | 'failed' | 'none' } | { ok: false, reason: 'conflict' (error: exists, field) | 'push_disabled' | … }
+  async function styleSave(row) {
+    const id = row && row.id != null ? Number(row.id) : null;
+    const r = await invoke(Object.assign({ action: id ? 'style_update' : 'style_create' }, id ? { id } : {}, row.en ? { en: String(row.en).trim() } : {}, row.ar ? { ar: String(row.ar).trim() } : {}));
+    if (!r.ok) return r;
+    if (r.body.result !== 'ok') return { ok: false, reason: r.body.reason || r.body.result };
+    quiet(() => window.IBActivity && window.IBActivity.log(id ? 'product.style.update' : 'product.style.create', '#' + r.body.id, { entity: 'pa_style', entity_id: String(r.body.id) }));
+    await loadStyles(true);
+    return { ok: true, id: r.body.id, arId: r.body.arId || null, ar: r.body.ar || 'none' };
   }
 
   function clear() { gen++; st = 'idle'; batches = []; colors = []; nextSerial = null; urls.clear(); styles = null; stylesP = null; }
@@ -278,7 +291,7 @@
   window.IBStudio = {
     load, ensure, clear, state: () => st, can, BUCKET,
     batches: () => batches.slice(), colors: () => colors.slice(), nextSerial: () => nextSerial,
-    open, create, save, archive, addColor, takeSerials, toWebp, uploadImage, removeImage, imageUrl, upload, createCategory, readSheetLink, siteStyles, loadStyles,
+    open, create, save, archive, addColor, takeSerials, toWebp, uploadImage, removeImage, imageUrl, upload, createCategory, readSheetLink, siteStyles, loadStyles, styleSave,
     media, bytesOf, // the three flows (14 Nov)
     categoryGet, categoryUpdate, categoryDelete, categoryOrder, // B4 (11 Nov): the categories tab · categoryOrder: comments decision 56
   };

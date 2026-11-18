@@ -3223,7 +3223,7 @@ Deno.test('styles (comments decision 51): whoever sees the products, never the s
   assertEquals(woo.calls.length, 0);
   const { res, body } = await call(deps, { action: 'styles' }, { jwt: 'jwt-pview' });
   assertEquals(res.status, 200);
-  assertEquals({ ...body, styles: body.styles.map(({ count: _c, ...x }: any) => x) }, { action: 'styles', result: 'ok', attribute: true, styles: [{ id: 71, en: 'Boho', ar: 'بوهو' }, { id: 72, en: 'Wabi Sabi', ar: '' }, { id: 73, en: 'Mid-Century', ar: 'ميد سنشري' }] });
+  assertEquals({ ...body, styles: body.styles.map(({ count: _c, arId: _a, ...x }: any) => x) }, { action: 'styles', result: 'ok', attribute: true, styles: [{ id: 71, en: 'Boho', ar: 'بوهو' }, { id: 72, en: 'Wabi Sabi', ar: '' }, { id: 73, en: 'Mid-Century', ar: 'ميد سنشري' }] });
   assert(body.styles.every((x: any) => typeof x.count === 'number'), 'each style says how many products carry it (the owner 18 Nov)');
   assertEquals(woo.calls.every((c: any) => c.method === 'GET'), true);
   assertEquals(db.rows('woo_sync_log').length, 0);
@@ -3232,12 +3232,61 @@ Deno.test('styles (comments decision 51): whoever sees the products, never the s
   assertEquals((await call(none.deps, { action: 'styles' }, { jwt: 'jwt-pview' })).body, { action: 'styles', result: 'ok', attribute: false, styles: [] });
   // the Arabic read refused: the English names alone
   const half = setup({ routes: { 'GET wc/v3/products/attributes': { body: [{ id: 14, slug: 'pa_style' }] }, 'GET wc/v3/products/attributes/14/terms': (c: any) => (c.query.lang === 'ar' ? { status: 500, body: { code: 'x' } } : { body: EN.slice(0, 1) }) } });
-  assertEquals((await call(half.deps, { action: 'styles' }, { jwt: 'jwt-pview' })).body.styles.map(({ count: _c, ...x }: any) => x), [{ id: 71, en: 'Boho', ar: '' }]);
+  assertEquals((await call(half.deps, { action: 'styles' }, { jwt: 'jwt-pview' })).body.styles.map(({ count: _c, arId: _a, ...x }: any) => x), [{ id: 71, en: 'Boho', ar: '' }]);
   // the English read handed every language back (owner 16 Nov — «بوهيمي» twice): one entry per style, asked for in English
   const mixed = [{ id: 81, name: 'Bohemian', translations: { en: 81, ar: 181 } }, { id: 181, name: 'بوهيمي', translations: { en: 81, ar: 181 } }, { id: 82, name: 'Minimal' }];
   const both = setup({ routes: { 'GET wc/v3/products/attributes': { body: [{ id: 14, slug: 'pa_style' }] }, 'GET wc/v3/products/attributes/14/terms': (c: any) => ({ body: c.query.lang === 'ar' ? mixed.slice(1, 2) : mixed }) } });
-  assertEquals((await call(both.deps, { action: 'styles' }, { jwt: 'jwt-pview' })).body.styles.map(({ count: _c, ...x }: any) => x), [{ id: 81, en: 'Bohemian', ar: 'بوهيمي' }, { id: 82, en: 'Minimal', ar: '' }]);
+  assertEquals((await call(both.deps, { action: 'styles' }, { jwt: 'jwt-pview' })).body.styles.map(({ count: _c, arId: _a, ...x }: any) => x), [{ id: 81, en: 'Bohemian', ar: 'بوهيمي' }, { id: 82, en: 'Minimal', ar: '' }]);
   assertEquals(both.woo.calls.filter((c: any) => c.path.endsWith('/terms')).map((c: any) => c.query.lang), ['en', 'ar']);
+});
+
+// the owner 18 Nov — «لما اضيف استايل … ضيفه علي الويبسايت انجليزي و عربي … اعملي مكان ليه فالاعدادات»; «المسح لا»
+const STYLE_ROUTES = (extra: Record<string, unknown> = {}) => {
+  const terms: any[] = [{ id: 81, name: 'Bohemian', count: 1107, translations: { en: 81, ar: 181 } }, { id: 181, name: 'بوهيمى', count: 1235, translations: { en: 81, ar: 181 } }, { id: 82, name: 'Modern', count: 333 }, { id: 183, name: 'تراثى', count: 40, translations: { ar: 183 } }];
+  return { 'GET wc/v3/products/attributes': { body: [{ id: 14, slug: 'pa_style' }] },
+    'GET wc/v3/products/attributes/14/terms': (c: any) => ({ body: c.query.lang === 'ar' ? terms.filter((x) => x.id > 100) : terms }),
+    'POST wc/v3/products/attributes/14/terms': (c: any) => ({ status: 201, body: { id: c.body.lang === 'ar' ? 190 : 90, name: c.body.name } }),
+    'PUT wc/v3/products/attributes/14/terms/81': (c: any) => ({ body: { id: 81, name: c.body.name } }),
+    'PUT wc/v3/products/attributes/14/terms/181': (c: any) => ({ body: { id: 181, name: c.body.name } }),
+    'PUT wc/v3/products/attributes/14/terms/82': (c: any) => ({ body: { id: 82, name: c.body.name } }),
+    'PUT wc/v3/products/attributes/14/terms/183': (c: any) => ({ body: { id: 183, name: c.body.name } }), ...extra };
+};
+Deno.test('style_create: the English term, then the Arabic as its WPML translation; the admin or products.add only, never the sync secret; WOO_PUSH_ENABLED; a name the site has = 409', async () => {
+  const { db, woo, deps } = setup({ routes: STYLE_ROUTES(), env: PUSH_ON });
+  assertEquals((await call(deps, { action: 'style_create', en: 'Rustic', ar: 'ريفى' })).res.status, 401, 'never the sync secret');
+  assertEquals((await call(deps, { action: 'style_create', en: 'Rustic', ar: 'ريفى' }, { jwt: 'jwt-pview' })).res.status, 401, 'products.view only');
+  assertEquals((await call(deps, { action: 'style_create', en: 'Rustic', ar: 'Rustic' }, { jwt: 'jwt-admin' })).res.status, 400, 'the Arabic name in Arabic');
+  assertEquals((await call(deps, { action: 'style_create', en: 'Rustic' }, { jwt: 'jwt-admin' })).res.status, 400, 'both names');
+  const dup = await call(deps, { action: 'style_create', en: 'bohemian', ar: 'جديد' }, { jwt: 'jwt-admin' });
+  assertEquals([dup.res.status, dup.body.error, dup.body.field], [409, 'exists', 'en']);
+  assertEquals((await call(deps, { action: 'style_create', en: 'Rural', ar: 'بوهيمي' }, { jwt: 'jwt-admin' })).body.field, 'ar', '«بوهيمي» = «بوهيمى»');
+  const { res, body } = await call(deps, { action: 'style_create', en: ' Rustic ', ar: 'ريفى' }, { jwt: 'jwt-admin' });
+  assertEquals([res.status, body.result, body.id, body.arId, body.ar], [200, 'ok', 90, 190, 'ok']);
+  const posts = woo.calls.filter((c: any) => c.method === 'POST').map((c: any) => c.body);
+  assertEquals(posts, [{ name: 'Rustic', lang: 'en', wpml_language: 'en' }, { name: 'ريفى', lang: 'ar', wpml_language: 'ar', translation_of: 90 }]);
+  assertEquals(woo.calls.some((c: any) => c.method === 'DELETE'), false);
+  const log = db.rows('woo_sync_log').at(-1);
+  assertEquals([log.entity, log.action, log.result, log.detail], ['pa_style', 'style_create', 'ok', { id: 90, ar_id: 190, ar: 'ok' }]);
+  const off = setup({ routes: STYLE_ROUTES() });
+  assertEquals((await call(off.deps, { action: 'style_create', en: 'Rustic', ar: 'ريفى' }, { jwt: 'jwt-admin' })).body.reason, 'push_disabled');
+  assertEquals(off.woo.calls.length, 0);
+});
+
+Deno.test('style_update: the English by its id, the Arabic on its translation (lang=ar), made when the style has none; a missing id = 404; never a delete', async () => {
+  const { woo, deps } = setup({ routes: STYLE_ROUTES(), env: PUSH_ON });
+  const a = await call(deps, { action: 'style_update', id: 81, en: 'Boho Chic', ar: 'بوهو شيك' }, { jwt: 'jwt-admin' });
+  assertEquals([a.body.result, a.body.id, a.body.arId, a.body.ar], ['ok', 81, 181, 'ok']);
+  const puts = woo.calls.filter((c: any) => c.method === 'PUT').map((c: any) => [c.path, c.body, c.query ?? null]);
+  assertEquals(puts, [['wc/v3/products/attributes/14/terms/81', { name: 'Boho Chic' }, {}], ['wc/v3/products/attributes/14/terms/181', { name: 'بوهو شيك' }, { lang: 'ar' }]]);
+  const b = await call(deps, { action: 'style_update', id: 82, ar: 'مودرن' }, { jwt: 'jwt-admin' });
+  assertEquals([b.body.result, b.body.arId], ['ok', 190], 'Modern had no Arabic: it is made');
+  assertEquals(woo.calls.at(-1)!.body, { name: 'مودرن', lang: 'ar', wpml_language: 'ar', translation_of: 82 });
+  assertEquals((await call(deps, { action: 'style_update', id: 999, en: 'X y' }, { jwt: 'jwt-admin' })).res.status, 404);
+  assertEquals((await call(deps, { action: 'style_update', id: 82, en: 'Bohemian' }, { jwt: 'jwt-admin' })).res.status, 409, 'another style\'s name');
+  const c = await call(deps, { action: 'style_update', id: 183, ar: 'تراثي قديم' }, { jwt: 'jwt-admin' });
+  assertEquals([c.body.result, c.body.arId], ['ok', 183], 'a style only in Arabic: its own term is renamed, no new translation');
+  assertEquals([woo.calls.at(-1)!.method, woo.calls.at(-1)!.path, woo.calls.at(-1)!.query], ['PUT', 'wc/v3/products/attributes/14/terms/183', { lang: 'ar' }]);
+  assertEquals(woo.calls.some((c: any) => c.method === 'DELETE'), false);
 });
 
 Deno.test('thumbs (comments decision 10): a member who sees the orders or the products, never the sync secret; only the site\'s own uploads, the smallest copy first, never a redirect, by the bytes themselves; what cannot be read is null; nothing written or logged', async () => {

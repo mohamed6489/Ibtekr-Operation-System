@@ -2417,7 +2417,7 @@ export async function installSupabaseMock(page, opts = {}) {
       if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : (action === 'order_trash' || action === 'suborder_trash' || action === 'line_trash' || action === 'line_qty' || action === 'line_add' || action === 'suborder_status') ? hasPerm(u, 'orders.status') === 'F' && hasPerm(u, 'orders.view') !== 'N' : (action === 'order_create' || action === 'order_pay_link') ? (isAdmin(u) || hasPerm(u, 'orders.status') === 'F') : action === 'push_vendor' ? mayPushVendor() : (action === 'statement' || action === 'withdrawals') ? hasPerm(u, 'accounts.view') !== 'N' : action === 'thumbs' ? (hasPerm(u, 'orders.view') !== 'N' || hasPerm(u, 'products.view') !== 'N') : action === 'withdraw_approve' || action === 'withdraw_reject' || action === 'withdraw_create' ? (isAdmin(u) || hasPerm(u, 'accounts.approve') === 'F')
         : action === 'wp_updates' || action === 'site_speed' ? (isAdmin(u) || hasPerm(u, 'marketing.create') === 'F')
         : action === 'product_get' || action === 'styles' ? hasPerm(u, 'products.view') !== 'N' : action === 'product_save' || action === 'product_images_add' ? (isAdmin(u) || hasPerm(u, 'products.edit') === 'F') : action === 'products_batch' || action === 'products_vendor' ? (isAdmin(u) || hasPerm(u, 'products.bulk') === 'F')
-          : action === 'products_trash' || action === 'products_restore' ? hasPerm(u, 'products.trash') === 'F' : action === 'studio_upload' || action === 'studio_media' || action === 'category_create' || action === 'studio_sheet' || action === 'product_duplicate' || action === 'category_get' || action === 'category_update' || action === 'category_delete' || action === 'category_order' ? (isAdmin(u) || hasPerm(u, 'products.add') === 'F') : isAdmin(u))) return json(401, { error: 'unauthorized' });
+          : action === 'products_trash' || action === 'products_restore' ? hasPerm(u, 'products.trash') === 'F' : action === 'studio_upload' || action === 'studio_media' || action === 'category_create' || action === 'studio_sheet' || action === 'product_duplicate' || action === 'category_get' || action === 'category_update' || action === 'category_delete' || action === 'category_order' || action === 'style_create' || action === 'style_update' ? (isAdmin(u) || hasPerm(u, 'products.add') === 'F') : isAdmin(u))) return json(401, { error: 'unauthorized' });
       // phase 5.2: studio_upload — the item read from the batch and checked by the server's own buildStudio; the gate; a product
       // (draft, the mirror row) per item, the result on the batch; mock.studioFail = { [index]: 'product_invalid_sku' } refuses one;
       // mock.studioArFail = { [index]: true } refuses its Arabic translation only (arNote / arError on the result);
@@ -2450,6 +2450,20 @@ export async function installSupabaseMock(page, opts = {}) {
         return json(200, { action, result: 'ok', data, checked_at: at, stored });
       }
       if (action === 'styles') { mock.styleReads = (mock.styleReads || 0) + 1; const list = mock.siteStyles === undefined ? SITE_STYLES : Array.isArray(mock.siteStyles) ? mock.siteStyles : []; return json(200, { action, result: 'ok', attribute: mock.siteStyles !== null, styles: list }); }
+      // the owner 18 Nov: a style added / renamed from the settings — the site's list grows (mock.siteStyles becomes its own copy);
+      // styleWrites keeps each call ({ action, id?, en?, ar? }); a name the list has = 409 exists; WOO_PUSH_ENABLED = mock.pushEnabled
+      if (action === 'style_create' || action === 'style_update') {
+        mock.styleWrites = mock.styleWrites || []; mock.styleWrites.push({ action, ...(b.id != null ? { id: Number(b.id) } : {}), ...(b.en ? { en: b.en } : {}), ...(b.ar ? { ar: b.ar } : {}) });
+        if (!mock.pushEnabled) return json(200, { action, result: 'skipped', reason: 'push_disabled' });
+        if (!Array.isArray(mock.siteStyles)) mock.siteStyles = SITE_STYLES.map((x) => ({ ...x }));
+        const key = (v) => String(v || '').trim().toLowerCase().replace(/[ىی]/g, 'ي');
+        const cur = action === 'style_update' ? mock.siteStyles.find((x) => x.id === Number(b.id)) : null;
+        if (action === 'style_update' && !cur) return json(404, { error: 'not_found' });
+        if (mock.siteStyles.some((x) => x !== cur && ((b.en && key(x.en) === key(b.en)) || (b.ar && key(x.ar) === key(b.ar))))) return json(409, { error: 'exists', field: 'en' });
+        if (cur) { if (b.en) cur.en = String(b.en).trim(); if (b.ar) cur.ar = String(b.ar).trim(); return json(200, { action, result: 'ok', id: cur.id, arId: cur.id + 1000, ar: 'ok' }); }
+        const id = 900 + mock.siteStyles.length; mock.siteStyles.push({ id, en: String(b.en).trim(), ar: String(b.ar).trim(), count: 0 });
+        return json(200, { action, result: 'ok', id, arId: id + 1000, ar: 'ok' });
+      }
       if (action === 'studio_sheet') {
         if (!sheetCsvUrl(b.url)) return json(400, { error: 'bad_link', field: 'url' });
         mock.sheetReads.push(b.url);

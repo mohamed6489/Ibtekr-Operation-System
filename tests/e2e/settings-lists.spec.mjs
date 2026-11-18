@@ -201,3 +201,31 @@ test('the side menu (the owner 17 Nov — «القوائم والحالات»): 
   await expect(page.locator('.sidebar .nav-item[data-page="inventory"]')).toHaveCount(1);
   await expect(page.locator('#pg-settings [data-set-dirty]')).toBeHidden(); // saved on the spot — no «تغييرات مش محفوظة»
 });
+
+// the owner 18 Nov — «لما اضيف استايل جديد … ضيفه علي الويبسايت انجليزي و عربي … شوف انسب مكان تتحط فيه»; «المسح لا»
+test('the owner 18 Nov: «ستايلات المنتجات» in the lists — the site\'s styles with their products; add one (English + Arabic) and rename one on the site; no delete', async ({ page }) => {
+  mock.siteStyles = [{ id: 81, en: 'Bohemian', ar: 'بوهيمى', count: 2342 }, { id: 82, en: 'Modern', ar: 'مودرن', count: 353 }];
+  await go(page, 'settings-lists');
+  const sec = page.locator('#pg-settings');
+  await sec.getByRole('tab', { name: 'ستايلات المنتجات' }).click();
+  await expect(sec).toContainText('ستايلات المنتجات');
+  await expect(sec.locator('[data-style-en="Bohemian"]')).toBeVisible();
+  await expect(sec.locator('tr', { has: page.locator('[data-style-en="Bohemian"]') })).toContainText('2342');
+  await page.locator('[data-style-add]').click();
+  await modal(page).locator('input').first().fill('Rustic');
+  await modal(page).locator('input').nth(1).fill('Rustic');
+  await modal(page).getByRole('button', { name: 'إضافة', exact: true }).click();
+  await expect(modal(page)).toContainText('اكتبه بالعربي');
+  await modal(page).locator('input').nth(1).fill('ريفى');
+  await modal(page).getByRole('button', { name: 'إضافة', exact: true }).click();
+  await expect(modal(page)).toBeHidden();
+  await expect(sec.locator('[data-style-en="Rustic"]')).toBeVisible();
+  expect(mock.styleWrites).toEqual([{ action: 'style_create', en: 'Rustic', ar: 'ريفى' }]);
+  await rowMenu(page, sec, '[data-style-en="Modern"]', 'تغيير الاسم');
+  await expect(page.getByRole('menuitem', { name: /حذف|مسح/ })).toHaveCount(0);
+  await modal(page).locator('input').nth(1).fill('حديث');
+  await modal(page).getByRole('button', { name: 'حفظ', exact: true }).click();
+  await expect(modal(page)).toBeHidden();
+  expect(mock.styleWrites.at(-1)).toEqual({ action: 'style_update', id: 82, ar: 'حديث' });
+  await expect(sec.locator('[data-style-ar="Modern"]')).toHaveText('حديث');
+});

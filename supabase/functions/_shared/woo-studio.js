@@ -252,11 +252,11 @@ export function styleTerms(enTerms, arTerms, clean) {
   for (const t of english) {
     const linked = t.ar !== null && t.ar !== t.id && arIds.has(t.ar) ? all.get(t.ar) : [...all.values()].find((x) => arIds.has(x.id) && x.en === t.id) || null;
     if (linked) claimed.add(linked.id);
-    out.push({ id: t.id, en: t.name, ar: linked ? linked.name : '', count: t.count + (linked ? linked.count : 0) });
+    out.push({ id: t.id, arId: linked ? linked.id : null, en: t.name, ar: linked ? linked.name : '', count: t.count + (linked ? linked.count : 0) });
   }
   // an Arabic term no English term owns (and that names no English term on the list) is a style of its own
   const enIds = new Set(english.map((t) => t.id));
-  for (const id of arIds) { const t = all.get(id); if (!claimed.has(id) && !(t.en !== null && t.en !== id && enIds.has(t.en))) out.push({ id, en: t.name, ar: t.name, count: t.count }); }
+  for (const id of arIds) { const t = all.get(id); if (!claimed.has(id) && !(t.en !== null && t.en !== id && enIds.has(t.en))) out.push({ id, arId: id, en: t.name, ar: t.name, count: t.count }); }
   // the owner 18 Nov (the site's list: Bohemian 1,107 · Boho 2 — «بوهيمى» 1,235 · «بوهيمي» 2): the most used first, so when two terms
   // are one style (the same name after styleKey) the one the products carry is kept and a stray copy drops out
   out.sort((x, y) => y.count - x.count);

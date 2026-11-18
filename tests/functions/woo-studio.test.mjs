@@ -158,7 +158,7 @@ test('styleTerms (owner 16 Nov — «الاستايلات … اللي داخل 
     { id: 2, name: 'Minimal', translations: { en: 2, ar: 12 } }, { id: 12, name: 'بسيط', translations: { en: 2, ar: 12 } },
     { id: 3, name: 'Handmade' }, { id: 13, name: 'هاند ميد', translations: { en: 3 } }, { id: 4, name: 'bohemian ' }, { id: 5, name: '<b>x</b>' }];
   const AR = [{ id: 11, name: 'بوهيمي' }, { id: 12, name: 'بسيط' }, { id: 13, name: 'هاند ميد' }, { id: 14, name: 'ريفي' }, { id: 3, name: 'Handmade' }];
-  const bare = (l) => l.map(({ count: _c, ...x }) => x);
+  const bare = (l) => l.map(({ count: _c, arId: _a, ...x }) => x);
   assert.deepEqual(bare(styleTerms(EN, AR, clean)), [{ id: 1, en: 'Bohemian', ar: 'بوهيمي' }, { id: 2, en: 'Minimal', ar: 'بسيط' }, { id: 3, en: 'Handmade', ar: 'هاند ميد' }, { id: 14, en: 'ريفي', ar: 'ريفي' }]);
   // no Arabic read: the English names alone
   assert.deepEqual(bare(styleTerms([{ id: 1, name: 'Boho' }], [], clean)), [{ id: 1, en: 'Boho', ar: '' }]);

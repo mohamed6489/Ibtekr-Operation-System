@@ -2425,3 +2425,8 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 2. انشر `notify` من «Deploy functions» — التيك الجاي بيعمل أول تنضيف (والنتيجة في `sync_state` «cleanup»: `files` / `files_failed` / `rows` / `more`).
 3. لو أول تشغيلة لقت كتير (`more = true`) بتكمّل كل 15 دقيقة لحد ما تخلص، وبعدها مرة كل 48 ساعة.
 
+
+#### 2.7.116 «ستايلات المنتجات» في الإعدادات (18 نوفمبر — مافيش migration)
+1. انشر `woo-sync` من «Deploy functions» — فيه `style_create` / `style_update` (الأدمن أو `products.add = F`، `WOO_PUSH_ENABLED`) وقراية الستايلات بعدد منتجاتها (`styles` بترتيب الاستخدام).
+2. ادمج على `main` — «الإعدادات › القوائم والحالات › ستايلات المنتجات» بتعرض خاصية Style على الموقع بالإنجليزي والعربي وعدد المنتجات، و«+ إضافة ستايل» / ⋮ «تغيير الاسم» بيكتبوا على الموقع. **مفيش مسح من السيستم.**
+3. اتأكد على الـ staging: ستايل جديد بيظهر في Products › Attributes › Style بالإنجليزي وترجمته العربي (WPML)، وبعدها في قايمة الستايل في الاستوديو.

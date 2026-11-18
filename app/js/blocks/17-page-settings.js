@@ -1198,6 +1198,34 @@
   }
 
   // ---------- القوائم والحالات ----------
+  // the owner 18 Nov («لما اضيف استايل جديد يتضاف علي الويبسايت او لو ضيفته علي السيستم ضيفه علي الويبسايت انجليزي و عربي … شوف انسب
+  // مكان تتحط فيه»; «المسح لا»): the site's «Product Style» terms — the English and its Arabic, how many products carry each; «+ إضافة
+  // ستايل» and «تغيير الاسم» write on the site (woo-sync style_create / style_update through IBStudio.styleSave); no delete here
+  function stylesSec() {
+    const S1 = window.IBStudio; const admin = isAdminMe();
+    if (S1 && S1.loadStyles && !stylesAsked) { stylesAsked = true; S1.loadStyles(true).then(() => R()); }
+    const list = S1 && S1.siteStyles ? S1.siteStyles() : [];
+    const why = (r) => (r.reason === 'push_disabled' || r.result === 'skipped' ? 'الكتابة على الموقع متقفلة' : r.reason === 'forbidden' ? 'الصلاحية دي مش عندك' : r.reason === 'missing' ? 'الستايل ده مش موجود على الموقع' : r.reason === 'conflict' && r.error === 'no_attribute' ? 'الموقع مالوش خاصية Style' : 'في مشكلة في الاتصال — جرّب تاني');
+    const bad = (v, need) => (!String(v || '').trim() ? (need ? 'اكتب الاسم' : null) : /[<>%"\\]/.test(v) ? 'من غير رموز' : String(v).trim().length < 2 ? 'حرفين على الأقل' : String(v).trim().length > 40 ? 'لحد 40 حرف' : null);
+    const form = (x) => K.form({ title: x ? 'تغيير اسم «' + (x.ar || x.en) + '»' : 'ستايل جديد على الموقع', values: { en: x ? x.en : '', ar: x ? x.ar : '' },
+      note: U.InlineNote({ children: x ? 'الاسم بيتغيّر على الموقع نفسه — والمنتجات اللي عليها الستايل بتفضل عليه.' : 'بيتعمل على الموقع بالإنجليزي، والعربي ترجمته — ويظهر في قايمة الستايل في الاستوديو على طول.' }),
+      fields: (f, e, set) => [K.field.text('en', 'الاسم بالإنجليزي', f, e, set, { required: true, maxlength: 40 }), K.field.text('ar', 'الاسم بالعربي', f, e, set, { required: true, maxlength: 40 })],
+      validate: (f) => { const e = {}; const a = bad(f.en, true); if (a) e.en = a; const b = bad(f.ar, true); if (b) e.ar = b; else if (!/[\u0600-\u06FF]/.test(f.ar)) e.ar = 'اكتبه بالعربي'; return e; },
+      submitLabel: x ? 'حفظ' : 'إضافة', submit: async (f) => {
+        if (!S1 || !S1.styleSave) return K.toast('في مشكلة في الاتصال — جرّب تاني', 'error');
+        const en = String(f.en).trim(); const ar = String(f.ar).trim();
+        if (x && en === x.en && ar === x.ar) return;
+        const r = await S1.styleSave(Object.assign(x ? { id: x.id } : {}, !x || en !== x.en ? { en } : {}, !x || ar !== x.ar ? { ar } : {}));
+        if (!r.ok) return K.toast(r.reason === 'conflict' && r.error === 'exists' ? 'فيه ستايل بالاسم ده على الموقع' : (x ? 'الاسم ماتغيّرش — ' : 'الستايل ماتعملش — ') + why(r), 'error');
+        LOGV('settings.lists.style', (x ? 'rename #' : 'add #') + r.id);
+        K.toast(r.ar === 'failed' ? 'اتحفظ الإنجليزي على الموقع — والعربي ماتحفظش، جرّب تاني' : x ? 'اتغيّر الاسم على الموقع' : 'اتعمل الستايل على الموقع', r.ar === 'failed' ? 'warning' : 'success'); R(); } });
+    const rows = list.map((x) => [h('span', { 'data-style-en': x.en, dir: 'ltr' }, x.en), h('span', { 'data-style-ar': x.en }, x.ar || '—'), K.Num(x.count || 0),
+      admin && x.id ? K.RowMenu([{ label: 'تغيير الاسم', icon: 'edit', run: () => form(x) }], 'إجراءات ' + x.en) : null].filter((c) => c !== null));
+    return K.Section('ستايلات المنتجات', list.length ? U.Table({ headers: ['بالإنجليزي', 'بالعربي', 'المنتجات'].concat(admin ? [''] : []), rows }) : K.Empty(stylesAsked ? 'مفيش ستايلات على الموقع' : 'بنجيب الستايلات من الموقع…', 'الستايلات هي خاصية «Style» على منتجات الموقع.'),
+      admin ? [Button({ label: '+ إضافة ستايل', attrs: { 'data-style-add': '' }, onClick: () => form(null) })] : null,
+      { th: false, sub: 'خاصية Style على الموقع — هي اللي بتظهر في الاستوديو، مرتّبة بعدد المنتجات · الستايل اللي يتضاف أو يتمسح من الموقع بيتحدّث هنا لوحده' });
+  }
+  let stylesAsked = false;
   function lists() {
     const L = C.otherLists; const tabs = [{ id: 'order', label: 'حالات الأوردر' }, { id: 'confirm', label: 'حالات التأكيد' }, { id: 'sub', label: 'حالات المنتج' }, { id: 'cancel', label: 'أسباب الإلغاء والمسح' }, { id: 'returns', label: 'أسباب المرتجع' }, { id: 'expenses', label: 'أنواع المصروفات' }, { id: 'categories', label: 'فئات المبتكرين' }, { id: 'stop', label: 'أسباب إيقاف المبتكر' }];
     const out = [K.SubTabs({ items: tabs, active: st.list, onChange: (id) => { st.list = id; R(); }, label: 'القوائم' })];
@@ -2344,7 +2372,7 @@
       { th: false, sub: 'أقسام الموقع الرئيسية — «الفئة الأساسية» في ملف المبتكر، وبتتعدّل كمان من «المنتجات › الأقسام»' });
   }
   function lists() {
-    const L = C.otherLists; const tabs = [{ id: 'order', label: 'حالات الأوردر' }, { id: 'confirm', label: 'حالات التأكيد' }, { id: 'sub', label: 'حالات المنتج' }, { id: 'cancel', label: 'أسباب الإلغاء والمسح' }, { id: 'returns', label: 'أسباب المرتجع' }, { id: 'stop', label: 'أسباب إيقاف المبتكر' }, { id: 'shipping', label: 'شركات الشحن' }, { id: 'expenses', label: 'أنواع المصروفات' }, { id: 'categories', label: 'فئات المبتكرين' }, { id: 'priorities', label: 'الأولويات' }, { id: 'menu', label: 'القائمة الجانبية' }];
+    const L = C.otherLists; const tabs = [{ id: 'order', label: 'حالات الأوردر' }, { id: 'confirm', label: 'حالات التأكيد' }, { id: 'sub', label: 'حالات المنتج' }, { id: 'cancel', label: 'أسباب الإلغاء والمسح' }, { id: 'returns', label: 'أسباب المرتجع' }, { id: 'stop', label: 'أسباب إيقاف المبتكر' }, { id: 'shipping', label: 'شركات الشحن' }, { id: 'expenses', label: 'أنواع المصروفات' }, { id: 'categories', label: 'فئات المبتكرين' }, { id: 'styles', label: 'ستايلات المنتجات' }, { id: 'priorities', label: 'الأولويات' }, { id: 'menu', label: 'القائمة الجانبية' }];
     const cur = tabs.some((t) => t.id === st.list) ? st.list : 'order';
     // ق1 (the owner 16 Nov — «ظبط ال ui بتاع هنا بشكل احترافي و منظم»): the lists in a side menu by group with their counts (tabs on a
     // phone — one row that scrolls), the chosen list in its card beside it; the items keep role=tab so the keyboard and the tests still work
@@ -2356,9 +2384,10 @@
       if (id === 'expenses') return ((S0 && S0.STATUS_KINDS && S0.STATUS_KINDS.expense) || []).length + (LL.expenseKinds || []).length;
       if (id === 'priorities') return ((S0 && S0.STATUS_KINDS && S0.STATUS_KINDS.priority) || ['urgent', 'high', 'normal', 'low']).length;
       if (id === 'categories') return mainCatNames().length;
+      if (id === 'styles') return window.IBStudio && window.IBStudio.siteStyles ? (window.IBStudio.siteStyles().length || null) : null;
       if (id === 'menu') return window.IBNav ? window.IBNav.base().length : null;
     } catch (e) { /* not loaded yet */ } return null; };
-    const GROUPS_L = [['الحالات', ['order', 'confirm', 'sub']], ['الأسباب', ['cancel', 'returns', 'stop']], ['قوائم تانية', ['shipping', 'expenses', 'categories', 'priorities']], ['شكل السيستم', ['menu']]];
+    const GROUPS_L = [['الحالات', ['order', 'confirm', 'sub']], ['الأسباب', ['cancel', 'returns', 'stop']], ['قوائم تانية', ['shipping', 'expenses', 'categories', 'styles', 'priorities']], ['شكل السيستم', ['menu']]];
     const label = (id) => (tabs.find((t) => t.id === id) || {}).label;
     const nav = h('nav', { class: 'lst-nav', role: 'tablist', 'aria-label': 'القوائم', 'data-lists-nav': '' }, GROUPS_L.map(([g, ids]) => h('div', { class: 'lst-grp' }, h('div', { class: 'lst-gt t-small' }, g),
       ids.map((id) => { const n = countOf(id); return h('button', { type: 'button', role: 'tab', class: 'lst-item' + (id === cur ? ' on' : ''), 'aria-selected': String(id === cur), 'data-list-tab': id, onClick: () => { st.list = id; R(); } },
@@ -2369,6 +2398,7 @@
     else if (cur === 'expenses') out.push(expensesSec());
     else if (cur === 'priorities') out.push(prioritySec());
     else if (cur === 'categories') out.push(makerCatsSec());
+    else if (cur === 'styles') out.push(stylesSec());
     else if (cur === 'menu') out.push(menuSec());
     else { const titles = Object.fromEntries(tabs.map((t) => [t.id, t.label])); const items = L[cur] || []; out.push(K.Section(titles[cur], U.Table({ headers: ['الاسم'], rows: items.map((x) => [x]) }), null, { th: false })); }
     return [h('div', { class: 'lst-layout', 'data-lists': cur }, nav, h('div', { class: 'lst-main', role: 'tabpanel', 'aria-label': label(cur) }, ...out))];

@@ -32,6 +32,8 @@ do $$ begin perform public.team_wipe('امسح', false); raise exception 'case p
 do $$ begin perform public.data_wipe(array['tickets', 'cs', 'marketing', 'inventory', 'accounts', 'orders', 'products', 'vendors', 'hr', 'logs'], 'حذف الداتا من السيستم بشكل نهائي', false); end $$;
 reset role;
 insert into public.activity_log (actor, action, entity) values ('00000000-0000-4000-8000-000000134a02', 'tw.test', 'test');
+-- 0136: a stamped paper the leaving member added (the guard keeps created_by) goes with the team
+insert into public.hr_documents (member_id, kind, path, name, created_by) values ('00000000-0000-4000-8000-000000134a01', 'أخرى', '00000000-0000-4000-8000-000000134a01/a.pdf', 'ورقة', '00000000-0000-4000-8000-000000134a02');
 set local role authenticated;
 do $$ declare r jsonb; begin
   r := public.team_wipe('حذف الداتا من السيستم بشكل نهائي', false);
@@ -47,6 +49,7 @@ do $$ begin
   if exists (select 1 from public.roles where id = 'tw_custom') then raise exception 'case added role gone failed'; end if;
   if (select extra_roles from public.profiles where id = '00000000-0000-4000-8000-000000134a03') <> '{}' then raise exception 'case extra roles failed'; end if;
   if not exists (select 1 from public.roles where id = 'admin') or not exists (select 1 from public.roles where id = 'ops') then raise exception 'case fixed teams kept failed'; end if;
+  if exists (select 1 from public.hr_documents) then raise exception 'case papers gone failed'; end if;
   if not exists (select 1 from public.activity_log where action = 'settings.team.wipe') then raise exception 'case logged failed'; end if;
 end $$;
 rollback;

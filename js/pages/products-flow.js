@@ -85,6 +85,9 @@
     if (!pre && PRE) { pre = PRE; PRE = null; }
     if (!ST() || !ST().can()) { K.toast('مش مسموحلك تضيف منتجات — اطلب صلاحية «إضافة منتجات»', 'error'); return; }
     let kase = pre && CASES[pre.kase] ? pre.kase : 'sheet'; let type = pre && pre.type === 'Variable' ? 'Variable' : 'Simple'; let m = null;
+    // the owner 18 Nov («لو بقولو للمخزن ضيف منتجات يسالني … و اختار يبتدي يعمل هو الخطوات و يديني معاينة»): the case and the type were
+    // picked in the assistant's chat — no chooser; the batch starts and the chat's files go where the member would have dropped them
+    if (pre && pre.auto) { begin(pre, kase, type); return; }
     const opt = (title, desc, on, onClick) => h('button', { type: 'button', role: 'radio', 'aria-checked': String(!!on), class: 'opt-card', onClick }, h('i', { class: 'rd' }), h('span', null, h('b', null, title), h('small', null, desc)));
     const body = () => [h('div', { class: 'opt-grid', role: 'radiogroup', 'aria-label': 'الحالة' },
       opt(CASES.sheet, 'المبتكر بعت شيت فيه البيانات + صور المنتجات.', kase === 'sheet', () => { kase = 'sheet'; draw(); }),
@@ -103,6 +106,28 @@
       const files = pre && Array.isArray(pre.files) ? pre.files.filter(isImage) : [];
       if (files.length) setTimeout(() => { if (S.id === r.id) takePhotos(files); }, 250);
     } })] });
+  }
+
+  async function begin(pre, kase, type) {
+    const s = blank(kase, type);
+    if (pre.vendor && pre.vendor.id) { s.vendorId = pre.vendor.id; s.vendorName = String(pre.vendor.name || ''); }
+    const r = await ST().create({ title: CASES[kase] + ' — ' + type + ' · ' + new Date().toISOString().slice(0, 10), type, state: s, step: 1 });
+    if (!r.ok) { K.toast('مقدرناش نعمل الدفعة — ' + why(r.reason), 'error'); return; }
+    S.id = r.id; S.row = { id: r.id, step: 1, status: 'draft', state: s }; S.step = 1; S.sel.clear(); S.results = null; S.fromAgent = true; go(hashFor(1));
+    await new Promise((res) => setTimeout(res, 250)); if (S.id !== r.id) return;
+    const files = Array.isArray(pre.files) ? pre.files : []; const scr = new Set((pre.screens || []).map((x) => String(x)));
+    const sheet = kase === 'sheet' ? files.find(isSheet) : null;
+    const imgs = files.filter(isImage); const shots = kase === 'whatsapp' ? imgs.filter((f) => scr.has(f.name)) : []; const photos = imgs.filter((f) => !shots.includes(f));
+    if (sheet) await takeSheet(sheet); // the sheet before the photos (they match its rows); the photos before the screenshots (the reading counts them)
+    if (photos.length) await takePhotos(photos);
+    if (shots.length) await takeScreens(shots);
+    if (S.id !== r.id) return;
+    K.toast('المساعد حط الملفات في الدفعة — راجع المعاينة وكمّل', 'success');
+    previewNow();
+  }
+  // the preview of what the batch holds now: the template's rows (the sheet / the chat's data) or the photos' sheet
+  function previewNow() {
+    try { const L = st().case === 'photos' ? blankRowsOf() : sheetRows(); if (L.length) previewSheet(L, st().type); } catch (e) { /* nothing to show yet */ }
   }
 
   // ---------------- rows, groups, units ----------------

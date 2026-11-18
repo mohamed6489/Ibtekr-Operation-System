@@ -177,7 +177,7 @@ tr.total td{background:var(--color-bg-tint)!important;font-weight:600}
 .radio[aria-checked=true] i::after{content:"";width:8px;height:8px;border-radius:50%;background:var(--color-brand-default)}
 .cals{display:flex;gap:12px;padding:12px;flex:1;justify-content:center;flex-wrap:wrap}
 /* chat ش10 (16 Nov): the calendars pick the period or its comparison — the toggle above them; the comparison fields light while picked */
-.cals-wrap{flex:1;display:flex;flex-direction:column;min-width:0}.rp-mode{display:flex;gap:8px;justify-content:center;padding:12px 12px 0}.pcmp-fields .input.rp-on{border-color:var(--color-primary, #005642);box-shadow:0 0 0 2px rgba(0,86,66,.15)}
+.cals-wrap{flex:1;display:flex;flex-direction:column;min-width:0}.rp-mode{display:flex;gap:8px;justify-content:center;padding:12px 12px 0}.pcmp-fields .input.rp-on{border-color:var(--color-brand-default);box-shadow:0 0 0 2px rgba(0,86,66,.15)}
 .cal{width:252px}
 .cal-h{display:flex;align-items:center;justify-content:space-between;height:32px;margin-bottom:4px;font-weight:600}
 .cal-grid{display:grid;grid-template-columns:repeat(7,32px);justify-content:space-between;row-gap:2px}
@@ -2378,3 +2378,11 @@ img.ib-worm.ib-ldr-img.spin{animation:ib-ldr-spin var(--ldr-speed,1.7s) linear i
 /* ش38 (the owner 17 Nov — «شيل الاسهم بتاعة الزيادة و النقصان من الخانة»): no browser arrows on any number box in the system */
 input[type=number]{-moz-appearance:textfield;appearance:textfield}
 input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+
+/* IBChatAsk (the owner 18 Nov — «لو عايزني اختار حاجة يجيبها جوه الشات … لو محتاجين بيانات يديني بوباب»): the assistant's options as
+   buttons inside the chat and the «املا البيانات» link, under its answer — every assistant and the header's the same way */
+.ib-ask { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.ib-ask-opts { display: flex; flex-wrap: wrap; gap: 6px; }
+.ib-ask-opt { cursor: pointer; border: 1px solid var(--color-brand-default); color: var(--color-brand-default); background: var(--color-bg-container); font: inherit; }
+.ib-ask-opt:hover:not(:disabled) { background: var(--color-brand-default); color: #FFF7EF; }
+.ib-ask-opt:disabled { opacity: .55; cursor: default; }

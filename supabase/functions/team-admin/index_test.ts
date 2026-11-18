@@ -157,3 +157,22 @@ Deno.test('member_email: the admin only; taken / bad refused; a direct manager r
   const taken = setup({ emailErr: 'exists' });
   assertEquals((await call(taken.deps, { action: 'member_email', member_id: PROFILES[1].id, email: 'z@ibtekr.club' })).body, { error: 'exists', field: 'email' });
 });
+
+// 0134 (the owner 18 Nov — «امسح كل حاجة» takes the members' files): the admin with aal2; the plan's files go through the Storage API, by
+// bucket; an empty plan = done; one log row with the count only
+Deno.test('files_wipe: the admin (aal2) only; the planned files removed by bucket; logged with the count', async () => {
+  const storage: Record<string, Uint8Array> = { 'hr-docs/m1/a.pdf': new Uint8Array([1]), 'tickets/u/b.png': new Uint8Array([2]), 'settings/logo.png': new Uint8Array([3]) };
+  let plans = 0;
+  const { deps } = setup();
+  const db = fakeDb({ roles: ROLES, profiles: PROFILES.map((p) => ({ ...p })) }, { storage, rpc: { wipe_files_plan: () => { plans += 1; return Object.keys(storage).filter((k) => !k.startsWith('settings/')).map((k) => ({ bucket: k.split('/')[0], name: k.split('/').slice(1).join('/') })); } } });
+  (deps as any).db = db;
+  (deps as any).userDb = (jwt: string) => fakeDb({}, { rpc: { is_admin: () => jwt === 'jwt-admin', caller_aal_ok: () => jwt === 'jwt-admin' } });
+  const r = await call(deps, { action: 'files_wipe' });
+  assertEquals([r.res.status, r.body], [200, { ok: true, removed: 2, more: false }]);
+  assertEquals(Object.keys(storage), ['settings/logo.png'], 'the settings bucket stays');
+  assertEquals(db.rows('activity_log').map((x: any) => [x.action, x.new_value]), [['settings.files.wipe', { files: 2 }]]);
+  assertEquals(plans, 1);
+  assertEquals((await call(deps, { action: 'files_wipe' }, 'jwt-member')).res.status, 401, 'not a member');
+  (deps as any).userDb = (jwt: string) => fakeDb({}, { rpc: { is_admin: () => jwt === 'jwt-admin', caller_aal_ok: () => false } });
+  assertEquals((await call(deps, { action: 'files_wipe' })).res.status, 401, 'aal1 behind forced 2FA');
+});

@@ -110,8 +110,11 @@ test('2026-11-18-data-real.md decision 4: «امسح كل حاجة» — the phr
   await card.locator('[data-wipe-all-cancel]').click(); await expect(phrase).toHaveValue(''); await expect(go).toBeDisabled();
   await phrase.fill('حذف الداتا من السيستم بشكل نهائي'); await go.click();
   const md = page.locator('[data-wipe-all-modal]');
-  await expect(md.locator('[data-wipe-row]')).toHaveCount(10);
+  await expect(md.locator('[data-wipe-row]')).toHaveCount(12);
   await expect(md.locator('[data-wipe-row="orders"]')).toContainText('3 صف');
+  // 0134: the uploaded files and the team (every member but me and the owner, the added roles) are in it too
+  await expect(md.locator('[data-wipe-row="files"]')).toContainText('4 ملف');
+  await expect(md.locator('[data-wipe-row="team"]')).toContainText('دور');
   await expect(md).toContainText('30 صف');
   expect(mock.st.wipes || []).toEqual([]);
   mock.st.wipeBlockOnce = ['orders']; mock.st.wipeDelay = 250;
@@ -121,10 +124,12 @@ test('2026-11-18-data-real.md decision 4: «امسح كل حاجة» — the phr
   await expect(md).toBeVisible(); // can't close while it runs
   await expect(md.locator('[data-wipe-close]')).toBeVisible({ timeout: 15000 });
   await expect(md.locator('[data-wipe-status]')).toContainText('خلص');
-  await expect(md.locator('.dz-row.ok')).toHaveCount(10);
+  await expect(md.locator('.dz-row.ok')).toHaveCount(12);
   await expect(md.locator('.dz-bar')).toHaveAttribute('aria-valuenow', '100');
   // one section a call, in the run's order; «orders» was blocked once and came after the rest
   expect(mock.st.wipes).toEqual([['tickets'], ['cs'], ['marketing'], ['inventory'], ['accounts'], ['products'], ['vendors'], ['hr'], ['logs'], ['orders']]);
+  expect([mock.st.filesWipes, mock.st.teamWipes, mock.st.wipeFiles]).toEqual([3, 1, 0]); // the files until none is left, the team once
+  await expect(md.locator('[data-wipe-row="files"]')).toContainText('اتمسح 4 ملف');
   await Promise.all([page.waitForEvent('load'), md.locator('[data-wipe-close]').click()]);
 });
 

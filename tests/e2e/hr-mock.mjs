@@ -89,7 +89,7 @@ export function hrState(opts = {}) {
 export function hrRoute(c) {
   const { method, path, url, hd, u, hasPerm, isAdmin, json, mock } = c; const H = mock.hr; if (!H) return null;
   const rest = /^\/rest\/v1\/(hr_[a-z_]+)$/.exec(path); const rpc = /^\/rest\/v1\/rpc\/(hr_[a-z_]+)$/.exec(path);
-  const fn = method === 'POST' && path === '/functions/v1/team-admin'; const sto = /^\/storage\/v1\/object\/(sign\/)?hr-docs\/(.+)$/.exec(path);
+  const fn = method === 'POST' && path === '/functions/v1/team-admin' && ((c.body() || {}).action !== 'files_wipe'); const sto = /^\/storage\/v1\/object\/(sign\/)?hr-docs\/(.+)$/.exec(path);
   if (!(rest && COLS[rest[1]]) && !rpc && !fn && !sto) return null;
   const refuse = (status, code, message) => json(status, { code, details: null, hint: null, message });
   const now = new Date().toISOString(); const today = hrToday();

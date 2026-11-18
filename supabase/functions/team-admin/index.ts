@@ -23,6 +23,10 @@
 //   then send the password link would hold that account). member_invite (the link to the member's own address) is the admin's or the
 //   member's direct manager's (member_can_edit on the caller's own JWT: never oneself, never an admin unless the caller is one);
 //   create / password / delete stay the admin's.
+//   0134 (the owner 18 Nov — «امسح كل حاجة» takes the members' files too): POST { action: 'files_wipe' } → the admin (aal2 when 2FA is
+//   forced — caller_aal_ok on the caller's own JWT): the files of the data buckets (wipe_files_plan — never the settings bucket, the
+//   company papers or marketing/templates/) go through the Storage API, up to 8 rounds of 500 → { ok, removed, more } (more = call again).
+//   One activity_log row settings.files.wipe with the count only.
 // activity_log: hr.member.create / hr.member.password / hr.member.invite / hr.member.delete with the member id and name only (no password,
 // no email, no phone, no link); hr.member.email the same way (never the address).
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
@@ -43,7 +47,7 @@ export type AuthAdmin = {
 export type Deps = { env: Record<string, string | undefined>; db: Db; now: () => string; userDb?: (jwt: string) => Db; userId?: (jwt: string) => Promise<string | null>; auth?: AuthAdmin;
   fetch?: typeof fetch };
 
-const ACTIONS = ['member_create', 'member_password', 'member_invite', 'member_delete', 'member_email'];
+const ACTIONS = ['member_create', 'member_password', 'member_invite', 'member_delete', 'member_email', 'files_wipe'];
 const EDITOR_ACTIONS = ['member_invite']; // the admin or the member's direct manager (member_can_edit) — the email stays the admin's
 export const DEFAULT_APP_URL = 'https://operation-system.ibtekr.club/';
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Access-Control-Allow-Methods': 'POST, OPTIONS' };
@@ -221,6 +225,34 @@ async function memberDelete(deps: Deps, admin: string, args: Json) {
   return json(200, { ok: true, id, name: typeof data?.name === 'string' ? data.name : '' }); // the RPC wrote hr.member.delete itself
 }
 
+// 0134: the data buckets' files, through the Storage API (a delete on storage.objects from SQL is refused)
+async function filesWipe(req: Request, deps: Deps, admin: string) {
+  const jwt = /^Bearer\s+(\S+)$/i.exec(req.headers.get('authorization') ?? '')?.[1];
+  const { data: aal } = jwt && deps.userDb ? await deps.userDb(jwt).rpc('caller_aal_ok') : { data: false };
+  if (aal !== true) return json(401, { error: 'unauthorized' });
+  let removed = 0; let more = false;
+  for (let round = 0; round < 8; round += 1) {
+    const { data, error } = await deps.db.rpc('wipe_files_plan', { p_limit: 500 });
+    if (error) return json(500, { error: 'failed' });
+    const list = Array.isArray(data) ? data.filter((f: Json) => typeof f?.bucket === 'string' && typeof f?.name === 'string') : [];
+    if (!list.length) { more = false; break; }
+    const by: Record<string, string[]> = {};
+    for (const f of list) (by[f.bucket] ??= []).push(f.name);
+    for (const [bucket, names] of Object.entries(by)) {
+      for (let i = 0; i < names.length; i += 100) {
+        const part = names.slice(i, i + 100);
+        const { error: e } = await deps.db.storage.from(bucket).remove(part);
+        if (e) return json(502, { error: 'storage', removed });
+        removed += part.length;
+      }
+    }
+    more = list.length >= 500;
+    if (!more) break;
+  }
+  try { await deps.db.from('activity_log').insert({ at: deps.now(), actor: admin, action: 'settings.files.wipe', entity: 'settings', entity_id: null, new_value: { files: removed } }); } catch { /* never blocks */ }
+  return json(200, { ok: true, removed, more });
+}
+
 export async function handler(req: Request, deps: Deps): Promise<Response> {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json(405, { error: 'method' });
@@ -236,6 +268,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'member_invite') return await memberInvite(deps, admin, args);
     if (action === 'member_delete') return await memberDelete(deps, admin, args);
     if (action === 'member_email') return await memberEmail(deps, admin, args);
+    if (action === 'files_wipe') return await filesWipe(req, deps, admin);
     return await memberPassword(deps, admin, args);
   } catch (e) {
     console.error('team-admin ' + action + ': ' + errText(e));

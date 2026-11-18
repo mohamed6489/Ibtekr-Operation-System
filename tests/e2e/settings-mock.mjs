@@ -29,8 +29,8 @@ export function settingsState(opts = {}, roles) {
 
 export function settingsRoute(c) {
   const { method, path, url, hd, u, hasPerm, isAdmin, json, mock } = c; const S = mock.st; if (!S) return null;
-  const rpc = /^\/rest\/v1\/rpc\/(data_wipe|quick_actions_list|quick_action_save|quick_action_delete|quick_action_order|role_level_perms_set|member_level_set|role_perms_set|role_create|role_update|role_delete|role_manager_set|member_manager_set|member_can_edit|member_info_set|member_job_set|member_role_set|member_roles_set|member_perms_set|member_status_set|my_sessions|my_session_revoke|settings_public)$/.exec(path);
-  const fn = method === 'POST' && (path === '/functions/v1/settings-admin' || path === '/functions/v1/notify');
+  const rpc = /^\/rest\/v1\/rpc\/(data_wipe|team_wipe|quick_actions_list|quick_action_save|quick_action_delete|quick_action_order|role_level_perms_set|member_level_set|role_perms_set|role_create|role_update|role_delete|role_manager_set|member_manager_set|member_can_edit|member_info_set|member_job_set|member_role_set|member_roles_set|member_perms_set|member_status_set|my_sessions|my_session_revoke|settings_public)$/.exec(path);
+  const fn = method === 'POST' && (path === '/functions/v1/settings-admin' || path === '/functions/v1/notify' || (path === '/functions/v1/team-admin' && (c.body() || {}).action === 'files_wipe'));
   const docs = path === '/rest/v1/company_docs'; const sto = /^\/storage\/v1\/object\/(sign\/)?(company-docs|settings)(?:\/(.+))?$/.exec(path); // no path = a remove with { prefixes } in the body
   const act = method === 'GET' && path === '/rest/v1/activity_log' && [...url.searchParams].some(([k, v]) => k === 'action' && v.startsWith('like.') || (k === 'at' && /^(lte|gte)\./.test(v))) || (method === 'GET' && path === '/rest/v1/activity_log' && (hd.range || url.searchParams.has('offset')));
   if (!rpc && !fn && !docs && !sto && !act) return null;
@@ -77,6 +77,16 @@ export function settingsRoute(c) {
       S.wipes = (S.wipes || []).concat([secs.slice()]); S.writes.push({ table: 'data_wipe', op: 'wipe', sections: secs.slice() });
       if (S.wipeDelay) return new Promise((r) => setTimeout(r, S.wipeDelay)).then(() => json(200, { dry: false, tables, rows, blocked: [] }));
       return json(200, { dry: false, tables, rows, blocked: [] });
+    }
+    // 0134: the team and the added roles — the admin only; a dry run counts; the real run needs the phrase (S.teamWipes counts the runs)
+    if (name === 'team_wipe') {
+      if (!admin) return refuse(403, '42501', 'forbidden');
+      const keep = mock.profiles.filter((p) => p.id === u.id || p.member_code === 'M01'); const gone = mock.profiles.length - keep.length;
+      const out = { members: gone, kept: keep.length, roles: 1, files: S.wipeFiles != null ? S.wipeFiles : 4 };
+      if (body.p_dry) return json(200, { dry: true, ...out });
+      if (body.p_confirm !== 'حذف الداتا من السيستم بشكل نهائي') return refuse(400, '22023', 'invalid: confirm');
+      S.teamWipes = (S.teamWipes || 0) + 1; S.writes.push({ table: 'team_wipe', op: 'wipe' });
+      return json(200, { dry: false, ...out });
     }
     if (name === 'my_sessions') { if (!active) return refuse(401, '42501', 'not allowed'); return json(200, S.sessions.map((s) => ({ ...s }))); }
     if (name === 'my_session_revoke') {
@@ -234,6 +244,12 @@ export function settingsRoute(c) {
     const tg = action === 'member_status' ? mock.profiles.find((x) => x.id === body.member_id) : null;
     const mgrOk = !!tg && active && tg.id !== u.id && tg.manager_id === u.id && tg.role_id !== 'admin';
     if (!admin && !mgrOk) return json(401, { error: 'unauthorized' });
+    // 0134: team-admin files_wipe — the files go in two rounds (S.wipeFiles, default 4): { removed, more }
+    if (path === '/functions/v1/team-admin') {
+      const left = S.wipeFiles != null ? S.wipeFiles : 4; const take = Math.min(left, Math.max(1, Math.ceil(left / 2)));
+      S.wipeFiles = left - take; S.filesWipes = (S.filesWipes || 0) + 1;
+      return json(200, { ok: true, removed: left ? take : 0, more: S.wipeFiles > 0 });
+    }
     if (path === '/functions/v1/notify') {
       if (action === 'status') return json(200, { result: 'ok', last: S.notifyRuns.at(-1) || null, email: { ready: !!S.vault.resend, from: 'alerts@ibtekr.club' }, whatsapp: { ready: false, template: 'ibtekr_alert' }, sources: SOURCES.map((s) => s.key) });
       if (action === 'tick') { const run = { at: now, items: 3, alerts: body.dry ? 2 : 2, digests: 0, external: 0, resolved: 0, by: { 'customers.late': 2, 'team.req': 1 }, sent: { email: 0, whatsapp: 0, failed: 0, not_linked: 0 } }; if (!body.dry) S.notifyRuns.push(run); return json(200, { result: body.dry ? 'dry' : 'ok', ...run, ...(body.dry ? { preview: [] } : {}) }); }

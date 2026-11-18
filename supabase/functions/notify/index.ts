@@ -147,7 +147,7 @@ export async function collect(deps: Deps, ctx: Ctx): Promise<Item[]> {
   // tickets: urgent / high open ones to their role; a follow-up date passed
   const tickets = rows(await deps.db.from('tickets').select('id, title, priority, assignee_role, status, follow_up, created_by').in('status', ['open', 'in_progress', 'waiting']).limit(LIMIT));
   for (const t of tickets) {
-    const code = 'TKT-' + String(t.id).padStart(4, '0'); const role = TICKET_ROLE[String(t.assignee_role)] ?? 'ops'; const title = code + ' — ' + String(t.title ?? '').slice(0, 80);
+    const code = 'TKT-' + String(t.id).padStart(4, '0'); const role = ((ctx.roles as Json[]).find((r) => String(r.name) === String(t.assignee_role))?.id as string | undefined) ?? TICKET_ROLE[String(t.assignee_role)] ?? 'ops'; const title = code + ' — ' + String(t.title ?? '').slice(0, 80); // 0128: a team by its current name
     if (t.priority === 'urgent' || t.priority === 'high') out.push({ key: t.priority === 'urgent' ? 'tasks.urgent' : 'tasks.high', entityId: String(t.id), title, body: (t.priority === 'urgent' ? 'عاجلة' : 'عالية') + ' · المسؤول: ' + String(t.assignee_role), entity: 'tickets', own: { member: null }, ...(role ? {} : {}) });
     if (typeof t.follow_up === 'string' && t.follow_up.slice(0, 10) < today) out.push({ key: 'tasks.late', entityId: String(t.id), title, body: 'عدّى ميعاد المتابعة ' + t.follow_up.slice(0, 10), entity: 'tickets' });
   }

@@ -36,7 +36,11 @@
   const can = () => ({ view: perm('tickets.view') !== 'N', manage: perm('tickets.manage') === 'F', admin: isAdmin() });
   // 0081 (the owner 12 Nov): the old system roles keep their labels; any other role answers to its name; my roles = the main + the extras
   const dirRoles = () => (window.IBDirectory && window.IBDirectory.roles ? quiet(() => window.IBDirectory.roles()) || [] : []);
-  const labelsOf = (rid) => { if (ROLE_LABELS[rid]) return ROLE_LABELS[rid].slice(); if (!rid || rid === 'viewer') return []; const r = dirRoles().find((x) => x.id === rid && !x.hidden); return r ? [r.name] : []; };
+  // 0128: the server's ticket_roles() says which label each role answers to (every team by its current name); before it loads, the
+  // directory's name, then the old fixed labels
+  let srvRoles = null;
+  const labelsOf = (rid) => { if (!rid || rid === 'viewer') return []; if (srvRoles) return srvRoles.filter((x) => x.role_id === rid).map((x) => x.label);
+    const r = dirRoles().find((x) => x.id === rid && !x.hidden); if (r) return [r.name]; return ROLE_LABELS[rid] ? ROLE_LABELS[rid].slice() : []; };
   const myRoles = () => { const m = me(); if (!m || m.status === 'suspended') return []; return [...new Set([m.role_id].concat(Array.isArray(m.extra_roles) ? m.extra_roles : []).flatMap(labelsOf))]; };
   const actor = () => { const m = me() || {}; const roles = window.IBDirectory && window.IBDirectory.roles ? quiet(() => window.IBDirectory.roles()) : null;
     return { name: m.name || '—', role: labelsOf(m.role_id)[0] || (roles && roles[m.role_id] && roles[m.role_id].name) || 'عضو', uid: m.id || null }; };
@@ -126,7 +130,7 @@
   async function loadRoles(g) {
     const cl = c(); if (!cl || !window.IbtekrTickets || !window.IbtekrTickets.setRoles) return;
     if (can().manage) cl.rpc('ticket_people').then((r) => { if (g === gen && r && !r.error && Array.isArray(r.data)) { people = r.data.map((x) => ({ uid: x.id, name: x.name, status: 'active', roleId: x.role_id })); emit(); } }, () => {}); // 0113 (before it: 404 → the directory)
-    try { const r = await cl.rpc('ticket_roles'); if (g !== gen) return; if (!r.error && Array.isArray(r.data)) { window.IbtekrTickets.setRoles(r.data.map((x) => x && x.label)); emit(); } else rolesFor = 0; } catch (e) { if (g === gen) rolesFor = 0; /* the six stay; the next load asks again */ }
+    try { const r = await cl.rpc('ticket_roles'); if (g !== gen) return; if (!r.error && Array.isArray(r.data)) { const got = r.data.filter((x) => x && x.label && x.role_id); srvRoles = got.length ? got.map((x) => ({ label: String(x.label), role_id: String(x.role_id) })) : null; window.IbtekrTickets.setRoles(r.data.map((x) => x && x.label), (r.data.find((x) => x && x.role_id === 'admin') || {}).label); emit(); } else rolesFor = 0; } catch (e) { if (g === gen) rolesFor = 0; /* the six stay; the next load asks again */ }
   }
   function mergeEvents(k, list) { const have = data.events.get(k) || []; const ids = new Set(have.map((x) => x.id)); list.forEach((e) => { if (!ids.has(Number(e.id))) have.push(toEvent(e)); }); data.events.set(k, have.sort(byAt)); }
   // the whole timeline of one ticket (the drawer opens it); older than the recent window when the ticket is old
@@ -146,7 +150,7 @@
     } catch (e) { /* the next load() picks it up */ }
     emit({ id: tid(k) });
   }
-  function clear() { gen += 1; rolesFor = 0; people = null; unsubscribe(); data.tickets = []; data.events.clear(); data.full.clear(); memSince = null; st = 'idle'; if (window.IbtekrTickets && window.IbtekrTickets.setRoles) window.IbtekrTickets.setRoles([]); }
+  function clear() { gen += 1; rolesFor = 0; people = null; srvRoles = null; unsubscribe(); data.tickets = []; data.events.clear(); data.full.clear(); memSince = null; st = 'idle'; if (window.IbtekrTickets && window.IbtekrTickets.setRoles) window.IbtekrTickets.setRoles([]); }
 
   // ---------- the store the page reads (block 05's createStore names) ----------
   const copy = (t) => (t ? Object.assign({}, t, { createdBy: Object.assign({}, t.createdBy), resolution: t.resolution ? Object.assign({}, t.resolution) : null, attachments: t.attachments.slice() }) : null);

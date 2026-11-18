@@ -111,8 +111,12 @@ begin
   exception when sqlstate '22023' then null; end;
   perform public.role_update('photo', 'التصوير والفيديو', 'وصف');
   if (select name || '|' || description from public.roles where id = 'photo') <> 'التصوير والفيديو|وصف' then raise exception 'case role update failed'; end if;
-  begin perform public.role_update('cs', 'اسم تاني', null); raise exception 'case a system role keeps its name failed';
+  begin perform public.role_update('admin', 'اسم تاني', null); raise exception 'case «الإدارة» keeps its name failed';
   exception when sqlstate '22023' then null; end;
+  -- 0128: a ready team is renamed at will, and its requests follow the name
+  perform public.role_update('cs', 'خدمة العملاء والمبيعات', null);
+  if (select name from public.roles where id = 'cs') <> 'خدمة العملاء والمبيعات' then raise exception 'case a ready team is renamed failed'; end if;
+  perform public.role_update('cs', 'خدمة العملاء', null);
   perform public.member_role_set('00000000-0000-4000-8000-0000000056a3', 'photo');
   if (select role_id from public.profiles where id = '00000000-0000-4000-8000-0000000056a3') <> 'photo' then raise exception 'case member role set failed'; end if;
   begin perform public.role_delete('photo', '{}'); raise exception 'case a role with members needs the moves failed';

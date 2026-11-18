@@ -50,7 +50,7 @@ do $$
 declare t public.tickets; v_txt text;
 begin
   select * into t from public.tickets where id = (select v::bigint from rq where k = 'tl');
-  if t.type <> 'internal' or t.assignee_role <> 'اللوجستيك والشحن' or t.created_by <> '00000000-0000-4000-8000-0000000071a3' or t.status <> 'open' or t.title not like 'طلب إجازة — عضو الطلبات · %' then
+  if t.type <> 'internal' or t.assignee_role <> 'العمليات والشحن' or t.created_by <> '00000000-0000-4000-8000-0000000071a3' or t.status <> 'open' or t.title not like 'طلب إجازة — عضو الطلبات · %' then
     raise exception 'case a leave is a ticket «طلب إجازة» to the direct manager''s role failed (%, %)', t.assignee_role, t.title;
   end if;
   if (select title from public.tickets where id = (select v::bigint from rq where k = 'ta')) not like 'طلب موارد بشرية — %' -- an advance is not named (security review)

@@ -69,14 +69,16 @@ test('summary and filterTickets: open / overdue / reopened, the v2 order (priori
 
 // 0081 (the owner 12 Nov): a request goes to any role of the team — setRoles() adds the server's list (ticket_roles()) after the six;
 // the six never leave; validateTicket follows the list
-test('setRoles: the team\'s roles after the six (cleaned, once); validateTicket accepts them; the six stay', () => {
+test('setRoles: the server\'s teams are the list (cleaned, once) with the admin team\'s name; validateTicket accepts them; the six only before it', () => {
   const T = loadUmd(new URL('../../app/js/blocks/05-tickets-domain.js', import.meta.url));
   const input = { type: 'internal', title: 'بوست العروض', description: '3 بوستات', priority: 'normal', assigneeRole: 'ديزاينر' };
   assert.equal(T.validateTicket(input).assigneeRole, 'اختار الدور المسؤول'); // not on the list yet
-  T.setRoles(['مدير النظام', ' ديزاينر ', 'ديزاينر', 'ميديا باير', '', null]);
-  assert.deepEqual(json(T.ROLES), ['مدير النظام', 'خدمة العملاء', 'متابعة المبتكرين', 'الحسابات', 'اللوجستيك والشحن', 'المحتوى والتصوير', 'ديزاينر', 'ميديا باير']);
+  // 0128: the server's list is the list (the ready teams by their current names), and the admin team's name comes with it
+  T.setRoles(['الإدارة', ' ديزاينر ', 'ديزاينر', 'ميديا باير', '', null], 'الإدارة');
+  assert.deepEqual(json(T.ROLES), ['الإدارة', 'ديزاينر', 'ميديا باير']);
+  assert.equal(T.ADMIN_ROLE, 'الإدارة'); assert.ok(T.isAdmin({ role: 'الإدارة' }));
   assert.deepEqual(T.validateTicket(input), {});
-  T.setRoles([]); assert.deepEqual(json(T.ROLES), json(T.BASE_ROLES)); // a refetch with only the six
+  T.setRoles([]); assert.deepEqual(json(T.ROLES), json(T.BASE_ROLES)); assert.equal(T.ADMIN_ROLE, T.BASE_ROLES[0]); // nothing from the server: the six stand in
   assert.equal(T.validateTicket(input).assigneeRole, 'اختار الدور المسؤول');
 });
 

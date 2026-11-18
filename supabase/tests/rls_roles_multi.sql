@@ -43,7 +43,7 @@ do $$ begin
      or not has_function_privilege('authenticated', 'public.member_roles_set(uuid, text[])', 'execute') or not has_function_privilege('authenticated', 'public.ticket_roles()', 'execute') then
     raise exception 'case member_roles_set / ticket_roles: closed to anon, open to the members failed';
   end if;
-  if (select count(*) from public.ticket_roles() t where t.label in ('مدير النظام', 'خدمة العملاء', 'متابعة المبتكرين', 'الحسابات', 'اللوجستيك والشحن', 'المحتوى والتصوير', 'ديزاينر', 'ميديا باير', 'مبرمج')) <> 9 then
+  if (select count(*) from public.ticket_roles() t where t.label in ('الإدارة', 'خدمة العملاء', 'متابعة المبتكرين', 'الحسابات', 'العمليات والشحن', 'المحتوى والتصوير', 'التصميم', 'الإعلانات', 'البرمجة')) <> 9 then
     raise exception 'case ticket_roles lists the six old labels and the three new names failed';
   end if;
 end $$;
@@ -93,7 +93,7 @@ do $$ begin
   if public.has_perm('accounts.add') <> coalesce((select permissions ->> 'accounts.add' from public.roles where id = 'viewer'), 'N') then
     raise exception 'case a key no role gives stays as the main role failed';
   end if;
-  if not ('ديزاينر' = any (public.ticket_my_roles()) and 'مبرمج' = any (public.ticket_my_roles())) then raise exception 'case my ticket roles = main + extras failed'; end if;
+  if not ('التصميم' = any (public.ticket_my_roles()) and 'البرمجة' = any (public.ticket_my_roles())) then raise exception 'case my ticket roles = main + extras failed'; end if;
 end $$;
 reset role;
 update public.profiles set custom_perms = '{"marketing.create":"N"}' where id = '00000000-0000-4000-8000-0000000081a3';
@@ -115,7 +115,7 @@ begin
   exception when invalid_parameter_value then null; end;
   t1 := public.ticket_create('{"type":"internal","title":"بوست العروض","description":"3 بوستات 1080×1350","priority":"normal","assigneeRole":"ديزاينر"}');
   perform set_config('rm.t1', t1::text, true);
-  if (select assignee_role from public.tickets where id = t1) <> 'ديزاينر' then raise exception 'case a request goes to the designer failed'; end if;
+  if (select assignee_role from public.tickets where id = t1) <> 'التصميم' then raise exception 'case a request goes to the designer failed'; end if;
 end $$;
 reset role;
 
@@ -162,7 +162,7 @@ begin
   if exists (select 1 from public.profiles where id = '00000000-0000-4000-8000-0000000081a3' and 'photo_team' = any (extra_roles)) then
     raise exception 'case a deleted role leaves the extras failed';
   end if;
-  if (select assignee_role from public.tickets where id = t2) <> 'مدير النظام' then raise exception 'case a deleted role''s open requests go to the manager failed'; end if;
+  if (select assignee_role from public.tickets where id = t2) <> 'الإدارة' then raise exception 'case a deleted role''s open requests go to the manager failed'; end if;
   raise notice 'rls_roles_multi: ok';
 end $$;
 reset role;

@@ -50,7 +50,7 @@ begin
   insert into ot values ('t1', r ->> 'ticket');
   select * into t from public.tickets where id = (r ->> 'ticket')::bigint;
   if not found then raise exception 'case the member sees the ticket opened in their name failed'; end if;
-  if t.type <> 'internal' or t.assignee_role <> 'اللوجستيك والشحن' or t.created_by <> auth.uid() or t.status <> 'open' or t.title not like 'وقت إضافي — عضو الإضافي%' then
+  if t.type <> 'internal' or t.assignee_role <> 'العمليات والشحن' or t.created_by <> auth.uid() or t.status <> 'open' or t.title not like 'وقت إضافي — عضو الإضافي%' then
     raise exception 'case the ticket goes to the direct manager''s role failed (%, %, %)', t.type, t.assignee_role, t.title;
   end if;
   if (public.hr_shift_now() ->> 'ot_ticket') <> r ->> 'ticket' or public.hr_shift_now() ->> 'ot_from' is null then raise exception 'case the session carries the overtime start failed'; end if;

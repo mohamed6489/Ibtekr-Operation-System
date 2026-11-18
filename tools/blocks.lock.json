@@ -17,7 +17,7 @@
   },
   "05-tickets-domain.js": {
     "prototype": "0ad40f82b8de08859d6a7fba0ad228886fa9fab0340e06c14e89811a39fff569",
-    "current": "8b80bf91f17054480035404b7c8c6ab01cd7797fc9350324b8bf5068aa346e43"
+    "current": "8696b4ef2ba264c67b36e11231c97ef0407a76ea43175f1041a3175891084717"
   },
   "06-vendors-domain.js": {
     "prototype": "eee7f82bb5af1440fc5a7454dcad65932f5253b0af6e583a6f2eaf969e7c2bfa",
@@ -65,7 +65,7 @@
   },
   "17-page-settings.js": {
     "prototype": "89d9c49b0d0f466a618479a6b68c237edb4e90a12b0b233e7d05f7916c8e8dde",
-    "current": "6bb0c010d6cba8c8fce37e4dded43ed9da7589550841046cc3f1c28f9bc7de48"
+    "current": "05530ec02721a0d791acf1908b6d7d703a62a8e5c80edf7d288b2a7be54f80ce"
   },
   "18-page-profile.js": {
     "prototype": "218eb74e001b3e909a563499cdd2d929b1893e93d86d81f9039603b34dbdaa8a",

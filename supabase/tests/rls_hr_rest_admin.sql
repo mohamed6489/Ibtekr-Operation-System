@@ -48,7 +48,7 @@ do $$
 declare v_t public.tickets; v_id bigint := (select v::bigint from ra where k = 't');
 begin
   select * into v_t from public.tickets where id = v_id;
-  if v_t.assignee_role <> 'مدير النظام' or v_t.title not like 'يوم راحة/عطلة — %' or v_t.description not like '%موافقة الأدمن%' then
+  if v_t.assignee_role <> 'الإدارة' or v_t.title not like 'يوم راحة/عطلة — %' or v_t.description not like '%موافقة الأدمن%' then
     raise exception 'case a rest day goes to «مدير النظام», not the manager''s role failed (%, %)', v_t.assignee_role, v_t.description;
   end if;
   if (select count(*) from public.alerts where entity_id = 'ot:' || v_id and role_id = 'admin' and body = 'مستني موافقة الأدمن') <> 1

@@ -5,7 +5,7 @@ insert into auth.users (id, email, phone) values ('00000000-0000-4000-8000-00000
 insert into public.profiles (id, name, email, phone, role_id, status, custom_perms, extra_roles) values
   ('00000000-0000-4000-8000-000000117a01', 'أدمن المسح', 'wipe-admin.dev@ibtekr.local', '0100000117a1', 'admin', 'active', '{}', '{}'),
   ('00000000-0000-4000-8000-000000117a02', 'عمليات المسح', 'wipe-ops.dev@ibtekr.local', '0100000117a2', 'ops', 'active', '{}', '{}');
-insert into public.tickets (title, description, type, priority, assignee_role, created_by, created_by_name, created_by_role) values ('اختبار المسح', 'تفاصيل', 'internal', 'normal', 'مدير النظام', '00000000-0000-4000-8000-000000117a01', 'أدمن المسح', 'أدمن');
+insert into public.tickets (title, description, type, priority, assignee_role, created_by, created_by_name, created_by_role) values ('اختبار المسح', 'تفاصيل', 'internal', 'normal', 'الإدارة', '00000000-0000-4000-8000-000000117a01', 'أدمن المسح', 'أدمن');
 set local role authenticated;
 -- ops: refused
 select set_config('request.jwt.claims', json_build_object('sub', '00000000-0000-4000-8000-000000117a02', 'role', 'authenticated', 'aal', 'aal2')::text, true);

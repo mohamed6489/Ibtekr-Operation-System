@@ -106,7 +106,7 @@ select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000
 do $$ declare t bigint; begin
   if not public.ai_agent_can('stock') then raise exception 'case ops sees the stock assistant failed'; end if;
   t := public.ticket_request_create('stock', 'المخزن', '{"title":"رف جديد للمرتجعات","description":"محتاجين رف","priority":"normal"}');
-  if (select kind || '|' || assignee_role from public.tickets where id = t) <> 'stock|اللوجستيك والشحن' then raise exception 'case the stock request to its role failed'; end if;
+  if (select kind || '|' || assignee_role from public.tickets where id = t) <> 'stock|العمليات والشحن' then raise exception 'case the stock request to its role failed'; end if;
   begin perform public.ticket_request_create('robot', null, '{"title":"x","description":"x","priority":"normal"}'); raise exception 'case an unknown assistant failed';
   exception when invalid_parameter_value then null; end;
   begin perform public.ticket_request_create('buyer', null, '{"title":"x","description":"x","priority":"normal"}'); raise exception 'case the buyer keeps «media» failed';

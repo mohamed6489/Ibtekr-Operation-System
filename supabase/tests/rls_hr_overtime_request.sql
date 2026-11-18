@@ -111,7 +111,7 @@ do $$
 declare tk bigint := (select v::bigint from orq where k = 'rtk');
 begin
   if (select kind from public.hr_overtime where id = (select v::bigint from orq where k = 'rot')) <> 'rest_day'
-     or (select assignee_role from public.tickets where id = tk) <> 'مدير النظام' then raise exception 'case the rest day row and ticket failed'; end if;
+     or (select assignee_role from public.tickets where id = tk) <> 'الإدارة' then raise exception 'case the rest day row and ticket failed'; end if;
   if exists (select 1 from public.alerts where entity_id = 'ot:' || tk and user_id is not null) then raise exception 'case a rest day rings the admins only failed'; end if;
 end $$;
 select pg_temp.as_member('00000000-0000-4000-8000-0000000073a4');

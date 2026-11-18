@@ -228,8 +228,9 @@ declare t2 bigint := (select v::bigint from tk_ids where k = 't2');
 begin
   if (select count(*) from public.tickets where id in (select v::bigint from tk_ids where k like 't_')) <> 3 then raise exception 'case ops (F) sees all failed'; end if;
   perform public.ticket_act(t2, 'set_status', '{"status":"in_progress"}');
-  perform public.ticket_act(t2, 'update', '{"assigneeRole":"المحتوى والتصوير"}');
-  perform public.ticket_act(t2, 'resolve', '{"outcome":"مش مشكلة"}'); -- المحتوى والتصوير is ops too (decision 14)
+  perform public.ticket_act(t2, 'update', '{"assigneeRole":"اللوجستيك والشحن"}'); -- 0128: an old label lands on its team's current name
+  if (select assignee_role from public.tickets where id = t2) <> 'العمليات والشحن' then raise exception 'case an old label is canonical failed'; end if;
+  perform public.ticket_act(t2, 'resolve', '{"outcome":"مش مشكلة"}');
   begin perform public.ticket_act(t2, 'close'); raise exception 'case ops is not the opener failed'; exception when insufficient_privilege then null; end;
 end $$;
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000045b6","role":"authenticated"}', true);

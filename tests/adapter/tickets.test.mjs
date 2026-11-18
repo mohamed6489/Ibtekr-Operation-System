@@ -13,7 +13,7 @@ const row = (o) => ({ id: 1, type: 'customer', title: 'فرق شحن', descripti
   cs_customer_id: CC, cs_conversation_id: CV, vendor_id: null, vendor: null, reason: 'أخرى', follow_up: '2026-11-08', attachments: [{ path: OTHER + '/a-x.png', name: 'صورة', type: 'image/png', size: 12 }],
   status: 'open', created_by: OTHER, created_by_name: 'سارة', created_by_role: 'خدمة العملاء', created_at: '2026-11-05T08:00:00Z', last_update: '2026-11-05T09:00:00Z', reopen_count: 0,
   resolution_outcome: null, resolution_note: null, resolved_by_name: null, resolved_at: null, closed_by_name: null, closed_at: null, ...o });
-const TICKETS = [row({}), row({ id: 2, type: 'vendor', title: 'المبتكر مابيردش', assignee_role: 'اللوجستيك والشحن', order_number: null, order_id: null, customer: null, cs_customer_id: null, cs_conversation_id: null,
+const TICKETS = [row({}), row({ id: 2, type: 'vendor', title: 'المبتكر مابيردش', assignee_role: 'العمليات والشحن', order_number: null, order_id: null, customer: null, cs_customer_id: null, cs_conversation_id: null,
   vendor_id: V1, vendor: 'HANDS', reason: 'مش بيرد', status: 'resolved', created_by: ME, created_by_name: 'منى', created_by_role: 'الحسابات', resolution_outcome: 'مكرر', resolution_note: 'اتكررت', resolved_by_name: 'كريم', resolved_at: '2026-11-05T10:00:00Z', attachments: [] })];
 const EVENTS = [
   { id: 2, ticket_id: 1, kind: 'message', at: '2026-11-05T08:00:01Z', actor: OTHER, actor_name: 'سارة', actor_role: 'خدمة العملاء', text: 'اتحاسب 100', old_value: null, new_value: null, attachments: [] },
@@ -23,7 +23,7 @@ function load({ responses = {}, perms = { 'tickets.view': 'F', 'tickets.manage':
   const stub = stubClient({ responses: { tickets: ok(TICKETS), ticket_events: ok(EVENTS), ...responses } });
   const events = []; const logs = [];
   const window = { IBSupabase: { client: stub.client }, IB_CONFIG: { realtime },
-    IBDirectory: { perm: (k) => perms[k] || 'N', me: () => ({ id: ME, name: 'منى', role_id: role, status: 'active', extra_roles: extra }), members: () => members, roles: () => [{ id: 'designer', name: 'ديزاينر' }, { id: 'developer', name: 'مبرمج' }, { id: 'old', name: 'قديم', hidden: true }] },
+    IBDirectory: { perm: (k) => perms[k] || 'N', me: () => ({ id: ME, name: 'منى', role_id: role, status: 'active', extra_roles: extra }), members: () => members, roles: () => [{ id: 'admin', name: 'الإدارة' }, { id: 'cs', name: 'خدمة العملاء' }, { id: 'vendors_followup', name: 'متابعة المبتكرين' }, { id: 'accounts', name: 'الحسابات' }, { id: 'ops', name: 'العمليات والشحن' }, { id: 'content', name: 'المحتوى والتصوير' }, { id: 'viewer', name: 'مشاهد' }, { id: 'designer', name: 'التصميم' }, { id: 'developer', name: 'البرمجة' }, { id: 'old', name: 'قديم', hidden: true }] }, // 0128: the teams by their current names
     IBActivity: { log: (action, detail, meta) => { logs.push([action, detail, meta]); return Promise.resolve(); } },
     IBVendors: { store: { findByName: (n) => (n === 'HANDS' ? { id: V1 } : null) } }, IBPrefs: prefs || undefined, crypto: { randomUUID: () => 'abcdef12-0000-4000-8000-000000000000' } };
   runInNewContext(src, { window, document: { dispatchEvent(e) { events.push(e.type); }, visibilityState: 'visible' }, CustomEvent: class { constructor(t) { this.type = t; } },
@@ -53,8 +53,8 @@ test('without tickets.view nothing is read', async () => {
 // 0081 (the owner 12 Nov): my roles = the main + the extras; a role outside the old six answers to its name; a hidden one to nothing
 test('the extra roles: my ticket roles = the main + the extras by name (a hidden role none); canWork follows them', async () => {
   const d = load({ role: 'accounts', extra: ['designer', 'old', 'designer'] }); await d.T.load();
-  eq(d.T.myRoles(), ['الحسابات', 'ديزاينر']);
-  eq([d.T.rolesOf('designer'), d.T.rolesOf('old')], [['ديزاينر'], []]);
+  eq(d.T.myRoles(), ['الحسابات', 'التصميم']);
+  eq([d.T.rolesOf('designer'), d.T.rolesOf('old')], [['التصميم'], []]);
   eq(d.T.actor().role, 'الحسابات'); // the main role acts
 });
 
@@ -62,11 +62,11 @@ test('the roles: canWork = the admin or a member of the assigned role (ops holds
   const acc = load(); await acc.T.load();
   eq([acc.T.canWork(acc.T.get('TKT-0001')), acc.T.canClose(acc.T.get('TKT-0001')), acc.T.canWork(acc.T.get('TKT-0002')), acc.T.canClose(acc.T.get('TKT-0002'))], [true, false, false, true]);
   const ops = load({ role: 'ops' }); await ops.T.load();
-  eq(ops.T.myRoles(), ['اللوجستيك والشحن', 'المحتوى والتصوير']);
-  eq([ops.T.rolesOf('ops'), ops.T.rolesOf('cs'), ops.T.rolesOf('viewer'), ops.T.rolesOf('')], [['اللوجستيك والشحن', 'المحتوى والتصوير'], ['خدمة العملاء'], [], []]); // «مين عنده شغل» (the owner 11 Nov)
+  eq(ops.T.myRoles(), ['العمليات والشحن']); // 0128: «المحتوى والتصوير» is a team of its own
+  eq([ops.T.rolesOf('ops'), ops.T.rolesOf('cs'), ops.T.rolesOf('viewer'), ops.T.rolesOf('')], [['العمليات والشحن'], ['خدمة العملاء'], [], []]); // «مين عنده شغل» (the owner 11 Nov)
   eq([ops.T.canWork(ops.T.get('TKT-0002')), ops.T.isMine(ops.T.get('TKT-0002'))], [true, true]);
   const adm = load({ role: 'admin' }); await adm.T.load();
-  eq([adm.T.canWork(adm.T.get('TKT-0001')), adm.T.canClose(adm.T.get('TKT-0001')), adm.T.actor().role], [true, true, 'مدير النظام']);
+  eq([adm.T.canWork(adm.T.get('TKT-0001')), adm.T.canClose(adm.T.get('TKT-0001')), adm.T.actor().role], [true, true, 'الإدارة']);
   const view = load({ role: 'viewer', perms: { 'tickets.view': 'P' } }); await view.T.load();
   eq([view.T.canWork(view.T.get('TKT-0001')), view.T.can().manage], [false, false]);
 });

@@ -1136,7 +1136,7 @@
     // owner batch 14 Nov decision 14: a job for a person comes back as a ready request (title + details) — the page offers «قدّم الطلب ده»
     const rq = b.request && typeof b.request === 'object' && typeof b.request.title === 'string' && b.request.title.trim() ? { title: b.request.title.trim().slice(0, 80), details: typeof b.request.details === 'string' ? b.request.details.slice(0, 1500) : '' } : null;
     // ش45 decision 4: the designer's filled campaign (the page clamps it with IbtekrCampWiz.draftOf before opening it)
-    const cp = agent === 'designer' && b.campaign && typeof b.campaign === 'object' && !Array.isArray(b.campaign) ? b.campaign : null;
+    const cp = (agent === 'designer' || agent === 'buyer') && b.campaign && typeof b.campaign === 'object' && !Array.isArray(b.campaign) ? b.campaign : null;
     // ش45 decision 5: the buyer's pause / resume proposal — a confirm card on the page, nothing runs from the chat
     const ca = agent === 'buyer' && b.campaignAction && /^[0-9]{1,30}$/.test(String(b.campaignAction.campaignId || '')) && ['pause', 'resume'].includes(b.campaignAction.action) ? { campaignId: String(b.campaignAction.campaignId), action: b.campaignAction.action } : null;
     // the owner 18 Nov («يجيبولي الاختيارات جوا الشات يعني اوافق او ارفض»): the buyer's open suggestions to decide in the chat (approve / reject by id)

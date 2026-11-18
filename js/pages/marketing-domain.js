@@ -597,6 +597,9 @@
     if (carousel) w.media.carousel.slides = clamp(d.slides || 4, 2, MAX.slides);
     if (video) w.media.video.dur = clamp(d.dur || 15, 5, VIDEO_MAX);
     w.mediaTab = post ? 'post' : carousel ? 'carousel' : 'video';
+    // agents-brain T5: the scenes the buyer planned (campaign-draft.js DRAFT_NOTES) — the instructions of the first kind made
+    const notes = String(d.notes == null ? '' : d.notes).replace(/[\u0000-\u0009\u000b-\u001f\u007f<>]/g, ' ').replace(/[ \t]+/g, ' ').trim().slice(0, 400);
+    if (notes) w.media[w.mediaTab].notes = notes;
     return w;
   }
 

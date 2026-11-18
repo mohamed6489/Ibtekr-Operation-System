@@ -204,7 +204,7 @@ test('studio attrs + translate: the material and the style in both languages; th
   const sets = { categoryIds: new Set([10]), colorCodes: new Set(['BE']) };
   assert.deepEqual(cleanStudio({ nameEn: 'Rattan Chair', shortDesc: 'A rattan chair in bouclé.' }, ['translate'], sets), { fields: { nameEn: 'Rattan Chair', shortDesc: 'A rattan chair in bouclé.' }, missing: [] });
   assert.deepEqual(cleanStudio({ nameEn: 'كرسي خيزران', shortDesc: '' }, ['translate'], sets).missing, ['nameEn', 'shortDesc'], 'Arabic is no English');
-  assert.deepEqual(cleanStudio({ material: 'Rattan', materialAr: 'راتان', style: 'Boho', styleAr: 'Boho' }, ['attrs'], sets),
+  assert.deepEqual(cleanStudio({ material: 'Rattan', materialAr: 'راتان', style: 'Boho', styleAr: 'Boho' }, ['attrs'], { ...sets, styles: [{ en: 'Boho', ar: '' }] }),
     { fields: { material: 'Rattan', materialAr: 'راتان', style: 'Boho' }, missing: ['styleAr'] });
   assert.deepEqual(cleanStudio({ nameEn: 'A', shortDesc: 'B.', shortDescAr: 'ب.' }, ['desc', 'translate'], sets).fields, { shortDesc: 'B.', shortDescAr: 'ب.', nameEn: 'A' }, 'desc + translate: one shortDesc');
 });
@@ -344,6 +344,9 @@ test('the shop\'s styles: the list the page sends is short plain names only; the
   assert.deepEqual([clean({ style: 'wabi-sabi', styleAr: 'وابي سابي' }).fields.style, clean({ style: 'wabi-sabi', styleAr: 'وابي سابي' }).fields.styleAr], ['Wabi Sabi', 'وابي سابي']); // no Arabic on the shop: the answer's
   const off = clean({ style: 'Futuristic', styleAr: 'مستقبلي' });
   assert.ok(!('style' in off.fields) && !('styleAr' in off.fields)); assert.ok(off.missing.includes('style')); assert.equal(off.fields.material, 'Wood');
-  // no shop list (the site has no styles, or an old page): as before
-  assert.equal(cleanStudio({ material: 'Wood', materialAr: 'خشب', style: 'Futuristic', styleAr: 'مستقبلي' }, ['attrs'], { categoryIds: new Set(), colorCodes: new Set() }).fields.style, 'Futuristic');
+  // the owner 18 Nov («الاستايل ييجي من الاستايلات اللي علي الويبسايت فقط»): no shop list = no style made up
+  const none = cleanStudio({ material: 'Wood', materialAr: 'خشب', style: 'Futuristic', styleAr: 'مستقبلي' }, ['attrs'], { categoryIds: new Set(), colorCodes: new Set() });
+  assert.ok(!('style' in none.fields) && none.missing.includes('style')); assert.equal(none.fields.material, 'Wood');
+  // «بوهيمى» and «بوهيمي» are one style (the Arabic letter forms fold)
+  assert.deepEqual(styleOf([{ en: 'Boho', ar: 'بوهيمى' }], '', 'بوهيمي'), { en: 'Boho', ar: 'بوهيمى' });
 });

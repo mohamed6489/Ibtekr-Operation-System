@@ -163,7 +163,7 @@ import { vaultEnv } from '../_shared/secrets.js';
 import { isSingle, readStore, SINGLE_OFF_ACTIONS, STORE_FREE_ACTIONS, wooActive } from '../_shared/store/index.js';
 import { ConfigError, WooError, errorText, makeScrubber, wooApi } from '../_shared/woo-api.js';
 import { AR_FIELDS, BATCH_FIELDS, EDIT_FIELDS, VARIATION_FIELDS, brandNamesOf, cleanFields, editView, sharedOf, toWoo, variationView, withBrandAttr } from '../_shared/woo-products.js';
-import { STUDIO_ATTRS, VARIATION_GALLERY_KEY, buildStudio, fetchSheetCsv, matchWooBrand, styleTerms, wooBrandIds } from '../_shared/woo-studio.js';
+import { STUDIO_ATTRS, VARIATION_GALLERY_KEY, buildStudio, fetchSheetCsv, matchWooBrand, siteStylesOnly, styleTerms, wooBrandIds } from '../_shared/woo-studio.js';
 import { duplicateAr, duplicatePayload, duplicateSku, duplicateVariation, variationSku } from '../_shared/woo-duplicate.js';
 import { OWNED, siteQuantities, skuList } from '../_shared/woo-inventory.js';
 import { CART_HOURS, CART_PATH, cartRows } from '../_shared/woo-carts.js';
@@ -2056,7 +2056,16 @@ async function studioUpload(run: Run, args: Json) {
     }
     return siteBrand;
   };
-  const built = buildStudio(item, { batchId, type: batch.type, brand: brand?.name ?? '', wooBrand, colors, colorsAr, attrs: await attributeIds(run, ctx) }) as Json;
+  // only the site's own styles go up (the owner 18 Nov): a style that is not a term of the site's style attribute is dropped and said
+  // (styleDropped) — never made on the site; the site's styles not read = no style written
+  let upItem: Json = item; let styleDropped: string[] = [];
+  if (item.style) {
+    let site: Json[] | null = null;
+    try { site = (await readStyles(ctx)).styles; } catch (e) { if (!(e instanceof WooError)) throw e; }
+    const kept = siteStylesOnly(item, site as { en: string; ar: string }[] | null) as { item: Json; dropped: string[] };
+    upItem = kept.item; styleDropped = kept.dropped;
+  }
+  const built = buildStudio(upItem, { batchId, type: batch.type, brand: brand?.name ?? '', wooBrand, colors, colorsAr, attrs: await attributeIds(run, ctx) }) as Json;
   if (built.error) return json(400, built);
   const prev = isObj(batch.result) && Array.isArray(batch.result.items) && isObj(batch.result.items[index]) ? batch.result.items[index] : {};
   // the three flows (docs/superpowers/plans/2026-11-14-studio-flows.md): the photos went up first under their own names
@@ -2066,7 +2075,7 @@ async function studioUpload(run: Run, args: Json) {
   // variations would take that one under a parent with the old) writes nothing — brand_changed when the brand's two letters
   // differ (another brand, or its name changed), sku_changed for the rest (a Simple's color, the serial, another row here)
   const made = wooId(prev.productId) !== null && typeof prev.sku === 'string';
-  const res: Json = { ...prev, sku: made ? prev.sku : built.sku, media: isObj(prev.media) ? { ...prev.media } : {}, error: null };
+  const res: Json = { ...prev, sku: made ? prev.sku : built.sku, media: isObj(prev.media) ? { ...prev.media } : {}, error: null, styleDropped: styleDropped.length ? styleDropped.slice(0, 10) : null };
   if (made && res.sku !== built.sku) res.error = res.sku.slice(3, 5) === built.sku.slice(3, 5) ? 'sku_changed' : 'brand_changed';
   // the maker (decision 9): Dokan's own route writes an admin's post_author when that user can dokan_add_product (otherwise
   // the caller) — the answer's post_author is checked, never trusted. The ids it took stay on the result with the maker they
@@ -2472,10 +2481,21 @@ async function siteSpeed(run: Run, fetchFn: typeof fetch, uid: string | null) {
 async function siteStyles(run: Run) {
   const ctx = await run.ctx();
   try {
+    const r = await readStyles(ctx);
+    return json(200, { action: 'styles', result: 'ok', attribute: r.attribute, styles: r.styles });
+  } catch (e) {
+    if (!(e instanceof WooError)) throw e;
+    return json(200, { action: 'styles', result: 'error', reason: wooCode(e) });
+  }
+}
+// the site's style terms (a read) — also what studio_upload checks a product's style against (the owner 18 Nov: «الاستايل ييجي من
+// الاستايلات اللي علي الويبسايت فقط»)
+async function readStyles(ctx: Ctx): Promise<{ attribute: boolean; styles: Json[] }> {
+  {
     const attrs = (await ctx.woo.get('wc/v3/products/attributes')).data;
     const attr = (Array.isArray(attrs) ? attrs : []).find((a: Json) => isObj(a) && String(a.slug) === STUDIO_ATTRS.style);
     const id = attr ? wooId(attr.id) : null;
-    if (id === null) return json(200, { action: 'styles', result: 'ok', attribute: false, styles: [] });
+    if (id === null) return { attribute: false, styles: [] };
     const read = async (lang: string | null) => {
       const out: Json[] = [];
       for (let page = 1; page <= 3; page++) {
@@ -2492,11 +2512,8 @@ async function siteStyles(run: Run) {
     try { ar = await read('ar'); } catch (e) { if (!(e instanceof WooError)) throw e; } // the English names alone still make the list
     // one entry per style: the Arabic terms WPML hands back with the English read are folded into their English term, and the
     // same style twice is once (owner 16 Nov — `styleTerms`)
-    const styles = styleTerms(en, ar, plainName);
-    return json(200, { action: 'styles', result: 'ok', attribute: true, styles });
-  } catch (e) {
-    if (!(e instanceof WooError)) throw e;
-    return json(200, { action: 'styles', result: 'error', reason: wooCode(e) });
+    const styles = styleTerms(en, ar, plainName) as Json[];
+    return { attribute: true, styles };
   }
 }
 

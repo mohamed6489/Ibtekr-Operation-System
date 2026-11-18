@@ -875,6 +875,36 @@ test('owner 16 Nov — the style list is the site\'s style terms once each: a st
   await expect(card2.locator('[data-fl-pick="styleAr"] button.select')).toContainText('ريفي (مش على الموقع)');
 });
 
+// the owner 18 Nov («الاستايل ييجي من الاستايلات اللي علي الويبسايت فقط اللي موجودين في ال style في attribute»): «بوهيمى» and «بوهيمي»
+// are one; a site with no style attribute has no style to pick (no list of the page's own) and the AI fills none
+test('owner 18 Nov — the site\'s styles only: «بوهيمى» = «بوهيمي» once; no style attribute on the site = no style to pick and none filled', async ({ page }) => {
+  mock.siteStyles = [{ id: 1, en: 'Boho', ar: 'بوهيمى' }, { id: 2, en: 'Bohemian', ar: 'بوهيمي' }, { id: 3, en: 'Minimal', ar: 'بسيط' }];
+  await signIn(page, ADMIN);
+  await choose(page, 'شيت جاهز', 'Simple');
+  await pick(page, '[data-flow-sheet]', { name: 'a.csv', mimeType: 'text/csv', buffer: Buffer.from('#,SKU,Product Name EN,Product Name AR,Product Colors,Product Colors AR,Size,Vendor Price,Product Category\n1,,Boho Cushion,مخدة بوهيمي,Beige,بيج,40 × 40 cm,1000,ديكور\n') });
+  await photosFor(page, 1);
+  await next(page); await makerArtCraft(page); await next(page);
+  const card = page.locator('#pg-products .fl-dcard').first();
+  await card.locator('[data-fl-pick="styleAr"] button.select').evaluate((e) => e.scrollIntoView({ block: 'center' }));
+  await card.locator('[data-fl-pick="styleAr"] button.select').click();
+  await expect(page.getByRole('option')).toHaveText(['—', 'بوهيمى', 'بسيط']);
+  await page.keyboard.press('Escape');
+});
+test('owner 18 Nov — a site without a style attribute: the style dropdown says so, nothing of the page\'s own', async ({ page }) => {
+  mock.siteStyles = null;
+  await signIn(page, ADMIN);
+  await choose(page, 'شيت جاهز', 'Simple');
+  await pick(page, '[data-flow-sheet]', { name: 'a.csv', mimeType: 'text/csv', buffer: Buffer.from('#,SKU,Product Name EN,Product Name AR,Product Colors,Product Colors AR,Size,Vendor Price,Product Category\n1,,Boho Cushion,مخدة بوهيمي,Beige,بيج,40 × 40 cm,1000,ديكور\n') });
+  await photosFor(page, 1);
+  await next(page); await makerArtCraft(page); await next(page);
+  const card = page.locator('#pg-products .fl-dcard').first();
+  await expect.poll(() => { const r = (batch().state.rows || [])[0] || {}; return [r.nameEn, r.styleEn || '']; }).toEqual(['Boho Cushion', '']);
+  await card.locator('[data-fl-pick="styleAr"] button.select').evaluate((e) => e.scrollIntoView({ block: 'center' }));
+  await card.locator('[data-fl-pick="styleAr"] button.select').click();
+  await expect(page.getByRole('option')).toHaveText(['— (مفيش ستايلات من الموقع)']);
+  await page.keyboard.press('Escape');
+});
+
 test('comments 39–41 — a ready sheet\'s photos: the sheet\'s own pictures are signatures only (16 Nov — never put on the rows), the uploads go to the row they look like whatever their names; each row\'s ⋮ replaces or empties it, «زوّد صور» only adds, «مسح الكل» empties all; a product without a photo or a photo without a row stops «التالي» with a note', async ({ page }) => {
   await signIn(page, ADMIN);
   const pics = await drawPics(page);

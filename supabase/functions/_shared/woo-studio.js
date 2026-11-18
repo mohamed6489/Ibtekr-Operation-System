@@ -230,7 +230,10 @@ export async function fetchSheetCsv(link, fetchFn, { timeoutMs = 20_000, maxByte
 const AR_SCRIPT = /[؀-ۿ]/;
 const termId = (v) => { const n = Number(v); return Number.isInteger(n) && n > 0 ? n : null; };
 const trOf = (t, lang) => termId(t && t.translations && typeof t.translations === 'object' ? t.translations[lang] : null);
-const styleKey = (s) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+// the owner 18 Nov («الاستايل ييجي من الاستايلات اللي علي الويبسايت فقط»): «بوهيمى» and «بوهيمي» are one style — the key folds the
+// Arabic letter forms (ى/ي, ة/ه, أ/إ/آ/ا), the marks, the case and the spaces
+export const styleKey = (s) => String(s == null ? '' : s).normalize('NFD').replace(/\p{M}/gu, '').replace(/\u0640/g, '').toLowerCase()
+  .replace(/[ىی]/g, 'ي').replace(/ة/g, 'ه').replace(/[أإآٱ]/g, 'ا').replace(/[^\p{L}\p{N}]+/gu, '');
 
 /** @param {any[]} enTerms the English read  @param {any[]} arTerms the Arabic read  @param {(v: unknown) => string | null} clean a term name → the name, or null when unusable
  * @returns {{ id: number, en: string, ar: string }[]} */
@@ -261,3 +264,25 @@ export function styleTerms(enTerms, arTerms, clean) {
     seenEn.add(e); if (a) seenAr.add(a); return true;
   }).slice(0, 200);
 }
+
+/**
+ * The owner 18 Nov («الاستايل ييجي من الاستايلات اللي علي الويبسايت فقط اللي موجودين في ال style في attribute»): a product's style
+ * goes up only when it is one of the site's styles — each value (a flow's «Boho, Vintage» is two) is matched to a site style by its
+ * English or its Arabic name (styleKey) and written with the site's own names; the rest is dropped and said.
+ * @param {Record<string, any>} item  @param {{ en: string, ar: string }[] | null} site the site's styles (null = could not be read)
+ * @returns {{ item: Record<string, any>, dropped: string[] }}
+ */
+export function siteStylesOnly(item, site) {
+  const it = item && typeof item === 'object' ? item : {};
+  if (!it.style) return { item: it, dropped: [] };
+  const en = listOf(it.style, 60); const ar = it.styleAr ? listOf(it.styleAr, 60) : [];
+  const list = Array.isArray(site) ? site : [];
+  const keep = []; const dropped = [];
+  en.forEach((e, i) => {
+    const a = ar[i] || ''; const k = styleKey(e); const ka = styleKey(a);
+    const hit = list.find((x) => x && ((k && (styleKey(x.en) === k || styleKey(x.ar) === k)) || (ka && (styleKey(x.ar) === ka || styleKey(x.en) === ka))));
+    if (hit && !keep.some((x) => x.en === hit.en)) keep.push({ en: hit.en, ar: hit.ar || hit.en }); else if (!hit) dropped.push(e || a);
+  });
+  return { item: { ...it, style: keep.map((x) => x.en).join(', ') || null, styleAr: keep.map((x) => x.ar).join('، ') || null }, dropped };
+}
+

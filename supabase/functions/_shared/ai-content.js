@@ -169,7 +169,9 @@ export function siteStyles(v) {
   }
   return out;
 }
-const styleKey = (v) => String(v == null ? '' : v).normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+// the Arabic letter forms fold too («بوهيمى» = «بوهيمي» — the owner 18 Nov), like woo-studio.js styleKey
+const styleKey = (v) => String(v == null ? '' : v).normalize('NFD').replace(/\p{M}/gu, '').replace(/\u0640/g, '').toLowerCase()
+  .replace(/[ىی]/g, 'ي').replace(/ة/g, 'ه').replace(/[أإآٱ]/g, 'ا').replace(/[^\p{L}\p{N}]+/gu, '');
 /** the shop's style an answer names, by its English or its Arabic name → { en, ar } | null */
 export const styleOf = (styles, en, ar) => { const e = styleKey(en); const a = styleKey(ar); return (Array.isArray(styles) ? styles : []).find((x) => (e && styleKey(x.en) === e) || (a && x.ar && styleKey(x.ar) === a)) || null; };
 
@@ -525,7 +527,7 @@ export function cleanStudio(json, want, { categoryIds, colorCodes, styles }) {
       const hit = styleOf(styles, src.style, src.styleAr);
       if (hit) { fields.style = hit.en; const ar = hit.ar || line(src.styleAr, DATA_LIM.style, true); if (ar && inLang(ar, 'ar')) fields.styleAr = ar; else missing.push('styleAr'); }
       else missing.push('style', 'styleAr');
-    } else { put('style', line(src.style, DATA_LIM.style, true), 'en'); put('styleAr', line(src.styleAr, DATA_LIM.style, true), 'ar'); }
+    } else missing.push('style', 'styleAr'); // the owner 18 Nov: the site's styles only — none known = no style made up
   }
   const once = (k, v, lang) => { if (!(k in fields) && !missing.includes(k)) put(k, v, lang); };
   if (want.includes('translate')) {

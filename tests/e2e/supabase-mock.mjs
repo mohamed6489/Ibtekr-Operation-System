@@ -291,6 +291,9 @@ const hasPerm = (u, key) => (u.status !== 'active' || aalGated(u) ? 'N' : u.role
 const isAdmin = (u) => u.status === 'active' && u.role_id === 'admin' && !aalGated(u);
 // 0045 (phase 8): the ticket roles of a system role (ticket_role_labels) and the v2 lists the server checks
 const TK_ROLES = { admin: ['مدير النظام'], cs: ['خدمة العملاء'], vendors_followup: ['متابعة المبتكرين'], accounts: ['الحسابات'], ops: ['اللوجستيك والشحن', 'المحتوى والتصوير'] };
+// the shop's styles the mocked site answers by default (woo-sync `styles`) — the owner 18 Nov: the studio picks only from the site's
+const SITE_STYLES = [['Modern', 'مودرن'], ['Minimalist', 'مينيمال'], ['Boho', 'بوهيمي'], ['Classic', 'كلاسيك'], ['Vintage', 'فينتدج'], ['Rustic', 'ريفي'],
+  ['Scandinavian', 'إسكندنافي'], ['Oriental', 'شرقي'], ['Handmade', 'هاند ميد'], ['Floral', 'فلورال']].map(([en, ar], i) => ({ id: 70 + i, en, ar }));
 const TK_ALL_ROLES = ['مدير النظام', 'خدمة العملاء', 'متابعة المبتكرين', 'الحسابات', 'اللوجستيك والشحن', 'المحتوى والتصوير'];
 // 0081: a request goes to any role — the six old labels + every other role (not hidden) by its name; my roles = the main + the extras
 const TK_OLD_IDS = { admin: ['مدير النظام'], cs: ['خدمة العملاء'], vendors_followup: ['متابعة المبتكرين'], accounts: ['الحسابات'], ops: ['اللوجستيك والشحن', 'المحتوى والتصوير'], viewer: [] };
@@ -2425,8 +2428,9 @@ export async function installSupabaseMock(page, opts = {}) {
       // product carries the site's WooCommerce brand named like the batch's (matchWooBrand over mock.wooBrands; none = wooBrand null).
       // category_create — a new woo_categories row (id 9500+). studio_sheet (decision 13) — the server's own sheetCsvUrl check
       // (400 bad_link), then mock.sheetLinks[url] = { csv } | { reason } (else not_published); mock.sheetReads lists the links.
-      // styles (comments decision 51): the site's «Product Style» terms — mock.siteStyles ([{ id, en, ar }]; none by default: the
-      // page then keeps its own list); mock.styleReads counts the reads
+      // styles (comments decision 51): the site's «Product Style» terms — mock.siteStyles ([{ id, en, ar }]; by default a shop with
+      // the usual styles — SITE_STYLES; null = the site has no style attribute: since the owner 18 Nov the page then has no style to
+      // pick, never a list of its own); mock.styleReads counts the reads
       // comments decision 71: the site's WordPress / plugin updates (mock.wpStatus = the list the «site» answers, mock.wpFail = the
       // site's refusal code); kept as the one row site_checks('wp_updates') unless the migration is not applied (mkt.noSections)
       if (action === 'wp_updates') {
@@ -2445,7 +2449,7 @@ export async function installSupabaseMock(page, opts = {}) {
         if (stored) { H.siteChecks = H.siteChecks.filter((r) => r.kind !== 'pagespeed'); H.siteChecks.push({ kind: 'pagespeed', data, checked_at: at, checked_by: u.id }); }
         return json(200, { action, result: 'ok', data, checked_at: at, stored });
       }
-      if (action === 'styles') { mock.styleReads = (mock.styleReads || 0) + 1; const list = Array.isArray(mock.siteStyles) ? mock.siteStyles : []; return json(200, { action, result: 'ok', attribute: Array.isArray(mock.siteStyles), styles: list }); }
+      if (action === 'styles') { mock.styleReads = (mock.styleReads || 0) + 1; const list = mock.siteStyles === undefined ? SITE_STYLES : Array.isArray(mock.siteStyles) ? mock.siteStyles : []; return json(200, { action, result: 'ok', attribute: mock.siteStyles !== null, styles: list }); }
       if (action === 'studio_sheet') {
         if (!sheetCsvUrl(b.url)) return json(400, { error: 'bad_link', field: 'url' });
         mock.sheetReads.push(b.url);

@@ -163,3 +163,16 @@ test('styleTerms (owner 16 Nov — «الاستايلات … اللي داخل 
   assert.deepEqual(styleTerms([{ id: 1, name: 'Boho' }], [], clean), [{ id: 1, en: 'Boho', ar: '' }]);
   assert.deepEqual(styleTerms(null, null, clean), []);
 });
+
+// the owner 18 Nov («الاستايل ييجي من الاستايلات اللي علي الويبسايت فقط اللي موجودين في ال style في attribute»): a style goes up only
+// when it is one of the site's — written with the site's names; anything else is dropped and said; «بوهيمى» = «بوهيمي»
+test('studio_upload keeps only the site\'s styles (siteStylesOnly); the Arabic letter forms fold', async () => {
+  const { siteStylesOnly, styleKey } = await import('../../supabase/functions/_shared/woo-studio.js');
+  const site = [{ en: 'Boho', ar: 'بوهيمى' }, { en: 'Vintage', ar: 'فينتدج' }];
+  assert.equal(styleKey('بوهيمى'), styleKey('بوهيمي'));
+  assert.deepEqual(siteStylesOnly({ style: 'boho', styleAr: 'بوهيمي' }, site), { item: { style: 'Boho', styleAr: 'بوهيمى' }, dropped: [] });
+  assert.deepEqual(siteStylesOnly({ style: 'Boho, Futuristic', styleAr: 'بوهيمي، مستقبلي' }, site), { item: { style: 'Boho', styleAr: 'بوهيمى' }, dropped: ['Futuristic'] });
+  assert.deepEqual(siteStylesOnly({ style: '', styleAr: 'فينتدج' }, site).item.style, '', 'no English style = nothing to check');
+  assert.deepEqual(siteStylesOnly({ style: 'Modern', styleAr: 'مودرن' }, null), { item: { style: null, styleAr: null }, dropped: ['Modern'] }, 'the site\'s styles not read = no style written');
+  assert.deepEqual(siteStylesOnly({ name: 'x' }, site), { item: { name: 'x' }, dropped: [] });
+});

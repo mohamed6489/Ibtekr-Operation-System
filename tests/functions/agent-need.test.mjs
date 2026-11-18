@@ -2,15 +2,15 @@
 // ask for, cleaned; the research call; Meta's insights URL and rows.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { NEED_SCHEMA, cleanNeed, liveAdsBlock, liveAdsRows, liveAdsUrl, needRule, researchBlock, researchOut, researchRequest } from '../../supabase/functions/_shared/agent-need.js';
+import { NEED_SCHEMA, cleanNeed, dataReadBlock, liveAdsBlock, liveAdsRows, liveAdsUrl, needRule, researchBlock, researchOut, researchRequest } from '../../supabase/functions/_shared/agent-need.js';
 
 test('need: research for anyone (3 at most), ads for the buyer only and clamped', () => {
   assert.equal(cleanNeed({ need: { research: [] } }, 'dev'), null);
   assert.deepEqual(cleanNeed({ need: { research: ['a', 'b', 'c', 'd'] } }, 'dev').research, ['a', 'b', 'c']);
   assert.equal(cleanNeed({ need: { research: [], ads: { level: 'ad', days: '7', breakdown: 'age', campaign_id: '' } } }, 'dev'), null);
   assert.deepEqual(cleanNeed({ need: { research: [], ads: { level: 'adset', days: '500', breakdown: 'zodiac', campaign_id: '12x' } } }, 'buyer').ads, { level: 'adset', days: 90, breakdown: '', campaignId: '' });
-  assert.deepEqual(Object.keys(NEED_SCHEMA('buyer').properties), ['research', 'ads']);
-  assert.deepEqual(Object.keys(NEED_SCHEMA('cs').properties), ['research']);
+  assert.deepEqual(Object.keys(NEED_SCHEMA('buyer').properties), ['research', 'data', 'ads']);
+  assert.deepEqual(Object.keys(NEED_SCHEMA('cs').properties), ['research', 'data']);
   assert.match(needRule('buyer'), /need\.ads/); assert.doesNotMatch(needRule('cs'), /need\.ads/);
 });
 
@@ -31,4 +31,15 @@ test('live ads: the insights URL (level, days, breakdown, campaign) and short ro
   assert.deepEqual([rows[0].name, rows[0].by, rows[0].purchases, rows[0].roas], ['Lamp', 'instagram / reels', 2, 4]);
   assert.match(liveAdsBlock(rows, { level: 'ad', days: 7, breakdown: 'placement', campaignId: '' }), /Lamp \| C \| instagram \/ reels \| 100/);
   assert.match(liveAdsBlock(null, { level: 'ad', days: 7, breakdown: '', campaignId: '' }), /did not answer/);
+});
+
+// the owner 18 Nov («لما بسأل المحاسب علي حساب حد يجبلي لينك للمبتكرين»): any assistant reads the system's data before it answers
+test('need: the system\'s data — a maker\'s account by name, the known kinds only, 3 at most; the block; the rule says never a page', () => {
+  const n = cleanNeed({ need: { research: [], data: [{ kind: 'vendor', q: ' HANDS <x>', from: '2026-11-01', to: 'x' }, { kind: 'vendor', q: '', from: '', to: '' }, { kind: 'payroll', q: '', from: '', to: '' },
+    { kind: 'orders', q: '', from: '', to: '' }, { kind: 'sales', q: '', from: '', to: '' }, { kind: 'expenses', q: '', from: '', to: '' }] } }, 'accountant');
+  assert.deepEqual(n.data, [{ kind: 'vendor', q: 'HANDS x', from: '2026-11-01', to: '' }, { kind: 'orders', q: '', from: '', to: '' }, { kind: 'sales', q: '', from: '', to: '' }]);
+  assert.equal(n.ads, null);
+  const b = dataReadBlock([{ kind: 'vendor', q: 'HANDS', result: { name: 'HANDS', net: 1200 } }, { kind: 'orders', q: '', result: { forbidden: true } }]);
+  assert.match(b, /<data_read>[\s\S]*vendor «HANDS»: \{"name":"HANDS","net":1200\}[\s\S]*orders: \{"forbidden":true\}/);
+  assert.match(needRule('accountant'), /need\.data/); assert.match(needRule('accountant'), /Never send the member to a page/);
 });

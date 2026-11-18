@@ -494,7 +494,7 @@ export const ACT_RULE = `
 Actions in the system (you never save, send or change anything yourself):
 - When the ask needs an action the system has a popup for, fill forms (up to ${AGENT_FORMS_MAX}): form = one of ${Object.keys(FORMS).join(', ')}; values = [{ key, value }] with only what the member said or what the data shows (never invent an amount, a phone or an email). The popups: ${FORM_DESC}
   Say in your text «حطيتلك البيانات في البوب أب — راجعها واضغط زراره» (a link opens it under your answer). Otherwise forms is [].
-- When the answer lives on a page, fill page: page = one of ${PAGES.join(', ')} and tab (optional, else ""). Otherwise page.page is "".
+- Only when the member asks to go to a page or must do something there by hand, fill page: page = one of ${PAGES.join(', ')} and tab (optional, else ""). Never instead of an answer — what you can read (need.data) you answer in the chat. Otherwise page.page is "".
 ${NAME_RULE}`;
 // the owner 18 Nov («كل المساعدين يتعاملوا بنفس الطريقة … لو محتاجين بيانات معينة يديني بوباب املاه و لو عايزني اختار حاجة يجيبها جوه
 // الشات»): every assistant asks the same way — options = buttons in the chat (the pressed one comes back as the member's next message),
@@ -502,7 +502,7 @@ ${NAME_RULE}`;
 const ASK_SCHEMA = () => obj({ question: STR(), options: { type: 'array', items: STR() }, fields: { type: 'array', items: obj({ label: STR(), kind: STR() }) } });
 export const ASK_RULE = `
 Asking the member (every assistant the same way):
-- When the member has to pick one of a few options (2–${ASK_OPTIONS_MAX} short ones — a case, a type, yes / no, which campaign, which maker …), fill ask.question and ask.options: they show as buttons inside the chat and the pressed one comes back as the member's next message. Never write the options as a list for them to type, and never send them to a page to choose.
+- When the member has to pick one of a few options (2–${ASK_OPTIONS_MAX} short ones — a case, a type, yes / no, which campaign, which maker …), fill ask.question and ask.options: they show as buttons inside the chat and the pressed one comes back as the member's next message. Never write the options as a list for them to type, never end your text with a question that offers choices («تحب … ولا …؟») — put those choices in ask.options —, and never send them to a page to choose.
 - When you need several pieces of data (names, numbers, dates, details) that none of the popups in forms collects, fill ask.fields (up to ${ASK_FIELDS_MAX}: label in Egyptian Arabic, kind one of ${ASK_KINDS.join(' | ')}) with a short ask.question: a link «املا البيانات» opens a popup with these fields and the answers come back as the member's next message. One short missing thing = just ask it in your text.
 - Otherwise ask.question is "", ask.options [] and ask.fields [].`;
 /** agent { agent, chat_id: uuid | null, question (≤ 1000) } → { req } | { error, field }. */

@@ -47,7 +47,7 @@ import Anthropic from 'npm:@anthropic-ai/sdk@1.3.0';
 import { bestName, nameMatches } from '../_shared/names.js';
 import { filesLine } from '../_shared/agent-files.js';
 import { planProducts, resolvePlan } from '../_shared/product-plan.js';
-import { liveAdsBlock, liveAdsRows, liveAdsUrl, researchBlock, researchOut, researchRequest } from '../_shared/agent-need.js';
+import { dataReadBlock, liveAdsBlock, liveAdsRows, liveAdsUrl, researchBlock, researchOut, researchRequest } from '../_shared/agent-need.js';
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { aiSettings, categoryLines, cleanExtract, cleanPrompts, cleanStudio, cleanWrite, costOf, extractRequest, line, parseExtract, parsePrompts, parseStudio, parseWrite, promptsRequest, readAnswer, shotPromptRows, studioRequest, usageOf, writeRequest } from '../_shared/ai-content.js';
 import { vaultEnv } from '../_shared/secrets.js';
@@ -531,6 +531,19 @@ async function agent(deps: Deps, uid: string, args: Json, jwt = '') {
     const extra: string[] = [];
     if (need.research.length) { const r = await research(deps, uid, cfg, need.research, req.question); cost += r.cost; sources = r.sources; extra.push(researchBlock(r)); }
     // the owner 17 Nov: each member reads by his role and level — Meta's live numbers only for whoever sees marketing (his own has_perm)
+    // the owner 18 Nov: the system's own data (a maker's account, orders …) read with the member's own client — answered in the chat
+    if (Array.isArray(need.data) && need.data.length) {
+      const today = cairoParts(Date.parse(deps.now())).day; const reads: Json[] = [];
+      for (const d of need.data) {
+        const dq = dataQuery({ kind: d.kind, q: d.q, from: d.from || undefined, to: d.to || undefined, limit: 20 }, { today });
+        let result: Json;
+        if ('error' in dq) result = { error: dq.error };
+        else if (!member) result = { forbidden: true };
+        else { try { result = await readData(member, uid, dq as DQ, today); } catch { result = { failed: true }; } }
+        reads.push({ kind: d.kind, q: d.q, result });
+      }
+      extra.push(dataReadBlock(reads));
+    }
     if (need.ads) { const { data: mv } = member ? await member.rpc('has_perm', { key: 'marketing.view' }) : { data: 'N' }; extra.push(String(mv ?? 'N') !== 'N' ? liveAdsBlock(await liveAds(deps, need.ads), need.ads) : '<ads_live>\nThis member does not see the ads — say it is outside his permissions.\n</ads_live>'); }
     const c2 = await aiCall(deps, { ...run0, label: line('↻ ' + req.question, 200) }, cfg, agentRequest(req, { ...ctx0, extra: extra.join('\n\n') }), clean);
     if ('res' in c2) return c2.res;

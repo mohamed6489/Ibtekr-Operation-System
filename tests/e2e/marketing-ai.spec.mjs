@@ -866,12 +866,12 @@ test('handoff — the media buyer asked for a video sends the member to the desi
 
 // 0120 (the owner 17 Nov): the new assistants — the warehouse one for whoever sees the warehouse, its chat on the same server action with
 // its own id
-test('0120 — «المخزن الذكي»: a tab of its own, its chat asks the server as «stock»', async ({ page }) => {
+test('0120 — «التشغيل الذكي» (was «المخزن الذكي»): a tab of its own, its chat asks the server as «stock»', async ({ page }) => {
   await start(page);
   await openAi(page, OPS, 'التشغيل الذكي');
   const P = pg(page); const box = P.locator('[data-mk-agent="stock"]');
   await expect(box).toBeVisible();
-  await expect(P.locator('#mk-ask')).toHaveAttribute('placeholder', /للمخزن الذكي/);
+  await expect(P.locator('#mk-ask')).toHaveAttribute('placeholder', /للتشغيل الذكي/);
   await P.locator('#mk-ask').fill('إيه أقدم قطعة في المخزن؟'); await P.locator('#mk-ask').press('Enter');
   await expect.poll(() => mock.mkt.calls.filter((c) => c.action === 'agent').map((c) => c.agent)).toEqual(['stock']);
   await expect(box.locator('.mk-chat')).toContainText('سؤالك: إيه أقدم قطعة في المخزن؟');

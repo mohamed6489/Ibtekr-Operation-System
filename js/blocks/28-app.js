@@ -1954,7 +1954,8 @@
   function openAccountBrief(name, opts) {
     const K = window.IBKit; const fmt = (n) => D.formatMoney(n); const settle = !!(opts && opts.settle); let m = null;
     // the request's box: '' = what Dokan has now · 'ask' = «وافق دلوقتي؟» · busy = a call is running · res = the last call's answer
-    const flow = { step: '', busy: '', made: null, res: null };
+    // the owner 18 Nov: 'reject' = «رفض طلب السحب» with its reason (note) — opened from ⋮ with opts.reject
+    const flow = { step: opts && opts.reject ? 'reject' : '', busy: '', made: null, res: null, note: '' };
     const title = (settle ? 'تقفيل حساب — ' : 'تقرير مختصر — ') + name;
     const setOf = (wid) => (AC() && AC().settlements ? AC().settlements().find((x) => x.withdrawId === wid) : null);
     const openMoves = () => store.vendorMoves.filter((x) => x.vendor === name && x.settledBy == null).sort((x, y) => (x.date < y.date ? -1 : x.date > y.date ? 1 : (x.id || 0) - (y.id || 0)));
@@ -1988,19 +1989,42 @@
         render(); draw();
       });
     }
+    // the owner 18 Nov: «رفض طلب السحب» — cancelled on Dokan with the reason as its note; the amount goes back to his Dokan balance
+    function reject(req) {
+      const note = String(flow.note || '').trim();
+      if (note.length < 2) { flow.res = { kind: 'warning', text: 'اكتب سبب الرفض الأول — بيتبعت للمبتكر على Dokan.' }; draw(); return; }
+      if (flow.busy) return; flow.busy = 'reject'; flow.res = null; draw();
+      const amount = fmt(req.amount); const pill = K.busy ? K.busy('بنرفض طلب السحب ' + req.id + ' على Dokan…') : null;
+      AC().rejectWithdraw(req.wid, note).then((r) => {
+        flow.busy = '';
+        if (r.ok && r.result === 'ok') { flow.step = ''; flow.made = null; flow.note = ''; say(pill, { kind: 'success', text: 'اترفض طلب السحب ' + req.id + ' لـ ' + name + ' (' + amount + ' ج.م) على Dokan، والمبلغ رجع لرصيده هناك.' }); }
+        else if (r.ok) { flow.step = ''; say(pill, { kind: 'warning', text: WD_SKIP[r.reason] || 'الطلب ما اترفضش.' }); }
+        else say(pill, { kind: 'error', text: r.reason === 'forbidden' ? 'مش مسموحلك ترفض طلبات السحب.' : r.reason === 'invalid' ? 'اكتب سبب الرفض.' : 'مقدرناش نرفض الطلب على Dokan دلوقتي — جرّب تاني.' });
+        render(); draw();
+      });
+    }
     // the request's box
     function reqBox(b) {
       const req = reqOf(b); const canApprove = !!(AC() && AC().can().approve); const dokan = b.dokanBalance; const kids = []; let tone = 'none';
       const line = (t, strong) => h('p', { class: 'vb-req-t' + (strong ? ' strong' : '') }, num(t));
-      if (flow.step === 'ask' && req && req.status === 'pending' && canApprove) {
+      const rejectBtn = () => Button({ type: 'danger', label: 'رفض الطلب', disabled: !!flow.busy, attrs: { 'data-vb-reject': '' }, onClick: () => { flow.step = 'reject'; flow.res = null; draw(); } });
+      if (flow.step === 'reject' && req && req.status === 'pending' && canApprove) {
+        tone = 'ask';
+        const ta = h('textarea', { class: 'input vb-reject-note', rows: '2', maxlength: '200', 'data-vb-reject-note': '', placeholder: 'سبب الرفض (بيتبعت للمبتكر على Dokan)', 'aria-label': 'سبب رفض طلب السحب',
+          onInput: (e) => { flow.note = e.target.value; } });
+        ta.value = flow.note || '';
+        kids.push(line('رفض طلب السحب ' + req.id + ' بمبلغ ' + fmt(req.amount) + ' ج.م؟', true), line('الطلب بيتلغي على Dokan والمبلغ بيرجع لرصيد المبتكر هناك. العرابين والمواصلات اللي عليه بتفضل لحد طلب السحب الجاي.'), ta,
+          h('div', { class: 'vb-req-a' }, Button({ type: 'danger', label: flow.busy === 'reject' ? 'بنرفض…' : 'ارفض الطلب', disabled: !!flow.busy, attrs: { 'data-vb-reject-go': '' }, onClick: () => reject(req) }),
+            Button({ label: 'بعدين', disabled: !!flow.busy, attrs: { 'data-vb-later': '' }, onClick: () => { flow.step = ''; flow.res = null; draw(); } })));
+      } else if (flow.step === 'ask' && req && req.status === 'pending' && canApprove) {
         tone = 'ask';
         kids.push(line((flow.made ? 'اتعمل طلب السحب ' : 'طلب السحب ') + req.id + ' بمبلغ ' + fmt(req.amount) + ' ج.م على Dokan — توافق عليه دلوقتي؟', true), line(planText(req.amount, b) + ' التحويل نفسه بيفضل عليك زي ما هو.'),
           h('div', { class: 'vb-req-a' }, Button({ type: 'primary', label: flow.busy === 'approve' ? 'بنوافق…' : 'وافق دلوقتي', disabled: !!flow.busy, attrs: { 'data-vb-approve': '' }, onClick: () => approve(req) }),
             Button({ label: 'بعدين', disabled: !!flow.busy, attrs: { 'data-vb-later': '' }, onClick: () => { flow.step = ''; flow.res = null; draw(); } })));
       } else if (req && req.status === 'pending') {
         tone = 'pending';
-        kids.push(line('طلب سحب ' + req.id + ' مستني الموافقة — ' + fmt(req.amount) + ' ج.م', true), line(canApprove ? 'راجع الرصيد والأوردرات وبعدين وافق — الموافقة بتتكتب على Dokan نفسه. ' + planText(req.amount, b) : 'الموافقة عليه بتتعمل من حد معاه صلاحية اعتماد الحسابات.'));
-        if (canApprove) kids.push(h('div', { class: 'vb-req-a' }, Button({ type: 'primary', label: 'موافقة على طلب السحب (' + fmt(req.amount) + ' ج.م)', disabled: !!flow.busy, attrs: { 'data-vb-ask': '' }, onClick: () => { flow.step = 'ask'; flow.res = null; draw(); } })));
+        kids.push(line('طلب سحب ' + req.id + ' مستني الموافقة — ' + fmt(req.amount) + ' ج.م', true), line(canApprove ? 'راجع الرصيد والأوردرات وبعدين وافق أو ارفض — الاتنين بيتكتبوا على Dokan نفسه. ' + planText(req.amount, b) : 'الموافقة عليه أو رفضه بيتعملوا من حد معاه صلاحية اعتماد الحسابات.'));
+        if (canApprove) kids.push(h('div', { class: 'vb-req-a' }, Button({ type: 'primary', label: 'موافقة على طلب السحب (' + fmt(req.amount) + ' ج.م)', disabled: !!flow.busy, attrs: { 'data-vb-ask': '' }, onClick: () => { flow.step = 'ask'; flow.res = null; draw(); } }), rejectBtn()));
       } else if (req && req.status === 'approved') {
         tone = 'approved'; const x = setOf(req.wid);
         kids.push(line('طلب السحب ' + req.id + ' اتوافق عليه على Dokan — ' + fmt(req.amount) + ' ج.م', true), line('اتخصم من رصيده هناك' + (x ? ' — فاضل تحوّل للمبتكر ' + fmt(x.cash) + ' ج.م' + (x.carryOut > 0 ? '، وفاضل عليه ' + fmt(x.carryOut) + ' ج.م' : '') + '.' : ' — فاضل التحويل للمبتكر.')));
@@ -2061,15 +2085,16 @@
   }
   // 0078 (the owner, 11 Nov — «تسوية دلوقتي / تقفيل حساب»); decision 11: the same popup, opened on the request's box
   function openSettle(name) { return openAccountBrief(name, { settle: true }); }
-  // plan 4.1 decision 12 (owner, 28 Oct): «تحديث من Dokan» — the withdraw requests now instead of at the hourly run (read-only)
+  // plan 4.1 decision 12 (owner, 28 Oct): «تحديث من Dokan» — the withdraw requests now instead of at the hourly run (read-only);
+  // the owner 18 Nov: and every maker's Dokan balance with them
   function refreshDokanBtn() {
     if (!AC() || !AC().refreshWithdrawals) return null;
     const busy = AC().refreshing();
-    return Button({ label: busy ? 'بنحدّث من Dokan…' : 'تحديث من Dokan', icon: 'refresh', disabled: busy, attrs: { 'data-dokan-refresh': '', 'aria-busy': busy ? 'true' : 'false', title: 'هات طلبات السحب الجديدة من Dokan دلوقتي' },
+    return Button({ label: busy ? 'بنحدّث من Dokan…' : 'تحديث من Dokan', icon: 'refresh', disabled: busy, attrs: { 'data-dokan-refresh': '', 'aria-busy': busy ? 'true' : 'false', title: 'هات أرصدة المبتكرين وطلبات السحب من Dokan دلوقتي' },
       onClick: () => {
         AC().refreshWithdrawals().then((r) => {
           if (r.reason === 'busy') return;
-          if (r.ok) setNote({ kind: 'success', text: 'اتحدّثت طلبات السحب من Dokan — ' + (r.pending ? r.pending + ' طلب مستني الموافقة.' : 'مفيش طلبات مستنية الموافقة.') });
+          if (r.ok) setNote({ kind: 'success', text: 'اتحدّثت أرصدة المبتكرين وطلبات السحب من Dokan — ' + (r.pending ? r.pending + ' طلب مستني الموافقة.' : 'مفيش طلبات مستنية الموافقة.') + (r.failed ? ' (' + r.failed + ' رصيد ماتقراش — هيتحدّث في المزامنة الجاية)' : '') });
           else setNote({ kind: 'error', text: r.reason === 'woo_down' ? 'Dokan مش بيرد دلوقتي — جرّب كمان شوية.' : r.reason === 'forbidden' ? 'مش من صلاحياتك.' : 'مقدرناش نحدّث من Dokan — جرّب تاني.' });
           render();
         });
@@ -2136,6 +2161,7 @@
           const openFile = () => { const vv = vstore.findByName(v.name); if (vv) openVendor(vv.id, { inPlace: true }); else { setNote({ kind: 'warning', text: 'المبتكر ده مش مسجّل في صفحة المبتكرين.' }); render(); } };
           return KK.RowMenu([{ label: 'تقرير المبتكر', icon: 'chart', run: () => openAccountBrief(v.name) },
             r ? { label: 'طلب السحب (' + VD.wdLabel(r.status) + ')', icon: 'download', run: () => openAccountBrief(v.name) } : null,
+            r && r.status === 'pending' && AC() && AC().can().approve && AC().rejectWithdraw ? { label: 'رفض طلب السحب', icon: 'close', run: () => openAccountBrief(v.name, { reject: true }) } : null,
             canSettle(b) ? { label: 'تسوية دلوقتي (تقفيل الحساب)', icon: 'wallet', run: () => openSettle(v.name) } : null,
             makerId(v.name) ? { label: 'كشف حساب Dokan', icon: 'file', run: () => openStatement(v.name, makerId(v.name)) } : null,
             { label: 'افتح ملف المبتكر', icon: 'users', run: openFile }].filter(Boolean), 'إجراءات ' + v.name);
@@ -2157,7 +2183,7 @@
         return TableCard({ title: 'حسابات المبتكرين — الرصيد دلوقتي', count: '', th: { noun: ['مبتكر', 'المبتكرين'], total: pend + ' طلب مستني الموافقة' + (wdFiltered ? ' · ' + (WD_FILTERS.find((x) => x.value === state.wdFilter) || {}).label : '') }, action: refreshDokanBtn(),
           body: !sorted.length ? U.EmptyState(wdFiltered ? 'مفيش مبتكرين عندهم طلبات سحب' : 'مفيش مبتكرين', wdFiltered ? 'اضغط «تحديث من Dokan» تجيب الطلبات الجديدة، أو رجّع الفلتر لـ «الكل».' : '') : U.Table({ cls: 'vendors-table', headers: cols.map(([, lb]) => lb), rows: sorted.map((v) => cols.map(([k]) => CELL[k](v))), totalRow: cols.map(([k]) => TOT[k]) }) });
       })(),
-      sourceNote('المصدر: رصيد Dokan وطلبات السحب (قراءة بس، بيتحدّث كل ساعة) + الحركات المتسجلة هنا اللي لسه ماتصفّتش · الصافي = رصيد Dokan − العرابين − المواصلات − الخصومات التانية + التصحيحات − المتبقي من آخر تسوية، وبيبقى بالسالب لو الخصومات أكبر · Dokan مابيعرفش الخصومات دي، فطلب السحب بيبقى بكل رصيد Dokan، ولما يتوافق عليه بتتصفّى منه واللي بيتحوّل للمبتكر = الطلب − الخصومات · الأوردرات بالفترة في «كشف بالفترة»'),
+      sourceNote('المصدر: رصيد Dokan وطلبات السحب (بيتحدّثوا كل ساعة، ورصيد المبتكر أول ما أوردره يتقفل، و«تحديث من Dokan» بيجيبهم دلوقتي) + الحركات المتسجلة هنا اللي لسه ماتصفّتش · الصافي = رصيد Dokan − العرابين − المواصلات − الخصومات التانية + التصحيحات − المتبقي من آخر تسوية، وبيبقى بالسالب لو الخصومات أكبر · Dokan مابيعرفش الخصومات دي، فطلب السحب بيبقى بكل رصيد Dokan، ولما يتوافق عليه بتتصفّى منه واللي بيتحوّل للمبتكر = الطلب − الخصومات · الأوردرات بالفترة في «كشف بالفترة»'),
     ].filter(Boolean);
   }
 

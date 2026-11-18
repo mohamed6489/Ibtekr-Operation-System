@@ -19,7 +19,8 @@
 // Phase 4.1 (0020): the expense carries details / staffKind / reason (and platform = the beneficiary of an ad, source = the
 // beneficiary of a deposit, in the prototype's shape); lists(key) = the names added to the subscriptions ('subs') or ad
 // platforms ('ads') list (acc_list_items) and addListItem(key, name) adds one (optimistic; a duplicate is fine);
-// approveWithdraw(id) asks woo-sync (withdraw_approve) to approve a pending Dokan request → { ok, result, reason, status }
+// approveWithdraw(id) asks woo-sync (withdraw_approve) to approve a pending Dokan request → { ok, result, reason, status };
+// rejectWithdraw(id, note) cancels one on Dokan (withdraw_reject, the owner 18 Nov) → { ok, result, reason, status }
 // (result 'ok' | 'skipped' with reason push_disabled / stale / not_pending; ok:false with 'forbidden' | 'network'), logged as
 // accounts.withdraw.approve (the request and its amount), then load() reads the mirrors again. refreshWithdrawals() (plan
 // decision 12, «تحديث من Dokan») asks woo-sync (withdrawals) for the requests now → { ok, pending, reason } after load();
@@ -267,6 +268,26 @@
       return { ok: true, result: body.result, reason: body.reason || null, status: body.status || null, settlement: body.settlement || null };
     } catch (e) { return { ok: false, reason: 'network' }; }
   }
+  // the owner 18 Nov: «رفض طلب السحب» — woo-sync withdraw_reject cancels the pending request on Dokan with the reason as its note
+  // (the amount goes back to the maker's Dokan balance); the reason never goes to the activity log
+  async function rejectWithdraw(id, note) {
+    const cl = c(); const wid = Number(id); const why = typeof note === 'string' ? note.replace(/[<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, 200) : '';
+    if (!cl || !Number.isInteger(wid) || wid <= 0 || why.length < 2) return { ok: false, reason: 'invalid' };
+    const old = data.withdrawals.find((w) => w.id === wid);
+    try {
+      const { data: body, error } = await cl.functions.invoke('woo-sync', { body: { action: 'withdraw_reject', id: wid, note: why } });
+      if (error || !body) {
+        const status = error && error.context && error.context.status;
+        return { ok: false, reason: status === 401 ? 'forbidden' : status === 400 ? 'invalid' : 'network' };
+      }
+      if (body.result === 'ok') {
+        const L = window.IBActivity;
+        if (L && L.log) quiet(() => L.log('accounts.withdraw.reject', '#' + wid + (old ? ' · ' + old.amount : ''), { entity: 'dokan_withdrawals', entity_id: String(wid) }));
+      }
+      load();
+      return { ok: true, result: body.result, reason: body.reason || null, status: body.status || null };
+    } catch (e) { return { ok: false, reason: 'network' }; }
+  }
   // 0078: «اعمل طلب السحب على Dokan» — for the maker's whole Dokan balance (the server reads it live), pending until approved
   async function createWithdraw(vendorId) {
     const cl = c();
@@ -306,7 +327,8 @@
         return { ok: false, reason: status === 401 ? 'forbidden' : status === 502 ? 'woo_down' : 'network' };
       }
       await load();
-      return { ok: true, pending: data.withdrawals.filter((w) => w.status === 'pending').length };
+      const counts = body.counts || {}; // the owner 18 Nov: the balances come with the requests
+      return { ok: true, pending: data.withdrawals.filter((w) => w.status === 'pending').length, balances: Number(counts.balances) || 0, failed: Number(counts.failed) || 0 };
     } catch (e) { return { ok: false, reason: 'network' }; } finally { refreshingNow = false; emit({ refreshing: false }); }
   }
 
@@ -314,5 +336,5 @@
 
   window.IBAccounts = { load, clear, state: () => st, rows: (kind) => data[kind].slice(), balances: () => data.balances.slice(), withdrawals: () => data.withdrawals.slice(),
     settlements: () => data.settlements.slice(), carryOf, createWithdraw,
-    add, update, remove, sales, salesFailed, refreshSales, statement, ledgerOf, loadLedger, dropLedger, lists, addListItem, approveWithdraw, refreshWithdrawals, refreshing: () => refreshingNow, can, canEdit, toExpense, toVendorMove, toAccountMove, toSettlement, toColumns, KINDS };
+    add, update, remove, sales, salesFailed, refreshSales, statement, ledgerOf, loadLedger, dropLedger, lists, addListItem, approveWithdraw, rejectWithdraw, refreshWithdrawals, refreshing: () => refreshingNow, can, canEdit, toExpense, toVendorMove, toAccountMove, toSettlement, toColumns, KINDS };
 })();

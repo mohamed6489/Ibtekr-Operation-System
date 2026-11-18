@@ -604,3 +604,11 @@ Deno.test('a signed delivery while the store is another platform → 200 ignored
   assertEquals(ops(db), []);
   assertEquals(woo.calls.length, 0);
 });
+
+Deno.test('data-real decision 8 (0139): the site paused or unlinked (no WOO_URL after the Vault overlay) — a signed delivery is ignored, nothing written', async () => {
+  const { db, deps } = setup({ env: { WOO_URL: '' } });
+  const raw = JSON.stringify(wooOrder({ id: 5001 }));
+  const res = await handler(new Request('http://x/woo-webhook', { method: 'POST', headers: { 'x-wc-webhook-topic': 'order.updated', 'x-wc-webhook-signature': await sign(raw, ENV.WOO_WEBHOOK_SECRET) }, body: raw }), deps as any);
+  assertEquals(await res.json(), { status: 'ignored', reason: 'not_linked' });
+  assertEquals(db.rows('orders').length, 0);
+});

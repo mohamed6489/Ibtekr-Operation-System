@@ -58,7 +58,7 @@ Deno.test('secret_set: the key to Vault, the probe, the tail in the answer, the 
   assert(!txt.includes(OPENAI_KEY), 'the key is nowhere but Vault');
   assertEquals(db.rows('activity_log').map((r: any) => [r.action, r.entity_id, r.new_value]), [['settings.integration.set', 'openai', { keys: ['key'], test: 'ok' }]]);
   const st = await call(deps, { action: 'status' });
-  assertEquals(Object.keys(st.body.links), ['openai']); assertEquals(st.body.links.openai.test.ok, true); assert(st.body.cards.some((c: any) => c.id === 'openai' && c.used));
+  assertEquals(Object.keys(st.body.links).filter((k) => k !== 'woo'), ['openai']); assertEquals(st.body.links.openai.test.ok, true); assert(st.body.cards.some((c: any) => c.id === 'openai' && c.used));
   // a bad key shape is refused before Vault; an unknown name too
   assertEquals((await call(deps, { action: 'secret_set', name: 'openai', fields: { key: 'short' } })).body, { error: 'invalid', field: 'key' });
   assertEquals((await call(deps, { action: 'secret_set', name: 'sync_secret', fields: { key: 'x' } })).res.status, 400);
@@ -66,7 +66,7 @@ Deno.test('secret_set: the key to Vault, the probe, the tail in the answer, the 
   // unlink
   assertEquals((await call(deps, { action: 'secret_unlink', name: 'openai' })).body, { result: 'unlinked' });
   assertEquals(vault.openai, undefined);
-  assertEquals(Object.keys((await call(deps, { action: 'status' })).body.links), []);
+  assertEquals(Object.keys((await call(deps, { action: 'status' })).body.links).filter((k) => k !== 'woo'), []); // woo = the server's secrets (0139)
 });
 
 Deno.test('a probe that fails keeps the key and says why; a platform without a probe is saved untested; a stored secret left empty stays', async () => {
@@ -154,4 +154,21 @@ Deno.test('member_status: the RPC with the caller\'s JWT, then the ban; the RPC\
   assertEquals(last.bans, [], 'no ban when the RPC refused');
   const self = setup({ rpcFail: { code: '22023', message: 'invalid: self' } });
   assertEquals((await call(self.deps, { action: 'member_status', member_id: ADMIN, status: 'suspended', reason: 'x' })).body, { error: 'invalid', field: 'self' });
+});
+
+Deno.test('data-real decision 8 (0139): a site linked by the server secrets shows as linked (source server, tails only); «فصل» turns it off for good; linking again from the page clears it', async () => {
+  const CK = 'ck_' + 'c'.repeat(40), CS = 'cs_' + 'd'.repeat(40);
+  const { db, deps } = setup({ routes: { 'https://woo.test/wp-json/wc/v3/system_status': { status: 200, body: { environment: { site_url: 'https://woo.test', version: '9.0' }, settings: { currency: 'EGP' } } } } });
+  deps.env = { ...deps.env, WOO_CK: CK, WOO_CS: CS };
+  const st = await call(deps, { action: 'status' });
+  assertEquals(st.body.links.woo.source, 'server'); assertEquals(st.body.links.woo.ready, true);
+  assert(!JSON.stringify(st.body).includes(CK) && !JSON.stringify(st.body).includes(CS), 'never the keys');
+  const t0 = await call(deps, { action: 'secret_test', name: 'woo' }); assertEquals(t0.body.test?.ok, true, JSON.stringify(t0.body));
+  assertEquals((await call(deps, { action: 'secret_unlink', name: 'woo' })).body.result, 'unlinked');
+  assertEquals(db.rows('settings').find((r: any) => r.section === 'integrations').data.off, { woo: true });
+  assertEquals((await call(deps, { action: 'status' })).body.links.woo, undefined);
+  assertEquals((await call(deps, { action: 'secret_test', name: 'woo' })).res.status, 404);
+  const relink = await call(deps, { action: 'woo_set', fields: { url: 'https://woo.test', ck: 'ck_' + 'a'.repeat(30), cs: 'cs_' + 'b'.repeat(30) }, confirm: true });
+  assertEquals(relink.body.result, 'saved', JSON.stringify(relink.body));
+  assertEquals(db.rows('settings').find((r: any) => r.section === 'integrations').data.off, {});
 });

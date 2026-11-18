@@ -20,6 +20,11 @@ do $$ begin
   if public.integration_paused('anthropic') then raise exception 'case a time gone is not paused failed'; end if;
   if public.integration_paused('openai') then raise exception 'case a bad value is not paused failed'; end if;
   if public.integration_paused('gemini') then raise exception 'case no entry is not paused failed'; end if;
+  -- 0139: «فصل» on a link from the server's secrets = off for good (a pause that never ends)
+  update public.settings set data = data || '{"off":{"gemini":true,"resend":false}}'::jsonb where section = 'integrations';
+  if not public.integration_paused('gemini') then raise exception 'case off is paused failed'; end if;
+  if public.integration_paused('resend') then raise exception 'case off false is not paused failed'; end if;
+  update public.settings set data = data - 'off' where section = 'integrations';
   if has_function_privilege('anon', 'public.cs_secret_get(text)', 'EXECUTE') or has_function_privilege('authenticated', 'public.cs_secret_get(text)', 'EXECUTE')
      or has_function_privilege('authenticated', 'public.mkt_secret_get_vault(text)', 'EXECUTE') or has_function_privilege('authenticated', 'public.magnific_secret_get(text)', 'EXECUTE') then
     raise exception 'case the secret getters stay service_role only failed';

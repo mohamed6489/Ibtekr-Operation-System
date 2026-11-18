@@ -74,6 +74,32 @@ async function metaPut(deps: Deps, name: string, patch: Json | null) {
   else await deps.db.from('settings').insert({ section: 'integrations', data: next });
 }
 
+// data-real decision 8 (0139): the site linked before the settings page — by the Supabase function secrets — is a link too: the card shows it
+// (source «server») and «فصل» turns it off for good (settings «integrations» { off: { woo: true } } → integration_paused); linking again
+// from the page clears that. Never a value back: the same tails as a Vault link.
+function serverWoo(env: Deps['env']): Json | null {
+  if (!env.WOO_URL || !env.WOO_CK || !env.WOO_CS) return null;
+  const out: Json = { url: env.WOO_URL, ck: env.WOO_CK, cs: env.WOO_CS };
+  if (env.WOO_WP_USER) out.wp_user = env.WOO_WP_USER;
+  if (env.WOO_WP_APP_PASSWORD) out.wp_app_password = env.WOO_WP_APP_PASSWORD;
+  if (env.WOO_PUSH_ENABLED) out.push = env.WOO_PUSH_ENABLED === '1';
+  return out;
+}
+async function offAll(deps: Deps): Promise<Json> {
+  const { data } = await deps.db.from('settings').select('data').eq('section', 'integrations').maybeSingle();
+  const o = data?.data?.off;
+  return isObj(o) ? o : {};
+}
+async function offPut(deps: Deps, name: string, on: boolean) {
+  const { data } = await deps.db.from('settings').select('data').eq('section', 'integrations').maybeSingle();
+  const cur = isObj(data?.data) ? data.data : {};
+  const off = isObj(cur.off) ? { ...cur.off } : {};
+  if (on) off[name] = true; else delete off[name];
+  const next = { ...cur, off };
+  if (data) await deps.db.from('settings').update({ data: next }).eq('section', 'integrations');
+  else await deps.db.from('settings').insert({ section: 'integrations', data: next });
+}
+
 // the one cheap read (or two for WooCommerce) that proves a key works; never a write, never the URL with a key in an error
 type Probe = { ok: boolean; at: string; latency_ms: number; account?: string; error?: string; step?: string; tools?: string[] };
 async function callerEmail(deps: Deps, id: string): Promise<string | null> {
@@ -119,6 +145,8 @@ async function status(deps: Deps) {
     if (!stored && !meta[n]) continue;
     links[n] = secretPublic(n, stored, meta[n]);
   }
+  const srv = serverWoo(deps.env);
+  if (srv && !(links.woo?.ready) && (await offAll(deps)).woo !== true) links.woo = { ...secretPublic('woo', srv, meta.woo), source: 'server' };
   return json(200, { links, cards: CARDS, now: deps.now() });
 }
 
@@ -154,6 +182,7 @@ async function wooSet(deps: Deps, admin: string, args: Json) {
   const saved = await secretSet(deps.db, 'woo', link);
   if (!saved.ok) return json(saved.error === 'no_vault' ? 503 : 500, { error: saved.error });
   await metaPut(deps, 'woo', { linked_at: deps.now(), linked_by: admin, test });
+  await offPut(deps, 'woo', false);
   await log(deps, admin, 'settings.integration.woo', 'woo', { result: 'saved', url: link.url, keys: Object.keys(isObj(args.fields) ? args.fields : {}), push: link.push === true });
   const meta = await metaAll(deps);
   return json(200, { result: 'saved', link: secretPublic('woo', link, meta.woo), test });
@@ -162,7 +191,7 @@ async function wooSet(deps: Deps, admin: string, args: Json) {
 async function secretTest(deps: Deps, admin: string, args: Json) {
   const name = String(args.name ?? '');
   if (!nameOk(name) || !fieldsOf(name)) return json(400, { error: 'unknown_secret' });
-  const stored = await secretOf(deps.db, name);
+  const stored = (await secretOf(deps.db, name)) ?? (name === 'woo' && (await offAll(deps)).woo !== true ? serverWoo(deps.env) : null);
   if (!stored) return json(404, { error: 'not_linked' });
   const test = await runProbes(deps, name, stored, { email: await callerEmail(deps, admin) });
   if (test) await metaPut(deps, name, { test });
@@ -176,6 +205,7 @@ async function secretUnlink(deps: Deps, admin: string, args: Json) {
   const r = await secretSet(deps.db, name, null);
   if (!r.ok) return json(r.error === 'no_vault' ? 503 : 500, { error: r.error });
   await metaPut(deps, name, null);
+  if (name === 'woo' && serverWoo(deps.env)) await offPut(deps, 'woo', true); // the server's secrets stay — off keeps them out (0139)
   await log(deps, admin, 'settings.integration.unlink', name, null);
   return json(200, { result: 'unlinked' });
 }

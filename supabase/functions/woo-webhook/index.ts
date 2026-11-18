@@ -147,6 +147,8 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
   }
   // 0127: WooCommerce is no longer the store (the admin switched to another platform) — its deliveries change nothing here
   if (!wooActive(await readStore(deps.db))) return json(200, { status: 'ignored', reason: 'store_off' });
+  // data-real decision 8 (0139): the site paused or unlinked («فصل» / «إيقاف مؤقت») — its keys are gone, and its deliveries change nothing
+  if (!deps.env.WOO_URL) return json(200, { status: 'ignored', reason: 'not_linked' });
 
   let body: unknown;
   try {

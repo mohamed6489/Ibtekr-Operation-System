@@ -16,7 +16,9 @@
   // the six roles of the v2; the owner 12 Nov (0081): a request goes to any role of the team — setRoles() adds the others (ticket_roles())
   const BASE_ROLES = Object.freeze(['مدير النظام', 'خدمة العملاء', 'متابعة المبتكرين', 'الحسابات', 'اللوجستيك والشحن', 'المحتوى والتصوير']);
   let ROLES = BASE_ROLES;
-  const ADMIN_ROLE = BASE_ROLES[0];
+  // 0128 (decision 9 — the ready-made teams, all renamed at will but «الإدارة»): the server's list is the list, and the admin team's
+  // current name is ADMIN_ROLE; the six above stand in before it loads (node, the tests)
+  let ADMIN = BASE_ROLES[0];
   const CUSTOMER_REASONS = Object.freeze(['تأخير في التسليم', 'منتج تالف', 'منتج مختلف عن الطلب', 'مشكلة دفع أو استرجاع', 'العميل مش بيرد', 'أخرى']);
   const VENDOR_REASONS = Object.freeze(['تأخير تسليم', 'جودة', 'خامة ناقصة', 'خلاف على الحساب أو العمولة', 'مش بيرد', 'أخرى']);
   const OUTCOMES = Object.freeze(['اتحلت المشكلة', 'مش مشكلة', 'مكرر', 'العميل / المبتكر ما ردش']);
@@ -43,7 +45,7 @@
     return e;
   }
 
-  const isAdmin = (actor) => actor && actor.role === ADMIN_ROLE;
+  const isAdmin = (actor) => actor && (actor.role === ADMIN || actor.role === BASE_ROLES[0]);
   const isCreator = (t, actor) => actor && t.createdBy && t.createdBy.name === actor.name;
   const canWork = (t, actor) => !!actor && (isAdmin(actor) || actor.role === t.assigneeRole);
   const canClose = (t, actor) => !!actor && (isAdmin(actor) || isCreator(t, actor));
@@ -141,9 +143,9 @@
     }).sort((a, b) => PRIO_RANK[a.priority] - PRIO_RANK[b.priority] || (b.lastUpdate < a.lastUpdate ? -1 : b.lastUpdate > a.lastUpdate ? 1 : 0));
   }
 
-  function setRoles(list) {
-    const extra = (Array.isArray(list) ? list : []).map((x) => clean(x, 60)).filter(Boolean);
-    ROLES = Object.freeze([...new Set(BASE_ROLES.concat(extra))]); return ROLES;
+  function setRoles(list, adminLabel) {
+    const got = (Array.isArray(list) ? list : []).map((x) => clean(x, 60)).filter(Boolean);
+    ROLES = Object.freeze(got.length ? [...new Set(got)] : BASE_ROLES); ADMIN = got.length && adminLabel ? clean(adminLabel, 60) : BASE_ROLES[0]; return ROLES;
   }
   // comments decision 13 (the owner 15 Nov — «كل كلمة تذاكر أو تذكرة في السيستم كله تبقى طلبات أو طلب»): the page's own strings say
   // «طلب»; a line the server wrote into a request's history (ticket_create / ticket_act of 0045 …, the HR and the auto-reply
@@ -154,6 +156,6 @@
   const words = (text) => { let s = String(text == null ? '' : text); if (!/تذ(?:كر|اكر)/.test(s)) return s; for (const [a, b] of WORDS) s = s.split(a).join(b); return s; };
   // a description or a closing note may be a member's own words: only the server's own sentences in it change
   const phrases = (text) => { let s = String(text == null ? '' : text); if (!/تذكرة/.test(s)) return s; for (const [a, b] of [['من التذكرة دي أو من', 'من الطلب ده أو من'], ['الطلب في التذكرة TKT-', 'موجود في الطلب TKT-']]) s = s.split(a).join(b); return s; };
-  return Object.freeze({ words, phrases, TYPES, STATUSES, get PRIORITIES() { return prios(); }, BASE_PRIORITIES, get ROLES() { return ROLES; }, BASE_ROLES, setRoles, ADMIN_ROLE, CUSTOMER_REASONS, VENDOR_REASONS, OUTCOMES, OPEN, WORK_STATUSES, TITLE_MAX, label, validateTicket, createStore, canWork, canClose, canReopen, isAdmin, summary, summaryDetails, filterTickets });
+  return Object.freeze({ words, phrases, TYPES, STATUSES, get PRIORITIES() { return prios(); }, BASE_PRIORITIES, get ROLES() { return ROLES; }, BASE_ROLES, setRoles, get ADMIN_ROLE() { return ADMIN; }, CUSTOMER_REASONS, VENDOR_REASONS, OUTCOMES, OPEN, WORK_STATUSES, TITLE_MAX, label, validateTicket, createStore, canWork, canClose, canReopen, isAdmin, summary, summaryDetails, filterTickets });
 });
 

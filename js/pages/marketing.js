@@ -1875,10 +1875,11 @@
   // = a team request of a kind (IBTickets.createRequest → ticket_request_create) to the kind's role; listed here under its assistant
   // with who asked, worked (status, replies) in «طلبات الفريق»
   // 0120: every assistant from the registry — its name, the role a request goes to («تقديم طلب»), «لـ…»
-  const AG_ROLE = { buyer: 'ميديا باير', designer: 'ديزاينر', dev: 'مبرمج' };
+  const AG_ROLE = { buyer: 'الإعلانات', designer: 'التصميم', dev: 'البرمجة' }; // 0128: the teams' names (the registry's role wins)
+  const ADMIN_TEAM = () => (window.IbtekrTickets && window.IbtekrTickets.ADMIN_ROLE) || 'الإدارة';
   // «لـ» + the name, the article joined the Egyptian way: «للمبرمج الذكي» / «لخدمة العملاء الذكية»
   const toOf = (name) => (/^ال/.test(name) ? 'ل' + name.slice(1) : /^[\u0621-\u064a]/.test(name) ? 'ل' + name : 'لـ ' + name);
-  const AGENTS = new Proxy({}, { get: (o, a) => { if (typeof a !== 'string') return undefined; const r = agReg(a); const name = agName(a); return { name, role: (r && r.role) || AG_ROLE[a] || 'مدير النظام', to: toOf(name) }; } });
+  const AGENTS = new Proxy({}, { get: (o, a) => { if (typeof a !== 'string') return undefined; const r = agReg(a); const name = agName(a); return { name, role: (r && r.role) || AG_ROLE[a] || ADMIN_TEAM(), to: toOf(name) }; } });
   const TKA = () => window.IBTickets; const TKD = () => window.IbtekrTickets;
   const canAsk = () => !!(TKA() && TKA().can().manage);
   const REQ_TONE = { open: 'orange', in_progress: 'gold', waiting: 'gold', resolved: 'success', closed: 'neutral' };
@@ -1900,7 +1901,7 @@
   function reqForm(kind, pre) {
     const T = TKA(); const D = TKD(); const A = AGENTS[kind] || AGENTS.designer;
     if (!canAsk()) { K.toast('مفيش صلاحية تفتح طلبات — محتاج «طلبات الفريق: فتح ورد»', 'error'); return; }
-    const roles = (D && D.ROLES) || []; const role0 = roles.includes(A.role) ? A.role : 'مدير النظام';
+    const roles = (D && D.ROLES) || []; const role0 = roles.includes(A.role) ? A.role : ADMIN_TEAM();
     const f = Object.assign({ title: '', project: kind === 'dev' ? 'موقع' : '', details: '', priority: 'normal', role: role0, followUp: '', files: [] }, pre || {});
     let errs = {}; let sending = false; let msg = ''; let m = null;
     const fileIn = h('input', { type: 'file', multiple: true, hidden: true, accept: ((T && T.MIME) || []).join(','), 'data-mk-req-file': '' });
@@ -2265,7 +2266,7 @@
         builtin ? null : K.field.select('perm', 'بيظهر للي معاه «عرض»', P.map(([v, l]) => ({ value: v, label: l })), f, e, set),
         builtin ? null : U.FieldShell({ id: 'ag-sees', label: 'البيانات اللي بيقراها (آخر 30 يوم، بصلاحيات اللي بيكلّمه)' }, h('div', { class: 'chips', 'data-ag-sees': '' }, S2.map(([v, l]) => h('button', { type: 'button', class: 'chip' + (f.sees.includes(v) ? ' on' : ''), 'aria-pressed': String(f.sees.includes(v)), 'data-ag-see': v,
           onClick: () => set('sees', f.sees.includes(v) ? f.sees.filter((k) => k !== v) : f.sees.concat(v), true) }, l)))),
-        K.field.select('role', 'الطلبات بتروح لدور', [{ value: '', label: 'مدير النظام' }].concat(roles.map((r) => ({ value: r, label: r }))), f, e, set),
+        K.field.select('role', 'الطلبات بتروح لدور', [{ value: '', label: ADMIN_TEAM() }].concat(roles.map((r) => ({ value: r, label: r }))), f, e, set),
         K.field.area('about', 'بيعمل إيه (سطر بيظهر تحت اسمه)', f, e, set, { rows: 2 }),
         K.field.area('instructions', 'التعليمات', f, e, set, { rows: 4, help: 'بيقراها في كل رسالة — والقواعد والسكيلز من «الإعدادات › الذكاء الاصطناعي › المساعدين».' })].filter(Boolean),
       validate: (f) => { const n = String(f.name || '').trim(); if (n.length < 2 || n.length > 40) return { name: 'من 2 لـ 40 حرف' }; if (/[<>]/.test(n + f.about + f.instructions)) return { about: 'من غير < أو >' }; if (String(f.about || '').length > 300) return { about: 'لحد 300 حرف' }; return {}; },

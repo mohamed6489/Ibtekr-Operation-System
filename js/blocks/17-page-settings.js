@@ -1501,7 +1501,7 @@
     // draft perms in the matrix shape so the alert gate follows unsaved permission edits
     const draftPerms = (f) => C.perms.map(([g, rows]) => [g, rows.map(([n, v]) => [n, NR.colSet(v, ci, f.p[pk(g, n)])])]);
     const tabs = (f, set) => K.SubTabs({ label: 'إعدادات الدور', active: f.tab, onChange: (id) => set('tab', id, true), items: [{ id: 'info', label: 'البيانات' }, { id: 'perms', label: 'الصلاحيات' }, { id: 'alerts', label: 'التنبيهات' }] });
-    const info = (f, e, set) => [K.field.text('name', 'اسم الدور', f, e, set, { required: true, disabled: !custom, help: custom ? 'بيتغيّر عند كل الأعضاء اللي عندهم الدور' : 'اسم الدور الجاهز ثابت — تقدر تغيّر الوصف والصلاحيات والتنبيهات' }),
+    const info = (f, e, set) => [K.field.text('name', 'اسم الدور', f, e, set, { required: true, disabled: isAdmin, help: !isAdmin ? 'بيتغيّر عند كل الأعضاء اللي عندهم الدور، وطلباته ومساعده بيمشوا معاه' : 'اسم «الإدارة» ثابت — تقدر تغيّر الوصف' }), // 0128 decision 9: every team renamed but the admin one
       K.field.area('desc', 'الوصف', f, e, set, { help: 'بيظهر جنب الدور في الدعوة واختيار الدور' }),
       h('div', { class: 'field' }, h('span', { class: 'flabel' }, 'الأعضاء على الدور ده (' + members().length + ')'), members().length ? h('div', { class: 'rp-members' }, members().map((m) => h('span', { class: 'mlink' }, U.Avatar(m.name), h('span', null, h('b', null, m.name), h('small', { class: 't-small help' }, m.status === 'invited' ? 'دعوة معلّقة' : m.status === 'suspended' ? 'موقوف' : 'نشط'))))) : h('div', { class: 't-small help' }, 'مفيش أعضاء على الدور ده لسه'))];
     const perms = (f, e, set) => [isAdmin ? U.InlineNote({ children: 'الأدمن عنده كل الصلاحيات ومينفعش تتقفل — عشان محدش يقفل السيستم على نفسه.' }) : note('«عرض بس» = يشوف من غير تعديل. الصلاحيات الحساسة عليها علامة ⚠ وتغييرها بيطلب تأكيد ويتسجل في سجل النشاط.'),
@@ -1513,7 +1513,7 @@
     const changedSens = (f) => C.perms.flatMap(([g, rows]) => rows.filter(([n, v, sens]) => sens && (v[ci] || 'N') !== f.p[pk(g, n)]).map(([n]) => n));
     const apply = (f, m) => {
       const nm = String(f.name).trim(); let changes = 0;
-      if (custom && nm !== name) { C.custom[C.custom.indexOf(name)] = nm; S.members.forEach((x) => { if (x.role === name) x.role = nm; }); if (name in K.store.roleDigests) { K.store.roleDigests[nm] = K.store.roleDigests[name]; delete K.store.roleDigests[name]; } delete at[name]; if (C.roleInfo) delete C.roleInfo[name]; changes++; }
+      if (!isAdmin && nm !== name) { if (custom) C.custom[C.custom.indexOf(name)] = nm; else ROLES = ROLES.map((x) => (x === name ? nm : x)); // 0128: a ready team renamed too S.members.forEach((x) => { if (x.role === name) x.role = nm; }); if (name in K.store.roleDigests) { K.store.roleDigests[nm] = K.store.roleDigests[name]; delete K.store.roleDigests[name]; } delete at[name]; if (C.roleInfo) delete C.roleInfo[name]; changes++; }
       C.roleInfo = Object.assign(C.roleInfo || {}, { [nm]: String(f.desc || '').trim() });
       if (!isAdmin) C.perms.forEach(([g, rows]) => rows.forEach((r) => { const c = f.p[pk(g, r[0])]; if ((r[1][ci] || 'N') !== c) { r[1] = NR.colSet(r[1], ci, c); changes++; } }));
       if (NR) NR.SOURCES.forEach((src) => { const cur = (K.store.alertRoles[src.key] || NR.DEFAULTS[src.key]); if ((cur[ci] || 'N') !== f.a[src.key]) { K.store.alertRoles[src.key] = NR.colSet(cur, ci, f.a[src.key]); changes++; } });
@@ -1524,7 +1524,7 @@
       note: (f) => h('div', { class: 'rp-head' }, K.Tag(isAdmin ? 'brand' : custom ? 'gold' : 'info', isAdmin ? 'دور النظام' : custom ? 'دور مخصص' : 'دور جاهز'), h('span', { class: 't-small help' }, members().length + ' أعضاء · ' + Object.values(f.p).filter((c) => c === 'F').length + ' صلاحية كاملة')),
       fields: (f, e, set) => [tabs(f, set)].concat(f.tab === 'info' ? info(f, e, set) : f.tab === 'perms' ? perms(f, e, set) : alerts(f, e, set)),
       extraFooter: isAdmin ? null : (f, m) => h('span', { class: 'rp-del' }, Button({ type: 'danger', label: 'حذف الدور', onClick: () => deleteRole(name, ci, m) })),
-      validate: (f) => { const e = K.req(f, ['name']); const nm = String(f.name || '').trim(); if (custom && nm !== name && allNames().includes(nm)) e.name = 'الاسم ده موجود'; if (Object.keys(e).length) f.tab = 'info'; return e; },
+      validate: (f) => { const e = K.req(f, ['name']); const nm = String(f.name || '').trim(); if (!isAdmin && nm !== name && allNames().includes(nm)) e.name = 'الاسم ده موجود'; if (Object.keys(e).length) f.tab = 'info'; return e; },
       submitLabel: 'حفظ', submit: (f, m) => { const sens = changedSens(f); if (sens.length && !isAdmin) { K.confirm({ title: 'تغيير صلاحية حساسة', text: '«' + sens.join('، ') + '» لدور «' + name + '». التغيير هيتسجل في سجل النشاط ويتبعت تنبيه للأدمن.', okLabel: 'تأكيد التغيير', onOk: () => apply(f, m) }); return false; } apply(f, m); return false; } });
   }
   function deleteRole(name, ci, parent) {
@@ -1670,7 +1670,7 @@
         if (changed) { const x = S0.setRoleLevelPerms ? await S0.setRoleLevelPerms(id, level, perms) : await S0.setRolePerms(id, perms); if (!x.ok) fail(x, 'حفظ الصلاحيات'); touched = true; }
       }
       const desc = (C.roleInfo || {})[all[ci]]; const nm = all[ci];
-      if ((desc != null && desc !== (r.description || '')) || nm !== r.name) { const x = await S0.updateRole(id, { name: r.isSystem ? null : nm, desc: desc || '' }); if (!x.ok) fail(x, 'حفظ الدور'); touched = true; }
+      if ((desc != null && desc !== (r.description || '')) || nm !== r.name) { const x = await S0.updateRole(id, { name: id === 'admin' ? null : nm, desc: desc || '' }); if (!x.ok) fail(x, 'حفظ الدور'); touched = true; }
     }
     if (touched) { hydrateRoles(); if (window.IBPages.current === 'settings') R(); }
   }

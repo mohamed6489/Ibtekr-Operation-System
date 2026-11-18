@@ -143,5 +143,7 @@ test('the stock plan\'s studio step keeps the case, the type and the screenshots
   const [s] = P.cleanPlan([{ op: 'studio', maker: 'W', kase: 'whatsapp', type: 'Variable', screens: ['s1.png'] }]);
   assert.deepEqual([s.kase, s.type, s.screens], ['whatsapp', 'Variable', ['s1.png']]);
   const [d] = P.cleanPlan([{ op: 'studio', kase: 'x', type: 'y' }]);
-  assert.deepEqual([d.kase, d.type, d.screens], ['photos', 'Simple', []]);
+  assert.deepEqual([d.kase, d.type, d.screens], ['', '', []]); // not said = the chat asks (agents-brain decision 20)
+  assert.match(P.PLAN_RULE, /do NOT ask the case/);
+  assert.equal(P.resolvePlan(P.cleanPlan([{ op: 'studio' }]), { vendors: [], products: [], categories: [] })[0].label, 'منتجات جديدة');
 });

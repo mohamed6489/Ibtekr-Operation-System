@@ -29,12 +29,12 @@ categories or makers, fill plan (up to ${PLAN_MAX} steps, in order); otherwise p
   add = keep their categories and add this one, set = this one only, remove = take this one off;
 - move_maker: maker, query, to_maker; brand_add: maker, brand (a new brand for that maker);
 - status: maker, query, status one of ${PLAN_STATUS.join(' | ')}; trash: maker, query (to the site's trash, never deleted);
-- studio: new products through the products studio. When the member asks to add products, first ask (with ask.options, the buttons in
-  the chat) which case they are: «${STUDIO_CASE_LABELS.sheet}» · «${STUDIO_CASE_LABELS.whatsapp}» · «${STUDIO_CASE_LABELS.photos}», then (buttons
-  again) Simple or Variable, and the maker by name; then ask them to attach the files in the chat (the sheet + the photos, or the screenshots +
-  the photos, or the photos). Once the files are in the chat, one step: maker, category (or ""), kase = sheet | whatsapp | photos, type =
-  Simple | Variable, screens = the names of the attached files that are WhatsApp screenshots (whatsapp only, else []). The page opens the
-  studio with the files in their places, reads them and shows the preview; nothing goes to the site until the member uploads it there.
+- studio: new products (the member wants to add / upload products, or sent product photos, a maker's sheet or WhatsApp screenshots to
+  add): one step at once — do NOT ask the case, the type or the maker yourself: the chat asks them with its own buttons (the case
+  «${STUDIO_CASE_LABELS.photos}» · «${STUDIO_CASE_LABELS.whatsapp}» · «${STUDIO_CASE_LABELS.sheet}», Simple or Variable, the maker, then the files),
+  runs the studio's steps, shows the data in a popup to edit and asks before anything goes to the site. Fill only what the member
+  already said: maker (or ""), category (or ""), kase = sheet | whatsapp | photos (or ""), type = Simple | Variable (or ""), screens = the
+  attached files that are WhatsApp screenshots (else []). Your text: one short line that you'll ask a few questions here in the chat.
 Before a plan, ask what is unclear (which maker, which category, the words for the products) in your text instead. In text, say the plan
 in short lines; never say it is done.`;
 
@@ -43,7 +43,7 @@ export function cleanPlan(v) {
   return (Array.isArray(v) ? v : []).filter(isObj).filter((s) => PLAN_OPS.includes(s.op)).slice(0, PLAN_MAX).map((s) => ({
     op: s.op, maker: line(s.maker, 80), query: (Array.isArray(s.query) ? s.query : []).map((q) => line(q, 60)).filter(Boolean).slice(0, 8), category: line(s.category, 120),
     toMaker: line(s.to_maker, 80), brand: line(s.brand, 80), status: PLAN_STATUS.includes(s.status) ? s.status : '', newEn: line(s.new_en, 80), newAr: line(s.new_ar, 80), parent: line(s.parent, 120), note: line(s.note, 200),
-    kase: STUDIO_CASES.includes(s.kase) ? s.kase : 'photos', type: s.type === 'Variable' ? 'Variable' : 'Simple',
+    kase: STUDIO_CASES.includes(s.kase) ? s.kase : '', type: s.type === 'Variable' || s.type === 'Simple' ? s.type : '', // "" = the chat asks (decision 20)
     screens: (Array.isArray(s.screens) ? s.screens : []).map((x) => line(x, 120)).filter(Boolean).slice(0, 8),
   }));
 }
@@ -83,7 +83,7 @@ export function resolvePlan(steps, data) {
     }
     if (s.op === 'brand_add') { const v = findMaker(s.maker); out.maker = v ? { id: v.id, name: v.name } : null; if (!v) out.problem = 'مش لاقي المبتكر «' + s.maker + '»'; if (!s.brand) out.problem = 'محتاج اسم البراند'; out.label = 'براند جديد «' + s.brand + '» لـ ' + (v ? v.name : s.maker); return out; }
     if (s.op === 'studio') { const v = findMaker(s.maker); out.maker = v ? { id: v.id, name: v.name } : null; out.category = findCat(s.category); out.kase = s.kase; out.type = s.type; out.screens = s.screens;
-      out.label = 'منتجات جديدة — ' + STUDIO_CASE_LABELS[s.kase] + ' · ' + s.type + (v ? ' لـ ' + v.name : '') + (out.category ? ' في «' + out.category.name + '»' : ''); return out; }
+      out.label = 'منتجات جديدة' + (s.kase ? ' — ' + STUDIO_CASE_LABELS[s.kase] : '') + (s.type ? ' · ' + s.type : '') + (v ? ' لـ ' + v.name : '') + (out.category ? ' في «' + out.category.name + '»' : ''); return out; }
     const r = pick(s); Object.assign(out, { ids: r.ids || [], count: r.count || 0, sample: r.sample || [], maker: r.maker ? { id: r.maker.id, name: r.maker.name } : null, problem: r.problem || '' });
     const what = (out.count ? out.count + ' منتج' : 'المنتجات') + (out.maker ? ' من ' + out.maker.name : '');
     if (s.op.startsWith('category_')) {

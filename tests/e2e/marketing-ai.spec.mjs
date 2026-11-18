@@ -1004,41 +1004,69 @@ test('the owner 18 Nov — the media buyer\'s suggestions decided in the chat: �
   expect(mock.mkt.suggestions.find((s) => s.id === 4).status).toBe('rejected');
 });
 
-// the owner 18 Nov («لو بقولو للمخزن ضيف منتجات يسالني بناء على السيستم … و اختار يبتدي يعمل هو الخطوات و يديني معاينة» و«كل المساعدين يتعاملوا
-// بنفس الطريقة … لو محتاجين بيانات معينة يديني بوباب املاه و لو عايزني اختار حاجة يجيبها جوه الشات»): the choices are buttons in the chat,
-// the data a popup, and the files go into a studio batch the assistant starts by itself — the sheet preview opens
-test('the owner 18 Nov — «ضيف منتجات»: the case as buttons in the chat, the maker in a popup, then the photos → the studio batch starts with them', async ({ page }) => {
+// agents-brain decision 20 (the owner 18 Nov — «عايز ارفع منتج يقولي حدد النوع … و بعدين يبتدي يشتغل … يطلع المعلومات جوه بوباب زي اللي بيحصل في
+// السيستم قبل الرفع … و بعديها يسالني علي الرفع او التحميل» و«يسالني و ما يولدش الا لما اوافق»): the upload as fixed questions in the stock
+// assistant's chat — the case, the type, the maker, the files — then the studio's own steps on a new batch, the studio's own screens in a
+// popup to edit, and the chat asks: to the site (and first whether to generate the AI pictures), the sheet down, or shared
+const PNG1 = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+const png1 = (name) => ({ name, mimeType: 'image/png', buffer: PNG1 });
+const pickIn = async (page, sel, files) => { const fc = page.waitForEvent('filechooser'); await pg(page).locator(sel).click(); await (await fc).setFiles(files); };
+test('decision 20 — «ارفع منتجات»: «شيت جاهز» asked in the chat → the review popup (data + prices) → «ارفع على الموقع» → «ارفع بالصور اللي معاك»: drafts, nothing generated', async ({ page }) => {
+  await start(page);
+  await openAi(page, ADMIN, 'المخزن الذكي');
+  const P = pg(page);
+  await P.locator('.mk-agent-chips .chip', { hasText: 'ارفع منتجات' }).click();
+  const card = P.locator('[data-mk-wiz] .sc-card');
+  await expect(card).toHaveAttribute('data-sc', 'kase'); expect(mock.mkt.calls.filter((x) => x.action === 'agent')).toHaveLength(0); // the questions are the chat's own — no AI call
+  await card.locator('[data-sc-opt="sheet"]').click();
+  await expect(card).toHaveAttribute('data-sc', 'type'); await card.locator('[data-sc-opt="Simple"]').click();
+  await expect(card).toHaveAttribute('data-sc', 'maker');
+  await card.locator('#sc-maker').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
+  await expect(card).toHaveAttribute('data-sc', 'files');
+  await expect(card.locator('[data-sc-start]')).toBeDisabled(); // the sheet first
+  await pickIn(page, '[data-sc-pick="sheet"]', { name: 'art craft.csv', mimeType: 'text/csv', buffer: Buffer.from('#,SKU,Product Name EN,Product Name AR,Product Colors,Product Colors AR,Size,Vendor Price,Product Category\n1,,Boho Cushion,مخدة بوهيمي,Beige,بيج,40 × 40 cm,1000,ديكور\n2,,Stripe Pillow,مخدة مخططة,Purple,بنفسجي,,800,ديكور\n') });
+  await pickIn(page, '[data-sc-pick="photos"]', [png1('1.png'), png1('2.png')]);
+  await expect(card.locator('[data-sc-file="photos"]')).toContainText('2 صورة');
+  await card.locator('[data-sc-start]').click();
+  // the studio's own screens in the popup: the data (the SKU made, the AI filled), then the prices from the maker's rate
+  const rev = page.locator('.modal [data-fl-review]');
+  await expect(rev).toHaveAttribute('data-fl-review', 'data');
+  await expect(rev.locator('[data-fl="sku"]').first()).toHaveValue('IBTART0999-BE');
+  await expect(page).toHaveURL(/#ai/); // still the chat — the studio page never opened
+  await page.locator('.modal [data-fl-rev-tab="prices"]').click();
+  await expect(page.locator('.modal [data-fl-review="prices"] [data-fl="sale"]').first()).toHaveValue('1430');
+  await page.locator('.modal [data-fl-rev-save]').click();
+  await expect(card).toHaveAttribute('data-sc', 'next');
+  await card.locator('[data-sc-opt="site"]').click();
+  await expect(card).toContainText('أولّد صور المنتجات بالذكاء الاصطناعي الأول؟');
+  expect(mock.studioUploads).toEqual([]); // nothing went to the site yet
+  await card.locator('[data-sc-opt="own"]').click();
+  await expect(card).toContainText('اترفعت 2 منتج مسودة على الموقع');
+  expect(mock.imgCalls.filter((c) => c.action === 'generate')).toHaveLength(0); // no picture generated without the member's yes
+  expect(mock.studioUploads.map((x) => [x.sku, x.product.status])).toEqual([['IBTART0999-BE', 'draft'], ['IBTART1000-PU', 'draft']]);
+  expect(mock.studioMedia.map((x) => x.name).some((n) => /^Boho-Cushion-IBTART0999-BE-01\./.test(n))).toBe(true); // the maker's photo as the first picture
+});
+
+test('decision 20 — the assistant hands over: «ضيف منتجات» → its studio step = the chat\'s questions (no plan card); «صور وعايز شيت» → the sheet popup → «تحميل الشيت»', async ({ page }) => {
   await start(page);
   mock.mkt.planData = { vendors: [{ id: 'v-wood', name: 'Woodish' }], products: [], categories: [] };
-  mock.mkt.agentAnswer = (req) => {
-    const q = req.question; const none = { title: '', details: '' };
-    if (/ضيف منتجات/.test(q)) return { text: 'تمام — المنتجات جاية إزاي؟', request: none, ask: { question: 'الحالة', options: ['شيت جاهز من المبتكر', 'داتا على الواتساب (صور + سكرين شوتس)', 'صور وعايز شيت'], fields: [] } };
-    if (q === 'صور وعايز شيت') return { text: 'محتاج بيانات المبتكر', request: none, ask: { question: 'املا البيانات', options: [], fields: [{ label: 'اسم المبتكر', kind: 'text' }, { label: 'عدد المنتجات', kind: 'number' }] } };
-    if (/اسم المبتكر: Woodish/.test(q)) return { text: 'ابعت الصور في الشات', request: none };
-    return { text: 'هفتح الاستوديو بالصور', request: none, plan: [{ op: 'studio', maker: 'Woodish', query: [], category: '', to_maker: '', brand: '', status: '', new_en: '', new_ar: '', parent: '', note: '', kase: 'photos', type: 'Simple', screens: [] }] };
-  };
+  mock.mkt.agentAnswer = () => ({ text: 'هسألك كام سؤال هنا', request: { title: '', details: '' }, plan: [{ op: 'studio', maker: '', query: [], category: '', to_maker: '', brand: '', status: '', new_en: '', new_ar: '', parent: '', note: '', kase: '', type: '', screens: [] }] });
   await openAi(page, ADMIN, 'المخزن الذكي');
   const P = pg(page);
   await P.locator('#mk-ask').fill('ضيف منتجات'); await P.locator('#mk-ask').press('Enter');
-  await expect(P.locator('[data-ib-ask] [data-ib-ask-opt]')).toHaveCount(3);
-  await P.locator('[data-ib-ask-opt="صور وعايز شيت"]').click();
-  await expect.poll(() => mock.mkt.calls.filter((x) => x.action === 'agent').map((x) => x.question)).toEqual(['ضيف منتجات', 'صور وعايز شيت']);
-  await expect(P.locator('[data-ib-ask-opt="صور وعايز شيت"]')).toBeDisabled(); // an older answer's buttons ask no more
-  await P.locator('[data-ib-ask-form]').click();
-  const md = page.locator('[data-ib-ask-popup]');
-  await md.locator('#ib-ask-0').fill('Woodish'); await md.locator('#ib-ask-1').fill('3');
-  await md.locator('[data-ib-ask-send]').click();
-  await expect.poll(() => mock.mkt.calls.filter((x) => x.action === 'agent').slice(-1)[0].question).toBe('اسم المبتكر: Woodish\nعدد المنتجات: 3');
-  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
-  const chooser = page.waitForEvent('filechooser'); await P.locator('[data-mk-attach]').click();
-  await (await chooser).setFiles({ name: 'chair.png', mimeType: 'image/png', buffer: png });
-  await expect(P.locator('[data-mk-file="chair.png"] img')).toBeVisible();
-  await P.locator('#mk-ask').fill('دي الصور'); await P.locator('#mk-ask').press('Enter');
-  await P.locator('[data-mk-plan-open]').click();
-  const plan = page.locator('.modal[role=dialog]', { hasText: 'خطة المساعد' });
-  await expect(plan.locator('[data-plan-step="0"]')).toContainText('صور وعايز شيت · Simple لـ Woodish');
-  await plan.locator('[data-plan-run="0"]').click();
-  await expect(page).toHaveURL(/#products-flow-[0-9a-f-]+-1$/); // no chooser: the batch started with the case picked in the chat
-  await expect(page.locator('.modal', { hasText: 'معاينة الشيت' })).toBeVisible(); // the photo went in and the preview opened
+  const card = P.locator('[data-mk-wiz] .sc-card');
+  await expect(card).toHaveAttribute('data-sc', 'kase');
+  await expect(P.locator('[data-mk-plan-open]')).toHaveCount(0);
+  await card.locator('[data-sc-opt="photos"]').click(); await card.locator('[data-sc-opt="Simple"]').click();
+  await card.locator('#sc-maker').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
+  await pickIn(page, '[data-sc-pick="photos"]', [png1('1.png'), png1('2.png')]);
+  await card.locator('[data-sc-start]').click();
+  const rev = page.locator('.modal [data-fl-review="sheet"]');
+  await expect(rev.locator('[data-flow-sheet] tbody tr')).toHaveCount(2);
+  await page.locator('.modal [data-fl-rev-save]').click();
+  await expect(card.locator('[data-sc-opt]')).toHaveCount(3); // photos only: no «ارفع على الموقع» — the sheet goes to the maker first
+  await expect(card.locator('[data-sc-opt="site"]')).toHaveCount(0);
+  await card.locator('[data-sc-opt="dl"]').click();
+  await expect(page.locator('[data-fl-download]')).toBeVisible();
 });
 

@@ -1459,7 +1459,9 @@
   // كلها»): each assistant's chats, the member's own — the history on the side (new, rename, delete), the turns from the server, the
   // quick suggestions inside the chat, ⚙️ the admin's settings, «تقديم طلب» and the expand button (the same icon shrinks it back);
   // nothing runs from a chat — the designer's picture is made only by «ولّد الصورة» under its answer (the image credits) ----------
-  const AG = { chats: {}, active: {}, turns: {}, prompts: {}, reqs: {}, drafts: {}, acts: {}, decs: {}, asks: {}, hand: {}, forms: {}, draft: {}, asking: false, gen: null, full: false, side: false, loading: {}, cfgAsked: false, seen: {}, atBottom: {}, pos: {}, files: {}, queue: {}, reading: 0, mic: null, plans: {}, turnFiles: {} };
+  // agents-brain decision 20 (the owner 18 Nov): the stock assistant's upload runs as questions in the chat (studio-chat.js) — this chip starts it
+  const UPLOAD_CHIP = 'ارفع منتجات';
+  const AG = { chats: {}, active: {}, turns: {}, prompts: {}, reqs: {}, drafts: {}, acts: {}, decs: {}, asks: {}, hand: {}, forms: {}, draft: {}, asking: false, gen: null, full: false, side: false, loading: {}, cfgAsked: false, seen: {}, atBottom: {}, pos: {}, files: {}, queue: {}, reading: 0, mic: null, plans: {}, turnFiles: {}, wiz: {} };
   const AG_INTRO = {
     buyer: 'أنا الميديا باير. بقرا أرقام ميتا بتاعة آخر 7 أيام جنب أوردرات ووكومرس الحقيقية وبقترح — والتنفيذ بموافقتك من «مستني موافقتك». اسألني عن حملة أو العائد أو تكلفة الأوردر.',
     designer: 'أنا الديزاينر. بساعدك في أفكار البوستات والكاروسيل والستوري والريلز بالبراند، ولما تطلب صورة بكتبلك وصفها وتقدر تولّدها بزرار «ولّد الصورة» (من كريدت الصور). الشغل الكبير بيروح للديزاينر البشري من «تقديم طلب».',
@@ -1473,7 +1475,7 @@
     makers: 'أنا خدمة المبتكرين الذكية. بشوف المبتكرين وأوردراتهم والمتأخر منها، وبكتبلك رسالة المتابعة للمبتكر.',
     accountant: 'أنا المحاسب الذكي. بقرا المصروفات والمبيعات وحصة إبتكر بأرقامك الحقيقية — ومابسجّلش ولا بحرّك فلوس.',
     hr: 'أنا الموارد البشرية الذكية. بشوف الحضور والطلبات والمهام — من غير المرتبات — وبقولك إيه المستني قرار.' });
-  Object.assign(AG_SUGG, { stock: ['إيه اللي مستني في المخزن؟', 'المرتجعات اللي مستنية فحص', 'أقدم القطع', 'التجميعات المفتوحة'],
+  Object.assign(AG_SUGG, { stock: [UPLOAD_CHIP, 'إيه اللي مستني في المخزن؟', 'المرتجعات اللي مستنية فحص', 'أقدم القطع', 'التجميعات المفتوحة'],
     cs: ['مين العملاء الزعلانين؟', 'اكتب رد لعميل اتأخر أوردره', 'الأوردرات غير المؤكدة', 'الطلبات المفتوحة'],
     makers: ['مين المتأخر؟', 'اكتب رسالة متابعة لمبتكر', 'المبتكرين الجداد', 'طلبات المبتكرين المفتوحة'],
     accountant: ['مصروفات الشهر', 'أكبر مصروف', 'المبيعات وحصة إبتكر', 'قارن بالشهر اللي فات'],
@@ -1726,6 +1728,7 @@
     if (!r.ok) { AG.turns[key] = (AG.turns[key] || []).filter((t) => t.id !== 'tmp'); K.toast(r.message, 'error'); if (r.reason === 'notfound' && id) { AG.chats[a] = (AG.chats[a] || []).filter((c) => c.id !== id); AG.active[a] = null; } agRefresh(); return; }
     const chat = r.chat; const cid = chat ? chat.id : id;
     const prev = (AG.turns[key] || []).filter((t) => t.id !== 'tmp'); if (!id) delete AG.turns[key];
+    if (!id && AG.wiz[key] && cid) { AG.wiz[cid] = AG.wiz[key]; delete AG.wiz[key]; }
     AG.turns[cid] = prev.concat(r.turns);
     const ans = r.turns.find((t) => t.role === 'assistant'); if (ans && r.imagePrompt) AG.prompts[ans.id] = r.imagePrompt; if (ans && r.request) AG.reqs[ans.id] = r.request;
     if (ans && r.campaignAction) AG.acts[ans.id] = r.campaignAction; // ش45 decision 5: the buyer's confirm card
@@ -1736,7 +1739,10 @@
     const userTurn = r.turns.find((t) => t.role === 'user'); if (userTurn && files.length) AG.turnFiles[userTurn.id] = files; // the owner 17 Nov: the chat's files stay under the message (this session)
     // the studio step takes this message's files, else every file sent in this chat (the owner 18 Nov: the case is picked first, the files come after)
     const chatFiles = () => (AG.turns[cid] || []).flatMap((t) => (AG.turnFiles[t.id] || [])).map((f) => f.raw).filter(Boolean);
-    if (ans && r.plan && r.plan.length) AG.plans[ans.id] = { steps: r.plan, files: files.length ? files.map((f) => f.raw).filter(Boolean) : chatFiles(), done: {} }; // the owner 17 Nov: the warehouse assistant's plan
+    // agents-brain decision 20: a studio step is the upload's questions in the chat (studio-chat.js), the other steps the plan as before
+    const studio = ans && r.plan ? r.plan.find((x) => x.op === 'studio') : null; const rest = r.plan ? r.plan.filter((x) => x.op !== 'studio') : [];
+    if (studio && window.IBStudioChat) AG.wiz[cid] = window.IBStudioChat.create({ kase: studio.kase, type: studio.type, maker: studio.maker, files: files.length ? files.map((f) => f.raw).filter(Boolean) : chatFiles(), screens: studio.screens });
+    if (ans && rest.length) AG.plans[ans.id] = { steps: rest, files: files.length ? files.map((f) => f.raw).filter(Boolean) : chatFiles(), done: {} }; // the owner 17 Nov: the warehouse assistant's plan
     if (chat) { AG.chats[a] = [chat].concat((AG.chats[a] || []).filter((c) => c.id !== chat.id)); AG.active[a] = chat.id; }
     if (ans && r.campaign) { AG.drafts[ans.id] = r.campaign; if (a === 'designer' && openDraft(r.campaign)) { K.toast('فتحتلك الكامبين متملّية — راجعها واضغط توليد', 'success'); return; } }
     agRefresh();
@@ -1801,7 +1807,7 @@
       Button({ size: 'sm', type: 'primary', icon: 'plus', label: 'شات جديد', attrs: { 'data-mk-chat-new': a }, onClick: () => agOpen(a, null) }),
       chats ? (chats.length ? h('div', { class: 'mk-agent-list', 'data-mk-chats': String(chats.length) }, agGroups(chats).reduce((all, g) => all.concat([h('small', { class: 'mk-agent-day' }, g[0])], g[1].map(chatRow)), []))
         : h('p', { class: 't-small help mk-agent-none' }, 'لسه مفيش شاتات — ابدأ بسؤال.')) : h('p', { class: 't-small help mk-agent-none' }, 'بنحمّل الشاتات…'));
-    const send = (x) => (a === 'buyer' && x === 'اعمل حملة لمنتج' ? go('marketing-campaign-1') : agSend(a, x));
+    const send = (x) => (a === 'buyer' && x === 'اعمل حملة لمنتج' ? go('marketing-campaign-1') : a === 'stock' && x === UPLOAD_CHIP && window.IBStudioChat ? (AG.wiz[key] = window.IBStudioChat.create({}), R()) : agSend(a, x));
     const chips = h('div', { class: 'chips mk-agent-chips' }, h('span', { class: 't-small help' }, 'اقتراحات سريعة:'), sugg.map((x) => h('button', { type: 'button', class: 'chip', onClick: () => send(x) }, x)));
     const lastAns = (turns.filter((t) => t.role === 'assistant').slice(-1)[0] || {}).id; // only the last answer's buttons still ask
     const bubbles = turns.map((t) => { const mine = t.role === 'user';
@@ -1828,7 +1834,8 @@
             t.role === 'assistant' && AG.drafts[t.id] && can().create ? h('div', { class: 'mk-msg-req' }, h('small', { class: 'help' }, 'كامبين جاهزة: ' + String(AG.drafts[t.id].idea || '').slice(0, 80)),
               Button({ size: 'sm', type: 'primary', icon: 'megaphone', label: 'افتح الكامبين', attrs: { 'data-mk-draft-from': String(t.id) }, onClick: () => openDraft(AG.drafts[t.id]) })) : null),
           h('small', { class: 'mk-meta help' }, (mine ? meName() : A.name) + ' · ' + agTime(t.at)))); });
-    const waiting = !!(cid && !AG.turns[cid]); const fresh = !turns.length && !waiting && !AG.asking;
+    const wiz = a === 'stock' && AG.wiz[key] && window.IBStudioChat ? h('div', { class: 'mk-row ai', 'data-mk-wiz': '' }, agMark(a), h('div', { class: 'mk-col' }, h('div', { class: 'mk-msg ai' }, window.IBStudioChat.card(AG.wiz[key], { redraw: R })))) : null;
+    const waiting = !!(cid && !AG.turns[cid]); const fresh = !turns.length && !waiting && !AG.asking && !wiz;
     const worm = () => (window.IBLoader && window.IBLoader.mark ? window.IBLoader.mark(18) : null);
     // owner batch 14 Nov decision 14: the chat stays on its last message — a new turn, «بيفكر…» or another chat goes to the bottom; any
     // other redraw keeps where the member scrolled (a new .mk-chat starts at the top otherwise)
@@ -1837,7 +1844,7 @@
       fresh ? h('div', { class: 'mk-welcome' }, agMark(a, 'xl'), h('b', { class: 'mk-welcome-t' }, A.name), h('p', { class: 'mk-intro' }, intro),
         a === 'buyer' ? h('small', { class: 'help' }, 'الأرقام من آخر مزامنة') : null, chips) : null,
       waiting ? h('p', { class: 't-small help mk-chat-wait' }, worm(), h('span', null, 'بنحمّل الرسايل…')) : null,
-      bubbles, AG.asking ? h('div', { class: 'mk-row ai' }, agMark(a), h('div', { class: 'mk-col' }, h('div', { class: 'mk-msg ai mk-think', 'data-mk-thinking': '' }, worm(), h('p', null, 'بيفكر…')))) : null);
+      bubbles, wiz, AG.asking ? h('div', { class: 'mk-row ai' }, agMark(a), h('div', { class: 'mk-col' }, h('div', { class: 'mk-msg ai mk-think', 'data-mk-thinking': '' }, worm(), h('p', null, 'بيفكر…')))) : null);
     const toEnd = AG.seen[a] !== sk || AG.atBottom[a] !== false; AG.seen[a] = sk;
     requestAnimationFrame(() => {
       const el = document.querySelector('[data-mk-agent="' + a + '"] .mk-chat'); if (!el) return;

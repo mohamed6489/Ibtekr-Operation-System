@@ -184,3 +184,32 @@ Deno.test('the ready reply: a customer conversation waiting past the SLA gets a 
   assertEquals([n.p_agent, n.p_kind, n.p_link], ['cs', 'alert', 'cs/00000000-0000-4000-8000-000000000001']);
   assert(/الرد المقترح:\nأهلًا يا منى/.test(n.p_body));
 });
+
+// agents-brain decision 5, «طريقة أ»: the developer's daily check — a note per problem from the screen's errors and the failed sync, once a
+// day from 9 Cairo; a second tick the same day does nothing; the refs not written this run are cleared
+Deno.test('the developer\'s check: a note per problem with «للجلسة:», once a day, and the clear keeps what it wrote', async () => {
+  const seed = SEED(); (seed as any).ai_agents = [{ id: 'dev', name: 'المبرمج الذكي', role: null }];
+  (seed as any).activity_log = [{ at: '2026-11-08T06:00:00.000Z', actor: 'm1', action: 'app.crash', new_value: { kind: 'TypeError', at: 'orders.js:40:2' } }];
+  (seed as any).woo_sync_log = [1, 2, 3].map((i) => ({ at: '2026-11-08T0' + i + ':00:00.000Z', kind: 'cron', direction: 'in', entity: 'order', action: 'sync', result: 'error', detail: { error: 'HTTP 503' } }));
+  const notes: any[] = []; const clears: any[] = [];
+  const { deps } = setup({ seed });
+  const rpc = deps.db.rpc.bind(deps.db);
+  (deps.db as any).rpc = (name: string, args: any) => {
+    if (name === 'ai_agent_note_add') { notes.push(args); return Promise.resolve({ data: notes.length, error: null }); }
+    if (name === 'ai_agent_note_clear') { clears.push(args); return Promise.resolve({ data: 0, error: null }); }
+    if (name === 'dev_cron_health') return Promise.resolve({ data: { jobs: [], http: { failed: 0 } }, error: null });
+    return rpc(name, args);
+  };
+  const { body } = await cron(deps);
+  const dev = notes.filter((x) => x.p_agent === 'dev');
+  assertEquals(dev.length, 2);
+  assert(dev.every((x) => /\nللجلسة:\n/.test(x.p_body) && x.p_link === null));
+  assert(dev.some((x) => x.p_ref.startsWith('dev:crash:')) && dev.some((x) => x.p_ref.startsWith('dev:sync:')));
+  assertEquals(clears.length, 1); assertEquals(clears[0].p_prefix, 'dev:');
+  assertEquals((body as any).dev.notes, 2);
+  // the same day again: nothing
+  notes.length = 0;
+  const again = await cron(deps);
+  assertEquals(notes.filter((x) => x.p_agent === 'dev').length, 0);
+  assertEquals((again.body as any).dev, undefined);
+});

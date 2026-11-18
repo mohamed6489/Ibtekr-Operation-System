@@ -22,6 +22,7 @@ import { SOURCES, digestPlan, emailHtml, plan, waText } from '../_shared/notify.
 import { delayRules, leadBy, lineDelayOf, lineElapsed, orderDelayOf, orderElapsed } from '../_shared/delay.js';
 import { OPEN as TEAM_OPEN, teamNotes } from '../_shared/agent-team.js';
 import { csLateNotes } from '../_shared/agent-actions.js';
+import { DEV_PREFIX, devDue, devNotes } from '../_shared/dev-check.js';
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -259,7 +260,8 @@ export async function tick(deps: Deps, opts: { dry?: boolean } = {}): Promise<Re
   if (p.state.length) { const { error } = await deps.db.from('alert_state').upsert(p.state, { onConflict: 'source_key,entity_id,target' }); if (error) throw new Error('db alert_state ' + (error.code ?? '')); }
   const team = await teamAgentNotes(deps, ctx); // decision 10: each team's assistant — its daily summary and what is late
   const ready = await readyActionNotes(deps, ctx, ctx.nowMs); // decision 7 / T7: the assistant prepares the action (a late reply written)
-  const value = { ...summary, sent, team, ready };
+  const dev = await devCheckNotes(deps, ctx).catch((e) => { console.error('notify dev check: ' + quiet(e)); return null; }); // decision 5 «طريقة أ»: the developer's daily check — a note per problem with its fix
+  const value = { ...summary, sent, team, ready, ...(dev ? { dev } : {}) };
   await deps.db.from('sync_state').upsert({ key: 'notify', value, updated_at: ctx.now }, { onConflict: 'key' });
   return json(200, { result: 'ok', ...value });
 }
@@ -293,6 +295,43 @@ async function readyActionNotes(deps: Deps, ctx: Ctx, now: number): Promise<numb
     if (!error) n++;
   }
   return n;
+}
+// agents-brain decision 5, «طريقة أ» (the owner 18 Nov): once a day from 9 Cairo the developer assistant reads the system's health — the
+// screen's errors, the sync with the site, the scheduled jobs, the site's speed and updates, the links — and writes a note per problem
+// (_shared/dev-check.js); a problem gone loses its note. Nothing is fixed here: the code fixes go to the Claude Code session by hand.
+async function devCheckNotes(deps: Deps, ctx: Ctx): Promise<Json | null> {
+  const last = await deps.db.from('sync_state').select('value').eq('key', 'dev_check').maybeSingle();
+  const lastDay = isObj(last?.data) && isObj(last.data.value) ? last.data.value.day : null;
+  if (!devDue(ctx.cairo, lastDay)) return null;
+  const ag = rows(await deps.db.from('ai_agents').select('id, archived_at').eq('id', 'dev').limit(1));
+  if (!ag.length || ag[0].archived_at) return null;
+  const since = new Date(ctx.nowMs - D).toISOString();
+  const got = async (q: PromiseLike<{ data: unknown; error: unknown }>) => { try { const r = await q; return r.error ? null : r.data; } catch { return null; } };
+  const [crashes, sync, cron, checks, channels, ads] = await Promise.all([
+    got(deps.db.from('activity_log').select('at, actor, new_value').eq('action', 'app.crash').gte('at', since).limit(LIMIT)),
+    got(deps.db.from('woo_sync_log').select('at, kind, direction, entity, action, detail').eq('result', 'error').gte('at', since).order('at', { ascending: true }).limit(LIMIT)),
+    got(deps.db.rpc('dev_cron_health', { p_hours: 24 })),
+    got(deps.db.from('site_checks').select('kind, data, checked_at').in('kind', ['pagespeed', 'wp_updates'])),
+    got(deps.db.from('cs_channels').select('id, name, kind, status')),
+    got(deps.db.from('mkt_ad_objects').select('platform, id, name, status, meta').eq('kind', 'account').limit(50)),
+  ]);
+  const byKind: Record<string, Json> = {}; for (const r of Array.isArray(checks) ? checks as Json[] : []) byKind[String(r.kind)] = r;
+  const r = devNotes({ now: ctx.nowMs, crashes: Array.isArray(crashes) ? crashes : null, sync: Array.isArray(sync) ? sync : null, cron: isObj(cron) ? cron : null,
+    checks: Array.isArray(checks) ? byKind : null, channels: Array.isArray(channels) ? channels : null, ads: Array.isArray(ads) ? ads : null }) as unknown as { notes: Json[]; refs: string[]; keep: string[] };
+  let n = 0;
+  for (const x of r.notes) {
+    const { error } = await deps.db.rpc('ai_agent_note_add', { p_agent: 'dev', p_kind: x.kind, p_title: x.title, p_body: x.body, p_ref: x.ref, p_link: x.link });
+    if (!error) n++;
+  }
+  // a problem gone takes its note (a source not read keeps its notes; before 0130 the clear is missing = nothing cleared)
+  let cleared = 0;
+  const held = rows(await deps.db.from('ai_agent_notes').select('ref').eq('agent', 'dev').like('ref', DEV_PREFIX + '%').limit(500)).map((x) => String(x.ref))
+    .filter((ref) => r.keep.some((k) => ref.startsWith(k)));
+  const { data: c, error: ce } = await deps.db.rpc('ai_agent_note_clear', { p_agent: 'dev', p_prefix: DEV_PREFIX, p_keep: r.refs.concat(held) });
+  if (!ce && typeof c === 'number') cleared = c;
+  const value = { day: ctx.cairo.day, notes: n, cleared, unread_sources: r.keep };
+  await deps.db.from('sync_state').upsert({ key: 'dev_check', value, updated_at: ctx.now }, { onConflict: 'key' });
+  return value;
 }
 function countBy(items: Item[]) { const g: Record<string, number> = {}; for (const it of items) g[it.key] = (g[it.key] || 0) + 1; return g; }
 

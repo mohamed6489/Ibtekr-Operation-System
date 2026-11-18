@@ -268,6 +268,7 @@ export function fakeDb(seed: Record<string, Row[]> = {}, opts: { rpc?: Record<st
       if (kind === 'neq') return !same(row[col], value);
       if (kind === 'not.null') return row[col] !== null && row[col] !== undefined;
       if (kind === 'contains') return Array.isArray(row[col]) && (value as unknown[]).every((v) => (row[col] as unknown[]).some((x) => same(x, v))); // B4: an array column holds every value
+      if (kind === 'like') return row[col] != null && new RegExp('^' + String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/%/g, '.*').replace(/_/g, '.') + '$', 's').test(String(row[col]));
       if (kind === 'ilike') return row[col] != null && new RegExp('^' + String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/%/g, '.*').replace(/_/g, '.') + '$', 'is').test(String(row[col]));
       throw new Error(`fakeDb: unsupported filter ${kind}`);
     });
@@ -345,6 +346,7 @@ export function fakeDb(seed: Record<string, Row[]> = {}, opts: { rpc?: Record<st
       lte(col: string, v: unknown) { q.filters.push(['lte', col, v]); return b; },
       neq(col: string, v: unknown) { q.filters.push(['neq', col, v]); return b; },
       ilike(col: string, v: unknown) { q.filters.push(['ilike', col, v]); return b; },
+      like(col: string, v: unknown) { q.filters.push(['like', col, v]); return b; },
       contains(col: string, v: unknown[]) { q.filters.push(['contains', col, v]); return b; },
       limit(n: number) { q.range = [0, n - 1]; return b; },
       not(col: string, op: string, v: unknown) { if (op === 'is' && v === null) { q.filters.push(['not.null', col, null]); return b; } if (op !== 'in') throw new Error(`fakeDb: unsupported not.${op}`); q.filters.push(['not.in', col, v]); return b; },

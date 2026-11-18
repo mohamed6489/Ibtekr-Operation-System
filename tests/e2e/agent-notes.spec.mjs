@@ -78,3 +78,22 @@ test('T7 — «رد جاهز»: the click opens the late conversation in «خد�
   await expect(page.locator('#cs-ta')).toHaveValue('أهلًا يا منى 🌿\nإحنا معاك دلوقتي');
   expect(mock.mkt.writes.filter((w) => w.table === 'ai_agent_notes' && w.op === 'open')).toHaveLength(0);
 });
+
+// agents-brain decision 5, «طريقة أ» (the owner 18 Nov — «المبرمج يكتشف المشكلة ويشرحها ويقولك الحل، والتصليح نفسه بيتعمل هنا معايا»):
+// the developer's daily-check note opens his chat; «انسخ للجلسة» copies the problem and its technical summary for the Claude Code session.
+test('decision 5 — the developer\'s check note: the chat shows «انسخ للجلسة» and it copies the summary', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await start(page, { agentNotes: [{ agent: 'dev', kind: 'problem', title: 'خطأ على الشاشة في «products-flow.js» — مرتين',
+    body: 'إيه اللي حصل: طلع خطأ TypeError لـ 2 من الفريق، مرتين في آخر 24 ساعة.\nالحل: نشوف السطر ده.\n← ده محتاج تعديل في الكود: دوس «انسخ للجلسة» وابعته في جلسة Claude Code.\n\nللجلسة:\napp.crash · TypeError at products-flow.js:812 · 2x · 2 member(s)' }] });
+  await signIn(page, ADMIN);
+  await page.locator('.notif-btn').click(); await agentsNav(page).click();
+  await bell(page).locator('.ntf-item', { hasText: 'products-flow.js' }).click();
+  await expect(page.locator('#pg-ai')).toBeVisible();
+  const btn = page.locator('[data-mk-session-copy]');
+  await expect(btn).toHaveCount(1);
+  await btn.click();
+  const copied = await page.evaluate(() => navigator.clipboard.readText());
+  expect(copied).toContain('مشكلة من فحص المبرمج الذكي');
+  expect(copied).toContain('TypeError at products-flow.js:812');
+  expect(copied).not.toContain('← ده محتاج');
+});

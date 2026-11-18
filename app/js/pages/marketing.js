@@ -1461,6 +1461,12 @@
   // nothing runs from a chat — the designer's picture is made only by «ولّد الصورة» under its answer (the image credits) ----------
   // agents-brain decision 20 (the owner 18 Nov): the stock assistant's upload runs as questions in the chat (studio-chat.js) — this chip starts it
   const UPLOAD_CHIP = 'ارفع منتجات';
+  // agents-brain decision 5, «طريقة أ» (the owner 18 Nov): the developer's daily check writes a note per problem with a technical summary
+  // after «للجلسة:» (_shared/dev-check.js SESSION_MARK) — «انسخ للجلسة» under that message copies it for the Claude Code session
+  const SESSION_MARK = 'للجلسة:';
+  const sessionCopy = (text) => { const s = String(text || ''); const i = s.indexOf(SESSION_MARK); if (i < 0) return '';
+    const head = s.slice(0, i).split('\n').filter((x) => x.trim() && !/^←/.test(x.trim())).join('\n');
+    return 'مشكلة من فحص المبرمج الذكي في نظام إبتكر:\n' + head + '\n\n' + s.slice(i + SESSION_MARK.length).trim(); };
   const AG = { chats: {}, active: {}, turns: {}, prompts: {}, reqs: {}, drafts: {}, acts: {}, decs: {}, asks: {}, hand: {}, forms: {}, draft: {}, asking: false, gen: null, full: false, side: false, loading: {}, cfgAsked: false, seen: {}, atBottom: {}, pos: {}, files: {}, queue: {}, reading: 0, mic: null, plans: {}, turnFiles: {}, wiz: {} };
   const AG_INTRO = {
     buyer: 'أنا الميديا باير. بقرا أرقام ميتا بتاعة آخر 7 أيام جنب أوردرات ووكومرس الحقيقية وبقترح — والتنفيذ بموافقتك من «مستني موافقتك». اسألني عن حملة أو العائد أو تكلفة الأوردر.',
@@ -1831,6 +1837,9 @@
               h('small', { class: 'help' }, 'هيتكتب في الشات: ' + AG.hand[t.id].question.slice(0, 140)),
               Button({ size: 'sm', type: 'primary', icon: 'send', label: 'روح ' + AGENTS[AG.hand[t.id].agent].to, attrs: { 'data-mk-handoff-go': String(t.id) },
                 onClick: () => { const x = AG.hand[t.id]; if (!askAgent(x.agent, x.question)) K.toast('المساعد ده مش متاح لدورك', 'error'); } })) : null,
+            t.role === 'assistant' && a === 'dev' && sessionCopy(t.text) ? h('div', { class: 'mk-msg-req', 'data-mk-session': String(t.id) }, h('small', { class: 'help' }, 'الملخص جاهز — الزقه في جلسة Claude Code وهي تصلّحه'),
+              Button({ size: 'sm', type: 'primary', icon: 'copy', label: 'انسخ للجلسة', attrs: { 'data-mk-session-copy': String(t.id) },
+                onClick: () => { const txt = sessionCopy(t.text); try { navigator.clipboard.writeText(txt).then(() => K.toast('اتنسخ — الزقه في الجلسة'), () => K.toast('ماقدرتش أنسخ — حدّد النص وانسخه بإيدك', 'error')); } catch (e) { K.toast('ماقدرتش أنسخ — حدّد النص وانسخه بإيدك', 'error'); } } })) : null,
             t.role === 'assistant' && AG.drafts[t.id] && can().create ? h('div', { class: 'mk-msg-req' }, h('small', { class: 'help' }, 'كامبين جاهزة: ' + String(AG.drafts[t.id].idea || '').slice(0, 80)),
               Button({ size: 'sm', type: 'primary', icon: 'megaphone', label: 'افتح الكامبين', attrs: { 'data-mk-draft-from': String(t.id) }, onClick: () => openDraft(AG.drafts[t.id]) })) : null),
           h('small', { class: 'mk-meta help' }, (mine ? meName() : A.name) + ' · ' + agTime(t.at)))); });

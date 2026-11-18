@@ -102,7 +102,7 @@ begin
   if not exists (select 1 from public.alerts where kind = 'settings.perm' and role_id = 'admin' and entity_id = 'cs') then raise exception 'case the perm change alerts the admins failed'; end if;
   -- a custom role from a base, renamed, then deleted with its member moved
   v := public.role_create('photo', 'التصوير', 'الصور والاستوديو', 'ops');
-  if (select permissions ->> 'orders.view' from public.roles where id = 'photo') <> 'F' or (select is_system from public.roles where id = 'photo') then raise exception 'case role create copies the base failed'; end if;
+  if (select permissions from public.roles where id = 'photo') <> (select permissions from public.roles where id = 'ops') or (select is_system from public.roles where id = 'photo') then raise exception 'case role create copies the base failed'; end if;
   begin perform public.role_create('photo', 'تاني', null, 'ops'); raise exception 'case a taken role id failed';
   exception when unique_violation then null; end;
   begin perform public.role_create('photo2', 'التصوير', null, 'ops'); raise exception 'case a taken role name failed';

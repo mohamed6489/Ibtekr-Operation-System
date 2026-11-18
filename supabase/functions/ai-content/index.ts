@@ -373,7 +373,7 @@ async function adsData(deps: Deps) {
     deps.db.from('mkt_ad_objects').select('id, name, status, meta').eq('platform', 'meta').eq('kind', 'campaign').limit(2000),
     deps.db.from('mkt_ad_stats').select('object_id, spend, purchases').eq('platform', 'meta').eq('level', 'campaign').gte('day', since).limit(20000),
     deps.db.from('orders').select('utm_campaign, status, total, deleted_at').eq('ad_platform', 'meta').gte('placed_at', since + 'T00:00:00+02:00').limit(5000),
-    deps.db.from('mkt_suggestions').select('kind, title, sub').eq('status', 'pending').limit(50),
+    deps.db.from('mkt_suggestions').select('id, kind, title, sub').eq('status', 'pending').limit(50),
     deps.db.from('settings').select('data').eq('section', 'marketing').maybeSingle(),
   ]);
   const { data: pixel } = await deps.db.from('site_checks').select('data, checked_at').eq('kind', 'pixel').maybeSingle(); // the owner 17 Nov (0126; before it: none)
@@ -777,7 +777,7 @@ async function assistant(deps: Deps, uid: string, args: Json, jwt: string) {
         if (act && use.name === 'propose_entry' && !typedAmounts.includes(Number((act.input as Json).amount))) { results.push({ id: use.id, content: 'refused: the amount is not in the user\'s own message — ask them for it', error: true }); continue; }
         if (act && ((use.name === 'ask_agent' && !teamIds.includes(String((act.input as Json).agent))) || (use.name === 'open_campaign' && !mkt.create))) { results.push({ id: use.id, content: 'refused: not allowed for this member', error: true }); continue; }
         if (act && use.name === 'open_form') { const vals = (act.input as Json).values as Json; if (vals.amount != null && !typedAll.includes(Number(vals.amount))) delete vals.amount; }
-        if (act) { actions.push(act); results.push({ id: use.id, content: use.name === 'propose_entry' ? 'the confirm card will be shown to the user after your answer — not recorded yet' : use.name === 'open_form' ? 'a link «افتح البوب أب» is shown under your answer; the popup opens when the user clicks it, filled with these values — nothing is saved until they press its button' : use.name === 'offer_file' ? 'a download link is shown under your answer' : use.name === 'plan_categories' ? 'a link «راجع الأقسام» is shown under your answer; the user reviews and edits the tree and presses «نشر» himself — nothing is created yet' : 'will run on the user\'s screen after your answer' }); }
+        if (act) { actions.push(act); results.push({ id: use.id, content: use.name === 'propose_entry' ? 'the confirm card will be shown to the user after your answer — not recorded yet' : use.name === 'open_form' ? 'a link «افتح البوب أب» is shown under your answer; the popup opens when the user clicks it, filled with these values — nothing is saved until they press its button' : use.name === 'offer_file' ? 'a download link is shown under your answer' : use.name === 'plan_categories' ? 'a link «راجع الأقسام» is shown under your answer; the user reviews and edits the tree and presses «نشر» himself — nothing is created yet' : use.name === 'ask_choice' ? 'the options show as buttons (or the fields as a popup link) under your answer — end your answer now and wait for the user\'s pick' : 'will run on the user\'s screen after your answer' }); }
         else results.push({ id: use.id, content: 'invalid input for ' + line(use.name, 40), error: true });
       }
     }

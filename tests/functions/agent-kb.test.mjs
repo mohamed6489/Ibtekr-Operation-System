@@ -41,7 +41,7 @@ test('ش40: the prompt text — the head, a section per heading, an item per lin
 test('ش40: the chats carry the assistant\'s rules and skills after the admin\'s instructions; the buyer\'s chat too', () => {
   const cfg = { instructions: 'خليك مختصر', rules: [{ name: 'عام', items: [{ title: 'اللغة', text: 'مصري' }] }], skills: [{ name: 'الريلز', items: [{ title: 'Hook', text: 'أول ثانيتين' }] }] };
   const r = agentRequest({ agent: 'designer', question: 'إيه الجديد؟' }, { model: 'm', effort: 'low', history: [], cfg });
-  assert.equal(r.system.length, 6); assert.match(r.system[4].text, /^Actions in the system/); assert.match(r.system[5].text, /^Reading before you answer/); // agents-brain T3: the popups / the page last
+  assert.equal(r.system.length, 7); assert.match(r.system[4].text, /^Actions in the system/); assert.match(r.system[5].text, /^Asking the member/); assert.match(r.system[6].text, /^Reading before you answer/); // + the owner 18 Nov: the ask // agents-brain T3: the popups / the page last
   assert.match(r.system[1].text, /خليك مختصر/);
   assert.match(r.system[2].text, /^The admin's rules[\s\S]*- اللغة: مصري/);
   assert.match(r.system[3].text, /^Your skills[\s\S]*- Hook: أول ثانيتين/);

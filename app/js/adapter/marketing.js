@@ -1139,6 +1139,8 @@
     const cp = agent === 'designer' && b.campaign && typeof b.campaign === 'object' && !Array.isArray(b.campaign) ? b.campaign : null;
     // ش45 decision 5: the buyer's pause / resume proposal — a confirm card on the page, nothing runs from the chat
     const ca = agent === 'buyer' && b.campaignAction && /^[0-9]{1,30}$/.test(String(b.campaignAction.campaignId || '')) && ['pause', 'resume'].includes(b.campaignAction.action) ? { campaignId: String(b.campaignAction.campaignId), action: b.campaignAction.action } : null;
+    // the owner 18 Nov («يجيبولي الاختيارات جوا الشات يعني اوافق او ارفض»): the buyer's open suggestions to decide in the chat (approve / reject by id)
+    const dc = agent === 'buyer' && Array.isArray(b.decisions) ? b.decisions.filter((x) => x && /^[0-9]{1,12}$/.test(String(x.id)) && ['approve', 'reject'].includes(x.decision)).slice(0, 5).map((x) => ({ id: Number(x.id), decision: x.decision })) : [];
     // the owner 17 Nov («لما اسأل علي حاجة مش بتاعت اللي بكلمه يقوله هبعتك للمصمم … و يبعتني ليه بالبرومت و ادوس علي ارسال»): a question
     // for another assistant of the team comes back as a handoff — the page offers «روح لـ…» (that assistant's chat, the question in its box)
     const hd = b.handoff && typeof b.handoff === 'object' && AGENT_RE.test(String(b.handoff.agent || '')) && b.handoff.agent !== agent && typeof b.handoff.question === 'string' && b.handoff.question.trim()
@@ -1148,7 +1150,11 @@
     const fm = (Array.isArray(b.forms) ? b.forms : []).filter((f) => f && typeof f.form === 'string' && /^[a-z_]{2,30}$/.test(f.form) && f.values && typeof f.values === 'object' && !Array.isArray(f.values)).slice(0, 3)
       .map((f) => ({ form: f.form, values: Object.fromEntries(Object.entries(f.values).filter(([k, v]) => /^[A-Za-z]{1,20}$/.test(k) && v != null).map(([k, v]) => [k, String(v).slice(0, 1000)])) }));
     const pg = b.page && typeof b.page === 'object' && /^[a-z]{2,20}$/.test(String(b.page.page || '')) ? { page: String(b.page.page), tab: typeof b.page.tab === 'string' ? b.page.tab.slice(0, 40) : '' } : null;
-    return { ok: true, text: typeof b.text === 'string' ? b.text : '', imagePrompt: typeof b.imagePrompt === 'string' ? b.imagePrompt : '', request: rq, campaign: cp, campaignAction: ca, handoff: hd, forms: fm, page: pg, plan: Array.isArray(b.plan) ? b.plan.slice(0, 10) : [], sources: Array.isArray(b.sources) ? b.sources.slice(0, 12) : [], chat, turns: (Array.isArray(b.turns) ? b.turns : []).map(toTurn) };
+    // the owner 18 Nov: the answer's choices (buttons in the chat) or fields (a popup the member fills) — the server cleaned them (cleanAsk)
+    const ak = b.ask && typeof b.ask === 'object' ? b.ask : null;
+    const ask = ak ? { question: String(ak.question || '').slice(0, 200), options: (Array.isArray(ak.options) ? ak.options : []).map((o) => String(o).slice(0, 60)).filter(Boolean).slice(0, 6),
+      fields: (Array.isArray(ak.fields) ? ak.fields : []).filter((f) => f && f.label).map((f) => ({ label: String(f.label).slice(0, 60), kind: ['text', 'long', 'number', 'date'].includes(f.kind) ? f.kind : 'text' })).slice(0, 8) } : null;
+    return { ok: true, ask: ask && (ask.options.length >= 2 || ask.fields.length) ? ask : null, text: typeof b.text === 'string' ? b.text : '', imagePrompt: typeof b.imagePrompt === 'string' ? b.imagePrompt : '', request: rq, campaign: cp, campaignAction: ca, decisions: dc, handoff: hd, forms: fm, page: pg, plan: Array.isArray(b.plan) ? b.plan.slice(0, 10) : [], sources: Array.isArray(b.sources) ? b.sources.slice(0, 12) : [], chat, turns: (Array.isArray(b.turns) ? b.turns : []).map(toTurn) };
   }
   // the designer's picture from the prompt of its answer (the image credits) — the turn comes back with the image's path
   async function agentImage(chatId, prompt) {

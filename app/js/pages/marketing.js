@@ -1459,7 +1459,7 @@
   // كلها»): each assistant's chats, the member's own — the history on the side (new, rename, delete), the turns from the server, the
   // quick suggestions inside the chat, ⚙️ the admin's settings, «تقديم طلب» and the expand button (the same icon shrinks it back);
   // nothing runs from a chat — the designer's picture is made only by «ولّد الصورة» under its answer (the image credits) ----------
-  const AG = { chats: {}, active: {}, turns: {}, prompts: {}, reqs: {}, drafts: {}, acts: {}, hand: {}, forms: {}, draft: {}, asking: false, gen: null, full: false, side: false, loading: {}, cfgAsked: false, seen: {}, atBottom: {}, pos: {}, files: {}, queue: {}, reading: 0, mic: null, plans: {}, turnFiles: {} };
+  const AG = { chats: {}, active: {}, turns: {}, prompts: {}, reqs: {}, drafts: {}, acts: {}, decs: {}, asks: {}, hand: {}, forms: {}, draft: {}, asking: false, gen: null, full: false, side: false, loading: {}, cfgAsked: false, seen: {}, atBottom: {}, pos: {}, files: {}, queue: {}, reading: 0, mic: null, plans: {}, turnFiles: {} };
   const AG_INTRO = {
     buyer: 'أنا الميديا باير. بقرا أرقام ميتا بتاعة آخر 7 أيام جنب أوردرات ووكومرس الحقيقية وبقترح — والتنفيذ بموافقتك من «مستني موافقتك». اسألني عن حملة أو العائد أو تكلفة الأوردر.',
     designer: 'أنا الديزاينر. بساعدك في أفكار البوستات والكاروسيل والستوري والريلز بالبراند، ولما تطلب صورة بكتبلك وصفها وتقدر تولّدها بزرار «ولّد الصورة» (من كريدت الصور). الشغل الكبير بيروح للديزاينر البشري من «تقديم طلب».',
@@ -1561,17 +1561,46 @@
   // ش45 decision 5 — the buyer's «اقفل / افتح الحملة» under its answer: a confirm card; «أيوه» runs it on Meta (mkt-ads campaign_set — the
   // admin or marketing.publish, the execution switch on), «لأ» drops it. Nothing runs from the chat itself.
   const campName = (cid) => { const d = MK().adsDataNow ? MK().adsDataNow() : null; const o = d && Array.isArray(d.objects) ? d.objects.find((x) => x.kind === 'campaign' && String(x.id) === cid) : null; return o && o.name ? o.name : '#' + cid; };
+  // the owner 18 Nov («عايز المساعدين … يجيبولي الاختيارات جوا الشات يعني اوافق او ارفض»): a suggestion the buyer proposes to decide —
+  // its title from the open list, «موافق» / «رفض» right here (mkt-ads decide — the admin); with the execution switch off the decision is
+  // written and nothing runs on Meta (the card says so, and the admin can switch it on from here after a confirm)
+  const liveOn = () => { const R0 = MK().rulesNow && MK().rulesNow(); return !!(R0 && R0.live); };
+  function liveRow() {
+    if (liveOn()) return null;
+    return h('div', { class: 'mk-live-off', 'data-mk-live-off': '' }, h('small', { class: 'help' }, 'مفتاح التنفيذ مقفول: الموافقة بتتسجّل ومفيش حاجة بتتغيّر على ميتا.'),
+      isAdmin() ? Button({ size: 'sm', type: 'text', label: 'شغّل التنفيذ', attrs: { 'data-mk-live-on': '' }, onClick: () => K.confirm({ title: 'تشغّل التنفيذ على ميتا؟', text: 'من دلوقتي أي «موافق» على قرار أو حملة هيتنفّذ على حساب الإعلانات فعلًا — في حدود الميزانية اليومية والقواعد.', okLabel: 'شغّل', onOk: async () => { const r = await MK().setLive(true); K.toast(r.ok ? 'التنفيذ اشتغل' : r.message, r.ok ? 'success' : 'error'); R(); } }) }) : null);
+  }
+  function decCard(tid, x) {
+    if (x.done) return h('div', { class: 'mk-msg-req', 'data-mk-dec-done': x.done }, h('small', { class: 'help' }, x.doneText || ''));
+    // the list is dropped after any decision (decide → sugg = null): reload it once (at most every 5 s) instead of calling the rest «gone»
+    const L = (MK().suggNow && MK().suggNow()) || [];
+    if (!L.length && MK().suggestions && !AG.suggBusy && Date.now() - (AG.suggAt || 0) > 5000) {
+      AG.suggBusy = true; AG.suggAt = Date.now(); MK().suggestions(true).catch(() => {}).then(() => { AG.suggBusy = false; R(); });
+    }
+    const known = L.length > 0 || (!!AG.suggAt && !AG.suggBusy);
+    const sg = L.find((s) => Number(s.id) === Number(x.id) && (!s.status || s.status === 'pending'));
+    if (known && !sg) return h('div', { class: 'mk-msg-req', 'data-mk-dec-gone': x.id }, h('small', { class: 'help' }, 'الاقتراح #' + x.id + ' مابقاش مستني — اتقرر أو خلص.'));
+    const key = tid + ':' + x.id; const busy = AG.acting === key;
+    const run = async (decision) => { AG.acting = key; R(); const r = await MK().decide(x.id, decision); AG.acting = null;
+      if (!r.ok) { K.toast(r.message, 'error'); R(); return; }
+      x.done = decision; x.doneText = decision === 'reject' ? 'اترفض — مفيش حاجة اتغيّرت' : (r.message || (liveOn() ? 'اتوافق واتنفّذ' : 'اتوافق — اتسجّل (التنفيذ مقفول)')); K.toast(x.doneText, 'success'); R(); };
+    return h('div', { class: 'mk-msg-req mk-camp-act', 'data-mk-dec': x.id },
+      h('small', null, h('b', null, sg ? sg.title : 'اقتراح #' + x.id), sg && sg.sub ? ' — ' + sg.sub : '', ' · المساعد بيقترح: ', h('b', null, x.decision === 'reject' ? 'ترفضه' : 'توافق عليه')),
+      isAdmin() ? [Button({ size: 'sm', type: 'primary', icon: 'check', label: busy ? 'بيتنفّذ…' : 'موافق', disabled: !!AG.acting, attrs: { 'data-mk-dec-yes': '' }, onClick: () => run('approve') }),
+        Button({ size: 'sm', type: 'text', label: 'رفض', disabled: !!AG.acting, attrs: { 'data-mk-dec-no': '' }, onClick: () => run('reject') }), liveRow()]
+        : h('small', { class: 'help' }, 'القرار للأدمن بس'));
+  }
   function actCard(tid, x) {
     const pause = x.action === 'pause'; const nm = campName(x.campaignId);
     if (x.done) return h('div', { class: 'mk-msg-req', 'data-mk-camp-done': x.done }, h('small', { class: 'help' }, x.doneText || ''));
     const may = isAdmin() || can().publish;
     return h('div', { class: 'mk-msg-req mk-camp-act', 'data-mk-camp-act': x.action + ':' + x.campaignId },
       h('small', null, h('b', null, (pause ? 'اقفل' : 'افتح') + ' الحملة «' + nm + '» على ميتا؟'), ' — مفيش حاجة هتتغيّر غير لما تأكد.'),
-      may ? [Button({ size: 'sm', type: pause ? 'danger' : 'primary', icon: pause ? 'x' : 'play', label: AG.acting === tid ? 'بيتنفّذ…' : pause ? 'أيوه، اقفلها' : 'أيوه، افتحها', disabled: !!AG.acting, attrs: { 'data-mk-camp-yes': '' },
+      may ? [Button({ size: 'sm', type: pause ? 'danger' : 'primary', icon: pause ? 'x' : 'play', label: AG.acting === tid ? 'بيتنفّذ…' : 'موافق', disabled: !!AG.acting, attrs: { 'data-mk-camp-yes': '' },
           onClick: async () => { AG.acting = tid; R(); const r = await MK().campaignSet(x.campaignId, !pause); AG.acting = null;
             if (!r.ok) { K.toast(r.message, 'error'); R(); return; }
             x.done = r.same ? 'same' : 'ok'; x.doneText = r.message; K.toast(r.message, 'success'); R(); } }),
-        Button({ size: 'sm', type: 'text', label: 'لأ', attrs: { 'data-mk-camp-no': '' }, onClick: () => { x.done = 'no'; x.doneText = 'اتلغى — الحملة زي ما هي'; R(); } })]
+        Button({ size: 'sm', type: 'text', label: 'رفض', attrs: { 'data-mk-camp-no': '' }, onClick: () => { x.done = 'no'; x.doneText = 'اترفض — الحملة زي ما هي'; R(); } }), liveRow()]
         : h('small', { class: 'help' }, 'التنفيذ محتاج «التسويق: نشر» أو الأدمن'));
   }
   // the owner 17 Nov — the warehouse assistant's plan (product-plan.js on the server found the names): a popup with each step, its count and
@@ -1590,7 +1619,11 @@
       made[s.newEn] = r.id; return { ok: true, message: 'اتعمل القسم #' + r.id };
     }
     if (s.op === 'brand_add') { if (!V || !V.addBrand || !s.maker) return { ok: false, message: 'المبتكرين مش متاحين' }; try { await V.addBrand(s.maker.id, { name: s.brand }, V.actor()); return { ok: true, message: 'اتضاف البراند' }; } catch (e) { return { ok: false, message: e && e.message ? e.message : 'ماتضافش' }; } }
-    if (s.op === 'studio') { const FV = window.IBFlowView; if (!FV || !FV.startWith) return { ok: false, message: 'الاستوديو مش متاح' }; FV.startWith({ kase: 'photos', type: 'Simple', files: plan.files || [] }); return { ok: true, message: 'اتفتح الاستوديو بالصور — اختار ودوس «ابدأ»' }; }
+    // the owner 18 Nov: the case and the type picked in the chat — the studio starts the batch by itself with the chat's files in their places
+    if (s.op === 'studio') { const FV = window.IBFlowView; if (!FV || !FV.startWith) return { ok: false, message: 'الاستوديو مش متاح' };
+      if (!(plan.files || []).length) return { ok: false, message: 'ابعت الملفات في الشات الأول (الشيت والصور أو السكرين شوتس)' };
+      FV.startWith({ auto: true, kase: s.kase || 'photos', type: s.type || 'Simple', files: plan.files || [], screens: s.screens || [], vendor: s.maker || null, category: s.category || null });
+      return { ok: true, message: 'اتفتح الاستوديو بالملفات — بيقراها وبعدها المعاينة' }; }
     if (!P || !s.ids.length) return { ok: false, message: 'مفيش منتجات' };
     const recs = s.ids.map((id) => P.get(id)).filter(Boolean);
     if (s.op.startsWith('category_')) {
@@ -1696,10 +1729,14 @@
     AG.turns[cid] = prev.concat(r.turns);
     const ans = r.turns.find((t) => t.role === 'assistant'); if (ans && r.imagePrompt) AG.prompts[ans.id] = r.imagePrompt; if (ans && r.request) AG.reqs[ans.id] = r.request;
     if (ans && r.campaignAction) AG.acts[ans.id] = r.campaignAction; // ش45 decision 5: the buyer's confirm card
+    if (ans && r.decisions && r.decisions.length) AG.decs[ans.id] = r.decisions.map((x) => Object.assign({}, x)); // the owner 18 Nov: «موافق» / «رفض» on a suggestion in the chat
+    if (ans && r.ask) AG.asks[ans.id] = r.ask; // the owner 18 Nov: choices as buttons in the chat, data in a popup — every assistant the same way
     if (ans && r.handoff) AG.hand[ans.id] = r.handoff; // the owner 17 Nov: «ده مش اختصاصي — هبعتك لـ…» → «روح لـ…» under the answer
     if (ans && ((r.forms && r.forms.length) || r.page)) AG.forms[ans.id] = { forms: r.forms || [], page: r.page }; // agents-brain T3: the popups / the page under the answer
     const userTurn = r.turns.find((t) => t.role === 'user'); if (userTurn && files.length) AG.turnFiles[userTurn.id] = files; // the owner 17 Nov: the chat's files stay under the message (this session)
-    if (ans && r.plan && r.plan.length) AG.plans[ans.id] = { steps: r.plan, files: files.map((f) => f.raw).filter(Boolean), done: {} }; // the owner 17 Nov: the warehouse assistant's plan
+    // the studio step takes this message's files, else every file sent in this chat (the owner 18 Nov: the case is picked first, the files come after)
+    const chatFiles = () => (AG.turns[cid] || []).flatMap((t) => (AG.turnFiles[t.id] || [])).map((f) => f.raw).filter(Boolean);
+    if (ans && r.plan && r.plan.length) AG.plans[ans.id] = { steps: r.plan, files: files.length ? files.map((f) => f.raw).filter(Boolean) : chatFiles(), done: {} }; // the owner 17 Nov: the warehouse assistant's plan
     if (chat) { AG.chats[a] = [chat].concat((AG.chats[a] || []).filter((c) => c.id !== chat.id)); AG.active[a] = chat.id; }
     if (ans && r.campaign) { AG.drafts[ans.id] = r.campaign; if (a === 'designer' && openDraft(r.campaign)) { K.toast('فتحتلك الكامبين متملّية — راجعها واضغط توليد', 'success'); return; } }
     agRefresh();
@@ -1766,6 +1803,7 @@
         : h('p', { class: 't-small help mk-agent-none' }, 'لسه مفيش شاتات — ابدأ بسؤال.')) : h('p', { class: 't-small help mk-agent-none' }, 'بنحمّل الشاتات…'));
     const send = (x) => (a === 'buyer' && x === 'اعمل حملة لمنتج' ? go('marketing-campaign-1') : agSend(a, x));
     const chips = h('div', { class: 'chips mk-agent-chips' }, h('span', { class: 't-small help' }, 'اقتراحات سريعة:'), sugg.map((x) => h('button', { type: 'button', class: 'chip', onClick: () => send(x) }, x)));
+    const lastAns = (turns.filter((t) => t.role === 'assistant').slice(-1)[0] || {}).id; // only the last answer's buttons still ask
     const bubbles = turns.map((t) => { const mine = t.role === 'user';
       return h('div', { class: 'mk-row ' + (mine ? 'user' : 'ai') }, mine ? null : agMark(a),
         h('div', { class: 'mk-col' },
@@ -1779,7 +1817,9 @@
             t.role === 'assistant' && AG.reqs[t.id] && canAsk() ? h('div', { class: 'mk-msg-req' }, h('small', { class: 'help' }, 'طلب جاهز: ' + AG.reqs[t.id].title),
               Button({ size: 'sm', type: 'primary', icon: 'send', label: 'قدّم الطلب ده', attrs: { 'data-mk-req-from': String(t.id) }, onClick: () => reqForm(a, { title: AG.reqs[t.id].title, details: AG.reqs[t.id].details }) })) : null,
             t.role === 'assistant' && AG.acts[t.id] ? actCard(t.id, AG.acts[t.id]) : null,
+            t.role === 'assistant' && AG.decs[t.id] ? AG.decs[t.id].map((x) => decCard(t.id, x)) : null,
             t.role === 'assistant' && AG.forms[t.id] ? formLinks(t.id) : null,
+            t.role === 'assistant' && AG.asks[t.id] && window.IBChatAsk ? window.IBChatAsk.card(AG.asks[t.id], { key: a + ':' + t.id, used: t.id !== lastAns, onSend: (txt) => agSend(a, txt) }) : null,
             t.role === 'assistant' && AG.plans[t.id] ? h('div', { class: 'mk-msg-req', 'data-mk-plan': String(AG.plans[t.id].steps.length) }, h('small', { class: 'help' }, 'خطة من ' + K.n0(AG.plans[t.id].steps.length) + ' خطوات — مفيش حاجة بتتنفّذ غير لما توافق على كل خطوة'), Button({ size: 'sm', type: 'primary', icon: 'check', label: 'راجع الخطة', attrs: { 'data-mk-plan-open': String(t.id) }, onClick: () => planPopup(AG.plans[t.id]) })) : null,
             t.role === 'assistant' && AG.hand[t.id] ? h('div', { class: 'mk-msg-req mk-handoff', 'data-mk-handoff': AG.hand[t.id].agent },
               h('small', { class: 'help' }, 'هيتكتب في الشات: ' + AG.hand[t.id].question.slice(0, 140)),

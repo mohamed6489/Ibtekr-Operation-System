@@ -398,7 +398,7 @@ Deno.test('buyer (9.5.4): marketing.view (P too); the week\'s numbers per campai
   assert(sent.includes('\n2 | Old | PAUSED | spend 0'), 'ش45 decision 5: a paused campaign is listed (with its id) so the buyer can resume it');
   assert(sent.includes('max cost per order 400') && sent.includes('daily cap 5000') && sent.includes('execution switch off') && sent.includes('budget_up: زوّد «Macrame» 20% — العائد 2×') && sent.endsWith('أزوّد Macrame؟'));
   assertEquals(asked[0].messages.map((m: any) => m.role), ['user', 'assistant', 'user']);
-  assert(asked[0].system[0].text.includes('never change anything yourself'));
+  assert(asked[0].system[0].text.includes('never run a change by yourself')); // 18 Nov: the change is a card the member approves in the chat
   const run = db.rows('ai_runs').at(-1); assertEquals([run.action, run.source, run.label, run.status], ['marketing', 'buyer', 'أزوّد Macrame؟', 'ok']);
 });
 
@@ -417,7 +417,7 @@ Deno.test('agent (0084): marketing.view; a first message makes the member\'s cha
   assertEquals([r.res.status, r.body.result, r.body.text, r.body.imagePrompt, r.body.chat.title, r.body.turns.map((t: any) => t.role)], [200, 'ok', 'فكرة: الماكرامية على لينن', 'A macrame flat lay on linen', 'بوست للشتا بالماكرامية', ['user', 'assistant']]);
   assertEquals(asked[0].messages.map((m: any) => m.content[0].text), ['بوست للشتا بالماكرامية'], 'the body\'s history is ignored');
   assert(asked[0].system.some((b: any) => b.text.includes('الألوان بيج وأخضر')), 'the admin\'s instructions');
-  assertEquals(asked[0].output_config.format.schema.required, ['text', 'image_prompt', 'request', 'campaign', 'handoff', 'forms', 'page', 'need']); // + request: owner batch 14 Nov decision 14; + campaign: ش45 decision 4; + handoff: the team (17 Nov)
+  assertEquals(asked[0].output_config.format.schema.required, ['text', 'image_prompt', 'request', 'campaign', 'handoff', 'forms', 'page', 'ask', 'need']); // + request: owner batch 14 Nov decision 14; + campaign: ش45 decision 4; + handoff: the team (17 Nov)
   assertEquals(r.body.request, null, 'no job for a person in this answer');
   assertEquals(r.body.campaign, null, 'no campaign to open in this answer');
   const chat = db.rows('mkt_agent_chats').find((c: any) => c.id === r.body.chat.id);
@@ -520,7 +520,7 @@ Deno.test('assistant: any active member; the tool loop — get_data runs with th
   assertEquals(r.body.tools, ['summary', 'orders']);
   assertEquals(asked.length, 3);
   // the first request: the cached base, the screen block (the member and the page), the eight tools (decision 40: no propose_entry; decision 42: offer_file; 15 Nov: plan_categories), the question
-  assertEquals(asked[0].tools.map((t: any) => t.name), ['get_data', 'navigate', 'filter_orders', 'set_period', 'sort_vendors', 'offer_file', 'open_form', 'plan_categories', 'plan_requests']);
+  assertEquals(asked[0].tools.map((t: any) => t.name), ['get_data', 'navigate', 'filter_orders', 'set_period', 'sort_vendors', 'offer_file', 'open_form', 'plan_categories', 'plan_requests', 'ask_choice']);
   assert(asked[0].system[1].text.includes('المستخدم: منى (خدمة العملاء)') && asked[0].system[1].text.includes('الصفحة المفتوحة: لوحة التحكم'), asked[0].system[1].text);
   assertEquals(asked[0].messages, [{ role: 'user', content: [{ type: 'text', text: 'كام أوردر متأخر؟ افتحهم' }] }]);
   // the second request carries the assistant's tool_use message and the summary as the tool result
@@ -787,7 +787,7 @@ Deno.test('agent (0120): a registry assistant — seen by its page\'s permission
   assert(sys.includes('اللهجة') && sys.includes('الرفوف') && sys.includes('العد') && !sys.includes('الألوان'), 'its rules and skills and the ones for all — not another\'s');
   const q = asked[0].messages.at(-1).content[0].text;
   assert(q.startsWith('<data>\ninventory: ') && q.includes('"pieces":1') && q.includes('مرتجع') && !q.includes('999') && q.endsWith('إيه اللي مستني في المخزن؟'), 'the warehouse read with the member\'s client, no cost');
-  assertEquals(asked[0].output_config.format.schema.required, ['text', 'request', 'forms', 'page', 'need', 'plan']);
+  assertEquals(asked[0].output_config.format.schema.required, ['text', 'request', 'forms', 'page', 'ask', 'need', 'plan']);
   assertEquals(db.rows('mkt_agent_chats').at(-1).agent, 'stock');
   // a custom one: its name and what it is for
   await call(deps, { action: 'agent', agent: 'c_prod', question: 'سلام' }, 'jwt-add');

@@ -428,3 +428,24 @@ test('plan_requests: «راجع الطلبات» lists the split requests; one �
   expect(mock.tickets.length).toBe(n0 + 1);
   await expect(M.locator('[data-req-plan="1"] [data-req-result]')).toHaveCount(0);
 });
+
+// the owner 18 Nov («كل المساعدين يتعاملوا بنفس الطريقة … لو عايزني اختار حاجة يجيبها جوه الشات … لو محتاجين بيانات يديني بوباب»): the
+// header's assistant asks with ask_choice — buttons under its answer (the pressed one is the next message) or a popup of fields
+test('the owner 18 Nov — ask_choice: the manager\'s options are buttons in the chat, its fields a popup; each answer goes as the next message', async ({ page }) => {
+  mock.aiAnswer = (action) => (action === 'assistant' ? { text: 'إيداع ولا سحب؟', actions: [{ name: 'ask_choice', input: { question: 'نوع الحركة', options: ['إيداع', 'سحب'], fields: [] } }] } : null);
+  await signIn(page, OPS);
+  await page.getByRole('button', { name: 'مساعد AI' }).click();
+  await ask(page, 'سجّل حركة');
+  const card = panel(page).locator('[data-ib-ask]').last();
+  await expect(card.locator('[data-ib-ask-opt]')).toHaveCount(2);
+  mock.aiAnswer = (action) => (action === 'assistant' ? { text: 'محتاج التفاصيل', actions: [{ name: 'ask_choice', input: { question: 'التفاصيل', options: [], fields: [{ label: 'المبلغ', kind: 'number' }, { label: 'السبب', kind: 'long' }] } }] } : null);
+  await card.locator('[data-ib-ask-opt="سحب"]').click();
+  await expect.poll(() => mock.aiCalls.filter((c) => c.action === 'assistant').at(-1).turns.at(-1)).toEqual({ role: 'user', text: 'سحب' });
+  await expect(panel(page).locator('[data-ib-ask-opt="إيداع"]')).toBeDisabled();
+  mock.aiAnswer = () => ({ text: 'تمام.', actions: [] });
+  await panel(page).locator('[data-ib-ask-form]').last().click();
+  const md = page.locator('[data-ib-ask-popup]');
+  await md.locator('#ib-ask-0').fill('500'); await md.locator('#ib-ask-1').fill('مواصلات');
+  await md.locator('[data-ib-ask-send]').click();
+  await expect.poll(() => mock.aiCalls.filter((c) => c.action === 'assistant').at(-1).turns.at(-1).text).toBe('المبلغ: 500\nالسبب: مواصلات');
+});

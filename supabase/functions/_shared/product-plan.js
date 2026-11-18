@@ -15,7 +15,11 @@ export const PLAN_STATUS = ['publish', 'draft', 'pending', 'private'];
 export const PLAN_MAX = 10;
 export const PLAN_IDS = 500;
 
-export const PLAN_SCHEMA = () => ({ type: 'array', items: obj({ op: STR(), maker: STR(), query: { type: 'array', items: STR() }, category: STR(), to_maker: STR(), brand: STR(), status: STR(), new_en: STR(), new_ar: STR(), parent: STR(), note: STR() }) });
+// the owner 18 Nov («لو بقولو للمخزن ضيف منتجات يسالني … صور و شيت ولا صور و اسكرين شوتس ولا صور لشيت و اختار يبتدي يعمل هو الخطوات»):
+// the studio step names the case (the studio's three), the products' type and which attached files are the WhatsApp screenshots
+export const STUDIO_CASES = ['sheet', 'whatsapp', 'photos'];
+export const STUDIO_CASE_LABELS = { sheet: 'شيت جاهز من المبتكر', whatsapp: 'داتا على الواتساب (صور + سكرين شوتس)', photos: 'صور وعايز شيت' };
+export const PLAN_SCHEMA = () => ({ type: 'array', items: obj({ op: STR(), maker: STR(), query: { type: 'array', items: STR() }, category: STR(), to_maker: STR(), brand: STR(), status: STR(), new_en: STR(), new_ar: STR(), parent: STR(), note: STR(), kase: STR(), type: STR(), screens: { type: 'array', items: STR() } }) });
 export const PLAN_RULE = `
 Products plan (you change nothing yourself — each step waits for the member's button): when the member asks for work on products,
 categories or makers, fill plan (up to ${PLAN_MAX} steps, in order); otherwise plan is []. Each step: op and only its fields (the rest ""):
@@ -25,8 +29,12 @@ categories or makers, fill plan (up to ${PLAN_MAX} steps, in order); otherwise p
   add = keep their categories and add this one, set = this one only, remove = take this one off;
 - move_maker: maker, query, to_maker; brand_add: maker, brand (a new brand for that maker);
 - status: maker, query, status one of ${PLAN_STATUS.join(' | ')}; trash: maker, query (to the site's trash, never deleted);
-- studio: the photos the member attached become new products — ask first (the maker, simple or variable, the category, the prices from
-  the maker or not), then one step with maker and category; the page opens the products studio with the photos.
+- studio: new products through the products studio. When the member asks to add products, first ask (with ask.options, the buttons in
+  the chat) which case they are: «${STUDIO_CASE_LABELS.sheet}» · «${STUDIO_CASE_LABELS.whatsapp}» · «${STUDIO_CASE_LABELS.photos}», then (buttons
+  again) Simple or Variable, and the maker by name; then ask them to attach the files in the chat (the sheet + the photos, or the screenshots +
+  the photos, or the photos). Once the files are in the chat, one step: maker, category (or ""), kase = sheet | whatsapp | photos, type =
+  Simple | Variable, screens = the names of the attached files that are WhatsApp screenshots (whatsapp only, else []). The page opens the
+  studio with the files in their places, reads them and shows the preview; nothing goes to the site until the member uploads it there.
 Before a plan, ask what is unclear (which maker, which category, the words for the products) in your text instead. In text, say the plan
 in short lines; never say it is done.`;
 
@@ -35,6 +43,8 @@ export function cleanPlan(v) {
   return (Array.isArray(v) ? v : []).filter(isObj).filter((s) => PLAN_OPS.includes(s.op)).slice(0, PLAN_MAX).map((s) => ({
     op: s.op, maker: line(s.maker, 80), query: (Array.isArray(s.query) ? s.query : []).map((q) => line(q, 60)).filter(Boolean).slice(0, 8), category: line(s.category, 120),
     toMaker: line(s.to_maker, 80), brand: line(s.brand, 80), status: PLAN_STATUS.includes(s.status) ? s.status : '', newEn: line(s.new_en, 80), newAr: line(s.new_ar, 80), parent: line(s.parent, 120), note: line(s.note, 200),
+    kase: STUDIO_CASES.includes(s.kase) ? s.kase : 'photos', type: s.type === 'Variable' ? 'Variable' : 'Simple',
+    screens: (Array.isArray(s.screens) ? s.screens : []).map((x) => line(x, 120)).filter(Boolean).slice(0, 8),
   }));
 }
 
@@ -72,7 +82,8 @@ export function resolvePlan(steps, data) {
       out.parent = p; made.push(s); out.label = 'قسم جديد «' + s.newEn + (s.newAr ? ' / ' + s.newAr : '') + '»' + (p ? ' تحت «' + p.name + '»' : ' رئيسي'); return out;
     }
     if (s.op === 'brand_add') { const v = findMaker(s.maker); out.maker = v ? { id: v.id, name: v.name } : null; if (!v) out.problem = 'مش لاقي المبتكر «' + s.maker + '»'; if (!s.brand) out.problem = 'محتاج اسم البراند'; out.label = 'براند جديد «' + s.brand + '» لـ ' + (v ? v.name : s.maker); return out; }
-    if (s.op === 'studio') { const v = findMaker(s.maker); out.maker = v ? { id: v.id, name: v.name } : null; out.category = findCat(s.category); out.label = 'منتجات جديدة من الصور' + (v ? ' لـ ' + v.name : '') + (out.category ? ' في «' + out.category.name + '»' : ''); return out; }
+    if (s.op === 'studio') { const v = findMaker(s.maker); out.maker = v ? { id: v.id, name: v.name } : null; out.category = findCat(s.category); out.kase = s.kase; out.type = s.type; out.screens = s.screens;
+      out.label = 'منتجات جديدة — ' + STUDIO_CASE_LABELS[s.kase] + ' · ' + s.type + (v ? ' لـ ' + v.name : '') + (out.category ? ' في «' + out.category.name + '»' : ''); return out; }
     const r = pick(s); Object.assign(out, { ids: r.ids || [], count: r.count || 0, sample: r.sample || [], maker: r.maker ? { id: r.maker.id, name: r.maker.name } : null, problem: r.problem || '' });
     const what = (out.count ? out.count + ' منتج' : 'المنتجات') + (out.maker ? ' من ' + out.maker.name : '');
     if (s.op.startsWith('category_')) {

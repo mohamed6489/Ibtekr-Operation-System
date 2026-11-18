@@ -35,13 +35,13 @@ test('assistantRequest: the cached base + the screen block, the turns as message
   assert.deepEqual(p.system[0].cache_control, { type: 'ephemeral' }); assert.match(p.system[0].text, /get_data/); assert.match(p.system[0].text, /expense_add/); assert.match(p.system[0].text, /إيداع ولا سحب/); assert.match(p.system[0].text, /حط المعلومات هنا/); // decision 41 assert.doesNotMatch(p.system[0].text, /propose_entry/); assert.match(p.system[0].text, /متعرضش أرقام تليفونات/);
   assert.equal(p.system[1].text, 'النهارده (القاهرة): 2026-11-08\nالمستخدم: منى (خدمة العملاء)\nالصفحة المفتوحة: الحسابات / expenses\nالفترة المعروضة: 2026-11-01 → 2026-11-08');
   assert.deepEqual(p.messages.map((m) => [m.role, m.content[0].text]), [['user', 'أهلًا'], ['assistant', 'أهلًا بيك'], ['user', 'افتح الأوردرات']]);
-  assert.deepEqual(p.tools.map((t) => t.name), ['get_data', 'navigate', 'filter_orders', 'set_period', 'sort_vendors', 'offer_file', 'open_form', 'plan_categories', 'plan_requests']); // decision 40 / 42: the money entries are open_form popups; + plan_categories (15 Nov)
+  assert.deepEqual(p.tools.map((t) => t.name), ['get_data', 'navigate', 'filter_orders', 'set_period', 'sort_vendors', 'offer_file', 'open_form', 'plan_categories', 'plan_requests', 'ask_choice']); // decision 40 / 42: the money entries are open_form popups; + plan_categories (15 Nov)
   assert.equal(p.tool_choice, undefined);
   assert.deepEqual(p.tools[1].input_schema.properties.page.enum, PAGES);
   const f = assistantRequest(parseAssistant({ mode: 'filter', turns: [{ role: 'user', text: 'المتأخر بتاع Art Craft' }], context: { vendors: ['Art Craft'], statuses: ['مكتمل', 'ملغي'] } }).req, CTX);
   assert.deepEqual(f.tools.map((t) => t.name), ['set_filter']); assert.deepEqual(f.tool_choice, { type: 'tool', name: 'set_filter' });
   assert.equal(f.system[1].text, 'المبتكرين المتاحين: Art Craft\nحالات الأوردر: مكتمل، ملغي');
-  assert.deepEqual(toolsOf('chat').length, 9); // + open_form (decision 36), − propose_entry (decision 40: the money entries are popups), + offer_file (decision 42), + plan_categories (15 Nov)
+  assert.deepEqual(toolsOf('chat').length, 10); // + ask_choice (18 Nov) // + open_form (decision 36), − propose_entry (decision 40: the money entries are popups), + offer_file (decision 42), + plan_categories (15 Nov)
 });
 
 test('readTurn: text, tool uses (ids kept for the results), a refusal, a cut-off without text; toolResults shapes the next user message', () => {

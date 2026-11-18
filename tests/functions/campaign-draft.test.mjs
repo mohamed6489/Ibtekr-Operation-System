@@ -103,3 +103,45 @@ test('handoff: the header assistant offers ask_agent with the member team only',
   assert.deepEqual(cleanAction('ask_agent', { agent: 'inventory', question: 'كام قطعة في المخزن؟' }, ['designer', 'inventory']).input, { agent: 'inventory', question: 'كام قطعة في المخزن؟' });
   assert.equal(cleanAction('ask_agent', { agent: 'hr', question: 'x' }, ['designer', 'inventory']), null);
 });
+
+// the owner 18 Nov («عايز المساعدين … يجيبولي الاختيارات جوا الشات يعني اوافق او ارفض»): the buyer decides the open suggestions in the chat
+test('the buyer\'s decisions: the suggestions\' ids in <ads_data>, the schema and rule, approve | reject only, numbers only, once each, 5 at most', async () => {
+  const { adsBlock, DECISIONS_MAX } = await import('../../supabase/functions/_shared/marketing.js');
+  const b = agentRequest({ agent: 'buyer', question: 'وافق على الاقتراحات' }, { model: 'm', effort: 'low', history: [], cfg: {}, data: { today: '2026-11-18', rules: {}, campaigns: [], suggestions: [{ id: 41, kind: 'stop', title: 'وقّف Black Friday', sub: 'صرف من غير أوردر' }] } });
+  assert.ok(b.output_config.format.schema.properties.decisions);
+  assert.match(b.system[0].text, /decisions/);
+  assert.doesNotMatch(b.system[0].text, /approves a suggestion on the page/);
+  assert.match(b.messages.at(-1).content[0].text, /#41 stop: وقّف Black Friday/);
+  assert.match(adsBlock({ suggestions: [{ id: 'x', kind: 'stop', title: 'A' }] }), /\nstop: A/, 'an id that is not a number is left out');
+  const d = cleanAgent({ text: 'x', decisions: [{ id: '#41', decision: 'approve' }, { id: '41', decision: 'reject' }, { id: '7', decision: 'reject' }, { id: '8a', decision: 'approve' }, { id: '9', decision: 'pause' }] }, 'buyer').decisions;
+  assert.deepEqual(d, [{ id: 41, decision: 'approve' }, { id: 7, decision: 'reject' }]);
+  assert.equal(cleanAgent({ text: 'x', decisions: Array.from({ length: 9 }, (_, i) => ({ id: String(i + 1), decision: 'approve' })) }, 'buyer').decisions.length, DECISIONS_MAX);
+  assert.deepEqual(cleanAgent({ text: 'x' }, 'buyer').decisions, []);
+  assert.equal('decisions' in cleanAgent({ text: 'x', decisions: [{ id: '1', decision: 'approve' }] }, 'designer'), false);
+});
+
+// the owner 18 Nov («كل المساعدين يتعاملوا بنفس الطريقة»): every assistant and the header's ask the same way — options = buttons, fields = a popup
+test('ask: cleanAsk keeps 2–6 short options or a known-kind field list; every assistant\'s schema has it; ask_choice is a header tool', async () => {
+  const A = await import('../../supabase/functions/_shared/ai-assistant.js');
+  const M = await import('../../supabase/functions/_shared/marketing.js');
+  assert.deepEqual(A.cleanAsk({ question: 'الحالة<b>', options: ['أ', 'ب', 'ب', ''], fields: [] }), { question: 'الحالة b', options: ['أ', 'ب'], fields: [] });
+  assert.equal(A.cleanAsk({ options: ['أ'] }), null);
+  assert.deepEqual(A.cleanAsk({ question: 'q', options: [], fields: [{ label: 'المبلغ', kind: 'money' }] }).fields, [{ label: 'المبلغ', kind: 'text' }]);
+  assert.equal(A.cleanAsk({ options: Array.from({ length: 9 }, (_, i) => 'o' + i) }).options.length, 6);
+  for (const agent of ['stock', 'buyer', 'designer', 'dev', 'cs']) {
+    const p = M.agentRequest({ agent, question: 'x', files: [] }, { model: 'm', effort: 'low', history: [] });
+    assert.ok(p.output_config.format.schema.properties.ask, agent + ' has ask');
+    assert.ok(p.system.some((b) => /Asking the member/.test(b.text)), agent + ' has the rule');
+  }
+  assert.ok(A.CLIENT_TOOLS.includes('ask_choice'));
+  assert.deepEqual(A.cleanAction('ask_choice', { question: 'q', options: ['أ', 'ب'] }).input.options, ['أ', 'ب']);
+  assert.equal(M.cleanAgent({ text: 't', ask: { options: ['أ', 'ب'] } }, 'stock', []).ask.options.length, 2);
+});
+
+test('the stock plan\'s studio step keeps the case, the type and the screenshots', async () => {
+  const P = await import('../../supabase/functions/_shared/product-plan.js');
+  const [s] = P.cleanPlan([{ op: 'studio', maker: 'W', kase: 'whatsapp', type: 'Variable', screens: ['s1.png'] }]);
+  assert.deepEqual([s.kase, s.type, s.screens], ['whatsapp', 'Variable', ['s1.png']]);
+  const [d] = P.cleanPlan([{ op: 'studio', kase: 'x', type: 'y' }]);
+  assert.deepEqual([d.kase, d.type, d.screens], ['photos', 'Simple', []]);
+});

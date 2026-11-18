@@ -826,7 +826,7 @@ test('ش45 — the media buyer\'s «اقفل الحملة»: a confirm card unde
   // «لأ» drops the next one
   await input.fill('افتح حملة اللمبات'); await input.press('Enter');
   await pg(page).locator('[data-mk-camp-act="resume:' + CB + '"] [data-mk-camp-no]').click();
-  await expect(pg(page).locator('[data-mk-camp-done="no"]')).toContainText('اتلغى');
+  await expect(pg(page).locator('[data-mk-camp-done="no"]')).toContainText('اترفض');
   expect(mock.mkt.campaignSets.length).toBe(1);
 });
 
@@ -979,3 +979,66 @@ test('the owner 17 Nov — the warehouse assistant\'s plan: «راجع الخط�
   await expect(md.locator('[data-plan-step="0"] [data-plan-result="ok"]')).toContainText('اتعمل القسم');
   await expect(md.locator('[data-plan-step="1"] [data-plan-result]')).toHaveCount(0); // the next step waits for its own button
 });
+
+// the owner 18 Nov («عايز المساعدين … يجيبولي الاختيارات جوا الشات يعني اوافق او ارفض»): the buyer's answer carries the open suggestions to
+// decide — a card each under the answer with «موافق» / «رفض» (mkt-ads decide); the switch off says so on the card; no trip to another page
+test('the owner 18 Nov — the media buyer\'s suggestions decided in the chat: «موافق» approves #1, «رفض» rejects #4; the switch off is said on the card', async ({ page }) => {
+  await start(page);
+  mock.mkt.rules.live = false;
+  mock.mkt.agentAnswer = () => ({ text: 'أنصح نوقف «Lamps — Broad» ونرفض اقتراح التتبع — الكروت تحت.', request: { title: '', details: '' }, campaign_action: { campaign_id: '', action: '' },
+    decisions: [{ id: '1', decision: 'approve' }, { id: '#4', decision: 'reject' }, { id: '999', decision: 'approve' }] });
+  await openAi(page, ADMIN, 'الميديا باير');
+  const input = pg(page).locator('#mk-ask');
+  await input.fill('إيه رأيك في الاقتراحات؟'); await input.press('Enter');
+  const c1 = pg(page).locator('[data-mk-dec="1"]'); const c4 = pg(page).locator('[data-mk-dec="4"]');
+  await expect(c1).toContainText('وقّف «Lamps — Broad»'); await expect(c1).toContainText('توافق عليه');
+  await expect(c4).toContainText('ترفضه');
+  await expect(pg(page).locator('[data-mk-dec-gone="999"]')).toContainText('مابقاش مستني');
+  await expect(c1.locator('[data-mk-live-off]')).toContainText('مفتاح التنفيذ مقفول');
+  expect(mock.mkt.suggestions.filter((s) => [1, 4].includes(s.id) && s.status !== 'pending').length, 'nothing decided from the chat by itself').toBe(0);
+  await c1.locator('[data-mk-dec-yes]').click();
+  await expect(pg(page).locator('[data-mk-dec-done="approve"]')).toBeVisible();
+  expect(mock.mkt.suggestions.find((s) => s.id === 1).status).not.toBe('pending');
+  await c4.locator('[data-mk-dec-no]').click();
+  await expect(pg(page).locator('[data-mk-dec-done="reject"]')).toContainText('اترفض');
+  expect(mock.mkt.suggestions.find((s) => s.id === 4).status).toBe('rejected');
+});
+
+// the owner 18 Nov («لو بقولو للمخزن ضيف منتجات يسالني بناء على السيستم … و اختار يبتدي يعمل هو الخطوات و يديني معاينة» و«كل المساعدين يتعاملوا
+// بنفس الطريقة … لو محتاجين بيانات معينة يديني بوباب املاه و لو عايزني اختار حاجة يجيبها جوه الشات»): the choices are buttons in the chat,
+// the data a popup, and the files go into a studio batch the assistant starts by itself — the sheet preview opens
+test('the owner 18 Nov — «ضيف منتجات»: the case as buttons in the chat, the maker in a popup, then the photos → the studio batch starts with them', async ({ page }) => {
+  await start(page);
+  mock.mkt.planData = { vendors: [{ id: 'v-wood', name: 'Woodish' }], products: [], categories: [] };
+  mock.mkt.agentAnswer = (req) => {
+    const q = req.question; const none = { title: '', details: '' };
+    if (/ضيف منتجات/.test(q)) return { text: 'تمام — المنتجات جاية إزاي؟', request: none, ask: { question: 'الحالة', options: ['شيت جاهز من المبتكر', 'داتا على الواتساب (صور + سكرين شوتس)', 'صور وعايز شيت'], fields: [] } };
+    if (q === 'صور وعايز شيت') return { text: 'محتاج بيانات المبتكر', request: none, ask: { question: 'املا البيانات', options: [], fields: [{ label: 'اسم المبتكر', kind: 'text' }, { label: 'عدد المنتجات', kind: 'number' }] } };
+    if (/اسم المبتكر: Woodish/.test(q)) return { text: 'ابعت الصور في الشات', request: none };
+    return { text: 'هفتح الاستوديو بالصور', request: none, plan: [{ op: 'studio', maker: 'Woodish', query: [], category: '', to_maker: '', brand: '', status: '', new_en: '', new_ar: '', parent: '', note: '', kase: 'photos', type: 'Simple', screens: [] }] };
+  };
+  await openAi(page, ADMIN, 'المخزن الذكي');
+  const P = pg(page);
+  await P.locator('#mk-ask').fill('ضيف منتجات'); await P.locator('#mk-ask').press('Enter');
+  await expect(P.locator('[data-ib-ask] [data-ib-ask-opt]')).toHaveCount(3);
+  await P.locator('[data-ib-ask-opt="صور وعايز شيت"]').click();
+  await expect.poll(() => mock.mkt.calls.filter((x) => x.action === 'agent').map((x) => x.question)).toEqual(['ضيف منتجات', 'صور وعايز شيت']);
+  await expect(P.locator('[data-ib-ask-opt="صور وعايز شيت"]')).toBeDisabled(); // an older answer's buttons ask no more
+  await P.locator('[data-ib-ask-form]').click();
+  const md = page.locator('[data-ib-ask-popup]');
+  await md.locator('#ib-ask-0').fill('Woodish'); await md.locator('#ib-ask-1').fill('3');
+  await md.locator('[data-ib-ask-send]').click();
+  await expect.poll(() => mock.mkt.calls.filter((x) => x.action === 'agent').slice(-1)[0].question).toBe('اسم المبتكر: Woodish\nعدد المنتجات: 3');
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const chooser = page.waitForEvent('filechooser'); await P.locator('[data-mk-attach]').click();
+  await (await chooser).setFiles({ name: 'chair.png', mimeType: 'image/png', buffer: png });
+  await expect(P.locator('[data-mk-file="chair.png"] img')).toBeVisible();
+  await P.locator('#mk-ask').fill('دي الصور'); await P.locator('#mk-ask').press('Enter');
+  await P.locator('[data-mk-plan-open]').click();
+  const plan = page.locator('.modal[role=dialog]', { hasText: 'خطة المساعد' });
+  await expect(plan.locator('[data-plan-step="0"]')).toContainText('صور وعايز شيت · Simple لـ Woodish');
+  await plan.locator('[data-plan-run="0"]').click();
+  await expect(page).toHaveURL(/#products-flow-[0-9a-f-]+-1$/); // no chooser: the batch started with the case picked in the chat
+  await expect(page.locator('.modal', { hasText: 'معاينة الشيت' })).toBeVisible(); // the photo went in and the preview opened
+});
+

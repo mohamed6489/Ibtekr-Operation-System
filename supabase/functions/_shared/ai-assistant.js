@@ -29,7 +29,7 @@ export const CLOSED_STATUSES = ['مكتمل', 'ملغي', 'استرجاع', 'ف�
 export const CONFIRMS = ['مؤكد بعربون', 'مؤكد بدون عربون', 'غير مؤكد', 'في انتظار الرد'];
 export const DELIVERY = ['late', 'risk', 'ok'];
 export const DATA_KINDS = ['summary', 'orders', 'vendors', 'customers', 'tickets', 'tasks', 'expenses', 'sales', 'vendor', 'files', 'inventory', 'hr'];
-export const CLIENT_TOOLS = ['navigate', 'filter_orders', 'set_period', 'sort_vendors', 'propose_entry', 'set_filter', 'open_form', 'offer_file', 'plan_categories', 'ask_agent', 'open_campaign', 'plan_requests'];
+export const CLIENT_TOOLS = ['navigate', 'filter_orders', 'set_period', 'sort_vendors', 'propose_entry', 'set_filter', 'open_form', 'offer_file', 'plan_categories', 'ask_agent', 'open_campaign', 'plan_requests', 'ask_choice'];
 // the owner 15 Nov (2026-11-15-assistant-categories.md — «اعملي القسم كذا انجليزي و عربي و جواه قسم فرعي كذا و كذا … بس يوريني قبل ما يطبق»):
 // plan_categories hands the page a tree of new product categories as an outline (level 1 = a main category, a deeper level sits under the
 // nearest shallower one before it); the page shows it for review and the member's own «نشر» creates them, parents first. Nothing is
@@ -161,6 +161,22 @@ export const REQ_PLAN_MAX = 15;
 CLIENT_TOOL_DEFS.push({ name: 'plan_requests',
   description: 'وزّع مجموعة مهام على الفريق كطلبات (طلب لكل مهمة): role = اسم الدور زي ما هو في <team> بالظبط، member = اسم عضو من نفس الدور لو المهمة لحد معيّن وإلا ""، priority = urgent | high | normal | low، title قصير و details فيها المطلوب بالظبط والميعاد. قسّم المهمة الكبيرة لأجزاء كل جزء لدوره، ووزّع على الأعضاء بالعدل حسب أدوارهم. مفيش حاجة بتتبعت — العضو بيراجع ويبعت كل طلب بنفسه.',
   input_schema: { type: 'object', properties: { items: { type: 'array', items: { type: 'object', properties: { title: S('عنوان الطلب'), details: S('التفاصيل والميعاد'), role: S('الدور'), member: S('العضو أو فاضي'), priority: S('الأولوية', { enum: ['urgent', 'high', 'normal', 'low'] }) }, required: ['title', 'role'] } } }, required: ['items'] } });
+// the owner 18 Nov («كل المساعدين يتعاملوا بنفس الطريقة … لو عايزني اختار حاجة يجيبها جوه الشات … لو محتاجين بيانات معينة يديني بوباب
+// املاه»): the same ask for the header's assistant and every assistant's chat — options = buttons under the answer (the pressed one is the
+// member's next message), fields = a link to a popup he fills (his answers are the next message). Nothing runs from it.
+export const ASK_OPTIONS_MAX = 6; export const ASK_FIELDS_MAX = 8; export const ASK_KINDS = ['text', 'long', 'number', 'date'];
+/** ask → { question, options, fields } | null (options deduped and short; fields with a known kind; at least 2 options or 1 field). */
+export function cleanAsk(v) {
+  const a = isObj(v) ? v : {}; const seen = new Set();
+  const options = (Array.isArray(a.options) ? a.options : []).map((o) => str(String(o ?? '').replace(/[<>]/g, ' '), 60)).filter((o) => o && !seen.has(o) && seen.add(o)).slice(0, ASK_OPTIONS_MAX);
+  const fields = (Array.isArray(a.fields) ? a.fields : []).filter(isObj).map((f) => ({ label: str(String(f.label ?? '').replace(/[<>]/g, ' '), 60), kind: ASK_KINDS.includes(f.kind) ? f.kind : 'text' })).filter((f) => f.label).slice(0, ASK_FIELDS_MAX);
+  if (options.length < 2 && !fields.length) return null;
+  return { question: str(String(a.question ?? '').replace(/[<>]/g, ' '), 200), options: options.length >= 2 ? options : [], fields };
+}
+CLIENT_TOOL_DEFS.push({ name: 'ask_choice',
+  description: 'اسأل المستخدم جوه الشات: options = اختيارات قصيرة (من 2 لـ ' + ASK_OPTIONS_MAX + ') بتظهر زراير تحت ردك واللي بيدوسه بيرجعلك رسالته الجاية — استخدمها بدل ما تكتب الاختيارات ليه يكتبها، ومتبعتوش لصفحة يختار منها. '
+    + 'fields = خانات (لحد ' + ASK_FIELDS_MAX + ': label بالعربي، kind من ' + ASK_KINDS.join(' / ') + ') لما تحتاج كذا معلومة مالهاش بوب أب في open_form — بيظهر لينك «املا البيانات» بيفتح بوب أب بالخانات دي وإجاباته بترجعلك رسالته الجاية. بعدها استنى رده.',
+  input_schema: { type: 'object', properties: { question: S('السؤال باختصار'), options: { type: 'array', items: S('اختيار') }, fields: { type: 'array', items: { type: 'object', properties: { label: S('الخانة'), kind: S('النوع', { enum: ASK_KINDS }) }, required: ['label'] } } }, required: ['question'] } });
 export const FILTER_TOOL = {
   name: 'set_filter',
   description: 'حوّل وصف المستخدم إلى شروط فلتر للأوردرات. الحقول: id رقم الأوردر، name اسم العميل، phone، st حالة الأوردر، cf حالة التأكيد (مؤكد بعربون/مؤكد بدون عربون/غير مؤكد/في انتظار الرد)، deliv حالة التسليم (متأخر/قابل للتأخير/غير متأخر)، vendor المبتكر، tot إجمالي القيمة، dep العربون، age عمر الأوردر بالأيام، date تاريخ الأوردر، note التعليق. العمليات: has يحتوي، not لا يحتوي، eq يساوي، ne لا يساوي، empty فاضي، gt أكبر من، lt أقل من، before قبل، after بعد. op = and أو or بين الشروط.',
@@ -203,6 +219,7 @@ const CHAT_BASE = `أنت «مساعد AI» جوه نظام إبتكر للأو�
 - الإجراءات (إضافة مبتكر/عضو/عميل، طلب للفريق، طلب إجازة أو سُلفة أو شغل عن بُعد، مهمة، تحديث حالة أو تأكيد أوردر) بـ open_form على طول من غير ما تسأل على البيانات: حط القيم اللي المستخدم قالها بس (لو قال حاجة) — متخترعش إيميل ولا تليفون ولا مبلغ — وردّك سطر واحد زي «حط المعلومات هنا» (لينك فتح البوب أب بيظهر تحت ردك والمستخدم بيملا الباقي ويضغط زراره)؛ متقولش إنه اتسجّل. تحديث الأوردر لازم رقمه، فلو ماقالوش اسأله عليه بس.
 - أقسام المنتجات الجديدة (قسم رئيسي وتحته أقسام فرعية بأي مستويات، أو أقسام فرعية تحت قسم موجود): استخدم plan_categories بالشجرة زي ما وصفها بالظبط — كل قسم بالإنجليزي والعربي (لو قال لغة واحدة ترجم التانية) — وردّك سطر واحد زي «راجع الأقسام من هنا واضغط نشر» (لينك المراجعة بيظهر تحت ردك وهو اللي بيعدّل وينشر). متسألش على تفاصيل إلا لو ماقالش اسم أي قسم، ومتقولش إنها اتعملت.
 - إنت المدير: لو الأداة ask_agent موجودة وسؤاله برمجة أو سرعة الموقع أو تحديثاته أو مشكلة / خطأ في السيستم أو طلب تطوير → ask_agent للمبرمج (dev)، تصميم أو أفكار محتوى → الديزاينر (designer)، إعلانات ممولة أو فتح / قفل حملة → الميديا باير (buyer)، وأي مساعد تاني في قايمة ask_agent على حسب اختصاصه (المخزن، خدمة العملاء، المبتكرين، الحسابات، الموارد البشرية…) — بسؤاله كامل، وردّك سطر واحد زي «ده شغل المصمم — هبعتك ليه والسؤال مكتوب، دوس إرسال» (الصفحة بتفتحه لوحدها). متجاوبش إنت على سؤال تبع حد فيهم، ومتحوّلش لمساعد مش في القايمة.
+- لو محتاج المستخدم يختار (حالة، نوع، أيوه / لأ، أنهي واحد…) استخدم ask_choice بالاختيارات — زراير جوه الشات — ولو محتاج منه كذا معلومة مالهاش بوب أب في open_form استخدم ask_choice بـ fields (بوب أب يملاه). متكتبش الاختيارات ليه يكتبها ومتبعتوش لصفحة يختار منها.
 - لو عايز يعمل محتوى (بوست، كاروسيل، ريل، كامبين لمنتج أو عرض) والأداة open_campaign موجودة: اسأله في رسالة واحدة على الناقص بس (عن إيه، الهدف، الأنواع وعددها)، ولما تعرف استخدم open_campaign وقوله «فتحتلك الكامبين متملّية — راجعها واضغط توليد».
 - مافيش حذف ولا إلغاء أوردر ولا استرجاع ولا فشل ولا دفع مرتبات ولا نشر على الموقع أو ميتا من عندك (الأقسام بـ plan_categories المستخدم نفسه بينشرها من المراجعة): افتحله الصفحة بـ navigate وقوله يعملها بإيده من هناك.
 - رد قصير (سطر لسطرين غالبًا، لحد ${ANSWER_MAX} حرف)، بالأرقام وحدتها (ج.م) — ملخّص بس: البيانات اللي جبتها بـ get_data بتظهر للمستخدم كاملة في تقرير «تفاصيل» تحت ردّك، فمتعدّش الصفوف واحد واحد.`;
@@ -314,6 +331,7 @@ export function cleanAction(name, input, teamIds) {
       if (!items.length) return null;
       const under = nm(i.under); return { name, input: under ? { under, items } : { items } };
     }
+    case 'ask_choice': { const a = cleanAsk(i); return a ? { name, input: a } : null; }
     case 'ask_agent': { const a = agentAsk(i, Array.isArray(teamIds) && teamIds.length ? teamIds : undefined); return a ? { name, input: a } : null; }
     case 'open_campaign': { const d = campaignDraft(i); return d ? { name, input: d } : null; }
     case 'set_filter': {

@@ -147,3 +147,23 @@ test('the stock plan\'s studio step keeps the case, the type and the screenshots
   assert.match(P.PLAN_RULE, /do NOT ask the case/);
   assert.equal(P.resolvePlan(P.cleanPlan([{ op: 'studio' }]), { vendors: [], products: [], categories: [] })[0].label, 'منتجات جديدة');
 });
+
+// agents-brain T5 (decision 4): «هات 5 فيديوهات» — the buyer offers five choices from the trends and the competitors, then the chosen one
+// comes back as a campaign with one video and its scenes in notes (the media's «تعليمات» the scenes task reads); «ليه باع» / «آخر
+// التحديثات» are in its rules; the page opens the campaign with the notes in the video's instructions
+test('agents-brain T5: the buyer\'s video campaign — scenes in notes, the same on the page; the buyer\'s schema, rules and <ideas>', async () => {
+  const d = campaignDraft({ goal: 'منتج جديد', idea: 'ريل لسجاد مكرمية', video: 1, dur: 20, notes: 'مشهد 1 (5ث): إيد بتعقد الخيط — «مكرمية بإيد»\n<b>مشهد 2</b>' });
+  assert.equal(d.video, 1); assert.match(d.notes, /^مشهد 1 \(5ث\)/); assert.doesNotMatch(d.notes, /[<>]/);
+  assert.equal(campaignDraft({ idea: 'x', video: 1, notes: 'y'.repeat(900) }).notes.length, 400);
+  assert.equal('notes' in campaignDraft({ idea: 'x', post: 1 }), false);
+  const w = W.draftOf(d); assert.equal(w.mediaTab, 'video'); assert.equal(w.media.video.notes, d.notes);
+  // the buyer's answer keeps the campaign; the schema asks for it; the rules carry the three skills; the ideas reach the prompt
+  const out = cleanAgent({ text: 'تمام', campaign: { goal: 'منتج جديد', idea: 'ريل', post: 0, carousel: 0, slides: 0, video: 1, dur: 15, notes: 'مشهد 1' } }, 'buyer', []);
+  assert.deepEqual(out.campaign, { goal: 'منتج جديد', idea: 'ريل', post: 0, carousel: 0, video: 1, dur: 15, notes: 'مشهد 1' });
+  const r = agentRequest({ agent: 'buyer', question: 'هات 5 فيديوهات', files: [] }, { model: 'm', effort: 'low', history: [], cfg: {}, data: { today: '2026-11-18', rules: {}, campaigns: [], suggestions: [], ideas: { trends: [{ title: 'Macrame wall art', platform: 'tiktok', kind: 'video', url: 'https://www.tiktok.com/@x/video/1' }], competitors: [{ name: 'Handmade Co', note: 'ريلز كل يوم' }] } } });
+  assert.ok(r.output_config.format.schema.properties.campaign);
+  const sys = r.system.map((x) => x.text).join('\n');
+  assert.match(sys, /هات 5 فيديوهات/); assert.match(sys, /هات آخر التحديثات/); assert.match(sys, /ليه الإعلان ده باع/);
+  const msg = r.messages.at(-1).content.map((x) => x.text || '').join('');
+  assert.match(msg, /<ideas>[\s\S]*Macrame wall art[\s\S]*Handmade Co[\s\S]*<\/ideas>/);
+});

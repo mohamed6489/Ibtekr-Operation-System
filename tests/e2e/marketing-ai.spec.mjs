@@ -1070,3 +1070,31 @@ test('decision 20 — the assistant hands over: «ضيف منتجات» → its 
   await expect(page.locator('[data-fl-download]')).toBeVisible();
 });
 
+
+// agents-brain T5 (decision 4) — the buyer's «هات 5 فيديوهات»: five choices in the chat (from the trends and the competitors), the pick goes
+// back as the member's next message, and the answer carries a campaign with one video and its scenes in the video's instructions —
+// «افتح الكامبين» opens «كامبين جديدة» filled; nothing saved or generated. The chips «هات آخر تحديثات ميتا» / «ليه أحسن إعلان باع؟» are there
+test('agents-brain T5 — the buyer\'s five videos: choices in the chat, then a campaign with the scenes ready, nothing generated', async ({ page }) => {
+  await start(page);
+  const picks = ['مكرمية على الحيطة (تيك توك)', 'تغليف هدية بإيد (إنستجرام)', 'قبل وبعد ركن البيت (المنافس)', 'صنعة في 15 ثانية (تيك توك)', 'هدية عيد ميلاد (إنستجرام)'];
+  mock.mkt.agentAnswer = (req) => (/هات 5 فيديوهات/.test(req.question)
+    ? { text: 'دول 5 أفكار من التريندات والمنافسين — اختار واحدة:', request: { title: '', details: '' }, ask: { question: 'أنهي فيديو نعمله؟', options: picks, fields: [] } }
+    : /مكرمية على الحيطة/.test(req.question)
+      ? { text: 'تمام — جهزتلك الكامبين بريل 20 ثانية والمشاهد مكتوبة. هتفتح متملّية، راجعها واضغط توليد.', request: { title: '', details: '' },
+        campaign: { goal: 'منتج جديد', idea: 'ريل لتعليقة مكرمية على الحيطة — من الخيط للحيطة في 20 ثانية', post: 0, carousel: 0, slides: 0, video: 1, dur: 20, notes: 'مشهد 1 (5ث): إيد بتعقد الخيط — «كل عقدة بإيد»\nمشهد 2 (8ث): التعليقة بتكبر — «من غير مكن»\nمشهد 3 (7ث): على الحيطة في ركن دافي — «إبتكر»' } }
+      : { text: 'تمام', request: { title: '', details: '' } });
+  await openAi(page, ADMIN, 'الميديا باير');
+  await expect(pg(page)).toContainText('هات آخر تحديثات ميتا');
+  await expect(pg(page)).toContainText('ليه أحسن إعلان باع؟');
+  const input = pg(page).locator('#mk-ask');
+  await input.fill('هات 5 فيديوهات'); await input.press('Enter');
+  await expect(pg(page).locator('[data-ib-ask-opt]')).toHaveCount(5);
+  await pg(page).locator('[data-ib-ask-opt="مكرمية على الحيطة (تيك توك)"]').click();
+  const open = pg(page).locator('[data-mk-draft-from]');
+  await expect(open).toHaveCount(1);
+  await open.click();
+  await expect(pg(page).locator('textarea').first()).toHaveValue(/تعليقة مكرمية على الحيطة/);
+  await expect.poll(() => pg(page).locator('textarea, input').evaluateAll((els) => els.some((e) => /مشهد 1 \(5ث\)/.test(e.value || '')))).toBe(true); // the video's «تعليمات»
+  expect(mock.mkt.campaigns.length, 'nothing saved').toBe(0);
+  expect(mock.mkt.calls.filter((c) => ['marketing', 'campaign', 'campaign_edit', 'video_clip'].includes(c.action)).length, 'nothing generated').toBe(0);
+});

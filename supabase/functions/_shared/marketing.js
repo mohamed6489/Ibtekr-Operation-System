@@ -403,7 +403,18 @@ export function adsBlock(data) {
     + 'Last 7 days per campaign (Meta id | name | status | spend | meta purchases | woo orders | woo sales | MER | cost/order | daily budget):\n' + (camps.length ? camps.join('\n') : '(no campaign numbers yet — the sync has not run)') + '\n'
     + 'Open suggestions waiting for the admin:\n' + (sugg.length ? sugg.join('\n') : '(none)') + '\n'
     // the owner 17 Nov: the last Meta Pixel check (site_checks 'pixel') — data, the issues with their fixes
-    + 'The last Meta Pixel check:\n' + (pixelText(d.pixel).replace(/[<>]/g, ' ') || '(never checked — the member presses «افحص البيكسل» under the chat)') + '\n</ads_data>';
+    + 'The last Meta Pixel check:\n' + (pixelText(d.pixel).replace(/[<>]/g, ' ') || '(never checked — the member presses «افحص البيكسل» under the chat)') + '\n</ads_data>'
+    + ideasBlock(d.ideas);
+}
+/**
+ * agents-brain T5: what «هات 5 فيديوهات» picks from — the last trends (title, platform, kind, link) and the competitors (name, note) the
+ * team keeps (mkt_trends / mkt_competitors, read on the server). Names, titles and links only — data, not instructions.
+ */
+export function ideasBlock(ideas) {
+  const I = isObj(ideas) ? ideas : null; if (!I) return '';
+  const tr = (Array.isArray(I.trends) ? I.trends : []).filter(isObj).slice(0, 20).map((t) => '- [' + line(t.platform || t.source, 20) + ' · ' + (t.kind === 'video' ? 'video' : 'post') + '] ' + line(t.title, 160) + (t.summary ? ' — ' + line(t.summary, 200) : '') + (/^https:\/\//.test(String(t.url || '')) ? ' (' + line(t.url, 300) + ')' : ''));
+  const cp = (Array.isArray(I.competitors) ? I.competitors : []).filter(isObj).slice(0, 20).map((c) => '- ' + line(c.name, 80) + (c.keyword ? ' (' + line(c.keyword, 80) + ')' : '') + (c.note ? ' — ' + line(c.note, 200) : ''));
+  return '\n<ideas>\nThe last trends the team collected:\n' + (tr.length ? tr.join('\n') : '(none yet — «حدّث التريندات» in the designer\'s tab)') + '\nThe competitors the team follows:\n' + (cp.length ? cp.join('\n') : '(none yet)') + '\n</ideas>';
 }
 export function buyerRequest(req, ctx) {
   const block = adsBlock(ctx.data);
@@ -466,7 +477,15 @@ export const AGENT_REQ_TITLE_MAX = 80;
 export const AGENT_REQ_DETAILS_MAX = 1500;
 const REQ_RULE = `
 - When the ask is a real job for a person (a design to make, a page or a feature to build, a campaign to set up and run, anything you cannot finish inside the chat), or the member wants to hand it to the team, suggest «تقديم طلب» in your text and fill request: title (Egyptian Arabic, at most ${AGENT_REQ_TITLE_MAX} characters, what is wanted) and details (Egyptian Arabic, at most ${AGENT_REQ_DETAILS_MAX} characters: the brief the human needs — sizes, products, deadline, links, steps). The member reviews it and sends it themself. Otherwise request.title and request.details are "".`;
-const AGENT_BASE = { buyer: BUYER_AGENT_BASE + REQ_RULE + CAMPAIGN_RULE, designer: DESIGNER_BASE + REQ_RULE + DRAFT_RULE, dev: DEV_BASE + REQ_RULE };
+// agents-brain T5 (decision 4 + the owner's answer 17 Nov «تحديثات ميتا لما يطلبها»): the buyer analyses why an ad sold, brings Meta's
+// latest ads updates when asked (the web research of agent-need.js — no periodic search), and «هات 5 فيديوهات»: five ideas from the
+// trends and the competitors (<ideas>) offered as choices in the chat, then the chosen one as a campaign with one video and its scenes
+// written in campaign.notes («توليد المشاهد» follows them) — the page opens it filled; nothing generated or spent until the member presses
+export const BUYER_T5_RULE = `
+- «ليه الإعلان ده باع» / analyse an ad or a campaign: use its numbers from <ads_data> (and ask for the live numbers by ad through need.ads when the question is about one ad, its audience or its placements): the hook and the first seconds, the creative and the offer, the audience, the spend against Woo orders, the frequency and the cost per order — then what to repeat and what to change. Say plainly when the numbers are too few to judge.
+- «هات آخر التحديثات» / Meta's latest changes: only when the member asks — fill need.research with Meta's ads news of the last weeks (official sources first: Meta for Business news, the Meta Ads Help Center, the Marketing API changelog), then summarise what changed and what it means for us, newest first, with the date of each.
+- «هات 5 فيديوهات» / video ideas: take five from <ideas> (the trends and the competitors — mix both, the ones that fit a handmade marketplace) and fill ask with the question and five options (a short Arabic title each, its source in brackets). When the member picks one, fill campaign: goal, idea (what the video shows with our products, inspired — not copied), video 1, post 0, carousel 0, dur (15–30), and notes = the scenes in Egyptian Arabic, one line each «مشهد N (ث): اللي بيظهر — الكلام على الشاشة — الفويس» (3–6 scenes, ≤ 400 characters); say the campaign opens filled in «التسويق» for review and nothing is generated until they press. Otherwise campaign.idea is "" and the counts are 0.`;
+const AGENT_BASE = { buyer: BUYER_AGENT_BASE + REQ_RULE + CAMPAIGN_RULE + BUYER_T5_RULE, designer: DESIGNER_BASE + REQ_RULE + DRAFT_RULE, dev: DEV_BASE + REQ_RULE };
 export { REQ_RULE }; // 0120: every other assistant ends with the same «تقديم طلب» rule
 // the owner 17 Nov («لما اسأل علي حاجة مش بتاعت اللي بكلمه يقوله هبعتك للمصمم… و يبعتني ليه بالبرومت و ادوس علي ارسال … و كل واحد يرد و يجاوب
 // علي صلاحياته بس»): the team the member sees (the server's list, never the page's) — an ask that is another one's goes back as a handoff
@@ -562,7 +581,7 @@ export function agentRequest(req, ctx) {
   // the owner 17 Nov: the warehouse assistant plans product work (product-plan.js) — the server finds the names, the page asks per step
   if (req.agent === 'stock') { system.push({ type: 'text', text: PLAN_RULE.trim() + (ctx.catalog ? '\n' + String(ctx.catalog) : '') }); hand.plan = PLAN_SCHEMA(); }
   const schema = req.agent === 'designer' ? obj({ text: STR(), image_prompt: STR(), request: REQ_SCHEMA(), campaign: DRAFT_SCHEMA(), ...hand })
-    : req.agent === 'buyer' ? obj({ text: STR(), request: REQ_SCHEMA(), campaign_action: obj({ campaign_id: STR(), action: STR() }), decisions: { type: 'array', items: obj({ id: STR(), decision: STR() }) }, ...hand }) : obj({ text: STR(), request: REQ_SCHEMA(), ...hand });
+    : req.agent === 'buyer' ? obj({ text: STR(), request: REQ_SCHEMA(), campaign: DRAFT_SCHEMA(), campaign_action: obj({ campaign_id: STR(), action: STR() }), decisions: { type: 'array', items: obj({ id: STR(), decision: STR() }) }, ...hand }) : obj({ text: STR(), request: REQ_SCHEMA(), ...hand });
   return { model: ctx.model, max_tokens: MAX_TOKENS, ...FALLBACK, system, messages, output_config: { effort: ctx.effort, format: { type: 'json_schema', schema } } };
 }
 /**
@@ -592,6 +611,7 @@ export function cleanAgent(json, agent, teamIds) {
   const ho = isObj(src.handoff) ? src.handoff : {}; const hq = paras(ho.question, HANDOFF_MAX);
   out.handoff = typeof ho.agent === 'string' && ho.agent !== agent && (Array.isArray(teamIds) ? teamIds : []).includes(ho.agent) && hq ? { agent: ho.agent, question: hq } : null;
   if (agent === 'designer') { out.imagePrompt = imgLine(src.image_prompt, AGENT_PROMPT_MAX); out.campaign = campaignDraft(src.campaign); } // ش45 decision 4: the filled campaign
+  if (agent === 'buyer') out.campaign = campaignDraft(src.campaign); // agents-brain T5: «هات 5 فيديوهات» → the chosen one as a campaign
   if (agent === 'buyer') { const ca = isObj(src.campaign_action) ? src.campaign_action : {}; const cid = String(ca.campaign_id ?? '').trim(); out.campaignAction = /^[0-9]{1,30}$/.test(cid) && CAMPAIGN_ACTIONS.includes(ca.action) ? { campaignId: cid, action: ca.action } : null; // ش45 decision 5
     const seen = new Set(); out.decisions = (Array.isArray(src.decisions) ? src.decisions : []).filter(isObj).map((x) => ({ id: String(x.id ?? '').replace(/^#/, '').trim(), decision: x.decision }))
       .filter((x) => /^[0-9]{1,12}$/.test(x.id) && DECISIONS.includes(x.decision) && !seen.has(x.id) && seen.add(x.id)).slice(0, DECISIONS_MAX).map((x) => ({ id: Number(x.id), decision: x.decision })); }

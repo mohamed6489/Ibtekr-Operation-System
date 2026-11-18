@@ -1329,6 +1329,8 @@
   const crTip = () => U.InlineNote({ children: 'العائد الحقيقي لكل إعلان (من ووكومرس) محتاج utm_content={{ad.id}} في لينكات الإعلانات على ميتا — لحد كده العائد هنا بتاع ميتا، والعائد الحقيقي في «الحملات».' }); // inside the card: a loose note floats to the top of the reports page
   // the v6 prototype's «اعمل نسخ زيه» (a new campaign on the same idea) / «اطلب نسخة جديدة» (a request to the designer — the tired ones)
   function likeIt(idea) { if (!can().create) return; Object.assign(camp, blankCamp()); camp.w.idea = String(idea || '').slice(0, 500); go('marketing-campaign-1'); }
+  // agents-brain T5 (decision 4): «ليه الإعلان ده باع؟» — the buyer's chat with the question written (the member presses «ابعت»)
+  const crWhy = (x) => ({ label: 'ليه الإعلان ده باع؟', icon: 'chart', run: () => { if (!askAgent('buyer', 'حلل الإعلان «' + x.name + '»' + (x.campaign ? ' في حملة «' + x.campaign + '»' : '') + ' (رقمه ' + x.id + '): ليه باع أو مباعش بأرقامه وصورته، وإيه اللي نكرره وإيه اللي نغيّره؟')) K.toast('الميديا باير مش متاح لدورك', 'error'); } });
   const crActs = (name, tired) => (can().create ? [{ label: 'اعمل نسخ زيه', icon: 'sparkle', run: () => likeIt(name) }, tired && canAsk() ? { label: 'اطلب نسخة جديدة', icon: 'plus', run: () => reqForm('designer', { title: 'نسخة جديدة من «' + name + '»', details: 'الناس شافوا الإعلان كتير — نفس الفكرة بشكل جديد' }) } : null].filter(Boolean) : []);
   function crTable(c) {
     const L = c.creatives; const tot = L.reduce((a, x) => ({ spend: a.spend + x.spend, imp: a.imp + x.impressions, clicks: a.clicks + x.clicks, purchases: a.purchases + x.purchases }), { spend: 0, imp: 0, clicks: 0, purchases: 0 });
@@ -1336,7 +1338,7 @@
     const rows = L.map((x) => { const [sl, tone] = x.tired ? ['الناس زهقت منه', 'orange'] : stOf(x.status, true);
       return [h('button', { type: 'button', class: 'cr-cell link-btn', 'data-ads-ad': x.id, 'aria-label': 'تفاصيل ' + x.name, onClick: () => crDetail(x, c) }, th(x), h('span', { class: 'cr-tx' }, h('b', null, x.name), h('small', { class: 'help' }, x.campaign))),
         Tag(tone, sl), K.Num(n2(x.spend)), K.Num(K.n0(x.impressions)), K.Num(x.ctr == null ? '—' : (x.ctr * 100).toFixed(2) + '%'), K.Num(x.frequency == null ? '—' : x.frequency.toFixed(2)), K.Num(K.n0(x.purchases)), K.Num(W.xr(x.roas)),
-        K.RowMenu([{ label: 'التفاصيل', icon: 'eye', run: () => crDetail(x, c) }].concat(crActs(x.name, x.tired)))]; });
+        K.RowMenu([{ label: 'التفاصيل', icon: 'eye', run: () => crDetail(x, c) }, crWhy(x)].concat(crActs(x.name, x.tired)))]; });
     return Card('تفاصيل الأعمال الفنية', '',
       [crTip(), L.length ? U.Table({ cls: 'dt cr-tbl ads-cr', headers: ['الإعلان', 'الحالة', 'الصرف (ج.م)', 'الظهور', 'النقرات (CTR)', 'التكرار', 'مشتريات ميتا', 'عائد ميتا', ''], rows }) : K.Empty('مفيش إعلانات فيها صرف في الفترة دي', 'غيّر الفترة من فوق.')], null, null, { when: perLabel(c.rg), noun: ['إعلان', 'الإعلانات'], total: K.n0(tot.imp) + ' ظهور · ' + n2(tot.spend) + ' ج.م صرف' });
   }
@@ -1474,7 +1476,8 @@
     buyer: 'أنا الميديا باير. بقرا أرقام ميتا بتاعة آخر 7 أيام جنب أوردرات ووكومرس الحقيقية وبقترح — والتنفيذ بموافقتك من «مستني موافقتك». اسألني عن حملة أو العائد أو تكلفة الأوردر.',
     designer: 'أنا الديزاينر. بساعدك في أفكار البوستات والكاروسيل والستوري والريلز بالبراند، ولما تطلب صورة بكتبلك وصفها وتقدر تولّدها بزرار «ولّد الصورة» (من كريدت الصور). الشغل الكبير بيروح للديزاينر البشري من «تقديم طلب».',
     dev: 'أنا المبرمج. بساعدك تخطط لصفحة على الموقع أو تعديل في السيستم وأكتبلك المطلوب بالظبط — والتنفيذ بيروح للمبرمج البشري من «تقديم طلب»، ومفيش حاجة بتوصل للموقع اللايف من غير موافقتك.' };
-  const AG_SUGG = { buyer: ['حلل آخر 7 أيام', 'إيه أحسن حملة؟', 'قارن ميتا بووكومرس', 'اعمل حملة لمنتج'], designer: ['فكرة بوست لمنتج جديد', 'كاروسيل لعروض الشتا', 'ستوري لخصم', 'اعمل صورة لبوست'],
+  // agents-brain T5: «هات آخر التحديثات» (when asked only), «هات 5 فيديوهات» (choices in the chat → a campaign with its scenes) and why an ad sold
+  const AG_SUGG = { buyer: ['حلل آخر 7 أيام', 'إيه أحسن حملة؟', 'قارن ميتا بووكومرس', 'اعمل حملة لمنتج', 'هات 5 فيديوهات', 'هات آخر تحديثات ميتا', 'ليه أحسن إعلان باع؟'], designer: ['فكرة بوست لمنتج جديد', 'كاروسيل لعروض الشتا', 'ستوري لخصم', 'اعمل صورة لبوست'],
     dev: ['صفحة هبوط لعرض', 'تعديل في صفحة المنتج', 'اكتب مواصفات طلب', 'إيه أسرع طريقة؟'] };
   // 0120: the five new built-ins' words; a custom one speaks from its «about»
   Object.assign(AG_INTRO, {

@@ -378,6 +378,11 @@ async function adsData(deps: Deps) {
     deps.db.from('settings').select('data').eq('section', 'marketing').maybeSingle(),
   ]);
   const { data: pixel } = await deps.db.from('site_checks').select('data, checked_at').eq('kind', 'pixel').maybeSingle(); // the owner 17 Nov (0126; before it: none)
+  // agents-brain T5: «هات 5 فيديوهات» picks from the team's last trends and the competitors it follows (titles, names and links only)
+  const [{ data: trends }, { data: comps }] = await Promise.all([
+    deps.db.from('mkt_trends').select('title, summary, source, url, kind, platform').order('found_at', { ascending: false }).limit(20),
+    deps.db.from('mkt_competitors').select('name, keyword, note').is('archived_at', null).order('created_at', { ascending: false }).limit(20),
+  ]);
   const camps: Record<string, Json> = {};
   for (const o of Array.isArray(objects) ? objects : []) camps[o.id] = { id: String(o.id), name: o.name || '#' + o.id, status: o.status, spend: 0, purchases: 0, orders: 0, sales: 0, daily_budget: isObj(o.meta) ? o.meta.daily_budget ?? null : null };
   for (const s of Array.isArray(stats) ? stats : []) { const c = camps[s.object_id]; if (c) { c.spend += Number(s.spend) || 0; c.purchases += Number(s.purchases) || 0; } }
@@ -387,7 +392,7 @@ async function adsData(deps: Deps) {
   }
   const campaigns = Object.values(camps).filter((c) => c.spend > 0 || c.orders > 0 || c.status === 'ACTIVE' || c.status === 'PAUSED').sort((a, b) => b.spend - a.spend); // ش45: a paused one too (to resume)
   const rules = buyerRules(isObj(set) && isObj(set.data) ? set.data.buyer : null);
-  return { today, rules, campaigns, suggestions: Array.isArray(sugg) ? sugg : [], pixel: isObj(pixel) ? pixel : null };
+  return { today, rules, campaigns, suggestions: Array.isArray(sugg) ? sugg : [], pixel: isObj(pixel) ? pixel : null, ideas: { trends: Array.isArray(trends) ? trends : [], competitors: Array.isArray(comps) ? comps : [] } };
 }
 async function buyer(deps: Deps, uid: string, args: Json) {
   const parsed = parseBuyer(args);

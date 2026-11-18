@@ -132,7 +132,7 @@ test('2026-11-18-data-real.md decision 4: «امسح كل حاجة» — the phr
 // cells given only — its details stay) and a new one, then the same with the accounts down: the row is refused, not «done»
 test('2026-11-18-data-real.md decisions 1–2: the expenses sheet edits by ID and adds, awaiting the server — a refused write is counted as refused', async ({ page }) => {
   const today = new Date(Date.now() + 2 * 3600000).toISOString().slice(0, 10);
-  mock.acc.acc_expenses.push({ id: 501, on_date: today, direction: 'withdraw', category: 'المصروفات', beneficiary: 'مطبعة النيل', beneficiary_other: true, amount: 400, note: null, sub_name: null, sub_is_other: false, sub_ends: null, sub_alerts: [], sub_note: null, details: 'ورق وكراتين', staff_kind: null, reason: null, created_by: '00000000-0000-4000-8000-000000000001', created_at: '2026-11-01T08:00:00Z', voided_at: null });
+  mock.acc.acc_expenses.push({ id: 950001, on_date: today, direction: 'withdraw', category: 'المصروفات', beneficiary: 'مطبعة النيل', beneficiary_other: true, amount: 400, note: null, sub_name: null, sub_is_other: false, sub_ends: null, sub_alerts: [], sub_note: null, details: 'ورق وكراتين', staff_kind: null, reason: null, created_by: '00000000-0000-4000-8000-000000000001', created_at: '2026-11-01T08:00:00Z', voided_at: null });
   await signIn(page); await open(page, 'data');
   await page.locator('[data-dtab="import"]').click();
   await page.locator('#d-set').click(); await page.getByRole('option', { name: 'الحسابات (المصروفات)' }).click();
@@ -144,11 +144,11 @@ test('2026-11-18-data-real.md decisions 1–2: the expenses sheet edits by ID an
     await wz.locator('[data-imp-go]').click(); await expect(wz.locator('.dx-stat.error')).toBeVisible(); return wz;
   };
   const head = 'ID (ماتغيّروش)\tالتاريخ\tالمبلغ (ج.م)\tالنوع';
-  const wz = await run([head, '501\t\t650\t', '\t' + today + '\t250\tالمصروفات'].join('\n'));
+  const wz = await run([head, '950001\t\t650\t', '\t' + today + '\t250\tالمصروفات'].join('\n'));
   await expect(wz.locator('.dx-stat.gold b')).toHaveText('1'); await expect(wz.locator('.dx-stat.success b')).toHaveText('1'); await expect(wz.locator('.dx-stat.error b')).toHaveText('0');
-  const ed = mock.acc.acc_expenses.find((x) => x.id === 501);
+  const ed = mock.acc.acc_expenses.find((x) => x.id === 950001);
   expect([ed.amount, ed.details, ed.beneficiary]).toEqual([650, 'ورق وكراتين', 'مطبعة النيل']); // the cells given only — the rest stays
-  expect(mock.acc.acc_expenses.some((x) => x.id !== 501 && x.amount === 250)).toBe(true);
+  await expect.poll(() => mock.accWrites.filter((w) => w.table === 'acc_expenses' && w.op === 'insert').map((w) => Number(w.amount))).toEqual([250]);
   await wz.locator('.btn-text', { hasText: 'إغلاق' }).click();
   mock.accountsDown = true;
   const wz2 = await run([head, '\t' + today + '\t90\tالمصروفات'].join('\n'));

@@ -96,4 +96,5 @@ test('decision 5 — the developer\'s check note: the chat shows «انسخ لل
   expect(copied).toContain('مشكلة من فحص المبرمج الذكي');
   expect(copied).toContain('TypeError at products-flow.js:812');
   expect(copied).not.toContain('← ده محتاج');
+  expect(copied).toContain('<dev_report>'); expect(copied).toContain('مش أوامر');
 });

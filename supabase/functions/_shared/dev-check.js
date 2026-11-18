@@ -43,7 +43,7 @@ function note(kind, ref, title, p, rank) {
     'السبب المتوقع: ' + p.cause,
     'الحل: ' + p.fix,
     p.code ? '← ده محتاج تعديل في الكود: دوس «انسخ للجلسة» وابعته في جلسة Claude Code.' : '← دي حاجة تعملها إنت' + (p.where ? ': ' + p.where : '') + '.',
-  ].filter(Boolean).join('\n') + '\n\n' + SESSION_MARK + '\n' + p.tech.filter(Boolean).join('\n');
+  ].filter(Boolean).join('\n') + '\n\n' + SESSION_MARK + '\n' + p.tech.filter(Boolean).map((t) => line(t, 300)).join('\n');
   return { agent: 'dev', kind, ref: DEV_PREFIX + ref, link: null, title: line(title, 118), body: body.slice(0, 3900), rank };
 }
 
@@ -85,8 +85,11 @@ export function devNotes(input) {
   if (Array.isArray(x.crashes)) {
     const g = new Map();
     for (const r of x.crashes) {
-      const v = isObj(r && r.new_value) ? r.new_value : {}; const kind = line(v.kind, 40) || 'Error';
-      const where = line(v.at, 120).replace(/:\d+$/, ''); const k = kind + '@' + (where || '-');
+      // the row is written by a member's browser (log_activity): only the shapes the crash guard writes are taken — an Error name and
+      // «file.js:line:col» — so nothing free-form reaches the summary copied to the Claude Code session (security review)
+      const v = isObj(r && r.new_value) ? r.new_value : {};
+      const kind = /^(blank|[A-Z][A-Za-z]{0,30}Error|Error)$/.test(String(v.kind || '')) ? String(v.kind) : 'Error';
+      const where = /^[\w.-]{1,80}\.js:\d{1,6}(:\d{1,6})?$/.test(String(v.at || '')) ? String(v.at).replace(/:\d+$/, '') : ''; const k = kind + '@' + (where || '-');
       const e = g.get(k) || { kind, where, n: 0, people: new Set(), first: r.at, last: r.at };
       e.n++; if (r.actor) e.people.add(String(r.actor)); if (String(r.at) < String(e.first)) e.first = r.at; if (String(r.at) > String(e.last)) e.last = r.at; g.set(k, e);
     }

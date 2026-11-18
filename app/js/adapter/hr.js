@@ -662,6 +662,9 @@
   }
   const holidayAdd = (f) => table('hr_holidays', 'insert', { name: clean(f.name, 80), day: f.date, days: Math.max(1, Math.min(14, Number(f.days) || 1)), kind: clean(f.kind || 'رسمية', 40), status: f.status === 'متوقع' ? 'متوقع' : 'مؤكد' }, null, 'hr.holiday.create', clean(f.name, 80));
   const holidayConfirm = (dbId) => table('hr_holidays', 'update', { status: 'مؤكد' }, { id: dbId }, 'hr.holiday.confirm', String(dbId));
+  // 2026-11-18-data-real.md decision 2: the import edits a holiday by its id — only the cells given
+  const holidayUpdate = (dbId, f) => { const row = {}; if (f.name != null && f.name !== '') row.name = clean(f.name, 80); if (f.date) row.day = f.date; if (f.days != null && f.days !== '') row.days = Math.max(1, Math.min(14, Number(f.days) || 1)); if (f.kind != null && f.kind !== '') row.kind = clean(f.kind, 40); if (f.status) row.status = f.status === 'متوقع' ? 'متوقع' : 'مؤكد';
+    return Object.keys(row).length ? table('hr_holidays', 'update', row, { id: dbId }, 'hr.holiday.update', String(dbId)) : Promise.resolve({ ok: true }); };
   const holidayDelete = (dbId) => table('hr_holidays', 'delete', null, { id: dbId }, 'hr.holiday.delete', String(dbId));
   const leaveTypeAdd = (f) => table('hr_leave_types', 'insert', { name: clean(f.name, 40), days: clean(f.days, 40) || '—', paid: clean(f.paid || 'نعم', 40), doc: clean(f.doc || '—', 60) || '—', carry: clean(f.carry || '—', 40),
     approval: clean(f.approval || 'المدير المباشر', 40), deducts: !!f.deducts, unpaid: f.paid === 'لا' || !!f.unpaid, sort: 100 }, null, 'hr.leaveType.create', clean(f.name, 40));
@@ -973,7 +976,7 @@
   window.IBHR = { load, clear, subscribe, unsubscribe, check, state: () => st, data, member, team, everyone, can, decidesOt, settings, hm, span, workDays, workDaysOf, isWorkDay, dayDivisor, scheduleOf, dayMinutes, today, nowMin, addDays, quarterOf, quarterMonths, monthKey, holidayDates, leaveDays, isLeave,
     shiftNow, myShift, clockIn, clockOut, overtimeBegin, overtimeRequest, setAttendance, endShiftFor, fixOut, request, decide, cancel, overtimeDecide, rateMonth, saveKpis,
     payrollCalc, payrollLines, sheetLines, sheetTotals, slips, transfer, payMember, advanceGive, otAdjust, payDayOf, evaluate, evalTotal, quarterEval, monthTasks, noteAdd, notesOf, NOTE_KINDS, cairoIso, bank, bankSet, bankReveal, payrollOpen, payrollStep, payrollPay, addAdjustment, voidAdjustment, addExtra, decideExtra, meetingCreate, meetingUpdate,
-    holidayAdd, holidayConfirm, holidayDelete, leaveTypeAdd, bonusRuleAdd, bonusRuleToggle, otPeriodAdd, otPeriodDelete, saveSettings, roleManagerSet, memberManagerSet, roleManager,
+    holidayAdd, holidayUpdate, holidayConfirm, holidayDelete, leaveTypeAdd, bonusRuleAdd, bonusRuleToggle, otPeriodAdd, otPeriodDelete, saveSettings, roleManagerSet, memberManagerSet, roleManager,
     memberCreate, memberPassword, memberInvite, memberDelete, memberUpdate, payUpdate, canEditMember, memberInfoSet, memberEmailSet, upload, addDocument, voidDocument, fileUrl, checkFile, ACCOUNTS, DOC_KINDS, DEFAULTS, MIME, MAX_BYTES,
     tasksOf, reviewsFor, canTask, canDeleteTask, taskAdd, taskSet, taskDelete, taskReview, loadTasks, people: () => data.people.slice(), TASK_STATUSES, loadLog, logNow, logLabel,
     _test: { parts, minOf, atLabel, meetingLabel, shape, shapeTasks, raw, safeName, fail, uidOf } };

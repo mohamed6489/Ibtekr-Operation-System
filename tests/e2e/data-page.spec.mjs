@@ -88,7 +88,71 @@ test('decision 6: «منطقة الخطر» — pick sections, the review lists 
   await expect(go).toBeDisabled();
   await md.locator('#wipe-confirm').fill('امسح');
   await expect(go).toBeDisabled();
-  await md.locator('#wipe-confirm').fill('امسح البيانات');
+  await md.locator('#wipe-confirm').fill('امسح البيانات'); // 0133: the old phrase no longer unlocks it
+  await expect(go).toBeDisabled();
+  await md.locator('#wipe-confirm').fill('حذف الداتا من السيستم بشكل نهائي');
   await Promise.all([page.waitForEvent('load'), go.click()]);
   expect(mock.st.wipes).toEqual([['orders', 'tickets']]);
+});
+
+// the owner 18 Nov («ضيف زر منه اقدر امسح كل حاجة … لازم اكتب كلمة معينة … زر احذف او الغاء او صدر البيانات قبل الحذف … بوب اب يقولي اي اللي
+// هيتحذف و قد اي بيانات و فيه زر ابدأ الحذف و … progress bar … البوب ده مينفعش يتقفل لحد ما يخلص»)
+test('2026-11-18-data-real.md decision 4: «امسح كل حاجة» — the phrase unlocks «احذف», «إلغاء» clears it; the popup lists every section with its rows; «ابدأ الحذف» wipes section by section with a progress bar (a blocked one retried after the rest) and can\'t close until done', async ({ page }) => {
+  await signIn(page); await open(page, 'data');
+  await page.locator('[data-dtab="danger"]').click();
+  const card = page.locator('[data-wipe-all-card]');
+  await expect(card).toBeVisible();
+  await expect(card.locator('[data-wipe-export]')).toBeVisible();
+  const go = card.locator('[data-wipe-all]'); const phrase = card.locator('[data-wipe-all-phrase]');
+  await expect(go).toBeDisabled();
+  await phrase.fill('حذف الداتا'); await expect(go).toBeDisabled();
+  await phrase.fill('حذف الداتا من السيستم بشكل نهائي'); await expect(go).toBeEnabled();
+  await card.locator('[data-wipe-all-cancel]').click(); await expect(phrase).toHaveValue(''); await expect(go).toBeDisabled();
+  await phrase.fill('حذف الداتا من السيستم بشكل نهائي'); await go.click();
+  const md = page.locator('[data-wipe-all-modal]');
+  await expect(md.locator('[data-wipe-row]')).toHaveCount(10);
+  await expect(md.locator('[data-wipe-row="orders"]')).toContainText('3 صف');
+  await expect(md).toContainText('30 صف');
+  expect(mock.st.wipes || []).toEqual([]);
+  mock.st.wipeBlockOnce = ['orders']; mock.st.wipeDelay = 250;
+  await md.locator('[data-wipe-start]').click();
+  await expect(md.locator('.dz-bar')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(md).toBeVisible(); // can't close while it runs
+  await expect(md.locator('[data-wipe-close]')).toBeVisible({ timeout: 15000 });
+  await expect(md.locator('[data-wipe-status]')).toContainText('خلص');
+  await expect(md.locator('.dz-row.ok')).toHaveCount(10);
+  await expect(md.locator('.dz-bar')).toHaveAttribute('aria-valuenow', '100');
+  // one section a call, in the run's order; «orders» was blocked once and came after the rest
+  expect(mock.st.wipes).toEqual([['tickets'], ['cs'], ['marketing'], ['inventory'], ['accounts'], ['products'], ['vendors'], ['hr'], ['logs'], ['orders']]);
+  await Promise.all([page.waitForEvent('load'), md.locator('[data-wipe-close]').click()]);
+});
+
+// 2026-11-18-data-real.md decisions 1 and 2: a sheet row says «اتعمل» only when the server answered — an expense edited by its ID (the
+// cells given only — its details stay) and a new one, then the same with the accounts down: the row is refused, not «done»
+test('2026-11-18-data-real.md decisions 1–2: the expenses sheet edits by ID and adds, awaiting the server — a refused write is counted as refused', async ({ page }) => {
+  const today = new Date(Date.now() + 2 * 3600000).toISOString().slice(0, 10);
+  mock.acc.acc_expenses.push({ id: 501, on_date: today, direction: 'withdraw', category: 'المصروفات', beneficiary: 'مطبعة النيل', beneficiary_other: true, amount: 400, note: null, sub_name: null, sub_is_other: false, sub_ends: null, sub_alerts: [], sub_note: null, details: 'ورق وكراتين', staff_kind: null, reason: null, created_by: '00000000-0000-4000-8000-000000000001', created_at: '2026-11-01T08:00:00Z', voided_at: null });
+  await signIn(page); await open(page, 'data');
+  await page.locator('[data-dtab="import"]').click();
+  await page.locator('#d-set').click(); await page.getByRole('option', { name: 'الحسابات (المصروفات)' }).click();
+  const run = async (text) => {
+    await page.locator('[data-import]').click(); const wz = modal(page);
+    await wz.locator('.dx-paste summary').click(); await wz.locator('#imp-paste').fill(text);
+    await wz.getByRole('button', { name: 'التالي', exact: true }).click();
+    await wz.getByRole('button', { name: 'التالي: المراجعة' }).click();
+    await wz.locator('[data-imp-go]').click(); await expect(wz.locator('.dx-stat.error')).toBeVisible(); return wz;
+  };
+  const head = 'ID (ماتغيّروش)\tالتاريخ\tالمبلغ (ج.م)\tالنوع';
+  const wz = await run([head, '501\t\t650\t', '\t' + today + '\t250\tالمصروفات'].join('\n'));
+  await expect(wz.locator('.dx-stat.gold b')).toHaveText('1'); await expect(wz.locator('.dx-stat.success b')).toHaveText('1'); await expect(wz.locator('.dx-stat.error b')).toHaveText('0');
+  const ed = mock.acc.acc_expenses.find((x) => x.id === 501);
+  expect([ed.amount, ed.details, ed.beneficiary]).toEqual([650, 'ورق وكراتين', 'مطبعة النيل']); // the cells given only — the rest stays
+  expect(mock.acc.acc_expenses.some((x) => x.id !== 501 && x.amount === 250)).toBe(true);
+  await wz.locator('.btn-text', { hasText: 'إغلاق' }).click();
+  mock.accountsDown = true;
+  const wz2 = await run([head, '\t' + today + '\t90\tالمصروفات'].join('\n'));
+  await expect(wz2.locator('.dx-stat.error b')).toHaveText('1');
+  await expect(wz2.locator('.dx-stat.success b')).toHaveText('0');
+  mock.accountsDown = false;
 });

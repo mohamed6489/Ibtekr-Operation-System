@@ -70,8 +70,12 @@ export function settingsRoute(c) {
       const tables = secs.map((x) => ({ section: x, table: x === 'tickets' ? 'tickets' : x + '_rows', rows: 3, kind: 'wipe' })).concat(secs.includes('orders') && !secs.includes('tickets') ? [{ section: 'tickets', table: 'tickets', rows: 2, kind: 'unlink' }] : []);
       const rows = secs.length * 3;
       if (body.p_dry) return json(200, { dry: true, tables, rows, blocked: [] });
-      if (body.p_confirm !== 'امسح البيانات') return refuse(400, '22023', 'invalid: confirm');
+      if (body.p_confirm !== 'حذف الداتا من السيستم بشكل نهائي') return refuse(400, '22023', 'invalid: confirm'); // 0133: one phrase
+      // 2026-11-18-data-real.md decision 4: a section set in S.wipeBlockOnce answers «blocked» the first time (the run defers it);
+      // S.wipeDelay holds the answer that long (the popup can't close meanwhile)
+      if (secs.length === 1 && (S.wipeBlockOnce || []).includes(secs[0])) { S.wipeBlockOnce = S.wipeBlockOnce.filter((x) => x !== secs[0]); return refuse(400, '22023', 'blocked: ' + secs[0] + '_rows'); }
       S.wipes = (S.wipes || []).concat([secs.slice()]); S.writes.push({ table: 'data_wipe', op: 'wipe', sections: secs.slice() });
+      if (S.wipeDelay) return new Promise((r) => setTimeout(r, S.wipeDelay)).then(() => json(200, { dry: false, tables, rows, blocked: [] }));
       return json(200, { dry: false, tables, rows, blocked: [] });
     }
     if (name === 'my_sessions') { if (!active) return refuse(401, '42501', 'not allowed'); return json(200, S.sessions.map((s) => ({ ...s }))); }

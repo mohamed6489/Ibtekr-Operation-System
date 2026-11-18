@@ -210,6 +210,35 @@
       for (const r of rows) { try { const out = await fn(r); const ok = !(out && out.ok === false); results.push({ row: r.row, ok, reason: ok ? null : msgOf(out && (out.message || out.reason)) }); } catch (e) { results.push({ row: r.row, ok: false, reason: msgOf(e) }); } }
       return { results }; }
     const filled = (v) => v !== undefined && v !== null && v !== '';
+    // 2026-11-18-data-real.md decision 1: a row is «اتعمل» only when the write itself answered ok — the accounts' rows through IBAccounts
+    // (awaited, not the page's optimistic copy), the makers' through IBVendors.store.written(id), the orders' through OrdersApp.track/flush
+    const ACCR = { network: 'مفيش اتصال — جرّب تاني', forbidden: 'الصلاحية دي مش عندك', invalid: 'قيمة مش مقبولة', duplicate: 'اتسجلت قبل كده', settled: 'الحركة اتصفّت في تسوية — مابتتعدّلش' };
+    const accOut = (r) => (r && r.ok ? { ok: true } : { ok: false, reason: (r && (ACCR[r.reason] || r.message || r.reason)) || 'اترفض' });
+    const recOf = (kind, id) => (ACC() ? ACC().rows(kind) : store[kind]).find((x) => String(x.id) === String(id)) || null;
+    const overlay = (base, d) => { const out = Object.assign({}, base); Object.keys(d).forEach((k) => { if (k !== '_id' && filled(d[k])) out[k] = d[k]; }); return out; };
+    // the accounts' three sheets: a new row = add, a row with an ID = the record's export row with the cells given over it, judged like
+    // the page's popup, then only the changed fields written over the record (its details / subscription fields stay)
+    function accSheet(kind, toRow, judge, patchOf) {
+      const byId = (id) => { const r = recOf(kind, id); return r ? toRow(r) : null; };
+      return { byId, check: (d) => ({ errors: Object.values(judge(d._id ? overlay(byId(d._id) || {}, d) : d, !!d._id).errors) }),
+        apply: (rows) => runRows(rows, async (r) => { const A = ACC(); if (!A) return { ok: false, reason: 'الحسابات مش محمّلة' };
+          const d = r.data; if (r.status === 'new') { const res = judge(d, false); if (Object.keys(res.errors).length) return { ok: false, reason: Object.values(res.errors)[0] }; return accOut(await A.add(kind, res.value, { dupOk: true })); }
+          const rec = recOf(kind, d._id); if (!rec) return { ok: false, reason: 'الحركة مش موجودة (أو اتلغت)' };
+          if (rec.settledBy != null) return { ok: false, reason: ACCR.settled };
+          const res = judge(overlay(toRow(rec), d), true); if (Object.keys(res.errors).length) return { ok: false, reason: Object.values(res.errors)[0] };
+          return accOut(await A.update(kind, rec.id, Object.assign({}, rec, patchOf(res.value, d)))); }) };
+    }
+    const expRow = (e) => ({ _id: String(e.id), date: e.date, amount: e.amount, category: e.category, direction: e.direction === 'deposit' ? 'إيداع' : 'سحب', beneficiary: e.beneficiaryName || '' });
+    const expJudge = (d) => D.validateExpense({ amount: String(d.amount), date: D.formatDateNumeric(d.date), category: d.category, direction: d.direction === 'إيداع' ? 'deposit' : 'withdraw', beneficiary: d.beneficiary ? D.OTHER : '', otherName: d.beneficiary || '' });
+    const expSheet = accSheet('expenses', expRow, expJudge, (v, d) => { const p = {}; ['date', 'amount', 'category', 'direction'].forEach((k) => { if (filled(d[k])) p[k] = v[k]; }); if (filled(d.beneficiary)) { p.beneficiaryName = v.beneficiaryName; p.beneficiaryIsOther = v.beneficiaryIsOther; } return p; });
+    const mvRow = (m) => ({ _id: String(m.id), date: m.date, vendor: m.vendor, type: m.type, typeName: m.type === 'أخرى' ? m.typeName : '', direction: m.direction === 'deposit' ? 'إيداع' : 'سحب', amount: m.amount });
+    const mvSheet = accSheet('vendorMoves', mvRow, (d) => D.validateVendorMovement(mvIn(d)), (v, d) => { const p = {}; ['date', 'type', 'typeName', 'direction', 'amount'].forEach((k) => { if (filled(d[k])) p[k] = v[k]; }); if (filled(d.vendor)) { p.vendor = v.vendor; p.vendorId = undefined; } return p; });
+    const acRow = (m) => ({ _id: String(m.id), date: m.date, account: m.account, direction: m.direction === 'deposit' ? 'إيداع' : 'سحب', amount: m.amount });
+    const acSheet = accSheet('accountMoves', acRow, (d, edit) => { const res = D.validateAccountMovement(acIn(d)); if (!edit && !Object.keys(res.errors).length) { try { D.applyAccountMovement(accountsNow().balances, res.value.account, res.value.direction, res.value.amount); } catch (e) { res.errors.balance = 'الرصيد في «' + d.account + '» مش كفاية للسحب ده'; } } return res; },
+      (v, d) => { const p = {}; ['date', 'account', 'direction', 'amount'].forEach((k) => { if (filled(d[k])) p[k] = v[k]; }); return p; });
+    // the makers: each write of the row (the store data, the rate, the bank) answered before the row says «اتعمل»
+    const vWritten = async (id) => (vstore.written ? vstore.written(id) : { ok: true });
+    const vOut = (r) => (r && r.ok === false ? { ok: false, reason: msgOf(r.message || r.reason) } : { ok: true });
     const mainCats = () => (vstore.mainCategories ? vstore.mainCategories() : []).map((c) => c.name);
     const hm = (m) => (m == null ? '' : String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0'));
     const HR = () => window.IBHR;
@@ -218,6 +247,11 @@
     const secureRow = (v) => ({ _id: v.id, name: v.name, method: v.bank ? (VD.PAY_METHODS.find((x) => x[0] === v.bank.method) || [, ''])[1] : '', bankName: (v.bank && v.bank.bankName) || '', holder: (v.bank && v.bank.holder) || '', accountNumber: (v.bank && v.bank.accountNumber) || '', iban: (v.bank && v.bank.iban) || '', wallet: (v.bank && v.bank.wallet) || '', contractExpires: (v.contract && v.contract.expires) || '', rate: v.rate });
     const orderRow = (o) => ({ _id: String(o.id), oid: o.id, customer: o.name, confirm: o.cf, cdate: o.cdate || '', deposit: o.dep, note: o.note || '' });
     const lineRows = () => allOrders().flatMap((o) => o.subs.filter((x) => x.itemId).map((x) => ({ _id: String(x.itemId), sid: x.sid, oid: o.id, product: x.prod, vendor: x.vendor, subStatus: x.ss || '', expected: x.exp || '', vendorComment: x.cm || '' })));
+    const ticketRow = (t) => ({ _id: String(t.id), id: t.id, type: TK.label(TK.TYPES, t.type), title: t.title, description: t.description, priority: TK.label(TK.PRIORITIES, t.priority), role: t.assigneeRole, orderId: t.orderId || '', customer: t.customer || '', vendor: t.vendor || '', reason: t.reason || '', status: t.status, created: String(t.createdAt || '').slice(0, 10) });
+    const holRow = (x) => ({ _id: String(x.dbId), date: x.date, name: x.name, days: x.days, kind: x.kind || '', status: x.status });
+    const hols = () => (HR() && HR().data && HR().data.holidays) || [];
+    const stockRow = (s) => ({ _id: String(s.key), sku: s.sku, name: s.name, vendor: s.vendor, reason: s.reason, status: s.status, qty: s.onHand, loc: s.loc || '', mode: s.mode || '', cost: s.cost, since: s.since });
+    const stockAll = () => K().stockNow().filter((s) => !s.closed);
     const customerRow = (c) => ({ _id: String(c.id), name: c.name, phone: c.phone, city: c.city || '', address: c.address || '', tags: (c.tags || []).join('، '), consent: c.consent ? 'نعم' : 'لا', source: c.source || '' });
     const teamRows = () => (HR() && HR().everyone ? HR().everyone() : []).map((m) => ({ _id: m.id, name: m.name, email: m.email || '', role: m.role || '', title: m.title || '', phone: m.phone || '', hire: m.hire || '', status: m.status === 'active' ? 'نشط' : 'موقوف', salary: m.salary || 0 }));
     const GROUPS = [
@@ -238,9 +272,11 @@
           if (r.status === 'new') { const v = await vstore.create({ name: d.name, legalName: d.legalName, categories: vstore.mainCategoryIds ? vstore.mainCategoryIds(d.category) : [], status: vcode(d.status), phone: d.phone, email: d.email, rate: d.rate, leadDays: d.leadDays, address: d.address }, vstore.actor()); return v && v.id ? { ok: true } : { ok: false, reason: 'اترفض' }; }
           const patch = {}; if (filled(d.name)) patch.name = d.name; if (filled(d.legalName)) patch.legalName = d.legalName; if (filled(d.category)) patch.categories = vstore.mainCategoryIds ? vstore.mainCategoryIds(d.category) : []; if (filled(d.status)) patch.status = vcode(d.status);
           ['phone', 'email', 'leadDays', 'address'].forEach((k) => { if (filled(d[k])) patch[k] = d[k]; });
+          if (!vstore.get(d._id)) return { ok: false, reason: 'المبتكر مش موجود' };
+          await vWritten(d._id); // the maker's earlier writes (from the page) answered and forgotten — the row's own come next
           if (Object.keys(patch).length) vstore.update(d._id, patch, vstore.actor());
-          if (filled(d.rate)) await vstore.setRate(d._id, d.rate, null, vstore.actor());
-          return { ok: true }; }) },
+          if (filled(d.rate)) vstore.setRate(d._id, d.rate, null, vstore.actor());
+          return vOut(await vWritten(d._id)); }) },
       { id: 'vendorSecure', label: 'بيانات المبتكرين الحساسة (البنك والعقد والنسبة)', ids: true, canAdd: false, key: 'name', sensitive: true, note: 'للأدمن والحسابات بس — البنك بيتبعت لمتجر المبتكر على الموقع، وكل تعديل بيتسجل في سجل نشاط المبتكر.',
         fields: () => [{ key: 'name', label: 'اسم المبتكر', en: 'Vendor name', readOnly: true }, { key: 'method', label: 'طريقة التحويل', en: 'Payout method', type: 'enum', options: VD.PAY_METHODS.map((x) => x[1]) }, { key: 'bankName', label: 'البنك', en: 'Bank', sensitive: true }, { key: 'holder', label: 'صاحب الحساب', en: 'Account holder', sensitive: true },
           { key: 'accountNumber', label: 'رقم الحساب', en: 'Account number', sensitive: true }, { key: 'iban', label: 'IBAN', en: 'IBAN', sensitive: true }, { key: 'wallet', label: 'رقم المحفظة', en: 'Wallet #', sensitive: true }, { key: 'contractExpires', label: 'العقد ينتهي في', en: 'Contract expires', type: 'date' },
@@ -249,41 +285,37 @@
         byId: (id) => { const v = vstore.get(id); return v ? secureRow(v) : null; },
         check: (d) => { const e = []; const v = d._id ? vstore.get(d._id) : null; if (filled(d.rate) && (d.rate < 0 || d.rate > 65)) e.push('النسبة لازم بين 0 و 65'); if (d.contractExpires && v && !(v.contract && v.contract.fileName)) e.push('مفيش عقد مرفوع للمبتكر ده — ارفعه الأول من ملفه'); return { errors: e }; },
         apply: (rows) => runRows(rows, async (r) => { const d = r.data; const v = vstore.get(d._id); if (!v) return { ok: false, reason: 'المبتكر مش موجود' };
+          await vWritten(v.id);
           const bk = ['method', 'bankName', 'holder', 'accountNumber', 'iban', 'wallet'].filter((k) => filled(d[k]));
-          if (bk.length) { const nb = Object.assign({}, v.bank || {}); bk.forEach((k) => { nb[k] = k === 'method' ? (VD.PAY_METHODS.find((x) => x[1] === d.method) || ['bank'])[0] : d[k]; }); await vstore.setBank(v.id, nb, vstore.actor()); }
-          if (d.contractExpires) await vstore.setContract(v.id, Object.assign({}, v.contract, { expires: d.contractExpires }), vstore.actor());
-          if (filled(d.rate)) await vstore.setRate(v.id, d.rate, null, vstore.actor());
-          return { ok: true }; }) },
-      { id: 'expenses', label: 'الحسابات (المصروفات)', canAdd: true, dateKey: 'date', filter: { key: 'category', label: 'النوع', options: () => D.CATEGORIES.slice() }, note: 'إضافة بس — تعديل مصروف أو إلغاؤه من صفحة الحسابات.',
+          if (bk.length) { const nb = Object.assign({}, v.bank || {}); bk.forEach((k) => { nb[k] = k === 'method' ? (VD.PAY_METHODS.find((x) => x[1] === d.method) || ['bank'])[0] : d[k]; }); vstore.setBank(v.id, nb, vstore.actor()); }
+          if (d.contractExpires) vstore.setContract(v.id, Object.assign({}, v.contract, { expires: d.contractExpires }), vstore.actor());
+          if (filled(d.rate)) vstore.setRate(v.id, d.rate, null, vstore.actor());
+          return vOut(await vWritten(v.id)); }) },
+      { id: 'expenses', label: 'الحسابات (المصروفات)', ids: true, canAdd: true, dateKey: 'date', filter: { key: 'category', label: 'النوع', options: () => D.CATEGORIES.slice() }, note: 'الصف من غير ID = مصروف جديد، وبالـ ID = تعديل الخانات المكتوبة بس (تفاصيل المصروف والاشتراك بتفضل). الإلغاء من صفحة الحسابات.',
         fields: () => [{ key: 'date', label: 'التاريخ', en: 'Date', type: 'date', required: true }, { key: 'amount', label: 'المبلغ (ج.م)', en: 'Amount (EGP)', type: 'number', required: true }, { key: 'category', label: 'النوع', en: 'Category', type: 'enum', options: D.CATEGORIES.slice(), required: true }, { key: 'direction', label: 'إيداع / سحب', en: 'Direction', type: 'enum', options: ['سحب', 'إيداع'] }, { key: 'beneficiary', label: 'المستفيد', en: 'Beneficiary' }],
         presets: { accountant: ['date', 'amount', 'category', 'direction', 'beneficiary'] },
-        rows: () => store.expenses.map((e) => ({ date: e.date, amount: e.amount, category: e.category, direction: e.direction === 'deposit' ? 'إيداع' : 'سحب', beneficiary: e.beneficiaryName || '' })),
-        check: (d) => ({ errors: Object.values(D.validateExpense({ amount: String(d.amount), date: D.formatDateNumeric(d.date), category: d.category, direction: d.direction === 'إيداع' ? 'deposit' : 'withdraw', beneficiary: d.beneficiary ? D.OTHER : '', otherName: d.beneficiary || '' }).errors) }),
-        apply: (rows) => runRows(rows, (r) => { const d = r.data; const res = D.validateExpense({ amount: String(d.amount), date: D.formatDateNumeric(d.date), category: d.category, direction: d.direction === 'إيداع' ? 'deposit' : 'withdraw', beneficiary: d.beneficiary ? D.OTHER : '', otherName: d.beneficiary || '' });
-          if (Object.keys(res.errors).length) return { ok: false, reason: Object.values(res.errors)[0] }; adapter.add('expenses', res.value, undefined, { dupOk: true }); return { ok: true }; }) },
-      { id: 'vendorMoves', label: 'حركات المبتكرين (عربون / مواصلات / أخرى)', canAdd: true, dateKey: 'date', filter: { key: 'type', label: 'النوع', options: () => D.VENDOR_TYPES.slice() }, note: 'إضافة بس — كل صف حركة جديدة على حساب المبتكر.',
+        rows: () => store.expenses.map(expRow), byId: expSheet.byId, check: expSheet.check, apply: expSheet.apply },
+      { id: 'vendorMoves', label: 'حركات المبتكرين (عربون / مواصلات / أخرى)', ids: true, canAdd: true, dateKey: 'date', filter: { key: 'type', label: 'النوع', options: () => D.VENDOR_TYPES.slice() }, note: 'الصف من غير ID = حركة جديدة على حساب المبتكر، وبالـ ID = تعديلها — الحركة اللي اتصفّت في تسوية مابتتعدّلش.',
         fields: () => [{ key: 'date', label: 'التاريخ', en: 'Date', type: 'date', required: true }, { key: 'vendor', label: 'المبتكر', en: 'Vendor', type: 'enum', options: vnames(), required: true }, { key: 'type', label: 'النوع', en: 'Type', type: 'enum', options: D.VENDOR_TYPES.slice(), required: true },
           { key: 'typeName', label: 'اسم النوع (لو «أخرى»)', en: 'Other type' }, { key: 'direction', label: 'إيداع / سحب', en: 'Direction', type: 'enum', options: ['سحب', 'إيداع'], required: true }, { key: 'amount', label: 'المبلغ (ج.م)', en: 'Amount (EGP)', type: 'number', required: true }],
-        rows: () => store.vendorMoves.map((m) => ({ date: m.date, vendor: m.vendor, type: m.type, typeName: m.type === 'أخرى' ? m.typeName : '', direction: m.direction === 'deposit' ? 'إيداع' : 'سحب', amount: m.amount })),
-        check: (d) => ({ errors: Object.values(D.validateVendorMovement(mvIn(d)).errors) }),
-        apply: (rows) => runRows(rows, (r) => { const res = D.validateVendorMovement(mvIn(r.data)); if (Object.keys(res.errors).length) return { ok: false, reason: Object.values(res.errors)[0] }; adapter.add('vendorMoves', res.value, undefined, { dupOk: true }); return { ok: true }; }) },
-      { id: 'accountMoves', label: 'حركات الحسابات (البنك / بوسطة / باي موب / المحفظة)', canAdd: true, dateKey: 'date', filter: { key: 'account', label: 'الحساب', options: () => D.ACCOUNTS.slice() }, note: 'إضافة بس — السحب لازم يبقى في رصيد الحساب.',
+        rows: () => store.vendorMoves.map(mvRow), byId: mvSheet.byId, check: mvSheet.check, apply: mvSheet.apply },
+      { id: 'accountMoves', label: 'حركات الحسابات (البنك / بوسطة / باي موب / المحفظة)', ids: true, canAdd: true, dateKey: 'date', filter: { key: 'account', label: 'الحساب', options: () => D.ACCOUNTS.slice() }, note: 'الصف من غير ID = حركة جديدة (السحب لازم يبقى في رصيد الحساب)، وبالـ ID = تعديلها.',
         fields: () => [{ key: 'date', label: 'التاريخ', en: 'Date', type: 'date', required: true }, { key: 'account', label: 'الحساب', en: 'Account', type: 'enum', options: D.ACCOUNTS.slice(), required: true }, { key: 'direction', label: 'إيداع / سحب', en: 'Direction', type: 'enum', options: ['إيداع', 'سحب'], required: true }, { key: 'amount', label: 'المبلغ (ج.م)', en: 'Amount (EGP)', type: 'number', required: true }],
-        rows: () => store.accountMoves.map((m) => ({ date: m.date, account: m.account, direction: m.direction === 'deposit' ? 'إيداع' : 'سحب', amount: m.amount })),
-        check: (d) => { const res = D.validateAccountMovement(acIn(d)); const errors = Object.values(res.errors); if (!errors.length) { try { D.applyAccountMovement(accountsNow().balances, res.value.account, res.value.direction, res.value.amount); } catch (e) { errors.push('الرصيد في «' + d.account + '» مش كفاية للسحب ده'); } } return { errors }; },
-        apply: (rows) => runRows(rows, (r) => { const res = D.validateAccountMovement(acIn(r.data)); if (Object.keys(res.errors).length) return { ok: false, reason: Object.values(res.errors)[0] }; try { D.applyAccountMovement(accountsNow().balances, res.value.account, res.value.direction, res.value.amount); } catch (e) { return { ok: false, reason: 'الرصيد مش كفاية' }; } adapter.add('accountMoves', res.value, undefined, { dupOk: true }); return { ok: true }; }) },
+        rows: () => store.accountMoves.map(acRow), byId: acSheet.byId, check: acSheet.check, apply: acSheet.apply },
       { id: 'orderEdit', label: 'الأوردرات — التأكيد والعربون والتعليق', ids: true, canAdd: false, note: 'تعديل بس — الأوردرات الجديدة بتيجي من الموقع. كل تعديل بيعدّي على نفس طريق صفحة الأوردرات (ولو حد غيّر الأوردر من شوية بيترفض).',
         fields: () => [{ key: 'oid', label: 'رقم الأوردر', en: 'Order #', readOnly: true }, { key: 'customer', label: 'العميل', en: 'Customer', readOnly: true }, { key: 'confirm', label: 'حالة التأكيد', en: 'Confirmation', type: 'enum', options: OA() && OA().confirms ? OA().confirms() : [] },
           { key: 'cdate', label: 'تاريخ التأكيد', en: 'Confirmed on', type: 'date' }, { key: 'deposit', label: 'العربون (ج.م)', en: 'Deposit (EGP)', type: 'number' }, { key: 'note', label: 'تعليق مهم عن الأوردر', en: 'Order note' }],
         rows: () => allOrders().map(orderRow),
         byId: (id) => { const o = OA() && OA().get ? OA().get(id) : null; return o ? orderRow(o) : null; },
-        apply: (rows) => runRows(rows, (r) => { const M = { confirm: 'cf', cdate: 'cdate', deposit: 'dep', note: 'note' }; const f = {}; Object.keys(M).forEach((k) => { if (filled(r.data[k])) f[M[k]] = r.data[k]; }); return OA().patch(r.data._id, f) ? { ok: true } : { ok: false, reason: 'الأوردر مش ظاهر في الصفحة' }; }) },
+        apply: (rows) => runRows(rows, async (r) => { const M = { confirm: 'cf', cdate: 'cdate', deposit: 'dep', note: 'note' }; const f = {}; Object.keys(M).forEach((k) => { if (filled(r.data[k])) f[M[k]] = r.data[k]; });
+          const A = OA(); if (A.track) A.track(); const hit = A.patch(r.data._id, f); const w = A.flush ? await A.flush() : { ok: true }; return !hit ? { ok: false, reason: 'الأوردر مش ظاهر في الصفحة' } : vOut(w); }) },
       { id: 'subEdit', label: 'المنتجات في الأوردرات — الحالة والميعاد وتعليق المبتكر', ids: true, canAdd: false, note: 'تعديل بس — الـ ID هو سطر المنتج نفسه. «وصل المخزن» و«مرتجع» من الأوردر نفسه عشان محتاجين بيانات زيادة.',
         fields: () => [{ key: 'sid', label: 'الأوردر الفرعي', en: 'Sub-order #', readOnly: true }, { key: 'oid', label: 'رقم الأوردر', en: 'Order #', readOnly: true }, { key: 'product', label: 'المنتج', en: 'Product', readOnly: true }, { key: 'vendor', label: 'المبتكر', en: 'Vendor', readOnly: true },
           { key: 'subStatus', label: 'حالة المنتج', en: 'Product status', type: 'enum', options: (OA() && OA().subStatuses ? OA().subStatuses() : []).filter((x) => !POPUP_SS.includes(x)) }, { key: 'expected', label: 'تاريخ تبليغ المبتكر', en: 'Maker notified on', type: 'date' }, { key: 'vendorComment', label: 'تعليق المبتكر', en: 'Vendor comment' }],
         rows: lineRows,
         byId: (id) => lineRows().find((x) => x._id === String(id)) || null,
-        apply: (rows) => runRows(rows, (r) => { const M = { subStatus: 'ss', expected: 'exp', vendorComment: 'cm' }; const f = {}; Object.keys(M).forEach((k) => { if (filled(r.data[k])) f[M[k]] = r.data[k]; }); return OA().patchLine && OA().patchLine(r.data._id, f) ? { ok: true } : { ok: false, reason: 'السطر مش ظاهر في الصفحة' }; }) },
+        apply: (rows) => runRows(rows, async (r) => { const M = { subStatus: 'ss', expected: 'exp', vendorComment: 'cm' }; const f = {}; Object.keys(M).forEach((k) => { if (filled(r.data[k])) f[M[k]] = r.data[k]; });
+          const A = OA(); if (!A.patchLine) return { ok: false, reason: 'السطر مش ظاهر في الصفحة' }; if (A.track) A.track(); const hit = A.patchLine(r.data._id, f); const w = A.flush ? await A.flush() : { ok: true }; return !hit ? { ok: false, reason: 'السطر مش ظاهر في الصفحة' } : vOut(w); }) },
       { id: 'customers', label: 'العملاء (خدمة العملاء)', ids: true, canAdd: true, key: 'phone', note: 'العميل الجديد بيتضاف «lead» — والموجود بيتعدّل بالـ ID.',
         fields: () => [{ key: 'name', label: 'الاسم', en: 'Name', required: true }, { key: 'phone', label: 'الموبايل', en: 'Phone', type: 'phone', required: true, sensitive: true }, { key: 'city', label: 'المدينة / المنطقة', en: 'City' }, { key: 'address', label: 'العنوان', en: 'Address', sensitive: true },
           { key: 'tags', label: 'التاجات (افصلهم بـ ،)', en: 'Tags' }, { key: 'consent', label: 'موافق على الرسايل التسويقية', en: 'Marketing consent', type: 'enum', options: ['نعم', 'لا'] }, { key: 'source', label: 'جه منين', en: 'Source' }],
@@ -294,14 +326,18 @@
           if (r.status === 'new') { const out = await A.importCustomers([{ phone: d.phone, name: d.name, city: d.city, address: d.address, source: d.source || 'استيراد شيت', tags: splitTags(d.tags), consent: d.consent !== 'لا' }]); return out && out.added ? { ok: true } : { ok: false, reason: out && out.existing ? 'الرقم موجود لعميل تاني' : 'اترفض' }; }
           const p = {}; ['name', 'city', 'address', 'source', 'phone'].forEach((k) => { if (filled(d[k])) p[k] = d[k]; }); if (filled(d.tags)) p.tags = splitTags(d.tags); if (filled(d.consent)) { p.consent = d.consent === 'نعم'; p.autoConsent = p.consent; }
           return A.updateCustomer(d._id, p); }) },
-      { id: 'tickets', label: 'الطلبات', canAdd: true, dateKey: 'created', filter: { key: 'status', label: 'الحالة', options: () => [...new Set(tstore.all().map((t) => t.status))] }, note: 'إضافة بس — كل صف طلب جديد (مفيش مسح؛ الغلط بيتقفل «مكرر»).',
+      { id: 'tickets', label: 'الطلبات', ids: true, canAdd: true, dateKey: 'created', filter: { key: 'status', label: 'الحالة', options: () => [...new Set(tstore.all().map((t) => t.status))] }, note: 'الصف من غير ID = طلب جديد، وبالـ ID = تغيير الأولوية والدور المسؤول بس (العنوان والتفاصيل بتاعة فاتح الطلب). مفيش مسح — الغلط بيتقفل «مكرر».',
         fields: () => [{ key: 'id', label: 'رقم الطلب', en: 'Request #', readOnly: true }, { key: 'type', label: 'النوع', en: 'Type', type: 'enum', options: TK.TYPES.map((x) => x[1]), required: true }, { key: 'title', label: 'العنوان', en: 'Title', required: true }, { key: 'description', label: 'التفاصيل', en: 'Description', required: true },
           { key: 'priority', label: 'الأولوية', en: 'Priority', type: 'enum', options: TK.PRIORITIES.map((x) => x[1]), required: true }, { key: 'role', label: 'الدور المسؤول', en: 'Owner role', type: 'enum', options: TK.ROLES.slice(), required: true },
           { key: 'orderId', label: 'رقم الأوردر', en: 'Order #' }, { key: 'customer', label: 'العميل', en: 'Customer' }, { key: 'vendor', label: 'المبتكر', en: 'Vendor' }, { key: 'reason', label: 'السبب', en: 'Reason', type: 'enum', options: TK.CUSTOMER_REASONS.concat(TK.VENDOR_REASONS.filter((x) => !TK.CUSTOMER_REASONS.includes(x))) },
           { key: 'status', label: 'الحالة', en: 'Status', readOnly: true }, { key: 'created', label: 'تاريخ الإنشاء', en: 'Created', type: 'date', readOnly: true }],
-        rows: () => tstore.all().map((t) => ({ id: t.id, type: TK.label(TK.TYPES, t.type), title: t.title, description: t.description, priority: TK.label(TK.PRIORITIES, t.priority), role: t.assigneeRole, orderId: t.orderId || '', customer: t.customer || '', vendor: t.vendor || '', reason: t.reason || '', status: t.status, created: String(t.createdAt || '').slice(0, 10) })),
-        check: (d) => ({ errors: Object.values(TK.validateTicket(tkIn(d))) }),
-        apply: (rows) => runRows(rows, async (r) => { const A = window.IBTickets; if (!A) return { ok: false, reason: 'الطلبات مش محمّلة' }; const out = await A.create(tkIn(r.data)); return out && out.ok === false ? out : { ok: true }; }) },
+        rows: () => tstore.all().map(ticketRow),
+        byId: (id) => { const t = tstore.all().find((x) => String(x.id) === String(id)); return t ? ticketRow(t) : null; },
+        check: (d) => ({ errors: d._id ? [] : Object.values(TK.validateTicket(tkIn(d))) }),
+        apply: (rows) => runRows(rows, async (r) => { const A = window.IBTickets; if (!A) return { ok: false, reason: 'الطلبات مش محمّلة' }; const d = r.data;
+          if (r.status === 'new') { const out = await A.create(tkIn(d)); return out && out.ok === false ? out : { ok: true }; }
+          const p = {}; if (filled(d.priority)) p.priority = tkIn(d).priority; if (filled(d.role)) p.assigneeRole = d.role; if (!Object.keys(p).length) return { ok: true };
+          const out = await A.update(d._id, p); return out && out.ok === false ? out : { ok: true }; }) },
       { id: 'team', label: 'الفريق', ids: true, canAdd: false, note: 'تعديل بس (الاسم والموبايل والمسمى — زي «تعديل بيانات العضو») للي ليك عليهم صلاحية؛ العضو الجديد من «إضافة عضو» في الموارد البشرية، والإيميل والدور والمرتب من ملف العضو.',
         fields: () => [{ key: 'name', label: 'الاسم', en: 'Name' }, { key: 'email', label: 'الإيميل', en: 'Email', readOnly: true }, { key: 'role', label: 'الدور', en: 'Role', readOnly: true }, { key: 'title', label: 'المسمى', en: 'Title' },
           { key: 'phone', label: 'الموبايل', en: 'Phone', type: 'phone', sensitive: true }, { key: 'hire', label: 'تاريخ التعيين', en: 'Hire date', type: 'date', readOnly: true }, { key: 'status', label: 'الحالة', en: 'Status', readOnly: true }, { key: 'salary', label: 'المرتب', en: 'Salary', type: 'number', sensitive: true, readOnly: true }],
@@ -310,11 +346,15 @@
         byId: (id) => teamRows().find((x) => x._id === String(id)) || null,
         apply: (rows) => runRows(rows, (r) => { const d = r.data; const H = HR(); if (!H || !H.memberInfoSet) return { ok: false, reason: 'الموارد البشرية مش محمّلة' };
           return H.memberInfoSet(d._id, { name: filled(d.name) ? d.name : null, phone: filled(d.phone) ? d.phone : null, title: filled(d.title) ? d.title : null }); }) },
-      { id: 'holidays', label: 'العطلات الرسمية', canAdd: true, key: 'date', dateKey: 'date', note: 'إضافة بس — العطلة اللي تاريخها موجود بتتخطّى؛ التعديل والمسح من «الإعدادات › الموارد البشرية».',
+      { id: 'holidays', label: 'العطلات الرسمية', ids: true, canAdd: true, key: 'date', dateKey: 'date', note: 'الصف من غير ID = عطلة جديدة (اللي تاريخها موجود بتتخطّى)، وبالـ ID = تعديل الخانات المكتوبة. المسح من «الإعدادات › الموارد البشرية».',
         fields: () => [{ key: 'date', label: 'التاريخ', en: 'Date', type: 'date', required: true }, { key: 'name', label: 'المناسبة', en: 'Holiday', required: true }, { key: 'days', label: 'عدد الأيام', en: 'Days', type: 'number', required: true }, { key: 'kind', label: 'النوع', en: 'Kind' }, { key: 'status', label: 'الحالة', en: 'Status', type: 'enum', options: ['مؤكد', 'متوقع'] }],
-        rows: () => ((HR() && HR().data && HR().data.holidays) || []).map((x) => ({ date: x.date, name: x.name, days: x.days, kind: x.kind || '', status: x.status })),
-        existing: () => ((HR() && HR().data && HR().data.holidays) || []).map((x) => x.date),
-        apply: (rows) => runRows(rows, (r) => { const H = HR(); if (!H || !H.holidayAdd) return { ok: false, reason: 'الموارد البشرية مش محمّلة' }; const d = r.data; return H.holidayAdd({ name: d.name, date: d.date, days: d.days, kind: d.kind, status: d.status }); }) },
+        rows: () => hols().map(holRow),
+        byId: (id) => { const x = hols().find((y) => String(y.dbId) === String(id)); return x ? holRow(x) : null; },
+        existing: () => hols().map((x) => x.date),
+        apply: (rows) => runRows(rows, (r) => { const H = HR(); if (!H || !H.holidayAdd) return { ok: false, reason: 'الموارد البشرية مش محمّلة' }; const d = r.data;
+          if (r.status === 'new') return H.holidayAdd({ name: d.name, date: d.date, days: d.days, kind: d.kind, status: d.status });
+          if (!hols().some((x) => String(x.dbId) === String(d._id))) return { ok: false, reason: 'العطلة مش موجودة' };
+          return H.holidayUpdate(Number(d._id), { name: d.name, date: d.date, days: d.days, kind: d.kind, status: d.status }); }) },
       { id: 'lists', label: 'الأسباب وشركات الشحن', key: ['list', 'value'], canAdd: true, filter: { key: 'list', label: 'القائمة', options: () => Object.keys(savedLists()) }, note: 'إضافة بس — القيمة الموجودة بتتخطّى؛ التعديل والترتيب من «الإعدادات › القوائم والحالات».',
         fields: () => [{ key: 'list', label: 'القائمة', en: 'List', type: 'enum', options: Object.keys(savedLists()), required: true }, { key: 'value', label: 'القيمة', en: 'Value', required: true }],
         rows: () => { const L = savedLists(); return Object.keys(L).flatMap((k) => L[k][1].map((v) => ({ list: k, value: v }))); },
@@ -324,9 +364,25 @@
             const out = S0 && S0.saveLists ? await S0.saveLists({ [k]: next }) : { ok: false }; add[k].forEach((r) => results.push({ row: r.row, ok: !!out.ok, reason: out.ok ? null : msgOf(out.message || out.reason) })); }
           return { results }; } },
       // export only (from the real data)
-      { id: 'stock', label: 'المخزن', exportOnly: true, dateKey: 'since', filter: { key: 'status', label: 'الحالة', options: () => [...new Set(K().stockNow().map((s) => s.status))] }, note: 'تصدير بس — الاستلام والحركات من صفحة المخزن.',
-        fields: () => [{ key: 'sku', label: 'SKU', en: 'SKU' }, { key: 'name', label: 'المنتج', en: 'Product' }, { key: 'vendor', label: 'المبتكر', en: 'Vendor' }, { key: 'reason', label: 'سبب التخزين', en: 'Reason' }, { key: 'status', label: 'الحالة', en: 'Status' }, { key: 'qty', label: 'الكمية', en: 'Qty', type: 'number' }, { key: 'loc', label: 'المكان', en: 'Location' }, { key: 'cost', label: 'التكلفة (ج.م)', en: 'Cost (EGP)', type: 'number' }, { key: 'since', label: 'من تاريخ', en: 'Since', type: 'date' }],
-        rows: () => K().stockNow().filter((s) => !s.closed).map((s) => ({ sku: s.sku, name: s.name, vendor: s.vendor, reason: s.reason, status: s.status, qty: s.onHand, loc: s.loc, cost: s.cost, since: s.since })) },
+      // 2026-11-18-data-real.md decision 2: the hub's pieces — a new row = «استلام يدوي» (for sale or for a shoot — an order's or a return's
+      // piece comes in from its own order), a row with an ID = its place, status, ownership and cost; the quantity moves from the hub page
+      { id: 'stock', label: 'المخزن', ids: true, canAdd: true, dateKey: 'since', filter: { key: 'status', label: 'الحالة', options: () => [...new Set(K().stockNow().map((s) => s.status))] }, note: 'الصف من غير ID = قطعة جديدة «متاح للبيع» أو «تصوير» بكميتها، وبالـ ID = المكان والحالة والملكية والتكلفة (الكمية بتتغيّر بالحركات من صفحة المخزن).',
+        fields: () => { const O = OPS(); const REA = ['متاح للبيع', 'تصوير']; return [{ key: 'sku', label: 'SKU', en: 'SKU', required: true }, { key: 'name', label: 'المنتج', en: 'Product', required: true }, { key: 'vendor', label: 'المبتكر', en: 'Vendor', type: 'enum', options: vnames(), required: true }, { key: 'reason', label: 'سبب التخزين', en: 'Reason', type: 'enum', options: REA, required: true },
+          { key: 'status', label: 'الحالة', en: 'Status', type: 'enum', options: [...new Set(Object.values((O && O.STATUS_BY_REASON) || {}).flat())] }, { key: 'qty', label: 'الكمية', en: 'Qty', type: 'number', required: true }, { key: 'loc', label: 'المكان (T / R / P)', en: 'Location' }, { key: 'mode', label: 'الملكية', en: 'Ownership', type: 'enum', options: ['أمانة', 'ملك'] }, { key: 'cost', label: 'التكلفة (ج.م)', en: 'Cost (EGP)', type: 'number' }, { key: 'since', label: 'من تاريخ', en: 'Since', type: 'date', readOnly: true }]; },
+        rows: () => stockAll().map(stockRow),
+        byId: (id) => { const x = stockAll().find((s) => String(s.key) === String(id)); return x ? stockRow(x) : null; },
+        check: (d) => { const e = []; if (!d._id && filled(d.qty) && !(Number(d.qty) > 0)) e.push('الكمية لازم أكبر من صفر'); return { errors: e }; },
+        apply: async (rows) => { const A = window.IBInventory; const O = OPS(); const out = await runRows(rows, async (r) => { if (!A) return { ok: false, reason: 'المخزن مش محمّل' }; const d = r.data;
+          if (r.status === 'new') { const st0 = filled(d.status) && (O.STATUS_BY_REASON[d.reason] || []).includes(d.status) ? d.status : O.STATUS_BY_REASON[d.reason][0];
+            return A.addLot({ sku: String(d.sku).trim(), name: String(d.name).trim(), vendor: d.vendor, reason: d.reason, status: st0, loc: d.loc || null, mode: d.reason === 'متاح للبيع' ? (d.mode || 'أمانة') : undefined, cost: filled(d.cost) ? d.cost : 0, note: 'استيراد شيت' },
+              { type: 'in', qty: Number(d.qty), label: 'دخول — ' + (d.reason === 'متاح للبيع' ? 'للبيع' : d.reason), reason: d.reason, ref: '—' }); }
+          const p = {}; ['status', 'loc', 'mode', 'cost'].forEach((k) => { if (filled(d[k])) p[k] = d[k]; }); return Object.keys(p).length ? A.updateLot(d._id, p, 'inventory.lot') : { ok: true }; });
+          if (A && A.load) { const q = A.load({ quiet: true }); if (q && q.catch) q.catch(() => {}); } return out; } },
+      // decision 3: the products — export only, from the site's mirror (the studio adds, the products page edits)
+      { id: 'products', label: 'المنتجات (من الموقع)', exportOnly: true, filter: { key: 'status', label: 'الحالة', options: () => { const P = window.IBProducts; return P ? [...new Set(P.list().map((x) => x.status))] : []; } }, note: 'تصدير بس — الإضافة من الاستوديو والتعديل من صفحة المنتجات. المنتجات بتتحمّل أول ما الصفحة دي تتفتح.',
+        fields: () => [{ key: 'id', label: 'رقم المنتج على الموقع', en: 'Product ID' }, { key: 'sku', label: 'SKU', en: 'SKU' }, { key: 'nameEn', label: 'الاسم بالإنجليزي', en: 'Name (EN)' }, { key: 'nameAr', label: 'الاسم بالعربي', en: 'Name (AR)' }, { key: 'type', label: 'النوع', en: 'Type' }, { key: 'status', label: 'الحالة', en: 'Status' },
+          { key: 'sale', label: 'سعر البيع', en: 'Price', type: 'number' }, { key: 'regular', label: 'قبل الخصم', en: 'Regular price', type: 'number' }, { key: 'stock', label: 'المخزون', en: 'Stock', type: 'number' }, { key: 'vendor', label: 'المبتكر', en: 'Vendor' }, { key: 'cats', label: 'الأقسام', en: 'Categories' }, { key: 'brands', label: 'البراند', en: 'Brands' }, { key: 'sales', label: 'مرات البيع', en: 'Sales', type: 'number' }, { key: 'permalink', label: 'اللينك', en: 'Link' }],
+        rows: () => { const P = window.IBProducts; if (!P) return []; if (P.ensure) P.ensure(); return P.list().map((x) => ({ id: x.id, sku: x.sku, nameEn: x.nameEn, nameAr: x.nameAr, type: x.type, status: x.status, sale: x.sale, regular: x.regular, stock: x.stock == null ? '' : x.stock, vendor: x.vendor || '', cats: (x.cats || []).join('، '), brands: (x.brands || []).join('، '), sales: x.sales, permalink: x.permalink })); } },
       { id: 'attendance', label: 'الحضور والانصراف', exportOnly: true, dateKey: 'date', note: 'تصدير بس — الحضور من الساعة أو «تسجيل حضور يدوي» في الموارد البشرية.',
         fields: () => [{ key: 'name', label: 'الموظف', en: 'Employee' }, { key: 'date', label: 'اليوم', en: 'Date', type: 'date' }, { key: 'in', label: 'الحضور', en: 'In', type: 'time' }, { key: 'out', label: 'الانصراف', en: 'Out', type: 'time' }, { key: 'hours', label: 'الساعات', en: 'Hours', type: 'number' }],
         rows: () => { const H = HR(); const A = (H && H.data && H.data.attendance) || []; const nm = (code) => ((H && H.member && H.member(code)) || {}).name || code; return A.map((a) => ({ name: nm(a.member), date: a.date, in: hm(a.in), out: hm(a.out), hours: a.in != null && a.out != null ? Math.round((a.out - a.in) / 6) / 10 : '' })); } },

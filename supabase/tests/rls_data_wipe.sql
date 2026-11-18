@@ -1,4 +1,4 @@
--- Tests for 0117_data_wipe: the admin only; unknown sections refused; a dry run counts the chosen tables and what references them; the real
+-- Tests for 0117_data_wipe (+ 0133 — the phrase «حذف الداتا من السيستم بشكل نهائي»): the admin only; unknown sections refused; a dry run counts the chosen tables and what references them; the real
 -- run needs the phrase, wipes the chosen sections and keeps the team, roles and settings; one activity_log row.
 begin;
 insert into auth.users (id, email, phone) values ('00000000-0000-4000-8000-000000117a01', 'wipe-admin.dev@ibtekr.local', '0100000117a1'), ('00000000-0000-4000-8000-000000117a02', 'wipe-ops.dev@ibtekr.local', '0100000117a2');
@@ -20,8 +20,10 @@ do $$ declare r jsonb; begin
 end $$;
 -- the wrong phrase, then the real one
 do $$ begin perform public.data_wipe(array['tickets'], 'امسح', false); raise exception 'case phrase failed'; exception when invalid_parameter_value then null; end $$;
+-- 0133: the old phrase no longer wipes — one phrase for every wipe
+do $$ begin perform public.data_wipe(array['tickets'], 'امسح البيانات', false); raise exception 'case old phrase failed'; exception when invalid_parameter_value then null; end $$;
 do $$ declare r jsonb; begin
-  r := public.data_wipe(array['tickets'], 'امسح البيانات', false);
+  r := public.data_wipe(array['tickets'], 'حذف الداتا من السيستم بشكل نهائي', false);
   if (select count(*) from public.tickets) <> 0 then raise exception 'case wipe failed'; end if;
   if (select count(*) from public.profiles where id = '00000000-0000-4000-8000-000000117a01') <> 1 then raise exception 'case team kept failed'; end if;
   if not exists (select 1 from public.roles) or not exists (select 1 from public.activity_log where action = 'settings.data.wipe') then raise exception 'case kept / logged failed'; end if;

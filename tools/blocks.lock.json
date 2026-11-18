@@ -65,7 +65,7 @@
   },
   "17-page-settings.js": {
     "prototype": "89d9c49b0d0f466a618479a6b68c237edb4e90a12b0b233e7d05f7916c8e8dde",
-    "current": "8d8dc4b4fa39ade75ce4ca6a876faecebb59abe3fb5da2102fd0d078fe9be43e"
+    "current": "12dc7f19a42f30fd77199e489950190a076d32004fe00be59f1aef41d2ccf7ba"
   },
   "18-page-profile.js": {
     "prototype": "218eb74e001b3e909a563499cdd2d929b1893e93d86d81f9039603b34dbdaa8a",
@@ -109,10 +109,10 @@
   },
   "28-app.js": {
     "prototype": "28f47321b1a78201e81b34cffa6e20cba67b15788396c9ce0def7cd7e17243c9",
-    "current": "5a8921e37b8e831fd831f1335ef005fe2860ca8a0bb66a71ad57189fecb8e382"
+    "current": "f9b0a851908114432db5fc790258e9a6f2fde9409d83728dd8b9aa1bd4812db2"
   },
   "29-orders-app.js": {
     "prototype": "2e80a15f203c79adc2931c3682297119b4e1926b9e40f10a0b906007acff23bd",
-    "current": "99cae9551da0933cef1b0adb8c6a353cb2f6a721befecc4a9d22dc42a8d134f9"
+    "current": "d4d741c60f3ace8a3d3deb6da1a564d380a01dfe118601f810aa76f831653c60"
   }
 }

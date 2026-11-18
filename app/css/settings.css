@@ -461,6 +461,26 @@ button.dx-stat{cursor:pointer}button.dx-stat:hover{background:var(--color-bg-hov
 #pg-settings .dz-item input{margin-top:4px;accent-color:var(--color-error-text)}
 @media (max-width:767px){#pg-settings .dz-grid{grid-template-columns:1fr}}
 .dz-modal .dz-tables{max-height:300px;overflow:auto;border:1px solid var(--color-border-subtle);border-radius:var(--radius-md,10px);margin:10px 0}
+/* 2026-11-18-data-real.md decision 4: «امسح كل حاجة» — the card, the sections in the popup and the progress bar */
+#pg-settings .dz-all{margin-bottom:16px}
+#pg-settings .dz-all .input.ok{border-color:var(--color-error-text);box-shadow:0 0 0 2px var(--color-error-bg)}
+#pg-settings .dz-acts{flex-wrap:wrap;gap:8px}
+.dz-modal .dz-run{display:flex;flex-direction:column;border:1px solid var(--color-border-subtle);border-radius:var(--radius-md,10px);margin:10px 0;max-height:340px;overflow:auto}
+.dz-modal .dz-row{display:grid;grid-template-columns:24px minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--color-border-subtle)}
+.dz-modal .dz-row:last-child{border-bottom:0}
+.dz-modal .dz-row b{display:block}
+.dz-modal .dz-st{display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--color-bg-hover);font-weight:700;font-size:12px}
+.dz-modal .dz-n{font-variant-numeric:tabular-nums;white-space:nowrap}
+.dz-modal .dz-row.on{background:var(--color-bg-hover)}
+.dz-modal .dz-row.on .dz-st{background:var(--color-warning-bg);color:var(--color-warning-base)}
+.dz-modal .dz-row.ok .dz-st{background:var(--color-success-bg);color:var(--color-success-text)}
+.dz-modal .dz-row.bad .dz-st{background:var(--color-error-bg);color:var(--color-error-text)}
+.dz-modal .dz-bar{height:10px;border-radius:999px;background:var(--color-bg-hover);overflow:hidden;margin:12px 0 6px}
+.dz-modal .dz-bar i{display:block;height:100%;background:var(--color-error-text);border-radius:inherit;transition:width .3s ease}
+.dz-modal .dz-stat{min-height:20px}
+.dz-modal .dz-stat.ok{color:var(--color-success-text);font-weight:600}
+.dz-modal .dz-stat.bad{color:var(--color-error-text);font-weight:600}
+@media (prefers-reduced-motion:reduce){.dz-modal .dz-bar i{transition:none}}
 
 /* ش40 — «المساعدين»: the rules / skills sections as cards, their items as rows (title + details) with ⋮ */
 .kb-groups { display:grid;gap:12px }

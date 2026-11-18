@@ -3223,7 +3223,8 @@ Deno.test('styles (comments decision 51): whoever sees the products, never the s
   assertEquals(woo.calls.length, 0);
   const { res, body } = await call(deps, { action: 'styles' }, { jwt: 'jwt-pview' });
   assertEquals(res.status, 200);
-  assertEquals(body, { action: 'styles', result: 'ok', attribute: true, styles: [{ id: 71, en: 'Boho', ar: 'بوهو' }, { id: 72, en: 'Wabi Sabi', ar: '' }, { id: 73, en: 'Mid-Century', ar: 'ميد سنشري' }] });
+  assertEquals({ ...body, styles: body.styles.map(({ count: _c, ...x }: any) => x) }, { action: 'styles', result: 'ok', attribute: true, styles: [{ id: 71, en: 'Boho', ar: 'بوهو' }, { id: 72, en: 'Wabi Sabi', ar: '' }, { id: 73, en: 'Mid-Century', ar: 'ميد سنشري' }] });
+  assert(body.styles.every((x: any) => typeof x.count === 'number'), 'each style says how many products carry it (the owner 18 Nov)');
   assertEquals(woo.calls.every((c: any) => c.method === 'GET'), true);
   assertEquals(db.rows('woo_sync_log').length, 0);
   // the site has no style attribute
@@ -3231,11 +3232,11 @@ Deno.test('styles (comments decision 51): whoever sees the products, never the s
   assertEquals((await call(none.deps, { action: 'styles' }, { jwt: 'jwt-pview' })).body, { action: 'styles', result: 'ok', attribute: false, styles: [] });
   // the Arabic read refused: the English names alone
   const half = setup({ routes: { 'GET wc/v3/products/attributes': { body: [{ id: 14, slug: 'pa_style' }] }, 'GET wc/v3/products/attributes/14/terms': (c: any) => (c.query.lang === 'ar' ? { status: 500, body: { code: 'x' } } : { body: EN.slice(0, 1) }) } });
-  assertEquals((await call(half.deps, { action: 'styles' }, { jwt: 'jwt-pview' })).body.styles, [{ id: 71, en: 'Boho', ar: '' }]);
+  assertEquals((await call(half.deps, { action: 'styles' }, { jwt: 'jwt-pview' })).body.styles.map(({ count: _c, ...x }: any) => x), [{ id: 71, en: 'Boho', ar: '' }]);
   // the English read handed every language back (owner 16 Nov — «بوهيمي» twice): one entry per style, asked for in English
   const mixed = [{ id: 81, name: 'Bohemian', translations: { en: 81, ar: 181 } }, { id: 181, name: 'بوهيمي', translations: { en: 81, ar: 181 } }, { id: 82, name: 'Minimal' }];
   const both = setup({ routes: { 'GET wc/v3/products/attributes': { body: [{ id: 14, slug: 'pa_style' }] }, 'GET wc/v3/products/attributes/14/terms': (c: any) => ({ body: c.query.lang === 'ar' ? mixed.slice(1, 2) : mixed }) } });
-  assertEquals((await call(both.deps, { action: 'styles' }, { jwt: 'jwt-pview' })).body.styles, [{ id: 81, en: 'Bohemian', ar: 'بوهيمي' }, { id: 82, en: 'Minimal', ar: '' }]);
+  assertEquals((await call(both.deps, { action: 'styles' }, { jwt: 'jwt-pview' })).body.styles.map(({ count: _c, ...x }: any) => x), [{ id: 81, en: 'Bohemian', ar: 'بوهيمي' }, { id: 82, en: 'Minimal', ar: '' }]);
   assertEquals(both.woo.calls.filter((c: any) => c.path.endsWith('/terms')).map((c: any) => c.query.lang), ['en', 'ar']);
 });
 

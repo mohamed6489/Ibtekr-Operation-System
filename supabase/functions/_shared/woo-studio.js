@@ -241,7 +241,7 @@ export function styleTerms(enTerms, arTerms, clean) {
   const all = new Map();
   for (const t of [...(Array.isArray(enTerms) ? enTerms : []), ...(Array.isArray(arTerms) ? arTerms : [])]) {
     const id = termId(t && t.id); const name = id !== null ? clean(t.name) : null;
-    if (id !== null && name && !all.has(id)) all.set(id, { id, name, en: trOf(t, 'en'), ar: trOf(t, 'ar'), arabic: AR_SCRIPT.test(name) });
+    if (id !== null && name && !all.has(id)) all.set(id, { id, name, en: trOf(t, 'en'), ar: trOf(t, 'ar'), arabic: AR_SCRIPT.test(name), count: Math.max(0, Number(t.count) || 0) });
   }
   // an Arabic term = Arabic script, or named as another term's Arabic translation
   const arIds = new Set([...all.values()].filter((t) => t.arabic).map((t) => t.id));
@@ -252,11 +252,14 @@ export function styleTerms(enTerms, arTerms, clean) {
   for (const t of english) {
     const linked = t.ar !== null && t.ar !== t.id && arIds.has(t.ar) ? all.get(t.ar) : [...all.values()].find((x) => arIds.has(x.id) && x.en === t.id) || null;
     if (linked) claimed.add(linked.id);
-    out.push({ id: t.id, en: t.name, ar: linked ? linked.name : '' });
+    out.push({ id: t.id, en: t.name, ar: linked ? linked.name : '', count: t.count + (linked ? linked.count : 0) });
   }
   // an Arabic term no English term owns (and that names no English term on the list) is a style of its own
   const enIds = new Set(english.map((t) => t.id));
-  for (const id of arIds) { const t = all.get(id); if (!claimed.has(id) && !(t.en !== null && t.en !== id && enIds.has(t.en))) out.push({ id, en: t.name, ar: t.name }); }
+  for (const id of arIds) { const t = all.get(id); if (!claimed.has(id) && !(t.en !== null && t.en !== id && enIds.has(t.en))) out.push({ id, en: t.name, ar: t.name, count: t.count }); }
+  // the owner 18 Nov (the site's list: Bohemian 1,107 · Boho 2 — «بوهيمى» 1,235 · «بوهيمي» 2): the most used first, so when two terms
+  // are one style (the same name after styleKey) the one the products carry is kept and a stray copy drops out
+  out.sort((x, y) => y.count - x.count);
   const seenEn = new Set(); const seenAr = new Set();
   return out.filter((s) => {
     const e = styleKey(s.en); const a = styleKey(s.ar);

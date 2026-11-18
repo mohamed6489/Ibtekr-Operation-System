@@ -158,10 +158,23 @@ test('styleTerms (owner 16 Nov — «الاستايلات … اللي داخل 
     { id: 2, name: 'Minimal', translations: { en: 2, ar: 12 } }, { id: 12, name: 'بسيط', translations: { en: 2, ar: 12 } },
     { id: 3, name: 'Handmade' }, { id: 13, name: 'هاند ميد', translations: { en: 3 } }, { id: 4, name: 'bohemian ' }, { id: 5, name: '<b>x</b>' }];
   const AR = [{ id: 11, name: 'بوهيمي' }, { id: 12, name: 'بسيط' }, { id: 13, name: 'هاند ميد' }, { id: 14, name: 'ريفي' }, { id: 3, name: 'Handmade' }];
-  assert.deepEqual(styleTerms(EN, AR, clean), [{ id: 1, en: 'Bohemian', ar: 'بوهيمي' }, { id: 2, en: 'Minimal', ar: 'بسيط' }, { id: 3, en: 'Handmade', ar: 'هاند ميد' }, { id: 14, en: 'ريفي', ar: 'ريفي' }]);
+  const bare = (l) => l.map(({ count: _c, ...x }) => x);
+  assert.deepEqual(bare(styleTerms(EN, AR, clean)), [{ id: 1, en: 'Bohemian', ar: 'بوهيمي' }, { id: 2, en: 'Minimal', ar: 'بسيط' }, { id: 3, en: 'Handmade', ar: 'هاند ميد' }, { id: 14, en: 'ريفي', ar: 'ريفي' }]);
   // no Arabic read: the English names alone
-  assert.deepEqual(styleTerms([{ id: 1, name: 'Boho' }], [], clean), [{ id: 1, en: 'Boho', ar: '' }]);
+  assert.deepEqual(bare(styleTerms([{ id: 1, name: 'Boho' }], [], clean)), [{ id: 1, en: 'Boho', ar: '' }]);
   assert.deepEqual(styleTerms(null, null, clean), []);
+});
+
+// the owner 18 Nov — his site's list (two screenshots): «Bohemian» 1,107 with «بوهيمى» 1,235 and a stray «Boho» 2 with «بوهيمي» 2; the
+// list follows how many products carry each style, so the style the products use is the one kept and offered first
+test('styleTerms: the most used term of a style wins and the list runs by use (the owner\'s site, 18 Nov)', async () => {
+  const { styleTerms } = await import('../../supabase/functions/_shared/woo-studio.js');
+  const clean = (v) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+  const t = (id, name, count, en, ar) => ({ id, name, count, translations: { en, ar } });
+  const EN = [t(1, 'Boho', 2, 1, 11), t(2, 'Minimal', 0, 2, null), t(3, 'Bohemian', 1107, 3, 13), t(4, 'Rustic', 197, 4, 14), t(5, 'Minimalist', 18, 5, 15), t(6, 'Modern', 333, 6, 16), t(7, 'Vintage', 110, 7, 17)];
+  const AR = [t(11, 'بوهيمي', 2, 1, 11), t(17, 'كلاسيكى', 23, 7, 17), t(16, 'مودرن', 20, 6, 16), t(18, 'ريفي', 0, null, 18), t(13, 'بوهيمى', 1235, 3, 13), t(14, 'ريفى', 200, 4, 14), t(15, 'بسيط', 24, 5, 15)];
+  const list = styleTerms(EN, AR, clean).map((x) => [x.en, x.ar]);
+  assert.deepEqual(list, [['Bohemian', 'بوهيمى'], ['Rustic', 'ريفى'], ['Modern', 'مودرن'], ['Vintage', 'كلاسيكى'], ['Minimalist', 'بسيط'], ['Minimal', '']]);
 });
 
 // the owner 18 Nov («الاستايل ييجي من الاستايلات اللي علي الويبسايت فقط اللي موجودين في ال style في attribute»): a style goes up only

@@ -1603,9 +1603,12 @@
       return h('li', { class: 'stp stp-' + stt, 'aria-current': stt === 'cur' ? 'step' : false }, h('button', { type: 'button', class: 'stp-b', disabled: n > reach || n === S.step, onClick: () => goStep(n), 'aria-label': 'الخطوة ' + n + ': ' + t },
         h('span', { class: 'stp-n' }, stt === 'done' ? Icon('check', 'sm') : K.Num(String(n))), h('span', { class: 'stp-l' }, t))); }));
   }
+  let stylesFor = null; // the batch the site's styles were last read for
   function view(head) {
     if (!ST() || !ST().can()) return [head, K.Empty('مش مسموحلك تضيف منتجات', 'اطلب صلاحية «إضافة منتجات» من الأدمن.')];
-    ST().ensure(); if (ST().loadStyles) ST().loadStyles(); // the shop's own styles (comments decision 51)
+    // the shop's own styles (comments decision 51), read again each time a batch opens — a style deleted on the site leaves the list
+    // (the owner 18 Nov: «لما امسح استايل من الويبسايت يتمسح من عندك»)
+    ST().ensure(); if (ST().loadStyles && stylesFor !== (S.id || 'new')) { stylesFor = S.id || 'new'; ST().loadStyles(true); }
     if (S.err) return [head, K.Empty('الدفعة مش متاحة', S.err, Button({ size: 'sm', label: 'رجوع لإضافة', onClick: () => go('products-add') }))];
     if (S.loading || !st()) return [head, U.InlineNote({ children: 'بنفتح الدفعة…' })];
     const s = st(); const photos = s.case === 'photos';
@@ -1631,7 +1634,7 @@
     const Vs = V(); const mk = pre.vendor && Vs && Vs.store && Vs.store.get ? Vs.store.get(pre.vendor.id) : null;
     if (!mk) return { ok: false, message: 'اختار المبتكر الأول' };
     if (kase !== 'photos' && mk.wooVendorId == null) return { ok: false, message: 'المبتكر ده مالوش متجر على الموقع — اعمله متجر من ملفه الأول' };
-    quiet(); ST().ensure(); if (PR() && PR().ensure) PR().ensure(); if (ST().loadStyles) ST().loadStyles();
+    quiet(); ST().ensure(); if (PR() && PR().ensure) PR().ensure(); if (ST().loadStyles) ST().loadStyles(true);
     const s0 = blank(kase, type); s0.vendorId = mk.id; s0.vendorName = mk.name;
     if (pre.kinds) s0.kinds = { sizes: Math.max(0, Math.min(10, Number(pre.kinds.sizes) || 0)), colors: Math.max(0, Math.min(10, Number(pre.kinds.colors) || 0)) };
     say('بعمل الدفعة…');

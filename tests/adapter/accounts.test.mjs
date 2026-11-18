@@ -143,6 +143,21 @@ test('phase 4.1: approveWithdraw → woo-sync withdraw_approve { id }; logged on
   assert.deepEqual(plain((await A.approveWithdraw(501)).settlement), { amount: 1200, consumed: 700, cash: 500, carry_out: 0, moves: 1 });
 });
 
+test('the owner 18 Nov: rejectWithdraw → woo-sync withdraw_reject { id, note } (the note cleaned, required); logged on ok without the note; 401 forbidden', async () => {
+  const { A, stub, logs } = load();
+  await A.load();
+  const calls = []; let answer = { data: { action: 'withdraw_reject', result: 'ok', status: 'cancelled' }, error: null };
+  stub.client.functions = { invoke: async (name, opts) => { calls.push([name, opts.body]); return answer; } };
+  assert.deepEqual(plain(await A.rejectWithdraw(501, ' ')), { ok: false, reason: 'invalid' });
+  assert.equal(calls.length, 0, 'no reason = no call');
+  assert.deepEqual(plain(await A.rejectWithdraw(501, '  الحساب <غلط>  ')), { ok: true, result: 'ok', reason: null, status: 'cancelled' });
+  assert.deepEqual(plain(calls[0]), ['woo-sync', { action: 'withdraw_reject', id: 501, note: 'الحساب غلط' }]);
+  assert.deepEqual(plain(logs.at(-1).slice(0, 2)), ['accounts.withdraw.reject', '#501 · 1200']);
+  assert.ok(!JSON.stringify(logs).includes('الحساب'), 'the reason never reaches the log');
+  answer = { data: null, error: { context: { status: 401 } } };
+  assert.deepEqual(plain(await A.rejectWithdraw(501, 'سبب')), { ok: false, reason: 'forbidden' });
+});
+
 test('0078: createWithdraw → woo-sync withdraw_create { vendor_id }; logged on ok only (the request and its amount); 409 refused / no_store; 401 forbidden', async () => {
   const { A, stub, logs } = load();
   await A.load();
@@ -172,7 +187,7 @@ test('plan 4.1 decision 12: refreshWithdrawals → woo-sync withdrawals, then lo
   const first = A.refreshWithdrawals();
   assert.equal(A.refreshing(), true);
   assert.equal((await A.refreshWithdrawals()).reason, 'busy');
-  assert.deepEqual(plain(await first), { ok: true, pending: 1 });
+  assert.deepEqual(plain(await first), { ok: true, pending: 1, balances: 0, failed: 0 });
   assert.equal(A.refreshing(), false);
   assert.deepEqual(plain(calls), [['woo-sync', { action: 'withdrawals' }]]);
   answer = { data: null, error: { context: { status: 502 } } };

@@ -428,16 +428,56 @@ Deno.test('withdraw_approve: Dokan refuses the PUT → 502 woo_error, logged as 
   assertEquals([log.kind, log.entity, log.entity_id, log.result], ['push', 'dokan_withdrawals', '7', 'error']);
 });
 
-Deno.test('withdrawals (phase 4.1, «تحديث من Dokan»): the requests only, GET only, no balances; accounts.view <> N; the sync log row', async () => {
+// ---------------------------------------------------------------- withdraw_reject (the owner 18 Nov)
+
+Deno.test('withdraw_reject: a pending request → GET then PUT { status: cancelled, note }; the mirror and the balance follow; the note never logged', async () => {
+  const routes = {
+    'GET dokan/v1/withdraw/7': { body: wdDokan('pending') },
+    'PUT dokan/v1/withdraw/7': (c: any) => ({ body: wdDokan(c.body.status) }),
+    'GET dokan/v1/stores/44/stats': { body: { others: { balance: 2500 }, revenue: { earning: 9000 } } },
+  };
+  const settles: any[] = [];
+  const { db, woo, deps } = setup({ seed: wdSeed('pending'), routes, env: PUSH_ON, rpc: { acc_settle_withdrawal: (a: any) => { settles.push(a); return null; } } });
+  const { res, body } = await call(deps, { action: 'withdraw_reject', id: 7, note: '  الحساب <b>البنكي</b>   غلط  ' }, { jwt: 'jwt-approver' });
+  assertEquals(res.status, 200);
+  assertEquals(body, { action: 'withdraw_reject', result: 'ok', status: 'cancelled' });
+  assertEquals(woo.calls.map((c: any) => [c.method, c.path, c.body ?? null]), [['GET', 'dokan/v1/withdraw/7', null], ['PUT', 'dokan/v1/withdraw/7', { status: 'cancelled', note: 'الحساب bالبنكي/b غلط' }], ['GET', 'dokan/v1/stores/44/stats', null]]);
+  assertEquals(db.row('dokan_withdrawals', 7).status, 'cancelled');
+  assertEquals(db.row('dokan_balances', vendorId(44), 'vendor_id').balance, 2500);
+  assertEquals(settles, [], 'nothing settles on a reject');
+  const log = db.rows('woo_sync_log').at(-1);
+  assertEquals([log.entity, log.entity_id, log.action, log.result, log.detail], ['dokan_withdrawals', '7', 'withdraw_reject', 'ok', { status: 'cancelled', amount: 1500 }]);
+  assertFalse(JSON.stringify(db.rows('woo_sync_log')).includes('غلط'), 'the reason never reaches a log');
+});
+
+Deno.test('withdraw_reject: the admin or accounts.approve = F only (never the sync secret); a reason is required; the push gate; stale on Dokan', async () => {
+  const { woo, deps } = setup({ seed: wdSeed('pending'), env: PUSH_ON, routes: { 'GET dokan/v1/withdraw/7': { body: wdDokan('approved') } } });
+  assertEquals((await call(deps, { action: 'withdraw_reject', id: 7, note: 'سبب' })).res.status, 401, 'the sync secret never rejects');
+  assertEquals((await call(deps, { action: 'withdraw_reject', id: 7, note: 'سبب' }, { jwt: 'jwt-acct' })).res.status, 401, 'accounts.approve N');
+  assertEquals((await call(deps, { action: 'withdraw_reject', id: 7, note: ' ' }, { jwt: 'jwt-admin' })).res.status, 400, 'no reason');
+  assertEquals(woo.calls.length, 0);
+  const stale = await call(deps, { action: 'withdraw_reject', id: 7, note: 'سبب' }, { jwt: 'jwt-admin' });
+  assertEquals([stale.body.result, stale.body.reason, stale.body.status], ['skipped', 'stale', 'approved']);
+  assert(woo.calls.every((c: any) => c.method === 'GET'));
+  const off = setup({ seed: wdSeed('pending') });
+  const a = await call(off.deps, { action: 'withdraw_reject', id: 7, note: 'سبب' }, { jwt: 'jwt-approver' });
+  assertEquals([a.body.result, a.body.reason], ['skipped', 'push_disabled']);
+  assertEquals(off.woo.calls.length, 0);
+});
+
+Deno.test('withdrawals (phase 4.1, «تحديث من Dokan»): the requests, then every maker\'s balance (the owner 18 Nov), GET only; accounts.view <> N; the sync log row', async () => {
   const wd = (id: number, store: number, status: string) => ({ id, user: { id: store }, amount: 900, charge: 0, receivable: 900, status, method: 'bank', created: '2026-10-28 09:00:00', ip: '10.0.0.9', details: { bank: { ac_number: '123456789012' } } });
-  const routes = { 'GET dokan/v1/withdraw': (c: any) => (c.query.status === 'all' ? page([wd(201, 44, 'pending'), wd(7, 2376, 'approved')]) : page([])) };
+  const routes = { 'GET dokan/v1/withdraw': (c: any) => (c.query.status === 'all' ? page([wd(201, 44, 'pending'), wd(7, 2376, 'approved')]) : page([])),
+    'GET dokan/v1/stores/44/stats': { body: { others: { balance: 7010.46 }, revenue: { earning: 139203.9, sales: 270000, orders: 140 } } } };
   const { db, woo, deps } = setup({ routes });
   const { res, body } = await call(deps, { action: 'withdrawals' }, { jwt: 'jwt-acct' });
   assertEquals(res.status, 200);
-  assertEquals(body.counts, { withdrawals: 2, skipped: 0, failed_rows: 0, settled: 0, pages: 1, done: true });
+  const makers = new Set(woo.calls.filter((c: any) => /^dokan\/v1\/stores\/\d+\/stats$/.test(c.path)).map((c: any) => c.path));
+  assert(makers.has('dokan/v1/stores/44/stats') && makers.has('dokan/v1/stores/2376/stats'), 'every maker with a store is read');
+  assertEquals([body.counts.withdrawals, body.counts.settled, body.counts.balances], [2, 0, 1]);
   assertEquals(db.rows('dokan_withdrawals').map((r: any) => [r.id, r.vendor_id, r.status]), [[201, vendorId(44), 'pending'], [7, vendorId(2376), 'approved']]);
-  assertEquals(woo.calls.map((c: any) => [c.method, c.path]), [['GET', 'dokan/v1/withdraw']], 'no stats requests');
-  assertEquals(db.rows('dokan_balances').length, 0);
+  assert(woo.calls.every((c: any) => c.method === 'GET'));
+  assertEquals(db.row('dokan_balances', vendorId(44), 'vendor_id').balance, 7010.46);
   assertFalse(JSON.stringify(db.rows('dokan_withdrawals')).includes('123456789012'));
   const log = db.rows('woo_sync_log').at(-1);
   assertEquals([log.entity, log.action, log.result], ['dokan_withdrawals', 'refresh', 'ok']);
@@ -2971,11 +3011,11 @@ Deno.test('0078 withdrawals: a request that turned approved on Dokan (pending he
   const { body } = await call(deps, { action: 'withdrawals' }, { jwt: 'jwt-acct' });
   assertEquals(body.counts.settled, 2);
   assertEquals(settles, [{ p_withdraw: 1, p_source: 'dokan', p_by: null }, { p_withdraw: 3, p_source: 'dokan', p_by: null }]);
-  // the settled maker's Dokan balance is read again at once (the request lowered it) — the net never counts the request twice
+  // the settled maker's Dokan balance is read after the requests (with every maker's — the owner 18 Nov), once
   assertEquals(woo.calls.filter((c: any) => c.method === 'GET' && c.path === 'dokan/v1/stores/44/stats').length, 1);
   const bal = db.rows('dokan_balances').find((r: any) => r.vendor_id === vendorId(44));
   assertEquals([bal.balance, bal.earning, bal.sales, bal.orders], [120, 5000, 7000, 9]);
-  assertEquals(woo.calls.filter((c: any) => c.path === 'dokan/v1/stores/2376/stats').length, 0, 'no other maker read');
+  assertEquals(woo.calls.filter((c: any) => c.path === 'dokan/v1/stores/2376/stats').length, 1, 'every maker read once (the owner 18 Nov)');
 });
 
 Deno.test('0078 withdrawals: a settlement the database refuses is logged with its code only and the pull goes on', async () => {

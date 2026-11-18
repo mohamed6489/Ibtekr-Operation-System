@@ -45,5 +45,5 @@ export async function readStore(db) {
 export const STORE_FREE_ACTIONS = ['thumbs', 'studio_sheet'];
 export const wooActive = (store) => storeOf(store).platform === 'woo';
 /** single-seller mode: woo-sync skips what is Dokan's alone (its stores, sub-orders, balances and withdrawals, a product's maker). */
-export const SINGLE_OFF_ACTIONS = ['vendors', 'push_vendor', 'probe_dokan', 'accounts', 'statement', 'withdraw_approve', 'withdraw_create', 'withdrawals',
+export const SINGLE_OFF_ACTIONS = ['vendors', 'push_vendor', 'probe_dokan', 'accounts', 'statement', 'withdraw_approve', 'withdraw_reject', 'withdraw_create', 'withdrawals',
   'suborder_trash', 'suborder_status', 'vendor_photo', 'vendor_store', 'vendor_delete', 'products_vendor'];

@@ -386,7 +386,7 @@ export async function installSupabaseMock(page, opts = {}) {
   // ({ vendor_id, by, result, reason?, id?, amount? }); withdraw_approve settles the maker's open moves like acc_settle_withdrawal.
   mock.acc = { acc_expenses: [], acc_vendor_moves: [], acc_account_moves: [], acc_list_items: [], dokan_balances: (opts.dokanBalances || []).map((x) => ({ ...x })), dokan_withdrawals: (opts.dokanWithdrawals || []).map((x) => ({ ...x })),
     acc_vendor_settlements: (opts.settlements || []).map((x) => ({ ...x })) };
-  mock.approvals = []; mock.withdrawCreates = [];
+  mock.approvals = []; mock.withdrawCreates = []; mock.rejects = []; // rejects: each woo-sync withdraw_reject ({ id, by, note, result, reason? }) — the owner 18 Nov
   mock.shareMails = []; mock.shareMailDown = false; // share-mail (the owner 16 Nov): each mail { to, subject, kind, size, by }; shareMailDown = Resend not set (503)
   // phase 6 (0034): the customer-service tables. cs.customers: one row per normalised phone of the seeded orders (the backfill)
   // plus a manual lead; one open customer conversation (assigned to M02, two messages) and one closed maker conversation; the
@@ -2414,7 +2414,7 @@ export async function installSupabaseMock(page, opts = {}) {
         (mock.brandSiteCalls = mock.brandSiteCalls || []).push({ brand_id: br.id, name: br.name, image: !!b.image, by: u.email });
         return json(200, { action, result: 'ok', brand: 700 + mock.brandSiteCalls.length, made: true, image: b.image ? 'ok' : 'none', attr: 'ok' });
       }
-      if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : (action === 'order_trash' || action === 'suborder_trash' || action === 'line_trash' || action === 'line_qty' || action === 'line_add' || action === 'suborder_status') ? hasPerm(u, 'orders.status') === 'F' && hasPerm(u, 'orders.view') !== 'N' : (action === 'order_create' || action === 'order_pay_link') ? (isAdmin(u) || hasPerm(u, 'orders.status') === 'F') : action === 'push_vendor' ? mayPushVendor() : (action === 'statement' || action === 'withdrawals') ? hasPerm(u, 'accounts.view') !== 'N' : action === 'thumbs' ? (hasPerm(u, 'orders.view') !== 'N' || hasPerm(u, 'products.view') !== 'N') : action === 'withdraw_approve' || action === 'withdraw_create' ? (isAdmin(u) || hasPerm(u, 'accounts.approve') === 'F')
+      if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : (action === 'order_trash' || action === 'suborder_trash' || action === 'line_trash' || action === 'line_qty' || action === 'line_add' || action === 'suborder_status') ? hasPerm(u, 'orders.status') === 'F' && hasPerm(u, 'orders.view') !== 'N' : (action === 'order_create' || action === 'order_pay_link') ? (isAdmin(u) || hasPerm(u, 'orders.status') === 'F') : action === 'push_vendor' ? mayPushVendor() : (action === 'statement' || action === 'withdrawals') ? hasPerm(u, 'accounts.view') !== 'N' : action === 'thumbs' ? (hasPerm(u, 'orders.view') !== 'N' || hasPerm(u, 'products.view') !== 'N') : action === 'withdraw_approve' || action === 'withdraw_reject' || action === 'withdraw_create' ? (isAdmin(u) || hasPerm(u, 'accounts.approve') === 'F')
         : action === 'wp_updates' || action === 'site_speed' ? (isAdmin(u) || hasPerm(u, 'marketing.create') === 'F')
         : action === 'product_get' || action === 'styles' ? hasPerm(u, 'products.view') !== 'N' : action === 'product_save' || action === 'product_images_add' ? (isAdmin(u) || hasPerm(u, 'products.edit') === 'F') : action === 'products_batch' || action === 'products_vendor' ? (isAdmin(u) || hasPerm(u, 'products.bulk') === 'F')
           : action === 'products_trash' || action === 'products_restore' ? hasPerm(u, 'products.trash') === 'F' : action === 'studio_upload' || action === 'studio_media' || action === 'category_create' || action === 'studio_sheet' || action === 'product_duplicate' || action === 'category_get' || action === 'category_update' || action === 'category_delete' || action === 'category_order' ? (isAdmin(u) || hasPerm(u, 'products.add') === 'F') : isAdmin(u))) return json(401, { error: 'unauthorized' });
@@ -2658,7 +2658,7 @@ export async function installSupabaseMock(page, opts = {}) {
         mock.refreshes = (mock.refreshes || 0) + 1;
         if (mock.wooDown) return json(502, { error: 'sync_failed', action });
         for (const w of mock.dokanNewRequests || []) if (!mock.acc.dokan_withdrawals.some((x) => x.id === w.id)) mock.acc.dokan_withdrawals.push({ ...w });
-        return json(200, { action, result: 'ok', counts: { withdrawals: mock.acc.dokan_withdrawals.length, skipped: 0, failed_rows: 0, pages: 1, done: true } });
+        return json(200, { action, result: 'ok', counts: { withdrawals: mock.acc.dokan_withdrawals.length, skipped: 0, failed_rows: 0, pages: 1, done: true, balances: mock.acc.dokan_balances.length, missing: 0, failed: 0 } });
       }
       // phase 4.1: approve a pending Dokan request — the mirror row follows; WOO_PUSH_ENABLED (mock.pushEnabled) gates it
       if (action === 'withdraw_approve') {
@@ -2683,6 +2683,18 @@ export async function installSupabaseMock(page, opts = {}) {
         mock.acc.acc_vendor_settlements.push(st);
         mock.approvals.push({ id, by: u.email, result: 'ok' });
         return json(200, { action, result: 'ok', status: 'approved', settlement: { amount: st.amount, consumed: st.consumed, cash: st.cash, carry_out: st.carry_out, moves: st.moves } });
+      }
+      // the owner 18 Nov: reject a pending Dokan request — cancelled with the reason as its note; the amount back to his balance
+      if (action === 'withdraw_reject') {
+        const id = Number(b.id); const w = mock.acc.dokan_withdrawals.find((x) => Number(x.id) === id); const note = String(b.note || '').trim();
+        const done = (result, reason) => { mock.rejects.push({ id, by: u.email, note, result, ...(reason ? { reason } : {}) }); return json(200, { action, result, ...(reason ? { reason } : {}), status: w ? w.status : null }); };
+        if (!Number.isInteger(id) || id <= 0 || note.length < 2) return json(400, { error: 'bad_request' });
+        if (!w) return json(404, { error: 'withdraw_not_found' });
+        if (w.status !== 'pending') return done('skipped', 'not_pending');
+        if (!mock.pushEnabled) return done('skipped', 'push_disabled');
+        if (mock.wooDown) return json(502, { error: 'woo_error' });
+        w.status = 'cancelled'; w.synced_at = new Date().toISOString();
+        return done('ok');
       }
       // 0078: «اعمل طلب السحب على Dokan» — the maker's whole Dokan balance, pending; never with a pending one; WOO_PUSH_ENABLED
       if (action === 'withdraw_create') {

@@ -131,7 +131,7 @@ test('makers: Dokan balance, the open Dokan request, a deposit recorded here low
   // the brief: no internal request, no payout here; the statement fetched on demand (the approval: its own case)
   await art.locator('[data-wd]').click();
   await expect(modal(page)).toContainText('تقرير مختصر — Art Craft');
-  await expect(modal(page)).toContainText('الموافقة بتتكتب على Dokan نفسه');
+  await expect(modal(page)).toContainText('وبعدين وافق أو ارفض — الاتنين بيتكتبوا على Dokan نفسه');
   await expect(modal(page).getByRole('button', { name: /طلب سحب داخلي|تسجيل التحويل/ })).toHaveCount(0);
   // comments decision 10: «كشف حساب Dokan» and «نسخ CSV» left the popup — three buttons: «مشاركة» · «التقرير الكامل» · «إغلاق»; the statement is in the row's ⋮
   await expect(modal(page).locator('.modal-f button')).toHaveText(['مشاركة', 'التقرير الكامل', 'إغلاق']);
@@ -209,6 +209,41 @@ test('accounts (approve P) edits its own move but only views the admin\'s', asyn
   await row.getByRole('button', { name: 'إجراءات الصف' }).click();
   await expect(page.locator('[role=menu]')).toContainText('عرض');
   await expect(page.locator('[role=menu]')).not.toContainText('حذف');
+});
+
+// the owner 18 Nov: «ضفلي امكانية رفض طلب السحب و يسمع علي dokan بالرفض»
+test('owner 18 Nov: reject a pending Dokan request from ⋮ — a reason is required, woo-sync withdraw_reject cancels it, logged without the reason', async ({ page }) => {
+  await openAccounts(page);
+  await tab(page, 'حسابات المبتكرين').click();
+  const art = main(page).locator('table.vendors-table tbody tr', { hasText: 'Art Craft' });
+  await art.getByRole('button', { name: /إجراءات Art Craft/ }).click();
+  await page.locator('[role=menu]').getByText('رفض طلب السحب').click();
+  const brief = page.locator('.modal.vb-modal');
+  await expect(brief).toContainText('رفض طلب السحب #501 بمبلغ 1,200.00 ج.م؟');
+  await brief.locator('[data-vb-reject-go]').click();
+  await expect(brief.locator('[data-vb-res]')).toContainText('اكتب سبب الرفض الأول');
+  expect(mock.rejects).toEqual([]);
+  await brief.locator('[data-vb-reject-note]').fill('الحساب البنكي غلط');
+  await brief.locator('[data-vb-reject-go]').click();
+  await expect(brief.locator('[data-vb-res]')).toContainText('اترفض طلب السحب #501');
+  expect(mock.rejects).toEqual([{ id: 501, by: ADMIN, note: 'الحساب البنكي غلط', result: 'ok' }]);
+  expect(mock.acc.dokan_withdrawals.find((w) => w.id === 501).status).toBe('cancelled');
+  await expect.poll(() => mock.activity.filter((a) => a.action === 'accounts.withdraw.reject').map((a) => a.new_value)).toEqual(['#501 · 1200']);
+  expect(JSON.stringify(mock.activity)).not.toContain('الحساب البنكي غلط');
+  await expect(brief.getByRole('button', { name: 'رفض الطلب' })).toHaveCount(0);
+});
+
+test('owner 18 Nov: the reject button sits next to the approve one in the brief; a member without accounts.approve sees neither', async ({ page }) => {
+  await openAccounts(page);
+  await tab(page, 'حسابات المبتكرين').click();
+  await main(page).locator('table.vendors-table tbody tr', { hasText: 'Art Craft' }).locator('[data-vreport]').click();
+  const brief = page.locator('.modal.vb-modal');
+  await expect(brief.locator('[data-vb-reject]')).toBeVisible();
+  await brief.locator('[data-vb-reject]').click();
+  await expect(brief.locator('[data-vb-reject-note]')).toBeVisible();
+  await brief.locator('[data-vb-later]').click();
+  await expect(brief.locator('[data-vb-req]')).toHaveAttribute('data-vb-req', 'pending');
+  expect(mock.rejects).toEqual([]);
 });
 
 // ---------------------------------------------------------------- phase 4.1 (docs/superpowers/plans/2026-10-28-phase-4-1-accounts-prototype.md)
@@ -329,8 +364,8 @@ test('«تحديث من Dokan» brings a new request now; the withdraw filter sh
   // so the pill's delay is 0 here)
   await page.evaluate(() => window.IBBusy.setDelay(0));
   await main(page).locator('[data-dokan-refresh]').click();
-  await expect(page.locator('.busy-stack .busy-pill', { hasText: 'بنحدّث طلبات السحب من Dokan…' })).toBeVisible();
-  await expect(main(page)).toContainText('اتحدّثت طلبات السحب من Dokan — 2 طلب مستني الموافقة.');
+  await expect(page.locator('.busy-stack .busy-pill', { hasText: 'بنحدّث الأرصدة وطلبات السحب من Dokan…' })).toBeVisible();
+  await expect(main(page)).toContainText('اتحدّثت أرصدة المبتكرين وطلبات السحب من Dokan — 2 طلب مستني الموافقة.');
   expect(mock.refreshes).toBe(1);
   await expect(table.locator('tbody tr', { hasText: 'Antikiano' }).locator('[data-wd]')).toHaveText('مستني الموافقة · 450.00');
   // the filter: makers with a request only

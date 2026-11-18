@@ -374,7 +374,7 @@ Deno.test('with WOO_WP_USER + WOO_WP_APP_PASSWORD, dokan/ calls carry their Basi
   assertEquals(woo.calls.find((c) => c.path.startsWith('wc/'))!.headers.authorization, WC_AUTH);
 });
 
-Deno.test('a sub-order delivery → sub_orders only (event ignored): no orders / order_items upsert, no Woo call', async () => {
+Deno.test('a sub-order delivery → sub_orders only (event ignored): no orders / order_items upsert; a completed one reads its maker\'s Dokan balance (the owner 18 Nov), nothing else', async () => {
   const seed = {
     orders: [{ id: 1001, number: '1001', customer_name: 'x', status: 'جاري التنفيذ', placed_at: '2026-10-20T10:00:00Z' }],
     order_items: [{ id: 1, order_id: 1001, name: 'a', vendor_id: vendorId(44), status: 'مؤكد' }, { id: 2, order_id: 1001, name: 'b', vendor_id: vendorId(2376) }],
@@ -387,8 +387,25 @@ Deno.test('a sub-order delivery → sub_orders only (event ignored): no orders /
   assertEquals([sub.order_id, sub.vendor_id, sub.woo_status], [1001, vendorId(44), 'completed']);
   assertEquals(db.rows('order_items').map((i: any) => [i.id, i.sub_order_id, i.status]), [[1, sub.id, 'مؤكد'], [2, null, '']]);
   assertEquals(db.row('orders', 1001).status, 'جاري التنفيذ');
-  assertEquals(woo.calls.length, 0);
+  assertEquals(woo.calls.map((c: any) => [c.method, c.path]), [['GET', 'dokan/v1/stores/44/stats']], 'the maker\'s balance only');
   assertEquals(db.rows('woo_webhook_events')[0].status, 'ignored');
+});
+
+Deno.test('the owner 18 Nov: a maker\'s order that closed reads his Dokan balance now (not at the hourly run); an open one does not; a Dokan failure never fails the delivery', async () => {
+  const seed = { orders: [{ id: 1001, number: '1001', customer_name: 'x', status: 'جاري التنفيذ', placed_at: '2026-10-20T10:00:00Z' }],
+    order_items: [{ id: 1, order_id: 1001, name: 'a', vendor_id: vendorId(44), status: 'مؤكد' }] };
+  const stats = { 'GET dokan/v1/stores/44/stats': { body: { others: { balance: 7010.46 }, revenue: { earning: 139203.9, sales: 270000, orders: 140 } } } };
+  const done = setup({ seed, routes: stats });
+  await deliver(done.deps, wooSub(2001, 1001, 44, { status: 'completed' }));
+  assertEquals(done.db.row('dokan_balances', vendorId(44), 'vendor_id').balance, 7010.46);
+  const open = setup({ seed, routes: stats });
+  await deliver(open.deps, wooSub(2001, 1001, 44, { status: 'processing' }));
+  assertEquals(open.woo.calls.length, 0, 'an open sub-order moves nothing on Dokan');
+  const down = setup({ seed, routes: { 'GET dokan/v1/stores/44/stats': { status: 500, body: { code: 'x' } } } });
+  const r = await deliver(down.deps, wooSub(2001, 1001, 44, { status: 'refunded' }));
+  assertEquals(r.body, { status: 'ignored', id: 2001 });
+  assertEquals(down.db.rows('woo_webhook_events')[0].status, 'ignored');
+  assertEquals(down.db.rows('dokan_balances').length, 0);
 });
 
 Deno.test('a multi-vendor parent whose lines carry no _dokan_vendor_id → every line gets its sub-order and maker from the sub-orders’ product ids', async () => {

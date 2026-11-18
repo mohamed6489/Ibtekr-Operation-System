@@ -2414,3 +2414,9 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
    بيقرا الأوردرات والمبتكرين والطلبات والمخزن، فريق «العمليات والشحن») — بيغيّر بس اللي لسه على القيم الأصلية.
 2. الدالة: `ai-content` (كلام «التشغيل الذكي» في `_shared/ai-agents.js`) — من `deploy-functions.yml`.
 3. الموقع: الكتلة 17 و`app.css` (مصفوفة الصلاحيات) و`marketing.js` — `main`.
+
+#### 2.7.114 رفض طلب السحب + أرصدة Dokan أول ما الأوردر يتقفل (18 نوفمبر — مافيش migration)
+1. انشر `woo-sync` (`withdraw_reject`، و`withdrawals` بيقرا الأرصدة) و`woo-webhook` (رصيد المبتكر لما أوردره يبقى completed / refunded / cancelled / failed) من «Deploy functions».
+2. الرفض مشروط بـ `WOO_PUSH_ENABLED = 1` زي الموافقة. أول رفض حقيقي: من «الحسابات › حسابات المبتكرين» على طلب «مستني الموافقة» — اتأكد على Dokan إن الطلب بقى Cancelled والمبلغ رجع لرصيد المبتكر، و`woo_sync_log` فيه `withdraw_reject` من غير السبب.
+3. «تحديث من Dokan» بيقرا كل الأرصدة (4 في المرة) — لو الطلب طوّل عن 60 ثانية مع مبتكرين كتير، قلّل في `_shared/dokan-balances.js` أو قسّمه.
+

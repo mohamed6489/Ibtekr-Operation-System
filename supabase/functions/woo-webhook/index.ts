@@ -24,6 +24,7 @@ import { vaultEnv } from '../_shared/secrets.js';
 import { readStore, wooActive } from '../_shared/store/index.js';
 import { errorText, makeScrubber, wooApi } from '../_shared/woo-api.js';
 import { wooId, writeContext, writeOrders, writeProducts, writeSubOrders } from '../_shared/woo-write.js';
+import { BALANCE_STATUSES, makersOfOrder, readBalances } from '../_shared/dokan-balances.js';
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -74,10 +75,23 @@ async function finishEvent(db: Db, id: number, patch: Body) {
 // A delivery whose own row was refused (woo-write logged the reason per row).
 const refused = (what: string) => new Error(`${what}: the row was refused by the database (see woo_sync_log)`);
 
+// the owner 18 Nov («راجع حساب المبتكر antekama»): an order (or a maker's sub-order) that closed moves the maker's Dokan balance —
+// it is read now, not at the next hourly run. Best effort: a failure is logged by readBalances and never fails the delivery.
+async function refreshBalances(o: Body, ctx: { db: Db; woo: ReturnType<typeof wooApi> }, deps: Deps) {
+  if (!BALANCE_STATUSES.includes(String(o.status ?? ''))) return;
+  try {
+    const makers = await makersOfOrder(deps.db, wooId(o.id));
+    if (makers.length) await readBalances({ db: deps.db, woo: ctx.woo, kind: 'webhook', now: deps.now(), scrub: ctx.woo.scrub, limit: 4 }, makers);
+  } catch (e) {
+    await logSync(deps.db, { kind: 'webhook', direction: 'in', entity: 'dokan_balances', entity_id: String(wooId(o.id)), action: 'stats', result: 'error', detail: { error: errorText(e, ctx.woo.scrub) } }).catch(() => {});
+  }
+}
+
 async function orderDelivery(o: Body, deps: Deps): Promise<Status> {
   const ctx = await writeContext({ db: deps.db, woo: wooApi(deps.env, deps.fetch), kind: 'webhook', now: deps.now });
   if (isSubOrder(o)) {
     if ((await writeSubOrders(ctx, [o])).failed) throw refused('sub_orders');
+    await refreshBalances(o, ctx, deps);
     return 'ignored'; // the maker's sub-order is mirrored; no operational status changes
   }
   const parent = await writeOrders(ctx, [o]);
@@ -93,7 +107,10 @@ async function orderDelivery(o: Body, deps: Deps): Promise<Status> {
     await logSync(deps.db, { kind: 'webhook', direction: 'in', entity: 'sub_order', entity_id: String(wooId(o.id)), action: 'parent_list', result: 'error', detail: { error: errorText(e, ctx.woo.scrub) } });
     return 'ok';
   }
-  await writeSubOrders(ctx, Array.isArray(subs) ? subs : []);
+  const list = Array.isArray(subs) ? subs : [];
+  await writeSubOrders(ctx, list);
+  // a parent with no sub-orders is one maker's order — its own status moves his balance (the sub-orders send their own deliveries)
+  if (!list.length) await refreshBalances(o, ctx, deps);
   return 'ok';
 }
 

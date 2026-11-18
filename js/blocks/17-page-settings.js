@@ -766,6 +766,10 @@
   function roleSelect(m) { return h('div', { class: 'inline-sel' }, U.Select({ id: 'role-' + m.id, label: '', options: liveNames().map((r) => ({ value: r, label: r })), value: m.role, onChange: (v) => { const old = m.role; m.role = v; LOGV('settings.member.role', m.name + ': ' + old + ' ← ' + v); K.toast('دور ' + m.name + ' بقى ' + v); R(); } })); }
   const SYM = { F: ['✓', 'مسموح', 'full'], P: ['▣', 'جزئي (عرض بدون تعديل)', 'part'], N: ['☐', 'غير مسموح', 'none'] };
   const pmMark = (c) => (c === 'N' ? '○' : Icon(c === 'F' ? 'check' : 'eye', 'sm')); // decision 6: the notifications matrix's marks
+  // the owner 18 Nov («الاختيارات دي عايزها تبقي نظام bullet points … كلهم علامة صح و انا اختار … فوق كلمة مسموح او عرض بس او لا حط جمبهم
+  // الايقونات بتاعتهم و خلي لا دي تبقي غير مسموح»): each cell is a round radio — the chosen one holds ✓ whatever its column — and the
+  // column heads carry the marks with their names (agents-brain decision 21)
+  const PM_HEAD = { F: 'مسموح', P: 'عرض بس', N: 'غير مسموح' };
   // owner batch 2 decision 2: the three levels of a role (0096 — profiles.level, roles.level_perms)
   const PLEVELS = [['manager', 'صلاحيات المدير', 'مدير'], ['employee', 'صلاحيات الموظف', 'موظف'], ['viewer', 'صلاحيات المشاهد', 'مشاهد']];
   const levelName = (l) => (PLEVELS.find((x) => x[0] === l) || PLEVELS[1])[2];
@@ -800,10 +804,10 @@
     return [K.Section('الأدوار', [h('div', { class: 'chips' }, L.map(([r]) => h('button', { type: 'button', class: 'list-chip role-chip' + (open && open[0] === r ? ' on' : ''), 'aria-pressed': String(!!open && open[0] === r), title: roleDesc(r), 'data-role-chip': r, onClick: () => { st.roleOpen = r; R(); } }, r + ' · ' + S.members.filter((m) => m.role === r).length)), Button({ type: 'text', label: '+ دور مخصص', onClick: () => customRole() })), levelPanel], null, { sub: 'اختار الدور، وبعدين المستوى (مدير · موظف · مشاهد) — المصفوفة تحت بتبقى صلاحيات المستوى ده في الدور ده بس. «إعدادات الدور» للبيانات والتنبيهات والحذف. الدور الإضافي للعضو بيتحسب بصلاحيات «الموظف».' }),
       // owner batch 14 Nov decision 6: the same look as «التنبيهات حسب الدور» — marks with icons (✓ مسموح · 👁 عرض بس · ○ لا), a legend on
       // top, each group a header with its permissions and a count, the role row sticky under the top bar until the matrix ends
-      K.Section('مصفوفة الصلاحيات' + (open ? ' — ' + open[0] + (open[1] === 0 ? '' : ' · ' + lvName) : ''), [h('div', { class: 'legend t-small' }, ...Object.keys(SYM).map((k) => h('span', { class: 'pm pm-' + SYM[k][2] }, pmMark(k), ' ' + SYM[k][1])), h('span', { class: 'pm sens' }, Icon('alert', 'sm'), ' صلاحية حساسة')),
-        h('p', { class: 't-small help ntf-hint' }, 'اختار لكل صلاحية: مسموح أو عرض بس أو لا. الصفوف الحساسة تغييرها بيطلب تأكيد وبيتسجل في سجل النشاط. التجاوز لعضو: الأعضاء ← ⋮ ← صلاحيات مخصصة.'),
+      K.Section('مصفوفة الصلاحيات' + (open ? ' — ' + open[0] + (open[1] === 0 ? '' : ' · ' + lvName) : ''), [h('div', { class: 'legend t-small' }, h('span', { class: 'pm sens' }, Icon('alert', 'sm'), ' صلاحية حساسة')),
+        h('p', { class: 't-small help ntf-hint' }, 'اختار لكل صلاحية: مسموح أو عرض بس أو غير مسموح. الصفوف الحساسة تغييرها بيطلب تأكيد وبيتسجل في سجل النشاط. التجاوز لعضو: الأعضاء ← ⋮ ← صلاحيات مخصصة.'),
         h('div', { class: 'mx-wrap', 'data-perm-matrix': '' }, h('div', { class: 'matrix mx-one', style: '--cols:' + one.length }, h('div', { class: 'mx-row mx-head' }, h('span', null, 'الصلاحية'), one.map(([r, ci]) => h('span', { class: 't-label-s mx-rolehead' }, h('span', null, r + (ci === 0 ? '' : ' · ' + lvName.replace('صلاحيات ', ''))), h('small', { class: 't-small help' }, fullCount(ci) + ' كاملة'),
-            h('span', { class: 'mx-opts', 'aria-hidden': 'true' }, ['F', 'P', 'N'].map((o) => h('span', null, o === 'F' ? 'مسموح' : o === 'P' ? 'عرض بس' : 'لا')))))),
+            h('span', { class: 'mx-opts', 'aria-hidden': 'true' }, ['F', 'P', 'N'].map((o) => h('span', { class: 'pm-h', 'data-pm-head': o }, pmMark(o), ' ' + PM_HEAD[o])))))),
           C.perms.map(([g, rows]) => h('div', { class: 'mx-group' + (isOpen(g) ? ' open' : '') }, h('div', { class: 'mx-gh' }, h('button', { type: 'button', class: 'acc-t', 'aria-expanded': String(isOpen(g)), onClick: () => { st.open[g] = !isOpen(g); R(); } }, h('span', { class: 't-label' }, g), h('span', { class: 't-small acc-d' }, rows.slice(0, 3).map((x) => x[0]).join(' · ') + (rows.length > 3 ? ' …' : ''))), h('span', { class: 't-small meta' }, rows.length + ' صلاحيات'), IconButton({ icon: isOpen(g) ? 'chevU' : 'chevD', label: (isOpen(g) ? 'طي ' : 'فتح ') + g, onClick: () => { st.open[g] = !isOpen(g); R(); }, attrs: { class: 'icon-btn acc-tog', 'aria-expanded': String(isOpen(g)) } })),
             isOpen(g) ? rows.map(([name, v, sens], ri) => h('div', { class: 'mx-row' + (sens ? ' sens' : '') }, h('span', null, sens ? Icon('alert', 'sm') : null, name), one.map(([r, ci]) => { const c = ci === 0 ? 'F' : (v[ci] || 'N');
               // ش32 (the owner 16 Nov — «ظبطلي الجدول ده يبقي بشكل احترافي و منظم»): the three choices side by side, the current one filled —
@@ -811,7 +815,7 @@
               return h('div', { class: 'pm-seg', role: 'radiogroup', 'aria-label': name + ' — ' + r }, ['F', 'P', 'N'].map((o) => { const on = o === c;
                 return h('button', { type: 'button', class: 'pm pm-' + SYM[o][2] + (on ? ' on' : ' off'), role: 'radio', 'aria-checked': String(on), disabled: ci === 0 || on,
                   'aria-label': name + ' — ' + r + ': ' + SYM[o][1] + (on ? ' (الحالي)' : ''), title: ci === 0 ? 'الأدمن عنده كل الصلاحيات' : on ? SYM[o][1] + ' — الحالي' : 'خليها ' + SYM[o][1],
-                  onClick: () => togglePerm(g, rows, ri, ci, c, !!sens, name, r, o) }, pmMark(o)); })); }))) : null)))),
+                  onClick: () => togglePerm(g, rows, ri, ci, c, !!sens, name, r, o) }, h('span', { class: 'pm-dot' }, on ? Icon('check', 'sm') : null)); })); }))) : null)))),
         note('الأدمن لا يقدر يشيل صلاحية «تعديل الفريق والربط» من نفسه لو هو آخر أدمن (self-lockout guard). التجاوز الفردي لعضو بيتعمل من صفحة الأعضاء ← ⋮ ← «صلاحيات مخصصة».')],
         [Button({ label: 'فتح الكل', onClick: () => { C.perms.forEach(([g]) => { st.open[g] = true; }); R(); } }), Button({ label: 'اغلاق الكل', onClick: () => { C.perms.forEach(([g]) => { st.open[g] = false; }); R(); } })], { th: false, sub: 'مين يقدر يعمل إيه — نفس شكل «التنبيهات حسب الدور»' })];
   }

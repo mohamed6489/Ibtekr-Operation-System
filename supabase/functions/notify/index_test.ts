@@ -152,3 +152,16 @@ Deno.test('the payroll before its pay day (accAlerts.payDay / lead), unless the 
   const seed2 = SEED(); seed2.settings[0].data.accAlerts = { payDay: 10, lead: 3 }; (seed2 as any).hr_payroll = [{ month: '2026-11-01', status: 'مدفوع' }];
   const b = setup({ seed: seed2 }); const r2 = await cron(b.deps); assertEquals(r2.body.by['accounts.payroll'], undefined, 'paid → no alert');
 });
+
+// agents-brain decision 10: each team's assistant writes its team a daily summary and a late alert in the bell (ai_agent_note_add)
+Deno.test('the team assistants: from 9:00 Cairo a summary and an alert for the team with open work; nothing for a team with none', async () => {
+  const seed = SEED(); (seed as any).ai_agents = [{ id: 'cs', name: 'خدمة العملاء الذكية', role: 'خدمة العملاء' }, { id: 'hr', name: 'الموارد البشرية الذكية', role: 'الموارد البشرية' }];
+  const notes: any[] = [];
+  const { deps } = setup({ seed });
+  const rpc = deps.db.rpc.bind(deps.db);
+  (deps.db as any).rpc = (name: string, args: any) => { if (name === 'ai_agent_note_add') { notes.push(args); return Promise.resolve({ data: notes.length, error: null }); } return rpc(name, args); };
+  const { body } = await cron(deps);
+  assertEquals(body.team, 2);
+  assertEquals(notes.map((n) => [n.p_agent, n.p_kind, n.p_ref, n.p_link]), [['cs', 'report', 'team:2026-11-08', 'tickets'], ['cs', 'alert', 'late:2026-11-08', 'tickets']]);
+  assert(/TKT-0005/.test(notes[1].p_body));
+});

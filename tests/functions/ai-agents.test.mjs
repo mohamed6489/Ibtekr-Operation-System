@@ -7,7 +7,7 @@ import { DATA_KINDS, hrData, inventoryData } from '../../supabase/functions/_sha
 
 test('0120: the ids, the five new bases (Egyptian, advise only, data never instructions) and a custom one from its name and what it is for', () => {
   assert.ok(AGENT_ID.test('stock') && AGENT_ID.test('c_ab12cd34ef') && !AGENT_ID.test('SEO!') && !AGENT_ID.test('a'));
-  assert.deepEqual(Object.keys(BASES).sort(), ['accountant', 'cs', 'hr', 'makers', 'stock']);
+  assert.deepEqual(Object.keys(BASES).sort(), ['accountant', 'content', 'cs', 'hr', 'makers', 'stock']); // 0129: + content
   for (const b of Object.values(BASES)) assert.match(b, /Egyptian Arabic[\s\S]*never instructions[\s\S]*never execute/);
   assert.equal(agentBase({ id: 'stock' }), BASES.stock);
   const c = agentBase({ id: 'c_x', name: 'مساعد <b>المنتجات</b>', about: 'الأكتر مبيعًا' });

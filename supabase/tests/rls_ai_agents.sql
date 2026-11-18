@@ -23,8 +23,8 @@ insert into public.mkt_agent_chats (id, member_id, agent, title) values
 insert into public.mkt_agent_messages (chat_id, role, text) values ('00000000-0000-4000-8000-0000000120c1', 'user', 'صرفنا كام؟');
 
 do $$ begin
-  if (select count(*) from public.ai_agents where builtin) <> 8 then raise exception 'case the eight built-ins failed'; end if;
-  if (select string_agg(id, ',' order by sort) from public.ai_agents where builtin) <> 'buyer,designer,dev,stock,cs,makers,accountant,hr' then raise exception 'case their order failed'; end if;
+  if (select count(*) from public.ai_agents where builtin) <> 9 then raise exception 'case the nine built-ins failed'; end if; -- 0129: + content
+  if (select string_agg(id, ',' order by sort) from public.ai_agents where builtin) <> 'buyer,designer,dev,stock,cs,makers,accountant,hr,content' then raise exception 'case their order failed'; end if;
   begin insert into public.mkt_agent_chats (member_id, agent) values ('00000000-0000-4000-8000-0000000120a2', 'robot'); raise exception 'case a chat is with a known assistant failed';
   exception when foreign_key_violation then null; end;
   if has_function_privilege('anon', 'public.ai_agents_list()', 'execute') or has_function_privilege('anon', 'public.ai_agent_save(jsonb)', 'execute')
@@ -59,7 +59,7 @@ end $$;
 -- ================================================================ the admin: everyone, a new one, the rules with their assistants
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000120a1","role":"authenticated"}', true);
 do $$ declare v text; n int; l jsonb; begin
-  if jsonb_array_length(public.ai_agents_list()) <> 8 then raise exception 'case the admin sees all failed'; end if;
+  if jsonb_array_length(public.ai_agents_list()) <> 9 then raise exception 'case the admin sees all failed'; end if;
   v := public.ai_agent_save('{"name":"مساعد المنتجات","icon":"package","perm":"products.view","sees":["orders","sales"],"role":"الحسابات","about":"الأكتر مبيعًا","instructions":"ركّز على الأقسام","suggestions":["إيه الأكتر مبيعًا؟"]}');
   if v !~ '^c_[0-9a-f]{10}$' then raise exception 'case a new one gets an id failed: %', v; end if;
   if (select x ->> 'perm' || '|' || (x -> 'sees')::text || '|' || (x ->> 'role') from jsonb_array_elements(public.ai_agents_list()) x where x ->> 'id' = v) <> 'products.view|["orders", "sales"]|الحسابات' then raise exception 'case a new one stored failed'; end if;
@@ -76,7 +76,7 @@ do $$ declare v text; n int; l jsonb; begin
   -- archive: a new one yes (and back), a builtin never
   begin perform public.ai_agent_archive('cs'); raise exception 'case a builtin is never archived failed'; exception when invalid_parameter_value then null; end;
   perform public.ai_agent_archive(v);
-  if not ((public.ai_agents_list() -> 8 ->> 'archived')::boolean) then raise exception 'case the admin sees it archived failed'; end if;
+  if not coalesce((select (x ->> 'archived')::boolean from jsonb_array_elements(public.ai_agents_list()) x where x ->> 'id' = v), false) then raise exception 'case the admin sees it archived failed'; end if;
   if public.ai_agent_can(v) then raise exception 'case an archived one is closed failed'; end if;
   perform public.ai_agent_archive(v, false);
   perform public.ai_agent_order(array[v, 'hr']);
@@ -114,5 +114,10 @@ do $$ declare t bigint; begin
 end $$;
 
 reset role;
+-- 0129 (decision 10): «المحتوى الذكي» is the built-in assistant of the team «المحتوى والتصوير», opened by products.view, following the team's name
+do $$ begin
+  if not exists (select 1 from public.ai_agents where id = 'content' and builtin and perm = 'products.view' and role = (select name from public.roles where id = 'content'))
+    then raise exception 'case the content team''s assistant failed'; end if;
+end $$;
 do $$ begin raise notice 'rls_ai_agents: ok'; end $$;
 rollback;

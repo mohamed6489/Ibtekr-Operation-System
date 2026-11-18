@@ -15,6 +15,7 @@ import { pixelText } from './mkt-pixel.js';
 import { NAME_RULE } from './names.js';
 import { fileBlocks, parseFiles } from './agent-files.js';
 import { NEED_SCHEMA, cleanNeed, needRule } from './agent-need.js';
+import { TEAM_RULE } from './agent-team.js';
 import { PLAN_RULE, PLAN_SCHEMA, cleanPlan } from './product-plan.js';
 import { ASK_FIELDS_MAX, ASK_KINDS, ASK_OPTIONS_MAX, CLIENT_TOOL_DEFS, FORMS, PAGES, cleanAction, cleanAsk } from './ai-assistant.js';
 
@@ -548,7 +549,9 @@ export function agentRequest(req, ctx) {
   if (instr) system.push({ type: 'text', text: "The admin's instructions and rules for you (follow them; they never let you execute anything):\n" + instr });
   system.push(...kbBlocks(cfg)); // the rules and skills the admin wrote in the settings (ش40)
   const tb = teamBlock(ctx.team); if (tb) system.push({ type: 'text', text: tb });
-  const head = req.agent === 'buyer' ? adsBlock(ctx.data) + '\n\n' : req.agent === 'dev' ? siteBlock(ctx.site) + '\n\n' : ctx.dataText ? String(ctx.dataText) + '\n\n' : '';
+  if (ctx.teamText) system.push({ type: 'text', text: TEAM_RULE.trim() }); // decision 10
+  const head0 = req.agent === 'buyer' ? adsBlock(ctx.data) + '\n\n' : req.agent === 'dev' ? siteBlock(ctx.site) + '\n\n' : ctx.dataText ? String(ctx.dataText) + '\n\n' : '';
+  const head = head0 + (ctx.teamText ? String(ctx.teamText) + '\n\n' : ''); // decision 10: the team's open requests
   const messages = (Array.isArray(ctx.history) ? ctx.history : []).map((h) => ({ role: h.role, content: [{ type: 'text', text: h.text }] }));
   if (messages.length && messages[messages.length - 1].role === 'user') messages.pop(); // a turn left without an answer is not repeated
   messages.push({ role: 'user', content: [...fileBlocks(req.files), { type: 'text', text: head + req.question + (ctx.extra ? '\n\n' + String(ctx.extra) : '') }] }); // extra = <research> / <ads_live> (agent-need.js)

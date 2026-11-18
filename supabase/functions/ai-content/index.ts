@@ -53,6 +53,7 @@ import { aiSettings, categoryLines, cleanExtract, cleanPrompts, cleanStudio, cle
 import { vaultEnv } from '../_shared/secrets.js';
 import { AGENT_NAME } from '../_shared/campaign-draft.js';
 import { LEGACY_AGENTS, agentBase, dataBlock, kbFor, seesOf } from '../_shared/ai-agents.js';
+import { OPEN as TEAM_OPEN, teamBlock, teamSummary } from '../_shared/agent-team.js';
 import { cleanKbRewrite, kbRewriteRequest, parseKbRewrite } from '../_shared/agent-kb.js';
 import { AGENT_HISTORY, REQ_RULE, agentHistory, agentRequest, agentTitle, buyerRequest, campaignTarget, cleanAgent, cleanBuyer, cleanMarketing, marketingRequest, parseAgent, parseBuyer, parseMarketing, templateNotes } from '../_shared/marketing.js';
 import { SUGGEST_DAYS, buyerRules, windowOf } from '../_shared/mkt-ads.js';
@@ -519,7 +520,21 @@ async function agent(deps: Deps, uid: string, args: Json, jwt = '') {
     const path = (c: Json): string => { const p = plan!.categories.find((x) => Number(x.id) === Number(c.parentId)); return p ? path(p) + ' › ' + c.name : c.name; };
     catalog = '<catalog>\nMakers: ' + plan.vendors.slice(0, 400).map((x) => x.name).join(' · ') + '\nCategories: ' + plan.categories.slice(0, 400).map(path).join(' · ') + '\n</catalog>';
   }
-  const ctx0: Json = { model: cfg.model, effort: cfg.effort, history: agentHistory((Array.isArray(rows) ? rows : []).slice().reverse()), cfg: agentCfg, data, site, base, dataText, team, catalog };
+  // decision 10: the assistant of a team reads that team's open requests (the member's own client — their RLS) and who is in it
+  let teamText = '';
+  if (!legacy && typeof row.role === 'string' && row.role) {
+    try {
+      const today = cairoParts(Date.parse(deps.now())).day;
+      const [tk, roles, ppl] = await Promise.all([
+        member.from('tickets').select('id, title, priority, status, follow_up, created_at, last_update, assignee_member, assignee_member_name').eq('assignee_role', row.role).in('status', TEAM_OPEN).limit(300),
+        member.rpc('ticket_roles'), member.rpc('ticket_people'),
+      ]);
+      const rid = (Array.isArray(roles.data) ? roles.data : []).find((r: Json) => r && r.label === row.role)?.role_id;
+      const people = (Array.isArray(ppl.data) ? ppl.data : []).filter((p: Json) => rid && p.role_id === rid);
+      if (!tk.error) teamText = teamBlock(row.role, teamSummary(Array.isArray(tk.data) ? tk.data : [], people, today));
+    } catch { teamText = ''; }
+  }
+  const ctx0: Json = { model: cfg.model, effort: cfg.effort, history: agentHistory((Array.isArray(rows) ? rows : []).slice().reverse()), cfg: agentCfg, data, site, base, dataText, teamText, team, catalog };
   const clean = (answer: Json) => cleanAgent(answer, req.agent, teamIds);
   let c = await aiCall(deps, run0, cfg, agentRequest(req, ctx0), clean);
   if ('res' in c) return c.res;

@@ -52,8 +52,21 @@
     try { const { error } = await cl.rpc('ai_agent_note_read', { p_ids: L }); return { ok: !error }; } catch (e) { return { ok: false }; }
   }
   // the click: the member's chat for the note (made on the server once) → «الذكاء الاصطناعي» on that assistant and that chat
+  // agents-brain decision 7 (T7): a note with the action ready — «cs/<conversation>» — opens that conversation with the assistant's
+  // reply in the box (the text after «الرد المقترح:» in its body); a member presses «ابعت». A conversation answered since = no reply put in.
+  const DRAFT_MARK = 'الرد المقترح:';
+  const draftOf = (body) => { const i = String(body || '').indexOf(DRAFT_MARK); return i < 0 ? '' : String(body).slice(i + DRAFT_MARK.length).trim(); };
+  function openPlace(n) {
+    const m = /^cs\/([0-9a-f-]{36})$/i.exec(n.link || ''); if (!m) return false;
+    const P = window.IBPages && window.IBPages.all && window.IBPages.all().cs; const S = P && P.api && P.api.data;
+    const conv = S && Array.isArray(S.convs) ? S.convs.find((x) => x.id === m[1]) : null;
+    const draft = conv && conv.status === 'مستنية ردنا' ? draftOf(n.body) : '';
+    if (P && P.api && P.api.openConversation && P.api.openConversation(m[1], draft) !== false) return true;
+    window.location.hash = 'cs-inbox'; return true;
+  }
   async function noteOpen(id) {
     const cl = c(); const n = notes && notes.find((x) => x.id === id); if (!cl || !n) return { ok: false };
+    if (openPlace(n)) { noteRead([id]); return { ok: true, place: n.link }; }
     n.read = true; notify();
     try {
       const { data, error } = await cl.rpc('ai_agent_note_open', { p_id: id });
@@ -132,5 +145,5 @@
     return { id: 'server', label: 'النظام', icon: 'bell', unit: 'تنبيه', received: unread(), all: () => markAllRead(), allLabel: 'تعليم الكل كمقروء', empty: 'مفيش تنبيهات من السيستم.',
       tabs: [['all', 'الكل', all], ['unread', 'غير مقروء', all.filter((x) => !x.muted)], ['read', 'مقروء', all.filter((x) => x.muted)]] };
   }
-  window.IBAlerts = { load, list, unread, markRead, markAllRead, subscribe, unsubscribe, clear, section, toneOf, relTime, noteList, noteRead, noteOpen, agentSection };
+  window.IBAlerts = { load, list, unread, markRead, markAllRead, subscribe, unsubscribe, clear, section, toneOf, relTime, noteList, noteRead, noteOpen, agentSection, draftOf };
 })();

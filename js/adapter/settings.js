@@ -427,6 +427,24 @@
     } catch (e) { return no('network'); }
   }
 
+  // 0134 (the owner 18 Nov — «امسح كل حاجة» takes the team too): team_wipe — every member but the admin running it and the owner M01, and
+  // the roles the admin added (the fixed teams stay; the settings and the links stay); the dry run counts members / roles / files. The
+  // files of the data buckets go through team-admin files_wipe ({ removed, more } — call again while more).
+  async function teamWipe(opts) {
+    const cl = c(); if (!cl) return no('network'); if (!can().admin) return no('forbidden');
+    const dry = !(opts && opts.confirm);
+    try {
+      const { data: d, error } = await cl.rpc('team_wipe', { p_dry: dry, p_confirm: dry ? null : String(opts.confirm) });
+      if (error) return fail(error);
+      return { ok: true, dry: !!(d && d.dry), members: Number(d && d.members) || 0, kept: Number(d && d.kept) || 0, roles: Number(d && d.roles) || 0, files: Number(d && d.files) || 0 };
+    } catch (e) { return no('network'); }
+  }
+  async function filesWipe() {
+    if (!can().admin) return no('forbidden');
+    const r = await invoke('team-admin', { action: 'files_wipe' }); if (!r.ok) return r;
+    return { ok: true, removed: Number(r.body && r.body.removed) || 0, more: !!(r.body && r.body.more) };
+  }
+
   // ---------- the saved lists (phase 12 T3, decision 10): the cancel / return reasons the admin keeps in the row «lists» ----------
   // lists() → { cancel: [...], returns: [...] }: the public slice first (every member gets it with the sign-in), then the row itself
   // (the admin's page), else the defaults of block 12 (IbtekrOps.CANCEL_REASONS / RETURN_REASONS). «أخرى» is always the last item.
@@ -692,5 +710,5 @@
 
   window.IBSettings = { MENU_ICONS, MENU_LOCKED, MENU_LABEL_MAX, cleanMenu, menuOf, menuNow, saveMenu, loginLocks, loginUnlock, load, ensure, loadPublic, clear, data, section, sections: () => Object.assign({}, data.sections), roles, liveRoles, public: () => data.public, can, PERMS, PERM_KEYS, lists, saveLists, statusLabel, STATUS_KINDS, setRoleLevelPerms, setMemberLevel, levelPermsOf, MEMBER_LEVELS: MLEVELS, quickList, quickSave, quickDelete, quickOrder, QUICK_SCOPES: Q_SCOPES, expenseKinds, statusList, addedStatuses, delayRules, fakeRule, saveFake, orderStatuses, orderStatusAdd, orderStatusSlug, orderStatusDelete, orderStatusOrder, ADDED_MAX, ADDED_LEN, weekStart, imageProvider, magnificOn, store, single, storeCaps, storeOf, STORE_PLATFORMS, STORE_READY, SINGLE_READY, STORE_CAPS, clock, dateFmt, KIND_MAX, KINDS_MAX,
     save, setRolePerms, createRole, updateRole, deleteRole, setMemberRole, setMemberRoles, setMemberPerms, setMemberStatus, sessions, revokeSession, deviceOf,
-    links, setSecret, wooSet, testSecret, unlink, connections, notifyStatus, notifyTick, activity, pageOf, docs, addDoc, updateDoc, removeDoc, docUrl, uploadLogo, logoUrl, LOGO_SLOTS, uploadFont, removeFont, loadFont, fontList, FONT_MAX, FONTS_MAX, wipe, WIPE_SECTIONS };
+    links, setSecret, wooSet, testSecret, unlink, connections, notifyStatus, notifyTick, activity, pageOf, docs, addDoc, updateDoc, removeDoc, docUrl, uploadLogo, logoUrl, LOGO_SLOTS, uploadFont, removeFont, loadFont, fontList, FONT_MAX, FONTS_MAX, wipe, WIPE_SECTIONS, teamWipe, filesWipe };
 })();

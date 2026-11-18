@@ -1494,10 +1494,17 @@
   const WIPE = [['orders', 'الأوردرات', 'الأوردرات والأوردرات الفرعية وسطورها وأحداثها وتقييمات العملاء'], ['vendors', 'المبتكرين', 'المبتكرين والبراندات والنسب والحسابات البنكية وبيانات الدخول'], ['products', 'المنتجات', 'مرآة المنتجات والأقسام والبراندات ودفعات الاستوديو'],
     ['accounts', 'الحسابات', 'المصروفات وحركات المبتكرين والحسابات والتسويات ومرايا Dokan'], ['inventory', 'المخزن', 'القطع والحركات والتجميع والجرد (الأماكن بتفضل)'], ['cs', 'خدمة العملاء', 'العملاء والمحادثات والرسايل والشرايح والحملات (القوالب والردود بتفضل)'],
     ['tickets', 'طلبات الفريق', 'الطلبات وأحداثها'], ['marketing', 'التسويق', 'الكامبينات والبوستات وأرقام الإعلانات والاقتراحات وشاتات المساعدين'], ['hr', 'سجلات الموارد البشرية', 'الحضور والوقت الإضافي والطلبات والكشوف والتقييمات (الفريق ومرتباتهم بيفضلوا)'], ['logs', 'السجلات', 'سجل النشاط والتنبيهات وسجلات المزامنة والـ AI']];
-  // the order of the run: what points at others first, the logs last (so the wipe's own line is what stays in the log)
-  const WIPE_ORDER = ['tickets', 'cs', 'marketing', 'inventory', 'accounts', 'orders', 'products', 'vendors', 'hr', 'logs'];
-  const wipeLabel = (k) => (WIPE.find((w) => w[0] === k) || [, k])[1];
-  const KEEP_NOTE = 'بيفضلوا دايمًا: الفريق وحساباتهم، الأدوار والصلاحيات، كل الإعدادات والقوائم، والبراند. الملفات المرفوعة مابتتمسحش. لو الموقع لسه مربوط، المزامنة هترجّع أوردراته ومبتكريه ومنتجاته — صفّر الموقع أو غيّر الربط من «الربط بالمنصات» الأول.';
+  // 0134 (the owner 18 Nov — «التصفير يبقي فيه كل حاجة … حتي الادوار و اعضاء الفريق … و ملفاتهم انما الادوار الثابتة ف هيا زي ما هيا», the
+  // settings and links «تفضل زي ما هي»): «امسح كل حاجة» also takes the uploaded files (team-admin files_wipe) and the team — every member but
+  // the admin running it and the owner, and the roles the admin added (team_wipe). The section-by-section choice below stays data only.
+  const WIPE_MORE = [['files', 'الملفات المرفوعة', 'مرفقات الطلبات والمحادثات، صور الاستوديو والتسويق، مستندات الموظفين، وصور المبتكرين وعقودهم — اللوجو والخطوط وأوراق الشركة بيفضلوا'],
+    ['team', 'الفريق والأدوار المضافة', 'كل الأعضاء بحساباتهم وإيميلاتهم وبياناتهم — ما عدا حسابك وحساب الأونر — والأدوار اللي اتضافت (الأدوار الثابتة بتفضل)']];
+  // the order of the run: what points at others first, the files and the team after the data, the logs last (so the wipe's own line is what stays in the log)
+  const WIPE_ORDER = ['tickets', 'cs', 'marketing', 'inventory', 'accounts', 'orders', 'products', 'vendors', 'hr', 'files', 'team', 'logs'];
+  const WIPE_DATA = WIPE_ORDER.filter((k) => k !== 'files' && k !== 'team');
+  const wipeRow = (k) => WIPE.concat(WIPE_MORE).find((w) => w[0] === k) || [k, k, ''];
+  const wipeLabel = (k) => wipeRow(k)[1];
+  const KEEP_NOTE = 'بيفضلوا: حسابك إنت وحساب الأونر، الأدوار الثابتة وصلاحياتها، كل الإعدادات والقوائم والربط بالمنصات، والبراند واللوجو والخطوط وأوراق الشركة. لو الموقع لسه مربوط، المزامنة هترجّع أوردراته ومبتكريه ومنتجاته — صفّر الموقع أو غيّر الربط من «الربط بالمنصات» الأول.';
   function wipeAllCard() {
     const input = h('input', { class: 'input', id: 'wipe-all-phrase', dir: 'rtl', autocomplete: 'off', placeholder: WIPE_PHRASE, 'aria-label': 'اكتب: ' + WIPE_PHRASE, 'data-wipe-all-phrase': '' });
     const go = Button({ type: 'danger', icon: 'trash', label: 'احذف', disabled: true, attrs: { 'data-wipe-all': '' }, onClick: () => wipeAll() });
@@ -1506,23 +1513,25 @@
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && same()) { e.preventDefault(); wipeAll(); } });
     const cancel = Button({ label: 'إلغاء', attrs: { 'data-wipe-all-cancel': '' }, onClick: () => { input.value = ''; go.disabled = true; input.classList.remove('ok'); } });
     const exp = Button({ type: 'text', icon: 'download', label: 'صدّر البيانات قبل الحذف', attrs: { 'data-wipe-export': '' }, onClick: () => fullExportRun() });
-    return h('section', { class: 'sec dz dz-all', 'data-wipe-all-card': '' }, h('div', { class: 'dz-head' }, h('span', { class: 'dz-ic' }, Icon('trash')), h('div', null, h('h3', null, 'امسح كل حاجة'), h('p', { class: 't-small' }, 'كل بيانات السيستم مرة واحدة — الأوردرات والمبتكرين والمنتجات والحسابات والمخزن وخدمة العملاء والطلبات والتسويق وسجلات الموارد البشرية والسجلات. نهائي ومالوش تراجع.'))),
+    return h('section', { class: 'sec dz dz-all', 'data-wipe-all-card': '' }, h('div', { class: 'dz-head' }, h('span', { class: 'dz-ic' }, Icon('trash')), h('div', null, h('h3', null, 'امسح كل حاجة'), h('p', { class: 't-small' }, 'كل بيانات السيستم مرة واحدة — الأوردرات والمبتكرين والمنتجات والحسابات والمخزن وخدمة العملاء والطلبات والتسويق وسجلات الموارد البشرية والسجلات، والملفات المرفوعة، وأعضاء الفريق والأدوار المضافة. نهائي ومالوش تراجع.'))),
       h('div', { class: 'dz-body' }, U.InlineNote({ kind: 'warning', children: KEEP_NOTE }),
         h('label', { class: 'field' }, h('span', { class: 't-label-s' }, 'عشان تأكّد اكتب الجملة دي بالظبط: «' + WIPE_PHRASE + '»'), input),
         h('div', { class: 'acts-inline start dz-acts' }, go, cancel, exp)));
   }
   async function wipeAll() {
     const S0 = SETT(); if (!S0 || !S0.wipe) return; const b0 = K.busy ? K.busy('بنحسب اللي هيتمسح…') : null;
-    const dry = await S0.wipe(WIPE_ORDER, { dry: true }); if (b0) b0.close();
+    const dry = await S0.wipe(WIPE_DATA, { dry: true }); const tdry = S0.teamWipe ? await S0.teamWipe() : { ok: false }; if (b0) b0.close();
     if (!dry.ok) return K.toast(dry.message || (dry.reason === 'forbidden' ? 'المسح للأدمن بس — وبالتحقق بخطوتين لو مفعّله' : 'تعذّر الحساب — جرّب تاني'), 'error');
     const tables = dry.tables || []; const rowsOf = (k) => tables.filter((t) => t.section === k && t.kind === 'wipe').reduce((n, t) => n + (Number(t.rows) || 0), 0);
-    const total = WIPE_ORDER.reduce((n, k) => n + rowsOf(k), 0); const tcount = tables.filter((t) => t.kind === 'wipe').length;
+    const total = WIPE_DATA.reduce((n, k) => n + rowsOf(k), 0); const tcount = tables.filter((t) => t.kind === 'wipe').length;
+    const T = tdry.ok ? tdry : null;
+    const countOf = (k) => (k === 'files' ? (T ? K.n0(T.files) + ' ملف' : '—') : k === 'team' ? (T ? K.n0(T.members) + ' عضو · ' + K.n0(T.roles) + ' دور' : '—') : K.n0(rowsOf(k)) + ' صف');
     let running = false; let done = false;
     const md = U.Modal({ title: 'امسح كل حاجة — راجع قبل ما تبدأ', body: [], canClose: () => !running }); md.el.classList.add('wide', 'dz-modal'); md.el.setAttribute('data-wipe-all-modal', '');
-    const list = h('div', { class: 'dz-run' }, WIPE_ORDER.map((k) => h('div', { class: 'dz-row', 'data-wipe-row': k }, h('span', { class: 'dz-st', 'aria-hidden': 'true' }, '•'), h('span', { class: 'dz-name' }, h('b', null, wipeLabel(k)), h('small', { class: 't-small help' }, (WIPE.find((w) => w[0] === k) || [, , ''])[2])), h('span', { class: 'dz-n' }, K.n0(rowsOf(k)) + ' صف'))));
+    const list = h('div', { class: 'dz-run' }, WIPE_ORDER.map((k) => h('div', { class: 'dz-row', 'data-wipe-row': k }, h('span', { class: 'dz-st', 'aria-hidden': 'true' }, '•'), h('span', { class: 'dz-name' }, h('b', null, wipeLabel(k)), h('small', { class: 't-small help' }, wipeRow(k)[2])), h('span', { class: 'dz-n' }, countOf(k)))));
     const bar = h('div', { class: 'dz-bar', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': '0', 'aria-label': 'تقدّم المسح' }, h('i', { style: 'width:0%' }));
     const stat = h('div', { class: 't-small dz-stat', 'aria-live': 'polite', 'data-wipe-status': '' });
-    const head = U.InlineNote({ kind: 'error', children: 'هيتمسح ' + K.n0(total) + ' صف من ' + K.n0(tcount) + ' جدول في ' + WIPE_ORDER.length + ' أقسام — نهائي ومالوش تراجع.' });
+    const head = U.InlineNote({ kind: 'error', children: 'هيتمسح ' + K.n0(total) + ' صف من ' + K.n0(tcount) + ' جدول' + (T ? '، و' + K.n0(T.files) + ' ملف، و' + K.n0(T.members) + ' عضو و' + K.n0(T.roles) + ' دور مضاف' : '') + ' — نهائي ومالوش تراجع.' });
     const start = Button({ type: 'danger', icon: 'trash', label: 'ابدأ الحذف', attrs: { 'data-wipe-start': '' }, onClick: () => run() });
     const cancel = Button({ type: 'text', label: 'إلغاء', onClick: () => md.close() });
     md.setBody(head, list, U.InlineNote({ kind: 'warning', children: KEEP_NOTE }));
@@ -1530,6 +1539,20 @@
     const row = (k) => md.el.querySelector('[data-wipe-row="' + k + '"]');
     const mark = (k, cls, sym, note) => { const r = row(k); if (!r) return; r.className = 'dz-row ' + cls; r.querySelector('.dz-st').textContent = sym; if (note != null) r.querySelector('.dz-n').textContent = note; };
     const setBar = (n) => { const pct = Math.round((n / WIPE_ORDER.length) * 100); bar.firstChild.style.width = pct + '%'; bar.setAttribute('aria-valuenow', String(pct)); };
+    // one step: a data section (data_wipe), the files (files_wipe until none is left), or the team (team_wipe)
+    async function wipeStep(k) {
+      if (k === 'files') {
+        if (!S0.filesWipe) return { ok: false, message: 'مش متاح' }; let removed = 0;
+        for (let i = 0; i < 200; i++) { const f = await S0.filesWipe(); if (!f.ok) return f; removed += f.removed; mark(k, 'on', '…', K.n0(removed) + ' ملف'); if (!f.more) break; }
+        return { ok: true, rows: 0, note: 'اتمسح ' + K.n0(removed) + ' ملف' };
+      }
+      if (k === 'team') {
+        if (!S0.teamWipe) return { ok: false, message: 'مش متاح' };
+        const t = await S0.teamWipe({ confirm: WIPE_PHRASE }); if (!t.ok) return t;
+        return { ok: true, rows: 0, note: 'اتمسح ' + K.n0(t.members) + ' عضو و' + K.n0(t.roles) + ' دور' };
+      }
+      return S0.wipe([k], { confirm: WIPE_PHRASE });
+    }
     async function run() {
       running = true; md.el.classList.add('running'); const x = md.el.querySelector('.modal-h-actions'); if (x) x.hidden = true;
       md.setBody(head, bar, stat, list); md.setFooter(h('span', { class: 't-small help' }, 'متقفلش الصفحة لحد ما يخلص…'));
@@ -1538,8 +1561,8 @@
         const next = []; let moved = false;
         for (const k of queue) {
           mark(k, 'on', '…'); stat.textContent = 'بنمسح «' + wipeLabel(k) + '» (' + (n + 1) + ' من ' + WIPE_ORDER.length + ')';
-          const r = await S0.wipe([k], { confirm: WIPE_PHRASE });
-          if (r.ok) { n++; moved = true; gone += Number(r.rows) || 0; out[k] = r.rows; mark(k, 'ok', '✓', 'اتمسح ' + K.n0(Number(r.rows) || 0) + ' صف'); setBar(n); }
+          const r = await wipeStep(k);
+          if (r.ok) { n++; moved = true; gone += Number(r.rows) || 0; out[k] = r.rows; mark(k, 'ok', '✓', r.note || ('اتمسح ' + K.n0(Number(r.rows) || 0) + ' صف')); setBar(n); }
           else if (r.reason === 'blocked') { mark(k, '', '•'); next.push(k); }
           else { failed = { k, r }; mark(k, 'bad', '!', r.message || 'اترفض'); break; }
         }

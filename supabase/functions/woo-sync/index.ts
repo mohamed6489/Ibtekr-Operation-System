@@ -2850,6 +2850,9 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
   // written — skipped, not an error (the crons keep calling); the pages hide these actions anyway
   const single = !!store && isSingle(store);
   if (single && SINGLE_OFF_ACTIONS.includes(action)) return json(200, { action, result: 'skipped', reason: 'single_mode' });
+  // data-real decision 9: the site unlinked («فصل» — 0139, or never linked) = the crons have nothing to read: skipped quietly (no
+  // error row every 15 minutes, no «failed cron» note for the developer agent); a member's call still answers not_configured
+  if (mode === 'system' && !String(deps.env.WOO_URL ?? '').trim()) return json(200, { action, result: 'skipped', reason: 'not_linked' });
 
   let woo: ReturnType<typeof wooApi> | null = null;
   let ctx: Promise<Ctx> | null = null;

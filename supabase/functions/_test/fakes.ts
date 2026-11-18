@@ -104,6 +104,7 @@ const COLUMNS: Record<string, string[]> = {
   hr_requests: ['id', 'member_id', 'type', 'from_day', 'to_day', 'at_time', 'hours', 'amount', 'months', 'note', 'doc_path', 'status', 'decided_by', 'decided_at', 'reason', 'created_by', 'created_at'],
   hr_overtime: ['id', 'member_id', 'day', 'start_at', 'end_at', 'minutes', 'kind', 'note', 'status', 'paid_minutes', 'decided_by', 'decided_at', 'reason', 'created_at', 'pay_month'],
   hr_meetings: ['id', 'member_id', 'reason', 'status', 'day', 'time_text', 'place', 'outcome', 'plan', 'goals', 'support', 'review_on', 'progress', 'notes', 'ref', 'created_by', 'created_at', 'updated_at'],
+  hr_pay: ['member_id', 'salary', 'holdback', 'allowances', 'updated_by', 'updated_at'],
   hr_payroll: ['month', 'status', 'opened_at', 'reviewed_by', 'reviewed_at', 'approved_by', 'approved_at', 'paid_by', 'paid_at', 'paid_account', 'total'],
   inv_consolidations: ['id', 'order_id', 'zone', 'status', 'carrier', 'since', 'created_by', 'created_at', 'closed_at', 'closed_by'],
   acc_expenses: ['id', 'on_date', 'direction', 'category', 'beneficiary', 'beneficiary_other', 'amount', 'note', 'sub_name', 'sub_is_other', 'sub_ends', 'sub_alerts', 'sub_note', 'created_by', 'created_at', 'updated_by', 'updated_at', 'voided_by', 'voided_at', 'details', 'staff_kind', 'reason'],

@@ -151,6 +151,12 @@ Deno.test('the payroll before its pay day (accAlerts.payDay / lead), unless the 
   assertEquals(a.db.rows('alerts').filter((x: any) => x.source_key === 'accounts.payroll').map((x: any) => x.role_id).sort(), ['accounts', 'admin']);
   const seed2 = SEED(); seed2.settings[0].data.accAlerts = { payDay: 10, lead: 3 }; (seed2 as any).hr_payroll = [{ month: '2026-11-01', status: 'مدفوع' }];
   const b = setup({ seed: seed2 }); const r2 = await cron(b.deps); assertEquals(r2.body.by['accounts.payroll'], undefined, 'paid → no alert');
+  // data-real decision 9: after «امسح كل حاجة» only the admin is left — no staff on the payroll = no reminder; the admin with a salary = staff
+  const seed3 = SEED(); seed3.settings[0].data.accAlerts = { payDay: 10, lead: 3 }; seed3.profiles = seed3.profiles.filter((p: any) => p.role_id === 'admin');
+  const c = setup({ seed: seed3 }); const r3 = await cron(c.deps); assertEquals(r3.body.by['accounts.payroll'], undefined, 'no staff → no alert');
+  const seed4 = SEED(); seed4.settings[0].data.accAlerts = { payDay: 10, lead: 3 }; seed4.profiles = seed4.profiles.filter((p: any) => p.role_id === 'admin');
+  (seed4 as any).hr_pay = [{ member_id: seed4.profiles[0].id, salary: 9000 }];
+  const d = setup({ seed: seed4 }); const r4 = await cron(d.deps); assertEquals(r4.body.by['accounts.payroll'], 1, 'the admin with a salary → the reminder');
 });
 
 // agents-brain decision 10: each team's assistant writes its team a daily summary and a late alert in the bell (ai_agent_note_add)

@@ -3497,6 +3497,17 @@ Deno.test('no row «store» (or platform woo) → WooCommerce as always', async 
   assertEquals(res.status, 200);
 });
 
+Deno.test('data-real decision 9: the site unlinked (no WOO_URL) — the cron is skipped quietly (200 not_linked, no log row, no call); a member still gets not_configured', async () => {
+  const { db, woo, deps } = setup({ env: { WOO_URL: '' } });
+  for (const action of ['all', 'accounts', 'withdrawals', 'carts']) {
+    const { res, body } = await call(deps, { action });
+    assertEquals(res.status, 200);
+    assertEquals(body, { action, result: 'skipped', reason: 'not_linked' });
+  }
+  assertEquals(woo.calls.length, 0);
+  assertEquals(db.rows('woo_sync_log').length, 0);
+});
+
 Deno.test('single-seller mode: Dokan actions are skipped (200 single_mode, no call); «all» pulls everything but the stores', async () => {
   const { woo, deps } = setup({ seed: { settings: [{ section: 'store', data: { mode: 'single' } }] }, routes: { 'GET wc/v3/orders': page([]) } });
   for (const action of ['vendors', 'accounts', 'withdrawals', 'statement']) {

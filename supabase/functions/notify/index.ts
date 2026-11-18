@@ -136,7 +136,11 @@ export async function collect(deps: Deps, ctx: Ctx): Promise<Item[]> {
   // accounts: the payroll before its pay day (accAlerts.payDay / lead), the makers' statements on their days, the subscriptions
   const acc = isObj(ctx.notif.accAlerts) ? ctx.notif.accAlerts : {}; const payDay = Math.min(28, Math.max(1, Number(acc.payDay) || 1)); const lead = Math.max(0, Number(acc.lead) || 14);
   const due = payrollDue(today, payDay);
-  if (due.daysLeft <= lead) {
+  // data-real decision 9 (the bell empty after «امسح كل حاجة»): no staff on the payroll = no reminder — staff is an active member
+  // who isn't the admin, or anyone with a salary (the page's IBHR.team(): an admin is staff only with a salary)
+  const staff = due.daysLeft <= lead && (rows(await deps.db.from('profiles').select('id').eq('status', 'active').neq('role_id', 'admin').limit(1)).length > 0
+    || rows(await deps.db.from('hr_pay').select('member_id, salary').limit(1000)).some((p: Json) => Number(p.salary) > 0));
+  if (staff) {
     const sheet = rows(await deps.db.from('hr_payroll').select('month, status, total').eq('month', due.month + '-01').limit(1))[0];
     if (!sheet || sheet.status !== 'مدفوع') out.push({ key: 'accounts.payroll', entityId: due.month, title: 'مرتبات الموظفين — يوم الصرف ' + due.date, body: 'فاضل ' + due.daysLeft + ' يوم · الكشف ' + (sheet ? String(sheet.status) : 'لسه ما اتفتحش'), entity: 'hr-payroll' });
   }

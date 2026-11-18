@@ -1,4 +1,4 @@
--- Tests for 0134 team_wipe: the admin only (aal2); the dry run counts; the real run needs the phrase; every member goes but the admin
+-- Tests for 0134 / 0135 team_wipe (run as «امسح كل حاجة» does: the data sections first, then the team): the admin only (aal2); the dry run counts; the real run needs the phrase; every member goes but the admin
 -- running it and the owner M01; what points at a leaving member is emptied (or its row goes); the added roles go, the fixed teams stay;
 -- the settings stay; one activity_log row. wipe_files_plan is service_role only.
 begin;
@@ -15,7 +15,6 @@ insert into public.profiles (id, name, email, phone, role_id, status, custom_per
 update public.profiles set member_code = null where member_code = 'M01';
 update public.profiles set member_code = 'M01' where id = '00000000-0000-4000-8000-000000134a03';
 update public.profiles set manager_id = '00000000-0000-4000-8000-000000134a02' where id = '00000000-0000-4000-8000-000000134a01';
-insert into public.activity_log (actor, action, entity) values ('00000000-0000-4000-8000-000000134a02', 'tw.test', 'test');
 set local role authenticated;
 -- the ops member: refused
 select set_config('request.jwt.claims', json_build_object('sub', '00000000-0000-4000-8000-000000134a02', 'role', 'authenticated', 'aal', 'aal2')::text, true);
@@ -29,7 +28,11 @@ do $$ declare r jsonb; begin
   if not exists (select 1 from public.roles where id = 'tw_custom') then raise exception 'case dry run kept failed'; end if;
 end $$;
 do $$ begin perform public.team_wipe('امسح', false); raise exception 'case phrase failed'; exception when invalid_parameter_value then null; end $$;
--- the real run
+-- the real run, after the data (as «امسح كل حاجة»: the HR records and the logs before the team)
+do $$ begin perform public.data_wipe(array['tickets', 'cs', 'marketing', 'inventory', 'accounts', 'orders', 'products', 'vendors', 'hr', 'logs'], 'حذف الداتا من السيستم بشكل نهائي', false); end $$;
+reset role;
+insert into public.activity_log (actor, action, entity) values ('00000000-0000-4000-8000-000000134a02', 'tw.test', 'test');
+set local role authenticated;
 do $$ declare r jsonb; begin
   r := public.team_wipe('حذف الداتا من السيستم بشكل نهائي', false);
   if (r ->> 'dry')::boolean is not false then raise exception 'case run failed: %', r; end if;
@@ -40,7 +43,7 @@ do $$ begin
   if (select count(*) from public.profiles where id in ('00000000-0000-4000-8000-000000134a01', '00000000-0000-4000-8000-000000134a03')) <> 2 then raise exception 'case kept failed'; end if;
   if (select count(*) from public.profiles where id not in ('00000000-0000-4000-8000-000000134a01', '00000000-0000-4000-8000-000000134a03')) <> 0 then raise exception 'case all others gone failed'; end if;
   if (select manager_id from public.profiles where id = '00000000-0000-4000-8000-000000134a01') is not null then raise exception 'case manager emptied failed'; end if;
-  if exists (select 1 from public.activity_log where action = 'tw.test' and actor is not null) then raise exception 'case actor emptied failed'; end if;
+  if exists (select 1 from public.activity_log where actor = '00000000-0000-4000-8000-000000134a02') then raise exception 'case actor emptied failed'; end if;
   if exists (select 1 from public.roles where id = 'tw_custom') then raise exception 'case added role gone failed'; end if;
   if (select extra_roles from public.profiles where id = '00000000-0000-4000-8000-000000134a03') <> '{}' then raise exception 'case extra roles failed'; end if;
   if not exists (select 1 from public.roles where id = 'admin') or not exists (select 1 from public.roles where id = 'ops') then raise exception 'case fixed teams kept failed'; end if;

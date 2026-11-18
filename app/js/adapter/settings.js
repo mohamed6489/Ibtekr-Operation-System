@@ -435,7 +435,7 @@
     const dry = !(opts && opts.confirm);
     try {
       const { data: d, error } = await cl.rpc('team_wipe', { p_dry: dry, p_confirm: dry ? null : String(opts.confirm) });
-      if (error) return fail(error);
+      if (error) { const m = String(error.message || ''); if (/^blocked: /.test(m)) return { ok: false, reason: 'blocked', message: 'فيه بيانات لسه مربوطة بالأعضاء (' + m.slice(9, 120) + ') — امسح البيانات الأول' }; return fail(error); }
       return { ok: true, dry: !!(d && d.dry), members: Number(d && d.members) || 0, kept: Number(d && d.kept) || 0, roles: Number(d && d.roles) || 0, files: Number(d && d.files) || 0 };
     } catch (e) { return no('network'); }
   }

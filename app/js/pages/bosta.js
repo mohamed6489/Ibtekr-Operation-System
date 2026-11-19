@@ -32,16 +32,18 @@
     return r;
   }
 
-  // the next 14 days (Cairo) as a list — today first
-  function days() {
-    const out = []; const base = new Date(new Date().toLocaleString('en-US', { timeZone: 'Africa/Cairo' }));
-    for (let i = 0; i < 14; i += 1) {
-      const d = new Date(base.getFullYear(), base.getMonth(), base.getDate() + i);
-      const v = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-      const name = d.toLocaleDateString('ar-EG', { weekday: 'long' });
-      out.push({ value: v, label: (i === 0 ? 'النهارده' : i === 1 ? 'بكرة' : name) + ' · ' + d.getDate() + '/' + (d.getMonth() + 1) });
-    }
-    return out;
+  // the pickup day (the owner 19 Nov — «اظهرلي شكل ال calendar اختار منه مع اختيارات سريعة زي النهاردة و بكرة و بعده»): today in
+  // Cairo, quick days from it, and the window the server takes (today to 30 days on). Bosta's API has no endpoint for its working days
+  // (the plugin 4.5.7 uses a plain date input too), so a day Bosta does not pick up on comes back as its refusal.
+  const ymd = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  const cairo = () => new Date(new Date().toLocaleString('en-US', { timeZone: 'Africa/Cairo' }));
+  function dayAt(i) { const b = cairo(); return ymd(new Date(b.getFullYear(), b.getMonth(), b.getDate() + i)); }
+  const QUICK = [[0, 'النهارده'], [1, 'بكرة'], [2, 'بعد بكرة']];
+  const short = (iso) => { const [, m, d] = iso.split('-').map(Number); return d + '/' + m; };
+  function dayField(f, e, set) {
+    const chips = h('div', { class: 'chips-row', 'data-bp-days': '', style: 'display:flex;gap:6px;flex-wrap:wrap;margin-top:6px' },
+      QUICK.map(([i, name]) => { const v = dayAt(i); return h('button', { type: 'button', class: 'chip-b', 'aria-pressed': f.date === v ? 'true' : 'false', 'data-bp-day': String(i), onClick: () => set('date', v, true) }, name + ' ' + short(v)); }));
+    return h('div', null, K.field.date('date', 'يوم الاستلام', f, e, set), chips);
   }
   const SLOTS = [{ value: '10:00 to 13:00', label: '10 الصبح – 1 الضهر' }, { value: '13:00 to 16:00', label: '1 الضهر – 4 العصر' }];
 
@@ -55,7 +57,7 @@
     // the maker's location: his last pickup, else his name in Bosta's location names
     const last = (past || []).find((p) => locs.some((l) => l.id === p.location_id));
     const byName = vendorName ? locs.find((l) => fold(l.name) && (fold(l.name).includes(fold(vendorName)) || fold(vendorName).includes(fold(l.name)))) : null;
-    const start = { location: last ? last.location_id : byName ? byName.id : '', warehouse: r.warehouse, date: days()[1].value, slot: SLOTS[0].value, receiver: r.receiver || '', phone: r.phone || '', n: 1, wn0: '', wp0: '1', orders: '' };
+    const start = { location: last ? last.location_id : byName ? byName.id : '', warehouse: r.warehouse, date: dayAt(1), slot: SLOTS[0].value, receiver: r.receiver || '', phone: r.phone || '', n: 1, wn0: '', wp0: '1', orders: '' };
     const label = (l) => l.name + (l.city ? ' — ' + l.city + (l.district ? '، ' + l.district : '') : '');
     const whOf = (id) => locs.find((l) => l.id === id);
     const ids = (t) => [...new Set((String(t || '').replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).match(/\d{3,12}/g) || []))];
@@ -77,7 +79,7 @@
         return [
           K.field.select('location', 'عنوان المبتكر على بوسطة', [{ value: '', label: '— اختار —' }].concat(locs.filter((l) => l.id !== f.warehouse).map((l) => ({ value: l.id, label: label(l) }))), f, e, set),
           admin ? K.field.select('warehouse', 'المخزن (اللي بوليصات المخزن رايحاله)', locs.map((l) => ({ value: l.id, label: label(l) })), f, e, (k, v) => set(k, v, true)) : null,
-          K.two(K.field.select('date', 'يوم الاستلام', days(), f, e, set), K.field.select('slot', 'الميعاد', SLOTS, f, e, set)),
+          K.two(dayField(f, e, set), K.field.select('slot', 'الميعاد', SLOTS, f, e, set)),
           h('h4', { class: 't-h4', style: 'margin:12px 0 4px' }, 'بوليصات للمخزن (التحصيل 0)'),
           ...rows,
           f.n < 10 ? U.Button({ label: '+ بوليصة للمخزن', onClick: () => { f['wn' + f.n] = ''; f['wp' + f.n] = '1'; set('n', f.n + 1, true); } }) : null,
@@ -98,6 +100,7 @@
           if (String(f.receiver || '').trim().length < 2) er.receiver = FIELD.receiver;
           if (!/^(\+?20|0)?1\d{9}$/.test(String(f.phone || '').replace(/[\s-]/g, ''))) er.phone = FIELD.phone;
         }
+        if (!f.date || f.date < dayAt(0) || f.date > dayAt(30)) er.date = FIELD.date;
         if (!f.n && !ids(f.orders).length) er.orders = 'زوّد بوليصة للمخزن أو اكتب رقم أوردر';
         if (ids(f.orders).length > 30) er.orders = '30 أوردر بالكتير في البيك أب';
         return er;

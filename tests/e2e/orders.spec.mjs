@@ -1398,6 +1398,15 @@ test('«بيك أب من المبتكر (بوسطة)»: two warehouse waybills w
   await expect(m.locator('[data-bp-note]')).toContainText('مكتب فيصل');
   await expect(m.locator('#location')).toContainText('Art Craft');
   await expect(m.locator('#receiver')).toHaveValue('أحمد التشغيل');
+  // the day: a calendar field + quick days (the owner 19 Nov) — tomorrow by default, «بعد بكرة» picks the day after
+  const cairoDay = (i) => { const b = new Date(new Date().toLocaleString('en-US', { timeZone: 'Africa/Cairo' })); const d = new Date(b.getFullYear(), b.getMonth(), b.getDate() + i); return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')]; };
+  const [y2, m2, d2] = cairoDay(2);
+  await expect(m.locator('[data-bp-day]')).toHaveCount(3);
+  await expect(m.locator('[data-bp-day="1"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(m.locator('[data-bp-day="2"]')).toContainText('بعد بكرة ' + Number(d2) + '/' + Number(m2));
+  await m.locator('[data-bp-day="2"]').click();
+  await expect(m.locator('[data-bp-day="2"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(m.locator('input#date')).toHaveValue(d2 + '/' + m2 + '/' + y2);
   await m.locator('#wn0').fill('181668 180656');
   await m.locator('#wp0').fill('2');
   await m.getByRole('button', { name: '+ بوليصة للمخزن' }).click();
@@ -1408,7 +1417,7 @@ test('«بيك أب من المبتكر (بوسطة)»: two warehouse waybills w
   const done = page.locator('[data-bp-done="ok"]');
   await expect(done.locator('[data-bp-ok="1"]')).toHaveCount(3);
   await expect(done.locator('[data-bp-waybill="order:181668"]')).toContainText('متبعت لبوسطة قبل كده');
-  expect(mock.pickupCalls.at(-1)).toMatchObject({ location: 'ARTC', receiver: 'أحمد التشغيل', slot: '10:00 to 13:00', warehouse: [{ note: '181668 180656', parcels: 2 }, { note: '180600', parcels: 1 }], orders: '180686 181668' });
+  expect(mock.pickupCalls.at(-1)).toMatchObject({ location: 'ARTC', date: y2 + '-' + m2 + '-' + d2, receiver: 'أحمد التشغيل', slot: '10:00 to 13:00', warehouse: [{ note: '181668 180656', parcels: 2 }, { note: '180600', parcels: 1 }], orders: '180686 181668' });
   expect(mock.orders.find((o) => o.id === 180686).bosta_delivery).toBeTruthy();
   const pop = page.waitForEvent('popup');
   await page.getByRole('button', { name: 'اطبع البوليصات (3)' }).click();

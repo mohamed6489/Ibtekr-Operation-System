@@ -376,15 +376,34 @@ Deno.test('withdraw_approve: a pending request → GET then PUT dokan/v1/withdra
   const { res, body } = await call(deps, { action: 'withdraw_approve', id: 7, amount: 1, status: 'cancelled' }, { jwt: 'jwt-approver' });
   assertEquals(res.status, 200);
   // 0078: the maker's open moves settle against it, by whoever approved — what it covered and the cash to transfer come back
-  assertEquals(body, { action: 'withdraw_approve', result: 'ok', status: 'approved', settlement: { amount: 1500, consumed: 500, cash: 1000, carry_out: 0, moves: 2 } });
+  assertEquals(body, { action: 'withdraw_approve', result: 'ok', status: 'approved', settlement: { amount: 1500, consumed: 500, cash: 1000, carry_out: 0, moves: 2 }, transfer: null });
+  assertEquals(db.rows('acc_account_moves'), [], 'no account named → no transfer recorded');
   assertEquals(settles, [{ p_withdraw: 7, p_source: 'system', p_by: 'uid-jwt-approver' }]);
   assertEquals(woo.calls.map((c: any) => [c.method, c.path, c.body ?? null]), [['GET', 'dokan/v1/withdraw/7', null], ['PUT', 'dokan/v1/withdraw/7', { status: 'approved' }], ['GET', 'dokan/v1/stores/44/stats', null]]);
   assertEquals(db.row('dokan_withdrawals', 7).status, 'approved');
   assertEquals(db.row('dokan_balances', vendorId(44), 'vendor_id').balance, 1000);
   const log = db.rows('woo_sync_log').at(-1);
-  assertEquals([log.kind, log.direction, log.entity, log.entity_id, log.action, log.result, log.detail], ['push', 'out', 'dokan_withdrawals', '7', 'withdraw_approve', 'ok', { status: 'approved', amount: 1500, settled: 2 }]);
+  assertEquals([log.kind, log.direction, log.entity, log.entity_id, log.action, log.result, log.detail], ['push', 'out', 'dokan_withdrawals', '7', 'withdraw_approve', 'ok', { status: 'approved', amount: 1500, settled: 2, transfer: null }]);
   const written = JSON.stringify([db.rows('dokan_withdrawals'), db.rows('woo_sync_log')]);
   for (const secret of ['123456789012', 'EG000000000000000000000000001', '10.0.0.9']) assertFalse(written.includes(secret), `never stored: ${secret}`);
+});
+
+Deno.test('withdraw_approve (0143): with an account the cash after the settlement leaves it — one account move, the maker its beneficiary', async () => {
+  const routes = {
+    'GET dokan/v1/withdraw/7': { body: wdDokan('pending') },
+    'PUT dokan/v1/withdraw/7': (c: any) => ({ body: wdDokan(c.body.status) }),
+    'GET dokan/v1/stores/44/stats': { body: { others: { balance: 1000 } } },
+  };
+  const rpc = { acc_settle_withdrawal: () => ({ withdraw_id: 7, amount: 1500, moves_net: 500, carry_in: 0, consumed: 500, carry_out: 0, cash: 1000, moves: 2 }) };
+  const { db, deps } = setup({ seed: wdSeed('pending'), routes, env: PUSH_ON, rpc });
+  const { body } = await call(deps, { action: 'withdraw_approve', id: 7, account: 'حساب البنك' }, { jwt: 'jwt-approver' });
+  assertEquals([body.transfer.result, body.transfer.amount, body.transfer.account], ['ok', 1000, 'حساب البنك']);
+  const m = db.rows('acc_account_moves')[0];
+  assertEquals([m.account, m.direction, m.amount, m.beneficiary_kind, m.vendor_id, m.withdraw_id, m.created_by], ['حساب البنك', 'withdraw', 1000, 'vendor', vendorId(44), 7, 'uid-jwt-approver']);
+  // an unknown account → nothing recorded
+  const again = setup({ seed: wdSeed('pending'), routes, env: PUSH_ON, rpc });
+  assertEquals((await call(again.deps, { action: 'withdraw_approve', id: 7, account: 'حساب تاني' }, { jwt: 'jwt-approver' })).body.transfer, null);
+  assertEquals(again.db.rows('acc_account_moves'), []);
 });
 
 Deno.test('withdraw_approve: the admin or accounts.approve = F only; never the sync secret; a bad id → 400; unknown → 404', async () => {

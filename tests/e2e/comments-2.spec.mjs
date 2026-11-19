@@ -301,6 +301,7 @@ test('comment 11 — «تقفيل حساب» is the short report\'s own popup; �
   await expect(page.locator('.modal[role=dialog]')).toHaveCount(1);
   expect(mock.withdrawCreates).toHaveLength(1);
   // «وافق دلوقتي»: approved on Dokan, the result in the box, the numbers follow
+  await m.locator('[data-vb-acc]').selectOption('حساب البنك'); // 0143: the account the transfer leaves
   await m.locator('[data-vb-approve]').click();
   await expect(m.locator('[data-vb-req]')).toHaveAttribute('data-vb-req', 'approved');
   await expect(m.locator('[data-vb-res]')).toContainText('اتوافق على طلب السحب');

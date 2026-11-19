@@ -36,7 +36,10 @@ async function addExpense(page, cat) {
   await modal(page).locator('#f-ben').click(); await page.locator('[role=listbox] [role=option]', { hasText: 'آخر' }).first().click();
   await modal(page).locator('#f-other').fill('صاحب المحل');
   await modal(page).locator('#f-details').fill('إيجار الشهر');
+  // 0143: the account the money left (a zero balance asks «احفظ برضه» once)
+  await modal(page).locator('#f-macc').click(); await page.locator('[role=listbox] [role=option]', { hasText: 'أوبريشن' }).first().click();
   await modal(page).getByRole('button', { name: 'حفظ' }).click();
+  await modal(page).getByRole('button', { name: 'احفظ برضه' }).click();
   await expect(modal(page)).toBeHidden();
   return shown.map((t) => t.trim());
 }

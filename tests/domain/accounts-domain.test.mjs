@@ -80,7 +80,10 @@ test('validateExpenseCategory (phase 4.1): the fields follow the type — deposi
     { beneficiaryName: 'سامح', beneficiaryIsOther: true, staffKind: 'freelance', note: '' });
   assert.equal(D.validateExpenseCategory({ direction: 'withdraw', category: 'المرتبات', beneficiary: 'منى', staffKind: 'freelance' }).value.staffKind, 'staff', 'a team member is staff');
   assert.deepEqual(Object.keys(D.validateExpenseCategory({ direction: 'withdraw', category: 'الإعلانات', platform: '' }).errors), ['platform']);
-  assert.deepEqual(Object.keys(D.validateExpenseCategory({ direction: 'withdraw', category: 'المصروفات', details: '  ' }).errors), ['details']);
+  assert.deepEqual(Object.keys(D.validateExpenseCategory({ direction: 'withdraw', category: 'المصروفات', details: '  ' }).errors), ['details', 'beneficiary']);
+  // 0143: «المصروفات» always names its beneficiary
+  assert.deepEqual(Object.keys(D.validateExpenseCategory({ direction: 'withdraw', category: 'المصروفات', details: 'ورق', beneficiary: D.OTHER, otherName: '' }).errors), ['otherName']);
+  assert.deepEqual(D.validateExpenseCategory({ direction: 'withdraw', category: 'المصروفات', details: 'ورق', beneficiary: 'مكتبة' }).errors, {});
   assert.deepEqual([...D.REFUND_REASONS], ['استرجاع مبلغ مدفوع', 'إلغاء اشتراك', 'خصم من مورد', 'تصحيح تسجيل غلط', 'أخرى'], 'the same list as 0020');
   assert.ok(!D.VENDOR_TYPES.includes(D.PAYOUT_TYPE), 'no «تحويل مستحقات» move (decision 1)');
 });
@@ -241,4 +244,23 @@ test('settings lists: the week start moves the presets and the month grid', () =
     assert.deepEqual(plain(D.presetRange('thisWeek', '2026-11-17')), { from: '2026-11-16', to: '2026-11-17' });
     assert.equal(D.monthMatrix(2026, 11)[0][0].iso, '2026-10-26');
   } finally { if (prev === undefined) delete globalThis.IBSettings; else globalThis.IBSettings = prev; }
+});
+
+test('0143 linked accounts: the beneficiary of an account move, the money account, the overdraft warning', () => {
+  const base = { amount: '200', date: '19/11/2026', direction: 'withdraw', account: 'حساب البنك' };
+  assert.deepEqual(D.validateAccountMovement(base).errors, {}, 'no benKind = no beneficiary asked (sheets)');
+  assert.deepEqual(Object.keys(D.validateAccountMovement({ ...base, benKind: 'x' }).errors), ['benKind']);
+  assert.deepEqual(Object.keys(D.validateAccountMovement({ ...base, benKind: 'account', toAccount: 'حساب البنك' }).errors), ['toAccount']);
+  assert.equal(D.validateAccountMovement({ ...base, benKind: 'account', toAccount: 'أوبريشن' }).value.beneficiary, 'أوبريشن');
+  assert.deepEqual(Object.keys(D.validateAccountMovement({ ...base, benKind: 'other', benName: ' ' }).errors), ['benName']);
+  assert.deepEqual(plain(D.validateAccountMovement({ ...base, benKind: 'member', benName: 'منى' }).value), { direction: 'withdraw', amount: 200, date: '2026-11-19', account: 'حساب البنك', benKind: 'member', beneficiary: 'منى' });
+  assert.equal(D.validateMoneyAccount('', true), 'اختار الحساب');
+  assert.equal(D.validateMoneyAccount('', false), null);
+  assert.equal(D.validateMoneyAccount('حساب تاني', false), 'اختار الحساب من القايمة');
+  assert.equal(D.validateMoneyAccount('أوبريشن', true), null);
+  const bal = { 'حساب البنك': 100 };
+  assert.equal(D.overdraftOf(bal, 'حساب البنك', 'withdraw', 150), -50);
+  assert.equal(D.overdraftOf(bal, 'حساب البنك', 'withdraw', 100), null);
+  assert.equal(D.overdraftOf(bal, 'حساب البنك', 'deposit', 500), null);
+  assert.equal(D.overdraftOf(bal, 'حساب البنك', 'withdraw', 150, { account: 'حساب البنك', direction: 'withdraw', amount: 80 }), null, 'an edit gives back its old amount first');
 });

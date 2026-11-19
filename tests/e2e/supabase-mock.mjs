@@ -56,6 +56,7 @@ export const TOTP_SECRET = 'MOCKTOTPSECRETAAAAAAAAAA'; // the base32 key a mocke
 // GoTrue answers the QR as raw SVG markup (supabase-js prefixes `data:image/svg+xml;utf-8,`); the '#' must survive as an <img>
 export const QR_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4" viewBox="0 0 4 4"><path d="M0 0h2v2H0zM2 2h2v2H2z" fill="#000"/></svg>';
 const ANON_KEY = 'mock-anon-key';
+const ACC_NAMES = ['حساب البنك', 'حساب بوسطة', 'حساب باي موب', 'محفظة إلكترونية', 'أوبريشن']; // 0143 — the five real accounts
 
 const ADMIN = '00000000-0000-4000-8000-000000000001';
 const T0 = '2026-10-22T00:00:00Z';
@@ -1058,9 +1059,12 @@ export async function installSupabaseMock(page, opts = {}) {
           const whoOf = (x) => (t === 'acc_vendor_moves' ? x.vendor_id + '|' + x.kind : t === 'acc_expenses' ? x.category + '|' + String(x.beneficiary || '').trim() : x.account);
           const twin = row.dup_ok === true || t === 'acc_list_items' ? null : rows.filter((x) => !x.voided_at && Date.now() - Date.parse(x.created_at) < 600000 && x.direction === row.direction && Number(x.amount) === Number(row.amount) && whoOf(x) === whoOf(row)).pop();
           if (twin) return json(400, { code: 'IBDUP', details: JSON.stringify({ by: (profileOf(twin.created_by) || {}).name || '', minutes: Math.floor((Date.now() - Date.parse(twin.created_at)) / 60000) }), hint: null, message: 'duplicate: the same entry was recorded a moment ago' });
+          if (t === 'acc_account_moves') { const bad = accBen(row); if (bad) return refuse(400, '22023', bad); }
           accSeq += 1; const rec = { ...row, id: accSeq, amount: Number(row.amount), created_by: u.id, created_at: now, updated_by: null, updated_at: null, voided_by: null, voided_at: null };
           if (t === 'acc_vendor_moves') Object.assign(rec, { settled_by: null, settled_at: null }); // the guard: a member never settles a move
+          if (t === 'acc_account_moves') Object.assign(rec, { expense_id: null, vendor_move_id: null, pair_id: null, withdraw_id: null }); // 0143: never a member's link
           rows.push(rec); mock.accWrites.push({ table: t, op: 'insert', ...row });
+          accLink(t, rec, u);
           return json(201, [{ ...rec }]);
         }
         if (method === 'PATCH') {
@@ -1069,11 +1073,44 @@ export async function installSupabaseMock(page, opts = {}) {
           if (!may) return json(200, []);
           if (r.voided_at) return refuse(403, '42501', 'a voided row is final');
           if (t === 'acc_vendor_moves' && r.settled_by != null) return refuse(403, '42501', 'a settled move is final');
-          const { created_by, created_at, voided_by, settled_by, settled_at, ...patch } = b;
+          if (t === 'acc_account_moves' && (r.expense_id != null || r.vendor_move_id != null)) return refuse(403, '42501', 'linked: change it from its expense or maker move'); // 0143
+          const { created_by, created_at, voided_by, settled_by, settled_at, expense_id, vendor_move_id, pair_id, withdraw_id, ...patch } = b;
+          if (t === 'acc_account_moves' && patch.beneficiary_kind !== undefined) { const bad = accBen({ ...r, ...patch }); if (bad) return refuse(400, '22023', bad); }
           if (t === 'acc_expenses' && patch.category !== undefined && patch.category !== r.category && !expenseKindOk(patch.category)) return refuse(400, '23514', 'invalid: category');
           Object.assign(r, patch, { updated_at: now, updated_by: u.id }); if (patch.voided_at) Object.assign(r, { voided_at: now, voided_by: u.id });
+          if (t === 'acc_account_moves' && patch.beneficiary_kind !== undefined) Object.assign(r, { beneficiary: accBenName(r) });
           mock.accWrites.push({ table: t, op: 'update', id: r.id, ...patch });
+          accLink(t, r, u);
           return json(200, [{ ...r }]);
+        }
+      }
+      // 0143 (the owner 19 Nov): an expense / a maker move with an account owns one live account move; a transfer makes its other side
+      function accBen(x) {
+        if (x.beneficiary_kind === 'account' && (!ACC_NAMES.includes(x.beneficiary) || x.beneficiary === x.account)) return 'invalid: beneficiary';
+        if (x.beneficiary_kind === 'vendor' && !x.vendor_id) return 'invalid: vendor';
+        if (x.beneficiary_kind === 'member' && !x.member_id) return 'invalid: member';
+        if (x.beneficiary_kind) x.beneficiary = accBenName(x);
+        return null;
+      }
+      function accBenName(x) { if (x.beneficiary_kind === 'vendor') return (mock.vendors.find((v) => v.id === x.vendor_id) || {}).name || x.beneficiary; if (x.beneficiary_kind === 'member') return (profileOf(x.member_id) || {}).name || x.beneficiary; return x.beneficiary; }
+      function accLink(t, rec, u) {
+        const moves = mock.acc.acc_account_moves; const now = new Date().toISOString();
+        const put = (kind, id, live, vals) => {
+          const key = kind === 'expense' ? 'expense_id' : 'vendor_move_id'; const child = moves.find((m) => m[key] === id && !m.voided_at);
+          if (!live) { if (child) Object.assign(child, { voided_at: now, voided_by: u.id }); return; }
+          if (child) Object.assign(child, vals, { updated_at: now, updated_by: u.id });
+          else { accSeq += 1; moves.push({ id: accSeq, ...vals, [key]: id, expense_id: kind === 'expense' ? id : null, vendor_move_id: kind === 'vmove' ? id : null, pair_id: null, withdraw_id: null, created_by: rec.created_by, created_at: now, voided_at: null }); }
+        };
+        if (t === 'acc_expenses') { const pay = rec.category === 'المرتبات';
+          put('expense', rec.id, !!rec.account && !rec.voided_at, { account: rec.account, on_date: rec.on_date, direction: rec.direction, amount: Number(rec.amount), note: rec.category + (pay || !rec.beneficiary ? '' : ' — ' + rec.beneficiary), beneficiary_kind: 'other', beneficiary: pay ? 'المرتبات' : rec.beneficiary, vendor_id: null }); }
+        if (t === 'acc_vendor_moves') { const name = (mock.vendors.find((v) => v.id === rec.vendor_id) || {}).name || null;
+          if (rec.account || moves.some((m) => m.vendor_move_id === rec.id)) put('vmove', rec.id, !!rec.account && !rec.voided_at, { account: rec.account, on_date: rec.on_date, direction: rec.direction, amount: Number(rec.amount), note: (rec.kind_name || rec.kind) + ' — ' + (name || 'مبتكر'), beneficiary_kind: 'vendor', beneficiary: name, vendor_id: rec.vendor_id }); }
+        if (t === 'acc_account_moves' && (rec.beneficiary_kind === 'account' || rec.pair_id)) {
+          const other = rec.pair_id ? moves.find((m) => m.id === rec.pair_id) : null; const flip = rec.direction === 'withdraw' ? 'deposit' : 'withdraw';
+          if (rec.beneficiary_kind === 'account' && !rec.voided_at) {
+            const vals = { account: rec.beneficiary, on_date: rec.on_date, direction: flip, amount: Number(rec.amount), beneficiary_kind: 'account', beneficiary: rec.account, note: (rec.direction === 'withdraw' ? 'تحويل من ' : 'تحويل إلى ') + rec.account };
+            if (other) Object.assign(other, vals); else { accSeq += 1; moves.push({ id: accSeq, ...vals, pair_id: rec.id, expense_id: null, vendor_move_id: null, withdraw_id: null, created_by: rec.created_by, created_at: now, voided_at: null }); rec.pair_id = accSeq; }
+          } else if (other && !other.voided_at) Object.assign(other, { voided_at: now, voided_by: u.id });
         }
       }
       // 0093 (2026-11-14-settings-lists.md decision 1): an expense's type is a base one or one the admin added in the row «lists»
@@ -2695,8 +2732,15 @@ export async function installSupabaseMock(page, opts = {}) {
         const st = { id: mock.acc.acc_vendor_settlements.length + 1, withdraw_id: id, vendor_id: w.vendor_id, amount: Number(w.amount), moves_net: Math.round(net * 100) / 100, carry_in: cin, consumed: cons,
           carry_out: Math.round((op - cons) * 100) / 100, cash: Math.round((Number(w.amount) - cons) * 100) / 100, moves: open.length, source: 'system', approved_by: u.id, settled_on: day, created_at: new Date().toISOString() };
         mock.acc.acc_vendor_settlements.push(st);
-        mock.approvals.push({ id, by: u.email, result: 'ok' });
-        return json(200, { action, result: 'ok', status: 'approved', settlement: { amount: st.amount, consumed: st.consumed, cash: st.cash, carry_out: st.carry_out, moves: st.moves } });
+        mock.approvals.push({ id, by: u.email, result: 'ok', account: b.account || null });
+        // 0143: the cash after the settlement leaves the account the approver named — one account move, the maker its beneficiary
+        let transfer = null;
+        if (ACC_NAMES.includes(b.account)) {
+          if (st.cash > 0) { accSeq += 1; const name = (mock.vendors.find((v) => v.id === w.vendor_id) || {}).name || 'مبتكر';
+            mock.acc.acc_account_moves.push({ id: accSeq, account: b.account, on_date: day, direction: 'withdraw', amount: st.cash, note: 'تحويل طلب السحب #' + id + ' — ' + name, beneficiary_kind: 'vendor', beneficiary: name, vendor_id: w.vendor_id, member_id: null, expense_id: null, vendor_move_id: null, pair_id: null, withdraw_id: id, created_by: u.id, created_at: new Date().toISOString(), voided_at: null });
+            transfer = { result: 'ok', amount: st.cash, id: accSeq, account: b.account }; } else transfer = { result: 'nothing', amount: 0 };
+        }
+        return json(200, { action, result: 'ok', status: 'approved', settlement: { amount: st.amount, consumed: st.consumed, cash: st.cash, carry_out: st.carry_out, moves: st.moves }, transfer });
       }
       // the owner 18 Nov: reject a pending Dokan request — cancelled with the reason as its note; the amount back to his balance
       if (action === 'withdraw_reject') {

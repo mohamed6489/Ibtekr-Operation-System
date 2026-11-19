@@ -228,14 +228,17 @@
           const res = judge(overlay(toRow(rec), d), true); if (Object.keys(res.errors).length) return { ok: false, reason: Object.values(res.errors)[0] };
           return accOut(await A.update(kind, rec.id, Object.assign({}, rec, patchOf(res.value, d)))); }) };
     }
-    const expRow = (e) => ({ _id: String(e.id), date: e.date, amount: e.amount, category: e.category, direction: e.direction === 'deposit' ? 'إيداع' : 'سحب', beneficiary: e.beneficiaryName || '' });
-    const expJudge = (d) => D.validateExpense({ amount: String(d.amount), date: D.formatDateNumeric(d.date), category: d.category, direction: d.direction === 'إيداع' ? 'deposit' : 'withdraw', beneficiary: d.beneficiary ? D.OTHER : '', otherName: d.beneficiary || '' });
-    const expSheet = accSheet('expenses', expRow, expJudge, (v, d) => { const p = {}; ['date', 'amount', 'category', 'direction'].forEach((k) => { if (filled(d[k])) p[k] = v[k]; }); if (filled(d.beneficiary)) { p.beneficiaryName = v.beneficiaryName; p.beneficiaryIsOther = v.beneficiaryIsOther; } return p; });
-    const mvRow = (m) => ({ _id: String(m.id), date: m.date, vendor: m.vendor, type: m.type, typeName: m.type === 'أخرى' ? m.typeName : '', direction: m.direction === 'deposit' ? 'إيداع' : 'سحب', amount: m.amount });
-    const mvSheet = accSheet('vendorMoves', mvRow, (d) => D.validateVendorMovement(mvIn(d)), (v, d) => { const p = {}; ['date', 'type', 'typeName', 'direction', 'amount'].forEach((k) => { if (filled(d[k])) p[k] = v[k]; }); if (filled(d.vendor)) { p.vendor = v.vendor; p.vendorId = undefined; } return p; });
-    const acRow = (m) => ({ _id: String(m.id), date: m.date, account: m.account, direction: m.direction === 'deposit' ? 'إيداع' : 'سحب', amount: m.amount });
-    const acSheet = accSheet('accountMoves', acRow, (d, edit) => { const res = D.validateAccountMovement(acIn(d)); if (!edit && !Object.keys(res.errors).length) { try { D.applyAccountMovement(accountsNow().balances, res.value.account, res.value.direction, res.value.amount); } catch (e) { res.errors.balance = 'الرصيد في «' + d.account + '» مش كفاية للسحب ده'; } } return res; },
-      (v, d) => { const p = {}; ['date', 'account', 'direction', 'amount'].forEach((k) => { if (filled(d[k])) p[k] = v[k]; }); return p; });
+    // 0143: «الحساب» on an expense / a maker move (optional in a sheet — a row with it makes its linked account move)
+    const withAcc = (res, d) => { if (filled(d.account)) { const e = D.validateMoneyAccount(d.account, false); if (e) res.errors.account = e; else res.value.account = d.account; } return res; };
+    const expRow = (e) => ({ _id: String(e.id), date: e.date, amount: e.amount, category: e.category, direction: e.direction === 'deposit' ? 'إيداع' : 'سحب', beneficiary: e.beneficiaryName || '', account: e.account || '' });
+    const expJudge = (d) => withAcc(D.validateExpense({ amount: String(d.amount), date: D.formatDateNumeric(d.date), category: d.category, direction: d.direction === 'إيداع' ? 'deposit' : 'withdraw', beneficiary: d.beneficiary ? D.OTHER : '', otherName: d.beneficiary || '' }), d);
+    const expSheet = accSheet('expenses', expRow, expJudge, (v, d) => { const p = {}; ['date', 'amount', 'category', 'direction', 'account'].forEach((k) => { if (filled(d[k])) p[k] = v[k]; }); if (filled(d.beneficiary)) { p.beneficiaryName = v.beneficiaryName; p.beneficiaryIsOther = v.beneficiaryIsOther; } return p; });
+    const mvRow = (m) => ({ _id: String(m.id), date: m.date, vendor: m.vendor, type: m.type, typeName: m.type === 'أخرى' ? m.typeName : '', direction: m.direction === 'deposit' ? 'إيداع' : 'سحب', amount: m.amount, account: m.account || '' });
+    const mvSheet = accSheet('vendorMoves', mvRow, (d) => withAcc(D.validateVendorMovement(mvIn(d)), d), (v, d) => { const p = {}; ['date', 'type', 'typeName', 'direction', 'amount', 'account'].forEach((k) => { if (filled(d[k])) p[k] = v[k]; }); if (filled(d.vendor)) { p.vendor = v.vendor; p.vendorId = undefined; } return p; });
+    const acRow = (m) => ({ _id: String(m.id), date: m.date, account: m.account, direction: m.direction === 'deposit' ? 'إيداع' : 'سحب', amount: m.amount, beneficiary: m.benKind === 'other' || !m.benKind ? m.beneficiary || '' : '' });
+    // the owner 19 Nov: an account below zero is saved (the page warns) — the sheet no longer refuses it; the beneficiary in a sheet is a name («أخرى»)
+    const acSheet = accSheet('accountMoves', acRow, (d) => D.validateAccountMovement(Object.assign(acIn(d), filled(d.beneficiary) ? { benKind: 'other', benName: d.beneficiary } : {})),
+      (v, d) => { const p = {}; ['date', 'account', 'direction', 'amount'].forEach((k) => { if (filled(d[k])) p[k] = v[k]; }); if (filled(d.beneficiary)) { p.benKind = 'other'; p.beneficiary = v.beneficiary; } return p; });
     // the makers: each write of the row (the store data, the rate, the bank) answered before the row says «اتعمل»
     const vWritten = async (id) => (vstore.written ? vstore.written(id) : { ok: true });
     const vOut = (r) => (r && r.ok === false ? { ok: false, reason: msgOf(r.message || r.reason) } : { ok: true });
@@ -292,15 +295,15 @@
           if (filled(d.rate)) vstore.setRate(v.id, d.rate, null, vstore.actor());
           return vOut(await vWritten(v.id)); }) },
       { id: 'expenses', label: 'الحسابات (المصروفات)', ids: true, canAdd: true, dateKey: 'date', filter: { key: 'category', label: 'النوع', options: () => D.CATEGORIES.slice() }, note: 'الصف من غير ID = مصروف جديد، وبالـ ID = تعديل الخانات المكتوبة بس (تفاصيل المصروف والاشتراك بتفضل). الإلغاء من صفحة الحسابات.',
-        fields: () => [{ key: 'date', label: 'التاريخ', en: 'Date', type: 'date', required: true }, { key: 'amount', label: 'المبلغ (ج.م)', en: 'Amount (EGP)', type: 'number', required: true }, { key: 'category', label: 'النوع', en: 'Category', type: 'enum', options: D.CATEGORIES.slice(), required: true }, { key: 'direction', label: 'إيداع / سحب', en: 'Direction', type: 'enum', options: ['سحب', 'إيداع'] }, { key: 'beneficiary', label: 'المستفيد', en: 'Beneficiary' }],
-        presets: { accountant: ['date', 'amount', 'category', 'direction', 'beneficiary'] },
+        fields: () => [{ key: 'date', label: 'التاريخ', en: 'Date', type: 'date', required: true }, { key: 'amount', label: 'المبلغ (ج.م)', en: 'Amount (EGP)', type: 'number', required: true }, { key: 'category', label: 'النوع', en: 'Category', type: 'enum', options: D.CATEGORIES.slice(), required: true }, { key: 'direction', label: 'إيداع / سحب', en: 'Direction', type: 'enum', options: ['سحب', 'إيداع'] }, { key: 'beneficiary', label: 'المستفيد', en: 'Beneficiary' }, { key: 'account', label: 'الحساب', en: 'Account', type: 'enum', options: D.ACCOUNTS.slice() }],
+        presets: { accountant: ['date', 'amount', 'category', 'direction', 'beneficiary', 'account'] },
         rows: () => store.expenses.map(expRow), byId: expSheet.byId, check: expSheet.check, apply: expSheet.apply },
       { id: 'vendorMoves', label: 'حركات المبتكرين (عربون / مواصلات / أخرى)', ids: true, canAdd: true, dateKey: 'date', filter: { key: 'type', label: 'النوع', options: () => D.VENDOR_TYPES.slice() }, note: 'الصف من غير ID = حركة جديدة على حساب المبتكر، وبالـ ID = تعديلها — الحركة اللي اتصفّت في تسوية مابتتعدّلش.',
         fields: () => [{ key: 'date', label: 'التاريخ', en: 'Date', type: 'date', required: true }, { key: 'vendor', label: 'المبتكر', en: 'Vendor', type: 'enum', options: vnames(), required: true }, { key: 'type', label: 'النوع', en: 'Type', type: 'enum', options: D.VENDOR_TYPES.slice(), required: true },
-          { key: 'typeName', label: 'اسم النوع (لو «أخرى»)', en: 'Other type' }, { key: 'direction', label: 'إيداع / سحب', en: 'Direction', type: 'enum', options: ['سحب', 'إيداع'], required: true }, { key: 'amount', label: 'المبلغ (ج.م)', en: 'Amount (EGP)', type: 'number', required: true }],
+          { key: 'typeName', label: 'اسم النوع (لو «أخرى»)', en: 'Other type' }, { key: 'direction', label: 'إيداع / سحب', en: 'Direction', type: 'enum', options: ['سحب', 'إيداع'], required: true }, { key: 'amount', label: 'المبلغ (ج.م)', en: 'Amount (EGP)', type: 'number', required: true }, { key: 'account', label: 'الحساب (اتسحب منه)', en: 'Account', type: 'enum', options: D.ACCOUNTS.slice() }],
         rows: () => store.vendorMoves.map(mvRow), byId: mvSheet.byId, check: mvSheet.check, apply: mvSheet.apply },
-      { id: 'accountMoves', label: 'حركات الحسابات (البنك / بوسطة / باي موب / المحفظة / أوبريشن)', ids: true, canAdd: true, dateKey: 'date', filter: { key: 'account', label: 'الحساب', options: () => D.ACCOUNTS.slice() }, note: 'الصف من غير ID = حركة جديدة (السحب لازم يبقى في رصيد الحساب)، وبالـ ID = تعديلها.',
-        fields: () => [{ key: 'date', label: 'التاريخ', en: 'Date', type: 'date', required: true }, { key: 'account', label: 'الحساب', en: 'Account', type: 'enum', options: D.ACCOUNTS.slice(), required: true }, { key: 'direction', label: 'إيداع / سحب', en: 'Direction', type: 'enum', options: ['إيداع', 'سحب'], required: true }, { key: 'amount', label: 'المبلغ (ج.م)', en: 'Amount (EGP)', type: 'number', required: true }],
+      { id: 'accountMoves', label: 'حركات الحسابات (البنك / بوسطة / باي موب / المحفظة / أوبريشن)', ids: true, canAdd: true, dateKey: 'date', filter: { key: 'account', label: 'الحساب', options: () => D.ACCOUNTS.slice() }, note: 'الصف من غير ID = حركة جديدة، وبالـ ID = تعديلها — الحركة المربوطة بمصروف أو بحركة مبتكر بتتعدّل من شيتها.',
+        fields: () => [{ key: 'date', label: 'التاريخ', en: 'Date', type: 'date', required: true }, { key: 'account', label: 'الحساب', en: 'Account', type: 'enum', options: D.ACCOUNTS.slice(), required: true }, { key: 'direction', label: 'إيداع / سحب', en: 'Direction', type: 'enum', options: ['إيداع', 'سحب'], required: true }, { key: 'amount', label: 'المبلغ (ج.م)', en: 'Amount (EGP)', type: 'number', required: true }, { key: 'beneficiary', label: 'المستفيد', en: 'Beneficiary' }],
         rows: () => store.accountMoves.map(acRow), byId: acSheet.byId, check: acSheet.check, apply: acSheet.apply },
       { id: 'orderEdit', label: 'الأوردرات — التأكيد والعربون والتعليق', ids: true, canAdd: false, note: 'تعديل بس — الأوردرات الجديدة بتيجي من الموقع. كل تعديل بيعدّي على نفس طريق صفحة الأوردرات (ولو حد غيّر الأوردر من شوية بيترفض).',
         fields: () => [{ key: 'oid', label: 'رقم الأوردر', en: 'Order #', readOnly: true }, { key: 'customer', label: 'العميل', en: 'Customer', readOnly: true }, { key: 'confirm', label: 'حالة التأكيد', en: 'Confirmation', type: 'enum', options: OA() && OA().confirms ? OA().confirms() : [] },
@@ -1540,7 +1543,10 @@
     const f = { amount: existing ? String(existing.amount) : '', date: existing ? existing.date : TODAY, direction, category: existing ? existing.category : '', beneficiary: '', otherName: '', type: existing ? existing.type : '', vendor: existing ? existing.vendor : '', account: existing ? existing.account : '',
       subName: existing && existing.subName ? existing.subName : '', subEnds: existing && existing.subEnds ? existing.subEnds : '', subAlerts: existing && existing.subAlerts ? existing.subAlerts.slice() : ['month', 'week', 'day'], subNote: existing && existing.subNote ? existing.subNote : '',
       platform: existing && existing.platform ? existing.platform : '', details: existing && existing.details ? existing.details : '', note: existing && existing.note ? existing.note : '',
-      staffKind: existing && existing.staffKind ? existing.staffKind : 'staff', source: existing && existing.source ? existing.source : '', reason: existing && existing.reason ? existing.reason : '' };
+      staffKind: existing && existing.staffKind ? existing.staffKind : 'staff', source: existing && existing.source ? existing.source : '', reason: existing && existing.reason ? existing.reason : '',
+      // 0143 (the owner 19 Nov): the money account of an expense / a maker's withdraw, and the account move's beneficiary
+      benKind: existing && existing.benKind ? existing.benKind : '', benName: existing && existing.benKind && existing.benKind !== 'account' ? existing.beneficiary || '' : '', toAccount: existing && existing.benKind === 'account' ? existing.beneficiary || '' : '', warned: false };
+    if (kind === 'accountMoves') f.account = existing ? existing.account : '';
     if (existing && kind === 'expenses') { if (existing.beneficiaryIsOther) { f.beneficiary = D.OTHER; f.otherName = existing.beneficiaryName; } else f.beneficiary = existing.beneficiaryName; }
     if (existing && kind === 'vendorMoves' && existing.type === 'أخرى') f.otherName = existing.typeName;
     if (preset) Object.assign(f, preset);
@@ -1552,6 +1558,13 @@
     const benefOpts = [...vendorOpts, { value: D.OTHER, label: D.OTHER }];
     const typeOpts = D.VENDOR_TYPES.map((t) => ({ value: t, label: t }));
     const accOpts = D.ACCOUNTS.map((a) => ({ value: a, label: a }));
+    // 0143: the account is asked on every new expense and maker withdraw (and on an edit of one that has it); an old row without one may stay so
+    const needAcc = kind === 'expenses' || (kind === 'vendorMoves' && direction === 'withdraw');
+    const accRequired = needAcc && (!existing || !!existing.account);
+    const teamOpts = () => { const K = window.IBKit; return K.team().concat([K.member(K.ME)]).filter(Boolean).filter((m, i, a) => a.findIndex((x) => x.name === m.name) === i).map((m) => ({ value: m.name, label: m.name })); };
+    const uidOf = (name) => { const K = window.IBKit; const m = ((K.store && K.store.members) || []).find((x) => x.name === name); return m ? m.uid : null; };
+    // a new withdraw for a maker from the account tab = a maker move with that account (on his balance too)
+    const asVendorMove = () => kind === 'accountMoves' && !existing && direction === 'withdraw' && f.benKind === 'vendor';
 
     function body() {
       if (readOnly) {
@@ -1563,7 +1576,10 @@
           else if (existing.category === ADS_CAT) rows.push(['المنصة', existing.platform || '—'], ['تفاصيل', existing.details || '—'], ['ملاحظات', existing.note || '—']);
           else if (existing.category === PAY_CAT) rows.push(['المستفيد', existing.beneficiaryName || '—'], ['نوع التعاقد', existing.staffKind === 'freelance' ? 'فريلانس' : 'موظف'], ['ملاحظات', existing.note || '—']);
           else rows.push(['المستفيد', existing.beneficiaryName || '—'], ['تفاصيل المصروف', existing.details || '—'], ['ملاحظات', existing.note || '—']); }
-        if (kind === 'accountMoves') rows.push(['نوع الحساب', existing.account]);
+        if (kind === 'accountMoves') { rows.push(['نوع الحساب', existing.account], [existing.direction === 'deposit' ? 'مصدر المبلغ' : 'المستفيد', existing.beneficiary ? (existing.benKind === 'account' ? (existing.direction === 'deposit' ? 'تحويل من ' : 'تحويل إلى ') : '') + existing.beneficiary : '—']);
+          if (existing.linked) rows.push(['مربوطة بـ', existing.expenseId ? 'مصروف #' + existing.expenseId : 'حركة مبتكر #' + existing.vendorMoveId]);
+          if (existing.withdrawId) rows.push(['طلب السحب', '#' + existing.withdrawId]); }
+        if ((kind === 'expenses' || kind === 'vendorMoves') && existing.account) rows.push([existing.direction === 'deposit' ? 'اتحط في حساب' : 'اتسحب من حساب', existing.account]);
         if (kind === 'vendorMoves') { rows.push(['المبتكر', existing.vendor || '—'], [existing.direction === 'deposit' ? 'عنوان المعاملة' : 'النوع', existing.typeName || existing.type || '—'], [existing.direction === 'deposit' ? 'الوصف' : 'ملاحظات', existing.note || '—']);
           rows.push(['التسوية', existing.settledBy != null ? 'اتصفّت مع طلب السحب #' + existing.settledBy + ' — نهائية' : 'لسه ماتصفّتش (بتتخصم من الصافي)']); }
         rows.push(['سُجّل بواسطة', existing.createdBy]);
@@ -1571,7 +1587,24 @@
       }
       const fields = [];
       if (kind === 'vendorMoves') fields.push(U.Select({ id: 'f-vendor', label: 'المبتكر', required: true, options: vendorOpts, value: f.vendor, error: errs.vendor, placeholder: 'اختار المبتكر', onChange: (v) => { f.vendor = v; redraw(); } }));
-      if (kind === 'accountMoves') fields.push(U.Select({ id: 'f-account', label: 'نوع الحساب', required: true, options: accOpts, value: f.account, error: errs.account, placeholder: 'اختار نوع الحساب', onChange: (v) => { f.account = v; redraw(); } }));
+      if (kind === 'accountMoves') {
+        fields.push(U.Select({ id: 'f-account', label: 'نوع الحساب', required: true, options: accOpts, value: f.account, error: errs.account, placeholder: 'اختار نوع الحساب', onChange: (v) => { f.account = v; f.warned = false; redraw(); } }));
+        const dep = direction === 'deposit';
+        fields.push(U.Select({ id: 'f-benkind', label: dep ? 'مصدر المبلغ' : 'المستفيد', required: true, options: D.BEN_KINDS.map(([v, l]) => ({ value: v, label: v === 'account' ? (dep ? 'حساب تاني (تحويل منه)' : 'حساب تاني (تحويل ليه)') : l })), value: f.benKind, error: errs.benKind,
+          placeholder: dep ? 'الفلوس جاية منين؟' : 'الفلوس رايحة لمين؟', onChange: (v) => { f.benKind = v; f.benName = ''; f.toAccount = ''; redraw(); } }));
+        if (f.benKind === 'vendor') fields.push(U.Select({ id: 'f-benname', label: 'المبتكر', required: true, options: vendorOpts, value: f.benName, error: errs.benName || errs.vendor, placeholder: 'اختار المبتكر', onChange: (v) => { f.benName = v; f.vendor = v; redraw(); } }));
+        if (f.benKind === 'member') fields.push(U.Select({ id: 'f-benname', label: 'العضو', required: true, options: teamOpts(), value: f.benName, error: errs.benName, placeholder: 'اختار من الفريق', onChange: (v) => { f.benName = v; redraw(); } }));
+        if (f.benKind === 'account') fields.push(U.Select({ id: 'f-toacc', label: dep ? 'من حساب' : 'إلى حساب', required: true, options: accOpts.filter((o) => o.value !== f.account), value: f.toAccount, error: errs.toAccount, placeholder: 'اختار الحساب التاني', onChange: (v) => { f.toAccount = v; redraw(); } }));
+        if (f.benKind === 'other') fields.push(U.TextInput({ id: 'f-benname', label: dep ? 'اسم المصدر' : 'اسم المستفيد', required: true, value: f.benName, error: errs.benName, maxlength: 80, placeholder: 'اكتب الاسم', onInput: (v) => { f.benName = v; } }));
+        if (asVendorMove()) {
+          fields.push(U.Select({ id: 'f-type', label: 'النوع', required: true, options: typeOpts, value: f.type, error: errs.type, onChange: (v) => { f.type = v; if (v !== 'أخرى') f.otherName = ''; redraw(); } }));
+          if (f.type === 'أخرى') fields.push(U.TextInput({ id: 'f-other', label: 'اكتب النوع', required: true, value: f.otherName, error: errs.otherName, placeholder: 'اكتب النوع', maxlength: 80, onInput: (v) => { f.otherName = v; } }));
+          fields.push(U.InlineNote({ children: 'هيتسجل سحب على رصيد المبتكر كمان (بيتخصم من صافيه)، والحركتين مربوطين — أي تعديل أو حذف بيمشي على الاتنين.' }));
+        }
+        if (f.benKind === 'account') fields.push(U.InlineNote({ children: 'تحويل بين حسابين: هيتسجل ' + (dep ? 'سحب من' : 'إيداع في') + ' الحساب التاني بنفس المبلغ، والحركتين مربوطين.' }));
+      }
+      if (needAcc) fields.push(U.Select({ id: 'f-macc', label: direction === 'deposit' ? 'هيتحط في حساب' : 'هيتسحب من حساب', required: accRequired, options: accOpts, value: f.account, error: errs.account,
+        placeholder: accRequired ? 'اختار الحساب' : 'اختار الحساب (اختياري — حركة قديمة)', onChange: (v) => { f.account = v; f.warned = false; redraw(); } }));
       fields.push(U.TextInput({ id: 'f-amount', label: 'المبلغ', required: true, value: f.amount, error: errs.amount, placeholder: '0.00', inputmode: 'decimal', suffix: 'ج.م', onInput: (v) => { f.amount = v; } }));
       // التاريخ بيتأكّد على blur: منعملش redraw كامل غير لو حالة الغلط اتغيرت، عشان الضغطة اللي بعده متضيعش
       fields.push(U.DateField({ id: 'f-date', label: direction === 'deposit' ? 'تاريخ الإيداع' : 'تاريخ السحب', required: true, value: f.date, error: errs.date, today: TODAY,
@@ -1592,31 +1625,37 @@
         fields.push(U.InlineNote({ children: 'السحب بيتخصم من صافي المبتكر حتى لو رصيده بقى بالسالب، ولما طلب سحب يتوافق عليه بيتصفّى منه.' }));
       }
       if (errs._form) fields.unshift(U.InlineNote({ kind: 'error', children: errs._form }));
+      if (errs._warn) { const w = U.InlineNote({ kind: 'warning', children: errs._warn }); w.setAttribute('data-acc-overdraft', ''); fields.push(w); }
       return fields;
     }
     function footer() {
-      return readOnly ? [Button({ label: 'إغلاق', onClick: () => modal.close() })] : [Button({ label: 'إلغاء', onClick: () => modal.close() }), Button({ type: 'primary', label: 'حفظ', onClick: submit })];
+      return readOnly ? [Button({ label: 'إغلاق', onClick: () => modal.close() })] : [Button({ label: 'إلغاء', onClick: () => modal.close() }), Button({ type: 'primary', label: f.warned ? 'احفظ برضه' : 'حفظ', onClick: submit })];
     }
-    function redraw() { modal.setBody(...body()); const bad = modal.el.querySelector('[aria-invalid=true]'); if (bad && Object.keys(errs).length) bad.focus(); }
+    function redraw() { modal.setBody(...body()); modal.setFooter(...footer()); const bad = modal.el.querySelector('[aria-invalid=true]'); if (bad && Object.keys(errs).length) bad.focus(); }
     function submit() {
       errs = {};
       const raw = { ...f, date: f.date ? D.formatDateNumeric(f.date) : '' };
       let res;
       if (kind === 'expenses') res = D.validateExpense(Object.assign(raw, { keep: existing && existing.category }));
       else if (kind === 'vendorMoves') res = D.validateVendorMovement(raw);
-      else res = D.validateAccountMovement(raw);
+      else if (asVendorMove()) { res = D.validateVendorMovement(Object.assign({}, raw, { vendor: f.benName })); const b = D.validateAccountMovement(raw); if (b.errors.account) res.errors.account = b.errors.account; if (!f.benName) res.errors.benName = 'اختار المبتكر'; delete res.errors.vendor; }
+      else res = D.validateAccountMovement(Object.assign(raw, { benKind: f.benKind || null }));
+      if (needAcc) { const ae = D.validateMoneyAccount(f.account, accRequired); if (ae) res.errors.account = ae; else res.value.account = f.account || null; }
+      if (asVendorMove()) res.value.account = f.account;
+      if (kind === 'accountMoves' && res.value.benKind === 'member') res.value.memberId = uidOf(res.value.beneficiary);
       if (kind === 'expenses') {
         const cres = D.validateExpenseCategory(Object.assign({}, f, { direction }));
         Object.assign(res.errors, cres.errors); if (!Object.keys(cres.errors).length) Object.assign(res.value, cres.value);
         if (direction !== 'deposit' && f.category === SUBS_CAT) { const sres = D.validateSubscription(f); Object.assign(res.errors, sres.errors); if (!Object.keys(sres.errors).length) Object.assign(res.value, sres.value); }
       }
       if (Object.keys(res.errors).length) { errs = res.errors; redraw(); return; }
-      if (kind === 'accountMoves') {
-        const others = existing ? store.accountMoves.filter((r) => r.id !== existing.id) : store.accountMoves;
-        const chk = D.deriveAccounts(SEED.accounts, [...others, { ...res.value }]);
-        if (!chk.ok) { errs = { _form: 'الرصيد مش كفاية في ' + chk.account + ' — العملية دي هتخليه بالسالب.' }; redraw(); return; }
-      }
-      if (existing) adapter.update(kind, existing.id, res.value); else adapter.add(kind, res.value);
+      // the owner 19 Nov: an account going below zero saves with a warning (a second «احفظ برضه»)
+      const money = res.value.account || null;
+      const prev = existing ? (kind === 'accountMoves' ? existing : existing.account ? { account: existing.account, direction: existing.direction, amount: existing.amount } : null) : null;
+      const after = money ? D.overdraftOf(accountsNow().balances, money, res.value.direction || direction, res.value.amount, prev) : null;
+      if (after != null && !f.warned) { f.warned = true; errs = { _warn: 'رصيد «' + money + '» هيبقى ' + D.formatMoney(after) + ' ج.م (بالسالب) بعد الحركة دي. لو الرصيد الحقيقي لسه ماتسجّلش، اضغط «احفظ برضه».' }; redraw(); return; }
+      if (asVendorMove()) adapter.add('vendorMoves', res.value);
+      else if (existing) adapter.update(kind, existing.id, res.value); else adapter.add(kind, res.value);
       if (kind === 'expenses' && direction !== 'deposit' && f.category === PAY_CAT && res.value.beneficiaryIsOther && res.value.staffKind === 'staff') {
         window.IBKit.notify({ title: 'ضيف «' + res.value.beneficiaryName + '» في الموارد البشرية — اتصرفله مرتب وهو لسه مش في الفريق', link: '#hr-team' });
         window.IBKit.logEvent('expenses.newStaff', res.value.beneficiaryName);
@@ -1729,7 +1768,7 @@
       return out;
     }
     // المصروفات العامة
-    out.push(U.Select({ id: 'f-ben', label: 'المستفيد', options: benefOptsFor(), value: f.beneficiary, error: errs.beneficiary, placeholder: 'اختار المستفيد (اختياري)',
+    out.push(U.Select({ id: 'f-ben', label: 'المستفيد', required: true, options: benefOptsFor(), value: f.beneficiary, error: errs.beneficiary, placeholder: 'اختار المستفيد',
       onChange: (v) => { f.beneficiary = v; if (v !== D.OTHER) f.otherName = ''; redraw(); } }));
     if (f.beneficiary === D.OTHER) out.push(txt('f-other', 'otherName', 'اسم المستفيد', { required: true, maxlength: 80, placeholder: 'اكتب الاسم' }));
     out.push(area('f-details', 'details', 'تفاصيل المصروف', { required: true, placeholder: 'اكتب المصروف ده إيه بالظبط — مثلاً: ورق طباعة وكراتين تغليف من مكتبة سمير' }));
@@ -1827,11 +1866,22 @@
     const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' });
     const trig = h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'إجراءات الصف', 'aria-haspopup': 'menu', 'aria-expanded': 'false' }, Icon('more'));
     const pop = U.popover(wrap, trig, (close) => U.DropdownMenu({ role: 'menu', end: true, options: [{ value: 'view', label: 'عرض' }].concat(canEditRec(rec) ? [{ value: 'edit', label: 'تعديل' }, { value: 'del', label: 'حذف', danger: true }] : []),
-      onSelect: (v) => { close(); if (v === 'view') openForm(kind, rec.direction, rec, true); if (v === 'edit') openForm(kind, rec.direction, rec); if (v === 'del') onDelete(rec); } }));
+      onSelect: (v) => { close(); const src = linkedSource(kind, rec);
+        if (v === 'view') openForm(kind, rec.direction, rec, true);
+        if (v === 'edit') { if (src) openForm(src.kind, src.rec.direction, src.rec); else openForm(kind, rec.direction, rec); }
+        if (v === 'del') { if (src) deleteRec(src.kind, src.rec); else onDelete(rec); } } }));
     trig.addEventListener('click', pop.toggle); wrap.append(trig); return wrap;
   }
+  // 0143: the account move's beneficiary as a cell — a transfer says its way, a linked one says where it came from
+  const benOf = (m) => { const who = m.benKind === 'account' ? (m.direction === 'deposit' ? 'تحويل من ' : 'تحويل إلى ') + m.beneficiary : m.beneficiary || '—';
+    return m.linked || m.withdrawId ? h('span', { title: m.expenseId ? 'من مصروف #' + m.expenseId : m.vendorMoveId ? 'من حركة مبتكر #' + m.vendorMoveId : 'تحويل طلب السحب #' + m.withdrawId }, who, ' ', Icon('link', 'sm')) : who; };
+  // 0143: an account move made by an expense / a maker move is edited and deleted from that source (the server keeps them as one)
+  function linkedSource(kind, rec) {
+    if (kind !== 'accountMoves' || !rec || !rec.linked) return null;
+    if (rec.expenseId) { const r = store.expenses.find((x) => Number(x.id) === rec.expenseId); return r ? { kind: 'expenses', rec: r } : null; }
+    const r = store.vendorMoves.find((x) => Number(x.id) === rec.vendorMoveId); return r ? { kind: 'vendorMoves', rec: r } : null;
+  }
   function deleteRec(kind, rec) {
-    if (kind === 'accountMoves') { const rest = store.accountMoves.filter((r) => r.id !== rec.id); if (!D.deriveAccounts(SEED.accounts, rest).ok) { setNote({ kind: 'error', text: 'مش هينفع تحذف الحركة دي لأن رصيد حساب هيبقى بالسالب.' }); render(); return; } }
     adapter.remove(kind, rec.id); setNote({ kind: 'success', text: 'اتحذفت الحركة.', undo: () => { adapter.restore(kind, rec); setNote({ kind: 'success', text: 'اترجّعت الحركة.' }); render(); } }); render();
   }
 
@@ -2036,13 +2086,16 @@
     }
     function approve(req) {
       if (flow.busy) return; flow.busy = 'approve'; flow.res = null; draw();
+      // 0143 (the owner 19 Nov): the transfer to the maker leaves an account — asked before the approval, recorded by the server
+      if (!flow.acc) { flow.res = { kind: 'warning', text: 'اختار الحساب اللي هيتحوّل منه للمبتكر الأول.' }; flow.busy = ''; draw(); return; }
       const amount = fmt(req.amount); const pill = K.busy ? K.busy('بنوافق على طلب السحب ' + req.id + ' على Dokan…') : null;
-      AC().approveWithdraw(req.wid).then((r) => {
+      AC().approveWithdraw(req.wid, flow.acc).then((r) => {
         flow.busy = ''; flow.step = ''; const stl = r.settlement;
         if (r.ok && r.result === 'ok') flow.made = null;
+        const tr = r.transfer && r.transfer.result === 'ok' ? ' واتسجّل سحب ' + fmt(r.transfer.amount) + ' ج.م من «' + r.transfer.account + '».' : r.transfer && r.transfer.result === 'error' ? ' (التحويل ما اتسجّلش على الحساب — سجّله من «الحساب الفعلي».)' : '';
         if (r.ok && r.result === 'ok' && stl) say(pill, { kind: 'success', text: 'اتوافق على طلب السحب ' + req.id + ' لـ ' + name + ' بمبلغ ' + amount + ' ج.م على Dokan' + (stl.moves ? '، واتصفّى منه ' + fmt(stl.consumed) + ' ج.م خصومات (' + stl.moves + ' حركة)' : '')
-          + ' — حوّل للمبتكر ' + fmt(stl.cash) + ' ج.م' + (stl.carry_out > 0 ? '، وفاضل عليه ' + fmt(stl.carry_out) + ' ج.م لحد التسوية الجاية' : '') + '.' });
-        else if (r.ok && r.result === 'ok') say(pill, { kind: 'success', text: 'اتوافق على طلب السحب ' + req.id + ' لـ ' + name + ' بمبلغ ' + amount + ' ج.م على Dokan، واتخصم من رصيده هناك.' });
+          + ' — حوّل للمبتكر ' + fmt(stl.cash) + ' ج.م' + (stl.carry_out > 0 ? '، وفاضل عليه ' + fmt(stl.carry_out) + ' ج.م لحد التسوية الجاية' : '') + '.' + tr });
+        else if (r.ok && r.result === 'ok') say(pill, { kind: 'success', text: 'اتوافق على طلب السحب ' + req.id + ' لـ ' + name + ' بمبلغ ' + amount + ' ج.م على Dokan، واتخصم من رصيده هناك.' + tr });
         else if (r.ok) say(pill, { kind: 'warning', text: WD_SKIP[r.reason] || 'الطلب ما اتوافقش عليه.' });
         else say(pill, { kind: 'error', text: r.reason === 'forbidden' ? 'مش مسموحلك توافق على طلبات السحب.' : 'مقدرناش نوافق على الطلب على Dokan دلوقتي — جرّب تاني.' });
         render(); draw();
@@ -2077,7 +2130,9 @@
             Button({ label: 'بعدين', disabled: !!flow.busy, attrs: { 'data-vb-later': '' }, onClick: () => { flow.step = ''; flow.res = null; draw(); } })));
       } else if (flow.step === 'ask' && req && req.status === 'pending' && canApprove) {
         tone = 'ask';
-        kids.push(line((flow.made ? 'اتعمل طلب السحب ' : 'طلب السحب ') + req.id + ' بمبلغ ' + fmt(req.amount) + ' ج.م على Dokan — توافق عليه دلوقتي؟', true), line(planText(req.amount, b) + ' التحويل نفسه بيفضل عليك زي ما هو.'),
+        const accSel = h('select', { class: 'input vb-acc', 'data-vb-acc': '', 'aria-label': 'هيتحوّل من حساب', onChange: (e) => { flow.acc = e.target.value; } },
+          h('option', { value: '' }, 'هيتحوّل من حساب…'), D.ACCOUNTS.map((a) => h('option', { value: a, selected: flow.acc === a ? '' : null }, a)));
+        kids.push(line((flow.made ? 'اتعمل طلب السحب ' : 'طلب السحب ') + req.id + ' بمبلغ ' + fmt(req.amount) + ' ج.م على Dokan — توافق عليه دلوقتي؟', true), line(planText(req.amount, b) + ' اختار الحساب اللي هتحوّل منه — المبلغ اللي بيتحوّل بيتسجّل سحب منه والمستفيد المبتكر.'), accSel,
           h('div', { class: 'vb-req-a' }, Button({ type: 'primary', label: flow.busy === 'approve' ? 'بنوافق…' : 'وافق دلوقتي', disabled: !!flow.busy, attrs: { 'data-vb-approve': '' }, onClick: () => approve(req) }),
             Button({ label: 'بعدين', disabled: !!flow.busy, attrs: { 'data-vb-later': '' }, onClick: () => { flow.step = ''; flow.res = null; draw(); } })));
       } else if (req && req.status === 'pending') {
@@ -2402,7 +2457,7 @@
         rows: [['الرصيد الفعلي', num(D.formatMoney(P.actual)), num(D.formatPct(P.shares.actual))], ['حصة إبتكر من الأوردرات قيد التنفيذ', num(D.formatMoney(P.inProgress)), num(D.formatPct(P.shares.inProgress))], ['العرابين المدفوعة للمبتكرين', num(D.formatMoney(P.deposits)), num(D.formatPct(P.shares.deposits))]],
         totalRow: ['الرصيد المتوقع', num(D.formatMoney(P.total)), num('100.0%')] }) }),
       TableCard({ title: 'سجل الحساب التفصيلي', count: '', th: { noun: ['حركة', 'الحركات'], when: D.rangeLabel(state.range.from, state.range.to), total: outside ? outside + ' خارج الفترة' : '' }, body: moves.length === 0 ? U.EmptyState('لسه مفيش حركات مسجّلة', 'اضغط «إضافة مبلغ» وسجّل أول إيداع أو سحب، وهيظهر هنا.') :
-        U.Table({ headers: ['التاريخ', 'نوع الحساب', 'العملية', 'المبلغ (ج.م)', ''], rows: moves.map((m) => [num(D.formatDateNumeric(m.date)), m.account, m.direction === 'deposit' ? 'إيداع' : 'سحب',
+        U.Table({ headers: ['التاريخ', 'نوع الحساب', 'العملية', 'المستفيد', 'المبلغ (ج.م)', ''], rows: moves.map((m) => [num(D.formatDateNumeric(m.date)), m.account, m.direction === 'deposit' ? 'إيداع' : 'سحب', benOf(m),
           h('span', { class: m.direction === 'deposit' ? 'pos' : 'neg' }, num((m.direction === 'deposit' ? '+' : '-') + D.formatMoney(m.amount))), RowActions('accountMoves', m, (r) => deleteRec('accountMoves', r))]) }) }),
       sourceNote('المصدر: حركات الحساب الفعلي المتسجلة في السيستم (الرصيد الافتتاحي صفر لحد الاستيراد) · الرصيد المتوقع = الرصيد الفعلي + حصة إبتكر من الأوردرات قيد التنفيذ + العرابين المدفوعة للمبتكرين'),
     ];

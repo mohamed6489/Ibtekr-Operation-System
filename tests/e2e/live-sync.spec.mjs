@@ -138,7 +138,9 @@ test('accounts: an expense a teammate recorded a moment ago is not recorded agai
     await modal(page).locator('#f-cat').click(); await page.locator('[role=listbox] [role=option]', { hasText: 'المصروفات' }).first().click();
     await modal(page).locator('#f-ben').click(); await page.locator('[role=listbox] [role=option]', { hasText: 'آخر' }).first().click();
     await modal(page).locator('#f-other').fill('مطبعة النيل'); await modal(page).locator('#f-details').fill('ورق طباعة تاني');
+    await modal(page).locator('#f-macc').click(); await page.locator('[role=listbox] [role=option]', { hasText: 'حساب البنك' }).first().click(); // 0143
     await modal(page).getByRole('button', { name: 'حفظ' }).click();
+    await modal(page).getByRole('button', { name: 'احفظ برضه' }).click(); // the bank is at zero: saved with a warning
   };
   await save();
   const ask = page.locator('.modal[role=dialog]').filter({ hasText: 'دي حركة تانية؟' });

@@ -1509,8 +1509,27 @@ async function withdrawApprove(run: Run, args: Json, by: string | null = null) {
   if (store !== null && row.vendor_id) await readBalances(run, [{ id: row.vendor_id, woo_vendor_id: store }], run.now());
   // 0078: the maker's open moves settle against it — what the request covered and what is transferred to the maker
   const settlement = status === 'approved' ? await settle(run, id, 'system', by) : null;
-  await logSync(run.db, { ...entry, result: 'ok', detail: { status, amount: row.amount, settled: settlement ? settlement.moves : null } });
-  return json(200, { action: 'withdraw_approve', result: 'ok', status, settlement });
+  // 0143 (the owner 19 Nov — «اي سحب … يجبلي الحساب»): the cash that goes to the maker leaves the account the approver picked
+  const transfer = status === 'approved' ? await withdrawTransfer(run, row, args.account, settlement, by) : null;
+  await logSync(run.db, { ...entry, result: 'ok', detail: { status, amount: row.amount, settled: settlement ? settlement.moves : null, transfer: transfer ? transfer.result : null } });
+  return json(200, { action: 'withdraw_approve', result: 'ok', status, settlement, transfer });
+}
+
+// one account move per approved request (withdraw_id, unique while live): the cash after the settlement (the whole request when
+// nothing settled), from one of the five accounts, the maker as its beneficiary — never when no account was named or nothing is paid
+const MONEY_ACCOUNTS = ['حساب البنك', 'حساب بوسطة', 'حساب باي موب', 'محفظة إلكترونية', 'أوبريشن'];
+async function withdrawTransfer(run: Run, row: Json, account: unknown, settlement: { cash: number } | null, by: string | null) {
+  if (typeof account !== 'string' || !MONEY_ACCOUNTS.includes(account)) return null;
+  const cash = Math.round((settlement ? settlement.cash : Number(row.amount) || 0) * 100) / 100;
+  if (!(cash > 0)) return { result: 'nothing', amount: 0 };
+  let name: string | null = null;
+  if (row.vendor_id) { const v = await run.db.from('vendors').select('name').eq('id', row.vendor_id).maybeSingle(); name = v.data && typeof v.data.name === 'string' ? v.data.name.slice(0, 80) : null; }
+  const day = new Date(Date.parse(run.now())).toLocaleDateString('en-CA', { timeZone: 'Africa/Cairo' });
+  const { data, error } = await run.db.from('acc_account_moves').insert({ account, on_date: day, direction: 'withdraw', amount: cash,
+    note: 'تحويل طلب السحب #' + row.id + (name ? ' — ' + name : ''), beneficiary_kind: row.vendor_id ? 'vendor' : 'other', beneficiary: name ?? 'مبتكر',
+    vendor_id: row.vendor_id ?? null, withdraw_id: row.id, created_by: by, dup_ok: true }).select('id');
+  if (error) { await logSync(run.db, { kind: run.kind, direction: 'in', entity: 'acc_account_moves', entity_id: String(row.id), action: 'withdraw_transfer', result: 'error', detail: { code: error.code ?? null } }); return { result: 'error', amount: cash }; }
+  return { result: 'ok', amount: cash, id: Array.isArray(data) && data[0] ? data[0].id : null, account };
 }
 
 // ---------------------------------------------------------------- withdraw_reject (the owner 18 Nov)

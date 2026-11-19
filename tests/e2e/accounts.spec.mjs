@@ -43,6 +43,14 @@ const main = (page) => page.locator('#main');
 const tab = (page, label) => main(page).getByRole('tab', { name: label });
 const modal = (page) => page.locator('.modal[role=dialog]');
 async function pick(page, id, label) { await modal(page).locator('#' + id).click(); await page.locator('[role=listbox] [role=option]', { hasText: label }).first().click(); }
+// 0143: every expense / maker withdraw names its account; an account going below zero asks «احفظ برضه» once
+async function saveForm(page, account = 'حساب البنك') {
+  const acc = modal(page).locator('#f-macc');
+  if (await acc.count() && /اختار الحساب/.test(await acc.innerText())) await pick(page, 'f-macc', account);
+  await modal(page).getByRole('button', { name: 'حفظ' }).click();
+  const again = modal(page).getByRole('button', { name: 'احفظ برضه' });
+  if (await again.waitFor({ state: 'visible', timeout: 800 }).then(() => true, () => false)) await again.click();
+}
 async function add(page, menu, dir) { await main(page).getByRole('button', { name: menu, exact: true }).click(); await page.locator('[role=menu] [role=menuitem], [role=menu] .opt', { hasText: dir }).first().click(); await expect(modal(page)).toBeVisible(); }
 
 test('the page is open with its six tabs, no September seed: the numbers start at zero and the range is this month', async ({ page }) => {
@@ -62,11 +70,11 @@ test('an expense is written to acc_expenses and logged (kind, amount, date only)
   await pick(page, 'f-cat', 'المصروفات');
   await pick(page, 'f-ben', 'آخر');
   await modal(page).locator('#f-other').fill('مطبعة النيل');
-  await modal(page).getByRole('button', { name: 'حفظ' }).click();
+  await saveForm(page);
   await expect(modal(page)).toContainText('اكتب تفاصيل المصروف'); // phase 4.1: a general expense needs its details
   expect(mock.accWrites).toEqual([]);
   await modal(page).locator('#f-details').fill('ورق طباعة وكراتين');
-  await modal(page).getByRole('button', { name: 'حفظ' }).click();
+  await saveForm(page);
   await expect(modal(page)).toBeHidden();
   await expect.poll(() => mock.accWrites.length).toBe(1);
   expect(mock.accWrites[0]).toMatchObject({ table: 'acc_expenses', op: 'insert', on_date: cairo(), direction: 'withdraw', category: 'المصروفات', beneficiary: 'مطبعة النيل', beneficiary_other: true, amount: 1250, sub_alerts: [], details: 'ورق طباعة وكراتين', reason: null });
@@ -92,19 +100,20 @@ test('a subscription needs its name, end date and alerts; it is stored with them
   await add(page, 'إضافة مصروفات', 'سحب');
   await modal(page).locator('#f-amount').fill('450');
   await pick(page, 'f-cat', 'الاشتراكات');
-  await modal(page).getByRole('button', { name: 'حفظ' }).click();
+  await saveForm(page);
   await expect(modal(page)).toContainText('اختار الاشتراك');
   expect(mock.accWrites).toEqual([]);
   await pick(page, 'f-subname', 'Canva');
   const ends = new Date(Date.now() + 5 * 864e5); const d = [String(ends.getDate()).padStart(2, '0'), String(ends.getMonth() + 1).padStart(2, '0'), ends.getFullYear()].join('/');
   await modal(page).locator('#f-subends').fill(d); await modal(page).locator('#f-subends').press('Tab');
-  await modal(page).getByRole('button', { name: 'حفظ' }).click();
+  await saveForm(page);
   await expect(modal(page)).toBeHidden();
   await expect.poll(() => mock.accWrites.length).toBe(1);
   expect(mock.accWrites[0]).toMatchObject({ table: 'acc_expenses', category: 'الاشتراكات', sub_name: 'Canva', sub_is_other: false, sub_alerts: ['month', 'week', 'day'] });
   await expect(main(page).locator('[data-subs-summary]')).toContainText('اشتراكات نشطة'); // phase 5.5: a summary in «المصروفات», the table in its own tab
   // the owner 13 Nov: the link's words at the right and its arrow after them at the left
-  expect(await main(page).locator('[data-go-subs]').evaluate((b) => { const t = Array.from(b.childNodes).find((n) => n.nodeType === 3 && n.textContent.trim()); const r = document.createRange(); r.selectNodeContents(t); return r.getBoundingClientRect().left > b.querySelector('svg').getBoundingClientRect().right; })).toBe(true);
+  await expect(main(page).locator('[data-go-subs]')).toBeVisible(); // 0143: the ledgers are read again after the save (the linked account move)
+  await expect.poll(() => main(page).locator('[data-go-subs]').evaluate((b) => { const t = Array.from(b.childNodes).find((n) => n.nodeType === 3 && n.textContent.trim()); const r = document.createRange(); r.selectNodeContents(t); return r.getBoundingClientRect().left > b.querySelector('svg').getBoundingClientRect().right; })).toBe(true);
   await main(page).locator('[data-go-subs]').click();
   await expect(main(page).locator('.subs-tbl')).toContainText('Canva');
   await expect(main(page).locator('.subs-tbl')).toContainText(/باقي [45] يوم/);
@@ -124,7 +133,7 @@ test('makers: Dokan balance, the open Dokan request, a deposit recorded here low
   await pick(page, 'f-vendor', 'Art Craft');
   await modal(page).locator('#f-amount').fill('700');
   await pick(page, 'f-type', 'عربون');
-  await modal(page).getByRole('button', { name: 'حفظ' }).click();
+  await saveForm(page);
   await expect.poll(() => mock.accWrites.length).toBe(1);
   expect(mock.accWrites[0]).toMatchObject({ table: 'acc_vendor_moves', vendor_id: V1, direction: 'withdraw', kind: 'عربون', kind_name: null, amount: 700 });
   await expect(art).toContainText('1,800.00'); // 2,500 − 700
@@ -150,7 +159,7 @@ test('the columns (phase 4.1, every table): hiding one is saved for the member i
   await main(page).locator('[data-cols^="tbl:حسابات المبتكرين"]').click();
   await expect(modal(page).locator('[data-col-item="المبتكر"] [role=switch], [data-col-item="المبتكر"] input').first()).toBeDisabled();
   await modal(page).locator('[data-col-item="رصيد Dokan"] [role=switch], [data-col-item="رصيد Dokan"] input').first().click();
-  await modal(page).getByRole('button', { name: 'حفظ' }).click();
+  await saveForm(page);
   await expect(main(page).locator('table.vendors-table thead th', { hasText: 'رصيد Dokan' })).toBeHidden();
   await expect.poll(() => { const p = mock.prefs.find((x) => x.key === 'table.cols'); return p ? Object.entries(p.data).map(([k, v]) => [k, v.hidden]) : null; }).toEqual([['tbl:حسابات المبتكرين', ['رصيد Dokan']]]);
   // decision 50: the order by the six-dot grip (drag) — no arrows; the first column has no grip
@@ -166,7 +175,7 @@ test('the columns (phase 4.1, every table): hiding one is saved for the member i
   await page.mouse.move(g.x + g.width / 2, t.y + 4, { steps: 12 }); await page.mouse.up();
   await expect.poll(async () => (await ids()).indexOf(moving)).toBe(1);
   expect((await ids())[0]).toBe('المبتكر');
-  await modal(page).getByRole('button', { name: 'حفظ' }).click();
+  await saveForm(page);
   await expect.poll(() => { const p = mock.prefs.find((x) => x.key === 'table.cols'); return p ? p.data['tbl:حسابات المبتكرين'].order.indexOf(moving) : -1; }).toBe(1);
   // another tab's table has its own button
   await tab(page, 'المبيعات').click();
@@ -260,6 +269,10 @@ test('approve a pending Dokan request from the brief (admin): confirm → woo-sy
   await expect(brief.locator('[data-vb-req]')).toHaveAttribute('data-vb-req', 'ask');
   await expect(brief).toContainText('طلب السحب #501 بمبلغ 1,200.00 ج.م على Dokan — توافق عليه دلوقتي؟');
   await expect(page.locator('.modal[role=dialog]')).toHaveCount(1);
+  await brief.locator('[data-vb-approve]').click(); // 0143: no account picked → asked, nothing sent
+  await expect(brief.locator('[data-vb-res]')).toHaveText('اختار الحساب اللي هيتحوّل منه للمبتكر الأول.');
+  expect(mock.approvals).toEqual([]);
+  await brief.locator('[data-vb-acc]').selectOption('حساب البنك');
   await brief.locator('[data-vb-approve]').click();
   await expect(brief.locator('[data-vb-res]')).toHaveText('الكتابة على Dokan مقفولة دلوقتي — الطلب ما اتوافقش عليه.');
   await expect(main(page)).toContainText('الكتابة على Dokan مقفولة دلوقتي');
@@ -270,12 +283,15 @@ test('approve a pending Dokan request from the brief (admin): confirm → woo-sy
   await expect(brief.locator('[data-vb-req]')).toHaveAttribute('data-vb-req', 'pending');
   expect(mock.approvals).toHaveLength(1);
   await brief.getByRole('button', { name: /موافقة على طلب السحب/ }).click();
+  await expect(brief.locator('[data-vb-acc]')).toHaveValue('حساب البنك'); // the account picked before is kept
   await brief.locator('[data-vb-approve]').click();
   await expect(brief.locator('[data-vb-req]')).toHaveAttribute('data-vb-req', 'approved'); // the popup follows Dokan's mirror
   await expect(brief.locator('[data-vb-res]')).toContainText('اتوافق على طلب السحب #501');
   await page.keyboard.press('Escape');
   await expect(main(page)).toContainText('اتوافق على طلب السحب #501');
-  expect(mock.approvals.at(-1)).toEqual({ id: 501, by: ADMIN, result: 'ok' });
+  expect(mock.approvals.at(-1)).toEqual({ id: 501, by: ADMIN, result: 'ok', account: 'حساب البنك' });
+  // 0143: the cash transferred leaves the account picked, the maker its beneficiary
+  expect(mock.acc.acc_account_moves.filter((m) => m.withdraw_id === 501).map((m) => [m.account, m.direction, m.amount, m.beneficiary])).toEqual([['حساب البنك', 'withdraw', 1200, 'Art Craft']]);
   expect(mock.acc.dokan_withdrawals.find((w) => w.id === 501).status).toBe('approved');
   await expect.poll(() => mock.activity.filter((a) => a.action === 'accounts.withdraw.approve').map((a) => a.new_value)).toEqual(['#501 · 1200']);
   expect(mock.accWrites.filter((w) => w.table === 'acc_vendor_moves')).toEqual([]); // no payout move: Dokan lowers the balance itself
@@ -308,7 +324,7 @@ test('fields per type: a deposit takes its source and reason; a payroll to someo
   await expect(modal(page).locator('#f-subname')).toHaveCount(0); // a deposit is money coming back: no subscription fields
   await modal(page).locator('#f-src').fill('Canva');
   await pick(page, 'f-reason', 'إلغاء اشتراك');
-  await modal(page).getByRole('button', { name: 'حفظ' }).click();
+  await saveForm(page);
   await expect(modal(page)).toBeHidden();
   await expect.poll(() => mock.accWrites.length).toBe(1);
   expect(mock.accWrites[0]).toMatchObject({ category: 'الاشتراكات', direction: 'deposit', beneficiary: 'Canva', reason: 'إلغاء اشتراك', sub_name: null, sub_alerts: [] });
@@ -318,7 +334,7 @@ test('fields per type: a deposit takes its source and reason; a payroll to someo
   await pick(page, 'f-ben', 'حد من بره الفريق');
   await modal(page).locator('#f-other').fill('سامح فريلانسر');
   await modal(page).getByText('فريلانس — شغل مرة واحدة وخلص').click();
-  await modal(page).getByRole('button', { name: 'حفظ' }).click();
+  await saveForm(page);
   await expect.poll(() => mock.accWrites.length).toBe(2);
   expect(mock.accWrites[1]).toMatchObject({ category: 'المرتبات', beneficiary: 'سامح فريلانسر', beneficiary_other: true, staff_kind: 'freelance' });
   await add(page, 'إضافة مصروفات', 'سحب');
@@ -328,7 +344,7 @@ test('fields per type: a deposit takes its source and reason; a payroll to someo
   await page.locator('.modal[role=dialog]', { hasText: 'إضافة منصة إعلانات' }).locator('input').first().fill('سناب شات');
   await page.locator('.modal[role=dialog]', { hasText: 'إضافة منصة إعلانات' }).getByRole('button', { name: 'إضافة' }).click();
   await expect.poll(() => mock.accWrites.filter((w) => w.table === 'acc_list_items')).toEqual([expect.objectContaining({ list: 'ads', name: 'سناب شات' })]);
-  await modal(page).getByRole('button', { name: 'حفظ' }).click();
+  await saveForm(page);
   await expect.poll(() => mock.accWrites.filter((w) => w.table === 'acc_expenses').length).toBe(3);
   expect(mock.accWrites.filter((w) => w.table === 'acc_expenses')[2]).toMatchObject({ category: 'الإعلانات', beneficiary: 'سناب شات' });
 });
@@ -341,7 +357,7 @@ test('subscriptions: «جدّد» opens a new expense a year on; the sales show 
   await pick(page, 'f-subname', 'Canva');
   const ends = new Date(Date.now() + 5 * 864e5); const d = [String(ends.getDate()).padStart(2, '0'), String(ends.getMonth() + 1).padStart(2, '0'), ends.getFullYear()].join('/');
   await modal(page).locator('#f-subends').fill(d); await modal(page).locator('#f-subends').press('Tab');
-  await modal(page).getByRole('button', { name: 'حفظ' }).click();
+  await saveForm(page);
   await expect(modal(page)).toBeHidden();
   await tab(page, 'الاشتراكات').click();
   await expect(main(page).locator('.subs-tbl')).toContainText('Canva');
@@ -493,7 +509,7 @@ test('5.5 decision 13: «كشف بالفترة» — the opening is Dokan\'s bal
   // an «عربون» recorded now («سحب») lowers the closing at once; the statements are not asked again
   await add(page, 'إضافة مبلغ', 'سحب');
   await pick(page, 'f-vendor', 'Antikiano'); await modal(page).locator('#f-amount').fill('500'); await pick(page, 'f-type', 'عربون');
-  await modal(page).getByRole('button', { name: 'حفظ' }).click();
+  await saveForm(page);
   await expect(anti.locator('[data-ledger-close="Antikiano"]')).toHaveText('1,000.00');
   expect(mock.statements.length).toBe(4);
   // «حدّث الكشف من Dokan» asks every maker again
@@ -538,21 +554,21 @@ test('0078: «الرصيد دلوقتي» is now (no period) and chains to the n
   await expect(modal(page).locator('#f-type')).toHaveCount(0);
   await pick(page, 'f-vendor', 'Art Craft');
   await modal(page).locator('#f-amount').fill('300');
-  await modal(page).getByRole('button', { name: 'حفظ' }).click();
+  await saveForm(page);
   await expect(modal(page).locator('#f-other')).toHaveAttribute('aria-invalid', 'true');
   await modal(page).locator('#f-other').fill('فرق مقاس مخصص');
   await modal(page).locator('#f-note').fill('العميل طلب مقاس أكبر');
-  await modal(page).getByRole('button', { name: 'حفظ' }).click();
+  await saveForm(page);
   await expect.poll(() => mock.accWrites.length).toBe(1);
   expect(mock.accWrites[0]).toMatchObject({ table: 'acc_vendor_moves', vendor_id: V1, direction: 'deposit', kind: 'أخرى', kind_name: 'فرق مقاس مخصص', note: 'العميل طلب مقاس أكبر', amount: 300 });
   // «سحب»: مواصلات 150 + أخرى «خامات» 200
   await add(page, 'إضافة مبلغ', 'سحب');
   await pick(page, 'f-vendor', 'Art Craft'); await modal(page).locator('#f-amount').fill('150'); await pick(page, 'f-type', 'مواصلات');
-  await modal(page).getByRole('button', { name: 'حفظ' }).click(); await expect(modal(page)).toBeHidden();
+  await saveForm(page); await expect(modal(page)).toBeHidden();
   await add(page, 'إضافة مبلغ', 'سحب');
   await pick(page, 'f-vendor', 'Art Craft'); await modal(page).locator('#f-amount').fill('200'); await pick(page, 'f-type', 'أخرى');
   await modal(page).locator('#f-other').fill('خامات اتشرت له');
-  await modal(page).getByRole('button', { name: 'حفظ' }).click(); await expect(modal(page)).toBeHidden();
+  await saveForm(page); await expect(modal(page)).toBeHidden();
   await expect.poll(() => mock.accWrites.length).toBe(3);
   const table = main(page).locator('table.vendors-table');
   await expect(table.locator('thead th')).toContainText(['رصيد Dokan', 'العرابين', 'المواصلات', 'خصومات تانية', 'تصحيحات', 'الصافي', 'طلب السحب', 'آخر طلب سحب']);
@@ -613,6 +629,7 @@ test('0078: «تسوية دلوقتي» files a request on Dokan for the whole D
   await modal(page).getByRole('button', { name: /موافقة على طلب السحب/ }).click();
   const conf = page.locator('.modal.vb-modal');
   await expect(conf).toContainText('الخصومات المفتوحة (5,000.00 ج.م) بتتصفّى منه، واللي بيتحوّل للمبتكر 20,000.00 ج.م.');
+  await conf.locator('[data-vb-acc]').selectOption('حساب البنك');
   await conf.locator('[data-vb-approve]').click();
   await expect(conf.locator('[data-vb-res]')).toContainText('واتصفّى منه 5,000.00 ج.م خصومات (2 حركة) — حوّل للمبتكر 20,000.00 ج.م.');
   await page.keyboard.press('Escape');
@@ -662,4 +679,56 @@ test('0078: «كشف بالفترة» without a range = «كل الفترات» 
   await expect(main(page).locator('table.ledger-table thead th', { hasText: 'رصيد أول الفترة' })).toHaveCount(1);
   await main(page).locator('[data-vl-all]').click();
   await expect(main(page).locator('.toolbar .range-label')).toHaveText('كل الفترات');
+});
+
+// 0143 (the owner 19 Nov — «اي سحب او ايداع … يجبلي الحساب … و دايما يبقي فيه مستفيد و كله يبقي مربوط ببعضه»)
+test('0143: an expense names its account and makes one linked account move; a maker withdraw from «الحساب الفعلي» lands on his balance; a transfer makes its other side', async ({ page }) => {
+  await openAccounts(page);
+  // an expense without its account is refused; with it, the account move follows (beneficiary = the payee), after the overdraft warning
+  await add(page, 'إضافة مصروفات', 'سحب');
+  await modal(page).locator('#f-amount').fill('300');
+  await pick(page, 'f-cat', 'المصروفات');
+  await pick(page, 'f-ben', 'آخر');
+  await modal(page).locator('#f-other').fill('مكتبة سمير');
+  await modal(page).locator('#f-details').fill('ورق');
+  await modal(page).getByRole('button', { name: 'حفظ' }).click();
+  await expect(modal(page)).toContainText('اختار الحساب');
+  expect(mock.accWrites).toEqual([]);
+  await pick(page, 'f-macc', 'أوبريشن');
+  await modal(page).getByRole('button', { name: 'حفظ' }).click();
+  await expect(modal(page).locator('[data-acc-overdraft]')).toContainText('رصيد «أوبريشن» هيبقى -300.00 ج.م');
+  expect(mock.accWrites).toEqual([]);
+  await modal(page).getByRole('button', { name: 'احفظ برضه' }).click();
+  await expect(modal(page)).toBeHidden();
+  await expect.poll(() => mock.acc.acc_account_moves.map((m) => [m.account, m.direction, m.amount, m.beneficiary, !!m.expense_id])).toEqual([['أوبريشن', 'withdraw', 300, 'مكتبة سمير', true]]);
+  await tab(page, 'الحساب الفعلي').click();
+  const linked = main(page).locator('tr', { hasText: 'مكتبة سمير' });
+  await expect(linked).toBeVisible();
+  // «حذف» from the account tab voids the expense itself (and its move with it)
+  await linked.getByRole('button', { name: 'إجراءات الصف' }).click();
+  await page.locator('[role=menu] .opt, [role=menu] [role=menuitem]', { hasText: 'حذف' }).first().click();
+  await expect.poll(() => mock.acc.acc_expenses[0].voided_at).toBeTruthy();
+  await expect.poll(() => mock.acc.acc_account_moves.filter((m) => !m.voided_at).length).toBe(0);
+  // a withdraw for a maker from the account tab = a maker move with that account
+  await add(page, 'إضافة مبلغ', 'سحب');
+  await pick(page, 'f-account', 'حساب البنك');
+  await pick(page, 'f-benkind', 'مبتكر');
+  await pick(page, 'f-benname', 'Art Craft');
+  await pick(page, 'f-type', 'عربون');
+  await modal(page).locator('#f-amount').fill('500');
+  await saveForm(page);
+  await expect(modal(page)).toBeHidden();
+  await expect.poll(() => mock.acc.acc_vendor_moves.map((m) => [m.kind, m.amount, m.account])).toEqual([['عربون', 500, 'حساب البنك']]);
+  await expect.poll(() => mock.acc.acc_account_moves.filter((m) => !m.voided_at && m.vendor_move_id).map((m) => [m.account, m.amount, m.beneficiary])).toEqual([['حساب البنك', 500, 'Art Craft']]);
+  // a transfer bank → أوبريشن: the deposit on the other side, both shown
+  await add(page, 'إضافة مبلغ', 'سحب');
+  await pick(page, 'f-account', 'حساب البنك');
+  await pick(page, 'f-benkind', 'حساب تاني');
+  await pick(page, 'f-toacc', 'أوبريشن');
+  await modal(page).locator('#f-amount').fill('2000');
+  await saveForm(page);
+  await expect(modal(page)).toBeHidden();
+  await expect.poll(() => mock.acc.acc_account_moves.filter((m) => !m.voided_at && m.beneficiary_kind === 'account').map((m) => [m.account, m.direction, m.amount]).sort()).toEqual([['أوبريشن', 'deposit', 2000], ['حساب البنك', 'withdraw', 2000]]);
+  await expect(main(page).locator('tr', { hasText: 'تحويل إلى أوبريشن' })).toBeVisible();
+  await expect(main(page).locator('tr', { hasText: 'تحويل من حساب البنك' })).toBeVisible();
 });

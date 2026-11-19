@@ -18,7 +18,7 @@
   // phase 4.1 (plan decision 1): no «تحويل مستحقات» move is recorded here — Dokan lowers the balance itself when a request is approved
   const VENDOR_TYPES = Object.freeze(['مواصلات', 'عربون', 'أخرى']);
   const CORRECTION = 'أخرى'; // 0078: a «إيداع» is a correction: this kind, its title in typeName
-  const ACCOUNTS = Object.freeze(['حساب البنك', 'حساب بوسطة', 'حساب باي موب', 'محفظة إلكترونية']);
+  const ACCOUNTS = Object.freeze(['حساب البنك', 'حساب بوسطة', 'حساب باي موب', 'محفظة إلكترونية', 'أوبريشن']); // «أوبريشن» — the owner 19 Nov (0141)
   const OTHER = 'آخر';
   const MONTHS = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
   const MAX_AMOUNT = 1e9;

@@ -4016,12 +4016,13 @@
     function moreMenu(v) {
       const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' }); const trig = IconButton({ icon: 'more', label: 'المزيد', attrs: { 'aria-haspopup': 'menu', 'aria-expanded': 'false' } });
       const MOVES = { active: [['leave', 'تحويل لـ «في إجازة»'], ['inactive', 'تحويل لغير نشط']], leave: [['active', 'تفعيل المبتكر'], ['inactive', 'تحويل لغير نشط']], inactive: [['active', 'تفعيل المبتكر'], ['leave', 'تحويل لـ «في إجازة»']] }; // decision 6: leave is a status like the others (vendors.toggle)
-      const opts = (vstore.canToggle() ? (MOVES[v.status] || MOVES.active).map(([st, label]) => ({ value: 'status:' + st, label })) : []).concat([vstore.canRate() ? { value: 'rate', label: 'تغيير النسبة (الأوردرات الجديدة فقط)' } : null, vstore.canPhoto && vstore.canPhoto() ? { value: 'photo', label: 'تغيير صورة المبتكر' } : null, { value: 'copy', label: 'نسخ رابط الملف' }, { value: 'ticket', label: 'فتح طلب على المبتكر' }, vstore.canRemove && vstore.canRemove() && vstore.deleteVendor ? { value: 'remove', label: 'حذف المبتكر', danger: true } : null].filter(Boolean));
+      const opts = (vstore.canToggle() ? (MOVES[v.status] || MOVES.active).map(([st, label]) => ({ value: 'status:' + st, label })) : []).concat([vstore.canRate() ? { value: 'rate', label: 'تغيير النسبة (الأوردرات الجديدة فقط)' } : null, vstore.canPhoto && vstore.canPhoto() ? { value: 'photo', label: 'تغيير صورة المبتكر' } : null, { value: 'copy', label: 'نسخ رابط الملف' }, { value: 'ticket', label: 'فتح طلب على المبتكر' }, window.IBBosta && window.IBDirectory && window.IBDirectory.perm && window.IBDirectory.perm('orders.status') === 'F' ? { value: 'pickup', label: 'بيك أب من بوسطة' } : null, vstore.canRemove && vstore.canRemove() && vstore.deleteVendor ? { value: 'remove', label: 'حذف المبتكر', danger: true } : null].filter(Boolean));
       const pop = U.popover(wrap, trig, (close) => U.DropdownMenu({ role: 'menu', end: true, options: opts, onSelect: (val) => { close();
         if (val.startsWith('status:')) act(() => vstore.update(id, { status: val.slice(7) }, vstore.actor()), 'اتغيرت الحالة.');
         if (val === 'rate') editGroup(v, 'terms');
         if (val === 'photo') makerPhoto(v); // the owner 16 Nov: «عايز امكانية تعديل اللوجو للبراند او المبتكر»
         if (val === 'copy') copyText(location.href.split('#')[0] + '#makers/' + id, 'رابط الملف');
+        if (val === 'pickup') window.IBBosta.pickup({ vendorId: v.id, vendorName: v.name }); // 0144 (the owner 19 Nov): the maker → the warehouse by Bosta
         if (val === 'ticket') { vdrawer.close(); showTickets(); openNewTicket({ type: 'vendor', vendor: v.name, vendorId: v.id }); } // phase 8 decision 3
         // 0031 (the owner, 2 Nov): a maker whose store is gone from the site — the admin removes it here (the delete the server
         // allows: a maker with orders is refused by the database and the message says so)

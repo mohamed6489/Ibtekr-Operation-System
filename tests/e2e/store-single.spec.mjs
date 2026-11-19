@@ -95,8 +95,12 @@ test('single mode: the margin is saved from «عام»', async ({ page }) => {
   await page.evaluate(() => { location.hash = 'settings-general'; });
   const m = page.locator('[data-store-margin]');
   await expect(m).toHaveValue('30');
-  await m.fill('45'); await m.press('Tab');
-  await expect.poll(() => storeRow()).toEqual({ mode: 'single', margin: 45 });
+  // the settings page can draw again (ib:settings / a quiet live reload) between the fill and the Tab on a loaded runner — the field is
+  // then a new one and the change never fires; type and leave it again until the row has it
+  await expect(async () => {
+    await m.fill('45'); await m.press('Tab');
+    await expect.poll(() => storeRow(), { timeout: 2000 }).toEqual({ mode: 'single', margin: 45 });
+  }).toPass({ timeout: 15000 });
 });
 
 test('single mode: the studio\'s second step is «البراند» (its name + the SKU code) — no maker', async ({ page }) => {

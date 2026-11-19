@@ -714,6 +714,7 @@ test('5.5: the bulk bar moves the selected makers\' products to another maker (p
   await expect(bar.getByRole('button', { name: /تعديل الأسعار|تعديل نسبة إبتكر/ })).toHaveCount(0);
   // the row menu → his orders
   await page.locator('#vendors tr[data-id="' + V2 + '"] .act-col button[aria-haspopup=menu]').click();
+  await expect(page.locator('[role=menu] [role=menuitem]').last()).toHaveText('بيك أب من بوسطة'); // the owner 19 Nov: the pickup from the row ⋮ too
   await page.locator('[role=menu] [role=menuitem]', { hasText: 'أوردراته' }).click();
   await expect(page.locator('#orders')).toBeVisible();
   await expect(page.locator('#orders #v1')).toHaveText('المبتكر: Antikiano');

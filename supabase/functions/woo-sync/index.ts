@@ -163,7 +163,8 @@ import { START_DATE, SYNC_FIELDS, bankDigest, mapStore, nextCursor, outgoingWooS
 import { getState, logSync, setState, upsertRows } from '../_shared/db.js';
 import { readBalances as readDokanBalances } from '../_shared/dokan-balances.js';
 import { PAY_STATUSES, orderCreateInput, orderPayable, payUrl, wooOrderBody } from '../_shared/woo-order-create.js';
-import { vaultEnv } from '../_shared/secrets.js';
+import { secretOf, vaultEnv } from '../_shared/secrets.js';
+import { BOSTA_API, BOSTA_MAX, bostaKey, deliveryOf, resultOf } from '../_shared/bosta.js';
 import { isSingle, readStore, SINGLE_OFF_ACTIONS, STORE_FREE_ACTIONS, wooActive } from '../_shared/store/index.js';
 import { ConfigError, WooError, errorText, makeScrubber, wooApi } from '../_shared/woo-api.js';
 import { AR_FIELDS, BATCH_FIELDS, EDIT_FIELDS, VARIATION_FIELDS, brandNamesOf, cleanFields, editView, sharedOf, toWoo, variationView, withBrandAttr } from '../_shared/woo-products.js';
@@ -186,7 +187,7 @@ type Run = { db: Db; env: Deps['env']; woo: () => ReturnType<typeof wooApi>; ctx
 
 const ACTIONS = ['states', 'categories', 'orders', 'vendors', 'products', 'all', 'push_status', 'push_vendor', 'register_webhooks', 'probe_store', 'probe_dokan', 'accounts', 'statement', 'withdraw_approve', 'withdraw_reject', 'withdraw_create', 'withdrawals', 'style_create', 'style_update', 'order_trash', 'suborder_trash', 'line_trash', 'line_qty', 'line_add', 'suborder_status', 'order_create', 'order_pay_link',
   'vendor_photo', 'vendor_store', 'product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'studio_media', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push', 'product_duplicate', 'carts',
-  'category_get', 'category_update', 'category_delete', 'category_order', 'thumbs', 'styles', 'wp_updates', 'site_speed', 'brand_site', 'vendor_delete'];
+  'category_get', 'category_update', 'category_delete', 'category_order', 'thumbs', 'styles', 'wp_updates', 'site_speed', 'brand_site', 'vendor_delete', 'bosta_send'];
 // phase 5: the product actions a person runs (never the sync secret); phase 5.2: the studio's upload, a new category, a sheet link;
 // phase 5.4: the images tool's results onto a product; B4 (11 Nov): the categories tab's read, edit and delete
 const PRODUCT_ACTIONS = ['product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'studio_media', 'category_create', 'studio_sheet', 'style_create', 'style_update', 'product_images_add', 'inventory_push', 'product_duplicate',
@@ -220,6 +221,7 @@ async function authorize(req: Request, deps: Deps, action: string, args: Json): 
     if (action === 'vendor_photo' || action === 'vendor_store' || action === 'brand_site' || action === 'vendor_delete') return null; // a person sets a maker's photo / makes his store / his brand on the site (phase 13 decision 51; 11 Nov; 16 Nov)
     if (PRODUCT_ACTIONS.includes(action)) return null; // a person edits products, never the cron / sync secret (phase 5)
     if (action === 'wp_updates') return null; // a person checks the site's updates (comments decision 71)
+    if (action === 'bosta_send') return null; // a person sends orders to Bosta (the owner 19 Nov)
     const { data, error } = await deps.db.rpc('sync_secret_matches', { candidate: secret });
     return !error && data === true ? 'system' : null;
   }
@@ -231,6 +233,8 @@ async function authorize(req: Request, deps: Deps, action: string, args: Json): 
   if (action === 'push_status') return (await perm('orders.status')) ? 'member' : null;
   // phase 5.5 decision 10: the site trash needs the same two permissions RPC order_delete checks — orders.status = F and orders.view <> N
   if (action === 'order_trash' || action === 'suborder_trash' || action === 'line_trash' || action === 'line_qty' || action === 'line_add' || action === 'suborder_status') { if (!(await perm('orders.status'))) return null; const { data, error } = await member.rpc('has_perm', { key: 'orders.view' }); return !error && (data === 'F' || data === 'P') ? 'member' : null; }
+  // the owner 19 Nov («ابعت لبوسطة» in the bulk bar): the same people who change an order's status — orders.status = F and orders.view <> N
+  if (action === 'bosta_send') { if (!(await admin()) && !(await perm('orders.status'))) return null; const { data, error } = await member.rpc('has_perm', { key: 'orders.view' }); return !error && (data === 'F' || data === 'P') ? 'member' : null; }
   // phase 13 T3 (decision 7): an order from the customer-service chat and its pay link — the admin or orders.status = F
   if (action === 'order_create' || action === 'order_pay_link') return (await admin()) || (await perm('orders.status')) ? 'member' : null;
   if (action === 'statement' || action === 'withdrawals') { const { data, error } = await member.rpc('has_perm', { key: 'accounts.view' }); return !error && (data === 'F' || data === 'P') ? 'member' : null; }
@@ -2231,6 +2235,50 @@ async function studioUpload(run: Run, args: Json) {
 // too_big | unreachable }; a link that is not a Google sheet → 400 bad_link. Read only: no Woo call, nothing stored.
 // thumbs { urls } (comments decision 10): each photo's smallest copy the site has (thumbCandidates), by its own bytes. 8 s and
 // 1.5 MB a photo, 4 MB the whole answer (what is over stays null); four at a time.
+// bosta_send { ids: [order ids] } (the owner 19 Nov — «ابعت لبوسطة», the bulk bar only): each order as the site's Bosta plugin sends
+// it (_shared/bosta.js) — the whole order, its status as it is, the cash = what is left on the customer (cash on delivery: the total
+// minus the deposit; a paid order 0). The key is Vault's app_bosta (the settings page); without it 409 no_key and nothing is sent.
+// An order already carrying a tracking number is skipped (already) — never sent twice; one Bosta refuses goes on to the next. The
+// tracking number and Bosta's state land on the order here (orders.bosta_tracking / bosta_state — 0142 keeps them across syncs);
+// the site's order is never written (a parent with sub-orders would be split again by Dokan — 0079). woo_sync_log + activity_log
+// carry the order ids and the counts only (no phone, no address, no Bosta message); the page logs order.bosta per order (the member).
+const BOSTA_MS = 20000;
+async function bostaSend(run: Run, args: Json, fetchFn: typeof fetch) {
+  const ids = Array.isArray(args.ids) ? [...new Set(args.ids.map((x: unknown) => wooId(x)).filter((x: number | null): x is number => x !== null))] : [];
+  if (!ids.length || ids.length > BOSTA_MAX) return json(400, { error: 'bad_request', field: 'ids' });
+  const key = bostaKey(await secretOf(run.db, 'bosta'));
+  if (!key) return json(409, { error: 'no_key' });
+  const { data: rows, error } = await run.db.from('orders').select('id, number, customer_name, customer_state, customer_address, payment_method, total, deposit, customer_note, bosta_tracking, deleted_at, raw').in('id', ids);
+  if (error) throw new Error(`orders read failed (${error.code ?? 'error'})`);
+  const { data: lines, error: lerr } = await run.db.from('order_items').select('order_id, name, qty, qty_set, removed').in('order_id', ids);
+  if (lerr) throw new Error(`order_items read failed (${lerr.code ?? 'error'})`);
+  const { data: st } = await run.db.from('woo_states').select('code, name');
+  const names: Record<string, string> = {}; for (const r of (st ?? []) as Json[]) if (typeof r.code === 'string' && typeof r.name === 'string') names[r.code.toUpperCase()] = r.name;
+  const byId = new Map((rows ?? []).map((r: Json) => [Number(r.id), r]));
+  const results: Json[] = []; const counts = { sent: 0, already: 0, failed: 0 };
+  for (const id of ids) {
+    const o = byId.get(id) as Json | undefined;
+    if (!o || o.deleted_at) { results.push({ id, result: 'missing' }); counts.failed++; continue; }
+    if (o.bosta_tracking) { results.push({ id, result: 'already', tracking: o.bosta_tracking }); counts.already++; continue; }
+    const raw = isObj(o.raw) ? o.raw : {};
+    const items = ((lines ?? []) as Json[]).filter((l) => Number(l.order_id) === id && l.removed !== true).map((l) => ({ name: l.name, qty: l.qty_set ?? l.qty }));
+    const d = deliveryOf({ id, number: o.number, customer_name: o.customer_name, state: o.customer_state, address: o.customer_address, payment_method: o.payment_method, total: o.total, deposit: o.deposit, customer_note: o.customer_note, shipping: raw.shipping, billing: raw.billing }, items, names) as Json;
+    if (d.error) { results.push({ id, result: 'error', reason: d.error }); counts.failed++; continue; }
+    let status = 0; let body: unknown = null;
+    try {
+      const r = await fetchFn(BOSTA_API + '/deliveries', { method: 'POST', headers: { 'Content-Type': 'application/json', authorization: key, 'X-Requested-By': 'WooCommerce' }, body: JSON.stringify(d.body), signal: AbortSignal.timeout(BOSTA_MS) });
+      status = r.status; try { body = await r.json(); } catch { body = null; }
+    } catch { results.push({ id, result: 'error', reason: 'unreachable' }); counts.failed++; continue; }
+    const res = resultOf(status, body) as Json;
+    if (res.error) { results.push({ id, result: 'error', reason: res.error, message: res.message ?? null }); counts.failed++; if (res.error === 'bad_key') break; continue; }
+    const { error: werr } = await run.db.from('orders').update({ bosta_tracking: res.tracking, bosta_state: res.state }).eq('id', id);
+    if (werr) console.error(`bosta tracking save failed (${werr.code ?? 'error'})`);
+    results.push({ id, result: 'ok', tracking: res.tracking, state: res.state, cod: d.body.cod }); counts.sent++;
+  }
+  await logSync(run.db, { kind: 'push', direction: 'out', entity: 'order', entity_id: null, action: 'bosta_send', result: counts.failed && !counts.sent ? 'error' : 'ok', detail: { ...counts, ids: ids.slice(0, BOSTA_MAX) } });
+  return json(200, { action: 'bosta_send', result: 'ok', counts, results });
+}
+
 const THUMB_MS = 8000; const THUMB_MAX = 1536 * 1024; const THUMBS_TOTAL = 4 * 1024 * 1024;
 const b64 = (bytes: Uint8Array) => { let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000)); return btoa(bin); };
 async function thumbs(run: Run, args: Json, fetchFn: typeof fetch) {
@@ -2899,6 +2947,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'category_order') return await categoryOrder(run, args);
     if (action === 'studio_sheet') return await studioSheet(args, deps.fetch);
     if (action === 'thumbs') return await thumbs(run, args, deps.fetch);
+    if (action === 'bosta_send') return await bostaSend(run, args, deps.fetch);
     if (action === 'styles') return await siteStyles(run);
     if (action === 'site_speed') { const jwt = /^Bearer\s+(\S+)$/i.exec(req.headers.get('authorization') ?? '')?.[1] ?? ''; return await siteSpeed(run, deps.fetch, deps.userId && jwt ? await deps.userId(jwt) : null); }
     if (action === 'wp_updates') { const jwt = /^Bearer\s+(\S+)$/i.exec(req.headers.get('authorization') ?? '')?.[1] ?? ''; return await wpUpdates(run, deps.fetch, deps.userId && jwt ? await deps.userId(jwt) : null); }

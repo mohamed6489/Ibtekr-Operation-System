@@ -135,7 +135,9 @@ export function probesOf(name, link, ctx) {
     case 'github': return [{ id: 'user', method: 'GET', url: 'https://api.github.com/user', headers: { ...bearer('key'), 'User-Agent': 'ibtekr-ops' }, ok: acct((b) => b?.login) }];
     case 'shopify': return [{ id: 'shop', method: 'GET', url: 'https://' + L.shop + '/admin/api/2025-07/shop.json', headers: { 'X-Shopify-Access-Token': L.key }, ok: acct((b) => [b?.shop?.name, b?.shop?.domain, b?.shop?.currency].filter(Boolean).join(' · ')) }];
     case 'figma': return [{ id: 'me', method: 'GET', url: 'https://api.figma.com/v1/me', headers: { 'X-Figma-Token': L.key }, ok: acct((b) => b?.email ?? b?.handle) }];
-    default: return null; // higgsfield / sheets / paymob / bosta / n8n / mcp_* / custom_*: saved untested
+    // the owner 19 Nov: the same check the site's Bosta plugin makes (checkValidApiKey) — the business the key belongs to
+    case 'bosta': return [{ id: 'business', method: 'GET', url: 'https://app.bosta.co/api/v0/businesses/' + encodeURIComponent(L.key) + '/info', headers: { 'Content-Type': 'application/json', 'X-Requested-By': 'WooCommerce' }, ok: acct((b) => b?.name ?? b?.businessName ?? 'ok') }];
+    default: return null; // higgsfield / sheets / paymob / n8n / mcp_* / custom_*: saved untested
   }
 }
 export const RESEND_FROM_DEFAULT = 'alerts@ibtekr.club';
@@ -154,7 +156,7 @@ export const CARDS = Object.freeze([
   { id: 'tiktok', kind: 'social', name: 'TikTok', secret: null, used: false },
   { id: 'sheets', kind: 'site', name: 'Google Sheets', secret: 'sheets', used: false },
   { id: 'paymob', kind: 'site', name: 'Paymob', secret: 'paymob', used: false },
-  { id: 'bosta', kind: 'site', name: 'بوسطة', secret: 'bosta', used: false },
+  { id: 'bosta', kind: 'site', name: 'بوسطة', secret: 'bosta', used: true }, // the owner 19 Nov: «ابعت لبوسطة» in the orders
   { id: 'n8n', kind: 'site', name: 'n8n', secret: 'n8n', used: false },
   { id: 'metaads', kind: 'ads', name: 'Meta Ads (إعلانات)', secret: null, used: true },
   { id: 'googleads', kind: 'ads', name: 'Google Ads', secret: null, used: true },

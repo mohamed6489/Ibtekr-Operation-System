@@ -1,7 +1,7 @@
 -- Tests for 0140_orders_bosta (the owner 19 Nov — the Bosta tracking number next to the customer address): the trigger copies
 -- the site's bosta_tracking_number / bosta_status meta from orders.raw into bosta_tracking / bosta_state (the last value of a
 -- key, a plain string, ≤ 60 characters), a member with orders.view reads them through orders_v, and the helper functions are
--- closed to members. Depends on 0001 … 0140. One transaction, rolled back; NOTICE 'rls_orders_bosta: ok' only if every case
+-- closed to members. Depends on 0001 … 0142. One transaction, rolled back; NOTICE 'rls_orders_bosta: ok' only if every case
 -- passed. Live-safe: made-up orders (99_140_…), a made-up member; nothing else is read or written.
 
 begin;
@@ -47,6 +47,15 @@ update public.orders set raw = '{"meta_data":[{"key":"bosta_tracking_number","va
 do $$ begin
   if (select bosta_tracking || '/' || bosta_state from public.orders where id = 99140002) is distinct from '7099999/Delivered' then
     raise exception 'case a re-synced order takes the new values failed';
+  end if;
+end $$;
+
+-- 0142: a tracking number the system saved (bosta_send) stays when the site's next copy carries no bosta meta
+update public.orders set bosta_tracking = '7055555', bosta_state = 'Pickup requested' where id = 99140002;
+update public.orders set raw = '{"meta_data":[]}' where id = 99140002;
+do $$ begin
+  if (select bosta_tracking from public.orders where id = 99140002) is distinct from '7055555' then
+    raise exception 'case a saved tracking number survives a sync without meta failed';
   end if;
 end $$;
 

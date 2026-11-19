@@ -2816,7 +2816,7 @@ export async function installSupabaseMock(page, opts = {}) {
         const ids = (Array.isArray(b.ids) ? b.ids : []).map(Number); const pk = (Array.isArray(b.pickups) ? b.pickups : []).map(Number);
         const dl = []; const missing = [];
         for (const id of ids) { const o = mock.orders.find((x) => Number(x.id) === id); if (o && o.bosta_delivery) dl.push(o.bosta_delivery); else missing.push(id); }
-        for (const id of pk) { const r = (mock.bostaPickups || []).find((x) => x.id === id); if (r && r.delivery_id) dl.push(r.delivery_id); }
+        for (const id of pk) { const r = (mock.bostaPickups || []).find((x) => x.id === id); if (r) (r.deliveries || []).forEach((d) => { if (d.delivery) dl.push(d.delivery); }); }
         (mock.awbCalls = mock.awbCalls || []).push({ deliveries: dl, by: u.email });
         if (!dl.length) return json(409, { error: 'no_delivery', missing });
         return json(200, { action, result: 'ok', pdf: 'JVBERi0xLjQKJcfsj6IKMSAwIG9iago8PD4+CmVuZG9iagp0cmFpbGVyCjw8Pj4KJSVFT0YK', count: dl.length, missing });
@@ -2828,14 +2828,25 @@ export async function installSupabaseMock(page, opts = {}) {
         const wh = locs.find((l) => l.id === cfg.warehouse) || locs.find((l) => l.isDefault) || null;
         return json(200, { action, result: 'ok', locations: locs, warehouse: wh ? wh.id : '', receiver: cfg.receiver || (wh ? wh.contact : ''), phone: cfg.phone || (wh ? wh.phone : '') });
       }
-      if (action === 'bosta_pickup') {
+      if (action === 'bosta_pickup') { // 0145: warehouse rows + orders typed, one courier visit
         if (!mock.bostaKey) return json(409, { error: 'no_key' });
         if (!b.location) return json(400, { error: 'bad_request', field: 'location' });
         (mock.pickupCalls = mock.pickupCalls || []).push({ ...b, by: u.email });
-        mock.bostaPickups = mock.bostaPickups || []; const id = mock.bostaPickups.length + 1;
-        const row = { id, vendor_id: b.vendor_id || null, location_id: b.location, location_name: b.location, scheduled_date: b.date, slot: b.slot, receiver_name: b.receiver, note: b.note || null, parcels: b.parcels || 1, delivery_id: 'dP' + id, tracking: String(7060000 + id), pickup_id: 'PK' + id, state: 'sent', error: null, created_at: new Date().toISOString() };
-        mock.bostaPickups.push(row);
-        return json(200, { action, id, result: 'ok', delivery: row.delivery_id, tracking: row.tracking, pickup: row.pickup_id });
+        mock.bostaPickups = mock.bostaPickups || []; const id = mock.bostaPickups.length + 1; let n = 0;
+        const deliveries = [];
+        for (const r of (Array.isArray(b.warehouse) ? b.warehouse : [])) { n += 1; deliveries.push({ kind: 'warehouse', order_id: null, note: r.note || null, parcels: r.parcels || 1, delivery: 'dP' + id + '-' + n, tracking: String(7060000 + id * 10 + n), cod: 0, error: null }); }
+        for (const oid of [...new Set((String(b.orders || '').match(/\d{3,12}/g) || []).map(Number))]) {
+          const o = mock.orders.find((x) => Number(x.id) === oid);
+          if (!o) { deliveries.push({ kind: 'order', order_id: oid, delivery: null, tracking: null, cod: null, error: 'missing' }); continue; }
+          if (o.bosta_tracking || o.bosta_delivery) { deliveries.push({ kind: 'order', order_id: oid, delivery: null, tracking: o.bosta_tracking, cod: null, error: 'already' }); continue; }
+          n += 1; const cod = o.payment_method === 'cod' ? Math.max(0, Number(o.total) - Number(o.deposit || 0)) : 0;
+          o.bosta_delivery = 'dP' + id + '-' + n; o.bosta_tracking = String(7060000 + id * 10 + n); o.bosta_cod = cod;
+          deliveries.push({ kind: 'order', order_id: oid, delivery: o.bosta_delivery, tracking: o.bosta_tracking, cod, error: null });
+        }
+        const ok = deliveries.filter((d) => d.delivery);
+        mock.bostaPickups.push({ id, vendor_id: b.vendor_id || null, location_id: b.location, location_name: b.location, scheduled_date: b.date, slot: b.slot, receiver_name: b.receiver || null, delivery_id: ok[0] ? ok[0].delivery : null, tracking: ok[0] ? ok[0].tracking : null, pickup_id: ok.length ? 'PK' + id : null, state: ok.length ? 'sent' : 'failed', deliveries, created_at: new Date().toISOString() });
+        if (!ok.length) return json(200, { action, id, result: 'failed', error: 'no_waybill', deliveries });
+        return json(200, { action, id, result: 'ok', pickup: 'PK' + id, delivery: ok[0].delivery, tracking: ok[0].tracking, deliveries });
       }
       // comments decision 10: the site's own product photos for a report that goes out as a file — a tiny PNG for each upload of
       // the site (mock.thumbs: each call's urls; mock.thumbsDown: none can be read)

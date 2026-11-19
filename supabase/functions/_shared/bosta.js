@@ -190,8 +190,17 @@ export function addressOf(loc) {
 
 export const SLOTS = ['10:00 to 13:00', '13:00 to 16:00'];
 
-// the pickup's input checked: the maker's location, a day from today (Cairo) to 30 days on, a slot, the receiver's name (2–60) and
-// phone, a note (≤ 300, no < >), the parcels (1–99) → { ok } or { error: field }
+// the order numbers the member typed (spaces, commas, «IB-», Arabic digits) → unique ids, 30 at most
+export function orderIdsOf(v) {
+  const t = Array.isArray(v) ? v.join(' ') : String(v ?? '');
+  const ids = t.replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).match(/\d{3,12}/g) || [];
+  return [...new Set(ids.map(Number))].slice(0, 30);
+}
+
+// the pickup's input checked (0145 — several waybills): the maker's location, a day from today (Cairo) to 30 days on, a slot; the
+// warehouse waybills — rows { note (the order numbers coming, ≤ 300, no < >), parcels 1–99 }, up to 10 — with the receiver's name
+// (2–60) and phone; the orders going to their customers straight from the maker, by their numbers. At least one waybill.
+// → { ok: { location, date, slot, receiver, phone, rows, orders } } or { error: field }. The old one-row shape (note / parcels) is one row.
 export function pickupInputOf(a, today) {
   if (!isObj(a)) return { error: 'input' };
   const loc = typeof a.location === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(a.location) ? a.location : null;
@@ -200,29 +209,43 @@ export function pickupInputOf(a, today) {
   const max = new Date(Date.parse(today + 'T00:00:00Z') + 30 * 86400000).toISOString().slice(0, 10);
   if (!date || date < today || date > max) return { error: 'date' };
   if (!SLOTS.includes(a.slot)) return { error: 'slot' };
-  const receiver = str(a.receiver, 60);
-  if (receiver.length < 2 || /[<>]/.test(receiver)) return { error: 'receiver' };
-  const phone = phoneOf(a.phone);
-  if (!phone) return { error: 'phone' };
-  const note = str(a.note, 300);
-  if (/[<>]/.test(note)) return { error: 'note' };
-  const parcels = Math.trunc(Number(a.parcels ?? 1));
-  if (!(parcels >= 1 && parcels <= 99)) return { error: 'parcels' };
-  return { ok: { location: loc, date, slot: a.slot, receiver, phone, note, parcels } };
+  const orders = orderIdsOf(a.orders);
+  const raw = Array.isArray(a.warehouse) ? a.warehouse : (a.warehouse === undefined && !orders.length ? [{ note: a.note, parcels: a.parcels }] : []);
+  if (raw.length > 10) return { error: 'warehouse' };
+  const rows = [];
+  for (const r of raw) {
+    if (!isObj(r)) return { error: 'warehouse' };
+    const note = str(r.note, 300);
+    if (/[<>]/.test(note)) return { error: 'note' };
+    const parcels = Math.trunc(Number(r.parcels ?? 1));
+    if (!(parcels >= 1 && parcels <= 99)) return { error: 'parcels' };
+    rows.push({ note, parcels });
+  }
+  if (!rows.length && !orders.length) return { error: 'empty' };
+  let receiver = ''; let phone = '';
+  if (rows.length) {
+    receiver = str(a.receiver, 60);
+    if (receiver.length < 2 || /[<>]/.test(receiver)) return { error: 'receiver' };
+    phone = phoneOf(a.phone);
+    if (!phone) return { error: 'phone' };
+  }
+  return { ok: { location: loc, date, slot: a.slot, receiver, phone, rows, orders } };
 }
 
-// the delivery of a maker pickup: from the maker's location (businessLocationId) to the warehouse, to the receiver, cash 0
-export function pickupDeliveryOf(input, warehouse, ref, makerName) {
+// one warehouse waybill of a maker pickup: from the maker's location (businessLocationId) to the warehouse, to the receiver, the
+// row's note and cartons, cash 0; ref = «<pickup>-<row>» (Bosta's unique reference IBP_<pickup>_<row>)
+export function pickupDeliveryOf(row, input, warehouse, ref, makerName) {
   const to = addressOf(warehouse);
   if (!to) return { error: 'no_warehouse' };
-  const [first, ...rest] = input.receiver.split(' ');
+  const [first, ...rest] = String(input.receiver).split(' ');
+  const r = String(ref).replace(/[^\d-]/g, '');
   return { body: {
     type: 10,
     businessLocationId: input.location,
-    notes: input.note,
-    uniqueBusinessReference: 'IBP_' + ref,
-    businessReference: 'Ibtekr_pickup_' + ref,
-    specs: { packageDetails: { itemsCount: input.parcels, description: ('استلام من ' + str(makerName, 80)).trim().slice(0, 500) } },
+    notes: row.note,
+    uniqueBusinessReference: 'IBP_' + r.replace('-', '_'),
+    businessReference: 'Ibtekr_pickup_' + r,
+    specs: { packageDetails: { itemsCount: row.parcels, description: ('استلام من ' + str(makerName, 80) + (row.note ? ' — ' + row.note : '')).trim().slice(0, 500) } },
     receiver: { firstName: first.slice(0, 50), lastName: rest.join(' ').slice(0, 50), phone: input.phone },
     dropOffAddress: to,
     cod: 0,

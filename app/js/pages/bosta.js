@@ -55,54 +55,82 @@
     // the maker's location: his last pickup, else his name in Bosta's location names
     const last = (past || []).find((p) => locs.some((l) => l.id === p.location_id));
     const byName = vendorName ? locs.find((l) => fold(l.name) && (fold(l.name).includes(fold(vendorName)) || fold(vendorName).includes(fold(l.name)))) : null;
-    const start = { location: last ? last.location_id : byName ? byName.id : '', warehouse: r.warehouse, date: days()[1].value, slot: SLOTS[0].value, receiver: r.receiver || '', phone: r.phone || '', note: '', parcels: '1' };
+    const start = { location: last ? last.location_id : byName ? byName.id : '', warehouse: r.warehouse, date: days()[1].value, slot: SLOTS[0].value, receiver: r.receiver || '', phone: r.phone || '', n: 1, wn0: '', wp0: '1', orders: '' };
     const label = (l) => l.name + (l.city ? ' — ' + l.city + (l.district ? '، ' + l.district : '') : '');
     const whOf = (id) => locs.find((l) => l.id === id);
+    const ids = (t) => [...new Set((String(t || '').replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).match(/\d{3,12}/g) || []))];
+    // 0145 (the owner 19 Nov): several waybills in one pickup — rows to the warehouse (cash 0, a note: the order numbers coming, and the
+    // cartons) and orders typed by their numbers that go to their customers straight from the maker
+    const rowsOf = (f) => Array.from({ length: f.n }, (_, i) => ({ note: String(f['wn' + i] || '').trim(), parcels: f['wp' + i] }));
+    const drop = (f, k, set) => { for (let i = k; i < f.n - 1; i += 1) { f['wn' + i] = f['wn' + (i + 1)]; f['wp' + i] = f['wp' + (i + 1)]; } delete f['wn' + (f.n - 1)]; delete f['wp' + (f.n - 1)]; set('n', f.n - 1, true); };
     K.form({
-      title: 'بيك أب من ' + (vendorName || 'المبتكر') + ' (بوسطة)', values: start, submitLabel: 'اطلب البيك أب',
-      note: (f) => h('p', { class: 't-small', style: 'margin:0 0 8px', 'data-bp-note': '' }, 'بوسطة بتعمل شحنة من عنوان المبتكر لعنوان المخزن باسم المستلم ده وملاحظتك والتحصيل 0، وبتبعت المندوب يستلمها في اليوم والميعاد اللي هتختارهم — والبوليصة بتتطبع من هنا.' + (whOf(f.warehouse) ? ' المخزن: ' + label(whOf(f.warehouse)) + '.' : '')),
-      fields: (f, e, set) => [
-        K.field.select('location', 'عنوان المبتكر على بوسطة', [{ value: '', label: '— اختار —' }].concat(locs.filter((l) => l.id !== f.warehouse).map((l) => ({ value: l.id, label: label(l) }))), f, e, set),
-        admin ? K.field.select('warehouse', 'المخزن (اللي الشحنة رايحاله)', locs.map((l) => ({ value: l.id, label: label(l) })), f, e, (k, v) => set(k, v, true)) : null,
-        K.two(K.field.select('date', 'يوم الاستلام', days(), f, e, set), K.field.select('slot', 'الميعاد', SLOTS, f, e, set)),
-        K.two(K.field.text('receiver', 'اسم المستلم في المخزن', f, e, set), K.field.text('phone', 'موبايل المستلم', f, e, set, { dir: 'ltr', inputmode: 'tel' })),
-        K.two(K.field.text('parcels', 'عدد الكراتين', f, e, set, { inputmode: 'numeric' }), h('div')),
-        K.field.area('note', 'ملاحظة على البوليصة', f, e, set, { rows: 2 }),
-        admin ? h('label', { class: 'check', style: 'display:flex;gap:8px;align-items:center;margin-top:4px' }, h('input', { type: 'checkbox', 'data-bp-default': '', checked: !!f.asDefault, onChange: (ev) => { f.asDefault = ev.target.checked; } }), 'احفظ المخزن والمستلم كافتراضي') : null,
-      ].filter(Boolean),
+      title: 'بيك أب من ' + (vendorName || 'المبتكر') + ' (بوسطة)', values: start, submitLabel: 'اطلب البيك أب', wide: true,
+      note: (f) => h('p', { class: 't-small', style: 'margin:0 0 8px', 'data-bp-note': '' }, 'المندوب بيروح للمبتكر مرة واحدة ويستلم كل البوليصات: اللي جاية المخزن (التحصيل 0)' + (whOf(f.warehouse) ? ' على ' + label(whOf(f.warehouse)) : '') + '، واللي رايحة للعميل على طول (التحصيل = الإجمالي − العربون). وبعدها بتطبعهم كلهم مرة واحدة.'),
+      fields: (f, e, set) => {
+        const rows = [];
+        for (let i = 0; i < f.n; i += 1) {
+          rows.push(h('div', { class: 'row', 'data-bp-row': String(i), style: 'display:grid;grid-template-columns:1fr 120px auto;gap:8px;align-items:end' },
+            K.field.text('wn' + i, 'بوليصة ' + (i + 1) + ' — الملاحظة (أرقام الأوردرات اللي جاية)', f, e, set),
+            K.field.text('wp' + i, 'الكراتين', f, e, set, { inputmode: 'numeric' }),
+            U.Button({ label: 'شيل', type: 'text', onClick: () => drop(f, i, set) })));
+        }
+        return [
+          K.field.select('location', 'عنوان المبتكر على بوسطة', [{ value: '', label: '— اختار —' }].concat(locs.filter((l) => l.id !== f.warehouse).map((l) => ({ value: l.id, label: label(l) }))), f, e, set),
+          admin ? K.field.select('warehouse', 'المخزن (اللي بوليصات المخزن رايحاله)', locs.map((l) => ({ value: l.id, label: label(l) })), f, e, (k, v) => set(k, v, true)) : null,
+          K.two(K.field.select('date', 'يوم الاستلام', days(), f, e, set), K.field.select('slot', 'الميعاد', SLOTS, f, e, set)),
+          h('h4', { class: 't-h4', style: 'margin:12px 0 4px' }, 'بوليصات للمخزن (التحصيل 0)'),
+          ...rows,
+          f.n < 10 ? U.Button({ label: '+ بوليصة للمخزن', onClick: () => { f['wn' + f.n] = ''; f['wp' + f.n] = '1'; set('n', f.n + 1, true); } }) : null,
+          f.n ? K.two(K.field.text('receiver', 'اسم المستلم في المخزن', f, e, set), K.field.text('phone', 'موبايل المستلم', f, e, set, { dir: 'ltr', inputmode: 'tel' })) : null,
+          h('h4', { class: 't-h4', style: 'margin:12px 0 4px' }, 'بوليصات للعميل على طول'),
+          K.field.text('orders', 'أرقام الأوردرات (افصل بينهم بمسافة)', f, e, set, { dir: 'ltr', placeholder: '181668 181670', help: 'كل أوردر بوليصة باسم العميل وعنوانه، والتحصيل = الإجمالي − العربون' }),
+          admin && f.n ? h('label', { class: 'check', style: 'display:flex;gap:8px;align-items:center;margin-top:4px' }, h('input', { type: 'checkbox', 'data-bp-default': '', checked: !!f.asDefault, onChange: (ev) => { f.asDefault = ev.target.checked; } }), 'احفظ المخزن والمستلم كافتراضي') : null,
+        ].filter(Boolean);
+      },
       validate: (f) => {
         const er = {};
         if (!f.location) er.location = FIELD.location;
-        if (String(f.receiver || '').trim().length < 2) er.receiver = FIELD.receiver;
-        if (!/^(\+?20|0)?1\d{9}$/.test(String(f.phone || '').replace(/[\s-]/g, ''))) er.phone = FIELD.phone;
-        const n = Number(f.parcels); if (!(Number.isInteger(n) && n >= 1 && n <= 99)) er.parcels = FIELD.parcels;
-        if (/[<>]/.test(f.note || '')) er.note = FIELD.note;
+        rowsOf(f).forEach((rw, i) => {
+          const n = Number(rw.parcels); if (!(Number.isInteger(n) && n >= 1 && n <= 99)) er['wp' + i] = FIELD.parcels;
+          if (/[<>]/.test(rw.note)) er['wn' + i] = FIELD.note;
+        });
+        if (f.n) {
+          if (String(f.receiver || '').trim().length < 2) er.receiver = FIELD.receiver;
+          if (!/^(\+?20|0)?1\d{9}$/.test(String(f.phone || '').replace(/[\s-]/g, ''))) er.phone = FIELD.phone;
+        }
+        if (!f.n && !ids(f.orders).length) er.orders = 'زوّد بوليصة للمخزن أو اكتب رقم أوردر';
+        if (ids(f.orders).length > 30) er.orders = '30 أوردر بالكتير في البيك أب';
         return er;
       },
       submit: (f, m) => {
         m._busy = true;
         (async () => {
-          if (admin && (f.asDefault || f.warehouse !== r.warehouse)) {
+          if (admin && f.n && (f.asDefault || f.warehouse !== r.warehouse)) {
             const sv = await S().save('bosta', { warehouse: f.warehouse, receiver: f.asDefault ? String(f.receiver).trim() : r.receiver, phone: f.asDefault ? String(f.phone).trim() : r.phone });
             if (sv && sv.ok === false) { m._busy = false; K.toast('معرفناش نحفظ المخزن — جرّب تاني', 'error'); return; }
           }
-          const bb = K.busy('بنطلب البيك أب من بوسطة…');
-          const res = await O().bostaPickup({ vendorId, location: f.location, date: f.date, slot: f.slot, receiver: String(f.receiver).trim(), phone: String(f.phone).trim(), note: String(f.note || '').trim(), parcels: Number(f.parcels) });
+          const bb = K.busy('بنعمل البوليصات ونطلب المندوب…');
+          const res = await O().bostaPickup({ vendorId, location: f.location, date: f.date, slot: f.slot, receiver: String(f.receiver || '').trim(), phone: String(f.phone || '').trim(), warehouse: rowsOf(f).map((rw) => ({ note: rw.note, parcels: Number(rw.parcels) })), orders: ids(f.orders).join(' ') });
           m._busy = false;
-          if (!res || (!res.ok && !res.partial)) { bb.fail(res && res.field ? FIELD[res.field] || WHY.invalid : WHY[res && res.reason] || (res && res.message) || 'بوسطة رفضت الطلب'); return; }
+          if (!res || (!res.ok && !res.partial && !(res.deliveries && res.deliveries.length))) { bb.fail(res && res.field ? FIELD[res.field] || WHY.invalid : WHY[res && res.reason] || (res && res.message) || 'بوسطة رفضت الطلب'); return; }
           bb.close(); m.close(); done(res, vendorName);
         })();
         return false;
       },
     });
   }
+  const WHY_ROW = { already: 'متبعت لبوسطة قبل كده', missing: 'الأوردر مش موجود', no_name: 'مفيش اسم للعميل', no_phone: 'مفيش رقم موبايل صحيح', no_address: 'مفيش عنوان', short_address: 'العنوان أقل من 10 حروف', no_city: 'مفيش محافظة ولا منطقة معروفة لبوسطة', refused: 'بوسطة رفضت', unreachable: 'بوسطة مارديتش', bad_key: 'مفتاح بوسطة غلط', no_warehouse: 'مفيش عنوان مخزن' };
   function done(res, vendorName) {
-    const ok = res.ok;
-    const m = U.Modal({ title: ok ? 'البيك أب اتطلب' : 'الشحنة اتعملت والبيك أب لأ', body: [
-      h('div', { 'data-bp-done': ok ? 'ok' : 'partial' },
-        h('p', { class: 't-body' }, ok ? 'بوسطة هتبعت المندوب يستلم من ' + (vendorName || 'المبتكر') + ' في الميعاد.' : 'الشحنة اتعملت على بوسطة بس طلب المندوب ماتسجلش' + (res.message ? ' (' + res.message + ')' : '') + ' — اطلبه من بوسطة أو جرّب تاني.'),
-        res.tracking ? h('p', { class: 't-body' }, 'رقم التتبع: ', h('b', { dir: 'ltr' }, res.tracking)) : null),
-    ], footer: [U.Button({ label: 'إغلاق', onClick: () => m.close() }), U.Button({ type: 'primary', label: 'اطبع البوليصة', onClick: () => print({ pickups: [res.id] }) })] });
+    const list = res.deliveries || []; const okN = list.filter((d) => d.delivery).length;
+    const head = res.ok ? 'البيك أب اتطلب — ' + okN + ' بوليصة' : okN ? 'البوليصات اتعملت والبيك أب لأ' : 'مفيش بوليصة اتعملت';
+    const line = (d) => h('li', { 'data-bp-waybill': d.kind + ':' + (d.order_id || ''), 'data-bp-ok': d.delivery ? '1' : '0' },
+      d.kind === 'order' ? 'للعميل — أوردر ' + d.order_id : 'للمخزن' + (d.note ? ' — ' + d.note : ''),
+      d.delivery ? h('span', null, ' · ', h('b', { dir: 'ltr' }, d.tracking || 'اتعملت'), d.kind === 'order' ? ' · التحصيل ' + (d.cod || 0) : '') : h('span', { style: 'color:var(--color-error-text,#8e0a07)' }, ' · ' + (WHY_ROW[d.error] || d.message || d.error || 'ماتعملتش')));
+    const m = U.Modal({ title: head, body: [
+      h('div', { 'data-bp-done': res.ok ? 'ok' : 'partial' },
+        h('p', { class: 't-body' }, res.ok ? 'بوسطة هتبعت المندوب يستلم من ' + (vendorName || 'المبتكر') + ' في الميعاد.' : okN ? 'البوليصات اتعملت على بوسطة بس طلب المندوب ماتسجلش' + (res.message ? ' (' + res.message + ')' : '') + ' — اطلبه من بوسطة أو جرّب تاني.' : 'ولا بوليصة اتعملت — شوف السبب جنب كل واحدة.'),
+        h('ul', { class: 'dlist' }, ...list.map(line))),
+    ], footer: [U.Button({ label: 'إغلاق', onClick: () => m.close() }), okN ? U.Button({ type: 'primary', label: 'اطبع البوليصات (' + okN + ')', onClick: () => print({ pickups: [res.id] }) }) : null].filter(Boolean) });
   }
 
   window.IBBosta = { print, pickup, openPdf };

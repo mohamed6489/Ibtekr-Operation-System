@@ -1385,9 +1385,10 @@ test('a deposit change on an order on Bosta sends the new cash; a refusal shows 
   expect(pageErrors).toEqual([]);
 });
 
-// 0144: «بيك أب من المبتكر» — the maker's Bosta location (his name), the warehouse and its contact by default, the receiver's name and
-// the note editable; then the waybill of that pickup prints
-test('«بيك أب من المبتكر (بوسطة)» from a product line: his location by name, the receiver editable, then the pickup\'s waybill', async ({ page }) => {
+// 0144 + 0145: «بيك أب من المبتكر» — the maker's Bosta location (his name), the warehouse and its receiver by default; several waybills —
+// rows to the warehouse (cash 0, a note: the order numbers coming) and orders typed going straight to their customers — one courier
+// visit, then all the waybills print together
+test('«بيك أب من المبتكر (بوسطة)»: two warehouse waybills with their notes + an order to its customer, one visit, all the waybills print', async ({ page }) => {
   mock.bostaKey = true;
   await openOrders(page);
   await card(page, '181668').locator('[data-more="s:5001"]').click();
@@ -1397,17 +1398,22 @@ test('«بيك أب من المبتكر (بوسطة)» from a product line: his 
   await expect(m.locator('[data-bp-note]')).toContainText('مكتب فيصل');
   await expect(m.locator('#location')).toContainText('Art Craft');
   await expect(m.locator('#receiver')).toHaveValue('أحمد التشغيل');
-  await m.locator('#receiver').fill('مدير التشغيل');
-  await m.locator('#note').fill('كرتونتين');
-  await m.locator('#parcels').fill('2');
+  await m.locator('#wn0').fill('181668 180656');
+  await m.locator('#wp0').fill('2');
+  await m.getByRole('button', { name: '+ بوليصة للمخزن' }).click();
+  await expect(m.locator('[data-bp-row]')).toHaveCount(2);
+  await m.locator('#wn1').fill('180600');
+  await m.locator('#orders').fill('180686 181668');
   await m.getByRole('button', { name: 'اطلب البيك أب' }).click();
   const done = page.locator('[data-bp-done="ok"]');
-  await expect(done).toContainText('7060001');
-  expect(mock.pickupCalls.at(-1)).toMatchObject({ location: 'ARTC', receiver: 'مدير التشغيل', note: 'كرتونتين', parcels: 2, slot: '10:00 to 13:00' });
+  await expect(done.locator('[data-bp-ok="1"]')).toHaveCount(3);
+  await expect(done.locator('[data-bp-waybill="order:181668"]')).toContainText('متبعت لبوسطة قبل كده');
+  expect(mock.pickupCalls.at(-1)).toMatchObject({ location: 'ARTC', receiver: 'أحمد التشغيل', slot: '10:00 to 13:00', warehouse: [{ note: '181668 180656', parcels: 2 }, { note: '180600', parcels: 1 }], orders: '180686 181668' });
+  expect(mock.orders.find((o) => o.id === 180686).bosta_delivery).toBeTruthy();
   const pop = page.waitForEvent('popup');
-  await page.getByRole('button', { name: 'اطبع البوليصة' }).click();
+  await page.getByRole('button', { name: 'اطبع البوليصات (3)' }).click();
   await pop;
-  await expect.poll(() => (mock.awbCalls || []).at(-1) && mock.awbCalls.at(-1).deliveries).toEqual(['dP1']);
+  await expect.poll(() => (mock.awbCalls || []).at(-1) && mock.awbCalls.at(-1).deliveries.length).toBe(3);
   expect(mock.activity.some((a) => a.action === 'order.bosta_pickup')).toBe(true);
   expect(pageErrors).toEqual([]);
 });

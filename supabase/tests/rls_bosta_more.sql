@@ -1,6 +1,6 @@
 -- Tests for 0144 (the owner 19 Nov — Bosta part 2): a member's deposit change on an order Bosta has marks its new cash due (the trigger
 -- fires after the members' guard); the same cash is not due; the Bosta columns are the server's (a member cannot write them); the
--- maker pickups are read with orders.view and written by the server only. Depends on 0001 … 0144. One transaction, rolled back;
+-- maker pickups are read with orders.view and written by the server only. Depends on 0001 … 0145. One transaction, rolled back;
 -- NOTICE 'rls_bosta_more: ok' only if every case passed. Live-safe: made-up member and orders with ids far from the site's.
 
 begin;
@@ -59,5 +59,7 @@ do $$ begin
   if (select bosta_cod_due from public.orders where id = 914401) then raise exception 'case the same cash is not due failed'; end if;
   if public.bosta_cod_of('cod', 1200, 200) <> 1000 or public.bosta_cod_of('paymob', 1200, 0) <> 0 or public.bosta_cod_of('cod', 100, 500) <> 0 then raise exception 'case bosta_cod_of failed'; end if;
 end $$;
+-- 0145: a pickup keeps every waybill; a pickup of orders only has no receiver
+insert into public.bosta_pickups (location_id, scheduled_date, slot, receiver_name, deliveries) values ('ZAAN', current_date, '13:00 to 16:00', null, '[{"kind":"order","order_id":914402}]');
 do $$ begin raise notice 'rls_bosta_more: ok'; end $$;
 rollback;

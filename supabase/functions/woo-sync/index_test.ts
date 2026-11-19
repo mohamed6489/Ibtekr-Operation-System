@@ -3620,7 +3620,7 @@ Deno.test('bosta_awb: the orders\' and the pickups\' deliveries in one mass-awb 
   assertEquals((await call(deps, { action: 'bosta_awb', ids: [702] }, { jwt: 'jwt-ops' })).body, { error: 'no_delivery', missing: [702] });
 });
 
-Deno.test('bosta_pickup: the maker\'s location → a delivery to the warehouse (receiver, note, cash 0) + the courier\'s visit; the row keeps both', async () => {
+Deno.test('bosta_pickup (0145): several warehouse waybills (cash 0, a note each) + orders straight to their customers from the maker, one courier visit; the row keeps every waybill', async () => {
   const KEY = 'bk_' + 'x'.repeat(30);
   const locs = { data: { total: 2, list: [
     { _id: 'WH1', locationName: 'مكتب فيصل', isDefault: true, address: { city: { name: 'Giza', nameAr: 'الجيزه' }, district: { _id: 'dst1', name: 'Faisal' }, firstLine: 'طلعت عبد الدايم - فيصل', buildingNumber: '10' }, contactPerson: { name: 'أحمد', phone: '01001112223' } },
@@ -3630,23 +3630,32 @@ Deno.test('bosta_pickup: the maker\'s location → a delivery to the warehouse (
     'POST /api/v2/deliveries/bulk': { status: 200, body: { data: { createdDeliveriesIds: ['dP1'], failedDeliveries: [] } } },
     'POST /api/v2/deliveries/woocommerce-data': { status: 200, body: { data: [{ _id: 'dP1', trackingNumber: 7055, state: { value: 'Created' } }] } },
     'POST /api/v0/pickups': { status: 200, body: { success: true, message: { _id: 'PK9' } } } };
-  const { db, woo, deps } = setup({ seed: { vendors: [{ id: vid, name: 'Zaan', aliases: [], status: 'active' }] }, routes,
+  const raw = { billing: { first_name: 'منى', last_name: 'عادل', address_1: '12 شارع الهرم الرئيسي', phone: '01001234567', state: 'EG-25' } };
+  const orders = [
+    { id: 701, number: '701', status: 'جاري التنفيذ', placed_at: '2026-10-24T10:00:00Z', customer_name: 'منى عادل', customer_state: 'EG-25', payment_method: 'cod', total: 1200, deposit: 200, bosta_tracking: null, bosta_delivery: null, deleted_at: null, raw },
+    { id: 702, number: '702', status: 'جاري التنفيذ', placed_at: '2026-10-24T10:00:00Z', customer_name: 'سارة', total: 300, deposit: 0, bosta_tracking: '7011', bosta_delivery: 'dX', deleted_at: null, raw: {} },
+  ];
+  const { db, woo, deps } = setup({ seed: { vendors: [{ id: vid, name: 'Zaan', aliases: [], status: 'active' }], orders, woo_states: [{ code: 'EG-25', name: 'Giza' }] }, routes,
     rpc: { app_secret_get: ({ p_name }: any) => (p_name === 'bosta' ? JSON.stringify({ key: KEY }) : null) } });
-  const input = { action: 'bosta_pickup', vendor_id: vid, location: 'ZAAN', date: '2026-10-26', slot: '10:00 to 13:00', receiver: 'مدير التشغيل', phone: '01001112223', note: 'كرتونتين', parcels: 2 };
+  const input = { action: 'bosta_pickup', vendor_id: vid, location: 'ZAAN', date: '2026-10-26', slot: '10:00 to 13:00', receiver: 'محمد هشام', phone: '01102189189', warehouse: [{ note: '1001 1002', parcels: 2 }, { note: '1003', parcels: 1 }], orders: '701 702 703' };
   assertEquals((await call(deps, input)).res.status, 401, 'never the sync secret');
   assertEquals((await call(deps, input, { jwt: 'jwt-pview' })).res.status, 401, 'orders.status F');
   assertEquals((await call(deps, { ...input, date: '2026-10-20' }, { jwt: 'jwt-ops' })).body, { error: 'bad_request', field: 'date' });
   assertEquals((await call(deps, { ...input, location: 'WH1' }, { jwt: 'jwt-ops' })).body, { error: 'bad_request', field: 'location' }, 'not from the warehouse to itself');
   const { res, body } = await call(deps, input, { jwt: 'jwt-ops' });
   assertEquals(res.status, 200);
-  assertEquals([body.result, body.delivery, body.tracking, body.pickup], ['ok', 'dP1', '7055', 'PK9']);
-  const del = woo.calls.find((c) => c.path === '/api/v2/deliveries/bulk')!.body.deliveries[0];
-  assertEquals(del.businessLocationId, 'ZAAN');
-  assertEquals(del.cod, 0);
-  assertEquals(del.notes, 'كرتونتين');
-  assertEquals(del.receiver, { firstName: 'مدير', lastName: 'التشغيل', phone: '01001112223' });
-  assertEquals(del.dropOffAddress, { firstLine: 'طلعت عبد الدايم - فيصل', secondLine: '', city: 'Giza', districtId: 'dst1', buildingNumber: '10' });
-  assertEquals(woo.calls.find((c) => c.path === '/api/v0/pickups')!.body, { scheduledDate: '2026-10-26', scheduledTimeSlot: '10:00 to 13:00', businessLocationId: 'ZAAN' });
+  assertEquals([body.result, body.pickup], ['ok', 'PK9']);
+  // two warehouse waybills (cash 0, each its note and cartons) + order 701 to its customer from the maker; 702 on Bosta already, 703 missing
+  assertEquals(body.deliveries.map((d: any) => [d.kind, d.order_id, d.delivery, d.error]), [['warehouse', null, 'dP1', null], ['warehouse', null, 'dP1', null], ['order', 701, 'dP1', null], ['order', 702, null, 'already'], ['order', 703, null, 'missing']]);
+  const sent = woo.calls.filter((c) => c.path === '/api/v2/deliveries/bulk').map((c) => c.body.deliveries[0]);
+  assertEquals(sent.length, 3);
+  assertEquals(sent.map((d: any) => [d.businessLocationId, d.cod, d.notes]), [['ZAAN', 0, '1001 1002'], ['ZAAN', 0, '1003'], ['ZAAN', 1000, '']]);
+  assertEquals(sent[0].receiver, { firstName: 'محمد', lastName: 'هشام', phone: '01102189189' });
+  assertEquals(sent[0].dropOffAddress, { firstLine: 'طلعت عبد الدايم - فيصل', secondLine: '', city: 'Giza', districtId: 'dst1', buildingNumber: '10' });
+  assertEquals([sent[0].uniqueBusinessReference, sent[1].uniqueBusinessReference, sent[2].uniqueBusinessReference], ['IBP_1001_1', 'IBP_1001_2', 'WC_701']);
+  assertEquals(sent[2].receiver.firstName, 'منى', 'the order goes to its own customer');
+  assertEquals(woo.calls.filter((c) => c.path === '/api/v0/pickups').map((c) => c.body), [{ scheduledDate: '2026-10-26', scheduledTimeSlot: '10:00 to 13:00', businessLocationId: 'ZAAN' }], 'one courier visit');
+  assertEquals([db.row('orders', 701).bosta_delivery, db.row('orders', 701).bosta_tracking, db.row('orders', 701).bosta_cod], ['dP1', '7055', 1000]);
   const row = db.rows('bosta_pickups').at(-1);
-  assertEquals([row.state, row.vendor_id, row.delivery_id, row.tracking, row.pickup_id, row.parcels, row.created_by], ['sent', vid, 'dP1', '7055', 'PK9', 2, 'uid-jwt-ops']);
+  assertEquals([row.state, row.vendor_id, row.delivery_id, row.pickup_id, row.deliveries.length, row.created_by], ['sent', vid, 'dP1', 'PK9', 5, 'uid-jwt-ops']);
 });

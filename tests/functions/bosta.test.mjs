@@ -63,7 +63,7 @@ test('Bosta\'s answers: the bulk create, then the tracking number', () => {
 });
 
 // ---- 0144: the cash follows the deposit, the waybill printed here, a pickup from the maker ----
-import { updateOf, editedOf, awbPath, awbOf, locationsOf, addressOf, pickupInputOf, pickupDeliveryOf, pickupBodyOf, pickupMadeOf, SLOTS } from '../../supabase/functions/_shared/bosta.js';
+import { updateOf, editedOf, awbPath, awbOf, locationsOf, addressOf, pickupInputOf, pickupDeliveryOf, pickupBodyOf, pickupMadeOf, orderIdsOf, SLOTS } from '../../supabase/functions/_shared/bosta.js';
 
 test('the edit of a delivery = the plugin\'s update with the cash (from the same body)', () => {
   const order = { id: 9, customer_name: 'منى عادل', state: 'EG-25', payment_method: 'cod', total: 1200, deposit: 500,
@@ -95,21 +95,34 @@ test('the pickup locations, the warehouse address, the pickup input', () => {
   assert.deepEqual(locs[0], { id: 'LpEaJKhS9', name: 'مكتب فيصل', city: 'الجيزه', cityEn: 'Giza', district: 'طوابق', districtId: 'xU1', firstLine: 'طلعت عبد الدايم - فيصل', secondLine: 'امام جزارة', building: '10', floor: '1', apartment: '1', contact: 'أحمد', phone: '01001112223', isDefault: true });
   assert.deepEqual(addressOf(locs[0]), { firstLine: 'طلعت عبد الدايم - فيصل', secondLine: 'امام جزارة', city: 'Giza', districtId: 'xU1', buildingNumber: '10', floor: '1', apartment: '1' });
   const ok = { location: 'Zaan01', date: '2026-11-20', slot: SLOTS[0], receiver: 'مدير التشغيل', phone: '01001112223', note: 'كرتونتين', parcels: 2 };
-  assert.deepEqual(pickupInputOf(ok, '2026-11-19').ok, { ...ok });
+  // the old one-row shape = one warehouse row
+  assert.deepEqual(pickupInputOf(ok, '2026-11-19').ok, { location: 'Zaan01', date: '2026-11-20', slot: SLOTS[0], receiver: 'مدير التشغيل', phone: '01001112223', rows: [{ note: 'كرتونتين', parcels: 2 }], orders: [] });
   assert.equal(pickupInputOf({ ...ok, date: '2026-11-18' }, '2026-11-19').error, 'date');
   assert.equal(pickupInputOf({ ...ok, date: '2027-01-30' }, '2026-11-19').error, 'date');
   assert.equal(pickupInputOf({ ...ok, slot: '9 to 5' }, '2026-11-19').error, 'slot');
   assert.equal(pickupInputOf({ ...ok, phone: '123' }, '2026-11-19').error, 'phone');
   assert.equal(pickupInputOf({ ...ok, note: '<b>' }, '2026-11-19').error, 'note');
   assert.equal(pickupInputOf({ ...ok, location: '' }, '2026-11-19').error, 'location');
-  const d = pickupDeliveryOf(pickupInputOf(ok, '2026-11-19').ok, locs[0], 15, 'Zaan').body;
+  // 0145: several warehouse waybills + orders to their customers by their numbers; the receiver only when a warehouse row is there
+  const many = { location: 'Zaan01', date: '2026-11-20', slot: SLOTS[1], receiver: 'محمد هشام', phone: '01102189189', warehouse: [{ note: '1001 1002', parcels: 2 }, { note: '1003', parcels: 1 }], orders: 'IB-1004، ١٠٠٥ 1004' };
+  assert.deepEqual(pickupInputOf(many, '2026-11-19').ok.rows, [{ note: '1001 1002', parcels: 2 }, { note: '1003', parcels: 1 }]);
+  assert.deepEqual(pickupInputOf(many, '2026-11-19').ok.orders, [1004, 1005]);
+  assert.deepEqual(pickupInputOf({ ...many, warehouse: [], receiver: '', phone: '' }, '2026-11-19').ok.orders, [1004, 1005]);
+  assert.equal(pickupInputOf({ ...many, warehouse: [], orders: '' }, '2026-11-19').error, 'empty');
+  assert.equal(pickupInputOf({ ...many, warehouse: Array(11).fill({ parcels: 1 }) }, '2026-11-19').error, 'warehouse');
+  assert.equal(pickupInputOf({ ...many, warehouse: [{ note: '', parcels: 0 }] }, '2026-11-19').error, 'parcels');
+  assert.deepEqual(orderIdsOf(['181668', 'x 180686']), [181668, 180686]);
+  const input = pickupInputOf(many, '2026-11-19').ok;
+  const d = pickupDeliveryOf(input.rows[0], input, locs[0], '15-1', 'Zaan').body;
   assert.equal(d.businessLocationId, 'Zaan01');
-  assert.equal(d.uniqueBusinessReference, 'IBP_15');
+  assert.equal(d.uniqueBusinessReference, 'IBP_15_1');
+  assert.equal(d.notes, '1001 1002');
   assert.equal(d.cod, 0);
-  assert.deepEqual(d.receiver, { firstName: 'مدير', lastName: 'التشغيل', phone: '01001112223' });
+  assert.deepEqual(d.receiver, { firstName: 'محمد', lastName: 'هشام', phone: '01102189189' });
   assert.equal(d.dropOffAddress.districtId, 'xU1');
   assert.equal(d.specs.packageDetails.itemsCount, 2);
-  assert.equal(pickupDeliveryOf(pickupInputOf(ok, '2026-11-19').ok, null, 1, 'x').error, 'no_warehouse');
+  assert.equal(d.specs.packageDetails.description, 'استلام من Zaan — 1001 1002');
+  assert.equal(pickupDeliveryOf(input.rows[0], input, null, '1-1', 'x').error, 'no_warehouse');
   assert.deepEqual(pickupBodyOf(ok), { scheduledDate: '2026-11-20', scheduledTimeSlot: SLOTS[0], businessLocationId: 'Zaan01' });
   assert.deepEqual(pickupMadeOf(200, { success: true, message: { _id: 'pk1' } }), { id: 'pk1' });
   assert.deepEqual(pickupMadeOf(200, { data: { _id: 'pk2' } }), { id: 'pk2' });

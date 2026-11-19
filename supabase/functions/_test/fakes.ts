@@ -48,7 +48,7 @@ const COLUMNS: Record<string, string[]> = {
   woo_sync_log: ['id', 'at', 'kind', 'direction', 'entity', 'entity_id', 'action', 'result', 'detail'],
   sync_state: ['key', 'value', 'updated_at'],
   woo_states: ['code', 'name', 'updated_at'],
-  bosta_pickups: ['id', 'vendor_id', 'vendor_name', 'location_id', 'location_name', 'scheduled_date', 'slot', 'receiver_name', 'note', 'parcels', 'delivery_id', 'tracking', 'pickup_id', 'state', 'error', 'created_by', 'created_at'], // 0144
+  bosta_pickups: ['id', 'vendor_id', 'vendor_name', 'location_id', 'location_name', 'scheduled_date', 'slot', 'receiver_name', 'note', 'parcels', 'delivery_id', 'tracking', 'pickup_id', 'state', 'error', 'created_by', 'created_at', 'deliveries'], // 0144, 0145
   // 0019 (phase 4): the read-only Dokan mirrors of the accounts page
   dokan_withdrawals: ['id', 'woo_vendor_id', 'vendor_id', 'amount', 'charge', 'receivable', 'status', 'method', 'requested_at', 'synced_at'],
   dokan_balances: ['vendor_id', 'woo_vendor_id', 'balance', 'earning', 'sales', 'orders', 'synced_at'],

@@ -2370,9 +2370,12 @@ async function bostaAwb(run: Run, args: Json, fetchFn: typeof fetch) {
     for (const id of oids) { const d = by.get(id); if (typeof d === 'string' && d) deliveries.push(d); else missing.push(id); }
   }
   if (pids.length) {
-    const { data, error } = await run.db.from('bosta_pickups').select('id, delivery_id').in('id', pids);
+    const { data, error } = await run.db.from('bosta_pickups').select('id, delivery_id, deliveries').in('id', pids);
     if (error) throw new Error(`bosta_pickups read failed (${error.code ?? 'error'})`);
-    for (const r of (data ?? []) as Json[]) if (typeof r.delivery_id === 'string' && r.delivery_id) deliveries.push(r.delivery_id);
+    for (const r of (data ?? []) as Json[]) {
+      const all = Array.isArray(r.deliveries) ? (r.deliveries as Json[]).map((d) => d && d.delivery).filter((x) => typeof x === 'string' && x) as string[] : [];
+      if (all.length) deliveries.push(...all); else if (typeof r.delivery_id === 'string' && r.delivery_id) deliveries.push(r.delivery_id);
+    }
   }
   const path = awbPath(deliveries);
   if (!path) return json(409, { error: 'no_delivery', missing });
@@ -2410,11 +2413,14 @@ async function bostaLocationsAction(run: Run, fetchFn: typeof fetch) {
   return json(200, { action: 'bosta_locations', result: 'ok', locations: list, warehouse: wh ? wh.id : '', receiver: cfg.receiver || (wh?.contact ?? ''), phone: cfg.phone || (wh?.phone ?? '') });
 }
 
-// bosta_pickup { vendor_id?, location, date, slot, receiver, phone, note, parcels } — a maker pickup (0144): a bosta_pickups row, then a
-// Bosta delivery from the maker's location to the warehouse (the settings' «bosta».warehouse, else Bosta's default location) to the
-// receiver with the note, cash 0, then the courier's visit on the day (the plugin's POST pickups); the row keeps the delivery, its
-// tracking number and the pickup's id, or why it stopped. Never twice for the same row; a failed pickup request after the delivery was
-// made keeps the delivery (the waybill prints) and says so. woo_sync_log / activity carry the ids and the state only.
+// bosta_pickup { vendor_id?, location, date, slot, receiver, phone, warehouse: [{ note, parcels }], orders: [numbers] } — a maker pickup
+// (0144; several waybills — 0145, the owner 19 Nov): a bosta_pickups row, then the waybills from the maker's location — each warehouse
+// row a delivery to the warehouse (the settings' «bosta».warehouse, else Bosta's default location) to the receiver with its note
+// (the order numbers coming) and cartons, cash 0; each order typed a delivery to its customer the way bosta_send builds it (the plugin's
+// request, the cash = what is left on the customer) with the maker's location as the pickup — its tracking number lands on the order
+// like a send; an order on Bosta already, gone or missing data is listed and left out — then the courier's one visit on the day (the
+// plugin's POST pickups). The row keeps every waybill (deliveries) and the pickup's id, or why it stopped; a refused pickup request
+// after waybills were made keeps them (the waybills print) and says so. woo_sync_log carries ids, counts and the state only.
 async function bostaPickup(run: Run, args: Json, fetchFn: typeof fetch, by: string | null) {
   const key = bostaKey(await secretOf(run.db, 'bosta'));
   if (!key) return json(409, { error: 'no_key' });
@@ -2430,38 +2436,81 @@ async function bostaPickup(run: Run, args: Json, fetchFn: typeof fetch, by: stri
   if (!loc) return json(400, { error: 'bad_request', field: 'location' });
   const cfg = await bostaSettings(run.db);
   const wh = list.find((l) => l.id === cfg.warehouse) ?? list.find((l) => l.isDefault) ?? null;
-  if (!wh) return json(409, { error: 'no_warehouse' });
-  if (wh.id === loc.id) return json(400, { error: 'bad_request', field: 'location' });
+  if (input.rows.length && !wh) return json(409, { error: 'no_warehouse' });
+  if (input.rows.length && wh && wh.id === loc.id) return json(400, { error: 'bad_request', field: 'location' });
   let vendorId: string | null = null; let vendorName = loc.name as string;
   if (typeof args.vendor_id === 'string' && /^[0-9a-f-]{36}$/i.test(args.vendor_id)) {
     const { data: v } = await run.db.from('vendors').select('id, name').eq('id', args.vendor_id).maybeSingle();
     if (v) { vendorId = v.id; vendorName = v.name ?? vendorName; }
   }
-  const { data: row, error: ierr } = await run.db.from('bosta_pickups').insert({ vendor_id: vendorId, vendor_name: String(vendorName).slice(0, 80), location_id: loc.id, location_name: String(loc.name).slice(0, 80), scheduled_date: input.date, slot: input.slot, receiver_name: input.receiver, note: input.note || null, parcels: input.parcels, created_by: by }).select('id').single();
+  const first = input.rows[0] as Json | undefined;
+  const { data: row, error: ierr } = await run.db.from('bosta_pickups').insert({ vendor_id: vendorId, vendor_name: String(vendorName).slice(0, 80), location_id: loc.id, location_name: String(loc.name).slice(0, 80), scheduled_date: input.date, slot: input.slot, receiver_name: input.rows.length ? input.receiver : null, note: first?.note || null, parcels: first?.parcels ?? 1, created_by: by }).select('id').single();
   if (ierr || !row) throw new Error(`bosta_pickups insert failed (${ierr?.code ?? 'error'})`);
   const pid = Number(row.id);
-  const done = async (patch: Json, status: number, body: Json) => {
-    await run.db.from('bosta_pickups').update(patch).eq('id', pid);
-    await logSync(run.db, { kind: 'push', direction: 'out', entity: 'order', entity_id: null, action: 'bosta_pickup', result: patch.state === 'sent' ? 'ok' : 'error', detail: { pickup: pid, state: patch.state, step: body.step ?? null } });
-    return json(status, { action: 'bosta_pickup', id: pid, ...body });
+  const made: Json[] = [];
+  const create = async (body: Json): Promise<Json> => {
+    try {
+      const x = await bostaCall(fetchFn, key, 'POST', BOSTA_API + '/deliveries/bulk', { deliveries: [body], deleteFailedDeliveries: false });
+      const c = createdOf(x.status, x.body) as Json;
+      if (c.error) return { error: c.error, message: c.message ?? null };
+      let tracking: string | null = null; let state: string | null = null;
+      try { const y = await bostaCall(fetchFn, key, 'POST', BOSTA_API + '/deliveries/woocommerce-data', { deliveriesIds: [c.id] }); const t = y.status >= 200 && y.status < 300 ? trackingOf(y.body, c.id) as Json | null : null; tracking = t ? t.tracking : null; state = t ? t.state : null; } catch { tracking = null; }
+      return { delivery: c.id, tracking, state };
+    } catch { return { error: 'unreachable' }; }
   };
-  const d = pickupDeliveryOf(input, wh, pid, vendorName) as Json;
-  if (d.error) return await done({ state: 'failed', error: d.error }, 409, { error: d.error });
-  let made: Json;
-  try { const x = await bostaCall(fetchFn, key, 'POST', BOSTA_API + '/deliveries/bulk', { deliveries: [d.body], deleteFailedDeliveries: false }); made = createdOf(x.status, x.body) as Json; }
-  catch { return await done({ state: 'failed', error: 'unreachable' }, 502, { error: 'unreachable', step: 'delivery' }); }
-  if (made.error) return await done({ state: 'failed', error: String(made.message ?? made.error).slice(0, 160) }, made.error === 'bad_key' ? 409 : 502, { error: made.error, message: made.message ?? null, step: 'delivery' });
-  let tracking: string | null = null;
-  try { const x = await bostaCall(fetchFn, key, 'POST', BOSTA_API + '/deliveries/woocommerce-data', { deliveriesIds: [made.id] }); const t = x.status >= 200 && x.status < 300 ? trackingOf(x.body, made.id) as Json | null : null; tracking = t ? t.tracking : null; } catch { tracking = null; }
+  let badKey = false;
+  // the warehouse waybills
+  for (let i = 0; i < input.rows.length && !badKey; i += 1) {
+    const rw = input.rows[i] as Json;
+    const d = pickupDeliveryOf(rw, input, wh, pid + '-' + (i + 1), vendorName) as Json;
+    const c = d.error ? { error: d.error } : await create(d.body);
+    if (c.error === 'bad_key') badKey = true;
+    made.push({ kind: 'warehouse', note: rw.note, parcels: rw.parcels, ...c });
+  }
+  // the orders straight to their customers, from the maker
+  if (input.orders.length && !badKey) {
+    const ids = input.orders as number[];
+    const { data: rows, error } = await run.db.from('orders').select('id, customer_name, customer_state, customer_address, payment_method, total, deposit, customer_note, bosta_tracking, bosta_delivery, deleted_at, raw').in('id', ids);
+    if (error) throw new Error(`orders read failed (${error.code ?? 'error'})`);
+    const { data: lines } = await run.db.from('order_items').select('order_id, name, qty, qty_set, total, total_set, removed').in('order_id', ids);
+    const { data: st } = await run.db.from('woo_states').select('code, name');
+    const names: Record<string, string> = {}; for (const z of (st ?? []) as Json[]) if (typeof z.code === 'string' && typeof z.name === 'string') names[z.code.toUpperCase()] = z.name;
+    const byId = new Map(((rows ?? []) as Json[]).map((o) => [Number(o.id), o]));
+    for (const id of ids) {
+      if (badKey) break;
+      const o = byId.get(id) as Json | undefined;
+      if (!o || o.deleted_at) { made.push({ kind: 'order', order_id: id, error: 'missing' }); continue; }
+      if (o.bosta_tracking || o.bosta_delivery) { made.push({ kind: 'order', order_id: id, error: 'already', tracking: o.bosta_tracking ?? null }); continue; }
+      const items = ((lines ?? []) as Json[]).filter((l) => Number(l.order_id) === id && l.removed !== true).map((l) => ({ name: l.name, qty: l.qty_set ?? l.qty, amount: l.total_set ?? l.total }));
+      const d = deliveryOf({ id, customer_name: o.customer_name, state: o.customer_state, address: o.customer_address, payment_method: o.payment_method, total: o.total, deposit: o.deposit, customer_note: o.customer_note, raw: o.raw }, items, names) as Json;
+      if (d.error) { made.push({ kind: 'order', order_id: id, error: d.error }); continue; }
+      const c = await create({ ...d.body, businessLocationId: input.location });
+      if (c.error === 'bad_key') badKey = true;
+      if (!c.error) {
+        const { error: werr } = await run.db.from('orders').update({ bosta_delivery: c.delivery, bosta_cod: d.body.cod, bosta_cod_due: false, bosta_cod_error: null, ...(c.tracking ? { bosta_tracking: c.tracking, bosta_state: c.state } : {}) }).eq('id', id);
+        if (werr) console.error(`bosta order save failed (${werr.code ?? 'error'})`);
+      }
+      made.push({ kind: 'order', order_id: id, cod: d.body.cod, ...c });
+    }
+  }
+  const ok = made.filter((m) => m.delivery);
+  const deliveries = made.map((m) => ({ kind: m.kind, order_id: m.order_id ?? null, note: m.note ?? null, parcels: m.parcels ?? null, delivery: m.delivery ?? null, tracking: m.tracking ?? null, cod: m.cod ?? (m.kind === 'warehouse' ? 0 : null), error: m.error ? String(m.error) : null, message: m.message ? String(m.message).slice(0, 160) : null }));
+  const done = async (patch: Json, status: number, body: Json) => {
+    await run.db.from('bosta_pickups').update({ deliveries, delivery_id: ok[0]?.delivery ?? null, tracking: ok[0]?.tracking ?? null, ...patch }).eq('id', pid);
+    await logSync(run.db, { kind: 'push', direction: 'out', entity: 'order', entity_id: null, action: 'bosta_pickup', result: patch.state === 'sent' ? 'ok' : 'error', detail: { pickup: pid, state: patch.state, made: ok.length, failed: made.length - ok.length, step: body.step ?? null } });
+    return json(status, { action: 'bosta_pickup', id: pid, deliveries, ...body });
+  };
+  if (badKey) return await done({ state: 'failed', error: 'bad_key' }, 409, { error: 'bad_key', step: 'delivery' });
+  if (!ok.length) return await done({ state: 'failed', error: 'no_waybill' }, 200, { result: 'failed', error: 'no_waybill', step: 'delivery' });
   let pk: Json;
   try { const x = await bostaCall(fetchFn, key, 'POST', BOSTA_V0 + '/pickups', pickupBodyOf(input)); pk = pickupMadeOf(x.status, x.body) as Json; }
   catch { pk = { error: 'unreachable' }; }
-  if (pk.error) return await done({ state: 'failed', delivery_id: made.id, tracking, error: 'pickup: ' + String(pk.message ?? pk.error).slice(0, 150) }, 200, { result: 'partial', delivery: made.id, tracking, error: pk.error, message: pk.message ?? null, step: 'pickup' });
-  return await done({ state: 'sent', delivery_id: made.id, tracking, pickup_id: pk.id, error: null }, 200, { result: 'ok', delivery: made.id, tracking, pickup: pk.id });
+  if (pk.error) return await done({ state: 'failed', error: 'pickup: ' + String(pk.message ?? pk.error).slice(0, 150) }, 200, { result: 'partial', error: pk.error, message: pk.message ?? null, step: 'pickup' });
+  return await done({ state: 'sent', pickup_id: pk.id, error: null }, 200, { result: 'ok', pickup: pk.id, delivery: ok[0].delivery, tracking: ok[0].tracking ?? null });
 }
-
 const THUMB_MS = 8000; const THUMB_MAX = 1536 * 1024; const THUMBS_TOTAL = 4 * 1024 * 1024;
 const b64 = (bytes: Uint8Array) => { let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000)); return btoa(bin); };
+
 async function thumbs(run: Run, args: Json, fetchFn: typeof fetch) {
   const urls = thumbUrls(args.urls) as string[] | null;
   if (!urls) return json(400, { error: 'bad_request', field: 'urls' });

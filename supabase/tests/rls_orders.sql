@@ -150,18 +150,18 @@ do $$ begin
     raise exception 'case orders.customer_state grants (authenticated select only, service_role select/insert/update, anon none) failed';
   end if;
   if not ((select count(*) from information_schema.column_privileges
-           where grantee = 'authenticated' and table_schema = 'public' and table_name = 'orders' and privilege_type = 'SELECT') = 29 -- 0010 customer_state + 0033 deleted_at / deleted_by / delete_reason + 0095 status_custom
+           where grantee = 'authenticated' and table_schema = 'public' and table_name = 'orders' and privilege_type = 'SELECT') = 31 -- 0010 customer_state + 0033 deleted_at / deleted_by / delete_reason + 0095 status_custom + 0140 bosta_tracking / bosta_state
           and not exists (select 1 from information_schema.column_privileges
                           where grantee = 'authenticated' and table_schema = 'public' and table_name = 'orders'
                             and privilege_type = 'SELECT' and column_name in ('customer_phone', 'raw'))) then
-    raise exception 'case authenticated selects 29 orders columns, never customer_phone or raw failed';
+    raise exception 'case authenticated selects 31 orders columns, never customer_phone or raw failed';
   end if;
-  -- orders_v: the 0007 columns in the same order, customer_state appended (create or replace view can only append).
+  -- orders_v: the 0007 columns in the same order, customer_state appended (create or replace view can only append), then 0140's two.
   if not ((select string_agg(column_name, ',' order by ordinal_position) from information_schema.columns
            where table_schema = 'public' and table_name = 'orders_v')
           = 'id,number,customer_name,customer_phone,customer_city,customer_address,payment_method,payment_title,status,'
             || 'woo_status,confirm,confirm_at,confirm_note,deposit,total,currency,note,customer_note,placed_at,woo_updated_at,'
-            || 'cancel,ret,synced_at,created_at,updated_at,customer_state') then
+            || 'cancel,ret,synced_at,created_at,updated_at,customer_state,bosta_tracking,bosta_state') then
     raise exception 'case orders_v keeps the 0007 columns and appends customer_state failed';
   end if;
   if not (coalesce((select reloptions from pg_class where oid = 'public.orders_v'::regclass), '{}') @> array['security_invoker=true']) then

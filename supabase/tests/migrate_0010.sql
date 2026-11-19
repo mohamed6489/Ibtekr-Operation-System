@@ -44,6 +44,9 @@ end $$;
 
 -- ---------------------------------------------------------------- 0010 on that state
 
+-- 0140 added columns at the end of orders_v, and create or replace view cannot drop them: the old shape is re-made here
+-- (inside this rolled-back transaction) so 0010 can run again as it was written
+drop view if exists public.orders_v;
 \ir ../migrations/0010_state_names.sql
 
 do $$ begin
@@ -79,6 +82,9 @@ do $$ begin
     (select count(*) from public.order_events)), true);
 end $$;
 
+-- 0140 added columns at the end of orders_v, and create or replace view cannot drop them: the old shape is re-made here
+-- (inside this rolled-back transaction) so 0010 can run again as it was written
+drop view if exists public.orders_v;
 \ir ../migrations/0010_state_names.sql
 
 do $$ begin

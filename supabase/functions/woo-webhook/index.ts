@@ -36,6 +36,13 @@ const json = (status: number, body: unknown) => new Response(JSON.stringify(body
 const isObj = (v: unknown): v is Body => v !== null && typeof v === 'object' && !Array.isArray(v);
 const scalar = (v: unknown) => (typeof v === 'number' || typeof v === 'boolean' ? v : typeof v === 'string' ? v.slice(0, 64) : null);
 const header = (req: Request, name: string, max: number) => (req.headers.get(name) ?? '').trim().slice(0, max) || null;
+/** The delivery's site = the linked one (host, without «www.»); no source header (an old WooCommerce) passes as before. */
+export function sameSite(source: string | null, wooUrl: string): boolean {
+  if (!source) return true;
+  const host = (u: string) => { try { return new URL(u).host.toLowerCase().replace(/^www\./, ''); } catch { return null; } };
+  const a = host(source); const b = host(wooUrl);
+  return !!a && !!b && a === b;
+}
 
 // WooCommerce's ping when a webhook is saved: `webhook_id=123` (form-encoded), or the same as JSON, nothing else.
 function isPing(raw: string): boolean {
@@ -149,6 +156,9 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
   if (!wooActive(await readStore(deps.db))) return json(200, { status: 'ignored', reason: 'store_off' });
   // data-real decision 8 (0139): the site paused or unlinked («فصل» / «إيقاف مؤقت») — its keys are gone, and its deliveries change nothing
   if (!deps.env.WOO_URL) return json(200, { status: 'ignored', reason: 'not_linked' });
+  // data-real decision 10 (the switch to the live site): a delivery whose X-WC-Webhook-Source names another site (the staging's webhooks
+  // still on with the same secret) changes nothing here — only the linked site's deliveries are written
+  if (!sameSite(header(req, 'x-wc-webhook-source', 300), deps.env.WOO_URL)) return json(200, { status: 'ignored', reason: 'other_site' });
 
   let body: unknown;
   try {

@@ -612,3 +612,18 @@ Deno.test('data-real decision 8 (0139): the site paused or unlinked (no WOO_URL 
   assertEquals(await res.json(), { status: 'ignored', reason: 'not_linked' });
   assertEquals(db.rows('orders').length, 0);
 });
+
+Deno.test('data-real decision 10: a delivery from another site (the staging\'s webhooks with the same secret) is ignored; the linked site (www. or not) and no source header pass', async () => {
+  const { db, deps } = setup();
+  const send = async (source: string | null, id: number) => {
+    const raw = JSON.stringify(wooOrder({ id }));
+    const headers: Record<string, string> = { 'x-wc-webhook-topic': 'order.updated', 'x-wc-webhook-signature': await sign(raw, ENV.WOO_WEBHOOK_SECRET) };
+    if (source) headers['x-wc-webhook-source'] = source;
+    return (await handler(new Request('http://x/woo-webhook', { method: 'POST', headers, body: raw }), deps as any)).json();
+  };
+  assertEquals(await send('https://stage.example.test/', 5101), { status: 'ignored', reason: 'other_site' });
+  assertEquals(db.rows('orders').length, 0);
+  const site = new URL(ENV.WOO_URL);
+  assertEquals((await send(site.protocol + '//www.' + site.host.replace(/^www\./, '') + '/', 5102)).status, 'ok');
+  assertEquals((await send(null, 5103)).status, 'ok');
+});

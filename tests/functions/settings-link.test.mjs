@@ -56,3 +56,14 @@ test('shopify (the owner 17 Nov): the myshopify domain and an Admin API token; t
   const p = probesOf('shopify', ok.link)[0];
   assert.equal(p.url, 'https://ibtekr.myshopify.com/admin/api/2025-07/shop.json'); assert.equal(p.headers['X-Shopify-Access-Token'], 'shpat_' + 'a'.repeat(32));
 });
+
+test('data-real decision 11: the WordPress user and its Application Password are saved together or not at all', () => {
+  const base = { url: 'https://ibtekr.club', ck: 'ck_' + 'a'.repeat(40), cs: 'cs_' + 'b'.repeat(40) };
+  assert.deepEqual(parseSecret('woo', { ...base, wp_app_password: 'abcd efgh ijkl mnop' }, null), { error: 'missing', field: 'wp_user' });
+  assert.deepEqual(parseSecret('woo', { ...base, wp_user: 'admin' }, null), { error: 'missing', field: 'wp_app_password' });
+  assert.equal(parseSecret('woo', { ...base, wp_user: 'admin', wp_app_password: 'abcd efgh ijkl mnop' }, null).link.wp_user, 'admin');
+  assert.ok(parseSecret('woo', base, null).link); // neither = fine (read-only Dokan fields)
+  // a stored pair keeps working when only the user is changed
+  const stored = { ...base, wp_user: 'admin', wp_app_password: 'abcd efgh ijkl mnop' };
+  assert.equal(parseSecret('woo', { wp_user: 'owner' }, stored).link.wp_user, 'owner');
+});

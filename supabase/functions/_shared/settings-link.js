@@ -84,6 +84,9 @@ export function parseSecret(name, body, current) {
     out[k] = v;
   }
   for (const [k, f] of Object.entries(F)) if (!f.optional && !fieldOk(f, out[k])) return { error: 'missing', field: k };
+  // data-real decision 11 (the switch to ibtekr.club): the WordPress user and its Application Password go together — one alone would
+  // pair with the other site's Supabase secret of the same name (the staging's user) and Dokan answers 401
+  if (name === 'woo' && !!out.wp_user !== !!out.wp_app_password) return { error: 'missing', field: out.wp_user ? 'wp_app_password' : 'wp_user' };
   return { link: out };
 }
 

@@ -106,7 +106,9 @@ test('the pickup locations, the warehouse address, the pickup input', () => {
   assert.deepEqual(addressOf(locs[0]), { firstLine: 'طلعت عبد الدايم - فيصل', secondLine: 'امام جزارة', city: 'Giza', districtId: 'xU1', buildingNumber: '10', floor: '1', apartment: '1' });
   const ok = { location: 'Zaan01', date: '2026-11-20', slot: SLOTS[0], receiver: 'مدير التشغيل', phone: '01001112223', note: 'كرتونتين', parcels: 2 };
   // the old one-row shape = one warehouse row
-  assert.deepEqual(pickupInputOf(ok, '2026-11-19').ok, { location: 'Zaan01', date: '2026-11-20', slot: SLOTS[0], receiver: 'مدير التشغيل', phone: '01001112223', rows: [{ note: 'كرتونتين', parcels: 2 }], orders: [] });
+  assert.deepEqual(pickupInputOf(ok, '2026-11-19').ok, { location: 'Zaan01', date: '2026-11-20', slot: SLOTS[0], receiver: 'مدير التشغيل', phone: '01001112223', rows: [{ note: 'كرتونتين', parcels: 2 }], orders: [], fragile: false, bulky: false, big: false });
+  assert.deepEqual(['fragile', 'bulky', 'big'].map((k) => pickupInputOf({ ...ok, fragile: true, bulky: true }, '2026-11-19').ok[k]), [true, true, true], 'a bulky shipment always has big items');
+  assert.equal(pickupInputOf({ ...ok, fragile: 'yes' }, '2026-11-19').ok.fragile, false, 'only a real true');
   assert.equal(pickupInputOf({ ...ok, date: '2026-11-18' }, '2026-11-19').error, 'date');
   assert.equal(pickupInputOf({ ...ok, date: '2027-01-30' }, '2026-11-19').error, 'date');
   assert.equal(pickupInputOf({ ...ok, slot: '9 to 5' }, '2026-11-19').error, 'slot');
@@ -133,7 +135,10 @@ test('the pickup locations, the warehouse address, the pickup input', () => {
   assert.equal(d.specs.packageDetails.itemsCount, 2);
   assert.equal(d.specs.packageDetails.description, 'استلام من Zaan — 1001 1002');
   assert.equal(pickupDeliveryOf(input.rows[0], input, null, '1-1', 'x').error, 'no_warehouse');
-  assert.deepEqual(pickupBodyOf(ok), { scheduledDate: '2026-11-20', scheduledTimeSlot: SLOTS[0], businessLocationId: 'Zaan01' });
+  assert.deepEqual(pickupBodyOf(ok), { scheduledDate: '2026-11-20', scheduledTimeSlot: SLOTS[0], businessLocationId: 'Zaan01', packageType: 'Normal', hasBigItems: false, hasFragileItems: false });
+  // the owner 19 Nov: fragile / bulky (Bosta's «Light Bulky», always with big items) / big items — only a real true counts
+  assert.deepEqual(pickupBodyOf({ ...ok, fragile: true, big: true }), { scheduledDate: '2026-11-20', scheduledTimeSlot: SLOTS[0], businessLocationId: 'Zaan01', packageType: 'Normal', hasBigItems: true, hasFragileItems: true });
+  assert.deepEqual(pickupBodyOf({ ...ok, bulky: true }), { scheduledDate: '2026-11-20', scheduledTimeSlot: SLOTS[0], businessLocationId: 'Zaan01', packageType: 'Light Bulky', hasBigItems: true, hasFragileItems: false });
   assert.deepEqual(pickupMadeOf(200, { success: true, message: { _id: 'pk1' } }), { id: 'pk1' });
   assert.deepEqual(pickupMadeOf(200, { data: { _id: 'pk2' } }), { id: 'pk2' });
   assert.equal(pickupMadeOf(400, { success: false, message: 'No slots' }).error, 'refused');

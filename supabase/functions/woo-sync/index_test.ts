@@ -3638,7 +3638,7 @@ Deno.test('bosta_pickup (0145): several warehouse waybills (cash 0, a note each)
   ];
   const { db, woo, deps } = setup({ seed: { vendors: [{ id: vid, name: 'Zaan', aliases: [], status: 'active' }], orders, woo_states: [{ code: 'EG-25', name: 'Giza' }] }, routes,
     rpc: { app_secret_get: ({ p_name }: any) => (p_name === 'bosta' ? JSON.stringify({ key: KEY }) : null) } });
-  const input = { action: 'bosta_pickup', vendor_id: vid, location: 'ZAAN', date: '2026-10-26', slot: '10:00 to 13:00', receiver: 'محمد هشام', phone: '01102189189', warehouse: [{ note: '1001 1002', parcels: 2 }, { note: '1003', parcels: 1 }], orders: '701 702 703' };
+  const input = { action: 'bosta_pickup', vendor_id: vid, location: 'ZAAN', date: '2026-10-26', slot: '10:00 to 13:00', receiver: 'محمد هشام', phone: '01102189189', warehouse: [{ note: '1001 1002', parcels: 2 }, { note: '1003', parcels: 1 }], orders: '701 702 703', fragile: true, bulky: true };
   assertEquals((await call(deps, input)).res.status, 401, 'never the sync secret');
   assertEquals((await call(deps, input, { jwt: 'jwt-pview' })).res.status, 401, 'orders.status F');
   assertEquals((await call(deps, { ...input, date: '2026-10-20' }, { jwt: 'jwt-ops' })).body, { error: 'bad_request', field: 'date' });
@@ -3656,7 +3656,7 @@ Deno.test('bosta_pickup (0145): several warehouse waybills (cash 0, a note each)
   assertEquals(sent[0].dropOffAddress, { firstLine: 'طلعت عبد الدايم - فيصل', secondLine: '', city: 'Giza', districtId: 'dst1', buildingNumber: '10' });
   assertEquals([sent[0].uniqueBusinessReference, sent[1].uniqueBusinessReference, sent[2].uniqueBusinessReference], ['IBP_1001_1', 'IBP_1001_2', 'WC_701']);
   assertEquals(sent[2].receiver.firstName, 'منى', 'the order goes to its own customer');
-  assertEquals(woo.calls.filter((c) => c.path === '/api/v0/pickups').map((c) => c.body), [{ scheduledDate: '2026-10-26', scheduledTimeSlot: '10:00 to 13:00', businessLocationId: 'ZAAN' }], 'one courier visit');
+  assertEquals(woo.calls.filter((c) => c.path === '/api/v0/pickups').map((c) => c.body), [{ scheduledDate: '2026-10-26', scheduledTimeSlot: '10:00 to 13:00', businessLocationId: 'ZAAN', packageType: 'Light Bulky', hasBigItems: true, hasFragileItems: true }], 'one courier visit, with the fragile / bulky flags');
   assertEquals([db.row('orders', 701).bosta_delivery, db.row('orders', 701).bosta_tracking, db.row('orders', 701).bosta_cod], ['dP1', '7055', 1000]);
   const row = db.rows('bosta_pickups').at(-1);
   assertEquals([row.state, row.vendor_id, row.delivery_id, row.pickup_id, row.deliveries.length, row.created_by], ['sent', vid, 'dP1', 'PK9', 5, 'uid-jwt-ops']);

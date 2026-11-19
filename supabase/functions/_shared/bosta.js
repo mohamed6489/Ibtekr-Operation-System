@@ -276,7 +276,10 @@ export function pickupInputOf(a, today) {
     phone = phoneOf(a.phone);
     if (!phone) return { error: 'phone' };
   }
-  return { ok: { location: loc, date, slot: a.slot, receiver, phone, rows, orders } };
+  // the owner 19 Nov («احدد هل فيه منتجات قابلة للكسر - تتضمن شحنة ثقيلة - تتضمن عناصر كبيرة»): Bosta's own pickup flags — a bulky
+  // shipment is Bosta's «Light Bulky» package and always has big items (Bosta's screen ticks and locks it)
+  const fragile = a.fragile === true; const bulky = a.bulky === true; const big = bulky || a.big === true;
+  return { ok: { location: loc, date, slot: a.slot, receiver, phone, rows, orders, fragile, bulky, big } };
 }
 
 // one warehouse waybill of a maker pickup: from the maker's location (businessLocationId) to the warehouse, to the receiver, the
@@ -301,7 +304,10 @@ export function pickupDeliveryOf(row, input, warehouse, ref, makerName) {
 
 // the courier's visit (POST {BOSTA_V0}/pickups — the plugin's own call) and the id of what was made
 export const BOSTA_V0 = 'https://app.bosta.co/api/v0';
-export function pickupBodyOf(input) { return { scheduledDate: input.date, scheduledTimeSlot: input.slot, businessLocationId: input.location }; }
+export function pickupBodyOf(input) {
+  return { scheduledDate: input.date, scheduledTimeSlot: input.slot, businessLocationId: input.location,
+    packageType: input.bulky ? 'Light Bulky' : 'Normal', hasBigItems: !!(input.bulky || input.big), hasFragileItems: !!input.fragile }; // the names Bosta's own pickups carry (read 19 Nov)
+}
 export function pickupMadeOf(status, data) {
   const msg = isObj(data) && typeof data.message === 'string' ? data.message.slice(0, 160) : null;
   if (status === 401 || status === 403) return { error: 'bad_key', message: msg };

@@ -570,7 +570,7 @@
   async function bostaPickup(input) {
     const i = input || {};
     const rows = (Array.isArray(i.warehouse) ? i.warehouse : []).map((r) => ({ note: String((r && r.note) || '').trim(), parcels: Number(r && r.parcels) || 1 }));
-    const r = await syncCall({ action: 'bosta_pickup', vendor_id: i.vendorId || null, location: i.location, date: i.date, slot: i.slot, receiver: i.receiver || '', phone: i.phone || '', warehouse: rows, orders: String(i.orders || '') });
+    const r = await syncCall({ action: 'bosta_pickup', vendor_id: i.vendorId || null, location: i.location, date: i.date, slot: i.slot, receiver: i.receiver || '', phone: i.phone || '', warehouse: rows, orders: String(i.orders || ''), fragile: i.fragile === true, bulky: i.bulky === true, big: i.big === true || i.bulky === true });
     if (r.status && !(r.body && r.body.id)) return Object.assign(bostaFail(r), { field: r.body && r.body.field });
     const d = r.status ? r.body : r.data;
     const list = Array.isArray(d.deliveries) ? d.deliveries : [];

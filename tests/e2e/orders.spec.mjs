@@ -1423,11 +1423,16 @@ test('«بيك أب من المبتكر (بوسطة)»: two warehouse waybills w
   await m.locator('[data-bp-untag="180600"]').click();
   await expect(m.locator('[data-bp-tag]')).toHaveCount(2);
   await expect(m).toBeVisible(); // Enter in the field does not send the form
+  // the owner 19 Nov: Bosta's shipment choices — a bulky shipment ticks and locks «big items»
+  await m.locator('[data-bp-kind="bulky"] input').check();
+  await expect(m.locator('[data-bp-kind="big"] input')).toBeChecked();
+  await expect(m.locator('[data-bp-kind="big"] input')).toBeDisabled();
+  await m.locator('[data-bp-kind="fragile"] input').check();
   await m.getByRole('button', { name: 'اطلب البيك أب' }).click();
   const done = page.locator('[data-bp-done="ok"]');
   await expect(done.locator('[data-bp-ok="1"]')).toHaveCount(4); // the owner 19 Nov: an order sent before prints its own waybill too
   await expect(done.locator('[data-bp-waybill="order:181668"] [data-bp-existing]')).toContainText('متبعتة قبل كده — نفس البوليصة');
-  expect(mock.pickupCalls.at(-1)).toMatchObject({ location: 'ARTC', date: next3[2], receiver: 'أحمد التشغيل', slot: '10:00 to 13:00', warehouse: [{ note: '181668 180656', parcels: 2 }, { note: '180600', parcels: 1 }], orders: '180686 181668' });
+  expect(mock.pickupCalls.at(-1)).toMatchObject({ fragile: true, bulky: true, big: true, location: 'ARTC', date: next3[2], receiver: 'أحمد التشغيل', slot: '10:00 to 13:00', warehouse: [{ note: '181668 180656', parcels: 2 }, { note: '180600', parcels: 1 }], orders: '180686 181668' });
   expect(mock.orders.find((o) => o.id === 180686).bosta_delivery).toBeTruthy();
   const pop = page.waitForEvent('popup');
   await page.getByRole('button', { name: 'اطبع البوليصات (4)' }).click();

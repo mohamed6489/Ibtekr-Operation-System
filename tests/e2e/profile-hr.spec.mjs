@@ -199,3 +199,25 @@ test('decision 22: «تعديل بياناتي» renames me and changes my passw
   await expect(page.locator('.topbar .user-btn')).toContainText('سارة أحمد علي');
   const logged = JSON.stringify(mock.activity); expect(logged.includes('NewPass')).toBe(false);
 });
+
+// the owner 19 Nov — «ليه ماليش مرتب عايز اقدر اضيف مرتب عادي لاي حد ف الفريق حتي نفسي»: on «ملفي» the salaries' holder gets «مرتبي»
+// and writes his own pay (hr_pay) — the pay only, no shift / leave / manager; a member without sensitive.salaries has no such card
+test('«مرتبي» on my own file for the salaries\' holder: «تعديل المرتب» writes my hr_pay row', async ({ page }) => {
+  await open(page, ADMIN, 'profile');
+  const card = P(page).locator('[data-job-card]');
+  await expect(card).toContainText('مرتبي');
+  await card.getByRole('button', { name: 'تعديل المرتب' }).click();
+  const f = modal(page, 'تعديل الوظيفة والمرتب');
+  await f.locator('#salary').fill('10000'); await f.locator('#holdback').fill('2000');
+  await expect(f.locator('#s0')).toHaveCount(0); await expect(f.locator('#leave')).toHaveCount(0);
+  await f.getByRole('button', { name: 'حفظ' }).click();
+  await expect(f).toBeHidden();
+  expect(mock.hr.pay.find((r) => r.member_id === ADMIN_ID)).toMatchObject({ salary: 10000, holdback: 2000 });
+  expect(pageErrors).toEqual([]);
+});
+
+test('a member without sensitive.salaries: no «مرتبي» on «ملفي»', async ({ page }) => {
+  await open(page, OPS, 'profile');
+  await expect(P(page)).toBeVisible();
+  await expect(P(page).locator('[data-job-card]')).toHaveCount(0);
+});

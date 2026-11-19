@@ -136,18 +136,21 @@
       // decision 27 (the owner, 10 Nov — «إضافة زرار تخصيص اللوحة… وإمكانية إظهار عدد التنبيهات أو الطلبات»): my alerts and my open requests,
       // and «تخصيص اللوحة» to hide / order every card (user_prefs panel.prefs «profile:overview»)
       own ? h('div', { class: 'cards' }, tile('التنبيهات', ntfCount, ntfCount ? 'من الجرس — اضغط تشوفها' : 'مفيش تنبيهات دلوقتي', 'alerts'), tile('طلباتي المفتوحة', tkOpen, 'من ' + tkMine.length + ' طلب', reqGo, () => { st.reqTab = 'mine'; })) : null,
-      isAdminView() ? adminCards(m) : null];
+      isAdminView() ? adminCards(m) : own && can().salaries ? adminCards(m, true) : null];
   }
   // the beige cards when another member's file is open: each by what the viewer may do (the server decides again)
-  function adminCards(m) {
-    const c = can(); const kv = (k, v) => [k, v]; const ce = canEdit(m);
-    const job = c.salaries || c.edit || ce ? h('section', { class: 'card admin' }, h('div', { class: 'sec-h' }, h('h2', { class: 't-h5' }, 'الوظيفة والمرتب'), Button({ size: 'sm', label: 'تعديل', onClick: () => editJob(m) })),
+  // the owner 19 Nov — «ليه ماليش مرتب عايز اقدر اضيف مرتب عادي لاي حد ف الفريق حتي نفسي»: on his own file the salaries' holder (sensitive.salaries
+  // F) gets «الوظيفة والمرتب» alone — the pay only (hr_pay's policies let hr_salaries() write any row, his own too)
+  function adminCards(m, self) {
+    const c = can(); const kv = (k, v) => [k, v]; const ce = !self && canEdit(m);
+    const job = c.salaries || (!self && (c.edit || ce)) ? h('section', { class: 'card admin', 'data-job-card': '' }, h('div', { class: 'sec-h' }, h('h2', { class: 't-h5' }, self ? 'مرتبي' : 'الوظيفة والمرتب'), Button({ size: 'sm', label: self ? 'تعديل المرتب' : 'تعديل', onClick: () => editJob(m, self) })),
       K.Kv([kv('الوظيفة', m.title || '—'), kv('الدور', m.role || '—'), kv('المرتب', c.salaries ? K.money(m.salary || 0) + ' ج.م' : '••••'), kv('الحجز للبونص', c.salaries ? K.money(m.holdback || 0) + ' ج.م' : '••••'), kv('سعر اليوم والساعة', c.salaries && m.salary ? 'اليوم ' + K.money(O.rates(m.salary).daily) + ' · الساعة ' + K.money(O.rates(m.salary).hourly) : '—'), kv('الشيفت', m.shift.map((x) => (K.t12 ? K.t12(x) : x)).join(' – ')), kv('تاريخ التعيين', m.hire ? K.dlabel(m.hire) : '—'), kv('الإجازة السنوية', (m.leave || 0) + ' يوم')])) : null;
     const notes = c.edit ? h('section', { class: 'card admin' }, h('h2', { class: 't-h5' }, 'ملاحظات داخلية'), (() => { const ta = h('textarea', { class: 'textarea', rows: 4, 'aria-label': 'ملاحظات داخلية', placeholder: 'مش ظاهرة للعضو' }); ta.value = m.hrNotes || '';
       ta.addEventListener('change', () => { IH().memberUpdate(m.id, { notes: ta.value }).then((r) => K.toast(r.ok ? 'اتحفظت الملاحظة' : r.message || 'معرفناش نحفظها — جرّب تاني', r.ok ? 'success' : 'error')); }); return ta; })()) : null;
     const quick = c.edit || c.salaries ? h('section', { class: 'card admin' }, h('h2', { class: 't-h5' }, 'إجراءات سريعة'), h('div', { class: 'quick' }, c.edit ? Button({ label: 'تسجيل حضور يدوي', icon: 'clock', onClick: () => HR().manualAtt(m) }) : null, c.edit ? Button({ label: 'رفع عقد', icon: 'attach', onClick: () => HR().uploadContract(m) }) : null, c.salaries ? Button({ label: 'قسيمة المرتب', icon: 'wallet', onClick: () => HR().payslipModal(m) }) : null)) : null;
     const sec = c.admin ? h('section', { class: 'card admin' }, h('h2', { class: 't-h5' }, 'الأمان'), K.Kv([kv('الإيميل', m.email || '—'), kv('الموبايل', m.phone ? h('span', { dir: 'ltr' }, m.phone) : '—'), kv('التحقق بخطوتين', m.twofa ? 'مفعّل' : 'مش مفعّل')]),
       h('div', { class: 'quick' }, Button({ size: 'sm', label: 'باسورد مؤقت جديد', onClick: () => HR().newPassword(m) })), h('div', { class: 't-small help' }, 'إيقاف الحساب والخروج من كل الأجهزة لعضو تاني مع صفحة الإعدادات — لحد وقتها من لوحة Supabase.')) : null;
+    if (self) return h('div', { class: 'admin-cards' }, job);
     return h('div', { class: 'admin-cards' }, ce ? memberCard(m) : null, job, notes, quick, sec);
   }
 
@@ -564,8 +567,8 @@
   }
   // the job and the pay (phase 10 T7): the shift, the hire date and the leave days through IBHR.memberUpdate (hr.edit F), the pay through
   // IBHR.payUpdate (sensitive.salaries F) — each part only for who may write it; the title and the role stay the settings page's
-  function editJob(m) {
-    const c0 = can(); const c = Object.assign({}, c0, { job: c0.edit || canEdit(m) }); const time = /^\d{1,2}:\d{2}$/;
+  function editJob(m, self) {
+    const c0 = can(); const c = self ? { salaries: c0.salaries } : Object.assign({}, c0, { job: c0.edit || canEdit(m) }); const time = /^\d{1,2}:\d{2}$/;
     // owner batch 14 Nov decision 16 (0092): «المدير المباشر» — his role's manager (automatic) or one set by hand (the admin / hr.edit F)
     const HRm = IH(); const auto = HRm && HRm.roleManager ? HRm.roleManager(m.roleId) : null; const autoName = auto ? ((K.store.members.find((x) => x.uid === auto) || {}).name || '') : '';
     const mgrOpts = [{ value: '', label: 'مدير الدور (تلقائي)' + (autoName ? ' — ' + autoName : ' — مفيش') }].concat(K.store.members.filter((x) => (!x.status || x.status === 'active') && x.id !== m.id).map((x) => ({ value: x.id, label: x.name })));

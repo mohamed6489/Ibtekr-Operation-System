@@ -2414,7 +2414,7 @@ export async function installSupabaseMock(page, opts = {}) {
         (mock.brandSiteCalls = mock.brandSiteCalls || []).push({ brand_id: br.id, name: br.name, image: !!b.image, by: u.email });
         return json(200, { action, result: 'ok', brand: 700 + mock.brandSiteCalls.length, made: true, image: b.image ? 'ok' : 'none', attr: 'ok' });
       }
-      if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : (action === 'order_trash' || action === 'suborder_trash' || action === 'line_trash' || action === 'line_qty' || action === 'line_add' || action === 'suborder_status') ? hasPerm(u, 'orders.status') === 'F' && hasPerm(u, 'orders.view') !== 'N' : (action === 'order_create' || action === 'order_pay_link') ? (isAdmin(u) || hasPerm(u, 'orders.status') === 'F') : action === 'push_vendor' ? mayPushVendor() : (action === 'statement' || action === 'withdrawals') ? hasPerm(u, 'accounts.view') !== 'N' : action === 'thumbs' ? (hasPerm(u, 'orders.view') !== 'N' || hasPerm(u, 'products.view') !== 'N') : action === 'withdraw_approve' || action === 'withdraw_reject' || action === 'withdraw_create' ? (isAdmin(u) || hasPerm(u, 'accounts.approve') === 'F')
+      if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : (action === 'order_trash' || action === 'suborder_trash' || action === 'line_trash' || action === 'line_qty' || action === 'line_add' || action === 'suborder_status') ? hasPerm(u, 'orders.status') === 'F' && hasPerm(u, 'orders.view') !== 'N' : action === 'bosta_send' ? (isAdmin(u) || hasPerm(u, 'orders.status') === 'F') && hasPerm(u, 'orders.view') !== 'N' : (action === 'order_create' || action === 'order_pay_link') ? (isAdmin(u) || hasPerm(u, 'orders.status') === 'F') : action === 'push_vendor' ? mayPushVendor() : (action === 'statement' || action === 'withdrawals') ? hasPerm(u, 'accounts.view') !== 'N' : action === 'thumbs' ? (hasPerm(u, 'orders.view') !== 'N' || hasPerm(u, 'products.view') !== 'N') : action === 'withdraw_approve' || action === 'withdraw_reject' || action === 'withdraw_create' ? (isAdmin(u) || hasPerm(u, 'accounts.approve') === 'F')
         : action === 'wp_updates' || action === 'site_speed' ? (isAdmin(u) || hasPerm(u, 'marketing.create') === 'F')
         : action === 'product_get' || action === 'styles' ? hasPerm(u, 'products.view') !== 'N' : action === 'product_save' || action === 'product_images_add' ? (isAdmin(u) || hasPerm(u, 'products.edit') === 'F') : action === 'products_batch' || action === 'products_vendor' ? (isAdmin(u) || hasPerm(u, 'products.bulk') === 'F')
           : action === 'products_trash' || action === 'products_restore' ? hasPerm(u, 'products.trash') === 'F' : action === 'studio_upload' || action === 'studio_media' || action === 'category_create' || action === 'studio_sheet' || action === 'product_duplicate' || action === 'category_get' || action === 'category_update' || action === 'category_delete' || action === 'category_order' || action === 'style_create' || action === 'style_update' ? (isAdmin(u) || hasPerm(u, 'products.add') === 'F') : isAdmin(u))) return json(401, { error: 'unauthorized' });
@@ -2728,6 +2728,25 @@ export async function installSupabaseMock(page, opts = {}) {
         const nid = Math.max(700, ...mock.acc.dokan_withdrawals.map((x) => Number(x.id))) + 1;
         mock.acc.dokan_withdrawals.push({ id: nid, woo_vendor_id: Number(v.woo_vendor_id), vendor_id: vid, amount, charge: 0, receivable: amount, status: 'pending', method: 'bank', requested_at: new Date().toISOString().replace('T', ' ').slice(0, 19), synced_at: new Date().toISOString() });
         return done(200, { result: 'ok', id: nid, amount, status: 'pending' });
+      }
+      // the owner 19 Nov: bosta_send { ids } — each order to Bosta (mock.bostaKey: the key in the settings; mock.bostaRefuse: ids Bosta
+      // refuses); an order with a tracking number is left out; mock.bostaCalls records { ids, by }
+      if (action === 'bosta_send') {
+        const ids = Array.isArray(b.ids) ? [...new Set(b.ids.map(Number).filter((n) => Number.isInteger(n) && n > 0))] : [];
+        if (!ids.length || ids.length > 50) return json(400, { error: 'bad_request', field: 'ids' });
+        if (!mock.bostaKey) return json(409, { error: 'no_key' });
+        (mock.bostaCalls = mock.bostaCalls || []).push({ ids, by: u.email });
+        const results = []; const counts = { sent: 0, already: 0, failed: 0 };
+        for (const id of ids) {
+          const o = mock.orders.find((x) => Number(x.id) === id);
+          if (!o) { results.push({ id, result: 'missing' }); counts.failed++; continue; }
+          if (o.bosta_tracking) { results.push({ id, result: 'already', tracking: o.bosta_tracking }); counts.already++; continue; }
+          if ((mock.bostaRefuse || []).includes(id)) { results.push({ id, result: 'error', reason: 'no_city' }); counts.failed++; continue; }
+          o.bosta_tracking = String(7050000 + mock.bostaCalls.length * 100 + results.length); o.bosta_state = 'Pickup requested';
+          const cod = o.payment_method === 'cod' ? Math.max(0, Number(o.total) - Number(o.deposit || 0)) : 0;
+          results.push({ id, result: 'ok', tracking: o.bosta_tracking, state: o.bosta_state, cod }); counts.sent++;
+        }
+        return json(200, { action, result: 'ok', counts, results });
       }
       // comments decision 10: the site's own product photos for a report that goes out as a file — a tiny PNG for each upload of
       // the site (mock.thumbs: each call's urls; mock.thumbsDown: none can be read)

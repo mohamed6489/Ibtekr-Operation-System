@@ -1314,3 +1314,35 @@ test('the Bosta tracking number sits at the end of the address row with its stat
   await expect(card(page, '180686').locator('.arow')).toBeVisible();
   await expect(card(page, '180686').locator('[data-trk]')).toHaveCount(0);
 });
+
+// the owner 19 Nov (decision 9): «ابعت لبوسطة» in the bulk bar only — the whole order, its status as it is, the cash = what is left on
+// the customer; an order with a tracking number already is left out; the tracking number shows next to the address after the send
+test('«ابعت لبوسطة» from the bulk bar: a confirm with the cash, the sent orders get their tracking number, a sent one is left out, no key says where', async ({ page }) => {
+  await openOrders(page);
+  const sr = (sel) => page.locator('#orders ' + sel);
+  // no key in the settings yet
+  await sr('[data-osel="180686"]').click();
+  await sr('[data-obulk-bosta]').click();
+  let dlg = sr('[data-bosta-dlg]');
+  await expect(dlg).toBeVisible();
+  await dlg.locator('[data-cok]').click();
+  await expect(toast(page)).toContainText('مفتاح بوسطة مش متحط');
+  await dlg.locator('[data-cc]').first().click();
+  // with the key: 180686 goes, 181668 (sent already — 70123456) is left out, 180656 is refused by Bosta
+  mock.bostaKey = true; mock.bostaRefuse = [180656];
+  await sr('[data-osel="181668"]').click(); await sr('[data-osel="180656"]').click();
+  await sr('[data-obulk-bosta]').click();
+  dlg = sr('[data-bosta-dlg]');
+  await expect(dlg.locator('[data-bosta-row]')).toHaveCount(2);
+  await expect(dlg.locator('[data-bosta-skip]')).toContainText('1 اتبعت قبل كده');
+  await dlg.locator('[data-cok]').click();
+  const res = sr('[data-bosta-result]');
+  await expect(res).toContainText('اتبعت 1 · ماتبعتش 1');
+  await expect(res.locator('[data-bosta-fail="180656"]')).toContainText('المحافظة مش معروفة لبوسطة');
+  await res.locator('[data-cc]').first().click();
+  expect(mock.bostaCalls.at(-1).ids.sort()).toEqual([180656, 180686]);
+  const c = card(page, '180686'); const tg = c.locator('[data-tg]').first(); if ((await tg.getAttribute('aria-label')) === 'فتح') await tg.click();
+  await expect(c.locator('[data-trk]')).toContainText('70501');
+  expect(mock.activity.some((a) => a.action === 'order.bosta')).toBe(true);
+  expect(pageErrors).toEqual([]);
+});

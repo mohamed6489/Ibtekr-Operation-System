@@ -117,7 +117,7 @@
     (items || []).filter((it) => !it.removed).sort((a, b) => Number(a.id) - Number(b.id)).forEach((it) => { const k = String(it.order_id); if (!lines.has(k)) lines.set(k, []); lines.get(k).push(it); });
     return (rows || []).map((r) => {
       const id = String(r.id); const date = localDate(r.placed_at); const state = text(r.customer_state); const stateName = (state && text(sn.get(state))) || state;
-      return { id, name: r.customer_name || '', phone: r.customer_phone || '', pay: r.payment_title || r.payment_method || '', date, st: r.status, cf: r.confirm, dep: Number(r.deposit) || 0, tot: Number(r.total) || 0,
+      return { id, name: r.customer_name || '', phone: r.customer_phone || '', pay: r.payment_title || r.payment_method || '', payMethod: r.payment_method || '', date, st: r.status, cf: r.confirm, dep: Number(r.deposit) || 0, tot: Number(r.total) || 0,
         age: days(date, T), note: r.note || '', cnote: r.customer_note || '', cdate: r.confirm_at || '', confAt: r.confirm_at || '', state, stateName, city: r.customer_city || '', addr: r.customer_address || '', trk: r.bosta_tracking || '', trkState: r.bosta_state || '', cancel: r.cancel || null, ret: r.ret || null,
         ...(cu.get(id) ? { stc: cu.get(id) } : {}), // 0095: an added status «بتتحسب زي» its base (st stays the base)
         subs: (lines.get(id) || []).map((it) => withLead(sub(it, r, subById, vname, lk, origin), it, vlead, pl)) };
@@ -373,6 +373,27 @@
       let code = ''; let answer = null; try { const j = r.error.context && r.error.context.json ? await r.error.context.json() : null; answer = j && typeof j === 'object' ? j : null; code = (j && j.error) || ''; } catch (e) { code = ''; }
       return { status: (r.error.context && r.error.context.status) || 500, code, body: answer };
     } catch (e) { return { status: -1 }; }
+  }
+  // «ابعت لبوسطة» (the owner 19 Nov — the bulk bar only): woo-sync bosta_send — each order to Bosta the way the site's plugin sends
+  // it (the whole order, the status untouched, the cash = the total minus the deposit for cash on delivery); the answer per order
+  // ({ id, result: ok | already | error | missing, tracking, reason }) — an ok one takes its tracking number here at once. The
+  // reasons: 'no_key' (409 — Bosta's key is not in the settings) / 'forbidden' / 'invalid' / 'network'. Logged as order.bosta per
+  // sent order (the number and the tracking number only).
+  async function sendBosta(ids) {
+    const list = [...new Set((Array.isArray(ids) ? ids : []).map((x) => Number(x)).filter((n) => Number.isInteger(n) && n > 0))];
+    if (!list.length || list.length > 50) return fail('invalid');
+    const r = await syncCall({ action: 'bosta_send', ids: list });
+    if (r.status === -1) return fail('network');
+    if (r.status) return fail(r.status === 409 && r.code === 'no_key' ? 'no_key' : r.status === 401 || r.status === 403 ? 'forbidden' : r.status === 400 ? 'invalid' : 'network');
+    const results = r.data && Array.isArray(r.data.results) ? r.data.results : [];
+    for (const x of results) {
+      if (!x || x.result !== 'ok' || !x.tracking) continue;
+      const o = (orders || []).find((q) => q.id === String(x.id));
+      if (o) { o.trk = String(x.tracking); o.trkState = x.state || ''; }
+      log('order.bosta', 'IB-' + x.id + ' · ' + x.tracking);
+    }
+    notifySoon();
+    return { ok: true, results, counts: (r.data && r.data.counts) || {} };
   }
   // «مسح المنتج» (the owner 11 Nov — «امسح منتج بعينه من الاوردر»): woo-sync line_trash — the product off its maker's sub-order (the
   // parent on the site untouched, total null) or, for an order of one maker, off the order itself (its new total); the reasons:
@@ -688,6 +709,6 @@
   }
   const imageOf = (sku) => (sku && images[sku]) || '';
   function clear() { gen += 1; unsubscribe(); cancelNotify(); thumbCache.clear(); orders = null; custom = new Map(); customOk = false; seenO.clear(); seenI.clear(); vendorRows = []; leads = new Map(); leadAsked.clear(); images = {}; links = {}; states = new Map(); statuses = []; names = []; asked.clear(); busy.clear(); setState('idle'); }
-  window.IBOrders = { load, data, state: () => st, today, setOrderStatus, setConfirm, patchOrder, deleteOrder, deleteSub, deleteLine, setLineQty, addLine, makerProducts, siteStatuses, setSubSiteStatus, setItemStatus, setWaybill, setPulled, syncNow, registerWebhooks, subscribe, unsubscribe, clear, toScreen, refetch, makerHistory, thumbs, imageOf };
+  window.IBOrders = { load, data, state: () => st, today, setOrderStatus, setConfirm, patchOrder, deleteOrder, deleteSub, deleteLine, sendBosta, setLineQty, addLine, makerProducts, siteStatuses, setSubSiteStatus, setItemStatus, setWaybill, setPulled, syncNow, registerWebhooks, subscribe, unsubscribe, clear, toScreen, refetch, makerHistory, thumbs, imageOf };
   window.IBOrdersStore = window.IBOrders; // the name block 29's write hooks call
 })();

@@ -11,7 +11,7 @@
   const U = window.IBUI, K = window.IBKit; const { h } = U;
   const O = () => window.IBOrders; const S = () => window.IBSettings;
   const WHY = { no_key: 'مفتاح بوسطة مش متحط — حطه من «الإعدادات › الربط بالمنصات › بوسطة»', forbidden: 'مالكش صلاحية على بوسطة', no_delivery: 'المحدد لسه ماتبعتش لبوسطة', no_warehouse: 'مفيش عنوان مخزن على بوسطة — اختاره هنا الأول', invalid: 'البيانات ناقصة', network: 'بوسطة مارديتش — جرّب تاني' };
-  const FIELD = { location: 'اختار عنوان المبتكر على بوسطة', date: 'اختار يوم من النهارده لـ 30 يوم', slot: 'اختار الميعاد', receiver: 'اكتب اسم المستلم', phone: 'رقم موبايل مصري صحيح', note: 'الملاحظة من غير < >', parcels: 'من 1 لـ 99' };
+  const FIELD = { location: 'اختار عنوان المبتكر على بوسطة', date: 'اختار يوم من التلات أيام الجاية', slot: 'اختار الميعاد', receiver: 'اكتب اسم المستلم', phone: 'رقم موبايل مصري صحيح', note: 'الملاحظة من غير < >', parcels: 'من 1 لـ 99' };
   const fold = (s) => String(s || '').toLowerCase().replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه').replace(/[^a-z0-9ء-ي]+/g, '');
 
   // the PDF in a new tab (opened on the click itself — a tab opened after the answer is blocked), else a download
@@ -32,18 +32,70 @@
     return r;
   }
 
-  // the pickup day (the owner 19 Nov — «اظهرلي شكل ال calendar اختار منه مع اختيارات سريعة زي النهاردة و بكرة و بعده»): today in
-  // Cairo, quick days from it, and the window the server takes (today to 30 days on). Bosta's API has no endpoint for its working days
-  // (the plugin 4.5.7 uses a plain date input too), so a day Bosta does not pick up on comes back as its refusal.
+  // the pickup day — Bosta's own way (the owner 19 Nov, with Bosta's «جدولة استلام» screen: «البيك اب بيتعمل ل 3 ايام بس و الجمعة اجازة
+  // دايما و مفيش الميعاد»): the next three days from tomorrow (Cairo), Friday never, as three buttons; no time slot is asked (the request
+  // keeps the plugin's first slot). Bosta's API has no working-days endpoint, so a holiday it refuses comes back as its message.
   const ymd = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   const cairo = () => new Date(new Date().toLocaleString('en-US', { timeZone: 'Africa/Cairo' }));
-  function dayAt(i) { const b = cairo(); return ymd(new Date(b.getFullYear(), b.getMonth(), b.getDate() + i)); }
-  const QUICK = [[0, 'النهارده'], [1, 'بكرة'], [2, 'بعد بكرة']];
-  const short = (iso) => { const [, m, d] = iso.split('-').map(Number); return d + '/' + m; };
+  function pickDays() {
+    const b = cairo(); const out = [];
+    for (let i = 1; out.length < 3 && i < 10; i += 1) {
+      const d = new Date(b.getFullYear(), b.getMonth(), b.getDate() + i);
+      if (d.getDay() === 5) continue; // Friday — Bosta's day off
+      out.push({ value: ymd(d), label: d.toLocaleDateString('ar-EG', { weekday: 'long' }) + '، ' + d.getDate() + '/' + (d.getMonth() + 1) });
+    }
+    return out;
+  }
   function dayField(f, e, set) {
-    const chips = h('div', { class: 'chips-row', 'data-bp-days': '', style: 'display:flex;gap:6px;flex-wrap:wrap;margin-top:6px' },
-      QUICK.map(([i, name]) => { const v = dayAt(i); return h('button', { type: 'button', class: 'chip-b', 'aria-pressed': f.date === v ? 'true' : 'false', 'data-bp-day': String(i), onClick: () => set('date', v, true) }, name + ' ' + short(v)); }));
-    return h('div', null, K.field.date('date', 'يوم الاستلام', f, e, set), chips);
+    return h('div', { class: 'field' }, h('label', { class: 't-label' }, 'يوم الاستلام'),
+      h('div', { role: 'radiogroup', 'aria-label': 'يوم الاستلام', 'data-bp-days': '', style: 'display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--color-border-subtle);border-radius:8px;overflow:hidden;margin-top:6px' },
+        pickDays().map((d, i) => h('button', { type: 'button', role: 'radio', class: 'bp-day', 'aria-checked': f.date === d.value ? 'true' : 'false', 'data-bp-day': String(i), 'data-day': d.value, onClick: () => set('date', d.value, true),
+          style: 'min-height:44px;border:0;' + (i ? 'border-inline-start:1px solid var(--color-border-subtle);' : '') + 'font:inherit;cursor:pointer;' + (f.date === d.value ? 'background:var(--color-brand-subtle-bg);color:var(--color-brand-default);font-weight:700' : 'background:var(--color-bg-base);color:var(--color-text-primary)') }, d.label))),
+      e.date ? h('div', { class: 'err', role: 'alert' }, e.date) : null);
+  }
+  // the orders going to their customers as tags (the owner 19 Nov — «لما اكتب اول كام رقم يجبلي اقتراحات + لما ادوس enter يكتبلي الاوردر
+  // ف شكل تاب خضرا و جمبها اكس اقدر اشيله»): f.orders stays the numbers with spaces (what the server reads); what is typed and not
+  // turned into a tag yet (f.ordersDraft) counts too. Suggestions: the loaded orders still open and not on Bosta, the maker's first.
+  const CLOSED = ['مكتمل', 'ملغي', 'استرجاع', 'فشل'];
+  const digits = (t) => String(t || '').replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
+  function suggestions(q, taken, vendorId) {
+    const d = O() && O().data && O().data(); if (!d || !q) return [];
+    return (d.orders || []).filter((o) => o.id.includes(q) && !taken.includes(o.id) && !o.trk && !o.bdl && !CLOSED.includes(o.st))
+      .map((o) => ({ o, mine: !!vendorId && (o.subs || []).some((x) => x.vendorId === String(vendorId)), pre: o.id.startsWith(q) }))
+      .sort((a, b) => (b.mine - a.mine) || (b.pre - a.pre) || (Number(b.o.id) - Number(a.o.id))).slice(0, 6).map((x) => x.o);
+  }
+  function ordersField(f, e, set, vendorId, idsOf) {
+    const tags = idsOf(f.orders);
+    const put = (list) => { f.ordersDraft = ''; set('orders', list.join(' '), true); };
+    const add = (id) => { if (/^\d{3,12}$/.test(id) && !tags.includes(id)) put(tags.concat(id)); else put(tags); };
+    const input = h('input', { id: 'orders', type: 'text', inputmode: 'numeric', dir: 'ltr', autocomplete: 'off', value: f.ordersDraft || '', placeholder: tags.length ? '' : 'اكتب رقم الأوردر واضغط Enter', 'aria-invalid': e.orders ? 'true' : false,
+      style: 'flex:1;min-width:120px;border:0;outline:0;background:transparent;font:inherit;padding:4px 0' });
+    const list = h('div', { role: 'listbox', 'data-bp-sug': '', hidden: '', style: 'border:1px solid var(--color-border-subtle);border-radius:8px;background:var(--color-bg-base);margin-top:4px;overflow:hidden' });
+    const draw = () => {
+      const q = digits(input.value).replace(/\D/g, '');
+      const sug = q.length >= 2 ? suggestions(q, tags, vendorId) : [];
+      list.replaceChildren(...sug.map((o) => h('button', { type: 'button', role: 'option', 'data-bp-sug-id': o.id, onMousedown: (ev) => { ev.preventDefault(); add(o.id); },
+        style: 'display:flex;justify-content:space-between;gap:12px;width:100%;padding:8px 12px;border:0;background:transparent;font:inherit;cursor:pointer;text-align:start' },
+        h('b', { dir: 'ltr' }, o.id), h('span', { class: 't-small', style: 'color:var(--color-text-secondary)' }, (o.name || '') + (o.stateName ? ' · ' + o.stateName : '')))));
+      list.hidden = !sug.length;
+    };
+    input.addEventListener('input', () => {
+      const v = digits(input.value);
+      if (/[\s,،]/.test(v)) { const parts = v.split(/[\s,،]+/); const last = parts.pop(); const more = parts.map((x) => x.replace(/\D/g, '')).filter((x) => /^\d{3,12}$/.test(x) && !tags.includes(x)); f.ordersDraft = last; if (more.length) { set('orders', [...new Set(tags.concat(more))].join(' '), true); return; } input.value = last; }
+      f.ordersDraft = input.value; draw();
+    });
+    input.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter') { ev.preventDefault(); ev.stopPropagation(); const first = list.hidden ? null : list.querySelector('[data-bp-sug-id]'); const v = digits(input.value).replace(/\D/g, ''); add(first && !tags.includes(v) && !/^\d{3,12}$/.test(v) ? first.dataset.bpSugId : v); }
+      else if (ev.key === 'Backspace' && !input.value && tags.length) { ev.preventDefault(); put(tags.slice(0, -1)); }
+      else if (ev.key === 'Escape' && !list.hidden) { ev.stopPropagation(); list.hidden = true; }
+    });
+    input.addEventListener('blur', () => { list.hidden = true; });
+    if (!O().data || !O().data()) { try { Promise.resolve(O().load({ quiet: true })).then(draw, () => {}); } catch (err) { /* the suggestions wait for the orders */ } }
+    const chips = tags.map((id) => h('span', { class: 'bp-tag', 'data-bp-tag': id, style: 'display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 4px 0 10px;border-radius:999px;background:var(--color-brand-default);color:var(--color-text-on-brand);font-weight:600' },
+      h('span', { dir: 'ltr' }, id), h('button', { type: 'button', 'aria-label': 'شيل ' + id, 'data-bp-untag': id, onClick: () => put(tags.filter((x) => x !== id)), style: 'width:22px;height:22px;border:0;border-radius:999px;background:transparent;color:inherit;cursor:pointer;font-size:16px;line-height:1' }, '×')));
+    const box = h('div', { class: 'input' + (e.orders ? ' err' : ''), style: 'display:flex;flex-wrap:wrap;gap:6px;align-items:center;height:auto;min-height:44px;padding:6px 8px', onClick: () => input.focus() }, ...chips, input);
+    return h('div', { class: 'field', 'data-bp-orders': '' }, h('label', { class: 't-label', for: 'orders' }, 'أرقام الأوردرات'), box, list,
+      e.orders ? h('div', { class: 'err', role: 'alert' }, e.orders) : h('div', { class: 'help t-small' }, 'اكتب أول كام رقم واختار من الاقتراحات أو اضغط Enter — كل أوردر بوليصة باسم العميل وعنوانه، والتحصيل = الإجمالي − العربون'));
   }
   const SLOTS = [{ value: '10:00 to 13:00', label: '10 الصبح – 1 الضهر' }, { value: '13:00 to 16:00', label: '1 الضهر – 4 العصر' }];
 
@@ -57,9 +109,10 @@
     // the maker's location: his last pickup, else his name in Bosta's location names
     const last = (past || []).find((p) => locs.some((l) => l.id === p.location_id));
     const byName = vendorName ? locs.find((l) => fold(l.name) && (fold(l.name).includes(fold(vendorName)) || fold(vendorName).includes(fold(l.name)))) : null;
-    const start = { location: last ? last.location_id : byName ? byName.id : '', warehouse: r.warehouse, date: dayAt(1), slot: SLOTS[0].value, receiver: r.receiver || '', phone: r.phone || '', n: 1, wn0: '', wp0: '1', orders: '' };
+    const start = { location: last ? last.location_id : byName ? byName.id : '', warehouse: r.warehouse, date: pickDays()[0].value, slot: SLOTS[0].value, receiver: r.receiver || '', phone: r.phone || '', n: 1, wn0: '', wp0: '1', orders: '', ordersDraft: '' };
     const label = (l) => l.name + (l.city ? ' — ' + l.city + (l.district ? '، ' + l.district : '') : '');
     const whOf = (id) => locs.find((l) => l.id === id);
+    const allOrders = (f) => String(f.orders || '') + ' ' + String(f.ordersDraft || '');
     const ids = (t) => [...new Set((String(t || '').replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).match(/\d{3,12}/g) || []))];
     // 0145 (the owner 19 Nov): several waybills in one pickup — rows to the warehouse (cash 0, a note: the order numbers coming, and the
     // cartons) and orders typed by their numbers that go to their customers straight from the maker
@@ -79,13 +132,13 @@
         return [
           K.field.select('location', 'عنوان المبتكر على بوسطة', [{ value: '', label: '— اختار —' }].concat(locs.filter((l) => l.id !== f.warehouse).map((l) => ({ value: l.id, label: label(l) }))), f, e, set),
           admin ? K.field.select('warehouse', 'المخزن (اللي بوليصات المخزن رايحاله)', locs.map((l) => ({ value: l.id, label: label(l) })), f, e, (k, v) => set(k, v, true)) : null,
-          K.two(dayField(f, e, set), K.field.select('slot', 'الميعاد', SLOTS, f, e, set)),
+          dayField(f, e, set),
           h('h4', { class: 't-h4', style: 'margin:12px 0 4px' }, 'بوليصات للمخزن (التحصيل 0)'),
           ...rows,
           f.n < 10 ? U.Button({ label: '+ بوليصة للمخزن', onClick: () => { f['wn' + f.n] = ''; f['wp' + f.n] = '1'; set('n', f.n + 1, true); } }) : null,
           f.n ? K.two(K.field.text('receiver', 'اسم المستلم في المخزن', f, e, set), K.field.text('phone', 'موبايل المستلم', f, e, set, { dir: 'ltr', inputmode: 'tel' })) : null,
           h('h4', { class: 't-h4', style: 'margin:12px 0 4px' }, 'بوليصات للعميل على طول'),
-          K.field.text('orders', 'أرقام الأوردرات (افصل بينهم بمسافة)', f, e, set, { dir: 'ltr', placeholder: '181668 181670', help: 'كل أوردر بوليصة باسم العميل وعنوانه، والتحصيل = الإجمالي − العربون' }),
+          ordersField(f, e, set, vendorId, ids),
           admin && f.n ? h('label', { class: 'check', style: 'display:flex;gap:8px;align-items:center;margin-top:4px' }, h('input', { type: 'checkbox', 'data-bp-default': '', checked: !!f.asDefault, onChange: (ev) => { f.asDefault = ev.target.checked; } }), 'احفظ المخزن والمستلم كافتراضي') : null,
         ].filter(Boolean);
       },
@@ -100,9 +153,9 @@
           if (String(f.receiver || '').trim().length < 2) er.receiver = FIELD.receiver;
           if (!/^(\+?20|0)?1\d{9}$/.test(String(f.phone || '').replace(/[\s-]/g, ''))) er.phone = FIELD.phone;
         }
-        if (!f.date || f.date < dayAt(0) || f.date > dayAt(30)) er.date = FIELD.date;
-        if (!f.n && !ids(f.orders).length) er.orders = 'زوّد بوليصة للمخزن أو اكتب رقم أوردر';
-        if (ids(f.orders).length > 30) er.orders = '30 أوردر بالكتير في البيك أب';
+        if (!pickDays().some((d) => d.value === f.date)) er.date = FIELD.date;
+        if (!f.n && !ids(allOrders(f)).length) er.orders = 'زوّد بوليصة للمخزن أو اكتب رقم أوردر';
+        if (ids(allOrders(f)).length > 30) er.orders = '30 أوردر بالكتير في البيك أب';
         return er;
       },
       submit: (f, m) => {
@@ -113,7 +166,7 @@
             if (sv && sv.ok === false) { m._busy = false; K.toast('معرفناش نحفظ المخزن — جرّب تاني', 'error'); return; }
           }
           const bb = K.busy('بنعمل البوليصات ونطلب المندوب…');
-          const res = await O().bostaPickup({ vendorId, location: f.location, date: f.date, slot: f.slot, receiver: String(f.receiver || '').trim(), phone: String(f.phone || '').trim(), warehouse: rowsOf(f).map((rw) => ({ note: rw.note, parcels: Number(rw.parcels) })), orders: ids(f.orders).join(' ') });
+          const res = await O().bostaPickup({ vendorId, location: f.location, date: f.date, slot: f.slot, receiver: String(f.receiver || '').trim(), phone: String(f.phone || '').trim(), warehouse: rowsOf(f).map((rw) => ({ note: rw.note, parcels: Number(rw.parcels) })), orders: ids(allOrders(f)).join(' ') });
           m._busy = false;
           if (!res || (!res.ok && !res.partial && !(res.deliveries && res.deliveries.length))) { bb.fail(res && res.field ? FIELD[res.field] || WHY.invalid : WHY[res && res.reason] || (res && res.message) || 'بوسطة رفضت الطلب'); return; }
           bb.close(); m.close(); done(res, vendorName);

@@ -1398,26 +1398,36 @@ test('«بيك أب من المبتكر (بوسطة)»: two warehouse waybills w
   await expect(m.locator('[data-bp-note]')).toContainText('مكتب فيصل');
   await expect(m.locator('#location')).toContainText('Art Craft');
   await expect(m.locator('#receiver')).toHaveValue('أحمد التشغيل');
-  // the day: a calendar field + quick days (the owner 19 Nov) — tomorrow by default, «بعد بكرة» picks the day after
-  const cairoDay = (i) => { const b = new Date(new Date().toLocaleString('en-US', { timeZone: 'Africa/Cairo' })); const d = new Date(b.getFullYear(), b.getMonth(), b.getDate() + i); return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')]; };
-  const [y2, m2, d2] = cairoDay(2);
+  // the day — Bosta's own way (the owner 19 Nov): three buttons, the next three days from tomorrow without Friday, no time slot
+  const next3 = []; { const b0 = new Date(new Date().toLocaleString('en-US', { timeZone: 'Africa/Cairo' })); for (let i = 1; next3.length < 3; i += 1) { const d = new Date(b0.getFullYear(), b0.getMonth(), b0.getDate() + i); if (d.getDay() !== 5) next3.push(d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')); } }
   await expect(m.locator('[data-bp-day]')).toHaveCount(3);
-  await expect(m.locator('[data-bp-day="1"]')).toHaveAttribute('aria-pressed', 'true');
-  await expect(m.locator('[data-bp-day="2"]')).toContainText('بعد بكرة ' + Number(d2) + '/' + Number(m2));
+  await expect(m.locator('[data-bp-days] [data-day]')).toHaveText(next3.map((d) => new RegExp(Number(d.slice(8)) + '/' + Number(d.slice(5, 7)) + '$')));
+  await expect(m.locator('[data-bp-day="0"]')).toHaveAttribute('aria-checked', 'true');
+  await expect(m.locator('#slot')).toHaveCount(0);
+  await expect(m.locator('input#date')).toHaveCount(0);
   await m.locator('[data-bp-day="2"]').click();
-  await expect(m.locator('[data-bp-day="2"]')).toHaveAttribute('aria-pressed', 'true');
-  await expect(m.locator('input#date')).toHaveValue(d2 + '/' + m2 + '/' + y2);
+  await expect(m.locator('[data-bp-day="2"]')).toHaveAttribute('aria-checked', 'true');
   await m.locator('#wn0').fill('181668 180656');
   await m.locator('#wp0').fill('2');
   await m.getByRole('button', { name: '+ بوليصة للمخزن' }).click();
   await expect(m.locator('[data-bp-row]')).toHaveCount(2);
   await m.locator('#wn1').fill('180600');
-  await m.locator('#orders').fill('180686 181668');
+  // the orders to the customer as tags (the owner 19 Nov): the first digits suggest, Enter makes a green tag with × to take it off
+  await m.locator('#orders').pressSequentially('1806');
+  await expect(m.locator('[data-bp-sug-id="180686"]')).toBeVisible();
+  await m.locator('[data-bp-sug-id="180686"]').click();
+  await expect(m.locator('[data-bp-tag]')).toHaveText(['180686×']);
+  await m.locator('#orders').pressSequentially('181668'); await m.locator('#orders').press('Enter');
+  await m.locator('#orders').pressSequentially('180600'); await m.locator('#orders').press('Enter');
+  await expect(m.locator('[data-bp-tag]')).toHaveCount(3);
+  await m.locator('[data-bp-untag="180600"]').click();
+  await expect(m.locator('[data-bp-tag]')).toHaveCount(2);
+  await expect(m).toBeVisible(); // Enter in the field does not send the form
   await m.getByRole('button', { name: 'اطلب البيك أب' }).click();
   const done = page.locator('[data-bp-done="ok"]');
   await expect(done.locator('[data-bp-ok="1"]')).toHaveCount(3);
   await expect(done.locator('[data-bp-waybill="order:181668"]')).toContainText('متبعت لبوسطة قبل كده');
-  expect(mock.pickupCalls.at(-1)).toMatchObject({ location: 'ARTC', date: y2 + '-' + m2 + '-' + d2, receiver: 'أحمد التشغيل', slot: '10:00 to 13:00', warehouse: [{ note: '181668 180656', parcels: 2 }, { note: '180600', parcels: 1 }], orders: '180686 181668' });
+  expect(mock.pickupCalls.at(-1)).toMatchObject({ location: 'ARTC', date: next3[2], receiver: 'أحمد التشغيل', slot: '10:00 to 13:00', warehouse: [{ note: '181668 180656', parcels: 2 }, { note: '180600', parcels: 1 }], orders: '180686 181668' });
   expect(mock.orders.find((o) => o.id === 180686).bosta_delivery).toBeTruthy();
   const pop = page.waitForEvent('popup');
   await page.getByRole('button', { name: 'اطبع البوليصات (3)' }).click();

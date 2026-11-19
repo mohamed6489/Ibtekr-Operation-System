@@ -164,7 +164,7 @@ import { getState, logSync, setState, upsertRows } from '../_shared/db.js';
 import { readBalances as readDokanBalances } from '../_shared/dokan-balances.js';
 import { PAY_STATUSES, orderCreateInput, orderPayable, payUrl, wooOrderBody } from '../_shared/woo-order-create.js';
 import { secretOf, vaultEnv } from '../_shared/secrets.js';
-import { BOSTA_API, BOSTA_MAX, bostaKey, deliveryOf, resultOf } from '../_shared/bosta.js';
+import { BOSTA_API, BOSTA_MAX, bostaKey, deliveryOf, createdOf, trackingOf } from '../_shared/bosta.js';
 import { isSingle, readStore, SINGLE_OFF_ACTIONS, STORE_FREE_ACTIONS, wooActive } from '../_shared/store/index.js';
 import { ConfigError, WooError, errorText, makeScrubber, wooApi } from '../_shared/woo-api.js';
 import { AR_FIELDS, BATCH_FIELDS, EDIT_FIELDS, VARIATION_FIELDS, brandNamesOf, cleanFields, editView, sharedOf, toWoo, variationView, withBrandAttr } from '../_shared/woo-products.js';
@@ -2269,7 +2269,7 @@ async function bostaSend(run: Run, args: Json, fetchFn: typeof fetch) {
   if (!key) return json(409, { error: 'no_key' });
   const { data: rows, error } = await run.db.from('orders').select('id, number, customer_name, customer_state, customer_address, payment_method, total, deposit, customer_note, bosta_tracking, deleted_at, raw').in('id', ids);
   if (error) throw new Error(`orders read failed (${error.code ?? 'error'})`);
-  const { data: lines, error: lerr } = await run.db.from('order_items').select('order_id, name, qty, qty_set, removed').in('order_id', ids);
+  const { data: lines, error: lerr } = await run.db.from('order_items').select('order_id, name, qty, qty_set, total, total_set, removed').in('order_id', ids);
   if (lerr) throw new Error(`order_items read failed (${lerr.code ?? 'error'})`);
   const { data: st } = await run.db.from('woo_states').select('code, name');
   const names: Record<string, string> = {}; for (const r of (st ?? []) as Json[]) if (typeof r.code === 'string' && typeof r.name === 'string') names[r.code.toUpperCase()] = r.name;
@@ -2279,17 +2279,22 @@ async function bostaSend(run: Run, args: Json, fetchFn: typeof fetch) {
     const o = byId.get(id) as Json | undefined;
     if (!o || o.deleted_at) { results.push({ id, result: 'missing' }); counts.failed++; continue; }
     if (o.bosta_tracking) { results.push({ id, result: 'already', tracking: o.bosta_tracking }); counts.already++; continue; }
-    const raw = isObj(o.raw) ? o.raw : {};
-    const items = ((lines ?? []) as Json[]).filter((l) => Number(l.order_id) === id && l.removed !== true).map((l) => ({ name: l.name, qty: l.qty_set ?? l.qty }));
-    const d = deliveryOf({ id, number: o.number, customer_name: o.customer_name, state: o.customer_state, address: o.customer_address, payment_method: o.payment_method, total: o.total, deposit: o.deposit, customer_note: o.customer_note, shipping: raw.shipping, billing: raw.billing }, items, names) as Json;
+    const items = ((lines ?? []) as Json[]).filter((l) => Number(l.order_id) === id && l.removed !== true).map((l) => ({ name: l.name, qty: l.qty_set ?? l.qty, amount: l.total_set ?? l.total }));
+    const d = deliveryOf({ id, customer_name: o.customer_name, state: o.customer_state, address: o.customer_address, payment_method: o.payment_method, total: o.total, deposit: o.deposit, customer_note: o.customer_note, raw: o.raw }, items, names) as Json;
     if (d.error) { results.push({ id, result: 'error', reason: d.error }); counts.failed++; continue; }
-    let status = 0; let body: unknown = null;
-    try {
-      const r = await fetchFn(BOSTA_API + '/deliveries', { method: 'POST', headers: { 'Content-Type': 'application/json', authorization: key, 'X-Requested-By': 'WooCommerce' }, body: JSON.stringify(d.body), signal: AbortSignal.timeout(BOSTA_MS) });
-      status = r.status; try { body = await r.json(); } catch { body = null; }
-    } catch { results.push({ id, result: 'error', reason: 'unreachable' }); counts.failed++; continue; }
-    const res = resultOf(status, body) as Json;
-    if (res.error) { results.push({ id, result: 'error', reason: res.error, message: res.message ?? null }); counts.failed++; if (res.error === 'bad_key') break; continue; }
+    // the plugin's two calls (4.5.7): the bulk create, then the tracking number of what was created
+    const post = async (path: string, payload: unknown) => {
+      const r = await fetchFn(BOSTA_API + path, { method: 'POST', headers: { 'Content-Type': 'application/json', authorization: key, 'X-Requested-By': 'WooCommerce' }, body: JSON.stringify(payload), signal: AbortSignal.timeout(BOSTA_MS) });
+      let body: unknown = null; try { body = await r.json(); } catch { body = null; }
+      return { status: r.status, body };
+    };
+    let made: Json;
+    try { const r = await post('/deliveries/bulk', { deliveries: [d.body], deleteFailedDeliveries: false }); made = createdOf(r.status, r.body) as Json; }
+    catch { results.push({ id, result: 'error', reason: 'unreachable' }); counts.failed++; continue; }
+    if (made.error) { results.push({ id, result: 'error', reason: made.error, message: made.message ?? null }); counts.failed++; if (made.error === 'bad_key') break; continue; }
+    let res: Json | null = null;
+    try { const r = await post('/deliveries/woocommerce-data', { deliveriesIds: [made.id] }); res = r.status >= 200 && r.status < 300 ? trackingOf(r.body, made.id) as Json | null : null; } catch { res = null; }
+    if (!res) { results.push({ id, result: 'ok', tracking: null, state: null, cod: d.body.cod, delivery: made.id }); counts.sent++; continue; } // created — the tracking number comes with the next sync
     const { error: werr } = await run.db.from('orders').update({ bosta_tracking: res.tracking, bosta_state: res.state }).eq('id', id);
     if (werr) console.error(`bosta tracking save failed (${werr.code ?? 'error'})`);
     results.push({ id, result: 'ok', tracking: res.tracking, state: res.state, cod: d.body.cod }); counts.sent++;

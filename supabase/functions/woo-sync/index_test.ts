@@ -3542,31 +3542,34 @@ Deno.test('single-seller mode: Dokan actions are skipped (200 single_mode, no ca
 // the owner 19 Nov («ابعت لبوسطة», decision 9 in docs/superpowers/plans/2026-11-19-orders-batch.md): a person with orders.status F (never
 // the sync secret); the key from the settings or 409 no_key; each order the way the site's Bosta plugin sends it; a sent order is
 // left out; the tracking number lands on the order here and the site's order is never written
-Deno.test('bosta_send: the key from the settings, each order to Bosta like the plugin, the tracking number saved here, a sent one left out, nothing written on the site', async () => {
+Deno.test('bosta_send: the key from the settings, each order to Bosta like the plugin (4.5.7 — bulk, then the tracking), the tracking number saved here, a sent one left out, nothing written on the site', async () => {
   const KEY = 'bk_' + 'x'.repeat(30);
   const orders = [
     { id: 501, number: '501', status: 'جاري التنفيذ', placed_at: '2026-11-18T10:00:00Z', customer_name: 'منى عادل', customer_state: 'EG-25', customer_address: '12 شارع الهرم', payment_method: 'cod', total: 1200, deposit: 200, customer_note: null, bosta_tracking: null, deleted_at: null,
-      raw: { shipping: { first_name: 'منى', last_name: 'عادل', address_1: '12 شارع الهرم', phone: '' }, billing: { phone: '01001234567' } } },
+      raw: { billing: { first_name: 'منى', last_name: 'عادل', address_1: '12 شارع الهرم الرئيسي', phone: '01001234567', state: 'EG-25' }, meta_data: [{ key: '_billing_area', value: 'dst-77' }] } },
     { id: 502, number: '502', status: 'جاري التنفيذ', placed_at: '2026-11-18T10:00:00Z', customer_name: 'سارة', customer_state: 'EG-01', payment_method: 'cod', total: 300, deposit: 0, bosta_tracking: '7011111', deleted_at: null, raw: {} },
-    { id: 503, number: '503', status: 'جاري التنفيذ', placed_at: '2026-11-18T10:00:00Z', customer_name: 'هبة', customer_state: 'EG-99', payment_method: 'cod', total: 300, deposit: 0, bosta_tracking: null, deleted_at: null, raw: { billing: { phone: '01001234567', address_1: 'x' } } },
+    { id: 503, number: '503', status: 'جاري التنفيذ', placed_at: '2026-11-18T10:00:00Z', customer_name: 'هبة', customer_state: 'EG-99', payment_method: 'cod', total: 300, deposit: 0, bosta_tracking: null, deleted_at: null, raw: { billing: { first_name: 'هبة', phone: '01001234567', address_1: 'شارع طويل كفاية' } } },
   ];
-  const seed = { orders, order_items: [{ order_id: 501, name: 'Lamp', qty: 2, qty_set: null, removed: false }, { order_id: 501, name: 'Gone', qty: 1, removed: true }], woo_states: [{ code: 'EG-25', name: 'Giza' }, { code: 'EG-01', name: 'Cairo' }] };
+  const seed = { orders, order_items: [{ order_id: 501, name: 'Lamp', qty: 2, qty_set: null, total: 900, removed: false }, { order_id: 501, name: 'Gone', qty: 1, total: 5, removed: true }], woo_states: [{ code: 'EG-25', name: 'Giza' }, { code: 'EG-01', name: 'Cairo' }] };
   const noKey = setup({ seed });
   assertEquals((await call(noKey.deps, { action: 'bosta_send', ids: [501] })).res.status, 401, 'never the sync secret');
   assertEquals((await call(noKey.deps, { action: 'bosta_send', ids: [501] }, { jwt: 'jwt-pview' })).res.status, 401, 'orders.status F is needed');
   assertEquals((await call(noKey.deps, { action: 'bosta_send', ids: [501] }, { jwt: 'jwt-ops' })).body, { error: 'no_key' });
   const { db, woo, deps } = setup({ seed, rpc: { app_secret_get: ({ p_name }: any) => (p_name === 'bosta' ? JSON.stringify({ key: KEY }) : null) },
-    routes: { 'POST /api/v0/deliveries': { status: 201, body: { _id: 'd1', trackingNumber: 7099001, state: { value: 'Pickup requested' } } } } });
+    routes: { 'POST /api/v2/deliveries/bulk': { status: 200, body: { data: { createdDeliveriesIds: ['d1'], failedDeliveries: [] } } },
+      'POST /api/v2/deliveries/woocommerce-data': { status: 200, body: { data: [{ _id: 'd1', uniqueBusinessReference: 'WC_501', trackingNumber: 7099001, state: { value: 'Pickup requested' } }] } } } });
   assertEquals((await call(deps, { action: 'bosta_send', ids: [] }, { jwt: 'jwt-ops' })).res.status, 400);
   const { res, body } = await call(deps, { action: 'bosta_send', ids: [501, 502, 503] }, { jwt: 'jwt-ops' });
   assertEquals(res.status, 200);
   assertEquals(body.counts, { sent: 1, already: 1, failed: 1 });
   assertEquals(body.results.map((x: any) => [x.id, x.result, x.tracking ?? x.reason]), [[501, 'ok', '7099001'], [502, 'already', '7011111'], [503, 'error', 'no_city']]);
-  const sent = woo.calls.filter((c) => c.path === '/api/v0/deliveries');
+  const sent = woo.calls.filter((c) => c.path === '/api/v2/deliveries/bulk');
   assertEquals(sent.length, 1);
   assertEquals(sent[0].headers.authorization, KEY);
-  assertEquals(sent[0].body, { type: 10, specs: { packageDetails: { itemsCount: 2, description: 'Products: Lamp(2)' } }, receiver: { firstName: 'منى', lastName: 'عادل', phone: '01001234567' },
-    dropOffAddress: { firstLine: '12 شارع الهرم', city: 'Giza' }, businessReference: 'IB-501', cod: 1000 });
+  assertEquals(sent[0].body, { deleteFailedDeliveries: false, deliveries: [{ id: 501, type: 10, notes: '', uniqueBusinessReference: 'WC_501', businessReference: 'Woocommerce_501',
+    specs: { packageDetails: { itemsCount: 2, description: 'Lamp x 2' } }, receiver: { firstName: 'منى', lastName: 'عادل', phone: '01001234567' },
+    dropOffAddress: { firstLine: '12 شارع الهرم الرئيسي', secondLine: '', city: 'Giza', districtId: 'dst-77' }, cod: 1000, goodsInfo: { amount: 900 } }] });
+  assertEquals(woo.calls.filter((c) => c.path === '/api/v2/deliveries/woocommerce-data').map((c) => c.body), [{ deliveriesIds: ['d1'] }]);
   assertEquals(db.row('orders', 501).bosta_tracking, '7099001');
   assertEquals(woo.calls.some((c) => c.path.includes('wc/v3/orders')), false, 'the site order is never written');
 });

@@ -146,6 +146,9 @@
     }
     const details = sanitizeText(input.details, 500);
     if (!details) errors.details = 'اكتب تفاصيل المصروف';
+    // the owner 19 Nov (0143): «المصروفات» always names its beneficiary — a maker, or another by name
+    if (!sanitizeText(input.beneficiary, 80)) errors.beneficiary = 'اختار المستفيد';
+    else if (input.beneficiary === OTHER && !sanitizeText(input.otherName, 80)) errors.otherName = 'اكتب اسم المستفيد';
     return { errors, value: { details, note: sanitizeText(input.note, 500) } };
   }
   function validateSubscription(input) {
@@ -183,7 +186,7 @@
       (src.transport || []).forEach((t) => push({ date: t.date, kind: 'سحب', what: 'مواصلات', who: t.vendor || '—', amount: t.amount, by: t.payer || 'شيت', source: 'شيت Logistics expenses', ref: '', note: t.note || '' }));
       (src.withdrawals || []).forEach((w) => push({ date: String(w.at || '').slice(0, 10), kind: 'طلب سحب', what: w.source === 'internal' ? 'طلب داخلي' : 'طلب من المبتكر', who: w.vendor, amount: w.amount, by: w.by || '—', source: 'طلبات السحب', ref: w.id, note: w.note || '' }));
     } else {
-      (src.accountMoves || []).forEach((m) => push({ date: m.date, kind: m.direction === 'deposit' ? 'إيداع' : 'سحب', what: m.account, who: '—', amount: m.amount, by: m.createdBy || '—', source: 'تسجيل يدوي', ref: m.id ? '#' + m.id : '', note: m.note || '' }));
+      (src.accountMoves || []).forEach((m) => push({ date: m.date, kind: m.direction === 'deposit' ? 'إيداع' : 'سحب', what: m.account, who: m.beneficiary || '—', amount: m.amount, by: m.createdBy || '—', source: 'تسجيل يدوي', ref: m.id ? '#' + m.id : '', note: m.note || '' }));
       Object.keys(src.accounts || {}).forEach((a) => push({ date: src.seedDate || '', kind: 'رصيد افتتاحي', what: a, who: '—', amount: src.accounts[a], by: 'شيت', source: 'شيت Balances_Payouts', ref: '', note: 'الرصيد قبل حركات السيستم — الشيت مفيهوش تاريخ' }));
     }
     rows.sort((a, b) => (a.date === b.date ? 0 : a.date < b.date ? 1 : -1));
@@ -226,12 +229,41 @@
     }
     return { errors, value: { direction: input.direction, amount, date, type: input.type, typeName, vendor, note } };
   }
+  // 0143 (the owner 19 Nov — «دايما يبقي فيه مستفيد»): input.benKind 'vendor' | 'member' | 'account' (a transfer to / from the
+  // other account in input.toAccount) | 'other' (a name in input.benName); without input.benKind (a sheet, an old caller) none is asked
+  const BEN_KINDS = Object.freeze([['vendor', 'مبتكر'], ['member', 'عضو في الفريق'], ['account', 'حساب تاني (تحويل)'], ['other', 'أخرى']]);
   function validateAccountMovement(input) {
     const errors = {};
     const { amount, date } = checkAmountDate(input, errors);
     if (input.direction !== 'deposit' && input.direction !== 'withdraw') errors.direction = 'اختار إيداع أو سحب';
     if (!ACCOUNTS.includes(input.account)) errors.account = 'اختار نوع الحساب من القايمة';
-    return { errors, value: { direction: input.direction, amount, date, account: input.account } };
+    const value = { direction: input.direction, amount, date, account: input.account };
+    if (input.benKind === undefined || input.benKind === null) return { errors, value };
+    if (!BEN_KINDS.some((k) => k[0] === input.benKind)) { errors.benKind = 'اختار المستفيد'; return { errors, value }; }
+    value.benKind = input.benKind;
+    if (input.benKind === 'account') {
+      if (!ACCOUNTS.includes(input.toAccount)) errors.toAccount = 'اختار الحساب التاني';
+      else if (input.toAccount === input.account) errors.toAccount = 'اختار حساب غير ' + input.account;
+      value.beneficiary = input.toAccount;
+    } else {
+      const name = sanitizeText(input.benName, 80);
+      if (!name) errors.benName = input.benKind === 'vendor' ? 'اختار المبتكر' : input.benKind === 'member' ? 'اختار العضو' : 'اكتب اسم المستفيد';
+      value.beneficiary = name;
+    }
+    return { errors, value };
+  }
+  // the real account of an expense / a maker move (0143): required when asked (every new withdraw; an expense either way)
+  function validateMoneyAccount(account, required) {
+    if (!account) return required ? 'اختار الحساب' : null;
+    return ACCOUNTS.includes(account) ? null : 'اختار الحساب من القايمة';
+  }
+  // the owner 19 Nov: an account going below zero saves with a warning (no block) → the balance after, or null when it stays ≥ 0
+  function overdraftOf(balances, account, direction, amount, previous) {
+    if (direction !== 'withdraw' || !ACCOUNTS.includes(account)) return null;
+    const base = Number((balances || {})[account]) || 0;
+    const back = previous && previous.account === account ? (previous.direction === 'deposit' ? -1 : 1) * (Number(previous.amount) || 0) : 0;
+    const after = round2(base + back - (Number(amount) || 0));
+    return after < 0 ? after : null;
   }
 
   // ---- derived numbers ----
@@ -472,7 +504,7 @@
     get CATEGORIES() { return cats(); }, BASE_CATEGORIES: CATEGORIES, weekStartDow, VENDOR_TYPES, ACCOUNTS, OTHER, MAX_AMOUNT,
     parseAmount, formatMoney, formatPct, sanitizeText, round2,
     parseDate, formatDateNumeric, dateFmt, formatDateLong, rangeLabel, monthName, presetRange, monthMatrix, addDays,
-    validateExpense, validateVendorMovement, validateAccountMovement,
+    validateExpense, validateVendorMovement, validateAccountMovement, BEN_KINDS, validateMoneyAccount, overdraftOf,
     movementLog, SUB_NAMES, SUB_ALERTS, AD_PLATFORMS, REFUND_REASONS, validateExpenseCategory, subAlertDays, validateSubscription, subsDue, daysBetweenIso,
     categoryTotals, sortVendors, applyVendorMovement, vendorSummary, applyAccountMovement, deriveAccounts, deriveVendors, potential, createEventLog,
   });

@@ -5,7 +5,7 @@
 //   expenses     { id, date, direction, category, beneficiaryName, beneficiaryIsOther, amount, note, subName, subIsOther,
 //                  subEnds, subAlerts, subNote, createdBy (a name), createdById }
 //   vendorMoves  { id, date, direction, type, typeName, vendor (the maker's name), vendorId, amount, note, createdBy, createdById }
-//   accountMoves { id, date, direction, account, amount, note, createdBy, createdById }
+//   accountMoves { id, date, direction, account, amount, note, benKind, beneficiary, vendorId, memberId, expenseId, vendorMoveId, pairId, withdrawId, linked, createdBy, createdById }
 // Voided rows are not handed out (the server keeps them). load() runs with the sign-in (IBDirectory.load) and after every
 // write the server took; state() is 'idle' | 'loading' | 'ready' | 'error'; every change dispatches ib:accounts.
 // Writes: add(kind, value) inserts (created_by is the server's: auth.uid()), update(kind, id, value) sends the changed columns,
@@ -41,9 +41,9 @@
 (function () {
   'use strict';
   const KINDS = {
-    expenses: { table: 'acc_expenses', cols: 'id, on_date, direction, category, beneficiary, beneficiary_other, amount, note, sub_name, sub_is_other, sub_ends, sub_alerts, sub_note, details, staff_kind, reason, created_by, created_at', log: 'accounts.expense' },
-    vendorMoves: { table: 'acc_vendor_moves', cols: 'id, vendor_id, on_date, direction, kind, kind_name, amount, note, created_by, created_at, settled_by, settled_at', log: 'accounts.vendor_move' },
-    accountMoves: { table: 'acc_account_moves', cols: 'id, account, on_date, direction, amount, note, created_by, created_at', log: 'accounts.account_move' },
+    expenses: { table: 'acc_expenses', cols: 'id, on_date, direction, category, beneficiary, beneficiary_other, amount, note, sub_name, sub_is_other, sub_ends, sub_alerts, sub_note, details, staff_kind, reason, account, created_by, created_at', log: 'accounts.expense' },
+    vendorMoves: { table: 'acc_vendor_moves', cols: 'id, vendor_id, on_date, direction, kind, kind_name, amount, note, account, created_by, created_at, settled_by, settled_at', log: 'accounts.vendor_move' },
+    accountMoves: { table: 'acc_account_moves', cols: 'id, account, on_date, direction, amount, note, beneficiary_kind, beneficiary, vendor_id, member_id, expense_id, vendor_move_id, pair_id, withdraw_id, created_by, created_at', log: 'accounts.account_move' },
   };
   const SUBS = 'الاشتراكات', ADS = 'الإعلانات', PAY = 'المرتبات';
   const c = () => (window.IBSupabase && window.IBSupabase.client) || null;
@@ -68,15 +68,21 @@
   // ---------- rows → the prototype's shapes (pure but for the two name lookups) ----------
   const toExpense = (r) => ({ id: r.id, date: day(r.on_date), direction: r.direction, category: r.category, beneficiaryName: r.beneficiary || '', beneficiaryIsOther: !!r.beneficiary_other,
     amount: num(r.amount), note: r.note || '', subName: r.sub_name || '', subIsOther: !!r.sub_is_other, subEnds: r.sub_ends ? day(r.sub_ends) : '', subAlerts: Array.isArray(r.sub_alerts) ? r.sub_alerts.slice() : [],
-    subNote: r.sub_note || '', details: r.details || '', staffKind: r.staff_kind || '', reason: r.reason || '',
+    subNote: r.sub_note || '', details: r.details || '', staffKind: r.staff_kind || '', reason: r.reason || '', account: r.account || '',
     platform: r.category === ADS && r.direction !== 'deposit' ? r.beneficiary || '' : '', source: r.direction === 'deposit' ? r.beneficiary || '' : '',
     createdById: r.created_by || null, createdBy: nameOf(r.created_by), createdAt: r.created_at || '' });
   const toVendorMove = (r) => ({ id: r.id, date: day(r.on_date), direction: r.direction, type: r.kind, typeName: r.kind === 'أخرى' ? (r.kind_name || '') : r.kind, vendorId: r.vendor_id, vendor: vendorName(r.vendor_id),
-    amount: num(r.amount), note: r.note || '', createdById: r.created_by || null, createdBy: nameOf(r.created_by), createdAt: r.created_at || '',
+    amount: num(r.amount), note: r.note || '', account: r.account || '', createdById: r.created_by || null, createdBy: nameOf(r.created_by), createdAt: r.created_at || '',
     settledBy: r.settled_by == null ? null : Number(r.settled_by), settledAt: r.settled_at || '' });
   const toSettlement = (r) => ({ id: Number(r.id), withdrawId: Number(r.withdraw_id), vendorId: r.vendor_id, amount: num(r.amount), movesNet: num(r.moves_net), carryIn: num(r.carry_in),
     consumed: num(r.consumed), carryOut: num(r.carry_out), cash: num(r.cash), moves: Number(r.moves) || 0, source: r.source, approvedBy: r.approved_by || null, settledOn: day(r.settled_on), createdAt: r.created_at || '' });
+  // 0143: the beneficiary (benKind vendor | member | account | other) and the link — expenseId / vendorMoveId (linked: edited and voided
+  // from its source), pairId (a transfer's other side), withdrawId (an approved Dokan request's transfer)
   const toAccountMove = (r) => ({ id: r.id, date: day(r.on_date), direction: r.direction, account: r.account, amount: num(r.amount), note: r.note || '',
+    benKind: r.beneficiary_kind || '', beneficiary: r.beneficiary || '', vendorId: r.vendor_id || null, memberId: r.member_id || null,
+    expenseId: r.expense_id == null ? null : Number(r.expense_id), vendorMoveId: r.vendor_move_id == null ? null : Number(r.vendor_move_id),
+    pairId: r.pair_id == null ? null : Number(r.pair_id), withdrawId: r.withdraw_id == null ? null : Number(r.withdraw_id),
+    linked: r.expense_id != null || r.vendor_move_id != null,
     createdById: r.created_by || null, createdBy: nameOf(r.created_by), createdAt: r.created_at || '' });
   const TO = { expenses: toExpense, vendorMoves: toVendorMove, accountMoves: toAccountMove };
 
@@ -87,10 +93,17 @@
       return { on_date: v.date, direction: v.direction || 'withdraw', category: v.category, beneficiary: v.beneficiaryName || null, beneficiary_other: !!v.beneficiaryIsOther, amount: v.amount,
         note: v.note || null, sub_name: sub ? v.subName || null : null, sub_is_other: false, sub_ends: sub ? v.subEnds || null : null,
         sub_alerts: sub ? (v.subAlerts || []).slice() : [], sub_note: sub ? v.subNote || null : null,
-        details: !dep && v.details ? v.details : null, staff_kind: !dep && v.category === PAY && v.beneficiaryIsOther && v.staffKind ? v.staffKind : null, reason: dep ? v.reason || null : null };
+        details: !dep && v.details ? v.details : null, staff_kind: !dep && v.category === PAY && v.beneficiaryIsOther && v.staffKind ? v.staffKind : null, reason: dep ? v.reason || null : null,
+        account: v.account || null };
     }
-    if (kind === 'vendorMoves') return { vendor_id: v.vendorId || vendorIdOf(v.vendor), on_date: v.date, direction: v.direction, kind: v.type, kind_name: v.type === 'أخرى' ? v.typeName || null : null, amount: v.amount, note: v.note || null };
-    return { account: v.account, on_date: v.date, direction: v.direction, amount: v.amount, note: v.note || null };
+    if (kind === 'vendorMoves') return { vendor_id: v.vendorId || vendorIdOf(v.vendor), on_date: v.date, direction: v.direction, kind: v.type, kind_name: v.type === 'أخرى' ? v.typeName || null : null, amount: v.amount, note: v.note || null, account: v.account || null };
+    const row = { account: v.account, on_date: v.date, direction: v.direction, amount: v.amount, note: v.note || null };
+    if (v.benKind) {
+      row.beneficiary_kind = v.benKind; row.beneficiary = v.beneficiary || null;
+      row.vendor_id = v.benKind === 'vendor' ? v.vendorId || vendorIdOf(v.beneficiary) : null;
+      row.member_id = v.benKind === 'member' ? v.memberId || null : null;
+    }
+    return row;
   }
 
   // opts.quiet (IBLive — 0104): a live re-read of what is already shown — no «loading» state, a failed read keeps it, and the
@@ -139,6 +152,12 @@
     const by = d && typeof d.by === 'string' ? d.by.replace(/[<>]/g, '').slice(0, 80) : ''; const m = d ? Number(d.minutes) : NaN;
     return { by, minutes: Number.isFinite(m) && m >= 0 ? Math.floor(m) : 0 };
   }
+  // 0143: the server made / changed / voided a linked account move (an expense or a maker move with an account, a transfer's
+  // other side) — the ledgers are read again behind what is shown
+  function relinked(kind, value, was) {
+    const v = value || {}; const w = was || {};
+    if (kind === 'accountMoves' ? (v.benKind === 'account' || w.pairId || v.pairId) : (v.account || w.account)) load({ quiet: true });
+  }
   async function add(kind, value, opts) {
     const cl = c(); if (!cl || !KINDS[kind]) return { ok: false, reason: 'network' };
     try {
@@ -148,6 +167,7 @@
       if (error) return { ok: false, reason: reasonOf(error) };
       const rec = TO[kind]((rows || [])[0] || {});
       data[kind] = [rec, ...data[kind]]; logged(kind, '', { ...value, id: rec.id }); emit({ kind, id: rec.id });
+      relinked(kind, value);
       return { ok: true, rec };
     } catch (e) { return { ok: false, reason: 'network' }; }
   }
@@ -158,7 +178,9 @@
       if (error) return { ok: false, reason: reasonOf(error) };
       if (!rows || !rows.length) return { ok: false, reason: 'forbidden' };
       const rec = TO[kind](rows[0]);
+      const was = data[kind].find((r) => r.id === id);
       data[kind] = data[kind].map((r) => (r.id === id ? rec : r)); logged(kind, '.edit', { ...value, id }); emit({ kind, id });
+      relinked(kind, value, was);
       return { ok: true, rec };
     } catch (e) { return { ok: false, reason: 'network' }; }
   }
@@ -170,6 +192,7 @@
       if (error) return { ok: false, reason: reasonOf(error) };
       if (!rows || !rows.length) return { ok: false, reason: 'forbidden' };
       data[kind] = data[kind].filter((r) => r.id !== id); if (old) logged(kind, '.void', old); emit({ kind, id });
+      relinked(kind, old || {});
       return { ok: true, rec: old };
     } catch (e) { return { ok: false, reason: 'network' }; }
   }
@@ -250,12 +273,14 @@
       return { ok: true };
     } catch (e) { return { ok: false, reason: 'network' }; }
   }
-  async function approveWithdraw(id) {
+  // 0143 (the owner 19 Nov): account = the real account the transfer leaves — the server records it (the cash after the settlement)
+  async function approveWithdraw(id, account) {
     const cl = c(); const wid = Number(id);
     if (!cl || !Number.isInteger(wid) || wid <= 0) return { ok: false, reason: 'invalid' };
     const old = data.withdrawals.find((w) => w.id === wid);
     try {
-      const { data: body, error } = await cl.functions.invoke('woo-sync', { body: { action: 'withdraw_approve', id: wid } });
+      const body0 = { action: 'withdraw_approve', id: wid }; if (typeof account === 'string' && account) body0.account = account;
+      const { data: body, error } = await cl.functions.invoke('woo-sync', { body: body0 });
       if (error || !body) {
         const status = error && error.context && error.context.status;
         return { ok: false, reason: status === 401 ? 'forbidden' : 'network' };
@@ -265,7 +290,7 @@
         if (L && L.log) quiet(() => L.log('accounts.withdraw.approve', '#' + wid + (old ? ' · ' + old.amount : ''), { entity: 'dokan_withdrawals', entity_id: String(wid) }));
       }
       load();
-      return { ok: true, result: body.result, reason: body.reason || null, status: body.status || null, settlement: body.settlement || null };
+      return { ok: true, result: body.result, reason: body.reason || null, status: body.status || null, settlement: body.settlement || null, transfer: body.transfer || null };
     } catch (e) { return { ok: false, reason: 'network' }; }
   }
   // the owner 18 Nov: «رفض طلب السحب» — woo-sync withdraw_reject cancels the pending request on Dokan with the reason as its note

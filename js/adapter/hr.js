@@ -141,6 +141,8 @@
     const hm = new Map(raw.members.map((r) => [r.member_id, r])); const pay = new Map(raw.pay.map((r) => [r.member_id, r]));
     const notesOf = new Map((raw.notes || []).map((r) => [r.member_id, r.notes]));
     const carryOf = new Map((raw.carry || []).map((r) => [r.member_id, Number(r.leave_carry_year) === Number(t.slice(0, 4)) ? Number(r.leave_carry) || 0 : 0]));
+    // 0141 (the owner 19 Nov): the leave used this year before the system — from his sheet, only for its own year
+    const openOf = new Map((raw.carry || []).map((r) => [r.member_id, Number(r.leave_used_open_year) === Number(t.slice(0, 4)) ? Number(r.leave_used_open) || 0 : 0]));
     const docsOf = new Map(); raw.docs.forEach((d) => { if (!docsOf.has(d.member_id)) docsOf.set(d.member_id, []); docsOf.get(d.member_id).push({ id: Number(d.id), kind: d.kind, path: d.path, name: d.name, start: d.start_on, end: d.end_on, at: d.created_at }); });
     // the requests
     s.requests = raw.req.map((r) => ({ id: reqId(r.id), dbId: Number(r.id), type: r.type, member: codeOf(r.member_id), memberUid: r.member_id, from: r.from_day, to: r.to_day,
@@ -204,6 +206,7 @@
       m.monthMin = work.reduce((n, a) => n + Math.max(0, (a.out == null ? (a.date === t ? nm : a.in) : a.out) - a.in), 0);
       m.otMonth = otRows.filter((o) => o.member === m.id && o.kind === 'hours' && o.status === 'اتضاف' && o.date.startsWith(mk)).reduce((n, o) => n + o.paid, 0);
       m.restDays = s.restWork.filter((x) => x.member === m.id && x.date.startsWith(mk)).length;
+      m.usedOpen = openOf.get(m.uid) || 0; m.used += m.usedOpen;
       m.leaveLeft = Math.max(0, m.leave + m.carry - m.used); // the annual balance left this year (an approved leave that deducts comes off it)
       m.docs = docs;
       const contract = docs.filter((d) => d.kind === 'عقد عمل').sort((a, b) => (a.at < b.at ? 1 : -1))[0];
@@ -308,7 +311,7 @@
         maybe(cl.from('hr_payroll_paid').select('month, member_id, amount, account, early_reason, paid_at').gte('month', addDays(t.slice(0, 8) + '01', -400))),
         maybe(cl.from('hr_ot_adjust').select('id, member_id, month, minutes, reason, by_id, at').gte('month', addDays(t.slice(0, 8) + '01', -400)).order('at', { ascending: false })),
         cl.rpc('hr_evaluations_list', { p_from: evFrom, p_to: t }).then((r) => (r && !r.error && Array.isArray(r.data) ? r.data : []), () => []),
-        maybe(cl.from('hr_members').select('member_id, leave_carry, leave_carry_year')),
+        maybe(cl.from('hr_members').select('member_id, leave_carry, leave_carry_year, leave_used_open, leave_used_open_year')),
         // owner batch 14 Nov decision 13 (0089): the evaluation notes of the members I see (empty before the migration)
         maybe(cl.from('hr_notes_log').select('id, member_id, kind, period, body, due_at, ticket_id, by_id, at').order('at', { ascending: false }).limit(1000)),
       ]);

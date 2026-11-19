@@ -3546,7 +3546,8 @@ Deno.test('bosta_send: the key from the settings, each order to Bosta like the p
   const KEY = 'bk_' + 'x'.repeat(30);
   const orders = [
     { id: 501, number: '501', status: 'جاري التنفيذ', placed_at: '2026-11-18T10:00:00Z', customer_name: 'منى عادل', customer_state: 'EG-25', customer_address: '12 شارع الهرم', payment_method: 'cod', total: 1200, deposit: 200, customer_note: null, bosta_tracking: null, deleted_at: null,
-      raw: { billing: { first_name: 'منى', last_name: 'عادل', address_1: '12 شارع الهرم الرئيسي', phone: '01001234567', state: 'EG-25' }, meta_data: [{ key: '_billing_area', value: 'dst-77' }] } },
+      customer_phone: '0100 123 4567', // live 19 Nov: the site's copy of the order has no phone — the order's own column carries it
+      raw: { billing: { first_name: 'منى', last_name: 'عادل', address_1: '12 شارع الهرم الرئيسي', state: 'EG-25' }, meta_data: [{ key: '_billing_area', value: 'dst-77' }] } },
     { id: 502, number: '502', status: 'جاري التنفيذ', placed_at: '2026-11-18T10:00:00Z', customer_name: 'سارة', customer_state: 'EG-01', payment_method: 'cod', total: 300, deposit: 0, bosta_tracking: '7011111', deleted_at: null, raw: {} },
     { id: 503, number: '503', status: 'جاري التنفيذ', placed_at: '2026-11-18T10:00:00Z', customer_name: 'هبة', customer_state: 'EG-99', payment_method: 'cod', total: 300, deposit: 0, bosta_tracking: null, deleted_at: null, raw: { billing: { first_name: 'هبة', phone: '01001234567', address_1: 'شارع طويل كفاية' } } },
   ];

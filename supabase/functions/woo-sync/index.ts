@@ -2270,7 +2270,7 @@ async function bostaSend(run: Run, args: Json, fetchFn: typeof fetch) {
   if (!ids.length || ids.length > BOSTA_MAX) return json(400, { error: 'bad_request', field: 'ids' });
   const key = bostaKey(await secretOf(run.db, 'bosta'));
   if (!key) return json(409, { error: 'no_key' });
-  const { data: rows, error } = await run.db.from('orders').select('id, number, customer_name, customer_state, customer_address, payment_method, total, deposit, customer_note, bosta_tracking, deleted_at, raw').in('id', ids);
+  const { data: rows, error } = await run.db.from('orders').select('id, number, customer_name, customer_state, customer_address, payment_method, total, deposit, customer_note, customer_phone, bosta_tracking, deleted_at, raw').in('id', ids);
   if (error) throw new Error(`orders read failed (${error.code ?? 'error'})`);
   const { data: lines, error: lerr } = await run.db.from('order_items').select('order_id, name, qty, qty_set, total, total_set, removed').in('order_id', ids);
   if (lerr) throw new Error(`order_items read failed (${lerr.code ?? 'error'})`);
@@ -2283,7 +2283,7 @@ async function bostaSend(run: Run, args: Json, fetchFn: typeof fetch) {
     if (!o || o.deleted_at) { results.push({ id, result: 'missing' }); counts.failed++; continue; }
     if (o.bosta_tracking) { results.push({ id, result: 'already', tracking: o.bosta_tracking }); counts.already++; continue; }
     const items = ((lines ?? []) as Json[]).filter((l) => Number(l.order_id) === id && l.removed !== true).map((l) => ({ name: l.name, qty: l.qty_set ?? l.qty, amount: l.total_set ?? l.total }));
-    const d = deliveryOf({ id, customer_name: o.customer_name, state: o.customer_state, address: o.customer_address, payment_method: o.payment_method, total: o.total, deposit: o.deposit, customer_note: o.customer_note, raw: o.raw }, items, names) as Json;
+    const d = deliveryOf({ id, customer_name: o.customer_name, state: o.customer_state, address: o.customer_address, payment_method: o.payment_method, total: o.total, deposit: o.deposit, customer_note: o.customer_note, phone: o.customer_phone, raw: o.raw }, items, names) as Json;
     if (d.error) { results.push({ id, result: 'error', reason: d.error }); counts.failed++; continue; }
     // the plugin's two calls (4.5.7): the bulk create, then the tracking number of what was created
     const post = async (path: string, payload: unknown) => {
@@ -2331,7 +2331,7 @@ async function bostaCod(run: Run, args: Json, fetchFn: typeof fetch) {
   const key = bostaKey(await secretOf(run.db, 'bosta'));
   if (!key) return json(run.kind === 'cron' ? 200 : 409, run.kind === 'cron' ? { action: 'bosta_cod', result: 'skipped', reason: 'no_key' } : { error: 'no_key' });
   const only = Array.isArray(args.ids) ? args.ids.map((x: unknown) => wooId(x)).filter((x: number | null): x is number => x !== null).slice(0, BOSTA_MAX) : null;
-  let q = run.db.from('orders').select('id, customer_name, customer_state, customer_address, payment_method, total, deposit, customer_note, bosta_delivery, raw').eq('bosta_cod_due', true).is('deleted_at', null);
+  let q = run.db.from('orders').select('id, customer_name, customer_state, customer_address, payment_method, total, deposit, customer_note, customer_phone, bosta_delivery, raw').eq('bosta_cod_due', true).is('deleted_at', null);
   if (only) q = q.in('id', only.length ? only : [0]);
   const { data: rows, error } = await q.limit(20);
   if (error) throw new Error(`orders read failed (${error.code ?? 'error'})`);
@@ -2347,7 +2347,7 @@ async function bostaCod(run: Run, args: Json, fetchFn: typeof fetch) {
     const id = Number(o.id);
     const set = (patch: Json) => run.db.from('orders').update(patch).eq('id', id);
     const items = ((lines ?? []) as Json[]).filter((l) => Number(l.order_id) === id && l.removed !== true).map((l) => ({ name: l.name, qty: l.qty_set ?? l.qty, amount: l.total_set ?? l.total }));
-    const d = deliveryOf({ id, customer_name: o.customer_name, state: o.customer_state, address: o.customer_address, payment_method: o.payment_method, total: o.total, deposit: o.deposit, customer_note: o.customer_note, raw: o.raw }, items, names) as Json;
+    const d = deliveryOf({ id, customer_name: o.customer_name, state: o.customer_state, address: o.customer_address, payment_method: o.payment_method, total: o.total, deposit: o.deposit, customer_note: o.customer_note, phone: o.customer_phone, raw: o.raw }, items, names) as Json;
     if (d.error) { await set({ bosta_cod_due: false, bosta_cod_error: d.error }); results.push({ id, result: 'error', reason: d.error }); counts.refused++; continue; }
     let r: Json;
     try { const x = await bostaCall(fetchFn, key, 'PUT', BOSTA_API + '/deliveries/business/' + encodeURIComponent(String(o.bosta_delivery)), updateOf(d.body)); r = editedOf(x.status, x.body) as Json; }
@@ -2482,7 +2482,7 @@ async function bostaPickup(run: Run, args: Json, fetchFn: typeof fetch, by: stri
   // the orders straight to their customers, from the maker
   if (input.orders.length && !badKey) {
     const ids = input.orders as number[];
-    const { data: rows, error } = await run.db.from('orders').select('id, customer_name, customer_state, customer_address, payment_method, total, deposit, customer_note, bosta_tracking, bosta_delivery, deleted_at, raw').in('id', ids);
+    const { data: rows, error } = await run.db.from('orders').select('id, customer_name, customer_state, customer_address, payment_method, total, deposit, customer_note, customer_phone, bosta_tracking, bosta_delivery, deleted_at, raw').in('id', ids);
     if (error) throw new Error(`orders read failed (${error.code ?? 'error'})`);
     const { data: lines } = await run.db.from('order_items').select('order_id, name, qty, qty_set, total, total_set, removed').in('order_id', ids);
     const { data: st } = await run.db.from('woo_states').select('code, name');
@@ -2494,7 +2494,7 @@ async function bostaPickup(run: Run, args: Json, fetchFn: typeof fetch, by: stri
       if (!o || o.deleted_at) { made.push({ kind: 'order', order_id: id, error: 'missing' }); continue; }
       if (o.bosta_tracking || o.bosta_delivery) { made.push({ kind: 'order', order_id: id, error: 'already', tracking: o.bosta_tracking ?? null }); continue; }
       const items = ((lines ?? []) as Json[]).filter((l) => Number(l.order_id) === id && l.removed !== true).map((l) => ({ name: l.name, qty: l.qty_set ?? l.qty, amount: l.total_set ?? l.total }));
-      const d = deliveryOf({ id, customer_name: o.customer_name, state: o.customer_state, address: o.customer_address, payment_method: o.payment_method, total: o.total, deposit: o.deposit, customer_note: o.customer_note, raw: o.raw }, items, names) as Json;
+      const d = deliveryOf({ id, customer_name: o.customer_name, state: o.customer_state, address: o.customer_address, payment_method: o.payment_method, total: o.total, deposit: o.deposit, customer_note: o.customer_note, phone: o.customer_phone, raw: o.raw }, items, names) as Json;
       if (d.error) { made.push({ kind: 'order', order_id: id, error: d.error }); continue; }
       const c = await create({ ...d.body, businessLocationId: input.location });
       if (c.error === 'bad_key') badKey = true;

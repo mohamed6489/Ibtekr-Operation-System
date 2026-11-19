@@ -40,7 +40,7 @@ const COLUMNS: Record<string, string[]> = {
     'payment_title', 'status', 'woo_status', 'confirm', 'confirm_at', 'confirm_note', 'deposit', 'total', 'currency', 'note',
     'customer_note', 'placed_at', 'woo_updated_at', 'cancel', 'ret', 'raw', 'synced_at', 'created_at', 'updated_at', 'customer_state',
     'deleted_at', 'deleted_by', 'delete_reason', // 0033 (phase 5.5 decision 10)
-    'attr_type', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'ad_platform', 'status_custom', 'bosta_tracking', 'bosta_state'], // 0052 (phase 9.5.3): the order's source; 0140: Bosta
+    'attr_type', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'ad_platform', 'status_custom', 'bosta_tracking', 'bosta_state', 'bosta_delivery', 'bosta_cod', 'bosta_cod_due', 'bosta_cod_error'], // 0052 (phase 9.5.3): the order's source; 0140: Bosta
   sub_orders: ['id', 'order_id', 'vendor_id', 'woo_order_id', 'woo_status', 'total', 'dokan_earning', 'commission', 'raw', 'updated_at'],
   order_items: ['id', 'order_id', 'sub_order_id', 'product_id', 'sku', 'name', 'qty', 'total', 'vendor_id', 'status',
     'expected_at', 'comment', 'ready_at', 'waybill', 'pulled', 'ret', 'store', 'removed', 'raw', 'updated_at', 'commission_rate', 'commission_fee', 'dropped_at', 'qty_set', 'total_set', 'added_at'], // dropped_at: 0079; qty_set / total_set: 0091; added_at: 0094
@@ -48,6 +48,7 @@ const COLUMNS: Record<string, string[]> = {
   woo_sync_log: ['id', 'at', 'kind', 'direction', 'entity', 'entity_id', 'action', 'result', 'detail'],
   sync_state: ['key', 'value', 'updated_at'],
   woo_states: ['code', 'name', 'updated_at'],
+  bosta_pickups: ['id', 'vendor_id', 'vendor_name', 'location_id', 'location_name', 'scheduled_date', 'slot', 'receiver_name', 'note', 'parcels', 'delivery_id', 'tracking', 'pickup_id', 'state', 'error', 'created_by', 'created_at'], // 0144
   // 0019 (phase 4): the read-only Dokan mirrors of the accounts page
   dokan_withdrawals: ['id', 'woo_vendor_id', 'vendor_id', 'amount', 'charge', 'receivable', 'status', 'method', 'requested_at', 'synced_at'],
   dokan_balances: ['vendor_id', 'woo_vendor_id', 'balance', 'earning', 'sales', 'orders', 'synced_at'],
@@ -150,16 +151,17 @@ const DEFAULTS: Record<string, Row> = {
   cs_auto_rules: { conds: [], action: 'send', delay_min: 0, once: true, ticket_if_silent: false, enabled: false, runs: 0 }, cs_auto_runs: {}, cs_carts: { email: '', phone: '', name: '', total: 0, items: 0, status: 'normal', unsubscribed: false, url: '' }, ticket_events: { kind: 'event', attachments: [] },
   cs_wa_state: { status: 'offline' }, cs_campaigns: { status: 'مسودة', cap_per_day: 300, min_delay_s: 20, size: 0, stats: {} }, cs_campaign_recipients: { status: 'queued' },
   mkt_trends: { platform: 'web', thumb_tries: 0 }, // 0118
+  bosta_pickups: { state: 'new', parcels: 1 }, // 0144
   mkt_posts: { src: 'system', how: 'download', status: 'مجدول', was_live: false, attempts: 0, images: [], caption: '', caption_orig: '', tags: '' },
   mkt_suggestions: { platform: 'meta', status: 'pending', data: {} }, mkt_requests: { status: 'جديد' }, mkt_video_jobs: { status: 'queued', data: {} }, mkt_agent_chats: { title: 'شات جديد' }, mkt_agent_messages: { text: '', images: [] },
   alert_state: { sent_count: 0, channel_log: [] }, tickets: { status: 'open', attachments: [], reopen_count: 0 }, hr_requests: { status: 'جديد' }, hr_overtime: { status: 'مستني', kind: 'hours', paid_minutes: 0 }, hr_meetings: { status: 'مطلوب', goals: [] },
   hr_payroll: { status: 'مسودة' }, inv_consolidations: { status: 'open' }, acc_expenses: { direction: 'withdraw' },
 };
-const SERIAL: Record<string, 'int' | 'uuid'> = { status_map: 'int', vendors: 'uuid', sub_orders: 'int', woo_webhook_events: 'int', woo_sync_log: 'int',
+const SERIAL: Record<string, 'int' | 'uuid'> = { bosta_pickups: 'int', status_map: 'int', vendors: 'uuid', sub_orders: 'int', woo_webhook_events: 'int', woo_sync_log: 'int',
   vendor_rates: 'int', vendor_category_rates: 'int', activity_log: 'int', ai_runs: 'int', mkt_trends: 'int', image_imports: 'int', image_shares: 'int', shot_prompts: 'int',
   cs_customers: 'uuid', cs_contacts: 'int', cs_conversations: 'uuid', cs_messages: 'uuid', cs_channel_events: 'int', tickets: 'int', cs_templates: 'uuid', cs_quick_replies: 'uuid', cs_auto_rules: 'uuid', cs_auto_runs: 'int', ticket_events: 'int', hr_requests: 'int', hr_overtime: 'int', hr_meetings: 'int', inv_consolidations: 'uuid', acc_expenses: 'uuid', company_docs: 'uuid', cs_campaigns: 'uuid', cs_campaign_recipients: 'int', mkt_posts: 'int', mkt_suggestions: 'int', mkt_requests: 'int', mkt_video_jobs: 'int', alerts: 'int', mkt_agent_chats: 'uuid', mkt_agent_messages: 'int' };
 const UNIQUE: Record<string, string[][]> = {
-  status_map: [['id'], ['system_status']], vendors: [['id'], ['woo_vendor_id']], products: [['id']], orders: [['id']],
+  bosta_pickups: [['id']], status_map: [['id'], ['system_status']], vendors: [['id'], ['woo_vendor_id']], products: [['id']], orders: [['id']],
   sub_orders: [['id'], ['woo_order_id'], ['order_id', 'vendor_id']], order_items: [['id']],
   woo_webhook_events: [['id'], ['delivery_id']], woo_sync_log: [['id']], sync_state: [['key']], woo_states: [['code']],
   vendor_rates: [['id'], ['vendor_id', 'since']], vendor_category_rates: [['id'], ['vendor_id', 'woo_category_id', 'since']], woo_categories: [['id']], activity_log: [['id']],

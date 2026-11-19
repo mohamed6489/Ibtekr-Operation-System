@@ -164,7 +164,7 @@ import { getState, logSync, setState, upsertRows } from '../_shared/db.js';
 import { readBalances as readDokanBalances } from '../_shared/dokan-balances.js';
 import { PAY_STATUSES, orderCreateInput, orderPayable, payUrl, wooOrderBody } from '../_shared/woo-order-create.js';
 import { secretOf, vaultEnv } from '../_shared/secrets.js';
-import { BOSTA_API, BOSTA_MAX, bostaKey, deliveryOf, createdOf, trackingOf } from '../_shared/bosta.js';
+import { BOSTA_API, BOSTA_MAX, BOSTA_V0, bostaKey, deliveryOf, createdOf, trackingOf, updateOf, editedOf, awbPath, awbOf, AWB_MAX, locationsOf, pickupInputOf, pickupDeliveryOf, pickupBodyOf, pickupMadeOf } from '../_shared/bosta.js';
 import { isSingle, readStore, SINGLE_OFF_ACTIONS, STORE_FREE_ACTIONS, wooActive } from '../_shared/store/index.js';
 import { ConfigError, WooError, errorText, makeScrubber, wooApi } from '../_shared/woo-api.js';
 import { AR_FIELDS, BATCH_FIELDS, EDIT_FIELDS, VARIATION_FIELDS, brandNamesOf, cleanFields, editView, sharedOf, toWoo, variationView, withBrandAttr } from '../_shared/woo-products.js';
@@ -187,7 +187,7 @@ type Run = { db: Db; env: Deps['env']; woo: () => ReturnType<typeof wooApi>; ctx
 
 const ACTIONS = ['states', 'categories', 'orders', 'vendors', 'products', 'all', 'push_status', 'push_vendor', 'register_webhooks', 'probe_store', 'probe_dokan', 'accounts', 'statement', 'withdraw_approve', 'withdraw_reject', 'withdraw_create', 'withdrawals', 'style_create', 'style_update', 'order_trash', 'suborder_trash', 'line_trash', 'line_qty', 'line_add', 'suborder_status', 'order_create', 'order_pay_link',
   'vendor_photo', 'vendor_store', 'product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'studio_media', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push', 'product_duplicate', 'carts',
-  'category_get', 'category_update', 'category_delete', 'category_order', 'thumbs', 'styles', 'wp_updates', 'site_speed', 'brand_site', 'vendor_delete', 'bosta_send'];
+  'category_get', 'category_update', 'category_delete', 'category_order', 'thumbs', 'styles', 'wp_updates', 'site_speed', 'brand_site', 'vendor_delete', 'bosta_send', 'bosta_cod', 'bosta_awb', 'bosta_locations', 'bosta_pickup'];
 // phase 5: the product actions a person runs (never the sync secret); phase 5.2: the studio's upload, a new category, a sheet link;
 // phase 5.4: the images tool's results onto a product; B4 (11 Nov): the categories tab's read, edit and delete
 const PRODUCT_ACTIONS = ['product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'studio_media', 'category_create', 'studio_sheet', 'style_create', 'style_update', 'product_images_add', 'inventory_push', 'product_duplicate',
@@ -221,7 +221,7 @@ async function authorize(req: Request, deps: Deps, action: string, args: Json): 
     if (action === 'vendor_photo' || action === 'vendor_store' || action === 'brand_site' || action === 'vendor_delete') return null; // a person sets a maker's photo / makes his store / his brand on the site (phase 13 decision 51; 11 Nov; 16 Nov)
     if (PRODUCT_ACTIONS.includes(action)) return null; // a person edits products, never the cron / sync secret (phase 5)
     if (action === 'wp_updates') return null; // a person checks the site's updates (comments decision 71)
-    if (action === 'bosta_send') return null; // a person sends orders to Bosta (the owner 19 Nov)
+    if (action === 'bosta_send' || action === 'bosta_awb' || action === 'bosta_locations' || action === 'bosta_pickup') return null; // a person sends orders to Bosta, prints, asks a pickup (the owner 19 Nov; 0144) — the cron only pushes the cash that is due (bosta_cod)
     const { data, error } = await deps.db.rpc('sync_secret_matches', { candidate: secret });
     return !error && data === true ? 'system' : null;
   }
@@ -234,7 +234,10 @@ async function authorize(req: Request, deps: Deps, action: string, args: Json): 
   // phase 5.5 decision 10: the site trash needs the same two permissions RPC order_delete checks — orders.status = F and orders.view <> N
   if (action === 'order_trash' || action === 'suborder_trash' || action === 'line_trash' || action === 'line_qty' || action === 'line_add' || action === 'suborder_status') { if (!(await perm('orders.status'))) return null; const { data, error } = await member.rpc('has_perm', { key: 'orders.view' }); return !error && (data === 'F' || data === 'P') ? 'member' : null; }
   // the owner 19 Nov («ابعت لبوسطة» in the bulk bar): the same people who change an order's status — orders.status = F and orders.view <> N
-  if (action === 'bosta_send') { if (!(await admin()) && !(await perm('orders.status'))) return null; const { data, error } = await member.rpc('has_perm', { key: 'orders.view' }); return !error && (data === 'F' || data === 'P') ? 'member' : null; }
+  if (action === 'bosta_send' || action === 'bosta_pickup' || action === 'bosta_locations' || action === 'bosta_awb') { if (!(await admin()) && !(await perm('orders.status'))) return null; const { data, error } = await member.rpc('has_perm', { key: 'orders.view' }); return !error && (data === 'F' || data === 'P') ? 'member' : null; }
+  // 0144: the waybill carries the customer's whole phone, so it prints for those who ship (above, with bosta_send); the cash due goes
+  // to Bosta for anyone who sees the orders (the server pushes only what its trigger marked — never an amount from the page)
+  if (action === 'bosta_cod') { if (await admin()) return 'member'; const { data, error } = await member.rpc('has_perm', { key: 'orders.view' }); return !error && (data === 'F' || data === 'P') ? 'member' : null; }
   // phase 13 T3 (decision 7): an order from the customer-service chat and its pay link — the admin or orders.status = F
   if (action === 'order_create' || action === 'order_pay_link') return (await admin()) || (await perm('orders.status')) ? 'member' : null;
   if (action === 'statement' || action === 'withdrawals') { const { data, error } = await member.rpc('has_perm', { key: 'accounts.view' }); return !error && (data === 'F' || data === 'P') ? 'member' : null; }
@@ -2294,13 +2297,167 @@ async function bostaSend(run: Run, args: Json, fetchFn: typeof fetch) {
     if (made.error) { results.push({ id, result: 'error', reason: made.error, message: made.message ?? null }); counts.failed++; if (made.error === 'bad_key') break; continue; }
     let res: Json | null = null;
     try { const r = await post('/deliveries/woocommerce-data', { deliveriesIds: [made.id] }); res = r.status >= 200 && r.status < 300 ? trackingOf(r.body, made.id) as Json | null : null; } catch { res = null; }
-    if (!res) { results.push({ id, result: 'ok', tracking: null, state: null, cod: d.body.cod, delivery: made.id }); counts.sent++; continue; } // created — the tracking number comes with the next sync
-    const { error: werr } = await run.db.from('orders').update({ bosta_tracking: res.tracking, bosta_state: res.state }).eq('id', id);
+    // 0144: the delivery's id (the waybill, the cash edit) and the cash it carries
+    const kept = { bosta_delivery: made.id, bosta_cod: d.body.cod, bosta_cod_due: false, bosta_cod_error: null };
+    if (!res) { const { error: kerr } = await run.db.from('orders').update(kept).eq('id', id); if (kerr) console.error(`bosta delivery save failed (${kerr.code ?? 'error'})`); results.push({ id, result: 'ok', tracking: null, state: null, cod: d.body.cod, delivery: made.id }); counts.sent++; continue; } // created — the tracking number comes with the next sync
+    const { error: werr } = await run.db.from('orders').update({ ...kept, bosta_tracking: res.tracking, bosta_state: res.state }).eq('id', id);
     if (werr) console.error(`bosta tracking save failed (${werr.code ?? 'error'})`);
-    results.push({ id, result: 'ok', tracking: res.tracking, state: res.state, cod: d.body.cod }); counts.sent++;
+    results.push({ id, result: 'ok', tracking: res.tracking, state: res.state, cod: d.body.cod, delivery: made.id }); counts.sent++;
   }
   await logSync(run.db, { kind: 'push', direction: 'out', entity: 'order', entity_id: null, action: 'bosta_send', result: counts.failed && !counts.sent ? 'error' : 'ok', detail: { ...counts, ids: ids.slice(0, BOSTA_MAX) } });
   return json(200, { action: 'bosta_send', result: 'ok', counts, results });
+}
+
+// ---- 0144 (the owner 19 Nov): the cash follows the deposit, the waybill printed here, a pickup from the maker ----
+async function bostaCall(fetchFn: typeof fetch, key: string, method: string, url: string, payload?: unknown) {
+  const r = await fetchFn(url, { method, headers: { 'Content-Type': 'application/json', authorization: key, 'X-Requested-By': 'WooCommerce' }, ...(payload === undefined ? {} : { body: JSON.stringify(payload) }), signal: AbortSignal.timeout(BOSTA_MS) });
+  let body: unknown = null; try { body = await r.json(); } catch { body = null; }
+  return { status: r.status, body };
+}
+
+// bosta_cod { ids? } — the cron every 5 minutes (0144, only when something is due) or the page right after a deposit / total change:
+// each order Bosta has whose cash is due (orders.bosta_cod_due — the trigger of 0144) gets the plugin's edit with the new cash (PUT
+// deliveries/business/{delivery}); Bosta refusing (the courier has the parcel already, the delivery is gone) ends it with the reason on
+// the order (bosta_cod_error — the page shows it); a bad key / Bosta unreachable leaves it due for the next run. 20 orders a run.
+async function bostaCod(run: Run, args: Json, fetchFn: typeof fetch) {
+  const key = bostaKey(await secretOf(run.db, 'bosta'));
+  if (!key) return json(run.kind === 'cron' ? 200 : 409, run.kind === 'cron' ? { action: 'bosta_cod', result: 'skipped', reason: 'no_key' } : { error: 'no_key' });
+  const only = Array.isArray(args.ids) ? args.ids.map((x: unknown) => wooId(x)).filter((x: number | null): x is number => x !== null).slice(0, BOSTA_MAX) : null;
+  let q = run.db.from('orders').select('id, customer_name, customer_state, customer_address, payment_method, total, deposit, customer_note, bosta_delivery, raw').eq('bosta_cod_due', true).is('deleted_at', null);
+  if (only) q = q.in('id', only.length ? only : [0]);
+  const { data: rows, error } = await q.limit(20);
+  if (error) throw new Error(`orders read failed (${error.code ?? 'error'})`);
+  const list = (rows ?? []) as Json[];
+  const counts = { updated: 0, refused: 0, kept: 0 };
+  if (!list.length) return json(200, { action: 'bosta_cod', result: 'ok', counts, results: [] });
+  const ids = list.map((o) => Number(o.id));
+  const { data: lines } = await run.db.from('order_items').select('order_id, name, qty, qty_set, total, total_set, removed').in('order_id', ids);
+  const { data: st } = await run.db.from('woo_states').select('code, name');
+  const names: Record<string, string> = {}; for (const r of (st ?? []) as Json[]) if (typeof r.code === 'string' && typeof r.name === 'string') names[r.code.toUpperCase()] = r.name;
+  const results: Json[] = [];
+  for (const o of list) {
+    const id = Number(o.id);
+    const set = (patch: Json) => run.db.from('orders').update(patch).eq('id', id);
+    const items = ((lines ?? []) as Json[]).filter((l) => Number(l.order_id) === id && l.removed !== true).map((l) => ({ name: l.name, qty: l.qty_set ?? l.qty, amount: l.total_set ?? l.total }));
+    const d = deliveryOf({ id, customer_name: o.customer_name, state: o.customer_state, address: o.customer_address, payment_method: o.payment_method, total: o.total, deposit: o.deposit, customer_note: o.customer_note, raw: o.raw }, items, names) as Json;
+    if (d.error) { await set({ bosta_cod_due: false, bosta_cod_error: d.error }); results.push({ id, result: 'error', reason: d.error }); counts.refused++; continue; }
+    let r: Json;
+    try { const x = await bostaCall(fetchFn, key, 'PUT', BOSTA_API + '/deliveries/business/' + encodeURIComponent(String(o.bosta_delivery)), updateOf(d.body)); r = editedOf(x.status, x.body) as Json; }
+    catch { results.push({ id, result: 'kept', reason: 'unreachable' }); counts.kept++; continue; }
+    if (r.ok) { await set({ bosta_cod: d.body.cod, bosta_cod_due: false, bosta_cod_error: null }); results.push({ id, result: 'ok', cod: d.body.cod }); counts.updated++; continue; }
+    if (r.error === 'bad_key') { results.push({ id, result: 'kept', reason: 'bad_key' }); counts.kept++; break; }
+    await set({ bosta_cod_due: false, bosta_cod_error: String(r.message ?? r.error).slice(0, 160) });
+    results.push({ id, result: 'error', reason: r.error, message: r.message ?? null }); counts.refused++;
+  }
+  await logSync(run.db, { kind: 'push', direction: 'out', entity: 'order', entity_id: null, action: 'bosta_cod', result: counts.refused && !counts.updated ? 'error' : 'ok', detail: { ...counts, ids } });
+  return json(200, { action: 'bosta_cod', result: 'ok', counts, results });
+}
+
+// bosta_awb { ids?: [order ids], pickups?: [pickup ids] } — the waybills as one PDF (the plugin's mass-awb, Arabic): the orders' Bosta
+// deliveries (orders.bosta_delivery — the system's or the site plugin's) and the maker pickups'. Orders without a delivery come back
+// in `missing`. The PDF goes back as base64 (the page prints it); nothing is stored.
+async function bostaAwb(run: Run, args: Json, fetchFn: typeof fetch) {
+  const key = bostaKey(await secretOf(run.db, 'bosta'));
+  if (!key) return json(409, { error: 'no_key' });
+  const oids = Array.isArray(args.ids) ? [...new Set(args.ids.map((x: unknown) => wooId(x)).filter((x: number | null): x is number => x !== null))].slice(0, AWB_MAX) as number[] : [];
+  const pids = Array.isArray(args.pickups) ? [...new Set(args.pickups.map((x: unknown) => wooId(x)).filter((x: number | null): x is number => x !== null))].slice(0, AWB_MAX) as number[] : [];
+  if (!oids.length && !pids.length) return json(400, { error: 'bad_request', field: 'ids' });
+  const deliveries: string[] = []; const missing: number[] = [];
+  if (oids.length) {
+    const { data, error } = await run.db.from('orders').select('id, bosta_delivery').in('id', oids).is('deleted_at', null);
+    if (error) throw new Error(`orders read failed (${error.code ?? 'error'})`);
+    const by = new Map(((data ?? []) as Json[]).map((r) => [Number(r.id), r.bosta_delivery]));
+    for (const id of oids) { const d = by.get(id); if (typeof d === 'string' && d) deliveries.push(d); else missing.push(id); }
+  }
+  if (pids.length) {
+    const { data, error } = await run.db.from('bosta_pickups').select('id, delivery_id').in('id', pids);
+    if (error) throw new Error(`bosta_pickups read failed (${error.code ?? 'error'})`);
+    for (const r of (data ?? []) as Json[]) if (typeof r.delivery_id === 'string' && r.delivery_id) deliveries.push(r.delivery_id);
+  }
+  const path = awbPath(deliveries);
+  if (!path) return json(409, { error: 'no_delivery', missing });
+  let r: Json;
+  try { const x = await bostaCall(fetchFn, key, 'GET', BOSTA_API + path); r = awbOf(x.status, x.body) as Json; }
+  catch { return json(502, { error: 'unreachable' }); }
+  if (r.error) return json(r.error === 'bad_key' ? 409 : 502, { error: r.error, message: r.message ?? null });
+  return json(200, { action: 'bosta_awb', result: 'ok', pdf: r.pdf, count: deliveries.length, missing });
+}
+
+// the business's pickup locations (Bosta: «Settings › Pickup locations» — the makers' addresses and the warehouse)
+async function bostaLocations(fetchFn: typeof fetch, key: string) {
+  const x = await bostaCall(fetchFn, key, 'GET', BOSTA_API + '/pickup-locations');
+  if (x.status === 401 || x.status === 403) return { error: 'bad_key' };
+  if (x.status < 200 || x.status >= 300) return { error: 'refused' };
+  return { list: locationsOf(x.body) as Json[] };
+}
+async function bostaSettings(db: Db) {
+  const { data } = await db.from('settings').select('data').eq('section', 'bosta').maybeSingle();
+  const s = (data?.data ?? {}) as Json;
+  return { warehouse: typeof s.warehouse === 'string' ? s.warehouse : '', receiver: typeof s.receiver === 'string' ? s.receiver.slice(0, 60) : '', phone: typeof s.phone === 'string' ? s.phone.slice(0, 20) : '' };
+}
+
+// bosta_locations — the pickup popup's lists: Bosta's locations (no business id, no geo) + the warehouse and the receiver of the
+// settings («bosta»; the warehouse defaults to Bosta's default location)
+async function bostaLocationsAction(run: Run, fetchFn: typeof fetch) {
+  const key = bostaKey(await secretOf(run.db, 'bosta'));
+  if (!key) return json(409, { error: 'no_key' });
+  let r: Json;
+  try { r = await bostaLocations(fetchFn, key); } catch { return json(502, { error: 'unreachable' }); }
+  if (r.error) return json(r.error === 'bad_key' ? 409 : 502, { error: r.error });
+  const cfg = await bostaSettings(run.db);
+  const list = r.list as Json[];
+  const wh = list.find((l) => l.id === cfg.warehouse) ?? list.find((l) => l.isDefault) ?? null;
+  return json(200, { action: 'bosta_locations', result: 'ok', locations: list, warehouse: wh ? wh.id : '', receiver: cfg.receiver || (wh?.contact ?? ''), phone: cfg.phone || (wh?.phone ?? '') });
+}
+
+// bosta_pickup { vendor_id?, location, date, slot, receiver, phone, note, parcels } — a maker pickup (0144): a bosta_pickups row, then a
+// Bosta delivery from the maker's location to the warehouse (the settings' «bosta».warehouse, else Bosta's default location) to the
+// receiver with the note, cash 0, then the courier's visit on the day (the plugin's POST pickups); the row keeps the delivery, its
+// tracking number and the pickup's id, or why it stopped. Never twice for the same row; a failed pickup request after the delivery was
+// made keeps the delivery (the waybill prints) and says so. woo_sync_log / activity carry the ids and the state only.
+async function bostaPickup(run: Run, args: Json, fetchFn: typeof fetch, by: string | null) {
+  const key = bostaKey(await secretOf(run.db, 'bosta'));
+  if (!key) return json(409, { error: 'no_key' });
+  const today = new Date(Date.parse(run.now())).toLocaleDateString('en-CA', { timeZone: 'Africa/Cairo' });
+  const inp = pickupInputOf(args, today) as Json;
+  if (inp.error) return json(400, { error: 'bad_request', field: inp.error });
+  const input = inp.ok as Json;
+  let r: Json;
+  try { r = await bostaLocations(fetchFn, key); } catch { return json(502, { error: 'unreachable' }); }
+  if (r.error) return json(r.error === 'bad_key' ? 409 : 502, { error: r.error });
+  const list = r.list as Json[];
+  const loc = list.find((l) => l.id === input.location);
+  if (!loc) return json(400, { error: 'bad_request', field: 'location' });
+  const cfg = await bostaSettings(run.db);
+  const wh = list.find((l) => l.id === cfg.warehouse) ?? list.find((l) => l.isDefault) ?? null;
+  if (!wh) return json(409, { error: 'no_warehouse' });
+  if (wh.id === loc.id) return json(400, { error: 'bad_request', field: 'location' });
+  let vendorId: string | null = null; let vendorName = loc.name as string;
+  if (typeof args.vendor_id === 'string' && /^[0-9a-f-]{36}$/i.test(args.vendor_id)) {
+    const { data: v } = await run.db.from('vendors').select('id, name').eq('id', args.vendor_id).maybeSingle();
+    if (v) { vendorId = v.id; vendorName = v.name ?? vendorName; }
+  }
+  const { data: row, error: ierr } = await run.db.from('bosta_pickups').insert({ vendor_id: vendorId, vendor_name: String(vendorName).slice(0, 80), location_id: loc.id, location_name: String(loc.name).slice(0, 80), scheduled_date: input.date, slot: input.slot, receiver_name: input.receiver, note: input.note || null, parcels: input.parcels, created_by: by }).select('id').single();
+  if (ierr || !row) throw new Error(`bosta_pickups insert failed (${ierr?.code ?? 'error'})`);
+  const pid = Number(row.id);
+  const done = async (patch: Json, status: number, body: Json) => {
+    await run.db.from('bosta_pickups').update(patch).eq('id', pid);
+    await logSync(run.db, { kind: 'push', direction: 'out', entity: 'order', entity_id: null, action: 'bosta_pickup', result: patch.state === 'sent' ? 'ok' : 'error', detail: { pickup: pid, state: patch.state, step: body.step ?? null } });
+    return json(status, { action: 'bosta_pickup', id: pid, ...body });
+  };
+  const d = pickupDeliveryOf(input, wh, pid, vendorName) as Json;
+  if (d.error) return await done({ state: 'failed', error: d.error }, 409, { error: d.error });
+  let made: Json;
+  try { const x = await bostaCall(fetchFn, key, 'POST', BOSTA_API + '/deliveries/bulk', { deliveries: [d.body], deleteFailedDeliveries: false }); made = createdOf(x.status, x.body) as Json; }
+  catch { return await done({ state: 'failed', error: 'unreachable' }, 502, { error: 'unreachable', step: 'delivery' }); }
+  if (made.error) return await done({ state: 'failed', error: String(made.message ?? made.error).slice(0, 160) }, made.error === 'bad_key' ? 409 : 502, { error: made.error, message: made.message ?? null, step: 'delivery' });
+  let tracking: string | null = null;
+  try { const x = await bostaCall(fetchFn, key, 'POST', BOSTA_API + '/deliveries/woocommerce-data', { deliveriesIds: [made.id] }); const t = x.status >= 200 && x.status < 300 ? trackingOf(x.body, made.id) as Json | null : null; tracking = t ? t.tracking : null; } catch { tracking = null; }
+  let pk: Json;
+  try { const x = await bostaCall(fetchFn, key, 'POST', BOSTA_V0 + '/pickups', pickupBodyOf(input)); pk = pickupMadeOf(x.status, x.body) as Json; }
+  catch { pk = { error: 'unreachable' }; }
+  if (pk.error) return await done({ state: 'failed', delivery_id: made.id, tracking, error: 'pickup: ' + String(pk.message ?? pk.error).slice(0, 150) }, 200, { result: 'partial', delivery: made.id, tracking, error: pk.error, message: pk.message ?? null, step: 'pickup' });
+  return await done({ state: 'sent', delivery_id: made.id, tracking, pickup_id: pk.id, error: null }, 200, { result: 'ok', delivery: made.id, tracking, pickup: pk.id });
 }
 
 const THUMB_MS = 8000; const THUMB_MAX = 1536 * 1024; const THUMBS_TOTAL = 4 * 1024 * 1024;
@@ -2972,6 +3129,10 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'studio_sheet') return await studioSheet(args, deps.fetch);
     if (action === 'thumbs') return await thumbs(run, args, deps.fetch);
     if (action === 'bosta_send') return await bostaSend(run, args, deps.fetch);
+    if (action === 'bosta_cod') return await bostaCod(run, args, deps.fetch);
+    if (action === 'bosta_awb') return await bostaAwb(run, args, deps.fetch);
+    if (action === 'bosta_locations') return await bostaLocationsAction(run, deps.fetch);
+    if (action === 'bosta_pickup') { const jwt = /^Bearer\s+(\S+)$/i.exec(req.headers.get('authorization') ?? '')?.[1] ?? ''; return await bostaPickup(run, args, deps.fetch, deps.userId && jwt ? await deps.userId(jwt) : null); }
     if (action === 'styles') return await siteStyles(run);
     if (action === 'site_speed') { const jwt = /^Bearer\s+(\S+)$/i.exec(req.headers.get('authorization') ?? '')?.[1] ?? ''; return await siteSpeed(run, deps.fetch, deps.userId && jwt ? await deps.userId(jwt) : null); }
     if (action === 'wp_updates') { const jwt = /^Bearer\s+(\S+)$/i.exec(req.headers.get('authorization') ?? '')?.[1] ?? ''; return await wpUpdates(run, deps.fetch, deps.userId && jwt ? await deps.userId(jwt) : null); }

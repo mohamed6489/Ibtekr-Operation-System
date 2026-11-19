@@ -34,7 +34,7 @@
   'use strict';
   const PAGE = 1000, CAP = 5000, IDS = 200, SKUS = 100; // PostgREST max_rows; ids / skus per in.(…) keep the URL short
   const COLS = {
-    order: 'id, customer_name, customer_phone, customer_state, customer_city, customer_address, payment_method, payment_title, status, woo_status, confirm, confirm_at, deposit, total, note, customer_note, placed_at, cancel, ret, bosta_tracking, bosta_state',
+    order: 'id, customer_name, customer_phone, customer_state, customer_city, customer_address, payment_method, payment_title, status, woo_status, confirm, confirm_at, deposit, total, note, customer_note, placed_at, cancel, ret, bosta_tracking, bosta_state, bosta_delivery, bosta_cod, bosta_cod_error',
     item: 'id, order_id, sub_order_id, product_id, sku, name, qty, total, vendor_id, status, expected_at, comment, ready_at, waybill, pulled, ret, store, removed, commission_rate, commission_fee',
     sub: 'id, order_id, vendor_id, woo_order_id, woo_status',
   };
@@ -118,7 +118,7 @@
     return (rows || []).map((r) => {
       const id = String(r.id); const date = localDate(r.placed_at); const state = text(r.customer_state); const stateName = (state && text(sn.get(state))) || state;
       return { id, name: r.customer_name || '', phone: r.customer_phone || '', pay: r.payment_title || r.payment_method || '', payMethod: r.payment_method || '', date, st: r.status, cf: r.confirm, dep: Number(r.deposit) || 0, tot: Number(r.total) || 0,
-        age: days(date, T), note: r.note || '', cnote: r.customer_note || '', cdate: r.confirm_at || '', confAt: r.confirm_at || '', state, stateName, city: r.customer_city || '', addr: r.customer_address || '', trk: r.bosta_tracking || '', trkState: r.bosta_state || '', cancel: r.cancel || null, ret: r.ret || null,
+        age: days(date, T), note: r.note || '', cnote: r.customer_note || '', cdate: r.confirm_at || '', confAt: r.confirm_at || '', state, stateName, city: r.customer_city || '', addr: r.customer_address || '', trk: r.bosta_tracking || '', trkState: r.bosta_state || '', bdl: r.bosta_delivery || '', bcod: r.bosta_cod == null ? null : Number(r.bosta_cod), bcodErr: r.bosta_cod_error || '', cancel: r.cancel || null, ret: r.ret || null,
         ...(cu.get(id) ? { stc: cu.get(id) } : {}), // 0095: an added status «بتتحسب زي» its base (st stays the base)
         subs: (lines.get(id) || []).map((it) => withLead(sub(it, r, subById, vname, lk, origin), it, vlead, pl)) };
     });
@@ -389,7 +389,7 @@
     for (const x of results) {
       if (!x || x.result !== 'ok' || !x.tracking) continue;
       const o = (orders || []).find((q) => q.id === String(x.id));
-      if (o) { o.trk = String(x.tracking); o.trkState = x.state || ''; }
+      if (o) { o.trk = String(x.tracking); o.trkState = x.state || ''; if (x.delivery) o.bdl = String(x.delivery); if (x.cod != null) o.bcod = Number(x.cod); }
       log('order.bosta', 'IB-' + x.id + ' · ' + x.tracking);
     }
     notifySoon();
@@ -535,6 +535,52 @@
     return r;
   }
   const FIELDS = { note: 'note', city: 'customer_city', addr: 'customer_address', dep: 'deposit' };
+  // 0144 (the owner 19 Nov): Bosta, part 2 — the reasons as sendBosta's
+  const bostaFail = (r) => fail(r.status === -1 ? 'network' : r.status === 409 && r.code === 'no_key' ? 'no_key' : r.status === 409 && r.code === 'no_warehouse' ? 'no_warehouse' : r.status === 409 && r.code === 'no_delivery' ? 'no_delivery' : r.status === 401 || r.status === 403 ? 'forbidden' : r.status === 400 ? 'invalid' : 'network');
+  // the waybills of orders (their Bosta delivery — the system's or the site plugin's) and of maker pickups, as one PDF (base64)
+  async function bostaAwb(ids, pickups) {
+    const clean = (a) => [...new Set((Array.isArray(a) ? a : []).map((x) => Number(x)).filter((n) => Number.isInteger(n) && n > 0))].slice(0, 50);
+    const o = clean(ids); const p = clean(pickups);
+    if (!o.length && !p.length) return fail('invalid');
+    const r = await syncCall({ action: 'bosta_awb', ids: o, pickups: p });
+    if (r.status) return Object.assign(bostaFail(r), { missing: (r.body && r.body.missing) || [] });
+    return { ok: true, pdf: r.data.pdf, count: r.data.count || 0, missing: r.data.missing || [] };
+  }
+  // the new cash of an order whose deposit / total changed goes to Bosta now (the server pushes only what its trigger marked due — the
+  // cron does it within 5 minutes anyway); the answer carries a refusal (the courier has the parcel already) for the page
+  async function bostaCod(ids) {
+    const list = [...new Set((Array.isArray(ids) ? ids : []).map((x) => Number(x)).filter((n) => Number.isInteger(n) && n > 0))].slice(0, 50);
+    if (!list.length) return fail('invalid');
+    const r = await syncCall({ action: 'bosta_cod', ids: list });
+    if (r.status) return bostaFail(r);
+    const results = Array.isArray(r.data.results) ? r.data.results : [];
+    for (const x of results) { const o = (orders || []).find((q) => q.id === String(x.id)); if (!o) continue; if (x.result === 'ok') { o.bcod = Number(x.cod); o.bcodErr = ''; } else if (x.result === 'error') o.bcodErr = x.message || x.reason || 'refused'; }
+    if (results.length) notifySoon();
+    return { ok: true, results, counts: r.data.counts || {} };
+  }
+  // the maker pickup popup's lists: Bosta's pickup locations + the warehouse and the receiver by default
+  async function bostaLocations() {
+    const r = await syncCall({ action: 'bosta_locations' });
+    if (r.status) return bostaFail(r);
+    return { ok: true, locations: r.data.locations || [], warehouse: r.data.warehouse || '', receiver: r.data.receiver || '', phone: r.data.phone || '' };
+  }
+  // a maker pickup: a delivery from his location to the warehouse + the courier's visit (woo-sync bosta_pickup); logged by its row id
+  async function bostaPickup(input) {
+    const i = input || {};
+    const r = await syncCall({ action: 'bosta_pickup', vendor_id: i.vendorId || null, location: i.location, date: i.date, slot: i.slot, receiver: i.receiver, phone: i.phone, note: i.note || '', parcels: Number(i.parcels) || 1 });
+    if (r.status && !(r.body && r.body.id)) return Object.assign(bostaFail(r), { field: r.body && r.body.field });
+    const d = r.status ? r.body : r.data;
+    log('order.bosta_pickup', 'BP-' + d.id + (d.tracking ? ' · ' + d.tracking : ''));
+    return { ok: !r.status && d.result === 'ok', partial: d.result === 'partial', id: d.id, tracking: d.tracking || null, delivery: d.delivery || null, error: d.error || null, message: d.message || null };
+  }
+  // the maker's pickups (the last location comes back from here)
+  async function bostaPickups(vendorId) {
+    const cl = c(); if (!cl || !uid()) return [];
+    let q = cl.from('bosta_pickups').select('id, vendor_id, vendor_name, location_id, location_name, scheduled_date, slot, receiver_name, note, parcels, delivery_id, tracking, pickup_id, state, error, created_at').order('id', { ascending: false }).limit(50);
+    if (vendorId) q = q.eq('vendor_id', vendorId);
+    const { data, error } = await q;
+    return error ? [] : (data || []);
+  }
   async function patchOrder(id, f) {
     const keys = Object.keys(FIELDS).filter((k) => has(f, k));
     if (!keys.length) return { ok: true };
@@ -543,6 +589,8 @@
     const patch = {}; keys.forEach((k) => { patch[FIELDS[k]] = k === 'dep' ? dep : f[k]; });
     const r = await update('orders', id, patch, () => wasOf(seenO, id, patch));
     if (r.ok) log('order.patch', 'IB-' + id + ' · ' + keys.join(', ')); // which fields, never their text
+    // 0144: the deposit of an order on Bosta changed → its new cash goes there now (the server decides what is due)
+    if (r.ok && keys.includes('dep')) { const o = (orders || []).find((q) => q.id === String(id)); if (o && o.bdl) bostaCod([id]).catch(() => {}); }
     return r;
   }
   async function setItemStatus(itemId, ss, extra) {
@@ -709,6 +757,6 @@
   }
   const imageOf = (sku) => (sku && images[sku]) || '';
   function clear() { gen += 1; unsubscribe(); cancelNotify(); thumbCache.clear(); orders = null; custom = new Map(); customOk = false; seenO.clear(); seenI.clear(); vendorRows = []; leads = new Map(); leadAsked.clear(); images = {}; links = {}; states = new Map(); statuses = []; names = []; asked.clear(); busy.clear(); setState('idle'); }
-  window.IBOrders = { load, data, state: () => st, today, setOrderStatus, setConfirm, patchOrder, deleteOrder, deleteSub, deleteLine, sendBosta, setLineQty, addLine, makerProducts, siteStatuses, setSubSiteStatus, setItemStatus, setWaybill, setPulled, syncNow, registerWebhooks, subscribe, unsubscribe, clear, toScreen, refetch, makerHistory, thumbs, imageOf };
+  window.IBOrders = { load, data, state: () => st, today, setOrderStatus, setConfirm, patchOrder, deleteOrder, deleteSub, deleteLine, sendBosta, bostaAwb, bostaCod, bostaLocations, bostaPickup, bostaPickups, setLineQty, addLine, makerProducts, siteStatuses, setSubSiteStatus, setItemStatus, setWaybill, setPulled, syncNow, registerWebhooks, subscribe, unsubscribe, clear, toScreen, refetch, makerHistory, thumbs, imageOf };
   window.IBOrdersStore = window.IBOrders; // the name block 29's write hooks call
 })();

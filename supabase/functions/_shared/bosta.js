@@ -119,3 +119,123 @@ export function trackingOf(data, deliveryId) {
   if (!d || d.trackingNumber == null) return null;
   return { tracking: String(d.trackingNumber).slice(0, 40), state: isObj(d.state) && typeof d.state.value === 'string' ? d.state.value.slice(0, 60) : null };
 }
+
+// ---- part 2 (0144 — the owner 19 Nov: the cash follows the deposit, the waybill printed here, a pickup from the maker) ----
+
+// the edit of a delivery Bosta has (PUT {BOSTA_API}/deliveries/business/{delivery}) — the plugin's bosta_format_updated_order with the
+// cash: the receiver as one full name, the drop-off address, the goods, the package, the note and the cash. From the body deliveryOf
+// builds, so the two never differ.
+export function updateOf(body) {
+  if (!isObj(body)) return null;
+  const r = isObj(body.receiver) ? body.receiver : {};
+  const receiver = { fullName: [r.firstName, r.lastName].filter(Boolean).join(' ').slice(0, 50), phone: r.phone };
+  if (r.secondPhone) receiver.secondPhone = r.secondPhone;
+  return { notes: body.notes, receiver, dropOffAddress: body.dropOffAddress, goodsInfo: body.goodsInfo, specs: body.specs, cod: body.cod };
+}
+
+// Bosta's answer to an edit: ok, or why (the courier has the parcel already → refused with Bosta's message)
+export function editedOf(status, data) {
+  const msg = isObj(data) && typeof data.message === 'string' ? data.message.replace(/\s+/g, ' ').slice(0, 160) : null;
+  if (status === 401 || status === 403) return { error: 'bad_key', message: msg };
+  if (status === 404) return { error: 'gone', message: msg };
+  if (status < 200 || status >= 300 || (isObj(data) && data.success === false)) return { error: 'refused', message: msg };
+  return { ok: true };
+}
+
+// the waybills of deliveries (GET {BOSTA_API}/deliveries/mass-awb?ids=…&lang=ar → { data: base64 PDF }) — the plugin's print
+export const AWB_MAX = 50;
+export function awbPath(ids) {
+  const list = [...new Set((Array.isArray(ids) ? ids : []).filter((x) => typeof x === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(x)))].slice(0, AWB_MAX);
+  return list.length ? '/deliveries/mass-awb?ids=' + list.join(',') + '&lang=ar' : null;
+}
+export function awbOf(status, data) {
+  if (status === 401 || status === 403) return { error: 'bad_key' };
+  if (status < 200 || status >= 300) return { error: 'refused', message: isObj(data) && typeof data.message === 'string' ? data.message.slice(0, 160) : null };
+  const b64 = isObj(data) && typeof data.data === 'string' ? data.data.replace(/\s+/g, '') : '';
+  // a PDF in base64 starts with «JVBER» (%PDF)
+  return /^JVBER[A-Za-z0-9+/=]+$/.test(b64) ? { pdf: b64 } : { error: 'bad_answer' };
+}
+
+// the business's pickup locations (GET {BOSTA_API}/pickup-locations → data.list): id, name, city, district and the contact person
+export function locationsOf(data) {
+  const list = isObj(data) && isObj(data.data) && Array.isArray(data.data.list) ? data.data.list : isObj(data) && Array.isArray(data.data) ? data.data : [];
+  return list.filter((x) => isObj(x) && typeof x._id === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(x._id)).map((x) => {
+    const a = isObj(x.address) ? x.address : {};
+    const c = isObj(x.contactPerson) ? x.contactPerson : {};
+    return {
+      id: x._id, name: str(x.locationName, 80) || str(x.name, 80) || x._id,
+      city: isObj(a.city) ? str(a.city.nameAr, 40) || str(a.city.name, 40) : '',
+      cityEn: isObj(a.city) ? str(a.city.name, 40) : '',
+      district: isObj(a.district) ? str(a.district.nameAr, 60) || str(a.district.name, 60) : '',
+      districtId: isObj(a.district) && typeof a.district._id === 'string' ? a.district._id.slice(0, 40) : '',
+      firstLine: str(a.firstLine, 200), secondLine: str(a.secondLine, 200),
+      building: str(a.buildingNumber, 20), floor: str(a.floor, 20), apartment: str(a.apartment, 20),
+      contact: str(c.name, 60), phone: phoneOf(c.phone) || '',
+      isDefault: x.isDefault === true,
+    };
+  });
+}
+
+// the warehouse as a drop-off address (a location of locationsOf)
+export function addressOf(loc) {
+  if (!isObj(loc) || !loc.firstLine) return null;
+  const a = { firstLine: loc.firstLine, secondLine: loc.secondLine || '' };
+  if (loc.cityEn) a.city = loc.cityEn;
+  if (loc.districtId) a.districtId = loc.districtId;
+  if (loc.building) a.buildingNumber = loc.building;
+  if (loc.floor) a.floor = loc.floor;
+  if (loc.apartment) a.apartment = loc.apartment;
+  return a;
+}
+
+export const SLOTS = ['10:00 to 13:00', '13:00 to 16:00'];
+
+// the pickup's input checked: the maker's location, a day from today (Cairo) to 30 days on, a slot, the receiver's name (2–60) and
+// phone, a note (≤ 300, no < >), the parcels (1–99) → { ok } or { error: field }
+export function pickupInputOf(a, today) {
+  if (!isObj(a)) return { error: 'input' };
+  const loc = typeof a.location === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(a.location) ? a.location : null;
+  if (!loc) return { error: 'location' };
+  const date = typeof a.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(a.date) ? a.date : null;
+  const max = new Date(Date.parse(today + 'T00:00:00Z') + 30 * 86400000).toISOString().slice(0, 10);
+  if (!date || date < today || date > max) return { error: 'date' };
+  if (!SLOTS.includes(a.slot)) return { error: 'slot' };
+  const receiver = str(a.receiver, 60);
+  if (receiver.length < 2 || /[<>]/.test(receiver)) return { error: 'receiver' };
+  const phone = phoneOf(a.phone);
+  if (!phone) return { error: 'phone' };
+  const note = str(a.note, 300);
+  if (/[<>]/.test(note)) return { error: 'note' };
+  const parcels = Math.trunc(Number(a.parcels ?? 1));
+  if (!(parcels >= 1 && parcels <= 99)) return { error: 'parcels' };
+  return { ok: { location: loc, date, slot: a.slot, receiver, phone, note, parcels } };
+}
+
+// the delivery of a maker pickup: from the maker's location (businessLocationId) to the warehouse, to the receiver, cash 0
+export function pickupDeliveryOf(input, warehouse, ref, makerName) {
+  const to = addressOf(warehouse);
+  if (!to) return { error: 'no_warehouse' };
+  const [first, ...rest] = input.receiver.split(' ');
+  return { body: {
+    type: 10,
+    businessLocationId: input.location,
+    notes: input.note,
+    uniqueBusinessReference: 'IBP_' + ref,
+    businessReference: 'Ibtekr_pickup_' + ref,
+    specs: { packageDetails: { itemsCount: input.parcels, description: ('استلام من ' + str(makerName, 80)).trim().slice(0, 500) } },
+    receiver: { firstName: first.slice(0, 50), lastName: rest.join(' ').slice(0, 50), phone: input.phone },
+    dropOffAddress: to,
+    cod: 0,
+  } };
+}
+
+// the courier's visit (POST {BOSTA_V0}/pickups — the plugin's own call) and the id of what was made
+export const BOSTA_V0 = 'https://app.bosta.co/api/v0';
+export function pickupBodyOf(input) { return { scheduledDate: input.date, scheduledTimeSlot: input.slot, businessLocationId: input.location }; }
+export function pickupMadeOf(status, data) {
+  const msg = isObj(data) && typeof data.message === 'string' ? data.message.slice(0, 160) : null;
+  if (status === 401 || status === 403) return { error: 'bad_key', message: msg };
+  if (status < 200 || status >= 300 || (isObj(data) && data.success === false)) return { error: 'refused', message: msg };
+  const id = isObj(data) && isObj(data.message) ? data.message._id : isObj(data) && isObj(data.data) ? data.data._id : isObj(data) ? data._id : null;
+  return typeof id === 'string' && id ? { id: id.slice(0, 40) } : { error: 'bad_answer' };
+}

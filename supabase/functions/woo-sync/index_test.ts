@@ -3571,5 +3571,82 @@ Deno.test('bosta_send: the key from the settings, each order to Bosta like the p
     dropOffAddress: { firstLine: '12 شارع الهرم الرئيسي', secondLine: '', city: 'Giza', districtId: 'dst-77' }, cod: 1000, goodsInfo: { amount: 900 } }] });
   assertEquals(woo.calls.filter((c) => c.path === '/api/v2/deliveries/woocommerce-data').map((c) => c.body), [{ deliveriesIds: ['d1'] }]);
   assertEquals(db.row('orders', 501).bosta_tracking, '7099001');
+  assertEquals([db.row('orders', 501).bosta_delivery, db.row('orders', 501).bosta_cod], ['d1', 1000], '0144: the delivery and its cash');
   assertEquals(woo.calls.some((c) => c.path.includes('wc/v3/orders')), false, 'the site order is never written');
+});
+
+// 0144 (the owner 19 Nov): the cash follows the deposit (bosta_cod — the cron or the page, only what the trigger marked due), the
+// waybills as one PDF (bosta_awb), a maker pickup = a delivery to the warehouse + the courier's visit (bosta_pickup)
+Deno.test('bosta_cod: the due orders get the plugin\'s edit with the new cash; a refusal ends with the reason; the cron with the secret', async () => {
+  const KEY = 'bk_' + 'x'.repeat(30);
+  const raw = { billing: { first_name: 'منى', last_name: 'عادل', address_1: '12 شارع الهرم الرئيسي', phone: '01001234567', state: 'EG-25' } };
+  const orders = [
+    { id: 601, number: '601', status: 'جاري التنفيذ', placed_at: '2026-11-18T10:00:00Z', customer_name: 'منى عادل', customer_state: 'EG-25', payment_method: 'cod', total: 1200, deposit: 500, bosta_delivery: 'd601', bosta_cod: 1200, bosta_cod_due: true, deleted_at: null, raw },
+    { id: 602, number: '602', status: 'جاري التنفيذ', placed_at: '2026-11-18T10:00:00Z', customer_name: 'منى عادل', customer_state: 'EG-25', payment_method: 'cod', total: 800, deposit: 100, bosta_delivery: 'd602', bosta_cod: 800, bosta_cod_due: true, deleted_at: null, raw },
+    { id: 603, number: '603', status: 'جاري التنفيذ', placed_at: '2026-11-18T10:00:00Z', customer_name: 'منى عادل', customer_state: 'EG-25', payment_method: 'cod', total: 300, deposit: 0, bosta_delivery: 'd603', bosta_cod: 300, bosta_cod_due: false, deleted_at: null, raw },
+  ];
+  const { db, woo, deps } = setup({ seed: { orders, order_items: [{ order_id: 601, name: 'Lamp', qty: 1, total: 1200, removed: false }], woo_states: [{ code: 'EG-25', name: 'Giza' }] },
+    rpc: { app_secret_get: ({ p_name }: any) => (p_name === 'bosta' ? JSON.stringify({ key: KEY }) : null) },
+    routes: { 'PUT /api/v2/deliveries/business/d601': { status: 200, body: { success: true } }, 'PUT /api/v2/deliveries/business/d602': { status: 400, body: { success: false, message: 'Delivery can not be updated' } } } });
+  assertEquals((await call(deps, { action: 'bosta_cod' }, { jwt: 'jwt-pview' })).res.status, 401, 'orders.view is needed');
+  const { res, body } = await call(deps, { action: 'bosta_cod' });
+  assertEquals(res.status, 200);
+  assertEquals(body.counts, { updated: 1, refused: 1, kept: 0 });
+  const put = woo.calls.filter((c) => c.method === 'PUT');
+  assertEquals(put.length, 2, 'the order not due is left');
+  assertEquals(put[0].headers.authorization, KEY);
+  assertEquals(put[0].body.cod, 700);
+  assertEquals(put[0].body.receiver, { fullName: 'منى عادل', phone: '01001234567' });
+  assertEquals([db.row('orders', 601).bosta_cod, db.row('orders', 601).bosta_cod_due, db.row('orders', 601).bosta_cod_error], [700, false, null]);
+  assertEquals([db.row('orders', 602).bosta_cod, db.row('orders', 602).bosta_cod_due, db.row('orders', 602).bosta_cod_error], [800, false, 'Delivery can not be updated']);
+  assertEquals(woo.calls.some((c) => c.path.includes('wc/v3')), false, 'the site is never written');
+});
+
+Deno.test('bosta_awb: the orders\' and the pickups\' deliveries in one mass-awb call, the PDF back, the ones without a delivery listed', async () => {
+  const KEY = 'bk_' + 'x'.repeat(30);
+  const orders = [
+    { id: 701, number: '701', status: 'جاري التنفيذ', placed_at: '2026-11-18T10:00:00Z', customer_name: 'أ', total: 1, deposit: 0, bosta_delivery: 'dA', deleted_at: null, raw: {} },
+    { id: 702, number: '702', status: 'جاري التنفيذ', placed_at: '2026-11-18T10:00:00Z', customer_name: 'ب', total: 1, deposit: 0, bosta_delivery: null, deleted_at: null, raw: {} },
+  ];
+  const { woo, deps } = setup({ seed: { orders, bosta_pickups: [{ id: 5, location_id: 'L1', scheduled_date: '2026-11-20', slot: '10:00 to 13:00', receiver_name: 'مدير', delivery_id: 'dP', state: 'sent' }] },
+    rpc: { app_secret_get: ({ p_name }: any) => (p_name === 'bosta' ? JSON.stringify({ key: KEY }) : null) },
+    routes: { 'GET /api/v2/deliveries/mass-awb': { status: 200, body: { data: 'JVBERi0xLjQKJ' } } } });
+  assertEquals((await call(deps, { action: 'bosta_awb', ids: [701] })).res.status, 401, 'never the sync secret');
+  assertEquals((await call(deps, { action: 'bosta_awb', ids: [701] }, { jwt: 'jwt-pview' })).res.status, 401, 'the waybill has the whole phone — those who ship only');
+  const { res, body } = await call(deps, { action: 'bosta_awb', ids: [701, 702], pickups: [5] }, { jwt: 'jwt-ops' });
+  assertEquals(res.status, 200);
+  assertEquals([body.pdf, body.count, body.missing], ['JVBERi0xLjQKJ', 2, [702]]);
+  assertEquals(woo.calls[0].query, { ids: 'dA,dP', lang: 'ar' });
+  assertEquals((await call(deps, { action: 'bosta_awb', ids: [702] }, { jwt: 'jwt-ops' })).body, { error: 'no_delivery', missing: [702] });
+});
+
+Deno.test('bosta_pickup: the maker\'s location → a delivery to the warehouse (receiver, note, cash 0) + the courier\'s visit; the row keeps both', async () => {
+  const KEY = 'bk_' + 'x'.repeat(30);
+  const locs = { data: { total: 2, list: [
+    { _id: 'WH1', locationName: 'مكتب فيصل', isDefault: true, address: { city: { name: 'Giza', nameAr: 'الجيزه' }, district: { _id: 'dst1', name: 'Faisal' }, firstLine: 'طلعت عبد الدايم - فيصل', buildingNumber: '10' }, contactPerson: { name: 'أحمد', phone: '01001112223' } },
+    { _id: 'ZAAN', locationName: 'Zaan', address: { city: { name: 'Cairo' }, firstLine: 'شارع النزهة' } }] } };
+  const vid = '00000000-0000-4000-8000-0000000000aa';
+  const routes = { 'GET /api/v2/pickup-locations': { status: 200, body: locs },
+    'POST /api/v2/deliveries/bulk': { status: 200, body: { data: { createdDeliveriesIds: ['dP1'], failedDeliveries: [] } } },
+    'POST /api/v2/deliveries/woocommerce-data': { status: 200, body: { data: [{ _id: 'dP1', trackingNumber: 7055, state: { value: 'Created' } }] } },
+    'POST /api/v0/pickups': { status: 200, body: { success: true, message: { _id: 'PK9' } } } };
+  const { db, woo, deps } = setup({ seed: { vendors: [{ id: vid, name: 'Zaan', aliases: [], status: 'active' }] }, routes,
+    rpc: { app_secret_get: ({ p_name }: any) => (p_name === 'bosta' ? JSON.stringify({ key: KEY }) : null) } });
+  const input = { action: 'bosta_pickup', vendor_id: vid, location: 'ZAAN', date: '2026-10-26', slot: '10:00 to 13:00', receiver: 'مدير التشغيل', phone: '01001112223', note: 'كرتونتين', parcels: 2 };
+  assertEquals((await call(deps, input)).res.status, 401, 'never the sync secret');
+  assertEquals((await call(deps, input, { jwt: 'jwt-pview' })).res.status, 401, 'orders.status F');
+  assertEquals((await call(deps, { ...input, date: '2026-10-20' }, { jwt: 'jwt-ops' })).body, { error: 'bad_request', field: 'date' });
+  assertEquals((await call(deps, { ...input, location: 'WH1' }, { jwt: 'jwt-ops' })).body, { error: 'bad_request', field: 'location' }, 'not from the warehouse to itself');
+  const { res, body } = await call(deps, input, { jwt: 'jwt-ops' });
+  assertEquals(res.status, 200);
+  assertEquals([body.result, body.delivery, body.tracking, body.pickup], ['ok', 'dP1', '7055', 'PK9']);
+  const del = woo.calls.find((c) => c.path === '/api/v2/deliveries/bulk')!.body.deliveries[0];
+  assertEquals(del.businessLocationId, 'ZAAN');
+  assertEquals(del.cod, 0);
+  assertEquals(del.notes, 'كرتونتين');
+  assertEquals(del.receiver, { firstName: 'مدير', lastName: 'التشغيل', phone: '01001112223' });
+  assertEquals(del.dropOffAddress, { firstLine: 'طلعت عبد الدايم - فيصل', secondLine: '', city: 'Giza', districtId: 'dst1', buildingNumber: '10' });
+  assertEquals(woo.calls.find((c) => c.path === '/api/v0/pickups')!.body, { scheduledDate: '2026-10-26', scheduledTimeSlot: '10:00 to 13:00', businessLocationId: 'ZAAN' });
+  const row = db.rows('bosta_pickups').at(-1);
+  assertEquals([row.state, row.vendor_id, row.delivery_id, row.tracking, row.pickup_id, row.parcels, row.created_by], ['sent', vid, 'dP1', '7055', 'PK9', 2, 'uid-jwt-ops']);
 });

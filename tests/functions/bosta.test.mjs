@@ -61,3 +61,57 @@ test('Bosta\'s answers: the bulk create, then the tracking number', () => {
   assert.deepEqual(trackingOf({ data: [{ _id: 'd1', trackingNumber: 7012345, state: { value: 'Pickup requested' } }] }, 'd1'), { tracking: '7012345', state: 'Pickup requested' });
   assert.equal(trackingOf({ data: [] }, 'd1'), null);
 });
+
+// ---- 0144: the cash follows the deposit, the waybill printed here, a pickup from the maker ----
+import { updateOf, editedOf, awbPath, awbOf, locationsOf, addressOf, pickupInputOf, pickupDeliveryOf, pickupBodyOf, pickupMadeOf, SLOTS } from '../../supabase/functions/_shared/bosta.js';
+
+test('the edit of a delivery = the plugin\'s update with the cash (from the same body)', () => {
+  const order = { id: 9, customer_name: 'منى عادل', state: 'EG-25', payment_method: 'cod', total: 1200, deposit: 500,
+    raw: { billing: { first_name: 'منى', last_name: 'عادل', address_1: '12 شارع الهرم الرئيسي', phone: '01001234567' }, meta_data: [{ key: '_billing_phone_2', value: '01112223334' }] } };
+  const u = updateOf(deliveryOf(order, [{ name: 'Lamp', qty: 1, amount: 1200 }], NAMES).body);
+  assert.deepEqual(u.receiver, { fullName: 'منى عادل', phone: '01001234567', secondPhone: '01112223334' });
+  assert.equal(u.cod, 700);
+  assert.equal(u.dropOffAddress.city, 'Giza');
+  assert.equal('uniqueBusinessReference' in u, false);
+  assert.deepEqual(editedOf(200, { success: true }), { ok: true });
+  assert.deepEqual(editedOf(400, { success: false, message: 'Delivery can not be updated in its current state' }), { error: 'refused', message: 'Delivery can not be updated in its current state' });
+  assert.equal(editedOf(401, {}).error, 'bad_key');
+  assert.equal(editedOf(404, {}).error, 'gone');
+});
+
+test('the waybill: mass-awb of the delivery ids, the PDF in base64', () => {
+  assert.equal(awbPath(['a1', 'b_2', 'a1', 'bad id', 7]), '/deliveries/mass-awb?ids=a1,b_2&lang=ar');
+  assert.equal(awbPath([]), null);
+  assert.deepEqual(awbOf(200, { data: 'JVBERi0xLjQK' }), { pdf: 'JVBERi0xLjQK' });
+  assert.deepEqual(awbOf(200, { data: '<html>' }), { error: 'bad_answer' });
+  assert.equal(awbOf(401, {}).error, 'bad_key');
+});
+
+test('the pickup locations, the warehouse address, the pickup input', () => {
+  const locs = locationsOf({ data: { total: 1, list: [{ _id: 'LpEaJKhS9', locationName: 'مكتب فيصل', isDefault: true,
+    address: { city: { name: 'Giza', nameAr: 'الجيزه' }, district: { _id: 'xU1', name: 'Tawabek', nameAr: 'طوابق' }, firstLine: 'طلعت عبد الدايم - فيصل', secondLine: 'امام جزارة', buildingNumber: '10', floor: '1', apartment: '1' },
+    contactPerson: { name: 'أحمد', phone: '+201001112223' } }, { _id: 'bad id' }] } });
+  assert.equal(locs.length, 1);
+  assert.deepEqual(locs[0], { id: 'LpEaJKhS9', name: 'مكتب فيصل', city: 'الجيزه', cityEn: 'Giza', district: 'طوابق', districtId: 'xU1', firstLine: 'طلعت عبد الدايم - فيصل', secondLine: 'امام جزارة', building: '10', floor: '1', apartment: '1', contact: 'أحمد', phone: '01001112223', isDefault: true });
+  assert.deepEqual(addressOf(locs[0]), { firstLine: 'طلعت عبد الدايم - فيصل', secondLine: 'امام جزارة', city: 'Giza', districtId: 'xU1', buildingNumber: '10', floor: '1', apartment: '1' });
+  const ok = { location: 'Zaan01', date: '2026-11-20', slot: SLOTS[0], receiver: 'مدير التشغيل', phone: '01001112223', note: 'كرتونتين', parcels: 2 };
+  assert.deepEqual(pickupInputOf(ok, '2026-11-19').ok, { ...ok });
+  assert.equal(pickupInputOf({ ...ok, date: '2026-11-18' }, '2026-11-19').error, 'date');
+  assert.equal(pickupInputOf({ ...ok, date: '2027-01-30' }, '2026-11-19').error, 'date');
+  assert.equal(pickupInputOf({ ...ok, slot: '9 to 5' }, '2026-11-19').error, 'slot');
+  assert.equal(pickupInputOf({ ...ok, phone: '123' }, '2026-11-19').error, 'phone');
+  assert.equal(pickupInputOf({ ...ok, note: '<b>' }, '2026-11-19').error, 'note');
+  assert.equal(pickupInputOf({ ...ok, location: '' }, '2026-11-19').error, 'location');
+  const d = pickupDeliveryOf(pickupInputOf(ok, '2026-11-19').ok, locs[0], 15, 'Zaan').body;
+  assert.equal(d.businessLocationId, 'Zaan01');
+  assert.equal(d.uniqueBusinessReference, 'IBP_15');
+  assert.equal(d.cod, 0);
+  assert.deepEqual(d.receiver, { firstName: 'مدير', lastName: 'التشغيل', phone: '01001112223' });
+  assert.equal(d.dropOffAddress.districtId, 'xU1');
+  assert.equal(d.specs.packageDetails.itemsCount, 2);
+  assert.equal(pickupDeliveryOf(pickupInputOf(ok, '2026-11-19').ok, null, 1, 'x').error, 'no_warehouse');
+  assert.deepEqual(pickupBodyOf(ok), { scheduledDate: '2026-11-20', scheduledTimeSlot: SLOTS[0], businessLocationId: 'Zaan01' });
+  assert.deepEqual(pickupMadeOf(200, { success: true, message: { _id: 'pk1' } }), { id: 'pk1' });
+  assert.deepEqual(pickupMadeOf(200, { data: { _id: 'pk2' } }), { id: 'pk2' });
+  assert.equal(pickupMadeOf(400, { success: false, message: 'No slots' }).error, 'refused');
+});

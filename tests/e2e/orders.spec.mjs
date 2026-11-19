@@ -1346,3 +1346,68 @@ test('«ابعت لبوسطة» from the bulk bar: a confirm with the cash, the 
   expect(mock.activity.some((a) => a.action === 'order.bosta')).toBe(true);
   expect(pageErrors).toEqual([]);
 });
+
+// 0144 (the owner 19 Nov): the waybill printed from the system — the order's ⋮ and the bulk bar → Bosta's own PDF (mass-awb)
+test('«اطبع بوليصة بوسطة» from the order ⋮ and the bulk bar: Bosta\'s PDF of the order\'s delivery; an unsent order says so', async ({ page }) => {
+  mock.bostaKey = true;
+  await openOrders(page);
+  const pop = page.waitForEvent('popup');
+  await card(page, '181668').locator('[data-more="o:181668"]').click();
+  await page.locator('#orders #mpop [data-ma="awb"]').click();
+  await pop;
+  await expect.poll(() => (mock.awbCalls || []).length).toBe(1);
+  expect(mock.awbCalls[0].deliveries).toEqual(['dlv181668']);
+  await expect(page.locator('.busy-pill').last()).toContainText('البوليصة جاهزة');
+  // an order never sent has no «اطبع» in its menu; the bulk bar says the selection is not on Bosta yet
+  await card(page, '180686').locator('[data-more="o:180686"]').click();
+  await expect(page.locator('#orders #mpop [data-ma="awb"]')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await page.locator('#orders [data-osel="180686"]').click();
+  await page.locator('#orders [data-obulk-awb]').click();
+  await expect(toast(page)).toContainText('المحدد لسه ماتبعتش لبوسطة');
+  expect(pageErrors).toEqual([]);
+});
+
+// 0144: the deposit of an order on Bosta changes → its new cash goes to Bosta at once; Bosta refusing shows on the tracking number
+test('a deposit change on an order on Bosta sends the new cash; a refusal shows «التحصيل على بوسطة مااتحدثش»', async ({ page }) => {
+  mock.bostaKey = true;
+  await openOrders(page);
+  await page.evaluate(() => window.IBOrders.patchOrder('181668', { dep: 500 }));
+  await expect.poll(() => (mock.codCalls || []).length).toBe(1);
+  const o = mock.orders.find((x) => x.id === 181668);
+  expect([o.bosta_cod, o.bosta_cod_due]).toEqual([3041, false]);
+  mock.bostaCodRefuse = [181668];
+  await page.evaluate(() => window.IBOrders.patchOrder('181668', { dep: 700 }));
+  await expect.poll(() => o.bosta_cod_error).toBe('Delivery can not be updated');
+  await page.evaluate(() => window.IBOrders.refetch && window.IBOrders.refetch(['181668']));
+  const c = card(page, '181668'); const tg = c.locator('[data-tg]').first(); if ((await tg.getAttribute('aria-label')) === 'فتح') await tg.click();
+  await expect(c.locator('[data-trk-err]')).toContainText('التحصيل على بوسطة مااتحدثش');
+  expect(pageErrors).toEqual([]);
+});
+
+// 0144: «بيك أب من المبتكر» — the maker's Bosta location (his name), the warehouse and its contact by default, the receiver's name and
+// the note editable; then the waybill of that pickup prints
+test('«بيك أب من المبتكر (بوسطة)» from a product line: his location by name, the receiver editable, then the pickup\'s waybill', async ({ page }) => {
+  mock.bostaKey = true;
+  await openOrders(page);
+  await card(page, '181668').locator('[data-more="s:5001"]').click();
+  await page.locator('#orders #mpop [data-ma="pickup"]').click();
+  const m = page.locator('.modal[role=dialog]').last();
+  await expect(m).toContainText('بيك أب من Art Craft');
+  await expect(m.locator('[data-bp-note]')).toContainText('مكتب فيصل');
+  await expect(m.locator('#location')).toContainText('Art Craft');
+  await expect(m.locator('#receiver')).toHaveValue('أحمد التشغيل');
+  await m.locator('#receiver').fill('مدير التشغيل');
+  await m.locator('#note').fill('كرتونتين');
+  await m.locator('#parcels').fill('2');
+  await m.getByRole('button', { name: 'اطلب البيك أب' }).click();
+  const done = page.locator('[data-bp-done="ok"]');
+  await expect(done).toContainText('7060001');
+  expect(mock.pickupCalls.at(-1)).toMatchObject({ location: 'ARTC', receiver: 'مدير التشغيل', note: 'كرتونتين', parcels: 2, slot: '10:00 to 13:00' });
+  const pop = page.waitForEvent('popup');
+  await page.getByRole('button', { name: 'اطبع البوليصة' }).click();
+  await pop;
+  await expect.poll(() => (mock.awbCalls || []).at(-1) && mock.awbCalls.at(-1).deliveries).toEqual(['dP1']);
+  expect(mock.activity.some((a) => a.action === 'order.bosta_pickup')).toBe(true);
+  expect(pageErrors).toEqual([]);
+});

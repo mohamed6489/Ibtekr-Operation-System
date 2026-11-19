@@ -95,7 +95,7 @@ const COLUMNS = { // supabase/migrations/0001_identity.sql, 0002_system.sql (act
   activity_log: ['id', 'at', 'actor', 'action', 'entity', 'entity_id', 'old_value', 'new_value'],
   alerts: ['id', 'at', 'kind', 'title', 'body', 'role_id', 'user_id', 'entity', 'entity_id', 'read_at'],
   alert_reads: ['alert_id', 'user_id', 'read_at'],
-  orders_v: ['id', 'number', 'customer_name', 'customer_phone', 'customer_state', 'customer_city', 'customer_address', 'payment_method', 'payment_title', 'status', 'woo_status', 'confirm', 'confirm_at', 'confirm_note', 'deposit', 'total', 'currency', 'note', 'customer_note', 'placed_at', 'woo_updated_at', 'cancel', 'ret', 'synced_at', 'created_at', 'updated_at', 'bosta_tracking', 'bosta_state'],
+  orders_v: ['id', 'number', 'customer_name', 'customer_phone', 'customer_state', 'customer_city', 'customer_address', 'payment_method', 'payment_title', 'status', 'woo_status', 'confirm', 'confirm_at', 'confirm_note', 'deposit', 'total', 'currency', 'note', 'customer_note', 'placed_at', 'woo_updated_at', 'cancel', 'ret', 'synced_at', 'created_at', 'updated_at', 'bosta_tracking', 'bosta_state', 'bosta_delivery', 'bosta_cod', 'bosta_cod_error'],
   order_items: ['id', 'order_id', 'sub_order_id', 'product_id', 'sku', 'name', 'qty', 'total', 'vendor_id', 'status', 'expected_at', 'comment', 'ready_at', 'waybill', 'pulled', 'ret', 'store', 'removed', 'updated_at', 'commission_rate', 'commission_fee'],
   sub_orders: ['id', 'order_id', 'vendor_id', 'woo_order_id', 'woo_status', 'total', 'dokan_earning', 'commission', 'updated_at'],
   vendors: ['id', 'woo_vendor_id', 'site_removed_at', 'name', 'aliases', 'phone', 'email', 'status', 'commission_pct', 'raw', 'created_at', 'updated_at', 'legal_name', 'category', 'main_categories', 'alt_phone', 'address', 'instagram', 'store_url', 'lead_days', 'deposit_policy', 'notes', 'joined_at', 'contract', 'opening_balance',
@@ -219,7 +219,7 @@ function ordersSeed(opts = {}) {
   const product = (id, sku, name, image_url, v, slug, extra = {}) => ({ id, sku, name, image_url, permalink: SITE + '/product/' + slug + '/', vendor_id: VND(v), price: null, status: 'publish', raw: { id }, updated_at: T0,
     lang: 'en', translation_ids: { en: id }, type: 'simple', regular_price: 1500, sale_price: 1200, stock_quantity: 8, stock_status: 'instock', manage_stock: true, backorders: 'no', low_stock_amount: 2,
     total_sales: 5, category_ids: [151], brand_ids: [3], image_count: 3, weight: '1', featured: false, desc_filled: true, short_desc_filled: true, woo_modified_at: T0, trashed_at: null, ...extra });
-  const order = (o) => ({ number: String(o.id), status_custom: null, customer_state: null, customer_city: null, customer_address: null, payment_method: 'cod', payment_title: 'الدفع عند الاستلام', confirm: 'غير مؤكد', confirm_at: null, confirm_note: null, deposit: 0, currency: 'EGP', note: null, customer_note: null, cancel: null, ret: null, bosta_tracking: null, bosta_state: null, raw: { id: o.id }, woo_updated_at: o.placed_at, synced_at: o.placed_at, created_at: o.placed_at, updated_at: o.placed_at, ...o });
+  const order = (o) => ({ number: String(o.id), status_custom: null, customer_state: null, customer_city: null, customer_address: null, payment_method: 'cod', payment_title: 'الدفع عند الاستلام', confirm: 'غير مؤكد', confirm_at: null, confirm_note: null, deposit: 0, currency: 'EGP', note: null, customer_note: null, cancel: null, ret: null, bosta_tracking: null, bosta_state: null, bosta_delivery: null, bosta_cod: null, bosta_cod_due: false, bosta_cod_error: null, raw: { id: o.id }, woo_updated_at: o.placed_at, synced_at: o.placed_at, created_at: o.placed_at, updated_at: o.placed_at, ...o });
   const sub = (id, order_id, v, woo_order_id, woo_status, total) => ({ id, order_id, vendor_id: VND(v), woo_order_id, woo_status, total, dokan_earning: null, commission: null, raw: { id: woo_order_id }, updated_at: T0 });
   const line = (o) => ({ sub_order_id: null, product_id: null, qty: 1, status: '', expected_at: null, comment: null, ready_at: null, waybill: null, pulled: false, ret: null, store: null, removed: false, commission_rate: null, commission_fee: null, raw: { id: o.id }, updated_at: T0, ...o, vendor_id: VND(o.vendor_id) });
   const rate = (id, v, rate, since, flat = null, type = 'fixed') => ({ id, vendor_id: VND(v), rate, flat, since, set_by: 'صفوت كمال', created_at: T0, commission_type: type });
@@ -256,7 +256,7 @@ function ordersSeed(opts = {}) {
     // the site's WooCommerce Brands (0021)
     wooBrands: [{ id: 3, name: 'Art Craft', slug: 'art-craft', parent_id: null, updated_at: T0 }, { id: 4, name: 'Antikiano', slug: 'antikiano', parent_id: null, updated_at: T0 }],
     orders: [
-      order({ id: 181668, bosta_tracking: '70123456', bosta_state: 'Pickup requested', customer_name: 'سلوى زيتوني', customer_phone: '01200007052', customer_state: 'EG-01', customer_city: 'مدينة نصر', customer_address: 'شارع عباس العقاد', status: 'جاري التنفيذ', woo_status: 'processing', total: 3541, customer_note: 'اتصلوا قبل التوصيل\nالدور التالت\nالشقة 12', placed_at: ago(6) }),
+      order({ id: 181668, bosta_tracking: '70123456', bosta_state: 'Pickup requested', bosta_delivery: 'dlv181668', bosta_cod: 3541, customer_name: 'سلوى زيتوني', customer_phone: '01200007052', customer_state: 'EG-01', customer_city: 'مدينة نصر', customer_address: 'شارع عباس العقاد', status: 'جاري التنفيذ', woo_status: 'processing', total: 3541, customer_note: 'اتصلوا قبل التوصيل\nالدور التالت\nالشقة 12', placed_at: ago(6) }),
       order({ id: 180686, customer_name: 'هدير عميل', customer_phone: '01000007030', status: 'جاري التنفيذ', woo_status: 'processing', confirm: 'مؤكد بدون عربون', confirm_at: ago(5).slice(0, 10), total: 1002, placed_at: ago(8) }),
       order({ id: 180656, customer_name: XSS_NAME, customer_phone: '01000007016', customer_state: 'EG-14', customer_address: 'ش التحرير', status: 'معلّق', woo_status: 'on-hold', confirm: 'في انتظار الرد', total: 899, note: 'هتأكد الأسبوع الجاي', placed_at: ago(10) }),
       order({ id: 150001, customer_name: 'أوردر قديم', customer_phone: '01000000000', status: 'مكتمل', woo_status: 'completed', total: 500, placed_at: ago(400) }),
@@ -1696,6 +1696,11 @@ export async function installSupabaseMock(page, opts = {}) {
           const ex = mock.productLeads.find((x) => String(x.product_id) === String(row.product_id)); if (ex) ex.days = d; else mock.productLeads.push({ product_id: Number(row.product_id), days: d }); mock.leadWrites.push({ op: 'upsert', product_id: String(row.product_id), days: d, by: u.email }); return empty(201); }
         if (method === 'DELETE') { mock.productLeads = mock.productLeads.filter((x) => !pick(x)); mock.leadWrites.push({ op: 'delete', product_id: ids && ids[0], by: u.email }); return empty(204); }
       }
+      if (path === '/rest/v1/bosta_pickups' && method === 'GET') { // 0144: the maker pickups (orders.view)
+        const vid = (url.searchParams.get('vendor_id') || '').replace(/^eq\./, '');
+        const rows = hasPerm(u, 'orders.view') === 'N' ? [] : (mock.bostaPickups || []).filter((r) => !vid || r.vendor_id === vid).slice().reverse();
+        return json(200, rows);
+      }
       const ot = /^\/rest\/v1\/(orders|orders_v|order_items|sub_orders|products|status_map|woo_states|woo_brands|product_commissions)$/.exec(path);
       const OT_METHODS = { orders: ['GET', 'PATCH'], orders_v: ['GET'], order_items: ['GET', 'PATCH'], sub_orders: ['GET'], products: ['GET'], status_map: ['GET'], woo_states: ['GET'], woo_brands: ['GET'], product_commissions: ['GET'] };
       if (ot && OT_METHODS[ot[1]].includes(method)) {
@@ -1745,6 +1750,7 @@ export async function installSupabaseMock(page, opts = {}) {
           if (t === 'orders' && b.confirm_at && b.confirm_at !== wasAt) mock.orderItems.filter((i) => i.order_id === r.id && !i.removed && !i.pulled && (i.expected_at == null || (wasAt && i.expected_at === wasAt))).forEach((i) => { i.expected_at = b.confirm_at; });
           if (t === 'orders' && 'status' in b && b.status !== wasSt && !('status_custom' in b)) r.status_custom = null; // 0095: the base moved
           if (t === 'orders' && b.status === 'ملغي' && wasSt !== 'ملغي') cancelLines((i) => i.order_id === r.id); // 0094 orders_cancel_lines
+          if (t === 'orders' && 'deposit' in b && r.bosta_delivery) { const due = r.payment_method === 'cod' ? Math.max(0, Number(r.total) - Number(r.deposit || 0)) : 0; if (due !== r.bosta_cod) { r.bosta_cod_due = true; r.bosta_cod_error = null; } } // 0144 orders_z_bosta_cod
         }
         // Prefer: count=exact (the adapter's «لسه زي ما أنا شايفه» writes — 0104 plan decision 3): how many rows were written
         if (/count=exact/.test(hd.prefer || '')) return route.fulfill({ status: 204, headers: { ...cors, 'content-range': '*/' + rows.length, 'access-control-expose-headers': 'content-range' } });
@@ -2451,7 +2457,7 @@ export async function installSupabaseMock(page, opts = {}) {
         (mock.brandSiteCalls = mock.brandSiteCalls || []).push({ brand_id: br.id, name: br.name, image: !!b.image, by: u.email });
         return json(200, { action, result: 'ok', brand: 700 + mock.brandSiteCalls.length, made: true, image: b.image ? 'ok' : 'none', attr: 'ok' });
       }
-      if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : (action === 'order_trash' || action === 'suborder_trash' || action === 'line_trash' || action === 'line_qty' || action === 'line_add' || action === 'suborder_status') ? hasPerm(u, 'orders.status') === 'F' && hasPerm(u, 'orders.view') !== 'N' : action === 'bosta_send' ? (isAdmin(u) || hasPerm(u, 'orders.status') === 'F') && hasPerm(u, 'orders.view') !== 'N' : (action === 'order_create' || action === 'order_pay_link') ? (isAdmin(u) || hasPerm(u, 'orders.status') === 'F') : action === 'push_vendor' ? mayPushVendor() : (action === 'statement' || action === 'withdrawals') ? hasPerm(u, 'accounts.view') !== 'N' : action === 'thumbs' ? (hasPerm(u, 'orders.view') !== 'N' || hasPerm(u, 'products.view') !== 'N') : action === 'withdraw_approve' || action === 'withdraw_reject' || action === 'withdraw_create' ? (isAdmin(u) || hasPerm(u, 'accounts.approve') === 'F')
+      if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : (action === 'order_trash' || action === 'suborder_trash' || action === 'line_trash' || action === 'line_qty' || action === 'line_add' || action === 'suborder_status') ? hasPerm(u, 'orders.status') === 'F' && hasPerm(u, 'orders.view') !== 'N' : (action === 'bosta_send' || action === 'bosta_pickup' || action === 'bosta_locations' || action === 'bosta_awb') ? (isAdmin(u) || hasPerm(u, 'orders.status') === 'F') && hasPerm(u, 'orders.view') !== 'N' : action === 'bosta_cod' ? (isAdmin(u) || hasPerm(u, 'orders.view') !== 'N') : (action === 'order_create' || action === 'order_pay_link') ? (isAdmin(u) || hasPerm(u, 'orders.status') === 'F') : action === 'push_vendor' ? mayPushVendor() : (action === 'statement' || action === 'withdrawals') ? hasPerm(u, 'accounts.view') !== 'N' : action === 'thumbs' ? (hasPerm(u, 'orders.view') !== 'N' || hasPerm(u, 'products.view') !== 'N') : action === 'withdraw_approve' || action === 'withdraw_reject' || action === 'withdraw_create' ? (isAdmin(u) || hasPerm(u, 'accounts.approve') === 'F')
         : action === 'wp_updates' || action === 'site_speed' ? (isAdmin(u) || hasPerm(u, 'marketing.create') === 'F')
         : action === 'product_get' || action === 'styles' ? hasPerm(u, 'products.view') !== 'N' : action === 'product_save' || action === 'product_images_add' ? (isAdmin(u) || hasPerm(u, 'products.edit') === 'F') : action === 'products_batch' || action === 'products_vendor' ? (isAdmin(u) || hasPerm(u, 'products.bulk') === 'F')
           : action === 'products_trash' || action === 'products_restore' ? hasPerm(u, 'products.trash') === 'F' : action === 'studio_upload' || action === 'studio_media' || action === 'category_create' || action === 'studio_sheet' || action === 'product_duplicate' || action === 'category_get' || action === 'category_update' || action === 'category_delete' || action === 'category_order' || action === 'style_create' || action === 'style_update' ? (isAdmin(u) || hasPerm(u, 'products.add') === 'F') : isAdmin(u))) return json(401, { error: 'unauthorized' });
@@ -2791,6 +2797,45 @@ export async function installSupabaseMock(page, opts = {}) {
           results.push({ id, result: 'ok', tracking: o.bosta_tracking, state: o.bosta_state, cod }); counts.sent++;
         }
         return json(200, { action, result: 'ok', counts, results });
+      }
+      // 0144: the cash due on Bosta (mock.bostaCodRefuse: ids Bosta refuses), the waybills (mock.awbCalls), the pickup locations
+      // (mock.bostaLocations) and a maker pickup (mock.bostaPickups — the rows; mock.pickupCalls)
+      if (action === 'bosta_cod') {
+        if (!mock.bostaKey) return json(409, { error: 'no_key' });
+        const only = Array.isArray(b.ids) ? b.ids.map(Number) : null; const results = []; const counts = { updated: 0, refused: 0, kept: 0 };
+        for (const o of mock.orders.filter((x) => x.bosta_cod_due && !x.deleted_at && (!only || only.includes(Number(x.id))))) {
+          const cod = o.payment_method === 'cod' ? Math.max(0, Number(o.total) - Number(o.deposit || 0)) : 0;
+          if ((mock.bostaCodRefuse || []).includes(Number(o.id))) { o.bosta_cod_due = false; o.bosta_cod_error = 'Delivery can not be updated'; results.push({ id: Number(o.id), result: 'error', reason: 'refused', message: o.bosta_cod_error }); counts.refused++; continue; }
+          o.bosta_cod = cod; o.bosta_cod_due = false; o.bosta_cod_error = null; results.push({ id: Number(o.id), result: 'ok', cod }); counts.updated++;
+        }
+        (mock.codCalls = mock.codCalls || []).push({ ids: only, by: u.email });
+        return json(200, { action, result: 'ok', counts, results });
+      }
+      if (action === 'bosta_awb') {
+        if (!mock.bostaKey) return json(409, { error: 'no_key' });
+        const ids = (Array.isArray(b.ids) ? b.ids : []).map(Number); const pk = (Array.isArray(b.pickups) ? b.pickups : []).map(Number);
+        const dl = []; const missing = [];
+        for (const id of ids) { const o = mock.orders.find((x) => Number(x.id) === id); if (o && o.bosta_delivery) dl.push(o.bosta_delivery); else missing.push(id); }
+        for (const id of pk) { const r = (mock.bostaPickups || []).find((x) => x.id === id); if (r && r.delivery_id) dl.push(r.delivery_id); }
+        (mock.awbCalls = mock.awbCalls || []).push({ deliveries: dl, by: u.email });
+        if (!dl.length) return json(409, { error: 'no_delivery', missing });
+        return json(200, { action, result: 'ok', pdf: 'JVBERi0xLjQKJcfsj6IKMSAwIG9iago8PD4+CmVuZG9iagp0cmFpbGVyCjw8Pj4KJSVFT0YK', count: dl.length, missing });
+      }
+      if (action === 'bosta_locations') {
+        if (!mock.bostaKey) return json(409, { error: 'no_key' });
+        const locs = mock.bostaLocations || [{ id: 'WH1', name: 'مكتب فيصل', city: 'الجيزه', district: 'فيصل', contact: 'أحمد التشغيل', phone: '01001112223', isDefault: true }, { id: 'ZAAN', name: 'Zaan', city: 'القاهرة', district: 'النزهة', contact: '', phone: '' }, { id: 'ARTC', name: 'Art Craft', city: 'الإسكندرية', district: '', contact: '', phone: '' }];
+        const cfg = ((mock.settings || []).find((x) => x.section === 'bosta') || {}).data || {};
+        const wh = locs.find((l) => l.id === cfg.warehouse) || locs.find((l) => l.isDefault) || null;
+        return json(200, { action, result: 'ok', locations: locs, warehouse: wh ? wh.id : '', receiver: cfg.receiver || (wh ? wh.contact : ''), phone: cfg.phone || (wh ? wh.phone : '') });
+      }
+      if (action === 'bosta_pickup') {
+        if (!mock.bostaKey) return json(409, { error: 'no_key' });
+        if (!b.location) return json(400, { error: 'bad_request', field: 'location' });
+        (mock.pickupCalls = mock.pickupCalls || []).push({ ...b, by: u.email });
+        mock.bostaPickups = mock.bostaPickups || []; const id = mock.bostaPickups.length + 1;
+        const row = { id, vendor_id: b.vendor_id || null, location_id: b.location, location_name: b.location, scheduled_date: b.date, slot: b.slot, receiver_name: b.receiver, note: b.note || null, parcels: b.parcels || 1, delivery_id: 'dP' + id, tracking: String(7060000 + id), pickup_id: 'PK' + id, state: 'sent', error: null, created_at: new Date().toISOString() };
+        mock.bostaPickups.push(row);
+        return json(200, { action, id, result: 'ok', delivery: row.delivery_id, tracking: row.tracking, pickup: row.pickup_id });
       }
       // comments decision 10: the site's own product photos for a report that goes out as a file — a tiny PNG for each upload of
       // the site (mock.thumbs: each call's urls; mock.thumbsDown: none can be read)

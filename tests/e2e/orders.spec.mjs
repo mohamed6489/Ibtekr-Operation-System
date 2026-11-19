@@ -1278,3 +1278,20 @@ test('the owner 15 Nov: a sub-order is late once its making days pass from the c
   await expect(closed.locator('[data-closed]')).toHaveAttribute('title', /ملغي/);
   await expect(closed).toContainText('—');
 });
+
+// the owner 19 Nov: «اتحكم في عدد الصفوف يبقي 25 او 50 او 100» — next to «عرض …», 25 by default, remembered in the browser
+test('rows per page: 25 / 50 / 100 next to «عرض», 25 by default and remembered', async ({ page }) => {
+  await openOrders(page);
+  const sel = page.locator('#orders #pg [data-pgsize]');
+  await expect(sel).toHaveValue('25');
+  expect(await sel.locator('option').allTextContents()).toEqual(['25', '50', '100']);
+  await expect(page.locator('#orders #pg .pgr')).toContainText('عرض 1–3 من 3');
+  await expect(page.locator('#orders #pg .pgr')).toContainText('الصفوف لكل صفحة');
+  await sel.selectOption('50');
+  await expect(cards(page)).toHaveCount(3);
+  expect(await page.evaluate(() => localStorage.getItem('ib.orders.size'))).toBe('50');
+  await page.reload();
+  await expect(page.locator('#root')).toBeVisible();
+  await page.evaluate(() => { location.hash = 'orders'; });
+  await expect(page.locator('#orders #pg [data-pgsize]')).toHaveValue('50');
+});

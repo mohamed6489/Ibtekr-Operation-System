@@ -416,8 +416,39 @@ export async function run({ env = process.env, fetch = globalThis.fetch, out = c
       return [out];
     }],
   ];
+  // PROBE=bosta (the owner 19 Nov — «في woocommerce عندي زرار send to bosta عايزك تضيفه … في ال bulk edit» and «في plugin علي الويب سايت
+  // بتبعت لبوسطة»): can the system ask the site's Bosta plugin to send an order — its REST routes (names, methods, argument names), the
+  // plugin's name + version, and the bosta_* meta KEYS on orders with the plugin's own status words (never a tracking number, an id,
+  // an address or a customer). GET / OPTIONS only.
+  const BOSTA = /bosta/i;
+  const bostaSteps = [
+    [['bosta_routes'], async () => {
+      const { data } = await wpGet('');
+      const routes = data?.routes && typeof data.routes === 'object' ? data.routes : {};
+      const hits = Object.keys(routes).filter((r) => BOSTA.test(r)).slice(0, 40).sort();
+      return [{ namespaces: Array.isArray(data?.namespaces) ? data.namespaces.filter((n) => typeof n === 'string' && BOSTA.test(n)) : [],
+        items: hits.map((r) => ({ route: r, endpoints: (Array.isArray(routes[r]?.endpoints) ? routes[r].endpoints : []).map((e) => ({ methods: e?.methods ?? null, args: keysOf(e?.args) })) })) }];
+    }],
+    [['bosta_plugin'], async () => {
+      const { data } = await get('wc/v3/system_status?_fields=active_plugins,inactive_plugins');
+      const all = [...(Array.isArray(data?.active_plugins) ? data.active_plugins : []).map((p) => ({ ...p, on: true })), ...(Array.isArray(data?.inactive_plugins) ? data.inactive_plugins : []).map((p) => ({ ...p, on: false }))];
+      const name = (p) => String(p?.name ?? '').replace(/<[^>]*>/g, '').trim().slice(0, 60);
+      return [{ items: all.filter((p) => BOSTA.test(name(p) + ' ' + String(p?.plugin ?? ''))).map((p) => ({ name: name(p), plugin: String(p?.plugin ?? '').slice(0, 80), version: String(p?.version ?? '').slice(0, 20), author: String(p?.author_name ?? '').slice(0, 40), active: p.on })) }];
+    }],
+    [['bosta_meta'], async () => {
+      const { data } = await getList('wc/v3/orders?per_page=50&_fields=id,status,meta_data');
+      const keys = {}; const words = {};
+      for (const o of data) for (const m of (Array.isArray(o?.meta_data) ? o.meta_data : [])) {
+        const k = String(m?.key ?? ''); if (!BOSTA.test(k)) continue;
+        keys[k] = (keys[k] ?? 0) + 1;
+        if (/status|state|type/i.test(k) && typeof m?.value === 'string' && m.value.length <= 40) { const w = k + ' = ' + m.value; words[w] = (words[w] ?? 0) + 1; }
+      }
+      const statuses = {}; for (const o of data) if ((o?.meta_data ?? []).some((m) => BOSTA.test(String(m?.key ?? '')))) statuses[o.status] = (statuses[o.status] ?? 0) + 1;
+      return [{ orders: data.length, keys, words, wc_status_of_sent: statuses }];
+    }],
+  ];
   const mode = String(env.PROBE ?? '').trim();
-  const chosen = mode === 'products' ? productSteps : mode === 'commission' ? commissionSteps : mode === 'earning' ? earningSteps : mode === 'studio' ? studioSteps : mode === 'studio2' ? studio2Steps : mode === 'cart' ? cartSteps : mode === 'swatch' ? swatchSteps : steps;
+  const chosen = mode === 'products' ? productSteps : mode === 'commission' ? commissionSteps : mode === 'earning' ? earningSteps : mode === 'studio' ? studioSteps : mode === 'studio2' ? studio2Steps : mode === 'cart' ? cartSteps : mode === 'swatch' ? swatchSteps : mode === 'bosta' ? bostaSteps : steps;
 
   const print = (section, obj) => out(section + ' ' + JSON.stringify(redact(obj)));
   let failed = false;

@@ -226,7 +226,7 @@ function bulkBar(pr){var ids=Object.keys(SEL).filter(function(k){return SEL[k]})
  el.hidden=false;el.innerHTML='<b>محدد '+ids.length+' أوردر</b><button type="button" class="btn" data-osel-page>'+(allOn?'شيل تحديد الصفحة':'حدد الصفحة كلها')+'</button><span class="grow"></span>'
   +'<label class="in dd bsel"><span>تغيير الحالة</span>'+ic('down')+'<select data-obulk-st aria-label="تغيير حالة المحدد"><option value="">تغيير الحالة…</option>'+BULK_ST.map(function(x){return'<option value="'+esc(x)+'">'+esc(LB('order',x))+'</option>'}).join('')+'</select></label>'
   +'<label class="in dd bsel"><span>حالة التأكيد</span>'+ic('down')+'<select data-obulk-cf aria-label="تغيير حالة التأكيد للمحدد"><option value="">حالة التأكيد…</option>'+CF.map(function(x){return'<option value="'+esc(x)+'">'+esc(LB('confirm',x))+'</option>'}).join('')+'</select></label>'
-  +'<button type="button" class="btn dgr" data-obulk-del>مسح المحدد</button>'+'<button type="button" class="btn" data-obulk-copy>نسخ الأرقام</button><button type="button" class="btn" data-obulk-csv>تصدير CSV</button><button type="button" class="btn txt" data-obulk-clear>إلغاء التحديد</button>'}
+  +'<button type="button" class="btn" data-obulk-bosta>ابعت لبوسطة</button>'+'<button type="button" class="btn dgr" data-obulk-del>مسح المحدد</button>'+'<button type="button" class="btn" data-obulk-copy>نسخ الأرقام</button><button type="button" class="btn" data-obulk-csv>تصدير CSV</button><button type="button" class="btn txt" data-obulk-clear>إلغاء التحديد</button>'}
 function headerM(o,l,open){
  return'<div class="oh m"><div class="tags">'+ocb(o)+sdd(OSTY,SV(o),'data-st="'+o.id+'"',140,ST)+'<div class="bdw">'+dbadge(l)+'</div><div class="grow"></div>'+moreBtn('o:'+o.id)+'</div>'
  +'<div class="trow">'+titleBlock(o)+tgBtn(o,open)+'</div>'+kpiStrip(o)+'</div>'}
@@ -542,6 +542,38 @@ function bulkDelete(ids){var all=ids.map(function(id){return OM[id]}).filter(Boo
    if(!ws||!ws.deleteOrder){removeOrder(o.id);done++;next();return}
    ws.deleteOrder(o.id,reason,{cancel:o.st!=='ملغي'}).then(function(r){if(r&&r.ok){removeOrder(o.id);done++}else fail=r||{};next()},function(){fail={};next()})}
   next()})}
+// the owner 19 Nov — «ابعت لبوسطة» in the bulk bar only (decision 9 in docs/superpowers/plans/2026-11-19-orders-batch.md): the whole order to
+// Bosta the way the site's plugin sends it, the status as it is, the cash = what is left on the customer (cash on delivery; a paid order 0);
+// an order with a tracking number already is left out; the answer per order, the failures in words (IBOrders.sendBosta → woo-sync bosta_send)
+var BOSTA_WHY={no_phone:'مفيش رقم موبايل صحيح',no_address:'مفيش عنوان',no_city:'المحافظة مش معروفة لبوسطة',bad_key:'مفتاح بوسطة غلط — راجعه في الإعدادات',refused:'بوسطة رفضت',unreachable:'بوسطة مارديتش — جرّب تاني',missing:'الأوردر مش موجود',bad_answer:'رد بوسطة ناقص'};
+function bostaCod(o){return o.payMethod==='cod'?Math.max(0,o.tot-o.dep):0}
+function bulkBosta(ids){var all=ids.map(function(id){return OM[id]}).filter(Boolean);var done=all.filter(function(o){return o.trk}),L=all.filter(function(o){return !o.trk});
+ if(!L.length){toast('كل المحدد اتبعت لبوسطة قبل كده');return}
+ if(L.length>50){toast('ابعت 50 أوردر بالكتير في المرة');return}
+ var cod=L.reduce(function(a,o){return a+bostaCod(o)},0);
+ var w=document.createElement('div');w.id='cscrim';
+ w.innerHTML='<div id="cdlg" role="dialog" aria-modal="true" aria-labelledby="cdt" data-bosta-dlg><div class="ch"><h2 id="cdt">ابعت '+L.length+' أوردر لبوسطة؟</h2><button type="button" class="ibtn" data-cc aria-label="إغلاق">'+ic('xx')+'</button></div>'
+  +'<div class="cb"><div class="nt"><b data-bosta-count>'+L.length+' أوردر · التحصيل '+fmt(cod)+' ج.م</b><ul class="dlist">'+L.map(function(o){return'<li data-bosta-row="'+esc(o.id)+'"><b>IB-'+esc(o.id)+'</b> · '+esc(o.name||'')+' · التحصيل '+fmt(bostaCod(o))+' ج.م</li>'}).join('')+'</ul>'
+  +'الأوردر كله بيتبعت لبوسطة بنفس طريقة إضافة الموقع، وحالته هنا بتفضل زي ما هي، ورقم التتبع بيظهر جنب العنوان. التحصيل = الباقي على العميل بعد العربون (الأوردر المدفوع أونلاين 0).'+(done.length?' <span data-bosta-skip>'+done.length+' اتبعت قبل كده ومش هيتبعت تاني.</span>':'')+'</div></div>'
+  +'<div class="cf"><button type="button" class="btn pri" data-cok>ابعت لبوسطة</button><button type="button" class="btn" data-cc>إلغاء</button></div></div>';
+ R.appendChild(w);var prev=R.activeElement;var ok=w.querySelector('[data-cok]');ok.focus();var running=false;
+ function close(){if(running)return;w.remove();R.removeEventListener('keydown',keys,true);if(prev&&prev.focus&&prev.isConnected)prev.focus()}
+ var keys=dlgKeys(w,close);R.addEventListener('keydown',keys,true);
+ w.addEventListener('mousedown',function(e){if(e.target===w)close()});
+ w.addEventListener('click',function(e){if(e.target.closest('[data-cc]')){close();return}if(!e.target.closest('[data-cok]')||running)return;
+  var ws=WS();if(!ws||!ws.sendBosta){toast('مش متاح دلوقتي');return}running=true;busy(ok,1,'بيتبعت لبوسطة…');
+  ws.sendBosta(L.map(function(o){return o.id})).then(function(r){running=false;
+   if(!r||!r.ok){busy(ok,0);toast(r&&r.reason==='no_key'?'مفتاح بوسطة مش متحط — حطه من «الإعدادات › الربط بالمنصات › بوسطة»':r&&r.reason==='forbidden'?'مالكش صلاحية تبعت لبوسطة':'معرفناش نبعت — جرّب تاني');return}
+   close();SEL={};draw(1);var res=r.results||[],sent=res.filter(function(x){return x.result==='ok'}),bad=res.filter(function(x){return x.result==='error'||x.result==='missing'});
+   if(!bad.length){toast('اتبعت '+sent.length+' أوردر لبوسطة');return}
+   bostaResult(sent.length,bad)},function(){running=false;busy(ok,0);toast('معرفناش نبعت — جرّب تاني')})})}
+function bostaResult(n,bad){var w=document.createElement('div');w.id='cscrim';
+ w.innerHTML='<div id="cdlg" role="dialog" aria-modal="true" aria-labelledby="cdt" data-bosta-result><div class="ch"><h2 id="cdt">اتبعت '+n+' · ماتبعتش '+bad.length+'</h2><button type="button" class="ibtn" data-cc aria-label="إغلاق">'+ic('xx')+'</button></div>'
+  +'<div class="cb"><ul class="dlist">'+bad.map(function(x){return'<li data-bosta-fail="'+esc(String(x.id))+'"><b>IB-'+esc(String(x.id))+'</b> · '+esc(BOSTA_WHY[x.reason||x.result]||'ماتبعتش')+(x.message?' — '+esc(x.message):'')+'</li>'}).join('')+'</ul></div>'
+  +'<div class="cf"><button type="button" class="btn" data-cc>تمام</button></div></div>';
+ R.appendChild(w);var prev=R.activeElement;w.querySelector('[data-cc]').focus();
+ function close(){w.remove();R.removeEventListener('keydown',keys,true);if(prev&&prev.focus&&prev.isConnected)prev.focus()}
+ var keys=dlgKeys(w,close);R.addEventListener('keydown',keys,true);w.addEventListener('mousedown',function(e){if(e.target===w)close()});w.addEventListener('click',function(e){if(e.target.closest('[data-cc]'))close()})}
 // decision 53: the bulk status — every status, order by order through the same path as one order (its popups: the rating for «مكتمل», the reason for «ملغي» / «استرجاع»); «ليس الآن» leaves that order and goes to the next
 function bulkStatus(ids,v){var L=ids.map(function(id){return OM[id]}).filter(function(o){return o&&SV(o)!==v});SEL={};draw(1);
  if(!L.length){toast('مفيش أوردر اتغير — كلهم «'+v+'» أصلًا');return}var i=0,n=0;
@@ -811,6 +843,7 @@ R.addEventListener('click',function(e){setTimeout(flush,0);
  if(t.closest('[data-osel-page]')){var pr=draw.page||[];var all=pr.every(function(o){return SEL[o.id]});pr.forEach(function(o){SEL[o.id]=!all});draw(1);return}
  if(t.closest('[data-obulk-clear]')){SEL={};draw(1);return}
  if(t.closest('[data-obulk-del]')){bulkDelete(Object.keys(SEL).filter(function(k){return SEL[k]}));return}
+ if(t.closest('[data-obulk-bosta]')){bulkBosta(Object.keys(SEL).filter(function(k){return SEL[k]}));return}
  if(t.closest('[data-obulk-copy]')||t.closest('[data-obulk-csv]')){var ids=Object.keys(SEL).filter(function(k){return SEL[k]});var csv=t.closest('[data-obulk-csv]');
   var txt=csv?['رقم الأوردر,العميل,الموبايل,الحالة,التأكيد,الإجمالي'].concat(ids.map(function(id){var o=OM[id]||{};return[o.id,o.name,o.phone,o.st,o.cf,o.tot].map(function(x){return'"'+String(x==null?'':x).replace(/"/g,'""')+'"'}).join(',')})).join('\n'):ids.join('\n');
   window.__lastCopy=txt;try{var cp=navigator.clipboard.writeText(txt);if(cp&&cp.then)cp.then(null,function(){})}catch(er){}toast(csv?'اتنسخ CSV لـ '+ids.length+' أوردر — الصقه في إكسل':'اتنسخت '+ids.length+' أرقام أوردرات');return}

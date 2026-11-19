@@ -564,19 +564,25 @@
     if (r.status) return bostaFail(r);
     return { ok: true, locations: r.data.locations || [], warehouse: r.data.warehouse || '', receiver: r.data.receiver || '', phone: r.data.phone || '' };
   }
-  // a maker pickup: a delivery from his location to the warehouse + the courier's visit (woo-sync bosta_pickup); logged by its row id
+  // a maker pickup (0145 — several waybills): the warehouse rows [{ note, parcels }] (cash 0, to the receiver) and the orders typed
+  // (to their customers, the cash = what is left on them) from his location + the courier's one visit (woo-sync bosta_pickup);
+  // the answer lists every waybill with its tracking number or why it was left out. Logged by its row id and counts.
   async function bostaPickup(input) {
     const i = input || {};
-    const r = await syncCall({ action: 'bosta_pickup', vendor_id: i.vendorId || null, location: i.location, date: i.date, slot: i.slot, receiver: i.receiver, phone: i.phone, note: i.note || '', parcels: Number(i.parcels) || 1 });
+    const rows = (Array.isArray(i.warehouse) ? i.warehouse : []).map((r) => ({ note: String((r && r.note) || '').trim(), parcels: Number(r && r.parcels) || 1 }));
+    const r = await syncCall({ action: 'bosta_pickup', vendor_id: i.vendorId || null, location: i.location, date: i.date, slot: i.slot, receiver: i.receiver || '', phone: i.phone || '', warehouse: rows, orders: String(i.orders || '') });
     if (r.status && !(r.body && r.body.id)) return Object.assign(bostaFail(r), { field: r.body && r.body.field });
     const d = r.status ? r.body : r.data;
-    log('order.bosta_pickup', 'BP-' + d.id + (d.tracking ? ' · ' + d.tracking : ''));
-    return { ok: !r.status && d.result === 'ok', partial: d.result === 'partial', id: d.id, tracking: d.tracking || null, delivery: d.delivery || null, error: d.error || null, message: d.message || null };
+    const list = Array.isArray(d.deliveries) ? d.deliveries : [];
+    for (const x of list) { if (x.kind !== 'order' || !x.delivery) continue; const o = (orders || []).find((q) => q.id === String(x.order_id)); if (o) { o.bdl = String(x.delivery); if (x.tracking) o.trk = String(x.tracking); if (x.cod != null) o.bcod = Number(x.cod); } }
+    if (list.some((x) => x.kind === 'order' && x.delivery)) notifySoon();
+    log('order.bosta_pickup', 'BP-' + d.id + ' · ' + list.filter((x) => x.delivery).length + '/' + list.length);
+    return { ok: !r.status && d.result === 'ok', partial: d.result === 'partial', id: d.id, deliveries: list, tracking: d.tracking || null, error: d.error || null, message: d.message || null };
   }
   // the maker's pickups (the last location comes back from here)
   async function bostaPickups(vendorId) {
     const cl = c(); if (!cl || !uid()) return [];
-    let q = cl.from('bosta_pickups').select('id, vendor_id, vendor_name, location_id, location_name, scheduled_date, slot, receiver_name, note, parcels, delivery_id, tracking, pickup_id, state, error, created_at').order('id', { ascending: false }).limit(50);
+    let q = cl.from('bosta_pickups').select('id, vendor_id, vendor_name, location_id, location_name, scheduled_date, slot, receiver_name, note, parcels, delivery_id, tracking, pickup_id, state, error, created_at, deliveries').order('id', { ascending: false }).limit(50);
     if (vendorId) q = q.eq('vendor_id', vendorId);
     const { data, error } = await q;
     return error ? [] : (data || []);

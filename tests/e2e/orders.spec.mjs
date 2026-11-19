@@ -1286,8 +1286,12 @@ test('rows per page: 25 / 50 / 100 next to «عرض», 25 by default and remembe
   const sel = page.locator('#orders #pg [data-pgsize]');
   await expect(sel).toHaveValue('25');
   expect(await sel.locator('option').allTextContents()).toEqual(['25', '50', '100']);
-  await expect(page.locator('#orders #pg .pgr')).toContainText('عرض 1–3 من 3');
+  // the owner 19 Nov (screenshot): ‹ 1 … › · «الصفوف لكل صفحة» · «1–3 من 3»
+  await expect(page.locator('#orders #pg [data-pg-range]')).toHaveText('1–3 من 3');
   await expect(page.locator('#orders #pg .pgr')).toContainText('الصفوف لكل صفحة');
+  await expect(page.locator('#orders #pg [aria-current=page]')).toHaveText('1');
+  await expect(page.locator('#orders #pg [aria-label="الصفحة السابقة"]')).toBeDisabled();
+  await expect(page.locator('#orders #pg [aria-label="الصفحة التالية"]')).toBeDisabled();
   await sel.selectOption('50');
   await expect(cards(page)).toHaveCount(3);
   expect(await page.evaluate(() => localStorage.getItem('ib.orders.size'))).toBe('50');

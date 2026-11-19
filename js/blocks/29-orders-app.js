@@ -545,7 +545,7 @@ function bulkDelete(ids){var all=ids.map(function(id){return OM[id]}).filter(Boo
 // the owner 19 Nov — «ابعت لبوسطة» in the bulk bar only (decision 9 in docs/superpowers/plans/2026-11-19-orders-batch.md): the whole order to
 // Bosta the way the site's plugin sends it, the status as it is, the cash = what is left on the customer (cash on delivery; a paid order 0);
 // an order with a tracking number already is left out; the answer per order, the failures in words (IBOrders.sendBosta → woo-sync bosta_send)
-var BOSTA_WHY={no_phone:'مفيش رقم موبايل صحيح',no_address:'مفيش عنوان',no_city:'المحافظة مش معروفة لبوسطة',bad_key:'مفتاح بوسطة غلط — راجعه في الإعدادات',refused:'بوسطة رفضت',unreachable:'بوسطة مارديتش — جرّب تاني',missing:'الأوردر مش موجود',bad_answer:'رد بوسطة ناقص'};
+var BOSTA_WHY={no_name:'مفيش اسم للعميل',no_phone:'مفيش رقم موبايل صحيح',no_address:'مفيش عنوان',short_address:'العنوان أقل من 10 حروف',no_city:'مفيش محافظة ولا منطقة معروفة لبوسطة',bad_key:'مفتاح بوسطة غلط — راجعه في الإعدادات',refused:'بوسطة رفضت',unreachable:'بوسطة مارديتش — جرّب تاني',missing:'الأوردر مش موجود',bad_answer:'رد بوسطة ناقص'};
 function bostaCod(o){return o.payMethod==='cod'?Math.max(0,o.tot-o.dep):0}
 function bulkBosta(ids){var all=ids.map(function(id){return OM[id]}).filter(Boolean);var done=all.filter(function(o){return o.trk}),L=all.filter(function(o){return !o.trk});
  if(!L.length){toast('كل المحدد اتبعت لبوسطة قبل كده');return}

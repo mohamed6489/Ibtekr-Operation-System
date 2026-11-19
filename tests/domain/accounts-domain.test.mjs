@@ -13,7 +13,8 @@ test('liveSeed (phase 4): the makers with Dokan\'s balance, the sales per maker 
   assert.deepEqual(plain(s.sales.map((r) => [r.label, r.orders, r.sales, r.share, r.pct])), [['مكتملة', 2, 1300, 320, '24.6%'], ['تحت التنفيذ', 1, 500, 100, '20.0%'], ['مرتجع / ملغي', 0, 0, 0, '0.0%']]);
   assert.deepEqual(plain(s.salesTotal), { orders: 3, sales: 1800, share: 420, pct: '23.3%' });
   assert.equal(s.inProgressShare, 100);
-  assert.deepEqual(plain(Object.values(s.accounts)), [0, 0, 0, 0]);
+  assert.deepEqual(plain(Object.values(s.accounts)), [0, 0, 0, 0, 0]);
+  assert.deepEqual(Object.keys(s.accounts).slice(-1), ['أوبريشن']); // 0141: the fifth account (the owner 19 Nov)
   assert.deepEqual(plain(s.expenseSeed), {});
 });
 

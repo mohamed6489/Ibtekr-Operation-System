@@ -34,7 +34,7 @@
   'use strict';
   const PAGE = 1000, CAP = 5000, IDS = 200, SKUS = 100; // PostgREST max_rows; ids / skus per in.(…) keep the URL short
   const COLS = {
-    order: 'id, customer_name, customer_phone, customer_state, customer_city, customer_address, payment_method, payment_title, status, woo_status, confirm, confirm_at, deposit, total, note, customer_note, placed_at, cancel, ret, bosta_tracking, bosta_state, bosta_delivery, bosta_cod, bosta_cod_error',
+    order: 'id, customer_name, customer_phone, customer_state, customer_city, customer_address, payment_method, payment_title, status, woo_status, confirm, confirm_at, deposit, total, note, customer_note, placed_at, cancel, ret, bosta_tracking, bosta_state, bosta_delivery, bosta_cod, bosta_cod_error, bosta_district',
     item: 'id, order_id, sub_order_id, product_id, sku, name, qty, total, vendor_id, status, expected_at, comment, ready_at, waybill, pulled, ret, store, removed, commission_rate, commission_fee',
     sub: 'id, order_id, vendor_id, woo_order_id, woo_status',
   };
@@ -118,7 +118,7 @@
     return (rows || []).map((r) => {
       const id = String(r.id); const date = localDate(r.placed_at); const state = text(r.customer_state); const stateName = (state && text(sn.get(state))) || state;
       return { id, name: r.customer_name || '', phone: r.customer_phone || '', pay: r.payment_title || r.payment_method || '', payMethod: r.payment_method || '', date, st: r.status, cf: r.confirm, dep: Number(r.deposit) || 0, tot: Number(r.total) || 0,
-        age: days(date, T), note: r.note || '', cnote: r.customer_note || '', cdate: r.confirm_at || '', confAt: r.confirm_at || '', state, stateName, city: r.customer_city || '', addr: r.customer_address || '', trk: r.bosta_tracking || '', trkState: r.bosta_state || '', bdl: r.bosta_delivery || '', bcod: r.bosta_cod == null ? null : Number(r.bosta_cod), bcodErr: r.bosta_cod_error || '', cancel: r.cancel || null, ret: r.ret || null,
+        age: days(date, T), note: r.note || '', cnote: r.customer_note || '', cdate: r.confirm_at || '', confAt: r.confirm_at || '', state, stateName, city: r.customer_city || '', addr: r.customer_address || '', trk: r.bosta_tracking || '', trkState: r.bosta_state || '', bdl: r.bosta_delivery || '', bcod: r.bosta_cod == null ? null : Number(r.bosta_cod), bcodErr: r.bosta_cod_error || '', area: r.bosta_district || '', cancel: r.cancel || null, ret: r.ret || null,
         ...(cu.get(id) ? { stc: cu.get(id) } : {}), // 0095: an added status «بتتحسب زي» its base (st stays the base)
         subs: (lines.get(id) || []).map((it) => withLead(sub(it, r, subById, vname, lk, origin), it, vlead, pl)) };
     });
@@ -579,6 +579,36 @@
     log('order.bosta_pickup', 'BP-' + d.id + ' · ' + list.filter((x) => x.delivery).length + '/' + list.length);
     return { ok: !r.status && d.result === 'ok', partial: d.result === 'partial', id: d.id, deliveries: list, tracking: d.tracking || null, error: d.error || null, message: d.message || null };
   }
+  // «تعديل العنوان» (0146, the owner 19 Nov): Bosta's governorates and areas (kept for the session) + the order's address written here,
+  // on the site (an order of one maker only — 0079) and on its Bosta delivery; the answer says what each place did. Logged as
+  // order.address by the order's number only — never the address.
+  let zones = null;
+  async function bostaZones() {
+    if (zones) return { ok: true, zones };
+    const r = await syncCall({ action: 'bosta_zones' });
+    if (r.status) return bostaFail(r);
+    zones = Array.isArray(r.data.zones) ? r.data.zones : [];
+    return { ok: true, zones };
+  }
+  async function setAddress(orderId, input) {
+    const i = input || {};
+    const address = String(i.address || '').replace(/\s+/g, ' ').trim(); const state = String(i.state || '').trim(); const district = String(i.district || '').trim();
+    if (address.length < 10 || address.length > 200 || /[<>]/.test(address)) return Object.assign(fail('invalid'), { field: 'address' });
+    if (!state) return Object.assign(fail('invalid'), { field: 'state' });
+    if (!district) return Object.assign(fail('invalid'), { field: 'district' });
+    const r = await syncCall({ action: 'order_address', order_id: Number(orderId), address, state, district });
+    if (r.status) return Object.assign(bostaFail(r), { field: r.body && r.body.field });
+    const d = r.data || {};
+    const o = (orders || []).find((q) => q.id === String(orderId));
+    if (o) {
+      const z = (zones || []).find((x) => x.code === state);
+      o.addr = address; o.state = state; o.stateName = (z && z.name) || (states && states.get && states.get(state)) || state; o.city = d.city || o.city; o.area = district;
+      moveOn(seenO, SEEN_O, orderId, { customer_address: address, customer_city: d.city || o.city });
+      notifySoon();
+    }
+    log('order.address', 'IB-' + orderId + ' · ' + (d.site || '') + ' · ' + (d.bosta || ''));
+    return { ok: true, site: d.site || '', bosta: d.bosta || '', message: d.message || null, city: d.city || '' };
+  }
   // the maker's pickups (the last location comes back from here)
   async function bostaPickups(vendorId) {
     const cl = c(); if (!cl || !uid()) return [];
@@ -762,7 +792,7 @@
     return out;
   }
   const imageOf = (sku) => (sku && images[sku]) || '';
-  function clear() { gen += 1; unsubscribe(); cancelNotify(); thumbCache.clear(); orders = null; custom = new Map(); customOk = false; seenO.clear(); seenI.clear(); vendorRows = []; leads = new Map(); leadAsked.clear(); images = {}; links = {}; states = new Map(); statuses = []; names = []; asked.clear(); busy.clear(); setState('idle'); }
-  window.IBOrders = { load, data, state: () => st, today, setOrderStatus, setConfirm, patchOrder, deleteOrder, deleteSub, deleteLine, sendBosta, bostaAwb, bostaCod, bostaLocations, bostaPickup, bostaPickups, setLineQty, addLine, makerProducts, siteStatuses, setSubSiteStatus, setItemStatus, setWaybill, setPulled, syncNow, registerWebhooks, subscribe, unsubscribe, clear, toScreen, refetch, makerHistory, thumbs, imageOf };
+  function clear() { gen += 1; unsubscribe(); cancelNotify(); thumbCache.clear(); orders = null; custom = new Map(); customOk = false; seenO.clear(); seenI.clear(); vendorRows = []; leads = new Map(); leadAsked.clear(); images = {}; links = {}; zones = null; states = new Map(); statuses = []; names = []; asked.clear(); busy.clear(); setState('idle'); }
+  window.IBOrders = { load, data, state: () => st, today, setOrderStatus, setConfirm, patchOrder, deleteOrder, deleteSub, deleteLine, sendBosta, bostaAwb, bostaCod, bostaLocations, bostaPickup, bostaPickups, bostaZones, setAddress, setLineQty, addLine, makerProducts, siteStatuses, setSubSiteStatus, setItemStatus, setWaybill, setPulled, syncNow, registerWebhooks, subscribe, unsubscribe, clear, toScreen, refetch, makerHistory, thumbs, imageOf };
   window.IBOrdersStore = window.IBOrders; // the name block 29's write hooks call
 })();

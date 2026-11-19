@@ -138,7 +138,7 @@ Deno.test('the right X-Sync-Secret → system mode: orders pulled with the exact
   assertEquals(body.counts.orders, { orders: 2, sub_orders: 2, skipped: 1, conflicts: 0, failed: 0, pages: 1, done: true });
 
   assertEquals(woo.calls.length, 1);
-  assertEquals(woo.calls[0].query, { after: '2026-10-01T00:00:00', dates_are_gmt: 'true', orderby: 'modified', order: 'asc', status: 'any', per_page: '100', page: '1' });
+  assertEquals(woo.calls[0].query, { after: '2026-08-14T00:00:00', dates_are_gmt: 'true', orderby: 'modified', order: 'asc', status: 'any', per_page: '100', page: '1' });
   assertEquals(woo.calls[0].headers.authorization, WC_AUTH);
   assertEquals(db.rows('orders').map((o: any) => o.id), [1001, 1002]);
   assertEquals(db.rows('sub_orders').map((s: any) => s.woo_order_id), [2001, 2002]);

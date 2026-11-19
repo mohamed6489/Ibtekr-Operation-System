@@ -10,7 +10,7 @@
 //              own governorate list (EG-01 …, not WooCommerce's EGALX …), shown by name for orders.customer_state.
 //   'categories'  wc/v3/products/categories, page by page → woo_categories on id (the names behind the per-category
 //              commission of phase 3.3).
-//   'orders'   wc/v3/orders?after=2026-10-01T00:00:00&dates_are_gmt=true&modified_after={cursor}&orderby=modified&
+//   'orders'   wc/v3/orders?after=2026-08-14T00:00:00&dates_are_gmt=true&modified_after={cursor}&orderby=modified&
 //              order=asc&status=any, page by page (100; at most 50 pages per run): parents + Dokan sub-orders;
 //              sync_state['orders'] = { cursor, last_run, count, pages, done } after every page.
 //   'vendors'  dokan/v1/stores → vendors on woo_vendor_id: a new store whole, an existing one through the snapshot

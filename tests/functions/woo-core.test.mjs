@@ -120,7 +120,7 @@ test('module is pure: no imports, no environment globals, no clock', () => {
 });
 
 test('constants', () => {
-  assert.equal(START_DATE, '2026-10-01');
+  assert.equal(START_DATE, '2026-08-14');
   assert.deepEqual(OPEN_WOO, ['processing', 'pending', 'on-hold']);
   assert.deepEqual(WOO_FALLBACK, {});
   for (const k of ['_dokan_*', 'bosta_delivery_id', 'bosta_tracking_number', 'bosta_status', 'bosta_sync_status', 'wpml_language',
@@ -538,7 +538,7 @@ test('mapOrder: the status goes through incomingStatus with the current DB statu
 
 test('mapOrder: skipped before START_DATE and for drafts (nothing to write)', () => {
   const ctx = { statusMap: MAP, vendorsByWooId: {}, now: NOW };
-  const early = mapOrder(singleVendor({ date_created_gmt: '2026-09-30T23:59:00' }), ctx);
+  const early = mapOrder(singleVendor({ date_created_gmt: '2026-08-13T23:59:00' }), ctx);
   assert.deepEqual(early, { skipped: 'before_start', order: null, items: [], unknownVendorIds: [], statusResult: null });
   assert.equal(mapOrder(parent({ date_created_gmt: '2026-10-01T00:00:00' }), ctx).skipped, undefined);
   assert.equal(mapOrder(parent({ status: 'checkout-draft' }), ctx).skipped, 'draft');

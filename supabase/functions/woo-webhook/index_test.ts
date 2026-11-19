@@ -452,8 +452,8 @@ Deno.test('a sub-order whose parent is not stored yet → the parent is fetched 
   assertEquals(db.row('order_items', 1).sub_order_id, db.row('sub_orders', 2001, 'woo_order_id').id);
 });
 
-Deno.test('an order before 2026-10-01, a checkout draft or an order.deleted body → ignored, nothing written', async () => {
-  for (const [payload, topic] of [[wooOrder({ date_created_gmt: '2026-09-30T23:59:59' }), 'order.created'], [wooOrder({ status: 'checkout-draft' }), 'order.updated'], [{ id: 1001 }, 'order.deleted']] as const) {
+Deno.test('an order before 2026-08-14, a checkout draft or an order.deleted body → ignored, nothing written', async () => {
+  for (const [payload, topic] of [[wooOrder({ date_created_gmt: '2026-08-13T23:59:59' }), 'order.created'], [wooOrder({ status: 'checkout-draft' }), 'order.updated'], [{ id: 1001 }, 'order.deleted']] as const) {
     const { db, woo, deps } = setup();
     const { body } = await deliver(deps, payload, { topic });
     assertEquals(body, { status: 'ignored', id: 1001 });

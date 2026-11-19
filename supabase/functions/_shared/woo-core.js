@@ -16,7 +16,7 @@
 // Phase 3.5 (the bank two-way): mapStore reads payment.bank (BANK_KEYS) — never paypal or any other method — as `bank`,
 // kept in memory only; the snapshot and the comparison see its SHA-256 digest (bankDigest), never a value.
 
-export const START_DATE = '2026-10-01';
+export const START_DATE = '2026-08-14'; // the owner 19 Nov: «هات الاوردرات من 14 اغسطس» (was 2026-10-01)
 export const OPEN_WOO = ['processing', 'pending', 'on-hold'];
 // Woo slug → system status for a slug with no status_map row (none today: `failed` has its own row «فشل» since 0009).
 export const WOO_FALLBACK = {};

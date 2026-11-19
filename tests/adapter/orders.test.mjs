@@ -26,7 +26,7 @@ const STATES = [{ code: 'EG-02', name: 'الجيزة' }, { code: 'EG-01', name: 
 const STATUSES = [{ system_status: 'قيد الانتظار', woo_status: 'pending', direction: 'both', sort: 1 }, { system_status: 'فشل', woo_status: 'failed', direction: 'from_woo', sort: 10 }];
 const ok = (data) => ({ data, error: null });
 // the granted columns the adapter names (0007 grants: no raw, no customer_phone on orders — the view masks it)
-const COLS = { order: 'id, customer_name, customer_phone, customer_state, customer_city, customer_address, payment_method, payment_title, status, woo_status, confirm, confirm_at, deposit, total, note, customer_note, placed_at, cancel, ret',
+const COLS = { order: 'id, customer_name, customer_phone, customer_state, customer_city, customer_address, payment_method, payment_title, status, woo_status, confirm, confirm_at, deposit, total, note, customer_note, placed_at, cancel, ret, bosta_tracking, bosta_state',
   item: 'id, order_id, sub_order_id, product_id, sku, name, qty, total, vendor_id, status, expected_at, comment, ready_at, waybill, pulled, ret, store, removed, commission_rate, commission_fee', sub: 'id, order_id, vendor_id, woo_order_id, woo_status' };
 const seed = () => ({ orders_v: ok([O1, O2]), order_items: ok(ITEMS), sub_orders: ok(SUBS), vendors: ok(VENDORS), products: ok(PRODUCTS), status_map: ok(STATUSES), woo_states: ok(STATES), 'fn:woo-sync': ok({ action: 'push_status', result: 'ok', counts: { pushed: 1 } }) });
 // the adapter's clock: local 2026-10-25 12:00 unless a test asks for the real one (now: null)
@@ -102,7 +102,7 @@ test('load builds the screen shape: multi-maker sid/raw from the Dokan sub-order
   await O.load();
   const d = plain(O.data());
   assert.deepEqual(d.orders.map((o) => o.id), ['181668', '180686']);
-  assert.deepEqual(d.orders[0], { id: '181668', name: 'سلوى زيتوني', phone: '012••••7052', pay: 'الدفع عند الاستلام', date: '2026-10-19', st: 'جاري التنفيذ', cf: 'غير مؤكد', dep: 0, tot: 3541, age: 6, note: '', cnote: 'اتصلوا قبل التوصيل\nالدور التالت', cdate: '', confAt: '', state: 'EG-01', stateName: 'القاهرة', city: 'القاهرة', addr: 'مدينة نصر', cancel: null, ret: null,
+  assert.deepEqual(d.orders[0], { id: '181668', name: 'سلوى زيتوني', phone: '012••••7052', pay: 'الدفع عند الاستلام', date: '2026-10-19', st: 'جاري التنفيذ', cf: 'غير مؤكد', dep: 0, tot: 3541, age: 6, note: '', cnote: 'اتصلوا قبل التوصيل\nالدور التالت', cdate: '', confAt: '', state: 'EG-01', stateName: 'القاهرة', city: 'القاهرة', addr: 'مدينة نصر', trk: '', trkState: '', cancel: null, ret: null,
     subs: [
       { n: 5001, itemId: '5001', sid: '181669', oid: '181668', prod: 'Cushion', qty: 2, tot: 1002, raw: 'processing', vendor: 'Art Craft', vendorId: V1, cm: '', ss: '', exp: '', sku: 'IBTA4040PAHC000013', link: SITE + '/product/cushion/', readyAt: '', waybill: null, pulled: false, ret: null, store: null, rate: 35, fee: 0, pid: '9001', lead: 7, leadSrc: 'default' }, // the website's commission on the line (phase 3)
       { n: 5002, itemId: '5002', sid: '181670', oid: '181668', prod: 'Macrame Curtain', qty: 1, tot: 2539, raw: 'on-hold', vendor: 'Antikiano', vendorId: V2, cm: 'تم تبليغ المورد', ss: 'مؤكد', exp: '2026-10-20', sku: 'IBTAMCTOWM200X10014', link: SITE + '/?p=9002', readyAt: '', waybill: null, pulled: false, ret: null, store: null, rate: 40, fee: 10, pid: '9002', lead: 7, leadSrc: 'default' }, // no permalink: the site's ?p=

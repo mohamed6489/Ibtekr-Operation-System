@@ -250,31 +250,32 @@ test('the address has its own row under the customer data: governorate · city �
   await openOrders(page);
   await card(page, '180656').locator('[data-tg="180656"]').click();
   const row = (id) => card(page, id).locator('.arow');
+  const addr = (id) => row(id).locator(':scope > b'); // the tracking number (0140) has a <b> of its own
   await expect(card(page, '181668').locator('.band')).not.toContainText('العنوان'); // out of the band
-  await expect(row('181668').locator('small')).toHaveText('العنوان:');
-  await expect(row('181668').locator('b')).toHaveText('القاهرة · مدينة نصر · شارع عباس العقاد'); // EG-01 → its name in woo_states
-  await expect(row('180656').locator('b')).toHaveText('EG-14 · ش التحرير'); // a code the website's list has no name for: the code
-  await expect(row('180686').locator('b')).toHaveText('—'); // no governorate, city or address
+  await expect(row('181668').locator(':scope > small')).toHaveText('العنوان:');
+  await expect(addr('181668')).toHaveText('القاهرة · مدينة نصر · شارع عباس العقاد'); // EG-01 → its name in woo_states
+  await expect(addr('180656')).toHaveText('EG-14 · ش التحرير'); // a code the website's list has no name for: the code
+  await expect(addr('180686')).toHaveText('—'); // no governorate, city or address
   await expect(row('181668').locator('input, textarea, select, button, a')).toHaveCount(0); // read-only
   expect(await card(page, '181668').locator('.band').evaluate((b) => b.nextElementSibling && b.nextElementSibling.className)).toBe('arow');
   await below(card(page, '181668').locator('.band'), row('181668'));
-  expect(await row('181668').evaluate((e) => getComputedStyle(e.querySelector('b')).overflowWrap)).toBe('anywhere');
+  expect(await row('181668').evaluate((e) => getComputedStyle(e.querySelector(':scope > b')).overflowWrap)).toBe('anywhere');
   await page.evaluate(() => { const d = window.IBOrders.data(); Object.assign(d.orders.find((x) => x.id === '181668'), { city: 'القاهرة' }); Object.assign(d.orders.find((x) => x.id === '180686'), { city: ' ', addr: 'الدقي' }); window.OrdersApp.hydrate(d); });
-  await expect(row('181668').locator('b')).toHaveText('القاهرة · شارع عباس العقاد'); // a part that repeats the governorate shows once
-  await expect(row('180686').locator('b')).toHaveText('الدقي'); // an empty part is skipped
+  await expect(addr('181668')).toHaveText('القاهرة · شارع عباس العقاد'); // a part that repeats the governorate shows once
+  await expect(addr('180686')).toHaveText('الدقي'); // an empty part is skipped
   for (const width of [800, 375]) { // tablet, mobile: a row of its own under the customer section's fields
     await atWidth(page, width);
     const sec = card(page, '181668').locator('.sec.cust');
     await expect(sec.locator('.crow')).not.toContainText('العنوان');
-    await expect(sec.locator('.inf2.adr small')).toHaveText('العنوان');
-    await expect(sec.locator('.inf2.adr b')).toHaveText('القاهرة · شارع عباس العقاد');
-    await expect(card(page, '180686').locator('.sec.cust .inf2.adr b')).toHaveText('الدقي');
-    await expect(card(page, '180656').locator('.sec.cust .inf2.adr b')).toHaveText('EG-14 · ش التحرير');
+    await expect(sec.locator('.inf2.adr > small')).toHaveText('العنوان');
+    await expect(sec.locator('.inf2.adr > b')).toHaveText('القاهرة · شارع عباس العقاد');
+    await expect(card(page, '180686').locator('.sec.cust .inf2.adr > b')).toHaveText('الدقي');
+    await expect(card(page, '180656').locator('.sec.cust .inf2.adr > b')).toHaveText('EG-14 · ش التحرير');
     expect(await sec.locator('.crow').evaluate((c) => c.nextElementSibling && c.nextElementSibling.className)).toBe('inf2 adr');
     await below(sec.locator('.crow'), sec.locator('.inf2.adr'));
   }
   await page.evaluate(() => { const d = window.IBOrders.data(); Object.assign(d.orders.find((x) => x.id === '180686'), { addr: '' }); window.OrdersApp.hydrate(d); });
-  await expect(card(page, '180686').locator('.sec.cust .inf2.adr b')).toHaveText('—');
+  await expect(card(page, '180686').locator('.sec.cust .inf2.adr > b')).toHaveText('—');
 });
 
 // the website note's text block (.wn) of a card or the popup: its text as is, its box and how it scrolls
@@ -1294,4 +1295,18 @@ test('rows per page: 25 / 50 / 100 next to «عرض», 25 by default and remembe
   await expect(page.locator('#root')).toBeVisible();
   await page.evaluate(() => { location.hash = 'orders'; });
   await expect(page.locator('#orders #pg [data-pgsize]')).toHaveValue('50');
+});
+
+// the owner 19 Nov: «رقم التتبع يبقي بعد شمال عنوان العميل» — the Bosta tracking number (0140, from the site's Bosta plugin) at the
+// end of the address row with its status in Arabic; an order Bosta never got shows nothing
+test('the Bosta tracking number sits at the end of the address row with its status', async ({ page }) => {
+  await openOrders(page);
+  const c = card(page, '181668');
+  const b = c.locator('[data-tg]').first(); if ((await b.getAttribute('aria-label')) === 'فتح') await b.click();
+  const t = c.locator('.arow [data-trk]');
+  await expect(t).toContainText('70123456');
+  await expect(t).toContainText('مستني الاستلام');
+  const ob = card(page, '180686').locator('[data-tg]').first(); if ((await ob.getAttribute('aria-label')) === 'فتح') await ob.click();
+  await expect(card(page, '180686').locator('.arow')).toBeVisible();
+  await expect(card(page, '180686').locator('[data-trk]')).toHaveCount(0);
 });

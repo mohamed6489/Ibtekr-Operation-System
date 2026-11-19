@@ -34,7 +34,7 @@
   'use strict';
   const PAGE = 1000, CAP = 5000, IDS = 200, SKUS = 100; // PostgREST max_rows; ids / skus per in.(…) keep the URL short
   const COLS = {
-    order: 'id, customer_name, customer_phone, customer_state, customer_city, customer_address, payment_method, payment_title, status, woo_status, confirm, confirm_at, deposit, total, note, customer_note, placed_at, cancel, ret',
+    order: 'id, customer_name, customer_phone, customer_state, customer_city, customer_address, payment_method, payment_title, status, woo_status, confirm, confirm_at, deposit, total, note, customer_note, placed_at, cancel, ret, bosta_tracking, bosta_state',
     item: 'id, order_id, sub_order_id, product_id, sku, name, qty, total, vendor_id, status, expected_at, comment, ready_at, waybill, pulled, ret, store, removed, commission_rate, commission_fee',
     sub: 'id, order_id, vendor_id, woo_order_id, woo_status',
   };
@@ -118,7 +118,7 @@
     return (rows || []).map((r) => {
       const id = String(r.id); const date = localDate(r.placed_at); const state = text(r.customer_state); const stateName = (state && text(sn.get(state))) || state;
       return { id, name: r.customer_name || '', phone: r.customer_phone || '', pay: r.payment_title || r.payment_method || '', date, st: r.status, cf: r.confirm, dep: Number(r.deposit) || 0, tot: Number(r.total) || 0,
-        age: days(date, T), note: r.note || '', cnote: r.customer_note || '', cdate: r.confirm_at || '', confAt: r.confirm_at || '', state, stateName, city: r.customer_city || '', addr: r.customer_address || '', cancel: r.cancel || null, ret: r.ret || null,
+        age: days(date, T), note: r.note || '', cnote: r.customer_note || '', cdate: r.confirm_at || '', confAt: r.confirm_at || '', state, stateName, city: r.customer_city || '', addr: r.customer_address || '', trk: r.bosta_tracking || '', trkState: r.bosta_state || '', cancel: r.cancel || null, ret: r.ret || null,
         ...(cu.get(id) ? { stc: cu.get(id) } : {}), // 0095: an added status «بتتحسب زي» its base (st stays the base)
         subs: (lines.get(id) || []).map((it) => withLead(sub(it, r, subById, vname, lk, origin), it, vlead, pl)) };
     });

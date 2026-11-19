@@ -599,6 +599,15 @@ test('the HR rebuild (0083): the leave carried into this year counts in the bala
   eq([H.settings().payDay, H.settings().bonusMin, H.settings().leaveYearEnd], [28, 3, 'pay']);
 });
 
+test('0141 (the owner 19 Nov): the leave used before the system comes off this year\'s balance only', async () => {
+  const { H } = load({ responses: { hr_members: ok([{ member_id: B, leave_days: 24, leave_carry: 0, leave_carry_year: null, leave_used_open: 19, leave_used_open_year: 2026 },
+    { member_id: C, leave_days: 24, leave_carry: 0, leave_carry_year: null, leave_used_open: 10, leave_used_open_year: 2025 }]) } });
+  await H.load();
+  const b = H.member('M02'); const c = H.member('M03');
+  eq([b.usedOpen, b.leaveLeft], [19, 24 + 0 - 19 - (b.used - 19)], 'this year\'s opening used counts');
+  eq(c.usedOpen, 0, 'another year\'s does not');
+});
+
 test('owner batch 14 Nov decision 13 (0089): the evaluation notes — hr_notes_log read in the members\' codes; noteAdd checks before the server (a warning / a plan needs its text, a meeting a coming time in Cairo) and nothing is logged here', async () => {
   const { H, stub, logs } = load({ responses: {
     hr_notes_log: ok([{ id: 5, member_id: C, kind: 'warning', period: '2026-10', body: 'سبب', due_at: null, ticket_id: null, by_id: B, at: '2026-11-01T08:00:00Z' },

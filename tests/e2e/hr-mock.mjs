@@ -23,7 +23,7 @@ const restDay = (st, d) => { const w = new Date(d + 'T00:00:00Z').getUTCDay(); r
 // the column grants of 0046 (security review 5 Nov): no member reads or writes hr_members.notes — hr_member_notes / hr_member_note_set
 const CLOSED = { hr_members: ['notes'] };
 const COLS = {
-  hr_members: ['member_id', 'shift_start', 'shift_end', 'hire_date', 'leave_days', 'notes', 'updated_by', 'updated_at', 'leave_carry', 'leave_carry_year'],
+  hr_members: ['member_id', 'shift_start', 'shift_end', 'hire_date', 'leave_days', 'notes', 'updated_by', 'updated_at', 'leave_carry', 'leave_carry_year', 'leave_used_open', 'leave_used_open_year'],
   hr_pay: ['member_id', 'salary', 'holdback', 'allowances', 'updated_by', 'updated_at'],
   hr_attendance: ['id', 'member_id', 'day', 'in_at', 'out_at', 'remote', 'source', 'note', 'by_id', 'updated_at', 'ot_from', 'ot_ticket'],
   hr_overtime: ['id', 'member_id', 'day', 'start_at', 'end_at', 'minutes', 'kind', 'note', 'status', 'paid_minutes', 'pay_month', 'decided_by', 'decided_at', 'reason', 'created_at', 'ticket_id'],
@@ -54,7 +54,7 @@ export function hrState(opts = {}) {
   const T = '2026-11-01T08:00:00Z'; const copy = (l) => (l || []).map((x) => JSON.parse(JSON.stringify(x)));
   return {
     resend: opts.hrResend !== undefined ? opts.hrResend : true, mails: [], // decision 14: team-admin mails the set-your-password link when Resend is set (the default here); hrResend: false = the password
-    members: copy(opts.hrMembers).map((x) => ({ shift_start: '09:00', shift_end: '17:00', hire_date: null, leave_days: 21, notes: null, leave_carry: 0, leave_carry_year: null, ...x })),
+    members: copy(opts.hrMembers).map((x) => ({ shift_start: '09:00', shift_end: '17:00', hire_date: null, leave_days: 21, notes: null, leave_carry: 0, leave_carry_year: null, leave_used_open: 0, leave_used_open_year: null, ...x })),
     pay: copy(opts.hrPay).map((x) => ({ holdback: 0, allowances: 0, ...x })),
     attendance: copy(opts.hrAttendance).map((x, i) => ({ id: i + 1, out_at: null, remote: false, source: 'clock', note: null, by_id: x.member_id, ...x })),
     overtime: copy(opts.hrOvertime).map((x, i) => ({ id: i + 1, kind: 'hours', status: 'مستني', paid_minutes: 0, decided_by: null, decided_at: null, reason: null, created_at: T, ...x }))
@@ -602,10 +602,10 @@ const evalTotal = (att, perf, comm) => (perf == null || comm == null ? null : Ma
 function openMonthFor(H, id, day) { let m = monthOf(day); while (H.payroll.some((p) => p.month === m && p.status === 'مدفوع') || H.payroll_paid.some((x) => x.month === m && x.member_id === id)) m = nextMonth(m); return m; }
 // hr_leave_left: the year's days + the days carried into it − the approved leave days that deduct
 function leaveLeft(H, id, year) {
-  const r0 = H.members.find((x) => x.member_id === id) || {}; const days = r0.leave_days == null ? 21 : Number(r0.leave_days); const carry = Number(r0.leave_carry_year) === year ? Number(r0.leave_carry) || 0 : 0;
+  const r0 = H.members.find((x) => x.member_id === id) || {}; const days = r0.leave_days == null ? 21 : Number(r0.leave_days); const carry = Number(r0.leave_carry_year) === year ? Number(r0.leave_carry) || 0 : 0; const open = Number(r0.leave_used_open_year) === year ? Number(r0.leave_used_open) || 0 : 0; // 0141
   let used = 0; H.requests.filter((r) => r.member_id === id && r.status === 'موافق' && (H.leave_types.find((t) => t.name === r.type) || {}).deducts).forEach((r) => {
     for (let d = r.from_day > year + '-01-01' ? r.from_day : year + '-01-01'; d <= r.to_day && d <= year + '-12-31'; d = addDays(d, 1)) if (workDay(H, d)) used += 1; });
-  return Math.max(0, days + carry - used);
+  return Math.max(0, days + carry - open - used);
 }
 
 // hr_payroll_calc (0046 + 0083): the month's lines from the live rows

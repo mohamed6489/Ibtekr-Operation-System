@@ -3659,3 +3659,21 @@ Deno.test('bosta_pickup (0145): several warehouse waybills (cash 0, a note each)
   const row = db.rows('bosta_pickups').at(-1);
   assertEquals([row.state, row.vendor_id, row.delivery_id, row.pickup_id, row.deliveries.length, row.created_by], ['sent', vid, 'dP1', 'PK9', 5, 'uid-jwt-ops']);
 });
+
+Deno.test('bosta_pickup: the create answer as the ids list (live 19 Nov), or unreadable → the delivery looked up by its reference; the courier is asked', async () => {
+  const KEY = 'bk_' + 'x'.repeat(30);
+  const locs = { data: { list: [{ _id: 'WH1', locationName: 'مكتب فيصل', isDefault: true, address: { city: { name: 'Giza' }, district: { _id: 'dst1', name: 'Faisal' }, firstLine: 'فيصل' } }, { _id: 'ZAAN', locationName: 'Zaan', address: { city: { name: 'Cairo' }, firstLine: 'النزهة' } }] } };
+  const input = { action: 'bosta_pickup', location: 'ZAAN', date: '2026-10-26', slot: '10:00 to 13:00', receiver: 'محمد هشام', phone: '01102189189', warehouse: [{ note: '1001', parcels: 1 }] };
+  for (const [bulk, search, want] of [
+    [{ data: ['dL1'] }, null, 'dL1'],
+    [{ data: { weird: true } }, { data: { deliveries: [{ _id: 'dS1', businessReference: 'Ibtekr_pickup_1001-1', trackingNumber: 3880, state: { value: 'Pickup requested' } }] } }, 'dS1'],
+  ] as const) {
+    const routes: any = { 'GET /api/v2/pickup-locations': { status: 200, body: locs }, 'POST /api/v2/deliveries/bulk': { status: 200, body: bulk },
+      'POST /api/v2/deliveries/woocommerce-data': { status: 200, body: { data: [] } }, 'POST /api/v0/pickups': { status: 200, body: { success: true, message: { _id: 'PK1' } } } };
+    if (search) routes['POST /api/v2/deliveries/search'] = { status: 200, body: search };
+    const { woo, deps } = setup({ routes, rpc: { app_secret_get: ({ p_name }: any) => (p_name === 'bosta' ? JSON.stringify({ key: KEY }) : null) } });
+    const { body } = await call(deps, input, { jwt: 'jwt-ops' });
+    assertEquals([body.result, body.pickup, body.deliveries[0].delivery], ['ok', 'PK1', want]);
+    if (search) assertEquals(woo.calls.filter((c) => c.path === '/api/v2/deliveries/search').map((c) => c.body), [{ businessReference: 'Ibtekr_pickup_1001-1', pageLimit: 5 }]);
+  }
+});

@@ -2,7 +2,7 @@
 // 19 Nov, «ابعت لبوسطة» — «سيبها بالمفتاح» with the plugin's own request)
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { bostaKey, codOf, phoneOf, cityOf, describe, metaOf, deliveryOf, createdOf, trackingOf, BOSTA_API } from '../../supabase/functions/_shared/bosta.js';
+import { bostaKey, codOf, phoneOf, cityOf, describe, metaOf, deliveryOf, createdOf, foundOf, trackingOf, BOSTA_API } from '../../supabase/functions/_shared/bosta.js';
 
 const NAMES = { 'EG-01': 'Cairo', 'EG-25': 'Giza', 'EG-06': 'El Kalioubia' };
 
@@ -54,6 +54,16 @@ test('the delivery body like the plugin (bosta_format_order_payload): WC_ refere
 
 test('Bosta\'s answers: the bulk create, then the tracking number', () => {
   assert.deepEqual(createdOf(200, { data: { createdDeliveriesIds: ['d1'], failedDeliveries: [] } }), { id: 'd1' });
+  // the created ids as data itself (the plugin's `?? $data` — a pickup's warehouse waybill came back like this live, 19 Nov)
+  assert.deepEqual(createdOf(200, { data: ['dA'] }), { id: 'dA' });
+  assert.deepEqual(createdOf(200, { data: [{ _id: 'dB' }] }), { id: 'dB' });
+  assert.deepEqual(createdOf(200, { data: {} }), { error: 'bad_answer' });
+  // the lookup by businessReference when the answer could not be read
+  const found = { data: { count: 2, deliveries: [{ _id: 'x1', businessReference: 'Ibtekr_pickup_4-1', trackingNumber: 3880002744, state: { value: 'Pickup requested' } }, { _id: 'x2', businessReference: 'Woocommerce_9' }] } };
+  assert.deepEqual(foundOf(found, 'Ibtekr_pickup_4-1'), { id: 'x1', tracking: '3880002744', state: 'Pickup requested' });
+  assert.deepEqual(foundOf(found, 'Woocommerce_9'), { id: 'x2', tracking: null, state: null });
+  assert.equal(foundOf(found, 'Ibtekr_pickup_5-1'), null);
+  assert.equal(foundOf(null, 'x'), null);
   assert.deepEqual(createdOf(200, { data: { createdDeliveriesIds: [], failedDeliveries: [{ errors: [{ message: 'District is not valid' }] }] } }), { error: 'refused', message: 'District is not valid' });
   assert.deepEqual(createdOf(401, { message: 'Unauthorized' }), { error: 'bad_key', message: 'Unauthorized' });
   assert.deepEqual(createdOf(400, [{ message: 'Bad body' }]), { error: 'refused', message: 'Bad body' });

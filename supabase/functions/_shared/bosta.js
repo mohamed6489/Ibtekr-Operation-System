@@ -103,13 +103,25 @@ export function createdOf(status, data) {
   const msgOf = (x) => (isObj(x) && typeof x.message === 'string' ? x.message.replace(/\s+/g, ' ').slice(0, 160) : isObj(x) && typeof x.error === 'string' ? x.error.slice(0, 160) : '');
   if (status === 401 || status === 403) return { error: 'bad_key', message: msgOf(Array.isArray(data) ? data[0] : data) || null };
   if (status < 200 || status >= 300) return { error: 'refused', message: msgOf(Array.isArray(data) ? data[0] : data) || null };
-  const d = isObj(data) && isObj(data.data) ? data.data : null;
+  // data is { createdDeliveriesIds, failedDeliveries } or the created ids themselves (the plugin's `$data['createdDeliveriesIds'] ??
+  // $data` — the pickup's warehouse waybill came back that way live, 19 Nov)
+  const d = isObj(data) && (isObj(data.data) || Array.isArray(data.data)) ? data.data : null;
   if (!d) return { error: 'bad_answer' };
-  const failed = Array.isArray(d.failedDeliveries) ? d.failedDeliveries : [];
+  const failed = isObj(d) && Array.isArray(d.failedDeliveries) ? d.failedDeliveries : [];
   if (failed.length) { const f = failed[0]; const e = isObj(f) && Array.isArray(f.errors) ? f.errors[0] : f; return { error: 'refused', message: msgOf(e) || msgOf(f) || null }; }
-  const ids = Array.isArray(d.createdDeliveriesIds) ? d.createdDeliveriesIds : Array.isArray(d) ? d : [];
+  const ids = Array.isArray(d) ? d : Array.isArray(d.createdDeliveriesIds) ? d.createdDeliveriesIds : [];
   const id = ids.map((x) => (isObj(x) ? x._id : x)).find((x) => typeof x === 'string' && x);
   return id ? { id: id.slice(0, 60) } : { error: 'bad_answer' };
+}
+
+// a delivery found by its businessReference (POST {BOSTA_API}/deliveries/search { businessReference }) — when the create's answer could
+// not be read or never came back, the waybill may be on Bosta all the same (19 Nov: two warehouse waybills were made while the answer
+// read «bad_answer»), so it is looked up before the work is called failed: { id, tracking, state } or null
+export function foundOf(data, ref) {
+  const list = isObj(data) && isObj(data.data) && Array.isArray(data.data.deliveries) ? data.data.deliveries : [];
+  const d = list.find((x) => isObj(x) && x.businessReference === ref);
+  if (!d || typeof d._id !== 'string' || !d._id) return null;
+  return { id: d._id.slice(0, 60), tracking: d.trackingNumber == null ? null : String(d.trackingNumber).slice(0, 40), state: isObj(d.state) && typeof d.state.value === 'string' ? d.state.value.slice(0, 60) : null };
 }
 
 // the woocommerce-data answer for the delivery: { tracking, state } or null

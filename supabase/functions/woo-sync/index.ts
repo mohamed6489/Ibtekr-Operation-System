@@ -164,7 +164,7 @@ import { getState, logSync, setState, upsertRows } from '../_shared/db.js';
 import { readBalances as readDokanBalances } from '../_shared/dokan-balances.js';
 import { PAY_STATUSES, orderCreateInput, orderPayable, payUrl, wooOrderBody } from '../_shared/woo-order-create.js';
 import { secretOf, vaultEnv } from '../_shared/secrets.js';
-import { BOSTA_API, BOSTA_MAX, BOSTA_V0, bostaKey, deliveryOf, createdOf, trackingOf, updateOf, editedOf, awbPath, awbOf, AWB_MAX, locationsOf, pickupInputOf, pickupDeliveryOf, pickupBodyOf, pickupMadeOf } from '../_shared/bosta.js';
+import { BOSTA_API, BOSTA_MAX, BOSTA_V0, bostaKey, deliveryOf, createdOf, foundOf, trackingOf, updateOf, editedOf, awbPath, awbOf, AWB_MAX, locationsOf, pickupInputOf, pickupDeliveryOf, pickupBodyOf, pickupMadeOf } from '../_shared/bosta.js';
 import { isSingle, readStore, SINGLE_OFF_ACTIONS, STORE_FREE_ACTIONS, wooActive } from '../_shared/store/index.js';
 import { ConfigError, WooError, errorText, makeScrubber, wooApi } from '../_shared/woo-api.js';
 import { AR_FIELDS, BATCH_FIELDS, EDIT_FIELDS, VARIATION_FIELDS, brandNamesOf, cleanFields, editView, sharedOf, toWoo, variationView, withBrandAttr } from '../_shared/woo-products.js';
@@ -2293,7 +2293,8 @@ async function bostaSend(run: Run, args: Json, fetchFn: typeof fetch) {
     };
     let made: Json;
     try { const r = await post('/deliveries/bulk', { deliveries: [d.body], deleteFailedDeliveries: false }); made = createdOf(r.status, r.body) as Json; }
-    catch { results.push({ id, result: 'error', reason: 'unreachable' }); counts.failed++; continue; }
+    catch { made = { error: 'unreachable' }; }
+    if (made.error === 'bad_answer' || made.error === 'unreachable') { const f = await bostaFind(fetchFn, key, String(d.body.businessReference)); if (f) made = { id: f.id }; } // made on Bosta all the same
     if (made.error) { results.push({ id, result: 'error', reason: made.error, message: made.message ?? null }); counts.failed++; if (made.error === 'bad_key') break; continue; }
     let res: Json | null = null;
     try { const r = await post('/deliveries/woocommerce-data', { deliveriesIds: [made.id] }); res = r.status >= 200 && r.status < 300 ? trackingOf(r.body, made.id) as Json | null : null; } catch { res = null; }
@@ -2313,6 +2314,13 @@ async function bostaCall(fetchFn: typeof fetch, key: string, method: string, url
   const r = await fetchFn(url, { method, headers: { 'Content-Type': 'application/json', authorization: key, 'X-Requested-By': 'WooCommerce' }, ...(payload === undefined ? {} : { body: JSON.stringify(payload) }), signal: AbortSignal.timeout(BOSTA_MS) });
   let body: unknown = null; try { body = await r.json(); } catch { body = null; }
   return { status: r.status, body };
+}
+
+// a delivery on Bosta by its businessReference (foundOf) — null when Bosta has none or does not answer
+async function bostaFind(fetchFn: typeof fetch, key: string, ref: string): Promise<Json | null> {
+  if (!ref) return null;
+  try { const x = await bostaCall(fetchFn, key, 'POST', BOSTA_API + '/deliveries/search', { businessReference: ref, pageLimit: 5 }); return x.status >= 200 && x.status < 300 ? foundOf(x.body, ref) as Json | null : null; }
+  catch { return null; }
 }
 
 // bosta_cod { ids? } — the cron every 5 minutes (0144, only when something is due) or the page right after a deposit / total change:
@@ -2451,12 +2459,16 @@ async function bostaPickup(run: Run, args: Json, fetchFn: typeof fetch, by: stri
   const create = async (body: Json): Promise<Json> => {
     try {
       const x = await bostaCall(fetchFn, key, 'POST', BOSTA_API + '/deliveries/bulk', { deliveries: [body], deleteFailedDeliveries: false });
-      const c = createdOf(x.status, x.body) as Json;
+      let c = createdOf(x.status, x.body) as Json;
+      if (c.error === 'bad_answer') { const f = await bostaFind(fetchFn, key, String(body.businessReference)); if (f) c = { id: f.id }; }
       if (c.error) return { error: c.error, message: c.message ?? null };
       let tracking: string | null = null; let state: string | null = null;
       try { const y = await bostaCall(fetchFn, key, 'POST', BOSTA_API + '/deliveries/woocommerce-data', { deliveriesIds: [c.id] }); const t = y.status >= 200 && y.status < 300 ? trackingOf(y.body, c.id) as Json | null : null; tracking = t ? t.tracking : null; state = t ? t.state : null; } catch { tracking = null; }
       return { delivery: c.id, tracking, state };
-    } catch { return { error: 'unreachable' }; }
+    } catch {
+      const f = await bostaFind(fetchFn, key, String(body.businessReference));
+      return f ? { delivery: f.id, tracking: f.tracking, state: f.state } : { error: 'unreachable' };
+    }
   };
   let badKey = false;
   // the warehouse waybills

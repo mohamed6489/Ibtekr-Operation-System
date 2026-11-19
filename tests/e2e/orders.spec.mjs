@@ -1338,7 +1338,7 @@ test('«ابعت لبوسطة» from the bulk bar: a confirm with the cash, the 
   await dlg.locator('[data-cok]').click();
   const res = sr('[data-bosta-result]');
   await expect(res).toContainText('اتبعت 1 · ماتبعتش 1');
-  await expect(res.locator('[data-bosta-fail="180656"]')).toContainText('المحافظة مش معروفة لبوسطة');
+  await expect(res.locator('[data-bosta-fail="180656"]')).toContainText('مفيش محافظة ولا منطقة معروفة لبوسطة');
   await res.locator('[data-cc]').first().click();
   expect(mock.bostaCalls.at(-1).ids.sort()).toEqual([180656, 180686]);
   const c = card(page, '180686'); const tg = c.locator('[data-tg]').first(); if ((await tg.getAttribute('aria-label')) === 'فتح') await tg.click();

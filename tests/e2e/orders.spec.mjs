@@ -327,16 +327,16 @@ test('the website note reads in full: its own lines, 3 shown, a longer one scrol
   await expect(wn('180686')).toHaveText('مفيش ملاحظة من العميل'); // blank: no note
 });
 
-test('the details popup shows the governorate read-only next to the city: its name, else its code, else «—»', async ({ page }) => {
+test('the details popup shows the governorate read-only next to the area (the city): its name, else its code, else «—»', async ({ page }) => {
   await openOrders(page);
   const dlg = page.locator('#orders #cdlg');
   const fd = (label) => dlg.locator('.fd', { has: page.locator('label', { hasText: new RegExp('^' + label + '$') }) });
   for (const [id, state, city] of [['181668', 'القاهرة', 'مدينة نصر'], ['180656', 'EG-14', '—'], ['180686', '—', '—']]) {
     await page.evaluate((x) => window.OrdersApp.details(x), id);
     await expect(fd('المحافظة').locator('.ro')).toHaveText(state);
-    await expect(fd('المدينة').locator('.ro')).toHaveText(city);
+    await expect(fd('المنطقة').locator('.ro')).toHaveText(city); // 0146: «المنطقة» — Bosta's area once «تعديل العنوان» set it
     await expect(fd('المحافظة').locator('input, select, textarea')).toHaveCount(0); // no edit: the code comes from the website's list
-    expect(await fd('المحافظة').evaluate((e) => e.nextElementSibling && e.nextElementSibling.textContent)).toContain('المدينة'); // side by side
+    expect(await fd('المحافظة').evaluate((e) => e.nextElementSibling && e.nextElementSibling.textContent)).toContain('المنطقة'); // side by side
     await page.keyboard.press('Escape');
     await expect(dlg).toHaveCount(0);
   }
@@ -1425,14 +1425,47 @@ test('«بيك أب من المبتكر (بوسطة)»: two warehouse waybills w
   await expect(m).toBeVisible(); // Enter in the field does not send the form
   await m.getByRole('button', { name: 'اطلب البيك أب' }).click();
   const done = page.locator('[data-bp-done="ok"]');
-  await expect(done.locator('[data-bp-ok="1"]')).toHaveCount(3);
-  await expect(done.locator('[data-bp-waybill="order:181668"]')).toContainText('متبعت لبوسطة قبل كده');
+  await expect(done.locator('[data-bp-ok="1"]')).toHaveCount(4); // the owner 19 Nov: an order sent before prints its own waybill too
+  await expect(done.locator('[data-bp-waybill="order:181668"] [data-bp-existing]')).toContainText('متبعتة قبل كده — نفس البوليصة');
   expect(mock.pickupCalls.at(-1)).toMatchObject({ location: 'ARTC', date: next3[2], receiver: 'أحمد التشغيل', slot: '10:00 to 13:00', warehouse: [{ note: '181668 180656', parcels: 2 }, { note: '180600', parcels: 1 }], orders: '180686 181668' });
   expect(mock.orders.find((o) => o.id === 180686).bosta_delivery).toBeTruthy();
   const pop = page.waitForEvent('popup');
-  await page.getByRole('button', { name: 'اطبع البوليصات (3)' }).click();
+  await page.getByRole('button', { name: 'اطبع البوليصات (4)' }).click();
   await pop;
-  await expect.poll(() => (mock.awbCalls || []).at(-1) && mock.awbCalls.at(-1).deliveries.length).toBe(3);
+  await expect.poll(() => (mock.awbCalls || []).at(-1) && mock.awbCalls.at(-1).deliveries.length).toBe(4);
+  expect(mock.awbCalls.at(-1).deliveries).toContain('dlv181668');
   expect(mock.activity.some((a) => a.action === 'order.bosta_pickup')).toBe(true);
+  expect(pageErrors).toEqual([]);
+});
+
+// 0146 (the owner 19 Nov: «ضيفلي هنا تعديل العنوان و خليه يسمع ف بوسطة و ف الويبسايت»): «تعديل العنوان» in «بيانات العميل» — the
+// governorate and the area from Bosta's own list, the address written here, on the site (one maker only) and on the Bosta delivery
+test('«تعديل العنوان»: Bosta\'s governorates and areas, saved here + on Bosta; an order of several makers leaves the site as it is', async ({ page }) => {
+  await openOrders(page);
+  const menu = page.locator('#orders #mpop');
+  await card(page, '181668').locator('[data-more="o:181668"]').click();
+  await menu.locator('[data-ma="edit"]').click();
+  const edit = page.locator('#orders #cdlg').first();
+  await expect(edit.locator('[data-addr-now]')).toHaveText('شارع عباس العقاد');
+  await edit.locator('[data-eaddr]').click();
+  const dlg = page.locator('#orders #cdlg').last();
+  await expect(dlg.locator('#ast')).toHaveValue('EG-01'); // the order's governorate picked
+  await expect(dlg.locator('[data-addr-where]')).toContainText('الموقع بيفضل زي ما هو');
+  await dlg.locator('#ast').selectOption('EG-21');
+  await expect(dlg.locator('#aar option')).toHaveCount(3); // «اختار المنطقة» + Giza's two areas
+  await dlg.locator('#aad').fill('قصير');
+  await dlg.locator('[data-aok]').click();
+  await expect(dlg.locator('#aerr')).toHaveText('اختار المنطقة');
+  await dlg.locator('#aar').selectOption('dFaisal');
+  await dlg.locator('[data-aok]').click();
+  await expect(dlg.locator('#aerr')).toContainText('اكتب العنوان كامل');
+  await dlg.locator('#aad').fill('12 شارع الملك فيصل الدور الخامس');
+  await dlg.locator('[data-aok]').click();
+  await expect.poll(() => (mock.addressCalls || []).length).toBe(1);
+  expect(mock.addressCalls[0]).toMatchObject({ order_id: 181668, address: '12 شارع الملك فيصل الدور الخامس', state: 'EG-21', district: 'dFaisal', site: 'multi', bosta: 'ok' });
+  await expect(page.locator('#orders #cdlg')).toHaveCount(1); // the address popup closed, the edit popup stays
+  await expect(edit.locator('[data-addr-now]')).toHaveText('12 شارع الملك فيصل الدور الخامس');
+  await expect(edit.locator('[data-epanel="cust"]')).toContainText('فيصل');
+  await expect(page.locator('#orders')).toContainText('الموقع زي ما هو — الأوردر فيه أكتر من مبتكر · واتحدّث على بوسطة');
   expect(pageErrors).toEqual([]);
 });

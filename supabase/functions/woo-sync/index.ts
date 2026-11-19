@@ -164,7 +164,7 @@ import { getState, logSync, setState, upsertRows } from '../_shared/db.js';
 import { readBalances as readDokanBalances } from '../_shared/dokan-balances.js';
 import { PAY_STATUSES, orderCreateInput, orderPayable, payUrl, wooOrderBody } from '../_shared/woo-order-create.js';
 import { secretOf, vaultEnv } from '../_shared/secrets.js';
-import { BOSTA_API, BOSTA_MAX, BOSTA_V0, bostaKey, deliveryOf, createdOf, foundOf, trackingOf, updateOf, editedOf, awbPath, awbOf, AWB_MAX, locationsOf, pickupInputOf, pickupDeliveryOf, pickupBodyOf, pickupMadeOf } from '../_shared/bosta.js';
+import { BOSTA_API, BOSTA_MAX, BOSTA_V0, bostaKey, deliveryOf, createdOf, foundOf, trackingOf, updateOf, zonesOf, addressInputOf, siteAddressOf, BOSTA_EGYPT, editedOf, awbPath, awbOf, AWB_MAX, locationsOf, pickupInputOf, pickupDeliveryOf, pickupBodyOf, pickupMadeOf } from '../_shared/bosta.js';
 import { isSingle, readStore, SINGLE_OFF_ACTIONS, STORE_FREE_ACTIONS, wooActive } from '../_shared/store/index.js';
 import { ConfigError, WooError, errorText, makeScrubber, wooApi } from '../_shared/woo-api.js';
 import { AR_FIELDS, BATCH_FIELDS, EDIT_FIELDS, VARIATION_FIELDS, brandNamesOf, cleanFields, editView, sharedOf, toWoo, variationView, withBrandAttr } from '../_shared/woo-products.js';
@@ -187,7 +187,7 @@ type Run = { db: Db; env: Deps['env']; woo: () => ReturnType<typeof wooApi>; ctx
 
 const ACTIONS = ['states', 'categories', 'orders', 'vendors', 'products', 'all', 'push_status', 'push_vendor', 'register_webhooks', 'probe_store', 'probe_dokan', 'accounts', 'statement', 'withdraw_approve', 'withdraw_reject', 'withdraw_create', 'withdrawals', 'style_create', 'style_update', 'order_trash', 'suborder_trash', 'line_trash', 'line_qty', 'line_add', 'suborder_status', 'order_create', 'order_pay_link',
   'vendor_photo', 'vendor_store', 'product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'studio_media', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push', 'product_duplicate', 'carts',
-  'category_get', 'category_update', 'category_delete', 'category_order', 'thumbs', 'styles', 'wp_updates', 'site_speed', 'brand_site', 'vendor_delete', 'bosta_send', 'bosta_cod', 'bosta_awb', 'bosta_locations', 'bosta_pickup'];
+  'category_get', 'category_update', 'category_delete', 'category_order', 'thumbs', 'styles', 'wp_updates', 'site_speed', 'brand_site', 'vendor_delete', 'bosta_send', 'bosta_cod', 'bosta_awb', 'bosta_locations', 'bosta_pickup', 'bosta_zones', 'order_address'];
 // phase 5: the product actions a person runs (never the sync secret); phase 5.2: the studio's upload, a new category, a sheet link;
 // phase 5.4: the images tool's results onto a product; B4 (11 Nov): the categories tab's read, edit and delete
 const PRODUCT_ACTIONS = ['product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'studio_media', 'category_create', 'studio_sheet', 'style_create', 'style_update', 'product_images_add', 'inventory_push', 'product_duplicate',
@@ -221,7 +221,7 @@ async function authorize(req: Request, deps: Deps, action: string, args: Json): 
     if (action === 'vendor_photo' || action === 'vendor_store' || action === 'brand_site' || action === 'vendor_delete') return null; // a person sets a maker's photo / makes his store / his brand on the site (phase 13 decision 51; 11 Nov; 16 Nov)
     if (PRODUCT_ACTIONS.includes(action)) return null; // a person edits products, never the cron / sync secret (phase 5)
     if (action === 'wp_updates') return null; // a person checks the site's updates (comments decision 71)
-    if (action === 'bosta_send' || action === 'bosta_awb' || action === 'bosta_locations' || action === 'bosta_pickup') return null; // a person sends orders to Bosta, prints, asks a pickup (the owner 19 Nov; 0144) — the cron only pushes the cash that is due (bosta_cod)
+    if (action === 'bosta_send' || action === 'bosta_awb' || action === 'bosta_locations' || action === 'bosta_pickup' || action === 'bosta_zones' || action === 'order_address') return null; // a person sends orders to Bosta, prints, asks a pickup (the owner 19 Nov; 0144) — the cron only pushes the cash that is due (bosta_cod)
     const { data, error } = await deps.db.rpc('sync_secret_matches', { candidate: secret });
     return !error && data === true ? 'system' : null;
   }
@@ -234,6 +234,9 @@ async function authorize(req: Request, deps: Deps, action: string, args: Json): 
   // phase 5.5 decision 10: the site trash needs the same two permissions RPC order_delete checks — orders.status = F and orders.view <> N
   if (action === 'order_trash' || action === 'suborder_trash' || action === 'line_trash' || action === 'line_qty' || action === 'line_add' || action === 'suborder_status') { if (!(await perm('orders.status'))) return null; const { data, error } = await member.rpc('has_perm', { key: 'orders.view' }); return !error && (data === 'F' || data === 'P') ? 'member' : null; }
   // the owner 19 Nov («ابعت لبوسطة» in the bulk bar): the same people who change an order's status — orders.status = F and orders.view <> N
+  // the order's address (the owner 19 Nov): the areas list for whoever sees orders; the write for whoever edits orders (orders.edit F)
+  if (action === 'bosta_zones') { const { data, error } = await member.rpc('has_perm', { key: 'orders.view' }); return !error && (data === 'F' || data === 'P') ? 'member' : null; }
+  if (action === 'order_address') { const has = async (key: string) => { const { data, error } = await member.rpc('has_perm', { key }); return !error && (data === 'F' || data === 'P'); }; if (!(await admin()) && !(await has('orders.edit'))) return null; return (await has('orders.view')) ? 'member' : null; } // the address rule of the orders guard (0007): orders.edit ≠ N
   if (action === 'bosta_send' || action === 'bosta_pickup' || action === 'bosta_locations' || action === 'bosta_awb') { if (!(await admin()) && !(await perm('orders.status'))) return null; const { data, error } = await member.rpc('has_perm', { key: 'orders.view' }); return !error && (data === 'F' || data === 'P') ? 'member' : null; }
   // 0144: the waybill carries the customer's whole phone, so it prints for those who ship (above, with bosta_send); the cash due goes
   // to Bosta for anyone who sees the orders (the server pushes only what its trigger marked — never an amount from the page)
@@ -2270,7 +2273,7 @@ async function bostaSend(run: Run, args: Json, fetchFn: typeof fetch) {
   if (!ids.length || ids.length > BOSTA_MAX) return json(400, { error: 'bad_request', field: 'ids' });
   const key = bostaKey(await secretOf(run.db, 'bosta'));
   if (!key) return json(409, { error: 'no_key' });
-  const { data: rows, error } = await run.db.from('orders').select('id, number, customer_name, customer_state, customer_address, payment_method, total, deposit, customer_note, customer_phone, bosta_tracking, deleted_at, raw').in('id', ids);
+  const { data: rows, error } = await run.db.from('orders').select('id, number, customer_name, customer_state, customer_address, payment_method, total, deposit, customer_note, customer_phone, bosta_tracking, bosta_district, address_set_at, deleted_at, raw').in('id', ids);
   if (error) throw new Error(`orders read failed (${error.code ?? 'error'})`);
   const { data: lines, error: lerr } = await run.db.from('order_items').select('order_id, name, qty, qty_set, total, total_set, removed').in('order_id', ids);
   if (lerr) throw new Error(`order_items read failed (${lerr.code ?? 'error'})`);
@@ -2283,7 +2286,7 @@ async function bostaSend(run: Run, args: Json, fetchFn: typeof fetch) {
     if (!o || o.deleted_at) { results.push({ id, result: 'missing' }); counts.failed++; continue; }
     if (o.bosta_tracking) { results.push({ id, result: 'already', tracking: o.bosta_tracking }); counts.already++; continue; }
     const items = ((lines ?? []) as Json[]).filter((l) => Number(l.order_id) === id && l.removed !== true).map((l) => ({ name: l.name, qty: l.qty_set ?? l.qty, amount: l.total_set ?? l.total }));
-    const d = deliveryOf({ id, customer_name: o.customer_name, state: o.customer_state, address: o.customer_address, payment_method: o.payment_method, total: o.total, deposit: o.deposit, customer_note: o.customer_note, phone: o.customer_phone, raw: o.raw }, items, names) as Json;
+    const d = deliveryOf({ id, customer_name: o.customer_name, state: o.customer_state, address: o.customer_address, payment_method: o.payment_method, total: o.total, deposit: o.deposit, customer_note: o.customer_note, phone: o.customer_phone, district: o.bosta_district, address_set: !!o.address_set_at, raw: o.raw }, items, names) as Json;
     if (d.error) { results.push({ id, result: 'error', reason: d.error }); counts.failed++; continue; }
     // the plugin's two calls (4.5.7): the bulk create, then the tracking number of what was created
     const post = async (path: string, payload: unknown) => {
@@ -2331,7 +2334,7 @@ async function bostaCod(run: Run, args: Json, fetchFn: typeof fetch) {
   const key = bostaKey(await secretOf(run.db, 'bosta'));
   if (!key) return json(run.kind === 'cron' ? 200 : 409, run.kind === 'cron' ? { action: 'bosta_cod', result: 'skipped', reason: 'no_key' } : { error: 'no_key' });
   const only = Array.isArray(args.ids) ? args.ids.map((x: unknown) => wooId(x)).filter((x: number | null): x is number => x !== null).slice(0, BOSTA_MAX) : null;
-  let q = run.db.from('orders').select('id, customer_name, customer_state, customer_address, payment_method, total, deposit, customer_note, customer_phone, bosta_delivery, raw').eq('bosta_cod_due', true).is('deleted_at', null);
+  let q = run.db.from('orders').select('id, customer_name, customer_state, customer_address, payment_method, total, deposit, customer_note, customer_phone, bosta_delivery, bosta_district, address_set_at, raw').eq('bosta_cod_due', true).is('deleted_at', null);
   if (only) q = q.in('id', only.length ? only : [0]);
   const { data: rows, error } = await q.limit(20);
   if (error) throw new Error(`orders read failed (${error.code ?? 'error'})`);
@@ -2347,7 +2350,7 @@ async function bostaCod(run: Run, args: Json, fetchFn: typeof fetch) {
     const id = Number(o.id);
     const set = (patch: Json) => run.db.from('orders').update(patch).eq('id', id);
     const items = ((lines ?? []) as Json[]).filter((l) => Number(l.order_id) === id && l.removed !== true).map((l) => ({ name: l.name, qty: l.qty_set ?? l.qty, amount: l.total_set ?? l.total }));
-    const d = deliveryOf({ id, customer_name: o.customer_name, state: o.customer_state, address: o.customer_address, payment_method: o.payment_method, total: o.total, deposit: o.deposit, customer_note: o.customer_note, phone: o.customer_phone, raw: o.raw }, items, names) as Json;
+    const d = deliveryOf({ id, customer_name: o.customer_name, state: o.customer_state, address: o.customer_address, payment_method: o.payment_method, total: o.total, deposit: o.deposit, customer_note: o.customer_note, phone: o.customer_phone, district: o.bosta_district, address_set: !!o.address_set_at, raw: o.raw }, items, names) as Json;
     if (d.error) { await set({ bosta_cod_due: false, bosta_cod_error: d.error }); results.push({ id, result: 'error', reason: d.error }); counts.refused++; continue; }
     let r: Json;
     try { const x = await bostaCall(fetchFn, key, 'PUT', BOSTA_API + '/deliveries/business/' + encodeURIComponent(String(o.bosta_delivery)), updateOf(d.body)); r = editedOf(x.status, x.body) as Json; }
@@ -2359,6 +2362,76 @@ async function bostaCod(run: Run, args: Json, fetchFn: typeof fetch) {
   }
   await logSync(run.db, { kind: 'push', direction: 'out', entity: 'order', entity_id: null, action: 'bosta_cod', result: counts.refused && !counts.updated ? 'error' : 'ok', detail: { ...counts, ids } });
   return json(200, { action: 'bosta_cod', result: 'ok', counts, results });
+}
+
+// bosta_zones — Bosta's governorates and their areas, the plugin's own list (GET cities/getAllDistricts for Egypt; the plugin asks it
+// without the key) for «تعديل العنوان»: [{ code, name, en, areas: [{ id, name }] }]
+async function bostaZones(run: Run, fetchFn: typeof fetch): Promise<Json> {
+  const key = bostaKey(await secretOf(run.db, 'bosta'));
+  const r = await fetchFn(BOSTA_API + '/cities/getAllDistricts?countryId=' + BOSTA_EGYPT, { headers: { 'Content-Type': 'application/json', 'X-Requested-By': 'WooCommerce', ...(key ? { authorization: key } : {}) }, signal: AbortSignal.timeout(BOSTA_MS) });
+  let body: unknown = null; try { body = await r.json(); } catch { body = null; }
+  if (r.status < 200 || r.status >= 300) return { error: 'bosta', status: r.status };
+  const zones = zonesOf(body) as Json[];
+  return zones.length ? { zones } : { error: 'bad_answer' };
+}
+async function bostaZonesAction(run: Run, fetchFn: typeof fetch) {
+  let z: Json; try { z = await bostaZones(run, fetchFn); } catch { return json(502, { error: 'unreachable' }); }
+  if (z.error) return json(502, { error: z.error });
+  return json(200, { action: 'bosta_zones', result: 'ok', zones: z.zones });
+}
+
+// order_address { order_id, address, state, district } — the customer's address from «تعديل الأوردر › بيانات العميل» (the owner 19
+// Nov: «تعديل العنوان و خليه يسمع ف بوسطة و ف الويبسايت»; answers: the address + governorate + area from Bosta's list, and an order of
+// several makers here and on Bosta only). The governorate and the area are checked against Bosta's list; the order here takes them
+// (customer_address / customer_state / customer_city = the area's name / bosta_district / address_set_at — from then on Bosta's delivery
+// reads these, deliveryOf); the site's order gets them the way the plugin keeps them (billing + shipping, _billing_area) only when the
+// order has no sub-orders (0079: the parent of several makers is never written) and the push is on; the order's Bosta delivery, if
+// any, gets the plugin's edit with the new address (refused — the courier has it — comes back with Bosta's message). The log holds
+// ids and the outcomes only — never the address.
+async function orderAddress(run: Run, args: Json, fetchFn: typeof fetch) {
+  const id = wooId(args.order_id);
+  if (id === null) return json(400, { error: 'bad_request', field: 'order_id' });
+  const inp = addressInputOf(args) as Json;
+  if (inp.error) return json(400, { error: 'bad_request', field: inp.error });
+  const input = inp.ok as Json;
+  let z: Json; try { z = await bostaZones(run, fetchFn); } catch { return json(502, { error: 'unreachable' }); }
+  if (z.error) return json(502, { error: 'zones' });
+  const city = (z.zones as Json[]).find((c) => c.code === input.state);
+  if (!city) return json(400, { error: 'bad_request', field: 'state' });
+  const area = (city.areas as Json[]).find((a) => a.id === input.district);
+  if (!area) return json(400, { error: 'bad_request', field: 'district' });
+  const { data: o, error } = await run.db.from('orders').select('id, customer_name, customer_phone, customer_note, payment_method, total, deposit, bosta_delivery, deleted_at, raw').eq('id', id).maybeSingle();
+  if (error) throw new Error(`orders read failed (${error.code ?? 'error'})`);
+  if (!o || o.deleted_at) return json(404, { error: 'order_not_found' });
+  const { error: werr } = await run.db.from('orders').update({ customer_address: input.address, customer_state: input.state, customer_city: String(area.name).slice(0, 80), bosta_district: input.district, address_set_at: run.now() }).eq('id', id);
+  if (werr) throw new Error(`orders write failed (${werr.code ?? 'error'})`);
+  // the site — an order of one maker only
+  const { data: subs } = await run.db.from('sub_orders').select('id').eq('order_id', id).limit(1);
+  let site = 'ok';
+  if ((subs ?? []).length) site = 'multi';
+  else if (!pushEnabled(run.env)) site = 'push_disabled';
+  else {
+    try { const after = (await run.woo().put(`wc/v3/orders/${id}`, siteAddressOf(input, area.name))).data as Json; site = isObj(after) && isObj(after.billing) && after.billing.address_1 === input.address ? 'ok' : 'failed'; }
+    catch (e) { site = orderGone(e) ? 'gone' : 'failed'; }
+  }
+  // Bosta — the order's delivery, if it has one
+  let bosta = 'none'; let message: string | null = null;
+  if (o.bosta_delivery) {
+    const key = bostaKey(await secretOf(run.db, 'bosta'));
+    if (!key) bosta = 'no_key';
+    else {
+      const { data: lines } = await run.db.from('order_items').select('order_id, name, qty, qty_set, total, total_set, removed').eq('order_id', id);
+      const items = ((lines ?? []) as Json[]).filter((l) => l.removed !== true).map((l) => ({ name: l.name, qty: l.qty_set ?? l.qty, amount: l.total_set ?? l.total }));
+      const d = deliveryOf({ id, customer_name: o.customer_name, state: input.state, address: input.address, district: input.district, address_set: true, payment_method: o.payment_method, total: o.total, deposit: o.deposit, customer_note: o.customer_note, phone: o.customer_phone, raw: o.raw }, items, { [String(input.state).toUpperCase()]: String(city.en || city.name) }) as Json;
+      if (d.error) bosta = String(d.error);
+      else {
+        try { const x = await bostaCall(fetchFn, key, 'PUT', BOSTA_API + '/deliveries/business/' + encodeURIComponent(String(o.bosta_delivery)), updateOf(d.body)); const r = editedOf(x.status, x.body) as Json; bosta = r.ok ? 'ok' : String(r.error); message = r.message ? String(r.message) : null; }
+        catch { bosta = 'unreachable'; }
+      }
+    }
+  }
+  await logSync(run.db, { kind: 'push', direction: 'out', entity: 'order', entity_id: String(id), action: 'order_address', result: (site === 'failed' || (bosta !== 'ok' && bosta !== 'none')) ? 'error' : 'ok', detail: { site, bosta } });
+  return json(200, { action: 'order_address', result: 'ok', site, bosta, message, state: input.state, city: area.name, district: input.district });
 }
 
 // bosta_awb { ids?: [order ids], pickups?: [pickup ids] } — the waybills as one PDF (the plugin's mass-awb, Arabic): the orders' Bosta
@@ -2482,7 +2555,7 @@ async function bostaPickup(run: Run, args: Json, fetchFn: typeof fetch, by: stri
   // the orders straight to their customers, from the maker
   if (input.orders.length && !badKey) {
     const ids = input.orders as number[];
-    const { data: rows, error } = await run.db.from('orders').select('id, customer_name, customer_state, customer_address, payment_method, total, deposit, customer_note, customer_phone, bosta_tracking, bosta_delivery, deleted_at, raw').in('id', ids);
+    const { data: rows, error } = await run.db.from('orders').select('id, customer_name, customer_state, customer_address, payment_method, total, deposit, customer_note, customer_phone, bosta_tracking, bosta_delivery, bosta_district, address_set_at, deleted_at, raw').in('id', ids);
     if (error) throw new Error(`orders read failed (${error.code ?? 'error'})`);
     const { data: lines } = await run.db.from('order_items').select('order_id, name, qty, qty_set, total, total_set, removed').in('order_id', ids);
     const { data: st } = await run.db.from('woo_states').select('code, name');
@@ -2492,9 +2565,16 @@ async function bostaPickup(run: Run, args: Json, fetchFn: typeof fetch, by: stri
       if (badKey) break;
       const o = byId.get(id) as Json | undefined;
       if (!o || o.deleted_at) { made.push({ kind: 'order', order_id: id, error: 'missing' }); continue; }
-      if (o.bosta_tracking || o.bosta_delivery) { made.push({ kind: 'order', order_id: id, error: 'already', tracking: o.bosta_tracking ?? null }); continue; }
+      // already on Bosta (the owner 19 Nov: «اظهرلي اني اطبع البوليصة حتي لو مبعوتة قبل كده»): never a second waybill — its own delivery
+      // goes with the pickup and prints with the rest (existing); a tracking number without the delivery id is looked up on Bosta once
+      if (o.bosta_tracking || o.bosta_delivery) {
+        let dl = o.bosta_delivery ? String(o.bosta_delivery) : '';
+        if (!dl) { const f = await bostaFind(fetchFn, key, 'Woocommerce_' + id) ?? await bostaFind(fetchFn, key, 'WC_' + id); if (f && f.id) { dl = String(f.id); const { error: ferr } = await run.db.from('orders').update({ bosta_delivery: dl }).eq('id', id); if (ferr) console.error(`bosta order save failed (${ferr.code ?? 'error'})`); } }
+        made.push(dl ? { kind: 'order', order_id: id, delivery: dl, tracking: o.bosta_tracking ?? null, existing: true } : { kind: 'order', order_id: id, error: 'already', tracking: o.bosta_tracking ?? null });
+        continue;
+      }
       const items = ((lines ?? []) as Json[]).filter((l) => Number(l.order_id) === id && l.removed !== true).map((l) => ({ name: l.name, qty: l.qty_set ?? l.qty, amount: l.total_set ?? l.total }));
-      const d = deliveryOf({ id, customer_name: o.customer_name, state: o.customer_state, address: o.customer_address, payment_method: o.payment_method, total: o.total, deposit: o.deposit, customer_note: o.customer_note, phone: o.customer_phone, raw: o.raw }, items, names) as Json;
+      const d = deliveryOf({ id, customer_name: o.customer_name, state: o.customer_state, address: o.customer_address, payment_method: o.payment_method, total: o.total, deposit: o.deposit, customer_note: o.customer_note, phone: o.customer_phone, district: o.bosta_district, address_set: !!o.address_set_at, raw: o.raw }, items, names) as Json;
       if (d.error) { made.push({ kind: 'order', order_id: id, error: d.error }); continue; }
       const c = await create({ ...d.body, businessLocationId: input.location });
       if (c.error === 'bad_key') badKey = true;
@@ -2506,7 +2586,7 @@ async function bostaPickup(run: Run, args: Json, fetchFn: typeof fetch, by: stri
     }
   }
   const ok = made.filter((m) => m.delivery);
-  const deliveries = made.map((m) => ({ kind: m.kind, order_id: m.order_id ?? null, note: m.note ?? null, parcels: m.parcels ?? null, delivery: m.delivery ?? null, tracking: m.tracking ?? null, cod: m.cod ?? (m.kind === 'warehouse' ? 0 : null), error: m.error ? String(m.error) : null, message: m.message ? String(m.message).slice(0, 160) : null }));
+  const deliveries = made.map((m) => ({ kind: m.kind, order_id: m.order_id ?? null, note: m.note ?? null, parcels: m.parcels ?? null, delivery: m.delivery ?? null, tracking: m.tracking ?? null, cod: m.cod ?? (m.kind === 'warehouse' ? 0 : null), error: m.error ? String(m.error) : null, message: m.message ? String(m.message).slice(0, 160) : null, ...(m.existing ? { existing: true } : {}) }));
   const done = async (patch: Json, status: number, body: Json) => {
     await run.db.from('bosta_pickups').update({ deliveries, delivery_id: ok[0]?.delivery ?? null, tracking: ok[0]?.tracking ?? null, ...patch }).eq('id', pid);
     await logSync(run.db, { kind: 'push', direction: 'out', entity: 'order', entity_id: null, action: 'bosta_pickup', result: patch.state === 'sent' ? 'ok' : 'error', detail: { pickup: pid, state: patch.state, made: ok.length, failed: made.length - ok.length, step: body.step ?? null } });
@@ -3193,6 +3273,8 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'bosta_cod') return await bostaCod(run, args, deps.fetch);
     if (action === 'bosta_awb') return await bostaAwb(run, args, deps.fetch);
     if (action === 'bosta_locations') return await bostaLocationsAction(run, deps.fetch);
+    if (action === 'bosta_zones') return await bostaZonesAction(run, deps.fetch);
+    if (action === 'order_address') return await orderAddress(run, args, deps.fetch);
     if (action === 'bosta_pickup') { const jwt = /^Bearer\s+(\S+)$/i.exec(req.headers.get('authorization') ?? '')?.[1] ?? ''; return await bostaPickup(run, args, deps.fetch, deps.userId && jwt ? await deps.userId(jwt) : null); }
     if (action === 'styles') return await siteStyles(run);
     if (action === 'site_speed') { const jwt = /^Bearer\s+(\S+)$/i.exec(req.headers.get('authorization') ?? '')?.[1] ?? ''; return await siteSpeed(run, deps.fetch, deps.userId && jwt ? await deps.userId(jwt) : null); }

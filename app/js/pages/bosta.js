@@ -181,7 +181,7 @@
     const head = res.ok ? 'البيك أب اتطلب — ' + okN + ' بوليصة' : okN ? 'البوليصات اتعملت والبيك أب لأ' : 'مفيش بوليصة اتعملت';
     const line = (d) => h('li', { 'data-bp-waybill': d.kind + ':' + (d.order_id || ''), 'data-bp-ok': d.delivery ? '1' : '0' },
       d.kind === 'order' ? 'للعميل — أوردر ' + d.order_id : 'للمخزن' + (d.note ? ' — ' + d.note : ''),
-      d.delivery ? h('span', null, ' · ', h('b', { dir: 'ltr' }, d.tracking || 'اتعملت'), d.kind === 'order' ? ' · التحصيل ' + (d.cod || 0) : '') : h('span', { style: 'color:var(--color-error-text,#8e0a07)' }, ' · ' + (WHY_ROW[d.error] || d.message || d.error || 'ماتعملتش')));
+      d.delivery ? h('span', null, ' · ', h('b', { dir: 'ltr' }, d.tracking || 'اتعملت'), d.existing ? h('span', { 'data-bp-existing': '' }, ' · متبعتة قبل كده — نفس البوليصة') : d.kind === 'order' ? ' · التحصيل ' + (d.cod || 0) : '') : h('span', { style: 'color:var(--color-error-text,#8e0a07)' }, ' · ' + (WHY_ROW[d.error] || d.message || d.error || 'ماتعملتش')));
     const m = U.Modal({ title: head, body: [
       h('div', { 'data-bp-done': res.ok ? 'ok' : 'partial' },
         h('p', { class: 't-body' }, res.ok ? 'بوسطة هتبعت المندوب يستلم من ' + (vendorName || 'المبتكر') + ' في الميعاد.' : okN ? 'البوليصات اتعملت على بوسطة بس طلب المندوب ماتسجلش' + (res.message ? ' (' + res.message + ')' : '') + ' — اطلبه من بوسطة أو جرّب تاني.' : 'ولا بوليصة اتعملت — شوف السبب جنب كل واحدة.'),

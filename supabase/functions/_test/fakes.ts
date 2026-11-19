@@ -40,7 +40,7 @@ const COLUMNS: Record<string, string[]> = {
     'payment_title', 'status', 'woo_status', 'confirm', 'confirm_at', 'confirm_note', 'deposit', 'total', 'currency', 'note',
     'customer_note', 'placed_at', 'woo_updated_at', 'cancel', 'ret', 'raw', 'synced_at', 'created_at', 'updated_at', 'customer_state',
     'deleted_at', 'deleted_by', 'delete_reason', // 0033 (phase 5.5 decision 10)
-    'attr_type', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'ad_platform', 'status_custom', 'bosta_tracking', 'bosta_state', 'bosta_delivery', 'bosta_cod', 'bosta_cod_due', 'bosta_cod_error'], // 0052 (phase 9.5.3): the order's source; 0140: Bosta
+    'attr_type', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'ad_platform', 'status_custom', 'bosta_tracking', 'bosta_state', 'bosta_delivery', 'bosta_cod', 'bosta_cod_due', 'bosta_cod_error', 'bosta_district', 'address_set_at'], // 0052 (phase 9.5.3): the order's source; 0140: Bosta
   sub_orders: ['id', 'order_id', 'vendor_id', 'woo_order_id', 'woo_status', 'total', 'dokan_earning', 'commission', 'raw', 'updated_at'],
   order_items: ['id', 'order_id', 'sub_order_id', 'product_id', 'sku', 'name', 'qty', 'total', 'vendor_id', 'status',
     'expected_at', 'comment', 'ready_at', 'waybill', 'pulled', 'ret', 'store', 'removed', 'raw', 'updated_at', 'commission_rate', 'commission_fee', 'dropped_at', 'qty_set', 'total_set', 'added_at'], // dropped_at: 0079; qty_set / total_set: 0091; added_at: 0094

@@ -69,11 +69,13 @@ export function deliveryOf(order, items, names) {
   if (!first) return { error: 'no_name' };
   const phone = phoneOf(bill.phone) || phoneOf(ship.phone) || phoneOf(order.phone);
   if (!phone) return { error: 'no_phone' };
-  const line1 = str(bill.address_1, 200) || str(ship.address_1, 200) || str(order.address, 200);
+  // the address the team set here (order_address — the owner 19 Nov) wins over the site's copy of the order
+  const own = !!order.address_set;
+  const line1 = own ? str(order.address, 200) : str(bill.address_1, 200) || str(ship.address_1, 200) || str(order.address, 200);
   if (!line1) return { error: 'no_address' };
   if (line1.length < 10) return { error: 'short_address' };
-  const city = cityOf(str(bill.state, 20) || str(ship.state, 20) || order.state, names);
-  const district = metaOf(raw, '_billing_area');
+  const city = cityOf(own ? str(order.state, 20) : str(bill.state, 20) || str(ship.state, 20) || order.state, names);
+  const district = own ? str(order.district, 40) || null : metaOf(raw, '_billing_area');
   if (!city && !district) return { error: 'no_city' };
   const last = str(bill.last_name, 60) || str(ship.last_name, 60) || str(order.customer_name, 120).split(' ').slice(1).join(' ');
   const L = (Array.isArray(items) ? items : []).filter(isObj);
@@ -86,7 +88,7 @@ export function deliveryOf(order, items, names) {
     businessReference: 'Woocommerce_' + ref,
     specs: { packageDetails: { itemsCount: L.reduce((n, i) => n + (Math.max(1, Math.trunc(num(i.qty)) || 1)), 0) || 1, description: describe(L) } },
     receiver: { firstName: first.slice(0, 50), lastName: last, phone },
-    dropOffAddress: { firstLine: line1, secondLine: str(bill.address_2, 200) || str(ship.address_2, 200) },
+    dropOffAddress: { firstLine: line1, secondLine: own ? '' : str(bill.address_2, 200) || str(ship.address_2, 200) },
     cod: codOf(order),
     goodsInfo: { amount: round2(L.reduce((n, i) => n + num(i.amount), 0)) },
   };
@@ -95,6 +97,39 @@ export function deliveryOf(order, items, names) {
   const second = phoneOf(metaOf(raw, '_billing_phone_2'));
   if (second) body.receiver.secondPhone = second;
   return { body };
+}
+
+// ---- the address from the system (the owner 19 Nov: «ضيفلي هنا تعديل العنوان و خليه يسمع ف بوسطة و ف الويبسايت»; answers: an order of
+// several makers is written here and on Bosta only — the parent on the site never (0079) —, the address + governorate + area) ----
+
+// Bosta's governorates and areas, the plugin's own list (bosta_get_zoning: GET {BOSTA_API}/cities/getAllDistricts?countryId=Egypt;
+// a city or an area without dropOffAvailability is left out like the plugin's checkout does): [{ code, name, en, areas: [{ id, name }] }]
+export const BOSTA_EGYPT = '60e4482c7cb7d4bc4849c4d5';
+export function zonesOf(data) {
+  const list = isObj(data) && Array.isArray(data.data) ? data.data : [];
+  return list.filter((c) => isObj(c) && c.dropOffAvailability === true && typeof c.cityCode === 'string' && /^[A-Za-z0-9_-]{1,20}$/.test(c.cityCode))
+    .map((c) => ({ code: c.cityCode, name: str(c.cityOtherName, 60) || str(c.cityName, 60), en: str(c.cityName, 60),
+      areas: (Array.isArray(c.districts) ? c.districts : []).filter((d) => isObj(d) && d.dropOffAvailability !== false && typeof d.districtId === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(d.districtId))
+        .map((d) => { const zone = str(d.zoneOtherName, 60) || str(d.zoneName, 60); const dist = str(d.districtOtherName, 60) || str(d.districtName, 60); return { id: d.districtId, name: zone && zone !== dist ? zone + ' - ' + dist : dist }; }) }))
+    .filter((c) => c.areas.length);
+}
+
+// the address typed: { address (10–200, no < >), state (a Bosta city code), district (its area id) } → { ok } or { error: field }
+export function addressInputOf(a) {
+  if (!isObj(a)) return { error: 'input' };
+  const address = str(a.address, 201);
+  if (address.length < 10 || address.length > 200 || /[<>]/.test(address)) return { error: 'address' };
+  const state = typeof a.state === 'string' && /^[A-Za-z0-9_-]{1,20}$/.test(a.state) ? a.state : null;
+  if (!state) return { error: 'state' };
+  const district = typeof a.district === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(a.district) ? a.district : null;
+  if (!district) return { error: 'district' };
+  return { ok: { address, state, district } };
+}
+
+// the site's order as the plugin keeps it: billing and shipping address_1 / state / city, and the area in _billing_area
+export function siteAddressOf(input, areaName) {
+  const part = { address_1: input.address, address_2: '', state: input.state, city: str(areaName, 60) };
+  return { billing: { ...part }, shipping: { ...part }, meta_data: [{ key: '_billing_area', value: input.district }] };
 }
 
 // the bulk answer: 2xx → { id } (the created delivery) or { error: 'refused', message } (Bosta's failedDeliveries — it names the

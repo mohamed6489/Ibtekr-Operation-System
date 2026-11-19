@@ -2,7 +2,7 @@
 // 19 Nov, «ابعت لبوسطة» — «سيبها بالمفتاح» with the plugin's own request)
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { bostaKey, codOf, phoneOf, cityOf, describe, metaOf, deliveryOf, createdOf, foundOf, trackingOf, BOSTA_API } from '../../supabase/functions/_shared/bosta.js';
+import { bostaKey, codOf, phoneOf, cityOf, describe, metaOf, deliveryOf, createdOf, foundOf, trackingOf, zonesOf, addressInputOf, siteAddressOf, BOSTA_API } from '../../supabase/functions/_shared/bosta.js';
 
 const NAMES = { 'EG-01': 'Cairo', 'EG-25': 'Giza', 'EG-06': 'El Kalioubia' };
 
@@ -137,4 +137,37 @@ test('the pickup locations, the warehouse address, the pickup input', () => {
   assert.deepEqual(pickupMadeOf(200, { success: true, message: { _id: 'pk1' } }), { id: 'pk1' });
   assert.deepEqual(pickupMadeOf(200, { data: { _id: 'pk2' } }), { id: 'pk2' });
   assert.equal(pickupMadeOf(400, { success: false, message: 'No slots' }).error, 'refused');
+});
+
+// 0146 «تعديل العنوان»: Bosta's own list (the plugin's getAllDistricts), the input rules, the site's shape, and the team's address wins
+test('Bosta zones: only governorates and areas Bosta delivers to, the zone before the area\'s name', () => {
+  const z = zonesOf({ data: [
+    { cityCode: 'EG-01', cityName: 'Cairo', cityOtherName: 'القاهرة', dropOffAvailability: true, districts: [
+      { districtId: 'a1', districtName: 'Nasr City', districtOtherName: 'مدينة نصر', zoneName: 'East', zoneOtherName: 'شرق', dropOffAvailability: true },
+      { districtId: 'a2', districtOtherName: 'مقفولة', dropOffAvailability: false }] },
+    { cityCode: 'EG-02', cityOtherName: 'مقفولة', dropOffAvailability: false, districts: [] }] });
+  assert.deepEqual(z, [{ code: 'EG-01', name: 'القاهرة', en: 'Cairo', areas: [{ id: 'a1', name: 'شرق - مدينة نصر' }] }]);
+  assert.deepEqual(zonesOf(null), []);
+});
+test('the address input: 10–200 letters, no <>, a governorate code and an area id', () => {
+  const ok = addressInputOf({ address: '  15 شارع  عباس العقاد  ', state: 'EG-01', district: 'a1' });
+  assert.equal(ok.ok.state, 'EG-01'); assert.equal(ok.ok.district, 'a1'); assert.ok(ok.ok.address.startsWith('15 شارع'));
+  assert.deepEqual(addressInputOf({ address: 'قصير', state: 'EG-01', district: 'a1' }), { error: 'address' });
+  assert.deepEqual(addressInputOf({ address: '15 شارع <b>عباس</b> العقاد', state: 'EG-01', district: 'a1' }), { error: 'address' });
+  assert.deepEqual(addressInputOf({ address: '15 شارع عباس العقاد', state: 'EG 01', district: 'a1' }), { error: 'state' });
+  assert.deepEqual(addressInputOf({ address: '15 شارع عباس العقاد', state: 'EG-01', district: '' }), { error: 'district' });
+});
+test('the site gets the address the way the plugin keeps it: billing + shipping + _billing_area', () => {
+  assert.deepEqual(siteAddressOf({ address: '15 شارع عباس العقاد', state: 'EG-01', district: 'a1' }, 'شرق - مدينة نصر'), {
+    billing: { address_1: '15 شارع عباس العقاد', address_2: '', state: 'EG-01', city: 'شرق - مدينة نصر' },
+    shipping: { address_1: '15 شارع عباس العقاد', address_2: '', state: 'EG-01', city: 'شرق - مدينة نصر' },
+    meta_data: [{ key: '_billing_area', value: 'a1' }] });
+});
+test('Bosta\'s delivery reads the team\'s address once it is set here, not the site\'s copy of the order', () => {
+  const raw = { billing: { first_name: 'منى', phone: '01001234567', address_1: 'العنوان القديم في الجيزة', address_2: 'الدور 2', state: 'EG-25' }, meta_data: [{ key: '_billing_area', value: 'old' }] };
+  const base = { id: 7, customer_name: 'منى', payment_method: 'cod', total: 500, deposit: 0, raw, address: '15 شارع عباس العقاد', state: 'EG-01', district: 'a1' };
+  const own = deliveryOf({ ...base, address_set: true }, [], NAMES).body.dropOffAddress;
+  assert.deepEqual(own, { firstLine: '15 شارع عباس العقاد', secondLine: '', city: 'Cairo', districtId: 'a1' });
+  const site = deliveryOf(base, [], NAMES).body.dropOffAddress;
+  assert.equal(site.firstLine, 'العنوان القديم في الجيزة'); assert.equal(site.districtId, 'old');
 });

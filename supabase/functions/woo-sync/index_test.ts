@@ -13,7 +13,7 @@ const OURS = `${ENV.SUPABASE_URL}/functions/v1/woo-webhook`;
 // Member tokens → what has_perm('orders.status') / is_admin() answer for them, plus (phase 3.3) has_perm('vendors.edit') /
 // has_perm('sensitive.commission') for push_vendor: ops = vendors.edit P, vf = vendors follow-up (vendors.edit F, commission N),
 // acct = accounts (nothing). (the last three answer "truthy" values that are not the exact true / 'F' the function requires).
-const MEMBERS: Record<string, { perm: unknown; admin: unknown; view?: unknown; edit?: unknown; commission?: unknown; bank?: unknown; accounts?: unknown; approve?: unknown; pview?: unknown; pedit?: unknown; pbulk?: unknown; ptrash?: unknown; padd?: unknown; iedit?: unknown; mkt?: unknown }> = {
+const MEMBERS: Record<string, { perm: unknown; admin: unknown; view?: unknown; edit?: unknown; commission?: unknown; bank?: unknown; accounts?: unknown; approve?: unknown; pview?: unknown; pedit?: unknown; pbulk?: unknown; ptrash?: unknown; padd?: unknown; iedit?: unknown; mkt?: unknown; oedit?: unknown }> = {
   'jwt-admin': { perm: 'F', admin: true }, 'jwt-ops': { perm: 'F', admin: false, edit: 'P' }, 'jwt-acct': { perm: 'P', admin: false, edit: 'N', accounts: 'P' },
   'jwt-vf': { perm: 'N', admin: false, edit: 'F', commission: 'N' },
   'jwt-bank': { perm: 'N', admin: false, edit: 'N', bank: 'F' }, // phase 3.5: accounts — sensitive.vendor_bank = F, vendors.edit = N
@@ -38,7 +38,7 @@ function setup({ seed = {}, routes = {}, env = {}, secretAnswer = (ok) => ok, fa
   const members: any[] = [];
   const userDb = (jwt: string) => {
     const m = MEMBERS[jwt];
-    const client = fakeDb({}, { rpc: m ? { sku_serial_take: () => 1234, has_perm: ({ key }: any) => (key === 'orders.status' ? m.perm : key === 'orders.view' ? m.view ?? (m.perm === 'F' || m.perm === 'P' ? 'F' : 'N') : key === 'vendors.edit' ? m.edit ?? 'N' : key === 'sensitive.commission' ? m.commission ?? 'N' : key === 'sensitive.vendor_bank' ? m.bank ?? 'N' : key === 'accounts.view' ? m.accounts ?? 'N' : key === 'accounts.approve' ? m.approve ?? 'N' : key === 'products.view' ? m.pview ?? 'N' : key === 'products.edit' ? m.pedit ?? 'N' : key === 'products.bulk' ? m.pbulk ?? 'N' : key === 'products.trash' ? m.ptrash ?? 'N' : key === 'products.add' ? m.padd ?? 'N' : key === 'inventory.edit' ? m.iedit ?? 'N' : key === 'marketing.create' ? m.mkt ?? 'N' : 'N'), is_admin: () => m.admin } : {} });
+    const client = fakeDb({}, { rpc: m ? { sku_serial_take: () => 1234, has_perm: ({ key }: any) => (key === 'orders.status' ? m.perm : key === 'orders.view' ? m.view ?? (m.perm === 'F' || m.perm === 'P' ? 'F' : 'N') : key === 'vendors.edit' ? m.edit ?? 'N' : key === 'sensitive.commission' ? m.commission ?? 'N' : key === 'sensitive.vendor_bank' ? m.bank ?? 'N' : key === 'accounts.view' ? m.accounts ?? 'N' : key === 'accounts.approve' ? m.approve ?? 'N' : key === 'products.view' ? m.pview ?? 'N' : key === 'products.edit' ? m.pedit ?? 'N' : key === 'products.bulk' ? m.pbulk ?? 'N' : key === 'products.trash' ? m.ptrash ?? 'N' : key === 'products.add' ? m.padd ?? 'N' : key === 'inventory.edit' ? m.iedit ?? 'N' : key === 'marketing.create' ? m.mkt ?? 'N' : key === 'orders.edit' ? m.oedit ?? (m.perm === 'F' ? 'F' : 'N') : 'N'), is_admin: () => m.admin } : {} });
     members.push({ jwt, client });
     return client;
   };
@@ -3646,8 +3646,9 @@ Deno.test('bosta_pickup (0145): several warehouse waybills (cash 0, a note each)
   const { res, body } = await call(deps, input, { jwt: 'jwt-ops' });
   assertEquals(res.status, 200);
   assertEquals([body.result, body.pickup], ['ok', 'PK9']);
-  // two warehouse waybills (cash 0, each its note and cartons) + order 701 to its customer from the maker; 702 on Bosta already, 703 missing
-  assertEquals(body.deliveries.map((d: any) => [d.kind, d.order_id, d.delivery, d.error]), [['warehouse', null, 'dP1', null], ['warehouse', null, 'dP1', null], ['order', 701, 'dP1', null], ['order', 702, null, 'already'], ['order', 703, null, 'missing']]);
+  // two warehouse waybills (cash 0, each its note and cartons) + order 701 to its customer from the maker; 702 on Bosta already (its own delivery), 703 missing
+  assertEquals(body.deliveries.map((d: any) => [d.kind, d.order_id, d.delivery, d.error]), [['warehouse', null, 'dP1', null], ['warehouse', null, 'dP1', null], ['order', 701, 'dP1', null], ['order', 702, 'dX', null], ['order', 703, null, 'missing']]);
+  assertEquals(body.deliveries[3].existing, true, '702 on Bosta already: its own waybill prints with the rest, never a second one');
   const sent = woo.calls.filter((c) => c.path === '/api/v2/deliveries/bulk').map((c) => c.body.deliveries[0]);
   assertEquals(sent.length, 3);
   assertEquals(sent.map((d: any) => [d.businessLocationId, d.cod, d.notes]), [['ZAAN', 0, '1001 1002'], ['ZAAN', 0, '1003'], ['ZAAN', 1000, '']]);
@@ -3677,4 +3678,48 @@ Deno.test('bosta_pickup: the create answer as the ids list (live 19 Nov), or unr
     assertEquals([body.result, body.pickup, body.deliveries[0].delivery], ['ok', 'PK1', want]);
     if (search) assertEquals(woo.calls.filter((c) => c.path === '/api/v2/deliveries/search').map((c) => c.body), [{ businessReference: 'Ibtekr_pickup_1001-1', pageLimit: 5 }]);
   }
+});
+
+// the order's address (the owner 19 Nov — «تعديل العنوان و خليه يسمع ف بوسطة و ف الويبسايت»): Bosta's areas list; the address checked
+// against it, kept here, written on the site for an order of one maker only (0079), and sent to the order's Bosta delivery
+Deno.test('order_address: the areas from Bosta, the address here + on the site (one maker only) + on the Bosta delivery; several makers → the site untouched', async () => {
+  const KEY = 'bk_' + 'x'.repeat(30);
+  const zoning = { data: [
+    { cityCode: 'EG-01', cityName: 'Cairo', cityOtherName: 'القاهرة', dropOffAvailability: true, districts: [
+      { districtId: 'dNasr', districtName: 'Nasr City', districtOtherName: 'مدينة نصر', zoneName: 'East', zoneOtherName: 'شرق', dropOffAvailability: true },
+      { districtId: 'dOff', districtName: 'Closed', districtOtherName: 'مقفولة', zoneName: 'X', zoneOtherName: 'اكس', dropOffAvailability: false }] },
+    { cityCode: 'EG-99', cityName: 'Nowhere', cityOtherName: 'مفيش', dropOffAvailability: false, districts: [{ districtId: 'dz', districtName: 'z', districtOtherName: 'ز', dropOffAvailability: true }] }] };
+  const raw = { billing: { first_name: 'منى', last_name: 'عادل', address_1: 'العنوان القديم في الجيزة', state: 'EG-25' }, meta_data: [{ key: '_billing_area', value: 'old-area' }] };
+  const orders = [
+    { id: 601, number: '601', status: 'جاري التنفيذ', customer_name: 'منى عادل', customer_phone: '01001234567', customer_state: 'EG-25', customer_address: 'العنوان القديم في الجيزة', payment_method: 'cod', total: 1200, deposit: 200, bosta_delivery: 'dlv601', deleted_at: null, placed_at: '2026-11-18T10:00:00Z', raw },
+    { id: 602, number: '602', status: 'جاري التنفيذ', customer_name: 'سارة', customer_phone: '01001234568', customer_state: 'EG-25', customer_address: 'عنوان قديم تاني هنا', payment_method: 'cod', total: 300, deposit: 0, bosta_delivery: null, deleted_at: null, placed_at: '2026-11-18T10:00:00Z', raw: {} },
+  ];
+  const routes: any = {
+    'GET /api/v2/cities/getAllDistricts': { status: 200, body: zoning },
+    'PUT /api/v2/deliveries/business/dlv601': { status: 200, body: { success: true } },
+    'PUT wc/v3/orders/601': (c: any) => ({ body: { id: 601, billing: c.body.billing } }),
+  };
+  const { db, woo, deps } = setup({ seed: { orders, order_items: [{ order_id: 601, name: 'Lamp', qty: 1, total: 1000, removed: false }], sub_orders: [{ id: 9, order_id: 602, woo_order_id: 6021 }] }, routes, env: PUSH_ON,
+    rpc: { app_secret_get: ({ p_name }: any) => (p_name === 'bosta' ? JSON.stringify({ key: KEY }) : null) } });
+  // the list: only what Bosta delivers to
+  const z = await call(deps, { action: 'bosta_zones' }, { jwt: 'jwt-ops' });
+  assertEquals(z.body.zones, [{ code: 'EG-01', name: 'القاهرة', en: 'Cairo', areas: [{ id: 'dNasr', name: 'شرق - مدينة نصر' }] }]);
+  const a = { action: 'order_address', order_id: 601, address: '15 شارع عباس العقاد الدور 3', state: 'EG-01', district: 'dNasr' };
+  assertEquals((await call(deps, a)).res.status, 401, 'never the sync secret');
+  assertEquals((await call(deps, a, { jwt: 'jwt-pview' })).res.status, 401, 'orders.edit F');
+  assertEquals((await call(deps, { ...a, district: 'dOff' }, { jwt: 'jwt-ops' })).body, { error: 'bad_request', field: 'district' }, 'an area Bosta does not deliver to');
+  assertEquals((await call(deps, { ...a, address: 'قصير' }, { jwt: 'jwt-ops' })).body, { error: 'bad_request', field: 'address' });
+  const { body } = await call(deps, a, { jwt: 'jwt-ops' });
+  assertEquals([body.result, body.site, body.bosta], ['ok', 'ok', 'ok']);
+  const row = db.row('orders', 601);
+  assertEquals([row.customer_address, row.customer_state, row.customer_city, row.bosta_district, !!row.address_set_at], ['15 شارع عباس العقاد الدور 3', 'EG-01', 'شرق - مدينة نصر', 'dNasr', true]);
+  const put = woo.calls.filter((c) => c.path === 'wc/v3/orders/601')[0];
+  assertEquals(put.body, { billing: { address_1: '15 شارع عباس العقاد الدور 3', address_2: '', state: 'EG-01', city: 'شرق - مدينة نصر' }, shipping: { address_1: '15 شارع عباس العقاد الدور 3', address_2: '', state: 'EG-01', city: 'شرق - مدينة نصر' }, meta_data: [{ key: '_billing_area', value: 'dNasr' }] });
+  const edit = woo.calls.filter((c) => c.path === '/api/v2/deliveries/business/dlv601')[0];
+  assertEquals(edit.body.dropOffAddress, { firstLine: '15 شارع عباس العقاد الدور 3', secondLine: '', city: 'Cairo', districtId: 'dNasr' }, 'the new address on Bosta, not the site copy');
+  // an order of several makers: here only (no delivery yet) — the site is never written
+  const two = await call(deps, { ...a, order_id: 602 }, { jwt: 'jwt-ops' });
+  assertEquals([two.body.site, two.body.bosta], ['multi', 'none']);
+  assertEquals(woo.calls.some((c) => c.path === 'wc/v3/orders/602'), false);
+  assertEquals(db.row('orders', 602).bosta_district, 'dNasr');
 });

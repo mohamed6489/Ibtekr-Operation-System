@@ -64,6 +64,19 @@
       .map((o) => ({ o, mine: !!vendorId && (o.subs || []).some((x) => x.vendorId === String(vendorId)), pre: o.id.startsWith(q) }))
       .sort((a, b) => (b.mine - a.mine) || (b.pre - a.pre) || (Number(b.o.id) - Number(a.o.id))).slice(0, 6).map((x) => x.o);
   }
+  // the owner 19 Nov («احدد هل فيه منتجات قابلة للكسر - تتضمن شحنة ثقيلة - تتضمن عناصر كبيرة»): Bosta's own pickup choices — a bulky
+  // shipment always has big items (ticked and locked, like Bosta's screen)
+  function kindsField(f, set) {
+    const box = (key, title, hint, locked) => { const on = !!(f[key] || locked);
+      return h('label', { 'data-bp-kind': key, style: 'display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid ' + (on ? 'var(--color-brand-default)' : 'var(--color-border-subtle)') + ';border-radius:8px;background:' + (on ? 'var(--color-bg-tint,#F0E5CF)' : 'transparent') + ';cursor:' + (locked ? 'default' : 'pointer') },
+        h('input', { type: 'checkbox', checked: on, disabled: !!locked, style: 'margin-top:3px', onChange: (ev) => set(key, ev.target.checked, true) }),
+        h('span', { style: 'display:flex;flex-direction:column;gap:2px' }, h('b', { style: 'font-weight:600' }, title), hint ? h('small', { class: 't-small', style: 'color:var(--color-text-secondary)' }, hint) : null)); };
+    return h('div', { class: 'fd', style: 'margin-top:12px' }, h('label', { class: 'lb' }, 'نوع الشحنة'),
+      h('div', { style: 'display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px;margin-top:6px' },
+        box('bulky', 'تتضمن شحنة ضخمة / تقيلة', 'عشان بوسطة تبعت العربية المناسبة'),
+        box('big', 'يوجد عناصر كبيرة', f.bulky ? 'بتتعلّم لوحدها مع الشحنة الضخمة' : '', !!f.bulky),
+        box('fragile', 'يوجد عناصر قابلة للكسر', '')));
+  }
   function ordersField(f, e, set, vendorId, idsOf) {
     const tags = idsOf(f.orders);
     const put = (list) => { f.ordersDraft = ''; set('orders', list.join(' '), true); };
@@ -133,6 +146,7 @@
           K.field.select('location', 'عنوان المبتكر على بوسطة', [{ value: '', label: '— اختار —' }].concat(locs.filter((l) => l.id !== f.warehouse).map((l) => ({ value: l.id, label: label(l) }))), f, e, set),
           admin ? K.field.select('warehouse', 'المخزن (اللي بوليصات المخزن رايحاله)', locs.map((l) => ({ value: l.id, label: label(l) })), f, e, (k, v) => set(k, v, true)) : null,
           dayField(f, e, set),
+          kindsField(f, set),
           h('h4', { class: 't-h4', style: 'margin:12px 0 4px' }, 'بوليصات للمخزن (التحصيل 0)'),
           ...rows,
           f.n < 10 ? U.Button({ label: '+ بوليصة للمخزن', onClick: () => { f['wn' + f.n] = ''; f['wp' + f.n] = '1'; set('n', f.n + 1, true); } }) : null,
@@ -166,7 +180,7 @@
             if (sv && sv.ok === false) { m._busy = false; K.toast('معرفناش نحفظ المخزن — جرّب تاني', 'error'); return; }
           }
           const bb = K.busy('بنعمل البوليصات ونطلب المندوب…');
-          const res = await O().bostaPickup({ vendorId, location: f.location, date: f.date, slot: f.slot, receiver: String(f.receiver || '').trim(), phone: String(f.phone || '').trim(), warehouse: rowsOf(f).map((rw) => ({ note: rw.note, parcels: Number(rw.parcels) })), orders: ids(allOrders(f)).join(' ') });
+          const res = await O().bostaPickup({ vendorId, location: f.location, date: f.date, slot: f.slot, fragile: !!f.fragile, bulky: !!f.bulky, big: !!(f.bulky || f.big), receiver: String(f.receiver || '').trim(), phone: String(f.phone || '').trim(), warehouse: rowsOf(f).map((rw) => ({ note: rw.note, parcels: Number(rw.parcels) })), orders: ids(allOrders(f)).join(' ') });
           m._busy = false;
           if (!res || (!res.ok && !res.partial && !(res.deliveries && res.deliveries.length))) { bb.fail(res && res.field ? FIELD[res.field] || WHY.invalid : WHY[res && res.reason] || (res && res.message) || 'بوسطة رفضت الطلب'); return; }
           bb.close(); m.close(); done(res, vendorName);

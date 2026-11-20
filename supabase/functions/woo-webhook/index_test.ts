@@ -635,7 +635,8 @@ Deno.test('order.deleted: the parent order is hidden here like «مسح» (delet
     { id: 9001, number: '9001', customer_name: 'أ', status: 'جاري التنفيذ', confirm: 'مؤكد', deposit: 0, total: 100, placed_at: '2026-11-18T10:00:00Z', deleted_at: null },
     { id: 9002, number: '9002', customer_name: 'ب', status: 'مكتمل', confirm: 'مؤكد', deposit: 0, total: 100, placed_at: '2026-11-18T10:00:00Z', deleted_at: null },
   ], sub_orders: [{ id: 5, order_id: 9001, woo_order_id: 9101 }] };
-  const { db, woo, deps } = setup({ seed, routes: subsRoute([]) });
+  const routes = { ...subsRoute([]), 'GET wc/v3/orders/9001': { status: 200, body: { id: 9001, status: 'trash' } }, 'GET wc/v3/orders/9002': { status: 404, body: { code: 'woocommerce_rest_shop_order_invalid_id' } } };
+  const { db, woo, deps } = setup({ seed, routes });
   const del = (id: number, d: string) => deliver(deps, { id }, { topic: 'order.deleted', id: d });
   assertEquals((await del(9001, 'x-1')).body, { status: 'ok', id: 9001 });
   const a = db.row('orders', 9001);
@@ -645,7 +646,7 @@ Deno.test('order.deleted: the parent order is hidden here like «مسح» (delet
   assertEquals((await del(9101, 'x-3')).body.status, 'ignored', 'Dokan deletes and remakes sub-orders — never an order here');
   assertEquals((await del(4242, 'x-4')).body.status, 'ignored');
   assertEquals((await del(9001, 'x-5')).body.status, 'ignored', 'already hidden');
-  assertEquals(woo.calls.length, 0, 'nothing read from or written to the site');
+  assertEquals(woo.calls.map((c: any) => `${c.method} ${c.path}`), ['GET wc/v3/orders/9001', 'GET wc/v3/orders/9002'], 'the site is asked first; never written');
   // out of the site's trash: back, with the site's own order
   const back = wooOrder({ id: 9001, status: 'processing' });
   const r = await deliver(deps, back, { topic: 'order.restored', id: 'x-6' });
@@ -659,4 +660,14 @@ Deno.test('order.restored never brings back an order the team deleted with «م�
   await deliver(deps, wooOrder({ id: 9003, status: 'cancelled' }), { topic: 'order.restored', id: 'y-1' });
   assertEquals(db.row('orders', 9003).delete_reason, 'مكرر');
   assert(db.row('orders', 9003).deleted_at);
+});
+
+Deno.test('order.deleted is checked on the site first (the topic header is not signed): an order still there is not hidden', async () => {
+  const seed = { orders: [{ id: 9004, number: '9004', customer_name: 'د', status: 'جاري التنفيذ', confirm: 'مؤكد', deposit: 0, total: 100, placed_at: '2026-11-18T10:00:00Z', deleted_at: null }] };
+  const { db, deps } = setup({ seed, routes: { 'GET wc/v3/orders/9004': { status: 200, body: { id: 9004, status: 'processing' } } } });
+  assertEquals((await deliver(deps, { id: 9004 }, { topic: 'order.deleted', id: 'z-1' })).body.status, 'ignored');
+  assertEquals([db.row('orders', 9004).status, db.row('orders', 9004).deleted_at], ['جاري التنفيذ', null]);
+  const down = setup({ seed, routes: { 'GET wc/v3/orders/9004': { status: 500, body: {} } } });
+  assertEquals((await deliver(down.deps, { id: 9004 }, { topic: 'order.deleted', id: 'z-2' })).res.status, 500, 'the site did not answer: nothing hidden');
+  assertEquals(down.db.row('orders', 9004).deleted_at, null);
 });

@@ -22,7 +22,7 @@ import { isSubOrder, redactPII, verifySignature } from '../_shared/woo-core.js';
 import { logSync } from '../_shared/db.js';
 import { vaultEnv } from '../_shared/secrets.js';
 import { readStore, wooActive } from '../_shared/store/index.js';
-import { errorText, makeScrubber, wooApi } from '../_shared/woo-api.js';
+import { WooError, errorText, makeScrubber, wooApi } from '../_shared/woo-api.js';
 import { wooId, writeContext, writeOrders, writeProducts, writeSubOrders } from '../_shared/woo-write.js';
 import { BALANCE_STATUSES, makersOfOrder, readBalances } from '../_shared/dokan-balances.js';
 
@@ -135,10 +135,25 @@ async function productDelivery(p: Body, deps: Deps): Promise<Status> {
 // (0079), and their ids are in sub_orders, never here. order.restored (out of the site's trash) brings back an order this hid.
 export const SITE_DELETED = 'اتمسح من الموقع';
 const KEEP_STATUS = ['مكتمل', 'استرجاع'];
+// The topic header is not signed (only the body is): a signed body of another topic re-sent with «order.deleted» must hide nothing — so
+// the site itself is asked first, and only an order it no longer has (404 / 410 / invalid id) or has in its trash is hidden here.
+async function goneOnSite(id: number, deps: Deps): Promise<boolean> {
+  try {
+    const { data } = await wooApi(deps.env, deps.fetch).get(`wc/v3/orders/${id}`);
+    return isObj(data) && data.status === 'trash';
+  } catch (e) {
+    if (e instanceof WooError && (e.status === 404 || e.status === 410 || (e.status === 400 && /woocommerce_rest_shop_order_invalid_id/.test(e.message)))) return true;
+    throw e; // the site did not answer: the delivery fails (an error row), nothing hidden
+  }
+}
 async function orderDeleted(id: number, deps: Deps): Promise<Status> {
   const { data: o, error } = await deps.db.from('orders').select('id, status, deleted_at').eq('id', id).maybeSingle();
   if (error) throw new Error(`orders read failed (${error.code ?? 'error'})`);
   if (!o || o.deleted_at) return 'ignored';
+  if (!(await goneOnSite(id, deps))) {
+    await logSync(deps.db, { kind: 'webhook', direction: 'in', entity: 'order', entity_id: String(id), action: 'site_delete', result: 'skipped', detail: { reason: 'still_on_site' } });
+    return 'ignored';
+  }
   const patch: Body = { deleted_at: deps.now(), deleted_by: null, delete_reason: SITE_DELETED };
   if (!KEEP_STATUS.includes(String(o.status))) patch.status = 'ملغي';
   const { error: werr } = await deps.db.from('orders').update(patch).eq('id', id).is('deleted_at', null);
@@ -148,6 +163,7 @@ async function orderDeleted(id: number, deps: Deps): Promise<Status> {
 }
 async function orderRestored(o: Body, deps: Deps): Promise<Status> {
   const id = wooId(o.id) as number;
+  if (o.status === 'trash') return 'ignored'; // the signed body itself says it is still in the trash
   const { error } = await deps.db.from('orders').update({ deleted_at: null, deleted_by: null, delete_reason: null }).eq('id', id).eq('delete_reason', SITE_DELETED);
   if (error) throw new Error(`orders write failed (${error.code ?? 'error'})`);
   return orderDelivery(o, deps); // the site's own status comes back with it

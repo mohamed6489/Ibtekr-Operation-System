@@ -596,16 +596,17 @@ function fbTest(c,o){var f=fbField(c.f),t=f[2],raw=fbVal(o,c.f),v=c.v==null?'':S
 function fbEval(g,o){if(!g.items.length)return true;var r=g.items.map(function(it){return it.items?fbEval(it,o):fbTest(it,o)});return g.op==='and'?r.every(Boolean):r.some(Boolean)}
 function fbCount(g){return g.items.reduce(function(n,it){return n+(it.items?fbCount(it):1)},0)}
 // the owner 20 Nov: quick filters in the «فلتر» popup — one press applies, another one adds to it (its conditions carry q = its key,
-// pressing it again takes them off); the owner 20 Nov («تشتغل علي الحالي بس» — his daily orders sheet): every chip but the delay ones adds
-// QL = a working order (قيد الانتظار / جاري التنفيذ / جاهز للشحن — not shipping, closed or on hold — with a product still open on the site:
-// its sub-order processing / pending / on-hold and the product not «ملغي»); «عربون مش مدفوع» = working, not confirmed, no deposit
-var LIVE_ST=['قيد الانتظار','جاري التنفيذ','جاهز للشحن'];var QL={f:'live',op:'eq',v:'أيوه'};
-var QF=[['unpaid','عربون مش مدفوع',[QL,{f:'cfx',op:'eq',v:'لأ'},{f:'dep',op:'empty'}]],['late','متأخرة',[{f:'deliv',op:'eq',v:'متأخر'}]],['risk','قابلة للتأخير',[{f:'deliv',op:'eq',v:'قابل للتأخير'}]],['unconf','لسه ماتأكدتش',[QL,{f:'cfx',op:'eq',v:'لأ'}]],['nobosta','متأكدة ومش على بوسطة',[QL,{f:'cfx',op:'eq',v:'أيوه'},{f:'trk',op:'empty'}]],['d19','من 1 لـ 9 أيام',[QL,{f:'age',op:'gt',v:'0'},{f:'age',op:'lt',v:'10'}]],['d10','10 أيام فأكتر',[QL,{f:'age',op:'gt',v:'9'}]],['one','مبتكر واحد',[QL,{f:'makers',op:'eq',v:'1'}],1],['multi','أكتر من مبتكر',[QL,{f:'makers',op:'gt',v:'1'}],1]];
+// pressing it again takes them off); the owner 20 Nov — the operations meeting's daily sheet, tab by tab: QL = a working order (جاري التنفيذ /
+// جاهز للشحن with a product still open on the site: its sub-order processing / pending / on-hold and the product not «ملغي»);
+// «ديبوزيت غير مدفوع» = working + «في انتظار الرد» + no deposit; «أوردرات متأخرة» = working and 10+ days, or قيد الانتظار, or معلّق;
+// «أوردرات 1-9 أيام» = working, 1–9 days; «عربون مش مدفوع» = working, not confirmed, no deposit
+var LIVE_ST=['جاري التنفيذ','جاهز للشحن'];var QL={f:'live',op:'eq',v:'أيوه'};
+var QF=[['unpaid','ديبوزيت غير مدفوع',[QL,{f:'cf',op:'eq',v:'في انتظار الرد'},{f:'dep',op:'empty'}]],['late','أوردرات متأخرة',[{op:'or',items:[{op:'and',items:[QL,{f:'age',op:'gt',v:'9'}]},{f:'st',op:'eq',v:'قيد الانتظار'},{f:'st',op:'eq',v:'معلّق'}]}]],['d19','أوردرات 1-9 أيام',[QL,{f:'age',op:'gt',v:'0'},{f:'age',op:'lt',v:'10'}]],['one','مبتكر واحد',[QL,{f:'makers',op:'eq',v:'1'}],1],['multi','أكتر من مبتكر',[QL,{f:'makers',op:'gt',v:'1'}],1],['mlate','متأخرة عن مدة التصنيع',[{f:'deliv',op:'eq',v:'متأخر'}]],['risk','قابلة للتأخير',[{f:'deliv',op:'eq',v:'قابل للتأخير'}]],['unconf','لسه ماتأكدتش',[QL,{f:'cfx',op:'eq',v:'لأ'}]],['nobosta','متأكدة ومش على بوسطة',[QL,{f:'cfx',op:'eq',v:'أيوه'},{f:'trk',op:'empty'}]]];
 function qfList(){var sg=SG();return QF.filter(function(q){return!(sg&&q[3])})}
 function qfOn(k,g){return g.items.some(function(it){return it.q===k})}
 function qfToggle(k){var q=QF.filter(function(x){return x[0]===k})[0];if(!q)return;var fb=JSON.parse(JSON.stringify(FBO||S.fb)),on=qfOn(k,fb);
  if(on)fb.items=fb.items.filter(function(it){return it.q!==k});
- else{if(fb.op==='or'&&fb.items.length>1)fb={op:'and',items:[{op:'or',items:fb.items}]};fb.op='and';q[2].forEach(function(c){fb.items.push({f:c.f,op:c.op,v:c.v==null?'':c.v,q:k})})}
+ else{if(fb.op==='or'&&fb.items.length>1)fb={op:'and',items:[{op:'or',items:fb.items}]};fb.op='and';q[2].forEach(function(c){var x=JSON.parse(JSON.stringify(c));if(!x.items&&x.v==null)x.v='';x.q=k;fb.items.push(x)})}
  S.fb=fb;S.page=1;fbClose(1);draw();toast(on?'اتشال «'+q[1]+'»':'اتطبق «'+q[1]+'»')}
 // the member's own saved filters (user_prefs «orders.filters» — owner-only RLS: nobody else sees them), up to 20, a press applies, × removes
 var SV_KEY='orders.filters';var FBSV=false;

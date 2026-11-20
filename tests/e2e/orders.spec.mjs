@@ -1486,15 +1486,15 @@ test('quick filters apply on one press and stack; a saved filter is the member\'
   await pop.locator('[data-fbcancel]').click();
   await quick('مبتكر واحد');
   await expect(toast(page)).toHaveText('اتطبق «مبتكر واحد»');
-  await expect(fb).toContainText('فلتر (1)');
+  await expect(fb).toContainText('فلتر (2)'); // the chip + «أوردر شغّال» (owner 20 Nov: working orders only)
   const one = await cards(page).count();
   await fb.click(); await expect(pop.locator('[data-qf="one"]')).toHaveAttribute('aria-pressed', 'true'); await pop.locator('[data-fbcancel]').click();
   await quick('أكتر من مبتكر'); // stacked on «مبتكر واحد» → nothing is both
-  await expect(fb).toContainText('فلتر (2)'); await expect(cards(page)).toHaveCount(0);
+  await expect(fb).toContainText('فلتر (4)'); await expect(cards(page)).toHaveCount(0);
   await quick('مبتكر واحد'); // off again → «أكتر من مبتكر» only
   await expect(toast(page)).toHaveText('اتشال «مبتكر واحد»');
   const multi = await cards(page).count();
-  expect(one + multi).toBe(3);
+  expect(one + multi).toBeLessThanOrEqual(3); // closed / shipping orders are never in a quick filter
   // save it, it shows for this member, applies, and × removes it
   await fb.click(); await pop.locator('[data-svnew]').click();
   await pop.locator('#svname').fill('أوردرات بأكتر من مبتكر'); await pop.locator('#svform button[type=submit]').click();
@@ -1503,7 +1503,7 @@ test('quick filters apply on one press and stack; a saved filter is the member\'
   await pop.locator('[data-fbclear]').click(); await pop.locator('[data-fbapply]').click();
   await expect(cards(page)).toHaveCount(3);
   await fb.click(); await pop.locator('[data-svf="0"]').click();
-  await expect(cards(page)).toHaveCount(multi); await expect(fb).toContainText('فلتر (1)');
+  await expect(cards(page)).toHaveCount(multi); await expect(fb).toContainText('فلتر (2)');
   await fb.click(); await pop.locator('[data-svx="0"]').click();
   await expect(pop.locator('[data-svf]')).toHaveCount(0);
   await expect.poll(() => mock.prefs.find((r) => r.key === 'orders.filters')?.data).toEqual([]);

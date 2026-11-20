@@ -1482,7 +1482,7 @@ test('quick filters apply on one press and stack; a saved filter is the member\'
   const pop = page.locator('#orders #fbpop'); const fb = page.locator('#orders #fbtn');
   const quick = async (label) => { await fb.click(); await pop.locator('[data-qf-row] button', { hasText: label }).click(); await expect(pop).toHaveCount(0); };
   await fb.click();
-  await expect(pop.locator('[data-qf-row] .qc')).toHaveText(['عربون مش مدفوع', 'متأخرة', 'قابلة للتأخير', 'لسه ماتأكدتش', 'متأكدة ومش على بوسطة', 'من 1 لـ 9 أيام', '10 أيام فأكتر', 'مبتكر واحد', 'أكتر من مبتكر']);
+  await expect(pop.locator('[data-qf-row] .qc')).toHaveText(['ديبوزيت غير مدفوع', 'أوردرات متأخرة', 'أوردرات 1-9 أيام', 'مبتكر واحد', 'أكتر من مبتكر', 'متأخرة عن مدة التصنيع', 'قابلة للتأخير', 'لسه ماتأكدتش', 'متأكدة ومش على بوسطة']);
   await pop.locator('[data-fbcancel]').click();
   await quick('مبتكر واحد');
   await expect(toast(page)).toHaveText('اتطبق «مبتكر واحد»');
@@ -1494,6 +1494,12 @@ test('quick filters apply on one press and stack; a saved filter is the member\'
   await quick('مبتكر واحد'); // off again → «أكتر من مبتكر» only
   await expect(toast(page)).toHaveText('اتشال «مبتكر واحد»');
   const multi = await cards(page).count();
+  // «أوردرات متأخرة» (the sheet's tab) = one group: working and 10+ days, or قيد الانتظار, or معلّق — 4 conditions; off again → back
+  await quick('أكتر من مبتكر'); await expect(cards(page)).toHaveCount(3);
+  await quick('أوردرات متأخرة'); await expect(fb).toContainText('فلتر (4)');
+  await fb.click(); await expect(pop.locator('.grp').first()).toBeVisible(); await pop.locator('[data-fbcancel]').click();
+  await quick('أوردرات متأخرة'); await expect(cards(page)).toHaveCount(3);
+  await quick('أكتر من مبتكر');
   expect(one + multi).toBeLessThanOrEqual(3); // closed / shipping orders are never in a quick filter
   // save it, it shows for this member, applies, and × removes it
   await fb.click(); await pop.locator('[data-svnew]').click();

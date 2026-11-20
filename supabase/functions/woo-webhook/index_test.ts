@@ -627,3 +627,36 @@ Deno.test('data-real decision 10: a delivery from another site (the staging\'s w
   assertEquals((await send(site.protocol + '//www.' + site.host.replace(/^www\./, '') + '/', 5102)).status, 'ok');
   assertEquals((await send(null, 5103)).status, 'ok');
 });
+
+// ---------------------------------------------------------------- an order deleted on the site (20 Nov)
+
+Deno.test('order.deleted: the parent order is hidden here like «مسح» (deleted_at + the site reason), an open one turns «ملغي»; a completed one keeps its status; a sub-order id or an unknown id changes nothing; order.restored brings it back', async () => {
+  const seed = { orders: [
+    { id: 9001, number: '9001', customer_name: 'أ', status: 'جاري التنفيذ', confirm: 'مؤكد', deposit: 0, total: 100, placed_at: '2026-11-18T10:00:00Z', deleted_at: null },
+    { id: 9002, number: '9002', customer_name: 'ب', status: 'مكتمل', confirm: 'مؤكد', deposit: 0, total: 100, placed_at: '2026-11-18T10:00:00Z', deleted_at: null },
+  ], sub_orders: [{ id: 5, order_id: 9001, woo_order_id: 9101 }] };
+  const { db, woo, deps } = setup({ seed, routes: subsRoute([]) });
+  const del = (id: number, d: string) => deliver(deps, { id }, { topic: 'order.deleted', id: d });
+  assertEquals((await del(9001, 'x-1')).body, { status: 'ok', id: 9001 });
+  const a = db.row('orders', 9001);
+  assertEquals([a.status, a.delete_reason, a.deleted_by, !!a.deleted_at], ['ملغي', 'اتمسح من الموقع', null, true]);
+  assertEquals((await del(9002, 'x-2')).body.status, 'ok');
+  assertEquals([db.row('orders', 9002).status, !!db.row('orders', 9002).deleted_at], ['مكتمل', true], 'a completed order keeps its status (its money stays counted)');
+  assertEquals((await del(9101, 'x-3')).body.status, 'ignored', 'Dokan deletes and remakes sub-orders — never an order here');
+  assertEquals((await del(4242, 'x-4')).body.status, 'ignored');
+  assertEquals((await del(9001, 'x-5')).body.status, 'ignored', 'already hidden');
+  assertEquals(woo.calls.length, 0, 'nothing read from or written to the site');
+  // out of the site's trash: back, with the site's own order
+  const back = wooOrder({ id: 9001, status: 'processing' });
+  const r = await deliver(deps, back, { topic: 'order.restored', id: 'x-6' });
+  assertEquals(r.res.status, 200);
+  assertEquals([db.row('orders', 9001).deleted_at, db.row('orders', 9001).delete_reason], [null, null]);
+});
+
+Deno.test('order.restored never brings back an order the team deleted with «مسح» (its own reason)', async () => {
+  const seed = { orders: [{ id: 9003, number: '9003', customer_name: 'ج', status: 'ملغي', confirm: 'مؤكد', deposit: 0, total: 100, placed_at: '2026-11-18T10:00:00Z', deleted_at: '2026-11-19T10:00:00Z', delete_reason: 'مكرر' }] };
+  const { db, deps } = setup({ seed, routes: subsRoute([]) });
+  await deliver(deps, wooOrder({ id: 9003, status: 'cancelled' }), { topic: 'order.restored', id: 'y-1' });
+  assertEquals(db.row('orders', 9003).delete_reason, 'مكرر');
+  assert(db.row('orders', 9003).deleted_at);
+});

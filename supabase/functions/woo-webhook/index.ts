@@ -128,9 +128,36 @@ async function productDelivery(p: Body, deps: Deps): Promise<Status> {
   return r.written.length ? 'ok' : 'ignored';
 }
 
+// the owner 20 Nov («خلي الأوردر اللي يتمسح من الموقع يتمسح من السيستم كمان»): order.deleted (the site's trash or a permanent delete —
+// WooCommerce sends { id } only) hides the order here the way «مسح» does: deleted_at + the reason SITE_DELETED, and an open order turns
+// «ملغي» first (the system's «مسح» cancels first too — the sales reports count a deleted order by its status); a completed or returned
+// order keeps its status (its money stays counted). Only a parent order in orders: Dokan deletes and remakes sub-orders all the time
+// (0079), and their ids are in sub_orders, never here. order.restored (out of the site's trash) brings back an order this hid.
+export const SITE_DELETED = 'اتمسح من الموقع';
+const KEEP_STATUS = ['مكتمل', 'استرجاع'];
+async function orderDeleted(id: number, deps: Deps): Promise<Status> {
+  const { data: o, error } = await deps.db.from('orders').select('id, status, deleted_at').eq('id', id).maybeSingle();
+  if (error) throw new Error(`orders read failed (${error.code ?? 'error'})`);
+  if (!o || o.deleted_at) return 'ignored';
+  const patch: Body = { deleted_at: deps.now(), deleted_by: null, delete_reason: SITE_DELETED };
+  if (!KEEP_STATUS.includes(String(o.status))) patch.status = 'ملغي';
+  const { error: werr } = await deps.db.from('orders').update(patch).eq('id', id).is('deleted_at', null);
+  if (werr) throw new Error(`orders write failed (${werr.code ?? 'error'})`);
+  await logSync(deps.db, { kind: 'webhook', direction: 'in', entity: 'order', entity_id: String(id), action: 'site_delete', result: 'ok', detail: { cancelled: !!patch.status } });
+  return 'ok';
+}
+async function orderRestored(o: Body, deps: Deps): Promise<Status> {
+  const id = wooId(o.id) as number;
+  const { error } = await deps.db.from('orders').update({ deleted_at: null, deleted_by: null, delete_reason: null }).eq('id', id).eq('delete_reason', SITE_DELETED);
+  if (error) throw new Error(`orders write failed (${error.code ?? 'error'})`);
+  return orderDelivery(o, deps); // the site's own status comes back with it
+}
+
 function dispatch(topic: string, body: unknown, deps: Deps): Promise<Status> {
   const [resource, event] = topic.split('.');
   if (!isObj(body) || wooId(body.id) === null) return Promise.resolve('ignored');
+  if (resource === 'order' && event === 'deleted') return orderDeleted(wooId(body.id) as number, deps);
+  if (resource === 'order' && event === 'restored' && Array.isArray(body.line_items) && !isSubOrder(body)) return orderRestored(body, deps);
   if (resource === 'order' && Array.isArray(body.line_items)) return orderDelivery(body, deps);
   if (resource === 'product' && event !== 'deleted' && !('line_items' in body) && typeof body.name === 'string') return productDelivery(body, deps);
   return Promise.resolve('ignored');

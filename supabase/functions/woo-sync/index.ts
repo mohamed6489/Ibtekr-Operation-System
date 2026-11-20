@@ -202,7 +202,7 @@ const RATE_FIELDS = ['rate', 'category_rates'];
 const CONTACT_PUSH_FIELDS = ['phone', 'email', 'contact_name', 'address_parts', 'social']; // what vendors.edit = 'P' may push (the guard's contact rule)
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const pushEnabled = (env: Deps['env']) => env.WOO_PUSH_ENABLED?.trim() === '1';
-const TOPICS = ['order.created', 'order.updated', 'product.created', 'product.updated'];
+const TOPICS = ['order.created', 'order.updated', 'order.deleted', 'order.restored', 'product.created', 'product.updated']; // order.deleted / restored: 20 Nov — an order deleted on the site goes from the system too
 const PREFIX = 'ibtekr-ops:';
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Access-Control-Allow-Methods': 'POST, OPTIONS' };
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json' } });

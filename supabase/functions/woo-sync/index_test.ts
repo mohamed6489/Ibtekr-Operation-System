@@ -1204,16 +1204,16 @@ Deno.test('register_webhooks creates ours next to the n8n ones, re-activates our
   assertEquals(res.status, 200);
 
   const writes = woo.calls.filter((c) => c.method !== 'GET');
-  assertEquals(writes.map((c) => `${c.method} ${c.path}`), ['PUT wc/v3/webhooks/81', 'POST wc/v3/webhooks', 'POST wc/v3/webhooks', 'POST wc/v3/webhooks']);
+  assertEquals(writes.map((c) => `${c.method} ${c.path}`), ['PUT wc/v3/webhooks/81', 'POST wc/v3/webhooks', 'POST wc/v3/webhooks', 'POST wc/v3/webhooks', 'POST wc/v3/webhooks', 'POST wc/v3/webhooks']);
   assertEquals(writes[0].body, { status: 'active', secret: ENV.WOO_WEBHOOK_SECRET });
-  assertEquals(writes.slice(1).map((c) => c.body), ['order.updated', 'product.created', 'product.updated'].map((topic) =>
+  assertEquals(writes.slice(1).map((c) => c.body), ['order.updated', 'order.deleted', 'order.restored', 'product.created', 'product.updated'].map((topic) =>
     ({ name: `ibtekr-ops:${topic}`, topic, delivery_url: OURS, secret: ENV.WOO_WEBHOOK_SECRET, status: 'active' })));
   assert(woo.calls.every((c) => c.headers.authorization === WC_AUTH));
   assertFalse(woo.calls.some((c) => /\/(66|75|80)$/.test(c.path)), 'foreign webhooks untouched');
   assert(writes.every((c) => /^wc\/v3\/webhooks(\/\d+)?$/.test(c.path)), 'a webhook id that is not an integer is never put in a path');
 
-  assertEquals(body.counts, { created: 3, updated: 1, unchanged: 0 });
-  assertEquals(body.webhooks.map((h: any) => [h.id, h.topic, h.status]), [[81, 'order.created', 'active'], [100, 'order.updated', 'active'], [101, 'product.created', 'active'], [102, 'product.updated', 'active']]);
+  assertEquals(body.counts, { created: 5, updated: 1, unchanged: 0 });
+  assertEquals(body.webhooks.map((h: any) => [h.id, h.topic, h.status]), [[81, 'order.created', 'active'], [100, 'order.updated', 'active'], [101, 'order.deleted', 'active'], [102, 'order.restored', 'active'], [103, 'product.created', 'active'], [104, 'product.updated', 'active']]);
   assertFalse(JSON.stringify(body).includes(ENV.WOO_WEBHOOK_SECRET), 'the secret is never returned');
 });
 

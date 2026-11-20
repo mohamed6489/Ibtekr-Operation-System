@@ -1474,3 +1474,37 @@ test('«تعديل العنوان»: Bosta\'s governorates and areas, saved here
   await expect(page.locator('#orders')).toContainText('الموقع زي ما هو — الأوردر فيه أكتر من مبتكر · واتحدّث على بوسطة');
   expect(pageErrors).toEqual([]);
 });
+
+// the owner 20 Nov: quick filters in the «فلتر» popup (one press applies, a second one adds, the same one again takes it off) and the
+// member's own saved filters (user_prefs «orders.filters» — only theirs; × removes one)
+test('quick filters apply on one press and stack; a saved filter is the member\'s own and can be removed', async ({ page }) => {
+  await openOrders(page);
+  const pop = page.locator('#orders #fbpop'); const fb = page.locator('#orders #fbtn');
+  const quick = async (label) => { await fb.click(); await pop.locator('[data-qf-row] button', { hasText: label }).click(); await expect(pop).toHaveCount(0); };
+  await fb.click();
+  await expect(pop.locator('[data-qf-row] .qc')).toHaveText(['عربون مش مدفوع', 'متأخرة', 'قابلة للتأخير', 'لسه ماتأكدتش', 'متأكدة ومش على بوسطة', 'من 1 لـ 9 أيام', '10 أيام فأكتر', 'مبتكر واحد', 'أكتر من مبتكر']);
+  await pop.locator('[data-fbcancel]').click();
+  await quick('مبتكر واحد');
+  await expect(toast(page)).toHaveText('اتطبق «مبتكر واحد»');
+  await expect(fb).toContainText('فلتر (1)');
+  const one = await cards(page).count();
+  await fb.click(); await expect(pop.locator('[data-qf="one"]')).toHaveAttribute('aria-pressed', 'true'); await pop.locator('[data-fbcancel]').click();
+  await quick('أكتر من مبتكر'); // stacked on «مبتكر واحد» → nothing is both
+  await expect(fb).toContainText('فلتر (2)'); await expect(cards(page)).toHaveCount(0);
+  await quick('مبتكر واحد'); // off again → «أكتر من مبتكر» only
+  await expect(toast(page)).toHaveText('اتشال «مبتكر واحد»');
+  const multi = await cards(page).count();
+  expect(one + multi).toBe(3);
+  // save it, it shows for this member, applies, and × removes it
+  await fb.click(); await pop.locator('[data-svnew]').click();
+  await pop.locator('#svname').fill('أوردرات بأكتر من مبتكر'); await pop.locator('#svform button[type=submit]').click();
+  await expect(toast(page)).toHaveText('اتحفظ الفلتر «أوردرات بأكتر من مبتكر»');
+  await expect.poll(() => mock.prefs.find((r) => r.key === 'orders.filters')?.data?.map((x) => x.name)).toEqual(['أوردرات بأكتر من مبتكر']);
+  await pop.locator('[data-fbclear]').click(); await pop.locator('[data-fbapply]').click();
+  await expect(cards(page)).toHaveCount(3);
+  await fb.click(); await pop.locator('[data-svf="0"]').click();
+  await expect(cards(page)).toHaveCount(multi); await expect(fb).toContainText('فلتر (1)');
+  await fb.click(); await pop.locator('[data-svx="0"]').click();
+  await expect(pop.locator('[data-svf]')).toHaveCount(0);
+  await expect.poll(() => mock.prefs.find((r) => r.key === 'orders.filters')?.data).toEqual([]);
+});

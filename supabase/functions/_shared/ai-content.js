@@ -543,10 +543,14 @@ export function cleanStudio(json, want, { categoryIds, colorCodes, styles }) {
 
 // USD per million tokens: [input, output, cache read]; a cache write is 1.25 × input (5-minute entries). The fallback models
 // (Claude Opus 5 / Opus 4.8) are listed too; an unknown model is priced as the dearest so the monthly cap never undercounts.
-export const PRICES = { 'claude-opus-5-5': [4, 20, 0.2], 'claude-sonnet-5-5': [2, 10, 0.2], 'claude-opus-5': [5, 25, 0.5], 'claude-opus-4-8': [5, 25, 0.5], 'claude-sonnet-5': [2, 10, 0.2],
+export const PRICES = { 'claude-opus-5-5': [4, 20, 0.2], 'claude-sonnet-5-5': [2, 10, 0.1], 'claude-opus-5': [5, 25, 0.5], 'claude-opus-4-8': [5, 25, 0.5], 'claude-sonnet-5': [2, 10, 0.2],
+  // the light model of the routing (ai-routing.js, the owner 22 Nov): a prompt of up to 100K tokens; a longer one is on LONG_PRICES
+  'claude-haiku-5-5': [0.1, 0.5, 0.01],
   // phase 11 (decision 15): the other text providers, priced from TEXT_PRICES of ai-providers.js (kept in step by a node test)
   'gpt-5.2': [1.25, 10, 0.125], 'gpt-5.2-mini': [0.25, 2, 0.025], 'gemini-3-pro': [2, 12, 0.2], 'gemini-3-flash': [0.3, 2.5, 0.03] };
 const DEAREST = [5, 25, 0.5];
+// Claude Haiku 5.5 has two rate cards, chosen by the prompt's length (everything sent: fresh, cached and written to the cache)
+const LONG_PROMPT = 100_000; const LONG_PRICES = { 'claude-haiku-5-5': [0.5, 2.5, 0.05] };
 const tokens = (v) => (Number.isInteger(v) && v > 0 ? v : 0);
 /** usage → { input, output, cacheRead, cacheWrite } (whole numbers ≥ 0). */
 export const usageOf = (u) => ({ input: tokens(u?.input_tokens), output: tokens(u?.output_tokens), cacheRead: tokens(u?.cache_read_input_tokens), cacheWrite: tokens(u?.cache_creation_input_tokens) });
@@ -554,8 +558,9 @@ export const usageOf = (u) => ({ input: tokens(u?.input_tokens), output: tokens(
 export function costOf(model, usage) {
   const id = String(model || '');
   const key = Object.keys(PRICES).filter((k) => id === k || id.startsWith(k + '-')).sort((a, b) => b.length - a.length)[0];
-  const [inp, outp, read] = key ? PRICES[key] : DEAREST;
   const u = usageOf(usage);
+  const long = key && LONG_PRICES[key] && u.input + u.cacheRead + u.cacheWrite > LONG_PROMPT;
+  const [inp, outp, read] = long ? LONG_PRICES[key] : key ? PRICES[key] : DEAREST;
   return Math.round((u.input * inp + u.cacheWrite * inp * 1.25 + u.cacheRead * read + u.output * outp)) / 1e6;
 }
 

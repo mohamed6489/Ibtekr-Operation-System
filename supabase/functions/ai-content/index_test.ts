@@ -86,53 +86,57 @@ Deno.test('auth: a member JWT only — write needs products.add or products.edit
   assertEquals((await call(deps, null, null, 'OPTIONS')).res.status, 200);
 });
 
-Deno.test('write from data: one Claude call (Opus 5.5, medium, fallback default, cached instructions), the answer cleaned, one ai_runs row', async () => {
-  const { deps, db, asked } = setup({ replies: [msg({ ar: { name: 'مراية <b>بامبو</b> بوهيمي', short: 'مراية من البامبو.' }, en: { name: 'مراية', short: 'A bamboo mirror.' } })] });
+// the owner 22 Nov (model routing): with no «routing» in the settings the writing runs on the mid model by itself
+// one model for everything (the admin's choice in the settings — the way it was before the routing)
+const ONE_MODEL = { settings: [{ section: 'ai', data: { routing: { mode: 'single' } } }] };
+
+Deno.test('write from data: one Claude call (Sonnet 5.5 — the writing\'s level, medium, fallback default, cached instructions), the answer cleaned, one ai_runs row', async () => {
+  const { deps, db, asked } = setup({ replies: [msg({ ar: { name: 'مراية <b>بامبو</b> بوهيمي', short: 'مراية من البامبو.' }, en: { name: 'مراية', short: 'A bamboo mirror.' } }, { model: 'claude-sonnet-5-5' })] });
   const { res, body } = await call(deps, WRITE);
   assertEquals(res.status, 200);
   assertEquals(asked.length, 1);
   const p = asked[0];
-  assertEquals([p.model, p.max_tokens, p.fallbacks, p.betas, p.output_config.effort], ['claude-opus-5-5', 16000, 'default', ['server-side-fallback-2026-07-01'], 'medium']);
+  assertEquals([p.model, p.max_tokens, p.fallbacks, p.betas, p.output_config.effort], ['claude-sonnet-5-5', 16000, 'default', ['server-side-fallback-2026-07-01'], 'medium']);
   assertEquals(p.system[0].cache_control, { type: 'ephemeral' });
   assertEquals(Object.keys(p.output_config.format.schema.properties.en.properties), ['name', 'short']);
   assertFalse(JSON.stringify(p).includes('900'), 'the price in the body never reaches Claude');
   assertEquals(body.result, 'ok');
   assertEquals(body.out, { ar: { name: 'مراية بامبو بوهيمي', short: 'مراية من البامبو.' }, en: { short: 'A bamboo mirror.' } });
   assertEquals(body.missing, ['en.name']);
-  assertEquals([body.model, body.cost_usd], ['claude-opus-5-5', 0.052]);
+  assertEquals([body.model, body.cost_usd], ['claude-sonnet-5-5', 0.026]);
   const [row] = db.rows('ai_runs');
   assertEquals([row.created_by, row.action, row.source, row.label, row.status, row.error, row.input_tokens, row.output_tokens, Number(row.cost_usd), row.created_at],
-    [U.add, 'write', 'data', 'Bamboo Mirror', 'ok', null, 3000, 2000, 0.052, NOW]);
+    [U.add, 'write', 'data', 'Bamboo Mirror', 'ok', null, 3000, 2000, 0.026, NOW]);
   assertEquals(row.output, { out: body.out, missing: ['en.name'] });
   assertEquals(body.run_id, row.id);
   assertFalse(JSON.stringify(db.rows('ai_runs')).includes(KEY) || JSON.stringify(body).includes(KEY), 'the key is never stored or answered');
 });
 
-Deno.test('write: the secrets pick the model and effort (listed values only); a bad body is 400 before any call', async () => {
-  const { deps, asked, db } = setup({ env: { AI_CONTENT_MODEL: 'claude-sonnet-5-5', AI_CONTENT_EFFORT: 'low' }, replies: [msg(ANSWER, { model: 'claude-sonnet-5-5' })] });
+Deno.test('write: with one model for everything the secrets pick the model and effort (listed values only); a bad body is 400 before any call', async () => {
+  const { deps, asked, db } = setup({ seed: ONE_MODEL, env: { AI_CONTENT_MODEL: 'claude-sonnet-5-5', AI_CONTENT_EFFORT: 'low' }, replies: [msg(ANSWER, { model: 'claude-sonnet-5-5' })] });
   assertEquals((await call(deps, WRITE)).body.cost_usd, 0.026);
   assertEquals([asked[0].model, asked[0].output_config.effort], ['claude-sonnet-5-5', 'low']);
   const bad = await call(deps, { ...WRITE, outputs: ['price'] });
   assertEquals([bad.res.status, bad.body], [400, { error: 'bad_request', field: 'outputs' }]);
   assertEquals((await call(deps, { ...WRITE, data: { brand: 'x' } })).body.field, 'data.name');
   assertEquals([asked.length, db.rows('ai_runs').length], [1, 1]);
-  const odd = setup({ env: { AI_CONTENT_MODEL: 'gpt-x', AI_CONTENT_EFFORT: 'max' }, replies: [msg(ANSWER)] });
+  const odd = setup({ seed: ONE_MODEL, env: { AI_CONTENT_MODEL: 'gpt-x', AI_CONTENT_EFFORT: 'max' }, replies: [msg(ANSWER)] });
   await call(odd.deps, WRITE);
   assertEquals([odd.asked[0].model, odd.asked[0].output_config.effort], ['claude-opus-5-5', 'medium']);
 });
 
 Deno.test('decision 8: the settings row «ai» (model, effort, monthly cap) wins over the secrets, read before every call; a value off the list falls back to the secret', async () => {
-  const seed = { settings: [{ section: 'ai', data: { model: 'claude-sonnet-5-5', effort: 'high', monthly_limit_usd: 0.6 } }] };
+  const seed = { settings: [{ section: 'ai', data: { model: 'claude-sonnet-5-5', effort: 'high', monthly_limit_usd: 0.6, routing: { mode: 'single' } } }] };
   const { deps, asked, db } = setup({ seed, env: { AI_CONTENT_MODEL: 'claude-opus-5-5', AI_CONTENT_EFFORT: 'low', AI_MONTHLY_LIMIT_USD: '100' }, replies: [msg(ANSWER, { model: 'claude-sonnet-5-5' })] });
   assertEquals((await call(deps, WRITE)).body.cost_usd, 0.026);
   assertEquals([asked[0].model, asked[0].output_config.effort], ['claude-sonnet-5-5', 'high']);
   assertEquals(db.rows('ai_runs').map((r: any) => r.model), ['claude-sonnet-5-5']);
   // the row's cap (0.6): the month's 0.026 + the 0.5 reserve passes; a second call would pass it → 402 with no call
-  await db.from('settings').update({ data: { model: 'claude-sonnet-5-5', monthly_limit_usd: 0.5 } }).eq('section', 'ai');
+  await db.from('settings').update({ data: { model: 'claude-sonnet-5-5', monthly_limit_usd: 0.5, routing: { mode: 'single' } } }).eq('section', 'ai');
   const capped = await call(deps, WRITE);
   assertEquals([capped.res.status, capped.body, asked.length], [402, { error: 'ai_cap' }, 1]);
   // a model off the list and no effort in the row → the secrets
-  await db.from('settings').update({ data: { model: 'gpt-x', monthly_limit_usd: null } }).eq('section', 'ai');
+  await db.from('settings').update({ data: { model: 'gpt-x', monthly_limit_usd: null, routing: { mode: 'single' } } }).eq('section', 'ai');
   const back = setup({ seed: { settings: db.rows('settings') }, env: { AI_CONTENT_MODEL: 'claude-opus-5-5', AI_CONTENT_EFFORT: 'low' }, replies: [msg(ANSWER)] });
   await call(back.deps, WRITE);
   assertEquals([back.asked[0].model, back.asked[0].output_config.effort], ['claude-opus-5-5', 'low']);
@@ -155,9 +159,9 @@ Deno.test('providers: openai for the products tool → deps.text called with the
   assertEquals(asked.length, 0, 'Claude not called');
   assertEquals([body.model, body.cost_usd], ['gpt-5.2', 0.02375]); // 3000 × 1.25 + 2000 × 10 per million
   assertEquals(db.rows('ai_runs')[0].model, 'gpt-5.2');
-  // marketing (no tool override) → Claude with the row's model and the style block too
+  // marketing (no tool override) → Claude with the style block too; a rewording is a light command (the routing): the light model, low effort, no fallback
   const m = await call(deps, { action: 'marketing', task: 'rewrite', kind: 'caption', text: 'نص' }, 'jwt-mkt');
-  assertEquals(m.res.status, 200, JSON.stringify(m.body)); assertEquals(asked.length, 1); assertEquals(asked[0].model, 'claude-sonnet-5-5');
+  assertEquals(m.res.status, 200, JSON.stringify(m.body)); assertEquals(asked.length, 1); assertEquals([asked[0].model, asked[0].output_config.effort, asked[0].fallbacks, asked[0].betas], ['claude-haiku-5-5', 'low', undefined, undefined]);
   assert(asked[0].system[asked[0].system.length - 1].text.startsWith('House style'));
   // no key for the picked provider → 503 naming it, a row says so
   const noKey = setup({ seed, env: { GEMINI_API_KEY: 'g-x' } }); (noKey.deps as any).text = async () => { throw new Error('must not be called'); };
@@ -675,7 +679,7 @@ const trendsMsg = (extra: any = {}) => ({ ...msg('', { model: 'claude-sonnet-5-5
   usage: { input_tokens: 20000, output_tokens: 1500, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, server_tool_use: { web_search_requests: 3 } }, ...extra });
 
 Deno.test('trends (comments decision 69): marketing.create or the admin; the web search tool with the admin\'s sites; the rows on a page the search returned are stored as one batch (a made-up path takes the site\'s returned page, a site the search never returned is dropped, the same trend once); the run row counts the tokens and the searches', async () => {
-  const seed = { settings: [{ section: 'ai', data: { model: 'claude-sonnet-5-5', effort: 'low' } }, { section: 'marketing', data: { trends: { sources: ['Later.com', 'https://www.hootsuite.com/blog', 'not a host', 'later.com'] } } }] };
+  const seed = { settings: [{ section: 'ai', data: { model: 'claude-sonnet-5-5', effort: 'low', routing: { mode: 'single' } } }, { section: 'marketing', data: { trends: { sources: ['Later.com', 'https://www.hootsuite.com/blog', 'not a host', 'later.com'] } } }] };
   const { deps, asked, db } = setup({ seed, replies: [trendsMsg()] });
   for (const jwt of ['jwt-add', 'jwt-mview', null]) assertEquals((await call(deps, { action: 'trends' }, jwt)).res.status, 401);
   assertEquals(asked.length, 0);
@@ -816,4 +820,44 @@ Deno.test('agent (17 Nov): need.research → a web-search call, then the answer 
   assertEquals(r.body.sources.map((x: any) => x.url), ['https://www.facebook.com/business/help/123']);
   assert(db.rows('mkt_agent_messages').at(-1).text.includes('المصادر:'));
   assertEquals(db.rows('ai_runs').map((x: any) => x.source), ['agent', 'research', 'agent']);
+});
+
+// The owner 22 Nov (model routing — docs/superpowers/plans/2026-11-22-model-routing.md): each command on the model of its level,
+// by itself; the admin's row moves a command or goes back to one model. The light model takes no fallback parameter and is the
+// only one a forced tool call is sent to.
+Deno.test('model routing: a command runs on its level\'s model by itself — the filter on the light one (forced call, no fallback), a chat turn on the heavy one, the writing on the mid one; the row moves a command; one model for everything brings the old way back', async () => {
+  const FILTER = { action: 'assistant', mode: 'filter', turns: [{ role: 'user', text: 'المكتمل' }] };
+  const filterUse = () => toolUse([{ id: 'f1', name: 'set_filter', input: { items: [{ f: 'st', op: 'eq', v: 'مكتمل' }] } }]);
+  // by itself (no «routing» in the row)
+  const a = setup({ memberSeed: MEMBER_SEED, replies: [filterUse(), msg(ANSWER)] });
+  assertEquals((await call(a.deps, FILTER, 'jwt-view')).res.status, 200);
+  assertEquals([a.asked[0].model, a.asked[0].output_config.effort, a.asked[0].tool_choice, 'fallbacks' in a.asked[0], 'betas' in a.asked[0]], ['claude-haiku-5-5', 'low', { type: 'tool', name: 'set_filter' }, false, false]);
+  assertEquals(a.db.rows('ai_runs')[0].model, 'claude-opus-5-5', 'the row is priced by the model that answered (the test\'s reply)');
+  const chat = setup({ memberSeed: MEMBER_SEED, replies: [{ ...msg(ANSWER), content: [{ type: 'text', text: 'تمام' }] }] });
+  assertEquals((await call(chat.deps, ASSIST('إيه الأخبار؟'), 'jwt-view')).res.status, 200);
+  assertEquals([chat.asked[0].model, chat.asked[0].output_config.effort, chat.asked[0].fallbacks], ['claude-opus-5-5', 'medium', 'default']);
+  // the row: the filter moved up to the mid model (a forced call is not sent there), the writing moved down to the light one;
+  // the admin's effort stays for everything above the light level
+  const moved = { settings: [{ section: 'ai', data: { effort: 'high', routing: { tiers: { filter: 'mid', write: 'light', research: 'light', nope: 'heavy' } } } }] };
+  const b = setup({ seed: moved, memberSeed: MEMBER_SEED, replies: [filterUse(), msg(ANSWER)] });
+  assertEquals((await call(b.deps, FILTER, 'jwt-view')).res.status, 200);
+  assertEquals([b.asked[0].model, b.asked[0].output_config.effort, b.asked[0].tool_choice, b.asked[0].fallbacks], ['claude-sonnet-5-5', 'high', { type: 'auto' }, 'default']);
+  assertEquals((await call(b.deps, WRITE)).res.status, 200);
+  assertEquals([b.asked[1].model, b.asked[1].output_config.effort, 'fallbacks' in b.asked[1]], ['claude-haiku-5-5', 'low', false]);
+  // one model for everything: the admin's model and effort on every command, as before the routing
+  const one = { settings: [{ section: 'ai', data: { model: 'claude-sonnet-5-5', effort: 'low', routing: { mode: 'single', tiers: { write: 'heavy' } } } }] };
+  const c = setup({ seed: one, memberSeed: MEMBER_SEED, replies: [filterUse(), msg(ANSWER)] });
+  assertEquals((await call(c.deps, FILTER, 'jwt-view')).res.status, 200); assertEquals((await call(c.deps, WRITE)).res.status, 200);
+  assertEquals(c.asked.map((p: any) => [p.model, p.output_config.effort]), [['claude-sonnet-5-5', 'low'], ['claude-sonnet-5-5', 'low']]);
+  assertEquals(c.asked[0].tool_choice, { type: 'auto' }, 'no forced call on a model that answers 400 to it');
+});
+
+Deno.test('model routing: the studio\'s translation and rewording are light commands, its data a mid one; another provider keeps its own model', async () => {
+  const STUDIO_ANSWER = { nameEn: 'Bamboo Mirror', descEn: 'A mirror.', descAr: 'مراية.' };
+  const s = setup({ seed: STUDIO_SEED, storage: PHOTO, replies: [msg(STUDIO_ANSWER), msg(STUDIO_ANSWER), msg(STUDIO_ANSWER)] });
+  for (const want of [['translate'], ['rewriteName', 'rewriteDesc'], ['desc', 'translate']]) await call(s.deps, { action: 'studio', batch_id: SB, index: 0, want });
+  assertEquals(s.asked.map((p: any) => [p.model, p.output_config.effort]), [['claude-haiku-5-5', 'low'], ['claude-haiku-5-5', 'low'], ['claude-sonnet-5-5', 'medium']]);
+  const other = setup({ seed: { settings: [{ section: 'ai', data: { providers: { text: { default: 'openai' } } } }] }, env: { OPENAI_API_KEY: 'sk-x' } });
+  const texts: string[] = []; (other.deps as any).text = async (_p: string, p: any) => { texts.push(p.model); return { ...msg(ANSWER), model: 'gpt-5.2' }; };
+  assertEquals((await call(other.deps, WRITE)).res.status, 200); assertEquals(texts, ['gpt-5.2']);
 });

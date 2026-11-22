@@ -62,6 +62,7 @@ import { SEARCH_USD, TREND_CONTINUES, cleanTrends, parseTrends, readTrends, sear
 import { TEXT_PROVIDERS, TEXT_TOOL_OF, houseStyle, textPick } from '../_shared/ai-providers.js';
 import { MAX_TOOL_CALLS, amountsIn, reportOf, assistantMessage, assistantRequest, cleanAction, cleanAnswer, customersData, dataQuery, expensesData, filesData, hrData, inventoryData, ordersData, parseAssistant, readTurn, salesData, summaryData, tasksData, pickVendor, ticketsData, toolResults, vendorData, vendorsData } from '../_shared/ai-assistant.js';
 import { completeText } from './providers/text.ts';
+import { claudeParams, routeOf } from '../_shared/ai-routing.js';
 import { cairoParts } from '../_shared/mkt-publish.js';
 
 // deno-lint-ignore no-explicit-any
@@ -92,11 +93,16 @@ type Cfg = { model: string; effort: string; cap: number | null; provider: string
 // the settings row «ai» over the secrets (decision 8); a row that cannot be read = the secrets alone. Phase 11 (decisions 14 / 15):
 // the provider and model of the action's tool from the row's `providers`, and the house style of the row «ai_rules» as one more
 // system block (the products section, or the marketing «post» section for the marketing calls).
-async function configOf(deps: Deps, action = 'write'): Promise<Cfg> {
+// The owner 22 Nov (model routing — _shared/ai-routing.js): on Claude each command runs on the model of its level (the light
+// one for a filter or a rewording, the heavy one for the tool loop, the screenshots and the ads' numbers) unless the admin
+// went back to one model; `command` names it where one action holds several (the default = the action).
+async function configOf(deps: Deps, action = 'write', command = action): Promise<Cfg> {
   const { data, error } = await deps.db.from('settings').select('section, data').in('section', ['ai', 'ai_rules']);
   const rows: Json[] = !error && Array.isArray(data) ? data : [];
   const ai = rows.find((r) => r.section === 'ai')?.data; const rules = rows.find((r) => r.section === 'ai_rules')?.data;
-  const base = aiSettings(isObj(ai) ? ai : null, deps.env);
+  const one = aiSettings(isObj(ai) ? ai : null, deps.env);
+  const route = routeOf(isObj(ai) ? ai : null, command, one);
+  const base = { ...one, model: route.model, effort: route.effort };
   const pick = textPick(isObj(ai) ? ai : null, (TEXT_TOOL_OF as Record<string, string>)[action] ?? 'products');
   const style = action === 'buyer' || action === 'prompts' || action === 'assistant' ? '' : houseStyle(isObj(rules) ? rules : null, action === 'marketing' || action === 'scenes' ? 'post' : 'products');
   if (action === 'assistant') return { ...base, provider: 'claude', style }; // the tool loop is Claude's (the other text providers answer text only)
@@ -137,7 +143,7 @@ async function ask(deps: Deps, params: Json, provider = 'claude'): Promise<Asked
   for (;;) {
     try {
       if (provider !== 'claude') { if (!deps.text) return { error: 'not_configured', status: null }; return { msg: await deps.text(provider, p) }; }
-      return { msg: await deps.claude(p) };
+      return { msg: await deps.claude(claudeParams(p)) };
     } catch (e) {
       const status = typeof (e as Json)?.status === 'number' ? (e as Json).status as number : null;
       if (status === 401 || status === 403) return { error: 'not_configured', status };
@@ -276,7 +282,8 @@ async function studio(deps: Deps, uid: string, args: Json) {
   const cats = (await deps.db.from('woo_categories').select('id, name, parent_id').range(0, 4999)).data ?? [];
   const colors = (await deps.db.from('sku_colors').select('code, name_en, name_ar').range(0, 999)).data ?? [];
   const image = await itemPhoto(deps.db, batchId, item);
-  const cfg = await configOf(deps, 'studio');
+  const only = (list: string[]) => want.length > 0 && want.every((w: string) => list.includes(w));
+  const cfg = await configOf(deps, 'studio', only(['translate']) ? 'translate' : only(['rewriteName', 'rewriteDesc']) ? 'rewrite' : 'studio');
   const label = line(item.nameEn || item.nameAr || '', 200) || '#' + (index + 1);
   const base = { created_by: uid, action: 'studio', source: 'studio', label, batch_id: batchId, item_index: index };
   const sets = { categoryIds: new Set(cats.map((c: Json) => Number(c.id))), colorCodes: new Set(colors.map((c: Json) => c.code)), styles };
@@ -323,7 +330,7 @@ async function prompts(deps: Deps, uid: string, args: Json) {
 async function kbRewrite(deps: Deps, uid: string, args: Json) {
   const parsed = parseKbRewrite(args);
   if ('error' in parsed) return json(400, parsed);
-  const cfg = await configOf(deps, 'assistant');
+  const cfg = await configOf(deps, 'assistant', 'kb');
   return await runAi(deps, { created_by: uid, action: 'marketing', source: 'agent', label: 'kb · ' + parsed.req.kind }, cfg, kbRewriteRequest(parsed.req, { model: cfg.model, effort: cfg.effort }),
     (answer) => cleanKbRewrite(answer) ?? { title: '', text: '' });
 }
@@ -352,7 +359,7 @@ async function marketing(deps: Deps, uid: string, args: Json) {
     if (req.piece) { target = campaignTarget(c.state, req.piece, req.slide, { text: true }); if (!target) return json(400, { error: 'bad_request', field: 'piece' }); }
     else target = campaignTarget({ ...(isObj(c.state) ? c.state : {}), pieces: [{ id: 'P0', kind: 'بوست', n: 0 }] }, 'P0', null);
   }
-  const cfg = await configOf(deps, 'marketing');
+  const cfg = await configOf(deps, 'marketing', req.task === 'rewrite' ? 'rewrite' : 'marketing');
   const base = { created_by: uid, action: 'marketing', source: req.task === 'describe' ? 'template' : req.campaignId ? 'campaign' : 'post', label: line(target && req.piece ? target.label : req.task, 200) };
   const tplNotes = target ? templateNotes(cfg.rules, target.media, target.kind === 'فيديو') : ''; // owner batch 2 decision 14
   return await runAi(deps, base, cfg, marketingRequest(req, { model: cfg.model, effort: cfg.effort, target, tplNotes }), (answer) => cleanMarketing(answer, req, target));
@@ -420,7 +427,7 @@ async function trends(deps: Deps, uid: string, args: Json) {
   const designer = isObj(mset.agents) && isObj(mset.agents.designer) ? mset.agents.designer : null; // its rules and skills (ش40)
   // 0118 added the post's platform, tag and id (one row per post): before it is applied the rows are stored as they were
   const posts = !(await deps.db.from('mkt_trends').select('id, platform').limit(1)).error;
-  const cfg = await configOf(deps, 'trends');
+  const cfg = await configOf(deps, 'trends', 'research');
   const run = await startRun(deps, { created_by: uid, action: 'marketing', source: 'trends', label: line(parsed.req.focus, 200) || 'trends', model: cfg.model }, cfg.cap);
   if (run.result === 'busy') return json(429, { error: 'busy' });
   if (run.result === 'cap') return json(402, { error: 'ai_cap' });
@@ -513,7 +520,7 @@ async function agent(deps: Deps, uid: string, args: Json, jwt = '') {
     }
     dataText = dataBlock(parts);
   }
-  const cfg = await configOf(deps, req.agent === 'designer' ? 'marketing' : 'buyer'); // the designer writes with the house style
+  const cfg = await configOf(deps, req.agent === 'designer' ? 'marketing' : 'buyer', req.agent === 'buyer' ? 'buyer' : 'agent'); // the designer writes with the house style
   const run0 = { created_by: uid, action: 'marketing', source: 'agent', label: line(req.question, 200) };
   const base = LEGACY_AGENTS.includes(req.agent) ? '' : agentBase(row) + REQ_RULE;
   const team = await teamOf(member, legacy, req.agent); const teamIds = team.map((a) => a.id);
@@ -549,7 +556,7 @@ async function agent(deps: Deps, uid: string, args: Json, jwt = '') {
   const need = c.out.need;
   if (need) {
     const extra: string[] = [];
-    if (need.research.length) { const r = await research(deps, uid, cfg, need.research, req.question); cost += r.cost; sources = r.sources; extra.push(researchBlock(r)); }
+    if (need.research.length) { const r = await research(deps, uid, await configOf(deps, 'buyer', 'research'), need.research, req.question); cost += r.cost; sources = r.sources; extra.push(researchBlock(r)); }
     // the owner 17 Nov: each member reads by his role and level — Meta's live numbers only for whoever sees marketing (his own has_perm)
     // the owner 18 Nov: the system's own data (a maker's account, orders …) read with the member's own client — answered in the chat
     if (Array.isArray(need.data) && need.data.length) {
@@ -751,7 +758,7 @@ async function assistant(deps: Deps, uid: string, args: Json, jwt: string) {
   if (!isObj(me) || me.status !== 'active') return json(401, { error: 'unauthorized' }); // a stopped member (or one 2FA still gates) sees no profile
   const actor = String(me.name ?? ''); const roleRow = me.role_id ? (await member.from('roles').select('name').eq('id', me.role_id).maybeSingle()).data : null;
   const role = isObj(roleRow) ? String(roleRow.name ?? '') : '';
-  const cfg = await configOf(deps, 'assistant');
+  const cfg = await configOf(deps, 'assistant', req.mode === 'filter' ? 'filter' : 'assistant');
   const base = { created_by: uid, action: 'assistant', source: req.mode, label: line(req.question, 200) };
   // the reservation covers the whole loop (security review: one turn is up to MAX_TOOL_CALLS + 2 Claude calls), and the loop stops
   // on the cap once the calls made have spent it

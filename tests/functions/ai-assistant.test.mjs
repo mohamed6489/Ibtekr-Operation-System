@@ -39,7 +39,9 @@ test('assistantRequest: the cached base + the screen block, the turns as message
   assert.equal(p.tool_choice, undefined);
   assert.deepEqual(p.tools[1].input_schema.properties.page.enum, PAGES);
   const f = assistantRequest(parseAssistant({ mode: 'filter', turns: [{ role: 'user', text: 'المتأخر بتاع Art Craft' }], context: { vendors: ['Art Craft'], statuses: ['مكتمل', 'ملغي'] } }).req, CTX);
-  assert.deepEqual(f.tools.map((t) => t.name), ['set_filter']); assert.deepEqual(f.tool_choice, { type: 'tool', name: 'set_filter' });
+  // the owner 22 Nov (model routing): the call is forced only on the light model — Claude Opus 5.5 / Sonnet 5.5 answer 400 to a forced call
+  assert.deepEqual(f.tools.map((t) => t.name), ['set_filter']); assert.deepEqual(f.tool_choice, { type: 'auto' });
+  assert.deepEqual(assistantRequest(parseAssistant({ mode: 'filter', turns: [{ role: 'user', text: 'المكتمل' }] }).req, { ...CTX, model: 'claude-haiku-5-5' }).tool_choice, { type: 'tool', name: 'set_filter' });
   assert.equal(f.system[1].text, 'المبتكرين المتاحين: Art Craft\nحالات الأوردر: مكتمل، ملغي');
   assert.deepEqual(toolsOf('chat').length, 10); // + ask_choice (18 Nov) // + open_form (decision 36), − propose_entry (decision 40: the money entries are popups), + offer_file (decision 42), + plan_categories (15 Nov)
 });

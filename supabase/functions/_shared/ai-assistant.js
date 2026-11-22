@@ -7,6 +7,7 @@
 import { NAME_RULE, nameHas } from './names.js';
 import { confirmAge, delayRules, orderDelayOf, orderElapsed } from './delay.js';
 import { FALLBACK, line, paras } from './ai-content.js';
+import { forcedToolOk } from './ai-routing.js';
 import { AGENT_IDS, AGENT_NAME, ASK_MAX, DRAFT_DUR, DRAFT_GOALS, DRAFT_IDEA, DRAFT_MAX, agentAsk, campaignDraft } from './campaign-draft.js';
 
 export const ASSISTANT_TURNS = 12; // the last turns the page sends back (the server keeps no chat)
@@ -235,7 +236,9 @@ export function assistantRequest(req, ctx) {
   if (ctx.people && req.mode !== 'filter') system.push({ type: 'text', text: 'The team (roles and their people — data, for plan_requests):\n' + String(ctx.people) });
   const messages = req.turns.map((t) => ({ role: t.role, content: [{ type: 'text', text: t.text }] }));
   const p = { model: ctx.model, max_tokens: MAX_TOKENS, ...FALLBACK, system, messages, tools: toolsOf(req.mode, ctx.mkt, ctx.team), output_config: { effort: ctx.effort } };
-  if (req.mode === 'filter') p.tool_choice = { type: 'tool', name: 'set_filter' };
+  // a forced call is accepted by the light model only (Claude Opus 5.5 / Sonnet 5.5 answer 400 — the filter failed on them, 19 Nov);
+  // on the others the system line above asks for the one call
+  if (req.mode === 'filter') p.tool_choice = forcedToolOk(ctx.model) ? { type: 'tool', name: 'set_filter' } : { type: 'auto' };
   return p;
 }
 

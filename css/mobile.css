@@ -1,0 +1,661 @@
+/* ===== Phone and tablet pass (21 Nov) — look and touch only =====
+   Nothing here changes what a page shows or does: the same texts, fields, buttons and steps, laid out for a thumb.
+   Loaded last, so it sits on top of the breakpoints in app.css. Three scopes:
+     phone            (max-width:767px)
+     tablet, upright  (min-width:768px) and (max-width:1023px)
+     touch, wide      (min-width:1024px) and (pointer:coarse)     — a tablet on its side; a mouse never matches
+   Rules of the pass: a tap area of 44px, text no smaller than 12px, 16px in a field you type in (iOS zooms in under that),
+   the main action near the thumb, lists and menus coming up from the bottom, and the safe areas respected. */
+
+:root{--m-gutter:16px;--m-ease:cubic-bezier(.2,.8,.2,1);--m-fab:0px}
+
+/* ---------- 1. Touch basics (any touch screen) ---------- */
+@media (pointer:coarse){
+  html{-webkit-tap-highlight-color:transparent}
+  button,a,[role=button],[role=tab],label,select,summary{touch-action:manipulation}
+  /* a press answers at once, without moving anything around it */
+  .btn,.icon-btn,.chip,.opt,.bn-item,.bn-opt,.nav-item,.tab,.subtab,.seg-b,.kpi,.dn-item,.ntf-item{transition:background-color .12s var(--m-ease),opacity .12s var(--m-ease),transform .12s var(--m-ease)}
+  .btn:active,.icon-btn:active,.chip:active,.bn-item:active .pill,.seg-b:active{transform:scale(.97)}
+  .opt:active,.bn-opt:active,.dn-item:active,.ntf-item:active,.tab:active,.subtab:active{background:var(--color-bg-hover,#f9f0e2)}
+  .nav-item:active{opacity:.75}
+}
+@media (pointer:coarse) and (prefers-reduced-motion:reduce){
+  .btn,.icon-btn,.chip,.opt,.bn-item,.bn-opt,.nav-item,.tab,.subtab,.seg-b,.kpi,.dn-item,.ntf-item{transition:none}
+  .btn:active,.icon-btn:active,.chip:active,.bn-item:active .pill,.seg-b:active{transform:none}
+}
+
+/* ---------- 2. Type (phone and upright tablet): nothing under 12px ---------- */
+@media (max-width:1023px){
+  .t-small{font-size:12px;line-height:18px}
+  small{font-size:12px}
+  .notif-badge{min-width:18px;height:18px;font-size:11px;line-height:18px;border-radius:9px}
+  .ntf-nav-item .cnt,.badge,.af-c,.ntf-fyi,.tk-bub-time,.tk-st-hint,.tc-cell .tg{font-size:12px}
+  .tc-head .tc-mon{font-size:11px}
+}
+@media (max-width:767px){
+  body{font-size:14px;line-height:22px}
+  .t-body{font-size:14px;line-height:22px}
+  .t-h3{font-size:22px;line-height:32px;font-weight:700}
+  .t-h4{font-size:17px;line-height:26px}
+  .t-h5{font-size:15px;line-height:24px}
+  .btn{font-size:14px}
+  /* a field you type in: 16px, so the phone does not zoom the page on focus */
+  input:not([type=checkbox]):not([type=radio]):not([type=range]),textarea,select,.input,.textarea{font-size:16px!important}
+  .content{padding:12px var(--m-gutter) 16px;gap:16px}
+}
+
+/* ---------- 3. Top bar (phone): one search field, four controls of one size ---------- */
+@media (max-width:767px){
+  .topbar{gap:2px;padding:0 8px 0 8px;padding-inline:max(8px,env(safe-area-inset-right,0px)) max(8px,env(safe-area-inset-left,0px))}
+  .topbar>.gq-wrap{flex:1 1 auto;min-width:0;margin-inline-end:4px}
+  .topbar .search{flex:1 1 auto;width:100%;max-width:none;height:40px;padding:0 12px;gap:8px;justify-content:flex-start;border:1px solid var(--color-border-subtle);border-radius:999px;background:var(--color-bg-container);cursor:text}
+  .topbar .search svg{flex:none;width:18px;height:18px}
+  .topbar .search input{flex:1 1 auto;width:auto;min-width:0;padding:0;font-size:16px;text-overflow:ellipsis}
+  .topbar .search:focus-within{position:absolute;inset:2px 8px;width:auto;height:44px;z-index:6;padding:0 14px;border-radius:999px;background:var(--color-bg-base);border-color:var(--color-border-focus);box-shadow:var(--shadow-popover)}
+  /* the controls: 44 to tap, 40 to look at, the same round shape */
+  .topbar .ai-btn,.topbar .notif-btn,.topbar .user-btn{width:44px;min-width:44px;height:44px;min-height:44px;padding:0;border-radius:50%;background-clip:content-box;border:2px solid transparent;justify-content:center}
+  .topbar .qa-anchor .btn{background-color:transparent;box-shadow:none}
+  .topbar .qa-anchor .btn svg,.topbar .ai-btn svg,.topbar .notif-btn svg,.topbar .clock-widget .btn svg{width:20px;height:20px}
+  .topbar .user-btn .avatar{width:32px;height:32px}
+  .topbar .notif-badge{top:2px;inset-inline-start:2px}
+}
+
+/* ---------- 4. Page head (phone): see section 22 — the title, then its actions on one sliding line ---------- */
+@media (max-width:767px){
+  .page-head{margin-bottom:0}
+  /* one column, never wrapping into a second one: a wrapped column takes the width of its widest child, which pushed the
+     page sideways once the actions became one long line */
+  .page-head.row,.page-head.row.dash-head{display:flex;flex-direction:column;flex-wrap:nowrap;gap:12px;align-items:stretch;min-width:0}
+  .page-head.row>*{min-width:0;max-width:calc(100% + var(--m-gutter) * 2)}
+  .page-head h1{letter-spacing:0}
+  .page-head p{max-width:60ch}
+}
+
+/* ---------- 5. The page's main action (phone): by the thumb, over the bottom bar ---------- */
+@media (max-width:767px){
+  .page-head .actions>.btn.btn-brand,.m-fab{position:fixed;z-index:6;right:16px;bottom:calc(64px + env(safe-area-inset-bottom,0px) + 12px);left:auto;flex:none;width:auto;min-width:0;max-width:calc(100vw - 96px);height:48px;min-height:48px;padding:0 20px;border-radius:999px;font-size:15px;font-weight:700;box-shadow:0 6px 16px rgba(0,86,66,.32),0 2px 4px rgba(46,42,27,.2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .page-head .actions>.btn.btn-brand svg,.m-fab svg{flex:none;width:20px;height:20px}
+  /* the page keeps room under its last line, so the button never covers it */
+  .main:has(.page-head .actions>.btn.btn-brand){padding-bottom:calc(64px + env(safe-area-inset-bottom,0px) + 72px)}
+  /* out of the way of anything that owns the bottom of the screen */
+  body:has(.scrim) .page-head .actions>.btn.btn-brand,body:has(.bulk-bar) .page-head .actions>.btn.btn-brand,body:has(.save-bar) .page-head .actions>.btn.btn-brand,body:has(.bn-sheet) .page-head .actions>.btn.btn-brand,body:has(.scrim) .m-fab,body:has(.bulk-bar) .m-fab,body:has(.save-bar) .m-fab,body:has(.bn-sheet) .m-fab{display:none}
+}
+
+/* ---------- 6. Tabs (phone and upright tablet): one line that scrolls, its ends fading out ---------- */
+@media (max-width:1023px){
+  .tabs{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;scroll-snap-type:x proximity;scroll-padding-inline:24px;
+    -webkit-mask-image:linear-gradient(to right,transparent 0,#000 20px,#000 calc(100% - 20px),transparent 100%);mask-image:linear-gradient(to right,transparent 0,#000 20px,#000 calc(100% - 20px),transparent 100%)}
+  .tabs>.tab{flex:none;scroll-snap-align:center}
+  .tab{padding:10px 14px;font-size:14px}
+  .tab[aria-selected=true]{font-weight:700;border-bottom-width:3px}
+  .subtabs{overflow-x:auto;flex-wrap:nowrap;overscroll-behavior-x:contain}
+  .subtabs>.subtab{flex:none}
+}
+@media (max-width:767px){
+  /* edge to edge, so the fade sits on the screen's edge and the first tab starts on the page's gutter */
+  .content>.tabs,main>.tabs{margin-inline:calc(var(--m-gutter) * -1);padding-inline:calc(var(--m-gutter) - 8px)}
+}
+
+/* ---------- 7. Bottom bar and its «المزيد» sheet (phone) ---------- */
+@media (max-width:767px){
+  .bottom-nav{padding:4px max(4px,env(safe-area-inset-right,0px)) env(safe-area-inset-bottom,0px) max(4px,env(safe-area-inset-left,0px));box-shadow:0 -1px 0 var(--color-border-subtle),0 -6px 20px rgba(46,42,27,.08)}
+  .bn-item{gap:2px;-webkit-user-select:none;user-select:none}
+  .bn-item .pill{width:56px;height:30px;border-radius:15px;transition:background-color .18s var(--m-ease)}
+  .bn-item .pill svg{width:22px;height:22px}
+  .bn-item[aria-current=page] .bn-lbl{font-weight:700}
+  /* the sheet: a grab handle, a dim page behind it, two columns so every page is on screen without scrolling */
+  .menu.bn-sheet{border-radius:20px 20px 0 0;padding:8px 12px 12px;max-height:min(72vh,72dvh);display:grid;grid-template-columns:1fr 1fr;gap:4px 8px;align-content:start;border:0;box-shadow:0 -8px 32px rgba(46,42,27,.24),0 0 0 100vmax rgba(46,42,27,.38);animation:m-sheet-up .22s var(--m-ease)}
+  .menu.bn-sheet::before{content:'';grid-column:1/-1;justify-self:center;width:36px;height:4px;border-radius:2px;background:var(--color-border-default);opacity:.45;margin:2px 0 6px}
+  .bn-sheet-h{grid-column:1/-1;padding:0 4px 4px;font-weight:600}
+  .bn-opt{min-height:52px;padding:0 12px;border-radius:12px;gap:10px;font-size:14px;background:var(--color-bg-container)}
+  .bn-opt svg{flex:none;width:22px;height:22px;color:var(--color-brand-default)}
+  .bn-opt[aria-current=page]{background:var(--color-brand-default);color:var(--color-text-on-brand)}
+  .bn-opt[aria-current=page] svg{color:inherit}
+}
+@keyframes m-sheet-up{from{transform:translateY(24px);opacity:0}to{transform:none;opacity:1}}
+@media (prefers-reduced-motion:reduce){.menu.bn-sheet{animation:none}}
+
+/* ---------- 8. Side rail (upright tablet): every name readable, the mark alone on top ---------- */
+@media (min-width:768px) and (max-width:1023px){
+  .app{grid-template-columns:92px 1fr}
+  .sidebar{padding:12px 6px;gap:2px;padding-bottom:max(12px,env(safe-area-inset-bottom,0px))}
+  .sidebar .brand{padding:4px 0 8px;margin-bottom:4px;flex-direction:column;gap:0;overflow:hidden}
+  .sidebar .brand .logo{width:76px;max-width:100%;height:auto}
+  .sidebar .brand .tagline{display:none}
+  .nav-item{height:auto;min-height:60px;padding:8px 2px 6px;gap:3px;font-size:12px;line-height:15px;white-space:normal;overflow-wrap:anywhere;text-wrap:balance;border-radius:12px}
+  .nav-item .ic,.nav-item svg{width:22px;height:22px;flex:none}
+  .nav-item .soon{display:none}
+}
+
+/* ================= Batch 2 — cards, tables, grids ================= */
+
+/* ---------- 10. Number cards: the whole card opens its details, not just the small link ---------- */
+@media (max-width:1023px){
+  .card.kpi{position:relative;gap:8px;border-radius:12px}
+  .kpi .kpi-details,.kpi .kpi-more{position:static}
+  .kpi .kpi-details::after,.kpi .kpi-more::after{left:0;top:0;right:0;bottom:0;width:auto;height:auto;transform:none;border-radius:inherit}
+  .card.kpi:has(.kpi-details:active),.card.kpi:has(.kpi-more:active){background:var(--color-bg-hover,#f9f0e2)}
+  .kpi .dc-grip,.kpi [data-tip],.kpi a:not(.kpi-more):not(.kpi-details),.kpi button:not(.kpi-more):not(.kpi-details){position:relative;z-index:1}
+  .kpi-val{align-items:baseline;flex-wrap:wrap;column-gap:6px}
+}
+@media (max-width:767px){
+  .card.kpi{padding:12px}
+  .kpi-val .t-h3{font-size:22px;line-height:30px}
+  .kpi-label{line-height:22px}
+}
+/* an upright tablet: three across, so five cards are 3 + 2 and not 2 + 2 + 1 */
+@media (min-width:768px) and (max-width:1023px){
+  .content{padding:16px 20px;gap:16px}
+}
+
+/* ---------- 11. A table card's head: the title, then «بحث · فلتر · ترتيب · الأعمدة» on one line ---------- */
+@media (max-width:767px){
+  .table-title{gap:10px}
+  .table-title .acts-inline{width:100%;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  .table-title .acts-inline>*{flex:1 1 auto;min-width:0}
+  .table-title .acts-inline>.tq-btn{justify-content:center}
+  /* the sort names what it sorts by — it takes its own line so the name is never cut; the columns' button stays beside it */
+  .table-title .acts-inline>.pop-anchor:has([data-sm-btn]){order:2}
+  /* the columns' button sits in the corner by the title, so the three named buttons share the line under it */
+  .table-title{position:relative}
+  .table-title .th-t{padding-inline-end:48px}
+  .table-title .acts-inline>.icon-btn,.table-title .acts-inline>.pop-anchor:has(>.icon-btn){position:absolute;top:8px;inset-inline-end:8px;flex:none;width:44px}
+  .table-title .acts-inline>.pop-anchor>.select,.table-title .acts-inline>.pop-anchor>.btn{width:100%;min-width:0}
+  .table-title .acts-inline .select .val{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .table-title .acts-inline .tq-btn{padding-inline:12px}
+}
+
+/* ---------- 12. Record cards (a table's rows on a phone): a name on top, the rest as quiet pairs ---------- */
+@media (max-width:1023px){
+  /* a chip that only shows a value is a tag, not a 44px button */
+  .kv .chip,.kv-list .chip,td .chip,.v-brands .chip,.info-row .chip{min-height:28px;height:auto;padding-block:2px}
+  .list-card{border-radius:12px}
+  .list-card .kv .t-small{color:var(--color-text-secondary)}
+}
+@media (max-width:767px){
+  .list-card .title,.vcard-title{min-height:52px}
+}
+
+/* ---------- 13. A tablet on its side (touch, 1024 and wider): the desktop's layout with a finger's sizes ---------- */
+@media (min-width:1024px) and (pointer:coarse){
+  .nav-item{min-height:44px}
+  .btn,.select,.input,.date-field{min-height:40px}
+  .icon-btn{width:40px;height:40px}
+  .tab,.subtab,.seg-b,.chip:is(button),.opt,.ntf-item,.ntf-nav-item{min-height:44px}
+  .cb,.sw,.kpi-details,.kpi-more,.link-btn,.dash-link,button.tg,a.num{position:relative}
+  :is(.cb,.sw,.kpi-details,.kpi-more,.link-btn,.dash-link,button.tg,a.num)::after{content:'';position:absolute;left:50%;top:50%;width:max(100%,44px);height:max(100%,44px);transform:translate(-50%,-50%)}
+  .t-small{font-size:12px;line-height:18px}
+  .topbar .search{height:40px}
+  .topbar .search input{font-size:14px}
+}
+
+/* ================= Batch 3 — menus and popups ================= */
+
+/* ---------- 14. Action menus (phone): up from the bottom, by the thumb ----------
+   The account's menu, quick actions, a row's ⋮, «الملفات», the filter and the sort. A field's own list (role=listbox) stays
+   under its field, as the owner asked (batch 2, decision 32). The kit places a menu with inline styles — hence !important. */
+@media (max-width:767px){
+  .menu.floating[role=menu]:not(.mp-menu):not(.bn-sheet),.menu.clock-pop.floating,.menu.acct{
+    position:fixed!important;inset:auto 0 0 0!important;top:auto!important;left:0!important;right:0!important;bottom:0!important;
+    width:auto!important;min-width:0!important;max-width:none!important;max-height:min(78vh,78dvh)!important;
+    overflow-y:auto;overscroll-behavior:contain;z-index:60;border:0;border-radius:20px 20px 0 0;
+    padding:6px 10px calc(12px + env(safe-area-inset-bottom,0px));
+    box-shadow:0 -8px 32px rgba(46,42,27,.24),0 0 0 100vmax rgba(46,42,27,.38);animation:m-sheet-up .22s var(--m-ease)}
+  .menu.floating[role=menu]:not(.mp-menu):not(.bn-sheet)::before,.menu.clock-pop.floating::before,.menu.acct::before{content:'';display:block;flex:none;width:36px;height:4px;border-radius:2px;background:var(--color-border-default);opacity:.45;margin:4px auto 8px}
+  .menu.floating[role=menu]:not(.mp-menu) .opt,.menu.acct .opt{min-height:48px;padding-inline:12px;border-radius:10px;font-size:15px;gap:12px}
+  .menu.acct{width:auto}
+  /* the bar a menu opens from stays above the bottom bar while it is open */
+  .topbar:has(.menu.floating,.menu.notif,.menu.acct,.menu.clock-pop){z-index:45}
+  .content>.tabs:has(.menu.floating),.table-title:has(.menu.floating){z-index:45}
+  /* the bell: a tall sheet, its sections on one line that scrolls */
+  .menu.notif{position:fixed!important;inset:auto 0 0 0!important;top:auto!important;left:0!important;right:0!important;bottom:0!important;width:auto!important;max-width:none!important;height:min(86vh,86dvh);max-height:min(86vh,86dvh)!important;border:0;border-radius:20px 20px 0 0;box-shadow:0 -8px 32px rgba(46,42,27,.24),0 0 0 100vmax rgba(46,42,27,.38);animation:m-sheet-up .22s var(--m-ease);padding-bottom:env(safe-area-inset-bottom,0px)}
+  .menu.notif .ntf-nav{flex:none;flex-wrap:nowrap;overflow-x:auto;overscroll-behavior-x:contain;padding:10px 12px 6px;gap:6px}
+  .menu.notif .ntf-nav-item{flex:none;height:40px;min-height:40px;border-radius:999px;padding-inline:12px}
+}
+@media (max-width:767px) and (prefers-reduced-motion:reduce){.menu.floating[role=menu],.menu.clock-pop.floating,.menu.acct,.menu.notif{animation:none}}
+
+/* ---------- 15. Popups (phone): the owner's centred popup, with a phone's corners, fields and buttons ---------- */
+@media (max-width:767px){
+  .scrim{padding:12px;padding-bottom:max(12px,env(safe-area-inset-bottom,0px))}
+  .scrim .modal{border-radius:16px}
+  .modal-h{padding:12px 16px;min-height:56px}
+  .modal-h .icon-btn{width:44px;height:44px;margin-inline-end:-8px}
+  .modal-b{padding:16px}
+  .modal-f{padding:12px 16px;gap:8px}
+  .modal-f>.btn{min-height:48px;font-size:15px;font-weight:600;border-radius:10px}
+  .modal .field>label,.modal .field .lbl{font-size:13px}
+  .modal .input,.modal .select,.modal .textarea{border-radius:10px}
+  /* «إضافة مبتكر»: the step you are on is named in full; the others keep their number */
+  .mk-steps{gap:6px}
+  .mk-steps li.cur{flex:0 0 auto}
+  .mk-steps li.cur>*{white-space:nowrap;overflow:visible}
+  .mk-steps li:not(.cur) .dot~*{display:none}
+  /* a drawer is the whole screen on a phone */
+  .drawer{width:100%;border:0}
+  .drawer-h{padding:12px 16px}
+}
+
+/* ---------- 16. Under a banner on top of the page (the demo's): a popup or a drawer starts below it ---------- */
+.scrim{top:var(--dm-h,0px)}
+@media (max-width:767px){.mk-step-b{min-height:44px}}
+
+/* ---------- 17. A conversation (phone): the whole screen, the reply box always in reach ---------- */
+@media (max-width:767px){
+  .cs-inbox.show-chat .cs-chat{position:fixed;z-index:30;top:var(--dm-h,0px);left:0;right:0;bottom:0;min-height:0;height:auto;max-height:none;background:var(--color-bg-base);padding-bottom:env(safe-area-inset-bottom,0px)}
+  .cs-inbox.show-chat .cs-chat .back-m{flex:none;min-height:48px;display:flex;align-items:center}
+  .cs-inbox.show-chat .cs-chat .back-m .btn{min-height:44px}
+  .cs-inbox.show-chat .cs-chat .cs-msgs{flex:1 1 auto;min-height:0;overscroll-behavior:contain;padding:12px}
+  .cs-inbox.show-chat .cs-chat .cmp{flex:none}
+  /* nothing floats over a conversation */
+  body:has(main:not([hidden]) .cs-inbox.show-chat) .page-head .actions>.btn.btn-brand,body:has(main:not([hidden]) .cs-inbox.show-chat) .m-fab,body:has(main:not([hidden]) .cs-inbox.show-chat) .to-top{display:none}
+}
+
+/* ---------- 18. The chips of the filters in force (phone, tablet, any touch screen): one line that slides under the finger ----------
+   Picking five filters no longer pushes the table five lines down. «مسح الكل» stays in sight at the line's end. */
+@media (max-width:1023px),(pointer:coarse){
+  .af-row{flex-wrap:nowrap;gap:8px;overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;scrollbar-width:none;scroll-snap-type:x proximity;scroll-padding-inline:12px}
+  .af-row::-webkit-scrollbar{display:none}
+  .af-row>*{flex:none}
+  .af-chip{max-width:min(78vw,340px);scroll-snap-align:start}
+  .af-chip .af-t{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  /* the owner 22 Nov — «زرار مسح الكل بدل ما هو فوق زراير الفلتر يبقى في نفس الصف بس أول زرار و بعديه نتيجة الفلاتر»: it was pinned
+     to the line's end and sat over the chips sliding under it; now it is the line's first button and the chips follow it */
+  .af-clr{order:-1;position:static;scroll-snap-align:start;border-radius:999px;background:var(--color-bg-container);box-shadow:none}
+}
+
+/* ================= Popups, reviewed one by one (phone and tablet) ================= */
+
+/* ---------- 19. The period picker on a phone: made for a thumb (the owner 21 Nov) ----------
+   «بوب اب اختيار التاريخ بايظ خالص في الموبايل ممكن تعيد تصميمه بشكل يناسب مستخدم الموبايل». A sheet from the bottom, read from
+   the top as one does it: its name; the ready periods as chips on one sliding line (they were a list in a box); «من» and
+   «إلى» side by side; one month with both arrows (it was two months one under the other — the second keeps only its «الشهر
+   التالي» arrow, put on the first one's line); then the comparison; and «إلغاء» / «تحديث» always at the bottom. Nothing is
+   taken away: every period, both dates, the comparison and its dates are all there — the same controls, laid out again
+   (the three wrappers are «display:contents», so their parts can be put in this order). */
+@media (max-width:767px){
+  .dp.range{display:flex!important;flex-flow:row wrap;align-items:center;align-content:flex-start;padding:0;max-height:calc(100vh - var(--dm-h,0px) - 12px)!important;max-height:calc(100dvh - var(--dm-h,0px) - 12px)!important;overflow-x:hidden!important;overflow-y:auto!important;overscroll-behavior:contain;border-radius:20px 20px 0 0;box-shadow:0 -8px 32px rgba(46,42,27,.24),0 0 0 100vmax rgba(46,42,27,.38)}
+  .dp.range::before{content:attr(aria-label);order:0;flex:0 0 100%;box-sizing:border-box;padding:20px var(--m-s4) 4px;font-size:17px;line-height:24px;font-weight:700;color:var(--color-text-primary);background:linear-gradient(var(--color-border-default),var(--color-border-default)) center 8px/40px 4px no-repeat}
+  .dp.range .dp-body,.dp.range .cals-wrap,.dp.range .range-row{display:contents}
+  /* the ready periods */
+  .dp.range .presets{order:1;flex:0 0 100%;box-sizing:border-box;width:auto;display:flex;flex-direction:row;align-items:center;gap:var(--m-s2);padding:6px var(--m-s4) 10px;border:0;overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;scrollbar-width:none}
+  .dp.range .presets::-webkit-scrollbar{display:none}
+  .dp.range .presets .radio{flex:0 0 auto;width:auto;height:38px;padding:0 14px;gap:0;border:1px solid var(--m-line);border-radius:999px;background:var(--color-bg-container);font-size:14px;font-weight:500;white-space:nowrap;color:var(--color-text-primary)}
+  .dp.range .presets .radio i{display:none}
+  .dp.range .presets .radio[aria-checked=true]{background:var(--color-brand-default);border-color:var(--color-brand-default);color:var(--color-text-on-brand);font-weight:700}
+  .dp.range .range-row>:first-child{display:none} /* the same periods as a list — the chips above are it */
+  /* from — to */
+  .dp.range .range-row>.input{order:2;flex:1 1 0;box-sizing:border-box;width:auto!important;min-width:0;height:46px;margin:0 0 var(--m-s2);border-radius:12px}
+  .dp.range .range-row>.input:nth-child(2){margin-inline:var(--m-s4) var(--m-s1)}
+  .dp.range .range-row>.input:nth-child(4){margin-inline:var(--m-s1) var(--m-s4)}
+  /* which of the two periods the month below is picking */
+  .dp.range .rp-mode{order:3;flex:0 0 100%;box-sizing:border-box;position:static;justify-content:center;gap:var(--m-s2);padding:2px var(--m-s4) 6px;background:none}
+  .dp.range .rp-mode>*{min-height:36px;border-radius:999px}
+  /* one month, both arrows */
+  .dp.range .cals{order:4;flex:0 0 100%;box-sizing:border-box;position:relative;display:block;padding:0 12px 4px}
+  .dp.range .cals>.cal{width:100%!important;max-width:none}
+  .dp.range .cals .cal-h{height:44px;align-items:center;font-size:16px;font-weight:700}
+  .dp.range .cals .cal-h .icon-btn{width:44px;height:44px;border-radius:50%}
+  .dp.range .cals>.cal+.cal,.dp.range .cals>.cal+.cal>.cal-h{display:contents!important}
+  .dp.range .cals>.cal+.cal>.cal-grid,.dp.range .cals>.cal+.cal>.cal-h>span{display:none}
+  .dp.range .cals>.cal+.cal>.cal-h>.icon-btn{position:absolute;top:0;inset-inline-end:12px}
+  .dp.range .day{height:40px;font-size:15px}
+  /* the comparison */
+  .dp.range .range-row>.check{order:5;flex:0 0 100%;box-sizing:border-box;width:auto!important;min-height:44px;margin:0;padding:0 var(--m-s4);border-top:1px solid var(--color-border-subtle)}
+  .dp.range .pcmp-fields{order:6;flex:0 0 100%;box-sizing:border-box;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px;padding:10px var(--m-s4) 12px}
+  .dp.range .pcmp-fields>.pcmp-lab,.dp.range .pcmp-fields>.help,.dp.range .pcmp-fields>p{grid-column:1/-1}
+  .dp.range .pcmp-fields>label{display:flex;flex-direction:column;align-items:stretch;gap:4px;min-width:0}
+  .dp.range .pcmp-fields .input{width:100%;min-width:0;height:44px;box-sizing:border-box}
+  .dp.range .dp-foot{order:7;flex:0 0 100%;box-sizing:border-box;position:sticky;bottom:0;z-index:2;gap:6px var(--m-s2);padding:10px var(--m-s4) calc(12px + env(safe-area-inset-bottom,0px));box-shadow:0 -6px 16px rgba(46,42,27,.08)}
+  .dp.range .dp-foot .tz{font-size:12px;line-height:16px;text-align:center}
+  .dp.range .dp-foot .btn{min-height:48px;font-size:15px;font-weight:700;border-radius:12px}
+}
+
+/* ---------- 20. A form's date (one day): days a finger can hit ---------- */
+/* phone: a sheet from the bottom, the week across the whole screen */
+@media (max-width:767px){
+  .dp.single{position:fixed!important;inset:auto 0 0 0!important;top:auto!important;left:0!important;right:0!important;bottom:0!important;width:auto!important;min-width:0!important;max-width:none!important;max-height:none!important;z-index:300;border:0;border-radius:20px 20px 0 0;padding:8px 16px calc(16px + env(safe-area-inset-bottom,0px));box-shadow:0 -8px 32px rgba(46,42,27,.24),0 0 0 100vmax rgba(46,42,27,.38);animation:m-sheet-up .22s var(--m-ease)}
+  .dp.single::before{content:'';display:block;width:36px;height:4px;border-radius:2px;background:var(--color-border-default);opacity:.45;margin:4px auto 8px}
+  .dp.single .cal{width:100%}
+  .dp.single .cal-grid{grid-template-columns:repeat(7,minmax(0,1fr));width:100%}
+  .dp.single .day{width:100%;height:46px;font-size:16px}
+  .dp.single .cal-head .icon-btn,.dp.single .cal-nav,.dp.single .cal-head button{min-width:44px;min-height:44px}
+  .dp.single .dp-foot .btn,.dp.single>.btn,.dp.single .btn{min-height:48px}
+}
+@media (max-width:767px) and (prefers-reduced-motion:reduce){.dp.single{animation:none}}
+/* tablet / touch: it stays under its field, with 44px days */
+@media (min-width:768px) and (pointer:coarse){
+  .dp.single{width:344px}
+  .dp.single .cal{width:100%}
+  .dp.single .cal-grid{grid-template-columns:repeat(7,44px);justify-content:space-between}
+  .dp.single .day{width:44px;height:44px;font-size:15px}
+  .dp.range .day{min-height:40px}
+}
+
+/* ================= The phone as its own design (21 Nov, the owner: «كأننا بنعمل ريديزاين للسيستم في الموبايل») =================
+   One scale for the spaces, one family of buttons sized for a hand, the numbers and the actions on sliding lines.
+   Nothing is removed or hidden behind a new step: what slid out of sight is one swipe away, on the same line. */
+:root{--m-s1:4px;--m-s2:8px;--m-s3:12px;--m-s4:16px;--m-s5:24px;--m-r-ctl:8px;--m-r-card:12px;--m-line:color-mix(in srgb,var(--color-border-default) 38%,transparent)}
+
+/* ---------- 21. Buttons and fields (phone and upright tablet): a hand's sizes, one shape ----------
+   main action 48 · action 44 · small 36 (with a 44 tap area) · field 48 — the same 8px corner everywhere */
+@media (max-width:1023px){
+  .btn{height:44px;min-height:44px;padding:0 var(--m-s4);border-radius:var(--m-r-ctl);font-size:14px;font-weight:600;gap:var(--m-s2)}
+  /* the default button keeps its beige (the owner's decision 46: a button on a green header is the beige default) — only its outline is quieter */
+  .btn-default{border-color:var(--m-line)}
+  .btn-brand,.btn-primary{border-color:transparent}
+  .modal-f>.btn,.drawer-f>.btn,.sec-b>.btn.btn-brand,.sec-b>.btn.btn-primary{height:48px;min-height:48px;font-size:15px}
+  .btn.sm{position:relative;height:36px;min-height:36px;padding:0 var(--m-s3);font-size:13px}
+  .btn.sm::after{content:'';position:absolute;left:0;right:0;top:-4px;bottom:-4px}
+  .btn-text{min-height:44px;padding-inline:var(--m-s2)}
+  .icon-btn{border-radius:var(--m-r-ctl)}
+  .select,.input,.date-field{min-height:48px;border-radius:var(--m-r-ctl);border-color:var(--m-line)}
+  .select.sm,.input.sm{min-height:44px}
+  .textarea{border-radius:var(--m-r-ctl);border-color:var(--m-line);padding:var(--m-s3)}
+  .select:focus-visible,.input:focus,.input:focus-within,.textarea:focus{border-color:var(--color-border-focus)}
+  .chip:is(button),.seg-b,.subtab{border-radius:999px}
+}
+
+/* ---------- 22. One scale for the spaces (phone) ---------- */
+@media (max-width:767px){
+  .content{padding:var(--m-s3) var(--m-s4) var(--m-s4);gap:var(--m-s4)}
+  .panel{gap:var(--m-s4)}
+  .cards,.dash-kpis{gap:var(--m-s3);margin-bottom:0}
+  .dash-grid,.charts,.grid2,.grid3{gap:var(--m-s4)}
+  .card{border-radius:var(--m-r-card)}
+  .sec-h{padding:var(--m-s3) var(--m-s4);gap:var(--m-s2)}
+  .sec-b{padding:var(--m-s4);gap:var(--m-s3)}
+  .table-title{padding:var(--m-s3) var(--m-s4)}
+  .field{gap:6px}
+  .modal-b{gap:var(--m-s4)}
+  /* a table's row as a card: quieter edge, the same inner spaces as every other card */
+  .scroll-x tr,.vlo-table tr,.list-card{border-color:var(--m-line);border-radius:var(--m-r-card);padding:var(--m-s3) 14px;gap:var(--m-s2) var(--m-s3);margin-bottom:var(--m-s2)}
+  .scroll-x td[data-l]:not([data-l=""])::before,.vlo-table td[data-l]:not([data-l=""])::before,.list-card .kv .t-small{font-size:12px;line-height:16px}
+  .list-card .title{padding-bottom:var(--m-s2)}
+}
+
+/* ---------- 23. A page's actions and a tab's tools (phone): one line that slides, compact buttons ----------
+   «تخصيص اللوحة», «الملفات», the period, the sort… used to stack in two or three full-width rows before the page began. */
+@media (max-width:767px){
+  .page-head .actions,#main .page-head .actions,.page-head.row .actions,.dash-head .actions,.content>.toolbar,.panel>.toolbar,main>.toolbar{
+    display:flex;flex-wrap:nowrap;align-items:center;gap:var(--m-s2);width:auto;overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;scrollbar-width:none;
+    margin:-4px calc(var(--m-gutter) * -1);padding:4px var(--m-gutter)}
+  .page-head .actions::-webkit-scrollbar,.dash-head .actions::-webkit-scrollbar,.content>.toolbar::-webkit-scrollbar,.panel>.toolbar::-webkit-scrollbar,main>.toolbar::-webkit-scrollbar{display:none}
+  .page-head .actions>*,#main .page-head .actions>*,#main .page-head .actions>.pop-anchor,.dash-head .actions>*,.content>.toolbar>*,.panel>.toolbar>*,main>.toolbar>*{flex:0 0 auto!important;width:auto!important;min-width:0;max-width:none;order:0}
+  .page-head .actions .btn,.page-head .actions .date-field,.page-head .actions .select,.page-head .actions .chip,.content>.toolbar .btn,.panel>.toolbar .btn,main>.toolbar .btn,.content>.toolbar .select,.panel>.toolbar .select,main>.toolbar .select,.content>.toolbar .date-field,.panel>.toolbar .date-field{position:relative;height:40px;min-height:40px;padding-inline:var(--m-s3);font-size:13px;width:auto!important;white-space:nowrap}
+  :is(.page-head .actions,.content>.toolbar,.panel>.toolbar,main>.toolbar) :is(.btn,.date-field,.select)::after{content:'';position:absolute;left:0;right:0;top:-2px;bottom:-2px}
+  :is(.content>.toolbar,.panel>.toolbar,main>.toolbar) :is(.search,.input,input[type=search]){min-width:220px}
+  :is(.content>.toolbar,.panel>.toolbar,main>.toolbar) .grow{display:none}
+}
+
+/* ---------- 24. The number cards (phone): one sliding line, like the filters (the owner: «خليها زي الفلاتر») ----------
+   Two cards and the edge of the third on screen — the edge says there is more; a swipe brings the rest. */
+@media (max-width:767px){
+  :is(.dash-kpis,.cards,.kpis,.kpi-grid,div,section):has(>.card.kpi){
+    display:flex;flex-wrap:nowrap;align-items:stretch;gap:var(--m-s3);overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;scrollbar-width:none;scroll-snap-type:x mandatory;
+    margin-inline:calc(var(--m-gutter) * -1);padding:4px var(--m-gutter) 8px;scroll-padding-inline:var(--m-gutter)}
+  :is(.dash-kpis,.cards,.kpis,.kpi-grid,div,section):has(>.card.kpi)::-webkit-scrollbar{display:none}
+  :is(.dash-kpis,.cards,.kpis,.kpi-grid,div,section):has(>.card.kpi)>*{flex:0 0 calc((100% - var(--m-s3) - 28px) / 2);min-width:0;max-width:none;scroll-snap-align:start;grid-column:auto}
+  :is(.dash-kpis,.cards,.kpis,.kpi-grid,div,section):has(>.card.kpi:only-child)>*{flex-basis:100%}
+}
+
+/* ---------- 25. Settings' home (phone): a list of rows — icon, name, what is in it, an arrow — like a phone's own settings ---------- */
+@media (max-width:767px){
+  #pg-settings .set-grid{display:flex;flex-direction:column;gap:0;border-radius:var(--m-r-card);overflow:hidden;box-shadow:var(--shadow-card);background:var(--color-bg-base)}
+  #pg-settings .set-card{position:relative;display:grid;grid-template-columns:40px minmax(0,1fr) 24px;column-gap:var(--m-s3);row-gap:2px;align-items:center;min-height:68px;padding:var(--m-s3) var(--m-s4);border:0;border-radius:0;box-shadow:none;border-bottom:1px solid var(--color-border-subtle);background:transparent}
+  #pg-settings .set-card:last-child{border-bottom:0}
+  #pg-settings .set-card-h{display:contents}
+  #pg-settings .set-card-h,#pg-settings .set-card-h h3{background:none;color:var(--color-brand-default);padding:0;margin:0}
+  #pg-settings .set-ic{grid-column:1;grid-row:1 / span 4;align-self:center;width:40px;height:40px}
+  #pg-settings .set-card h3,#pg-settings .set-card p,#pg-settings .set-card .tag,#pg-settings .set-card .chip{grid-column:2;justify-self:start;text-align:start}
+  #pg-settings .set-card>:not(.set-card-h):not(p):not(.btn):not(.grow){grid-column:2;justify-self:start;width:fit-content;max-width:100%}
+  #pg-settings .set-card .grow{display:none}
+  #pg-settings .set-card .btn{grid-column:3;grid-row:1 / span 4;align-self:center;position:static;width:24px!important;min-width:0;height:44px;min-height:44px;padding:0;border:0;background:none;box-shadow:none;font-size:0;gap:0;color:var(--color-text-secondary)}
+  #pg-settings .set-card .btn::after{content:'';position:absolute;inset:0}
+  #pg-settings .set-card .btn svg{width:20px;height:20px}
+  #pg-settings .set-card:has(.btn:active){background:var(--color-bg-hover,#f9f0e2)}
+}
+
+/* ---------- 26. «ملفي › تنبيهاتي» (phone): an alert's lines wrap instead of being cut ---------- */
+@media (max-width:767px){
+  #pg-profile .ntf-item :is(b,small,.t-small,.t-label){white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere}
+}
+
+/* ---------- 27. Charts (phone): one under the other — two side by side left 170px each ---------- */
+@media (max-width:767px){.charts{grid-template-columns:minmax(0,1fr)}}
+
+/* ---------- 28. The header (phone and tablet, the owner 21 Nov): search · assistant · bell · account ----------
+   «إجراءات سريعة» and «ابدأ الدوام» are rows of the account's menu there (js/pages/mobile.js adds them; each presses the
+   button the shell drew). The two buttons stay in the bar as anchors for their popups, out of sight. */
+@media (max-width:1023px){
+  .topbar .qa-anchor>.btn,.topbar .clock-widget>.btn,.topbar .clock-widget>.pop-anchor>.clock{position:absolute!important;width:1px!important;min-width:0!important;height:1px!important;min-height:0!important;padding:0!important;margin:0;border:0!important;opacity:0;overflow:hidden;pointer-events:none;clip-path:inset(50%)}
+  .topbar .qa-anchor,.topbar .clock-widget,.topbar .clock-widget>.pop-anchor{width:0;min-width:0;flex:0 0 0;margin:0;padding:0}
+  .topbar{gap:8px}
+  /* the rows that moved into the account's menu */
+  .menu.acct .m-moved{font-weight:600}
+  .menu.acct .m-moved svg{flex:none;width:18px;height:18px;color:var(--color-brand-default)}
+  .menu.acct .m-clock:not([disabled]){color:var(--color-brand-default)}
+  .menu.acct .m-dot{flex:none;width:10px;height:10px;border-radius:50%;background:var(--color-success-base);box-shadow:0 0 0 4px var(--color-success-bg)}
+  .menu.acct .m-sep{height:1px;margin:6px 4px;background:var(--color-border-subtle)}
+}
+/* tablet: the bar has room — a search field that fills it, then three round controls of one size */
+@media (min-width:768px) and (max-width:1023px){
+  .topbar{height:56px;padding:0 20px;gap:10px}
+  .topbar>.gq-wrap{flex:1 1 auto;min-width:0;margin-inline-end:6px}
+  .topbar .search{width:100%;max-width:560px;height:42px;border-radius:999px;padding:0 16px}
+  .topbar .search input{font-size:15px}
+  .topbar .ai-btn,.topbar .notif-btn,.topbar .user-btn{width:44px;min-width:44px;height:44px;padding:0;border-radius:50%;justify-content:center}
+  .topbar .ai-btn span{display:none}
+  .topbar .ai-btn svg,.topbar .notif-btn svg{width:20px;height:20px}
+  .topbar .user-btn .avatar{width:34px;height:34px}
+  .content>.tabs{top:56px}
+  .mx-wrap .mx-head{top:56px}
+  .menu.acct{min-width:260px}
+  .menu.acct .opt{min-height:44px}
+}
+@media (max-width:767px){.topbar{gap:4px}.topbar>.gq-wrap{margin-inline-end:6px}}
+
+/* «إنهاء الدوام» inside the shift's popup is a real button (an old phone rule for the bar's clock shrank it to an empty 44px square) */
+@media (max-width:1023px){
+  .topbar .menu.clock-pop{padding:16px;gap:12px;min-width:280px}
+  .topbar .menu.clock-pop .btn{position:static!important;width:100%!important;height:48px!important;min-height:48px!important;padding:0 16px!important;opacity:1;clip-path:none;pointer-events:auto;overflow:visible;border-radius:var(--m-r-ctl)!important;font-size:15px!important;font-weight:600;gap:8px;background-clip:border-box}
+  .topbar .menu.clock-pop .btn svg{width:18px;height:18px}
+}
+
+/* ---------- 29. A section's tools (phone): «بحث · فلتر · ترتيب · الأعمدة» on one sliding line — the columns' button no longer drops to a line of its own ---------- */
+@media (max-width:767px){
+  .sec-h:has([data-cols],.tq-btn) .acts{flex-wrap:nowrap;max-width:100%;min-width:0;overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;scrollbar-width:none;gap:var(--m-s2);padding-block:2px}
+  .sec-h:has([data-cols],.tq-btn) .acts::-webkit-scrollbar{display:none}
+  .sec-h:has([data-cols],.tq-btn) .acts>*{flex:0 0 auto}
+}
+
+/* ---------- 30. The number cards on an upright tablet: full rows, on every page the same ----------
+   Some pages laid them two across, some three, and five cards left one alone on the last line. Now up to four across, each
+   line filled to its end (a last line of two or three shares the width); exactly five or nine go three across (3 + 2, 3 × 3). */
+@media (min-width:768px) and (max-width:1023px){
+  :is(.dash-kpis,.cards,.kpis,.kpi-grid,div,section):has(>.card.kpi),.cards:has(>.card.sum-tile){display:flex;flex-wrap:wrap;gap:var(--m-s3);align-items:stretch}
+  :is(.dash-kpis,.cards,.kpis,.kpi-grid,div,section):has(>.card.kpi)>*,.cards:has(>.card.sum-tile)>*{flex:1 1 22%;min-width:150px;max-width:none;grid-column:auto}
+  :is(.dash-kpis,.cards,.kpis,.kpi-grid,div,section):has(>.card.kpi:nth-child(5):last-child)>*,
+  :is(.dash-kpis,.cards,.kpis,.kpi-grid,div,section):has(>.card.kpi:nth-child(9):last-child)>*{flex-basis:30%}
+  .card.kpi{padding:var(--m-s3) 14px}
+  /* settings' home: five cards in two columns left the last one alone beside a hole — it takes the line */
+  #pg-settings .set-grid>.set-card:last-child:nth-child(odd){grid-column:1/-1}
+}
+
+/* ---------- 31. «ملفي» head (phone): the picture beside the name, the tags on one line, the button across ----------
+   The name sat in an 85px column (two lines) with the tags stacked under it — 228px before the tabs. */
+@media (max-width:767px){
+  #pg-profile .prof-head{display:grid;grid-template-columns:56px minmax(0,1fr);column-gap:var(--m-s3);row-gap:var(--m-s3);align-items:center;padding:var(--m-s4)}
+  #pg-profile .prof-head>.avatar{width:56px;height:56px;font-size:22px}
+  #pg-profile .prof-head>.grow{min-width:0}
+  #pg-profile .prof-head h1{font-size:20px;line-height:28px;overflow-wrap:anywhere}
+  #pg-profile .prof-head .grow .acts-inline{display:flex;flex-direction:row;flex-wrap:wrap;gap:6px;margin-top:6px}
+  #pg-profile .prof-head>.acts-inline{grid-column:1/-1;display:flex;gap:var(--m-s2)}
+  #pg-profile .prof-head>.acts-inline>*{flex:1 1 0;min-width:0}
+  #pg-profile .prof-head>.acts-inline .btn{width:100%}
+}
+
+/* ---------- 32. The assistant on a phone: a page of its own, as chat apps are (the owner 21 Nov) ----------
+   «يشتغل بنفس طريقة شات جي بي تي و يبقى البوب صفحة كاملة فيها اغلاق» — then «التابلت خليه زي الديسكتوب بس الموبايل اللي اعمل فيه
+   الصفحة الكاملة»: on a phone only; a tablet keeps the desktop's box under the button. It was a 560px
+   box hung under the bar; on an iPhone the keyboard came up at once, the page slid under it, the box lost its head off the
+   top and the bottom bar floated in the middle of the screen. Now it is the whole screen under the banner: a head with the
+   name and «إغلاق», the talk in one column (the assistant's words plain on the page, mine in a green bubble), the examples
+   on one sliding line, and the box to type in — a pill with its send button inside — resting on the keyboard. The page
+   follows the part of the screen the keyboard leaves in sight (--m-vv-top / --m-vv-h, js/pages/mobile.js). And while any
+   keyboard is up the bottom bar steps aside (html.m-kb) — it has no place floating over a field being typed in. */
+@media (max-width:767px){
+  .ai-panel{left:0!important;right:0!important;top:var(--m-vv-top,var(--dm-h,0px))!important;width:auto!important;max-width:none!important;min-width:0;height:var(--m-vv-h,calc(100dvh - var(--dm-h,0px)))!important;min-height:0;max-height:none;border:0;border-radius:0;box-shadow:none;resize:none;z-index:46;background:var(--color-bg-base)}
+  .ai-panel>*{width:100%;max-width:760px;margin-inline:auto;box-sizing:border-box}
+  .ai-panel .ai-head{flex:none;min-height:56px;padding-block:6px;padding-inline:var(--m-s4) 6px;border-bottom:0;cursor:default;touch-action:auto}
+  .ai-panel .ai-head h2{font-size:17px;line-height:24px;font-weight:700}
+  .ai-panel .ai-head .icon-btn{width:44px;height:44px;border-radius:50%;background:var(--color-bg-container);background-clip:content-box;border:2px solid transparent;color:var(--color-text-primary)}
+  .ai-panel .ai-list{padding:var(--m-s2) var(--m-s4) var(--m-s4);gap:var(--m-s5)}
+  .ai-panel .ai-msg{font-size:16px;line-height:26px}
+  .ai-panel .ai-msg.ai{max-width:100%;padding:0;background:none;border-radius:0}
+  .ai-panel .ai-msg.user{max-width:82%;padding:10px 16px;border-radius:22px}
+  .ai-panel .ai-chips{flex:none;flex-wrap:nowrap;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none;padding:var(--m-s2) var(--m-s4);gap:var(--m-s2);border-top:0}
+  .ai-panel .ai-chips::-webkit-scrollbar{display:none}
+  .ai-panel .ai-chips .btn{flex:0 0 auto;height:38px!important;min-height:38px!important;padding-inline:14px;border-radius:999px;font-size:14px;font-weight:500}
+  .ai-panel .ai-form{flex:none;width:calc(100% - 24px);max-width:736px;margin-block:var(--m-s1) 0;padding:6px;padding-inline-start:var(--m-s4);gap:var(--m-s2);border:1px solid var(--color-border-subtle);border-radius:28px;background:var(--color-bg-container)}
+  .ai-panel .ai-form:focus-within{border-color:var(--color-border-focus)}
+  .ai-panel .ai-input{height:40px;padding:0;border:0;border-radius:0;background:none;font-size:16px}
+  .ai-panel .ai-input:focus{outline:0;box-shadow:none}
+  .ai-panel .ai-send{flex:0 0 40px;width:40px;height:40px;border-radius:50%;background:var(--color-brand-default);color:var(--color-text-on-brand)}
+  .ai-panel .ai-mic{flex:0 0 40px;width:40px;height:40px}
+  .ai-panel .ai-mic svg{width:20px;height:20px}
+  .ai-panel .ai-note{flex:none;padding:var(--m-s2) var(--m-s4) calc(var(--m-s2) + env(safe-area-inset-bottom,0px));font-size:12px;line-height:18px;text-align:center}
+  html.m-kb .ai-panel .ai-note{padding-bottom:var(--m-s2)}
+  body:has(.ai-panel:not([hidden])) .page-head .actions>.btn.btn-brand,html.m-kb .page-head .actions>.btn.btn-brand,body:has(.ai-panel:not([hidden])) .m-fab,html.m-kb .m-fab{display:none}
+}
+@media (max-width:1023px),(pointer:coarse){
+  html.m-kb .bottom-nav{display:none}
+}
+/* a tablet: the desktop's box, as it is — only it never runs under the keyboard, and its field does not make an iPad zoom */
+@media (min-width:768px) and (pointer:coarse){
+  html.m-kb .ai-panel{top:calc(var(--m-vv-top,0px) + 8px)!important;height:calc(var(--m-vv-h,100dvh) - 16px)!important;min-height:0}
+  .ai-panel .ai-input{font-size:16px}
+}
+
+/* ---------- 33. The header's controls: one size, one order (the owner 21 Nov) ----------
+   «خلي زرار الايه اي و البروفايل جمب بعض و النوتيفكشين بعد الايه اي و خلي الايقونز و الزراير قد بعض»: after the search come
+   the bell, the assistant, then the account — three circles of one size; the bell on the search's own soft fill so it reads
+   as a button like the other two. Then (22 Nov — «زود المسافة بين خانة البحث و الشريط الاخضر من فوق و نفس المسافة من تحت و صغر
+   دايرة البروفايل و النوتيفيكيشن و الايه اي شوية بحيث الاستخدام ميتأثرش»): the bar is 56 high on a phone as on a tablet, so the
+   search has 8px over it and 8px under it, and the circles are 36 to look at — still 44 to the finger, 12 apart. */
+@media (max-width:1023px){
+  .topbar>.gq-wrap{order:0}
+  .topbar>.pop-anchor:has(>.notif-btn){order:1}
+  .topbar>.ai-btn{order:2}
+  .topbar>.pop-anchor.user{order:3}
+  .topbar>.qa-anchor,.topbar>.clock-widget{order:4}
+  .topbar .ai-btn,.topbar .notif-btn,.topbar .user-btn{box-sizing:border-box;width:44px;min-width:44px;height:44px;min-height:44px;padding:0;border:4px solid transparent;border-radius:50%;background-clip:content-box;align-items:center;justify-content:center;place-items:center}
+  .topbar .notif-btn{background-color:var(--color-bg-container);color:var(--color-brand-default)}
+  .topbar .user-btn{background:none}
+  .topbar .user-btn .avatar{width:36px;height:36px;font-size:15px;line-height:36px}
+  .topbar .ai-btn svg,.topbar .notif-btn svg{width:18px;height:18px}
+  .topbar .notif-badge{top:-1px;inset-inline-start:-1px;box-shadow:0 0 0 2px var(--color-bg-base)}
+  .topbar .search{height:40px}
+}
+@media (max-width:767px){
+  .topbar{height:56px;gap:4px}
+  .content>.tabs{top:56px}
+  .mx-wrap .mx-head{top:56px}
+  .topbar .search:focus-within{inset:6px 8px}
+  .topbar>.gq-wrap{margin-inline-end:4px}
+  .topbar>.qa-anchor,.topbar>.clock-widget{margin-inline-start:-4px}
+}
+@media (min-width:768px) and (max-width:1023px){
+  .topbar{gap:4px}
+  .topbar>.gq-wrap{margin-inline-end:8px}
+  .topbar>.qa-anchor,.topbar>.clock-widget{margin-inline-start:-4px}
+}
+
+/* ---------- 34. Nothing moves behind an open popup (the owner 21 Nov) ----------
+   «لو فيه بوباب مفتوح و عملت سكرول بلاقي الصفحة اللي وراه بيتعملها سكرول»: with fingers the page behind a popup, a sheet, a
+   drawer, a menu or a calendar stays where it is. The finger is held by js/pages/mobile.js (the orders page's popups too),
+   which also keeps a tap on the dimmed page from pressing what is under it — not by overflow:hidden on the page, which
+   throws it back to its top. Here: a scroll inside the popup never runs on into the page (overscroll-behavior), and with a
+   keyboard up a popup fits the part of the screen still in sight. */
+@media (max-width:1023px),(pointer:coarse){
+  .scrim,.scrim .modal,.scrim .modal-body,.scrim .drawer,.menu,.dp,.ai-list,.cs-chat{overscroll-behavior:contain}
+  html.m-kb .scrim{top:var(--m-vv-top,0px);bottom:auto;height:var(--m-vv-h,100dvh);padding-block:8px}
+  html.m-kb .scrim .modal{max-height:calc(var(--m-vv-h,100dvh) - 16px)}
+}
+
+/* ---------- 35. The floating main action is never under the page (the owner 21 Nov, an iPhone) ----------
+   «اتاكد ان دايما الزراير الطايرة متنزلش تحت كومبوننتس الصفحة»: the button floated from inside the page head's row of actions,
+   and that row slides sideways — Safari draws a pinned element that lives inside a sliding box with that box, so the cards
+   of a table (a sliding box of their own, later in the page) were drawn over it. «اطلع لأول الصفحة» never had this: it sits
+   on the page itself. So on a touch phone the floating button is one of the page's own too — .m-fab, put on <body> by
+   js/pages/mobile.js, which shows the open page's main action on it and presses that action when it is tapped; the
+   action itself stays in its row, out of sight. Same look, same place, same rules for stepping aside. */
+.m-fab{display:none}
+@media (max-width:767px){
+  html.m-fab-on .m-fab:not([hidden]){display:inline-flex;align-items:center;justify-content:center;gap:8px;z-index:24}
+  html.m-fab-on .page-head .actions>.btn.btn-brand{display:none!important}
+  /* it steps aside for anything that opens over the page — a popup, a sheet or a menu, the bars of a selection or of unsaved
+     changes, an open conversation, the assistant, the keyboard */
+  .m-fab[hidden],body:has(.scrim) .m-fab,body:has(.bulk-bar) .m-fab,body:has(.save-bar) .m-fab,body:has(.bn-sheet) .m-fab,body:has([data-popover-root] [aria-expanded="true"]) .m-fab,
+  body:has(main:not([hidden]) .cs-inbox.show-chat) .m-fab,body:has(.ai-panel:not([hidden])) .m-fab,html.m-kb .m-fab{display:none!important}
+  body:has([data-popover-root] [aria-expanded="true"]) .to-top{display:none}
+}
+
+/* ---------- 36. A calendar's picked day stays picked under a finger (the owner 22 Nov, an iPhone — «الكالندر لسة بايظة») ----------
+   A phone keeps «the mouse is over it» on whatever was last tapped. The kit's hover fill for a day is written after — and as
+   strong as — the fill of the picked day, so the day just tapped turned the hover's pale beige under its own beige number:
+   an empty-looking square where the start of the period should be (with a mouse it shows only while the pointer rests on
+   it). The picked day and the days of the period keep their own fill whatever is over them; and where there is no real
+   hover, a day gets no hover fill at all. */
+.cal-grid .day.sel:hover,.cal-grid .day.sel:active,.cal-grid .day.sel:focus{background:var(--color-brand-default);color:var(--color-text-on-brand)}
+.cal-grid .day.inrange:hover{background:var(--color-brand-subtle-bg)}
+@media (hover:none),(pointer:coarse){
+  .cal-grid .day:not(.sel):not(.inrange):hover{background:transparent}
+  .cal-grid .day:not(.sel):active{background:var(--color-bg-hover)}
+}
+
+/* ---------- 37. The period picker's month on a phone, drawn clean (the owner 22 Nov — «الاستايل لسه فيه حاجة مش مظبوطة») ----------
+   Three things read as glitches: a double ring round the picked days (mine, from §36 — gone); the comparison period's days
+   marked by a thick line under each, bent at its ends by the day's rounded corners (now a small dot under the number); and
+   «الفترة» / «فترة المقارنة» looking alike whichever was on (the one on is filled, as the ready period in force above it).
+   The period itself is one band from its first day to its last: the two ends are filled squares with the band running into
+   them, today keeps a quiet ring. */
+@media (max-width:767px){
+  .dp.range .cal-grid{row-gap:4px;column-gap:0}
+  .dp.range .day{border-radius:10px;font-variant-numeric:tabular-nums}
+  .dp.range .day.inrange{border-radius:0}
+  .dp.range .day.sel{border-radius:10px;font-weight:700;box-shadow:none}
+  .dp.range .day.today:not(.sel){box-shadow:inset 0 0 0 1.5px var(--color-action-default);border-radius:10px}
+  .dp.range .day.today.inrange{border-radius:0}
+  /* the comparison period: a dot under the number */
+  .dp.range .day.pcmp:not(.sel):not(.inrange){box-shadow:none}
+  .dp.range .day.today.pcmp:not(.sel):not(.inrange){box-shadow:inset 0 0 0 1.5px var(--color-action-default)}
+  .dp.range .day.pcmp:not(.sel):not(.inrange):not(.outside)::after{content:"";position:absolute;bottom:4px;left:50%;width:5px;height:5px;margin-left:-2.5px;border-radius:50%;background:var(--color-action-default)}
+  /* which of the two periods the month is picking */
+  .dp.range .rp-mode .chip{border:1px solid var(--m-line);background:var(--color-bg-container);color:var(--color-text-primary);font-weight:500;padding-inline:14px}
+  .dp.range .rp-mode .chip.on{background:var(--color-brand-default);border-color:var(--color-brand-default);color:var(--color-text-on-brand);font-weight:700}
+  .dp.range .pcmp-fields .pcmp-lab i{border-radius:50%}
+}
+
+/* ---------- 38. «حسابات المبتكرين»: its controls in order (the owner 22 Nov — «شيل زرار ترتيب المبتكرين و رتب الزراير بشكل
+   احترافي و منظم») ----------
+   The tab opened on three controls of three widths on two ragged lines, then a switch hugging one side. On a phone and a
+   tablet (and, since, on every width) the «ترتيب» list is not shown — the table's own «ترتيب» sorts it; what is left
+   sits on one line — «طلبات السحب» taking the room, «إضافة مبلغ» beside it at the same height — and on a phone the switch
+   «الرصيد دلوقتي / كشف بالفترة» runs the full width under it in two equal halves. */
+/* every width (the owner 22 Nov — «زرار الترتيب موجود في الجدول تحت فشيل كمان من الديسكتوب»): the table under it has its own «ترتيب» */
+#vpanel>.toolbar:has([data-wd-filter])>.pop-anchor:has(>.sort-btn:not([data-wd-filter])){display:none}
+@media (max-width:1023px){
+  #vpanel>.toolbar:has([data-wd-filter]){display:flex;flex-wrap:nowrap;align-items:center;gap:var(--m-s2)}
+  #vpanel>.toolbar:has([data-wd-filter])>.pop-anchor{flex:0 0 auto;min-width:0}
+  #vpanel>.toolbar:has([data-wd-filter]) .sort-btn,#vpanel>.toolbar:has([data-wd-filter]) .btn{height:44px;min-height:44px;border-radius:var(--m-r-ctl);font-size:14px}
+  #vpanel>.toolbar:has([data-wd-filter]) .sort-btn{border-color:var(--m-line);font-weight:600}
+}
+@media (max-width:767px){
+  #vpanel>.toolbar:has([data-wd-filter]){margin-bottom:var(--m-s3)}
+  #vpanel>.toolbar:has([data-wd-filter])>.grow{display:none}
+  #vpanel>.toolbar:has([data-wd-filter])>.pop-anchor:has(>[data-wd-filter]){flex:1 1 0}
+  #vpanel>.toolbar:has([data-wd-filter]) .sort-btn[data-wd-filter]{width:100%;justify-content:flex-start}
+  #vpanel>.toolbar:has([data-wd-filter]) .sort-btn[data-wd-filter]>span{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:start}
+  #vpanel>.toolbar:has([data-wd-filter])+.subtabs{display:flex;flex-wrap:nowrap;align-self:stretch;width:100%;box-sizing:border-box;border-radius:12px}
+  #vpanel>.toolbar:has([data-wd-filter])+.subtabs>.subtab{flex:1 1 0;justify-content:center;min-width:0;border-radius:9px}
+}

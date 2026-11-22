@@ -2399,3 +2399,32 @@ input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-
 .ib-ask-opt { cursor: pointer; border: 1px solid var(--color-brand-default); color: var(--color-brand-default); background: var(--color-bg-container); font: inherit; }
 .ib-ask-opt:hover:not(:disabled) { background: var(--color-brand-default); color: #FFF7EF; }
 .ib-ask-opt:disabled { opacity: .55; cursor: default; }
+
+/* the header's assistant takes dictation (js/pages/ai-mic.js — the owner 22 Nov): a microphone beside the box, red and pulsing
+   while it listens — as in the assistants' chat */
+.ai-form .ai-mic{flex:none;width:36px;height:36px;border-radius:50%;color:var(--color-text-secondary)}
+.ai-form .ai-mic:not(.on):hover{background:var(--color-bg-hover);color:var(--color-text-primary)}
+.ai-form .ai-mic.on{background:#DA0001;color:#fff;animation:ai-mic 1.2s ease-in-out infinite}
+@keyframes ai-mic{50%{box-shadow:0 0 0 6px rgba(218,0,1,.18)}}
+@media (prefers-reduced-motion:reduce){.ai-form .ai-mic.on{animation:none}}
+
+/* the account menu, redrawn (the owner 22 Nov — «تعيد تصميم الدروب داون للبروفايل في الديسكتوب بشكل احترافي»). It was a 240px list
+   with a scroll bar down its side (six rows did not fit its 300px), a bare name and a row of thin icons. Now: the member's
+   picture beside the name and the e-mail (js/pages/mobile.js puts the picture in), every row in sight without scrolling,
+   each icon on a soft tile, «تسجيل الخروج» set apart under a line. The rows and what they do are the shell's, untouched. */
+.menu.acct .acct-h:has(.m-av){display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-areas:"av name" "av mail";column-gap:12px;align-items:center;text-align:start}
+.menu.acct .acct-h .m-av{grid-area:av;flex:none;width:44px;height:44px;border-radius:50%;font-size:18px;font-weight:700;line-height:44px;display:grid;place-items:center}
+.menu.acct .acct-h:has(.m-av) b{grid-area:name;align-self:end;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right}
+.menu.acct .acct-h:has(.m-av) small{grid-area:mail;align-self:start;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right;direction:ltr}
+@media (min-width:1024px){
+  .menu.acct{width:296px;max-height:none!important;overflow:visible;padding:8px;border:1px solid var(--color-border-subtle);border-radius:16px;background:var(--color-bg-elevated);box-shadow:0 18px 44px rgba(46,42,27,.18),0 2px 8px rgba(46,42,27,.08)}
+  .menu.acct .acct-h{padding:10px 10px 14px;margin:0 0 6px;border-bottom:1px solid var(--color-border-subtle)}
+  .menu.acct .acct-h b{font-size:15px;line-height:22px;font-weight:700;color:var(--color-text-primary)}
+  .menu.acct .acct-h small{font-size:12px;line-height:18px;color:var(--color-text-secondary)}
+  .menu.acct .opt{height:44px;padding:0 8px;gap:12px;border-radius:10px;font-size:14px;font-weight:500;color:var(--color-text-primary)}
+  .menu.acct .opt>svg{flex:none;box-sizing:border-box;width:32px;height:32px;padding:7px;border-radius:9px;background:var(--color-brand-default);color:var(--color-text-on-brand)} /* the owner 22 Nov: green tiles, beige icons — as the rest of the system */
+  .menu.acct .opt:focus-visible{outline:2px solid var(--color-border-focus);outline-offset:-2px}
+  .menu.acct .opt.danger{position:relative;margin-top:13px;color:var(--color-error-text)}
+  .menu.acct .opt.danger::before{content:"";position:absolute;inset-inline:2px;top:-7px;border-top:1px solid var(--color-border-subtle)}
+  .menu.acct .opt.danger>svg{background:var(--color-error-text);color:var(--color-text-on-brand)}
+}

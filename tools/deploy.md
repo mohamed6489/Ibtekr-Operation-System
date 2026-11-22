@@ -2460,3 +2460,7 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 7. **راجع بعد أول استخدام:** `select label, source, model, input_tokens, round(cost_usd::numeric, 5) from ai_runs where action in ('assistant','marketing') and created_at > now() - interval '2 days' order by created_at desc limit 40;` — رسالة بسيطة للمدير («افتحلي الأوردرات») المفروض تبقى على `claude-haiku-5-5`، والتحليل على `claude-opus-5-5`؛ لو البسيط رايح للقوي أو العكس، يتراجع نص `SIZE_SYSTEM` في `_shared/ai-routing.js`.
 8. **لما ChatGPT أو Gemini يتربط لأول مرة:** راجع أسامي موديلاته وأسعاره (`PROVIDER_TIERS` / `OTHER_KNOWN` في `ai-routing.js`، `TEXT_PROVIDERS` / `TEXT_PRICES` في `ai-providers.js`، ونسخة الصفحة) من صفحة الشركة — اللي في السيستم من المرحلة 11 ومااتجرّبش على مفتاح حقيقي.
 
+
+#### 2.7.119 سرعة تقييمات الموارد البشرية + حالة الشاشة في «الصفحة فضيت» (22 نوفمبر — `0149`)
+1. طبّق `0149_hr_eval_speed.sql` — `hr_att_score` بيقرا أيام شغل العضو وتاريخ تعيينه والعطلات مرة واحدة والإجازات في الشهر بس، و`hr_evaluations_list` بيناديها مرة لكل صف (كانت 6–12 ثانية ووقعت بـ timeout مرة على الحي؛ النتيجة نفسها — اتقارنت على 161 صف حي قبل التطبيق). شغّل `rls_hr_rebuild` و`rls_hr_schedule_days` من «RLS live».
+2. ادمج على `main` — كارت «الصفحة وقفت» بقى بيكتب في النسخة وفي `activity_log` `app.crash` (`new_value.d`) حالة الشاشة: المقاس والمؤشر (ماوس / تاتش) والتمرير وعناصر `#root` وظهورها واللي في نص الشاشة والبوب أبات — أرقام وأسامي كلاسات بس. لو حد بلّغ إن الصفحة فضيت: `select at, new_value from activity_log where action = 'app.crash' order by at desc limit 10`.

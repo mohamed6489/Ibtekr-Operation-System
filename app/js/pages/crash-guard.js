@@ -26,9 +26,46 @@
     if (errs.length < MAX) errs.push(e);
     log(e); render(); setTimeout(check, 400);
   }
+  /* The owner 22 Nov («الصفحة فضيت» from one member's machine that the tests could not repeat): the screen and the page's state at
+     that moment, as numbers and our own class names only — the window, the pointer (a mouse or a finger: the phone / tablet layer of
+     css/mobile.css and js/pages/mobile.js turns on by them), the scroll, what #root holds and how its parts are painted, what lies at
+     the screen's centre, and the open popups. It goes into the copied report and into the log, so the next report names the cause.
+     Never any text of the page. */
+  function shape() {
+    const s = {};
+    try {
+      const mm = (q) => !!(window.matchMedia && window.matchMedia(q).matches);
+      const cls = (n) => (n ? String(n.tagName || '').toLowerCase() + (n.id ? '#' + n.id : '') + (n.classList && n.classList.length ? '.' + [...n.classList].slice(0, 2).join('.') : '') : '-').slice(0, 40);
+      const px = (v) => Math.round(Number(v) || 0);
+      s.vw = px(window.innerWidth); s.vh = px(window.innerHeight); s.dpr = Math.round((window.devicePixelRatio || 1) * 100) / 100;
+      s.ptr = mm('(pointer:coarse)') ? 'coarse' : mm('(pointer:fine)') ? 'fine' : 'none'; s.any = mm('(any-pointer:coarse)') ? 'coarse' : 'fine'; s.hov = mm('(hover:hover)') ? 1 : 0;
+      s.tp = px(navigator.maxTouchPoints); s.lay = s.vw < 768 ? 'phone' : s.vw < 1024 ? 'tablet' : 'desk';
+      const de = document.documentElement; const b = document.body; const sc = document.scrollingElement || de;
+      s.sy = px(window.scrollY); s.st = px(sc && sc.scrollTop); s.sh = px(sc && sc.scrollHeight); s.bt = px(b && b.scrollTop); s.bh = px(b && b.scrollHeight);
+      s.ov = [getComputedStyle(de).overflowY, b ? getComputedStyle(b).overflowY : '-', b ? getComputedStyle(b).position : '-'].join('/');
+      const root = document.getElementById('root');
+      if (root) {
+        const r = root.getBoundingClientRect(); s.rk = root.childElementCount; s.rt = px(r.top); s.rh = px(r.height);
+        const rs = getComputedStyle(root); s.rs = [rs.display, rs.visibility, rs.opacity].join('/');
+        s.kids = [...root.children].slice(0, 4).map((k) => { const kr = k.getBoundingClientRect(); const ks = getComputedStyle(k);
+          return [cls(k), ks.display, ks.visibility, ks.opacity, px(kr.top), px(kr.left), px(kr.width), px(kr.height), k.childElementCount].join(' '); });
+        const main = root.querySelector('main'); if (main) { const mr = main.getBoundingClientRect(); s.main = [px(mr.top), px(mr.height), main.childElementCount, getComputedStyle(main).display].join(' '); }
+      }
+      s.hit = cls(document.elementFromPoint(s.vw / 2, s.vh / 2));
+      s.pops = document.querySelectorAll('.scrim, [data-m-portal], .menu.floating, #mpop, #dpop, .fb').length;
+      s.boot = document.getElementById('ib-boot') ? 1 : 0;
+      try { s.busy = window.IBKit && typeof window.IBKit.busyCount === 'function' ? window.IBKit.busyCount() : -1; } catch (x) { s.busy = -1; }
+    } catch (x) { s.err = 1; }
+    return s;
+  }
+  const shapeText = (s) => ['الشاشة ' + s.vw + '×' + s.vh + ' (' + s.lay + ', dpr ' + s.dpr + ') · المؤشر ' + s.ptr + ' / ' + s.any + ' · hover ' + s.hov + ' · لمس ' + s.tp,
+    'التمرير y ' + s.sy + ' · ' + s.st + '/' + s.sh + ' · body ' + s.bt + '/' + s.bh + ' · overflow ' + s.ov,
+    'root ' + s.rk + ' عنصر · top ' + s.rt + ' · h ' + s.rh + ' · ' + s.rs + (s.main ? ' · main ' + s.main : ''),
+    ...(s.kids || []).map((k) => '  ' + k), 'في النص: ' + s.hit + ' · بوب أب ' + s.pops + ' · boot ' + s.boot + ' · busy ' + s.busy].join('\n');
+  let shot = null; // the state when the page was first seen blank (the copy comes later, after the card is drawn)
   function log(e) {
     if (logs >= MAX || !window.IBActivity || typeof window.IBActivity.log !== 'function') return; logs += 1;
-    try { window.IBActivity.log('app.crash', { kind: e ? e.name : 'blank', at: e ? e.where : '' }); } catch (x) { /* the log must never throw here */ }
+    try { window.IBActivity.log('app.crash', { kind: e ? e.name : 'blank', at: e ? e.where : '', d: shot || shape() }); } catch (x) { /* the log must never throw here */ }
   }
   window.addEventListener('error', (ev) => { if (ev && ev.target && ev.target !== window) return; /* a missing image is no crash */
     note(ev && ev.error, ev && ev.message, ev && ev.filename ? String(ev.filename).split('/').pop() + ':' + ev.lineno + ':' + ev.colno : ''); });
@@ -46,6 +83,7 @@
     const lines = ['نظام إبتكر — خطأ', 'الصفحة: ' + String(location.hash || '#').slice(0, 80), 'الوقت: ' + new Date().toISOString()];
     if (blankShown) lines.push('الصفحة فضيت (مفيش حاجة ظاهرة)');
     errs.forEach((e, i) => { lines.push('', (errs.length > 1 ? (i + 1) + ') ' : '') + e.name + ': ' + e.text); if (e.frames.length) lines.push('المكان: ' + e.frames.join(' ← ')); lines.push('في صفحة: ' + e.page + ' · ' + e.at); });
+    lines.push('', 'حالة الصفحة' + (blankShown ? ' (لما فضيت)' : '') + ':', shapeText(shot || shape()));
     lines.push('', 'المتصفح: ' + String(navigator.userAgent || '').slice(0, 160));
     return lines.join('\n');
   }
@@ -77,8 +115,8 @@
   }
   function check() {
     if (blankShown) return;
-    if (blank()) { misses += 1; if (misses >= 2) { blankShown = true; if (!errs.length) log(null); render(); } } else misses = 0;
+    if (blank()) { misses += 1; if (misses >= 2) { shot = shape(); blankShown = true; if (!errs.length) log(null); render(); } } else misses = 0;
   }
   setInterval(check, 1500);
-  window.IBCrashGuard = { check, blank, report, errors: () => errs.slice() };
+  window.IBCrashGuard = { check, blank, report, shape, errors: () => errs.slice() };
 })();

@@ -56,8 +56,9 @@ test('any uncaught error: a popup with its text, «نسخ الخطأ» copies a 
   await expect(page.locator('[data-crash]')).toHaveCount(0);
 });
 
-test('the app gone blank after an error: «اعمل رفريش» shows, the error is logged by kind and place only, and the button reloads', async ({ page }) => {
+test('the app gone blank after an error: «اعمل رفريش» shows, the error is logged by kind and place only, and the button reloads', async ({ page, context }) => {
   page.on('pageerror', () => {}); // the error below is the point of the test
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await signIn(page);
   await page.evaluate(() => { document.getElementById('root').replaceChildren(); setTimeout(() => { throw new TypeError('secret text 01012345678'); }); });
   const card = page.locator('[data-crash]');
@@ -69,6 +70,10 @@ test('the app gone blank after an error: «اعمل رفريش» shows, the erro
   expect(row.new_value.kind).toBe('TypeError');
   expect(JSON.stringify(row)).not.toContain('secret'); // the text is on the member's screen only
   expect(JSON.stringify(row)).not.toContain('0101');
+  // the owner 22 Nov: the state of the screen when it went blank — numbers and our class names only — in the log and in the copy
+  const d = row.new_value.d; expect(d.vw).toBe(page.viewportSize().width); expect(d.rk).toBe(0); expect(['fine', 'coarse', 'none']).toContain(d.ptr); expect(d.lay).toBe('desk');
+  await card.getByRole('button', { name: 'نسخ الخطأ' }).click(); const copied = await page.evaluate(() => navigator.clipboard.readText());
+  expect(copied).toContain('حالة الصفحة (لما فضيت):'); expect(copied).toContain('root 0 عنصر'); expect(copied).toMatch(/الشاشة \d+×\d+ \(desk/);
   const reloaded = page.waitForEvent('load');
   await card.getByRole('button', { name: 'اعمل رفريش' }).click();
   await reloaded;

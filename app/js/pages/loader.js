@@ -105,7 +105,18 @@
 
   // the first-paint cover: off as soon as there is something to look at — the sign-in screen (#login) or the app (#root shown again
   // after the gate hid it). Its fade never keeps a click away (pointer-events off at once).
-  const BOOT_MAX_MS = 15000;
+  // The owner 22 Nov («الصفحة فضيت»): the cover used to go at 15 s even with the app still hidden behind it — an empty page. Now it
+  // stays while #root is hidden (the sign-in gate is still loading the member's data), says the line is slow after BOOT_SLOW_MS with
+  // «اعمل رفريش», and only BOOT_MAX_MS ever drops it regardless.
+  const BOOT_SLOW_MS = Number(window.IB_BOOT_SLOW_MS) || 15000, BOOT_MAX_MS = 60000; // a test can shorten the slow mark
+  function bootSlow() {
+    const b = document.getElementById('ib-boot'); if (!b || b.dataset.out || b.querySelector('[data-boot-slow]')) return;
+    const box = document.createElement('div'); box.className = 'ib-boot-slow'; box.setAttribute('data-boot-slow', '');
+    const t = document.createElement('p'); t.textContent = 'النت بطيء شوية — لسه بنحمّل بياناتك…';
+    const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'btn btn-default'; btn.setAttribute('data-boot-reload', ''); btn.textContent = 'اعمل رفريش';
+    btn.addEventListener('click', () => { window.location.reload(); });
+    box.append(t, btn); b.appendChild(box);
+  }
   function bootDone() {
     const b = document.getElementById('ib-boot'); if (!b || b.dataset.out) return;
     b.dataset.out = '1'; b.classList.add('out'); setTimeout(() => { if (b.parentNode) b.parentNode.removeChild(b); }, 400);
@@ -117,6 +128,8 @@
     const mo = new MutationObserver(() => { if (root && root.hidden) wasHidden = true; if (ready()) { mo.disconnect(); bootDone(); } });
     mo.observe(document.body, { childList: true });
     if (root) mo.observe(root, { attributes: true, attributeFilter: ['hidden'] });
+    // past the slow mark: still nothing to look at behind the cover (#root hidden, no sign-in screen) → keep it and say so; else drop it
+    setTimeout(() => { if (root && root.hidden && !ready()) bootSlow(); else { mo.disconnect(); bootDone(); } }, BOOT_SLOW_MS);
     setTimeout(() => { mo.disconnect(); bootDone(); }, BOOT_MAX_MS);
   }
   // A page's own «بنحمّل…» note gets the mark beside it. The notes are drawn by many pages (the kit's InlineNote, the portal's

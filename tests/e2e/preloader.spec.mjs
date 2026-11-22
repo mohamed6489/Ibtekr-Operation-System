@@ -102,3 +102,41 @@ test('any action: a slow sign-in, a slow save and a slow read the member started
   await page.evaluate(() => { window.IBAccounts.load({ quiet: true }); });
   await page.waitForTimeout(800); expect(await shown()).toBe(0);
 });
+
+// The owner 22 Nov («الصفحة فضيت» — a member on a slow line: the app stayed hidden behind the sign-in gate while one request never
+// came back, and the cover had gone at 15 s, so the page was empty). Now a stuck load does not hold the app: each group of the
+// member's data waits a bounded time and the rest lands in the background; and while the app is still hidden the cover stays, says
+// the line is slow and offers «اعمل رفريش».
+test('a request that never answers does not hide the app: it opens after the bounded wait, no blank card, the late data still lands', async ({ page }) => {
+  await page.goto('/');
+  await signIn(page);
+  await page.addInitScript(() => { window.IB_DIR_WAIT_MS = 1200; });
+  const hr = await gate(page, '**/rest/v1/rpc/hr_evaluations_list*', 'POST'); // the request the live log lost
+  await page.reload({ waitUntil: 'commit' });
+  await expect(page.locator('#root')).toBeVisible({ timeout: 10000 });
+  await expect(page.locator('.sidebar')).toBeVisible();
+  await expect(page.locator('#ib-boot')).toHaveCount(0);
+  await page.waitForTimeout(3600);
+  await expect(page.locator('[data-crash]')).toHaveCount(0);
+  hr(); // it answers at last: no error on the way
+  await page.waitForTimeout(500);
+  await expect(page.locator('[data-crash]')).toHaveCount(0);
+});
+
+test('the cover stays while the app is still hidden: past the slow mark it says the line is slow with «اعمل رفريش», and the app replaces it', async ({ page }) => {
+  await page.goto('/');
+  await signIn(page);
+  await page.addInitScript(() => { window.IB_BOOT_SLOW_MS = 1500; });
+  const rows = await gate(page, '**/rest/v1/profiles*');
+  await page.reload({ waitUntil: 'commit' });
+  const cover = page.locator('#ib-boot');
+  await expect(cover.locator('[data-boot-slow]')).toBeVisible({ timeout: 6000 });
+  await expect(cover).toContainText('النت بطيء شوية');
+  await expect(cover.locator('[data-boot-reload]')).toHaveText('اعمل رفريش');
+  await expect(page.locator('#root')).toBeHidden();
+  await page.waitForTimeout(3600);
+  await expect(page.locator('[data-crash]')).toHaveCount(0); // the cover is not a blank page
+  rows();
+  await expect(page.locator('#root')).toBeVisible();
+  await expect(cover).toHaveCount(0);
+});

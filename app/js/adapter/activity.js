@@ -35,7 +35,8 @@
   async function refresh() {
     if (!client() || !signedIn()) return;
     const r = await read(25);
-    rows = r || rows || [];
+    // app.crash is the screen's error report for the developer (crash-guard.js), not something a member did: never in «آخر نشاط»
+    rows = r ? r.filter((x) => x.action !== 'app.crash') : rows || [];
     try { document.dispatchEvent(new Event('ib:activity')); } catch (e) { /* a bad listener must not fail the log */ }
   }
   function log(action, detail, meta) {

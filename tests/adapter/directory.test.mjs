@@ -13,9 +13,19 @@ function load({ me = profile(), signedIn = true } = {}) {
   const window = { IBSupabase: { client: stub.client }, IBAuth: { session: () => (signedIn ? { user: { id: 'u1' } } : null) },
     IBKit: { store: { members }, setMe: (code) => calls.push(['setMe', code]) },
     IBVendors: { load: () => { calls.push(['vendors.load']); return Promise.resolve(); }, clear: () => calls.push(['vendors.clear']) } };
-  runInNewContext(src, { window, document: { dispatchEvent() {} }, Event });
-  return { D: window.IBDirectory, calls, queries: stub.calls, members };
+  runInNewContext(src, { window, document: { dispatchEvent() {} }, Event, setTimeout, clearTimeout });
+  return { D: window.IBDirectory, calls, queries: stub.calls, members, window };
 }
+
+// the owner 22 Nov («الصفحة فضيت»): a load that never answers holds load() for the bounded wait only — the gate shows the app
+test('load: a data load that never answers does not hold load() past the bounded wait; it goes on in the background', async () => {
+  const { D, window } = load();
+  window.IB_DIR_WAIT_MS = 60;
+  window.IBVendors.load = () => new Promise(() => {}); // never answers
+  const t0 = Date.now(); await D.load(); const took = Date.now() - t0;
+  assert.ok(took >= 50 && took < 1000, 'took ' + took + ' ms');
+  assert.equal(D.me().member_code, 'M02');
+});
 
 test('load asks roles.permissions and my profile\'s custom_perms, then loads the vendors with the session', async () => {
   const { D, calls, queries } = load();
@@ -53,7 +63,7 @@ test('perm: the extra roles add up — the highest wins; custom_perms first; a h
   const roles = ROLES.concat([{ id: 'designer', name: 'ديزاينر', permissions: { 'vendors.toggle': 'F', 'marketing.create': 'F' } }, { id: 'old', name: 'قديم', hidden: true, permissions: { 'vendors.edit': 'F' } }]);
   const run = async (me) => { const stub = stubClient({ responses: { profiles: { data: [me], error: null }, roles: { data: roles, error: null } } });
     const window = { IBSupabase: { client: stub.client }, IBAuth: { session: () => ({ user: { id: 'u1' } }) }, IBKit: { store: { members: [] }, setMe() {} }, IBVendors: { load: () => Promise.resolve(), clear() {} } };
-    runInNewContext(src, { window, document: { dispatchEvent() {} }, Event }); await window.IBDirectory.load(); return window.IBDirectory; };
+    runInNewContext(src, { window, document: { dispatchEvent() {} }, Event, setTimeout, clearTimeout }); await window.IBDirectory.load(); return window.IBDirectory; };
   const D = await run(profile({ extra_roles: ['designer', 'old', 'admin'] }));
   assert.equal(D.perm('vendors.toggle'), 'F'); // ops N, designer F
   assert.equal(D.perm('vendors.edit'), 'P'); // the hidden role gives nothing
@@ -82,7 +92,7 @@ test('updatePhone: my row only, Arabic digits read, an invalid number refused be
   const stub = stubClient({ responses: { profiles: (q) => (q.some((x) => x.op === 'update') ? { data: [{ id: 'u1' }], error: null } : { data: [profile()], error: null }), roles: { data: ROLES, error: null } } });
   const window = { IBSupabase: { client: stub.client }, IBAuth: { session: () => ({ user: { id: 'u1' } }) }, IbtekrOps: { toLatin: (x) => String(x).replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))) },
     IBKit: { store: { members: [] }, setMe() {} } };
-  runInNewContext(src, { window, document: { dispatchEvent() {} }, Event });
+  runInNewContext(src, { window, document: { dispatchEvent() {} }, Event, setTimeout, clearTimeout });
   const D = window.IBDirectory; await D.refresh();
   assert.deepEqual({ ...(await D.updatePhone('0123')) }, { ok: false, reason: 'invalid' });
   assert.deepEqual({ ...(await D.updatePhone('01000000002')) }, { ok: true, same: true });
@@ -99,7 +109,7 @@ test('updatePhone: my row only, Arabic digits read, an invalid number refused be
 test('updateName: my row only, spaces collapsed and <> dropped, too short / too long refused before any request, the same one → nothing sent', async () => {
   const stub = stubClient({ responses: { profiles: (q) => (q.some((x) => x.op === 'update') ? { data: [{ id: 'u1' }], error: null } : { data: [profile()], error: null }), roles: { data: ROLES, error: null } } });
   const window = { IBSupabase: { client: stub.client }, IBAuth: { session: () => ({ user: { id: 'u1' } }) }, IbtekrOps: { toLatin: (x) => String(x) }, IBKit: { store: { members: [] }, setMe() {} } };
-  runInNewContext(src, { window, document: { dispatchEvent() {} }, Event });
+  runInNewContext(src, { window, document: { dispatchEvent() {} }, Event, setTimeout, clearTimeout });
   const D = window.IBDirectory; await D.refresh();
   const me = D.me().name;
   assert.deepEqual({ ...(await D.updateName(' a ')) }, { ok: false, reason: 'invalid' });
@@ -118,7 +128,7 @@ test('0096 (owner batch 2 decision 2): my main role counts at my level — a man
   const roles = [{ id: 'ops', name: 'عمليات', permissions: { 'vendors.view': 'F', 'vendors.edit': 'P' }, level_perms: { manager: { 'vendors.view': 'F', 'vendors.edit': 'F' }, viewer: { 'vendors.view': 'P' } } },
     { id: 'cs', name: 'خدمة العملاء', permissions: { 'cs.view': 'F' }, level_perms: { manager: { 'cs.manage': 'F' } } }];
   const at = async (me) => { const stub = stubClient({ responses: { profiles: { data: [me], error: null }, roles: { data: roles, error: null } } }); const window = { IBSupabase: { client: stub.client }, IBAuth: { session: () => ({ user: { id: 'u1' } }) }, IBKit: { store: { members: [] }, setMe() {} } };
-    runInNewContext(src, { window, document: { dispatchEvent() {} }, Event }); await window.IBDirectory.refresh(); return window.IBDirectory; };
+    runInNewContext(src, { window, document: { dispatchEvent() {} }, Event, setTimeout, clearTimeout }); await window.IBDirectory.refresh(); return window.IBDirectory; };
   assert.equal((await at(profile({ level: 'manager' }))).perm('vendors.edit'), 'F');
   assert.equal((await at(profile({ level: 'employee' }))).perm('vendors.edit'), 'P');
   const v = await at(profile({ level: 'viewer' })); assert.equal(v.perm('vendors.view'), 'P'); assert.equal(v.perm('vendors.edit'), 'N');

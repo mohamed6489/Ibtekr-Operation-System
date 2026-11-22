@@ -87,3 +87,16 @@ test('a page scrolled past its end with nothing on the screen counts as blank to
   await expect(page.locator('[data-crash]')).toContainText('الصفحة وقفت', { timeout: 8000 });
   await expect(page.locator('[data-crash] [data-crash-text]')).toContainText('مفيش خطأ ظاهر');
 });
+
+test('the owner 22 Nov: an app.crash row is the developer\'s report — never in the dashboard\'s «آخر نشاط», and in words in the activity log', async ({ page }) => {
+  await signIn(page);
+  await page.evaluate(async () => { await window.IBActivity.log('app.crash', { kind: 'blank', at: '', d: { vw: 1920, rk: 3 } }); await window.IBActivity.refresh(); });
+  const cached = await page.evaluate(() => window.IBActivity.cached().map((r) => r.action));
+  expect(cached).not.toContain('app.crash');
+  await page.evaluate(() => { location.hash = 'dashboard'; });
+  await expect(page.locator('body')).not.toContainText('app.crash');
+  await expect(page.locator('body')).not.toContainText('"kind"');
+  const rows = await page.evaluate(async () => (await window.IBSettings.activity({})).rows || []);
+  const row = rows.find((r) => r.action === 'app.crash');
+  expect(row && row.newValue).toBe('الصفحة فضيت');
+});

@@ -45,7 +45,7 @@
       s.ov = [getComputedStyle(de).overflowY, b ? getComputedStyle(b).overflowY : '-', b ? getComputedStyle(b).position : '-'].join('/');
       const root = document.getElementById('root');
       if (root) {
-        const r = root.getBoundingClientRect(); s.rk = root.childElementCount; s.rt = px(r.top); s.rh = px(r.height);
+        const r = root.getBoundingClientRect(); s.gate = root.hidden ? 1 : 0; s.rk = root.childElementCount; s.rt = px(r.top); s.rh = px(r.height);
         const rs = getComputedStyle(root); s.rs = [rs.display, rs.visibility, rs.opacity].join('/');
         s.kids = [...root.children].slice(0, 4).map((k) => { const kr = k.getBoundingClientRect(); const ks = getComputedStyle(k);
           return [cls(k), ks.display, ks.visibility, ks.opacity, px(kr.top), px(kr.left), px(kr.width), px(kr.height), k.childElementCount].join(' '); });
@@ -53,7 +53,7 @@
       }
       s.hit = cls(document.elementFromPoint(s.vw / 2, s.vh / 2));
       s.pops = document.querySelectorAll('.scrim, [data-m-portal], .menu.floating, #mpop, #dpop, .fb').length;
-      s.boot = document.getElementById('ib-boot') ? 1 : 0;
+      s.boot = document.getElementById('ib-boot') ? 1 : 0; s.age = Math.round((window.performance && performance.now ? performance.now() : 0) / 1000); // seconds since the page loaded
       try { s.busy = window.IBKit && typeof window.IBKit.busyCount === 'function' ? window.IBKit.busyCount() : -1; } catch (x) { s.busy = -1; }
     } catch (x) { s.err = 1; }
     return s;
@@ -61,7 +61,7 @@
   const shapeText = (s) => ['الشاشة ' + s.vw + '×' + s.vh + ' (' + s.lay + ', dpr ' + s.dpr + ') · المؤشر ' + s.ptr + ' / ' + s.any + ' · hover ' + s.hov + ' · لمس ' + s.tp,
     'التمرير y ' + s.sy + ' · ' + s.st + '/' + s.sh + ' · body ' + s.bt + '/' + s.bh + ' · overflow ' + s.ov,
     'root ' + s.rk + ' عنصر · top ' + s.rt + ' · h ' + s.rh + ' · ' + s.rs + (s.main ? ' · main ' + s.main : ''),
-    ...(s.kids || []).map((k) => '  ' + k), 'في النص: ' + s.hit + ' · بوب أب ' + s.pops + ' · boot ' + s.boot + ' · busy ' + s.busy].join('\n');
+    ...(s.kids || []).map((k) => '  ' + k), 'في النص: ' + s.hit + ' · بوب أب ' + s.pops + ' · boot ' + s.boot + ' · busy ' + s.busy + ' · gate ' + s.gate + ' · ' + s.age + ' ث'].join('\n');
   let shot = null; // the state when the page was first seen blank (the copy comes later, after the card is drawn)
   function log(e) {
     if (logs >= MAX || !window.IBActivity || typeof window.IBActivity.log !== 'function') return; logs += 1;

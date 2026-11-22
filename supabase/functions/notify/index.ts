@@ -26,6 +26,7 @@ import { delayRules, leadBy, lineDelayOf, lineElapsed, orderDelayOf, orderElapse
 import { OPEN as TEAM_OPEN, teamNotes } from '../_shared/agent-team.js';
 import { csLateNotes } from '../_shared/agent-actions.js';
 import { DEV_PREFIX, devDue, devNotes } from '../_shared/dev-check.js';
+import { OTHER_PROVIDERS, otherNews } from '../_shared/ai-routing.js';
 import { CLEANUP_LIMIT, chunks, cleanupDue, cleanupIds, cleanupWork } from '../_shared/cleanup.js';
 
 // deno-lint-ignore no-explicit-any
@@ -35,6 +36,7 @@ type Json = Record<string, any>;
 export type Deps = {
   env: Record<string, string | undefined>; db: Db; now: () => string; fetch?: typeof fetch;
   models?: (key: string) => Promise<string[]>; // the model ids Anthropic serves this key (the developer's check — read only)
+  otherModels?: (provider: string, key: string) => Promise<string[]>; // the same of OpenAI / Gemini (model-routing decision 11)
   userDb?: (jwt: string) => Db; userId?: (jwt: string) => Promise<string | null>;
 };
 type Item = { key: string; entityId: string; title: string; body?: string; entity?: string; own?: { manager?: string | null; member?: string | null }; vendorId?: string; vendorPhone?: string | null; expiresAt?: string | null };
@@ -326,18 +328,39 @@ async function devCheckNotes(deps: Deps, ctx: Ctx): Promise<Json | null> {
       return deps.models ? await deps.models(key) : null;
     } catch { return null; }
   };
-  const [crashes, sync, cron, checks, channels, ads, models] = await Promise.all([
+  // decision 11: the other linked text companies' lists the same way, each against its first read (sync_state «dev_models»)
+  const OTHER_ENV: Record<string, string> = { openai: 'OPENAI_API_KEY', gemini: 'GEMINI_API_KEY' };
+  const others = async (): Promise<{ seen: Json; lists: Json }> => {
+    const kept = await got(deps.db.from('sync_state').select('value').eq('key', 'dev_models').maybeSingle());
+    const seen: Json = isObj(kept) && isObj((kept as Json).value) ? (kept as Json).value : {};
+    const lists: Json = {};
+    let env: Record<string, string | undefined> | null = null;
+    try { env = await vaultEnv(deps.db, deps.env); } catch { env = null; }
+    for (const p of OTHER_PROVIDERS as readonly string[]) {
+      const key = env ? String(env[OTHER_ENV[p]] ?? '').trim() : '';
+      let served: string[] | null = null;
+      if (env && !key) served = []; // not linked: nothing to say, and its notes go
+      else if (key && deps.otherModels) { try { served = await deps.otherModels(p, key); } catch { served = null; } }
+      lists[p] = { served, baseline: Array.isArray(seen[p]) ? seen[p] : null };
+    }
+    return { seen, lists };
+  };
+  const [crashes, sync, cron, checks, channels, ads, models, other] = await Promise.all([
     got(deps.db.from('activity_log').select('at, actor, new_value').eq('action', 'app.crash').gte('at', since).limit(LIMIT)),
     got(deps.db.from('woo_sync_log').select('at, kind, direction, entity, action, detail').eq('result', 'error').gte('at', since).order('at', { ascending: true }).limit(LIMIT)),
     got(deps.db.rpc('dev_cron_health', { p_hours: 24 })),
     got(deps.db.from('site_checks').select('kind, data, checked_at').in('kind', ['pagespeed', 'wp_updates'])),
     got(deps.db.from('cs_channels').select('id, name, kind, status')),
     got(deps.db.from('mkt_ad_objects').select('platform, id, name, status, meta').eq('kind', 'account').limit(50)),
-    served(),
+    served(), others(),
   ]);
   const byKind: Record<string, Json> = {}; for (const r of Array.isArray(checks) ? checks as Json[] : []) byKind[String(r.kind)] = r;
   const r = devNotes({ now: ctx.nowMs, crashes: Array.isArray(crashes) ? crashes : null, sync: Array.isArray(sync) ? sync : null, cron: isObj(cron) ? cron : null,
-    checks: Array.isArray(checks) ? byKind : null, channels: Array.isArray(channels) ? channels : null, ads: Array.isArray(ads) ? ads : null, models }) as unknown as { notes: Json[]; refs: string[]; keep: string[] };
+    checks: Array.isArray(checks) ? byKind : null, channels: Array.isArray(channels) ? channels : null, ads: Array.isArray(ads) ? ads : null, models, others: other.lists }) as unknown as { notes: Json[]; refs: string[]; keep: string[] };
+  // a company's first read becomes its baseline (text model ids only — nothing else is kept)
+  const first: Json = {};
+  for (const p of OTHER_PROVIDERS as readonly string[]) { const o = other.lists[p]; if (Array.isArray(o.served) && o.served.length && !Array.isArray(o.baseline)) { const b = otherNews(p, o.served, null).baseline; if (Array.isArray(b) && b.length) first[p] = b; } }
+  if (Object.keys(first).length) await deps.db.from('sync_state').upsert({ key: 'dev_models', value: { ...other.seen, ...first }, updated_at: ctx.now }, { onConflict: 'key' });
   let n = 0;
   for (const x of r.notes) {
     const { error } = await deps.db.rpc('ai_agent_note_add', { p_agent: 'dev', p_kind: x.kind, p_title: x.title, p_body: x.body, p_ref: x.ref, p_link: x.link });
@@ -423,6 +446,18 @@ function realDeps(): Deps {
     env, db: service, now: () => new Date().toISOString(), fetch: globalThis.fetch,
     // GET /v1/models with the linked key, every page (the SDK's list iterates them) — ids only, nothing is written anywhere
     models: async (key) => { const ids: string[] = []; for await (const m of new Anthropic({ apiKey: key, timeout: 20_000, maxRetries: 1 }).models.list({ limit: 100 })) ids.push(String(m.id)); return ids; },
+    // the same of OpenAI (GET /v1/models) and Gemini (GET v1beta/models) — the key in a header, ids only, nothing written anywhere
+    otherModels: async (provider, key) => {
+      const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 20_000);
+      try {
+        const res = provider === 'openai' ? await fetch('https://api.openai.com/v1/models', { headers: { Authorization: 'Bearer ' + key }, signal: ctl.signal })
+          : await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000', { headers: { 'x-goog-api-key': key }, signal: ctl.signal });
+        if (!res.ok) throw new Error('http ' + res.status);
+        const j = await res.json();
+        const list = provider === 'openai' ? j?.data : j?.models;
+        return (Array.isArray(list) ? list : []).map((m: Json) => String(provider === 'openai' ? m?.id ?? '' : m?.name ?? '')).filter(Boolean);
+      } finally { clearTimeout(t); }
+    },
     userDb: (jwt) => createClient(env.SUPABASE_URL ?? '', env.SUPABASE_ANON_KEY ?? '', { ...NO_SESSION, global: { headers: { Authorization: `Bearer ${jwt}` } } }),
     userId: async (jwt) => { const { data, error } = await service.auth.getUser(jwt); return error ? null : data?.user?.id ?? null; },
   };

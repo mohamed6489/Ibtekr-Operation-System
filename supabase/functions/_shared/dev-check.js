@@ -7,7 +7,7 @@
 // the «dev:» refs this run did not write — a source that could not be read keeps its notes).
 
 import { waitLabel } from './agent-actions.js';
-import { COMMANDS, COMMAND_KEYS, LIST_DATE, TIER_MODEL, modelNews, tierFor } from './ai-routing.js';
+import { COMMANDS, COMMAND_KEYS, LIST_DATE, OTHER_PROVIDERS, PROVIDER_TIERS, TIER_MODEL, modelNews, otherNews, otherText, tierFor } from './ai-routing.js';
 
 export const SESSION_MARK = 'للجلسة:'; // the line before the technical summary (the chat's copy button takes what follows it)
 export const DEV_PREFIX = 'dev:';
@@ -69,6 +69,7 @@ const SYNC_AR = { order: 'الأوردرات', sub_order: 'الأوردرات ا
 
 const CHANNEL_FIX = { meta: 'اربط صفحة الفيسبوك تاني من الإعدادات › الربط بالمنصات › Meta.', wa1: 'اربط واتساب 1 تاني من الإعدادات › الربط بالمنصات › واتساب.' };
 const AD_PLAT = { meta: 'ميتا', tiktok: 'تيك توك', google: 'جوجل' };
+const OTHER_NAME = { openai: 'ChatGPT (OpenAI)', gemini: 'Gemini (Google)' };
 const AD_BAD = { DISABLED: 'الحساب متوقف من المنصة', UNSETTLED: 'فيه فلوس مستحقة على الحساب', PENDING_RISK_REVIEW: 'الحساب تحت مراجعة من المنصة', PENDING_SETTLEMENT: 'الحساب مستني سداد', CLOSED: 'الحساب اتقفل', PENDING_CLOSURE: 'الحساب بيتقفل' };
 
 /**
@@ -210,6 +211,32 @@ export function devNotes(input) {
             'commands recommended on it: ' + cmds.join(', '), 'served: ' + x.models.map((s) => line(s, 60)).filter((s) => /^claude-/.test(s)).slice(0, 30).join(', ')] }, 30));
     }
   } else keep.push(DEV_PREFIX + 'model:');
+  // 8) the other linked text companies (the owner 22 Nov — «المبرمج علي حسب الشركات المتركبة هيبعت لو في موديلات جديدة»): OpenAI's and
+  // Gemini's served lists against the first read of each (x.others[company] = { served, baseline }) — a model that came after it
+  // is an update, a level's model that is no longer served is a problem. served [] = not linked; null = the read failed
+  for (const p of OTHER_PROVIDERS) {
+    const o = isObj(x.others) ? x.others[p] : undefined; const name = OTHER_NAME[p];
+    if (!isObj(o) || !Array.isArray(o.served)) { keep.push(DEV_PREFIX + 'model:new:' + p + ':', DEV_PREFIX + 'model:gone:' + p + ':'); continue; }
+    const news = otherNews(p, o.served, Array.isArray(o.baseline) ? o.baseline : null); const T = PROVIDER_TIERS[p];
+    if (news.fresh.length) {
+      const ids = news.fresh.map((m) => line(m, 60));
+      out.push(note('update', 'model:new:' + p + ':' + key(ids.join('+')), ids.length === 1 ? 'موديل جديد من ' + name + ': ' + ids[0] : ids.length + ' موديلات جديدة من ' + name,
+        { what: name + ' بقت بتقدّم ' + (ids.length === 1 ? 'موديل' : 'موديلات') + ' ماكانتش موجودة لما اتربطت: ' + ids.join('، ') + '.', when: '',
+          cause: 'تقسيم موديلات ' + name + ' (ضعيف / متوسط / قوي) وأسعارها في السيستم مكتوبين على موديلاتها وقت الربط.',
+          fix: 'نراجع الموديل الجديد وسعره، ولو أحسن أو أرخص لمستوى نضيفه للاختيارات وللتقسيم التلقائي. لحد كده السيستم شغّال على موديلاته الحالية.', code: true,
+          tech: [name + ' models: served now, not in the first read (sync_state dev_models.' + p + ') nor in OTHER_KNOWN.' + p + ' (supabase/functions/_shared/ai-routing.js): ' + ids.join(', '),
+            'levels now: light=' + T.light + ' mid=' + T.mid + ' heavy=' + T.heavy,
+            'to update: PROVIDER_TIERS / OTHER_KNOWN (ai-routing.js), TEXT_PROVIDERS.' + p + '.models and TEXT_PRICES (ai-providers.js), the page copy app/js/pages/ai-routing.js, tests/functions/ai-routing.test.mjs — from the company\'s models and pricing pages'] }, 6));
+    }
+    for (const m of news.gone) {
+      out.push(note('problem', 'model:gone:' + p + ':' + key(m), 'موديل ' + name + ' اللي السيستم بيستخدمه مابقاش متاح: ' + m,
+        { what: 'الموديل «' + m + '» مش في القايمة اللي ' + name + ' بتقدّمها للمفتاح المربوط — الأوامر اللي عليه هتفشل.', when: '',
+          cause: name + ' وقّفت الموديل ده أو المفتاح المربوط مالوش صلاحية عليه.',
+          fix: 'نحدّث السيستم على الموديل اللي حل محله. ولحد ما يتحدّث: من الإعدادات › الذكاء الاصطناعي › المزوّدين اقفل «اختيار الموديل تلقائي» واختار موديل شغّال، أو غيّر الشركة.', code: true,
+          tech: [name + ' models: ' + m + ' (PROVIDER_TIERS.' + p + ', supabase/functions/_shared/ai-routing.js) is not served for the linked key',
+            'served text models: ' + otherText(p, o.served).slice(0, 30).join(', ')] }, 30));
+    }
+  }
   out.sort((a, b) => b.rank - a.rank);
   return { notes: out.slice(0, DEV_MAX).map(({ rank: _r, ...n }) => n), refs: out.map((n) => n.ref), keep };
 }

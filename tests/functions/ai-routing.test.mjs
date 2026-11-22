@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
-import { COMMANDS, COMMAND_KEYS, KNOWN_MODELS, PROVIDER_KEYS, PROVIDER_TIERS, SIZED, TIERS, TIER_MODEL, TIER_USD, claudeParams, cleanRouting, forcedToolOk, hasFallback, modelNews, readSize, routeOf, routingOf, sizeRequest, sizes, tierFor, tiersOf } from '../../supabase/functions/_shared/ai-routing.js';
+import { COMMANDS, COMMAND_KEYS, KNOWN_MODELS, OTHER_KNOWN, OTHER_PROVIDERS, PROVIDER_KEYS, PROVIDER_TIERS, SIZED, TIERS, TIER_MODEL, TIER_USD, claudeParams, cleanRouting, forcedToolOk, hasFallback, modelNews, otherNews, otherText, readSize, routeOf, routingOf, sizeRequest, sizes, tierFor, tiersOf } from '../../supabase/functions/_shared/ai-routing.js';
 import { TEXT_PROVIDERS, toGemini, toOpenAI } from '../../supabase/functions/_shared/ai-providers.js';
 import { MODELS, PRICES, costOf } from '../../supabase/functions/_shared/ai-content.js';
 
@@ -121,6 +121,19 @@ test('the sizing request: the last four turns and the new message as data (cut, 
   assert.equal(toGemini(sizeRequest([], 'x', 'gemini-3-flash')).body.generationConfig.responseJsonSchema.properties.size.enum.length, 3);
   for (const t of TIERS) assert.equal(readSize({ size: t }), t);
   for (const bad of [null, {}, { size: 'huge' }, { size: 3 }, 'light']) assert.equal(readSize(bad), null);
+});
+
+test('otherNews: the other companies\' text models only; the first read is the baseline; news is what came after it and is not known; a level\'s model gone', () => {
+  assert.deepEqual(OTHER_PROVIDERS, PROVIDER_KEYS.filter((k) => k !== 'claude'));
+  for (const p of OTHER_PROVIDERS) assert.deepEqual([...OTHER_KNOWN[p]].sort(), [...new Set(Object.values(PROVIDER_TIERS[p]))].sort());
+  assert.deepEqual(otherText('openai', ['GPT-5.2', 'gpt-5.2', 'o4-mini', 'chatgpt-5-latest', 'gpt-image-2', 'gpt-realtime', 'tts-1', 'whisper-1', 'text-embedding-3-large', 'dall-e-3', 'sora-2', 'x', 5, '<b>']), ['gpt-5.2', 'o4-mini', 'chatgpt-5-latest']);
+  assert.deepEqual(otherText('gemini', ['models/gemini-3-pro', 'models/gemini-3-pro-image', 'models/gemini-embedding-001', 'models/veo-3.1-generate-preview', 'models/gemini-3-flash']), ['gemini-3-pro', 'gemini-3-flash']);
+  assert.deepEqual(otherText('claude', ['claude-opus-5-5']), []);
+  assert.deepEqual(otherNews('openai', ['gpt-5.2', 'gpt-5.2-mini', 'gpt-4.1'], null), { fresh: [], gone: [], baseline: ['gpt-5.2', 'gpt-5.2-mini', 'gpt-4.1'] });
+  assert.deepEqual(otherNews('openai', ['gpt-5.2', 'gpt-5.2-mini-2026-01-01', 'gpt-6', 'gpt-4.1'], ['gpt-5.2', 'gpt-5.2-mini', 'gpt-4.1']), { fresh: ['gpt-5.2-mini-2026-01-01', 'gpt-6'], gone: [], baseline: ['gpt-5.2', 'gpt-5.2-mini', 'gpt-4.1'] });
+  assert.deepEqual(otherNews('gemini', ['models/gemini-3-pro'], ['gemini-3-pro', 'gemini-3-flash']).gone, ['gemini-3-flash']);
+  assert.deepEqual(otherNews('openai', [], ['gpt-5.2']), { fresh: [], gone: [], baseline: ['gpt-5.2'] }, 'nothing read = nothing said');
+  assert.deepEqual(otherNews('nope', ['x-1'], null), { fresh: [], gone: [], baseline: null });
 });
 
 test('the page\'s table is the server\'s: the same levels, models, prices, commands and lowest levels, and the same routing of a row', async () => {

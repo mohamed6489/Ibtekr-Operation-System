@@ -256,6 +256,49 @@ Deno.test('the developer\'s check: Claude\'s served models against the system\'s
   assertEquals([c.keys.length, c.notes.filter((x) => x.p_agent === 'dev').length, c.clears[0].p_keep], [0, 0, []]);
 });
 
+// decision 11 (the owner 22 Nov — «المبرمج علي حسب الشركات المتركبة هيبعت لو في موديلات جديدة»): the other linked text companies —
+// the first read of a company is its baseline (nothing said), a model that comes after it is a note; an unlinked one is not asked
+Deno.test('the developer\'s check: OpenAI\'s and Gemini\'s served models — the first read is kept as the baseline, a later new text model is a note, a level\'s model gone is a problem, a failed read keeps the notes, an unlinked company is not asked', async () => {
+  const mk = (env: Record<string, string>, lists: Record<string, () => Promise<string[]>>, state: any[] = []) => {
+    const seed = SEED(); (seed as any).ai_agents = [{ id: 'dev', name: 'المبرمج الذكي', role: null }];
+    (seed as any).ai_agent_notes = [{ agent: 'dev', ref: 'dev:model:new:openai:gpt-old' }]; (seed as any).sync_state = state;
+    const notes: any[] = []; const clears: any[] = []; const asked: string[][] = [];
+    const { deps, db } = setup({ seed });
+    const rpc = deps.db.rpc.bind(deps.db);
+    (deps.db as any).rpc = (name: string, args: any) => {
+      if (name === 'ai_agent_note_add') { notes.push(args); return Promise.resolve({ data: notes.length, error: null }); }
+      if (name === 'ai_agent_note_clear') { clears.push(args); return Promise.resolve({ data: 0, error: null }); }
+      if (name === 'dev_cron_health') return Promise.resolve({ data: { jobs: [], http: { failed: 0 } }, error: null });
+      if (name === 'app_secret_env') return Promise.resolve({ data: env, error: null });
+      return rpc(name, args);
+    };
+    (deps as any).models = async () => ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'];
+    (deps as any).otherModels = (p: string, k: string) => { asked.push([p, k]); return lists[p](); };
+    const dev = () => notes.filter((x) => x.p_agent === 'dev').map((x) => [x.p_kind, x.p_ref]);
+    return { deps, db, notes, clears, asked, dev };
+  };
+  const OPENAI = ['gpt-5.2', 'gpt-5.2-mini', 'gpt-image-2', 'text-embedding-3-large', 'whisper-1'];
+  // the first read: nothing said, the text ids kept; Gemini has no key and is not asked
+  const a = mk({ ANTHROPIC_API_KEY: 'sk-ant', OPENAI_API_KEY: 'sk-open' }, { openai: async () => OPENAI });
+  await cron(a.deps);
+  assertEquals(a.asked, [['openai', 'sk-open']]); assertEquals(a.dev(), []);
+  assertEquals(a.db.rows('sync_state').find((r: any) => r.key === 'dev_models').value, { openai: ['gpt-5.2', 'gpt-5.2-mini'] });
+  assertEquals(a.clears[0].p_keep, [], 'the old note of a model that is in no list goes');
+  // a later day: a new text model is a note (a media model is not), and the light level's model is gone
+  const kept = [{ key: 'dev_models', value: { openai: ['gpt-5.2', 'gpt-5.2-mini'] } }];
+  const b = mk({ ANTHROPIC_API_KEY: 'sk-ant', OPENAI_API_KEY: 'sk-open', GEMINI_API_KEY: 'g-key' }, { openai: async () => ['gpt-5.2', 'gpt-6', 'gpt-image-3'], gemini: async () => ['models/gemini-3-pro', 'models/gemini-3-flash', 'models/veo-3.1-generate-preview'] }, kept);
+  await cron(b.deps);
+  assertEquals(b.dev(), [['problem', 'dev:model:gone:openai:gpt-5.2-mini'], ['update', 'dev:model:new:openai:gpt-6']]);
+  assertFalse(JSON.stringify(b.notes).includes('sk-open') || JSON.stringify(b.notes).includes('g-key'), 'no key in a note');
+  assert(b.notes.find((x) => x.p_ref === 'dev:model:new:openai:gpt-6').p_body.includes('للجلسة:'));
+  assertEquals(b.db.rows('sync_state').find((r: any) => r.key === 'dev_models').value, { openai: ['gpt-5.2', 'gpt-5.2-mini'], gemini: ['gemini-3-pro', 'gemini-3-flash'] }, 'the baseline stays; Gemini\'s first read joins it');
+  // the read failed: nothing said, and the company's notes stay
+  const c = mk({ ANTHROPIC_API_KEY: 'sk-ant', OPENAI_API_KEY: 'sk-open' }, { openai: async () => { throw new Error('network'); } }, kept);
+  const rc = await cron(c.deps);
+  assertEquals(c.dev(), []); assertEquals(c.clears[0].p_keep, ['dev:model:new:openai:gpt-old']);
+  assertEquals((rc.body as any).dev.unread_sources, ['dev:model:new:openai:', 'dev:model:gone:openai:']);
+});
+
 Deno.test('the owner 18 Nov — the clean-up every 48 hours (0132): the files through Storage first, then the rows whose files went; not again before 48 hours', async () => {
   const { db, deps } = setup();
   (db as any).storage = (() => { const store = new Set(['studio/b1/a.webp', 'ai-images/m1/x.webp', 'marketing/agents/m1/c9/img.png']); const calls: any[] = [];

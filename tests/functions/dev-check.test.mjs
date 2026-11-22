@@ -8,7 +8,7 @@ import { DEV_MAX, DEV_PREFIX, SESSION_MARK, SPEED_MIN, devDue, devNotes, session
 
 const NOW = Date.parse('2026-11-18T08:00:00Z');
 const ago = (min) => new Date(NOW - min * 60_000).toISOString();
-const empty = { now: NOW, crashes: [], sync: [], cron: { jobs: [], http: { failed: 0 } }, checks: {}, channels: [], ads: [], models: [] };
+const empty = { now: NOW, crashes: [], sync: [], cron: { jobs: [], http: { failed: 0 } }, checks: {}, channels: [], ads: [], models: [], others: { openai: { served: [], baseline: null }, gemini: { served: [], baseline: null } } };
 const run = (o) => devNotes({ ...empty, ...o });
 
 test('the check runs once a day from 9 Cairo', () => {
@@ -85,7 +85,7 @@ test('the links that fell: a channel in error, an ad account with an error or st
 
 test('a source not read keeps its notes; the worst first and DEV_MAX at most; the refs cover all', () => {
   const r = devNotes({ now: NOW, crashes: null, sync: null, cron: null, checks: null, channels: null, ads: null, models: null });
-  assert.deepEqual(r.keep, ['dev:crash:', 'dev:sync:', 'dev:cron:', 'dev:http:', 'dev:speed:', 'dev:wp:', 'dev:link:', 'dev:ads:', 'dev:model:']);
+  assert.deepEqual(r.keep, ['dev:crash:', 'dev:sync:', 'dev:cron:', 'dev:http:', 'dev:speed:', 'dev:wp:', 'dev:link:', 'dev:ads:', 'dev:model:', 'dev:model:new:openai:', 'dev:model:gone:openai:', 'dev:model:new:gemini:', 'dev:model:gone:gemini:']);
   const many = Array.from({ length: 20 }, (_, i) => ({ at: ago(i + 1), actor: 'a', new_value: { kind: 'TypeError', at: 'f' + i + '.js:1:1' } }));
   const m = run({ crashes: many, cron: { jobs: [{ name: 'notify-tick', runs: 96, failed: 2 }] } });
   assert.equal(m.notes.length, DEV_MAX); assert.equal(m.refs.length, 21);
@@ -136,4 +136,20 @@ test('Claude\'s models: a new one is an update for the session, a routed one no 
   assert.match(gone[0].body, /المستوى الخفيف/); assert.match(sessionOf(gone[0].body), /filter, rewrite, translate, kb/);
   const both = run({ models: ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-6'], cron: { jobs: [{ name: 'notify-tick', runs: 96, failed: 2 }] } }).notes;
   assert.deepEqual(both.map((n) => n.ref), ['dev:cron:notify-tick', 'dev:model:gone:claude-haiku-5-5', 'dev:model:new:claude-haiku-6'], 'a model that is gone is as bad as a failing job; a new one is the mildest');
+});
+
+// decision 11 (the owner 22 Nov): the other linked text companies, each against its own first read
+test('the other companies\' models: nothing on the first read; a text model that came after it is an update, a level\'s model gone a problem; not linked = nothing, a failed read keeps its notes', () => {
+  const run = (others) => devNotes({ ...empty, others: { ...empty.others, ...others } });
+  assert.deepEqual(run({ openai: { served: ['gpt-5.2', 'gpt-5.2-mini', 'gpt-9'], baseline: null } }).notes, [], 'the first read says nothing');
+  const base = ['gpt-5.2', 'gpt-5.2-mini', 'gpt-4.1'];
+  assert.deepEqual(run({ openai: { served: [...base, 'gpt-image-2'], baseline: base } }).notes, [], 'the same text models');
+  const r = run({ openai: { served: ['gpt-5.2', 'gpt-6', 'gpt-6-mini', 'text-embedding-4'], baseline: base }, gemini: { served: ['models/gemini-3-pro', 'models/gemini-3-flash', 'models/gemini-4-pro'], baseline: ['gemini-3-pro', 'gemini-3-flash'] } });
+  assert.deepEqual(r.notes.map((n) => [n.kind, n.ref]), [['problem', 'dev:model:gone:openai:gpt-5.2-mini'], ['update', 'dev:model:new:openai:gpt-6-gpt-6-mini'], ['update', 'dev:model:new:gemini:gemini-4-pro']]);
+  const fresh = r.notes[1];
+  assert.ok(fresh.title.includes('ChatGPT') && fresh.body.includes('gpt-6') && fresh.body.includes(SESSION_MARK) && fresh.body.includes('PROVIDER_TIERS'));
+  assert.ok(r.notes[0].body.includes('اختيار الموديل تلقائي'), 'the way out until the update');
+  assert.deepEqual(r.keep, []);
+  const failed = devNotes({ ...empty, others: { openai: { served: null, baseline: base }, gemini: { served: [], baseline: null } } });
+  assert.deepEqual([failed.notes, failed.keep], [[], ['dev:model:new:openai:', 'dev:model:gone:openai:']]);
 });

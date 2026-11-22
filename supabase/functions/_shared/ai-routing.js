@@ -156,3 +156,38 @@ export function modelNews(served) {
   const gone = ids.length ? [...new Set(Object.values(TIER_MODEL))].filter((m) => !ids.some((id) => same(id, m))) : [];
   return { fresh, gone };
 }
+
+// ---------------------------------------------------------------- the other companies' served lists (decision 11)
+
+/** The text models of the other companies this system has looked at (their levels, and any model an update decided not to use). */
+export const OTHER_KNOWN = Object.freeze({ openai: Object.freeze([...new Set(Object.values(PROVIDER_TIERS.openai))]), gemini: Object.freeze([...new Set(Object.values(PROVIDER_TIERS.gemini))]) });
+export const OTHER_PROVIDERS = Object.freeze(Object.keys(OTHER_KNOWN));
+export const BASELINE_MAX = 400;
+const OTHER_TEXT = {
+  openai: (id) => /^(gpt-|chatgpt-|o\d)/.test(id) && !/(image|audio|realtime|tts|transcribe|embedding|moderation|whisper|dall-e|sora)/.test(id),
+  gemini: (id) => /^gemini-/.test(id) && !/(image|embedding|tts|audio|live|veo|imagen|robotics|computer-use)/.test(id),
+};
+/** A company's served ids → its text models' ids (lower case, Gemini's «models/» prefix off, the media models out). */
+export function otherText(provider, served) {
+  const is = OTHER_TEXT[provider]; if (!is) return [];
+  return [...new Set((Array.isArray(served) ? served : []).map((s) => str(s).toLowerCase().replace(/^models\//, '')).filter((s) => /^[a-z0-9][a-z0-9._-]{2,79}$/.test(s) && is(s)))];
+}
+/**
+ * OpenAI's / Gemini's served list against what this system saw the first day the company was linked — for the developer's check.
+ * Those companies' lists are long and not kept here, so the first read is the baseline (nothing is said) and news is what comes
+ * after it:
+ *   served   = the ids of the company's models endpoint
+ *   baseline = the text ids of the first read (sync_state «dev_models»), or null on the first read
+ *   → { fresh: text models served now that were not there on the first read and are not known here,
+ *       gone: the models the levels use that are no longer served, baseline: what to keep as the first read }
+ */
+export function otherNews(provider, served, baseline) {
+  const known = OTHER_KNOWN[provider]; const ids = otherText(provider, served);
+  if (!known || !ids.length) return { fresh: [], gone: [], baseline: Array.isArray(baseline) ? baseline : null };
+  const has = (m) => ids.some((id) => id === m || id.startsWith(m + '-'));
+  const gone = known.filter((m) => Object.values(PROVIDER_TIERS[provider]).includes(m) && !has(m));
+  if (!Array.isArray(baseline)) return { fresh: [], gone, baseline: ids.slice(0, BASELINE_MAX) };
+  const seen = new Set(baseline.map((b) => str(b).toLowerCase()));
+  const fresh = ids.filter((id) => !seen.has(id) && !known.includes(id)).slice(0, 10);
+  return { fresh, gone, baseline };
+}

@@ -60,7 +60,7 @@
     assistant: { tier: 'heavy', label: 'المدير (المساعد في الهيدر)', why: 'بيقرا بيانات السيستم بأدوات على كذا خطوة ويجهّز البوب أبات.' },
     extract: { tier: 'heavy', label: 'استخراج شيت من الواتساب', why: 'قراية سكرين شوتس وتحويلها لصفوف منتجات.' },
     buyer: { tier: 'heavy', label: 'الميديا باير', why: 'تحليل أرقام الإعلانات واقتراحات الميزانية.' },
-    research: { tier: 'heavy', min: 'mid', label: 'البحث على الويب والتريندات', why: 'بحث بمصادر ومقارنتها — البحث مش متاح على الموديل الخفيف.' },
+    research: { tier: 'heavy', min: 'mid', label: 'البحث على الويب والتريندات', why: 'بحث بمصادر ومقارنتها — البحث مش متاح على الموديل الضعيف.' },
   };
   const KEYS = Object.keys(COMMANDS);
   // this month's runs by kind of work: what ai_runs stores (action + source), in the member's words
@@ -198,7 +198,8 @@
       const pick = U.Select({ id: 'air-' + k, label: c.label, disabled: !admin || !auto,
         options: sized ? [{ value: 'size', label: 'حسب حجم الرسالة (الترشيح)' }].concat(levels) : levels, value: bySize ? 'size' : cur,
         onChange: (v) => { if (v === (bySize ? 'size' : cur)) return; const tiers = Object.assign({}, r.tiers); if (v === 'size' || (!sized && v === c.tier)) delete tiers[k]; else tiers[k] = v; save({ mode: r.mode, tiers }, k + '=' + v); } });
-      const why = c.why + (bySize ? ' — الموديل الضعيف بيقرا الرسالة الأول ويحدد مستواها.' : '') + (moved ? ' — الترشيح: ' + (sized ? 'حسب حجم الرسالة' : TIER[c.tier].label) + '.' : '')
+      const tail = (bySize || moved || (prov !== 'claude' && CLAUDE_ONLY.includes(k))); // more follows after a dash: the sentence's own stop goes
+      const why = (tail ? c.why.replace(/\.$/, '') : c.why) + (bySize ? ' — الموديل الضعيف بيقرا الرسالة الأول ويحدد مستواها.' : '') + (moved ? ' — الترشيح: ' + (sized ? 'حسب حجم الرسالة' : TIER[c.tier].label) + '.' : '')
         + (prov !== 'claude' && CLAUDE_ONLY.includes(k) ? ' — بيشتغل على Claude دايمًا.' : '');
       return h('div', { class: 'air-row' + (moved ? ' moved' : ''), 'data-air-cmd': k, 'data-air-tier': cur, 'data-air-sized': bySize ? 'true' : null }, pick, h('p', { class: 't-small sub' }, why));
     });

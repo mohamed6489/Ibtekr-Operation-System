@@ -79,8 +79,9 @@ test('the routing card: three levels with their prices, every command on its lev
   await page.locator('#air-auto').click();
   await expect.poll(() => aiRow().routing).toBeUndefined();
   await expect(page.locator('#air-write')).toBeEnabled();
-  const logged = mock.activity.filter((r) => r.action === 'settings.ai.routing').map((r) => r.new_value);
-  expect(logged).toEqual(expect.arrayContaining(['write=heavy', 'recommended', 'assistant=heavy', 'assistant=size', 'one model', 'model=claude-haiku-5-5', 'auto']));
+  // (the log row of a save is written after it — the last one is waited for)
+  await expect.poll(() => mock.activity.filter((r) => r.action === 'settings.ai.routing').map((r) => r.new_value))
+    .toEqual(expect.arrayContaining(['write=heavy', 'recommended', 'assistant=heavy', 'assistant=size', 'one model', 'model=claude-haiku-5-5', 'auto']));
 });
 
 test('this month\'s spend: by model and by kind of work, the images left out; a member who is not the admin has no spend card', async ({ page }) => {

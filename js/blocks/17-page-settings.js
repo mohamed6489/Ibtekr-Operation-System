@@ -2256,14 +2256,29 @@
     image: { label: 'الصور', options: [['magnific', 'Magnific (كريدت)'], ['openai', 'OpenAI gpt-image'], ['gemini', 'Gemini Nano Banana']], tools: [['studio', 'استوديو المنتجات'], ['campaign', 'كامبينات التسويق'], ['tool', 'أداة الصور']] },
     voice: { label: 'الصوت', options: [['magnific', 'Magnific (ElevenLabs عبر الجسر)'], ['elevenlabs', 'ElevenLabs مباشر']], tools: [] },
     video: { label: 'الفيديو', options: [['magnific', 'Magnific (Seedance / Kling عبر الجسر)'], ['higgsfield', 'Higgsfield (MCP)'], ['veo', 'Google Veo (بمفتاح Gemini)']], tools: [] } };
+  // the owner 22 Nov (2026-11-22-model-routing.md decision 12 — «متظهرش في اختيار المزودين الشركات لو مش مربوطة … تجيب بس الشغال»): a
+  // company is offered only while it is linked and working (its card «متصل» — Magnific's images by the API key, its voice and video
+  // by the linked account); the one chosen now stays in its list, marked, so the control never shows another than the server uses
+  const PROV_CARD = { text: { claude: 'claude', openai: 'openai', gemini: 'gemini' }, image: { magnific: 'magnific:api', openai: 'openai', gemini: 'gemini' },
+    voice: { magnific: 'magnific:bridge', elevenlabs: 'elevenlabs' }, video: { magnific: 'magnific:bridge', higgsfield: 'higgsfield', veo: 'gemini' } };
+  function provLive(k, id) {
+    const [cid, part] = String((PROV_CARD[k] || {})[id] || '').split(':'); const x = C.integrations.find((y) => y.id === cid); if (!x || x.paused) return false;
+    if (part === 'api') return !!(x.link && x.link.ready); if (part === 'bridge') return !!(x.bridge && x.bridge.linked);
+    return x.status === 'متصل';
+  }
   function providersSec() {
+    if (!LINKS.at) loadLinks();
     const ai = SETT().section('ai') || {}; const P = ai.providers && typeof ai.providers === 'object' ? JSON.parse(JSON.stringify(ai.providers)) : {};
     const get = (k) => (P[k] && typeof P[k] === 'object' ? P[k] : (P[k] = {}));
     const save = async () => { const r = await SETT().save('ai', { providers: P }); if (!r.ok) return fail(r, 'حفظ المزوّدين'); LOGV('settings.ai.providers', Object.keys(P).map((k) => k + '=' + (P[k].default || 'default')).join(' · ')); K.toast('اتحفظ المزوّد', 'success'); R(); };
     const sel = (id, label, value, options, on, help) => U.Select({ id, label, help, options: options.map(([v, l]) => ({ value: v, label: l })), value: value || options[0][0], onChange: (v) => { on(v); save(); } });
-    const blocks = Object.keys(PROV).map((k) => { const d = PROV[k]; const cur = get(k); const opts = [['', 'الافتراضي للقسم']].concat(d.options);
-      return h('div', { class: 'prov-block', 'data-prov': k }, K.two(sel('prov-' + k, d.label + ' — المزوّد الافتراضي', cur.default, d.options, (v) => { cur.default = v; }), d.tools.length ? h('div', { class: 'prov-tools' }, d.tools.map(([t, tl]) => sel('prov-' + k + '-' + t, tl, (cur.tools || {})[t] || '', opts, (v) => { cur.tools = cur.tools || {}; if (v) cur.tools[t] = v; else delete cur.tools[t]; }))) : h('div', null))); });
-    return K.Section('مزوّدي الذكاء الاصطناعي', [U.InlineNote({ children: 'المفاتيح من «الربط بالمنصات › الذكاء الاصطناعي» — المزوّد اللي مالوش مفتاح بيرجّع «اربطه من الإعدادات». Magnific بالكريدت، والباقي بالدولار على سقف المحتوى الشهري.' }), ...blocks], null, { sub: 'افتراضي لكل قسم + تبديل لكل أداة (قرار صاحب المشروع، 7 نوفمبر)' });
+    const blocks = Object.keys(PROV).map((k) => { const d = PROV[k]; const cur = get(k); const eff = d.options.some(([v]) => v === cur.default) ? cur.default : d.options[0][0];
+      const live = (v) => !!LINKS.at && provLive(k, v);
+      const offer = (keep) => d.options.filter(([v]) => live(v) || v === keep).map(([v, l]) => [v, live(v) || !LINKS.at ? l : l + ' — مش مربوط']); // before the links are read: the chosen one alone, unmarked
+      const main = sel('prov-' + k, d.label + ' — المزوّد الافتراضي', eff, offer(eff), (v) => { cur.default = v; }, LINKS.at && !live(eff) ? 'المزوّد ده مش مربوط — اربطه من «الربط بالمنصات» أو اختار مزوّد مربوط.' : null);
+      const picker = k === 'text' && window.IBAIRouting && window.IBAIRouting.picker ? window.IBAIRouting.picker({ redraw: R, provider: eff }) : null; // decisions 8–10: the automatic switch, the model under the company
+      return h('div', { class: 'prov-block', 'data-prov': k, 'data-prov-live': d.options.filter(([v]) => live(v)).map(([v]) => v).join(' ') }, K.two(h('div', { class: 'prov-main' }, main, picker), d.tools.length ? h('div', { class: 'prov-tools' }, d.tools.map(([t, tl]) => { const tv = (cur.tools || {})[t] || ''; return sel('prov-' + k + '-' + t, tl, tv, [['', 'الافتراضي للقسم']].concat(offer(tv)), (v) => { cur.tools = cur.tools || {}; if (v) cur.tools[t] = v; else delete cur.tools[t]; }); })) : h('div', null))); });
+    return K.Section('مزوّدي الذكاء الاصطناعي', [U.InlineNote({ children: 'بيظهر هنا المزوّد المربوط والشغّال بس — المفاتيح من «الربط بالمنصات › الذكاء الاصطناعي». Magnific بالكريدت، والباقي بالدولار على سقف المحتوى الشهري.' }), ...blocks], null, { sub: 'افتراضي لكل قسم + تبديل لكل أداة (قرار صاحب المشروع، 7 نوفمبر)' });
   }
   function aiSec() { return aiSecV6(); } // ش42: the providers are a tab of their own
 

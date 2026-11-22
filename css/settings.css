@@ -532,4 +532,10 @@ button.dx-stat{cursor:pointer}button.dx-stat:hover{background:var(--color-bg-hov
 .air-row.moved .flabel, .air-row.moved label { color: var(--color-brand-default); font-weight: 700; }
 .air-spend { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .air-spend h3 { margin: 0 0 6px; }
+/* the owner 22 Nov (model-routing decisions 8–10): under the text company — the automatic switch, the company's levels, the model */
+.prov-main { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.air-pick { display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px solid var(--color-border-subtle); border-radius: 12px; background: var(--color-bg-container); }
+.air-levels { display: flex; flex-wrap: wrap; gap: 8px; }
+.air-level { display: inline-flex; align-items: baseline; gap: 6px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--color-border-subtle); background: var(--color-bg-layout, transparent); font-size: 13px; }
+.air-level b { color: var(--color-brand-default); }
 @media (max-width: 767px) { .air-tiers, .air-rows, .air-spend { grid-template-columns: minmax(0, 1fr); } }

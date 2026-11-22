@@ -15,7 +15,7 @@
   // the owner 22 Nov (model routing): while every command runs on its level's model by itself, the one model picked here is only
   // for «موديل واحد للكل» (الإعدادات › الذكاء الاصطناعي › المزوّدين)
   const routedNote = () => { const R0 = window.IBAIRouting, S0 = window.IBSettings; const row = (S0 && S0.section && S0.section('ai')) || {};
-    return !R0 || R0.routingOf(row).mode === 'auto' ? ' — التوزيع التلقائي شغّال (كل أمر على موديل مستواه): الموديل ده لـ «موديل واحد للكل» بس، من الإعدادات › الذكاء الاصطناعي.' : ''; };
+    return !R0 || R0.routingOf(row).mode === 'auto' ? ' — «اختيار الموديل تلقائي» شغّال (كل أمر على موديل مستواه): الموديل ده بيشتغل لما تقفله بس، من الإعدادات › الذكاء الاصطناعي › المزوّدين.' : ''; };
   const R = () => window.IBPages.render('products');
   const go = (hs) => { const p = window.IBPages.all && window.IBPages.all().products; if (p && p.api && p.api.go) p.api.go(hs); else { location.hash = hs; } };
   const chipBtn = (label, on, onClick, attrs) => h('button', Object.assign({ type: 'button', class: 'chip', 'aria-pressed': String(!!on), onClick }, attrs || {}), label);

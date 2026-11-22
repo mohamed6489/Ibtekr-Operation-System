@@ -19,7 +19,8 @@
   const MAX_PHOTO = 1568; // Claude reads a photo at this size; the server takes 2 MB of base64 at most
   // the listed models / efforts (the server's MODELS / EFFORTS in _shared/ai-content.js) with their labels, and about one product's
   // cost on each (decision 2) for the confirmations
-  const MODELS = [{ id: 'claude-opus-5-5', label: 'Claude Opus 5.5 — أدق', cost: 0.05 }, { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5 — أرخص بالنص', cost: 0.025 }];
+  const MODELS = [{ id: 'claude-opus-5-5', label: 'Claude Opus 5.5 — أدق', cost: 0.05 }, { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5 — أرخص بالنص', cost: 0.025 },
+    { id: 'claude-haiku-5-5', label: 'Claude Haiku 5.5 — الأرخص (للبسيط)', cost: 0.002 }]; // the light one since the owner's 22 Nov (a model of his own under the company)
   const EFFORTS = [{ id: 'low', label: 'سريع — تفكير أقل' }, { id: 'medium', label: 'متوازن' }, { id: 'high', label: 'متأني — تفكير أكتر' }];
   const DEFAULTS = { model: 'claude-opus-5-5', effort: 'medium', cap: null };
   const EST_COST = MODELS[0].cost;

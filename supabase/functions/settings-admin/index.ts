@@ -85,6 +85,17 @@ function serverWoo(env: Deps['env']): Json | null {
   if (env.WOO_PUSH_ENABLED) out.push = env.WOO_PUSH_ENABLED === '1';
   return out;
 }
+// The owner 22 Nov (model-routing decision 12 — «متظهرش في اختيار المزودين الشركات لو مش مربوطة»): an AI key that lives in the
+// function secrets (set before the settings page) is a link too, or the company that works would read «غير متصل» and leave the
+// providers' lists. The same tail only; «فصل» on it = off (integration_paused drops the secret of the same name), linking again
+// from the page clears it. Magnific's API key is shown the same way but its «off» is the bridge's too, so «فصل» leaves it.
+const SERVER_KEYS: Record<string, string> = { anthropic: 'ANTHROPIC_API_KEY', openai: 'OPENAI_API_KEY', gemini: 'GEMINI_API_KEY', elevenlabs: 'ELEVENLABS_API_KEY', magnific_api: 'MAGNIFIC_API_KEY' };
+const offKey = (name: string) => (name === 'magnific_api' ? 'magnific' : name);
+function serverLink(env: Deps['env'], name: string): Json | null {
+  if (name === 'woo') return serverWoo(env);
+  const v = SERVER_KEYS[name] ? String(env[SERVER_KEYS[name]] ?? '').trim() : '';
+  return v ? { key: v } : null;
+}
 async function offAll(deps: Deps): Promise<Json> {
   const { data } = await deps.db.from('settings').select('data').eq('section', 'integrations').maybeSingle();
   const o = data?.data?.off;
@@ -145,8 +156,11 @@ async function status(deps: Deps) {
     if (!stored && !meta[n]) continue;
     links[n] = secretPublic(n, stored, meta[n]);
   }
-  const srv = serverWoo(deps.env);
-  if (srv && !(links.woo?.ready) && (await offAll(deps)).woo !== true) links.woo = { ...secretPublic('woo', srv, meta.woo), source: 'server' };
+  const off = await offAll(deps);
+  for (const n of ['woo', ...Object.keys(SERVER_KEYS)]) {
+    const srv = serverLink(deps.env, n);
+    if (srv && !(links[n]?.ready) && off[offKey(n)] !== true) links[n] = { ...secretPublic(n, srv, meta[n]), source: 'server' };
+  }
   return json(200, { links, cards: CARDS, now: deps.now() });
 }
 
@@ -160,6 +174,7 @@ async function secretSetAction(deps: Deps, admin: string, args: Json) {
   const link = parsed.link as Json;
   const saved = await secretSet(deps.db, name, link);
   if (!saved.ok) return json(saved.error === 'no_vault' ? 503 : 500, { error: saved.error });
+  if (SERVER_KEYS[name] && name !== 'magnific_api' && (await offAll(deps))[offKey(name)] === true) await offPut(deps, offKey(name), false); // linked again from the page
   const test = await runProbes(deps, name, link, { email: await callerEmail(deps, admin) });
   await metaPut(deps, name, { linked_at: deps.now(), linked_by: admin, ...(test ? { test } : {}) });
   await log(deps, admin, 'settings.integration.set', name, { keys: Object.keys(isObj(args.fields) ? args.fields : {}), test: test ? (test.ok ? 'ok' : test.error) : 'untested' });
@@ -191,7 +206,7 @@ async function wooSet(deps: Deps, admin: string, args: Json) {
 async function secretTest(deps: Deps, admin: string, args: Json) {
   const name = String(args.name ?? '');
   if (!nameOk(name) || !fieldsOf(name)) return json(400, { error: 'unknown_secret' });
-  const stored = (await secretOf(deps.db, name)) ?? (name === 'woo' && (await offAll(deps)).woo !== true ? serverWoo(deps.env) : null);
+  const stored = (await secretOf(deps.db, name)) ?? ((name === 'woo' || SERVER_KEYS[name]) && (await offAll(deps))[offKey(name)] !== true ? serverLink(deps.env, name) : null);
   if (!stored) return json(404, { error: 'not_linked' });
   const test = await runProbes(deps, name, stored, { email: await callerEmail(deps, admin) });
   if (test) await metaPut(deps, name, { test });
@@ -205,7 +220,7 @@ async function secretUnlink(deps: Deps, admin: string, args: Json) {
   const r = await secretSet(deps.db, name, null);
   if (!r.ok) return json(r.error === 'no_vault' ? 503 : 500, { error: r.error });
   await metaPut(deps, name, null);
-  if (name === 'woo' && serverWoo(deps.env)) await offPut(deps, 'woo', true); // the server's secrets stay — off keeps them out (0139)
+  if (name !== 'magnific_api' && serverLink(deps.env, name)) await offPut(deps, offKey(name), true); // the server's secrets stay — off keeps them out (0139; the AI keys since 22 Nov)
   await log(deps, admin, 'settings.integration.unlink', name, null);
   return json(200, { result: 'unlinked' });
 }

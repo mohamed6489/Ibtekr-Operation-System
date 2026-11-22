@@ -172,3 +172,25 @@ Deno.test('data-real decision 8 (0139): a site linked by the server secrets show
   assertEquals(relink.body.result, 'saved', JSON.stringify(relink.body));
   assertEquals(db.rows('settings').find((r: any) => r.section === 'integrations').data.off, {});
 });
+
+// The owner 22 Nov (model-routing decision 12): an AI key that lives in the function secrets is a link the page sees — or the
+// company that works would leave the providers' lists
+Deno.test('an AI key in the server secrets shows as linked (source server, the tail only) and tests; «فصل» turns it off, linking from the page clears that; Magnific\'s key is shown but its off is the bridge\'s', async () => {
+  const ANT = 'sk-ant-' + 'z'.repeat(40);
+  const { db, deps } = setup({ routes: { 'https://api.anthropic.com/v1/models?limit=1': { status: 200, body: { data: [{ id: 'claude-opus-5-5' }] } } } });
+  deps.env = { ...deps.env, ANTHROPIC_API_KEY: ANT, MAGNIFIC_API_KEY: 'm'.repeat(24), OPENAI_API_KEY: '  ' };
+  const st = await call(deps, { action: 'status' });
+  assertEquals([st.body.links.anthropic.source, st.body.links.anthropic.ready, st.body.links.magnific_api.source, st.body.links.openai], ['server', true, 'server', undefined]);
+  assert(!JSON.stringify(st.body).includes(ANT) && JSON.stringify(st.body.links.anthropic.fields).includes('zzzz'), 'the tail only');
+  assertEquals((await call(deps, { action: 'secret_test', name: 'anthropic' })).body.test?.ok, true);
+  assertEquals((await call(deps, { action: 'secret_unlink', name: 'anthropic' })).body.result, 'unlinked');
+  assertEquals((await call(deps, { action: 'secret_unlink', name: 'magnific_api' })).body.result, 'unlinked');
+  assertEquals(db.rows('settings').find((r: any) => r.section === 'integrations').data.off, { anthropic: true }, 'the bridge is not turned off with the API key');
+  const after = await call(deps, { action: 'status' });
+  assertEquals([after.body.links.anthropic, after.body.links.magnific_api.source], [undefined, 'server']);
+  assertEquals((await call(deps, { action: 'secret_test', name: 'anthropic' })).res.status, 404);
+  const again = await call(deps, { action: 'secret_set', name: 'anthropic', fields: { key: 'sk-ant-' + 'y'.repeat(40) } });
+  assertEquals(again.res.status, 200, JSON.stringify(again.body));
+  assertEquals(db.rows('settings').find((r: any) => r.section === 'integrations').data.off, {});
+  assertEquals((await call(deps, { action: 'status' })).body.links.anthropic.source, undefined, 'the page\'s own link now');
+});

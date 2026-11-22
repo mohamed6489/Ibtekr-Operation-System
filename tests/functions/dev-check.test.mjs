@@ -133,7 +133,7 @@ test('Claude\'s models: a new one is an update for the session, a routed one no 
   const gone = run({ models: KNOWN_MODELS.filter((m) => m !== TIER_MODEL.light) }).notes;
   assert.equal(gone.length, 1);
   assert.deepEqual([gone[0].kind, gone[0].ref], ['problem', 'dev:model:gone:claude-haiku-5-5']);
-  assert.match(gone[0].body, /المستوى الخفيف/); assert.match(sessionOf(gone[0].body), /filter, rewrite, translate, kb/);
+  assert.match(gone[0].body, /المستوى الضعيف/); assert.match(sessionOf(gone[0].body), /filter, rewrite, translate, kb/);
   const both = run({ models: ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-6'], cron: { jobs: [{ name: 'notify-tick', runs: 96, failed: 2 }] } }).notes;
   assert.deepEqual(both.map((n) => n.ref), ['dev:cron:notify-tick', 'dev:model:gone:claude-haiku-5-5', 'dev:model:new:claude-haiku-6'], 'a model that is gone is as bad as a failing job; a new one is the mildest');
 });

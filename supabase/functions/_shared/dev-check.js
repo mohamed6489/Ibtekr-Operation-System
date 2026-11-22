@@ -190,7 +190,7 @@ export function devNotes(input) {
   // linked key against the one this system knows (ai-routing.js) — a new model is an update to look at, a routed model that is no
   // longer served is a problem (its commands fail). Model ids only; [] = Claude is not linked (nothing to say)
   if (Array.isArray(x.models)) {
-    const news = modelNews(x.models); const TIER_AR = { light: 'الخفيف', mid: 'المتوسط', heavy: 'التقيل' };
+    const news = modelNews(x.models); const TIER_AR = { light: 'الضعيف', mid: 'المتوسط', heavy: 'القوي' };
     if (news.fresh.length) {
       const ids = news.fresh.map((m) => line(m, 60));
       out.push(note('update', 'model:new:' + key(ids.join('+')), ids.length === 1 ? 'موديل جديد من Claude: ' + ids[0] : ids.length + ' موديلات جديدة من Claude',
@@ -206,7 +206,7 @@ export function devNotes(input) {
       out.push(note('problem', 'model:gone:' + key(m), 'موديل Claude اللي السيستم بيستخدمه مابقاش متاح: ' + m,
         { what: 'الموديل «' + m + '» (المستوى ' + (TIER_AR[tier] || tier) + ') مش في القايمة اللي Anthropic بتقدّمها للمفتاح المربوط — الأوامر اللي عليه هتفشل.', when: '',
           cause: 'Anthropic وقّفت الموديل ده أو المفتاح المربوط مالوش صلاحية عليه.',
-          fix: 'نحدّث السيستم على الموديل اللي حل محله. ولحد ما يتحدّث: من الإعدادات › الذكاء الاصطناعي › المزوّدين غيّر مستوى الأوامر دي أو اختار «موديل واحد للكل».', code: true,
+          fix: 'نحدّث السيستم على الموديل اللي حل محله. ولحد ما يتحدّث: من الإعدادات › الذكاء الاصطناعي › المزوّدين غيّر مستوى الأوامر دي، أو اقفل «اختيار الموديل تلقائي» واختار موديل شغّال.', code: true,
           tech: ['Claude models: ' + m + ' (TIER_MODEL.' + tier + ', supabase/functions/_shared/ai-routing.js) is not in GET /v1/models for the linked key',
             'commands recommended on it: ' + cmds.join(', '), 'served: ' + x.models.map((s) => line(s, 60)).filter((s) => /^claude-/.test(s)).slice(0, 30).join(', ')] }, 30));
     }

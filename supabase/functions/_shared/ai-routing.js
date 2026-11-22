@@ -67,12 +67,14 @@ export function tierFor(command, asked) {
 
 /**
  * The row «ai» → { mode: 'auto' | 'single', tiers: { command: tier } } — only what differs from the recommendation is kept.
+ * A free chat (SIZED) keeps any level the admin gave it: its recommendation is «by the message», so even its own fallback level
+ * is a choice («always the heavy model»).
  * No `routing` key = auto with the recommendations (the owner: the routing is on by itself).
  */
 export function routingOf(aiRow) {
   const r = isObj(aiRow) && isObj(aiRow.routing) ? aiRow.routing : {};
   const tiers = {};
-  if (isObj(r.tiers)) for (const k of COMMAND_KEYS) { const t = str(r.tiers[k]); if (TIERS.includes(t) && tierFor(k, t) === t && t !== COMMANDS[k].tier) tiers[k] = t; }
+  if (isObj(r.tiers)) for (const k of COMMAND_KEYS) { const t = str(r.tiers[k]); if (TIERS.includes(t) && tierFor(k, t) === t && (t !== COMMANDS[k].tier || SIZED.includes(k))) tiers[k] = t; }
   return { mode: str(r.mode) === 'single' ? 'single' : 'auto', tiers };
 }
 /** What the settings page may write under `routing` (the same cleaning — an unknown command or level is dropped). */

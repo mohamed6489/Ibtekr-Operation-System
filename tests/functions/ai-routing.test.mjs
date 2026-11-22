@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { COMMANDS, COMMAND_KEYS, KNOWN_MODELS, OTHER_KNOWN, OTHER_PROVIDERS, PROVIDER_KEYS, PROVIDER_TIERS, SIZED, TIERS, TIER_MODEL, TIER_USD, claudeParams, cleanRouting, forcedToolOk, hasFallback, modelNews, otherNews, otherText, readSize, routeOf, routingOf, sizeRequest, sizes, tierFor, tiersOf } from '../../supabase/functions/_shared/ai-routing.js';
-import { TEXT_PROVIDERS, toGemini, toOpenAI } from '../../supabase/functions/_shared/ai-providers.js';
+import { TEXT_PROVIDERS, textPick, toGemini, toOpenAI } from '../../supabase/functions/_shared/ai-providers.js';
 import { MODELS, PRICES, costOf } from '../../supabase/functions/_shared/ai-content.js';
 
 // The owner 22 Nov (docs/superpowers/plans/2026-11-22-model-routing.md): which Claude model runs which command.
@@ -96,6 +96,8 @@ test('the free chats are sized: by itself only, never a command the admin gave a
   assert.equal(sizes({ routing: { mode: 'single' } }, 'assistant'), false);
   assert.equal(sizes({ routing: { tiers: { assistant: 'mid' } } }, 'assistant'), false);
   assert.equal(sizes({ routing: { tiers: { assistant: 'mid' } } }, 'agent'), true);
+  assert.deepEqual(cleanRouting({ tiers: { assistant: 'heavy', agent: 'mid', write: 'mid' } }), { mode: 'auto', tiers: { assistant: 'heavy', agent: 'mid' } }, 'a chat keeps the admin\'s level even when it is its own fallback — «always the heavy model»');
+  assert.equal(sizes({ routing: { tiers: { assistant: 'heavy' } } }, 'assistant'), false);
   const base = { model: 'claude-opus-5-5', effort: 'high' };
   assert.deepEqual(routeOf(null, 'assistant', base, 'claude', 'light'), { model: 'claude-haiku-5-5', effort: 'low', tier: 'light' });
   assert.deepEqual(routeOf(null, 'agent', base, 'claude', 'heavy'), { model: 'claude-opus-5-5', effort: 'high', tier: 'heavy' });
@@ -151,6 +153,24 @@ test('the page\'s table is the server\'s: the same levels, models, prices, comma
     assert.deepEqual(JSON.parse(JSON.stringify(P.routingOf(row))), S.routingOf(row));
     for (const k of [...S.COMMAND_KEYS, 'nope']) { const a = P.routeOf(row, k); const b = S.routeOf(row, k, { model: (row && row.model) || 'claude-opus-5-5', effort: 'medium' }); assert.deepEqual([a.tier, a.model], [b.tier, b.model], k); }
   }
-  // the words on the card: «المتوسط بنص سعر التقيل، والخفيف أرخص من المتوسط 20 مرة»
+  // the words on the card: «المتوسط بنص سعر القوي، والضعيف أرخص من المتوسط 20 مرة»
   assert.equal(S.TIER_USD.heavy[0] / S.TIER_USD.mid[0], 2); assert.equal(S.TIER_USD.mid[0] / S.TIER_USD.light[0], 20);
+  // decisions 8–10: every company's levels, its models' names and prices, the sized chats, the one model of a company
+  assert.deepEqual(Object.keys(P.PROVIDERS), [...S.PROVIDER_KEYS]);
+  for (const k of S.PROVIDER_KEYS) { assert.deepEqual({ ...P.PROVIDERS[k].tiers }, { ...S.PROVIDER_TIERS[k] }, k); assert.deepEqual([...P.modelsOf(k)].sort(), [...TEXT_PROVIDERS[k].models].sort(), k + ': the models the admin may choose'); }
+  for (const [m, d] of Object.entries(P.MODEL)) { assert.ok(d.name, m); assert.deepEqual([...d.usd], PRICES[m].slice(0, 2), m + ' priced as the server prices it'); }
+  for (const k of S.PROVIDER_KEYS) for (const m of Object.values(S.PROVIDER_TIERS[k])) assert.ok(P.MODEL[m], m + ' has a name on the page');
+  assert.deepEqual([...P.SIZED], [...S.SIZED]);
+  const more = [null, { routing: { tiers: { assistant: 'heavy', agent: 'light' } } }, { model: 'claude-haiku-5-5', routing: { mode: 'single' } }, { providers: { text: { default: 'openai', models: { openai: 'gpt-5.2-mini', gemini: 'nope' } } }, routing: { mode: 'single' } }];
+  for (const row of more) {
+    assert.deepEqual(JSON.parse(JSON.stringify(P.routingOf(row))), S.routingOf(row));
+    for (const k of S.COMMAND_KEYS) assert.equal(P.sizes(row, k), S.sizes(row, k), k);
+    for (const prov of S.PROVIDER_KEYS) for (const k of S.COMMAND_KEYS) {
+      // the server's base: Claude's = the row's model (aiSettings), another company's = textPick's
+      const base = { model: prov === 'claude' ? (MODELS.includes(row && row.model) ? row.model : MODELS[0]) : textPick(row, 'products').provider === prov ? textPick(row, 'products').model : TEXT_PROVIDERS[prov].models[0], effort: 'medium' };
+      const a = P.routeOf(row, k, prov); const b = S.routeOf(row, k, base, prov); assert.deepEqual([a.tier, a.model], [b.tier, b.model], prov + ' ' + k);
+    }
+  }
+  assert.equal(P.companyOf(more[3]), 'openai'); assert.equal(P.companyOf({ providers: { text: { default: 'nope' } } }), 'claude');
+  assert.equal(P.oneModel(more[3], 'openai'), 'gpt-5.2-mini'); assert.equal(P.oneModel(more[3], 'gemini'), 'gemini-3-pro'); assert.equal(P.oneModel({ model: 'x' }, 'claude'), 'claude-opus-5-5');
 });

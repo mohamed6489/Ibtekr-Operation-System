@@ -470,3 +470,18 @@ test('ش31 (the owner 16 Nov): «المرتبات» lists the whole team — the
   await page.evaluate(() => { location.hash = 'hr-payroll'; });
   await expect(P(page).locator('table.hr-pay tbody tr', { hasText: 'سارة أحمد' })).toContainText('11,000');
 });
+
+// agents-brain decision 22 (the owner 22 Nov — «صلّحها في الأصلي دلوقتي»): «تحويل المرتب» asked of an assistant (open_form salary_pay)
+// opens the payroll's own «تحويل مرتب <العضو>» popup — the member's slip is found by the member's code (it never was: the popup
+// always said the sheet was still loading); a member with no line on the sheet is said; nothing is paid before the popup's button.
+test('decision 22 — «تحويل المرتب» from an assistant: the payroll popup of the member named opens (from another page too); no line = said; nothing paid before its button', async ({ page }) => {
+  await openHr(page, ADMIN, 'hr-team');
+  expect(await page.evaluate(() => window.IBAiAction('open_form', { form: 'salary_pay', values: { member: 'منى حسن' } }))).toBe('form salary_pay');
+  const one = modal(page, 'تحويل مرتب منى حسن'); await expect(one).toBeVisible({ timeout: 10000 }); await expect(one.getByRole('button', { name: 'حوّل المرتب' })).toBeVisible();
+  await expect(page).toHaveURL(/#hr-payroll/); expect(calls('hr_pay_member')).toEqual([]);
+  await one.getByRole('button', { name: 'إلغاء' }).click(); await expect(one).toBeHidden();
+  // a member with no salary has no line on the sheet: said outright, no popup, and not «the sheet is still loading»
+  const none = await page.evaluate(() => { const m = window.IBHR.everyone().find((x) => !(x.salary > 0) && x.status !== 'suspended'); try { window.IBAiAction('open_form', { form: 'salary_pay', values: { member: m.name } }); return 'opened'; } catch (e) { return e.message.replace(m.name, '<الاسم>'); } });
+  expect(none).toBe('<الاسم> مالوش سطر في كشف الشهر ده'); await expect(page.locator('.modal[role=dialog]')).toHaveCount(0);
+  expect(calls('hr_pay_member')).toEqual([]);
+});

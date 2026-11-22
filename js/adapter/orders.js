@@ -741,6 +741,12 @@
   // RLS (orders.view), for the report only: nothing of it is kept but the products' photos / links.
   // → { ok: true, rows: [{ oid, sid, prod, sku, tot, status, at }], capped } | { ok: false, reason }
   const HISTORY_CAP = 5000;
+  // the owner 22 Nov («لو فيه الغاء او مرتجع زود ف التقرير عمود سبب الالغاء او المرتجع»): a line's reason — the order's cancel reason
+  // when it is «ملغي», else the line's own return («مرتجع للمخزن / للمبتكر»), else the order's «استرجاع»; '' when none
+  function reasonOf(status, o, line) {
+    const r = (x) => (x && typeof x === 'object' && typeof x.reason === 'string' ? x.reason.trim() : '');
+    return (status === 'ملغي' ? r(o && o.cancel) : '') || r(line && line.ret) || r(o && o.ret);
+  }
   async function makerHistory(vendorId) {
     const cl = c();
     if (!cl || !uid() || !vendorId) return { ok: false, reason: 'unavailable' };
@@ -748,7 +754,7 @@
     try {
       const items = [];
       for (let from = 0; from < HISTORY_CAP; from += PAGE) {
-        const { data: d, error } = await cl.from('order_items').select('id, order_id, sub_order_id, sku, name, total, removed, vendor_id, commission_rate, commission_fee').eq('vendor_id', vendorId).order('id', { ascending: false }).range(from, from + PAGE - 1);
+        const { data: d, error } = await cl.from('order_items').select('id, order_id, sub_order_id, sku, name, total, removed, vendor_id, commission_rate, commission_fee, ret').eq('vendor_id', vendorId).order('id', { ascending: false }).range(from, from + PAGE - 1);
         if (error) throw error;
         items.push(...(d || []));
         if (!d || d.length < PAGE) break;
@@ -756,13 +762,14 @@
       const live = items.filter((it) => !it.removed);
       const oids = [...new Set(live.map((it) => it.order_id).filter((x) => x != null))]; const sids = [...new Set(live.map((it) => it.sub_order_id).filter((x) => x != null))];
       const skus = [...new Set(live.map((it) => it.sku).filter((x) => x && !(x in images)))];
-      const [os, ss, ps] = await Promise.all([within(cl, 'orders_v', 'id, status, placed_at', 'id', oids, IDS, g), within(cl, 'sub_orders', 'id, woo_order_id', 'id', sids, IDS, g),
+      const [os, ss, ps] = await Promise.all([within(cl, 'orders_v', 'id, status, placed_at, cancel, ret', 'id', oids, IDS, g), within(cl, 'sub_orders', 'id, woo_order_id', 'id', sids, IDS, g),
         within(cl, 'products', 'sku, image_url, permalink, lang', 'sku', skus, SKUS, g).catch(() => [])]);
       keepAll(ps);
       const oBy = new Map(os.map((o) => [String(o.id), o])); const sBy = new Map(ss.map((x) => [String(x.id), x]));
       const rows = live.map((it) => { const o = oBy.get(String(it.order_id)); if (!o) return null; const so = it.sub_order_id != null ? sBy.get(String(it.sub_order_id)) : null; const d = local(o.placed_at);
         return { oid: String(it.order_id), sid: so && so.woo_order_id != null ? String(so.woo_order_id) : String(it.order_id), prod: it.name || '', sku: it.sku || '', tot: Number(it.total) || 0, status: o.status, at: d ? ymd(d) : '',
-          rate: numOrNull(it.commission_rate), fee: numOrNull(it.commission_fee), vendorId: it.vendor_id ? String(it.vendor_id) : null }; }).filter(Boolean); // rate / fee: the maker's share in the shared file (chat ش7)
+          rate: numOrNull(it.commission_rate), fee: numOrNull(it.commission_fee), vendorId: it.vendor_id ? String(it.vendor_id) : null,
+          reason: reasonOf(o.status, o, it) }; }).filter(Boolean); // rate / fee: the maker's share in the shared file (chat ش7); reason: the owner 22 Nov
       rows.sort((a, b) => Number(b.oid) - Number(a.oid) || Number(a.sid) - Number(b.sid));
       return { ok: true, rows, capped: items.length >= HISTORY_CAP };
     } catch (e) { return { ok: false, reason: 'failed' }; }
@@ -793,6 +800,6 @@
   }
   const imageOf = (sku) => (sku && images[sku]) || '';
   function clear() { gen += 1; unsubscribe(); cancelNotify(); thumbCache.clear(); orders = null; custom = new Map(); customOk = false; seenO.clear(); seenI.clear(); vendorRows = []; leads = new Map(); leadAsked.clear(); images = {}; links = {}; zones = null; states = new Map(); statuses = []; names = []; asked.clear(); busy.clear(); setState('idle'); }
-  window.IBOrders = { load, data, state: () => st, today, setOrderStatus, setConfirm, patchOrder, deleteOrder, deleteSub, deleteLine, sendBosta, bostaAwb, bostaCod, bostaLocations, bostaPickup, bostaPickups, bostaZones, setAddress, setLineQty, addLine, makerProducts, siteStatuses, setSubSiteStatus, setItemStatus, setWaybill, setPulled, syncNow, registerWebhooks, subscribe, unsubscribe, clear, toScreen, refetch, makerHistory, thumbs, imageOf };
+  window.IBOrders = { load, data, state: () => st, today, setOrderStatus, setConfirm, patchOrder, deleteOrder, deleteSub, deleteLine, sendBosta, bostaAwb, bostaCod, bostaLocations, bostaPickup, bostaPickups, bostaZones, setAddress, setLineQty, addLine, makerProducts, siteStatuses, setSubSiteStatus, setItemStatus, setWaybill, setPulled, syncNow, registerWebhooks, subscribe, unsubscribe, clear, toScreen, refetch, makerHistory, reasonOf, thumbs, imageOf };
   window.IBOrdersStore = window.IBOrders; // the name block 29's write hooks call
 })();

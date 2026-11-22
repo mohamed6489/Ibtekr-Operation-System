@@ -2115,6 +2115,7 @@ img.ib-worm.ib-ldr-img.spin{animation:ib-ldr-spin var(--ldr-speed,1.7s) linear i
 .vb-h h3{margin:0}
 .vb-h span{color:var(--color-text-secondary)}
 .vb-table-wrap{overflow-x:auto}
+.vb-table td.vb-reason{white-space:normal;min-width:140px;max-width:260px;color:var(--color-text-secondary);font-size:13px;line-height:1.6} /* the owner 22 Nov: the cancel / return reason */
 .vb-table .vr-prod{display:inline-flex;align-items:center;gap:10px;min-width:0;white-space:normal}
 /* chat ش6 (16 Nov): the product column — its title and cells — starts on the right: the photo, then the name */
 .dt-table.vb-table th:first-child,.dt-table.vb-table td:first-child{text-align:right}.vb-table .vr-prod{display:flex;justify-content:flex-start;text-align:right}

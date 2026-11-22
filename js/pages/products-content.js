@@ -12,6 +12,10 @@
   const U = window.IBUI, K = window.IBKit, PD = window.IbtekrProducts;
   const { h, Icon, Button } = U;
   const AI = () => window.IBAI, PR = () => window.IBProducts;
+  // the owner 22 Nov (model routing): while every command runs on its level's model by itself, the one model picked here is only
+  // for «موديل واحد للكل» (الإعدادات › الذكاء الاصطناعي › المزوّدين)
+  const routedNote = () => { const R0 = window.IBAIRouting, S0 = window.IBSettings; const row = (S0 && S0.section && S0.section('ai')) || {};
+    return !R0 || R0.routingOf(row).mode === 'auto' ? ' — التوزيع التلقائي شغّال (كل أمر على موديل مستواه): الموديل ده لـ «موديل واحد للكل» بس، من الإعدادات › الذكاء الاصطناعي.' : ''; };
   const R = () => window.IBPages.render('products');
   const go = (hs) => { const p = window.IBPages.all && window.IBPages.all().products; if (p && p.api && p.api.go) p.api.go(hs); else { location.hash = hs; } };
   const chipBtn = (label, on, onClick, attrs) => h('button', Object.assign({ type: 'button', class: 'chip', 'aria-pressed': String(!!on), onClick }, attrs || {}), label);
@@ -139,7 +143,7 @@
         h('p', { class: 't-small help', style: 'margin:0' }, 'أداة المحتوى ', spend.write.runs, ' (', usd(spend.write.cost), ') · الاستوديو ', spend.studio.runs, ' (', usd(spend.studio.cost), ')'))
       : U.InlineNote({ kind: 'warn', children: 'مقدرناش نقرا الصرف دلوقتي.' });
     const body = () => [spendBox,
-      U.Select({ id: 'ai-model', label: 'الموديل', options: A.MODELS.map((m) => ({ value: m.id, label: m.label })), value: f.model, help: 'تقريبًا $' + A.estCost(f.model).toFixed(3) + ' للمنتج', onChange: (v) => { f.model = v; m.setBody(...body()); } }),
+      U.Select({ id: 'ai-model', label: 'الموديل', options: A.MODELS.map((m) => ({ value: m.id, label: m.label })), value: f.model, help: 'تقريبًا $' + A.estCost(f.model).toFixed(3) + ' للمنتج' + routedNote(), onChange: (v) => { f.model = v; m.setBody(...body()); } }),
       U.Select({ id: 'ai-effort', label: 'الجهد', options: A.EFFORTS.map((e) => ({ value: e.id, label: e.label })), value: f.effort, help: 'تفكير أقل = أرخص وأسرع', onChange: (v) => { f.effort = v; } }),
       U.TextInput({ id: 'ai-cap', label: 'سقف الشهر بالدولار', value: f.cap, dir: 'ltr', inputmode: 'decimal', placeholder: 'من غير سقف', help: 'لما الصرف يوصله الـ AI بيقف لحد أول الشهر الجاي. فاضي = من غير سقف.', onInput: (v) => { f.cap = v; } }),
       U.InlineNote({ children: 'التغيير بيمشي على النداءات الجاية على طول، لكل الفريق.' })];

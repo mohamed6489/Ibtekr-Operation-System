@@ -750,5 +750,5 @@
       // agents-brain T4 (the owner 17 Nov — «لو سألتو اني عايز ادفع او اخصم او اكافيء … يطلعلي الاسكرين المناسبة»): the payroll's own popups for
       // the accountant assistant — «مكافأة / خصم» filled (this month), and «تحويل المرتب» for a member whose slip is ready and not paid yet
       adjustPopup: (member, preset) => addAdjustment(thisMonth(), member || undefined, preset || {}),
-      payPopup: (member) => { const mk = thisMonth(); const L = linesOf(mk); const p = L.lines ? slipFor(L.lines, member) : null; if (!p) return 'loading'; if (p.transfer) return 'paid'; payOne(p, mk); return 'ok'; } } });
+      payPopup: (member) => { const mk = thisMonth(); const L = linesOf(mk); const p = slipFor(L.lines || [], typeof member === 'string' ? { id: member } : member); /* agents-brain decision 22: the member's code or the member (the code was read as a member, so no slip was ever found) */ if (!p) return L.status === 'ok' ? 'none' : 'loading'; /* 'none' = the sheet is in and the member has no line on it */ if (p.transfer) return 'paid'; payOne(p, mk); return 'ok'; } } });
 })();

@@ -2064,7 +2064,7 @@
     const K = window.IBKit; const fmt = (n) => D.formatMoney(n); const settle = !!(opts && opts.settle); let m = null;
     // the request's box: '' = what Dokan has now · 'ask' = «وافق دلوقتي؟» · busy = a call is running · res = the last call's answer
     // the owner 18 Nov: 'reject' = «رفض طلب السحب» with its reason (note) — opened from ⋮ with opts.reject
-    const flow = { step: opts && opts.reject ? 'reject' : '', busy: '', made: null, res: null, note: '' };
+    const flow = { step: opts && opts.reject ? 'reject' : '', busy: '', made: null, res: null, note: '', amt: '', amtNum: 0 };
     const title = (settle ? 'تقفيل حساب — ' : 'تقرير مختصر — ') + name;
     const setOf = (wid) => (AC() && AC().settlements ? AC().settlements().find((x) => x.withdrawId === wid) : null);
     const openMoves = () => store.vendorMoves.filter((x) => x.vendor === name && x.settledBy == null).sort((x, y) => (x.date < y.date ? -1 : x.date > y.date ? 1 : (x.id || 0) - (y.id || 0)));
@@ -2073,11 +2073,13 @@
       return 'Dokan هيخصم ' + fmt(amount) + ' ج.م من رصيده' + (p.consumed ? '، والخصومات المفتوحة (' + fmt(p.consumed) + ' ج.م) بتتصفّى منه' : '') + '، واللي بيتحوّل للمبتكر ' + fmt(p.cash) + ' ج.م' + (p.carryOut > 0 ? ' وفاضل عليه ' + fmt(p.carryOut) + ' ج.م لحد التسوية الجاية' : '') + '.'; };
     const say = (pill, n) => { flow.res = n; busyNote(pill)(n); };
     function create(b) {
-      if (flow.busy) return; flow.busy = 'create'; flow.res = null; flow.fix = false; draw();
+      if (flow.busy) return; const amt = flow.amtNum; if (!(amt > 0)) { flow.res = { kind: 'warning', text: 'اكتب مبلغ طلب السحب الأول.' }; draw(); return; }
+      flow.busy = 'create'; flow.res = null; flow.fix = false; draw();
       const pill = K.busy ? K.busy('بنعمل طلب السحب على Dokan لـ ' + name + '…') : null;
-      AC().createWithdraw(b.vendorId).then((r) => {
+      AC().createWithdraw(b.vendorId, amt).then((r) => {
         flow.busy = '';
-        if (r.ok && r.result === 'ok') { flow.made = { id: r.id, amount: r.amount }; flow.step = 'ask'; busyNote(pill)({ kind: 'success', text: 'اتعمل طلب سحب #' + r.id + ' لـ ' + name + ' بمبلغ ' + fmt(r.amount) + ' ج.م على Dokan — مستني موافقتك.' }); } // the box itself asks now
+        if (r.ok && r.result === 'skipped' && r.reason === 'over_balance') { say(pill, { kind: 'warning', text: 'المبلغ أكبر من رصيده على Dokan دلوقتي (' + fmt(r.balance) + ' ج.م) — الطلب ما اتعملش. اكتب مبلغ لحد الرصيد.' }); render(); draw(); return; }
+        if (r.ok && r.result === 'ok') { flow.made = { id: r.id, amount: r.amount }; flow.step = 'ask'; flow.amt = ''; flow.amtNum = 0; busyNote(pill)({ kind: 'success', text: 'اتعمل طلب سحب #' + r.id + ' لـ ' + name + ' بمبلغ ' + fmt(r.amount) + ' ج.م على Dokan — مستني موافقتك.' }); } // the box itself asks now
         else if (r.ok && r.result === 'skipped') { flow.fix = r.reason === 'no_bank'; say(pill, { kind: 'warning', text: WC_SKIP[r.reason] || 'الطلب ما اتعملش.' }); }
         else if (r.ok) { flow.fix = r.hint === 'method'; say(pill, { kind: 'error', text: r.reason === 'no_store' ? WC_SKIP.no_store : WC_REFUSED[r.hint] || 'Dokan رفض الطلب (' + r.reason + ') — راجع حساب المبتكر البنكي وحدود السحب على Dokan.' }); }
         else say(pill, { kind: 'error', text: r.reason === 'forbidden' ? 'مش من صلاحياتك تعمل طلب سحب.' : r.reason === 'woo_down' ? 'Dokan مش بيرد دلوقتي — جرّب كمان شوية.' : 'مقدرناش نعمل الطلب على Dokan دلوقتي — جرّب تاني.' });
@@ -2115,6 +2117,29 @@
         render(); draw();
       });
     }
+    // the owner 22 Nov («اقدر اعمل طلب سحب من السيستم ف اي وقت و يبقي بالمبلغ اللي اكتبه بايدي مدام لسه فيه رصيد … ولو المبلغ …
+    // مش قد الرصيد … يرفض»): an empty amount field up to the maker's Dokan balance — over it, zero or not a number keeps the button
+    // shut and says why (the server checks the live balance again); the deductions still open come off the request (the owner's
+    // choice), said under the field as it is typed. Typing never redraws the popup (the field keeps its focus).
+    function amountForm(b, dokan) {
+      const msg = h('p', { class: 'vb-req-t vb-amt-msg', 'data-vb-amt-msg': '', role: 'status' });
+      const btn = Button({ type: 'primary', label: flow.busy === 'create' ? 'بنعمل الطلب…' : 'اعمل طلب سحب على Dokan', disabled: true, attrs: { 'data-vb-create': '' }, onClick: () => create(b) });
+      const inp = h('input', { type: 'text', inputmode: 'decimal', dir: 'ltr', id: 'vb-amount', class: 'vb-amt-in', 'data-vb-amount': '', autocomplete: 'off',
+        placeholder: 'لحد ' + fmt(dokan), 'aria-label': 'مبلغ طلب السحب (ج.م)' });
+      inp.value = flow.amt || '';
+      const check = () => {
+        flow.amt = inp.value; const raw = String(inp.value).replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).replace(/[,،\s]/g, '').replace(/٫/g, '.');
+        const v = Number(raw); let ok = false; let t = ''; let kind = 'hint';
+        if (!raw) t = 'اكتب المبلغ — المتاح على Dokan ' + fmt(dokan) + ' ج.م.';
+        else if (!/^\d+(\.\d{1,2})?$/.test(raw) || !(v > 0)) { t = 'اكتب مبلغ صحيح أكبر من صفر (لحد قرشين بعد العلامة).'; kind = 'warning'; }
+        else if (v > dokan) { t = 'المبلغ أكبر من رصيده على Dokan (' + fmt(dokan) + ' ج.م) — مايتعملش طلب بيه.'; kind = 'warning'; }
+        else { ok = true; const q = D.settlePlan(v, b.open); t = q.consumed > 0 ? 'Dokan هيخصم ' + fmt(v) + ' ج.م، والخصومات المفتوحة (' + fmt(q.consumed) + ' ج.م) بتتصفّى منه — المبتكر يتحوّله ' + fmt(q.cash) + ' ج.م' + (q.carryOut > 0 ? ' وفاضل عليه ' + fmt(q.carryOut) + ' ج.م' : '') + '.' : 'Dokan هيخصم ' + fmt(v) + ' ج.م، والمبتكر يتحوّله ' + fmt(v) + ' ج.م.'; }
+        flow.amtNum = ok ? Math.round(v * 100) / 100 : 0; btn.disabled = !ok || !!flow.busy; msg.className = 'vb-req-t vb-amt-msg ' + kind; msg.replaceChildren(num(t));
+      };
+      inp.addEventListener('input', check); inp.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !btn.disabled) { e.preventDefault(); create(b); } });
+      check();
+      return h('div', { class: 'vb-amt', 'data-vb-amt': '' }, h('label', { class: 'vb-amt-l', for: 'vb-amount' }, 'مبلغ طلب السحب (ج.م)'), h('div', { class: 'vb-amt-row' }, inp, btn), msg);
+    }
     // the request's box
     function reqBox(b) {
       const req = reqOf(b); const canApprove = !!(AC() && AC().can().approve); const dokan = b.dokanBalance; const kids = []; let tone = 'none';
@@ -2142,10 +2167,11 @@
       } else if (req && req.status === 'approved') {
         tone = 'approved'; const x = setOf(req.wid);
         kids.push(line('طلب السحب ' + req.id + ' اتوافق عليه على Dokan — ' + fmt(req.amount) + ' ج.م', true), line('اتخصم من رصيده هناك' + (x ? ' — فاضل تحوّل للمبتكر ' + fmt(x.cash) + ' ج.م' + (x.carryOut > 0 ? '، وفاضل عليه ' + fmt(x.carryOut) + ' ج.م' : '') + '.' : ' — فاضل التحويل للمبتكر.')));
+        // the owner 22 Nov: a new request any time the maker still has a balance on Dokan
+        if (canSettle(b) && dokan != null && dokan > 0) kids.push(line('طلب سحب جديد — رصيده على Dokan دلوقتي ' + fmt(dokan) + ' ج.م', true), amountForm(b, dokan));
       } else if (canSettle(b) && dokan != null && dokan > 0) {
-        tone = 'settle'; const p = D.settlePlan(dokan, b.open);
-        kids.push(line('مفيش طلب سحب — رصيده على Dokan ' + fmt(dokan) + ' ج.م', true), line('طلب السحب بيتعمل بكل رصيد Dokan' + (p.open ? ' (= الصافي ' + fmt(b.balance) + ' + الخصومات ' + fmt(p.open) + ')' : '') + ' ويفضل مستني موافقتك — مفيش فلوس بتتحرك قبلها.'),
-          h('div', { class: 'vb-req-a' }, Button({ type: 'primary', label: flow.busy === 'create' ? 'بنعمل الطلب…' : 'اعمل طلب سحب على Dokan (' + fmt(dokan) + ' ج.م)', disabled: !!flow.busy, attrs: { 'data-vb-create': '' }, onClick: () => create(b) })));
+        tone = 'settle';
+        kids.push(line('مفيش طلب سحب — رصيده على Dokan ' + fmt(dokan) + ' ج.م', true), line('اكتب المبلغ اللي عايز تطلبه لحد رصيده على Dokan — الطلب بيفضل مستني موافقتك ومفيش فلوس بتتحرك قبلها.'), amountForm(b, dokan));
       } else {
         kids.push(line('مفيش طلب سحب حالي', true), line(!b.hasStore ? 'المبتكر ده مالوش متجر على Dokan.' : dokan == null ? 'رصيد Dokan للمبتكر ده لسه ماتقريش — جرّب «تحديث من Dokan» أو استنى المزامنة الجاية.'
           : dokan <= 0 ? 'مفيش رصيد على Dokan يتطلب دلوقتي — الخصومات المفتوحة بتفضل عليه لحد ما يبقى له رصيد.' : b.payable > 0 ? 'المبتكر ليه رصيد صافي ' + fmt(b.payable) + ' ج.م.' : 'مفيش رصيد مستحق للمبتكر.'));

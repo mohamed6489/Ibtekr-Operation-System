@@ -7,6 +7,7 @@
 // the «dev:» refs this run did not write — a source that could not be read keeps its notes).
 
 import { waitLabel } from './agent-actions.js';
+import { COMMANDS, COMMAND_KEYS, LIST_DATE, TIER_MODEL, modelNews, tierFor } from './ai-routing.js';
 
 export const SESSION_MARK = 'للجلسة:'; // the line before the technical summary (the chat's copy button takes what follows it)
 export const DEV_PREFIX = 'dev:';
@@ -75,7 +76,8 @@ const AD_BAD = { DISABLED: 'الحساب متوقف من المنصة', UNSETTLE
  * input: { now: ms, crashes: [{ at, actor, new_value: { kind, at: 'file.js:L:C' } }] | null, sync: [{ at, kind, direction, entity, action,
  *   detail }] | null, cron: { jobs: [{ name, runs, failed, last_failed_at, msg }], http: { failed, codes, msg } } | null,
  *   checks: { pagespeed?: { data, checked_at }, wp_updates?: { data, checked_at } } | null, channels: [{ id, name, kind, status }] | null,
- *   ads: [{ platform, id, name, status, meta }] | null } — a source that could not be read is null.
+ *   ads: [{ platform, id, name, status, meta }] | null, models: ['claude-…'] (the ids Anthropic serves the linked key; [] = Claude is not
+ *   linked) | null } — a source that could not be read is null.
  * → { notes: [{ agent, kind, ref, link, title, body }], keep: ['dev:crash:', …] (the prefixes of the sources not read — their notes stay) }
  */
 export function devNotes(input) {
@@ -183,6 +185,31 @@ export function devNotes(input) {
           tech: ['mkt_ad_objects kind=account platform=' + key(a.platform) + ' id=' + key(a.id) + ' status=' + key(a.status) + (err ? ' meta.error=' + err : '') + ' · checked ' + iso(m.checked_at)] }, 22));
     }
   } else keep.push(DEV_PREFIX + 'ads:');
+  // 7) Claude's models (the owner 22 Nov — «تعرفني لو فيه تحديثات عن طريق المبرمج عشان نعمل تحديث للسيستم»): the list Anthropic serves the
+  // linked key against the one this system knows (ai-routing.js) — a new model is an update to look at, a routed model that is no
+  // longer served is a problem (its commands fail). Model ids only; [] = Claude is not linked (nothing to say)
+  if (Array.isArray(x.models)) {
+    const news = modelNews(x.models); const TIER_AR = { light: 'الخفيف', mid: 'المتوسط', heavy: 'التقيل' };
+    if (news.fresh.length) {
+      const ids = news.fresh.map((m) => line(m, 60));
+      out.push(note('update', 'model:new:' + key(ids.join('+')), ids.length === 1 ? 'موديل جديد من Claude: ' + ids[0] : ids.length + ' موديلات جديدة من Claude',
+        { what: 'Anthropic بقت بتقدّم ' + (ids.length === 1 ? 'موديل' : 'موديلات') + ' مش في قايمة السيستم: ' + ids.join('، ') + '.', when: '',
+          cause: 'قايمة الموديلات وأسعارها وتوزيع الأوامر عليها في السيستم مكتوبين على قايمة Anthropic بتاريخ ' + LIST_DATE + '.',
+          fix: 'نراجع الموديل الجديد وسعره، ولو أحسن أو أرخص لمستوى من التلاتة نحدّث القايمة والأسعار والتوزيع. لحد كده السيستم شغّال زي ما هو على موديلاته الحالية.', code: true,
+          tech: ['Claude models: served but not in KNOWN_MODELS (supabase/functions/_shared/ai-routing.js, LIST_DATE ' + LIST_DATE + '): ' + ids.join(', '),
+            'routed now: light=' + TIER_MODEL.light + ' mid=' + TIER_MODEL.mid + ' heavy=' + TIER_MODEL.heavy,
+            'to update: KNOWN_MODELS / TIER_MODEL / TIER_USD / LIST_DATE (ai-routing.js), PRICES (ai-content.js), the page copy app/js/pages/ai-routing.js, tests/functions/ai-routing.test.mjs — from Anthropic\'s models and pricing pages'] }, 6));
+    }
+    for (const m of news.gone) {
+      const tier = Object.keys(TIER_MODEL).find((t) => TIER_MODEL[t] === m); const cmds = COMMAND_KEYS.filter((c) => tierFor(c) === tier);
+      out.push(note('problem', 'model:gone:' + key(m), 'موديل Claude اللي السيستم بيستخدمه مابقاش متاح: ' + m,
+        { what: 'الموديل «' + m + '» (المستوى ' + (TIER_AR[tier] || tier) + ') مش في القايمة اللي Anthropic بتقدّمها للمفتاح المربوط — الأوامر اللي عليه هتفشل.', when: '',
+          cause: 'Anthropic وقّفت الموديل ده أو المفتاح المربوط مالوش صلاحية عليه.',
+          fix: 'نحدّث السيستم على الموديل اللي حل محله. ولحد ما يتحدّث: من الإعدادات › الذكاء الاصطناعي › المزوّدين غيّر مستوى الأوامر دي أو اختار «موديل واحد للكل».', code: true,
+          tech: ['Claude models: ' + m + ' (TIER_MODEL.' + tier + ', supabase/functions/_shared/ai-routing.js) is not in GET /v1/models for the linked key',
+            'commands recommended on it: ' + cmds.join(', '), 'served: ' + x.models.map((s) => line(s, 60)).filter((s) => /^claude-/.test(s)).slice(0, 30).join(', ')] }, 30));
+    }
+  } else keep.push(DEV_PREFIX + 'model:');
   out.sort((a, b) => b.rank - a.rank);
   return { notes: out.slice(0, DEV_MAX).map(({ rank: _r, ...n }) => n), refs: out.map((n) => n.ref), keep };
 }

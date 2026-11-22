@@ -91,6 +91,7 @@ const COLUMNS: Record<string, string[]> = {
     'platform', 'tag', 'thumb', 'thumb_src', 'thumb_tries', 'author', 'views', 'likes', 'comments', 'posted_at', 'external_id'], // 0118 (ش39)
   site_checks: ['kind', 'data', 'checked_at', 'checked_by'], // 0109 (the last WordPress updates check)
   ai_agents: ['id', 'name', 'icon', 'perm', 'sees', 'role', 'about', 'intro', 'instructions', 'suggestions', 'builtin', 'sort', 'created_at', 'updated_at', 'archived_at'], // 0120 (the assistants)
+  ai_agent_notes: ['id', 'agent', 'kind', 'title', 'body', 'link', 'ref', 'created_at'], // 0124 (the assistants' notes in the bell)
   ai_agent_kb: ['id', 'kind', 'section', 'title', 'body', 'agents', 'sort', 'created_at'], // 0120 (their rules and skills)
   hr_attendance: ['id', 'member_id', 'day', 'in_at', 'out_at', 'remote', 'source', 'note'],
   hr_requests_v: ['id', 'member_id', 'type', 'from_day', 'to_day', 'status'],

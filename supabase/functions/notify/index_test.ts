@@ -3,7 +3,7 @@
 // items → alerts rows per receiving role / the manager, alert_state remembered, nothing twice in a tick; the e-mail (Resend, the
 // Vault key) and the WhatsApp template (the linked number) go to the active members with a contact and are logged as counts and
 // codes only; the quiet hours hold them; a dry run writes nothing; status shows the channels' readiness. No network.
-import { assert, assertEquals } from 'jsr:@std/assert@1';
+import { assert, assertEquals, assertFalse } from 'jsr:@std/assert@1';
 import { handler, payrollDue } from './index.ts';
 import { fakeDb } from '../_test/fakes.ts';
 
@@ -218,6 +218,42 @@ Deno.test('the developer\'s check: a note per problem with «للجلسة:», on
   const again = await cron(deps);
   assertEquals(notes.filter((x) => x.p_agent === 'dev').length, 0);
   assertEquals((again.body as any).dev, undefined);
+});
+
+// the owner 22 Nov (model routing): the same check reads the models Anthropic serves the linked key — a new one is a note for the
+// session; the key goes to the reader alone; a read that failed keeps yesterday's «dev:model:» notes; no key = nothing asked
+Deno.test('the developer\'s check: Claude\'s served models against the system\'s list — a new model is a note, a failed read keeps the notes, no key asks nothing', async () => {
+  const mk = (models: ((key: string) => Promise<string[]>) | undefined, key = 'sk-ant-test') => {
+    const seed = SEED(); (seed as any).ai_agents = [{ id: 'dev', name: 'المبرمج الذكي', role: null }];
+    (seed as any).ai_agent_notes = [{ agent: 'dev', ref: 'dev:model:new:claude-old-news' }];
+    const notes: any[] = []; const clears: any[] = []; const keys: string[] = [];
+    const { deps } = setup({ seed });
+    const rpc = deps.db.rpc.bind(deps.db);
+    (deps.db as any).rpc = (name: string, args: any) => {
+      if (name === 'ai_agent_note_add') { notes.push(args); return Promise.resolve({ data: notes.length, error: null }); }
+      if (name === 'ai_agent_note_clear') { clears.push(args); return Promise.resolve({ data: 0, error: null }); }
+      if (name === 'dev_cron_health') return Promise.resolve({ data: { jobs: [], http: { failed: 0 } }, error: null });
+      if (name === 'app_secret_env') return Promise.resolve({ data: key ? { ANTHROPIC_API_KEY: key } : {}, error: null });
+      return rpc(name, args);
+    };
+    if (models) (deps as any).models = (k: string) => { keys.push(k); return models(k); };
+    return { deps, notes, clears, keys };
+  };
+  const a = mk(async () => ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5', 'claude-opus-6']);
+  await cron(a.deps);
+  const dev = a.notes.filter((x) => x.p_agent === 'dev');
+  assertEquals(dev.map((x) => [x.p_kind, x.p_ref]), [['update', 'dev:model:new:claude-opus-6']]);
+  assertEquals(a.keys, ['sk-ant-test']); assertFalse(JSON.stringify(a.notes).includes('sk-ant-test'), 'the key never reaches a note');
+  assertEquals(a.clears[0].p_keep, ['dev:model:new:claude-opus-6'], 'yesterday\'s note about another model is cleared');
+  // the read failed: nothing written about models, and the note already there stays
+  const b = mk(async () => { throw new Error('network'); });
+  const rb = await cron(b.deps);
+  assertEquals(b.notes.filter((x) => x.p_agent === 'dev').length, 0); assertEquals(b.clears[0].p_keep, ['dev:model:new:claude-old-news']);
+  assertEquals((rb.body as any).dev.unread_sources, ['dev:model:']);
+  // Claude is not linked: Anthropic is not asked, and the old note goes
+  const c = mk(async () => ['claude-opus-6'], '');
+  await cron(c.deps);
+  assertEquals([c.keys.length, c.notes.filter((x) => x.p_agent === 'dev').length, c.clears[0].p_keep], [0, 0, []]);
 });
 
 Deno.test('the owner 18 Nov — the clean-up every 48 hours (0132): the files through Storage first, then the rows whose files went; not again before 48 hours', async () => {

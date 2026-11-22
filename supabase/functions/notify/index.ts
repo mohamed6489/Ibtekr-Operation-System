@@ -17,6 +17,7 @@
 //   expired links, the read alerts, the deleted chats and the old files go; sync_state «cleanup» keeps the last run's counts.
 // Nothing here logs a token, a phone number, an e-mail address or a message text.
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
+import Anthropic from 'npm:@anthropic-ai/sdk@1.3.0';
 import { vaultEnv } from '../_shared/secrets.js';
 import { WA_GRAPH, graphErrorCode } from '../_shared/cs-whatsapp.js';
 import { cairoParts } from '../_shared/mkt-publish.js';
@@ -33,6 +34,7 @@ type Db = any;
 type Json = Record<string, any>;
 export type Deps = {
   env: Record<string, string | undefined>; db: Db; now: () => string; fetch?: typeof fetch;
+  models?: (key: string) => Promise<string[]>; // the model ids Anthropic serves this key (the developer's check — read only)
   userDb?: (jwt: string) => Db; userId?: (jwt: string) => Promise<string | null>;
 };
 type Item = { key: string; entityId: string; title: string; body?: string; entity?: string; own?: { manager?: string | null; member?: string | null }; vendorId?: string; vendorPhone?: string | null; expiresAt?: string | null };
@@ -315,17 +317,27 @@ async function devCheckNotes(deps: Deps, ctx: Ctx): Promise<Json | null> {
   if (!ag.length || ag[0].archived_at) return null;
   const since = new Date(ctx.nowMs - D).toISOString();
   const got = async (q: PromiseLike<{ data: unknown; error: unknown }>) => { try { const r = await q; return r.error ? null : r.data; } catch { return null; } };
-  const [crashes, sync, cron, checks, channels, ads] = await Promise.all([
+  // the owner 22 Nov: Claude's served models against the list the routing knows (ids only; no key = not linked = nothing to say;
+  // a read that failed = null, so yesterday's notes stay)
+  const served = async (): Promise<string[] | null> => {
+    try {
+      const key = String((await vaultEnv(deps.db, deps.env)).ANTHROPIC_API_KEY ?? '').trim();
+      if (!key) return [];
+      return deps.models ? await deps.models(key) : null;
+    } catch { return null; }
+  };
+  const [crashes, sync, cron, checks, channels, ads, models] = await Promise.all([
     got(deps.db.from('activity_log').select('at, actor, new_value').eq('action', 'app.crash').gte('at', since).limit(LIMIT)),
     got(deps.db.from('woo_sync_log').select('at, kind, direction, entity, action, detail').eq('result', 'error').gte('at', since).order('at', { ascending: true }).limit(LIMIT)),
     got(deps.db.rpc('dev_cron_health', { p_hours: 24 })),
     got(deps.db.from('site_checks').select('kind, data, checked_at').in('kind', ['pagespeed', 'wp_updates'])),
     got(deps.db.from('cs_channels').select('id, name, kind, status')),
     got(deps.db.from('mkt_ad_objects').select('platform, id, name, status, meta').eq('kind', 'account').limit(50)),
+    served(),
   ]);
   const byKind: Record<string, Json> = {}; for (const r of Array.isArray(checks) ? checks as Json[] : []) byKind[String(r.kind)] = r;
   const r = devNotes({ now: ctx.nowMs, crashes: Array.isArray(crashes) ? crashes : null, sync: Array.isArray(sync) ? sync : null, cron: isObj(cron) ? cron : null,
-    checks: Array.isArray(checks) ? byKind : null, channels: Array.isArray(channels) ? channels : null, ads: Array.isArray(ads) ? ads : null }) as unknown as { notes: Json[]; refs: string[]; keep: string[] };
+    checks: Array.isArray(checks) ? byKind : null, channels: Array.isArray(channels) ? channels : null, ads: Array.isArray(ads) ? ads : null, models }) as unknown as { notes: Json[]; refs: string[]; keep: string[] };
   let n = 0;
   for (const x of r.notes) {
     const { error } = await deps.db.rpc('ai_agent_note_add', { p_agent: 'dev', p_kind: x.kind, p_title: x.title, p_body: x.body, p_ref: x.ref, p_link: x.link });
@@ -409,6 +421,8 @@ function realDeps(): Deps {
   service ??= createClient(env.SUPABASE_URL ?? '', env.SUPABASE_SERVICE_ROLE_KEY ?? '', NO_SESSION);
   return {
     env, db: service, now: () => new Date().toISOString(), fetch: globalThis.fetch,
+    // GET /v1/models with the linked key, every page (the SDK's list iterates them) — ids only, nothing is written anywhere
+    models: async (key) => { const ids: string[] = []; for await (const m of new Anthropic({ apiKey: key, timeout: 20_000, maxRetries: 1 }).models.list({ limit: 100 })) ids.push(String(m.id)); return ids; },
     userDb: (jwt) => createClient(env.SUPABASE_URL ?? '', env.SUPABASE_ANON_KEY ?? '', { ...NO_SESSION, global: { headers: { Authorization: `Bearer ${jwt}` } } }),
     userId: async (jwt) => { const { data, error } = await service.auth.getUser(jwt); return error ? null : data?.user?.id ?? null; },
   };

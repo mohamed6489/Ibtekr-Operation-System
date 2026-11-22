@@ -296,10 +296,12 @@
       const { data: rows, error } = await q; if (error) return fail(error);
       const list = Array.isArray(rows) ? rows : []; const more = list.length > size;
       const names = new Map((window.IBDirectory && window.IBDirectory.members ? window.IBDirectory.members() : []).map((m) => [m.uid, m.name]));
-      return { ok: true, rows: list.slice(0, size).map((r) => ({ id: r.id, at: r.at, actor: r.actor || null, actorName: (r.actor && names.get(r.actor)) || (r.actor ? 'عضو' : 'السيستم'), action: r.action, page: pageOf(r.action), entity: r.entity || '', entityId: r.entity_id || '', oldValue: r.old_value, newValue: r.new_value })), more, page };
+      return { ok: true, rows: list.slice(0, size).map((r) => ({ id: r.id, at: r.at, actor: r.actor || null, actorName: (r.actor && names.get(r.actor)) || (r.actor ? 'عضو' : 'السيستم'), action: r.action, page: pageOf(r.action), entity: r.entity || '', entityId: r.entity_id || '', oldValue: r.old_value, newValue: r.action === 'app.crash' ? crashText(r.new_value) : r.new_value })), more, page };
     } catch (e) { return no('network'); }
   }
   const PAGE_NAMES = { auth: 'الدخول', dashboard: 'لوحة التحكم', profile: 'ملفي', order: 'الأوردرات', suborder: 'الأوردرات', vendor: 'المبتكرين', accounts: 'الحسابات', product: 'المنتجات', cs: 'خدمة العملاء', inventory: 'المخزون', ticket: 'طلبات الفريق', hr: 'الموارد البشرية', mkt: 'التسويق', settings: 'الإعدادات', delivery: 'التوصيل' };
+  // an app.crash row (crash-guard.js) in words — its screen state `d` is numbers for the developer, read from the log itself
+  const crashText = (v) => { const o = v && typeof v === 'object' ? v : {}; return o.kind === 'blank' ? 'الصفحة فضيت' : 'خطأ في الشاشة' + (o.kind ? ' (' + String(o.kind).slice(0, 40) + (o.at ? ' — ' + String(o.at).slice(0, 60) : '') + ')' : ''); };
   const pageOf = (action) => PAGE_NAMES[String(action || '').split('.')[0]] || 'أخرى';
 
   // ---------- the company papers (decision 20) ----------

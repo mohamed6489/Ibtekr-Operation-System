@@ -29,15 +29,21 @@
     if (meRow) K.setMe(meRow.member_code);
     document.dispatchEvent(new Event('ib:directory'));
   }
+  const GROUP_WAIT_MS_DEF = 8000; const groupWait = () => Number(window.IB_DIR_WAIT_MS) || GROUP_WAIT_MS_DEF; // a test can shorten it
+  // all the promises settled, or ms passed — whichever comes first (the slow ones keep running)
+  const within = (ms, list) => { let t = null; const wait = new Promise((res) => { t = setTimeout(res, ms); }); return Promise.race([Promise.allSettled(list), wait]).finally(() => clearTimeout(t)); };
   async function load() {
     await refresh();
     // only for an active member (K.ME is theirs now); a suspended or missing profile is signed out by the caller
     if (!meRow || meRow.status !== 'active') return;
     const P = window.IBPrefs, A = window.IBAlerts, L = window.IBActivity, Or = window.IBOrders, V = window.IBVendors, Ac = window.IBAccounts, CS = window.IBCS;
     const St = window.IBSettings; // phase 11: the public settings every member needs (brand, quick actions, the bell's matrix, the security policy)
-    await Promise.allSettled([P && P.load(), A && A.load(), L && L.refresh && L.refresh(), Or && Or.load(), V && V.load(), St && St.loadPublic && St.loadPublic()]);
+    // The owner 22 Nov («الصفحة فضيت» from one member on a slow line): the app stays hidden until load() returns, and one request the
+    // browser never finished kept it hidden for good. Each group waits up to 8 s; a slower load goes on in the background
+    // and its page redraws on its own event (ib:hr, ib:accounts, …) when it lands.
+    await within(groupWait(), [P && P.load(), A && A.load(), L && L.refresh && L.refresh(), Or && Or.load(), V && V.load(), St && St.loadPublic && St.loadPublic()]);
     const Inv = window.IBInventory, Tk = window.IBTickets, HR = window.IBHR;
-    if (Ac || CS || Inv || Tk || HR) await Promise.allSettled([Ac && Ac.load(), CS && CS.load(), Inv && Inv.load(), Tk && Tk.load(), HR && HR.load()]); // phase 4 / 6 / 7 / 8 / 10: after the makers (the moves, the makers' chats and the lots carry their names)
+    if (Ac || CS || Inv || Tk || HR) await within(groupWait(), [Ac && Ac.load(), CS && CS.load(), Inv && Inv.load(), Tk && Tk.load(), HR && HR.load()]); // phase 4 / 6 / 7 / 8 / 10: after the makers (the moves, the makers' chats and the lots carry their names)
     if (A) quiet(() => A.subscribe());
     if (Or) quiet(() => Or.subscribe());
     if (CS) quiet(() => CS.subscribe());

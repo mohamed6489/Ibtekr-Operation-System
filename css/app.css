@@ -1999,6 +1999,8 @@ img.ib-worm.ib-ldr-img.spin{animation:ib-ldr-spin var(--ldr-speed,1.7s) linear i
 .ib-boot{position:fixed;inset:0;z-index:1000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;background:var(--color-bg-base,#FFF8EF);transition:opacity .28s ease}
 .ib-boot .ib-worm{width:88px;height:88px;border-radius:17px;box-shadow:var(--shadow-card,0 0 6px rgba(0,0,0,.25))}
 .ib-boot.out{opacity:0;pointer-events:none}
+.ib-boot-slow{display:flex;flex-direction:column;align-items:center;gap:10px;font-family:var(--font,inherit);color:var(--color-text,#2E2A1B);text-align:center;padding:0 16px}
+.ib-boot-slow p{margin:0;font-size:14px}
 /* a page's own «بنحمّل…» line with the mark beside it (IBLoader.row, and the notes loader.js dresses) */
 .ib-loading{display:inline-flex;align-items:center;gap:10px;color:var(--color-text-secondary)}
 .note.is-loading{justify-content:flex-start}

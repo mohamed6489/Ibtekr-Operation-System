@@ -1083,7 +1083,10 @@
         if (!admin() && can('sensitive.salaries') !== 'F') no(); const api = hrApi();
         const mem = (window.IBHR.everyone ? window.IBHR.everyone() : []).find((m) => String(m.name || '').trim() === String(v.member || '').trim())
           || (window.IBHR.everyone ? window.IBHR.everyone() : []).find((m) => v.member && String(m.name || '').includes(String(v.member).trim()));
-        if (form === 'salary_pay') { if (!mem) throw new Error('مش لاقي العضو ده'); if (location.hash.slice(1) !== 'hr-payroll') location.hash = 'hr-payroll'; const r = api.payPopup(mem.id); if (r === 'paid') throw new Error('مرتب ' + mem.name + ' اتحوّل الشهر ده'); if (r === 'loading') throw new Error('الكشف لسه بيتحمّل — جرّب كمان ثانية'); return 'form salary_pay'; }
+        if (form === 'salary_pay') { if (!mem) throw new Error('مش لاقي العضو ده'); if (location.hash.slice(1) !== 'hr-payroll') location.hash = 'hr-payroll'; const r = api.payPopup(mem.id); if (r === 'paid') throw new Error('مرتب ' + mem.name + ' اتحوّل الشهر ده'); if (r === 'none') throw new Error(mem.name + ' مالوش سطر في كشف الشهر ده');
+          // agents-brain decision 22: the sheet loads with the page — the popup waits for it (up to ~5 s) rather than ask the member to press again
+          if (r === 'loading') { let tries = 0; const open = () => { const x = api.payPopup(mem.id); if (x === 'loading' && ++tries < 25) { setTimeout(open, 200); return; } if (x === 'paid') K.toast('مرتب ' + mem.name + ' اتحوّل الشهر ده', 'warning'); else if (x === 'none') K.toast(mem.name + ' مالوش سطر في كشف الشهر ده', 'warning'); else if (x === 'loading') K.toast('الكشف لسه بيتحمّل — جرّب كمان ثانية', 'warning'); }; setTimeout(open, 200); }
+          return 'form salary_pay'; }
         const amt = Number(String(v.amount || '').replace(/[,٬]/g, ''));
         if (location.hash.slice(1) !== 'hr-payroll') location.hash = 'hr-payroll';
         setTimeout(() => api.adjustPopup(mem ? mem.id : null, { kind: v.kind === 'خصم' ? 'خصم' : 'بدل', label: String(v.label || '').slice(0, 80), amount: Number.isFinite(amt) && amt > 0 ? String(amt) : '' }), 60); return 'form salary_adjust'; }

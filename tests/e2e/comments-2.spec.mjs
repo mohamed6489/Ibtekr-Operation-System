@@ -282,6 +282,43 @@ test('comment 10 — «تقرير مختصر»: five numbers, the request\'s box
   expect(fsp.rows.find((r) => r[1] === '#181669')[2].n).toBe(651.3);
 });
 
+test('the owner 22 Nov: a cancelled order or a returned product adds «سبب الإلغاء / المرتجع» to the short and the full report and to their shared files; none = no column', async ({ page }) => {
+  mock.orders.forEach((o) => { if (o.id === 180686) Object.assign(o, { status: 'ملغي', woo_status: 'cancelled', cancel: { reason: 'العميل غيّر رأيه', date: '2026-11-10' } }); });
+  await makersAccounts(page);
+  await page.evaluate(() => { const o = window.IBShare.open; window.IBShare.open = (sp) => { window.__spec = JSON.parse(JSON.stringify(sp)); return o(sp); }; });
+  await page.locator('#vpanel .vname-link', { hasText: 'Art Craft' }).first().click();
+  const m = page.locator('.modal.vb-modal');
+  await expect(m.locator('[data-vb-table] thead th')).toHaveText(['المنتج', 'رقم الأوردر', 'القيمة (ج.م)', 'الحالة', 'سبب الإلغاء / المرتجع']);
+  const cancelled = m.locator('[data-vb-table] tbody tr', { hasText: 'ملغي' }).first();
+  await expect(cancelled.locator('[data-vb-reason]')).toHaveText('العميل غيّر رأيه');
+  await expect(m.locator('[data-vb-table] tbody tr', { hasText: 'مكتمل' }).first().locator('[data-vb-reason]')).toHaveText('—');
+  await m.locator('[data-vb-share]').click();
+  let sp = await page.evaluate(() => window.__spec);
+  expect(sp.headers.at(-1)).toBe('سبب الإلغاء / المرتجع');
+  expect(sp.rows.filter((r) => r[3] === 'ملغي').every((r) => r[4] === 'العميل غيّر رأيه')).toBe(true);
+  expect(sp.total).toHaveLength(5);
+  await page.keyboard.press('Escape');
+  // the whole history reads the reason from the server too
+  await m.locator('[data-vb-full]').click();
+  const full = page.locator('.modal.vb-modal');
+  await expect(full.locator('[data-vfull-scope]')).toHaveAttribute('data-vfull-scope', 'whole');
+  await expect(full.locator('[data-vfull-table] thead th').last()).toHaveText('سبب الإلغاء / المرتجع');
+  await expect(full.locator('[data-vfull-table] tbody tr', { hasText: 'ملغي' }).first().locator('[data-vb-reason]')).toHaveText('العميل غيّر رأيه');
+  await full.locator('[data-vb-share]').click();
+  sp = await page.evaluate(() => window.__spec);
+  expect(sp.headers.at(-1)).toBe('سبب الإلغاء / المرتجع');
+});
+
+test('the owner 22 Nov: no cancelled or returned row — no reason column in the report or its file', async ({ page }) => {
+  await makersAccounts(page);
+  await page.evaluate(() => { const o = window.IBShare.open; window.IBShare.open = (sp) => { window.__spec = JSON.parse(JSON.stringify(sp)); return o(sp); }; });
+  await page.locator('#vpanel .vname-link', { hasText: 'Art Craft' }).first().click();
+  const m = page.locator('.modal.vb-modal');
+  await expect(m.locator('[data-vb-table] thead th')).toHaveText(['المنتج', 'رقم الأوردر', 'القيمة (ج.م)', 'الحالة']);
+  await m.locator('[data-vb-share]').click();
+  expect((await page.evaluate(() => window.__spec)).headers).toHaveLength(4);
+});
+
 test('comment 11 — «تقفيل حساب» is the short report\'s own popup; «اعمل طلب سحب على Dokan» files the request and asks «وافق دلوقتي» / «بعدين» in the same popup', async ({ page }) => {
   await makersAccounts(page);
   await page.locator('#vpanel table tbody tr', { hasText: 'Antikiano' }).getByRole('button', { name: /إجراءات/ }).click();

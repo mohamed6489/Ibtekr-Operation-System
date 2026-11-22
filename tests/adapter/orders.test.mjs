@@ -803,3 +803,12 @@ test('a row\'s writes go one after the other: the second of two quick changes na
   const after = opsOf(t.calls, 'orders').filter((c) => (c.op === 'eq' || c.op === 'is') && c.args[0] === 'deposit').map((c) => Number(c.args[1]));
   assert.deepEqual(after, [0, 0], 'both name the deposit the two successful writes above left (0)');
 });
+
+test('the owner 22 Nov: reasonOf — the cancel reason of a «ملغي» order, else the product\'s own return, else the order\'s «استرجاع»; none = \'\'', () => {
+  const { O } = load();
+  assert.equal(O.reasonOf('ملغي', { cancel: { reason: 'العميل غيّر رأيه' } }, { ret: { reason: 'تالف' } }), 'العميل غيّر رأيه');
+  assert.equal(O.reasonOf('مكتمل', { cancel: { reason: 'قديم' } }, { ret: { reason: 'تالف' } }), 'تالف', 'a completed order: the product returned');
+  assert.equal(O.reasonOf('استرجاع', { ret: { reason: 'المقاس مش مظبوط' } }, { ret: null }), 'المقاس مش مظبوط');
+  assert.equal(O.reasonOf('ملغي', { cancel: null }, { ret: { reason: '  ' } }), '');
+  assert.equal(O.reasonOf('مكتمل', null, null), '');
+});

@@ -120,6 +120,13 @@
   // the file's value column and total from the shares
   const shareCols = (rows, shares, fmt) => ({ cells: shares.map((n) => (n == null ? '—' : { text: fmt(n), n })), total: Math.round(shares.reduce((t, n) => t + (n || 0), 0) * 100) / 100, hidden: shares.some((n) => n == null) });
   const SHARE_HEAD = 'حق المبتكر (ج.م)';
+  // the owner 22 Nov («لو فيه الغاء او مرتجع زود ف التقرير عمود سبب الالغاء او المرتجع … موجود ف الملفات اللي هتتصدر او هتتشارك»):
+  // a row's reason — its own (the whole history's read, IBOrders.makerHistory) or the order on the screen (the cancel reason when
+  // «ملغي», else the line's return, else the order's «استرجاع» — IBOrders.reasonOf); the column shows only when a row has one
+  const REASON_HEAD = 'سبب الإلغاء / المرتجع';
+  const rowReason = (x) => { if (x && x.reason) return x.reason; const OA = window.OrdersApp; const O = window.IBOrders; const o = OA && OA.get ? OA.get(x.oid) : null;
+    if (!o || !O || !O.reasonOf) return ''; const line = (o.subs || []).find((sb) => String(sb.sid) === String(x.sid) && sb.prod === x.prod) || null; return O.reasonOf(x.status, o, line); };
+  const reasonsOf = (rows) => { const rs = (rows || []).map(rowReason); return { rs, on: rs.some(Boolean) }; };
   function prodThumb(sku, name) {
     const m = window.IB_PRODUCT_IMG || {}; const k = String(sku || '').trim(); const u = prodImage(k);
     const src = u || (k && m[k] ? 'data:image/jpeg;base64,' + m[k] : '');
@@ -147,19 +154,20 @@
       : 'الأوردرات المكتملة والملغية في آخر 12 شهر (اللي على الشاشة) — التاريخ الكامل ماتقراش دلوقتي.');
     const tiles = (r) => [{ label: 'الرصيد', value: fmt(r.balance) + ' ج.م' }, { label: 'الأوردرات', value: String(r.orders) }, { label: 'مكتمل', value: String(r.completed) }, { label: 'ملغي', value: String(r.cancelled) }, { label: 'قيمة الأوردرات', value: fmt(r.value) + ' ج.م' }];
     const oidCell = (x) => h('span', { class: 'vr-oid' }, h('bdi', { dir: 'ltr' }, '#' + (x.sid || x.oid))); // chat ش6 (16 Nov): the sub-order's number only (the order's when it has none)
-    const spec = (r) => { const sc = shareCols(r.rows, makerShares(r.rows, state.lines || screenLines(), v), fmt);
+    const spec = (r) => { const sc = shareCols(r.rows, makerShares(r.rows, state.lines || screenLines(), v), fmt); const rz = reasonsOf(r.rows);
       return { title, name: 'التقرير الكامل ' + name, sub: scope(), phone: v && v.phone, email: v && v.email, summary: tiles(r),
-        headers: ['المنتج', 'رقم الأوردر', SHARE_HEAD, 'حالة الأوردر'], rows: r.rows.map((x, i) => [{ text: x.prod, img: prodImage(x.sku) }, '#' + (x.sid || x.oid), sc.cells[i], x.status]),
-        total: r.rows.length ? ['الإجمالي', r.orders + ' أوردر', { text: fmt(sc.total), n: sc.total }, ''] : null, empty: 'مفيش أوردرات مكتملة أو ملغية للمبتكر ده.',
+        headers: ['المنتج', 'رقم الأوردر', SHARE_HEAD, 'حالة الأوردر'].concat(rz.on ? [REASON_HEAD] : []), rows: r.rows.map((x, i) => [{ text: x.prod, img: prodImage(x.sku) }, '#' + (x.sid || x.oid), sc.cells[i], x.status].concat(rz.on ? [rz.rs[i] || '—'] : [])),
+        total: r.rows.length ? ['الإجمالي', r.orders + ' أوردر', { text: fmt(sc.total), n: sc.total }, ''].concat(rz.on ? [''] : []) : null, empty: 'مفيش أوردرات مكتملة أو ملغية للمبتكر ده.',
         note: 'حق المبتكر = قيمة المنتج ناقص عمولة إبتكر عليه، والملغي صفر.' + (sc.hidden ? ' «—» = حق المبتكر مش ظاهر لك (برّه الإجمالي).' : '') }; };
     function draw() {
-      const r = state.r || screen();
+      const r = state.r || screen(); const rz = reasonsOf(r.rows); const HD = ['المنتج', 'رقم الأوردر', 'القيمة (ج.م)', 'حالة الأوردر'].concat(rz.on ? [REASON_HEAD] : []);
       const body = [h('div', { class: 'vb-scope' + (state.whole ? ' whole' : ''), 'data-vfull-scope': state.whole ? 'whole' : 'screen' }, Icon('calendar', 'sm'), h('span', null, state.loading ? 'بنحمّل التاريخ الكامل للمبتكر…' : scope())),
         h('div', { class: 'vb-tiles' }, tiles(r).map((t) => h('div', { class: 'vb-tile' }, h('span', { class: 't-small' }, t.label), h('b', null, num(t.value))))),
-        r.rows.length ? h('div', { class: 'vb-table-wrap' }, h('table', { class: 'vlo-table dt-table vb-table', 'data-vfull-table': '' }, h('thead', null, h('tr', null, ['المنتج', 'رقم الأوردر', 'القيمة (ج.م)', 'حالة الأوردر'].map((x) => h('th', { scope: 'col' }, x)))),
-          h('tbody', null, r.rows.slice(0, 500).map((x) => { const tr = h('tr', { class: 'dt-click', tabindex: '0', role: 'button' }, h('td', { 'data-l': 'المنتج' }, prodThumb(x.sku, x.prod)), h('td', { 'data-l': 'رقم الأوردر', class: 'nw' }, oidCell(x)), h('td', { 'data-l': 'القيمة (ج.م)', class: 'nw' }, num(fmt(x.tot))), h('td', { 'data-l': 'حالة الأوردر', class: 'nw' }, x.status));
+        r.rows.length ? h('div', { class: 'vb-table-wrap' }, h('table', { class: 'vlo-table dt-table vb-table', 'data-vfull-table': '' }, h('thead', null, h('tr', null, HD.map((x) => h('th', { scope: 'col' }, x)))),
+          h('tbody', null, r.rows.slice(0, 500).map((x, i) => { const tr = h('tr', { class: 'dt-click', tabindex: '0', role: 'button' }, h('td', { 'data-l': 'المنتج' }, prodThumb(x.sku, x.prod)), h('td', { 'data-l': 'رقم الأوردر', class: 'nw' }, oidCell(x)), h('td', { 'data-l': 'القيمة (ج.م)', class: 'nw' }, num(fmt(x.tot))), h('td', { 'data-l': 'حالة الأوردر', class: 'nw' }, x.status),
+              rz.on ? h('td', { 'data-l': REASON_HEAD, class: 'vb-reason', 'data-vb-reason': '' }, rz.rs[i] || '—') : null);
             const go = () => { m.close(); showOrders({ q: x.oid }); }; tr.addEventListener('click', go); tr.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); }); return tr; })
-            .concat([h('tr', { class: 'dt-total' }, h('td', null, 'الإجمالي'), h('td', { class: 'nw' }, num(r.orders + ' أوردر')), h('td', { class: 'nw' }, num(fmt(r.value))), h('td', { class: 'dt-empty' }, ''))])))) : U.EmptyState('مفيش بيانات', 'مفيش أوردرات مكتملة أو ملغية للمبتكر ده.'),
+            .concat([h('tr', { class: 'dt-total' }, h('td', null, 'الإجمالي'), h('td', { class: 'nw' }, num(r.orders + ' أوردر')), h('td', { class: 'nw' }, num(fmt(r.value))), h('td', { class: 'dt-empty' }, ''), rz.on ? h('td', { class: 'dt-empty' }, '') : null)])))) : U.EmptyState('مفيش بيانات', 'مفيش أوردرات مكتملة أو ملغية للمبتكر ده.'),
         r.rows.length > 500 ? U.InlineNote({ children: 'أول 500 سطر على الشاشة — الملف اللي بيتشارك فيه الكل.' }) : null,
         state.capped ? U.InlineNote({ kind: 'warning', children: 'المبتكر ده عنده سطور أكتر من 5,000 — التقرير واقف عند أحدث 5,000 سطر.' }) : null,
         brandNote(v) ? U.InlineNote({ children: brandNote(v) }) : null].filter(Boolean);
@@ -2191,27 +2199,27 @@
     const HEAD = ['المنتج', 'رقم الأوردر', 'القيمة (ج.م)', 'الحالة'];
     const oidText = (x) => '#' + (x.sid || x.oid); // chat ش6 (16 Nov): the sub-order's number only (the order's when it has none)
     function spec(b) {
-      const v = vstore.findByName(name); const req = reqOf(b); const extra = briefExtra(b, fmt); const sc = shareCols(b.rows, makerShares(b.rows, screenLines(), v), fmt);
+      const v = vstore.findByName(name); const req = reqOf(b); const extra = briefExtra(b, fmt); const sc = shareCols(b.rows, makerShares(b.rows, screenLines(), v), fmt); const rz = reasonsOf(b.rows);
       return { title, name: (settle ? 'تقفيل حساب ' : 'تقرير ') + name, phone: v && v.phone, email: v && v.email,
         sub: [req ? 'طلب سحب ' + req.id + ' · ' + VD.wdLabel(req.status) + ' · ' + fmt(req.amount) + ' ج.م' : 'مفيش طلب سحب حالي', b.orders + ' أوردر (مكتمل ' + b.completed + ' · ملغي ' + b.cancelled + ')'].join(' · '),
-        summary: briefTiles(b, fmt).map((t) => ({ label: t.label, value: t.value })), headers: [HEAD[0], HEAD[1], SHARE_HEAD, HEAD[3]], rows: b.rows.map((x, i) => [{ text: x.prod, img: prodImage(x.sku) }, oidText(x), sc.cells[i], x.status]),
-        total: b.rows.length ? ['الإجمالي', b.orders + ' أوردر', { text: fmt(sc.total), n: sc.total }, ''] : null, empty: 'مفيش أوردرات مكتملة أو ملغية للمبتكر ده.',
+        summary: briefTiles(b, fmt).map((t) => ({ label: t.label, value: t.value })), headers: [HEAD[0], HEAD[1], SHARE_HEAD, HEAD[3]].concat(rz.on ? [REASON_HEAD] : []), rows: b.rows.map((x, i) => [{ text: x.prod, img: prodImage(x.sku) }, oidText(x), sc.cells[i], x.status].concat(rz.on ? [rz.rs[i] || '—'] : [])),
+        total: b.rows.length ? ['الإجمالي', b.orders + ' أوردر', { text: fmt(sc.total), n: sc.total }, ''].concat(rz.on ? [''] : []) : null, empty: 'مفيش أوردرات مكتملة أو ملغية للمبتكر ده.',
         note: 'حق المبتكر = قيمة المنتج ناقص عمولة إبتكر عليه، والملغي صفر.' + (sc.hidden ? ' «—» = حق المبتكر مش ظاهر لك (برّه الإجمالي).' : '') + ' العرابين والمواصلات متخصومة من الرصيد.' + (extra ? ' ' + extra + '.' : '') };
     }
     function draw() {
       if (m && !document.body.contains(m.el)) return;
-      const b = vendorBriefData(name); const extra = briefExtra(b, fmt);
+      const b = vendorBriefData(name); const extra = briefExtra(b, fmt); const rz = reasonsOf(b.rows); const HD = HEAD.concat(rz.on ? [REASON_HEAD] : []);
       const body = [
         h('p', { class: 't-small vb-sub' }, num(b.orders + ' أوردر (مكتمل ' + b.completed + ' · ملغي ' + b.cancelled + ') بقيمة ' + fmt(b.value) + ' ج.م')),
         h('div', { class: 'vb-tiles', 'data-vb-tiles': '' }, briefTiles(b, fmt).map((t) => h('div', { class: 'vb-tile' + (t.key === 'net' ? ' net' : ''), 'data-vb-tile': t.key }, h('span', { class: 't-small' }, t.label), h('b', null, num(t.value))))),
         extra ? h('p', { class: 't-small vb-extra', 'data-vb-extra': '' }, num('وكمان: ' + extra + ' — متحسوبين في الصافي.')) : null,
         reqBox(b), movesBox(b),
         h('div', { class: 'vb-h' }, h('h3', { class: 't-h5' }, 'الأوردرات'), h('span', { class: 't-small' }, 'اضغط على أي أوردر يفتحه')),
-        b.rows.length ? h('div', { class: 'vb-table-wrap' }, h('table', { class: 'vlo-table dt-table vb-table', 'data-vb-table': '' }, h('thead', null, h('tr', null, HEAD.map((x) => h('th', { scope: 'col' }, x)))),
-          h('tbody', null, b.rows.map((x) => { const tr = h('tr', { class: 'dt-click', tabindex: '0', role: 'button' }, h('td', { 'data-l': HEAD[0] }, prodThumb(x.sku, x.prod)), h('td', { 'data-l': HEAD[1], class: 'nw' }, h('span', { class: 'vr-oid' }, h('bdi', { dir: 'ltr' }, oidText(x)))),
-              h('td', { 'data-l': HEAD[2], class: 'nw' }, num(fmt(x.tot))), h('td', { 'data-l': HEAD[3], class: 'nw' }, x.status));
+        b.rows.length ? h('div', { class: 'vb-table-wrap' }, h('table', { class: 'vlo-table dt-table vb-table', 'data-vb-table': '' }, h('thead', null, h('tr', null, HD.map((x) => h('th', { scope: 'col' }, x)))),
+          h('tbody', null, b.rows.map((x, i) => { const tr = h('tr', { class: 'dt-click', tabindex: '0', role: 'button' }, h('td', { 'data-l': HEAD[0] }, prodThumb(x.sku, x.prod)), h('td', { 'data-l': HEAD[1], class: 'nw' }, h('span', { class: 'vr-oid' }, h('bdi', { dir: 'ltr' }, oidText(x)))),
+              h('td', { 'data-l': HEAD[2], class: 'nw' }, num(fmt(x.tot))), h('td', { 'data-l': HEAD[3], class: 'nw' }, x.status), rz.on ? h('td', { 'data-l': REASON_HEAD, class: 'vb-reason', 'data-vb-reason': '' }, rz.rs[i] || '—') : null);
             const go = () => { m.close(); showOrders({ q: x.oid }); }; tr.addEventListener('click', go); tr.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); }); return tr; })
-            .concat([h('tr', { class: 'dt-total' }, h('td', null, 'الإجمالي'), h('td', { class: 'nw' }, num(b.orders + ' أوردر')), h('td', { class: 'nw' }, num(fmt(b.value))), h('td', { class: 'dt-empty' }, ''))])))) : U.EmptyState('مفيش بيانات', 'مفيش أوردرات مكتملة أو ملغية للمبتكر ده.'),
+            .concat([h('tr', { class: 'dt-total' }, h('td', null, 'الإجمالي'), h('td', { class: 'nw' }, num(b.orders + ' أوردر')), h('td', { class: 'nw' }, num(fmt(b.value))), h('td', { class: 'dt-empty' }, ''), rz.on ? h('td', { class: 'dt-empty' }, '') : null)])))) : U.EmptyState('مفيش بيانات', 'مفيش أوردرات مكتملة أو ملغية للمبتكر ده.'),
         h('p', { class: 't-small vb-foot' }, 'العرابين والمواصلات وأي «سحب» متخصومين من الرصيد (إبتكر دفعتهم للمبتكر أو بدله). Dokan مابيعرفهمش، فطلب السحب بيبقى بكل رصيد Dokan، ولما يتوافق عليه بيتصفّوا منه.'),
       ].filter(Boolean);
       const foot = [Button({ type: 'primary', icon: 'share', label: 'مشاركة', attrs: { 'data-vb-share': '' }, onClick: () => window.IBShare.open(spec(vendorBriefData(name))) }),

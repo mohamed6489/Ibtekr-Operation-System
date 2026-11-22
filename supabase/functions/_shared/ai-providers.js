@@ -6,7 +6,7 @@
 // readAnswer / usageOf / costOf stay one path. Nothing here calls the network.
 
 export const TEXT_PROVIDERS = Object.freeze({
-  claude: { name: 'Claude (Anthropic)', env: 'ANTHROPIC_API_KEY', secret: 'anthropic', models: ['claude-opus-5-5', 'claude-sonnet-5-5'] },
+  claude: { name: 'Claude (Anthropic)', env: 'ANTHROPIC_API_KEY', secret: 'anthropic', models: ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'] },
   openai: { name: 'ChatGPT (OpenAI)', env: 'OPENAI_API_KEY', secret: 'openai', models: ['gpt-5.2', 'gpt-5.2-mini'] },
   gemini: { name: 'Gemini (Google)', env: 'GEMINI_API_KEY', secret: 'gemini', models: ['gemini-3-pro', 'gemini-3-flash'] },
 });

@@ -62,7 +62,7 @@ import { SEARCH_USD, TREND_CONTINUES, cleanTrends, parseTrends, readTrends, sear
 import { TEXT_PROVIDERS, TEXT_TOOL_OF, houseStyle, textPick } from '../_shared/ai-providers.js';
 import { MAX_TOOL_CALLS, amountsIn, reportOf, assistantMessage, assistantRequest, cleanAction, cleanAnswer, customersData, dataQuery, expensesData, filesData, hrData, inventoryData, ordersData, parseAssistant, readTurn, salesData, summaryData, tasksData, pickVendor, ticketsData, toolResults, vendorData, vendorsData } from '../_shared/ai-assistant.js';
 import { completeText } from './providers/text.ts';
-import { claudeParams, routeOf } from '../_shared/ai-routing.js';
+import { claudeParams, readSize, routeOf, sizeRequest, sizes, tiersOf } from '../_shared/ai-routing.js';
 import { cairoParts } from '../_shared/mkt-publish.js';
 
 // deno-lint-ignore no-explicit-any
@@ -89,7 +89,10 @@ const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json' } });
 const isObj = (v: unknown): v is Json => v !== null && typeof v === 'object' && !Array.isArray(v);
 const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-type Cfg = { model: string; effort: string; cap: number | null; provider: string; style: string; rules?: Json | null };
+type Cfg = { model: string; effort: string; cap: number | null; provider: string; style: string; rules?: Json | null;
+  // the owner 22 Nov (model-routing decision 9): a free chat's level is read from the message — the company's light model reads it,
+  // `size(tier)` is the model and effort of that level; both absent where the level is not read (one model, a fixed command)
+  light?: string; size?: (tier: string) => { model: string; effort: string } };
 // the settings row «ai» over the secrets (decision 8); a row that cannot be read = the secrets alone. Phase 11 (decisions 14 / 15):
 // the provider and model of the action's tool from the row's `providers`, and the house style of the row «ai_rules» as one more
 // system block (the products section, or the marketing «post» section for the marketing calls).
@@ -101,14 +104,20 @@ async function configOf(deps: Deps, action = 'write', command = action): Promise
   const rows: Json[] = !error && Array.isArray(data) ? data : [];
   const ai = rows.find((r) => r.section === 'ai')?.data; const rules = rows.find((r) => r.section === 'ai_rules')?.data;
   const one = aiSettings(isObj(ai) ? ai : null, deps.env);
-  const route = routeOf(isObj(ai) ? ai : null, command, one);
-  const base = { ...one, model: route.model, effort: route.effort };
-  const pick = textPick(isObj(ai) ? ai : null, (TEXT_TOOL_OF as Record<string, string>)[action] ?? 'products');
+  const row = isObj(ai) ? ai : null;
+  const pick = textPick(row, (TEXT_TOOL_OF as Record<string, string>)[action] ?? 'products');
   const style = action === 'buyer' || action === 'prompts' || action === 'assistant' ? '' : houseStyle(isObj(rules) ? rules : null, action === 'marketing' || action === 'scenes' ? 'post' : 'products');
-  if (action === 'assistant') return { ...base, provider: 'claude', style }; // the tool loop is Claude's (the other text providers answer text only)
-  if (action === 'extract') return { ...base, provider: 'claude', style: '' }; // the screenshots are read by Claude (the studio's WhatsApp flow)
-  if (action === 'trends') return { ...base, provider: 'claude', style: '' }; // the web search tool is Claude's (comments decision 69)
-  return { ...base, provider: pick.provider, model: pick.provider === 'claude' ? base.model : pick.model, style, rules: isObj(rules) ? rules : null };
+  // the tool loop, the screenshots (the studio's WhatsApp flow) and the web search (comments decision 69) are Claude's whatever
+  // the company of the section is — the other text companies answer text only
+  const provider = action === 'assistant' || action === 'extract' || action === 'trends' ? 'claude' : pick.provider;
+  // the admin's one model of that company (Claude's = the row's `model`), then the command's level on it (decision 8)
+  const mine = { model: provider === 'claude' ? one.model : pick.model, effort: one.effort };
+  const route = routeOf(row, command, mine, provider);
+  const sized = sizes(row, command) ? { light: tiersOf(provider).light, size: (tier: string) => { const r = routeOf(row, command, mine, provider, tier); return { model: r.model, effort: r.effort }; } } : {};
+  const base = { ...one, model: route.model, effort: route.effort, provider, ...sized };
+  if (action === 'assistant') return { ...base, style };
+  if (action === 'extract' || action === 'trends') return { ...base, style: '' };
+  return { ...base, style, rules: isObj(rules) ? rules : null };
 }
 const modelId = (v: unknown) => (typeof v === 'string' ? v.toLowerCase().replace(/[^a-z0-9.-]/g, '').slice(0, 60) : '') || null;
 
@@ -182,8 +191,24 @@ async function runAi(deps: Deps, base: Json, cfg: Cfg, params: Json, clean: (ans
   if (save && !(await save(c.out))) return json(500, { error: 'failed' });
   return json(200, { result: 'ok', ...c.out, model: c.model, cost_usd: c.cost, run_id: c.runId });
 }
-// one Claude call on its ai_runs row → the cleaned answer, or the Response of the failure (runAi without the saving)
-async function aiCall(deps: Deps, base: Json, cfg: Cfg, params: Json, clean: (answer: Json) => Json): Promise<{ res: Response } | { out: Json; model: string; cost: number; runId: number }> {
+// The level of a free-chat message (model-routing decision 9): the company's light model reads the conversation's last turns and
+// the new message and names light / mid / heavy; the answer then runs on that level's model. Called after the reservation only
+// (the throttle and the cap stand before it). Anything but a clean answer = null: the command runs on its own level.
+type Sized = { tier: string | null; input: number; output: number; cacheRead: number; cacheWrite: number; cost: number };
+async function sizeStep(deps: Deps, cfg: Cfg, turns: Json[], question: string): Promise<Sized> {
+  const none: Sized = { tier: null, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
+  if (!cfg.light || !cfg.size) return none;
+  let asked: Asked;
+  try { asked = await ask(deps, sizeRequest(turns, question, cfg.light), cfg.provider); } catch { return none; }
+  if ('error' in asked) return none;
+  const u = usageOf(asked.msg.usage); const answer = readAnswer(asked.msg);
+  return { tier: answer.status === 'ok' ? readSize(answer.json) : null, input: u.input, output: u.output, cacheRead: u.cacheRead, cacheWrite: u.cacheWrite, cost: costOf(modelId(asked.msg.model) ?? cfg.light, asked.msg.usage) };
+}
+// one Claude call on its ai_runs row → the cleaned answer, or the Response of the failure (runAi without the saving).
+// `size` (a free chat): the message's level is read first and `build` makes the request again for that level's model; the
+// answer carries the config it ran on (`cfg`) so a second call of the same turn stays on it.
+type SizeOf = { turns: Json[]; question: string; build: (cfg: Cfg) => Json };
+async function aiCall(deps: Deps, base: Json, cfg: Cfg, params: Json, clean: (answer: Json) => Json, size?: SizeOf): Promise<{ res: Response } | { out: Json; model: string; cost: number; runId: number; cfg: Cfg }> {
   const fail = (r: Response) => ({ res: r });
   const run = await startRun(deps, { ...base, model: cfg.model }, cfg.cap); // the model id names the provider
   if (run.result === 'busy') return fail(json(429, { error: 'busy' }));
@@ -191,23 +216,29 @@ async function aiCall(deps: Deps, base: Json, cfg: Cfg, params: Json, clean: (an
   if (run.result !== 'ok') return fail(json(502, { error: 'ai_error' }));
   const envKey = TEXT_PROVIDERS[cfg.provider as keyof typeof TEXT_PROVIDERS]?.env ?? 'ANTHROPIC_API_KEY';
   if (!deps.env[envKey]?.trim()) { await finishRun(deps, run.id, { status: 'error', error: 'not_configured', cost_usd: 0 }); return fail(json(503, { error: 'not_configured', provider: cfg.provider })); }
+  let pre: Sized | null = null;
+  if (size && cfg.size) {
+    pre = await sizeStep(deps, cfg, size.turns, size.question);
+    if (pre.tier) { cfg = { ...cfg, ...cfg.size(pre.tier) }; params = size.build(cfg); }
+  }
+  const before = pre ? pre.cost : 0;
   if (cfg.style) params = { ...params, model: cfg.model, system: [...(Array.isArray(params.system) ? params.system : []), { type: 'text', text: cfg.style }] };
   else if (params.model !== cfg.model) params = { ...params, model: cfg.model };
   const asked = await ask(deps, params, cfg.provider);
   if ('error' in asked) {
-    await finishRun(deps, run.id, { status: 'error', error: asked.error, cost_usd: asked.status === null ? RESERVE_USD : 0 });
+    await finishRun(deps, run.id, { status: 'error', error: asked.error, cost_usd: before + (asked.status === null ? RESERVE_USD : 0) });
     return fail(json(asked.error === 'not_configured' ? 503 : asked.error === 'busy' ? 429 : 502, { error: asked.error }));
   }
   const msg = asked.msg;
   const model = modelId(msg.model) ?? cfg.model;
-  const u = usageOf(msg.usage); const cost = costOf(model, msg.usage);
-  const spent = { model, input_tokens: u.input, output_tokens: u.output, cache_read_tokens: u.cacheRead, cache_write_tokens: u.cacheWrite, cost_usd: cost };
+  const u = usageOf(msg.usage); const cost = Math.round((costOf(model, msg.usage) + before) * 1e6) / 1e6; // the sizing call counts on the same row
+  const spent = { model, input_tokens: u.input + (pre?.input ?? 0), output_tokens: u.output + (pre?.output ?? 0), cache_read_tokens: u.cacheRead + (pre?.cacheRead ?? 0), cache_write_tokens: u.cacheWrite + (pre?.cacheWrite ?? 0), cost_usd: cost };
   const answer = readAnswer(msg);
   if (answer.status === 'refused') { await finishRun(deps, run.id, { ...spent, status: 'refused', error: 'refused' }); return fail(json(200, { result: 'refused', model, cost_usd: cost })); }
   if (answer.status !== 'ok') { await finishRun(deps, run.id, { ...spent, status: 'error', error: 'ai_error' }); return fail(json(502, { error: 'ai_error' })); }
   const out = clean(answer.json);
   await finishRun(deps, run.id, { ...spent, status: 'ok', output: out });
-  return { out, model, cost, runId: run.id };
+  return { out, model, cost, runId: run.id, cfg };
 }
 
 // ---------------------------------------------------------------- write (the content tool)
@@ -546,10 +577,14 @@ async function agent(deps: Deps, uid: string, args: Json, jwt = '') {
       if (!tk.error) teamText = teamBlock(row.role, teamSummary(Array.isArray(tk.data) ? tk.data : [], people, today));
     } catch { teamText = ''; }
   }
-  const ctx0: Json = { model: cfg.model, effort: cfg.effort, history: agentHistory((Array.isArray(rows) ? rows : []).slice().reverse()), cfg: agentCfg, data, site, base, dataText, teamText, team, catalog };
+  const past = (Array.isArray(rows) ? rows : []).slice().reverse();
+  const ctx0: Json = { model: cfg.model, effort: cfg.effort, history: agentHistory(past), cfg: agentCfg, data, site, base, dataText, teamText, team, catalog };
   const clean = (answer: Json) => cleanAgent(answer, req.agent, teamIds);
-  let c = await aiCall(deps, run0, cfg, agentRequest(req, ctx0), clean);
+  // decision 9: the message's level first (a message with files keeps the assistant's own level — the light model does not see them)
+  const size = (req.files ?? []).length ? undefined : { turns: past.map((r: Json) => ({ role: r.role, text: r.text })), question: req.question, build: (k: Cfg) => agentRequest(req, { ...ctx0, model: k.model, effort: k.effort }) };
+  let c = await aiCall(deps, run0, cfg, agentRequest(req, ctx0), clean, size);
   if ('res' in c) return c.res;
+  const ran = c.cfg; // the level the first answer ran on — the second one of this turn stays on it
   // the owner 17 Nov: the first answer may ask to read first — the web (any assistant) or Meta's live numbers (the buyer); read only,
   // then the assistant answers again with them as data; only the second answer is kept
   let cost = c.cost; let sources: Json[] = [];
@@ -572,7 +607,7 @@ async function agent(deps: Deps, uid: string, args: Json, jwt = '') {
       extra.push(dataReadBlock(reads));
     }
     if (need.ads) { const { data: mv } = member ? await member.rpc('has_perm', { key: 'marketing.view' }) : { data: 'N' }; extra.push(String(mv ?? 'N') !== 'N' ? liveAdsBlock(await liveAds(deps, need.ads), need.ads) : '<ads_live>\nThis member does not see the ads — say it is outside his permissions.\n</ads_live>'); }
-    const c2 = await aiCall(deps, { ...run0, label: line('↻ ' + req.question, 200) }, cfg, agentRequest(req, { ...ctx0, extra: extra.join('\n\n') }), clean);
+    const c2 = await aiCall(deps, { ...run0, label: line('↻ ' + req.question, 200) }, ran, agentRequest(req, { ...ctx0, model: ran.model, effort: ran.effort, extra: extra.join('\n\n') }), clean);
     if ('res' in c2) return c2.res;
     c = c2; cost += c2.cost;
   }
@@ -758,7 +793,7 @@ async function assistant(deps: Deps, uid: string, args: Json, jwt: string) {
   if (!isObj(me) || me.status !== 'active') return json(401, { error: 'unauthorized' }); // a stopped member (or one 2FA still gates) sees no profile
   const actor = String(me.name ?? ''); const roleRow = me.role_id ? (await member.from('roles').select('name').eq('id', me.role_id).maybeSingle()).data : null;
   const role = isObj(roleRow) ? String(roleRow.name ?? '') : '';
-  const cfg = await configOf(deps, 'assistant', req.mode === 'filter' ? 'filter' : 'assistant');
+  let cfg = await configOf(deps, 'assistant', req.mode === 'filter' ? 'filter' : 'assistant');
   const base = { created_by: uid, action: 'assistant', source: req.mode, label: line(req.question, 200) };
   // the reservation covers the whole loop (security review: one turn is up to MAX_TOOL_CALLS + 2 Claude calls), and the loop stops
   // on the cap once the calls made have spent it
@@ -782,8 +817,14 @@ async function assistant(deps: Deps, uid: string, args: Json, jwt: string) {
       if (roles.length && ppl.length) people = '<team>\n' + roles.slice(0, 30).map((r: Json) => line(r.label, 60) + ': ' + (ppl.filter((x: Json) => x.role_id === r.role_id).map((x: Json) => line(x.name, 60)).join('، ') || '—')).join('\n') + '\n</team>';
     } catch { /* before 0113 */ }
   }
-  const params = assistantRequest(req, { model: cfg.model, effort: cfg.effort, today, actor, role, mkt, team, people });
   const spent = { model: cfg.model, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, cost_usd: 0 };
+  // decision 9: the chat's level from the message itself («افتحلي الأوردرات» is not the month's analysis) — on the same row's cost
+  if (req.mode !== 'filter' && cfg.size) {
+    const s = await sizeStep(deps, cfg, req.turns.slice(0, -1), req.question);
+    spent.input_tokens += s.input; spent.output_tokens += s.output; spent.cache_read_tokens += s.cacheRead; spent.cache_write_tokens += s.cacheWrite; spent.cost_usd = s.cost;
+    if (s.tier) { cfg = { ...cfg, ...cfg.size(s.tier) }; spent.model = cfg.model; }
+  }
+  const params = assistantRequest(req, { model: cfg.model, effort: cfg.effort, today, actor, role, mkt, team, people });
   const actions: Json[] = []; const tools: string[] = []; let text = ''; let reads = 0; const got: Json[] = []; // got: the reads for the «تفاصيل» report (decision 23)
   const typedAmounts = amountsIn(req.question); // propose_entry only for an amount the member typed (never one read from data)
   // decision 36: an advance's amount in a popup only when the member typed it in one of their turns (the popup asks otherwise)

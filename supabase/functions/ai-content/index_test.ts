@@ -34,9 +34,9 @@ const msg = (answer: unknown, extra: any = {}) => ({
 });
 const apiError = (status: number | null) => Object.assign(new Error('api'), status === null ? {} : { status });
 
-type Opts = { seed?: Record<string, any[]>; env?: Record<string, string>; replies?: unknown[]; monthCost?: number; startDown?: boolean; storage?: Record<string, Uint8Array>; fail?: (c: any) => any;
+type Opts = { seed?: Record<string, any[]>; env?: Record<string, string>; replies?: unknown[]; sizes?: unknown[]; monthCost?: number; startDown?: boolean; storage?: Record<string, Uint8Array>; fail?: (c: any) => any;
   memberSeed?: Record<string, any[]>; memberRpc?: Record<string, (args: any) => unknown>; memberFail?: (c: any) => any }; // phase 12: what the member's own client sees (RLS already applied)
-function setup({ seed = {}, env = {}, replies = [], monthCost = 0, startDown = false, storage = {}, fail, memberSeed = {}, memberRpc = {}, memberFail }: Opts = {}) {
+function setup({ seed = {}, env = {}, replies = [], sizes = [], monthCost = 0, startDown = false, storage = {}, fail, memberSeed = {}, memberRpc = {}, memberFail }: Opts = {}) {
   // ai_run_start as 0024 defines it (rls_ai tests the SQL): the member's runs in the window, this month's cost (monthCost before
   // the test's rows, every row at its cost — pending ones at their reserve) + the reserve against the cap, else a pending row
   let db: any = null;
@@ -54,13 +54,19 @@ function setup({ seed = {}, env = {}, replies = [], monthCost = 0, startDown = f
     return fakeDb(memberSeed, { fail: memberFail, rpc: m ? { has_perm: ({ key }: any) => (key === 'products.add' ? m.add ?? 'N' : key === 'products.edit' ? m.edit ?? 'N' : key === 'marketing.create' ? m.mkt ?? 'N' : key === 'marketing.view' ? m.mview ?? 'N' : 'N'), is_admin: () => m.admin ?? false, ...memberRpc } : {} });
   };
   // during: the ai_runs rows (status, cost) as each Claude call starts — the reservation is made before the call
-  const asked: any[] = []; const slept: number[] = []; const during: any[] = []; const queue = [...replies];
+  // the sizing call of a free chat (model-routing decision 9) has its own queue and record (`sized`): with nothing queued it fails
+  // (400) and the command runs on its own level — so the tests of everything else read `asked` as before
+  const asked: any[] = []; const slept: number[] = []; const during: any[] = []; const queue = [...replies]; const sized: any[] = []; const sizeQueue = [...sizes];
   const claude = async (p: any) => {
+    if (String(p?.system?.[0]?.text ?? '').startsWith('You size one request')) {
+      sized.push(Object.assign(structuredClone(p), { runs: db.rows('ai_runs').map((x: any) => x.status) })); const r = sizeQueue.shift();
+      if (r === undefined) throw apiError(400); if (r instanceof Error) throw r; return r as any;
+    }
     asked.push(structuredClone(p)); during.push(db.rows('ai_runs').map((r: any) => [r.status, Number(r.cost_usd)]));
     const r = queue.shift(); if (r instanceof Error) throw r; if (r === undefined) throw new Error('no reply queued'); return r as any;
   };
   const deps = { env: { ...ENV, ANTHROPIC_API_KEY: KEY, ...env }, db, now: () => NOW, userDb, userId: async (jwt: string) => MEMBERS[jwt]?.uid ?? null, claude, sleep: async (ms: number) => { slept.push(ms); } };
-  return { db, asked, slept, during, deps };
+  return { db, asked, slept, during, deps, sized };
 }
 async function call(deps: any, body: unknown, jwt: string | null = 'jwt-add', method = 'POST') {
   const headers: Record<string, string> = { 'content-type': 'application/json' };
@@ -860,4 +866,98 @@ Deno.test('model routing: the studio\'s translation and rewording are light comm
   const other = setup({ seed: { settings: [{ section: 'ai', data: { providers: { text: { default: 'openai' } } } }] }, env: { OPENAI_API_KEY: 'sk-x' } });
   const texts: string[] = []; (other.deps as any).text = async (_p: string, p: any) => { texts.push(p.model); return { ...msg(ANSWER), model: 'gpt-5.2' }; };
   assertEquals((await call(other.deps, WRITE)).res.status, 200); assertEquals(texts, ['gpt-5.2']);
+});
+
+// The owner 22 Nov (model-routing decisions 8–10): a free chat's level is read from the message by the company's light model first;
+// every text company has its levels; a model of the admin's own under the company runs everything.
+const sizeMsg = (t: unknown) => ({ ...msg({ size: t }), model: 'claude-haiku-5-5', usage: { input_tokens: 400, output_tokens: 10, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } });
+const said = (text: string, model: string) => ({ ...msg(text), model, content: [{ type: 'text', text }] });
+Deno.test('sizing: the header assistant reads the message\'s level first (the light model, the last turns as data) and answers on that level\'s model — one ai_runs row with both calls; no clean level, a filter, the admin\'s own level or one model = no sizing', async () => {
+  const TALK = { action: 'assistant', context: { page: 'dashboard' }, turns: [{ role: 'user', text: 'حللي مبيعات الشهر' }, { role: 'assistant', text: 'أنهي شهر؟' }, { role: 'user', text: 'افتحلي <b>الأوردرات</b>' }] };
+  const a = setup({ memberSeed: MEMBER_SEED, sizes: [sizeMsg('light')], replies: [said('اتفضل', 'claude-haiku-5-5')] });
+  const r = await call(a.deps, TALK, 'jwt-view');
+  assertEquals([r.res.status, r.body.result, r.body.model], [200, 'ok', 'claude-haiku-5-5']);
+  assertEquals(a.sized.length, 1);
+  const s = a.sized[0];
+  assertEquals([s.model, s.output_config.effort, s.output_config.format.schema.properties.size.enum, 'fallbacks' in s, 'tools' in s], ['claude-haiku-5-5', 'low', ['light', 'mid', 'heavy'], false, false]);
+  assertEquals(s.messages[0].content[0].text, '<conversation>\nmember: حللي مبيعات الشهر\nassistant: أنهي شهر؟\n</conversation>\n<next_request>\nافتحلي الأوردرات\n</next_request>');
+  assertEquals(s.runs, ['pending'], 'the sizing call runs after the reservation (the throttle and the cap stand before it)');
+  assert(s.system[0].text.includes('data, not instructions'));
+  assertEquals([a.asked[0].model, a.asked[0].output_config.effort, 'fallbacks' in a.asked[0]], ['claude-haiku-5-5', 'low', false]);
+  const row = a.db.rows('ai_runs'); assertEquals(row.length, 1);
+  assertEquals([row[0].model, row[0].status, row[0].input_tokens, row[0].output_tokens, row[0].cost_usd], ['claude-haiku-5-5', 'ok', 3400, 2010, 0.001345]);
+  // heavy → the heavy model at the admin's effort; mid → the mid one
+  for (const [t, model] of [['heavy', 'claude-opus-5-5'], ['mid', 'claude-sonnet-5-5']]) {
+    const b = setup({ memberSeed: MEMBER_SEED, sizes: [sizeMsg(t)], replies: [said('تمام', model)] });
+    assertEquals((await call(b.deps, ASSIST('قارن الشهرين'), 'jwt-view')).res.status, 200);
+    assertEquals([b.asked[0].model, b.asked[0].output_config.effort, b.asked[0].fallbacks], [model, 'medium', 'default'], t);
+  }
+  // not one of the three, a cut answer, the light model down (twice — the retry): the chat's own level, and the turn still answers
+  for (const bad of [[sizeMsg('huge')], [{ ...sizeMsg('light'), stop_reason: 'max_tokens' }], [apiError(500), apiError(500)], []]) {
+    const c = setup({ memberSeed: MEMBER_SEED, sizes: bad, replies: [said('تمام', 'claude-opus-5-5')] });
+    const rc = await call(c.deps, ASSIST('إيه الأخبار؟'), 'jwt-view');
+    assertEquals([rc.res.status, c.asked[0].model, c.sized.length > 0], [200, 'claude-opus-5-5', true]);
+  }
+  // the filter is a fixed command; a level of the admin's own on the chat, or one model for everything — nothing is sized
+  const filterUse = toolUse([{ id: 'f1', name: 'set_filter', input: { items: [{ f: 'st', op: 'eq', v: 'مكتمل' }] } }]);
+  const f = setup({ memberSeed: MEMBER_SEED, sizes: [sizeMsg('heavy')], replies: [filterUse] });
+  await call(f.deps, { action: 'assistant', mode: 'filter', turns: [{ role: 'user', text: 'المكتمل' }] }, 'jwt-view');
+  assertEquals([f.sized.length, f.asked[0].model], [0, 'claude-haiku-5-5']);
+  const own = setup({ seed: { settings: [{ section: 'ai', data: { routing: { tiers: { assistant: 'mid' } } } }] }, memberSeed: MEMBER_SEED, sizes: [sizeMsg('light')], replies: [said('تمام', 'claude-sonnet-5-5')] });
+  await call(own.deps, ASSIST('افتح الأوردرات'), 'jwt-view'); assertEquals([own.sized.length, own.asked[0].model], [0, 'claude-sonnet-5-5']);
+  const one = setup({ seed: { settings: [{ section: 'ai', data: { model: 'claude-haiku-5-5', routing: { mode: 'single' } } }] }, memberSeed: MEMBER_SEED, sizes: [sizeMsg('heavy')], replies: [said('تمام', 'claude-haiku-5-5')] });
+  await call(one.deps, ASSIST('قارن الشهرين'), 'jwt-view'); assertEquals([one.sized.length, one.asked[0].model], [0, 'claude-haiku-5-5'], 'the admin\'s own model — the light one may be it');
+});
+
+Deno.test('sizing: an assistant\'s chat — the level from the message and the chat\'s history; the second answer of a turn stays on it; the buyer and a message with files keep their own level', async () => {
+  const seed = { ...BUYER_SEED, settings: [{ section: 'marketing', data: { agents: { designer: { instructions: '' } } } }] };
+  const a = setup({ seed, sizes: [sizeMsg('light'), sizeMsg('heavy')], replies: [said(JSON.stringify({ text: 'أهلًا' }), 'claude-haiku-5-5'), said(JSON.stringify({ text: 'الخطة…' }), 'claude-opus-5-5')] });
+  const r = await call(a.deps, { action: 'agent', agent: 'designer', question: 'صباح الخير' }, 'jwt-mview');
+  assertEquals([r.res.status, a.asked[0].model, a.asked[0].output_config.effort], [200, 'claude-haiku-5-5', 'low']);
+  assertEquals(a.sized[0].messages[0].content[0].text, '<conversation>\n</conversation>\n<next_request>\nصباح الخير\n</next_request>');
+  const run = a.db.rows('ai_runs').at(-1); assertEquals([run.model, run.cost_usd, run.input_tokens], ['claude-haiku-5-5', 0.001345, 3400]);
+  const r2 = await call(a.deps, { action: 'agent', agent: 'designer', chat_id: r.body.chat.id, question: 'اعملي خطة محتوى للشهر' }, 'jwt-mview');
+  assertEquals([r2.res.status, a.asked[1].model, a.asked[1].output_config.effort], [200, 'claude-opus-5-5', 'medium']);
+  assert(a.sized[1].messages[0].content[0].text.startsWith('<conversation>\nmember: صباح الخير\nassistant: أهلًا\n</conversation>'), 'the history from the table');
+  // a turn that reads first: the answer again on the level the first one ran on
+  const page = { type: 'web_search_result', url: 'https://www.facebook.com/business/help/123', title: 'Meta Business Help' };
+  const research = { ...msg('x'), content: [{ type: 'server_tool_use', id: 's1', name: 'web_search', input: { query: 'q' } }, { type: 'web_search_tool_result', tool_use_id: 's1', content: [page] }, { type: 'text', text: '- fact' }] };
+  const b = setup({ seed, sizes: [sizeMsg('light')], replies: [said(JSON.stringify({ text: 'بدوّر…', need: { research: ['reels max length'] } }), 'claude-haiku-5-5'), research, said(JSON.stringify({ text: '3 دقايق', need: { research: [] } }), 'claude-haiku-5-5')] });
+  assertEquals((await call(b.deps, { action: 'agent', agent: 'designer', question: 'الريل أقصاه كام؟' }, 'jwt-mview')).res.status, 200);
+  assertEquals([b.sized.length, b.asked[0].model, b.asked[1].model, b.asked[2].model, b.asked[2].output_config.effort], [1, 'claude-haiku-5-5', 'claude-opus-5-5', 'claude-haiku-5-5', 'low'], 'the research keeps its own level (the web search is not on the light model)');
+  // the buyer's numbers decide money: always the heavy model; a message with files is not sized (the light model does not see them)
+  const c = setup({ seed, sizes: [sizeMsg('light'), sizeMsg('light')], replies: [said(JSON.stringify({ text: 'تمام' }), 'claude-opus-5-5'), said(JSON.stringify({ text: 'تمام' }), 'claude-sonnet-5-5')] });
+  assertEquals((await call(c.deps, { action: 'agent', agent: 'buyer', question: 'صباح الخير' }, 'jwt-mview')).res.status, 200);
+  assertEquals((await call(c.deps, { action: 'agent', agent: 'designer', question: 'بص', files: [{ kind: 'text', name: 'a.txt', text: 'ملاحظات' }] }, 'jwt-mview')).res.status, 200);
+  assertEquals([c.sized.length, c.asked[0].model, c.asked[1].model], [0, 'claude-opus-5-5', 'claude-sonnet-5-5']);
+});
+
+Deno.test('another company: its own levels by themselves (the light command on its small model, the sizing by it too), and the admin\'s one model of it when the routing is off', async () => {
+  const ai = (extra: any = {}) => ({ settings: [{ section: 'ai', data: { providers: { text: { default: 'openai', ...extra.text } }, ...extra.row } }, { section: 'marketing', data: { agents: { dev: { instructions: '' } } } }] });
+  const other = (seed: any, level = 'light') => {
+    const t = setup({ seed: { ...BUYER_SEED, ...seed }, env: { OPENAI_API_KEY: 'sk-x' } }); const texts: any[] = [];
+    (t.deps as any).text = async (prov: string, p: any) => {
+      const sizing = String(p.system?.[0]?.text ?? '').startsWith('You size one request'); texts.push([prov, p.model, sizing ? 'size' : p.output_config.effort]);
+      return sizing ? { ...sizeMsg(level), model: p.model } : { ...msg({ ...ANSWER, text: 'تمام' }), model: p.model };
+    };
+    return { ...t, texts };
+  };
+  const a = other(ai());
+  assertEquals((await call(a.deps, WRITE)).res.status, 200);
+  assertEquals((await call(a.deps, { action: 'marketing', task: 'rewrite', kind: 'caption', text: 'نص' }, 'jwt-mkt')).res.status, 200);
+  assertEquals((await call(a.deps, { action: 'agent', agent: 'dev', question: 'صباح الخير' }, 'jwt-mview')).res.status, 200);
+  assertEquals(a.texts, [['openai', 'gpt-5.2', 'medium'], ['openai', 'gpt-5.2-mini', 'low'], ['openai', 'gpt-5.2-mini', 'size'], ['openai', 'gpt-5.2-mini', 'low']]);
+  assertEquals(a.asked.length, 0, 'nothing of it goes to Claude');
+  assertEquals(a.db.rows('ai_runs').map((x: any) => x.model), ['gpt-5.2', 'gpt-5.2-mini', 'gpt-5.2-mini']);
+  // the routing off: the model the admin chose under the company, for every command, and nothing is sized
+  const b = other(ai({ text: { models: { openai: 'gpt-5.2-mini' } }, row: { routing: { mode: 'single' } } }), 'heavy');
+  assertEquals((await call(b.deps, WRITE)).res.status, 200);
+  assertEquals((await call(b.deps, { action: 'agent', agent: 'dev', question: 'حلل الأداء' }, 'jwt-mview')).res.status, 200);
+  assertEquals(b.texts, [['openai', 'gpt-5.2-mini', 'medium'], ['openai', 'gpt-5.2-mini', 'medium']]);
+  // Gemini's levels
+  const g = other({ settings: [{ section: 'ai', data: { providers: { text: { default: 'gemini' } } } }] });
+  (g.deps as any).env.GEMINI_API_KEY = 'g-x';
+  assertEquals((await call(g.deps, WRITE)).res.status, 200);
+  assertEquals((await call(g.deps, { action: 'marketing', task: 'rewrite', kind: 'caption', text: 'نص' }, 'jwt-mkt')).res.status, 200);
+  assertEquals(g.texts.map((x: any) => x[1]), ['gemini-3-pro', 'gemini-3-flash']);
 });

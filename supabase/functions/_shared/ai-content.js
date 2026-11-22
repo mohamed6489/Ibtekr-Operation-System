@@ -14,7 +14,7 @@ export const SOURCES = ['data', 'image', 'product'];
 // name / the short description in both languages (the same facts, nothing invented)
 export const WANTS = ['nameEn', 'nameAr', 'desc', 'category', 'variations', 'attrs', 'translate', 'rewriteName', 'rewriteDesc'];
 // decision 2: the default and the one other model the secret AI_CONTENT_MODEL may pick; AI_CONTENT_EFFORT the same
-export const MODELS = ['claude-opus-5-5', 'claude-sonnet-5-5'];
+export const MODELS = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5']; // the light one since the owner's 22 Nov (a model of his own under the company)
 export const EFFORTS = ['low', 'medium', 'high'];
 export const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 export const MAX_IMAGE_B64 = 2_000_000; // ≈ 1.5 MB once decoded; the page shrinks a photo to 1568 px first

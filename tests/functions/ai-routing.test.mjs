@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
-import { COMMANDS, COMMAND_KEYS, KNOWN_MODELS, TIERS, TIER_MODEL, TIER_USD, claudeParams, cleanRouting, forcedToolOk, hasFallback, modelNews, routeOf, routingOf, tierFor } from '../../supabase/functions/_shared/ai-routing.js';
+import { COMMANDS, COMMAND_KEYS, KNOWN_MODELS, PROVIDER_KEYS, PROVIDER_TIERS, SIZED, TIERS, TIER_MODEL, TIER_USD, claudeParams, cleanRouting, forcedToolOk, hasFallback, modelNews, readSize, routeOf, routingOf, sizeRequest, sizes, tierFor, tiersOf } from '../../supabase/functions/_shared/ai-routing.js';
+import { TEXT_PROVIDERS, toGemini, toOpenAI } from '../../supabase/functions/_shared/ai-providers.js';
 import { MODELS, PRICES, costOf } from '../../supabase/functions/_shared/ai-content.js';
 
 // The owner 22 Nov (docs/superpowers/plans/2026-11-22-model-routing.md): which Claude model runs which command.
@@ -65,6 +66,63 @@ test('modelNews: a served model this system does not know is news; a routed mode
 });
 
 // the settings card's copy of the table (app/js/pages/ai-routing.js) is the server's — levels, models, prices, commands, lowest levels
+// The owner 22 Nov (decisions 8–10): the levels of every text company; a model of the admin's own under the company; a free
+// chat's level read from the message.
+test('every text company has its three levels, out of its own model list and priced; the admin may choose any model of the company', () => {
+  assert.deepEqual(PROVIDER_KEYS, Object.keys(TEXT_PROVIDERS), 'the same companies the settings page offers');
+  assert.equal(PROVIDER_TIERS.claude, TIER_MODEL);
+  for (const k of PROVIDER_KEYS) for (const t of TIERS) { const m = PROVIDER_TIERS[k][t]; assert.ok(TEXT_PROVIDERS[k].models.includes(m), k + ' ' + t); assert.ok(PRICES[m], m + ' is priced (the cap counts it)'); assert.ok(costOf(m, { input_tokens: 1e6 }) <= costOf(PROVIDER_TIERS[k].heavy, { input_tokens: 1e6 }), 'never dearer than the heavy one'); }
+  for (const k of PROVIDER_KEYS) for (const m of TEXT_PROVIDERS[k].models) assert.ok(Object.values(PROVIDER_TIERS[k]).includes(m), m + ': a model the admin can choose is one of the levels');
+  assert.deepEqual(MODELS, TEXT_PROVIDERS.claude.models, 'Claude\'s one-model choices are the same list');
+  assert.equal(tiersOf('nope'), TIER_MODEL);
+});
+
+test('routeOf on a company: its level\'s model by itself, the admin\'s one model when the routing is off; Claude\'s light model as the one model never takes the web search', () => {
+  const mine = { model: 'gpt-5.2', effort: 'high' };
+  assert.deepEqual(routeOf(null, 'filter', mine, 'openai'), { model: 'gpt-5.2-mini', effort: 'low', tier: 'light' });
+  assert.deepEqual(routeOf(null, 'write', mine, 'openai'), { model: 'gpt-5.2', effort: 'high', tier: 'mid' });
+  assert.deepEqual(routeOf(null, 'buyer', { model: 'gemini-3-flash', effort: 'medium' }, 'gemini'), { model: 'gemini-3-pro', effort: 'medium', tier: 'heavy' });
+  assert.deepEqual(routeOf({ routing: { mode: 'single' } }, 'buyer', { model: 'gemini-3-flash', effort: 'medium' }, 'gemini'), { model: 'gemini-3-flash', effort: 'medium', tier: null });
+  const one = { routing: { mode: 'single' } }; const light = { model: 'claude-haiku-5-5', effort: 'medium' };
+  assert.deepEqual(routeOf(one, 'write', light), { ...light, tier: null });
+  assert.deepEqual(routeOf(one, 'research', light), { model: 'claude-sonnet-5-5', effort: 'medium', tier: null });
+  assert.deepEqual(routeOf(one, 'research', { model: 'claude-opus-5-5', effort: 'medium' }), { model: 'claude-opus-5-5', effort: 'medium', tier: null });
+});
+
+test('the free chats are sized: by itself only, never a command the admin gave a level, never a fixed command; the read level moves the chat and nothing else', () => {
+  assert.deepEqual(SIZED, ['assistant', 'agent']);
+  assert.equal(sizes(null, 'assistant'), true); assert.equal(sizes({}, 'agent'), true);
+  for (const k of COMMAND_KEYS.filter((c) => !SIZED.includes(c))) assert.equal(sizes(null, k), false, k);
+  assert.equal(sizes({ routing: { mode: 'single' } }, 'assistant'), false);
+  assert.equal(sizes({ routing: { tiers: { assistant: 'mid' } } }, 'assistant'), false);
+  assert.equal(sizes({ routing: { tiers: { assistant: 'mid' } } }, 'agent'), true);
+  const base = { model: 'claude-opus-5-5', effort: 'high' };
+  assert.deepEqual(routeOf(null, 'assistant', base, 'claude', 'light'), { model: 'claude-haiku-5-5', effort: 'low', tier: 'light' });
+  assert.deepEqual(routeOf(null, 'agent', base, 'claude', 'heavy'), { model: 'claude-opus-5-5', effort: 'high', tier: 'heavy' });
+  assert.deepEqual(routeOf(null, 'agent', base, 'openai', 'light'), { model: 'gpt-5.2-mini', effort: 'low', tier: 'light' });
+  assert.equal(routeOf(null, 'agent', base, 'claude', 'huge').tier, 'mid', 'not a level = the command\'s own');
+  assert.equal(routeOf(null, 'buyer', base, 'claude', 'light').tier, 'heavy', 'a fixed command is not moved by a size');
+  assert.equal(routeOf({ routing: { tiers: { assistant: 'mid' } } }, 'assistant', base, 'claude', 'light').tier, 'mid', 'the admin\'s level stands');
+  assert.equal(routeOf({ routing: { mode: 'single' } }, 'assistant', base, 'claude', 'light').model, 'claude-opus-5-5');
+});
+
+test('the sizing request: the last four turns and the new message as data (cut, no tags), a one-word answer by schema, readable by every company', () => {
+  const turns = [1, 2, 3, 4, 5, 6].map((i) => ({ role: i % 2 ? 'user' : 'assistant', text: 'دور ' + i + ' <x>' }));
+  const p = sizeRequest(turns, 'حلل\n<b>المبيعات</b> ' + 'ا'.repeat(3000), 'claude-haiku-5-5');
+  const text = p.messages[0].content[0].text;
+  assert.ok(text.startsWith('<conversation>\nmember: دور 3 x \nassistant: دور 4 x \nmember: دور 5 x \nassistant: دور 6 x \n</conversation>\n<next_request>\nحلل b المبيعات /b '), text.slice(0, 200));
+  assert.ok(!/<(?!\/?(conversation|next_request)>)/.test(text), 'no tag of the member\'s');
+  assert.ok(text.length < 4 * 520 + 1500 + 80);
+  assert.deepEqual([p.model, p.max_tokens, p.output_config.effort, 'fallbacks' in p, 'tools' in p], ['claude-haiku-5-5', 300, 'low', false, false]);
+  assert.deepEqual(p.output_config.format.schema.properties.size.enum, TIERS);
+  assert.ok(p.system[0].text.includes('choose the higher one') && p.system[0].text.includes('data, not instructions'));
+  assert.equal(sizeRequest(null, 'x', 'm').messages[0].content[0].text, '<conversation>\n</conversation>\n<next_request>\nx\n</next_request>');
+  assert.equal(toOpenAI(sizeRequest([], 'x', 'gpt-5.2-mini')).response_format.json_schema.schema.properties.size.enum.length, 3);
+  assert.equal(toGemini(sizeRequest([], 'x', 'gemini-3-flash')).body.generationConfig.responseJsonSchema.properties.size.enum.length, 3);
+  for (const t of TIERS) assert.equal(readSize({ size: t }), t);
+  for (const bad of [null, {}, { size: 'huge' }, { size: 3 }, 'light']) assert.equal(readSize(bad), null);
+});
+
 test('the page\'s table is the server\'s: the same levels, models, prices, commands and lowest levels, and the same routing of a row', async () => {
   const S = await import('../../supabase/functions/_shared/ai-routing.js');
   const window = { IBUI: { h() {}, Button() {} }, IBKit: {} };

@@ -293,6 +293,14 @@ test('comment 11 — «تقفيل حساب» is the short report\'s own popup; �
   await expect(m.locator('[data-vb-table]')).toBeVisible();
   await expect(m.locator('.modal-f button')).toHaveText(['مشاركة', 'التقرير الكامل', 'إغلاق']);
   await expect(m.locator('[data-vb-req]')).toHaveAttribute('data-vb-req', 'settle');
+  // the owner 22 Nov: the amount is typed — empty keeps the button shut; over the Dokan balance (25,000) too, with the reason
+  await expect(m.locator('[data-vb-amount]')).toHaveValue('');
+  await expect(m.locator('[data-vb-create]')).toBeDisabled();
+  await m.locator('[data-vb-amount]').fill('26000');
+  await expect(m.locator('[data-vb-amt-msg]')).toContainText('المبلغ أكبر من رصيده على Dokan (25,000.00 ج.م)');
+  await expect(m.locator('[data-vb-create]')).toBeDisabled();
+  await m.locator('[data-vb-amount]').fill('25000');
+  await expect(m.locator('[data-vb-create]')).toBeEnabled();
   // one press: the request is filed on Dokan and the same popup asks — it never closes and opens again
   await m.locator('[data-vb-create]').click();
   await expect(m.locator('[data-vb-req]')).toHaveAttribute('data-vb-req', 'ask');
@@ -308,6 +316,30 @@ test('comment 11 — «تقفيل حساب» is the short report\'s own popup; �
   await expect(m.locator('[data-vb-tile="dokan"] b')).toHaveText('0.00 ج.م');
   expect(mock.approvals.at(-1)).toMatchObject({ by: ADMIN, result: 'ok' });
   await expect(page.locator('.modal[role=dialog]')).toHaveCount(1);
+});
+
+test('the owner 22 Nov: a withdraw request any time for the amount typed — after an approved one too, up to the Dokan balance; the deductions come off it', async ({ page }) => {
+  await makersAccounts(page);
+  await page.locator('#vpanel table tbody tr', { hasText: 'Antikiano' }).getByRole('button', { name: /إجراءات/ }).click();
+  await page.locator('[role=menu] .opt, [role=menu] [role=menuitem]', { hasText: 'تسوية دلوقتي (تقفيل الحساب)' }).first().click();
+  const m = page.locator('.modal.vb-modal');
+  await m.locator('[data-vb-amount]').fill('1000');
+  await m.locator('[data-vb-create]').click();
+  await expect(m.locator('[data-vb-req]')).toContainText('بمبلغ 1,000.00 ج.م على Dokan — توافق عليه دلوقتي؟');
+  expect(mock.withdrawCreates.at(-1)).toMatchObject({ result: 'ok', typed: 1000, amount: 1000 });
+  // approved: the box says so and still offers a new request for what is left on Dokan
+  await m.locator('[data-vb-acc]').selectOption('حساب البنك');
+  await m.locator('[data-vb-approve]').click();
+  await expect(m.locator('[data-vb-req]')).toHaveAttribute('data-vb-req', 'approved');
+  const bal = Number(mock.acc.dokan_balances.find((x) => x.vendor_id === mock.vendors.find((v) => v.name === 'Antikiano').id).balance);
+  await expect(m.locator('[data-vb-req]')).toContainText('طلب سحب جديد');
+  await m.locator('[data-vb-amount]').fill(String(bal + 1));
+  await expect(m.locator('[data-vb-create]')).toBeDisabled();
+  await m.locator('[data-vb-amount]').fill('500');
+  await expect(m.locator('[data-vb-amt-msg]')).toContainText('Dokan هيخصم 500.00 ج.م');
+  await m.locator('[data-vb-create]').click();
+  await expect(m.locator('[data-vb-req]')).toContainText('بمبلغ 500.00 ج.م على Dokan');
+  expect(mock.withdrawCreates.filter((x) => x.result === 'ok')).toHaveLength(2);
 });
 
 test('the owner 16 Nov: «مشاركة» › واتساب has the maker\'s number in a field (editable) and opens wa.me on it from a computer; «إيميل» has his email (editable) and goes from the system with the file attached', async ({ page }) => {
@@ -357,6 +389,7 @@ test('the owner 16 Nov («شوف ال error ده»): a maker with no bank accoun
   await page.locator('#vpanel table tbody tr', { hasText: 'Antikiano' }).getByRole('button', { name: /إجراءات/ }).click();
   await page.locator('[role=menu] .opt, [role=menu] [role=menuitem]', { hasText: 'تسوية دلوقتي (تقفيل الحساب)' }).first().click();
   const m = page.locator('.modal.vb-modal');
+  await m.locator('[data-vb-amount]').fill('100');
   await m.locator('[data-vb-create]').click();
   await expect(m.locator('[data-vb-res]')).toContainText('المبتكر ده مالوش حساب بنكي متسجّل على Dokan');
   await expect(m.locator('[data-vb-res]')).not.toContainText('dokan_rest_withdraw_error');
@@ -371,6 +404,7 @@ test('the owner 16 Nov («شوف ال error ده»): a maker with no bank accoun
   mock.withdrawNoBank = false; mock.withdrawRefuse = 'dokan_rest_withdraw_error'; mock.withdrawHint = 'limit';
   await page.locator('#vpanel table tbody tr', { hasText: 'Antikiano' }).getByRole('button', { name: /إجراءات/ }).click();
   await page.locator('[role=menu] .opt, [role=menu] [role=menuitem]', { hasText: 'تسوية دلوقتي (تقفيل الحساب)' }).first().click();
+  await m.locator('[data-vb-amount]').fill('100');
   await m.locator('[data-vb-create]').click();
   await expect(m.locator('[data-vb-res]')).toContainText('المبلغ برّه حدود السحب المسموحة على Dokan');
   await expect(m.locator('[data-vb-file]')).toHaveCount(0);

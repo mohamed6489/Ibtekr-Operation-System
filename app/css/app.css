@@ -2098,6 +2098,13 @@ img.ib-worm.ib-ldr-img.spin{animation:ib-ldr-spin var(--ldr-speed,1.7s) linear i
 .vb-req-t{margin:0;color:var(--color-text-secondary);font-size:13px;line-height:1.7}
 .vb-req-t.strong{color:var(--color-text-primary);font-weight:700;font-size:14px}
 .vb-req-a{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
+/* the owner 22 Nov: a withdraw request for the amount typed, up to the Dokan balance */
+.vb-amt{display:flex;flex-direction:column;gap:6px;margin-top:6px}
+.vb-amt-l{font-size:13px;font-weight:600;color:var(--color-text-primary)}
+.vb-amt-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.vb-amt-in{flex:1 1 180px;max-width:260px;height:36px;padding:0 12px;border:1px solid var(--color-border-default,#9B9387);border-radius:6px;background:var(--color-bg-container,#fff);font:inherit;font-size:16px;text-align:left;direction:ltr}
+.vb-amt-in:focus{outline:2px solid var(--color-brand-default,#005642);outline-offset:1px}
+.vb-amt-msg.warning{color:var(--color-error-default,#DA0001)}
 .vb-req-res{margin:4px 0 0;padding:8px 10px;border-radius:8px;font-size:13px;line-height:1.7;background:#eef5f1;color:#005642}
 .vb-req-res.warning{background:#fbf1dc;color:#7a5a12}
 .vb-req-res.error{background:#fbe9e7;color:#9c2b1e}

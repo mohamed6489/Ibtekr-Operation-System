@@ -2774,8 +2774,13 @@ export async function installSupabaseMock(page, opts = {}) {
         if (mock.wooDown) return json(502, { error: 'woo_error' });
         if (mock.withdrawRefuse) return done(409, { result: 'refused', reason: mock.withdrawRefuse, ...(mock.withdrawHint ? { hint: mock.withdrawHint } : {}) });
         if (mock.withdrawNoBank) return done(200, { result: 'skipped', reason: 'no_bank' }); // the store has no bank account on Dokan (the owner 16 Nov)
-        const balRow = mock.acc.dokan_balances.find((x) => x.vendor_id === vid); const amount = balRow && Number(balRow.balance) > 0 ? Math.floor(Number(balRow.balance) * 100) / 100 : 0;
-        if (!(amount > 0)) return done(200, { result: 'skipped', reason: 'no_balance', balance: balRow ? balRow.balance : null });
+        const balRow = mock.acc.dokan_balances.find((x) => x.vendor_id === vid); const bal = balRow && Number(balRow.balance) > 0 ? Math.floor(Number(balRow.balance) * 100) / 100 : 0;
+        if (!(bal > 0)) return done(200, { result: 'skipped', reason: 'no_balance', balance: balRow ? balRow.balance : null });
+        // the owner 22 Nov: the amount typed, up to the Dokan balance (over it: skipped/over_balance with the balance); none = the whole balance
+        const typed = b.amount == null ? null : Number(b.amount);
+        if (typed !== null && !(typed > 0)) return json(400, { error: 'bad_amount' });
+        if (typed !== null && typed > bal) return done(200, { result: 'skipped', reason: 'over_balance', balance: bal });
+        const amount = typed ?? bal; rec.typed = typed;
         const nid = Math.max(700, ...mock.acc.dokan_withdrawals.map((x) => Number(x.id))) + 1;
         mock.acc.dokan_withdrawals.push({ id: nid, woo_vendor_id: Number(v.woo_vendor_id), vendor_id: vid, amount, charge: 0, receivable: amount, status: 'pending', method: 'bank', requested_at: new Date().toISOString().replace('T', ' ').slice(0, 19), synced_at: new Date().toISOString() });
         return done(200, { result: 'ok', id: nid, amount, status: 'pending' });

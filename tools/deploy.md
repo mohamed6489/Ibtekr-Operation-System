@@ -2464,3 +2464,6 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 #### 2.7.119 سرعة تقييمات الموارد البشرية + حالة الشاشة في «الصفحة فضيت» (22 نوفمبر — `0149`)
 1. طبّق `0149_hr_eval_speed.sql` — `hr_att_score` بيقرا أيام شغل العضو وتاريخ تعيينه والعطلات مرة واحدة والإجازات في الشهر بس، و`hr_evaluations_list` بيناديها مرة لكل صف (كانت 6–12 ثانية ووقعت بـ timeout مرة على الحي؛ النتيجة نفسها — اتقارنت على 161 صف حي قبل التطبيق). شغّل `rls_hr_rebuild` و`rls_hr_schedule_days` من «RLS live».
 2. ادمج على `main` — كارت «الصفحة وقفت» بقى بيكتب في النسخة وفي `activity_log` `app.crash` (`new_value.d`) حالة الشاشة: المقاس والمؤشر (ماوس / تاتش) والتمرير وعناصر `#root` وظهورها واللي في نص الشاشة والبوب أبات — أرقام وأسامي كلاسات بس. لو حد بلّغ إن الصفحة فضيت: `select at, new_value from activity_log where action = 'app.crash' order by at desc limit 10`.
+
+#### 2.7.120 طلب السحب بالمبلغ اللي بيتكتب في أي وقت (22 نوفمبر — مافيش migration)
+1. انشر `woo-sync` من «Deploy functions» — `withdraw_create` بياخد المبلغ اللي بيتكتب (لحد رصيد Dokan، أكتر منه `skipped/over_balance`)، وادمج على `main` — خانة المبلغ في بوكس طلب السحب (من غير طلب وبعد طلب اتوافق عليه).

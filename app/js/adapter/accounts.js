@@ -313,12 +313,15 @@
       return { ok: true, result: body.result, reason: body.reason || null, status: body.status || null };
     } catch (e) { return { ok: false, reason: 'network' }; }
   }
-  // 0078: «اعمل طلب السحب على Dokan» — for the maker's whole Dokan balance (the server reads it live), pending until approved
-  async function createWithdraw(vendorId) {
+  // 0078: «اعمل طلب السحب على Dokan» — for the maker's whole Dokan balance (the server reads it live), pending until approved;
+  // the owner 22 Nov: or the amount typed (up to that balance — over it comes back skipped/over_balance with the balance)
+  async function createWithdraw(vendorId, amount) {
     const cl = c();
     if (!cl || typeof vendorId !== 'string' || !vendorId) return { ok: false, reason: 'invalid' };
+    const amt = amount == null || amount === '' ? null : Math.round(Number(amount) * 100) / 100;
+    if (amt !== null && !(Number.isFinite(amt) && amt > 0)) return { ok: false, reason: 'invalid' };
     try {
-      const { data: body, error } = await cl.functions.invoke('woo-sync', { body: { action: 'withdraw_create', vendor_id: vendorId } });
+      const { data: body, error } = await cl.functions.invoke('woo-sync', { body: { action: 'withdraw_create', vendor_id: vendorId, ...(amt !== null ? { amount: amt } : {}) } });
       if (error || !body) {
         const status = error && error.context && error.context.status;
         let b = null; try { b = error && error.context && typeof error.context.json === 'function' ? await error.context.json() : null; } catch (e) { b = null; }
@@ -330,7 +333,7 @@
         if (L && L.log) quiet(() => L.log('accounts.withdraw.create', '#' + body.id + ' · ' + body.amount, { entity: 'dokan_withdrawals', entity_id: String(body.id) }));
       }
       load();
-      return { ok: true, result: body.result, reason: body.reason || null, id: body.id == null ? null : Number(body.id), amount: body.amount == null ? null : Number(body.amount) };
+      return { ok: true, result: body.result, reason: body.reason || null, id: body.id == null ? null : Number(body.id), amount: body.amount == null ? null : Number(body.amount), balance: body.balance == null ? null : Number(body.balance) };
     } catch (e) { return { ok: false, reason: 'network' }; }
   }
   // the carry the latest settlement of each maker left on him (0078)

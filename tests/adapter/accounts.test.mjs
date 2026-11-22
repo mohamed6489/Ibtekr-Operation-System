@@ -163,13 +163,19 @@ test('0078: createWithdraw → woo-sync withdraw_create { vendor_id }; logged on
   await A.load();
   const calls = []; let answer = { data: { action: 'withdraw_create', result: 'ok', id: 701, amount: 25000, status: 'pending' }, error: null };
   stub.client.functions = { invoke: async (name, opts) => { calls.push([name, opts.body]); return answer; } };
-  assert.deepEqual(plain(await A.createWithdraw(V1)), { ok: true, result: 'ok', reason: null, id: 701, amount: 25000 });
+  assert.deepEqual(plain(await A.createWithdraw(V1)), { ok: true, result: 'ok', reason: null, id: 701, amount: 25000, balance: null });
   assert.deepEqual(plain(calls[0]), ['woo-sync', { action: 'withdraw_create', vendor_id: V1 }]);
   assert.deepEqual(plain(logs.at(-1).slice(0, 2)), ['accounts.withdraw.create', '#701 · 25000']);
   const n = logs.length;
   answer = { data: { action: 'withdraw_create', result: 'skipped', reason: 'pending_exists', id: 501 }, error: null };
-  assert.deepEqual(plain(await A.createWithdraw(V1)), { ok: true, result: 'skipped', reason: 'pending_exists', id: 501, amount: null });
+  assert.deepEqual(plain(await A.createWithdraw(V1)), { ok: true, result: 'skipped', reason: 'pending_exists', id: 501, amount: null, balance: null });
   assert.equal(logs.length, n, 'a skip is not logged');
+  // the owner 22 Nov: the amount typed goes with the request (two decimals); over the Dokan balance comes back with the balance
+  answer = { data: { action: 'withdraw_create', result: 'skipped', reason: 'over_balance', balance: 31998.2 }, error: null };
+  assert.deepEqual(plain(await A.createWithdraw(V1, '32000')), { ok: true, result: 'skipped', reason: 'over_balance', id: null, amount: null, balance: 31998.2 });
+  assert.deepEqual(plain(calls.at(-1)), ['woo-sync', { action: 'withdraw_create', vendor_id: V1, amount: 32000 }]);
+  assert.equal((await A.createWithdraw(V1, '0')).reason, 'invalid');
+  assert.equal((await A.createWithdraw(V1, 'abc')).reason, 'invalid');
   answer = { data: null, error: { context: { status: 409, json: async () => ({ action: 'withdraw_create', result: 'refused', reason: 'dokan_rest_withdraw_error', hint: 'limit' }) } } };
   assert.deepEqual(plain(await A.createWithdraw(V1)), { ok: true, result: 'refused', reason: 'dokan_rest_withdraw_error', hint: 'limit' }); // the kind of Dokan's refusal (the owner 16 Nov)
   answer = { data: null, error: { context: { status: 409, json: async () => ({ error: 'no_store' }) } } };

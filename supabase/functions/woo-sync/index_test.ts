@@ -3056,7 +3056,7 @@ Deno.test('0078 withdraw_create: the admin or accounts.approve = F only (never t
   assertEquals((await call(deps, { action: 'withdraw_create', vendor_id: vendorId(44) })).res.status, 401, 'the sync secret never asks');
   assertEquals((await call(deps, { action: 'withdraw_create', vendor_id: vendorId(44) }, { jwt: 'jwt-acct' })).res.status, 401, 'accounts.approve N');
   assertEquals(woo.calls.length, 0);
-  const { res, body } = await call(deps, { action: 'withdraw_create', vendor_id: vendorId(44), amount: 1, user_id: 2376 }, { jwt: 'jwt-approver' });
+  const { res, body } = await call(deps, { action: 'withdraw_create', vendor_id: vendorId(44), user_id: 2376 }, { jwt: 'jwt-approver' });
   assertEquals(res.status, 200);
   assertEquals(body, { action: 'withdraw_create', result: 'ok', id: 77, amount: 25000, status: 'pending' });
   assertEquals(woo.calls.map((c: any) => [c.method, c.path, c.body ?? null]), [['GET', 'dokan/v1/stores/44/stats', null], ['GET', 'dokan/v1/stores/44', null], ['POST', 'dokan/v1/withdraw', { user_id: 44, amount: 25000, method: 'bank', note: 'تسوية من سيستم إبتكر' }]]);
@@ -3067,6 +3067,26 @@ Deno.test('0078 withdraw_create: the admin or accounts.approve = F only (never t
   const again = await call(deps, { action: 'withdraw_create', vendor_id: vendorId(44) }, { jwt: 'jwt-admin' });
   assertEquals([again.body.result, again.body.reason, again.body.id], ['skipped', 'pending_exists', 77]);
   assertEquals(woo.calls.length, 3);
+});
+
+Deno.test('the owner 22 Nov withdraw_create: the amount typed (up to the Dokan balance read now) — over it is skipped with the balance, a bad one 400, nothing written', async () => {
+  const routes = {
+    'GET dokan/v1/stores/44/stats': { body: { others: { balance: 31998.2 } } },
+    'GET dokan/v1/stores/44': { body: STORE_BANK },
+    'POST dokan/v1/withdraw': (c: any) => ({ status: 201, body: { id: 78, user: { id: c.body.user_id }, amount: String(c.body.amount), status: 'pending', method: c.body.method, created: '2026-11-22 15:00:00' } }),
+  };
+  const over = setup({ routes, env: PUSH_ON });
+  const a = await call(over.deps, { action: 'withdraw_create', vendor_id: vendorId(44), amount: 32000 }, { jwt: 'jwt-admin' });
+  assertEquals([a.res.status, a.body.result, a.body.reason, a.body.balance], [200, 'skipped', 'over_balance', 31998.2]);
+  assert(over.woo.calls.every((c: any) => c.method === 'GET'));
+  assertEquals(over.db.rows('dokan_withdrawals').length, 0);
+  for (const bad of [0, -5, 10.005, 'abc', 1e9]) assertEquals((await call(over.deps, { action: 'withdraw_create', vendor_id: vendorId(44), amount: bad }, { jwt: 'jwt-admin' })).res.status, 400, String(bad));
+  const ok = setup({ routes, env: PUSH_ON });
+  const b = await call(ok.deps, { action: 'withdraw_create', vendor_id: vendorId(44), amount: 1000.5 }, { jwt: 'jwt-admin' });
+  assertEquals(b.body, { action: 'withdraw_create', result: 'ok', id: 78, amount: 1000.5, status: 'pending' });
+  assertEquals(ok.woo.calls.find((c: any) => c.method === 'POST')?.body, { user_id: 44, amount: 1000.5, method: 'bank', note: 'تسوية من سيستم إبتكر' });
+  const all = setup({ routes, env: PUSH_ON });
+  assertEquals((await call(all.deps, { action: 'withdraw_create', vendor_id: vendorId(44), amount: 31998.2 }, { jwt: 'jwt-admin' })).body.amount, 31998.2, 'the whole balance typed is allowed');
 });
 
 Deno.test('0078 withdraw_create: WOO_PUSH_ENABLED off, no balance, no store, a bad id — and Dokan\'s refusal comes back with its code', async () => {

@@ -1580,7 +1580,7 @@ async function withdrawReject(run: Run, args: Json) {
 
 // ---------------------------------------------------------------- withdraw_create (0078 — «تسوية دلوقتي»)
 
-// The owner (11 Nov): when the maker has no request, the system asks Dokan for one — his whole Dokan balance (= the net + the moves
+// The owner (11 Nov): when the maker has no request, the system asks Dokan for one — his whole Dokan balance, or (22 Nov) the amount typed (= the net + the moves
 // we paid him, which Dokan does not count), pending until it is approved like any other. The body names the maker only: the
 // amount is Dokan's own balance read now (stores/{id}/stats), the method the bank (the only one: the owner's rule), the note a
 // fixed line. Never with a pending request (ours or Dokan's own check); WOO_PUSH_ENABLED gates it (skipped/push_disabled before
@@ -1589,6 +1589,11 @@ const WITHDRAW_NOTE = 'تسوية من سيستم إبتكر';
 async function withdrawCreate(run: Run, args: Json) {
   const vendorId = typeof args.vendor_id === 'string' && UUID.test(args.vendor_id) ? args.vendor_id.toLowerCase() : null;
   if (vendorId === null) return json(400, { error: 'bad_request' });
+  // the owner 22 Nov («اقدر اعمل طلب سحب من السيستم ف اي وقت و يبقي بالمبلغ اللي اكتبه بايدي مدام لسه فيه رصيد … ولو المبلغ … مش قد
+  // الرصيد … يرفض»): an amount the member typed — more than 0, two decimals at most — up to the maker's Dokan balance read now
+  // (over it = skipped/over_balance with the balance, nothing written); none = the whole balance as before («تقفيل الحساب»)
+  const typed = args.amount === undefined || args.amount === null || args.amount === '' ? null : Number(args.amount);
+  if (typed !== null && !(Number.isFinite(typed) && typed > 0 && Math.round(typed * 100) === typed * 100 && typed <= 10_000_000)) return json(400, { error: 'bad_amount' });
   const { data: v, error } = await run.db.from('vendors').select('id, woo_vendor_id').eq('id', vendorId).maybeSingle();
   if (error) throw new Error(`vendors: ${error.message}`);
   if (!v) return json(404, { error: 'vendor_not_found' });
@@ -1607,6 +1612,7 @@ async function withdrawCreate(run: Run, args: Json) {
   const { data: stats } = await woo.get(`dokan/v1/stores/${store}/stats`);
   const balance = numOrNull(isObj(stats) && isObj(stats.others) ? stats.others.balance : null);
   if (balance === null || balance <= 0) return await skip('no_balance', { balance });
+  if (typed !== null && typed > Math.floor(balance * 100) / 100) return await skip('over_balance', { balance: Math.floor(balance * 100) / 100 });
   // the owner 16 Nov («شوف ال error ده»): Dokan refuses a bank request (dokan_rest_withdraw_error) for a store with no bank account
   // in its payment settings — every refusal on the live site was such a store. Read the store first and say so; nothing of the
   // account is kept or logged, only whether it has a number.
@@ -1614,7 +1620,7 @@ async function withdrawCreate(run: Run, args: Json) {
   const bank = isObj(shop) && isObj(shop.payment) && isObj(shop.payment.bank) ? shop.payment.bank : null;
   const has = (k: string) => !!bank && String(bank[k] ?? '').trim() !== '';
   if (!has('ac_number') && !has('iban')) return await skip('no_bank');
-  const amount = Math.floor(balance * 100) / 100;
+  const amount = typed ?? Math.floor(balance * 100) / 100;
   let created: Json;
   try {
     created = (await woo.post('dokan/v1/withdraw', { user_id: store, amount, method: 'bank', note: WITHDRAW_NOTE })).data as Json;

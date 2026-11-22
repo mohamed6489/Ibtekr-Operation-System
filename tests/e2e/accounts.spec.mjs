@@ -596,7 +596,9 @@ test('0078: «تسوية دلوقتي» files a request on Dokan for the whole D
   await expect(settle.locator('[data-vb-tile]')).toHaveText([/رصيد Dokan\s*25,000\.00 ج\.م/, /العرابين\s*4,000\.00 ج\.م/, /المواصلات\s*1,000\.00 ج\.م/, /التصحيح\s*0\.00 ج\.م/, /صافي الرصيد\s*20,000\.00 ج\.م/]);
   await expect(settle.locator('[data-vb-req]')).toHaveAttribute('data-vb-req', 'settle');
   await expect(settle).toContainText('رصيده على Dokan 25,000.00 ج.م');
-  await expect(settle).toContainText('= الصافي 20,000.00 + الخصومات 5,000.00');
+  // the owner 22 Nov: the amount is typed (up to the Dokan balance) and what the maker gets is said as it is typed
+  await settle.locator('[data-vb-amount]').fill('25000');
+  await expect(settle.locator('[data-vb-amt-msg]')).toContainText('الخصومات المفتوحة (5,000.00 ج.م) بتتصفّى منه — المبتكر يتحوّله 20,000.00 ج.م');
   await expect(settle.locator('[data-vb-moves]')).toHaveAttribute('open', '');
   await expect(settle.locator('[data-vb-moves] tbody tr')).toHaveCount(2);
   await settle.getByRole('button', { name: /اعمل طلب سحب على Dokan/ }).click();

@@ -16,6 +16,9 @@ for (const width of [1280, 1100, 900, 390]) {
     await page.goto('/'); await page.fill('#lg-id', 'admin.dev@ibtekr.local'); await page.fill('#lg-pw', DEV_PW);
     await page.getByRole('button', { name: 'دخول', exact: true }).click(); await expect(page.locator('#root')).toBeVisible();
     for (const [hash, card, head] of CASES) {
+      // the owner 21 Nov (the phone as its own design): on a phone settings' home is a list of rows — icon, name, what is in it, an
+      // arrow — not cards with a green band; the band stays from a tablet up, and on every other card at every width
+      if (hash === 'settings' && width < 768) continue;
       await page.evaluate((x) => { location.hash = x; }, hash);
       await expect.poll(() => page.evaluate(([c]) => [...document.querySelectorAll(c)].filter((x) => x.offsetParent).length, [card])).toBeGreaterThan(0);
       const bad = await page.evaluate(([c, hd]) => [...document.querySelectorAll(c)].filter((x) => x.offsetParent && !x.closest('.modal,.drawer')).map((x) => {

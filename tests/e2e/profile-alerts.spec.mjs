@@ -85,7 +85,12 @@ test('decision 30: «ملفي» is the signed-in member, even when #profile was 
   // the e-mail's right edge lines up with the name's (both on the right of the menu)
   const [b, s] = await Promise.all([head.locator('b').boundingBox(), head.locator('small').boundingBox()]);
   const hb = await head.boundingBox();
-  expect(Math.abs((b.x + b.width) - (s.x + s.width))).toBeLessThan(40); expect(hb.x + hb.width - (b.x + b.width)).toBeLessThan(30);
+  // (the owner 22 Nov — the account menu redrawn: the member's picture heads it, on the right, and the name and the e-mail sit
+  // beside it — still on the right, their right edges together, now starting at the picture instead of at the menu's edge)
+  const pic = await head.locator('.m-av').count() ? await head.locator('.m-av').boundingBox() : null;
+  expect(Math.abs((b.x + b.width) - (s.x + s.width))).toBeLessThan(40);
+  if (pic) { expect(hb.x + hb.width - (pic.x + pic.width)).toBeLessThan(30); expect(pic.x - (b.x + b.width)).toBeLessThan(20); expect(pic.x - (b.x + b.width)).toBeGreaterThanOrEqual(0); }
+  else expect(hb.x + hb.width - (b.x + b.width)).toBeLessThan(30);
   await page.getByRole('menuitem', { name: 'ملفي' }).click();
   await expect(P(page).locator('.prof-head h1')).toHaveText('سارة أحمد');
   await expect(P(page)).not.toContainText('بتشوف ملف');

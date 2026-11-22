@@ -2449,3 +2449,11 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 15. **`0143` الحساب والمستفيد في كل سحب وإيداع (19 نوفمبر):** طبّق `0143_linked_accounts.sql` وشغّل `rls_linked_accounts` و`rls_accounts` من «RLS live»، وانشر `woo-sync` (`withdraw_approve` بـ `account`). مفيش بيانات بتتنقل — الحركات القديمة من غير حساب بتفضل.
 16. **`0144` بوسطة — التحصيل والطباعة والبيك أب (19 نوفمبر):** طبّق `0144_bosta_more.sql` (بيملا `orders.bosta_delivery` من ميتا الإضافة ويعمل cron `woo-sync-bosta-cod`) وشغّل `rls_bosta_more` من «RLS live»، وانشر `woo-sync` (`bosta_cod` / `bosta_awb` / `bosta_locations` / `bosta_pickup`). الأدمن يفتح «بيك أب من بوسطة» مرة ويختار المخزن والمستلم و«احفظ كافتراضي».
 17. **`0145` أكتر من بوليصة في البيك أب (19 نوفمبر):** طبّق `0145_bosta_pickup_many.sql` وشغّل `rls_bosta_more`، وانشر `woo-sync`.
+
+#### 2.7.118 توزيع موديلات Claude التلقائي + تحديثات الموديلات عند المبرمج (22 نوفمبر — مافيش migration)
+1. انشر `ai-content` من «Deploy functions» — كل أمر بقى بيشتغل على موديل مستواه لوحده (خفيف Haiku 5.5 · متوسط Sonnet 5.5 · تقيل Opus 5.5 — `_shared/ai-routing.js`) من غير أي صف في الإعدادات؛ الأدمن يغيّر مستوى أمر أو يرجع «موديل واحد للكل» من الكارت.
+2. انشر `notify` — فحص المبرمج اليومي (من 9 الصبح بالقاهرة) بيقرا قايمة موديلات Anthropic بالمفتاح المربوط ويبعت تنبيه لو فيه موديل جديد أو موديل مابقاش متاح.
+3. ادمج على `main` — كارت «أنهي موديل لأنهي أمر (Claude)» وصرف الشهر بالموديل وبنوع الشغل تحت «الإعدادات › الذكاء الاصطناعي › المزوّدين».
+4. **بعد أول يوم شغل راجع `ai_runs`:** `select action, source, model, status, error, count(*), round(sum(cost_usd)::numeric, 3) from ai_runs where created_at > now() - interval '2 days' group by 1,2,3,4,5 order by 6 desc;` — صفوف `claude-haiku-5-5` لازم تبقى `ok` (فلتر الأوردرات كان `ai_error` قبل كده)؛ لو أمر خفيف جودته مش كفاية ارفع مستواه من الكارت.
+5. **تحديث القايمة لما المبرمج ينبّه:** `KNOWN_MODELS` / `TIER_MODEL` / `TIER_USD` / `LIST_DATE` في `_shared/ai-routing.js`، `PRICES` في `_shared/ai-content.js`، نسخة الصفحة `app/js/pages/ai-routing.js`، والاختبار `tests/functions/ai-routing.test.mjs` — من صفحتي الموديلات والأسعار بتوع Anthropic، وبعدها انشر الدالتين تاني.
+

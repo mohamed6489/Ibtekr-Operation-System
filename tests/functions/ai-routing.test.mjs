@@ -1,5 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import vm from 'node:vm';
 import { COMMANDS, COMMAND_KEYS, KNOWN_MODELS, TIERS, TIER_MODEL, TIER_USD, claudeParams, cleanRouting, forcedToolOk, hasFallback, modelNews, routeOf, routingOf, tierFor } from '../../supabase/functions/_shared/ai-routing.js';
 import { MODELS, PRICES, costOf } from '../../supabase/functions/_shared/ai-content.js';
 
@@ -60,4 +62,24 @@ test('modelNews: a served model this system does not know is news; a routed mode
   assert.deepEqual(modelNews([...KNOWN_MODELS, 'claude-opus-5-5-20260901', 'gpt-5', 42, 'CLAUDE-OPUS-6', 'claude-opus-6', 'claude-opus-5-6']), { fresh: ['claude-opus-6', 'claude-opus-5-6'], gone: [] });
   assert.deepEqual(modelNews(['claude-opus-5-5', 'claude-sonnet-5-5-20260815', 'claude-haiku-6']), { fresh: ['claude-haiku-6'], gone: ['claude-haiku-5-5'] });
   assert.deepEqual(modelNews([]), { fresh: [], gone: [] }); assert.deepEqual(modelNews(null), { fresh: [], gone: [] });
+});
+
+// the settings card's copy of the table (app/js/pages/ai-routing.js) is the server's — levels, models, prices, commands, lowest levels
+test('the page\'s table is the server\'s: the same levels, models, prices, commands and lowest levels, and the same routing of a row', async () => {
+  const S = await import('../../supabase/functions/_shared/ai-routing.js');
+  const window = { IBUI: { h() {}, Button() {} }, IBKit: {} };
+  vm.runInNewContext(readFileSync(new URL('../../app/js/pages/ai-routing.js', import.meta.url), 'utf8'), { window, document: {}, Date, Promise, Number, String, Object, Math, Array });
+  const P = window.IBAIRouting;
+  assert.equal(P.LIST_DATE, S.LIST_DATE);
+  assert.deepEqual([...P.TIERS], [...S.TIERS]);
+  for (const t of S.TIERS) { assert.equal(P.TIER[t].model, S.TIER_MODEL[t], t); assert.deepEqual([...P.TIER[t].usd], [...S.TIER_USD[t]], t); assert.ok(P.TIER[t].label && P.TIER[t].when && P.TIER[t].name); }
+  assert.deepEqual(Object.keys(P.COMMANDS), [...S.COMMAND_KEYS]);
+  for (const k of S.COMMAND_KEYS) { assert.equal(P.COMMANDS[k].tier, S.COMMANDS[k].tier, k); assert.equal(P.COMMANDS[k].min, S.COMMANDS[k].min, k); assert.ok(P.COMMANDS[k].label && P.COMMANDS[k].why, k + ' says what it is and why'); }
+  const rows = [null, {}, { routing: { tiers: { write: 'heavy', research: 'light', filter: 'mid', nope: 'mid' } } }, { model: 'claude-sonnet-5-5', routing: { mode: 'single', tiers: { write: 'light' } } }];
+  for (const row of rows) {
+    assert.deepEqual(JSON.parse(JSON.stringify(P.routingOf(row))), S.routingOf(row));
+    for (const k of [...S.COMMAND_KEYS, 'nope']) { const a = P.routeOf(row, k); const b = S.routeOf(row, k, { model: (row && row.model) || 'claude-opus-5-5', effort: 'medium' }); assert.deepEqual([a.tier, a.model], [b.tier, b.model], k); }
+  }
+  // the words on the card: «المتوسط بنص سعر التقيل، والخفيف أرخص من المتوسط 20 مرة»
+  assert.equal(S.TIER_USD.heavy[0] / S.TIER_USD.mid[0], 2); assert.equal(S.TIER_USD.mid[0] / S.TIER_USD.light[0], 20);
 });

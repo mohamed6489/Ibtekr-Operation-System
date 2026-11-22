@@ -1147,7 +1147,8 @@ export async function installSupabaseMock(page, opts = {}) {
         const eqs = [...url.searchParams.entries()].filter(([k, v]) => COLS.includes(k) && v.startsWith('eq.')).map(([k, v]) => [k, v.slice(3)]);
         const gte = url.searchParams.get('created_at'); const since = gte && gte.startsWith('gte.') ? Date.parse(gte.slice(4)) : null;
         const lim = Number(url.searchParams.get('limit')) || 1000;
-        const rows = mock.aiRuns.filter((x) => (isAdmin(u) || x.created_by === u.id) && eqs.every(([k, v]) => String(x[k]) === v) && (since === null || Date.parse(x.created_at) >= since)).sort((x, y) => (x.created_at < y.created_at ? 1 : -1)).slice(0, lim);
+        const neqs = [...url.searchParams.entries()].filter(([k, v]) => COLS.includes(k) && v.startsWith('neq.')).map(([k, v]) => [k, v.slice(4)]); // IBAI.spendBreakdown: action=neq.image
+        const rows = mock.aiRuns.filter((x) => (isAdmin(u) || x.created_by === u.id) && eqs.every(([k, v]) => String(x[k]) === v) && neqs.every(([k, v]) => String(x[k]) !== v) && (since === null || Date.parse(x.created_at) >= since)).sort((x, y) => (x.created_at < y.created_at ? 1 : -1)).slice(0, lim);
         return json(200, rows.map((x) => (cols.includes('*') ? { ...x } : Object.fromEntries(cols.map((c) => [c, x[c] === undefined ? null : x[c]])))));
       }
       // phase 5.4 decision 8 (0026): image_imports — select only (a Claude session queues the rows as postgres, the server marks

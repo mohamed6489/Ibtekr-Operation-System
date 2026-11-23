@@ -66,8 +66,8 @@ test('[#1, #6] the makers filter = the table\'s columns and nothing is on by def
 
 test('[#4, #5] a period opens on «هذا الشهر» and its button names the dates — a log too, «كل الفترات» is a choice', async ({ page }) => {
   await signIn(page);
-  await at(page, 'reports'); await expect(page.locator('.date-field').first()).toBeVisible();
-  const lbl = await page.locator('.date-field .range-label').first().textContent();
+  await at(page, 'reports'); await expect(page.locator('#reports .date-field').first()).toBeVisible();
+  const lbl = await page.locator('#reports .date-field .range-label').first().textContent();
   expect(lbl).toMatch(/^الفترة: 1 /); expect(lbl).not.toContain('كل الفترات');
   await at(page, 'products-log');
   const log = page.locator('[data-log-period="products"]');

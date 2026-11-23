@@ -486,6 +486,8 @@ test('5.5 decision 13: «كشف بالفترة» — the opening is Dokan\'s bal
   await main(page).getByRole('tab', { name: 'كشف بالفترة' }).click();
   // the meeting of 23 Nov [#4] (was 0078's «كل الفترات»): the ledger opens on this month, its dates on the button
   await expect(main(page).locator('.toolbar .range-label')).toHaveText(/^الفترة: 1 /);
+  // this month's statements redraw the ledger while they arrive: the picker opens once they are in
+  await expect(main(page).locator('[data-ledger-refresh]')).toBeEnabled();
   await main(page).getByRole('button', { name: 'اختيار الفترة' }).click();
   await page.getByRole('radio', { name: 'هذا الشهر' }).click();
   await page.getByRole('button', { name: 'تحديث', exact: true }).click();
@@ -670,12 +672,13 @@ test('0078: «كشف بالفترة» without a range = «كل الفترات» 
   await main(page).getByRole('tab', { name: 'كشف بالفترة' }).click();
   await main(page).locator('[data-vl-all]').click(); // the meeting of 23 Nov [#4]: «كل الفترات» is a choice now (the default is this month)
   await expect(main(page).locator('.toolbar .range-label')).toHaveText('كل الفترات');
+  const asked = mock.statements.length; // the month's statements asked before the pick
   const art = main(page).locator('table.ledger-table tbody tr', { hasText: 'Art Craft' });
   await expect(art).toContainText('9,000.00'); // حقه من المكتمل (Dokan's earning)
   await expect(art.locator('[data-ledger-paid="Art Craft"]')).toHaveText('6,100.00'); // 6,500 less the 400 it covered
   await expect(art.locator('[data-ledger-close="Art Craft"]')).toHaveText('2,500.00'); // = the net now
   await expect(main(page).locator('table.ledger-table thead th', { hasText: 'رصيد أول الفترة' })).toHaveCount(0);
-  expect(mock.statements).toEqual([]);
+  expect(mock.statements.length).toBe(asked); // «كل الفترات» asks no statement
   // a period asks the statements; «كل الفترات» brings the whole account back
   await main(page).getByRole('button', { name: 'اختيار الفترة' }).click();
   await page.getByRole('radio', { name: 'هذا الشهر' }).click();

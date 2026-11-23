@@ -68,7 +68,7 @@ test('the owner 11 Nov: «نظرة عامة» first — the counts, the kinds, a
   await expect(page.locator('#tickets .tk-people .bar-row', { hasText: 'منى حسن' })).toContainText('1 مفتوح لدوره');
   await expect(page.locator('#tickets .tk-people')).not.toContainText('مشاهد تجريبي'); // a suspended member is not in the queue
   await page.locator('#tickets [role=tab]', { hasText: 'السجل' }).click();
-  await expect(page.locator('#tickets tbody tr[data-id]')).toHaveCount(2);
+  await expect(page.locator('#tickets tbody tr[data-id]')).toHaveCount(3); // the meeting of 23 Nov [#6]: no «مفتوحة» on by default
 });
 
 test('the owner 11 Nov: «طلباتي» — the team requests I opened, from the account menu, a click opens the request', async ({ page }) => {
@@ -112,14 +112,14 @@ test('comment 7 — «ملفي › طلباتي»: one row of three tabs — «�
   await expect(P.locator('#tab-all')).toHaveAttribute('aria-selected', 'true');
 });
 
-test('«تذاكر الفريق» is open: the open tickets from the database (the resolved one behind the filter), the v2 columns', async ({ page }) => {
+test('«تذاكر الفريق» is open: the tickets from the database (the meeting of 23 Nov [#6]: the resolved one too — no filter by default), the v2 columns', async ({ page }) => {
   await openTickets(page);
   const rows = page.locator('#tickets tbody tr[data-id]');
-  await expect(rows).toHaveCount(2);
+  await expect(rows).toHaveCount(3);
   await expect(page.locator('#tickets tr[data-id="TKT-0001"]')).toContainText('العميلة مستنية الأوردر');
   await expect(page.locator('#tickets tr[data-id="TKT-0001"]')).toContainText('سلوى زيتوني');
-  await expect(page.locator('#tickets tr[data-id="TKT-0003"]')).toHaveCount(0);
-  await expect(page.locator('#tickets')).toContainText('الحالة: مفتوحة');
+  await expect(page.locator('#tickets tr[data-id="TKT-0003"]')).toHaveCount(1);
+  await expect(page.locator('#tickets')).not.toContainText('الحالة: مفتوحة');
 });
 
 test('admin opens a ticket: ticket_create with the form, the drawer on the new ticket with the server\'s timeline, an activity row without the text', async ({ page }) => {
@@ -223,7 +223,7 @@ test('comment 61 — the requests filter: «الموظف» and «فاتح الط
   await page.locator('.sidebar .nav-item[data-page="tickets"]').click();
   await page.locator('#tickets [role=tab]', { hasText: 'السجل' }).click();
   const rows = page.locator('#tickets tbody tr[data-id]');
-  await expect(rows).toHaveCount(2);
+  await expect(rows).toHaveCount(3); // the meeting of 23 Nov [#6]: every request, no «مفتوحة» on by default
   await page.locator('#tickets [data-fm-btn]').first().click();
   const menu = page.locator('[data-fm-menu]');
   await expect(menu.locator('[data-fm-tab]')).toContainText(['الحالة', 'النوع', 'الأولوية', 'المسؤول', 'الموظف', 'فاتح الطلب']);

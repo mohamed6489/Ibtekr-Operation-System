@@ -575,6 +575,7 @@ test('comment 14 — every period filter with figures behind it compares (the re
   await page.locator('#vendors [role=tablist][aria-label="أقسام المبتكرين"] [role=tab]', { hasText: 'حسابات المبتكرين' }).click();
   await page.locator('#vendors').getByRole('tab', { name: 'كشف بالفترة' }).click();
   await expect(page.locator('#vendors table.ledger-table')).toBeVisible(); // the meeting of 23 Nov [#4]: this month's statements load first (it was «كل الفترات»)
+  await expect(page.locator('#vendors [data-ledger-refresh]')).toBeEnabled(); // this month's statements are in (their redraws close an open picker)
   await page.locator('#vendors .toolbar .date-field').click();
   await dp.getByRole('radio', { name: 'آخر 7 أيام' }).click();
   await dp.locator('[data-rp-compare="vledger"] input').check();

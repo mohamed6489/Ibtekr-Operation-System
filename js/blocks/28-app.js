@@ -36,7 +36,7 @@
   let shownNote = null;
   function rerender() { if (state.page === 'vendors' && state.vtab === 'accounts') { renderVendors(); return; } if (state.page !== 'accounts') return; if (!state.note && shownNote) state.note = shownNote; render(); }
   const canAdd = () => { const A = ACC(); return !A || A.can().add; };
-  const canEditRec = (rec) => { if (rec && rec.settledBy != null) return false; const A = ACC(); return !A || A.canEdit(rec); }; // 0078: a settled move is final
+  const canEditRec = (rec) => { if (rec && (rec.settledBy != null || rec.auto)) return false; /* the meeting of 23 Nov [#29]: the platforms' spend is read, not edited */ const A = ACC(); return !A || A.canEdit(rec); }; // 0078: a settled move is final
   function refreshSeed() {
     const A = ACC(), V = window.IBVendors; if (!A || !V || !V.store) return;
     const makers = V.store.all().map((v) => ({ id: v.id, name: v.name, rate: v.rate == null ? null : v.rate }));
@@ -305,7 +305,7 @@
       { id: 'expenses', label: 'الحسابات (المصروفات)', ids: true, canAdd: true, dateKey: 'date', filter: { key: 'category', label: 'النوع', options: () => D.CATEGORIES.slice() }, note: 'الصف من غير ID = مصروف جديد، وبالـ ID = تعديل الخانات المكتوبة بس (تفاصيل المصروف والاشتراك بتفضل). الإلغاء من صفحة الحسابات.',
         fields: () => [{ key: 'date', label: 'التاريخ', en: 'Date', type: 'date', required: true }, { key: 'amount', label: 'المبلغ (ج.م)', en: 'Amount (EGP)', type: 'number', required: true }, { key: 'category', label: 'النوع', en: 'Category', type: 'enum', options: D.CATEGORIES.slice(), required: true }, { key: 'direction', label: 'إيداع / سحب', en: 'Direction', type: 'enum', options: ['سحب', 'إيداع'] }, { key: 'beneficiary', label: 'المستفيد', en: 'Beneficiary' }, { key: 'account', label: 'الحساب', en: 'Account', type: 'enum', options: D.ACCOUNTS.slice() }],
         presets: { accountant: ['date', 'amount', 'category', 'direction', 'beneficiary', 'account'] },
-        rows: () => store.expenses.map(expRow), byId: expSheet.byId, check: expSheet.check, apply: expSheet.apply },
+        rows: () => store.expenses.filter((e) => !e.auto).map(expRow), byId: expSheet.byId, /* [#29]: the platforms' spend is not a sheet row */ check: expSheet.check, apply: expSheet.apply },
       { id: 'vendorMoves', label: 'حركات المبتكرين (عربون / مواصلات / أخرى)', ids: true, canAdd: true, dateKey: 'date', filter: { key: 'type', label: 'النوع', options: () => D.VENDOR_TYPES.slice() }, note: 'الصف من غير ID = حركة جديدة على حساب المبتكر، وبالـ ID = تعديلها — الحركة اللي اتصفّت في تسوية مابتتعدّلش.',
         fields: () => [{ key: 'date', label: 'التاريخ', en: 'Date', type: 'date', required: true }, { key: 'vendor', label: 'المبتكر', en: 'Vendor', type: 'enum', options: vnames(), required: true }, { key: 'type', label: 'النوع', en: 'Type', type: 'enum', options: D.VENDOR_TYPES.slice(), required: true },
           { key: 'typeName', label: 'اسم النوع (لو «أخرى»)', en: 'Other type' }, { key: 'direction', label: 'إيداع / سحب', en: 'Direction', type: 'enum', options: ['سحب', 'إيداع'], required: true }, { key: 'amount', label: 'المبلغ (ج.م)', en: 'Amount (EGP)', type: 'number', required: true }, { key: 'account', label: 'الحساب (اتسحب منه)', en: 'Account', type: 'enum', options: D.ACCOUNTS.slice() }],
@@ -2088,7 +2088,7 @@
     const monthTxt = full ? D.monthName(full.m) + ' ' + full.y : D.rangeLabel(state.range.from, state.range.to);
     const tones = { 'المرتبات': 'gold', 'المصروفات': 'neutral', 'الاشتراكات': 'goldlight', 'الإعلانات': 'brand' };
     const cells = ['M14', 'N14', 'O14', 'P14'];
-    const srcFor = () => 'تسجيل يدوي';
+    const srcFor = (c) => (c === 'الإعلانات' && entries.some((e) => e.category === c && e.auto) ? (entries.some((e) => e.category === c && !e.auto) ? 'صرف المنصات تلقائي + تسجيل يدوي' : 'صرف المنصات تلقائي (Meta Ads)') : 'تسجيل يدوي'); // [#29]
     return [
       h('div', { class: 'cards' }, Object.keys(tot.byCategory).map((c, i) => U.CategoryCard({ tone: tones[c] || 'neutral', name: expLabel(c), value: tot.byCategory[c].amount, pct: tot.byCategory[c].share, caption: 'من الإجمالي', details: () => { const l = entries.filter((e) => e.category === c); const manual = l.reduce((x, e) => x + (e.direction === 'deposit' ? -e.amount : e.amount), 0); const sheet = Math.round((tot.byCategory[c].amount - manual) * 100) / 100;
         return { title: expLabel(c) + ' — ' + D.formatMoney(tot.byCategory[c].amount) + ' ج.م', sub: monthTxt + ' · ' + D.formatPct(tot.byCategory[c].share) + ' من إجمالي المصروفات', summary: [{ label: 'الإجمالي', value: D.formatMoney(tot.byCategory[c].amount) + ' ج.م' }, { label: 'من الشيت', value: D.formatMoney(seedKeys.length ? sheet : 0) + ' ج.م' }, { label: 'تسجيل يدوي', value: l.length + ' حركة' }], headers: ['التاريخ', 'البيان', 'المستفيد', 'العملية', 'المبلغ'], rows: (seedKeys.length ? [['—', 'من شيت Monthly Performance!' + cells[i], '—', 'سحب', D.formatMoney(sheet)]] : []).concat(l.map((e) => [num(D.formatDateNumeric(e.date)), 'تسجيل يدوي', e.beneficiaryName || '—', e.direction === 'deposit' ? 'إيداع' : 'سحب', D.formatMoney(e.amount)])), total: ['الإجمالي', '', '', '', D.formatMoney(tot.byCategory[c].amount)], source: srcFor(c, i) }; } }))),
@@ -2099,11 +2099,25 @@
       expDetailsCard(tot, srcFor),
       TableCard({ title: 'سجل المصروفات التفصيلي', count: '', th: { noun: ['مصروف', 'المصروفات'], when: monthTxt }, body: entries.length === 0 ? U.EmptyState('لسه مفيش مصروفات مسجّلة', 'اضغط «إضافة مصروفات» وسجّل أول سحب أو إيداع، وهيظهر هنا.') :
         U.Table({ headers: ['التاريخ', 'النوع', 'اسم المستفيد', 'البيان', 'المبلغ (ج.م)', ''], rows: entries.map((e) => [num(D.formatDateNumeric(e.date)), expLabel(e.category), e.beneficiaryName || '—', expenseLine(e),
-          h('span', { class: e.direction === 'deposit' ? 'pos' : '' }, num((e.direction === 'deposit' ? '+' : '') + D.formatMoney(e.amount))), RowActions('expenses', e, (r) => deleteRec('expenses', r))]) }) }),
+          h('span', { class: e.direction === 'deposit' ? 'pos' : '' }, num((e.direction === 'deposit' ? '+' : '') + D.formatMoney(e.amount))), e.auto ? h('span', { class: 'tg tg-info', 'data-ad-auto': e.auto, title: 'بيتقري لوحده من صرف المنصة اليومي — مايتعدّلش من هنا' }, 'تلقائي') : RowActions('expenses', e, (r) => deleteRec('expenses', r))]) }) }),
       sourceNote('المصدر: المصروفات المتسجلة في السيستم للفترة المحددة'),
     ].filter(Boolean);
   }
 
+  // the meeting of 23 Nov [#28]: under the sales, the orders of the period picked (the page's period) — each with its status, the count in
+  // the table's title; a row opens the order's popup over the page (phase 1 [#7])
+  function salesOrdersCard() {
+    const d = window.IBOrders && window.IBOrders.data ? window.IBOrders.data() : null; const r = state.range;
+    const LBS = (st) => { const S0 = window.IBSettings; return S0 && S0.statusLabel ? S0.statusLabel('order', st) : st; };
+    const list = ((d && d.orders) || []).filter((o) => o.date && o.date >= r.from && o.date <= r.to).sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : Number(b.id) - Number(a.id)));
+    const tone = (st) => (st === 'مكتمل' ? 'tg-success' : ['ملغي', 'استرجاع', 'فشل'].includes(st) ? 'tg-error' : ['جاري التنفيذ', 'جاهز للشحن', 'قيد الشحن'].includes(st) ? 'tg-orange' : 'tg-neutral');
+    const makers = (o) => [...new Set((o.subs || []).map((x) => x.vendor).filter(Boolean))].join('، ') || '—';
+    const idCell = (o) => h('span', { class: 'vname-link', role: 'button', tabindex: '0', 'data-sales-order': o.id, onClick: () => peekOrder(o.id), onKeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); peekOrder(o.id); } } }, num('#' + o.id));
+    const total = D.round2(list.reduce((t, o) => t + (Number(o.tot) || 0), 0));
+    return h('div', { 'data-sales-orders': '' }, TableCard({ title: 'أوردرات الفترة (' + list.length + ')', count: '', th: { noun: ['أوردر', 'الأوردرات'], count: [list.length, list.length], when: periodText(), total: D.formatMoney(total) + ' ج.م' },
+      body: list.length ? U.Table({ headers: ['رقم الأوردر', 'التاريخ', 'العميل', 'المبتكرين', 'الحالة', 'الإجمالي (ج.م)'], rows: list.map((o) => [idCell(o), num(D.formatDateNumeric(o.date)), o.name || '—', makers(o), h('span', { class: 'tg ' + tone(o.st), 'data-sales-status': o.st }, LBS(o.st)), num(D.formatMoney(Number(o.tot) || 0))]),
+        totalRow: ['الإجمالي', '', '', '', num(list.length + ' أوردر'), num(D.formatMoney(total))] }) : U.EmptyState('مفيش أوردرات في الفترة دي', 'غيّر الفترة من فوق.') }));
+  }
   function SalesView() {
     const S = SEED.sales, T = SEED.salesTotal; const tones = ['brand', 'gold', 'neutral'];
     const salesDet = (k, r) => { const vs = vendorsNow().map((v) => ({ v, c: k ? v[k] : [v.c[0] + v.p[0] + v.x[0], v.c[1] + v.p[1] + v.x[1], v.c[2] + v.p[2] + v.x[2]] })).filter((x) => x.c[0] > 0 || x.c[1] > 0).sort((a, b) => b.c[1] - a.c[1]);
@@ -2117,6 +2131,7 @@
       TableCard({ title: 'تفاصيل المبيعات حسب حالة الأوردر', body: U.Table({ headers: ['حالة الأوردر', 'عدد الأوردرات', 'إجمالي المبيعات (ج.م)', 'حصة إبتكر (ج.م)', 'حصة المبتكرين (ج.م)'],
         rows: S.map((r) => [r.label, num(String(r.orders)), num(D.formatMoney(r.sales)), num(D.formatMoney(r.share)), num(D.formatMoney(D.round2(r.sales - r.share)))]),
         totalRow: ['الإجمالي', num(String(T.orders)), num(D.formatMoney(T.sales)), num(D.formatMoney(T.share)), num(D.formatMoney(D.round2(T.sales - T.share)))] }) }),
+      salesOrdersCard(),
       sourceNote('المصدر: الأوردرات (السيستم) للفترة المحددة · حصة إبتكر = قيمة السطر × نسبة الموقع على السطر (أو نسبتنا يومها) + الرسوم · «تحت التنفيذ» = جاري التنفيذ + جاهز للشحن + قيد الشحن · «مرتجع / ملغي» = ملغي + استرجاع + فشل · حصة المبتكرين = إجمالي المبيعات − حصة إبتكر')].filter(Boolean);
   }
 

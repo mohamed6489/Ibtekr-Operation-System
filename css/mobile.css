@@ -659,3 +659,60 @@
   #vpanel>.toolbar:has([data-wd-filter])+.subtabs{display:flex;flex-wrap:nowrap;align-self:stretch;width:100%;box-sizing:border-box;border-radius:12px}
   #vpanel>.toolbar:has([data-wd-filter])+.subtabs>.subtab{flex:1 1 0;justify-content:center;min-width:0;border-radius:9px}
 }
+
+/* ---------- 39. «مزوّدي الذكاء الاصطناعي» (the owner 22 Nov — «خلي التصميم يشتغل علي الموبايل بكل احترافي») ----------
+   A tablet: a kind's own choice across, its tools' three under it. A phone: one column, and the company-and-model list comes
+   up from the bottom as the filter does — its title, the companies' tabs on one sliding line, the open company's models. */
+@media (max-width:1023px){
+  .prov-fields{grid-template-columns:minmax(0,1fr)}
+  .prov-side{border-inline-start:0;padding-inline-start:0;border-top:1px solid var(--color-border-subtle);padding-top:12px}
+}
+@media (max-width:767px){
+  .prov-grid,.prov-tools{grid-template-columns:minmax(0,1fr)}
+  .prov-grid{gap:var(--m-s3)}
+  .prov-auto{align-items:flex-start;padding:var(--m-s3);border-radius:var(--m-r-card)}
+  .prov-auto .sw{margin-top:2px}
+  .prov-kind{border-radius:var(--m-r-card)}
+  .prov-kind-h,.prov-fields{padding:var(--m-s3)}
+  .prov-kind-h .tg{flex:none}
+  .prov-kind .select{min-height:48px;border-radius:var(--m-r-ctl)}
+  .menu.cm-menu.floating{
+    position:fixed!important;inset:auto 0 0 0!important;top:auto!important;left:0!important;right:0!important;bottom:0!important;
+    width:auto!important;min-width:0!important;max-width:none!important;max-height:min(78vh,78dvh)!important;
+    overflow-y:auto;overscroll-behavior:contain;z-index:60;border:0;border-radius:20px 20px 0 0;
+    padding:6px 10px calc(12px + env(safe-area-inset-bottom,0px));
+    box-shadow:0 -8px 32px rgba(46,42,27,.24),0 0 0 100vmax rgba(46,42,27,.38);animation:m-sheet-up .22s var(--m-ease)}
+  .menu.cm-menu.floating::before{content:'';display:block;width:36px;height:4px;border-radius:2px;background:var(--color-border-default);opacity:.45;margin:4px auto 8px}
+  .cm-menu .cm-title{display:block;padding:2px 6px 10px;font-size:16px;font-weight:700;color:var(--color-brand-default)}
+  .cm-menu .cm-cap{font-size:13px;padding-inline:6px}
+  .cm-menu .cm-tabs{overscroll-behavior-x:contain}
+  .cm-menu .cm-tab{min-height:44px;font-size:15px}
+  .cm-menu .cm-opt,.cm-menu .cm-inherit{min-height:52px;padding-inline:12px;border-radius:10px;font-size:15px}
+  .cm-menu .cm-s,.cm-menu .cm-tag{font-size:13px}
+  .cm-menu .cm-price{min-width:0;font-size:13px}
+  /* the box a list opens from stays above the bottom bar while it is open */
+  .prov-kind:has(.menu.cm-menu){position:relative;z-index:45}
+}
+@media (max-width:767px) and (prefers-reduced-motion:reduce){.menu.cm-menu.floating{animation:none}}
+
+/* ---------- 40. The assistants' settings (the owner 22 Nov): the tabs slide on one line, the cards in one column ---------- */
+@media (max-width:1023px){
+  .ag-facts{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .ag-brain{grid-template-columns:auto minmax(0,1fr)}
+  .ag-brain-n{grid-column:1 / -1}
+}
+@media (max-width:767px){
+  .ag-tabs-row{padding:var(--m-s3);border-radius:var(--m-r-card)}
+  .ag-tabs{flex-wrap:nowrap;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none;margin-inline:calc(-1*var(--m-s3));padding-inline:var(--m-s3)}
+  .ag-tab{flex:none;min-height:44px}
+  .ag-facts,.ag-srcs{grid-template-columns:minmax(0,1fr)}
+  .ag-brain .set-ic{display:none}
+  .ag-brain{grid-template-columns:minmax(0,1fr)}
+}
+
+/* 41 — the assistants' own rules: on a phone the state drops under the sentence, the switch and the menu keep their places */
+@media (max-width: 767px) {
+  .ag-rule { flex-wrap: wrap; row-gap: 6px; }
+  .ag-rule-t { flex: 1 1 0; }
+  .ag-rule-s { order: 5; flex: 1 1 100%; padding-inline-start: 56px; }
+}

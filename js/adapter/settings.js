@@ -78,10 +78,22 @@
     const cl = c(); if (!cl) return null;
     try { const { data: d, error } = await cl.rpc('settings_public'); if (error || !d || typeof d !== 'object') return pub; pub = d; data.public = d; emit(); return d; } catch (e) { return pub; }
   }
+  // the owner 22 Nov (0150): the text companies linked on the server, for «أستخدم مخ خارجي؟» — ai-content `brains` (ids only). A key may
+  // live in the server's own secrets, which settings_public() cannot see, so the function says it. Read the first time an assistant
+  // needs it (the pages wait for brainsReady()) and again when a minute old; a read that failed keeps what was known.
+  let brains = null; let brainsAt = 0; let brainsP = null;
+  function loadBrains() {
+    const cl = c(); if (!cl || !cl.functions) return Promise.resolve(brains); if (brainsP) return brainsP;
+    const run = async () => { try { const { data: d, error } = await cl.functions.invoke('ai-content', { body: { action: 'brains' } });
+      if (!error && d && d.text && Array.isArray(d.text.linked)) { brains = { linked: d.text.linked.slice(0, 6), default: d.text.default, assistant: Array.isArray(d.text.assistant) ? d.text.assistant.slice(0, 6) : [] }; brainsAt = Date.now(); } } catch (e) { /* as it was */ }
+      brainsP = null; return brains; };
+    brainsP = window.IBBusy && window.IBBusy.hush ? window.IBBusy.hush(run()) : run(); return brainsP;
+  }
+  const brainsReady = () => brainsAt > 0;
   const section = (name) => (data.sections && data.sections[name] && typeof data.sections[name] === 'object' ? data.sections[name] : {});
   const roles = () => data.roles.slice();
   const liveRoles = () => data.roles.filter((r) => !r.hidden);
-  function clear() { data.sections = {}; data.roles = []; data.loaded = false; data.public = null; data.meta = {}; pub = null; }
+  function clear() { data.sections = {}; data.roles = []; data.loaded = false; data.public = null; data.meta = {}; pub = null; brains = null; brainsAt = 0; }
 
   // ---------- a section's data (the admin; team / integrations / security with settings.team) ----------
   // «لسه زي ما أنا شايفه» (live-sync plan decision 6): a section is written only while it still carries the stamp the screen was read
@@ -124,6 +136,9 @@
     const cl = c(); if (!cl) return no('network');
     try { const { data: d, error } = await cl.rpc(name, args); if (error) return fail(error); return { ok: true, data: d }; } catch (e) { return no('network'); }
   }
+  // the assistants' own rules (the owner 22 Nov): each assistant's rules in force, the number each counts now and whether it holds — the admin
+  // (notify `rules` — the admin: counted live from the tables, nothing written; before the function knows the action = no card)
+  async function agentRules() { const r = await invoke('notify', { action: 'rules' }); const b = r && r.ok ? r.body : null; return b && b.on && b.agents && typeof b.agents === 'object' ? { ok: true, data: b } : no('unavailable'); }
   const permsClean = (perms) => { const out = {}; for (const k of PERM_KEYS) { const v = perms && perms[k]; if (LEVELS.includes(v)) out[k] = v; } for (const [k, v] of Object.entries(perms || {})) if (!(k in out) && /^[a-z_]+\.[a-z_0-9]+$/.test(k) && LEVELS.includes(v)) out[k] = v; return out; };
   async function setRolePerms(role, perms) {
     if (!can().admin) return no('forbidden'); if (role === 'admin') return no('invalid', 'admin');
@@ -568,6 +583,17 @@
     return t || (IMG_PROVIDERS.includes(img.default) ? img.default : 'magnific');
   }
   const magnificOn = (tool) => imageProvider(tool) === 'magnific';
+  // the owner 22 Nov («لو مركب اكتر من مخ ممكن يخيرني مثلا شات جي بي او كلود»): the text companies linked and working, for the
+  // assistant's «أستخدم مخ خارجي؟» — ai-content `brains` { linked, default, assistant } (ids only); the default one first.
+  // scope 'assistant' = the header assistant's tool loop, which runs on the companies the server lists for it (`assistant`)
+  const TEXT_BRAINS = { claude: 'Claude', openai: 'ChatGPT', gemini: 'Gemini' };
+  function textBrains(scope) {
+    if (brainsAt && Date.now() - brainsAt > 60000) loadBrains(); // a link made a minute ago shows on the next ask
+    const t = brains || {}; const only = scope === 'assistant' ? (Array.isArray(t.assistant) ? t.assistant : []) : null;
+    const linked = Array.isArray(t.linked) ? t.linked.filter((x) => TEXT_BRAINS[x] && (!only || only.includes(x))) : [];
+    const ids = linked.filter((x, i) => linked.indexOf(x) === i).sort((a, b) => (b === t.default) - (a === t.default));
+    return ids.map((id) => ({ id, name: TEXT_BRAINS[id] }));
+  }
   // 0127 (the plan 2026-11-17-stores-single.md): the store's platform and how the business sells — the same rules as
   // supabase/functions/_shared/store/index.js (tests/functions/store.test.mjs compares them). The admin's own row «store» first, else
   // settings_public().store; no row = WooCommerce + Dokan (marketplace) as always. storeCaps() says what the pages may show.
@@ -710,7 +736,7 @@
     log('brand.menu', String(what || '').slice(0, 60), 'brand'); return { ok: true, menu: v };
   }
 
-  window.IBSettings = { MENU_ICONS, MENU_LOCKED, MENU_LABEL_MAX, cleanMenu, menuOf, menuNow, saveMenu, loginLocks, loginUnlock, load, ensure, loadPublic, clear, data, section, sections: () => Object.assign({}, data.sections), roles, liveRoles, public: () => data.public, can, PERMS, PERM_KEYS, lists, saveLists, statusLabel, STATUS_KINDS, setRoleLevelPerms, setMemberLevel, levelPermsOf, MEMBER_LEVELS: MLEVELS, quickList, quickSave, quickDelete, quickOrder, QUICK_SCOPES: Q_SCOPES, expenseKinds, statusList, addedStatuses, delayRules, fakeRule, saveFake, orderStatuses, orderStatusAdd, orderStatusSlug, orderStatusDelete, orderStatusOrder, ADDED_MAX, ADDED_LEN, weekStart, imageProvider, magnificOn, store, single, storeCaps, storeOf, STORE_PLATFORMS, STORE_READY, SINGLE_READY, STORE_CAPS, clock, dateFmt, KIND_MAX, KINDS_MAX,
+  window.IBSettings = { textBrains, loadBrains, brainsReady, agentRules, MENU_ICONS, MENU_LOCKED, MENU_LABEL_MAX, cleanMenu, menuOf, menuNow, saveMenu, loginLocks, loginUnlock, load, ensure, loadPublic, clear, data, section, sections: () => Object.assign({}, data.sections), roles, liveRoles, public: () => data.public, can, PERMS, PERM_KEYS, lists, saveLists, statusLabel, STATUS_KINDS, setRoleLevelPerms, setMemberLevel, levelPermsOf, MEMBER_LEVELS: MLEVELS, quickList, quickSave, quickDelete, quickOrder, QUICK_SCOPES: Q_SCOPES, expenseKinds, statusList, addedStatuses, delayRules, fakeRule, saveFake, orderStatuses, orderStatusAdd, orderStatusSlug, orderStatusDelete, orderStatusOrder, ADDED_MAX, ADDED_LEN, weekStart, imageProvider, magnificOn, store, single, storeCaps, storeOf, STORE_PLATFORMS, STORE_READY, SINGLE_READY, STORE_CAPS, clock, dateFmt, KIND_MAX, KINDS_MAX,
     save, setRolePerms, createRole, updateRole, deleteRole, setMemberRole, setMemberRoles, setMemberPerms, setMemberStatus, sessions, revokeSession, deviceOf,
     links, setSecret, wooSet, testSecret, unlink, connections, notifyStatus, notifyTick, activity, pageOf, docs, addDoc, updateDoc, removeDoc, docUrl, uploadLogo, logoUrl, LOGO_SLOTS, uploadFont, removeFont, loadFont, fontList, FONT_MAX, FONTS_MAX, wipe, WIPE_SECTIONS, teamWipe, filesWipe };
 })();

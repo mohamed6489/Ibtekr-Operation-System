@@ -1,18 +1,18 @@
 // «أنهي موديل لأنهي أمر» (the owner 22 Nov — docs/superpowers/plans/2026-11-22-model-routing.md: «يبقا مكتوب في التعليمات احسن طريقة
 // تخليني استخدم الكريديت صح يعني امتا يستخدم كل موديل و في اي امر بيناء علي احدث الموديلز»). Not a block. The card of «الإعدادات ›
-// الذكاء الاصطناعي › المزوّدين» for Claude: the three levels with their model and price and what each is for, every command with its
+// الذكاء الاصطناعي › مصادر الذكاء» for Claude: the three levels with their model and price and what each is for, every command with its
 // level (the admin moves one, or goes back to one model for everything) and this month's spend by model and by kind of work.
 //   IBAIRouting.sections({ redraw })   the cards (block 17 puts them under the providers)
-//   IBAIRouting.picker({ redraw, provider }) under the text company in the providers card (the owner 22 Nov, decisions 8–12 —
-//                                       «لو تلقائي بختار الشركة بس … لو مقفول بختار الشركة و بعديها تظهرلي خانة اختار منها الموديل»): the
-//                                       switch «اختيار الموديل تلقائي حسب الطلب», the company's three levels while it is on, the
-//                                       model select while it is off
+//   IBAIRouting.autoSwitch({ redraw })  the providers card's switch «اختيار مصادر الذكاء تلقائيًا» (the owner 22 Nov): on,
+//                                       every field takes a company only and the system picks the model
+//   IBAIRouting.modelField({ id, label, title, section, tool, live, read, redraw }) a field of that card while the switch is off: its
+//                                       company and model, from a list with a tab per linked company (one choice)
 //   IBAIRouting.routeOf(aiRow, command, provider) the level a command runs on now (as the server's _shared/ai-routing.js — a
 //                                       test keeps the two tables in step)
 // The server routes by itself with no row: the card only shows it, and writes what the admin changes (IBSettings.save «ai»).
 (function () {
   'use strict';
-  const U = window.IBUI, K = window.IBKit; const { h, Button } = U;
+  const U = window.IBUI, K = window.IBKit; const { h, Button, Icon } = U;
   const SET = () => window.IBSettings; const AI = () => window.IBAI;
 
   const LIST_DATE = '2026-11-03'; // Anthropic's list and prices the table below was written on
@@ -151,32 +151,140 @@
     if (K.logEvent) K.logEvent('settings.ai.routing', what); // the command and its level only
     K.toast('اتحفظ — هيتطبق من أول أمر جاي', 'success'); if (typeof redraw === 'function') redraw();
   }
-  // the admin's one model of a company: Claude's is the row's `model`, the others' their company's entry under providers.text.models
-  async function saveModel(S0, ai, provider, model, redraw) {
-    let patch;
-    if (provider === 'claude') patch = { model };
-    else { const P = isObj(ai.providers) ? JSON.parse(JSON.stringify(ai.providers)) : {}; P.text = isObj(P.text) ? P.text : {}; P.text.models = Object.assign({}, isObj(P.text.models) ? P.text.models : {}, { [provider]: model }); patch = { providers: P }; }
-    const res = await S0.save('ai', patch);
-    if (!res || !res.ok) { K.toast((res && res.message) || 'تعذّر الحفظ — جرّب تاني', 'error'); return; }
-    if (K.logEvent) K.logEvent('settings.ai.routing', 'model=' + model);
-    K.toast('اتحفظ — كل الأوامر على ' + MODEL[model].name, 'success'); if (typeof redraw === 'function') redraw();
+  // ---- the providers card (the owner 22 Nov — «جملة إختيار مزودين الذكاء الاصطناعي تلقائيا و جمبيها راديو باتون … لو شلت الاختيار
+  // التلقائي … يكتب اسم الشركة و الموديلز بحيث اقدر اختار لكل نوع محتوى الموديل» and «الدروب داون يبقا فيه تابس بحيث كل شركة في تاب و
+  // تحتيها الموديلز بتاعتها زي الفلتر بس … مفيهوش اختيار متعدد»): one switch over the whole card. On: a field takes a company only and
+  // the system picks the model. Off: every field takes a company and one of its models, from a list with a tab per linked company.
+  const EN = window.IB_LANG === 'en'; const tx = (ar, en) => (EN ? en : ar);
+  // every section's companies and their models (the server's ai-providers.js lists; Magnific's image models and their credits are
+  // the images adapter's MODELS, its video models mkt-video.js VIDEO_MODELS, its voice the bridge's ElevenLabs)
+  const CATALOG = {
+    text: { claude: { name: 'Claude', models: ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'] }, openai: { name: 'ChatGPT', models: ['gpt-5.2', 'gpt-5.2-mini'] }, gemini: { name: 'Gemini', models: ['gemini-3-pro', 'gemini-3-flash'] } },
+    image: { magnific: { name: 'Magnific', models: ['seedream-5-pro', 'seedream-5-lite', 'gemini-2-5-flash', 'gpt-image-2'] }, openai: { name: 'OpenAI', models: ['gpt-image-2'] }, gemini: { name: 'Gemini', models: ['gemini-3-pro-image', 'gemini-2.5-flash-image'] } },
+    voice: { magnific: { name: 'Magnific', models: ['bridge'] }, elevenlabs: { name: 'ElevenLabs', models: ['eleven_v3', 'eleven_multilingual_v2'] } },
+    video: { magnific: { name: 'Magnific', models: ['seedance-2.5', 'seedance-2.0', 'kling-2.5', 'minimax-h3'] }, higgsfield: { name: 'Higgsfield', models: ['seedance_2_5', 'kling3_0', 'minimax_h3', 'marketing_studio_video'] }, veo: { name: 'Google Veo', models: ['veo-3.1-generate-preview', 'veo-3.1-fast-generate-preview'] } },
+  };
+  const MNAME = { 'seedream-5-pro': 'Seedream 5 Pro', 'seedream-5-lite': 'Seedream 5 Lite', 'gemini-2-5-flash': 'Gemini 2.5 Flash (Nano Banana)', 'gpt-image-2': 'GPT Image 2',
+    'gemini-3-pro-image': 'Gemini 3 Pro Image', 'gemini-2.5-flash-image': 'Gemini 2.5 Flash Image', bridge: 'ElevenLabs', eleven_v3: 'Eleven v3', eleven_multilingual_v2: 'Eleven Multilingual v2',
+    'seedance-2.5': 'Seedance 2.5', 'seedance-2.0': 'Seedance 2.0', 'kling-2.5': 'Kling 2.5', 'minimax-h3': 'MiniMax H3 Max', seedance_2_5: 'Seedance 2.5', kling3_0: 'Kling 3.0', minimax_h3: 'MiniMax H3',
+    marketing_studio_video: 'Marketing Studio Video', 'veo-3.1-generate-preview': 'Veo 3.1', 'veo-3.1-fast-generate-preview': 'Veo 3.1 Fast' };
+  const CREDITS = { 'seedream-5-pro': 75, 'seedream-5-lite': 50, 'gemini-2-5-flash': 20, 'gpt-image-2': 60 }; // one image on Magnific
+  const nameOf = (m) => (MODEL[m] ? MODEL[m].name : MNAME[m] || String(m));
+  const shortName = (company, name) => (name.indexOf(company + ' ') === 0 ? name.slice(company.length + 1) : name); // «Claude — Sonnet 5.5»
+  // what a model's row says beside its name: a text model its levels and its price (in · out), a Magnific image its credits
+  function modelSub(k, provider, m) {
+    if (k === 'text') return { tag: levelsOfModel(provider, m), price: [ltr(usd(MODEL[m].usd[0])), ' · ', ltr(usd(MODEL[m].usd[1]))] };
+    if (k === 'image' && provider === 'magnific') return { price: [ltr(String(CREDITS[m])), tx(' كريدت', ' credits')] };
+    return null;
   }
-
-  // ---- under the text company in the providers card: the switch, then the levels (on) or the model (off)
-  function picker(opts) {
+  const FOOT = { text: () => tx('السعر بالدولار لكل مليون توكن: دخل · خرج', 'Price in dollars per million tokens: in · out'), image: () => tx('الكريدت للصورة الواحدة على Magnific', 'Credits for one image on Magnific') };
+  const secRow = (aiRow, k) => (isObj(aiRow) && isObj(aiRow.providers) && isObj(aiRow.providers[k]) ? aiRow.providers[k] : {});
+  // the model of a field: the one saved for it while it is its company's, else the company's own (the text company's one model,
+  // Magnific's image model of «إعدادات الصور»), else the company's first
+  function fieldModel(aiRow, k, provider, saved) {
+    const list = CATALOG[k][provider].models; if (list.includes(saved)) return saved;
+    if (k === 'text') return oneModel(aiRow, provider);
+    if (k === 'image' && provider === 'magnific' && isObj(aiRow) && list.includes(aiRow.image_model)) return aiRow.image_model;
+    return list[0];
+  }
+  /** What a field runs on with the automatic choice off: { provider, model } — null for a tool that follows its section. */
+  function pickOf(aiRow, k, tool) {
+    const C = CATALOG[k]; if (!C) return null; const ids = Object.keys(C); const cur = secRow(aiRow, k);
+    if (tool) { const p = isObj(cur.tools) ? cur.tools[tool] : ''; return ids.includes(p) ? { provider: p, model: fieldModel(aiRow, k, p, isObj(cur.toolModels) ? cur.toolModels[tool] : '') } : null; }
+    const p = ids.includes(cur.default) ? cur.default : ids[0]; return { provider: p, model: fieldModel(aiRow, k, p, cur.model) };
+  }
+  // a field's company and model: the section's own under `default` + `model`, a tool's under `tools` + `toolModels`; the text
+  // section's own model is also its company's one model (the row's `model` for Claude), which the rest of the system reads
+  async function saveField(S0, ai, k, tool, v, redraw) {
+    const P = isObj(ai.providers) ? JSON.parse(JSON.stringify(ai.providers)) : {}; const cur = P[k] = isObj(P[k]) ? P[k] : {}; const patch = { providers: P };
+    if (tool) {
+      cur.tools = isObj(cur.tools) ? cur.tools : {}; cur.toolModels = isObj(cur.toolModels) ? cur.toolModels : {};
+      if (v) { cur.tools[tool] = v.provider; cur.toolModels[tool] = v.model; } else { delete cur.tools[tool]; delete cur.toolModels[tool]; }
+    } else {
+      cur.default = v.provider; cur.model = v.model;
+      if (k === 'text') { if (v.provider === 'claude') patch.model = v.model; else cur.models = Object.assign({}, isObj(cur.models) ? cur.models : {}, { [v.provider]: v.model }); }
+    }
+    const res = await S0.save('ai', patch);
+    if (!res || !res.ok) { K.toast((res && res.message) || tx('تعذّر الحفظ — جرّب تاني', 'Could not save — try again'), 'error'); return; }
+    if (K.logEvent) K.logEvent('settings.ai.providers', k + (tool ? '.' + tool : '') + '=' + (v ? v.provider + ':' + v.model : 'default')); // the field and its names only
+    K.toast(tx('اتحفظ — ', 'Saved — ') + (v ? CATALOG[k][v.provider].name + ' · ' + nameOf(v.model) : tx('الافتراضي للقسم', 'Section default')), 'success'); if (typeof redraw === 'function') redraw();
+  }
+  // a single-choice list: «تلقائي» / «الافتراضي للقسم» on top (when the field has one), the companies as one segmented line, the open
+  // company's models as rows — name, level, price in columns — and what the figures are under them; picking closes it
+  function TabPick({ id, label, title, help, disabled, text, groups, value, inherit, inheritSub, foot, onChange }) {
+    const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '', style: 'display:block' });
+    const btn = h('button', { type: 'button', id, class: 'select', 'aria-haspopup': 'listbox', 'aria-expanded': 'false', disabled: disabled ? '' : false, 'data-cm-btn': value ? value.provider + ':' + value.model : '' },
+      Icon('chevD', 'sm'), h('span', { class: 'val' }, text));
+    const pop = U.popover(wrap, btn, (close) => {
+      const menu = h('div', { class: 'menu cm-menu', 'data-popover-root': '', 'data-cm-menu': id, 'data-focus': 'no' });
+      menu.append(h('div', { class: 'cm-title' }, title || label)); // a phone's sheet says what it chooses (hidden under a field on a wide screen)
+      const pickIt = (v) => { close(); const same = (!v && !value) || (!!v && !!value && v.provider === value.provider && v.model === value.model); if (!same) onChange(v); };
+      if (inherit) menu.append(h('button', { type: 'button', class: 'opt cm-inherit', role: 'option', 'aria-selected': String(!value), 'data-cm': '', onClick: () => pickIt(null) },
+        h('span', { class: 'cm-ic' }, Icon('zap', 'sm')), h('span', { class: 'cm-n' }, h('b', null, inherit), inheritSub ? h('small', { class: 'cm-s' }, inheritSub) : null), h('span', { class: 'cm-ck' }, !value ? Icon('check', 'sm') : null)));
+      if (!groups.length) { menu.append(h('div', { class: 'menu-empty' }, tx('مفيش شركة مربوطة هنا — اربط من «الربط بالمنصات».', 'No company is connected here — connect one from “Integrations”.'))); return menu; }
+      const tabs = h('div', { class: 'cm-tabs', role: 'tablist', 'aria-label': tx('الشركة', 'Company') }); const secs = {}; let drawn = false;
+      const show = (gid) => {
+        tabs.querySelectorAll('[data-cm-tab]').forEach((t) => t.setAttribute('aria-selected', String(t.getAttribute('data-cm-tab') === gid)));
+        for (const g of groups) secs[g.id].hidden = g.id !== gid;
+        if (drawn) window.dispatchEvent(new Event('resize')); // the list is another height now: the kit places it again
+      };
+      for (const g of groups) {
+        tabs.append(h('button', { type: 'button', role: 'tab', class: 'cm-tab', 'data-cm-tab': g.id, 'aria-selected': 'false', onClick: () => show(g.id) }, h('bdi', null, g.name), g.off ? h('span', { class: 'cm-off' }, tx(' — مش مربوط', ' — not connected')) : null));
+        secs[g.id] = h('div', { class: 'cm-sec', role: 'listbox', 'aria-label': g.name, 'data-cm-sec': g.id }, g.models.map((m) => {
+          const on = !!value && value.provider === g.id && value.model === m.id; const x = m.sub || {};
+          return h('button', { type: 'button', class: 'opt cm-opt', role: 'option', 'aria-selected': String(on), 'data-cm': g.id + ':' + m.id, onClick: () => pickIt({ provider: g.id, model: m.id }) },
+            h('span', { class: 'cm-n' }, h('bdi', null, m.name)), x.tag ? h('span', { class: 'cm-tag' }, x.tag) : null, x.price ? h('span', { class: 'cm-price' }, x.price) : null, h('span', { class: 'cm-ck' }, on ? Icon('check', 'sm') : null));
+        }));
+      }
+      menu.append(h('div', { class: 'cm-cap' }, tx('الشركة', 'Company')), tabs, h('div', { class: 'cm-cap' }, tx('الموديل', 'Model'))); for (const g of groups) menu.append(secs[g.id]);
+      if (foot) menu.append(h('div', { class: 'cm-foot' }, foot));
+      show(value && secs[value.provider] ? value.provider : groups[0].id); drawn = true;
+      menu.addEventListener('keydown', (e) => { // ↑ ↓ through the open company's models
+        const items = [...menu.querySelectorAll('[role=option]')].filter((x) => !x.closest('[hidden]')); const i = items.indexOf(document.activeElement);
+        if (e.key === 'ArrowDown' && items.length) { e.preventDefault(); items[(i + 1) % items.length].focus(); }
+        if (e.key === 'ArrowUp' && items.length) { e.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); }
+      });
+      return menu;
+    });
+    btn.addEventListener('click', pop.toggle); wrap.append(btn);
+    return U.FieldShell({ id, label, help }, wrap);
+  }
+  /** The card's switch: the system picks every model (on) or the admin names each field's company and model (off). */
+  function autoSwitch(opts) {
     const redraw = opts && opts.redraw; const S0 = SET(); if (!S0 || !S0.section) return null;
+    const ai = S0.section('ai') || {}; const admin = !!(S0.can && S0.can().admin); const r = routingOf(ai); const auto = r.mode === 'auto';
+    const sw = K.Switch({ id: 'prov-auto', label: tx('اختيار مصادر الذكاء تلقائيًا', 'Choose the AI providers automatically'), checked: auto, disabled: !admin,
+      help: auto ? tx('شغّال — السيستم عارف موديلات كل شركة وبيختار الموديل المناسب لكل طلب. إنت بتختار الشركة بس لكل نوع.', 'On — the system knows every company’s models and picks the right one for each request. You only choose the company for each kind.')
+        : tx('مقفول — اختار لكل نوع الشركة والموديل اللي يشتغل عليه.', 'Off — choose the company and the model each kind runs on.'),
+      onChange: (v) => { if (!admin) return; saveRouting(S0, { mode: v ? 'auto' : 'single', tiers: r.tiers }, v ? 'auto' : 'by hand', redraw); } });
+    return h('div', { class: 'prov-auto', 'data-prov-auto': auto ? 'on' : 'off', 'data-set-instant': '' }, h('span', { class: 'set-ic' }, Icon('zap')), sw); // saved on the spot: not an unsaved change of the page
+  }
+  // the tabs of a list: the linked companies of a kind (and the chosen one, marked, while it is not), each with its models
+  const groupsFor = (k, cur, live, read) => Object.keys(CATALOG[k]).filter((p) => live(p) || (cur && cur.provider === p)).map((p) => ({ id: p, name: CATALOG[k][p].name, off: !!read && !live(p),
+    models: CATALOG[k][p].models.map((m) => ({ id: m, name: nameOf(m), sub: modelSub(k, p, m) })) }));
+  /** A text company-and-model field its caller keeps (an assistant's own outside brain): value { provider, model } or null = `inherit`. */
+  function brainField(o) {
+    const C = CATALOG.text; const live = (p) => !!o.read && !!o.live(p);
+    const cur = o.value && C[o.value.provider] ? { provider: o.value.provider, model: C[o.value.provider].models.includes(o.value.model) ? o.value.model : C[o.value.provider].models[0] } : null;
+    const gone = !!cur && !!o.read && !live(cur.provider);
+    const text = cur ? h('bdi', null, C[cur.provider].name + ' — ' + shortName(C[cur.provider].name, nameOf(cur.model)) + (gone ? tx(' — مش مربوط', ' — not connected') : '')) : o.inherit;
+    return TabPick({ id: o.id, label: o.label, title: o.title, disabled: !!o.disabled, text, groups: groupsFor('text', cur, live, o.read), value: cur, inherit: o.inherit, inheritSub: o.inheritSub, foot: FOOT.text(),
+      help: gone ? tx('مصدر الذكاء ده مش مربوط — اربطه من «الربط بالمنصات» أو اختار مصدر مربوط.', 'This provider is not connected — connect it from “Integrations” or choose a connected one.') : o.help || null, onChange: o.onChange });
+  }
+  /** A field of the card with the automatic choice off: its company and model, picked from the linked companies' tabs. */
+  function modelField(o) {
+    const S0 = SET(); if (!S0 || !S0.section) return null; const k = o.section; const C = CATALOG[k]; if (!C) return null;
     const ai = S0.section('ai') || {}; const admin = !!(S0.can && S0.can().admin);
-    const prov = provOf(opts && opts.provider); const P = PROVIDERS[prov]; const r = routingOf(ai); const auto = r.mode === 'auto';
-    const sw = K.Switch({ id: 'air-auto', label: 'اختيار الموديل تلقائي حسب الطلب', checked: auto, disabled: !admin,
-      help: auto ? 'السيستم بيحدد حجم كل طلب الأول ويشغّله على موديل مستواه من ' + P.name + '.' : 'مقفول — كل الأوامر على الموديل اللي تختاره تحت.',
-      onChange: (v) => { if (!admin) return; saveRouting(S0, { mode: v ? 'auto' : 'single', tiers: r.tiers }, v ? 'auto' : 'one model', redraw); } });
-    const levels = auto ? h('div', { class: 'air-levels', 'data-air-levels': prov }, TIERS.map((t) => h('span', { class: 'air-level', 'data-air-level': t }, h('b', null, TIER[t].label), ' ', ltr(MODEL[P.tiers[t]].name)))) : null;
-    const list = modelsOf(prov); const cur = oneModel(ai, prov);
-    const one = auto ? null : U.Select({ id: 'air-one', label: 'الموديل', disabled: !admin, value: cur,
-      help: 'موديلات ' + P.name + ' — البسيط والتقيل هيتحاسبوا بسعره.',
-      options: list.map((m) => ({ value: m, label: MODEL[m].name + ' — ' + levelsOfModel(prov, m) })),
-      onChange: (v) => { if (v !== cur) saveModel(S0, ai, prov, v, redraw); } });
-    return h('div', { class: 'air-pick', 'data-air-pick': auto ? 'auto' : 'single', 'data-air-provider': prov }, sw, levels, one);
+    const cur = pickOf(ai, k, o.tool); const live = (p) => !!o.read && !!o.live(p);
+    // before the links are read: the chosen company alone, unmarked (the control never shows another than the row holds)
+    const groups = Object.keys(C).filter((p) => live(p) || (cur && cur.provider === p)).map((p) => ({ id: p, name: C[p].name, off: !!o.read && !live(p),
+      models: C[p].models.map((m) => ({ id: m, name: nameOf(m), sub: modelSub(k, p, m) })) }));
+    const gone = !!cur && !!o.read && !live(cur.provider); const inherit = o.tool ? tx('الافتراضي للقسم', 'Section default') : null;
+    const text = cur ? h('bdi', null, C[cur.provider].name + ' — ' + shortName(C[cur.provider].name, nameOf(cur.model)) + (gone ? tx(' — مش مربوط', ' — not connected') : '')) : inherit;
+    return TabPick({ id: o.id, label: o.label, title: o.title, disabled: !admin, text, groups, value: cur, inherit, foot: FOOT[k] && (k !== 'image' || groups.some((g) => g.id === 'magnific')) ? FOOT[k]() : null,
+      inheritSub: inherit ? tx('زي اختيار القسم كله', 'As the whole section’s choice') : null,
+      help: gone ? tx('مصدر الذكاء ده مش مربوط — اربطه من «الربط بالمنصات» أو اختار مصدر مربوط.', 'This provider is not connected — connect it from “Integrations” or choose a connected one.') : null,
+      onChange: (v) => saveField(S0, ai, k, o.tool, v, o.redraw) });
   }
 
   // ---- the routing card
@@ -206,16 +314,16 @@
     const changed = Object.keys(r.tiers).length;
     const acts = admin && auto && changed ? [Button({ type: 'text', label: 'رجّع الترشيح', onClick: () => K.confirm({ title: 'ترجّع توزيع الموديلات للترشيح؟', text: changed + ' أمر هيرجع لمستواه المرشّح.', okLabel: 'رجّع', onOk: () => save({ mode: 'auto', tiers: {} }, 'recommended') }) })] : null;
     const notes = [
-      !auto ? U.InlineNote({ children: '«اختيار الموديل تلقائي» مقفول — كل الأوامر شغّالة على ' + MODEL[oneModel(ai, prov)].name + '، والبسيط بيتحاسب زي التقيل. شغّله من كارت المزوّدين فوق عشان كل أمر ياخد موديل مستواه.' })
+      !auto ? U.InlineNote({ children: tx('الاختيار التلقائي مقفول — كل نوع شغّال على الموديل اللي اخترته له في كارت «مصادر الذكاء» فوق، والأمر البسيط بيتحاسب بسعر موديله. شغّله عشان كل أمر ياخد موديل مستواه.', 'The automatic choice is off — every kind runs on the model you chose for it in the providers card above, and a simple command is billed at that model’s price. Turn it on so every command takes the model of its level.') })
         : U.InlineNote({ children: 'السيستم بيختار الموديل لوحده حسب الأمر' + (prov === 'claude' ? ': المتوسط بنص سعر القوي، والضعيف أرخص من المتوسط 20 مرة' : '') + '. غيّر مستوى أي أمر لو جودته محتاجة أعلى أو صرفه أكتر من اللازم.' }),
       prov !== 'claude' ? U.InlineNote({ kind: 'warning', children: 'المدير بالأدوات واستخراج الشيت من الواتساب والبحث على الويب بيشتغلوا على Claude دايمًا — لازم Claude يفضل مربوط ليهم.' }) : null,
     ];
     const card = K.Section('أنهي موديل لأنهي أمر (' + P.name + ')', [guide, ...notes, h('div', { class: 'air-rows' + (auto ? '' : ' off') }, rows),
-      h('p', { class: 't-small sub' }, 'الموديلات والأسعار دي بتاريخ ', ltr(LIST_DATE), ' — لو أي شركة مربوطة نزّلت موديل جديد أو وقّفت موديل، «المبرمج الذكي» هيبعت تنبيه في الجرس عشان السيستم يتحدّث. الأداة اللي ليها مزوّد تاني بتمشي على مستويات مزوّدها.')],
+      h('p', { class: 't-small sub' }, 'الموديلات والأسعار دي بتاريخ ', ltr(LIST_DATE), ' — لو أي شركة مربوطة نزّلت موديل جديد أو وقّفت موديل، «المبرمج الذكي» هيبعت تنبيه في الجرس عشان السيستم يتحدّث. الأداة اللي ليها مصدر ذكاء تاني بتمشي على مستويات مصدرها.')],
       acts, { sub: 'أحسن طريقة لاستخدام الكريدت: كل أمر على أرخص موديل يعمله صح', th: false, cols: false });
     card.setAttribute('data-ai-routing', r.mode);
     return [card, admin ? spendSec(redraw) : null].filter(Boolean);
   }
 
-  window.IBAIRouting = { LIST_DATE, TIERS, TIER, PROVIDERS, MODEL, SIZED, COMMANDS, WORK, routingOf, routeOf, tierFor, sizes, modelsOf, oneModel, companyOf, sections, picker };
+  window.IBAIRouting = { LIST_DATE, TIERS, TIER, PROVIDERS, MODEL, SIZED, COMMANDS, WORK, routingOf, routeOf, tierFor, sizes, modelsOf, oneModel, companyOf, sections, CATALOG, pickOf, autoSwitch, modelField, brainField, nameOf };
 })();

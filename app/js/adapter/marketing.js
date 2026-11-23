@@ -1103,10 +1103,14 @@
   const AGENT_KEYS = ['buyer', 'designer', 'dev'];
   const AGENT_RE = /^[a-z][a-z0-9_]{1,30}$/;
   const CHAT_COLS = 'id, agent, title, created_at, updated_at';
-  const TURN_COLS = 'id, role, text, images, created_at';
+  const TURN_COLS = 'id, role, text, images, created_at, source, shared';
+  const SHARE_KINDS = ['orders', 'sales', 'vendors', 'customers', 'tickets', 'tasks', 'expenses', 'inventory', 'hr', 'ads', 'site']; // what an assistant's outside answer may be given, by kind (ads / site: the buyer's numbers and the developer's site checks)
+  const kindsOf = (l) => (Array.isArray(l) ? l : []).filter((k, i, a2) => SHARE_KINDS.includes(k) && a2.indexOf(k) === i);
   const toChat = (r) => ({ id: r.id, agent: r.agent, title: clean(r.title, 80) || 'شات جديد', createdAt: r.created_at || null, updatedAt: r.updated_at || r.created_at || null });
   const toTurn = (r) => ({ id: Number(r.id), role: r.role === 'user' ? 'user' : 'assistant', text: typeof r.text === 'string' ? r.text : '',
-    images: (Array.isArray(r.images) ? r.images : []).filter((x) => typeof x === 'string' && /^agents\/[0-9a-f-]{36}\/[0-9a-f-]{36}\/[A-Za-z0-9._-]{1,80}\.(png|jpe?g|webp)$/.test(x)), at: r.created_at || null });
+    images: (Array.isArray(r.images) ? r.images : []).filter((x) => typeof x === 'string' && /^agents\/[0-9a-f-]{36}\/[0-9a-f-]{36}\/[A-Za-z0-9._-]{1,80}\.(png|jpe?g|webp)$/.test(x)), at: r.created_at || null,
+    // the owner 22 Nov: where an answer came from — the system itself or the outside company — and the data kinds that company was given
+    src: r.source === 'system' ? 'system' : ['claude', 'openai', 'gemini'].includes(r.source) ? r.source : '', shared: kindsOf(r.shared) });
   async function agentChats(agent) {
     if (!AGENT_RE.test(String(agent || ''))) return { ok: false, reason: 'invalid', field: 'agent', message: MESSAGES.invalid };
     const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
@@ -1122,17 +1126,37 @@
   }
   // a question → the server's answer, written in the chat (made on the first message, named by it)
   // the owner 17 Nov: files with the message (IBChatFiles.read — images / PDFs as base64, sheets and text as text; 4 at most)
-  async function agentAsk(agent, chatId, question, files) {
+  // the owner 22 Nov — the system first: the numbers each assistant this member sees watches now (ai_agent_facts), what its chat answers
+  // from with no model; and the system's own answer kept in the member's chat (mkt_agent_system_turn — text only, marked the system's)
+  async function agentFacts() {
+    const cl = c(); if (!cl) return { ok: false, reason: 'network' };
+    try { const { data: d, error } = await cl.rpc('ai_agent_facts', {}); if (error || !d || typeof d !== 'object' || !d.agents) return { ok: false, reason: 'unavailable' }; return { ok: true, data: d }; } catch (e) { return { ok: false, reason: 'network' }; }
+  }
+  async function agentLocal(agent, chatId, question, answer) {
+    if (!AGENT_RE.test(String(agent || ''))) return { ok: false, reason: 'invalid', field: 'agent', message: MESSAGES.invalid };
+    const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
+    try { const { data: d, error } = await cl.rpc('mkt_agent_system_turn', { p_agent: agent, p_chat: chatId || null, p_question: String(question || '').trim().slice(0, 1000), p_answer: String(answer || '').trim().slice(0, 2000) });
+      if (error || !d || !d.chat) return fail(error); log('agent.system', agent, d.chat.id); return { ok: true, chat: toChat(d.chat), turns: (Array.isArray(d.turns) ? d.turns : []).map(toTurn) }; }
+    catch (e) { return fail(null); }
+  }
+  // o: { provider — the outside company the member agreed to for this message, share — the data kinds approved for it (none = the message
+  // alone) }; the server answers `need` (the kinds it wants, nothing written) for the page to ask about
+  async function agentAsk(agent, chatId, question, files, o) {
     if (!AGENT_RE.test(String(agent || ''))) return { ok: false, reason: 'invalid', field: 'agent', message: MESSAGES.invalid };
     const fs = (Array.isArray(files) ? files : []).slice(0, 4).map((f) => ({ name: String(f.name || '').slice(0, 120), kind: f.kind, data: f.data || undefined, text: f.text || undefined, note: f.note || '' }));
     const q = String(question == null ? '' : question).trim().slice(0, 1000); if (!q && !fs.length) return { ok: false, reason: 'invalid', field: 'question', message: 'اكتب رسالتك الأول' };
-    const r = await invoke('ai-content', fs.length ? { action: 'agent', agent, chat_id: chatId || null, question: q, files: fs } : { action: 'agent', agent, chat_id: chatId || null, question: q });
+    const opt = o && typeof o === 'object' ? o : null; const share = opt ? kindsOf(opt.share) : null; const provider = opt && ['claude', 'openai', 'gemini'].includes(opt.provider) ? opt.provider : null;
+    const body = Object.assign({ action: 'agent', agent, chat_id: chatId || null, question: q }, fs.length ? { files: fs } : {}, provider ? { provider } : {}, share ? { share } : {});
+    const r = await invoke('ai-content', body);
     if (!r.ok) return Object.assign(r, { message: r.reason === 'notfound' ? 'الشات ده اتمسح أو مش بتاعك (أو المساعد اتأرشف) — افتح شات جديد' : r.reason === 'unauthorized' || r.reason === 'forbidden' ? 'المساعد ده مش متاح لدورك'
       : r.reason === 'invalid' ? (r.field === 'files' ? 'ملف من الملفات مش مقبول (الصور لحد 5 ميجا، الـ PDF لحد 8، والمجموع لحد 12)' : 'اكتب رسالتك الأول') : aiMessage(r, 'text') });
     const b = r.body || {};
     if (b.result === 'refused') return { ok: false, reason: 'refused', message: aiMessage({ reason: 'refused' }, 'text') };
+    const need = kindsOf(b.need_data).filter((k) => !(share || []).includes(k));
+    if (need.length) { log('agent.chat', agent + ' · asks for: ' + need.join(', '), chatId || null); return { ok: true, need, turns: [] }; } // nothing was read or written: the page asks the member
     const chat = b.chat && b.chat.id ? toChat(b.chat) : null;
     log('agent.chat', agent, chat ? chat.id : null);
+    const shared = kindsOf(b.shared).filter((k) => (share || []).includes(k)); if (provider && shared.length) log('agent.share', agent + ' · ' + provider + ' · ' + shared.join(', '), chat ? chat.id : null); // the company and the kinds only
     // owner batch 14 Nov decision 14: a job for a person comes back as a ready request (title + details) — the page offers «قدّم الطلب ده»
     const rq = b.request && typeof b.request === 'object' && typeof b.request.title === 'string' && b.request.title.trim() ? { title: b.request.title.trim().slice(0, 80), details: typeof b.request.details === 'string' ? b.request.details.slice(0, 1500) : '' } : null;
     // ش45 decision 4: the designer's filled campaign (the page clamps it with IbtekrCampWiz.draftOf before opening it)
@@ -1486,7 +1510,7 @@
     connection, connNow, setAutopublish, publishNow, deleteLive, preparePublish,
     adsStatus, adsNow, adsSync, adsData, adsLinkSet, adsLinkStart, adsLinkPick, adsUnlink, adsWhy,
     suggestions, suggNow, decide, campaignSet, adsDataNow, rules, rulesNow, rulesSet, setLive, requests, reqsNow, addRequest, REQ_KIND: KIND_OF, buyerChat,
-    agentChats, agentTurns, agentAsk, agentImage, agentRename, agentDelete, agentSettings, agentSettingsNow, agentSettingsSet, AGENT_KEYS,
+    agentChats, agentTurns, agentAsk, agentFacts, agentLocal, agentImage, agentRename, agentDelete, agentSettings, agentSettingsNow, agentSettingsSet, AGENT_KEYS,
     agents, agentsNow, agentOf, agentSave, agentArchive, agentOrder, kbList, kbListNow, kbSetAll, kbReset, kbRewrite, AGENT_PERMS, AGENT_SEES,
     trends, trendsNow, trendsReadyNow, trendsRefresh, trendThumbsFill, trendThumbs, trendThumbNow, trendSettings, trendSettingsNow, trendSettingsSet, adTagsSet, agentKbSet, KB, competitors, competitorsNow, competitorsReadyNow, competitorSave, competitorArchive,
     siteCheck, siteCheckNow, siteReadyNow, siteCheckRun, siteSpeed, siteSpeedNow, siteSpeedRun, pixel, pixelNow, pixelRun, siteSubs, siteSubsNow, aiSpend, aiSpendNow,

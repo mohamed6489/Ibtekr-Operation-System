@@ -115,14 +115,25 @@ test('assistant: the body (mode, the last 12 turns, the screen context), the ans
   const { A, stub, logs } = load({ perms: {}, responses: { 'fn:ai-content': { data: reply, error: null } } });
   const turns = Array.from({ length: 15 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', text: 't' + i })).concat([{ role: 'user', text: ' كام أوردر متأخر؟ ' }]);
   const r = await A.assistant({ turns, context: { page: 'dashboard', tab: 7, period: { from: '2026-11-01', to: '2026-11-08' }, vendors: ['Art Craft', 5], statuses: ['مكتمل'] } });
-  assert.deepEqual(plain(r), { ok: true, result: 'ok', missing: [], model: 'claude-opus-5-5', cost: 0.09, runId: 12, text: 'فيه 3 أوردرات متأخرة. فتحتلك الأوردرات عليهم.', actions: [{ name: 'filter_orders', input: { deliv: 'late' } }], tools: ['summary', 'orders'], report: [] });
+  assert.deepEqual(plain(r), { ok: true, result: 'ok', missing: [], model: 'claude-opus-5-5', cost: 0.09, runId: 12, text: 'فيه 3 أوردرات متأخرة. فتحتلك الأوردرات عليهم.', actions: [{ name: 'filter_orders', input: { deliv: 'late' } }], tools: ['summary', 'orders'], report: [], need: [], shared: [] });
   const body = stub.calls.filter((c) => c.op === 'invoke').at(-1).args[1].body;
+  assert.deepEqual(body.share, [], 'no data kind is approved unless the member said so');
   assert.equal(body.action, 'assistant'); assert.equal(body.mode, 'chat'); assert.equal(body.turns.length, 12); assert.deepEqual(body.turns.at(-1), { role: 'user', text: ' كام أوردر متأخر؟ ' });
   assert.deepEqual(body.context, { page: 'dashboard', period: { from: '2026-11-01', to: '2026-11-08' }, vendors: ['Art Craft'], statuses: ['مكتمل'] });
   assert.deepEqual(plain(logs), [['assistant.chat', 'filter_orders · data: summary, orders', { entity: 'ai_runs', entity_id: '12' }]]);
   assert.ok(!JSON.stringify(logs).includes('أوردر'), 'no question or answer in the activity');
   assert.deepEqual(plain(await A.assistant({ turns: [{ role: 'user', text: 'x' }, { role: 'assistant', text: 'y' }] })), { ok: false, reason: 'invalid', field: 'turns' });
   assert.equal(stub.calls.filter((c) => c.op === 'invoke').length, 1, 'nothing sent for a bad turn list');
+  // the owner 22 Nov — an outside model gets the message alone: `share` carries the kinds the member approved (known ones, once each);
+  // the server's `need` (the kinds it wants) and `shared` (what it was given) come back, and a send is logged by company and kinds only
+  const S = load({ perms: {}, responses: { 'fn:ai-content': { data: { result: 'ok', text: '', actions: [], tools: [], need: ['orders', 'sales', 'nope'], shared: [], run_id: 20 }, error: null } } });
+  const n = await S.A.assistant({ turns: [{ role: 'user', text: 'حلل الشهر' }], provider: 'openai', share: ['orders', 'orders', 'passwords'] });
+  assert.deepEqual(S.stub.calls.filter((c) => c.op === 'invoke').at(-1).args[1].body.share, ['orders']); assert.deepEqual(plain(n.need), ['sales'], 'what is still to ask about'); assert.deepEqual(plain(n.shared), []);
+  assert.deepEqual(plain(S.logs), [['assistant.chat', 'no action · asks for: sales', { entity: 'ai_runs', entity_id: '20' }]]);
+  const G = load({ perms: {}, responses: { 'fn:ai-content': { data: { result: 'ok', text: 'تمام', actions: [], tools: ['orders', 'sales'], need: [], shared: ['orders', 'sales', 'hr'], run_id: 21 }, error: null } } });
+  const g = await G.A.assistant({ turns: [{ role: 'user', text: 'حلل الشهر' }], provider: 'openai', share: ['orders', 'sales'] });
+  assert.deepEqual(plain(g.shared), ['orders', 'sales'], 'only what was approved counts as sent');
+  assert.deepEqual(plain(G.logs.map((l) => [l[0], l[1]])), [['assistant.share', 'openai · orders, sales'], ['assistant.chat', 'no action · data: orders, sales']]);
   // the filter mode and the signal
   const ctl = { signal: { aborted: false } };
   await A.assistant({ mode: 'filter', turns: [{ role: 'user', text: 'المتأخر' }], context: { vendors: ['A'] }, signal: ctl.signal });

@@ -2324,11 +2324,16 @@ export async function installSupabaseMock(page, opts = {}) {
         if (fail === 'not_configured' || fail === 'busy' || fail === 'ai_error') { mock.aiRuns.push({ ...base, status: 'error', error: fail }); return json(fail === 'not_configured' ? 503 : fail === 'busy' ? 429 : 502, { error: fail }); }
         if (fail === 'ai_cap') { mock.aiRuns.push({ ...base, status: 'cap', error: 'ai_cap' }); return json(402, { error: 'ai_cap' }); }
         const a = typeof mock.aiAnswer === 'function' ? mock.aiAnswer('assistant', req) : null;
+        // the owner 22 Nov: a chat's answer that read data kinds the request did not approve (b.share) is not given — the kinds it
+        // wants come back as `need`, for the assistant to ask the member; the filter mode reads no rows
+        if (mode === 'chat' && Array.isArray(b.share)) { const want = (a && Array.isArray(a.tools) ? a.tools : []).filter((k, i, l) => l.indexOf(k) === i); const miss = want.filter((k) => !b.share.includes(k));
+          if (miss.length) { const run0 = { ...base, status: 'ok', error: null, input_tokens: 400, output_tokens: 40, cost_usd: 0.002, output: { text: '', actions: [], tools: [] } }; mock.aiRuns.push(run0);
+            return json(200, { result: 'ok', text: '', actions: [], tools: [], report: [], need: miss, shared: [], model: 'claude-opus-5-5', cost_usd: 0.002, run_id: run0.id }); } }
         const out = { text: a && typeof a.text === 'string' ? a.text : (mode === 'filter' ? '' : 'تمام.'), actions: a && Array.isArray(a.actions) ? a.actions : [], tools: a && Array.isArray(a.tools) ? a.tools : [] };
         const report = a && Array.isArray(a.report) ? a.report : []; // decision 23: the reads for «تفاصيل» — never in ai_runs
         const run = { ...base, status: 'ok', error: null, input_tokens: 3000, output_tokens: 400, cost_usd: 0.02, output: out };
         mock.aiRuns.push(run);
-        return json(200, { result: 'ok', ...out, report, model: 'claude-opus-5-5', cost_usd: 0.02, run_id: run.id });
+        return json(200, { result: 'ok', ...out, report, need: [], shared: Array.isArray(b.share) ? out.tools.filter((k) => b.share.includes(k)) : [], model: 'claude-opus-5-5', cost_usd: 0.02, run_id: run.id });
       }
       const may = u && (action === 'write' ? isAdmin(u) || hasPerm(u, 'products.add') === 'F' || hasPerm(u, 'products.edit') === 'F' : action === 'studio' || action === 'prompts' || action === 'extract' ? isAdmin(u) || hasPerm(u, 'products.add') === 'F' : isAdmin(u));
       if (!may) return json(401, { error: 'unauthorized' });

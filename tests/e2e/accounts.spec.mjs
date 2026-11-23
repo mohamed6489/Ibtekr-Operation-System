@@ -367,8 +367,8 @@ test('subscriptions: «جدّد» opens a new expense a year on; the sales show 
   await expect(modal(page).locator('#f-subends')).toHaveValue([String(ends.getDate()).padStart(2, '0'), String(ends.getMonth() + 1).padStart(2, '0'), ends.getFullYear() + 1].join('/'));
   await modal(page).getByRole('button', { name: 'إلغاء' }).click();
   await tab(page, 'المبيعات').click();
-  await expect(main(page).locator('table thead')).toContainText('حصة المبتكرين (ج.م)');
-  await expect(main(page).locator('table thead')).not.toContainText('نسبة حصة إبتكر');
+  await expect(main(page).locator('table thead').first()).toContainText('حصة المبتكرين (ج.م)');
+  await expect(main(page).locator('table thead').first()).not.toContainText('نسبة حصة إبتكر');
 });
 
 test('«تحديث من Dokan» brings a new request now; the withdraw filter shows only the makers with one', async ({ page }) => {

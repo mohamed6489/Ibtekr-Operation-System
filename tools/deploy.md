@@ -2488,3 +2488,8 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 4. ادمج على `main`. **مفيش أي كتابة جديدة على الموقع** — قراية ملاحظة Dokan بس.
 5. **اتأكد بعد النشر:** `select count(*) filter (where internal), count(*) from dokan_withdrawals;` بعد أول «تحديث من Dokan».
 
+#### 2.7.124 الحسابات — ميتنج 23 نوفمبر المرحلة 4 (`0153`، الخطة `docs/superpowers/plans/2026-11-23-meeting.md`)
+1. طبّق `0153_acc_ad_spend.sql` (`acc_ad_spend(from, to)` — `security definer` لـ `accounts.view ≠ N`، قراية بس). قبله الحسابات بتتحمّل من غير صرف المنصات.
+2. شغّل `supabase/tests/rls_acc_ad_spend.sql` على الحي، وبعدها ادمج على `main`. مفيش Edge Function اتغيّرت ومفيش أي كتابة.
+3. **اتأكد بعد النشر:** «الحسابات › المصروفات» فيها صفوف «تلقائي» بـ «Meta Ads» على أيام الصرف، والإجمالي = `select sum(spend) from mkt_ad_stats where level = 'campaign' and day between …`.
+

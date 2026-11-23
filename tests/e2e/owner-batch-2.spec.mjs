@@ -151,6 +151,9 @@ test('T2 — decision 22 (security review): a status name with a quote or & is r
 });
 
 test('T3 — decision 17: the delay rules in two boxes (no per-maker rules); the start point, the risk days and the stop statuses are saved and the orders page counts with them', async ({ page }) => {
+  // the meeting 23 Nov #9: «معلّق» is never late — 180656 is open here (the orders load with the sign-in)
+  Object.assign(mock.orders.find((o) => o.id === 180656), { status: 'جاري التنفيذ', woo_status: 'processing' });
+  await page.evaluate(() => window.IBOrders.refetch(180656));
   await go(page, 'settings-makers');
   const body = page.locator('#pg-settings');
   await expect(body.locator('.dl-boxes > .card')).toHaveCount(2);

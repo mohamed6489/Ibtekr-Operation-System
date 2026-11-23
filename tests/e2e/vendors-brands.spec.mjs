@@ -136,7 +136,7 @@ test('comment 57 — the makers table has a «البراندات» column of its
   await openVendors(page);
   // the column, right after the maker's name; the name's own cell no longer carries the brands line
   const heads = await page.locator('#vendors table thead th').allTextContents();
-  expect(heads.slice(1, 4).map((x) => x.trim())).toEqual(['المبتكر', 'البراندات', 'الحالة']);
+  expect(heads.slice(1, 5).map((x) => x.trim())).toEqual(['المبتكر', 'البراندات', 'الأقسام', 'الحالة']); // the meeting of 23 Nov [#26]: «الأقسام» after «البراندات»
   await expect(row(page, V1).locator('td').nth(2).locator('.chip')).toHaveText(['Art Craft', 'Wood & Rope']);
   await expect(row(page, V2).locator('td').nth(2).locator('.chip')).toHaveText(['Antikiano', 'Nile Glass']);
   await expect(row(page, V1).locator('td').nth(1).locator('[data-brands]')).toHaveCount(0);

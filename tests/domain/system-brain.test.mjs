@@ -104,6 +104,7 @@ test('add / edit by words: the popup and its values — a maker, a member, a cus
   assert.deepEqual(f('غير حالة الأوردر 10234 لقيد الشحن'), ['order_update', { order: '10234', status: 'قيد الشحن' }]); assert.deepEqual(f('set order 10234 to shipped'), ['order_update', { order: '10234', status: 'قيد الشحن' }]);
   assert.equal(f('خلي الأوردر 10234 ملغي'), 'tell', 'a cancel takes its reason on the orders page');
   assert.deepEqual(f('سوي حساب Anticora'), ['vendor_settle', { vendor: 'Anticora' }]);
+  assert.deepEqual(f('عايز أحاسب Anticora'), ['vendor_settle', { vendor: 'Anticora' }], 'the meeting of 23 Nov [#18]: «أحاسب» is the settlement too');
   assert.deepEqual(f('خصم 200 من مرتب محمد علي'), ['salary_adjust', { member: 'محمد علي', kind: 'خصم', amount: '200', label: '' }]); assert.deepEqual(f('حول مرتب منى حسن'), ['salary_pay', { member: 'منى حسن' }]);
   assert.deepEqual(f('مكافأة 500 لمنى حسن')[1].kind, 'بدل');
   // money said without «سحب»: the accounts' popup, filled

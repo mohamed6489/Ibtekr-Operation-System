@@ -104,6 +104,14 @@ test('Dokan requests: openRequest = the latest pending / approved of the maker; 
   assert.deepEqual([VD.wdLabel('pending'), VD.wdLabel('approved'), VD.wdLabel('cancelled')], ['طلب جديد', 'تم الدفع', 'تم الرفض']);
 });
 
+test('the meeting of 23 Nov [#19]: lastRequest = the pending one, else the latest of any status (a rejection included); none = null', () => {
+  const L = [{ id: 1, vendorId: 'a', status: 'approved', at: '2026-10-01 10:00:00' }, { id: 3, vendorId: 'a', status: 'cancelled', at: '2026-10-09 10:00:00' }, { id: 9, vendorId: 'b', status: 'pending', at: '2026-10-10 10:00:00' }];
+  assert.equal(VD.lastRequest(L, 'a').id, 3, 'the latest, cancelled');
+  assert.equal(VD.lastRequest(L.concat([{ id: 2, vendorId: 'a', status: 'pending', at: '2026-10-05 10:00:00' }]), 'a').id, 2, 'a pending one wins');
+  assert.equal(VD.lastRequest(L, 'zz'), null);
+  assert.equal(VD.lastRequest([{ id: 4, vendorId: 'a', status: 'approved', at: '2026-10-01 10:00:00' }, { id: 5, vendorId: 'a', status: 'approved', at: '2026-10-01 10:00:00' }], 'a').id, 5, 'same day: the higher id');
+});
+
 // phase 5.5 decision 13 (owner 5 Nov): «كشف بالفترة» — the opening is Dokan's balance on the first day less our earlier moves
 const ST = (rows) => ({ rows });
 test('makerLedger: the opening = Dokan\'s opening row less the moves open the evening before; the period from the statement + our moves', () => {

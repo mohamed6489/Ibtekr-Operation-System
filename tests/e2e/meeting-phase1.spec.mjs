@@ -59,7 +59,7 @@ test('[#1, #6] the makers filter = the table\'s columns and nothing is on by def
   await page.locator('#vendors [role=tab]', { hasText: 'سجل المبتكرين' }).click();
   await expect(page.locator('#vendors .af-row .af-chip:visible')).toHaveCount(0);
   await page.locator('#vendors [data-fm-btn="vendors"]').click();
-  await expect(page.locator('[data-fm-menu="vendors"] [data-fm-tab] .fm-tl')).toHaveText(['الحالة', 'البراندات', 'النسبة', 'أوردرات مفتوحة', 'قابلة للتأخير', 'مستحقاته', 'آخر أوردر']);
+  await expect(page.locator('[data-fm-menu="vendors"] [data-fm-tab] .fm-tl')).toHaveText(['الحالة', 'البراندات', 'الأقسام', 'حالة العقد', 'النسبة', 'أوردرات مفتوحة', 'قابلة للتأخير', 'مستحقاته', 'آخر أوردر']); // phase 3 [#23, #26]: «الأقسام» / «حالة العقد» columns
   await page.locator('[data-fm-menu="vendors"] [data-fm-tab="last"]').click();
   await expect(page.locator('[data-fm-menu="vendors"] input[data-fm-range^="last:"]')).toHaveCount(2);
 });

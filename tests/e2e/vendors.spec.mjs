@@ -111,17 +111,18 @@ test('the vendors page lists the sync\'s makers with the team columns and no see
   await openVendors(page);
   await expect(row(page, V1)).toContainText('Art Craft');
   await expect(row(page, V2)).toContainText('Antikiano');
-  await expect(row(page, V1).locator('td').nth(4)).toHaveText('35%'); // the rate effective today (sensitive.commission = F)
-  await expect(row(page, V2).locator('td').nth(4)).toHaveText('45%'); // raised in October
-  await expect(row(page, V1).locator('td').nth(5)).toHaveText('2'); // open orders
-  for (const i of [7, 8, 11]) await expect(row(page, V1).locator('td').nth(i)).toHaveText('—'); // العربون / المواصلات / تذاكر: later phases
+  await expect(row(page, V1).locator('td').nth(6)).toHaveText('35%'); // the rate effective today (sensitive.commission = F)
+  await expect(row(page, V2).locator('td').nth(6)).toHaveText('45%'); // raised in October
+  await expect(row(page, V1).locator('td').nth(7)).toHaveText('2'); // open orders
+  await expect(row(page, V1).locator('td').nth(11)).toHaveText('—'); // طلبات مفتوحة (the meeting of 23 Nov [#24]: «العربون» / «المواصلات» left this table)
+  await expect(page.locator('#vendors thead')).not.toContainText('العربون'); await expect(row(page, V1).locator('[data-contract]')).toHaveText('مش مرفوع'); await expect(row(page, V2).locator('[data-contract]')).toHaveAttribute('data-contract', /^(uploaded|expiring|expired)$/); // [#23]: Antikiano holds the stored contract, Art Craft none
   await expect(page.locator('#vendors thead')).toContainText('مستحقاته (من تاريخ الانضمام)');
   await expect(page.locator('#vendors')).not.toContainText('Medo .crafts'); // the prototype's seed is gone
   await expect(page.locator('#vendors')).not.toContainText('Balances_Payouts');
   await expect(page.locator('#vendors')).not.toContainText('Bian eg'); // inactive: not in the default list
   await statusFilter(page, 'الكل');
   await expect(rows(page)).toHaveCount(3);
-  await expect(row(page, V3).locator('td').nth(4)).toHaveText('—'); // no rate yet
+  await expect(row(page, V3).locator('td').nth(6)).toHaveText('—'); // no rate yet
   expect(mock.requests.filter((r) => r === 'GET /rest/v1/vendors').length).toBeGreaterThanOrEqual(1);
   expect(mock.requests).toContain('GET /rest/v1/vendor_rates');
   expect(mock.requests).toContain('GET /rest/v1/vendor_bank');
@@ -236,7 +237,7 @@ test('ops (vendors.edit = P) changes a phone: written, logged with the vendor as
   await page.keyboard.press('Escape');
   await expect(info(section(page, 'الاتفاق التجاري'), page, 'نسبة إبتكر')).toHaveText('—');
   await expect(drawer(page).locator('.drawer-h')).toContainText('نسبة إبتكر —');
-  await expect(row(page, V1).locator('td').nth(4)).toHaveText('—');
+  await expect(row(page, V1).locator('td').nth(6)).toHaveText('—');
 });
 
 test('the admin toggles the status and sets the rate (no date — decision 12: from today; a second change the same day replaces it); the history shows both rates', async ({ page }) => {
@@ -496,7 +497,7 @@ test('a rename reloads the orders (their makers carry vendors.name) and the draw
   await expect(drawer(page).locator('.drawer-h h2')).toHaveText('Art Craft Studio');
   await tab(page, 'الأوردرات').click();
   await expect(kindTile(page, 'all').locator('.t-h3')).toHaveText('2');
-  await expect(row(page, V1).locator('td').nth(5)).toHaveText('2');
+  await expect(row(page, V1).locator('td').nth(7)).toHaveText('2');
 });
 
 test('a maker name and a note with html render as text in the list, the search and the drawer', async ({ page }) => {
@@ -671,7 +672,7 @@ test('5.5 / the owner 12 Nov: «فلتر» next to the sort in the card header h
   await expect(page.locator('#vendors [data-fm-btn="vendors"] .val')).toHaveText('فلتر (1)');
   const menu = page.locator('[data-fm-menu="vendors"]');
   await page.locator('#vendors [data-fm-btn="vendors"]').click();
-  await expect(menu.locator('[data-fm-tab]')).toHaveCount(7); // the meeting of 23 Nov [#1]: the table's columns
+  await expect(menu.locator('[data-fm-tab]')).toHaveCount(9); // the meeting of 23 Nov [#1]: the table's columns (phase 3 [#23, #26]: «الأقسام» and «حالة العقد» too)
   await menu.locator('[data-fm-tab="status"]').click();
   await expect(menu.locator('[data-fm="status:active"]')).toHaveAttribute('aria-checked', 'true'); // «نشط» — picked by openVendors
   await menu.locator('[data-fm="status:inactive"]').click();
@@ -831,10 +832,11 @@ test('decision 57: the makers page tabs — «نظرة عامة» (cards) · «�
   await expect(rows(page)).toHaveCount(0); // the table is on its own tab
   await tabs.nth(1).click();
   await expect(rows(page)).toHaveCount(3); // the meeting of 23 Nov [#6]: every maker, no «نشط» on by default
-  await expect(page.locator('#vpanel .kpi')).toHaveCount(0);
+  await expect(page.locator('#vpanel [data-vrec-cards] .kpi')).toHaveCount(2); // the meeting of 23 Nov [#16]: «نشطين» / «غير نشطين» above the register
+  await expect(page.locator('#vpanel [data-vrec-cards]')).toContainText('نشطين'); await expect(page.locator('#vpanel [data-vrec-cards]')).toContainText('غير نشطين');
   // the accounts page's own «حسابات المبتكرين», inside the makers page
   await tabs.nth(2).click();
-  await expect(page.locator('#vpanel [role=tablist]').first()).toContainText('الرصيد دلوقتي');
+  await expect(page.locator('#vpanel table.vendors-table')).toBeVisible(); // [#27]: the balance now, no «كشف بالفترة» sub-tab
   await expect(page.locator('#vpanel')).toContainText('Antikiano');
   // stop a maker → the log shows it with who did it
   await tabs.nth(1).click();

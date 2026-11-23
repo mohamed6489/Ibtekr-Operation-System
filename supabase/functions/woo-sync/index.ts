@@ -1388,7 +1388,7 @@ async function pullWithdrawals(run: Run, makers: Json[], now: string) {
     const failed = new Set(bad.map((b) => String(b.key)));
     // [#19]: the requests the system made (Dokan keeps withdraw_create's note) → internal (0152); never set back to false here
     const mine = page.filter(internalRequest).map((w) => wooId(w.id)).filter((id): id is number => id !== null && !failed.has(String(id)));
-    if (mine.length) { const { error: ie } = await run.db.from('dokan_withdrawals').update({ internal: true }).in('id', mine).eq('internal', false); if (ie && ie.code !== '42703') await logSync(run.db, { kind: run.kind, direction: 'in', entity: 'dokan_withdrawals', entity_id: 'internal', action: 'upsert', result: 'error', detail: { error: errorText(ie, scrub) } }); }
+    if (mine.length) { const { error: ie } = await run.db.from('dokan_withdrawals').update({ internal: true }).in('id', mine); if (ie && ie.code !== '42703') await logSync(run.db, { kind: run.kind, direction: 'in', entity: 'dokan_withdrawals', entity_id: 'internal', action: 'upsert', result: 'error', detail: { error: errorText(ie, scrub) } }); }
     for (const r of rows) {
       if (failed.has(String(r.id)) || r.status !== 'approved' || !r.vendor_id) continue;
       const before = was.get(r.id);

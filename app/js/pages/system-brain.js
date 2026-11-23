@@ -198,7 +198,7 @@
       return st ? form('order_update', { order, status: st }, 'تحديث الأوردر', 'Update the order') : null;
     }
     // a maker's settlement: «سوّي حساب <مبتكر>»
-    if (nm && nm.hit && /(^|\s)(سوي|سويلي|تسويه|تقفيل|قفل|settle|settlement)(\s|$)/.test(t)) return may('accounts') ? form('vendor_settle', { vendor: nm.hit }, 'تسوية حساب المبتكر', 'Settle the maker’s account') : null;
+    if (nm && nm.hit && /(^|\s)(سوي|سويلي|تسويه|تقفيل|قفل|حاسب|احاسب|نحاسب|حاسبه|حاسبلي|محاسبه|المحاسبه|settle|settlement)(\s|$)/.test(t)) return may('accounts') ? form('vendor_settle', { vendor: nm.hit }, 'تسوية حساب المبتكر', 'Settle the maker’s account') : null;
     // the payroll: a bonus / a deduction for a member, a member's salary transfer
     const bonus = has('مكافاه', 'مكافئه', 'بونص', 'bonus'); const cut = !bonus && /(^|\s)(خصم|اخصم|deduct|deduction)(\s|$)/.test(t) && /(^|\s)(من|from)(\s|$)/.test(t) && /(^|\s)(مرتب|راتب|salary|موظف|عضو)(\s|$)/.test(t);
     if (bonus || cut) { const who = tail((w) => /^\d[\d,.]*$/.test(w) || ADD.includes(w) || NAMED.includes(w) || ['مكافاه', 'مكافئه', 'بونص', 'bonus', 'خصم', 'اخصم', 'deduct', 'deduction', 'من', 'from', 'مرتب', 'راتب', 'salary', 'موظف', 'الموظف', 'عضو', 'العضو', 'جنيه', 'ج', 'egp', 'to'].includes(w));

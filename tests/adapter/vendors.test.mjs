@@ -182,6 +182,24 @@ test('stats (decision 4 + 5): per vendor the orders (with his sales / share), op
   assert.deepEqual([o.earned, o.pending, o.noRate, o.orders[1].share], [651.3, 1002, 1, 1002]); // the rates are hidden: the open line counts in full and is marked
 });
 
+test('the meeting of 23 Nov [#24]: «مستحقاته» counts from the join date — a completed order before the store\'s day on the site is not his due; since says from when', async () => {
+  const orders = [
+    { id: '181668', st: 'مكتمل', date: '2026-10-19', subs: [{ vendor: 'Art Craft', tot: 1002, rate: 35, fee: 0 }] },
+    { id: '170001', st: 'مكتمل', date: '2026-02-10', subs: [{ vendor: 'Art Craft', tot: 1000, rate: 35, fee: 0 }] },
+  ];
+  const rows = [{ id: '181668', status: 'مكتمل', ageDays: 6, total: 1002, delivery: 'ok', vendors: ['Art Craft'] }, { id: '170001', status: 'مكتمل', ageDays: 260, total: 1000, delivery: 'ok', vendors: ['Art Craft'] }];
+  const { V } = load({ orders: { orders }, app: { query: () => ({ rows }) } });
+  await V.load();
+  const art = plain(V.stats())[V1]; // Art Craft joined the site on 2026-03-01
+  assert.deepEqual([art.since, art.sinceFrom, art.earned, art.balance, art.byStatus.c[0]], ['2026-03-01', 'site', 651.3, 651.3, 1]);
+  assert.deepEqual(art.orders.map((o) => o.day), ['2026-10-19', '2026-02-10']);
+  // without a store day on the site: from his first order — every order counts
+  const r = seed(); r.vendors = ok(VENDORS.map((v) => (v.id === V1 ? Object.assign({}, v, { joined_at: null }) : v)));
+  const two = load({ responses: r, orders: { orders }, app: { query: () => ({ rows }) } }); await two.V.load();
+  const a2 = plain(two.V.stats())[V1];
+  assert.deepEqual([a2.since, a2.sinceFrom, a2.earned], ['2026-02-10', 'order', 1301.3]);
+});
+
 test('safeName: [A-Za-z0-9._-] kept, the rest _, never empty or dot-led, at most 100 chars (the tail keeps the extension)', () => {
   const { V } = load();
   assert.equal(V.safeName('عقد بيان 2026.pdf'), '_'.repeat(9) + '2026.pdf'); // every Arabic letter and space → _

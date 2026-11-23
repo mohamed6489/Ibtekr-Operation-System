@@ -50,7 +50,7 @@ const COLUMNS: Record<string, string[]> = {
   woo_states: ['code', 'name', 'updated_at'],
   bosta_pickups: ['id', 'vendor_id', 'vendor_name', 'location_id', 'location_name', 'scheduled_date', 'slot', 'receiver_name', 'note', 'parcels', 'delivery_id', 'tracking', 'pickup_id', 'state', 'error', 'created_by', 'created_at', 'deliveries'], // 0144, 0145
   // 0019 (phase 4): the read-only Dokan mirrors of the accounts page
-  dokan_withdrawals: ['id', 'woo_vendor_id', 'vendor_id', 'amount', 'charge', 'receivable', 'status', 'method', 'requested_at', 'synced_at'],
+  dokan_withdrawals: ['id', 'woo_vendor_id', 'vendor_id', 'amount', 'charge', 'receivable', 'status', 'method', 'requested_at', 'synced_at', 'internal'],
   dokan_balances: ['vendor_id', 'woo_vendor_id', 'balance', 'earning', 'sales', 'orders', 'synced_at'],
   // 0013 brands (the name only here) and 0023 (phase 5.2, the studio)
   brands: ['id', 'name', 'code', 'aliases', 'store_vendor_id', 'origin_vendor_id', 'created_by'], // 0013 (created_by: 'system' on the automatic brand — vendor_store ties that one to the new store)

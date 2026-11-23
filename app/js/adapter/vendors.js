@@ -1023,7 +1023,7 @@
         // phase 13 decision 52: a maker's order is as late as his own lines (the sub-order rule: notify date + making days), not the order
         const ld = new Map((r.lines || []).map((x) => [Number(x.n), x.delivery])); const dl = lines.map((s) => ld.get(Number(s.n))).filter(Boolean);
         const delivery = dl.length ? (dl.includes('late') ? 'late' : dl.includes('risk') ? 'risk' : 'ok') : r.delivery;
-        mine.push(Object.assign({}, r, { sales: r2(sales), share: r2(share), delivery }));
+        mine.push(Object.assign({}, r, { sales: r2(sales), share: r2(share), delivery, day })); // day: the order's date (the makers overview's period)
       }
       const open = mine.filter((r) => kindOf(r.status) === 'p');
       const earned = r2(by.c.earned);

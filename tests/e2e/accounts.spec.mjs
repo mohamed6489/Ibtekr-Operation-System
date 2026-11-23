@@ -127,7 +127,7 @@ test('makers: Dokan balance, the open Dokan request, a deposit recorded here low
   const art = table.locator('tbody tr', { hasText: 'Art Craft' });
   await expect(art).toContainText('2,500.00');
   await expect(art.locator('[data-wd]')).toHaveText('طلب جديد'); await expect(art.locator('[data-wd-amt]')).toHaveText('1,200.00'); // the pending Dokan request (0078: its status and amount)
-  await expect(table.locator('tbody tr', { hasText: 'Antikiano' }).locator('[data-wd]')).toHaveText('لا يوجد'); // a cancelled one is not open
+  await expect(table.locator('tbody tr', { hasText: 'Antikiano' }).locator('[data-wd]')).toHaveText('تم الرفض'); // the meeting of 23 Nov [#19]: the latest request shows even when Dokan cancelled it (its rejection)
   // 0078: an «عربون» of 700 paid to Art Craft is a «سحب» from his net («إضافة مبلغ»)
   await add(page, 'إضافة مبلغ', 'سحب');
   await pick(page, 'f-vendor', 'Art Craft');
@@ -375,7 +375,7 @@ test('«تحديث من Dokan» brings a new request now; the withdraw filter sh
   await openAccounts(page, ACCOUNTS);
   await tab(page, 'حسابات المبتكرين').click();
   const table = main(page).locator('table.vendors-table');
-  await expect(table.locator('tbody tr', { hasText: 'Antikiano' }).locator('[data-wd]')).toHaveText('لا يوجد');
+  await expect(table.locator('tbody tr', { hasText: 'Antikiano' }).locator('[data-wd]')).toHaveText('تم الرفض'); // [#19]: its cancelled request
   mock.dokanNewRequests = [{ id: 601, woo_vendor_id: 44, vendor_id: V2, amount: 450, charge: 0, receivable: 450, status: 'pending', method: 'bank', requested_at: '2026-10-28 09:00:00', synced_at: '2026-10-28T09:00:00Z' }];
   // the owner (11 Nov): any call the member starts shows the busy pill with what is happening (busy.js; the mock answers at once,
   // so the pill's delay is 0 here)
@@ -393,7 +393,8 @@ test('«تحديث من Dokan» brings a new request now; the withdraw filter sh
   await expect(main(page).locator('.table-title [data-th-sub]')).toContainText('طلب جديد بس'); // the head's count line (2026-11-13-table-head.md)
   await main(page).locator('[data-wd-filter]').click();
   await page.locator('[role=listbox] [role=option]', { hasText: 'طلبات السحب: الكل' }).first().click();
-  await expect(table.locator('tbody tr').filter({ hasNot: page.locator('.total') })).not.toHaveCount(2);
+  await expect(table.locator('tbody tr', { hasText: 'Antikiano' })).toHaveCount(1);
+  await expect(table.locator('tbody tr', { hasText: 'Bian eg' })).toHaveCount(0); // the meeting of 23 Nov [#17]: stopped, nothing on his account
 });
 
 test('the refresh needs accounts.view; ops (view P) may refresh, Dokan down → an error note', async ({ page }) => {
@@ -468,57 +469,13 @@ test('5.5: the makers\' table shows the latest Dokan request per maker; the actu
 
 // the accounts report by period (decision 4): tests/e2e/reports.spec.mjs (phase 9 opened the reports page)
 
-test('5.5 decision 13: «كشف بالفترة» — the opening is Dokan\'s balance on the first day less the earlier moves; the period from each maker\'s statement + our moves', async ({ page }) => {
-  const today = cairo(); const from = today.slice(0, 8) + '01';
-  const before = new Date(Date.parse(from + 'T00:00:00Z') - 5 * 864e5).toISOString().slice(0, 10);
-  const V3 = 'a0000000-0000-4000-8000-000000000003'; // Bian eg (store 2047)
-  const mv = (id, vendor_id, on_date, direction, kind, amount) => ({ id, vendor_id, on_date, direction, kind, kind_name: null, amount, note: null, created_by: null, created_at: on_date + 'T09:00:00Z', voided_at: null });
-  mock.acc.acc_vendor_moves.push(mv(91, V1, before, 'withdraw', 'عربون', 400), mv(92, V1, from, 'withdraw', 'عربون', 100), mv(93, V1, today, 'withdraw', 'مواصلات', 50)); // 0078: an «عربون» is a «سحب»
-  mock.statementRows = {
-    [V1]: [{ date: from, type: 'opening_balance', debit: 0, credit: 0, balance: 2000, ref: null },
-      { date: from + ' 10:00:00', type: 'dokan_orders', debit: 650, credit: 0, balance: 2650, ref: 181669 }, // our sub-order: Art Craft's line 1,002
-      { date: from + ' 11:00:00', type: 'dokan_orders', debit: 300, credit: 0, balance: 2950, ref: 777001 }, // not in our mirror
-      { date: today + ' 09:00:00', type: 'dokan_withdraw', debit: 0, credit: 1200, balance: 1750, ref: 501 }],
-    [V2]: [{ date: from, type: 'opening_balance', debit: 0, credit: 0, balance: 0, ref: null }, { date: from + ' 12:00:00', type: 'dokan_orders', debit: 1500, credit: 0, balance: 1500, ref: 181670 }] };
-  mock.statementFail = new Set([V3]);
+test('the meeting of 23 Nov [#27]: «كشف بالفترة» left the makers\' accounts — the balance now, no sub-tab and no period', async ({ page }) => {
   await openAccounts(page);
   await tab(page, 'حسابات المبتكرين').click();
-  await main(page).getByRole('tab', { name: 'كشف بالفترة' }).click();
-  // the meeting of 23 Nov [#4] (was 0078's «كل الفترات»): the ledger opens on this month, its dates on the button
-  await expect(main(page).locator('.toolbar .range-label')).toHaveText(/^الفترة: 1 /);
-  // this month's statements redraw the ledger while they arrive: the picker opens once they are in
-  await expect(main(page).locator('[data-ledger-refresh]')).toBeEnabled();
-  await main(page).getByRole('button', { name: 'اختيار الفترة' }).click();
-  await page.getByRole('radio', { name: 'هذا الشهر' }).click();
-  await page.getByRole('button', { name: 'تحديث', exact: true }).click();
-  const table = main(page).locator('table.ledger-table');
-  await expect(table.locator('thead th', { hasText: 'طلب سحب' })).toHaveCount(1); // «آخر طلب سحب» stays; «طلب سحب» left (the owner)
-  const art = table.locator('tbody tr', { hasText: 'Art Craft' });
-  // Art Craft: 2,000 − 400 = 1,600 · حقه 650 + 300 · sales 1,002 (the unmatched order marked *) · share 352 · out 1,200 · deposits 100 · transport 50
-  await expect(art.locator('[data-ledger-close="Art Craft"]')).toHaveText('1,200.00');
-  await expect(art).toContainText('1,600.00'); await expect(art).toContainText('950.00'); await expect(art).toContainText('1,002.00*'); await expect(art).toContainText('352.00');
-  await expect(art.locator('[data-due]')).toHaveText('مستحق');
-  const anti = table.locator('tbody tr', { hasText: 'Antikiano' }); // 0 + 1,500 · sales 2,539 · share 1,039
-  await expect(anti.locator('[data-ledger-close="Antikiano"]')).toHaveText('1,500.00'); await expect(anti).toContainText('2,539.00'); await expect(anti).toContainText('1,039.00');
-  // Bian eg: Dokan did not answer — shown, kept out of the totals, «جرّب تاني» asks it again
-  await expect(table.locator('tbody tr', { hasText: 'Bian eg' }).locator('[data-ledger-err]')).toBeVisible();
-  await expect(main(page).locator('[data-ledger-total]')).toHaveText('2,700.00');
-  expect(mock.statements.map((s) => [s.vendor_id, s.from, s.to]).sort()).toEqual([V1, V2, V3].map((v) => [v, from, today]).sort());
-  mock.statementFail = new Set();
-  await main(page).locator('[data-ledger-retry]').click();
-  await expect(table.locator('tbody tr', { hasText: 'Bian eg' })).toHaveCount(0); // answered with no movement: hidden unless «اعرض كل المبتكرين»
-  expect(mock.statements.length).toBe(4);
-  await main(page).getByText('اعرض كل المبتكرين (حتى اللي مالهمش حركة)').click();
-  await expect(table.locator('tbody tr', { hasText: 'Bian eg' }).locator('[data-due]')).toHaveText('متصفّي');
-  // an «عربون» recorded now («سحب») lowers the closing at once; the statements are not asked again
-  await add(page, 'إضافة مبلغ', 'سحب');
-  await pick(page, 'f-vendor', 'Antikiano'); await modal(page).locator('#f-amount').fill('500'); await pick(page, 'f-type', 'عربون');
-  await saveForm(page);
-  await expect(anti.locator('[data-ledger-close="Antikiano"]')).toHaveText('1,000.00');
-  expect(mock.statements.length).toBe(4);
-  // «حدّث الكشف من Dokan» asks every maker again
-  await main(page).locator('[data-ledger-refresh]').click();
-  await expect.poll(() => mock.statements.length).toBe(7);
+  await expect(main(page).locator('table.vendors-table')).toBeVisible();
+  await expect(main(page).getByRole('tab', { name: 'كشف بالفترة' })).toHaveCount(0);
+  await expect(main(page).locator('.toolbar .date-field')).toHaveCount(0);
+  expect(mock.statements.length).toBe(0); // no statement asked from Dokan
 });
 
 // phase 13 decision 61: «نظرة عامة» first and «التقارير» last in the accounts page
@@ -597,7 +554,7 @@ test('0078: «تسوية دلوقتي» files a request on Dokan for the whole D
   // comments decision 11: «تقفيل الحساب» is the short report's own popup, opened on the request's box with the open moves listed
   const settle = page.locator('.modal.vb-modal', { hasText: 'تقفيل حساب — Antikiano' });
   await expect(settle).toHaveAttribute('data-vb-modal', 'settle');
-  await expect(settle.locator('[data-vb-tile]')).toHaveText([/رصيد Dokan\s*25,000\.00 ج\.م/, /العرابين\s*4,000\.00 ج\.م/, /المواصلات\s*1,000\.00 ج\.م/, /التصحيح\s*0\.00 ج\.م/, /صافي الرصيد\s*20,000\.00 ج\.م/]);
+  await expect(settle.locator('[data-vb-tile]')).toHaveText([/رصيد Dokan\s*25,000\.00 ج\.م/, /العرابين\s*4,000\.00 ج\.م/, /المواصلات\s*1,000\.00 ج\.م/, /إيداع خارجي\s*0\.00 ج\.م/, /صافي الرصيد\s*20,000\.00 ج\.م/]);
   await expect(settle.locator('[data-vb-req]')).toHaveAttribute('data-vb-req', 'settle');
   await expect(settle).toContainText('رصيده على Dokan 25,000.00 ج.م');
   // the owner 22 Nov: the amount is typed (up to the Dokan balance) and what the maker gets is said as it is typed
@@ -660,37 +617,6 @@ test('0078: «تسوية دلوقتي» needs accounts.approve = F', async ({ pa
   await expect(page.locator('[role=menu]')).not.toContainText('تسوية دلوقتي');
 });
 
-test('0078: «كشف بالفترة» without a range = «كل الفترات» — Dokan\'s totals + the approved requests less what they covered + all our moves, no statement asked', async ({ page }) => {
-  mock.acc.dokan_balances[0].earning = 9000; // Art Craft: earned 9,000, paid 6,500 (one approved request), 2,500 left on Dokan
-  mock.acc.dokan_withdrawals.push({ id: 300, woo_vendor_id: 2376, vendor_id: V1, amount: 6500, charge: 0, receivable: 6500, status: 'approved', method: 'bank', requested_at: '2026-09-15 10:00:00', synced_at: '2026-10-27T10:00:00Z' });
-  mock.acc.acc_vendor_moves.push(mvRow(71, V1, '2026-09-01', 'withdraw', 'عربون', 400, { settled_by: 300, settled_at: '2026-09-15T12:00:00Z' }));
-  mock.acc.acc_vendor_settlements.push({ id: 1, withdraw_id: 300, vendor_id: V1, amount: 6500, moves_net: 400, carry_in: 0, consumed: 400, carry_out: 0, cash: 6100, moves: 1, source: 'dokan', approved_by: null, settled_on: '2026-09-15', created_at: '2026-09-15T12:00:00Z' });
-  await openAccounts(page);
-  await tab(page, 'حسابات المبتكرين').click();
-  // the settled عربون is not deducted any more: the net is Dokan's balance
-  await expect(main(page).locator('table.vendors-table [data-vbal="Art Craft"]')).toHaveText('2,500.00');
-  await main(page).getByRole('tab', { name: 'كشف بالفترة' }).click();
-  await expect(main(page).locator('[data-ledger-refresh]')).toBeEnabled(); // this month's statements are in (a late one redraws and closes the picker)
-  await main(page).locator('[data-vl-all]').click(); // the meeting of 23 Nov [#4]: «كل الفترات» is a choice now (the default is this month)
-  await expect(main(page).locator('.toolbar .range-label')).toHaveText('كل الفترات');
-  const asked = mock.statements.length; // the month's statements asked before the pick
-  const art = main(page).locator('table.ledger-table tbody tr', { hasText: 'Art Craft' });
-  await expect(art).toContainText('9,000.00'); // حقه من المكتمل (Dokan's earning)
-  await expect(art.locator('[data-ledger-paid="Art Craft"]')).toHaveText('6,100.00'); // 6,500 less the 400 it covered
-  await expect(art.locator('[data-ledger-close="Art Craft"]')).toHaveText('2,500.00'); // = the net now
-  await expect(main(page).locator('table.ledger-table thead th', { hasText: 'رصيد أول الفترة' })).toHaveCount(0);
-  expect(mock.statements.length).toBe(asked); // «كل الفترات» asks no statement
-  // a period asks the statements; «كل الفترات» brings the whole account back
-  await expect(async () => { // a late redraw closes an open picker: open it again until the pick lands
-    if (!(await page.getByRole('radio', { name: 'هذا الشهر' }).isVisible())) await main(page).getByRole('button', { name: 'اختيار الفترة' }).click();
-    await page.getByRole('radio', { name: 'هذا الشهر' }).click({ timeout: 2000 });
-    await page.getByRole('button', { name: 'تحديث', exact: true }).click({ timeout: 2000 });
-  }).toPass({ timeout: 15000 });
-  await expect.poll(() => mock.statements.length).toBeGreaterThan(0);
-  await expect(main(page).locator('table.ledger-table thead th', { hasText: 'رصيد أول الفترة' })).toHaveCount(1);
-  await main(page).locator('[data-vl-all]').click();
-  await expect(main(page).locator('.toolbar .range-label')).toHaveText('كل الفترات');
-});
 
 // 0143 (the owner 19 Nov — «اي سحب او ايداع … يجبلي الحساب … و دايما يبقي فيه مستفيد و كله يبقي مربوط ببعضه»)
 test('0143: an expense names its account and makes one linked account move; a maker withdraw from «الحساب الفعلي» lands on his balance; a transfer makes its other side', async ({ page }) => {

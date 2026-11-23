@@ -1,7 +1,7 @@
 // deno-lint-ignore-file no-explicit-any
 // woo-sync handler tests: fake Woo fetch + in-memory Supabase clients (service and per-member) from ../_test/fakes.ts.
 import { assert, assertEquals, assertFalse } from 'jsr:@std/assert@1';
-import { handler } from './index.ts';
+import { handler, internalRequest } from './index.ts';
 import { cairoDate } from '../_shared/woo-write.js';
 import { bankDigest } from '../_shared/woo-core.js';
 import { ConfigError, wooApi } from '../_shared/woo-api.js';
@@ -486,7 +486,7 @@ Deno.test('withdraw_reject: the admin or accounts.approve = F only (never the sy
 
 Deno.test('withdrawals (phase 4.1, «تحديث من Dokan»): the requests, then every maker\'s balance (the owner 18 Nov), GET only; accounts.view <> N; the sync log row', async () => {
   const wd = (id: number, store: number, status: string) => ({ id, user: { id: store }, amount: 900, charge: 0, receivable: 900, status, method: 'bank', created: '2026-10-28 09:00:00', ip: '10.0.0.9', details: { bank: { ac_number: '123456789012' } } });
-  const routes = { 'GET dokan/v1/withdraw': (c: any) => (c.query.status === 'all' ? page([wd(201, 44, 'pending'), wd(7, 2376, 'approved')]) : page([])),
+  const routes = { 'GET dokan/v1/withdraw': (c: any) => (c.query.status === 'all' ? page([wd(201, 44, 'pending'), { ...wd(7, 2376, 'approved'), note: 'تسوية من سيستم إبتكر' }]) : page([])),
     'GET dokan/v1/stores/44/stats': { body: { others: { balance: 7010.46 }, revenue: { earning: 139203.9, sales: 270000, orders: 140 } } } };
   const { db, woo, deps } = setup({ routes });
   const { res, body } = await call(deps, { action: 'withdrawals' }, { jwt: 'jwt-acct' });
@@ -495,6 +495,8 @@ Deno.test('withdrawals (phase 4.1, «تحديث من Dokan»): the requests, the
   assert(makers.has('dokan/v1/stores/44/stats') && makers.has('dokan/v1/stores/2376/stats'), 'every maker with a store is read');
   assertEquals([body.counts.withdrawals, body.counts.settled, body.counts.balances], [2, 0, 1]);
   assertEquals(db.rows('dokan_withdrawals').map((r: any) => [r.id, r.vendor_id, r.status]), [[201, vendorId(44), 'pending'], [7, vendorId(2376), 'approved']]);
+  assertEquals(db.rows('dokan_withdrawals').map((r: any) => [r.id, r.internal === true]), [[201, false], [7, true]], 'the meeting of 23 Nov [#19]: withdraw_create\'s note → «داخلي»');
+  assertFalse(JSON.stringify(db.rows('dokan_withdrawals')).includes('تسوية من سيستم'), 'the note itself is never stored');
   assert(woo.calls.every((c: any) => c.method === 'GET'));
   assertEquals(db.row('dokan_balances', vendorId(44), 'vendor_id').balance, 7010.46);
   assertFalse(JSON.stringify(db.rows('dokan_withdrawals')).includes('123456789012'));
@@ -3062,6 +3064,7 @@ Deno.test('0078 withdraw_create: the admin or accounts.approve = F only (never t
   assertEquals(woo.calls.map((c: any) => [c.method, c.path, c.body ?? null]), [['GET', 'dokan/v1/stores/44/stats', null], ['GET', 'dokan/v1/stores/44', null], ['POST', 'dokan/v1/withdraw', { user_id: 44, amount: 25000, method: 'bank', note: 'تسوية من سيستم إبتكر' }]]);
   const row = db.row('dokan_withdrawals', 77);
   assertEquals([row.woo_vendor_id, row.vendor_id, row.amount, row.status, row.method], [44, vendorId(44), 25000, 'pending', 'bank']);
+  assertEquals(row.internal, true, 'the meeting of 23 Nov [#19]: the system made it — «داخلي»');
   assertFalse(JSON.stringify(db.rows('dokan_withdrawals')).includes('123456789012'), 'never the bank details');
   // a second ask while it is pending → skipped, no call
   const again = await call(deps, { action: 'withdraw_create', vendor_id: vendorId(44) }, { jwt: 'jwt-admin' });
@@ -3742,4 +3745,12 @@ Deno.test('order_address: the areas from Bosta, the address here + on the site (
   assertEquals([two.body.site, two.body.bosta], ['multi', 'none']);
   assertEquals(woo.calls.some((c) => c.path === 'wc/v3/orders/602'), false);
   assertEquals(db.row('orders', 602).bosta_district, 'dNasr');
+});
+
+Deno.test('the meeting of 23 Nov [#19]: internalRequest = Dokan keeps withdraw_create\'s fixed note (the maker\'s own requests are not)', () => {
+  assertEquals(internalRequest({ id: 1, note: 'تسوية من سيستم إبتكر' }), true);
+  assertEquals(internalRequest({ id: 2, note: ' تسوية من سيستم إبتكر ' }), true);
+  assertEquals(internalRequest({ id: 3, note: 'محتاج الفلوس' }), false);
+  assertEquals(internalRequest({ id: 4 }), false);
+  assertEquals(internalRequest(null as any), false);
 });

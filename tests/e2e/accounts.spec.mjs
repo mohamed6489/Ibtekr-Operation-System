@@ -670,6 +670,7 @@ test('0078: «كشف بالفترة» without a range = «كل الفترات» 
   // the settled عربون is not deducted any more: the net is Dokan's balance
   await expect(main(page).locator('table.vendors-table [data-vbal="Art Craft"]')).toHaveText('2,500.00');
   await main(page).getByRole('tab', { name: 'كشف بالفترة' }).click();
+  await expect(main(page).locator('[data-ledger-refresh]')).toBeEnabled(); // this month's statements are in (a late one redraws and closes the picker)
   await main(page).locator('[data-vl-all]').click(); // the meeting of 23 Nov [#4]: «كل الفترات» is a choice now (the default is this month)
   await expect(main(page).locator('.toolbar .range-label')).toHaveText('كل الفترات');
   const asked = mock.statements.length; // the month's statements asked before the pick

@@ -931,7 +931,8 @@ test('comments 26, 27 and 80 — every movement log has the system\'s period fil
   await expect(se.locator('[data-log-period="activity"] .range-label')).toHaveText('كل الفترات');
   await expect(se.locator('#ac-from, #ac-to')).toHaveCount(0);
   await one('#pg-settings');
-  const before = await se.locator('table.act-tbl tbody tr').count(); expect(before).toBeGreaterThanOrEqual(6);
+  await expect.poll(() => se.locator('table.act-tbl tbody tr').count()).toBeGreaterThanOrEqual(6); // «كل الفترات» asks the server again
+  const before = await se.locator('table.act-tbl tbody tr').count();
   await pickLast7(page, 'activity');
   await expect.poll(() => se.locator('table.act-tbl tbody tr').count()).toBeLessThan(before);
   await expect(se.locator('table.act-tbl')).not.toContainText('vendor.create'); await expect(se.locator('table.act-tbl')).toContainText('vendor.status');

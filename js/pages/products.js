@@ -1287,8 +1287,8 @@
     { id: 'topprod', group: 'المبيعات في الفترة', label: 'أكتر منتج مبيعًا', hint: 'المنتج رقم 1 بعدد القطع', calc: (c) => { const t = c.rep.top[0]; return { value: t ? t.name : '—', note: t ? K.n0(t.qty) + ' قطعة · ' + money(t.revenue) : 'مفيش مبيعات' }; } },
     { id: 'topvendor', group: 'المبيعات في الفترة', label: 'أكتر مبتكر مبيعًا', hint: 'المبتكر بأعلى إيراد في الفترة (من أعلى 20 منتج)', calc: (c) => { const v = sumBy(c.rep.top, 'vendor', 'revenue'); return { value: v[0] ? v[0][0] || '—' : '—', note: v[0] ? money(v[0][1]) + ' من أعلى 20 منتج' : 'مفيش مبيعات' }; } },
     { id: 'topcat', group: 'المبيعات في الفترة', label: 'أكتر قسم مبيعًا', hint: 'من أوردراتنا في الفترة', calc: (c) => ({ value: c.cats[0] ? c.cats[0].name : '—', note: c.cats[0] ? [K.n0(c.cats[0].sold) + ' قطعة · ', h('span', { class: 'num' }, c.pct(c.cats[0].share)), ' من القطع'] : 'مفيش مبيعات في الفترة' }) },
-    { id: 'out', group: 'المخزون', label: 'منتجات نفد مخزونها', hint: 'المنتج كله خلص («حسب الطلب» مش محسوب)', calc: (c) => ({ value: K.n0(c.out.length), unit: 'منتج', note: '«حسب الطلب» مش محسوب', details: c.out.length ? () => ({ title: 'منتجات نفد مخزونها', sub: 'من كتالوج ووكومرس', headers: c.outH, rows: c.outRowsTxt }) : null }) },
-    { id: 'low', group: 'المخزون', label: 'مخزون قليل', hint: 'لسه متاح بس 3 قطع أو أقل', calc: (c) => { const l = c.prods.filter((p) => !p.onDemand && p.stock != null && p.stock > 0 && p.stock <= 3); return { value: K.n0(l.length), unit: 'منتج', note: '3 قطع أو أقل · محتاج تعيد الطلب', details: l.length ? () => ({ title: 'مخزون قليل — ' + l.length, sub: 'من كتالوج ووكومرس', headers: ['المنتج', 'SKU', 'المبتكر', 'المخزون', 'مرات الشراء'], rows: l.map((p) => [nameOf(p), p.sku, p.vendor || '—', String(p.stock), String(p.sales)]) }) : null }; } },
+    { id: 'out', group: 'المخزون', label: 'منتجات نفد مخزونها', hint: 'من المنتجات اللي ليها قطع «متاح للبيع» في المخزون', calc: (c) => ({ value: K.n0(c.out.length), unit: 'منتج', note: 'من المنتجات اللي ليها مخزون متسجّل — الباقي حسب الطلب', details: c.out.length ? () => ({ title: 'منتجات نفد مخزونها', sub: 'من صفحة المخزون', headers: c.outH, rows: c.outRowsTxt }) : null }) },
+    { id: 'low', group: 'المخزون', label: 'مخزون قرب يخلص', hint: 'أقل من 3 قطع «متاح للبيع» في المخزون', calc: (c) => { const l = c.low || []; return { value: K.n0(l.length), unit: 'منتج', note: 'أقل من 3 قطع في المخزون · محتاج تعيد الطلب', details: l.length ? () => ({ title: 'مخزون قرب يخلص', sub: 'من صفحة المخزون', headers: c.outH, rows: l.map((p) => [nameOf(p), p.sku || '—', p.vendor || '—', p.status, K.n0(p.invQty), K.n0(p.sales)]) }) : null }; } }, // the meeting of 23 Nov [#34]
     { id: 'ondemand', group: 'المخزون', label: 'حسب الطلب', hint: 'منتجات بتتصنع بعد الأوردر', calc: (c) => { const l = c.prods.filter((p) => p.onDemand); return { value: K.n0(l.length), unit: 'منتج', note: 'من ' + K.n0(c.prods.length) + ' منتج' }; } },
     { id: 'published', group: 'الكتالوج', label: 'منتجات منشورة', hint: 'ظاهرة على الموقع دلوقتي', calc: (c) => ({ value: K.n0(c.prods.filter((p) => p.wooStatus === 'publish').length), unit: 'منتج', note: 'من ' + K.n0(c.prods.length) + ' في الكتالوج' }) },
     { id: 'drafts', group: 'الكتالوج', label: 'مسودات', hint: 'مش منشورة لسه', calc: (c) => { const l = c.prods.filter((p) => p.wooStatus === 'draft'); return { value: K.n0(l.length), unit: 'منتج', note: 'محتاجة مراجعة ونشر', details: l.length ? () => ({ title: 'مسودات — ' + l.length, sub: 'من كتالوج ووكومرس', headers: ['المنتج', 'SKU', 'المبتكر'], rows: l.map((p) => [nameOf(p), p.sku, p.vendor || '—']) }) : null }; } },
@@ -1313,6 +1313,28 @@
   // phase 9 (docs/superpowers/plans/2026-11-05-phase-9-reports.md, decision 7): the reports page's «تقارير المنتجات» tab draws these same
   // blocks — one source. reportBody(redraw) → { blocks, ctx (the KPI picker's, once the report is in), exp (the CSV of the best sellers) };
   // redraw = what «جرّب تاني» redraws (this page's R, or the reports page)
+  // the meeting of 23 Nov [#35]: the stock page's pieces «متاح للبيع» per SKU (IBKit.stockNow — what the stock page counts), loaded once
+  function invBySku() {
+    const KK = window.IBKit; const Inv = window.IBInventory; if (Inv && Inv.state && Inv.state() === 'idle' && Inv.load) Inv.load().then(() => { if (window.IBPages.current === 'products' || window.IBPages.current === 'reports') (R)(); }, () => {});
+    const m = new Map(); (KK && KK.stockNow ? KK.stockNow() : []).filter((x) => x.reason === 'متاح للبيع' && String(x.sku || '').trim()).forEach((x) => { const k = String(x.sku).trim(); m.set(k, (m.get(k) || 0) + Math.max(0, Number(x.onHand) || 0)); });
+    return m;
+  }
+  // [#34]: the orders of the period with a sold product — its SKU, a variation of it (SKU-…) or, without a SKU, its name
+  const ordersData = () => (window.IBOrders && window.IBOrders.data ? (window.IBOrders.data() || {}).orders || [] : []);
+  const lineOf = (x) => (s) => (x.sku ? s.sku === x.sku || String(s.sku || '').indexOf(x.sku + '-') === 0 : s.prod === x.name);
+  function productOrders(x, from, to) {
+    const os = ordersData().filter((o) => o.date >= from && o.date <= to && (o.subs || []).some(lineOf(x))).sort((a, b) => (a.date < b.date ? 1 : -1));
+    const LBS = (st) => { const S0 = window.IBSettings; return S0 && S0.statusLabel ? S0.statusLabel('order', st) : st; };
+    U.DetailsModal({ title: 'أوردرات ' + x.name + ' — ' + os.length, sub: 'الفترة: ' + K.dlabel(from) + ' – ' + K.dlabel(to) + ' · اضغط على أي أوردر يفتحه',
+      headers: ['رقم الأوردر', 'التاريخ', 'العميل', 'الحالة', 'القطع', 'قيمة السطور'], keep: true,
+      rows: os.map((o) => { const ls = o.subs.filter(lineOf(x)); return ['#' + o.id, o.date, o.name || '—', LBS(o.st), String(ls.reduce((t, s) => t + (Number(s.qty) || 0), 0)), money(ls.reduce((t, s) => t + (Number(s.tot) || 0), 0))]; }),
+      onRow: (i) => { const O = window.OrdersApp; if (O && O.peek) O.peek(String(os[i].id)); }, source: 'أوردراتنا في الفترة (بتاريخ الأوردر)' });
+  }
+  function returnsOf(from, to) {
+    const m = new Map(); ordersData().filter((o) => o.date >= from && o.date <= to).forEach((o) => (o.subs || []).filter((s) => /^مرتجع/.test(String(s.ss || ''))).forEach((s) => {
+      const k = s.sku || s.prod; const x = m.get(k) || { name: s.prod, sku: s.sku, vendor: s.vendor, qty: 0, value: 0, orders: [] }; x.qty += Number(s.qty) || 0; x.value += Number(s.tot) || 0; if (!x.orders.includes(o.id)) x.orders.push(o.id); m.set(k, x); }));
+    return [...m.values()].sort((a, b) => b.qty - a.qty || b.value - a.value);
+  }
   function reportBody(redraw) {
     const P = PR(); const RB = window.IBReportBlocks;
     const rg = RB ? RB.get() : null; const from = rg ? rg.from : null; const to = rg ? rg.to : null;
@@ -1321,22 +1343,35 @@
       const failed = from && P.reportFailed(from, to);
       return { blocks: [failed ? K.Empty('مقدرناش نحسب التقارير', 'في مشكلة في الاتصال.', Button({ size: 'sm', label: 'جرّب تاني', onClick: () => { P.reportRetry(from, to); (redraw || R)(); } })) : U.InlineNote({ children: 'بنحسب التقارير…' })], ctx: null, exp: null };
     }
-    const out = PD.outOfStock(all()); const cats = PD.categoriesRank(rep.cats); const catTop = cats.slice(0, 15);
+    // the meeting of 23 Nov [#35] (Safwat: «صفحة المخزون عندنا»): every product is made to order but the ones with pieces «متاح للبيع» recorded
+    // on the stock page — those alone are counted (their quantity from there); a draft / pending product is never shown
+    const inv = invBySku(); const tracked = all().filter((p) => p.status !== 'مسودة' && p.status !== 'في انتظار المراجعة' && p.sku && inv.has(String(p.sku).trim()))
+      .map((p) => Object.assign({}, p, { invQty: inv.get(String(p.sku).trim()) }));
+    const out = tracked.filter((p) => p.invQty <= 0).sort((a, b) => (b.sales || 0) - (a.sales || 0));
+    const low = tracked.filter((p) => p.invQty > 0 && p.invQty < 3).sort((a, b) => a.invQty - b.invQty); // [#34]: «قرب يخلص» = less than 3 pieces
+    const cats = PD.categoriesRank(rep.cats); const catTop = cats.slice(0, 15);
     const per = 'الفترة: ' + K.dlabel(from) + ' – ' + K.dlabel(to); // the period on the big tables' line (2026-11-13-table-head.md)
     const openRec = (id, label) => (id ? h('button', { type: 'button', class: 'link-btn', onClick: () => go('products-edit-' + id + '-data') }, label) : label);
     const sku = (x, n) => h('span', { dir: 'ltr', class: 't-small' }, x + (n > 1 ? ' +' + (n - 1) : ''));
-    const topH = ['#', 'المنتج', 'SKU', 'المبتكر', 'القطع', 'الأوردرات', 'الإيراد'];
-    const topRows = rep.top.map((x, i) => [K.n0(i + 1), openRec(x.id, x.name), sku(x.sku, x.skuCount), x.vendor, K.n0(x.qty), K.n0(x.orders), money(x.revenue)]);
-    const outH = ['المنتج', 'SKU', 'المبتكر', 'الحالة', 'مرات الشراء'];
-    const outRows = out.map((p) => [openRec(p.id, nameOf(p)), sku(p.sku || '—', 1), p.vendor || '—', Tag(STATUS_TONE[p.status] || 'neutral', p.status), K.n0(p.sales)]);
+    // [#34]: a sold product's «تفاصيل» = the orders of the period with it (its SKU or a variation of it)
+    const topH = ['#', 'المنتج', 'SKU', 'المبتكر', 'مرات البيع (قطع)', 'الأوردرات', 'الإيراد', ''];
+    const detBtn = (x) => h('button', { type: 'button', class: 'link-btn', 'data-prod-orders': x.sku || x.name, onClick: () => productOrders(x, from, to) }, 'تفاصيل');
+    const topRows = rep.top.map((x, i) => [K.n0(i + 1), openRec(x.id, x.name), sku(x.sku, x.skuCount), x.vendor, K.n0(x.qty), K.n0(x.orders), money(x.revenue), detBtn(x)]);
+    const outH = ['المنتج', 'SKU', 'المبتكر', 'الحالة', 'في المخزن', 'مرات الشراء'];
+    const outRows = out.map((p) => [openRec(p.id, nameOf(p)), sku(p.sku || '—', 1), p.vendor || '—', Tag(STATUS_TONE[p.status] || 'neutral', p.status), K.n0(p.invQty), K.n0(p.sales)]);
+    const lowRows = low.map((p) => [openRec(p.id, nameOf(p)), sku(p.sku || '—', 1), p.vendor || '—', Tag(STATUS_TONE[p.status] || 'neutral', p.status), K.n0(p.invQty), K.n0(p.sales)]);
+    // [#34] (Safwat: «المنتجات بحالة مرتجع»): the order lines «مرتجع للمخزن» / «مرتجع للمبتكر» of the period's orders, by product
+    const rets = returnsOf(from, to);
+    const retH = ['المنتج', 'SKU', 'المبتكر', 'القطع', 'القيمة', 'الأوردرات'];
+    const retRows = rets.map((x) => [x.name, sku(x.sku || '—', 1), x.vendor || '—', K.n0(x.qty), money(x.value), K.n0(x.orders.length)]);
     const catH = ['#', 'القسم', 'القطع المباعة', 'النسبة', 'الإيراد', 'الأوردرات', 'المنتجات'];
     const pct = (v) => Math.round(v * 1000) / 10 + '%';
     const catRows = catTop.map((c) => [K.n0(c.rank), c.name, K.n0(c.sold), pct(c.share), money(c.revenue), K.n0(c.orders), K.n0(c.products)]);
     const byStatus = [...out.reduce((m, p) => m.set(p.status, (m.get(p.status) || 0) + 1), new Map())].sort((a, b) => b[1] - a[1]);
     const maxC = catTop.length ? catTop[0].sold || 1 : 1;
-    const kpiCtx = { rep, out, cats, pct, prods: all(), topH, outH, topRowsTxt: rep.top.map((x, i) => [K.n0(i + 1), x.name, x.sku, x.vendor, K.n0(x.qty), K.n0(x.orders), money(x.revenue)]), outRowsTxt: out.map((p) => [nameOf(p), p.sku || '—', p.vendor || '—', p.status, K.n0(p.sales)]) };
+    const kpiCtx = { rep, out, low, cats, pct, prods: all(), topH, outH, topRowsTxt: rep.top.map((x, i) => [K.n0(i + 1), x.name, x.sku, x.vendor, K.n0(x.qty), K.n0(x.orders), money(x.revenue), '']), outRowsTxt: out.map((p) => [nameOf(p), p.sku || '—', p.vendor || '—', p.status, K.n0(p.invQty), K.n0(p.sales)]) };
     const picked = kpiPicked();
-    const exp = { label: 'المنتجات الأكثر مبيعًا', headers: topH, rows: rep.top.map((x, i) => [i + 1, x.name, x.sku, x.vendor, x.qty, x.orders, x.revenue]) };
+    const exp = { label: 'المنتجات الأكثر مبيعًا', headers: topH.slice(0, 7), rows: rep.top.map((x, i) => [i + 1, x.name, x.sku, x.vendor, x.qty, x.orders, x.revenue]) };
     return { ctx: kpiCtx, exp, blocks: [
       h('div', { class: 'cards', 'data-rgroup': 'kpis', 'data-prod-kpis': String(picked.length) }, picked.map((id) => { const k = KPIS.find((x) => x.id === id); let v; try { v = k.calc(kpiCtx); } catch (e) { v = { value: '—' }; }
         return U.KpiTile({ label: k.label, value: typeof v.value === 'string' ? v.value : String(v.value), unit: v.unit, compare: 'off', note: v.note, details: v.details || null }); })),
@@ -1344,7 +1379,9 @@
       h('div', { class: 'charts', 'data-rgroup': 'charts' },
         U.ChartCard({ title: 'الأقسام الأكثر مبيعًا', subtitle: 'القطع المباعة · أعلى 10', footnote: 'المنتج اللي في أكتر من قسم بيتحسب في كل قسم · الأقسام اللي ليها نفس الاسم اتجمعت', body: catTop.length ? h('div', { class: 'bars' }, catTop.slice(0, 10).map((c, i) => U.BarRow({ tone: i === 0 ? 'brand' : i < 3 ? 'gold' : 'neutral', label: c.name, value: K.n0(c.sold), pct: c.sold / maxC }))) : K.Empty('مفيش مبيعات', 'غيّر الفترة من فوق.') }),
         U.ChartCard({ title: 'المخزون اللي خلص', subtitle: K.n0(out.length) + ' منتج حسب الحالة', footnote: '«حسب الطلب» مش بيتحسب نفد · التركيبات لوحدها مش ظاهرة هنا (المنتج بيظهر لما كل تركيباته تخلص)', body: out.length ? h('div', { class: 'bars' }, byStatus.map(([k, n], i) => U.BarRow({ tone: i === 0 ? 'brand' : 'gold', label: k, value: K.n0(n), pct: n / out.length }))) : K.Empty('كله متاح', 'مفيش منتج نفد مخزونه.') })),
-      Card('منتجات نفد مخزونها', '', out.length ? U.Table({ cls: 'dt rp-out', headers: outH, rows: outRows }) : K.Empty('كله متاح', 'مفيش منتج نفد مخزونه دلوقتي.'), null, null, { noun: ['منتج', 'المنتجات'] }),
+      h('div', { 'data-rp-out': '' }, Card('منتجات نفد مخزونها', '', out.length ? U.Table({ cls: 'dt rp-out', headers: outH, rows: outRows }) : K.Empty('مفيش منتج نفد', inv.size ? 'المنتجات اللي ليها قطع «متاح للبيع» في المخزون كلها لسه فيها.' : 'كل المنتجات حسب الطلب — مفيش منتج ليه قطع «متاح للبيع» متسجّلة في المخزون.'), null, null, { noun: ['منتج', 'المنتجات'] })),
+      h('div', { 'data-rp-low': '' }, Card('مخزون قرب يخلص (أقل من 3 قطع)', '', low.length ? U.Table({ cls: 'dt rp-low', headers: outH, rows: lowRows }) : K.Empty('مفيش منتج قرب يخلص', 'من المنتجات اللي ليها قطع «متاح للبيع» في المخزون.'), null, null, { noun: ['منتج', 'المنتجات'] })),
+      h('div', { 'data-rp-returns': '' }, Card('المرتجعات', '', retRows.length ? U.Table({ cls: 'dt rp-ret', headers: retH, rows: retRows }) : K.Empty('مفيش مرتجعات في الفترة دي', 'غيّر الفترة من فوق.'), null, null, { when: per, noun: ['منتج', 'المنتجات'] })),
       Card('الأقسام الأكثر مبيعًا', '', catTop.length ? U.Table({ cls: 'dt rp-cats', headers: catH, rows: catRows }) : K.Empty('مفيش مبيعات في الفترة دي', 'غيّر الفترة من فوق.'), null, null, { when: per, noun: ['قسم', 'الأقسام'], count: [catTop.length, cats.length] }),
       h('p', { class: 'source t-small help' }, 'المصدر: أوردراتنا (الأوردر بتاريخه بتوقيت القاهرة، والسطر على الترجمة العربية بيتحسب على المنتج الإنجليزي) · كتالوج ووكومرس للمخزون.')] };
   }

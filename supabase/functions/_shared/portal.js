@@ -73,7 +73,7 @@ export function makerLines({ items, orders, subs, now, leads, makerLead, rules }
     const lead = leadBy(it.product_id != null && leads && typeof leads.get === 'function' ? leads.get(String(it.product_id)) : null, makerLead, DR);
     const elapsed = lineElapsed({ notifiedAt: it.expected_at, confirm: o.confirm, confirmAt: o.confirm_at, placedAt: o.placed_at }, today, DR);
     out.push({ order: String(o.number ?? o.id), n: s && s.woo_order_id != null ? String(s.woo_order_id) : null, prod: String(it.name ?? ''), qty: num(it.qty) || 1, total: round2(num(it.total)),
-      ss: String(it.status ?? ''), exp: it.expected_at ? String(it.expected_at).slice(0, 10) : null, open, status: String(o.status ?? ''), delivery: lineDelayOf(elapsed, lead, open, DR), age, days: elapsed, lead, placed: String(o.placed_at ?? '').slice(0, 10) });
+      ss: String(it.status ?? ''), exp: it.expected_at ? String(it.expected_at).slice(0, 10) : null, open, status: String(o.status ?? ''), delivery: lineDelayOf(elapsed, lead, open, DR, o.status), age, days: elapsed, lead, placed: String(o.placed_at ?? '').slice(0, 10) });
   }
   return out.sort((a, b) => (a.placed < b.placed ? 1 : a.placed > b.placed ? -1 : 0));
 }

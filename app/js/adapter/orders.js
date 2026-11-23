@@ -120,8 +120,15 @@
       return { id, name: r.customer_name || '', phone: r.customer_phone || '', pay: r.payment_title || r.payment_method || '', payMethod: r.payment_method || '', date, st: r.status, cf: r.confirm, dep: Number(r.deposit) || 0, tot: Number(r.total) || 0,
         age: days(date, T), note: r.note || '', cnote: r.customer_note || '', cdate: r.confirm_at || '', confAt: r.confirm_at || '', state, stateName, city: r.customer_city || '', addr: r.customer_address || '', trk: r.bosta_tracking || '', trkState: r.bosta_state || '', bdl: r.bosta_delivery || '', bcod: r.bosta_cod == null ? null : Number(r.bosta_cod), bcodErr: r.bosta_cod_error || '', area: r.bosta_district || '', cancel: r.cancel || null, ret: r.ret || null,
         ...(cu.get(id) ? { stc: cu.get(id) } : {}), // 0095: an added status «بتتحسب زي» its base (st stays the base)
-        subs: (lines.get(id) || []).map((it) => withLead(sub(it, r, subById, vname, lk, origin), it, vlead, pl)) };
+        subs: grouped((lines.get(id) || []).map((it) => withLead(sub(it, r, subById, vname, lk, origin), it, vlead, pl))) };
     });
+  }
+  // the meeting of 23 Nov [#13]: an order's pieces under their sub-order — every piece of sub-order 1 together, then sub-order 2 … (each
+  // sub-order where its first piece was; a maker's lines on the main order are one group), never «فرعي 1، فرعي 2، فرعي 1»
+  function grouped(list) {
+    const key = (s) => (s.sid && s.sid !== s.oid ? 's' + s.sid : 'v' + (s.vendorId || s.vendor || ''));
+    const at = new Map(); list.forEach((s, i) => { const k = key(s); if (!at.has(k)) at.set(k, i); });
+    return list.map((s, i) => [s, i]).sort((a, b) => at.get(key(a[0])) - at.get(key(b[0])) || a[1] - b[1]).map((x) => x[0]);
   }
   const vendorNames = (list) => [...new Set(list.flatMap((o) => o.subs.map((s) => s.vendor)).filter(Boolean))].sort(byName);
 
@@ -174,6 +181,16 @@
     notifySoon();
   }
   if (typeof document !== 'undefined' && document.addEventListener) document.addEventListener('ib:product-lead', onLead);
+  // the meeting of 23 Nov [#15] (0151): the customer's shipping charges (a ride the customer pays) on each order — the system's only;
+  // a read that fails (no table yet) leaves them out
+  async function shipFees(cl, list, g) {
+    try {
+      const { data, error } = await cl.from('order_shipments').select('order_id, amount').eq('payer', 'customer').range(0, 9999);
+      if (error || g !== gen) return;
+      const m = new Map(); (data || []).forEach((r) => { const k = String(r.order_id); m.set(k, Math.round(((m.get(k) || 0) + (Number(r.amount) || 0)) * 100) / 100); });
+      list.forEach((o) => { if (m.has(o.id)) o.shipFee = m.get(o.id); });
+    } catch (e) { /* the orders show without it */ }
+  }
   // opts.quiet (IBLive — 0104): a live re-read of a list that is already shown — no «loading» state, and a failed read keeps it
   async function load(opts) {
     const cl = c();
@@ -203,6 +220,7 @@
       if (ws && !ws.error) states = stateMap(ws.data); // refused (no grant yet) or down: the last list stays, the codes show without one
       skus.forEach((s) => asked.add(s)); keepAll(ps);
       orders = toScreen(rows, items, subs, vendorRows, { links, states, leads, custom }); names = vendorNames(orders);
+      await shipFees(cl, orders, g);
       setState('ready');
       const app = window.OrdersApp; if (app && app.hydrate) report(() => app.hydrate(data()));
       notify(); // the bell and the dashboard read the orders
@@ -340,6 +358,25 @@
     if (orders) { const i = orders.findIndex((x) => x.id === String(id)); if (i >= 0) { orders.splice(i, 1); names = vendorNames(orders); notifySoon(); } }
     log('order.delete', 'IB-' + id + ' · ' + why + ' · الموقع: ' + site);
     return { ok: true, site };
+  }
+  // the meeting of 23 Nov [#15] (0151): «تم الشحن» — how a piece went to the warehouse (leg 'warehouse': bosta · ride · maker · courier) or
+  // how the order goes to the customer (leg 'customer': bosta · ride); the money rows (the maker's «مواصلات», a company expense) are
+  // written through IBAccounts by the popup first and passed by id; nothing goes to the site. → { ok, id } or { ok: false, reason }
+  // ('forbidden' / 'invalid' with the field / 'missing' / 'network'); logged as order.shipment with the leg and the method only.
+  async function addShipment(orderId, x) {
+    const cl = c();
+    if (!cl || !uid()) return fail('network');
+    const v = x || {};
+    try {
+      const { data, error } = await cl.rpc('order_shipment_add', { p_order: Number(orderId), p_item: v.itemId ? Number(v.itemId) : null, p_leg: v.leg, p_method: v.method,
+        p_app: v.app || null, p_amount: v.amount == null || v.amount === '' ? null : Number(v.amount), p_payer: v.payer || null,
+        p_vendor_move: v.vendorMoveId ? Number(v.vendorMoveId) : null, p_expense: v.expenseId ? Number(v.expenseId) : null });
+      if (error) { const m = /invalid: (\w+)/.exec(error.message || ''); return Object.assign(fail(error.code === '42501' ? 'forbidden' : error.code === '22023' ? 'invalid' : error.code === 'P0002' ? 'missing' : 'network'), m ? { field: m[1] } : {}); }
+      const cur = (orders || []).find((o) => o.id === String(orderId));
+      if (cur && v.leg === 'customer' && v.payer === 'customer' && Number(v.amount) > 0) { cur.shipFee = Math.round(((cur.shipFee || 0) + Number(v.amount)) * 100) / 100; notifySoon(); }
+      log('order.shipment', 'IB-' + orderId + ' · ' + v.leg + ' · ' + v.method);
+      return { ok: true, id: data };
+    } catch (e) { return fail('network'); }
   }
   // phase 13 decision 54: «مسح الأوردر الفرعي» — woo-sync suborder_trash (the Dokan sub-order to the site's trash, its lines flagged
   // here, the hub's holds released — the parent on the site is never written, the owner 11 Nov); the answer's status → 'forbidden'
@@ -800,6 +837,6 @@
   }
   const imageOf = (sku) => (sku && images[sku]) || '';
   function clear() { gen += 1; unsubscribe(); cancelNotify(); thumbCache.clear(); orders = null; custom = new Map(); customOk = false; seenO.clear(); seenI.clear(); vendorRows = []; leads = new Map(); leadAsked.clear(); images = {}; links = {}; zones = null; states = new Map(); statuses = []; names = []; asked.clear(); busy.clear(); setState('idle'); }
-  window.IBOrders = { load, data, state: () => st, today, setOrderStatus, setConfirm, patchOrder, deleteOrder, deleteSub, deleteLine, sendBosta, bostaAwb, bostaCod, bostaLocations, bostaPickup, bostaPickups, bostaZones, setAddress, setLineQty, addLine, makerProducts, siteStatuses, setSubSiteStatus, setItemStatus, setWaybill, setPulled, syncNow, registerWebhooks, subscribe, unsubscribe, clear, toScreen, refetch, makerHistory, reasonOf, thumbs, imageOf };
+  window.IBOrders = { load, data, state: () => st, today, addShipment, setOrderStatus, setConfirm, patchOrder, deleteOrder, deleteSub, deleteLine, sendBosta, bostaAwb, bostaCod, bostaLocations, bostaPickup, bostaPickups, bostaZones, setAddress, setLineQty, addLine, makerProducts, siteStatuses, setSubSiteStatus, setItemStatus, setWaybill, setPulled, syncNow, registerWebhooks, subscribe, unsubscribe, clear, toScreen, refetch, makerHistory, reasonOf, thumbs, imageOf };
   window.IBOrdersStore = window.IBOrders; // the name block 29's write hooks call
 })();

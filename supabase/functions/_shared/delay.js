@@ -58,6 +58,8 @@ export function subDelay(elapsed, lead, open = true) {
 // * a line: against its own making days (product, else maker, else lead — 7), «قابل للتأخير» from subRisk (2) days before.
 export const START_POINTS = ['confirm', 'order', 'notify'];
 export const DELAY_STOP = ['قيد الشحن', 'مكتمل', 'ملغي', 'استرجاع', 'فشل'];
+// the meeting of 23 Nov [#9]: an on-hold order («معلّق») is never «متأخر» / «قابل للتأخير» — nor are its products — whatever the settings' stop list
+export const HOLD_STATUS = 'معلّق';
 export const DELAY_DEFAULTS = Object.freeze({ start: 'confirm', orderRisk: 2, subRisk: 2, lead: LEAD_DEFAULT, stop: DELAY_STOP });
 const intIn = (v, lo, hi, d) => { const n = Number(v); return v !== null && v !== '' && Number.isInteger(n) && n >= lo && n <= hi ? n : d; };
 /** settings «makers».delay (anything) → { start, orderRisk, subRisk, lead, stop } with the defaults */
@@ -90,12 +92,12 @@ export function delayAgainst(elapsed, lead, risk) {
 /** the order: status (its base), elapsed (orderElapsed), maxLead (the longest making days of its open lines; null = none open) */
 export function orderDelayOf({ status, elapsed, maxLead }, rules) {
   const r = rules || DELAY_DEFAULTS;
-  if (maxLead == null || (r.stop || []).includes(String(status ?? ''))) return 'ok';
+  if (maxLead == null || String(status ?? '') === HOLD_STATUS || (r.stop || []).includes(String(status ?? ''))) return 'ok';
   return delayAgainst(elapsed, leadBy(maxLead, null, r), r.orderRisk);
 }
-/** a line: elapsed (lineElapsed), its making days, open (a closed line is never late) */
-export function lineDelayOf(elapsed, lead, open, rules) {
+/** a line: elapsed (lineElapsed), its making days, open (a closed line is never late), its order's status (an on-hold order's line is never late) */
+export function lineDelayOf(elapsed, lead, open, rules, orderStatus) {
   const r = rules || DELAY_DEFAULTS;
-  if (open === false) return 'ok';
+  if (open === false || String(orderStatus ?? '') === HOLD_STATUS) return 'ok';
   return delayAgainst(elapsed, leadBy(lead, null, r), r.subRisk);
 }

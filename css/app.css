@@ -1257,6 +1257,18 @@ b.pos{color:var(--color-success-text)}
   .sticky-col1 tbody tr:nth-child(even) td:first-child{background:var(--color-bg-tint)}
   .sticky-col1 tr.total td:first-child,.sticky-col1 tfoot td:first-child{background:var(--color-bg-tint)}
 }
+/* the meeting of 23 Nov [#32]: desktop and a tablet showing the table — the checkbox column and the first column after it stay fixed while
+   the table scrolls sideways (the phone's cards stay as they are) */
+@media (min-width:768px){
+  .sticky-col1.sticky-sel tr>:first-child{position:sticky;inset-inline-start:0;z-index:2}
+  .sticky-col1.sticky-sel tr>:nth-child(2){position:sticky;inset-inline-start:var(--sel-w,44px);z-index:2;border-inline-end:1px solid var(--color-border-subtle)}
+  .sticky-col1.sticky-sel thead tr>:nth-child(-n+2){z-index:3}
+  .sticky-col1.sticky-sel tr>:first-child{border-inline-end:0}
+  .sticky-col1.sticky-sel tbody td:nth-child(-n+2){background:var(--color-bg-base)}
+  .sticky-col1.sticky-sel tbody tr:nth-child(even) td:nth-child(-n+2){background:var(--color-bg-tint)}
+  .sticky-col1.sticky-sel tbody tr.is-sel td:nth-child(-n+2){background:var(--color-bg-hover)}
+  .sticky-col1.sticky-sel tfoot td:nth-child(-n+2),.sticky-col1.sticky-sel tr.total td:nth-child(-n+2){background:var(--color-bg-tint)}
+}
 .vname-link{cursor:pointer;color:var(--color-text-primary);text-decoration:underline;text-decoration-color:var(--color-border-default);text-underline-offset:3px}
 .vname-link:hover{color:var(--color-brand-default);text-decoration-color:currentColor}
 .vname-link:focus-visible{outline:2px solid var(--color-action-focus,var(--color-brand-default));outline-offset:2px;border-radius:2px}
@@ -1776,6 +1788,10 @@ tr.dragging{background:var(--color-bg-tint)}
 .fm-menu .fm-tab[aria-selected=true] .cnt{background:var(--color-action-default);color:var(--color-text-on-action)}
 .fm-menu .fm-sec{padding:0 0 4px}
 .fm-menu .fm-sec[hidden]{display:none}
+/* the meeting of 23 Nov [#1]: a column of dates filters by a period — «من» / «لحد» */
+.fm-menu .fm-range{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-2,8px);padding:8px 12px}
+.fm-menu .fm-rf{display:flex;flex-direction:column;gap:4px}
+.fm-menu .fm-rf .input{width:100%;min-height:36px}
 /* the tab's search = the kit's .input (36px) with the search icon */
 .fm-menu .fm-q{width:auto;margin:10px 12px 6px;color:var(--color-text-secondary)}
 .fm-menu .fm-list{max-height:260px;overflow:auto;padding:0 4px}

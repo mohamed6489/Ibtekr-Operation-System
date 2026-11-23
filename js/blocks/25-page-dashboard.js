@@ -40,7 +40,7 @@
     const rows = S.rows; const open = S.health.open; const O = window.OrdersApp;
     const late = rows.filter((x) => x.delivery === 'late'), risk = rows.filter((x) => x.delivery === 'risk');
     const orderRows = (list) => list.map((x) => ['IB-' + x.id, x.customer, x.delivery === 'late' ? 'متأخر' : x.delivery === 'risk' ? 'قابل للتأخير' : x.status, x.ageDays + ' يوم', (x.vendors || []).join('، ')]);
-    const orderDetails = (title, list) => () => ({ title, sub: list.length + ' أوردر', headers: ['الأوردر', 'العميل', 'الحالة', 'العمر', 'المبتكرين'], rows: orderRows(list), onRow: (i) => O.details(list[i].id), actions: [{ label: 'فتح في الأوردرات', onClick: () => go('orders') }] });
+    const orderDetails = (title, list) => () => ({ title, sub: list.length + ' أوردر', headers: ['الأوردر', 'العميل', 'الحالة', 'العمر', 'المبتكرين'], rows: orderRows(list), keep: true, onRow: (i) => (O.peek ? O.peek(String(list[i].id)) : O.details(list[i].id)), actions: [{ label: 'فتح في الأوردرات', onClick: () => go('orders') }] });
     const M = S.money; const D = DATA();
     switch (key) {
       // phase 5.5 decision 6 (owner 31 Oct 16:42: «أي فلتر تاريخ لازم يأثر على اللي ظاهر»): the sales, the net and the expenses of the dashboard's period
@@ -117,8 +117,19 @@
   }
   function health(S) {
     const H = S.health; const F = { progress: { st: 'جاري التنفيذ' }, shipping: { st: 'قيد الشحن' }, unconf: { conf: 'غير مؤكد' }, risk: { deliv: 'risk' }, late: { deliv: 'late' } };
-    return card('health', 'صحة العمليات النهارده', H.open + ' أوردر مفتوح', h('div', { class: 'dash-bars' }, H.rows.map((r) => h('button', { type: 'button', class: 'dash-barbtn', 'aria-label': r.label + ': ' + r.count + ' — فتح في الأوردرات', onClick: () => DATA().showOrders(F[r.key]) }, U.BarRow({ tone: r.tone, label: r.label, value: r.key === 'progress' || r.key === 'shipping' ? String(r.count) : r.count + ' (' + Math.round(r.pct * 100) + '%)', pct: r.pct })))),
-      'كل سطر بيفتح الأوردرات متفلترة بالحالة دي');
+    return card('health', 'صحة العمليات النهارده', H.open + ' أوردر مفتوح', h('div', { class: 'dash-bars' }, H.rows.map((r) => h('button', { type: 'button', class: 'dash-barbtn', 'aria-label': r.label + ': ' + r.count + ' — التفاصيل', 'data-health': r.key, onClick: () => healthList(S, r, F[r.key]) }, U.BarRow({ tone: r.tone, label: r.label, value: r.key === 'progress' || r.key === 'shipping' ? String(r.count) : r.count + ' (' + Math.round(r.pct * 100) + '%)', pct: r.pct })))),
+      'كل سطر بيفتح أوردراته في بوب أب');
+  }
+  // the meeting of 23 Nov [#7]: a line opens its orders in a popup over the dashboard (a row = the order's own popup); the orders page by
+  // the popup's explicit «افتح في صفحة الأوردرات» only
+  function healthList(S, r, f) {
+    const O = window.OrdersApp; const DONE = ['مكتمل', 'ملغي', 'استرجاع', 'فشل'];
+    const pass = { progress: (x) => x.status === 'جاري التنفيذ', shipping: (x) => x.status === 'قيد الشحن' || x.status === 'جاهز للشحن', unconf: (x) => x.confirm === 'غير مؤكد', risk: (x) => x.delivery === 'risk', late: (x) => x.delivery === 'late' }[r.key] || (() => false);
+    const list = S.rows.filter((x) => !DONE.includes(x.status) && pass(x)).sort((a, b) => (b.ageDays || 0) - (a.ageDays || 0)); // the most urgent (the oldest) first
+    U.DetailsModal({ title: r.label + ' — ' + list.length + ' أوردر', sub: 'الأقدم فوق', headers: ['الأوردر', 'العميل', 'الحالة', 'العمر', 'المبتكرين'],
+      rows: list.map((x) => ['IB-' + x.id, x.customer, x.delivery === 'late' ? 'متأخر' : x.delivery === 'risk' ? 'قابل للتأخير' : x.status, x.ageDays + ' يوم', (x.vendors || []).join('، ')]),
+      keep: true, onRow: (i) => { if (O && O.peek && O.peek(String(list[i].id))) return; if (O && O.details) O.details(list[i].id); },
+      actions: [{ label: 'افتح في صفحة الأوردرات', onClick: () => DATA().showOrders(f) }], empty: 'مفيش أوردرات هنا.' });
   }
   function confirmCard(S) { const n = S.conf.count || 1; return card('confirm', 'حالة التأكيد', 'أوردرات الفترة · ' + K.dshort(S.range.from) + (S.range.from === S.range.to ? '' : ' – ' + K.dshort(S.range.to)), h('div', { class: 'dash-bars' }, S.conf.byConfirm.map(([l, c], i) => U.BarRow({ tone: ['brand', 'gold', 'goldlight', 'neutral'][i] || 'neutral', label: l, value: c + ' (' + Math.round(c / n * 100) + '%)', pct: c / n }))), link('فتح غير المؤكد', () => DATA().showOrders({ conf: 'غير مؤكد' }))); }
   function followCustomers(S) { const s = S.sections.find((x) => x.id === 'customers'); const items = s ? s.tabs[0][2].filter((x) => !x.muted).slice(0, 5) : [];

@@ -38,7 +38,7 @@
   };
 
   // ---------------- state ----------------
-  const st = { tab: 'records', view: 'records', status: 'all', q: '', f: { vendor: [], brand: [], category: [], stock: [], type: [], status: [] }, sort: '', sel: new Set(), pageN: 0,
+  const st = { tab: 'records', view: 'records', status: 'all', q: '', f: { vendor: [], brand: [], category: [], stock: [], type: [], status: [], price: [], sales: [] }, sort: '', sel: new Set(), pageN: 0,
     editId: null, etab: 'data', live: null, draft: null, liveFor: null, loadingLive: false, liveErr: '', saving: false, imgSel: null, busy: false };
   const can = () => (PR() ? PR().can() : { view: false, edit: false, trash: false, commission: false });
   // the owner (1 Nov): Shift + click selects a range — the first ticked row to the one clicked (in the order shown), ticking or
@@ -130,6 +130,8 @@
       if (st.f.stock.length && !st.f.stock.includes(stockStateOf(p))) return false;
       if ((st.f.status || []).length && !st.f.status.includes(p.status)) return false; // comments decision 61: the «الحالة» group of «فلتر» (several at once)
       if (st.f.type.length && !st.f.type.includes(p.type)) return false;
+      // the meeting of 23 Nov [#1]: «السعر» and «مرات الشراء» are columns — the five number choices
+      const RL = window.IBTableRules; if (RL && !RL.numPass(sellPrice(p), st.f.price || [])) return false; if (RL && !RL.numPass(Number(p.sales) || 0, st.f.sales || [])) return false;
       return true;
     });
   }
@@ -144,15 +146,15 @@
   }
   // the owner 12 Nov («دخل الفلتر … جوه زرار الفلتر وحطوا جمب الترتيب … في كل الجداول»): the five filters live in one «فلتر» button next
   // to the sort — each group with its ticks (a search box past six values; the categories main, then their subs with «-»)
-  const countAll = (d) => { const was = st.f; st.f = Object.assign({ vendor: [], brand: [], category: [], stock: [], type: [], status: [] }, d); const n = filtered().length; st.f = was; return n; };
+  const countAll = (d) => { const was = st.f; st.f = Object.assign({ vendor: [], brand: [], category: [], stock: [], type: [], status: [], price: [], sales: [] }, d); const n = filtered().length; st.f = was; return n; };
   const prFilterMenu = (groups) => K.FilterMenu({ id: 'products', label: 'فلتر المنتجات', noun: 'منتج', value: st.f, groups, count: countAll,
-    onApply: (d) => { st.f = Object.assign({ vendor: [], brand: [], category: [], stock: [], type: [], status: [] }, d); if (st.f.status.length && ['published', 'draft', 'pending'].includes(st.status)) st.status = 'all'; st.sel.clear(); st.pageN = 0; R(); } });
+    onApply: (d) => { st.f = Object.assign({ vendor: [], brand: [], category: [], stock: [], type: [], status: [], price: [], sales: [] }, d); if (st.f.status.length && ['published', 'draft', 'pending'].includes(st.status)) st.status = 'all'; st.sel.clear(); st.pageN = 0; R(); } });
   function searchBox() {
     const q = h('input', { type: 'search', placeholder: 'دوّر بالاسم أو الـ SKU', 'aria-label': 'بحث في المنتجات', value: st.q });
     q.addEventListener('input', () => { st.q = q.value; st.pageN = 0; const p = q.selectionStart; R(); const n = document.querySelector('#pg-products input[type=search]'); if (n) { n.focus(); n.setSelectionRange(p, p); } });
     return h('label', { class: 'search-field' }, Icon('search', 'sm'), q);
   }
-  const clearFilters = () => { st.f = { vendor: [], brand: [], category: [], stock: [], type: [], status: [] }; st.q = ''; st.pageN = 0; };
+  const clearFilters = () => { st.f = { vendor: [], brand: [], category: [], stock: [], type: [], status: [], price: [], sales: [] }; st.q = ''; st.pageN = 0; };
   // phase 5.5 decision 5 (owner 1 Nov): the kit's closed filter + sort + chips in the records card header, next to the columns button — the same look as every table
   const PR_SORTS = [['new', 'الإضافة: الأحدث للأقدم'], ['old', 'الإضافة: الأقدم للأحدث'], ['sales-desc', 'مرات البيع: الأكتر للأقل'], ['sales-asc', 'مرات البيع: الأقل للأكتر'], ['price-desc', 'السعر: الأعلى للأقل'], ['price-asc', 'السعر: الأقل للأعلى'], ['stock-asc', 'المخزون: الأقل الأول (للتزويد)'], ['stock-desc', 'المخزون: الأكتر الأول'], ['missing', 'ناقصها بيانات الأول'], ['name', 'الاسم: A → Z']];
   const sellPrice = (p) => Number(p.type === 'Variable' ? p.price : p.sale) || 0;
@@ -161,16 +163,17 @@
       'stock-asc': (x, y) => (x.onDemand || x.stock == null ? 1e9 : x.stock) - (y.onDemand || y.stock == null ? 1e9 : y.stock), 'stock-desc': (x, y) => (y.onDemand || y.stock == null ? -1 : y.stock) - (x.onDemand || x.stock == null ? -1 : x.stock), missing: (x, y) => complete(y).missing.length - complete(x).missing.length, name: (x, y) => nameOf(x).localeCompare(nameOf(y)) }[k];
     return by ? l.sort(by) : l;
   }
-  const FLBL = { status: 'الحالة', brand: 'البراند', vendor: 'المبتكر', category: 'القسم', stock: 'المخزون', type: 'النوع' };
+  const FLBL = { status: 'الحالة', brand: 'البراند', vendor: 'المبتكر', category: 'القسم', stock: 'المخزون', type: 'النوع', price: 'السعر', sales: 'مرات الشراء' };
+  const numLbl = (v) => ((window.IBTableRules ? window.IBTableRules.NUM_OPTS : []).find((o) => o[0] === v) || [v, v])[1];
   function prSortMenu() { return K.SortMenu({ id: 'products', label: 'ترتيب المنتجات', options: PR_SORTS, value: st.sort && PR_SORTS.some((x) => x[0] === st.sort) ? st.sort : 'new', onChange: (v) => { st.sort = v; st.pageN = 0; R(); } }); }
   // the picks as chips with their counts (each on its own), before the table
   function prChips(list) {
     const chips = []; const STL = { published: 'منشور', draft: 'مسودة', pending: 'في انتظار المراجعة', out: 'نفد' };
-    const cnt = (patch) => { const sv = { status: st.status, f: st.f, q: st.q }; st.status = patch.status || 'all'; st.f = Object.assign({ vendor: [], brand: [], category: [], stock: [], type: [], status: [] }, patch.f || {}); st.q = patch.q || ''; const n = filtered().length; Object.assign(st, sv); return n; };
+    const cnt = (patch) => { const sv = { status: st.status, f: st.f, q: st.q }; st.status = patch.status || 'all'; st.f = Object.assign({ vendor: [], brand: [], category: [], stock: [], type: [], status: [], price: [], sales: [] }, patch.f || {}); st.q = patch.q || ''; const n = filtered().length; Object.assign(st, sv); return n; };
     const ch = (key, label, patch, reset) => chips.push({ key, label, count: cnt(patch), remove: () => { reset(); st.sel.clear(); st.pageN = 0; R(); } });
     if (st.q) ch('q', 'بحث: ' + st.q, { q: st.q }, () => { st.q = ''; });
     if (STL[st.status]) ch('status', 'الحالة: ' + STL[st.status], { status: st.status }, () => { st.status = 'all'; });
-    Object.keys(FLBL).forEach((k) => (st.f[k] || []).forEach((v) => ch(k + ':' + v, FLBL[k] + ': ' + v, { f: { [k]: [v] } }, () => { st.f[k] = st.f[k].filter((x) => x !== v); }))); // B3: a chip per pick
+    Object.keys(FLBL).forEach((k) => (st.f[k] || []).forEach((v) => ch(k + ':' + v, FLBL[k] + ': ' + (k === 'price' || k === 'sales' ? numLbl(v) : v), { f: { [k]: [v] } }, () => { st.f[k] = st.f[k].filter((x) => x !== v); }))); // B3: a chip per pick
     return K.ActiveFilters({ id: 'products', chips, total: list.length, noun: 'منتج', onClear: () => { clearFilters(); st.status = 'all'; st.sel.clear(); R(); } });
   }
   function recordsView() {
@@ -185,7 +188,8 @@
     // (several at once); the status tabs above stay the one-tap way — a tab clears the menu's picks and the menu's picks put the tab on «الكل»
     const prFilter = prFilterMenu([{ key: 'status', label: 'الحالة', options: ['منشور', 'مسودة', 'في انتظار المراجعة'].map((x) => [x, x]) }, { key: 'brand', label: 'البراند', options: brandNames.map((x) => [x, x]) }, { key: 'vendor', label: 'المبتكر', options: vendors.map((x) => [x, x]) },
       { key: 'category', label: 'القسم', options: catOpts }, { key: 'stock', label: 'المخزون', options: ['متاح', 'قليل', 'نفد', 'حسب الطلب'].map((x) => [x, x]) },
-      { key: 'type', label: 'النوع', options: [['Simple', 'Simple'], ['Variable', 'Variable']] }]);
+      { key: 'type', label: 'النوع', options: [['Simple', 'Simple'], ['Variable', 'Variable']] },
+      { key: 'price', label: 'السعر', num: true, options: window.IBTableRules ? window.IBTableRules.NUM_OPTS : [] }, { key: 'sales', label: 'مرات الشراء', num: true, options: window.IBTableRules ? window.IBTableRules.NUM_OPTS : [] }]);
     // the owner 12 Nov («إنقل خانة البحث جمب ايقونة الفلتر وخلي الزراير سنتر … مع التايتل … طبقوا بس على المنتجات»): the search sits in the
     // records card's header next to «فلتر», the header's buttons centred on the title block
     const filters = any ? h('div', { class: 'toolbar pr-filters' }, Button({ type: 'text', size: 'sm', label: 'مسح الفلاتر', onClick: () => { clearFilters(); R(); } })) : null;
@@ -887,7 +891,7 @@
   // the records filtered on one maker (his name, as the «المبتكر» select filters)
   function openRecords(filter) {
     if (PR()) PR().ensure();
-    st.status = 'all'; st.q = ''; st.sel.clear(); st.f = { vendor: filter && filter.vendor ? [filter.vendor] : [], brand: [], category: [], stock: [], type: [], status: [] };
+    st.status = 'all'; st.q = ''; st.sel.clear(); st.f = { vendor: filter && filter.vendor ? [filter.vendor] : [], brand: [], category: [], stock: [], type: [], status: [], price: [], sales: [] };
     go('products-records');
   }
   const makerMove = (ids, after) => { const l = makerItems(ids); if (!l.length) { K.toast((ids.length === 1 ? 'المبتكر ده ملوش' : 'المبتكرين دول ملهمش') + ' منتجات على الموقع', 'error'); return; } moveVendor(l, { exclude: ids, after }); };

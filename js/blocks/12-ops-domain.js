@@ -238,8 +238,9 @@
     return orderElapsed(o, today, rules);
   }
   const delayAgainst = (elapsed, lead, risk) => (elapsed == null || !Number.isFinite(elapsed) ? 'ok' : elapsed > lead ? 'late' : elapsed >= lead - risk ? 'risk' : 'ok');
-  function orderDelayOf(o, rules) { const r = rules || DELAY_DEFAULTS; if (!o || o.maxLead == null || (r.stop || []).includes(String(o.status == null ? '' : o.status))) return 'ok'; return delayAgainst(o.elapsed, leadBy(o.maxLead, null, r), r.orderRisk); }
-  function lineDelayOf(elapsed, lead, open, rules) { const r = rules || DELAY_DEFAULTS; if (open === false) return 'ok'; return delayAgainst(elapsed, leadBy(lead, null, r), r.subRisk); }
+  const HOLD_STATUS = 'معلّق'; // the meeting of 23 Nov [#9]: an on-hold order and its lines are never late / at risk (= _shared/delay.js)
+  function orderDelayOf(o, rules) { const r = rules || DELAY_DEFAULTS; if (!o || o.maxLead == null || String(o.status == null ? '' : o.status) === HOLD_STATUS || (r.stop || []).includes(String(o.status == null ? '' : o.status))) return 'ok'; return delayAgainst(o.elapsed, leadBy(o.maxLead, null, r), r.orderRisk); }
+  function lineDelayOf(elapsed, lead, open, rules, orderStatus) { const r = rules || DELAY_DEFAULTS; if (open === false || String(orderStatus == null ? '' : orderStatus) === HOLD_STATUS) return 'ok'; return delayAgainst(elapsed, leadBy(lead, null, r), r.subRisk); }
   // Owner (22 Oct): alert-types table — short readable cells; add / edit / delete types.
   function notifRepeatShort(count, every, at, days, weekday) {
     const t = at || NOTIF_DEFAULT_AT; const e = every || 'كل 24 ساعة'; const once = isOnce(count); const tillFix = count === 'لحد ما يتحل';

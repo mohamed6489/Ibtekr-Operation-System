@@ -54,13 +54,12 @@ test('the sign-in: a wrong password, an unknown user and an inactive maker all r
   const login = mock.vendorLogins.find((l) => l.vendor_id === V2);
   expect([login.own_password, login.must_change, login.status]).toEqual([true, false, 'active']);
   expect(mock.vault.get(login.secret_id)).toBe('MyOwn2026');
-  // the home: Antikiano's two open lines — order 181668 (not late) and 180656's line (confirmed 6 days ago, 7 making days → at risk); his balance from Dokan
+  // the home: Antikiano's two open lines — order 181668 (not late) and 180656's line (on hold — the meeting of 23 Nov [#9]: never late or at risk); his balance from Dokan
   const kpis = page.locator('#portal .pt-kpi');
   await expect(kpis.nth(0)).toContainText('قطع مفتوحة'); await expect(kpis.nth(0).locator('b')).toHaveText('2');
-  await expect(kpis.nth(1).locator('b')).toHaveText('0'); await expect(kpis.nth(2).locator('b')).toHaveText('1');
+  await expect(kpis.nth(1).locator('b')).toHaveText('0'); await expect(kpis.nth(2).locator('b')).toHaveText('0');
   await expect(kpis.nth(3)).toContainText('3,200'); await expect(kpis.nth(3)).toContainText('ليك');
-  await expect(page.locator('#portal .sec-h')).toContainText('محتاجين يخلصوا الأول');
-  await expect(page.locator('#portal table tbody tr')).toHaveCount(1); await expect(page.locator('#portal table tbody tr')).toContainText('Macrame Feathers'); await expect(page.locator('#portal table tbody tr')).toContainText('قابل للتأخير');
+  await expect(page.locator('#portal .sec-h', { hasText: 'محتاجين يخلصوا الأول' })).toHaveCount(0); // the on-hold order's line is not at risk (#9)
   expect(await page.evaluate(() => window.__xss)).toBeUndefined(); // the order of the html-named customer: no customer field reaches the portal
   // orders: his two lines only (the other maker's Cushion lines are not his)
   await page.locator('#portal [role=tab]', { hasText: 'أوردراتي' }).click();
@@ -70,7 +69,7 @@ test('the sign-in: a wrong password, an unknown user and an inactive maker all r
   await expect(rows.first()).toContainText('Macrame Curtain'); await expect(rows.first()).toContainText('#181668-181670'); await expect(rows.first()).toContainText('غير متأخر');
   expect(await page.locator('#portal').textContent()).not.toContain('Cushion');
   expect(await page.locator('#portal').textContent()).not.toContain('سلوى'); // no customer name anywhere
-  await page.locator('#portal .chip', { hasText: 'متأخرة وقابلة للتأخير' }).click(); await expect(rows).toHaveCount(1);
+  await page.locator('#portal .chip', { hasText: 'متأخرة وقابلة للتأخير' }).click(); await expect(rows).toHaveCount(0); // #9: on hold — none
   await page.locator('#portal .chip', { hasText: 'الكل' }).click(); await expect(rows).toHaveCount(2);
   // account: Dokan's balance, no moves, no withdrawals
   await page.locator('#portal [role=tab]', { hasText: 'حسابي' }).click();

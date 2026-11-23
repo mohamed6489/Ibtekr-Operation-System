@@ -866,6 +866,9 @@ test('bulk select: the bar changes the status of the selected orders one by one 
   expect(lay).toBe(true);
   await sr('select[data-obulk-st]').selectOption('قيد الشحن');
   await expect(toast(page)).toHaveText('اتغيرت حالة 2 أوردر لـ «قيد الشحن»');
+  // the meeting of 23 Nov [#15]: «قيد الشحن» asks how each order goes to the customer, one popup at a time
+  for (let i = 0; i < 2; i++) { const sh = page.locator('.modal[role=dialog]', { hasText: 'اتشحن للعميل — إزاي؟' }); await expect(sh).toHaveCount(1); await sh.getByRole('button', { name: 'ليس الآن' }).click(); }
+  await expect(page.locator('.modal[role=dialog]', { hasText: 'اتشحن للعميل — إزاي؟' })).toHaveCount(0);
   await expect.poll(() => mock.pushes.length).toBe(2);
   expect(mock.patches).toContainEqual({ table: 'orders', id: 180656, status: 'قيد الشحن' });
   expect(mock.patches).toContainEqual({ table: 'orders', id: 181668, status: 'قيد الشحن' });
@@ -919,7 +922,7 @@ test('decision 53: «مسح المحدد» lists the orders with their sub-order
   await sr('[data-obulk-del]').click();
   await expect(dlg.locator('#cdt')).toHaveText('مسح 2 أوردر؟');
   await expect(dlg.locator('[data-del-count]')).toHaveText('2 أوردر · 3 أوردر فرعي');
-  await expect(dlg.locator('[data-del-row="181668"]')).toContainText('2 أوردر فرعي · هيتلغي الأول');
+  await expect(dlg.locator('[data-del-row="181668"]')).toContainText('2 أوردر فرعي · 3 قطع · هيتلغي الأول');
   await expect(dlg.locator('[data-del-row="180656"]')).toContainText('1 أوردر فرعي');
   await expect(dlg.locator('[data-del-row="180686"]')).toHaveCount(0);
   await expect(dlg.locator('[data-del-skip]')).toHaveText('1 مكتمل/استرجاع في المحدد مش هيتمسحوا.');
@@ -1494,9 +1497,9 @@ test('quick filters apply on one press and stack; a saved filter is the member\'
   await quick('مبتكر واحد'); // off again → «أكتر من مبتكر» only
   await expect(toast(page)).toHaveText('اتشال «مبتكر واحد»');
   const multi = await cards(page).count();
-  // «أوردرات متأخرة» (the sheet's tab) = one group: working and 10+ days, or قيد الانتظار, or معلّق — 4 conditions; off again → back
+  // «أوردرات متأخرة» (the sheet's tab) = one group: working and 10+ days, or قيد الانتظار — 3 conditions (the meeting of 23 Nov [#9]: «معلّق» is out); off again → back
   await quick('أكتر من مبتكر'); await expect(cards(page)).toHaveCount(3);
-  await quick('أوردرات متأخرة'); await expect(fb).toContainText('فلتر (4)');
+  await quick('أوردرات متأخرة'); await expect(fb).toContainText('فلتر (3)');
   await fb.click(); await expect(pop.locator('.grp').first()).toBeVisible(); await pop.locator('[data-fbcancel]').click();
   await quick('أوردرات متأخرة'); await expect(cards(page)).toHaveCount(3);
   await quick('أكتر من مبتكر');

@@ -30,6 +30,12 @@ export const CLOSED_STATUSES = ['مكتمل', 'ملغي', 'استرجاع', 'ف�
 export const CONFIRMS = ['مؤكد بعربون', 'مؤكد بدون عربون', 'غير مؤكد', 'في انتظار الرد'];
 export const DELIVERY = ['late', 'risk', 'ok'];
 export const DATA_KINDS = ['summary', 'orders', 'vendors', 'customers', 'tickets', 'tasks', 'expenses', 'sales', 'vendor', 'files', 'inventory', 'hr'];
+// The owner 22 Nov («اي مخ خارجي … من غير ما يكون عندوا كل معلومات الشركة الا لو انا وافقت بعد ما الايجنت بتاعي يطلب مني»): a request that
+// carries `share` gives the outside model the member's message alone; a kind of the system's data is read for it only when the
+// member approved that kind for THIS request. shareKinds(list, more) → the known kinds of a list, once each (`more`: an assistant's
+// own kinds — the ads' numbers, the site's checks).
+export const SHARE_MORE = ['ads', 'site'];
+export const shareKinds = (list, more = []) => (Array.isArray(list) ? list : []).filter((k, i, a) => typeof k === 'string' && (DATA_KINDS.includes(k) || more.includes(k)) && a.indexOf(k) === i);
 export const CLIENT_TOOLS = ['navigate', 'filter_orders', 'set_period', 'sort_vendors', 'propose_entry', 'set_filter', 'open_form', 'offer_file', 'plan_categories', 'ask_agent', 'open_campaign', 'plan_requests', 'ask_choice'];
 // the owner 15 Nov (2026-11-15-assistant-categories.md — «اعملي القسم كذا انجليزي و عربي و جواه قسم فرعي كذا و كذا … بس يوريني قبل ما يطبق»):
 // plan_categories hands the page a tree of new product categories as an outline (level 1 = a main category, a deeper level sits under the

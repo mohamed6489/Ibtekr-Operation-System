@@ -53,14 +53,15 @@ import { aiSettings, categoryLines, cleanExtract, cleanPrompts, cleanStudio, cle
 import { vaultEnv } from '../_shared/secrets.js';
 import { AGENT_NAME } from '../_shared/campaign-draft.js';
 import { LEGACY_AGENTS, agentBase, dataBlock, kbFor, seesOf } from '../_shared/ai-agents.js';
+import { sourcesBlock, sourcesOf } from '../_shared/agent-sources.js';
 import { OPEN as TEAM_OPEN, teamBlock, teamSummary } from '../_shared/agent-team.js';
 import { cleanKbRewrite, kbRewriteRequest, parseKbRewrite } from '../_shared/agent-kb.js';
 import { AGENT_HISTORY, REQ_RULE, agentHistory, agentRequest, agentTitle, buyerRequest, campaignTarget, cleanAgent, cleanBuyer, cleanMarketing, marketingRequest, parseAgent, parseBuyer, parseMarketing, templateNotes } from '../_shared/marketing.js';
 import { SUGGEST_DAYS, buyerRules, windowOf } from '../_shared/mkt-ads.js';
 import { cleanScenes, scenesRequest } from '../_shared/mkt-video.js';
 import { SEARCH_USD, TREND_CONTINUES, cleanTrends, parseTrends, readTrends, searchCount, searchError, searchResults, trendRowV1, trendSources, trendTags, trendsRequest, trendsText } from '../_shared/mkt-trends.js';
-import { TEXT_PROVIDERS, TEXT_TOOL_OF, houseStyle, textPick } from '../_shared/ai-providers.js';
-import { MAX_TOOL_CALLS, amountsIn, reportOf, assistantMessage, assistantRequest, cleanAction, cleanAnswer, customersData, dataQuery, expensesData, filesData, hrData, inventoryData, ordersData, parseAssistant, readTurn, salesData, summaryData, tasksData, pickVendor, ticketsData, toolResults, vendorData, vendorsData } from '../_shared/ai-assistant.js';
+import { TEXT_PROVIDERS, TEXT_TOOL_OF, houseStyle, providersOf, textPick } from '../_shared/ai-providers.js';
+import { SHARE_MORE, shareKinds, MAX_TOOL_CALLS, amountsIn, reportOf, assistantMessage, assistantRequest, cleanAction, cleanAnswer, customersData, dataQuery, expensesData, filesData, hrData, inventoryData, ordersData, parseAssistant, readTurn, salesData, summaryData, tasksData, pickVendor, ticketsData, toolResults, vendorData, vendorsData } from '../_shared/ai-assistant.js';
 import { completeText } from './providers/text.ts';
 import { claudeParams, readSize, routeOf, sizeRequest, sizes, tiersOf } from '../_shared/ai-routing.js';
 import { cairoParts } from '../_shared/mkt-publish.js';
@@ -76,7 +77,7 @@ export type Deps = {
   text?: (provider: string, params: Json) => Promise<Json>; // phase 11: OpenAI / Gemini (the Claude dep stays the Claude path)
 };
 
-const ACTIONS = ['write', 'studio', 'prompts', 'marketing', 'buyer', 'assistant', 'agent', 'extract', 'trends', 'kb'];
+const ACTIONS = ['write', 'studio', 'prompts', 'marketing', 'buyer', 'assistant', 'agent', 'extract', 'trends', 'kb', 'brains'];
 const STUDIO_BUCKET = 'studio';
 const THROTTLE = 60; // calls of one member in THROTTLE_MINUTES (the studio fills a batch one item at a time)
 const THROTTLE_MINUTES = 10;
@@ -90,6 +91,8 @@ const json = (status: number, body: unknown) => new Response(JSON.stringify(body
 const isObj = (v: unknown): v is Json => v !== null && typeof v === 'object' && !Array.isArray(v);
 const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 type Cfg = { model: string; effort: string; cap: number | null; provider: string; style: string; rules?: Json | null;
+  usual?: string; // the text company of the section when nothing else chose one (what an unmarked old turn was answered by)
+  sources?: string; // an assistant's own references (the row «ai» agents.<id>.sources, else the shipped ones) as a system block
   // the owner 22 Nov (model-routing decision 9): a free chat's level is read from the message — the company's light model reads it,
   // `size(tier)` is the model and effort of that level; both absent where the level is not read (one model, a fixed command)
   light?: string; size?: (tier: string) => { model: string; effort: string } };
@@ -99,7 +102,7 @@ type Cfg = { model: string; effort: string; cap: number | null; provider: string
 // The owner 22 Nov (model routing — _shared/ai-routing.js): on Claude each command runs on the model of its level (the light
 // one for a filter or a rewording, the heavy one for the tool loop, the screenshots and the ads' numbers) unless the admin
 // went back to one model; `command` names it where one action holds several (the default = the action).
-async function configOf(deps: Deps, action = 'write', command = action): Promise<Cfg> {
+async function configOf(deps: Deps, action = 'write', command = action, company = '', agentId = ''): Promise<Cfg> {
   const { data, error } = await deps.db.from('settings').select('section, data').in('section', ['ai', 'ai_rules']);
   const rows: Json[] = !error && Array.isArray(data) ? data : [];
   const ai = rows.find((r) => r.section === 'ai')?.data; const rules = rows.find((r) => r.section === 'ai_rules')?.data;
@@ -109,15 +112,23 @@ async function configOf(deps: Deps, action = 'write', command = action): Promise
   const style = action === 'buyer' || action === 'prompts' || action === 'assistant' ? '' : houseStyle(isObj(rules) ? rules : null, action === 'marketing' || action === 'scenes' ? 'post' : 'products');
   // the tool loop, the screenshots (the studio's WhatsApp flow) and the web search (comments decision 69) are Claude's whatever
   // the company of the section is — the other text companies answer text only
-  const provider = action === 'assistant' || action === 'extract' || action === 'trends' ? 'claude' : pick.provider;
+  // the owner 22 Nov: an assistant's chat runs on the company the member agreed to for this message (a linked one — agent() checks)
+  // the admin's own choice for one assistant (the row «ai» agents.<id>.brain { provider, model } — «اختار الموديل لكل مساعد او اعمل اختيار
+  // تلقائي»): a text company and one of its models. It rules when the member named that company for this message, or none.
+  const ag = agentId && isObj(row) && isObj(row.agents) && isObj(row.agents[agentId]) && isObj(row.agents[agentId].brain) ? row.agents[agentId].brain as Json : null;
+  const own = ag && typeof ag.provider === 'string' && ag.provider in TEXT_PROVIDERS && typeof ag.model === 'string'
+    && (TEXT_PROVIDERS as Record<string, { models: string[]; env: string }>)[ag.provider].models.includes(ag.model) && (!company || company === ag.provider)
+    && String(deps.env[(TEXT_PROVIDERS as Record<string, { env: string }>)[ag.provider].env] ?? '').trim() ? { provider: ag.provider as string, model: ag.model as string } : null; // a company no longer linked rules nothing
+  const provider = action === 'assistant' || action === 'extract' || action === 'trends' ? 'claude' : own ? own.provider : company && company in TEXT_PROVIDERS ? company : pick.provider;
   // the admin's one model of that company (Claude's = the row's `model`), then the command's level on it (decision 8)
-  const mine = { model: provider === 'claude' ? one.model : pick.model, effort: one.effort };
+  const mine = { model: provider === 'claude' ? one.model : provider === pick.provider ? pick.model : String((providersOf(row).text.models as Record<string, string>)[provider] ?? ''), effort: one.effort };
   const route = routeOf(row, command, mine, provider);
   const sized = sizes(row, command) ? { light: tiersOf(provider).light, size: (tier: string) => { const r = routeOf(row, command, mine, provider, tier); return { model: r.model, effort: r.effort }; } } : {};
-  const base = { ...one, model: route.model, effort: route.effort, provider, ...sized };
+  // the assistant's own model is the admin's word: it answers as it is, with no level picked over it
+  const base = own ? { ...one, model: own.model, effort: route.effort, provider, usual: pick.provider } : { ...one, model: route.model, effort: route.effort, provider, usual: pick.provider, ...sized };
   if (action === 'assistant') return { ...base, style };
   if (action === 'extract' || action === 'trends') return { ...base, style: '' };
-  return { ...base, style, rules: isObj(rules) ? rules : null };
+  return { ...base, style, rules: isObj(rules) ? rules : null, ...(agentId ? { sources: sourcesBlock(sourcesOf(row, agentId)) as string } : {}) };
 }
 const modelId = (v: unknown) => (typeof v === 'string' ? v.toLowerCase().replace(/[^a-z0-9.-]/g, '').slice(0, 60) : '') || null;
 
@@ -135,6 +146,7 @@ async function authorize(req: Request, deps: Deps, action: string): Promise<stri
     : action === 'marketing' || action === 'trends' ? (await admin()) || (await perm('marketing.create'))
     : action === 'buyer' ? (await admin()) || (await perm('marketing.view', true))
     : action === 'agent' ? true // 0120: any active member — agent() checks the assistant is theirs (ai_agent_can, the member's own client)
+    : action === 'brains' ? true // ids of the linked text companies — brains() checks the member is active
     : action === 'assistant' ? true // any signed-in member: the data they read is theirs by RLS, the actions run on their screen
     : await admin();
   return ok ? await deps.userId(jwt) : null;
@@ -504,12 +516,32 @@ async function trends(deps: Deps, uid: string, args: Json) {
 
 // the member's own chat (or a new one on the first message): the history from the table, the instructions from the settings; the
 // question and the answer are written by the server after the model answered (a failed call leaves nothing) — text only
+// the owner 22 Nov («لو مركب اكتر من مخ ممكن يخيرني»): the text companies with a working key and the default one — ids only, for any member
+async function brains(deps: Deps, uid: string, jwt: string) {
+  const member = deps.userDb && jwt ? deps.userDb(jwt) : null; if (!member) return json(401, { error: 'unauthorized' });
+  const { data: me } = await member.from('profiles').select('status').eq('id', uid).maybeSingle();
+  if (!isObj(me) || me.status !== 'active') return json(401, { error: 'unauthorized' });
+  const linked = Object.entries(TEXT_PROVIDERS as Record<string, { env: string }>).filter(([, p]) => String(deps.env[p.env] ?? '').trim()).map(([id]) => id);
+  const cfg = await configOf(deps, 'buyer', 'agent');
+  return json(200, { result: 'ok', text: { linked, default: cfg.provider, assistant: linked.includes('claude') ? ['claude'] : [] } });
+}
+/** The line that tells an assistant it holds the message alone, and how to ask for the system's data (the member approves each kind). */
+const shareRule = (agentId: string, share: string[]) => `
+Privacy (the admin's rule): this message carries the member's words and only the blocks of the system's data you can see in it${share.length ? ' (approved for this message: ' + share.join(', ') + ')' : ' — none this time'}. Never guess a number of the system or say you have data you do not see.
+When the answer needs data of the system that is not in the message, ask for it in need.data (its kinds)${agentId === 'buyer' ? ' — the ads\' numbers (<ads_data>) with need.ads (level campaign, days 7)' : ''}${agentId === 'dev' ? ' — the site\'s checks (<site_status>) with a need.data read of kind "site"' : ''} and say in text, in one line, what you want to check; the member is asked to approve each kind first. When the answer needs no data of the system (writing, an idea, a how-to), just answer.`;
 async function agent(deps: Deps, uid: string, args: Json, jwt = '') {
   const parsed = parseAgent(args);
   if ('error' in parsed) return json(400, parsed);
   const req = parsed.req;
   const member = deps.userDb && jwt ? deps.userDb(jwt) : null;
   if (!member) return json(401, { error: 'unauthorized' });
+  // the owner 22 Nov — the company the member agreed to for this message (a linked text company), and with `share` the message alone:
+  // each kind of the system's data is read for the answer only when the member approved it for THIS request
+  const company = args.provider == null ? '' : typeof args.provider === 'string' && args.provider in TEXT_PROVIDERS ? args.provider : null;
+  if (company === null) return json(400, { error: 'bad_request', field: 'provider' });
+  if (company && !String(deps.env[(TEXT_PROVIDERS as Record<string, { env: string }>)[company].env] ?? '').trim()) return json(503, { error: 'not_configured', provider: company });
+  const sharing = Array.isArray(args.share); const share = sharing ? shareKinds(args.share, SHARE_MORE) : []; const may = (k: string) => !sharing || share.includes(k);
+  const given: string[] = []; const give = (k: string) => { if (!given.includes(k)) given.push(k); };
   // 0120: the assistant from the registry, and whether the member sees it (its page's permission — the member's own client); before
   // 0120 is applied the three of marketing stand as they were (marketing.view, settings.marketing.agents)
   const reg = await deps.db.from('ai_agents').select('id, name, about, perm, sees, role, instructions, archived_at').eq('id', req.agent).maybeSingle();
@@ -525,7 +557,7 @@ async function agent(deps: Deps, uid: string, args: Json, jwt = '') {
     if (!isObj(data) || data.member_id !== uid || data.deleted_at || data.agent !== req.agent) return json(404, { error: 'not_found' });
     chat = data;
   }
-  const rows = chat ? ((await deps.db.from('mkt_agent_messages').select('role, text, images').eq('chat_id', chat.id).order('id', { ascending: false }).limit(AGENT_HISTORY)).data ?? []) : [];
+  const rows0 = chat ? ((await deps.db.from('mkt_agent_messages').select('role, text, images, source').eq('chat_id', chat.id).order('id', { ascending: false }).limit(AGENT_HISTORY)).data ?? []) : [];
   // the instructions (the registry's) and this assistant's rules and skills out of the one list (0120 ai_agent_kb); before 0120 the old row
   let agentCfg: Json = {};
   if (legacy) {
@@ -536,28 +568,33 @@ async function agent(deps: Deps, uid: string, args: Json, jwt = '') {
     const kb = (await deps.db.from('ai_agent_kb').select('kind, section, title, body, agents, sort').order('kind').order('sort').limit(400)).data ?? [];
     agentCfg = { instructions: row.instructions || '', ...kbFor(kb, req.agent) };
   }
-  const data = req.agent === 'buyer' ? await adsData(deps) : null;
+  const data = req.agent === 'buyer' && may('ads') ? await adsData(deps) : null; if (data && sharing) give('ads');
   // ش45 decision 2: the developer reads the site's last checks (PageSpeed, the WordPress updates) — numbers and versions only
-  const site = req.agent === 'dev' ? ((await deps.db.from('site_checks').select('kind, data, checked_at').in('kind', ['pagespeed', 'wp_updates'])).data ?? []) : null;
+  const site = req.agent === 'dev' && may('site') ? ((await deps.db.from('site_checks').select('kind, data, checked_at').in('kind', ['pagespeed', 'wp_updates'])).data ?? []) : null; if (site && sharing) give('site');
   // 0120: any other assistant reads its kinds of data with the member's own client (their RLS), the last 30 days
   let dataText = '';
   if (!LEGACY_AGENTS.includes(req.agent)) {
     const today = cairoParts(Date.parse(deps.now())).day;
     const from = new Date(Date.parse(today + 'T00:00:00Z') - 29 * 86_400_000).toISOString().slice(0, 10);
     const parts: Json = {};
-    for (const kind of seesOf(row)) {
+    for (const kind of seesOf(row).filter(may)) {
+      if (sharing) give(kind);
       const dq = dataQuery({ kind, from, to: today, limit: 20 }, { today });
       if (!('error' in dq)) { try { parts[kind] = await readData(member, uid, dq as DQ, today); } catch { parts[kind] = { failed: true }; } }
     }
     dataText = dataBlock(parts);
   }
-  const cfg = await configOf(deps, req.agent === 'designer' ? 'marketing' : 'buyer', req.agent === 'buyer' ? 'buyer' : 'agent'); // the designer writes with the house style
+  const cfg = await configOf(deps, req.agent === 'designer' ? 'marketing' : 'buyer', req.agent === 'buyer' ? 'buyer' : 'agent', company, req.agent); // the designer writes with the house style
+  // the company is given what it already has of this chat — never the system's own answers nor another company's (turns from
+  // before the mark count as the default company's)
+  const defaultCo = cfg.usual ?? cfg.provider;
+  const rows = (Array.isArray(rows0) ? rows0 : []).filter((r: Json) => (r.source ?? defaultCo) === cfg.provider);
   const run0 = { created_by: uid, action: 'marketing', source: 'agent', label: line(req.question, 200) };
   const base = LEGACY_AGENTS.includes(req.agent) ? '' : agentBase(row) + REQ_RULE;
   const team = await teamOf(member, legacy, req.agent); const teamIds = team.map((a) => a.id);
   // the owner 17 Nov: the warehouse assistant knows the makers' and categories' exact names (the member's reads) to plan product work
   let plan: { vendors: Json[]; products: Json[]; categories: Json[] } | null = null; let catalog = '';
-  if (req.agent === 'stock' && member) {
+  if (req.agent === 'stock' && member && may('vendors')) { if (sharing) give('vendors');
     const [v, pr, ct] = await Promise.all([member.from('vendors').select('id, name').limit(3000), member.from('products').select('id, name, sku, vendor_id, category_ids, status, lang, translation_ids').neq('status', 'trash').limit(8000), member.from('woo_categories').select('id, name, parent_id').limit(3000)]);
     plan = { vendors: Array.isArray(v.data) ? v.data : [], products: planProducts(pr.data), categories: (Array.isArray(ct.data) ? ct.data : []).map((c: Json) => ({ id: c.id, name: c.name, nameAr: '', parentId: c.parent_id })) };
     const path = (c: Json): string => { const p = plan!.categories.find((x) => Number(x.id) === Number(c.parentId)); return p ? path(p) + ' › ' + c.name : c.name; };
@@ -565,7 +602,8 @@ async function agent(deps: Deps, uid: string, args: Json, jwt = '') {
   }
   // decision 10: the assistant of a team reads that team's open requests (the member's own client — their RLS) and who is in it
   let teamText = '';
-  if (!legacy && typeof row.role === 'string' && row.role) {
+  if (!legacy && typeof row.role === 'string' && row.role && may('tickets')) {
+    if (sharing) give('tickets');
     try {
       const today = cairoParts(Date.parse(deps.now())).day;
       const [tk, roles, ppl] = await Promise.all([
@@ -578,7 +616,7 @@ async function agent(deps: Deps, uid: string, args: Json, jwt = '') {
     } catch { teamText = ''; }
   }
   const past = (Array.isArray(rows) ? rows : []).slice().reverse();
-  const ctx0: Json = { model: cfg.model, effort: cfg.effort, history: agentHistory(past), cfg: agentCfg, data, site, base, dataText, teamText, team, catalog };
+  const ctx0: Json = { model: cfg.model, effort: cfg.effort, history: agentHistory(past), cfg: agentCfg, data, site, base, dataText, teamText, team, catalog, shareRule: sharing ? shareRule(req.agent, share) : '', sources: cfg.sources ?? '' };
   const clean = (answer: Json) => cleanAgent(answer, req.agent, teamIds);
   // decision 9: the message's level first (a message with files keeps the assistant's own level — the light model does not see them)
   const size = (req.files ?? []).length ? undefined : { turns: past.map((r: Json) => ({ role: r.role, text: r.text })), question: req.question, build: (k: Cfg) => agentRequest(req, { ...ctx0, model: k.model, effort: k.effort }) };
@@ -589,6 +627,11 @@ async function agent(deps: Deps, uid: string, args: Json, jwt = '') {
   // then the assistant answers again with them as data; only the second answer is kept
   let cost = c.cost; let sources: Json[] = [];
   const need = c.out.need;
+  // what the answer asks to read that the member did not approve: nothing is read or kept — the page asks about these kinds
+  if (need && sharing) {
+    const want = shareKinds((Array.isArray(need.data) ? need.data : []).map((d: Json) => d.kind).concat(need.ads ? ['ads'] : []), SHARE_MORE).filter((k) => !share.includes(k));
+    if (want.length) return json(200, { result: 'ok', need_data: want, shared: [], model: c.model, cost_usd: Math.round(c.cost * 1e6) / 1e6, run_id: c.runId });
+  }
   if (need) {
     const extra: string[] = [];
     if (need.research.length) { const r = await research(deps, uid, await configOf(deps, 'buyer', 'research'), need.research, req.question); cost += r.cost; sources = r.sources; extra.push(researchBlock(r)); }
@@ -597,6 +640,8 @@ async function agent(deps: Deps, uid: string, args: Json, jwt = '') {
     if (Array.isArray(need.data) && need.data.length) {
       const today = cairoParts(Date.parse(deps.now())).day; const reads: Json[] = [];
       for (const d of need.data) {
+        if (d.kind === 'site') continue; // the developer's site checks come with the message once approved
+        if (sharing) give(d.kind);
         const dq = dataQuery({ kind: d.kind, q: d.q, from: d.from || undefined, to: d.to || undefined, limit: 20 }, { today });
         let result: Json;
         if ('error' in dq) result = { error: dq.error };
@@ -606,7 +651,7 @@ async function agent(deps: Deps, uid: string, args: Json, jwt = '') {
       }
       extra.push(dataReadBlock(reads));
     }
-    if (need.ads) { const { data: mv } = member ? await member.rpc('has_perm', { key: 'marketing.view' }) : { data: 'N' }; extra.push(String(mv ?? 'N') !== 'N' ? liveAdsBlock(await liveAds(deps, need.ads), need.ads) : '<ads_live>\nThis member does not see the ads — say it is outside his permissions.\n</ads_live>'); }
+    if (need.ads) { if (sharing) give('ads'); const { data: mv } = member ? await member.rpc('has_perm', { key: 'marketing.view' }) : { data: 'N' }; extra.push(String(mv ?? 'N') !== 'N' ? liveAdsBlock(await liveAds(deps, need.ads), need.ads) : '<ads_live>\nThis member does not see the ads — say it is outside his permissions.\n</ads_live>'); }
     const c2 = await aiCall(deps, { ...run0, label: line('↻ ' + req.question, 200) }, ran, agentRequest(req, { ...ctx0, model: ran.model, effort: ran.effort, extra: extra.join('\n\n') }), clean);
     if ('res' in c2) return c2.res;
     c = c2; cost += c2.cost;
@@ -621,15 +666,18 @@ async function agent(deps: Deps, uid: string, args: Json, jwt = '') {
   } else {
     await deps.db.from('mkt_agent_chats').update({ updated_at: now }).eq('id', chat.id);
   }
+  // 0150: each turn says which company answered it and the kinds of data that company was given
+  const mark: Json = { source: cfg.provider, shared: given };
   // the sources the research stood on go under the answer in the chat too (the links only)
   const kept = sources.length ? out.text + '\n\nالمصادر:\n' + sources.slice(0, 8).map((x) => '- ' + x.title + ' — ' + x.url).join('\n') : out.text;
   const { data: turns, error } = await deps.db.from('mkt_agent_messages').insert([
-    { chat_id: chat.id, role: 'user', text: [req.question, filesLine(req.files)].filter(Boolean).join('\n'), created_at: now }, // the files' names only
-    { chat_id: chat.id, role: 'assistant', text: kept, created_at: now },
-  ]).select('id, role, text, images, created_at');
+    { chat_id: chat.id, role: 'user', text: [req.question, filesLine(req.files)].filter(Boolean).join('\n'), created_at: now, ...mark }, // the files' names only
+    { chat_id: chat.id, role: 'assistant', text: kept, created_at: now, ...mark },
+  ]).select('id, role, text, images, created_at, source, shared');
   if (error || !Array.isArray(turns)) return json(500, { error: 'failed' });
   out.chat = { id: chat.id, agent: req.agent, title: chat.title, updated_at: now };
   out.turns = turns;
+  if (sharing) out.shared = given;
   return json(200, { result: 'ok', ...out, model: c.model, cost_usd: Math.round(cost * 1e6) / 1e6, run_id: c.runId });
 }
 // the web research of an assistant's answer (Claude's web search, several strong sources): its own ai_runs row on the content cap;
@@ -787,11 +835,16 @@ async function assistant(deps: Deps, uid: string, args: Json, jwt: string) {
   if ('error' in parsed) return json(400, parsed);
   const req = parsed.req;
   if (!deps.userDb) return json(401, { error: 'unauthorized' });
+  // the owner 22 Nov: the tool loop is Claude's — a request that names another company is refused, not answered by a different one
+  if (args.provider != null && args.provider !== 'claude') return json(400, { error: 'bad_request', field: 'provider' });
+  // …and with `share` the model gets the member's message alone: a kind of data is read only when it is listed (approved for this
+  // request); a read of another kind stops the answer and is asked about (`need`) — nothing of it is read
+  const sharing = req.mode !== 'filter' && Array.isArray(args.share); const share = sharing ? shareKinds(args.share) : [];
   const member = deps.userDb(jwt);
   const today = cairoParts(Date.parse(deps.now())).day;
   const { data: me } = await member.from('profiles').select('name, role_id, status').eq('id', uid).maybeSingle();
   if (!isObj(me) || me.status !== 'active') return json(401, { error: 'unauthorized' }); // a stopped member (or one 2FA still gates) sees no profile
-  const actor = String(me.name ?? ''); const roleRow = me.role_id ? (await member.from('roles').select('name').eq('id', me.role_id).maybeSingle()).data : null;
+  const actor = sharing ? '' : String(me.name ?? ''); /* the member's name is not the message */ const roleRow = me.role_id ? (await member.from('roles').select('name').eq('id', me.role_id).maybeSingle()).data : null;
   const role = isObj(roleRow) ? String(roleRow.name ?? '') : '';
   let cfg = await configOf(deps, 'assistant', req.mode === 'filter' ? 'filter' : 'assistant');
   const base = { created_by: uid, action: 'assistant', source: req.mode, label: line(req.question, 200) };
@@ -810,7 +863,7 @@ async function assistant(deps: Deps, uid: string, args: Json, jwt: string) {
   // the owner 17 Nov — «المدير … يوزعهم و يقسمهم صح علي الفريق»: the roles a request may go to and the people of each (names only — the
   // member's own reads: ticket_people() is empty for whoever cannot open requests), for plan_requests
   let people = '';
-  if (req.mode !== 'filter') {
+  if (req.mode !== 'filter' && (!sharing || share.includes('tickets') || share.includes('hr'))) { // the team's names are the system's data too
     try {
       const [rl, pp] = await Promise.all([member.rpc('ticket_roles'), member.rpc('ticket_people')]);
       const roles = Array.isArray(rl.data) ? rl.data.filter(isObj) : []; const ppl = Array.isArray(pp.data) ? pp.data.filter(isObj) : [];
@@ -845,11 +898,20 @@ async function assistant(deps: Deps, uid: string, args: Json, jwt: string) {
     if (turn.text) text = turn.text;
     if (turn.stop === 'end') break;
     const results: Json[] = [];
+    // the kinds this turn wants that the member did not approve: the answer stops here and the page asks — none of this turn is read
+    if (sharing) {
+      const want = shareKinds(turn.uses.filter((u: Json) => u.name === 'get_data').map((u: Json) => (isObj(u.input) ? u.input.kind : ''))).filter((k: string) => !share.includes(k));
+      if (want.length) {
+        await finishRun(deps, run.id, { ...spent, status: 'ok', output: { need: want } });
+        return json(200, { result: 'ok', text: '', actions: [], tools: [], need: want, shared: shareKinds(tools), report: [], model: spent.model, cost_usd: spent.cost_usd, run_id: run.id });
+      }
+    }
     for (const use of turn.uses) {
       if (use.name === 'get_data') {
         if (reads >= MAX_TOOL_CALLS) { results.push({ id: use.id, content: 'limit: no more data reads this turn — answer with what you have', error: true }); continue; }
         const dq = dataQuery(use.input, { today, period: req.context.period });
         if ('error' in dq) { results.push({ id: use.id, content: dq.error, error: true }); continue; }
+        if (sharing && !share.includes(String(dq.kind))) { results.push({ id: use.id, content: 'refused: this kind of data was not approved for this request', error: true }); continue; } // (the turn stops above; never read past it)
         reads++; tools.push(dq.kind);
         const data = await readData(member, uid, dq as DQ, today); got.push({ kind: dq.kind, data });
         results.push({ id: use.id, content: data });
@@ -868,7 +930,7 @@ async function assistant(deps: Deps, uid: string, args: Json, jwt: string) {
   }
   const out = cleanAnswer(text, actions, tools);
   await finishRun(deps, run.id, { ...spent, status: 'ok', output: out }); // the report is not stored — the page only
-  return json(200, { result: 'ok', ...out, report: reportOf(got), model: spent.model, cost_usd: spent.cost_usd, run_id: run.id });
+  return json(200, { result: 'ok', ...out, ...(sharing ? { need: [], shared: shareKinds(tools) } : {}), report: reportOf(got), model: spent.model, cost_usd: spent.cost_usd, run_id: run.id });
 }
 
 // ---------------------------------------------------------------- handler
@@ -885,7 +947,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
   if (!ACTIONS.includes(action)) return json(400, { error: 'unknown_action' });
   try {
     return action === 'write' ? await write(deps, uid, args) : action === 'prompts' ? await prompts(deps, uid, args) : action === 'marketing' ? await marketing(deps, uid, args) : action === 'buyer' ? await buyer(deps, uid, args) : action === 'agent' ? await agent(deps, uid, args, jwtOf(req))
-      : action === 'assistant' ? await assistant(deps, uid, args, jwtOf(req)) : action === 'extract' ? await extract(deps, uid, args) : action === 'trends' ? await trends(deps, uid, args) : action === 'kb' ? await kbRewrite(deps, uid, args) : await studio(deps, uid, args);
+      : action === 'brains' ? await brains(deps, uid, jwtOf(req)) : action === 'assistant' ? await assistant(deps, uid, args, jwtOf(req)) : action === 'extract' ? await extract(deps, uid, args) : action === 'trends' ? await trends(deps, uid, args) : action === 'kb' ? await kbRewrite(deps, uid, args) : await studio(deps, uid, args);
   } catch (e) {
     console.error('ai-content failed', e instanceof Error ? e.name : typeof e);
     return json(500, { error: 'failed' });

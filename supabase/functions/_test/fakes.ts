@@ -86,12 +86,13 @@ const COLUMNS: Record<string, string[]> = {
   mkt_requests: ['id', 'kind', 'title', 'details', 'project', 'status', 'created_by', 'created_at', 'updated_by', 'updated_at', 'done_at'],
   mkt_video_jobs: ['id', 'campaign_id', 'piece', 'kind', 'scene', 'creation_ref', 'status', 'url', 'path', 'bytes', 'duration', 'error', 'data', 'created_by', 'created_at', 'updated_at', 'done_at'], // 0054 (phase 9.5.5)
   mkt_agent_chats: ['id', 'member_id', 'agent', 'title', 'created_at', 'updated_at', 'deleted_at'], // 0084 (the assistants' chats)
-  mkt_agent_messages: ['id', 'chat_id', 'role', 'text', 'images', 'run_id', 'created_at'],
+  mkt_agent_messages: ['id', 'chat_id', 'role', 'text', 'images', 'run_id', 'created_at', 'source', 'shared'], // 0150: who answered and the data kinds it was given
   mkt_trends: ['id', 'batch', 'title', 'summary', 'source', 'url', 'kind', 'found_at', 'created_by', // 0109 (the designer's «آخر التريندات»)
     'platform', 'tag', 'thumb', 'thumb_src', 'thumb_tries', 'author', 'views', 'likes', 'comments', 'posted_at', 'external_id'], // 0118 (ش39)
   site_checks: ['kind', 'data', 'checked_at', 'checked_by'], // 0109 (the last WordPress updates check)
   ai_agents: ['id', 'name', 'icon', 'perm', 'sees', 'role', 'about', 'intro', 'instructions', 'suggestions', 'builtin', 'sort', 'created_at', 'updated_at', 'archived_at'], // 0120 (the assistants)
   ai_agent_notes: ['id', 'agent', 'kind', 'title', 'body', 'link', 'ref', 'created_at'], // 0124 (the assistants' notes in the bell)
+  ai_agent_state: ['id', 'facts', 'at'], // 0150 (the numbers the assistants watch — one row, the server's)
   ai_agent_kb: ['id', 'kind', 'section', 'title', 'body', 'agents', 'sort', 'created_at'], // 0120 (their rules and skills)
   hr_attendance: ['id', 'member_id', 'day', 'in_at', 'out_at', 'remote', 'source', 'note'],
   hr_requests_v: ['id', 'member_id', 'type', 'from_day', 'to_day', 'status'],
@@ -154,7 +155,7 @@ const DEFAULTS: Record<string, Row> = {
   mkt_trends: { platform: 'web', thumb_tries: 0 }, // 0118
   bosta_pickups: { state: 'new', parcels: 1 }, // 0144
   mkt_posts: { src: 'system', how: 'download', status: 'مجدول', was_live: false, attempts: 0, images: [], caption: '', caption_orig: '', tags: '' },
-  mkt_suggestions: { platform: 'meta', status: 'pending', data: {} }, mkt_requests: { status: 'جديد' }, mkt_video_jobs: { status: 'queued', data: {} }, mkt_agent_chats: { title: 'شات جديد' }, mkt_agent_messages: { text: '', images: [] },
+  mkt_suggestions: { platform: 'meta', status: 'pending', data: {} }, mkt_requests: { status: 'جديد' }, mkt_video_jobs: { status: 'queued', data: {} }, mkt_agent_chats: { title: 'شات جديد' }, mkt_agent_messages: { text: '', images: [], source: null, shared: [] },
   alert_state: { sent_count: 0, channel_log: [] }, tickets: { status: 'open', attachments: [], reopen_count: 0 }, hr_requests: { status: 'جديد' }, hr_overtime: { status: 'مستني', kind: 'hours', paid_minutes: 0 }, hr_meetings: { status: 'مطلوب', goals: [] },
   hr_payroll: { status: 'مسودة' }, inv_consolidations: { status: 'open' }, acc_expenses: { direction: 'withdraw' },
 };
@@ -171,7 +172,7 @@ const UNIQUE: Record<string, string[][]> = {
   cs_oauth_states: [['state']], cs_channel_events: [['id']], cs_posts: [['id']], cs_wa_state: [['channel']], cs_campaigns: [['id']], cs_campaign_recipients: [['id'], ['campaign_id', 'customer_id']],
   cs_templates: [['id'], ['quick_key']], cs_quick_replies: [['id'], ['key']], cs_auto_rules: [['id']], cs_auto_runs: [['id'], ['rule_id', 'entity']], cs_carts: [['cart_id']], ticket_events: [['id']], // the live index on (rule_id, entity) is partial (result <> failed): the fake is stricter
   profiles: [['id'], ['email'], ['phone'], ['member_code']], roles: [['id']], hr_members: [['member_id']], mkt_posts: [['id'], ['platform', 'external_id']], mkt_ad_objects: [['platform', 'kind', 'id']], mkt_ad_stats: [['platform', 'level', 'object_id', 'day']],
-  mkt_suggestions: [['id']], mkt_requests: [['id']], mkt_video_jobs: [['id']], alerts: [['id']], mkt_agent_chats: [['id']], mkt_agent_messages: [['id']], mkt_trends: [['id']], site_checks: [['kind']],
+  mkt_suggestions: [['id']], mkt_requests: [['id']], mkt_video_jobs: [['id']], alerts: [['id']], mkt_agent_chats: [['id']], mkt_agent_messages: [['id']], mkt_trends: [['id']], site_checks: [['kind']], ai_agent_state: [['id']],
   alert_reads: [['alert_id', 'user_id']], alert_state: [['source_key', 'entity_id', 'target']], tickets: [['id']], hr_requests: [['id']], hr_overtime: [['id']], hr_meetings: [['id']], hr_payroll: [['month']], inv_consolidations: [['id']], acc_expenses: [['id']], company_docs: [['id']],
 };
 const NOT_NULL: Record<string, string[]> = {

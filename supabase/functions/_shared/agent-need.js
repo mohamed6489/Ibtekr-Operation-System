@@ -48,7 +48,7 @@ const DAY = /^\d{4}-\d{2}-\d{2}$/;
 export function cleanNeed(json, agent) {
   const n = isObj(json) && isObj(json.need) ? json.need : {};
   const research = (Array.isArray(n.research) ? n.research : []).map((q) => line(q, 200)).filter(Boolean).slice(0, RESEARCH_MAX);
-  const data = (Array.isArray(n.data) ? n.data : []).filter((d) => isObj(d) && DATA_KINDS.includes(d.kind) && (d.kind !== 'vendor' || line(d.q, 80)))
+  const data = (Array.isArray(n.data) ? n.data : []).filter((d) => isObj(d) && (DATA_KINDS.includes(d.kind) || (agent === 'dev' && d.kind === 'site')) && (d.kind !== 'vendor' || line(d.q, 80)))
     .slice(0, NEED_DATA_MAX).map((d) => ({ kind: d.kind, q: line(d.q, 80), from: DAY.test(String(d.from)) ? String(d.from) : '', to: DAY.test(String(d.to)) ? String(d.to) : '' }));
   let ads = null;
   if (agent === 'buyer' && isObj(n.ads) && ADS_LEVELS.includes(n.ads.level)) {

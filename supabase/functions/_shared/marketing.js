@@ -577,7 +577,9 @@ export function agentRequest(req, ctx) {
   const hand = tb ? { handoff: HANDOFF_SCHEMA() } : {};
   system.push({ type: 'text', text: ACT_RULE.trim() }); hand.forms = FORMS_SCHEMA(); hand.page = PAGE_SCHEMA(); // agents-brain T3
   system.push({ type: 'text', text: ASK_RULE.trim() }); hand.ask = ASK_SCHEMA(); // the owner 18 Nov: choices in the chat, data in a popup
-  system.push({ type: 'text', text: needRule(req.agent).trim() }); hand.need = NEED_SCHEMA(req.agent); // the owner 17 Nov: research / live ads first
+  system.push({ type: 'text', text: needRule(req.agent).trim() }); hand.need = NEED_SCHEMA(req.agent);
+  if (ctx.sources) system.push({ type: 'text', text: String(ctx.sources).trim() }); // the assistant's own references (the admin's list, else the shipped — _shared/agent-sources.js)
+  if (ctx.shareRule) system.push({ type: 'text', text: String(ctx.shareRule).trim() }); // the owner 22 Nov: the message alone, data by the member's approval // the owner 17 Nov: research / live ads first
   // the owner 17 Nov: the warehouse assistant plans product work (product-plan.js) — the server finds the names, the page asks per step
   if (req.agent === 'stock') { system.push({ type: 'text', text: PLAN_RULE.trim() + (ctx.catalog ? '\n' + String(ctx.catalog) : '') }); hand.plan = PLAN_SCHEMA(); }
   const schema = req.agent === 'designer' ? obj({ text: STR(), image_prompt: STR(), request: REQ_SCHEMA(), campaign: DRAFT_SCHEMA(), ...hand })

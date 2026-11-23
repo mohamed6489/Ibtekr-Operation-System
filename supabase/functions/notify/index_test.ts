@@ -168,7 +168,8 @@ Deno.test('the team assistants: from 9:00 Cairo a summary and an alert for the t
   (deps.db as any).rpc = (name: string, args: any) => { if (name === 'ai_agent_note_add') { notes.push(args); return Promise.resolve({ data: notes.length, error: null }); } return rpc(name, args); };
   const { body } = await cron(deps);
   assertEquals(body.team, 2);
-  assertEquals(notes.map((n) => [n.p_agent, n.p_kind, n.p_ref, n.p_link]), [['cs', 'report', 'team:2026-11-08', 'tickets'], ['cs', 'alert', 'late:2026-11-08', 'tickets']]);
+  // (the assistants' own rules write theirs too — 0150, tested below)
+  assertEquals(notes.filter((n) => !String(n.p_ref).startsWith('rule:')).map((n) => [n.p_agent, n.p_kind, n.p_ref, n.p_link]), [['cs', 'report', 'team:2026-11-08', 'tickets'], ['cs', 'alert', 'late:2026-11-08', 'tickets']]);
   assert(/TKT-0005/.test(notes[1].p_body));
 });
 
@@ -211,7 +212,7 @@ Deno.test('the developer\'s check: a note per problem with «للجلسة:», on
   assertEquals(dev.length, 2);
   assert(dev.every((x) => /\nللجلسة:\n/.test(x.p_body) && x.p_link === null));
   assert(dev.some((x) => x.p_ref.startsWith('dev:crash:')) && dev.some((x) => x.p_ref.startsWith('dev:sync:')));
-  assertEquals(clears.length, 1); assertEquals(clears[0].p_prefix, 'dev:');
+  assertEquals(clears.filter((c) => c.p_prefix !== 'rule:').map((c) => c.p_prefix), ['dev:']); // the rules clear theirs apart (0150)
   assertEquals((body as any).dev.notes, 2);
   // the same day again: nothing
   notes.length = 0;
@@ -325,4 +326,80 @@ Deno.test('the clean-up before 0132 (no plan function) is nothing and never fail
   (db as any).rpc = (name: string, args: any) => (name === 'cleanup_plan' ? Promise.resolve({ data: null, error: { code: 'PGRST202' } }) : rpc(name, args));
   const { res, body } = await cron(deps);
   assertEquals(res.status, 200); assertEquals((body as any).clean, undefined);
+});
+
+// the owner 22 Nov — the assistants' own rules (0150): the numbers counted from the live tables, a note per rule that holds, the note of
+// a rule that stopped holding cleared, the numbers kept for the chats; the admin's card reads them live and writes nothing
+function rulesSetup(seed: any) {
+  const notes: any[] = []; const clears: any[] = [];
+  const s = setup({ seed });
+  const rpc = s.deps.db.rpc.bind(s.deps.db);
+  (s.deps.db as any).rpc = (name: string, args: any) => {
+    if (name === 'ai_agent_note_add') { notes.push(args); return Promise.resolve({ data: notes.length, error: null }); }
+    if (name === 'ai_agent_note_clear') { clears.push(args); return Promise.resolve({ data: 0, error: null }); }
+    if (name === 'ai_agent_bankless') return Promise.resolve({ data: 1, error: null });
+    return rpc(name, args);
+  };
+  return { ...s, notes, clears };
+}
+const AGENTS = [{ id: 'manager', name: 'المدير العام', sees: ['orders', 'tickets'], role: 'أدمن' }, { id: 'stock', name: 'التشغيل الذكي', sees: ['orders', 'inventory'], role: 'عمليات' },
+  { id: 'makers', name: 'خدمة المبتكرين الذكية', sees: ['vendors'], role: 'متابعة المبتكرين' }, { id: 'hr', name: 'الموارد البشرية الذكية', sees: ['hr'], role: '' },
+  { id: 'old', name: 'قديم', sees: ['orders'], role: '', archived_at: '2026-11-01T00:00:00Z' }];
+Deno.test('0150 the assistants\' rules: the shipped rules on the live numbers → a note per rule that holds, the rest cleared, the numbers kept with each number\'s permission', async () => {
+  const seed = SEED(); (seed as any).ai_agents = AGENTS; (seed as any).ai_agent_state = [];
+  (seed as any).settings.push({ section: 'ai', data: {} });
+  const { deps, db, notes, clears } = rulesSetup(seed);
+  const { body } = await cron(deps);
+  const rule = notes.filter((n) => String(n.p_ref).startsWith('rule:'));
+  // order 1001 is late (14 days against 7), 1002 is open without a confirmation (1 < 3: its rule does not hold), the urgent request is
+  // open, one maker has a late line and one has no bank account, one HR request waits
+  assertEquals(rule.map((n) => [n.p_agent, n.p_kind, n.p_ref]).sort(), [
+    ['hr', 'alert', 'rule:hr:hr_requests_pending'], ['makers', 'alert', 'rule:makers:makers_no_bank'], ['makers', 'problem', 'rule:makers:makers_late'],
+    ['manager', 'problem', 'rule:manager:tickets_urgent'], ['stock', 'problem', 'rule:stock:orders_late']].sort());
+  assertEquals(rule.find((n) => n.p_ref === 'rule:stock:orders_late').p_title, 'أوردرات متأخرة: 1');
+  assert(rule.every((n) => n.p_link === null && /^القاعدة: /.test(n.p_body)));
+  // each note is seen with its number's page in full (0150 ai_agent_note_sees)
+  assertEquals(rule.map((n) => [n.p_ref, n.p_perm]).sort(), [['rule:hr:hr_requests_pending', 'hr.view'], ['rule:makers:makers_late', 'vendors.view'], ['rule:makers:makers_no_bank', 'vendors.view'], ['rule:manager:tickets_urgent', 'tickets.view'], ['rule:stock:orders_late', 'orders.view']]);
+  // every live assistant's old rule notes are cleared but its own that hold (the archived one is not touched)
+  const cl = clears.filter((c) => c.p_prefix === 'rule:');
+  assertEquals(cl.map((c) => c.p_agent).sort(), ['hr', 'makers', 'manager', 'stock']);
+  assertEquals(cl.find((c) => c.p_agent === 'makers').p_keep.sort(), ['rule:makers:makers_late', 'rule:makers:makers_no_bank']);
+  // the returns were read (none waits) — its rule's note is not kept; the conversations' table is not in this seed's reach of «stock»
+  assertEquals(cl.find((c) => c.p_agent === 'stock').p_keep, ['rule:stock:orders_late']);
+  assertEquals(body.rules.notes, 5);
+  // the numbers kept for the chats: one row, each number with the permission behind it; nothing of the archived assistant
+  const st = db.rows('ai_agent_state'); assertEquals(st.length, 1); assertEquals(st[0].id, true);
+  const A = st[0].facts.agents; assertEquals(Object.keys(A).sort(), ['hr', 'makers', 'manager', 'stock']);
+  const late = A.stock.metrics.find((m: any) => m.key === 'orders_late');
+  assertEquals([late.now, late.perm, late.rule], [1, 'orders.view', 'أوردرات متأخرة — 1 أو أكتر']);
+  assertEquals(A.manager.metrics.find((m: any) => m.key === 'tickets_urgent').perm, 'tickets.view');
+  assertEquals(A.hr.metrics.map((m: any) => m.perm), ['hr.view', 'hr.view']);
+});
+
+Deno.test('0150 the assistants\' rules: the admin\'s own limits rule; a rule switched off or deleted says nothing; a seller without makers counts none of them', async () => {
+  const seed = SEED(); (seed as any).ai_agents = AGENTS; (seed as any).ai_agent_state = [];
+  (seed as any).settings.push({ section: 'ai', data: { agents: {
+    manager: { rules: [{ id: 'orders_unconfirmed', metric: 'orders_unconfirmed', op: 'gte', value: 1, kind: 'idea', on: true }, { id: 'tickets_urgent', metric: 'tickets_urgent', op: 'gte', value: 1, kind: 'problem', on: false }] },
+    stock: { rules: [] } } } });
+  (seed as any).settings.push({ section: 'store', data: { mode: 'single' } });
+  const { deps, notes } = rulesSetup(seed);
+  await cron(deps);
+  assertEquals(notes.filter((n) => String(n.p_ref).startsWith('rule:')).map((n) => [n.p_agent, n.p_kind, n.p_ref, n.p_title]).sort(),
+    [['hr', 'alert', 'rule:hr:hr_requests_pending', 'طلبات موارد بشرية مستنية قرار: 1'], ['manager', 'idea', 'rule:manager:orders_unconfirmed', 'أوردرات مفتوحة مستنية تأكيد: 1']]);
+});
+
+Deno.test('0150 the assistants\' rules: the admin\'s card (action rules) — live numbers, which rule holds, nothing written; a member is refused; no registry = off', async () => {
+  const seed = SEED(); (seed as any).ai_agents = AGENTS; (seed as any).ai_agent_state = []; (seed as any).settings.push({ section: 'ai', data: {} });
+  const { deps, db, notes } = rulesSetup(seed);
+  const { res, body } = await call(deps, { action: 'rules' });
+  assertEquals(res.status, 200); assertEquals(body.on, true);
+  const late = body.agents.stock.rules.find((r: any) => r.metric === 'orders_late');
+  assertEquals([late.now, late.firing, late.text], [1, true, 'أوردرات متأخرة — 1 أو أكتر']);
+  assertEquals(body.agents.stock.own, false);
+  assertEquals(body.agents.manager.rules.find((r: any) => r.metric === 'orders_unconfirmed').firing, false);
+  assert(body.agents.old, 'the archived assistant is on the card too (its rules can still be read)');
+  assertEquals(notes.length, 0); assertEquals(db.rows('ai_agent_state').length, 0); assertEquals(db.rows('alerts').length, 0);
+  assertEquals((await call(deps, { action: 'rules' }, 'jwt-member')).res.status, 401);
+  const none = rulesSetup(SEED());
+  assertEquals((await call(none.deps, { action: 'rules' })).body, { result: 'ok', at: NOW, on: false, agents: {} });
 });

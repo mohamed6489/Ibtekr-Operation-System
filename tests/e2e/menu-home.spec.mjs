@@ -80,13 +80,13 @@ test('a filter applied on a page stays on after leaving it and coming back by th
   await page.locator('[data-fm-menu="vendors"] [data-fm="status:leave"]').click();
   await page.locator('[data-fm-menu="vendors"] [data-fm-apply]').dispatchEvent('click');
   const chips = page.locator('.af-row .af-chip:visible');
-  await expect(chips).toHaveCount(2);
+  await expect(chips).toHaveCount(1); // the meeting of 23 Nov [#6]: no «نشط» on by default — the one picked
   await menu(page, 'dashboard').click(); await url(page, 'dashboard');
   await menu(page, 'vendors').click();
   await tabs.getByRole('tab', { name: 'سجل المبتكرين' }).click();
-  await expect(chips).toHaveCount(2);
+  await expect(chips).toHaveCount(1);
   await at(page, 'orders'); await at(page, 'makers');
-  await expect(chips).toHaveCount(2);
+  await expect(chips).toHaveCount(1);
 });
 
 test('a direct link still opens its exact spot (the menu is the only reset)', async ({ page }) => {

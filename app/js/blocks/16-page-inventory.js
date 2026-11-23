@@ -20,7 +20,7 @@
   const patchLot = (key, patch, action) => { if (live()) saved(A().updateLot(key, patch, action)); };
   // phase 13 decision 58 (owner 11 Nov — «المخزن الآن لقسمين: نظرة عامة وسجل المخزون وبعدهم باقي الأقسام»)
   const TABS = [{ id: 'overview', label: 'نظرة عامة' }, { id: 'now', label: 'سجل المخزون' }, { id: 'consolidate', label: 'تجميع أوردرات' }, { id: 'returns', label: 'المرتجعات' }, { id: 'moves', label: 'حركات المخزن' }, { id: 'count', label: 'الجرد' }, { id: 'reports', label: 'التقارير' }]; // B6: the settings moved to «الإعدادات › المخزن"
-  const st = { tab: 'overview', f: { reason: [], status: [], vendor: [], loc: [], late: false }, sort: 'new', q: '', mq: '', mtype: '' };
+  const st = { tab: 'overview', f: { reason: [], status: [], vendor: [], loc: [], qty: [], since: [], stay: [] }, sort: 'new', q: '', mq: '', mtype: '' };
   const R = () => window.IBPages.render('inventory');
   const rerender = () => { if (window.IBPages.current === 'inventory') R(); else window.OrdersSetSub && window.OrdersSetSub('__redraw__', null); if (countPop) countPop.refresh(); document.dispatchEvent(new CustomEvent('ib:notify')); };
   const REASON_TONE = { 'تجميع أوردر': 'info', 'مرتجع': 'orange', 'تصوير': 'gold', 'متاح للبيع': 'success' };
@@ -95,34 +95,40 @@
   const placeField = (f, e, set) => { if (!f._locSet) f.loc = placeOf(f.reason);
     return K.field.select('loc', 'المكان (اختياري)', LOC_OPTS(), f, e, (k, v, r) => { f._locSet = true; set(k, v, r); }); };
   const STOCK_SORTS = [['new', 'دخل المخزن: الأحدث للأقدم'], ['old', 'دخل المخزن: الأقدم للأحدث'], ['cost-desc', 'السعر: الأعلى للأقل'], ['cost-asc', 'السعر: الأقل للأعلى'], ['qty-desc', 'الكمية: الأكتر للأقل'], ['qty-asc', 'الكمية: الأقل للأكتر'], ['late', 'القاعدة أكتر من اللازم الأول'], ['name', 'الاسم: A → Z']];
-  function matchStock(s, f, q) { const A = (k) => f[k] || []; return (!A('reason').length || A('reason').includes(s.reason)) && (!A('status').length || A('status').includes(s.status)) && (!A('vendor').length || A('vendor').includes(s.vendor)) && (!A('loc').length || A('loc').some((l) => String(s.loc).startsWith(l))) && (!f.late || tooLong(s)) && (!q || (s.name + s.sku + (s.ref || '')).toLowerCase().includes(q)); }
+  function matchStock(s, f, q) { const A = (k) => f[k] || []; return (!A('reason').length || A('reason').includes(s.reason)) && (!A('status').length || A('status').includes(s.status)) && (!A('vendor').length || A('vendor').includes(s.vendor)) && (!A('loc').length || A('loc').some((l) => String(s.loc).startsWith(l))) && RLp().numPass(s.onHand, A('qty')) && RLp().datePass(s.since, A('since')) && (!A('stay').length || A('stay').some((p) => (p === 'late' ? tooLong(s) : RLp().numPass(age(s), [p])))) && (!q || (s.name + s.sku + (s.ref || '')).toLowerCase().includes(q)); }
   function sortStock(l) { const by = { new: (a, b) => String(b.since).localeCompare(String(a.since)), old: (a, b) => String(a.since).localeCompare(String(b.since)), 'cost-desc': (a, b) => (b.cost || 0) - (a.cost || 0), 'cost-asc': (a, b) => (a.cost || 0) - (b.cost || 0), 'qty-desc': (a, b) => b.onHand - a.onHand, 'qty-asc': (a, b) => a.onHand - b.onHand, late: (a, b) => (tooLong(b) - tooLong(a)) || (age(b) - age(a)), name: (a, b) => String(a.name).localeCompare(String(b.name)) }[st.sort || 'new']; return by ? l.slice().sort(by) : l; }
-  const fCount = () => ['reason', 'status', 'vendor', 'loc'].reduce((n, k) => n + (st.f[k] || []).length, 0) + (st.f.late ? 1 : 0);
+  const fCount = () => ['reason', 'status', 'vendor', 'loc', 'qty', 'stay'].reduce((n, k) => n + (st.f[k] || []).length, 0) + ((st.f.since || []).length ? 1 : 0);
   function stockSortMenu() {
     const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' }); const cur = STOCK_SORTS.find((x) => x[0] === (st.sort || 'new'));
     const btn = h('button', { type: 'button', class: 'select sm', 'aria-haspopup': 'listbox', 'aria-expanded': 'false', 'aria-label': 'ترتيب المخزن', 'data-inv-sort': st.sort || 'new' }, Icon('chevD', 'sm'), h('span', { class: 'val' }, 'ترتيب: ' + cur[1]));
     const pop = U.popover(wrap, btn, (close) => U.DropdownMenu({ options: STOCK_SORTS.map(([v, l]) => ({ value: v, label: l })), value: st.sort || 'new', onSelect: (v) => { close(); st.sort = v; R(); } }));
     btn.addEventListener('click', pop.toggle); wrap.append(btn); return wrap;
   }
-  // the kit's «فلتر» button (the owner 12 Nov — back from B5's row): السبب · الحالة · المبتكر · المكان · أخرى («قاعدة أكتر من اللازم»)
+  // the kit's «فلتر» button (the owner 12 Nov — back from B5's row); the meeting of 23 Nov [#1]: a group for every column of «سجل المخزون»
+  // — المبتكر · السبب · الحالة · المكان (choices), الكمية (the five number choices), دخل المخزن (a period), بقاله (the five number
+  // choices on its days + «قاعدة أكتر من اللازم», the ⚠ the column shows); المنتج and المرجع are free text — the search covers them
+  const RLp = () => window.IBTableRules;
   function stockFilterMenu(all) {
-    const toF = (d) => ({ reason: d.reason.slice(), status: d.status.slice(), vendor: d.vendor.slice(), loc: d.loc.slice(), late: d.late.includes('late') });
-    return K.FilterMenu({ id: 'inv', label: 'فلتر المخزن', noun: 'صنف', value: { reason: st.f.reason, status: st.f.status, vendor: st.f.vendor, loc: st.f.loc, late: st.f.late ? ['late'] : [] },
-      groups: [{ key: 'reason', label: 'السبب', options: O.REASONS.map((r) => [r, r]) }, { key: 'status', label: 'الحالة', options: STATUSES.map((x) => [x, x]) },
-        { key: 'vendor', label: 'المبتكر', options: [...new Set(all.map((x) => x.vendor))].sort().map((v) => [v, v]) }, { key: 'loc', label: 'المكان', options: LOCS.map(([v, l]) => [v, l]) },
-        { key: 'late', label: 'أخرى', options: [['late', 'قاعدة أكتر من اللازم']] }],
+    const toF = (d) => ({ reason: d.reason.slice(), status: d.status.slice(), vendor: d.vendor.slice(), loc: d.loc.slice(), qty: d.qty.slice(), since: d.since.slice(), stay: d.stay.slice() });
+    const NUM = RLp().NUM_OPTS.map((o) => o.slice());
+    return K.FilterMenu({ id: 'inv', label: 'فلتر المخزن', noun: 'صنف', value: { reason: st.f.reason, status: st.f.status, vendor: st.f.vendor, loc: st.f.loc, qty: st.f.qty || [], since: st.f.since || [], stay: st.f.stay || [] },
+      groups: [{ key: 'vendor', label: 'المبتكر', options: [...new Set(all.map((x) => x.vendor))].sort().map((v) => [v, v]) }, { key: 'reason', label: 'السبب', options: O.REASONS.map((r) => [r, r]) },
+        { key: 'status', label: 'الحالة', options: STATUSES.map((x) => [x, x]) }, { key: 'loc', label: 'المكان', options: LOCS.map(([v, l]) => [v, l]) },
+        { key: 'qty', label: 'الكمية', num: true, options: NUM }, { key: 'since', label: 'دخل المخزن', range: true, options: [] },
+        { key: 'stay', label: 'بقاله', options: [['late', 'قاعدة أكتر من اللازم']].concat(NUM) }],
       count: (d) => all.filter((x) => matchStock(x, toF(d), st.q.toLowerCase())).length, onApply: (d) => { st.f = toF(d); R(); } });
   }
   // صف النتايج: شيبس الاختيارات (✕ في الركن) + عدد الأصناف + «مسح الكل»
   function activeRow(all, list) {
-    const ch = []; const lab = { reason: 'السبب', status: 'الحالة', vendor: 'المبتكر', loc: 'المكان' };
-    ['reason', 'status', 'vendor', 'loc'].forEach((k) => (st.f[k] || []).forEach((v) => ch.push([k, v, lab[k] + ': ' + (k === 'loc' ? (LOCS.find((x) => x[0] === v) || [v, v])[1] : v)])));
-    if (st.f.late) ch.push(['late', true, 'قاعدة أكتر من اللازم']);
-    const rm = (k, v) => { if (k === 'late') st.f.late = false; else st.f[k] = st.f[k].filter((x) => x !== v); R(); setTimeout(() => { const n = document.querySelector('#pg-inventory [data-inv-chip]') || document.querySelector('[data-inv-filter-btn]'); if (n) n.focus(); }); };
+    const ch = []; const lab = { reason: 'السبب', status: 'الحالة', vendor: 'المبتكر', loc: 'المكان', qty: 'الكمية', stay: 'بقاله' };
+    const optLab = (k, v) => (k === 'loc' ? (LOCS.find((x) => x[0] === v) || [v, v])[1] : k === 'qty' || k === 'stay' ? (v === 'late' ? 'قاعدة أكتر من اللازم' : (RLp().NUM_OPTS.find((x) => x[0] === v) || [v, v])[1]) : v);
+    ['vendor', 'reason', 'status', 'loc', 'qty', 'stay'].forEach((k) => (st.f[k] || []).forEach((v) => ch.push([k, v, lab[k] + ': ' + optLab(k, v)])));
+    if ((st.f.since || []).length) { const [a, b] = st.f.since; const f = (d) => (d ? d.split('-').reverse().join('/') : ''); ch.push(['since', true, 'دخل المخزن: ' + (a && b ? f(a) + ' – ' + f(b) : a ? 'من ' + f(a) : 'لحد ' + f(b))]); }
+    const rm = (k, v) => { if (k === 'since') st.f.since = []; else st.f[k] = st.f[k].filter((x) => x !== v); R(); setTimeout(() => { const n = document.querySelector('#pg-inventory [data-inv-chip]') || document.querySelector('[data-inv-filter-btn]'); if (n) n.focus(); }); };
     return h('div', { class: 'af-row', 'data-inv-active': '' },
-      ch.map(([k, v, t]) => { const n = all.filter((s) => (k === 'late' ? tooLong(s) : k === 'loc' ? matchStock(s, { loc: [v] }, '') : s[k] === v)).length; return h('button', { type: 'button', class: 'af-chip', 'data-inv-chip': k + ':' + v, 'aria-label': 'شيل الفلتر: ' + t + ' — ' + n + ' صنف', onClick: () => rm(k, v) }, h('span', { class: 'af-t' }, t), h('span', { class: 'af-c', 'aria-hidden': 'true' }, String(n)), h('span', { class: 'af-x', 'aria-hidden': 'true' }, Icon('close', 'sm'))); }),
+      ch.map(([k, v, t]) => { const n = all.filter((s) => matchStock(s, { [k]: k === 'since' ? st.f.since : [v] }, '')).length; return h('button', { type: 'button', class: 'af-chip', 'data-inv-chip': k + ':' + v, 'aria-label': 'شيل الفلتر: ' + t + ' — ' + n + ' صنف', onClick: () => rm(k, v) }, h('span', { class: 'af-t' }, t), h('span', { class: 'af-c', 'aria-hidden': 'true' }, String(n)), h('span', { class: 'af-x', 'aria-hidden': 'true' }, Icon('close', 'sm'))); }),
       h('span', { class: 'af-n', 'data-inv-count': String(list.length) }, ch.length ? list.length + ' صنف' : 'كل الأصناف · ' + all.length + ' صنف'),
-      ch.length ? h('button', { type: 'button', class: 'af-clr', 'data-inv-clear': '', onClick: () => { st.f = { reason: [], status: [], vendor: [], loc: [], late: false }; R(); } }, h('span', null, 'مسح الكل')) : null);
+      ch.length ? h('button', { type: 'button', class: 'af-clr', 'data-inv-clear': '', onClick: () => { st.f = { reason: [], status: [], vendor: [], loc: [], qty: [], since: [], stay: [] }; R(); } }, h('span', null, 'مسح الكل')) : null);
   }
   // ---------- المخزن الآن ----------
   function nowTab(part) {

@@ -70,7 +70,7 @@ test('filters and sort: status chips, brand / category multi-selects, search by 
   const fbtn = page.locator('#pg-products [data-fm-btn="products"]'); const fm = page.locator('[data-fm-menu="products"]');
   await expect(fbtn.locator('.val')).toHaveText('فلتر');
   await fbtn.click();
-  await expect(fm.locator('[data-fm-tab]')).toHaveText(['الحالة', 'البراند', 'المبتكر', 'القسم', 'المخزون', 'النوع']); // the owner 12 Nov: tabs in a strip · «الحالة»: comments decision 61
+  await expect(fm.locator('[data-fm-tab]')).toHaveText(['الحالة', 'البراند', 'المبتكر', 'القسم', 'المخزون', 'النوع', 'السعر', 'مرات الشراء']); // the owner 12 Nov: tabs in a strip · «الحالة»: comments decision 61
   await fm.locator('[data-fm-tab="brand"]').click();
   await expect(fm.locator('[data-fm-key="brand"] [role=menuitemcheckbox]').first()).not.toContainText(':'); // the values alone
   await fm.locator('[data-fm="brand:Antikiano"]').click();
@@ -893,6 +893,7 @@ test('decision 62: the tabs are نظرة عامة · إضافة · سجل الم
   mock.activityRows.push({ id: 7001, at: new Date().toISOString(), actor: mock.profiles.find((p) => p.email === ADMIN).id, action: 'product.trash', entity: 'products', entity_id: '9004', old_value: null, new_value: '#9004' });
   await tabs.nth(4).click();
   await expect(page).toHaveURL(/#products-log$/);
+  await pg.locator('[data-log-all="products"]').click(); // the meeting of 23 Nov [#4]: the log opens on «هذا الشهر» — the seeded move is older
   await expect(pg.locator('[data-plog-row="product.trash"]')).toHaveText('نقل للمهملات');
   // the log card like the other tables — its count, one «فلتر» (the move · by whom — the owner 12 Nov) and «تحديث» in the header
   const card = pg.locator('.plog-card');

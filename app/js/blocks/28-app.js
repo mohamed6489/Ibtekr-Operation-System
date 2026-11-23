@@ -166,7 +166,7 @@
         r.rows.length ? h('div', { class: 'vb-table-wrap' }, h('table', { class: 'vlo-table dt-table vb-table', 'data-vfull-table': '' }, h('thead', null, h('tr', null, HD.map((x) => h('th', { scope: 'col' }, x)))),
           h('tbody', null, r.rows.slice(0, 500).map((x, i) => { const tr = h('tr', { class: 'dt-click', tabindex: '0', role: 'button' }, h('td', { 'data-l': 'المنتج' }, prodThumb(x.sku, x.prod)), h('td', { 'data-l': 'رقم الأوردر', class: 'nw' }, oidCell(x)), h('td', { 'data-l': 'القيمة (ج.م)', class: 'nw' }, num(fmt(x.tot))), h('td', { 'data-l': 'حالة الأوردر', class: 'nw' }, x.status),
               rz.on ? h('td', { 'data-l': REASON_HEAD, class: 'vb-reason', 'data-vb-reason': '' }, rz.rs[i] || '—') : null);
-            const go = () => { m.close(); showOrders({ q: x.oid }); }; tr.addEventListener('click', go); tr.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); }); return tr; })
+            const go = () => peekOrder(x.oid); tr.addEventListener('click', go); tr.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); }); return tr; })
             .concat([h('tr', { class: 'dt-total' }, h('td', null, 'الإجمالي'), h('td', { class: 'nw' }, num(r.orders + ' أوردر')), h('td', { class: 'nw' }, num(fmt(r.value))), h('td', { class: 'dt-empty' }, ''), rz.on ? h('td', { class: 'dt-empty' }, '') : null)])))) : U.EmptyState('مفيش بيانات', 'مفيش أوردرات مكتملة أو ملغية للمبتكر ده.'),
         r.rows.length > 500 ? U.InlineNote({ children: 'أول 500 سطر على الشاشة — الملف اللي بيتشارك فيه الكل.' }) : null,
         state.capped ? U.InlineNote({ kind: 'warning', children: 'المبتكر ده عنده سطور أكتر من 5,000 — التقرير واقف عند أحدث 5,000 سطر.' }) : null,
@@ -413,7 +413,7 @@
     { value: 'balance:desc', label: 'الرصيد: من الأعلى للأقل', key: 'balance', dir: 'desc' }, { value: 'balance:asc', label: 'الرصيد: من الأقل للأعلى', key: 'balance', dir: 'asc' },
     { value: 'deposits:desc', label: 'العربون: من الأعلى للأقل', key: 'deposits', dir: 'desc' }, { value: 'deposits:asc', label: 'العربون: من الأقل للأعلى', key: 'deposits', dir: 'asc' }];
   // phase 4: the accounts range starts on the current month (Cairo); the September report is gone
-  const state = { tab: 'expenses', range: { from: TODAY.slice(0, 8) + '01', to: TODAY, preset: 'custom' }, sort: 'balance:desc', note: null, mlog: 'expenses', mlogQ: '' };
+  const state = { tab: 'expenses', range: { from: TODAY.slice(0, 8) + '01', to: TODAY, preset: 'thisMonth' }, sort: 'balance:desc', note: null, mlog: 'expenses', mlogQ: '' };
   const hashTab = () => { const t = location.hash.slice(1); return TABS.some((x) => x.id === t) ? t : null; };
   state.tab = hashTab() || 'expenses';
   // phase 9 (docs/superpowers/plans/2026-11-05-phase-9-reports.md, decisions 4 / 6): the v2's nine tabs — a tab shows only with reports.view ≠ N
@@ -429,7 +429,8 @@
   const mlogTabs = () => MLOG_TABS.filter((t) => !(t.id === 'vendorMoves' && singleOn()));
   const rCanExport = () => rperm('reports.export') === 'F';
   state.rtab = reportTabOf(location.hash.slice(1)) || 'orders';
-  state.rrange = Object.assign(D.presetRange('last30', TODAY), { preset: 'last30' });
+  state.rrange = Object.assign(D.presetRange('thisMonth', TODAY), { preset: 'thisMonth' }); // the meeting of 23 Nov [#4, #5]: every period opens on «هذا الشهر» (was آخر 30 يوم)
+  state.vlrange = Object.assign(D.presetRange('thisMonth', TODAY), { preset: 'thisMonth' }); // [#4]: the makers' ledger too (was «كل الفترات»; the button stays a choice)
   state.rcompare = false;
   const ticketOf = (hash) => { const m = /^tickets(?:\/(TKT-\d{4,}))?$/.exec(hash); return m ? (m[1] || '') : null; };
   const vendorOf = (hash) => { const m = /^makers(?:\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|new))?$/i.exec(hash); return m ? (m[1] || '') : null; }; // #makers/<vendor uuid> (phase 3) — '#vendors' stays the accounts tab; #makers/new = the add-maker popup (phase 13 decision 16: the quick action)
@@ -649,7 +650,7 @@
       headers: ['المنتج', 'رقم الأوردر', 'التاريخ', 'القيمة (ج.م)', 'الحالة'],
       rows: r.rows.map((o) => [prodThumb(o.sku, o.prod), h('span', { class: 'vr-oid' }, h('bdi', { dir: 'ltr' }, '#' + o.oid)), arDate(o.date), fmt(o.tot), o.status]),
       total: r.rows.length ? ['الإجمالي', String(r.orders) + ' أوردر', '', fmt(r.value), ''] : null,
-      onRow: (i) => showOrders({ q: r.rows[i].oid }), phone: x.v && x.v.phone, email: x.v && x.v.email, empty: 'مفيش أوردرات ناجحة أو فاشلة في الفترة دي.', note: bn(x.v).replace(/^ · /, '') + (bn(x.v) ? ' · ' : '') + 'العربون في الفترة = حركات «عربون» المسجّلة من السيستم بتاريخها (عرابين شيت Balances_Payouts مالهاش تاريخ فمش داخلة). المواصلات = مشاوير المبتكر في الفترة (من غير المرتجعات).', source: 'الأوردرات + الحركات المالية + شيت المواصلات' }, { label: 'كشف حساب ' + name });
+      keep: true, onRow: (i) => peekOrder(r.rows[i].oid), phone: x.v && x.v.phone, email: x.v && x.v.email, empty: 'مفيش أوردرات ناجحة أو فاشلة في الفترة دي.', note: bn(x.v).replace(/^ · /, '') + (bn(x.v) ? ' · ' : '') + 'العربون في الفترة = حركات «عربون» المسجّلة من السيستم بتاريخها (عرابين شيت Balances_Payouts مالهاش تاريخ فمش داخلة). المواصلات = مشاوير المبتكر في الفترة (من غير المرتجعات).', source: 'الأوردرات + الحركات المالية + شيت المواصلات' }, { label: 'كشف حساب ' + name });
   }
   // ---------- weekly vendor report (owner 22 Oct): every Sunday on WhatsApp — late + in progress + completed in the week + actual account ----------
   const weeklyCfg = () => ((window.IBKit && window.IBKit.store.vendorWeekly) || { weekday: 'الأحد', at: '10:00 ص' });
@@ -674,7 +675,7 @@
       headers: ['المنتج', 'رقم الأوردر', 'الحالة', 'عمر الأوردر', 'القيمة (ج.م)'],
       rows: list.map(([o, k]) => [prodThumb(o.sku, o.prod), h('span', { class: 'vr-oid' }, h('bdi', { dir: 'ltr' }, '#' + o.oid)), kindOf(o, k), o.age + ' يوم', fmt(o.tot)]),
       total: r.completed.length ? ['قيمة المكتملة', String(r.completed.length) + ' أوردر', '', '', fmt(r.completedValue)] : null,
-      onRow: (i) => showOrders({ q: list[i][0].oid }), phone: x.v && x.v.phone, email: x.v && x.v.email, shareText: VD.weeklyVendorText(name, r, per), empty: 'مفيش أوردرات للمبتكر ده الأسبوع ده.',
+      keep: true, onRow: (i) => peekOrder(list[i][0].oid), phone: x.v && x.v.phone, email: x.v && x.v.email, shareText: VD.weeklyVendorText(name, r, per), empty: 'مفيش أوردرات للمبتكر ده الأسبوع ده.',
       note: bn(x.v).replace(/^ · /, '') + (bn(x.v) ? ' · ' : '') + 'الحساب الفعلي = مستحق المبتكر من الأوردرات المكتملة في الأسبوع (بعد نسبة إبتكر على تاريخ كل أوردر) − المواصلات − العربون في نفس الأسبوع. رسالة المبتكر مفيهاش نسبة إبتكر.', source: 'الأوردرات + الحركات المالية + شيت المواصلات' }, { label: 'التقرير الأسبوعي ' + name });
   }
   // ---------- daily vendor follow-up (owner 22 Oct): replaces the daily late alert — late + at risk + confirmed since yesterday ----------
@@ -689,7 +690,7 @@
       summary: [{ label: 'متأخرة', value: String(r.late.length) + ' أوردر' }, { label: 'قابلة للتأخير', value: String(r.risk.length) + ' أوردر' }, { label: 'اتأكدت — يبدأ فيها', value: String(r.confirmed.length) + ' أوردر' }],
       headers: ['المنتج', 'رقم الأوردر', 'الحالة', 'عمر الأوردر', 'القيمة (ج.م)'],
       rows: list.map(([o, k]) => [prodThumb(o.sku, o.prod), h('span', { class: 'vr-oid' }, h('bdi', { dir: 'ltr' }, '#' + o.oid)), k, o.age + ' يوم', fmt(o.tot)]),
-      onRow: (i) => showOrders({ q: list[i][0].oid }), phone: x.v && x.v.phone, email: x.v && x.v.email, shareText: VD.dailyVendorText(name, r, rg.to), empty: 'مفيش حاجة للمبتكر ده النهارده.',
+      keep: true, onRow: (i) => peekOrder(list[i][0].oid), phone: x.v && x.v.phone, email: x.v && x.v.email, shareText: VD.dailyVendorText(name, r, rg.to), empty: 'مفيش حاجة للمبتكر ده النهارده.',
       note: bn(x.v).replace(/^ · /, '') + (bn(x.v) ? ' · ' : '') + 'بدل تنبيه «مبتكر متأخر» اليومي. الأوردرات الفرعية بتبقى «مؤكد» تلقائي أول ما الأوردر الرئيسي يتأكد.', source: 'الأوردرات' }, { label: 'المتابعة اليومية ' + name });
   }
   // ---------- delivery (owner 22 Oct): a sub-order «جاهز للشحن من …» → Bosta waybill for the delivery owner (sender, receiver, total / deposit / remaining) ----------
@@ -865,6 +866,9 @@
       { id: 'stock', label: 'المخزن', icon: 'tag', unit: 'تنبيه', all: goHash('inventory-now'), allLabel: 'عرض الكل في المخزن', empty: 'المخزن تمام.', tabs: [['all', 'الكل', cons.concat(photo, insp, pulls)], ['cons', 'تجميع', cons], ['photo', 'تصوير', photo], ['ret', 'مرتجعات', insp], ['pull', 'سحب تلقائي', pulls]] },
     ];
   }
+  // the meeting of 23 Nov [#7]: an order in a list opens its popup over the page (the orders page's peek — «افتح في صفحة الأوردرات» inside
+  // it is the way there); the page itself only when the order isn't loaded
+  function peekOrder(oid) { const O = window.OrdersApp; if (O && O.peek && O.peek(String(oid).replace(/^IB-/i, ''))) return; showOrders({ q: oid }); }
   function showOrders(filter) {
     if (state.page !== 'orders') go('orders');
     window.OrdersApp.clear(); window.OrdersApp.apply(filter);
@@ -1342,26 +1346,29 @@
   // ---------- date range picker ----------
   function DateRangeField(target = 'accounts') {
     const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' });
-    const trig = h('button', { type: 'button', class: 'date-field', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', 'aria-label': 'اختيار الفترة' }, Icon('cal', 'sm'), h('span', { class: 'range-label' }, target === 'dash' ? dashRangeLabel(rangeOf(target)) : (target === 'vledger' && !state.vlrange) || (logKey(target) && !state.lranges[logKey(target)]) ? 'كل الفترات' : D.rangeLabel(rangeOf(target).from, rangeOf(target).to)), Icon('chevD', 'sm'));
+    const trig = h('button', { type: 'button', class: 'date-field', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', 'aria-label': 'اختيار الفترة' }, Icon('cal', 'sm'), h('span', { class: 'range-label' }, target === 'dash' ? dashRangeLabel(rangeOf(target)) : (target === 'vledger' && !state.vlrange) || (logKey(target) && state.lranges[logKey(target)] === LOG_ALL) ? 'كل الفترات' : D.rangeLabel(rangeOf(target).from, rangeOf(target).to)), Icon('chevD', 'sm'));
     const pop = U.popover(wrap, trig, (close) => RangePicker(close, target));
     trig.addEventListener('click', pop.toggle);
     wrap.append(trig); return wrap;
   }
   // dashboard: the preset name + what it is compared with (Figma «الفترة: النهارده · مقارنة بإمبارح»)
   const dashRangeLabel = (r) => { const p = PRESETS.find((x) => x[0] === r.preset); const cmp = r.compare !== false; const own = r.cfrom && r.cto ? 'مقارنة بـ ' + D.rangeLabel(r.cfrom, r.cto) : null; // comments decision 14: the member's own comparison period
-    if (!p || r.preset === 'custom') return D.rangeLabel(r.from, r.to) + (cmp ? ' · ' + (own || 'مقارنة بالفترة اللي قبلها') : ''); return 'الفترة: ' + p[1] + (cmp ? ' · ' + (own || (r.preset === 'today' ? 'مقارنة بأمس' : 'مقارنة بالفترة اللي قبلها')) : ''); };
+    if (!p || r.preset === 'custom') return D.rangeLabel(r.from, r.to) + (cmp ? ' · ' + (own || 'مقارنة بالفترة اللي قبلها') : ''); return D.rangeLabel(r.from, r.to) + (cmp ? ' · ' + (own || (r.preset === 'today' ? 'مقارنة بأمس' : 'مقارنة بالفترة اللي قبلها')) : ''); };
   // comments decisions 26, 27 and 80 (the owner 15 Nov — «اي سجل حركات لازم يبقي فيه ال فلتر التاريخ الكبير» · «مكانه فوق الجدول زي كل صفحات سجل
   // الحركات» · «مش عايز اتنين فلتر تاريخ جنب بعض»): every movement log has this same picker above its table, one period per log
   // (target `log:<key>` — state.lranges), «كل الفترات» until the member picks one. LogPeriod(key) is the bar a log puts above its
   // table (the picker + «كل الفترات» to clear it), logRange(key) its period or null, logIn(key, at) whether a stamp is inside it.
   state.lranges = state.lranges || {};
   const logKey = (target) => (typeof target === 'string' && target.indexOf('log:') === 0 ? target.slice(4) : '');
-  const logRange = (key) => { const r = state.lranges[key]; return r && r.from && r.to ? { from: r.from, to: r.to } : null; };
+  // the meeting of 23 Nov [#4, #5] (the owner's answer 3 — it overrides decisions 26 / 27 / 80): a log opens on «هذا الشهر» too; «كل الفترات» is a
+  // choice the member makes (state.lranges[key] = 'all'), and the button names the dates
+  const LOG_ALL = 'all'; const monthNow = () => ({ from: TODAY.slice(0, 8) + '01', to: TODAY, preset: 'thisMonth' });
+  const logRange = (key) => { const r = state.lranges[key]; if (r === LOG_ALL) return null; const x = r && r.from && r.to ? r : monthNow(); return { from: x.from, to: x.to }; };
   const logIn = (key, at) => { const A0 = window.IBActivity; const r = logRange(key); return !r || (A0 && A0.inPeriod ? A0.inPeriod(r, at) : String(at || '').slice(0, 10) >= r.from && String(at || '').slice(0, 10) <= r.to); };
   const logRedraw = () => { if (state.page === 'vendors') renderVendors(); else if (window.IBPages && window.IBPages.all()[state.page]) window.IBPages.render(state.page); else render(); };
   function LogPeriod(key, extra) {
     return h('div', { class: 'toolbar mlog-bar log-period', 'data-log-period': key }, DateRangeField('log:' + key),
-      state.lranges[key] ? Button({ type: 'text', size: 'sm', label: 'كل الفترات', attrs: { 'data-log-all': key }, onClick: () => { delete state.lranges[key]; logRedraw(); } }) : null,
+      state.lranges[key] !== LOG_ALL ? Button({ type: 'text', size: 'sm', label: 'كل الفترات', attrs: { 'data-log-all': key }, onClick: () => { state.lranges[key] = LOG_ALL; logRedraw(); } }) : null,
       extra ? h('span', { class: 'grow' }) : null, extra || null);
   }
   // comments 15 Nov decisions 75 and 76 (the owner — «عايز ابدل الفلتر ده يبقي الفلتر الكبير بتاع التاريخ اللي في اغلب السيستم» · «ف تقويم
@@ -1372,9 +1379,10 @@
   const perKey = (target) => (typeof target === 'string' && target.indexOf('per:') === 0 ? target.slice(4) : '');
   const perRange = (key) => { const r = state.pranges[key]; if (r && r.from && r.to) return r; let d = null; try { d = perDefs[key] ? perDefs[key]() : null; } catch (e) { d = null; }
     return d && d.from && d.to ? d : { from: TODAY.slice(0, 8) + '01', to: TODAY, preset: 'thisMonth' }; };
-  const rangeOf = (target) => (perKey(target) ? perRange(perKey(target)) : logKey(target) ? (state.lranges[logKey(target)] || { from: TODAY.slice(0, 8) + '01', to: TODAY, preset: 'thisMonth' }) : target === 'reports' ? state.rrange : target === 'dash' ? state.drange : target === 'mlog' ? (state.mrange = state.mrange || { from: '2026-09-01', to: TODAY, preset: 'custom' }) : target === 'plan' ? (state.prange = state.prange || planDefault()) : target === 'vledger' ? (state.vlrange || { from: TODAY.slice(0, 8) + '01', to: TODAY, preset: 'thisMonth' }) : state.range); // mlog (phase 5.5 decision 4, owner 1 Nov): the moves log's own period, wide by default
+  const rangeOf = (target) => (perKey(target) ? perRange(perKey(target)) : logKey(target) ? (state.lranges[logKey(target)] && state.lranges[logKey(target)] !== LOG_ALL ? state.lranges[logKey(target)] : monthNow()) : target === 'reports' ? state.rrange : target === 'dash' ? state.drange : target === 'mlog' ? (state.mrange = state.mrange || { from: TODAY.slice(0, 8) + '01', to: TODAY, preset: 'thisMonth' }) : target === 'plan' ? (state.prange = state.prange || planDefault()) : target === 'vledger' ? (state.vlrange || { from: TODAY.slice(0, 8) + '01', to: TODAY, preset: 'thisMonth' }) : state.range); // mlog (phase 5.5 decision 4, owner 1 Nov): the moves log's own period, wide by default
   // plan (phase 9.5.1 decision 16, the v5's): the marketing plan calendar's period — from last week's Saturday, three weeks
-  function planDefault() { const W = window.IbtekrCampWiz; if (W && W.planDefault) return W.planDefault(TODAY); return { from: TODAY, to: TODAY, preset: 'custom' }; }
+  // the meeting of 23 Nov [#4]: the ad plan opens on this month too — the whole month, its scheduled posts ahead included
+  function planDefault() { const y = +TODAY.slice(0, 4), m = +TODAY.slice(5, 7); const last = new Date(Date.UTC(y, m, 0)).getUTCDate(); return { from: TODAY.slice(0, 8) + '01', to: TODAY.slice(0, 8) + String(last).padStart(2, '0'), preset: 'custom' }; }
   // the owner 13 Nov (decisions 7–8 of docs/superpowers/plans/2026-11-13-owner-ui-batch.md): «مقارنة بفترة سابقة» lives in the calendar and
   // works. Comments decision 14 (the owner 15 Nov — «عايزها تبقي شغالة لما ادوس عليها تطلعلي fields تحت و تبقي من / إلى — في كل الفلاتر
   // بالتاريخ اللي ف السيستم»): every period picker with figures behind it compares — the reports, the dashboard (on by default, as it
@@ -2221,7 +2229,7 @@
         b.rows.length ? h('div', { class: 'vb-table-wrap' }, h('table', { class: 'vlo-table dt-table vb-table', 'data-vb-table': '' }, h('thead', null, h('tr', null, HD.map((x) => h('th', { scope: 'col' }, x)))),
           h('tbody', null, b.rows.map((x, i) => { const tr = h('tr', { class: 'dt-click', tabindex: '0', role: 'button' }, h('td', { 'data-l': HEAD[0] }, prodThumb(x.sku, x.prod)), h('td', { 'data-l': HEAD[1], class: 'nw' }, h('span', { class: 'vr-oid' }, h('bdi', { dir: 'ltr' }, oidText(x)))),
               h('td', { 'data-l': HEAD[2], class: 'nw' }, num(fmt(x.tot))), h('td', { 'data-l': HEAD[3], class: 'nw' }, x.status), rz.on ? h('td', { 'data-l': REASON_HEAD, class: 'vb-reason', 'data-vb-reason': '' }, rz.rs[i] || '—') : null);
-            const go = () => { m.close(); showOrders({ q: x.oid }); }; tr.addEventListener('click', go); tr.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); }); return tr; })
+            const go = () => peekOrder(x.oid); tr.addEventListener('click', go); tr.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); }); return tr; })
             .concat([h('tr', { class: 'dt-total' }, h('td', null, 'الإجمالي'), h('td', { class: 'nw' }, num(b.orders + ' أوردر')), h('td', { class: 'nw' }, num(fmt(b.value))), h('td', { class: 'dt-empty' }, ''), rz.on ? h('td', { class: 'dt-empty' }, '') : null)])))) : U.EmptyState('مفيش بيانات', 'مفيش أوردرات مكتملة أو ملغية للمبتكر ده.'),
         h('p', { class: 't-small vb-foot' }, 'العرابين والمواصلات وأي «سحب» متخصومين من الرصيد (إبتكر دفعتهم للمبتكر أو بدله). Dokan مابيعرفهمش، فطلب السحب بيبقى بكل رصيد Dokan، ولما يتوافق عليه بيتصفّوا منه.'),
       ].filter(Boolean);
@@ -3003,12 +3011,12 @@
   const offline = { ok: false, message: 'تعذّر الاتصال — جرّب تاني' };
   state.tfilter = { status: 'open_any', type: 'all', priority: 'all', role: 'all', mine: false, q: '' };
   // فلتر + ترتيب جنب زرار الأعمدة (owner 1 Nov) — اختيارات متعددة، والافتراضي «مفتوحة»
-  state.tf = { status: ['open_any'], type: [], priority: [], role: [], member: [], by: [], mine: [] }; state.tsort = 'prio'; state.tsub = 'overview'; // the owner 11 Nov: «نظرة عامة» first
+  state.tf = { status: [], type: [], priority: [], role: [], member: [], by: [], mine: [], upd: [] }; /* the meeting of 23 Nov [#6]: no filter on by default (was «مفتوحة») */ state.tsort = 'prio'; state.tsub = 'overview'; // the owner 11 Nov: «نظرة عامة» first
   const TSORTS = [['prio', 'الأولوية ثم آخر تحديث'], ['upd', 'آخر تحديث'], ['new', 'الأحدث إنشاءً'], ['old', 'الأقدم إنشاءً'], ['follow', 'أقرب موعد متابعة']];
   // comments decision 61 (the owner 15 Nov — «اضافة كل الفلاتر الناقصة»): the requests' filter also takes «الموظف» (the member a request was
   // given to — «كل الدور» when none) and «فاتح الطلب»
   const tWho = (t) => (t.assigneeMember ? (t.assigneeMemberName || '—') : 'كل الدور'); const tBy = (t) => (t.createdBy && t.createdBy.name) || '—';
-  const tMatch = (t, f) => (!f.status.length || f.status.some((v) => (v === 'open_any' ? TK.OPEN.has(t.status) : t.status === v))) && (!f.type.length || f.type.includes(t.type)) && (!f.priority.length || f.priority.includes(t.priority)) && (!f.role.length || f.role.includes(t.assigneeRole)) && (!(f.member || []).length || f.member.includes(tWho(t))) && (!(f.by || []).length || f.by.includes(tBy(t))) && (!f.mine.length || (TA() && TA().isMine(t)));
+  const tMatch = (t, f) => (!f.status.length || f.status.some((v) => (v === 'open_any' ? TK.OPEN.has(t.status) : t.status === v))) && (!f.type.length || f.type.includes(t.type)) && (!f.priority.length || f.priority.includes(t.priority)) && (!f.role.length || f.role.includes(t.assigneeRole)) && (!(f.member || []).length || f.member.includes(tWho(t))) && (!(f.by || []).length || f.by.includes(tBy(t))) && (!(f.mine || []).length || (TA() && TA().isMine(t))) && (!(f.upd || []).length || !window.IBTableRules || window.IBTableRules.datePass(String(t.lastUpdate || '').slice(0, 10), f.upd));
   const tSort = (l) => { const k = state.tsort; const c = (x, y) => (x < y ? -1 : x > y ? 1 : 0); if (k === 'upd') return l.sort((a, b) => c(b.lastUpdate, a.lastUpdate)); if (k === 'new') return l.sort((a, b) => c(b.createdAt, a.createdAt)); if (k === 'old') return l.sort((a, b) => c(a.createdAt, b.createdAt)); if (k === 'follow') return l.sort((a, b) => c(a.followUp || '9999', b.followUp || '9999')); return l; };
   state.tpage = 1; const TPAGE = 8;
   const typeLabel = (t) => TK.label(TK.TYPES, t);
@@ -3161,17 +3169,18 @@
     const tkHead = h('div', { class: 'page-head row' }, h('div', { class: 'title-block' }, h('h1', { class: 't-h3' }, 'طلبات الفريق'), h('p', { class: 't-small' }, 'طلبات الفريق: مشاكل العملاء، مشاكل المبتكرين، والتعليقات الداخلية — كل تحديث بيتسجل في السجل')),
       h('div', { class: 'actions' }, state.tsub === 'log' && K2.PanelButton ? K2.PanelButton('tickets', 'طلبات الفريق', () => document.getElementById('tickets'), renderTickets) : null, window.IBDataActions.Menu(window.IBDataActions.PAGES.tickets),
         tCanManage() || hrCanFile() ? Button({ type: 'brand', icon: 'plus', label: 'فتح طلب', attrs: { 'data-req-new': '' }, onClick: () => openNewTicket() }) : null)); // decision 45
-    const tkTabs = K2.SubTabs({ items: [{ id: 'overview', label: 'نظرة عامة' }, { id: 'log', label: 'السجل', count: all.filter((t) => TK.OPEN.has(t.status)).length }, { id: 'reports', label: 'التقارير' }], active: state.tsub, onChange: (id) => { state.tsub = id; renderTickets(); }, label: 'أقسام الطلبات' });
+    // the meeting of 23 Nov (a line of it): the same tabs, on the pages' one tabs component (U.Tabs — like the makers' and the accounts')
+    const tkTabs = U.Tabs({ items: [{ id: 'overview', label: 'نظرة عامة' }, { id: 'log', label: 'السجل', count: all.filter((t) => TK.OPEN.has(t.status)).length }, { id: 'reports', label: 'التقارير' }], active: state.tsub, onChange: (id) => { state.tsub = id; renderTickets(); } }); tkTabs.setAttribute('aria-label', 'أقسام الطلبات'); tkTabs.setAttribute('data-tk-tabs', '');
     if (state.tsub === 'overview') return [tkHead, tkTabs].concat(TicketsOverview()); // the owner 11 Nov: the first tab
     if (state.tsub === 'reports') return [tkHead, tkTabs].concat(TicketsReport());
     const tUniq = (f) => [...new Set(all.map(f))].sort((x, y) => (x === 'كل الدور' ? -1 : y === 'كل الدور' ? 1 : x.localeCompare(y, 'ar')));
-    const TFG = [{ key: 'status', label: 'الحالة', options: [['open_any', 'مفتوحة (كل الحالات المفتوحة)']].concat(TK.STATUSES) }, { key: 'type', label: 'النوع', options: TK.TYPES }, { key: 'priority', label: 'الأولوية', options: TK.PRIORITIES.map((x) => [x[0], x[1]]) }, { key: 'role', label: 'المسؤول', options: TK.ROLES.map((r) => [r, r]) }, { key: 'member', label: 'الموظف', options: tUniq(tWho).map((n) => [n, n]) }, { key: 'by', label: 'فاتح الطلب', options: tUniq(tBy).map((n) => [n, n]) }, { key: 'mine', label: 'طلباتي', options: [['mine', 'طلبات دوري بس']] }];
+    const TFG = [{ key: 'status', label: 'الحالة', options: [['open_any', 'مفتوحة (كل الحالات المفتوحة)']].concat(TK.STATUSES) }, { key: 'type', label: 'النوع', options: TK.TYPES }, { key: 'priority', label: 'الأولوية', options: TK.PRIORITIES.map((x) => [x[0], x[1]]) }, { key: 'role', label: 'المسؤول', options: TK.ROLES.map((r) => [r, r]) }, { key: 'member', label: 'الموظف', options: tUniq(tWho).map((n) => [n, n]) }, { key: 'by', label: 'فاتح الطلب', options: tUniq(tBy).map((n) => [n, n]) }, { key: 'mine', label: 'طلباتي', options: [['mine', 'طلبات دوري بس']] }, { key: 'upd', label: 'آخر تحديث', range: true, options: [] }]; // the meeting of 23 Nov [#1]: «آخر تحديث» (a date column) = a period
     const tCount = (f) => TK.filterTickets(all, { q: state.tfilter.q }).filter((t) => tMatch(t, f)).length;
     const tFM = K2.FilterMenu({ id: 'tickets', groups: TFG, value: state.tf, count: tCount, noun: 'طلب', label: 'فلتر الطلبات', onApply: (d) => { state.tf = d; state.tpage = 1; renderTickets(); } });
     const tSM = K2.SortMenu({ id: 'tickets', options: TSORTS, value: state.tsort, label: 'ترتيب الطلبات', onChange: (v) => { state.tsort = v; state.tpage = 1; renderTickets(); } });
-    const tChips = []; const none = { status: [], type: [], priority: [], role: [], member: [], by: [], mine: [] };
+    const tChips = []; const none = { status: [], type: [], priority: [], role: [], member: [], by: [], mine: [], upd: [] };
     if (state.tfilter.q) tChips.push({ key: 'q', label: 'بحث: ' + state.tfilter.q, count: list.length, remove: () => { state.tfilter.q = ''; renderTickets(); } });
-    TFG.forEach((g) => (state.tf[g.key] || []).forEach((v) => { const o = g.options.find((x) => x[0] === v); tChips.push({ key: g.key + ':' + v, label: (g.key === 'mine' ? '' : g.label + ': ') + (o ? o[1] : v).replace(' (كل الحالات المفتوحة)', ''), count: tCount(Object.assign({}, none, { [g.key]: [v] })), remove: () => { state.tf = Object.assign({}, state.tf, { [g.key]: state.tf[g.key].filter((x) => x !== v) }); state.tpage = 1; renderTickets(); } }); }));
+    TFG.forEach((g) => { if (g.range) { const v0 = state.tf[g.key] || []; if (v0.length) { const f0 = (d) => (d ? d.split('-').reverse().join('/') : ''); tChips.push({ key: g.key, label: g.label + ': ' + (v0[0] && v0[1] ? f0(v0[0]) + ' – ' + f0(v0[1]) : v0[0] ? 'من ' + f0(v0[0]) : 'لحد ' + f0(v0[1])), count: tCount(Object.assign({}, none, { [g.key]: v0 })), remove: () => { state.tf = Object.assign({}, state.tf, { [g.key]: [] }); state.tpage = 1; renderTickets(); } }); } return; } (state.tf[g.key] || []).forEach((v) => { const o = g.options.find((x) => x[0] === v); tChips.push({ key: g.key + ':' + v, label: (g.key === 'mine' ? '' : g.label + ': ') + (o ? o[1] : v).replace(' (كل الحالات المفتوحة)', ''), count: tCount(Object.assign({}, none, { [g.key]: [v] })), remove: () => { state.tf = Object.assign({}, state.tf, { [g.key]: state.tf[g.key].filter((x) => x !== v) }); state.tpage = 1; renderTickets(); } }); }); });
     const tAF = K2.ActiveFilters({ id: 'tickets', chips: tChips, total: list.length, noun: 'طلب', onClear: () => { state.tf = Object.assign({}, none); state.tfilter.q = ''; state.tpage = 1; renderTickets(); } });
     const loading = TA() && TA().state() !== 'ready' && !all.length;
     return [
@@ -3552,7 +3561,7 @@
   document.addEventListener('ib:notify', () => { if (state.page === 'vendors' && !document.querySelector('.pop-anchor .menu, .pop-anchor [role=dialog]')) { vkeep(); renderVendors(true); } if (vredraw) vredraw(); });
   state.vfilter = { status: 'active', category: 'all', balance: 'all', contract: 'all', late: false, tickets: false, q: '' }; state.vsort = 'open'; state.vpage = 1; const VPAGE = 9;
   // phase 5.5 decision 3 (owner 1 Nov): the closed filter picks several values per group; «نشط» ticked by default. decision 3 (owner 31 Oct): the selection for the bulk actions
-  const VF0 = () => ({ status: ['active'], category: [], brand: [], balance: [], contract: [], other: [] }); state.vf = VF0(); state.vsel = new Set(); state.vtab = 'overview'; // phase 13 decision 57
+  const VF0 = () => ({ status: [], brand: [], rate: [], open: [], late: [], balance: [], last: [] }); /* the meeting of 23 Nov [#1, #6]: the table's columns, nothing on by default (was «نشط») */ state.vf = VF0(); state.vsel = new Set(); state.vtab = 'overview'; // phase 13 decision 57
   const PAPI = () => ((window.IBPages && window.IBPages.all().products) || {}).api || null;
   const prodCount = (ids) => { const a = PAPI(); return a ? a.makerItems(ids).length : 0; };
   // the actions on one or more makers (decision 3): their products through the products page's own popups; the rate through the store (vendor_rate_set + push)
@@ -3642,7 +3651,12 @@
     const brandNames = (v) => { const out = []; const seen = new Set(); const add = (n) => { const k = VD.norm(n || ''); if (!k || seen.has(k)) return; seen.add(k); out.push(String(n).trim()); };
       (prodBrands.get(String(v.id)) || []).forEach(add); (v.brands || []).forEach((b) => { if (b && VD.norm(b.name) !== VD.norm(v.name)) add(b.name); }); return out; };
     const brandPass = (f) => (v) => !(f.brand || []).length || brandNames(v).some((n) => f.brand.includes(VD.norm(n)));
-    const vPass = (f) => (v) => brandPass(f)(v) && ['status', 'category', 'balance', 'contract', 'other'].every((k) => !(f[k] || []).length || f[k].some((val) => VD.filterVendors([v], stats, k === 'other' ? { status: 'all', [val]: true } : { status: 'all', [k]: val }, VTODAY()).length));
+    // the meeting of 23 Nov [#1]: the filter = the table's columns — الحالة / البراندات choices, the numbers the five choices, «آخر أوردر» a period
+    // («الفئة» / «العقد» / «المتابعة» weren't columns; «العربون» / «المواصلات» / «طلبات مفتوحة» are always «—» here, so no filter)
+    const RLv = window.IBTableRules; const lastDay = (v) => { const a = (stats[v.id] || {}).lastAge; if (a == null) return null; const d = new Date(VTODAY() + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - a); return d.toISOString().slice(0, 10); };
+    const vPass = (f) => (v) => { const st = stats[v.id] || { open: 0, late: 0, balance: 0, lastAge: null }; return brandPass(f)(v) && (!(f.status || []).length || f.status.includes(v.status))
+      && (!RLv || (RLv.numPass(v.rate == null ? null : Number(v.rate), f.rate) && RLv.numPass(st.open || 0, f.open) && RLv.numPass(st.late || 0, f.late) && RLv.numPass(Number(st.balance) || 0, f.balance)
+        && (!(f.last || []).length || RLv.datePass(lastDay(v) || '', f.last)))); };
     const base0 = vfilter(all, stats, { status: 'all', q: state.vfilter.q });
     const list = VD.sortVendors(base0.filter(vPass(state.vf)), stats, state.vsort);
     const pages = Math.max(1, Math.ceil(list.length / VPAGE)); if (state.vpage > pages) state.vpage = pages;
@@ -3657,7 +3671,8 @@
     // «فلتر» + «ترتيب» (phase 5.5 decision 3, owner 1 Nov): the kit's closed multi-value filter and sort next to the columns button, the picks as chips with their counts
     const VF = { status: [['active', 'نشط'], ['leave', 'في إجازة'], ['inactive', 'غير نشط']], balance: [['due', 'ليه رصيد'], ['negative', 'عليه (عربون / مواصلات)'], ['zero', 'متصفّي']], contract: [['uploaded', 'مرفوع وساري'], ['expiring', 'بينتهي خلال 30 يوم'], ['expired', 'منتهي'], ['missing', 'غير مرفوع']] };
     const brandOpts = () => { const m = new Map(); all.forEach((v) => brandNames(v).forEach((n) => { if (!m.has(VD.norm(n))) m.set(VD.norm(n), n); })); return [...m.entries()].sort((x, y) => x[1].localeCompare(y[1])); };
-    const VG = () => [{ key: 'status', label: 'الحالة', options: VF.status }, { key: 'category', label: 'الفئة', options: mainCats().map((c) => [String(c.id), c.name]) }, { key: 'brand', label: 'البراند', options: brandOpts() }, { key: 'balance', label: 'الرصيد', options: VF.balance }, { key: 'contract', label: 'العقد', options: VF.contract }, { key: 'other', label: 'المتابعة', options: [['late', 'عنده تأخير'], ['tickets', 'عليه طلبات']] }];
+    const NUMO = () => (RLv ? RLv.NUM_OPTS : []);
+    const VG = () => [{ key: 'status', label: 'الحالة', options: VF.status }, { key: 'brand', label: 'البراندات', options: brandOpts() }, { key: 'rate', label: 'النسبة', num: true, options: NUMO() }, { key: 'open', label: 'أوردرات مفتوحة', num: true, options: NUMO() }, { key: 'late', label: 'قابلة للتأخير', num: true, options: NUMO() }, { key: 'balance', label: 'مستحقاته', num: true, options: NUMO() }, { key: 'last', label: 'آخر أوردر', range: true, options: [] }];
     function vFilterBtn() {
       return window.IBKit.FilterMenu({ id: 'vendors', label: 'فلتر المبتكرين', noun: 'مبتكر', groups: VG(), value: state.vf, count: (d) => base0.filter(vPass(d)).length, onApply: (d) => { state.vf = d; state.vpage = 1; renderVendors(); } });
     }
@@ -3666,9 +3681,10 @@
     }
     function vChips() {
       const f = state.vf; const chips = [];
-      VG().forEach((g) => (f[g.key] || []).forEach((val) => { const lbl = (g.options.find((o) => o[0] === val) || [, val])[1];
-        chips.push({ key: g.key + ':' + val, label: (g.key === 'other' ? '' : g.label + ': ') + lbl, count: base0.filter(vPass({ [g.key]: [val] })).length, remove: () => { f[g.key] = f[g.key].filter((x) => x !== val); state.vpage = 1; renderVendors(); } }); }));
-      return window.IBKit.ActiveFilters({ id: 'vendors', chips, total: list.length, noun: 'مبتكر', onClear: () => { state.vf = { status: [], category: [], brand: [], balance: [], contract: [], other: [] }; state.vpage = 1; renderVendors(); } });
+      VG().forEach((g) => { if (g.range) { const r = f[g.key] || []; if (r.length && (r[0] || r[1])) { const f0 = (d) => (d ? d.split('-').reverse().join('/') : ''); chips.push({ key: g.key, label: g.label + ': ' + (r[0] && r[1] ? f0(r[0]) + ' – ' + f0(r[1]) : r[0] ? 'من ' + f0(r[0]) : 'لحد ' + f0(r[1])), count: base0.filter(vPass({ [g.key]: r })).length, remove: () => { f[g.key] = []; state.vpage = 1; renderVendors(); } }); } return; }
+        (f[g.key] || []).forEach((val) => { const lbl = (g.options.find((o) => o[0] === val) || [, val])[1];
+        chips.push({ key: g.key + ':' + val, label: g.label + ': ' + lbl, count: base0.filter(vPass({ [g.key]: [val] })).length, remove: () => { f[g.key] = f[g.key].filter((x) => x !== val); state.vpage = 1; renderVendors(); } }); }); });
+      return window.IBKit.ActiveFilters({ id: 'vendors', chips, total: list.length, noun: 'مبتكر', onClear: () => { state.vf = VF0(); state.vpage = 1; renderVendors(); } });
     }
     // the bulk selection (decision 3, owner 31 Oct): a checkbox per row, «حدد كل الصفحة», the bar with the three actions
     const VS = state.vsel; [...VS].forEach((i) => { if (!vstore.get(i)) VS.delete(i); });
@@ -4710,7 +4726,7 @@
   // the range picker, ordersReport (dates = today − ageDays) and block 25's greeting / 30-day window. K.TODAY (the
   // prototype's fixed date) only without the orders adapter; the sample stores (contracts, money) keep their own date.
   function dashToday() { return window.IBOrders && window.IBOrders.today ? window.IBOrders.today() : window.IBKit ? window.IBKit.TODAY : TODAY; }
-  const DTODAY = window.IBKit ? window.IBKit.TODAY : TODAY; const DT0 = dashToday(); state.drange = state.drange || { from: DT0, to: DT0, preset: 'today' };
+  const DTODAY = window.IBKit ? window.IBKit.TODAY : TODAY; const DT0 = dashToday(); state.drange = state.drange || { from: DT0.slice(0, 8) + '01', to: DT0, preset: 'thisMonth' }; // the meeting of 23 Nov [#4]: «هذا الشهر» (was «اليوم»)
   window.IBDashData = {
     get TODAY() { return dashToday(); }, today: dashToday, range: () => state.drange, DateRangeField: () => DateRangeField('dash'),
     rows: ordersRows, full: allOrders, alerts,

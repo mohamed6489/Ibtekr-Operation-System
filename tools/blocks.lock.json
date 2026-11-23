@@ -37,7 +37,7 @@
   },
   "10-ui-kit.js": {
     "prototype": "6d7129cf7ed40e7276739b75c131c31935f1f1a10c57d62a509dcbfd5e340cca",
-    "current": "0c5fdfff1b7ba135aaa510b0fbc76585d71b29c934f7be77c4855bbd7de0b11c"
+    "current": "c956cc9a768b275d4fde76cbe249026e9d55712e097d247d1dbaa94a318b735d"
   },
   "11-seed-product-images.js": {
     "prototype": "e378804fb28fedc3fccfbf1a287ebfb2ac99a23d28529f86e8e0afd319be6187",
@@ -53,15 +53,15 @@
   },
   "14-kit.js": {
     "prototype": "2a924af8c731555a02958f802f051efe4ef180be78d65a0f3340b342a064e432",
-    "current": "602cd7242deff75b196c87045ca531c11ef6fb540a3e7a807f93bfdafae42f95"
+    "current": "a5aa211d7eb463711e310f3c079c9ac61d8bc390a869a78834315a18bc1149d6"
   },
   "15-page-hr.js": {
     "prototype": "ee600dbb6d1a699847ee0528e7454c3bc857f4801989b1cf85cdba72aa135d76",
-    "current": "3004c9009952530e85841d01ef61cb416f3b8ac0bebdcaa679148796b44446c5"
+    "current": "2cd63756b620ee18eb9543dc9a05178065477ab71c24f67870040d429ec98b87"
   },
   "16-page-inventory.js": {
     "prototype": "80101269ffc51399a6b19dad74375aa32575fa9e2e6071885c5c77885afee8f5",
-    "current": "725aa93fb0b5f98524ed3982d5eb191a7324911f59848d01721a3c1f2f874362"
+    "current": "8100457d5fc061e374951d5baf1d3fb9fc8b870d5b7c52f5b27479e6610afd2b"
   },
   "17-page-settings.js": {
     "prototype": "89d9c49b0d0f466a618479a6b68c237edb4e90a12b0b233e7d05f7916c8e8dde",
@@ -77,7 +77,7 @@
   },
   "20-page-cs.js": {
     "prototype": "07edfb71ffed3920bba96b1602645c9224249cc9a0ce63e07b4d4fe58295118b",
-    "current": "6977b0b47c815905694e0113976e6f9c3421aa9e82ef606f1021afa2e261e1c0"
+    "current": "6cc9d52f1fbab18185ec02758a7765e701c11fe5798f02b410fe4d5f688b1fb7"
   },
   "21-shell.js": {
     "prototype": "da3316ca93e76c490b7a58d4f817bdc7852887e007200bb438efa591045a05f9",
@@ -97,7 +97,7 @@
   },
   "25-page-dashboard.js": {
     "prototype": "f0ac7e16f52f393457bde9d1617eab227f9d9a3d36da857ec81c7b7684e3bb84",
-    "current": "443b46e51a26d9cefbc3bca9297f164292af12f4bd031e390f62834c38a85c18"
+    "current": "1d6b9f08ef0517222bf01cfc16de73baa8bd54920495e8afc0f5ff4207385387"
   },
   "26-data-actions.js": {
     "prototype": "fafccd1bfeb257fa467d090d00589b9d01bcfe738dbf77d17cc8c26c4c0da6f4",
@@ -109,10 +109,10 @@
   },
   "28-app.js": {
     "prototype": "28f47321b1a78201e81b34cffa6e20cba67b15788396c9ce0def7cd7e17243c9",
-    "current": "1efcb1dbd54764a5b4cd911ab97d4104a05e1cb7d1c16caf6079fa717b67bdf5"
+    "current": "32105d8e211528e7969bb5d1b52e44d28c0f44e24527e26d8ceca2e946306f5c"
   },
   "29-orders-app.js": {
     "prototype": "2e80a15f203c79adc2931c3682297119b4e1926b9e40f10a0b906007acff23bd",
-    "current": "b89b678b125a892cfeb67230972c7013d19adbf63f973437e28f16c1e5eb4463"
+    "current": "a92aca94400cc70a87f2fd00dbc752c339a5ea00adda01078f5436c255a4ca05"
   }
 }

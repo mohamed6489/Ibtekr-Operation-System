@@ -194,6 +194,7 @@ test('sales come from our orders by status group; the moves log lists Dokan requ
   await expect(sales.locator('tr', { hasText: 'تحت التنفيذ' })).toContainText('4,543.00'); // the mock's open orders of the last 30 days
   await tab(page, 'سجل الحركات').click();
   await main(page).getByRole('tab', { name: 'حسابات المبتكرين' }).last().click();
+  await main(page).locator('.mlog-bar [aria-label="اختيار الفترة"]').click(); await page.getByRole('radio', { name: 'أقصى فترة' }).click(); await page.getByRole('button', { name: 'تحديث', exact: true }).click(); // the meeting of 23 Nov [#4]: the log opens on this month — the request of 25 Oct is older
   await expect(main(page).locator('.mlog-table')).toContainText('#501');
   await expect(main(page).locator('.mlog-table')).toContainText('مستني الموافقة');
 });
@@ -415,6 +416,7 @@ test('5.5: the moves log has its own period (wide by default) and a bulk export;
   // the moves log: the Dokan request of 25 Oct is in the wide default period; its own range field; the bulk bar exports the ticked rows
   await tab(page, 'سجل الحركات').click();
   await main(page).getByRole('tab', { name: 'حسابات المبتكرين' }).last().click();
+  await main(page).locator('.mlog-bar [aria-label="اختيار الفترة"]').click(); await page.getByRole('radio', { name: 'أقصى فترة' }).click(); await page.getByRole('button', { name: 'تحديث', exact: true }).click(); // the meeting of 23 Nov [#4]: the log opens on this month — the request of 25 Oct is older
   await expect(main(page).locator('.mlog-table')).toContainText('#501');
   await expect(main(page).locator('.mlog-bar [aria-label="اختيار الفترة"]')).toBeVisible();
   await main(page).locator('.mlog-table [data-bulk-box]').first().click();
@@ -482,8 +484,8 @@ test('5.5 decision 13: «كشف بالفترة» — the opening is Dokan\'s bal
   await openAccounts(page);
   await tab(page, 'حسابات المبتكرين').click();
   await main(page).getByRole('tab', { name: 'كشف بالفترة' }).click();
-  // 0078: the ledger has its own range — «كل الفترات» by default; this month for the statements
-  await expect(main(page).locator('.toolbar .range-label')).toHaveText('كل الفترات');
+  // the meeting of 23 Nov [#4] (was 0078's «كل الفترات»): the ledger opens on this month, its dates on the button
+  await expect(main(page).locator('.toolbar .range-label')).toHaveText(/^الفترة: 1 /);
   await main(page).getByRole('button', { name: 'اختيار الفترة' }).click();
   await page.getByRole('radio', { name: 'هذا الشهر' }).click();
   await page.getByRole('button', { name: 'تحديث', exact: true }).click();
@@ -666,6 +668,7 @@ test('0078: «كشف بالفترة» without a range = «كل الفترات» 
   // the settled عربون is not deducted any more: the net is Dokan's balance
   await expect(main(page).locator('table.vendors-table [data-vbal="Art Craft"]')).toHaveText('2,500.00');
   await main(page).getByRole('tab', { name: 'كشف بالفترة' }).click();
+  await main(page).locator('[data-vl-all]').click(); // the meeting of 23 Nov [#4]: «كل الفترات» is a choice now (the default is this month)
   await expect(main(page).locator('.toolbar .range-label')).toHaveText('كل الفترات');
   const art = main(page).locator('table.ledger-table tbody tr', { hasText: 'Art Craft' });
   await expect(art).toContainText('9,000.00'); // حقه من المكتمل (Dokan's earning)

@@ -89,10 +89,13 @@ test('comment 76 — «تقويم الفريق» by a period: two weeks from the
   await openHr(page, 'hr-team');
   await P(page).getByRole('tab', { name: 'تقويم الفريق' }).click();
   const field = P(page).locator('[data-hr-cal-period]'); const days = P(page).locator('.tcal2 .tc-head [data-hr-cal-day]');
-  await expect(days).toHaveCount(14);
-  await expect(P(page).locator('[data-hr-cal-days]')).toHaveAttribute('data-hr-cal-days', '14');
+  // the meeting of 23 Nov [#4]: the calendar opens on this month (was two weeks from the week's start)
+  const mEnd = (() => { const y = +T.slice(0, 4), m = +T.slice(5, 7); return T.slice(0, 8) + String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, '0'); })();
+  const N = Number(mEnd.slice(8, 10));
+  await expect(days).toHaveCount(N);
+  await expect(P(page).locator('[data-hr-cal-days]')).toHaveAttribute('data-hr-cal-days', String(N));
   const [a0, b0] = (await field.getAttribute('data-hr-cal-period')).split('|');
-  expect(b0).toBe(addDays(a0, 13)); expect(a0 <= T && T <= b0).toBe(true);
+  expect([a0, b0]).toEqual([T.slice(0, 8) + '01', mEnd]);
   await expect(field.locator('.date-field')).toBeVisible(); // the same picker as the rest of the system
   await P(page).locator('[data-hr-cal-next]').click();
   await expect(field).toHaveAttribute('data-hr-cal-period', addDays(a0, 7) + '|' + addDays(b0, 7));
@@ -113,7 +116,7 @@ test('comment 76 — «تقويم الفريق» by a period: two weeks from the
   await expect(P(page).locator('[data-hr-cal-days]')).toContainText('أول 62 يوم من 81');
   await P(page).locator('[data-hr-cal-today]').click();
   await expect(field).toHaveAttribute('data-hr-cal-period', a0 + '|' + b0);
-  await expect(days).toHaveCount(14);
+  await expect(days).toHaveCount(N);
 });
 
 test('comment 77 — «المرتبات»: «الشهر» and «السنة» are two lists (no month after this one); «مقارنة» opens a second pair and the comparison card of the two months', async ({ page }) => {

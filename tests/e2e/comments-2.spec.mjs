@@ -574,6 +574,7 @@ test('comment 14 — every period filter with figures behind it compares (the re
   // the makers' ledger by period: the comparison period's statements are asked from Dokan too
   await page.locator('#vendors [role=tablist][aria-label="أقسام المبتكرين"] [role=tab]', { hasText: 'حسابات المبتكرين' }).click();
   await page.locator('#vendors').getByRole('tab', { name: 'كشف بالفترة' }).click();
+  await expect(page.locator('#vendors table.ledger-table')).toBeVisible(); // the meeting of 23 Nov [#4]: this month's statements load first (it was «كل الفترات»)
   await page.locator('#vendors .toolbar .date-field').click();
   await dp.getByRole('radio', { name: 'آخر 7 أيام' }).click();
   await dp.locator('[data-rp-compare="vledger"] input').check();
@@ -871,6 +872,9 @@ test('comments 26, 27 and 80 — every movement log has the system\'s period fil
   // 26 — the hub's moves: no fixed month dropdown; the cards and the table follow the period
   await go(page, '#inventory-moves');
   const inv = page.locator('#pg-inventory');
+  // the meeting of 23 Nov [#4]: a log opens on this month (the dates on its button); «كل الفترات» is the member's choice
+  await expect(inv.locator('[data-log-period="inventory"] .range-label')).toHaveText(/^الفترة: 1 /);
+  await inv.locator('[data-log-all="inventory"]').click();
   await expect(inv.locator('[data-log-period="inventory"] .range-label')).toHaveText('كل الفترات');
   await expect(inv.locator('#mv-p')).toHaveCount(0); await expect(inv).not.toContainText('أكتوبر 2026');
   await one('#pg-inventory'); await above('inventory', '#pg-inventory table');
@@ -887,6 +891,8 @@ test('comments 26, 27 and 80 — every movement log has the system\'s period fil
 
   // 27 — the makers' log
   await go(page, '#makers'); await page.getByRole('tab', { name: 'سجل الحركات' }).click();
+  await expect(page.locator('[data-log-period="makers"] .range-label')).toHaveText(/^الفترة: 1 /);
+  await page.locator('[data-log-all="makers"]').click();
   await expect(page.locator('[data-log-period="makers"] .range-label')).toHaveText('كل الفترات');
   await expect(page.locator('[data-vlog-row]')).toHaveCount(2);
   await above('makers', '#vendors table');
@@ -897,6 +903,8 @@ test('comments 26, 27 and 80 — every movement log has the system\'s period fil
   // 80 — the products' log
   await go(page, '#products-log');
   const pr = page.locator('#pg-products');
+  await expect(pr.locator('[data-log-period="products"] .range-label')).toHaveText(/^الفترة: 1 /);
+  await pr.locator('[data-log-all="products"]').click();
   await expect(pr.locator('[data-log-period="products"] .range-label')).toHaveText('كل الفترات');
   await expect(pr.locator('[data-plog-row]')).toHaveCount(2);
   await pickLast7(page, 'products');
@@ -906,6 +914,8 @@ test('comments 26, 27 and 80 — every movement log has the system\'s period fil
   // 80 — HR's log
   await go(page, '#hr-log');
   const hr = page.locator('#pg-hr');
+  await expect(hr.locator('[data-log-period="hr"] .range-label')).toHaveText(/^الفترة: 1 /);
+  await hr.locator('[data-log-all="hr"]').click();
   await expect(hr.locator('[data-log-period="hr"] .range-label')).toHaveText('كل الفترات');
   await expect(hr.locator('table.hr-log tbody tr')).toHaveCount(2);
   await pickLast7(page, 'hr');
@@ -915,6 +925,8 @@ test('comments 26, 27 and 80 — every movement log has the system\'s period fil
   // 80 — the settings' activity log: the two «من» / «إلى» fields became the one filter
   await go(page, '#settings-activity');
   const se = page.locator('#pg-settings');
+  await expect(se.locator('[data-log-period="activity"] .range-label')).toHaveText(/^الفترة: 1 /);
+  await se.locator('[data-log-all="activity"]').click();
   await expect(se.locator('[data-log-period="activity"] .range-label')).toHaveText('كل الفترات');
   await expect(se.locator('#ac-from, #ac-to')).toHaveCount(0);
   await one('#pg-settings');

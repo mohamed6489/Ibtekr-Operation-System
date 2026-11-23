@@ -2480,3 +2480,11 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 1. **الأول:** طبّق `0151_order_shipments.sql` (جدول `order_shipments` بـ RLS قراية `orders.view`، و`order_shipment_add` لـ `orders.status = F` أو `orders.edit`، و`order_shipments` في قسم «orders» بتاع `data_wipe_map`، وإشارة «orders» اللحظية).
 2. شغّل `supabase/tests/rls_order_shipments.sql` على الحي.
 3. ادمج على `main` — مفيش Edge Function اتغيّرت غير `_shared/delay.js` (بيتحمّل مع `notify` / `cs-auto` / `portal` / `ai-content` في النشر الجاي — «معلّق» مابيتأخرش). **مفيش أي كتابة على الموقع.**
+
+#### 2.7.123 المبتكرين — ميتنج 23 نوفمبر المرحلة 3 (`0152`، الخطة `docs/superpowers/plans/2026-11-23-meeting.md`)
+1. **الأول:** طبّق `0152_withdraw_internal.sql` (`dokan_withdrawals.internal` + تعليم الطلبات اللي سجل المزامنة شاف `withdraw_create` بيعملها). قبله الواجهة بتقرا من غير العمود ومفيش علامة «داخلي».
+2. شغّل `supabase/tests/rls_withdraw_internal.sql` على الحي.
+3. انشر `woo-sync` (`withdraw_create` بيعلّم صفه، و«تحديث من Dokan» / مزامنة الساعة بتعلّم أي طلب بملاحظة «تسوية من سيستم إبتكر» — الملاحظة نفسها مابتتخزنش) و`ai-content` (برومبت «أحاسب فلان» = `vendor_settle`، و«إيداع خارجي» في `vendor_move`).
+4. ادمج على `main`. **مفيش أي كتابة جديدة على الموقع** — قراية ملاحظة Dokan بس.
+5. **اتأكد بعد النشر:** `select count(*) filter (where internal), count(*) from dokan_withdrawals;` بعد أول «تحديث من Dokan».
+

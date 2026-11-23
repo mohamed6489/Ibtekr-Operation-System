@@ -21,7 +21,10 @@ async function openAi(page, tab) {
   await page.fill('#lg-id', ADMIN); await page.fill('#lg-pw', DEV_PW); await page.getByRole('button', { name: 'دخول', exact: true }).click();
   await expect(page.locator('#root')).toBeVisible();
   await page.locator('.sidebar .nav-item[data-page="ai"]').click(); await expect(pg(page)).toBeVisible();
-  await pg(page).getByRole('tab', { name: new RegExp(tab) }).click(); await expect(pg(page).locator('#mk-ask')).toBeVisible();
+  // the tab is drawn selected in the same render as its own box: the box of the tab before it is there already, and a message typed
+  // into that one is the other assistant's draft (CI 1370 / 1372 on 23 Nov: the first message went nowhere)
+  await pg(page).getByRole('tab', { name: new RegExp(tab) }).click(); await expect(pg(page).getByRole('tab', { name: new RegExp(tab), selected: true })).toBeVisible();
+  await expect(pg(page).locator('#mk-ask')).toBeVisible();
 }
 const send = async (page, text) => { await pg(page).locator('#mk-ask').fill(text); await pg(page).locator('[data-mk-ask]').click(); };
 const lastAns = (page) => pg(page).locator('.mk-msg.ai[data-mk-turn]').last();

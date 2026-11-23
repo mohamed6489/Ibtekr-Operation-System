@@ -180,7 +180,7 @@
       Object.keys(src.expenseSeed || {}).forEach((mk) => { const m = src.expenseSeed[mk]; Object.keys(m).forEach((cat) => { if (!m[cat]) return; push({ date: mk + '-01', kind: 'سحب', what: cat, who: '—', amount: m[cat], by: 'شيت', source: 'شيت Monthly Performance', ref: mk, note: 'إجمالي الشهر من الشيت' }); }); });
     } else if (kind === 'vendorMoves') {
       // 0078: a «إيداع» is a balance correction; a move an approved request settled says so
-      (src.vendorMoves || []).forEach((m) => push({ date: m.date, kind: m.direction === 'deposit' ? 'إيداع' : 'سحب', what: m.direction === 'deposit' ? 'تصحيح: ' + (m.typeName || m.type) : m.typeName || m.type, who: m.vendor, amount: m.amount, by: m.createdBy || '—', source: 'تسجيل يدوي', ref: m.id ? '#' + m.id : '',
+      (src.vendorMoves || []).forEach((m) => push({ date: m.date, kind: m.direction === 'deposit' ? 'إيداع' : 'سحب', what: m.direction === 'deposit' ? 'إيداع خارجي: ' + (m.typeName || m.type) : m.typeName || m.type, who: m.vendor, amount: m.amount, by: m.createdBy || '—', source: 'تسجيل يدوي', ref: m.id ? '#' + m.id : '',
         note: [m.note || '', m.settledBy != null ? 'اتصفّت مع طلب السحب #' + m.settledBy : ''].filter(Boolean).join(' · ') }));
       (src.vendorSeed || []).forEach((v) => { if (v.deposits) push({ date: src.seedDate || '', kind: 'إيداع', what: 'عربون', who: v.name, amount: v.deposits, by: 'شيت', source: 'شيت Balances_Payouts', ref: '', note: 'عربون مدفوع مقدمًا — الشيت مفيهوش تاريخ الحركة' }); });
       (src.transport || []).forEach((t) => push({ date: t.date, kind: 'سحب', what: 'مواصلات', who: t.vendor || '—', amount: t.amount, by: t.payer || 'شيت', source: 'شيت Logistics expenses', ref: '', note: t.note || '' }));

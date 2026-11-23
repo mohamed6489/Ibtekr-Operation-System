@@ -151,7 +151,7 @@ CLIENT_TOOL_DEFS.push({ name: 'open_form',
     + 'order_update (تحديث أوردر: order رقمه، status من ' + AI_ORDER_STATUSES.join(' / ') + '، أو confirm من ' + CONFIRMS.join(' / ') + ') · '
     + 'expense_add (مصروف: direction withdraw (سحب) | deposit (إيداع — فلوس راجعة) مطلوب، amount، category من ' + CATEGORIES.join(' / ') + '، beneficiary المستفيد (اسم مبتكر أو اسم حر)، details، note، source مصدر المبلغ في الإيداع) · '
     + 'account_move (حركة على الحساب الفعلي: direction مطلوب، amount، account من ' + ACCOUNTS.join(' / ') + ') · '
-    + 'vendor_move (حركة مبتكر: direction مطلوب — withdraw = سحب بيتخصم من صافي المبتكر (عربون أو مواصلات أو أي مبلغ اتدفعله، type من ' + VENDOR_TYPES.join(' / ') + ')، deposit = إيداع لتصحيح رصيده بس (otherName عنوان المعاملة، note الوصف، من غير type)؛ amount، vendor اسم المبتكر) · '
+    + 'vendor_move (حركة مبتكر: direction مطلوب — withdraw = سحب بيتخصم من صافي المبتكر (عربون أو مواصلات أو أي مبلغ اتدفعله، type من ' + VENDOR_TYPES.join(' / ') + ')، deposit = إيداع خارجي بيتزود على صافيه (otherName عنوان المعاملة، note الوصف، من غير type)؛ amount، vendor اسم المبتكر) · '
     + 'salary_adjust (مكافأة أو خصم على مرتب عضو الشهر ده: member اسم العضو، kind مكافأة | خصم، label البند (مثلًا: بدل انتقالات، غياب)، amount) · salary_pay (تحويل مرتب عضو الشهر ده: member اسم العضو) · vendor_settle (تسوية حساب مبتكر وطلب السحب على Dokan: vendor اسم المبتكر).',
   input_schema: { type: 'object', properties: { form: S('البوب أب', { enum: Object.keys(FORMS) }), values: { type: 'object', description: 'قيم الخانات اللي المستخدم قالها بس — نص' } }, required: ['form'] } });
 CLIENT_TOOL_DEFS.push({ name: 'plan_categories',
@@ -495,7 +495,7 @@ export function vendorData(p, dq, today, rules) {
     let deposits = 0, transport = 0, other = 0, corrections = 0; const inPeriod = {};
     for (const m of moves) {
       const a = num(m.amount); const dep = m.direction === 'deposit';
-      if (m.on_date >= dq.from && m.on_date <= dq.to) { const k = dep ? 'تصحيح' : m.kind; inPeriod[k] = num((inPeriod[k] || 0) + a); }
+      if (m.on_date >= dq.from && m.on_date <= dq.to) { const k = dep ? 'إيداع خارجي' : m.kind; inPeriod[k] = num((inPeriod[k] || 0) + a); }
       if (m.settled_by != null) continue;
       if (dep) corrections += a; else if (m.kind === 'عربون') deposits += a; else if (m.kind === 'مواصلات') transport += a; else other += a;
     }

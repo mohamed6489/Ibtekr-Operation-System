@@ -115,7 +115,7 @@ test('the vendors page lists the sync\'s makers with the team columns and no see
   await expect(row(page, V2).locator('td').nth(4)).toHaveText('45%'); // raised in October
   await expect(row(page, V1).locator('td').nth(5)).toHaveText('2'); // open orders
   for (const i of [7, 8, 11]) await expect(row(page, V1).locator('td').nth(i)).toHaveText('—'); // العربون / المواصلات / تذاكر: later phases
-  await expect(page.locator('#vendors thead')).toContainText('مستحقاته (من 1 أكتوبر)');
+  await expect(page.locator('#vendors thead')).toContainText('مستحقاته (من تاريخ الانضمام)');
   await expect(page.locator('#vendors')).not.toContainText('Medo .crafts'); // the prototype's seed is gone
   await expect(page.locator('#vendors')).not.toContainText('Balances_Payouts');
   await expect(page.locator('#vendors')).not.toContainText('Bian eg'); // inactive: not in the default list
@@ -464,7 +464,7 @@ test('the shares (decision 4): a completed order counts in «حقه من الم�
   await expect(byStatus.locator('tbody tr').nth(0).locator('td').nth(3)).toHaveText('651.30');
   await expect(byStatus.locator('tbody tr').nth(1).locator('td').nth(3)).toHaveText('651.30'); // قيد التنفيذ
   await expect(section(page, 'الحركات المالية')).toContainText('بتتسجل من مرحلة الحسابات');
-  await expect(info(section(page, 'ملخص حسابه معانا'), page, 'مستحقاته (من 1 أكتوبر)')).toContainText('651.30 (له)');
+  await expect(info(section(page, 'ملخص حسابه معانا'), page, 'مستحقاته (من تاريخ الانضمام)')).toContainText('651.30 (له)');
   await expect(row(page, V1).locator('td').nth(9)).toHaveText('651.30');
   // Antikiano: 2539 − (1015.60 + 10) on the completed order; the on-hold order is open (its line has no rate: 45% since October)
   await drawer(page).getByRole('button', { name: 'إغلاق' }).first().click();

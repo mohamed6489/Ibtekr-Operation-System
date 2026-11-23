@@ -126,7 +126,7 @@ test('makers: Dokan balance, the open Dokan request, a deposit recorded here low
   await expect(table.locator('thead th')).toContainText(['رصيد Dokan', 'الصافي']);
   const art = table.locator('tbody tr', { hasText: 'Art Craft' });
   await expect(art).toContainText('2,500.00');
-  await expect(art.locator('[data-wd]')).toHaveText('مستني الموافقة · 1,200.00'); // the pending Dokan request (0078: its status and amount)
+  await expect(art.locator('[data-wd]')).toHaveText('طلب جديد'); await expect(art.locator('[data-wd-amt]')).toHaveText('1,200.00'); // the pending Dokan request (0078: its status and amount)
   await expect(table.locator('tbody tr', { hasText: 'Antikiano' }).locator('[data-wd]')).toHaveText('لا يوجد'); // a cancelled one is not open
   // 0078: an «عربون» of 700 paid to Art Craft is a «سحب» from his net («إضافة مبلغ»)
   await add(page, 'إضافة مبلغ', 'سحب');
@@ -196,7 +196,7 @@ test('sales come from our orders by status group; the moves log lists Dokan requ
   await main(page).getByRole('tab', { name: 'حسابات المبتكرين' }).last().click();
   await main(page).locator('.mlog-bar [aria-label="اختيار الفترة"]').click(); await page.getByRole('radio', { name: 'أقصى فترة' }).click(); await page.getByRole('button', { name: 'تحديث', exact: true }).click(); // the meeting of 23 Nov [#4]: the log opens on this month — the request of 25 Oct is older
   await expect(main(page).locator('.mlog-table')).toContainText('#501');
-  await expect(main(page).locator('.mlog-table')).toContainText('مستني الموافقة');
+  await expect(main(page).locator('.mlog-table')).toContainText('طلب جديد');
 });
 
 test('ops (accounts.view = P, add N): no «المرتبات» rows, no add button; the server refuses a forced insert', async ({ page }) => {
@@ -298,7 +298,7 @@ test('approve a pending Dokan request from the brief (admin): confirm → woo-sy
   expect(mock.accWrites.filter((w) => w.table === 'acc_vendor_moves')).toEqual([]); // no payout move: Dokan lowers the balance itself
   await art.locator('[data-vreport]').click();
   await expect(modal(page).getByRole('button', { name: /موافقة على طلب السحب/ })).toHaveCount(0);
-  await expect(modal(page)).toContainText('اتوافق عليه على Dokan');
+  await expect(modal(page)).toContainText('تم الدفع على Dokan');
 });
 
 test('the approve button needs accounts.approve = F; the maker\'s file opens in place', async ({ page }) => {
@@ -384,13 +384,13 @@ test('«تحديث من Dokan» brings a new request now; the withdraw filter sh
   await expect(page.locator('.busy-stack .busy-pill', { hasText: 'بنحدّث الأرصدة وطلبات السحب من Dokan…' })).toBeVisible();
   await expect(main(page)).toContainText('اتحدّثت أرصدة المبتكرين وطلبات السحب من Dokan — 2 طلب مستني الموافقة.');
   expect(mock.refreshes).toBe(1);
-  await expect(table.locator('tbody tr', { hasText: 'Antikiano' }).locator('[data-wd]')).toHaveText('مستني الموافقة · 450.00');
+  await expect(table.locator('tbody tr', { hasText: 'Antikiano' }).locator('[data-wd]')).toHaveText('طلب جديد');
   // the filter: makers with a request only
   await main(page).locator('[data-wd-filter]').click();
-  await page.locator('[role=listbox] [role=option]', { hasText: 'مستني الموافقة بس' }).first().click();
+  await page.locator('[role=listbox] [role=option]', { hasText: 'طلب جديد بس' }).first().click();
   await expect(table.locator('tbody tr')).toHaveCount(2); // Art Craft (#501) + Antikiano (#601)
   await expect(table.locator('tbody tr', { hasText: 'Art Craft' })).toHaveCount(1);
-  await expect(main(page).locator('.table-title [data-th-sub]')).toContainText('مستني الموافقة بس'); // the head's count line (2026-11-13-table-head.md)
+  await expect(main(page).locator('.table-title [data-th-sub]')).toContainText('طلب جديد بس'); // the head's count line (2026-11-13-table-head.md)
   await main(page).locator('[data-wd-filter]').click();
   await page.locator('[role=listbox] [role=option]', { hasText: 'طلبات السحب: الكل' }).first().click();
   await expect(table.locator('tbody tr').filter({ hasNot: page.locator('.total') })).not.toHaveCount(2);
@@ -550,11 +550,11 @@ test('0078: «الرصيد دلوقتي» is now (no period) and chains to the n
   await expect(main(page).locator('.table-title h2', { hasText: 'حسابات المبتكرين — الرصيد دلوقتي' })).toBeVisible();
   await main(page).getByRole('button', { name: 'إضافة مبلغ', exact: true }).click();
   await expect(page.locator('[role=menu]')).toContainText('سحب — عربون · مواصلات · أخرى');
-  await expect(page.locator('[role=menu]')).toContainText('إيداع — تصحيح رصيد');
+  await expect(page.locator('[role=menu]')).toContainText('إيداع خارجي');
   await page.keyboard.press('Escape');
   // «إيداع» = a correction: no kind, a title (required) and a description
   await add(page, 'إضافة مبلغ', 'إيداع');
-  await expect(modal(page)).toContainText('إيداع — تصحيح رصيد المبتكر');
+  await expect(modal(page)).toContainText('إيداع خارجي للمبتكر');
   await expect(modal(page).locator('#f-type')).toHaveCount(0);
   await pick(page, 'f-vendor', 'Art Craft');
   await modal(page).locator('#f-amount').fill('300');
@@ -575,7 +575,7 @@ test('0078: «الرصيد دلوقتي» is now (no period) and chains to the n
   await saveForm(page); await expect(modal(page)).toBeHidden();
   await expect.poll(() => mock.accWrites.length).toBe(3);
   const table = main(page).locator('table.vendors-table');
-  await expect(table.locator('thead th')).toContainText(['رصيد Dokan', 'العرابين', 'المواصلات', 'خصومات تانية', 'تصحيحات', 'الصافي', 'طلب السحب', 'آخر طلب سحب']);
+  await expect(table.locator('thead th')).toContainText(['رصيد Dokan', 'العرابين', 'المواصلات', 'ديون أخرى', 'إيداع خارجي', 'الصافي', 'طلب السحب', 'آخر طلب سحب']);
   await expect(table.locator('thead th', { hasText: 'مكتمل — عدد' })).toHaveCount(0); // the orders by period live in «كشف بالفترة»
   // 2,500 − 150 − 200 + 300 = 2,450
   await expect(table.locator('[data-vbal="Art Craft"]')).toHaveText('2,450.00');
@@ -625,7 +625,7 @@ test('0078: «تسوية دلوقتي» files a request on Dokan for the whole D
   await expect(settle.locator('[data-vb-req]')).toHaveAttribute('data-vb-req', 'pending');
   expect(mock.approvals || []).toEqual([]);
   await page.keyboard.press('Escape');
-  await expect(anti.locator('[data-wd]')).toHaveText('مستني الموافقة · 25,000.00');
+  await expect(anti.locator('[data-wd]')).toHaveText('طلب جديد'); await expect(anti.locator('[data-wd-amt]')).toHaveText('25,000.00');
   await anti.getByRole('button', { name: /إجراءات/ }).click();
   await expect(page.locator('[role=menu]')).not.toContainText('تسوية دلوقتي'); // never with a pending request
   await page.keyboard.press('Escape');
@@ -642,7 +642,7 @@ test('0078: «تسوية دلوقتي» files a request on Dokan for the whole D
   await expect(main(page)).toContainText('واتصفّى منه 5,000.00 ج.م خصومات (2 حركة) — حوّل للمبتكر 20,000.00 ج.م.');
   expect(mock.acc.acc_vendor_settlements.at(-1)).toMatchObject({ vendor_id: V2, amount: 25000, consumed: 5000, carry_out: 0, cash: 20000, moves: 2 });
   await expect(anti.locator('[data-vbal="Antikiano"]')).toHaveText('0.00'); // Dokan 0 − nothing open
-  await expect(anti.locator('[data-wd]')).toHaveText('اتوافق عليه · 20,000.00');
+  await expect(anti.locator('[data-wd]')).toHaveText('تم الدفع'); await expect(anti.locator('[data-wd-amt]')).toHaveText('20,000.00');
   // a settled move is final: no «تعديل» / «حذف» in the moves log
   await tab(page, 'سجل الحركات').click();
   await main(page).getByRole('tab', { name: 'حسابات المبتكرين' }).last().click();

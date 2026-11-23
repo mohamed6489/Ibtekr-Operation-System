@@ -1349,6 +1349,9 @@ export function mapWithdrawal(w: Json, vendorOf: (store: number) => string | nul
     status: strOrNull(w.status, 20) ?? 'unknown', method: strOrNull(w.method, 40), requested_at: localTs(w.created ?? w.date) };
 }
 
+/** the meeting of 23 Nov [#19]: a request the system made (withdraw_create's fixed note) — the note is read for this only, never stored */
+export const internalRequest = (w: Json) => isObj(w) && String(w.note ?? '').trim() === WITHDRAW_NOTE;
+
 async function makersWithStore(run: Run) {
   const makers: Json[] = [];
   for (let from = 0; ; from += 1000) {
@@ -1383,6 +1386,9 @@ async function pullWithdrawals(run: Run, makers: Json[], now: string) {
     for (const b of bad) await logSync(run.db, { kind: run.kind, direction: 'in', entity: 'dokan_withdrawals', entity_id: b.key, action: 'upsert', result: 'error', detail: { error: errorText(b.error, scrub) } });
     withdrawals += rows.length - bad.length; failedRows += bad.length;
     const failed = new Set(bad.map((b) => String(b.key)));
+    // [#19]: the requests the system made (Dokan keeps withdraw_create's note) → internal (0152); never set back to false here
+    const mine = page.filter(internalRequest).map((w) => wooId(w.id)).filter((id): id is number => id !== null && !failed.has(String(id)));
+    if (mine.length) { const { error: ie } = await run.db.from('dokan_withdrawals').update({ internal: true }).in('id', mine).eq('internal', false); if (ie && ie.code !== '42703') await logSync(run.db, { kind: run.kind, direction: 'in', entity: 'dokan_withdrawals', entity_id: 'internal', action: 'upsert', result: 'error', detail: { error: errorText(ie, scrub) } }); }
     for (const r of rows) {
       if (failed.has(String(r.id)) || r.status !== 'approved' || !r.vendor_id) continue;
       const before = was.get(r.id);
@@ -1639,6 +1645,8 @@ async function withdrawCreate(run: Run, args: Json) {
   if (!row) throw new Error('withdraw_create: the answer carries no request');
   const { bad } = await upsertRows(run.db, 'dokan_withdrawals', [{ ...row, synced_at: run.now() }], 'id');
   if (bad.length) throw new Error('dokan_withdrawals: the new request was not mirrored');
+  // [#19]: the system made it — «داخلي» (0152; before the migration the column is unknown and the request stays unmarked)
+  await run.db.from('dokan_withdrawals').update({ internal: true }).eq('id', row.id); // best effort: the request itself is made and mirrored
   await logSync(run.db, { ...entry, entity_id: String(row.id), result: 'ok', detail: { amount: row.amount, status: row.status } });
   return json(200, { action: 'withdraw_create', result: 'ok', id: row.id, amount: row.amount, status: row.status });
 }

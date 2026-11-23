@@ -187,7 +187,7 @@
       rate: visible && cur ? cur.rate : null, rateSince: visible && cur ? cur.since : null, rateHistory: visible ? hist : [], ratesVisible: visible,
       commissionType: visible && cur ? cur.type : 'fixed', // plan 3.4: fixed | category_based (the rate is then the default of a category with no figure)
       leadDays: Number(r.lead_days) || 7, depositPolicy: r.deposit_policy || null, notes: r.notes || null, logoLetter: name.charAt(0),
-      joinedAt: localDate(r.joined_at) || localDate(r.created_at) || T, contract, bank: b, login: toLogin(opts && opts.login), openingBalance: Number(r.opening_balance) || 0,
+      joinedAt: localDate(r.joined_at) || localDate(r.created_at) || T, joinedSite: localDate(r.joined_at) || null, contract, bank: b, login: toLogin(opts && opts.login), openingBalance: Number(r.opening_balance) || 0,
       wooVendorId: r.woo_vendor_id == null ? null : Number(r.woo_vendor_id), shopUrl: text(raw.shop_url), createdAt: text(r.created_at), lastUpdate: text(r.updated_at) || text(r.created_at),
       storeError: text(r.store_error) || null, archivedAt: text(r.archived_at) || null, // 0112 (the owner 16 Nov)
       siteRemovedAt: text(r.site_removed_at) || null, // the owner (2 Nov): the store is gone from the site (woo-sync marks it; the admin deletes from the drawer)
@@ -1016,7 +1016,10 @@
         const o = full.get(String(r.id)); const lines = o ? (o.subs || []).filter((s) => (s.vendorId ? storeOwnerAt(s.vendorId, o.date) === v.id : s.vendor === v.name)) : [];
         if (!lines.length && (o || !(r.vendors || []).includes(v.name))) continue;
         let sales = 0, share = 0; for (const s of lines) { const x = lineShare(s, v, o.date); sales += Number(s.tot) || 0; share += x.share; if (x.noRate) noRate += 1; }
-        const k = kindOf(r.status); by[k].n += 1; by[k].sales += sales; by[k].earned += share;
+        // the meeting of 23 Nov [#24]: «مستحقاته» from the maker's join date — his store's day on Dokan (vendors.joined_at), else his
+        // first order (= all of them): a completed order dated before he joined is not his due
+        const k = kindOf(r.status); const day = o && o.date ? String(o.date).slice(0, 10) : '';
+        if (!(k === 'c' && v.joinedSite && day && day < v.joinedSite)) { by[k].n += 1; by[k].sales += sales; by[k].earned += share; }
         // phase 13 decision 52: a maker's order is as late as his own lines (the sub-order rule: notify date + making days), not the order
         const ld = new Map((r.lines || []).map((x) => [Number(x.n), x.delivery])); const dl = lines.map((s) => ld.get(Number(s.n))).filter(Boolean);
         const delivery = dl.length ? (dl.includes('late') ? 'late' : dl.includes('risk') ? 'risk' : 'ok') : r.delivery;
@@ -1024,7 +1027,8 @@
       }
       const open = mine.filter((r) => kindOf(r.status) === 'p');
       const earned = r2(by.c.earned);
-      out[v.id] = { orders: mine, open: open.length, late: open.filter((r) => r.delivery !== 'ok').length, lastAge: mine.length ? Math.min(...mine.map((r) => Number(r.ageDays) || 0)) : null,
+      const firstDay = mine.reduce((m, r) => { const o = full.get(String(r.id)); const d = o && o.date ? String(o.date).slice(0, 10) : ''; return d && (!m || d < m) ? d : m; }, '');
+      out[v.id] = { since: v.joinedSite || firstDay || null, sinceFrom: v.joinedSite ? 'site' : firstDay ? 'order' : null, orders: mine, open: open.length, late: open.filter((r) => r.delivery !== 'ok').length, lastAge: mine.length ? Math.min(...mine.map((r) => Number(r.ageDays) || 0)) : null,
         sales: r2(by.c.sales), earned, ibtekrShare: r2(by.c.sales - by.c.earned), pending: r2(by.p.earned), pendingSales: r2(by.p.sales), noRate,
         openingBalance: v.openingBalance, balance: r2(v.openingBalance + earned), deposits: 0, transport: { total: 0, trips: 0, last: null }, tickets: window.IBTickets && window.IBTickets.forVendor ? window.IBTickets.forVendor(v.id) : [], seed: null, // phase 8: the open tickets on the maker
         byStatus: { c: [by.c.n, r2(by.c.sales), r2(by.c.earned)], p: [by.p.n, r2(by.p.sales), r2(by.p.earned)], x: [by.x.n, r2(by.x.sales), r2(by.x.earned)] } };

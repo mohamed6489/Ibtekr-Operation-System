@@ -229,7 +229,7 @@ test('decision 42: vendorData — orders by status in the period, cancelled / la
   assert.deepEqual(r.sales, { 'مكتمل': { orders: 2, sales: 1000, ibtekrShare: 200 } });
   // 2000 − عربون 500 − مواصلات 60 − أخرى 100 + تصحيح 40 − المتبقي 20 = 1360; the voided and the settled moves are out
   assert.deepEqual([r.account.dokanBalance, r.account.deposits, r.account.transport, r.account.otherMoves, r.account.corrections, r.account.carry, r.account.net], [2000, 500, 60, 100, 40, 20, 1360]);
-  assert.deepEqual(r.account.movesInPeriod, { 'عربون': 800, 'أخرى': 100, 'تصحيح': 40 });
+  assert.deepEqual(r.account.movesInPeriod, { 'عربون': 800, 'أخرى': 100, 'إيداع خارجي': 40 });
   assert.deepEqual(r.lastWithdrawal, { amount: 700, status: 'pending', date: '2026-11-09' });
   // a refused part is { forbidden } and the rest still answers; no maker = found false
   const f = vendorData({ vendors, items: null, orders: null, sales: null, balance: null, balanceForbidden: true, moves: null }, dq, '2026-11-10');

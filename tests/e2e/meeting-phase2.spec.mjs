@@ -113,3 +113,16 @@ test('[#15] «تم الشحن للعميل» by a ride: the company pays = an «
   expect(mock.shipments[1]).toMatchObject({ payer: 'customer', amount: 40, expense_id: null });
   expect(mock.pushes || []).toEqual([]); // nothing to the site
 });
+
+test('[#14] the order popup: «تواصل مع العميل» opens WhatsApp on the number in its international form (01x → 201x), the number shown as text; the section heads are the brand green', async ({ page }) => {
+  await openOrders(page);
+  await card(page, '181668').locator('[data-more="o:181668"]').click();
+  await page.locator('#orders #mpop [data-ma="edit"]').click();
+  const edit = page.locator('#orders #cdlg').first();
+  const wa = edit.locator('[data-wa-contact]');
+  await expect(wa).toHaveText('تواصل مع العميل');
+  const href = await wa.getAttribute('href');
+  expect(href).toMatch(/^https:\/\/wa\.me\/201\d{9}$/);
+  await expect(edit.locator('[data-wa-num]')).toHaveText('+' + href.split('/').pop());
+  await expect(wa).toHaveAttribute('target', '_blank'); await expect(wa).toHaveAttribute('rel', /noopener/);
+});

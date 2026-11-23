@@ -2477,3 +2477,5 @@ input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-
 .cards.two{grid-template-columns:repeat(2,minmax(0,1fr))} /* the meeting of 23 Nov [#16]: the two cards above the makers register */
 .wd-pair{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px} /* the meeting of 23 Nov [#19]: the status and «داخلي» */
 .wd-internal{font-size:11px;white-space:nowrap}
+.ov-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px} /* the meeting of 23 Nov [#25]: the makers overview's four tables */
+@media (max-width:1023px){.ov-grid{grid-template-columns:1fr}}

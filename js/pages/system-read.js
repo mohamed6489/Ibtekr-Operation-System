@@ -30,10 +30,13 @@
     if (acc) {
       const owes = num((v.deposits || 0) + (v.transport || 0) + (v.other || 0) + (v.carry || 0) - (v.corrections || 0)); const wd = d.withdrawalOf(v.name);
       chips.unshift([tx('رصيد Dokan', 'Dokan balance'), v.dokanBalance == null ? '—' : money(v.dokanBalance)], [tx('عرابين', 'Deposits'), money(v.deposits || 0)], [tx('مواصلات', 'Transport'), money(v.transport || 0)], [tx('عليه', 'Deductions'), money(owes)], [tx('الصافي', 'Net'), money(v.balance)]);
-      if (wd) chips.push([tx('طلب سحب مستني', 'Pending withdrawal'), money(wd.amount)]);
+      // the meeting of 23 Nov [#18]: the request as the accounts table has it now (withdrawalOf = the mirror after the sync) — only a
+      // pending one is «مستني»; an approved / rejected one is said as it is («تم الدفع» / «تم الرفض»)
+      const wdPend = !!(wd && wd.status === 'pending'); const wdWord = wd ? (wd.status === 'pending' ? tx('طلب جديد', 'new') : wd.status === 'approved' || wd.status === 'paid' ? tx('تم الدفع', 'paid') : tx('تم الرفض', 'rejected')) : '';
+      if (wd) chips.push([wdPend ? tx('طلب سحب مستني', 'Pending withdrawal') : tx('آخر طلب سحب — ', 'Last withdrawal — ') + wdWord, money(wd.amount)]);
       said = (v.dokanBalance == null ? tx('مالوش رصيد مقري من Dokan', 'no balance read from Dokan') : tx('رصيد Dokan ', 'Dokan balance ') + money(v.dokanBalance))
         + (owes ? tx('، عليه ', ', deductions ') + money(owes) : tx('، مفيش عليه خصومات', ', no deductions')) + tx('، والصافي ', ', net ') + money(v.balance) + '.'
-        + (wd ? tx(' وفيه طلب سحب مستني بـ ', ' A withdrawal request of ') + money(wd.amount) + tx('.', ' is pending.') : '') + ' ';
+        + (wdPend ? tx(' وفيه طلب سحب مستني بـ ', ' A withdrawal request of ') + money(wd.amount) + tx('.', ' is pending.') : wd ? tx(' وآخر طلب سحب ', ' The last withdrawal of ') + money(wd.amount) + tx(' — ' + wdWord + '.', ' was ' + wdWord + '.') : '') + ' ';
     }
     const ord = d.barred('orders') ? '' : tx('أوردراته المفتوحة ' + open.length + (late ? '، منهم ' + late + ' متأخر' : '') + '.', 'Open orders: ' + open.length + (late ? ', ' + late + ' late' : '') + '.');
     return { text: tx('حساب ' + v.name + ': ', v.name + '’s account: ') + said + ord,

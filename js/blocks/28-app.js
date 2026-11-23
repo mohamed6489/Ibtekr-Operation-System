@@ -1875,6 +1875,8 @@
       return out;
     }
     if (f.category === ADS_CAT) {
+      // the meeting of 23 Nov [#29] (Safwat: «يفضل للحاجات برّه المنصات»): the linked platforms' spend is recorded by itself
+      out.push(U.InlineNote({ children: 'صرف Meta Ads (والمنصات المربوطة) بيتسجّل هنا لوحده كل يوم — سجّل هنا الإعلانات اللي برّه المنصات المربوطة بس (إنفلونسر، مطبوعات…).' }));
       const list = adPlatforms();
       out.push(U.Select({ id: 'f-plat', label: 'المنصة', required: true, options: withNew(list, '+ إضافة منصة جديدة'), value: f.platform, error: errs.platform, placeholder: 'اختار المنصة',
         onChange: (v) => { if (v === NEW_VAL) { addToList('إضافة منصة إعلانات', 'اسم المنصة', list, (x) => list.some((n) => n.toLowerCase() === x.toLowerCase()), (nv) => { f.platform = nv; redraw(); }, 'ads'); return; } f.platform = v; redraw(); } }));

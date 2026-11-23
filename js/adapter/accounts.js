@@ -116,7 +116,11 @@
     try {
       const reads = Object.entries(KINDS).map(([, k]) => cl.from(k.table).select(k.cols).is('voided_at', null).order('on_date', { ascending: false }).range(0, 9999));
       reads.push(cl.from('dokan_balances').select('vendor_id, woo_vendor_id, balance, earning, sales, orders, synced_at'));
-      reads.push(cl.from('dokan_withdrawals').select('id, woo_vendor_id, vendor_id, amount, charge, receivable, status, method, requested_at, synced_at').order('id', { ascending: false }).range(0, 9999));
+      // the meeting of 23 Nov [#19]: `internal` (0152) = a request the system itself made; before the migration the column is unknown (42703)
+      // and the read goes again without it
+      const wdCols = 'id, woo_vendor_id, vendor_id, amount, charge, receivable, status, method, requested_at, synced_at';
+      reads.push(cl.from('dokan_withdrawals').select(wdCols + ', internal').order('id', { ascending: false }).range(0, 9999)
+        .then((r) => (r.error && (r.error.code === '42703' || /internal/.test(String(r.error.message || ''))) ? cl.from('dokan_withdrawals').select(wdCols).order('id', { ascending: false }).range(0, 9999) : r)));
       reads.push(cl.from('acc_list_items').select('list, name').order('id').range(0, 999));
       reads.push(cl.from('acc_vendor_settlements').select('id, withdraw_id, vendor_id, amount, moves_net, carry_in, consumed, carry_out, cash, moves, source, approved_by, settled_on, created_at').order('id').range(0, 9999));
       const res = await Promise.all(reads);
@@ -124,7 +128,7 @@
       Object.keys(KINDS).forEach((kind, i) => { data[kind] = (res[i].data || []).map(TO[kind]); });
       data.balances = (res[3].data || []).map((r) => ({ vendorId: r.vendor_id, store: r.woo_vendor_id, balance: numOrNull(r.balance), earning: numOrNull(r.earning), sales: numOrNull(r.sales), orders: r.orders, syncedAt: r.synced_at }));
       data.lists = (res[5].data || []).map((r) => ({ list: r.list, name: r.name }));
-      data.withdrawals = (res[4].data || []).map((r) => ({ id: r.id, store: r.woo_vendor_id, vendorId: r.vendor_id, amount: num(r.amount), charge: num(r.charge), receivable: num(r.receivable), status: r.status, method: r.method || '', at: r.requested_at || '', syncedAt: r.synced_at }));
+      data.withdrawals = (res[4].data || []).map((r) => ({ id: r.id, store: r.woo_vendor_id, vendorId: r.vendor_id, amount: num(r.amount), charge: num(r.charge), receivable: num(r.receivable), status: r.status, method: r.method || '', internal: r.internal === true, at: r.requested_at || '', syncedAt: r.synced_at }));
       data.settlements = (res[6].data || []).map(toSettlement);
       if (soft) refreshSales(); else salesCache.clear();
       st = 'ready';

@@ -335,7 +335,12 @@
   }
   const money2 = (n) => (n < 0 ? '-' : '') + Math.abs(n).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   // ---- طلبات السحب (owner 27 Oct; phase 4: read from Dokan — dokan_withdrawals — the statuses are Dokan's) ----
-  const WD_STATUS = Object.freeze([['pending', 'مستني الموافقة'], ['approved', 'اتوافق عليه'], ['paid', 'اتحوّل'], ['rejected', 'مرفوض'], ['cancelled', 'اتلغى']]);
+  // the meeting of 23 Nov [#19]: Dokan pending = «طلب جديد», approved = «تم الدفع», cancelled (Dokan's rejection) = «تم الرفض»
+  const WD_STATUS = Object.freeze([['pending', 'طلب جديد'], ['approved', 'تم الدفع'], ['paid', 'تم الدفع'], ['rejected', 'تم الرفض'], ['cancelled', 'تم الرفض']]);
+  // the request the makers' accounts table shows (#19): the pending one, else the latest of any status (a rejection included)
+  const lastRequest = (list, vendorId) => { const mine = (list || []).filter((w) => w.vendorId === vendorId);
+    const by = (a, b) => (String(b.at || '') > String(a.at || '') ? 1 : String(b.at || '') < String(a.at || '') ? -1 : Number(b.id) - Number(a.id));
+    return mine.filter((w) => w.status === 'pending').sort(by)[0] || mine.sort(by)[0] || null; };
   const wdLabel = (k) => (WD_STATUS.find((x) => x[0] === k) || [, k])[1];
   // ملخص الحساب للتقرير المختصر: أرقام الأوردرات + العرابين + المواصلات + الرصيد الحالي
   function accountBrief({ name, report, deposits, transport, balance, request }) {
@@ -474,6 +479,6 @@
     return e;
   }
 
-  return Object.freeze({ WD_STATUS, wdLabel, accountBrief, openRequest, BANK_ACCOUNT_TYPES, ADDRESS_KEYS, ADDRESS_LABELS, SOCIAL_KEYS, SYNC_FIELD_LABELS, cleanAddressParts, cleanSocial, addressText, validateAddressParts, validateSocial, validateCategoryRate, categoryTree, categoryFigures, categoryPath, validateBrand, brandCode, ownerAt, effectiveRate, validateTransfer, LOGIN_STATUS, passwordIssues, genPassword, suggestUsername, validateLogin, validateBank, dailyVendorReport, dailyVendorText, weeklyVendorReport, weeklyVendorText, vendorReport, vendorReportText, biweeklyPeriod, periodStatement, periodStatementText, periodMoney, ADMIN, ACCOUNTS, VENDOR_FOLLOW, CATEGORIES, cleanCategoryIds, STATUSES, PAY_METHODS, CONTRACT_TYPES, CONTRACT_MAX, EXPIRY_WARN_DAYS, label, validateVendor, EDIT_GROUPS, groupPatch, validateGroup, orderCounts, performance, ledger, ORDER_KINDS, ordersByKind, delayCounts, shareText, waPhone, createStore, isAdmin, canEdit, canSeeBank, mask, rateAt, contractStatus, summary, summaryDetails, filterVendors, activeFilterCount, VENDOR_SORTS, sortVendors, parseAliases, norm });
+  return Object.freeze({ WD_STATUS, wdLabel, lastRequest, accountBrief, openRequest, BANK_ACCOUNT_TYPES, ADDRESS_KEYS, ADDRESS_LABELS, SOCIAL_KEYS, SYNC_FIELD_LABELS, cleanAddressParts, cleanSocial, addressText, validateAddressParts, validateSocial, validateCategoryRate, categoryTree, categoryFigures, categoryPath, validateBrand, brandCode, ownerAt, effectiveRate, validateTransfer, LOGIN_STATUS, passwordIssues, genPassword, suggestUsername, validateLogin, validateBank, dailyVendorReport, dailyVendorText, weeklyVendorReport, weeklyVendorText, vendorReport, vendorReportText, biweeklyPeriod, periodStatement, periodStatementText, periodMoney, ADMIN, ACCOUNTS, VENDOR_FOLLOW, CATEGORIES, cleanCategoryIds, STATUSES, PAY_METHODS, CONTRACT_TYPES, CONTRACT_MAX, EXPIRY_WARN_DAYS, label, validateVendor, EDIT_GROUPS, groupPatch, validateGroup, orderCounts, performance, ledger, ORDER_KINDS, ordersByKind, delayCounts, shareText, waPhone, createStore, isAdmin, canEdit, canSeeBank, mask, rateAt, contractStatus, summary, summaryDetails, filterVendors, activeFilterCount, VENDOR_SORTS, sortVendors, parseAliases, norm });
 });
 

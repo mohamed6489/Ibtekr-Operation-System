@@ -31,6 +31,11 @@
       return error ? null : (data || []).map(toRow);
     } catch (e) { return null; }
   }
+  // the newest rows of one action (the settings' «آخر اللي اتبعت» for an outside AI — kinds only); [] on a failed read
+  async function byAction(action, limit = 20) {
+    const c = client(); if (!c || !signedIn()) return [];
+    try { const { data, error } = await c.from('activity_log').select('id, at, action, new_value, actor:profiles(name)').in('action', (Array.isArray(action) ? action : [action]).map(String)).order('at', { ascending: false }).limit(limit); return error ? [] : (data || []).map(toRow); } catch (e) { return []; }
+  }
   async function recent(limit = 5) { return (await read(limit)) || []; }
   async function refresh() {
     if (!client() || !signedIn()) return;
@@ -57,5 +62,5 @@
   const dayBounds = (from, to) => ({ gte: ISO_DAY.test(String(from || '')) ? instant(from, 0, 0, 0, 0) : null, lte: ISO_DAY.test(String(to || '')) ? instant(to, 23, 59, 59, 999) : null });
   const cairoDay = (at) => { const s0 = String(at == null ? '' : at); if (!s0) return ''; if (s0.indexOf('T') < 0) return s0.slice(0, 10); const d = new Date(s0); return isNaN(d) ? s0.slice(0, 10) : new Intl.DateTimeFormat('en-CA', CAIRO).format(d); };
   const inPeriod = (range, at) => { if (!range || !ISO_DAY.test(String(range.from || '')) || !ISO_DAY.test(String(range.to || ''))) return true; const d = cairoDay(at); return !!d && d >= range.from && d <= range.to; };
-  window.IBActivity = { log, LOGGED_PREFIXES, LOGGED_ACTIONS, recent, cached: () => rows, refresh, clear: () => { rows = null; }, dayBounds, cairoDay, inPeriod };
+  window.IBActivity = { log, LOGGED_PREFIXES, LOGGED_ACTIONS, recent, byAction, cached: () => rows, refresh, clear: () => { rows = null; }, dayBounds, cairoDay, inPeriod };
 })();

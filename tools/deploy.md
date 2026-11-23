@@ -2467,3 +2467,10 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 
 #### 2.7.120 طلب السحب بالمبلغ اللي بيتكتب في أي وقت (22 نوفمبر — مافيش migration)
 1. انشر `woo-sync` من «Deploy functions» — `withdraw_create` بياخد المبلغ اللي بيتكتب (لحد رصيد Dokan، أكتر منه `skipped/over_balance`)، وادمج على `main` — خانة المبلغ في بوكس طلب السحب (من غير طلب وبعد طلب اتوافق عليه).
+
+#### 2.7.121 السيستم الأول والمخ الخارجي بموافقة (22 نوفمبر — `0150`، الخطة `docs/superpowers/plans/2026-11-22-system-brain.md`)
+1. **الأول:** طبّق `0150_system_brain.sql` (مصدر كل رد `mkt_agent_messages.source` / `.shared`، `mkt_agent_system_turn`، «المدير العام» بقواعده، `ai_agent_state` و`ai_agent_facts()` و`ai_agent_bankless()`، و`ai_agent_state` في «السجلات» بتاعة المسح) وشغّل `rls_system_brain` و`rls_ai_agents` و`rls_data_wipe` من «RLS live». الدوال الجديدة بتكتب العمودين دول — من غير الـ migration شات المساعدين بيفشل.
+2. انشر `ai-content` (action `brains`؛ `assistant` / `agent` بـ `provider` و`share` — الرسالة لوحدها، والبيانات بموافقة؛ مخ كل مساعد ومصادره) و`notify` (عدّ أرقام المساعدين كل 15 دقيقة، تنبيهات القواعد، لقطة الأرقام، وaction `rules` لكارت الأدمن) من «Deploy functions».
+3. ادمج على `main` — المساعد في الهيدر بيرد من السيستم الأول، كارت «أستخدم مخ خارجي؟»، شات المساعدين من السيستم، «الإعدادات › الذكاء الاصطناعي › المساعدين» تاب لكل مساعد، وكارت المزوّدين الجديد.
+4. **اتأكد بعد النشر:** `select agent, kind, ref, title from ai_agent_notes where ref like 'rule:%' order by created_at desc limit 20;` (تنبيهات القواعد بعد أول تيك) و`select at, jsonb_object_keys(facts -> 'agents') from ai_agent_state;` (اللقطة). لو تنبيهات كتير أول يوم: الأدمن يعدّل حد القاعدة أو يقفلها من تاب المساعد، أو يقفل تنبيهات مساعد من «الإعدادات › التنبيهات › المساعدين».
+5. **الحدود:** مساعد الهيدر على السيرفر Claude بس (الاختيار بين الشركات في شات المساعدين)؛ ChatGPT وGemini مااتجرّبوش على مفتاح حقيقي — راجع `ai_runs` أول ما واحد يتربط (§2.7.118 بند 8).

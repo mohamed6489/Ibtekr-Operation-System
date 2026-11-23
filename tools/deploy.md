@@ -2475,3 +2475,8 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 4. **اتأكد بعد النشر:** `select agent, kind, ref, title from ai_agent_notes where ref like 'rule:%' order by created_at desc limit 20;` (تنبيهات القواعد بعد أول تيك) و`select at, jsonb_object_keys(facts -> 'agents') from ai_agent_state;` (اللقطة). لو تنبيهات كتير أول يوم: الأدمن يعدّل حد القاعدة أو يقفلها من تاب المساعد، أو يقفل تنبيهات مساعد من «الإعدادات › التنبيهات › المساعدين».
 5. **الحدود:** مساعد الهيدر على السيرفر Claude بس (الاختيار بين الشركات في شات المساعدين)؛ ChatGPT وGemini مااتجرّبوش على مفتاح حقيقي — راجع `ai_runs` أول ما واحد يتربط (§2.7.118 بند 8).
 6. **اتنشر على الحي 23 نوفمبر:** `0150` اتطبّق (`apply_migration` «system_brain»)؛ `rls_system_brain` / `rls_ai_agents` / `rls_data_wipe` / `rls_agent_notes` / `rls_dev_check` عدّوا على الحي («RLS live» run 106 و107 — `rls_dev_check` اتصلّح: كان بيعدّ تنبيه واحد والحي عليه تنبيهات المبرمج الحقيقية)؛ `ai-content` و`notify` اتنشروا («Deploy functions» run 256 و257)؛ والواجهة على `main` («Deploy» run 287). أول تيك بعد النشر (06:30 UTC) كتب اللقطة لعشر مساعدين و7 تنبيهات قواعد كل واحد بصلاحية صفحته.
+
+#### 2.7.122 «تم الشحن» — ميتنج 23 نوفمبر المرحلة 2 (`0151`، الخطة `docs/superpowers/plans/2026-11-23-meeting.md`)
+1. **الأول:** طبّق `0151_order_shipments.sql` (جدول `order_shipments` بـ RLS قراية `orders.view`، و`order_shipment_add` لـ `orders.status = F` أو `orders.edit`، و`order_shipments` في قسم «orders» بتاع `data_wipe_map`، وإشارة «orders» اللحظية).
+2. شغّل `supabase/tests/rls_order_shipments.sql` على الحي.
+3. ادمج على `main` — مفيش Edge Function اتغيّرت غير `_shared/delay.js` (بيتحمّل مع `notify` / `cs-auto` / `portal` / `ai-content` في النشر الجاي — «معلّق» مابيتأخرش). **مفيش أي كتابة على الموقع.**

@@ -66,7 +66,7 @@ test('«التقارير» is open: the nine v2 tabs (none «قريبًا» — 
   await expect(R(page).locator('[role=tab] [data-soon]')).toHaveCount(0);
   await expect(tab(page, 'orders')).toHaveAttribute('aria-selected', 'true');
   await expect(kpi(page, 'إجمالي الأوردرات')).toContainText('3'); // the three seeded orders of the last 30 days (the 400-day-old one out)
-  await expect(kpi(page, 'نسبة الإكمال')).toContainText('33%');
+  await expect(kpi(page, 'مكتملة')).toContainText('33%'); // the meeting of 23 Nov [#31]: the value + the count, the rate under them
   const fresh = R(page).locator('.page-head');
   await expect(fresh).toContainText('آخر تحميل للأوردرات');
   await expect(fresh).not.toContainText('09:30');
@@ -105,12 +105,16 @@ test('«تقارير المبتكرين» on real data: orders and delays from o
   await expect(kpi(page, 'متوسط عمولة إبتكر')).toContainText('40%'); // 35% and 45% (Bian eg has none)
   await expect(kpi(page, 'إجمالي مستحقات المبتكرين — الآن')).toBeVisible();
   const table = R(page).locator('table.vendors-table');
-  await expect(table.locator('thead th')).toHaveText(['المبتكر', 'الأوردرات', 'قابلة للتأخير', 'العمولة', 'حصة إبتكر (مكتمل)', 'العرابين', 'المواصلات', 'الرصيد الحالي']);
+  // the meeting of 23 Nov [#32]: the columns; «الرصيد الحالي» left
+  await expect(table.locator('thead th')).toHaveText(['المبتكر', 'عدد الأوردرات', 'مكتمل', 'ملغي', 'متأخر', 'غير متأخر', 'قيمة المكتمل', 'قيمة الملغي', 'حصة إبتكر', 'العرابين', 'المواصلات']);
   const art = table.locator('tbody tr', { hasText: 'Art Craft' });
-  await expect(art).toContainText('35.0%');
   await expect(art).toContainText('350.70'); // 1,002 × 35% in «مكتمل» in the range
-  await expect(art).toContainText('2,500.00'); // Dokan's balance (no deposit / transport)
-  await expect(R(page).locator('#rpanel .source')).toContainText('رصيد Dokan');
+  await expect(R(page).locator('#rpanel .source')).toContainText('«معلّق» مش محسوب في التأخير');
+  // the orders' count opens those orders; the name opens the maker
+  const n = Number((await art.locator('[data-rv-orders]').textContent()).replace(/[^\d]/g, ''));
+  await art.locator('[data-rv-orders]').click();
+  await expect(modal(page, 'أوردرات Art Craft').locator('tbody tr')).toHaveCount(n);
+  await page.keyboard.press('Escape');
   // a row of «التفاصيل» opens the maker's drawer where we are
   await kpi(page, 'مبتكرين نشطين').locator('.kpi-details').click();
   await modal(page, 'المبتكرين النشطين في الفترة').locator('tbody tr', { hasText: 'Art Craft' }).click();
@@ -126,7 +130,7 @@ test('each tab by its page\'s permission: no «الحسابات» without accoun
   await expect(R(page).locator('[data-rp-csv]')).toHaveCount(0);
   await expect(R(page).locator('[data-actions]')).toHaveCount(0);
   await tab(page, 'vendors').click();
-  await expect(R(page).locator('table.vendors-table thead th')).toHaveText(['المبتكر', 'الأوردرات', 'قابلة للتأخير']);
+  await expect(R(page).locator('table.vendors-table thead th')).toHaveText(['المبتكر', 'عدد الأوردرات', 'مكتمل', 'ملغي', 'متأخر', 'غير متأخر']); // the meeting of 23 Nov [#32]: no money without accounts.view
   await expect(kpi(page, 'متوسط عمولة إبتكر')).toHaveCount(0);
   await expect(kpi(page, 'عرابين مدفوعة للمبتكرين')).toHaveCount(0);
   await expect(R(page).locator('#rpanel')).not.toContainText('2,500');
@@ -176,7 +180,7 @@ test('«تقارير المنتجات» = the products page\'s own reports (prod
   await expect(R(page).locator('#rpanel')).toContainText('المنتجات الأكثر مبيعًا — أعلى 20');
   await expect(R(page).locator('#rpanel')).toContainText('منتجات نفد مخزونها');
   // a card and a table sharing a title keep their places: the best sellers before the out-of-stock table
-  expect(await R(page).locator('#rpanel .sec-h h2').allTextContents()).toEqual(['المنتجات الأكثر مبيعًا — أعلى 20', 'منتجات نفد مخزونها', 'الأقسام الأكثر مبيعًا']);
+  expect(await R(page).locator('#rpanel .sec-h h2').allTextContents()).toEqual(['المنتجات الأكثر مبيعًا — أعلى 20', 'منتجات نفد مخزونها', 'مخزون قرب يخلص (أقل من 3 قطع)', 'المرتجعات', 'الأقسام الأكثر مبيعًا']); // the meeting of 23 Nov [#34]
   expect(rpcCalls).toContain('products_report');
   await expect(R(page).locator('[data-kpi-custom="products"]')).toBeVisible();
 });

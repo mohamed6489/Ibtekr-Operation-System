@@ -7,6 +7,7 @@
   'use strict';
   const U = window.IBUI, O = window.IbtekrOps, K = window.IBKit;
   const { h, Icon, Button, IconButton } = U; const S = K.store;
+  const SG = () => !!(window.IBSettings && window.IBSettings.single && window.IBSettings.single()); // a seller without makers (0127)
   const SECTIONS = [
     ['general', 'عام', 'بيانات الشركة واللغة والعرض', 'home'], ['team', 'الفريق والصلاحيات', 'الأعضاء والأدوار والدعوات', 'users'], ['integrations', 'الربط بالمنصات', 'WooCommerce وAirtable وواتساب', 'external'], ['ai', 'تعليمات الذكاء الاصطناعي', 'الصور، الفيديو، والمحتوى بأسلوب إبتكر', 'sparkle'],
     ['hr', 'الموارد البشرية', 'مديري الأدوار والدوام والأوفر تايم والمرتبات والإجازات والعطلات', 'briefcase'], ['makers', 'إعدادات المبتكرين', 'قواعد التأخير والتنشيط والخصم الوهمي', 'truck'], ['inventory', 'المخزن', 'الأماكن والسحب والتنبيهات والمرتجع', 'box'], ['notifications', 'التنبيهات', 'الأنواع والتصعيد وساعات الهدوء', 'bell'], ['lists', 'القوائم والحالات', 'الحالات والأسباب والفئات', 'sliders'],
@@ -103,12 +104,13 @@
     const area = (id, label, key, i) => U.Textarea({ id: 'ai-' + id, label, rows: 3, value: i == null ? A[key] : A[key][i], onInput: (v) => { if (i == null) A[key] = v; else A[key][i] = v; } });
     const sel = (id, label, key, opts) => U.Select({ id: 'ai-' + id, label, options: opts.map((x) => ({ value: x, label: x })), value: A[key], onChange: (v) => { A[key] = v; R(); } });
     const words = (id, label, key) => U.FieldShell({ id: 'ai-' + id, label }, h('div', { class: 'chips' }, A[key].map((w) => h('button', { type: 'button', class: 'chip', 'aria-pressed': 'true', 'aria-label': 'شيل ' + w, onClick: () => { A[key] = A[key].filter((x) => x !== w); R(); } }, w + ' ✕')), Button({ size: 'sm', label: '+ ضيف', onClick: () => K.form({ title: 'ضيف لـ «' + label + '»', values: { w: '' }, fields: (f, e, set) => [K.field.text('w', 'الكلمة', f, e, set, { required: true })], validate: (f) => K.req(f, ['w']), submit: (f) => { A[key] = A[key].concat(f.w); R(); } }) })));
-    const aiTabs = K.MainTabs({ items: [{ id: 'prov', label: 'المزوّدين' }, { id: 'img', label: 'الصور' }, { id: 'vid', label: 'الفيديو' }, { id: 'txt', label: 'المحتوى' }, { id: 'agents', label: 'المساعدين' }], active: st.aiTab, onChange: (id) => { st.aiTab = id; R(); }, label: 'نوع التعليمات' });
+    const aiTabs = K.MainTabs({ items: [{ id: 'prov', label: 'مصادر الذكاء' }, { id: 'img', label: 'الصور' }, { id: 'vid', label: 'الفيديو' }, { id: 'txt', label: 'المحتوى' }, { id: 'agents', label: 'المساعدين' }], active: st.aiTab, onChange: (id) => { st.aiTab = id; R(); }, label: 'نوع التعليمات' });
     // ش42 (the owner 17 Nov — «ممكن تقسم اقسام الذكاء الاصطناعي لتابس بدل ما هما تحت بعض في نفس الصفحة»): one tab at a time — the providers,
     // the images, the video, the content, the assistants
-    if (st.aiTab === 'prov') return [K.Section('تعليمات الذكاء الاصطناعي', [aiTabs], null, { sub: 'مين بيعمل إيه: مزوّد افتراضي لكل قسم وتبديل لكل أداة.' }), providersSec()]
-      .concat(window.IBAIRouting ? window.IBAIRouting.sections({ redraw: R }) : []); // the owner 22 Nov (2026-11-22-model-routing.md decision 4): which Claude model runs which command
-    if (st.aiTab === 'agents') return [K.Section('تعليمات الذكاء الاصطناعي', [aiTabs], null, { sub: 'المساعدين: قواعد كل مساعد وسكيلزه — بتتبعت مع كل سؤال ليه، وعمرها ما بتخليه ينفّذ حاجة لوحده.' })].concat(agentsSec());
+    if (st.aiTab === 'prov') return [K.Section('تعليمات الذكاء الاصطناعي', [aiTabs], null, { sub: 'مين بيعمل إيه: مصدر ذكاء افتراضي لكل قسم وتبديل لكل أداة.' }), providersSec()]
+      .concat(window.IBBrainShare ? [window.IBBrainShare.card({ redraw: R })] : []) // what an outside AI may be shown, and what was sent (the owner 22 Nov)
+      .concat(window.IBAIRouting ? window.IBAIRouting.sections({ redraw: R }) : []); // which model runs which command (the original's model-routing plan, 22 Nov)
+    if (st.aiTab === 'agents') return [K.Section('تعليمات الذكاء الاصطناعي', [aiTabs], null, { sub: 'المساعدين: تاب لكل مساعد — مخّه الخارجي وقواعده وسكيلزه ومصادره.' })].concat(agentsSec());
     const head = K.Section('تعليمات الذكاء الاصطناعي', [aiTabs], [Button({ type: 'text', label: 'رجّع للافتراضي', onClick: () => K.confirm({ title: 'ترجّع التعليمات للافتراضي؟', text: 'كل التعديلات اللي عملتها هنا هتتشال.', okLabel: 'رجّع', onOk: () => { S.aiRules = AI_DEF(); R(); } }) }), Button({ type: 'primary', label: 'احفظ التعليمات', onClick: () => { LOGV('settings.ai.save', st.aiTab); K.toast('اتحفظت التعليمات — هتتطبق على أي حاجة جديدة بتتولد', 'success'); } })], { sub: 'بتتطبق على كل حاجة بتتولد في «المنتجات» و«التسويق» — اكتبها مرة واحدة.' });
     A.sections = A.sections || AI_SECTIONS_DEF(); st.aiSub = st.aiSub || {}; const T = st.aiTab; const secs = A.sections[T]; const sub = st.aiSub[T] && (st.aiSub[T] === 'products' || secs.some((x) => x.id === st.aiSub[T])) ? st.aiSub[T] : 'products';
     const subTabs = h('div', { class: 'ai-subs' }, K.SubTabs({ items: [{ id: 'products', label: AI_PRODUCTS[T] }].concat(secs.map((x) => ({ id: x.id, label: x.name }))), active: sub, onChange: (id) => { st.aiSub[T] = id; R(); }, label: 'أقسام ' + { img: 'الصور', vid: 'الفيديو', txt: 'المحتوى' }[T] }), Button({ size: 'sm', type: 'text', icon: 'plus', label: 'تعليمات جديدة', attrs: { 'data-ai-addsec': '' }, onClick: () => addAiSection(A, T) }));
@@ -139,22 +141,30 @@
     const AIP = window.IBPages.all().ai && window.IBPages.all().ai.api;
     const permName = (k) => ((M.AGENT_PERMS || []).find(([v]) => v === k) || [k, k])[1];
     const seesName = (k) => ((M.AGENT_SEES || []).find(([v]) => v === k) || [k, k])[1];
-    const rows = reg.map((x) => [h('span', { class: 'acts-inline', 'data-ag-row': x.id }, h('span', { class: 'mk-av' }, Icon(x.icon || 'sparkle', 'sm')), h('b', null, x.name)),
-      permName(x.perm), x.sees.length ? x.sees.map(seesName).join(' · ') : (x.builtin && ['buyer', 'designer', 'dev'].includes(x.id) ? 'بياناته الخاصة' : '—'), x.role || 'مدير النظام',
-      x.archived ? K.Tag('neutral', 'مؤرشف') : K.Tag('success', x.builtin ? 'من السيستم' : 'مساعد جديد'),
-      K.RowMenu([AIP ? { label: 'تعديل', icon: 'edit', run: () => AIP.agentForm(x) } : null,
-        !x.builtin && !x.archived ? { label: 'أرشف', icon: 'trash', danger: true, run: () => K.confirm({ title: 'تأرشف «' + x.name + '»؟', text: 'هيختفي من «الذكاء الاصطناعي» عند الكل وشاتاته بتفضل.', okType: 'danger', okLabel: 'أرشف', onOk: async () => { const r = await M.agentArchive(x.id, true); K.toast(r.ok ? 'اتأرشف' : r.message, r.ok ? 'success' : 'error'); R(); } }) } : null,
-        x.archived ? { label: 'رجّعه', icon: 'undo', run: async () => { const r = await M.agentArchive(x.id, false); K.toast(r.ok ? 'رجع' : r.message, r.ok ? 'success' : 'error'); R(); } } : null].filter(Boolean), 'إجراءات ' + x.name)]);
-    const list = K.Section('المساعدين', [U.Table({ headers: ['المساعد', 'بيظهر للي معاه «عرض»', 'البيانات اللي بيقراها', 'الطلبات بتروح لـ', 'النوع', ''], rows })],
-      AIP ? [Button({ size: 'sm', type: 'primary', icon: 'plus', label: 'مساعد جديد', attrs: { 'data-set-ag-add': '' }, onClick: () => AIP.agentForm(null) })] : null,
-      { th: false, sub: 'كل مساعد تاب في «الذكاء الاصطناعي» — بيقرا بصلاحيات اللي بيكلّمه، ومابينفّذش حاجة لوحده' });
-    const live = reg.filter((x) => !x.archived); st.kbAgent = st.kbAgent && (st.kbAgent === 'all' || live.some((x) => x.id === st.kbAgent)) ? st.kbAgent : 'all';
-    const filter = h('div', { class: 'chips', role: 'radiogroup', 'aria-label': 'المساعد', 'data-kb-filter': '' }, [['all', 'كل المساعدين']].concat(live.map((x) => [x.id, x.name])).map(([id, l]) =>
-      h('button', { type: 'button', class: 'chip' + (st.kbAgent === id ? ' on' : ''), role: 'radio', 'aria-checked': String(st.kbAgent === id), 'data-kb-filter-id': id, onClick: () => { st.kbAgent = id; R(); } }, l)));
-    const out = [list, U.FieldShell({ id: 'kb-f', label: 'وريني القواعد والسكيلز بتاعة' }, filter), kbAllSec('rules', kbl, live), kbAllSec('skills', kbl, live)];
-    if (st.kbAgent === 'all' || st.kbAgent === 'designer') out.push(trendTagsSec());
-    if (st.kbAgent === 'all' || st.kbAgent === 'buyer') out.push(compsSec(), adTagsSec()); // ش44: the competitors and the ad tags
-    return out;
+    // the owner 22 Nov («بدل ما المساعدين تحت بعض تفصلهم في تابس و كل مساعد عندوا القواعد و الاسكيلز و المصادر و كل اللي يخصوا» · «اختار
+    // الموديل لكل مساعد او اعمل اختيار تلقائي»): a tab per assistant (IBAgentsSet.tabs) — under it the assistant itself, its outside
+    // brain, its rules, its skills and its sources; the designer's trends and the buyer's competitors and ad tags stay in their tabs
+    const AS = window.IBAgentsSet; if (!LINKS.at) loadLinks();
+    const live = reg.filter((x) => !x.archived); const order = live.concat(reg.filter((x) => x.archived));
+    if (!order.some((x) => x.id === st.agTab)) st.agTab = (order[0] || {}).id || '';
+    const x = order.find((q) => q.id === st.agTab);
+    const strip = AS ? AS.tabs({ agents: order, active: st.agTab, onPick: (id) => { st.agTab = id; st.kbPick = {}; R(); }, onAdd: AIP ? () => AIP.agentForm(null) : null }) : null;
+    if (!x) return [strip, K.Empty('لسه مفيش مساعدين', 'ابدأ بـ «مساعد جديد».')].filter(Boolean);
+    st.kbAgent = x.id;
+    const sees = x.sees.filter((k) => !(SG() && k === 'vendors'));
+    const fact = (k, v) => h('div', { class: 'ag-fact' }, h('span', { class: 't-small sub' }, k), h('b', null, v));
+    const about = K.Section(x.name, [h('div', { class: 'ag-about', 'data-ag-row': x.id }, h('span', { class: 'set-ic' }, Icon(x.icon || 'sparkle')),
+      h('div', { class: 'ag-facts' }, fact('بيظهر للي معاه «عرض»', permName(x.perm)), fact('البيانات اللي بيقراها', sees.length ? sees.map(seesName).join(' · ') : (x.builtin && ['buyer', 'designer', 'dev'].includes(x.id) ? 'بياناته الخاصة' : '—')),
+        fact('الطلبات بتروح لـ', x.role || 'مدير النظام'), fact('النوع', x.archived ? K.Tag('neutral', 'مؤرشف') : K.Tag('success', x.builtin ? 'من السيستم' : 'مساعد جديد')))),
+      x.about ? h('p', { class: 't-small sub ag-about-t' }, x.about) : null],
+      [AIP ? Button({ size: 'sm', icon: 'edit', label: 'تعديل', attrs: { 'data-ag-edit': x.id }, onClick: () => AIP.agentForm(x) }) : null,
+        !x.builtin && !x.archived ? Button({ size: 'sm', type: 'text', icon: 'trash', label: 'أرشف', onClick: () => K.confirm({ title: 'تأرشف «' + x.name + '»؟', text: 'هيختفي من «الذكاء الاصطناعي» عند الكل وشاتاته بتفضل.', okType: 'danger', okLabel: 'أرشف', onOk: async () => { const r = await M.agentArchive(x.id, true); K.toast(r.ok ? 'اتأرشف' : r.message, r.ok ? 'success' : 'error'); R(); } }) }) : null,
+        x.archived ? Button({ size: 'sm', icon: 'undo', label: 'رجّعه', onClick: async () => { const r = await M.agentArchive(x.id, false); K.toast(r.ok ? 'رجع' : r.message, r.ok ? 'success' : 'error'); R(); } }) : null].filter(Boolean),
+      { th: false, cols: false, sub: 'بيقرا بصلاحيات اللي بيكلّمه، وبيرد من السيستم الأول — ومابينفّذش حاجة لوحده' });
+    const out = [strip, about, AS ? AS.brainCard(x, { live: (p) => provLive('text', p), read: !!LINKS.at, redraw: R }) : null, AS && AS.rulesCard ? AS.rulesCard(x, { redraw: R }) : null, kbAllSec('rules', kbl, live), kbAllSec('skills', kbl, live), AS ? AS.sourcesCard(x, { redraw: R }) : null];
+    if (x.id === 'designer') out.push(trendTagsSec());
+    if (x.id === 'buyer') out.push(compsSec(), adTagsSec()); // ش44: the competitors and the ad tags
+    return out.filter(Boolean);
   }
   // one kind's whole list, grouped by section in order; an item = { section, title, text, agents: [] (= all) }
   function kbAllSec(kind, all, live) {
@@ -2266,20 +2276,36 @@
     if (part === 'api') return !!(x.link && x.link.ready); if (part === 'bridge') return !!(x.bridge && x.bridge.linked);
     return x.status === 'متصل';
   }
+  // the owner 22 Nov («جملة إختيار مزودين الذكاء الاصطناعي تلقائيا و جمبيها راديو باتون … لو شلت الاختيار التلقائي … يكتب اسم الشركة و
+  // الموديلز»): the card's switch (IBAIRouting.autoSwitch). On: every field takes a company only. Off: every field takes its company
+  // and model from the linked companies' tabs (IBAIRouting.modelField).
   function providersSec() {
     if (!LINKS.at) loadLinks();
+    const AIR = window.IBAIRouting && window.IBAIRouting.modelField ? window.IBAIRouting : null;
     const ai = SETT().section('ai') || {}; const P = ai.providers && typeof ai.providers === 'object' ? JSON.parse(JSON.stringify(ai.providers)) : {};
+    const auto = !AIR || AIR.routingOf(ai).mode === 'auto';
     const get = (k) => (P[k] && typeof P[k] === 'object' ? P[k] : (P[k] = {}));
-    const save = async () => { const r = await SETT().save('ai', { providers: P }); if (!r.ok) return fail(r, 'حفظ المزوّدين'); LOGV('settings.ai.providers', Object.keys(P).map((k) => k + '=' + (P[k].default || 'default')).join(' · ')); K.toast('اتحفظ المزوّد', 'success'); R(); };
+    const save = async () => { const r = await SETT().save('ai', { providers: P }); if (!r.ok) return fail(r, 'حفظ مصادر الذكاء'); LOGV('settings.ai.providers', Object.keys(P).map((k) => k + '=' + (P[k].default || 'default')).join(' · ')); K.toast('اتحفظ مصدر الذكاء', 'success'); R(); };
     const sel = (id, label, value, options, on, help) => U.Select({ id, label, help, options: options.map(([v, l]) => ({ value: v, label: l })), value: value || options[0][0], onChange: (v) => { on(v); save(); } });
+    // the owner 22 Nov («تبص علي التصميم بحيث يتنظم بشكل احترافي لصفحة المزودين و تقسيمتها»): a box per kind of content — its icon, what
+    // it is for and how many of its companies are linked — with the section's own choice beside its tools' overrides
     const blocks = Object.keys(PROV).map((k) => { const d = PROV[k]; const cur = get(k); const eff = d.options.some(([v]) => v === cur.default) ? cur.default : d.options[0][0];
       const live = (v) => !!LINKS.at && provLive(k, v);
       const offer = (keep) => d.options.filter(([v]) => live(v) || v === keep).map(([v, l]) => [v, live(v) || !LINKS.at ? l : l + ' — مش مربوط']); // before the links are read: the chosen one alone, unmarked
-      const main = sel('prov-' + k, d.label + ' — المزوّد الافتراضي', eff, offer(eff), (v) => { cur.default = v; }, LINKS.at && !live(eff) ? 'المزوّد ده مش مربوط — اربطه من «الربط بالمنصات» أو اختار مزوّد مربوط.' : null);
-      const picker = k === 'text' && window.IBAIRouting && window.IBAIRouting.picker ? window.IBAIRouting.picker({ redraw: R, provider: eff }) : null; // decisions 8–10: the automatic switch, the model under the company
-      return h('div', { class: 'prov-block', 'data-prov': k, 'data-prov-live': d.options.filter(([v]) => live(v)).map(([v]) => v).join(' ') }, K.two(h('div', { class: 'prov-main' }, main, picker), d.tools.length ? h('div', { class: 'prov-tools' }, d.tools.map(([t, tl]) => { const tv = (cur.tools || {})[t] || ''; return sel('prov-' + k + '-' + t, tl, tv, [['', 'الافتراضي للقسم']].concat(offer(tv)), (v) => { cur.tools = cur.tools || {}; if (v) cur.tools[t] = v; else delete cur.tools[t]; }); })) : h('div', null))); });
-    return K.Section('مزوّدي الذكاء الاصطناعي', [U.InlineNote({ children: 'بيظهر هنا المزوّد المربوط والشغّال بس — المفاتيح من «الربط بالمنصات › الذكاء الاصطناعي». Magnific بالكريدت، والباقي بالدولار على سقف المحتوى الشهري.' }), ...blocks], null, { sub: 'افتراضي لكل قسم + تبديل لكل أداة (قرار صاحب المشروع، 7 نوفمبر)' });
+      const field = (t, label) => AIR.modelField({ id: 'prov-' + k + (t ? '-' + t : ''), label, title: t ? [d.label, ' › ', label] : [d.label], section: k, tool: t, live: (v) => provLive(k, v), read: !!LINKS.at, redraw: R });
+      const main = auto ? sel('prov-' + k, 'مصدر الذكاء الخارجي', eff, offer(eff), (v) => { cur.default = v; }, LINKS.at && !live(eff) ? 'مصدر الذكاء ده مش مربوط — اربطه من «الربط بالمنصات» أو اختار مصدر مربوط.' : null)
+        : field(null, 'مصدر الذكاء الخارجي والموديل');
+      const tools = d.tools.map(([t, tl]) => { if (!auto) return field(t, tl); const tv = (cur.tools || {})[t] || ''; return sel('prov-' + k + '-' + t, tl, tv, [['', 'الافتراضي للقسم']].concat(offer(tv)), (v) => { cur.tools = cur.tools || {}; if (v) cur.tools[t] = v; else delete cur.tools[t]; }); });
+      const linked = d.options.filter(([v]) => live(v)); const [ic, what] = PROV_KIND[k];
+      const tag = LINKS.at ? (linked.length ? K.Tag('success', ['المربوط: ', String(linked.length)]) : K.Tag('orange', 'مفيش مصدر ذكاء مربوط')) : null;
+      return h('div', { class: 'prov-block prov-kind', 'data-prov': k, 'data-prov-size': d.tools.length ? 'wide' : 'half', 'data-prov-live': linked.map(([v]) => v).join(' ') },
+        h('div', { class: 'prov-kind-h' }, h('span', { class: 'set-ic' }, Icon(ic)), h('div', { class: 'prov-kind-t' }, h('h3', { class: 't-h6' }, d.label), h('p', { class: 't-small sub' }, what)), tag),
+        h('div', { class: 'prov-fields' + (d.tools.length ? '' : ' solo') },
+          h('div', { class: 'prov-main' }, d.tools.length ? h('div', { class: 'prov-cap t-small' }, 'للقسم كله') : null, main),
+          d.tools.length ? h('div', { class: 'prov-side' }, h('div', { class: 'prov-cap t-small' }, 'تبديل لكل أداة (اختياري)'), h('div', { class: 'prov-tools' }, tools)) : null)); });
+    return K.Section('مصادر الذكاء', [AIR ? AIR.autoSwitch({ redraw: R }) : null, U.InlineNote({ children: 'بيظهر هنا مصدر الذكاء المربوط والشغّال بس — المفاتيح من «الربط بالمنصات › الذكاء الاصطناعي». Magnific بالكريدت، والباقي بالدولار على سقف المحتوى الشهري.' }), h('div', { class: 'prov-grid' }, blocks)], null, { sub: 'شركة لكل نوع محتوى، وتبديل لكل أداة لو محتاج' });
   }
+  const PROV_KIND = { text: ['edit', 'الكتابة والشات وتحليل الأرقام'], image: ['image', 'صور المنتجات والكامبينات'], voice: ['mic', 'الفويس أوفر في الفيديو'], video: ['play', 'مقاطع الفيديو بالذكاء الاصطناعي'] };
   function aiSec() { return aiSecV6(); } // ش42: the providers are a tab of their own
 
   // ---------- the lists (decision 8; phase 12 T3 decision 10; owner batch 14 Nov decisions 4 and 8) ----------

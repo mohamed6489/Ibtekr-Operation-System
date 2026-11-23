@@ -75,7 +75,7 @@
       return { ok: true, chat: data };
     } catch (e) { window.location.hash = 'ai-' + n.agent; return { ok: false }; }
   }
-  const NOTE_KIND = { problem: ['مشكلة', 'error', 'alert'], idea: ['فكرة', 'info', 'sparkle'], update: ['تحديث', 'neutral', 'bell'], report: ['تقرير', 'brand', 'chart'], alert: ['تنبيه', 'warning', 'bell'] };
+  const NOTE_KIND = { problem: ['مشكلة', 'error', 'alert'], idea: ['اقتراح', 'info', 'sparkle'], update: ['تحديث', 'neutral', 'bell'], report: ['تقرير', 'brand', 'chart'], alert: ['تنبيه', 'warning', 'bell'] };
   function agentSection() {
     if (!notes || !notes.length) return null; // nothing from the assistants yet: no empty section in the bell
     const M = window.IBMarketing; const nameOf = (a) => { const r = M && M.agentOf ? M.agentOf(a) : null; return (r && r.name) || a; };

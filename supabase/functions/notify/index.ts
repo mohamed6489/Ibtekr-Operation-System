@@ -13,6 +13,11 @@
 //   POST { action } with a member's Authorization: Bearer <jwt>:
 //     status  (the admin) → the last tick (sync_state «notify»), the channels' readiness (Resend key / WhatsApp link / template).
 //     tick    (the admin, by hand) → the same as the cron; { dry: true } → the plan without any write or send (a preview).
+//     rules   (the admin) → the assistants' own rules as they stand this moment: every assistant's rules in force, the number each
+//             counts now and whether it holds (the settings card under «المساعدين») — read only, nothing written.
+//   The tick also runs the assistants' own rules (the owner 22 Nov — 0150, _shared/agent-rules.js on the numbers of
+//   _shared/agent-facts.js): a rule that holds is a note of its assistant in the bell (ref «rule:<assistant>:<rule>»), a rule that
+//   stopped holding takes its note, and the numbers are kept in ai_agent_state for the assistants' chats (ai_agent_facts()).
 //   The same tick, once every 48 hours, runs the automatic clean-up (the owner 18 Nov — 0132, _shared/cleanup.js): the old logs, the
 //   expired links, the read alerts, the deleted chats and the old files go; sync_state «cleanup» keeps the last run's counts.
 // Nothing here logs a token, a phone number, an e-mail address or a message text.
@@ -28,6 +33,8 @@ import { csLateNotes } from '../_shared/agent-actions.js';
 import { DEV_PREFIX, devDue, devNotes } from '../_shared/dev-check.js';
 import { OTHER_PROVIDERS, otherNews } from '../_shared/ai-routing.js';
 import { CLEANUP_LIMIT, chunks, cleanupDue, cleanupIds, cleanupWork } from '../_shared/cleanup.js';
+import { evaluate, factsOf, statusOf } from '../_shared/agent-rules.js';
+import { ORDER_CLOSED, countFacts, singleOf } from '../_shared/agent-facts.js';
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -273,9 +280,77 @@ export async function tick(deps: Deps, opts: { dry?: boolean } = {}): Promise<Re
   const ready = await readyActionNotes(deps, ctx, ctx.nowMs); // decision 7 / T7: the assistant prepares the action (a late reply written)
   const dev = await devCheckNotes(deps, ctx).catch((e) => { console.error('notify dev check: ' + quiet(e)); return null; }); // decision 5 «طريقة أ»: the developer's daily check — a note per problem with its fix
   const clean = await autoCleanup(deps, ctx).catch((e) => { console.error('notify cleanup: ' + quiet(e)); return null; }); // the owner 18 Nov: the clean-up every 48 hours (0132)
-  const value = { ...summary, sent, team, ready, ...(dev ? { dev } : {}), ...(clean ? { clean } : {}) };
+  const rules = await agentRuleNotes(deps, ctx).catch((e) => { console.error('notify rules: ' + quiet(e)); return null; }); // the owner 22 Nov: the assistants' own rules (0150)
+  const value = { ...summary, sent, team, ready, ...(dev ? { dev } : {}), ...(clean ? { clean } : {}), ...(rules ? { rules } : {}) };
   await deps.db.from('sync_state').upsert({ key: 'notify', value, updated_at: ctx.now }, { onConflict: 'key' });
   return json(200, { result: 'ok', ...value });
+}
+// the owner 22 Nov («السيستم لوحدوا يقدر يبعت تنبيهات … بناء علي القواعد … اللي مكاتبها لكل مساعد» — 0150): the numbers the assistants
+// watch, counted from the live tables (a table that did not answer leaves its numbers unread = its rules' notes stay as they are);
+// no bank account, phone number or text is read for it — the makers without an account come counted from the database
+type RuleRead = { facts: Json; agents: Json[]; ai: Json; single: boolean };
+async function ruleRead(deps: Deps, ctx: Ctx): Promise<RuleRead | null> {
+  const got = async (q: PromiseLike<{ data: unknown; error: unknown }>): Promise<Json[] | null> => { try { const r = await q; return r.error || !Array.isArray(r.data) ? null : r.data as Json[]; } catch { return null; } };
+  const agents = await got(deps.db.from('ai_agents').select('id, name, sees, role, archived_at').limit(200));
+  if (!agents || !agents.length) return null; // before 0120: no registry = no rules
+  const closed = '(' + (ORDER_CLOSED as string[]).map((x) => '"' + x + '"').join(',') + ')';
+  const weekAgo = addDays(ctx.cairo.day, -6);
+  const [st, orders, vendors, bank, lots, tickets, convs, wd, subs, hrq, ot, sg, ads, posts, checks] = await Promise.all([
+    got(deps.db.from('settings').select('section, data').in('section', ['ai', 'store'])),
+    got(deps.db.from('orders').select('id, status, confirm, confirm_at, placed_at').not('status', 'in', closed).is('deleted_at', null).limit(LIMIT)),
+    got(deps.db.from('vendors').select('id, status, lead_days').limit(LIMIT)),
+    (async () => { try { const r = await deps.db.rpc('ai_agent_bankless'); return r.error || typeof r.data !== 'number' ? null : r.data as number; } catch { return null; } })(),
+    got(deps.db.from('inv_lots').select('id, reason, status, closed_at').eq('reason', 'مرتجع').is('closed_at', null).limit(LIMIT)),
+    got(deps.db.from('tickets').select('id, status, priority, follow_up, assignee_role').in('status', ['open', 'in_progress', 'waiting']).limit(LIMIT)),
+    got(deps.db.from('cs_conversations').select('id, seg, status, waiting_since').eq('status', 'مستنية ردنا').limit(LIMIT)),
+    got(deps.db.from('dokan_withdrawals').select('id, status').eq('status', 'pending').limit(LIMIT)),
+    got(deps.db.from('acc_expenses').select('id, sub_ends, voided_at').eq('category', 'الاشتراكات').is('voided_at', null).gte('sub_ends', ctx.cairo.day).limit(LIMIT)),
+    got(deps.db.from('hr_requests').select('id, status').in('status', ['جديد', 'قيد المراجعة']).limit(LIMIT)),
+    got(deps.db.from('hr_overtime').select('id, status').eq('status', 'مستني').limit(LIMIT)),
+    got(deps.db.from('mkt_suggestions').select('id, status').eq('status', 'pending').limit(LIMIT)),
+    got(deps.db.from('mkt_ad_stats').select('level, day, spend').eq('level', 'campaign').gte('day', weekAgo).limit(10_000)),
+    got(deps.db.from('mkt_posts').select('id, status, deleted_at').eq('status', 'فشل').limit(LIMIT)),
+    got(deps.db.from('site_checks').select('kind, data').in('kind', ['pagespeed', 'wp_updates'])),
+  ]);
+  const O = orders ?? [];
+  const items = orders ? (O.length ? await got(deps.db.from('order_items').select('order_id, vendor_id, product_id, status, removed, expected_at').in('order_id', O.map((o) => o.id)).eq('removed', false).limit(10_000)) : []) : null;
+  const productLead: Record<string, number> = {};
+  const pids = [...new Set((items ?? []).map((it) => it.product_id).filter((x) => x != null))];
+  for (let i = 0; i < pids.length; i += 500) { const r = await got(deps.db.from('product_lead_days').select('product_id, days').in('product_id', pids.slice(i, i + 500))); for (const x of r ?? []) productLead[String(x.product_id)] = Number(x.days); }
+  const sec: Record<string, Json> = {}; for (const r of st ?? []) sec[String(r.section)] = isObj(r.data) ? r.data : {};
+  const single = singleOf(sec.store) as boolean;
+  const design = agents.find((a) => a.id === 'designer' && !a.archived_at);
+  const facts = countFacts({ delay: (ctx.settings.makers ?? {}).delay, orders, items, vendors, productLead, bankless: bank, lots, tickets, designRole: design ? String(design.role ?? '') : '',
+    convs, withdrawals: wd, subs, hrRequests: hrq, overtime: ot, suggestions: sg, adStats: ads, posts, checks }, ctx.cairo.day, ctx.nowMs) as Json;
+  // the settings row did not answer = the admin's own rules are not known: nothing is judged this time
+  return st ? { facts, agents, ai: sec.ai ?? {}, single } : null;
+}
+// the rules that hold → one note each for its assistant (the same row while it keeps holding, its number in the title); a rule that
+// stopped holding, was switched off or deleted → its note goes; the numbers are kept for the assistants' chats. Nothing is executed.
+async function agentRuleNotes(deps: Deps, ctx: Ctx): Promise<Json | null> {
+  const r = await ruleRead(deps, ctx); if (!r) return null;
+  const live = r.agents.filter((a) => !a.archived_at);
+  const { notes, keep } = evaluate(r.ai, live, r.facts, { single: r.single }) as { notes: Json[]; keep: string[] };
+  let n = 0;
+  for (const x of notes) {
+    const { error } = await deps.db.rpc('ai_agent_note_add', { p_agent: x.agent, p_kind: x.kind, p_title: x.title, p_body: x.body, p_ref: x.ref, p_link: null, p_perm: x.perm || null }); // the note is seen with its number's page in full
+    if (!error) n++;
+  }
+  let cleared = 0;
+  for (const a of live) {
+    const mine = 'rule:' + String(a.id) + ':'; const stay = notes.filter((x) => x.agent === a.id).map((x) => String(x.ref)).concat(keep.filter((k) => k.startsWith(mine)));
+    try { const { data: c, error } = await deps.db.rpc('ai_agent_note_clear', { p_agent: a.id, p_prefix: 'rule:', p_keep: stay }); if (!error && typeof c === 'number') cleared += c; } catch { /* before 0130: nothing cleared */ }
+  }
+  // before 0150 the table is not there: the notes above still went out
+  const snap = factsOf(r.ai, live, r.facts, { single: r.single }, ctx.now) as Json;
+  try { await deps.db.from('ai_agent_state').upsert({ id: true, facts: snap, at: ctx.now }, { onConflict: 'id' }); } catch { /* not there yet */ }
+  return { notes: n, cleared, unread: keep.length };
+}
+// the admin's card: the same numbers and rules as they stand this moment (nothing written)
+async function rulesStatus(deps: Deps): Promise<Response> {
+  const ctx = await context(deps); const r = await ruleRead(deps, ctx);
+  if (!r) return json(200, { result: 'ok', at: ctx.now, on: false, agents: {} });
+  return json(200, { result: 'ok', ...(statusOf(r.ai, r.agents, r.facts, { single: r.single }, ctx.now) as Json) });
 }
 // agents-brain decision 10: the assistants with a team (ai_agents.role) write that team a daily summary and a late alert in the bell
 // (ai_agent_note_add — one row per day each, updated through the day); before 0120 there is no registry = nothing
@@ -432,8 +507,8 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     try { return await tick(deps); } catch (e) { console.error('notify tick: ' + quiet(e)); return json(500, { error: 'failed' }); }
   }
   const admin = await adminOf(req, deps); if (!admin) return json(401, { error: 'unauthorized' });
-  if (action !== 'tick' && action !== 'status') return json(400, { error: 'unknown_action' });
-  try { return action === 'status' ? await status(deps) : await tick(deps, { dry: args.dry === true }); }
+  if (action !== 'tick' && action !== 'status' && action !== 'rules') return json(400, { error: 'unknown_action' });
+  try { return action === 'status' ? await status(deps) : action === 'rules' ? await rulesStatus(deps) : await tick(deps, { dry: args.dry === true }); }
   catch (e) { console.error('notify ' + action + ': ' + quiet(e)); return json(500, { error: 'failed' }); }
 }
 

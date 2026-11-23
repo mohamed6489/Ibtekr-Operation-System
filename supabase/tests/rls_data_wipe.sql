@@ -39,6 +39,7 @@ reset role;
 -- 0138: the assistants' notes go with «السجلات» (the bell is empty after «امسح كل حاجة»)
 do $$ begin
   if (select count(*) from public.data_wipe_map() where section = 'logs' and tbl in ('ai_agent_notes', 'ai_agent_note_reads')) <> 2 then raise exception 'case agent notes in logs failed'; end if;
+  if not exists (select 1 from public.data_wipe_map() where section = 'logs' and tbl = 'ai_agent_state') then raise exception 'case the assistants'' numbers in logs failed'; end if; -- 0150
 end $$;
 do $$ begin raise notice 'rls_data_wipe: ok'; end $$;
 rollback;

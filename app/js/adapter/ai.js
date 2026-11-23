@@ -100,10 +100,21 @@
     if (c0.period && typeof c0.period.from === 'string' && typeof c0.period.to === 'string') context.period = { from: c0.period.from, to: c0.period.to };
     if (Array.isArray(c0.vendors)) context.vendors = c0.vendors.filter((x) => typeof x === 'string').slice(0, 300);
     if (Array.isArray(c0.statuses)) context.statuses = c0.statuses.filter((x) => typeof x === 'string').slice(0, 30);
-    const r = await invoke({ action: 'assistant', mode, turns, context }, r0.signal);
+    // the outside model's company the member picked for this message (the owner 22 Nov); the server keeps to the linked ones
+    const provider = ['claude', 'openai', 'gemini'].includes(r0.provider) ? r0.provider : undefined;
+    // the owner 22 Nov («من غير ما يكون عندوا كل معلومات الشركة الا لو انا وافقت»): the data kinds the member approved for THIS request —
+    // none = the model gets the message only; the server gives a kind's rows only when it is listed here, and answers `need`
+    // (the kinds it wants) for the assistant to ask about
+    const KINDS = ['summary', 'orders', 'sales', 'vendors', 'vendor', 'customers', 'tickets', 'tasks', 'expenses', 'inventory', 'hr', 'files'];
+    const kinds = (l) => (Array.isArray(l) ? l : []).filter((k, i, a) => KINDS.includes(k) && a.indexOf(k) === i);
+    const share = kinds(r0.share);
+    const r = await invoke(Object.assign({ action: 'assistant', mode, turns, context }, provider ? { provider } : {}, mode === 'chat' ? { share } : {}), r0.signal);
     if (!r.ok) return r;
     const out = Object.assign(answer(r.body), { text: typeof r.body.text === 'string' ? r.body.text : '', actions: (Array.isArray(r.body.actions) ? r.body.actions : []).filter((a) => a && typeof a.name === 'string' && a.input && typeof a.input === 'object'), tools: Array.isArray(r.body.tools) ? r.body.tools.filter((t) => typeof t === 'string') : [] , report: Array.isArray(r.body.report) ? r.body.report.filter((x) => x && typeof x.kind === 'string' && x.data && typeof x.data === 'object') : [] /* decision 23: the «تفاصيل» report */ });
-    log('assistant.' + mode, [out.actions.map((a) => a.name).join(', ') || 'no action', out.tools.length ? 'data: ' + out.tools.join(', ') : 'no data'].concat(out.result === 'refused' ? ['refused'] : []).join(' · '), 'ai_runs', out.runId);
+    out.need = kinds(r.body.need).filter((k) => !share.includes(k)); out.shared = kinds(r.body.shared).filter((k) => share.includes(k));
+    // what left for an outside model: the company and the kinds only — never a row, a number or the question
+    if (provider && out.shared.length) log('assistant.share', provider + ' · ' + out.shared.join(', '), 'ai_runs', out.runId);
+    log('assistant.' + mode, [out.actions.map((a) => a.name).join(', ') || 'no action', out.need.length ? 'asks for: ' + out.need.join(', ') : out.tools.length ? 'data: ' + out.tools.join(', ') : 'no data'].concat(out.result === 'refused' ? ['refused'] : []).join(' · '), 'ai_runs', out.runId);
     return out;
   }
 

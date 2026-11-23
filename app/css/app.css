@@ -2454,3 +2454,18 @@ input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-
   .menu.acct .opt.danger::before{content:"";position:absolute;inset-inline:2px;top:-7px;border-top:1px solid var(--color-border-subtle)}
   .menu.acct .opt.danger>svg{background:var(--color-error-text);color:var(--color-text-on-brand)}
 }
+/* the assistant says where an answer came from (the owner 22 Nov): the system itself, or the outside model the member agreed to;
+   and asks before any outside model — a button per linked company and «لا» */
+.ai-src{display:inline-flex;align-items:center;gap:4px;margin-bottom:4px;padding:0 8px;border-radius:999px;font-size:11px;line-height:20px;font-weight:600;background:var(--color-bg-layout,transparent);border:1px solid var(--color-border-subtle);color:var(--color-text-secondary)}
+.ai-src.sys{background:var(--color-brand-subtle-bg);border-color:transparent;color:var(--color-brand-default)}
+.ai-msg .ai-src+.ai-text{display:block}
+.ai-consent,.ai-pick,.ai-tries{flex-wrap:wrap;margin-top:8px}
+.ai-tries .chip{cursor:default;font-size:12px}
+.ai-done{margin:6px 0 0;color:var(--color-text-secondary)}
+
+/* the outside AI's data card in the assistant (the owner 22 Nov): the kinds it asks for — what each holds, what it leaves out — and what was sent */
+.ai-need{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:6px}
+.ai-need li{display:flex;flex-direction:column;gap:1px;padding:8px 10px;border:1px solid var(--color-border-subtle);border-radius:10px;background:var(--color-bg-container)}
+.ai-need li b{font-weight:600}.ai-need li span{font-size:12px}.ai-need li small{font-size:12px;color:var(--color-text-secondary)}
+.ai-shared{display:flex;align-items:center;gap:6px;margin:6px 0 0;color:var(--color-text-secondary)}
+.ai-shared .ico{flex:none}

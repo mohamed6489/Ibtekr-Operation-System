@@ -11,7 +11,7 @@ insert into public.profiles (id, name, email, phone, role_id, status) values
 -- the server: the health reads, the notes are written and cleared
 set local role service_role;
 do $$
-declare h jsonb; n int;
+declare h jsonb; n int; m int;
 begin
   h := public.dev_cron_health(24);
   if h is null or jsonb_typeof(h -> 'jobs') <> 'array' or not (h ? 'http') then raise exception 'case the health shape failed: %', h; end if;
@@ -19,8 +19,13 @@ begin
   perform public.ai_agent_note_add('dev', 'problem', 'مزامنة فشلت', 'x', 'dev:sync:b', null);
   perform public.ai_agent_note_add('dev', 'update', 'ملاحظة تانية', 'x', 'other:1', null);
   perform public.ai_agent_note_add('accountant', 'report', 'مش بتاعه', 'x', 'dev:crash:a', null);
+  -- the live project may hold the developer's own notes: the clear takes those too, so the count is what stands under the prefix
+  -- apart from the kept one (on an empty database: the one written above)
+  select count(*) into m from public.ai_agent_notes where agent = 'dev' and ref like 'dev:%' and ref <> 'dev:sync:b';
+  if m < 1 then raise exception 'case the note to clear is there failed: %', m; end if;
   n := public.ai_agent_note_clear('dev', 'dev:', array['dev:sync:b']);
-  if n <> 1 then raise exception 'case the clear deletes one failed: %', n; end if;
+  if n <> m then raise exception 'case the clear deletes what is not kept failed: % of %', n, m; end if;
+  if exists (select 1 from public.ai_agent_notes where agent = 'dev' and ref like 'dev:%' and ref <> 'dev:sync:b') then raise exception 'case nothing else stays under the prefix failed'; end if;
   if exists (select 1 from public.ai_agent_notes where agent = 'dev' and ref = 'dev:crash:a') then raise exception 'case the problem gone loses its note failed'; end if;
   if not exists (select 1 from public.ai_agent_notes where agent = 'dev' and ref = 'dev:sync:b') then raise exception 'case a kept note stays failed'; end if;
   if not exists (select 1 from public.ai_agent_notes where agent = 'dev' and ref = 'other:1') then raise exception 'case another prefix stays failed'; end if;

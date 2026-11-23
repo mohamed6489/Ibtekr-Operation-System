@@ -961,3 +961,105 @@ Deno.test('another company: its own levels by themselves (the light command on i
   assertEquals((await call(g.deps, { action: 'marketing', task: 'rewrite', kind: 'caption', text: 'نص' }, 'jwt-mkt')).res.status, 200);
   assertEquals(g.texts.map((x: any) => x[1]), ['gemini-3-pro', 'gemini-3-flash']);
 });
+
+// ---------------------------------------------------------------- 0150: the message alone, the system's data by the member's approval
+
+// The owner 22 Nov — «اي مخ خارجي لما بدخلوا لازم اوافق … من غير ما يكون عندوا كل معلومات الشركة الا لو انا وافقت بعد ما الايجنت بتاعي يطلب مني».
+Deno.test('0150 assistant with `share`: the model gets the message alone (no name, no team); a read of a kind not approved stops the answer and is asked about — nothing of it read; approved, it is read and named in `shared`; another company is refused', async () => {
+  const seed = { memberSeed: MEMBER_SEED, memberRpc: { ticket_roles: () => [{ role_id: 'r1', label: 'خدمة العملاء' }], ticket_people: () => [{ role_id: 'r1', name: 'منى' }] } };
+  const a = setup({ ...seed, replies: [toolUse([{ id: 'tu_1', name: 'get_data', input: { kind: 'orders', delivery: 'late' } }, { id: 'tu_2', name: 'navigate', input: { page: 'orders' } }], 'ثواني')] });
+  const r = await call(a.deps, ASSIST('ليه الأوردرات دي متأخرة؟', { context: {}, share: [] }), 'jwt-view');
+  assertEquals([r.res.status, r.body.result, r.body.text, r.body.need, r.body.shared, r.body.actions, r.body.tools, r.body.report], [200, 'ok', '', ['orders'], [], [], [], []]);
+  assertEquals(a.asked.length, 1, 'the answer stops at the read');
+  const sys = a.asked[0].system.map((b: any) => b.text).join('\n');
+  assert(sys.includes('المستخدم: عضو') && !sys.includes('منى'), 'neither the member\'s name nor the team\'s people go with the message');
+  assertEquals(a.db.rows('ai_runs').at(-1).status, 'ok');
+  // approved for this request: read with the member's client and said back
+  const b = setup({ ...seed, replies: [toolUse([{ id: 'tu_1', name: 'get_data', input: { kind: 'orders', delivery: 'late' } }]), toolUse([{ id: 'tu_2', name: 'get_data', input: { kind: 'sales' } }])] });
+  const r2 = await call(b.deps, ASSIST('ليه الأوردرات دي متأخرة؟', { context: {}, share: ['orders', 'bogus', 'orders'] }), 'jwt-view');
+  assertEquals([r2.body.need, r2.body.shared], [['sales'], ['orders']], 'the next kind is asked about in its turn; what was read is named');
+  assertEquals(b.asked.length, 2);
+  // without `share` (an older page) the loop is as it was; another company cannot run the tool loop
+  const c = setup({ ...seed, replies: [toolUse([{ id: 'tu_1', name: 'get_data', input: { kind: 'summary' } }]), msg('تمام', { stop_reason: 'end_turn', content: [{ type: 'text', text: 'تمام' }] })] });
+  const r3 = await call(c.deps, ASSIST('ملخص'), 'jwt-view');
+  assertEquals([r3.body.text, r3.body.tools, r3.body.need, r3.body.shared], ['تمام', ['summary'], undefined, undefined]);
+  assert(c.asked[0].system.map((x: any) => x.text).join('\n').includes('المستخدم: منى'));
+  const d = setup({ ...seed });
+  assertEquals([(await call(d.deps, ASSIST('x', { provider: 'openai' }), 'jwt-view')).res.status, d.asked.length], [400, 0]);
+  assertEquals((await call(d.deps, ASSIST('x', { provider: 'claude', share: [] }), 'jwt-view')).res.status === 400, false);
+});
+
+Deno.test('0150 agent with `share`: nothing of the system rides the message; what the answer asks to read is asked about first (no turn kept); approved kinds are read and the turns say who answered and what it was given; the company gets its own turns only', async () => {
+  const CH = 'c0000000-0000-4000-8000-0000000000bb';
+  const seed = {
+    ai_agents: [{ id: 'stock', name: 'التشغيل الذكي', about: '', perm: 'inventory.view', sees: ['inventory'], role: 'العمليات والشحن', instructions: '', archived_at: null }],
+    mkt_agent_chats: [{ id: CH, member_id: U.add, agent: 'stock', title: 'قديم', created_at: NOW, updated_at: NOW, deleted_at: null }],
+    mkt_agent_messages: [
+      { chat_id: CH, role: 'user', text: 'سؤال للسيستم', source: 'system', shared: [] }, { chat_id: CH, role: 'assistant', text: 'رد السيستم بالأرقام', source: 'system', shared: [] },
+      { chat_id: CH, role: 'user', text: 'سؤال لشركة تانية', source: 'openai', shared: [] }, { chat_id: CH, role: 'assistant', text: 'رد الشركة التانية', source: 'openai', shared: [] },
+      { chat_id: CH, role: 'user', text: 'سؤال قديم', source: 'claude', shared: [] }, { chat_id: CH, role: 'assistant', text: 'رد قديم', source: 'claude', shared: [] },
+    ],
+  };
+  const memberSeed = { inv_lots: [{ name: 'مخدة', sku: 'IBT1', reason: 'مرتجع', status: 'بانتظار الفحص', loc: 'R', mode: 'أمانة', condition: null, since: '2026-11-01', closed_at: null, cost: 999 }], inv_consolidations: [], vendors: [{ id: 'v1', name: 'ورشة النور' }], products: [], woo_categories: [], tickets: [] };
+  const can = { ai_agent_can: ({ p_agent }: any) => p_agent === 'stock', ticket_roles: () => [], ticket_people: () => [] };
+  const need = (data: any[]) => ({ research: [], data });
+  // 1 — the message alone: no <data>, no catalog, no team; the answer wants the warehouse → asked about, nothing kept
+  const a = setup({ seed, memberSeed, memberRpc: can, replies: [msg({ text: 'هشوف المخزن', need: need([{ kind: 'inventory', q: '', from: '', to: '' }]) })] });
+  const n0 = a.db.rows('mkt_agent_messages').length;
+  const r = await call(a.deps, { action: 'agent', agent: 'stock', chat_id: CH, question: 'إيه اللي مستني في المخزن؟', provider: 'claude', share: [] }, 'jwt-add');
+  assertEquals([r.res.status, r.body.result, r.body.need_data, r.body.shared, r.body.turns], [200, 'ok', ['inventory'], [], undefined]);
+  assertEquals(a.db.rows('mkt_agent_messages').length, n0, 'no turn is kept for a question still waiting for its data');
+  const q = a.asked[0].messages.at(-1).content[0].text; const sys = a.asked[0].system.map((x: any) => x.text).join('\n');
+  assert(!q.includes('<data>') && !q.includes('مخدة') && !sys.includes('ورشة النور') && !q.includes('<team_requests>'), q);
+  assert(sys.includes('Privacy (the admin\'s rule)') && sys.includes('none this time'));
+  assert(sys.includes('References (the admin\'s list for this assistant)') && sys.includes('https://docs.bosta.co/'), 'the assistant\'s own references ride the question (the shipped ones until the admin changes them)');
+  // the company is given its own turns only — never the system's answers nor another company's
+  assertEquals(a.asked[0].messages.map((m: any) => m.content.at(-1).text.split('\n').at(-1)), ['سؤال قديم', 'رد قديم', 'إيه اللي مستني في المخزن؟']);
+  assertEquals(a.asked.length, 1, 'no second answer, no read');
+  // 2 — approved: the warehouse rides the message, the turns are marked
+  const b = setup({ seed, memberSeed, memberRpc: can, replies: [msg({ text: 'عندك مرتجع مستني الفحص', need: need([]) })] });
+  const r2 = await call(b.deps, { action: 'agent', agent: 'stock', chat_id: CH, question: 'إيه اللي مستني في المخزن؟', provider: 'claude', share: ['inventory'] }, 'jwt-add');
+  assertEquals([r2.res.status, r2.body.text, r2.body.shared, r2.body.need_data], [200, 'عندك مرتجع مستني الفحص', ['inventory'], undefined]);
+  const q2 = b.asked[0].messages.at(-1).content[0].text; assert(q2.startsWith('<data>\ninventory: ') && q2.includes('مرتجع') && !q2.includes('999'));
+  assertEquals(b.db.rows('mkt_agent_messages').slice(-2).map((m: any) => [m.role, m.source, m.shared]), [['user', 'claude', ['inventory']], ['assistant', 'claude', ['inventory']]]);
+  assertEquals(r2.body.turns.map((t: any) => [t.source, t.shared]), [['claude', ['inventory']], ['claude', ['inventory']]]);
+  // 3 — a company that is not linked is refused before anything; an unknown one is a bad request; without `share` (an older page) as it was
+  const c = setup({ seed, memberSeed, memberRpc: can, replies: [msg({ text: 'أهلًا', need: need([]) })] });
+  assertEquals((await call(c.deps, { action: 'agent', agent: 'stock', question: 'x', provider: 'gemini', share: [] }, 'jwt-add')).res.status, 503);
+  assertEquals((await call(c.deps, { action: 'agent', agent: 'stock', question: 'x', provider: 'someone' }, 'jwt-add')).body.field, 'provider');
+  assertEquals(c.asked.length, 0);
+  const r3 = await call(c.deps, { action: 'agent', agent: 'stock', question: 'إيه الأخبار؟' }, 'jwt-add');
+  assert(c.asked[0].messages.at(-1).content[0].text.startsWith('<data>\ninventory: ') && r3.body.shared === undefined);
+  assertEquals(c.db.rows('mkt_agent_messages').at(-1).source, 'claude');
+});
+
+Deno.test('0150 brains: the linked text companies and the default — ids only, for an active member; the tool loop\'s company apart', async () => {
+  const a = setup({ env: { OPENAI_API_KEY: 'sk-test' }, memberSeed: MEMBER_SEED });
+  const r = await call(a.deps, { action: 'brains' }, 'jwt-view');
+  assertEquals([r.res.status, r.body.text], [200, { linked: ['claude', 'openai'], default: 'claude', assistant: ['claude'] }]);
+  assertEquals((await call(a.deps, { action: 'brains' }, null)).res.status, 401);
+  assertFalse(JSON.stringify(r.body).includes('sk-'));
+});
+
+// the owner 22 Nov («اختار الموديل لكل مساعد او اعمل اختيار تلقائي»): the admin's own company and model for one assistant (the row «ai»
+// agents.<id>.brain) answers as it is — no level sized over it — when the member named that company or none; another company the
+// member named, a model that is not that company's, or a company no longer linked leave it out
+Deno.test('0150 an assistant\'s own company and model (agents.<id>.brain): used as it is for that company; not for another, not when it is not one of its models, not when its key is gone', async () => {
+  const run = async (brain: any, body: any, env: any = { OPENAI_API_KEY: 'sk-x' }) => {
+    const t = setup({ seed: { ...BUYER_SEED, settings: [{ section: 'ai', data: { agents: { dev: { brain } } } }, { section: 'marketing', data: { agents: { dev: { instructions: '' } } } }] }, env, replies: [sizeMsg('light'), msg({ ...ANSWER, text: 'تمام' })] });
+    const texts: any[] = [];
+    (t.deps as any).text = async (prov: string, p: any) => { const sizing = String(p.system?.[0]?.text ?? '').startsWith('You size one request'); texts.push([prov, p.model, sizing ? 'size' : 'answer']); return sizing ? { ...sizeMsg('heavy'), model: p.model } : { ...msg({ ...ANSWER, text: 'تمام' }), model: p.model }; };
+    const r = await call(t.deps, { action: 'agent', agent: 'dev', question: 'صباح الخير', ...body }, 'jwt-mview');
+    return { status: r.res.status, texts, claude: t.asked.map((x: any) => x.model) };
+  };
+  const B = { provider: 'openai', model: 'gpt-5.2-mini' };
+  // the member named the assistant's company: its one model, nothing sized
+  assertEquals(await run(B, { provider: 'openai', share: [] }), { status: 200, texts: [['openai', 'gpt-5.2-mini', 'answer']], claude: [] });
+  // no company named (an older page): the assistant's own
+  assertEquals((await run(B, {})).texts, [['openai', 'gpt-5.2-mini', 'answer']]);
+  // the member chose another linked company for this message: the assistant's own is left out
+  const other = await run(B, { provider: 'claude', share: [] }); assertEquals([other.status, other.texts.length, other.claude.length > 0], [200, 0, true]);
+  // not one of that company's models, or its key gone: as if nothing was chosen (the section's company)
+  const bad = await run({ provider: 'openai', model: 'gpt-nope' }, {}); assertEquals([bad.status, bad.texts.length, bad.claude.length > 0], [200, 0, true]);
+  const gone = await run(B, {}, {}); assertEquals([gone.status, gone.texts.length, gone.claude.length > 0], [200, 0, true]);
+});

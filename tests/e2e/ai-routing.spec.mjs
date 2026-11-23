@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { installSupabaseMock, LIVE, DEV_PW } from './supabase-mock.mjs';
 
 // The owner 22 Nov (docs/superpowers/plans/2026-11-22-model-routing.md — «يبقا مكتوب في التعليمات احسن طريقة تخليني استخدم الكريديت صح
-// يعني امتا يستخدم كل موديل و في اي امر»): the card «أنهي موديل لأنهي أمر» under «الإعدادات › الذكاء الاصطناعي › المزوّدين» — the three
+// يعني امتا يستخدم كل موديل و في اي امر»): the card «أنهي موديل لأنهي أمر» under «الإعدادات › الذكاء الاصطناعي › مصادر الذكاء» — the three
 // levels with their model and price, every command on its recommended level by itself, a command moved by the admin, one model
 // for everything, and this month's spend by model and by kind of work. Mock only.
 const ADMIN = 'admin.dev@ibtekr.local';
@@ -18,6 +18,8 @@ async function signIn(page) {
 const KEYS = { anthropic: 'sk-ant-' + 'a'.repeat(40), openai: 'sk-' + 'o'.repeat(40), gemini: 'g'.repeat(32) };
 const link = (...names) => { for (const n of names) mock.st.vault[n] = JSON.stringify({ key: KEYS[n] }); };
 const aiRow = () => ((mock.settings.find((x) => x.section === 'ai') || {}).data || {});
+// the company-and-model list (the switch off): its tab, then the model — the page draws once more after a save, so it is tried until it stays
+const pickModel = (page, id, company, model) => expect(async () => { await page.keyboard.press('Escape'); await page.locator('#' + id).click({ timeout: 1500 }); await page.locator(`.cm-menu [data-cm-tab="${company}"]`).click({ timeout: 1500 }); await page.locator(`.cm-menu [data-cm="${company}:${model}"]`).click({ timeout: 1500 }); }).toPass();
 const pick = async (page, id, label) => { await page.locator('#' + id).click(); await page.getByRole('option', { name: label }).click(); };
 
 test('the routing card: three levels with their prices, every command on its level by itself; a command moved is saved and marked; «رجّع الترشيح»; the switch off locks it on one model', async ({ page }) => {
@@ -63,25 +65,25 @@ test('the routing card: three levels with their prices, every command on its lev
   await expect(card.locator('[data-air-cmd="assistant"]')).toHaveClass(/moved/); await expect(card.locator('[data-air-sized="true"]')).toHaveCount(1);
   await pick(page, 'air-assistant', /حسب حجم الرسالة/);
   await expect.poll(() => aiRow().routing).toBeUndefined();
-  // the switch in the providers card off: the commands are locked, the model is picked under the company — the light one too
-  const pk = page.locator('[data-prov="text"] [data-air-pick]');
-  await expect(pk).toHaveAttribute('data-air-pick', 'auto'); await expect(page.locator('#air-one')).toHaveCount(0);
-  await expect(pk.locator('[data-air-level]')).toHaveText(['ضعيف Claude Haiku 5.5', 'متوسط Claude Sonnet 5.5', 'قوي Claude Opus 5.5']);
-  await page.locator('#air-auto').click();
+  // the providers card's switch off: the commands are locked, every field names its company and its model — the light one too
+  const sw = page.locator('[data-prov-auto]');
+  await expect(sw).toHaveAttribute('data-prov-auto', 'on'); await expect(sw).toContainText('اختيار مصادر الذكاء تلقائيًا');
+  await page.locator('#prov-auto').click();
   await expect.poll(() => (aiRow().routing || {}).mode).toBe('single');
-  await expect(card).toHaveAttribute('data-ai-routing', 'single'); await expect(card).toContainText('البسيط بيتحاسب زي التقيل');
-  await expect(pk).toHaveAttribute('data-air-pick', 'single'); await expect(pk.locator('[data-air-level]')).toHaveCount(0);
-  await expect(page.locator('#air-one')).toBeVisible(); await expect(page.locator('#air-write')).toBeDisabled();
-  await page.locator('#air-one').click(); await expect(page.getByRole('option')).toHaveCount(3); await page.keyboard.press('Escape');
-  await pick(page, 'air-one', /Haiku/);
+  await expect(card).toHaveAttribute('data-ai-routing', 'single'); await expect(card).toContainText('الاختيار التلقائي مقفول');
+  await expect(sw).toHaveAttribute('data-prov-auto', 'off'); await expect(page.locator('#air-write')).toBeDisabled();
+  await expect(page.locator('#pg-settings .save-bar')).toHaveCount(0); // saved on the spot: nothing left «unsaved»
+  await pickModel(page, 'prov-text', 'claude', 'claude-haiku-5-5');
   await expect.poll(() => aiRow().model).toBe('claude-haiku-5-5');
-  await expect(card).toContainText('كل الأوامر شغّالة على Claude Haiku 5.5');
-  await page.locator('#air-auto').click();
+  expect(aiRow().providers.text).toMatchObject({ default: 'claude', model: 'claude-haiku-5-5' });
+  await expect(page.locator('#prov-text')).toHaveText('Claude — Haiku 5.5');
+  await page.locator('#prov-auto').click();
   await expect.poll(() => aiRow().routing).toBeUndefined();
-  await expect(page.locator('#air-write')).toBeEnabled();
+  await expect(page.locator('#air-write')).toBeEnabled(); await expect(page.locator('#prov-text')).toHaveText('Claude (Anthropic)'); // on again: the company only
   // (the log row of a save is written after it — the last one is waited for)
   await expect.poll(() => mock.activity.filter((r) => r.action === 'settings.ai.routing').map((r) => r.new_value))
-    .toEqual(expect.arrayContaining(['write=heavy', 'recommended', 'assistant=heavy', 'assistant=size', 'one model', 'model=claude-haiku-5-5', 'auto']));
+    .toEqual(expect.arrayContaining(['write=heavy', 'recommended', 'assistant=heavy', 'assistant=size', 'by hand', 'auto']));
+  await expect.poll(() => mock.activity.filter((r) => r.action === 'settings.ai.providers').map((r) => r.new_value)).toContain('text=claude:claude-haiku-5-5');
 });
 
 test('this month\'s spend: by model and by kind of work, the images left out; a member who is not the admin has no spend card', async ({ page }) => {
@@ -103,14 +105,17 @@ test('this month\'s spend: by model and by kind of work, the images left out; a 
   await expect(page.locator('#pg-settings')).toContainText('الإجمالي $1.00 في 5 نداء');
 });
 
-// The owner 22 Nov (decisions 8–12 — «متظهرش في اختيار المزودين الشركات لو مش مربوطة … تجيب بس الشغال»، «لو تلقائي بختار الشركة بس …
-// لو مقفول بختار الشركة و بعديها تظهرلي خانة اختار منها الموديل»)
-test('the providers: only the linked, working companies are offered (the chosen one stays, marked); another company brings its own levels and models; an unlinked section says so', async ({ page }) => {
+// The owner 22 Nov («متظهرش في اختيار المزودين الشركات لو مش مربوطة … تجيب بس الشغال»، then «جملة إختيار مزودين الذكاء الاصطناعي تلقائيا و
+// جمبيها راديو باتون … لو شلت الاختيار التلقائي … يكتب اسم الشركة و الموديلز بحيث اقدر اختار لكل نوع محتوى الموديل» and «الدروب داون يبقا
+// فيه تابس بحيث كل شركة في تاب و تحتيها الموديلز بتاعتها زي الفلتر بس … مفيهوش اختيار متعدد»)
+test('the providers: a box per kind, only the linked companies offered (the chosen one stays, marked); the switch off — a tab per linked company with its models, one choice, for the section and for each tool', async ({ page }) => {
   link('anthropic');
   await signIn(page);
   await page.evaluate(() => { location.hash = 'settings-ai'; });
   const text = page.locator('[data-prov="text"]');
   await expect(text).toHaveAttribute('data-prov-live', 'claude');
+  await expect(page.locator('.prov-grid [data-prov]')).toHaveCount(4);
+  await expect(text.locator('.prov-kind-h')).toContainText('المحتوى (النصوص)'); await expect(text.locator('.prov-kind-h')).toContainText('المربوط: 1');
   await page.locator('#prov-text').click();
   await expect(page.getByRole('option')).toHaveText(['Claude (Anthropic)']); await page.keyboard.press('Escape');
   await page.locator('#prov-text-products').click();
@@ -118,27 +123,47 @@ test('the providers: only the linked, working companies are offered (the chosen 
   // nothing of the images is linked in this test: the chosen one alone, marked, with the way out
   await page.locator('#prov-image').click();
   await expect(page.getByRole('option')).toHaveText(['Magnific (كريدت) — مش مربوط']); await page.keyboard.press('Escape');
-  await expect(page.locator('[data-prov="image"]')).toContainText('المزوّد ده مش مربوط');
-  await expect(text).not.toContainText('المزوّد ده مش مربوط');
-  // ChatGPT linked from «الربط بالمنصات»: it joins the lists; chosen, the levels and the card are its own
+  await expect(page.locator('[data-prov="image"]')).toContainText('مصدر الذكاء ده مش مربوط'); await expect(page.locator('[data-prov="image"] .prov-kind-h')).toContainText('مفيش مصدر ذكاء مربوط');
+  await expect(text).not.toContainText('مصدر الذكاء ده مش مربوط');
+  // ChatGPT linked from «الربط بالمنصات»: it joins the lists; chosen, the routing card is its own
   link('openai');
   await page.reload(); await expect(page.locator('#root')).toBeVisible(); await page.evaluate(() => { location.hash = 'settings-ai'; });
   await expect(text).toHaveAttribute('data-prov-live', 'claude openai');
   await pick(page, 'prov-text', 'ChatGPT (OpenAI)');
   await expect.poll(() => ((aiRow().providers || {}).text || {}).default).toBe('openai');
-  const pk = text.locator('[data-air-pick]');
-  await expect(pk).toHaveAttribute('data-air-provider', 'openai');
-  await expect(pk.locator('[data-air-level]')).toHaveText(['ضعيف GPT-5.2 mini', 'متوسط GPT-5.2', 'قوي GPT-5.2']);
   const card = page.locator('[data-ai-routing]');
   await expect(card).toContainText('أنهي موديل لأنهي أمر (ChatGPT)'); await expect(card.locator('[data-air-tiers]')).toContainText('$0.25 دخل · $2 خرج');
   await expect(card).toContainText('بيشتغلوا على Claude دايمًا'); await expect(card.locator('[data-air-cmd="assistant"]')).toContainText('بيشتغل على Claude دايمًا');
-  // off: ChatGPT's two models under it; the choice is the company's own entry, Claude's model untouched
-  await page.locator('#air-auto').click();
+  // off: the field is «company — model»; its list has a tab per linked company (Gemini is not), the chosen company's open
+  await page.locator('#prov-auto').click();
   await expect.poll(() => (aiRow().routing || {}).mode).toBe('single');
-  await expect(text.locator('[data-air-pick]')).toHaveAttribute('data-air-pick', 'single');
-  // (the page draws once more after the save — the list is opened until it stays)
-  await expect(async () => { await page.keyboard.press('Escape'); await page.locator('#air-one').click(); await expect(page.getByRole('option')).toHaveText(['GPT-5.2 — متوسط وقوي', 'GPT-5.2 mini — ضعيف'], { timeout: 1000 }); await page.getByRole('option', { name: /mini/ }).click({ timeout: 1500 }); }).toPass();
+  await expect(page.locator('[data-prov-auto]')).toHaveAttribute('data-prov-auto', 'off');
+  await expect(page.locator('#prov-text')).toHaveText('ChatGPT — GPT-5.2');
+  await expect(async () => {
+    await page.keyboard.press('Escape'); await page.locator('#prov-text').click({ timeout: 1500 });
+    await expect(page.locator('.cm-menu [data-cm-tab]')).toHaveText(['Claude', 'ChatGPT'], { timeout: 1000 });
+    await expect(page.locator('.cm-menu [data-cm-tab="openai"]')).toHaveAttribute('aria-selected', 'true', { timeout: 1000 });
+    await expect(page.locator('.cm-menu [role=option]:visible')).toHaveText([/GPT-5\.2.*متوسط وقوي.*\$1\.25 · \$10/, /GPT-5\.2 mini.*ضعيف.*\$0\.25 · \$2/], { timeout: 1000 });
+    await expect(page.locator('.cm-menu .cm-foot')).toHaveText('السعر بالدولار لكل مليون توكن: دخل · خرج', { timeout: 1000 });
+    await page.locator('.cm-menu [data-cm-tab="claude"]').click({ timeout: 1500 }); // the other tab: its three, none chosen
+    await expect(page.locator('.cm-menu [role=option]:visible')).toHaveCount(3, { timeout: 1000 }); await expect(page.locator('.cm-menu [role=option][aria-selected=true]:visible')).toHaveCount(0, { timeout: 1000 });
+    await page.locator('.cm-menu [data-cm-tab="openai"]').click({ timeout: 1500 }); await page.locator('.cm-menu [data-cm="openai:gpt-5.2-mini"]').click({ timeout: 1500 });
+  }).toPass();
   await expect.poll(() => (((aiRow().providers || {}).text || {}).models || {}).openai).toBe('gpt-5.2-mini');
-  expect(aiRow().model).toBeUndefined();
+  expect(aiRow().providers.text.model).toBe('gpt-5.2-mini'); expect(aiRow().model).toBeUndefined();
+  await expect(page.locator('.cm-menu')).toHaveCount(0); // one choice: picking closes the list
+  await expect(page.locator('#prov-text')).toHaveText('ChatGPT — GPT-5.2 mini');
+  // a tool takes its own company and model; «الافتراضي للقسم», above the tabs, gives it back to its section
+  await expect(page.locator('#prov-text-marketing')).toHaveText('الافتراضي للقسم');
+  await pickModel(page, 'prov-text-marketing', 'claude', 'claude-opus-5-5');
+  await expect.poll(() => ((aiRow().providers.text.tools || {}).marketing || '') + ':' + ((aiRow().providers.text.toolModels || {}).marketing || '')).toBe('claude:claude-opus-5-5');
+  await expect(page.locator('#prov-text-marketing')).toHaveText('Claude — Opus 5.5');
+  await expect(async () => { await page.keyboard.press('Escape'); await page.locator('#prov-text-marketing').click({ timeout: 1500 }); await page.locator('.cm-menu [data-cm=""]').click({ timeout: 1500 }); }).toPass();
+  await expect.poll(() => (aiRow().providers.text.tools || {}).marketing).toBeUndefined();
+  expect((aiRow().providers.text.toolModels || {}).marketing).toBeUndefined();
+  // the images: Magnific is chosen and not linked — its tab stays, marked — beside OpenAI's, linked by the same key
+  await page.locator('#prov-image').click();
+  await expect(page.locator('.cm-menu [data-cm-tab]')).toHaveText([/Magnific.*مش مربوط/, 'OpenAI']); await page.keyboard.press('Escape');
+  await expect(page.locator('#pg-settings .save-bar')).toHaveCount(0);
   expect(JSON.stringify(mock.activity)).not.toContain(KEYS.openai);
 });

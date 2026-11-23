@@ -15,6 +15,7 @@ import { MAX_OPEN_JOBS, cleanScenes, jobView, mixPlan, nextMix, parseVideo, vide
 import { creditsFor } from '../../supabase/functions/_shared/ai-images.js';
 import { refName, refUrl } from '../../supabase/functions/_shared/ref-link.js';
 import { cleanTrends, parseTrends } from '../../supabase/functions/_shared/mkt-trends.js';
+import { agentFacts, runRules } from './rules-mock.mjs';
 const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 const cairo = (d = new Date()) => { const p = Object.fromEntries(fmt.formatToParts(d).map((x) => [x.type, x.value])); return { day: p.year + '-' + p.month + '-' + p.day, hm: p.hour + ':' + p.minute }; };
 export const mktToday = () => cairo().day;
@@ -37,7 +38,7 @@ const COLS = {
   mkt_video_jobs: ['id', 'campaign_id', 'piece', 'kind', 'scene', 'creation_ref', 'status', 'path', 'bytes', 'duration', 'error', 'data', 'created_by', 'created_at', 'updated_at', 'done_at'],
   // 0084: the assistants' chats — the member's own (RLS), the turns written by the server only
   mkt_agent_chats: ['id', 'member_id', 'agent', 'title', 'created_at', 'updated_at', 'deleted_at'],
-  mkt_agent_messages: ['id', 'chat_id', 'role', 'text', 'images', 'run_id', 'created_at'],
+  mkt_agent_messages: ['id', 'chat_id', 'role', 'text', 'images', 'run_id', 'created_at', 'source', 'shared'], // source: 'system' = the system's own answer, else the outside company; shared = the data kinds it was given
   // 0109 (comments decisions 69 / 70): the designer's trends (the server's rows) and the media buyer's competitors (marketing.create writes)
   mkt_trends: ['id', 'batch', 'title', 'summary', 'source', 'url', 'kind', 'found_at', 'created_by', 'platform', 'tag', 'thumb', 'author', 'views', 'likes', 'comments', 'posted_at', 'external_id'], // + 0118 (thumb_src / thumb_tries: the server's)
   mkt_competitors: ['id', 'name', 'page_id', 'page_url', 'keyword', 'note', 'created_by', 'created_at', 'updated_by', 'updated_at', 'archived_at'],
@@ -130,7 +131,7 @@ export function mktState(opts = {}) {
     aiAgents: (opts.mktAiAgents || AI_BUILTINS).map((x, i) => ({ about: '', intro: '', instructions: '', suggestions: [], role: null, sees: [], builtin: false, sort: (i + 1) * 10, archived_at: null, ...x })),
     aiKb: (opts.mktAiKb || []).map((x, i) => ({ id: i + 1, text: '', agents: [], ...x })), aiKbDefaults: (opts.mktAiKbDefaults || []).map((x) => ({ text: '', agents: [], ...x })), noRegistry: !!opts.mktNoRegistry, nagent: 0,
     // 0124: the assistants' notes (opts.agentNotes — { agent, kind, title, body?, link? }); noNotes = 0124 not applied yet
-    agentNotes: (opts.agentNotes || []).map((x, i) => ({ id: i + 1, body: '', link: null, ref: null, created_at: now, ...x })), agentNoteReads: [], noNotes: !!opts.noAgentNotes,
+    agentNotes: (opts.agentNotes || []).map((x, i) => ({ id: i + 1, body: '', link: null, ref: null, created_at: now, ...x })), agentNoteReads: [], noNotes: !!opts.noAgentNotes, rulesOn: !!opts.agentRules, agentReads: !!opts.agentReads, // agentReads = an assistant's outside answer reads its own data kinds (asked about first) // agentRules = the assistants' own rules run (rules-mock.mjs)
     // 0109: the trends and the competitors as the database holds them (opts.mktTrends / mktCompetitors); noSections = the migration
     // is not applied yet (the two tables are not there); trendsFail = our code the next refresh answers with; trendsAnswer(req) =
     // the rows the model «found» (cleaned against trendsResults — the pages the search returned)
@@ -228,6 +229,17 @@ export function mktRoute(c) {
     if (name === 'ai_agents_list') return json(200, H.aiAgents.filter((a) => (isAdmin(u) ? true : !a.archived_at && hasPerm(u, a.perm) !== 'N')).slice().sort((a, b2) => a.sort - b2.sort)
       .map((a) => ({ id: a.id, name: a.name, icon: a.icon, perm: a.perm, sees: a.sees, role: a.role, about: a.about, intro: a.intro, instructions: isAdmin(u) ? a.instructions : '', suggestions: a.suggestions, builtin: a.builtin, sort: a.sort, archived: !!a.archived_at })));
     if (name === 'ai_agent_can') return json(200, agentCan(u, b.p_agent));
+    // the owner 22 Nov — an assistant's chat answers from the system first: the numbers it watches, for the assistants this member sees
+    if (name === 'ai_agent_facts') { if (!H.rulesOn) return refuse(404, 'PGRST202', 'Could not find the function public.' + name); return json(200, agentFacts(mock, (id) => agentCan(u, id), (perm) => isAdmin(u) || hasPerm(u, perm) === 'F')); }
+    // … and the system's own answer is kept in the member's chat (made on its first message), marked as the system's — text only
+    if (name === 'mkt_agent_system_turn') {
+      if (!agentCan(u, b.p_agent)) return refuse(403, '42501', 'not allowed'); const q = String(b.p_question || '').trim().slice(0, 1000); const ans = String(b.p_answer || '').trim().slice(0, 2000); if (!q || !ans || /[<>]/.test(ans)) return bad('text');
+      let chat = null; if (b.p_chat) { chat = H.agentChats.find((x) => x.id === b.p_chat && x.member_id === u.id && !x.deleted_at && x.agent === b.p_agent) || null; if (!chat) return refuse(404, 'P0002', 'chat not found'); }
+      if (!chat) { H.nchat += 1; chat = { id: 'c0000000-0000-4000-8000-' + String(H.nchat).padStart(12, '0'), member_id: u.id, agent: b.p_agent, title: agentTitle(q), created_at: now, updated_at: now, deleted_at: null }; H.agentChats.push(chat); } else chat.updated_at = now;
+      const mk = (role, text, source) => { const id = H.agentMsgs.reduce((m, x) => Math.max(m, x.id), 0) + 1; const r = { id, chat_id: chat.id, role, text, images: [], run_id: null, created_at: now, source, shared: [] }; H.agentMsgs.push(r); return r; };
+      const turns = [mk('user', q, 'system'), mk('assistant', ans, 'system')]; H.writes.push({ table: 'mkt_agent_messages', op: 'system', agent: b.p_agent, chat: chat.id });
+      return json(200, { chat: { id: chat.id, agent: chat.agent, title: chat.title, updated_at: now }, turns: turns.map((x) => ({ id: x.id, role: x.role, text: x.text, images: x.images, created_at: x.created_at, source: x.source, shared: x.shared })) });
+    }
     if (name === 'ai_agent_save') {
       if (!isAdmin(u)) return refuse(403, '42501', 'admin only');
       const p = b.p || {}; if (Object.keys(p).some((k) => !['id', 'name', 'icon', 'perm', 'sees', 'role', 'about', 'intro', 'instructions', 'suggestions'].includes(k))) return bad('key');
@@ -468,7 +480,8 @@ export function mktRoute(c) {
   if (t === 'ai_agent_notes' || t === 'ai_agent_note_reads') { // 0124: select only, the server writes
     if (H.noNotes) return refuse(404, 'PGRST205', "Could not find the table 'public." + t + "' in the schema cache");
     if (method !== 'GET') return refuse(403, '42501', 'permission denied for table ' + t);
-    const vis = t === 'ai_agent_notes' ? (r) => agentCan(u, r.agent) : (r) => r.member_id === u.id;
+    if (method === 'GET' && t === 'ai_agent_notes') runRules(mock); // the scheduled check's stand-in: the rules' notes are current whenever the bell reads
+    const vis = t === 'ai_agent_notes' ? (r) => agentCan(u, r.agent) && (!r.perm || isAdmin(u) || hasPerm(u, r.perm) === 'F') : (r) => r.member_id === u.id; // 0150: a rule's note needs its number's page in full
     let list = H[key].filter((r) => vis(r) && match(r));
     const ord = url.searchParams.get('order'); if (ord) { const [col, dir] = ord.split('.'); list = list.slice().sort((a, b2) => (a[col] < b2[col] ? -1 : a[col] > b2[col] ? 1 : 0) * (dir === 'desc' ? -1 : 1)); }
     const lim = Number(url.searchParams.get('limit')); if (lim > 0) list = list.slice(0, lim);
@@ -594,7 +607,11 @@ function mktAi(c, b) {
     else { const reg = H.aiAgents.find((a) => a.id === p.req.agent && !a.archived_at); if (!reg) return json(404, { error: 'not_found' }); if (!agentCan(u, reg.id)) return json(401, { error: 'unauthorized' }); }
     let chat = null;
     if (p.req.chatId) { chat = H.agentChats.find((x) => x.id === p.req.chatId) || null; if (!chat || chat.member_id !== u.id || chat.deleted_at || chat.agent !== p.req.agent) return json(404, { error: 'not_found' }); }
-    const hist = chat ? H.agentMsgs.filter((m) => m.chat_id === chat.id) : [];
+    // the owner 22 Nov: with the member's consent on the message (b.share) the outside company gets that message — of the chat's
+    // history only what it already has: its own earlier answers and the questions they answered; never the system's answers
+    // (their numbers) nor another company's
+    const all = chat ? H.agentMsgs.filter((m) => m.chat_id === chat.id) : [];
+    const hist = !Array.isArray(b.share) ? all : all.filter((m, i) => (m.role === 'assistant' && m.source && m.source === b.provider) || (m.role === 'user' && all[i + 1] && all[i + 1].role === 'assistant' && all[i + 1].source && all[i + 1].source === b.provider));
     H.calls[H.calls.length - 1].agent = p.req.agent; H.calls[H.calls.length - 1].files = (p.req.files || []).map((f) => f.kind + ':' + f.name); H.calls[H.calls.length - 1].question = p.req.question; H.calls[H.calls.length - 1].history = hist.length; H.calls[H.calls.length - 1].chat = chat ? chat.id : null;
     if (H.agentFail) return H.agentFail === 'refused' ? json(200, { result: 'refused', model: 'mock' }) : json(H.agentFail === 'ai_cap' ? 402 : H.agentFail === 'busy' ? 429 : H.agentFail === 'not_configured' ? 503 : 502, { error: H.agentFail });
     const cfg = H.agents[p.req.agent] || {};
@@ -606,12 +623,20 @@ function mktAi(c, b) {
     const team = H.noRegistry ? (isAdmin(u) || hasPerm(u, 'marketing.view') !== 'N' ? ['buyer', 'designer', 'dev'] : []) : H.aiAgents.filter((a) => !a.archived_at && agentCan(u, a.id)).map((a) => a.id);
     H.calls[H.calls.length - 1].team = team.filter((x) => x !== p.req.agent);
     const out = cleanAgent(raw, p.req.agent, H.calls[H.calls.length - 1].team); const now = new Date().toISOString();
+    // the owner 22 Nov: the outside model gets the message alone — the data kinds its answer reads (the answer's own `reads`, or
+    // with agentReads the assistant's data kinds unless the ask is for words alone) are given only when the request approved
+    // them (b.share); else they come back as `need_data` and nothing is written
+    const provider = ['claude', 'openai', 'gemini'].includes(b.provider) ? b.provider : null; H.calls[H.calls.length - 1].provider = provider; H.calls[H.calls.length - 1].share = Array.isArray(b.share) ? b.share.slice() : null;
+    const regRow = H.aiAgents.find((a) => a.id === p.req.agent); const wordsOnly = /(اكتب|صيغ|ترجم|كابشن|بوست|فكره|فكرة|write|translate|caption|idea)/i.test(p.req.question);
+    const reads = Array.isArray(raw.reads) ? raw.reads : (H.agentReads && !wordsOnly && regRow ? (regRow.sees || []).filter((k) => ['orders', 'sales', 'vendors', 'customers', 'tickets', 'tasks', 'expenses', 'inventory', 'hr'].includes(k)) : []);
+    if (Array.isArray(b.share)) { const miss = reads.filter((k) => !b.share.includes(k)); if (miss.length) { H.seq += 1; return json(200, { result: 'ok', need_data: miss, model: 'claude-opus-5-5', cost_usd: 0.001, run_id: H.seq }); } }
+    const sharedNow = Array.isArray(b.share) ? reads.filter((k) => b.share.includes(k)) : [];
     out.need = null; out.plan = Array.isArray(out.plan) && out.plan.length && H.planData ? resolvePlan(out.plan, H.planData) : []; // the owner 17 Nov (ai-content resolves the names)
     if (!chat) { H.nchat += 1; chat = { id: 'c0000000-0000-4000-8000-' + String(H.nchat).padStart(12, '0'), member_id: u.id, agent: p.req.agent, title: agentTitle(p.req.question), created_at: now, updated_at: now, deleted_at: null }; H.agentChats.push(chat); }
     else chat.updated_at = now;
-    const mk = (role, text) => { const id = H.agentMsgs.reduce((m, x) => Math.max(m, x.id), 0) + 1; const r = { id, chat_id: chat.id, role, text, images: [], run_id: null, created_at: now }; H.agentMsgs.push(r); return r; };
-    const turns = [mk('user', [p.req.question, filesLine(p.req.files)].filter(Boolean).join('\n')), mk('assistant', out.text)];
-    H.seq += 1; return json(200, { result: 'ok', ...out, chat: { id: chat.id, agent: chat.agent, title: chat.title, updated_at: now }, turns: turns.map((x) => ({ id: x.id, role: x.role, text: x.text, images: x.images, created_at: x.created_at })), model: 'claude-opus-5-5', cost_usd: 0.004, run_id: H.seq });
+    const mk = (role, text, source, shared) => { const id = H.agentMsgs.reduce((m, x) => Math.max(m, x.id), 0) + 1; const r = { id, chat_id: chat.id, role, text, images: [], run_id: null, created_at: now, source: source || null, shared: shared || [] }; H.agentMsgs.push(r); return r; };
+    const turns = [mk('user', [p.req.question, filesLine(p.req.files)].filter(Boolean).join('\n')), mk('assistant', out.text, provider, sharedNow)];
+    H.seq += 1; return json(200, { result: 'ok', ...out, chat: { id: chat.id, agent: chat.agent, title: chat.title, updated_at: now }, turns: turns.map((x) => ({ id: x.id, role: x.role, text: x.text, images: x.images, created_at: x.created_at, source: x.source, shared: x.shared })), shared: sharedNow, model: 'claude-opus-5-5', cost_usd: 0.004, run_id: H.seq });
   }
   if (!u || !(isAdmin(u) || hasPerm(u, 'marketing.create') === 'F')) return json(401, { error: 'unauthorized' });
   const failWith = (k) => (k === 'refused' ? json(200, { result: 'refused', model: 'mock' }) : json(k === 'ai_cap' ? 402 : k === 'busy' ? 429 : k === 'not_configured' ? 503 : 502, { error: k, configured: k === 'not_configured' ? false : undefined }));

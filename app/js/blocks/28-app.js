@@ -957,7 +957,7 @@
   const aiCtx = () => {
     const names = SEED.vendors.map((v) => v.name); const seen = new Set(names.map((n) => n.toLowerCase()));
     const orders = (window.OrdersApp && window.OrdersApp.vendors) ? window.OrdersApp.vendors() : [];
-    return { vendors: names.concat(orders.filter((n) => !seen.has(n.toLowerCase()))), today: TODAY };
+    return { vendors: names.concat(orders.filter((n) => !seen.has(n.toLowerCase()))), today: TODAY, pages: NAV.filter((n) => !barred(n[2])).map((n) => ({ id: n[2], label: n[1] })) };
   };
   const AI_ASK = { amount: 'المبلغ كام؟', category: 'النوع إيه؟ (المرتبات، المصروفات، الاشتراكات، الإعلانات)', vendor: 'أنهي مبتكر؟' };
   const KIND_OF = { addExpense: 'expenses', addVendorMove: 'vendorMoves', addAccountMove: 'accountMoves' };
@@ -995,16 +995,50 @@
     switch (cmd.type) {
       case 'navigate': if (cmd.tab) state.tab = cmd.tab; go(cmd.page); aiSay(cmd.page === 'orders' ? 'فتحت الأوردرات.' : 'فتحت تاب ' + TABS.find((t) => t.id === state.tab).label + '.'); return;
       case 'ordersFilter': {
-        if (state.page !== 'orders') go('orders'); window.OrdersApp.apply(cmd.filter);
+        if (state.page !== 'orders') go('orders'); const found = window.OrdersApp.apply(cmd.filter);
         const gq = document.getElementById('gq'); if (gq && cmd.filter.q !== undefined) gq.value = cmd.filter.q;
-        aiSay('فلترت الأوردرات: ' + Object.entries(cmd.filter).map(([k, v]) => ({ q: 'بحث', st: 'الحالة', deliv: 'التسليم', vendor: 'المبتكر' }[k]) + ' = ' + ({ late: 'متأخر', risk: 'قابل للتأخير', ok: 'غير متأخر' }[v] || v)).join('، ') + '.'); return;
+        aiSay('فلترت الأوردرات: ' + Object.entries(cmd.filter).map(([k, v]) => ({ q: 'بحث', st: 'الحالة', deliv: 'التسليم', vendor: 'المبتكر' }[k]) + ' = ' + ({ late: 'متأخر', risk: 'قابل للتأخير', ok: 'غير متأخر' }[v] || v)).join('، ') + (typeof found === 'number' ? ' — ' + found + ' أوردر.' : '.')); return;
       }
       case 'ordersClear': window.OrdersApp.clear(); { const gq = document.getElementById('gq'); if (gq) gq.value = ''; } aiSay('مسحت فلاتر الأوردرات.'); return;
       case 'setRange': { const r = cmd.range || D.presetRange(cmd.preset, TODAY); state.range = { from: r.from, to: r.to, preset: cmd.preset || 'custom' }; if (state.page !== 'accounts') go('accounts'); else render(); aiSay('غيّرت ' + D.rangeLabel(r.from, r.to) + '.'); return; }
       case 'sortVendors': state.sort = cmd.sort; state.tab = 'vendors'; go('accounts'); aiSay('رتّبت المبتكرين: ' + SORTS.find((x) => x.value === cmd.sort).label + '.'); return;
-      case 'addExpense': case 'addVendorMove': case 'addAccountMove':
-        if (cmd.missing.length) { ai.pending = cmd; aiSay(AI_ASK[cmd.missing[0]]); return; }
-        ai.msgs.push({ role: 'ai', text: 'هسجّل الحركة دي — راجعها وأكّد:', confirm: cmd }); aiDraw(); return;
+      // decisions 40 and 41 (the owner 10 Nov): a money entry is the accounts page's own «سحب / إيداع» popup, filled with what was
+      // said, behind a link under the answer — «حفظ» in it is the confirmation (the system's engine does as the outside model did)
+      case 'addExpense': case 'addVendorMove': case 'addAccountMove': {
+        const values = { direction: cmd.direction, amount: cmd.amount || '' };
+        if (cmd.type === 'addExpense') { if (cmd.category) values.category = cmd.category; if (cmd.details) values.details = cmd.details; if (cmd.beneficiary) values.beneficiary = cmd.beneficiary === D.OTHER ? cmd.otherName : cmd.beneficiary; }
+        else if (cmd.type === 'addVendorMove') { if (cmd.vendor) values.vendor = cmd.vendor; if (cmd.vendorType) values.type = cmd.vendorType; }
+        else if (cmd.account) values.account = cmd.account;
+        ai.msgs.push({ role: 'ai', text: 'جهّزتلك البوب أب باللي قلته — افتحه وراجع وكمّل الناقص، و«حفظ» فيه هو التأكيد:', forms: [{ name: 'open_form', input: { form: { addExpense: 'expense_add', addVendorMove: 'vendor_move', addAccountMove: 'account_move' }[cmd.type], values } }] }); aiDraw(); return;
+      }
+      // the system's own engine (js/pages/system-brain.js): a page by its name; two names that fit → the member picks one
+      // add / edit by words (js/pages/system-brain.js — the owner 22 Nov): one of the system's own popups with what was said in it; the
+      // link opens it (aiOpenForm — the same rights as by hand) and the popup's own button is the confirmation
+      case 'openForm': {
+        const v = Object.assign({}, cmd.values);
+        if ((cmd.form === 'salary_adjust' || cmd.form === 'salary_pay') && v.member && window.IBHR && window.IBHR.everyone) { // the name as the team list writes it («لمنى» = «منى»)
+          const all = window.IBHR.everyone(); const hit = (q) => all.find((m) => String(m.name || '').trim() === q) || all.find((m) => q && String(m.name || '').includes(q));
+          const m = hit(String(v.member).trim()) || hit(String(v.member).trim().replace(/^لـ?\s*/, '')); if (m) v.member = m.name; }
+        ai.msgs.push({ role: 'ai', text: 'جهّزتلك البوب أب باللي قلته — افتحه وراجع وكمّل الناقص، و«حفظ» فيه هو التأكيد:', forms: [{ name: 'open_form', input: { form: cmd.form, values: v } }] }); aiDraw(); return;
+      }
+      case 'tell': aiSay(window.IB_LANG === 'en' && cmd.en ? cmd.en : cmd.text); return;
+      // the system's read-outs (js/pages/system-brain.js): the numbers the page holds, said in the chat with «تفاصيل» / «تنزيل Excel»
+      case 'readMaker': case 'readPeriod': case 'readProduct': case 'readMember': {
+        const asked = ai.msgs.filter((x) => x.role === 'user').slice(-1)[0]; const m = { role: 'ai', text: 'بقرا الأرقام من السيستم…', live: true, question: asked ? asked.text : '' }; ai.msgs.push(m); aiBusy(true); aiDraw();
+        const done = (r) => { m.live = false; m.text = r.text; if (r.part) m.report = [{ part: r.part }]; if (r.pick) m.pick = r.pick; aiBusy(false); aiDraw(); };
+        aiRead(cmd).then(done, (e) => { console.error(e); done({ text: 'ماقدرتش أقرا البيانات دي دلوقتي — جرّب تاني.' }); });
+        return;
+      }
+      // a list of a page filtered by words (js/pages/page-filter.js): the page's own «فلتر» is worked as the member would — the choices the
+      // words name ticked, the rest searched for in the table — and the answer says what it did and how many it left
+      case 'listFilter': {
+        if (barred(cmd.page) || !window.IBPageFilter) { aiSay('الصفحة دي مش من صلاحياتك.'); return; }
+        const m = { role: 'ai', text: '', live: true }; ai.msgs.push(m); aiBusy(true); aiDraw();
+        window.IBPageFilter.run(cmd).then((r) => { m.live = false; m.text = r.text; aiBusy(false); aiDraw(); }, () => { m.live = false; m.text = 'ماقدرتش أفلتر القايمة دي.'; aiBusy(false); aiDraw(); });
+        return;
+      }
+      case 'goPage': if (barred(cmd.page)) { aiSay('الصفحة دي مش من صلاحياتك.'); return; } go(cmd.page); aiSay('فتحت «' + (NAV.find((n) => n[2] === cmd.page) || [])[1] + '».'); return;
+      case 'choose': ai.msgs.push({ role: 'ai', text: cmd.question, pick: { options: cmd.options, texts: cmd.texts } }); aiDraw(); return;
       default: aiSay(AI_HELP);
     }
   }
@@ -1113,24 +1147,53 @@
     for (const f of failed) aiSay(f);
   }
   function aiBusy(b) { ai.busy = b; if (aiInput) aiInput.disabled = b; if (aiSendBtn) aiSendBtn.hidden = b; if (aiStopBtn) aiStopBtn.hidden = !b; if (!b && aiInput && aiPanel && !aiPanel.hidden) aiInput.focus(); }
-  function aiModeNote() { if (aiNoteEl) aiNoteEl.textContent = aiServer === false ? 'الـ AI مش متظبط دلوقتي — بفهم صيغ أوامر محددة بس (افتح، اعرض، سجل، رتب).' : 'محادثة مع Claude على بياناتك بصلاحياتك. أي تسجيل بيطلب تأكيدك الأول.'; }
+  function aiModeNote() { if (aiNoteEl) aiNoteEl.textContent = 'السيستم بيرد من بياناته الأول — المخ الخارجي بموافقتك بس، وبياخد رسالتك من غير بيانات الشركة إلا اللي توافق عليه. أي تسجيل بيطلب تأكيدك الأول.'; }
   const aiContext = () => ({ page: state.page, tab: state.page === 'accounts' ? state.tab : '', period: state.page === 'accounts' ? { from: state.range.from, to: state.range.to } : null });
-  async function aiChat(text) {
-    ai.turns.push({ role: 'user', text }); ai.turns = ai.turns.slice(-12);
-    const m = { role: 'ai', text: '', live: true }; ai.msgs.push(m); aiBusy(true); aiDraw();
+  // ---- the system's read-outs (the owner 22 Nov — «لو طلبت حساب مبتكر منتج او موظف او تقرير معين»): js/pages/system-read.js reads
+  // and words them; here are the hands it reads with — the same rows «حسابات المبتكرين», the accounts and the reports show.
+  const aiWait = async (fn, ms) => { const end = Date.now() + ms; for (;;) { const v = fn(); if (v) return v; if (Date.now() > end) return null; await new Promise((r) => setTimeout(r, 150)); } };
+  // the accounts' rows are read once a session; a question asked before the accounts page was ever opened waits for them
+  const aiAccReady = async () => { const A = ACC(); if (!A || barred('accounts')) return false; if (A.state && A.state() === 'idle' && A.load) { try { await A.load(); } catch (e) { /* the answer says what it could not read */ } }
+    else if (A.state && A.state() === 'loading') await aiWait(() => A.state() !== 'loading', 6000); refreshSeed(); return true; };
+  const aiRead = (cmd) => window.IBSystemRead.run(cmd, { barred, single: singleOn, accReady: aiAccReady, makers: vendorsNow, withdrawalOf: wdOf, orders: ordersRows, ordersReport: (r) => R.ordersReport(ordersRows(), r, TODAY),
+    salesOf: accRepOf, expenses: () => store.expenses, range: (preset) => D.presetRange(preset, TODAY), dateLong: D.formatDateLong, wait: aiWait, norm: (x) => window.IBBrain.norm(x) });
+  // an assistant's chat on «الذكاء الاصطناعي» asks the system's engine too (the owner 22 Nov): a money entry it understands whole comes
+  // back as the system's popup filled — { text, forms } for a link under the answer; nothing else is run from there
+  window.IBSystemEntry = (text) => {
+    const got = window.IBBrain ? window.IBBrain.understand(String(text || ''), aiCtx()) : { type: 'unknown' };
+    const money = ['addExpense', 'addVendorMove', 'addAccountMove'].includes(got.type) && !(got.missing && got.missing.length) && !!got.amount;
+    if (!money && got.type !== 'openForm') return null; // (an add / edit by words opens its popup from an assistant's chat too)
+    const at = ai.msgs.length; aiExec(got); const out = ai.msgs.splice(at); aiDraw(); const m = out.find((x) => x.forms && x.forms.length);
+    return m ? { text: m.text, forms: m.forms.map((f) => f.input).filter((f) => f && f.form) } : null;
+  };
+  // the owner 22 Nov («اي مخ خارجي … من غير ما يكون عندوا كل معلومات الشركة الا لو انا وافقت بعد ما الايجنت بتاعي يطلب مني»): the outside
+  // model gets the message only — `share` = the data kinds the member approved for this request (none at first). When the
+  // server answers `need`, the assistant asks about those kinds (aiNeedPick): «وافق المرة دي» sends the same message again
+  // with them, «ارفض» sends nothing more. Under the answer: what was sent.
+  async function aiChat(text, brain, share, again) {
+    const kinds = window.IBBrainShare ? window.IBBrainShare.clean(share) : [];
+    if (!again) { ai.turns.push({ role: 'user', text }); ai.turns = ai.turns.slice(-12); }
+    const via = aiBrains().find((b) => b.id === brain) || null;
+    const m = { role: 'ai', text: '', live: true, via: via ? via.name : '', brain: brain || '' }; ai.msgs.push(m); aiBusy(true); aiDraw();
     aiCtl = new AbortController();
-    const r = window.IBAI && window.IBAI.assistant ? await window.IBAI.assistant({ mode: 'chat', turns: ai.turns, context: aiContext(), signal: aiCtl.signal }) : { ok: false, reason: 'not_configured' };
+    const r = window.IBAI && window.IBAI.assistant ? await window.IBAI.assistant({ mode: 'chat', turns: ai.turns, context: kinds.length ? aiContext() : {}, provider: brain || undefined, share: kinds, signal: aiCtl.signal }) : { ok: false, reason: 'not_configured' };
     aiCtl = null; m.live = false;
     if (!r.ok) {
       ai.msgs = ai.msgs.filter((x) => x !== m); ai.turns.pop();
       if (r.reason === 'cancelled') aiSay('وقفت.');
-      else if (r.reason === 'not_configured' || r.reason === 'forbidden') { aiServer = false; aiModeNote(); aiSay('المحادثة مع الـ AI مش متاحة دلوقتي (مفتاح الـ AI مش متظبط)، فهشتغل بالأوامر المحددة.'); aiBusy(false); aiLocal(text); return; }
+      else if (r.reason === 'not_configured' || r.reason === 'forbidden') { aiServer = false; aiModeNote(); aiSay('المخ الخارجي مش متاح دلوقتي (مفتاحه مش متظبط) — الأدمن يربطه من «الإعدادات › الربط بالمنصات».'); aiBusy(false); return; }
       else if (r.reason === 'ai_cap') aiSay('سقف الـ AI الشهري خلص — الأدمن يزوّده من إعدادات الـ AI.');
       else if (r.reason === 'busy') aiSay('الاستخدام كتير دلوقتي، جرّب بعد شوية.');
       else aiSay('حصلت مشكلة في الاتصال، جرّب تاني.');
       aiBusy(false); return;
     }
     aiServer = true; aiModeNote();
+    // it needs the system's data to go on: nothing was read — the assistant asks, kind by kind
+    if (r.result !== 'refused' && r.need && r.need.length && window.IBBrainShare) {
+      m.sys = true; m.via = ''; m.text = 'عشان يكمّل، ' + (via ? via.name : 'المخ الخارجي') + ' محتاج يشوف البيانات دي من السيستم. أوافق؟';
+      m.need = { text, brain: brain || '', name: via ? via.name : '', kinds: kinds.concat(r.need), ask: r.need.slice(), done: '' }; aiBusy(false); aiDraw(); return;
+    }
+    m.shared = r.shared || []; m.sent = true;
     m.text = r.result === 'refused' ? 'مش هقدر أرد على ده.' : (r.text || (r.actions.length ? 'تمام.' : 'مفيش رد.'));
     m.report = r.result === 'refused' ? [] : (r.report || []); m.question = text; // decision 23: the reads behind the answer → «تفاصيل»
     ai.turns.push({ role: 'assistant', text: m.text });
@@ -1142,7 +1205,7 @@
     aiBusy(false); aiDraw();
     aiExecActions(acts.filter((a) => a.name !== 'open_form' && a.name !== 'plan_categories' && a.name !== 'plan_requests' && a.name !== 'offer_file' && a.name !== 'ask_choice'));
   }
-  const AI_FORM_LABEL = { vendor_add: 'إضافة مبتكر', member_add: 'إضافة عضو', customer_add: 'إضافة عميل', ticket_new: 'طلب جديد', hr_leave: 'طلب إجازة', hr_advance: 'طلب سُلفة', hr_remote: 'شغل عن بُعد',
+  const AI_FORM_LABEL = { vendor_settle: 'تسوية حساب المبتكر', salary_adjust: 'مكافأة / خصم', salary_pay: 'تحويل المرتب', vendor_add: 'إضافة مبتكر', member_add: 'إضافة عضو', customer_add: 'إضافة عميل', ticket_new: 'طلب جديد', hr_leave: 'طلب إجازة', hr_advance: 'طلب سُلفة', hr_remote: 'شغل عن بُعد',
     task_add: 'إضافة مهمة', order_update: 'تحديث الأوردر', expense_add: 'المصروفات', account_move: 'الحساب الفعلي', vendor_move: 'حركة المبتكر' };
   const aiFormLabel = (a) => { const v = (a.input && a.input.values) || {}; const dir = v.direction === 'deposit' ? 'إيداع — ' : v.direction === 'withdraw' ? 'سحب — ' : ''; return dir + (AI_FORM_LABEL[a.input && a.input.form] || 'البوب أب'); };
   // the category plan → the products page's review popup («نشر على الموقع» in it is the confirmation; products.add / the admin)
@@ -1190,7 +1253,7 @@
   }
   // ---- phase 13 decision 42: «تنزيل Excel» — the data the answer read (the same parts «تفاصيل» shows), one sheet, numbers as numbers
   function aiExcel(m) {
-    const parts = (m.report || []).map((r) => airParts(r.data, AIR_KIND[r.kind] || r.kind));
+    const parts = (m.report || []).map((r) => (r.part ? r.part : airParts(r.data, AIR_KIND[r.kind] || r.kind))); // r.part = a part the system's own read-out built
     const cell = (c) => { const t = String(c); return /^-?\d[\d,]*(\.\d+)?$/.test(t) ? Number(t.replace(/,/g, '')) : t; };
     const aoa = [['السؤال', m.question || ''], ['الرد', m.text || ''], []];
     const walk = (p) => { aoa.push([p.title + (p.sub ? ' — ' + p.sub : '')]); if (p.note) aoa.push([p.note]);
@@ -1200,11 +1263,39 @@
     parts.forEach(walk);
     window.IBKit.xlsxExport('ibtekr-assistant-' + TODAY + '.xlsx', 'مساعد AI', aoa);
   }
-  function aiRun(text) {
+  // the owner 22 Nov («المساعدين … ذكائهم في السيستم مش بيستخدموا مخ خارجي» · «يقولي مش فاهم و هستخدم تدخل خارجي و انا اوافق او ارفض» ·
+  // «لو مركب اكتر من مخ ممكن يخيرني مثلا شات جي بي او كلود»): a message goes to the system's own engine first (IBBrain — no model, no
+  // spend); what it understands is done here and marked «من السيستم». What it does not is asked about: a button per linked company
+  // («موافق» when there is one) and «لا» — no outside model is called before the member's click on that message. An answer to the
+  // outside model's own question (its buttons / its popup) goes back to it: the same request going on.
+  function aiRun(text, o) {
     const t = text.trim(); if (!t || ai.busy) return;
     ai.msgs.push({ role: 'user', text: t });
-    if (aiServer !== false) { aiChat(t); return; }
-    aiLocal(t);
+    if (o && o.brain) { aiChat(t, o.brain); return; }
+    const at = ai.msgs.length; const sys = () => ai.msgs.slice(at).forEach((m) => { if (m.role === 'ai') m.sys = true; });
+    if (ai.pending) { aiLocal(t); sys(); aiDraw(); return; }
+    const got = window.IBBrain ? window.IBBrain.understand(t, aiCtx()) : C.parseCommand(t, aiCtx());
+    if (got.type !== 'unknown') { aiExec(got); sys(); aiDraw(); return; }
+    aiConsent(t);
+  }
+  const aiBrains = () => (window.IBSettings && window.IBSettings.textBrains ? window.IBSettings.textBrains('assistant') : []); // the header assistant's own companies (the server lists them)
+  async function aiConsent(t) {
+    const S0 = window.IBSettings; if (S0 && S0.brainsReady && !S0.brainsReady()) { aiDraw(); await S0.loadBrains(); } // the linked companies are read the first time they are needed (the member's message shows meanwhile)
+    const brains = aiBrains();
+    if (!brains.length) { ai.msgs.push({ role: 'ai', sys: true, text: 'مش فاهم الطلب ده من السيستم، ومفيش مخ خارجي مربوط أسأله. جرّب صيغة من دي:', tries: true }); aiDraw(); return; }
+    ai.msgs.push({ role: 'ai', sys: true, text: brains.length > 1 ? 'مش فاهم الطلب ده من السيستم. أستخدم مخ خارجي؟ اختار أنهي واحد:' : 'مش فاهم الطلب ده من السيستم. أستخدم مخ خارجي (' + brains[0].name + ')؟', consent: { text: t, brains, done: '' } }); aiDraw();
+  }
+  function aiConsentPick(m, brain) {
+    if (m.consent.done || ai.busy) return;
+    if (!brain) { m.consent.done = 'no'; ai.msgs.push({ role: 'ai', sys: true, text: 'تمام، ما استخدمتش مخ خارجي. جرّب صيغة من دي:', tries: true }); aiDraw(); return; }
+    ai.turns = []; // a new request starts clean: an earlier answer (with what was shared for it) is not passed on
+    m.consent.done = brain.name; aiChat(m.consent.text, brain.id, []);
+  }
+  // the member's answer on the data card: approved = the same message again with those kinds, this once; refused = nothing more is sent
+  function aiNeedPick(m, ok) {
+    if (m.need.done || ai.busy) return;
+    if (!ok) { m.need.done = 'no'; ai.turns.pop(); ai.msgs.push({ role: 'ai', sys: true, text: 'تمام، مااتبعتش أي بيانات' + (m.need.name ? ' لـ ' + m.need.name : '') + '. من غيرها مش هيقدر يجاوب على ده — جرّب صيغة من دي يرد عليها السيستم نفسه:', tries: true }); aiDraw(); return; }
+    m.need.done = 'yes'; aiChat(m.need.text, m.need.brain, m.need.kinds, true);
   }
   // the fixed commands (commands.js) — the fallback without the AI
   function aiLocal(t) {
@@ -1222,9 +1313,22 @@
     if (!aiList) return;
     aiList.replaceChildren(...ai.msgs.map((m) => {
       const kids = [h('p', { class: 'ai-text' }, m.live && !m.text ? 'بفكّر…' : m.welcome ? aiWelcome() : m.text)];
+      // where the answer came from: the system itself, or the outside model the member agreed to
+      if (m.role === 'ai' && !m.welcome && !m.live && (m.sys || m.via)) kids.unshift(h('span', { class: 'ai-src' + (m.sys ? ' sys' : ''), 'data-ai-src': m.sys ? 'system' : 'brain' }, m.sys ? 'من السيستم' : ['الرد من ', h('bdi', null, m.via)]));
+      if (m.consent) kids.push(m.consent.done ? h('p', { class: 'ai-done t-small' }, m.consent.done === 'no' ? 'ما استخدمتش مخ خارجي.' : ['اتبعت لـ ', h('bdi', null, m.consent.done), '.']) : h('div', { class: 'ai-actions ai-consent', 'data-ai-consent': '' },
+        m.consent.brains.map((b) => Button({ type: 'primary', size: 'sm', label: m.consent.brains.length > 1 ? b.name : 'أيوه، استخدمه', attrs: Object.assign({ 'data-ai-brain': b.id }, m.consent.brains.length > 1 ? { 'data-i18n-off': '' } : {}), onClick: () => aiConsentPick(m, b) })),
+        Button({ size: 'sm', label: 'لا', attrs: { 'data-ai-brain': '' }, onClick: () => aiConsentPick(m, null) })));
+      if (m.need && window.IBBrainShare) { const BS = window.IBBrainShare;
+        kids.push(h('ul', { class: 'ai-need', 'data-ai-need': m.need.ask.join(' ') }, m.need.ask.map((k) => h('li', { 'data-ai-need-kind': k }, h('b', null, BS.KINDS[k].label), h('span', null, BS.KINDS[k].has), h('small', null, BS.KINDS[k].not)))));
+        kids.push(m.need.done ? h('p', { class: 'ai-done t-small' }, m.need.done === 'no' ? 'مااتبعتش بيانات.' : 'وافقت المرة دي.') : h('div', { class: 'ai-actions ai-consent', 'data-ai-share': '' },
+          Button({ type: 'primary', size: 'sm', label: 'وافق المرة دي', attrs: { 'data-ai-share-ok': '' }, onClick: () => aiNeedPick(m, true) }), Button({ size: 'sm', label: 'ارفض', attrs: { 'data-ai-share-no': '' }, onClick: () => aiNeedPick(m, false) }))); }
+      // what left the system for this answer: the message alone, or the message and the kinds approved
+      if (m.sent && m.via && !m.live && window.IBBrainShare) kids.push(h('p', { class: 'ai-shared t-small', 'data-ai-shared': (m.shared || []).join(' ') }, Icon('lock', 'sm'), h('span', null, m.shared && m.shared.length ? 'اتبعتله: رسالتك + ' + window.IBBrainShare.names(m.shared) : 'اتبعتله: رسالتك بس — من غير بيانات من السيستم')));
+      if (m.tries) kids.push(h('div', { class: 'ai-actions ai-tries' }, (window.IBBrain ? window.IBBrain.EXAMPLES : AI_EXAMPLES).map((x) => h('span', { class: 'chip' }, x))));
+      if (m.pick) kids.push(m.pick.done ? h('p', { class: 'ai-done t-small' }, m.pick.done) : h('div', { class: 'ai-actions ai-pick', 'data-ai-pick': '' }, m.pick.options.map((x, i) => Button({ size: 'sm', label: x, attrs: { 'data-i18n-off': '' }, onClick: () => { m.pick.done = x; aiRun(m.pick.texts[i]); } }))));
       if (m.forms && m.forms.length && !m.live) kids.push(h('div', { class: 'ai-actions ai-forms' }, m.forms.map((a) => h('a', { href: '#', class: 'ai-form-link', 'data-ai-open': a.name === 'plan_categories' ? 'category_plan' : a.name === 'plan_requests' ? 'request_plan' : (a.input && a.input.form) || '',
         onClick: (e) => { e.preventDefault(); aiOpenLink(a); } }, Icon('plus', 'sm'), a.name === 'plan_categories' ? 'راجع الأقسام (' + ((a.input && a.input.items) || []).length + ') ↗' : a.name === 'plan_requests' ? 'راجع الطلبات (' + ((a.input && a.input.items) || []).length + ') ↗' : 'افتح بوب أب «' + aiFormLabel(a) + '» ↗'))));
-      if (m.ask && !m.live && window.IBChatAsk) kids.push(window.IBChatAsk.card(m.ask, { key: 'hdr:' + ai.msgs.indexOf(m), used: m !== ai.msgs.filter((x) => x.ask).slice(-1)[0], onSend: (t) => aiRun(t) }));
+      if (m.ask && !m.live && window.IBChatAsk) kids.push(window.IBChatAsk.card(m.ask, { key: 'hdr:' + ai.msgs.indexOf(m), used: m !== ai.msgs.filter((x) => x.ask).slice(-1)[0], onSend: (t) => aiRun(t, m.brain ? { brain: m.brain } : null) }));
       if (m.files && m.files.length && !m.live) kids.push(h('div', { class: 'ai-actions ai-forms' }, m.files.map((a) => h('a', { href: '#', class: 'ai-form-link', 'data-ai-file': (a.input && a.input.source) || '',
         onClick: (e) => { e.preventDefault(); aiFile(a); } }, Icon('download', 'sm'), 'تنزيل «' + String((a.input && a.input.name) || 'الملف') + '»'))));
       if (m.report && m.report.length && !m.live) kids.push(h('div', { class: 'ai-actions' }, Button({ size: 'sm', icon: 'file', label: 'تفاصيل', attrs: { 'data-ai-details': '' }, onClick: () => aiReport(m) }),
@@ -1281,7 +1385,7 @@
     parts.forEach(walk); return lines.join('\n');
   }
   function aiReport(m) {
-    const parts = (m.report || []).map((r) => airParts(r.data, AIR_KIND[r.kind] || r.kind));
+    const parts = (m.report || []).map((r) => (r.part ? r.part : airParts(r.data, AIR_KIND[r.kind] || r.kind))); // r.part = a part the system's own read-out built
     const sec = (p) => h('section', { class: 'air-sec' }, h('h3', { class: 't-h5' }, p.title), p.sub ? h('p', { class: 't-small help', style: 'margin:0' }, p.sub) : null,
       p.note ? h('p', { class: 't-small' }, p.note) : null,
       p.chips.length ? h('div', { class: 'dt-sum' }, p.chips.map(([a, b]) => h('div', { class: 'dt-chip' }, h('span', { class: 't-small' }, a), h('b', null, num(String(b)))))) : null,
@@ -1337,7 +1441,7 @@
       aiList,
       h('div', { class: 'ai-chips' }, AI_EXAMPLES.map((x) => Button({ size: 'sm', label: x, onClick: () => aiRun(x) }))),
       form,
-      (aiNoteEl = h('p', { class: 'ai-note t-small' }, 'محادثة مع Claude على بياناتك بصلاحياتك. أي تسجيل بيطلب تأكيدك الأول.')));
+      (aiNoteEl = h('p', { class: 'ai-note t-small' }, 'السيستم بيرد من بياناته الأول — المخ الخارجي بموافقتك بس. أي تسجيل بيطلب تأكيدك الأول.')));
     aiPanel.hidden = true;
     aiPanel.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); aiToggle(false); } });
     return aiPanel;
@@ -4714,8 +4818,11 @@
   async function aiFilter(text) {
     const ctx = { vendors: (window.OrdersApp && window.OrdersApp.vendors) ? window.OrdersApp.vendors() : [], statuses: window.OrdersApp ? window.OrdersApp.statuses() : [] };
     const local = C.parseFilter(text, ctx);
-    if (aiServer === false || !window.IBAI || !window.IBAI.assistant) return { filter: local, mode: 'local' };
-    const r = await window.IBAI.assistant({ mode: 'filter', turns: [{ role: 'user', text }], context: ctx });
+    // the owner 22 Nov (the system first — 2026-11-22-system-brain.md decision 14): what the system's own parser took from the description
+    // is the filter, with no model. Only a description it took nothing from goes to the outside model — the words alone: the makers'
+    // names stay here (a maker is matched by the words the member wrote)
+    if (local.items.length || aiServer === false || !window.IBAI || !window.IBAI.assistant) return { filter: local, mode: 'local' };
+    const r = await window.IBAI.assistant({ mode: 'filter', turns: [{ role: 'user', text }], context: { vendors: [], statuses: ctx.statuses } });
     if (!r.ok) { if (r.reason === 'not_configured' || r.reason === 'forbidden') { aiServer = false; aiModeNote(); } return { filter: local, mode: 'local' }; }
     const a = (r.actions || []).find((x) => x.name === 'set_filter');
     const out = a ? { op: a.input.op === 'or' ? 'or' : 'and', items: (a.input.items || []).filter((x) => FILTER_FIELDS.includes(x.f) && FILTER_OPS.includes(x.op)).map((x) => ({ f: x.f, op: x.op, v: x.v == null ? '' : String(x.v) })) } : null;

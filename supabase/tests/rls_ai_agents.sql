@@ -23,8 +23,8 @@ insert into public.mkt_agent_chats (id, member_id, agent, title) values
 insert into public.mkt_agent_messages (chat_id, role, text) values ('00000000-0000-4000-8000-0000000120c1', 'user', 'صرفنا كام؟');
 
 do $$ begin
-  if (select count(*) from public.ai_agents where builtin) <> 9 then raise exception 'case the nine built-ins failed'; end if; -- 0129: + content
-  if (select string_agg(id, ',' order by sort) from public.ai_agents where builtin) <> 'buyer,designer,dev,stock,cs,makers,accountant,hr,content' then raise exception 'case their order failed'; end if;
+  if (select count(*) from public.ai_agents where builtin) <> 10 then raise exception 'case the ten built-ins failed'; end if; -- 0129: + content, 0150: + manager
+  if (select string_agg(id, ',' order by sort) from public.ai_agents where builtin) <> 'manager,buyer,designer,dev,stock,cs,makers,accountant,hr,content' then raise exception 'case their order failed'; end if;
   begin insert into public.mkt_agent_chats (member_id, agent) values ('00000000-0000-4000-8000-0000000120a2', 'robot'); raise exception 'case a chat is with a known assistant failed';
   exception when foreign_key_violation then null; end;
   if has_function_privilege('anon', 'public.ai_agents_list()', 'execute') or has_function_privilege('anon', 'public.ai_agent_save(jsonb)', 'execute')
@@ -59,7 +59,7 @@ end $$;
 -- ================================================================ the admin: everyone, a new one, the rules with their assistants
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000120a1","role":"authenticated"}', true);
 do $$ declare v text; n int; l jsonb; begin
-  if jsonb_array_length(public.ai_agents_list()) <> 9 then raise exception 'case the admin sees all failed'; end if;
+  if jsonb_array_length(public.ai_agents_list()) <> 10 then raise exception 'case the admin sees all failed'; end if;
   v := public.ai_agent_save('{"name":"مساعد المنتجات","icon":"package","perm":"products.view","sees":["orders","sales"],"role":"الحسابات","about":"الأكتر مبيعًا","instructions":"ركّز على الأقسام","suggestions":["إيه الأكتر مبيعًا؟"]}');
   if v !~ '^c_[0-9a-f]{10}$' then raise exception 'case a new one gets an id failed: %', v; end if;
   if (select x ->> 'perm' || '|' || (x -> 'sees')::text || '|' || (x ->> 'role') from jsonb_array_elements(public.ai_agents_list()) x where x ->> 'id' = v) <> 'products.view|["orders", "sales"]|الحسابات' then raise exception 'case a new one stored failed'; end if;

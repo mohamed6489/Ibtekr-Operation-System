@@ -11,6 +11,8 @@ test.beforeEach(async ({ page }) => {
   test.skip(LIVE, 'asserts on the mocked Supabase');
   pageErrors = []; page.on('pageerror', (e) => pageErrors.push(e.message));
   mock = await installSupabaseMock(page);
+  mock.st.vault.anthropic = JSON.stringify({ key: 'sk-ant-' + 'a'.repeat(40) }); // Claude linked: the outside model the assistant may ask, after the member's «موافق»
+  await page.addLocatorHandler(page.locator('[data-mk-consent] [data-mk-brain="claude"]'), async (b) => { await b.click(); }); // an assistant's own chat («الذكاء الاصطناعي») asks the same way: answered as soon as it shows
 });
 test.afterEach(() => { if (LIVE) return; expect(pageErrors).toEqual([]); expect(mock.unhandled).toEqual([]); });
 async function signIn(page, id) {
@@ -23,7 +25,12 @@ async function signIn(page, id) {
 }
 const panel = (page) => page.locator('.ai-panel');
 const openLink = (page) => panel(page).locator('.ai-form-link').last().click();
-async function ask(page, text) { await page.fill('.ai-input', text); await page.locator('.ai-form').press('Enter'); }
+// the owner 22 Nov: a message goes to the system's own engine first; what it does not understand is sent to the outside model only
+// after the member's «موافق» on that message — `ask` gives it (say() sends without it)
+async function say(page, text) { await page.fill('.ai-input', text); await page.locator('.ai-form').press('Enter'); }
+// (and, the same day: the outside model gets the message alone — the data kinds its answer reads are asked about, «وافق المرة دي»)
+async function ask(page, text) { await say(page, text); try { await panel(page).locator('[data-ai-consent] [data-ai-brain="claude"]').last().click({ timeout: 1200 }); } catch { return; /* the system understood it */ }
+  try { await panel(page).locator('[data-ai-share-ok]').last().click({ timeout: 1500 }); } catch { /* it needed none of the system's data */ } }
 
 test('a question: one assistant call with the turns and the screen; the answer shown, its navigate + filter actions run on the orders page; logged without the text', async ({ page }) => {
   mock.aiAnswer = (action, req) => (action === 'assistant' ? { text: 'فيه أوردر واحد متأخر. فتحتلك الأوردرات عليه.', actions: [{ name: 'filter_orders', input: { clear: true, deliv: 'late' } }], tools: ['summary', 'orders'] } : null);
@@ -31,21 +38,24 @@ test('a question: one assistant call with the turns and the screen; the answer s
   await page.getByRole('button', { name: 'مساعد AI' }).click();
   await expect(panel(page)).toBeVisible();
   await expect(panel(page).locator('.ai-msg.ai').first()).toContainText('أهلاً يا سارة');
-  await expect(panel(page).locator('.ai-note')).toContainText('محادثة مع Claude');
-  await ask(page, 'كام أوردر متأخر؟');
-  await expect(panel(page).locator('.ai-msg.ai').last()).toHaveText('فيه أوردر واحد متأخر. فتحتلك الأوردرات عليه.');
-  const call = mock.aiCalls.find((c) => c.action === 'assistant');
-  expect(call.mode).toBe('chat'); expect(call.turns).toEqual([{ role: 'user', text: 'كام أوردر متأخر؟' }]); expect(call.context.page).toBe('dashboard');
+  await expect(panel(page).locator('.ai-note')).toContainText('المخ الخارجي بموافقتك بس');
+  await ask(page, 'إيه رأيك في الأوردرات المتأخرة؟');
+  await expect(panel(page).locator('.ai-msg.ai').last().locator('.ai-text')).toHaveText('فيه أوردر واحد متأخر. فتحتلك الأوردرات عليه.');
+  // the first call took the message alone (no screen, no data kind); the one after «وافق المرة دي» carries the screen and the kinds
+  const first = mock.aiCalls.find((c) => c.action === 'assistant'); expect(first.context).toEqual({}); expect(first.share).toEqual([]);
+  const call = mock.aiCalls.filter((c) => c.action === 'assistant').pop(); expect(call.share).toEqual(['summary', 'orders']);
+  expect(call.mode).toBe('chat'); expect(call.turns).toEqual([{ role: 'user', text: 'إيه رأيك في الأوردرات المتأخرة؟' }]); expect(call.context.page).toBe('dashboard');
   await expect(page.locator('#orders')).toBeVisible();
   await expect(page.locator('.sidebar .nav-item[data-page="orders"]')).toHaveAttribute('aria-current', 'page');
   await expect(page.locator('#orders .afc-chip').filter({ hasText: 'متأخر' }).first()).toBeVisible();
   // the second turn carries the history
   mock.aiAnswer = () => ({ text: 'تمام.', actions: [] });
   await ask(page, 'وشكرًا');
-  await expect(panel(page).locator('.ai-msg.ai').last()).toHaveText('تمام.');
-  expect(mock.aiCalls.filter((c) => c.action === 'assistant').at(-1).turns.map((t) => t.role)).toEqual(['user', 'assistant', 'user']);
-  expect(mock.aiRuns.map((r) => [r.action, r.source, r.status])).toEqual([['assistant', 'chat', 'ok'], ['assistant', 'chat', 'ok']]);
-  await expect.poll(() => mock.activity.filter((a) => a.action === 'assistant.chat').map((a) => a.new_value)).toEqual(['filter_orders · data: summary, orders', 'no action · no data']);
+  await expect(panel(page).locator('.ai-msg.ai').last().locator('.ai-text')).toHaveText('تمام.');
+  // a new request starts clean: the earlier answer (and what was shared for it) is not passed on to the outside model
+  expect(mock.aiCalls.filter((c) => c.action === 'assistant').at(-1).turns.map((t) => t.role)).toEqual(['user']);
+  expect(mock.aiRuns.map((r) => [r.action, r.source, r.status])).toEqual([['assistant', 'chat', 'ok'], ['assistant', 'chat', 'ok'], ['assistant', 'chat', 'ok']]); // the ask for data, the answer, the second request
+  await expect.poll(() => mock.activity.filter((a) => a.action === 'assistant.chat').map((a) => a.new_value)).toEqual(['no action · asks for: summary, orders', 'filter_orders · data: summary, orders', 'no action · no data']);
   expect(JSON.stringify(mock.activity)).not.toContain('متأخر');
 });
 
@@ -53,7 +63,7 @@ test('propose_entry: the confirm card from the server\'s action; nothing is writ
   mock.aiAnswer = (action) => (action === 'assistant' ? { text: 'عرضتلك كارت التأكيد لسحب 5,000 ج.م مرتبات — أكّد عشان تتسجل.', actions: [{ name: 'propose_entry', input: { kind: 'expense', direction: 'withdraw', amount: 5000, category: 'المرتبات' } }], tools: [] } : null);
   await signIn(page, ADMIN); // accounts.add = F: the confirmed entry reaches acc_expenses through IBAccounts
   await page.getByRole('button', { name: 'مساعد AI' }).click();
-  await ask(page, 'سجل سحب مرتبات 5000');
+  await ask(page, 'اقترح قيد سحب مرتبات 5000'); // (an ask the system's own engine leaves to the outside model)
   await expect(panel(page).locator('.ai-msg.ai .kv').last()).toContainText('المرتبات');
   expect(mock.accWrites.length).toBe(0);
   await panel(page).getByRole('button', { name: 'تأكيد التسجيل' }).click();
@@ -95,23 +105,79 @@ test('decision 40: an expense / an account move opens the accounts page\'s own �
   await expect(panel(page).locator('.ai-msg.ai').last()).toContainText('إيداع ولا سحب');
 });
 
-test('the AI not configured → the fixed commands take over (the note says so) and still open pages; the monthly cap is said', async ({ page }) => {
-  mock.aiFail = 'not_configured';
+// the owner 22 Nov: the system's own engine answers first, with no model and no call; what it does not understand is asked about —
+// «موافق» sends that one message to the outside model, «لا» sends nothing; with two companies linked the member picks one
+test('the system answers first: a page, a filter with its count and a money popup with no call at all; an ask it does not understand waits for «موافق» / «لا»; the outside model not set up and the monthly cap are said', async ({ page }) => {
   await signIn(page, OPS);
   await page.getByRole('button', { name: 'مساعد AI' }).click();
-  await ask(page, 'افتح الأوردرات');
-  await expect(panel(page).locator('.ai-note')).toContainText('مش متظبط');
-  await expect(panel(page).locator('.ai-msg.ai').last()).toHaveText('فتحت الأوردرات.');
+  await expect(panel(page).locator('.ai-note')).toContainText('المخ الخارجي بموافقتك بس');
+  await say(page, 'افتح الأوردرات');
+  const last = () => panel(page).locator('.ai-msg.ai').last();
+  await expect(last().locator('.ai-text')).toHaveText('فتحت الأوردرات.'); await expect(last().locator('[data-ai-src]')).toHaveAttribute('data-ai-src', 'system');
   await expect(page.locator('.sidebar .nav-item[data-page="orders"]')).toHaveAttribute('aria-current', 'page');
-  expect(mock.aiCalls.filter((c) => c.action === 'assistant').length).toBe(1);
-  await ask(page, 'افتح الحسابات');
-  await expect(page.locator('.sidebar .nav-item[data-page="accounts"]')).toHaveAttribute('aria-current', 'page');
-  expect(mock.aiCalls.filter((c) => c.action === 'assistant').length, 'no second call once the AI is known to be off').toBe(1);
-  await page.reload(); await expect(page.locator('#root')).toBeVisible();
+  await say(page, 'افتح المخزن');
+  await expect(last().locator('.ai-text')).toHaveText('فتحت «المخزون».'); await expect(page.locator('.sidebar .nav-item[data-page="inventory"]')).toHaveAttribute('aria-current', 'page');
+  await say(page, 'كام أوردر متأخر؟');
+  await expect(last().locator('.ai-text')).toHaveText(/^فلترت الأوردرات: التسليم = متأخر — \d+ أوردر\.$/);
+  await say(page, 'سجل سحب مرتبات 5000');
+  await expect(last().locator('.ai-form-link')).toContainText('سحب — المصروفات');
+  expect(mock.aiCalls.filter((c) => c.action === 'assistant').length, 'the system needed no model for any of these').toBe(0);
+  expect(mock.aiRuns.length).toBe(0);
+  // not understood: nothing is sent before the member's answer; «لا» sends nothing and offers what the system does understand
+  await say(page, 'إيه رأيك في مبيعات الشهر ده؟');
+  await expect(last().locator('.ai-text')).toContainText('مش فاهم الطلب ده من السيستم. أستخدم مخ خارجي (Claude)؟');
+  await expect(last().locator('[data-ai-consent] button')).toHaveText(['أيوه، استخدمه', 'لا']);
+  expect(mock.aiCalls.filter((c) => c.action === 'assistant').length).toBe(0);
+  await last().locator('[data-ai-brain=""]').click();
+  await expect(last().locator('.ai-text')).toContainText('ما استخدمتش مخ خارجي'); await expect(last().locator('.ai-tries .chip').first()).toBeVisible();
+  expect(mock.aiCalls.filter((c) => c.action === 'assistant').length).toBe(0);
+  // «موافق»: that message alone goes, with the company; the answer says who it is from
+  mock.aiAnswer = (action) => (action === 'assistant' ? { text: 'المبيعات ماشية كويس.', actions: [] } : null);
+  await ask(page, 'إيه رأيك في مبيعات الشهر ده؟');
+  await expect(last().locator('.ai-text')).toHaveText('المبيعات ماشية كويس.'); await expect(last().locator('[data-ai-src]')).toHaveText('الرد من Claude');
+  const calls = mock.aiCalls.filter((c) => c.action === 'assistant'); expect(calls.length).toBe(1); expect(calls[0].provider).toBe('claude');
+  expect(calls[0].turns.at(-1).text).toBe('إيه رأيك في مبيعات الشهر ده؟');
+  // the outside model not set up on the server, then the monthly cap
+  mock.aiFail = 'not_configured';
+  await ask(page, 'اقترح خطة للأسبوع');
+  await expect(last()).toContainText('المخ الخارجي مش متاح دلوقتي');
   mock.aiFail = 'ai_cap';
+  await ask(page, 'إيه رأيك في الأوردرات؟');
+  await expect(last()).toContainText('سقف الـ AI الشهري خلص');
+});
+
+// on the server the header assistant's tools run on Claude alone (ai-content `brains`.assistant): another linked company is offered in
+// the assistants' own chats (agent-system.spec.mjs), not here
+test('two companies linked: the header assistant asks for Claude alone (its tools run there); without Claude or with nothing linked the system says so and calls nothing; a maker\'s name by its sound, and two that fit are asked about', async ({ page }) => {
+  mock.st.vault.openai = JSON.stringify({ key: 'sk-' + 'o'.repeat(40) });
+  mock.aiAnswer = (action) => (action === 'assistant' ? { text: 'تمام.', actions: [] } : null);
+  await signIn(page, ADMIN);
   await page.getByRole('button', { name: 'مساعد AI' }).click();
-  await ask(page, 'كام أوردر؟');
-  await expect(panel(page).locator('.ai-msg.ai').last()).toContainText('سقف الـ AI الشهري خلص');
+  const last = () => panel(page).locator('.ai-msg.ai').last();
+  await say(page, 'اقترح عرض للأسبوع الجاي');
+  await expect(last().locator('.ai-text')).toContainText('أستخدم مخ خارجي (Claude)؟');
+  await expect(last().locator('[data-ai-consent] button')).toHaveText(['أيوه، استخدمه', 'لا']);
+  await last().locator('[data-ai-brain="claude"]').click();
+  await expect(last().locator('[data-ai-src]')).toHaveText('الرد من Claude');
+  expect(mock.aiCalls.filter((c) => c.action === 'assistant').at(-1).provider).toBe('claude');
+  // a name by its sound: the engine's own rule (the page's makers are the test data's)
+  const got = await page.evaluate(() => { const B = window.IBBrain; const ctx = { vendors: ['antekama', 'Glastora', 'خشب وبس', 'خشب الورد'], today: '2026-11-22', pages: [] };
+    return [B.understand('أوردرات المبتكر انتيكما جاري التنفيذ', ctx), B.understand('اوردرات المبتكر خشب', ctx), B.understand('حساب antekama وعدد الأوردرات الملغية', ctx), B.understand('كام أوردر متأخر؟', ctx)]; });
+  expect(got[0]).toMatchObject({ type: 'ordersFilter', filter: { st: 'جاري التنفيذ', vendor: 'antekama' } });
+  expect(got[1]).toMatchObject({ type: 'choose', options: ['خشب الورد', 'خشب وبس'] });
+  expect(got[2]).toEqual({ type: 'unknown' }); expect(got[3]).toMatchObject({ type: 'ordersFilter', filter: { deliv: 'late' } });
+  // ChatGPT alone linked: not the header assistant's company — no card, no call
+  delete mock.st.vault.anthropic; await page.reload(); await expect(page.locator('#root')).toBeVisible();
+  await page.getByRole('button', { name: 'مساعد AI' }).click();
+  const before = mock.aiCalls.length;
+  await say(page, 'اقترح عرض للأسبوع الجاي');
+  await expect(last().locator('.ai-text')).toContainText('مفيش مخ خارجي مربوط'); await expect(last().locator('[data-ai-consent]')).toHaveCount(0);
+  // nothing linked: the same
+  mock.st.vault = {}; await page.reload(); await expect(page.locator('#root')).toBeVisible();
+  await page.getByRole('button', { name: 'مساعد AI' }).click();
+  await say(page, 'اقترح عرض للأسبوع الجاي');
+  await expect(last().locator('.ai-text')).toContainText('مفيش مخ خارجي مربوط'); await expect(last().locator('[data-ai-consent]')).toHaveCount(0);
+  expect(mock.aiCalls.length).toBe(before);
 });
 
 // phase 13 decision 23 (owner 10 Nov): the chat keeps a short summary; «تفاصيل» opens the data the assistant read as a report popup with
@@ -130,12 +196,12 @@ test('decision 23: «تفاصيل» opens the read data as a report (chips + tab
   const b0 = await btn.boundingBox(); let p0 = await P.boundingBox();
   expect(Math.abs(p0.y - (b0.y + b0.height + 8))).toBeLessThanOrEqual(2); expect(p0.width).toBeGreaterThan(380); expect(p0.width).toBeLessThanOrEqual(421);
   expect(await P.evaluate((el) => getComputedStyle(el).resize)).toBe('both');
-  await ask(page, 'فيه أوردرات متأخرة؟');
+  await ask(page, 'حلل الأوردرات المتأخرة');
   await expect(P.locator('.ai-msg.ai').last()).toContainText('عندك أوردرين في الفترة');
   await P.locator('[data-ai-details]').last().click();
   const r = page.locator('.modal[data-ai-report]');
   await expect(r).toBeVisible();
-  await expect(r.locator('.modal-h')).toContainText('تقرير: فيه أوردرات متأخرة؟');
+  await expect(r.locator('.modal-h')).toContainText('تقرير: حلل الأوردرات المتأخرة');
   await expect(r).toContainText('الفترة: 01/11/2026 – 10/11/2026');
   await expect(r.locator('.dt-chip', { hasText: 'العدد' })).toContainText('2');
   await expect(r.locator('th', { hasText: 'رقم الأوردر' })).toBeVisible();
@@ -153,8 +219,8 @@ test('decision 23: «تفاصيل» opens the read data as a report (chips + tab
   expect(await file.path()).toBeTruthy(); // the file itself is saved (this browser names an Arabic file «download» — the name asked for is below)
   const shared = await page.evaluate(() => window.__lastShare);
   expect(shared).toMatchObject({ type: 'excel', via: 'whatsapp' }); expect(shared.href.startsWith('https://wa.me/')).toBe(true);
-  expect(shared.name).toMatch(/^تقرير فيه أوردرات متأخرة.*\.xlsx$/);
-  expect(shared.title).toContain('فيه أوردرات متأخرة؟');
+  expect(shared.name).toMatch(/^تقرير حلل الأوردرات المتأخرة.*\.xlsx$/);
+  expect(shared.title).toContain('حلل الأوردرات المتأخرة');
   await r.locator('.modal-f').getByRole('button', { name: 'إغلاق' }).click(); await expect(r).toBeHidden();
   // drag by the header: the panel moves with the pointer
   const head = P.locator('.ai-head'); const hb = await head.boundingBox();
@@ -375,14 +441,15 @@ test('ش45: the header\'s assistant hands a programming question to the develope
   await signIn(page, OPS);
   await page.getByRole('button', { name: 'مساعد AI' }).click();
   await ask(page, 'ليه الموقع بطيء على الموبايل؟');
-  await expect(panel(page).locator('.ai-msg.ai').last()).toHaveText('حوّلت سؤالك للمبرمج.');
+  await expect(panel(page).locator('.ai-msg.ai').last().locator('.ai-text')).toHaveText('حوّلت سؤالك للمبرمج.');
   await expect(page.locator('#pg-ai')).toBeVisible();
   await expect(page.locator('#pg-ai').getByRole('tab', { name: /المبرمج/ })).toHaveAttribute('aria-selected', 'true');
   // the question waits in the box (nothing sent until the member presses) — then one call on a new chat
   await expect(page.locator('#mk-ask')).toHaveValue('ليه الموقع بطيء على الموبايل؟');
   expect(mock.mkt.calls.filter((c) => c.action === 'agent')).toEqual([]);
   await page.locator('#mk-ask').press('Enter');
-  await expect.poll(() => mock.mkt.calls.filter((c) => c.action === 'agent').map((c) => [c.agent, c.chat])).toEqual([['dev', null]]);
+  // the consent card may show a moment after the send: looked at on every try, so the handler above answers it
+  await expect(async () => { await expect(page.locator('[data-mk-consent]')).toHaveCount(0, { timeout: 300 }); expect(mock.mkt.calls.filter((c) => c.action === 'agent').map((c) => [c.agent, c.chat])).toEqual([['dev', null]]); }).toPass({ timeout: 10000 });
   await expect(page.locator('#pg-ai')).toContainText('سؤالك: ليه الموقع بطيء على الموبايل؟');
 });
 
@@ -448,4 +515,116 @@ test('the owner 18 Nov — ask_choice: the manager\'s options are buttons in the
   await md.locator('#ib-ask-0').fill('500'); await md.locator('#ib-ask-1').fill('مواصلات');
   await md.locator('[data-ib-ask-send]').click();
   await expect.poll(() => mock.aiCalls.filter((c) => c.action === 'assistant').at(-1).turns.at(-1).text).toBe('المبلغ: 500\nالسبب: مواصلات');
+});
+
+// The owner 22 Nov («اي مخ خارجي لما بدخلوا لازم اوافق … من غير ما يكون عندوا كل معلومات الشركة الا لو انا وافقت بعد ما الايجنت بتاعي
+// يطلب مني»): the outside model gets the message only; the data kinds it wants are asked about, sent for that request alone.
+test('the outside model gets the message alone: an answer that needs data waits for «وافق المرة دي» on the kinds named; «ارفض» sends nothing; words alone need none; the settings list what never leaves and what was sent', async ({ page }) => {
+  mock.aiAnswer = (action, req) => (action !== 'assistant' ? null : /كابشن/.test(req.question) ? { text: 'كابشن: معمولة بالإيد.', actions: [], tools: [] } : { text: 'عندك أوردرين، واحد منهم متأخر.', actions: [], tools: ['orders', 'sales'] });
+  await signIn(page, ADMIN); await page.getByRole('button', { name: 'مساعد AI' }).click();
+  const last = panel(page).locator('.ai-msg.ai').last(); const calls = () => mock.aiCalls.filter((c) => c.action === 'assistant' && c.mode === 'chat');
+  // the first consent: the company — the call carries the message, no context and no data kind
+  await say(page, 'حلل أداء الشهر ده وقولي رأيك'); await last.locator('[data-ai-brain="claude"]').click();
+  await expect(last.locator('[data-ai-need]')).toHaveAttribute('data-ai-need', 'orders sales'); await expect(last.locator('[data-ai-src]')).toHaveText('من السيستم');
+  await expect(last).toContainText('عشان يكمّل، Claude محتاج يشوف البيانات دي من السيستم. أوافق؟');
+  await expect(last.locator('[data-ai-need-kind="orders"]')).toContainText('من غير أسامي العملاء وتليفوناتهم وعناوينهم'); await expect(panel(page)).not.toContainText('أوردرين');
+  expect(calls().length).toBe(1); expect(calls()[0].share).toEqual([]); expect(calls()[0].context).toEqual({}); expect(calls()[0].turns.map((t) => t.text)).toEqual(['حلل أداء الشهر ده وقولي رأيك']);
+  // refused: nothing more is sent, and the system says what it can do itself
+  await last.locator('[data-ai-share-no]').click(); await expect(last).toContainText('تمام، مااتبعتش أي بيانات لـ Claude'); expect(calls().length).toBe(1);
+  // asked again and approved: the same message with those kinds, the answer, and what was sent under it
+  await say(page, 'حلل أداء الشهر ده وقولي رأيك'); await last.locator('[data-ai-brain="claude"]').click(); await last.locator('[data-ai-share-ok]').click();
+  await expect(last.locator('.ai-text')).toHaveText('عندك أوردرين، واحد منهم متأخر.'); await expect(last.locator('[data-ai-src]')).toHaveText('الرد من Claude');
+  await expect(last.locator('[data-ai-shared]')).toHaveAttribute('data-ai-shared', 'orders sales'); await expect(last.locator('[data-ai-shared]')).toHaveText('اتبعتله: رسالتك + الأوردرات · المبيعات');
+  expect(calls().length).toBe(3); expect(calls()[2].share).toEqual(['orders', 'sales']); expect(calls()[2].turns.map((t) => t.text)).toEqual(['حلل أداء الشهر ده وقولي رأيك']);
+  // words alone: no data card, and the line says the message went alone; the earlier answer (with its numbers) is not passed on
+  await say(page, 'اكتبلي كابشن لمنتج جديد'); await last.locator('[data-ai-brain="claude"]').click();
+  await expect(last.locator('.ai-text')).toHaveText('كابشن: معمولة بالإيد.'); await expect(last.locator('[data-ai-shared]')).toHaveText('اتبعتله: رسالتك بس — من غير بيانات من السيستم');
+  expect(calls()[3].share).toEqual([]); expect(calls()[3].turns.map((t) => t.text)).toEqual(['اكتبلي كابشن لمنتج جديد']);
+  // the log: the company and the kinds only
+  await expect.poll(() => mock.activity.filter((a) => a.action === 'assistant.share').map((a) => a.new_value)).toEqual(['claude · orders, sales']);
+  // the settings: what never leaves, and the last send
+  await page.keyboard.press('Escape'); await page.evaluate(() => { location.hash = 'settings-ai'; });
+  const card = page.locator('[data-brain-share]'); await expect(card).toContainText('المخ الخارجي بياخد رسالتك بس');
+  await expect(card.locator('[data-bs-never] li')).toHaveText(['تليفونات العملاء', 'عناوين العملاء', 'الحسابات البنكية', 'المرتبات', 'نسب العمولة', 'المفاتيح والباسوردات', 'نص رسايل العملاء']);
+  await expect(card.locator('[data-bs-log]')).toHaveCount(1); await expect(card.locator('[data-bs-log]')).toContainText('Claude'); await expect(card.locator('[data-bs-log]')).toContainText('الأوردرات · المبيعات');
+});
+
+// The owner 22 Nov — «الفلتر بالكلام علي الداتا عيزو يبقا من ضمن السيستم»: a list of another page filtered by words — the system opens the
+// list's tab and works its own «فلتر» (the choices the words name) and «بحث» (the words that are no choice); no model is called.
+test('a list filtered by words: the makers by their status, then by a word searched — the page\'s own filter and search, said back with the count, from the system', async ({ page }) => {
+  await signIn(page, ADMIN); await page.getByRole('button', { name: 'مساعد AI' }).click();
+  const last = panel(page).locator('.ai-msg.ai').last(); const makers = mock.vendors.filter((v) => !v.archived_at);
+  const inactive = makers.filter((v) => v.status === 'inactive').length; const active = makers.filter((v) => v.status === 'active');
+  await say(page, 'اعرض المبتكرين الموقوفين');
+  await expect(last.locator('.ai-text')).toHaveText('فلترت المبتكرين: الحالة = غير نشط — ' + inactive + ' مبتكر.'); await expect(last.locator('[data-ai-src]')).toHaveText('من السيستم');
+  await expect(page.locator('main.content:not([hidden]) [data-fm-btn="vendors"]')).toBeVisible(); await expect(page.locator('main.content:not([hidden]) [role=tab][aria-selected=true]').first()).toContainText('سجل المبتكرين');
+  await expect(page.locator('main.content:not([hidden]) [data-fm-btn="vendors"]')).toHaveAttribute('aria-label', /1 مختار/);
+  // a word that is no choice of the filter is searched for in the table, inside what the filter left
+  const name = active[0].name; await say(page, 'اعرض المبتكرين النشطين ' + name.split(' ')[0]);
+  await expect(last.locator('.ai-text')).toHaveText(new RegExp('^فلترت المبتكرين: الحالة = نشط، وبحثت عن «' + name.split(' ')[0] + '» — \\d+ صف\\.$'));
+  await expect(page.locator('main.content:not([hidden]) [data-tq-row] input')).toHaveValue(name.split(' ')[0]);
+  // nothing the filter knows and nothing to search: the page is open, and the system says so
+  expect(mock.aiCalls.filter((c) => c.action === 'assistant').length, 'no model was called').toBe(0);
+});
+
+// The owner 22 Nov — «لو طلبت حساب مبتكر منتج او موظف او تقرير معين»: the system reads it out itself — the numbers the pages hold,
+// in the chat, with «تفاصيل» and «تنزيل Excel» — no model called and the page left where it was.
+test('read-outs from the system: a maker\'s account, a period\'s orders and expenses, a product and a member — in the chat, no model, the page unchanged', async ({ page }) => {
+  await signIn(page, ADMIN); await page.getByRole('button', { name: 'مساعد AI' }).click();
+  const last = panel(page).locator('.ai-msg.ai').last(); const hash = await page.evaluate(() => location.hash);
+  const maker = mock.vendors.find((v) => !v.archived_at && v.status === 'active');
+  await say(page, 'حساب ' + maker.name);
+  await expect(last.locator('.ai-text')).toHaveText(new RegExp('^حساب ' + maker.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ': .*أوردراته المفتوحة \\d+')); await expect(last.locator('[data-ai-src]')).toHaveText('من السيستم');
+  await expect(last.locator('[data-ai-details]')).toBeVisible();
+  await say(page, 'كام أوردر الشهر ده'); await expect(last.locator('.ai-text')).toHaveText(/^أوردرات .+: \d+ أوردر بإجمالي [\d,]+ ج\.م — مكتمل \d+، ملغي \d+، محتاج إجراء \d+\.$/);
+  await say(page, 'مصروفات الشهر ده'); await expect(last.locator('.ai-text')).toHaveText(/^مصروفات .+: المصروفات [\d,]+ ج\.م في \d+ حركة/);
+  // «تفاصيل»: the part the system built — its chips and its table
+  await last.locator('[data-ai-details]').click(); const modal = page.locator('.modal').last();
+  await expect(modal).toContainText('المصروفات'); await expect(modal).toContainText('عدد الحركات'); await modal.getByRole('button', { name: 'إغلاق' }).last().click(); await expect(page.locator('.modal')).toHaveCount(0);
+  // a product by a word of its name or its SKU; several that fit are asked about
+  const prod = (mock.products || []).find((p) => p.sku && p.lang !== 'ar');
+  if (prod) { await say(page, 'المنتج ' + prod.sku); await expect(last.locator('.ai-text')).toContainText('(' + prod.sku + '): السعر'); }
+  await say(page, 'المنتج zzzznothing'); await expect(last.locator('.ai-text')).toHaveText(/^مالقيتش منتج بـ «zzzznothing»/);
+  // a member of the team by a word of the name
+  const me = await page.evaluate(() => window.IBHR.everyone()[0].name);
+  await say(page, 'الموظف ' + me); await expect(last.locator('.ai-text')).toHaveText(/الدور .*، الحالة .*، رصيد الإجازات \d+ يوم.* طلبات موارد بشرية مستنية: \d+، طلبات فريق معاه: \d+\.$/);
+  expect(await page.evaluate(() => location.hash), 'the page did not move').toBe(hash);
+  expect(mock.aiCalls.filter((c) => c.action === 'assistant').length, 'no model was called').toBe(0);
+});
+
+// The owner 22 Nov — «كل الاكشنز اللي ليها علاقة بالسيستم ادخال او اخراج او تعديل بيانات»: an add or an edit said in words opens the
+// system's own popup filled, from the system — no model called, nothing written until the popup's own button.
+test('add / edit by words from the system: a customer, a team request, an expense, an order to confirm — the popup filled, no model, nothing written before its button', async ({ page }) => {
+  await signIn(page, ADMIN); await page.getByRole('button', { name: 'مساعد AI' }).click();
+  const last = panel(page).locator('.ai-msg.ai').last(); const writes = () => [(mock.cs && mock.cs.customers) || [], mock.tickets || [], (mock.acc && mock.acc.acc_expenses) || []].map((x) => x.length).join(',') + '|' + mock.orders.map((x) => x.status + x.confirm).join(''); // the rows the popups would write
+  const w0 = writes();
+  await say(page, 'ضيف عميل أحمد سامي 01001234567 من طنطا'); await expect(last.locator('[data-ai-src]')).toHaveText('من السيستم'); await openLink(page);
+  const cust = page.locator('.modal[role=dialog]', { hasText: 'إضافة عميل' }).last();
+  await expect(cust.locator('#name')).toHaveValue('أحمد سامي'); await expect(cust.locator('#phone')).toHaveValue('01001234567'); await expect(cust.locator('#city')).toHaveValue('طنطا');
+  await cust.getByRole('button', { name: 'إلغاء' }).click();
+  await say(page, 'افتح طلب الطابعة بايظة عاجل'); await openLink(page); await expect(page).toHaveURL(/#tickets/);
+  const req = page.locator('.modal[role=dialog]').last(); await expect(req.locator('input[value="الطابعة بايظة"]')).toHaveCount(1); await req.getByRole('button', { name: 'إلغاء' }).click();
+  await say(page, 'سجل مصروف 500 كهربا'); await expect(last.locator('.ai-form-link')).toContainText('سحب — المصروفات'); await openLink(page);
+  const exp = page.locator('.modal[role=dialog]').last(); await expect(exp.locator('#f-amount')).toHaveValue('500'); await expect(exp.locator('#f-details')).toHaveValue('كهربا'); await exp.getByRole('button', { name: 'إلغاء' }).click();
+  // an order: with a deposit or without is asked; a cancel is sent to the orders page (its reason)
+  const o = mock.orders.find((x) => !x.deleted_at && x.status === 'جاري التنفيذ'); const no = String(o.woo_order_id || o.number || o.id).replace(/\D/g, '');
+  await say(page, 'أكد الأوردر ' + no); await expect(last.locator('.ai-text')).toHaveText('تأكيد الأوردر #' + no + ' — بعربون ولا من غير؟'); await expect(last.locator('[data-ai-pick] button')).toHaveText(['مؤكد بعربون', 'مؤكد بدون عربون']);
+  await say(page, 'خلي الأوردر ' + no + ' ملغي'); await expect(last.locator('.ai-text')).toHaveText(new RegExp('^الإلغاء والاسترجاع والفشل ليهم بوب أب بسبب — افتح الأوردر #' + no));
+  expect(writes(), 'nothing was written').toBe(w0);
+  expect(mock.aiCalls.filter((c) => c.action === 'assistant').length, 'no model was called').toBe(0);
+});
+
+// the system first (2026-11-22-system-brain.md decision 14): the orders' «فلتر بالذكاء الاصطناعي» is the system's own parser when it took
+// anything from the description — no model; a description it took nothing from goes to the model alone, without the makers' names
+test('the orders filter by description: the system\'s own parser first (no model); only what it took nothing from is asked of the model — the words alone, never the makers\' names', async ({ page }) => {
+  await signIn(page, ADMIN);
+  await page.evaluate(() => { location.hash = 'orders'; }); await expect(page.locator('#orders')).toBeVisible(); await expect.poll(() => page.evaluate(() => !!(window.IbtekrApp && window.IbtekrApp.aiFilter))).toBe(true);
+  const run = (text) => page.evaluate((t) => window.IbtekrApp.aiFilter(t), text);
+  const calls = () => mock.aiCalls.filter((c) => c.action === 'assistant' && c.mode === 'filter');
+  const a = await run('الأوردرات المتأخرة وأكتر من 5000');
+  expect(a.mode).toBe('local'); expect(a.filter.items.map((x) => x.f)).toEqual(['deliv', 'tot']); expect(calls().length).toBe(0);
+  mock.aiAnswer = (action, b) => (action === 'assistant' && b.mode === 'filter' ? { text: '', actions: [{ name: 'set_filter', input: { op: 'and', items: [{ f: 'note', op: 'has', v: 'هدية' }] } }] } : null);
+  const b = await run('اللي عليها ملحوظة هدية');
+  expect(b.mode).toBe('ai'); expect(b.filter.items).toEqual([{ f: 'note', op: 'has', v: 'هدية' }]);
+  expect(calls().length).toBe(1); expect(calls()[0].context.vendors).toEqual([]); expect(calls()[0].turns).toEqual([{ role: 'user', text: 'اللي عليها ملحوظة هدية' }]);
 });

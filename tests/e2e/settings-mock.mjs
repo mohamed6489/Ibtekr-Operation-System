@@ -7,6 +7,7 @@
 // lands in st.calls, every write in st.writes.
 import { CARDS, SECRET_NAMES, fieldsOf, nameOk, parseSecret, secretPublic } from '../../supabase/functions/_shared/settings-link.js';
 import { SOURCES } from '../../supabase/functions/_shared/notify.js';
+import { rulesStatus, runRules } from './rules-mock.mjs';
 
 const PERM_KEY = /^[a-z_]+\.[a-z_0-9]+$/;
 const ROLE_ID = /^[a-z][a-z0-9_]{1,30}$/;
@@ -30,7 +31,8 @@ export function settingsState(opts = {}, roles) {
 export function settingsRoute(c) {
   const { method, path, url, hd, u, hasPerm, isAdmin, json, mock } = c; const S = mock.st; if (!S) return null;
   const rpc = /^\/rest\/v1\/rpc\/(data_wipe|team_wipe|quick_actions_list|quick_action_save|quick_action_delete|quick_action_order|role_level_perms_set|member_level_set|role_perms_set|role_create|role_update|role_delete|role_manager_set|member_manager_set|member_can_edit|member_info_set|member_job_set|member_role_set|member_roles_set|member_perms_set|member_status_set|my_sessions|my_session_revoke|settings_public)$/.exec(path);
-  const fn = method === 'POST' && (path === '/functions/v1/settings-admin' || path === '/functions/v1/notify' || (path === '/functions/v1/team-admin' && (c.body() || {}).action === 'files_wipe'));
+  const fn = method === 'POST' && (path === '/functions/v1/settings-admin' || path === '/functions/v1/notify' || (path === '/functions/v1/team-admin' && (c.body() || {}).action === 'files_wipe')
+    || (path === '/functions/v1/ai-content' && (c.body() || {}).action === 'brains'));
   const docs = path === '/rest/v1/company_docs'; const sto = /^\/storage\/v1\/object\/(sign\/)?(company-docs|settings)(?:\/(.+))?$/.exec(path); // no path = a remove with { prefixes } in the body
   const act = method === 'GET' && path === '/rest/v1/activity_log' && [...url.searchParams].some(([k, v]) => k === 'action' && v.startsWith('like.') || (k === 'at' && /^(lte|gte)\./.test(v))) || (method === 'GET' && path === '/rest/v1/activity_log' && (hd.range || url.searchParams.has('offset')));
   if (!rpc && !fn && !docs && !sto && !act) return null;
@@ -239,6 +241,14 @@ export function settingsRoute(c) {
 
   // ---------------------------------------------------------------- the Edge Functions
   if (fn) {
+    // 0150 ai-content `brains` (any signed-in member): the text companies linked and working — ids only; the header assistant's tool
+    // loop is Claude's
+    if (path === '/functions/v1/ai-content') { // not one of the admin's calls: answered before they are counted
+      const sec = (n) => (mock.settings.find((x) => x.section === n) || {}).data || {};
+      const TB = { claude: 'anthropic', openai: 'openai', gemini: 'gemini' }; const off = (sec('integrations').off) || {}; const paused = (sec('integrations').paused) || {};
+      const tdef = ((sec('ai').providers || {}).text || {}).default; const linked = Object.keys(TB).filter((k) => S.vault[TB[k]] && !off[TB[k]] && !paused[TB[k]]);
+      return json(200, { result: 'ok', text: { linked, default: TB[tdef] ? tdef : 'claude', assistant: linked.includes('claude') ? ['claude'] : [] } });
+    }
     const action = String(body.action || ''); S.calls.push({ fn: path.split('/').pop(), action, body: { ...body, fields: body.fields ? Object.keys(body.fields) : undefined } });
     // 0111: member_status is the admin's or the member's direct manager's (never on an admin, never himself)
     const tg = action === 'member_status' ? mock.profiles.find((x) => x.id === body.member_id) : null;
@@ -251,6 +261,8 @@ export function settingsRoute(c) {
       return json(200, { ok: true, removed: left ? take : 0, more: S.wipeFiles > 0 });
     }
     if (path === '/functions/v1/notify') {
+      // 0150 `rules` (the admin): the assistants' rules as they stand now — counted live, the notes written as the scheduled check would
+      if (action === 'rules') { if (!isAdmin(u)) return json(401, { error: 'unauthorized' }); if (!mock.mkt || !mock.mkt.rulesOn) return json(200, { result: 'ok', at: now, on: false, agents: {} }); runRules(mock); return json(200, { result: 'ok', ...rulesStatus(mock) }); }
       if (action === 'status') return json(200, { result: 'ok', last: S.notifyRuns.at(-1) || null, email: { ready: !!S.vault.resend, from: 'alerts@ibtekr.club' }, whatsapp: { ready: false, template: 'ibtekr_alert' }, sources: SOURCES.map((s) => s.key) });
       if (action === 'tick') { const run = { at: now, items: 3, alerts: body.dry ? 2 : 2, digests: 0, external: 0, resolved: 0, by: { 'customers.late': 2, 'team.req': 1 }, sent: { email: 0, whatsapp: 0, failed: 0, not_linked: 0 } }; if (!body.dry) S.notifyRuns.push(run); return json(200, { result: body.dry ? 'dry' : 'ok', ...run, ...(body.dry ? { preview: [] } : {}) }); }
       return json(400, { error: 'unknown_action' });

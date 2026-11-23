@@ -127,3 +127,35 @@ test('a desktop with a mouse: the account menu redrawn, the assistant\'s microph
   expect(bar.some((t) => /^الرصيد:/.test(t))).toBe(false); expect(bar.some((t) => /طلبات السحب/.test(t))).toBe(true); expect(bar.some((t) => /إضافة مبلغ/.test(t))).toBe(true);
   await done(ctx);
 });
+
+// The owner 22 Nov («خلي التصميم يشتغل علي الموبايل بكل احترافي»): the providers card on a phone and a tablet — one column of boxes,
+// and the company-and-model list comes up from the bottom as the filter does, with its title, its tabs and its rows a thumb wide
+test('the AI providers card: a phone — one column, the company-and-model list a sheet from the bottom; a tablet — the tools three across under their section', async ({ browser, baseURL }) => {
+  const { ctx, page } = await open(browser, baseURL, { width: 390, height: 844 }, true);
+  mock.st.vault.anthropic = JSON.stringify({ key: 'sk-ant-' + 'a'.repeat(40) }); mock.st.vault.openai = JSON.stringify({ key: 'sk-' + 'o'.repeat(40) });
+  await go(page, 'settings-ai');
+  await expect(page.locator('[data-prov="text"]')).toHaveAttribute('data-prov-live', 'claude openai');
+  await page.locator('#prov-auto').tap(); await expect(page.locator('[data-prov-auto]')).toHaveAttribute('data-prov-auto', 'off');
+  const lay = await page.evaluate(() => { const b = [...document.querySelectorAll('.prov-grid [data-prov]')].map((e) => e.getBoundingClientRect()); const f = [...document.querySelectorAll('[data-prov="text"] .select')].map((e) => e.getBoundingClientRect());
+    return { over: document.documentElement.scrollWidth - innerWidth, oneColumn: b.every((r) => Math.abs(r.left - b[0].left) < 1 && Math.abs(r.width - b[0].width) < 1), fields: f.length, stacked: f.every((r, i) => !i || r.top > f[i - 1].bottom), tall: Math.min(...f.map((r) => r.height)) }; });
+  expect(lay.over).toBeLessThanOrEqual(0); expect(lay.oneColumn).toBe(true); expect(lay.fields).toBe(4); expect(lay.stacked).toBe(true); expect(lay.tall).toBeGreaterThanOrEqual(44);
+  await expect(async () => { await page.keyboard.press('Escape'); await page.locator('#prov-text-marketing').tap({ timeout: 1500 }); await expect(page.locator('.cm-menu [data-cm-tab]')).toHaveCount(2, { timeout: 1000 }); await page.waitForTimeout(600); await expect(page.locator('.cm-menu')).toBeVisible({ timeout: 500 }); }).toPass();
+  const sheet = await page.evaluate(() => { const m = document.querySelector('.cm-menu'); const r = m.getBoundingClientRect(); const t = m.querySelector('.cm-title'); const hit = document.elementFromPoint(innerWidth / 2, r.top + 30);
+    return { left: Math.round(r.left), right: Math.round(r.right), bottom: Math.round(r.bottom), vh: innerHeight, title: t.textContent, titleSeen: t.getBoundingClientRect().height > 0, onTop: !!hit && m.contains(hit),
+      tabs: Math.min(...[...m.querySelectorAll('[data-cm-tab]')].map((e) => e.getBoundingClientRect().height)), rows: Math.min(...[...m.querySelectorAll('[role=option]')].filter((e) => e.getBoundingClientRect().height).map((e) => e.getBoundingClientRect().height)) }; });
+  expect(sheet.left).toBe(0); expect(sheet.right).toBe(390); expect(sheet.bottom).toBe(sheet.vh); expect(sheet.titleSeen).toBe(true); expect(sheet.title).toBe('المحتوى (النصوص) › التسويق');
+  expect(sheet.onTop).toBe(true); expect(sheet.tabs).toBeGreaterThanOrEqual(44); expect(sheet.rows).toBeGreaterThanOrEqual(48);
+  await page.locator('.cm-menu [data-cm-tab="openai"]').tap(); await page.locator('.cm-menu [data-cm="openai:gpt-5.2"]').tap();
+  await expect(page.locator('.cm-menu')).toHaveCount(0); await expect(page.locator('#prov-text-marketing')).toHaveText('ChatGPT — GPT-5.2');
+  await done(ctx);
+  // a tablet, upright: the section's own field across, its three tools on one line under it; the list stays under its field
+  const t = await open(browser, baseURL, { width: 820, height: 1180 }, true);
+  mock.st.vault.anthropic = JSON.stringify({ key: 'sk-ant-' + 'a'.repeat(40) });
+  await go(t.page, 'settings-ai');
+  await expect(t.page.locator('[data-prov="text"]')).toHaveAttribute('data-prov-live', 'claude');
+  const tl = await t.page.evaluate(() => { const main = document.querySelector('[data-prov="text"] .prov-main .select').getBoundingClientRect(); const tools = [...document.querySelectorAll('[data-prov="text"] .prov-tools .select')].map((e) => e.getBoundingClientRect());
+    const v = document.querySelector('[data-prov="voice"]').getBoundingClientRect(); const d = document.querySelector('[data-prov="video"]').getBoundingClientRect();
+    return { over: document.documentElement.scrollWidth - innerWidth, under: tools.every((r) => r.top > main.bottom), line: tools.every((r) => Math.abs(r.top - tools[0].top) < 1), halves: Math.abs(v.top - d.top) < 1 && v.width < main.width }; });
+  expect(tl.over).toBeLessThanOrEqual(0); expect(tl.under).toBe(true); expect(tl.line).toBe(true); expect(tl.halves).toBe(true);
+  await done(t.ctx);
+});

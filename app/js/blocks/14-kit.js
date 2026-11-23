@@ -544,7 +544,7 @@
       [...tb.tBodies].forEach((bd) => [...bd.rows].forEach((r) => { if (r.classList.contains('tq-none')) return; const hit = !q || foldAr(r.textContent).includes(q); r.classList.toggle('tq-hide', !hit); if (hit && !r.classList.contains('af-hide')) n++; }));
       let none = tb.querySelector('tr.tq-none'); const msg = 'مفيش صفوف فيها «' + inp.value + '»';
       if (q && !n) { if (!none) { none = h('tr', { class: 'tq-none' }, h('td', { colspan: String(colHeads(tb).length || 1), class: 't-small help' }, msg)); tb.tBodies[0].append(none); } else none.querySelector('td').textContent = msg; } else if (none) none.remove();
-      thCount(card); };
+      footTotals(tb); thCount(card); }; // [#2] the total follows the search
     if (!own) inp.addEventListener('input', run);
     const btn = h('button', { type: 'button', class: 'tq-btn', 'aria-expanded': String(mem.open), 'aria-label': 'بحث في ' + (name || 'الجدول'), 'data-tq-btn': key }, Icon('search', 'sm'), h('span', null, 'بحث'));
     const row = h('div', { class: 'tq-row', 'data-tq-row': key });
@@ -587,6 +587,12 @@
       tableSearch(stdCard(t), t);
       if (colHeads(t).length < 4) return;
       t.classList.add('sticky-col1'); // أول عمود بيفضل ثابت وانت بتسكرول عرضي (owner 27 Oct)
+      // the meeting of 23 Nov [#32]: a table whose first column is the selection checkbox keeps the column after it (the name) fixed too
+      const th0 = t.querySelector('thead tr > :first-child');
+      if (th0 && (th0.classList.contains('sel-col') || th0.querySelector('input[type=checkbox], [role=checkbox], .check'))) {
+        t.classList.add('sticky-sel'); const w = () => { const x = th0.getBoundingClientRect().width; if (x) t.style.setProperty('--sel-w', Math.round(x) + 'px'); };
+        w(); if (typeof requestAnimationFrame === 'function') requestAnimationFrame(w);
+      }
       const card = t.closest('.card, .table-card, .sec, .tbl-card') || t.parentElement;
       tableHead(card, t); // the standard head of a big table (decisions 1–5 of 2026-11-13-table-head.md); again once withColumns adds its controls
       if (!card || card.querySelector('[data-cols]') || card.closest('[data-no-cols]')) return; // data-no-cols: a card that asked for no «أعمدة الجدول» (the makers log; the products overview's top-10 lists — B3), on the table's box or any card above it
@@ -639,7 +645,7 @@
   // بيقرا بلوكات الصفحة/التاب من الـ DOM (كروت الأرقام · الرسومات · الجداول · الأقسام)، ويرتّبها ويخفي اللي العضو مش عايزه.
   // per member in user_prefs ('panel.prefs' = { [pageKey]: { order, hidden } }, IBPrefs) like the table columns; before IBPrefs has
   // loaded (or signed out) the kit's store keeps it for this device. Nothing is removed from the page: a hidden block is `hidden`.
-  const PANEL_PREF = 'panel.prefs';
+  const PANEL_PREF = 'panel.prefs'; const PANEL_KPI_MAX = 8;
   function panelAll() {
     const saved = window.IBPrefs && window.IBPrefs.get(PANEL_PREF);
     const all = (store.panelPrefs = store.panelPrefs || {});
@@ -685,7 +691,9 @@
     // only what this hid comes back: a block the page itself rendered `hidden` stays hidden (data-pn-hidden marks ours)
     const hide = (el, on) => { if (on) { el.hidden = true; el.dataset.pnHidden = '1'; } else if (el.dataset.pnHidden) { el.hidden = false; delete el.dataset.pnHidden; } };
     const blocks = [...new Set(items.map((x) => x.blk))];
-    items.forEach((x) => hide(x.el, p.hidden.includes(x.id)));
+    // the meeting of 23 Nov [#33, #44]: 8 number cards at most — with nothing saved, the ones past the eighth start hidden («إضافة» brings them)
+    const capped = p.order.length || p.hidden.length ? [] : items.filter((x) => x.kind === 'رقم').slice(PANEL_KPI_MAX).map((x) => x.id);
+    items.forEach((x) => hide(x.el, p.hidden.includes(x.id) || capped.includes(x.id)));
     blocks.forEach((b) => { const kids = items.filter((x) => x.blk === b && x.el !== b); if (kids.length) hide(b, kids.every((x) => x.el.hidden)); });
     const old = root.querySelector(':scope > .pn-allhidden'); if (old) old.remove();
     if (!items.some((x) => !x.el.hidden)) { const e = Empty('كل بلوكات اللوحة مخفية', 'افتح «تخصيص اللوحة» واختار اللي يظهر.'); e.classList.add('pn-allhidden'); root.prepend(e); }
@@ -695,17 +703,20 @@
     const p = panelPrefs(key); const all = panelItems(root);
     if (!all.length) { toast('مفيش بلوكات تتخصص في الصفحة دي'); return; }
     const idx = (id) => { const i = p.order.indexOf(id); return i < 0 ? 1000 + all.findIndex((x) => x.id === id) : i; };
-    const list = all.slice().sort((a, b) => idx(a.id) - idx(b.id)).map((x) => ({ id: x.id, label: x.label, kind: x.kind, hidden: p.hidden.includes(x.id) }));
+    const fresh = !p.order.length && !p.hidden.length; const nums = all.filter((x) => x.kind === 'رقم').map((x) => x.id);
+    const list = all.slice().sort((a, b) => idx(a.id) - idx(b.id)).map((x) => ({ id: x.id, label: x.label, kind: x.kind, hidden: p.hidden.includes(x.id) || (fresh && nums.indexOf(x.id) >= PANEL_KPI_MAX) }));
+    const shownNums = (l) => l.filter((c) => c.kind === 'رقم' && !c.hidden).length;
     form({ title: 'تخصيص اللوحة — ' + label, wide: true, values: { list },
-      note: U.InlineNote({ children: 'اختار اللي يظهر في «' + label + '» ورتّبه بالسحب من المسكة اللي جنب الاسم. التخصيص بيتحفظ ليك انت بس، ولكل صفحة/تاب لوحده.' }),
-      fields: (f, e, set) => { const wrap = h('div', { class: 'dash-cust', role: 'list' }, f.list.map((c, i) => h('div', { class: 'dc-row', role: 'listitem', 'data-pn-item': c.id },
+      note: U.InlineNote({ children: 'اختار اللي يظهر في «' + label + '» ورتّبه بالسحب من المسكة اللي جنب الاسم — كروت الأرقام لحد ' + PANEL_KPI_MAX + ' (شيل كارت عشان تضيف غيره من أرقام الصفحة دي). التخصيص بيتحفظ ليك انت بس، ولكل صفحة/تاب لوحده.' }),
+      fields: (f, e, set) => { const full = shownNums(f.list) >= PANEL_KPI_MAX; const cnt = nums.length ? h('p', { class: 't-small help', style: 'margin:0', 'data-pn-kpis': String(shownNums(f.list)) }, 'كروت الأرقام الظاهرة: ' + shownNums(f.list) + ' من ' + PANEL_KPI_MAX + (nums.length > shownNums(f.list) ? ' · تقدر تضيف ' + (nums.length - shownNums(f.list)) + ' من أرقام الصفحة' : '')) : null;
+        const wrap = h('div', { class: 'dash-cust', role: 'list' }, f.list.map((c, i) => h('div', { class: 'dc-row', role: 'listitem', 'data-pn-item': c.id },
         Grip(c.label),
         h('span', { class: 'dc-l' }, h('b', null, c.label), h('small', { class: 't-small help' }, c.kind)),
-        Switch({ id: 'pnc-' + i, label: c.label, checked: !c.hidden, onChange: (v) => { c.hidden = !v; set('list', f.list.slice(), true); } }))));
+        Switch({ id: 'pnc-' + i, label: c.label, checked: !c.hidden, disabled: c.kind === 'رقم' && c.hidden && full, onChange: (v) => { c.hidden = !v; set('list', f.list.slice(), true); } }))));
         // the grips listen right away (not a tick later): a key pressed just after a redraw still moves the row
         sortableRows(wrap, 'data-pn-item', (ids) => set('list', ids.map((id) => f.list.find((x) => x.id === id)).filter(Boolean), true));
-        return [wrap, e.list ? U.InlineNote({ kind: 'error', children: e.list }) : null]; },
-      validate: (f) => (f.list.some((c) => !c.hidden) ? {} : { list: 'سيب بلوك واحد على الأقل ظاهر' }),
+        return [cnt, wrap, e.list ? U.InlineNote({ kind: 'error', children: e.list }) : null]; },
+      validate: (f) => (!f.list.some((c) => !c.hidden) ? { list: 'سيب بلوك واحد على الأقل ظاهر' } : shownNums(f.list) > PANEL_KPI_MAX ? { list: 'لحد ' + PANEL_KPI_MAX + ' كروت أرقام بس — شيل واحد الأول' } : {}),
       extraFooter: (f, m) => h('span', { class: 'rp-del' }, Button({ type: 'text', label: 'رجوع للافتراضي', attrs: { 'data-pn-reset': '' }, onClick: () => { panelWrite(key, null); toast('رجعت اللوحة للافتراضي'); m.close(); if (done) done(); } })),
       submitLabel: 'حفظ', submit: (f) => { panelWrite(key, { order: f.list.map((c) => c.id), hidden: f.list.filter((c) => c.hidden).map((c) => c.id) });
         logEvent('panel.customize', label + ' · ' + f.list.filter((c) => !c.hidden).length + ' بلوك'); toast('اتحفظ تخصيص اللوحة', 'success'); if (done) done(); } });
@@ -733,6 +744,30 @@
   // ---------- فلتر + ترتيب تلقائي لأي جدول تفاصيل (owner 1 Nov) ----------
   // جنب زرار الأعمدة: «فلتر» من الأعمدة اللي ليها قيم محدودة (حالة، نوع، قناة…) والأعمدة الرقمية بالإشارة، و«ترتيب» بالتاريخ أو الرقم أو النص.
   // النتيجة: شيبس (اختيار لوحده + عدده في دايرة + ✕) تحت التايتل قبل راس الجدول. الجداول اللي ليها فلتر خاص بيها (`own-filter` أو فلتر في راسها) مابتتلمسش.
+  // a period's chip: «من 1/11/2026 لحد 30/11/2026» (an open end says so)
+  const rangeText = (v) => { const f = (d) => (d ? d.split('-').reverse().join('/') : ''); return v[0] && v[1] ? f(v[0]) + ' – ' + f(v[1]) : v[0] ? 'من ' + f(v[0]) : 'لحد ' + f(v[1]); };
+  // the meeting of 23 Nov [#2]: a table's total row (tfoot — U.Table's totalRow) sums the rows shown — the search's (tq-hide) and the
+  // filter's (af-hide) — and its first cell reads «إجمالي النتايج» while either is on; the page's own cells come back as they were
+  // when both are off. A number cell is recomputed only when it is the sum of every row (an average or a percentage stays).
+  function footTotals(t) {
+    const RL = window.IBTableRules; if (!t || !t.tFoot || !RL) return;
+    const heads = colHeads(t); const tb = t.tBodies[0]; if (!tb) return;
+    const body = [...tb.rows].filter((r) => r.cells.length === heads.length && !r.classList.contains('tq-none'));
+    const shown = body.filter((r) => !r.classList.contains('af-hide') && !r.classList.contains('tq-hide'));
+    const on = shown.length !== body.length; // a search or a filter hides rows
+    [...t.tFoot.rows].forEach((fr) => {
+      // the column of each footer cell (a merged cell spans several)
+      let at = 0; const cells = [...fr.cells].map((td) => { const c = { td, i: at }; at += td.colSpan || 1; return c; });
+      cells.forEach(({ td }) => { if (td.dataset.aft == null) { td.dataset.aft = td.textContent; td.__aftNodes = [...td.childNodes]; } });
+      const put = (td, text) => { if (on) { if (td.textContent !== text) td.textContent = text; } else if (td.__aftNodes && (td.childNodes.length !== td.__aftNodes.length || td.__aftNodes.some((n, k) => td.childNodes[k] !== n))) td.replaceChildren(...td.__aftNodes); };
+      let any = false;
+      cells.forEach(({ td, i }) => { if ((td.colSpan || 1) > 1) return; const o = td.dataset.aft.trim(); const ov = RL.numOf(o); if (ov == null || !/\d/.test(o)) return;
+        const col = (r) => cellTxt(r.cells[i]); const sum = body.reduce((n, r) => n + (RL.numOf(col(r)) || 0), 0); if (Math.abs(sum - ov) > 0.6) return;
+        any = true; const dec = ((o.replace(/[^\d.]/g, '').split('.')[1]) || '').length; const unit = o.replace(/^[\s+\-−\d,٬.]+/, '').trim();
+        put(td, RL.sumShown(shown.map(col), dec) + (unit ? ' ' + unit : '')); });
+      const first = cells[0] && cells[0].td; if (first && any && RL.numOf(first.dataset.aft) == null) put(first, RL.TOTAL_LABEL);
+    });
+  }
   function autoFilter(card, key, t) {
     if (!card || !t || t.closest('.modal, .drawer, [role=dialog]')) return;
     const hd0 = card.querySelector(':scope>.table-title, :scope>.sec-h, :scope>.cons-h');
@@ -745,23 +780,23 @@
     const rows = [...tb.rows].filter((r) => r.cells.length === heads.length);
     rows.forEach((r, i) => { if (r.dataset.afi == null) r.dataset.afi = String(i); });
     if (rows.length < 2) return;
+    // the meeting of 23 Nov [#1, #3, #10] (docs/superpowers/plans/2026-11-23-meeting.md): every column shown has its filter and no
+    // other — a few repeating values = choices; numbers / money = the five choices (IBTableRules.NUM_OPTS) with no number typed; dates =
+    // a period from–to; free text whose values do not repeat (names, phones, numbers, notes) = no filter, the search covers it. A column
+    // the member hid from «أعمدة الجدول» (th.hidden), the «#» rank and the ⋮ column have none. (Replaces the owner's 1 Nov sign / average
+    // filters and the cap of four groups.)
+    const RL = window.IBTableRules; const ths = [...t.querySelectorAll(':scope > thead > tr > th')]; const acts0 = actCols(t);
     const cols = heads.map((lb, i) => {
-      if (!lb) return null; const vals = rows.map((r) => cellTxt(r.cells[i])); const ne = vals.filter((v) => v && v !== '—' && v !== '-');
+      if (!lb || lb === '#' || (ths[i] && ths[i].hidden) || acts0.has(i)) return null;
+      const vals = rows.map((r) => cellTxt(r.cells[i])); const ne = vals.filter((v) => v && v !== '—' && v !== '-');
       if (!ne.length) return null;
-      const nums = ne.map(numOf), dates = ne.map(dateOf);
-      const type = nums.every((x) => x !== null) ? 'num' : dates.every(Boolean) ? 'date' : ne.every((v) => /^\d{1,2}:\d{2}/.test(v)) ? 'time' : 'text';
-      const distinct = [...new Set(ne)];
-      // B5: a column whose values repeat (the dropdown has a search box past 6 values, so up to 40 of them)
-      const cat = type === 'text' && distinct.length >= 2 && distinct.length <= 40 && distinct.every((v) => v.length <= 60) && !(distinct.length === rows.length && rows.length > 5);
-      return { lb, i, type, cat, distinct };
+      const kind = RL ? RL.colKind(vals, rows.length) : null;
+      const type = kind === 'num' ? 'num' : kind === 'date' ? 'date' : ne.every((v) => /^\d{1,2}:\d{2}/.test(v)) ? 'time' : 'text';
+      return { lb, i, type, cat: kind === 'cat', kind, distinct: [...new Set(ne)] };
     }).filter(Boolean);
-    // فلتر لكل جدول (owner 1 Nov): أعمدة القيم المحدودة + الأعمدة الرقمية بالإشارة (فيه قيمة / صفر / سالب) — عشان جداول الأرقام بس يبقى ليها فلتر برضه
-    const SIGN = [['pos', 'أكبر من صفر'], ['zero', 'صفر / فاضي'], ['neg', 'سالب']];
-    const signOf = (x) => { const n = numOf(x); return n == null || n === 0 ? 'zero' : n > 0 ? 'pos' : 'neg'; };
-    const numGroups = cols.filter((c) => c.type === 'num').map((c) => { const present = new Set(rows.map((r) => signOf(cellTxt(r.cells[c.i])))); return present.size >= 2 ? { key: c.lb, label: c.lb, num: true, options: SIGN.filter(([k]) => present.has(k)) } : null; }).filter(Boolean);
-    const groups = own ? [] : cols.filter((c) => c.cat).slice(0, 4).map((c) => ({ key: c.lb, label: c.lb, options: c.distinct.map((v) => [v, v]) })).concat(numGroups).slice(0, 6); // own: the page's filter stays, the sort alone
-    // جدول أرقام موجبة بس (زي «الأكثر مبيعًا»): فلتر بالمتوسط
-    const AVG = {}; if (!groups.length && !own) cols.filter((c) => c.type === 'num').slice(0, 2).forEach((c) => { const v = rows.map((r) => numOf(cellTxt(r.cells[c.i])) || 0); AVG[c.lb] = v.reduce((a, b) => a + b, 0) / v.length; groups.push({ key: c.lb, label: c.lb, avg: true, options: [['hi', 'أعلى من المتوسط'], ['lo', 'المتوسط أو أقل']] }); });
+    const groups = own ? [] : cols.map((c) => (c.kind === 'num' ? { key: c.lb, label: c.lb, num: true, options: RL.NUM_OPTS.map((o) => o.slice()) }
+      : c.kind === 'date' ? { key: c.lb, label: c.lb, range: true, options: [] }
+        : c.cat && c.distinct.length >= 2 ? { key: c.lb, label: c.lb, options: c.distinct.map((v) => [v, v]) } : null)).filter(Boolean); // own: the page's filter stays, the sort alone
     const SORTS = [['', 'الترتيب الافتراضي']];
     cols.filter((c) => c.type === 'date').slice(0, 2).forEach((c) => SORTS.push(['d-desc:' + c.lb, c.lb + ': الأحدث للأقدم'], ['d-asc:' + c.lb, c.lb + ': الأقدم للأحدث']));
     cols.filter((c) => c.type === 'time').slice(0, 2).forEach((c) => SORTS.push(['m-asc:' + c.lb, c.lb + ': الأبكر الأول'], ['m-desc:' + c.lb, c.lb + ': الأتأخر الأول']));
@@ -773,8 +808,10 @@
     if (S.sort && !SORTS.some((x) => x[0] === S.sort)) S.sort = '';
     const idx = (lb) => colHeads(t).indexOf(lb);
     const gOf = (k) => groups.find((g) => g.key === k) || {};
-    const cellKey = (r, k) => { const x = cellTxt(r.cells[idx(k)]); const g = gOf(k); return g.num ? signOf(x) : g.avg ? ((numOf(x) || 0) > AVG[k] ? 'hi' : 'lo') : x; };
-    const match = (r, f) => Object.keys(f).every((k) => !f[k] || !f[k].length || f[k].includes(cellKey(r, k)));
+    const cellOf = (r, k) => cellTxt(r.cells[idx(k)]);
+    const one = (r, k, v) => { const g = gOf(k); const x = cellOf(r, k); return g.num ? RL.numPass(x, [v]) : x === v; };
+    const match = (r, f) => Object.keys(f).every((k) => { const v = f[k]; if (!v || !v.length) return true; const g = gOf(k); const x = cellOf(r, k);
+      return g.range ? RL.datePass(x, v) : g.num ? RL.numPass(x, v) : v.includes(x); });
     const head = card.querySelector(':scope>.table-title, :scope>.sec-h, :scope>.cons-h');
     const colsBtn = card.querySelector('[data-cols]');
     const anchor = t.closest('.xwrap') || t.closest('.scroll-x') || t;
@@ -783,7 +820,7 @@
       const all = [...tb.rows].filter((r) => r.dataset.afi != null);
       const [mode, lb] = S.sort ? [S.sort.slice(0, S.sort.indexOf(':')), S.sort.slice(S.sort.indexOf(':') + 1)] : ['', ''];
       const ci = lb ? idx(lb) : -1;
-      const kv = (r) => { const x = cellTxt(r.cells[ci]); return mode[0] === 'n' ? numOf(x) : mode[0] === 'd' ? dateOf(x) : mode[0] === 'm' ? ((x.match(/^(\d{1,2}):(\d{2})/) || [, '', '']).slice(1).map((y) => y.padStart(2, '0')).join(':') || null) : x; };
+      const kv = (r) => { const x = cellTxt(r.cells[ci]); return mode[0] === 'n' ? numOf(x) : mode[0] === 'd' ? (RL ? RL.dateOf(x) : dateOf(x)) : mode[0] === 'm' ? ((x.match(/^(\d{1,2}):(\d{2})/) || [, '', '']).slice(1).map((y) => y.padStart(2, '0')).join(':') || null) : x; };
       const sorted = all.slice().sort((a, b) => {
         if (!mode || ci < 0) return a.dataset.afi - b.dataset.afi;
         const A = kv(a), B = kv(b); if (A == null || A === '') return 1; if (B == null || B === '') return -1;
@@ -794,18 +831,7 @@
       if (want.some((r, k) => cur[k] !== r)) keepFocus(t, () => want.forEach((r) => tb.append(r))); // the rows move only when the order changes
       // فلتر
       let shown = 0; all.forEach((r) => { const ok = match(r, S.f); r.classList.toggle('af-hide', !ok); if (ok) shown++; });
-      // صف الإجمالي: لو هو مجموع الصفوف بنحسبه للمعروض بس (وبنرجّعه لما الفلتر يتشال)
-      const active = Object.keys(S.f).some((k) => (S.f[k] || []).length);
-      [...(t.tFoot ? t.tFoot.rows : [])].filter((r) => r.cells.length === heads.length).forEach((fr) => {
-        // the page's own cell (a <b data-ledger-total>, a link…) is kept: written only while a filter is on, and given back as it was after
-        [...fr.cells].forEach((td) => { if (td.dataset.aft == null) { td.dataset.aft = td.textContent; td.__aftNodes = [...td.childNodes]; } });
-        const put = (td, text) => { if (active) { if (td.textContent !== text) td.textContent = text; } else if (td.__aftNodes && (td.childNodes.length !== td.__aftNodes.length || td.__aftNodes.some((n, k) => td.childNodes[k] !== n))) td.replaceChildren(...td.__aftNodes); };
-        cols.filter((c) => c.type === 'num').forEach((c) => { const td = fr.cells[idx(c.lb)]; if (!td) return; const o = td.dataset.aft.trim();
-          if (!/^-?[\d,]+(\.\d+)?$/.test(o)) return; const ov = numOf(o); const sumOf = (l) => l.reduce((n, r) => n + (numOf(cellTxt(r.cells[idx(c.lb)])) || 0), 0);
-          if (Math.abs(sumOf(all) - ov) > 0.6) return; const dec = (o.split('.')[1] || '').length;
-          put(td, sumOf(all.filter((r) => !r.classList.contains('af-hide'))).toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec })); });
-        const first = fr.cells[0]; if (first && first.dataset.aft != null && cols.some((c) => c.type === 'num')) put(first, first.dataset.aft.trim() + ' (المعروض)');
-      });
+      footTotals(t); // [#2] the total of the rows shown
       // the owner 12 Nov («دخل الفلتر اللي بره جوه زرار الفلتر وحطوا جمب الترتيب»): «فلتر» and the sort next to the columns button
       card.querySelectorAll('[data-auto-ctl]').forEach((x) => x.remove());
       const ctl = [];
@@ -814,8 +840,10 @@
       ctl.forEach((c) => c.setAttribute('data-auto-ctl', ''));
       if (colsBtn && colsBtn.parentElement) ctl.forEach((c) => colsBtn.before(c)); else if (head) { const a = head.querySelector('.acts, .acts-inline') || head; ctl.forEach((c) => a.append(c)); }
       // النتيجة
-      const chips = []; groups.forEach((g) => (S.f[g.key] || []).forEach((v) => chips.push({ key: g.key + ':' + v, label: g.label + ': ' + (g.num || g.avg ? (g.options.find((x) => x[0] === v) || [, v])[1] : v), count: all.filter((r) => cellKey(r, g.key) === v).length,
-        remove: () => { S.f[g.key] = S.f[g.key].filter((x) => x !== v); apply(); } })));
+      const chips = []; groups.forEach((g) => { const v0 = S.f[g.key] || [];
+        if (g.range) { if (v0[0] || v0[1]) chips.push({ key: g.key + ':range', label: g.label + ': ' + rangeText(v0), count: all.filter((r) => RL.datePass(cellOf(r, g.key), v0)).length, remove: () => { S.f[g.key] = []; apply(); } }); return; }
+        v0.forEach((v) => chips.push({ key: g.key + ':' + v, label: g.label + ': ' + (g.num ? (g.options.find((x) => x[0] === v) || [, v])[1] : v), count: all.filter((r) => one(r, g.key, v)).length,
+          remove: () => { S.f[g.key] = S.f[g.key].filter((x) => x !== v); apply(); } })); });
       const row = ActiveFilters({ id: 'auto', chips, total: shown, noun: 'صف', onClear: () => { S.f = {}; apply(); } });
       if (row) { row.setAttribute('data-auto-row', ''); anchor.before(row); }
       if (!shown && all.length) anchor.after(h('p', { class: 't-small help af-empty', 'data-auto-row': '' }, 'مفيش صفوف بالفلتر ده — شيل اختيار أو اضغط «مسح الكل».'));
@@ -871,7 +899,7 @@
     // the owner 12 Nov — one «فلتر» button next to the sort; inside it (the owner, the same day: «الأقسام في تابس جوه كاروسيل ولما أدوس
     // على أي واحدة يفتح تحتيها الاختيارات بتاعتها وخانة بحث») the groups are tabs in a strip that scrolls sideways (the count picked on
     // each), and under the tab picked its search box and its ticks; «مسح» and one «اعرض N <noun>» for all the groups
-    const v0 = value || {}; const n0 = groups.reduce((n, g) => n + (v0[g.key] || []).length, 0);
+    const v0 = value || {}; const gN = (g, v) => (g.range ? ((v || [])[0] || (v || [])[1] ? 1 : 0) : (v || []).length); const n0 = groups.reduce((n, g) => n + gN(g, v0[g.key]), 0);
     const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' });
     const btn = h('button', { type: 'button', class: 'select sm' + (n0 ? ' has-val' : ''), 'aria-haspopup': 'dialog', 'aria-expanded': 'false', 'aria-label': (label || 'فلتر') + (n0 ? ' — ' + n0 + ' مختار' : ''), 'data-fm-btn': id }, Icon('chevD', 'sm'), h('span', { class: 'val' }, Icon('filter', 'sm'), ' فلتر' + (n0 ? ' (' + n0 + ')' : '')));
     const pop = U.popover(wrap, btn, (close) => {
@@ -881,7 +909,7 @@
       const items = []; const tabs = {}; const secs = {};
       let cur = groups.some((g) => String(g.key) === fmTab[id]) ? fmTab[id] : String((groups[0] || {}).key);
       // the tab = the kit's chip (the label + the count picked in its badge); the one open is green with beige text (Ibtekr's rules)
-      const tabText = (g) => [h('span', { class: 'fm-tl' }, g.label), ...(d[g.key].length ? [h('span', { class: 'cnt', 'data-fm-n': '' }, String(d[g.key].length))] : [])];
+      const tabText = (g) => [h('span', { class: 'fm-tl' }, g.label), ...(gN(g, d[g.key]) ? [h('span', { class: 'cnt', 'data-fm-n': '' }, String(gN(g, d[g.key])))] : [])];
       const mark = (b) => { const on = has(b._k, b._v); b.setAttribute('aria-checked', String(on)); b.querySelector('.mchk').replaceChildren(...(on ? [Icon('check', 'sm')] : [])); };
       const opt = (g, o) => { const [v, l, depth] = o; const on = has(g.key, v);
         const b = h('button', { type: 'button', class: 'opt multi' + (depth ? ' mp-sub' : ''), role: 'menuitemcheckbox', 'aria-checked': String(on), 'data-fm': g.key + ':' + v },
@@ -922,7 +950,16 @@
           return n; }
         paint(''); return { rows, paint };
       };
+      const ranges = [];
       groups.forEach((g) => {
+        // the meeting of 23 Nov [#1]: a column of dates filters by a period from–to (either end may stay empty)
+        if (g.range) {
+          const mk = (i, lab) => { const inp = h('input', { type: 'date', class: 'input', dir: 'ltr', value: d[g.key][i] || '', 'aria-label': g.label + ' — ' + lab, 'data-fm-range': g.key + ':' + i });
+            inp.addEventListener('input', () => { const a = [d[g.key][0] || '', d[g.key][1] || '']; a[i] = inp.value || ''; d[g.key] = a[0] || a[1] ? a : []; tabs[String(g.key)].replaceChildren(...tabText(g)); upd(); });
+            ranges.push(inp); return h('label', { class: 'fm-rf' }, h('span', { class: 't-small' }, lab), inp); };
+          secs[String(g.key)] = h('div', { class: 'fm-sec fm-range', role: 'tabpanel', 'data-fm-key': String(g.key), hidden: String(g.key) === cur ? false : '' }, mk(0, 'من'), mk(1, 'لحد'));
+          return;
+        }
         const T = g.options.some((o) => Number(o[2]) > 0) ? treeOf(g) : null;
         const list = h('div', { class: 'fm-list' + (T ? ' fm-tree' : ''), role: 'group', 'aria-label': g.label }, T ? T.rows : g.options.map((o) => opt(g, o)));
         const q = h('input', { type: 'search', placeholder: 'دوّر في ' + g.label + '…', 'aria-label': 'دوّر في ' + g.label, 'data-fm-q': String(g.key), autocomplete: 'off' });
@@ -932,7 +969,7 @@
         secs[String(g.key)] = h('div', { class: 'fm-sec', role: 'tabpanel', 'data-fm-key': String(g.key), hidden: String(g.key) === cur ? false : '' }, h('label', { class: 'input fm-q' }, Icon('search', 'sm'), q), list, none);
       });
       const m = h('div', { class: 'menu view-menu fm-menu', role: 'menu', 'aria-label': label || 'فلتر', 'data-fm-menu': id, 'data-focus': 'no' }, strip, groups.map((g) => secs[String(g.key)]),
-        h('div', { class: 'view-foot' }, Button({ size: 'sm', type: 'text', label: 'مسح', attrs: { 'data-fm-clear': '' }, onClick: () => { groups.forEach((g) => { d[g.key] = []; tabs[String(g.key)].replaceChildren(...tabText(g)); }); items.forEach(mark); upd(); } }),
+        h('div', { class: 'view-foot' }, Button({ size: 'sm', type: 'text', label: 'مسح', attrs: { 'data-fm-clear': '' }, onClick: () => { groups.forEach((g) => { d[g.key] = []; tabs[String(g.key)].replaceChildren(...tabText(g)); }); items.forEach(mark); ranges.forEach((x) => { x.value = ''; }); upd(); } }),
           Button({ size: 'sm', type: 'primary', label: cnt, attrs: { 'data-fm-apply': '' }, onClick: () => { close(); onApply(d); } })));
       m.addEventListener('keydown', (e) => { if (e.target && e.target.matches && e.target.matches('input, [role=tab]')) return; const vis = items.filter((x) => !x.closest('[hidden]')); const i = vis.indexOf(document.activeElement); if (!vis.length) return;
         if (e.key === 'ArrowDown') { e.preventDefault(); vis[(i + 1) % vis.length].focus(); } if (e.key === 'ArrowUp') { e.preventDefault(); vis[(i - 1 + vis.length) % vis.length].focus(); } });

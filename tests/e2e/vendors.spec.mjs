@@ -42,6 +42,11 @@ async function openVendors(page, email = ADMIN, n = 2) {
   await page.locator('#vendors [role=tab]', { hasText: 'سجل المبتكرين' }).click(); // decision 57: the page opens on «نظرة عامة»
   await expect(page.locator('#vendors')).toBeVisible();
   await expect(page).toHaveURL(/#makers$/);
+  // the meeting of 23 Nov [#6]: no filter is on by default any more — these cases count the active makers, so they pick «نشط» themselves
+  await page.locator('#vendors [data-fm-btn="vendors"]').click();
+  await page.locator('[data-fm-menu="vendors"] [data-fm-tab="status"]').click();
+  await page.locator('[data-fm-menu="vendors"] [data-fm="status:active"]').click();
+  await page.locator('[data-fm-menu="vendors"] [data-fm-apply]').dispatchEvent('click');
   await expect(rows(page)).toHaveCount(n);
 }
 // the add-maker popup is a wizard (the owner 15 Nov, 2026-11-15-comments.md decision 9): toStep = the step whose fields the next
@@ -666,9 +671,9 @@ test('5.5 / the owner 12 Nov: «فلتر» next to the sort in the card header h
   await expect(page.locator('#vendors [data-fm-btn="vendors"] .val')).toHaveText('فلتر (1)');
   const menu = page.locator('[data-fm-menu="vendors"]');
   await page.locator('#vendors [data-fm-btn="vendors"]').click();
-  await expect(menu.locator('[data-fm-tab]')).toHaveCount(6); // + «البراند» (comments decision 57)
+  await expect(menu.locator('[data-fm-tab]')).toHaveCount(7); // the meeting of 23 Nov [#1]: the table's columns
   await menu.locator('[data-fm-tab="status"]').click();
-  await expect(menu.locator('[data-fm="status:active"]')).toHaveAttribute('aria-checked', 'true'); // «نشط» by default
+  await expect(menu.locator('[data-fm="status:active"]')).toHaveAttribute('aria-checked', 'true'); // «نشط» — picked by openVendors
   await menu.locator('[data-fm="status:inactive"]').click();
   await expect(menu.locator('[data-fm-apply]')).toHaveText('اعرض 3 مبتكر');
   await menu.locator('[data-fm-apply]').dispatchEvent('click');
@@ -825,7 +830,7 @@ test('decision 57: the makers page tabs — «نظرة عامة» (cards) · «�
   await expect(page.locator('#vpanel .kpi[aria-label="مبتكرين نشطين"]')).toBeVisible();
   await expect(rows(page)).toHaveCount(0); // the table is on its own tab
   await tabs.nth(1).click();
-  await expect(rows(page)).toHaveCount(2);
+  await expect(rows(page)).toHaveCount(3); // the meeting of 23 Nov [#6]: every maker, no «نشط» on by default
   await expect(page.locator('#vpanel .kpi')).toHaveCount(0);
   // the accounts page's own «حسابات المبتكرين», inside the makers page
   await tabs.nth(2).click();
@@ -838,6 +843,7 @@ test('decision 57: the makers page tabs — «نظرة عامة» (cards) · «�
   await page.locator('[role=menu] [role=menuitem]', { hasText: 'تحويل لغير نشط' }).click();
   await drawer(page).getByRole('button', { name: 'إغلاق' }).first().click();
   await tabs.nth(3).click();
+  await page.locator('[data-log-all="makers"]').click(); // the meeting of 23 Nov [#4]: the log opens on this month
   await expect(page.locator('#vpanel [data-vlog-row]').first()).toBeVisible();
   await expect(page.locator('#vpanel [data-vlog-row="inactive"]')).toHaveCount(1);
   await expect(page.locator('#vpanel tr', { has: page.locator('[data-vlog-row="inactive"]') })).toContainText('Antikiano');

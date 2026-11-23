@@ -40,6 +40,11 @@ async function openVendors(page, email = ADMIN, n = 2) {
   await page.locator('.sidebar .nav-item[data-page="vendors"]').click();
   await page.locator('#vendors [role=tab]', { hasText: 'سجل المبتكرين' }).click(); // decision 57: the page opens on «نظرة عامة»
   await expect(page.locator('#vendors')).toBeVisible();
+  // the meeting of 23 Nov [#6]: no filter is on by default any more — these cases count the active makers, so they pick «نشط» themselves
+  await page.locator('#vendors [data-fm-btn="vendors"]').click();
+  await page.locator('[data-fm-menu="vendors"] [data-fm-tab="status"]').click();
+  await page.locator('[data-fm-menu="vendors"] [data-fm="status:active"]').click();
+  await page.locator('[data-fm-menu="vendors"] [data-fm-apply]').dispatchEvent('click');
   await expect(rows(page)).toHaveCount(n);
 }
 async function signOut(page) {
@@ -667,13 +672,10 @@ test('B2: «الفئة الأساسية» = the site\'s main categories, several
   await expect(info(section(page, 'الهوية'), page, 'الفئة الأساسية')).toHaveText('ديكور');
   await expect.poll(() => mock.vendorWrites.filter((w) => w.table === 'vendor_main_categories').map((w) => w.ids)).toEqual([[22, 15], [15]]);
   await expect.poll(() => acts('vendor.update')).toContainEqual({ action: 'vendor.update', entity: 'vendor', entity_id: NEW1, new_value: 'categories' });
-  // the makers filter «الفئة»: the main categories, by id — Art Craft and Clay Home are «ديكور»
+  // the meeting of 23 Nov [#1]: the makers filter = the table's columns — no «الفئة» (not a column), the numbers the five choices
   await drawer(page).getByRole('button', { name: 'إغلاق' }).first().click();
-  await page.locator('#vendors [data-fm-btn="vendors"]').click(); // the owner 12 Nov: «فلتر» next to the sort, the groups inside
-  await page.locator('[data-fm-menu="vendors"] [data-fm-tab="category"]').click();
-  await expect(page.locator('[data-fm-menu="vendors"] [data-fm-key="category"] [data-fm]')).toHaveText(['ديكور', 'هدايا']);
-  await page.locator('[data-fm-menu="vendors"] [data-fm="category:15"]').click();
-  await page.locator('[data-fm-menu="vendors"] [data-fm-apply]').dispatchEvent('click');
-  await expect(rows(page)).toHaveCount(2);
-  await expect(page.locator('#vendors .af-row')).toContainText('الفئة: ديكور');
+  await page.locator('#vendors [data-fm-btn="vendors"]').click();
+  await expect(page.locator('[data-fm-menu="vendors"] [data-fm-tab="category"]')).toHaveCount(0);
+  await page.locator('[data-fm-menu="vendors"] [data-fm-tab="open"]').click();
+  await expect(page.locator('[data-fm-menu="vendors"] [data-fm-key="open"] [data-fm]')).toHaveText(['يوجد', 'لا يوجد', 'أعلى من صفر', 'أقل من صفر', 'يساوي صفر']);
 });

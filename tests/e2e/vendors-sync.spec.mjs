@@ -42,6 +42,11 @@ async function openVendors(page, email = ADMIN, n = 2) {
   await page.locator('.sidebar .nav-item[data-page="vendors"]').click();
   await page.locator('#vendors [role=tab]', { hasText: 'سجل المبتكرين' }).click(); // decision 57: the page opens on «نظرة عامة»
   await expect(page.locator('#vendors')).toBeVisible();
+  // the meeting of 23 Nov [#6]: no filter is on by default any more — these cases count the active makers, so they pick «نشط» themselves
+  await page.locator('#vendors [data-fm-btn="vendors"]').click();
+  await page.locator('[data-fm-menu="vendors"] [data-fm-tab="status"]').click();
+  await page.locator('[data-fm-menu="vendors"] [data-fm="status:active"]').click();
+  await page.locator('[data-fm-menu="vendors"] [data-fm-apply]').dispatchEvent('click');
   await expect(rows(page)).toHaveCount(n);
 }
 const drawer = (page) => page.locator('.drawer[aria-label^="ملف المبتكر"]');

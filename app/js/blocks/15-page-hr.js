@@ -272,7 +272,7 @@
     // comments 15 Nov decision 76 (the owner — «ف تقويم الفريق نظبطلها view بالمدة»): the calendar shows the days of a period picked on the
     // system's date filter (IBReportBlocks.period('hr-cal') — two weeks from the week's start until the member picks; 62 days at
     // most, the rest of a longer period is named); «السابق» / «التالي» move the period a week and «النهارده» brings the default back
-    const RBk = window.IBReportBlocks; const def = () => { const a = weekStart(); return { from: a, to: H().addDays(a, 13), preset: 'custom' }; };
+    const RBk = window.IBReportBlocks; const def = () => { const t = today(); const y = +t.slice(0, 4), m = +t.slice(5, 7); return { from: t.slice(0, 8) + '01', to: t.slice(0, 8) + String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, '0'), preset: 'custom' }; }; // the meeting of 23 Nov [#4]: this month (was two weeks)
     const P = RBk && RBk.periodOf ? RBk.periodOf('hr-cal', def) : def(); const CAL_MAX = 62;
     const span = Math.round((Date.parse(P.to + 'T00:00:00Z') - Date.parse(P.from + 'T00:00:00Z')) / 864e5) + 1; const nDays = Math.max(1, Math.min(CAL_MAX, span));
     const start = P.from; const days = Array.from({ length: nDays }, (_, i) => H().addDays(start, i)); const hol = holidayDates();

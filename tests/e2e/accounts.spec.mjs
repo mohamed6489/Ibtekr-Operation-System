@@ -194,6 +194,7 @@ test('sales come from our orders by status group; the moves log lists Dokan requ
   await expect(sales.locator('tr', { hasText: 'تحت التنفيذ' })).toContainText('4,543.00'); // the mock's open orders of the last 30 days
   await tab(page, 'سجل الحركات').click();
   await main(page).getByRole('tab', { name: 'حسابات المبتكرين' }).last().click();
+  await main(page).locator('.mlog-bar [aria-label="اختيار الفترة"]').click(); await page.getByRole('radio', { name: 'أقصى فترة' }).click(); await page.getByRole('button', { name: 'تحديث', exact: true }).click(); // the meeting of 23 Nov [#4]: the log opens on this month — the request of 25 Oct is older
   await expect(main(page).locator('.mlog-table')).toContainText('#501');
   await expect(main(page).locator('.mlog-table')).toContainText('مستني الموافقة');
 });
@@ -415,6 +416,7 @@ test('5.5: the moves log has its own period (wide by default) and a bulk export;
   // the moves log: the Dokan request of 25 Oct is in the wide default period; its own range field; the bulk bar exports the ticked rows
   await tab(page, 'سجل الحركات').click();
   await main(page).getByRole('tab', { name: 'حسابات المبتكرين' }).last().click();
+  await main(page).locator('.mlog-bar [aria-label="اختيار الفترة"]').click(); await page.getByRole('radio', { name: 'أقصى فترة' }).click(); await page.getByRole('button', { name: 'تحديث', exact: true }).click(); // the meeting of 23 Nov [#4]: the log opens on this month — the request of 25 Oct is older
   await expect(main(page).locator('.mlog-table')).toContainText('#501');
   await expect(main(page).locator('.mlog-bar [aria-label="اختيار الفترة"]')).toBeVisible();
   await main(page).locator('.mlog-table [data-bulk-box]').first().click();
@@ -482,8 +484,10 @@ test('5.5 decision 13: «كشف بالفترة» — the opening is Dokan\'s bal
   await openAccounts(page);
   await tab(page, 'حسابات المبتكرين').click();
   await main(page).getByRole('tab', { name: 'كشف بالفترة' }).click();
-  // 0078: the ledger has its own range — «كل الفترات» by default; this month for the statements
-  await expect(main(page).locator('.toolbar .range-label')).toHaveText('كل الفترات');
+  // the meeting of 23 Nov [#4] (was 0078's «كل الفترات»): the ledger opens on this month, its dates on the button
+  await expect(main(page).locator('.toolbar .range-label')).toHaveText(/^الفترة: 1 /);
+  // this month's statements redraw the ledger while they arrive: the picker opens once they are in
+  await expect(main(page).locator('[data-ledger-refresh]')).toBeEnabled();
   await main(page).getByRole('button', { name: 'اختيار الفترة' }).click();
   await page.getByRole('radio', { name: 'هذا الشهر' }).click();
   await page.getByRole('button', { name: 'تحديث', exact: true }).click();
@@ -666,17 +670,22 @@ test('0078: «كشف بالفترة» without a range = «كل الفترات» 
   // the settled عربون is not deducted any more: the net is Dokan's balance
   await expect(main(page).locator('table.vendors-table [data-vbal="Art Craft"]')).toHaveText('2,500.00');
   await main(page).getByRole('tab', { name: 'كشف بالفترة' }).click();
+  await expect(main(page).locator('[data-ledger-refresh]')).toBeEnabled(); // this month's statements are in (a late one redraws and closes the picker)
+  await main(page).locator('[data-vl-all]').click(); // the meeting of 23 Nov [#4]: «كل الفترات» is a choice now (the default is this month)
   await expect(main(page).locator('.toolbar .range-label')).toHaveText('كل الفترات');
+  const asked = mock.statements.length; // the month's statements asked before the pick
   const art = main(page).locator('table.ledger-table tbody tr', { hasText: 'Art Craft' });
   await expect(art).toContainText('9,000.00'); // حقه من المكتمل (Dokan's earning)
   await expect(art.locator('[data-ledger-paid="Art Craft"]')).toHaveText('6,100.00'); // 6,500 less the 400 it covered
   await expect(art.locator('[data-ledger-close="Art Craft"]')).toHaveText('2,500.00'); // = the net now
   await expect(main(page).locator('table.ledger-table thead th', { hasText: 'رصيد أول الفترة' })).toHaveCount(0);
-  expect(mock.statements).toEqual([]);
+  expect(mock.statements.length).toBe(asked); // «كل الفترات» asks no statement
   // a period asks the statements; «كل الفترات» brings the whole account back
-  await main(page).getByRole('button', { name: 'اختيار الفترة' }).click();
-  await page.getByRole('radio', { name: 'هذا الشهر' }).click();
-  await page.getByRole('button', { name: 'تحديث', exact: true }).click();
+  await expect(async () => { // a late redraw closes an open picker: open it again until the pick lands
+    if (!(await page.getByRole('radio', { name: 'هذا الشهر' }).isVisible())) await main(page).getByRole('button', { name: 'اختيار الفترة' }).click();
+    await page.getByRole('radio', { name: 'هذا الشهر' }).click({ timeout: 2000 });
+    await page.getByRole('button', { name: 'تحديث', exact: true }).click({ timeout: 2000 });
+  }).toPass({ timeout: 15000 });
   await expect.poll(() => mock.statements.length).toBeGreaterThan(0);
   await expect(main(page).locator('table.ledger-table thead th', { hasText: 'رصيد أول الفترة' })).toHaveCount(1);
   await main(page).locator('[data-vl-all]').click();

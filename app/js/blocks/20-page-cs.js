@@ -626,9 +626,18 @@
   }
 
   // ======================= customers (CRM) =======================
+  // the meeting of 23 Nov [#1]: the filter of «عملاء إبتكر» = its columns — the five number choices on «الأوردرات» / «إجمالي الشراء» /
+  // «تقييم الفريق», a period on «آخر أوردر» / «آخر نشاط», the stars on «التقييم» (choices); the name and the phone = the search
+  const RLc = () => window.IBTableRules;
+  const lastOrderDay = (cu) => { if (cu.lastOrderDays == null) return null; const d = new Date(today() + 'T12:00:00'); d.setDate(d.getDate() - cu.lastOrderDays); return d.toISOString().slice(0, 10); };
+  const starsOf = (cu) => { const r = ratingOf(cu); return r && r.stars ? String(Math.round(r.stars)) : 'none'; };
+  const colPass = (cu, f) => { const R0 = RLc(); if (!R0) return true;
+    return R0.numPass(cu.orders || 0, f.ordersN || []) && R0.numPass(cu.total || 0, f.totalN || []) && R0.numPass(teamOf(cu).overall, f.team || [])
+      && (!(f.lastOrd || []).length || R0.datePass(lastOrderDay(cu) || '', f.lastOrd)) && (!(f.act || []).length || R0.datePass(cu.lastActive ? String(cu.lastActive).slice(0, 10) : '', f.act))
+      && (!(f.stars || []).length || f.stars.includes(starsOf(cu))); };
   function matchFilters(f) {
     const q = String(f.q || '').trim().toLowerCase();
-    return S.customers.filter((cu) => (!q || (cu.name + ' ' + cu.phone + ' ' + (cu.ig || '') + ' ' + (cu.orderList || []).map((o) => o[0]).join(' ')).toLowerCase().includes(q)) && (!f.stage || moodOf(cu) === f.stage) && (!f.tag || cu.tags.includes(f.tag)) && (!f.rating || ((ratingOf(cu) || { stars: 0 }).stars >= Number(f.rating))) && (!f.prov || cu.province === f.prov) && (!f.chan || cu.channels.includes(f.chan)) && (!f.problems || cu.lateOpen || cu.openComplaints) && (!(f.moods || []).length || f.moods.includes(moodOf(cu))) && (!(f.provs || []).length || f.provs.includes(cu.province)) && (!(f.chans || []).length || f.chans.some((ch) => cu.channels.includes(ch))));
+    return S.customers.filter((cu) => (!q || (cu.name + ' ' + cu.phone + ' ' + (cu.ig || '') + ' ' + (cu.orderList || []).map((o) => o[0]).join(' ')).toLowerCase().includes(q)) && (!f.stage || moodOf(cu) === f.stage) && (!f.tag || cu.tags.includes(f.tag)) && (!f.rating || ((ratingOf(cu) || { stars: 0 }).stars >= Number(f.rating))) && (!f.prov || cu.province === f.prov) && (!f.chan || cu.channels.includes(f.chan)) && (!f.problems || cu.lateOpen || cu.openComplaints) && (!(f.moods || []).length || f.moods.includes(moodOf(cu))) && (!(f.provs || []).length || f.provs.includes(cu.province)) && (!(f.chans || []).length || f.chans.some((ch) => cu.channels.includes(ch))) && colPass(cu, f));
   }
   const filterDesc = (f) => [f.q ? 'بحث «' + f.q + '»' : '', f.stage ? 'الحالة: ' + f.stage : '', f.tag ? 'التاج: ' + f.tag : '', f.rating ? 'التقييم ' + f.rating + '+' : '', f.prov ? 'المحافظة: ' + f.prov : '', f.chan ? 'القناة: ' + (PL[f.chan] ? PL[f.chan][0] : f.chan) : '', f.problems ? 'عندهم مشكلة' : ''].filter(Boolean).join(' · ');
   function filtersBar(f, onChange, idp) {
@@ -645,9 +654,9 @@
     const by = { recent: (a, b) => lastAct(b) - lastAct(a), oldest: (a, b) => lastAct(a) - lastAct(b), rating_desc: (a, b) => rateV(b) - rateV(a), rating_asc: (a, b) => rateV(a) - rateV(b), orders_desc: (a, b) => b.orders - a.orders, orders_asc: (a, b) => a.orders - b.orders }[k];
     return by ? l.sort(by) : l;
   }
-  const custFilterCount = (f) => (f.moods || []).length + (f.rating ? 1 : 0) + (f.provs || []).length + (f.chans || []).length + (f.problems ? 1 : 0);
+  const custFilterCount = (f) => (f.moods || []).length + (f.rating ? 1 : 0) + (f.provs || []).length + (f.chans || []).length + (f.problems ? 1 : 0) + ['ordersN', 'totalN', 'stars', 'team'].reduce((n, k) => n + (f[k] || []).length, 0) + ['lastOrd', 'act'].filter((k) => (f[k] || []).length).length;
   function custChips(f, rows) {
-    const n = (patch) => matchFilters(Object.assign({ q: '', moods: [], provs: [], chans: [], rating: '', problems: false }, patch)).length; const chips = [];
+    const n = (patch) => matchFilters(Object.assign({ q: '', moods: [], provs: [], chans: [], rating: '', problems: false, ordersN: [], totalN: [], lastOrd: [], stars: [], team: [], act: [] }, patch)).length; const chips = [];
     const ch = (key, label, patch, reset) => chips.push({ key, label, count: n(patch), remove: () => { reset(); f.page = 1; R(); } });
     if (f.q) ch('q', 'بحث: ' + f.q, { q: f.q }, () => { f.q = ''; });
     (f.moods || []).forEach((v) => ch('mood:' + v, 'الحالة: ' + v, { moods: [v] }, () => { f.moods = f.moods.filter((x) => x !== v); }));
@@ -656,17 +665,30 @@
     const CH = { whatsapp: 'واتساب', messenger: 'ماسنجر', instagram: 'إنستجرام', tiktok: 'تيك توك' };
     (f.chans || []).forEach((v) => ch('chan:' + v, 'القناة: ' + (CH[v] || v), { chans: [v] }, () => { f.chans = f.chans.filter((x) => x !== v); }));
     if (f.problems) ch('problems', 'عندهم مشكلة', { problems: true }, () => { f.problems = false; });
-    return K.ActiveFilters({ id: 'customers', chips, total: rows.length, noun: 'عميل', onClear: () => { Object.assign(f, { q: '', stage: '', tag: '', rating: '', prov: '', chan: '', problems: false, moods: [], provs: [], chans: [] }); f.page = 1; R(); } });
+    const NL = (v) => (RLc().NUM_OPTS.find((x) => x[0] === v) || [v, v])[1]; const SL = { 5: '5 نجوم', 4: '4 نجوم', 3: '3 نجوم', 2: 'نجمتين', 1: 'نجمة', none: 'من غير تقييم' };
+    [['ordersN', 'الأوردرات'], ['totalN', 'إجمالي الشراء'], ['team', 'تقييم الفريق']].forEach(([k, l]) => (f[k] || []).forEach((v) => ch(k + ':' + v, l + ': ' + NL(v), { [k]: [v] }, () => { f[k] = f[k].filter((x) => x !== v); })));
+    (f.stars || []).forEach((v) => ch('stars:' + v, 'التقييم: ' + SL[v], { stars: [v] }, () => { f.stars = f.stars.filter((x) => x !== v); }));
+    const rt = (v) => { const g = (d) => (d ? d.split('-').reverse().join('/') : ''); return v[0] && v[1] ? g(v[0]) + ' – ' + g(v[1]) : v[0] ? 'من ' + g(v[0]) : 'لحد ' + g(v[1]); };
+    [['lastOrd', 'آخر أوردر'], ['act', 'آخر نشاط']].forEach(([k, l]) => { if ((f[k] || []).length) ch(k, l + ': ' + rt(f[k]), { [k]: f[k] }, () => { f[k] = []; }); });
+    return K.ActiveFilters({ id: 'customers', chips, total: rows.length, noun: 'عميل', onClear: () => { Object.assign(f, { q: '', stage: '', tag: '', rating: '', prov: '', chan: '', problems: false, moods: [], provs: [], chans: [], ordersN: [], totalN: [], lastOrd: [], stars: [], team: [], act: [] }); f.page = 1; R(); } });
   }
-  // the kit's «فلتر» button (the owner 12 Nov — back from B5's row): الحالة · التقييم · المحافظة · القناة · أخرى; the rating keeps
-  // one threshold (two ticked = the lower), «عندهم مشكلة بس» a single tick
-  function custFilterMenu(f, onApply) {
-    const toF = (d) => ({ moods: d.moods.slice(), rating: d.rating.length ? String(Math.min(...d.rating.map(Number))) : '', provs: d.provs.slice(), chans: d.chans.slice(), problems: d.problems.length > 0 });
+  // the kit's «فلتر» button (the owner 12 Nov — back from B5's row). The meeting of 23 Nov [#1]: on «عملاء إبتكر» the groups are the
+  // table's columns (القنوات · الحالة · الأوردرات · إجمالي الشراء · آخر أوردر · التقييم · تقييم الفريق · آخر نشاط); the segment picker
+  // (seg) keeps its audience criteria (المحافظة, «عندهم مشكلة», the rating threshold) — it picks people, it is not a table's filter
+  function custFilterMenu(f, onApply, seg) {
+    const NUM = RLc().NUM_OPTS.map((o) => o.slice()); const CHANS = [['whatsapp', 'واتساب'], ['messenger', 'ماسنجر'], ['instagram', 'إنستجرام'], ['tiktok', 'تيك توك']];
+    const toF = (d) => (seg ? { moods: d.moods.slice(), rating: d.rating.length ? String(Math.min(...d.rating.map(Number))) : '', provs: d.provs.slice(), chans: d.chans.slice(), problems: d.problems.length > 0 }
+      : { chans: d.chans.slice(), moods: d.moods.slice(), ordersN: d.ordersN.slice(), totalN: d.totalN.slice(), lastOrd: d.lastOrd.slice(), stars: d.stars.slice(), team: d.team.slice(), act: d.act.slice() });
     const provs = [...new Set(S.customers.map((x) => x.province).filter((x) => x && x !== '—'))];
-    const groups = [{ key: 'moods', label: 'الحالة', options: MOODS.map(([t]) => [t, t]) }, { key: 'rating', label: 'التقييم', options: [['4', '4 نجوم وأكتر'], ['3', '3 نجوم وأكتر']] }]
+    const groups = seg ? [{ key: 'moods', label: 'الحالة', options: MOODS.map(([t]) => [t, t]) }, { key: 'rating', label: 'التقييم', options: [['4', '4 نجوم وأكتر'], ['3', '3 نجوم وأكتر']] }]
       .concat(provs.length ? [{ key: 'provs', label: 'المحافظة', options: provs.map((p) => [p, p]) }] : [])
-      .concat([{ key: 'chans', label: 'القناة', options: [['whatsapp', 'واتساب'], ['messenger', 'ماسنجر'], ['instagram', 'إنستجرام'], ['tiktok', 'تيك توك']] }, { key: 'problems', label: 'أخرى', options: [['1', 'عندهم مشكلة بس']] }]);
-    const el = K.FilterMenu({ id: 'cust', label: 'فلتر العملاء', noun: 'عميل', groups, value: { moods: f.moods || [], rating: f.rating ? [f.rating] : [], provs: f.provs || [], chans: f.chans || [], problems: f.problems ? ['1'] : [] },
+      .concat([{ key: 'chans', label: 'القناة', options: CHANS }, { key: 'problems', label: 'أخرى', options: [['1', 'عندهم مشكلة بس']] }])
+      : [{ key: 'chans', label: 'القنوات', options: CHANS }, { key: 'moods', label: 'الحالة', options: MOODS.map(([t]) => [t, t]) },
+        { key: 'ordersN', label: 'الأوردرات', num: true, options: NUM }, { key: 'totalN', label: 'إجمالي الشراء', num: true, options: NUM },
+        { key: 'lastOrd', label: 'آخر أوردر', range: true, options: [] }, { key: 'stars', label: 'التقييم', options: [['5', '5 نجوم'], ['4', '4 نجوم'], ['3', '3 نجوم'], ['2', 'نجمتين'], ['1', 'نجمة'], ['none', 'من غير تقييم']] },
+        { key: 'team', label: 'تقييم الفريق', num: true, options: NUM }, { key: 'act', label: 'آخر نشاط', range: true, options: [] }];
+    const value = {}; groups.forEach((g) => { value[g.key] = g.key === 'rating' ? (f.rating ? [f.rating] : []) : g.key === 'problems' ? (f.problems ? ['1'] : []) : (f[g.key] || []); });
+    const el = K.FilterMenu({ id: seg ? 'cust-seg' : 'cust', label: 'فلتر العملاء', noun: 'عميل', groups, value,
       count: (d) => matchFilters(Object.assign({}, f, toF(d))).length,
       onApply: (d) => { Object.assign(f, toF(d)); f.page = 1; if (f.picked) f.picked.clear(); if (onApply) onApply(); else R(); } });
     el.classList.add('cfm'); return el;
@@ -812,7 +834,7 @@
       const srch = h('input', { type: 'search', id: 'spk-q', value: f.q, placeholder: 'ابحث بالاسم أو رقم التليفون أو رقم الأوردر', 'aria-label': 'بحث في العملاء', autocomplete: 'off' });
       srch.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => { const pos = srch.selectionStart; f.q = srch.value; draw(); const n = document.getElementById('spk-q'); if (n) { n.focus(); try { n.setSelectionRange(pos, pos); } catch (e) { /* */ } } }, 200); });
       m.setBody(h('div', { class: 'stack', 'data-seg-picker': '' },
-        h('div', { class: 'toolbar wrap', 'data-seg-pick-filters': '' }, h('label', { class: 'search search-field' }, Icon('search', 'sm'), srch), custFilterMenu(f, draw), nf || f.q ? Button({ size: 'sm', type: 'text', label: 'مسح الفلاتر', attrs: { 'data-spk-clear': '' }, onClick: () => { Object.assign(f, { q: '', rating: '', problems: false, moods: [], provs: [], chans: [] }); draw(); } }) : null),
+        h('div', { class: 'toolbar wrap', 'data-seg-pick-filters': '' }, h('label', { class: 'search search-field' }, Icon('search', 'sm'), srch), custFilterMenu(f, draw, true), nf || f.q ? Button({ size: 'sm', type: 'text', label: 'مسح الفلاتر', attrs: { 'data-spk-clear': '' }, onClick: () => { Object.assign(f, { q: '', rating: '', problems: false, moods: [], provs: [], chans: [] }); draw(); } }) : null),
         h('div', { class: 'row-f' }, h('b', { 'data-spk-count': String(rows.length) }, rows.length + ' عميل' + (nf || f.q ? ' بالبحث والفلتر' : '')), h('span', { class: 't-small help' }, '· ' + rows.filter((cu) => inIt.has(cu.id)).length + ' في الشريحة أصلاً' + (chosen.size ? ' · محدد ' + chosen.size + ' للإضافة' : '')), h('span', { class: 'grow' }),
           free.length ? Button({ size: 'sm', label: allOn ? 'شيل تحديد الكل' : 'حدد الكل (' + free.length + ')', attrs: { 'data-spk-all': '' }, onClick: () => { free.forEach((cu) => (allOn ? chosen.delete(cu.id) : chosen.add(cu.id))); draw(); } }) : null),
         rows.length ? h('div', { class: 'pick-list seg-pick', role: 'group', 'aria-label': 'العملاء' }, rows.map((cu) => { const r = ratingOf(cu); const already = inIt.has(cu.id);
@@ -882,7 +904,7 @@
       // the owner 13 Nov (2026-11-13-table-head.md): the head like «سجل المخزون» — «فلتر» and «ترتيب» in it, the search in its row; the «فلاتر العملاء» card is gone
       K.TableSection({ title: 'عملاء إبتكر', cls: 'own-filter', noun: ['عميل', 'العملاء'], count: [rows.length, all.length], total: problems + ' عندهم مشكلة', actions: [Button({ size: 'sm', icon: 'download', label: 'تصدير القايمة', onClick: () => K.xlsxExport('ibtekr-customers-' + today() + '.xlsx', 'العملاء', [['العميل', 'الموبايل', 'الحالة', 'الأوردرات', 'إجمالي الشراء', 'المدينة']].concat(rows.map((cu) => [cu.name, cu.phone || '', moodOf(cu), cu.orders, cu.total || 0, cityOf(cu)]))) }), custFilterMenu(f), pickMenu('الترتيب', CUST_SORTS, f.sort || 'recent', (v) => { f.sort = v; R(); }, 'csort', (cur) => 'ترتيب: ' + (cur ? cur[1] : ''))], body: h('div', null, h('div', { class: 'toolbar', 'data-cust-filters': '' }, custSearch(f)), custChips(f, rows), rows.length ? U.Table({ cls: 'cs-cust', headers: [K.Checkbox({ small: true, label: '', checked: picked.length && picked.length === rows.length, onChange: (v) => { rows.forEach((x) => (v ? f.picked.add(x.id) : f.picked.delete(x.id))); R(); } }), 'العميل', 'القنوات', 'الحالة', 'الأوردرات', 'إجمالي الشراء', 'آخر أوردر', 'التقييم', 'تقييم الفريق', 'آخر نشاط', ''],
         rows: rows.map((cu) => { const r = ratingOf(cu); return [K.Checkbox({ small: true, label: '', checked: f.picked.has(cu.id), onChange: (v) => { v ? f.picked.add(cu.id) : f.picked.delete(cu.id); R(); } }), h('button', { type: 'button', class: 'who-cell', onClick: () => profile(cu) }, U.Avatar(cu.name), h('span', null, h('b', null, cu.name), h('span', { class: 't-small', dir: 'ltr' }, cu.phone || cu.ig || '—'))), h('span', { class: 'plats' }, cu.channels.length ? cu.channels.map((p) => chanBtn(cu, p)) : h('span', { class: 't-small help' }, '—')), moodPick(cu), K.Num(String(cu.orders)), cu.total ? K.Num(K.n0(cu.total) + ' ج.م') : '—', cu.lastOrderDays != null ? 'من ' + cu.lastOrderDays + ' يوم' : '—', r ? Stars(r.stars) : '—', teamCell(cu), whenLabel(cu.lastActive), K.RowMenu([{ label: 'الملف الكامل', run: () => profile(cu) }, { label: 'فتح المحادثة', run: () => openConvFor(cu) }, reply ? { label: 'إضافة تاج', run: () => addTag(cu) } : null, reply ? { label: 'تعديل التقييم', run: () => editRating(cu) } : null, manage ? { label: 'دمج مع عميل تاني', run: () => merge(cu) } : null].filter(Boolean))]; }) })
-        : K.Empty(all.length ? 'مفيش عملاء بالفلاتر دي' : 'مفيش عملاء لسه', all.length ? 'غيّر الفلاتر أو امسحها.' : 'العملاء بيتضافوا تلقائي من الأوردرات، أو من «إضافة عميل».', all.length ? Button({ label: 'مسح الفلاتر', onClick: () => { Object.assign(f, { q: '', stage: '', tag: '', rating: '', prov: '', chan: '', problems: false, moods: [], provs: [], chans: [] }); R(); } }) : null)) }),
+        : K.Empty(all.length ? 'مفيش عملاء بالفلاتر دي' : 'مفيش عملاء لسه', all.length ? 'غيّر الفلاتر أو امسحها.' : 'العملاء بيتضافوا تلقائي من الأوردرات، أو من «إضافة عميل».', all.length ? Button({ label: 'مسح الفلاتر', onClick: () => { Object.assign(f, { q: '', stage: '', tag: '', rating: '', prov: '', chan: '', problems: false, moods: [], provs: [], chans: [], ordersN: [], totalN: [], lastOrd: [], stars: [], team: [], act: [] }); R(); } }) : null)) }),
       h('p', { class: 't-small src-note' }, 'المصدر: الأوردرات (WooCommerce) + محادثات القنوات المربوطة · التقييم بيتحسب من الأوردرات · حالة العميل بيحددها الموظف')];
   }
   function openChannel(cu, p) {

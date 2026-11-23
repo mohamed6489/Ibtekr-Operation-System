@@ -324,13 +324,14 @@ test.describe('the dashboard on the real clock', () => {
     const label = await page.evaluate((t) => window.IBKit.dayName(t) + ' ' + window.IBKit.dlabel(t), today);
     await expect(page.locator('.dash-hi')).toContainText(label);
     expect(await page.evaluate(() => [window.IBDashData.today(), window.IBDashData.TODAY, JSON.parse(JSON.stringify(window.IBDashData.range()))]))
-      .toEqual([today, today, { from: today, to: today, preset: 'today' }]);
+      .toEqual([today, today, { from: today.slice(0, 8) + '01', to: today, preset: 'thisMonth' }]); // the meeting of 23 Nov [#4]: «هذا الشهر» (was «اليوم»)
     // each order lands on its own placed date (today − its real age)
     const on = (id) => page.evaluate((id) => { const d = window.OrdersApp.get(id).date; return [d, window.IBDashData.report({ from: d, to: d }).rows.map((r) => r.id)]; }, id);
     expect(await on('181668')).toEqual([ago(6).slice(0, 10), ['181668']]);
     expect(await on('180656')).toEqual([ago(29).slice(0, 10), ['180656']]);
     // phase 5.5 decision 6 (owner 31 Oct): the confirmation card follows the dashboard's period — «today» holds none of them; the last 30 days hold
     // 181668 (6 days) and 180656 (29 days), not 180686 (31 days)
+    await page.getByRole('button', { name: 'اختيار الفترة' }).click(); await page.getByRole('radio', { name: 'اليوم', exact: true }).click(); await page.getByRole('button', { name: 'تحديث', exact: true }).click();
     await expect.poll(() => settled(page, () => { const c = window.IBPages.all().dashboard.api.state.last.conf; return { count: c.count, by: c.byConfirm }; })).toEqual({ count: 0, by: [] });
     await page.getByRole('button', { name: 'اختيار الفترة' }).click();
     await page.getByRole('radio', { name: 'آخر 30 يومًا' }).click();

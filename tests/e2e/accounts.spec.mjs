@@ -681,9 +681,11 @@ test('0078: «كشف بالفترة» without a range = «كل الفترات» 
   await expect(main(page).locator('table.ledger-table thead th', { hasText: 'رصيد أول الفترة' })).toHaveCount(0);
   expect(mock.statements.length).toBe(asked); // «كل الفترات» asks no statement
   // a period asks the statements; «كل الفترات» brings the whole account back
-  await main(page).getByRole('button', { name: 'اختيار الفترة' }).click();
-  await page.getByRole('radio', { name: 'هذا الشهر' }).click();
-  await page.getByRole('button', { name: 'تحديث', exact: true }).click();
+  await expect(async () => { // a late redraw closes an open picker: open it again until the pick lands
+    if (!(await page.getByRole('radio', { name: 'هذا الشهر' }).isVisible())) await main(page).getByRole('button', { name: 'اختيار الفترة' }).click();
+    await page.getByRole('radio', { name: 'هذا الشهر' }).click({ timeout: 2000 });
+    await page.getByRole('button', { name: 'تحديث', exact: true }).click({ timeout: 2000 });
+  }).toPass({ timeout: 15000 });
   await expect.poll(() => mock.statements.length).toBeGreaterThan(0);
   await expect(main(page).locator('table.ledger-table thead th', { hasText: 'رصيد أول الفترة' })).toHaveCount(1);
   await main(page).locator('[data-vl-all]').click();

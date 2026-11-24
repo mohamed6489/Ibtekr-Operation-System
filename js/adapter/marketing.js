@@ -936,7 +936,7 @@
   let compRows = null; let compAt = 0; let compReady = true;
   const toCompetitor = (r) => ({ id: r.id, name: clean(r.name, 80), pageId: /^[0-9]{5,20}$/.test(String(r.page_id || '')) ? String(r.page_id) : '', pageUrl: /^https:\/\/[^\s<>"]+$/.test(String(r.page_url || '')) ? String(r.page_url) : '',
     keyword: clean(r.keyword, 80), note: clean(r.note, 300), at: r.created_at || null,
-    // 0158 (buyer-brain decision 5): the server's research brief and its sources (https only)
+    // 0160 (buyer-brain decision 5): the server's research brief and its sources (https only)
     brief: r.brief && typeof r.brief === 'object' && typeof r.brief.text === 'string' ? { text: r.brief.text.slice(0, 5000), sources: (Array.isArray(r.brief.sources) ? r.brief.sources : []).filter((x) => x && /^https:\/\/[^\s<>"]+$/.test(String(x.url || ''))).slice(0, 12).map((x) => ({ url: String(x.url), title: clean(x.title, 120) || String(x.url) })) } : null,
     briefAt: r.brief_at || null });
   async function competitors(force) {
@@ -946,7 +946,7 @@
     try {
       const read = (cols) => cl.from('mkt_competitors').select(cols).is('archived_at', null).order('created_at', { ascending: false }).limit(100);
       let { data: d, error } = await read('id, name, page_id, page_url, keyword, note, created_at, brief, brief_at');
-      if (error && !noTable(error)) ({ data: d, error } = await read('id, name, page_id, page_url, keyword, note, created_at')); // before 0158
+      if (error && !noTable(error)) ({ data: d, error } = await read('id, name, page_id, page_url, keyword, note, created_at')); // before 0160
       if (error) { if (!noTable(error)) return fail(error); compRows = []; compReady = false; compAt = Date.now(); return { ok: true, items: compRows, ready: false }; }
       compRows = (d || []).map(toCompetitor).filter((x) => x.name); compReady = true; compAt = Date.now();
       return { ok: true, items: compRows, ready: true };

@@ -11,12 +11,15 @@
 (function (root) {
   'use strict';
   const S = (id, label, extra) => Object.assign({ id, label }, extra || {});
+  // the built-in assistants that write to their team (ai_agents — 0120 / 0128); the three marketing ones keep their own types
+  const AGENTS = [['manager', 'المدير العام'], ['stock', 'التشغيل الذكي'], ['cs', 'خدمة العملاء الذكية'], ['makers', 'خدمة المبتكرين الذكية'], ['accountant', 'المحاسب الذكي'],
+    ['hr', 'الموارد البشرية الذكية'], ['content', 'المحتوى الذكي']];
   const ELEMENTS = [
     // the meeting's text: «تقرير المهام هتبقي التقارير اليومية» — one summary a day of what is open for the recipient's role
     { id: 'daily', label: 'التقارير اليومية', perm: null, types: [
-      { id: 'summary', label: 'ملخص', kind: 'due', states: [S('day', 'ملخص اليوم')] }] },
+      { id: 'summary', label: 'ملخص', kind: 'due', states: [S('day', 'ملخص اليوم', { level: 'info' })] }] },
     { id: 'custody', label: 'عهدة التشغيل', perm: 'accounts.view', types: [
-      { id: 'balance', label: 'الرصيد', states: [S('deposit', 'إيداع', { kind: 'event' }), S('withdraw', 'سحب', { kind: 'event' }), S('low', 'العهدة قربت تخلص', { kind: 'state', param: { key: 'floor', label: 'أقل من (ج.م)', def: 200 } })] }] },
+      { id: 'balance', label: 'الرصيد', states: [S('deposit', 'إيداع', { kind: 'event' }), S('withdraw', 'سحب', { kind: 'event' }), S('low', 'العهدة قربت تخلص', { kind: 'state', level: 'critical', param: { key: 'floor', label: 'أقل من (ج.م)', def: 200 } })] }] },
     { id: 'team', label: 'أعضاء الفريق', perm: 'hr.view', types: [
       { id: 'status', label: 'حالة', states: [S('eval_due', 'التقييم الشهري', { kind: 'due', param: { key: 'days', label: 'قبلها بكام يوم', def: 2 } }), S('no_in', 'لم يسجل حضور', { kind: 'state', param: { key: 'late_min', label: 'بعد ميعاده بكام دقيقة', def: 60 } }),
         S('ot_start', 'بدء وقت إضافي', { kind: 'event' }), S('no_out', 'لم يسجل انصراف', { kind: 'state' })] },
@@ -25,11 +28,14 @@
     { id: 'orders', label: 'الأوردرات الرئيسية', perm: 'orders.view', types: [
       { id: 'confirm', label: 'حالة التأكيد', dyn: 'confirm', kind: 'state', states: [S('مؤكد بعربون', 'مؤكد بعربون'), S('غير مؤكد', 'غير مؤكد')] },
       { id: 'status', label: 'حالة الأوردر', dyn: 'order', kind: 'state', states: [S('جاري التنفيذ', 'جاري التنفيذ'), S('معلّق', 'معلّق'), S('جاهز للشحن', 'جاهز للشحن')] },
-      { id: 'delay', label: 'حالة التأخير', kind: 'state', states: [S('late', 'متأخر'), S('ok', 'غير متأخر'), S('risk', 'قابل للتأخير')] },
-      { id: 'update', label: 'تحديث', kind: 'event', states: [S('new', 'أوردر جديد'), S('edit', 'تعديل أوردر'), S('delete', 'حذف أوردر')] }] },
+      { id: 'delay', label: 'حالة التأخير', kind: 'state', states: [S('late', 'متأخر', { level: 'critical' }), S('ok', 'غير متأخر', { level: 'info' }), S('risk', 'قابل للتأخير')] },
+      { id: 'update', label: 'تحديث', kind: 'event', states: [S('new', 'أوردر جديد'), S('edit', 'تعديل أوردر'), S('delete', 'حذف أوردر')] },
+      // the bell's redesign (Safwat 24 Nov — docs/superpowers/plans/2026-11-24-bell-redesign.md decision 5)
+      { id: 'shipping', label: 'الشحن', kind: 'state', states: [S('no_bosta', 'جاهز للشحن ومااتبعتش لبوسطة', { param: { key: 'days', label: 'بعد كام يوم', def: 1 } }),
+        S('cod_error', 'تحصيل بوسطة مااتحدثش', { level: 'critical' })] }] },
     { id: 'subs', label: 'الأوردرات الفرعية', perm: 'orders.view', types: [
       { id: 'status', label: 'حالة الأوردر الفرعي', dyn: 'sub', kind: 'state', states: [S('مؤكد', 'مؤكد'), S('جاهز للشحن من المبتكر للعميل', 'جاهز للشحن من المبتكر للعميل'), S('جاهز للشحن من المبتكر للمخزن', 'جاهز للشحن من المبتكر للمخزن')] },
-      { id: 'delay', label: 'حالة التأخير', kind: 'state', states: [S('late', 'متأخر'), S('ok', 'غير متأخر'), S('risk', 'قابل للتأخير')] },
+      { id: 'delay', label: 'حالة التأخير', kind: 'state', states: [S('late', 'متأخر', { level: 'critical' }), S('ok', 'غير متأخر', { level: 'info' }), S('risk', 'قابل للتأخير')] },
       { id: 'update', label: 'تحديث', kind: 'event', states: [S('new', 'أوردر فرعي جديد'), S('edit', 'تعديل أوردر فرعي'), S('delete', 'حذف أوردر فرعي')] }] },
     { id: 'products', label: 'المنتجات', perm: 'products.view', types: [
       { id: 'stock', label: 'حالة المنتج', kind: 'state', states: [S('out', 'الكمية نفدت'), S('left1', 'باقي 1 في المخزون'), S('left3', 'باقي 3 في المخزون')] },
@@ -43,16 +49,17 @@
       { id: 'subs', label: 'اشتراكات', states: [S('withdraw', 'سحب', { kind: 'event' }), S('due', 'قبل التجديد', { kind: 'due', param: { key: 'days', label: 'قبلها بكام يوم', def: 3 } })] },
       { id: 'ads', label: 'إعلانات', kind: 'event', states: [S('deposit', 'إيداع'), S('withdraw', 'سحب')] },
       { id: 'makers', label: 'حسابات المبتكرين', states: [S('deposit', 'إيداع', { kind: 'event' }), S('withdraw', 'سحب', { kind: 'event' }), S('close_due', 'قبل تقفيل الحسابات', { kind: 'due', param: { key: 'days', label: 'قبلها بكام يوم', def: 2 } })] },
-      { id: 'real', label: 'الحساب الفعلي', kind: 'event', states: [S('deposit', 'إيداع'), S('withdraw', 'سحب')] },
+      { id: 'real', label: 'الحساب الفعلي', kind: 'event', states: [S('deposit', 'إيداع'), S('withdraw', 'سحب'), S('negative', 'حساب بالسالب', { kind: 'state', level: 'critical' })] },
       // the meeting's text: «الحركة المالية ملخص الاجراءات» — the day's deposits and withdrawals in one line
-      { id: 'summary', label: 'الحركة المالية', kind: 'due', states: [S('day', 'ملخص اليوم')] }] },
+      { id: 'summary', label: 'الحركة المالية', kind: 'due', states: [S('day', 'ملخص اليوم', { level: 'info' })] }] },
     { id: 'tickets', label: 'طلبات الفريق', perm: 'tickets.view', types: [
-      { id: 'type', label: 'نوع الطلب', dyn: 'ticket', states: [S('new', 'طلبات جديدة', { kind: 'event' }), S('late', 'طلبات متأخرة', { kind: 'state' })] },
+      { id: 'type', label: 'نوع الطلب', dyn: 'ticket', states: [S('new', 'طلبات جديدة', { kind: 'event', level: 'important' }), S('late', 'طلبات متأخرة', { kind: 'state', level: 'critical' })] },
       { id: 'update', label: 'تحديث', kind: 'event', states: [S('edit', 'تعديل طلب'), S('in_progress', 'جاري العمل'), S('waiting', 'في انتظار الرد'), S('resolved', 'تم الحل')] }] },
     { id: 'messages', label: 'الرسايل', perm: 'cs.view', types: [
-      { id: 'customers', label: 'رسايل العملاء', states: [S('new', 'رسايل جديدة', { kind: 'event' }), S('waiting', 'في انتظار الرد', { kind: 'state' }), S('late', 'رسايل متأخرة', { kind: 'state' })] },
-      { id: 'vendors', label: 'رسايل المبتكرين', states: [S('new', 'رسايل جديدة', { kind: 'event' }), S('late', 'رسايل متأخرة', { kind: 'state' })] },
-      { id: 'comments', label: 'السوشيال ميديا', states: [S('new', 'تعليقات جديدة', { kind: 'event' }), S('late', 'تعليقات متأخرة', { kind: 'state' })] }] },
+      { id: 'customers', label: 'رسايل العملاء', states: [S('new', 'رسايل جديدة', { kind: 'event', level: 'important' }), S('waiting', 'في انتظار الرد', { kind: 'state' }), S('late', 'رسايل متأخرة', { kind: 'state', level: 'critical' })] },
+      { id: 'vendors', label: 'رسايل المبتكرين', states: [S('new', 'رسايل جديدة', { kind: 'event', level: 'important' }), S('late', 'رسايل متأخرة', { kind: 'state', level: 'critical' })] },
+      { id: 'comments', label: 'السوشيال ميديا', states: [S('new', 'تعليقات جديدة', { kind: 'event' }), S('late', 'تعليقات متأخرة', { kind: 'state' })] },
+      { id: 'ratings', label: 'تقييم العملاء', kind: 'event', states: [S('low', 'تقييم عميل واطي', { level: 'critical', param: { key: 'stars', label: 'لحد كام نجمة', def: 2 } })] }] },
     // perm null: each assistant's alert names the members who see that assistant (ai_agents.perm) — notify/rules.ts
     { id: 'ai', label: 'الذكاء الاصطناعي', perm: null, types: [
       { id: 'buyer', label: 'الميديا باير', kind: 'event', states: [S('campaigns', 'أداء الحملات'), S('pixel', 'حالة البيكسل'), S('post', 'نشر بوست')] },
@@ -61,16 +68,29 @@
       // the meeting's text: «لكل مساعد ذكاء اصطناعي التنبيهات اللي تناسب دوره بنفس الطريقة» — whatever the other assistants (the
       // operations', the customer service's, the makers', the accountant, HR's, the content's and the admin's own) tell their team —
       // their daily summary, what is late, their own rules — reaches the members who see that assistant
+      // the bell's redesign decision 4: each built-in assistant its own type — its team's daily summary (ref «team:»), the work late at
+      // its team (« late:» / «cs-late:»), and its own rules («rule:»); «باقي المساعدين» = the assistants the admin added
+      ...AGENTS.map(([id, label]) => ({ id, label, kind: 'event', states: [S('summary', 'ملخص الفريق اليومي', { level: 'info' }), S('late', 'الشغل المتأخر عند الفريق', { level: 'important' }), S('rules', 'قواعد المساعد', { level: 'important' })] })),
       { id: 'any', label: 'باقي المساعدين', kind: 'event', states: [S('notes', 'تنبيهات المساعد')] }] },
     { id: 'makers', label: 'المبتكرين', perm: 'vendors.view', types: [
-      { id: 'making', label: 'حالة التصنيع', states: [S('late', 'أوردرات متأخرة', { kind: 'state' }), S('risk', 'أوردرات قابلة للتأخير', { kind: 'state' }), S('confirmed', 'أوردرات مؤكدة جديدة', { kind: 'event' }), S('cancelled', 'أوردرات ملغية', { kind: 'event' })] },
-      { id: 'accounts', label: 'حسابات المبتكر', kind: 'event', states: [S('withdraw', 'طلب سحب'), S('settle', 'تقفيل الحسابات')] },
+      { id: 'making', label: 'حالة التصنيع', states: [S('late', 'أوردرات متأخرة', { kind: 'state', level: 'critical' }), S('risk', 'أوردرات قابلة للتأخير', { kind: 'state' }), S('confirmed', 'أوردرات مؤكدة جديدة', { kind: 'event' }), S('cancelled', 'أوردرات ملغية', { kind: 'event' })] },
+      { id: 'accounts', label: 'حسابات المبتكر', kind: 'event', states: [S('withdraw', 'طلب سحب', { level: 'important' }), S('settle', 'تقفيل الحسابات'),
+        S('withdraw_wait', 'طلب سحب مستني', { kind: 'state', param: { key: 'days', label: 'بقاله أكتر من كام يوم', def: 2 } })] },
       { id: 'update', label: 'تحديث', kind: 'event', states: [S('add', 'إضافة مبتكر'), S('delete', 'حذف مبتكر'), S('edit', 'تعديل بيانات'), S('brand', 'إضافة براند'), S('move', 'نقل منتجات'), S('status', 'حالة المبتكر')] }] },
+    // the bell's redesign decision 5: the stock's own alerts and the admin's links
+    { id: 'inventory', label: 'المخزن', perm: 'inventory.view', types: [
+      { id: 'consolidation', label: 'التجميع', kind: 'state', states: [S('late', 'تجميع أوردر عدّى مدته', { level: 'critical', param: { key: 'days', label: 'بعد كام يوم', def: 5 } })] },
+      { id: 'lost', label: 'المفقودات', kind: 'event', states: [S('new', 'قطعة اتعلّمت مفقود', { level: 'critical' })] }] },
+    { id: 'system', label: 'السيستم', perm: 'settings.view', types: [
+      { id: 'links', label: 'الربط بالمنصات', kind: 'state', states: [S('down', 'ربط منصة وقف', { level: 'critical' })] }] },
   ];
   const REPEATS = [['once', 'غير متكرر'], ['24h', 'كل 24 ساعة'], ['48h', 'كل 48 ساعة'], ['weekly', 'أسبوعيًا'], ['monthly', 'شهريًا'], ['days', 'أيام محددة من الشهر']];
   const SHOWS = [['fixed', 'مدة محددة'], ['until_state', 'حتى تغيير الوضع'], ['until_read', 'حتى التحوّل لمقروء']];
   const SHOW_HOURS = { fixed: [12, 24, 48, 72, 168], until_state: [0, 4, 6], until_read: [2, 4, 6] };
   const CHANNELS = [['bell', 'الجرس'], ['email', 'إيميل'], ['whatsapp', 'واتساب']];
+  // the bell's redesign decision 1: how much an alert matters — the bell's order (critical first) and how long it stays (showOf)
+  const LEVELS = [['critical', 'حرج'], ['important', 'مهم'], ['info', 'للعلم']];
+  const INFO_MAX_H = 24; // an «info» alert leaves the bell 24 hours after it was written, read or not
   const LIVE_CHANNELS = ['bell', 'email', 'whatsapp']; // Safwat 24 Nov: e-mail and WhatsApp each behind its switch (settings «notif».channels)
   const el = (id) => ELEMENTS.find((e) => e.id === id) || null;
   const typeOf = (eid, tid) => { const e = el(eid); return e ? e.types.find((t) => t.id === tid) || null : null; };
@@ -143,7 +163,21 @@
     if (now.min < atMin) return false;
     return rule.repeat !== 'days' || (rule.days || []).includes(Number(now.day.slice(8, 10)));
   }
-  const api = { ELEMENTS, REPEATS, SHOWS, SHOW_HOURS, CHANNELS, LIVE_CHANNELS, el, typeOf, statesOf, stateOf, ruleError, render, due, runs, kindOf, elementOfKind };
+  // a rule's level: its state's own, else «important» for a state / a due date and «info» for an event (a `dyn` state: by its type)
+  function levelOf(rule) {
+    const t = rule ? typeOf(rule.element, rule.type) : null; const s = t ? t.states.find((x) => x.id === rule.state) : null;
+    if (s && s.level) return s.level;
+    return kindOf(rule) === 'event' ? 'info' : 'important';
+  }
+  // the «تفاصيل الظهور» a level asks for (a new rule's default; 0161 set the old rules to it): critical and important stay till the
+  // state changes — a critical event a fixed 72 hours (reading it does not hide it), an important one till read + 6 hours; info goes
+  // 2 hours after it is read (and INFO_MAX_H at the latest)
+  function showOf(level, kind) {
+    if (level === 'critical') return kind === 'state' ? { show: 'until_state', hours: 0 } : { show: 'fixed', hours: 72 };
+    if (level === 'important') return kind === 'state' ? { show: 'until_state', hours: 0 } : kind === 'due' ? { show: 'fixed', hours: 48 } : { show: 'until_read', hours: 6 };
+    return { show: 'until_read', hours: 2 };
+  }
+  const api = { ELEMENTS, AGENTS, LEVELS, INFO_MAX_H, REPEATS, SHOWS, SHOW_HOURS, CHANNELS, LIVE_CHANNELS, el, typeOf, statesOf, stateOf, ruleError, render, due, runs, kindOf, levelOf, showOf, elementOfKind };
   root.IBNotifCatalog = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

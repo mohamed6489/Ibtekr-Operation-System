@@ -2504,3 +2504,45 @@ input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-
 .notif .ntf-item.fresh b{font-weight:700}
 .notif .ntf-sort{display:flex;justify-content:flex-end;margin:0 0 6px}
 .notif .ntf-sort .field{min-width:150px}
+
+/* ---------- the bell's redesign (Safwat 24 Nov — docs/superpowers/plans/2026-11-24-bell-redesign.md): the sections' names on one
+   line, the section's head with «N محتاج تتصرف · M حرج» and a small order button, the sub-sections as chips, every row with its owner
+   (a maker's logo, a member's / a customer's first letter, an assistant's icon), the level as a tag and a maker's card with its counts */
+.menu.notif{width:820px}
+.ntf-nav{width:200px}
+.ntf-nav-item{height:36px}
+.ntf-nav-item .lbl{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.ntf-nav-item .cnt{flex:none;min-width:20px;height:20px;line-height:20px;border-radius:10px;font-weight:600}
+.ntf-nav-item .cnt.hot{background:var(--color-error-text);color:#fff}
+.ntf-head.tree{align-items:flex-start;padding:14px 16px 10px;border-bottom:1px solid var(--color-border-subtle)}
+.ntf-head.tree .hd{display:flex;flex-direction:column;gap:2px;min-width:0}
+.ntf-head.tree .cnt b.hot{color:var(--color-error-text);font-weight:600}
+.ntf-sortbtn{width:auto;height:30px;padding:0 10px;gap:4px;border:1px solid var(--color-border-subtle);border-radius:15px;font-size:12px;color:var(--color-text-secondary);display:inline-flex;align-items:center}
+.ntf-sortbtn:hover{background:var(--color-bg-hover)}
+.ntf-main .tabs.ntf-chiptabs{display:flex;gap:6px;padding:10px 16px 4px;border:0;overflow-x:auto;scrollbar-width:none;flex:none}
+.ntf-main .tabs.ntf-chiptabs::-webkit-scrollbar{display:none}
+.ntf-main .tabs.ntf-chiptabs .tab{flex:none;padding:4px 12px;border:1px solid var(--color-border-subtle);border-radius:16px;font-size:13px;background:transparent;white-space:nowrap}
+.ntf-main .tabs.ntf-chiptabs .tab[aria-selected=true]{background:var(--color-brand-default);border-color:var(--color-brand-default);color:var(--color-bg-base)}
+.ntf-main .tabs.ntf-chiptabs .tab::after{display:none}
+.ntf-list{padding:6px 8px 8px;gap:4px}
+.ntf-item{position:relative;padding:10px 12px;border-radius:8px;align-items:center}
+.ntf-item.lv-critical:not(.muted){box-shadow:inset -3px 0 0 var(--color-error-text)}
+.ntf-item.lv-important:not(.muted){box-shadow:inset -3px 0 0 var(--color-warning-base)}
+.ntf-item .av{width:38px;height:38px;border-radius:19px;font-weight:700;font-size:15px}
+.ntf-item .av.img{background:var(--color-bg-base);border:1px solid var(--color-border-subtle);overflow:hidden}
+.ntf-item .av.img img{width:100%;height:100%;object-fit:cover}
+.ntf-item .av.letter{background:var(--color-brand-default);color:var(--color-bg-base)}
+.ntf-item .av.letter.vendor{background:var(--color-bg-tint);color:var(--color-brand-default)}
+.ntf-item .av.letter.customer{background:var(--color-orange-bg);color:var(--color-orange-text)}
+.ntf-item .av.agent{background:var(--color-bg-tint);color:var(--color-brand-default)}
+.ntf-item .av.critical{background:var(--color-error-bg);color:var(--color-error-text)}.ntf-item .av.important{background:var(--color-warning-bg);color:var(--color-warning-base)}
+.ntf-item .av.info{background:var(--color-bg-container);color:var(--color-text-secondary)}
+.ntf-item .txt{gap:3px}
+.ntf-item .txt b{display:flex;align-items:center;gap:6px}.ntf-item .txt b .tt{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.ntf-lv{flex:none;padding:0 6px;border-radius:4px;font-size:11px;line-height:18px;font-weight:600}
+.ntf-lv.critical{background:var(--color-error-bg);color:var(--color-error-text)}.ntf-lv.important{background:var(--color-warning-bg);color:var(--color-warning-base)}
+.ntf-chips{display:flex;flex-wrap:wrap;gap:4px}
+.ntf-chip{padding:0 8px;border-radius:10px;font-size:12px;line-height:20px;background:var(--color-bg-container);color:var(--color-text-secondary)}
+.ntf-chip.error{background:var(--color-error-bg);color:var(--color-error-text)}.ntf-chip.warning{background:var(--color-warning-bg);color:var(--color-warning-base)}
+.ntf-item.grp .txt b .tt{font-weight:700}
+@media (max-width:767px){.ntf-nav{width:auto}.ntf-head.tree{padding:10px 12px 8px}.ntf-main .tabs.ntf-chiptabs{padding:8px 12px 4px}}

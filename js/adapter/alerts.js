@@ -14,7 +14,8 @@
   const uid = () => { const s = window.IBAuth && window.IBAuth.session(); return (s && s.user && s.user.id) || null; };
   const notify = () => { document.dispatchEvent(new Event('ib:notify')); };
   const done = (error) => !error || error.code === '23505';
-  const toAlert = (r, read) => ({ id: r.id, at: r.at, kind: r.kind, title: r.title, body: r.body, entity: r.entity, entityId: r.entity_id, ruleId: r.rule_id || null, sectionId: r.section_id || null, read: !!read });
+  const toAlert = (r, read) => ({ id: r.id, at: r.at, kind: r.kind, title: r.title, body: r.body, entity: r.entity, entityId: r.entity_id, ruleId: r.rule_id || null, sectionId: r.section_id || null,
+    meta: r.meta && typeof r.meta === 'object' && !Array.isArray(r.meta) ? r.meta : null, read: !!read });
   const list = () => (items ? items.slice() : []);
   const unread = () => (items ? items.filter((a) => !a.read).length : 0);
   // 0157 — the notifications' new structure (Safwat 24 Nov — docs/superpowers/plans/2026-11-24-notifications.md): the bell is the
@@ -37,7 +38,9 @@
     if (!cl || !id) return;
     try {
       const nowIso = new Date().toISOString();
-      let a = await cl.from('alerts').select('id, at, kind, title, body, entity, entity_id, rule_id, section_id, hide_at').or('hide_at.is.null,hide_at.gt.' + nowIso).order('at', { ascending: false }).limit(LIMIT);
+      // 0161 (the bell's redesign): meta — the level and who the alert is about; before it the column is missing and the 0157 select runs
+      let a = await cl.from('alerts').select('id, at, kind, title, body, entity, entity_id, rule_id, section_id, hide_at, meta').or('hide_at.is.null,hide_at.gt.' + nowIso).order('at', { ascending: false }).limit(LIMIT);
+      if (a.error) a = await cl.from('alerts').select('id, at, kind, title, body, entity, entity_id, rule_id, section_id, hide_at').or('hide_at.is.null,hide_at.gt.' + nowIso).order('at', { ascending: false }).limit(LIMIT);
       if (a.error) { tree = null; a = await cl.from('alerts').select('id, at, kind, title, body, entity, entity_id').order('at', { ascending: false }).limit(LIMIT); } else await loadTree(cl);
       if (a.error) return;
       const rows = a.data || []; const ids = rows.map((x) => x.id);
@@ -166,6 +169,27 @@
   // an alert written straight by a database function (no rule) sits under the first sub-section whose rules are of its element
   // (IBNotifCatalog.elementOfKind), else under the first group. open(a) = what the click does (block 28: the order's popup, the
   // conversation, the request …). sort: 'new' (default) | 'old'. The green dot = unread; read = muted.
+  // the bell's redesign (Safwat 24 Nov — docs/superpowers/plans/2026-11-24-bell-redesign.md): every alert carries its level (critical
+  // first, then important, then info — each by time) and who it is about (meta.g): a maker's logo, a member's first letter in a circle,
+  // an assistant's icon, else its element's icon. The delay alerts of one maker in a tab are one card — the maker, «N متأخر · M قابل
+  // للتأخير · P قطعة» — and its click opens his late orders (open({ vendorLate, kind }) — block 28's popup with «مشاركة»).
+  const LV_RANK = { critical: 0, important: 1, info: 2 };
+  const LV_WORD = { critical: 'حرج', important: 'مهم' };
+  const EL_ICON = { daily: 'chart', custody: 'wallet', team: 'users', orders: 'package', subs: 'box', products: 'tag', inventory: 'stock', accounts: 'wallet',
+    tickets: 'ticket', messages: 'msg', ai: 'sparkle', makers: 'users', system: 'gear' };
+  const AGENT_ICON = { manager: 'sliders', buyer: 'chart', designer: 'image', dev: 'code', stock: 'truck', cs: 'headset', makers: 'users', accountant: 'wallet', hr: 'briefcase', content: 'image' };
+  const elOf = (a) => { const m = /^rule:([a-z_]+)\./.exec(String(a.kind || '')); if (m) return m[1]; const C = window.IBNotifCatalog; return C && C.elementOfKind ? C.elementOfKind(a.kind) : null; };
+  const lvOf = (a) => { const l = a.meta && a.meta.lv; return LV_RANK[l] != null ? l : toneOf(a.kind) === 'error' ? 'critical' : 'important'; };
+  const firstLetter = (n) => { const t = String(n || '').replace(/^(ال)/, '').trim(); return (t.charAt(0) || '؟').toUpperCase(); };
+  function avatarOf(a) {
+    const m = a.meta || {};
+    if (m.g === 'vendor') { const V = window.IBVendors; const v = V && V.store && V.store.get ? V.store.get(m.gid) : null;
+      return v && v.logoUrl ? { img: v.logoUrl, letter: firstLetter(m.gname) } : { letter: firstLetter(m.gname), tone: 'vendor' }; }
+    if (m.g === 'member') return { letter: firstLetter(m.gname), tone: 'member' };
+    if (m.g === 'customer') return { letter: firstLetter(m.gname), tone: 'customer' };
+    if (m.g === 'agent') { const M = window.IBMarketing; const r = M && M.agentOf ? M.agentOf(m.gid) : null; return { icon: (r && r.icon) || AGENT_ICON[m.gid] || 'sparkle', tone: 'agent' }; }
+    return { icon: EL_ICON[elOf(a)] || 'bell', tone: lvOf(a) };
+  }
   function treeSections(open, sort) {
     if (!tree || !tree.mains.length || !items) return null;
     const C = window.IBNotifCatalog; const subOf = new Map(); tree.mains.forEach((m) => m.subs.forEach((x) => subOf.set(x.id, m.id)));
@@ -176,16 +200,42 @@
       return null; // the first group's «الكل»
     };
     const placed = items.map((a) => ({ a, sub: placeOf(a) }));
-    const ord = (L) => L.slice().sort((x, y) => (sort === 'old' ? 1 : -1) * (Date.parse(x.a.at) - Date.parse(y.a.at)));
-    const asItem = ({ a }) => { const tone = toneOf(a.kind); return { key: 'sa:' + a.id, title: a.title, sub: a.body || '', meta: relTime(a.at, Date.now()), tone, icon: tone === 'error' ? 'alert' : 'bell', muted: a.read, fresh: !a.read,
+    const time = (x) => Date.parse(x.at);
+    const asItem = ({ a }) => { const tone = toneOf(a.kind); const lv = lvOf(a); return { key: 'sa:' + a.id, title: a.title, sub: a.body || '', meta: relTime(a.at, Date.now()), tone, icon: tone === 'error' ? 'alert' : 'bell', muted: a.read, fresh: !a.read,
+      lv, lvWord: LV_WORD[lv] || '', av: avatarOf(a), at: a.at,
       run: () => { markRead(a.id); if (typeof open === 'function' && open(a) !== false) return; if (a.entity && HASH.test(a.entity)) window.location.hash = a.entity; } }; };
+    // one card per maker for his delay alerts (two or more — one stays a row with his logo)
+    const atoms = (list) => {
+      const by = new Map(); const out = [];
+      for (const p of list) {
+        const m = p.a.meta || {};
+        if (m.g === 'vendor' && (m.st === 'late' || m.st === 'risk')) { const k = 'v:' + m.gid; if (!by.has(k)) { by.set(k, []); out.push({ k }); } by.get(k).push(p); }
+        else out.push({ p });
+      }
+      return out.map((x) => {
+        if (x.p) return asItem(x.p);
+        const L = by.get(x.k); if (L.length === 1) return asItem(L[0]);
+        const m = L[0].a.meta; const late = L.filter((p) => p.a.meta.st === 'late'); const risk = L.length - late.length;
+        const pcs = L.reduce((s, p) => s + (Number(p.a.meta.pcs) || 0), 0); const unread = L.filter((p) => !p.a.read);
+        const lv = late.length ? 'critical' : 'important'; const newest = L.reduce((b, p) => (time(p.a) > time(b.a) ? p : b), L[0]);
+        const parts = [];
+        if (late.length) parts.push(late.length + ' أوردر متأخر'); if (risk) parts.push(risk + ' قابل للتأخير'); if (pcs) parts.push(pcs + ' قطعة');
+        return { key: 'sv:' + m.gid, title: m.gname || 'مبتكر', sub: parts.join(' · '), meta: relTime(newest.a.at, Date.now()), tone: late.length ? 'error' : 'warning', icon: 'package',
+          muted: !unread.length, fresh: !!unread.length, lv, lvWord: LV_WORD[lv], av: avatarOf(L[0].a), at: newest.a.at, group: true, count: L.length,
+          chips: [late.length ? [late.length + ' متأخر', 'error'] : null, risk ? [risk + ' قابل للتأخير', 'warning'] : null, pcs ? [pcs + ' قطعة', 'neutral'] : null].filter(Boolean),
+          run: () => { markMany(L.map((p) => p.a.id)); if (typeof open === 'function') open({ vendorLate: m.gname, vendorId: m.gid, kind: late.length && risk ? 'all' : late.length ? 'late' : 'risk' }); } };
+      });
+    };
+    // critical first, then important, then info; each by time (newest or oldest first)
+    const ord = (L) => L.slice().sort((x, y) => (LV_RANK[x.lv] - LV_RANK[y.lv]) || (sort === 'old' ? 1 : -1) * (Date.parse(x.at) - Date.parse(y.at)));
     return tree.mains.map((m, i) => {
       const subIds = new Set(m.subs.map((x) => x.id));
-      const mine = ord(placed.filter((p) => (p.sub ? subIds.has(p.sub) : i === 0)));
-      const all = mine.map(asItem);
-      const tabs = [['all', 'الكل', all]].concat(m.subs.map((x) => ['s:' + x.id, x.name, mine.filter((p) => p.sub === x.id).map(asItem)]),
+      const mine = placed.filter((p) => (p.sub ? subIds.has(p.sub) : i === 0));
+      const all = ord(atoms(mine)); const unreadAll = mine.filter((p) => !p.a.read);
+      const tabs = [['all', 'الكل', all]].concat(m.subs.map((x) => ['s:' + x.id, x.name, ord(atoms(mine.filter((p) => p.sub === x.id)))]),
         [['unread', 'غير مقروء', all.filter((x) => !x.muted)], ['read', 'مقروء', all.filter((x) => x.muted)]]);
-      return { id: 'n:' + m.id, label: m.name, icon: m.icon || 'bell', unit: 'تنبيه', received: all.filter((x) => !x.muted).length, all: () => markMany(mine.map((p) => p.a.id)), allLabel: 'تعليم القسم كمقروء',
+      const critical = unreadAll.filter((p) => lvOf(p.a) === 'critical').length;
+      return { id: 'n:' + m.id, label: m.name, icon: m.icon || 'bell', unit: 'تنبيه', received: unreadAll.length, critical, all: () => markMany(mine.map((p) => p.a.id)), allLabel: 'تعليم القسم كمقروء',
         empty: 'مفيش تنبيهات هنا دلوقتي.', tabs, tree: true };
     });
   }
@@ -204,5 +254,5 @@
       if (typeof window.IBAiOpen === 'function') window.IBAiOpen(agent, data); else window.location.hash = 'ai-' + agent; return true; } catch (e) { window.location.hash = 'ai-' + agent; return true; }
   }
   const hasTree = () => !!(tree && tree.mains.length);
-  window.IBAlerts = { load, treeSections, hasTree, markMany, openNote, list, unread, markRead, markAllRead, subscribe, unsubscribe, clear, section, toneOf, relTime, noteList, noteRead, noteOpen, agentSection, draftOf };
+  window.IBAlerts = { load, treeSections, avatarOf, lvOf, hasTree, markMany, openNote, list, unread, markRead, markAllRead, subscribe, unsubscribe, clear, section, toneOf, relTime, noteList, noteRead, noteOpen, agentSection, draftOf };
 })();

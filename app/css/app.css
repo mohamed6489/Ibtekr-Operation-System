@@ -2484,3 +2484,16 @@ input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-
 .lost-btn { cursor: pointer; border: 0; font: inherit; }
 .lost-btn:hover { filter: brightness(.95); }
 .lost-btn:focus-visible { outline: 2px solid var(--color-brand, #005642); outline-offset: 2px; }
+
+/* Safwat 24 Nov («خلي الاجمالي في اخر الجداول تبقا خلفيتوا خضرا و الكلا بالدهبي بتاعنا عشان يبقا مميز»): every table's total row —
+   U.Table's tfoot / tr.total, the footTotals «إجمالي النتايج» too — green (--color-brand-default) with our gold text (--color-text-gold);
+   the numbers' own colours (pos / neg / green figures) give way to the gold, the tags keep theirs. Also the sticky columns and the
+   mobile card layout (they paint the tint on the first cells). */
+:is(tfoot, tr.total) td,
+.tbl-v2 :is(tfoot, tr.total) td,
+.sticky-col1 :is(tfoot, tr.total) td:is(:first-child, :nth-child(2)),
+.scroll-x :is(tfoot tr, tr.total td){background:var(--color-brand-default)!important;color:var(--color-text-gold)!important;font-weight:700}
+:is(tfoot, tr.total) td :not(.tg):not(.tg *){color:inherit!important}
+:is(tfoot, tr.total) td{border-color:var(--color-brand-hover)!important}
+/* the mobile card layout names each cell (td::before = data-l): light beige on the green */
+:is(tfoot, tr.total) td::before{color:var(--color-text-on-brand)!important;opacity:.85}

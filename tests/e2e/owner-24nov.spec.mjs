@@ -88,3 +88,20 @@ test('(3) the order card: «الأوردرات الفرعية» and «إجمال
   expect(gap.fits, JSON.stringify(gap)).toBe(true);
   expect(gap.gap).toBeGreaterThanOrEqual(8);
 });
+
+test('(4) every table\'s total row: green with our gold text (desktop and the mobile cards)', async ({ page }) => {
+  for (const w of [1440, 390]) {
+    await page.setViewportSize({ width: w, height: 900 });
+    if (w === 1440) await signIn(page);
+    await page.evaluate(() => { location.hash = 'vendors'; });
+    await page.locator('#root [role=tab]', { hasText: 'حسابات المبتكرين' }).first().click();
+    const td = page.locator('table.vendors-table tfoot td').first();
+    await expect(td).toBeVisible();
+    const [bg, fg] = await td.evaluate((e) => [getComputedStyle(e).backgroundColor, getComputedStyle(e).color]);
+    expect(bg).toBe('rgb(0, 86, 66)'); // --color-brand-default
+    expect(fg).toBe('rgb(230, 186, 101)'); // --color-text-gold
+    // a coloured figure inside (the net's pos / neg) takes the gold too
+    const inner = await page.locator('table.vendors-table tfoot td span').first().evaluate((e) => getComputedStyle(e).color).catch(() => null);
+    if (inner) expect(inner).toBe('rgb(230, 186, 101)');
+  }
+});

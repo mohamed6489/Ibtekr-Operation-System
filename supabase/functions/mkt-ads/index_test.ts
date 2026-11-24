@@ -93,6 +93,24 @@ Deno.test('the first run: 90 days, the pages followed, the objects and the daily
   assertEquals(db.rows('mkt_ad_stats').length, 4);
 });
 
+// 24 Nov (live): Meta answered «Please reduce the amount of data you're asking for» (code 1) on the ads list from 19 Nov — the page is
+// asked again with half its limit until Meta answers; the sync succeeds and the error leaves the account row
+Deno.test('«reduce the amount of data»: the same page again with half its limit, the sync goes on', async () => {
+  const ads = (c: Call) => Number(c.query.limit) > 25
+    ? { status: 500, body: { error: { code: 1, message: "Please reduce the amount of data you're asking for, then retry your request" } } }
+    : { body: { data: [{ id: '1206', name: 'carousel', campaign_id: C1, effective_status: 'ACTIVE', creative: { id: '9', thumbnail_url: 'https://scontent.example/t.jpg' } }] } };
+  const { deps, db, calls } = setup({ routes: { ...OK_ROUTES, 'GET act_1122334455/ads': ads } });
+  const r = await cron(deps);
+  assertEquals([r.res.status, r.body.ads], [200, 1]);
+  assertEquals(calls.filter((c) => c.path === 'act_1122334455/ads').map((c) => c.query.limit), ['100', '50', '25']);
+  assertEquals(db.rows('mkt_ad_objects').find((o: any) => o.kind === 'account').meta.error, null);
+  // never smaller than 10: Meta still refusing at 10 = the error stands
+  const stuck = setup({ routes: { ...OK_ROUTES, 'GET act_1122334455/ads': { status: 500, body: { error: { code: 1, message: 'reduce' } } } } });
+  const r2 = await cron(stuck.deps);
+  assertEquals(r2.res.status, 502);
+  assertEquals(stuck.calls.filter((c) => c.path === 'act_1122334455/ads').map((c) => c.query.limit), ['100', '50', '25', '12', '10']);
+});
+
 Deno.test('a failure: our code on the account row, the last success and the numbers kept; Meta\'s timeout = timeout', async () => {
   const prev = { platform: 'meta', kind: 'account', id: '1122334455', name: 'Ibtekr Club', status: 'ACTIVE', thumb: null, meta: { currency: 'EGP', synced_at: '2026-10-24T10:00:00.000Z', checked_at: '2026-10-24T10:00:00.000Z', error: null } };
   const kept = { platform: 'meta', level: 'campaign', object_id: C1, campaign_id: C1, day: '2026-10-24', spend: 100, impressions: 1, clicks: 0, purchases: 0, purchase_value: 0 };

@@ -35,10 +35,19 @@ export const path = {
   accountAdsets: (a) => GRAPH + '/act_' + a + '/adsets?fields=' + enc('id,campaign_id,daily_budget,effective_status') + '&limit=500',
   campaignAdsets: (id) => GRAPH + '/' + id + '/adsets?fields=' + enc('id,daily_budget,effective_status') + '&limit=100',
   node: (id) => GRAPH + '/' + id,
-  ads: (a) => GRAPH + '/act_' + a + '/ads?fields=' + enc('id,name,campaign_id,effective_status,creative{thumbnail_url}') + '&limit=500',
+  // 100 a page (24 Nov — 500 ads with their creative made Meta answer «reduce the amount of data», code 1, from 19 Nov)
+  ads: (a) => GRAPH + '/act_' + a + '/ads?fields=' + enc('id,name,campaign_id,effective_status,creative{thumbnail_url}') + '&limit=100',
   insights: (a, level, since, until) => GRAPH + '/act_' + a + '/insights?level=' + level + '&time_increment=1&time_range=' + enc(JSON.stringify({ since, until }))
     + '&fields=' + enc(INSIGHT_FIELDS[level]) + '&limit=100',
 };
+// Meta's «Please reduce the amount of data you're asking for» (graph_1) on a page: the same request with half its `limit` (down to
+// 10) — null when it cannot get smaller (the error then stands). The list's next pages keep the smaller limit (Meta's own links do).
+export const TOO_MUCH = (code) => /^graph_1(:|$)/.test(String(code || ''));
+export function smaller(url) {
+  const m = /([?&]limit=)(\d+)/.exec(String(url || '')); if (!m) return null;
+  const n = Number(m[2]); if (!(n > 10)) return null;
+  return url.replace(m[0], m[1] + String(Math.max(10, Math.floor(n / 2))));
+}
 // the next page of a list — Meta's own link only (never a host from the answer)
 export function nextOf(json) {
   const u = isObj(json) && isObj(json.paging) ? json.paging.next : null;

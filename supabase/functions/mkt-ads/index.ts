@@ -21,7 +21,7 @@
 // META_AD_ACCOUNT_ID remain the fallback. A failed run keeps the last numbers and the last success and says our code (token /
 // permission / rate / timeout / graph_N / tiktok_N / google_N) on the platform's account row; the page says it in words.
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
-import { CHUNK_DAYS, FIRST_DAYS, MAX_DAYS, MAX_PAGES, SUGGEST_DAYS, SYNC_DAYS, accountDaily, accountOf, accountRowOf, budgetPlan, buyerRules, nextOf, objectRowOf, path, reportText, rulesPatch, statRowOf, suggestionKey, suggestionsOf, windowChunks, windowOf } from '../_shared/mkt-ads.js';
+import { CHUNK_DAYS, FIRST_DAYS, MAX_DAYS, MAX_PAGES, SUGGEST_DAYS, SYNC_DAYS, accountDaily, accountOf, accountRowOf, budgetPlan, buyerRules, nextOf, objectRowOf, path, reportText, rulesPatch, smaller, statRowOf, suggestionKey, TOO_MUCH, suggestionsOf, windowChunks, windowOf } from '../_shared/mkt-ads.js';
 import { LINK_FIELDS, PLATFORMS, linkAccount, linkPublic, linkReady, oauthReady, parseLink, platformOf } from '../_shared/mkt-ads-link.js';
 import { ttAccountRowOf, ttAdvertisersOf, ttAnswer, ttBody, ttList, ttObjectRowOf, ttPages, ttPath, ttStatRowOf, ttTokenOf } from '../_shared/mkt-ads-tiktok.js';
 import { gAccountRowOf, gBody, gCode, gCustomersOf, gNextPage, gObjectRowOf, gPath, gResults, gStatRowOf, gText, gTokenOf, gVersion, gaql, G_MAX_PAGES } from '../_shared/mkt-ads-google.js';
@@ -94,7 +94,12 @@ async function post(deps: Deps, url: string, token: string, form: Record<string,
 async function list(deps: Deps, url: string, token: string): Promise<Json[]> {
   const out: Json[] = []; let next: string | null = url;
   for (let i = 0; next && i < MAX_PAGES; i += 1) {
-    const page = await get(deps, next, token);
+    let page: Json; let at: string = next;
+    // «reduce the amount of data» (24 Nov): the same page again with half its limit, until Meta answers or it cannot get smaller
+    for (;;) {
+      try { page = await get(deps, at, token); break; }
+      catch (e) { const s: string | null = e instanceof GraphError && TOO_MUCH(e.code) ? smaller(at) : null; if (!s) throw e; at = s; }
+    }
     if (Array.isArray(page.data)) out.push(...page.data.filter(isObj));
     next = nextOf(page);
   }

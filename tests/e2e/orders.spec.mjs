@@ -83,6 +83,11 @@ test('Safwat 24 Nov — «الكلام المفروض يكون بالبيج»: t
   const hd = page.locator('#orders #cdlg [data-det-sec] > h3');
   await expect(hd).toBeVisible(); await expect(hd).toContainText('تفاصيل الأوردر');
   expect(await hd.evaluate((e) => getComputedStyle(e).color)).toBe('rgb(255, 247, 239)');
+  // Safwat 24 Nov — «خلي البوكس كله اخضر و الفيلدز جواه بيج»: the whole box green, its labels beige, its fields beige as they were
+  const box = page.locator('#orders #cdlg [data-det-sec]');
+  expect(await box.evaluate((e) => getComputedStyle(e).backgroundColor)).toBe('rgb(0, 86, 66)');
+  expect(await box.locator('.lb').first().evaluate((e) => getComputedStyle(e).color)).toBe('rgb(255, 247, 239)');
+  expect(await box.locator('select.sel2').first().evaluate((e) => getComputedStyle(e).backgroundColor)).toBe('rgb(255, 247, 239)');
 });
 
 test('an html customer name renders inert', async ({ page }) => {

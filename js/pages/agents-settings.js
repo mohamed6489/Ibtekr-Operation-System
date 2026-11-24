@@ -26,6 +26,12 @@
     manager: () => [S('Atlassian Team Playbook', 'https://www.atlassian.com/team-playbook', 'طرق ترتيب شغل الفريق والأولويات', 'Ways to organise a team’s work and priorities'),
       S('Harvard Business Review', 'https://hbr.org/', 'الإدارة واتخاذ القرار', 'Management and decision making'), WOO(), DOKAN()],
     buyer: () => [META_HELP(), S('Meta Ad Library', 'https://www.facebook.com/ads/library/', 'إعلانات المنافسين الشغّالة', 'Competitors’ running ads'),
+      // buyer-brain decision 4 (Safwat 24 Nov — «اقوي مصادر لميديا بايرز مشهورين زي بين هيلث»): the known media buyers and Meta's own school
+      S('Heath Media (Ben Heath)', 'https://heathmedia.co.uk/', 'هيكلة الحملات والتكبير وقراءة الأرقام', 'Campaign structure, scaling and reading the numbers'),
+      S('Ben Heath — YouTube', 'https://www.youtube.com/@BenHeath', 'شروحات ميتا وجوجل للإعلانات', 'Meta and Google ads tutorials'),
+      S('Meta Blueprint', 'https://www.facebook.com/business/learn', 'كورسات ميتا الرسمية للإعلانات', 'Meta’s official ads courses'),
+      S('Meta Ads Guide', 'https://www.facebook.com/business/ads-guide', 'مقاسات ومواصفات كل شكل إعلان', 'Sizes and specs of every ad format'),
+      S('Jon Loomer', 'https://www.jonloomer.com/', 'تفاصيل إعدادات ميتا والتتبع والتجارب', 'Meta’s settings, tracking and tests in depth'),
       S('Google Ads Help', 'https://support.google.com/google-ads/', 'الحملات والمزايدة والتتبع', 'Campaigns, bidding and tracking'),
       S('TikTok Business Help Center', 'https://ads.tiktok.com/help/', 'إعلانات تيك توك وسياساتها', 'TikTok ads and their policies'),
       S('TikTok Creative Center', 'https://ads.tiktok.com/business/creativecenter/', 'الإعلانات والتريندات الأعلى أداءً', 'Top-performing ads and trends'),

@@ -56,7 +56,10 @@
     { id: 'ai', label: 'الذكاء الاصطناعي', perm: 'marketing.view', types: [
       { id: 'buyer', label: 'الميديا باير', kind: 'event', states: [S('campaigns', 'أداء الحملات'), S('pixel', 'حالة البيكسل'), S('post', 'نشر بوست')] },
       { id: 'designer', label: 'الديزاينر', kind: 'event', states: [S('trends', 'آخر التريندات'), S('campaign', 'بناء حملة')] },
-      { id: 'dev', label: 'المبرمج', kind: 'event', states: [S('wp', 'تحديثات ووردبريس'), S('api', 'مشاكل API'), S('speed', 'كفاءة أداء النظام')] }] },
+      { id: 'dev', label: 'المبرمج', kind: 'event', states: [S('wp', 'تحديثات ووردبريس'), S('api', 'مشاكل API'), S('speed', 'كفاءة أداء النظام')] },
+      // the meeting's text: «لكل مساعد ذكاء اصطناعي التنبيهات اللي تناسب دوره بنفس الطريقة» — whatever an assistant tells its team
+      // (its daily summary, what is late, its own rules …) reaches the members who see that assistant
+      { id: 'any', label: 'كل المساعدين', kind: 'event', states: [S('notes', 'تنبيهات المساعد')] }] },
     { id: 'makers', label: 'المبتكرين', perm: 'vendors.view', types: [
       { id: 'making', label: 'حالة التصنيع', states: [S('late', 'أوردرات متأخرة', { kind: 'state' }), S('risk', 'أوردرات قابلة للتأخير', { kind: 'state' }), S('confirmed', 'أوردرات مؤكدة جديدة', { kind: 'event' }), S('cancelled', 'أوردرات ملغية', { kind: 'event' })] },
       { id: 'accounts', label: 'حسابات المبتكر', kind: 'event', states: [S('withdraw', 'طلب سحب'), S('settle', 'تقفيل الحسابات')] },
@@ -117,7 +120,28 @@
       default: return false;
     }
   }
-  const api = { ELEMENTS, REPEATS, SHOWS, SHOW_HOURS, CHANNELS, LIVE_CHANNELS, el, typeOf, statesOf, stateOf, ruleError, render, due };
+  // the alerts written straight by a database function (an overtime to decide, a request decided, a note from the manager, a
+  // permission changed …) carry no rule: the bell puts each under the first sub-section that has a rule of the element its kind
+  // belongs to (else under the first section's «الكل»)
+  const KIND_ELEMENT = [[/^hr(\.|$)/, 'team'], [/^settings\./, 'team'], [/^ticket/, 'tickets'], [/^(marketing|mkt\.|ai\.)/, 'ai'], [/^(inventory|stock)/, 'products'],
+    [/^(order|bosta)/, 'orders'], [/^(vendor|maker)/, 'makers'], [/^(accounts?|acc\.)/, 'accounts'], [/^(cs|message)/, 'messages']];
+  const elementOfKind = (kind) => { const k = String(kind || ''); const hit = KIND_ELEMENT.find(([re]) => re.test(k)); return hit ? hit[1] : null; };
+  // the kind of a rule's state: its own, else its type's, else «state» (a `dyn` state the fallback list does not name)
+  function kindOf(rule) {
+    const t = rule ? typeOf(rule.element, rule.type) : null; if (!t) return 'state';
+    const s = t.states.find((x) => x.id === rule.state);
+    return (s && s.kind) || t.kind || 'state';
+  }
+  // does the rule run on this tick: an «event» rule every tick from its time each day (on its days for «أيام محددة من الشهر»),
+  // a «state» / «due» one by due() — its time and its repeat's gap
+  function runs(rule, now, last) {
+    if (kindOf(rule) !== 'event') return due(rule, now, last);
+    if (!rule || !HHMM.test(String(rule.at || ''))) return false;
+    const atMin = Number(rule.at.slice(0, 2)) * 60 + Number(rule.at.slice(3));
+    if (now.min < atMin) return false;
+    return rule.repeat !== 'days' || (rule.days || []).includes(Number(now.day.slice(8, 10)));
+  }
+  const api = { ELEMENTS, REPEATS, SHOWS, SHOW_HOURS, CHANNELS, LIVE_CHANNELS, el, typeOf, statesOf, stateOf, ruleError, render, due, runs, kindOf, elementOfKind };
   root.IBNotifCatalog = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

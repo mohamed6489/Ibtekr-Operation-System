@@ -269,3 +269,25 @@ test('0164 a rule\'s element changed in the settings: its old alerts leave the b
   await page.locator('.notif-btn').click();
   await expect(page.locator('.menu.notif .ntf-item', { hasText: 'IB-180656' })).toHaveCount(0);
 });
+
+// Safwat 24 Nov — «لما ادوس علي التابس اللي جوه التنبيهات تبطل تتنقل لاول الكاروسيل لوحدها»: a chip far along the strip pressed → the
+// strip stays where it was (the picked chip in view), it never jumps back to its start
+test('the bell\'s sub-section chips: pressing one far along the strip keeps the strip where it was', async ({ page }) => {
+  const subs = Array.from({ length: 9 }, (_, i) => ({ id: '00000000-0000-4000-8000-0000000005c' + i, parent_id: M1, name: 'قسم فرعي طويل شوية رقم ' + (i + 1), sort: i + 1 }));
+  mock.notif.sections.push(...subs);
+  mock.notif.rules.push(...subs.map((x, i) => ({ id: 'rx' + i, section_id: x.id, name: 'x' + i, element: 'orders', type: 'confirm', state: 'غير مؤكد', at: '09:00', repeat: '24h', show: 'until_state', hours: 0, roles: ['admin'], sub: null, param: null, days: [], channels: ['bell'], template: null, active: true, sort: 0 })));
+  await page.setViewportSize({ width: 1100, height: 800 });
+  await signIn(page, 'dashboard');
+  await page.locator('.notif-btn').click();
+  const strip = page.locator('.menu.notif .ntf-chiptabs');
+  await expect(strip.locator('.tab')).toHaveCount(11);
+  const far = strip.locator('.tab').nth(8);
+  await far.scrollIntoViewIfNeeded();
+  const before = await strip.evaluate((x) => x.scrollLeft);
+  expect(Math.abs(before)).toBeGreaterThan(50); // the strip did move
+  await far.click();
+  await expect(strip.locator('.tab').nth(8)).toHaveAttribute('aria-selected', 'true');
+  const after = await page.locator('.menu.notif .ntf-chiptabs').evaluate((x) => x.scrollLeft);
+  expect(Math.abs(after - before)).toBeLessThan(40);
+  await expect(page.locator('.menu.notif .ntf-chiptabs .tab').nth(8)).toBeInViewport();
+});

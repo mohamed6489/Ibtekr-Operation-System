@@ -522,7 +522,8 @@ function dailyLine(e: Ent, m: Json, w: World): string | null {
 export async function runRules(db: Db, ctx: Ctx, opts: { dry?: boolean; gates?: { email?: boolean; whatsapp?: boolean } } = {}): Promise<Json> {
   ordersMemo = null;
   const COLS = 'id, section_id, name, element, type, state, sub, param, at, repeat, days, show, hours, roles, channels, template, active, last_run, updated_at';
-  let rl = await db.from('notif_rules').select(COLS + ', mode, conds').limit(500);
+  let rl = await db.from('notif_rules').select(COLS + ', mode, conds, level').limit(500); // 0165: the level the admin picked
+  if (rl.error) rl = await db.from('notif_rules').select(COLS + ', mode, conds').limit(500); // before 0165
   if (rl.error) rl = await db.from('notif_rules').select(COLS).limit(500); // before 0162 (one element, «فردي»)
   if (rl.error) return { skipped: 'no_rules' }; // before 0157
   const rules = rows(rl); if (!rules.length) return { rules: 0 };

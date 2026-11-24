@@ -743,9 +743,10 @@
     const cl = c(); if (!cl) return null; if (ntree && !force) return ntree;
     try {
       const [sc, rl] = await Promise.all([cl.from('notif_sections').select('id, parent_id, name, icon, sort').order('sort', { ascending: true }).limit(500),
-        cl.from('notif_rules').select('id, section_id, name, element, type, state, sub, param, at, repeat, days, show, hours, roles, channels, template, active, sort, mode, conds').order('sort', { ascending: true }).limit(1000)]);
-      // before 0162 (several elements, «فردي / تقرير»): the rule's own columns only
-      const rl2 = rl.error ? await cl.from('notif_rules').select('id, section_id, name, element, type, state, sub, param, at, repeat, days, show, hours, roles, channels, template, active, sort').order('sort', { ascending: true }).limit(1000) : rl;
+        cl.from('notif_rules').select('id, section_id, name, element, type, state, sub, param, at, repeat, days, show, hours, roles, channels, template, active, sort, mode, conds, level').order('sort', { ascending: true }).limit(1000)]);
+      // before 0165 (the level the admin picks) the rule without it; before 0162 (several elements, «فردي / تقرير») its own columns only
+      const rl1 = rl.error ? await cl.from('notif_rules').select('id, section_id, name, element, type, state, sub, param, at, repeat, days, show, hours, roles, channels, template, active, sort, mode, conds').order('sort', { ascending: true }).limit(1000) : rl;
+      const rl2 = rl1.error ? await cl.from('notif_rules').select('id, section_id, name, element, type, state, sub, param, at, repeat, days, show, hours, roles, channels, template, active, sort').order('sort', { ascending: true }).limit(1000) : rl1;
       if (sc.error || rl2.error) { ntree = null; return null; }
       const S = sc.data || []; const Rr = (rl2.data || []).map((r) => Object.assign({ mode: 'single', conds: [] }, r, { conds: Array.isArray(r.conds) ? r.conds : [] }));
       ntree = { mains: S.filter((x) => !x.parent_id).map((m) => ({ id: m.id, name: m.name, icon: m.icon || null,
@@ -767,6 +768,8 @@
     return nwrite('notif_rule_save', { p: { id: rule.id || null, section_id: rule.section_id, name: String(rule.name).trim(), element: rule.element, type: rule.type, state: rule.state, sub: rule.sub || null,
       param: rule.param == null || rule.param === '' ? null : Number(rule.param), at: rule.at, repeat: rule.repeat, days: rule.days || [], show: rule.show, hours: Number(rule.hours), roles: rule.roles, channels: rule.channels,
       template: rule.template || null, active: rule.active !== false, mode: rule.mode === 'report' ? 'report' : 'single',
+      // the level the admin picked (0165 — Safwat 24 Nov); none = the state's own
+      ...(['critical', 'important', 'normal', 'info'].includes(rule.level) ? { level: rule.level } : {}),
       conds: (Array.isArray(rule.conds) ? rule.conds : []).map((x) => ({ element: x.element, type: x.type, state: x.state, sub: x.sub || null, param: x.param == null || x.param === '' ? null : Number(x.param) })) } });
   }
   const notifRuleDelete = (id) => nwrite('notif_rule_delete', { p_id: id });

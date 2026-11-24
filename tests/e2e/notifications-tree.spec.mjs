@@ -291,3 +291,26 @@ test('the bell\'s sub-section chips: pressing one far along the strip keeps the 
   expect(Math.abs(after - before)).toBeLessThan(40);
   await expect(page.locator('.menu.notif .ntf-chiptabs .tab').nth(8)).toBeInViewport();
 });
+
+// 0165 (Safwat 24 Nov — «خلي المستخدم يقدر يختار اهمية التنبية … حرج … مهم … عادي … للمعرفة»): four levels in the alert's form, the
+// state's own picked till the admin picks; saved with the rule, on its card, and the bell's alerts follow it
+test('0165 the alert\'s level: four to pick in its form — saved with the rule, on its card and in the bell', async ({ page }) => {
+  await signIn(page, 'settings-notifications');
+  await page.locator('[data-nr-rule="r1"]').getByRole('button', { name: 'إجراءات' }).click(); await page.getByRole('menuitem', { name: 'تعديل' }).click();
+  const form = page.locator('.modal[role=dialog]', { hasText: 'تعديل التنبيه' });
+  const pick = form.locator('[data-nr-level-pick]');
+  await expect(pick).toHaveText([/حرج/, /مهم/, /عادي/, /للمعرفة/]);
+  await expect(form.locator('[data-nr-level-pick="important"]')).toHaveAttribute('aria-checked', 'true'); // the state's own
+  await expect(form.locator('[data-nr-level]')).toContainText('تلقائي من الوضع');
+  await form.locator('[data-nr-level-pick="normal"]').click();
+  await expect(form.locator('[data-nr-level-pick="normal"]')).toHaveAttribute('aria-checked', 'true');
+  await expect(form.locator('[data-nr-level]')).toContainText('اخترتها إنت');
+  await form.locator('[data-nr-save]').click(); await expect(form).toHaveCount(0);
+  expect(mock.notif.rules.find((r) => r.id === 'r1').level).toBe('normal');
+  await expect(page.locator('[data-nr-rule="r1"] .nr-lv')).toHaveText('عادي');
+  // the bell: an alert of that level carries «عادي», below the important ones
+  mock.alerts.find((a) => a.id === 501).meta = { lv: 'normal' };
+  await page.evaluate(() => window.IBAlerts.load());
+  await page.locator('.notif-btn').click();
+  await expect(page.locator('.menu.notif .ntf-item', { hasText: 'IB-180656' }).locator('.ntf-lv')).toHaveText('عادي');
+});

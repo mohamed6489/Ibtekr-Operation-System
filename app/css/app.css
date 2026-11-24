@@ -2529,6 +2529,7 @@ input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-
 .ntf-item{position:relative;padding:10px 12px;border-radius:8px;align-items:center}
 .ntf-item.lv-critical:not(.muted){box-shadow:inset -3px 0 0 var(--color-error-text)}
 .ntf-item.lv-important:not(.muted){box-shadow:inset -3px 0 0 var(--color-warning-base)}
+.ntf-item.lv-normal:not(.muted){box-shadow:inset -3px 0 0 var(--color-brand-default)} /* «عادي» (Safwat 24 Nov) */
 .ntf-item .av{width:38px;height:38px;border-radius:19px;font-weight:700;font-size:15px}
 .ntf-item .av.img{background:var(--color-bg-base);border:1px solid var(--color-border-subtle);overflow:hidden}
 .ntf-item .av.img img{width:100%;height:100%;object-fit:cover}
@@ -2541,7 +2542,7 @@ input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-
 .ntf-item .txt{gap:3px}
 .ntf-item .txt b{display:flex;align-items:center;gap:6px}.ntf-item .txt b .tt{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .ntf-lv{flex:none;padding:0 6px;border-radius:4px;font-size:11px;line-height:18px;font-weight:600}
-.ntf-lv.critical{background:var(--color-error-bg);color:var(--color-error-text)}.ntf-lv.important{background:var(--color-warning-bg);color:var(--color-warning-base)}
+.ntf-lv.critical{background:var(--color-error-bg);color:var(--color-error-text)}.ntf-lv.important{background:var(--color-warning-bg);color:var(--color-warning-base)}.ntf-lv.normal{background:var(--color-brand-subtle-bg,#efe3cb);color:var(--color-brand-default)}
 .ntf-chips{display:flex;flex-wrap:wrap;gap:4px}
 .ntf-chip{padding:0 8px;border-radius:10px;font-size:12px;line-height:20px;background:var(--color-bg-container);color:var(--color-text-secondary)}
 .ntf-chip.error{background:var(--color-error-bg);color:var(--color-error-text)}.ntf-chip.warning{background:var(--color-warning-bg);color:var(--color-warning-base)}

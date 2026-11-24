@@ -37,9 +37,10 @@
   // ---------- the alert's form (Safwat's drawing «إضافة تنبيه»)
   function ruleForm(sub, rule, redraw) {
     const c = C(); const L = lists();
-    const f = Object.assign({ section_id: sub.id, name: '', element: '', type: '', state: '', sub: null, param: null, at: '09:00', repeat: '24h', days: [], show: 'until_state', hours: 0, roles: [], channels: ['bell'], template: '', active: true, mode: 'single', conds: [] }, rule ? JSON.parse(JSON.stringify(rule)) : {});
+    const f = Object.assign({ section_id: sub.id, name: '', element: '', type: '', state: '', sub: null, param: null, at: '09:00', repeat: '24h', days: [], show: 'until_state', hours: 0, roles: [], channels: ['bell'], template: '', active: true, mode: 'single', conds: [], level: null }, rule ? JSON.parse(JSON.stringify(rule)) : {});
     if (!Array.isArray(f.conds)) f.conds = [];
     // a new rule takes its level's «تفاصيل الظهور» (the bell's redesign decision 1) — with all its elements (decision 8: the highest)
+    // the level: the admin's pick (`f.level` — Safwat 24 Nov «المستخدم يقدر يختار»), else the state's own (with all its elements: the highest)
     const levelNow = () => (c.levelOfAll ? c.levelOfAll(f) : c.levelOf(f));
     const reShow = () => { if (!rule && c.showOf) Object.assign(f, c.showOf(levelNow(), c.kindOf(f))); };
     // an extra element (Safwat 24 Nov — «إمكانية لإضافة أكتر من عنصر في التنبيه الواحد»): the same three lists, × takes it off
@@ -61,7 +62,7 @@
     let step = 0;
     const sec = (head, ...kids) => { const [icon, title, note] = Array.isArray(head) ? head : [null, head, null]; step++;
       return h('div', { class: 'nr-sec' }, h('div', { class: 'nr-sec-h' }, h('span', { class: 'nr-step' }, String(step)), icon ? U().Icon(icon, 'sm') : null, h('b', null, title), note ? h('span', { class: 'nr-sec-note' }, note) : null), ...kids); };
-    const LV_TEXT = { critical: 'حرج — أول حاجة في الجرس', important: 'مهم', info: 'للعلم — بيختفي بعد يوم بالكتير' };
+    const LV_TEXT = { critical: 'أول حاجة في الجرس', important: 'بعد الحرج', normal: 'بعد المهم', info: 'آخر حاجة — بيختفي بعد يوم بالكتير' };
     const draw = () => {
       const st = curState(); const t = c.typeOf(f.element, f.type); step = 0;
       const many = f.conds.length > 0;
@@ -83,7 +84,11 @@
             h('div', { class: 'nr-mode-cards' }, [['single', 'bell', 'فردي', 'تنبيه لكل حاجة لوحدها — من كل عنصر'], ['report', 'sheet', 'تقرير', 'تنبيه واحد بجدول فيه كل الحاجات من كل العناصر']].map(([k, ic, l, d]) =>
               h('button', { type: 'button', role: 'radio', class: 'nr-mode-card' + ((f.mode || 'single') === k ? ' on' : ''), 'aria-checked': String((f.mode || 'single') === k), 'data-nr-mode-pick': k, onClick: () => { f.mode = k; draw(); } },
                 U().Icon(ic, 'sm'), h('b', null, l), h('span', null, d))))) : null,
-          st && c.levelOf ? h('div', { class: 'nr-level-row', 'data-nr-level': levelNow() }, h('span', { class: 't-label' }, 'الأهمية'), h('span', { class: 'nr-lv lv-' + levelNow() }, LV_TEXT[levelNow()]), many ? h('span', { class: 't-small muted' }, 'أعلى أهمية بين العناصر') : null) : null,
+          // «أهمية التنبيه» — four to pick from, highest first (the bell's order); «تلقائي» = the state's own
+          st && c.LEVELS ? h('div', { class: 'nr-level-row', 'data-nr-level': levelNow() }, h('span', { class: 't-label' }, 'أهمية التنبيه'),
+            h('div', { class: 'nr-lv-pick', role: 'radiogroup', 'aria-label': 'أهمية التنبيه' }, c.LEVELS.map(([k, l]) => h('button', { type: 'button', role: 'radio', class: 'nr-lv-opt lv-' + k + (levelNow() === k ? ' on' : ''), 'aria-checked': String(levelNow() === k), 'data-nr-level-pick': k, title: LV_TEXT[k],
+              onClick: () => { f.level = k; if (!rule && c.showOf) Object.assign(f, c.showOf(k, c.kindOf(f))); draw(); } }, h('b', null, l), h('span', null, LV_TEXT[k])))),
+            h('span', { class: 't-small muted' }, f.level ? 'اخترتها إنت' : 'تلقائي من الوضع' + (many ? ' (أعلى أهمية بين العناصر)' : ''))) : null,
           st ? h('p', { class: 't-small help', style: 'margin:0' }, f.mode === 'report' ? 'بيتجمع كل اللي في العناصر دي في تقرير واحد يتجدد بالتكرار.' : st.kind === 'event' ? 'بيتبعت مع كل حدث جديد من الوقت ده كل يوم.' : st.kind === 'due' ? 'بيتبعت مرة لما الميعاد يقرب.' : 'بيتبعت لكل حاجة في الوضع ده ويتجدد بالتكرار طول ما هي فيه.') : null),
         sec(['clock', 'وقت الإرسال', 'إمتى بيشتغل'],
           h('div', { class: 'row cols2' },
@@ -130,7 +135,7 @@
   // the rule's card: its level on the edge and as a badge, the name, each element a chip («+» between them), the time / repeat / visibility /
   // channels as small icon lines, «تقرير» when it is one, the roles, the switch and ⋮
   const CH_ICON = { bell: 'bell', email: 'mail', whatsapp: 'whatsapp' }; const CH_NAME = { bell: 'الجرس', email: 'إيميل', whatsapp: 'واتساب' };
-  const LV_NAME = { critical: 'حرج', important: 'مهم', info: 'للعلم' };
+  const LV_NAME = { critical: 'حرج', important: 'مهم', normal: 'عادي', info: 'للمعرفة' };
   const levelOfRule = (r) => { const c = C(); return c.levelOfAll ? c.levelOfAll(r) : c.levelOf ? c.levelOf(r) : 'important'; };
   function ruleRow(sub, r, redraw) {
     const lv = levelOfRule(r); const parts = [r].concat(Array.isArray(r.conds) ? r.conds : []);

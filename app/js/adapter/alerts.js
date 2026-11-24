@@ -176,8 +176,8 @@
   // first, then important, then info — each by time) and who it is about (meta.g): a maker's logo, a member's first letter in a circle,
   // an assistant's icon, else its element's icon. The delay alerts of one maker in a tab are one card — the maker, «N متأخر · M قابل
   // للتأخير · P قطعة» — and its click opens his late orders (open({ vendorLate, kind }) — block 28's popup with «مشاركة»).
-  const LV_RANK = { critical: 0, important: 1, info: 2 };
-  const LV_WORD = { critical: 'حرج', important: 'مهم' };
+  const LV_RANK = { critical: 0, important: 1, normal: 2, info: 3 }; // the four levels (Safwat 24 Nov — «عادي» between «مهم» and «للمعرفة»)
+  const LV_WORD = { critical: 'حرج', important: 'مهم', normal: 'عادي' };
   const EL_ICON = { daily: 'chart', custody: 'wallet', team: 'users', orders: 'package', subs: 'box', products: 'tag', inventory: 'stock', accounts: 'wallet',
     tickets: 'ticket', messages: 'msg', ai: 'sparkle', makers: 'users', system: 'gear' };
   const AGENT_ICON = { manager: 'sliders', buyer: 'chart', designer: 'image', dev: 'code', stock: 'truck', cs: 'headset', makers: 'users', accountant: 'wallet', hr: 'briefcase', content: 'image' };

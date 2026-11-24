@@ -187,7 +187,7 @@ type Run = { db: Db; env: Deps['env']; woo: () => ReturnType<typeof wooApi>; ctx
 
 const ACTIONS = ['states', 'categories', 'orders', 'vendors', 'products', 'all', 'push_status', 'push_vendor', 'register_webhooks', 'probe_store', 'probe_dokan', 'accounts', 'statement', 'withdraw_approve', 'withdraw_reject', 'withdraw_create', 'withdrawals', 'style_create', 'style_update', 'order_trash', 'suborder_trash', 'line_trash', 'line_qty', 'line_add', 'suborder_status', 'order_create', 'order_pay_link',
   'vendor_photo', 'vendor_store', 'product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'studio_media', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push', 'product_duplicate', 'carts',
-  'category_get', 'category_update', 'category_delete', 'category_order', 'thumbs', 'styles', 'wp_updates', 'site_speed', 'brand_site', 'vendor_delete', 'bosta_send', 'bosta_cod', 'bosta_awb', 'bosta_locations', 'bosta_pickup', 'bosta_zones', 'order_address'];
+  'category_get', 'category_update', 'category_delete', 'category_order', 'thumbs', 'styles', 'wp_updates', 'site_speed', 'brand_site', 'vendor_delete', 'bosta_send', 'bosta_cod', 'bosta_awb', 'bosta_locations', 'bosta_pickup', 'bosta_zones', 'order_address', 'legacy_report'];
 // phase 5: the product actions a person runs (never the sync secret); phase 5.2: the studio's upload, a new category, a sheet link;
 // phase 5.4: the images tool's results onto a product; B4 (11 Nov): the categories tab's read, edit and delete
 const PRODUCT_ACTIONS = ['product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'studio_media', 'category_create', 'studio_sheet', 'style_create', 'style_update', 'product_images_add', 'inventory_push', 'product_duplicate',
@@ -1231,6 +1231,72 @@ async function registerWebhooks(run: Run, args: Json) {
   const webhooks = result.filter(isObj).map((h) => ({ id: h.id ?? null, name: h.name ?? null, topic: h.topic ?? null, status: h.status ?? null, delivery_url: h.delivery_url ?? null }));
   await logSync(run.db, { kind: run.kind, direction: 'out', entity: 'webhooks', action: 'register', result: 'ok', detail: counts });
   return json(200, { action: 'register_webhooks', result: 'ok', counts, webhooks: webhooks.sort((a, b) => Number(a.id) - Number(b.id)) });
+}
+
+// ---------------------------------------------------------------- legacy_report (the meeting of 23 Nov phase 9 — the dry run)
+
+// The old data's dry run (docs/superpowers/plans/2026-11-23-meeting.md phase 9 — «قراية بس … Dry-run الأول»): READ ONLY, nothing written
+// anywhere (no row, no log): the site's orders by status (reports/orders/totals) and by month (X-WP-Total), the statuses the status_map
+// has no row for, the system's orders and which of them differ from the site now, November's orders (their number and status — for
+// Airtable's statuses), and Dokan's withdraw requests / stores beside ours. Numbers, order ids and statuses only — never a customer's
+// name, phone, address or an amount. The admin or the sync secret (a query from the database while the report is prepared).
+async function legacyReport(run: Run, args: Json) {
+  const woo = run.woo(); const errors: string[] = [];
+  const safe = async <T>(what: string, f: () => Promise<T>): Promise<T | null> => { try { return await f(); } catch (e) { errors.push(what + ':' + (e instanceof WooError ? e.status : 'error')); return null; } };
+  const slugOf = (s: unknown) => String(s ?? '').replace(/^wc-/, '');
+  const totalsRes = await safe('totals', () => woo.get('wc/v3/reports/orders/totals'));
+  const totals = (Array.isArray(totalsRes?.data) ? totalsRes!.data : []).filter(isObj).map((t: Json) => ({ slug: slugOf(t.slug), name: String(t.name ?? '').slice(0, 60), total: Number(t.total) || 0 }));
+  const firstRes = await safe('first', () => woo.get('wc/v3/orders', { per_page: 1, orderby: 'date', order: 'asc', status: 'any' }));
+  const firstDay = Array.isArray(firstRes?.data) && isObj(firstRes!.data[0]) ? String(firstRes!.data[0].date_created ?? '').slice(0, 10) : null;
+  const allTotal = firstRes?.total ?? null;
+  // by month, from the first order to this month (60 at most)
+  const months: Json[] = [];
+  if (firstDay && args.months !== false) {
+    const now = run.now().slice(0, 7); let m = firstDay.slice(0, 7);
+    for (let i = 0; i < 60 && m <= now; i++) {
+      const [y, mo] = m.split('-').map(Number); const next = mo === 12 ? `${y + 1}-01` : `${y}-${String(mo + 1).padStart(2, '0')}`;
+      const r = await safe('month', () => woo.get('wc/v3/orders', { per_page: 1, status: 'any', after: `${m}-01T00:00:00`, before: `${next}-01T00:00:00`, _fields: 'id' }));
+      months.push({ month: m, orders: r?.total ?? null }); m = next;
+    }
+  }
+  // the status map: the site's statuses it has no row for
+  const { data: map } = await run.db.from('status_map').select('system_status, woo_status, direction, base');
+  const mapRows = Array.isArray(map) ? map : [];
+  const known = new Set(mapRows.map((r: Json) => slugOf(r.woo_status)));
+  const toSystem = (slug: string) => { const r = mapRows.find((x: Json) => slugOf(x.woo_status) === slug && (x.direction === 'both' || x.direction === 'in' || !x.direction) && !x.base) ?? mapRows.find((x: Json) => slugOf(x.woo_status) === slug); return r ? r.system_status : null; };
+  const unmapped = totals.filter((t) => t.total > 0 && !known.has(t.slug));
+  // the system's orders and the site's status of each now (100 a call by include)
+  const { data: oursRaw } = await run.db.from('orders').select('id, status, woo_status, deleted_at, confirm_at').order('id').range(0, 9999);
+  const ours = Array.isArray(oursRaw) ? oursRaw : [];
+  const site = new Map<number, string>();
+  for (let i = 0; i < ours.length; i += 100) {
+    const ids = ours.slice(i, i + 100).map((o: Json) => o.id);
+    const r = await safe('include', () => woo.get('wc/v3/orders', { include: ids.join(','), per_page: 100, status: 'any', _fields: 'id,status' }));
+    for (const x of Array.isArray(r?.data) ? r!.data : []) if (isObj(x)) site.set(Number(x.id), slugOf(x.status));
+  }
+  const differences = ours.filter((o: Json) => !o.deleted_at && site.has(Number(o.id)) && toSystem(site.get(Number(o.id))!) !== o.status)
+    .map((o: Json) => ({ id: Number(o.id), system: o.status, site: site.get(Number(o.id)), site_as: toSystem(site.get(Number(o.id))!) }));
+  const missingOnSite = ours.filter((o: Json) => !o.deleted_at && !site.has(Number(o.id))).map((o: Json) => Number(o.id));
+  // November 2026's orders on the site (their number and status — Airtable's statuses are compared by the number)
+  const nov: Json[] = [];
+  const novFrom = String(args.nov_from ?? '2026-11-01'); const novTo = String(args.nov_to ?? '2026-12-01');
+  await safe('november', () => woo.eachPage('wc/v3/orders', { status: 'any', after: `${novFrom}T00:00:00`, before: `${novTo}T00:00:00`, orderby: 'id', order: 'asc', _fields: 'id,number,status,date_created,parent_id' },
+    async (rows: unknown[]) => { for (const x of rows) if (isObj(x) && !Number(x.parent_id)) nov.push({ id: Number(x.id), number: String(x.number ?? x.id), status: slugOf(x.status), day: String(x.date_created ?? '').slice(0, 10) }); }, { maxPages: 40 }));
+  // Dokan beside ours: the withdraw requests and the stores (the totals only)
+  const wd = await safe('withdraw', () => woo.get('dokan/v1/withdraw', { per_page: 1, status: 'all' }));
+  const stores = await safe('stores', () => woo.get('dokan/v1/stores', { per_page: 1 }));
+  const { data: wdRows } = await run.db.from('dokan_withdrawals').select('id').range(0, 49999);
+  const { data: storeRows } = await run.db.from('vendors').select('id').not('woo_vendor_id', 'is', null).range(0, 9999);
+  const oursWd = Array.isArray(wdRows) ? wdRows.length : null; const oursStores = Array.isArray(storeRows) ? storeRows.length : null;
+  return json(200, {
+    action: 'legacy_report', read_only: true, site: (() => { try { return new URL(String(run.env.WOO_URL ?? '')).host; } catch { return null; } })(),
+    site_orders: allTotal, first_day: firstDay, totals, months, unmapped,
+    system: { orders: ours.length, deleted: ours.filter((o: Json) => o.deleted_at).length, confirmed: ours.filter((o: Json) => o.confirm_at).length, first_id: ours[0]?.id ?? null },
+    differences, missing_on_site: missingOnSite.slice(0, 100), missing_on_site_count: missingOnSite.length,
+    november: nov, november_count: nov.length,
+    dokan: { withdraw_site: wd?.total ?? null, withdraw_ours: oursWd ?? null, stores_site: stores?.total ?? null, stores_ours: oursStores ?? null },
+    errors: [...new Set(errors)].slice(0, 10),
+  });
 }
 
 // ---------------------------------------------------------------- probe_store (phase 3.3 preparation)
@@ -3262,6 +3328,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'vendor_store') { const jwt = /^Bearer\s+(\S+)$/i.exec(req.headers.get('authorization') ?? '')?.[1] ?? ''; return await vendorStore(run, args, deps.userDb && jwt ? deps.userDb(jwt) : null); }
     if (action === 'register_webhooks') return await registerWebhooks(run, args);
     if (action === 'probe_store') return await probeStore(run, args);
+    if (action === 'legacy_report') return await legacyReport(run, args);
     if (action === 'probe_dokan') return await probeDokan(run, args);
     if (action === 'statement') return await statement(run, args);
     if (action === 'withdraw_approve') { const jwt = /^Bearer\s+(\S+)$/i.exec(req.headers.get('authorization') ?? '')?.[1] ?? ''; return await withdrawApprove(run, args, deps.userId && jwt ? await deps.userId(jwt) : null); }

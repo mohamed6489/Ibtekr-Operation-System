@@ -19,7 +19,8 @@
 export const START_DATE = '2026-08-14'; // the owner 19 Nov: «هات الاوردرات من 14 اغسطس» (was 2026-10-01)
 export const OPEN_WOO = ['processing', 'pending', 'on-hold'];
 // Woo slug → system status for a slug with no status_map row (none today: `failed` has its own row «فشل» since 0009).
-export const WOO_FALLBACK = {};
+// phase 9 (Safwat 24 Nov): «delivery-completed» — an old status no longer registered on the site (4 orders, Feb–Apr 2026) — is «مكتمل»
+export const WOO_FALLBACK = { 'delivery-completed': 'مكتمل' };
 // Order meta kept in raw (a trailing * is a prefix); every other key is removed, not redacted — staging carries
 // phones (bosta_customer_phone), Facebook ids and user agents in meta.
 export const META_KEEP = [
@@ -264,6 +265,8 @@ export function mapOrder(wooOrder, ctx) {
   const b = isObj(o.billing) ? o.billing : {};
   const s = isObj(o.shipping) ? o.shipping : {};
   const status = incomingStatus(o.status, currentStatus, statusMap, currentWooStatus);
+  // phase 9: an old order whose status has no counterpart is left out (never shown as the map's first status), counted 'unmapped'
+  if (legacy && status.result === 'conflict') return { skipped: 'unmapped', order: null, items: [], unknownVendorIds: [], statusResult: null };
   const split = splitStatus(status.status, statusMap);
   const order = {
     id: num(o.id), number: str(o.number ?? o.id),

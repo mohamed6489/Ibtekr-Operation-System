@@ -15,7 +15,15 @@ test('LIVE_FROM is START_DATE at midnight UTC; isLegacy splits on it', () => {
 test('mapOrder: the sync skips an old order; legacy takes the old ones only (an order of the sync\'s side is the sync\'s)', () => {
   const o = (created) => ({ id: 7, number: '7', status: 'completed', date_created_gmt: created, date_modified_gmt: created, line_items: [] });
   assert.equal(mapOrder(o('2026-03-02T10:00:00')).skipped, 'before_start');
-  assert.equal(mapOrder(o('2026-03-02T10:00:00'), { legacy: true }).skipped, undefined); // mapped, not skipped
+  const statusMap = [{ system_status: 'مكتمل', woo_status: 'completed', direction: 'both' }];
+  assert.equal(mapOrder(o('2026-03-02T10:00:00'), { legacy: true, statusMap }).skipped, undefined); // mapped, not skipped
   assert.equal(mapOrder(o('2026-10-02T10:00:00'), { legacy: true }).skipped, 'after_start');
   assert.equal(mapOrder({ ...o('2026-03-02T10:00:00'), status: 'checkout-draft' }, { legacy: true }).skipped, 'draft');
+});
+
+test('phase 9 (Safwat 24 Nov): «delivery-completed» is «مكتمل»; any other status with no counterpart leaves an old order out', () => {
+  const map = [{ system_status: 'جاري التنفيذ', woo_status: 'processing', direction: 'both' }, { system_status: 'مكتمل', woo_status: 'completed', direction: 'both' }];
+  const o = (status) => ({ id: 7, number: '7', status, date_created_gmt: '2026-03-02T10:00:00', date_modified_gmt: '2026-03-02T10:00:00', line_items: [] });
+  assert.equal(mapOrder(o('delivery-completed'), { legacy: true, statusMap: map }).order.status, 'مكتمل');
+  assert.equal(mapOrder(o('some-plugin-status'), { legacy: true, statusMap: map }).skipped, 'unmapped');
 });

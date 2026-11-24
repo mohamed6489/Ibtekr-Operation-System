@@ -266,9 +266,10 @@ test('the rebuild — «التقييمات»: the month (the attendance automati
   await f.locator('#ev-perf [data-star="4"]').click(); await f.locator('#ev-comm [data-star="5"]').click();
   await f.getByRole('button', { name: 'حفظ التقييم' }).click();
   await expect(f).toBeHidden();
-  expect(calls('hr_evaluate').map((c) => [c.p_member, c.p_month, c.p_perf, c.p_comm])).toEqual([[ACC_ID, MK, 4, 5]]);
+  // 0155: the items' scores (the default items — التواصل / الأداء) → hr_evaluate with p_scores
+  expect(calls('hr_evaluate').map((c) => [c.p_member, c.p_month, c.p_scores])).toEqual([[ACC_ID, MK, { perf: 4, comm: 5 }]]);
   const r = t.locator('tbody tr', { hasText: 'منى حسن' });
-  await expect(r).toContainText('4 / 5'); await expect(r).toContainText('5 / 5');
+  await expect(r.locator('[data-hr-eval-items]')).toContainText('التواصل 5'); await expect(r.locator('[data-hr-eval-items]')).toContainText('الأداء 4');
   await P(page).getByRole('tab', { name: 'التقييم الربع سنوي' }).click();
   await expect(P(page).locator('table.hr-evals-q tbody tr', { hasText: 'منى حسن' })).toContainText('1 / 3');
 });
@@ -343,13 +344,12 @@ test('the rebuild — the HR settings live in «الإعدادات › المو�
   const S = page.locator('[data-hr-settings]');
   await expect(S.locator('[data-hs-day][aria-checked=true]')).toHaveText(['الأحد', 'الاتنين', 'التلات', 'الأربع', 'الخميس']); // owner batch 14 Nov decision 7: the work days are editable chips
   await S.locator('#hs-payday').fill('25');
-  await pick(page, S, 'hs-bonus', '3.5 من 5 أو أكتر');
-  await expect(page.locator('[role=listbox]')).toHaveCount(0); // the list closed before the next click (under load a click could only close it)
-  await expect(S.locator('#hs-bonus')).toContainText('3.5');
+  // 0155 (the meeting of 23 Nov phase 7): the bonus bar is gone — the point of «قواعد التقييم والبونص» instead
+  await S.locator('#hs-ev-point').fill('15');
   await expect(async () => { await S.getByRole('radio', { name: /يترحّل/ }).click(); await expect(S.getByRole('radio', { name: /يترحّل/ })).toHaveAttribute('aria-checked', 'true', { timeout: 1000 }); }).toPass();
   await expect(S.locator('#hs-payday')).toHaveValue('25');
   await page.locator('[data-set-save]').first().click();
-  await expect.poll(() => ((mock.settings.find((x) => x.section === 'hr') || {}).data || {})).toMatchObject({ payDay: 25, bonusMin: 3.5, leaveYearEnd: 'carry' });
+  await expect.poll(() => ((mock.settings.find((x) => x.section === 'hr') || {}).data || {})).toMatchObject({ payDay: 25, leaveYearEnd: 'carry', evalRules: { point: 15 } });
   await S.locator('[data-hs-holiday]').click();
   const f = modal(page, 'إضافة عطلة');
   await f.locator('#name').fill('عيد تجريبي'); await date(f, 'date', NEXT);

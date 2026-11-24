@@ -57,7 +57,7 @@
   },
   "15-page-hr.js": {
     "prototype": "ee600dbb6d1a699847ee0528e7454c3bc857f4801989b1cf85cdba72aa135d76",
-    "current": "2cd63756b620ee18eb9543dc9a05178065477ab71c24f67870040d429ec98b87"
+    "current": "6a999b4725c80accf7e8934b72e21e5212e74cfd42356cad3f3c6e8439f85558"
   },
   "16-page-inventory.js": {
     "prototype": "80101269ffc51399a6b19dad74375aa32575fa9e2e6071885c5c77885afee8f5",
@@ -65,11 +65,11 @@
   },
   "17-page-settings.js": {
     "prototype": "89d9c49b0d0f466a618479a6b68c237edb4e90a12b0b233e7d05f7916c8e8dde",
-    "current": "d9782168bfb8f7a1db917c69c592ce8b8b31eb930a174356f33bfacc1682a0d8"
+    "current": "29bae9fa4195ab9098c26bbe84a2b706d02a221d6c109845656afa08ea9312a5"
   },
   "18-page-profile.js": {
     "prototype": "218eb74e001b3e909a563499cdd2d929b1893e93d86d81f9039603b34dbdaa8a",
-    "current": "2a07d7e11567c91ece283a12dd2c78696d33f73262c2b293c2c959409b0a7d21"
+    "current": "08c6a8b98835d62b32503d5ff82c523d1ddbcac8a55b292f0e12153a3160443c"
   },
   "19-cs-domain.js": {
     "prototype": "5316d08c265ce14e7ed3340ddd6547f4f665dddc07dd3d76bf3868c8ad1f5192",

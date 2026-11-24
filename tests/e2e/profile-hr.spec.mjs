@@ -64,7 +64,8 @@ test('«ملفي» from the server: my hours and overtime, a request cancelled, 
   await expect(P(page).locator('#tab-requests')).toHaveText('طلباتي'); // the owner 11 Nov: my team requests, right after «مهامي»
   await tab(page, 'أدائي'); // the HR rebuild: the month out of 5 — the attendance automatic, the performance and the communication from the manager
   const ev = P(page).locator('table.pf-evals tbody tr', { hasText: monLabel(MK).split(' ')[0] });
-  await expect(ev).toContainText('4 / 5'); await expect(ev).toContainText('5 / 5'); await expect(ev).toContainText('شغل منظم');
+  await expect(ev).toContainText('الأداء 4'); await expect(ev).toContainText('التواصل 5'); await expect(ev).toContainText('شغل منظم'); // 0155: the items with their scores
+  await expect(ev.locator('[data-pf-bonus]')).toBeVisible(); // and the month's bonus %
   await expect(P(page).locator('[data-pf-cards]')).toContainText('التقييم الربع سنوي');
   await tab(page, 'مرتبي');
   const slip = P(page).locator('tbody tr', { hasText: monLabel(PM) });

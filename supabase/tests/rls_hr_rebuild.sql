@@ -92,18 +92,22 @@ declare c record;
 begin
   perform public.hr_evaluate('00000000-0000-4000-8000-0000000083b3', '2026-02-01', 1, 1);
   select * into c from public.hr_payroll_calc('2026-03-01') x where x.member_id = '00000000-0000-4000-8000-0000000083b3';
-  -- January: no attendance → 0 + 5 + 5 = 3.3 ≥ 3 → 1,200; February: (≤ 5 + 1 + 1) / 3 < 3 → 0; March: not rated → 0 and counted missing
-  if c.quarter_bonus <> 1200 or c.missing_scores <> 1 then raise exception 'case the bonus whole or nothing by month failed (%, %)', c.quarter_bonus, c.missing_scores; end if;
+  -- 0155 (the weighted evaluation — the default الحضور 25 · التواصل 25 · الأداء 50, a point = 20% of the holdback): January no attendance
+  -- → (0×25 + 5×25 + 5×50) / 100 = 3.75 → 75% of 1,200 = 900; February (its 10 days above → 2.5: 2.5×25 + 1×25 + 1×50) / 100 = 1.375
+  -- → 27.5% = 330; March not rated → 0 and counted missing
+  if c.quarter_bonus <> 1230 or c.missing_scores <> 1 then raise exception 'case the bonus by the weighted evaluation month by month failed (%, %)', c.quarter_bonus, c.missing_scores; end if;
   select * into c from public.hr_payroll_calc('2026-02-01') x where x.member_id = '00000000-0000-4000-8000-0000000083b3';
   if c.quarter_bonus <> 0 or c.paid <> 8400 then raise exception 'case the holdback is held in the quarter''s other months failed'; end if;
 end $$;
 reset role;
-update public.settings set data = data || '{"bonusMin": 1}' where section = 'hr';
+-- 0155: bonusMin is no bar any more, and a rules change reaches the new evaluations only (the two above keep 20% a point)
+update public.settings set data = data || '{"bonusMin": 1, "evalRules": {"point": 10}}' where section = 'hr';
 select pg_temp.as_member('00000000-0000-4000-8000-0000000083b1');
 do $$ begin
-  if (select quarter_bonus from public.hr_payroll_calc('2026-03-01') x where x.member_id = '00000000-0000-4000-8000-0000000083b3') <> 2400 then raise exception 'case the bar is the setting bonusMin failed'; end if;
+  if (select quarter_bonus from public.hr_payroll_calc('2026-03-01') x where x.member_id = '00000000-0000-4000-8000-0000000083b3') <> 1230 then raise exception 'case a rules change leaves the evaluations made before it failed'; end if;
 end $$;
 reset role;
+update public.settings set data = data - 'evalRules' where section = 'hr';
 
 -- ================================================================ the advance: decided → all of it off the month; given by the admin → the money out too
 insert into public.hr_requests (member_id, type, from_day, to_day, amount, months, status, created_by)

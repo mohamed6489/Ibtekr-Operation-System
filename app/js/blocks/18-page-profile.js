@@ -409,17 +409,21 @@
     const cur = qOf(thisMonth()); const quarters = [...new Set([cur].concat(Object.keys(ev).filter((k) => ev[k] && ev[k].total != null).map(qOf)))].sort().reverse();
     const q = st.perfQ && quarters.includes(st.perfQ) ? st.perfQ : cur; const months = qMonths(q);
     const Q = IH() && IH().quarterEval ? IH().quarterEval(m.id, q) : null; const last = lastScore(m.id);
-    const money = seesMoney(m); const hb = m.holdback || 0; const earned = months.filter((k) => ev[k] && ev[k].total != null && ev[k].total >= bar).length;
-    const sc = (v) => (v == null ? '—' : K.Num(of5(v)));
+    /* the meeting of 23 Nov phase 7 (0155): no bar — each month's bonus = its result × the point, a % of the holdback, summed for the quarter */
+    const money = seesMoney(m); const hb = m.holdback || 0; const ER = window.IBEvalRules; void bar;
+    const pctOf = (k) => (ev[k] && ev[k].pct != null ? ev[k].pct : null); const earned = Math.round(months.reduce((n, k) => n + (pctOf(k) == null ? 0 : hb * pctOf(k) / 100), 0) * 100) / 100;
+    const ptxt = (v) => (v == null ? '—' : U.num(String(Math.round(v * 100) / 100) + '%'));
+    const items = (x) => (!x || x.total == null || !x.rules || !ER ? '—' : h('span', { class: 't-small' }, x.rules.items.filter((i) => i.weight > 0).map((i) => i.name + ' ' + (i.auto ? (x.att == null ? '—' : of5(x.att)) : (ER.scoresOf(x)[i.id] == null ? '—' : ER.scoresOf(x)[i.id]))).join(' · ')));
+    const sc = (v) => (v == null ? '—' : K.Num(of5(v))); void sc;
     const pickQ = U.Select({ id: 'pf-q', label: '', options: quarters.map((x) => ({ value: x, label: qLabel(x) })), value: q, onChange: (v) => { st.perfQ = v; rerender(); } });
-    const rows = months.map((k) => { const x = ev[k] || {}; return [monName(k), sc(x.att), sc(x.perf), sc(x.comm), x.total == null ? K.Tag('neutral', 'لسه') : K.Tag(x.total >= 4 ? 'success' : x.total >= 3 ? 'info' : 'error', of5(x.total)),
-      x.total == null ? '—' : x.total >= bar ? K.Tag('success', 'هيتصرف') : K.Tag('error', 'مش هيتصرف'), h('span', { class: 't-small wrap' }, x.note || '—')]; });
+    const rows = months.map((k) => { const x = ev[k] || {}; return [monName(k), items(x), x.total == null ? K.Tag('neutral', 'لسه') : K.Tag(x.total >= 4 ? 'success' : x.total >= 3 ? 'info' : 'error', of5(x.total)),
+      x.pct == null ? '—' : h('span', { 'data-pf-bonus': String(x.pct) }, K.Num(ptxt(x.pct)), money && hb ? h('small', { class: 'help' }, ' · ', K.money(Math.round(hb * x.pct) / 100)) : null), h('span', { class: 't-small wrap' }, x.note || '—')]; });
     return [h('div', { class: 'toolbar' }, pickQ),
       h('div', { class: 'cards', 'data-pf-cards': '' }, K.Stat(last ? 'تقييم ' + monName(last.k) : 'تقييم الشهر', last ? of5(last.v) : '—', '', last ? 'آخر شهر اتقيّم' : 'لسه مااتقيّمش'),
         K.Stat('التقييم الربع سنوي', Q && Q.total != null ? of5(Q.total) : '—', qShort(q), Q ? Q.rated + ' من 3 شهور اتقيّمت' : '—'),
-        K.Stat('البونص — ' + qShort(q), money ? K.money(hb * earned) : '••••', money ? 'ج.م' : '', earned + ' من 3 شهور وصلت ' + bar + ' من 5')),
-      K.Section('التقييم الشهري — ' + qLabel(q), U.Table({ cls: 'pf-evals', headers: ['الشهر', 'الحضور', 'الأداء', 'التواصل', 'تقييم الشهر', 'البونص', 'ملاحظة'], rows }), null,
-        { when: qLabel(q), sub: 'الحضور تلقائي من أيام الحضور · الأداء (حسب المهام) والتواصل من المدير المباشر · تقييم الشهر = متوسط التلاتة · البونص: الشهر اللي تقييمه ' + bar + ' من 5 أو أكتر محجوزه بيتصرف كامل آخر الربع' }),
+        K.Stat('البونص — ' + qShort(q), money ? K.money(earned) : '••••', money ? 'ج.م' : '', Q && Q.pct != null ? 'متوسط ' + ptxt(Q.pct) + ' من المحجوز' : 'لسه مفيش شهور اتقيّمت')),
+      K.Section('التقييم الشهري — ' + qLabel(q), U.Table({ cls: 'pf-evals', headers: ['الشهر', 'البنود', 'تقييم الشهر', 'البونص', 'ملاحظة'], rows }), null,
+        { when: qLabel(q), sub: 'التقييم على بنود بأوزان (الحضور تلقائي والباقي من المدير المباشر) · تقييم الشهر = متوسط مرجّح · البونص = التقييم × قيمة النقطة من المبلغ المحجوز، بيتصرف آخر الربع' }),
       notesSec(m)];
   }
   // owner batch 14 Nov decision 13 (0089): what the manager sent about the evaluation — a meeting, a warning, an improvement plan, a thanks
@@ -427,7 +431,7 @@
   const cairo = (iso, loc, o) => { try { return new Intl.DateTimeFormat(loc, Object.assign({ timeZone: 'Africa/Cairo' }, o)).format(new Date(iso)); } catch (e) { return String(iso).slice(0, 10); } };
   function notesSec(m) {
     const list = ((HD().noteLog) || []).filter((x) => x.member === m.id); if (!list.length) return null;
-    const KIND = { meeting: ['ميتنج فردي', 'info'], warning: ['إنذار', 'error'], plan: ['خطة تحسين', 'orange'], thanks: ['شكر', 'success'] };
+    const KIND = { meeting: ['ميتنج فردي', 'info'], warning: ['إنذار', 'error'], plan: ['خطة تحسين', 'orange'], thanks: ['شكر', 'success'], note: ['ملاحظة', 'neutral'] }; /* 0155: «ملاحظة» */
     const per = (p) => (/Q/.test(p) ? qLabel(p) : monLabel(p)); const day = (x) => (x ? K.dshort(cairo(x, 'en-CA', { year: 'numeric', month: '2-digit', day: '2-digit' })) : '—');
     const time = (x) => K.t12(cairo(x, 'en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })); // decision 9: the 12-hour clock
     const rows = list.map((x) => [K.Tag((KIND[x.kind] || [x.kind, 'neutral'])[1], (KIND[x.kind] || [x.kind])[0]), per(x.period), h('span', { class: 't-small wrap' }, x.body || '—'),

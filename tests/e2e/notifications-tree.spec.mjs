@@ -52,7 +52,7 @@ test('the bell = the settings\' tree: its groups and filters, a rule-less alert 
   await expect(bell.locator('.ntf-item').first()).toContainText('IB-180651');
   // «الفريق»: the overtime alert written by the database (no rule) sits under «الحضور والانصراف» (its element = team)
   await bell.locator('.ntf-nav-item', { hasText: 'الفريق' }).click();
-  await expect(bell.locator('.tab')).toHaveText([/الكل \(1\)/, /الحضور والانصراف \(1\)/, /غير مقروء \(1\)/]); // the bell's redesign: an empty filter is not shown
+  await expect(bell.locator('.tab')).toHaveText([/الكل \(1\)/, /الحضور والانصراف \(1\)/, /غير مقروء \(1\)/, /مقروء \(0\)/]); // 0163 (the bell by role): every tab there, even at zero
   await expect(bell.locator('.ntf-item')).toContainText('وقت إضافي محتاج قرارك');
   // «تعليم القسم كمقروء» → the dot goes, written as reads
   await bell.locator('.ntf-foot').getByRole('button', { name: 'تعليم القسم كمقروء' }).click();
@@ -100,7 +100,7 @@ test('«الإعدادات › التنبيهات»: a main section, a sub-secti
   await page.locator('.notif-btn').click();
   await expect(page.locator('.menu.notif .ntf-nav-item')).toHaveText([/خدمة العملاء/, /الفريق/, /الحسابات/]);
   await page.locator('.menu.notif .ntf-nav-item', { hasText: 'الحسابات' }).click();
-  await expect(page.locator('.menu.notif .tab')).toHaveText([/الكل \(0\)/]); // the bell's redesign: «الكل» only while the group is empty
+  await expect(page.locator('.menu.notif .tab')).toHaveText([/الكل \(0\)/, /العهدة \(0\)/, /غير مقروء \(0\)/, /مقروء \(0\)/]); // 0163 (the bell by role): the sub-section ready at zero
 });
 
 test('an alert switched off and deleted from the settings; a sub-section renamed', async ({ page }) => {
@@ -217,4 +217,20 @@ test('0162 a «تقرير» alert in the bell opens one table with every thing o
   await expect(pop.locator('[data-share]')).toBeEnabled();
   await pop.locator('[data-ar-row]').first().click();
   await expect(pop).toHaveCount(0); // the row opened its order (the bell's opener)
+});
+
+test('0163 the bell by role: a member sees only the main sections whose rules go to his roles, with all their sub-sections even at zero', async ({ page }) => {
+  const M3 = '00000000-0000-4000-8000-0000000005c1'; const S3 = '00000000-0000-4000-8000-0000000005c2'; const S4 = '00000000-0000-4000-8000-0000000005c3';
+  mock.notif.sections.push({ id: M3, parent_id: null, name: 'العمليات والشحن', icon: 'truck', sort: 2 }, { id: S3, parent_id: M3, name: 'جاهز للشحن للمخزن', icon: null, sort: 0 }, { id: S4, parent_id: M3, name: 'التجميع', icon: null, sort: 1 });
+  mock.notif.rules.push({ id: 'r3', section_id: S3, name: 'جاهز للشحن للمخزن', element: 'subs', type: 'status', state: 'ready_hub', at: '09:00', repeat: '24h', show: 'until_state', hours: 0, roles: ['admin', 'ops'], channels: ['bell'], active: true, sub: null, param: null, days: [], template: null, sort: 0 },
+    { id: 'r4', section_id: S4, name: 'تجميع أوردر عدّى مدته', element: 'inventory', type: 'consolidation', state: 'late', at: '09:00', repeat: '24h', show: 'until_state', hours: 0, roles: ['admin', 'ops'], channels: ['bell'], active: true, sub: null, param: null, days: [], template: null, sort: 0 });
+  mock.alerts = [{ id: 801, at: iso(5), kind: 'rule:subs.status', title: 'جاهز للشحن للمخزن — IB-5', body: 'x', role_id: null, user_id: '00000000-0000-4000-8000-000000000002', entity: 'orders/5', entity_id: 'x:5', read_at: null, rule_id: 'r3', section_id: S3, hide_at: null, meta: { lv: 'important' } }];
+  mock.alertReads = [];
+  await page.goto('/');
+  await page.fill('#lg-id', 'ops.dev@ibtekr.local'); await page.fill('#lg-pw', DEV_PW);
+  await page.getByRole('button', { name: 'دخول', exact: true }).click(); await expect(page.locator('#root')).toBeVisible();
+  await page.locator('.notif-btn').click();
+  const bell = page.locator('.menu.notif');
+  await expect(bell.locator('.ntf-nav-item')).toHaveText([/العمليات والشحن/]); // not «خدمة العملاء» (cs) nor «الفريق» (admin)
+  await expect(bell.locator('.tab')).toHaveText([/الكل \(1\)/, /جاهز للشحن للمخزن \(1\)/, /التجميع \(0\)/, /غير مقروء \(1\)/, /مقروء \(0\)/]); // «التجميع» there at zero
 });

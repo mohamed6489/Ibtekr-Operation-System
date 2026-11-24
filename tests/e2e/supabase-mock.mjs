@@ -837,6 +837,8 @@ export async function installSupabaseMock(page, opts = {}) {
         Object.assign(c, { status: 'approved', approved_by: u.id, approved_at: now }); mock.invWrites.push({ table: 'inv_counts', op: 'approve', id: c.id, adjusted: n });
         return json(200, n);
       }
+      // «عقل السيستم» (system-map.js): the last hour's sync runs from the site — the admin reads them; none here unless mock.wooSyncLog
+      if (method === 'GET' && path === '/rest/v1/woo_sync_log') return u && u.role_id === 'admin' ? json(200, (mock.wooSyncLog || []).slice(0, 3)) : json(200, []);
       const csT = /^\/rest\/v1\/(cs_customers|cs_customer_notes|cs_rating_overrides|cs_team_ratings|cs_conversations|cs_messages|cs_segments|cs_campaigns|cs_channels|cs_contacts|cs_campaign_recipients|cs_posts|cs_templates|cs_quick_replies|cs_auto_rules|cs_auto_runs)$/.exec(path);
       if (csT) {
         if (mock.csDown) return json(503, { message: 'mock: cs down' });

@@ -2493,3 +2493,8 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 2. شغّل `supabase/tests/rls_acc_ad_spend.sql` على الحي، وبعدها ادمج على `main`. مفيش Edge Function اتغيّرت ومفيش أي كتابة.
 3. **اتأكد بعد النشر:** «الحسابات › المصروفات» فيها صفوف «تلقائي» بـ «Meta Ads» على أيام الصرف، والإجمالي = `select sum(spend) from mkt_ad_stats where level = 'campaign' and day between …`.
 
+#### 2.7.125 المخزون والمنتجات — ميتنج 23 نوفمبر المرحلة 6 (`0154`، الخطة `docs/superpowers/plans/2026-11-23-meeting.md`)
+1. طبّق `0154_inv_lost.sql`: حالة «مفقود» لقطع المخزن، وجدول `acc_bad_debts` («مفقودات» في الحسابات — select لـ `accounts.view ≠ N` ومفيش كتابة مباشرة)، و`acc_bad_debt_add` (`security definer`، `accounts.add = F`، مرة لكل قطعة؛ «حوّلها لحساب المبتكر» بيكتب «إيداع خارجي» في `acc_vendor_moves`). والجدول في قسم «الحسابات» في `data_wipe_map` ومجموعة «accounts» في المزامنة اللحظية.
+2. شغّل `supabase/tests/rls_inv_lost.sql` على الحي، وبعدها ادمج على `main`. مفيش Edge Function اتغيّرت ومفيش أي كتابة على الموقع.
+3. **اتأكد بعد النشر:** «مرتجع للمخزن» في الأوردرات فيه «حالة المرتجع» (هيوصل المخزن / فقد)؛ ملف المبتكر فيه تاب «مفقودات»؛ «الحسابات» فيها تاب «مفقودات»؛ و«استلام يدوي» في المخزن بيملا الاسم والمبتكر من الـ SKU.
+

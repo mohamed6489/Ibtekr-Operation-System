@@ -55,7 +55,7 @@ async function add(page, menu, dir) { await main(page).getByRole('button', { nam
 
 test('the page is open with its six tabs, no September seed: the numbers start at zero and the range is this month', async ({ page }) => {
   await openAccounts(page);
-  await expect(main(page).getByRole('tab')).toHaveText(['نظرة عامة', 'المصروفات', 'الاشتراكات', 'المبيعات', 'حسابات المبتكرين', 'الحساب الفعلي', 'سجل الحركات', 'التقارير']); // phase 5.5: «الاشتراكات» of its own; decision 61: «نظرة عامة» / «التقارير»
+  await expect(main(page).getByRole('tab')).toHaveText(['نظرة عامة', 'المصروفات', 'الاشتراكات', 'المبيعات', 'حسابات المبتكرين', 'الحساب الفعلي', 'سجل الحركات', 'مفقودات', 'التقارير']); // the meeting 23 Nov #39: «مفقودات» · phase 5.5: «الاشتراكات» of its own; decision 61: «نظرة عامة» / «التقارير»
   await expect(main(page)).not.toContainText('سبتمبر 2026');
   await expect(main(page)).not.toContainText('Monthly Performance');
   await expect(main(page).locator('.empty')).toContainText('لسه مفيش مصروفات');
@@ -483,7 +483,7 @@ test('decision 61: the accounts tabs start with «نظرة عامة» (the perio
   await signIn(page, ADMIN);
   await page.locator('.sidebar .nav-item[data-page="accounts"]').click();
   const tabs = main(page).locator('[role=tablist]').first().locator('[role=tab]');
-  await expect(tabs).toHaveText(['نظرة عامة', 'المصروفات', 'الاشتراكات', 'المبيعات', 'حسابات المبتكرين', 'الحساب الفعلي', 'سجل الحركات', 'التقارير']);
+  await expect(tabs).toHaveText(['نظرة عامة', 'المصروفات', 'الاشتراكات', 'المبيعات', 'حسابات المبتكرين', 'الحساب الفعلي', 'سجل الحركات', 'مفقودات', 'التقارير']);
   await expect(tabs.first()).toHaveAttribute('aria-selected', 'true');
   await expect(page).toHaveURL(/#acc-overview$/);
   await expect(main(page).locator('[data-acc-ov]')).toHaveCount(6);

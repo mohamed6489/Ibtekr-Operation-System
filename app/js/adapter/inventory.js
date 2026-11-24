@@ -65,14 +65,14 @@
     ref: r.ref || null, sub: r.item_id != null ? (sidOf ? sidOf(r.item_id) : String(r.item_id)) : '', itemId: r.item_id != null ? String(r.item_id) : null, order: r.order_id != null ? String(r.order_id) : null, since: r.since, loc: r.loc || '—', cost: num(r.cost),
     mode: modeOut(r.mode), condition: r.condition || undefined, conditionNote: r.condition_note || '', note: r.note || '', closed: !!r.closed_at });
   const toMove = (m, lots) => { const l = lots.get(m.lot_id) || {}; return { id: m.id, at: cairo(m.at), key: m.lot_id, type: m.type, qty: m.qty, label: m.label || '', reason: m.reason || '', ref: m.ref || '—', by: nameOf(m.by), note: m.note || '', name: l.name || '', sku: l.sku || '' }; };
-  const RET_STATUS = { 'بانتظار الفحص': 'بانتظار الفحص', 'تالف': 'اتفحص — تالف', 'راجع للمبتكر': 'اتفحص — رجع للمبتكر' };
+  const RET_STATUS = { 'بانتظار الفحص': 'بانتظار الفحص', 'تالف': 'اتفحص — تالف', 'راجع للمبتكر': 'اتفحص — رجع للمبتكر', 'مفقود': 'فقد' }; // «فقد»: the meeting 23 Nov #39 (0154)
   function toReturn(l, first) {
     const status = RET_STATUS[l.status] || 'اتفحص — سليم';
     const qty = first ? first.qty : 1;
     return { key: l.key, name: l.name, vendor: l.vendor, mode: l.mode === 'ملك' ? 'ملك ابتكر' : 'أمانة', sub: l.sub ? '#' + l.sub : (l.ref || '—'), sku: l.sku,
       type: l.status === 'راجع للمبتكر' ? 'مرتجع للمبتكر' : 'مرتجع للمخزن', reason: l.note || 'مرتجع', condition: l.condition, conditionNote: l.conditionNote,
-      at: K() && K().dshort ? K().dshort(l.returnedAt || l.since) : l.returnedAt || l.since, status, effect: status === 'بانتظار الفحص' ? '+ ' + qty + ' بعد الفحص' : status === 'اتفحص — تالف' ? '− تالف ' + (K() && K().money ? K().money(l.cost) : l.cost) + ' ج' : status === 'اتفحص — رجع للمبتكر' ? 'رجع لـ ' + l.vendor : '+ ' + qty + ' متاح',
-      value: status === 'اتفحص — تالف' ? l.cost : 0 };
+      at: K() && K().dshort ? K().dshort(l.returnedAt || l.since) : l.returnedAt || l.since, status, effect: status === 'بانتظار الفحص' ? '+ ' + qty + ' بعد الفحص' : status === 'اتفحص — تالف' ? '− تالف ' + (K() && K().money ? K().money(l.cost) : l.cost) + ' ج' : status === 'اتفحص — رجع للمبتكر' ? 'رجع لـ ' + l.vendor : status === 'فقد' ? '− فقد ' + (K() && K().money ? K().money(l.cost) : l.cost) + ' ج' : '+ ' + qty + ' متاح',
+      value: status === 'اتفحص — تالف' || status === 'فقد' ? l.cost : 0 };
   }
 
   let st = 'idle'; let gen = 0; let countRow = null; let media = new Map(); const HTTPS = /^https:\/\/[^\s"'<>]+$/i;
@@ -339,7 +339,16 @@
     catch (e) { return { ok: false, reason: 'network' }; }
   }
 
-  window.IBInventory = { load, clear, media: mediaOf, state: () => st, can, today, cairo, newKey, settings: () => Object.assign({}, data.settings), DEFAULTS, PLACES, RETURN_DEFAULTS, loadSettings,
+  // the meeting 23 Nov #38: the product and its maker by SKU, from the site's mirror (the English row first) — null when the mirror has no
+  // such SKU or the member cannot read it; the page fills the name and the maker and the member can still change them
+  async function skuInfo(sku) {
+    const k = String(sku || '').trim(); const cl = c(); if (!k || !cl) return null;
+    const ps = await rows(cl.from('products').select('sku, name, vendor_id, lang').eq('sku', k).limit(4)).catch(() => []);
+    const r = ps.slice().sort((a, b) => (a.lang === 'ar') - (b.lang === 'ar'))[0]; if (!r) return null;
+    const V = window.IBVendors && window.IBVendors.store; let v = null; try { v = r.vendor_id && V && V.get ? V.get(r.vendor_id) : null; } catch (x) { v = null; }
+    return { sku: k, name: String(r.name || ''), vendorId: r.vendor_id || null, vendor: v && v.name ? v.name : '' };
+  }
+  window.IBInventory = { load, clear, media: mediaOf, skuInfo, state: () => st, can, today, cairo, newKey, settings: () => Object.assign({}, data.settings), DEFAULTS, PLACES, RETURN_DEFAULTS, loadSettings,
     addLot, addMove, updateLot, consolidate, addToConsolidation, closeConsolidation, startCount, countLine, saveCount, pauseCount, approveCount, saveSettings, countId: () => (countRow ? countRow.id : null),
     _test: { toStock, toMove, toReturn, lotRow, moveRow, locCode, modeIn, modeOut } };
 })();

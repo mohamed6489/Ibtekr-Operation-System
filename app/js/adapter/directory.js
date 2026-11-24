@@ -62,6 +62,7 @@
     if (window.IBProducts) quiet(() => window.IBProducts.clear()); // phase 5: loaded by the products page, forgotten here
     if (window.IBCS) quiet(() => window.IBCS.clear()); // phase 6 (unsubscribes too)
     if (window.IBInventory) quiet(() => window.IBInventory.clear()); // phase 7
+    if (window.IBLost) quiet(() => window.IBLost.clear()); // the meeting 23 Nov #39
     if (window.IBTickets) quiet(() => window.IBTickets.clear()); // phase 8 (unsubscribes too)
     if (window.IBHR) quiet(() => window.IBHR.clear()); // phase 10 (unsubscribes too)
     if (window.IBMarketing) quiet(() => window.IBMarketing.clear()); // phase 9.5 (loaded by the marketing page; unsubscribes too)

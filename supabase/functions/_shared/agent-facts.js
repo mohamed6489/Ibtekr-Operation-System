@@ -49,7 +49,7 @@ export function countFacts(d, today, nowMs) {
         const start = { confirm: o.confirm, confirmAt: o.confirm_at, placedAt: o.placed_at }; const ls = byOrder.get(str(o.id)) || []; const leads = ls.map(leadOf);
         const s = orderDelayOf({ status: o.status, elapsed: orderElapsed(start, today, rules), maxLead: leads.length ? Math.max(...leads) : rules.lead }, rules);
         if (s === 'late') late++; else if (s === 'risk') risk++;
-        if (!DELAY_STOP.includes(str(o.status))) ls.forEach((l, i) => { if (l.vendor_id && lineDelayOf(lineElapsed({ notifiedAt: l.expected_at, ...start }, today, rules), leads[i], true, rules) === 'late') lateMakers.add(str(l.vendor_id)); });
+        if (!DELAY_STOP.includes(str(o.status))) ls.forEach((l, i) => { if (l.vendor_id && lineDelayOf(lineElapsed({ notifiedAt: l.expected_at, ...start }, today, rules), leads[i], true, rules, o.status) === 'late') lateMakers.add(str(l.vendor_id)); });
       }
       f.orders_late = late; f.orders_risk = risk; f.makers_late = lateMakers.size;
     } else { f.orders_late = null; f.orders_risk = null; f.makers_late = null; }

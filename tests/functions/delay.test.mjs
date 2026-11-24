@@ -84,3 +84,14 @@ test('decision 17: block 12 answers like the server on every case', () => {
   }
   assert.deepEqual(O.DELAY_STOP, S.DELAY_STOP); assert.deepEqual(O.START_POINTS, S.START_POINTS);
 });
+test('the meeting of 23 Nov [#9]: an on-hold order («معلّق») and its lines are never «متأخر» / «قابل للتأخير», whatever the stop list; block 12 the same', () => {
+  const rules = S.delayRules({ stop: ['مكتمل'] }); // a stop list without «معلّق» still leaves it out
+  for (const X of [S, O]) {
+    assert.equal(X.orderDelayOf({ status: 'معلّق', elapsed: 40, maxLead: 7 }, rules), 'ok');
+    assert.equal(X.orderDelayOf({ status: 'جاري التنفيذ', elapsed: 40, maxLead: 7 }, rules), 'late', 'the same order working is late');
+    assert.equal(X.lineDelayOf(40, 7, true, rules, 'معلّق'), 'ok');
+    assert.equal(X.lineDelayOf(40, 7, true, rules, 'جاري التنفيذ'), 'late');
+    assert.equal(X.lineDelayOf(6, 7, true, rules), 'risk', 'no order status = the old call');
+  }
+  assert.equal(S.HOLD_STATUS, 'معلّق');
+});

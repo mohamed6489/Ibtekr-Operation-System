@@ -1338,6 +1338,28 @@ export async function installSupabaseMock(page, opts = {}) {
       // 0033 (phase 5.5 decision 10): order_delete — a cancelled order marked deleted with a reason; orders.view N / unknown /
       // already deleted → P0002; orders.status <> F → 42501; not «ملغي» or an empty / long reason → 22023. Recorded in deletes;
       // orders_v leaves the order out afterwards (the row stays in mock.orders with deleted_at).
+      // 0151 (the meeting of 23 Nov [#15]): «تم الشحن» — the same shapes as order_shipment_add on the server
+      if (method === 'POST' && path === '/rest/v1/rpc/order_shipment_add') {
+        const b = body(); const refuse = (status, code, message) => json(status, { code, details: null, hint: null, message });
+        if (hasPerm(u, 'orders.view') === 'N' || !(hasPerm(u, 'orders.status') === 'F' || hasPerm(u, 'orders.edit') !== 'N')) return refuse(403, '42501', 'forbidden');
+        const o = mock.orders.find((x) => Number(x.id) === Number(b.p_order) && !x.deleted_at); if (!o) return refuse(400, 'P0002', 'not found');
+        const app = typeof b.p_app === 'string' ? b.p_app.trim() : ''; const amt = b.p_amount == null ? null : Number(b.p_amount);
+        const bad = (f) => refuse(400, '22023', 'invalid: ' + f);
+        if (!['warehouse', 'customer'].includes(b.p_leg)) return bad('leg');
+        if (!['bosta', 'ride', 'maker', 'courier'].includes(b.p_method) || (b.p_leg === 'customer' && !['bosta', 'ride'].includes(b.p_method))) return bad('method');
+        if (app && (app.length > 40 || /[<>]/.test(app))) return bad('app');
+        if (b.p_method === 'ride' && (!app || !(amt > 0))) return bad('amount');
+        if (b.p_leg === 'warehouse' && b.p_method === 'bosta' && !(amt > 0)) return bad('amount');
+        if (b.p_leg === 'customer' && b.p_method === 'ride' && !['company', 'customer'].includes(b.p_payer)) return bad('payer');
+        mock.shipments = mock.shipments || []; const id = mock.shipments.length + 1;
+        mock.shipments.push({ id, order_id: o.id, item_id: b.p_item, leg: b.p_leg, method: b.p_method, app_name: b.p_method === 'ride' ? app : null, amount: ['ride', 'bosta'].includes(b.p_method) ? amt : null,
+          payer: b.p_method === 'ride' && b.p_leg === 'customer' ? b.p_payer : amt != null ? 'maker' : null, vendor_move_id: b.p_vendor_move, expense_id: b.p_expense, by: u.email });
+        return json(200, id);
+      }
+      if (path === '/rest/v1/order_shipments' && method === 'GET') { // 0151: the shipments (orders.view)
+        const rows = hasPerm(u, 'orders.view') === 'N' ? [] : (mock.shipments || []).filter((r) => r.payer === 'customer').map((r) => ({ order_id: r.order_id, amount: r.amount }));
+        return json(200, rows);
+      }
       if (method === 'POST' && path === '/rest/v1/rpc/order_delete') {
         if (mock.ordersDown) return json(503, { message: 'mock: orders down' });
         const b = body(); const refuse = (status, code, message) => json(status, { code, details: null, hint: null, message });

@@ -812,3 +812,16 @@ test('the owner 22 Nov: reasonOf — the cancel reason of a «ملغي» order, 
   assert.equal(O.reasonOf('ملغي', { cancel: null }, { ret: { reason: '  ' } }), '');
   assert.equal(O.reasonOf('مكتمل', null, null), '');
 });
+
+test('the meeting of 23 Nov [#13]: an order\'s pieces come grouped under their sub-order (فرعي 1 · فرعي 1 · فرعي 2, never 1 · 2 · 1)', async () => {
+  const items = [
+    item({ id: 6001, order_id: 181668, sub_order_id: 1, name: 'A1', vendor_id: V1 }),
+    item({ id: 6002, order_id: 181668, sub_order_id: 2, name: 'B1', vendor_id: V2 }),
+    item({ id: 6003, order_id: 181668, sub_order_id: 1, name: 'A2', vendor_id: V1 }),
+    item({ id: 6004, order_id: 181668, sub_order_id: 2, name: 'B2', vendor_id: V2 }),
+  ];
+  const { O } = load({ responses: Object.assign(seed(), { order_items: ok(items) }) });
+  await O.load();
+  const o = plain(O.data()).orders.find((x) => x.id === '181668');
+  assert.deepEqual(o.subs.map((s) => s.prod + '@' + s.sid), ['A1@181669', 'A2@181669', 'B1@181670', 'B2@181670']);
+});

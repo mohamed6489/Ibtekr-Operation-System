@@ -16,8 +16,10 @@
   const lists = () => (ST() && ST().notifLists ? ST().notifLists() : {});
   const showText = (r) => { const c = C(); const s = (c.SHOWS.find(([k]) => k === r.show) || [, ''])[1]; return r.show === 'fixed' ? s + ' · ' + (r.hours >= 168 ? 'أسبوع' : r.hours + ' ساعة') : r.hours ? s + ' · بعد ' + r.hours + ' ساعات' : s; };
   const repeatText = (r) => { const c = C(); const s = (c.REPEATS.find(([k]) => k === r.repeat) || [, ''])[1]; return r.repeat === 'days' ? s + ' (' + (r.days || []).join('، ') + ')' : s; };
-  const pathText = (r) => { const c = C(); const e = c.el(r.element); const t = c.typeOf(r.element, r.type); const s = c.stateOf(r.element, r.type, r.state, lists());
+  const pathOne = (r) => { const c = C(); const e = c.el(r.element); const t = c.typeOf(r.element, r.type); const s = c.stateOf(r.element, r.type, r.state, lists());
     return [e ? e.label : r.element, t ? t.label : r.type, s ? s.label : r.state].join(' › ') + (r.sub ? ' · ' + r.sub : ''); };
+  // with its extra elements (0162): each on its own after «+»
+  const pathText = (r) => [pathOne(r)].concat((Array.isArray(r.conds) ? r.conds : []).map(pathOne)).join(' + ');
 
   // ---------- the section names (add / rename)
   function nameForm(title, value, onSave) {
@@ -33,7 +35,22 @@
   // ---------- the alert's form (Safwat's drawing «إضافة تنبيه»)
   function ruleForm(sub, rule, redraw) {
     const c = C(); const L = lists();
-    const f = Object.assign({ section_id: sub.id, name: '', element: '', type: '', state: '', sub: null, param: null, at: '09:00', repeat: '24h', days: [], show: 'until_state', hours: 0, roles: [], channels: ['bell'], template: '', active: true }, rule ? JSON.parse(JSON.stringify(rule)) : {});
+    const f = Object.assign({ section_id: sub.id, name: '', element: '', type: '', state: '', sub: null, param: null, at: '09:00', repeat: '24h', days: [], show: 'until_state', hours: 0, roles: [], channels: ['bell'], template: '', active: true, mode: 'single', conds: [] }, rule ? JSON.parse(JSON.stringify(rule)) : {});
+    if (!Array.isArray(f.conds)) f.conds = [];
+    // a new rule takes its level's «تفاصيل الظهور» (the bell's redesign decision 1) — with all its elements (decision 8: the highest)
+    const levelNow = () => (c.levelOfAll ? c.levelOfAll(f) : c.levelOf(f));
+    const reShow = () => { if (!rule && c.showOf) Object.assign(f, c.showOf(levelNow(), c.kindOf(f))); };
+    // an extra element (Safwat 24 Nov — «إمكانية لإضافة أكتر من عنصر في التنبيه الواحد»): the same three lists, × takes it off
+    const condRow = (x, i) => {
+      const ts = (c.el(x.element) || { types: [] }).types; const ss = x.element && x.type ? c.statesOf(x.element, x.type, L) : []; const s2 = c.stateOf(x.element, x.type, x.state, L); const n = i + 2;
+      return h('div', { class: 'nr-cond', 'data-nr-cond': String(i) },
+        h('div', { class: 'nr-cond-h' }, h('span', { class: 't-label' }, 'العنصر ' + n), h('button', { type: 'button', class: 'nr-cond-x', 'aria-label': 'شيل العنصر ' + n, title: 'شيل العنصر ' + n, 'data-nr-cond-x': String(i), onClick: () => { f.conds.splice(i, 1); reShow(); draw(); } }, '×')),
+        h('div', { class: 'row cols3' },
+          U().Select({ id: 'nr-el-' + n, label: 'العنصر', required: true, value: x.element || null, options: c.ELEMENTS.map((e) => ({ value: e.id, label: e.label })), onChange: (v) => { Object.assign(x, { element: v, type: '', state: '', sub: null, param: null }); draw(); } }),
+          U().Select({ id: 'nr-type-' + n, label: 'نوع التنبيه', required: true, disabled: !x.element, value: x.type || null, options: ts.map((t) => ({ value: t.id, label: t.label })), onChange: (v) => { Object.assign(x, { type: v, state: '', sub: null, param: null }); draw(); } }),
+          U().Select({ id: 'nr-state-' + n, label: 'الوضع', required: true, disabled: !x.type, value: x.state || null, options: ss.map((t) => ({ value: t.id, label: t.label })), onChange: (v) => { x.state = v; const s3 = c.stateOf(x.element, x.type, v, L); x.param = s3 && s3.param ? s3.param.def : null; reShow(); draw(); } })),
+        s2 && s2.param ? U().TextInput({ id: 'nr-param-' + n, label: s2.param.label, inputmode: 'numeric', dir: 'ltr', value: x.param == null ? String(s2.param.def) : String(x.param), onInput: (v) => { x.param = v === '' ? null : Number(String(v).replace(/[^\d.]/g, '')); } }) : null);
+    };
     let err = ''; const body = h('div', { class: 'nr-form', 'data-nr-form': '' });
     const types = () => { const e = c.el(f.element); return e ? e.types : []; };
     const states = () => (f.element && f.type ? c.statesOf(f.element, f.type, L) : []);
@@ -48,12 +65,15 @@
             U().Select({ id: 'nr-el', label: 'العنصر', required: true, value: f.element || null, options: c.ELEMENTS.map((e) => ({ value: e.id, label: e.label })), onChange: (v) => { f.element = v; f.type = ''; f.state = ''; f.sub = null; f.param = null; draw(); } }),
             U().Select({ id: 'nr-type', label: 'نوع التنبيه', required: true, disabled: !f.element, value: f.type || null, options: types().map((x) => ({ value: x.id, label: x.label })), onChange: (v) => { f.type = v; f.state = ''; f.sub = null; f.param = null; draw(); } }),
             U().Select({ id: 'nr-state', label: 'الوضع', required: true, disabled: !f.type, value: f.state || null, options: states().map((x) => ({ value: x.id, label: x.label })), onChange: (v) => { f.state = v; const s2 = c.stateOf(f.element, f.type, v, L); f.param = s2 && s2.param ? s2.param.def : null;
-              // a new rule takes its level's «تفاصيل الظهور» (the bell's redesign decision 1) — the admin changes it below if he wants
-              if (!rule && c.showOf) Object.assign(f, c.showOf(c.levelOf(f), c.kindOf(f))); draw(); } })),
+              reShow(); draw(); } })),
           t && t.dyn === 'ticket' ? U().Select({ id: 'nr-sub', label: 'نوع الطلب', value: f.sub || '', options: [{ value: '', label: 'كل الأنواع' }].concat((L.ticket || []).map((x) => ({ value: x, label: (window.IbtekrTickets && window.IbtekrTickets.label ? window.IbtekrTickets.label(x) : x) }))), onChange: (v) => { f.sub = v || null; } }) : null,
           st && st.param ? U().TextInput({ id: 'nr-param', label: st.param.label, inputmode: 'numeric', dir: 'ltr', value: f.param == null ? String(st.param.def) : String(f.param), onInput: (v) => { f.param = v === '' ? null : Number(String(v).replace(/[^\d.]/g, '')); } }) : null,
-          st && c.levelOf ? h('p', { class: 't-small', style: 'margin:0', 'data-nr-level': c.levelOf(f) }, 'الأهمية: ', h('b', null, ({ critical: 'حرج — أول حاجة في الجرس', important: 'مهم', info: 'للعلم — بيختفي بعد يوم بالكتير' })[c.levelOf(f)])) : null,
-          st ? h('p', { class: 't-small help', style: 'margin:0' }, st.kind === 'event' ? 'بيتبعت مع كل حدث جديد من الوقت ده كل يوم.' : st.kind === 'due' ? 'بيتبعت مرة لما الميعاد يقرب.' : 'بيتبعت لكل حاجة في الوضع ده ويتجدد بالتكرار طول ما هي فيه.') : null),
+          f.conds.map(condRow),
+          h('div', { class: 'nr-cond-add' }, U().Button({ size: 'sm', icon: 'plus', label: 'عنصر تاني', disabled: !st || f.conds.length >= (c.CONDS_MAX || 5), attrs: { 'data-nr-cond-add': '' }, onClick: () => { f.conds.push({ element: '', type: '', state: '', sub: null, param: null }); draw(); } }),
+            f.conds.length >= (c.CONDS_MAX || 5) ? h('span', { class: 't-small muted' }, 'لحد ' + (c.CONDS_MAX || 5) + ' عناصر زيادة') : null),
+          c.MODES ? U().Select({ id: 'nr-mode', label: 'طريقة التنبيه', value: f.mode || 'single', options: c.MODES.map(([k, l]) => ({ value: k, label: l })), help: f.mode === 'report' ? 'تنبيه واحد في كل مرة بيشتغل، ولما تفتحه بيطلعلك جدول واحد بكل الحاجات من كل العناصر.' : 'تنبيه لكل حاجة لوحدها — من كل عنصر.', onChange: (v) => { f.mode = v; draw(); } }) : null,
+          st && c.levelOf ? h('p', { class: 't-small', style: 'margin:0', 'data-nr-level': levelNow() }, 'الأهمية: ', h('b', null, ({ critical: 'حرج — أول حاجة في الجرس', important: 'مهم', info: 'للعلم — بيختفي بعد يوم بالكتير' })[levelNow()])) : null,
+          st ? h('p', { class: 't-small help', style: 'margin:0' }, f.mode === 'report' ? 'بيتجمع كل اللي في العناصر دي في تقرير واحد يتجدد بالتكرار.' : st.kind === 'event' ? 'بيتبعت مع كل حدث جديد من الوقت ده كل يوم.' : st.kind === 'due' ? 'بيتبعت مرة لما الميعاد يقرب.' : 'بيتبعت لكل حاجة في الوضع ده ويتجدد بالتكرار طول ما هي فيه.') : null),
         sec('وقت الإرسال',
           h('div', { class: 'row cols2' },
             U().Select({ id: 'nr-at', label: 'الوقت', value: f.at, options: TIMES.map((x) => ({ value: x, label: t12(x) })), onChange: (v) => { f.at = v; } }),
@@ -98,7 +118,7 @@
   function ruleRow(sub, r, redraw) {
     return h('div', { class: 'nr-rule' + (r.active === false ? ' off' : ''), 'data-nr-rule': r.id },
       h('div', { class: 'nr-rule-main' }, h('b', null, r.name), h('div', { class: 't-small muted' }, pathText(r)),
-        h('div', { class: 'nr-tags' }, [t12(r.at) + ' · ' + repeatText(r), showText(r)].map((x) => h('span', { class: 'tag' }, x))), roleChips(r, redraw)),
+        h('div', { class: 'nr-tags' }, [t12(r.at) + ' · ' + repeatText(r), showText(r)].concat(r.mode === 'report' ? ['تقرير'] : []).map((x) => h('span', { class: 'tag' + (x === 'تقرير' ? ' info' : ''), 'data-nr-mode': x === 'تقرير' ? 'report' : false }, x))), roleChips(r, redraw)),
       K().Switch({ id: 'nr-on-' + r.id, label: r.active === false ? 'متوقف' : 'شغّال', checked: r.active !== false, onChange: async (v) => { const x = await ST().notifRuleSave(Object.assign({}, r, { active: v })); say(x); redraw(); } }),
       K().RowMenu([{ label: 'تعديل', icon: 'edit', run: () => ruleForm(sub, r, redraw) },
         { label: 'حذف', icon: 'trash', danger: true, run: () => K().confirm({ title: 'حذف التنبيه', text: '«' + r.name + '» هيتمسح وتنبيهاته هتختفي من الجرس.', okLabel: 'احذف', okType: 'danger', onOk: async () => { say(await ST().notifRuleDelete(r.id), 'اتمسح'); redraw(); } }) }]));

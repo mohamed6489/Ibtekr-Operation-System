@@ -99,7 +99,7 @@ const COLUMNS: Record<string, string[]> = {
   hr_requests_v: ['id', 'member_id', 'type', 'from_day', 'to_day', 'status'],
   alerts: ['id', 'at', 'kind', 'title', 'body', 'role_id', 'user_id', 'entity', 'entity_id', 'read_at', 'source_key', 'expires_at', 'rule_id', 'section_id', 'hide_at', 'meta'], // 0056: source_key / expires_at; 0157: rule_id / section_id / hide_at; 0161: meta
   notif_sections: ['id', 'parent_id', 'name', 'icon', 'sort', 'created_at'], // 0157
-  notif_rules: ['id', 'section_id', 'name', 'element', 'type', 'state', 'sub', 'param', 'at', 'repeat', 'days', 'show', 'hours', 'roles', 'channels', 'template', 'active', 'sort', 'last_run', 'created_by', 'created_at', 'updated_at'], // 0157
+  notif_rules: ['id', 'section_id', 'name', 'element', 'type', 'state', 'sub', 'param', 'at', 'repeat', 'days', 'show', 'hours', 'roles', 'channels', 'template', 'active', 'sort', 'last_run', 'created_by', 'created_at', 'updated_at', 'mode', 'conds'], // 0157, 0162
   // 0006 + 0056 (phase 11): the read marks and the notifications engine's memory
   alert_reads: ['alert_id', 'user_id', 'read_at'],
   alert_state: ['source_key', 'entity_id', 'target', 'first_at', 'last_sent_at', 'sent_count', 'escalated_at', 'resolved_at', 'channel_log'],

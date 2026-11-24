@@ -2559,3 +2559,10 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 2. انشر `notify` (الـ entities بقت بتقول المبتكر / العضو / المساعد / العميل، والأوضاع الجديدة).
 3. ادمج على `main` (الكتلة 28 + `alerts.js` + `app.css` + `notif-settings.js` + `settings.css`).
 4. **اتأكد:** بعد أول تيك، `select meta, count(*) from alerts where at > now() - interval '30 minutes' group by 1 limit 20;` — قواعد «متابعة المبتكرين» بيبقى عليها `g = vendor`. وافتح الجرس: كارت لكل مبتكر بعدد الأوردرات والقطع، والضغطة بتفتح أوردراته المتأخرة.
+5. **التنبيهات القديمة** (اللي اتكتبت قبل `0161`) مالهاش `meta`: اتملت مرة على الحي 24 نوفمبر (تأخير الأوردرات الفرعية بالمبتكر وعدد القطع، والباقي المستوى بس).
+
+#### 2.7.134 أكتر من عنصر في التنبيه + «فردي / تقرير» (`0162`، قرار 8 في نفس الخطة)
+1. **`0162`**: `notif_rules.mode` (`single` | `report`) و`conds` (لحد 5 عناصر زيادة، `notif_conds_ok`)، و`notif_rule_save` بياخدهم (تعديل من غير `conds` بيسيبها).
+2. انشر `notify` (`reportPlan` / `partKey` — من غير `0162` بيقرا القواعد من غير العمودين ويشتغل «فردي» زي الأول).
+3. ادمج على `main` (`notif-catalog.js` بالحرف في `_shared`، `notif-settings.js`، `settings.js`، `alert-report.js`، الكتلة 28، `index.html`).
+4. **اتأكد:** اعمل تنبيه بعنصرين و«تقرير» → بعد أول تيك ميعاده: `select title, meta->>'n' from alerts where entity_id = 'report' order by at desc limit 5;` — وافتحه من الجرس: جدول واحد بكل الحاجات.

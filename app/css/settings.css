@@ -654,3 +654,10 @@ button.dx-stat{cursor:pointer}button.dx-stat:hover{background:var(--color-bg-hov
 .nr-role .x:hover:not(:disabled){opacity:.75}.nr-role .x:disabled{opacity:.4;cursor:default}
 .nr-role-add{width:26px;height:26px;border:1px dashed var(--color-brand-default);border-radius:13px;background:transparent;color:var(--color-brand-default);font-size:16px;line-height:1;cursor:pointer}
 .nr-role-add:hover:not(:disabled){background:var(--color-bg-hover)}.nr-role-add:disabled{opacity:.4;cursor:default}
+
+/* several elements in one alert (Safwat 24 Nov — the bell's redesign decision 8): each extra element a bordered row with ×; «+ عنصر تاني» under them */
+.nr-cond { border: 1px dashed var(--color-border-default, #d9cdb8); border-radius: 10px; padding: 10px 12px; display: grid; gap: 8px; }
+.nr-cond-h { display: flex; align-items: center; justify-content: space-between; }
+.nr-cond-x { inline-size: 26px; block-size: 26px; border-radius: 50%; border: 1px solid var(--color-border-default, #d9cdb8); background: none; color: var(--color-danger-base, #b42318); cursor: pointer; font-size: 16px; line-height: 1; }
+.nr-cond-x:hover { opacity: .8; }
+.nr-cond-add { display: flex; align-items: center; gap: 10px; }

@@ -841,6 +841,8 @@
     // the bell's redesign (docs/superpowers/plans/2026-11-24-bell-redesign.md decision 3): a maker's card opens his late orders — each
     // order opens from there, and «مشاركة» sends them to him
     if (a && a.vendorLate) { openVendorLate(a.vendorLate, a.kind || 'all'); return true; }
+    // «تقرير» (decision 8, 0162): one table with every thing of the rule's elements — each row opens its thing through here
+    if (a && a.meta && a.meta.report && window.IBAlertReport) { window.IBAlertReport.open(a, treeOpen); return true; }
     const n = /^note:(\d+)$/.exec(String(a.entityId || ''));
     if (n) { const ag = /^ai-([a-z0-9_]+)$/.exec(String(a.entity || '')); window.IBAlerts.openNote(Number(n[1]), ag ? ag[1] : 'manager', ag ? null : a.entity); return true; }
     const o = /^orders\/([\w-]+)$/.exec(String(a.entity || '')); if (o) { peekOrder(o[1]); return true; }

@@ -91,6 +91,11 @@
   // the bell's redesign decision 1: how much an alert matters — the bell's order (critical first) and how long it stays (showOf)
   const LEVELS = [['critical', 'حرج'], ['important', 'مهم'], ['info', 'للعلم']];
   const INFO_MAX_H = 24; // an «info» alert leaves the bell 24 hours after it was written, read or not
+  // several elements in one alert (Safwat 24 Nov — the bell's redesign decision 8, 0162): the rule's own element › type › state + up
+  // to CONDS_MAX more (`conds`), and `mode`: «فردي» an alert per thing (each element's own, as before) · «تقرير» one alert per member and
+  // run that holds them all, opened in the bell as one table
+  const CONDS_MAX = 5;
+  const MODES = [['single', 'فردي — تنبيه لكل حاجة'], ['report', 'تقرير — تنبيه واحد بكل الحاجات']];
   const LIVE_CHANNELS = ['bell', 'email', 'whatsapp']; // Safwat 24 Nov: e-mail and WhatsApp each behind its switch (settings «notif».channels)
   const el = (id) => ELEMENTS.find((e) => e.id === id) || null;
   const typeOf = (eid, tid) => { const e = el(eid); return e ? e.types.find((t) => t.id === tid) || null : null; };
@@ -116,8 +121,20 @@
     if (!Array.isArray(r.roles) || !r.roles.length) return 'اختار المستلم (دور واحد على الأقل)';
     if (!Array.isArray(r.channels) || !r.channels.length || r.channels.some((c) => !CHANNELS.some(([k]) => k === c))) return 'اختار قناة الإرسال';
     const tpl = String(r.template == null ? '' : r.template); if (tpl.length > 500 || /[<>]/.test(tpl)) return 'قالب الرسالة لحد 500 حرف من غير < >';
+    if (r.mode != null && !MODES.some(([k]) => k === r.mode)) return 'اختار طريقة التنبيه (فردي / تقرير)';
+    const cs = r.conds == null ? [] : r.conds; if (!Array.isArray(cs) || cs.length > CONDS_MAX) return 'لحد ' + CONDS_MAX + ' عناصر زيادة في التنبيه';
+    for (let i = 0; i < cs.length; i++) { const x = cs[i] || {}; const n = ' (العنصر ' + (i + 2) + ')';
+      if (!el(x.element)) return 'اختار العنصر' + n; if (!typeOf(x.element, x.type)) return 'اختار نوع التنبيه' + n; if (!stateOf(x.element, x.type, x.state, lists)) return 'اختار الوضع' + n; }
     return null;
   }
+  // the rule's parts: its own element › type › state, then each extra one as the same rule on that element (`part` 0 … n)
+  function partsOf(rule) {
+    if (!rule) return [];
+    const cs = Array.isArray(rule.conds) ? rule.conds : [];
+    return [Object.assign({}, rule, { part: 0 })].concat(cs.map((c, i) => Object.assign({}, rule, { element: c.element, type: c.type, state: c.state, sub: c.sub == null ? null : c.sub, param: c.param == null ? null : c.param, part: i + 1 })));
+  }
+  // a part's name in a report's table: «العنصر › الوضع»
+  function partLabel(part, lists) { const e = el(part.element); const s = stateOf(part.element, part.type, part.state, lists); return (e ? e.label : part.element) + ' › ' + (s ? s.label : part.state); }
   // the message: the template's {الاسم} / {الرقم} / {الوضع} / {التفاصيل} filled, else the rule's name and the entity's line
   function render(rule, ent) {
     const v = { 'الاسم': ent && ent.name ? String(ent.name) : '', 'الرقم': ent && ent.ref ? String(ent.ref) : '', 'الوضع': ent && ent.state ? String(ent.state) : '', 'التفاصيل': ent && ent.line ? String(ent.line) : '' };
@@ -172,12 +189,14 @@
   // the «تفاصيل الظهور» a level asks for (a new rule's default; 0161 set the old rules to it): critical and important stay till the
   // state changes — a critical event a fixed 72 hours (reading it does not hide it), an important one till read + 6 hours; info goes
   // 2 hours after it is read (and INFO_MAX_H at the latest)
+  // a rule's level with all its parts: the highest of them (a report that holds a critical part is critical)
+  function levelOfAll(rule) { const R = { critical: 0, important: 1, info: 2 }; return partsOf(rule).map(levelOf).sort((a, b) => R[a] - R[b])[0] || levelOf(rule); }
   function showOf(level, kind) {
     if (level === 'critical') return kind === 'state' ? { show: 'until_state', hours: 0 } : { show: 'fixed', hours: 72 };
     if (level === 'important') return kind === 'state' ? { show: 'until_state', hours: 0 } : kind === 'due' ? { show: 'fixed', hours: 48 } : { show: 'until_read', hours: 6 };
     return { show: 'until_read', hours: 2 };
   }
-  const api = { ELEMENTS, AGENTS, LEVELS, INFO_MAX_H, REPEATS, SHOWS, SHOW_HOURS, CHANNELS, LIVE_CHANNELS, el, typeOf, statesOf, stateOf, ruleError, render, due, runs, kindOf, levelOf, showOf, elementOfKind };
+  const api = { ELEMENTS, AGENTS, LEVELS, INFO_MAX_H, CONDS_MAX, MODES, partsOf, partLabel, levelOfAll, REPEATS, SHOWS, SHOW_HOURS, CHANNELS, LIVE_CHANNELS, el, typeOf, statesOf, stateOf, ruleError, render, due, runs, kindOf, levelOf, showOf, elementOfKind };
   root.IBNotifCatalog = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

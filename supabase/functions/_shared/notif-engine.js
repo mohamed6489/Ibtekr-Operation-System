@@ -75,6 +75,32 @@ export function writePlan({ rule, ents, existing, members, roles, now, lineFor }
   return { inserts, retire };
 }
 
+// «تقرير» (Safwat 24 Nov — the bell's redesign decision 8, 0162): a rule with several elements in report mode writes one alert per member
+// and run, holding everything each of its parts would have written to him (the same receivers and permissions as «فردي» — writePlan
+// per part with nothing «existing»), as `meta.items` [{ p: the part's «العنصر › الوضع», t: the line's title, b: its body, e: its page
+// link, g: its owner's name }] (REPORT_MAX at most — `n` counts them all). parts: [{ rule: the part (partsOf), ents, lineFor }].
+export const REPORT_MAX = 300;
+export function reportPlan({ rule, parts, members, roles, now, lists }) {
+  const by = new Map(); const per = new Map();
+  for (const x of parts || []) {
+    const label = C.partLabel(x.rule, lists || {});
+    const plan = writePlan({ rule: x.rule, ents: x.ents, existing: [], members, roles, now, lineFor: x.lineFor });
+    for (const a of plan.inserts) {
+      const l = by.get(a.user_id) || []; l.push({ p: label, t: a.title, b: a.body || '', e: a.entity || null, g: a.meta && a.meta.gname ? a.meta.gname : null }); by.set(a.user_id, l);
+      const c = per.get(a.user_id) || new Map(); c.set(label, (c.get(label) || 0) + 1); per.set(a.user_id, c);
+    }
+  }
+  const hide = rule.show === 'fixed' ? new Date(Date.parse(now) + Number(rule.hours) * H).toISOString() : null;
+  const name = String(rule.name || '').slice(0, 100);
+  return [...by.entries()].map(([uid, items]) => ({ at: now, kind: 'rule:report', title: name + ' — ' + items.length, user_id: uid,
+    body: [...per.get(uid).entries()].map(([k, n]) => n + ' ' + k).join(' · ').slice(0, 300), entity: null, entity_id: 'report',
+    rule_id: rule.id, section_id: rule.section_id, hide_at: hide, meta: { lv: C.levelOfAll(rule), report: true, n: items.length, items: items.slice(0, REPORT_MAX) } }));
+}
+// a «فردي» rule's extra part keeps its alerts apart from the rule's own: its entity ids carry «x<part>|» (part 0 — the rule's own
+// element — as before)
+export const partKey = (part, id) => (part ? 'x' + part + '|' + id : String(id));
+export const partOfKey = (id) => { const m = /^x(\d)\|/.exec(String(id)); return m ? Number(m[1]) : 0; };
+
 // the bell's redesign (Safwat 24 Nov — docs/superpowers/plans/2026-11-24-bell-redesign.md decisions 1–3): what the bell needs to draw
 // and group an alert — its level, who it is about (`group`: { g: vendor | member | agent | customer, id, name }) and the counts the
 // entity carries (orders `n`, pieces `pcs`, the delay `st`). Names and numbers only — never a phone or a message's text.

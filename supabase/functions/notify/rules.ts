@@ -5,7 +5,7 @@
 // old ones by the rule's «تفاصيل الظهور». The bell draws the sections from notif_sections. The channels: a rule that names e-mail /
 // WhatsApp also sends its new rows to each member (outboundPlan → index.ts sendOut), while the admin's switch of the channel is on
 // (Safwat 24 Nov: e-mail on, WhatsApp off until its API is turned on). Nothing here logs a phone, an address or a text.
-import { catalogue as CAT, hidePlan, outboundPlan, permOf, runsNow, writePlan } from '../_shared/notif-engine.js';
+import { catalogue as CAT, hidePlan, outboundPlan, partKey, partOfKey, permOf, reportPlan, runsNow, writePlan } from '../_shared/notif-engine.js';
 import { LIVE_FROM } from '../_shared/legacy.js'; // phase 9: the imported old orders raise nothing
 import { delayRules, leadBy, lineDelayOf, lineElapsed, orderDelayOf, orderElapsed } from '../_shared/delay.js';
 
@@ -519,7 +519,9 @@ function dailyLine(e: Ent, m: Json, w: World): string | null {
 
 export async function runRules(db: Db, ctx: Ctx, opts: { dry?: boolean; gates?: { email?: boolean; whatsapp?: boolean } } = {}): Promise<Json> {
   ordersMemo = null;
-  const rl = await db.from('notif_rules').select('id, section_id, name, element, type, state, sub, param, at, repeat, days, show, hours, roles, channels, template, active, last_run, updated_at').limit(500);
+  const COLS = 'id, section_id, name, element, type, state, sub, param, at, repeat, days, show, hours, roles, channels, template, active, last_run, updated_at';
+  let rl = await db.from('notif_rules').select(COLS + ', mode, conds').limit(500);
+  if (rl.error) rl = await db.from('notif_rules').select(COLS).limit(500); // before 0162 (one element, «فردي»)
   if (rl.error) return { skipped: 'no_rules' }; // before 0157
   const rules = rows(rl); if (!rules.length) return { rules: 0 };
   const w = await world(db);
@@ -532,18 +534,34 @@ export async function runRules(db: Db, ctx: Ctx, opts: { dry?: boolean; gates?: 
   const inserts: Json[] = []; const retired: number[] = []; const hides: Json[] = []; const ranIds: string[] = [];
   for (const rule of rules) {
     try {
-      const kind = CAT.kindOf(rule); const mine = shown.filter((a) => a.rule_id === rule.id);
+      const mine = shown.filter((a) => a.rule_id === rule.id);
       const due = runsNow(rule, ctx.cairo);
       const since = rule.last_run ?? new Date(Math.max(Date.parse(rule.updated_at ?? ctx.now), ctx.nowMs - 20 * 60_000)).toISOString();
-      const needState = rule.active !== false && kind === 'state' && (due || (rule.show === 'until_state' && mine.length > 0));
-      const ents = due || needState ? await entities(db, w, ctx, rule, since) : null;
-      if (due && ents) {
-        const existing = rows(await db.from('alerts').select('id, entity_id, user_id, hide_at').eq('rule_id', rule.id).in('entity_id', ents.map((e) => e.id).slice(0, 500)).limit(20_000));
-        const plan = writePlan({ rule, ents, existing, members: w.members, roles: w.roles, now: ctx.now, lineFor: rule.element === 'daily' ? (e: Ent, m: Json) => dailyLine(e, m, w) : undefined });
-        inserts.push(...plan.inserts); retired.push(...plan.retire); ranIds.push(rule.id); sum.ran++; sum.replaced += plan.retire.length;
+      const parts: Json[] = CAT.partsOf(rule); // the rule's own element + its extra ones (0162 — Safwat 24 Nov)
+      const lineOf = (p: Json) => (p.element === 'daily' ? (e: Ent, m: Json) => dailyLine(e, m, w) : undefined);
+      if (rule.mode === 'report') {
+        // «تقرير»: one alert per member and run with all the parts' things; the run renews it (the old one leaves the bell)
+        if (due && rule.active !== false) {
+          const got = []; for (const p of parts) got.push({ rule: p, ents: await entities(db, w, ctx, p, since), lineFor: lineOf(p) });
+          inserts.push(...reportPlan({ rule, parts: got, members: w.members, roles: w.roles, now: ctx.now, lists: {} }));
+          const old = mine.filter((a) => !a.hide_at).map((a) => a.id); retired.push(...old); ranIds.push(rule.id); sum.ran++; sum.replaced += old.length;
+        }
+        hides.push(...hidePlan({ rule, alerts: mine.filter((a) => !retired.includes(a.id)), inState: null, reads, now: ctx.now }));
+      } else for (const p of parts) {
+        // «فردي»: each part as its own rule (its kind, its entities); an extra part's entity ids carry «x<part>|»
+        const kind = CAT.kindOf(p); const its = mine.filter((a) => partOfKey(a.entity_id) === p.part);
+        const needState = rule.active !== false && kind === 'state' && (due || (rule.show === 'until_state' && its.length > 0));
+        const raw = due || needState ? await entities(db, w, ctx, p, since) : null;
+        const ents = raw ? raw.map((e) => (p.part ? { ...e, id: partKey(p.part, e.id) } : e)) : null;
+        if (due && ents) {
+          const existing = rows(await db.from('alerts').select('id, entity_id, user_id, hide_at').eq('rule_id', rule.id).in('entity_id', ents.map((e) => e.id).slice(0, 500)).limit(20_000));
+          const plan = writePlan({ rule: p, ents, existing, members: w.members, roles: w.roles, now: ctx.now, lineFor: lineOf(p) });
+          inserts.push(...plan.inserts); retired.push(...plan.retire); sum.replaced += plan.retire.length;
+        }
+        const inState = kind === 'state' && ents ? new Set(ents.map((e) => e.id)) : null;
+        hides.push(...hidePlan({ rule: p, alerts: its.filter((a) => !retired.includes(a.id)), inState, reads, now: ctx.now }));
       }
-      const inState = kind === 'state' && ents ? new Set(ents.map((e) => e.id)) : null;
-      hides.push(...hidePlan({ rule, alerts: mine.filter((a) => !retired.includes(a.id)), inState, reads, now: ctx.now }));
+      if (due && rule.mode !== 'report') { ranIds.push(rule.id); sum.ran++; }
     } catch (e) { sum.failed++; console.error('notify rule ' + String(rule.id).slice(0, 8) + ': ' + String((e as Error)?.message ?? 'error').replace(/[^\w: .-]/g, '').slice(0, 120)); }
   }
   // the alerts of a rule the admin deleted keep their sub-section and lose the rule: they leave the bell

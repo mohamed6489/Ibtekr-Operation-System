@@ -57,6 +57,7 @@
     restore(kind, rec) { adapterLocal.restore(kind, rec); if (ACC()) settle(ACC().add(kind, rec, { dupOk: true })); }, // «تراجع» of a delete: the member's own entry again
   };
   document.addEventListener('ib:accounts', () => { syncStore(); rerender(); if (state.page === 'reports') renderReports(); });
+  document.addEventListener('ib:accounts-ledger', () => rerender()); // a past period's balances arrive maker by maker (accAtEnd — Safwat 24 Nov)
   document.addEventListener('ib:vendors', () => { rerender(); });
 
   // ---------- transport (المواصلات): Logistics expenses sheet + «مواصلات» vendor moves recorded here ----------
@@ -2467,9 +2468,28 @@
   const accCmp = (rg) => { const pm = periodMoves(rg); const sum = (k) => Object.values(pm).reduce((t, o) => t + o[k], 0); const W = accWds(rg);
     return [CL('العرابين', sum('deposits'), 'money', 'down'), CL('المواصلات', sum('transport'), 'money', 'down'), CL('ديون أخرى', sum('other'), 'money', 'down'), CL('إيداع خارجي', sum('corrections'), 'money'),
       CL('طلبات السحب', W.length, 'count'), CL('قيمة طلبات السحب', W.reduce((t, w) => t + (Number(w.amount) || 0), 0), 'money')]; };
+  // Safwat 24 Nov («لما بعدل التاريخ في حساب المبتكرين الأرقام مبتتغيرش … مربوط بدكان فيقدر يجيب كل الأرقام اللي فاتت» — picked «رصيد
+  // آخر الفترة من Dokan»): a period that ends before today shows each maker's balance at its last day — his Dokan statement for that one
+  // day (the opening balance + the day's rows — woo-sync `statement`, read-only, IBAccounts.loadLedger 4 at a time) through D.makerLedger
+  // with our moves still open then: «الصافي» = its closing, «رصيد Dokan» = Dokan's own closing. A period reaching today stays «دلوقتي».
+  // → { day, by: Map(id → { balance, dokan }), total, done, failed } or null (a current period)
+  function accAtEnd(PR) {
+    const A = AC(); if (!PR || PR.to >= TODAY || !A || !A.loadLedger) return null;
+    const day = PR.to; const ids = vendorsNow().map((v) => (v.id && vstore.get ? vstore.get(v.id) : null)).filter((vv) => vv && vv.wooVendorId).map((vv) => vv.id);
+    let L = A.ledgerOf(day, day); const missing = ids.filter((id) => !L || !L.by.has(id)); if (missing.length) L = A.loadLedger(day, day, missing);
+    const sets = A.settlements ? A.settlements() : []; const by = new Map(); let done = 0, failed = 0;
+    for (const v of vendorsNow()) {
+      const st = v.id && L ? L.by.get(v.id) : null; if (!st) continue;
+      if (st.status === 'error') { failed += 1; continue; } if (st.status !== 'ok') continue; done += 1;
+      const l = D.makerLedger({ statement: { rows: st.rows }, moves: store.vendorMoves.filter((m) => m.vendor === v.name), settlements: sets.filter((x) => x.vendorId === v.id), from: day, to: day });
+      by.set(v.id, { balance: l.closing, dokan: D.round2(l.dokanOpening + l.completed.earned - l.refunds - l.requested + l.other) });
+    }
+    return { day, by, total: ids.length, done, failed };
+  }
   function VendorsView() {
-    const PR = accPer(); const PM = periodMoves(PR);
-    const list = vendorsNow().filter(shownMaker).map((v) => { const p = PM[v.name] || { deposits: 0, transport: 0, other: 0, corrections: 0 }; return Object.assign({}, v, p); }); const s = D.vendorSummary(list); const activeN = list.filter(makerActive).length; const sort = SORTS.find((x) => x.value === state.sort);
+    const PR = accPer(); const PM = periodMoves(PR); const AE = accAtEnd(PR);
+    const atEnd = (v) => { const e = AE && v.id ? AE.by.get(v.id) : null; return e ? { balance: e.balance, dokanBalance: e.dokan } : {}; };
+    const list = vendorsNow().filter(shownMaker).map((v) => { const p = PM[v.name] || { deposits: 0, transport: 0, other: 0, corrections: 0 }; return Object.assign({}, v, p, atEnd(v)); }); const s = D.vendorSummary(list); const activeN = list.filter(makerActive).length; const sort = SORTS.find((x) => x.value === state.sort);
     const sorted = D.sortVendors(list, sort.key, sort.dir).filter(wdFilterOk);
     const wdFiltered = (state.wdFilter || 'all') !== 'all';
     const fmt = (n) => D.formatMoney(n); const money = (n) => num(fmt(n));
@@ -2483,7 +2503,9 @@
         total: ['الإجمالي', sumK('dokanBalance'), sumK('deposits'), sumK('transport'), sumK('balance')], onRow: vOpenName(l), source: 'حسابات المبتكرين ← الرصيد دلوقتي' }; };
     const tA = TR.totals(transportRows(false).filter((r) => accInPer(r.date, PR))); // the period's trips (Safwat 24 Nov)
     return [liveNote(),
-      h('div', { class: 'toolbar', 'data-acc-period': '' }, DateRangeField('per:makers-acc'), h('span', { class: 't-small help' }, 'العرابين والمواصلات والديون والإيداعات وطلبات السحب والمفقودات في الفترة — رصيد Dokan والصافي دلوقتي')),
+      h('div', { class: 'toolbar', 'data-acc-period': '' }, DateRangeField('per:makers-acc'), h('span', { class: 't-small help' }, AE ? 'العرابين والمواصلات والديون والإيداعات وطلبات السحب والمفقودات في الفترة — رصيد Dokan والصافي يوم ' + num(D.formatDateNumeric(AE.day)) : 'العرابين والمواصلات والديون والإيداعات وطلبات السحب والمفقودات في الفترة — رصيد Dokan والصافي دلوقتي')),
+      AE && AE.done + AE.failed < AE.total ? h('div', { 'data-acc-atend': 'loading' }, U.InlineNote({ kind: 'info', children: ['بنقرا رصيد كل مبتكر يوم ', num(D.formatDateNumeric(AE.day)), ' من Dokan — ', num(String(AE.done)), ' من ', num(String(AE.total)), ' (اللي لسه ماتقراش بيبان برصيده دلوقتي)'] })) : null,
+      AE && AE.failed && AE.done + AE.failed >= AE.total ? h('div', { 'data-acc-atend': 'failed' }, U.InlineNote({ kind: 'error', children: 'Dokan مارجّعش كشف ' + AE.failed + ' مبتكر — بيبانوا برصيدهم دلوقتي.', action: Button({ type: 'text', size: 'sm', label: 'جرّب تاني', onClick: () => { const A = AC(); A.loadLedger(AE.day, AE.day, [...vendorsNow()].filter((v) => v.id && A.ledgerOf(AE.day, AE.day) && (A.ledgerOf(AE.day, AE.day).by.get(v.id) || {}).status === 'error').map((v) => v.id)); rerender(); } }) })) : null,
       CompareCard('per:makers-acc', accCmp),
       h('div', { class: 'cards five' },
         U.CategoryCard({ tone: 'brand', name: 'عدد المبتكرين', value: activeN, unit: 'مبتكر نشط', decimals: false, sub: list.length > activeN ? (list.length - activeN) + ' واقف ليه رصيد' : null, details: () => accVDet('all') }),

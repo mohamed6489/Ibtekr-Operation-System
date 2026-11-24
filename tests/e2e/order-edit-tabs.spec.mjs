@@ -89,18 +89,21 @@ test('decisions 1 and 2: the order cancelled → its products «ملغي» (a re
   await expect.poll(() => mock.patches.filter((p) => p.table === 'order_items').map((p) => [p.id, p.status])).toEqual([[5003, 'ملغي']]);
 });
 
-test('decision 5: the order\'s «تعديل» in three tabs — the customer, the details (saved as before), the sub-orders: a card per sub-order with its site status and its products; actions run at once', async ({ page }) => {
+test('decision 5: the order\'s «تعديل» in two tabs — the customer and the details side by side (saved as before), the sub-orders: a card per sub-order with its site status and its products; actions run at once', async ({ page }) => {
   await openOrders(page);
   await editOrder(page, '181668');
   const dlg = sr(page, '#cdlg');
-  await expect(dlg.locator('[role=tab]')).toHaveText(['بيانات العميل', 'تفاصيل الأوردر', 'الأوردرات الفرعية (2)']);
-  await expect(dlg.locator('[data-etab="cust"]')).toHaveAttribute('aria-selected', 'true');
-  await expect(dlg.locator('[data-epanel="cust"]')).toBeVisible();
-  await expect(dlg.locator('[data-epanel="det"]')).toBeHidden();
+  // Safwat 24 Nov — «جنب بعض في التعديل كمان»: the customer's and the order's cards side by side, as in the details popup
+  await expect(dlg.locator('[role=tab]')).toHaveText(['بيانات الأوردر', 'الأوردرات الفرعية (2)']);
+  await expect(dlg.locator('[data-etab="info"]')).toHaveAttribute('aria-selected', 'true');
+  const info = dlg.locator('[data-epanel="info"]');
+  await expect(info).toBeVisible();
+  await expect(info.locator('.dgrid > .sec')).toHaveCount(2);
+  await expect(info.locator('[data-det-sec]')).toBeVisible();
+  const [a, b] = [await info.locator('.dgrid > .sec').nth(0).boundingBox(), await info.locator('.dgrid > .sec').nth(1).boundingBox()];
+  expect(Math.abs(a.y - b.y)).toBeLessThan(2); // one row
   await expect(dlg.locator('[data-f="name"]')).toHaveValue('سلوى زيتوني');
-  // the details tab: «حفظ التعديلات» as before
-  await dlg.locator('[data-etab="det"]').click();
-  await expect(dlg.locator('[data-epanel="cust"]')).toBeHidden();
+  // the details: «حفظ التعديلات» as before
   await dlg.locator('[data-f="note"]').fill('اتكلمنا معاها');
   // the sub-orders tab: two cards, the site status of each, the products
   await dlg.locator('[data-etab="subs"]').click();

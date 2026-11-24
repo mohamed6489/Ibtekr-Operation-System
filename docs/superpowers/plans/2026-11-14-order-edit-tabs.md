@@ -33,3 +33,6 @@
 - T1 ✓ — الخطة و`0094` (`order_items_status_check` بـ «ملغي»، `orders_cancel_lines` / `sub_orders_cancel_lines`، `order_items.added_at` + `order_items_keep_added`) و`supabase/tests/rls_order_items_cancel.sql`؛ `rls_orders.sql` اتعدّل (الإلغاء بيلغي المنتجات).
 - T2 ✓ — woo-sync `line_add` (+ اختبارات Deno) و`IBOrders.addLine` / `makerProducts` و`order.line_add` في `LOGGED_ACTIONS` والموك.
 - T3 ✓ — الكتلة 29 (`SS` + «ملغي» و`cancelLocal`، «حالة المنتج»، ⋮ من غير «مسح الأوردر الفرعي» / «تعديل الكمية»، بوب أب «تعديل» المنتج بـ «الحالة على الموقع»، «تعديل» الأوردر بـ 3 تابات و`EDT`، `addLineDialog`)، الكتلة 17 («حالات المنتج» بـ «ملغي»)، و«حالة المنتج» في 25 و28؛ `tests/e2e/order-edit-tabs.spec.mjs`.
+
+## متابعة 24 نوفمبر — بيانات العميل وتفاصيل الأوردر جنب بعض (صفوت: «لا متفصلهمش انا عايزو نفس الديزاين القديم» واختار «جنب بعض في التعديل كمان»)
+- بيعدّل قرار 5: «تعديل» الأوردر بقى تابين — **«بيانات الأوردر»** (كارت «معلومات العميل» وكارت «تفاصيل الأوردر» جنب بعض في `.dgrid` زي بوب أب التفاصيل، وتحت بعض على الموبايل والتابلت) · **«الأوردرات الفرعية»** زي ما هو. `editOrder(id, tab)`: `tab = 'subs'` وإلا «بيانات الأوردر»؛ خطأ في الحفظ بيرجّع للتاب الأول. عنوان «تفاصيل الأوردر» بشريطه الأخضر زي بوب أب التفاصيل (`#cdlg.edlg .sec.det-sec>h3`)، والبوب أب أعرض (1196 زي التفاصيل). الاختبار `tests/e2e/order-edit-tabs.spec.mjs` و`tests/e2e/orders.spec.mjs`.

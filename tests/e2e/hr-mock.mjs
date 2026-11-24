@@ -1,3 +1,4 @@
+import '../../app/js/pages/eval-rules.js'; // 0155: sets globalThis.IBEvalRules (below)
 // Phase 10 (0046): the HR tables, RPCs, the Edge Function team-admin and the bucket «hr-docs», emulated for supabase-mock.mjs (not a
 // test file itself). hrState(opts) seeds the rows as the database holds them (opts.hrMembers / hrPay / hrAttendance / hrOvertime /
 // hrRequests / hrHolidays / hrKpis / hrScores / hrExtras / hrMeetings / hrAdjustments / hrPayroll / hrPayrollLines / hrDocuments / hrTasks (0048) — the ids, dates and
@@ -6,6 +7,13 @@
 // own), the RPCs with the same rules (the server's clock, the overtime past 8 hours, the payroll lines, «مدفوع» into the accounts'
 // ledgers), team-admin (the admin; the temporary password answered once). Every RPC / function call lands in hr.calls, every write
 // the client sent in hr.writes ({ table, op, ...columns }).
+// 0155 (the meeting of 23 Nov phase 7): the evaluation's rules — the page's own pure file (= the server's, tests/domain/eval-rules.test.mjs);
+// imported for its side effect (it sets globalThis.IBEvalRules — a relative import, so the demo's page runs it too)
+const ER = globalThis.IBEvalRules;
+const hrSet = (mock) => (mock.settings.find((x) => x.section === 'hr') || {}).data || {};
+const rulesFor = (mock, id) => ER.rulesOf(hrSet(mock).evalRules, ((mock.profiles || []).find((p) => p.id === id) || {}).role_id);
+const evScores = (e) => (e.scores || Object.fromEntries([['perf', e.performance], ['comm', e.communication]].filter((x) => x[1] != null)));
+const evRow = (mock, H, id, m, e) => { const att = attScore(H, id, m); const rules = e && e.rules ? e.rules : rulesFor(mock, id); const total = e ? ER.score(evScores(e), att, rules) : null; return { att, rules, total, pct: ER.pct(total, rules) }; };
 const MOCK_TEMP = 'mock-temp-1'; // what team-admin answers in the mock (the real one is random, 12 characters)
 const ACCOUNTS = ['حساب البنك', 'حساب بوسطة', 'حساب باي موب', 'محفظة إلكترونية'];
 const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
@@ -361,9 +369,9 @@ export function hrRoute(c) {
     if (f === 'hr_evaluations_list') {
       if (!active) return no(); const from = monthOf(b.p_from); const to = [monthOf(b.p_to), monthOf(today)].sort()[0]; if (!b.p_from || !b.p_to || from > to) return bad('range');
       const out = []; mock.profiles.filter((p) => p.status === 'active' && sees(p.id)).sort((x, y) => (x.name < y.name ? -1 : 1)).forEach((p) => {
-        for (let m = from; m <= to; m = nextMonth(m)) { const e = H.evaluations.find((x) => x.member_id === p.id && x.month === m) || null; const att = attScore(H, p.id, m);
-          out.push({ member_id: p.id, month: m, attendance: att, performance: e ? e.performance : null, communication: e ? e.communication : null, total: e ? evalTotal(att, e.performance, e.communication) : null,
-            note: e ? e.note : null, rated_by: e ? e.rated_by : null, rated_at: e ? e.rated_at : null }); } });
+        for (let m = from; m <= to; m = nextMonth(m)) { const e = H.evaluations.find((x) => x.member_id === p.id && x.month === m) || null; const v = evRow(mock, H, p.id, m, e);
+          out.push({ member_id: p.id, month: m, attendance: v.att, performance: e ? e.performance : null, communication: e ? e.communication : null, total: v.total,
+            note: e ? e.note : null, rated_by: e ? e.rated_by : null, rated_at: e ? e.rated_at : null, scores: e ? evScores(e) : null, rules: v.rules, pct: v.pct }); } });
       return json(200, out);
     }
     // 0089 (owner batch 14 Nov decision 13): a meeting / warning / plan / thanks on a member — the admin, hr.edit F or the direct manager,
@@ -371,7 +379,7 @@ export function hrRoute(c) {
     if (f === 'hr_member_note_add') {
       if (!active) return no(); const p = prof(b.p_member); if (!p) return nf();
       if (b.p_member === u.id || !(isAdmin(u) || editor || manages(b.p_member))) return no();
-      if (!['meeting', 'warning', 'plan', 'thanks'].includes(b.p_kind)) return bad('kind');
+      if (!['meeting', 'warning', 'plan', 'thanks', 'note'].includes(b.p_kind)) return bad('kind');
       if (!/^\d{4}-(0[1-9]|1[0-2]|Q[1-4])$/.test(String(b.p_period || ''))) return bad('period');
       const body = String(b.p_body || '').trim() || null; if (body && body.length > 1000) return bad('body'); if (['warning', 'plan'].includes(b.p_kind) && !body) return bad('body');
       if (b.p_kind === 'meeting' && !(b.p_due && new Date(b.p_due).getTime() > Date.now() - 600000)) return bad('due');
@@ -386,7 +394,7 @@ export function hrRoute(c) {
         otEvent(tid, 'فتح التذكرة');
       }
       const id = nextId(); H.notes_log.push({ id, member_id: b.p_member, kind: b.p_kind, period: b.p_period, body, due_at: ['meeting', 'plan'].includes(b.p_kind) ? b.p_due || null : null, ticket_id: tid, by_id: u.id, at: now });
-      const title = { meeting: 'عندك ميتنج فردي', warning: 'وصلك إنذار', plan: 'اتعملك خطة تحسين', thanks: 'وصلك شكر على شغلك' }[b.p_kind];
+      const title = { meeting: 'عندك ميتنج فردي', warning: 'وصلك إنذار', plan: 'اتعملك خطة تحسين', thanks: 'وصلك شكر على شغلك', note: 'اتكتبتلك ملاحظة على تقييمك' }[b.p_kind];
       mock.alerts.push({ id: 8000 + id, at: now, kind: 'hr.note', title, body: 'التفاصيل في «ملفي › أدائي»', role_id: null, user_id: b.p_member, entity: tid ? 'tickets/' + tkNum(tid) : 'profile-performance', entity_id: 'note:' + id, read_at: null });
       mock.activity.push({ action: 'hr.note.add', entity: 'hr', entity_id: b.p_member, actor: u.id, new_value: b.p_kind + ' ' + b.p_period });
       return json(200, { id, ticket: tid });
@@ -395,12 +403,20 @@ export function hrRoute(c) {
       if (!active) return no(); const p = prof(b.p_member); if (!p) return nf();
       if (!(isAdmin(u) || (b.p_member !== u.id && (editor || manages(b.p_member))))) return no();
       const m = monthOf(b.p_month); if (m > monthOf(today)) return bad('month');
-      if (!(Number.isInteger(b.p_perf) && b.p_perf >= 1 && b.p_perf <= 5)) return bad('performance'); if (!(Number.isInteger(b.p_comm) && b.p_comm >= 1 && b.p_comm <= 5)) return bad('communication');
+      // 0155: the items' scores (or the old two) against the member's rules now; the rules kept with it; the band's alert to his manager
+      const scores = b.p_scores && typeof b.p_scores === 'object' ? b.p_scores : { perf: b.p_perf, comm: b.p_comm }; const rules = rulesFor(mock, b.p_member); const clean = {};
+      const manualIds = rules.items.filter((i) => !i.auto).map((i) => i.id); if (Object.keys(scores).some((k) => !manualIds.includes(k))) return bad('scores');
+      for (const i of rules.items) { if (i.auto) continue; const v = scores[i.id]; if (v == null) { if (i.weight > 0) return bad(i.id); continue; } if (!(Number.isInteger(v) && v >= 1 && v <= 5)) return bad(i.id); clean[i.id] = v; }
       const note = String(b.p_note || '').trim() || null; if (note && note.length > 500) return bad('note');
-      const row = { member_id: b.p_member, month: m, performance: b.p_perf, communication: b.p_comm, note, rated_by: u.id, rated_at: now };
+      const row = { member_id: b.p_member, month: m, performance: clean.perf == null ? null : clean.perf, communication: clean.comm == null ? null : clean.comm, scores: clean, rules, note, rated_by: u.id, rated_at: now };
       const ex = H.evaluations.find((x) => x.member_id === b.p_member && x.month === m); if (ex) Object.assign(ex, row); else H.evaluations.push(row);
       mock.activity.push({ action: 'hr.evaluate', entity: 'hr', entity_id: b.p_member, actor: u.id, new_value: m.slice(0, 7) });
-      return json(200, evalTotal(attScore(H, b.p_member, m), b.p_perf, b.p_comm));
+      const v = evRow(mock, H, b.p_member, m, row); const kinds = ER.kinds(v.total, rules); const key = 'eval:' + b.p_member + ':' + m.slice(0, 7);
+      mock.alerts = mock.alerts.filter((a) => !(a.kind === 'hr.eval.action' && a.entity_id === key)); const to = p.manager_id || u.id;
+      if (kinds.length && to !== b.p_member && p.member_code) mock.alerts.push({ id: 9000 + nextId(), at: now, kind: 'hr.eval.action', title: 'تقييم ' + p.name + ' — ' + m.slice(5, 7) + '/' + m.slice(0, 4) + ': ' + ER.fmt(v.total) + ' من 5',
+        body: 'الإجراء المقترح: ' + ER.kindsText(kinds) + ' — افتح التقييم وجهّزه', role_id: null, user_id: to, entity: 'hr-evals/' + String(p.member_code).toLowerCase() + '-' + m.slice(0, 7), entity_id: key, read_at: null });
+      if (!b.p_scores) return json(200, v.total);
+      return json(200, { total: v.total, pct: v.pct, kinds });
     }
     const paidSheet = (m) => H.payroll.some((p) => p.month === m && p.status === 'مدفوع'); const paidMember = (m, id) => H.payroll_paid.some((x) => x.month === m && x.member_id === id);
     const sheetRow = (m) => { let p = H.payroll.find((x) => x.month === m); if (!p) { p = { month: m, status: 'مسودة', opened_at: now, reviewed_by: null, reviewed_at: null, approved_by: null, approved_at: null, paid_by: null, paid_at: null, paid_account: null, total: null }; H.payroll.push(p); } return p; };
@@ -597,7 +613,6 @@ function attScore(H, id, m0) {
   return Math.round(Math.min(1, att / req.length) * 10) / 2;
 }
 // hr_eval_total: the average of the three (of the two when no day was asked), to one decimal
-const evalTotal = (att, perf, comm) => (perf == null || comm == null ? null : Math.round((att == null ? (perf + comm) / 2 : (att + perf + comm) / 3) * 10) / 10);
 // hr_open_month_for: the first month from a day whose sheet is not paid and where the member was not paid yet
 function openMonthFor(H, id, day) { let m = monthOf(day); while (H.payroll.some((p) => p.month === m && p.status === 'مدفوع') || H.payroll_paid.some((x) => x.month === m && x.member_id === id)) m = nextMonth(m); return m; }
 // hr_leave_left: the year's days + the days carried into it − the approved leave days that deduct
@@ -625,11 +640,11 @@ function calc(H, mock, m0) {
     const adv = H.requests.filter((r) => r.member_id === id && r.type === 'سُلفة' && r.status === 'موافق' && r.decided_at).reduce((n, r) => {
       if (r.pay_from) return n + (r.pay_from === m0 ? Number(r.amount) : 0);
       const dm = monthOf(new Date(r.decided_at).toISOString().slice(0, 10)); return n + (m0 >= nextMonth(dm) && m0 < nextMonth(dm, 1 + r.months) ? r2(Number(r.amount) / r.months) : 0); }, 0);
-    const set = (mock.settings.find((x) => x.section === 'hr') || {}).data || {}; const bar = Number(set.bonusMin) || 3;
-    // decision 3: the quarter's months, each rated month ≥ the bar = its holdback whole
-    const ev = [0, 1, 2].map((i) => nextMonth(q0, i)).map((m) => { const e = H.evaluations.find((x) => x.member_id === id && x.month === m); return e ? evalTotal(attScore(H, id, m), e.performance, e.communication) : null; });
+    const set = hrSet(mock);
+    // 0155: the quarter's months, each rated month's % of its holdback (the result × the point)
+    const ev = [0, 1, 2].map((i) => nextMonth(q0, i)).map((m) => { const e = H.evaluations.find((x) => x.member_id === id && x.month === m); return e ? evRow(mock, H, id, m, e).pct : null; });
     const ex = H.extras.filter((e) => e.member_id === id && e.quarter === qRef && e.status === 'معتمدة').reduce((n, e) => n + Number(e.amount), 0);
-    const qb = qEnd ? r2(ev.reduce((n, x) => n + (x != null && x >= bar ? hb : 0), 0) + ex) : 0;
+    const qb = qEnd ? r2(ev.reduce((n, x) => n + (x != null ? r2(hb * x / 100) : 0), 0) + ex) : 0;
     const ota = (H.ot_adjust || []).filter((a) => a.member_id === id && a.month === m0).reduce((n, a) => n + Number(a.minutes), 0); const otAll = Math.max(0, otm + ota);
     const ld = mo === 12 && (set.leaveYearEnd || 'pay') === 'pay' ? leaveLeft(H, id, Number(m0.slice(0, 4))) : 0; const lp = r2(s / 24 * ld);
     const paid = r2(s - hb); const otp = r2(s / 24 / 8 * otAll / 60); const rp = r2(s / 24 * 2 * rd); const uc = r2(s / 24 * ud); const al2 = r2(al + plus); const ded = r2(minus);

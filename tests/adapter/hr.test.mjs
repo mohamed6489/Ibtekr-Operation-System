@@ -6,6 +6,7 @@ import { stubClient, opsOf } from './stub-supabase.mjs';
 // the scores by month, the achievements — in IBHR.data, IBKit.store untouched); the writes through the RPCs and the tables, the server's refusals in Arabic, team-admin
 // («إضافة عضو» + the pay; the password never logged), the KPIs' weights, the files in the member's folder and the live line.
 const src = readFileSync(new URL('../../app/js/adapter/hr.js', import.meta.url), 'utf8');
+const erSrc = readFileSync(new URL('../../app/js/pages/eval-rules.js', import.meta.url), 'utf8'); // 0155: window.IBEvalRules (loaded before the adapter in index.html)
 const plain = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
 const eq = (a, b, msg) => assert.deepEqual(plain(a), plain(b), msg);
 const ok = (data) => ({ data, error: null });
@@ -66,6 +67,7 @@ function load({ now = NOW, meId = A, meCode = 'M01', responses = {}, perms = { '
     IBDirectory: { perm: (k) => perms[k] || 'N', me: () => ({ id: meId, member_code: meCode, name: 'صفوت كمال', role_id: role, status: 'active' }), refresh: async () => { store.members.push({ id: 'M04', uid: 'a0000000-0000-4000-8000-000000000004', name: 'كريم', status: 'active', shift: ['09:00', '17:00'] }); } },
     IBActivity: { dayBounds: (f, t) => ({ gte: /^\d{4}-\d{2}-\d{2}$/.test(f || '') ? 'G:' + f : null, lte: /^\d{4}-\d{2}-\d{2}$/.test(t || '') ? 'L:' + t : null }), log: (action, detail, meta) => { logs.push([action, detail, meta]); return Promise.resolve(); } }, IBAccounts: accounts || undefined,
     crypto: { randomUUID: () => 'abcdef12-0000-4000-8000-000000000000' } };
+  runInNewContext(erSrc, { window });
   runInNewContext(src, { window, document: { dispatchEvent(e) { events.push(e.type); }, visibilityState: 'visible' }, CustomEvent: class { constructor(t) { this.type = t; } },
     Promise, Date: clock(now), Number, String, Array, Object, JSON, Map, Set, Math, Error, RegExp, Intl, setTimeout, clearTimeout, setInterval: () => 1, clearInterval: () => {} });
   return { H: window.IBHR, stub, events, logs, store, window };
@@ -570,18 +572,22 @@ test('the HR rebuild (0083): the evaluations by month from hr_evaluations_list, 
     { member_id: C, month: '2026-09-01', attendance: 4, performance: null, communication: null, total: null, note: null, rated_by: null, rated_at: null },
     { member_id: C, month: '2026-11-01', attendance: null, performance: null, communication: null, total: null, note: null, rated_by: null, rated_at: null },
   ];
-  const { H, stub } = load({ responses: { 'rpc:hr_evaluations_list': ok(EV), 'rpc:hr_evaluate': ok(4.3) } });
+  const { H, stub } = load({ responses: { 'rpc:hr_evaluations_list': ok(EV), 'rpc:hr_evaluate': ok({ total: 4.3, pct: 86, kinds: [] }) } });
   await H.load();
   eq(rpcs(stub).find((x) => x[0] === 'hr_evaluations_list'), ['hr_evaluations_list', { p_from: '2025-01-01', p_to: '2026-11-05' }]);
-  eq(H.data.evals.M03['2026-07'], { att: 5, perf: 4, comm: 5, total: 4.7, note: 'كويس', by: 'صفوت كمال', at: '2026-08-01T08:00:00Z' });
+  const e7 = H.data.evals.M03['2026-07']; // 0155: an old row (no scores / rules from the server) — read with the current rules (the default)
+  eq({ att: e7.att, perf: e7.perf, comm: e7.comm, total: e7.total, note: e7.note, by: e7.by, at: e7.at }, { att: 5, perf: 4, comm: 5, total: 4.7, note: 'كويس', by: 'صفوت كمال', at: '2026-08-01T08:00:00Z' });
+  eq(JSON.parse(JSON.stringify(e7.rules.items.map((i) => i.id))), ['att', 'comm', 'perf']);
   eq(H.data.evals.M03['2026-09'].total, null);
-  eq(H.quarterEval('M03', '2026-Q3'), { quarter: '2026-Q3', months: ['2026-07', '2026-08', '2026-09'], att: 4.2, perf: 3, comm: 4, total: 3.8, rated: 2, missing: 1 });
+  const q3 = H.quarterEval('M03', '2026-Q3');
+  eq({ quarter: q3.quarter, months: q3.months, att: q3.att, perf: q3.perf, comm: q3.comm, total: q3.total, rated: q3.rated, missing: q3.missing }, { quarter: '2026-Q3', months: ['2026-07', '2026-08', '2026-09'], att: 4.2, perf: 3, comm: 4, total: 3.8, rated: 2, missing: 1 });
   eq(H.quarterEval('M03', 'x'), null);
-  eq([H.evalTotal(4, 4, 5), H.evalTotal(null, 4, 5), H.evalTotal(3, null, 5)], [4.3, 4.5, null]);
-  eq(await H.evaluate('M03', '2026-11', 0, 4), { ok: false, reason: 'invalid', field: 'performance', message: 'اختار تقييم الأداء (من 1 لـ 5)' });
-  eq(await H.evaluate('M03', '2026-11', 4, 6), { ok: false, reason: 'invalid', field: 'communication', message: 'اختار تقييم التواصل (من 1 لـ 5)' });
-  eq(await H.evaluate('M03', '2026-11', 4, 5, 'سلس مع الفريق'), { ok: true, total: 4.3 });
-  eq(rpcs(stub).find((x) => x[0] === 'hr_evaluate'), ['hr_evaluate', { p_member: C, p_month: '2026-11-01', p_perf: 4, p_comm: 5, p_note: 'سلس مع الفريق' }]);
+  // 0155: the weighted result (the default الحضور 25 · التواصل 25 · الأداء 50) — the meeting's example 4 / 5 / 3 = 3.75
+  eq([H.evalTotal(4, { comm: 5, perf: 3 }), H.evalTotal(null, { comm: 4, perf: 5 }), H.evalTotal(3, {})], [3.75, 4.6667, null]);
+  eq((await H.evaluate('M03', '2026-11', { comm: 4 })).field, 'perf'); // every counted item of his rules
+  eq((await H.evaluate('M03', '2026-11', { perf: 4, comm: 6 })).field, 'comm');
+  eq(await H.evaluate('M03', '2026-11', { perf: 4, comm: 5 }, 'سلس مع الفريق'), { ok: true, total: 4.3, pct: 86, kinds: [] });
+  eq(rpcs(stub).find((x) => x[0] === 'hr_evaluate'), ['hr_evaluate', { p_member: C, p_month: '2026-11-01', p_scores: { perf: 4, comm: 5 }, p_note: 'سلس مع الفريق' }]);
   // the tasks the evaluator sees: done in the month / still open
   H.data.tasks = [{ id: 1, member: 'M03', title: 'تصوير', status: 'خلصت', day: '2026-11-02', doneDay: '2026-11-03' }, { id: 2, member: 'M03', title: 'جرد', status: 'جاري', day: '2026-11-04' },
     { id: 3, member: 'M03', title: 'قديمة', status: 'خلصت', day: '2026-10-02', doneDay: '2026-10-05' }, { id: 4, member: 'M02', title: 'غيره', status: 'لسه', day: '2026-11-01' }];

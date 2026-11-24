@@ -41,10 +41,13 @@
     // the HR rebuild (0083, the owner 12 Nov): the pay day (an earlier transfer asks why), the bonus bar (a month's evaluation ≥ it = its
     // held-back part whole), the annual leave left at the year's end ('pay' with December's salary · 'carry' to the next year)
     payDay: 28, bonusMin: 3, leaveYearEnd: 'pay',
+    // the meeting of 23 Nov phase 7 (0155): the evaluation's items per role, the point and the bands — IBEvalRules reads it (null = the default)
+    evalRules: null,
     // owner batch 14 Nov decision 7 (0087): the work days (isodow — 1 Monday … 7 Sunday), the official hours, the day rate's divisor and a
     // custom time for a role or a member ({ role: { roleId: { from, to } }, member: { uid: { from, to } } } — 0092: the role, not the department) — the server reads the same
     workDays: [7, 1, 2, 3, 4], workFrom: '09:00', workTo: '17:00', dayDivisor: 24, schedules: { role: {}, member: {} } };
   const c = () => (window.IBSupabase && window.IBSupabase.client) || null;
+  const ER = () => window.IBEvalRules || null; // 0155: the evaluation's rules (app/js/pages/eval-rules.js)
   const quiet = (fn) => { try { return fn(); } catch (e) { return undefined; } };
   const K = () => window.IBKit;
   const S = () => (K() && K().store) || null; // the directory's members only (IBKit.store.members)
@@ -236,7 +239,10 @@
     s.otAdjust = (raw.otAdj || []).map((x) => ({ id: Number(x.id), member: codeOf(x.member_id), month: monthKey(x.month), minutes: Number(x.minutes), reason: x.reason, by: nameOf(x.by_id), at: x.at })).filter((x) => x.member);
     // the evaluations (decision 2): { code: { 'YYYY-MM': { att, perf, comm, total, note, by, at } } } — att is the server's (the days attended)
     const ev = {}; (raw.evals || []).forEach((x) => { const code = codeOf(x.member_id); if (!code) return; const n = (v) => (v == null ? null : Number(v));
-      (ev[code] = ev[code] || {})[monthKey(x.month)] = { att: n(x.attendance), perf: n(x.performance), comm: n(x.communication), total: n(x.total), note: x.note || '', by: x.rated_by ? nameOf(x.rated_by) : null, at: x.rated_at || null }; });
+      // 0155: the items' scores and the rules it was made with (the current ones for an old one), the bonus % of the month's holdback
+      const rules = x.rules && typeof x.rules === 'object' ? x.rules : ER() ? ER().rulesOf(set.evalRules, (members().find((m) => m.uid === x.member_id) || {}).roleId) : null;
+      (ev[code] = ev[code] || {})[monthKey(x.month)] = { att: n(x.attendance), perf: n(x.performance), comm: n(x.communication), total: n(x.total), note: x.note || '', by: x.rated_by ? nameOf(x.rated_by) : null, at: x.rated_at || null,
+        scores: x.scores && typeof x.scores === 'object' ? x.scores : null, rules, pct: n(x.pct), kinds: ER() && rules ? ER().kinds(n(x.total), rules) : [] }; });
     s.evals = ev;
     // 0089: the evaluation notes — [{ id, member, kind meeting|warning|plan|thanks, period YYYY-MM|YYYY-Qn, body, due, ticket, by, at }]
     s.noteLog = (raw.noteLog || []).map((x) => ({ id: Number(x.id), member: codeOf(x.member_id), kind: x.kind, period: x.period, body: x.body || '', due: x.due_at || null,
@@ -551,18 +557,27 @@
     const { error } = await rpc('hr_ot_adjust_add', { p_member: uid, p_month: monthArg(month), p_minutes: m, p_reason: why }); if (error) return fail(error);
     await load(); return { ok: true };
   }
-  // the month's total out of 5 (the server's hr_eval_total): the average of the three, of the two when no working day was asked
-  const evalTotal = (att, perf, comm) => (perf == null || comm == null ? null : Math.round((att == null ? (perf + comm) / 2 : (att + perf + comm) / 3) * 10) / 10);
-  async function evaluate(member, month, perf, comm, note) {
-    const uid = uidOf(member); if (!uid) return no('invalid'); const p = Math.round(Number(perf)); const q = Math.round(Number(comm));
-    if (!(p >= 1 && p <= 5)) return no('invalid', 'performance'); if (!(q >= 1 && q <= 5)) return no('invalid', 'communication');
-    const { data: d, error } = await rpc('hr_evaluate', { p_member: uid, p_month: monthArg(month), p_perf: p, p_comm: q, p_note: note ? clean(note, 500) : null }); if (error) return fail(error);
-    await load(); return { ok: true, total: d == null ? null : Number(d) };
+  // the meeting of 23 Nov phase 7 (0155): the rules a member is rated with now (his primary role's items, else the team's, else the
+  // default), the month's result (the weighted average, not rounded — the server's hr_eval_score) and the bonus % of the holdback
+  const evalRulesOf = (member) => { const who = members().find((x) => x.id === member || x.uid === member); return ER() ? ER().rulesOf(data.hrSettings.evalRules, who && who.roleId) : null; };
+  const evalTotal = (att, scores, rules) => (ER() ? ER().score(scores, att, rules || ER().DEFAULT) : null);
+  // the month's bonus in money: the holdback × the % (sensitive.salaries — the holdback is read with the pay)
+  function evalBonus(code, month) { const x = (data.evals[code] || {})[monthKey(month)]; const m = member(code); return x && x.pct != null && m ? Math.round((m.holdback || 0) * x.pct) / 100 : null; }
+  // scores { itemId: 1–5 } — every counted item of the member's rules (the server checks it again and keeps the rules with it)
+  async function evaluate(member, month, scores, note) {
+    const uid = uidOf(member); if (!uid) return no('invalid'); const rules = evalRulesOf(member); const out = {};
+    for (const i of (rules ? rules.items : [])) {
+      if (i.auto) continue; const v = scores ? scores[i.id] : null;
+      if (v == null || v === 0) { if (i.weight > 0) return no('invalid', i.id); continue; }
+      const k = Math.round(Number(v)); if (!(k >= 1 && k <= 5)) return no('invalid', i.id); out[i.id] = k;
+    }
+    const { data: d, error } = await rpc('hr_evaluate', { p_member: uid, p_month: monthArg(month), p_scores: out, p_note: note ? clean(note, 500) : null }); if (error) return fail(error);
+    await load(); return { ok: true, total: d && d.total != null ? Number(d.total) : null, pct: d && d.pct != null ? Number(d.pct) : null, kinds: d && Array.isArray(d.kinds) ? d.kinds : [] };
   }
   // ---------- owner batch 14 Nov decision 13 (0089): a note on a member's evaluation — «حدد ميتنج» · «ابعت إنذار» · «خطة تحسين» · «ابعت شكر» ----------
   // the server checks who (the admin, hr.edit F, the direct manager — never oneself), opens the meeting's team request, rings the member's
   // bell and logs hr.note.add with the kind and the period only
-  const NOTE_KINDS = { meeting: 'ميتنج فردي', warning: 'إنذار', plan: 'خطة تحسين', thanks: 'شكر' };
+  const NOTE_KINDS = { meeting: 'ميتنج فردي', warning: 'إنذار', plan: 'خطة تحسين', thanks: 'شكر', note: 'ملاحظة' }; // 0155: «ملاحظة» (the band 2.5–3.5)
   const cleanText = (s, n) => String(s == null ? '' : s).replace(/[\u0000-\u0009\u000b-\u001f\u007f<>]/g, ' ').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim().slice(0, n);
   // a Cairo day + HH:MM → an ISO instant (Cairo is UTC+2, UTC+3 in its summer time)
   function cairoIso(day, hhmm) {
@@ -574,7 +589,7 @@
   async function noteAdd(member, kind, period, body, due) {
     const uid = uidOf(member); if (!uid) return no('invalid'); if (!NOTE_KINDS[kind]) return no('invalid', 'kind');
     if (!/^\d{4}-(0[1-9]|1[0-2]|Q[1-4])$/.test(String(period || ''))) return no('invalid', 'period');
-    const text = cleanText(body, 1001); if (text.length > 1000) return no('invalid', 'body'); if ((kind === 'warning' || kind === 'plan') && !text) return no('invalid', 'body');
+    const text = cleanText(body, 1001); if (text.length > 1000) return no('invalid', 'body'); if ((kind === 'warning' || kind === 'plan' || kind === 'note') && !text) return no('invalid', 'body');
     let at = null; if (due && (kind === 'meeting' || kind === 'plan')) { at = due.day ? cairoIso(due.day, due.time || '10:00') : null; if (!at) return no('invalid', 'due'); }
     if (kind === 'meeting' && (!at || new Date(at).getTime() < Date.now() - 600000)) return no('invalid', 'due');
     const { data: d, error } = await rpc('hr_member_note_add', { p_member: uid, p_kind: kind, p_period: period, p_body: text || null, p_due: at }); if (error) return fail(error);
@@ -588,7 +603,10 @@
     const avg = (l) => (l.length ? Math.round(l.reduce((n, x) => n + x, 0) / l.length * 10) / 10 : null);
     const rows = months.map((k) => ev[k]).filter(Boolean); const rated = rows.filter((x) => x.total != null);
     return { quarter: q, months, att: avg(rows.map((x) => x.att).filter((x) => x != null)), perf: avg(rated.map((x) => x.perf)), comm: avg(rated.map((x) => x.comm)),
-      total: avg(rated.map((x) => x.total)), rated: rated.length, missing: months.filter((k) => k <= monthKey(today()) && !(ev[k] && ev[k].total != null)).length };
+      total: avg(rated.map((x) => x.total)), rated: rated.length, missing: months.filter((k) => k <= monthKey(today()) && !(ev[k] && ev[k].total != null)).length,
+      // 0155: the quarter's bonus = each rated month's % of its holdback, summed (paid with the third month)
+      pct: avg(rated.map((x) => x.pct).filter((v) => v != null)),
+      bonus: rated.length && member(code) ? Math.round(months.reduce((n, k) => n + (ev[k] && ev[k].pct != null ? (member(code).holdback || 0) * ev[k].pct / 100 : 0), 0) * 100) / 100 : null };
   }
   // the member's tasks of a month for the evaluator (decision 2): the ones done in it and the ones still open
   function monthTasks(code, month) {
@@ -978,7 +996,7 @@
 
   window.IBHR = { load, clear, subscribe, unsubscribe, check, state: () => st, data, member, team, everyone, can, decidesOt, settings, hm, span, workDays, workDaysOf, isWorkDay, dayDivisor, scheduleOf, dayMinutes, today, nowMin, addDays, quarterOf, quarterMonths, monthKey, holidayDates, leaveDays, isLeave,
     shiftNow, myShift, clockIn, clockOut, overtimeBegin, overtimeRequest, setAttendance, endShiftFor, fixOut, request, decide, cancel, overtimeDecide, rateMonth, saveKpis,
-    payrollCalc, payrollLines, sheetLines, sheetTotals, slips, transfer, payMember, advanceGive, otAdjust, payDayOf, evaluate, evalTotal, quarterEval, monthTasks, noteAdd, notesOf, NOTE_KINDS, cairoIso, bank, bankSet, bankReveal, payrollOpen, payrollStep, payrollPay, addAdjustment, voidAdjustment, addExtra, decideExtra, meetingCreate, meetingUpdate,
+    payrollCalc, payrollLines, sheetLines, sheetTotals, slips, transfer, payMember, advanceGive, otAdjust, payDayOf, evaluate, evalTotal, evalRulesOf, evalBonus, quarterEval, monthTasks, noteAdd, notesOf, NOTE_KINDS, cairoIso, bank, bankSet, bankReveal, payrollOpen, payrollStep, payrollPay, addAdjustment, voidAdjustment, addExtra, decideExtra, meetingCreate, meetingUpdate,
     holidayAdd, holidayUpdate, holidayConfirm, holidayDelete, leaveTypeAdd, bonusRuleAdd, bonusRuleToggle, otPeriodAdd, otPeriodDelete, saveSettings, roleManagerSet, memberManagerSet, roleManager,
     memberCreate, memberPassword, memberInvite, memberDelete, memberUpdate, payUpdate, canEditMember, memberInfoSet, memberEmailSet, upload, addDocument, voidDocument, fileUrl, checkFile, ACCOUNTS, DOC_KINDS, DEFAULTS, MIME, MAX_BYTES,
     tasksOf, reviewsFor, canTask, canDeleteTask, taskAdd, taskSet, taskDelete, taskReview, loadTasks, people: () => data.people.slice(), TASK_STATUSES, loadLog, logNow, logLabel,

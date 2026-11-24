@@ -90,6 +90,8 @@
   function view() {
     if (!H()) return [K.Empty('الموارد البشرية مش متاحة', 'جرّب تفتح الصفحة تاني.')];
     const c = can(); if (!tabs().some((t) => t.id === st.tab)) st.tab = 'overview';
+    /* 0155: the manager's alert — the evaluation's action popup once the HR data is in */
+    if (st.evalAction && H().state() === 'ready') { const a = st.evalAction; st.evalAction = null; setTimeout(() => actionPopup(a.code, a.mk), 0); }
     return [K.PageHead('الموارد البشرية', 'الفريق · الحضور والانصراف · المرتبات · التقييمات', [st.tab === 'reports' ? null : K.PanelButton('hr:' + st.tab, 'الموارد البشرية — ' + (TABS.find((t) => t.id === st.tab) || {}).label, () => document.querySelector('#pg-hr .panel'), R), c.edit ? Button({ label: 'تسجيل حضور يدوي', icon: 'clock', onClick: () => manualAtt() }) : null, c.admin ? Button({ type: 'brand', label: 'إضافة عضو', icon: 'plus', onClick: () => addMember() }) : null]),
       H().state() === 'error' ? U.InlineNote({ kind: 'error', children: 'تعذّر تحميل بيانات الموارد البشرية — جرّب تاني بعد شوية.' }) : null,
       K.MainTabs({ items: tabs(), active: st.tab, onChange: (id) => { st.tab = id; try { history.replaceState(null, '', '#hr-' + id); } catch (e) { /* */ } R(); }, label: 'أقسام الموارد البشرية' }),
@@ -356,8 +358,10 @@
   // a month's / a quarter's evaluations of the team as comparison lines
   function evalCmpLines(tm, of, bar) {
     const rows = tm.map(of).filter(Boolean); const rated = rows.filter((x) => x.total != null); const nn = (k) => rows.map((x) => x[k]).filter((v) => v != null);
-    return [CLn('متوسط الفريق', avg1(rated.map((x) => x.total)), 'count', 'up', 'من 5'), CLn('اتقيّموا', rated.length, 'count', 'up', 'عضو'), CLn('فوق حد البونص', rated.filter((x) => x.total >= bar).length, 'count', 'up', 'عضو'),
-      CLn('متوسط الحضور', avg1(nn('att')), 'count', 'up', 'من 5'), CLn('متوسط الأداء', avg1(nn('perf')), 'count', 'up', 'من 5'), CLn('متوسط التواصل', avg1(nn('comm')), 'count', 'up', 'من 5')];
+    /* the meeting of 23 Nov phase 7 (0155): no bar — the bonus % of the holdback (sensitive.salaries, like the money); the performance /
+       the communication of the members rated on them (a role with its own items has none) */
+    return [CLn('متوسط الفريق', avg1(rated.map((x) => x.total)), 'count', 'up', 'من 5'), CLn('اتقيّموا', rated.length, 'count', 'up', 'عضو'), can().salaries ? CLn('متوسط نسبة البونص', avg1(nn('pct')), 'count', 'up', '%') : null,
+      CLn('متوسط الحضور', avg1(nn('att')), 'count', 'up', 'من 5'), CLn('متوسط الأداء', avg1(nn('perf')), 'count', 'up', 'من 5'), CLn('متوسط التواصل', avg1(nn('comm')), 'count', 'up', 'من 5')].filter(Boolean);
   }
   function payrollTab() {
     if (!can().salaries) return [K.Section('المرتبات', K.Empty('المرتبات للأدمن بس', 'كل عضو بيشوف قسيمته في «ملفي».'))];
@@ -382,7 +386,7 @@
     people.forEach((x) => { if (x.code && !pool.some((m) => m.id === x.uid || m.id === x.code)) pool.push({ id: x.code, uid: x.uid, name: x.name }); });
     const onSheet = new Set(lines.flatMap((p) => [p.member, p.memberUid])); const noPay = L.status === 'ok' ? pool.filter((m) => !onSheet.has(m.id) && !(m.uid && onSheet.has(m.uid))) : [];
     const table = lines.length || noPay.length ? U.Table({ cls: 'hr-pay', headers: ['العضو', 'المرتب', 'البونص', 'الأوفر تايم', 'إضافات', 'خصومات وسُلف', 'الصافي', 'التحويل', ''],
-      rows: lines.map((p) => [mcell(p.member, p.name || pname(p.member)), K.Num(K.money(p.paid)), p.quarterBonus ? K.Num(K.money(p.quarterBonus)) : '—', otOf(p) ? K.Num(K.money(otOf(p))) : '—', extraOf(p) ? K.Num(K.money(extraOf(p))) : '—',
+      rows: lines.map((p) => [mcell(p.member, p.name || pname(p.member)), K.Num(K.money(p.paid)), p.quarterBonus ? K.Num(K.money(p.quarterBonus)) : H().evalBonus(p.member, mk) != null ? h('small', { class: 'help', 'data-hr-month-bonus': '', title: 'بونص تقييم الشهر — بيتصرف مع تالت شهر في الربع' }, 'الشهر ده ', K.Num(K.money(H().evalBonus(p.member, mk)))) : '—', /* 0155 */ otOf(p) ? K.Num(K.money(otOf(p))) : '—', extraOf(p) ? K.Num(K.money(extraOf(p))) : '—',
         cutsOf(p) ? K.Num('− ' + K.money(cutsOf(p))) : '—', h('b', null, K.Num(K.money(p.net))), status(p), menu(p)])
       // ش30 (the owner 16 Nov — «حط كل الفريق حتي الادمنز و المالك و كله كله»): every active member I see is on the sheet — the ones with
       // no salary set (an admin, the owner) on a row of their own: «مالوش مرتب» and «حدد المرتب» from their job card
@@ -475,6 +479,13 @@
   const evalTone = (v) => (v == null ? 'neutral' : v >= 4 ? 'success' : v >= 3 ? 'info' : 'error');
   const score = (v) => (v == null ? '—' : K.Num(String(v).replace(/\.0$/, '') + ' / 5'));
   const scoreTag = (v) => (v == null ? K.Tag('neutral', 'لسه') : K.Tag(evalTone(v), String(v).replace(/\.0$/, '') + ' / 5'));
+  /* the meeting of 23 Nov phase 7 (0155): the month's items with their scores, the bonus % (and its money for sensitive.salaries), the band's action */
+  const ER = () => window.IBEvalRules;
+  const itemsCell = (x) => { if (!x || x.total == null || !x.rules) return '—'; const sc = ER().scoresOf(x);
+    return h('span', { class: 't-small', 'data-hr-eval-items': '' }, x.rules.items.filter((i) => i.weight > 0).map((i) => i.name + ' ' + (i.auto ? (x.att == null ? '—' : String(x.att).replace(/\.0$/, '')) : (sc[i.id] == null ? '—' : sc[i.id]))).join(' · ')); };
+  const pctTxt = (v) => (v == null ? '—' : U.num(String(Math.round(v * 100) / 100) + '%'));
+  const bonusCell = (m, x) => (x.pct == null ? '—' : h('span', { 'data-hr-eval-bonus': String(x.pct) }, K.Num(pctTxt(x.pct)), can().salaries && H().evalBonus(m.id, x.month || '') != null ? h('small', { class: 'help' }, ' · ', money(H().evalBonus(m.id, x.month))) : null));
+  const kindsCell = (x) => (!x || x.total == null ? '—' : x.kinds && x.kinds.length ? K.Tag(x.kinds.includes('warning') ? 'error' : x.kinds.includes('reward') ? 'success' : 'info', ER().kindsText(x.kinds)) : h('span', { class: 't-small help' }, 'مفيش'));
   const mineCode = () => (window.IBDirectory.me() || {}).member_code;
   // who rates: the admin, hr.edit F, or the member's direct manager — never their own month (the server decides again)
   const canRate = (m) => can().admin || (m.id !== mineCode() && (can().edit || m.manager === mineCode()));
@@ -494,31 +505,41 @@
       : cmpCard('hr-eval', { cur: qRange(q), was: qRange(cq), names: [qLabel(q), qLabel(cq)], lines: (r) => evalCmpLines(tm, qvOf(qOf(r.from.slice(0, 7))), bar), note: 'تقييم الربع = متوسط شهوره اللي اتقيّمت.' });
     if (!tm.length) return [h('div', { class: 'toolbar' }, tabs0), K.Empty('لسه مفيش أعضاء', '')];
     if (sub === 'month') {
-      const ev = (m) => (S.evals[m.id] || {})[mk] || {};
+      const ev = (m) => Object.assign({ month: mk }, (S.evals[m.id] || {})[mk] || {});
       const rated = tm.filter((m) => ev(m).total != null);
-      const rows = tm.map((m) => { const x = ev(m); return [mcell(m.id), score(x.att), score(x.perf), score(x.comm), scoreTag(x.total), can().salaries ? (x.total == null ? '—' : x.total >= bar ? K.Tag('success', 'هيتصرف') : K.Tag('error', 'مش هيتصرف')) : null, x.by ? h('span', { class: 't-small' }, x.by) : '—',
-        h('span', { class: 'row-acts' }, canRate(m) ? Button({ size: 'sm', type: x.total == null ? 'primary' : 'text', label: x.total == null ? 'قيّم' : 'عدّل', attrs: { 'data-hr-rate': m.id }, onClick: () => rateMember(m, mk) }) : null, evalMenu(m, mk, x.total, monLabel(mk)))].filter((c) => c !== null); });
+      const rows = tm.map((m) => { const x = ev(m); return [mcell(m.id), itemsCell(x), scoreTag(x.total), can().salaries ? bonusCell(m, x) : null, kindsCell(x), x.by ? h('span', { class: 't-small' }, x.by) : '—',
+        h('span', { class: 'row-acts' }, canRate(m) ? Button({ size: 'sm', type: x.total == null ? 'primary' : 'text', label: x.total == null ? 'قيّم' : 'عدّل', attrs: { 'data-hr-rate': m.id }, onClick: () => rateMember(m, mk) }) : null, evalMenu(m, mk, x.total, monLabel(mk), x.kinds))].filter((c) => c !== null); });
+      const pt = ER().rulesOf(S.hrSettings.evalRules, null).point; const sumB = rated.reduce((n, m) => n + (H().evalBonus(m.id, mk) || 0), 0);
       return [h('div', { class: 'toolbar hr-mpick', 'data-hr-month-pick': mk }, tabs0, pick),
-        h('div', { class: 'cards', 'data-hr-eval-cards': '' }, K.Stat('اتقيّموا', rated.length, 'من ' + tm.length, monLabel(mk)), K.Stat('متوسط الفريق', rated.length ? String(Math.round(rated.reduce((n, m) => n + ev(m).total, 0) / rated.length * 10) / 10) : '—', 'من 5', 'تقييم الشهر'), K.Stat('فوق حد البونص', rated.filter((m) => ev(m).total >= bar).length, 'عضو', 'التقييم ' + bar + ' من 5 أو أكتر')), cmp,
-        K.Section('التقييم الشهري — ' + monLabel(mk), [U.Table({ cls: 'hr-evals', headers: ['العضو', 'الحضور', 'الأداء', 'التواصل', 'تقييم الشهر'].concat(can().salaries ? ['البونص'] : [], ['قيّمه', '']), rows }),
-          note('الحضور تلقائي من أيام الحضور على أيام الشغل (من غير الإجازات المتوافق عليها والعطلات). الأداء من المدير المباشر حسب المهام اللي خلصت واللي لأ، والتواصل حسب تعامله مع الفريق والعملاء والمبتكرين. تقييم الشهر = متوسط التلاتة.')], null, { when: monLabel(mk) })];
+        h('div', { class: 'cards', 'data-hr-eval-cards': '' }, K.Stat('اتقيّموا', rated.length, 'من ' + tm.length, monLabel(mk)), K.Stat('متوسط الفريق', rated.length ? String(Math.round(rated.reduce((n, m) => n + ev(m).total, 0) / rated.length * 100) / 100) : '—', 'من 5', 'تقييم الشهر'),
+          can().salaries ? K.Stat('بونص الشهر', money(sumB), 'من المحجوز', 'بيتصرف مع تالت شهر في الربع — كل نقطة = ' + pt + '%') : K.Stat('محتاجين إجراء', rated.filter((m) => (ev(m).kinds || []).length).length, 'عضو', 'حسب قواعد التقييم')), cmp,
+        K.Section('التقييم الشهري — ' + monLabel(mk), [U.Table({ cls: 'hr-evals', headers: ['العضو', 'البنود', 'تقييم الشهر'].concat(can().salaries ? ['البونص'] : [], ['الإجراء المقترح', 'قيّمه', '']), rows }),
+          note('التقييم من 1 لـ 5 على بنود بأوزان (لكل دور بنوده — من «الإعدادات › الموارد البشرية»)، والحضور تلقائي من أيام الحضور على أيام الشغل. تقييم الشهر = متوسط مرجّح من غير تقريب، والبونص = التقييم × ' + pt + '% من المبلغ المحجوز (5 من 5 = كله)، بيتجمّع ويتصرف مع تالت شهر في الربع. أي تعديل في القواعد بيسري على التقييمات الجديدة بس.')], null, { when: monLabel(mk) })];
     }
-    const rows = tm.map((m) => { const x = H().quarterEval(m.id, q) || {}; return [mcell(m.id), score(x.att), score(x.perf), score(x.comm), scoreTag(x.total), K.Num((x.rated || 0) + ' / 3'), evalMenu(m, q, x.total, qLabel(q))]; });
+    const rows = tm.map((m) => { const x = H().quarterEval(m.id, q) || {}; const kq = x.total == null ? [] : ER().kinds(x.total, H().evalRulesOf(m.id));
+      return [mcell(m.id), score(x.att), scoreTag(x.total), can().salaries ? h('span', { 'data-hr-eval-qbonus': '' }, K.Num(pctTxt(x.pct)), x.bonus != null ? h('small', { class: 'help' }, ' · ', money(x.bonus)) : null) : null, K.Num((x.rated || 0) + ' / 3'), evalMenu(m, q, x.total, qLabel(q), kq)].filter((c) => c !== null); });
     return [h('div', { class: 'toolbar hr-mpick', 'data-hr-quarter-pick': q }, tabs0, pick), cmp,
-      K.Section('التقييم الربع سنوي — ' + qLabel(q), [U.Table({ cls: 'hr-evals-q', headers: ['العضو', 'الحضور', 'الأداء', 'التواصل', 'التقييم الربع سنوي', 'شهور اتقيّمت', ''], rows }),
-        note('التقييم الربع سنوي تلقائي = متوسط تقييمات شهوره اللي اتقيّمت.')], null, { when: qLabel(q) })];
+      K.Section('التقييم الربع سنوي — ' + qLabel(q), [U.Table({ cls: 'hr-evals-q', headers: ['العضو', 'الحضور', 'التقييم الربع سنوي'].concat(can().salaries ? ['البونص'] : [], ['شهور اتقيّمت', '']), rows }),
+        note('التقييم الربع سنوي = متوسط تقييمات شهوره اللي اتقيّمت. البونص = متوسط نسبة شهوره، والمبلغ = مجموع بونص كل شهر من المحجوز بتاعه — بيتصرف مع تالت شهر.')], null, { when: qLabel(q) })];
   }
   // owner batch 14 Nov decision 13 (0089): ⋮ on a month / quarter row — under the bonus bar: «حدد ميتنج» (a team request to the member
   // with the time + the bell) · «ابعت إنذار» · «خطة تحسين»; 4 or more: «ابعت شكر» · «أضف مكافأة» (the payroll popup, sensitive.salaries);
   // «الملاحظات» lists what was sent for that period. Who: canRate (the server decides again — hr_member_note_add).
-  const NOTE_TITLE = { meeting: 'حدد ميتنج', warning: 'ابعت إنذار', plan: 'خطة تحسين', thanks: 'ابعت شكر' };
-  const NOTE_TONE = { meeting: 'info', warning: 'error', plan: 'orange', thanks: 'success' };
+  const NOTE_TITLE = { meeting: 'حدد ميتنج', warning: 'ابعت إنذار', plan: 'خطة تحسين', thanks: 'ابعت شكر', note: 'اكتب ملاحظة' };
+  const NOTE_TONE = { meeting: 'info', warning: 'error', plan: 'orange', thanks: 'success', note: 'neutral' };
   const HALF = Array.from({ length: 31 }, (_, i) => String(7 + Math.floor(i / 2)).padStart(2, '0') + (i % 2 ? ':30' : ':00')); // 07:00 … 22:00
-  function evalMenu(m, period, total, label) {
-    const bar = Number(S.hrSettings.bonusMin) || 3; const rate = canRate(m) && total != null;
-    const items = [];
-    if (rate && total < bar) items.push({ label: 'حدد ميتنج', icon: 'calendar', run: () => noteForm(m, 'meeting', period, label) }, { label: 'ابعت إنذار', icon: 'alert', run: () => noteForm(m, 'warning', period, label) }, { label: 'خطة تحسين', icon: 'checkCircle', run: () => noteForm(m, 'plan', period, label) });
-    if (rate && total >= 4) items.push({ label: 'ابعت شكر', icon: 'star', run: () => noteForm(m, 'thanks', period, label) }, can().salaries ? { label: 'أضف مكافأة', icon: 'plus', run: () => addAdjustment(thisMonth(), m.id, { label: 'مكافأة تقييم ' + label }) } : null);
+  /* the meeting of 23 Nov phase 7 (0155): the ⋮ follows the result's band in the settings — warning (+ the improvement plan) · meeting · note · reward (thanks + the payroll's bonus popup) */
+  const actionItems = (m, period, label, kinds) => {
+    const k = kinds || []; const items = [];
+    if (k.includes('meeting')) items.push({ label: 'حدد ميتنج', icon: 'calendar', kind: 'meeting', run: () => noteForm(m, 'meeting', period, label) });
+    if (k.includes('warning')) items.push({ label: 'ابعت إنذار', icon: 'alert', kind: 'warning', run: () => noteForm(m, 'warning', period, label) }, { label: 'خطة تحسين', icon: 'checkCircle', kind: 'plan', run: () => noteForm(m, 'plan', period, label) });
+    if (k.includes('note')) items.push({ label: 'اكتب ملاحظة', icon: 'edit', kind: 'note', run: () => noteForm(m, 'note', period, label) });
+    if (k.includes('reward')) items.push(can().salaries ? { label: 'أضف مكافأة', icon: 'plus', kind: 'reward', run: () => addAdjustment(thisMonth(), m.id, { label: 'مكافأة تقييم ' + label }) } : null, { label: 'ابعت شكر', icon: 'star', kind: 'thanks', run: () => noteForm(m, 'thanks', period, label) });
+    return items.filter(Boolean);
+  };
+  function evalMenu(m, period, total, label, kinds) {
+    const rate = canRate(m) && total != null;
+    const items = rate ? actionItems(m, period, label, kinds) : [];
     const n = H().notesOf ? H().notesOf(m.id, period).length : 0; if (n) items.push({ label: 'اللي اتبعت (' + n + ')', icon: 'activity', run: () => notesView(m, period, label) });
     const list = items.filter(Boolean); return list.length ? K.RowMenu(list, 'إجراءات تقييم ' + m.name) : '';
   }
@@ -528,13 +549,13 @@
       note: h('p', { class: 't-small help', style: 'margin:0' }, 'عن تقييم ' + label + '. ' + (kind === 'meeting' ? 'هيوصله طلب في «طلبات الفريق» بالميعاد بس (من غير التقييم) وتنبيه في الجرس؛ النقاط اللي هتتكلموا فيها بتفضل في الموارد البشرية.' : 'هيوصله تنبيه في الجرس وهيلاقيه في «ملفي › أدائي».')),
       fields: (f, e, set) => [kind === 'meeting' ? K.two(K.field.date('day', 'اليوم', f, e, set, { required: true }), U.Select({ id: 'time', label: 'الساعة', value: f.time, options: HALF.map((x) => ({ value: x, label: x })), onChange: (v) => set('time', v, true) })) : null,
         kind === 'plan' ? K.field.date('day', 'ميعاد المراجعة', f, e, set, { help: 'اختياري — إمتى تراجعوا الخطة' }) : null,
-        K.field.area('body', kind === 'meeting' ? 'هتتكلموا في إيه' : kind === 'warning' ? 'سبب الإنذار' : kind === 'plan' ? 'أهداف الخطة' : 'رسالة الشكر', f, e, set,
-          { required: kind === 'warning' || kind === 'plan', placeholder: kind === 'plan' ? 'مثلاً: الرد على كل الرسايل في نفس اليوم · ولا أوردر متأخر الشهر الجاي' : kind === 'meeting' ? 'اختياري' : '' })],
+        K.field.area('body', kind === 'meeting' ? 'هتتكلموا في إيه' : kind === 'warning' ? 'سبب الإنذار' : kind === 'plan' ? 'أهداف الخطة' : kind === 'note' ? 'الملاحظة' : 'رسالة الشكر', f, e, set,
+          { required: kind === 'warning' || kind === 'plan' || kind === 'note', placeholder: kind === 'plan' ? 'مثلاً: الرد على كل الرسايل في نفس اليوم · ولا أوردر متأخر الشهر الجاي' : kind === 'meeting' ? 'اختياري' : '' })],
       validate: (f) => { const e = {}; if (kind === 'meeting' && (!f.day || f.day < t)) e.day = 'اختار يوم من النهارده أو بعده'; if (kind === 'plan' && f.day && f.day < t) e.day = 'اختار يوم من النهارده أو بعده';
-        if ((kind === 'warning' || kind === 'plan') && !String(f.body || '').trim()) e.body = kind === 'warning' ? 'اكتب سبب الإنذار' : 'اكتب أهداف الخطة'; if (String(f.body || '').length > 1000) e.body = 'لحد 1000 حرف'; return e; },
-      submitLabel: kind === 'meeting' ? 'حدد الميتنج' : kind === 'warning' ? 'ابعت الإنذار' : kind === 'plan' ? 'احفظ الخطة' : 'ابعت الشكر',
+        if ((kind === 'warning' || kind === 'plan' || kind === 'note') && !String(f.body || '').trim()) e.body = kind === 'warning' ? 'اكتب سبب الإنذار' : kind === 'note' ? 'اكتب الملاحظة' : 'اكتب أهداف الخطة'; if (String(f.body || '').length > 1000) e.body = 'لحد 1000 حرف'; return e; },
+      submitLabel: kind === 'meeting' ? 'حدد الميتنج' : kind === 'warning' ? 'ابعت الإنذار' : kind === 'plan' ? 'احفظ الخطة' : kind === 'note' ? 'احفظ الملاحظة' : 'ابعت الشكر',
       submit: (f, md) => busy(md, () => H().noteAdd(m.id, kind, period, f.body, (kind === 'meeting' || kind === 'plan') && f.day ? { day: f.day, time: kind === 'meeting' ? f.time : '10:00' } : null),
-        (r) => K.toast(kind === 'meeting' ? 'اتحدد الميتنج' + (r.ticket ? ' — TKT-' + String(r.ticket).padStart(4, '0') : '') : kind === 'warning' ? 'اتبعت الإنذار' : kind === 'plan' ? 'اتحفظت خطة التحسين' : 'اتبعت الشكر', 'success')) });
+        (r) => K.toast(kind === 'meeting' ? 'اتحدد الميتنج' + (r.ticket ? ' — TKT-' + String(r.ticket).padStart(4, '0') : '') : kind === 'warning' ? 'اتبعت الإنذار' : kind === 'plan' ? 'اتحفظت خطة التحسين' : kind === 'note' ? 'اتحفظت الملاحظة' : 'اتبعت الشكر', 'success')) });
   }
   function notesView(m, period, label) {
     const list = H().notesOf(m.id, period);
@@ -550,29 +571,50 @@
   // communication as stars), the month's tasks in a box of two columns, the month's score as a strip that follows the stars (and
   // which side of the bonus bar it is on), then the note
   function rateMember(m, mk) {
-    const x = (S.evals[m.id] || {})[mk] || {}; const tasks = H().monthTasks(m.id, mk); const bar = Number(S.hrSettings.bonusMin) || 3;
+    const x = (S.evals[m.id] || {})[mk] || {}; const tasks = H().monthTasks(m.id, mk);
+    /* the meeting of 23 Nov phase 7 (0155): the member's rules now (his role's items — a saved one is re-rated with the current rules, the
+       server keeps them with it), a star row for each counted item with its weight, the attendance read-only, the result = the weighted
+       average (not rounded), the bonus % of the holdback (and its money for sensitive.salaries) and the band's suggested action */
+    const rules = H().evalRulesOf(m.id); const items = rules.items.filter((i) => i.weight > 0 || !i.auto); const sc0 = x.total != null ? ER().scoresOf(x) : {};
     const list = (title, l, tone) => h('div', { class: 'ev-tasks' }, h('div', { class: 'ev-tasks-h' }, h('b', null, title), K.Tag(tone, String(l.length))),
       l.length ? h('ul', { class: 't-small' }, l.slice(0, 6).map((t) => h('li', null, t.title)), l.length > 6 ? h('li', { class: 'help' }, U.num('+ ' + (l.length - 6) + ' كمان')) : null) : h('span', { class: 't-small help' }, 'مفيش'));
-    const att = x.att == null ? null : Number(x.att);
+    const att = x.att == null ? null : Number(x.att); const attItem = rules.items.find((i) => i.auto);
     const head = h('div', { class: 'ev-who' }, U.Avatar(m.name), h('div', { class: 'ev-who-t' }, h('b', null, m.name), h('small', { class: 'help' }, [m.title, m.role].filter(Boolean).join(' · ') || '—')),
       h('span', { class: 'ev-who-tags' }, K.Tag('neutral', monLabel(mk)), x.total == null ? K.Tag('orange', 'لسه ماتقيّمش') : K.Tag(evalTone(x.total), U.num('متقيّم ' + String(x.total).replace(/\.0$/, '') + ' من 5'))));
-    const attBox = h('div', { class: 'ev-box ev-att' }, h('span', { class: 'flabel' }, 'الحضور (تلقائي)'),
+    const wt = (i) => h('small', { class: 'help ev-w' }, U.num('الوزن ' + i.weight + '%'));
+    const attBox = attItem ? h('div', { class: 'ev-box ev-att' }, h('span', { class: 'flabel' }, attItem.name + ' (تلقائي)'), wt(attItem),
       att == null ? h('b', { class: 'ev-num' }, '—') : h('b', { class: 'ev-num' }, K.Num(String(att).replace(/\.0$/, '')), h('small', null, ' من 5')),
       h('span', { class: 'ev-bar', 'aria-hidden': 'true' }, h('i', { style: 'width:' + Math.round(Math.max(0, Math.min(5, att || 0)) / 5 * 100) + '%' })),
-      h('small', { class: 'help' }, att == null ? 'مفيش أيام شغل الشهر ده' : 'من أيام الحضور على أيام الشغل — مابيتعدّلش بالإيد'));
-    K.form({ title: 'تقييم ' + m.name + ' — ' + monLabel(mk), wide: 'ev-modal', values: { perf: x.perf || 0, comm: x.comm || 0, note: x.note || '' },
-      fields: (f, e, set) => { const total = f.perf && f.comm ? H().evalTotal(att, f.perf, f.comm) : null; const over = total != null && total >= bar;
+      h('small', { class: 'help' }, attItem.weight === 0 ? 'مش محسوب في الدور ده (الوزن صفر)' : att == null ? 'مفيش أيام شغل الشهر ده — وزنه بيتوزّع على الباقي' : 'من أيام الحضور على أيام الشغل — مابيتعدّلش بالإيد')) : null;
+    const manual = items.filter((i) => !i.auto);
+    const values = { note: x.note || '' }; manual.forEach((i) => { values['s_' + i.id] = sc0[i.id] || 0; });
+    K.form({ title: 'تقييم ' + m.name + ' — ' + monLabel(mk), wide: 'ev-modal', values,
+      fields: (f, e, set) => { const scores = {}; manual.forEach((i) => { if (f['s_' + i.id]) scores[i.id] = f['s_' + i.id]; });
+        const done = manual.every((i) => i.weight === 0 || f['s_' + i.id]); const total = done ? H().evalTotal(att, scores, rules) : null;
+        const pct = ER().pct(total, rules); const kinds = ER().kinds(total, rules); const amt = pct == null || !m.holdback ? null : Math.round(m.holdback * pct) / 100;
         return [head,
-          h('div', { class: 'ev-grid' }, attBox,
-            h('div', { class: 'ev-box' }, K.StarPicker({ id: 'ev-perf', label: 'الأداء', value: f.perf, onChange: (v) => set('perf', v, true), error: e.perf, required: true, help: 'حسب المهام اللي خلصت واللي لأ' })),
-            h('div', { class: 'ev-box' }, K.StarPicker({ id: 'ev-comm', label: 'التواصل', value: f.comm, onChange: (v) => set('comm', v, true), error: e.comm, required: true, help: 'مع الفريق والعملاء والمبتكرين' }))),
+          h('div', { class: 'ev-grid', 'data-hr-rate-items': String(manual.length) }, attBox,
+            manual.map((i) => h('div', { class: 'ev-box' }, K.StarPicker({ id: 'ev-' + i.id, label: i.name, value: f['s_' + i.id], onChange: (v) => set('s_' + i.id, v, true), error: e['s_' + i.id], required: i.weight > 0, help: i.weight > 0 ? 'الوزن ' + i.weight + '%' : 'مش محسوب (الوزن صفر)' })))),
           h('div', { class: 'ev-box ev-task-box', 'data-hr-rate-tasks': '' }, h('span', { class: 'flabel' }, 'مهام ' + monLabel(mk)), h('div', { class: 'ev-task-cols' }, list('مهام خلصت', tasks.done, 'success'), list('مهام لسه مفتوحة', tasks.open, tasks.open.length ? 'orange' : 'neutral'))),
-          h('div', { class: 'ev-total' + (total == null ? '' : over ? ' over' : ' under'), 'data-hr-rate-total': total == null ? '' : String(total), 'aria-live': 'polite' }, h('span', { class: 'ev-total-l' }, 'تقييم الشهر'),
-            total == null ? h('span', { class: 't-small help' }, 'اختار الأداء والتواصل — التقييم = متوسط التلاتة')
-              : [h('b', { class: 'ev-total-n' }, K.Num(String(total).replace(/\.0$/, '')), h('small', null, ' من 5')), h('span', { class: 't-small' }, U.num(over ? 'على حد البونص (' + bar + ') أو فوقه' + (can().salaries ? ' — بونص الشهر هيتصرف' : '') : 'تحت حد البونص (' + bar + ')' + (can().salaries ? ' — بونص الشهر مش هيتصرف' : '')))]),
+          h('div', { class: 'ev-total' + (total == null ? '' : kinds.includes('warning') ? ' under' : ' over'), 'data-hr-rate-total': total == null ? '' : String(total), 'data-hr-rate-pct': pct == null ? '' : String(pct), 'aria-live': 'polite' }, h('span', { class: 'ev-total-l' }, 'تقييم الشهر'),
+            total == null ? h('span', { class: 't-small help' }, 'قيّم كل البنود — التقييم = متوسط مرجّح بالأوزان')
+              : [h('b', { class: 'ev-total-n' }, K.Num(String(total).replace(/\.0$/, '')), h('small', null, ' من 5')),
+                h('span', { class: 't-small' }, can().salaries ? U.num('البونص ' + String(pct).replace(/\.0+$/, '') + '% من المحجوز' + (amt != null ? ' = ' + K.money(amt) : '')) : null,
+                  kinds.length ? h('span', { 'data-hr-rate-kinds': kinds.join(',') }, ' · الإجراء المقترح: ', h('b', null, ER().kindsText(kinds))) : null)]),
           K.field.area('note', 'ملاحظة', f, e, set, { placeholder: 'اختياري — اللي اتبنى عليه التقييم' })]; },
-      validate: (f) => { const e = {}; if (!(f.perf >= 1)) e.perf = 'اختار تقييم الأداء'; if (!(f.comm >= 1)) e.comm = 'اختار تقييم التواصل'; return e; }, submitLabel: 'حفظ التقييم',
-      submit: (f, md) => busy(md, () => H().evaluate(m.id, mk, f.perf, f.comm, f.note), (r) => K.toast('اتحفظ التقييم: ' + r.total + ' من 5', 'success')) });
+      validate: (f) => { const e = {}; manual.forEach((i) => { if (i.weight > 0 && !(f['s_' + i.id] >= 1)) e['s_' + i.id] = 'اختار تقييم ' + i.name; }); return e; }, submitLabel: 'حفظ التقييم',
+      submit: (f, md) => { const scores = {}; manual.forEach((i) => { if (f['s_' + i.id]) scores[i.id] = f['s_' + i.id]; });
+        return busy(md, () => H().evaluate(m.id, mk, scores, f.note), (r) => K.toast('اتحفظ التقييم: ' + String(r.total).replace(/\.0+$/, '') + ' من 5' + (can().salaries ? ' — البونص ' + r.pct + '%' : '') + (r.kinds && r.kinds.length ? ' · الإجراء المقترح: ' + ER().kindsText(r.kinds) : ''), 'success')); } });
+  }
+  /* the meeting of 23 Nov phase 7 (0155): the manager's alert («hr-evals/<code>-<YYYY-MM>») opens this — the result and its band, each action one click (prefilled) */
+  function actionPopup(code, mk) {
+    const m = team().find((t) => t.id.toLowerCase() === String(code).toLowerCase()); if (!m) return;
+    const x = (S.evals[m.id] || {})[mk] || {}; const label = monLabel(mk); const items = canRate(m) && x.total != null ? actionItems(m, mk, label, x.kinds) : [];
+    const md = U.Modal({ title: 'تقييم ' + m.name + ' — ' + label,
+      body: h('div', { class: 'stack', 'data-hr-eval-action': m.id }, h('div', { class: 'row-acts' }, scoreTag(x.total), x.pct != null && can().salaries ? K.Tag('neutral', 'البونص ' + pctTxt(x.pct)) : null),
+        x.total == null ? h('p', { class: 't-small help' }, 'الشهر ده لسه ماتقيّمش.') : h('p', { class: 't-small', style: 'margin:0' }, x.kinds && x.kinds.length ? 'الإجراء المقترح: ' + ER().kindsText(x.kinds) + ' — اختار تعمل إيه:' : 'التقييم ده مالوش إجراء.'),
+        items.length ? h('div', { class: 'row-acts', style: 'flex-wrap:wrap' }, items.map((it) => Button({ size: 'sm', type: it.kind === 'warning' || it.kind === 'meeting' ? 'primary' : 'default', label: it.label, attrs: { 'data-hr-eval-do': it.kind }, onClick: () => { md.close(); it.run(); } }))) : null),
+      footer: [Button({ label: 'افتح التقييمات', onClick: () => { md.close(); st.tab = 'evals'; st.evalSub = 'month'; st.evalMonth = mk; R(); } }), Button({ label: 'إغلاق', onClick: () => md.close() })] });
   }
 
   // ================= popups =================
@@ -745,7 +787,8 @@
   document.addEventListener('ib:hr', () => { if (window.IBPages.current === 'hr') R(); });
   // the old prototype's api for the blocks not on IBHR yet (the profile — T7; the bell / dashboard read these helpers)
   const slipOf = (m) => { const L = st.lines[thisMonth()]; const p = L && L.lines ? slipFor(L.lines, m) : null; return p || O.payslip({ salary: m.salary || 0, holdback: m.holdback || 0, bonus: m.allow || 0 }); };
-  window.IBPages.register('hr', { title: 'الموارد البشرية', hash: (hs) => { const m = /^hr(?:-(overview|team|requests|payroll|evals|log|reports|settings))?$/.exec(hs); if (!m) return false; if (m[1] === 'settings') { setTimeout(() => { location.hash = 'settings-hr'; }, 0); return true; } st.tab = !m[1] || m[1] === 'requests' ? 'overview' : m[1]; return true; }, defaultHash: () => 'hr-' + st.tab, view,
+  window.IBPages.register('hr', { title: 'الموارد البشرية', hash: (hs) => { const ea = /^hr-evals\/([a-z0-9]+)-(\d{4}-\d{2})$/i.exec(hs); if (ea) { st.tab = 'evals'; st.evalSub = 'month'; st.evalMonth = ea[2]; st.evalAction = { code: ea[1], mk: ea[2] }; return true; }
+    const m = /^hr(?:-(overview|team|requests|payroll|evals|log|reports|settings))?$/.exec(hs); if (!m) return false; if (m[1] === 'settings') { setTimeout(() => { location.hash = 'settings-hr'; }, 0); return true; } st.tab = !m[1] || m[1] === 'requests' ? 'overview' : m[1]; return true; }, defaultHash: () => 'hr-' + st.tab, view,
     api: { addMember, decide: (r, s, reason) => decide(r, s, reason), rejectReq, reqDetails, otAdd, otReject, leaveRequest, advanceRequest, remoteRequest, newPassword, slipModal: (p, mk, status) => payslipModal(p, mk, status), payslipModal: (m) => { const L = linesOf(thisMonth()); const p = slipFor(L.lines, m); if (p) payslipModal(p, thisMonth()); else K.toast('القسيمة لسه بتتحسب — جرّب كمان شوية'); }, slipOf, manualAtt, uploadContract, status, pendingCount, isPending, reqPeriod, qScore: (id) => qScore(id), cancelReq, present,
       // agents-brain T4 (the owner 17 Nov — «لو سألتو اني عايز ادفع او اخصم او اكافيء … يطلعلي الاسكرين المناسبة»): the payroll's own popups for
       // the accountant assistant — «مكافأة / خصم» filled (this month), and «تحويل المرتب» for a member whose slip is ready and not paid yet

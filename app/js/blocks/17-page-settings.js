@@ -295,7 +295,7 @@
     integrations: () => { const all = C.integrations, on = all.filter((x) => x.status === 'متصل').length, err = all.filter((x) => String(x.status).startsWith('خطأ')).length; return [on + ' من ' + all.length + ' متصلة' + (err ? ' · ' + err + ' فيها خطأ' : ''), err ? 'error' : 'success']; },
     quick: () => { const n = window.IBQuick ? window.IBQuick.list().length : 0; return [n + ' إجراء سريع', 'neutral']; },
     makers: () => { const D = window.IbtekrOps && window.IbtekrOps.delayRules ? window.IbtekrOps.delayRules(C.makers.delay) : null; return [D ? 'متأخر بعد مدة التصنيع · قابل قبلها بـ ' + D.orderRisk + ' يوم' : 'قواعد التأخير', 'neutral']; },
-    hr: () => { const v = st.hr || (window.IBHR ? window.IBHR.settings() : {}); return ['يوم الصرف ' + (v.payDay || 28) + ' · البونص من ' + (v.bonusMin || 3) + ' من 5', 'neutral']; },
+    hr: () => { const v = st.hr || (window.IBHR ? window.IBHR.settings() : {}); const ER = window.IBEvalRules; return ['يوم الصرف ' + (v.payDay || 28) + ' · البونص بالتقييم — كل نقطة ' + (ER ? ER.rulesOf((st.hr && st.hr.evalRules) || v.evalRules, null).point : 20) + '%', 'neutral']; },
     inventory: () => { const I = window.IBInventory; const v = st.inv || (I ? I.settings() : null); return [v && v.firstWarehouse ? 'السحب التلقائي شغّال' : 'السحب يدوي', v && v.firstWarehouse ? 'gold' : 'neutral']; },
     notifications: () => [C.notif.length + ' نوع تنبيه · ' + C.escalations.length + ' تصعيد', 'neutral'],
     activity: () => { const n = (K.store.log || []).length; return [n ? n + ' حدث متسجل' : 'مين عمل إيه وإمتى', 'neutral']; },
@@ -402,19 +402,28 @@
   // the day (shown), the missing end, the overtime (counted, «لسه شغال؟», who confirms), the pay day and the bonus bar, the leave types and
   // the year's end (paid with December / carried), the holidays, the role managers (0092 — the departments are out). The values are IBHR's settings row «hr» — a draft here
   // (st.hr) that the page's «حفظ» sends; the lists are written at once from their popups (the admin)
-  const HR_KEYS = ['autoMissing', 'countOT', 'presence', 'presenceEvery', 'confirmBy', 'payDay', 'bonusMin', 'leaveYearEnd', 'workDays', 'workFrom', 'workTo', 'dayDivisor', 'schedules'];
+  const HR_KEYS = ['autoMissing', 'countOT', 'presence', 'presenceEvery', 'confirmBy', 'payDay', 'bonusMin', 'leaveYearEnd', 'workDays', 'workFrom', 'workTo', 'dayDivisor', 'schedules', 'evalRules'];
   const hrDay = (v) => { const n = Number(String(v == null ? '' : v).trim().replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d))); return Number.isInteger(n) && n >= 1 && n <= 31 ? n : null; };
   const hrSpan = (a, b) => { const HR = window.IBHR; return HR && HR.span ? HR.span(a, b) : null; };
-  const hrValid = () => !st.hr || (hrDay(st.hr.payDay) != null && hrSpan(st.hr.workFrom, st.hr.workTo) != null && Array.isArray(st.hr.workDays) && st.hr.workDays.length > 0);
+  const hrValid = () => !st.hr || (hrDay(st.hr.payDay) != null && hrSpan(st.hr.workFrom, st.hr.workTo) != null && Array.isArray(st.hr.workDays) && st.hr.workDays.length > 0 && !evalErr(st.hr.evalRules));
+  /* the meeting of 23 Nov phase 7 (0155): the evaluation's rules — the team's items, a role's own items, the point, the bands; what is wrong (one line) or null */
+  const evalErr = (r) => { const ER = window.IBEvalRules; if (!ER || !r) return null; const e = ER.itemsError(r.items); if (e) return 'بنود كل الفريق: ' + e;
+    for (const id of Object.keys(r.roles || {})) { const x = ER.itemsError(r.roles[id]); if (x) return 'بنود «' + ((hrRoles().find((q) => q.id === id) || {}).name || id) + '»: ' + x; }
+    if (!ER.pointOk(Number(r.point))) return 'قيمة النقطة من 1% لـ 20%'; const a = ER.actionsError(r.actions); return a ? 'الإجراءات: ' + a : null; };
+  const evalDraft = (v) => { const ER = window.IBEvalRules; const cur = v && typeof v === 'object' ? v : {}; const base = ER.rulesOf(cur, null); const roles = {};
+    Object.keys(cur.roles || {}).forEach((id) => { if (ER.itemsOk(cur.roles[id])) roles[id] = JSON.parse(JSON.stringify(cur.roles[id])); });
+    return { items: base.items, roles, point: base.point, actions: base.actions }; };
   async function persistHr() {
     const HR = window.IBHR; if (!HR || !st.hr || !isAdminMe()) return;
     const d = st.hr; const patch = {}; HR_KEYS.forEach((k) => { patch[k] = d[k]; }); patch.payDay = hrDay(d.payDay); patch.bonusMin = Number(d.bonusMin) || 3; patch.presenceEvery = Number(d.presenceEvery) || 120;
+    if (d.evalRules) patch.evalRules = { items: d.evalRules.items.map((i) => Object.assign({}, i, { name: String(i.name).trim(), weight: Number(i.weight) })), roles: Object.fromEntries(Object.entries(d.evalRules.roles || {}).map(([k, l]) => [k, l.map((i) => Object.assign({}, i, { name: String(i.name).trim(), weight: Number(i.weight) }))])),
+      point: Number(d.evalRules.point), actions: d.evalRules.actions.map((a) => ({ min: Number(a.min), kinds: a.kinds.slice() })) };
     patch.dayDivisor = Number(d.dayDivisor) || 24; patch.workDays = (d.workDays || []).map(Number).sort(); patch.schedules = { role: Object.assign({}, (d.schedules || {}).role), member: Object.assign({}, (d.schedules || {}).member) };
     const r = await HR.saveSettings(patch); if (!r.ok) fail(r, 'حفظ إعدادات الموارد البشرية'); else st.hr = null;
   }
   function hrSec() {
     const HR = window.IBHR; if (!HR) return [U.InlineNote({ kind: 'warning', children: 'إعدادات الموارد البشرية مش متاحة دلوقتي — جرّب تحدّث الصفحة.' })];
-    if (!st.hr) { const v = HR.settings(); st.hr = {}; HR_KEYS.forEach((k) => { st.hr[k] = v[k]; }); st.hr.workDays = HR.workDays(); st.hr.schedules = { role: Object.assign({}, (v.schedules || {}).role), member: Object.assign({}, (v.schedules || {}).member) }; }
+    if (!st.hr) { const v = HR.settings(); st.hr = {}; HR_KEYS.forEach((k) => { st.hr[k] = v[k]; }); st.hr.workDays = HR.workDays(); st.hr.evalRules = window.IBEvalRules ? evalDraft(v.evalRules) : null; st.hr.schedules = { role: Object.assign({}, (v.schedules || {}).role), member: Object.assign({}, (v.schedules || {}).member) }; }
     const d = st.hr; const D = HR.data; const ro = !isAdminMe(); const done = (r, ok) => { if (r && r.ok) K.toast(ok, 'success'); else fail(r); R(); };
     const sw = (k, label, help) => K.Switch({ id: 'hs-' + k, label, help, checked: !!d[k], disabled: ro, onChange: (v) => { d[k] = v; R(); } });
     const holidays = D.holidays || []; const types = D.leaveTypes || [];
@@ -426,8 +435,8 @@
         d.presence ? U.Select({ id: 'hs-every', label: 'كل قد إيه', disabled: ro, options: [60, 120, 180, 240].map((x) => ({ value: String(x), label: x === 60 ? 'كل ساعة' : x === 120 ? 'كل ساعتين' : 'كل ' + x / 60 + ' ساعات' })), value: String(d.presenceEvery || 120), onChange: (v) => { d.presenceEvery = Number(v); R(); } }) : null,
         U.Select({ id: 'hs-who', label: 'مين بيأكد الأوفر تايم', disabled: ro, options: [{ value: 'المدير المباشر', label: 'المدير المباشر ← الأدمن بعد 24 ساعة' }, { value: 'الأدمن', label: 'الأدمن على طول' }], value: d.confirmBy || 'المدير المباشر', onChange: (v) => { d.confirmBy = v; R(); } })]),
       K.Section('المرتبات', [U.TextInput({ id: 'hs-payday', label: 'يوم الصرف', value: String(d.payDay == null ? '' : d.payDay), inputmode: 'numeric', disabled: ro, help: 'تحويل المرتب قبل اليوم ده = «تحويل مبكر» لازم له سبب (الشهر القصير = آخر يوم فيه)', onInput: (v) => { d.payDay = v; } }),
-        U.Select({ id: 'hs-bonus', label: 'البونص بيتصرف لو تقييم الشهر', disabled: ro, options: ['2', '2.5', '3', '3.5', '4', '4.5'].map((x) => ({ value: x, label: x + ' من 5 أو أكتر' })), value: String(d.bonusMin || 3), onChange: (v) => { d.bonusMin = Number(v); R(); } }),
-        note('البونص = الجزء المحجوز من المرتب كل شهر، بيتصرف مع آخر شهر في الربع: الشهر اللي تقييمه وصل الحد ده محجوزه كامل، واللي أقل = صفر (مش نسبة).')]),
+        note('البونص = الجزء المحجوز من المرتب كل شهر، بيتصرف مع آخر شهر في الربع بنسبة من تقييم كل شهر — القواعد تحت.')]),
+      evalSec(d, ro),
       K.Section('الإجازات', [types.length ? U.Table({ cls: 'mini-table', headers: ['النوع', 'الرصيد السنوي', 'بأجر', 'بتخصم من الرصيد', 'الموافقة'], rows: types.map((x) => [x.name, x.days, x.paid, x.deducts ? 'أيوه' : 'لأ', x.approval]) }) : null,
         ro ? vrow('رصيد الإجازات الباقي آخر السنة', null, h('b', null, d.leaveYearEnd === 'carry' ? 'يترحّل للسنة الجديدة' : 'يتصرف مع مرتب ديسمبر'))
           : K.Radios({ label: 'رصيد الإجازات الباقي آخر السنة', value: d.leaveYearEnd || 'pay', onChange: (v) => { d.leaveYearEnd = v; R(); }, options: [{ value: 'pay', label: 'يتصرف مع مرتب ديسمبر — كل يوم باقي بسعر اليوم (مقترح)' }, { value: 'carry', label: 'يترحّل ويتضاف لرصيد السنة الجديدة' }] }),
@@ -436,6 +445,40 @@
         ro ? '' : x.status !== 'مؤكد' ? Button({ type: 'text', size: 'sm', label: 'أكّده', onClick: () => HR.holidayConfirm(x.dbId).then((r) => done(r, 'اتأكدت العطلة')) }) : K.RowMenu([{ label: 'حذف', icon: 'close', danger: true, run: () => K.confirm({ title: 'حذف العطلة', text: 'هتتشال «' + x.name + '» من التقويم وحساب الإجازات.', okType: 'danger', okLabel: 'حذف', onOk: () => HR.holidayDelete(x.dbId).then((r) => done(r, 'اتحذفت العطلة')) }) }], 'إجراءات ' + x.name)]) })
         : K.Empty('مفيش عطلات', 'ضيف العطلات الرسمية عشان متتحسبش غياب.'), ro ? null : [Button({ size: 'sm', label: '+ عطلة', attrs: { 'data-hs-holiday': '' }, onClick: () => hrHoliday(done) })]),
       ro ? note('الإعدادات دي للأدمن بس — بتظهرلك قراية.') : null)];
+  }
+  // ---------- the meeting of 23 Nov phase 7 (0155): «قواعد التقييم والبونص» — the items (the team's and a role's own), the point, the bands ----------
+  // A draft in st.hr.evalRules that the page's «حفظ» sends (the row «hr».evalRules — the server reads the same: hr_eval_rules_of); a
+  // change reaches the new evaluations only (each keeps the rules it was made with)
+  const EVAL_KINDS = [['warning', 'إنذار'], ['meeting', 'ميتنج فردي'], ['note', 'ملاحظة'], ['reward', 'مكافأة إضافية']];
+  function evalSec(d, ro) {
+    const ER = window.IBEvalRules; if (!ER || !d.evalRules) return null; const r = d.evalRules; const roles = hrRoles();
+    const sel = st.evalRole && (st.evalRole === '' || roles.some((x) => x.id === st.evalRole)) ? st.evalRole : '';
+    const own = sel ? r.roles[sel] || null : r.items; const list = own || r.items; const err = ER.itemsError(list);
+    const sum = list.reduce((n, i) => n + (Number(i.weight) || 0), 0);
+    /* the kit's TextInput has no change / aria-label: the draft follows each key, the page draws on leaving the field */
+    const tin = (o) => { const el = U.TextInput(o); const inp = el.querySelector ? el.querySelector('input') : null; if (inp) { if (o.aria) inp.setAttribute('aria-label', o.aria); inp.addEventListener('change', () => R()); } return el; };
+    const numIn = (id, label, val, on, opts) => tin(Object.assign({ id, label, value: String(val == null ? '' : val), inputmode: 'decimal', disabled: ro, onInput: (v) => on(Number(String(v).replace(/[٠-٩]/g, (c) => '٠١٢٣٤٥٦٧٨٩'.indexOf(c)))) }, opts || {}));
+    const rows = list.map((i, n) => [ro || i.auto || !own ? h('span', null, i.name, i.auto ? h('small', { class: 'help' }, ' (تلقائي)') : null)
+        : tin({ id: 'hs-ev-n-' + n, label: '', aria: 'اسم البند', value: i.name, disabled: ro, onInput: (v) => { i.name = v; } }),
+      ro || !own ? K.Num(i.weight + '%') : numIn('hs-ev-w-' + n, '', i.weight, (v) => { i.weight = v; }, { aria: 'وزن ' + i.name, suffix: '%' }),
+      ro || !own || i.auto ? '' : Button({ type: 'text', size: 'sm', label: 'حذف', attrs: { 'data-hs-ev-del': String(n) }, onClick: () => { own.splice(n, 1); R(); } })]);
+    const ex = ER.score({ comm: 5, perf: 3 }, 4, ER.DEFAULT);
+    return K.Section('قواعد التقييم والبونص', [
+      U.Select({ id: 'hs-ev-role', label: 'البنود لـ', options: [{ value: '', label: 'كل الفريق' }].concat(roles.map((x) => ({ value: x.id, label: x.name + (r.roles[x.id] ? ' — بنود خاصة' : '') }))), value: sel, onChange: (v) => { st.evalRole = v; R(); } }),
+      sel && !own ? h('div', { class: 'row-acts', 'data-hs-ev-same': '' }, h('span', { class: 't-small help' }, 'الدور ده بياخد بنود كل الفريق.'), ro ? null : Button({ size: 'sm', label: 'اعمل بنود خاصة بالدور ده', attrs: { 'data-hs-ev-own': '' }, onClick: () => { r.roles[sel] = JSON.parse(JSON.stringify(r.items)); R(); } })) : null,
+      U.Table({ cls: 'mini-table', headers: ['البند', 'الوزن', ''], rows }),
+      h('div', { class: 'row-acts', 'data-hs-ev-sum': String(sum) }, h('span', { class: 't-small' + (err ? ' error' : ''), role: err ? 'alert' : null }, err || U.num('مجموع الأوزان ' + sum + '% ✓')),
+        !ro && own && list.length < ER.MAX_ITEMS ? Button({ size: 'sm', label: '+ بند', attrs: { 'data-hs-ev-add': '' }, onClick: () => { own.push({ id: ER.newId(own), name: '', weight: 0 }); R(); } }) : null,
+        !ro && sel && own ? Button({ size: 'sm', type: 'text', label: 'رجّعه زي كل الفريق', attrs: { 'data-hs-ev-reset': '' }, onClick: () => { delete r.roles[sel]; R(); } }) : null),
+      numIn('hs-ev-point', 'كل نقطة في التقييم = كام % من البونص', r.point, (v) => { r.point = v; }, { help: 'من 1% لـ 20% — 20% يعني 5 من 5 = كل المحجوز' }),
+      h('div', { 'data-hs-ev-actions': '' }, h('span', { class: 'flabel' }, 'الإجراءات حسب النتيجة'),
+        U.Table({ cls: 'mini-table', headers: ['من', 'لحد', 'الإجراء', ''], rows: r.actions.map((a, n) => [n === 0 ? K.Num('0') : ro ? K.Num(String(a.min)) : numIn('hs-ev-min-' + n, '', a.min, (v) => { a.min = v; }, { aria: 'بداية الشريحة' }),
+          n + 1 < r.actions.length ? h('span', { class: 't-small' }, U.num('أقل من ' + r.actions[n + 1].min)) : h('span', { class: 't-small' }, '5'),
+          h('div', { class: 'cb-group' }, EVAL_KINDS.map(([k, l]) => K.Checkbox({ label: l, checked: a.kinds.includes(k), disabled: ro, onChange: (v) => { a.kinds = v ? a.kinds.concat(k) : a.kinds.filter((x) => x !== k); R(); } }))),
+          ro || n === 0 ? '' : Button({ type: 'text', size: 'sm', label: 'حذف', onClick: () => { r.actions.splice(n, 1); R(); } })]) }),
+        ro || r.actions.length >= ER.MAX_BANDS ? null : Button({ size: 'sm', label: '+ شريحة', attrs: { 'data-hs-ev-band': '' }, onClick: () => { const last = r.actions[r.actions.length - 1]; r.actions.push({ min: Math.min(5, (Number(last.min) || 0) + 0.5), kinds: [] }); R(); } })),
+      (() => { const e = evalErr(r); return e && !String(e).startsWith('بنود') ? U.InlineNote({ kind: 'error', children: e }) : null; })(),
+      note(U.num('التقييم من 1 لـ 5 على البنود دي بأوزانها، والنتيجة = متوسط مرجّح من غير تقريب. البونص = النتيجة × قيمة النقطة من المبلغ المحجوز — مثال بالقواعد الافتراضية: حضور 4 · تواصل 5 · أداء 3 = ' + ex + ' = ' + ER.pct(ex, ER.DEFAULT) + '% من المحجوز. الإجراء بيوصل تنبيه للمدير المباشر جاهز (ميتنج / ملاحظة / مكافأة) — مفيش فلوس بتتدفع لوحدها. أي تعديل هنا بيسري على التقييمات الجديدة بس.'))], null, { th: false });
   }
   // ---------- owner batch 14 Nov decision 7 (0087): the work days, the official hours, the day rate and a custom time per role / member (0092) ----------
   // A draft in st.hr that the page's «حفظ» sends (IBHR.saveSettings → the row «hr»); the server reads the same keys (hr_work_dows /
@@ -1955,7 +1998,7 @@
     return viewV6();
   }
   function commit() { if (st.sec === 'inventory' && !invValid()) { K.toast('أيام التنبيهات لازم تكون رقم صحيح من 1 لـ 90', 'error'); return false; } // B6
-    if (st.sec === 'hr' && !hrValid()) { K.toast(hrDay(st.hr.payDay) == null ? 'يوم الصرف لازم يكون رقم من 1 لـ 31' : 'ساعات العمل الرسمية لازم تكون من ساعة لـ 16 ساعة ويوم شغل واحد على الأقل', 'error'); return false; } // the HR rebuild + 0087
+    if (st.sec === 'hr' && !hrValid()) { K.toast(hrDay(st.hr.payDay) == null ? 'يوم الصرف لازم يكون رقم من 1 لـ 31' : evalErr(st.hr.evalRules) || 'ساعات العمل الرسمية لازم تكون من ساعة لـ 16 ساعة ويوم شغل واحد على الأقل', 'error'); return false; } // the HR rebuild + 0087
     const nm = (SECTIONS.find((q) => q[0] === st.sec) || [, 'عام'])[1]; if (st.draft) Object.assign(C.general, st.draft); st.dirty = false; st.draft = null; st.pending.delete(st.sec); st.snap = snapTake(); st.snapSec = st.sec; K.logEvent('settings.save', nm); if (ROW_OF[st.sec]) persist(st.sec); if (st.sec === 'inventory') persistInventory(); if (st.sec === 'hr') persistHr(); K.toast('اتحفظت التغييرات', 'success'); }
 
   // ---------- the platform links (decisions 9 / 10 / 13): settings-admin + the other pages' links ----------

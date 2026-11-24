@@ -275,15 +275,16 @@ test('comment 79 — the evaluation popup: who and which month in the head, the 
   // the strip: nothing until both are picked, then the month's score and the bar's side
   const strip = f.locator('[data-hr-rate-total]');
   await expect(strip).toHaveAttribute('data-hr-rate-total', '');
-  await expect(strip).toContainText('اختار الأداء والتواصل');
+  await expect(strip).toContainText('قيّم كل البنود'); // 0155: the items of the member's rules
   await f.locator('#ev-perf [data-star="1"]').click();
   await expect(strip).toHaveAttribute('data-hr-rate-total', '');
   await f.locator('#ev-comm [data-star="1"]').click();
   await expect(strip).toHaveClass(/under/);
-  await expect(strip).toContainText('تحت حد البونص (3)');
+  await expect(strip).toContainText('الإجراء المقترح: إنذار + ميتنج فردي'); // 0155: the band, not a bar
   await f.locator('#ev-perf [data-star="5"]').click(); await f.locator('#ev-comm [data-star="5"]').click();
   await expect(strip).toHaveClass(/over/);
-  await expect(strip).toContainText('على حد البونص (3) أو فوقه');
+  await expect(strip).toContainText(/البونص [\d.]+% من المحجوز/); // the result × 20% a point, of the holdback
+  await expect(strip).toHaveAttribute('data-hr-rate-pct', String(Math.round(Number(await strip.getAttribute('data-hr-rate-total')) * 20 * 100) / 100));
   const shown = Number(await strip.getAttribute('data-hr-rate-total'));
   expect(shown).toBeGreaterThanOrEqual(3);
   // an already rated member opens with his stars and his score in the head

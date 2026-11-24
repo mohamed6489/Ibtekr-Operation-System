@@ -72,7 +72,7 @@ test('owner batch 14 Nov decision 15: the menu follows the role — the admin se
   const NAV = '.sidebar .nav-item[data-page]';
   const shown = async () => page.locator(NAV).evaluateAll((l) => l.filter((b) => !b.hidden && b.offsetParent !== null).map((b) => b.dataset.page));
   await signIn(page, ADMIN);
-  await expect.poll(shown).toEqual(['dashboard', 'orders', 'vendors', 'accounts', 'inventory', 'products', 'cs', 'autoreply', 'tickets', 'reports', 'marketing', 'ai', 'hr', 'settings']);
+  await expect.poll(shown).toEqual(['dashboard', 'orders', 'vendors', 'accounts', 'inventory', 'products', 'cs', 'autoreply', 'tickets', 'reports', 'marketing', 'ai', 'brain', 'hr', 'settings']);
   // the SIGNED_OUT reloads the page — wait for it before the next goto (CI: ERR_ABORTED when they crossed)
   await Promise.all([page.waitForEvent('load'), page.evaluate(() => { window.IBAuth.signOut(); })]);
   // the accounts member as a designer (main role)

@@ -64,10 +64,23 @@
   const cairo = () => { const p = Object.fromEntries(fmtC.formatToParts(new Date()).map((x) => [x.type, x.value])); return { day: p.year + '-' + p.month + '-' + p.day, hm: p.hour + ':' + p.minute }; };
   const TODAY = () => cairo().day; const NOW = () => cairo().hm;
   // an image of the bucket «marketing» by its path (a signed link, cached by the adapter)
+  // the meeting of 23 Nov phase 8: a picture that does not load (a signed link that expired while the page stayed open, a file gone)
+  // asks for a fresh link once, then shows the empty frame — never a broken image
+  const noImg = (cls) => h('span', { class: 'thumb ' + (cls || ''), role: 'img', 'aria-label': 'مفيش صورة', 'data-mk-noimg': '' }, Icon('image', 'sm'));
   function Img(path, cls, alt) {
-    if (!path) return h('span', { class: 'thumb ' + (cls || ''), role: 'img', 'aria-label': 'مفيش صورة' }, Icon('image', 'sm'));
-    const im = h('img', { alt: alt || '', loading: 'lazy', 'data-mk-path': path });
-    const u = MK() && MK().cachedUrl(path); if (u) im.src = u; else if (MK()) MK().url(path).then((x) => { if (x) im.src = x; });
+    if (!path) return noImg(cls);
+    let retried = false;
+    const im = h('img', { alt: alt || '', loading: 'lazy', 'data-mk-path': path, onError: () => {
+      const box = im.parentNode;
+      if (!retried && MK()) { retried = true; MK().url(path, true).then((x) => { if (x && x !== im.src) im.src = x; else if (box) box.replaceWith(noImg(cls)); }); return; }
+      if (box) box.replaceWith(noImg(cls));
+    } });
+    const u = MK() && MK().cachedUrl(path); if (u) im.src = u; else if (MK()) MK().url(path).then((x) => { if (x) im.src = x; else if (im.parentNode) im.parentNode.replaceWith(noImg(cls)); });
+    return h('span', { class: 'thumb ' + (cls || '') }, im);
+  }
+  // a picture on another host (the platform's own) — the empty frame when it does not load
+  function WebImg(src, cls, alt) {
+    const im = h('img', { src, alt: alt || '', loading: 'lazy', referrerpolicy: 'no-referrer', onError: () => { if (im.parentNode) im.parentNode.replaceWith(noImg(cls)); } });
     return h('span', { class: 'thumb ' + (cls || '') }, im);
   }
   const mdlName = (id) => (IMGM().find((x) => x.id === id) || { name: id }).name;
@@ -831,14 +844,16 @@
   const PP_RATIO = { 'بوست': 'p45', 'كاروسيل': 'p11', 'ريل': 'p916', 'ستوري': 'p916' };
   const n0 = (v) => (v == null ? '—' : K.n0(v));
   // a log row's picture: the campaign's (the bucket) or the platform's own (https)
+  // the meeting of 23 Nov phase 8 (0156): the platform's picture from the server's copy in the bucket (Meta's link dies in days), its
+  // link only until the copy is there
   const PostImg = (x, cls, alt) => (x.src === 'platform'
-    ? (x.thumb ? h('span', { class: 'thumb ' + (cls || '') }, h('img', { src: x.thumb, alt: alt || '', loading: 'lazy', referrerpolicy: 'no-referrer' })) : Img(null, cls))
+    ? (x.thumbPath ? Img(x.thumbPath, cls, alt) : x.thumb ? WebImg(x.thumb, cls, alt) : Img(null, cls))
     : Img(x.img, cls, alt));
   function postPreview(x) {
     const many = x.kind === 'كاروسيل' && x.images.length > 1;
     return h('figure', { class: 'pp ' + (PP_RATIO[x.kind] || 'p45'), 'data-post-preview': x.kind },
       h('div', { class: 'pp-h' }, h('span', { class: 'pp-av', 'aria-hidden': 'true' }, window.IBLogo ? window.IBLogo.Logo({ tone: 'reversed', width: 16, mark: true }) : 'إ'), h('span', { class: 'pp-who' }, h('b', null, 'ibtekr.club'), h('small', null, x.pl + ' · ' + x.kind))),
-      h('div', { class: 'pp-img' }, x.img || x.thumb ? PostImg(x, 'fill', 'شكل ' + x.kind + ': ' + x.name) : h('span', { class: 'pp-none', role: 'img', 'aria-label': 'مفيش صورة' }, Icon('image')),
+      h('div', { class: 'pp-img' }, x.img || x.thumb || x.thumbPath ? PostImg(x, 'fill', 'شكل ' + x.kind + ': ' + x.name) : h('span', { class: 'pp-none', role: 'img', 'aria-label': 'مفيش صورة' }, Icon('image')),
         many ? h('span', { class: 'pp-n' }, K.Num('1/' + x.images.length)) : null, x.kind === 'ستوري' ? h('span', { class: 'pp-bar', 'aria-hidden': 'true' }) : null),
       many ? h('div', { class: 'pp-dots', 'aria-hidden': 'true' }, x.images.slice(0, 10).map((_, k) => h('i', { class: k ? null : 'on' }))) : null,
       h('figcaption', { class: 'pp-cap' }, h('b', null, 'ibtekr.club '), h('span', { 'data-pp-cap': '' }, x.caption)));
@@ -1335,7 +1350,7 @@
   const crActs = (name, tired) => (can().create ? [{ label: 'اعمل نسخ زيه', icon: 'sparkle', run: () => likeIt(name) }, tired && canAsk() ? { label: 'اطلب نسخة جديدة', icon: 'plus', run: () => reqForm('designer', { title: 'نسخة جديدة من «' + name + '»', details: 'الناس شافوا الإعلان كتير — نفس الفكرة بشكل جديد' }) } : null].filter(Boolean) : []);
   function crTable(c) {
     const L = c.creatives; const tot = L.reduce((a, x) => ({ spend: a.spend + x.spend, imp: a.imp + x.impressions, clicks: a.clicks + x.clicks, purchases: a.purchases + x.purchases }), { spend: 0, imp: 0, clicks: 0, purchases: 0 });
-    const th = (x) => h('span', { class: 'cr-th' }, x.thumb ? h('span', { class: 'thumb fill' }, h('img', { src: x.thumb, alt: '', loading: 'lazy', referrerpolicy: 'no-referrer' })) : Img(null, 'fill'));
+    const th = (x) => h('span', { class: 'cr-th' }, x.thumbPath ? Img(x.thumbPath, 'fill') : x.thumb ? WebImg(x.thumb, 'fill') : Img(null, 'fill')); /* 0156: the bucket's copy first */
     const rows = L.map((x) => { const [sl, tone] = x.tired ? ['الناس زهقت منه', 'orange'] : stOf(x.status, true);
       return [h('button', { type: 'button', class: 'cr-cell link-btn', 'data-ads-ad': x.id, 'aria-label': 'تفاصيل ' + x.name, onClick: () => crDetail(x, c) }, th(x), h('span', { class: 'cr-tx' }, h('b', null, x.name), h('small', { class: 'help' }, x.campaign))),
         Tag(tone, sl), K.Num(n2(x.spend)), K.Num(K.n0(x.impressions)), K.Num(x.ctr == null ? '—' : (x.ctr * 100).toFixed(2) + '%'), K.Num(x.frequency == null ? '—' : x.frequency.toFixed(2)), K.Num(K.n0(x.purchases)), K.Num(W.xr(x.roas)),

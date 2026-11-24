@@ -2604,7 +2604,9 @@
     return [
       h('div', { class: 'cards five' },
         U.KpiTile({ label: 'إجمالي الأوردرات', value: String(n), unit: 'أوردر', compare: kpiTone(rep.deltas.count), delta: rep.deltas.count, note: ['إجمالي القيمة ', num(money(rep.total)), ' ج.م'], details: () => odet('count') }),
-        U.KpiTile({ label: 'نسبة الإكمال', value: Math.round(rep.completionRate * 100) + '%', compare: kpiTone(rep.deltas.completionRate), delta: rep.deltas.completionRate, note: rep.completed + ' مكتمل من ' + n + ' في الفترة', details: () => odet('done') }),
+        // the meeting of 23 Nov [#31]: «مكتملة» = the completed orders' value with their count (the completion rate under them)
+        (() => { const doneV = D.round2(rep.rows.filter((r) => r.status === 'مكتمل').reduce((t, r) => t + (Number(r.total) || 0), 0));
+          return U.KpiTile({ label: 'مكتملة', value: money(doneV), unit: 'ج.م', compare: kpiTone(rep.deltas.completionRate), delta: rep.deltas.completionRate, note: [num(String(rep.completed)), ' أوردر مكتمل · ', num(Math.round(rep.completionRate * 100) + '%'), ' من ', num(String(n))], details: () => odet('done') }); })(),
         U.KpiTile({ label: 'متوسط قيمة الأوردر', value: money(rep.avg), unit: 'ج.م', compare: kpiTone(rep.deltas.avg), delta: rep.deltas.avg, note: 'إجمالي المبيعات ÷ عدد الأوردرات', details: () => odet('avg') }),
         U.KpiTile({ label: 'أوردرات تحتاج تدخّل', value: String(rep.needAction), unit: 'أوردر', compare: kpiTone(rep.deltas.needAction), delta: rep.deltas.needAction, note: 'غير مؤكدة أو قابلة للتأخير وما زالت مفتوحة', details: () => odet('action') }),
         U.KpiTile({ label: 'أوردرات ملغية', value: String(cr.count), unit: 'أوردر', compare: 'off', note: [num(pctText(cr.count, n)), ' من الأوردرات · ', num(money(cr.total)), ' ج.م · ', cr.byReason[0] && cr.byReason[0].reason !== R.NO_REASON ? 'أكتر سبب: ' + cr.byReason[0].reason : 'اضغط «التفاصيل» للأسباب'], details: () => odet('cancel') })),
@@ -2673,12 +2675,11 @@
     const tA = trAll();
     return [
       anyLoading ? U.InlineNote({ children: 'بنحمّل أرقام الفترة…' }) : null,
-      h('div', { class: 'cards five' },
+      h('div', { class: 'cards' },
         U.KpiTile({ label: 'الحساب الفعلي', value: money(rep.actual), unit: 'ج.م', compare: 'off', note: ['بنك + بوسطة + باي موب + محفظة · الرصيد المحتمل ', num(money(rep.potential))], details: () => adet('actual') }),
         U.KpiTile({ label: 'حصة إبتكر من المبيعات', value: money(rep.share), unit: 'ج.م', compare: 'off', note: ['من مبيعات ', num(money(rep.salesTotal)), ' · متوسط عمولة ', num(Math.round(rep.sharePct * 1000) / 10 + '%')], details: () => adet('share') }),
         U.KpiTile({ label: 'إجمالي المصروفات', value: money(rep.expensesTotal), unit: 'ج.م', compare: 'off', note: PER + ' · المرتبات · المصروفات · الاشتراكات · الإعلانات', details: () => adet('exp') }),
-        U.KpiTile({ label: 'صافي الفترة (حصة إبتكر − المصروفات)', value: money(rep.net), unit: 'ج.م', compare: netTone, delta: { text: rep.net < 0 ? 'خسارة' : 'ربح', caption: PER }, note: [num(money(rep.share)), ' − ', num(money(rep.expensesTotal))], details: () => adet('net') }),
-        U.KpiTile({ label: 'المواصلات', value: money(tA.total), unit: 'ج.م', compare: 'off', note: ['مبتكرين ', num(money(tA.vendors)), ' · تشغيل ', num(money(tA.ops)), ' · من البداية'], details: () => transportDetails(null) })),
+        null), // the meeting of 23 Nov [#36]: «صافي الفترة (حصة إبتكر − المصروفات)» and «المواصلات» left the accounts report
       h('div', { class: 'charts' },
         U.ChartCard({ title: 'المصروفات حسب الفئة', subtitle: PER + ' · ' + money(rep.expensesTotal) + ' ج.م', footnote: 'نفس أرقام تاب «المصروفات» في الحسابات', body: barList(rep.expenseRows.map(([l, v, p]) => [expLabel(l), v, money(v) + ' (' + D.formatPct(p) + ')']), { fmt: money }) }),
         U.ChartCard({ title: 'المبيعات حسب حالة الأوردر', subtitle: PER + ' · ' + rep.orders + ' أوردر', footnote: 'حصة إبتكر تُحسب بنسبة كل مبتكر', body: barList(rep.salesRows.map(([l, v, sh]) => [l, v, money(v) + ' · حصة ' + money(sh)]), { fmt: money, tones: ['brand', 'gold', 'neutral'] }) }),
@@ -2689,7 +2690,7 @@
         body: (() => { const tRows = rows.map((r) => r.map((c, i) => (i === 0 ? c : i === 1 ? num(String(c)) : i === 9 ? h('span', { class: c < 0 ? 'neg' : 'pos' }, num(money(c))) : num(money(c)))).concat([resTag(r[9]), '—', '—']));
           return tableOrList(() => U.Table({ cls: 'acc-month-tbl', headers, rows: tRows, totalRow: ['الإجمالي', num(String(rep.orders)), num(money(rep.salesTotal)), num(money(rep.share)), num(money(catOf(rep, 'المرتبات'))), num(money(catOf(rep, 'المصروفات'))), num(money(catOf(rep, 'الاشتراكات'))), num(money(catOf(rep, 'الإعلانات'))), num(money(rep.expensesTotal)), h('span', { class: rep.net < 0 ? 'neg' : 'pos' }, num(money(rep.net))), resTag(rep.net), num(money(rep.actual)), num(money(rep.potential))] }), () => CardList({ headers, titleIndex: 0, rows: tRows })); })() }),
       U.InlineNote({ kind: rep.net < 0 ? 'error' : 'success', children: h('span', null, 'الفترة ' + PER + ': حصة إبتكر ' + money(rep.share) + ' − المصروفات ' + money(rep.expensesTotal) + ' = ', h('b', null, money(rep.net) + ' ج.م ' + (rep.net < 0 ? 'خسارة' : 'ربح')), ' · الحساب الفعلي دلوقتي ' + money(rep.actual) + ' · الرصيد المحتمل ' + money(rep.potential) + ' (الفعلي + حصة إبتكر من أوردرات التنفيذ + العرابين)') }),
-      h('p', { class: 'source' }, 'المصدر: الأوردرات (السيستم، حسب تاريخ الأوردر) والمصروفات المتسجلة في السيستم للفترة المختارة · الحساب الفعلي رصيد اللحظة الحالية · الصافي = حصة إبتكر − المصروفات')].filter(Boolean);
+      h('p', { class: 'source' }, 'المصدر: الأوردرات (السيستم، حسب تاريخ الأوردر) والمصروفات المتسجلة في السيستم للفترة المختارة · الحساب الفعلي رصيد اللحظة الحالية')].filter(Boolean);
   }
   // ---------- phase 9 (docs/superpowers/plans/2026-11-05-phase-9-reports.md): the v2's other tabs on real data ----------
   const K0 = (n) => Number(n || 0).toLocaleString('en-US');
@@ -2710,10 +2711,28 @@
     const rep = R.vendorsReport(ordersRows(), rr, TODAY, vs);
     rep.rows.forEach((r) => { r.transport = money$ ? trVendor(r.name).total : 0; });
     const trTot = Math.round(rep.rows.reduce((x, r) => x + r.transport, 0) * 100) / 100; const tA = trAll();
-    const COLS = [{ h: 'المبتكر', v: (r) => r.name, t: (r) => r.name, tot: 'الإجمالي' }, { h: 'الأوردرات', v: (r) => r.orders, t: (r) => num(String(r.orders)), tot: num(String(rep.totals.orders)) }, { h: 'قابلة للتأخير', v: (r) => r.late, t: (r) => num(String(r.late)), tot: num(String(rep.totals.late)) }]
-      .concat(rate$ ? [{ h: 'العمولة', v: (r) => r.pct, t: (r) => num(r.pct), tot: '—' }] : [])
-      .concat(money$ ? [{ h: 'حصة إبتكر (مكتمل)', v: (r) => r.share, t: (r) => num(money(r.share)), tot: num(money(rep.totals.share)) }, { h: 'العرابين', v: (r) => r.deposits, t: (r) => num(money(r.deposits)), tot: num(money(rep.totals.deposits)) },
-        { h: 'المواصلات', v: (r) => r.transport, t: (r) => num(money(r.transport)), tot: num(money(trTot)) }, { h: 'الرصيد الحالي', v: (r) => r.balance, t: (r) => num(money(r.balance)), tot: num(money(rep.totals.balance)) }] : []);
+    // the meeting of 23 Nov [#32]: المبتكر · عدد الأوردرات · مكتمل · ملغي · متأخر · غير متأخر · قيمة المكتمل · قيمة الملغي · حصة إبتكر · العرابين ·
+    // المواصلات — «الرصيد الحالي» left; «متأخر» / «غير متأخر» count the maker's orders of the period by their delivery, «معلّق» in
+    // neither ([#9]); the counts and values from the maker's own lines (IBVendors.stats — the orders by day); the name opens his file and
+    // the orders' count a popup with those orders
+    const VST = V && V.stats ? V.stats() : {}; const inR = (d) => !!d && d >= rr.from && d <= rr.to;
+    const mine = (name) => { const v = vstore.findByName(name); return v && VST[v.id] ? (VST[v.id].orders || []).filter((o) => inR(o.day)) : []; };
+    rep.rows.forEach((r) => { const l = mine(r.name); const done = l.filter((o) => o.status === 'مكتمل'), cx = l.filter((o) => o.status === 'ملغي'); const hold = l.filter((o) => o.status === 'معلّق').length;
+      r.list = l; r.orders = l.length || r.orders; r.done = done.length; r.cancelled = cx.length; r.lateN = l.filter((o) => o.delivery === 'late' || o.delivery === 'risk').length; r.okN = Math.max(0, l.length - r.lateN - hold);
+      r.doneValue = D.round2(done.reduce((t, o) => t + (Number(o.sales) || 0), 0)); r.cxValue = D.round2(cx.reduce((t, o) => t + (Number(o.sales) || 0), 0)); });
+    const sumR = (k) => rep.rows.reduce((t, r) => t + (Number(r[k]) || 0), 0);
+    const ordersPop = (r) => { const LBS = (st) => { const S0 = window.IBSettings; return S0 && S0.statusLabel ? S0.statusLabel('order', st) : st; };
+      U.DetailsModal({ title: 'أوردرات ' + r.name + ' — ' + r.list.length, sub: D.rangeLabel(rr.from, rr.to) + ' · اضغط على أي أوردر يفتحه', headers: ['رقم الأوردر', 'التاريخ', 'الحالة', 'التسليم', 'قيمة سطوره (ج.م)'],
+        rows: r.list.map((o) => ['#' + o.id, D.formatDateNumeric(o.day), LBS(o.status), o.status === 'معلّق' ? '—' : o.delivery === 'late' ? 'متأخر' : o.delivery === 'risk' ? 'قابل للتأخير' : 'في الموعد', D.formatMoney(Number(o.sales) || 0)]),
+        keep: true, onRow: (i) => peekOrder(r.list[i].id), source: 'الأوردرات (السيستم، حسب تاريخ الأوردر) · سطور المبتكر بس' }); };
+    const nameLink = (r) => h('span', { class: 'vname-link', role: 'button', tabindex: '0', dir: 'auto', 'data-rv-maker': r.name, onClick: () => { const v = vstore.findByName(r.name); if (v) openVendor(v.id, { inPlace: true }); }, onKeydown: (e) => { if (e.key === 'Enter') { const v = vstore.findByName(r.name); if (v) openVendor(v.id, { inPlace: true }); } } }, r.name);
+    const ordersLink = (r) => (r.list && r.list.length ? h('span', { class: 'vname-link', role: 'button', tabindex: '0', 'data-rv-orders': r.name, onClick: () => ordersPop(r), onKeydown: (e) => { if (e.key === 'Enter') ordersPop(r); } }, num(String(r.orders))) : num(String(r.orders)));
+    const COLS = [{ h: 'المبتكر', v: (r) => r.name, t: nameLink, tot: 'الإجمالي' }, { h: 'عدد الأوردرات', v: (r) => r.orders, t: ordersLink, tot: num(String(sumR('orders'))) },
+      { h: 'مكتمل', v: (r) => r.done, t: (r) => num(String(r.done)), tot: num(String(sumR('done'))) }, { h: 'ملغي', v: (r) => r.cancelled, t: (r) => num(String(r.cancelled)), tot: num(String(sumR('cancelled'))) },
+      { h: 'متأخر', v: (r) => r.lateN, t: (r) => num(String(r.lateN)), tot: num(String(sumR('lateN'))) }, { h: 'غير متأخر', v: (r) => r.okN, t: (r) => num(String(r.okN)), tot: num(String(sumR('okN'))) }]
+      .concat(money$ ? [{ h: 'قيمة المكتمل', v: (r) => r.doneValue, t: (r) => num(money(r.doneValue)), tot: num(money(sumR('doneValue'))) }, { h: 'قيمة الملغي', v: (r) => r.cxValue, t: (r) => num(money(r.cxValue)), tot: num(money(sumR('cxValue'))) },
+        { h: 'حصة إبتكر', v: (r) => r.share, t: (r) => num(money(r.share)), tot: num(money(rep.totals.share)) }, { h: 'العرابين', v: (r) => r.deposits, t: (r) => num(money(r.deposits)), tot: num(money(rep.totals.deposits)) },
+        { h: 'المواصلات', v: (r) => r.transport, t: (r) => num(money(r.transport)), tot: num(money(trTot)) }] : []);
     const headers = COLS.map((c) => c.h); const vrow = (r) => COLS.map((c) => c.t(r));
     rExport = { label: 'جدول المبتكرين', headers, rows: rep.rows.map((r) => COLS.map((c) => c.v(r))) };
     const vOpen = (list) => (i) => { const v = vstore.findByName(list[i].name); if (v) openVendor(v.id, { inPlace: true }); };
@@ -2733,15 +2752,16 @@
         money$ ? U.KpiTile({ label: 'عرابين مدفوعة للمبتكرين', value: money(rep.deposits), unit: 'ج.م', compare: 'off', note: 'من حركات حسابات المبتكرين · بتتخصم من رصيد المبتكر', details: () => vdet2('dep') }) : null,
         money$ ? U.KpiTile({ label: 'مواصلات المبتكرين', value: money(tA.vendors), unit: 'ج.م', compare: 'off', note: [num(String(tA.vendorTrips)), ' مشوار لـ ', num(String(tA.vendorCount)), ' مبتكرين · من البداية'], details: () => transportDetails('') }) : null,
         U.KpiTile({ label: 'إجمالي مستحقات المبتكرين — الآن', value: money(ms.sum.due), unit: 'ج.م', compare: 'off', note: 'نفس رقم صفحة المبتكرين (من الأوردرات المكتملة) · مش بالفترة', details: () => ms.vdet('due') }),
-        U.KpiTile({ label: 'عندهم أوردرات قابلة للتأخير — الآن', value: String(ms.sum.withDelay), unit: 'مبتكرين', compare: ms.sum.withDelay ? 'negative' : 'off', delta: { text: 'متابعة', caption: 'نفس مصدر إشعار «مبتكرين متأخرين»' }, note: 'قاعدة 9 / 11 يوم على الأوردرات المفتوحة · مش بالفترة', details: () => ms.vdet('delay') }),
-        U.KpiTile({ label: 'عندهم رصيد سالب (عرابين) — الآن', value: String(ms.sum.negative), unit: 'مبتكرين', compare: 'off', note: ['إجمالي ', num(money(ms.sum.negativeTotal)), ' ج.م مدفوعة مقدمًا'], details: () => ms.vdet('negative') }),
-        U.KpiTile({ label: 'مبتكرين عندهم أوردرات قابلة للتأخير', value: String(rep.withDelay), unit: 'مبتكر', compare: kpiTone(rep.deltas.withDelay), delta: rep.deltas.withDelay, note: 'من ' + rep.active + ' مبتكر نشط في الفترة', details: () => vdet2('late') })].filter(Boolean)),
+        // the meeting of 23 Nov [#33]: one card — the open orders that may be late or are late now (the big number), the makers they are with under it
+        (() => { const CL0 = ['مكتمل', 'ملغي', 'استرجاع', 'فشل']; const n = ordersRows().filter((o) => !CL0.includes(o.status) && o.delivery && o.delivery !== 'ok').length;
+          return U.KpiTile({ label: 'أوردرات قابلة للتأخير — الآن', value: String(n), unit: 'أوردر', compare: n ? 'negative' : 'off', note: [num(String(ms.sum.withDelay)), ' مبتكر عندهم أوردرات قابلة للتأخير · مش بالفترة'], details: () => ms.vdet('delay') }); })(),
+        U.KpiTile({ label: 'عندهم رصيد سالب (عرابين) — الآن', value: String(ms.sum.negative), unit: 'مبتكرين', compare: 'off', note: ['إجمالي ', num(money(ms.sum.negativeTotal)), ' ج.م مدفوعة مقدمًا'], details: () => ms.vdet('negative') })].filter(Boolean)),
       h('div', { class: 'charts' },
         U.ChartCard({ title: 'أعلى المبتكرين بعدد الأوردرات', subtitle: 'الفترة المحددة · أوردرات فيها المبتكر', footnote: 'الأوردر المشترك يُحسب لكل مبتكر فيه', body: rep.topByOrders.length ? barList(rep.topByOrders, { fmt: String, tones: ['brand', 'brand', 'brand', 'goldlight', 'goldlight', 'neutral'] }) : U.EmptyState('مفيش بيانات', 'مفيش أوردرات في الفترة') }),
         U.ChartCard({ title: 'المبتكرون الأكثر تأخيرًا', subtitle: 'أوردرات مفتوحة قابلة للتأخير أو متأخرة', footnote: 'يُحسب من قاعدة 9 / 11 يوم · نفس مصدر إشعار «مبتكرين متأخرين»', body: rep.topLate.length ? barList(rep.topLate, { fmt: String, tones: ['gold', 'gold', 'goldlight', 'goldlight', 'goldlight', 'neutral'] }) : U.EmptyState('كله في الموعد', 'مفيش مبتكرين عندهم أوردرات قابلة للتأخير في الفترة') })),
       TableCard({ title: 'جدول المبتكرين — الفترة المحددة', count: '', th: { noun: ['مبتكر', 'المبتكرين'], when: D.rangeLabel(rr.from, rr.to) },
         body: rep.rows.length ? tableOrList(() => U.Table({ cls: 'vendors-table', headers, rows: rep.rows.map(vrow), totalRow: COLS.map((c) => c.tot) }), () => CardList({ headers, titleIndex: 0, rows: rep.rows.map(vrow) })) : U.EmptyState('مفيش مبتكرين في الفترة دي', 'مفيش أوردرات لأي مبتكر في الفترة — غيّر الفترة من فوق.') }),
-      h('p', { class: 'source' }, 'المصدر: الأوردرات (السيستم، حسب تاريخ الأوردر)' + (money$ ? ' · حصة إبتكر من الأوردرات المكتملة في الفترة بنسبة الموقع على كل سطر · العرابين والمواصلات من حركات حسابات المبتكرين (من البداية) · الرصيد الحالي = رصيد Dokan − العرابين − المواصلات (زي تاب «حسابات المبتكرين»)' : '') + (rate$ ? ' · العمولة = النسبة الحالية لكل مبتكر' : '') + ' · كروت «— الآن» نفس أرقام صفحة المبتكرين.')].filter(Boolean);
+      h('p', { class: 'source' }, 'المصدر: الأوردرات (السيستم، حسب تاريخ الأوردر)' + (money$ ? ' · حصة إبتكر من الأوردرات المكتملة في الفترة بنسبة الموقع على كل سطر · العرابين والمواصلات من حركات حسابات المبتكرين (من البداية) · مكتمل / ملغي / متأخر / غير متأخر من سطور المبتكر في الفترة («معلّق» مش محسوب في التأخير)' : '') + ' · كروت «— الآن» نفس أرقام صفحة المبتكرين.')].filter(Boolean);
   }
   // «تقارير المنتجات» (decision 7): the products page's own reports (products.js reportBlocks — products_report + the mirror) — one source
   let rpProdCtx = null;

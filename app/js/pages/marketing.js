@@ -1308,15 +1308,16 @@
       headers: ['اليوم', 'الصرف (ج.م)', 'مشتريات المنصة', 'أوردرات ووكومرس'], rows: x.days.slice().reverse().map((d) => [W.DAYS[W.dayIdx(d.day)] + ' ' + D2(d.day).slice(0, 5), n2(d.spend), K.n0(d.purchases), K.n0(d.orders)]),
       total: ['الإجمالي', n2(x.spend), K.n0(x.purchases), K.n0(x.orders)], source: x.platform + ' (رقم الحملة ' + x.id + ') + أوردرات ووكومرس اللي الـ utm_campaign بتاعها نفس الرقم' });
   }
-  const CAMP_H = ['الحملة', 'المنصة', 'الحالة', 'الصرف (ج.م)', 'مشتريات المنصة', 'أوردرات ووكومرس', 'العائد الحقيقي', 'تكلفة الأوردر', 'القرار المقترح'];
+  // the meeting of 23 Nov [#37]: the spend from the platform (Meta Ads linked), the purchases from the site's orders the campaign brought (utm_campaign) — not the platform's figure
+  const CAMP_H = ['الحملة', 'المنصة', 'الحالة', 'الصرف (ج.م)', 'المشتريات (أوردرات الموقع)', 'العائد الحقيقي', 'تكلفة الأوردر', 'القرار المقترح'];
   function campTable(c, list) {
     byLoad(false); const sg = {}; byPending().forEach((x) => { (sg[x.campaign_id] = sg[x.campaign_id] || []).push(x); });
     const tot = list.reduce((a, x) => ({ spend: a.spend + x.spend, purchases: a.purchases + x.purchases, orders: a.orders + x.orders, sales: a.sales + x.sales }), { spend: 0, purchases: 0, orders: 0, sales: 0 });
     const rows = list.map((x) => { const [sl, tone] = stOf(x.status); const S = sg[x.id] || [];
-      return [h('button', { type: 'button', class: 'link-btn', 'data-ads-camp': x.id, onClick: () => campDetail(x) }, x.name), x.platform, Tag(tone, sl), K.Num(n2(x.spend)), K.Num(K.n0(x.purchases)), U.num(K.n0(x.orders) + (x.cancelled ? ' (+' + K.n0(x.cancelled) + ' اتلغى)' : '')),
+      return [h('button', { type: 'button', class: 'link-btn', 'data-ads-camp': x.id, onClick: () => campDetail(x) }, x.name), x.platform, Tag(tone, sl), K.Num(n2(x.spend)), U.num(K.n0(x.orders) + (x.cancelled ? ' (+' + K.n0(x.cancelled) + ' اتلغى)' : '')),
         K.Num(W.xr(x.mer)), K.Num(x.cpa == null ? '—' : K.n0(x.cpa)), S.length ? sgBtn(S, { 'data-mk-camp-sugg': String(S[0].id) }) : '—']; });
-    return Card('الحملات', 'أرقام المنصات جنب أوردرات ووكومرس الحقيقية من نفس الحملة (utm_campaign)', [
-      list.length ? U.Table({ cls: 'dt ads-camps', headers: CAMP_H, rows, totalRow: ['الإجمالي', '', '', K.Num(n2(tot.spend)), K.Num(K.n0(tot.purchases)), K.Num(K.n0(tot.orders)), K.Num(W.xr(tot.spend ? tot.sales / tot.spend : null)), K.Num(tot.orders ? K.n0(tot.spend / tot.orders) : '—'), ''] })
+    return Card('الحملات', 'الصرف من المنصة · المشتريات = أوردرات الموقع اللي جت من الحملة (utm_campaign) — مش رقم المنصة', [
+      list.length ? U.Table({ cls: 'dt ads-camps', headers: CAMP_H, rows, totalRow: ['الإجمالي', '', '', K.Num(n2(tot.spend)), K.Num(K.n0(tot.orders)), K.Num(W.xr(tot.spend ? tot.sales / tot.spend : null)), K.Num(tot.orders ? K.n0(tot.spend / tot.orders) : '—'), ''] })
         : K.Empty(c.camps.length ? 'مفيش حملات بالفلاتر دي' : 'مفيش حملات في الفترة دي', c.camps.length ? 'غيّر الفلاتر أو امسحها.' : 'مفيش صرف ولا أوردرات من حملات الإعلانات ' + perLabel(c.rg) + ' — غيّر الفترة من فوق.'),
       h('p', { class: 't-small help', style: 'margin:0' }, 'الضغط على حملة بيفتح أيامها (الصرف · مشتريات المنصة · الأوردرات الحقيقية) · القرار المقترح من الميديا باير (بيتجدد مع كل مزامنة) ومحتاج موافقة الأدمن — التنفيذ على ميتا بس' + (c.loose ? ' · ' + K.n0(c.loose) + ' أوردر من إعلانات من غير رقم حملة في الـ UTM (محسوبين في «نظرة عامة» بس)' : ''))], null, null, { when: perLabel(c.rg), noun: ['حملة', 'الحملات'] });
   }
@@ -1357,8 +1358,8 @@
     const rg = adRange(); const s = adsState(redraw); adsLoad(loadRange(rg), redraw);
     const gate = adsGate(loadRange(rg), redraw); if (gate) return { blocks: gate, exp: null };
     const c = adCalc(AD.r, rg, s, plat);
-    const exp = { label: 'الحملات الإعلانية', headers: ['الحملة', 'رقم الحملة', 'المنصة', 'الحالة', 'الصرف', 'مشتريات ميتا', 'أوردرات ووكومرس', 'مبيعات ووكومرس', 'العائد الحقيقي', 'تكلفة الأوردر'],
-      rows: c.camps.map((x) => [x.name, x.id, x.platform, stOf(x.status)[0], x.spend, x.purchases, x.orders, Math.round(x.sales * 100) / 100, x.mer == null ? '' : Math.round(x.mer * 100) / 100, x.cpa == null ? '' : Math.round(x.cpa)]) };
+    const exp = { label: 'الحملات الإعلانية', headers: ['الحملة', 'رقم الحملة', 'المنصة', 'الحالة', 'الصرف', 'المشتريات (أوردرات الموقع)', 'مبيعات ووكومرس', 'العائد الحقيقي', 'تكلفة الأوردر'],
+      rows: c.camps.map((x) => [x.name, x.id, x.platform, stOf(x.status)[0], x.spend, x.orders, Math.round(x.sales * 100) / 100, x.mer == null ? '' : Math.round(x.mer * 100) / 100, x.cpa == null ? '' : Math.round(x.cpa)]) };
     return { exp, blocks: [adsNote(s), adKpis(c), h('div', { class: 'charts', 'data-rgroup': 'charts' }, merChart(c), spendChart(c)), vsCard(c), campTable(c, c.camps), crTable(c), adsSource()].filter(Boolean) };
   }
   function reportsTab() { return [adsBar(adsState(null), redrawAds)].concat(adReport(redrawAds, M.plat).blocks); }

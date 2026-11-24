@@ -623,11 +623,13 @@ test('reports tab (decision 20): best sellers and categories from our orders in 
   await expect(pr.locator('.kpi').filter({ hasText: 'منتجات اتباعت' })).toContainText('3');
   await expect(pr.locator('.kpi').filter({ hasText: 'أكتر قسم مبيعًا' })).toContainText('إضاءة');
   await expect(pr.locator('.rp-cats tbody tr').first()).toContainText('83.3%'); // إضاءة 5 of 6 pieces
-  await expect(pr.locator('.rp-out tbody tr')).toHaveCount(1); // Macrame Feathers (stock 0); the curtain is «حسب الطلب»
-  await expect(pr.locator('.rp-out tbody tr')).toContainText('Macrame Feathers');
+  // the meeting of 23 Nov [#35]: out of stock counts the products with pieces «متاح للبيع» on the stock page only — none in this seed
+  // (tests/e2e/meeting-phase5.spec.mjs seeds them)
+  await expect(pr.locator('.rp-out tbody tr')).toHaveCount(0);
+  await expect(pr.locator('[data-rp-out]')).toContainText('كل المنتجات حسب الطلب');
   expect(mock.reportCalls.length).toBeGreaterThan(0);
   const { from, to } = mock.reportCalls.at(-1); expect(from < to).toBe(true); // the reports page's range (last 30 days)
-  await pr.locator('.rp-out .link-btn', { hasText: 'Macrame Feathers' }).click();
+  await pr.locator('.rp-top .link-btn', { hasText: 'Macrame Feathers' }).click();
   await expect(page).toHaveURL(/#products-edit-9003-data$/);
 });
 

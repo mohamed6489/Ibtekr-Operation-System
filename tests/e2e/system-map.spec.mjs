@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { installSupabaseMock, LIVE, DEV_PW } from './supabase-mock.mjs';
 
-// «عقل السيستم» (Safwat 24 Nov — the pinned mockup made real; a page of its own in the side menu, the admin only): the groups around the
+// «العقل الذكي» (Safwat 24 Nov — the pinned mockup made real; the admin only; a button next to «مساعد جديد» on «الذكاء الاصطناعي», not the menu, with «رجوع»): the groups around the
 // brain with their state from the system's own reads, today's events, a group's sheet (its parts, «إيقاف مؤقت» → the settings row
 // «integrations».paused, «كمّل»), the full list of the software and plugins with the site's versions. Mock only.
 let mock = null; let pageErrors = [];
@@ -18,12 +18,14 @@ async function signIn(page, who) {
   await expect(page.locator('#root')).toBeVisible();
 }
 
-test('«عقل السيستم»: the admin\'s page in the side menu — the groups around the brain with their state, a group\'s sheet with its parts, «إيقاف مؤقت» saves the pause, «كمّل» takes it off; the plugins list', async ({ page }) => {
+test('«العقل الذكي»: the admin\'s button on «الذكاء الاصطناعي» opens it (not in the menu), «رجوع» goes back — the groups around the brain with their state, a group\'s sheet with its parts, «إيقاف مؤقت» saves the pause, «كمّل» takes it off; the plugins list', async ({ page }) => {
   await signIn(page);
-  await expect(page.locator('.sidebar .nav-item[data-page="brain"]')).toBeVisible();
-  await page.locator('.sidebar .nav-item[data-page="brain"]').click();
+  await expect(page.locator('.sidebar .nav-item[data-page="brain"]')).toHaveCount(0);
+  await page.evaluate(() => { location.hash = 'ai'; });
+  await page.locator('#pg-ai [data-ai-brain]').click();
   const pg = page.locator('#pg-brain [data-sysmap]');
-  await expect(pg.locator('h1')).toHaveText('عقل السيستم');
+  await expect(pg.locator('h1')).toHaveText('العقل الذكي');
+  await expect(page.locator('.sidebar .nav-item[data-page="ai"]')).toHaveAttribute('aria-current', 'page');
   await expect(pg.locator('[data-sm-node]')).toHaveCount(11);
   await expect(pg.locator('[data-sm-node="core"]')).toHaveAttribute('data-state', 'on');
   await expect(pg.locator('[data-sm-k="on"]')).toContainText('من 11');
@@ -48,9 +50,15 @@ test('«عقل السيستم»: the admin\'s page in the side menu — the grou
   await expect(page.locator('[data-sm-node="mail"]')).toHaveAttribute('data-state', 'on');
   expect(await page.evaluate(() => (window.IBSettings.section('integrations').paused || {}).resend)).toBeUndefined();
   await page.keyboard.press('Escape'); await expect(page.locator('.sm-scrim')).toHaveCount(0);
+  // «رجوع» → the AI page
+  await pg.locator('[data-sm-back]').click();
+  await expect.poll(() => page.evaluate(() => location.hash)).toBe('#ai');
+  await expect(page.locator('#pg-ai [data-ai-brain]')).toBeVisible();
 });
 
-test('«عقل السيستم» is the admin\'s only: out of a member\'s menu, and its hash lands elsewhere', async ({ page }) => {
+test('«العقل الذكي» is the admin\'s only: no button for a member, and its hash lands on the dashboard', async ({ page }) => {
   await signIn(page, 'ops.dev@ibtekr.local');
-  await expect(page.locator('.sidebar .nav-item[data-page="brain"]')).toBeHidden();
+  await page.evaluate(() => { location.hash = 'brain'; });
+  await expect.poll(() => page.evaluate(() => location.hash)).toBe('#dashboard');
+  await expect(page.locator('#pg-brain [data-sysmap]')).toHaveCount(0);
 });

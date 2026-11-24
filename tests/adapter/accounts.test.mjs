@@ -94,8 +94,9 @@ test('canEdit: one\'s own row with add F, any row with approve F; sales: one rpc
   assert.equal(s.A.sales('2026-10-01', '2026-10-31'), null); // still one request
   await new Promise((r) => setTimeout(r, 0));
   assert.deepEqual(plain(s.A.sales('2026-10-01', '2026-10-31')), [{ vendorId: V1, group: 'completed', orders: 2, sales: 1000, share: 260, isTotal: false }, { vendorId: null, group: 'completed', orders: 2, sales: 1000, share: 260, isTotal: true }]);
-  assert.equal(s.stub.calls.filter((c) => c.op === 'rpc').length, 1);
-  assert.deepEqual(s.stub.calls.find((c) => c.op === 'rpc').args, ['accounts_sales', { p_from: '2026-10-01', p_to: '2026-10-31' }]);
+  const sales = s.stub.calls.filter((c) => c.op === 'rpc' && c.args[0] === 'accounts_sales');
+  assert.equal(sales.length, 1);
+  assert.deepEqual(sales[0].args, ['accounts_sales', { p_from: '2026-10-01', p_to: '2026-10-31' }]);
   void stub;
 });
 
@@ -271,4 +272,17 @@ test('0143: the account of an expense / a maker move and the account move\'s ben
   const m = A.toAccountMove({ id: 4, account: 'حساب البنك', on_date: '2026-11-19', direction: 'withdraw', amount: '300', beneficiary_kind: 'other', beneficiary: 'مكتبة', expense_id: 9 });
   assert.deepEqual([m.benKind, m.beneficiary, m.expenseId, m.vendorMoveId, m.linked], ['other', 'مكتبة', 9, null, true]);
   assert.equal(A.toAccountMove({ id: 5, account: 'حساب البنك', on_date: '2026-11-19', direction: 'withdraw', amount: 1, withdraw_id: 77 }).linked, false, 'a request\'s transfer is not a linked child');
+});
+
+test('the meeting of 23 Nov [#29]: the platforms\' daily spend (acc_ad_spend) joins the expenses as «الإعلانات» rows the system shows by itself — never edited or voided; none when refused', async () => {
+  const { A } = load({ responses: { 'rpc:acc_ad_spend': ok([{ day: '2026-11-01', platform: 'meta', spend: '1250.5' }, { day: '2026-11-02', platform: 'nope', spend: 9 }, { day: '2026-11-03', platform: 'meta', spend: 0 }]) } });
+  await A.load();
+  const ads = A.rows('expenses').filter((e) => e.auto);
+  assert.deepEqual(plain(ads.map((e) => [e.id, e.date, e.category, e.amount, e.direction, e.beneficiaryName])), [['ads:meta:2026-11-01', '2026-11-01', 'الإعلانات', 1250.5, 'withdraw', 'Meta Ads']]);
+  assert.deepEqual(plain(await A.update('expenses', 'ads:meta:2026-11-01', { date: '2026-11-01', category: 'الإعلانات', amount: 1 })), { ok: false, reason: 'forbidden' });
+  assert.deepEqual(plain(await A.remove('expenses', 'ads:meta:2026-11-01')), { ok: false, reason: 'forbidden' });
+  const refused = load({ responses: { 'rpc:acc_ad_spend': { data: null, error: { code: '42501', message: 'forbidden' } } } });
+  await refused.A.load();
+  assert.equal(refused.A.rows('expenses').filter((e) => e.auto).length, 0);
+  assert.equal(refused.A.state(), 'ready');
 });

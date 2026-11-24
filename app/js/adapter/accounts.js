@@ -85,6 +85,13 @@
     linked: r.expense_id != null || r.vendor_move_id != null,
     createdById: r.created_by || null, createdBy: nameOf(r.created_by), createdAt: r.created_at || '' });
   const TO = { expenses: toExpense, vendorMoves: toVendorMove, accountMoves: toAccountMove };
+  // the meeting of 23 Nov [#29]: a platform's spend of a day → a «الإعلانات» expense the system shows by itself (id «ads:<platform>:<day>»,
+  // auto = the platform): never edited, voided or exported back — update / remove refuse it
+  const AD_NAMES = { meta: 'Meta Ads', tiktok: 'TikTok Ads', google: 'Google Ads' };
+  const toAdSpend = (r) => { const d = day(r && r.day); const a = num(r && r.spend); const p = String((r && r.platform) || ''); if (!d || !(a > 0) || !AD_NAMES[p]) return null;
+    return { id: 'ads:' + p + ':' + d, auto: p, date: d, direction: 'withdraw', category: ADS, beneficiaryName: AD_NAMES[p], beneficiaryIsOther: true, amount: a, note: '', subName: '', subIsOther: false, subEnds: '', subAlerts: [], subNote: '',
+      details: 'صرف ' + AD_NAMES[p] + ' — تلقائي', staffKind: '', reason: '', account: '', platform: AD_NAMES[p], source: '', createdById: null, createdBy: 'تلقائي من ' + AD_NAMES[p], createdAt: d }; };
+  const isAuto = (id) => typeof id === 'string' && id.indexOf('ads:') === 0;
 
   // the prototype's value (D.validate* .value) → the table's columns
   function toColumns(kind, v) {
@@ -123,9 +130,13 @@
         .then((r) => (r.error && (r.error.code === '42703' || /internal/.test(String(r.error.message || ''))) ? cl.from('dokan_withdrawals').select(wdCols).order('id', { ascending: false }).range(0, 9999) : r)));
       reads.push(cl.from('acc_list_items').select('list, name').order('id').range(0, 999));
       reads.push(cl.from('acc_vendor_settlements').select('id, withdraw_id, vendor_id, amount, moves_net, carry_in, consumed, carry_out, cash, moves, source, approved_by, settled_on, created_at').order('id').range(0, 9999));
-      const res = await Promise.all(reads);
+      // the meeting of 23 Nov [#29]: the ads' daily spend (0153 acc_ad_spend — the last 400 days); before the migration, or refused, none
+      const adFrom = new Date(Date.now() - 400 * 864e5).toISOString().slice(0, 10); const adTo = new Date(Date.now() + 864e5).toISOString().slice(0, 10);
+      let adRead = Promise.resolve([]); try { if (cl.rpc) adRead = Promise.resolve(cl.rpc('acc_ad_spend', { p_from: adFrom, p_to: adTo })).then((r) => (r && !r.error && Array.isArray(r.data) ? r.data : []), () => []); } catch (e) { adRead = Promise.resolve([]); }
+      const res = await Promise.all(reads); const ads = await adRead;
       const bad = res.find((r) => r.error); if (bad) throw bad.error;
       Object.keys(KINDS).forEach((kind, i) => { data[kind] = (res[i].data || []).map(TO[kind]); });
+      data.expenses = data.expenses.concat(ads.map(toAdSpend).filter(Boolean));
       data.balances = (res[3].data || []).map((r) => ({ vendorId: r.vendor_id, store: r.woo_vendor_id, balance: numOrNull(r.balance), earning: numOrNull(r.earning), sales: numOrNull(r.sales), orders: r.orders, syncedAt: r.synced_at }));
       data.lists = (res[5].data || []).map((r) => ({ list: r.list, name: r.name }));
       data.withdrawals = (res[4].data || []).map((r) => ({ id: r.id, store: r.woo_vendor_id, vendorId: r.vendor_id, amount: num(r.amount), charge: num(r.charge), receivable: num(r.receivable), status: r.status, method: r.method || '', internal: r.internal === true, at: r.requested_at || '', syncedAt: r.synced_at }));
@@ -177,6 +188,7 @@
   }
   async function update(kind, id, value) {
     const cl = c(); if (!cl || !KINDS[kind]) return { ok: false, reason: 'network' };
+    if (isAuto(id)) return { ok: false, reason: 'forbidden' }; // [#29]: the platforms' spend is read, not edited
     try {
       const { data: rows, error } = await cl.from(KINDS[kind].table).update(toColumns(kind, value)).eq('id', id).select(KINDS[kind].cols);
       if (error) return { ok: false, reason: reasonOf(error) };
@@ -190,6 +202,7 @@
   }
   async function remove(kind, id) {
     const cl = c(); if (!cl || !KINDS[kind]) return { ok: false, reason: 'network' };
+    if (isAuto(id)) return { ok: false, reason: 'forbidden' };
     const old = data[kind].find((r) => r.id === id);
     try {
       const { data: rows, error } = await cl.from(KINDS[kind].table).update({ voided_at: new Date().toISOString() }).eq('id', id).select('id');

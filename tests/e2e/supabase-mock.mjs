@@ -1116,6 +1116,12 @@ export async function installSupabaseMock(page, opts = {}) {
       // 0093 (2026-11-14-settings-lists.md decision 1): an expense's type is a base one or one the admin added in the row «lists»
       function expenseKindOk(c) { const li = ((mock.settings || []).find((x) => x.section === 'lists') || {}).data || {};
         return ['المرتبات', 'المصروفات', 'الاشتراكات', 'الإعلانات'].includes(c) || (Array.isArray(li.expenseKinds) && li.expenseKinds.includes(c)); }
+      // acc_ad_spend (0153 — the meeting of 23 Nov [#29]): the platforms' spend per day (campaign rows), for accounts.view ≠ N
+      if (method === 'POST' && path === '/rest/v1/rpc/acc_ad_spend') {
+        const b = body(); if (hasPerm(u, 'accounts.view') === 'N') return json(403, { code: '42501', details: null, hint: null, message: 'forbidden' });
+        const by = new Map(); ((mock.mkt && mock.mkt.adStats) || []).filter((x) => x.level === 'campaign' && x.day >= b.p_from && x.day <= b.p_to).forEach((x) => { const k = x.day + '|' + x.platform; by.set(k, (by.get(k) || 0) + Number(x.spend || 0)); });
+        return json(200, [...by.entries()].filter(([, v]) => v > 0).map(([k, v]) => ({ day: k.split('|')[0], platform: k.split('|')[1], spend: Math.round(v * 100) / 100 })).sort((x, y) => (x.day < y.day ? -1 : 1)));
+      }
       // accounts_sales (0019): our orders placed in the range (Cairo date — the mock uses the UTC date), per maker and group + one total row per group
       if (method === 'POST' && path === '/rest/v1/rpc/accounts_sales') {
         const b = body(); if (hasPerm(u, 'accounts.view') === 'N') return json(403, { code: '42501', details: null, hint: null, message: 'accounts.view is needed' });

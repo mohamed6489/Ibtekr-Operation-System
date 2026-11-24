@@ -26,7 +26,7 @@
     expenses: D(tx('المصروفات', 'Expenses'), tx('المبالغ والأنواع والتواريخ', 'Amounts, types and dates'), tx('من غير المرتبات', 'No salaries')),
     inventory: D(tx('المخزن', 'Inventory'), tx('القطع وأماكنها وحالاتها', 'Items, their places and conditions'), tx('من غير التكلفة', 'No cost')),
     hr: D(tx('الفريق', 'The team'), tx('الأسامي والأدوار والحضور', 'Names, roles and attendance'), tx('من غير المرتبات والتقييمات', 'No salaries and no appraisals')),
-    ads: D(tx('أرقام الإعلانات', 'Ad numbers'), tx('الحملات وصرفها ونتايجها والاقتراحات المفتوحة', 'The campaigns, their spend and results, and the open suggestions'), tx('من غير مفاتيح الربط بالمنصات', 'No platform keys')),
+    ads: D(tx('أرقام الإعلانات', 'Ad numbers'), tx('الحملات والإعلانات (الكريتيفز) وصرفها ونتايجها والأوردرات اللي جت منها والاقتراحات المفتوحة', 'The campaigns and ads (creatives), their spend and results, the orders they brought, and the open suggestions'), tx('من غير مفاتيح الربط بالمنصات', 'No platform keys')),
     site: D(tx('حالة الموقع', 'The site’s state'), tx('فحص السرعة وتحديثات ووردبريس', 'The speed check and the WordPress updates'), tx('من غير بيانات العملاء والأوردرات', 'No customer or order data')),
     files: D(tx('ملفات', 'Files'), tx('أسامي الملفات المرفوعة', 'The uploaded files’ names'), tx('من غير محتوى الملف', 'No file content')),
   };

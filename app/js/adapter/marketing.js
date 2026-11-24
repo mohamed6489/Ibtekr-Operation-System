@@ -935,13 +935,18 @@
   // (no ad is pulled or stored — the library's API gives commercial ads for the EU / UK only). The log carries the row's id.
   let compRows = null; let compAt = 0; let compReady = true;
   const toCompetitor = (r) => ({ id: r.id, name: clean(r.name, 80), pageId: /^[0-9]{5,20}$/.test(String(r.page_id || '')) ? String(r.page_id) : '', pageUrl: /^https:\/\/[^\s<>"]+$/.test(String(r.page_url || '')) ? String(r.page_url) : '',
-    keyword: clean(r.keyword, 80), note: clean(r.note, 300), at: r.created_at || null });
+    keyword: clean(r.keyword, 80), note: clean(r.note, 300), at: r.created_at || null,
+    // 0158 (buyer-brain decision 5): the server's research brief and its sources (https only)
+    brief: r.brief && typeof r.brief === 'object' && typeof r.brief.text === 'string' ? { text: r.brief.text.slice(0, 5000), sources: (Array.isArray(r.brief.sources) ? r.brief.sources : []).filter((x) => x && /^https:\/\/[^\s<>"]+$/.test(String(x.url || ''))).slice(0, 12).map((x) => ({ url: String(x.url), title: clean(x.title, 120) || String(x.url) })) } : null,
+    briefAt: r.brief_at || null });
   async function competitors(force) {
     if (!can().view) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
     if (!force && compRows && Date.now() - compAt < 60000) return { ok: true, items: compRows, ready: compReady };
     const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
     try {
-      const { data: d, error } = await cl.from('mkt_competitors').select('id, name, page_id, page_url, keyword, note, created_at').is('archived_at', null).order('created_at', { ascending: false }).limit(100);
+      const read = (cols) => cl.from('mkt_competitors').select(cols).is('archived_at', null).order('created_at', { ascending: false }).limit(100);
+      let { data: d, error } = await read('id, name, page_id, page_url, keyword, note, created_at, brief, brief_at');
+      if (error && !noTable(error)) ({ data: d, error } = await read('id, name, page_id, page_url, keyword, note, created_at')); // before 0158
       if (error) { if (!noTable(error)) return fail(error); compRows = []; compReady = false; compAt = Date.now(); return { ok: true, items: compRows, ready: false }; }
       compRows = (d || []).map(toCompetitor).filter((x) => x.name); compReady = true; compAt = Date.now();
       return { ok: true, items: compRows, ready: true };
@@ -965,6 +970,16 @@
       await competitors(true); emit();
       return { ok: true, id: d.id };
     } catch (e) { return fail(null); }
+  }
+  // buyer-brain decision 5 (Safwat 24 Nov): «حلّل المنافس» — ai-content competitor_brief researches it on the web and writes the brief
+  // with its sources on the row (the server's key); the log carries the competitor's number only
+  async function competitorBrief(id) {
+    if (!can().create) return { ok: false, reason: 'forbidden', message: 'تحليل المنافس محتاج «التسويق: إنشاء»' };
+    const r = await invoke('ai-content', { action: 'competitor_brief', id: Number(id) });
+    if (!r.ok) return Object.assign(r, { message: r.code === 'not_found' ? 'المنافس ده اتشال من القايمة' : (r.code && TREND_MESSAGES[r.code]) || aiMessage(r, 'text') });
+    log('competitor.brief', '', Number(id));
+    await competitors(true); emit();
+    return { ok: true };
   }
   async function competitorArchive(id) {
     if (!can().create) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
@@ -1514,7 +1529,7 @@
     suggestions, suggNow, decide, campaignSet, adsDataNow, rules, rulesNow, rulesSet, setLive, requests, reqsNow, addRequest, REQ_KIND: KIND_OF, buyerChat,
     agentChats, agentTurns, agentAsk, agentFacts, agentLocal, agentImage, agentRename, agentDelete, agentSettings, agentSettingsNow, agentSettingsSet, AGENT_KEYS,
     agents, agentsNow, agentOf, agentSave, agentArchive, agentOrder, kbList, kbListNow, kbSetAll, kbReset, kbRewrite, AGENT_PERMS, AGENT_SEES,
-    trends, trendsNow, trendsReadyNow, trendsRefresh, trendThumbsFill, trendThumbs, trendThumbNow, trendSettings, trendSettingsNow, trendSettingsSet, adTagsSet, agentKbSet, KB, competitors, competitorsNow, competitorsReadyNow, competitorSave, competitorArchive,
+    trends, trendsNow, trendsReadyNow, trendsRefresh, trendThumbsFill, trendThumbs, trendThumbNow, trendSettings, trendSettingsNow, trendSettingsSet, adTagsSet, agentKbSet, KB, competitors, competitorsNow, competitorsReadyNow, competitorSave, competitorArchive, competitorBrief,
     siteCheck, siteCheckNow, siteReadyNow, siteCheckRun, siteSpeed, siteSpeedNow, siteSpeedRun, pixel, pixelNow, pixelRun, siteSubs, siteSubsNow, aiSpend, aiSpendNow,
     addTemplate, editTemplate, removeTemplate, templateUsed, subscribe, unsubscribe, check, MAX_BYTES, MIME, BUCKET,
     _test: { toCampaign, toPost, toTemplate, fail, aiMessage, fieldsOf, tplRow, pubMessage, toSuggestion, toRequest, toRules, toChat, toTurn } };

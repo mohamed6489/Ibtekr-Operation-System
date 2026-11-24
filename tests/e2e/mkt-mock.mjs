@@ -41,7 +41,7 @@ const COLS = {
   mkt_agent_messages: ['id', 'chat_id', 'role', 'text', 'images', 'run_id', 'created_at', 'source', 'shared'], // source: 'system' = the system's own answer, else the outside company; shared = the data kinds it was given
   // 0109 (comments decisions 69 / 70): the designer's trends (the server's rows) and the media buyer's competitors (marketing.create writes)
   mkt_trends: ['id', 'batch', 'title', 'summary', 'source', 'url', 'kind', 'found_at', 'created_by', 'platform', 'tag', 'thumb', 'author', 'views', 'likes', 'comments', 'posted_at', 'external_id'], // + 0118 (thumb_src / thumb_tries: the server's)
-  mkt_competitors: ['id', 'name', 'page_id', 'page_url', 'keyword', 'note', 'created_by', 'created_at', 'updated_by', 'updated_at', 'archived_at'],
+  mkt_competitors: ['id', 'name', 'page_id', 'page_url', 'keyword', 'note', 'created_by', 'created_at', 'updated_by', 'updated_at', 'archived_at', 'brief', 'brief_at'], // + 0158 (buyer-brain: the server's research brief)
   site_checks: ['kind', 'data', 'checked_at', 'checked_by'],
   // 0124 (agents-brain decision 1): the assistants' notes (the server's rows, read by who sees the assistant) and the member's own read marks
   ai_agent_notes: ['id', 'agent', 'kind', 'title', 'body', 'link', 'ref', 'created_at'],
@@ -138,7 +138,7 @@ export function mktState(opts = {}) {
     trends: (opts.mktTrends || []).map((x, i) => ({ id: i + 1, batch: 'b0000000-0000-4000-8000-000000000001', summary: null, kind: 'image', found_at: now, created_by: null, platform: 'web', tag: null, thumb: null, author: null, views: null, likes: null, comments: null, posted_at: null, external_id: null, ...x })),
     // 0118 (ش39): the designer's tags and sites; igOff = Instagram's hashtag search refused (the feature not granted) or not linked
     trendCfg: { tags: [...(opts.mktTrendTags || [])], sources: [...(opts.mktTrendSources || [])], adTags: [...(opts.mktAdTags || [])] }, igOff: opts.mktIgOff || null,
-    competitors: (opts.mktCompetitors || []).map((x, i) => ({ id: i + 1, page_id: null, page_url: null, keyword: null, note: null, created_by: null, created_at: now, updated_by: null, updated_at: now, archived_at: null, ...x })),
+    competitors: (opts.mktCompetitors || []).map((x, i) => ({ id: i + 1, page_id: null, page_url: null, keyword: null, note: null, created_by: null, created_at: now, updated_by: null, updated_at: now, archived_at: null, brief: null, brief_at: null, ...x })),
     noSections: !!opts.mktNoSections, trendsFail: null, trendsAnswer: null, trendsResults: null,
     siteChecks: (opts.siteChecks || []).map((x) => ({ kind: 'wp_updates', data: {}, checked_at: now, checked_by: null, ...x })),
   };
@@ -160,7 +160,7 @@ export function mktRoute(c) {
   if (sto && sto[1] && method === 'GET') { const obj = H.objects.get(decodeURIComponent(sto[2])); return obj ? route.fulfill({ status: 200, headers: { 'access-control-allow-origin': '*', 'content-type': obj.type || 'image/png' }, body: PNG_1PX }) : json(400, { statusCode: '400', error: 'not_found', message: 'Object not found' }); }
   if (fn && path === '/functions/v1/mkt-publish') return mktPublish(c, c.body());
   if (fn && path === '/functions/v1/mkt-ads') return mktAds(c, c.body());
-  if (fn) { const b = c.body(); if (path === '/functions/v1/ai-images' ? !(['campaign', 'campaign_edit', 'agent_image', 'ref_link', 'bridge_campaign', 'bridge_campaign_fetch', 'trend_thumbs'].includes(b.action) || /^video_/.test(String(b.action))) : !['marketing', 'buyer', 'agent', 'trends', 'kb'].includes(b.action)) return null; return mktAi(c, b); }
+  if (fn) { const b = c.body(); if (path === '/functions/v1/ai-images' ? !(['campaign', 'campaign_edit', 'agent_image', 'ref_link', 'bridge_campaign', 'bridge_campaign_fetch', 'trend_thumbs'].includes(b.action) || /^video_/.test(String(b.action))) : !['marketing', 'buyer', 'agent', 'trends', 'kb', 'competitor_brief'].includes(b.action)) return null; return mktAi(c, b); }
   const refuse = (status, code, message) => json(status, { code, details: null, hint: null, message });
   if (!u) return sto ? json(401, { statusCode: '401', error: 'Unauthorized', message: 'invalid JWT' }) : refuse(401, '42501', 'permission denied');
   const view = hasPerm(u, 'marketing.view') !== 'N'; const create = hasPerm(u, 'marketing.create') === 'F'; const publish = hasPerm(u, 'marketing.publish') === 'F';
@@ -562,7 +562,15 @@ function mktAi(c, b) {
   if (b.action === 'agent' && c.mock.mkt.agentHold) { const hold = c.mock.mkt.agentHold; c.mock.mkt.agentHold = null; return hold.then(() => mktAi(c, b)); }
   const { u, json, hasPerm, isAdmin, mock } = c; const H = mock.mkt;
   const agentCan = agentCanOf(H, isAdmin, hasPerm);
-  H.calls.push({ fn: b.action === 'marketing' || b.action === 'buyer' || b.action === 'agent' || b.action === 'kb' ? 'ai-content' : 'ai-images', action: b.action, task: b.task || null, by: u ? u.id : null, piece: b.piece || null, slide: b.slide == null ? null : b.slide, scene: b.scene == null ? null : b.scene, kind: b.kind || null, model: b.model || null, pins: Array.isArray(b.pins) ? b.pins.length : 0, notes: b.notes || null });
+  H.calls.push({ fn: b.action === 'marketing' || b.action === 'buyer' || b.action === 'agent' || b.action === 'kb' || b.action === 'competitor_brief' ? 'ai-content' : 'ai-images', action: b.action, task: b.task || null, by: u ? u.id : null, piece: b.piece || null, slide: b.slide == null ? null : b.slide, scene: b.scene == null ? null : b.scene, kind: b.kind || null, model: b.model || null, pins: Array.isArray(b.pins) ? b.pins.length : 0, notes: b.notes || null });
+  if (b.action === 'competitor_brief') { // 0158 (buyer-brain decision 5): marketing.create or the admin; the brief and its sources on the row
+    if (!u || !(isAdmin(u) || hasPerm(u, 'marketing.create') === 'F')) return json(401, { error: 'unauthorized' });
+    const row = H.competitors.find((x) => x.id === Number(b.id) && !x.archived_at); if (!row) return json(404, { error: 'not_found' });
+    if (H.briefFail) return json(502, { error: 'no_search' });
+    row.brief = { text: '- بيبيع ' + (row.keyword || 'منتجات') + ' من 300 لـ 900 ج.م وعامل خصم 20%\n- أكتر إعلاناته فيديو للإيد وهي بتشتغل وشغّال من بدري', sources: [{ url: 'https://rival.example/shop', title: 'متجر ' + row.name }] };
+    row.brief_at = new Date().toISOString(); H.writes.push({ table: 'mkt_competitors', op: 'brief', id: row.id });
+    return json(200, { result: 'ok', id: row.id, brief: row.brief, brief_at: row.brief_at, cost_usd: 0.05 });
+  }
   if (b.action === 'trends') { // 0109 (comments decision 69): marketing.create or the admin; the rows a search page stands behind are stored
     if (!u || !(isAdmin(u) || hasPerm(u, 'marketing.create') === 'F')) return json(401, { error: 'unauthorized' });
     const p = parseTrends(b); if ('error' in p) return json(400, p);

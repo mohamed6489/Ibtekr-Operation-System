@@ -1778,9 +1778,23 @@
     if (!brains.length) { await agLocalTurn(a, [q, flLine(files)].filter(Boolean).join('\n'), 'مش فاهم الطلب ده من السيستم، ومفيش مخ خارجي مربوط أسأله — الأدمن يربطه من «الإعدادات › الربط بالمنصات».'); return; }
     tmpTurn(key, [q, flLine(files)].filter(Boolean).join('\n')); AG.consent[key] = { q, files, brains }; R();
   }
+  // buyer-brain decision 2 (Safwat 24 Nov — «يعرف انا اداء الكامبينز بتاعتي ايه واحسن كامبن شغال و احسن كريتايفز»): the media buyer
+  // answers «أحسن كامبين» / «أحسن كريتيف» / «الأداء» / «أوقف إيه» / «إيه اللي زهق» from the page's own Meta numbers (the last 7 days, or
+  // 30 / this month when said) — IBAdsInsight, the same reading the server gives an outside AI; no model behind it
+  async function agAds(q) {
+    const I = window.IBAdsInsight; const B = window.IBBrain; if (!I || !MK().adsData) return null;
+    const kind = I.intent(q, B && B.norm); if (!kind) return null;
+    const span = I.days(q, B && B.norm); const to = TODAY();
+    const from = span === 'month' ? to.slice(0, 8) + '01' : W.addD(to, -(span - 1));
+    const r = await MK().adsData({ from, to }); if (!r || !r.ok) return null;
+    const orders = (r.orders || []).filter((o) => o.platform === 'meta' && o.grp !== 'cancelled' && o.day >= from && o.day <= to).map((o) => ({ campaign: o.campaign, ad: '', orders: o.orders, sales: o.sales }));
+    const ins = I.build({ objects: r.objects, stats: r.stats, orders, from, to });
+    return { type: 'ads', text: I.answer(kind, ins, window.IB_LANG === 'en') + (kind === 'best_creative' || kind === 'tired' ? '\n' + 'التفاصيل والصور في «التسويق › التقارير › الأعمال الفنية».' : '') };
+  }
   async function agSystem(a, q) {
     const B = window.IBBrain; const en = window.IB_LANG === 'en'; let res = null; let forms = null;
-    const facts = window.IBAgentBrain ? await agFactsNow() : null;
+    if (a === 'buyer') { try { res = await agAds(q); } catch (e) { res = null; } }
+    const facts = !res && window.IBAgentBrain ? await agFactsNow() : null;
     if (facts) { let when = ''; try { when = new Intl.DateTimeFormat(en ? 'en-GB' : 'ar-EG-u-nu-latn', { timeZone: 'Africa/Cairo', hour: 'numeric', minute: '2-digit' }).format(new Date(facts.at)); } catch (e) { when = ''; }
       res = window.IBAgentBrain.answer(a, q, { facts, norm: B && B.norm, thinks: B && B.thinks, when, en }); }
     if (!res && window.IBSystemEntry) { const e = window.IBSystemEntry(q); if (e) { res = { type: 'entry', text: e.text }; forms = e.forms; } }
@@ -2191,9 +2205,26 @@
       h('div', { class: 'mk-cc-top' }, h('span', { class: 'mk-cc-live' }, Icon('check', 'sm'), 'إعلانات شغّالة في مصر'), edit ? K.RowMenu([{ label: 'تعديل', icon: 'edit', run: () => compForm(x) }, { label: 'شيله من القايمة', icon: 'trash', danger: true, run: () => compRemove(x) }], 'خيارات ' + x.name) : null),
       h('div', { class: 'mk-cc-who' }, av, h('div', null, h('b', null, x.name), h('small', null, x.pageId ? 'إعلانات الصفحة نفسها' : 'بحث بـ «' + (x.keyword || x.name) + '»'))),
       x.note ? h('p', { class: 'mk-cc-note' }, x.note) : null,
+      compBrief(x, edit),
       h('div', { class: 'mk-cc-acts' }, libLink(x, 'افتح كل إعلاناته على ميتا', { 'data-mk-comp-ads': String(x.id), class: 'btn btn-default mk-lib mk-cc-go' }),
         h('div', { class: 'mk-cc-links' }, x.pageUrl ? h('a', { class: 'mk-out', href: x.pageUrl, target: '_blank', rel: 'noopener noreferrer', title: 'افتح صفحته' }, h('span', null, 'صفحته'), Icon('external', 'sm')) : null,
           can().create ? Button({ size: 'sm', type: 'text', icon: 'sparkle', label: 'اعمل زيه', attrs: { 'data-mk-copy-comp': String(x.id) }, onClick: () => copyFrom({ from: 'competitor', kind: 'post', name: x.name, note: x.note, url: x.pageUrl || '' }) }) : null)));
+  }
+  // buyer-brain decision 5 (Safwat 24 Nov — «اقوي اعلانات شغالة للمنافسين»): «حلّل المنافس» — a web research the server writes on the row
+  // (what it sells and at what prices, its offers, the angles and formats of its ads, what looks long-running) with its sources; the
+  // media buyer reads it beside the team's own note on its strongest ads. Meta's Ad Library itself is never read (its link opens it).
+  const CB = { busy: {}, open: {} };
+  function compBrief(x, edit) {
+    const b = x.brief; const busy = !!CB.busy[x.id];
+    const run = async () => { if (CB.busy[x.id]) return; CB.busy[x.id] = true; R(); const r = await MK().competitorBrief(x.id); CB.busy[x.id] = false; CB.open[x.id] = r.ok; K.toast(r.ok ? 'اتحلّل المنافس' : r.message, r.ok ? 'success' : 'error'); R(); };
+    const btn = edit && MK().competitorBrief ? Button({ size: 'sm', type: b ? 'text' : 'default', icon: busy ? null : 'sparkle', label: busy ? 'بيحلّل… (دقيقة تقريبًا)' : b ? 'حدّث التحليل' : 'حلّل المنافس', disabled: busy, attrs: { 'data-mk-comp-brief': String(x.id) }, onClick: run }) : null;
+    if (!b) return btn ? h('div', { class: 'mk-cc-brief none' }, btn) : null;
+    const open = !!CB.open[x.id]; let when = ''; try { when = x.briefAt ? new Intl.DateTimeFormat('ar-EG-u-nu-latn', { timeZone: 'Africa/Cairo', day: 'numeric', month: 'short' }).format(new Date(x.briefAt)) : ''; } catch (e) { when = ''; }
+    return h('div', { class: 'mk-cc-brief', 'data-mk-brief': String(x.id) },
+      h('button', { type: 'button', class: 'mk-cc-brief-h', 'aria-expanded': String(open), onClick: () => { CB.open[x.id] = !open; R(); } }, Icon('sparkle', 'sm'), h('b', null, 'تحليل المنافس'), when ? h('small', null, when) : null, Icon(open ? 'up' : 'down', 'sm')),
+      open ? h('div', { class: 'mk-cc-brief-b' }, h('p', null, b.text),
+        b.sources.length ? h('ul', { class: 'mk-cc-src' }, b.sources.map((s2) => h('li', null, h('a', { href: s2.url, target: '_blank', rel: 'noopener noreferrer' }, h('bdi', null, s2.title))))) : null) : null,
+      btn);
   }
   function competitorsCard() {
     cpLoad(false);

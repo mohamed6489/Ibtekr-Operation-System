@@ -253,6 +253,19 @@ export function settingsRoute(c) {
     // 0111: member_status is the admin's or the member's direct manager's (never on an admin, never himself)
     const tg = action === 'member_status' ? mock.profiles.find((x) => x.id === body.member_id) : null;
     const mgrOk = !!tg && active && tg.id !== u.id && tg.manager_id === u.id && tg.role_id !== 'admin';
+    // «العقل الذكي» (Safwat 24 Nov — «يظهر لكل الفريق»): settings-admin «map» for any active member — connected or not only
+    if (path === '/functions/v1/settings-admin' && action === 'map') {
+      if (!active) return json(403, { error: 'forbidden' });
+      const st0 = (x) => { try { return S.vault[x] ? JSON.parse(S.vault[x]) : null; } catch { return null; } };
+      const integ = (mock.settings.find((x) => x.section === 'integrations') || {}).data || {}; const mt = integ.meta || {};
+      const links = {}; for (const n of [...new Set([...SECRET_NAMES, ...Object.keys(mt).filter((x) => nameOk(x))])]) { const v = st0(n); if (!v && !mt[n]) continue; links[n] = { ready: !!secretPublic(n, v, mt[n]).ready }; }
+      const since = typeof body.since === 'string' ? body.since : new Date(Date.now() - 86400000).toISOString();
+      const events = mock.activityRows.filter((r) => r.at >= since).sort((a, b) => (a.at < b.at ? 1 : -1)).slice(0, 1000).map((r) => ({ id: r.id, at: r.at, action: r.action }));
+      const chans = (mock.cs && Array.isArray(mock.cs.channels) ? mock.cs.channels : []).map((x) => ({ id: x.id, status: x.status, kind: x.kind || null }));
+      const ai = (mock.settings.find((x) => x.section === 'ai') || {}).data || {};
+      return json(200, { links, ads: { meta: { configured: false, error: null }, tiktok: { configured: false, error: null }, google: { configured: false, error: null } }, bridge: { linked: false }, channels: chans, checks: (mock.mkt && mock.mkt.siteChecks) || [],
+        events, sync: [], paused: integ.paused && typeof integ.paused === 'object' ? integ.paused : {}, providers: ai.providers && typeof ai.providers === 'object' ? ai.providers : {}, now });
+    }
     if (!admin && !mgrOk) return json(401, { error: 'unauthorized' });
     // 0134: team-admin files_wipe — the files go in two rounds (S.wipeFiles, default 4): { removed, more }
     if (path === '/functions/v1/team-admin') {

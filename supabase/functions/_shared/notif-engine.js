@@ -69,10 +69,24 @@ export function writePlan({ rule, ents, existing, members, roles, now, lineFor }
       if (line === null) continue; // nothing for this member (a daily summary with nothing he can see)
       const msg = C.render(rule, { ...e, line });
       inserts.push({ at: now, kind: 'rule:' + rule.element + '.' + rule.type, title: msg.title, body: msg.body || null, user_id: m.id,
-        entity: e.entity || null, entity_id: e.id, rule_id: rule.id, section_id: rule.section_id, hide_at: hide });
+        entity: e.entity || null, entity_id: e.id, rule_id: rule.id, section_id: rule.section_id, hide_at: hide, meta: metaOf(rule, e) });
     }
   }
   return { inserts, retire };
+}
+
+// the bell's redesign (Safwat 24 Nov — docs/superpowers/plans/2026-11-24-bell-redesign.md decisions 1–3): what the bell needs to draw
+// and group an alert — its level, who it is about (`group`: { g: vendor | member | agent | customer, id, name }) and the counts the
+// entity carries (orders `n`, pieces `pcs`, the delay `st`). Names and numbers only — never a phone or a message's text.
+const G_KINDS = ['vendor', 'member', 'agent', 'customer'];
+export function metaOf(rule, e) {
+  const m = { lv: C.levelOf(rule) };
+  const g = e && e.group;
+  if (g && G_KINDS.includes(g.g) && g.id != null) { m.g = g.g; m.gid = String(g.id).slice(0, 64); m.gname = String(g.name || '').slice(0, 80); }
+  if (e && Number.isFinite(Number(e.n)) && e.n != null) m.n = Number(e.n);
+  if (e && Number.isFinite(Number(e.pcs)) && e.pcs != null) m.pcs = Number(e.pcs);
+  if (e && (e.st === 'late' || e.st === 'risk')) m.st = e.st;
+  return m;
 }
 
 // when the rule's alerts leave the bell: alerts [{ id, entity_id, user_id, at, hide_at }] still showing (hide_at null); inState =
@@ -88,6 +102,8 @@ export function hidePlan({ rule, alerts, inState, reads, now }) {
     if (mode === 'until_state' && inState && !inState.has(String(a.entity_id))) out.push({ id: a.id, hide_at: at(nowMs + Number(rule.hours) * H) });
     else if (mode === 'until_read') { const r = reads && reads.get(String(a.id)); if (r) out.push({ id: a.id, hide_at: at(Date.parse(r) + Number(rule.hours) * H) }); }
     else if (mode === 'fixed') out.push({ id: a.id, hide_at: at(Date.parse(a.at) + Number(rule.hours) * H) });
+    // an «info» alert never outstays INFO_MAX_H, read or not (the bell's redesign decision 1)
+    if (C.levelOf(rule) === 'info' && !out.some((x) => x.id === a.id)) { const cap = Date.parse(a.at) + C.INFO_MAX_H * H; if (cap <= nowMs) out.push({ id: a.id, hide_at: at(cap) }); }
   }
   return out;
 }

@@ -97,7 +97,7 @@ const COLUMNS: Record<string, string[]> = {
   ai_agent_kb: ['id', 'kind', 'section', 'title', 'body', 'agents', 'sort', 'created_at'], // 0120 (their rules and skills)
   hr_attendance: ['id', 'member_id', 'day', 'in_at', 'out_at', 'remote', 'source', 'note', 'ot_from'],
   hr_requests_v: ['id', 'member_id', 'type', 'from_day', 'to_day', 'status'],
-  alerts: ['id', 'at', 'kind', 'title', 'body', 'role_id', 'user_id', 'entity', 'entity_id', 'read_at', 'source_key', 'expires_at', 'rule_id', 'section_id', 'hide_at'], // 0056: source_key / expires_at; 0157: rule_id / section_id / hide_at
+  alerts: ['id', 'at', 'kind', 'title', 'body', 'role_id', 'user_id', 'entity', 'entity_id', 'read_at', 'source_key', 'expires_at', 'rule_id', 'section_id', 'hide_at', 'meta'], // 0056: source_key / expires_at; 0157: rule_id / section_id / hide_at; 0161: meta
   notif_sections: ['id', 'parent_id', 'name', 'icon', 'sort', 'created_at'], // 0157
   notif_rules: ['id', 'section_id', 'name', 'element', 'type', 'state', 'sub', 'param', 'at', 'repeat', 'days', 'show', 'hours', 'roles', 'channels', 'template', 'active', 'sort', 'last_run', 'created_by', 'created_at', 'updated_at'], // 0157
   // 0006 + 0056 (phase 11): the read marks and the notifications engine's memory
@@ -119,7 +119,7 @@ const COLUMNS: Record<string, string[]> = {
   // 0002: the settings rows (ai-content reads the section «ai» — phase 5.3 decision 8)
   settings: ['section', 'data', 'updated_at', 'updated_by'],
   // 0044 (phase 7): the inventory hub's lots and moves (woo-sync inventory_push reads them)
-  inv_lots: ['id', 'reason', 'status', 'sku', 'product_id', 'name', 'vendor_id', 'order_id', 'item_id', 'ref', 'loc', 'mode', 'cost', 'condition', 'condition_note', 'note', 'since', 'closed_at', 'created_by', 'created_at'],
+  inv_lots: ['id', 'reason', 'status', 'sku', 'product_id', 'name', 'vendor_id', 'order_id', 'item_id', 'ref', 'loc', 'mode', 'cost', 'condition', 'condition_note', 'note', 'since', 'closed_at', 'created_by', 'created_at', 'updated_at'],
   inv_moves: ['id', 'lot_id', 'type', 'qty', 'label', 'reason', 'ref', 'note', 'by', 'at'],
   // 0034 / 0035 (phase 6.2): the customer-service tables the Meta channel writes
   cs_customers: ['id', 'phone', 'name', 'ig', 'city', 'province', 'address', 'address2', 'mood', 'tags', 'consent', 'auto_consent', 'source', 'created_from', 'blocked_at', 'blocked_by', 'merged_into', 'created_by', 'created_at', 'updated_at'],

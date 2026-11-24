@@ -2553,3 +2553,9 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 3. **الإيميل:** شغّل مفتاح «الإيميل»، وده بيكتب في صف «notif» `channels.email = true`. لازم مفتاح Resend يكون في «الربط بالمنصات».
 4. **الواتساب:** يفضل مقفول لحد ما القالب `ibtekr_alert` يتوافق عليه على ميتا (Business Manager › WhatsApp › Message templates — فيه متغيّر واحد للنص).
 5. **اتأكد:** بعد أول تيك فيه تنبيه عليه «إيميل»، شوف `select value -> 'notif' -> 'sent' from sync_state where key = 'notify';`.
+
+#### 2.7.133 الجرس بشكل جديد (`0161`، الخطة `docs/superpowers/plans/2026-11-24-bell-redesign.md`)
+1. **`0161`**: بيضيف `alerts.meta` (المستوى، ومين صاحب التنبيه، والعدد)، وبيظبط «تفاصيل الظهور» للقواعد الموجودة حسب المستوى، وبيضيف التنبيهات الثمانية الجديدة وقسم فرعي لكل مساعد وأيقونات الأقسام الرئيسية. القسم أو القاعدة اللي الأدمن عملها بنفس الاسم مابتتكررش.
+2. انشر `notify` (الـ entities بقت بتقول المبتكر / العضو / المساعد / العميل، والأوضاع الجديدة).
+3. ادمج على `main` (الكتلة 28 + `alerts.js` + `app.css` + `notif-settings.js` + `settings.css`).
+4. **اتأكد:** بعد أول تيك، `select meta, count(*) from alerts where at > now() - interval '30 minutes' group by 1 limit 20;` — قواعد «متابعة المبتكرين» بيبقى عليها `g = vendor`. وافتح الجرس: كارت لكل مبتكر بعدد الأوردرات والقطع، والضغطة بتفتح أوردراته المتأخرة.

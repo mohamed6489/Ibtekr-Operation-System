@@ -2529,7 +2529,8 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
    - `{ action: 'legacy_import', pages: 10 }`، وكرّره لحد `done: true`. الصفحة الجاية في `sync_state` `legacy_import`.
    - اتأكد إن `failed = 0`. `restart: true` بيرجّعه للصفحة 1.
    - **مفيش أي كتابة على الموقع.**
-4. طبّق `0158_legacy_nov_statuses.sql`: حالات نوفمبر من Airtable، الحالة بس، ومشروطة بالحالة القديمة.
-5. **اتأكد:**
+4. طبّق `0159_cs_customer_clamp.sql` **قبل** الاستيراد (عنوان طويل أو رقم غريب كان بيرفض الأوردر)، وشغّل `supabase/tests/rls_cs_customer_clamp.sql` على الحي. التشغيلات واحدة ورا التانية، مش مع بعض (deadlock).
+5. طبّق `0158_legacy_nov_statuses.sql`: حالات نوفمبر من Airtable، الحالة بس، ومشروطة بالحالة القديمة.
+6. **اتأكد:**
    - `select count(*) from orders where placed_at < '2026-08-14';` = عدد الأوردرات الأساسية القديمة اللي التجربة قالت عليه.
    - مفيش صفوف `alerts` ولا `cs_auto_runs` ولا `inv_moves` لأوردر قديم.

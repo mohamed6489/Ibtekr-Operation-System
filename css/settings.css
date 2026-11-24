@@ -620,3 +620,28 @@ button.dx-stat{cursor:pointer}button.dx-stat:hover{background:var(--color-bg-hov
 .bs-log-i:last-child { border-bottom: 0; }
 .bs-log-w, .bs-log-a { color: var(--color-text-secondary); }
 @media (max-width: 767px) { .bs-log-i { grid-template-columns: minmax(0, 1fr) auto; } .bs-log-k { grid-column: 1 / -1; } }
+
+/* «الإعدادات › التنبيهات» — the tree the bell shows (the notifications' new structure, Safwat 24 Nov) */
+.nr-tree{display:flex;flex-direction:column;gap:12px}
+.nr-main{padding:12px 16px}
+.nr-main-h,.nr-sub-h{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.nr-main-h .sp,.nr-sub-h .sp{flex:1}
+.nr-tog{display:inline-flex;align-items:center;gap:6px;border:0;background:transparent;font:inherit;color:var(--color-text-primary);cursor:pointer;padding:4px 0}
+.nr-subs{display:flex;flex-direction:column;gap:10px;margin-top:10px}
+.nr-sub{border:1px solid var(--color-border,#e6dccb);border-radius:8px;padding:10px 12px;background:var(--color-bg-base,#FFF7EF)}
+.nr-rules{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.nr-rule{display:flex;align-items:center;gap:12px;padding:8px 10px;border-radius:6px;background:var(--color-bg-container,#fff)}
+.nr-rule.off{opacity:.6}
+.nr-rule-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.nr-rule .sw-row{flex:none;gap:6px}
+.nr-tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+.nr-form{display:flex;flex-direction:column;gap:14px}
+.nr-sec{display:flex;flex-direction:column;gap:8px;padding:12px;border:1px solid var(--color-border,#e6dccb);border-radius:8px}
+.nr-sec-h{color:var(--color-brand,#005642);font-weight:700}
+.nr-checks{display:flex;flex-wrap:wrap;gap:8px 16px}
+.nr-days{display:flex;flex-wrap:wrap;gap:4px}
+.nr-days .chip{min-width:34px;justify-content:center}
+.nr-days .chip.on{background:var(--color-brand,#005642);color:var(--color-bg-base,#FFF7EF);border-color:var(--color-brand,#005642)}
+.nr-vars{display:flex;gap:6px;flex-wrap:wrap;align-items:center;color:var(--color-text-secondary)}
+.nr-vars code{direction:rtl;background:var(--color-bg-container);padding:1px 6px;border-radius:4px}
+@media (max-width:767px){.nr-rule{flex-wrap:wrap}.nr-form .row.cols3,.nr-form .row.cols2{grid-template-columns:1fr}}

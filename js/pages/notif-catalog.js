@@ -12,6 +12,9 @@
   'use strict';
   const S = (id, label, extra) => Object.assign({ id, label }, extra || {});
   const ELEMENTS = [
+    // the meeting's text: «تقرير المهام هتبقي التقارير اليومية» — one summary a day of what is open for the recipient's role
+    { id: 'daily', label: 'التقارير اليومية', perm: null, types: [
+      { id: 'summary', label: 'ملخص', kind: 'due', states: [S('day', 'ملخص اليوم')] }] },
     { id: 'custody', label: 'عهدة التشغيل', perm: 'accounts.view', types: [
       { id: 'balance', label: 'الرصيد', states: [S('deposit', 'إيداع', { kind: 'event' }), S('withdraw', 'سحب', { kind: 'event' }), S('low', 'العهدة قربت تخلص', { kind: 'state', param: { key: 'floor', label: 'أقل من (ج.م)', def: 200 } })] }] },
     { id: 'team', label: 'أعضاء الفريق', perm: 'hr.view', types: [
@@ -30,6 +33,8 @@
       { id: 'update', label: 'تحديث', kind: 'event', states: [S('new', 'أوردر فرعي جديد'), S('edit', 'تعديل أوردر فرعي'), S('delete', 'حذف أوردر فرعي')] }] },
     { id: 'products', label: 'المنتجات', perm: 'products.view', types: [
       { id: 'stock', label: 'حالة المنتج', kind: 'state', states: [S('out', 'الكمية نفدت'), S('left1', 'باقي 1 في المخزون'), S('left3', 'باقي 3 في المخزون')] },
+      // the meeting's text («العمليات والشحن — مرتجع يحتاج فحص»): a return in the stock waiting for its inspection
+      { id: 'returns', label: 'المرتجعات', kind: 'state', states: [S('wait', 'مرتجع يحتاج فحص')] },
       { id: 'update', label: 'تحديث', kind: 'event', states: [S('trash', 'حذف منتج'), S('batch', 'إضافة دفعة منتجات'), S('draft', 'تحويل لمسودة'), S('edit', 'تعديل بيانات'), S('move', 'نقل منتجات'),
         S('cat_add', 'إضافة قسم جديد'), S('cat_delete', 'حذف قسم'), S('cat_edit', 'تعديل قسم')] }] },
     { id: 'accounts', label: 'الحسابات', perm: 'accounts.view', types: [
@@ -38,12 +43,14 @@
       { id: 'subs', label: 'اشتراكات', states: [S('withdraw', 'سحب', { kind: 'event' }), S('due', 'قبل التجديد', { kind: 'due', param: { key: 'days', label: 'قبلها بكام يوم', def: 3 } })] },
       { id: 'ads', label: 'إعلانات', kind: 'event', states: [S('deposit', 'إيداع'), S('withdraw', 'سحب')] },
       { id: 'makers', label: 'حسابات المبتكرين', states: [S('deposit', 'إيداع', { kind: 'event' }), S('withdraw', 'سحب', { kind: 'event' }), S('close_due', 'قبل تقفيل الحسابات', { kind: 'due', param: { key: 'days', label: 'قبلها بكام يوم', def: 2 } })] },
-      { id: 'real', label: 'الحساب الفعلي', kind: 'event', states: [S('deposit', 'إيداع'), S('withdraw', 'سحب')] }] },
+      { id: 'real', label: 'الحساب الفعلي', kind: 'event', states: [S('deposit', 'إيداع'), S('withdraw', 'سحب')] },
+      // the meeting's text: «الحركة المالية ملخص الاجراءات» — the day's deposits and withdrawals in one line
+      { id: 'summary', label: 'الحركة المالية', kind: 'due', states: [S('day', 'ملخص اليوم')] }] },
     { id: 'tickets', label: 'طلبات الفريق', perm: 'tickets.view', types: [
       { id: 'type', label: 'نوع الطلب', dyn: 'ticket', states: [S('new', 'طلبات جديدة', { kind: 'event' }), S('late', 'طلبات متأخرة', { kind: 'state' })] },
       { id: 'update', label: 'تحديث', kind: 'event', states: [S('edit', 'تعديل طلب'), S('in_progress', 'جاري العمل'), S('waiting', 'في انتظار الرد'), S('resolved', 'تم الحل')] }] },
     { id: 'messages', label: 'الرسايل', perm: 'cs.view', types: [
-      { id: 'customers', label: 'رسايل العملاء', states: [S('new', 'رسايل جديدة', { kind: 'event' }), S('late', 'رسايل متأخرة', { kind: 'state' })] },
+      { id: 'customers', label: 'رسايل العملاء', states: [S('new', 'رسايل جديدة', { kind: 'event' }), S('waiting', 'في انتظار الرد', { kind: 'state' }), S('late', 'رسايل متأخرة', { kind: 'state' })] },
       { id: 'vendors', label: 'رسايل المبتكرين', states: [S('new', 'رسايل جديدة', { kind: 'event' }), S('late', 'رسايل متأخرة', { kind: 'state' })] },
       { id: 'comments', label: 'السوشيال ميديا', states: [S('new', 'تعليقات جديدة', { kind: 'event' }), S('late', 'تعليقات متأخرة', { kind: 'state' })] }] },
     { id: 'ai', label: 'الذكاء الاصطناعي', perm: 'marketing.view', types: [

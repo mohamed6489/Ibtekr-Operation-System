@@ -41,7 +41,7 @@ begin
     raise exception 'case a bad IBAN is refused failed';
   exception when sqlstate '22023' then if sqlerrm <> 'invalid: iban' then raise; end if; end;
   r := public.hr_bank_set(jsonb_build_object('bank_name', 'بنك مصر', 'holder', 'عضو البنك', 'account_number', '1000 2000-3000 4321', 'iban', 'eg38 0019 0005 0000 0000 2631 8000 2'));
-  if r ->> 'account' <> '•••• 4321' or r ->> 'iban' <> 'EG •••• 0002' or r::text like '%10002000%' or r::text like '%0019%' then raise exception 'case the answer is masked failed (%)', r; end if;
+  if r ->> 'account' <> '•••• 4321' or r ->> 'iban' <> 'EG •••• 0002' or (r - 'updated_at')::text like '%10002000%' or (r - 'updated_at')::text like '%0019%' then raise exception 'case the answer is masked failed (%)', r; end if;
   -- the member reveals their own
   r := public.hr_bank_reveal(null);
   if r ->> 'account_number' <> '1000200030004321' or r ->> 'iban' <> 'EG380019000500000000263180002' then raise exception 'case the member reveals their own failed (%)', r; end if;

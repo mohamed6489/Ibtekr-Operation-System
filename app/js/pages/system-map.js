@@ -74,7 +74,7 @@ const IC = {
   let map, svg, core, feed, cards = {}, paths = {}, BP = {}, cv, cx2;
   function build() {
     const d = el('div', { class: 'sm-page', 'data-sysmap': '' });
-    d.innerHTML = '<div class="sm-head"><button type="button" class="sm-btn sm-back" data-sm-back title="رجوع لـ «الذكاء الاصطناعي»">→ رجوع</button><div><h1>العقل الذكي</h1><p>كل اللي السيستم متوصّل بيه وبيشتغل معاه دلوقتي — السيرفر وبلاجنز الموقع والذكاء الاصطناعي والقنوات. النقطة اللي بتمشي على الخط = حاجة حصلت فعلًا. دوس على أي سيستم تشوف تفاصيله، توقفه مؤقتًا أو تبدّله.</p></div><span class="sm-sp"></span>'
+    d.innerHTML = '<div class="sm-head"><button type="button" class="sm-btn sm-back" data-sm-back title="رجوع لـ «الذكاء الاصطناعي»">→ رجوع</button><div><h1>العقل الذكي</h1><p class="sm-lead">كل اللي السيستم متوصّل بيه دلوقتي — دوس على أي سيستم تشوف تفاصيله.</p></div><span class="sm-sp"></span>'
       + '<div class="sm-kpis"><div class="sm-kpi"><small>متصلين</small><b data-sm-k="on">—</b></div><div class="sm-kpi"><small>أحداث النهارده</small><b data-sm-k="ev">—</b></div><div class="sm-kpi"><small>آخر حركة</small><b data-sm-k="last">—</b></div></div>'
       + '<button type="button" class="sm-btn" data-sm-refresh>حدّث</button></div>'
       + '<section class="sm-map" data-sm-map><svg class="sm-wires" aria-hidden="true"></svg>'

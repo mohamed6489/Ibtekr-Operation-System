@@ -1216,7 +1216,7 @@ Deno.test('bridge_campaign (comments decision 52): marketing.create and a linked
   const calls = F.bridge.calls.filter((c) => c.op === 'tool' && c.name === 'spaces_create_node');
   assertEquals(calls.map((c) => c.args.nodes.length), [12, 4], 'never more than a call takes');
   const vg = F.created.find((n) => n.nodeType === 'video-generator')!;
-  assertEquals([vg.data.model, vg.data.aspectRatio, typeof vg.data.duration, vg.data.withSoundEffects, F.created.at(-1)!.data.itemType], ['bytedance-seedance-pro-2.5', '9:16', 'number', true, 'video']);
+  assertEquals([vg.data.model, vg.data.aspectRatio, typeof vg.data.duration, vg.data.withSoundEffects, vg.data.noMusic, F.created.at(-1)!.data.itemType], ['bytedance-seedance-pro-2.5', '9:16', 'number', true, true, 'video']);
   assert(typeof vg.data.prompt === 'string' && vg.data.prompt.length > 0, 'the scene\'s motion prompt from the system');
   assertEquals(calls[1].args.nodes[0].layout.groupId, F.created[0].nodeId, 'the second call names the panel by its id');
   const gens = F.created.filter((n) => n.nodeType === 'image-generator');

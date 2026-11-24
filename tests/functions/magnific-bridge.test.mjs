@@ -182,3 +182,12 @@ test('decision 52 — campaignFlowNodes: a panel, then for each image its refere
   assert.deepEqual(resolveChunk(chunks[0], { panel: 'ID-PANEL' })[1].layout, { groupId: 'panel' }, 'an alias of the same call stays an alias');
   assert.deepEqual(nodeChunks([], 12), []);
 });
+
+test('the campaign flow\'s video generator: «من غير موسيقى» only when the clip asks for it (Seedance) — MiniMax gets sound without it (Magnific refused the whole flow on it, 24 Nov)', async () => {
+  const { campaignFlowNodes } = await import('../../supabase/functions/_shared/magnific-bridge.js');
+  const vgOf = (video) => campaignFlowNodes({ title: 't', targets: [{ key: 'V1:0', name: 'مشهد 1', prompt: 'a frame', aspect: '9:16', refs: [], video }] }).nodes.find((n) => n.nodeType === 'video-generator');
+  const mm = vgOf({ slug: 'minimax-video-3_0-max', prompt: 'pan', aspect: '9:16', duration: 5, resolution: '768p', sound: true });
+  assert.deepEqual([mm.data.model, mm.data.withSoundEffects, 'noMusic' in mm.data, mm.data.resolution], ['minimax-video-3_0-max', true, false, '768p']);
+  const sd = vgOf({ slug: 'bytedance-seedance-pro-2.5', prompt: 'pan', aspect: '9:16', duration: 5, resolution: '1080p', sound: true, noMusic: true });
+  assert.deepEqual([sd.data.withSoundEffects, sd.data.noMusic], [true, true]);
+});

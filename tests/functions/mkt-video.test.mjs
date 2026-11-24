@@ -30,6 +30,9 @@ test('scenePrompt / clipArgs: the product as it is and no text, the camera in En
   assert.ok(pr.includes('No text, captions') && !pr.includes('دفا'));
   const a = clipArgs({ model: 'seedance-2.5', size: '9:16', res: '1080p', scene, piece, w, imageRef: 'img-ref-1', folder: 'proj-1' });
   assert.deepEqual([a.slug, a.duration, a.aspectRatio, a.resolution, a.withSoundEffects, a.noMusic, a.folderReference], ['bytedance-seedance-pro-2.5', 5, '9:16', '1080p', true, true, 'proj-1']);
+  // MiniMax: sound on, but «من غير موسيقى» is Seedance's switch only — Magnific refuses noMusic on it (the campaign flow fell on it, 24 Nov)
+  const mm = clipArgs({ model: 'minimax-h3', size: '9:16', scene: { d: 5 }, piece: {}, w: {} });
+  assert.deepEqual([mm.slug, mm.withSoundEffects, 'noMusic' in mm], ['minimax-video-3_0-max', true, false]);
   assert.deepEqual(a.keyframes, { start: { type: 'image', url: 'img-ref-1' } });
   const k = clipArgs({ model: 'kling-2.5', size: '4:5', scene: { d: 7 }, piece, w });
   assert.deepEqual([k.slug, k.duration, k.aspectRatio, k.withSoundEffects, k.keyframes], ['kling-25', 5, '9:16', undefined, undefined]);

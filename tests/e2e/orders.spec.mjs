@@ -79,7 +79,6 @@ test('the orders page lists real orders and no seed', async ({ page }) => {
 test('Safwat 24 Nov — «الكلام المفروض يكون بالبيج»: the order edit\'s «تفاصيل الأوردر» header is beige on its green band', async ({ page }) => {
   await openOrders(page);
   await page.evaluate(() => window.OrdersApp.edit('181668'));
-  await page.locator('#orders #cdlg [data-etab="det"]').click();
   const hd = page.locator('#orders #cdlg [data-det-sec] > h3');
   await expect(hd).toBeVisible(); await expect(hd).toContainText('تفاصيل الأوردر');
   expect(await hd.evaluate((e) => getComputedStyle(e).color)).toBe('rgb(255, 247, 239)');
@@ -780,7 +779,7 @@ test('WooCommerce owns name, phone, payment, maker, quantity and total: read-onl
   await expect(dlg.locator('[data-f="pay"]')).toHaveValue('الدفع عند الاستلام');
   await expect(dlg).toContainText('بيتعدّل من WooCommerce');
   await expect(dlg).toContainText('اتصلوا قبل التوصيل'); // the customer's note from the site
-  await dlg.locator('[data-etab="det"]').click(); // the plan 2026-11-14-order-edit-tabs.md decision 5: the details are their own tab
+  // Safwat 24 Nov — the customer's and the order's cards side by side in one tab («بيانات الأوردر»), the details right there
   await dlg.locator('[data-f="note"]').fill('ملاحظة من التعديل');
   await dlg.locator('[data-eok]').click();
   await expect.poll(() => mock.patches.length).toBe(1);
@@ -1482,7 +1481,7 @@ test('«تعديل العنوان»: Bosta\'s governorates and areas, saved here
   expect(mock.addressCalls[0]).toMatchObject({ order_id: 181668, address: '12 شارع الملك فيصل الدور الخامس', state: 'EG-21', district: 'dFaisal', site: 'multi', bosta: 'ok' });
   await expect(page.locator('#orders #cdlg')).toHaveCount(1); // the address popup closed, the edit popup stays
   await expect(edit.locator('[data-addr-now]')).toHaveText('12 شارع الملك فيصل الدور الخامس');
-  await expect(edit.locator('[data-epanel="cust"]')).toContainText('فيصل');
+  await expect(edit.locator('[data-epanel="info"]')).toContainText('فيصل');
   await expect(page.locator('#orders')).toContainText('الموقع زي ما هو — الأوردر فيه أكتر من مبتكر · واتحدّث على بوسطة');
   expect(pageErrors).toEqual([]);
 });

@@ -253,3 +253,6 @@ begin
   drop trigger if exists notif_rules_live on public.notif_rules;
   create trigger notif_rules_live after insert or update or delete on public.notif_rules for each statement execute function public.live_changed('settings');
 end $$;
+
+-- the old engine's rows (its sources by `source_key` — the types / matrix / digests no longer read) leave the bell with the new structure
+update public.alerts set hide_at = now() where source_key is not null and hide_at is null;

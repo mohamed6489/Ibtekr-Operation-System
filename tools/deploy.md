@@ -2511,3 +2511,10 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 3. انشر `mkt-publish` و`mkt-ads` (`_shared/meta-pin.js` — نسخة صورة Meta في bucket «marketing»).
 4. ادمج على `main`. **مفيش أي كتابة على الموقع** — قراية من Meta وكتابة في الـ bucket بتاعنا بس.
 5. **اتأكد بعد النشر:** بعد تشغيلة `mkt-publish-stats` (كل 30 دقيقة) — `select count(*) filter (where thumb_path is not null), count(*) from mkt_posts where src = 'platform';` وبعد `mkt-ads-sync` (الدقيقة 23) نفس السؤال على `mkt_ad_objects where kind = 'ad'`؛ وفي «سجل النشر» الصور ظاهرة.
+
+#### 2.7.129 هيكلة التنبيهات الجديدة (`0157`، الخطة `docs/superpowers/plans/2026-11-24-notifications.md`)
+1. **الأول:** طبّق `0157_notif_rules.sql` — `notif_sections` / `notif_rules` بأمثلة صفوت (8 أقسام رئيسية، فرعياتها، و37 تنبيه)، وأعمدة `alerts.rule_id` / `section_id` / `hide_at`، والصفوف القديمة (`source_key`) بتختفي من الجرس.
+2. شغّل `supabase/tests/rls_notif_rules.sql` على الحي.
+3. انشر `notify` (`notify/rules.ts` + `_shared/notif-engine.js` + `_shared/notif-catalog.js`) — المحرك القديم (الأنواع والماتريكس والتصعيد والملخصات والإيميل / الواتساب) مابقاش بيتنادى.
+4. ادمج على `main`. **مفيش أي كتابة على الموقع** ولا رسالة برّه السيستم — الجرس بس (صفوت 24 نوفمبر).
+5. **اتأكد بعد النشر:** بعد أول تيك (كل 15 دقيقة) — `select value -> 'notif' from sync_state where key = 'notify';` (`ran` / `written` / `failed = 0`)، وفي الجرس الأقسام زي «الإعدادات › التنبيهات» بالظبط.

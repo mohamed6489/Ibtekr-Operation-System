@@ -200,9 +200,15 @@ Deno.test('map («العقل الذكي» — Safwat 24 Nov «يظهر لكل ا
   await db.from('profiles').insert({ id: MEMBER, name: 'عضو', email: 'm@x.test', phone: '01000000002', role_id: 'ops', status: 'active' });
   await db.from('activity_log').insert({ at: NOW, actor: ADMIN, action: 'order.status', entity: 'order', entity_id: '42', new_value: { to: 'مكتمل' } });
   await db.from('settings').update({ data: { paused: { resend: '2099-01-01T00:00:00Z' }, meta: { openai: { linked_by: ADMIN, linked_at: NOW } } } }).eq('section', 'integrations');
+  await db.from('site_checks').insert({ kind: 'pagespeed', data: { score: 61, pages: [{ url: 'https://shop.test/p/secret-draft' }], opps: ['x'] }, checked_at: NOW });
+  await db.from('site_checks').insert({ kind: 'wp_updates', data: { core: { version: '6.9', update: false, path: '/var/www' }, plugins: [{ name: 'Dokan', version: '4.1', update: true, latest: '4.2', file: 'dokan/dokan.php' }] }, checked_at: NOW });
   const { res, body } = await call(deps, { action: 'map', since: new Date(Date.parse(NOW) - 3600000).toISOString() }, 'jwt-member');
   assertEquals(res.status, 200, JSON.stringify(body));
   assertEquals(body.links.openai, { ready: true });
+  // the site's checks trimmed to what the map draws
+  assertEquals(body.checks.find((c: any) => c.kind === 'pagespeed').data, { score: 61 });
+  assertEquals(body.checks.find((c: any) => c.kind === 'wp_updates').data.plugins, [{ name: 'Dokan', version: '4.1', update: true, latest: '4.2' }]);
+  assert(!JSON.stringify(body.checks).includes('secret-draft') && !JSON.stringify(body.checks).includes('/var/www'));
   assertEquals(body.paused, { resend: '2099-01-01T00:00:00Z' });
   assertEquals(Object.keys(body.ads).sort(), ['google', 'meta', 'tiktok']); assertEquals(body.bridge, { linked: false });
   assertEquals(body.events.map((e: any) => Object.keys(e).sort()), [['action', 'at', 'id']]);

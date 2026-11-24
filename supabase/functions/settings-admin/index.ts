@@ -187,7 +187,7 @@ async function mapView(deps: Deps, who: { id: string }, args: Json) {
     let ready = adReady(p, link); let acc = typeof link.account_id === 'string' ? link.account_id : typeof link.advertiser_id === 'string' ? link.advertiser_id : typeof link.customer_id === 'string' ? link.customer_id : null;
     if (p === 'meta' && !ready && String(deps.env.META_ADS_TOKEN ?? '').trim() && String(deps.env.META_AD_ACCOUNT_ID ?? '').trim()) { ready = true; acc = String(deps.env.META_AD_ACCOUNT_ID).trim().replace(/^act_/, ''); }
     let error: string | null = null;
-    if (ready && acc) { const { data } = await deps.db.from('mkt_ad_objects').select('meta').eq('platform', p).eq('kind', 'account').eq('id', acc).maybeSingle(); const m = isObj(data) && isObj(data.meta) ? data.meta : {}; error = typeof m.error === 'string' && m.error ? m.error : null; }
+    if (ready && acc) { const { data } = await deps.db.from('mkt_ad_objects').select('meta').eq('platform', p).eq('kind', 'account').eq('id', acc).maybeSingle(); const m = isObj(data) && isObj(data.meta) ? data.meta : {}; error = typeof m.error === 'string' && m.error ? (m.error.replace(/[^a-z0-9_]/gi, '').slice(0, 40) || 'error') : null; }
     ads[p] = { configured: ready, error };
   }
   const tokens = await vaultJson(deps, 'magnific_secret_get', 'magnific_mcp_tokens');
@@ -203,7 +203,17 @@ async function mapView(deps: Deps, who: { id: string }, args: Json) {
   const integ = await deps.db.from('settings').select('data').eq('section', 'integrations').maybeSingle();
   const paused = isObj(integ.data?.data) && isObj(integ.data.data.paused) ? integ.data.data.paused : {};
   const aiRow = isObj(ai.data?.data) ? ai.data.data : {};
-  return json(200, { links, ads, bridge: { linked: !!(tokens && typeof tokens.access_token === 'string') }, channels: chs.data ?? [], checks: checks.data ?? [],
+  // the site's checks trimmed to what the map draws: plugin / core / theme names and versions, the lowest speed score, the pixel's ok
+  const str = (v: unknown, n = 60) => (typeof v === 'string' ? v.slice(0, n) : typeof v === 'number' ? String(v) : '');
+  const ver = (x: unknown) => (isObj(x) ? { name: str(x.name), version: str(x.version, 20), update: x.update === true, latest: str(x.latest, 20), ...(x.active === false ? { active: false } : {}) } : null);
+  const slim = (r: Json): Json | null => {
+    const d = isObj(r.data) ? r.data : {};
+    if (r.kind === 'wp_updates') return { kind: r.kind, checked_at: r.checked_at, data: { core: ver(d.core), woo: ver(d.woo), theme: ver(d.theme), plugins: Array.isArray(d.plugins) ? d.plugins.slice(0, 200).map(ver).filter(Boolean) : [] } };
+    if (r.kind === 'pagespeed') return { kind: r.kind, checked_at: r.checked_at, data: { score: typeof d.score === 'number' ? d.score : null } };
+    if (r.kind === 'pixel') return { kind: r.kind, checked_at: r.checked_at, data: { ok: d.ok !== false } };
+    return null;
+  };
+  return json(200, { links, ads, bridge: { linked: !!(tokens && typeof tokens.access_token === 'string') }, channels: chs.data ?? [], checks: (checks.data ?? []).filter(isObj).map(slim).filter(Boolean),
     events: ev.data ?? [], sync: sync.data ?? [], paused, providers: isObj(aiRow.providers) ? aiRow.providers : {}, now: deps.now() });
 }
 

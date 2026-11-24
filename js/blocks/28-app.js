@@ -941,7 +941,14 @@
             : h('div', { class: 'ntf-head' }, h('h3', { class: 't-h5' }, sec.label), h('span', { class: 'cnt' }, num(String(sec.received != null ? sec.received : sec.tabs[0][2].length)), ' ' + sec.unit, sec.received != null && sec.tabs[0][2].length > sec.received ? h('span', { class: 'fyi-c' }, ' · ', num(String(sec.tabs[0][2].length - sec.received)), ' للعلم') : null), h('span', { class: 'sp' }), Button({ type: 'text', size: 'sm', label: sec.allLabel, onClick: () => { close(); sec.all(); } })),
           tabs, list,
           h('div', { class: 'ntf-foot' }, h('span', null, '↑↓ للتنقل · Enter يفتح · Esc يقفل'), Button({ type: 'text', size: 'sm', label: 'تعليم القسم كمقروء', onClick: () => { if (sec.tree) { sec.all(); return; } ntfState.read = (ntfState.read || {}); items.forEach((it) => { ntfState.read[it.key] = true; }); } })));
-        el.replaceChildren(main, nav);
+        // the sub-section chips keep their place when one is pressed (Safwat 24 Nov — «تبطل تتنقل لاول الكاروسيل لوحدها»): the strip's
+        // scroll comes back after the redraw (same section), and the picked chip is brought into view without moving the page
+        const was = el.querySelector('.ntf-chiptabs'); const keepX = was && el.dataset.sec === sec.id ? was.scrollLeft : null;
+        el.replaceChildren(main, nav); el.dataset.sec = sec.id;
+        const strip = el.querySelector('.ntf-chiptabs');
+        if (strip) { if (keepX != null) strip.scrollLeft = keepX;
+          const on = strip.querySelector('.tab[aria-selected=true]'); if (on) { const r = strip.getBoundingClientRect(); const t = on.getBoundingClientRect();
+            if (t.left < r.left) strip.scrollLeft -= r.left - t.left + 8; else if (t.right > r.right) strip.scrollLeft += t.right - r.right + 8; } }
       };
       draw(); setTimeout(() => { const f = el.querySelector('.ntf-nav-item[aria-current=true]'); if (f) f.focus(); }, 0);
       return el;

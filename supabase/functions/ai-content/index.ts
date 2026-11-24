@@ -47,7 +47,8 @@ import Anthropic from 'npm:@anthropic-ai/sdk@1.3.0';
 import { bestName, nameMatches } from '../_shared/names.js';
 import { filesLine } from '../_shared/agent-files.js';
 import { planProducts, resolvePlan } from '../_shared/product-plan.js';
-import { dataReadBlock, liveAdsBlock, liveAdsRows, liveAdsUrl, researchBlock, researchOut, researchRequest } from '../_shared/agent-need.js';
+import '../_shared/ads-insight.js';
+import { competitorQueries, dataReadBlock, liveAdsBlock, liveAdsRows, liveAdsUrl, researchBlock, researchOut, researchRequest } from '../_shared/agent-need.js';
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { aiSettings, categoryLines, cleanExtract, cleanPrompts, cleanStudio, cleanWrite, costOf, extractRequest, line, parseExtract, parsePrompts, parseStudio, parseWrite, promptsRequest, readAnswer, shotPromptRows, studioRequest, usageOf, writeRequest } from '../_shared/ai-content.js';
 import { vaultEnv } from '../_shared/secrets.js';
@@ -77,7 +78,7 @@ export type Deps = {
   text?: (provider: string, params: Json) => Promise<Json>; // phase 11: OpenAI / Gemini (the Claude dep stays the Claude path)
 };
 
-const ACTIONS = ['write', 'studio', 'prompts', 'marketing', 'buyer', 'assistant', 'agent', 'extract', 'trends', 'kb', 'brains'];
+const ACTIONS = ['write', 'studio', 'prompts', 'marketing', 'buyer', 'assistant', 'agent', 'extract', 'trends', 'kb', 'brains', 'competitor_brief'];
 const STUDIO_BUCKET = 'studio';
 const THROTTLE = 60; // calls of one member in THROTTLE_MINUTES (the studio fills a batch one item at a time)
 const THROTTLE_MINUTES = 10;
@@ -143,7 +144,7 @@ async function authorize(req: Request, deps: Deps, action: string): Promise<stri
   const admin = async () => { const { data, error } = await member.rpc('is_admin'); return !error && data === true; };
   const ok = action === 'write' ? (await admin()) || (await perm('products.add')) || (await perm('products.edit'))
     : action === 'studio' || action === 'prompts' || action === 'extract' ? (await admin()) || (await perm('products.add'))
-    : action === 'marketing' || action === 'trends' ? (await admin()) || (await perm('marketing.create'))
+    : action === 'marketing' || action === 'trends' || action === 'competitor_brief' ? (await admin()) || (await perm('marketing.create'))
     : action === 'buyer' ? (await admin()) || (await perm('marketing.view', true))
     : action === 'agent' ? true // 0120: any active member — agent() checks the assistant is theirs (ai_agent_can, the member's own client)
     : action === 'brains' ? true // ids of the linked text companies — brains() checks the member is active
@@ -429,10 +430,12 @@ async function adsData(deps: Deps) {
   ]);
   const { data: pixel } = await deps.db.from('site_checks').select('data, checked_at').eq('kind', 'pixel').maybeSingle(); // the owner 17 Nov (0126; before it: none)
   // agents-brain T5: «هات 5 فيديوهات» picks from the team's last trends and the competitors it follows (titles, names and links only)
-  const [{ data: trends }, { data: comps }] = await Promise.all([
+  const compsOf = (cols: string) => deps.db.from('mkt_competitors').select(cols).is('archived_at', null).order('created_at', { ascending: false }).limit(20);
+  const [{ data: trends }, c0] = await Promise.all([
     deps.db.from('mkt_trends').select('title, summary, source, url, kind, platform').order('found_at', { ascending: false }).limit(20),
-    deps.db.from('mkt_competitors').select('name, keyword, note').is('archived_at', null).order('created_at', { ascending: false }).limit(20),
+    compsOf('name, keyword, note, brief, brief_at'), // 0160 (buyer-brain decision 5): the research brief; before it the three columns
   ]);
+  const comps = c0.error ? (await compsOf('name, keyword, note')).data : c0.data;
   const camps: Record<string, Json> = {};
   for (const o of Array.isArray(objects) ? objects : []) camps[o.id] = { id: String(o.id), name: o.name || '#' + o.id, status: o.status, spend: 0, purchases: 0, orders: 0, sales: 0, daily_budget: isObj(o.meta) ? o.meta.daily_budget ?? null : null };
   for (const s of Array.isArray(stats) ? stats : []) { const c = camps[s.object_id]; if (c) { c.spend += Number(s.spend) || 0; c.purchases += Number(s.purchases) || 0; } }
@@ -442,7 +445,41 @@ async function adsData(deps: Deps) {
   }
   const campaigns = Object.values(camps).filter((c) => c.spend > 0 || c.orders > 0 || c.status === 'ACTIVE' || c.status === 'PAUSED').sort((a, b) => b.spend - a.spend); // ش45: a paused one too (to resume)
   const rules = buyerRules(isObj(set) && isObj(set.data) ? set.data.buyer : null);
-  return { today, rules, campaigns, suggestions: Array.isArray(sugg) ? sugg : [], pixel: isObj(pixel) ? pixel : null, ideas: { trends: Array.isArray(trends) ? trends : [], competitors: Array.isArray(comps) ? comps : [] } };
+  return { today, rules, campaigns, suggestions: Array.isArray(sugg) ? sugg : [], pixel: isObj(pixel) ? pixel : null, ideas: { trends: Array.isArray(trends) ? trends : [], competitors: Array.isArray(comps) ? comps : [] },
+    insight: await adsInsight(deps, today) };
+}
+// an assistant's references for its research (buyer-brain decision 4): the admin's list in the row «ai», else the shipped one — the
+// research itself stays on Claude whatever the assistant's own outside AI is
+async function refsOf(deps: Deps, agentId: string) {
+  const { data } = await deps.db.from('settings').select('data').eq('section', 'ai').maybeSingle();
+  return sourcesBlock(sourcesOf(isObj(data) && isObj(data.data) ? data.data : null, agentId)) as string;
+}
+async function adsAlways(deps: Deps) {
+  const { data } = await deps.db.from('settings').select('data').eq('section', 'ai').maybeSingle();
+  const d = isObj(data) && isObj(data.data) ? data.data : null;
+  return !!(d && isObj(d.agents) && isObj(d.agents.buyer) && d.agents.buyer.adsAlways === true);
+}
+// Safwat 24 Nov (docs/superpowers/plans/2026-11-24-buyer-brain.md decision 3): the media buyer reads every campaign and every ad
+// (creative) of the last 7 and 30 days with their verdicts — the same engine as the page's (_shared/ads-insight.js); the shop's orders
+// per ad when the ad carries utm_content={{ad.id}}. Read only; null when the read fails (the rest of <ads_data> stands).
+const INSIGHT_DAYS = 30;
+async function adsInsight(deps: Deps, today: string) {
+  try {
+    // deno-lint-ignore no-explicit-any
+    const I = (globalThis as any).IBAdsInsight; if (!I) return null;
+    const addD = (d: string, n: number) => new Date(Date.parse(d + 'T00:00:00Z') + n * 86_400_000).toISOString().slice(0, 10);
+    const from30 = addD(today, -(INSIGHT_DAYS - 1)); const from7 = addD(today, -6);
+    const [{ data: objects, error: e1 }, { data: stats, error: e2 }, { data: orders, error: e3 }] = await Promise.all([
+      deps.db.from('mkt_ad_objects').select('platform, kind, id, parent_id, name, status').eq('platform', 'meta').in('kind', ['campaign', 'ad']).limit(5000),
+      deps.db.from('mkt_ad_stats').select('platform, level, object_id, campaign_id, day, spend, impressions, clicks, link_clicks, frequency, purchases, purchase_value').eq('platform', 'meta').gte('day', from30).lte('day', today).limit(50000),
+      deps.db.from('orders').select('utm_campaign, utm_content, status, total, deleted_at, placed_at').eq('ad_platform', 'meta').gte('placed_at', from30 + 'T00:00:00+02:00').limit(10000),
+    ]);
+    if (e1 || e2 || e3) return null;
+    const ordersOf = (from: string) => (Array.isArray(orders) ? orders : []).filter((o: Json) => !o.deleted_at && !['ملغي', 'استرجاع', 'فشل'].includes(String(o.status)) && cairoParts(Date.parse(String(o.placed_at))).day >= from)
+      .map((o: Json) => ({ campaign: String(o.utm_campaign ?? ''), ad: String(o.utm_content ?? ''), orders: 1, sales: Number(o.total) || 0 }));
+    const run = (from: string) => I.block(I.build({ objects: objects ?? [], stats: stats ?? [], orders: ordersOf(from), from, to: today }));
+    return { week: run(from7), month: run(from30) };
+  } catch { return null; }
 }
 async function buyer(deps: Deps, uid: string, args: Json) {
   const parsed = parseBuyer(args);
@@ -542,6 +579,10 @@ async function agent(deps: Deps, uid: string, args: Json, jwt = '') {
   if (company && !String(deps.env[(TEXT_PROVIDERS as Record<string, { env: string }>)[company].env] ?? '').trim()) return json(503, { error: 'not_configured', provider: company });
   const sharing = Array.isArray(args.share); const share = sharing ? shareKinds(args.share, SHARE_MORE) : []; const may = (k: string) => !sharing || share.includes(k);
   const given: string[] = []; const give = (k: string) => { if (!given.includes(k)) given.push(k); };
+  // Safwat 24 Nov (buyer-brain decision 3 — «موافقة دايمة لأرقام الإعلانات بس»): the admin's switch in the media buyer's tab (row «ai»
+  // agents.buyer.adsAlways) — the ads' numbers go with every message to the buyer's outside AI without asking; the server decides it,
+  // never the page, and every other kind is still asked about
+  if (sharing && req.agent === 'buyer' && !share.includes('ads') && await adsAlways(deps)) share.push('ads');
   // 0120: the assistant from the registry, and whether the member sees it (its page's permission — the member's own client); before
   // 0120 is applied the three of marketing stand as they were (marketing.view, settings.marketing.agents)
   const reg = await deps.db.from('ai_agents').select('id, name, about, perm, sees, role, instructions, archived_at').eq('id', req.agent).maybeSingle();
@@ -634,7 +675,7 @@ async function agent(deps: Deps, uid: string, args: Json, jwt = '') {
   }
   if (need) {
     const extra: string[] = [];
-    if (need.research.length) { const r = await research(deps, uid, await configOf(deps, 'buyer', 'research'), need.research, req.question); cost += r.cost; sources = r.sources; extra.push(researchBlock(r)); }
+    if (need.research.length) { const r = await research(deps, uid, { ...await configOf(deps, 'buyer', 'research'), sources: await refsOf(deps, req.agent) }, need.research, req.question); cost += r.cost; sources = r.sources; extra.push(researchBlock(r)); }
     // the owner 17 Nov: each member reads by his role and level — Meta's live numbers only for whoever sees marketing (his own has_perm)
     // the owner 18 Nov: the system's own data (a maker's account, orders …) read with the member's own client — answered in the chat
     if (Array.isArray(need.data) && need.data.length) {
@@ -688,7 +729,7 @@ async function research(deps: Deps, uid: string, cfg: Cfg, queries: string[], q:
   const run = await startRun(deps, { created_by: uid, action: 'marketing', source: 'research', label: line(q, 200), model: cfg.model }, cfg.cap);
   if (run.result !== 'ok') return none;
   if (!deps.env.ANTHROPIC_API_KEY?.trim()) { await finishRun(deps, run.id, { status: 'error', error: 'not_configured', cost_usd: 0 }); return none; }
-  const params: Json = researchRequest(queries, { model: cfg.model, effort: cfg.effort, today: deps.now() });
+  const params: Json = researchRequest(queries, { model: cfg.model, effort: cfg.effort, today: deps.now(), refs: cfg.sources ?? '' });
   const spent = { model: cfg.model, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, cost_usd: 0 };
   const seen: Json[] = []; let msg: Json | null = null;
   for (let turn = 0; turn <= TREND_CONTINUES; turn++) {
@@ -706,6 +747,26 @@ async function research(deps: Deps, uid: string, cfg: Cfg, queries: string[], q:
   const r = researchOut(seen);
   await finishRun(deps, run.id, { ...spent, status: r.text ? 'ok' : 'error', error: r.text ? null : 'no_search' });
   return { ...r, cost: spent.cost_usd };
+}
+// Safwat 24 Nov (buyer-brain decision 5): «حلّل المنافس» — a research brief on one competitor the team keeps (what it sells and at what
+// prices, its offers, the angles and formats of its ads and posts, what looks long-running), with the sources the search returned;
+// written on the row with the server's key (0160 — a member reads it, never writes it). Meta's Ad Library is not read: its API gives
+// Egypt's commercial ads to no one and its page is drawn by script — the card keeps the library's link and the team's own note.
+async function competitorBrief(deps: Deps, uid: string, args: Json) {
+  const id = Number(args.id);
+  if (!Number.isSafeInteger(id) || id <= 0) return json(400, { error: 'bad_request', field: 'id' });
+  const { data: c, error } = await deps.db.from('mkt_competitors').select('id, name, keyword, page_url, note, archived_at').eq('id', id).maybeSingle();
+  if (error) return json(503, { error: 'not_ready' });
+  if (!isObj(c) || c.archived_at) return json(404, { error: 'not_found' });
+  const cfg = { ...await configOf(deps, 'buyer', 'research'), sources: await refsOf(deps, 'buyer') };
+  const queries = competitorQueries(c);
+  const r = await research(deps, uid, cfg, queries, 'منافس: ' + line(c.name, 80));
+  if (!r.text) return json(502, { error: 'no_search' });
+  const brief = { text: r.text.slice(0, 5000), sources: r.sources.slice(0, 12) };
+  const at = deps.now();
+  const { error: e2 } = await deps.db.from('mkt_competitors').update({ brief, brief_at: at }).eq('id', id);
+  if (e2) return json(503, { error: 'not_ready' });
+  return json(200, { result: 'ok', id, brief, brief_at: at, cost_usd: Math.round(r.cost * 1e6) / 1e6 });
 }
 // the buyer's live read of Meta (the owner 17 Nov — «دايما ليه اكسيس عندي علي الاعلانات»): the ads link the page saved in Vault (9.5.6)
 // or the owner's secrets; GET insights only — null when not linked or Meta refused
@@ -947,7 +1008,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
   if (!ACTIONS.includes(action)) return json(400, { error: 'unknown_action' });
   try {
     return action === 'write' ? await write(deps, uid, args) : action === 'prompts' ? await prompts(deps, uid, args) : action === 'marketing' ? await marketing(deps, uid, args) : action === 'buyer' ? await buyer(deps, uid, args) : action === 'agent' ? await agent(deps, uid, args, jwtOf(req))
-      : action === 'brains' ? await brains(deps, uid, jwtOf(req)) : action === 'assistant' ? await assistant(deps, uid, args, jwtOf(req)) : action === 'extract' ? await extract(deps, uid, args) : action === 'trends' ? await trends(deps, uid, args) : action === 'kb' ? await kbRewrite(deps, uid, args) : await studio(deps, uid, args);
+      : action === 'brains' ? await brains(deps, uid, jwtOf(req)) : action === 'assistant' ? await assistant(deps, uid, args, jwtOf(req)) : action === 'extract' ? await extract(deps, uid, args) : action === 'trends' ? await trends(deps, uid, args) : action === 'competitor_brief' ? await competitorBrief(deps, uid, args) : action === 'kb' ? await kbRewrite(deps, uid, args) : await studio(deps, uid, args);
   } catch (e) {
     console.error('ai-content failed', e instanceof Error ? e.name : typeof e);
     return json(500, { error: 'failed' });

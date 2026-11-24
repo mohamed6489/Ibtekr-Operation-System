@@ -87,6 +87,7 @@ const COLUMNS: Record<string, string[]> = {
   mkt_video_jobs: ['id', 'campaign_id', 'piece', 'kind', 'scene', 'creation_ref', 'status', 'url', 'path', 'bytes', 'duration', 'error', 'data', 'created_by', 'created_at', 'updated_at', 'done_at'], // 0054 (phase 9.5.5)
   mkt_agent_chats: ['id', 'member_id', 'agent', 'title', 'created_at', 'updated_at', 'deleted_at'], // 0084 (the assistants' chats)
   mkt_agent_messages: ['id', 'chat_id', 'role', 'text', 'images', 'run_id', 'created_at', 'source', 'shared'], // 0150: who answered and the data kinds it was given
+  mkt_competitors: ['id', 'name', 'page_id', 'page_url', 'keyword', 'note', 'created_by', 'created_at', 'updated_by', 'archived_at', 'brief', 'brief_at'], // 0109 + 0160 (buyer-brain)
   mkt_trends: ['id', 'batch', 'title', 'summary', 'source', 'url', 'kind', 'found_at', 'created_by', // 0109 (the designer's «آخر التريندات»)
     'platform', 'tag', 'thumb', 'thumb_src', 'thumb_tries', 'author', 'views', 'likes', 'comments', 'posted_at', 'external_id'], // 0118 (ش39)
   site_checks: ['kind', 'data', 'checked_at', 'checked_by'], // 0109 (the last WordPress updates check)

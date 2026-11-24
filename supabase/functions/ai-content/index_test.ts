@@ -453,6 +453,49 @@ Deno.test('agent (0084): the buyer\'s chat carries the week\'s numbers read here
   assert(asked[1].system[0].text.includes('staging site first'));
 });
 
+Deno.test('buyer-brain (Safwat 24 Nov): the campaigns and the ads with their verdicts in <ads_data>; «موافقة دايمة» for the ads\' numbers is the server\'s, never the page\'s', async () => {
+  const seed = { ...BUYER_SEED,
+    mkt_ad_objects: [...BUYER_SEED.mkt_ad_objects, { platform: 'meta', kind: 'ad', id: '501', parent_id: CAMP, name: 'Reel macrame', status: 'ACTIVE', meta: {} }],
+    mkt_ad_stats: [...BUYER_SEED.mkt_ad_stats, { platform: 'meta', level: 'ad', object_id: '501', campaign_id: CAMP, day: '2026-10-24', spend: 500, impressions: 20000, clicks: 400, link_clicks: 380, frequency: 1.6, purchases: 4, purchase_value: 2600 }] };
+  // 1 — the switch off: an outside AI gets the message alone, and the answer that wants the ads is asked about
+  const a = setup({ seed, replies: [msg({ text: 'محتاج أرقام', need: { research: [], data: [], ads: { level: 'campaign', days: '7', breakdown: '', campaign_id: '' } } })] });
+  const r = await call(a.deps, { action: 'agent', agent: 'buyer', question: 'أحسن كريتيف إيه؟', provider: 'claude', share: [] }, 'jwt-mview');
+  assertEquals([r.res.status, r.body.need_data], [200, ['ads']]);
+  const q0 = a.asked[0].messages.at(-1).content.map((x: any) => x.text).join('\n'); assertFalse(q0.includes('Macrame') || q0.includes('Reel macrame'), 'no campaign or ad reaches the model'); // the empty block only (as before)
+  // 2 — the admin's switch on: the ads ride every message without asking (the page sent share: []), the turn says so
+  const b = setup({ seed: { ...seed, settings: [...seed.settings, { section: 'ai', data: { agents: { buyer: { adsAlways: true } } } }] }, replies: [msg({ text: 'Reel macrame هو الأحسن' })] });
+  const r2 = await call(b.deps, { action: 'agent', agent: 'buyer', question: 'أحسن كريتيف إيه؟', provider: 'claude', share: [] }, 'jwt-mview');
+  assertEquals([r2.res.status, r2.body.text, r2.body.shared, r2.body.need_data], [200, 'Reel macrame هو الأحسن', ['ads'], undefined]);
+  const q = b.asked[0].messages.at(-1).content[0].text;
+  assert(q.includes('Per campaign and per ad (creative), with the system\'s verdict — the last 7 days:'), q.slice(0, 400));
+  assert(q.includes('Reel macrame | Macrame | 500 | 20000 | 1.90'), 'the ad\'s row: its campaign, spend, impressions, CTR from the link clicks');
+  assert(q.includes('Verdict rules (in this order)') && q.includes('The last 30 days:'));
+  assert(b.asked[0].system.map((x: any) => x.text).join('\n').includes('approved for this message: ads'));
+  // 3 — another kind is still asked about with the switch on
+  const c = setup({ seed: { ...seed, settings: [...seed.settings, { section: 'ai', data: { agents: { buyer: { adsAlways: true } } } }] }, replies: [msg({ text: 'هشوف', need: { research: [], data: [{ kind: 'orders', q: '', from: '', to: '' }], ads: { level: '', days: '', breakdown: '', campaign_id: '' } } })] });
+  assertEquals((await call(c.deps, { action: 'agent', agent: 'buyer', question: 'الأوردرات؟', provider: 'claude', share: [] }, 'jwt-mview')).body.need_data, ['orders']);
+});
+
+Deno.test('competitor_brief (buyer-brain decision 5): marketing.create; a web research on the competitor with the buyer\'s references first; the brief and its sources on the row; nothing without a source', async () => {
+  const seed = { mkt_competitors: [{ id: 7, name: 'ورشة المنافس', keyword: 'ماكرامية', page_url: 'https://www.facebook.com/rival', note: null, archived_at: null }, { id: 8, name: 'قديم', archived_at: NOW }] };
+  const page = { type: 'web_search_result', url: 'https://rival.example/shop', title: 'Rival shop' };
+  const found = { ...msg('x'), content: [{ type: 'server_tool_use', id: 's1', name: 'web_search', input: { query: 'rival' } }, { type: 'web_search_tool_result', tool_use_id: 's1', content: [page] }, { type: 'text', text: '- بيبيع ماكرامية من 300 لـ 900 ج.م وعامل خصم 20% (rival.example)' }] };
+  const { deps, asked, db } = setup({ seed, replies: [found] });
+  assertEquals((await call(deps, { action: 'competitor_brief', id: 7 }, 'jwt-mview')).res.status, 401, 'marketing.view alone does not research');
+  assertEquals((await call(deps, { action: 'competitor_brief', id: 'x' }, 'jwt-mkt')).body.field, 'id');
+  assertEquals((await call(deps, { action: 'competitor_brief', id: 8 }, 'jwt-mkt')).res.status, 404, 'an archived one');
+  const r = await call(deps, { action: 'competitor_brief', id: 7 }, 'jwt-mkt');
+  assertEquals([r.res.status, r.body.brief.sources.map((x: any) => x.url)], [200, ['https://rival.example/shop']], JSON.stringify(r.body));
+  assert(asked[0].tools?.[0]?.type === 'web_search_20260209');
+  const sys = asked[0].system.map((x: any) => x.text).join('\n'); assert(sys.includes('https://heathmedia.co.uk/') && sys.includes('Search these sites first'), 'the buyer\'s references first');
+  assert(asked[0].messages[0].content[0].text.includes('«ورشة المنافس» (ماكرامية)') && asked[0].messages[0].content[0].text.includes('https://www.facebook.com/rival'));
+  const row = db.rows('mkt_competitors').find((c: any) => c.id === 7); assert(row.brief.text.includes('300 لـ 900') && row.brief_at);
+  // the search found nothing usable: no brief written
+  const b = setup({ seed, replies: [{ ...msg('x'), content: [{ type: 'text', text: 'ماعرفتش' }] }] });
+  assertEquals((await call(b.deps, { action: 'competitor_brief', id: 7 }, 'jwt-mkt')).res.status, 502);
+  assertEquals(b.db.rows('mkt_competitors').find((c: any) => c.id === 7).brief, null);
+});
+
 // ---------------------------------------------------------------- phase 9.5.5: the video piece's scenes (decision 59)
 
 Deno.test('marketing scenes: a video piece of the saved campaign → its scenes with the durations fitted to its model and the voice-over; a post piece refused', async () => {

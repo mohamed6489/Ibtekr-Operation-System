@@ -6,7 +6,8 @@
      IBAgentsSet.sourcesCard(agent, { redraw })            its sources: the sites it leans on — add · edit · delete · back to the shipped
      IBAgentsSet.rulesCard(agent, { redraw })              the rules that run by themselves: a number of the system against a limit → a note
      IBAgentsSet.sourcesOf(aiRow, id) / brainOf(aiRow, id) what the row «ai» holds (the shipped sources until the admin changes them)
-   Kept in the row «ai» under `agents: { <id>: { brain: { provider, model }, sources: [{ name, url, note }], rules: [{ id, metric, op, value, kind, on }] } }` — the admin's row.
+   Kept in the row «ai» under `agents: { <id>: { brain: { provider, model }, sources: [{ name, url, note }], rules: [{ id, metric, op, value, kind, on }] } }` — the admin's row;
+   the media buyer also `adsAlways: true` (buyer-brain decision 3 — its ads' numbers go to its outside AI without asking; the server reads it).
    A source is a reference: the system's own engine does not read a site; an outside brain the member agrees to searches these first. */
 (function () {
   'use strict';
@@ -26,6 +27,12 @@
     manager: () => [S('Atlassian Team Playbook', 'https://www.atlassian.com/team-playbook', 'طرق ترتيب شغل الفريق والأولويات', 'Ways to organise a team’s work and priorities'),
       S('Harvard Business Review', 'https://hbr.org/', 'الإدارة واتخاذ القرار', 'Management and decision making'), WOO(), DOKAN()],
     buyer: () => [META_HELP(), S('Meta Ad Library', 'https://www.facebook.com/ads/library/', 'إعلانات المنافسين الشغّالة', 'Competitors’ running ads'),
+      // buyer-brain decision 4 (Safwat 24 Nov — «اقوي مصادر لميديا بايرز مشهورين زي بين هيلث»): the known media buyers and Meta's own school
+      S('Heath Media (Ben Heath)', 'https://heathmedia.co.uk/', 'هيكلة الحملات والتكبير وقراءة الأرقام', 'Campaign structure, scaling and reading the numbers'),
+      S('Ben Heath — YouTube', 'https://www.youtube.com/@BenHeath', 'شروحات ميتا وجوجل للإعلانات', 'Meta and Google ads tutorials'),
+      S('Meta Blueprint', 'https://www.facebook.com/business/learn', 'كورسات ميتا الرسمية للإعلانات', 'Meta’s official ads courses'),
+      S('Meta Ads Guide', 'https://www.facebook.com/business/ads-guide', 'مقاسات ومواصفات كل شكل إعلان', 'Sizes and specs of every ad format'),
+      S('Jon Loomer', 'https://www.jonloomer.com/', 'تفاصيل إعدادات ميتا والتتبع والتجارب', 'Meta’s settings, tracking and tests in depth'),
       S('Google Ads Help', 'https://support.google.com/google-ads/', 'الحملات والمزايدة والتتبع', 'Campaigns, bidding and tracking'),
       S('TikTok Business Help Center', 'https://ads.tiktok.com/help/', 'إعلانات تيك توك وسياساتها', 'TikTok ads and their policies'),
       S('TikTok Creative Center', 'https://ads.tiktok.com/business/creativecenter/', 'الإعلانات والتريندات الأعلى أداءً', 'Top-performing ads and trends'),
@@ -91,8 +98,14 @@
       help: cur ? tx('المساعد ده هيستخدم الموديل ده لما توافق على مخ خارجي.', 'This assistant will use this model when you agree to an outside AI.') : tx('السيستم بيختار الشركة والموديل زي كارت «مصادر الذكاء».', 'The system chooses the company and the model as the “Providers” card does.'),
       onChange: (v) => saveAgent(agent.id, { brain: v ? { provider: v.provider, model: v.model } : null }, v ? 'brain=' + v.provider + ':' + v.model : 'brain=auto', o.redraw,
         tx('اتحفظ — ', 'Saved — ') + (v ? R.CATALOG.text[v.provider].name + ' · ' + R.nameOf(v.model) : tx('تلقائي', 'Automatic'))) });
+    // buyer-brain decision 3 (Safwat 24 Nov — «موافقة دايمة لأرقام الإعلانات بس»): the media buyer's ads numbers go with every message
+    // to its outside AI without asking — the admin's switch (agents.buyer.adsAlways); the server reads it, every other kind is still asked about
+    const always = agent.id === 'buyer' && K.Switch ? h('div', { 'data-ag-ads-always': String(rowOf(ai, 'buyer').adsAlways === true), 'data-set-instant': '' }, K.Switch({ id: 'ag-ads-always', checked: rowOf(ai, 'buyer').adsAlways === true, disabled: !admin,
+      label: tx('أرقام الإعلانات بتتبعت من غير ما يسألني', 'Send the ads’ numbers without asking'),
+      help: tx('الحملات والإعلانات وصرفها ونتايجها والأوردرات اللي جت منها — من غير بيانات عملاء. أي بيانات تانية لسه بيسألك عليها كل مرة.', 'The campaigns and ads, their spend and results and the orders they brought — no customer data. Any other data is still asked about each time.'),
+      onChange: (v) => saveAgent('buyer', { adsAlways: v ? true : null }, v ? 'adsAlways=on' : 'adsAlways=off', o.redraw, v ? tx('الميديا باير هياخد أرقام الإعلانات من غير ما يسأل', 'The media buyer takes the ads’ numbers without asking') : tx('رجع يسأل على أرقام الإعلانات كل مرة', 'It asks about the ads’ numbers each time again')) })) : null;
     const card = K.Section(tx('المخ الخارجي', 'Outside AI'), [h('div', { class: 'ag-brain', 'data-ag-brain': cur ? cur.provider + ':' + cur.model : 'auto', 'data-set-instant': '' }, h('span', { class: 'set-ic' }, Icon('zap')),
-      h('div', { class: 'ag-brain-f' }, field), h('p', { class: 't-small sub ag-brain-n' }, tx('المساعد بيرد من السيستم الأول، ومابيستخدمش مخ خارجي غير بموافقتك على الرسالة.', 'The assistant answers from the system first, and uses an outside AI only with your consent on the message.')))],
+      h('div', { class: 'ag-brain-f' }, field), h('p', { class: 't-small sub ag-brain-n' }, tx('المساعد بيرد من السيستم الأول، ومابيستخدمش مخ خارجي غير بموافقتك على الرسالة.', 'The assistant answers from the system first, and uses an outside AI only with your consent on the message.'))), always],
       null, { sub: tx('أنهي شركة وموديل يرد لما السيستم مايفهمش وإنت توافق', 'Which company and model answers when the system doesn’t understand and you agree'), th: false, cols: false });
     return card;
   }

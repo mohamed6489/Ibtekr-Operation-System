@@ -212,7 +212,8 @@ test('the chat (0084): the question and the answer in the thread (ai-content age
   await P.locator('[data-mk-ask]').click();
   await expect(P.locator('[data-mk-chat="2"] .mk-msg.ai[data-mk-turn]')).toContainText('سؤالك: أزوّد Macrame؟');
   await expect(P.locator('.mk-msg.user')).toContainText('أزوّد Macrame؟');
-  await P.locator('.chip', { hasText: 'إيه أحسن حملة؟' }).click();
+  await expect(P.locator('.chip', { hasText: 'إيه أحسن حملة؟' })).toBeVisible(); // the quick chips (that one the system answers itself — buyer brain decision 2)
+  await P.locator('#mk-ask').fill('اكتبلي فكرة إعلان للمكرمية'); await P.locator('#mk-ask').press('Enter');
   await expect(P.locator('[data-mk-chat="4"]')).toBeVisible();
   const calls = mock.mkt.calls.filter((x) => x.fn === 'ai-content' && x.action === 'agent');
   expect(calls.map((x) => [x.agent, x.history, !!x.chat])).toEqual([['buyer', 0, false], ['buyer', 2, true]]); // the second message goes to the chat the first made

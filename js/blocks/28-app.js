@@ -453,9 +453,7 @@
   const barredAi = () => !!(window.IBDirectory && window.IBDirectory.me && window.IBDirectory.me()) && AI_PERMS.every((k) => rperm(k) === 'N');
   // the plan 2026-11-17-stores-single.md decision 3: single-seller mode (IBSettings.single — the row «store») has no makers' page
   const singleOn = () => !!(window.IBSettings && window.IBSettings.single && window.IBSettings.single());
-  // «العقل الذكي» (Safwat 24 Nov — «الأدمن بس»; a button in «الذكاء الاصطناعي», not in the menu): its hash is barred for anyone else once the member's row is there
-  const barredBrain = () => { const me = window.IBDirectory && window.IBDirectory.me ? window.IBDirectory.me() : null; return !!me && me.role_id !== 'admin'; };
-  const barred = (page) => { if (page === 'ai') return barredAi(); if (page === 'brain') return barredBrain(); if (page === 'vendors' && singleOn()) return true; const k = PAGE_PERM[page]; return !!k && !!(window.IBDirectory && window.IBDirectory.me && window.IBDirectory.me()) && rperm(k) === 'N' && !(page === 'hr' && rperm('sensitive.salaries') === 'F'); };
+  const barred = (page) => { if (page === 'ai') return barredAi(); if (page === 'vendors' && singleOn()) return true; const k = PAGE_PERM[page]; return !!k && !!(window.IBDirectory && window.IBDirectory.me && window.IBDirectory.me()) && rperm(k) === 'N' && !(page === 'hr' && rperm('sensitive.salaries') === 'F'); };
   const barNote = () => { if (window.IBKit && window.IBKit.toast) window.IBKit.toast('الصفحة دي مش متاحة لدورك — لو محتاجها كلّم الأدمن'); };
   // the menus follow the member's permissions (the rows land after the first draw, and the roles may change from the settings)
   const navPerms = () => document.querySelectorAll('.sidebar .nav-item[data-page], .bottom-nav .bn-item[data-page]').forEach((b) => { b.hidden = barred(b.dataset.page); });

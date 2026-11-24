@@ -672,3 +672,25 @@ test('0143: an expense names its account and makes one linked account move; a ma
   await expect(main(page).locator('tr', { hasText: 'تحويل إلى أوبريشن' })).toBeVisible();
   await expect(main(page).locator('tr', { hasText: 'تحويل من حساب البنك' })).toBeVisible();
 });
+
+// Safwat 24 Nov («لما بعدل التاريخ في حساب المبتكرين الأرقام مبتتغيرش» — picked «رصيد آخر الفترة من Dokan»): a period that ends before
+// today shows each maker's balance at its last day from his Dokan statement for that one day; a period reaching today stays «دلوقتي»
+test('makers\' accounts: a past period = each maker\'s Dokan balance at its last day (one day\'s statement each); this month = now', async ({ page }) => {
+  mock.statementRows = [{ date: '2026-08-31', type: 'opening_balance', title: 'Opening Balance', debit: 0, credit: 0, balance: 1000 },
+    { date: '2026-08-31 14:00:00', type: 'dokan_orders', title: 'Order', debit: 250, credit: 0, balance: 1250, ref: 9 }];
+  await openAccounts(page);
+  await tab(page, 'حسابات المبتكرين').click();
+  const card = main(page).locator('.card', { hasText: 'رصيد المبتكرين' }).first();
+  await expect(main(page).locator('[data-acc-period]')).toContainText('دلوقتي');
+  const now = await card.innerText();
+  expect(mock.statements.length).toBe(0); // this month: no statement asked
+  await page.evaluate(() => window.IBReportBlocks.periodSet('makers-acc', { from: '2026-08-01', to: '2026-08-31' }));
+  await tab(page, 'المصروفات').click(); await tab(page, 'حسابات المبتكرين').click();
+  await expect(main(page).locator('[data-acc-period]')).toContainText('يوم');
+  await expect.poll(() => mock.statements.length).toBeGreaterThan(0);
+  expect(mock.statements.every((x) => x.from === '2026-08-31' && x.to === '2026-08-31')).toBe(true);
+  await expect(main(page).locator('[data-acc-atend="loading"]')).toHaveCount(0);
+  // every maker shown has 1,250 at Aug 31 (the opening 1,000 + that day's order 250): the card = 1,250 × the makers it counts
+  await expect.poll(async () => { const t = await card.innerText(); const v = Number((/([\d,]+\.\d\d)/.exec(t) || [, '0'])[1].replace(/,/g, '')); const k = Number((/(\d+) مبتكر/.exec(t) || [, '0'])[1]); return k > 0 && v === 1250 * k; }).toBe(true);
+  expect(await card.innerText()).not.toBe(now);
+});

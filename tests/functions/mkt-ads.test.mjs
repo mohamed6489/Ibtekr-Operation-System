@@ -1,6 +1,6 @@
 import { test } from 'node:test'; import assert from 'node:assert/strict';
 import {
-  accountOf, path, nextOf, windowOf, windowChunks, CHUNK_DAYS, purchasesOf, statRowOf, objectRowOf, accountRowOf, SYNC_DAYS, MAX_DAYS, PURCHASE_TYPES,
+  accountOf, path, nextOf, smaller, TOO_MUCH, windowOf, windowChunks, CHUNK_DAYS, purchasesOf, statRowOf, objectRowOf, accountRowOf, SYNC_DAYS, MAX_DAYS, PURCHASE_TYPES,
 } from '../../supabase/functions/_shared/mkt-ads.js';
 // mkt-ads's pure part (phase 9.5.3, decisions 43 / 48): the Marketing API's answers → mkt_ad_objects / mkt_ad_stats rows, read-only.
 
@@ -134,4 +134,15 @@ test('budgetPlan: the step at most 30%, Meta\'s minor units, the campaign\'s own
   assert.deepEqual(budgetPlan({ campaign: {}, adsets: [] }, 20, {}, 0), { error: 'no_daily_budget' });
   assert.equal(accountDaily([{ id: CA, daily_budget: 30000, effective_status: 'ACTIVE' }, { id: CB, daily_budget: 10000, effective_status: 'PAUSED' }], [{ campaign_id: CB, daily_budget: 20000, effective_status: 'ACTIVE' }, { campaign_id: CC, daily_budget: 5000, effective_status: 'ACTIVE' }], CB), 350);
   assert.equal(reportText({ day: '2026-11-06', spend: 1234.5, orders: 7, sales: 5600, pending: 2 }).body, 'الصرف إمبارح 1,235 ج.م · 7 أوردر من الإعلانات (5,600 ج.م) · العائد الحقيقي 4.54× · 2 اقتراح مستني موافقتك');
+});
+
+// 24 Nov: «Please reduce the amount of data you're asking for» (graph_1) → the same page with half its limit, never under 10
+test('smaller / TOO_MUCH: half the limit down to 10; only Meta\'s code 1', () => {
+  assert.equal(smaller('https://graph.facebook.com/v21.0/act_1/ads?fields=x&limit=100'), 'https://graph.facebook.com/v21.0/act_1/ads?fields=x&limit=50');
+  assert.equal(smaller('https://graph.facebook.com/v21.0/act_1/ads?limit=25&after=p'), 'https://graph.facebook.com/v21.0/act_1/ads?limit=12&after=p');
+  assert.equal(smaller('https://graph.facebook.com/v21.0/act_1/ads?limit=12'), 'https://graph.facebook.com/v21.0/act_1/ads?limit=10');
+  assert.equal(smaller('https://graph.facebook.com/v21.0/act_1/ads?limit=10'), null);
+  assert.equal(smaller('https://graph.facebook.com/v21.0/act_1'), null);
+  assert.ok(TOO_MUCH('graph_1')); assert.ok(TOO_MUCH('graph_1:99')); assert.ok(!TOO_MUCH('graph_100')); assert.ok(!TOO_MUCH('graph_190'));
+  assert.match(path.ads('1'), /limit=100$/);
 });

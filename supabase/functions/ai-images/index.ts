@@ -1315,7 +1315,7 @@ async function bridgeCampaign(deps: Deps, who: Who, args: Json) {
         const vw = isObj(camp.state.w) ? camp.state.w : {}; const vmedia = isObj(vw.media) && isObj(vw.media.video) ? vw.media.video : {};
         const vm: Json = videoModelOf(typeof vp.model === 'string' ? vp.model : '') ?? {};
         const a: Json | null = clipArgs({ model: vm.id, size: vp.size, res: vp.res, piece: vp, w: vw, notes: vmedia.notes, scene: vp.scenes[w.slide as number], imageRef: null, folder: null });
-        if (a && a.slug) video = { slug: a.slug, prompt: a.prompt, aspect: a.aspectRatio, duration: a.duration, resolution: a.resolution, sound: a.withSoundEffects === true };
+        if (a && a.slug) video = { slug: a.slug, prompt: a.prompt, aspect: a.aspectRatio, duration: a.duration, resolution: a.resolution, sound: a.withSoundEffects === true, noMusic: a.noMusic === true };
       }
       targets.push({ key: flowKey(w.piece, w.slide), name: String(t.label ?? ''), prompt, aspect, refs, ...(video ? { video } : {}) });
     }

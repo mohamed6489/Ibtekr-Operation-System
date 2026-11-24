@@ -16,8 +16,8 @@ export const bad = (field) => ({ error: 'bad_request', field });
 
 // the page's model ids → the catalog (slug, the clip lengths it takes, the ratios, the resolutions, audio, multi-shot)
 export const VIDEO_MODELS = Object.freeze([
-  { id: 'seedance-2.5', slug: 'bytedance-seedance-pro-2.5', name: 'Seedance 2.5', min: 4, max: 30, ratios: ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16'], res: ['1080p', '720p', '480p'], audio: true, multishot: true, promptMax: 30000, def: true },
-  { id: 'seedance-2.0', slug: 'bytedance-seedance-pro-2.0', name: 'Seedance 2.0', min: 4, max: 15, ratios: ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16'], res: ['4K', '1080p', '720p', '480p'], audio: true, multishot: true, promptMax: 40000 },
+  { id: 'seedance-2.5', slug: 'bytedance-seedance-pro-2.5', name: 'Seedance 2.5', min: 4, max: 30, ratios: ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16'], res: ['1080p', '720p', '480p'], audio: true, multishot: true, promptMax: 30000, def: true, noMusic: true },
+  { id: 'seedance-2.0', slug: 'bytedance-seedance-pro-2.0', name: 'Seedance 2.0', min: 4, max: 15, ratios: ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16'], res: ['4K', '1080p', '720p', '480p'], audio: true, multishot: true, promptMax: 40000, noMusic: true },
   { id: 'kling-2.5', slug: 'kling-25', name: 'Kling 2.5', fixed: [5, 10], ratios: ['1:1', '16:9', '9:16'], res: ['1080p', '720p'], audio: false, multishot: false, promptMax: 2500 },
   { id: 'minimax-h3', slug: 'minimax-video-3_0-max', name: 'MiniMax H3 Max', min: 5, max: 15, ratios: ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16'], res: ['768p', '480p'], audio: true, multishot: true, promptMax: 7000, soundRequired: true },
 ]);
@@ -66,7 +66,8 @@ export function clipArgs({ model, size, res, scene, piece, w, notes, imageRef, f
   const m = modelOf(model); const d = clipSeconds(isObj(scene) ? scene.d : 5, m.id);
   const out = { slug: m.slug, duration: d, aspectRatio: ratioOf(size, m.id), resolution: resolutionOf(res, m.id), prompt: line(scenePrompt(scene, piece, w, { notes, audio: m.audio }), m.promptMax) };
   if (imageRef) out.keyframes = { start: { type: 'image', url: imageRef } };
-  if (m.audio) { out.withSoundEffects = true; out.noMusic = true; }
+  // «من غير موسيقى» is a Seedance 2.x switch only — Magnific refuses it on MiniMax (`model_input_not_allowed`, 24 Nov); the prompt says it for the rest
+  if (m.audio) { out.withSoundEffects = true; if (m.noMusic) out.noMusic = true; }
   if (m.soundRequired && !m.audio) out.withSoundEffects = false;
   if (folder) out.folderReference = folder;
   return out;
@@ -82,7 +83,8 @@ export function chainedArgs({ model, size, res, scenes, piece, w, notes, imageRe
   const out = { slug: m.slug, duration: total, aspectRatio: ratioOf(size, m.id), resolution: resolutionOf(res, m.id),
     multi_prompt: shots.map((s, i) => ({ index: i + 1, duration: s.d, prompt: line(scenePrompt(s, piece, w, { notes, audio: m.audio }), 2000) })) };
   if (imageRef) out.references = [{ type: 'image', url: imageRef }];
-  if (m.audio) { out.withSoundEffects = true; out.noMusic = true; }
+  // «من غير موسيقى» is a Seedance 2.x switch only — Magnific refuses it on MiniMax (`model_input_not_allowed`, 24 Nov); the prompt says it for the rest
+  if (m.audio) { out.withSoundEffects = true; if (m.noMusic) out.noMusic = true; }
   if (folder) out.folderReference = folder;
   return out;
 }

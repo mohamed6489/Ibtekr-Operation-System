@@ -232,7 +232,7 @@ export function campaignFlowNodes({ title, targets, model = FLOW_MODEL }) {
     if (v && vp && /^[a-z0-9][a-z0-9._-]{1,79}$/.test(slug)) {
       const vgen = 'v' + i; const vout = 'vo' + i; const dur = Math.max(1, Math.min(30, Math.round(Number(v.duration) || 5)));
       nodes.push({ nodeType: 'video-generator', ref: vgen, name: name + ' — فيديو', data: { model: slug, prompt: vp, aspectRatio: /^\d{1,2}:\d{1,2}$/.test(String(v.aspect || '')) ? v.aspect : '9:16', duration: dur,
-        ...(/^\d{3,4}p$|^4K$/.test(String(v.resolution || '')) ? { resolution: v.resolution } : {}), ...(v.sound === true ? { withSoundEffects: true, noMusic: true } : {}) }, layout: place(vgen) });
+        ...(/^\d{3,4}p$|^4K$/.test(String(v.resolution || '')) ? { resolution: v.resolution } : {}), ...(v.sound === true ? { withSoundEffects: true } : {}), ...(v.sound === true && v.noMusic === true ? { noMusic: true } : {}) }, layout: place(vgen) });
       connections.push({ from: gen, fromPort: 'output', to: vgen, toPort: 'first-frame' });
       nodes.push({ nodeType: 'list', ref: vout, name: 'فيديو — ' + name, data: { itemType: 'video', mode: 'accumulate' }, layout: place(vout) });
       connections.push({ from: vgen, fromPort: 'output', to: vout, toPort: 'videos' });

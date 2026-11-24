@@ -348,6 +348,8 @@
     const r = await invoke('ai-images', { action: 'bridge_status' });
     return r.ok ? { ok: true, linked: !!(r.body && r.body.linked) } : { ok: false, linked: false };
   }
+  // Safwat 24 Nov («يفتح فلو جديد و يحط فيه البرومبت المكتوب في السيستم و يبقا واقف علي اني ادوس تشغيل»): a new flow each send,
+  // nothing runs from here; the link opens the Space on it
   async function magnificSend(cid) {
     if (!can().create) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
     if (!cid) return { ok: false, reason: 'invalid', message: 'احفظ الكامبين الأول' };
@@ -356,7 +358,7 @@
     if (!r.ok) return Object.assign(r, { message: mgMessage(r) });
     const b = r.body || {}; const n = (v) => (Number.isInteger(Number(v)) && Number(v) > 0 ? Number(v) : 0);
     log('magnific.send', n(b.targets) + ' images · ' + n(b.uploaded) + ' photos', cid);
-    return { ok: true, url: httpsOf(b.url), targets: n(b.targets), refs: n(b.refs), uploaded: n(b.uploaded), left: n(b.left) };
+    return { ok: true, url: httpsOf(b.url), targets: n(b.targets), videos: n(b.videos), refs: n(b.refs), uploaded: n(b.uploaded), left: n(b.left) };
   }
   async function magnificFetch(cid) {
     if (!can().create) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
@@ -368,8 +370,10 @@
     // a path of this campaign's own folder only, on a piece named like one
     const placed = (Array.isArray(b.placed) ? b.placed : []).filter((x) => x && typeof x.piece === 'string' && /^[A-Z][0-9]{1,2}$/.test(x.piece) && typeof x.path === 'string' && x.path.indexOf(cid + '/') === 0 && (x.slide == null || Number.isInteger(x.slide)))
       .map((x) => ({ piece: x.piece, slide: x.slide == null ? null : x.slide, path: x.path }));
-    log('magnific.fetch', placed.length + ' images', cid);
-    return { ok: true, placed, found: n(b.found), failed: n(b.failed), offhost: n(b.offhost) };
+    // a scene's clip that came out: a clip job of the piece (its poll downloads it)
+    const clips = (Array.isArray(b.clips) ? b.clips : []).filter((x) => x && typeof x.piece === 'string' && /^[A-Z][0-9]{1,2}$/.test(x.piece) && Number.isInteger(x.scene)).map((x) => ({ piece: x.piece, scene: x.scene }));
+    log('magnific.fetch', placed.length + ' images · ' + clips.length + ' clips', cid);
+    return { ok: true, placed, clips, found: n(b.found), failed: n(b.failed), offhost: n(b.offhost) };
   }
   const edit = (cid, a) => { const x = a || {}; const pins = (Array.isArray(x.pins) ? x.pins : []).filter((p) => p && String(p.text || '').trim()).slice(0, 10)
     .map((p) => ({ x: Math.max(0, Math.min(100, Math.round(Number(p.x) || 0))), y: Math.max(0, Math.min(100, Math.round(Number(p.y) || 0))), text: clean(p.text, 200) }));

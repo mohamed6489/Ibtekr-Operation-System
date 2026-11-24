@@ -424,7 +424,7 @@
     if (!r.ok) { if (r.code === 'not_linked' || r.reason === 'not_configured') camp.mgLinked = false; K.toast(r.message, 'error'); R(); return; }
     camp.mgLinked = true; camp.mg = { url: r.url, n: r.targets, at: new Date().toISOString() }; persist(0);
     R();
-    K.toast('اتبعت ' + K.n0(r.targets) + ' صورة لـ Magnific' + (r.refs ? ' بـ ' + K.n0(r.refs) + ' صورة مرجعية' : '') + (r.left ? ' — ' + K.n0(r.left) + ' صورة زيادة ما دخلتش الفلو' : '') + ' — افتح الـ Space وشغّل المولّدات', 'success');
+    K.toast('اتبعت ' + K.n0(r.targets) + ' صورة لـ Magnific' + (r.refs ? ' بـ ' + K.n0(r.refs) + ' صورة مرجعية' : '') + (r.videos ? ' و' + K.n0(r.videos) + ' مشهد فيديو' : '') + (r.left ? ' — ' + K.n0(r.left) + ' صورة زيادة ما دخلتش الفلو' : '') + ' في فلو جديد — افتح الـ Space ودوس تشغيل، وبعدها «هات النتائج من Magnific»', 'success');
   }
   async function mgFetch() {
     if (camp.mgBusy || !can().create || !camp.id) return;
@@ -437,16 +437,19 @@
     let n = 0;
     r.placed.forEach((x) => { const p = camp.pieces.find((y) => y.id === x.piece); if (p && setImg(p, x.slide, x.path)) n += 1; });
     if (n) persist(0);
+    // the scenes' clips: each one a clip job of its piece — the piece's poll brings it down (the review step shows it)
+    const vc = (r.clips || []).length; [...new Set((r.clips || []).map((x) => x.piece))].forEach((id) => { const p = camp.pieces.find((y) => y.id === id); if (p) { delete camp.vjobs[p.id]; vpoll(p, true); } });
     R();
     const rest = (r.offhost + r.failed) ? ' · ' + K.n0(r.offhost + r.failed) + ' ما اتنزّلتش — جرّب تاني' : '';
-    K.toast(n ? 'اتحطت ' + K.n0(n) + ' صورة من Magnific على قطعها — راجعها' + rest : r.found ? 'النتايج ما اتنزّلتش' + rest : 'مفيش نتايج جديدة على Magnific — شغّل المولّدات في الـ Space الأول', n ? 'success' : r.found ? 'error' : 'info');
+    const got = [n ? K.n0(n) + ' صورة' : '', vc ? K.n0(vc) + ' مقطع فيديو' : ''].filter(Boolean).join(' و');
+    K.toast(got ? 'اتحطت ' + got + ' من Magnific على قطعها — راجعها' + rest : r.found ? 'النتايج ما اتنزّلتش' + rest : 'مفيش نتايج جديدة على Magnific — دوس تشغيل في الـ Space الأول', got ? 'success' : r.found ? 'error' : 'info');
   }
   // 0123 (the owner 17 Nov): the bridge's bar only while Magnific is the campaign's image provider in «الإعدادات»
   function magnificBar() {
     if (!can().create || !MK() || !MK().magnificSend || (window.IBSettings && window.IBSettings.magnificOn && !window.IBSettings.magnificOn('campaign'))) return null;
     mgStatus(); const mg = camp.mg; const n = mgCount(); const busy = camp.mgBusy;
     const url = mg && typeof mg.url === 'string' && /^https:\/\//.test(mg.url) ? mg.url : null;
-    const head = h('div', { class: 'fl-mg-h' }, Icon('sparkle', 'sm'), h('b', null, 'Magnific'), h('small', { class: 'help' }, 'ولّد على موقع Magnific بباقتك — من غير كريدت الـ API: ابعت القطع (صورها المرجعية والبرومبت بتاع كل صورة)، شغّل المولّدات هناك، وهات النتائج على القطع.'));
+    const head = h('div', { class: 'fl-mg-h' }, Icon('sparkle', 'sm'), h('b', null, 'Magnific'), h('small', { class: 'help' }, 'ولّد على موقع Magnific بباقتك — من غير كريدت الـ API: «ابعت» بيعمل فلو جديد في الـ Space فيه كل صورة ببرومبتها اللي هنا وصورها المرجعية، ومشاهد الفيديو بمقطع بعد كل صورة — ومفيش حاجة بتشتغل لوحدها: افتح الـ Space ودوس تشغيل، وبعدها «هات النتائج» بيحط الصور والكاروسيل ومقاطع الفيديو على قطعها.'));
     return h('div', { class: 'fl-mg cw-mg', 'data-cw-magnific': mg ? 'sent' : 'new' }, head,
       camp.mgLinked === false ? U.InlineNote({ kind: 'warning', children: h('span', { 'data-cw-mg-unlinked': '' }, 'حساب Magnific مش مربوط — الأدمن بيربطه من «الإعدادات › الربط بالمنصات».') }) : null,
       h('div', { class: 'acts-inline start' },

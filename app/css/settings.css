@@ -646,3 +646,11 @@ button.dx-stat{cursor:pointer}button.dx-stat:hover{background:var(--color-bg-hov
 .nr-vars{display:flex;gap:6px;flex-wrap:wrap;align-items:center;color:var(--color-text-secondary)}
 .nr-vars code{direction:rtl;background:var(--color-bg-container);padding:1px 6px;border-radius:4px}
 @media (max-width:767px){.nr-rule{flex-wrap:wrap}.nr-form .row.cols3,.nr-form .row.cols2{grid-template-columns:1fr}}
+
+/* the rule's roles as green labels with × and a small «+» (the bell's redesign decision 7) */
+.nr-roles{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:6px}
+.nr-role{display:inline-flex;align-items:center;gap:4px;padding:0 4px 0 10px;border-radius:14px;background:var(--color-brand-default);color:var(--color-brand-subtle-bg,#e8d5b3);font-size:13px;line-height:26px;font-weight:600}
+.nr-role .x{width:20px;height:20px;border:0;border-radius:10px;background:transparent;color:inherit;font-size:15px;line-height:1;cursor:pointer;display:grid;place-items:center}
+.nr-role .x:hover:not(:disabled){opacity:.75}.nr-role .x:disabled{opacity:.4;cursor:default}
+.nr-role-add{width:26px;height:26px;border:1px dashed var(--color-brand-default);border-radius:13px;background:transparent;color:var(--color-brand-default);font-size:16px;line-height:1;cursor:pointer}
+.nr-role-add:hover:not(:disabled){background:var(--color-bg-hover)}.nr-role-add:disabled{opacity:.4;cursor:default}

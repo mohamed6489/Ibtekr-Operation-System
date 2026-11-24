@@ -13,7 +13,10 @@ import { delayRules, leadBy, lineDelayOf, lineElapsed, orderDelayOf, orderElapse
 type Db = any;
 // deno-lint-ignore no-explicit-any
 type Json = Record<string, any>;
-export type Ent = { id: string; name?: string; ref?: string; state?: string; line?: string; entity?: string; users?: string[]; only?: boolean; perm?: [string, string]; per?: Json };
+// group / n / pcs / st: who the alert is about and its counts — the bell draws and groups by them (alerts.meta — the bell's redesign)
+export type Group = { g: 'vendor' | 'member' | 'agent' | 'customer'; id: string; name: string };
+export type Ent = { id: string; name?: string; ref?: string; state?: string; line?: string; entity?: string; users?: string[]; only?: boolean; perm?: [string, string]; per?: Json;
+  group?: Group; n?: number; pcs?: number; st?: string };
 type Ctx = { now: string; nowMs: number; cairo: { day: string; time: string } };
 
 const rows = (r: { data?: unknown }) => (Array.isArray(r?.data) ? r.data as Json[] : []);
@@ -48,6 +51,8 @@ function teamMembers(w: World, role: unknown): string[] {
   return id ? w.members.filter((m) => rolesOfMember(m).includes(id)).map((m) => String(m.id)) : [];
 }
 const nameOf = (w: World, id: unknown) => { const m = w.members.find((x) => String(x.id) === String(id)); return m ? String(m.name) : 'عضو'; };
+const mem = (w: World, id: unknown): Group => ({ g: 'member', id: String(id), name: nameOf(w, id) });
+const ven = (v: Json | null | undefined, id?: unknown): Group | undefined => (v || id ? { g: 'vendor', id: String(v ? v.id : id), name: v ? String(v.name) : 'مبتكر' } : undefined);
 // a team entity names the member it concerns and his manager (a partial «hr.view» sees no one else's)
 const about = (w: World, id: unknown): string[] => { const m = w.members.find((x) => String(x.id) === String(id)); return [String(id)].concat(m && m.manager_id ? [String(m.manager_id)] : []); };
 
@@ -57,12 +62,12 @@ type OrdersRead = { O: Json[]; lines: Json[]; V: Map<string, Json>; orderState: 
 async function ordersRead(db: Db, w: World, ctx: Ctx): Promise<OrdersRead> {
   const today = ctx.cairo.day; const DR = delayRules((w.settings.makers ?? {}).delay);
   const [o, v] = await Promise.all([
-    db.from('orders').select('id, number, customer_name, status, status_custom, confirm, confirm_at, placed_at').in('status', OPEN_ORDER).is('deleted_at', null).gte('placed_at', LIVE_FROM).limit(LIMIT),
+    db.from('orders').select('id, number, customer_name, status, status_custom, confirm, confirm_at, placed_at, updated_at, bosta_tracking, bosta_cod_error').in('status', OPEN_ORDER).is('deleted_at', null).gte('placed_at', LIVE_FROM).limit(LIMIT),
     db.from('vendors').select('id, name, lead_days, status').limit(LIMIT),
   ]);
   const O = rows(o); const V = new Map(rows(v).map((x) => [String(x.id), x]));
   const lines: Json[] = [];
-  for (let i = 0; i < O.length; i += 300) lines.push(...rows(await db.from('order_items').select('id, order_id, vendor_id, product_id, name, status, expected_at').in('order_id', O.slice(i, i + 300).map((x) => x.id)).eq('removed', false).limit(10_000)));
+  for (let i = 0; i < O.length; i += 300) lines.push(...rows(await db.from('order_items').select('id, order_id, vendor_id, product_id, name, qty, status, expected_at').in('order_id', O.slice(i, i + 300).map((x) => x.id)).eq('removed', false).limit(10_000)));
   const pids = [...new Set(lines.map((x) => x.product_id).filter((x) => x != null))];
   const PL = new Map<string, number>(); for (let i = 0; i < pids.length; i += 500) for (const x of rows(await db.from('product_lead_days').select('product_id, days').in('product_id', pids.slice(i, i + 500)))) PL.set(String(x.product_id), Number(x.days));
   const orderState = new Map<string, string>(); const lineState = new Map<string, string>();
@@ -90,6 +95,7 @@ function subsOf(r: OrdersRead, pick: (it: Json) => boolean): Map<string, { order
   return out;
 }
 const DELAY_WORD: Record<string, string> = { late: 'متأخر', risk: 'قابل للتأخير', ok: 'غير متأخر' };
+const pcsOf = (L: Json[]) => L.reduce((s, it) => s + (Number(it.qty) > 0 ? Number(it.qty) : 1), 0);
 
 // ---------------------------------------------------------------- the events in the activity log since a time
 
@@ -143,7 +149,7 @@ async function read(db: Db, w: World, ctx: Ctx, rule: Json, since: string): Prom
         const lateDay = ctx.cairo.time >= addMin(to, 60);
         return rows(await db.from('hr_attendance').select('id, member_id, day, in_at, out_at').is('out_at', null).lte('day', today).limit(LIMIT))
           .filter((a) => String(a.day) < today || lateDay)
-          .map((a) => ({ id: 'noout:' + a.id, name: nameOf(w, a.member_id), state: 'لم يسجل انصراف', line: nameOf(w, a.member_id) + ' مسجّلش انصراف يوم ' + String(a.day), entity: 'hr-team', users: about(w, a.member_id) }));
+          .map((a) => ({ id: 'noout:' + a.id, name: nameOf(w, a.member_id), state: 'لم يسجل انصراف', line: nameOf(w, a.member_id) + ' مسجّلش انصراف يوم ' + String(a.day), entity: 'hr-team', users: about(w, a.member_id), group: mem(w, a.member_id) }));
       }
       if (st === 'no_in') {
         const hr = w.settings.hr ?? {}; const from = (m: Json) => scheduleFrom(hr, m) ?? (/^\d{2}:\d{2}$/.test(String(hr.workFrom)) ? String(hr.workFrom) : '09:00');
@@ -161,13 +167,13 @@ async function read(db: Db, w: World, ctx: Ctx, rule: Json, since: string): Prom
         for (const m of due) {
           if (seen.has(String(m.id))) continue;
           const wd = await db.rpc('hr_member_workday', { p_member: m.id, p_day: today }); if (wd?.data === false) continue;
-          out.push({ id: 'noin:' + m.id + ':' + today, name: String(m.name), state: 'لم يسجل حضور', line: String(m.name) + ' مسجّلش حضور لحد دلوقتي (ميعاده ' + from(m) + ')', entity: 'hr-team', users: about(w, m.id) });
+          out.push({ id: 'noin:' + m.id + ':' + today, name: String(m.name), state: 'لم يسجل حضور', line: String(m.name) + ' مسجّلش حضور لحد دلوقتي (ميعاده ' + from(m) + ')', entity: 'hr-team', users: about(w, m.id), group: mem(w, m.id) });
         }
         return out;
       }
       if (st === 'ot_start') {
         return rows(await db.from('hr_attendance').select('id, member_id, ot_from').gte('ot_from', since).limit(200))
-          .map((a) => ({ id: 'ot:' + a.id, name: nameOf(w, a.member_id), state: 'بدأ وقت إضافي', line: nameOf(w, a.member_id) + ' خلص ساعات العمل وبدأ وقت إضافي', entity: 'hr-team', users: about(w, a.member_id) }));
+          .map((a) => ({ id: 'ot:' + a.id, name: nameOf(w, a.member_id), state: 'بدأ وقت إضافي', line: nameOf(w, a.member_id) + ' خلص ساعات العمل وبدأ وقت إضافي', entity: 'hr-team', users: about(w, a.member_id), group: mem(w, a.member_id) }));
       }
       return [];
     }
@@ -175,16 +181,16 @@ async function read(db: Db, w: World, ctx: Ctx, rule: Json, since: string): Prom
       if (st === 'clock_in' || st === 'clock_out') {
         const col = st === 'clock_in' ? 'in_at' : 'out_at';
         return rows(await db.from('hr_attendance').select('id, member_id, in_at, out_at').gte(col, since).limit(300))
-          .map((a) => ({ id: st + ':' + a.id, name: nameOf(w, a.member_id), state: st === 'clock_in' ? 'سجّل حضور' : 'سجّل انصراف', line: nameOf(w, a.member_id) + (st === 'clock_in' ? ' سجّل حضور' : ' سجّل انصراف'), entity: 'hr-team', users: about(w, a.member_id) }));
+          .map((a) => ({ id: st + ':' + a.id, name: nameOf(w, a.member_id), state: st === 'clock_in' ? 'سجّل حضور' : 'سجّل انصراف', line: nameOf(w, a.member_id) + (st === 'clock_in' ? ' سجّل حضور' : ' سجّل انصراف'), entity: 'hr-team', users: about(w, a.member_id), group: mem(w, a.member_id) }));
       }
       if (st === 'req_ot') {
         return rows(await db.from('hr_overtime').select('id, member_id, day, minutes, kind, created_at').gte('created_at', since).limit(200))
-          .map((o) => ({ id: 'reqot:' + o.id, name: nameOf(w, o.member_id), state: 'طلب وقت إضافي', line: nameOf(w, o.member_id) + ' — ' + (o.kind === 'rest_day' ? 'شغل يوم راحة' : 'وقت إضافي') + ' يوم ' + String(o.day), entity: 'hr', users: about(w, o.member_id) }));
+          .map((o) => ({ id: 'reqot:' + o.id, name: nameOf(w, o.member_id), state: 'طلب وقت إضافي', line: nameOf(w, o.member_id) + ' — ' + (o.kind === 'rest_day' ? 'شغل يوم راحة' : 'وقت إضافي') + ' يوم ' + String(o.day), entity: 'hr', users: about(w, o.member_id), group: mem(w, o.member_id) }));
       }
       const types = rows(await db.from('hr_leave_types').select('name').limit(100)).map((t) => String(t.name));
       const pick = (t: string) => st === 'req_leave' ? types.includes(t) : st === 'req_advance' ? t === 'سُلفة' : st === 'req_rest' ? t === 'فترة راحة' : !types.includes(t) && t !== 'سُلفة' && t !== 'فترة راحة';
       return rows(await db.from('hr_requests').select('id, member_id, type, from_day, to_day, created_at').gte('created_at', since).limit(300)).filter((r) => pick(String(r.type)))
-        .map((r) => ({ id: 'req:' + r.id, name: nameOf(w, r.member_id), state: String(r.type), line: nameOf(w, r.member_id) + ' طلب ' + String(r.type) + (r.from_day ? ' — ' + String(r.from_day) + (r.to_day && r.to_day !== r.from_day ? ' → ' + String(r.to_day) : '') : ''), entity: 'tickets', users: about(w, r.member_id) }));
+        .map((r) => ({ id: 'req:' + r.id, name: nameOf(w, r.member_id), state: String(r.type), line: nameOf(w, r.member_id) + ' طلب ' + String(r.type) + (r.from_day ? ' — ' + String(r.from_day) + (r.to_day && r.to_day !== r.from_day ? ' → ' + String(r.to_day) : '') : ''), entity: 'tickets', users: about(w, r.member_id), group: mem(w, r.member_id) }));
     }
     // ---- the main orders
     case 'orders.confirm': case 'orders.status': {
@@ -209,12 +215,12 @@ async function read(db: Db, w: World, ctx: Ctx, rule: Json, since: string): Prom
     case 'subs.status': {
       const r = await orders(db, w, ctx);
       return [...subsOf(r, (it) => String(it.status) === st).entries()].map(([k, g]) => ({ id: 's:' + k + ':' + st, name: g.vendor ? String(g.vendor.name) : 'مبتكر', ref: ref(g.order), state: st,
-        line: (g.vendor ? String(g.vendor.name) : 'مبتكر') + ' · ' + g.lines.length + ' منتج · ' + st, entity: 'orders/' + String(g.order.number ?? g.order.id) }));
+        line: (g.vendor ? String(g.vendor.name) : 'مبتكر') + ' · ' + g.lines.length + ' منتج · ' + st, entity: 'orders/' + String(g.order.number ?? g.order.id), group: ven(g.vendor, k.split(':')[1]), n: 1, pcs: pcsOf(g.lines) }));
     }
     case 'subs.delay': {
       const r = await orders(db, w, ctx);
       return [...subsOf(r, (it) => r.lineState.get(String(it.id)) === st).entries()].map(([k, g]) => ({ id: 's:' + k, name: g.vendor ? String(g.vendor.name) : 'مبتكر', ref: ref(g.order), state: DELAY_WORD[st],
-        line: 'أوردر فرعي ' + DELAY_WORD[st] + ' · ' + (g.vendor ? String(g.vendor.name) : 'مبتكر') + ' · ' + g.lines.length + ' منتج', entity: 'orders/' + String(g.order.number ?? g.order.id) }));
+        line: 'أوردر فرعي ' + DELAY_WORD[st] + ' · ' + (g.vendor ? String(g.vendor.name) : 'مبتكر') + ' · ' + g.lines.length + ' منتج', entity: 'orders/' + String(g.order.number ?? g.order.id), group: ven(g.vendor, k.split(':')[1]), n: 1, pcs: pcsOf(g.lines), st }));
     }
     case 'subs.update': {
       if (st === 'new') {
@@ -282,9 +288,16 @@ async function read(db: Db, w: World, ctx: Ctx, rule: Json, since: string): Prom
       }
       const vs = new Map(rows(await db.from('vendors').select('id, name').limit(LIMIT)).map((v) => [String(v.id), String(v.name)]));
       return rows(await db.from('acc_vendor_moves').select('id, vendor_id, direction, kind, kind_name, amount, created_at').eq('direction', st).is('voided_at', null).gte('created_at', since).limit(300))
-        .map((x) => ({ id: 'vmove:' + x.id, name: vs.get(String(x.vendor_id)) ?? 'مبتكر', state: st === 'deposit' ? 'إيداع' : 'سحب', line: (vs.get(String(x.vendor_id)) ?? 'مبتكر') + ' · ' + String(x.kind_name ?? x.kind) + ' ' + money(Number(x.amount)), entity: 'accounts-makers' }));
+        .map((x) => ({ id: 'vmove:' + x.id, name: vs.get(String(x.vendor_id)) ?? 'مبتكر', state: st === 'deposit' ? 'إيداع' : 'سحب', line: (vs.get(String(x.vendor_id)) ?? 'مبتكر') + ' · ' + String(x.kind_name ?? x.kind) + ' ' + money(Number(x.amount)), entity: 'accounts-makers',
+          group: { g: 'vendor', id: String(x.vendor_id), name: vs.get(String(x.vendor_id)) ?? 'مبتكر' } as Group }));
     }
     case 'accounts.real': {
+      // the bell's redesign decision 5: an account whose balance went under zero
+      if (st === 'negative') {
+        const mv = rows(await db.from('acc_account_moves').select('account, direction, amount').is('voided_at', null).limit(50_000)); const bal = new Map<string, number>();
+        for (const m of mv) bal.set(String(m.account), (bal.get(String(m.account)) ?? 0) + (m.direction === 'deposit' ? 1 : -1) * Number(m.amount || 0));
+        return [...bal.entries()].filter(([, b]) => b < 0).map(([a, b]) => ({ id: 'neg:' + a, name: a, state: 'بالسالب', line: 'حساب ' + a + ' رصيده ' + money(b), entity: 'accounts' }));
+      }
       return rows(await db.from('acc_account_moves').select('id, account, direction, amount, created_at').eq('direction', st).is('voided_at', null).gte('created_at', since).limit(300))
         .map((x) => ({ id: 'amove:' + x.id, name: String(x.account), state: st === 'deposit' ? 'إيداع' : 'سحب', line: String(x.account) + ' · ' + (st === 'deposit' ? 'إيداع ' : 'سحب ') + money(Number(x.amount)), entity: 'accounts' }));
     }
@@ -321,6 +334,20 @@ async function read(db: Db, w: World, ctx: Ctx, rule: Json, since: string): Prom
         .filter(Boolean) as Ent[];
     }
     // ---- the messages
+    // the bell's redesign decision 5: a customer rated an order or a conversation P stars (2) or less — the rating's numbers only
+    case 'messages.ratings': {
+      const lim = P ?? 2;
+      const [o, c] = await Promise.all([
+        db.from('customer_ratings').select('id, order_id, sat, manners, at').gte('at', since).limit(300),
+        db.from('cs_team_ratings').select('id, customer_id, conversation_id, sat, manners, at').gte('at', since).limit(300),
+      ]);
+      const low = (x: Json) => Math.min(Number(x.sat) || 5, Number(x.manners) || 5) <= lim;
+      const ords = rows(o).filter(low); const nums = ords.length ? new Map(rows(await db.from('orders').select('id, number, customer_name').in('id', ords.map((x) => x.order_id)).limit(300)).map((x) => [String(x.id), x])) : new Map();
+      return ords.map((x) => { const ord = nums.get(String(x.order_id)) as Json | undefined; const nm = String(ord?.customer_name ?? 'عميل').trim();
+        return { id: 'rt:o:' + x.id, name: nm, ref: ord ? ref(ord) : '', state: 'تقييم واطي', line: nm + ' قيّم الأوردر ' + Number(x.sat) + '/5 رضا · ' + Number(x.manners) + '/5 أخلاق', entity: ord ? 'orders/' + String(ord.number ?? ord.id) : 'orders' } as Ent; })
+        .concat(rows(c).filter(low).map((x) => ({ id: 'rt:c:' + x.id, name: 'عميل', state: 'تقييم واطي', line: 'تقييم محادثة ' + Number(x.sat) + '/5 رضا · ' + Number(x.manners) + '/5 أخلاق', entity: x.conversation_id ? 'cs/' + String(x.conversation_id) : 'cs-inbox',
+          ...(x.conversation_id ? { group: { g: 'customer', id: String(x.conversation_id), name: 'عميل' } as Group } : {}) })));
+    }
     case 'messages.customers': case 'messages.vendors': case 'messages.comments': {
       const seg = ty; const sla = Number((w.settings.cs ?? {}).sla_late_min) || 60;
       // a conversation with an assignee reaches him and the members who see all the conversations (cs.view F)
@@ -330,24 +357,32 @@ async function read(db: Db, w: World, ctx: Ctx, rule: Json, since: string): Prom
         const msgs = rows(await db.from('cs_messages').select('id, conversation_id, kind, created_at').eq('kind', 'in').gte('created_at', since).limit(1000)); if (!msgs.length) return [];
         const convs = rows(await db.from('cs_conversations').select('id, seg, handle, platform, assignee').in('id', [...new Set(msgs.map((m) => m.conversation_id))]).eq('seg', seg).limit(500));
         return convs.map((c) => { const mine = msgs.filter((m) => String(m.conversation_id) === String(c.id)); const last = mine[mine.length - 1];
-          return { id: 'cin:' + c.id + ':' + last.id, name: who(c), state: 'رسالة جديدة', line: who(c) + ' · ' + mine.length + ' رسالة جديدة · ' + String(c.platform), entity: 'cs/' + c.id, ...scope(c) } as Ent; });
+          return { id: 'cin:' + c.id + ':' + last.id, name: who(c), state: 'رسالة جديدة', line: who(c) + ' · ' + mine.length + ' رسالة جديدة · ' + String(c.platform), entity: 'cs/' + c.id, ...scope(c), group: { g: 'customer', id: String(c.id), name: who(c) } } as Ent; });
       }
       const convs = rows(await db.from('cs_conversations').select('id, seg, handle, platform, assignee, waiting_since, status').eq('seg', seg).eq('status', 'مستنية ردنا').limit(LIMIT));
       return convs.map((c) => ({ c, min: Math.max(0, Math.round((ctx.nowMs - Date.parse(String(c.waiting_since ?? ctx.now))) / 60_000)) }))
         .filter((x) => st === 'waiting' || x.min >= sla)
-        .map(({ c, min }) => ({ id: 'cw:' + c.id, name: who(c), state: st === 'waiting' ? 'مستني ردنا' : 'متأخر عن الرد', line: who(c) + ' مستني ردنا من ' + min + ' دقيقة · ' + String(c.platform), entity: 'cs/' + c.id, ...scope(c) } as Ent));
+        .map(({ c, min }) => ({ id: 'cw:' + c.id, name: who(c), state: st === 'waiting' ? 'مستني ردنا' : 'متأخر عن الرد', line: who(c) + ' مستني ردنا من ' + min + ' دقيقة · ' + String(c.platform), entity: 'cs/' + c.id, ...scope(c), group: { g: 'customer', id: String(c.id), name: who(c) } } as Ent));
     }
     // ---- the assistants (their notes reach the members who see that assistant — ai_agents.perm)
-    case 'ai.buyer': case 'ai.designer': case 'ai.dev': case 'ai.any': {
+    case 'ai.buyer': case 'ai.designer': case 'ai.dev': case 'ai.any':
+    case 'ai.manager': case 'ai.stock': case 'ai.cs': case 'ai.makers': case 'ai.accountant': case 'ai.hr': case 'ai.content': { // the bell's redesign decision 4
       const agents = rows(await db.from('ai_agents').select('id, name, perm').limit(100)); const agentPerm = (id: string) => { const a = agents.find((x) => x.id === id); return a && typeof a.perm === 'string' ? a.perm : 'marketing.view'; };
       const agentName = (id: string) => { const a = agents.find((x) => x.id === id); return a ? String(a.name) : id; };
       const seers = (perm: string) => w.members.filter((m) => permOf(m, w.roles, perm) !== 'N').map((m) => String(m.id)); // who sees that assistant
       const mkt = seers('marketing.view');
-      const notes = async (agent: string | null, test: (n: Json) => boolean) => {
+      const notes = async (agent: string | null, test: (n: Json) => boolean): Promise<Ent[]> => {
         let q = db.from('ai_agent_notes').select('id, agent, kind, title, body, ref, link, created_at').gte('created_at', since); if (agent) q = q.eq('agent', agent);
-        return rows(await q.limit(300)).filter(test).map((n) => ({ id: 'note:' + n.id, name: agentName(String(n.agent)), state: String(n.kind), line: String(n.title), entity: n.link ? String(n.link) : 'ai-' + String(n.agent), users: seers(agentPerm(String(n.agent))) }));
+        return rows(await q.limit(300)).filter(test).map((n) => ({ id: 'note:' + n.id, name: agentName(String(n.agent)), state: String(n.kind), line: String(n.title), entity: n.link ? String(n.link) : 'ai-' + String(n.agent), users: seers(agentPerm(String(n.agent))),
+          group: { g: 'agent', id: String(n.agent), name: agentName(String(n.agent)) } as Group }));
       };
-      if (ty === 'any') return notes(null, (n) => !['buyer', 'designer', 'dev'].includes(String(n.agent))); // the three have their own types
+      // the bell's redesign decision 4: a built-in assistant's own type — its team's daily summary, the work late at its team, its rules
+      if (CAT.AGENTS.some(([id]: [string, string]) => id === ty)) {
+        const R = String; const want = st === 'summary' ? (n: Json) => /^team:/.test(R(n.ref)) : st === 'late' ? (n: Json) => /^(late|cs-late):/.test(R(n.ref)) : (n: Json) => /^rule:/.test(R(n.ref));
+        return notes(ty, want);
+      }
+      // the assistants the admin added (the built-in ones have their own types)
+      if (ty === 'any') return notes(null, (n) => !['buyer', 'designer', 'dev'].concat(CAT.AGENTS.map(([id]: [string, string]) => id)).includes(String(n.agent)));
       if (ty === 'dev') return notes('dev', (n) => st === 'wp' ? /^dev:wp:/.test(String(n.ref)) : st === 'speed' ? /^dev:speed:/.test(String(n.ref)) : /^dev:/.test(String(n.ref)) && !/^dev:(wp|speed):/.test(String(n.ref)));
       if (ty === 'buyer' && st === 'pixel') return notes('buyer', (n) => /^pixel:/.test(String(n.ref)));
       if (ty === 'buyer' && st === 'campaigns') return (await notes('buyer', (n) => /^(daily|rule):/.test(String(n.ref)))).concat(rows(await db.from('mkt_suggestions').select('id, platform, kind, campaign_name, title, status, created_at').gte('created_at', since).limit(200))
@@ -366,10 +401,12 @@ async function read(db: Db, w: World, ctx: Ctx, rule: Json, since: string): Prom
     // ---- the makers
     case 'makers.making': {
       if (st === 'late' || st === 'risk') {
-        const r = await orders(db, w, ctx); const per = new Map<string, Set<string>>();
-        for (const it of r.lines) { if (r.lineState.get(String(it.id)) !== st || !it.vendor_id) continue; const s = per.get(String(it.vendor_id)) ?? new Set(); s.add(String(it.order_id)); per.set(String(it.vendor_id), s); }
+        const r = await orders(db, w, ctx); const per = new Map<string, Set<string>>(); const pcs = new Map<string, number>();
+        for (const it of r.lines) { if (r.lineState.get(String(it.id)) !== st || !it.vendor_id) continue; const s = per.get(String(it.vendor_id)) ?? new Set(); s.add(String(it.order_id)); per.set(String(it.vendor_id), s);
+          pcs.set(String(it.vendor_id), (pcs.get(String(it.vendor_id)) ?? 0) + pcsOf([it])); }
         return [...per.entries()].map(([vid, s]) => { const v = r.V.get(vid); const n = v ? String(v.name) : 'مبتكر';
-          return { id: 'mk:' + st + ':' + vid, name: n, state: DELAY_WORD[st], line: n + ' · ' + s.size + ' أوردر ' + (st === 'late' ? 'متأخر' : 'قابل للتأخير'), entity: 'makers' }; });
+          return { id: 'mk:' + st + ':' + vid, name: n, state: DELAY_WORD[st], line: n + ' · ' + s.size + ' أوردر ' + (st === 'late' ? 'متأخر' : 'قابل للتأخير') + ' · ' + (pcs.get(vid) ?? 0) + ' قطعة', entity: 'makers',
+            group: ven(v, vid), n: s.size, pcs: pcs.get(vid) ?? 0, st }; });
       }
       const acts = st === 'confirmed' ? ['order.confirm'] : ['order.cancel', 'order.status'];
       let L = await logSince(db, acts, since);
@@ -382,14 +419,23 @@ async function read(db: Db, w: World, ctx: Ctx, rule: Json, since: string): Prom
       const out: Ent[] = []; const seen = new Set<string>();
       for (const l of L) for (const it of its.filter((x) => String(x.order_id) === String(l.entity_id))) {
         const k = l.id + ':' + it.vendor_id; if (!it.vendor_id || seen.has(k)) continue; seen.add(k); const n = vs.get(String(it.vendor_id)) ?? 'مبتكر';
-        out.push({ id: 'mk:' + st + ':' + k, name: n, ref: 'IB-' + String(l.entity_id), state: st === 'confirmed' ? 'أوردر مؤكد' : 'أوردر ملغي', line: n + ' · ' + (st === 'confirmed' ? 'اتأكد' : 'اتلغى') + ' أوردر IB-' + String(l.entity_id), entity: 'orders/' + String(l.entity_id) });
+        out.push({ id: 'mk:' + st + ':' + k, name: n, ref: 'IB-' + String(l.entity_id), state: st === 'confirmed' ? 'أوردر مؤكد' : 'أوردر ملغي', line: n + ' · ' + (st === 'confirmed' ? 'اتأكد' : 'اتلغى') + ' أوردر IB-' + String(l.entity_id), entity: 'orders/' + String(l.entity_id),
+          group: { g: 'vendor', id: String(it.vendor_id), name: n } });
       }
       return out;
     }
     case 'makers.accounts': {
       const vs = new Map(rows(await db.from('vendors').select('id, name').limit(LIMIT)).map((v) => [String(v.id), String(v.name)]));
       if (st === 'withdraw') return rows(await db.from('dokan_withdrawals').select('id, vendor_id, amount, status, requested_at, synced_at').eq('status', 'pending').gte('synced_at', since).limit(200))
-        .map((x) => ({ id: 'wd:' + x.id, name: vs.get(String(x.vendor_id)) ?? 'مبتكر', state: 'طلب سحب', line: (vs.get(String(x.vendor_id)) ?? 'مبتكر') + ' طلب سحب ' + money(Number(x.amount)), entity: 'accounts-makers' }));
+        .map((x) => ({ id: 'wd:' + x.id, name: vs.get(String(x.vendor_id)) ?? 'مبتكر', state: 'طلب سحب', line: (vs.get(String(x.vendor_id)) ?? 'مبتكر') + ' طلب سحب ' + money(Number(x.amount)), entity: 'accounts-makers',
+          group: { g: 'vendor', id: String(x.vendor_id), name: vs.get(String(x.vendor_id)) ?? 'مبتكر' } }));
+      // the bell's redesign decision 5: a withdrawal request still waiting on Dokan after P days (2)
+      if (st === 'withdraw_wait') {
+        const limit = new Date(ctx.nowMs - (P ?? 2) * D).toISOString();
+        return rows(await db.from('dokan_withdrawals').select('id, vendor_id, amount, status, requested_at').eq('status', 'pending').lte('requested_at', limit).limit(200))
+          .map((x) => { const n = vs.get(String(x.vendor_id)) ?? 'مبتكر'; const d = Math.max(1, Math.floor((ctx.nowMs - Date.parse(String(x.requested_at))) / D));
+            return { id: 'wdw:' + x.id, name: n, state: 'طلب سحب مستني', line: n + ' · طلب سحب ' + money(Number(x.amount)) + ' مستني من ' + d + ' يوم', entity: 'accounts-makers', group: { g: 'vendor', id: String(x.vendor_id), name: n } } as Ent; });
+      }
       return rows(await db.from('acc_vendor_settlements').select('id, vendor_id, cash, created_at').gte('created_at', since).limit(200))
         .map((x) => ({ id: 'settle:' + x.id, name: vs.get(String(x.vendor_id)) ?? 'مبتكر', state: 'اتقفل حسابه', line: 'اتقفل حساب ' + (vs.get(String(x.vendor_id)) ?? 'مبتكر') + ' — اتحوّل ' + money(Number(x.cash)), entity: 'accounts-makers' }));
     }
@@ -400,6 +446,51 @@ async function read(db: Db, w: World, ctx: Ctx, rule: Json, since: string): Prom
       if (st === 'move') L = L.filter((l) => /\bvendor\b/.test(textOf(l.new_value)));
       const word = (CAT.stateOf(el, ty, st, null) || {}).label;
       return L.map((l) => ({ id: 'vact:' + st + ':' + l.id, name: word, ref: String(l.entity_id ?? ''), state: word, line: word + ' · ' + nameOf(w, l.actor), entity: st === 'move' ? 'products' : 'makers' }));
+    }
+    // ---- the bell's redesign decision 5 — the shipping, the stock and the links
+    case 'orders.shipping': {
+      const r = await orders(db, w, ctx);
+      if (st === 'no_bosta') {
+        const limit = new Date(ctx.nowMs - (P ?? 1) * D).toISOString();
+        return r.O.filter((o) => String(o.status) === 'جاهز للشحن' && !o.bosta_tracking && String(o.updated_at ?? o.placed_at) <= limit)
+          .map((o) => ({ id: 'nb:' + o.id, name: String(o.customer_name ?? '').trim(), ref: ref(o), state: 'مااتبعتش لبوسطة', line: 'جاهز للشحن ومااتبعتش لبوسطة · عمره ' + ageOf(o, today) + ' يوم', entity: 'orders/' + String(o.number ?? o.id) }));
+      }
+      // the COD bosta refused to change (0144) — any order, open or not
+      return rows(await db.from('orders').select('id, number, customer_name, bosta_tracking, bosta_cod_error').not('bosta_cod_error', 'is', null).is('deleted_at', null).gte('placed_at', LIVE_FROM).limit(300))
+        .map((o) => ({ id: 'cod:' + o.id, name: String(o.customer_name ?? '').trim(), ref: ref(o), state: 'التحصيل مااتحدثش', line: 'بوسطة رفضت تعديل التحصيل · ' + String(o.bosta_tracking ?? ''), entity: 'orders/' + String(o.number ?? o.id) }));
+    }
+    case 'inventory.consolidation': {
+      const inv = rows(await db.from('settings').select('data').eq('section', 'inventory').limit(1))[0]; const days = P ?? (Number(isObj(inv?.data) ? inv.data.consolidationAlert : null) || 5);
+      const cons = rows(await db.from('inv_consolidations').select('id, order_id, since, status, closed_at').is('closed_at', null).limit(500))
+        .filter((c) => daysBetween(String(c.since ?? today).slice(0, 10), today) >= days);
+      if (!cons.length) return [];
+      const ords = new Map(rows(await db.from('orders').select('id, number, customer_name').in('id', cons.map((c) => c.order_id)).limit(500)).map((o) => [String(o.id), o]));
+      return cons.map((c) => { const o = ords.get(String(c.order_id)) as Json | undefined; const d = daysBetween(String(c.since ?? today).slice(0, 10), today);
+        return { id: 'cons:' + c.id, name: String(o?.customer_name ?? '').trim(), ref: o ? ref(o) : '', state: 'عدّى مدته', line: 'تجميع ' + (o ? ref(o) : '') + ' في المخزن بقاله ' + d + ' يوم', entity: 'inventory-consolidate' } as Ent; });
+    }
+    case 'inventory.lost': {
+      const vs = new Map(rows(await db.from('vendors').select('id, name').limit(LIMIT)).map((v) => [String(v.id), String(v.name)]));
+      // a lot turns «مفقود» from the return's inspection (updated_at) or is written so from the orders page (0154 — created_at only)
+      const when = (l: Json) => [l.updated_at, l.created_at].filter(Boolean).map(String).sort().pop() ?? '';
+      return rows(await db.from('inv_lots').select('id, sku, name, vendor_id, ref, created_at, updated_at').eq('status', 'مفقود').order('created_at', { ascending: false }).limit(500))
+        .filter((l) => when(l) >= since).slice(0, 200)
+        .map((l) => { const n = l.vendor_id ? vs.get(String(l.vendor_id)) ?? 'مبتكر' : null;
+          return { id: 'lost:' + l.id, name: String(l.name ?? l.sku), ref: String(l.sku ?? ''), state: 'مفقود', line: 'اتعلّمت مفقود: ' + String(l.name ?? l.sku).slice(0, 80) + (l.ref ? ' · ' + String(l.ref) : ''), entity: 'inventory-returns',
+            ...(n ? { group: { g: 'vendor', id: String(l.vendor_id), name: n } as Group } : {}) } as Ent; });
+    }
+    // a link that stopped: a channel the admin connected now in error, an ads account with an error code, or the site's sync failing
+    // three times in a row in the last hour — names and codes only
+    case 'system.links': {
+      const out: Ent[] = [];
+      // Meta refused a send in the last day because its token died (OAuth code 190): the page / WhatsApp link needs connecting again
+      const dead = rows(await db.from('cs_messages').select('conversation_id, meta').eq('delivery', 'failed').gte('created_at', new Date(ctx.nowMs - D).toISOString()).limit(500))
+        .filter((m) => isObj(m.meta) && /^graph_190(:|$)/.test(String(m.meta.error ?? '')));
+      if (dead.length) out.push({ id: 'link:meta', name: 'Meta', state: 'وقف', line: 'ربط Meta (الصفحة أو واتساب) انتهى — اربطه تاني من الإعدادات', entity: 'settings-integrations' });
+      for (const a of rows(await db.from('mkt_ad_objects').select('platform, id, name, meta').eq('kind', 'account').limit(20)))
+        if (isObj(a.meta) && a.meta.error) out.push({ id: 'link:ads:' + a.platform, name: String(a.platform), state: 'وقف', line: 'حساب إعلانات ' + String(a.platform) + ' مش بيتقري (' + String(a.meta.error).slice(0, 40) + ')', entity: 'settings-integrations' });
+      const last = rows(await db.from('woo_sync_log').select('result, at').eq('direction', 'in').gte('at', new Date(ctx.nowMs - 3600_000).toISOString()).order('at', { ascending: false }).limit(3));
+      if (last.length === 3 && last.every((x) => String(x.result) === 'error')) out.push({ id: 'link:woo', name: 'الموقع', state: 'وقف', line: 'مزامنة الموقع فشلت 3 مرات ورا بعض في آخر ساعة', entity: 'settings-integrations' });
+      return out;
     }
   }
   return [];

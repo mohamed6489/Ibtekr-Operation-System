@@ -7,7 +7,7 @@ export function notifState(opts) {
   const t = opts.notifTree === true ? {} : opts.notifTree;
   return { sections: (t.sections || []).map((x) => ({ icon: null, ...x })), rules: (t.rules || []).map((x) => ({ sub: null, param: null, days: [], channels: ['bell'], template: null, active: true, sort: 0, ...x })), alerts: t.alerts || [], seq: 1 };
 }
-const COLS = ['id', 'at', 'kind', 'title', 'body', 'role_id', 'user_id', 'entity', 'entity_id', 'read_at', 'rule_id', 'section_id', 'hide_at'];
+const COLS = ['id', 'at', 'kind', 'title', 'body', 'role_id', 'user_id', 'entity', 'entity_id', 'read_at', 'rule_id', 'section_id', 'hide_at', 'meta']; // 0161 meta (the bell's redesign)
 export function notifRoute(c) {
   const { method, path, url, u, isAdmin, json, mock } = c; const N = mock.notif;
   // without the opt-in the tables are missing, as on a project before 0157 (the old bell and settings tabs then)

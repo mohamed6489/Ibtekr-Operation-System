@@ -140,8 +140,8 @@ Deno.test('rules (security review): a member with the element\'s page partly (hr
   assertEquals(to('r-pay').map((x: string) => x.split('|')[0]), [ADMIN], 'the accounts member without sensitive.salaries gets no payroll reminder');
 });
 
-Deno.test('rules (security review): an assistant\'s note reaches only the members who see that assistant — no element page lets the rest in', async () => {
-  const s = withRules([rule('r-ai', { name: 'تنبيهات المساعدين', element: 'ai', type: 'any', state: 'notes', at: '00:00', show: 'until_read', hours: 6, roles: ['admin', 'cs', 'ops'], last_run: '2026-11-08T07:00:00.000Z' })],
+Deno.test('rules (security review): an assistant\'s note reaches only the members who see that assistant — no element page lets the rest in (the operations assistant\'s own type — the bell\'s redesign)', async () => {
+  const s = withRules([rule('r-ai', { name: 'تنبيهات المساعدين', element: 'ai', type: 'stock', state: 'summary', at: '00:00', show: 'until_read', hours: 6, roles: ['admin', 'cs', 'ops'], last_run: '2026-11-08T07:00:00.000Z' })],
     (seed) => { seed.ai_agents = [{ id: 'stock', name: 'التشغيل الذكي', perm: 'inventory.view' }]; seed.ai_agent_notes = [{ id: 7, agent: 'stock', kind: 'report', title: 'ملخص التشغيل', body: '', ref: 'team:x', created_at: '2026-11-08T07:30:00.000Z' }]; });
   await cron(s.deps);
   assertEquals(s.db.rows('alerts').map((a: any) => a.user_id).sort(), [ADMIN, OPS].sort(), 'cs has no inventory.view: no note');
@@ -419,4 +419,29 @@ Deno.test('outbound (Safwat 24 Nov): a rule naming e-mail sends each member one 
   const st = s.db.row('sync_state', 'notify', 'key').value;
   assertEquals(st.notif.sent, { email: 2, whatsapp: 0, failed: 0, no_contact: 0, not_linked: 0 });
   assertFalse(JSON.stringify(st).includes('@x.test'), 'no address stored');
+});
+
+// the bell's redesign (Safwat 24 Nov — docs/superpowers/plans/2026-11-24-bell-redesign.md): the new alerts and what the bell draws by —
+// the level and who the alert is about (alerts.meta), never a phone or a text
+Deno.test('the bell\'s redesign: a withdrawal waiting two days and a lost piece carry their maker; an account under zero; meta = level + owner + counts', async () => {
+  const s = withRules([
+    rule('r-wd', { name: 'طلب سحب مستني', element: 'makers', type: 'accounts', state: 'withdraw_wait', param: 2, at: '00:00', roles: ['admin'] }),
+    rule('r-neg', { name: 'حساب بالسالب', element: 'accounts', type: 'real', state: 'negative', at: '00:00', roles: ['admin'] }),
+    rule('r-lost', { name: 'قطعة مفقودة', element: 'inventory', type: 'lost', state: 'new', at: '00:00', show: 'fixed', hours: 72, roles: ['admin'], last_run: '2026-11-08T07:00:00.000Z' })],
+  (seed) => {
+    const V = seed.vendors[0].id;
+    seed.dokan_withdrawals = [{ id: 1, woo_vendor_id: 7, vendor_id: V, amount: 900, status: 'pending', requested_at: '2026-11-05T08:00:00Z', synced_at: '2026-11-05T08:00:00Z' },
+      { id: 2, woo_vendor_id: 7, vendor_id: V, amount: 100, status: 'pending', requested_at: '2026-11-08T06:00:00Z', synced_at: '2026-11-08T06:00:00Z' }];
+    seed.acc_account_moves = [{ id: 'm1', account: 'كاش', on_date: '2026-11-08', direction: 'withdraw', amount: 300, created_at: '2026-11-08T07:00:00Z', voided_at: null },
+      { id: 'm2', account: 'بنك', on_date: '2026-11-08', direction: 'deposit', amount: 300, created_at: '2026-11-08T07:00:00Z', voided_at: null }];
+    seed.inv_lots = [{ id: 'l1', reason: 'مرتجع', status: 'مفقود', sku: 'IBT-1', name: 'كوباية', vendor_id: V, ref: 'IB-77', updated_at: '2026-11-08T07:30:00Z' }];
+  });
+  await cron(s.deps);
+  const A = s.db.rows('alerts');
+  const wd = A.filter((a: any) => a.rule_id === 'r-wd'); assertEquals(wd.length, 1, 'only the one waiting more than two days');
+  assertEquals(wd[0].meta, { lv: 'important', g: 'vendor', gid: s.db.rows('vendors')[0].id, gname: 'آرت كرافت' });
+  assert(String(wd[0].body).includes('مستني من 3 يوم'), wd[0].body);
+  const neg = A.filter((a: any) => a.rule_id === 'r-neg'); assertEquals(neg.map((a: any) => a.entity_id), ['neg:كاش']); assertEquals(neg[0].meta, { lv: 'critical' });
+  const lost = A.find((a: any) => a.rule_id === 'r-lost'); assertEquals(lost.meta.g, 'vendor'); assertEquals(lost.meta.lv, 'critical'); assertEquals(lost.hide_at, '2026-11-11T08:00:00.000Z');
+  for (const a of A) assertFalse(/0109/.test(JSON.stringify(a)), 'no phone in an alert');
 });

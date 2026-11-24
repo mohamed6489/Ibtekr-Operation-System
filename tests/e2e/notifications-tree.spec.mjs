@@ -48,11 +48,11 @@ test('the bell = the settings\' tree: its groups and filters, a rule-less alert 
   await expect(bell.locator('.ntf-item').nth(1).locator('.ntf-dot')).toHaveCount(0);
   await expect(bell).not.toContainText('اتخفى');
   // the sort: the oldest first
-  await bell.locator('#ntf-sort').click(); await page.getByRole('option', { name: 'الأقدم الأول' }).click();
+  await bell.locator('#ntf-sort').click(); await expect(bell.locator('#ntf-sort')).toHaveAttribute('data-sort', 'old'); // the bell's redesign: one small button (newest ⇄ oldest)
   await expect(bell.locator('.ntf-item').first()).toContainText('IB-180651');
   // «الفريق»: the overtime alert written by the database (no rule) sits under «الحضور والانصراف» (its element = team)
   await bell.locator('.ntf-nav-item', { hasText: 'الفريق' }).click();
-  await expect(bell.locator('.tab')).toHaveText([/الكل \(1\)/, /الحضور والانصراف \(1\)/, /غير مقروء \(1\)/, /مقروء \(0\)/]);
+  await expect(bell.locator('.tab')).toHaveText([/الكل \(1\)/, /الحضور والانصراف \(1\)/, /غير مقروء \(1\)/]); // the bell's redesign: an empty filter is not shown
   await expect(bell.locator('.ntf-item')).toContainText('وقت إضافي محتاج قرارك');
   // «تعليم القسم كمقروء» → the dot goes, written as reads
   await bell.locator('.ntf-foot').getByRole('button', { name: 'تعليم القسم كمقروء' }).click();
@@ -100,7 +100,7 @@ test('«الإعدادات › التنبيهات»: a main section, a sub-secti
   await page.locator('.notif-btn').click();
   await expect(page.locator('.menu.notif .ntf-nav-item')).toHaveText([/خدمة العملاء/, /الفريق/, /الحسابات/]);
   await page.locator('.menu.notif .ntf-nav-item', { hasText: 'الحسابات' }).click();
-  await expect(page.locator('.menu.notif .tab')).toHaveText([/الكل \(0\)/, /العهدة \(0\)/, /غير مقروء \(0\)/, /مقروء \(0\)/]);
+  await expect(page.locator('.menu.notif .tab')).toHaveText([/الكل \(0\)/]); // the bell's redesign: «الكل» only while the group is empty
 });
 
 test('an alert switched off and deleted from the settings; a sub-section renamed', async ({ page }) => {
@@ -123,4 +123,48 @@ test('«إرسال برّه الجرس»: the admin\'s e-mail / WhatsApp switche
   await expect(box).toContainText('واقف لحد تشغيل الـ API');
   await box.locator('#nr-out-email').click();
   await expect.poll(() => page.evaluate(() => window.IBSettings.section('notif').channels)).toEqual({ email: true, whatsapp: false });
+});
+
+// the bell's redesign (Safwat 24 Nov — docs/superpowers/plans/2026-11-24-bell-redesign.md): a maker's delay alerts are one card with
+// his counts that opens his late orders (with «مشاركة»); the critical first with its tag; a member's alert carries his first letter
+test('the bell\'s redesign: a maker\'s card opens his late orders, the critical first, the owner instead of the bell', async ({ page }) => {
+  const vm = (st, pcs) => ({ lv: st === 'late' ? 'critical' : 'important', g: 'vendor', gid: 'v-art', gname: 'Art Craft', n: 1, pcs, st });
+  mock.alerts = [
+    { id: 601, at: iso(10), kind: 'rule:subs.delay', title: 'أوردر فرعي متأخر — IB-1', body: 'x', role_id: null, user_id: ADMIN_ID, entity: 'orders/1', entity_id: 's:1', read_at: null, rule_id: 'r1', section_id: S1, hide_at: null, meta: vm('late', 4) },
+    { id: 602, at: iso(20), kind: 'rule:subs.delay', title: 'أوردر فرعي متأخر — IB-2', body: 'x', role_id: null, user_id: ADMIN_ID, entity: 'orders/2', entity_id: 's:2', read_at: null, rule_id: 'r1', section_id: S1, hide_at: null, meta: vm('late', 1) },
+    { id: 603, at: iso(30), kind: 'rule:subs.delay', title: 'أوردر فرعي قابل للتأخير — IB-3', body: 'x', role_id: null, user_id: ADMIN_ID, entity: 'orders/3', entity_id: 's:3', read_at: null, rule_id: 'r1', section_id: S1, hide_at: null, meta: vm('risk', 2) },
+    { id: 604, at: iso(1), kind: 'rule:orders.update', title: 'أوردر جديد — IB-9', body: 'x', role_id: null, user_id: ADMIN_ID, entity: 'orders/9', entity_id: 'onew:9', read_at: null, rule_id: 'r1', section_id: S1, hide_at: null, meta: { lv: 'info' } },
+    { id: 605, at: iso(5), kind: 'rule:team.status', title: 'لم يسجل انصراف', body: 'x', role_id: null, user_id: ADMIN_ID, entity: 'hr-team', entity_id: 'noout:1', read_at: null, rule_id: 'r2', section_id: S2, hide_at: null, meta: { lv: 'important', g: 'member', gid: 'm1', gname: 'سارة أحمد' } }];
+  mock.alertReads = [];
+  await signIn(page, 'dashboard');
+  await page.locator('.notif-btn').click();
+  const bell = page.locator('.menu.notif');
+  await expect(bell.locator('.ntf-head.tree')).toContainText('4 محتاج تتصرف'); await expect(bell.locator('.ntf-head.tree')).toContainText('2 حرج');
+  await expect(bell.locator('.ntf-nav-item').first().locator('.cnt.hot')).toBeVisible();
+  const items = bell.locator('.ntf-item');
+  await expect(items).toHaveCount(2); // the maker's three alerts = one card; the new order after it (info)
+  await expect(items.first()).toHaveClass(/lv-critical/); await expect(items.first()).toContainText('Art Craft');
+  await expect(items.first().locator('.ntf-chip')).toHaveText(['2 متأخر', '1 قابل للتأخير', '7 قطعة']);
+  await expect(items.first().locator('.ntf-lv')).toHaveText('حرج');
+  await expect(items.first().locator('.av.letter, .av.img')).toHaveCount(1);
+  await bell.locator('.ntf-nav-item', { hasText: 'الفريق' }).click();
+  await expect(bell.locator('.ntf-item').first().locator('.av.letter')).toHaveText('س');
+  await bell.locator('.ntf-nav-item', { hasText: 'خدمة العملاء' }).click();
+  await bell.locator('.ntf-item').first().click();
+  const pop = page.locator('.modal[data-vlate="all"]'); await expect(pop).toBeVisible(); await expect(pop).toContainText('Art Craft');
+  await expect(pop.locator('[data-share]')).toHaveCount(1);
+  await expect.poll(() => [601, 602, 603].every((id) => mock.alertReads.some((r) => r.alert_id === id))).toBe(true);
+});
+
+test('the rule\'s roles: green labels with ×, and «+» adds one — saved at once', async ({ page }) => {
+  await signIn(page, 'settings-notifications');
+  const rule = page.locator('[data-nr-rule="r1"]'); const roles = rule.locator('[data-nr-roles-of="r1"]');
+  await expect(roles.locator('.nr-role')).toHaveCount(2);
+  await roles.locator('.nr-role', { hasText: 'خدمة العملاء' }).locator('.x').click();
+  await expect.poll(() => (mock.notif.rules.find((r) => r.id === 'r1') || {}).roles).toEqual(['admin']);
+  await expect(page.locator('[data-nr-roles-of="r1"] .nr-role')).toHaveCount(1);
+  await expect(page.locator('[data-nr-roles-of="r1"] .nr-role .x')).toBeDisabled(); // the last role stays
+  await page.locator('[data-nr-roles-of="r1"] .nr-role-add').click();
+  await page.getByRole('menuitem', { name: 'خدمة العملاء' }).click();
+  await expect.poll(() => (mock.notif.rules.find((r) => r.id === 'r1') || {}).roles).toEqual(['admin', 'cs']);
 });

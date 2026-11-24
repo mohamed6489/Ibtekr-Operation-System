@@ -47,9 +47,12 @@
           h('div', { class: 'row cols3' },
             U().Select({ id: 'nr-el', label: 'العنصر', required: true, value: f.element || null, options: c.ELEMENTS.map((e) => ({ value: e.id, label: e.label })), onChange: (v) => { f.element = v; f.type = ''; f.state = ''; f.sub = null; f.param = null; draw(); } }),
             U().Select({ id: 'nr-type', label: 'نوع التنبيه', required: true, disabled: !f.element, value: f.type || null, options: types().map((x) => ({ value: x.id, label: x.label })), onChange: (v) => { f.type = v; f.state = ''; f.sub = null; f.param = null; draw(); } }),
-            U().Select({ id: 'nr-state', label: 'الوضع', required: true, disabled: !f.type, value: f.state || null, options: states().map((x) => ({ value: x.id, label: x.label })), onChange: (v) => { f.state = v; const s2 = c.stateOf(f.element, f.type, v, L); f.param = s2 && s2.param ? s2.param.def : null; draw(); } })),
+            U().Select({ id: 'nr-state', label: 'الوضع', required: true, disabled: !f.type, value: f.state || null, options: states().map((x) => ({ value: x.id, label: x.label })), onChange: (v) => { f.state = v; const s2 = c.stateOf(f.element, f.type, v, L); f.param = s2 && s2.param ? s2.param.def : null;
+              // a new rule takes its level's «تفاصيل الظهور» (the bell's redesign decision 1) — the admin changes it below if he wants
+              if (!rule && c.showOf) Object.assign(f, c.showOf(c.levelOf(f), c.kindOf(f))); draw(); } })),
           t && t.dyn === 'ticket' ? U().Select({ id: 'nr-sub', label: 'نوع الطلب', value: f.sub || '', options: [{ value: '', label: 'كل الأنواع' }].concat((L.ticket || []).map((x) => ({ value: x, label: (window.IbtekrTickets && window.IbtekrTickets.label ? window.IbtekrTickets.label(x) : x) }))), onChange: (v) => { f.sub = v || null; } }) : null,
           st && st.param ? U().TextInput({ id: 'nr-param', label: st.param.label, inputmode: 'numeric', dir: 'ltr', value: f.param == null ? String(st.param.def) : String(f.param), onInput: (v) => { f.param = v === '' ? null : Number(String(v).replace(/[^\d.]/g, '')); } }) : null,
+          st && c.levelOf ? h('p', { class: 't-small', style: 'margin:0', 'data-nr-level': c.levelOf(f) }, 'الأهمية: ', h('b', null, ({ critical: 'حرج — أول حاجة في الجرس', important: 'مهم', info: 'للعلم — بيختفي بعد يوم بالكتير' })[c.levelOf(f)])) : null,
           st ? h('p', { class: 't-small help', style: 'margin:0' }, st.kind === 'event' ? 'بيتبعت مع كل حدث جديد من الوقت ده كل يوم.' : st.kind === 'due' ? 'بيتبعت مرة لما الميعاد يقرب.' : 'بيتبعت لكل حاجة في الوضع ده ويتجدد بالتكرار طول ما هي فيه.') : null),
         sec('وقت الإرسال',
           h('div', { class: 'row cols2' },
@@ -79,10 +82,23 @@
   }
 
   // ---------- the tree
+  // the rule's roles on its card (Safwat 24 Nov — the bell's redesign decision 7): a green label each with × that takes it off, and a small
+  // «+» that adds one from the roles left — saved at once; the last role stays (a rule needs one)
+  function roleChips(r, redraw) {
+    const save = async (roles) => { const x = await ST().notifRuleSave(Object.assign({}, r, { roles })); say(x, 'اتحفظ'); redraw(); };
+    const left = roleList().filter((x) => !(r.roles || []).includes(x.id));
+    const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' });
+    const add = h('button', { type: 'button', class: 'nr-role-add', 'aria-label': 'إضافة دور', title: 'إضافة دور', 'aria-haspopup': 'menu', 'aria-expanded': 'false', disabled: !left.length }, '+');
+    const pop = U().popover(wrap, add, (close) => U().DropdownMenu({ role: 'menu', end: true, options: left.map((x) => ({ value: x.id, label: x.name })), onSelect: (id) => { close(); save((r.roles || []).concat(id)); } }));
+    add.addEventListener('click', pop.toggle); wrap.append(add);
+    return h('div', { class: 'nr-roles', 'data-nr-roles-of': r.id }, (r.roles || []).map((x) => h('span', { class: 'nr-role' }, roleName(x),
+      h('button', { type: 'button', class: 'x', 'aria-label': 'شيل ' + roleName(x), title: (r.roles || []).length < 2 ? 'لازم دور واحد على الأقل' : 'شيل ' + roleName(x), disabled: (r.roles || []).length < 2,
+        onClick: () => save((r.roles || []).filter((y) => y !== x)) }, '×'))), wrap);
+  }
   function ruleRow(sub, r, redraw) {
     return h('div', { class: 'nr-rule' + (r.active === false ? ' off' : ''), 'data-nr-rule': r.id },
       h('div', { class: 'nr-rule-main' }, h('b', null, r.name), h('div', { class: 't-small muted' }, pathText(r)),
-        h('div', { class: 'nr-tags' }, [t12(r.at) + ' · ' + repeatText(r), showText(r)].map((x) => h('span', { class: 'tag' }, x)), (r.roles || []).map((x) => h('span', { class: 'tag brand' }, roleName(x))))),
+        h('div', { class: 'nr-tags' }, [t12(r.at) + ' · ' + repeatText(r), showText(r)].map((x) => h('span', { class: 'tag' }, x))), roleChips(r, redraw)),
       K().Switch({ id: 'nr-on-' + r.id, label: r.active === false ? 'متوقف' : 'شغّال', checked: r.active !== false, onChange: async (v) => { const x = await ST().notifRuleSave(Object.assign({}, r, { active: v })); say(x); redraw(); } }),
       K().RowMenu([{ label: 'تعديل', icon: 'edit', run: () => ruleForm(sub, r, redraw) },
         { label: 'حذف', icon: 'trash', danger: true, run: () => K().confirm({ title: 'حذف التنبيه', text: '«' + r.name + '» هيتمسح وتنبيهاته هتختفي من الجرس.', okLabel: 'احذف', okType: 'danger', onOk: async () => { say(await ST().notifRuleDelete(r.id), 'اتمسح'); redraw(); } }) }]));

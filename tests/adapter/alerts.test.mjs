@@ -21,7 +21,7 @@ test('load merges reads, asked for the loaded alert ids only (bounded by the ale
   await A.load();
   // 0157: the rule / sub-section / hide_at columns, and an alert whose «تفاصيل الظهور» passed is not asked for
   const ops = opsOf(calls, 'alerts');
-  assert.deepEqual(ops[0], { op: 'select', args: ['id, at, kind, title, body, entity, entity_id, rule_id, section_id, hide_at'] });
+  assert.deepEqual(ops[0], { op: 'select', args: ['id, at, kind, title, body, entity, entity_id, rule_id, section_id, hide_at, meta'] });
   assert.equal(ops[1].op, 'or'); assert.match(ops[1].args[0], /^hide_at\.is\.null,hide_at\.gt\.\d{4}-\d\d-\d\dT/);
   assert.deepEqual(ops.slice(2), [{ op: 'order', args: ['at', { ascending: false }] }, { op: 'limit', args: [200] }]);
   assert.deepEqual(opsOf(calls, 'alert_reads'), [{ op: 'select', args: ['alert_id'] }, { op: 'eq', args: ['user_id', 'u2'] }, { op: 'in', args: ['alert_id', [2, 1]] }]);
@@ -29,7 +29,7 @@ test('load merges reads, asked for the loaded alert ids only (bounded by the ale
   assert.equal(A.list()[0].id, 2);
   assert.equal(A.list()[1].read, true);
   assert.equal(A.unread(), 1);
-  assert.deepEqual(plain(A.list()[0]), { id: 2, at: '2026-10-25T09:00:00Z', kind: 'woo.sync.failed', title: 'فشل المزامنة', body: null, entity: 'settings-integrations', entityId: null, ruleId: null, sectionId: null, read: false });
+  assert.deepEqual(plain(A.list()[0]), { id: 2, at: '2026-10-25T09:00:00Z', kind: 'woo.sync.failed', title: 'فشل المزامنة', body: null, entity: 'settings-integrations', entityId: null, ruleId: null, sectionId: null, meta: null, read: false });
 });
 
 // the notifications' new structure (Safwat 24 Nov — 0157): the bell = the settings' tree — a group per main section, «الكل», one tab
@@ -248,4 +248,32 @@ test('noteOpen: a «cs/<conversation>» note opens that conversation with the re
   await A.noteOpen(7);
   assert.deepEqual(opened[1], [CID, '']);
   assert.equal(A.draftOf('x\nالرد المقترح:\n  رد  '), 'رد'); assert.equal(A.draftOf('من غير رد'), '');
+});
+
+// the bell's redesign (docs/superpowers/plans/2026-11-24-bell-redesign.md): a maker's delay alerts in a tab are one card (his logo, «N
+// متأخر · M قابل للتأخير · P قطعة») that opens his late orders; the critical first; a member's alert carries his first letter
+test('treeSections: one card per maker with his counts, the critical first, the owner\'s avatar', async () => {
+  const meta = (st, pcs) => ({ lv: st === 'late' ? 'critical' : 'important', g: 'vendor', gid: 'v1', gname: 'Art Craft', n: 1, pcs, st });
+  const rows = [
+    { id: 21, at: '2026-11-24T09:00:00Z', kind: 'rule:subs.delay', title: 'أوردر فرعي متأخر — IB-1', body: 'x', entity: 'orders/1', entity_id: 's:1:v1', rule_id: 'r1', section_id: 's1', hide_at: null, meta: meta('late', 3) },
+    { id: 22, at: '2026-11-24T08:00:00Z', kind: 'rule:subs.delay', title: 'أوردر فرعي متأخر — IB-2', body: 'x', entity: 'orders/2', entity_id: 's:2:v1', rule_id: 'r1', section_id: 's1', hide_at: null, meta: meta('late', 1) },
+    { id: 23, at: '2026-11-24T07:00:00Z', kind: 'rule:subs.delay', title: 'أوردر فرعي قابل للتأخير — IB-3', body: 'x', entity: 'orders/3', entity_id: 's:3:v1', rule_id: 'r1', section_id: 's1', hide_at: null, meta: meta('risk', 2) },
+    { id: 24, at: '2026-11-24T10:00:00Z', kind: 'rule:makers.making', title: 'أوردر مؤكد جديد', body: 'x', entity: 'orders/4', entity_id: 'mk:1', rule_id: 'r1', section_id: 's1', hide_at: null, meta: { lv: 'info' } },
+    { id: 25, at: '2026-11-24T11:00:00Z', kind: 'rule:team.status', title: 'لم يسجل حضور', body: 'x', entity: 'hr-team', entity_id: 'noin:1', rule_id: 'r1', section_id: 's1', hide_at: null, meta: { lv: 'important', g: 'member', gid: 'm1', gname: 'سارة أحمد' } }];
+  const responses = { alerts: { data: rows, error: null }, alert_reads: { data: [], error: null },
+    notif_sections: { data: [{ id: 'm1', parent_id: null, name: 'متابعة المبتكرين', sort: 0 }, { id: 's1', parent_id: 'm1', name: 'متأخر', sort: 0 }], error: null },
+    notif_rules: { data: [{ id: 'r1', section_id: 's1', element: 'subs', active: true }], error: null } };
+  const { A, window } = load({ responses });
+  window.IBVendors = { store: { get: (id) => (id === 'v1' ? { logoUrl: 'https://ibtekr.club/logo.webp' } : null) } };
+  await A.load();
+  const opened = []; const S = A.treeSections((a) => { opened.push(a); return true; }, 'new');
+  const all = S[0].tabs[0][2];
+  assert.deepEqual(plain(all.map((x) => [x.title, x.lv])), [['Art Craft', 'critical'], ['لم يسجل حضور', 'important'], ['أوردر مؤكد جديد', 'info']]);
+  assert.equal(all[0].sub, '2 أوردر متأخر · 1 قابل للتأخير · 6 قطعة'); assert.equal(all[0].group, true);
+  assert.deepEqual(plain(all[0].av), { img: 'https://ibtekr.club/logo.webp', letter: 'A' });
+  assert.deepEqual(plain(all[1].av), { letter: 'س', tone: 'member' });
+  assert.equal(S[0].received, 5); assert.equal(S[0].critical, 2);
+  all[0].run();
+  assert.deepEqual(plain(opened), [{ vendorLate: 'Art Craft', vendorId: 'v1', kind: 'all' }]);
+  assert.equal(A.list().filter((a) => a.read).length, 3, 'the card marks the maker\'s alerts read');
 });

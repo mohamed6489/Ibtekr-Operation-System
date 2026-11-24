@@ -30,6 +30,7 @@ import { IG_FIELDS, igTrendRows, trendTags } from '../_shared/mkt-trends.js';
 import {
   STATS_DAYS, body, cairoParts, connectionOf, containerState, fbStatsOf, graphErrorCode, idOf, igStatsOf, linkOf, ourCode, path, planOf, platformRowsOf, scopesOf,
 } from '../_shared/mkt-publish.js';
+import { pin, postPath } from '../_shared/meta-pin.js';
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -48,6 +49,7 @@ const VIDEO_SIGN_SECONDS = 3600; // a reel's video (decision 63): Meta fetches i
 const POLL = { tries: 6, ms: 2_000 };
 const DUE_BATCH = 5;
 const STATS_BATCH = 40;
+const PIN_BATCH = 12; // the meeting of 23 Nov phase 8 (0156): the pictures kept per run (each a CDN fetch + an upload)
 const BUSY_MS = 5 * 60 * 1000;
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Access-Control-Allow-Methods': 'POST, OPTIONS' };
 const json = (status: number, b: unknown) => new Response(JSON.stringify(b), { status, headers: { ...CORS, 'Content-Type': 'application/json' } });
@@ -249,6 +251,9 @@ async function stats(deps: Deps): Promise<Response> {
     const fresh = pulled.filter((r) => !known.has(r.platform + '|' + r.external_id));
     if (fresh.length) { const { error } = await deps.db.from('mkt_posts').insert(fresh); if (error) errors.push('insert:' + (error.code ?? 'error')); else added = fresh.length; }
   }
+  // 1b. the meeting of 23 Nov phase 8 (0156): Meta's picture links die in days — keep a copy of each platform post's picture in the
+  //     bucket while its link is fresh (this run's feed), and for an older one ask Meta for its picture now; a few a run
+  let pinned = 0; try { pinned = await pinPosts(deps, read, pulled); } catch (e) { errors.push('pin'); console.error('mkt-publish pin: ' + quiet(e)); }
   // 2. the numbers (decision 36): the published posts with an id of the last 30 days (a story: its 24 hours)
   const since = new Date(nowMs - STATS_DAYS * 86400_000).toISOString();
   const { data: live } = await deps.db.from('mkt_posts').select('id, platform, kind, external_id, published_at, stats_at').eq('status', 'اتنشر')
@@ -269,7 +274,30 @@ async function stats(deps: Deps): Promise<Response> {
     rows.push({ id: p.id, ...(ig ? igStatsOf(counts, insights) : fbStatsOf(counts, insights)) });
   }
   if (rows.length) { const { error } = await deps.db.rpc('mkt_stats_put', { p_rows: rows }); if (error) errors.push('stats:' + (error.code ?? 'error')); }
-  return json(200, { result: 'ok', added, numbers: rows.length, gone, errors: [...new Set(errors)].slice(0, 5) });
+  return json(200, { result: 'ok', added, numbers: rows.length, gone, pinned, errors: [...new Set(errors)].slice(0, 5) });
+}
+
+// the platform's posts without a kept picture (the newest first): the link this run's feed gave (fresh), else the post's own picture
+// read now (Facebook full_picture · Instagram the photo or the video's cover); the CDN link is refreshed on the row too
+async function pinPosts(deps: Deps, read: (url: string) => Promise<Json | null>, pulled: Json[]): Promise<number> {
+  const { data: want, error } = await deps.db.from('mkt_posts').select('id, platform, external_id, thumb').eq('src', 'platform').is('thumb_path', null)
+    .is('deleted_at', null).not('external_id', 'is', null).order('published_at', { ascending: false }).limit(PIN_BATCH);
+  if (error || !Array.isArray(want)) return 0; // 0156 not applied yet
+  const fresh = new Map(pulled.map((r) => [r.platform + '|' + r.external_id, r.thumb]));
+  let n = 0;
+  for (const r of want) {
+    const ig = r.platform === 'انستجرام';
+    let link: string | null = fresh.get(r.platform + '|' + r.external_id) ?? null;
+    if (!link) {
+      const one = await read(ig ? path.igPic(r.external_id) : path.fbPic(r.external_id));
+      link = isObj(one) ? (ig ? (one.media_type === 'VIDEO' ? one.thumbnail_url : one.media_url ?? one.thumbnail_url) : one.full_picture) ?? null : null;
+    }
+    if (typeof link !== 'string') continue;
+    const kept = await pin(deps.db, 'marketing', deps.fetch ?? fetch, link, (mime: string) => postPath(r.platform, r.external_id, mime));
+    const patch: Json = kept ? { thumb_path: kept, thumb: link } : link !== r.thumb ? { thumb: link } : {};
+    if (Object.keys(patch).length) { await deps.db.from('mkt_posts').update(patch).eq('id', r.id); if (kept) n += 1; }
+  }
+  return n;
 }
 
 // ---------------------------------------------------------------- the designer's trends from Instagram's hashtags (ش39)

@@ -32,6 +32,7 @@ import { PIXEL_DAYS, SITE_MAX_BYTES, checksOf, eventCounts, pixelPath, pixelRepo
 import { vaultEnv } from '../_shared/secrets.js';
 import { dailySummary } from '../_shared/mkt-ads-daily.js';
 import { liveAdsRows, liveAdsUrl } from '../_shared/agent-need.js';
+import { adPath, pin, pinUrl } from '../_shared/meta-pin.js';
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -245,6 +246,21 @@ async function fetchGoogle(deps: Deps, link: Link, w: { since: string; until: st
   const aStats = await gSearch(deps, link, access, cid, gaql.adStats(w.since, w.until));
   return { acct, objects: [...camps.map((c) => gObjectRowOf('campaign', c)), ...ads.map((x) => gObjectRowOf('ad', x))], stats: [...cStats.map((x) => gStatRowOf(x, 'campaign')), ...aStats.map((x) => gStatRowOf(x, 'ad'))] };
 }
+// the meeting of 23 Nov phase 8 (0156): an ad's picture on Meta's CDN dies in days — keep a copy in the bucket «marketing» while this run's
+// link is fresh (ads/<platform>/<id>.<ext>), the ads without one first, PIN_ADS a run; a failure leaves the row as it was
+const PIN_ADS = 30;
+async function pinAds(deps: Deps, platform: string, objects: Json[]): Promise<number> {
+  const withLink = objects.filter((o) => o.kind === 'ad' && pinUrl(o.thumb)); if (!withLink.length) return 0;
+  const { data: had, error } = await deps.db.from('mkt_ad_objects').select('id').eq('platform', platform).eq('kind', 'ad').not('thumb_path', 'is', null).in('id', withLink.map((o) => o.id));
+  if (error) return 0; // 0156 not applied yet
+  const kept = new Set((Array.isArray(had) ? had : []).map((r: Json) => String(r.id)));
+  let n = 0;
+  for (const o of withLink.filter((x) => !kept.has(String(x.id))).slice(0, PIN_ADS)) {
+    const path = await pin(deps.db, 'marketing', deps.fetch ?? fetch, o.thumb, (mime: string) => adPath(platform, o.id, mime));
+    if (path) { await deps.db.from('mkt_ad_objects').update({ thumb_path: path }).eq('platform', platform).eq('kind', 'ad').eq('id', o.id); n += 1; }
+  }
+  return n;
+}
 const FETCH: Record<string, (deps: Deps, link: Link, w: { since: string; until: string }) => Promise<Fetched>> = { meta: fetchMeta, tiktok: fetchTiktok, google: fetchGoogle };
 const accountRowFor = (platform: string, id: string, acct: Json | null, at: string, error: string | null, prev: Json | null) =>
   platform === 'tiktok' ? ttAccountRowOf(id, acct, at, error, prev) : platform === 'google' ? gAccountRowOf(id, acct, at, error, prev) : accountRowOf(id, acct, at, error, prev);
@@ -262,10 +278,11 @@ async function runPlatform(deps: Deps, platform: string, link: Link, daysArg: nu
     const stats = unique(f.stats, (r) => r.platform + '|' + r.level + '|' + r.object_id + '|' + r.day);
     await upsertAll(deps, 'mkt_ad_objects', objects, 'platform,kind,id');
     await upsertAll(deps, 'mkt_ad_stats', stats, 'platform,level,object_id,day');
+    let pinned = 0; try { pinned = await pinAds(deps, platform, objects); } catch (e) { console.error('mkt-ads pin ' + platform + ': ' + quiet(e)); }
     await upsertAll(deps, 'mkt_ad_objects', [{ ...accountRowFor(platform, id, f.acct, at, null, prev), updated_at: at }], 'platform,kind,id'); // last: the success mark
     let suggestions = 0;
     try { suggestions = await suggest(deps, platform, link, at); } catch (e) { console.error('mkt-ads suggest ' + platform + ': ' + quiet(e)); }
-    return { platform, days: w.days, since: w.since, until: w.until, campaigns: objects.filter((o) => o.kind === 'campaign').length, ads: objects.filter((o) => o.kind === 'ad').length, stats: stats.length, suggestions };
+    return { platform, days: w.days, since: w.since, until: w.until, campaigns: objects.filter((o) => o.kind === 'campaign').length, ads: objects.filter((o) => o.kind === 'ad').length, stats: stats.length, suggestions, pinned };
   } catch (e) {
     if (!(e instanceof GraphError)) throw e;
     const code = ourCode(e.code);

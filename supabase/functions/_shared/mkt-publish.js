@@ -77,6 +77,9 @@ export const path = {
   fbLink: (id) => GRAPH + '/' + id + '?fields=permalink_url',
   igLink: (id) => GRAPH + '/' + id + '?fields=permalink',
   fbCounts: (id) => GRAPH + '/' + id + '?fields=' + enc('reactions.summary(total_count).limit(0),comments.summary(total_count).limit(0),shares'),
+  // the meeting of 23 Nov phase 8 (0156): one post's picture now (a fresh CDN link to keep — _shared/meta-pin.js)
+  fbPic: (id) => GRAPH + '/' + id + '?fields=full_picture',
+  igPic: (id) => GRAPH + '/' + id + '?fields=media_type,media_url,thumbnail_url',
   fbInsights: (id) => GRAPH + '/' + id + '/insights?metric=post_media_view,post_total_media_view_unique',
   igCounts: (id) => GRAPH + '/' + id + '?fields=like_count,comments_count,media_product_type',
   igInsights: (id, story) => GRAPH + '/' + id + '/insights?metric=' + (story ? 'views,reach,shares,total_interactions' : 'views,reach,likes,comments,shares,saved,total_interactions'),

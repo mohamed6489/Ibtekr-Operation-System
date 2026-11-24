@@ -24,7 +24,7 @@
   const CAMP_COLS = 'id, name, goal, step, scheduled_at, created_by, created_at, updated_at, archived_at';
   const OPEN_COLS = CAMP_COLS + ', state';
   const POST_COLS = 'id, campaign_id, piece, kind, name, caption, caption_orig, tags, images, platform, day, time, how, status, was_live, post_url, published_at, published_by, deleted_at, created_at, updated_at, '
-    + 'src, external_id, thumb, views, reach, likes, comments, shares, saves, eng, stats_at, error, claimed_at';
+    + 'src, external_id, thumb, thumb_path, views, reach, likes, comments, shares, saves, eng, stats_at, error, claimed_at'; // thumb_path: 0156
   const BUSY_MS = 5 * 60 * 1000; // a row the server claimed in the last five minutes is being published (0051 mkt_busy)
   const TPL_COLS = 'id, name, kind, image, descr, used, created_at, updated_at, deleted_at';
   const LIMIT = 500; const POST_LIMIT = 3000;
@@ -59,6 +59,8 @@
     images: Array.isArray(r.images) ? r.images.filter((p) => typeof p === 'string') : [], img: (Array.isArray(r.images) ? r.images : []).find((p) => typeof p === 'string' && !/\.mp4$/i.test(p)) || null,
     video: (Array.isArray(r.images) ? r.images : []).find((p) => typeof p === 'string' && /\.mp4$/i.test(p)) || null, // 9.5.5: a reel's file
     thumb: typeof r.thumb === 'string' && /^https:\/\//.test(r.thumb) ? r.thumb : null, externalId: r.external_id || null,
+    // the meeting of 23 Nov phase 8 (0156): the server's copy of the platform's picture in the bucket (Meta's link dies in days)
+    thumbPath: typeof r.thumb_path === 'string' && /^platform\/(fb|ig)\/[A-Za-z0-9_-]{1,80}\.(jpg|png|webp)$/.test(r.thumb_path) ? r.thumb_path : null,
     wasLive: !!r.was_live, url: typeof r.post_url === 'string' && /^https:\/\//.test(r.post_url) ? r.post_url : null, publishedAt: r.published_at || null, delAt: cairoDay(r.deleted_at), updatedAt: r.updated_at,
     views: num(r.views), reach: num(r.reach), likes: num(r.likes), comments: num(r.comments), shares: num(r.shares), saves: num(r.saves), eng: num(r.eng),
     statsAt: r.stats_at || null, error: r.error || null, busy: !!r.claimed_at && Date.now() - Date.parse(r.claimed_at) < BUSY_MS });
@@ -229,9 +231,9 @@
     return put('templates/' + rand() + '.' + extOf(file.type), file, file.name);
   }
   const urls = new Map(); // path → { url, until }
-  async function url(path) {
+  async function url(path, fresh) {
     const cl = c(); if (!cl || !path) return null;
-    const hit = urls.get(path); if (hit && hit.until > Date.now()) return hit.url;
+    const hit = urls.get(path); if (!fresh && hit && hit.until > Date.now()) return hit.url;
     try { const { data: d, error } = await cl.storage.from(BUCKET).createSignedUrl(path, SIGN_SECONDS); if (error || !d || !d.signedUrl) return null; urls.set(path, { url: d.signedUrl, until: Date.now() + (SIGN_SECONDS - 60) * 1000 }); return d.signedUrl; }
     catch (e) { return null; }
   }
@@ -633,7 +635,7 @@
     return out;
   }
   const n0x = (v) => (v == null || v === '' ? null : Number(v));
-  const OBJ_COLS = 'platform, kind, id, parent_id, name, status, thumb, meta, updated_at';
+  const OBJ_COLS = 'platform, kind, id, parent_id, name, status, thumb, thumb_path, meta, updated_at'; // thumb_path: 0156
   const STAT_COLS = 'level, object_id, campaign_id, day, spend, impressions, reach, clicks, link_clicks, frequency, purchases, purchase_value';
   // a period's numbers + the 5 weeks before its end (the trend), at most 400 days: Meta's objects and daily numbers and the ad orders
   async function adsData(range) {
@@ -651,7 +653,7 @@
       ]);
       const r = { ok: true, from, to,
         objects: objects.map((o) => ({ platform: o.platform || 'meta', kind: o.kind, id: String(o.id), parent_id: o.parent_id || null, name: o.name || null, status: o.status || null,
-          thumb: typeof o.thumb === 'string' && /^https:\/\//.test(o.thumb) ? o.thumb : null, meta: o.meta && typeof o.meta === 'object' ? o.meta : {}, updatedAt: o.updated_at || null })),
+          thumb: typeof o.thumb === 'string' && /^https:\/\//.test(o.thumb) ? o.thumb : null, thumbPath: typeof o.thumb_path === 'string' && /^ads\/[a-z]{1,20}\/[A-Za-z0-9_-]{1,80}\.(jpg|png|webp)$/.test(o.thumb_path) ? o.thumb_path : null, meta: o.meta && typeof o.meta === 'object' ? o.meta : {}, updatedAt: o.updated_at || null })),
         stats: stats.map((s) => ({ platform: s.platform || 'meta', level: s.level, object_id: String(s.object_id), campaign_id: String(s.campaign_id), day: s.day, spend: n0x(s.spend) || 0, impressions: n0x(s.impressions) || 0,
           reach: n0x(s.reach), clicks: n0x(s.clicks) || 0, link_clicks: n0x(s.link_clicks), frequency: n0x(s.frequency), purchases: n0x(s.purchases) || 0, purchase_value: n0x(s.purchase_value) || 0 })),
         orders: orders.map((o) => ({ day: o.day, platform: o.platform, source: o.source || '', campaign: o.campaign || '', grp: o.grp, orders: n0x(o.orders) || 0, sales: n0x(o.sales) || 0, share: n0x(o.share) })) };

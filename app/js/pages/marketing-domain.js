@@ -563,7 +563,7 @@
     }
     return Object.values(by).filter((a) => a.spend > 0).map((a) => {
       const o = ads[a.id] || {}; const c = camps[a.campaign] || {};
-      return { id: a.id, name: o.name || '#' + a.id, campaign: c.name || '#' + a.campaign, status: o.status || null, thumb: typeof o.thumb === 'string' && /^https:\/\//.test(o.thumb) ? o.thumb : null,
+      return { id: a.id, name: o.name || '#' + a.id, campaign: c.name || '#' + a.campaign, status: o.status || null, thumb: typeof o.thumb === 'string' && /^https:\/\//.test(o.thumb) ? o.thumb : null, thumbPath: o.thumbPath || null, /* 0156: the bucket's copy */
         spend: Math.round(a.spend * 100) / 100, impressions: a.impressions, clicks: a.clicks, purchases: a.purchases, value: a.value,
         ctr: ratio(a.clicks, a.impressions), frequency: a.impressions ? a.fw / a.impressions : null, roas: ratio(a.value, a.spend),
         tired: a.impressions > 0 && a.fw / a.impressions >= R.tiredFreq };

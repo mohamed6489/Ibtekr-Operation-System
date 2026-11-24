@@ -26,10 +26,10 @@ const PNG_1PX = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUl
 const COLS = {
   mkt_campaigns: ['id', 'name', 'goal', 'step', 'state', 'scheduled_at', 'created_by', 'created_at', 'updated_by', 'updated_at', 'archived_at', 'archived_by'],
   mkt_posts: ['id', 'campaign_id', 'piece', 'kind', 'name', 'caption', 'caption_orig', 'tags', 'images', 'platform', 'day', 'time', 'how', 'status', 'was_live', 'post_url', 'published_at', 'published_by', 'deleted_at', 'deleted_by', 'created_by', 'created_at', 'updated_by', 'updated_at',
-    'src', 'external_id', 'thumb', 'views', 'reach', 'likes', 'comments', 'shares', 'saves', 'eng', 'stats_at', 'error', 'attempts', 'claimed_at', 'work'],
+    'src', 'external_id', 'thumb', 'thumb_path', 'views', 'reach', 'likes', 'comments', 'shares', 'saves', 'eng', 'stats_at', 'error', 'attempts', 'claimed_at', 'work'],
   mkt_templates: ['id', 'name', 'kind', 'image', 'descr', 'used', 'created_by', 'created_at', 'updated_by', 'updated_at', 'deleted_at', 'deleted_by'],
   // 0052 (9.5.3): Meta's ad objects and daily numbers — read with marketing.view, written by mkt-ads only
-  mkt_ad_objects: ['platform', 'kind', 'id', 'parent_id', 'name', 'status', 'thumb', 'meta', 'updated_at'],
+  mkt_ad_objects: ['platform', 'kind', 'id', 'parent_id', 'name', 'status', 'thumb', 'thumb_path', 'meta', 'updated_at'], // thumb_path: 0156
   mkt_ad_stats: ['platform', 'level', 'object_id', 'campaign_id', 'day', 'spend', 'impressions', 'reach', 'clicks', 'link_clicks', 'frequency', 'purchases', 'purchase_value', 'updated_at'],
   // 0053 (9.5.4): the buyer's suggestions (the server's rows, read with marketing.view) and the designer / developer requests
   mkt_suggestions: ['id', 'platform', 'kind', 'campaign_id', 'campaign_name', 'ad_id', 'title', 'sub', 'why', 'impact', 'pct', 'data', 'status', 'created_at', 'checked_at', 'decided_by', 'decided_at', 'value', 'note', 'result', 'error'],
@@ -105,7 +105,7 @@ export function mktState(opts = {}) {
     pubFail: null, delFail: null,
     // 9.5.3: Meta's objects / daily numbers, the ad orders as mkt_ads_orders answers them (the share nulled without accounts.view),
     // mkt-ads's status (opts.mktAds merges over a linked account) and the knob adsFail = our code the next sync answers with
-    adObjects: (opts.mktAdObjects || []).map((x) => ({ platform: 'meta', parent_id: null, name: null, status: null, thumb: null, meta: {}, updated_at: now, ...x })),
+    adObjects: (opts.mktAdObjects || []).map((x) => ({ platform: 'meta', parent_id: null, name: null, status: null, thumb: null, thumb_path: null, meta: {}, updated_at: now, ...x })),
     adStats: (opts.mktAdStats || []).map((x) => ({ platform: 'meta', impressions: 0, reach: null, clicks: 0, link_clicks: null, frequency: null, purchases: 0, purchase_value: 0, updated_at: now, ...x })),
     adOrders: opts.mktAdOrders || [],
     ads: { configured: true, account: { name: 'Ibtekr Club', currency: 'EGP', status: 'ACTIVE' }, synced_at: now, checked_at: now, error: null, ...(opts.mktAds || {}) },

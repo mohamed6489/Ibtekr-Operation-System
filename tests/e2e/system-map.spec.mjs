@@ -31,11 +31,14 @@ test('«العقل الذكي»: the admin\'s button on «الذكاء الاص�
   await expect(pg.locator('[data-sm-k="on"]')).toContainText('من 11');
   // the full list: every group's parts, the site's known plugins first
   await expect(pg.locator('[data-sm-rows] tr', { hasText: 'Dokan' })).toHaveCount(1);
-  await pg.locator('[data-sm-g]').selectOption('core');
-  await expect(pg.locator('[data-sm-rows] tr')).toHaveCount(7);
-  await pg.locator('[data-sm-g]').selectOption('');
-  await pg.locator('[data-sm-q]').fill('Bosta');
-  await expect(pg.locator('[data-sm-rows] tr')).toHaveCount(2); // the plugin on the site and the API
+  // Safwat 24 Nov («نفس شكل بقيت جداول السيستم»): the kit's standard table card — «بحث» / «فلتر» / «ترتيب» in its head, the green header
+  const card = pg.locator('section.card.tbl-v2', { hasText: 'كل السوفتوير والبلاجنز' });
+  await expect(card.locator('[data-tq-btn]')).toBeVisible(); await expect(card.locator('[data-fm-btn]')).toBeVisible();
+  await expect(card.locator('[data-sm-check]')).toBeVisible(); // the admin's site check beside them
+  await card.locator('[data-tq-btn]').click();
+  await card.locator('[data-tq-row] input').fill('Bosta');
+  await expect(card.locator('[data-sm-rows] tr:visible')).toHaveCount(2); // the plugin on the site and the API
+  await card.locator('[data-tq-row] input').fill('');
   // the e-mail's sheet: pause it a day → settings «integrations».paused.resend, then «كمّل»
   await pg.locator('[data-sm-node="mail"]').click();
   const sh = page.locator('[data-sm-sheet="mail"]');
@@ -63,7 +66,7 @@ test('«العقل الذكي» for the whole team (Safwat 24 Nov — «يظهر
   await expect(pg.locator('h1')).toHaveText('العقل الذكي');
   await expect(pg.locator('[data-sm-node]')).toHaveCount(11);
   await expect(pg.locator('[data-sm-node="mail"]')).toHaveAttribute('data-state', 'on'); // the e-mail's key read as linked through «map»
-  await expect(pg.locator('[data-sm-check]')).toBeHidden();
+  await expect(pg.locator('[data-sm-check]')).toHaveCount(0);
   await pg.locator('[data-sm-node="mail"]').click();
   const sh = page.locator('[data-sm-sheet="mail"]');
   await expect(sh.locator('[data-sm-view]')).toContainText('للأدمن');

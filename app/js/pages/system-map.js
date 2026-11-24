@@ -74,25 +74,18 @@ const IC = {
   let map, svg, core, feed, cards = {}, paths = {}, BP = {}, cv, cx2;
   function build() {
     const d = el('div', { class: 'sm-page', 'data-sysmap': '' });
-    d.innerHTML = '<div class="sm-head"><button type="button" class="sm-btn sm-back" data-sm-back title="رجوع لـ «الذكاء الاصطناعي»">→ رجوع</button><div><h1>العقل الذكي</h1><p>كل اللي السيستم متوصّل بيه وبيشتغل معاه دلوقتي — السيرفر وبلاجنز الموقع والذكاء الاصطناعي والقنوات. النقطة اللي بتمشي على الخط = حاجة حصلت فعلًا. دوس على أي سيستم تشوف تفاصيله، توقفه مؤقتًا أو تبدّله.</p></div><span class="sm-sp"></span>'
+    d.innerHTML = '<div class="sm-head"><button type="button" class="sm-btn sm-back" data-sm-back title="رجوع لـ «الذكاء الاصطناعي»">→ رجوع</button><div><h1>العقل الذكي</h1><p class="sm-lead">كل اللي السيستم متوصّل بيه دلوقتي — دوس على أي سيستم تشوف تفاصيله.</p></div><span class="sm-sp"></span>'
       + '<div class="sm-kpis"><div class="sm-kpi"><small>متصلين</small><b data-sm-k="on">—</b></div><div class="sm-kpi"><small>أحداث النهارده</small><b data-sm-k="ev">—</b></div><div class="sm-kpi"><small>آخر حركة</small><b data-sm-k="last">—</b></div></div>'
       + '<button type="button" class="sm-btn" data-sm-refresh>حدّث</button></div>'
       + '<section class="sm-map" data-sm-map><svg class="sm-wires" aria-hidden="true"></svg>'
       + '<div class="sm-core"><div class="sm-bb"><div class="sm-bfill"></div><div class="sm-bglow"><div class="sm-blines"></div></div><canvas width="587" height="550" aria-hidden="true"></canvas><div class="sm-chip">عقل<br>إبتكر</div></div><small class="sm-sub" data-sm-core>بنقرا الحالة…</small></div></section>'
       + '<div class="sm-legend" aria-hidden="true"><span><i class="on"></i>شغّال</span><span><i class="paused"></i>موقوف مؤقتًا</span><span><i class="unlinked"></i>مش مربوط</span><span><i class="err"></i>فيه مشكلة</span></div>'
       + '<div class="sm-below"><section class="sm-feed" aria-label="اللي بيحصل النهارده"><h2>اللي بيحصل النهارده</h2><ul data-sm-feed></ul></section>'
-      + '<section class="sm-all" aria-label="كل السوفتوير والبلاجنز"><div class="sm-all-h"><h2>كل السوفتوير والبلاجنز</h2><small data-sm-n></small><span class="sm-sp"></span>'
-      + '<input type="search" data-sm-q placeholder="دوّر باسم أو دور…" aria-label="دوّر في السوفتوير والبلاجنز"><select data-sm-g aria-label="الجروب"><option value="">كل الجروبات</option></select>'
-      + '<button type="button" class="sm-btn" data-sm-check>افحص بلاجنز الموقع</button></div>'
-      + '<div class="sm-tblw"><table class="sm-tbl"><thead><tr><th>الاسم</th><th>النوع</th><th>الجروب</th><th>بيعمل إيه مع السيستم</th><th>الاتجاه</th><th>الإصدار</th><th>الحالة</th></tr></thead><tbody data-sm-rows></tbody></table></div>'
-      + '<p class="sm-note" data-sm-checked></p></section></div>';
+      + '<div class="sm-all" data-sm-all></div></div>';
     st.dom = d; map = d.querySelector('[data-sm-map]'); svg = d.querySelector('.sm-wires'); core = d.querySelector('.sm-core'); feed = d.querySelector('[data-sm-feed]');
     cv = d.querySelector('canvas'); cx2 = cv.getContext('2d');
     d.querySelector('[data-sm-refresh]').addEventListener('click', () => load());
     d.querySelector('[data-sm-back]').addEventListener('click', () => { location.hash = 'ai'; });
-    d.querySelector('[data-sm-q]').addEventListener('input', (e) => { st.q = e.target.value; table(); });
-    d.querySelector('[data-sm-g]').addEventListener('change', (e) => { st.g = e.target.value; table(); });
-    d.querySelector('[data-sm-check]').addEventListener('click', checkSite);
     if ('ResizeObserver' in window) new ResizeObserver(() => layout()).observe(map);
     window.addEventListener('resize', layout);
   }
@@ -123,18 +116,25 @@ const IC = {
     st.dom.querySelector('[data-sm-k="ev"]').textContent = String(st.events.length >= 1000 ? '+1000' : st.events.length);
     st.dom.querySelector('[data-sm-k="last"]').textContent = st.lastAt ? hm(st.lastAt) : '—';
     feed.innerHTML = st.events.slice(0, 30).map((x) => { const e = D().eventOf(x.action); const g = sys.find((s) => s.id === e.sys); return '<li><time>' + esc(hm(x.at)) + '</time><span><b>' + esc(g ? g.name : '') + '</b> — ' + esc(e.text) + '</span></li>'; }).join('') || '<li class="sm-empty">مفيش حركة النهارده لسه.</li>';
-    const gsel = st.dom.querySelector('[data-sm-g]'); if (gsel.options.length <= 1) sys.forEach((g) => { const o = document.createElement('option'); o.value = g.id; o.textContent = g.name; gsel.appendChild(o); });
     layout(); table(); if (st.sheet) paint();
   }
+  // the software and plugins list (Safwat 24 Nov — «ظبط الجدول عشان يبقا نفس شكل بقيت جداول السيستم»): the kit's standard table card —
+  // its title and count, «بحث» / «فلتر» / «ترتيب» / the columns in its head like every table, «افحص بلاجنز الموقع» beside them (the admin)
   function table() {
     if (!st.dom || !st.sys) return;
-    const q = st.q.trim().toLowerCase(); const rows = [];
-    st.sys.forEach((g) => { if (st.g && st.g !== g.id) return; g.parts.forEach((x) => { if (q && ![x.name, x.kind, x.role, g.name].some((v) => String(v).toLowerCase().includes(q))) return; rows.push([g, x]); }); });
-    st.dom.querySelector('[data-sm-rows]').innerHTML = rows.map(([g, x]) => '<tr data-sm-row><td><b>' + esc(x.name) + '</b></td><td>' + esc(x.kind) + '</td><td>' + esc(g.name) + '</td><td>' + esc(x.err || x.role) + '</td><td>' + esc(x.dir) + '</td><td>'
-      + (x.ver ? esc(x.ver) + (x.upd ? ' <span class="sm-upd" title="فيه نسخة أحدث">← ' + esc(x.upd) + '</span>' : '') : g.id === 'site' ? '<small>من الموقع</small>' : '<small>—</small>') + '</td><td class="sm-st" data-st="' + x.state + '"><i></i>' + esc(D().STATE_TXT[x.state]) + '</td></tr>').join('') || '<tr><td colspan="7"><small>مفيش حاجة بالاسم ده</small></td></tr>';
-    st.dom.querySelector('[data-sm-n]').textContent = rows.length + ' من ' + st.sys.reduce((n, g) => n + g.parts.length, 0);
-    const site = st.sys.find((s) => s.id === 'site'); const btn = st.dom.querySelector('[data-sm-check]'); btn.hidden = !isAdmin(); btn.disabled = st.checking; btn.textContent = st.checking ? 'بنفحص…' : 'افحص بلاجنز الموقع';
-    st.dom.querySelector('[data-sm-checked]').textContent = site && site.checkedAt ? 'بلاجنز الموقع ونسخها من آخر فحص ' + new Date(site.checkedAt).toLocaleString('ar-EG-u-nu-latn', { day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit' }) + ' — بيتفحصوا لوحدهم كل يوم.' : 'بلاجنز الموقع ونسخها لسه مااتفحصتش — «افحص بلاجنز الموقع» يقراها من الموقع (قراية بس).';
+    const host = st.dom.querySelector('[data-sm-all]'); if (!host || !K() || !U()) return;
+    const h = U().h; const T = D().STATE_TXT; const all = st.sys.reduce((n, g) => n + g.parts.length, 0);
+    const rows = []; st.sys.forEach((g) => g.parts.forEach((x) => rows.push([g, x])));
+    const ver = (g, x) => (x.ver ? h('span', null, x.ver, x.upd ? h('span', { class: 'sm-upd', title: 'فيه نسخة أحدث' }, ' ← ' + x.upd) : null) : h('small', { class: 'sm-muted' }, g.id === 'site' ? 'من الموقع' : '—'));
+    const body = U().Table({ cls: 'dt sm-tbl', headers: ['الاسم', 'النوع', 'الجروب', 'بيعمل إيه مع السيستم', 'الاتجاه', 'الإصدار', 'الحالة'],
+      rows: rows.map(([g, x]) => [h('b', null, x.name), x.kind, g.name, x.err || x.role, x.dir, ver(g, x), h('span', { class: 'sm-st', 'data-st': x.state }, h('i'), T[x.state] || '')]) });
+    const tb = body.querySelector('tbody'); if (tb) { tb.setAttribute('data-sm-rows', ''); tb.querySelectorAll('tr').forEach((r) => r.setAttribute('data-sm-row', '')); }
+    const site = st.sys.find((s) => s.id === 'site');
+    const check = isAdmin() ? U().Button({ size: 'sm', icon: 'refresh', label: st.checking ? 'بنفحص…' : 'افحص بلاجنز الموقع', disabled: !!st.checking, attrs: { 'data-sm-check': '' }, onClick: checkSite }) : null;
+    const card = K().TableSection({ title: 'كل السوفتوير والبلاجنز', sub: all + ' سيستم وبلاجن', actions: check, body, noun: ['سيستم', 'السيستمات'], count: [rows.length, all], rerender: table });
+    const note = h('p', { class: 'source t-small help', 'data-sm-checked': '' }, site && site.checkedAt ? 'بلاجنز الموقع ونسخها من آخر فحص ' + new Date(site.checkedAt).toLocaleString('ar-EG-u-nu-latn', { day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit' }) + ' — بيتفحص لوحده كل يوم' : 'بلاجنز الموقع بتتقري من آخر فحص للموقع');
+    host.replaceChildren(card, note);
+    if (K().sweepColumns) K().sweepColumns(host); // «بحث» and the head's order like every table (the kit's pass on a page render)
   }
   // ---------- the layout (the mockup's): a ring around the brain — an ellipse on wide screens, the wires quadratic curves that start
   // where each side's path meets the brain's edge; on a phone the brain on top and the groups in a grid, no wires

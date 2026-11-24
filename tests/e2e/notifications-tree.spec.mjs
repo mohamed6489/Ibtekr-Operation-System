@@ -4,7 +4,7 @@ import { installSupabaseMock, LIVE, DEV_PW } from './supabase-mock.mjs';
 // The notifications' new structure (Safwat 24 Nov — docs/superpowers/plans/2026-11-24-notifications.md, 0157): «الإعدادات › التنبيهات»
 // is the tree the bell shows — the admin adds a main section, a sub-section under it and an alert (element › type › state, time, repeat,
 // visibility, roles, message), and the bell shows the same groups and filters with the alerts the rules wrote: the new one with the
-// green dot, «غير مقروء» / «مقروء», the sort. Mock only.
+// green dot, the read below the unread, the read filter and the sort. Mock only.
 const ADMIN = 'admin.dev@ibtekr.local'; const ADMIN_ID = '00000000-0000-4000-8000-000000000001';
 const M1 = '00000000-0000-4000-8000-0000000005a1'; const S1 = '00000000-0000-4000-8000-0000000005a2'; const M2 = '00000000-0000-4000-8000-0000000005b1'; const S2 = '00000000-0000-4000-8000-0000000005b2';
 const now = Date.now(); const iso = (min) => new Date(now - min * 60000).toISOString();
@@ -36,23 +36,30 @@ async function signIn(page, hash) {
   if (hash) await page.evaluate((x) => { location.hash = x; }, hash);
 }
 
-test('the bell = the settings\' tree: its groups and filters, a rule-less alert under its element\'s sub-section, the hidden one gone, the green dot, «غير مقروء» / «مقروء», the sort', async ({ page }) => {
+test('the bell = the settings\' tree: its groups and filters, a rule-less alert under its element\'s sub-section, the hidden one gone, the green dot, the read below the unread, the read filter, the sort', async ({ page }) => {
   await signIn(page, 'dashboard');
   await page.locator('.notif-btn').click();
   const bell = page.locator('.menu.notif');
   await expect(bell.locator('.ntf-nav-item')).toHaveText([/خدمة العملاء/, /الفريق/]);
   await expect(bell.locator('.ntf-nav-item').first().locator('.cnt')).toHaveText('1'); // 501 unread; 502 read; 504 hidden
-  await expect(bell.locator('.tab')).toHaveText([/الكل \(2\)/, /غير مؤكدة \(2\)/, /غير مقروء \(1\)/, /مقروء \(1\)/]);
+  await expect(bell.locator('.tab')).toHaveText([/الكل \(2\)/, /غير مؤكدة \(2\)/]); // Safwat 24 Nov: no «غير مقروء» / «مقروء» tabs
   await expect(bell.locator('.ntf-item')).toHaveCount(2);
   await expect(bell.locator('.ntf-item').first()).toContainText('IB-180656'); await expect(bell.locator('.ntf-item').first().locator('.ntf-dot')).toBeVisible();
   await expect(bell.locator('.ntf-item').nth(1).locator('.ntf-dot')).toHaveCount(0);
   await expect(bell).not.toContainText('اتخفى');
   // the sort: the oldest first
   await bell.locator('#ntf-sort').click(); await expect(bell.locator('#ntf-sort')).toHaveAttribute('data-sort', 'old'); // the bell's redesign: one small button (newest ⇄ oldest)
-  await expect(bell.locator('.ntf-item').first()).toContainText('IB-180651');
+  // … the unread one stays first all the same (Safwat 24 Nov — «المقروء … بينزل دايما تحت غير المقروء»)
+  await expect(bell.locator('.ntf-item').first()).toContainText('IB-180656'); await expect(bell.locator('.ntf-item').nth(1)).toContainText('IB-180651');
+  // the read filter beside the sort: الكل → غير مقروء → مقروء → الكل
+  await bell.locator('#ntf-read').click(); await expect(bell.locator('#ntf-read')).toHaveAttribute('data-read', 'unread');
+  await expect(bell.locator('.ntf-item')).toHaveCount(1); await expect(bell.locator('.ntf-item')).toContainText('IB-180656');
+  await bell.locator('#ntf-read').click(); await expect(bell.locator('#ntf-read')).toHaveAttribute('data-read', 'read');
+  await expect(bell.locator('.ntf-item')).toHaveCount(1); await expect(bell.locator('.ntf-item')).toContainText('IB-180651');
+  await bell.locator('#ntf-read').click(); await expect(bell.locator('#ntf-read')).toHaveAttribute('data-read', 'all'); await expect(bell.locator('.ntf-item')).toHaveCount(2);
   // «الفريق»: the overtime alert written by the database (no rule) sits under «الحضور والانصراف» (its element = team)
   await bell.locator('.ntf-nav-item', { hasText: 'الفريق' }).click();
-  await expect(bell.locator('.tab')).toHaveText([/الكل \(1\)/, /الحضور والانصراف \(1\)/, /غير مقروء \(1\)/, /مقروء \(0\)/]); // 0163 (the bell by role): every tab there, even at zero
+  await expect(bell.locator('.tab')).toHaveText([/الكل \(1\)/, /الحضور والانصراف \(1\)/]); // 0163 (the bell by role): every tab there, even at zero
   await expect(bell.locator('.ntf-item')).toContainText('وقت إضافي محتاج قرارك');
   // «تعليم القسم كمقروء» → the dot goes, written as reads
   await bell.locator('.ntf-foot').getByRole('button', { name: 'تعليم القسم كمقروء' }).click();
@@ -63,12 +70,19 @@ test('«الإعدادات › التنبيهات»: a main section, a sub-secti
   await signIn(page, 'settings-notifications');
   await expect(page.locator('[data-set-save]')).toHaveCount(0); // each change saves at once
   const tree = page.locator('[data-nr-tree]');
-  await expect(tree.locator('[data-nr-main]')).toHaveCount(2);
-  await expect(tree.locator('[data-nr-rule]')).toHaveCount(2);
+  // the main sections as tabs (Safwat 24 Nov — «في تابس اسهل من تحت بعضها»): one shown at a time, each tab with its alerts' count
+  await expect(tree.locator('[data-nr-tab]')).toHaveCount(2);
+  await expect(tree.locator('[data-nr-main]')).toHaveCount(1);
+  await expect(tree.locator('[data-nr-tab]').first()).toHaveAttribute('aria-selected', 'true');
+  await expect(tree.locator('[data-nr-rule]')).toHaveCount(1);
+  await tree.locator('[data-nr-tab]').nth(1).click();
+  await expect(tree.locator('[data-nr-tab]').nth(1)).toHaveAttribute('aria-selected', 'true');
+  await expect(tree.locator('[data-nr-rule]')).toHaveCount(1);
   // a new main section
   await page.locator('[data-nr-add-main]').click();
   await page.locator('#ns-name').fill('الحسابات'); await page.locator('.modal[role=dialog]').getByRole('button', { name: 'حفظ', exact: true }).click();
-  await expect(tree.locator('[data-nr-main]')).toHaveCount(3);
+  await expect(tree.locator('[data-nr-tab]')).toHaveCount(3);
+  await expect(tree.locator('[data-nr-tab]', { hasText: 'الحسابات' })).toHaveAttribute('aria-selected', 'true'); // the new one opens
   const acc = tree.locator('[data-nr-main]', { hasText: 'الحسابات' });
   // a sub-section under it
   await acc.locator('[data-nr-add-sub]').click();
@@ -100,17 +114,19 @@ test('«الإعدادات › التنبيهات»: a main section, a sub-secti
   await page.locator('.notif-btn').click();
   await expect(page.locator('.menu.notif .ntf-nav-item')).toHaveText([/خدمة العملاء/, /الفريق/, /الحسابات/]);
   await page.locator('.menu.notif .ntf-nav-item', { hasText: 'الحسابات' }).click();
-  await expect(page.locator('.menu.notif .tab')).toHaveText([/الكل \(0\)/, /العهدة \(0\)/, /غير مقروء \(0\)/, /مقروء \(0\)/]); // 0163 (the bell by role): the sub-section ready at zero
+  await expect(page.locator('.menu.notif .tab')).toHaveText([/الكل \(0\)/, /العهدة \(0\)/]); // 0163 (the bell by role): the sub-section ready at zero
 });
 
 test('an alert switched off and deleted from the settings; a sub-section renamed', async ({ page }) => {
   await signIn(page, 'settings-notifications');
+  await page.locator('[data-nr-tab]').nth(1).click(); // r2 is under the second main section's tab
   const rule = page.locator('[data-nr-rule="r2"]');
   await rule.getByRole('switch').click();
   await expect.poll(() => mock.notif.rules.find((r) => r.id === 'r2').active).toBe(false);
   await rule.getByRole('button', { name: 'إجراءات' }).click(); await page.getByRole('menuitem', { name: 'حذف' }).click();
   await page.getByRole('button', { name: 'احذف' }).click();
   await expect.poll(() => mock.notif.rules.some((r) => r.id === 'r2')).toBe(false);
+  await page.locator('[data-nr-tab="' + M1 + '"]').click();
   const sub = page.locator('[data-nr-sub="' + S1 + '"]');
   await sub.locator('.nr-sub-h').getByRole('button', { name: 'إجراءات' }).click(); await page.getByRole('menuitem', { name: 'تغيير الاسم' }).click();
   await page.locator('#ns-name').fill('مستني تأكيد'); await page.locator('.modal[role=dialog]').getByRole('button', { name: 'حفظ', exact: true }).click();
@@ -232,5 +248,69 @@ test('0163 the bell by role: a member sees only the main sections whose rules go
   await page.locator('.notif-btn').click();
   const bell = page.locator('.menu.notif');
   await expect(bell.locator('.ntf-nav-item')).toHaveText([/العمليات والشحن/]); // not «خدمة العملاء» (cs) nor «الفريق» (admin)
-  await expect(bell.locator('.tab')).toHaveText([/الكل \(1\)/, /جاهز للشحن للمخزن \(1\)/, /التجميع \(0\)/, /غير مقروء \(1\)/, /مقروء \(0\)/]); // «التجميع» there at zero
+  await expect(bell.locator('.tab')).toHaveText([/الكل \(1\)/, /جاهز للشحن للمخزن \(1\)/, /التجميع \(0\)/]); // «التجميع» there at zero
+});
+
+// 0164 (Safwat 24 Nov — «اي تعديلات اعملها في اعدادات التبيهات تسمع في البوب اب بتاع التنبيهات بمجرد الحفظ»): the rule's element changed in
+// its form → its old alerts leave the bell at once, without a reload
+test('0164 a rule\'s element changed in the settings: its old alerts leave the bell the moment it is saved', async ({ page }) => {
+  await signIn(page, 'settings-notifications');
+  await page.locator('.notif-btn').click();
+  await expect(page.locator('.menu.notif .ntf-item', { hasText: 'IB-180656' })).toHaveCount(1);
+  await page.keyboard.press('Escape');
+  await page.locator('[data-nr-rule="r1"]').getByRole('button', { name: 'إجراءات' }).click(); await page.getByRole('menuitem', { name: 'تعديل' }).click();
+  const form = page.locator('.modal[role=dialog]', { hasText: 'تعديل التنبيه' });
+  await form.locator('#nr-el').click(); await page.getByRole('option', { name: 'عهدة التشغيل' }).click();
+  await form.locator('#nr-type').click(); await page.getByRole('option', { name: 'الرصيد' }).click();
+  await form.locator('#nr-state').click(); await page.getByRole('option', { name: 'العهدة قربت تخلص' }).click();
+  await form.locator('[data-nr-save]').click();
+  await expect(form).toHaveCount(0);
+  await expect.poll(() => mock.alerts.find((a) => a.id === 501).hide_at).not.toBeNull();
+  await page.locator('.notif-btn').click();
+  await expect(page.locator('.menu.notif .ntf-item', { hasText: 'IB-180656' })).toHaveCount(0);
+});
+
+// Safwat 24 Nov — «لما ادوس علي التابس اللي جوه التنبيهات تبطل تتنقل لاول الكاروسيل لوحدها»: a chip far along the strip pressed → the
+// strip stays where it was (the picked chip in view), it never jumps back to its start
+test('the bell\'s sub-section chips: pressing one far along the strip keeps the strip where it was', async ({ page }) => {
+  const subs = Array.from({ length: 9 }, (_, i) => ({ id: '00000000-0000-4000-8000-0000000005c' + i, parent_id: M1, name: 'قسم فرعي طويل شوية رقم ' + (i + 1), sort: i + 1 }));
+  mock.notif.sections.push(...subs);
+  mock.notif.rules.push(...subs.map((x, i) => ({ id: 'rx' + i, section_id: x.id, name: 'x' + i, element: 'orders', type: 'confirm', state: 'غير مؤكد', at: '09:00', repeat: '24h', show: 'until_state', hours: 0, roles: ['admin'], sub: null, param: null, days: [], channels: ['bell'], template: null, active: true, sort: 0 })));
+  await page.setViewportSize({ width: 1100, height: 800 });
+  await signIn(page, 'dashboard');
+  await page.locator('.notif-btn').click();
+  const strip = page.locator('.menu.notif .ntf-chiptabs');
+  await expect(strip.locator('.tab')).toHaveCount(11);
+  const far = strip.locator('.tab').nth(8);
+  await far.scrollIntoViewIfNeeded();
+  const before = await strip.evaluate((x) => x.scrollLeft);
+  expect(Math.abs(before)).toBeGreaterThan(50); // the strip did move
+  await far.click();
+  await expect(strip.locator('.tab').nth(8)).toHaveAttribute('aria-selected', 'true');
+  const after = await page.locator('.menu.notif .ntf-chiptabs').evaluate((x) => x.scrollLeft);
+  expect(Math.abs(after - before)).toBeLessThan(40);
+  await expect(page.locator('.menu.notif .ntf-chiptabs .tab').nth(8)).toBeInViewport();
+});
+
+// 0165 (Safwat 24 Nov — «خلي المستخدم يقدر يختار اهمية التنبية … حرج … مهم … عادي … للمعرفة»): four levels in the alert's form, the
+// state's own picked till the admin picks; saved with the rule, on its card, and the bell's alerts follow it
+test('0165 the alert\'s level: four to pick in its form — saved with the rule, on its card and in the bell', async ({ page }) => {
+  await signIn(page, 'settings-notifications');
+  await page.locator('[data-nr-rule="r1"]').getByRole('button', { name: 'إجراءات' }).click(); await page.getByRole('menuitem', { name: 'تعديل' }).click();
+  const form = page.locator('.modal[role=dialog]', { hasText: 'تعديل التنبيه' });
+  const pick = form.locator('[data-nr-level-pick]');
+  await expect(pick).toHaveText([/حرج/, /مهم/, /عادي/, /للمعرفة/]);
+  await expect(form.locator('[data-nr-level-pick="important"]')).toHaveAttribute('aria-checked', 'true'); // the state's own
+  await expect(form.locator('[data-nr-level]')).toContainText('تلقائي من الوضع');
+  await form.locator('[data-nr-level-pick="normal"]').click();
+  await expect(form.locator('[data-nr-level-pick="normal"]')).toHaveAttribute('aria-checked', 'true');
+  await expect(form.locator('[data-nr-level]')).toContainText('اخترتها إنت');
+  await form.locator('[data-nr-save]').click(); await expect(form).toHaveCount(0);
+  expect(mock.notif.rules.find((r) => r.id === 'r1').level).toBe('normal');
+  await expect(page.locator('[data-nr-rule="r1"] .nr-lv')).toHaveText('عادي');
+  // the bell: an alert of that level carries «عادي», below the important ones
+  mock.alerts.find((a) => a.id === 501).meta = { lv: 'normal' };
+  await page.evaluate(() => window.IBAlerts.load());
+  await page.locator('.notif-btn').click();
+  await expect(page.locator('.menu.notif .ntf-item', { hasText: 'IB-180656' }).locator('.ntf-lv')).toHaveText('عادي');
 });

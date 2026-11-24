@@ -80,3 +80,20 @@ test('0162 «تقرير»: one alert per member with every part\'s things (the s
   assert.equal(many[0].meta.items.length, REPORT_MAX); assert.equal(many[0].meta.n, REPORT_MAX + 5);
   assert.deepEqual(reportPlan({ rule, parts: [{ rule: p0, ents: [] }], members, roles: [], now: '2026-11-24T10:00:00.000Z' }), [], 'nothing found = no alert');
 });
+
+// 0165 (Safwat 24 Nov — «المستخدم يقدر يختار … حرج و تحتيها مهم و تحتيها عادي و تحتيها للمعرفة»): four levels, the admin's pick first
+test('the admin\'s level: four of them in order; a rule\'s own level wins over its state\'s, for every part and in meta; «عادي» has its show', () => {
+  assert.deepEqual(C.LEVELS.map((x) => x[0]), ['critical', 'important', 'normal', 'info']);
+  assert.deepEqual(C.LEVELS.map((x) => x[1]), ['حرج', 'مهم', 'عادي', 'للمعرفة']);
+  const r = { element: 'subs', type: 'delay', state: 'late', conds: [{ element: 'orders', type: 'update', state: 'new' }] };
+  assert.equal(C.levelOfAll(r), 'critical'); // the state's own, the highest part
+  assert.equal(C.levelOf({ ...r, level: 'normal' }), 'normal'); assert.equal(C.levelOfAll({ ...r, level: 'info' }), 'info');
+  assert.deepEqual(C.partsOf({ ...r, level: 'normal' }).map(C.levelOf), ['normal', 'normal']);
+  assert.equal(metaOf({ ...r, level: 'normal' }, { id: 'x' }).lv, 'normal');
+  assert.equal(C.levelOf({ ...r, level: 'urgent' }), 'critical', 'an unknown level = the state\'s own');
+  assert.deepEqual(C.showOf('normal', 'state'), { show: 'until_state', hours: 0 });
+  assert.deepEqual(C.showOf('normal', 'event'), { show: 'until_read', hours: 2 });
+  for (const k of ['critical', 'important', 'normal', 'info']) for (const kind of ['state', 'event', 'due']) {
+    const s = C.showOf(k, kind); assert.ok(C.SHOW_HOURS[s.show].includes(s.hours), k + '/' + kind + ' — a value the form offers');
+  }
+});

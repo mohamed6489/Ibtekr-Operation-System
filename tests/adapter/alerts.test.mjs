@@ -45,9 +45,13 @@ test('treeSections: the settings\' tree as the bell\'s groups and filters; a rul
   await A.load();
   assert.equal(A.hasTree(), true);
   const S = A.treeSections(() => true, 'new');
-  assert.deepEqual(plain(S.map((x) => [x.label, x.tabs.map((t) => t[1] + ':' + t[2].length)])), [['خدمة العملاء', ['الكل:1', 'غير مؤكدة:1', 'غير مقروء:0', 'مقروء:1']], ['الفريق', ['الكل:1', 'الحضور والانصراف:1', 'غير مقروء:1', 'مقروء:0']]]);
+  assert.deepEqual(plain(S.map((x) => [x.label, x.tabs.map((t) => t[1] + ':' + t[2].length)])), [['خدمة العملاء', ['الكل:1', 'غير مؤكدة:1']], ['الفريق', ['الكل:1', 'الحضور والانصراف:1']]]); // no «غير مقروء» / «مقروء» tabs (Safwat 24 Nov)
   assert.equal(S[1].received, 1); assert.equal(S[0].received, 0);
   assert.equal(S[1].tabs[0][2][0].fresh, true, 'the green dot on the unread one');
+  // the read filter beside the sort: «غير مقروء» drops the read one, «مقروء» keeps it only
+  assert.equal(A.treeSections(() => true, 'new', 'unread')[0].tabs[0][2].length, 0);
+  assert.equal(A.treeSections(() => true, 'new', 'read')[0].tabs[0][2].length, 1);
+  assert.equal(A.treeSections(() => true, 'new', 'read')[1].tabs[0][2].length, 0);
 });
 
 test('markRead inserts and updates the cache first', async () => {

@@ -7,7 +7,9 @@
   'use strict';
   const U = () => window.IBUI; const K = () => window.IBKit; const ST = () => window.IBSettings; const C = () => window.IBNotifCatalog;
   const h = (...a) => U().h(...a);
-  const state = { open: {} };
+  // the main sections as tabs, one shown at a time (Safwat 24 Nov — «في تابس اسهل من تحت بعضها»); `tab` = the open one, `want` = a new
+  // main section's name to open once it is read back
+  const state = { tab: null, want: null };
   const say = (r, ok) => { const k = K(); if (r && r.ok) { if (ok) k.toast(ok); } else k.toast((r && r.message) || 'ماتحفظش — جرّب تاني', 'error'); };
   const t12 = (hhmm) => (K() && K().t12 ? K().t12(hhmm) : hhmm);
   const TIMES = (() => { const out = []; for (let i = 0; i < 48; i++) { const hh = String(Math.floor(i / 2)).padStart(2, '0'); out.push(hh + ':' + (i % 2 ? '30' : '00')); } return out; })();
@@ -35,9 +37,10 @@
   // ---------- the alert's form (Safwat's drawing «إضافة تنبيه»)
   function ruleForm(sub, rule, redraw) {
     const c = C(); const L = lists();
-    const f = Object.assign({ section_id: sub.id, name: '', element: '', type: '', state: '', sub: null, param: null, at: '09:00', repeat: '24h', days: [], show: 'until_state', hours: 0, roles: [], channels: ['bell'], template: '', active: true, mode: 'single', conds: [] }, rule ? JSON.parse(JSON.stringify(rule)) : {});
+    const f = Object.assign({ section_id: sub.id, name: '', element: '', type: '', state: '', sub: null, param: null, at: '09:00', repeat: '24h', days: [], show: 'until_state', hours: 0, roles: [], channels: ['bell'], template: '', active: true, mode: 'single', conds: [], level: null }, rule ? JSON.parse(JSON.stringify(rule)) : {});
     if (!Array.isArray(f.conds)) f.conds = [];
     // a new rule takes its level's «تفاصيل الظهور» (the bell's redesign decision 1) — with all its elements (decision 8: the highest)
+    // the level: the admin's pick (`f.level` — Safwat 24 Nov «المستخدم يقدر يختار»), else the state's own (with all its elements: the highest)
     const levelNow = () => (c.levelOfAll ? c.levelOfAll(f) : c.levelOf(f));
     const reShow = () => { if (!rule && c.showOf) Object.assign(f, c.showOf(levelNow(), c.kindOf(f))); };
     // an extra element (Safwat 24 Nov — «إمكانية لإضافة أكتر من عنصر في التنبيه الواحد»): the same three lists, × takes it off
@@ -59,7 +62,7 @@
     let step = 0;
     const sec = (head, ...kids) => { const [icon, title, note] = Array.isArray(head) ? head : [null, head, null]; step++;
       return h('div', { class: 'nr-sec' }, h('div', { class: 'nr-sec-h' }, h('span', { class: 'nr-step' }, String(step)), icon ? U().Icon(icon, 'sm') : null, h('b', null, title), note ? h('span', { class: 'nr-sec-note' }, note) : null), ...kids); };
-    const LV_TEXT = { critical: 'حرج — أول حاجة في الجرس', important: 'مهم', info: 'للعلم — بيختفي بعد يوم بالكتير' };
+    const LV_TEXT = { critical: 'أول حاجة في الجرس', important: 'بعد الحرج', normal: 'بعد المهم', info: 'آخر حاجة — بيختفي بعد يوم بالكتير' };
     const draw = () => {
       const st = curState(); const t = c.typeOf(f.element, f.type); step = 0;
       const many = f.conds.length > 0;
@@ -81,7 +84,11 @@
             h('div', { class: 'nr-mode-cards' }, [['single', 'bell', 'فردي', 'تنبيه لكل حاجة لوحدها — من كل عنصر'], ['report', 'sheet', 'تقرير', 'تنبيه واحد بجدول فيه كل الحاجات من كل العناصر']].map(([k, ic, l, d]) =>
               h('button', { type: 'button', role: 'radio', class: 'nr-mode-card' + ((f.mode || 'single') === k ? ' on' : ''), 'aria-checked': String((f.mode || 'single') === k), 'data-nr-mode-pick': k, onClick: () => { f.mode = k; draw(); } },
                 U().Icon(ic, 'sm'), h('b', null, l), h('span', null, d))))) : null,
-          st && c.levelOf ? h('div', { class: 'nr-level-row', 'data-nr-level': levelNow() }, h('span', { class: 't-label' }, 'الأهمية'), h('span', { class: 'nr-lv lv-' + levelNow() }, LV_TEXT[levelNow()]), many ? h('span', { class: 't-small muted' }, 'أعلى أهمية بين العناصر') : null) : null,
+          // «أهمية التنبيه» — four to pick from, highest first (the bell's order); «تلقائي» = the state's own
+          st && c.LEVELS ? h('div', { class: 'nr-level-row', 'data-nr-level': levelNow() }, h('span', { class: 't-label' }, 'أهمية التنبيه'),
+            h('div', { class: 'nr-lv-pick', role: 'radiogroup', 'aria-label': 'أهمية التنبيه' }, c.LEVELS.map(([k, l]) => h('button', { type: 'button', role: 'radio', class: 'nr-lv-opt lv-' + k + (levelNow() === k ? ' on' : ''), 'aria-checked': String(levelNow() === k), 'data-nr-level-pick': k, title: LV_TEXT[k],
+              onClick: () => { f.level = k; if (!rule && c.showOf) Object.assign(f, c.showOf(k, c.kindOf(f))); draw(); } }, h('b', null, l), h('span', null, LV_TEXT[k])))),
+            h('span', { class: 't-small muted' }, f.level ? 'اخترتها إنت' : 'تلقائي من الوضع' + (many ? ' (أعلى أهمية بين العناصر)' : ''))) : null,
           st ? h('p', { class: 't-small help', style: 'margin:0' }, f.mode === 'report' ? 'بيتجمع كل اللي في العناصر دي في تقرير واحد يتجدد بالتكرار.' : st.kind === 'event' ? 'بيتبعت مع كل حدث جديد من الوقت ده كل يوم.' : st.kind === 'due' ? 'بيتبعت مرة لما الميعاد يقرب.' : 'بيتبعت لكل حاجة في الوضع ده ويتجدد بالتكرار طول ما هي فيه.') : null),
         sec(['clock', 'وقت الإرسال', 'إمتى بيشتغل'],
           h('div', { class: 'row cols2' },
@@ -128,7 +135,7 @@
   // the rule's card: its level on the edge and as a badge, the name, each element a chip («+» between them), the time / repeat / visibility /
   // channels as small icon lines, «تقرير» when it is one, the roles, the switch and ⋮
   const CH_ICON = { bell: 'bell', email: 'mail', whatsapp: 'whatsapp' }; const CH_NAME = { bell: 'الجرس', email: 'إيميل', whatsapp: 'واتساب' };
-  const LV_NAME = { critical: 'حرج', important: 'مهم', info: 'للعلم' };
+  const LV_NAME = { critical: 'حرج', important: 'مهم', normal: 'عادي', info: 'للمعرفة' };
   const levelOfRule = (r) => { const c = C(); return c.levelOfAll ? c.levelOfAll(r) : c.levelOf ? c.levelOf(r) : 'important'; };
   function ruleRow(sub, r, redraw) {
     const lv = levelOfRule(r); const parts = [r].concat(Array.isArray(r.conds) ? r.conds : []);
@@ -156,19 +163,26 @@
           { label: 'حذف', icon: 'trash', danger: true, run: () => K().confirm({ title: 'حذف القسم الفرعي', text: '«' + sub.name + '» وتنبيهاته (' + sub.rules.length + ') هيتمسحوا.', okLabel: 'احذف', okType: 'danger', onOk: async () => { say(await ST().notifSectionDelete(sub.id), 'اتمسح'); redraw(); } }) }])),
       sub.rules.length ? h('div', { class: 'nr-rules' }, sub.rules.map((r) => ruleRow(sub, r, redraw))) : h('div', { class: 'nr-empty' }, U().Icon('bell', 'sm'), h('span', null, 'مفيش تنبيهات هنا — «+ تنبيه» يضيف واحد.')));
   }
+  // the open main section: its head (name, counts, «+ قسم فرعي», ⋮) and its sub-sections under it — the tab above picks which
   function mainBox(main, i, all, redraw) {
-    const open = state.open[main.id] !== false; const n = main.subs.reduce((x, y) => x + y.rules.length, 0);
+    const n = main.subs.reduce((x, y) => x + y.rules.length, 0);
     const crit = main.subs.reduce((x, y) => x + y.rules.filter((r) => r.active !== false && levelOfRule(r) === 'critical').length, 0);
-    return h('div', { class: 'card nr-main' + (open ? ' open' : ''), 'data-nr-main': main.id },
-      h('div', { class: 'nr-main-h' }, h('button', { type: 'button', class: 'nr-tog', 'aria-expanded': String(open), onClick: () => { state.open[main.id] = !open; redraw(true); } },
-          h('span', { class: 'nr-ico' }, U().Icon(main.icon || 'bell', 'sm')), h('span', { class: 'nr-main-t' }, h('b', null, main.name), h('span', { class: 'nr-main-sub' }, main.subs.length + ' قسم فرعي · ' + n + ' تنبيه' + (crit ? ' · ' : ''), crit ? h('span', { class: 'nr-crit' }, crit + ' حرج') : null)),
-          U().Icon(open ? 'chevD' : 'chevL', 'sm')),
+    return h('div', { class: 'card nr-main open', 'data-nr-main': main.id, role: 'tabpanel' },
+      h('div', { class: 'nr-main-h' }, h('div', { class: 'nr-tog' },
+          h('span', { class: 'nr-ico' }, U().Icon(main.icon || 'bell', 'sm')), h('span', { class: 'nr-main-t' }, h('b', null, main.name), h('span', { class: 'nr-main-sub' }, main.subs.length + ' قسم فرعي · ' + n + ' تنبيه' + (crit ? ' · ' : ''), crit ? h('span', { class: 'nr-crit' }, crit + ' حرج') : null))),
         h('span', { class: 'sp' }),
         U().Button({ size: 'sm', icon: 'plus', label: 'قسم فرعي', attrs: { 'data-nr-add-sub': main.id }, onClick: () => nameForm('قسم فرعي جديد — ' + main.name, '', (nm) => ST().notifSectionSave({ parentId: main.id, name: nm }).then((r) => { if (r.ok) redraw(); return r; })) }),
-        K().RowMenu([{ label: 'لفوق', icon: 'chevU', run: () => move(all, i, -1, redraw) }, { label: 'لتحت', icon: 'chevD', run: () => move(all, i, 1, redraw) },
+        K().RowMenu([{ label: 'لليمين', icon: 'chevR', run: () => move(all, i, -1, redraw) }, { label: 'للشمال', icon: 'chevL', run: () => move(all, i, 1, redraw) },
           { label: 'تغيير الاسم', icon: 'edit', run: () => nameForm('تغيير اسم القسم', main.name, (nm) => ST().notifSectionSave({ id: main.id, name: nm }).then((r) => { if (r.ok) redraw(); return r; })) },
-          { label: 'حذف', icon: 'trash', danger: true, run: () => K().confirm({ title: 'حذف القسم', text: '«' + main.name + '» بأقسامه الفرعية وتنبيهاته هيتمسحوا.', okLabel: 'احذف', okType: 'danger', onOk: async () => { say(await ST().notifSectionDelete(main.id), 'اتمسح'); redraw(); } }) }])),
-      open ? h('div', { class: 'nr-subs' }, main.subs.length ? main.subs.map((x, j) => subBox(main, x, j, redraw)) : h('div', { class: 'nr-empty' }, U().Icon('bell', 'sm'), h('span', null, 'مفيش أقسام فرعية — «+ قسم فرعي» يضيف واحد.'))) : null);
+          { label: 'حذف', icon: 'trash', danger: true, run: () => K().confirm({ title: 'حذف القسم', text: '«' + main.name + '» بأقسامه الفرعية وتنبيهاته هيتمسحوا.', okLabel: 'احذف', okType: 'danger', onOk: async () => { say(await ST().notifSectionDelete(main.id), 'اتمسح'); state.tab = null; redraw(); } }) }])),
+      h('div', { class: 'nr-subs' }, main.subs.length ? main.subs.map((x, j) => subBox(main, x, j, redraw)) : h('div', { class: 'nr-empty' }, U().Icon('bell', 'sm'), h('span', null, 'مفيش أقسام فرعية — «+ قسم فرعي» يضيف واحد.'))));
+  }
+  // the tabs: a main section each with its alerts' count (the stopped left out), the critical ones marked
+  function mainTabs(mains, active, redraw) {
+    const t = U().Tabs({ items: mains.map((m) => ({ id: m.id, label: m.name, count: m.subs.reduce((x, y) => x + y.rules.filter((r) => r.active !== false).length, 0) })), active, onChange: (id) => { state.tab = id; redraw(true); } });
+    t.setAttribute('aria-label', 'أقسام التنبيهات'); t.setAttribute('data-nr-tabs', ''); t.classList.add('nr-tabs');
+    t.querySelectorAll('[role=tab]').forEach((b, k) => { b.setAttribute('data-nr-tab', mains[k].id); b.removeAttribute('aria-controls'); });
+    return t;
   }
   // the outbound channels as a whole (Safwat 24 Nov: «الايميل ممكن تشغلوا و الواتساب … يبقا واقف علي تشغيل ال API»): settings «notif».channels
   // — a rule that names e-mail / WhatsApp sends only while its switch here is on; the admin's, saved at once
@@ -199,12 +213,16 @@
     const tree = ST() && ST().notifTreeNow ? ST().notifTreeNow() : null;
     const redraw = (local) => { if (local) { R(); return; } ST().notifTree(true).then(() => R()); };
     if (!tree) return [K().Empty('بنحمّل التنبيهات…', '')];
+    // the open tab: a main section just added, else the one picked, else the first
+    const wanted = state.want ? tree.mains.find((m) => m.name === state.want) : null; if (wanted) { state.tab = wanted.id; state.want = null; }
+    let at = tree.mains.findIndex((m) => m.id === state.tab); if (at < 0) at = 0; const active = tree.mains[at];
     return [K().Section('أقسام التنبيهات', [
       h('p', { class: 'nr-intro' }, U().Icon('bell', 'sm'), h('span', null, 'الجرس بيتعرض بنفس التقسيمة دي بالظبط: كل قسم رئيسي مجموعة، وأقسامه الفرعية فلاتر، وتحت كل فرعي تنبيهاته.')),
       summary(tree),
       channelsBox(redraw),
-      h('div', { class: 'nr-tree', 'data-nr-tree': '', 'data-set-instant': '' }, tree.mains.map((m, i) => mainBox(m, i, tree.mains, redraw)))],
-      [U().Button({ type: 'primary', icon: 'plus', label: 'قسم رئيسي', attrs: { 'data-nr-add-main': '' }, onClick: () => nameForm('قسم رئيسي جديد', '', (nm) => ST().notifSectionSave({ name: nm }).then((r) => { if (r.ok) redraw(); return r; })) })],
+      h('div', { class: 'nr-tree', 'data-nr-tree': '', 'data-set-instant': '' }, tree.mains.length ? [mainTabs(tree.mains, active.id, redraw), mainBox(active, at, tree.mains, redraw)]
+        : h('div', { class: 'nr-empty' }, U().Icon('bell', 'sm'), h('span', null, 'مفيش أقسام — «+ قسم رئيسي» يضيف واحد.')))],
+      [U().Button({ type: 'primary', icon: 'plus', label: 'قسم رئيسي', attrs: { 'data-nr-add-main': '' }, onClick: () => nameForm('قسم رئيسي جديد', '', (nm) => ST().notifSectionSave({ name: nm }).then((r) => { if (r.ok) { state.want = nm; redraw(); } return r; })) })],
       { th: false })];
   }
   const ready = () => !!(ST() && ST().notifTreeNow && ST().notifTreeNow());

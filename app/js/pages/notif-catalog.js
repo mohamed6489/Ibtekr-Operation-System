@@ -89,7 +89,10 @@
   const SHOW_HOURS = { fixed: [12, 24, 48, 72, 168], until_state: [0, 4, 6], until_read: [2, 4, 6] };
   const CHANNELS = [['bell', 'الجرس'], ['email', 'إيميل'], ['whatsapp', 'واتساب']];
   // the bell's redesign decision 1: how much an alert matters — the bell's order (critical first) and how long it stays (showOf)
-  const LEVELS = [['critical', 'حرج'], ['important', 'مهم'], ['info', 'للعلم']];
+  // the four levels, highest first (Safwat 24 Nov — «حرج و تحتيها مهم و تحتيها عادي و تحتيها للمعرفة … المستخدم يقدر يختار»): a rule's own `level`
+  // (picked in its form) wins over its state's default
+  const LEVELS = [['critical', 'حرج'], ['important', 'مهم'], ['normal', 'عادي'], ['info', 'للمعرفة']];
+  const LV_RANK = { critical: 0, important: 1, normal: 2, info: 3 };
   const INFO_MAX_H = 24; // an «info» alert leaves the bell 24 hours after it was written, read or not
   // several elements in one alert (Safwat 24 Nov — the bell's redesign decision 8, 0162): the rule's own element › type › state + up
   // to CONDS_MAX more (`conds`), and `mode`: «فردي» an alert per thing (each element's own, as before) · «تقرير» one alert per member and
@@ -182,6 +185,7 @@
   }
   // a rule's level: its state's own, else «important» for a state / a due date and «info» for an event (a `dyn` state: by its type)
   function levelOf(rule) {
+    if (rule && LV_RANK[rule.level] != null) return rule.level;
     const t = rule ? typeOf(rule.element, rule.type) : null; const s = t ? t.states.find((x) => x.id === rule.state) : null;
     if (s && s.level) return s.level;
     return kindOf(rule) === 'event' ? 'info' : 'important';
@@ -190,13 +194,14 @@
   // state changes — a critical event a fixed 72 hours (reading it does not hide it), an important one till read + 6 hours; info goes
   // 2 hours after it is read (and INFO_MAX_H at the latest)
   // a rule's level with all its parts: the highest of them (a report that holds a critical part is critical)
-  function levelOfAll(rule) { const R = { critical: 0, important: 1, info: 2 }; return partsOf(rule).map(levelOf).sort((a, b) => R[a] - R[b])[0] || levelOf(rule); }
+  function levelOfAll(rule) { if (rule && LV_RANK[rule.level] != null) return rule.level; return partsOf(rule).map(levelOf).sort((a, b) => LV_RANK[a] - LV_RANK[b])[0] || levelOf(rule); }
   function showOf(level, kind) {
     if (level === 'critical') return kind === 'state' ? { show: 'until_state', hours: 0 } : { show: 'fixed', hours: 72 };
     if (level === 'important') return kind === 'state' ? { show: 'until_state', hours: 0 } : kind === 'due' ? { show: 'fixed', hours: 48 } : { show: 'until_read', hours: 6 };
+    if (level === 'normal') return kind === 'state' ? { show: 'until_state', hours: 0 } : kind === 'due' ? { show: 'fixed', hours: 24 } : { show: 'until_read', hours: 2 };
     return { show: 'until_read', hours: 2 };
   }
-  const api = { ELEMENTS, AGENTS, LEVELS, INFO_MAX_H, CONDS_MAX, MODES, partsOf, partLabel, levelOfAll, REPEATS, SHOWS, SHOW_HOURS, CHANNELS, LIVE_CHANNELS, el, typeOf, statesOf, stateOf, ruleError, render, due, runs, kindOf, levelOf, showOf, elementOfKind };
+  const api = { ELEMENTS, AGENTS, LEVELS, LV_RANK, INFO_MAX_H, CONDS_MAX, MODES, partsOf, partLabel, levelOfAll, REPEATS, SHOWS, SHOW_HOURS, CHANNELS, LIVE_CHANNELS, el, typeOf, statesOf, stateOf, ruleError, render, due, runs, kindOf, levelOf, showOf, elementOfKind };
   root.IBNotifCatalog = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

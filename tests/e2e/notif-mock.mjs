@@ -33,6 +33,15 @@ export function notifRoute(c) {
   if (!isAdmin(u)) return refuse(403, '42501', 'forbidden');
   const name = rpc[1]; const b = c.body() || {}; const p = b.p || {};
   const id = () => '00000000-0000-4000-8000-' + String(900000000000 + N.seq++);
+  // 0164 (the bell follows a saved change at once): the rule's alerts that no longer fit it leave the bell — switched off, its own
+  // element changed (part 0; the extra parts as the server does), a member none of whose roles it goes to
+  const hideOf = (test) => { const at = new Date().toISOString(); (mock.alerts || []).forEach((a) => { if ((!a.hide_at || a.hide_at > at) && test(a)) a.hide_at = at; }); };
+  const tidy = (r) => {
+    const kinds = ['rule:' + r.element + '.' + r.type].concat((Array.isArray(r.conds) ? r.conds : []).map((x) => 'rule:' + x.element + '.' + x.type));
+    const roleOf = (uid) => { const m = (mock.profiles || []).find((x) => x.id === uid); return m ? [m.role_id].concat(m.extra_roles || []) : null; };
+    hideOf((a) => a.rule_id === r.id && (r.active === false || (a.kind !== 'rule:report' && a.kind !== kinds[(/^x(\d)\|/.exec(String(a.entity_id)) || [0, 0])[1] * 1])
+      || (a.user_id && roleOf(a.user_id) && !roleOf(a.user_id).some((x) => (r.roles || []).includes(x)))));
+  };
   if (name === 'notif_section_save') {
     const nm = String(p.name || '').trim(); if (!nm || nm.length > 40 || /[<>]/.test(nm)) return refuse(400, '22023', 'invalid: name');
     if (p.id) { const s = N.sections.find((x) => x.id === p.id); if (!s) return refuse(404, 'P0002', 'not found'); s.name = nm; return json(200, s.id); }
@@ -44,9 +53,9 @@ export function notifRoute(c) {
   if (name === 'notif_rule_save') {
     if (!N.sections.some((s) => s.id === p.section_id && s.parent_id)) return refuse(400, '22023', 'invalid: section');
     if (!p.name || !Array.isArray(p.roles) || !p.roles.length) return refuse(400, '22023', 'invalid: rule');
-    if (p.id) { const r = N.rules.find((x) => x.id === p.id); if (!r) return refuse(404, 'P0002', 'not found'); Object.assign(r, p); return json(200, r.id); }
+    if (p.id) { const r = N.rules.find((x) => x.id === p.id); if (!r) return refuse(404, 'P0002', 'not found'); Object.assign(r, p); tidy(r); return json(200, r.id); }
     const r = { ...p, id: id(), sort: N.rules.filter((x) => x.section_id === p.section_id).length }; N.rules.push(r); return json(200, r.id);
   }
-  if (name === 'notif_rule_delete') { N.rules = N.rules.filter((r) => r.id !== b.p_id); return json(200, null); }
+  if (name === 'notif_rule_delete') { hideOf((a) => a.rule_id === b.p_id); N.rules = N.rules.filter((r) => r.id !== b.p_id); return json(200, null); }
   return null;
 }

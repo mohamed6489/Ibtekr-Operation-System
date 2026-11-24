@@ -176,8 +176,8 @@
   // first, then important, then info — each by time) and who it is about (meta.g): a maker's logo, a member's first letter in a circle,
   // an assistant's icon, else its element's icon. The delay alerts of one maker in a tab are one card — the maker, «N متأخر · M قابل
   // للتأخير · P قطعة» — and its click opens his late orders (open({ vendorLate, kind }) — block 28's popup with «مشاركة»).
-  const LV_RANK = { critical: 0, important: 1, info: 2 };
-  const LV_WORD = { critical: 'حرج', important: 'مهم' };
+  const LV_RANK = { critical: 0, important: 1, normal: 2, info: 3 }; // the four levels (Safwat 24 Nov — «عادي» between «مهم» and «للمعرفة»)
+  const LV_WORD = { critical: 'حرج', important: 'مهم', normal: 'عادي' };
   const EL_ICON = { daily: 'chart', custody: 'wallet', team: 'users', orders: 'package', subs: 'box', products: 'tag', inventory: 'stock', accounts: 'wallet',
     tickets: 'ticket', messages: 'msg', ai: 'sparkle', makers: 'users', system: 'gear' };
   const AGENT_ICON = { manager: 'sliders', buyer: 'chart', designer: 'image', dev: 'code', stock: 'truck', cs: 'headset', makers: 'users', accountant: 'wallet', hr: 'briefcase', content: 'image' };
@@ -193,7 +193,8 @@
     if (m.g === 'agent') { const M = window.IBMarketing; const r = M && M.agentOf ? M.agentOf(m.gid) : null; return { icon: (r && r.icon) || AGENT_ICON[m.gid] || 'sparkle', tone: 'agent' }; }
     return { icon: EL_ICON[elOf(a)] || 'bell', tone: lvOf(a) };
   }
-  function treeSections(open, sort) {
+  // readF (Safwat 24 Nov — «شيل خانة غير مقروء و مقروء … و حط مع زرار الاحدث و الاقدم معاه مقروء او غير مقروء»): 'unread' | 'read' | anything = all
+  function treeSections(open, sort, readF) {
     if (!tree || !tree.mains.length || !items) return null;
     const C = window.IBNotifCatalog; const subOf = new Map(); tree.mains.forEach((m) => m.subs.forEach((x) => subOf.set(x.id, m.id)));
     const placeOf = (a) => {
@@ -203,6 +204,7 @@
       return null; // the first group's «الكل»
     };
     const placed = items.map((a) => ({ a, sub: placeOf(a) }));
+    const keep = (p) => (readF === 'unread' ? !p.a.read : readF === 'read' ? !!p.a.read : true); // the read filter beside the sort
     const time = (x) => Date.parse(x.at);
     const asItem = ({ a }) => { const tone = toneOf(a.kind); const lv = lvOf(a); return { key: 'sa:' + a.id, title: a.title, sub: a.body || '', meta: relTime(a.at, Date.now()), tone, icon: tone === 'error' ? 'alert' : 'bell', muted: a.read, fresh: !a.read,
       lv, lvWord: LV_WORD[lv] || '', av: avatarOf(a), at: a.at,
@@ -229,8 +231,9 @@
           run: () => { markMany(L.map((p) => p.a.id)); if (typeof open === 'function') open({ vendorLate: m.gname, vendorId: m.gid, kind: late.length && risk ? 'all' : late.length ? 'late' : 'risk' }); } };
       });
     };
-    // critical first, then important, then info; each by time (newest or oldest first)
-    const ord = (L) => L.slice().sort((x, y) => (LV_RANK[x.lv] - LV_RANK[y.lv]) || (sort === 'old' ? 1 : -1) * (Date.parse(x.at) - Date.parse(y.at)));
+    // the unread first, always — a read one has no green dot and sits below them (Safwat 24 Nov); then critical, important, info; each by
+    // time (newest or oldest first)
+    const ord = (L) => L.slice().sort((x, y) => ((x.muted ? 1 : 0) - (y.muted ? 1 : 0)) || (LV_RANK[x.lv] - LV_RANK[y.lv]) || (sort === 'old' ? 1 : -1) * (Date.parse(x.at) - Date.parse(y.at)));
     // the member's sections: a sub-section whose rules go to one of his roles (or that holds an alert of his), every one for the admin;
     // a main section with none of them is out of his bell — the ones left are all there, even at zero
     const me = window.IBDirectory && window.IBDirectory.me ? window.IBDirectory.me() : null;
@@ -242,9 +245,8 @@
     return tree.mains.map((m, i) => ({ m, i, subs: m.subs.filter(mineSub) })).filter((x) => x.subs.length || (x.i === 0 && placed.some((p) => !p.sub))).map(({ m, i, subs }) => {
       const subIds = new Set(m.subs.map((x) => x.id));
       const mine = placed.filter((p) => (p.sub ? subIds.has(p.sub) : i === (firstWith > -1 ? firstWith : 0)));
-      const all = ord(atoms(mine)); const unreadAll = mine.filter((p) => !p.a.read);
-      const tabs = [['all', 'الكل', all]].concat(subs.map((x) => ['s:' + x.id, x.name, ord(atoms(mine.filter((p) => p.sub === x.id)))]),
-        [['unread', 'غير مقروء', all.filter((x) => !x.muted)], ['read', 'مقروء', all.filter((x) => x.muted)]]);
+      const shown = mine.filter(keep); const all = ord(atoms(shown)); const unreadAll = mine.filter((p) => !p.a.read);
+      const tabs = [['all', 'الكل', all]].concat(subs.map((x) => ['s:' + x.id, x.name, ord(atoms(shown.filter((p) => p.sub === x.id)))]));
       const critical = unreadAll.filter((p) => lvOf(p.a) === 'critical').length;
       return { id: 'n:' + m.id, label: m.name, icon: m.icon || 'bell', unit: 'تنبيه', received: unreadAll.length, critical, all: () => markMany(mine.map((p) => p.a.id)), allLabel: 'تعليم القسم كمقروء',
         empty: 'مفيش تنبيهات هنا دلوقتي.', tabs, tree: true };

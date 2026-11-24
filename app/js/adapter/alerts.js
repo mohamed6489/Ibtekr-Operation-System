@@ -26,11 +26,14 @@
   async function loadTree(cl) {
     try {
       const [s, r] = await Promise.all([cl.from('notif_sections').select('id, parent_id, name, icon, sort').order('sort', { ascending: true }).limit(500),
-        cl.from('notif_rules').select('id, section_id, element, active').limit(1000)]);
+        cl.from('notif_rules').select('id, section_id, element, active, roles').limit(1000)]);
       if (s.error || r.error) { tree = null; return; }
       const all = s.data || []; const rules = r.data || [];
+      // the bell by role (Safwat 24 Nov — «تقسم التنبيهات على دور بالشكل الجديد والأقسام الفرعية تبقى جاهزة حتى لو فيها صفر»): a sub-section
+      // carries the roles its working rules go to; treeSections shows a member the ones of his roles (primary + extra), the admin all
+      const rolesOf = (id) => [...new Set(rules.filter((y) => y.section_id === id && y.active !== false).flatMap((y) => (Array.isArray(y.roles) ? y.roles : [])))];
       tree = { mains: all.filter((x) => !x.parent_id).map((m) => ({ id: m.id, name: m.name, icon: m.icon || null,
-        subs: all.filter((x) => x.parent_id === m.id).map((x) => ({ id: x.id, name: x.name, elements: [...new Set(rules.filter((y) => y.section_id === x.id).map((y) => y.element))] })) })) };
+        subs: all.filter((x) => x.parent_id === m.id).map((x) => ({ id: x.id, name: x.name, roles: rolesOf(x.id), elements: [...new Set(rules.filter((y) => y.section_id === x.id).map((y) => y.element))] })) })) };
     } catch (e) { tree = null; }
   }
   async function load() {
@@ -228,11 +231,19 @@
     };
     // critical first, then important, then info; each by time (newest or oldest first)
     const ord = (L) => L.slice().sort((x, y) => (LV_RANK[x.lv] - LV_RANK[y.lv]) || (sort === 'old' ? 1 : -1) * (Date.parse(x.at) - Date.parse(y.at)));
-    return tree.mains.map((m, i) => {
+    // the member's sections: a sub-section whose rules go to one of his roles (or that holds an alert of his), every one for the admin;
+    // a main section with none of them is out of his bell — the ones left are all there, even at zero
+    const me = window.IBDirectory && window.IBDirectory.me ? window.IBDirectory.me() : null;
+    const myRoles = me ? [me.role_id].concat(Array.isArray(me.extra_roles) ? me.extra_roles : []).filter(Boolean) : null;
+    const admin = !me || me.role_id === 'admin';
+    const has = new Set(placed.map((p) => p.sub).filter(Boolean));
+    const mineSub = (x) => admin || has.has(x.id) || (x.roles || []).some((r) => myRoles.includes(r));
+    const firstWith = tree.mains.findIndex((m) => m.subs.some(mineSub));
+    return tree.mains.map((m, i) => ({ m, i, subs: m.subs.filter(mineSub) })).filter((x) => x.subs.length || (x.i === 0 && placed.some((p) => !p.sub))).map(({ m, i, subs }) => {
       const subIds = new Set(m.subs.map((x) => x.id));
-      const mine = placed.filter((p) => (p.sub ? subIds.has(p.sub) : i === 0));
+      const mine = placed.filter((p) => (p.sub ? subIds.has(p.sub) : i === (firstWith > -1 ? firstWith : 0)));
       const all = ord(atoms(mine)); const unreadAll = mine.filter((p) => !p.a.read);
-      const tabs = [['all', 'الكل', all]].concat(m.subs.map((x) => ['s:' + x.id, x.name, ord(atoms(mine.filter((p) => p.sub === x.id)))]),
+      const tabs = [['all', 'الكل', all]].concat(subs.map((x) => ['s:' + x.id, x.name, ord(atoms(mine.filter((p) => p.sub === x.id)))]),
         [['unread', 'غير مقروء', all.filter((x) => !x.muted)], ['read', 'مقروء', all.filter((x) => x.muted)]]);
       const critical = unreadAll.filter((p) => lvOf(p.a) === 'critical').length;
       return { id: 'n:' + m.id, label: m.name, icon: m.icon || 'bell', unit: 'تنبيه', received: unreadAll.length, critical, all: () => markMany(mine.map((p) => p.a.id)), allLabel: 'تعليم القسم كمقروء',

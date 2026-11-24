@@ -63,12 +63,19 @@ test('«الإعدادات › التنبيهات»: a main section, a sub-secti
   await signIn(page, 'settings-notifications');
   await expect(page.locator('[data-set-save]')).toHaveCount(0); // each change saves at once
   const tree = page.locator('[data-nr-tree]');
-  await expect(tree.locator('[data-nr-main]')).toHaveCount(2);
-  await expect(tree.locator('[data-nr-rule]')).toHaveCount(2);
+  // the main sections as tabs (Safwat 24 Nov — «في تابس اسهل من تحت بعضها»): one shown at a time, each tab with its alerts' count
+  await expect(tree.locator('[data-nr-tab]')).toHaveCount(2);
+  await expect(tree.locator('[data-nr-main]')).toHaveCount(1);
+  await expect(tree.locator('[data-nr-tab]').first()).toHaveAttribute('aria-selected', 'true');
+  await expect(tree.locator('[data-nr-rule]')).toHaveCount(1);
+  await tree.locator('[data-nr-tab]').nth(1).click();
+  await expect(tree.locator('[data-nr-tab]').nth(1)).toHaveAttribute('aria-selected', 'true');
+  await expect(tree.locator('[data-nr-rule]')).toHaveCount(1);
   // a new main section
   await page.locator('[data-nr-add-main]').click();
   await page.locator('#ns-name').fill('الحسابات'); await page.locator('.modal[role=dialog]').getByRole('button', { name: 'حفظ', exact: true }).click();
-  await expect(tree.locator('[data-nr-main]')).toHaveCount(3);
+  await expect(tree.locator('[data-nr-tab]')).toHaveCount(3);
+  await expect(tree.locator('[data-nr-tab]', { hasText: 'الحسابات' })).toHaveAttribute('aria-selected', 'true'); // the new one opens
   const acc = tree.locator('[data-nr-main]', { hasText: 'الحسابات' });
   // a sub-section under it
   await acc.locator('[data-nr-add-sub]').click();
@@ -105,12 +112,14 @@ test('«الإعدادات › التنبيهات»: a main section, a sub-secti
 
 test('an alert switched off and deleted from the settings; a sub-section renamed', async ({ page }) => {
   await signIn(page, 'settings-notifications');
+  await page.locator('[data-nr-tab]').nth(1).click(); // r2 is under the second main section's tab
   const rule = page.locator('[data-nr-rule="r2"]');
   await rule.getByRole('switch').click();
   await expect.poll(() => mock.notif.rules.find((r) => r.id === 'r2').active).toBe(false);
   await rule.getByRole('button', { name: 'إجراءات' }).click(); await page.getByRole('menuitem', { name: 'حذف' }).click();
   await page.getByRole('button', { name: 'احذف' }).click();
   await expect.poll(() => mock.notif.rules.some((r) => r.id === 'r2')).toBe(false);
+  await page.locator('[data-nr-tab="' + M1 + '"]').click();
   const sub = page.locator('[data-nr-sub="' + S1 + '"]');
   await sub.locator('.nr-sub-h').getByRole('button', { name: 'إجراءات' }).click(); await page.getByRole('menuitem', { name: 'تغيير الاسم' }).click();
   await page.locator('#ns-name').fill('مستني تأكيد'); await page.locator('.modal[role=dialog]').getByRole('button', { name: 'حفظ', exact: true }).click();

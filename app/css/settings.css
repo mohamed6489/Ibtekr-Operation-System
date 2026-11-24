@@ -648,6 +648,9 @@ button.dx-stat{cursor:pointer}button.dx-stat:hover{background:var(--color-bg-hov
 .nr-ch.on .nr-ch-st{color:var(--color-success-text)}
 .nr-ch .sw-row{padding:0;border:0;flex:none}.nr-ch .sw-row .sw-txt,.nr-ch .sw-row>span:not(.sw){display:none}
 .nr-tree{display:flex;flex-direction:column;gap:14px}
+/* the main sections as tabs, one shown at a time (Safwat 24 Nov — «في تابس اسهل من تحت بعضها») */
+.nr-tabs{margin-bottom:-4px}.nr-tabs .tab{white-space:nowrap}
+div.nr-tog{cursor:default}
 .nr-main{padding:0;overflow:visible;border-radius:12px}
 .nr-main-h{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:12px 16px}
 .nr-main.open .nr-main-h{border-bottom:1px solid var(--color-border-subtle)}

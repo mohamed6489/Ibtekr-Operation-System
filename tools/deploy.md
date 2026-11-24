@@ -2566,3 +2566,8 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 2. انشر `notify` (`reportPlan` / `partKey` — من غير `0162` بيقرا القواعد من غير العمودين ويشتغل «فردي» زي الأول).
 3. ادمج على `main` (`notif-catalog.js` بالحرف في `_shared`، `notif-settings.js`، `settings.js`، `alert-report.js`، الكتلة 28، `index.html`).
 4. **اتأكد:** اعمل تنبيه بعنصرين و«تقرير» → بعد أول تيك ميعاده: `select title, meta->>'n' from alerts where entity_id = 'report' order by at desc limit 5;` — وافتحه من الجرس: جدول واحد بكل الحاجات.
+
+#### 2.7.135 «العقل الذكي» لكل الفريق (الخطة `docs/superpowers/plans/2026-11-24-system-map.md` قرار 7؛ مفيش migration)
+
+1. بعد الدمج: انشر `settings-admin` (`deploy-functions.yml` → `settings-admin`) — action جديد `map` لأي عضو نشط بيرجّع «متصل / مش متصل» بس (مفيش قيمة ولا آخر 4 حروف ولا مين ربط)، والصفحة بتقرا منه لوحده.
+2. اتأكد: عضو مش أدمن يفتح «الذكاء الاصطناعي › العقل الذكي» → الخريطة بحالتها، والشيت من غير «إيقاف مؤقت» / «الربط» / «التبديل»، ومن غير «افحص بلاجنز الموقع».

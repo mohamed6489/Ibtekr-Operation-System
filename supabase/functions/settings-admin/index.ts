@@ -18,6 +18,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { secretOf, secretSet } from '../_shared/secrets.js';
 import { CARDS, SECRET_NAMES, fieldsOf, nameOk, parseSecret, probeCode, probesOf, secretPublic } from '../_shared/settings-link.js';
 import { McpError, mcpClient, type McpClient } from '../_shared/mcp-client.ts';
+import { PLATFORMS as AD_PLATFORMS, LINK_FIELDS as AD_FIELDS, linkReady as adReady } from '../_shared/mkt-ads-link.js';
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -30,7 +31,7 @@ export type Deps = {
   mcp?: (url: string, token: string | null) => McpClient; // decision 4: an MCP server's probe = initialize + tools/list
 };
 
-const ACTIONS = ['status', 'secret_set', 'woo_set', 'secret_test', 'secret_unlink', 'member_status'];
+const ACTIONS = ['status', 'secret_set', 'woo_set', 'secret_test', 'secret_unlink', 'member_status', 'map'];
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Access-Control-Allow-Methods': 'POST, OPTIONS' };
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json' } });
 const isObj = (v: unknown): v is Json => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -164,6 +165,48 @@ async function status(deps: Deps) {
   return json(200, { links, cards: CARDS, now: deps.now() });
 }
 
+// «العقل الذكي» (Safwat 24 Nov — «يظهر لكل الفريق بس الادمن بس اللي يقدر يعدل الباقي مشاهدة»): the map's one read for any active member —
+// connected or not per key (never a value, a tail or who linked it), the ads accounts and the Magnific bridge the same way, the CS
+// channels' states, the site's checks (plugin names and versions, speed, pixel), today's activity as action names and times only (no
+// actor, no entity), the last sync results, the pauses and the AI providers. Writing (the pauses) stays the admin's — the settings row.
+async function vaultJson(deps: Deps, fn: string, name: string): Promise<Json | null> {
+  try { const { data, error } = await deps.db.rpc(fn, { p_name: name }); if (error || typeof data !== 'string' || !data) return null; const j = JSON.parse(data); return isObj(j) ? j : null; } catch { return null; }
+}
+async function mapView(deps: Deps, who: { id: string }, args: Json) {
+  const { data: me } = await deps.db.from('profiles').select('status').eq('id', who.id).maybeSingle();
+  if (!isObj(me) || me.status !== 'active') return json(403, { error: 'forbidden' });
+  const meta = await metaAll(deps); const off = await offAll(deps);
+  const names = [...new Set([...SECRET_NAMES, ...Object.keys(meta).filter((n) => nameOk(n))])];
+  const links: Json = {};
+  for (const n of names) { const stored = await secretOf(deps.db, n); if (!stored && !meta[n]) continue; links[n] = { ready: !!(secretPublic(n, stored, meta[n]) as Json).ready }; }
+  for (const n of ['woo', ...Object.keys(SERVER_KEYS)]) if (!(links[n]?.ready) && off[offKey(n)] !== true && serverLink(deps.env, n)) links[n] = { ready: false, source: 'server' };
+  const ads: Json = {};
+  for (const p of AD_PLATFORMS) {
+    const v = await vaultJson(deps, 'mkt_secret_get', 'ads_' + p); const link: Json = {};
+    if (v) for (const [k, x] of Object.entries(v)) if (typeof x === 'string' && x && k in (AD_FIELDS as Json)[p]) link[k] = x;
+    let ready = adReady(p, link); let acc = typeof link.account_id === 'string' ? link.account_id : typeof link.advertiser_id === 'string' ? link.advertiser_id : typeof link.customer_id === 'string' ? link.customer_id : null;
+    if (p === 'meta' && !ready && String(deps.env.META_ADS_TOKEN ?? '').trim() && String(deps.env.META_AD_ACCOUNT_ID ?? '').trim()) { ready = true; acc = String(deps.env.META_AD_ACCOUNT_ID).trim().replace(/^act_/, ''); }
+    let error: string | null = null;
+    if (ready && acc) { const { data } = await deps.db.from('mkt_ad_objects').select('meta').eq('platform', p).eq('kind', 'account').eq('id', acc).maybeSingle(); const m = isObj(data) && isObj(data.meta) ? data.meta : {}; error = typeof m.error === 'string' && m.error ? m.error : null; }
+    ads[p] = { configured: ready, error };
+  }
+  const tokens = await vaultJson(deps, 'magnific_secret_get', 'magnific_mcp_tokens');
+  const nowMs = Date.parse(deps.now()); const sinceRaw = typeof args.since === 'string' ? Date.parse(args.since) : NaN;
+  const since = new Date(Number.isFinite(sinceRaw) && sinceRaw > nowMs - 2 * 86400000 && sinceRaw <= nowMs ? sinceRaw : nowMs - 86400000).toISOString();
+  const [chs, checks, ev, sync, ai] = await Promise.all([
+    deps.db.from('cs_channels').select('id, status, kind'),
+    deps.db.from('site_checks').select('kind, data, checked_at').in('kind', ['wp_updates', 'pagespeed', 'pixel']),
+    deps.db.from('activity_log').select('id, at, action').gte('at', since).order('at', { ascending: false }).limit(1000),
+    deps.db.from('woo_sync_log').select('result, at').eq('direction', 'in').gte('at', new Date(nowMs - 3600000).toISOString()).order('at', { ascending: false }).limit(3),
+    deps.db.from('settings').select('data').eq('section', 'ai').maybeSingle(),
+  ]);
+  const integ = await deps.db.from('settings').select('data').eq('section', 'integrations').maybeSingle();
+  const paused = isObj(integ.data?.data) && isObj(integ.data.data.paused) ? integ.data.data.paused : {};
+  const aiRow = isObj(ai.data?.data) ? ai.data.data : {};
+  return json(200, { links, ads, bridge: { linked: !!(tokens && typeof tokens.access_token === 'string') }, channels: chs.data ?? [], checks: checks.data ?? [],
+    events: ev.data ?? [], sync: sync.data ?? [], paused, providers: isObj(aiRow.providers) ? aiRow.providers : {}, now: deps.now() });
+}
+
 async function secretSetAction(deps: Deps, admin: string, args: Json) {
   const name = String(args.name ?? '');
   if (!nameOk(name) || !fieldsOf(name)) return json(400, { error: 'unknown_secret' });
@@ -250,11 +293,12 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
   try { args = await req.json(); } catch { return json(400, { error: 'bad_json' }); }
   if (!isObj(args)) return json(400, { error: 'bad_json' });
   const action = String(args.action ?? '');
-  const who = action === 'member_status' ? await memberOf(req, deps) : await adminOf(req, deps);
+  const who = action === 'member_status' || action === 'map' ? await memberOf(req, deps) : await adminOf(req, deps);
   if (!who) return json(401, { error: 'unauthorized' });
   if (!ACTIONS.includes(action)) return json(400, { error: 'unknown_action' });
   try {
     if (action === 'status') return await status(deps);
+    if (action === 'map') return await mapView(deps, who, args);
     if (action === 'secret_set') return await secretSetAction(deps, who.id, args);
     if (action === 'woo_set') return await wooSet(deps, who.id, args);
     if (action === 'secret_test') return await secretTest(deps, who.id, args);

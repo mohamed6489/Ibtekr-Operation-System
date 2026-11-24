@@ -44,26 +44,17 @@ const IC = {
   const fn = async (name, body) => { try { const c = cl(); if (!c) return null; const { data, error } = await c.functions.invoke(name, { body }); return error || !data || data.error ? null : data; } catch (e) { return null; } };
   const sel = async (q) => { try { const { data, error } = await q; return error ? null : data; } catch (e) { return null; } };
   async function load(quiet) {
-    const c = cl(); if (!c || !isAdmin()) return;
+    const c = cl(); if (!c) return;
     if (!quiet) { st.loading = true; draw(); }
-    const since = cairoMidnight();
-    const [lk, chs, ads, br, checks, ev, sync] = await Promise.all([
-      S() && S().links ? S().links().catch(() => null) : null,
-      sel(c.from('cs_channels').select('id, status, kind')),
-      fn('mkt-ads', { action: 'status' }),
-      fn('ai-images', { action: 'bridge_status' }),
-      sel(c.from('site_checks').select('kind, data, checked_at').in('kind', ['wp_updates', 'pagespeed', 'pixel'])),
-      sel(c.from('activity_log').select('id, at, action').gte('at', since).order('at', { ascending: false }).limit(1000)),
-      sel(c.from('woo_sync_log').select('result, at').eq('direction', 'in').gte('at', new Date(Date.now() - 3600000).toISOString()).order('at', { ascending: false }).limit(3)),
-    ]);
-    const integ = S() && S().section ? S().section('integrations') || {} : {}; const ai = S() && S().section ? S().section('ai') || {} : {};
-    const P = ads && ads.platforms && typeof ads.platforms === 'object' ? ads.platforms : {};
-    const adsOf = (k) => { const x = P[k] && typeof P[k] === 'object' ? P[k] : null; return x ? { linked: x.configured === true || !!x.account, error: typeof x.error === 'string' && x.error ? x.error : null } : null; };
-    const ck = (k) => { const r = (checks || []).find((x) => x.kind === k); return r && r.data && typeof r.data === 'object' ? Object.assign({ at: r.checked_at }, r.data) : null; };
-    st.raw = { links: lk && lk.ok ? lk.links : {}, paused: integ && typeof integ.paused === 'object' ? integ.paused : {}, providers: ai && typeof ai.providers === 'object' ? ai.providers : {},
-      channels: chs || [], ads: { meta: adsOf('meta'), tiktok: adsOf('tiktok'), google: adsOf('google') }, bridge: br ? { linked: !!br.linked } : null,
-      wp: ck('wp_updates'), speed: ck('pagespeed'), pixel: ck('pixel'), syncErrors: (sync || []).length === 3 && sync.every((x) => String(x.result) === 'error') ? 3 : 0, events: ev || [], now: Date.now() };
-    st.failed = !lk || !lk.ok; st.loading = false;
+    // one read for any member (settings-admin «map» — connected or not only, never a value); the pauses are written by the admin only
+    const m = await fn('settings-admin', { action: 'map', since: cairoMidnight() });
+    const ck = (k) => { const r = ((m && m.checks) || []).find((x) => x.kind === k); return r && r.data && typeof r.data === 'object' ? Object.assign({ at: r.checked_at }, r.data) : null; };
+    const adsOf = (k) => { const x = m && m.ads && m.ads[k] && typeof m.ads[k] === 'object' ? m.ads[k] : null; return x ? { linked: x.configured === true, error: typeof x.error === 'string' && x.error ? x.error : null } : null; };
+    const sync = (m && m.sync) || []; const ev = (m && m.events) || [];
+    st.raw = { links: m && m.links && typeof m.links === 'object' ? m.links : {}, paused: m && m.paused && typeof m.paused === 'object' ? m.paused : {}, providers: m && m.providers && typeof m.providers === 'object' ? m.providers : {},
+      channels: (m && m.channels) || [], ads: { meta: adsOf('meta'), tiktok: adsOf('tiktok'), google: adsOf('google') }, bridge: m && m.bridge ? { linked: !!m.bridge.linked } : null,
+      wp: ck('wp_updates'), speed: ck('pagespeed'), pixel: ck('pixel'), syncErrors: sync.length === 3 && sync.every((x) => String(x.result) === 'error') ? 3 : 0, events: ev, now: Date.now() };
+    st.failed = !m; st.loading = false;
     const before = st.events.length ? st.events[0].id : null;
     st.events = ev || []; st.sys = D().systemsOf(st.raw);
     st.lastAt = st.events.length ? st.events[0].at : null;
@@ -74,7 +65,6 @@ const IC = {
 
   // ---------- the page
   function view() {
-    if (!isAdmin()) return [K().Empty('الصفحة دي للأدمن بس', '')];
     if (!st.dom) build();
     if (!st.sys && !st.loading) load();
     if (!st.timer) st.timer = setInterval(tick, 30000);
@@ -143,7 +133,7 @@ const IC = {
     st.dom.querySelector('[data-sm-rows]').innerHTML = rows.map(([g, x]) => '<tr data-sm-row><td><b>' + esc(x.name) + '</b></td><td>' + esc(x.kind) + '</td><td>' + esc(g.name) + '</td><td>' + esc(x.err || x.role) + '</td><td>' + esc(x.dir) + '</td><td>'
       + (x.ver ? esc(x.ver) + (x.upd ? ' <span class="sm-upd" title="فيه نسخة أحدث">← ' + esc(x.upd) + '</span>' : '') : g.id === 'site' ? '<small>من الموقع</small>' : '<small>—</small>') + '</td><td class="sm-st" data-st="' + x.state + '"><i></i>' + esc(D().STATE_TXT[x.state]) + '</td></tr>').join('') || '<tr><td colspan="7"><small>مفيش حاجة بالاسم ده</small></td></tr>';
     st.dom.querySelector('[data-sm-n]').textContent = rows.length + ' من ' + st.sys.reduce((n, g) => n + g.parts.length, 0);
-    const site = st.sys.find((s) => s.id === 'site'); const btn = st.dom.querySelector('[data-sm-check]'); btn.disabled = st.checking; btn.textContent = st.checking ? 'بنفحص…' : 'افحص بلاجنز الموقع';
+    const site = st.sys.find((s) => s.id === 'site'); const btn = st.dom.querySelector('[data-sm-check]'); btn.hidden = !isAdmin(); btn.disabled = st.checking; btn.textContent = st.checking ? 'بنفحص…' : 'افحص بلاجنز الموقع';
     st.dom.querySelector('[data-sm-checked]').textContent = site && site.checkedAt ? 'بلاجنز الموقع ونسخها من آخر فحص ' + new Date(site.checkedAt).toLocaleString('ar-EG-u-nu-latn', { day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit' }) + ' — بيتفحصوا لوحدهم كل يوم.' : 'بلاجنز الموقع ونسخها لسه مااتفحصتش — «افحص بلاجنز الموقع» يقراها من الموقع (قراية بس).';
   }
   // ---------- the layout (the mockup's): a ring around the brain — an ellipse on wide screens, the wires quadratic curves that start
@@ -217,14 +207,15 @@ const IC = {
     if (!sh.scrim) { sh.scrim = el('div', { class: 'sm-scrim', role: 'dialog', 'aria-modal': 'true', 'aria-label': s.name, 'data-sm-sheet': s.id }); sh.scrim.addEventListener('click', (e) => { if (e.target === sh.scrim) closeSheet(); }); sh.box = el('div', { class: 'sm-sheet' }); sh.scrim.appendChild(sh.box); document.body.appendChild(sh.scrim); }
     const imp = [1, 2, 3].map((i) => '<i class="' + (i <= s.imp ? 'on' : '') + '"></i>').join(''); const T = D().STATE_TXT;
     let acts = '';
-    if (s.locked) acts = '<p class="sm-note">' + esc(s.note || '') + '</p>';
+    if (!isAdmin()) acts = '<p class="sm-note" data-sm-view>إنت شايف الحالة بس — الإيقاف والربط والتبديل للأدمن.</p>';
+    else if (s.locked) acts = '<p class="sm-note">' + esc(s.note || '') + '</p>';
     else if (s.state === 'paused') acts = '<div class="sm-btns"><button type="button" class="sm-btn pri" data-act="resume">كمّل</button></div>';
     else if (s.state === 'unlinked') acts = '<div class="sm-btns"><button type="button" class="sm-btn pri" data-act="link">اربطه من الإعدادات</button></div>';
     else if (s.state === 'err') acts = '<div class="sm-btns"><button type="button" class="sm-btn pri" data-act="link">' + (s.swap ? 'افتح المزوّدين' : 'اربطه تاني') + '</button><button type="button" class="sm-btn" data-act="ask-pause">إيقاف مؤقت</button></div>';
     else acts = '<div class="sm-btns"><button type="button" class="sm-btn gold" data-act="ask-pause">إيقاف مؤقت</button><button type="button" class="sm-btn" data-act="link">' + (s.swap ? 'المزوّدين' : 'الربط بالمنصات') + '</button></div>';
     const ask = sh.ask ? '<div class="sm-confirm" role="alert"><b>' + esc(sh.ask.title) + '</b><span class="sm-note">' + esc(sh.ask.text) + '</span><div class="sm-btns">' + sh.ask.btns + '<button type="button" class="sm-btn" data-act="cancel">إلغاء</button></div></div>' : '';
     const alts = s.alts && s.alts.length > 1 ? '<div class="sm-box"><h3>البدائل</h3><div class="sm-alts">' + s.alts.map((a) => '<div class="sm-alt" aria-current="' + (a.id === s.cur) + '"><span><b>' + esc(a.name) + '</b><small>' + esc(a.sub) + '</small></span><span class="sm-tag">' + (a.id === s.cur ? 'المستخدم دلوقتي' : a.linked ? 'جاهز' : 'محتاج ربط') + '</span></div>').join('') + '</div>'
-      + '<div class="sm-btns"><button type="button" class="sm-btn" data-act="swap">بدّله من «المزوّدين»</button></div><p class="sm-note">التبديل بيتعمل من «الإعدادات › الذكاء الاصطناعي › المزوّدين» — لكل أداة مزوّدها، والسيستم بيستخدم الجديد من الطلب الجاي.</p></div>' : '';
+      + (isAdmin() ? '<div class="sm-btns"><button type="button" class="sm-btn" data-act="swap">بدّله من «المزوّدين»</button></div>' : '') + '<p class="sm-note">التبديل بيتعمل من «الإعدادات › الذكاء الاصطناعي › المزوّدين» — لكل أداة مزوّدها، والسيستم بيستخدم الجديد من الطلب الجاي.</p></div>' : '';
     const parts = '<div class="sm-box"><h3>الأجزاء (' + s.parts.length + ')</h3><ul class="sm-parts">' + s.parts.map((x) => '<li data-st="' + x.state + '"><span class="sm-pd" aria-hidden="true"></span><span class="sm-pn"><b>' + esc(x.name) + '</b><small>' + esc(x.kind) + (x.ver ? ' · ' + esc(x.ver) : '') + (x.upd ? ' · فيه ' + esc(x.upd) : '') + ' · ' + esc(T[x.state]) + '</small><small>' + esc(x.err || x.role) + '</small></span><span class="sm-pdir">' + esc(x.dir) + '</span></li>').join('') + '</ul>' + (s.note && !s.locked ? '<p class="sm-note">' + esc(s.note) + '</p>' : '') + '</div>';
     sh.box.innerHTML = '<header><span class="sm-ic">' + (IC[s.glyph] || '') + '</span><div><h2>' + esc(s.name) + '</h2><span class="sm-pill ' + s.state + '">● ' + esc(T[s.state]) + (s.pausedTill && s.state === 'paused' ? ' ' + esc(s.pausedTill) : '') + '</span></div><button type="button" class="sm-x" aria-label="إغلاق" data-act="close">✕</button></header>'
       + (s.state === 'err' && s.err ? '<div class="sm-confirm"><b>' + esc(s.err) + '</b></div>' : '')

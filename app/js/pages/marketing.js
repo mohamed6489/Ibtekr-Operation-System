@@ -2436,8 +2436,8 @@
     const L = aiList();
     if (!L) { if (!aiAsked) { aiAsked = true; MKa.agents(false).then((r) => { aiAsked = false; if (!r.ok) K.toast(r.message, 'error'); if (window.IBPages.current === 'ai') R(); }); } return [K.PageHead('الذكاء الاصطناعي', null, []), K.Empty('بنحمّل…', 'لحظة واحدة')]; }
     const add = isAdmin() ? Button({ type: 'primary', icon: 'plus', label: 'مساعد جديد', attrs: { 'data-ai-add': '' }, onClick: () => agentForm(null) }) : null;
-    // «العقل الذكي» (Safwat 24 Nov — «حطها جوة صفحة الذكاء الاصطناعي جمب زرار مساعد جديد»): the admin's map of everything the system is linked to (system-map.js)
-    const brainBtn = isAdmin() && window.IBPages.all().brain ? Button({ icon: 'activity', label: 'العقل الذكي', attrs: { 'data-ai-brain': '' }, onClick: () => { location.hash = 'brain'; } }) : null;
+    // «العقل الذكي» (Safwat 24 Nov — «حطها جوة صفحة الذكاء الاصطناعي جمب زرار مساعد جديد»، ثم «يظهر لكل الفريق بس الادمن بس اللي يقدر يعدل»): the map of everything the system is linked to (system-map.js)
+    const brainBtn = window.IBPages.all().brain ? Button({ icon: 'activity', label: 'العقل الذكي', attrs: { 'data-ai-brain': '' }, onClick: () => { location.hash = 'brain'; } }) : null;
     if (!L.length) return [K.PageHead('الذكاء الاصطناعي', null, [brainBtn, add].filter(Boolean)), K.Empty('مفيش مساعدين متاحين لدورك', 'كل مساعد بيظهر للي معاه صلاحية «عرض» صفحته — كلّم الأدمن لو محتاج واحد.')];
     if (!BY.aiTab || !L.some((x) => x.id === BY.aiTab)) BY.aiTab = L[0].id;
     const a = BY.aiTab; const me = L.find((x) => x.id === a);

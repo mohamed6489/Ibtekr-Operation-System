@@ -56,9 +56,18 @@ test('«العقل الذكي»: the admin\'s button on «الذكاء الاص�
   await expect(page.locator('#pg-ai [data-ai-brain]')).toBeVisible();
 });
 
-test('«العقل الذكي» is the admin\'s only: no button for a member, and its hash lands on the dashboard', async ({ page }) => {
+test('«العقل الذكي» for the whole team (Safwat 24 Nov — «يظهر لكل الفريق بس الادمن بس اللي يقدر يعدل الباقي مشاهدة»): a member sees the same map from the one read (settings-admin «map»), a group\'s sheet without «إيقاف مؤقت» / the links / the swap, no «افحص بلاجنز الموقع»', async ({ page }) => {
   await signIn(page, 'ops.dev@ibtekr.local');
   await page.evaluate(() => { location.hash = 'brain'; });
-  await expect.poll(() => page.evaluate(() => location.hash)).toBe('#dashboard');
-  await expect(page.locator('#pg-brain [data-sysmap]')).toHaveCount(0);
+  const pg = page.locator('#pg-brain [data-sysmap]');
+  await expect(pg.locator('h1')).toHaveText('العقل الذكي');
+  await expect(pg.locator('[data-sm-node]')).toHaveCount(11);
+  await expect(pg.locator('[data-sm-node="mail"]')).toHaveAttribute('data-state', 'on'); // the e-mail's key read as linked through «map»
+  await expect(pg.locator('[data-sm-check]')).toBeHidden();
+  await pg.locator('[data-sm-node="mail"]').click();
+  const sh = page.locator('[data-sm-sheet="mail"]');
+  await expect(sh.locator('[data-sm-view]')).toContainText('للأدمن');
+  await expect(sh.locator('[data-act="ask-pause"], [data-act="link"], [data-act="swap"], [data-act="resume"]')).toHaveCount(0);
+  expect(mock.st.calls.filter((c) => c.fn === 'settings-admin').map((c) => c.action)).toEqual(expect.arrayContaining(['map']));
+  expect(mock.st.calls.some((c) => c.fn === 'settings-admin' && c.action === 'status')).toBe(false);
 });

@@ -194,3 +194,22 @@ Deno.test('an AI key in the server secrets shows as linked (source server, the t
   assertEquals(db.rows('settings').find((r: any) => r.section === 'integrations').data.off, {});
   assertEquals((await call(deps, { action: 'status' })).body.links.anthropic.source, undefined, 'the page\'s own link now');
 });
+
+Deno.test('map («العقل الذكي» — Safwat 24 Nov «يظهر لكل الفريق»): any active member reads connected / not connected only — never a key, a tail or who linked it; a suspended member or no token is refused; the pause stays the admin\'s (status still admin-only)', async () => {
+  const { db, deps } = setup({ vault: { openai: JSON.stringify({ key: OPENAI_KEY }) } });
+  await db.from('profiles').insert({ id: MEMBER, name: 'عضو', email: 'm@x.test', phone: '01000000002', role_id: 'ops', status: 'active' });
+  await db.from('activity_log').insert({ at: NOW, actor: ADMIN, action: 'order.status', entity: 'order', entity_id: '42', new_value: { to: 'مكتمل' } });
+  await db.from('settings').update({ data: { paused: { resend: '2099-01-01T00:00:00Z' }, meta: { openai: { linked_by: ADMIN, linked_at: NOW } } } }).eq('section', 'integrations');
+  const { res, body } = await call(deps, { action: 'map', since: new Date(Date.parse(NOW) - 3600000).toISOString() }, 'jwt-member');
+  assertEquals(res.status, 200, JSON.stringify(body));
+  assertEquals(body.links.openai, { ready: true });
+  assertEquals(body.paused, { resend: '2099-01-01T00:00:00Z' });
+  assertEquals(Object.keys(body.ads).sort(), ['google', 'meta', 'tiktok']); assertEquals(body.bridge, { linked: false });
+  assertEquals(body.events.map((e: any) => Object.keys(e).sort()), [['action', 'at', 'id']]);
+  const txt = JSON.stringify(body);
+  assert(!txt.includes(OPENAI_KEY.slice(-4)) && !txt.includes(ADMIN) && !txt.includes('مكتمل'), 'no tail, no actor, no value');
+  await db.from('profiles').update({ status: 'suspended' }).eq('id', MEMBER);
+  assertEquals((await call(deps, { action: 'map' }, 'jwt-member')).res.status, 403);
+  assertEquals((await call(deps, { action: 'map' }, 'jwt-nobody')).res.status, 401);
+  assertEquals((await call(deps, { action: 'status' }, 'jwt-member')).res.status, 401);
+});

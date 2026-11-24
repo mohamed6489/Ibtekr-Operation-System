@@ -185,7 +185,8 @@ test('0162 several elements in one alert: «+ عنصر تاني» with its own l
   // a third one, then × takes it off
   await form.locator('[data-nr-cond-add]').click(); await expect(form.locator('[data-nr-cond]')).toHaveCount(2);
   await form.locator('[data-nr-cond-x="1"]').click(); await expect(form.locator('[data-nr-cond]')).toHaveCount(1);
-  await form.locator('#nr-mode').click(); await page.getByRole('option', { name: /^تقرير/ }).click();
+  await expect(form.locator('[data-nr-mode-pick="single"]')).toHaveAttribute('aria-checked', 'true');
+  await form.locator('[data-nr-mode-pick="report"]').click(); await expect(form.locator('[data-nr-mode-pick="report"]')).toHaveAttribute('aria-checked', 'true');
   await form.locator('[data-nr-save]').click();
   await expect(form).toHaveCount(0);
   const r1 = mock.notif.rules.find((r) => r.id === 'r1');
@@ -193,6 +194,8 @@ test('0162 several elements in one alert: «+ عنصر تاني» with its own l
   const card = page.locator('[data-nr-rule="r1"]');
   await expect(card).toContainText('الأوردرات الرئيسية › حالة التأكيد › غير مؤكد + الأوردرات الرئيسية › حالة التأخير › متأخر');
   await expect(card.locator('[data-nr-mode="report"]')).toHaveText('تقرير');
+  await expect(card).toHaveClass(/lv-critical/); // the highest level of its elements on the card's edge
+  await expect(page.locator('[data-nr-stats]')).toContainText('حرج');
 });
 
 test('0162 a «تقرير» alert in the bell opens one table with every thing of its elements — a chip per element filters it, a row opens its order, «مشاركة»', async ({ page }) => {

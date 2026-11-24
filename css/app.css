@@ -2546,3 +2546,8 @@ input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-
 .ntf-chip.error{background:var(--color-error-bg);color:var(--color-error-text)}.ntf-chip.warning{background:var(--color-warning-bg);color:var(--color-warning-base)}
 .ntf-item.grp .txt b .tt{font-weight:700}
 @media (max-width:767px){.ntf-nav{width:auto}.ntf-head.tree{padding:10px 12px 8px}.ntf-main .tabs.ntf-chiptabs{padding:8px 12px 4px}}
+
+/* a «تقرير» alert from the bell (Safwat 24 Nov — the bell's redesign decision 8): the element chips over one table, a row opens its thing */
+.ar-parts { margin: 0 0 10px; flex-wrap: wrap; }
+.ar-tbl tr.ar-go { cursor: pointer; }
+.ar-tbl tr.ar-go:hover td { background: var(--color-bg-hover); }

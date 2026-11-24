@@ -10,7 +10,7 @@
   const SG = () => !!(window.IBSettings && window.IBSettings.single && window.IBSettings.single()); // a seller without makers (0127)
   const SECTIONS = [
     ['general', 'عام', 'بيانات الشركة واللغة والعرض', 'home'], ['team', 'الفريق والصلاحيات', 'الأعضاء والأدوار والدعوات', 'users'], ['integrations', 'الربط بالمنصات', 'WooCommerce وAirtable وواتساب', 'external'], ['ai', 'تعليمات الذكاء الاصطناعي', 'الصور، الفيديو، والمحتوى بأسلوب إبتكر', 'sparkle'],
-    ['hr', 'الموارد البشرية', 'مديري الأدوار والدوام والأوفر تايم والمرتبات والإجازات والعطلات', 'briefcase'], ['makers', 'إعدادات المبتكرين', 'قواعد التأخير والتنشيط والخصم الوهمي', 'truck'], ['inventory', 'المخزن', 'الأماكن والسحب والتنبيهات والمرتجع', 'box'], ['notifications', 'التنبيهات', 'الأنواع والتصعيد وساعات الهدوء', 'bell'], ['lists', 'القوائم والحالات', 'الحالات والأسباب والفئات', 'sliders'],
+    ['hr', 'الموارد البشرية', 'مديري الأدوار والدوام والأوفر تايم والمرتبات والإجازات والعطلات', 'briefcase'], ['makers', 'إعدادات المبتكرين', 'قواعد التأخير والتنشيط والخصم الوهمي', 'truck'], ['inventory', 'المخزن', 'الأماكن والسحب والتنبيهات والمرتجع', 'box'], ['notifications', 'التنبيهات', 'الأقسام والأقسام الفرعية والتنبيهات — نفس تقسيمة الجرس', 'bell'], ['lists', 'القوائم والحالات', 'الحالات والأسباب والفئات', 'sliders'],
     ['payments', 'الحسابات والدفع', 'الحسابات والتحويلات والفاتورة', 'wallet'], ['activity', 'سجل النشاط', 'مين عمل إيه وإمتى', 'activity'], ['security', 'الأمان', 'كلمة السر والجلسات والسياسات', 'alert'], ['docs', 'الأوراق الرسمية', 'السجل التجاري والبطاقة الضريبية والعقود', 'file'], ['brand', 'الهوية البصرية', 'ألوان الموقع واللوجو والخطوط', 'image'], ['data', 'البيانات', 'تصدير واستيراد ونسخ احتياطي', 'download'], ['quick', 'الإجراءات السريعة', 'روابط لأي صفحة بفلاترها في القايمة اللي فوق', 'zap']];
   const st = { sec: 'home', ntab: 'types', itab: 'site', teamSub: 'members', plevel: 'employee', roleOpen: null, integ: null, list: 'order', open: {}, nopen: {}, aopen: {}, dirty: false, draft: null, mq: '', pending: new Set() };
   const R = () => window.IBPages.render('settings');
@@ -297,7 +297,7 @@
     makers: () => { const D = window.IbtekrOps && window.IbtekrOps.delayRules ? window.IbtekrOps.delayRules(C.makers.delay) : null; return [D ? 'متأخر بعد مدة التصنيع · قابل قبلها بـ ' + D.orderRisk + ' يوم' : 'قواعد التأخير', 'neutral']; },
     hr: () => { const v = st.hr || (window.IBHR ? window.IBHR.settings() : {}); const ER = window.IBEvalRules; return ['يوم الصرف ' + (v.payDay || 28) + ' · البونص بالتقييم — كل نقطة ' + (ER ? ER.rulesOf((st.hr && st.hr.evalRules) || v.evalRules, null).point : 20) + '%', 'neutral']; },
     inventory: () => { const I = window.IBInventory; const v = st.inv || (I ? I.settings() : null); return [v && v.firstWarehouse ? 'السحب التلقائي شغّال' : 'السحب يدوي', v && v.firstWarehouse ? 'gold' : 'neutral']; },
-    notifications: () => [C.notif.length + ' نوع تنبيه · ' + C.escalations.length + ' تصعيد', 'neutral'],
+    notifications: () => { const t = SETT() && SETT().notifTreeNow ? SETT().notifTreeNow() : null; return t ? [t.mains.length + ' قسم · ' + t.mains.reduce((n, m) => n + m.subs.reduce((k, x) => k + x.rules.length, 0), 0) + ' تنبيه', 'neutral'] : [C.notif.length + ' نوع تنبيه · ' + C.escalations.length + ' تصعيد', 'neutral']; },
     activity: () => { const n = (K.store.log || []).length; return [n ? n + ' حدث متسجل' : 'مين عمل إيه وإمتى', 'neutral']; },
   };
   function hub() {
@@ -330,11 +330,13 @@
     body.addEventListener('click', (e) => { if (!skip(e.target) && e.target.closest('[role=switch], [role=radio], [role=checkbox], .chip, [role=option]')) mark(); }, true);
     // the owner 14 Nov (decision 3): every settings page in the middle at one width, «حفظ» at the left end of that width
     // ش43: «الملفات» beside «حفظ» on the activity log — the same button and menu as the other pages (the rows of the period)
+    // the notifications' tree (0157) saves each change at once — no «حفظ» there
+    const instant = st.sec === 'notifications' && !!(window.IBNotifSettings && window.IBNotifSettings.ready());
     const files = st.sec === 'activity' ? (() => { const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' }); const trig = Button({ label: 'الملفات', iconEnd: 'chevD', attrs: { 'aria-haspopup': 'menu', 'data-act-files': '' } });
       const opts = [['xlsx', 'تصدير Excel (‎.xlsx)', 'download'], ['csv', 'تصدير CSV', 'file'], ['tsv', 'نسخ للصق في Google Sheets', 'copy']];
       const pop = U.popover(wrap, trig, (close) => U.DropdownMenu({ role: 'menu', end: true, options: opts.map(([value, label, icon]) => ({ value, label, icon })), onSelect: (v) => { close(); const F = st.actFiles; setTimeout(() => F && F[v] && F[v]()); } }));
       trig.addEventListener('click', pop.toggle); wrap.append(trig); return wrap; })() : null;
-    return [h('div', { class: 'set-wrap', 'data-set-wrap': st.sec }, h('div', { class: 'set-back' }, Button({ type: 'text', size: 'sm', icon: 'chevR', label: 'رجوع للإعدادات', attrs: { 'data-set-back': '' }, onClick: goHub })), K.PageHead(x[1], x[2], [note, files, save].filter(Boolean)), body), st.dirty ? saveBar() : null];
+    return [h('div', { class: 'set-wrap', 'data-set-wrap': st.sec }, h('div', { class: 'set-back' }, Button({ type: 'text', size: 'sm', icon: 'chevR', label: 'رجوع للإعدادات', attrs: { 'data-set-back': '' }, onClick: goHub })), K.PageHead(x[1], x[2], [note, files, instant ? null : save].filter(Boolean)), body), st.dirty ? saveBar() : null];
   }
   // «تجاهل التغييرات» بيرجّع البيانات فعلًا: لقطة من الإعدادات أول ما القسم يفتح (وبعد كل حفظ)
   const LOGO_T = ['color', 'reversed', 'mark'];
@@ -1092,6 +1094,13 @@
   const NTABS = [{ id: 'types', label: 'أنواع التنبيهات' }, { id: 'roles', label: 'حسب الدور' }, { id: 'escalation', label: 'التصعيد' },
     { id: 'accounts', label: 'الحسابات والاشتراكات' }, { id: 'delivery', label: 'التوصيل' }, { id: 'digests', label: 'تقارير المهام' }, { id: 'quiet', label: 'ساعات الهدوء' }, { id: 'agents', label: 'المساعدين' }];
   function notifSec() {
+    // the notifications' new structure (Safwat 24 Nov — 0157): the tree the bell shows (app/js/pages/notif-settings.js); before 0157
+    // (no tables) the old tabs below
+    const NS = window.IBNotifSettings; const SS = SETT();
+    if (NS && SS && SS.notifTree) {
+      if (NS.ready()) return NS.render(R);
+      if (st.ntree !== 'none') { if (!st.ntreeAsk) { st.ntreeAsk = true; SS.notifTree(true).then((t) => { st.ntree = t ? 'ok' : 'none'; R(); }); } return [K.Empty('بنحمّل التنبيهات…', '')]; }
+    }
     const tabs = K.MainTabs({ items: NTABS, active: st.ntab, onChange: (id) => { st.ntab = id; R(); }, label: 'أقسام التنبيهات' });
     const panes = { types: () => [notifTypesSec()], roles: () => [alertRolesSec()], escalation: () => [escalationSec()],
       accounts: () => [accAlertsSec(), subsAlertsSec()], delivery: () => [deliverySec()], digests: () => [digestsSec(), roleDigestsBlock()], quiet: () => [quietSec()], agents: () => [agentNotesSec()] };

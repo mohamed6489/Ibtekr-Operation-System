@@ -21,7 +21,7 @@ const COLUMNS: Record<string, string[]> = {
     'contact_name', 'address_parts', 'social', 'logo_url', 'banner_url', 'woo_payment_methods', 'woo_snapshot', 'push_pending', 'woo_synced_at', 'photo_path', 'main_categories', 'store_error', 'store_try_at', 'archived_at', 'archived_by', 'archive_reason'],
   vendor_rates: ['id', 'vendor_id', 'rate', 'flat', 'since', 'set_by', 'created_at', 'commission_type'], // 0016: commission_type
   // 0001 + 0046 (phase 10, team-admin): the team's profiles, the roles, the members' HR data
-  profiles: ['id', 'member_code', 'name', 'email', 'phone', 'role_id', 'level', 'title', 'dept', 'manager_id', 'status', 'twofa', 'custom_perms', 'created_at'],
+  profiles: ['id', 'member_code', 'name', 'email', 'phone', 'role_id', 'level', 'title', 'dept', 'manager_id', 'status', 'twofa', 'custom_perms', 'extra_roles', 'created_at'],
   roles: ['id', 'name', 'description', 'is_system', 'permissions', 'level_perms', 'sort'],
   hr_members: ['member_id', 'shift_start', 'shift_end', 'hire_date', 'leave_days', 'contract_path', 'notes', 'updated_by', 'updated_at'],
   vendor_category_rates: ['id', 'vendor_id', 'woo_category_id', 'rate', 'flat', 'since', 'set_by', 'created_at'],
@@ -94,9 +94,11 @@ const COLUMNS: Record<string, string[]> = {
   ai_agent_notes: ['id', 'agent', 'kind', 'title', 'body', 'link', 'ref', 'created_at'], // 0124 (the assistants' notes in the bell)
   ai_agent_state: ['id', 'facts', 'at'], // 0150 (the numbers the assistants watch — one row, the server's)
   ai_agent_kb: ['id', 'kind', 'section', 'title', 'body', 'agents', 'sort', 'created_at'], // 0120 (their rules and skills)
-  hr_attendance: ['id', 'member_id', 'day', 'in_at', 'out_at', 'remote', 'source', 'note'],
+  hr_attendance: ['id', 'member_id', 'day', 'in_at', 'out_at', 'remote', 'source', 'note', 'ot_from'],
   hr_requests_v: ['id', 'member_id', 'type', 'from_day', 'to_day', 'status'],
-  alerts: ['id', 'at', 'kind', 'title', 'body', 'role_id', 'user_id', 'entity', 'entity_id', 'read_at', 'source_key', 'expires_at'], // 0056: source_key / expires_at
+  alerts: ['id', 'at', 'kind', 'title', 'body', 'role_id', 'user_id', 'entity', 'entity_id', 'read_at', 'source_key', 'expires_at', 'rule_id', 'section_id', 'hide_at'], // 0056: source_key / expires_at; 0157: rule_id / section_id / hide_at
+  notif_sections: ['id', 'parent_id', 'name', 'icon', 'sort', 'created_at'], // 0157
+  notif_rules: ['id', 'section_id', 'name', 'element', 'type', 'state', 'sub', 'param', 'at', 'repeat', 'days', 'show', 'hours', 'roles', 'channels', 'template', 'active', 'sort', 'last_run', 'created_by', 'created_at', 'updated_at'], // 0157
   // 0006 + 0056 (phase 11): the read marks and the notifications engine's memory
   alert_reads: ['alert_id', 'user_id', 'read_at'],
   alert_state: ['source_key', 'entity_id', 'target', 'first_at', 'last_sent_at', 'sent_count', 'escalated_at', 'resolved_at', 'channel_log'],

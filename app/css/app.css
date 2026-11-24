@@ -2497,3 +2497,10 @@ input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-
 :is(tfoot, tr.total) td{border-color:var(--color-brand-hover)!important}
 /* the mobile card layout names each cell (td::before = data-l): light beige on the green */
 :is(tfoot, tr.total) td::before{color:var(--color-text-on-brand)!important;opacity:.85}
+/* the notifications' new structure (Safwat 24 Nov): the new alert's green dot (gone once read), the sort pick over the tabs */
+.notif .ntf-item{position:relative}
+.notif .ntf-dot{position:absolute;inset-inline-start:6px;top:50%;width:8px;height:8px;margin-top:-4px;border-radius:50%;background:var(--color-success,#39AC00);box-shadow:0 0 0 2px var(--color-bg-base,#fff)}
+.notif .ntf-item.fresh{padding-inline-start:20px}
+.notif .ntf-item.fresh b{font-weight:700}
+.notif .ntf-sort{display:flex;justify-content:flex-end;margin:0 0 6px}
+.notif .ntf-sort .field{min-width:150px}

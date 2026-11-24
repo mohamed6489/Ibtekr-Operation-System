@@ -4,7 +4,7 @@
 // Vault key) and the WhatsApp template (the linked number) go to the active members with a contact and are logged as counts and
 // codes only; the quiet hours hold them; a dry run writes nothing; status shows the channels' readiness. No network.
 import { assert, assertEquals, assertFalse } from 'jsr:@std/assert@1';
-import { handler, payrollDue } from './index.ts';
+import { handler } from './index.ts';
 import { fakeDb } from '../_test/fakes.ts';
 
 const ADMIN = '00000000-0000-4000-8000-0000000000a1'; const CS = '00000000-0000-4000-8000-0000000000a2'; const OPS = '00000000-0000-4000-8000-0000000000a3'; const VF = '00000000-0000-4000-8000-0000000000a4';
@@ -61,102 +61,95 @@ Deno.test('auth: the cron needs the sync secret and the tick action only; member
   assertEquals((await call(deps, { action: 'tick' }, 'jwt-member')).res.status, 401); assertEquals((await call(deps, { action: 'tick' }, 'jwt-none')).res.status, 401);
   assertEquals((await call(deps, { action: 'drop' })).res.status, 400);
   const st = await call(deps, { action: 'status' }); assertEquals(st.res.status, 200);
-  assertEquals([st.body.last, st.body.email, st.body.whatsapp], [null, { ready: true, from: 'alerts@ibtekr.club' }, { ready: true, template: 'ibtekr_alert' }]);
+  assertEquals([st.body.last, st.body.channels], [null, ['bell']]);
 });
 
-Deno.test('tick: the live tables → alerts per receiving role (and the manager), the state remembered, the channels sent and logged as counts; nothing twice; the memory of the run', async () => {
-  const { db, deps, graph, mails } = setup();
-  const { res, body } = await cron(deps);
-  assertEquals(res.status, 200, JSON.stringify(body));
-  assertEquals(body.by, { 'customers.late': 1, 'customers.unconf': 1, 'delivery.waybills': 1, 'delivery.late': 1, 'delivery.daily': 1, 'vendors.late': 1, 'vendors.daily': 1, 'vendors.weekly': 1, 'vendors.contract': 1, 'accounts.vendors': 1, 'accounts.subs_expired': 1, 'tasks.urgent': 1, 'team.req': 1 }, 'the sources found');
-  const A = db.rows('alerts'); const by = (k: string) => A.filter((a: any) => a.source_key === k).map((a: any) => a.role_id ?? a.user_id).sort();
-  assertEquals(by('customers.late'), ['admin', 'cs', 'ops']); assertEquals(by('vendors.late'), ['admin', 'ops', 'vendors_followup']);
-  assertEquals(by('team.req'), [ADMIN, 'admin', 'ops'].sort(), 'the matrix + the member\'s manager as a user');
-  assertEquals(by('accounts.subs_expired'), ['accounts', 'admin']); assertEquals(by('vendors.contract'), ['admin']);
-  assertEquals(by('accounts.vendors'), [], 'the statements go out on their days of the month only (16 / last)');
-  const late = A.find((a: any) => a.source_key === 'customers.late' && a.role_id === 'cs');
-  assertEquals([late.kind, late.title, late.entity, late.entity_id], ['customers', 'IB-1001 · منى', 'orders', '1001']); assert(/عدّى مدة التصنيع \(7 يوم\)/.test(late.body)); // decision 52: confirmed without a date = from the order date; owner batch 2 decision 17: past the longest making days (the default 7)
-  assertEquals(A.every((a: any) => a.at === NOW && a.source_key), true);
-  // the memory: a row per (source × entity × target), count 1
-  const S = db.rows('alert_state'); assertEquals(S.length, A.filter((a: any) => !String(a.source_key).startsWith('digest:')).length, 'a state row per alert (the digests keep none)'); assertEquals(S.every((s: any) => s.sent_count === 1 && s.last_sent_at === NOW), true);
-  // e-mail: «عقد مبتكر بينتهي» is system + e-mail to the admin; the subscriptions too (admin + accounts, no accounts member); Resend called with the Vault key
-  assert(mails.length >= 2, 'mails: ' + mails.length); assertEquals(mails[0].headers.Authorization, 'Bearer ' + RESEND); assertEquals(mails[0].body.from, 'alerts@ibtekr.club');
-  assertEquals(mails.every((m) => m.body.to.length === 1 && /@x\.test$/.test(m.body.to[0]) && m.body.html.includes('dir="rtl"')), true);
-  // WhatsApp: the late order (system + WhatsApp) → the admin and the cs member (ops has no phone); the maker's daily (vendor WhatsApp) → the maker; the template
-  const wa = graph.map((g) => g.body); assertEquals(graph.every((g) => g.url === 'https://graph.facebook.com/v25.0/555/messages' && g.headers.authorization === 'Bearer wa-token-1'), true);
-  assertEquals(wa.every((b) => b.type === 'template' && b.template.name === 'ibtekr_alert' && b.template.language.code === 'ar' && b.template.components[0].parameters.length === 1), true);
-  assert(wa.some((b) => b.to === '201099999999' && /المتابعة اليومية/.test(b.template.components[0].parameters[0].text)), 'the maker on WhatsApp');
-  assert(wa.some((b) => b.to === '201000000002' && /IB-1001/.test(b.template.components[0].parameters[0].text)), 'the cs member');
-  assertEquals(wa.filter((b) => b.to === '201000000002').length <= 2, true, 'the cap of two a day');
-  // the log carries counts and codes only
-  const logs = S.flatMap((s: any) => s.channel_log); assert(logs.length > 0);
-  assertEquals(logs.every((l: any) => ['sent', 'held', 'capped', 'no_contact', 'failed', 'not_linked'].includes(l.status) && /^(m:|v:)/.test(l.to)), true);
-  const txt = JSON.stringify(S) + JSON.stringify(A) + JSON.stringify(body); assert(!txt.includes('0100000000') && !txt.includes('01099999999') && !txt.includes('@x.test') && !txt.includes(RESEND) && !txt.includes('wa-token'), 'no phone, address, key or token anywhere');
-  assertEquals(body.sent.email, mails.length); assertEquals(body.sent.whatsapp, graph.length);
-  assertEquals(db.rows('sync_state').find((r: any) => r.key === 'notify').value.alerts, S.length); assertEquals(A.length - S.length, body.digests, 'the digests of the hour (admin, cs, ops) are alerts rows too');
-  // the same tick 15 minutes later: nothing new
-  const again = await cron({ ...deps, now: () => '2026-11-08T08:15:00.000Z' });
-  assertEquals([again.body.alerts, again.body.external, db.rows('alerts').length], [0, 0, A.length]);
-  // the admin's dry run writes nothing and sends nothing
-  const dry = await call({ ...deps, now: () => '2026-11-09T08:00:00.000Z' }, { action: 'tick', dry: true });
-  assertEquals(dry.body.result, 'dry'); assert(dry.body.alerts > 0, 'the daily repeats would go out tomorrow'); assertEquals(db.rows('alerts').length, A.length); assertEquals(mails.length + graph.length, body.sent.email + body.sent.whatsapp);
+// the notifications' new structure (Safwat 24 Nov — 0157): the admin's rules under the sub-sections → the bell's rows
+const SEC_MAIN = '00000000-0000-4000-8000-0000000005a1'; const SEC_SUB = '00000000-0000-4000-8000-0000000005a2'; const SEC_SUB2 = '00000000-0000-4000-8000-0000000005a3';
+const rule = (id: string, x: any) => ({ id, section_id: SEC_SUB, name: 'تنبيه', sub: null, param: null, at: '09:00', repeat: '24h', days: [], show: 'until_state', hours: 0, roles: ['admin', 'cs'], channels: ['bell'], template: null, active: true, last_run: null, updated_at: '2026-11-01T00:00:00Z', ...x });
+function withRules(rules: any[], more: (s: any) => void = () => {}) {
+  const seed: any = SEED();
+  seed.notif_sections = [{ id: SEC_MAIN, parent_id: null, name: 'خدمة العملاء', sort: 0 }, { id: SEC_SUB, parent_id: SEC_MAIN, name: 'غير مؤكدة', sort: 0 }, { id: SEC_SUB2, parent_id: SEC_MAIN, name: 'جديد', sort: 1 }];
+  seed.notif_rules = rules; seed.alerts = []; seed.alert_reads = []; more(seed);
+  return setup({ seed });
+}
+
+Deno.test('rules: a «state» rule (an unconfirmed order) → a row per member of its roles who sees orders, under its sub-section; renewed by its repeat; hidden once the order leaves the state', async () => {
+  const s = withRules([rule('r-unconf', { name: 'أوردر غير مؤكد', element: 'orders', type: 'confirm', state: 'غير مؤكد', template: '{الرقم} لسه ما اتأكدش — {التفاصيل}' })]);
+  const r = await cron(s.deps); assertEquals(r.res.status, 200, JSON.stringify(r.body));
+  let A = s.db.rows('alerts');
+  assertEquals(A.map((a: any) => a.user_id).sort(), [ADMIN, CS].sort(), 'the admin and the cs member (ops is not in the rule; the suspended member never)');
+  const a0 = A[0]; assertEquals([a0.rule_id, a0.section_id, a0.entity_id, a0.entity, a0.hide_at, a0.kind], ['r-unconf', SEC_SUB, 'o:1002', 'orders/1002', null, 'rule:orders.confirm']);
+  assert(/IB-1002 لسه ما اتأكدش — غير مؤكد · عمره 2 يوم/.test(a0.body), a0.body); assertEquals(a0.title, 'أوردر غير مؤكد — IB-1002');
+  assertEquals(s.db.rows('notif_rules')[0].last_run, NOW);
+  // 15 minutes later: not due again (24h) — nothing written
+  await cron({ ...s.deps, now: () => '2026-11-08T08:15:00.000Z' }); assertEquals(s.db.rows('alerts').length, 2);
+  // the next day: renewed (the old rows replaced — the green dot again)
+  await cron({ ...s.deps, now: () => '2026-11-09T08:00:00.000Z' }); A = s.db.rows('alerts');
+  const live = A.filter((a: any) => !a.hide_at);
+  assertEquals([A.length, live.length, live.every((a: any) => a.at === '2026-11-09T08:00:00.000Z')], [4, 2, true], 'the old rows hidden (never deleted), two new ones');
+  // the order confirmed → hidden by «حتى تغيير الوضع» (0 hours = now)
+  await s.db.from('orders').update({ confirm: 'مؤكد بعربون' }).eq('id', 1002);
+  await cron({ ...s.deps, now: () => '2026-11-09T08:30:00.000Z' });
+  assertEquals(s.db.rows('alerts').filter((a: any) => a.at === '2026-11-09T08:00:00.000Z').map((a: any) => a.hide_at), ['2026-11-09T08:30:00.000Z', '2026-11-09T08:30:00.000Z']);
 });
 
-Deno.test('the quiet hours hold the external channels (logged «held»), the bell rows still go out; no WhatsApp link → «not_linked»; a refused Graph call → failed with its code', async () => {
-  const night = setup({ now: '2026-11-08T21:30:00.000Z' }); // 23:30 Cairo
-  const r1 = await cron(night.deps); assert(r1.body.alerts > 0); assertEquals(night.graph.length + night.mails.length, 0);
-  const held = night.db.rows('alert_state').flatMap((s: any) => s.channel_log); assert(held.length > 0); assertEquals(held.filter((l: any) => l.status !== 'held' && l.status !== 'no_contact'), []);
-  const none = setup({ wa: false, resend: false }); const r2 = await cron(none.deps); assertEquals(r2.body.sent.whatsapp + r2.body.sent.email, 0); assert(r2.body.sent.not_linked > 0);
-  assertEquals(none.db.rows('alert_state').flatMap((s: any) => s.channel_log).filter((l: any) => l.ch === 'whatsapp' && !['not_linked', 'no_contact', 'capped'].includes(l.status)), [], 'the cap of two a day counts the attempts too');
-  const st = await call(none.deps, { action: 'status' }); assertEquals([st.body.email.ready, st.body.whatsapp.ready], [false, false]);
-  const bad = setup({ graphStatus: 400 }); await cron(bad.deps);
-  const failed = bad.db.rows('alert_state').flatMap((s: any) => s.channel_log).filter((l: any) => l.ch === 'whatsapp' && l.status === 'failed'); assert(failed.length > 0); assertEquals(failed[0].code, 'graph_131047');
+Deno.test('rules: an «event» rule (a new order) runs every tick from its time, once per order; «حتى التحوّل لمقروء» hides after the read + its hours; a fixed time is set at writing', async () => {
+  const s = withRules([rule('r-new', { section_id: SEC_SUB2, name: 'أوردر جديد', element: 'orders', type: 'update', state: 'new', at: '00:00', show: 'until_read', hours: 2, last_run: '2026-11-08T07:30:00.000Z' }),
+    rule('r-fixed', { section_id: SEC_SUB2, name: 'أوردر جديد ثابت', element: 'orders', type: 'update', state: 'new', at: '00:00', show: 'fixed', hours: 12, roles: ['admin'], last_run: '2026-11-08T07:30:00.000Z' })],
+    (seed) => { seed.orders.push({ id: 1010, number: '1010', customer_name: 'جديدة', status: 'جاري التنفيذ', confirm: 'غير مؤكد', placed_at: '2026-11-08T07:50:00Z', created_at: '2026-11-08T07:50:00Z' }); });
+  await cron(s.deps);
+  const A = s.db.rows('alerts'); const news = A.filter((a: any) => a.rule_id === 'r-new');
+  assertEquals(news.map((a: any) => [a.entity_id, a.hide_at]), [['onew:1010', null], ['onew:1010', null]]);
+  assertEquals(A.filter((a: any) => a.rule_id === 'r-fixed').map((a: any) => [a.user_id, a.hide_at]), [[ADMIN, '2026-11-08T20:00:00.000Z']]);
+  await cron({ ...s.deps, now: () => '2026-11-08T08:15:00.000Z' }); assertEquals(s.db.rows('alerts').length, 3, 'never twice');
+  // the cs member reads it → hidden two hours after the read
+  const mine = news.find((a: any) => a.user_id === CS); await s.db.from('alert_reads').insert({ alert_id: mine.id, user_id: CS, read_at: '2026-11-08T08:20:00.000Z' });
+  await cron({ ...s.deps, now: () => '2026-11-08T08:30:00.000Z' });
+  assertEquals(s.db.rows('alerts').find((a: any) => a.id === mine.id).hide_at, '2026-11-08T10:20:00.000Z');
 });
 
-Deno.test('the stock alerts by the days of the settings page «المخزن» (B6): a consolidation late, a photo piece too long, a return waiting too long; the old *Days spellings still read; the defaults 5 / 14 / 7', async () => {
-  // 8 Nov (Cairo): c1 open 4 days, c2 1 day; l1 photo 7 days; l2 return 3 days, l3 return 9 days, l4 return inspected, l5 return closed
-  const stock = (seed: any, data?: any) => {
-    seed.inv_consolidations = [{ id: 'c1', order_id: 1001, since: '2026-11-04T09:00:00Z', status: 'open' }, { id: 'c2', order_id: 1002, since: '2026-11-07T09:00:00Z', status: 'open' }, { id: 'c3', order_id: 1003, since: '2026-10-01T09:00:00Z', status: 'shipped' }];
-    seed.inv_lots = [{ id: 'l1', reason: 'تصوير', sku: 'IBTAR0999', name: 'فازة', since: '2026-11-01', condition: null, closed_at: null },
-      { id: 'l2', reason: 'مرتجع', sku: 'IBTAR1000', name: 'كرسي', since: '2026-11-05', condition: null, closed_at: null },
-      { id: 'l3', reason: 'مرتجع', sku: 'IBTAR1001', name: 'ترابيزة', since: '2026-10-30', condition: null, closed_at: null },
-      { id: 'l4', reason: 'مرتجع', sku: 'IBTAR1002', name: 'مخدة', since: '2026-10-01', condition: 'سليم', closed_at: null },
-      { id: 'l5', reason: 'مرتجع', sku: 'IBTAR1003', name: 'لمبة', since: '2026-10-01', condition: null, closed_at: '2026-10-05T10:00:00Z' }];
-    if (data) seed.settings.push({ section: 'inventory', data });
-    return seed;
-  };
-  const run = async (data?: any) => { const a = setup({ seed: stock(SEED(), data) }); const r = await cron(a.deps); return { by: r.body.by, A: a.db.rows('alerts') }; };
-  // the settings page's keys
-  const s = await run({ firstWarehouse: false, consolidationAlert: 3, photoMax: 7, returnWait: 5, returnDefault: 'يرجع للمبتكر' });
-  assertEquals([s.by['stock.cons'], s.by['stock.photo'], s.by['stock.ret']], [1, 1, 1]);
-  const ids = (A: any[], k: string) => [...new Set(A.filter((x: any) => x.source_key === k).map((x: any) => x.entity_id))];
-  assertEquals([ids(s.A, 'stock.cons'), ids(s.A, 'stock.photo'), ids(s.A, 'stock.ret')], [['c1'], ['l1'], ['l3']], 'c2 (1 day), l2 (3 days), the inspected and the closed ones: nothing');
-  const ret = s.A.find((x: any) => x.source_key === 'stock.ret'); assertEquals([ret.entity, ret.title], ['inventory', 'مرتجع ترابيزة']); assert(/9 يوم/.test(ret.body), ret.body);
-  assertEquals(s.A.filter((x: any) => x.source_key === 'stock.ret').map((x: any) => x.role_id).sort(), ['admin', 'ops'], 'the matrix of the type');
-  // the old spellings (before B6) still read
-  const o = await run({ consolidationAlertDays: 3, photoMaxDays: 7, returnWaitDays: 10 });
-  assertEquals([o.by['stock.cons'], o.by['stock.photo'], o.by['stock.ret']], [1, 1, undefined]);
-  // no row (or junk) → 5 / 14 / 7: only the return of 9 days
-  for (const d of [undefined, { consolidationAlert: 0, photoMax: 'x', returnWait: 500 }]) {
-    const n = await run(d); assertEquals([n.by['stock.cons'], n.by['stock.photo'], n.by['stock.ret']], [undefined, undefined, 1], JSON.stringify(d));
-  }
+Deno.test('rules: an inactive rule hides its rows; a deleted rule\'s rows leave the bell; a request reaches its own team only; the daily report is per member and the dry run writes nothing', async () => {
+  const s = withRules([rule('r-tk', { name: 'طلبات جديدة', element: 'tickets', type: 'type', state: 'new', at: '00:00', show: 'until_read', hours: 6, roles: ['admin', 'cs', 'ops', 'accounts'], last_run: '2026-11-08T07:00:00.000Z' }),
+    rule('r-day', { name: 'ملخص اليوم', element: 'daily', type: 'summary', state: 'day', show: 'fixed', hours: 24, roles: ['admin', 'cs', 'ops'] })],
+    (seed) => { seed.tickets[0].created_at = '2026-11-08T07:30:00.000Z'; seed.alerts = [{ id: 900, rule_id: null, section_id: SEC_SUB, entity_id: 'x', user_id: CS, at: '2026-11-01T00:00:00Z', hide_at: null, kind: 'rule:orders.confirm', title: 'قديم' }]; });
+  const dry = await call(s.deps, { action: 'tick', dry: true }); assertEquals(dry.body.result, 'dry'); assert(dry.body.written > 0); assertEquals(s.db.rows('alerts').length, 1, 'the dry run writes nothing');
+  await cron(s.deps);
+  const A = s.db.rows('alerts');
+  assertEquals(A.filter((a: any) => a.rule_id === 'r-tk').map((a: any) => a.user_id).sort(), [ADMIN, CS].sort(), 'a request of «خدمة العملاء» reaches its team (and the admin), not ops');
+  const day = A.filter((a: any) => a.rule_id === 'r-day'); assertEquals(day.map((a: any) => a.user_id).sort(), [ADMIN, CS, OPS].sort());
+  const cs = day.find((a: any) => a.user_id === CS); const ops = day.find((a: any) => a.user_id === OPS);
+  assert(/محادثة|أوردر مفتوح/.test(cs.body) && /أوردر مفتوح/.test(ops.body) && !/محادثة/.test(ops.body), cs.body + ' | ' + ops.body);
+  assertEquals(A.find((a: any) => a.id === 900).hide_at, NOW, 'a deleted rule\'s row leaves the bell');
+  await s.db.from('notif_rules').update({ active: false }).eq('id', 'r-tk');
+  await cron({ ...s.deps, now: () => '2026-11-08T08:15:00.000Z' });
+  assertEquals(s.db.rows('alerts').filter((a: any) => a.rule_id === 'r-tk').every((a: any) => a.hide_at === '2026-11-08T08:15:00.000Z'), true, 'off → hidden');
+  // no phone or address in any row
+  const txt = JSON.stringify(s.db.rows('alerts')); assert(!txt.includes('0100000000') && !txt.includes('@x.test'));
 });
 
-Deno.test('the payroll before its pay day (accAlerts.payDay / lead), unless the sheet is paid; payrollDue', async () => {
-  assertEquals(payrollDue('2026-11-08', 25), { date: '2026-11-25', daysLeft: 17, month: '2026-11' });
-  assertEquals(payrollDue('2026-11-26', 25), { date: '2026-12-25', daysLeft: 29, month: '2026-12' });
-  assertEquals(payrollDue('2026-11-08', 1), { date: '2026-12-01', daysLeft: 23, month: '2026-11' });
-  const seed = SEED(); seed.settings[0].data.accAlerts = { payDay: 10, lead: 3 }; // 8 Nov → pay day in 2 days
-  const a = setup({ seed }); const r = await cron(a.deps); assertEquals(r.body.by['accounts.payroll'], 1);
-  assertEquals(a.db.rows('alerts').filter((x: any) => x.source_key === 'accounts.payroll').map((x: any) => x.role_id).sort(), ['accounts', 'admin']);
-  const seed2 = SEED(); seed2.settings[0].data.accAlerts = { payDay: 10, lead: 3 }; (seed2 as any).hr_payroll = [{ month: '2026-11-01', status: 'مدفوع' }];
-  const b = setup({ seed: seed2 }); const r2 = await cron(b.deps); assertEquals(r2.body.by['accounts.payroll'], undefined, 'paid → no alert');
-  // data-real decision 9: after «امسح كل حاجة» only the admin is left — no staff on the payroll = no reminder; the admin with a salary = staff
-  const seed3 = SEED(); seed3.settings[0].data.accAlerts = { payDay: 10, lead: 3 }; seed3.profiles = seed3.profiles.filter((p: any) => p.role_id === 'admin');
-  const c = setup({ seed: seed3 }); const r3 = await cron(c.deps); assertEquals(r3.body.by['accounts.payroll'], undefined, 'no staff → no alert');
-  const seed4 = SEED(); seed4.settings[0].data.accAlerts = { payDay: 10, lead: 3 }; seed4.profiles = seed4.profiles.filter((p: any) => p.role_id === 'admin');
-  (seed4 as any).hr_pay = [{ member_id: seed4.profiles[0].id, salary: 9000 }];
-  const d = setup({ seed: seed4 }); const r4 = await cron(d.deps); assertEquals(r4.body.by['accounts.payroll'], 1, 'the admin with a salary → the reminder');
+Deno.test('rules (security review): a member with the element\'s page partly (hr.view P) gets the team alerts that name him only; the admin all; payroll needs the salaries', async () => {
+  const s = withRules([rule('r-out', { name: 'لم يسجل انصراف', element: 'team', type: 'status', state: 'no_out', roles: ['admin', 'ops'] }),
+    rule('r-pay', { name: 'المرتبات', element: 'accounts', type: 'payroll', state: 'due', show: 'fixed', hours: 48, roles: ['admin', 'accounts'], param: 30 })],
+    (seed) => { seed.roles.find((r: any) => r.id === 'ops').permissions['hr.view'] = 'P'; seed.roles.find((r: any) => r.id === 'accounts').permissions['accounts.view'] = 'F';
+      seed.profiles.push({ id: '00000000-0000-4000-8000-0000000000a5', name: 'منى', email: 'acc@x.test', phone: null, role_id: 'accounts', status: 'active' });
+      seed.hr_attendance = [{ id: 1, member_id: OPS, day: '2026-11-07', in_at: '2026-11-07T07:00:00Z', out_at: null }, { id: 2, member_id: CS, day: '2026-11-07', in_at: '2026-11-07T07:00:00Z', out_at: null }]; });
+  await cron(s.deps);
+  const A = s.db.rows('alerts'); const to = (rid: string) => A.filter((a: any) => a.rule_id === rid).map((a: any) => a.user_id + '|' + a.entity_id).sort();
+  assertEquals(to('r-out'), [ADMIN + '|noout:1', ADMIN + '|noout:2', OPS + '|noout:1'].sort(), 'ops sees his own session only');
+  assertEquals(to('r-pay').map((x: string) => x.split('|')[0]), [ADMIN], 'the accounts member without sensitive.salaries gets no payroll reminder');
+});
+
+Deno.test('rules (security review): an assistant\'s note reaches only the members who see that assistant — no element page lets the rest in', async () => {
+  const s = withRules([rule('r-ai', { name: 'تنبيهات المساعدين', element: 'ai', type: 'any', state: 'notes', at: '00:00', show: 'until_read', hours: 6, roles: ['admin', 'cs', 'ops'], last_run: '2026-11-08T07:00:00.000Z' })],
+    (seed) => { seed.ai_agents = [{ id: 'stock', name: 'التشغيل الذكي', perm: 'inventory.view' }]; seed.ai_agent_notes = [{ id: 7, agent: 'stock', kind: 'report', title: 'ملخص التشغيل', body: '', ref: 'team:x', created_at: '2026-11-08T07:30:00.000Z' }]; });
+  await cron(s.deps);
+  assertEquals(s.db.rows('alerts').map((a: any) => a.user_id).sort(), [ADMIN, OPS].sort(), 'cs has no inventory.view: no note');
+});
+
+Deno.test('rules: before 0157 (no rules table) the tick still runs the rest and says so', async () => {
+  const { deps } = setup(); const r = await cron(deps); assertEquals(r.res.status, 200, JSON.stringify(r.body));
+  assert(['no_rules'].includes(r.body.notif.skipped) || r.body.notif.rules === 0, JSON.stringify(r.body.notif));
 });
 
 // agents-brain decision 10: each team's assistant writes its team a daily summary and a late alert in the bell (ai_agent_note_add)

@@ -90,6 +90,7 @@ test('[#25 #24] the overview: four tables on the page\'s period — the top sale
 
 test('[#17 #19 #20 #21 #22 #27] the makers\' accounts: a stopped maker with a balance shows, the request\'s status and amount apart with «داخلي», «تم الدفع» opens that request, the new names, no «كشف بالفترة»', async ({ page }) => {
   await openMakers(page);
+  await page.evaluate(() => window.IBReportBlocks.periodSet('makers-acc', { from: '2020-01-01', to: '2030-12-31' })); // Safwat 24 Nov: the tab's period — every date here
   await vtab(page, 'حسابات المبتكرين').click();
   const table = page.locator('#vendors table.vendors-table');
   await expect(table).toBeVisible();

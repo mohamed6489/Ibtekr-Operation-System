@@ -679,3 +679,12 @@ a.mk-lib.disabled { opacity:.5;pointer-events:none }
 .fl-rev-tabs { display:flex;gap:8px;margin-bottom:12px }
 .fl-rev-tabs .chip.on { border-color:var(--color-brand-default);background:var(--color-bg-hover);font-weight:700 }
 .fl.fl-rev { max-width:none;margin:0 }
+
+/* buyer-brain decision 5 (Safwat 24 Nov): the competitor's research brief on its card */
+.mk-cc-brief { display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--color-border-subtle);padding-top:10px }
+.mk-cc-brief.none { border-top:0;padding-top:0 }
+.mk-cc-brief-h { display:flex;align-items:center;gap:6px;background:none;border:0;padding:0;cursor:pointer;color:var(--color-brand-default);font:inherit;text-align:start }
+.mk-cc-brief-h small { color:var(--color-text-secondary);margin-inline-start:auto }
+.mk-cc-brief-b p { margin:0;white-space:pre-line;font-size:13px;line-height:1.7;color:var(--color-text-primary) }
+.mk-cc-src { margin:6px 0 0;padding-inline-start:18px;font-size:12px }
+.mk-cc-src a { color:var(--color-brand-default);word-break:break-all }

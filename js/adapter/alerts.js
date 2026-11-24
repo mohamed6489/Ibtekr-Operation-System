@@ -14,14 +14,31 @@
   const uid = () => { const s = window.IBAuth && window.IBAuth.session(); return (s && s.user && s.user.id) || null; };
   const notify = () => { document.dispatchEvent(new Event('ib:notify')); };
   const done = (error) => !error || error.code === '23505';
-  const toAlert = (r, read) => ({ id: r.id, at: r.at, kind: r.kind, title: r.title, body: r.body, entity: r.entity, entityId: r.entity_id, read: !!read });
+  const toAlert = (r, read) => ({ id: r.id, at: r.at, kind: r.kind, title: r.title, body: r.body, entity: r.entity, entityId: r.entity_id, ruleId: r.rule_id || null, sectionId: r.section_id || null, read: !!read });
   const list = () => (items ? items.slice() : []);
   const unread = () => (items ? items.filter((a) => !a.read).length : 0);
+  // 0157 — the notifications' new structure (Safwat 24 Nov — docs/superpowers/plans/2026-11-24-notifications.md): the bell is the
+  // settings' tree — the main sections (its groups) and their sub-sections (the filters) as the admin built them, and every alert
+  // under its rule's sub-section; an alert whose «تفاصيل الظهور» passed (hide_at) is gone. Before 0157 the columns are missing and
+  // the old select runs (tree stays null — block 28 keeps its old groups).
+  let tree = null; // { mains: [{ id, name, icon, subs: [{ id, name, elements: [] }] }] }
+  async function loadTree(cl) {
+    try {
+      const [s, r] = await Promise.all([cl.from('notif_sections').select('id, parent_id, name, icon, sort').order('sort', { ascending: true }).limit(500),
+        cl.from('notif_rules').select('id, section_id, element, active').limit(1000)]);
+      if (s.error || r.error) { tree = null; return; }
+      const all = s.data || []; const rules = r.data || [];
+      tree = { mains: all.filter((x) => !x.parent_id).map((m) => ({ id: m.id, name: m.name, icon: m.icon || null,
+        subs: all.filter((x) => x.parent_id === m.id).map((x) => ({ id: x.id, name: x.name, elements: [...new Set(rules.filter((y) => y.section_id === x.id).map((y) => y.element))] })) })) };
+    } catch (e) { tree = null; }
+  }
   async function load() {
     const cl = c(); const id = uid();
     if (!cl || !id) return;
     try {
-      const a = await cl.from('alerts').select('id, at, kind, title, body, entity, entity_id').order('at', { ascending: false }).limit(LIMIT);
+      const nowIso = new Date().toISOString();
+      let a = await cl.from('alerts').select('id, at, kind, title, body, entity, entity_id, rule_id, section_id, hide_at').or('hide_at.is.null,hide_at.gt.' + nowIso).order('at', { ascending: false }).limit(LIMIT);
+      if (a.error) { tree = null; a = await cl.from('alerts').select('id, at, kind, title, body, entity, entity_id').order('at', { ascending: false }).limit(LIMIT); } else await loadTree(cl);
       if (a.error) return;
       const rows = a.data || []; const ids = rows.map((x) => x.id);
       const r = ids.length ? await cl.from('alert_reads').select('alert_id').eq('user_id', id).in('alert_id', ids) : { data: [] }; // no alerts: no marks to ask for
@@ -120,7 +137,7 @@
     const ch = channel; channel = null;
     if (ch && c()) { try { Promise.resolve(c().removeChannel(ch)).catch(() => {}); } catch (e) { /* already closed */ } }
   }
-  const clear = () => { items = null; notes = null; };
+  const clear = () => { items = null; notes = null; tree = null; };
   const toneOf = (kind) => { const k = String(kind || ''); return /fail|error|down|late|overdue/i.test(k) ? 'error' : /\.(ok|done|success|info)$/i.test(k) ? 'info' : 'warning'; };
   function relTime(iso, nowMs) {
     const t = Date.parse(iso); if (!Number.isFinite(t)) return '';
@@ -145,5 +162,47 @@
     return { id: 'server', label: 'النظام', icon: 'bell', unit: 'تنبيه', received: unread(), all: () => markAllRead(), allLabel: 'تعليم الكل كمقروء', empty: 'مفيش تنبيهات من السيستم.',
       tabs: [['all', 'الكل', all], ['unread', 'غير مقروء', all.filter((x) => !x.muted)], ['read', 'مقروء', all.filter((x) => x.muted)]] };
   }
-  window.IBAlerts = { load, list, unread, markRead, markAllRead, subscribe, unsubscribe, clear, section, toneOf, relTime, noteList, noteRead, noteOpen, agentSection, draftOf };
+  // the bell's groups from the tree: a main section = a group; its tabs = «الكل», one per sub-section, and «غير مقروء» / «مقروء»;
+  // an alert written straight by a database function (no rule) sits under the first sub-section whose rules are of its element
+  // (IBNotifCatalog.elementOfKind), else under the first group. open(a) = what the click does (block 28: the order's popup, the
+  // conversation, the request …). sort: 'new' (default) | 'old'. The green dot = unread; read = muted.
+  function treeSections(open, sort) {
+    if (!tree || !tree.mains.length || !items) return null;
+    const C = window.IBNotifCatalog; const subOf = new Map(); tree.mains.forEach((m) => m.subs.forEach((x) => subOf.set(x.id, m.id)));
+    const placeOf = (a) => {
+      if (a.sectionId && subOf.has(a.sectionId)) return a.sectionId;
+      const el = C && C.elementOfKind ? C.elementOfKind(a.kind) : null;
+      for (const m of tree.mains) for (const x of m.subs) if (el && x.elements.includes(el)) return x.id;
+      return null; // the first group's «الكل»
+    };
+    const placed = items.map((a) => ({ a, sub: placeOf(a) }));
+    const ord = (L) => L.slice().sort((x, y) => (sort === 'old' ? 1 : -1) * (Date.parse(x.a.at) - Date.parse(y.a.at)));
+    const asItem = ({ a }) => { const tone = toneOf(a.kind); return { key: 'sa:' + a.id, title: a.title, sub: a.body || '', meta: relTime(a.at, Date.now()), tone, icon: tone === 'error' ? 'alert' : 'bell', muted: a.read, fresh: !a.read,
+      run: () => { markRead(a.id); if (typeof open === 'function' && open(a) !== false) return; if (a.entity && HASH.test(a.entity)) window.location.hash = a.entity; } }; };
+    return tree.mains.map((m, i) => {
+      const subIds = new Set(m.subs.map((x) => x.id));
+      const mine = ord(placed.filter((p) => (p.sub ? subIds.has(p.sub) : i === 0)));
+      const all = mine.map(asItem);
+      const tabs = [['all', 'الكل', all]].concat(m.subs.map((x) => ['s:' + x.id, x.name, mine.filter((p) => p.sub === x.id).map(asItem)]),
+        [['unread', 'غير مقروء', all.filter((x) => !x.muted)], ['read', 'مقروء', all.filter((x) => x.muted)]]);
+      return { id: 'n:' + m.id, label: m.name, icon: m.icon || 'bell', unit: 'تنبيه', received: all.filter((x) => !x.muted).length, all: () => markMany(mine.map((p) => p.a.id)), allLabel: 'تعليم القسم كمقروء',
+        empty: 'مفيش تنبيهات هنا دلوقتي.', tabs, tree: true };
+    });
+  }
+  async function markMany(ids) {
+    const open = items ? items.filter((a) => ids.includes(a.id) && !a.read) : [];
+    if (!open.length) return { ok: true };
+    open.forEach((a) => { a.read = true; });
+    const r = await write((q, user) => q.upsert(open.map((a) => ({ alert_id: a.id, user_id: user })), { onConflict: 'alert_id,user_id', ignoreDuplicates: true }));
+    notify(); return r;
+  }
+  // an assistant's note written into the bell by a rule (entity_id «note:<id>»): its chat, as the old section did
+  async function openNote(noteId, agent, link) {
+    const cl = c(); if (!cl) return false;
+    const n = { id: noteId, agent, link, body: '' }; if (link && openPlace(n)) return true;
+    try { const { data, error } = await cl.rpc('ai_agent_note_open', { p_id: noteId }); if (error || !data) { window.location.hash = 'ai-' + agent; return true; }
+      if (typeof window.IBAiOpen === 'function') window.IBAiOpen(agent, data); else window.location.hash = 'ai-' + agent; return true; } catch (e) { window.location.hash = 'ai-' + agent; return true; }
+  }
+  const hasTree = () => !!(tree && tree.mains.length);
+  window.IBAlerts = { load, treeSections, hasTree, markMany, openNote, list, unread, markRead, markAllRead, subscribe, unsubscribe, clear, section, toneOf, relTime, noteList, noteRead, noteOpen, agentSection, draftOf };
 })();

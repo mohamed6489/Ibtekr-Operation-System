@@ -364,6 +364,7 @@ Language
 - Egyptian Arabic, short and practical, like a colleague who knows ads. Campaign names stay as given.
 
 Facts
+- When <ads_data> carries the per-campaign and per-ad tables (the last 7 and 30 days, each row with the system's verdict — winning / steady / losing / fatigued / still learning), answer «which campaign is best», «which creatives work», «what to stop» and «what is fatigued» from them: name the rows, their numbers and the verdict, and say what you would do and why — like an experienced media buyer. Rank by the real return (the shop's sales ÷ spend); Meta's own return comes second.
 - Use only the numbers inside <ads_data>: the last 7 days per campaign (Meta's spend and purchases beside the real WooCommerce orders and sales that carry the campaign's UTM), the open suggestions, and the team's rules and limits. When a number is not there, say you don't have it; never invent spend, orders, returns or results.
 - The real return (MER) = WooCommerce sales ÷ spend; the real cost per order = spend ÷ WooCommerce orders. Meta's purchases often count more than the real orders — say so when they differ.
 - You never run a change by yourself: a change comes as a card under your answer that the member approves («موافق») or rejects («رفض») right in the chat — the system runs it only after «موافق», and on Meta only while the execution switch is on (say so when it is off). Never send the member to another page to approve.
@@ -403,7 +404,11 @@ export function adsBlock(data) {
     + 'Last 7 days per campaign (Meta id | name | status | spend | meta purchases | woo orders | woo sales | MER | cost/order | daily budget):\n' + (camps.length ? camps.join('\n') : '(no campaign numbers yet — the sync has not run)') + '\n'
     + 'Open suggestions waiting for the admin:\n' + (sugg.length ? sugg.join('\n') : '(none)') + '\n'
     // the owner 17 Nov: the last Meta Pixel check (site_checks 'pixel') — data, the issues with their fixes
-    + 'The last Meta Pixel check:\n' + (pixelText(d.pixel).replace(/[<>]/g, ' ') || '(never checked — the member presses «افحص البيكسل» under the chat)') + '\n</ads_data>'
+    + 'The last Meta Pixel check:\n' + (pixelText(d.pixel).replace(/[<>]/g, ' ') || '(never checked — the member presses «افحص البيكسل» under the chat)') + '\n'
+    // Safwat 24 Nov (buyer-brain decision 3): every campaign and ad (creative) with its numbers and verdict — the last 7 and 30 days
+    + (isObj(d.insight) ? 'Per campaign and per ad (creative), with the system\'s verdict — the last 7 days:\n' + String(d.insight.week || '(none)').replace(/[<>]/g, ' ').slice(0, 9000)
+      + '\nThe last 30 days:\n' + String(d.insight.month || '(none)').replace(/[<>]/g, ' ').slice(0, 9000) + '\n' : '')
+    + '</ads_data>'
     + ideasBlock(d.ideas);
 }
 /**
@@ -413,7 +418,9 @@ export function adsBlock(data) {
 export function ideasBlock(ideas) {
   const I = isObj(ideas) ? ideas : null; if (!I) return '';
   const tr = (Array.isArray(I.trends) ? I.trends : []).filter(isObj).slice(0, 20).map((t) => '- [' + line(t.platform || t.source, 20) + ' · ' + (t.kind === 'video' ? 'video' : 'post') + '] ' + line(t.title, 160) + (t.summary ? ' — ' + line(t.summary, 200) : '') + (/^https:\/\//.test(String(t.url || '')) ? ' (' + line(t.url, 300) + ')' : ''));
-  const cp = (Array.isArray(I.competitors) ? I.competitors : []).filter(isObj).slice(0, 20).map((c) => '- ' + line(c.name, 80) + (c.keyword ? ' (' + line(c.keyword, 80) + ')' : '') + (c.note ? ' — ' + line(c.note, 200) : ''));
+  // buyer-brain decision 5: the research brief on each competitor (written by the server with its sources) and the team's note on its strongest ads
+  const cp = (Array.isArray(I.competitors) ? I.competitors : []).filter(isObj).slice(0, 20).map((c) => '- ' + line(c.name, 80) + (c.keyword ? ' (' + line(c.keyword, 80) + ')' : '') + (c.note ? ' — the team\'s note on its ads: ' + line(c.note, 300) : '')
+    + (isObj(c.brief) && c.brief.text ? '\n  Research brief' + (c.brief_at ? ' (' + line(c.brief_at, 10) + ')' : '') + ': ' + line(c.brief.text, 900) : ''));
   return '\n<ideas>\nThe last trends the team collected:\n' + (tr.length ? tr.join('\n') : '(none yet — «حدّث التريندات» in the designer\'s tab)') + '\nThe competitors the team follows:\n' + (cp.length ? cp.join('\n') : '(none yet)') + '\n</ideas>';
 }
 export function buyerRequest(req, ctx) {

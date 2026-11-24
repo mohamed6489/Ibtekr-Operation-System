@@ -47,6 +47,7 @@ import Anthropic from 'npm:@anthropic-ai/sdk@1.3.0';
 import { bestName, nameMatches } from '../_shared/names.js';
 import { filesLine } from '../_shared/agent-files.js';
 import { planProducts, resolvePlan } from '../_shared/product-plan.js';
+import '../_shared/ads-insight.js';
 import { dataReadBlock, liveAdsBlock, liveAdsRows, liveAdsUrl, researchBlock, researchOut, researchRequest } from '../_shared/agent-need.js';
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { aiSettings, categoryLines, cleanExtract, cleanPrompts, cleanStudio, cleanWrite, costOf, extractRequest, line, parseExtract, parsePrompts, parseStudio, parseWrite, promptsRequest, readAnswer, shotPromptRows, studioRequest, usageOf, writeRequest } from '../_shared/ai-content.js';
@@ -429,10 +430,12 @@ async function adsData(deps: Deps) {
   ]);
   const { data: pixel } = await deps.db.from('site_checks').select('data, checked_at').eq('kind', 'pixel').maybeSingle(); // the owner 17 Nov (0126; before it: none)
   // agents-brain T5: «هات 5 فيديوهات» picks from the team's last trends and the competitors it follows (titles, names and links only)
-  const [{ data: trends }, { data: comps }] = await Promise.all([
+  const compsOf = (cols: string) => deps.db.from('mkt_competitors').select(cols).is('archived_at', null).order('created_at', { ascending: false }).limit(20);
+  const [{ data: trends }, c0] = await Promise.all([
     deps.db.from('mkt_trends').select('title, summary, source, url, kind, platform').order('found_at', { ascending: false }).limit(20),
-    deps.db.from('mkt_competitors').select('name, keyword, note').is('archived_at', null).order('created_at', { ascending: false }).limit(20),
+    compsOf('name, keyword, note, brief, brief_at'), // 0158 (buyer-brain decision 5): the research brief; before it the three columns
   ]);
+  const comps = c0.error ? (await compsOf('name, keyword, note')).data : c0.data;
   const camps: Record<string, Json> = {};
   for (const o of Array.isArray(objects) ? objects : []) camps[o.id] = { id: String(o.id), name: o.name || '#' + o.id, status: o.status, spend: 0, purchases: 0, orders: 0, sales: 0, daily_budget: isObj(o.meta) ? o.meta.daily_budget ?? null : null };
   for (const s of Array.isArray(stats) ? stats : []) { const c = camps[s.object_id]; if (c) { c.spend += Number(s.spend) || 0; c.purchases += Number(s.purchases) || 0; } }
@@ -442,7 +445,35 @@ async function adsData(deps: Deps) {
   }
   const campaigns = Object.values(camps).filter((c) => c.spend > 0 || c.orders > 0 || c.status === 'ACTIVE' || c.status === 'PAUSED').sort((a, b) => b.spend - a.spend); // ش45: a paused one too (to resume)
   const rules = buyerRules(isObj(set) && isObj(set.data) ? set.data.buyer : null);
-  return { today, rules, campaigns, suggestions: Array.isArray(sugg) ? sugg : [], pixel: isObj(pixel) ? pixel : null, ideas: { trends: Array.isArray(trends) ? trends : [], competitors: Array.isArray(comps) ? comps : [] } };
+  return { today, rules, campaigns, suggestions: Array.isArray(sugg) ? sugg : [], pixel: isObj(pixel) ? pixel : null, ideas: { trends: Array.isArray(trends) ? trends : [], competitors: Array.isArray(comps) ? comps : [] },
+    insight: await adsInsight(deps, today) };
+}
+async function adsAlways(deps: Deps) {
+  const { data } = await deps.db.from('settings').select('data').eq('section', 'ai').maybeSingle();
+  const d = isObj(data) && isObj(data.data) ? data.data : null;
+  return !!(d && isObj(d.agents) && isObj(d.agents.buyer) && d.agents.buyer.adsAlways === true);
+}
+// Safwat 24 Nov (docs/superpowers/plans/2026-11-24-buyer-brain.md decision 3): the media buyer reads every campaign and every ad
+// (creative) of the last 7 and 30 days with their verdicts — the same engine as the page's (_shared/ads-insight.js); the shop's orders
+// per ad when the ad carries utm_content={{ad.id}}. Read only; null when the read fails (the rest of <ads_data> stands).
+const INSIGHT_DAYS = 30;
+async function adsInsight(deps: Deps, today: string) {
+  try {
+    // deno-lint-ignore no-explicit-any
+    const I = (globalThis as any).IBAdsInsight; if (!I) return null;
+    const addD = (d: string, n: number) => new Date(Date.parse(d + 'T00:00:00Z') + n * 86_400_000).toISOString().slice(0, 10);
+    const from30 = addD(today, -(INSIGHT_DAYS - 1)); const from7 = addD(today, -6);
+    const [{ data: objects, error: e1 }, { data: stats, error: e2 }, { data: orders, error: e3 }] = await Promise.all([
+      deps.db.from('mkt_ad_objects').select('platform, kind, id, parent_id, name, status').eq('platform', 'meta').in('kind', ['campaign', 'ad']).limit(5000),
+      deps.db.from('mkt_ad_stats').select('platform, level, object_id, campaign_id, day, spend, impressions, clicks, link_clicks, frequency, purchases, purchase_value').eq('platform', 'meta').gte('day', from30).lte('day', today).limit(50000),
+      deps.db.from('orders').select('utm_campaign, utm_content, status, total, deleted_at, placed_at').eq('ad_platform', 'meta').gte('placed_at', from30 + 'T00:00:00+02:00').limit(10000),
+    ]);
+    if (e1 || e2 || e3) return null;
+    const ordersOf = (from: string) => (Array.isArray(orders) ? orders : []).filter((o: Json) => !o.deleted_at && !['ملغي', 'استرجاع', 'فشل'].includes(String(o.status)) && cairoParts(Date.parse(String(o.placed_at))).day >= from)
+      .map((o: Json) => ({ campaign: String(o.utm_campaign ?? ''), ad: String(o.utm_content ?? ''), orders: 1, sales: Number(o.total) || 0 }));
+    const run = (from: string) => I.block(I.build({ objects: objects ?? [], stats: stats ?? [], orders: ordersOf(from), from, to: today }));
+    return { week: run(from7), month: run(from30) };
+  } catch { return null; }
 }
 async function buyer(deps: Deps, uid: string, args: Json) {
   const parsed = parseBuyer(args);
@@ -542,6 +573,10 @@ async function agent(deps: Deps, uid: string, args: Json, jwt = '') {
   if (company && !String(deps.env[(TEXT_PROVIDERS as Record<string, { env: string }>)[company].env] ?? '').trim()) return json(503, { error: 'not_configured', provider: company });
   const sharing = Array.isArray(args.share); const share = sharing ? shareKinds(args.share, SHARE_MORE) : []; const may = (k: string) => !sharing || share.includes(k);
   const given: string[] = []; const give = (k: string) => { if (!given.includes(k)) given.push(k); };
+  // Safwat 24 Nov (buyer-brain decision 3 — «موافقة دايمة لأرقام الإعلانات بس»): the admin's switch in the media buyer's tab (row «ai»
+  // agents.buyer.adsAlways) — the ads' numbers go with every message to the buyer's outside AI without asking; the server decides it,
+  // never the page, and every other kind is still asked about
+  if (sharing && req.agent === 'buyer' && !share.includes('ads') && await adsAlways(deps)) share.push('ads');
   // 0120: the assistant from the registry, and whether the member sees it (its page's permission — the member's own client); before
   // 0120 is applied the three of marketing stand as they were (marketing.view, settings.marketing.agents)
   const reg = await deps.db.from('ai_agents').select('id, name, about, perm, sees, role, instructions, archived_at').eq('id', req.agent).maybeSingle();

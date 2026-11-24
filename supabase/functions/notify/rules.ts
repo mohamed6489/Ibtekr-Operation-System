@@ -11,7 +11,7 @@ import { delayRules, leadBy, lineDelayOf, lineElapsed, orderDelayOf, orderElapse
 type Db = any;
 // deno-lint-ignore no-explicit-any
 type Json = Record<string, any>;
-export type Ent = { id: string; name?: string; ref?: string; state?: string; line?: string; entity?: string; users?: string[]; perm?: [string, string]; per?: Json };
+export type Ent = { id: string; name?: string; ref?: string; state?: string; line?: string; entity?: string; users?: string[]; only?: boolean; perm?: [string, string]; per?: Json };
 type Ctx = { now: string; nowMs: number; cairo: { day: string; time: string } };
 
 const rows = (r: { data?: unknown }) => (Array.isArray(r?.data) ? r.data as Json[] : []);
@@ -46,6 +46,8 @@ function teamMembers(w: World, role: unknown): string[] {
   return id ? w.members.filter((m) => rolesOfMember(m).includes(id)).map((m) => String(m.id)) : [];
 }
 const nameOf = (w: World, id: unknown) => { const m = w.members.find((x) => String(x.id) === String(id)); return m ? String(m.name) : 'عضو'; };
+// a team entity names the member it concerns and his manager (a partial «hr.view» sees no one else's)
+const about = (w: World, id: unknown): string[] => { const m = w.members.find((x) => String(x.id) === String(id)); return [String(id)].concat(m && m.manager_id ? [String(m.manager_id)] : []); };
 
 // ---------------------------------------------------------------- the orders and their lines (the delay — the settings' rules)
 
@@ -139,7 +141,7 @@ async function read(db: Db, w: World, ctx: Ctx, rule: Json, since: string): Prom
         const lateDay = ctx.cairo.time >= addMin(to, 60);
         return rows(await db.from('hr_attendance').select('id, member_id, day, in_at, out_at').is('out_at', null).lte('day', today).limit(LIMIT))
           .filter((a) => String(a.day) < today || lateDay)
-          .map((a) => ({ id: 'noout:' + a.id, name: nameOf(w, a.member_id), state: 'لم يسجل انصراف', line: nameOf(w, a.member_id) + ' مسجّلش انصراف يوم ' + String(a.day), entity: 'hr-team' }));
+          .map((a) => ({ id: 'noout:' + a.id, name: nameOf(w, a.member_id), state: 'لم يسجل انصراف', line: nameOf(w, a.member_id) + ' مسجّلش انصراف يوم ' + String(a.day), entity: 'hr-team', users: about(w, a.member_id) }));
       }
       if (st === 'no_in') {
         const hr = w.settings.hr ?? {}; const from = (m: Json) => scheduleFrom(hr, m) ?? (/^\d{2}:\d{2}$/.test(String(hr.workFrom)) ? String(hr.workFrom) : '09:00');
@@ -157,13 +159,13 @@ async function read(db: Db, w: World, ctx: Ctx, rule: Json, since: string): Prom
         for (const m of due) {
           if (seen.has(String(m.id))) continue;
           const wd = await db.rpc('hr_member_workday', { p_member: m.id, p_day: today }); if (wd?.data === false) continue;
-          out.push({ id: 'noin:' + m.id + ':' + today, name: String(m.name), state: 'لم يسجل حضور', line: String(m.name) + ' مسجّلش حضور لحد دلوقتي (ميعاده ' + from(m) + ')', entity: 'hr-team' });
+          out.push({ id: 'noin:' + m.id + ':' + today, name: String(m.name), state: 'لم يسجل حضور', line: String(m.name) + ' مسجّلش حضور لحد دلوقتي (ميعاده ' + from(m) + ')', entity: 'hr-team', users: about(w, m.id) });
         }
         return out;
       }
       if (st === 'ot_start') {
         return rows(await db.from('hr_attendance').select('id, member_id, ot_from').gte('ot_from', since).limit(200))
-          .map((a) => ({ id: 'ot:' + a.id, name: nameOf(w, a.member_id), state: 'بدأ وقت إضافي', line: nameOf(w, a.member_id) + ' خلص ساعات العمل وبدأ وقت إضافي', entity: 'hr-team' }));
+          .map((a) => ({ id: 'ot:' + a.id, name: nameOf(w, a.member_id), state: 'بدأ وقت إضافي', line: nameOf(w, a.member_id) + ' خلص ساعات العمل وبدأ وقت إضافي', entity: 'hr-team', users: about(w, a.member_id) }));
       }
       return [];
     }
@@ -171,16 +173,16 @@ async function read(db: Db, w: World, ctx: Ctx, rule: Json, since: string): Prom
       if (st === 'clock_in' || st === 'clock_out') {
         const col = st === 'clock_in' ? 'in_at' : 'out_at';
         return rows(await db.from('hr_attendance').select('id, member_id, in_at, out_at').gte(col, since).limit(300))
-          .map((a) => ({ id: st + ':' + a.id, name: nameOf(w, a.member_id), state: st === 'clock_in' ? 'سجّل حضور' : 'سجّل انصراف', line: nameOf(w, a.member_id) + (st === 'clock_in' ? ' سجّل حضور' : ' سجّل انصراف'), entity: 'hr-team' }));
+          .map((a) => ({ id: st + ':' + a.id, name: nameOf(w, a.member_id), state: st === 'clock_in' ? 'سجّل حضور' : 'سجّل انصراف', line: nameOf(w, a.member_id) + (st === 'clock_in' ? ' سجّل حضور' : ' سجّل انصراف'), entity: 'hr-team', users: about(w, a.member_id) }));
       }
       if (st === 'req_ot') {
         return rows(await db.from('hr_overtime').select('id, member_id, day, minutes, kind, created_at').gte('created_at', since).limit(200))
-          .map((o) => ({ id: 'reqot:' + o.id, name: nameOf(w, o.member_id), state: 'طلب وقت إضافي', line: nameOf(w, o.member_id) + ' — ' + (o.kind === 'rest_day' ? 'شغل يوم راحة' : 'وقت إضافي') + ' يوم ' + String(o.day), entity: 'hr' }));
+          .map((o) => ({ id: 'reqot:' + o.id, name: nameOf(w, o.member_id), state: 'طلب وقت إضافي', line: nameOf(w, o.member_id) + ' — ' + (o.kind === 'rest_day' ? 'شغل يوم راحة' : 'وقت إضافي') + ' يوم ' + String(o.day), entity: 'hr', users: about(w, o.member_id) }));
       }
       const types = rows(await db.from('hr_leave_types').select('name').limit(100)).map((t) => String(t.name));
       const pick = (t: string) => st === 'req_leave' ? types.includes(t) : st === 'req_advance' ? t === 'سُلفة' : st === 'req_rest' ? t === 'فترة راحة' : !types.includes(t) && t !== 'سُلفة' && t !== 'فترة راحة';
       return rows(await db.from('hr_requests').select('id, member_id, type, from_day, to_day, created_at').gte('created_at', since).limit(300)).filter((r) => pick(String(r.type)))
-        .map((r) => ({ id: 'req:' + r.id, name: nameOf(w, r.member_id), state: String(r.type), line: nameOf(w, r.member_id) + ' طلب ' + String(r.type) + (r.from_day ? ' — ' + String(r.from_day) + (r.to_day && r.to_day !== r.from_day ? ' → ' + String(r.to_day) : '') : ''), entity: 'tickets' }));
+        .map((r) => ({ id: 'req:' + r.id, name: nameOf(w, r.member_id), state: String(r.type), line: nameOf(w, r.member_id) + ' طلب ' + String(r.type) + (r.from_day ? ' — ' + String(r.from_day) + (r.to_day && r.to_day !== r.from_day ? ' → ' + String(r.to_day) : '') : ''), entity: 'tickets', users: about(w, r.member_id) }));
     }
     // ---- the main orders
     case 'orders.confirm': case 'orders.status': {
@@ -256,7 +258,7 @@ async function read(db: Db, w: World, ctx: Ctx, rule: Json, since: string): Prom
         const left = daysBetween(today, date); if (left > (P ?? 2)) return [];
         const sheet = rows(await db.from('hr_payroll').select('month, status').eq('month', date.slice(0, 7) + '-01').limit(1))[0];
         if (sheet && sheet.status === 'مدفوع') return [];
-        return [{ id: 'payroll:' + date.slice(0, 7), name: 'المرتبات', ref: date, state: 'قبل يوم الصرف', line: 'يوم الصرف ' + date + ' — فاضل ' + left + ' يوم', entity: 'hr-payroll' }];
+        return [{ id: 'payroll:' + date.slice(0, 7), name: 'المرتبات', ref: date, state: 'قبل يوم الصرف', line: 'يوم الصرف ' + date + ' — فاضل ' + left + ' يوم', entity: 'hr-payroll', perm: ['sensitive.salaries', 'F'] }];
       }
       if (st === 'due' && ty === 'subs') {
         const subs = rows(await db.from('acc_expenses').select('id, sub_name, sub_ends').eq('category', 'الاشتراكات').is('voided_at', null).lte('sub_ends', addDays(today, P ?? 3)).gte('sub_ends', today).limit(LIMIT));
@@ -269,7 +271,7 @@ async function read(db: Db, w: World, ctx: Ctx, rule: Json, since: string): Prom
       let q = db.from('acc_expenses').select('id, category, direction, amount, beneficiary, sub_name, created_at').eq('direction', st).is('voided_at', null).gte('created_at', since);
       if (cat) q = q.eq('category', cat);
       return rows(await q.limit(300)).filter((x) => cat || !BASE_EXPENSES.includes(String(x.category)))
-        .map((x) => ({ id: 'exp:' + x.id, name: String(x.category), ref: '', state: st === 'deposit' ? 'إيداع' : 'سحب', line: String(x.category) + ' · ' + (st === 'deposit' ? 'إيداع ' : 'سحب ') + money(Number(x.amount)) + (x.sub_name ? ' · ' + String(x.sub_name) : x.beneficiary ? ' · ' + String(x.beneficiary).slice(0, 40) : ''), entity: 'accounts' }));
+        .map((x) => ({ ...(ty === 'payroll' ? { perm: ['sensitive.salaries', 'F'] as [string, string] } : {}), id: 'exp:' + x.id, name: String(x.category), ref: '', state: st === 'deposit' ? 'إيداع' : 'سحب', line: String(x.category) + ' · ' + (st === 'deposit' ? 'إيداع ' : 'سحب ') + money(Number(x.amount)) + (x.sub_name ? ' · ' + String(x.sub_name) : x.beneficiary ? ' · ' + String(x.beneficiary).slice(0, 40) : ''), entity: 'accounts' }));
     }
     case 'accounts.makers': {
       if (st === 'close_due') {
@@ -298,11 +300,11 @@ async function read(db: Db, w: World, ctx: Ctx, rule: Json, since: string): Prom
       const pick = (t: Json) => !rule.sub || String(t.type) === String(rule.sub);
       const users = (t: Json) => [...new Set(teamMembers(w, t.assignee_role).concat(t.assignee_member ? [String(t.assignee_member)] : [], t.created_by ? [String(t.created_by)] : []))];
       if (st === 'new') return rows(await db.from('tickets').select('id, type, title, assignee_role, assignee_member, created_by, created_at').gte('created_at', since).limit(300)).filter(pick)
-        .map((t) => ({ id: 't:' + t.id, name: String(t.title ?? '').slice(0, 80), ref: 'TKT-' + String(t.id).padStart(4, '0'), state: 'طلب جديد', line: 'طلب جديد لـ ' + String(t.assignee_role) + ': ' + String(t.title ?? '').slice(0, 80), entity: 'tickets/TKT-' + String(t.id).padStart(4, '0'), users: users(t) }));
+        .map((t) => ({ id: 't:' + t.id, name: String(t.title ?? '').slice(0, 80), ref: 'TKT-' + String(t.id).padStart(4, '0'), state: 'طلب جديد', line: 'طلب جديد لـ ' + String(t.assignee_role) + ': ' + String(t.title ?? '').slice(0, 80), entity: 'tickets/TKT-' + String(t.id).padStart(4, '0'), users: users(t), only: true }));
       const stale = new Date(ctx.nowMs - 48 * 3600_000).toISOString();
       return rows(await db.from('tickets').select('id, type, title, assignee_role, assignee_member, created_by, status, follow_up, last_update').in('status', ['open', 'in_progress', 'waiting']).limit(LIMIT)).filter(pick)
         .filter((t) => (typeof t.follow_up === 'string' && t.follow_up.slice(0, 10) < today) || (t.last_update && String(t.last_update) < stale))
-        .map((t) => ({ id: 'tl:' + t.id, name: String(t.title ?? '').slice(0, 80), ref: 'TKT-' + String(t.id).padStart(4, '0'), state: 'حالته ماتغيّرتش', line: 'طلب حالته ماتغيّرتش: ' + String(t.title ?? '').slice(0, 80), entity: 'tickets/TKT-' + String(t.id).padStart(4, '0'), users: users(t) }));
+        .map((t) => ({ id: 'tl:' + t.id, name: String(t.title ?? '').slice(0, 80), ref: 'TKT-' + String(t.id).padStart(4, '0'), state: 'حالته ماتغيّرتش', line: 'طلب حالته ماتغيّرتش: ' + String(t.title ?? '').slice(0, 80), entity: 'tickets/TKT-' + String(t.id).padStart(4, '0'), users: users(t), only: true }));
     }
     case 'tickets.update': {
       const want: Record<string, (e: Json) => boolean> = { in_progress: (e) => e.new_value === 'in_progress', waiting: (e) => e.new_value === 'waiting', resolved: (e) => e.new_value === 'resolved',
@@ -313,7 +315,7 @@ async function read(db: Db, w: World, ctx: Ctx, rule: Json, since: string): Prom
       const word = (CAT.stateOf(el, ty, st, null) || {}).label;
       return ev.map((e) => { const t = tk.get(String(e.ticket_id)); if (!t) return null; const code = 'TKT-' + String(t.id).padStart(4, '0');
         return { id: 'te:' + e.id, name: String(t.title ?? '').slice(0, 80), ref: code, state: word, line: code + ' — ' + word + ' · ' + nameOf(w, e.actor), entity: 'tickets/' + code,
-          users: [...new Set(teamMembers(w, t.assignee_role).concat(t.assignee_member ? [String(t.assignee_member)] : [], t.created_by ? [String(t.created_by)] : []))].filter((u) => u !== String(e.actor)) } as Ent; })
+          users: [...new Set(teamMembers(w, t.assignee_role).concat(t.assignee_member ? [String(t.assignee_member)] : [], t.created_by ? [String(t.created_by)] : []))].filter((u) => u !== String(e.actor)), only: true } as Ent; })
         .filter(Boolean) as Ent[];
     }
     // ---- the messages
@@ -337,24 +339,26 @@ async function read(db: Db, w: World, ctx: Ctx, rule: Json, since: string): Prom
     case 'ai.buyer': case 'ai.designer': case 'ai.dev': case 'ai.any': {
       const agents = rows(await db.from('ai_agents').select('id, name, perm').limit(100)); const agentPerm = (id: string) => { const a = agents.find((x) => x.id === id); return a && typeof a.perm === 'string' ? a.perm : 'marketing.view'; };
       const agentName = (id: string) => { const a = agents.find((x) => x.id === id); return a ? String(a.name) : id; };
+      const seers = (perm: string) => w.members.filter((m) => permOf(m, w.roles, perm) !== 'N').map((m) => String(m.id)); // who sees that assistant
+      const mkt = seers('marketing.view');
       const notes = async (agent: string | null, test: (n: Json) => boolean) => {
         let q = db.from('ai_agent_notes').select('id, agent, kind, title, body, ref, link, created_at').gte('created_at', since); if (agent) q = q.eq('agent', agent);
-        return rows(await q.limit(300)).filter(test).map((n) => ({ id: 'note:' + n.id, name: agentName(String(n.agent)), state: String(n.kind), line: String(n.title), entity: n.link ? String(n.link) : 'ai-' + String(n.agent), perm: [agentPerm(String(n.agent)), 'P'] as [string, string] }));
+        return rows(await q.limit(300)).filter(test).map((n) => ({ id: 'note:' + n.id, name: agentName(String(n.agent)), state: String(n.kind), line: String(n.title), entity: n.link ? String(n.link) : 'ai-' + String(n.agent), users: seers(agentPerm(String(n.agent))) }));
       };
-      if (ty === 'any') return notes(null, () => true);
+      if (ty === 'any') return notes(null, (n) => !['buyer', 'designer', 'dev'].includes(String(n.agent))); // the three have their own types
       if (ty === 'dev') return notes('dev', (n) => st === 'wp' ? /^dev:wp:/.test(String(n.ref)) : st === 'speed' ? /^dev:speed:/.test(String(n.ref)) : /^dev:/.test(String(n.ref)) && !/^dev:(wp|speed):/.test(String(n.ref)));
       if (ty === 'buyer' && st === 'pixel') return notes('buyer', (n) => /^pixel:/.test(String(n.ref)));
-      if (ty === 'buyer' && st === 'campaigns') return rows(await db.from('mkt_suggestions').select('id, platform, kind, campaign_name, title, status, created_at').gte('created_at', since).limit(200))
-        .map((s) => ({ id: 'sg:' + s.id, name: String(s.campaign_name ?? 'حملة'), state: String(s.kind), line: String(s.title ?? s.kind) + ' — ' + String(s.campaign_name ?? ''), entity: 'ai-buyer' }));
+      if (ty === 'buyer' && st === 'campaigns') return (await notes('buyer', (n) => /^(daily|rule):/.test(String(n.ref)))).concat(rows(await db.from('mkt_suggestions').select('id, platform, kind, campaign_name, title, status, created_at').gte('created_at', since).limit(200))
+        .map((s) => ({ id: 'sg:' + s.id, name: String(s.campaign_name ?? 'حملة'), state: String(s.kind), line: String(s.title ?? s.kind) + ' — ' + String(s.campaign_name ?? ''), entity: 'ai-buyer', users: mkt })));
       if (ty === 'buyer' && st === 'post') return rows(await db.from('mkt_posts').select('id, name, platform, kind, published_at').gte('published_at', since).limit(200))
-        .map((p) => ({ id: 'post:' + p.id, name: String(p.name ?? 'بوست'), state: 'اتنشر', line: 'اتنشر ' + String(p.kind ?? 'بوست') + ' على ' + String(p.platform) + ' — ' + String(p.name ?? '').slice(0, 60), entity: 'marketing-log' }));
+        .map((p) => ({ id: 'post:' + p.id, name: String(p.name ?? 'بوست'), state: 'اتنشر', line: 'اتنشر ' + String(p.kind ?? 'بوست') + ' على ' + String(p.platform) + ' — ' + String(p.name ?? '').slice(0, 60), entity: 'marketing-log', users: mkt }));
       if (ty === 'designer' && st === 'trends') {
         const tr = rows(await db.from('mkt_trends').select('id, batch, title, found_at').gte('found_at', since).limit(300)); if (!tr.length) return [];
         const batches = new Map<string, Json[]>(); for (const t of tr) { const k = String(t.batch ?? t.id); const l = batches.get(k) ?? []; l.push(t); batches.set(k, l); }
-        return [...batches.entries()].map(([k, l]) => ({ id: 'tr:' + k, name: 'آخر التريندات', state: 'تريندات جديدة', line: l.length + ' تريند جديد — ' + String(l[0].title ?? '').slice(0, 60), entity: 'ai-designer' }));
+        return [...batches.entries()].map(([k, l]) => ({ id: 'tr:' + k, name: 'آخر التريندات', state: 'تريندات جديدة', line: l.length + ' تريند جديد — ' + String(l[0].title ?? '').slice(0, 60), entity: 'ai-designer', users: mkt }));
       }
       if (ty === 'designer' && st === 'campaign') return rows(await db.from('mkt_campaigns').select('id, name, created_at, archived_at').gte('created_at', since).is('archived_at', null).limit(200))
-        .map((c) => ({ id: 'camp:' + c.id, name: String(c.name ?? 'كامبين'), state: 'كامبين جديدة', line: 'كامبين جديدة: ' + String(c.name ?? '').slice(0, 80), entity: 'marketing' }));
+        .map((c) => ({ id: 'camp:' + c.id, name: String(c.name ?? 'كامبين'), state: 'كامبين جديدة', line: 'كامبين جديدة: ' + String(c.name ?? '').slice(0, 80), entity: 'marketing', users: mkt }));
       return [];
     }
     // ---- the makers

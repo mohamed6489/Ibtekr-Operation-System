@@ -53,13 +53,15 @@
       { id: 'customers', label: 'رسايل العملاء', states: [S('new', 'رسايل جديدة', { kind: 'event' }), S('waiting', 'في انتظار الرد', { kind: 'state' }), S('late', 'رسايل متأخرة', { kind: 'state' })] },
       { id: 'vendors', label: 'رسايل المبتكرين', states: [S('new', 'رسايل جديدة', { kind: 'event' }), S('late', 'رسايل متأخرة', { kind: 'state' })] },
       { id: 'comments', label: 'السوشيال ميديا', states: [S('new', 'تعليقات جديدة', { kind: 'event' }), S('late', 'تعليقات متأخرة', { kind: 'state' })] }] },
-    { id: 'ai', label: 'الذكاء الاصطناعي', perm: 'marketing.view', types: [
+    // perm null: each assistant's alert names the members who see that assistant (ai_agents.perm) — notify/rules.ts
+    { id: 'ai', label: 'الذكاء الاصطناعي', perm: null, types: [
       { id: 'buyer', label: 'الميديا باير', kind: 'event', states: [S('campaigns', 'أداء الحملات'), S('pixel', 'حالة البيكسل'), S('post', 'نشر بوست')] },
       { id: 'designer', label: 'الديزاينر', kind: 'event', states: [S('trends', 'آخر التريندات'), S('campaign', 'بناء حملة')] },
       { id: 'dev', label: 'المبرمج', kind: 'event', states: [S('wp', 'تحديثات ووردبريس'), S('api', 'مشاكل API'), S('speed', 'كفاءة أداء النظام')] },
-      // the meeting's text: «لكل مساعد ذكاء اصطناعي التنبيهات اللي تناسب دوره بنفس الطريقة» — whatever an assistant tells its team
-      // (its daily summary, what is late, its own rules …) reaches the members who see that assistant
-      { id: 'any', label: 'كل المساعدين', kind: 'event', states: [S('notes', 'تنبيهات المساعد')] }] },
+      // the meeting's text: «لكل مساعد ذكاء اصطناعي التنبيهات اللي تناسب دوره بنفس الطريقة» — whatever the other assistants (the
+      // operations', the customer service's, the makers', the accountant, HR's, the content's and the admin's own) tell their team —
+      // their daily summary, what is late, their own rules — reaches the members who see that assistant
+      { id: 'any', label: 'باقي المساعدين', kind: 'event', states: [S('notes', 'تنبيهات المساعد')] }] },
     { id: 'makers', label: 'المبتكرين', perm: 'vendors.view', types: [
       { id: 'making', label: 'حالة التصنيع', states: [S('late', 'أوردرات متأخرة', { kind: 'state' }), S('risk', 'أوردرات قابلة للتأخير', { kind: 'state' }), S('confirmed', 'أوردرات مؤكدة جديدة', { kind: 'event' }), S('cancelled', 'أوردرات ملغية', { kind: 'event' })] },
       { id: 'accounts', label: 'حسابات المبتكر', kind: 'event', states: [S('withdraw', 'طلب سحب'), S('settle', 'تقفيل الحسابات')] },

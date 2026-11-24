@@ -173,7 +173,7 @@ begin
   -- main sections (the bell's tabs) and their sub-sections (the filters)
   for sec, subs in select * from (values
       ('التقارير اليومية', array['ملخص اليوم']),
-      ('مساعدين الذكاء الاصطناعي', array['الميديا باير', 'الديزاينر', 'المبرمج']),
+      ('مساعدين الذكاء الاصطناعي', array['الميديا باير', 'الديزاينر', 'المبرمج', 'باقي المساعدين']),
       ('خدمة العملاء', array['متأخر', 'غير مؤكدة', 'في انتظار الرد']),
       ('متابعة المبتكرين', array['متأخر', 'قابلة للتأخير', 'مؤكد']),
       ('العمليات والشحن', array['جاهز للشحن للمخزن', 'جاهز للشحن للعميل', 'مرتجع يحتاج فحص', 'العهدة', 'استوك قرب يخلص']),
@@ -206,11 +206,15 @@ do $$
 begin
   if exists (select 1 from public.notif_rules) then return; end if;
   perform pg_temp.seed_rule('التقارير اليومية', 'ملخص اليوم', 'ملخص اليوم', 'daily', 'summary', 'day', array['admin', 'ops', 'cs', 'accounts', 'vendors_followup', 'hr', 'content', 'designer', 'media_buyer', 'developer'], 'fixed', 24, '24h', '09:00');
-  perform pg_temp.seed_rule('مساعدين الذكاء الاصطناعي', 'الميديا باير', 'أداء الحملات', 'ai', 'buyer', 'campaigns', array['admin', 'media_buyer'], 'until_read', 6, '24h');
-  perform pg_temp.seed_rule('مساعدين الذكاء الاصطناعي', 'الميديا باير', 'حالة البيكسل', 'ai', 'buyer', 'pixel', array['admin', 'media_buyer'], 'until_read', 6, '24h');
-  perform pg_temp.seed_rule('مساعدين الذكاء الاصطناعي', 'الديزاينر', 'آخر التريندات', 'ai', 'designer', 'trends', array['admin', 'designer'], 'until_read', 6, '24h');
-  perform pg_temp.seed_rule('مساعدين الذكاء الاصطناعي', 'المبرمج', 'تحديثات ووردبريس', 'ai', 'dev', 'wp', array['admin', 'developer'], 'until_read', 6, '24h');
-  perform pg_temp.seed_rule('مساعدين الذكاء الاصطناعي', 'المبرمج', 'مشاكل API', 'ai', 'dev', 'api', array['admin', 'developer'], 'until_read', 6, '24h');
+  perform pg_temp.seed_rule('مساعدين الذكاء الاصطناعي', 'الميديا باير', 'أداء الحملات', 'ai', 'buyer', 'campaigns', array['admin', 'media_buyer'], 'until_read', 6, '24h', '00:00');
+  perform pg_temp.seed_rule('مساعدين الذكاء الاصطناعي', 'الميديا باير', 'حالة البيكسل', 'ai', 'buyer', 'pixel', array['admin', 'media_buyer'], 'until_read', 6, '24h', '00:00');
+  perform pg_temp.seed_rule('مساعدين الذكاء الاصطناعي', 'الديزاينر', 'آخر التريندات', 'ai', 'designer', 'trends', array['admin', 'designer'], 'until_read', 6, '24h', '00:00');
+  perform pg_temp.seed_rule('مساعدين الذكاء الاصطناعي', 'المبرمج', 'تحديثات ووردبريس', 'ai', 'dev', 'wp', array['admin', 'developer'], 'until_read', 6, '24h', '00:00');
+  perform pg_temp.seed_rule('مساعدين الذكاء الاصطناعي', 'المبرمج', 'مشاكل API', 'ai', 'dev', 'api', array['admin', 'developer'], 'until_read', 6, '24h', '00:00');
+  perform pg_temp.seed_rule('مساعدين الذكاء الاصطناعي', 'المبرمج', 'كفاءة أداء النظام', 'ai', 'dev', 'speed', array['admin', 'developer'], 'until_read', 6, '24h', '00:00');
+  perform pg_temp.seed_rule('مساعدين الذكاء الاصطناعي', 'الميديا باير', 'نشر بوست', 'ai', 'buyer', 'post', array['admin', 'media_buyer'], 'until_read', 4, '24h', '00:00');
+  perform pg_temp.seed_rule('مساعدين الذكاء الاصطناعي', 'الديزاينر', 'بناء حملة', 'ai', 'designer', 'campaign', array['admin', 'designer'], 'until_read', 4, '24h', '00:00');
+  perform pg_temp.seed_rule('مساعدين الذكاء الاصطناعي', 'باقي المساعدين', 'تنبيهات المساعدين', 'ai', 'any', 'notes', array['admin', 'ops', 'cs', 'accounts', 'vendors_followup', 'hr', 'content', 'designer', 'media_buyer', 'developer'], 'until_read', 6, '24h', '00:00');
   perform pg_temp.seed_rule('خدمة العملاء', 'متأخر', 'أوردر متأخر', 'orders', 'delay', 'late', array['admin', 'cs'], 'until_state', 0, '24h');
   perform pg_temp.seed_rule('خدمة العملاء', 'غير مؤكدة', 'أوردر غير مؤكد', 'orders', 'confirm', 'غير مؤكد', array['admin', 'cs'], 'until_state', 0, '24h');
   perform pg_temp.seed_rule('خدمة العملاء', 'في انتظار الرد', 'عميل مستني ردنا', 'messages', 'customers', 'waiting', array['admin', 'cs'], 'until_state', 0, '24h');

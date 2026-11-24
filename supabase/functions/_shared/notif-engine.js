@@ -47,13 +47,18 @@ export function recipients(rule, members, roles) {
 // one leaves the bell (`retire` — hidden now, never deleted) and a new one comes with the green dot: the renewal is the repeat; an
 // «event» / a «due» one never writes the same (entity, member) twice. The admin sees every entity of his rules (`users` narrows the rest).
 export function writePlan({ rule, ents, existing, members, roles, now, lineFor }) {
-  const kind = C.kindOf(rule); const to = recipients(rule, members, roles);
+  const kind = C.kindOf(rule); const to = recipients(rule, members, roles); const elPerm = (C.el(rule.element) || {}).perm || null;
   const had = new Map(); for (const a of existing || []) { const k = a.entity_id + '|' + a.user_id; const l = had.get(k) || []; l.push(a); had.set(k, l); }
   const inserts = []; const retire = [];
   const hide = rule.show === 'fixed' ? new Date(Date.parse(now) + Number(rule.hours) * H).toISOString() : null;
   for (const e of ents || []) {
     for (const m of to) {
-      if (Array.isArray(e.users) && !e.users.includes(m.id) && m.role_id !== 'admin') continue;
+      // a member with the element's page partly (P — his own / his team's only) gets an entity only when it names him (`users`:
+      // the member it concerns and his manager, the request's team, the conversation's assignee …); the page whole (F) gets all
+      const whole = permOf(m, roles, elPerm) === 'F';
+      // `only`: the named members (and the admin) and no one else — a request reaches the team it is for and its opener, not every
+      // member who may read all the requests
+      if (e.only ? !(m.role_id === 'admin' || (e.users || []).includes(m.id)) : Array.isArray(e.users) ? !(whole || e.users.includes(m.id)) : !whole) continue;
       if (e.perm && RANK[permOf(m, roles, e.perm[0])] < RANK[e.perm[1] || 'P']) continue;
       const k = e.id + '|' + m.id; const prev = had.get(k);
       if (prev && kind !== 'state') continue;

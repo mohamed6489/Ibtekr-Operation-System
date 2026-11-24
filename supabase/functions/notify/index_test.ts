@@ -128,6 +128,18 @@ Deno.test('rules: an inactive rule hides its rows; a deleted rule\'s rows leave 
   const txt = JSON.stringify(s.db.rows('alerts')); assert(!txt.includes('0100000000') && !txt.includes('@x.test'));
 });
 
+Deno.test('rules (security review): a member with the element\'s page partly (hr.view P) gets the team alerts that name him only; the admin all; payroll needs the salaries', async () => {
+  const s = withRules([rule('r-out', { name: 'لم يسجل انصراف', element: 'team', type: 'status', state: 'no_out', roles: ['admin', 'ops'] }),
+    rule('r-pay', { name: 'المرتبات', element: 'accounts', type: 'payroll', state: 'due', show: 'fixed', hours: 48, roles: ['admin', 'accounts'], param: 30 })],
+    (seed) => { seed.roles.find((r: any) => r.id === 'ops').permissions['hr.view'] = 'P'; seed.roles.find((r: any) => r.id === 'accounts').permissions['accounts.view'] = 'F';
+      seed.profiles.push({ id: '00000000-0000-4000-8000-0000000000a5', name: 'منى', email: 'acc@x.test', phone: null, role_id: 'accounts', status: 'active' });
+      seed.hr_attendance = [{ id: 1, member_id: OPS, day: '2026-11-07', in_at: '2026-11-07T07:00:00Z', out_at: null }, { id: 2, member_id: CS, day: '2026-11-07', in_at: '2026-11-07T07:00:00Z', out_at: null }]; });
+  await cron(s.deps);
+  const A = s.db.rows('alerts'); const to = (rid: string) => A.filter((a: any) => a.rule_id === rid).map((a: any) => a.user_id + '|' + a.entity_id).sort();
+  assertEquals(to('r-out'), [ADMIN + '|noout:1', ADMIN + '|noout:2', OPS + '|noout:1'].sort(), 'ops sees his own session only');
+  assertEquals(to('r-pay').map((x: string) => x.split('|')[0]), [ADMIN], 'the accounts member without sensitive.salaries gets no payroll reminder');
+});
+
 Deno.test('rules: before 0157 (no rules table) the tick still runs the rest and says so', async () => {
   const { deps } = setup(); const r = await cron(deps); assertEquals(r.res.status, 200, JSON.stringify(r.body));
   assert(['no_rules'].includes(r.body.notif.skipped) || r.body.notif.rules === 0, JSON.stringify(r.body.notif));

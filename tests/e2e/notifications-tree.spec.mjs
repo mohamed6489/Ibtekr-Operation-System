@@ -4,7 +4,7 @@ import { installSupabaseMock, LIVE, DEV_PW } from './supabase-mock.mjs';
 // The notifications' new structure (Safwat 24 Nov — docs/superpowers/plans/2026-11-24-notifications.md, 0157): «الإعدادات › التنبيهات»
 // is the tree the bell shows — the admin adds a main section, a sub-section under it and an alert (element › type › state, time, repeat,
 // visibility, roles, message), and the bell shows the same groups and filters with the alerts the rules wrote: the new one with the
-// green dot, «غير مقروء» / «مقروء», the sort. Mock only.
+// green dot, the read below the unread, the read filter and the sort. Mock only.
 const ADMIN = 'admin.dev@ibtekr.local'; const ADMIN_ID = '00000000-0000-4000-8000-000000000001';
 const M1 = '00000000-0000-4000-8000-0000000005a1'; const S1 = '00000000-0000-4000-8000-0000000005a2'; const M2 = '00000000-0000-4000-8000-0000000005b1'; const S2 = '00000000-0000-4000-8000-0000000005b2';
 const now = Date.now(); const iso = (min) => new Date(now - min * 60000).toISOString();
@@ -36,23 +36,30 @@ async function signIn(page, hash) {
   if (hash) await page.evaluate((x) => { location.hash = x; }, hash);
 }
 
-test('the bell = the settings\' tree: its groups and filters, a rule-less alert under its element\'s sub-section, the hidden one gone, the green dot, «غير مقروء» / «مقروء», the sort', async ({ page }) => {
+test('the bell = the settings\' tree: its groups and filters, a rule-less alert under its element\'s sub-section, the hidden one gone, the green dot, the read below the unread, the read filter, the sort', async ({ page }) => {
   await signIn(page, 'dashboard');
   await page.locator('.notif-btn').click();
   const bell = page.locator('.menu.notif');
   await expect(bell.locator('.ntf-nav-item')).toHaveText([/خدمة العملاء/, /الفريق/]);
   await expect(bell.locator('.ntf-nav-item').first().locator('.cnt')).toHaveText('1'); // 501 unread; 502 read; 504 hidden
-  await expect(bell.locator('.tab')).toHaveText([/الكل \(2\)/, /غير مؤكدة \(2\)/, /غير مقروء \(1\)/, /مقروء \(1\)/]);
+  await expect(bell.locator('.tab')).toHaveText([/الكل \(2\)/, /غير مؤكدة \(2\)/]); // Safwat 24 Nov: no «غير مقروء» / «مقروء» tabs
   await expect(bell.locator('.ntf-item')).toHaveCount(2);
   await expect(bell.locator('.ntf-item').first()).toContainText('IB-180656'); await expect(bell.locator('.ntf-item').first().locator('.ntf-dot')).toBeVisible();
   await expect(bell.locator('.ntf-item').nth(1).locator('.ntf-dot')).toHaveCount(0);
   await expect(bell).not.toContainText('اتخفى');
   // the sort: the oldest first
   await bell.locator('#ntf-sort').click(); await expect(bell.locator('#ntf-sort')).toHaveAttribute('data-sort', 'old'); // the bell's redesign: one small button (newest ⇄ oldest)
-  await expect(bell.locator('.ntf-item').first()).toContainText('IB-180651');
+  // … the unread one stays first all the same (Safwat 24 Nov — «المقروء … بينزل دايما تحت غير المقروء»)
+  await expect(bell.locator('.ntf-item').first()).toContainText('IB-180656'); await expect(bell.locator('.ntf-item').nth(1)).toContainText('IB-180651');
+  // the read filter beside the sort: الكل → غير مقروء → مقروء → الكل
+  await bell.locator('#ntf-read').click(); await expect(bell.locator('#ntf-read')).toHaveAttribute('data-read', 'unread');
+  await expect(bell.locator('.ntf-item')).toHaveCount(1); await expect(bell.locator('.ntf-item')).toContainText('IB-180656');
+  await bell.locator('#ntf-read').click(); await expect(bell.locator('#ntf-read')).toHaveAttribute('data-read', 'read');
+  await expect(bell.locator('.ntf-item')).toHaveCount(1); await expect(bell.locator('.ntf-item')).toContainText('IB-180651');
+  await bell.locator('#ntf-read').click(); await expect(bell.locator('#ntf-read')).toHaveAttribute('data-read', 'all'); await expect(bell.locator('.ntf-item')).toHaveCount(2);
   // «الفريق»: the overtime alert written by the database (no rule) sits under «الحضور والانصراف» (its element = team)
   await bell.locator('.ntf-nav-item', { hasText: 'الفريق' }).click();
-  await expect(bell.locator('.tab')).toHaveText([/الكل \(1\)/, /الحضور والانصراف \(1\)/, /غير مقروء \(1\)/, /مقروء \(0\)/]); // 0163 (the bell by role): every tab there, even at zero
+  await expect(bell.locator('.tab')).toHaveText([/الكل \(1\)/, /الحضور والانصراف \(1\)/]); // 0163 (the bell by role): every tab there, even at zero
   await expect(bell.locator('.ntf-item')).toContainText('وقت إضافي محتاج قرارك');
   // «تعليم القسم كمقروء» → the dot goes, written as reads
   await bell.locator('.ntf-foot').getByRole('button', { name: 'تعليم القسم كمقروء' }).click();
@@ -107,7 +114,7 @@ test('«الإعدادات › التنبيهات»: a main section, a sub-secti
   await page.locator('.notif-btn').click();
   await expect(page.locator('.menu.notif .ntf-nav-item')).toHaveText([/خدمة العملاء/, /الفريق/, /الحسابات/]);
   await page.locator('.menu.notif .ntf-nav-item', { hasText: 'الحسابات' }).click();
-  await expect(page.locator('.menu.notif .tab')).toHaveText([/الكل \(0\)/, /العهدة \(0\)/, /غير مقروء \(0\)/, /مقروء \(0\)/]); // 0163 (the bell by role): the sub-section ready at zero
+  await expect(page.locator('.menu.notif .tab')).toHaveText([/الكل \(0\)/, /العهدة \(0\)/]); // 0163 (the bell by role): the sub-section ready at zero
 });
 
 test('an alert switched off and deleted from the settings; a sub-section renamed', async ({ page }) => {
@@ -241,7 +248,7 @@ test('0163 the bell by role: a member sees only the main sections whose rules go
   await page.locator('.notif-btn').click();
   const bell = page.locator('.menu.notif');
   await expect(bell.locator('.ntf-nav-item')).toHaveText([/العمليات والشحن/]); // not «خدمة العملاء» (cs) nor «الفريق» (admin)
-  await expect(bell.locator('.tab')).toHaveText([/الكل \(1\)/, /جاهز للشحن للمخزن \(1\)/, /التجميع \(0\)/, /غير مقروء \(1\)/, /مقروء \(0\)/]); // «التجميع» there at zero
+  await expect(bell.locator('.tab')).toHaveText([/الكل \(1\)/, /جاهز للشحن للمخزن \(1\)/, /التجميع \(0\)/]); // «التجميع» there at zero
 });
 
 // 0164 (Safwat 24 Nov — «اي تعديلات اعملها في اعدادات التبيهات تسمع في البوب اب بتاع التنبيهات بمجرد الحفظ»): the rule's element changed in

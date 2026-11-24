@@ -2519,6 +2519,7 @@ input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-
 .ntf-head.tree .cnt b.hot{color:var(--color-error-text);font-weight:600}
 .ntf-sortbtn{width:auto;height:30px;padding:0 10px;gap:4px;border:1px solid var(--color-border-subtle);border-radius:15px;font-size:12px;color:var(--color-text-secondary);display:inline-flex;align-items:center}
 .ntf-sortbtn:hover{background:var(--color-bg-hover)}
+.ntf-sortbtn.on{border-color:var(--color-brand-default);color:var(--color-brand-default)} /* the read filter picked (Safwat 24 Nov) */
 .ntf-main .tabs.ntf-chiptabs{display:flex;gap:6px;padding:10px 16px 4px;border:0;overflow-x:auto;scrollbar-width:none;flex:none}
 .ntf-main .tabs.ntf-chiptabs::-webkit-scrollbar{display:none}
 .ntf-main .tabs.ntf-chiptabs .tab{flex:none;padding:4px 12px;border:1px solid var(--color-border-subtle);border-radius:16px;font-size:13px;background:transparent;white-space:nowrap}

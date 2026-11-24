@@ -624,6 +624,7 @@ button.dx-stat{cursor:pointer}button.dx-stat:hover{background:var(--color-bg-hov
 /* «الإعدادات › التنبيهات» — the tree the bell shows (the notifications' new structure, Safwat 24 Nov) */
 .nr-tree{display:flex;flex-direction:column;gap:12px}
 .nr-main{padding:12px 16px}
+.nr-channels{padding:12px 16px;margin:0 0 12px}
 .nr-main-h,.nr-sub-h{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .nr-main-h .sp,.nr-sub-h .sp{flex:1}
 .nr-tog{display:inline-flex;align-items:center;gap:6px;border:0;background:transparent;font:inherit;color:var(--color-text-primary);cursor:pointer;padding:4px 0}

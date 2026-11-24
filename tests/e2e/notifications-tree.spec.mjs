@@ -84,13 +84,16 @@ test('«الإعدادات › التنبيهات»: a main section, a sub-secti
   await form.locator('#nr-type').click(); await page.getByRole('option', { name: 'الرصيد' }).click();
   await form.locator('#nr-state').click(); await page.getByRole('option', { name: 'العهدة قربت تخلص' }).click();
   await expect(form.locator('#nr-param')).toHaveValue('200'); // the state's number (the floor) with its default
-  await expect(form.locator('[data-nr-channels] [role=checkbox]', { hasText: 'إيميل' })).toBeDisabled(); // the bell only for now
+  // e-mail and WhatsApp pickable (Safwat 24 Nov); their switches above the tree are off here, and the label says so
+  await expect(form.locator('[data-nr-channels] [role=checkbox]', { hasText: 'إيميل' })).toContainText('مقفول من فوق');
+  await expect(form.locator('[data-nr-channels] [role=checkbox]', { hasText: 'واتساب' })).toContainText('واقف لحد تشغيل الـ API');
+  await form.locator('[data-nr-channels] [role=checkbox]', { hasText: 'إيميل' }).click();
   await form.locator('[data-nr-roles] [role=checkbox]', { hasText: 'حسابات' }).click();
   await form.locator('#nr-tpl').fill('الحق الفلوس قربت تخلص — {التفاصيل}');
   await form.locator('[data-nr-save]').click();
   await expect(form).toHaveCount(0);
   const saved = mock.notif.rules.find((r) => r.name === 'العهدة قربت تخلص');
-  expect([saved.element, saved.type, saved.state, saved.param, saved.roles, saved.channels, saved.show]).toEqual(['custody', 'balance', 'low', 200, ['accounts'], ['bell'], 'until_state']);
+  expect([saved.element, saved.type, saved.state, saved.param, saved.roles, saved.channels, saved.show]).toEqual(['custody', 'balance', 'low', 200, ['accounts'], ['bell', 'email'], 'until_state']);
   await expect(acc.locator('[data-nr-rule]')).toContainText('عهدة التشغيل › الرصيد › العهدة قربت تخلص');
   // the bell: the new group with its filter, as it is in the settings
   await page.evaluate(() => window.IBAlerts.load());
@@ -112,4 +115,12 @@ test('an alert switched off and deleted from the settings; a sub-section renamed
   await sub.locator('.nr-sub-h').getByRole('button', { name: 'إجراءات' }).click(); await page.getByRole('menuitem', { name: 'تغيير الاسم' }).click();
   await page.locator('#ns-name').fill('مستني تأكيد'); await page.locator('.modal[role=dialog]').getByRole('button', { name: 'حفظ', exact: true }).click();
   await expect(sub).toContainText('مستني تأكيد');
+});
+
+test('«إرسال برّه الجرس»: the admin\'s e-mail / WhatsApp switches above the tree save settings «notif».channels at once (Safwat 24 Nov — WhatsApp waits for its API)', async ({ page }) => {
+  await signIn(page, 'settings-notifications');
+  const box = page.locator('[data-nr-out]');
+  await expect(box).toContainText('واقف لحد تشغيل الـ API');
+  await box.locator('#nr-out-email').click();
+  await expect.poll(() => page.evaluate(() => window.IBSettings.section('notif').channels)).toEqual({ email: true, whatsapp: false });
 });

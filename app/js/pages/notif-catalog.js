@@ -71,7 +71,7 @@
   const SHOWS = [['fixed', 'مدة محددة'], ['until_state', 'حتى تغيير الوضع'], ['until_read', 'حتى التحوّل لمقروء']];
   const SHOW_HOURS = { fixed: [12, 24, 48, 72, 168], until_state: [0, 4, 6], until_read: [2, 4, 6] };
   const CHANNELS = [['bell', 'الجرس'], ['email', 'إيميل'], ['whatsapp', 'واتساب']];
-  const LIVE_CHANNELS = ['bell']; // Safwat 24 Nov: the bell only for now
+  const LIVE_CHANNELS = ['bell', 'email', 'whatsapp']; // Safwat 24 Nov: e-mail and WhatsApp each behind its switch (settings «notif».channels)
   const el = (id) => ELEMENTS.find((e) => e.id === id) || null;
   const typeOf = (eid, tid) => { const e = el(eid); return e ? e.types.find((t) => t.id === tid) || null : null; };
   // the states of a type: the system's list for a `dyn` one (lists = { order, confirm, sub, ticket } — arrays of names)

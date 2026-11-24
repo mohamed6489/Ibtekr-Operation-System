@@ -62,7 +62,8 @@
           U().Select({ id: 'nr-hours', label: f.show === 'fixed' ? 'المدة' : 'يختفي', value: String(f.hours), options: c.SHOW_HOURS[f.show].map((n) => ({ value: String(n), label: f.show === 'fixed' ? (n >= 168 ? 'أسبوع' : n + ' ساعة') : n ? 'بعد ' + n + ' ساعات' : 'في نفس الوقت' })), onChange: (v) => { f.hours = Number(v); } })),
         sec('تفاصيل الإرسال',
           h('div', { class: 'nr-checks', 'data-nr-channels': '' }, c.CHANNELS.map(([k, l]) => { const live = c.LIVE_CHANNELS.includes(k);
-            return K().Checkbox({ label: l + (live ? '' : ' (قريبًا)'), checked: f.channels.includes(k), disabled: !live, onChange: (v) => { f.channels = v ? f.channels.concat(k) : f.channels.filter((x) => x !== k); draw(); } }); })),
+            const off = k !== 'bell' && !gates()[k]; // the channel's switch above the tree is off: the rule keeps it, nothing is sent
+            return K().Checkbox({ label: l + (!live ? ' (قريبًا)' : off ? (k === 'whatsapp' ? ' (واقف لحد تشغيل الـ API)' : ' (مقفول من فوق)') : ''), checked: f.channels.includes(k), disabled: !live, onChange: (v) => { f.channels = v ? f.channels.concat(k) : f.channels.filter((x) => x !== k); draw(); } }); })),
           h('div', { class: 't-label', style: 'margin-top:8px' }, 'المستلم'),
           h('div', { class: 'nr-checks', 'data-nr-roles': '' }, roleList().map((r) => K().Checkbox({ label: r.name, checked: f.roles.includes(r.id), onChange: (v) => { f.roles = v ? f.roles.concat(r.id) : f.roles.filter((x) => x !== r.id); draw(); } }))),
           h('p', { class: 't-small help', style: 'margin:0' }, 'بيوصل لأعضاء الأدوار دي اللي بيشوفوا الصفحة بتاعته بس.')),
@@ -107,13 +108,27 @@
           { label: 'حذف', icon: 'trash', danger: true, run: () => K().confirm({ title: 'حذف القسم', text: '«' + main.name + '» بأقسامه الفرعية وتنبيهاته هيتمسحوا.', okLabel: 'احذف', okType: 'danger', onOk: async () => { say(await ST().notifSectionDelete(main.id), 'اتمسح'); redraw(); } }) }])),
       open ? h('div', { class: 'nr-subs' }, main.subs.length ? main.subs.map((x, j) => subBox(main, x, j, redraw)) : h('p', { class: 't-small muted' }, 'مفيش أقسام فرعية — «+ قسم فرعي» يضيف واحد.')) : null);
   }
+  // the outbound channels as a whole (Safwat 24 Nov: «الايميل ممكن تشغلوا و الواتساب … يبقا واقف علي تشغيل ال API»): settings «notif».channels
+  // — a rule that names e-mail / WhatsApp sends only while its switch here is on; the admin's, saved at once
+  const gates = () => { const n = ST() && ST().section ? ST().section('notif') : {}; const c = n && n.channels && typeof n.channels === 'object' ? n.channels : {}; return { email: c.email === true, whatsapp: c.whatsapp === true }; };
+  function channelsBox(redraw) {
+    const g = gates(); const n = ST().section('notif') || {};
+    const flip = async (k, v) => { const r = await ST().save('notif', { channels: Object.assign({}, g, { [k]: !!v }) }); say(r, v ? 'اتشغّل' : 'اتقفل'); redraw(true); };
+    return h('div', { class: 'card nr-channels', 'data-nr-out': '' },
+      h('b', null, 'إرسال برّه الجرس'),
+      h('p', { class: 't-small muted', style: 'margin:4px 0 10px' }, 'التنبيه اللي عليه «إيميل» أو «واتساب» بيتبعت للمستلمين كمان — رسالة واحدة لكل عضو في كل مرة التنبيه يشتغل، فيها الحاجات الجديدة.'),
+      h('div', { class: 'row cols2' },
+        K().Switch({ id: 'nr-out-email', label: 'الإيميل', help: 'من إيميل التنبيهات (Resend) لإيميل العضو', checked: g.email, onChange: (v) => flip('email', v) }),
+        K().Switch({ id: 'nr-out-wa', label: 'الواتساب', help: 'واقف لحد تشغيل الـ API — بيتبعت من واتساب 1 بالقالب المعتمد «' + (typeof n.whatsappTemplate === 'string' && n.whatsappTemplate ? n.whatsappTemplate : 'ibtekr_alert') + '» لموبايل العضو', checked: g.whatsapp, onChange: (v) => flip('whatsapp', v) })));
+  }
   // redraw(true) = the same tree drawn again; redraw() = read it again from the server first
   function render(R) {
     const tree = ST() && ST().notifTreeNow ? ST().notifTreeNow() : null;
     const redraw = (local) => { if (local) { R(); return; } ST().notifTree(true).then(() => R()); };
     if (!tree) return [K().Empty('بنحمّل التنبيهات…', '')];
     return [K().Section('أقسام التنبيهات', [
-      h('p', { class: 't-small muted', style: 'margin:0 0 12px' }, 'الجرس بيتعرض بنفس التقسيمة دي بالظبط: كل قسم رئيسي مجموعة، وأقسامه الفرعية فلاتر، وتحت كل فرعي تنبيهاته. الجرس بس دلوقتي — الإيميل والواتساب قريبًا.'),
+      h('p', { class: 't-small muted', style: 'margin:0 0 12px' }, 'الجرس بيتعرض بنفس التقسيمة دي بالظبط: كل قسم رئيسي مجموعة، وأقسامه الفرعية فلاتر، وتحت كل فرعي تنبيهاته.'),
+      channelsBox(redraw),
       h('div', { class: 'nr-tree', 'data-nr-tree': '', 'data-set-instant': '' }, tree.mains.map((m, i) => mainBox(m, i, tree.mains, redraw)))],
       [U().Button({ type: 'primary', icon: 'plus', label: 'قسم رئيسي', attrs: { 'data-nr-add-main': '' }, onClick: () => nameForm('قسم رئيسي جديد', '', (nm) => ST().notifSectionSave({ name: nm }).then((r) => { if (r.ok) redraw(); return r; })) })],
       { th: false })];

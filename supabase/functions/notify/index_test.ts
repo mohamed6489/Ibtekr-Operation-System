@@ -61,7 +61,7 @@ Deno.test('auth: the cron needs the sync secret and the tick action only; member
   assertEquals((await call(deps, { action: 'tick' }, 'jwt-member')).res.status, 401); assertEquals((await call(deps, { action: 'tick' }, 'jwt-none')).res.status, 401);
   assertEquals((await call(deps, { action: 'drop' })).res.status, 400);
   const st = await call(deps, { action: 'status' }); assertEquals(st.res.status, 200);
-  assertEquals([st.body.last, st.body.channels], [null, ['bell']]);
+  assertEquals([st.body.last, st.body.channels], [null, ['bell', 'email', 'whatsapp']]); // the seed's settings turn both switches on
 });
 
 // the notifications' new structure (Safwat 24 Nov — 0157): the admin's rules under the sub-sections → the bell's rows
@@ -405,4 +405,18 @@ Deno.test('phase 9 (the old orders\' import): an order placed before LIVE_FROM r
   const ents = s.db.rows('alerts').map((a: any) => a.entity_id);
   assert(ents.includes('o:1002'), 'the live unconfirmed order still raises its row');
   assertFalse(ents.some((e: string) => /501/.test(e)), ents.join(','));
+});
+
+Deno.test('outbound (Safwat 24 Nov): a rule naming e-mail sends each member one Resend message while the e-mail switch is on; WhatsApp waits for its switch; counts only in sync_state; a dry tick sends nothing', async () => {
+  const s = withRules([rule('r-unconf', { name: 'أوردر غير مؤكد', element: 'orders', type: 'confirm', state: 'غير مؤكد', channels: ['bell', 'email', 'whatsapp'] })],
+    (seed) => { seed.settings[0].data.channels = { email: true, whatsapp: false }; });
+  const d = await call(s.deps, { action: 'tick', dry: true }); assertEquals(d.body.out, 2, 'the dry tick counts the two messages');
+  assertEquals([s.mails.length, s.graph.length], [0, 0], 'a dry tick sends nothing');
+  const r = await cron(s.deps); assertEquals(r.res.status, 200, JSON.stringify(r.body));
+  assertEquals(s.mails.map((m: any) => m.body.to[0]).sort(), ['admin@x.test', 'cs@x.test']);
+  assert(/IB-1002/.test(s.mails[0].body.subject), s.mails[0].body.subject);
+  assertEquals(s.graph.length, 0, 'WhatsApp waits for its switch');
+  const st = s.db.row('sync_state', 'notify', 'key').value;
+  assertEquals(st.notif.sent, { email: 2, whatsapp: 0, failed: 0, no_contact: 0, not_linked: 0 });
+  assertFalse(JSON.stringify(st).includes('@x.test'), 'no address stored');
 });

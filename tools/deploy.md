@@ -2546,3 +2546,10 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
    - `competitor_brief`.
 4. ادمج على `main` (الواجهة: `ads-insight.js`، شات الميديا باير بيرد من السيستم، «حلّل المنافس»، مفتاح `adsAlways`).
 5. **مفيش أي كتابة على ميتا ولا على الموقع.** الموافقة الدايمة لأرقام الإعلانات بس، وأي بيانات تانية لسه بتتسأل كل مرة.
+
+#### 2.7.132 الإيميل والواتساب في التنبيهات (الخطة `docs/superpowers/plans/2026-11-24-notifications.md` — «الإيميل والواتساب»؛ مفيش migration)
+1. انشر `notify`.
+2. ادمج على `main` (الواجهة: مفتاحين «إرسال برّه الجرس» فوق الشجرة، و«إيميل» / «واتساب» بيتختاروا في التنبيه).
+3. **الإيميل:** شغّل مفتاح «الإيميل»، وده بيكتب في صف «notif» `channels.email = true`. لازم مفتاح Resend يكون في «الربط بالمنصات».
+4. **الواتساب:** يفضل مقفول لحد ما القالب `ibtekr_alert` يتوافق عليه على ميتا (Business Manager › WhatsApp › Message templates — فيه متغيّر واحد للنص).
+5. **اتأكد:** بعد أول تيك فيه تنبيه عليه «إيميل»، شوف `select value -> 'notif' -> 'sent' from sync_state where key = 'notify';`.

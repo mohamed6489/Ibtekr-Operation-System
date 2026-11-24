@@ -440,6 +440,15 @@ test('comment 52 — the build step: «ارفع صورة» puts a ready image on
   await expect(bar.locator('[data-cw-mg-open]')).toHaveAttribute('href', /^https:\/\/www\.magnific\.com\/app\/spaces\//);
   await expect(bar.locator('[data-cw-mg-unlinked]')).toHaveCount(0);
   const sent = mock.mkt.calls.filter((c) => c.action === 'bridge_campaign').pop(); expect(sent.targets).toBe(total);
+  // Safwat 24 Nov: the generators run with the send by default; the link opens the Space on the campaign's own panel
+  expect(sent.run).toBe(true); await expect(page.locator('.toast.show')).toContainText('واتشغّلت');
+  await expect(bar.locator('[data-cw-mg-open]')).toHaveAttribute('href', /focusNode=/);
+  // «شغّل التوليد لوحده» off → the next send only builds (run: false)
+  await bar.locator('[data-cw-mg-run] [role=checkbox]').click();
+  await expect(bar.locator('[data-cw-mg-run]')).toHaveAttribute('data-cw-mg-run', 'manual');
+  await bar.locator('[data-cw-mg-send]').click();
+  await expect.poll(() => mock.mkt.calls.filter((c) => c.action === 'bridge_campaign').pop().run).toBe(false);
+  await expect(page.locator('.toast.show')).toContainText('افتح الـ Space وشغّل المولّدات');
   await expect.poll(() => (saved().mg || {}).n).toBe(total); // the link is kept with the campaign
   // a ready image of mine on the post: no cost popup, no credit — the piece counts as made
   await pg(page).locator('#cw-up-P1').setInputFiles({ name: 'my-post.png', mimeType: 'image/png', buffer: PNG });

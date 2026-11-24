@@ -412,19 +412,23 @@
   // look. «ابعت لـ Magnific» puts a generator for every image of the campaign on the account's Space — its prompt (the one the
   // credits path would send) and its reference photos; the member runs them there (no credit of ours) and «هات النتائج» brings the
   // newest result of each onto its piece. The link is kept with the campaign for the page; the server trusts its own record.
+  // Safwat 24 Nov («لو حبيت أعمل مانيوال اختياري»): the generators run on the site with the send unless the member turns it off (kept
+  // in this browser)
+  const mgManual = () => { try { return localStorage.getItem('ib.mg.manual') === '1'; } catch (e) { return false; } };
+  const mgManualSet = (v) => { try { localStorage.setItem('ib.mg.manual', v ? '1' : '0'); } catch (e) { /* the default then */ } };
   function mgStatus() { if (camp.mgLinked != null || camp.mgAsked || !MK() || !MK().magnificStatus) return; camp.mgAsked = true; MK().magnificStatus().then((r) => { camp.mgLinked = !!(r && r.linked); if (st.view === 'campaign' && st.step === 2) R(); }); }
   const mgCount = () => camp.pieces.reduce((n, p) => n + (p.kind === 'فيديو' ? (p.scenes || []).length : p.kind === 'كاروسيل' ? 1 + (p.slides || []).length : 1), 0);
   async function mgSend() {
     if (camp.mgBusy || !can().create) return;
     if (!(await ensureCampaign())) return;
     const cid = camp.id; camp.mgBusy = 'send'; R();
-    const r = await MK().magnificSend(cid);
+    const r = await MK().magnificSend(cid, { run: !mgManual() });
     if (camp.id !== cid) { if (r.ok) K.toast('اتبعتت قطع الكامبين لـ Magnific — افتحها من «آخر الشغل» عشان تجيب النتايج', 'success'); return; } // another campaign is open now: its own bar is untouched
     camp.mgBusy = null;
     if (!r.ok) { if (r.code === 'not_linked' || r.reason === 'not_configured') camp.mgLinked = false; K.toast(r.message, 'error'); R(); return; }
     camp.mgLinked = true; camp.mg = { url: r.url, n: r.targets, at: new Date().toISOString() }; persist(0);
     R();
-    K.toast('اتبعت ' + K.n0(r.targets) + ' صورة لـ Magnific' + (r.refs ? ' بـ ' + K.n0(r.refs) + ' صورة مرجعية' : '') + (r.left ? ' — ' + K.n0(r.left) + ' صورة زيادة ما دخلتش الفلو' : '') + ' — افتح الـ Space وشغّل المولّدات', 'success');
+    K.toast('اتبعت ' + K.n0(r.targets) + ' صورة لـ Magnific' + (r.refs ? ' بـ ' + K.n0(r.refs) + ' صورة مرجعية' : '') + (r.left ? ' — ' + K.n0(r.left) + ' صورة زيادة ما دخلتش الفلو' : '') + (r.ran ? ' واتشغّلت — «هات النتائج من Magnific» بعد دقيقة' : ' — افتح الـ Space وشغّل المولّدات'), 'success');
   }
   async function mgFetch() {
     if (camp.mgBusy || !can().create || !camp.id) return;
@@ -446,13 +450,14 @@
     if (!can().create || !MK() || !MK().magnificSend || (window.IBSettings && window.IBSettings.magnificOn && !window.IBSettings.magnificOn('campaign'))) return null;
     mgStatus(); const mg = camp.mg; const n = mgCount(); const busy = camp.mgBusy;
     const url = mg && typeof mg.url === 'string' && /^https:\/\//.test(mg.url) ? mg.url : null;
-    const head = h('div', { class: 'fl-mg-h' }, Icon('sparkle', 'sm'), h('b', null, 'Magnific'), h('small', { class: 'help' }, 'ولّد على موقع Magnific بباقتك — من غير كريدت الـ API: ابعت القطع (صورها المرجعية والبرومبت بتاع كل صورة)، شغّل المولّدات هناك، وهات النتائج على القطع.'));
+    const head = h('div', { class: 'fl-mg-h' }, Icon('sparkle', 'sm'), h('b', null, 'Magnific'), h('small', { class: 'help' }, 'ولّد على موقع Magnific بباقتك — من غير كريدت الـ API: «ابعت» بيحط كل صورة في الـ Space ببرومبتها اللي هنا وصورها المرجعية وبيشغّلها (إلا لو قفلت «شغّل التوليد لوحده»)، و«ابعت تاني» بيحدّث نفس النسخة، وبعدها «هات النتائج» على القطع.'));
     return h('div', { class: 'fl-mg cw-mg', 'data-cw-magnific': mg ? 'sent' : 'new' }, head,
       camp.mgLinked === false ? U.InlineNote({ kind: 'warning', children: h('span', { 'data-cw-mg-unlinked': '' }, 'حساب Magnific مش مربوط — الأدمن بيربطه من «الإعدادات › الربط بالمنصات».') }) : null,
       h('div', { class: 'acts-inline start' },
         Button({ size: 'sm', icon: 'upload', label: busy === 'send' ? 'بنبعت…' : mg ? 'ابعت تاني لـ Magnific' : 'ابعت لـ Magnific', disabled: !!busy || !n, attrs: { 'data-cw-mg-send': '', title: 'كل صور الكامبين (' + n + ') ببرومبتاتها وصورها المرجعية' }, onClick: mgSend }),
         url ? h('a', { class: 'btn btn-default sm', href: url, target: '_blank', rel: 'noopener', 'data-cw-mg-open': '' }, 'افتح الـ Space ↗') : null,
         mg ? Button({ size: 'sm', icon: 'download', label: busy === 'fetch' ? 'بنجيب…' : 'هات النتائج من Magnific', disabled: !!busy, attrs: { 'data-cw-mg-fetch': '' }, onClick: mgFetch }) : null,
+        h('span', { 'data-cw-mg-run': mgManual() ? 'manual' : 'auto' }, K.Checkbox({ label: 'شغّل التوليد لوحده', small: true, checked: !mgManual(), onChange: (v) => { mgManualSet(!v); R(); } })),
         h('span', { class: 't-small help', 'data-cw-mg-state': mg ? String(mg.n || 0) : '0' }, U.num(mg ? 'اتبعت ' + (mg.n || 0) + ' صورة' + (mg.at ? ' · ' + dayLabel(String(mg.at).slice(0, 10)) : '') + ' — لو غيّرت الكلام ابعت تاني' : n ? n + ' صورة في الكامبين' : 'مفيش صور لسه'))));
   }
   async function genCarousel(p) { if (!(await genImage(p, -1))) return false; for (let k = 0; k < p.slides.length; k++) if (!(await genImage(p, k))) return false; return true; }

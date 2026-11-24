@@ -76,3 +76,14 @@ test('imageStyle shot (owner batch 2 decision 13): the admin\'s rule of a studio
   assert.equal(imageStyle(six, 'products', null), '');
   assert.equal(imageStyle({ slots: ['a', 'b', 'c', 'd'] }, 'products', 0), ''); // a row saved before the six
 });
+
+test('Safwat 24 Nov: a campaign image keeps its own words — imageStyle({ words: true }) drops the «never» items about text, keeps the rest', async () => {
+  const { imageStyle } = await import('../../supabase/functions/_shared/ai-providers.js');
+  const rules = { style: 'هاندميد', imgNo: ['نصوص مكتوبة', 'علامات مائية', 'أيدي مشوهة'], sections: { img: [{ id: 'post', prompt: 'بوست سوشيال', no: ['أسعار مكتوبة على الصورة', 'text overlays', 'لوجوهات براندات تانية'] }] } };
+  const all = imageStyle(rules, 'post');
+  assert.match(all, /نصوص مكتوبة/); assert.match(all, /text overlays/);
+  const camp = imageStyle(rules, 'post', null, { words: true });
+  assert.doesNotMatch(camp, /نصوص مكتوبة|text overlays/);
+  assert.match(camp, /علامات مائية/); assert.match(camp, /لوجوهات براندات تانية/); assert.match(camp, /أسعار مكتوبة على الصورة|بوست سوشيال/);
+  assert.equal(imageStyle(rules, 'products'), imageStyle(rules, 'products', null, {}), 'the products keep their ban');
+});

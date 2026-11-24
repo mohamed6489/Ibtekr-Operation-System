@@ -348,15 +348,17 @@
     const r = await invoke('ai-images', { action: 'bridge_status' });
     return r.ok ? { ok: true, linked: !!(r.body && r.body.linked) } : { ok: false, linked: false };
   }
-  async function magnificSend(cid) {
+  // Safwat 24 Nov: the generators run on the site at once unless opts.run === false (the member runs them by hand); a send again
+  // replaces the campaign's panel; the link opens the Space on it
+  async function magnificSend(cid, opts) {
     if (!can().create) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
     if (!cid) return { ok: false, reason: 'invalid', message: 'احفظ الكامبين الأول' };
     await flush(cid); // the server reads the pieces as saved
-    const r = await invoke('ai-images', { action: 'bridge_campaign', campaign_id: cid });
+    const r = await invoke('ai-images', { action: 'bridge_campaign', campaign_id: cid, run: !(opts && opts.run === false) });
     if (!r.ok) return Object.assign(r, { message: mgMessage(r) });
     const b = r.body || {}; const n = (v) => (Number.isInteger(Number(v)) && Number(v) > 0 ? Number(v) : 0);
     log('magnific.send', n(b.targets) + ' images · ' + n(b.uploaded) + ' photos', cid);
-    return { ok: true, url: httpsOf(b.url), targets: n(b.targets), refs: n(b.refs), uploaded: n(b.uploaded), left: n(b.left) };
+    return { ok: true, url: httpsOf(b.url), targets: n(b.targets), ran: n(b.ran), refs: n(b.refs), uploaded: n(b.uploaded), left: n(b.left) };
   }
   async function magnificFetch(cid) {
     if (!can().create) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };

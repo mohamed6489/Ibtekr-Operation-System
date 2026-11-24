@@ -151,7 +151,8 @@ async function startRunUsd(deps: Deps, row: Json, usd: number, cap: number | nul
   if (data.result === 'ok' && Number.isInteger(id)) return { result: 'ok' as const, id };
   return { result: data.result === 'busy' ? 'busy' as const : data.result === 'cap' ? 'cap' as const : 'error' as const };
 }
-const styleOf = (rules: Json | null, section: string, shot: number | null = null) => { const t = imageStyle(rules, section, shot); return t ? ' ' + t : ''; };
+// a campaign image (section «post») carries its own words: its style drops the «never» items about text (TEXT_BAN — Safwat 24 Nov)
+const styleOf = (rules: Json | null, section: string, shot: number | null = null) => { const t = imageStyle(rules, section, shot, { words: section === 'post' }); return t ? ' ' + t : ''; };
 // the reservation (0025 ai_image_run_start): the throttle, the credit cap and the pending row in one locked step — the cap is never
 // checked here and reserved there, so two parallel calls cannot both pass it
 async function startRun(deps: Deps, row: Json, credits: number, capCredits: number | null) {
@@ -1263,7 +1264,7 @@ async function bridgeCampaign(deps: Deps, who: Who, args: Json) {
     const sent: Record<string, string> = {};
     if (isObj(past.sent)) for (const [k, v] of Object.entries(past.sent)) if (typeof v === 'string' && REF.test(v)) sent[k] = v;
     const rules = (await settingsOf(deps)).rules;
-    const style = styleOf(rules, 'post');
+    const style = styleOf(rules, 'post'); // without the «never» items about text — the campaign's image carries its headline
     let uploads = 0; const missed = new Set<string>();
     const refId = async (key: string, load: () => Promise<Ref | null>): Promise<string | null> => {
       if (sent[key]) return sent[key];
@@ -1315,14 +1316,23 @@ async function bridgeCampaign(deps: Deps, who: Who, args: Json) {
     let pageId = hadSpace && typeof cfg.mkt_page === 'string' && cfg.mkt_page ? cfg.mkt_page : null;
     if (!pageId) { pageId = await makePage(deps, token, spaceId, MKT_PAGE_NAME); await saveMagnificSettings(deps, { mkt_page: pageId }); }
     const title = (line(String(camp.name ?? ''), 80) || 'كامبين') + ' · ' + deps.now().slice(0, 10);
+    // a send again replaces the campaign's own panel (its references, generators and lists go with it) instead of a copy beside it
+    if (typeof past.panel === 'string' && NODE_ID.test(past.panel) && past.page_id === pageId && past.space_id === spaceId) {
+      try { await bridge.callTool(token, 'spaces_delete_node', { spaceId, pageId, nodeIds: [past.panel] }); } catch (e) { if (!(e instanceof BridgeError) || e.kind !== 'mcp_error') throw e; }
+    }
     const plan = campaignFlowNodes({ title, targets });
     const idOf = await createNodes(deps, token, spaceId, pageId, plan.nodes as PlanNode[]);
     await connectNodes(deps, token, spaceId, pageId, plan.connections as PlanLink[], idOf);
     const gens = plan.gens.map((g: Json) => ({ key: g.key, id: idOf[g.gen], out: idOf[g.out] }));
-    const record = { space_id: spaceId, url: spaceUrl, page_id: pageId, panel: idOf.panel, gens, sent, seen: [], made_at: deps.now(), by: who.uid };
+    // the generators run on the site at once (the account's own plan) unless the member chose to run them by hand
+    let ran = 0;
+    if (args.run !== false) for (const g of gens) { try { await bridge.callTool(token, 'spaces_run', { spaceId, startNodeId: g.id, mode: 'downstream' }); ran += 1; } catch (e) { if (!(e instanceof BridgeError) || e.kind !== 'mcp_error') throw e; } }
+    // the link opens the Space on the campaign's own panel (not the page that was open last)
+    const base0 = String(spaceUrl ?? ''); const url = base0 ? base0 + (base0.includes('?') ? '&' : '?') + 'focusNode=' + encodeURIComponent(String(idOf.panel)) : null;
+    const record = { space_id: spaceId, url, page_id: pageId, panel: idOf.panel, gens, sent, seen: [], made_at: deps.now(), by: who.uid };
     const latest = await magnificSettings(deps);
     await saveMagnificSettings(deps, { campaigns: { ...(isObj(latest.campaigns) ? latest.campaigns : {}), [cid]: record } });
-    return json(200, { result: 'ok', campaign_id: cid, url: spaceUrl, space_id: spaceId, page_id: pageId, targets: gens.length, refs: new Set(targets.flatMap((x) => x.refs)).size, uploaded: uploads, left: Math.max(0, campaignTargetsLeft(camp.state, wanted.length)) });
+    return json(200, { result: 'ok', campaign_id: cid, url, space_id: spaceId, page_id: pageId, targets: gens.length, ran, refs: new Set(targets.flatMap((x) => x.refs)).size, uploaded: uploads, left: Math.max(0, campaignTargetsLeft(camp.state, wanted.length)) });
   } catch (e) { return bridgeFail(e); }
 }
 // how many images of the campaign did not fit the flow (over MAX_FLOW_TARGETS) — the page says so

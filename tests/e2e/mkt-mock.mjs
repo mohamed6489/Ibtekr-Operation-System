@@ -707,7 +707,9 @@ function mktAi(c, b) {
       const fresh = [...refs].filter((k) => !past.sent.includes(k));
       H.mgFlows[camp.id] = { keys: targets.map((w) => flowKey(w.piece, w.slide)), seen: [], sent: past.sent.concat(fresh), n: (past.n || 0) + 1 };
       H.calls[H.calls.length - 1].targets = targets.length;
-      return json(200, { result: 'ok', campaign_id: camp.id, url: M.space.url, space_id: M.space.id, page_id: 'page-mkt', targets: targets.length, refs: refs.size, uploaded: fresh.length, left: 0 });
+      // Safwat 24 Nov: the link opens on the campaign's panel; the generators run unless run: false; a send again replaces the panel
+      H.calls[H.calls.length - 1].run = b.run !== false;
+      return json(200, { result: 'ok', campaign_id: camp.id, url: M.space.url + '?focusNode=panel-' + camp.id.slice(0, 8), space_id: M.space.id, page_id: 'page-mkt', targets: targets.length, ran: b.run === false ? 0 : targets.length, refs: refs.size, uploaded: fresh.length, left: 0 });
     }
     const flow = H.mgFlows[camp.id]; if (!flow) return json(409, { error: 'no_flow' });
     if (!M.linked) return json(503, { error: 'not_linked', status: null, detail: null });

@@ -732,6 +732,8 @@ function flowBridge(extra: Record<string, (args: any) => unknown> = {}, opts: { 
     spaces_create_node: ({ spaceId, pageId, nodes }: any) => { const results = nodes.map((n: any, index: number) => { const nodeId = NID(++nodeSeq); created.push({ spaceId, pageId, ...n, nodeId }); return opts.refs ? { ok: true, nodeId, nodeType: n.nodeType, ref: n.ref } : { index, ok: true, nodeId, label: n.nodeType }; }); return { ok: true, results }; },
     spaces_add_connection: ({ spaceId, connections: cs }: any) => { connections.push(...cs.map((c: any) => ({ spaceId, ...c }))); return { ok: true, results: cs.map((_: any, i: number) => ({ index: i, ok: true, connectionId: 'conn-' + i })) }; },
     creations_get: ({ identifiers }: any) => ({ creations: identifiers.map((id: string) => ({ identifier: id, url: id === 'OFF' ? 'https://elsewhere.test/x.png' : 'https://pikaso.cdnpk.net/p/' + id + '.png' })) }),
+    spaces_run: ({ startNodeId }: any) => ({ ok: true, runId: 'run-' + startNodeId }),
+    spaces_delete_node: ({ nodeIds }: any) => ({ ok: true, nodeIds }),
     ...extra,
   };
   const bridge = fakeBridge(tools);
@@ -1198,7 +1200,10 @@ Deno.test('bridge_campaign (comments decision 52): marketing.create and a linked
   assertEquals([(await call(unlinked.deps, { action: 'bridge_campaign', campaign_id: CMP }, 'jwt-mkt')).res.status, (await call(unlinked.deps, { action: 'bridge_campaign', campaign_id: CMP }, 'jwt-mkt')).body.error], [503, 'not_linked']);
   const r = await call(deps, { action: 'bridge_campaign', campaign_id: CMP }, 'jwt-mkt');
   assertEquals(r.res.status, 200);
-  assertEquals([r.body.result, r.body.targets, r.body.refs, r.body.uploaded, r.body.left, r.body.page_id, r.body.url], ['ok', 4, 3, 3, 0, 'page-1', 'https://www.magnific.com/app/spaces/' + F.spaces[0].id]);
+  assertEquals([r.body.result, r.body.targets, r.body.refs, r.body.uploaded, r.body.left, r.body.page_id], ['ok', 4, 3, 3, 0, 'page-1']);
+  // Safwat 24 Nov: the link opens on the campaign's panel; every generator runs on the site with the send
+  assertEquals(r.body.url, 'https://www.magnific.com/app/spaces/' + F.spaces[0].id + '?focusNode=' + F.created[0].nodeId);
+  assertEquals([r.body.ran, F.bridge.calls.filter((c: any) => c.name === 'spaces_run').map((c: any) => c.args.mode)], [4, ['downstream', 'downstream', 'downstream', 'downstream']]);
   // the references: the site's product photo by its own link, the campaign's upload and the template's image by a signed link — each once
   assertEquals(ups.length, 3);
   assert(ups[0].url.endsWith('/c.jpg') && ups[0].folderReference === PROJECT, 'the product photo of the site');
@@ -1223,8 +1228,12 @@ Deno.test('bridge_campaign (comments decision 52): marketing.create and a linked
   assertEquals(Object.keys(rec.sent).sort(), ['f:' + CMP + '/up-logo.png', 'f:templates/t1.png', 'p:4001']);
   assertEquals(db.rows('ai_runs').length, 0, 'sending costs nothing of the images\' credits');
   // again (the texts changed): a new flow on the same page, no photo uploaded twice
-  const r2 = await call(deps, { action: 'bridge_campaign', campaign_id: CMP }, 'jwt-mkt');
+  const firstPanel = F.created[0].nodeId;
+  const r2 = await call(deps, { action: 'bridge_campaign', campaign_id: CMP, run: false }, 'jwt-mkt');
   assertEquals([r2.body.targets, r2.body.uploaded, r2.body.refs, ups.length, F.pages.length, F.spaces.length], [4, 0, 3, 3, 1, 1]);
+  // a send again replaces the campaign's panel (no copy beside it); run: false = built only, the member runs it on the site
+  assertEquals(F.bridge.calls.filter((c: any) => c.name === 'spaces_delete_node').map((c: any) => c.args.nodeIds), [[firstPanel]]);
+  assertEquals([r2.body.ran, F.bridge.calls.filter((c: any) => c.name === 'spaces_run').length], [0, 4]);
   // a photo the project could not read by its link goes up as bytes (request_upload → PUT → finalize)
   const F2 = flowBridge(); const ups2 = campaignBridge(F2);
   const st = cstate52(); st.pieces = [{ id: 'P1', kind: 'بوست', n: 1, size: '1080x1920', idea: 'x', use: [{ t: 'file', path: CMP + '/gone-1.png' }], ref: [] }] as any; st.w.media.post = { notes: '', use: [], ref: [] } as any;

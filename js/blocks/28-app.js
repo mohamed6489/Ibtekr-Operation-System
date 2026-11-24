@@ -851,7 +851,7 @@
     return false;
   }
   function viewSections(noDigest) {
-    if (window.IBAlerts && window.IBAlerts.hasTree && window.IBAlerts.hasTree()) return window.IBAlerts.treeSections(treeOpen, ntfState.sort) || [];
+    if (window.IBAlerts && window.IBAlerts.hasTree && window.IBAlerts.hasTree()) return window.IBAlerts.treeSections(treeOpen, ntfState.sort, ntfState.readF) || [];
     const raw = notifSections(); const m = viewer(); const NR = NRM();
     let secs = NR && m ? NR.filterSections(raw, accFor(m), {}) : raw.map((s) => Object.assign({}, s, { received: s.tabs[0][2].length }));
     // server alerts (IBAlerts, already filtered by RLS) first, after the role filter; only for the signed-in member, never «عرض تنبيهات» another one
@@ -932,7 +932,12 @@
               h('span', { class: 'cnt' }, sec.received ? [num(String(sec.received)), ' محتاج تتصرف', sec.critical ? [' · ', h('b', { class: 'hot' }, num(String(sec.critical)), ' حرج')] : null] : 'كله مقروء')), h('span', { class: 'sp' }),
             // the order: one small button (newest ⇄ oldest) instead of the list — the critical stay first either way
             h('button', { type: 'button', id: 'ntf-sort', class: 'icon-btn sm ntf-sortbtn', 'data-sort': ntfState.sort || 'new', title: (ntfState.sort === 'old' ? 'الأقدم الأول' : 'الأحدث الأول') + ' — دوس للتبديل', 'aria-label': ntfState.sort === 'old' ? 'الترتيب: الأقدم الأول' : 'الترتيب: الأحدث الأول',
-              onClick: () => { ntfState.sort = ntfState.sort === 'old' ? 'new' : 'old'; draw(); const b = el.querySelector('#ntf-sort'); if (b) b.focus(); } }, Icon(ntfState.sort === 'old' ? 'chevU' : 'chevD', 'sm'), h('span', null, ntfState.sort === 'old' ? 'الأقدم' : 'الأحدث')))
+              onClick: () => { ntfState.sort = ntfState.sort === 'old' ? 'new' : 'old'; draw(); const b = el.querySelector('#ntf-sort'); if (b) b.focus(); } }, Icon(ntfState.sort === 'old' ? 'chevU' : 'chevD', 'sm'), h('span', null, ntfState.sort === 'old' ? 'الأقدم' : 'الأحدث')),
+            // the read filter beside it (Safwat 24 Nov — instead of the «غير مقروء» / «مقروء» tabs): الكل → غير مقروء → مقروء
+            h('button', { type: 'button', id: 'ntf-read', class: 'icon-btn sm ntf-sortbtn' + (ntfState.readF ? ' on' : ''), 'data-read': ntfState.readF || 'all', title: 'دوس للتبديل: الكل · غير مقروء · مقروء',
+              'aria-label': 'عرض: ' + (ntfState.readF === 'unread' ? 'غير المقروء' : ntfState.readF === 'read' ? 'المقروء' : 'الكل'),
+              onClick: () => { ntfState.readF = !ntfState.readF ? 'unread' : ntfState.readF === 'unread' ? 'read' : null; draw(); const b = el.querySelector('#ntf-read'); if (b) b.focus(); } },
+              Icon(ntfState.readF === 'read' ? 'checkCircle' : 'bell', 'sm'), h('span', null, ntfState.readF === 'unread' ? 'غير مقروء' : ntfState.readF === 'read' ? 'مقروء' : 'الكل')))
             : h('div', { class: 'ntf-head' }, h('h3', { class: 't-h5' }, sec.label), h('span', { class: 'cnt' }, num(String(sec.received != null ? sec.received : sec.tabs[0][2].length)), ' ' + sec.unit, sec.received != null && sec.tabs[0][2].length > sec.received ? h('span', { class: 'fyi-c' }, ' · ', num(String(sec.tabs[0][2].length - sec.received)), ' للعلم') : null), h('span', { class: 'sp' }), Button({ type: 'text', size: 'sm', label: sec.allLabel, onClick: () => { close(); sec.all(); } })),
           tabs, list,
           h('div', { class: 'ntf-foot' }, h('span', null, '↑↓ للتنقل · Enter يفتح · Esc يقفل'), Button({ type: 'text', size: 'sm', label: 'تعليم القسم كمقروء', onClick: () => { if (sec.tree) { sec.all(); return; } ntfState.read = (ntfState.read || {}); items.forEach((it) => { ntfState.read[it.key] = true; }); } })));

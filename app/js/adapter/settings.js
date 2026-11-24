@@ -743,9 +743,11 @@
     const cl = c(); if (!cl) return null; if (ntree && !force) return ntree;
     try {
       const [sc, rl] = await Promise.all([cl.from('notif_sections').select('id, parent_id, name, icon, sort').order('sort', { ascending: true }).limit(500),
-        cl.from('notif_rules').select('id, section_id, name, element, type, state, sub, param, at, repeat, days, show, hours, roles, channels, template, active, sort').order('sort', { ascending: true }).limit(1000)]);
-      if (sc.error || rl.error) { ntree = null; return null; }
-      const S = sc.data || []; const Rr = rl.data || [];
+        cl.from('notif_rules').select('id, section_id, name, element, type, state, sub, param, at, repeat, days, show, hours, roles, channels, template, active, sort, mode, conds').order('sort', { ascending: true }).limit(1000)]);
+      // before 0162 (several elements, «فردي / تقرير»): the rule's own columns only
+      const rl2 = rl.error ? await cl.from('notif_rules').select('id, section_id, name, element, type, state, sub, param, at, repeat, days, show, hours, roles, channels, template, active, sort').order('sort', { ascending: true }).limit(1000) : rl;
+      if (sc.error || rl2.error) { ntree = null; return null; }
+      const S = sc.data || []; const Rr = (rl2.data || []).map((r) => Object.assign({ mode: 'single', conds: [] }, r, { conds: Array.isArray(r.conds) ? r.conds : [] }));
       ntree = { mains: S.filter((x) => !x.parent_id).map((m) => ({ id: m.id, name: m.name, icon: m.icon || null,
         subs: S.filter((x) => x.parent_id === m.id).map((x) => ({ id: x.id, name: x.name, rules: Rr.filter((r) => r.section_id === x.id) })) })) };
       return ntree;
@@ -762,7 +764,8 @@
     if (err) return Promise.resolve({ ok: false, reason: 'invalid', message: err });
     return nwrite('notif_rule_save', { p: { id: rule.id || null, section_id: rule.section_id, name: String(rule.name).trim(), element: rule.element, type: rule.type, state: rule.state, sub: rule.sub || null,
       param: rule.param == null || rule.param === '' ? null : Number(rule.param), at: rule.at, repeat: rule.repeat, days: rule.days || [], show: rule.show, hours: Number(rule.hours), roles: rule.roles, channels: rule.channels,
-      template: rule.template || null, active: rule.active !== false } });
+      template: rule.template || null, active: rule.active !== false, mode: rule.mode === 'report' ? 'report' : 'single',
+      conds: (Array.isArray(rule.conds) ? rule.conds : []).map((x) => ({ element: x.element, type: x.type, state: x.state, sub: x.sub || null, param: x.param == null || x.param === '' ? null : Number(x.param) })) } });
   }
   const notifRuleDelete = (id) => nwrite('notif_rule_delete', { p_id: id });
   // the system's own lists the catalogue's `dyn` states read (the orders' statuses, the confirmation's, the product lines', the requests' types)

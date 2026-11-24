@@ -168,3 +168,53 @@ test('the rule\'s roles: green labels with ×, and «+» adds one — saved at o
   await page.getByRole('menuitem', { name: 'خدمة العملاء' }).click();
   await expect.poll(() => (mock.notif.rules.find((r) => r.id === 'r1') || {}).roles).toEqual(['admin', 'cs']);
 });
+
+test('0162 several elements in one alert: «+ عنصر تاني» with its own lists and ×, «طريقة التنبيه» فردي / تقرير — saved as conds + mode; the card says them', async ({ page }) => {
+  await signIn(page, 'settings-notifications');
+  await page.locator('[data-nr-rule="r1"] > .pop-anchor [aria-haspopup=menu]').click();
+  await page.getByRole('menuitem', { name: 'تعديل' }).click();
+  const form = page.locator('.modal[role=dialog]', { hasText: 'تعديل التنبيه' });
+  await form.locator('[data-nr-cond-add]').click();
+  await expect(form.locator('[data-nr-cond]')).toHaveCount(1);
+  await form.locator('[data-nr-save]').click();
+  await expect(form.locator('.ferr')).toHaveText('اختار العنصر (العنصر 2)');
+  await form.locator('#nr-el-2').click(); await page.getByRole('option', { name: 'الأوردرات الرئيسية' }).click();
+  await form.locator('#nr-type-2').click(); await page.getByRole('option', { name: 'حالة التأخير' }).click();
+  await form.locator('#nr-state-2').click(); await page.getByRole('option', { name: 'متأخر', exact: true }).click();
+  await expect(form.locator('[data-nr-level]')).toHaveAttribute('data-nr-level', 'critical'); // the highest of its elements
+  // a third one, then × takes it off
+  await form.locator('[data-nr-cond-add]').click(); await expect(form.locator('[data-nr-cond]')).toHaveCount(2);
+  await form.locator('[data-nr-cond-x="1"]').click(); await expect(form.locator('[data-nr-cond]')).toHaveCount(1);
+  await expect(form.locator('[data-nr-mode-pick="single"]')).toHaveAttribute('aria-checked', 'true');
+  await form.locator('[data-nr-mode-pick="report"]').click(); await expect(form.locator('[data-nr-mode-pick="report"]')).toHaveAttribute('aria-checked', 'true');
+  await form.locator('[data-nr-save]').click();
+  await expect(form).toHaveCount(0);
+  const r1 = mock.notif.rules.find((r) => r.id === 'r1');
+  expect([r1.mode, r1.conds]).toEqual(['report', [{ element: 'orders', type: 'delay', state: 'late', sub: null, param: null }]]);
+  const card = page.locator('[data-nr-rule="r1"]');
+  await expect(card).toContainText('الأوردرات الرئيسية › حالة التأكيد › غير مؤكد + الأوردرات الرئيسية › حالة التأخير › متأخر');
+  await expect(card.locator('[data-nr-mode="report"]')).toHaveText('تقرير');
+  await expect(card).toHaveClass(/lv-critical/); // the highest level of its elements on the card's edge
+  await expect(page.locator('[data-nr-stats]')).toContainText('حرج');
+});
+
+test('0162 a «تقرير» alert in the bell opens one table with every thing of its elements — a chip per element filters it, a row opens its order, «مشاركة»', async ({ page }) => {
+  const items = [{ p: 'الأوردرات الرئيسية › غير مؤكد', t: 'أوردر غير مؤكد — IB-180656', b: 'غير مؤكد · عمره 2 يوم', e: 'orders/180656', g: null },
+    { p: 'الأوردرات الرئيسية › غير مؤكد', t: 'أوردر غير مؤكد — IB-180651', b: 'غير مؤكد', e: 'orders/180651', g: null },
+    { p: 'المبتكرين › أوردرات متأخرة', t: 'أوردر فرعي متأخر — IB-7', b: 'Art Craft · 2 منتج', e: 'orders/7', g: 'Art Craft' }];
+  mock.alerts = [{ id: 701, at: iso(3), kind: 'rule:report', title: 'الشغل المتأخر — 3', body: '2 الأوردرات الرئيسية › غير مؤكد · 1 المبتكرين › أوردرات متأخرة', role_id: null, user_id: ADMIN_ID, entity: null, entity_id: 'report', read_at: null, rule_id: 'r1', section_id: S1, hide_at: null, meta: { lv: 'critical', report: true, n: 3, items } }];
+  mock.alertReads = [];
+  await signIn(page, 'dashboard');
+  await page.locator('.notif-btn').click();
+  await page.locator('.menu.notif .ntf-item').first().click();
+  const pop = page.locator('.modal[role=dialog]', { has: page.locator('[data-alert-report]') });
+  await expect(pop).toContainText('الشغل المتأخر (3)');
+  await expect(pop.locator('[data-ar-row]')).toHaveCount(3);
+  await expect(pop.locator('thead th')).toHaveText(['العنصر', 'التنبيه', 'التفاصيل', 'صاحبه']);
+  await pop.locator('[data-ar-part="المبتكرين › أوردرات متأخرة"]').click();
+  await expect(pop.locator('[data-ar-row]')).toHaveCount(1); await expect(pop.locator('[data-ar-row]')).toContainText('Art Craft');
+  await pop.locator('[data-ar-part=""]').click(); await expect(pop.locator('[data-ar-row]')).toHaveCount(3);
+  await expect(pop.locator('[data-share]')).toBeEnabled();
+  await pop.locator('[data-ar-row]').first().click();
+  await expect(pop).toHaveCount(0); // the row opened its order (the bell's opener)
+});

@@ -445,3 +445,27 @@ Deno.test('the bell\'s redesign: a withdrawal waiting two days and a lost piece 
   const lost = A.find((a: any) => a.rule_id === 'r-lost'); assertEquals(lost.meta.g, 'vendor'); assertEquals(lost.meta.lv, 'critical'); assertEquals(lost.hide_at, '2026-11-11T08:00:00.000Z');
   for (const a of A) assertFalse(/0109/.test(JSON.stringify(a)), 'no phone in an alert');
 });
+
+Deno.test('0162 several elements in one alert: «فردي» writes each part\'s own alerts apart (x1|…); «تقرير» writes one alert per member with every part\'s things in meta.items, renewed on the next run', async () => {
+  const both = [{ element: 'accounts', type: 'real', state: 'negative' }];
+  const s = withRules([
+    rule('r-one', { name: 'الشغل المتأخر', element: 'makers', type: 'accounts', state: 'withdraw_wait', param: 2, at: '00:00', roles: ['admin'], mode: 'single', conds: both }),
+    rule('r-rep', { name: 'تقرير المتأخر', element: 'makers', type: 'accounts', state: 'withdraw_wait', param: 2, at: '00:00', roles: ['admin'], mode: 'report', conds: both })],
+  (seed) => {
+    const V = seed.vendors[0].id;
+    seed.dokan_withdrawals = [{ id: 1, woo_vendor_id: 7, vendor_id: V, amount: 900, status: 'pending', requested_at: '2026-11-05T08:00:00Z', synced_at: '2026-11-05T08:00:00Z' }];
+    seed.acc_account_moves = [{ id: 'm1', account: 'كاش', on_date: '2026-11-08', direction: 'withdraw', amount: 300, created_at: '2026-11-08T07:00:00Z', voided_at: null }];
+  });
+  await cron(s.deps);
+  const A = s.db.rows('alerts');
+  const one = A.filter((a: any) => a.rule_id === 'r-one');
+  assert(one.some((a: any) => a.entity_id === 'x1|neg:كاش'), 'the extra part keys its alert x1|');
+  assert(one.some((a: any) => !String(a.entity_id).startsWith('x')), 'the rule\'s own part as before');
+  const rep = A.filter((a: any) => a.rule_id === 'r-rep');
+  assertEquals(rep.length, 1, 'one alert for the admin');
+  assertEquals(rep[0].entity_id, 'report'); assertEquals(rep[0].kind, 'rule:report');
+  assertEquals(rep[0].meta.report, true); assertEquals(rep[0].meta.n, 2); assertEquals(rep[0].meta.lv, 'critical', 'the highest level of its parts');
+  assertEquals(rep[0].meta.items.map((x: any) => x.p).sort(), ['الحسابات › حساب بالسالب', 'المبتكرين › طلب سحب مستني'].sort());
+  assert(String(rep[0].title).startsWith('تقرير المتأخر — 2'), rep[0].title);
+  for (const a of A) assertFalse(/0109/.test(JSON.stringify(a)), 'no phone in an alert');
+});

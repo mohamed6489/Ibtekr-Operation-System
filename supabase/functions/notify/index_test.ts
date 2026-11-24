@@ -140,6 +140,13 @@ Deno.test('rules (security review): a member with the element\'s page partly (hr
   assertEquals(to('r-pay').map((x: string) => x.split('|')[0]), [ADMIN], 'the accounts member without sensitive.salaries gets no payroll reminder');
 });
 
+Deno.test('rules (security review): an assistant\'s note reaches only the members who see that assistant — no element page lets the rest in', async () => {
+  const s = withRules([rule('r-ai', { name: 'تنبيهات المساعدين', element: 'ai', type: 'any', state: 'notes', at: '00:00', show: 'until_read', hours: 6, roles: ['admin', 'cs', 'ops'], last_run: '2026-11-08T07:00:00.000Z' })],
+    (seed) => { seed.ai_agents = [{ id: 'stock', name: 'التشغيل الذكي', perm: 'inventory.view' }]; seed.ai_agent_notes = [{ id: 7, agent: 'stock', kind: 'report', title: 'ملخص التشغيل', body: '', ref: 'team:x', created_at: '2026-11-08T07:30:00.000Z' }]; });
+  await cron(s.deps);
+  assertEquals(s.db.rows('alerts').map((a: any) => a.user_id).sort(), [ADMIN, OPS].sort(), 'cs has no inventory.view: no note');
+});
+
 Deno.test('rules: before 0157 (no rules table) the tick still runs the rest and says so', async () => {
   const { deps } = setup(); const r = await cron(deps); assertEquals(r.res.status, 200, JSON.stringify(r.body));
   assert(['no_rules'].includes(r.body.notif.skipped) || r.body.notif.rules === 0, JSON.stringify(r.body.notif));

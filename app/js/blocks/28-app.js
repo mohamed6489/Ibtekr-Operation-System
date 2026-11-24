@@ -832,7 +832,20 @@
     const lvm = m && m.level && m.level !== 'employee' && K.store.alertLevels && K.store.alertLevels[m.level]; const AM = lvm ? Object.assign({}, K.store.alertRoles, lvm) : K.store.alertRoles; // owner batch 2 decision 2: my level's matrix
     return (k) => { let c = NR.access(AM, perms, k, ci, ov[k]); if (c === 'R' && mute.includes(k)) c = 'S'; return c; };
   }
+  // the notifications' new structure (Safwat 24 Nov — 0157): once the settings' tree is there, the bell is that tree and nothing else —
+  // its main sections (the groups), their sub-sections (the filters) and the alerts the rules wrote; a section, a sub-section or a rule
+  // the admin adds shows here as it is. The click: an order opens its popup, a conversation its chat, a request its page, an
+  // assistant's note its chat.
+  function treeOpen(a) {
+    const n = /^note:(\d+)$/.exec(String(a.entityId || ''));
+    if (n) { const ag = /^ai-([a-z0-9_]+)$/.exec(String(a.entity || '')); window.IBAlerts.openNote(Number(n[1]), ag ? ag[1] : 'manager', ag ? null : a.entity); return true; }
+    const o = /^orders\/([\w-]+)$/.exec(String(a.entity || '')); if (o) { peekOrder(o[1]); return true; }
+    const cs = /^cs\/([0-9a-f-]{36})$/i.exec(String(a.entity || ''));
+    if (cs) { const P = window.IBPages.all().cs; if (P && P.api && P.api.openConversation && P.api.openConversation(cs[1], '') !== false) return true; location.hash = 'cs-inbox'; return true; }
+    return false;
+  }
   function viewSections(noDigest) {
+    if (window.IBAlerts && window.IBAlerts.hasTree && window.IBAlerts.hasTree()) return window.IBAlerts.treeSections(treeOpen, ntfState.sort) || [];
     const raw = notifSections(); const m = viewer(); const NR = NRM();
     let secs = NR && m ? NR.filterSections(raw, accFor(m), {}) : raw.map((s) => Object.assign({}, s, { received: s.tabs[0][2].length }));
     // server alerts (IBAlerts, already filtered by RLS) first, after the role filter; only for the signed-in member, never «عرض تنبيهات» another one
@@ -893,15 +906,17 @@
           h('div', { class: 'foot' }, 'الأرقام بتتحدّث تلقائيًا من الأوردرات والطلبات والعقود.'));
         const tabs = U.Tabs({ items: sec.tabs.map((t) => ({ id: t[0], label: t[1] + ' (' + t[2].length + ')' })), active: ntfState.tab, onChange: (id, viaKey) => { ntfState.tab = id; draw(); if (viaKey) { const b = el.querySelector('.tab[aria-selected=true]'); if (b) b.focus(); } } });
         tabs.setAttribute('aria-label', 'تابات ' + sec.label);
-        const list = h('div', { class: 'ntf-list', role: 'list' }, items.length ? items.map((it) => h('button', { type: 'button', class: 'ntf-item' + (it.muted ? ' muted' : ''), role: 'listitem', onClick: () => { close(); it.run(); } },
+        const list = h('div', { class: 'ntf-list', role: 'list' }, items.length ? items.map((it) => h('button', { type: 'button', class: 'ntf-item' + (it.muted ? ' muted' : '') + (it.fresh ? ' fresh' : ''), role: 'listitem', onClick: () => { close(); it.run(); } },
+          it.fresh ? h('span', { class: 'ntf-dot', 'aria-label': 'جديد' }) : null,
           h('span', { class: 'av ' + it.tone, 'aria-hidden': 'true' }, Icon(it.icon, 'sm')), h('span', { class: 'txt' }, h('b', null, it.title, it.muted ? h('span', { class: 'ntf-fyi' }, 'للعلم') : null), h('small', null, it.sub)), it.meta ? h('span', { class: 'meta' }, it.meta) : null, h('span', { class: 'ext', 'aria-hidden': 'true' }, Icon('external', 'sm'))))
           : h('div', { class: 'ntf-empty' }, U.EmptyState('كله تمام هنا', sec.empty)));
         list.addEventListener('keydown', (e) => { const its = [...list.querySelectorAll('.ntf-item')]; const i = its.indexOf(document.activeElement); if (!its.length) return; if (e.key === 'ArrowDown') { e.preventDefault(); its[(i + 1) % its.length].focus(); } if (e.key === 'ArrowUp') { e.preventDefault(); its[(i - 1 + its.length) % its.length].focus(); } });
         const main = h('div', { class: 'ntf-main' },
-          (me.role === 'أدمن' ? h('div', { class: 'ntf-viewer' }, U.Select({ id: 'ntf-viewer', label: 'عرض تنبيهات', options: K.store.members.filter((x) => x.status !== 'invited').map((x) => ({ value: x.id, label: x.name + ' — ' + x.role })), value: vw.id, onChange: (v) => { ntfState.viewer = v; ntfState.section = 'customers'; ntfState.tab = 'all'; draw(); refresh(); } })) : null),
+          (me.role === 'أدمن' && !sec.tree ? h('div', { class: 'ntf-viewer' }, U.Select({ id: 'ntf-viewer', label: 'عرض تنبيهات', options: K.store.members.filter((x) => x.status !== 'invited').map((x) => ({ value: x.id, label: x.name + ' — ' + x.role })), value: vw.id, onChange: (v) => { ntfState.viewer = v; ntfState.section = 'customers'; ntfState.tab = 'all'; draw(); refresh(); } })) : null),
           h('div', { class: 'ntf-head' }, h('h3', { class: 't-h5' }, sec.label), h('span', { class: 'cnt' }, num(String(sec.received != null ? sec.received : sec.tabs[0][2].length)), ' ' + sec.unit, sec.received != null && sec.tabs[0][2].length > sec.received ? h('span', { class: 'fyi-c' }, ' · ', num(String(sec.tabs[0][2].length - sec.received)), ' للعلم') : null), h('span', { class: 'sp' }), Button({ type: 'text', size: 'sm', label: sec.allLabel, onClick: () => { close(); sec.all(); } })),
+          sec.tree ? h('div', { class: 'ntf-sort' }, U.Select({ id: 'ntf-sort', label: 'الترتيب', options: [{ value: 'new', label: 'الأحدث الأول' }, { value: 'old', label: 'الأقدم الأول' }], value: ntfState.sort || 'new', onChange: (v) => { ntfState.sort = v; draw(); } })) : null,
           tabs, list,
-          h('div', { class: 'ntf-foot' }, h('span', null, '↑↓ للتنقل · Enter يفتح · Esc يقفل'), Button({ type: 'text', size: 'sm', label: 'تعليم القسم كمقروء', onClick: () => { ntfState.read = (ntfState.read || {}); items.forEach((it) => { ntfState.read[it.key] = true; }); } })));
+          h('div', { class: 'ntf-foot' }, h('span', null, '↑↓ للتنقل · Enter يفتح · Esc يقفل'), Button({ type: 'text', size: 'sm', label: 'تعليم القسم كمقروء', onClick: () => { if (sec.tree) { sec.all(); return; } ntfState.read = (ntfState.read || {}); items.forEach((it) => { ntfState.read[it.key] = true; }); } })));
         el.replaceChildren(main, nav);
       };
       draw(); setTimeout(() => { const f = el.querySelector('.ntf-nav-item[aria-current=true]'); if (f) f.focus(); }, 0);

@@ -55,7 +55,9 @@ export function writePlan({ rule, ents, existing, members, roles, now, lineFor }
     for (const m of to) {
       // a member with the element's page partly (P — his own / his team's only) gets an entity only when it names him (`users`:
       // the member it concerns and his manager, the request's team, the conversation's assignee …); the page whole (F) gets all
-      const whole = permOf(m, roles, elPerm) === 'F';
+      // an element with no page of its own (the daily report, the assistants) is «whole» for the admin only — its entities name their
+      // members (`users`), or say nothing of anyone's records (the daily report's line is per member)
+      const whole = elPerm ? permOf(m, roles, elPerm) === 'F' : (m.role_id === 'admin' || !Array.isArray(e.users));
       // `only`: the named members (and the admin) and no one else — a request reaches the team it is for and its opener, not every
       // member who may read all the requests
       if (e.only ? !(m.role_id === 'admin' || (e.users || []).includes(m.id)) : Array.isArray(e.users) ? !(whole || e.users.includes(m.id)) : !whole) continue;

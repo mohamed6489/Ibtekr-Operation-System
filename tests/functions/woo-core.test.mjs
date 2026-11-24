@@ -122,7 +122,7 @@ test('module is pure: no imports, no environment globals, no clock', () => {
 test('constants', () => {
   assert.equal(START_DATE, '2026-08-14');
   assert.deepEqual(OPEN_WOO, ['processing', 'pending', 'on-hold']);
-  assert.deepEqual(WOO_FALLBACK, {});
+  assert.deepEqual(WOO_FALLBACK, { 'delivery-completed': 'مكتمل' }); // phase 9 — Safwat 24 Nov
   for (const k of ['_dokan_*', 'bosta_delivery_id', 'bosta_tracking_number', 'bosta_status', 'bosta_sync_status', 'wpml_language',
     '_wc_order_attribution_source_type', '_wc_order_attribution_utm_source', '_wc_order_attribution_utm_medium', '_wc_order_attribution_utm_campaign']) {
     assert.ok(META_KEEP.includes(k), k);

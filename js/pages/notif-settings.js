@@ -118,7 +118,7 @@
     const save = async (roles) => { const x = await ST().notifRuleSave(Object.assign({}, r, { roles })); say(x, 'اتحفظ'); redraw(); };
     const left = roleList().filter((x) => !(r.roles || []).includes(x.id));
     const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' });
-    const add = h('button', { type: 'button', class: 'nr-role-add', 'aria-label': 'إضافة دور', title: 'إضافة دور', 'aria-haspopup': 'menu', 'aria-expanded': 'false', disabled: !left.length }, '+');
+    const add = h('button', { type: 'button', class: 'nr-role-add', 'aria-label': 'إضافة دور', title: 'إضافة دور', 'aria-haspopup': 'menu', 'aria-expanded': 'false', disabled: !left.length }, U().Icon('plus', 'sm'));
     const pop = U().popover(wrap, add, (close) => U().DropdownMenu({ role: 'menu', end: true, options: left.map((x) => ({ value: x.id, label: x.name })), onSelect: (id) => { close(); save((r.roles || []).concat(id)); } }));
     add.addEventListener('click', pop.toggle); wrap.append(add);
     return h('div', { class: 'nr-roles', 'data-nr-roles-of': r.id }, (r.roles || []).map((x) => h('span', { class: 'nr-role' }, roleName(x),

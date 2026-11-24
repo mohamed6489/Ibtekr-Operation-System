@@ -3754,3 +3754,38 @@ Deno.test('the meeting of 23 Nov [#19]: internalRequest = Dokan keeps withdraw_c
   assertEquals(internalRequest({ id: 4 }), false);
   assertEquals(internalRequest(null as any), false);
 });
+
+// ---------------------------------------------------------------- legacy_report (the meeting of 23 Nov phase 9 — the dry run)
+
+Deno.test('legacy_report (meeting 23 Nov phase 9): read only — the site\'s totals by status and month, the statuses without a status_map row, the system\'s orders that differ from the site, November\'s numbers and statuses, Dokan\'s totals; no write, no customer data; the sync secret or the admin', async () => {
+  const seed = { orders: [
+    { id: 1001, number: '1001', customer_name: 'عميل سري', customer_phone: PHONE, status: 'مكتمل', woo_status: 'completed', placed_at: '2026-10-20T10:00:00Z', woo_updated_at: '2026-10-20T11:00:00Z' },
+    { id: 1002, number: '1002', customer_name: 'عميل تاني', status: 'جاري التنفيذ', woo_status: 'processing', placed_at: '2026-10-21T10:00:00Z', woo_updated_at: '2026-10-21T11:00:00Z' }] };
+  const routes: Record<string, any> = {
+    'GET wc/v3/reports/orders/totals': { body: [{ slug: 'completed', name: 'Completed', total: 900 }, { slug: 'processing', name: 'Processing', total: 40 }, { slug: 'wc-custom-x', name: 'Custom', total: 3 }, { slug: 'refunded', name: 'Refunded', total: 0 }] },
+    'GET wc/v3/orders': (c: any) => c.query.include ? { body: [{ id: 1001, status: 'completed' }, { id: 1002, status: 'cancelled' }] }
+      : c.query.after === '2026-11-01T00:00:00' && c.query._fields?.includes('number') ? page([{ id: 2001, number: '2001', status: 'processing', date_created: '2026-11-03T10:00:00', parent_id: 0 }, { id: 2002, number: '2002', status: 'processing', date_created: '2026-11-03T10:00:00', parent_id: 2001 }])
+      : c.query.orderby === 'date' ? { body: [{ id: 5, date_created: '2026-09-01T10:00:00' }], headers: { 'X-WP-Total': '943' } }
+      : { body: [{ id: 1 }], headers: { 'X-WP-Total': c.query.after?.startsWith('2026-10') ? '500' : '10' } },
+    'GET dokan/v1/withdraw': { body: [{ id: 1 }], headers: { 'X-WP-Total': '240' } },
+    'GET dokan/v1/stores': { body: [{ id: 44 }], headers: { 'X-WP-Total': '50' } },
+  };
+  const { woo, db, deps } = setup({ seed, routes, env: { WOO_WP_USER: 'admin', WOO_WP_APP_PASSWORD: 'abcd efgh' } });
+  const before = db.calls.length;
+  const { res, body } = await call(deps, { action: 'legacy_report' });
+  assertEquals(res.status, 200);
+  assertEquals([body.read_only, body.site_orders, body.first_day], [true, 943, '2026-09-01']);
+  assertEquals(body.months.map((m: any) => m.month), ['2026-09', '2026-10']); // up to this month (NOW)
+  assertEquals(body.months[1].orders, 500);
+  assertEquals(body.unmapped.map((u: any) => u.slug), ['custom-x']); // refunded has none on the site; completed / processing are mapped
+  assertEquals(body.differences, [{ id: 1002, system: 'جاري التنفيذ', site: 'cancelled', site_as: 'ملغي' }]);
+  assertEquals(body.november, [{ id: 2001, number: '2001', status: 'processing', day: '2026-11-03' }]); // the sub-order left out
+  assertEquals(body.dokan, { withdraw_site: 240, withdraw_ours: 0, stores_site: 50, stores_ours: 2 });
+  // nothing written anywhere, only GETs on the site, no customer's name or phone
+  assertEquals(db.calls.slice(before).filter((c: any) => !['select', 'rpc'].includes(c.op)).map((c: any) => c.op), []);
+  assert(woo.calls.every((c: any) => c.method === 'GET'));
+  assertFalse(JSON.stringify(body).includes('عميل') || JSON.stringify(body).includes(PHONE));
+  // ops may not; the admin may
+  assertEquals((await call(deps, { action: 'legacy_report', months: false }, { jwt: 'jwt-ops' })).res.status, 401);
+  assertEquals((await call(deps, { action: 'legacy_report', months: false }, { jwt: 'jwt-admin' })).res.status, 200);
+});

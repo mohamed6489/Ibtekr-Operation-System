@@ -5,6 +5,7 @@
 // old ones by the rule's «تفاصيل الظهور». The bell draws the sections from notif_sections. The channels: the bell only for now — a rule
 // that names e-mail / WhatsApp writes the bell row and nothing else (Safwat 24 Nov). Nothing here logs a phone, an address or a text.
 import { catalogue as CAT, hidePlan, permOf, runsNow, writePlan } from '../_shared/notif-engine.js';
+import { LIVE_FROM } from '../_shared/legacy.js'; // phase 9: the imported old orders raise nothing
 import { delayRules, leadBy, lineDelayOf, lineElapsed, orderDelayOf, orderElapsed } from '../_shared/delay.js';
 
 // deno-lint-ignore no-explicit-any
@@ -55,7 +56,7 @@ type OrdersRead = { O: Json[]; lines: Json[]; V: Map<string, Json>; orderState: 
 async function ordersRead(db: Db, w: World, ctx: Ctx): Promise<OrdersRead> {
   const today = ctx.cairo.day; const DR = delayRules((w.settings.makers ?? {}).delay);
   const [o, v] = await Promise.all([
-    db.from('orders').select('id, number, customer_name, status, status_custom, confirm, confirm_at, placed_at').in('status', OPEN_ORDER).is('deleted_at', null).limit(LIMIT),
+    db.from('orders').select('id, number, customer_name, status, status_custom, confirm, confirm_at, placed_at').in('status', OPEN_ORDER).is('deleted_at', null).gte('placed_at', LIVE_FROM).limit(LIMIT),
     db.from('vendors').select('id, name, lead_days, status').limit(LIMIT),
   ]);
   const O = rows(o); const V = new Map(rows(v).map((x) => [String(x.id), x]));
@@ -196,7 +197,7 @@ async function read(db: Db, w: World, ctx: Ctx, rule: Json, since: string): Prom
         .map((o) => ({ id: 'o:' + o.id, name: String(o.customer_name ?? '').trim(), ref: ref(o), state: DELAY_WORD[st], line: 'أوردر ' + DELAY_WORD[st] + ' · ' + String(o.status), entity: 'orders/' + String(o.number ?? o.id) }));
     }
     case 'orders.update': {
-      if (st === 'new') return rows(await db.from('orders').select('id, number, customer_name, created_at, deleted_at').gte('created_at', since).is('deleted_at', null).limit(300))
+      if (st === 'new') return rows(await db.from('orders').select('id, number, customer_name, created_at, deleted_at').gte('created_at', since).is('deleted_at', null).gte('placed_at', LIVE_FROM).limit(300))
         .map((o) => ({ id: 'onew:' + o.id, name: String(o.customer_name ?? '').trim(), ref: ref(o), state: 'أوردر جديد', line: 'أوردر جديد ' + ref(o), entity: 'orders/' + String(o.number ?? o.id) }));
       if (st === 'delete') return rows(await db.from('orders').select('id, number, customer_name, deleted_at, delete_reason').gte('deleted_at', since).limit(300))
         .map((o) => ({ id: 'odel:' + o.id, name: String(o.customer_name ?? '').trim(), ref: ref(o), state: 'اتمسح', line: 'اتمسح ' + ref(o) + (o.delete_reason ? ' — ' + String(o.delete_reason).slice(0, 80) : ''), entity: 'orders' }));
@@ -216,7 +217,7 @@ async function read(db: Db, w: World, ctx: Ctx, rule: Json, since: string): Prom
     }
     case 'subs.update': {
       if (st === 'new') {
-        const fresh = rows(await db.from('orders').select('id, number, created_at').gte('created_at', since).is('deleted_at', null).limit(300)); if (!fresh.length) return [];
+        const fresh = rows(await db.from('orders').select('id, number, created_at').gte('created_at', since).is('deleted_at', null).gte('placed_at', LIVE_FROM).limit(300)); if (!fresh.length) return [];
         const its = rows(await db.from('order_items').select('order_id, vendor_id').in('order_id', fresh.map((o) => o.id)).limit(3000));
         const vs = new Map(rows(await db.from('vendors').select('id, name').limit(LIMIT)).map((v) => [String(v.id), String(v.name)]));
         const seen = new Set<string>(); const out: Ent[] = [];

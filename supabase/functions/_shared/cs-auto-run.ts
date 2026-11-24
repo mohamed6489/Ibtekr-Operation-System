@@ -13,6 +13,7 @@ import { CART_STATUSES, CHANNEL_LABEL, STATUS_CODES, VIRTUAL_STATUS, CART_REPEAT
 import { sentIdOf, textBody, waIdOfPhone, waPath, graphErrorCode } from './cs-whatsapp.js';
 import { graphPath, sendBody } from './cs-channel.js';
 import { delayRules, leadBy } from './delay.js';
+import { LIVE_FROM, isLegacy } from './legacy.js'; // phase 9: no automatic message for an imported old order
 
 type Json = Record<string, any>;
 export type Deps = { env: Record<string, string | undefined>; db: any; now: () => string; fetch?: typeof fetch; rand?: () => number; sleep?: (ms: number) => Promise<void> };
@@ -201,8 +202,8 @@ export async function tick(deps: Deps, opts: { dry?: boolean } = {}): Promise<Ti
   if (has('status') || has('cart')) {
     const byId = new Map<string, Json>();
     const add = (list: Json[]) => { for (const o of list) byId.set(String(o.id), o); };
-    if (has('status')) add(rows(await deps.db.from('orders').select(ORDER_COLS).gte('updated_at', since).is('deleted_at', null).limit(LIMIT)));
-    if (rules.some((r) => r.event === 'status' && VIRTUAL_STATUS.includes(statusTo(r.event_to)))) add(rows(await deps.db.from('orders').select(ORDER_COLS).eq('status', 'جاري التنفيذ').is('deleted_at', null).limit(LIMIT)));
+    if (has('status')) add(rows(await deps.db.from('orders').select(ORDER_COLS).gte('updated_at', since).is('deleted_at', null).gte('placed_at', LIVE_FROM).limit(LIMIT)));
+    if (rules.some((r) => r.event === 'status' && VIRTUAL_STATUS.includes(statusTo(r.event_to)))) add(rows(await deps.db.from('orders').select(ORDER_COLS).eq('status', 'جاري التنفيذ').is('deleted_at', null).gte('placed_at', LIVE_FROM).limit(LIMIT)));
     if (has('status')) { const list = [...byId.values()]; const leads = await orderLeads(deps, list.filter((o) => !delay.stop.includes(String(o.status ?? ''))).map((o) => String(o.id)), delay); events.push(...orderEvents(list, { sinceIso: since, today, rules: delay, leads } as any)); }
     if (has('cart')) {
       const recent = rows(await deps.db.from('orders').select(ORDER_COLS).gte('placed_at', new Date(nowMs - 7 * DAY).toISOString()).is('deleted_at', null).limit(LIMIT));
@@ -212,7 +213,13 @@ export async function tick(deps: Deps, opts: { dry?: boolean } = {}): Promise<Ti
       events.push(...guestCartEvents(carts, recent, { nowMs, afterMin: settings.cart.afterMin } as any));
     }
   }
-  if (has('sub')) events.push(...subEvents(rows(await deps.db.from('sub_orders').select('id, order_id, vendor_id, woo_order_id, woo_status, total, updated_at').gte('updated_at', since).limit(LIMIT)), since));
+  if (has('sub')) {
+    // phase 9: a sub-order of an imported old order (its parent placed before LIVE_FROM) sends the maker nothing
+    const subs = rows(await deps.db.from('sub_orders').select('id, order_id, vendor_id, woo_order_id, woo_status, total, updated_at').gte('updated_at', since).limit(LIMIT));
+    const oids = [...new Set(subs.map((x) => x.order_id).filter((x) => x != null))]; const old = new Set<string>();
+    for (let i = 0; i < oids.length; i += 200) for (const o of rows(await deps.db.from('orders').select('id, placed_at').in('id', oids.slice(i, i + 200)))) if (isLegacy(o.placed_at)) old.add(String(o.id));
+    events.push(...subEvents(subs.filter((x) => !old.has(String(x.order_id))), since));
+  }
   if (has('transfer')) events.push(...transferEvents(rows(await deps.db.from('dokan_withdrawals').select('id, vendor_id, amount, status, synced_at').eq('status', 'approved').gte('synced_at', since).limit(LIMIT)), since));
   // the pairs (rule × entity) without a live run row
   const pairs: { rule: Json; ev: Ev; entity: string }[] = [];

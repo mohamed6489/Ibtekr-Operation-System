@@ -3789,3 +3789,49 @@ Deno.test('legacy_report (meeting 23 Nov phase 9): read only — the site\'s tot
   assertEquals((await call(deps, { action: 'legacy_report', months: false }, { jwt: 'jwt-ops' })).res.status, 401);
   assertEquals((await call(deps, { action: 'legacy_report', months: false }, { jwt: 'jwt-admin' })).res.status, 200);
 });
+
+// ---------------------------------------------------------------- legacy_import (the meeting of 23 Nov phase 9 — the import)
+
+Deno.test('legacy_import (meeting 23 Nov phase 9): the site\'s orders before START_DATE by id, through the sync\'s writers — parents, lines, sub-orders; an order of the sync\'s side skipped; no stock reserved even with firstWarehouse on; the state keeps the next page; dry writes nothing; the admin or the sync secret', async () => {
+  const OLD = { date_created_gmt: '2026-03-02T10:00:00', date_modified_gmt: '2026-03-05T10:00:00', date_created: '2026-03-02T12:00:00' };
+  const old = wooOrder({ id: 501, number: '501', ...OLD });
+  const oldDone = wooOrder({ id: 502, number: '502', status: 'completed', ...OLD, line_items: [{ id: 21, product_id: 501, name: 'x', sku: 'CUP-1', quantity: 1, total: '10', meta_data: [] }] });
+  const oldSub = wooSub(503, 501, 44, { date_created_gmt: '2026-03-02T10:00:05' });
+  const newer = wooOrder({ id: 1009, number: '1009' }); // 2026-10-20 — the sync's, never the import's
+  const seed = {
+    settings: [{ section: 'inventory', data: { firstWarehouse: true } }],
+    inv_lots: [{ id: 'lt1', sku: 'CUP-1', name: 'cup', reason: 'متاح للبيع', status: 'متاح', closed_at: null }],
+    inv_moves: [{ id: 'm1', lot_id: 'lt1', type: 'in', qty: 5 }],
+  };
+  const { db, woo, deps } = setup({ seed, routes: { 'GET wc/v3/orders': page([old, oldDone, oldSub, newer]) } });
+  // dry: counted, nothing written
+  const dry = await call(deps, { action: 'legacy_import', dry: true });
+  assertEquals(dry.res.status, 200);
+  assertEquals([dry.body.dry, dry.body.run.parents, dry.body.run.sub_orders, dry.body.run.open, dry.body.run.exists], [true, 3, 1, 2, 0]);
+  assertEquals(dry.body.run.by_status, { processing: 2, completed: 1 });
+  assertEquals(dry.body.run.by_month, { '2026-03': 2, '2026-10': 1 });
+  assertEquals(db.rows('orders').length, 0);
+  assert(!db.rows('sync_state').some((r: any) => r.key === 'legacy_import'));
+  assertEquals(woo.calls[0].query, { before: '2026-08-14T00:00:00', dates_are_gmt: 'true', orderby: 'id', order: 'asc', status: 'any', per_page: '100', page: '1' });
+  // the import
+  const { res, body } = await call(deps, { action: 'legacy_import' });
+  assertEquals(res.status, 200);
+  assertEquals([body.run.written, body.run.subs_written, body.run.skipped, body.run.failed, body.done], [2, 1, 1, 0, true]);
+  assertEquals(db.rows('orders').map((o: any) => o.id).sort(), [501, 502]);
+  assertEquals(db.row('orders', 502).status, 'مكتمل');
+  assertEquals(db.row('sub_orders', 503, 'woo_order_id').order_id, 501);
+  assert(db.rows('order_items').some((i: any) => i.id === 21));
+  // no side effect: no reservation, no line pulled, no bell row
+  assertEquals(db.rows('inv_moves').length, 1);
+  assert(db.rows('order_items').every((i: any) => !i.pulled));
+  assertEquals(db.rows('alerts').length, 0);
+  const st = db.row('sync_state', 'legacy_import', 'key').value;
+  assertEquals([st.done, st.totals.written], [true, 2]);
+  assertFalse(JSON.stringify(body).includes(PHONE) || JSON.stringify(body).includes('سلوى'));
+  // a run again (restart): the same rows, no duplicate
+  await call(deps, { action: 'legacy_import', restart: true });
+  assertEquals(db.rows('orders').length, 2);
+  // ops may not; the admin may
+  assertEquals((await call(deps, { action: 'legacy_import', dry: true }, { jwt: 'jwt-ops' })).res.status, 401);
+  assertEquals((await call(deps, { action: 'legacy_import', dry: true }, { jwt: 'jwt-admin' })).res.status, 200);
+});

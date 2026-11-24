@@ -187,7 +187,7 @@ type Run = { db: Db; env: Deps['env']; woo: () => ReturnType<typeof wooApi>; ctx
 
 const ACTIONS = ['states', 'categories', 'orders', 'vendors', 'products', 'all', 'push_status', 'push_vendor', 'register_webhooks', 'probe_store', 'probe_dokan', 'accounts', 'statement', 'withdraw_approve', 'withdraw_reject', 'withdraw_create', 'withdrawals', 'style_create', 'style_update', 'order_trash', 'suborder_trash', 'line_trash', 'line_qty', 'line_add', 'suborder_status', 'order_create', 'order_pay_link',
   'vendor_photo', 'vendor_store', 'product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'studio_media', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push', 'product_duplicate', 'carts',
-  'category_get', 'category_update', 'category_delete', 'category_order', 'thumbs', 'styles', 'wp_updates', 'site_speed', 'brand_site', 'vendor_delete', 'bosta_send', 'bosta_cod', 'bosta_awb', 'bosta_locations', 'bosta_pickup', 'bosta_zones', 'order_address', 'legacy_report'];
+  'category_get', 'category_update', 'category_delete', 'category_order', 'thumbs', 'styles', 'wp_updates', 'site_speed', 'brand_site', 'vendor_delete', 'bosta_send', 'bosta_cod', 'bosta_awb', 'bosta_locations', 'bosta_pickup', 'bosta_zones', 'order_address', 'legacy_report', 'legacy_import'];
 // phase 5: the product actions a person runs (never the sync secret); phase 5.2: the studio's upload, a new category, a sheet link;
 // phase 5.4: the images tool's results onto a product; B4 (11 Nov): the categories tab's read, edit and delete
 const PRODUCT_ACTIONS = ['product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'studio_media', 'category_create', 'studio_sheet', 'style_create', 'style_update', 'product_images_add', 'inventory_push', 'product_duplicate',
@@ -1231,6 +1231,63 @@ async function registerWebhooks(run: Run, args: Json) {
   const webhooks = result.filter(isObj).map((h) => ({ id: h.id ?? null, name: h.name ?? null, topic: h.topic ?? null, status: h.status ?? null, delivery_url: h.delivery_url ?? null }));
   await logSync(run.db, { kind: run.kind, direction: 'out', entity: 'webhooks', action: 'register', result: 'ok', detail: counts });
   return json(200, { action: 'register_webhooks', result: 'ok', counts, webhooks: webhooks.sort((a, b) => Number(a.id) - Number(b.id)) });
+}
+
+// ---------------------------------------------------------------- legacy_import (the meeting of 23 Nov phase 9 — the import, Safwat's go 24 Nov)
+
+// The old orders (phase 9.1 — «كل أوردرات WooCommerce من أول ما الموقع بدأ، بحالاتها الحالية»): the site's orders placed BEFORE START_DATE,
+// id by id (100 a page, `pages` a run, 10 by default, 30 at most — sync_state['legacy_import'] keeps the next page, so the next run goes
+// on; `restart` → page 1), written by the sync's own writers (orders, their lines, Dokan's sub-orders, a maker unknown here read from
+// Dokan) with ctx.legacy: mapOrder takes the old side of START_DATE only (an order the sync owns is skipped — the import never writes over
+// what the team entered), the stock is never reserved (no autopull / autorelease), and the engines read the orders from LIVE_FROM on only
+// (_shared/legacy.js) — no alert, no automatic message, no money (rule 6). Upsert on the order's id: a run again rewrites the same rows.
+// `dry` → the same pages read and counted, nothing written (not even the state). The admin or the sync secret. Counts only in the answer
+// and the log (statuses, months, numbers) — never a customer's name, phone, address or an amount.
+const LEGACY_KEY = 'legacy_import';
+const LEGACY_OPEN = ['pending', 'processing', 'on-hold', 'in-shipping', 'ready-shipping'];
+async function legacyImport(run: Run, args: Json) {
+  const dry = args.dry === true;
+  const maxPages = Math.min(Math.max(Math.trunc(Number(args.pages)) || 10, 1), 30);
+  const state = args.restart === true ? {} : await getState(run.db, LEGACY_KEY);
+  const startPage = Number.isInteger(Number(args.page)) && Number(args.page) > 0 ? Number(args.page) : Number.isInteger(state.page) && state.page > 0 ? state.page : 1;
+  const ctx = { ...(await run.ctx()), legacy: true };
+  const add = (bag: Json, k: string, n = 1) => { bag[k] = (bag[k] ?? 0) + n; };
+  const prev = isObj(state.totals) && !dry && args.restart !== true ? state.totals : {};
+  const t: Json = { parents: 0, sub_orders: 0, open: 0, exists: 0, written: 0, subs_written: 0, skipped: 0, failed: 0, by_status: {}, by_month: {} };
+  const res = await ctx.woo.eachPage('wc/v3/orders', { before: `${START_DATE}T00:00:00`, dates_are_gmt: 'true', orderby: 'id', order: 'asc', status: 'any' },
+    async (page: Json[], n: number) => {
+      const list = page.filter(isObj);
+      const parents = list.filter((o) => !(Number(o.parent_id) > 0));
+      t.parents += parents.length; t.sub_orders += list.length - parents.length;
+      for (const o of parents) {
+        const slug = String(o.status ?? '').replace(/^wc-/, '');
+        add(t.by_status, slug); add(t.by_month, String(o.date_created ?? o.date_created_gmt ?? '').slice(0, 7));
+        if (LEGACY_OPEN.includes(slug)) t.open += 1;
+      }
+      const ids = parents.map((o) => Number(o.id)).filter((x) => Number.isInteger(x) && x > 0);
+      if (ids.length) { const { data } = await run.db.from('orders').select('id').in('id', ids); t.exists += Array.isArray(data) ? data.length : 0; }
+      if (dry) return;
+      const r = await writeOrderPage(ctx, list);
+      t.written += r.orders; t.subs_written += r.sub_orders; t.skipped += r.skipped; t.failed += r.failed;
+      await setState(run.db, LEGACY_KEY, { page: n + 1, last_run: run.now(), done: false, totals: sumTotals(prev, t) }, run.now());
+    }, { maxPages, startPage });
+  const totals = sumTotals(prev, t);
+  if (!dry) {
+    await setState(run.db, LEGACY_KEY, { page: res.done ? res.pages : res.pages + 1, last_run: run.now(), done: res.done, ...(res.done ? { done_at: run.now() } : {}), totals }, run.now());
+    await logSync(run.db, { kind: run.kind, direction: 'in', entity: 'orders', action: 'legacy_import', result: t.failed ? 'error' : 'ok',
+      detail: { pages: res.pages, done: res.done, written: t.written, sub_orders: t.subs_written, skipped: t.skipped, failed: t.failed } });
+  }
+  return json(200, { action: 'legacy_import', result: 'ok', dry, before: START_DATE, from_page: startPage, pages: res.pages, done: res.done, run: t, totals: dry ? null : totals });
+}
+// the run's counts on top of the earlier runs' (numbers and the two tallies)
+function sumTotals(a: Json, b: Json): Json {
+  const out: Json = {};
+  for (const k of new Set([...Object.keys(a ?? {}), ...Object.keys(b ?? {})])) {
+    const x = a?.[k], y = b?.[k];
+    if (isObj(x) || isObj(y)) { const bag: Json = { ...(isObj(x) ? x : {}) }; for (const [kk, v] of Object.entries(isObj(y) ? y : {})) bag[kk] = (bag[kk] ?? 0) + Number(v); out[k] = bag; }
+    else out[k] = (Number(x) || 0) + (Number(y) || 0);
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------- legacy_report (the meeting of 23 Nov phase 9 — the dry run)
@@ -3329,6 +3386,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'register_webhooks') return await registerWebhooks(run, args);
     if (action === 'probe_store') return await probeStore(run, args);
     if (action === 'legacy_report') return await legacyReport(run, args);
+    if (action === 'legacy_import') return await legacyImport(run, args);
     if (action === 'probe_dokan') return await probeDokan(run, args);
     if (action === 'statement') return await statement(run, args);
     if (action === 'withdraw_approve') { const jwt = /^Bearer\s+(\S+)$/i.exec(req.headers.get('authorization') ?? '')?.[1] ?? ''; return await withdrawApprove(run, args, deps.userId && jwt ? await deps.userId(jwt) : null); }

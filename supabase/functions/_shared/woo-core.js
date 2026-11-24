@@ -226,17 +226,20 @@ export const isSubOrder = (wooOrder) => (num(wooOrder?.parent_id) ?? 0) > 0;
 
 /**
  * A Woo parent order → { order (orders row), items (order_items rows), unknownVendorIds, statusResult }, or
- * { skipped: 'invalid' | 'before_start' | 'draft', order: null, items: [] } (invalid = not an object, no numeric id or
+ * { skipped: 'invalid' | 'before_start' | 'after_start' (legacy) | 'draft', order: null, items: [] } (invalid = not an object, no numeric id or
  * no date_created_gmt). ctx (null = {}): statusMap, vendorsByWooId, now, currentStatus / currentWooStatus (the
  * order's status / woo_status in the DB). A line's vendor comes from its own _dokan_vendor_id, else the parent's (a
  * single-vendor parent carries it itself); a multi-vendor parent's line without one gets its maker from the sub-order
  * (woo-write links it by product id).
  */
 export function mapOrder(wooOrder, ctx) {
-  const { statusMap = [], vendorsByWooId = null, now = null, currentStatus = null, currentWooStatus = null } = ctx ?? {};
+  const { statusMap = [], vendorsByWooId = null, now = null, currentStatus = null, currentWooStatus = null, legacy = false } = ctx ?? {};
   const o = isObj(wooOrder) ? wooOrder : {};
   const created = gmtMs(o.date_created_gmt);
+  // legacy (phase 9 — woo-sync legacy_import): the old orders only, the other side of START_DATE — the import never touches an order the
+  // sync owns (and so nothing the team entered on it)
   const skipped = wooId(o.id) === null || created === null ? 'invalid'
+    : legacy ? (created >= START_MS ? 'after_start' : DRAFT.includes(o.status) ? 'draft' : null)
     : created < START_MS ? 'before_start' : DRAFT.includes(o.status) ? 'draft' : null;
   if (skipped) return { skipped, order: null, items: [], unknownVendorIds: [], statusResult: null };
 

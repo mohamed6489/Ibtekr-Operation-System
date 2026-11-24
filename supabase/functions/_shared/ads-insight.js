@@ -104,7 +104,8 @@
     if (/(ليه|لماذا|why|اكتب|اعمل|صمم|فكره|افكار|write|make|idea|منافس|competitor)/.test(t)) return null; // a why, writing or a competitor: a model's work
     const ads = RX.best_creative.test(t); const camp = RX.camp.test(t);
     if (RX.tired.test(t)) return 'tired';
-    if (RX.stop.test(t) && (ads || camp)) return 'stop';
+    // a question (what / which to stop) — «اقفل حملة X» is an instruction about one campaign: the model's, with its confirm card (ش45)
+    if (RX.stop.test(t) && (ads || camp) && /(ايه|انهي|مين|اللي|what|which|should|\?|؟)/.test(t)) return 'stop';
     if (RX.best.test(t) && ads && !camp) return 'best_creative';
     if (RX.best.test(t) && (camp || !ads)) return camp || /(شغال|ماشي)/.test(t) ? 'best_campaign' : null;
     if (RX.perf.test(t) && (camp || ads || /اعلانات|ads/.test(t))) return 'performance';

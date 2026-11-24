@@ -65,6 +65,7 @@ test('the question: which answer, which period; a why or writing stays a model\'
   assert.equal(I.intent('ايه احسن كامبين شغاله دلوقتي'), 'best_campaign');
   assert.equal(I.intent('احسن كريتيف عندي ايه'), 'best_creative');
   assert.equal(I.intent('اوقف انهي حمله'), 'stop');
+  assert.equal(I.intent('اقفل حمله المكرميه'), null); // an instruction about one campaign: the model's, with its confirm card (ش45)
   assert.equal(I.intent('الاعلانات اللي الناس زهقت منها'), 'tired');
   assert.equal(I.intent('الحملات عامله ايه'), 'performance');
   assert.equal(I.intent('which campaign is the best'), 'best_campaign');

@@ -433,7 +433,7 @@ async function adsData(deps: Deps) {
   const compsOf = (cols: string) => deps.db.from('mkt_competitors').select(cols).is('archived_at', null).order('created_at', { ascending: false }).limit(20);
   const [{ data: trends }, c0] = await Promise.all([
     deps.db.from('mkt_trends').select('title, summary, source, url, kind, platform').order('found_at', { ascending: false }).limit(20),
-    compsOf('name, keyword, note, brief, brief_at'), // 0158 (buyer-brain decision 5): the research brief; before it the three columns
+    compsOf('name, keyword, note, brief, brief_at'), // 0160 (buyer-brain decision 5): the research brief; before it the three columns
   ]);
   const comps = c0.error ? (await compsOf('name, keyword, note')).data : c0.data;
   const camps: Record<string, Json> = {};
@@ -750,7 +750,7 @@ async function research(deps: Deps, uid: string, cfg: Cfg, queries: string[], q:
 }
 // Safwat 24 Nov (buyer-brain decision 5): «حلّل المنافس» — a research brief on one competitor the team keeps (what it sells and at what
 // prices, its offers, the angles and formats of its ads and posts, what looks long-running), with the sources the search returned;
-// written on the row with the server's key (0158 — a member reads it, never writes it). Meta's Ad Library is not read: its API gives
+// written on the row with the server's key (0160 — a member reads it, never writes it). Meta's Ad Library is not read: its API gives
 // Egypt's commercial ads to no one and its page is drawn by script — the card keeps the library's link and the team's own note.
 async function competitorBrief(deps: Deps, uid: string, args: Json) {
   const id = Number(args.id);

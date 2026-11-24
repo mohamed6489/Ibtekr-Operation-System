@@ -2534,3 +2534,15 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 6. **اتأكد:**
    - `select count(*) from orders where placed_at < '2026-08-14';` = عدد الأوردرات الأساسية القديمة اللي التجربة قالت عليه.
    - مفيش صفوف `alerts` ولا `cs_auto_runs` ولا `inv_moves` لأوردر قديم.
+
+#### 2.7.131 مخ الميديا باير (`0160`، الخطة `docs/superpowers/plans/2026-11-24-buyer-brain.md`)
+1. **الأول:** طبّق `0160_buyer_brain.sql`:
+   - سكيلز الميديا باير مكتوبة بكلامنا في `ai_agent_kb`، بتتضاف مرة.
+   - خانتين `mkt_competitors.brief` / `brief_at` للسيرفر بس.
+2. شغّل `supabase/tests/rls_buyer_brain.sql` على الحي.
+3. انشر `ai-content`، وفيه:
+   - `<ads_data>` بالتحليل كله.
+   - الموافقة الدايمة لأرقام الإعلانات من السيرفر.
+   - `competitor_brief`.
+4. ادمج على `main` (الواجهة: `ads-insight.js`، شات الميديا باير بيرد من السيستم، «حلّل المنافس»، مفتاح `adsAlways`).
+5. **مفيش أي كتابة على ميتا ولا على الموقع.** الموافقة الدايمة لأرقام الإعلانات بس، وأي بيانات تانية لسه بتتسأل كل مرة.

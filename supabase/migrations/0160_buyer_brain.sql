@@ -1,4 +1,4 @@
--- 0158 — the media buyer's brain (Safwat 24 Nov — docs/superpowers/plans/2026-11-24-buyer-brain.md decisions 4 and 5).
+-- 0160 — the media buyer's brain (Safwat 24 Nov — docs/superpowers/plans/2026-11-24-buyer-brain.md decisions 4 and 5).
 -- (1) The research brief on a competitor: ai-content `competitor_brief` writes mkt_competitors.brief ({ text, sources: [{ url, title }] })
 --     and brief_at with the server's key; a member reads them with the row (select of 0109) and never writes them — the members'
 --     insert / update grants of 0109 name their columns, these two are not among them.

@@ -41,7 +41,7 @@ const COLS = {
   mkt_agent_messages: ['id', 'chat_id', 'role', 'text', 'images', 'run_id', 'created_at', 'source', 'shared'], // source: 'system' = the system's own answer, else the outside company; shared = the data kinds it was given
   // 0109 (comments decisions 69 / 70): the designer's trends (the server's rows) and the media buyer's competitors (marketing.create writes)
   mkt_trends: ['id', 'batch', 'title', 'summary', 'source', 'url', 'kind', 'found_at', 'created_by', 'platform', 'tag', 'thumb', 'author', 'views', 'likes', 'comments', 'posted_at', 'external_id'], // + 0118 (thumb_src / thumb_tries: the server's)
-  mkt_competitors: ['id', 'name', 'page_id', 'page_url', 'keyword', 'note', 'created_by', 'created_at', 'updated_by', 'updated_at', 'archived_at', 'brief', 'brief_at'], // + 0158 (buyer-brain: the server's research brief)
+  mkt_competitors: ['id', 'name', 'page_id', 'page_url', 'keyword', 'note', 'created_by', 'created_at', 'updated_by', 'updated_at', 'archived_at', 'brief', 'brief_at'], // + 0160 (buyer-brain: the server's research brief)
   site_checks: ['kind', 'data', 'checked_at', 'checked_by'],
   // 0124 (agents-brain decision 1): the assistants' notes (the server's rows, read by who sees the assistant) and the member's own read marks
   ai_agent_notes: ['id', 'agent', 'kind', 'title', 'body', 'link', 'ref', 'created_at'],
@@ -563,7 +563,7 @@ function mktAi(c, b) {
   const { u, json, hasPerm, isAdmin, mock } = c; const H = mock.mkt;
   const agentCan = agentCanOf(H, isAdmin, hasPerm);
   H.calls.push({ fn: b.action === 'marketing' || b.action === 'buyer' || b.action === 'agent' || b.action === 'kb' || b.action === 'competitor_brief' ? 'ai-content' : 'ai-images', action: b.action, task: b.task || null, by: u ? u.id : null, piece: b.piece || null, slide: b.slide == null ? null : b.slide, scene: b.scene == null ? null : b.scene, kind: b.kind || null, model: b.model || null, pins: Array.isArray(b.pins) ? b.pins.length : 0, notes: b.notes || null });
-  if (b.action === 'competitor_brief') { // 0158 (buyer-brain decision 5): marketing.create or the admin; the brief and its sources on the row
+  if (b.action === 'competitor_brief') { // 0160 (buyer-brain decision 5): marketing.create or the admin; the brief and its sources on the row
     if (!u || !(isAdmin(u) || hasPerm(u, 'marketing.create') === 'F')) return json(401, { error: 'unauthorized' });
     const row = H.competitors.find((x) => x.id === Number(b.id) && !x.archived_at); if (!row) return json(404, { error: 'not_found' });
     if (H.briefFail) return json(502, { error: 'no_search' });

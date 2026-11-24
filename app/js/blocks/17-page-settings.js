@@ -330,11 +330,13 @@
     body.addEventListener('click', (e) => { if (!skip(e.target) && e.target.closest('[role=switch], [role=radio], [role=checkbox], .chip, [role=option]')) mark(); }, true);
     // the owner 14 Nov (decision 3): every settings page in the middle at one width, «حفظ» at the left end of that width
     // ش43: «الملفات» beside «حفظ» on the activity log — the same button and menu as the other pages (the rows of the period)
+    // the notifications' tree (0157) saves each change at once — no «حفظ» there
+    const instant = st.sec === 'notifications' && !!(window.IBNotifSettings && window.IBNotifSettings.ready());
     const files = st.sec === 'activity' ? (() => { const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' }); const trig = Button({ label: 'الملفات', iconEnd: 'chevD', attrs: { 'aria-haspopup': 'menu', 'data-act-files': '' } });
       const opts = [['xlsx', 'تصدير Excel (‎.xlsx)', 'download'], ['csv', 'تصدير CSV', 'file'], ['tsv', 'نسخ للصق في Google Sheets', 'copy']];
       const pop = U.popover(wrap, trig, (close) => U.DropdownMenu({ role: 'menu', end: true, options: opts.map(([value, label, icon]) => ({ value, label, icon })), onSelect: (v) => { close(); const F = st.actFiles; setTimeout(() => F && F[v] && F[v]()); } }));
       trig.addEventListener('click', pop.toggle); wrap.append(trig); return wrap; })() : null;
-    return [h('div', { class: 'set-wrap', 'data-set-wrap': st.sec }, h('div', { class: 'set-back' }, Button({ type: 'text', size: 'sm', icon: 'chevR', label: 'رجوع للإعدادات', attrs: { 'data-set-back': '' }, onClick: goHub })), K.PageHead(x[1], x[2], [note, files, save].filter(Boolean)), body), st.dirty ? saveBar() : null];
+    return [h('div', { class: 'set-wrap', 'data-set-wrap': st.sec }, h('div', { class: 'set-back' }, Button({ type: 'text', size: 'sm', icon: 'chevR', label: 'رجوع للإعدادات', attrs: { 'data-set-back': '' }, onClick: goHub })), K.PageHead(x[1], x[2], [note, files, instant ? null : save].filter(Boolean)), body), st.dirty ? saveBar() : null];
   }
   // «تجاهل التغييرات» بيرجّع البيانات فعلًا: لقطة من الإعدادات أول ما القسم يفتح (وبعد كل حفظ)
   const LOGO_T = ['color', 'reversed', 'mark'];

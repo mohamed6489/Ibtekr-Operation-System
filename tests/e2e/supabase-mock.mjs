@@ -25,6 +25,7 @@ import { parseGenerate, parseEdit, parseCreate, imageSettings, creditsFor, usdOf
 import { hrState, hrRoute } from './hr-mock.mjs'; // phase 10 (0046): the HR tables, RPCs, team-admin and the bucket hr-docs
 import { mktState, mktRoute } from './mkt-mock.mjs'; // phase 9.5.1 (0049): the marketing tables, RPCs, the bucket marketing and its AI actions
 import { settingsState, settingsRoute } from './settings-mock.mjs';
+import { notifState, notifRoute } from './notif-mock.mjs'; // the notifications' new structure (0157): the tree and the alerts' rule / sub-section / hide_at (opts.notifTree)
 // phase 11 (0056): the team RPCs, settings-admin / notify, company_docs, the buckets company-docs / settings, activity_log filters
 import { portalState, portalRoute } from './portal-mock.mjs'; // phase 13 T4 (0065): the maker portal's Edge Function on the mock's rows
 export const SUPABASE_URL = 'https://fsynculhaupcktzkfkdd.supabase.co';
@@ -452,7 +453,7 @@ export async function installSupabaseMock(page, opts = {}) {
   // phase 9.5.1 (0049): the marketing rows (mkt-mock.mjs mktState: opts.mktCampaigns / mktPosts / mktTemplates / mktObjects / mktCap / mktUsed), mkt.calls / mkt.writes
   mock.mkt = mktState(opts);
   // phase 11 (0056): the settings page's server side (settings-mock.mjs settingsState: opts.vault / companyDocs / settingsObjects / sessions / probeOk), st.calls / st.writes; the roles copy of this install
-  mock.st = settingsState(opts, ROLES); mock.roles = mock.st.roles; LIVE_ROLES.list = mock.roles;
+  mock.st = settingsState(opts, ROLES); mock.roles = mock.st.roles; LIVE_ROLES.list = mock.roles; mock.notif = notifState(opts); // 0157
   mock.portal = portalState(); // phase 13 T4
   mock.thumbs = []; mock.thumbsDown = false; // comments decision 10: woo-sync thumbs
   mock.accWrites = []; mock.accountsDown = false; mock.statements = []; mock.statementRows = opts.statementRows || [];
@@ -534,6 +535,7 @@ export async function installSupabaseMock(page, opts = {}) {
     const aal = () => (issued.has(bearer) ? claims(bearer).aal : null);
     { const hr = hrRoute({ method, path, url, hd, body, u: path.startsWith('/rest/v1/') && bearer !== ANON_KEY && !issued.has(bearer) ? null : tokenUser(), hasPerm, isAdmin, json, mock, route }); if (hr) return hr; } // phase 10 (0046)
     { const mk = mktRoute({ method, path, url, hd, body, u: path.startsWith('/rest/v1/') && bearer !== ANON_KEY && !issued.has(bearer) ? null : tokenUser(), hasPerm, isAdmin, json, mock, route }); if (mk) return mk; } // phase 9.5.1 (0049)
+    { const nt = notifRoute({ method, path, url, hd, body, u: path.startsWith('/rest/v1/') && bearer !== ANON_KEY && !issued.has(bearer) ? null : tokenUser(), hasPerm, isAdmin, json, mock, route }); if (nt) return nt; } // 0157 (opts.notifTree)
     { const st = settingsRoute({ method, path, url, hd, body, u: path.startsWith('/rest/v1/') && bearer !== ANON_KEY && !issued.has(bearer) ? null : tokenUser(), hasPerm, isAdmin, json, mock, route }); if (st) return st; } // phase 11 (0056)
     { const pt = portalRoute({ method, path, url, hd, body, u: null, hasPerm, isAdmin, json, mock, route }); if (pt) return pt; } // phase 13 T4: the maker portal (no member token — its own x-portal-token)
 

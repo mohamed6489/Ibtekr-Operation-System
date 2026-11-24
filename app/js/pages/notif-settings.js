@@ -114,7 +114,7 @@
     if (!tree) return [K().Empty('بنحمّل التنبيهات…', '')];
     return [K().Section('أقسام التنبيهات', [
       h('p', { class: 't-small muted', style: 'margin:0 0 12px' }, 'الجرس بيتعرض بنفس التقسيمة دي بالظبط: كل قسم رئيسي مجموعة، وأقسامه الفرعية فلاتر، وتحت كل فرعي تنبيهاته. الجرس بس دلوقتي — الإيميل والواتساب قريبًا.'),
-      h('div', { class: 'nr-tree', 'data-nr-tree': '' }, tree.mains.map((m, i) => mainBox(m, i, tree.mains, redraw)))],
+      h('div', { class: 'nr-tree', 'data-nr-tree': '', 'data-set-instant': '' }, tree.mains.map((m, i) => mainBox(m, i, tree.mains, redraw)))],
       [U().Button({ type: 'primary', icon: 'plus', label: 'قسم رئيسي', attrs: { 'data-nr-add-main': '' }, onClick: () => nameForm('قسم رئيسي جديد', '', (nm) => ST().notifSectionSave({ name: nm }).then((r) => { if (r.ok) redraw(); return r; })) })],
       { th: false })];
   }

@@ -84,5 +84,5 @@ test('decision 11: CS — the chat a lighter beige, the «ملف العميل» 
   const d = await page.locator('[data-panel-toggle] svg path').getAttribute('d');
   expect(d && d !== 'undefined').toBeTruthy();
   // toHaveCSS retries: the chat redraws when the conversation opens (CI read a detached node once → '')
-  await expect(page.locator('.cs-msgs')).toHaveCSS('background-color', 'rgb(245, 237, 220)'); // the page's container beige, lighter than the selected #e8d5b3
+  await expect(page.locator('.cs-msgs')).toHaveCSS('background-color', 'rgb(245, 237, 220)'); // the page's container beige, lighter than the selected beige (#efe3cb since 24 Nov)
 });

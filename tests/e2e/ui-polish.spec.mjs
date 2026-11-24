@@ -64,3 +64,11 @@ test('a hover is #F9F0E2 (the owner 16 Nov), the selected is the light beige wit
   const chosen = page.locator('[role=listbox] [role=option][aria-selected=true]');
   if (await chosen.count()) expect(await rgb(page, '[role=listbox] [role=option][aria-selected=true]')).toBe(SELECTED);
 });
+
+test('the selected beige is lighter (#efe3cb — Safwat 24 Nov) and named «البيج — المختار» in «الهوية البصرية» with that default', async ({ page }) => {
+  expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--color-brand-subtle-bg').trim().toLowerCase())).toBe('#efe3cb');
+  await page.evaluate(() => { location.hash = 'settings-brand'; });
+  const row = page.locator('#pg-settings').getByText('البيج — المختار', { exact: true });
+  await expect(row).toBeVisible();
+  await expect(page.locator('#pg-settings')).not.toContainText('الأخضر الفاتح');
+});

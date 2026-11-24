@@ -1201,39 +1201,46 @@ Deno.test('bridge_campaign (comments decision 52): marketing.create and a linked
   const r = await call(deps, { action: 'bridge_campaign', campaign_id: CMP }, 'jwt-mkt');
   assertEquals(r.res.status, 200);
   assertEquals([r.body.result, r.body.targets, r.body.refs, r.body.uploaded, r.body.left, r.body.page_id], ['ok', 4, 3, 3, 0, 'page-1']);
-  // Safwat 24 Nov: the link opens on the campaign's panel; every generator runs on the site with the send
+  // Safwat 24 Nov: the link opens on the campaign's new panel; nothing runs from here (the member presses run on the site)
   assertEquals(r.body.url, 'https://www.magnific.com/app/spaces/' + F.spaces[0].id + '?focusNode=' + F.created[0].nodeId);
-  assertEquals([r.body.ran, F.bridge.calls.filter((c: any) => c.name === 'spaces_run').map((c: any) => c.args.mode)], [4, ['downstream', 'downstream', 'downstream', 'downstream']]);
+  assertEquals([r.body.videos, F.bridge.calls.filter((c: any) => c.name === 'spaces_run').length], [1, 0]);
   // the references: the site's product photo by its own link, the campaign's upload and the template's image by a signed link — each once
   assertEquals(ups.length, 3);
   assert(ups[0].url.endsWith('/c.jpg') && ups[0].folderReference === PROJECT, 'the product photo of the site');
   assert(ups.every((u) => /^https:\/\//.test(u.url) && /^campaign-ref-\d+\.(png|jpg|webp)$/.test(u.fileName)));
   assert(fetched.some((u) => u.endsWith('/c.jpg')));
   assertEquals(F.pages.map((p) => [p.spaceId, p.name]), [[F.spaces[0].id, 'كامبينات التسويق']]);
-  // the nodes: the panel, P1 (3 refs + generator + list), the carousel's cover and slide (1 ref each — the same creation), the video scene (none)
-  assertEquals(F.created.map((n) => n.nodeType), ['panel', 'creation', 'creation', 'creation', 'image-generator', 'list', 'creation', 'image-generator', 'list', 'creation', 'image-generator', 'list', 'image-generator', 'list']);
+  // the nodes: the panel, P1 (3 refs + generator + list), the carousel's cover and slide (1 ref each — the same creation), the video
+  // scene (no ref): its image generator and list, then its clip — a video generator fed by that image as the first frame — and a video list
+  assertEquals(F.created.map((n) => n.nodeType), ['panel', 'creation', 'creation', 'creation', 'image-generator', 'list', 'creation', 'image-generator', 'list', 'creation', 'image-generator', 'list', 'image-generator', 'list', 'video-generator', 'list']);
   const calls = F.bridge.calls.filter((c) => c.op === 'tool' && c.name === 'spaces_create_node');
-  assertEquals(calls.map((c) => c.args.nodes.length), [12, 2], 'never more than a call takes');
+  assertEquals(calls.map((c) => c.args.nodes.length), [12, 4], 'never more than a call takes');
+  const vg = F.created.find((n) => n.nodeType === 'video-generator')!;
+  assertEquals([vg.data.model, vg.data.aspectRatio, typeof vg.data.duration, vg.data.withSoundEffects, F.created.at(-1)!.data.itemType], ['bytedance-seedance-pro-2.5', '9:16', 'number', true, 'video']);
+  assert(typeof vg.data.prompt === 'string' && vg.data.prompt.length > 0, 'the scene\'s motion prompt from the system');
   assertEquals(calls[1].args.nodes[0].layout.groupId, F.created[0].nodeId, 'the second call names the panel by its id');
   const gens = F.created.filter((n) => n.nodeType === 'image-generator');
   assertEquals(gens.map((g) => [g.name, g.data.aspectRatio, g.data.mode, g.data.numberOfGenerations]), [['بوست 1', '4:5', 'imagen-nano-banana-2', 1], ['كاروسيل 1 · الغلاف', '1:1', 'imagen-nano-banana-2', 1], ['كاروسيل 1 · صورة 1', '1:1', 'imagen-nano-banana-2', 1], ['فيديو 1 · المشهد 1', '9:16', 'imagen-nano-banana-2', 1]]);
   for (const bit of ['«دفا الشتا»', '«المنتج في النص»', 'The first 2 reference images', '«ألوان دافية»', 'The other 1 reference image']) assert(gens[0].data.prompt.includes(bit), bit);
   assert(gens[3].data.prompt.includes('key frame') && gens[3].data.prompt.includes('«لقطة قريبة»'));
   assertEquals(F.created.filter((n) => n.nodeType === 'creation').map((n) => n.data.creationIdentifier), ['CR1', 'CR2', 'CR3', 'CR2', 'CR2']);
-  assertEquals(F.connections.length, 3 + 1 + 1 + 1 + 1 + 1 + 1);
+  assertEquals(F.connections.length, 3 + 1 + 1 + 1 + 1 + 1 + 1 + 2);
+  assertEquals(F.connections.filter((c: any) => c.targetPort === 'first-frame' || c.targetPort === 'videos').map((c: any) => c.targetPort), ['first-frame', 'videos']);
   assertEquals([F.connections[0].sourcePort, F.connections[0].targetPort, F.connections[0].targetElementId, F.connections[3].targetPort], ['output', 'reference', gens[0].nodeId, 'images']);
   const rec = db.rows('settings').find((s: any) => s.section === 'magnific').data.campaigns[CMP];
   assertEquals([rec.space_id, rec.page_id, rec.gens.map((g: any) => g.key), rec.seen, rec.by], [F.spaces[0].id, 'page-1', ['P1', 'C1:-1', 'C1:0', 'V1:0'], [], U.mkt]);
   assertEquals(rec.gens[0].id, gens[0].nodeId);
+  assertEquals([typeof rec.gens[3].vout, rec.gens[0].vout], ['string', undefined], 'the video scene keeps its video list');
   assertEquals(Object.keys(rec.sent).sort(), ['f:' + CMP + '/up-logo.png', 'f:templates/t1.png', 'p:4001']);
   assertEquals(db.rows('ai_runs').length, 0, 'sending costs nothing of the images\' credits');
   // again (the texts changed): a new flow on the same page, no photo uploaded twice
   const firstPanel = F.created[0].nodeId;
-  const r2 = await call(deps, { action: 'bridge_campaign', campaign_id: CMP, run: false }, 'jwt-mkt');
+  const r2 = await call(deps, { action: 'bridge_campaign', campaign_id: CMP }, 'jwt-mkt');
   assertEquals([r2.body.targets, r2.body.uploaded, r2.body.refs, ups.length, F.pages.length, F.spaces.length], [4, 0, 3, 3, 1, 1]);
-  // a send again replaces the campaign's panel (no copy beside it); run: false = built only, the member runs it on the site
-  assertEquals(F.bridge.calls.filter((c: any) => c.name === 'spaces_delete_node').map((c: any) => c.args.nodeIds), [[firstPanel]]);
-  assertEquals([r2.body.ran, F.bridge.calls.filter((c: any) => c.name === 'spaces_run').length], [0, 4]);
+  // a send again = a new flow beside the earlier one (nothing deleted, nothing run); the link and the record on the new panel
+  assertEquals([F.bridge.calls.filter((c: any) => c.name === 'spaces_delete_node').length, F.bridge.calls.filter((c: any) => c.name === 'spaces_run').length], [0, 0]);
+  const panels = F.created.filter((n) => n.nodeType === 'panel'); assertEquals(panels.length, 2); assert(panels[1].nodeId !== firstPanel);
+  assert(r2.body.url.endsWith('focusNode=' + panels[1].nodeId));
   // a photo the project could not read by its link goes up as bytes (request_upload → PUT → finalize)
   const F2 = flowBridge(); const ups2 = campaignBridge(F2);
   const st = cstate52(); st.pieces = [{ id: 'P1', kind: 'بوست', n: 1, size: '1080x1920', idea: 'x', use: [{ t: 'file', path: CMP + '/gone-1.png' }], ref: [] }] as any; st.w.media.post = { notes: '', use: [], ref: [] } as any;
@@ -1284,6 +1291,16 @@ Deno.test('bridge_campaign_fetch (comments decision 52): the recorded flow\'s ou
   const down = setup({ seed, storage: { ...MKT_FILES }, vault: { ...LINKED }, bridge: F.bridge, photo: null });
   const r4 = await call(down.deps, { action: 'bridge_campaign_fetch', campaign_id: CMP }, 'jwt-mkt');
   assertEquals([r4.res.status, r4.body.placed.length, r4.body.failed > 0, down.db.rows('ai_runs').length], [200, 0, true, 0]);
+  // Safwat 24 Nov («هات … سواء كانت فيديو»): the video scene's clip list — the newest new clip = a clip job of that scene with its
+  // creation (the piece's poll downloads it); taken once
+  const VF = flowBridge(); const vgens = [{ key: 'V1:0', id: NID(204), out: NID(304), vgen: NID(404), vout: NID(504) }];
+  VF.outputs[NID(304)] = []; VF.outputs[NID(504)] = ['CLIP1', 'CLIP2'];
+  const vseed = { ...seed, settings: [{ section: 'magnific', data: { space_id: SPACE, mkt_page: 'page-1', campaigns: { [CMP]: { ...flow, gens: vgens } } } }] };
+  const v = setup({ seed: vseed, storage: { ...MKT_FILES }, vault: { ...LINKED }, bridge: VF.bridge });
+  const rv = await call(v.deps, { action: 'bridge_campaign_fetch', campaign_id: CMP }, 'jwt-mkt');
+  assertEquals([rv.res.status, rv.body.found, rv.body.placed.length, rv.body.clips], [200, 1, 0, [{ piece: 'V1', scene: 0 }]]);
+  assertEquals(v.db.rows('mkt_video_jobs').map((j: any) => [j.campaign_id, j.piece, j.kind, j.scene, j.creation_ref, j.status, j.created_by]), [[CMP, 'V1', 'clip', 0, 'CLIP2', 'running', U.mkt]]);
+  assertEquals((await call(v.deps, { action: 'bridge_campaign_fetch', campaign_id: CMP }, 'jwt-mkt')).body.clips, [], 'taken once');
 });
 
 Deno.test('bridge_flow with many sized products: more than 20 nodes go up in calls of 12 and are all wired (a call takes 20 at most)', async () => {

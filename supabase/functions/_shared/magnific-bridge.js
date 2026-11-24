@@ -209,8 +209,11 @@ export function flowNodes({ title, category, photos, prompts, sizes, model = FLO
  * Comments decision 52 (the owner 15 Nov — the campaign's pieces on Magnific): the nodes of one campaign's flow — a panel, and for
  * each image the campaign needs: its reference photos as creation nodes (MAX 4, already uploaded to the project), one image
  * generator with that image's own prompt and ratio, and its output list. targets: [{ key, name, prompt, aspect, refs: [creation
- * ids] }] → { nodes, connections, gens: [{ key, gen, out }] } — `refs` here are the aliases of spaces_create_node (letters, digits,
- * _ and -); a target without a prompt is left out.
+ * ids], video? }] → { nodes, connections, gens: [{ key, gen, out, vgen?, vout? }] } — `refs` here are the aliases of spaces_create_node
+ * (letters, digits, _ and -); a target without a prompt is left out. A video scene's target carries `video` ({ slug, prompt, aspect,
+ * duration, resolution, sound } — the system's own clip settings, mkt-video clipArgs): a video generator after the scene's image
+ * generator (its output = the clip's first frame) and a video output list (Safwat 24 Nov — «لما ادوس هات من ماجنيفيك يجيبهم سواء كانت
+ * فيديو صور او كاروسيل»).
  */
 export function campaignFlowNodes({ title, targets, model = FLOW_MODEL }) {
   const nodes = [{ nodeType: 'panel', ref: 'panel', name: title, data: { name: title } }];
@@ -225,7 +228,17 @@ export function campaignFlowNodes({ title, targets, model = FLOW_MODEL }) {
     nodes.push({ nodeType: 'image-generator', ref: gen, name, data: { prompt, mode: model, aspectRatio: /^\d{1,2}:\d{1,2}$/.test(String(t.aspect || '')) ? t.aspect : 'auto', resolution: '1k', numberOfGenerations: 1 }, layout: place(gen) });
     nodes.push({ nodeType: 'list', ref: out, name: 'مخرجات — ' + name, data: { itemType: 'image', mode: 'accumulate' }, layout: place(out) });
     connections.push({ from: gen, fromPort: 'output', to: out, toPort: 'images' });
-    gens.push({ key: String(t.key), gen, out }); above = first;
+    const v = isObj(t.video) ? t.video : null; const vp = v ? text(v.prompt, 30000) : ''; const slug = v ? text(v.slug, 80) : '';
+    if (v && vp && /^[a-z0-9][a-z0-9._-]{1,79}$/.test(slug)) {
+      const vgen = 'v' + i; const vout = 'vo' + i; const dur = Math.max(1, Math.min(30, Math.round(Number(v.duration) || 5)));
+      nodes.push({ nodeType: 'video-generator', ref: vgen, name: name + ' — فيديو', data: { model: slug, prompt: vp, aspectRatio: /^\d{1,2}:\d{1,2}$/.test(String(v.aspect || '')) ? v.aspect : '9:16', duration: dur,
+        ...(/^\d{3,4}p$|^4K$/.test(String(v.resolution || '')) ? { resolution: v.resolution } : {}), ...(v.sound === true ? { withSoundEffects: true, noMusic: true } : {}) }, layout: place(vgen) });
+      connections.push({ from: gen, fromPort: 'output', to: vgen, toPort: 'first-frame' });
+      nodes.push({ nodeType: 'list', ref: vout, name: 'فيديو — ' + name, data: { itemType: 'video', mode: 'accumulate' }, layout: place(vout) });
+      connections.push({ from: vgen, fromPort: 'output', to: vout, toPort: 'videos' });
+      gens.push({ key: String(t.key), gen, out, vgen, vout });
+    } else gens.push({ key: String(t.key), gen, out });
+    above = first;
   });
   return { nodes, connections, gens };
 }

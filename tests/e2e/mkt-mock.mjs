@@ -707,9 +707,10 @@ function mktAi(c, b) {
       const fresh = [...refs].filter((k) => !past.sent.includes(k));
       H.mgFlows[camp.id] = { keys: targets.map((w) => flowKey(w.piece, w.slide)), seen: [], sent: past.sent.concat(fresh), n: (past.n || 0) + 1 };
       H.calls[H.calls.length - 1].targets = targets.length;
-      // Safwat 24 Nov: the link opens on the campaign's panel; the generators run unless run: false; a send again replaces the panel
-      H.calls[H.calls.length - 1].run = b.run !== false;
-      return json(200, { result: 'ok', campaign_id: camp.id, url: M.space.url + '?focusNode=panel-' + camp.id.slice(0, 8), space_id: M.space.id, page_id: 'page-mkt', targets: targets.length, ran: b.run === false ? 0 : targets.length, refs: refs.size, uploaded: fresh.length, left: 0 });
+      // Safwat 24 Nov: a new flow each send (its own panel in the link), nothing runs from here; a video scene gets its clip after it
+      H.calls[H.calls.length - 1].run = b.run;
+      const videos = targets.filter((w) => typeof w.slide === 'number' && w.slide >= 0 && ((camp.state.pieces || []).find((x) => x.id === w.piece) || {}).kind === 'فيديو').length;
+      return json(200, { result: 'ok', campaign_id: camp.id, url: M.space.url + '?focusNode=panel-' + camp.id.slice(0, 8) + '-' + H.mgFlows[camp.id].n, space_id: M.space.id, page_id: 'page-mkt', targets: targets.length, videos, refs: refs.size, uploaded: fresh.length, left: 0 });
     }
     const flow = H.mgFlows[camp.id]; if (!flow) return json(409, { error: 'no_flow' });
     if (!M.linked) return json(503, { error: 'not_linked', status: null, detail: null });
@@ -721,7 +722,7 @@ function mktAi(c, b) {
       H.seq += 1; const path = campaignGenPath(camp.id, w.piece, w.slide, 'mgmk' + H.seq, 'png', false);
       H.objects.set(path, { type: 'image/png', size: 68, by: u.id }); ids.forEach((id) => flow.seen.push(id)); placed.push({ piece: w.piece, slide: w.slide, path }); });
     placed.forEach((x) => { camp.state = placeImage(camp.state, x.piece, x.slide, x.path) || camp.state; }); // the server puts them on the saved campaign too
-    return json(200, { result: 'ok', campaign_id: camp.id, found, placed, failed: 0, offhost: 0 });
+    return json(200, { result: 'ok', campaign_id: camp.id, found, placed, clips: [], failed: 0, offhost: 0 });
   }
   // the owner 15 Nov: any link — the server's rules (refUrl), then H.refWeb[url] = 'image' | 'page' (its og:image) | 'none' | 'big';
   // unknown = an image; the image kept as <campaign>/ref-mkN.jpg (the bytes are the server's business, not the page's)

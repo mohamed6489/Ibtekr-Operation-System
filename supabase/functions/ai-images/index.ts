@@ -1283,7 +1283,7 @@ async function bridgeCampaign(deps: Deps, who: Who, args: Json) {
       if (!tplRows.has(id)) { const { data: tp } = await deps.db.from('mkt_templates').select('id, kind, image, descr, deleted_at').eq('id', id).maybeSingle(); tplRows.set(id, isObj(tp) && !tp.deleted_at ? tp : null); }
       return tplRows.get(id) ?? null;
     };
-    const targets: { key: string; name: string; prompt: string; aspect: string; refs: string[] }[] = [];
+    const targets: { key: string; name: string; prompt: string; aspect: string; refs: string[]; video?: Json }[] = [];
     for (const w of wanted) {
       const t = campaignTarget(camp.state, w.piece, w.slide) as Json | null; if (!t) continue;
       const r = campaignRefs(t, cid); const refs: string[] = []; const templates: Json[] = []; let useCount = 0; let styleCount = 0;
@@ -1307,7 +1307,17 @@ async function bridgeCampaign(deps: Deps, who: Who, args: Json) {
       const prompt = campaignPrompt(t, { useCount, styleCount, templates, tplNotes }) + style;
       // a video piece keeps its ratio itself («9:16»); an image piece a size id
       const aspect = typeof t.size === 'string' && /^\d{1,2}:\d{1,2}$/.test(t.size) ? t.size : aspectOf(sizeOf(t.size ?? '') ?? sizeOf(DEFAULT_SIZE));
-      targets.push({ key: flowKey(w.piece, w.slide), name: String(t.label ?? ''), prompt, aspect, refs });
+      // a video scene: its clip after its image on the same flow, with the system's own clip settings (the piece's model, ratio, the scene's
+      // seconds and its motion prompt) — Safwat 24 Nov «هات من ماجنيفيك يجيبهم سواء كانت فيديو صور او كاروسيل»
+      let video: Json | null = null;
+      const vp = t.kind === 'فيديو' && typeof w.slide === 'number' ? (Array.isArray(camp.state?.pieces) ? camp.state.pieces : []).find((x: Json) => isObj(x) && x.id === w.piece) : null;
+      if (isObj(vp) && Array.isArray(vp.scenes) && isObj(vp.scenes[w.slide as number])) {
+        const vw = isObj(camp.state.w) ? camp.state.w : {}; const vmedia = isObj(vw.media) && isObj(vw.media.video) ? vw.media.video : {};
+        const vm: Json = videoModelOf(typeof vp.model === 'string' ? vp.model : '') ?? {};
+        const a: Json | null = clipArgs({ model: vm.id, size: vp.size, res: vp.res, piece: vp, w: vw, notes: vmedia.notes, scene: vp.scenes[w.slide as number], imageRef: null, folder: null });
+        if (a && a.slug) video = { slug: a.slug, prompt: a.prompt, aspect: a.aspectRatio, duration: a.duration, resolution: a.resolution, sound: a.withSoundEffects === true };
+      }
+      targets.push({ key: flowKey(w.piece, w.slide), name: String(t.label ?? ''), prompt, aspect, refs, ...(video ? { video } : {}) });
     }
     if (!targets.length) return json(409, { error: 'nothing' });
     // the photos that went up are kept even if the flow's own calls fail below (the next send starts from them)
@@ -1316,23 +1326,18 @@ async function bridgeCampaign(deps: Deps, who: Who, args: Json) {
     let pageId = hadSpace && typeof cfg.mkt_page === 'string' && cfg.mkt_page ? cfg.mkt_page : null;
     if (!pageId) { pageId = await makePage(deps, token, spaceId, MKT_PAGE_NAME); await saveMagnificSettings(deps, { mkt_page: pageId }); }
     const title = (line(String(camp.name ?? ''), 80) || 'كامبين') + ' · ' + deps.now().slice(0, 10);
-    // a send again replaces the campaign's own panel (its references, generators and lists go with it) instead of a copy beside it
-    if (typeof past.panel === 'string' && NODE_ID.test(past.panel) && past.page_id === pageId && past.space_id === spaceId) {
-      try { await bridge.callTool(token, 'spaces_delete_node', { spaceId, pageId, nodeIds: [past.panel] }); } catch (e) { if (!(e instanceof BridgeError) || e.kind !== 'mcp_error') throw e; }
-    }
+    // a new flow each send (Safwat 24 Nov — «لما ادوس علي ابعت لماجنيفك يفتح فلو جديد … و يبقا واقف علي اني ادوس تشغيل»): the earlier
+    // panels stay on the page, nothing runs from here — «هات» reads the newest flow
     const plan = campaignFlowNodes({ title, targets });
     const idOf = await createNodes(deps, token, spaceId, pageId, plan.nodes as PlanNode[]);
     await connectNodes(deps, token, spaceId, pageId, plan.connections as PlanLink[], idOf);
-    const gens = plan.gens.map((g: Json) => ({ key: g.key, id: idOf[g.gen], out: idOf[g.out] }));
-    // the generators run on the site at once (the account's own plan) unless the member chose to run them by hand
-    let ran = 0;
-    if (args.run !== false) for (const g of gens) { try { await bridge.callTool(token, 'spaces_run', { spaceId, startNodeId: g.id, mode: 'downstream' }); ran += 1; } catch (e) { if (!(e instanceof BridgeError) || e.kind !== 'mcp_error') throw e; } }
+    const gens = plan.gens.map((g: Json) => ({ key: g.key, id: idOf[g.gen], out: idOf[g.out], ...(g.vout ? { vgen: idOf[g.vgen], vout: idOf[g.vout] } : {}) }));
     // the link opens the Space on the campaign's own panel (not the page that was open last)
     const base0 = String(spaceUrl ?? ''); const url = base0 ? base0 + (base0.includes('?') ? '&' : '?') + 'focusNode=' + encodeURIComponent(String(idOf.panel)) : null;
     const record = { space_id: spaceId, url, page_id: pageId, panel: idOf.panel, gens, sent, seen: [], made_at: deps.now(), by: who.uid };
     const latest = await magnificSettings(deps);
     await saveMagnificSettings(deps, { campaigns: { ...(isObj(latest.campaigns) ? latest.campaigns : {}), [cid]: record } });
-    return json(200, { result: 'ok', campaign_id: cid, url, space_id: spaceId, page_id: pageId, targets: gens.length, ran, refs: new Set(targets.flatMap((x) => x.refs)).size, uploaded: uploads, left: Math.max(0, campaignTargetsLeft(camp.state, wanted.length)) });
+    return json(200, { result: 'ok', campaign_id: cid, url, space_id: spaceId, page_id: pageId, targets: gens.length, videos: gens.filter((g: Json) => g.vout).length, refs: new Set(targets.flatMap((x) => x.refs)).size, uploaded: uploads, left: Math.max(0, campaignTargetsLeft(camp.state, wanted.length)) });
   } catch (e) { return bridgeFail(e); }
 }
 // how many images of the campaign did not fit the flow (over MAX_FLOW_TARGETS) — the page says so
@@ -1358,17 +1363,28 @@ async function bridgeCampaignFetch(deps: Deps, who: Who, args: Json) {
   if (!flow) return json(409, { error: 'no_flow' });
   const want = new Map<string, { piece: string; slide: number | null }>((campaignTargets(camp.state) as { piece: string; slide: number | null }[]).map((w) => [flowKey(w.piece, w.slide), w]));
   const gens: Json[] = flow.gens.filter((g: unknown): g is Json => isObj(g) && typeof g.key === 'string' && typeof g.out === 'string' && NODE_ID.test(g.out) && want.has(g.key));
-  const empty = { result: 'ok', campaign_id: cid, found: 0, placed: [], failed: 0, offhost: 0 };
+  const empty = { result: 'ok', campaign_id: cid, found: 0, placed: [], clips: [], failed: 0, offhost: 0 };
   if (!gens.length) return json(200, empty);
   let token: string;
   try { token = await accessToken(deps); } catch (e) { return bridgeFail(e); }
   try {
-    const nodeData = nodeDataOf(await bridge.callTool(token, 'spaces_get_nodes', { spaceId: flow.space_id, nodeIds: gens.map((g) => g.out) }));
+    const vouts = gens.filter((g) => typeof g.vout === 'string' && NODE_ID.test(g.vout));
+    const nodeData = nodeDataOf(await bridge.callTool(token, 'spaces_get_nodes', { spaceId: flow.space_id, nodeIds: [...gens.map((g) => g.out), ...vouts.map((g) => g.vout)] }));
     const seen = new Set<string>(Array.isArray(flow.seen) ? flow.seen.filter((x: unknown): x is string => typeof x === 'string') : []);
+    // a scene's clip that came out: the newest new one = a clip job of that scene with its creation — the piece's own poll
+    // (video_poll) downloads it into the campaign like a clip made from here
+    const clips: { piece: string; scene: number }[] = [];
+    for (const g of vouts) {
+      const fresh = listIdsOf(nodeData, String(g.vout)).filter((id: string) => !seen.has(id)); const w = want.get(g.key)!;
+      if (!fresh.length || typeof w.slide !== 'number') continue;
+      const job = await newJob(deps, who, { campaignId: cid, piece: w.piece }, { kind: 'clip', scene: w.slide, creation_ref: fresh[fresh.length - 1], data: { source: 'flow', method: 'separate' } });
+      if (job) { clips.push({ piece: w.piece, scene: w.slide }); fresh.forEach((id: string) => seen.add(id)); }
+    }
+    const keepSeen = async () => { const latest = await magnificSettings(deps); const cur: Json = isObj(latest.campaigns) && isObj(latest.campaigns[cid]) ? latest.campaigns[cid] : flow; await saveMagnificSettings(deps, { campaigns: { ...(isObj(latest.campaigns) ? latest.campaigns : {}), [cid]: { ...cur, seen: [...seen].slice(-MAX_FLOW_SEEN) } } }); };
     // a generator run more than once: its newest result is the piece's image, the older new ones are passed over with it
     const picks: { id: string; fresh: string[]; piece: string; slide: number | null }[] = [];
     for (const g of gens) { const fresh = listIdsOf(nodeData, String(g.out)).filter((id: string) => !seen.has(id)); if (fresh.length) picks.push({ id: fresh[fresh.length - 1], fresh, ...want.get(g.key)! }); }
-    if (!picks.length) return json(200, empty);
+    if (!picks.length) { if (clips.length) await keepSeen(); return json(200, { ...empty, found: clips.length, clips }); }
     const urls = urlsById(await bridge.callTool(token, 'creations_get', { identifiers: picks.map((p) => p.id) })) as Record<string, string>;
     const hosts = importHosts(deps.env);
     const onHost = (u: string | undefined) => { try { return !!u && hosts.has(new URL(u).hostname.toLowerCase()); } catch { return false; } };
@@ -1387,10 +1403,9 @@ async function bridgeCampaignFetch(deps: Deps, who: Who, args: Json) {
       const fresh = await readCampaign(deps, cid);
       if (fresh) { let state: Json = fresh.state; for (const x of placed) state = placeImage(state, x.piece, x.slide, x.path) ?? state; await deps.db.from('mkt_campaigns').update({ state }).eq('id', cid); }
       await deps.db.from('ai_runs').insert({ created_by: who.uid, action: 'image', source: 'import', label: line('نتائج Magnific — ' + String(camp.name ?? ''), 200), model: null, status: 'ok', error: null, credits: 0, cost_usd: 0, output: { paths: placed.map((x) => x.path), bucket: MKT_BUCKET, campaign_id: cid, failed: failed + offhost } });
-      const latest = await magnificSettings(deps); const cur: Json = isObj(latest.campaigns) && isObj(latest.campaigns[cid]) ? latest.campaigns[cid] : flow;
-      await saveMagnificSettings(deps, { campaigns: { ...(isObj(latest.campaigns) ? latest.campaigns : {}), [cid]: { ...cur, seen: [...seen].slice(-MAX_FLOW_SEEN) } } });
     }
-    return json(200, { result: 'ok', campaign_id: cid, found: picks.length, placed, failed, offhost });
+    if (placed.length || clips.length) await keepSeen();
+    return json(200, { result: 'ok', campaign_id: cid, found: picks.length + clips.length, placed, clips, failed, offhost });
   } catch (e) { return bridgeFail(e); }
 }
 

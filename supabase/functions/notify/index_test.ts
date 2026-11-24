@@ -396,3 +396,13 @@ Deno.test('0150 the assistants\' rules: the admin\'s card (action rules) — liv
   const none = rulesSetup(SEED());
   assertEquals((await call(none.deps, { action: 'rules' })).body, { result: 'ok', at: NOW, on: false, agents: {} });
 });
+
+Deno.test('phase 9 (the old orders\' import): an order placed before LIVE_FROM raises no rule — not unconfirmed, not «new» though its row was just written', async () => {
+  const s = withRules([rule('r-unconf', { name: 'أوردر غير مؤكد', element: 'orders', type: 'confirm', state: 'غير مؤكد' }),
+    rule('r-new', { section_id: SEC_SUB2, name: 'أوردر جديد', element: 'orders', type: 'update', state: 'new', at: '00:00', show: 'until_read', hours: 2, last_run: '2026-11-08T07:30:00.000Z' })],
+    (seed) => { seed.orders.push({ id: 501, number: '501', customer_name: 'قديمة', status: 'جاري التنفيذ', confirm: 'غير مؤكد', placed_at: '2026-03-02T10:00:00Z', created_at: '2026-11-08T07:50:00Z' }); });
+  await cron(s.deps);
+  const ents = s.db.rows('alerts').map((a: any) => a.entity_id);
+  assert(ents.includes('o:1002'), 'the live unconfirmed order still raises its row');
+  assertFalse(ents.some((e: string) => /501/.test(e)), ents.join(','));
+});

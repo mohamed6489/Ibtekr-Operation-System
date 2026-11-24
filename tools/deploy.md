@@ -2518,3 +2518,18 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 3. انشر `notify` (`notify/rules.ts` + `_shared/notif-engine.js` + `_shared/notif-catalog.js`) — المحرك القديم (الأنواع والماتريكس والتصعيد والملخصات والإيميل / الواتساب) مابقاش بيتنادى.
 4. ادمج على `main`. **مفيش أي كتابة على الموقع** ولا رسالة برّه السيستم — الجرس بس (صفوت 24 نوفمبر).
 5. **اتأكد بعد النشر:** بعد أول تيك (كل 15 دقيقة) — `select value -> 'notif' from sync_state where key = 'notify';` (`ran` / `written` / `failed = 0`)، وفي الجرس الأقسام زي «الإعدادات › التنبيهات» بالظبط.
+
+#### 2.7.130 استيراد الأوردرات القديمة (المرحلة 9 في `docs/superpowers/plans/2026-11-23-meeting.md`، `0158`)
+1. ادمج على `main`، وانشر `notify` و`cs-auto` **قبل** الاستيراد، عشان المحركات تقرا من `LIVE_FROM` بس. بعدهم انشر `woo-sync`.
+2. **تجربة من غير كتابة:**
+   - `woo-sync` `{ action: 'legacy_import', dry: true, pages: 30 }`، من الأدمن أو بسر المزامنة.
+   - بيرجّع العدد بالحالة وبالشهر، والمفتوح منهم، واللي موجود عندنا قبل كده.
+   - كمّل بـ `page` لحد `done`.
+3. **الاستيراد:**
+   - `{ action: 'legacy_import', pages: 10 }`، وكرّره لحد `done: true`. الصفحة الجاية في `sync_state` `legacy_import`.
+   - اتأكد إن `failed = 0`. `restart: true` بيرجّعه للصفحة 1.
+   - **مفيش أي كتابة على الموقع.**
+4. طبّق `0158_legacy_nov_statuses.sql`: حالات نوفمبر من Airtable، الحالة بس، ومشروطة بالحالة القديمة.
+5. **اتأكد:**
+   - `select count(*) from orders where placed_at < '2026-08-14';` = عدد الأوردرات الأساسية القديمة اللي التجربة قالت عليه.
+   - مفيش صفوف `alerts` ولا `cs_auto_runs` ولا `inv_moves` لأوردر قديم.

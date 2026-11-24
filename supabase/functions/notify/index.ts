@@ -26,6 +26,7 @@ import Anthropic from 'npm:@anthropic-ai/sdk@1.3.0';
 import { vaultEnv } from '../_shared/secrets.js';
 import { cairoParts } from '../_shared/mkt-publish.js';
 import { runRules } from './rules.ts';
+import { LIVE_FROM } from '../_shared/legacy.js'; // phase 9: the imported old orders count in no assistant's rule
 import { OPEN as TEAM_OPEN, teamNotes } from '../_shared/agent-team.js';
 import { csLateNotes } from '../_shared/agent-actions.js';
 import { DEV_PREFIX, devDue, devNotes } from '../_shared/dev-check.js';
@@ -100,7 +101,7 @@ async function ruleRead(deps: Deps, ctx: Ctx): Promise<RuleRead | null> {
   const weekAgo = addDays(ctx.cairo.day, -6);
   const [st, orders, vendors, bank, lots, tickets, convs, wd, subs, hrq, ot, sg, ads, posts, checks] = await Promise.all([
     got(deps.db.from('settings').select('section, data').in('section', ['ai', 'store'])),
-    got(deps.db.from('orders').select('id, status, confirm, confirm_at, placed_at').not('status', 'in', closed).is('deleted_at', null).limit(LIMIT)),
+    got(deps.db.from('orders').select('id, status, confirm, confirm_at, placed_at').not('status', 'in', closed).is('deleted_at', null).gte('placed_at', LIVE_FROM).limit(LIMIT)),
     got(deps.db.from('vendors').select('id, status, lead_days').limit(LIMIT)),
     (async () => { try { const r = await deps.db.rpc('ai_agent_bankless'); return r.error || typeof r.data !== 'number' ? null : r.data as number; } catch { return null; } })(),
     got(deps.db.from('inv_lots').select('id, reason, status, closed_at').eq('reason', 'مرتجع').is('closed_at', null).limit(LIMIT)),

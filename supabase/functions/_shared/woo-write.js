@@ -474,7 +474,7 @@ export async function writeOrders(ctx, wooOrders) {
   const now = ctx.now();
   const mapped = await mapWithVendors(ctx, parents, (o) => {
     const row = stored.get(wooId(o.id));
-    return mapOrder(o, { statusMap: ctx.statusMap, vendorsByWooId: ctx.vendors, now, currentStatus: row?.status_custom || row?.status || null, currentWooStatus: row?.woo_status ?? null }); // 0095: the added status the order is in counts as its current one
+    return mapOrder(o, { statusMap: ctx.statusMap, vendorsByWooId: ctx.vendors, now, legacy: ctx.legacy === true, currentStatus: row?.status_custom || row?.status || null, currentWooStatus: row?.woo_status ?? null }); // 0095: the added status the order is in counts as its current one
   });
   const kept = mapped.map((m, i) => ({ o: parents[i], m })).filter(({ o, m }) => {
     if (m.skipped) return false;
@@ -490,8 +490,9 @@ export async function writeOrders(ctx, wooOrders) {
   const known = await save(ctx, 'order_items', items.filter((i) => i.vendor_id !== null).map((i) => pick(i, ITEM_COLUMNS)), 'id');
   const unknown = await save(ctx, 'order_items', items.filter((i) => i.vendor_id === null).map((i) => pick(i, ITEM_COLUMNS_NO_VENDOR)), 'id');
   await flagRemovedLines(ctx, written);
-  const pulled = await autoPullNewOrders(ctx, written.filter(isNew).map(({ m }) => m));
-  await autoReleaseClosed(ctx, written.filter((k) => !isNew(k)).map(({ m }) => m));
+  // phase 9 (the old orders' import): no side effect — the stock is never reserved or released for history
+  const pulled = ctx.legacy === true ? 0 : await autoPullNewOrders(ctx, written.filter(isNew).map(({ m }) => m));
+  if (ctx.legacy !== true) await autoReleaseClosed(ctx, written.filter((k) => !isNew(k)).map(({ m }) => m));
 
   const conflicts = written.filter(({ m }) => m.statusResult === 'conflict');
   for (const { m } of conflicts) {

@@ -186,3 +186,12 @@ Deno.test('no answer in 24 hours: a ticket for خدمة العملاء as the se
   assertEquals(db.rows('cs_auto_runs').find((r: any) => r.entity === 'order:177702-silent').result, 'ticket');
   const again = await cron(deps); assertEquals(again.body.silent, 0); assertEquals(db.rows('tickets').length, 1);
 });
+
+Deno.test('phase 9 (the old orders\' import): an order placed before LIVE_FROM, written just now, fires no rule and sends nothing', async () => {
+  const seed = SEED(); seed.orders = [{ ...seed.orders[0], id: 501, number: '501', placed_at: '2026-03-02T10:00:00Z', updated_at: '2026-11-08T07:50:00Z' }];
+  const { db, deps, graph } = setup({ seed });
+  const { res, body } = await cron(deps);
+  assertEquals(res.status, 200, JSON.stringify(body));
+  assertEquals([body.events, body.sent], [0, 0]);
+  assertEquals(graph.length, 0); assertEquals(db.rows('cs_auto_runs').length, 0); assertEquals(db.rows('cs_messages').length, 0);
+});

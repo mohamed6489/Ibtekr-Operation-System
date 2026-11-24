@@ -60,6 +60,11 @@ export const START_POINTS = ['confirm', 'order', 'notify'];
 export const DELAY_STOP = ['قيد الشحن', 'مكتمل', 'ملغي', 'استرجاع', 'فشل'];
 // the meeting of 23 Nov [#9]: an on-hold order («معلّق») is never «متأخر» / «قابل للتأخير» — nor are its products — whatever the settings' stop list
 export const HOLD_STATUS = 'معلّق';
+// a line counts for a delay only while it is open — the orders page's own rule (block 29 `lineOpen`): its sub-order on the site (else
+// its order) is still processing / pending / on-hold, it was not pulled from the hub, and the product is not «ملغي» (Safwat 24 Nov:
+// the bell counted a shipped maker's lines as late, and his card opened empty)
+export const SITE_OPEN = Object.freeze(['processing', 'pending', 'on-hold']);
+export const lineIsOpen = ({ siteStatus, pulled, status }) => SITE_OPEN.includes(String(siteStatus ?? '')) && !pulled && String(status ?? '') !== 'ملغي';
 export const DELAY_DEFAULTS = Object.freeze({ start: 'confirm', orderRisk: 2, subRisk: 2, lead: LEAD_DEFAULT, stop: DELAY_STOP });
 const intIn = (v, lo, hi, d) => { const n = Number(v); return v !== null && v !== '' && Number.isInteger(n) && n >= lo && n <= hi ? n : d; };
 /** settings «makers».delay (anything) → { start, orderRisk, subRisk, lead, stop } with the defaults */

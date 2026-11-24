@@ -469,3 +469,19 @@ Deno.test('0162 several elements in one alert: «فردي» writes each part\'s 
   assert(String(rep[0].title).startsWith('تقرير المتأخر — 2'), rep[0].title);
   for (const a of A) assertFalse(/0109/.test(JSON.stringify(a)), 'no phone in an alert');
 });
+
+Deno.test('Safwat 24 Nov: a line whose sub-order the site closed (shipped / completed), pulled from the hub or «ملغي» is never late — the orders page\'s own rule; an open one still is', async () => {
+  const s = withRules([rule('r-subs', { name: 'أوردر فرعي متأخر', element: 'subs', type: 'delay', state: 'late', at: '00:00', roles: ['admin'] })], (seed) => {
+    const V = seed.vendors[0].id;
+    const ord = (id: number, woo: string) => ({ id, number: String(id), customer_name: 'عميل', status: 'قيد الشحن', woo_status: woo, confirm: 'مؤكد بدون عربون', confirm_at: '2026-10-01T10:00:00Z', placed_at: '2026-10-01T09:00:00Z', created_at: '2026-10-01T09:00:00Z' });
+    seed.orders.push(ord(2001, 'processing'), ord(2002, 'processing'), ord(2003, 'processing'), ord(2004, 'processing'));
+    seed.sub_orders = (seed.sub_orders || []).concat([{ id: 'so1', order_id: 2001, vendor_id: V, woo_order_id: 9001, woo_status: 'completed' }, { id: 'so2', order_id: 2002, vendor_id: V, woo_order_id: 9002, woo_status: 'processing' },
+      { id: 'so3', order_id: 2003, vendor_id: V, woo_order_id: 9003, woo_status: 'processing' }, { id: 'so4', order_id: 2004, vendor_id: V, woo_order_id: 9004, woo_status: 'processing' }]);
+    const it = (id: number, order: number, so: string, extra: any = {}) => ({ id, order_id: order, sub_order_id: so, vendor_id: V, name: 'منتج', qty: 1, status: 'جاري التنفيذ', pulled: false, removed: false, ...extra });
+    seed.order_items.push(it(3001, 2001, 'so1'), it(3002, 2002, 'so2'), it(3003, 2003, 'so3', { pulled: true }), it(3004, 2004, 'so4', { status: 'ملغي' }));
+  });
+  await cron(s.deps);
+  const ids = s.db.rows('alerts').filter((a: any) => a.rule_id === 'r-subs').map((a: any) => String(a.entity_id).split(':')[1]);
+  assert(ids.includes('2002'), 'the open sub-order is late: ' + ids.join(','));
+  for (const n of ['2001', '2003', '2004']) assertFalse(ids.includes(n), n + ' is closed / pulled / cancelled');
+});

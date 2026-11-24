@@ -1526,3 +1526,11 @@ test('quick filters apply on one press and stack; a saved filter is the member\'
   await expect(pop.locator('[data-svf]')).toHaveCount(0);
   await expect.poll(() => mock.prefs.find((r) => r.key === 'orders.filters')?.data).toEqual([]);
 });
+
+test('Safwat 24 Nov — a maker\'s late orders (the bell\'s card, «المتأخرين») are his own sub-order lines by their own delay, the same the alerts count', async ({ page }) => {
+  await openOrders(page);
+  const r = await page.evaluate(() => { const A = window.OrdersApp.alerts(); return A.lateVendors.map((v) => ['late', v]).concat(A.riskVendors.map((v) => ['risk', v]))
+    .map(([k, v]) => ({ k, count: v.count, rows: window.OrdersApp.lateOrders(v.vendor, k).map((x) => x.state), all: window.OrdersApp.lateOrders(v.vendor, 'all').length })); });
+  expect(r.length).toBeGreaterThan(0);
+  for (const x of r) { expect(x.rows.length).toBeGreaterThanOrEqual(x.count); expect(x.rows.every((s) => s === x.k)).toBe(true); expect(x.all).toBeGreaterThanOrEqual(x.rows.length); }
+});

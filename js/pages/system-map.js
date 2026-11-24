@@ -1,5 +1,6 @@
-/* Ibtekr — «عقل السيستم» (Safwat 24 Nov — the pinned mockup made real; his answers: a page of its own in the side menu, the admin only).
-   Not a block: registered here (IBPages.register('brain')) and in block 28's NAV. Everything the system is linked to, around the brain:
+/* Ibtekr — «العقل الذكي» (Safwat 24 Nov — the pinned mockup made real; the admin only; renamed from «عقل السيستم» and moved the same day:
+   «حطها جوة صفحة الذكاء الاصطناعي جمب زرار مساعد جديد … وفيها زرار رجوع»). Not a block: registered here (IBPages.register('brain'),
+   navPage «ai») and opened from the «العقل الذكي» button on the AI page (marketing.js) — not in block 28's NAV. Everything the system is linked to, around the brain:
    each group's state from the system's own reads (the keys' status — settings-admin, the pauses — settings «integrations», the CS
    channels, the ads' accounts — mkt-ads, the Magnific bridge, the site's plugins and checks — site_checks), today's events from the
    activity log (a pulse runs on the wire for each new one — read again every 30 s), a sheet per group (its parts, what stops if it
@@ -83,7 +84,7 @@ const IC = {
   let map, svg, core, feed, cards = {}, paths = {}, BP = {}, cv, cx2;
   function build() {
     const d = el('div', { class: 'sm-page', 'data-sysmap': '' });
-    d.innerHTML = '<div class="sm-head"><div><h1>عقل السيستم</h1><p>كل اللي السيستم متوصّل بيه وبيشتغل معاه دلوقتي — السيرفر وبلاجنز الموقع والذكاء الاصطناعي والقنوات. النقطة اللي بتمشي على الخط = حاجة حصلت فعلًا. دوس على أي سيستم تشوف تفاصيله، توقفه مؤقتًا أو تبدّله.</p></div><span class="sm-sp"></span>'
+    d.innerHTML = '<div class="sm-head"><button type="button" class="sm-btn sm-back" data-sm-back title="رجوع لـ «الذكاء الاصطناعي»">→ رجوع</button><div><h1>العقل الذكي</h1><p>كل اللي السيستم متوصّل بيه وبيشتغل معاه دلوقتي — السيرفر وبلاجنز الموقع والذكاء الاصطناعي والقنوات. النقطة اللي بتمشي على الخط = حاجة حصلت فعلًا. دوس على أي سيستم تشوف تفاصيله، توقفه مؤقتًا أو تبدّله.</p></div><span class="sm-sp"></span>'
       + '<div class="sm-kpis"><div class="sm-kpi"><small>متصلين</small><b data-sm-k="on">—</b></div><div class="sm-kpi"><small>أحداث النهارده</small><b data-sm-k="ev">—</b></div><div class="sm-kpi"><small>آخر حركة</small><b data-sm-k="last">—</b></div></div>'
       + '<button type="button" class="sm-btn" data-sm-refresh>حدّث</button></div>'
       + '<section class="sm-map" data-sm-map><svg class="sm-wires" aria-hidden="true"></svg>'
@@ -98,6 +99,7 @@ const IC = {
     st.dom = d; map = d.querySelector('[data-sm-map]'); svg = d.querySelector('.sm-wires'); core = d.querySelector('.sm-core'); feed = d.querySelector('[data-sm-feed]');
     cv = d.querySelector('canvas'); cx2 = cv.getContext('2d');
     d.querySelector('[data-sm-refresh]').addEventListener('click', () => load());
+    d.querySelector('[data-sm-back]').addEventListener('click', () => { location.hash = 'ai'; });
     d.querySelector('[data-sm-q]').addEventListener('input', (e) => { st.q = e.target.value; table(); });
     d.querySelector('[data-sm-g]').addEventListener('change', (e) => { st.g = e.target.value; table(); });
     d.querySelector('[data-sm-check]').addEventListener('click', checkSite);
@@ -253,6 +255,6 @@ const IC = {
     if (a === 'resume') return setPause(s, 0);
   }
 
-  window.IBPages.register('brain', { title: 'عقل السيستم', hash: (hs) => hs === 'brain', view });
+  window.IBPages.register('brain', { title: 'العقل الذكي', hash: (hs) => hs === 'brain', navPage: () => 'ai', view });
   window.IBSysMap = { load, state: () => st };
 })();

@@ -476,6 +476,26 @@ Deno.test('buyer-brain (Safwat 24 Nov): the campaigns and the ads with their ver
   assertEquals((await call(c.deps, { action: 'agent', agent: 'buyer', question: 'الأوردرات؟', provider: 'claude', share: [] }, 'jwt-mview')).body.need_data, ['orders']);
 });
 
+Deno.test('competitor_brief (buyer-brain decision 5): marketing.create; a web research on the competitor with the buyer\'s references first; the brief and its sources on the row; nothing without a source', async () => {
+  const seed = { mkt_competitors: [{ id: 7, name: 'ورشة المنافس', keyword: 'ماكرامية', page_url: 'https://www.facebook.com/rival', note: null, archived_at: null }, { id: 8, name: 'قديم', archived_at: NOW }] };
+  const page = { type: 'web_search_result', url: 'https://rival.example/shop', title: 'Rival shop' };
+  const found = { ...msg('x'), content: [{ type: 'server_tool_use', id: 's1', name: 'web_search', input: { query: 'rival' } }, { type: 'web_search_tool_result', tool_use_id: 's1', content: [page] }, { type: 'text', text: '- بيبيع ماكرامية من 300 لـ 900 ج.م وعامل خصم 20% (rival.example)' }] };
+  const { deps, asked, db } = setup({ seed, replies: [found] });
+  assertEquals((await call(deps, { action: 'competitor_brief', id: 7 }, 'jwt-mview')).res.status, 401, 'marketing.view alone does not research');
+  assertEquals((await call(deps, { action: 'competitor_brief', id: 'x' }, 'jwt-mkt')).body.field, 'id');
+  assertEquals((await call(deps, { action: 'competitor_brief', id: 8 }, 'jwt-mkt')).res.status, 404, 'an archived one');
+  const r = await call(deps, { action: 'competitor_brief', id: 7 }, 'jwt-mkt');
+  assertEquals([r.res.status, r.body.brief.sources.map((x: any) => x.url)], [200, ['https://rival.example/shop']], JSON.stringify(r.body));
+  assert(asked[0].tools?.[0]?.type === 'web_search_20260209');
+  const sys = asked[0].system.map((x: any) => x.text).join('\n'); assert(sys.includes('https://heathmedia.co.uk/') && sys.includes('Search these sites first'), 'the buyer\'s references first');
+  assert(asked[0].messages[0].content[0].text.includes('«ورشة المنافس» (ماكرامية)') && asked[0].messages[0].content[0].text.includes('https://www.facebook.com/rival'));
+  const row = db.rows('mkt_competitors').find((c: any) => c.id === 7); assert(row.brief.text.includes('300 لـ 900') && row.brief_at);
+  // the search found nothing usable: no brief written
+  const b = setup({ seed, replies: [{ ...msg('x'), content: [{ type: 'text', text: 'ماعرفتش' }] }] });
+  assertEquals((await call(b.deps, { action: 'competitor_brief', id: 7 }, 'jwt-mkt')).res.status, 502);
+  assertEquals(b.db.rows('mkt_competitors').find((c: any) => c.id === 7).brief, null);
+});
+
 // ---------------------------------------------------------------- phase 9.5.5: the video piece's scenes (decision 59)
 
 Deno.test('marketing scenes: a video piece of the saved campaign → its scenes with the durations fitted to its model and the voice-over; a post piece refused', async () => {

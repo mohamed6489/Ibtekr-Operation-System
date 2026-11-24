@@ -15,6 +15,12 @@ export const SHIPPED = {
   buyer: [
     {"name":"Meta Business Help Center","url":"https://www.facebook.com/business/help","note":"الصفحات والإعلانات والسياسات"},
     {"name":"Meta Ad Library","url":"https://www.facebook.com/ads/library/","note":"إعلانات المنافسين الشغّالة"},
+    // buyer-brain decision 4 (Safwat 24 Nov): the known media buyers and Meta's own school
+    {"name":"Heath Media (Ben Heath)","url":"https://heathmedia.co.uk/","note":"هيكلة الحملات والتكبير وقراءة الأرقام"},
+    {"name":"Ben Heath — YouTube","url":"https://www.youtube.com/@BenHeath","note":"شروحات ميتا وجوجل للإعلانات"},
+    {"name":"Meta Blueprint","url":"https://www.facebook.com/business/learn","note":"كورسات ميتا الرسمية للإعلانات"},
+    {"name":"Meta Ads Guide","url":"https://www.facebook.com/business/ads-guide","note":"مقاسات ومواصفات كل شكل إعلان"},
+    {"name":"Jon Loomer","url":"https://www.jonloomer.com/","note":"تفاصيل إعدادات ميتا والتتبع والتجارب"},
     {"name":"Google Ads Help","url":"https://support.google.com/google-ads/","note":"الحملات والمزايدة والتتبع"},
     {"name":"TikTok Business Help Center","url":"https://ads.tiktok.com/help/","note":"إعلانات تيك توك وسياساتها"},
     {"name":"TikTok Creative Center","url":"https://ads.tiktok.com/business/creativecenter/","note":"الإعلانات والتريندات الأعلى أداءً"},

@@ -628,7 +628,7 @@ button.dx-stat{cursor:pointer}button.dx-stat:hover{background:var(--color-bg-hov
 .nr-intro svg{color:var(--color-brand-default);flex:none}
 .nr-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:0 0 14px}
 .nr-stat{display:flex;align-items:center;gap:10px;padding:12px 14px;border:1px solid var(--color-border-subtle);border-radius:12px;background:var(--color-bg-container)}
-.nr-stat-ico{inline-size:34px;block-size:34px;border-radius:10px;display:grid;place-items:center;background:var(--color-brand-default);color:var(--color-brand-subtle-bg,#e8d5b3);flex:none}
+.nr-stat-ico{inline-size:34px;block-size:34px;border-radius:10px;display:grid;place-items:center;background:var(--color-brand-default);color:var(--color-brand-subtle-bg,#efe3cb);flex:none}
 .nr-stat-t{display:flex;flex-direction:column;line-height:1.2}
 .nr-stat-n{font-size:20px;line-height:26px;font-weight:700;color:var(--color-text-primary)}
 .nr-stat-t small{font-size:12px;color:var(--color-text-secondary)}
@@ -654,7 +654,7 @@ button.dx-stat{cursor:pointer}button.dx-stat:hover{background:var(--color-bg-hov
 .nr-main-h .sp,.nr-sub-h .sp{flex:1}
 .nr-tog{display:inline-flex;align-items:center;gap:10px;border:0;background:transparent;font:inherit;color:var(--color-text-primary);cursor:pointer;padding:2px 0;text-align:start}
 .nr-tog>svg{color:var(--color-text-secondary)}
-.nr-ico{inline-size:36px;block-size:36px;border-radius:10px;display:grid;place-items:center;background:var(--color-brand-default);color:var(--color-brand-subtle-bg,#e8d5b3);flex:none}
+.nr-ico{inline-size:36px;block-size:36px;border-radius:10px;display:grid;place-items:center;background:var(--color-brand-default);color:var(--color-brand-subtle-bg,#efe3cb);flex:none}
 .nr-main-t{display:flex;flex-direction:column;line-height:1.3}
 .nr-main-t b{font-size:15px}
 .nr-main-sub{font-size:12px;color:var(--color-text-secondary)}
@@ -677,7 +677,7 @@ button.dx-stat{cursor:pointer}button.dx-stat:hover{background:var(--color-bg-hov
 .nr-lv{display:inline-flex;align-items:center;padding:0 8px;border-radius:999px;font-size:11px;font-weight:700;line-height:20px;background:var(--color-warning-bg);color:var(--color-orange-text);border:1px solid var(--color-warning-border)}
 .nr-lv.lv-critical{background:var(--color-error-bg);color:var(--color-error-text);border-color:var(--color-error-border)}
 .nr-lv.lv-info{background:var(--color-bg-disabled);color:var(--color-text-secondary);border-color:var(--color-border-subtle)}
-.nr-mode-tag{padding:0 8px;border-radius:999px;font-size:11px;font-weight:700;line-height:20px;background:var(--color-brand-default);color:var(--color-brand-subtle-bg,#e8d5b3)}
+.nr-mode-tag{padding:0 8px;border-radius:999px;font-size:11px;font-weight:700;line-height:20px;background:var(--color-brand-default);color:var(--color-brand-subtle-bg,#efe3cb)}
 .nr-off-tag{padding:0 8px;border-radius:999px;font-size:11px;line-height:20px;background:var(--color-bg-disabled);color:var(--color-text-secondary)}
 .nr-path{display:flex;flex-wrap:wrap;align-items:center;gap:4px}
 .nr-part{font-size:12px;line-height:22px;padding:0 8px;border-radius:6px;background:var(--color-bg-tint);color:var(--color-text-primary)}
@@ -692,7 +692,7 @@ button.dx-stat{cursor:pointer}button.dx-stat:hover{background:var(--color-bg-hov
 .nr-sec-h{display:flex;align-items:center;gap:8px;color:var(--color-brand-default)}
 .nr-sec-h b{font-size:15px}
 .nr-sec-note{margin-inline-start:auto;font-size:12px;color:var(--color-text-secondary)}
-.nr-step{inline-size:22px;block-size:22px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;background:var(--color-brand-default);color:var(--color-brand-subtle-bg,#e8d5b3);flex:none}
+.nr-step{inline-size:22px;block-size:22px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;background:var(--color-brand-default);color:var(--color-brand-subtle-bg,#efe3cb);flex:none}
 .nr-checks{display:flex;flex-wrap:wrap;gap:8px 16px}
 .nr-days{display:flex;flex-wrap:wrap;gap:4px}
 .nr-days .chip{min-width:34px;justify-content:center}

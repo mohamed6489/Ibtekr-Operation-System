@@ -136,6 +136,9 @@ test('a new campaign: the details (the row created) → the AI fills the piece �
   expect([gen.piece, gen.model]).toEqual(['P1', 'seedream-5-pro']);
   await expect.poll(() => (mock.mkt.campaigns.find((c) => c.id === made.id).state.pieces || [{}])[0].img || '').toMatch(new RegExp('^' + made.id + '/gen-P1-'));
   await expect(pg(page).locator('.cw-wallet')).toHaveAttribute('data-cw-balance', '4925');
+  // Safwat 24 Nov: the credits label outlined — no fill beside the buttons
+  await expect(pg(page).locator('.cw-wallet')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  await expect(pg(page).locator('.cw-wallet')).toHaveCSS('border-top-color', 'rgb(0, 86, 66)');
   // the review
   await pg(page).locator('.cp-next').click();
   await expect(pg(page).locator('.wstepper .stp-cur')).toContainText('المراجعة');

@@ -412,23 +412,19 @@
   // look. «ابعت لـ Magnific» puts a generator for every image of the campaign on the account's Space — its prompt (the one the
   // credits path would send) and its reference photos; the member runs them there (no credit of ours) and «هات النتائج» brings the
   // newest result of each onto its piece. The link is kept with the campaign for the page; the server trusts its own record.
-  // Safwat 24 Nov («لو حبيت أعمل مانيوال اختياري»): the generators run on the site with the send unless the member turns it off (kept
-  // in this browser)
-  const mgManual = () => { try { return localStorage.getItem('ib.mg.manual') === '1'; } catch (e) { return false; } };
-  const mgManualSet = (v) => { try { localStorage.setItem('ib.mg.manual', v ? '1' : '0'); } catch (e) { /* the default then */ } };
   function mgStatus() { if (camp.mgLinked != null || camp.mgAsked || !MK() || !MK().magnificStatus) return; camp.mgAsked = true; MK().magnificStatus().then((r) => { camp.mgLinked = !!(r && r.linked); if (st.view === 'campaign' && st.step === 2) R(); }); }
   const mgCount = () => camp.pieces.reduce((n, p) => n + (p.kind === 'فيديو' ? (p.scenes || []).length : p.kind === 'كاروسيل' ? 1 + (p.slides || []).length : 1), 0);
   async function mgSend() {
     if (camp.mgBusy || !can().create) return;
     if (!(await ensureCampaign())) return;
     const cid = camp.id; camp.mgBusy = 'send'; R();
-    const r = await MK().magnificSend(cid, { run: !mgManual() });
+    const r = await MK().magnificSend(cid);
     if (camp.id !== cid) { if (r.ok) K.toast('اتبعتت قطع الكامبين لـ Magnific — افتحها من «آخر الشغل» عشان تجيب النتايج', 'success'); return; } // another campaign is open now: its own bar is untouched
     camp.mgBusy = null;
     if (!r.ok) { if (r.code === 'not_linked' || r.reason === 'not_configured') camp.mgLinked = false; K.toast(r.message, 'error'); R(); return; }
     camp.mgLinked = true; camp.mg = { url: r.url, n: r.targets, at: new Date().toISOString() }; persist(0);
     R();
-    K.toast('اتبعت ' + K.n0(r.targets) + ' صورة لـ Magnific' + (r.refs ? ' بـ ' + K.n0(r.refs) + ' صورة مرجعية' : '') + (r.left ? ' — ' + K.n0(r.left) + ' صورة زيادة ما دخلتش الفلو' : '') + (r.ran ? ' واتشغّلت — «هات النتائج من Magnific» بعد دقيقة' : ' — افتح الـ Space وشغّل المولّدات'), 'success');
+    K.toast('اتبعت ' + K.n0(r.targets) + ' صورة لـ Magnific' + (r.refs ? ' بـ ' + K.n0(r.refs) + ' صورة مرجعية' : '') + (r.videos ? ' و' + K.n0(r.videos) + ' مشهد فيديو' : '') + (r.left ? ' — ' + K.n0(r.left) + ' صورة زيادة ما دخلتش الفلو' : '') + ' في فلو جديد — افتح الـ Space ودوس تشغيل، وبعدها «هات النتائج من Magnific»', 'success');
   }
   async function mgFetch() {
     if (camp.mgBusy || !can().create || !camp.id) return;
@@ -441,23 +437,25 @@
     let n = 0;
     r.placed.forEach((x) => { const p = camp.pieces.find((y) => y.id === x.piece); if (p && setImg(p, x.slide, x.path)) n += 1; });
     if (n) persist(0);
+    // the scenes' clips: each one a clip job of its piece — the piece's poll brings it down (the review step shows it)
+    const vc = (r.clips || []).length; [...new Set((r.clips || []).map((x) => x.piece))].forEach((id) => { const p = camp.pieces.find((y) => y.id === id); if (p) { delete camp.vjobs[p.id]; vpoll(p, true); } });
     R();
     const rest = (r.offhost + r.failed) ? ' · ' + K.n0(r.offhost + r.failed) + ' ما اتنزّلتش — جرّب تاني' : '';
-    K.toast(n ? 'اتحطت ' + K.n0(n) + ' صورة من Magnific على قطعها — راجعها' + rest : r.found ? 'النتايج ما اتنزّلتش' + rest : 'مفيش نتايج جديدة على Magnific — شغّل المولّدات في الـ Space الأول', n ? 'success' : r.found ? 'error' : 'info');
+    const got = [n ? K.n0(n) + ' صورة' : '', vc ? K.n0(vc) + ' مقطع فيديو' : ''].filter(Boolean).join(' و');
+    K.toast(got ? 'اتحطت ' + got + ' من Magnific على قطعها — راجعها' + rest : r.found ? 'النتايج ما اتنزّلتش' + rest : 'مفيش نتايج جديدة على Magnific — دوس تشغيل في الـ Space الأول', got ? 'success' : r.found ? 'error' : 'info');
   }
   // 0123 (the owner 17 Nov): the bridge's bar only while Magnific is the campaign's image provider in «الإعدادات»
   function magnificBar() {
     if (!can().create || !MK() || !MK().magnificSend || (window.IBSettings && window.IBSettings.magnificOn && !window.IBSettings.magnificOn('campaign'))) return null;
     mgStatus(); const mg = camp.mg; const n = mgCount(); const busy = camp.mgBusy;
     const url = mg && typeof mg.url === 'string' && /^https:\/\//.test(mg.url) ? mg.url : null;
-    const head = h('div', { class: 'fl-mg-h' }, Icon('sparkle', 'sm'), h('b', null, 'Magnific'), h('small', { class: 'help' }, 'ولّد على موقع Magnific بباقتك — من غير كريدت الـ API: «ابعت» بيحط كل صورة في الـ Space ببرومبتها اللي هنا وصورها المرجعية وبيشغّلها (إلا لو قفلت «شغّل التوليد لوحده»)، و«ابعت تاني» بيحدّث نفس النسخة، وبعدها «هات النتائج» على القطع.'));
+    const head = h('div', { class: 'fl-mg-h' }, Icon('sparkle', 'sm'), h('b', null, 'Magnific'), h('small', { class: 'help' }, 'ولّد على موقع Magnific بباقتك — من غير كريدت الـ API: «ابعت» بيعمل فلو جديد في الـ Space فيه كل صورة ببرومبتها اللي هنا وصورها المرجعية، ومشاهد الفيديو بمقطع بعد كل صورة — ومفيش حاجة بتشتغل لوحدها: افتح الـ Space ودوس تشغيل، وبعدها «هات النتائج» بيحط الصور والكاروسيل ومقاطع الفيديو على قطعها.'));
     return h('div', { class: 'fl-mg cw-mg', 'data-cw-magnific': mg ? 'sent' : 'new' }, head,
       camp.mgLinked === false ? U.InlineNote({ kind: 'warning', children: h('span', { 'data-cw-mg-unlinked': '' }, 'حساب Magnific مش مربوط — الأدمن بيربطه من «الإعدادات › الربط بالمنصات».') }) : null,
       h('div', { class: 'acts-inline start' },
         Button({ size: 'sm', icon: 'upload', label: busy === 'send' ? 'بنبعت…' : mg ? 'ابعت تاني لـ Magnific' : 'ابعت لـ Magnific', disabled: !!busy || !n, attrs: { 'data-cw-mg-send': '', title: 'كل صور الكامبين (' + n + ') ببرومبتاتها وصورها المرجعية' }, onClick: mgSend }),
         url ? h('a', { class: 'btn btn-default sm', href: url, target: '_blank', rel: 'noopener', 'data-cw-mg-open': '' }, 'افتح الـ Space ↗') : null,
         mg ? Button({ size: 'sm', icon: 'download', label: busy === 'fetch' ? 'بنجيب…' : 'هات النتائج من Magnific', disabled: !!busy, attrs: { 'data-cw-mg-fetch': '' }, onClick: mgFetch }) : null,
-        h('span', { 'data-cw-mg-run': mgManual() ? 'manual' : 'auto' }, K.Checkbox({ label: 'شغّل التوليد لوحده', small: true, checked: !mgManual(), onChange: (v) => { mgManualSet(!v); R(); } })),
         h('span', { class: 't-small help', 'data-cw-mg-state': mg ? String(mg.n || 0) : '0' }, U.num(mg ? 'اتبعت ' + (mg.n || 0) + ' صورة' + (mg.at ? ' · ' + dayLabel(String(mg.at).slice(0, 10)) : '') + ' — لو غيّرت الكلام ابعت تاني' : n ? n + ' صورة في الكامبين' : 'مفيش صور لسه'))));
   }
   async function genCarousel(p) { if (!(await genImage(p, -1))) return false; for (let k = 0; k < p.slides.length; k++) if (!(await genImage(p, k))) return false; return true; }

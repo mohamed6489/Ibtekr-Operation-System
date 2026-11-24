@@ -197,10 +197,11 @@
     setTimeout(() => { if (!menu.contains(document.activeElement)) inp.focus(); }); // never pulls focus back from the list (a fast ↓ after a letter)
     return menu;
   }
-  function Select({ id, label, required, options, value, placeholder = 'اختار', error, onChange, help, disabled }) {
+  function Select({ id, label, required, options, value, placeholder = 'اختار', error, onChange, help, disabled, search = true }) {
     const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '', style: 'display:block' });
     const cur = options.find((o) => o.value === value);
-    const searchable = options.length >= SEARCH_MIN;
+    // Safwat 24 Nov: a list that isn't names (the publish hours) passes search: false — no «اكتب أول حروف الاسم» box
+    const searchable = search !== false && options.length >= SEARCH_MIN;
     const btn = h('button', { type: 'button', id, class: 'select' + (error ? ' err' : ''), 'aria-haspopup': 'listbox', 'aria-expanded': 'false', 'aria-invalid': error ? 'true' : false, 'aria-describedby': error ? id + '-err' : false, disabled: disabled ? '' : false },
       Icon('chevD', 'sm'), h('span', { class: 'val' + (cur ? '' : ' ph') }, cur ? cur.label : placeholder));
     const pick = (close) => (v) => { close(); onChange(v); };

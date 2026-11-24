@@ -289,7 +289,11 @@ test('the log: the caption saved as it is typed, «أجّل» to a new hour, «�
   expect(mock.mkt.posts.find((x) => x.id === 1).caption).toBe('كابشن جديد للبوست');
   await pop.locator('[data-post-move]').click();
   const mv = modal(page, 'دفا — فيسبوك');
-  await mv.locator('#pp-time').click(); await page.locator('[role=listbox] [role=option]', { hasText: '21:00' }).first().click();
+  await expect(mv.locator('#pp-time')).toContainText('7:00 م'); // Safwat 24 Nov: the publish hour on the 12-hour clock
+  await mv.locator('#pp-time').click();
+  await expect(page.locator('[data-select-search]')).toHaveCount(0); // hours, not names — no «اكتب أول حروف الاسم»
+  await expect(page.locator('[role=listbox] [role=option]').first()).toHaveText('8:00 ص');
+  await page.locator('[role=listbox] [role=option]', { hasText: '9:00 م' }).first().click();
   await mv.locator('[data-post-move-save]').click();
   await expect.poll(() => mock.mkt.posts.find((x) => x.id === 1).time).toBe('21:00');
   const again = modal(page, 'دفا — فيسبوك');

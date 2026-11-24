@@ -2504,3 +2504,10 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 2. شغّل `supabase/tests/rls_hr_eval_weights.sql` و`supabase/tests/rls_hr_rebuild.sql` على الحي.
 3. ادمج على `main` — مفيش Edge Function اتغيّرت. **مفيش أي كتابة على الموقع.**
 4. **اتأكد بعد النشر:** «الموارد البشرية › التقييمات» فيها «البنود» و«البونص» و«الإجراء المقترح»، و«الإعدادات › الموارد البشرية» فيها «قواعد التقييم والبونص».
+
+#### 2.7.127 صور التسويق — ميتنج 23 نوفمبر المرحلة 8 (`0156`، الخطة `docs/superpowers/plans/2026-11-23-meeting.md`)
+1. **الأول:** طبّق `0156_mkt_thumb_pin.sql` (`mkt_posts.thumb_path` و`mkt_ad_objects.thumb_path`). **لازم قبل ما الواجهة توصل** — الصفحة بتطلب العمودين بالاسم.
+2. شغّل `supabase/tests/rls_mkt_thumb_pin.sql` على الحي.
+3. انشر `mkt-publish` و`mkt-ads` (`_shared/meta-pin.js` — نسخة صورة Meta في bucket «marketing»).
+4. ادمج على `main`. **مفيش أي كتابة على الموقع** — قراية من Meta وكتابة في الـ bucket بتاعنا بس.
+5. **اتأكد بعد النشر:** بعد تشغيلة `mkt-publish-stats` (كل 30 دقيقة) — `select count(*) filter (where thumb_path is not null), count(*) from mkt_posts where src = 'platform';` وبعد `mkt-ads-sync` (الدقيقة 23) نفس السؤال على `mkt_ad_objects where kind = 'ad'`؛ وفي «سجل النشر» الصور ظاهرة.

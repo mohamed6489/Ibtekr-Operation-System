@@ -330,3 +330,27 @@ Deno.test('ش39 trends_ig: marketing.create; each tag through Instagram\'s hasht
   const no = await call(refused.deps, { action: 'trends_ig' }, 'jwt-pub');
   assertEquals([no.body.result, no.body.code, refused.db.rows('mkt_trends').length], ['unavailable', 'permission', 0]);
 });
+
+Deno.test('stats (the meeting of 23 Nov phase 8, 0156): a platform post\'s picture is kept in the bucket while its link is fresh; an older one asks Meta for its picture now; never a dead link', async () => {
+  const JPG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46, 0x49, 0x46, 0, 1]);
+  const old = { id: 6001, src: 'platform', kind: 'بوست', name: 'قديم', caption: '', platform: 'انستجرام', status: 'اتنشر', how: 'publish', external_id: '1650', day: '2026-08-01', time: '11:00',
+    thumb: 'https://scontent-fra5-1.cdninstagram.com/dead.jpg', published_at: '2026-08-01T09:00:00.000Z' };
+  const { deps, db } = setup({ posts: [old], storage: {}, routes: {
+    'GET 111/published_posts': { body: { data: [{ id: '111_9500', message: 'جديد', created_time: '2026-10-23T08:00:00+0000', full_picture: 'https://scontent-fra3-1.xx.fbcdn.net/v/p.jpg?oe=1' }] } },
+    'GET 777/media': { body: { data: [] } },
+    'GET 1650': { body: { media_type: 'IMAGE', media_url: 'https://scontent-fra5-1.cdninstagram.com/new.jpg' } },
+  } });
+  const inner = deps.fetch; const cdn: string[] = [];
+  deps.fetch = (async (input: any, init?: any) => {
+    const u = String(input instanceof Request ? input.url : input);
+    if (/cdninstagram\.com|fbcdn\.net/.test(u)) { cdn.push(u); assertEquals(init?.redirect, 'manual'); return new Response(JPG, { status: 200 }); }
+    return inner(input, init);
+  }) as typeof fetch;
+  const r = await cron(deps, 'stats');
+  assertEquals([r.body.result, r.body.added, r.body.pinned], ['ok', 1, 2]);
+  assertEquals(db.rows('mkt_posts').find((x: any) => x.external_id === '111_9500').thumb_path, 'platform/fb/111_9500.jpg');
+  assertEquals([db.row('mkt_posts', 6001).thumb_path, db.row('mkt_posts', 6001).thumb], ['platform/ig/1650.jpg', 'https://scontent-fra5-1.cdninstagram.com/new.jpg']);
+  assertFalse(cdn.includes('https://scontent-fra5-1.cdninstagram.com/dead.jpg'));
+  // kept once: the next run fetches no picture again
+  cdn.length = 0; await cron(deps, 'stats'); assertEquals(cdn, []);
+});

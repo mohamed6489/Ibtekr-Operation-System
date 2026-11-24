@@ -449,3 +449,23 @@ Deno.test('9.5.6 decide on a TikTok suggestion: a money kind is recorded only (t
   assertEquals(db.rows('mkt_suggestions')[0].result, { live: false, platform: 'tiktok', manual: true });
   assertEquals(db.rows('activity_log').map((l: any) => l.new_value), ['stop · approve · ' + TTC + ' · manual']);
 });
+
+Deno.test('sync (the meeting of 23 Nov phase 8, 0156): an ad\'s picture on Meta\'s CDN is kept in the bucket while its link is fresh — once; another host is never fetched', async () => {
+  const JPG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46, 0x49, 0x46, 0, 1]);
+  const routes = { ...OK_ROUTES, 'GET act_1122334455/ads': { body: { data: [
+    { id: '1206', name: 'carousel', campaign_id: C1, effective_status: 'ACTIVE', creative: { id: '9', thumbnail_url: 'https://scontent-fra3-1.xx.fbcdn.net/v/t.jpg?oe=1' } },
+    { id: '1207', name: 'other', campaign_id: C1, effective_status: 'ACTIVE', creative: { id: '10', thumbnail_url: 'https://scontent.example/t.jpg' } }] } } };
+  const { deps, db } = setup({ routes });
+  const inner = deps.fetch; const cdn: string[] = [];
+  deps.fetch = (async (input: any, init?: any) => {
+    const u = String(input instanceof Request ? input.url : input);
+    if (/fbcdn\.net|scontent\.example/.test(u)) { cdn.push(u); return new Response(JPG, { status: 200 }); }
+    return inner(input, init);
+  }) as typeof fetch;
+  const r = await cron(deps);
+  assertEquals(r.res.status, 200);
+  const ads = db.rows('mkt_ad_objects').filter((o: any) => o.kind === 'ad');
+  assertEquals(ads.map((o: any) => [o.id, o.thumb_path ?? null]).sort(), [['1206', 'ads/meta/1206.jpg'], ['1207', null]]);
+  assertEquals(cdn, ['https://scontent-fra3-1.xx.fbcdn.net/v/t.jpg?oe=1']);
+  cdn.length = 0; await cron(deps); assertEquals(cdn, []); // kept once
+});

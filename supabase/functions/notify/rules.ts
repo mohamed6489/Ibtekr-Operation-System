@@ -2,9 +2,10 @@
 // Every tick (15 minutes) runs the admin's rules (notif_rules) that are due: each names an element › a type › a state of the catalogue
 // (_shared/notif-catalog.js); `entities()` below reads what is in that state now (a «state»), what happened since the rule's last run
 // (an «event»), or the date coming (a «due»), and _shared/notif-engine.js writes the `alerts` rows for the rule's roles and hides the
-// old ones by the rule's «تفاصيل الظهور». The bell draws the sections from notif_sections. The channels: the bell only for now — a rule
-// that names e-mail / WhatsApp writes the bell row and nothing else (Safwat 24 Nov). Nothing here logs a phone, an address or a text.
-import { catalogue as CAT, hidePlan, permOf, runsNow, writePlan } from '../_shared/notif-engine.js';
+// old ones by the rule's «تفاصيل الظهور». The bell draws the sections from notif_sections. The channels: a rule that names e-mail /
+// WhatsApp also sends its new rows to each member (outboundPlan → index.ts sendOut), while the admin's switch of the channel is on
+// (Safwat 24 Nov: e-mail on, WhatsApp off until its API is turned on). Nothing here logs a phone, an address or a text.
+import { catalogue as CAT, hidePlan, outboundPlan, permOf, runsNow, writePlan } from '../_shared/notif-engine.js';
 import { LIVE_FROM } from '../_shared/legacy.js'; // phase 9: the imported old orders raise nothing
 import { delayRules, leadBy, lineDelayOf, lineElapsed, orderDelayOf, orderElapsed } from '../_shared/delay.js';
 
@@ -425,7 +426,7 @@ function dailyLine(e: Ent, m: Json, w: World): string | null {
 
 // ---------------------------------------------------------------- the tick of the rules
 
-export async function runRules(db: Db, ctx: Ctx, opts: { dry?: boolean } = {}): Promise<Json> {
+export async function runRules(db: Db, ctx: Ctx, opts: { dry?: boolean; gates?: { email?: boolean; whatsapp?: boolean } } = {}): Promise<Json> {
   ordersMemo = null;
   const rl = await db.from('notif_rules').select('id, section_id, name, element, type, state, sub, param, at, repeat, days, show, hours, roles, channels, template, active, last_run, updated_at').limit(500);
   if (rl.error) return { skipped: 'no_rules' }; // before 0157
@@ -459,10 +460,12 @@ export async function runRules(db: Db, ctx: Ctx, opts: { dry?: boolean } = {}): 
   hides.push(...orphans.map((a) => ({ id: a.id, hide_at: ctx.now })));
   hides.push(...retired.map((id) => ({ id, hide_at: ctx.now })));
   sum.written = inserts.length; sum.hidden = hides.length;
-  if (opts.dry) return { ...sum, preview: inserts.slice(0, 50).map((a) => ({ title: a.title, to: a.user_id, rule: a.rule_id })) };
+  // the outbound channels (e-mail / WhatsApp): the messages of this tick's new rows, sent by the caller (index.ts) — never stored
+  const outbound = outboundPlan({ rules, inserts, gates: opts.gates || {} });
+  if (opts.dry) return { ...sum, out: outbound.length, preview: inserts.slice(0, 50).map((a) => ({ title: a.title, to: a.user_id, rule: a.rule_id })) };
   for (let i = 0; i < inserts.length; i += 500) { const { error } = await db.from('alerts').insert(inserts.slice(i, i + 500)); if (error) throw new Error('db alerts ' + (error.code ?? '')); }
   const byTime = new Map<string, number[]>(); for (const h of hides) { const l = byTime.get(h.hide_at) ?? []; l.push(h.id); byTime.set(h.hide_at, l); }
   for (const [at, list] of byTime) for (let i = 0; i < list.length; i += 500) await db.from('alerts').update({ hide_at: at }).in('id', list.slice(i, i + 500));
   if (ranIds.length) await db.from('notif_rules').update({ last_run: ctx.now }).in('id', ranIds);
-  return sum;
+  return { ...sum, outbound };
 }

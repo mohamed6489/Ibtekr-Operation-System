@@ -24,6 +24,9 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import Anthropic from 'npm:@anthropic-ai/sdk@1.3.0';
 import { vaultEnv } from '../_shared/secrets.js';
+import { emailHtml, waText } from '../_shared/notify.js';
+import { WA_GRAPH } from '../_shared/cs-whatsapp.js';
+import { graphErrorCode } from '../_shared/cs-channel.js';
 import { cairoParts } from '../_shared/mkt-publish.js';
 import { runRules } from './rules.ts';
 import { LIVE_FROM } from '../_shared/legacy.js'; // phase 9: the imported old orders count in no assistant's rule
@@ -71,14 +74,61 @@ async function context(deps: Deps): Promise<Ctx> {
   return { now, nowMs, cairo, notif: settings.notif ?? {}, roles: rows(roles), members: rows(members), settings };
 }
 
+// ---------------------------------------------------------------- the outbound channels (Safwat 24 Nov)
+
+// the admin's switches (settings «notif».channels — the settings › التنبيهات switches): e-mail on, WhatsApp off until its API is on
+export const gatesOf = (notif: Json) => { const c = isObj(notif?.channels) ? notif.channels : {}; return { email: c.email === true, whatsapp: c.whatsapp === true }; };
+type Wa = { token: string; phone_id: string };
+async function waLink(deps: Deps): Promise<Wa | null> {
+  try { const { data, error } = await deps.db.rpc('cs_secret_get', { p_name: 'meta_wa' }); if (error || typeof data !== 'string' || !data) return null; const j = JSON.parse(data); return isObj(j) && typeof j.token === 'string' && typeof j.phone_id === 'string' ? { token: j.token, phone_id: j.phone_id } : null; } catch { return null; }
+}
+const waId = (phone: string) => { const d = String(phone).replace(/\D/g, ''); return /^01\d{9}$/.test(d) ? '2' + d : /^20\d{10}$/.test(d) ? d : /^\d{10,15}$/.test(d) ? d : null; };
+async function sendEmail(deps: Deps, env: Record<string, string | undefined>, to: string, title: string, body: string, signature: string): Promise<string> {
+  const key = (env.RESEND_API_KEY ?? '').trim(); if (!key) return 'not_linked';
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return 'no_contact';
+  try {
+    const res = await (deps.fetch ?? fetch)('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' }, body: JSON.stringify({ from: (env.RESEND_FROM ?? '').trim() || 'alerts@ibtekr.club', to: [to], subject: title.slice(0, 150), html: emailHtml(title, body, signature), text: body ? title + '\n' + body : title }), signal: AbortSignal.timeout(15_000) });
+    return res.ok ? 'sent' : 'failed';
+  } catch { return 'failed'; }
+}
+async function sendWa(deps: Deps, link: Wa | null, template: string, phone: string, text: string): Promise<string> {
+  if (!link) return 'not_linked'; const to = waId(phone); if (!to) return 'no_contact';
+  const body = { messaging_product: 'whatsapp', to, type: 'template', template: { name: template, language: { code: 'ar' }, components: [{ type: 'body', parameters: [{ type: 'text', text }] }] } };
+  try {
+    const res = await (deps.fetch ?? fetch)(WA_GRAPH + '/' + link.phone_id + '/messages', { method: 'POST', headers: { authorization: 'Bearer ' + link.token, 'content-type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(15_000), redirect: 'manual' });
+    if (res.ok) return 'sent'; let j: unknown = null; try { j = await res.json(); } catch { j = null; } void graphErrorCode(j); return 'failed';
+  } catch { return 'failed'; }
+}
+// each message to its member's address (the profile's e-mail / phone), five at a time → the counts only
+async function sendOut(deps: Deps, ctx: Ctx, out: Json[]): Promise<Json> {
+  const counts: Json = { email: 0, whatsapp: 0, failed: 0, no_contact: 0, not_linked: 0 };
+  const env = out.some((x) => x.ch === 'email') ? await vaultEnv(deps.db, deps.env) : deps.env;
+  const link = out.some((x) => x.ch === 'whatsapp') ? await waLink(deps) : null;
+  const template = typeof ctx.notif.whatsappTemplate === 'string' && /^[a-z0-9_]{1,120}$/.test(ctx.notif.whatsappTemplate) ? ctx.notif.whatsappTemplate : 'ibtekr_alert';
+  const signature = isObj(ctx.notif.quiet) && typeof ctx.notif.quiet.signature === 'string' && ctx.notif.quiet.signature.trim() ? ctx.notif.quiet.signature : ''; // empty → emailHtml's own line
+  const people = new Map(ctx.members.map((m) => [String(m.id), m]));
+  for (let i = 0; i < out.length; i += 5) {
+    const done = await Promise.all(out.slice(i, i + 5).map((x) => {
+      const m = people.get(String(x.member)); if (!m) return Promise.resolve('no_contact');
+      return x.ch === 'email' ? sendEmail(deps, env, String(m.email ?? ''), String(x.title), String(x.body ?? ''), signature)
+        : sendWa(deps, link, template, String(m.phone ?? ''), waText(String(x.title), String(x.body ?? '')));
+    }));
+    done.forEach((st, k) => { const ch = out[i + k].ch; if (st === 'sent') counts[ch]++; else counts[st] = (counts[st] ?? 0) + 1; });
+  }
+  return counts;
+}
+
 // ---------------------------------------------------------------- the tick
 
 export async function tick(deps: Deps, opts: { dry?: boolean } = {}): Promise<Response> {
   const ctx = await context(deps);
   // the notifications' new structure (Safwat 24 Nov — 0157): the admin's rules → the bell's rows (rules.ts); the old types, roles'
   // matrix, escalation, quiet hours and digests are no longer read
-  const rules = await runRules(deps.db, { now: ctx.now, nowMs: ctx.nowMs, cairo: ctx.cairo }, opts);
+  const rules = await runRules(deps.db, { now: ctx.now, nowMs: ctx.nowMs, cairo: ctx.cairo }, { ...opts, gates: gatesOf(ctx.notif) });
   if (opts.dry) return json(200, { result: 'dry', at: ctx.now, ...rules });
+  // the outbound channels: the rules' messages of this tick (e-mail / WhatsApp, each behind its switch) — counts kept, never a text
+  const outbound = Array.isArray(rules.outbound) ? rules.outbound : []; delete rules.outbound;
+  if (outbound.length) rules.sent = await sendOut(deps, ctx, outbound).catch((e) => { console.error('notify send: ' + quiet(e)); return { failed: outbound.length }; });
   const team = await teamAgentNotes(deps, ctx); // decision 10: each team's assistant — its daily summary and what is late
   const ready = await readyActionNotes(deps, ctx, ctx.nowMs); // decision 7 / T7: the assistant prepares the action (a late reply written)
   const dev = await devCheckNotes(deps, ctx).catch((e) => { console.error('notify dev check: ' + quiet(e)); return null; }); // decision 5 «طريقة أ»: the developer's daily check — a note per problem with its fix
@@ -284,7 +334,8 @@ async function autoCleanup(deps: Deps, ctx: Ctx): Promise<Json | null> {
 // the admin's status: the last tick's counts and the rules' catalogue (the channels: the bell only for now — Safwat 24 Nov)
 async function status(deps: Deps): Promise<Response> {
   const last = await deps.db.from('sync_state').select('value, updated_at').eq('key', 'notify').maybeSingle();
-  return json(200, { result: 'ok', last: isObj(last?.data) ? last.data.value ?? null : null, channels: ['bell'] });
+  const g = gatesOf((await context(deps)).notif);
+  return json(200, { result: 'ok', last: isObj(last?.data) ? last.data.value ?? null : null, channels: ['bell'].concat(g.email ? ['email'] : [], g.whatsapp ? ['whatsapp'] : []) });
 }
 
 // ---------------------------------------------------------------- auth + handler

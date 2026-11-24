@@ -96,3 +96,28 @@ export function hidePlan({ rule, alerts, inState, reads, now }) {
 export const nowOf = (cairo) => ({ day: cairo.day, min: Number(String(cairo.time).slice(0, 2)) * 60 + Number(String(cairo.time).slice(3, 5)) });
 // does the rule run on this tick (its time, its repeat — catalogue.runs) and is it on
 export const runsNow = (rule, cairo) => rule && rule.active !== false && C.runs(rule, nowOf(cairo), rule.last_run || null);
+
+// the outbound channels (Safwat 24 Nov: «الايميل ممكن تشغلوا و الواتساب … يبقا واقف علي تشغيل ال API»): a rule that names e-mail or
+// WhatsApp sends — besides its bell rows — one message per member and rule this tick (its new rows in it), and only while the admin's
+// switch of that channel is on (settings «notif».channels — e-mail on, WhatsApp off until its API is turned on). → [{ ch, member, rule,
+// title, body, count }] (at most OUT_MAX a tick; a member is named by id — the sender reads the address).
+export const OUT_MAX = 80; const OUT_LINES = 8;
+export function outboundPlan({ rules, inserts, gates }) {
+  const rmap = new Map((rules || []).map((r) => [String(r.id), r])); const by = new Map();
+  for (const a of inserts || []) {
+    const r = rmap.get(String(a.rule_id)); if (!r || r.active === false || !a.user_id) continue;
+    const chs = Array.isArray(r.channels) ? r.channels : [];
+    for (const ch of ['email', 'whatsapp']) {
+      if (!chs.includes(ch) || !(gates && gates[ch] === true)) continue;
+      const k = ch + '|' + a.user_id + '|' + r.id;
+      const g = by.get(k) || { ch, member: String(a.user_id), rule: String(r.id), name: String(r.name || ''), items: [] };
+      g.items.push({ title: String(a.title || ''), body: a.body ? String(a.body) : '' }); by.set(k, g);
+    }
+  }
+  return [...by.values()].slice(0, OUT_MAX).map((g) => {
+    const one = g.items.length === 1;
+    const title = one ? g.items[0].title : g.name + ' (' + g.items.length + ')';
+    const lines = one ? (g.items[0].body ? [g.items[0].body] : []) : g.items.slice(0, OUT_LINES).map((x) => x.title).concat(g.items.length > OUT_LINES ? ['وكمان ' + (g.items.length - OUT_LINES)] : []);
+    return { ch: g.ch, member: g.member, rule: g.rule, title: title.slice(0, 150), body: lines.join(' · ').slice(0, 900), count: g.items.length };
+  });
+}

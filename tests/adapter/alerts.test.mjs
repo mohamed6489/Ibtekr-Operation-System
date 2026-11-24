@@ -19,13 +19,35 @@ const has = (calls, c) => calls.some((x) => JSON.stringify(x) === JSON.stringify
 test('load merges reads, asked for the loaded alert ids only (bounded by the alerts limit)', async () => {
   const { A, calls } = load();
   await A.load();
-  assert.deepEqual(opsOf(calls, 'alerts'), [{ op: 'select', args: ['id, at, kind, title, body, entity, entity_id'] }, { op: 'order', args: ['at', { ascending: false }] }, { op: 'limit', args: [200] }]);
+  // 0157: the rule / sub-section / hide_at columns, and an alert whose «تفاصيل الظهور» passed is not asked for
+  const ops = opsOf(calls, 'alerts');
+  assert.deepEqual(ops[0], { op: 'select', args: ['id, at, kind, title, body, entity, entity_id, rule_id, section_id, hide_at'] });
+  assert.equal(ops[1].op, 'or'); assert.match(ops[1].args[0], /^hide_at\.is\.null,hide_at\.gt\.\d{4}-\d\d-\d\dT/);
+  assert.deepEqual(ops.slice(2), [{ op: 'order', args: ['at', { ascending: false }] }, { op: 'limit', args: [200] }]);
   assert.deepEqual(opsOf(calls, 'alert_reads'), [{ op: 'select', args: ['alert_id'] }, { op: 'eq', args: ['user_id', 'u2'] }, { op: 'in', args: ['alert_id', [2, 1]] }]);
   assert.ok(calls.findIndex((c) => c.table === 'alert_reads') > calls.findIndex((c) => c.table === 'alerts')); // after the alerts answered
   assert.equal(A.list()[0].id, 2);
   assert.equal(A.list()[1].read, true);
   assert.equal(A.unread(), 1);
-  assert.deepEqual(plain(A.list()[0]), { id: 2, at: '2026-10-25T09:00:00Z', kind: 'woo.sync.failed', title: 'فشل المزامنة', body: null, entity: 'settings-integrations', entityId: null, read: false });
+  assert.deepEqual(plain(A.list()[0]), { id: 2, at: '2026-10-25T09:00:00Z', kind: 'woo.sync.failed', title: 'فشل المزامنة', body: null, entity: 'settings-integrations', entityId: null, ruleId: null, sectionId: null, read: false });
+});
+
+// the notifications' new structure (Safwat 24 Nov — 0157): the bell = the settings' tree — a group per main section, «الكل», one tab
+// per sub-section, «غير مقروء» / «مقروء»; an alert without a rule sits under the first sub-section whose rules are of its kind's element
+test('treeSections: the settings\' tree as the bell\'s groups and filters; a rule-less alert placed by its element; the sort', async () => {
+  const R1 = { id: 11, at: '2026-11-24T08:00:00Z', kind: 'rule:orders.confirm', title: 'أوردر غير مؤكد — IB-1', body: 'x', entity: 'orders/1', entity_id: 'o:1', rule_id: 'r1', section_id: 's1', hide_at: null };
+  const R2 = { id: 12, at: '2026-11-24T09:00:00Z', kind: 'hr.overtime', title: 'وقت إضافي', body: null, entity: 'hr', entity_id: null, rule_id: null, section_id: null, hide_at: null };
+  const responses = { alerts: { data: [R2, R1], error: null }, alert_reads: { data: [{ alert_id: 11 }], error: null },
+    notif_sections: { data: [{ id: 'm1', parent_id: null, name: 'خدمة العملاء', sort: 0 }, { id: 's1', parent_id: 'm1', name: 'غير مؤكدة', sort: 0 }, { id: 'm2', parent_id: null, name: 'الفريق', sort: 1 }, { id: 's2', parent_id: 'm2', name: 'الحضور والانصراف', sort: 0 }], error: null },
+    notif_rules: { data: [{ id: 'r1', section_id: 's1', element: 'orders', active: true }, { id: 'r2', section_id: 's2', element: 'team', active: true }], error: null } };
+  const { A, window } = load({ responses });
+  window.IBNotifCatalog = { elementOfKind: (k) => (/^hr/.test(k) ? 'team' : null) };
+  await A.load();
+  assert.equal(A.hasTree(), true);
+  const S = A.treeSections(() => true, 'new');
+  assert.deepEqual(plain(S.map((x) => [x.label, x.tabs.map((t) => t[1] + ':' + t[2].length)])), [['خدمة العملاء', ['الكل:1', 'غير مؤكدة:1', 'غير مقروء:0', 'مقروء:1']], ['الفريق', ['الكل:1', 'الحضور والانصراف:1', 'غير مقروء:1', 'مقروء:0']]]);
+  assert.equal(S[1].received, 1); assert.equal(S[0].received, 0);
+  assert.equal(S[1].tabs[0][2][0].fresh, true, 'the green dot on the unread one');
 });
 
 test('markRead inserts and updates the cache first', async () => {

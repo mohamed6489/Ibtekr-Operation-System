@@ -736,7 +736,42 @@
     log('brand.menu', String(what || '').slice(0, 60), 'brand'); return { ok: true, menu: v };
   }
 
-  window.IBSettings = { textBrains, loadBrains, brainsReady, agentRules, MENU_ICONS, MENU_LOCKED, MENU_LABEL_MAX, cleanMenu, menuOf, menuNow, saveMenu, loginLocks, loginUnlock, load, ensure, loadPublic, clear, data, section, sections: () => Object.assign({}, data.sections), roles, liveRoles, public: () => data.public, can, PERMS, PERM_KEYS, lists, saveLists, statusLabel, STATUS_KINDS, setRoleLevelPerms, setMemberLevel, levelPermsOf, MEMBER_LEVELS: MLEVELS, quickList, quickSave, quickDelete, quickOrder, QUICK_SCOPES: Q_SCOPES, expenseKinds, statusList, addedStatuses, delayRules, fakeRule, saveFake, orderStatuses, orderStatusAdd, orderStatusSlug, orderStatusDelete, orderStatusOrder, ADDED_MAX, ADDED_LEN, weekStart, imageProvider, magnificOn, store, single, storeCaps, storeOf, STORE_PLATFORMS, STORE_READY, SINGLE_READY, STORE_CAPS, clock, dateFmt, KIND_MAX, KINDS_MAX,
+  // ---------- the notifications' new structure (Safwat 24 Nov — 0157): the tree the admin builds (main sections › sub-sections › rules);
+  // the bell draws the same tree (IBAlerts). Before 0157 the tables are missing → null (the old tabs stay).
+  let ntree = null;
+  async function notifTree(force) {
+    const cl = c(); if (!cl) return null; if (ntree && !force) return ntree;
+    try {
+      const [sc, rl] = await Promise.all([cl.from('notif_sections').select('id, parent_id, name, icon, sort').order('sort', { ascending: true }).limit(500),
+        cl.from('notif_rules').select('id, section_id, name, element, type, state, sub, param, at, repeat, days, show, hours, roles, channels, template, active, sort').order('sort', { ascending: true }).limit(1000)]);
+      if (sc.error || rl.error) { ntree = null; return null; }
+      const S = sc.data || []; const Rr = rl.data || [];
+      ntree = { mains: S.filter((x) => !x.parent_id).map((m) => ({ id: m.id, name: m.name, icon: m.icon || null,
+        subs: S.filter((x) => x.parent_id === m.id).map((x) => ({ id: x.id, name: x.name, rules: Rr.filter((r) => r.section_id === x.id) })) })) };
+      return ntree;
+    } catch (e) { ntree = null; return null; }
+  }
+  const notifTreeNow = () => ntree;
+  const nwrite = async (fn, args) => { if (!can().admin) return no('forbidden'); const r = await rpc(fn, args); if (r.ok) { await notifTree(true); quiet(() => document.dispatchEvent(new Event('ib:notify'))); } return r; };
+  const notifSectionSave = (sec) => nwrite('notif_section_save', { p: { id: sec.id || null, parent_id: sec.parentId || null, name: String(sec.name || '').trim(), icon: sec.icon || null } });
+  const notifSectionDelete = (id) => nwrite('notif_section_delete', { p_id: id });
+  const notifSectionOrder = (ids) => nwrite('notif_section_order', { p_ids: ids });
+  // a rule: checked with the catalogue first (the same Arabic line the server's checks would refuse), then notif_rule_save
+  function notifRuleSave(rule) {
+    const C = window.IBNotifCatalog; const err = C ? C.ruleError(rule, notifLists()) : null;
+    if (err) return Promise.resolve({ ok: false, reason: 'invalid', message: err });
+    return nwrite('notif_rule_save', { p: { id: rule.id || null, section_id: rule.section_id, name: String(rule.name).trim(), element: rule.element, type: rule.type, state: rule.state, sub: rule.sub || null,
+      param: rule.param == null || rule.param === '' ? null : Number(rule.param), at: rule.at, repeat: rule.repeat, days: rule.days || [], show: rule.show, hours: Number(rule.hours), roles: rule.roles, channels: rule.channels,
+      template: rule.template || null, active: rule.active !== false } });
+  }
+  const notifRuleDelete = (id) => nwrite('notif_rule_delete', { p_id: id });
+  // the system's own lists the catalogue's `dyn` states read (the orders' statuses, the confirmation's, the product lines', the requests' types)
+  function notifLists() {
+    const sl = (k) => quiet(() => statusList(k)) || [];
+    const T = window.IbtekrTickets; const types = T && T.TYPES ? (Array.isArray(T.TYPES) ? T.TYPES : Object.keys(T.TYPES)) : [];
+    return { order: sl('order'), confirm: sl('confirm'), sub: sl('sub'), ticket: types.map((t) => (Array.isArray(t) ? t[0] : t && t.id ? t.id : t)).filter(Boolean) };
+  }
+  window.IBSettings = { notifTree, notifTreeNow, notifSectionSave, notifSectionDelete, notifSectionOrder, notifRuleSave, notifRuleDelete, notifLists, textBrains, loadBrains, brainsReady, agentRules, MENU_ICONS, MENU_LOCKED, MENU_LABEL_MAX, cleanMenu, menuOf, menuNow, saveMenu, loginLocks, loginUnlock, load, ensure, loadPublic, clear, data, section, sections: () => Object.assign({}, data.sections), roles, liveRoles, public: () => data.public, can, PERMS, PERM_KEYS, lists, saveLists, statusLabel, STATUS_KINDS, setRoleLevelPerms, setMemberLevel, levelPermsOf, MEMBER_LEVELS: MLEVELS, quickList, quickSave, quickDelete, quickOrder, QUICK_SCOPES: Q_SCOPES, expenseKinds, statusList, addedStatuses, delayRules, fakeRule, saveFake, orderStatuses, orderStatusAdd, orderStatusSlug, orderStatusDelete, orderStatusOrder, ADDED_MAX, ADDED_LEN, weekStart, imageProvider, magnificOn, store, single, storeCaps, storeOf, STORE_PLATFORMS, STORE_READY, SINGLE_READY, STORE_CAPS, clock, dateFmt, KIND_MAX, KINDS_MAX,
     save, setRolePerms, createRole, updateRole, deleteRole, setMemberRole, setMemberRoles, setMemberPerms, setMemberStatus, sessions, revokeSession, deviceOf,
     links, setSecret, wooSet, testSecret, unlink, connections, notifyStatus, notifyTick, activity, pageOf, docs, addDoc, updateDoc, removeDoc, docUrl, uploadLogo, logoUrl, LOGO_SLOTS, uploadFont, removeFont, loadFont, fontList, FONT_MAX, FONTS_MAX, wipe, WIPE_SECTIONS, teamWipe, filesWipe };
 })();

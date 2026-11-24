@@ -96,7 +96,7 @@ test('load names every column (no *, no commission_pct), reads the rates and the
   assert.deepEqual(opsOf(calls, 'vendors').filter((c) => c.op === 'range'), [{ op: 'range', args: [0, 999] }]);
   assert.deepEqual(plain(S.get(V1)), { id: V1, storeError: null, archivedAt: null, siteRemovedAt: null, name: 'Art Craft', legalName: null, categories: [], category: 'فنون ولوحات', aliases: ['ArtCraft', 'آرت كرافت'], status: 'active', phone: '01000000003', altPhone: null, email: null, address: null, instagram: null, storeUrl: null,
     contactName: null, addressParts: EMPTY_PARTS, social: EMPTY_SOCIAL, logoUrl: null, photoPath: null, bannerUrl: null, wooPaymentMethods: [], wooSyncedAt: null, pushPending: [], categoryRates: [], rateFlat: null, // phase 3.3: no synced data on this row
-    rate: 35, rateSince: '2026-03-01', rateHistory: [{ rate: 35, flat: null, since: '2026-03-01', by: 'صفوت كمال', type: 'fixed' }], ratesVisible: true, commissionType: 'fixed', leadDays: 7, depositPolicy: null, notes: 'الشحن على المبتكر', logoLetter: 'A', joinedAt: '2026-03-01',
+    rate: 35, rateSince: '2026-03-01', rateHistory: [{ rate: 35, flat: null, since: '2026-03-01', by: 'صفوت كمال', type: 'fixed' }], ratesVisible: true, commissionType: 'fixed', leadDays: 7, depositPolicy: null, notes: 'الشحن على المبتكر', logoLetter: 'A', joinedAt: '2026-03-01', joinedSite: '2026-03-01',
     contract: null, bank: null, login: null, openingBalance: 0, wooVendorId: 2376, shopUrl: 'https://ibtekr.club/store/art-craft/', createdAt: T0, lastUpdate: T0, brands: [B1_SHAPE, B4_SHAPE], brandsEver: [] });
   assert.match(selectOf(calls, 'vendors')[0], /\bcontact_name, address_parts, social, logo_url, banner_url, woo_payment_methods, push_pending, woo_synced_at, photo_path, store_error, archived_at$/); // 0014: by name, never woo_snapshot; 0075 photo_path
   assert.doesNotMatch(selectOf(calls, 'vendors')[0], /woo_snapshot/);
@@ -180,6 +180,24 @@ test('stats (decision 4 + 5): per vendor the orders (with his sales / share), op
   await ops.V.load();
   const o = plain(ops.V.stats())[V1];
   assert.deepEqual([o.earned, o.pending, o.noRate, o.orders[1].share], [651.3, 1002, 1, 1002]); // the rates are hidden: the open line counts in full and is marked
+});
+
+test('the meeting of 23 Nov [#24]: «مستحقاته» counts from the join date — a completed order before the store\'s day on the site is not his due; since says from when', async () => {
+  const orders = [
+    { id: '181668', st: 'مكتمل', date: '2026-10-19', subs: [{ vendor: 'Art Craft', tot: 1002, rate: 35, fee: 0 }] },
+    { id: '170001', st: 'مكتمل', date: '2026-02-10', subs: [{ vendor: 'Art Craft', tot: 1000, rate: 35, fee: 0 }] },
+  ];
+  const rows = [{ id: '181668', status: 'مكتمل', ageDays: 6, total: 1002, delivery: 'ok', vendors: ['Art Craft'] }, { id: '170001', status: 'مكتمل', ageDays: 260, total: 1000, delivery: 'ok', vendors: ['Art Craft'] }];
+  const { V } = load({ orders: { orders }, app: { query: () => ({ rows }) } });
+  await V.load();
+  const art = plain(V.stats())[V1]; // Art Craft joined the site on 2026-03-01
+  assert.deepEqual([art.since, art.sinceFrom, art.earned, art.balance, art.byStatus.c[0]], ['2026-03-01', 'site', 651.3, 651.3, 1]);
+  assert.deepEqual(art.orders.map((o) => o.day), ['2026-10-19', '2026-02-10']);
+  // without a store day on the site: from his first order — every order counts
+  const r = seed(); r.vendors = ok(VENDORS.map((v) => (v.id === V1 ? Object.assign({}, v, { joined_at: null }) : v)));
+  const two = load({ responses: r, orders: { orders }, app: { query: () => ({ rows }) } }); await two.V.load();
+  const a2 = plain(two.V.stats())[V1];
+  assert.deepEqual([a2.since, a2.sinceFrom, a2.earned], ['2026-02-10', 'order', 1301.3]);
 });
 
 test('safeName: [A-Za-z0-9._-] kept, the rest _, never empty or dot-led, at most 100 chars (the tail keeps the extension)', () => {

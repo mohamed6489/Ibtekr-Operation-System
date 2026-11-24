@@ -1155,7 +1155,7 @@
   // the accounts' rows are read once a session; a question asked before the accounts page was ever opened waits for them
   const aiAccReady = async () => { const A = ACC(); if (!A || barred('accounts')) return false; if (A.state && A.state() === 'idle' && A.load) { try { await A.load(); } catch (e) { /* the answer says what it could not read */ } }
     else if (A.state && A.state() === 'loading') await aiWait(() => A.state() !== 'loading', 6000); refreshSeed(); return true; };
-  const aiRead = (cmd) => window.IBSystemRead.run(cmd, { barred, single: singleOn, accReady: aiAccReady, makers: vendorsNow, withdrawalOf: wdOf, orders: ordersRows, ordersReport: (r) => R.ordersReport(ordersRows(), r, TODAY),
+  const aiRead = (cmd) => window.IBSystemRead.run(cmd, { barred, single: singleOn, accReady: aiAccReady, makers: vendorsNow, withdrawalOf: (name) => { const id = makerId(name); return id && AC() ? VD.lastRequest(AC().withdrawals(), id) : null; }, /* [#18]: the request the accounts table shows */ orders: ordersRows, ordersReport: (r) => R.ordersReport(ordersRows(), r, TODAY),
     salesOf: accRepOf, expenses: () => store.expenses, range: (preset) => D.presetRange(preset, TODAY), dateLong: D.formatDateLong, wait: aiWait, norm: (x) => window.IBBrain.norm(x) });
   // an assistant's chat on «الذكاء الاصطناعي» asks the system's engine too (the owner 22 Nov): a money entry it understands whole comes
   // back as the system's popup filled — { text, forms } for a link under the answer; nothing else is run from there
@@ -1625,14 +1625,6 @@
       return x.sv.sales.map((g) => CL('مبيعات ' + g.label, g.sales, 'money', /مرتجع|ملغي/.test(g.label) ? 'down' : 'up')).concat([CL('إجمالي المبيعات', T.sales, 'money', 'up'), CL('عدد الأوردرات', T.orders, 'count', 'up', 'أوردر'), CL('حصة إبتكر', T.share, 'money', 'up'), CL('حصة المبتكرين', D.round2(T.sales - T.share), 'money', null)]); },
     actual: (r) => { const ok = inPer(r); const l = store.accountMoves.filter((m) => ok(m.date)); const s = (d) => D.round2(l.filter((m) => (m.direction === 'deposit') === d).reduce((n, m) => n + (Number(m.amount) || 0), 0)); const dep = s(true), wd = s(false);
       return [CL('إيداعات في الحسابات', dep, 'money', 'up'), CL('سحوبات من الحسابات', wd, 'money', 'down'), CL('صافي الحركة', D.round2(dep - wd), 'money', 'up'), CL('عدد الحركات', l.length, 'count', null, 'حركة')]; },
-    // «كشف بالفترة»: the makers' ledger of the comparison period is read from Dokan like the period's own (a statement a maker)
-    ledger: (r) => { const A = window.IBAccounts || null; if (!A || !A.loadLedger) return false;
-      const days = (Date.parse(r.to + 'T00:00:00Z') - Date.parse(r.from + 'T00:00:00Z')) / 864e5; if (!(days >= 0) || days > LEDGER_MAX_DAYS) return false;
-      const withStore = vendorsNow().map((v) => (v.id && vstore.get ? vstore.get(v.id) : null)).filter((vv) => vv && vv.wooVendorId).map((vv) => vv.id);
-      let L = A.ledgerOf(r.from, r.to); const missing = withStore.filter((id) => !L || !L.by.has(id)); if (missing.length) L = A.loadLedger(r.from, r.to, missing);
-      const all = ledgerRows(r, L); if (all.some((l) => l.dokan === 'pending')) return null;
-      const T = D.ledgerTotals(all.filter((l) => l.dokan === 'ok' || l.dokan === 'none'));
-      return [CL('مبيعات المكتمل', T.sales, 'money', 'up'), CL('حصة إبتكر', T.share, 'money', 'up'), CL('حق المبتكرين من المكتمل', T.earned, 'money', null), CL('العرابين', T.deposits, 'money', null), CL('المواصلات', T.transport, 'money', null), CL('اتحوّل للمبتكرين', T.payouts, 'money', null), CL('المستحق آخر الفترة', T.closing, 'money', null)]; },
     // ---- the reports' tabs (the reports' period) ----
     orders: (r) => { const p = R.ordersReport(ordersRows(), { from: r.from, to: r.to }, TODAY);
       return [CL('إجمالي الأوردرات', p.count, 'count', 'up', 'أوردر'), CL('إجمالي القيمة', p.total, 'money', 'up'), CL('متوسط قيمة الأوردر', p.avg, 'money', 'up'), CL('نسبة الإكمال', p.completionRate * 100, 'pct', 'up'), CL('أوردرات تحتاج تدخّل', p.needAction, 'count', 'down', 'أوردر'), CL('أوردرات ملغية', p.cancelled, 'count', 'down', 'أوردر')]; },
@@ -1654,7 +1646,7 @@
   };
   // the card of the page's own period filter, by where the member stands
   const accountsCompare = () => (state.tab === 'moves-log' ? null : state.tab === 'acc-reports' ? CompareCard('reports', CMP.accounts)
-    : state.tab === 'vendors' ? (state.vsub === 'ledger' && ledgerRange() ? CompareCard('vledger', CMP.ledger, { range: ledgerRange(), note: 'أرقام فترة المقارنة من كشف حساب Dokan لكل مبتكر في الفترة دي، زي الكشف نفسه.' }) : null)
+    : state.tab === 'vendors' ? null
       : CompareCard('accounts', CMP[state.tab]));
 
   // ---------- movement forms (expense / vendor / account) ----------
@@ -1675,7 +1667,7 @@
     if (preset) Object.assign(f, preset);
     let errs = {}; let modal = null;
     const dirWord = direction === 'deposit' ? 'إيداع' : 'سحب';
-    const titles = { expenses: dirWord + ' مصروفات', vendorMoves: direction === 'deposit' ? 'إيداع — تصحيح رصيد المبتكر' : 'سحب من رصيد المبتكر', accountMoves: direction === 'deposit' ? 'إيداع في الحساب' : 'سحب من الحساب' };
+    const titles = { expenses: dirWord + ' مصروفات', vendorMoves: direction === 'deposit' ? 'إيداع خارجي للمبتكر' : 'سحب من رصيد المبتكر', accountMoves: direction === 'deposit' ? 'إيداع في الحساب' : 'سحب من الحساب' };
     const title = readOnly ? 'تفاصيل الحركة' : (existing ? 'تعديل — ' : '') + titles[kind];
     const vendorOpts = SEED.vendors.map((v) => ({ value: v.name, label: v.name }));
     const benefOpts = [...vendorOpts, { value: D.OTHER, label: D.OTHER }];
@@ -1739,8 +1731,8 @@
       if (kind === 'vendorMoves' && direction === 'deposit') {
         // 0078: «إيداع» = a balance correction only — the transaction's title and its description (the kind is «أخرى» on the server)
         fields.push(U.TextInput({ id: 'f-other', label: 'عنوان المعاملة', required: true, value: f.otherName, error: errs.otherName, placeholder: 'مثلًا: فرق سعر مقاس مخصص', maxlength: 80, onInput: (v) => { f.otherName = v; } }));
-        fields.push(U.Textarea({ id: 'f-note', label: 'الوصف', value: f.note, placeholder: 'اكتب سبب التصحيح (اختياري)', maxlength: 500, rows: 2, onInput: (v) => { f.note = v; } }));
-        fields.push(U.InlineNote({ children: 'الإيداع لتصحيح رصيد المبتكر بس — المبلغ بيتضاف على الصافي. العربون والمواصلات وأي مبلغ اتدفع للمبتكر يتسجّلوا «سحب».' }));
+        fields.push(U.Textarea({ id: 'f-note', label: 'الوصف', value: f.note, placeholder: 'اكتب سبب الإيداع (اختياري)', maxlength: 500, rows: 2, onInput: (v) => { f.note = v; } }));
+        fields.push(U.InlineNote({ children: 'الإيداع الخارجي بيتضاف على صافي المبتكر. العربون والمواصلات وأي مبلغ اتدفع للمبتكر يتسجّلوا «سحب».' }));
       } else if (kind === 'vendorMoves') {
         fields.push(U.Select({ id: 'f-type', label: 'النوع', required: true, options: typeOpts, value: f.type, error: errs.type, onChange: (v) => { f.type = v; if (v !== 'أخرى') f.otherName = ''; redraw(); } }));
         if (f.type === 'أخرى') fields.push(U.TextInput({ id: 'f-other', label: 'اكتب النوع', required: true, value: f.otherName, error: errs.otherName, placeholder: 'اكتب النوع', maxlength: 80, onInput: (v) => { f.otherName = v; } }));
@@ -1981,7 +1973,7 @@
   function AddMenu(label, kind) {
     const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' });
     const trig = h('button', { type: 'button', class: 'btn btn-brand', 'aria-haspopup': 'menu', 'aria-expanded': 'false' }, Icon('plus', 'sm'), label, Icon('chevD', 'sm'));
-    const opts = kind === 'vendorMoves' ? [{ value: 'withdraw', label: 'سحب — عربون · مواصلات · أخرى' }, { value: 'deposit', label: 'إيداع — تصحيح رصيد' }] : [{ value: 'withdraw', label: 'سحب' }, { value: 'deposit', label: 'إيداع' }];
+    const opts = kind === 'vendorMoves' ? [{ value: 'withdraw', label: 'سحب — عربون · مواصلات · أخرى' }, { value: 'deposit', label: 'إيداع خارجي' }] : [{ value: 'withdraw', label: 'سحب' }, { value: 'deposit', label: 'إيداع' }];
     const pop = U.popover(wrap, trig, (close) => U.DropdownMenu({ role: 'menu', options: opts, onSelect: (v) => { close(); openForm(kind, v); } }));
     trig.addEventListener('click', pop.toggle); wrap.append(trig); return wrap;
   }
@@ -2129,7 +2121,7 @@
   }
 
   // plan 4.1 decision 13 (owner, 28 Oct): filter the makers' table to those with a Dokan withdraw request
-  const WD_FILTERS = [{ value: 'all', label: 'طلبات السحب: الكل' }, { value: 'any', label: 'عندهم طلب سحب' }, { value: 'pending', label: 'مستني الموافقة بس' }];
+  const WD_FILTERS = [{ value: 'all', label: 'طلبات السحب: الكل' }, { value: 'any', label: 'عندهم طلب سحب' }, { value: 'pending', label: 'طلب جديد بس' }];
   const wdFilterOk = (v) => { const f = state.wdFilter || 'all'; if (f === 'all') return true; const r = wdOf(v.name); return f === 'pending' ? !!r && r.status === 'pending' : !!r; };
   function WdFilterDropdown() {
     const cur = WD_FILTERS.find((x) => x.value === (state.wdFilter || 'all'));
@@ -2150,6 +2142,16 @@
   const AC = () => window.IBAccounts;
   const makerId = (name) => { const v = vstore.findByName(name); return v ? v.id : null; };
   const wdOf = (name) => { const id = makerId(name); const r = id && AC() ? VD.openRequest(AC().withdrawals(), id) : null; return r ? Object.assign({}, r, { id: '#' + r.id, wid: r.id }) : null; };
+  // the meeting of 23 Nov [#20]: «تم الدفع» (or any request that is not new) opens that one request with its details — the latest only
+  function lastWdPopup(name, r) {
+    const fmt = (n) => D.formatMoney(n) + ' ج.م'; const x = AC() && AC().settlements ? AC().settlements().find((y) => y.withdrawId === r.id) : null;
+    const rows = [{ label: 'رقم الطلب', value: '#' + r.id }, { label: 'الحالة', value: VD.wdLabel(r.status) }, { label: 'اتعمل من', value: r.internal ? 'السيستم (داخلي — تسوية)' : 'المبتكر' },
+      { label: 'المبلغ', value: fmt(r.amount) }, r.charge ? { label: 'رسوم Dokan', value: fmt(r.charge) } : null, r.receivable != null ? { label: 'يوصله', value: fmt(r.receivable) } : null,
+      x ? { label: 'اتحوّله فعلًا', value: fmt(x.cash) } : null, x && x.consumed ? { label: 'غطّى عرابين ومواصلات وديون', value: fmt(x.consumed) } : null,
+      r.method ? { label: 'الطريقة', value: r.method === 'bank' ? 'تحويل بنكي' : r.method } : null, r.at ? { label: 'تاريخ الطلب', value: D.formatDateNumeric(String(r.at).slice(0, 10)) } : null].filter(Boolean);
+    U.DetailsModal({ title: 'طلب سحب ' + name + ' — ' + VD.wdLabel(r.status), sub: 'آخر طلب سحب للمبتكر على Dokan', summary: rows,
+      source: 'طلبات السحب من Dokan (بتتحدّث كل ساعة، و«تحديث من Dokan» بيجيبها دلوقتي)' });
+  }
   // the requests for the moves log: { at, vendor, amount, id, source, by, note }
   const dokanRequests = () => (AC() ? AC().withdrawals() : []).map((w) => { const v = w.vendorId && vstore.get ? vstore.get(w.vendorId) : null;
     return { at: w.at, vendor: v ? v.name : '#' + w.store, amount: w.amount, id: '#' + w.id, source: 'vendor', by: 'Dokan', note: VD.wdLabel(w.status) + (w.method ? ' · ' + w.method : '') }; });
@@ -2181,8 +2183,8 @@
   // the five numbers (the owner's list, in his order); a deduction of another kind and what the last settlement left are named
   // under them when they are not zero, so the net still adds up
   const briefTiles = (b, fmt) => [{ key: 'dokan', label: 'رصيد Dokan', value: b.dokanBalance == null ? '—' : fmt(b.dokanBalance) + ' ج.م' }, { key: 'deposits', label: 'العرابين', value: fmt(b.deposits) + ' ج.م' },
-    { key: 'transport', label: 'المواصلات', value: fmt(b.transport) + ' ج.م' }, { key: 'corrections', label: 'التصحيح', value: fmt(b.corrections) + ' ج.م' }, { key: 'net', label: 'صافي الرصيد', value: fmt(b.balance) + ' ج.م' }];
-  const briefExtra = (b, fmt) => [b.other ? 'خصومات تانية ' + fmt(b.other) + ' ج.م' : '', b.carry ? 'متبقي من آخر تسوية ' + fmt(b.carry) + ' ج.م' : ''].filter(Boolean).join(' · ');
+    { key: 'transport', label: 'المواصلات', value: fmt(b.transport) + ' ج.م' }, { key: 'corrections', label: 'إيداع خارجي', value: fmt(b.corrections) + ' ج.م' }, { key: 'net', label: 'صافي الرصيد', value: fmt(b.balance) + ' ج.م' }];
+  const briefExtra = (b, fmt) => [b.other ? 'ديون أخرى ' + fmt(b.other) + ' ج.م' : '', b.carry ? 'متبقي من آخر تسوية ' + fmt(b.carry) + ' ج.م' : ''].filter(Boolean).join(' · ');
   function openAccountBrief(name, opts) {
     const K = window.IBKit; const fmt = (n) => D.formatMoney(n); const settle = !!(opts && opts.settle); let m = null;
     // the request's box: '' = what Dokan has now · 'ask' = «وافق دلوقتي؟» · busy = a call is running · res = the last call's answer
@@ -2285,11 +2287,11 @@
             Button({ label: 'بعدين', disabled: !!flow.busy, attrs: { 'data-vb-later': '' }, onClick: () => { flow.step = ''; flow.res = null; draw(); } })));
       } else if (req && req.status === 'pending') {
         tone = 'pending';
-        kids.push(line('طلب سحب ' + req.id + ' مستني الموافقة — ' + fmt(req.amount) + ' ج.م', true), line(canApprove ? 'راجع الرصيد والأوردرات وبعدين وافق أو ارفض — الاتنين بيتكتبوا على Dokan نفسه. ' + planText(req.amount, b) : 'الموافقة عليه أو رفضه بيتعملوا من حد معاه صلاحية اعتماد الحسابات.'));
+        kids.push(line('طلب سحب ' + req.id + ' (طلب جديد) مستني الموافقة — ' + fmt(req.amount) + ' ج.م', true), line(canApprove ? 'راجع الرصيد والأوردرات وبعدين وافق أو ارفض — الاتنين بيتكتبوا على Dokan نفسه. ' + planText(req.amount, b) : 'الموافقة عليه أو رفضه بيتعملوا من حد معاه صلاحية اعتماد الحسابات.'));
         if (canApprove) kids.push(h('div', { class: 'vb-req-a' }, Button({ type: 'primary', label: 'موافقة على طلب السحب (' + fmt(req.amount) + ' ج.م)', disabled: !!flow.busy, attrs: { 'data-vb-ask': '' }, onClick: () => { flow.step = 'ask'; flow.res = null; draw(); } }), rejectBtn()));
       } else if (req && req.status === 'approved') {
         tone = 'approved'; const x = setOf(req.wid);
-        kids.push(line('طلب السحب ' + req.id + ' اتوافق عليه على Dokan — ' + fmt(req.amount) + ' ج.م', true), line('اتخصم من رصيده هناك' + (x ? ' — فاضل تحوّل للمبتكر ' + fmt(x.cash) + ' ج.م' + (x.carryOut > 0 ? '، وفاضل عليه ' + fmt(x.carryOut) + ' ج.م' : '') + '.' : ' — فاضل التحويل للمبتكر.')));
+        kids.push(line('طلب السحب ' + req.id + ' — تم الدفع على Dokan — ' + fmt(req.amount) + ' ج.م', true), line('اتخصم من رصيده هناك' + (x ? ' — فاضل تحوّل للمبتكر ' + fmt(x.cash) + ' ج.م' + (x.carryOut > 0 ? '، وفاضل عليه ' + fmt(x.carryOut) + ' ج.م' : '') + '.' : ' — فاضل التحويل للمبتكر.')));
         // the owner 22 Nov: a new request any time the maker still has a balance on Dokan
         if (canSettle(b) && dokan != null && dokan > 0) kids.push(line('طلب سحب جديد — رصيده على Dokan دلوقتي ' + fmt(dokan) + ' ج.م', true), amountForm(b, dokan));
       } else if (canSettle(b) && dokan != null && dokan > 0) {
@@ -2307,7 +2309,7 @@
     // the deductions not settled yet — folded: the numbers above already carry their totals
     function movesBox(b) {
       const mv = openMoves(); if (!mv.length && !b.carry) return null;
-      const rows = mv.map((x) => [D.formatDateNumeric(x.date), x.direction === 'deposit' ? 'إيداع (تصحيح)' : 'سحب', x.typeName || x.type, (x.direction === 'deposit' ? '+' : '−') + fmt(x.amount)]).concat(b.carry ? [['—', 'متبقي', 'من آخر تسوية', '−' + fmt(b.carry)]] : []);
+      const rows = mv.map((x) => [D.formatDateNumeric(x.date), x.direction === 'deposit' ? 'إيداع خارجي' : 'سحب', x.typeName || x.type, (x.direction === 'deposit' ? '+' : '−') + fmt(x.amount)]).concat(b.carry ? [['—', 'متبقي', 'من آخر تسوية', '−' + fmt(b.carry)]] : []);
       return h('details', { class: 'vb-moves', 'data-vb-moves': '', open: settle ? '' : false }, h('summary', null, 'الحركات اللي لسه ماتصفّتش (' + rows.length + ')'),
         h('table', { class: 'vlo-table dt-table' }, h('thead', null, h('tr', null, ['التاريخ', 'الحركة', 'البيان', 'المبلغ (ج.م)'].map((x) => h('th', { scope: 'col' }, x)))), h('tbody', null, rows.map((r) => h('tr', null, r.map((c, k) => h('td', { 'data-l': ['التاريخ', 'الحركة', 'البيان', 'المبلغ (ج.م)'][k], class: 'nw' }, num(c))))))));
     }
@@ -2384,16 +2386,20 @@
   // 0078 (the owner, 11 Nov): «الرصيد دلوقتي» = the balance now, no period — each row chains to the net: رصيد Dokan − العرابين −
   // المواصلات − خصومات تانية + تصحيحات − متبقي من تسوية = الصافي (the three middle ones only when a maker has one); the request
   // column says what is open on Dokan («مستني الموافقة» + its amount); the orders by period live in «كشف بالفترة».
-  const VCOLS = [['name', 'المبتكر'], ['pct', 'نسبة إبتكر'], ['dokan', 'رصيد Dokan'], ['dep', 'العرابين'], ['tr', 'المواصلات'], ['oth', 'خصومات تانية'], ['cor', 'تصحيحات'], ['carry', 'متبقي من تسوية'],
-    ['bal', 'الصافي'], ['wd', 'طلب السحب'], ['last', 'آخر طلب سحب'], ['act', 'إجراءات']];
+  const VCOLS = [['name', 'المبتكر'], ['pct', 'نسبة إبتكر'], ['dokan', 'رصيد Dokan'], ['dep', 'العرابين'], ['tr', 'المواصلات'], ['oth', 'ديون أخرى'], ['cor', 'إيداع خارجي'], ['carry', 'متبقي من تسوية'],
+    ['bal', 'الصافي'], ['wd', 'حالة طلب السحب'], ['wdamt', 'قيمة طلب السحب'], ['last', 'آخر طلب سحب'], ['act', 'إجراءات']]; // the meeting of 23 Nov [#19]: the status and the amount, two columns
   // phase 5.5 decision 4 (owner 31 Oct 16:38): the maker's latest Dokan request (any status but rejected / cancelled) — the date and how many days ago
   const lastWd = (name) => { const id = makerId(name); if (!id || !AC()) return null;
     const c = AC().withdrawals().filter((w) => w.vendorId === id && w.status !== 'rejected' && w.status !== 'cancelled' && w.at).map((w) => ({ date: String(w.at).slice(0, 10), id: w.id, status: w.status, amount: w.amount })).sort((p, q) => (p.date < q.date ? 1 : p.date > q.date ? -1 : Number(q.id) - Number(p.id)));
     const x = c[0]; if (!x) return null; x.days = Math.max(0, Math.round((Date.parse(TODAY + 'T00:00:00Z') - Date.parse(x.date + 'T00:00:00Z')) / 864e5)); return x; };
   const lastCell = (v) => { const x = lastWd(v.name); if (!x) return h('span', { class: 'help', 'data-last': '' }, '—');
     return h('span', { class: 'last-wd', 'data-last': x.date, title: 'طلب #' + x.id + ' · ' + VD.wdLabel(x.status) + ' · ' + D.formatMoney(x.amount) + ' ج.م' }, num(D.formatDateNumeric(x.date)), h('span', { class: 't-small help' }, x.days === 0 ? 'اليوم الحالي' : num('من ' + x.days + ' يوم'))); };
+  // the meeting of 23 Nov [#17]: the makers' accounts show the active makers and any stopped one who still has a balance (the net or
+  // Dokan's, not zero); «عدد المبتكرين» counts the active ones
+  const makerActive = (v) => { const m = vstore.findByName ? vstore.findByName(v.name) : null; return !m || m.status === 'active'; };
+  const shownMaker = (v) => makerActive(v) || Math.abs(Number(v.balance) || 0) >= 0.005 || Math.abs(Number(v.dokanBalance) || 0) >= 0.005;
   function VendorsView() {
-    const list = vendorsNow(); const s = D.vendorSummary(list); const sort = SORTS.find((x) => x.value === state.sort);
+    const list = vendorsNow().filter(shownMaker); const s = D.vendorSummary(list); const activeN = list.filter(makerActive).length; const sort = SORTS.find((x) => x.value === state.sort);
     const sorted = D.sortVendors(list, sort.key, sort.dir).filter(wdFilterOk);
     const wdFiltered = (state.wdFilter || 'all') !== 'all';
     const fmt = (n) => D.formatMoney(n); const money = (n) => num(fmt(n));
@@ -2408,7 +2414,7 @@
     const tA = trAll(true);
     return [liveNote(),
       h('div', { class: 'cards five' },
-        U.CategoryCard({ tone: 'brand', name: 'عدد المبتكرين', value: s.count, unit: 'مبتكر', decimals: false, details: () => accVDet('all') }),
+        U.CategoryCard({ tone: 'brand', name: 'عدد المبتكرين', value: activeN, unit: 'مبتكر نشط', decimals: false, sub: list.length > activeN ? (list.length - activeN) + ' واقف ليه رصيد' : null, details: () => accVDet('all') }),
         U.CategoryCard({ tone: 'gold', name: 'رصيد المبتكرين', value: s.positive, sub: s.positiveCount + ' مبتكرين', details: () => accVDet('pos') }),
         U.CategoryCard({ tone: 'neutral', name: 'رصيد عند المبتكرين', value: s.negative, sub: s.negativeCount + ' مبتكرين', details: () => accVDet('neg') }),
         U.CategoryCard({ tone: 'goldlight', name: 'إجمالي العرابين', value: s.deposits, sub: h('span', null, 'صافي ', num(D.formatMoney(s.net))), details: () => accVDet('dep') }),
@@ -2416,10 +2422,17 @@
       (() => {
         // the request on Dokan now: «مستني الموافقة» + its amount, «اتوافق عليه» (the latest, with what was transferred when known)
         const setOf = (wid) => (AC() && AC().settlements ? AC().settlements().find((x) => x.withdrawId === wid) : null);
-        const wdTag = (v) => { const r = wdOf(v.name); const st = r ? r.status : 'none'; const x = r && st === 'approved' ? setOf(r.wid) : null;
-          return h('button', { type: 'button', class: 'tg tg-' + (st === 'pending' ? 'orange' : st === 'approved' ? 'success' : 'neutral') + ' wd-cell', 'data-wd': v.name, 'data-wd-status': st,
-            'aria-label': 'طلب سحب ' + v.name + ': ' + (r ? VD.wdLabel(st) : 'لا يوجد'), title: r ? 'طلب ' + r.id + ' · ' + fmt(r.amount) + ' ج.م' + (x ? ' · اتحوّل للمبتكر ' + fmt(x.cash) + ' ج.م' : '') : '',
-            onClick: (e) => { e.stopPropagation(); openAccountBrief(v.name); } }, r ? VD.wdLabel(st) : 'لا يوجد', r ? h('span', { class: 'wd-amt' }, ' · ', money(st === 'approved' && x ? x.cash : r.amount)) : null); };
+        // [#19]: the request the row shows — the pending one, else the latest of any status (VD.lastRequest); «داخلي» when the system made it.
+        // [#20]: a pending one opens the brief (approve / reject); any other opens the request itself, its details (lastWdPopup)
+        const lastOf = (v) => { const id = makerId(v.name); return id && AC() ? VD.lastRequest(AC().withdrawals(), id) : null; };
+        const wdTag = (v) => { const r = lastOf(v); const st = r ? r.status : 'none'; const x = r && st === 'approved' ? setOf(r.id) : null;
+          const tone = st === 'pending' ? 'orange' : st === 'approved' || st === 'paid' ? 'success' : st === 'cancelled' || st === 'rejected' ? 'error' : 'neutral';
+          return h('span', { class: 'wd-pair' }, h('button', { type: 'button', class: 'tg tg-' + tone + ' wd-cell', 'data-wd': v.name, 'data-wd-status': st,
+            'aria-label': 'طلب سحب ' + v.name + ': ' + (r ? VD.wdLabel(st) : 'لا يوجد'), title: r ? 'طلب #' + r.id + ' · ' + fmt(r.amount) + ' ج.م' + (x ? ' · اتحوّل للمبتكر ' + fmt(x.cash) + ' ج.م' : '') : '',
+            onClick: (e) => { e.stopPropagation(); if (!r || st === 'pending') openAccountBrief(v.name); else lastWdPopup(v.name, r); } }, r ? VD.wdLabel(st) : 'لا يوجد'),
+            r && r.internal ? h('span', { class: 'tg tg-info wd-internal', 'data-wd-internal': '', title: 'الطلب ده اتعمل من السيستم (تسوية) مش من المبتكر' }, 'داخلي — اتعمل من السيستم') : null); };
+        const wdAmt = (v) => { const r = lastOf(v); if (!r) return h('span', { class: 'help' }, '—'); const x = r.status === 'approved' ? setOf(r.id) : null;
+          return h('span', { 'data-wd-amt': v.name }, money(x ? x.cash : r.amount)); };
         const rowMenu = (v) => { const r = wdOf(v.name); const KK = window.IBKit; const b = { vendorId: makerId(v.name), hasStore: !!((vstore.findByName(v.name) || {}).wooVendorId), request: r };
           const openFile = () => { const vv = vstore.findByName(v.name); if (vv) openVendor(vv.id, { inPlace: true }); else { setNote({ kind: 'warning', text: 'المبتكر ده مش مسجّل في صفحة المبتكرين.' }); render(); } };
           return KK.RowMenu([{ label: 'تقرير المبتكر', icon: 'chart', run: () => openAccountBrief(v.name) },
@@ -2435,149 +2448,24 @@
           onKeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openAccountBrief(v.name); } } }, v.name)),
           pct: (v) => num(v.pct), dokan: (v) => (v.dokanBalance == null ? '—' : money(v.dokanBalance)), dep: (v) => money(v.deposits), tr: (v) => money(v.transport || 0),
           oth: (v) => money(v.other || 0), cor: (v) => money(v.corrections || 0), carry: (v) => money(v.carry || 0),
-          wd: wdTag, last: lastCell, bal: (v) => h('b', { 'data-vbal': v.name }, bal(v.balance)), act: rowMenu };
+          wd: wdTag, wdamt: wdAmt, last: lastCell, bal: (v) => h('b', { 'data-vbal': v.name }, bal(v.balance)), act: rowMenu };
         // filtered (decision 13): the total row is the shown makers' own sum
         const sT = wdFiltered ? D.vendorSummary(sorted) : s;
         const TOT = { name: 'الإجمالي', pct: '—', dokan: money(D.round2(sorted.reduce((t, v) => t + (v.dokanBalance || 0), 0))), dep: money(sT.deposits), tr: money(sT.transport), oth: money(sT.other), cor: money(sT.corrections), carry: money(sT.carry),
-          wd: h('span', null, num(String(sorted.filter((v) => { const r = wdOf(v.name); return r && r.status === 'pending'; }).length)), ' مستني'), last: '', bal: bal(sT.net), act: '' };
+          wd: h('span', null, num(String(sorted.filter((v) => { const r = wdOf(v.name); return r && r.status === 'pending'; }).length)), ' طلب جديد'), wdamt: '', last: '', bal: bal(sT.net), act: '' };
         const some = (k) => list.some((v) => v[k]);
         const cols = VCOLS.filter(([k]) => (k === 'oth' ? some('other') : k === 'cor' ? some('corrections') : k === 'carry' ? some('carry') : true));
         const pend = sorted.filter((v) => { const r = wdOf(v.name); return r && r.status === 'pending'; }).length;
         return TableCard({ title: 'حسابات المبتكرين — الرصيد دلوقتي', count: '', th: { noun: ['مبتكر', 'المبتكرين'], total: pend + ' طلب مستني الموافقة' + (wdFiltered ? ' · ' + (WD_FILTERS.find((x) => x.value === state.wdFilter) || {}).label : '') }, action: refreshDokanBtn(),
           body: !sorted.length ? U.EmptyState(wdFiltered ? 'مفيش مبتكرين عندهم طلبات سحب' : 'مفيش مبتكرين', wdFiltered ? 'اضغط «تحديث من Dokan» تجيب الطلبات الجديدة، أو رجّع الفلتر لـ «الكل».' : '') : U.Table({ cls: 'vendors-table', headers: cols.map(([, lb]) => lb), rows: sorted.map((v) => cols.map(([k]) => CELL[k](v))), totalRow: cols.map(([k]) => TOT[k]) }) });
       })(),
-      sourceNote('المصدر: رصيد Dokan وطلبات السحب (بيتحدّثوا كل ساعة، ورصيد المبتكر أول ما أوردره يتقفل، و«تحديث من Dokan» بيجيبهم دلوقتي) + الحركات المتسجلة هنا اللي لسه ماتصفّتش · الصافي = رصيد Dokan − العرابين − المواصلات − الخصومات التانية + التصحيحات − المتبقي من آخر تسوية، وبيبقى بالسالب لو الخصومات أكبر · Dokan مابيعرفش الخصومات دي، فطلب السحب بيبقى بكل رصيد Dokan، ولما يتوافق عليه بتتصفّى منه واللي بيتحوّل للمبتكر = الطلب − الخصومات · الأوردرات بالفترة في «كشف بالفترة»'),
+      sourceNote('المصدر: رصيد Dokan وطلبات السحب (بيتحدّثوا كل ساعة، ورصيد المبتكر أول ما أوردره يتقفل، و«تحديث من Dokan» بيجيبهم دلوقتي) + الحركات المتسجلة هنا اللي لسه ماتصفّتش · الصافي = رصيد Dokan − العرابين − المواصلات − الديون الأخرى + الإيداع الخارجي − المتبقي من آخر تسوية، وبيبقى بالسالب لو الخصومات أكبر · Dokan مابيعرفش الخصومات دي، فطلب السحب بيبقى بكل رصيد Dokan، ولما يتوافق عليه بتتصفّى منه واللي بيتحوّل للمبتكر = الطلب − الخصومات · الأوردرات بالفترة في «كشف بالفترة»'),
     ].filter(Boolean);
   }
 
-  // ================= phase 5.5 decision 13 (owner 5 Nov): كشف المبتكرين بالفترة =================
-  // The prototype's «حسابات المبتكرين بالفترة» (31 Oct) beside the balance now — an addition. The opening is the owner's answer:
-  // Dokan's own balance on the first day (each maker's statement — woo-sync `statement`, read-only, never stored) less our moves
-  // before it, as «الصافي» counts them; the period from the same statement (what Dokan credited for orders, its refunds and its
-  // withdrawals) and our deposits / transport dated in it (D.makerLedger). The orders' sales and Ibtekr's share: our lines of the
-  // orders Dokan credited (the statement row's ref → the sub-order in our mirror). No withdraw request is made from here.
-  const LEDGER_MAX_DAYS = 400; // woo-sync's statement range
-  const VSUBS = [{ id: 'now', label: 'الرصيد دلوقتي' }, { id: 'ledger', label: 'كشف بالفترة' }];
-  let ledgerTimer = 0;
-  document.addEventListener('ib:accounts-ledger', () => {
-    const shown = (state.page === 'accounts' && state.tab === 'vendors') || (state.page === 'vendors' && state.vtab === 'accounts'); // decision 57: the makers page too
-    if (!shown || state.vsub !== 'ledger' || ledgerTimer) return;
-    ledgerTimer = setTimeout(() => { ledgerTimer = 0; rerender(); }, 150);
-  });
-  // 0078 (the owner, 11 Nov — «كشف بالفترة حسب الفلتر، ومن غير فلتر كل المبتكرين بشكل عام»): the ledger's own range; null = «كل الفترات»
-  const ledgerRange = () => (state.vlrange ? { from: state.vlrange.from, to: state.vlrange.to > TODAY ? TODAY : state.vlrange.to } : null);
-  function salesByRef() { // a Dokan order id (our sub-order's sid) → { maker name: our lines' total }
-    const OA = window.OrdersApp; const m = new Map(); if (!OA || !OA.query) return m;
-    for (const r of OA.query({}, 100000).rows) {
-      const o = OA.get(r.id); if (!o) continue;
-      for (const s of o.subs || []) { const k = String(s.sid); const e = m.get(k) || {}; e[s.vendor] = D.round2((e[s.vendor] || 0) + (Number(s.tot) || 0)); m.set(k, e); }
-    }
-    return m;
-  }
-  function ledgerRows(range, L) {
-    const by = range ? salesByRef() : null; const A = AC();
-    const sets = A && A.settlements ? A.settlements() : []; const wds = A ? A.withdrawals() : []; const bals = A ? A.balances() : [];
-    return vendorsNow().map((v) => {
-      const vv = v.id && vstore.get ? vstore.get(v.id) : null; const names = vv && vstore.namesOf ? vstore.namesOf(vv.id) : [v.name];
-      const hasStore = !!(vv && vv.wooVendorId);
-      const moves = store.vendorMoves.filter((m) => m.vendor === v.name); const settlements = sets.filter((x) => x.vendorId === v.id);
-      if (!range) { // «كل الفترات»: Dokan's own totals for the store + every approved request + all our moves (no statement)
-        const d = bals.find((b) => b.vendorId === v.id) || null;
-        const l = D.lifetimeLedger({ dokan: d, withdrawals: wds.filter((w) => w.vendorId === v.id), moves, settlements });
-        return Object.assign(l, { id: v.id, name: v.name, pct: v.pct, hasStore, dokan: !hasStore ? 'none' : d ? 'ok' : 'nobal', cut: false });
-      }
-      const st = hasStore && L ? L.by.get(v.id) : null;
-      const salesOf = (ref) => { const e = by.get(String(ref)); if (!e) return null; let t = null; for (const n of names) if (e[n] != null) t = (t || 0) + e[n]; return t; };
-      const l = D.makerLedger({ statement: st && st.status === 'ok' ? { rows: st.rows } : null, moves, settlements, from: range.from, to: range.to, salesOf });
-      return Object.assign(l, { id: v.id, name: v.name, pct: v.pct, hasStore, dokan: !hasStore ? 'none' : st ? st.status : 'pending', cut: !!(st && st.status === 'ok' && st.done === false) });
-    });
-  }
-  function VendorsTab() {
-    const sub = state.vsub === 'ledger' ? 'ledger' : 'now';
-    const tabs = window.IBKit.SubTabs({ items: VSUBS, active: sub, label: 'حسابات المبتكرين', onChange: (id) => { state.vsub = id; render(); } });
-    return [tabs].concat(sub === 'ledger' ? LedgerView() : VendorsView());
-  }
-  function LedgerView() {
-    const range = ledgerRange(); const all0 = !range; // 0078: no range = «كل الفترات»
-    const A = AC(); if (!A || !A.loadLedger) return [U.InlineNote({ kind: 'error', children: 'الحسابات مش متحمّلة — جرّب تحدّث الصفحة.' })];
-    let L = null, withStore = [];
-    if (range) {
-      const days = (Date.parse(range.to + 'T00:00:00Z') - Date.parse(range.from + 'T00:00:00Z')) / 864e5;
-      if (!(days >= 0)) return [U.InlineNote({ kind: 'warning', children: 'الفترة بتبدأ بعد النهارده — اختار فترة فيها أيام فاتت.' })];
-      if (days > LEDGER_MAX_DAYS) return [U.InlineNote({ kind: 'warning', children: 'الكشف بالفترة لحد 400 يوم (كشف حساب Dokan) — اختار فترة أقصر، أو «كل الفترات».' })];
-      // every maker with a store has its statement asked once for the range (a new maker later too)
-      withStore = vendorsNow().map((v) => (v.id && vstore.get ? vstore.get(v.id) : null)).filter((vv) => vv && vv.wooVendorId).map((vv) => vv.id);
-      L = A.ledgerOf(range.from, range.to);
-      const missing = withStore.filter((id) => !L || !L.by.has(id)); if (missing.length) L = A.loadLedger(range.from, range.to, missing);
-    }
-    const all = ledgerRows(range, L); const ready = (l) => l.dokan === 'ok' || l.dokan === 'none';
-    const fmt = (n) => D.formatMoney(n); const money = (n) => num(fmt(n)); const bal = (n) => h('span', { class: n > 0 ? 'pos' : n < 0 ? 'neg' : '' }, money(n));
-    const per = all0 ? 'كل الفترات' : D.formatDateNumeric(range.from) + ' – ' + D.formatDateNumeric(range.to);
-    const sort = SORTS.find((x) => x.value === state.sort) || SORTS[0]; const key = sort.key === 'deposits' ? 'deposits' : 'closing';
-    const sorted = all.slice().sort((a, b) => (ready(b) - ready(a)) || (sort.dir === 'asc' ? 1 : -1) * ((a[key] || 0) - (b[key] || 0)) || a.name.localeCompare(b.name));
-    const moved = (l) => !ready(l) || l.opening || l.closing || l.completed.lines || l.deposits || l.transport || l.otherMoves || l.corrections || l.payouts || l.requested || l.refunds || l.other;
-    const rows0 = state.vledgerAll ? sorted : sorted.filter(moved); const done = rows0.filter(ready); const T = D.ledgerTotals(done);
-    const failed = all.filter((l) => l.dokan === 'error'); const pending = all.filter((l) => l.dokan === 'pending');
-    const unmatched = done.some((l) => l.completed.matched < l.completed.lines); const showOther = done.some((l) => l.refunds || l.other);
-    const showOM = done.some((l) => l.otherMoves); const showCor = done.some((l) => l.corrections);
-    const ST = { owed: ['success', D.LEDGER_STATUS.owed], onThem: ['orange', D.LEDGER_STATUS.onThem], settled: ['neutral', D.LEDGER_STATUS.settled] };
-    const wait = (l) => (l.dokan === 'pending' ? h('span', { class: 'help', 'data-ledger-wait': '' }, '…') : l.dokan === 'error' || l.dokan === 'nobal' ? h('span', { class: 'help' }, '—') : null);
-    const cellOf = (f) => (l) => wait(l) || f(l);
-    const rowMenu = (l) => window.IBKit.RowMenu([{ label: 'تقرير المبتكر', icon: 'chart', run: () => openAccountBrief(l.name) },
-      l.hasStore ? { label: 'كشف حساب Dokan', icon: 'file', run: () => openStatement(l.name, l.id) } : null,
-      { label: 'افتح ملف المبتكر', icon: 'users', run: () => { const vv = vstore.get && vstore.get(l.id); if (vv) openVendor(vv.id, { inPlace: true }); } }].filter(Boolean), 'إجراءات ' + l.name);
-    const fileTag = all0 ? 'all' : range.from + '_' + range.to;
-    const B = window.IBKit.Bulk({ key: 'vledger', ids: rows0.map((l) => l.id), noun: 'مبتكر', render,
-      actions: [{ id: 'xlsx', label: 'كشف حساب إكسل', icon: 'download', run: (ids, fin) => {
-        const l = rows0.filter((x) => ids.includes(x.id) && ready(x));
-        if (!l.length) { window.IBKit.toast('مفيش حد من المحددين كشفه جاهز من Dokan', 'error'); return; }
-        window.IBKit.xlsxExport('ibtekr-makers-' + fileTag + '.xlsx', 'حسابات المبتكرين ' + per,
-          [['المبتكر', 'نسبة إبتكر', 'رصيد Dokan أول الفترة', 'رصيد أول الفترة', 'أوردرات مكتملة', 'مبيعات المكتمل', 'حصة إبتكر', 'حقه من المكتمل', 'العرابين', 'المواصلات', 'خصومات تانية', 'تصحيحات', 'طلبات السحب اللي اتوافق عليها', 'منها غطّت خصومات', 'اتحوّله', 'مرتجعات وحركات تانية', 'المستحق آخر الفترة', 'الحالة']]
-            .concat(l.map((x) => [x.name, x.pct, x.dokanOpening, x.opening, x.completed.orders, x.completed.sales, x.completed.share, x.completed.earned, x.deposits, x.transport, x.otherMoves || 0, x.corrections || 0, x.requested || 0, x.consumed || 0, x.payouts, D.round2(x.other - x.refunds), x.closing, D.LEDGER_STATUS[x.status]])));
-        fin('اتنزل كشف ' + l.length + ' مبتكر'); } }] });
-    // 0078: «طلب سحب» left this table (the owner); «اتحوّله» = the approved requests less the deductions they covered
-    const COLS = [['sel', B.head()], ['name', 'المبتكر'], ['pct', 'نسبة إبتكر'], ['last', 'آخر طلب سحب'], all0 ? null : ['open', 'رصيد أول الفترة'], ['cN', all0 ? 'أوردرات مكتملة' : 'مكتمل في الفترة — أوردرات'], ['sales', 'مبيعات المكتمل'], ['cV', 'حصة إبتكر'], ['earned', 'حقه من المكتمل'],
-      ['dep', 'العرابين'], ['tr', 'المواصلات'], showOM ? ['om', 'خصومات تانية'] : null, showCor ? ['cor', 'تصحيحات'] : null, ['paid', 'اتحوّله'], showOther ? ['oth', 'مرتجعات وحركات تانية'] : null,
-      ['bal', all0 ? 'المستحق دلوقتي' : 'المستحق آخر الفترة'], ['due', 'الحالة'], ['act', 'إجراءات']].filter(Boolean);
-    const part = (l) => (l.completed.matched < l.completed.lines ? '*' : '');
-    const paidTitle = (l) => (l.consumed ? 'طلبات اتوافق عليها ' + fmt(l.requested) + ' ج.م — منها ' + fmt(l.consumed) + ' غطّت عرابين ومواصلات وخصومات' : '');
-    const CELL = { sel: (l) => B.box(l.id, l.name),
-      name: (l) => h('span', { class: 'vname-cell' }, h('span', { class: 'vname-link', role: 'button', tabindex: '0', dir: 'auto', 'aria-label': 'تقرير ' + l.name, 'data-ledger-row': l.name, onClick: (e) => { e.stopPropagation(); openAccountBrief(l.name); }, onKeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openAccountBrief(l.name); } } }, l.name),
-        l.hasStore ? null : h('small', { class: 't-small help' }, ' · مالوش متجر'), l.cut ? h('small', { class: 't-small help' }, ' · أول 1000 حركة بس') : null,
-        l.dokan === 'error' ? h('span', { class: 'tg tg-error', 'data-ledger-err': '' }, 'Dokan ماردش') : l.dokan === 'nobal' ? h('span', { class: 'tg tg-neutral', 'data-ledger-nobal': '' }, 'رصيد Dokan لسه ماتقريش') : null),
-      pct: (l) => num(l.pct), last: lastCell, open: cellOf((l) => h('span', { title: 'رصيد Dokan يوم ' + D.formatDateNumeric(range.from) + ': ' + fmt(l.dokanOpening) + ' ج.م' }, bal(l.opening))),
-      cN: cellOf((l) => num(String(l.completed.orders))), sales: cellOf((l) => h('span', null, money(l.completed.sales), part(l))), cV: cellOf((l) => h('span', null, money(l.completed.share), part(l))), earned: cellOf((l) => money(l.completed.earned)),
-      dep: (l) => money(l.deposits), tr: (l) => money(l.transport), om: (l) => money(l.otherMoves || 0), cor: (l) => money(l.corrections || 0),
-      paid: cellOf((l) => h('span', { title: paidTitle(l), 'data-ledger-paid': l.name }, money(l.payouts))), oth: cellOf((l) => bal(D.round2(l.other - l.refunds))),
-      bal: cellOf((l) => h('b', { 'data-ledger-close': l.name }, bal(l.closing))), due: cellOf((l) => h('span', { class: 'tg tg-' + ST[l.status][0], 'data-due': l.status }, ST[l.status][1])), act: rowMenu };
-    const TOT = { sel: '', name: 'الإجمالي', pct: '—', last: '', open: bal(T.opening), cN: num(String(T.orders)), sales: money(T.sales), cV: money(T.share), earned: money(T.earned), dep: money(T.deposits), tr: money(T.transport), om: money(T.otherMoves), cor: money(T.corrections), paid: money(T.payouts),
-      oth: bal(D.round2(T.other - T.refunds)), bal: h('b', { 'data-ledger-total': '' }, bal(T.closing)), due: h('span', null, num(String(T.owedCount)), ' مستحق'), act: '' };
-    const detL = (k) => { const l = k === 'owed' ? done.filter((x) => x.status === 'owed') : k === 'on' ? done.filter((x) => x.status === 'onThem') : k === 'earned' ? done.filter((x) => x.completed.lines) : k === 'dep' ? done.filter((x) => x.deposits || x.transport) : done;
-      const ttl = { all: 'المبتكرين — ' + per + ' — ' + l.length, owed: 'مستحق للمبتكرين ' + (all0 ? 'دلوقتي' : 'آخر الفترة') + ' — ' + fmt(T.owed) + ' ج.م', on: 'عند المبتكرين — ' + fmt(T.onThem) + ' ج.م', earned: 'حقهم من الأوردرات المكتملة — ' + fmt(T.earned) + ' ج.م', dep: 'العرابين والمواصلات — ' + fmt(D.round2(T.deposits + T.transport)) + ' ج.م' }[k];
-      return { title: ttl, sub: per + ' · اضغط على أي مبتكر يفتح تقريره', summary: [{ label: 'مبتكرين', value: String(l.length) }, { label: 'حقهم من المكتمل', value: fmt(D.round2(l.reduce((x, v) => x + v.completed.earned, 0))) + ' ج.م' }, { label: all0 ? 'المستحق دلوقتي' : 'المستحق آخر الفترة', value: fmt(D.round2(l.reduce((x, v) => x + v.closing, 0))) + ' ج.م' }],
-        headers: ['المبتكر', 'رصيد أول الفترة', 'حقه من المكتمل', 'العرابين', 'المواصلات', 'اتحوّله', all0 ? 'المستحق دلوقتي' : 'المستحق آخر الفترة'], rows: l.map((v) => [v.name, fmt(v.opening), fmt(v.completed.earned), fmt(v.deposits), fmt(v.transport), fmt(v.payouts), fmt(v.closing)]),
-        onRow: (i) => openAccountBrief(l[i].name), source: all0 ? 'أرقام Dokan الإجمالية لكل متجر + طلبات السحب + الحركات المتسجلة هنا' : 'كشف حساب Dokan لكل مبتكر في الفترة (رصيد أول يوم + اللي اتحط واتسحب) + الحركات المتسجلة هنا' }; };
-    const refresh = () => { if (range) A.dropLedger(range.from, range.to); else if (A.refreshWithdrawals) { A.refreshWithdrawals().then(() => render()); } render(); };
-    const progress = pending.length ? U.InlineNote({ children: h('span', { 'data-ledger-progress': '' }, 'بنجيب كشوف حساب المبتكرين من Dokan… ', num(String(withStore.length - pending.length)), ' من ', num(String(withStore.length))) }) : null;
-    const failNote = !pending.length && failed.length ? U.InlineNote({ kind: 'error', children: 'Dokan مارجّعش كشف ' + failed.length + ' مبتكر — أرقامهم مش في الإجمالي.', action: Button({ type: 'text', size: 'sm', label: 'جرّب تاني', attrs: { 'data-ledger-retry': '' }, onClick: () => { A.loadLedger(range.from, range.to, failed.map((l) => l.id)); render(); } }) }) : null;
-    const card = TableCard({ title: 'كشف المبتكرين — ' + per, count: '', th: { noun: ['مبتكر', 'المبتكرين'], when: per, total: T.owedCount + ' ليهم رصيد' }, cols: false, cls: 'ledger-card own-filter', // its own sort + «اعرض كل المبتكرين» — the kit's auto filter leaves it
-      action: h('span', { class: 'acts-inline' }, window.IBKit.Checkbox({ label: 'اعرض كل المبتكرين (حتى اللي مالهمش حركة)', checked: !!state.vledgerAll, onChange: (x) => { state.vledgerAll = x; render(); } }),
-        Button({ label: pending.length ? 'بنجيب من Dokan…' : 'حدّث الكشف من Dokan', icon: 'refresh', disabled: !!pending.length, attrs: { 'data-ledger-refresh': '' }, onClick: refresh })),
-      pre: B.bar(), body: !rows0.length ? U.EmptyState(all0 ? 'مفيش حركة للمبتكرين لسه' : 'مفيش حركة للمبتكرين في الفترة دي', 'علّم «اعرض كل المبتكرين» تشوفهم كلهم.') : U.Table({ cls: 'vendors-table ledger-table', headers: COLS.map(([, lb]) => lb), rows: rows0.map((l) => COLS.map(([k]) => CELL[k](l))), totalRow: COLS.map(([k]) => TOT[k]) }) });
-    const formula = (all0 ? 'من أول المتجر: حقه من المكتمل' : 'الحساب = رصيد أول الفترة + حقه من المكتمل') + ' − العرابين − المواصلات' + (showOM ? ' − الخصومات التانية' : '') + (showCor ? ' + التصحيحات' : '') + ' − اللي اتحوّله' + (showOther ? ' ± المرتجعات والحركات التانية' : '') + ' = ' + (all0 ? 'المستحق دلوقتي (الصافي في «الرصيد دلوقتي»). ' : 'المستحق آخر الفترة. ');
-    const src = all0 ? 'حقه من المكتمل والمبيعات والأوردرات من أرقام Dokan الإجمالية للمتجر (حصة إبتكر = المبيعات − حقه)، و«اتحوّله» = كل طلبات السحب اللي اتوافق عليها ناقص الخصومات اللي غطّتها (التسوية)، والعرابين والمواصلات وكل الحركات المتسجلة هنا.'
-      : 'رصيد أول الفترة = رصيد Dokan يوم ' + D.formatDateNumeric(range.from) + ' (كشف حساب المبتكر — قراءة بس، مابيتخزنش) ناقص الحركات اللي كانت لسه ماتصفّتش قبله، زي «الصافي». «حقه من المكتمل» من كشف Dokan نفسه في الفترة، و«اتحوّله» = طلبات السحب اللي اتوافق عليها في الفترة ناقص الخصومات اللي غطّتها، والحركات المتسجلة هنا بتاريخها. مبيعات المكتمل وحصة إبتكر = سطور أوردراتنا للأوردرات اللي Dokan حطها في رصيده' + (unmatched ? ' (* فيه أوردرات مش عندنا — المبيعات والحصة ناقصينهم)' : '') + '.';
-    return [progress, failNote,
-      h('div', { class: 'cards five' },
-        U.CategoryCard({ tone: 'brand', name: all0 ? 'المبتكرين' : 'المبتكرين في الفترة', value: rows0.length, unit: 'مبتكر', decimals: false, sub: num(T.orders + ' أوردر حطه Dokan في أرصدتهم'), details: () => detL('all') }),
-        U.CategoryCard({ tone: 'gold', name: 'مستحق للمبتكرين', value: T.owed, sub: T.owedCount + ' مبتكرين · ' + (all0 ? 'دلوقتي' : 'آخر الفترة'), details: () => detL('owed') }),
-        U.CategoryCard({ tone: 'neutral', name: 'رصيد عند المبتكرين', value: T.onThem, sub: T.onThemCount + ' مبتكرين (عرابين/مواصلات)', details: () => detL('on') }),
-        U.CategoryCard({ tone: 'goldlight', name: 'حقهم من المكتمل', value: T.earned, sub: h('span', null, 'حصة إبتكر ', num(fmt(T.share))), details: () => detL('earned') }),
-        U.CategoryCard({ tone: 'neutral', name: 'العرابين والمواصلات', value: D.round2(T.deposits + T.transport), sub: h('span', null, 'اتحوّلهم ', num(fmt(T.payouts))), details: () => detL('dep') })),
-      window.IBKit.withColumns(card, 'tbl:vendor-ledger', 'كشف المبتكرين'),
-      sourceNote(formula + src),
-    ].filter(Boolean);
-  }
+  // the meeting of 23 Nov [#27]: «كشف بالفترة» left the makers' accounts — «الرصيد دلوقتي» is the tab (D.makerLedger / lifetimeLedger in
+  // block 02 and IBAccounts.loadLedger / ledgerOf stay unused; woo-sync `statement` stays for «كشف حساب Dokan» in the row's menu)
+  function VendorsTab() { return VendorsView(); }
 
   function ActualView() {
     const acc = accountsNow().balances; const vs = D.vendorSummary(vendorsNow());
@@ -3665,7 +3553,7 @@
   document.addEventListener('ib:notify', () => { if (state.page === 'vendors' && !document.querySelector('.pop-anchor .menu, .pop-anchor [role=dialog]')) { vkeep(); renderVendors(true); } if (vredraw) vredraw(); });
   state.vfilter = { status: 'active', category: 'all', balance: 'all', contract: 'all', late: false, tickets: false, q: '' }; state.vsort = 'open'; state.vpage = 1; const VPAGE = 9;
   // phase 5.5 decision 3 (owner 1 Nov): the closed filter picks several values per group; «نشط» ticked by default. decision 3 (owner 31 Oct): the selection for the bulk actions
-  const VF0 = () => ({ status: [], brand: [], rate: [], open: [], late: [], balance: [], last: [] }); /* the meeting of 23 Nov [#1, #6]: the table's columns, nothing on by default (was «نشط») */ state.vf = VF0(); state.vsel = new Set(); state.vtab = 'overview'; // phase 13 decision 57
+  const VF0 = () => ({ status: [], brand: [], cat: [], contract: [], rate: [], open: [], late: [], balance: [], last: [] }); /* the meeting of 23 Nov [#1, #6]: the table's columns, nothing on by default (was «نشط») */ state.vf = VF0(); state.vsel = new Set(); state.vtags = new Set(); state.vtab = 'overview'; // phase 13 decision 57
   const PAPI = () => ((window.IBPages && window.IBPages.all().products) || {}).api || null;
   const prodCount = (ids) => { const a = PAPI(); return a ? a.makerItems(ids).length : 0; };
   // the actions on one or more makers (decision 3): their products through the products page's own popups; the rate through the store (vendor_rate_set + push)
@@ -3738,7 +3626,7 @@
       const open = (list) => (i) => openVendor(list[i].id, opts && opts.inPlace ? { inPlace: true } : undefined);
       if (kind === 'active') { const l = d.active.slice().sort((a, b) => (vstat(b).open || 0) - (vstat(a).open || 0)); return { title: 'المبتكرين النشطين — ' + l.length, sub: 'من ' + sum.total + ' مبتكر مسجّل · مرتبين بعدد الأوردرات المفتوحة · اضغط على أي صف يفتح ملفه', summary: [{ label: 'نشط', value: String(sum.active) }, { label: 'غير نشط', value: String(sum.total - sum.active) }, { label: 'أوردرات مفتوحة', value: String(l.reduce((x, v) => x + (vstat(v).open || 0), 0)) }], headers: ['المبتكر', 'الفئة', 'النسبة', 'أوردرات مفتوحة', 'قابلة للتأخير', 'مستحقاته', 'آخر أوردر'], rows: l.map((v) => [v.name, v.category || '—', v.rate == null ? '—' : v.rate + '%', String(vstat(v).open || 0), String(vstat(v).late || 0), money(vstat(v).balance || 0), ageLabel(vstat(v).lastAge)]), onRow: open(l), source: 'جدول المبتكرين + الأوردرات لايف' }; }
       if (kind === 'delay') { const l = d.delay; return { title: 'مبتكرين عندهم أوردرات قابلة للتأخير / متأخرة — ' + l.length, sub: 'قاعدة 9 / 11 يوم على الأوردرات المفتوحة · نفس مصدر إشعار «مبتكرين متأخرين»', summary: [{ label: 'مبتكرين', value: String(l.length) }, { label: 'قابل للتأخير', value: String(l.reduce((x, r) => x + r.risk, 0)) + ' أوردر' }, { label: 'متأخر', value: String(l.reduce((x, r) => x + r.late, 0)) + ' أوردر' }], headers: ['المبتكر', 'قابل للتأخير', 'متأخر', 'أوردرات مفتوحة', 'أقدم أوردر مفتوح', 'الموبايل'], rows: l.map((r) => { const v = all.find((x) => x.id === r.id); return [r.name, String(r.risk), String(r.late), String(r.open), r.oldest + ' يوم', v && v.phone || '—']; }), total: ['الإجمالي', String(l.reduce((x, r) => x + r.risk, 0)), String(l.reduce((x, r) => x + r.late, 0)), String(l.reduce((x, r) => x + r.open, 0)), '—', '—'], onRow: (i) => openVendorLate(l[i].name, 'all'), note: 'قابل للتأخير = عمر الأوردر 9–11 يوم · متأخر = أكتر من 11 يوم (مدة التسليم 12–15 يوم).', source: 'الأوردرات لايف' }; }
-      if (kind === 'due') { const l = d.due; return { title: 'مستحقات المبتكرين — ' + money(sum.due) + ' ج.م', sub: l.length + ' مبتكر ليهم رصيد لصالحهم', summary: [{ label: 'الإجمالي', value: money(sum.due) + ' ج.م' }, { label: 'مبتكرين', value: String(l.length) }, { label: 'أكبر رصيد', value: l.length ? l[0].name + ' — ' + money(l[0].balance) : '—' }], headers: ['المبتكر', 'الرصيد (له)', 'من الإجمالي'], rows: l.map((r) => [r.name, money(r.balance), (sum.due ? Math.round(r.balance / sum.due * 100) : 0) + '%']), total: ['الإجمالي', money(l.reduce((x, r) => x + r.balance, 0)), '100%'], onRow: open(l), source: 'الأوردرات المكتملة من 1 أكتوبر بنسبة الموقع على كل سطر (الافتتاحي والعرابين من مرحلة الحسابات)' }; }
+      if (kind === 'due') { const l = d.due; return { title: 'مستحقات المبتكرين — ' + money(sum.due) + ' ج.م', sub: l.length + ' مبتكر ليهم رصيد لصالحهم', summary: [{ label: 'الإجمالي', value: money(sum.due) + ' ج.م' }, { label: 'مبتكرين', value: String(l.length) }, { label: 'أكبر رصيد', value: l.length ? l[0].name + ' — ' + money(l[0].balance) : '—' }], headers: ['المبتكر', 'الرصيد (له)', 'من الإجمالي'], rows: l.map((r) => [r.name, money(r.balance), (sum.due ? Math.round(r.balance / sum.due * 100) : 0) + '%']), total: ['الإجمالي', money(l.reduce((x, r) => x + r.balance, 0)), '100%'], onRow: open(l), source: 'الأوردرات المكتملة من تاريخ انضمام كل مبتكر (يوم متجره على الموقع، وإلا أول أوردر ليه) بنسبة الموقع على كل سطر' }; }
       const l = d.negative; return { title: 'مبتكرين عندهم رصيد سالب (عرابين / مواصلات) — ' + l.length, sub: 'عرابين اتدفعت لهم قبل ما الأوردرات تكتمل — بتتخصم من مستحقاتهم', summary: [{ label: 'إجمالي العرابين', value: money(sum.negativeTotal) + ' ج.م' }, { label: 'مبتكرين', value: String(l.length) }], headers: ['المبتكر', 'العربون', 'المواصلات', 'الرصيد (عليه)', 'أوردرات مفتوحة'], rows: l.map((r) => [r.name, money(r.deposits), money((vendorsNow().find((x) => x.name === r.name) || {}).transport || 0), money(r.balance), String((stats[r.id] || {}).open || 0)]), total: ['الإجمالي', money(l.reduce((x, r) => x + r.deposits, 0)), money(l.reduce((x, r) => x + ((vendorsNow().find((y) => y.name === r.name) || {}).transport || 0), 0)), money(l.reduce((x, r) => x + r.balance, 0)), String(l.reduce((x, r) => x + ((stats[r.id] || {}).open || 0), 0))], onRow: open(l), source: 'العرابين والمواصلات بيتسجلوا من مرحلة الحسابات' };
     };
     return { all, stats, sum, vdet };
@@ -3751,7 +3639,16 @@
     // the site's brands on his products (WooCommerce Brands — the products mirror, loaded here when it is not yet) and the brands he
     // holds here that are not simply his own name (the automatic brand is the maker, not a brand) — in the column and in the filter
     const pa0 = PAPI(); if (state.vtab === 'records' && pa0 && !pa0.ready()) pa0.ensure();
-    const prodBrands = new Map(); if (pa0 && pa0.ready()) pa0.makerItems(all.map((v) => v.id)).forEach((p) => (p.brands || []).forEach((b) => { const k = String(p.vendorId); if (!prodBrands.has(k)) prodBrands.set(k, []); prodBrands.get(k).push(b); }));
+    const prodBrands = new Map(); const prodCats = new Map(); if (pa0 && pa0.ready()) pa0.makerItems(all.map((v) => v.id)).forEach((p) => { const k = String(p.vendorId); (p.brands || []).forEach((b) => { if (!prodBrands.has(k)) prodBrands.set(k, []); prodBrands.get(k).push(b); });
+      // the meeting of 23 Nov [#26]: «الأقسام» = the site's categories he has products in (the leaf of each path, «Uncategorized» left out)
+      (p.cats || []).forEach((c) => { const leaf = String(c).split(' › ').pop().trim(); if (!leaf || /^uncategori[sz]ed$/i.test(leaf)) return; if (!prodCats.has(k)) prodCats.set(k, new Set()); prodCats.get(k).add(leaf); }); });
+    const catNames = (v) => [...(prodCats.get(String(v.id)) || [])].sort((a, b) => a.localeCompare(b, 'ar'));
+    // [#26]: tags in a cell — the first 3 and «+N»; «+N» spreads them all in the cell and the last tag is «إظهار أقل» (state.vtags remembers)
+    const tagCell = (names, col, v) => { if (!names.length) return h('span', { class: 't-small help' }, '—');
+      const key = col + ':' + v.id; const open = state.vtags.has(key); const shown = open ? names : names.slice(0, 3);
+      const flip = (e) => { e.stopPropagation(); e.preventDefault(); if (open) state.vtags.delete(key); else state.vtags.add(key); renderVendors(true); };
+      const more = names.length > 3 ? h('button', { type: 'button', class: 'chip chip-more', 'data-tags-more': key, 'aria-expanded': open ? 'true' : 'false', onclick: flip, onkeydown: (e) => e.stopPropagation() }, open ? 'إظهار أقل' : '+' + (names.length - 3)) : null;
+      return h('span', { class: 'chips v-tags', ['data-' + col]: '' }, shown.map((n) => h('span', { class: 'chip' }, n)), more); };
     const brandNames = (v) => { const out = []; const seen = new Set(); const add = (n) => { const k = VD.norm(n || ''); if (!k || seen.has(k)) return; seen.add(k); out.push(String(n).trim()); };
       (prodBrands.get(String(v.id)) || []).forEach(add); (v.brands || []).forEach((b) => { if (b && VD.norm(b.name) !== VD.norm(v.name)) add(b.name); }); return out; };
     const brandPass = (f) => (v) => !(f.brand || []).length || brandNames(v).some((n) => f.brand.includes(VD.norm(n)));
@@ -3759,6 +3656,7 @@
     // («الفئة» / «العقد» / «المتابعة» weren't columns; «العربون» / «المواصلات» / «طلبات مفتوحة» are always «—» here, so no filter)
     const RLv = window.IBTableRules; const lastDay = (v) => { const a = (stats[v.id] || {}).lastAge; if (a == null) return null; const d = new Date(VTODAY() + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - a); return d.toISOString().slice(0, 10); };
     const vPass = (f) => (v) => { const st = stats[v.id] || { open: 0, late: 0, balance: 0, lastAge: null }; return brandPass(f)(v) && (!(f.status || []).length || f.status.includes(v.status))
+      && (!(f.cat || []).length || catNames(v).some((n) => f.cat.includes(n))) && (!(f.contract || []).length || f.contract.includes(VD.contractStatus(v, VTODAY())))
       && (!RLv || (RLv.numPass(v.rate == null ? null : Number(v.rate), f.rate) && RLv.numPass(st.open || 0, f.open) && RLv.numPass(st.late || 0, f.late) && RLv.numPass(Number(st.balance) || 0, f.balance)
         && (!(f.last || []).length || RLv.datePass(lastDay(v) || '', f.last)))); };
     const base0 = vfilter(all, stats, { status: 'all', q: state.vfilter.q });
@@ -3773,10 +3671,14 @@
     search.addEventListener('input', () => { state.vfilter.q = search.value; state.vpage = 1; renderVendors(true); });
     const check = (key, label) => h('label', { class: 'check', style: 'display:flex;align-items:center;gap:8px;cursor:pointer' }, (() => { const c = h('input', { type: 'checkbox', checked: state.vfilter[key] }); c.addEventListener('change', () => setF(key, c.checked)); return c; })(), label);
     // «فلتر» + «ترتيب» (phase 5.5 decision 3, owner 1 Nov): the kit's closed multi-value filter and sort next to the columns button, the picks as chips with their counts
-    const VF = { status: [['active', 'نشط'], ['leave', 'في إجازة'], ['inactive', 'غير نشط']], balance: [['due', 'ليه رصيد'], ['negative', 'عليه (عربون / مواصلات)'], ['zero', 'متصفّي']], contract: [['uploaded', 'مرفوع وساري'], ['expiring', 'بينتهي خلال 30 يوم'], ['expired', 'منتهي'], ['missing', 'غير مرفوع']] };
+    const VF = { status: [['active', 'نشط'], ['leave', 'في إجازة'], ['inactive', 'غير نشط']], balance: [['due', 'ليه رصيد'], ['negative', 'عليه (عربون / مواصلات)'], ['zero', 'متصفّي']], contract: [['uploaded', 'ساري'], ['expiring', 'بينتهي خلال شهر'], ['expired', 'منتهي'], ['missing', 'مش مرفوع']] };
+    // [#23]: «حالة العقد» from the contract's expiry (VD.contractStatus — 30 days = «بينتهي خلال شهر»)
+    const contractTag = (v) => { const k = VD.contractStatus(v, VTODAY()); const lbl = (VF.contract.find((x) => x[0] === k) || [, '—'])[1];
+      return h('span', { class: 'tg ' + (k === 'uploaded' ? 'tg-success' : k === 'expiring' ? 'tg-orange' : k === 'expired' ? 'tg-error' : 'tg-neutral'), 'data-contract': k, title: v.contract && v.contract.expires ? 'بينتهي ' + D.formatDateNumeric(v.contract.expires) : null }, lbl); };
     const brandOpts = () => { const m = new Map(); all.forEach((v) => brandNames(v).forEach((n) => { if (!m.has(VD.norm(n))) m.set(VD.norm(n), n); })); return [...m.entries()].sort((x, y) => x[1].localeCompare(y[1])); };
     const NUMO = () => (RLv ? RLv.NUM_OPTS : []);
-    const VG = () => [{ key: 'status', label: 'الحالة', options: VF.status }, { key: 'brand', label: 'البراندات', options: brandOpts() }, { key: 'rate', label: 'النسبة', num: true, options: NUMO() }, { key: 'open', label: 'أوردرات مفتوحة', num: true, options: NUMO() }, { key: 'late', label: 'قابلة للتأخير', num: true, options: NUMO() }, { key: 'balance', label: 'مستحقاته', num: true, options: NUMO() }, { key: 'last', label: 'آخر أوردر', range: true, options: [] }];
+    const catOpts = () => { const m = new Set(); all.forEach((v) => catNames(v).forEach((n) => m.add(n))); return [...m].sort((a, b) => a.localeCompare(b, 'ar')).map((n) => [n, n]); };
+    const VG = () => [{ key: 'status', label: 'الحالة', options: VF.status }, { key: 'brand', label: 'البراندات', options: brandOpts() }, { key: 'cat', label: 'الأقسام', options: catOpts() }, { key: 'contract', label: 'حالة العقد', options: VF.contract }, { key: 'rate', label: 'النسبة', num: true, options: NUMO() }, { key: 'open', label: 'أوردرات مفتوحة', num: true, options: NUMO() }, { key: 'late', label: 'قابلة للتأخير', num: true, options: NUMO() }, { key: 'balance', label: 'مستحقاته', num: true, options: NUMO() }, { key: 'last', label: 'آخر أوردر', range: true, options: [] }];
     function vFilterBtn() {
       return window.IBKit.FilterMenu({ id: 'vendors', label: 'فلتر المبتكرين', noun: 'مبتكر', groups: VG(), value: state.vf, count: (d) => base0.filter(vPass(d)).length, onApply: (d) => { state.vf = d; state.vpage = 1; renderVendors(); } });
     }
@@ -3795,9 +3697,11 @@
     const KK = window.IBKit; const stop = (el) => { el.addEventListener('click', (e) => e.stopPropagation()); el.addEventListener('keydown', (e) => e.stopPropagation()); return el; };
     const selBox = (v) => { const c = KK.Checkbox({ label: '', checked: VS.has(v.id), onChange: (on) => { if (on) VS.add(v.id); else VS.delete(v.id); renderVendors(); } }); c.setAttribute('data-vsel', v.id); c.setAttribute('aria-label', 'حدد ' + v.name); return stop(c); };
     const rowMenu = (v) => stop(KK.RowMenu(makerMenuItems(v), 'إجراءات ' + v.name));
-    const headers = ['المبتكر', 'البراندات', 'الحالة', 'النسبة', 'أوردرات مفتوحة', 'قابلة للتأخير', 'العربون', 'المواصلات', 'مستحقاته (من 1 أكتوبر)', 'آخر أوردر', 'طلبات مفتوحة']; // «البراندات»: comments decision 57 — a column of its own (it was a line under the name)
+    // the meeting of 23 Nov: «الأقسام» [#26] and «حالة العقد» [#23] new; «العربون» / «المواصلات» left this table (they stay in the accounts) and
+    // «مستحقاته» counts from the join date [#24]
+    const headers = ['المبتكر', 'البراندات', 'الأقسام', 'الحالة', 'حالة العقد', 'النسبة', 'أوردرات مفتوحة', 'قابلة للتأخير', 'مستحقاته (من تاريخ الانضمام)', 'آخر أوردر', 'طلبات مفتوحة']; // «البراندات»: comments decision 57 — a column of its own (it was a line under the name)
     const later = (phase) => h('span', { class: 't-small', style: 'color:var(--color-text-secondary)', title: 'من مرحلة ' + phase }, '—'); // decision 4: deposits / transport with phase 4, tickets with phase 7
-    const cells = (v) => { const st = stats[v.id]; return [h('span', { class: 'vendor-cell' }, U.VendorLogo({ letter: v.logoLetter, size: 'sm' }), h('span', { class: 'vnames' }, h('span', { class: 't-label' }, v.name))), (() => { const bn = brandNames(v); return bn.length ? h('span', { class: 'chips v-brands', 'data-brands': '' }, bn.map((n) => h('span', { class: 'chip' }, n))) : h('span', { class: 't-small help' }, '—'); })(), v.siteRemovedAt ? h('span', { class: 'chips' }, U.VendorStatus(v.status), h('span', { class: 'tg tg-error', 'data-site-removed': '' }, 'اتحذف من الموقع')) : U.VendorStatus(v.status), v.rate == null ? '—' : num(v.rate + '%'), num(String(st.open)), num(String(st.late)), later(4), later(4), h('span', { class: st.balance < 0 ? 'bal-neg' : '' }, num(D.formatMoney(st.balance))), num(ageLabel(st.lastAge)), later(7)]; }; // مستحقاته = الافتتاحي + حقه من الأوردرات المكتملة
+    const cells = (v) => { const st = stats[v.id]; return [h('span', { class: 'vendor-cell' }, U.VendorLogo({ letter: v.logoLetter, size: 'sm' }), h('span', { class: 'vnames' }, h('span', { class: 't-label' }, v.name))), (() => { const bn = brandNames(v); const el = tagCell(bn, 'brands', v); if (bn.length) el.classList.add('v-brands'); return el; })(), tagCell(catNames(v), 'cats', v), v.siteRemovedAt ? h('span', { class: 'chips' }, U.VendorStatus(v.status), h('span', { class: 'tg tg-error', 'data-site-removed': '' }, 'اتحذف من الموقع')) : U.VendorStatus(v.status), contractTag(v), v.rate == null ? '—' : num(v.rate + '%'), num(String(st.open)), num(String(st.late)), h('span', { class: st.balance < 0 ? 'bal-neg' : '', title: st.since ? 'من ' + D.formatDateNumeric(st.since) + (st.sinceFrom === 'site' ? ' (يوم متجره على الموقع)' : ' (أول أوردر)') : null }, num(D.formatMoney(st.balance))), num(ageLabel(st.lastAge)), later(7)]; }; // مستحقاته = الافتتاحي + حقه من الأوردرات المكتملة من تاريخ انضمامه
     const pageAll = slice.length > 0 && slice.every((v) => VS.has(v.id));
     const allBox = (() => { const c = KK.Checkbox({ label: '', checked: pageAll, onChange: (on) => { slice.forEach((v) => (on ? VS.add(v.id) : VS.delete(v.id))); renderVendors(); } }); c.setAttribute('aria-label', 'حدد كل الصفحة'); c.setAttribute('data-vsel-all', ''); if (!pageAll && slice.some((v) => VS.has(v.id))) c.setAttribute('aria-checked', 'mixed'); return c; })();
     const selIds = [...VS]; const selN = selIds.length;
@@ -3824,17 +3728,43 @@
       h('div', { class: 'cards five' },
         U.KpiTile({ label: 'مبتكرين نشطين', value: String(sum.active), unit: 'مبتكر', compare: 'off', note: 'من ' + sum.total + ' مبتكر مسجّل', details: () => vdet('active') }),
         U.KpiTile({ label: 'عندهم أوردرات قابلة للتأخير — الآن', value: String(sum.withDelay), unit: 'مبتكرين', compare: sum.withDelay ? 'negative' : 'off', delta: { text: 'متابعة', caption: 'نفس مصدر إشعار «مبتكرين متأخرين»' }, note: 'قاعدة 9 / 11 يوم على الأوردرات المفتوحة', details: () => vdet('delay') }),
-        U.KpiTile({ label: 'إجمالي مستحقات المبتكرين — الآن', value: D.formatMoney(sum.due), unit: 'ج.م', compare: 'off', note: 'من الأوردرات المكتملة من 1 أكتوبر · الافتتاحي والعرابين من مرحلة 4', details: () => vdet('due') }),
+        U.KpiTile({ label: 'إجمالي مستحقات المبتكرين — الآن', value: D.formatMoney(sum.due), unit: 'ج.م', compare: 'off', note: 'من الأوردرات المكتملة من تاريخ انضمام كل مبتكر', details: () => vdet('due') }),
         U.KpiTile({ label: 'عندهم رصيد سالب (عرابين) — الآن', value: String(sum.negative), unit: 'مبتكرين', compare: 'off', note: 'العرابين والمواصلات بيتسجلوا من مرحلة الحسابات', details: () => vdet('negative') }),
         U.KpiTile({ label: 'مواصلات المبتكرين', value: '—', compare: 'off', note: 'بتتسجل من مرحلة الحسابات (4)' })),
-      h('p', { class: 'source' }, 'المصدر: جدول المبتكرين (متاجر الموقع من المزامنة + اللي الفريق بيكمّله) — الأسماء البديلة لتوحيد الأوردرات والشيت · المستحقات من الأوردرات المكتملة من 1 أكتوبر بنسبة الموقع على كل سطر · الأوردرات والتأخير لايف من الأوردرات')]
+      ...overviewTables(all, stats),
+      h('p', { class: 'source' }, 'المصدر: جدول المبتكرين (متاجر الموقع من المزامنة + اللي الفريق بيكمّله) — الأسماء البديلة لتوحيد الأوردرات والشيت · المستحقات من الأوردرات المكتملة من تاريخ انضمام كل مبتكر (يوم متجره على الموقع، وإلا أول أوردر ليه) بنسبة الموقع على كل سطر · الأوردرات والتأخير لايف من الأوردرات')]
       : state.vtab === 'records' ? [
+      // the meeting of 23 Nov [#16]: two cards above the register, the overview's big cards' look — «نشطين» / «غير نشطين», the counts only
+      h('div', { class: 'cards two', 'data-vrec-cards': '' },
+        U.KpiTile({ label: 'نشطين', value: String(all.filter((v) => v.status === 'active').length), unit: 'مبتكر', compare: 'off' }),
+        U.KpiTile({ label: 'غير نشطين', value: String(all.filter((v) => v.status !== 'active').length), unit: 'مبتكر', compare: 'off' })),
       h('div', { class: 'toolbar vtoolbar' }, search, h('span', { class: 'grow' }), h('span', { class: 't-small', style: 'color:var(--color-text-secondary)' }, num(list.length + ' مبتكر · ' + (VD.VENDOR_SORTS.find((x) => x.value === state.vsort) || {}).label))),
       noteEl(),
       TableCard({ title: 'المبتكرين', cls: 'own-filter', count: '', th: { noun: ['مبتكر', 'المبتكرين'], count: [list.length, all.length] }, action: h('span', { class: 'acts-inline' }, vFilterBtn(), vSortBtn()), pre: [vChips(), bulk], // the owner 12 Nov: «فلتر» next to the sort
         body: list.length === 0 ? U.EmptyState(state.vfilter.q ? 'مفيش مبتكر بالاسم ده' : 'مفيش مبتكر بالفلتر ده', 'جرّب اسم بديل أو رقم الهاتف، أو شيل اختيار من الفلتر، أو اضغط «إضافة مبتكر» لو جديد.') : [tableOrList(() => table, () => cards), pager] })]
       : state.vtab === 'accounts' ? makersAccountsTab() : state.vtab === 'log' ? makersLogTab() : makersReportsTab();
     return [headEl, tabsEl, h('div', { id: 'vpanel', role: 'tabpanel', 'aria-labelledby': 'tab-' + state.vtab, style: 'display:flex;flex-direction:column;gap:24px;min-width:0' }, ...body.filter(Boolean))];
+  }
+  // the meeting of 23 Nov [#25]: «نظرة عامة» has four tables in the kit's table, on the page's own period (per:makers-ov, this month) —
+  // the top makers by sales and the late ones from the orders dated in the period; the dues (from each maker's join date) and the
+  // contracts about to end are now. A maker's name opens his file.
+  function overviewTables(all, stats) {
+    const r = perRange('makers-ov'); const inPer = (d) => !!d && d >= r.from && d <= r.to; const OUTS = ['ملغي', 'استرجاع', 'فشل'];
+    const nameCell = (v) => h('span', { class: 'vname-link', role: 'button', tabindex: '0', dir: 'auto', 'data-ov-maker': v.name, onClick: () => openVendor(v.id), onKeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openVendor(v.id); } } }, v.name);
+    const money = (n) => num(D.formatMoney(n));
+    const per = (v) => (stats[v.id] ? stats[v.id].orders || [] : []).filter((o) => inPer(o.day));
+    const sales = all.map((v) => { const l = per(v).filter((o) => !OUTS.includes(o.status)); return { v, n: l.length, total: D.round2(l.reduce((t, o) => t + (Number(o.sales) || 0), 0)) }; }).filter((x) => x.n).sort((a, b) => b.total - a.total).slice(0, 10);
+    const late = all.map((v) => { const l = per(v).filter((o) => o.delivery === 'late' || o.delivery === 'risk'); return { v, late: l.filter((o) => o.delivery === 'late').length, risk: l.filter((o) => o.delivery === 'risk').length }; }).filter((x) => x.late + x.risk).sort((a, b) => b.late - a.late || b.risk - a.risk).slice(0, 10);
+    const dues = all.map((v) => ({ v, st: stats[v.id] || {} })).filter((x) => (x.st.balance || 0) > 0).sort((a, b) => b.st.balance - a.st.balance).slice(0, 10);
+    const cons = all.map((v) => ({ v, k: VD.contractStatus(v, VTODAY()) })).filter((x) => x.k === 'expiring' || x.k === 'expired').sort((a, b) => String(a.v.contract.expires).localeCompare(String(b.v.contract.expires))).slice(0, 10);
+    const card = (title, key, headers, rows, empty, noun) => h('div', { 'data-ov-table': key }, TableCard({ title, count: '', th: { noun, count: [rows.length, rows.length] },
+      body: rows.length ? U.Table({ cls: 'ov-table', headers, rows }) : U.EmptyState(empty, '') }));
+    return [h('div', { class: 'toolbar', 'data-ov-period': '' }, DateRangeField('per:makers-ov'), h('span', { class: 't-small help' }, 'الفترة على «أكتر مبتكرين مبيعات» و«المتأخرين»')),
+      h('div', { class: 'ov-grid' },
+        card('أكتر مبتكرين مبيعات', 'sales', ['المبتكر', 'الأوردرات', 'المبيعات'], sales.map((x) => [nameCell(x.v), num(String(x.n)), money(x.total)]), 'مفيش مبيعات في الفترة دي', ['مبتكر', 'المبتكرين']),
+        card('المتأخرين', 'late', ['المبتكر', 'متأخر', 'قابل للتأخير'], late.map((x) => [nameCell(x.v), num(String(x.late)), num(String(x.risk))]), 'مفيش أوردرات متأخرة في الفترة دي', ['مبتكر', 'المبتكرين']),
+        card('المستحقات', 'dues', ['المبتكر', 'مستحقاته', 'من تاريخ'], dues.map((x) => [nameCell(x.v), money(x.st.balance), x.st.since ? num(D.formatDateNumeric(x.st.since)) : '—']), 'مفيش مستحقات دلوقتي', ['مبتكر', 'المبتكرين']),
+        card('العقود اللي قربت تخلص', 'contracts', ['المبتكر', 'بينتهي', 'الحالة'], cons.map((x) => [nameCell(x.v), num(D.formatDateNumeric(x.v.contract.expires)), x.k === 'expired' ? 'منتهي' : 'بينتهي خلال شهر']), 'مفيش عقود قربت تخلص — العقود بتتحسب من تاريخ انتهائها المتسجّل في ملف المبتكر', ['عقد', 'العقود']))];
   }
   // phase 13 decision 57: the makers page's tabs — «حسابات المبتكرين» with accounts.view ≠ N, «التقارير» with the reports page's own
   // makers-tab rule (reports.view ≠ N and vendors.view ≠ N)
@@ -3844,9 +3774,8 @@
   const makerTabs = () => MAKER_TABS.filter((t) => (t.id === 'accounts' ? rperm('accounts.view') !== 'N' : t.id === 'reports' ? reportTabs().some((x) => x.id === 'vendors') : true));
   // 0078 (the owner, 11 Nov): «الرصيد دلوقتي» is now — no period; «كشف بالفترة» has its own range, «كل الفترات» by default; «إجراء»
   function vendorsToolbar() {
-    return h('div', { class: 'toolbar' }, state.vsub === 'ledger' ? DateRangeField('vledger') : null,
-      state.vsub === 'ledger' && state.vlrange ? Button({ type: 'text', size: 'sm', label: 'كل الفترات', attrs: { 'data-vl-all': '' }, onClick: () => { state.vlrange = null; render(); } }) : null,
-      SortDropdown(), state.vsub !== 'ledger' ? WdFilterDropdown() : null, h('span', { class: 'grow' }), canAdd() ? AddMenu('إضافة مبلغ', 'vendorMoves') : null); // the owner 12 Nov: «إضافة مبلغ» again (was «إجراء» from 0078)
+    return h('div', { class: 'toolbar' }, // the meeting of 23 Nov [#27]: no «كشف بالفترة» — no period here
+      SortDropdown(), WdFilterDropdown(), h('span', { class: 'grow' }), canAdd() ? AddMenu('إضافة مبلغ', 'vendorMoves') : null); // the owner 12 Nov: «إضافة مبلغ» again (was «إجراء» from 0078)
   }
   function makersAccountsTab() {
     refreshSeed(); state.tab = 'vendors';
@@ -4701,11 +4630,11 @@
         const openKind = (kind) => (i) => { const l = VD.ordersByKind(st.orders, kind); if (OA() && OA().details) OA().details(l[i].id, 'info'); };
         const adt = (k) => { const base = { phone: v.phone, email: v.email, headers: ['رقم الأوردر', 'العميل', 'الحالة', 'التسليم', 'مبيعاته', 'حصته'], source: 'الأوردرات — نسبة الموقع على كل سطر وقت الأوردر' };
           if (k === 'pend') return Object.assign(base, { title: v.name + ' هيستحق بعد التنفيذ — ' + D.formatMoney(st.pending) + ' ج.م', sub: 'حقه من الأوردرات اللي قيد التنفيذ دلوقتي', summary: [{ label: 'أوردرات مفتوحة', value: String(bs.p[0]) }, { label: 'مبيعاتها', value: D.formatMoney(st.pendingSales) + ' ج.م' }, { label: 'حصته منها', value: D.formatMoney(st.pending) + ' ج.م' }], rows: kindRows('inProgress'), onRow: openKind('inProgress'), empty: 'مفيش أوردرات قيد التنفيذ للمبتكر ده.' });
-          return Object.assign(base, { title: 'مستحقات ' + v.name + ' (من 1 أكتوبر) — ' + D.formatMoney(st.balance) + ' ج.م', sub: 'الرصيد الافتتاحي + حقه من الأوردرات المكتملة · الافتتاحي والعرابين والمواصلات بيتضافوا من مرحلة الحسابات', summary: [{ label: 'الرصيد الافتتاحي', value: D.formatMoney(st.openingBalance) + ' ج.م' }, { label: 'حقه من المكتملة', value: D.formatMoney(st.earned) + ' ج.م' }, { label: 'أوردرات مكتملة', value: String(bs.c[0]) }], rows: kindRows('completed'), onRow: openKind('completed'), empty: 'مفيش أوردرات مكتملة للمبتكر ده.' }); };
+          return Object.assign(base, { title: 'مستحقات ' + v.name + ' (من تاريخ الانضمام) — ' + D.formatMoney(st.balance) + ' ج.م', sub: 'الرصيد الافتتاحي + حقه من الأوردرات المكتملة · الافتتاحي والعرابين والمواصلات بيتضافوا من مرحلة الحسابات', summary: [{ label: 'الرصيد الافتتاحي', value: D.formatMoney(st.openingBalance) + ' ج.م' }, { label: 'حقه من المكتملة', value: D.formatMoney(st.earned) + ' ج.م' }, { label: 'أوردرات مكتملة', value: String(bs.c[0]) }], rows: kindRows('completed'), onRow: openKind('completed'), empty: 'مفيش أوردرات مكتملة للمبتكر ده.' }); };
         const tmap = { c: 'مكتمل', p: 'قيد التنفيذ', x: 'ملغي / مرتجع' };
         body = h('div', { class: 'drawer-b' },
           h('div', { class: 'cards', style: 'grid-template-columns:repeat(2,minmax(0,1fr))' },
-            U.KpiTile({ label: 'رصيده عندنا', value: D.formatMoney(st.balance), unit: 'ج.م', compare: st.balance > 0 ? 'positive' : st.balance < 0 ? 'negative' : 'off', delta: { text: st.balance > 0 ? 'له' : st.balance < 0 ? 'عليه' : 'متصفّي', caption: 'مستحقاته من 1 أكتوبر' }, note: ['الافتتاحي ', num(D.formatMoney(st.openingBalance)), ' + حقه من المكتملة · الافتتاحي من مرحلة 4'], details: () => adt('bal') }),
+            U.KpiTile({ label: 'رصيده عندنا', value: D.formatMoney(st.balance), unit: 'ج.م', compare: st.balance > 0 ? 'positive' : st.balance < 0 ? 'negative' : 'off', delta: { text: st.balance > 0 ? 'له' : st.balance < 0 ? 'عليه' : 'متصفّي', caption: 'مستحقاته من تاريخ الانضمام' }, note: ['الافتتاحي ', num(D.formatMoney(st.openingBalance)), ' + حقه من المكتملة · الافتتاحي من مرحلة 4'], details: () => adt('bal') }),
             U.KpiTile({ label: 'حقه من المكتملة', value: D.formatMoney(st.earned), unit: 'ج.م', compare: 'off', note: ['من ', num(String(bs.c[0])), ' أوردر مكتمل بمبيعات ', num(D.formatMoney(st.sales)), ' ج.م'], details: () => adt('bal') }),
             U.KpiTile({ label: 'هيستحق بعد التنفيذ', value: D.formatMoney(st.pending), unit: 'ج.م', compare: 'off', note: 'حقه من الأوردرات اللي قيد التنفيذ', details: () => adt('pend') }),
             canRate ? U.KpiTile({ label: 'حصة إبتكر من المكتملة', value: D.formatMoney(st.ibtekrShare), unit: 'ج.م', compare: 'off', note: 'نسبة الموقع على كل سطر وقت الأوردر' }) : null,
@@ -4718,7 +4647,7 @@
             U.InfoRow({ label: 'حقه من الأوردرات المكتملة', value: money(st.earned) }),
             U.InfoRow({ label: 'العربون', value: later('من مرحلة الحسابات') }),
             U.InfoRow({ label: 'المواصلات', value: later('من مرحلة الحسابات') }),
-            U.InfoRow({ label: 'مستحقاته (من 1 أكتوبر)', value: num(D.formatMoney(st.balance) + (st.balance > 0 ? ' (له)' : st.balance < 0 ? ' (عليه)' : ' (متصفّي)')) }),
+            U.InfoRow({ label: 'مستحقاته (من تاريخ الانضمام)', value: num(D.formatMoney(st.balance) + (st.balance > 0 ? ' (له)' : st.balance < 0 ? ' (عليه)' : ' (متصفّي)')) }),
             U.InlineNote({ children: 'حصة كل سطر = إجماليه − نسبة الموقع عليه وقت الأوردر (ورسمها الثابت). الرصيد الافتتاحي والعرابين والمواصلات بيتضافوا من مرحلة الحسابات.' })),
           section('حسب حالة الأوردر', null, U.Table({ cls: 'mini-table', headers: ['الحالة', 'العدد', 'المبيعات', 'حقه'].concat(canRate ? ['حصة إبتكر'] : []), rows: ['c', 'p', 'x'].map((k) => [tmap[k], num(String(bs[k][0])), money(bs[k][1]), money(bs[k][2])].concat(canRate ? [money(bs[k][1] - bs[k][2])] : [])), totalRow: ['الإجمالي', num(String(tot(0))), money(tot(1)), money(tot(2))].concat(canRate ? [money(tot(1) - tot(2))] : []) })),
           section('الحركات المالية', null, h('p', { class: 't-small', style: 'margin:0;color:var(--color-text-secondary)' }, 'بتتسجل من مرحلة الحسابات.')),

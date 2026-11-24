@@ -36,7 +36,7 @@ test('load: the three ledgers without the voided rows (named columns), the Dokan
   assert.deepEqual(plain(A.carryOf()), { [V1]: 250 });
   assert.deepEqual(plain(A.toVendorMove({ ...MOVE, settled_by: '900', settled_at: '2026-11-10T10:00:00Z' })).settledBy, 900);
   assert.equal(A.balances()[0].balance, 2500.5);
-  assert.deepEqual(plain(A.withdrawals()[0]), { id: 501, store: 2376, vendorId: V1, amount: 1200, charge: 0, receivable: 1200, status: 'pending', method: 'bank', at: '2026-10-25 12:00:00', syncedAt: 'x' });
+  assert.deepEqual(plain(A.withdrawals()[0]), { id: 501, store: 2376, vendorId: V1, amount: 1200, charge: 0, receivable: 1200, status: 'pending', method: 'bank', internal: false, at: '2026-10-25 12:00:00', syncedAt: 'x' });
   assert.ok(events.includes('ib:accounts'));
 });
 

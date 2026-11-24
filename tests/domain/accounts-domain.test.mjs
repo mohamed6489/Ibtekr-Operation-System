@@ -90,7 +90,7 @@ test('validateExpenseCategory (phase 4.1): the fields follow the type — deposi
 
 test('movementLog: Dokan requests in the makers\' log as «طلب سحب», counted apart from the money in and out', () => {
   const r = D.movementLog('vendorMoves', { vendorMoves: [{ date: '2026-10-21', direction: 'deposit', type: 'أخرى', typeName: 'فرق مقاس', vendor: 'A', amount: 700 }], withdrawals: [{ at: '2026-10-25 12:00:00', vendor: 'A', amount: 1200, id: '#501', source: 'vendor', by: 'Dokan', note: 'مستني الموافقة' }] });
-  assert.deepEqual(plain(r.rows.map((x) => [x.date, x.kind, x.what, x.who, x.amount, x.ref])), [['2026-10-25', 'طلب سحب', 'طلب من المبتكر', 'A', 1200, '#501'], ['2026-10-21', 'إيداع', 'تصحيح: فرق مقاس', 'A', 700, '']]);
+  assert.deepEqual(plain(r.rows.map((x) => [x.date, x.kind, x.what, x.who, x.amount, x.ref])), [['2026-10-25', 'طلب سحب', 'طلب من المبتكر', 'A', 1200, '#501'], ['2026-10-21', 'إيداع', 'إيداع خارجي: فرق مقاس', 'A', 700, '']]);
   assert.deepEqual([r.inTotal, r.outTotal, r.requests], [700, 0, 1]);
   // 0078: a settled move says which request settled it
   const s = D.movementLog('vendorMoves', { vendorMoves: [{ id: 9, date: '2026-11-01', direction: 'withdraw', type: 'عربون', typeName: 'عربون', vendor: 'A', amount: 400, note: 'مقدم', settledBy: 900 }] });
@@ -101,7 +101,15 @@ test('Dokan requests: openRequest = the latest pending / approved of the maker; 
   const list = [{ id: 1, vendorId: 'a', status: 'approved', at: '2026-10-01 10:00:00' }, { id: 2, vendorId: 'a', status: 'pending', at: '2026-10-05 10:00:00' }, { id: 3, vendorId: 'a', status: 'cancelled', at: '2026-10-09 10:00:00' }, { id: 4, vendorId: 'b', status: 'pending', at: '2026-10-10' }];
   assert.equal(VD.openRequest(list, 'a').id, 2);
   assert.equal(VD.openRequest(list.filter((w) => w.id === 3), 'a'), null);
-  assert.deepEqual([VD.wdLabel('pending'), VD.wdLabel('approved'), VD.wdLabel('cancelled')], ['مستني الموافقة', 'اتوافق عليه', 'اتلغى']);
+  assert.deepEqual([VD.wdLabel('pending'), VD.wdLabel('approved'), VD.wdLabel('cancelled')], ['طلب جديد', 'تم الدفع', 'تم الرفض']);
+});
+
+test('the meeting of 23 Nov [#19]: lastRequest = the pending one, else the latest of any status (a rejection included); none = null', () => {
+  const L = [{ id: 1, vendorId: 'a', status: 'approved', at: '2026-10-01 10:00:00' }, { id: 3, vendorId: 'a', status: 'cancelled', at: '2026-10-09 10:00:00' }, { id: 9, vendorId: 'b', status: 'pending', at: '2026-10-10 10:00:00' }];
+  assert.equal(VD.lastRequest(L, 'a').id, 3, 'the latest, cancelled');
+  assert.equal(VD.lastRequest(L.concat([{ id: 2, vendorId: 'a', status: 'pending', at: '2026-10-05 10:00:00' }]), 'a').id, 2, 'a pending one wins');
+  assert.equal(VD.lastRequest(L, 'zz'), null);
+  assert.equal(VD.lastRequest([{ id: 4, vendorId: 'a', status: 'approved', at: '2026-10-01 10:00:00' }, { id: 5, vendorId: 'a', status: 'approved', at: '2026-10-01 10:00:00' }], 'a').id, 5, 'same day: the higher id');
 });
 
 // phase 5.5 decision 13 (owner 5 Nov): «كشف بالفترة» — the opening is Dokan's balance on the first day less our earlier moves

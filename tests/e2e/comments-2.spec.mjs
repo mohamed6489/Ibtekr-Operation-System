@@ -211,7 +211,7 @@ test('comment 10 — «تقرير مختصر»: five numbers, the request\'s box
   const m = page.locator('.modal.vb-modal');
   await expect(m.locator('.modal-h h2')).toHaveText('تقرير مختصر — Art Craft');
   // the owner's five numbers, in his order — nothing else on top
-  await expect(m.locator('[data-vb-tile] > span')).toHaveText(['رصيد Dokan', 'العرابين', 'المواصلات', 'التصحيح', 'صافي الرصيد']);
+  await expect(m.locator('[data-vb-tile] > span')).toHaveText(['رصيد Dokan', 'العرابين', 'المواصلات', 'إيداع خارجي', 'صافي الرصيد']);
   await expect(m.locator('[data-vb-tile="dokan"] b')).toHaveText('2,500.00 ج.م'); await expect(m.locator('[data-vb-tile="net"] b')).toHaveText('2,500.00 ج.م');
   await expect(m.locator('[data-vb-req]')).toHaveAttribute('data-vb-req', 'pending');
   // the orders: the number and the product with its own photo (the site's)
@@ -326,7 +326,7 @@ test('comment 11 — «تقفيل حساب» is the short report\'s own popup; �
   const m = page.locator('.modal.vb-modal');
   await expect(m.locator('.modal-h h2')).toHaveText('تقفيل حساب — Antikiano');
   // the same popup as the short report: the five numbers, the orders, the three buttons
-  await expect(m.locator('[data-vb-tile] > span')).toHaveText(['رصيد Dokan', 'العرابين', 'المواصلات', 'التصحيح', 'صافي الرصيد']);
+  await expect(m.locator('[data-vb-tile] > span')).toHaveText(['رصيد Dokan', 'العرابين', 'المواصلات', 'إيداع خارجي', 'صافي الرصيد']);
   await expect(m.locator('[data-vb-table]')).toBeVisible();
   await expect(m.locator('.modal-f button')).toHaveText(['مشاركة', 'التقرير الكامل', 'إغلاق']);
   await expect(m.locator('[data-vb-req]')).toHaveAttribute('data-vb-req', 'settle');
@@ -571,19 +571,9 @@ test('comment 14 — every period filter with figures behind it compares (the re
   await go(page, 'makers');
   await page.locator('#vendors [role=tablist][aria-label="أقسام المبتكرين"] [role=tab]', { hasText: 'التقارير' }).click();
   await expect(page.locator('#vendors .pcmp-card [data-cmp-row="مبتكرين نشطين"]')).toHaveCount(1);
-  // the makers' ledger by period: the comparison period's statements are asked from Dokan too
+  // the meeting of 23 Nov [#27]: the makers' ledger by period is gone — the makers' accounts has no period to compare
   await page.locator('#vendors [role=tablist][aria-label="أقسام المبتكرين"] [role=tab]', { hasText: 'حسابات المبتكرين' }).click();
-  await page.locator('#vendors').getByRole('tab', { name: 'كشف بالفترة' }).click();
-  await expect(page.locator('#vendors table.ledger-table')).toBeVisible(); // the meeting of 23 Nov [#4]: this month's statements load first (it was «كل الفترات»)
-  await expect(page.locator('#vendors [data-ledger-refresh]')).toBeEnabled(); // this month's statements are in (their redraws close an open picker)
-  await page.locator('#vendors .toolbar .date-field').click();
-  await dp.getByRole('radio', { name: 'آخر 7 أيام' }).click();
-  await dp.locator('[data-rp-compare="vledger"] input').check();
-  await update.click();
-  const led = page.locator('#vendors .pcmp-card[data-cmp="vledger"]');
-  await expect(led.locator('[data-cmp-per="was"]')).toHaveAttribute('data-range', cairoDay(-13) + '|' + cairoDay(-7));
-  await expect(led.locator('[data-cmp-row="المستحق آخر الفترة"]')).toHaveCount(1);
-  expect(mock.statements.some((s) => s.from === cairoDay(-13) && s.to === cairoDay(-7))).toBe(true);
+  await expect(page.locator('#vendors').getByRole('tab', { name: 'كشف بالفترة' })).toHaveCount(0);
   // the accounts' moves log: its own period, the card under it
   await go(page, 'moves-log');
   await page.locator('#main .mlog-bar .date-field').click();

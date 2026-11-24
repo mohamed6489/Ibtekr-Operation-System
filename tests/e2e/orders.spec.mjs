@@ -76,6 +76,15 @@ test('the orders page lists real orders and no seed', async ({ page }) => {
   await expect(card(page, '180686')).not.toContainText('Cushion Cover');
 });
 
+test('Safwat 24 Nov — «الكلام المفروض يكون بالبيج»: the order edit\'s «تفاصيل الأوردر» header is beige on its green band', async ({ page }) => {
+  await openOrders(page);
+  await page.evaluate(() => window.OrdersApp.edit('181668'));
+  await page.locator('#orders #cdlg [data-etab="det"]').click();
+  const hd = page.locator('#orders #cdlg [data-det-sec] > h3');
+  await expect(hd).toBeVisible(); await expect(hd).toContainText('تفاصيل الأوردر');
+  expect(await hd.evaluate((e) => getComputedStyle(e).color)).toBe('rgb(255, 247, 239)');
+});
+
 test('an html customer name renders inert', async ({ page }) => {
   await openOrders(page);
   await card(page, '180656').locator('[data-tg="180656"]').click();
@@ -1516,4 +1525,12 @@ test('quick filters apply on one press and stack; a saved filter is the member\'
   await fb.click(); await pop.locator('[data-svx="0"]').click();
   await expect(pop.locator('[data-svf]')).toHaveCount(0);
   await expect.poll(() => mock.prefs.find((r) => r.key === 'orders.filters')?.data).toEqual([]);
+});
+
+test('Safwat 24 Nov — a maker\'s late orders (the bell\'s card, «المتأخرين») are his own sub-order lines by their own delay, the same the alerts count', async ({ page }) => {
+  await openOrders(page);
+  const r = await page.evaluate(() => { const A = window.OrdersApp.alerts(); return A.lateVendors.map((v) => ['late', v]).concat(A.riskVendors.map((v) => ['risk', v]))
+    .map(([k, v]) => ({ k, count: v.count, rows: window.OrdersApp.lateOrders(v.vendor, k).map((x) => x.state), all: window.OrdersApp.lateOrders(v.vendor, 'all').length })); });
+  expect(r.length).toBeGreaterThan(0);
+  for (const x of r) { expect(x.rows.length).toBeGreaterThanOrEqual(x.count); expect(x.rows.every((s) => s === x.k)).toBe(true); expect(x.all).toBeGreaterThanOrEqual(x.rows.length); }
 });

@@ -7,7 +7,7 @@
 // (Safwat 24 Nov: e-mail on, WhatsApp off until its API is turned on). Nothing here logs a phone, an address or a text.
 import { catalogue as CAT, hidePlan, outboundPlan, partKey, partOfKey, permOf, reportPlan, runsNow, writePlan } from '../_shared/notif-engine.js';
 import { LIVE_FROM } from '../_shared/legacy.js'; // phase 9: the imported old orders raise nothing
-import { delayRules, leadBy, lineDelayOf, lineElapsed, orderDelayOf, orderElapsed } from '../_shared/delay.js';
+import { delayRules, leadBy, lineDelayOf, lineElapsed, lineIsOpen, orderDelayOf, orderElapsed } from '../_shared/delay.js';
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -62,12 +62,14 @@ type OrdersRead = { O: Json[]; lines: Json[]; V: Map<string, Json>; orderState: 
 async function ordersRead(db: Db, w: World, ctx: Ctx): Promise<OrdersRead> {
   const today = ctx.cairo.day; const DR = delayRules((w.settings.makers ?? {}).delay);
   const [o, v] = await Promise.all([
-    db.from('orders').select('id, number, customer_name, status, status_custom, confirm, confirm_at, placed_at, updated_at, bosta_tracking, bosta_cod_error').in('status', OPEN_ORDER).is('deleted_at', null).gte('placed_at', LIVE_FROM).limit(LIMIT),
+    db.from('orders').select('id, number, customer_name, status, status_custom, woo_status, confirm, confirm_at, placed_at, updated_at, bosta_tracking, bosta_cod_error').in('status', OPEN_ORDER).is('deleted_at', null).gte('placed_at', LIVE_FROM).limit(LIMIT),
     db.from('vendors').select('id, name, lead_days, status').limit(LIMIT),
   ]);
   const O = rows(o); const V = new Map(rows(v).map((x) => [String(x.id), x]));
   const lines: Json[] = [];
-  for (let i = 0; i < O.length; i += 300) lines.push(...rows(await db.from('order_items').select('id, order_id, vendor_id, product_id, name, qty, status, expected_at').in('order_id', O.slice(i, i + 300).map((x) => x.id)).eq('removed', false).limit(10_000)));
+  for (let i = 0; i < O.length; i += 300) lines.push(...rows(await db.from('order_items').select('id, order_id, sub_order_id, vendor_id, product_id, name, qty, status, expected_at, pulled').in('order_id', O.slice(i, i + 300).map((x) => x.id)).eq('removed', false).limit(10_000)));
+  // the sub-orders' own status on the site — a line whose sub-order the site closed (shipped, completed …) is never late (lineIsOpen)
+  const SO = new Map<string, string>(); for (let i = 0; i < O.length; i += 300) for (const x of rows(await db.from('sub_orders').select('id, woo_status').in('order_id', O.slice(i, i + 300).map((y) => y.id)).limit(10_000))) SO.set(String(x.id), String(x.woo_status ?? ''));
   const pids = [...new Set(lines.map((x) => x.product_id).filter((x) => x != null))];
   const PL = new Map<string, number>(); for (let i = 0; i < pids.length; i += 500) for (const x of rows(await db.from('product_lead_days').select('product_id, days').in('product_id', pids.slice(i, i + 500)))) PL.set(String(x.product_id), Number(x.days));
   const orderState = new Map<string, string>(); const lineState = new Map<string, string>();
@@ -75,7 +77,7 @@ async function ordersRead(db: Db, w: World, ctx: Ctx): Promise<OrdersRead> {
     const ov = { confirm: ord.confirm, confirmAt: ord.confirm_at, placedAt: ord.placed_at };
     const mine = lines.filter((x) => String(x.order_id) === String(ord.id));
     const leadOf = (it: Json) => { const vd = it.vendor_id ? V.get(String(it.vendor_id)) : null; return leadBy(it.product_id != null ? PL.get(String(it.product_id)) : null, vd ? vd.lead_days : null, DR); };
-    const open = mine.filter((x) => x.vendor_id && !ITEM_DONE.includes(String(x.status)));
+    const open = mine.filter((x) => x.vendor_id && !ITEM_DONE.includes(String(x.status)) && lineIsOpen({ siteStatus: (x.sub_order_id != null && SO.get(String(x.sub_order_id))) || ord.woo_status, pulled: x.pulled, status: x.status }));
     const maxLead = open.length ? Math.max(...open.map(leadOf)) : null;
     orderState.set(String(ord.id), orderDelayOf({ status: ord.status, elapsed: orderElapsed(ov, today, DR), maxLead }, DR) || 'ok');
     for (const it of open) lineState.set(String(it.id), lineDelayOf(lineElapsed({ notifiedAt: it.expected_at, ...ov }, today, DR), leadOf(it), true, DR, ord.status) || 'ok');

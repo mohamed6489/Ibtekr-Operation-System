@@ -351,8 +351,10 @@
     const tops = (kids.get(0) || []).length;
     return [
       h('div', { class: 'cat-bar' }, search, h('span', { class: 'grow' }),
-        Button({ type: 'text', size: 'sm', label: 'افتح الكل', onClick: () => { L.forEach((c) => { if ((kids.get(c.id) || []).length) st.catOpen.add(c.id); }); R(); } }),
-        Button({ type: 'text', size: 'sm', label: 'اقفل الكل', onClick: () => { st.catOpen.clear(); R(); } }),
+        // the meeting 23 Nov #8: one button that follows the tree — «اقفل الكل» once every branch is open, «افتح الكل» otherwise
+        (() => { const br = L.filter((c) => (kids.get(c.id) || []).length); const allOpen = br.length > 0 && br.every((c) => st.catOpen.has(c.id));
+          return br.length ? Button({ type: 'text', size: 'sm', label: allOpen ? 'اقفل الكل' : 'افتح الكل', attrs: { 'data-cat-toggle': allOpen ? 'close' : 'open' },
+            onClick: () => { if (allOpen) st.catOpen.clear(); else br.forEach((c) => st.catOpen.add(c.id)); R(); } }) : null; })(),
         C.add ? Button({ type: 'primary', size: 'sm', icon: 'plus', label: 'قسم رئيسي جديد', attrs: { 'data-cat-new': '' }, onClick: () => newCat(null) }) : null),
       h('p', { class: 't-small help cat-sum' }, 'أقسام الموقع · ' + K.n0(L.length) + ' — ' + K.n0(tops) + ' قسم رئيسي' + (sortable ? ' · اسحب القسم من النقط عشان ترتّبه — الترتيب بيتحفظ على الموقع' : '')),
       catBulkBar(M),

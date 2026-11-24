@@ -407,7 +407,7 @@
 
   // ---------- state ----------
   // phase 13 decision 61 (owner 11 Nov — «ضيف في الحسابات قسم نظرة عامة في الأول وتقارير في آخر قسم»): acc-overview first, acc-reports last
-  const TABS = [{ id: 'acc-overview', label: 'نظرة عامة' }, { id: 'expenses', label: 'المصروفات' }, { id: 'subscriptions', label: 'الاشتراكات' }, { id: 'sales', label: 'المبيعات' }, { id: 'vendors', label: 'حسابات المبتكرين' }, { id: 'actual', label: 'الحساب الفعلي' }, { id: 'moves-log', label: 'سجل الحركات' }, { id: 'acc-reports', label: 'التقارير' }];
+  const TABS = [{ id: 'acc-overview', label: 'نظرة عامة' }, { id: 'expenses', label: 'المصروفات' }, { id: 'subscriptions', label: 'الاشتراكات' }, { id: 'sales', label: 'المبيعات' }, { id: 'vendors', label: 'حسابات المبتكرين' }, { id: 'actual', label: 'الحساب الفعلي' }, { id: 'moves-log', label: 'سجل الحركات' }, { id: 'bad-debts', label: 'مفقودات' }, { id: 'acc-reports', label: 'التقارير' }];
   const PRESETS = [['today', 'اليوم'], ['yesterday', 'أمس'], ['todayYesterday', 'اليوم وأمس'], ['last7', 'آخر 7 أيام'], ['last14', 'آخر 14 يومًا'], ['last28', 'آخر 28 يومًا'], ['last30', 'آخر 30 يومًا'], ['thisWeek', 'هذا الأسبوع'], ['lastWeek', 'الأسبوع الماضي'], ['thisMonth', 'هذا الشهر'], ['lastMonth', 'الشهر الماضي'], ['max', 'أقصى فترة'], ['custom', 'مخصص']];
   const SORTS = [
     { value: 'balance:desc', label: 'الرصيد: من الأعلى للأقل', key: 'balance', dir: 'desc' }, { value: 'balance:asc', label: 'الرصيد: من الأقل للأعلى', key: 'balance', dir: 'asc' },
@@ -2403,8 +2403,9 @@
   // 0078 (the owner, 11 Nov): «الرصيد دلوقتي» = the balance now, no period — each row chains to the net: رصيد Dokan − العرابين −
   // المواصلات − خصومات تانية + تصحيحات − متبقي من تسوية = الصافي (the three middle ones only when a maker has one); the request
   // column says what is open on Dokan («مستني الموافقة» + its amount); the orders by period live in «كشف بالفترة».
+  const LOST = () => window.IBLost;
   const VCOLS = [['name', 'المبتكر'], ['pct', 'نسبة إبتكر'], ['dokan', 'رصيد Dokan'], ['dep', 'العرابين'], ['tr', 'المواصلات'], ['oth', 'ديون أخرى'], ['cor', 'إيداع خارجي'], ['carry', 'متبقي من تسوية'],
-    ['bal', 'الصافي'], ['wd', 'حالة طلب السحب'], ['wdamt', 'قيمة طلب السحب'], ['last', 'آخر طلب سحب'], ['act', 'إجراءات']]; // the meeting of 23 Nov [#19]: the status and the amount, two columns
+    ['bal', 'الصافي'], ['lost', 'مفقودات'], ['wd', 'حالة طلب السحب'], ['wdamt', 'قيمة طلب السحب'], ['last', 'آخر طلب سحب'], ['act', 'إجراءات']]; // the meeting of 23 Nov [#19]: the status and the amount, two columns
   // phase 5.5 decision 4 (owner 31 Oct 16:38): the maker's latest Dokan request (any status but rejected / cancelled) — the date and how many days ago
   const lastWd = (name) => { const id = makerId(name); if (!id || !AC()) return null;
     const c = AC().withdrawals().filter((w) => w.vendorId === id && w.status !== 'rejected' && w.status !== 'cancelled' && w.at).map((w) => ({ date: String(w.at).slice(0, 10), id: w.id, status: w.status, amount: w.amount })).sort((p, q) => (p.date < q.date ? 1 : p.date > q.date ? -1 : Number(q.id) - Number(p.id)));
@@ -2465,13 +2466,17 @@
           onKeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openAccountBrief(v.name); } } }, v.name)),
           pct: (v) => num(v.pct), dokan: (v) => (v.dokanBalance == null ? '—' : money(v.dokanBalance)), dep: (v) => money(v.deposits), tr: (v) => money(v.transport || 0),
           oth: (v) => money(v.other || 0), cor: (v) => money(v.corrections || 0), carry: (v) => money(v.carry || 0),
+          // the meeting 23 Nov #39: the lost pieces' value — shown only (out of the net); it opens his «مفقود» tab
+          lost: (v) => { const n = LOST() ? LOST().totalOf(makerId(v.name)) : 0; return n ? h('button', { type: 'button', class: 'link-btn', 'data-vlost': v.name, title: 'للعرض بس — مش داخل في الصافي', onClick: (e) => { e.stopPropagation(); openVendor(makerId(v.name), { inPlace: state.page !== 'vendors', tab: 'lost' }); } }, money(n)) : '—'; },
           wd: wdTag, wdamt: wdAmt, last: lastCell, bal: (v) => h('b', { 'data-vbal': v.name }, bal(v.balance)), act: rowMenu };
         // filtered (decision 13): the total row is the shown makers' own sum
         const sT = wdFiltered ? D.vendorSummary(sorted) : s;
         const TOT = { name: 'الإجمالي', pct: '—', dokan: money(D.round2(sorted.reduce((t, v) => t + (v.dokanBalance || 0), 0))), dep: money(sT.deposits), tr: money(sT.transport), oth: money(sT.other), cor: money(sT.corrections), carry: money(sT.carry),
+          lost: LOST() ? money(sorted.reduce((t, v) => t + LOST().totalOf(makerId(v.name)), 0)) : '—',
           wd: h('span', null, num(String(sorted.filter((v) => { const r = wdOf(v.name); return r && r.status === 'pending'; }).length)), ' طلب جديد'), wdamt: '', last: '', bal: bal(sT.net), act: '' };
         const some = (k) => list.some((v) => v[k]);
-        const cols = VCOLS.filter(([k]) => (k === 'oth' ? some('other') : k === 'cor' ? some('corrections') : k === 'carry' ? some('carry') : true));
+        if (LOST() && LOST().state() === 'idle') LOST().ensure().then(() => { if (state.vtab === 'accounts' || state.tab === 'vendors') rerender(); });
+        const cols = VCOLS.filter(([k]) => (k === 'oth' ? some('other') : k === 'cor' ? some('corrections') : k === 'carry' ? some('carry') : k === 'lost' ? !!(LOST() && list.some((v) => LOST().totalOf(makerId(v.name)) > 0)) : true));
         const pend = sorted.filter((v) => { const r = wdOf(v.name); return r && r.status === 'pending'; }).length;
         return TableCard({ title: 'حسابات المبتكرين — الرصيد دلوقتي', count: '', th: { noun: ['مبتكر', 'المبتكرين'], total: pend + ' طلب مستني الموافقة' + (wdFiltered ? ' · ' + (WD_FILTERS.find((x) => x.value === state.wdFilter) || {}).label : '') }, action: refreshDokanBtn(),
           body: !sorted.length ? U.EmptyState(wdFiltered ? 'مفيش مبتكرين عندهم طلبات سحب' : 'مفيش مبتكرين', wdFiltered ? 'اضغط «تحديث من Dokan» تجيب الطلبات الجديدة، أو رجّع الفلتر لـ «الكل».' : '') : U.Table({ cls: 'vendors-table', headers: cols.map(([, lb]) => lb), rows: sorted.map((v) => cols.map(([k]) => CELL[k](v))), totalRow: cols.map(([k]) => TOT[k]) }) });
@@ -2518,7 +2523,32 @@
   }
 
   // ---------- render ----------
-  const VIEWS = { 'acc-overview': AccountsOverview, 'acc-reports': () => AccountsReportView(), expenses: ExpensesView, subscriptions: SubsView, sales: SalesView, vendors: VendorsTab, actual: ActualView, 'moves-log': MovesLogView };
+  // the meeting 23 Nov #39 (Safwat 24 Nov): «مفقودات» — the decisions on lost pieces in the period: «مفقود محسوب» (on the maker's account,
+  // a deposit) and «مفقود غير محسوب» (kept as lost, no account moves), with the reason; its own tab, not an expense
+  function BadDebtsView() {
+    const L = window.IBLost; if (!L) return [U.EmptyState('مش متاح', '')];
+    if (L.state() === 'idle') L.ensure().then(() => { if (state.page === 'accounts' && state.tab === 'bad-debts') render(); });
+    if (L.state() === 'idle' || L.state() === 'loading') return [U.InlineNote({ children: 'بنحمّل المفقودات…' })];
+    if (L.state() === 'error') return [U.InlineNote({ kind: 'error', children: 'مقدرناش نحمّل المفقودات — جرّب تحدّث الصفحة.' })];
+    const money = (n) => num(D.formatMoney(n)); const dayOf = (x) => (x ? x.split('-').reverse().join('/') : '—');
+    const lotOf = new Map(L.lots().map((l) => [l.id, l]));
+    const rows = L.debts().filter((d) => inRange(d.day)).sort((a, b) => (a.day < b.day ? 1 : -1));
+    const sum = (k) => D.round2(rows.filter((d) => !k || d.kind === k).reduce((t, d) => t + d.amount, 0));
+    const vname = (id) => { const v = id && vstore.get ? (() => { try { return vstore.get(id); } catch (e) { return null; } })() : null; return v ? v.name : '—'; };
+    const open = L.lots().filter((l) => !l.decision);
+    return [
+      h('div', { class: 'cards three', 'data-bad-cards': '' },
+        U.KpiTile({ label: 'إجمالي المفقودات', value: money(sum()), unit: 'ج.م', compare: 'off', note: rows.length + ' حركة في الفترة' }),
+        U.KpiTile({ label: 'مفقود محسوب', value: money(sum('deposit')), unit: 'ج.م', compare: 'off', note: 'اتحوّل لحسابات المبتكرين (إيداع)' }),
+        U.KpiTile({ label: 'مفقود غير محسوب', value: money(sum('writeoff')), unit: 'ج.م', compare: 'off', note: open.length ? open.length + ' قطعة مفقودة لسه من غير قرار' : 'كل القطع المفقودة ليها قرار' })),
+      TableCard({ title: 'مفقودات — ' + periodText(), th: { noun: ['حركة', 'الحركات'], when: periodText(), total: money(sum()) + ' ج.م' },
+        body: !rows.length ? U.EmptyState('مفيش مفقودات في الفترة دي', 'القرار بيتاخد من «فقد» في تاب «مفقودات» في ملف المبتكر.')
+          : U.Table({ cls: 'bad-debts-table', headers: ['التاريخ', 'المبتكر', 'المنتج', 'الأوردر', 'الحالة', 'المبلغ', 'السبب'],
+            rows: rows.map((d) => { const l = lotOf.get(d.lotId) || {}; return [h('span', { 'data-bad-debt': d.id }, num(dayOf(d.day))), vname(d.vendorId), l.name || '—', l.order ? 'IB-' + l.order : '—',
+              h('span', { class: 'tg tg-' + (d.kind === 'deposit' ? 'gold' : 'neutral') }, d.kindLabel), money(d.amount), d.reason === 'أخرى' ? 'أخرى: ' + d.note : d.reason + (d.note ? ' — ' + d.note : '')]; }) }) }),
+      sourceNote('المصدر: قرارات «فقد» (ملف المبتكر › مفقودات). «مفقود محسوب» بيتسجل كمان «إيداع خارجي» في حساب المبتكر؛ «مفقود غير محسوب» تسجيل بس من غير ما رصيد أي حساب يتحرك.')];
+  }
+  const VIEWS = { 'acc-overview': AccountsOverview, 'bad-debts': BadDebtsView, 'acc-reports': () => AccountsReportView(), expenses: ExpensesView, subscriptions: SubsView, sales: SalesView, vendors: VendorsTab, actual: ActualView, 'moves-log': MovesLogView };
   let focusTab = false;
   // ---------- Reports page (Figma: التقارير — Desktop 1440 / Mobile 360) ----------
   const R = window.IbtekrReports;
@@ -4130,6 +4160,7 @@
     const inPlace = !!(opts && opts.inPlace);
     const v0 = vstore.get(id); if (!v0) { vnotify('error', 'المبتكر ' + id + ' مش موجود.'); return; }
     if (vdrawer) vdrawer.close(); shown.clear(); pwShown = null;
+    if (opts && opts.tab) vtab = opts.tab; // the meeting 23 Nov #39: «مفقودات» in the makers' accounts opens his «مفقودات» tab
     if (!inPlace) { try { history.replaceState(null, '', '#makers/' + id); } catch (e) { /* sandboxed */ } }
     vdrawer = U.Drawer({ label: 'ملف المبتكر ' + v0.name, onClose: () => { vdrawer = null; vredraw = null; pwShown = null;
       if (inPlace) { if (state.page === 'accounts') render(); return; } // decision 18: opened from the header search on any page
@@ -4562,7 +4593,7 @@
         h('div', { class: 'row1' }, h('div', { class: 'vdrawer-id' }, vstore.canPhoto && vstore.canPhoto() ? h('button', { type: 'button', class: 'vlogo-edit', title: 'تغيير الصورة', 'aria-label': 'تغيير صورة ' + v.name, 'data-v-photo-edit': '', onClick: () => makerPhoto(v) }, vendorLogo(v), h('span', { class: 'vlogo-cam' }, 'تغيير')) : vendorLogo(v), h('div', { class: 'names' }, h('div', { class: 'name-row' }, h('h2', { class: 't-h4' }, v.name), U.VendorStatus(v.status), siteOffTag(v)), h('span', { class: 't-small' }, num((v.category || 'بدون فئة') + ' · نسبة إبتكر ' + (canRate && v.rate != null ? v.rate + '%' : '—') + ' · مبتكر من ' + D.formatDateLong(v.joinedAt) + (v.wooVendorId ? ' · متجر #' + v.wooVendorId : ' · بدون متجر على الموقع'))), missingTag())),
           // the owner 16 Nov (decision 4): the store comes with «إضافة المبتكر»; here only after a failed try
           h('div', { class: 'actions' }, !v.wooVendorId && v.storeError && vstore.canStore && vstore.canStore() ? Button({ type: 'brand', size: 'sm', icon: 'refresh', label: 'جرّب عمل المتجر تاني', attrs: { 'data-make-store': '' }, onClick: () => storePopup(v) }) : null, moreMenu(v), IconButton({ icon: 'close', label: 'إغلاق', onClick: () => vdrawer.close() }))),
-        U.Tabs({ items: [{ id: 'info', label: 'معلومات المبتكر' }, { id: 'products', label: 'المنتجات' }, { id: 'orders', label: 'الأوردرات' }, { id: 'accounts', label: 'الحسابات' }], active: vtab, onChange: (t) => { vtab = t; if (t === 'products') { vpQ = ''; const a = PAPI(); if (a) a.ensure(); } draw(); } }));
+        U.Tabs({ items: [{ id: 'info', label: 'معلومات المبتكر' }, { id: 'products', label: 'المنتجات' }, { id: 'orders', label: 'الأوردرات' }, { id: 'accounts', label: 'الحسابات' }].concat(window.IBLostUI && window.IBDirectory && window.IBDirectory.perm && window.IBDirectory.perm('inventory.view') !== 'N' ? [{ id: 'lost', label: 'مفقودات' }] : []), active: vtab, onChange: (t) => { vtab = t; if (t === 'products') { vpQ = ''; const a = PAPI(); if (a) a.ensure(); } draw(); } }));
       let body;
         const copy = (val, label) => copyText(val, label);
         // decision 10: «عرض / تحميل» = a signed URL (60 s) from the private bucket, opened in a new tab
@@ -4631,6 +4662,8 @@
             ALL.length ? h('div', { class: 'vp-tools' }, h('label', { class: 'search-field' }, Icon('search', 'sm'), srch), L.length ? h('span', { class: 'vp-all' }, PB.head(), h('span', { class: 't-small' }, 'حدد الكل')) : null) : null,
             PB.bar(),
             L.length ? h('div', { class: 'vprod-list', 'data-vprods': '' }, L.map(row)) : ALL.length ? U.EmptyState('مفيش منتج بالاسم أو الـ SKU ده', 'جرّب جزء من الاسم أو الـ SKU.') : a && a.ready() ? U.EmptyState('مفيش منتجات للمبتكر ده', 'المنتجات بتتضاف من استوديو المنتجات، أو بتتنقل له من صفحة المنتجات.') : null));
+      } else if (vtab === 'lost' && window.IBLostUI) { // the meeting 23 Nov #39: the maker's «مفقودات» (shown only) and «فقد» → the decision
+        body = window.IBLostUI.vendorSection(v, () => { if (vredraw === draw) draw(); });
       } else if (vtab === 'orders') {
         const cnt = VD.orderCounts(st.orders); const pf = VD.performance(st.orders, v.leadDays); const dc = VD.delayCounts(st.orders);
         const orders = st.orders.slice().sort((a, b) => a.ageDays - b.ageDays).slice(0, 8);
@@ -4713,7 +4746,7 @@
     const noteEl = note ? U.InlineNote({ kind: note.kind, children: note.text, action: note.undo ? Button({ type: 'text', size: 'sm', label: 'تراجع', onClick: note.undo })
       : note.action ? Button({ type: 'text', size: 'sm', label: note.action.label, attrs: { 'data-note-act': '' }, onClick: note.action.run }) : IconButton({ icon: 'close', label: 'إخفاء', onClick: () => { noteEl.remove(); } }) }) : null;
     main.replaceChildren(...[
-      h('div', { class: 'page-head row' }, h('div', { class: 'title-block' }, h('h1', { class: 't-h3' }, 'الحسابات'), h('p', { class: 't-small' }, 'نظرة عامة · المصروفات · المبيعات · حسابات المبتكرين · الحساب الفعلي · سجل الحركات · التقارير')), h('div', { class: 'actions' }, state.tab === 'moves-log' ? null : window.IBKit.PanelButton('accounts:' + state.tab, 'الحسابات — ' + (TABS.find((t) => t.id === state.tab) || {}).label, () => document.getElementById('panel'), render), window.IBDataActions.Menu(window.IBDataActions.PAGES.accounts, () => ({ vendors: 'vendorMoves', actual: 'accountMoves' }[state.tab] || 'expenses')))),
+      h('div', { class: 'page-head row' }, h('div', { class: 'title-block' }, h('h1', { class: 't-h3' }, 'الحسابات'), h('p', { class: 't-small' }, 'نظرة عامة · المصروفات · المبيعات · حسابات المبتكرين · الحساب الفعلي · سجل الحركات · مفقودات · التقارير')), h('div', { class: 'actions' }, state.tab === 'moves-log' ? null : window.IBKit.PanelButton('accounts:' + state.tab, 'الحسابات — ' + (TABS.find((t) => t.id === state.tab) || {}).label, () => document.getElementById('panel'), render), window.IBDataActions.Menu(window.IBDataActions.PAGES.accounts, () => ({ vendors: 'vendorMoves', actual: 'accountMoves' }[state.tab] || 'expenses')))),
       tabs,
       state.tab === 'moves-log' ? null : state.tab === 'acc-reports' ? h('div', { class: 'toolbar' }, DateRangeField('reports')) /* comments decision 12: no «افتح في صفحة التقارير» */ : state.tab === 'vendors' ? vendorsToolbar() : h('div', { class: 'toolbar' }, DateRangeField(), h('span', { class: 'grow' }), !canAdd() ? null : state.tab === 'expenses' ? AddMenu('إضافة مصروفات', 'expenses') : state.tab === 'subscriptions' ? Button({ type: 'brand', icon: 'plus', label: 'إضافة اشتراك', attrs: { 'data-add-sub': '' }, onClick: () => openForm('expenses', 'withdraw', null, false, { category: SUBS_CAT }) }) : state.tab === 'actual' ? AddMenu('إضافة مبلغ', 'accountMoves') : null),
       noteEl,

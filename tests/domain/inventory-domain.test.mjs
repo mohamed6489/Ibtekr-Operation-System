@@ -5,7 +5,7 @@ const O = loadUmd(new URL('../../app/js/blocks/12-ops-domain.js', import.meta.ur
 
 test('the four reasons and the statuses each one can take', () => {
   assert.deepEqual(O.REASONS, ['تجميع أوردر', 'مرتجع', 'تصوير', 'متاح للبيع']);
-  assert.deepEqual(O.STATUS_BY_REASON['مرتجع'], ['بانتظار الفحص', 'تالف', 'راجع للمبتكر']);
+  assert.deepEqual(O.STATUS_BY_REASON['مرتجع'], ['بانتظار الفحص', 'تالف', 'راجع للمبتكر', 'مفقود']);
   assert.deepEqual(O.STATUS_BY_REASON['متاح للبيع'], ['متاح', 'محجوز لأوردر']);
 });
 

@@ -782,8 +782,13 @@ test('B4: «الأقسام» — green main cards, beige sub rows with «-» / �
   await expect(sub(152).locator('.cat-dash')).toHaveText('--');
   await expect(sub(152).locator('[data-cat-prods="152"]')).toBeDisabled(); // nothing in it
   // the search opens the branches it hits
+  // the meeting 23 Nov #8: one button — every branch is open now, so it says «اقفل الكل»; once shut it turns «افتح الكل»
+  await expect(pg.getByRole('button', { name: 'افتح الكل' })).toHaveCount(0);
+  await expect(pg.locator('[data-cat-toggle]')).toHaveText('اقفل الكل');
   await pg.getByRole('button', { name: 'اقفل الكل' }).click();
   await expect(pg.locator('.cat-sub')).toHaveCount(0);
+  await expect(pg.locator('[data-cat-toggle]')).toHaveText('افتح الكل');
+  await expect(pg.getByRole('button', { name: 'اقفل الكل' })).toHaveCount(0);
   await pg.locator('[data-cat-q]').fill('أباج');
   await expect(pg.locator('.cat-main')).toHaveCount(1);
   await expect(sub(152).locator('.cat-hit')).toHaveText('أباجورات');

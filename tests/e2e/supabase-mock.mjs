@@ -387,6 +387,7 @@ export async function installSupabaseMock(page, opts = {}) {
   // ({ vendor_id, by, result, reason?, id?, amount? }); withdraw_approve settles the maker's open moves like acc_settle_withdrawal.
   mock.acc = { acc_expenses: [], acc_vendor_moves: [], acc_account_moves: [], acc_list_items: [], dokan_balances: (opts.dokanBalances || []).map((x) => ({ ...x })), dokan_withdrawals: (opts.dokanWithdrawals || []).map((x) => ({ ...x })),
     acc_vendor_settlements: (opts.settlements || []).map((x) => ({ ...x })) };
+  mock.badDebts = (opts.badDebts || []).map((x) => ({ ...x })); // 0154 (the meeting 23 Nov #39): «ديون معدومة» — written by acc_bad_debt_add only
   mock.approvals = []; mock.withdrawCreates = []; mock.rejects = []; // rejects: each woo-sync withdraw_reject ({ id, by, note, result, reason? }) — the owner 18 Nov
   mock.shareMails = []; mock.shareMailDown = false; // share-mail (the owner 16 Nov): each mail { to, subject, kind, size, by }; shareMailDown = Resend not set (503)
   // phase 6 (0034): the customer-service tables. cs.customers: one row per normalised phone of the seeded orders (the backfill)
@@ -1116,6 +1117,26 @@ export async function installSupabaseMock(page, opts = {}) {
       // 0093 (2026-11-14-settings-lists.md decision 1): an expense's type is a base one or one the admin added in the row «lists»
       function expenseKindOk(c) { const li = ((mock.settings || []).find((x) => x.section === 'lists') || {}).data || {};
         return ['المرتبات', 'المصروفات', 'الاشتراكات', 'الإعلانات'].includes(c) || (Array.isArray(li.expenseKinds) && li.expenseKinds.includes(c)); }
+      // 0154 (the meeting of 23 Nov #39 — «فقد»): «ديون معدومة» for accounts.view ≠ N; the decision through acc_bad_debt_add (accounts.add F),
+      // once per lost lot — a deposit also writes the maker's «إيداع» (acc_vendor_moves, kind «أخرى»)
+      if (method === 'GET' && path === '/rest/v1/acc_bad_debts') return json(200, hasPerm(u, 'accounts.view') === 'N' ? [] : mock.badDebts.slice().reverse().map((x) => ({ ...x })));
+      if (path === '/rest/v1/acc_bad_debts') return json(403, { code: '42501', details: null, hint: null, message: 'permission denied for table acc_bad_debts' });
+      if (method === 'POST' && path === '/rest/v1/rpc/acc_bad_debt_add') {
+        const b = body(); const bad = (m) => json(400, { code: '22023', details: null, hint: null, message: 'invalid: ' + m });
+        if (hasPerm(u, 'accounts.add') !== 'F') return json(403, { code: '42501', details: null, hint: null, message: 'forbidden' });
+        const lot = mock.inv.inv_lots.find((l) => l.id === b.p_lot); if (!lot) return json(404, { code: 'P0002', details: null, hint: null, message: 'not found' });
+        if (lot.status !== 'مفقود') return bad('lot');
+        if (mock.badDebts.some((d) => d.lot_id === b.p_lot)) return bad('decided');
+        if (!['deposit', 'writeoff'].includes(b.p_kind)) return bad('kind');
+        if (!(Number(b.p_amount) > 0)) return bad('amount');
+        if (!['فقد المنتج', 'تلف المنتج في المخزن', 'أخرى'].includes(b.p_reason)) return bad('reason');
+        if (b.p_reason === 'أخرى' && !String(b.p_note || '').trim()) return bad('note');
+        const day = new Date().toISOString().slice(0, 10); let move = null;
+        if (b.p_kind === 'deposit') { accSeq += 1; move = accSeq; mock.acc.acc_vendor_moves.push({ id: move, vendor_id: lot.vendor_id, on_date: day, direction: 'deposit', kind: 'أخرى', kind_name: 'تعويض فقد' + (lot.order_id ? ' — IB-' + lot.order_id : ''), amount: Number(b.p_amount), note: b.p_reason, account: null, created_by: u.id, created_at: new Date().toISOString(), updated_by: null, updated_at: null, voided_by: null, voided_at: null, settled_by: null, settled_at: null }); }
+        const id = mock.badDebts.length + 1;
+        mock.badDebts.push({ id, lot_id: b.p_lot, vendor_id: lot.vendor_id, kind: b.p_kind, amount: Number(b.p_amount), reason: b.p_reason, note: String(b.p_note || '').trim() || null, on_date: day, vendor_move_id: move, created_by: u.id, created_at: new Date().toISOString() });
+        return json(200, id);
+      }
       // acc_ad_spend (0153 — the meeting of 23 Nov [#29]): the platforms' spend per day (campaign rows), for accounts.view ≠ N
       if (method === 'POST' && path === '/rest/v1/rpc/acc_ad_spend') {
         const b = body(); if (hasPerm(u, 'accounts.view') === 'N') return json(403, { code: '42501', details: null, hint: null, message: 'forbidden' });

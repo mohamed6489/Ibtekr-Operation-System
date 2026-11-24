@@ -425,7 +425,7 @@
     return K.RowMenu([
       { label: 'تعديل المكان', icon: 'sliders', run: () => K.form({ title: 'مكان ' + l.name, values: { loc: l.loc || '' }, fields: (f, e, set) => [K.field.select('loc', 'المكان', LOC_OPTS(), f, e, set)], submitLabel: 'حفظ',
         submit: (f) => { l.loc = f.loc || null; const it = lot(); if (it) it.loc = f.loc || null; patchLot(l.key, { loc: f.loc || null }, 'inventory.loc'); K.logEvent('stock.count.loc', l.sku); K.toast('اتغيّر المكان', 'success'); RC(); } }) },
-      { label: 'تعديل الحالة', icon: 'edit', run: () => { const it = lot(); const opts = it && O.STATUS_BY_REASON[it.reason] ? O.STATUS_BY_REASON[it.reason] : []; if (!opts.length) { K.toast('مفيش حالات تانية للقطعة دي', 'error'); return; }
+      { label: 'تعديل الحالة', icon: 'edit', run: () => { const it = lot(); const opts = it && O.STATUS_BY_REASON[it.reason] ? O.STATUS_BY_REASON[it.reason].filter((x) => x !== 'مفقود') : []; /* «مفقود» only from «فحص مرتجع» (#39) */ if (!opts.length) { K.toast('مفيش حالات تانية للقطعة دي', 'error'); return; }
         K.form({ title: 'حالة ' + l.name, values: { status: it.status }, fields: (f, e, set) => [K.field.select('status', 'الحالة', opts, f, e, set, { required: true })], submitLabel: 'حفظ',
           submit: (f) => { it.status = f.status; patchLot(l.key, { status: f.status }, 'inventory.status'); K.logEvent('stock.count.status', l.sku); K.toast('اتغيّرت الحالة', 'success'); RC(); } }); } },
       { label: 'شيل من المخزن', icon: 'trash', danger: true, run: () => removeFromHub(c, l) }], 'إجراءات ' + l.name);
@@ -589,9 +589,22 @@
         if (f.reason === 'تجميع أوردر' && window.OrdersSetSub) [...new Set(picked.map((x) => x.sid))].forEach((sid) => { if (o.subs.filter((x) => x.sid === sid).every((x) => f.pick[String(x.itemId)] || inHub(x.itemId))) window.OrdersSetSub(sid, 'وصل المخزن'); });
         K.logEvent('stock.receive', 'IB-' + o.id + ' · ' + picked.length + ' (' + f.reason + ')'); K.toast('اتسجل استلام ' + picked.length + ' منتج من IB-' + o.id, 'success'); rerender(); } });
   }
+  // the meeting 23 Nov #38: the SKU fills the product's name and its maker from the site's mirror (the member can still change them);
+  // a filled field the member did not touch follows the next SKU, and a maker other than the product's owner asks first on «استلام»
+  let skuT = null;
+  function skuFill(v, f, set) {
+    clearTimeout(skuT); const k = String(O.toLatin(v || '')).trim(); if (!k || !window.IBInventory || !IBInventory.skuInfo) { f._owner = ''; return; }
+    skuT = setTimeout(() => IBInventory.skuInfo(k).then((r) => {
+      if (String(O.toLatin(f.sku || '')).trim() !== k) return;
+      if (!r) { f._owner = ''; return; }
+      if (r.name && (!f.name || f.name === f._autoName)) { f.name = r.name; f._autoName = r.name; }
+      if (r.vendor && makerNames().includes(r.vendor) && (!f.vendor || f.vendor === f._autoVendor)) { f.vendor = r.vendor; f._autoVendor = r.vendor; }
+      f._owner = r.vendor || ''; set('_sku', k, true);
+    }), 350);
+  }
   function receiveManual() {
     K.form({ title: 'استلام في المخزن', wide: true, values: { qty: '1', loc: '', mode: 'أمانة' }, note: U.InlineNote({ children: 'السبب مطلوب — هو اللي بيحدد الحالة والخطوة الجاية.' }),
-      fields: (f, e, set) => [K.two(K.field.text('name', 'المنتج', f, e, set, { required: true }), K.field.text('sku', 'SKU', f, e, set, { required: true })), K.two(K.field.select('vendor', 'المبتكر', makerNames(), f, e, set, { required: true }), K.field.text('qty', 'الكمية', f, e, set, { required: true, inputmode: 'numeric' })),
+      fields: (f, e, set) => [K.two(K.field.text('name', 'المنتج', f, e, set, { required: true }), K.field.text('sku', 'SKU', f, e, set, { required: true, help: f._owner ? 'المنتج ده على الموقع بتاع «' + f._owner + '»' : undefined, onInput: (v) => { set('sku', v); skuFill(v, f, set); } })), K.two(K.field.select('vendor', 'المبتكر', makerNames(), f, e, set, { required: true }), K.field.text('qty', 'الكمية', f, e, set, { required: true, inputmode: 'numeric' })),
         K.Radios({ label: 'سبب الاستلام *', value: f.reason, onChange: (v) => set('reason', v, true), options: O.REASONS.map((r) => ({ value: r, label: r, hint: REASON_HINT()[r] })) }), e.reason ? h('div', { class: 'err-msg', role: 'alert' }, e.reason) : null,
         f.reason === 'تجميع أوردر' || f.reason === 'مرتجع' ? K.field.text('order', f.reason === 'مرتجع' ? 'الأوردر الفرعي' : 'رقم الأوردر', f, e, set, { required: true, placeholder: f.reason === 'مرتجع' ? '180549' : '180662' }) : null,
         f.reason === 'مرتجع' ? K.Radios({ label: 'حالة المنتج *', value: f.condition, onChange: (v) => set('condition', v, true), options: O.RETURN_CONDITIONS.map((c) => ({ value: c.value, label: c.label, hint: c.hint })) }) : null,
@@ -601,7 +614,8 @@
         f.reason === 'متاح للبيع' ? K.Radios({ label: 'الملكية', value: f.mode, onChange: (v) => set('mode', v, true), options: [{ value: 'أمانة', label: 'أمانة (فلوس المبتكر بعد البيع)' }, { value: 'ملك', label: 'ملك ابتكر' }] }) : null,
         placeField(f, e, set)],
       validate: (f) => { const e = O.validateReceive({ sku: f.sku, qty: f.qty, reason: f.reason, condition: f.condition, conditionNote: f.conditionNote }); Object.assign(e, K.req(f, ['name', 'vendor'])); if ((f.reason === 'تجميع أوردر' || f.reason === 'مرتجع') && !f.order) e.order = 'اكتب الرقم'; if (e.sku) e.sku = 'اكتب الـ SKU'; return e; },
-      submitLabel: 'استلام', submit: (f) => { const status = O.STATUS_BY_REASON[f.reason][0]; const key = newKey(); const ref = f.order ? (f.reason === 'مرتجع' ? '#' : 'IB-') + O.toLatin(f.order) : null;
+      submitLabel: 'استلام', submit: (f, m0) => { if (f._owner && f.vendor && f.vendor !== f._owner && f._okVendor !== f.vendor) { K.confirm({ title: 'المبتكر مختلف', text: 'المنتج ده بتاع «' + f._owner + '» — متأكد إنك عايز تسجّله على «' + f.vendor + '»؟', okLabel: 'أيوه، سجّله على «' + f.vendor + '»', onOk: () => { f._okVendor = f.vendor; const b = m0 && m0.el && [...m0.el.querySelectorAll('.modal-f button')].pop(); if (b) b.click(); } }); return false; }
+        const status = O.STATUS_BY_REASON[f.reason][0]; const key = newKey(); const ref = f.order ? (f.reason === 'مرتجع' ? '#' : 'IB-') + O.toLatin(f.order) : null;
         newLot({ key, sku: f.sku.trim(), name: f.name.trim(), vendor: f.vendor, reason: f.reason, status, ref, order: f.reason === 'تجميع أوردر' ? O.toLatin(f.order) : null, since: TODAY, loc: f.loc || null, cost: 0, mode: f.reason === 'متاح للبيع' ? f.mode : undefined, condition: f.reason === 'مرتجع' ? f.condition : undefined, conditionNote: f.reason === 'مرتجع' ? (f.conditionNote || '') : undefined, note: f.reason === 'مرتجع' ? 'استلام يدوي' : '' },
           { type: 'in', qty: Number(O.toLatin(f.qty)), label: 'دخول — ' + (f.reason === 'متاح للبيع' ? 'للبيع' : f.reason === 'تجميع أوردر' ? 'تجميع' : f.reason), reason: f.reason, ref: ref || '—' });
         if (f.reason === 'مرتجع') S.returns.unshift({ name: f.name.trim(), vendor: f.vendor, mode: 'أمانة', sub: ref, type: 'مرتجع للمخزن', reason: 'استلام يدوي · ' + (O.RETURN_CONDITIONS.find((c) => c.value === f.condition) || {}).label, condition: f.condition, conditionNote: f.conditionNote || '', at: 'النهارده', status: 'بانتظار الفحص', effect: '+ ' + f.qty + ' بعد الفحص', key });
@@ -658,13 +672,18 @@
   function inspect(s, ret) {
     const r = ret || S.returns.find((x) => x.key === s.key);
     const cond = (r && r.condition) || s.condition; const condNote = (r && r.conditionNote) || s.conditionNote;
-    K.form({ title: 'فحص مرتجع — ' + s.name, values: { next: S.invSettings.returnDefault === 'يرجع للمبتكر' ? 'رجوع للمبتكر' : S.invSettings.returnDefault === 'اسألني في كل مرة' ? '' : 'متاح للبيع', result: O.inspectDefault(cond) }, note: U.InlineNote({ children: (s.ref || '') + ' · ' + s.vendor + ' · وصل ' + K.dlabel(s.since) + (r ? ' · السبب: ' + r.reason : '') + (cond ? ' · حالته عند الاستلام: ' + (O.RETURN_CONDITIONS.find((c) => c.value === cond) || {}).label + (condNote ? ' (' + condNote + ')' : '') : '') }),
-      fields: (f, e, set) => [K.Radios({ label: 'النتيجة *', value: f.result, onChange: (v) => set('result', v, true), options: [{ value: 'سليم', label: 'سليم' }, { value: 'تالف', label: 'تالف' }] }), e.result ? h('div', { class: 'err-msg', role: 'alert' }, e.result) : null,
+    K.form({ title: 'فحص مرتجع — ' + s.name, values: { next: S.invSettings.returnDefault === 'يرجع للمبتكر' ? 'رجوع للمبتكر' : S.invSettings.returnDefault === 'اسألني في كل مرة' ? '' : 'متاح للبيع', result: O.inspectDefault(cond), value: String(Math.round(Number(s.cost) || 0)) }, note: U.InlineNote({ children: (s.ref || '') + ' · ' + s.vendor + ' · وصل ' + K.dlabel(s.since) + (r ? ' · السبب: ' + r.reason : '') + (cond ? ' · حالته عند الاستلام: ' + (O.RETURN_CONDITIONS.find((c) => c.value === cond) || {}).label + (condNote ? ' (' + condNote + ')' : '') : '') }),
+      fields: (f, e, set) => [K.Radios({ label: 'النتيجة *', value: f.result, onChange: (v) => set('result', v, true), options: [{ value: 'سليم', label: 'سليم' }, { value: 'تالف', label: 'تالف' }, { value: 'فقد', label: 'فقد', hint: 'القطعة ضاعت — بتطلع من المخزن وتتسجل «مفقود» عند المبتكر' }] }), e.result ? h('div', { class: 'err-msg', role: 'alert' }, e.result) : null,
         f.result === 'سليم' ? K.Radios({ label: 'هيروح فين', value: f.next, onChange: (v) => set('next', v, true), options: [{ value: 'متاح للبيع', label: '+ متاح للبيع من المخزن' }, { value: 'رجوع للمبتكر', label: 'إرجاع للمبتكر' }] }) : null, f.result === 'سليم' && e.next ? h('div', { class: 'err-msg', role: 'alert', 'data-err-next': '' }, e.next) : null,
+        // the meeting 23 Nov #39: «فقد» with the product's value (the maker's price by default) — shown on the maker, no balance moves
+        f.result === 'فقد' ? K.field.text('value', 'قيمة المنتج (ج.م)', f, e, set, { required: true, inputmode: 'decimal', help: 'سعر المبتكر افتراضي' }) : null,
         K.field.area('note', 'ملاحظات الفحص', f, e, set, { required: f.result === 'تالف', placeholder: f.result === 'تالف' ? 'وصف التلف' : '' }), f.result === 'تالف' ? K.field.file('photo', 'صورة التلف', f, e, set) : null],
-      validate: (f) => { const e = {}; if (!f.result) e.result = 'اختار نتيجة الفحص'; if (f.result === 'سليم' && !f.next) e.next = 'اختار هيروح فين'; if (f.result === 'تالف' && !String(f.note || '').trim()) e.note = 'اكتب وصف التلف'; return e; }, submitLabel: 'حفظ الفحص',
+      validate: (f) => { const e = {}; if (!f.result) e.result = 'اختار نتيجة الفحص'; if (f.result === 'سليم' && !f.next) e.next = 'اختار هيروح فين'; if (f.result === 'تالف' && !String(f.note || '').trim()) e.note = 'اكتب وصف التلف'; if (f.result === 'فقد' && !(Number(O.toLatin(String(f.value || ''))) > 0)) e.value = 'اكتب القيمة'; return e; }, submitLabel: 'حفظ الفحص',
       submit: (f) => { const it = S.stock.find((x) => x.key === s.key);
-        if (f.result === 'تالف') { move({ key: s.key, type: 'out', qty: s.onHand, label: 'تالف', reason: 'مرتجع', ref: 'فحص ' + (s.ref || ''), note: f.note }); it.status = 'تالف'; patchLot(s.key, { status: 'تالف' }, 'inventory.inspect'); if (r) { r.status = 'اتفحص — تالف'; r.effect = '− تالف ' + K.money(s.cost) + ' ج'; r.value = s.cost; } }
+        if (f.result === 'فقد') { const value = Number(O.toLatin(String(f.value))) || 0; if (s.onHand > 0) move({ key: s.key, type: 'out', qty: s.onHand, label: 'فقد', reason: 'مرتجع', ref: 'فحص ' + (s.ref || ''), note: f.note || '' });
+          it.status = 'مفقود'; it.cost = value; patchLot(s.key, { status: 'مفقود', cost: value }, 'inventory.inspect'); if (r) { r.status = 'فقد'; r.effect = '− فقد ' + K.money(value) + ' ج'; r.value = value; }
+          const L = window.IBLost; if (L && L.state() !== 'idle') setTimeout(() => L.load({ quiet: true }), 800); }
+        else if (f.result === 'تالف') { move({ key: s.key, type: 'out', qty: s.onHand, label: 'تالف', reason: 'مرتجع', ref: 'فحص ' + (s.ref || ''), note: f.note }); it.status = 'تالف'; patchLot(s.key, { status: 'تالف' }, 'inventory.inspect'); if (r) { r.status = 'اتفحص — تالف'; r.effect = '− تالف ' + K.money(s.cost) + ' ج'; r.value = s.cost; } }
         else if (f.next === 'رجوع للمبتكر') { move({ key: s.key, type: 'out', qty: s.onHand, label: 'رجوع للمبتكر', reason: 'مرتجع', ref: s.ref || '—', note: f.note || '' }); it.status = 'راجع للمبتكر'; patchLot(s.key, { status: 'راجع للمبتكر' }, 'inventory.inspect'); if (r) { r.status = 'اتفحص — رجع للمبتكر'; r.effect = 'رجع لـ ' + s.vendor; } }
         else { it.reason = 'متاح للبيع'; it.status = 'متاح'; if (!it.returnedAt && it.since < TODAY) it.returnedAt = it.since; it.since = TODAY; // decision 31: it enters the hub today
           patchLot(s.key, { reason: 'متاح للبيع', status: 'متاح', since: TODAY }, 'inventory.inspect'); if (r) { r.status = 'اتفحص — سليم'; r.effect = '+ 1 متاح'; } }

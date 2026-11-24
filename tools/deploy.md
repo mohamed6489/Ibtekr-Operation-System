@@ -2580,3 +2580,7 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 #### 2.7.137 فلو الفيديو على Magnific (`docs/superpowers/plans/2026-11-23-meeting.md` — «فلو الفيديو كان بيقع»؛ مفيش migration)
 1. انشر **`ai-images`** (`noMusic` على Seedance بس).
 2. **اتأكد:** كامبين فيديو على MiniMax H3 → «ابعت لـ Magnific» → فلو جديد: صف لكل مشهد (مولّد صورة ← مولّد فيديو) من غير خطأ.
+#### 2.7.138 الجرس بيتبع إعدادات التنبيهات بمجرد الحفظ + الأقسام تابات (`0164`، `docs/superpowers/plans/2026-11-24-notifications.md` آخره)
+1. **`0164`**: التريجر `notif_rules_tidy` + تنضيف التنبيهات اللي مابقتش تخص قاعدتها.
+2. ادمج على `main` (`notif-settings.js` / `settings.js`) — مفيش Edge Function.
+3. **اتأكد:** «الإعدادات › التنبيهات» تابات بالأقسام الرئيسية؛ غيّر عنصر قاعدة وافتح الجرس — تنبيهاتها القديمة مش موجودة.

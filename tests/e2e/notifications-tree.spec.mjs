@@ -243,3 +243,22 @@ test('0163 the bell by role: a member sees only the main sections whose rules go
   await expect(bell.locator('.ntf-nav-item')).toHaveText([/العمليات والشحن/]); // not «خدمة العملاء» (cs) nor «الفريق» (admin)
   await expect(bell.locator('.tab')).toHaveText([/الكل \(1\)/, /جاهز للشحن للمخزن \(1\)/, /التجميع \(0\)/, /غير مقروء \(1\)/, /مقروء \(0\)/]); // «التجميع» there at zero
 });
+
+// 0164 (Safwat 24 Nov — «اي تعديلات اعملها في اعدادات التبيهات تسمع في البوب اب بتاع التنبيهات بمجرد الحفظ»): the rule's element changed in
+// its form → its old alerts leave the bell at once, without a reload
+test('0164 a rule\'s element changed in the settings: its old alerts leave the bell the moment it is saved', async ({ page }) => {
+  await signIn(page, 'settings-notifications');
+  await page.locator('.notif-btn').click();
+  await expect(page.locator('.menu.notif .ntf-item', { hasText: 'IB-180656' })).toHaveCount(1);
+  await page.keyboard.press('Escape');
+  await page.locator('[data-nr-rule="r1"]').getByRole('button', { name: 'إجراءات' }).click(); await page.getByRole('menuitem', { name: 'تعديل' }).click();
+  const form = page.locator('.modal[role=dialog]', { hasText: 'تعديل التنبيه' });
+  await form.locator('#nr-el').click(); await page.getByRole('option', { name: 'عهدة التشغيل' }).click();
+  await form.locator('#nr-type').click(); await page.getByRole('option', { name: 'الرصيد' }).click();
+  await form.locator('#nr-state').click(); await page.getByRole('option', { name: 'العهدة قربت تخلص' }).click();
+  await form.locator('[data-nr-save]').click();
+  await expect(form).toHaveCount(0);
+  await expect.poll(() => mock.alerts.find((a) => a.id === 501).hide_at).not.toBeNull();
+  await page.locator('.notif-btn').click();
+  await expect(page.locator('.menu.notif .ntf-item', { hasText: 'IB-180656' })).toHaveCount(0);
+});

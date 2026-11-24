@@ -754,7 +754,9 @@
     } catch (e) { ntree = null; return null; }
   }
   const notifTreeNow = () => ntree;
-  const nwrite = async (fn, args) => { if (!can().admin) return no('forbidden'); const r = await rpc(fn, args); if (r.ok) { await notifTree(true); quiet(() => document.dispatchEvent(new Event('ib:notify'))); } return r; };
+  // a saved change shows in the bell at once (0164 — Safwat 24 Nov «تسمع في البوب اب بتاع التنبيهات بمجرد الحفظ»): the server hid the alerts that
+  // no longer fit, and the bell reads its sections and alerts again
+  const nwrite = async (fn, args) => { if (!can().admin) return no('forbidden'); const r = await rpc(fn, args); if (r.ok) { await notifTree(true); quiet(() => document.dispatchEvent(new Event('ib:notify'))); if (window.IBAlerts && window.IBAlerts.load) quiet(() => { window.IBAlerts.load(); }); } return r; };
   const notifSectionSave = (sec) => nwrite('notif_section_save', { p: { id: sec.id || null, parent_id: sec.parentId || null, name: String(sec.name || '').trim(), icon: sec.icon || null } });
   const notifSectionDelete = (id) => nwrite('notif_section_delete', { p_id: id });
   const notifSectionOrder = (ids) => nwrite('notif_section_order', { p_ids: ids });

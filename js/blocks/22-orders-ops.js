@@ -27,16 +27,27 @@
   // takes that reason and the field is not shown; a product returned by itself (the order not refunded) must have its own reason.
   function returnPopup(info, ok) {
     const toStock = info.status === 'مرتجع للمخزن'; const RR = reasonsOf('returns'); const fromOrder = String(info.orderReason || '').trim();
-    K.form({ title: info.status + ' — فرعي #' + info.sid, values: { date: DAY() },
+    const costOf = () => (inv().lineCost ? inv().lineCost(info.itemId, info.tot) : info.tot);
+    K.form({ title: info.status + ' — فرعي #' + info.sid, values: { date: DAY(), value: String(Math.round(Number(costOf()) || 0)) },
       note: U.InlineNote({ children: info.prod + ' · ' + info.vendor + ' · IB-' + info.order + ' · ' + K.money(info.tot) + ' ج.م' }),
       fields: (f, e, set) => [fromOrder ? U.InlineNote({ children: h('span', { 'data-ret-from-order': '' }, 'سبب الاسترجاع متسجّل على الأوردر: ', h('b', null, fromOrder), ' — مش محتاج تكتبه تاني.') }) : K.field.select('reason', 'سبب المرتجع', RR, f, e, set, { required: true }), !fromOrder && f.reason === 'أخرى' ? K.field.area('other', 'اكتب السبب', f, e, set, { required: true }) : null, K.field.date('date', 'تاريخ المرتجع', f, e, set, { required: true }),
         U.InlineNote({ kind: 'warning', children: toStock ? 'الأثر: القطعة هتتسجل في المخزن «مرتجع — بانتظار الفحص»' + (S.invSettings.returnsInspect ? ' (لازم تتفحص خلال ' + S.invSettings.returnsInspect + ' ساعة)' : '') + ' وقيمتها تتشال من مبيعات الأوردر لحد قرار الفحص.' : 'الأثر: حصة المبتكر في الفرعي ده بس هتتلغي (' + K.money(info.tot) + ' ج.م) والقطعة هترجع للمبتكر مباشرة — باقي الأوردر زي ما هو.' }),
+        // the meeting 23 Nov #39 (Safwat 24 Nov): the return is recorded «فقد» with the product's value (the maker's price by default)
+        K.Radios({ label: 'حالة المرتجع', value: f.lost ? 'فقد' : '', onChange: (v) => set('lost', v === 'فقد', true), options: [{ value: '', label: toStock ? 'هيوصل المخزن' : 'رجع للمبتكر' }, { value: 'فقد', label: 'فقد', hint: 'المنتج ضاع — بيتسجل مرتجع حالته «فقد» عند المبتكر، والقرار (إيداع أو إعدام) من «مفقود»' }] }),
+        f.lost ? K.field.text('value', 'قيمة المنتج (ج.م)', f, e, set, { required: true, inputmode: 'decimal', help: 'سعر المبتكر افتراضي — للعرض بس، مابيغيّرش رصيد المبتكر' }) : null,
         K.field.area('note', 'ملاحظة', f, e, set, { placeholder: 'اختياري' })],
-      validate: (f) => { const err = fromOrder ? '' : O.validateReturn({ reason: f.reason, other: f.other }, RR); const e = {}; if (err) e[err === 'اكتب السبب' ? 'other' : 'reason'] = err; if (!f.date) e.date = 'اختار التاريخ'; return e; },
+      validate: (f) => { const err = fromOrder ? '' : O.validateReturn({ reason: f.reason, other: f.other }, RR); const e = {}; if (err) e[err === 'اكتب السبب' ? 'other' : 'reason'] = err; if (!f.date) e.date = 'اختار التاريخ'; if (f.lost && !(Number(O.toLatin(String(f.value || ''))) > 0)) e.value = 'اكتب القيمة'; return e; },
       submitType: toStock ? 'primary' : 'danger', submitLabel: 'تسجيل ' + info.status,
       submit: (f) => {
         const reason = fromOrder || (f.reason === 'أخرى' ? 'أخرى: ' + f.other.trim() : f.reason);
         const key = live() ? A().newKey() : 'L-R-' + info.sid + '-' + Date.now();
+        if (f.lost) {
+          const value = Number(O.toLatin(String(f.value))) || 0;
+          if (live()) told(A().addLot({ key, sku: info.sku || 'SUB-' + info.sid, name: info.prod, vendor: info.vendor, reason: 'مرتجع', status: 'مفقود', ref: '#' + info.sid, order: info.order, sub: info.sid, itemId: info.itemId, since: f.date, loc: null, cost: value, mode: 'أمانة', note: reason }, null), 'اتسجل فقد ' + info.prod).then(() => { const L = window.IBLost; if (L && L.state() !== 'idle') L.load({ quiet: true }); });
+          S.returns.unshift({ name: info.prod, vendor: info.vendor, mode: 'أمانة', sub: '#' + info.sid, type: info.status, reason, at: K.dshort(f.date), status: 'فقد', effect: '− فقد ' + K.money(value) + ' ج', value, key: live() ? key : null });
+          K.logEvent('suborder.lost', '#' + info.sid + ' · ' + reason);
+          ok({ reason, date: f.date, note: f.note || '', lost: true }); K.toast('اتسجل ' + info.status + ' — فقد', 'success'); rerenderInv(); return;
+        }
         if (toStock && live()) told(A().addLot({ key, sku: info.sku || 'SUB-' + info.sid, name: info.prod, vendor: info.vendor, reason: 'مرتجع', status: 'بانتظار الفحص', ref: '#' + info.sid, order: info.order, sub: info.sid, itemId: info.itemId, since: f.date, loc: 'R', cost: inv().lineCost ? inv().lineCost(info.itemId, info.tot) : info.tot, mode: 'أمانة', note: reason },
           { type: 'in', qty: info.qty || 1, label: 'دخول — مرتجع', reason: 'مرتجع', ref: '#' + info.sid, note: 'بانتظار الفحص' }));
         if (toStock) { S.stock.unshift({ key, sku: info.sku || 'SUB-' + info.sid, name: info.prod, vendor: info.vendor, reason: 'مرتجع', status: 'بانتظار الفحص', ref: '#' + info.sid, order: info.order, since: f.date, loc: 'R-02', cost: info.tot, mode: 'أمانة' });

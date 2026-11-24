@@ -2479,3 +2479,8 @@ input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-
 .wd-internal{font-size:11px;white-space:nowrap}
 .ov-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px} /* the meeting of 23 Nov [#25]: the makers overview's four tables */
 @media (max-width:1023px){.ov-grid{grid-template-columns:1fr}}
+
+/* the meeting 23 Nov #39 — «فقد»: the tag that opens the decision (a deposit to the maker or a write-off) */
+.lost-btn { cursor: pointer; border: 0; font: inherit; }
+.lost-btn:hover { filter: brightness(.95); }
+.lost-btn:focus-visible { outline: 2px solid var(--color-brand, #005642); outline-offset: 2px; }

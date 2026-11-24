@@ -453,7 +453,9 @@
   const barredAi = () => !!(window.IBDirectory && window.IBDirectory.me && window.IBDirectory.me()) && AI_PERMS.every((k) => rperm(k) === 'N');
   // the plan 2026-11-17-stores-single.md decision 3: single-seller mode (IBSettings.single — the row «store») has no makers' page
   const singleOn = () => !!(window.IBSettings && window.IBSettings.single && window.IBSettings.single());
-  const barred = (page) => { if (page === 'ai') return barredAi(); if (page === 'vendors' && singleOn()) return true; const k = PAGE_PERM[page]; return !!k && !!(window.IBDirectory && window.IBDirectory.me && window.IBDirectory.me()) && rperm(k) === 'N' && !(page === 'hr' && rperm('sensitive.salaries') === 'F'); };
+  // «عقل السيستم» (Safwat 24 Nov — «الأدمن بس»): out of the menus for anyone else once the member's row is there
+  const barredBrain = () => { const me = window.IBDirectory && window.IBDirectory.me ? window.IBDirectory.me() : null; return !!me && me.role_id !== 'admin'; };
+  const barred = (page) => { if (page === 'ai') return barredAi(); if (page === 'brain') return barredBrain(); if (page === 'vendors' && singleOn()) return true; const k = PAGE_PERM[page]; return !!k && !!(window.IBDirectory && window.IBDirectory.me && window.IBDirectory.me()) && rperm(k) === 'N' && !(page === 'hr' && rperm('sensitive.salaries') === 'F'); };
   const barNote = () => { if (window.IBKit && window.IBKit.toast) window.IBKit.toast('الصفحة دي مش متاحة لدورك — لو محتاجها كلّم الأدمن'); };
   // the menus follow the member's permissions (the rows land after the first draw, and the roles may change from the settings)
   const navPerms = () => document.querySelectorAll('.sidebar .nav-item[data-page], .bottom-nav .bn-item[data-page]').forEach((b) => { b.hidden = barred(b.dataset.page); });
@@ -477,7 +479,7 @@
   const setNote = (n) => { state.note = n; };
 
   // ---------- shell ----------
-  const NAV = [['home', 'لوحة التحكم', 'dashboard'], ['box', 'الأوردرات', 'orders'], ['users', 'المبتكرين', 'vendors'], ['wallet', 'الحسابات', 'accounts'], ['tag', 'المخزون', 'inventory'], ['package', 'المنتجات', 'products'], ['headset', 'خدمة العملاء', 'cs'], ['bot', 'الرد الآلي', 'autoreply'], ['ticket', 'طلبات الفريق', 'tickets'], ['chart', 'التقارير', 'reports'], ['megaphone', 'التسويق', 'marketing'], ['sparkle', 'الذكاء الاصطناعي', 'ai'], ['briefcase', 'الموارد البشرية', 'hr'], ['gear', 'الإعدادات', 'settings']];
+  const NAV = [['home', 'لوحة التحكم', 'dashboard'], ['box', 'الأوردرات', 'orders'], ['users', 'المبتكرين', 'vendors'], ['wallet', 'الحسابات', 'accounts'], ['tag', 'المخزون', 'inventory'], ['package', 'المنتجات', 'products'], ['headset', 'خدمة العملاء', 'cs'], ['bot', 'الرد الآلي', 'autoreply'], ['ticket', 'طلبات الفريق', 'tickets'], ['chart', 'التقارير', 'reports'], ['megaphone', 'التسويق', 'marketing'], ['sparkle', 'الذكاء الاصطناعي', 'ai'], ['activity', 'عقل السيستم', 'brain'], ['briefcase', 'الموارد البشرية', 'hr'], ['gear', 'الإعدادات', 'settings']];
   const soonTag = () => h('span', { class: 'soon' }, 'soon');
   // the owner 17 Nov («الهوية البصرية»): the menu as the admin set it — names, icons, order, the hidden ones out (IBSettings.menuOf on
   // settings_public().brand.menu); a hidden page leaves the menus only (its link and the permissions stay). NAV stays the pages' own.

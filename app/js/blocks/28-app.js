@@ -1493,8 +1493,8 @@
   // always compared), the accounts' tabs, their moves log and the makers' ledger by period; the campaign plan's calendar has nothing to
   // compare. Ticked → the comparison period's own «من» / «إلى» show under the picker, on the same length right before until the member
   // types his own; «تحديث» applies both. The range keeps `compare` and, for a typed period, `cfrom` / `cto` (R.previousRange reads them).
-  const COMPARE_T = ['reports', 'dash', 'mlog', 'accounts', 'vledger'];
-  const compareOf = (target) => (!COMPARE_T.includes(target) ? false : target === 'reports' ? !!state.rcompare : target === 'dash' ? !(state.drange && state.drange.compare === false)
+  const COMPARE_T = ['reports', 'dash', 'mlog', 'accounts', 'vledger', 'per:makers-acc']; // Safwat 24 Nov: the makers' accounts' period compares too
+  const compareOf = (target) => (!COMPARE_T.includes(target) ? false : perKey(target) ? !!(state.pranges[perKey(target)] && state.pranges[perKey(target)].compare) : target === 'reports' ? !!state.rcompare : target === 'dash' ? !(state.drange && state.drange.compare === false)
     : target === 'mlog' ? !!(state.mrange && state.mrange.compare) : target === 'vledger' ? !!(state.vlrange && state.vlrange.compare) : !!(state.range && state.range.compare));
   function RangePicker(close, target = 'accounts') {
     const TODAY = target === 'dash' ? dashToday() : TODAY_APP; // the dashboard's presets / calendar follow its real today (dashToday)
@@ -2416,8 +2416,29 @@
   // Dokan's, not zero); «عدد المبتكرين» counts the active ones
   const makerActive = (v) => { const m = vstore.findByName ? vstore.findByName(v.name) : null; return !m || m.status === 'active'; };
   const shownMaker = (v) => makerActive(v) || Math.abs(Number(v.balance) || 0) >= 0.005 || Math.abs(Number(v.dokanBalance) || 0) >= 0.005;
+  // Safwat 24 Nov («في حسابات المبتكرين محتاجين نحط التاريخ بفترة زي التقارير» — picked «الحركات وطلبات السحب»): the tab's own period
+  // (per:makers-acc, this month by default, with «مقارنة بفترة سابقة») — the moves (العرابين · المواصلات · ديون أخرى · إيداع خارجي), the
+  // withdrawal requests and the lost pieces are those dated in it; «رصيد Dokan», «متبقي من تسوية» and «الصافي» stay now (Dokan's balance
+  // has no period). periodMoves(range) → { <maker name>: { deposits, transport, other, corrections } }.
+  function periodMoves(rg) {
+    const inP = (d) => !!d && String(d).slice(0, 10) >= rg.from && String(d).slice(0, 10) <= rg.to; const out = {};
+    const add = (name, k, n) => { if (!name) return; const o = out[name] || (out[name] = { deposits: 0, transport: 0, other: 0, corrections: 0 }); o[k] = D.round2(o[k] + (Number(n) || 0)); };
+    store.vendorMoves.filter((m) => inP(m.date) && m.type !== 'تحويل مستحقات' && !(m.type === 'مواصلات' && m.direction === 'withdraw'))
+      .forEach((m) => add(m.vendor, m.direction === 'deposit' ? 'corrections' : m.type === 'عربون' ? 'deposits' : 'other', m.amount));
+    transportRows(false).filter((r) => inP(r.date)).forEach((r) => add(r.vendor, 'transport', r.amount));
+    return out;
+  }
+  const accPer = () => perRange('makers-acc');
+  const accInPer = (d, rg) => { const r = rg || accPer(); return !!d && String(d).slice(0, 10) >= r.from && String(d).slice(0, 10) <= r.to; };
+  const accWds = (rg) => (AC() ? AC().withdrawals().filter((w) => accInPer(w.at, rg)) : []); // the requests dated in the period
+  const accLost = (id, rg) => (LOST() && id ? LOST().forVendor(id).filter((l) => accInPer(l.day, rg)).reduce((t, l) => t + (Number(l.value) || 0), 0) : 0);
+  // the comparison's lines (the kit's «مقارنة الفترتين»)
+  const accCmp = (rg) => { const pm = periodMoves(rg); const sum = (k) => Object.values(pm).reduce((t, o) => t + o[k], 0); const W = accWds(rg);
+    return [CL('العرابين', sum('deposits'), 'money', 'down'), CL('المواصلات', sum('transport'), 'money', 'down'), CL('ديون أخرى', sum('other'), 'money', 'down'), CL('إيداع خارجي', sum('corrections'), 'money'),
+      CL('طلبات السحب', W.length, 'count'), CL('قيمة طلبات السحب', W.reduce((t, w) => t + (Number(w.amount) || 0), 0), 'money')]; };
   function VendorsView() {
-    const list = vendorsNow().filter(shownMaker); const s = D.vendorSummary(list); const activeN = list.filter(makerActive).length; const sort = SORTS.find((x) => x.value === state.sort);
+    const PR = accPer(); const PM = periodMoves(PR);
+    const list = vendorsNow().filter(shownMaker).map((v) => { const p = PM[v.name] || { deposits: 0, transport: 0, other: 0, corrections: 0 }; return Object.assign({}, v, p); }); const s = D.vendorSummary(list); const activeN = list.filter(makerActive).length; const sort = SORTS.find((x) => x.value === state.sort);
     const sorted = D.sortVendors(list, sort.key, sort.dir).filter(wdFilterOk);
     const wdFiltered = (state.wdFilter || 'all') !== 'all';
     const fmt = (n) => D.formatMoney(n); const money = (n) => num(fmt(n));
@@ -2429,20 +2450,24 @@
       return { title: t, sub: 'الرصيد دلوقتي · اضغط على أي مبتكر يفتح ملفه', summary: [{ label: 'مبتكرين', value: String(l.length) }, { label: 'الصافي', value: sumK('balance') + ' ج.م' }, { label: 'العرابين', value: sumK('deposits') + ' ج.م' }],
         headers: ['المبتكر', 'رصيد Dokan', 'العرابين', 'المواصلات', 'الصافي'], rows: l.map((v) => [v.name, v.dokanBalance == null ? '—' : fmt(v.dokanBalance), fmt(v.deposits), fmt(v.transport || 0), fmt(v.balance)]),
         total: ['الإجمالي', sumK('dokanBalance'), sumK('deposits'), sumK('transport'), sumK('balance')], onRow: vOpenName(l), source: 'حسابات المبتكرين ← الرصيد دلوقتي' }; };
-    const tA = trAll(true);
+    const tA = TR.totals(transportRows(false).filter((r) => accInPer(r.date, PR))); // the period's trips (Safwat 24 Nov)
     return [liveNote(),
+      h('div', { class: 'toolbar', 'data-acc-period': '' }, DateRangeField('per:makers-acc'), h('span', { class: 't-small help' }, 'العرابين والمواصلات والديون والإيداعات وطلبات السحب والمفقودات في الفترة — رصيد Dokan والصافي دلوقتي')),
+      CompareCard('per:makers-acc', accCmp),
       h('div', { class: 'cards five' },
         U.CategoryCard({ tone: 'brand', name: 'عدد المبتكرين', value: activeN, unit: 'مبتكر نشط', decimals: false, sub: list.length > activeN ? (list.length - activeN) + ' واقف ليه رصيد' : null, details: () => accVDet('all') }),
         U.CategoryCard({ tone: 'gold', name: 'رصيد المبتكرين', value: s.positive, sub: s.positiveCount + ' مبتكرين', details: () => accVDet('pos') }),
         U.CategoryCard({ tone: 'neutral', name: 'رصيد عند المبتكرين', value: s.negative, sub: s.negativeCount + ' مبتكرين', details: () => accVDet('neg') }),
         U.CategoryCard({ tone: 'goldlight', name: 'إجمالي العرابين', value: s.deposits, sub: h('span', null, 'صافي ', num(D.formatMoney(s.net))), details: () => accVDet('dep') }),
-        U.CategoryCard({ tone: 'neutral', name: 'مواصلات المبتكرين', value: tA.vendors, sub: tA.vendorTrips + ' مشوار · ' + tA.vendorCount + ' مبتكرين · لسه ماتصفّتش', details: () => transportDetails('', true) })),
+        U.CategoryCard({ tone: 'neutral', name: 'مواصلات المبتكرين', value: tA.vendors, sub: tA.vendorTrips + ' مشوار · ' + tA.vendorCount + ' مبتكرين · في الفترة', details: () => transportDetails('', true) })),
       (() => {
         // the request on Dokan now: «مستني الموافقة» + its amount, «اتوافق عليه» (the latest, with what was transferred when known)
         const setOf = (wid) => (AC() && AC().settlements ? AC().settlements().find((x) => x.withdrawId === wid) : null);
         // [#19]: the request the row shows — the pending one, else the latest of any status (VD.lastRequest); «داخلي» when the system made it.
         // [#20]: a pending one opens the brief (approve / reject); any other opens the request itself, its details (lastWdPopup)
-        const lastOf = (v) => { const id = makerId(v.name); return id && AC() ? VD.lastRequest(AC().withdrawals(), id) : null; };
+        // the period's (Safwat 24 Nov) — but a request still waiting is shown whatever its date: someone has to act on it now
+        const lastOf = (v) => { const id = makerId(v.name); if (!id || !AC()) return null; const all = AC().withdrawals(); const open = all.find((w) => w.vendorId === id && w.status === 'pending');
+          return open || VD.lastRequest(accWds(PR), id); };
         const wdTag = (v) => { const r = lastOf(v); const st = r ? r.status : 'none'; const x = r && st === 'approved' ? setOf(r.id) : null;
           const tone = st === 'pending' ? 'orange' : st === 'approved' || st === 'paid' ? 'success' : st === 'cancelled' || st === 'rejected' ? 'error' : 'neutral';
           return h('span', { class: 'wd-pair' }, h('button', { type: 'button', class: 'tg tg-' + tone + ' wd-cell', 'data-wd': v.name, 'data-wd-status': st,
@@ -2467,21 +2492,21 @@
           pct: (v) => num(v.pct), dokan: (v) => (v.dokanBalance == null ? '—' : money(v.dokanBalance)), dep: (v) => money(v.deposits), tr: (v) => money(v.transport || 0),
           oth: (v) => money(v.other || 0), cor: (v) => money(v.corrections || 0), carry: (v) => money(v.carry || 0),
           // the meeting 23 Nov #39: the lost pieces' value — shown only (out of the net); it opens his «مفقود» tab
-          lost: (v) => { const n = LOST() ? LOST().totalOf(makerId(v.name)) : 0; return n ? h('button', { type: 'button', class: 'link-btn', 'data-vlost': v.name, title: 'للعرض بس — مش داخل في الصافي', onClick: (e) => { e.stopPropagation(); openVendor(makerId(v.name), { inPlace: state.page !== 'vendors', tab: 'lost' }); } }, money(n)) : '—'; },
+          lost: (v) => { const n = accLost(makerId(v.name), PR); return n ? h('button', { type: 'button', class: 'link-btn', 'data-vlost': v.name, title: 'للعرض بس — مش داخل في الصافي', onClick: (e) => { e.stopPropagation(); openVendor(makerId(v.name), { inPlace: state.page !== 'vendors', tab: 'lost' }); } }, money(n)) : '—'; },
           wd: wdTag, wdamt: wdAmt, last: lastCell, bal: (v) => h('b', { 'data-vbal': v.name }, bal(v.balance)), act: rowMenu };
         // filtered (decision 13): the total row is the shown makers' own sum
         const sT = wdFiltered ? D.vendorSummary(sorted) : s;
         const TOT = { name: 'الإجمالي', pct: '—', dokan: money(D.round2(sorted.reduce((t, v) => t + (v.dokanBalance || 0), 0))), dep: money(sT.deposits), tr: money(sT.transport), oth: money(sT.other), cor: money(sT.corrections), carry: money(sT.carry),
-          lost: LOST() ? money(sorted.reduce((t, v) => t + LOST().totalOf(makerId(v.name)), 0)) : '—',
-          wd: h('span', null, num(String(sorted.filter((v) => { const r = wdOf(v.name); return r && r.status === 'pending'; }).length)), ' طلب جديد'), wdamt: '', last: '', bal: bal(sT.net), act: '' };
+          lost: LOST() ? money(sorted.reduce((t, v) => t + accLost(makerId(v.name), PR), 0)) : '—',
+          wd: h('span', null, num(String(sorted.filter((v) => { const r = lastOf(v); return r && r.status === 'pending'; }).length)), ' طلب جديد'), wdamt: '', last: '', bal: bal(sT.net), act: '' };
         const some = (k) => list.some((v) => v[k]);
         if (LOST() && LOST().state() === 'idle') LOST().ensure().then(() => { if (state.vtab === 'accounts' || state.tab === 'vendors') rerender(); });
-        const cols = VCOLS.filter(([k]) => (k === 'oth' ? some('other') : k === 'cor' ? some('corrections') : k === 'carry' ? some('carry') : k === 'lost' ? !!(LOST() && list.some((v) => LOST().totalOf(makerId(v.name)) > 0)) : true));
+        const cols = VCOLS.filter(([k]) => (k === 'oth' ? some('other') : k === 'cor' ? some('corrections') : k === 'carry' ? some('carry') : k === 'lost' ? !!(LOST() && list.some((v) => accLost(makerId(v.name), PR) > 0)) : true));
         const pend = sorted.filter((v) => { const r = wdOf(v.name); return r && r.status === 'pending'; }).length;
-        return TableCard({ title: 'حسابات المبتكرين — الرصيد دلوقتي', count: '', th: { noun: ['مبتكر', 'المبتكرين'], total: pend + ' طلب مستني الموافقة' + (wdFiltered ? ' · ' + (WD_FILTERS.find((x) => x.value === state.wdFilter) || {}).label : '') }, action: refreshDokanBtn(),
+        return TableCard({ title: 'حسابات المبتكرين', count: '', th: { noun: ['مبتكر', 'المبتكرين'], when: num(D.formatDateNumeric(PR.from) + ' – ' + D.formatDateNumeric(PR.to)), total: pend + ' طلب مستني الموافقة' + (wdFiltered ? ' · ' + (WD_FILTERS.find((x) => x.value === state.wdFilter) || {}).label : '') }, action: refreshDokanBtn(),
           body: !sorted.length ? U.EmptyState(wdFiltered ? 'مفيش مبتكرين عندهم طلبات سحب' : 'مفيش مبتكرين', wdFiltered ? 'اضغط «تحديث من Dokan» تجيب الطلبات الجديدة، أو رجّع الفلتر لـ «الكل».' : '') : U.Table({ cls: 'vendors-table', headers: cols.map(([, lb]) => lb), rows: sorted.map((v) => cols.map(([k]) => CELL[k](v))), totalRow: cols.map(([k]) => TOT[k]) }) });
       })(),
-      sourceNote('المصدر: رصيد Dokan وطلبات السحب (بيتحدّثوا كل ساعة، ورصيد المبتكر أول ما أوردره يتقفل، و«تحديث من Dokan» بيجيبهم دلوقتي) + الحركات المتسجلة هنا اللي لسه ماتصفّتش · الصافي = رصيد Dokan − العرابين − المواصلات − الديون الأخرى + الإيداع الخارجي − المتبقي من آخر تسوية، وبيبقى بالسالب لو الخصومات أكبر · Dokan مابيعرفش الخصومات دي، فطلب السحب بيبقى بكل رصيد Dokan، ولما يتوافق عليه بتتصفّى منه واللي بيتحوّل للمبتكر = الطلب − الخصومات · الأوردرات بالفترة في «كشف بالفترة»'),
+      sourceNote('المصدر: رصيد Dokan وطلبات السحب (بيتحدّثوا كل ساعة، ورصيد المبتكر أول ما أوردره يتقفل، و«تحديث من Dokan» بيجيبهم دلوقتي) + الحركات المتسجلة هنا في الفترة (العرابين والمواصلات والديون والإيداعات وطلبات السحب والمفقودات بتاريخها) — رصيد Dokan والصافي دلوقتي، والصافي بيخصم الحركات اللي لسه ماتصفّتش كلها · الصافي = رصيد Dokan − العرابين − المواصلات − الديون الأخرى + الإيداع الخارجي − المتبقي من آخر تسوية، وبيبقى بالسالب لو الخصومات أكبر · Dokan مابيعرفش الخصومات دي، فطلب السحب بيبقى بكل رصيد Dokan، ولما يتوافق عليه بتتصفّى منه واللي بيتحوّل للمبتكر = الطلب − الخصومات · الأوردرات بالفترة في «كشف بالفترة»'),
     ].filter(Boolean);
   }
 
@@ -3817,7 +3842,9 @@
   // contracts about to end are now. A maker's name opens his file.
   function overviewTables(all, stats) {
     const r = perRange('makers-ov'); const inPer = (d) => !!d && d >= r.from && d <= r.to; const OUTS = ['ملغي', 'استرجاع', 'فشل'];
-    const nameCell = (v) => h('span', { class: 'vname-link', role: 'button', tabindex: '0', dir: 'auto', 'data-ov-maker': v.name, onClick: () => openVendor(v.id), onKeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openVendor(v.id); } } }, v.name);
+    // Safwat 24 Nov («لو داس علي الفيندور هنا يفتح الاوردات المتاخرة و القابلة للتاخير»): in «المتأخرين» the name opens his late and
+    // at-risk orders (the same popup as the bell's), elsewhere his file
+    const nameCell = (v, run) => { const go = run || (() => openVendor(v.id)); return h('span', { class: 'vname-link', role: 'button', tabindex: '0', dir: 'auto', 'data-ov-maker': v.name, onClick: go, onKeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } } }, v.name); };
     const money = (n) => num(D.formatMoney(n));
     const per = (v) => (stats[v.id] ? stats[v.id].orders || [] : []).filter((o) => inPer(o.day));
     const sales = all.map((v) => { const l = per(v).filter((o) => !OUTS.includes(o.status)); return { v, n: l.length, total: D.round2(l.reduce((t, o) => t + (Number(o.sales) || 0), 0)) }; }).filter((x) => x.n).sort((a, b) => b.total - a.total).slice(0, 10);
@@ -3829,7 +3856,7 @@
     return [h('div', { class: 'toolbar', 'data-ov-period': '' }, DateRangeField('per:makers-ov'), h('span', { class: 't-small help' }, 'الفترة على «أكتر مبتكرين مبيعات» و«المتأخرين»')),
       h('div', { class: 'ov-grid' },
         card('أكتر مبتكرين مبيعات', 'sales', ['المبتكر', 'الأوردرات', 'المبيعات'], sales.map((x) => [nameCell(x.v), num(String(x.n)), money(x.total)]), 'مفيش مبيعات في الفترة دي', ['مبتكر', 'المبتكرين']),
-        card('المتأخرين', 'late', ['المبتكر', 'متأخر', 'قابل للتأخير'], late.map((x) => [nameCell(x.v), num(String(x.late)), num(String(x.risk))]), 'مفيش أوردرات متأخرة في الفترة دي', ['مبتكر', 'المبتكرين']),
+        card('المتأخرين', 'late', ['المبتكر', 'متأخر', 'قابل للتأخير'], late.map((x) => [nameCell(x.v, () => openVendorLate(x.v.name, 'all')), num(String(x.late)), num(String(x.risk))]), 'مفيش أوردرات متأخرة في الفترة دي', ['مبتكر', 'المبتكرين']),
         card('المستحقات', 'dues', ['المبتكر', 'مستحقاته', 'من تاريخ'], dues.map((x) => [nameCell(x.v), money(x.st.balance), x.st.since ? num(D.formatDateNumeric(x.st.since)) : '—']), 'مفيش مستحقات دلوقتي', ['مبتكر', 'المبتكرين']),
         card('العقود اللي قربت تخلص', 'contracts', ['المبتكر', 'بينتهي', 'الحالة'], cons.map((x) => [nameCell(x.v), num(D.formatDateNumeric(x.v.contract.expires)), x.k === 'expired' ? 'منتهي' : 'بينتهي خلال شهر']), 'مفيش عقود قربت تخلص — العقود بتتحسب من تاريخ انتهائها المتسجّل في ملف المبتكر', ['عقد', 'العقود']))];
   }

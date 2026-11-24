@@ -164,13 +164,14 @@ function sdd(sty,st,attr,w,list,sub){
  var m=sty[st]||(sty===OSTY?sty[BASE(st)]:st?['info','tag']:null);var cls=m?'s-'+m[0]:'sempty';var k=sty===SSTY?'sub':'order';
  return'<label class="dd sdd '+cls+(sub?' sub':'')+'" style="'+(sub?'':'')+'"><span class="l">'+(m?ic(m[1]):'')+'<span>'+esc(st?LB(k,st):'— اختر الحالة —')+'</span></span>'+ic('down')+'<select '+attr+' aria-label="'+(k==='sub'?'حالة المنتج':'الحالة')+'">'+opts(list,st,st?'':'— اختر الحالة —',k)+'</select></label>'}
 function dfield(key,v,label,sm,ph){return'<div class="in'+(sm?' sm':'')+' dpf'+(v?' has':'')+'" style="width:100%"><input class="dpt" data-fi="'+key+'" value="'+esc(dt(v==''?'':v).replace('—',''))+'" placeholder="'+(ph||'—')+'" aria-label="'+label+'" aria-haspopup="dialog" autocomplete="off" inputmode="numeric"><button type="button" class="dpx" data-dx="'+key+'" aria-label="مسح التاريخ" tabindex="-1">'+ic('xc')+'</button><button type="button" class="dpi" data-dp="'+key+'" aria-label="فتح التقويم" tabindex="-1">'+ic('cal')+'</button></div>'}
-function field(lbl,icn,val,w,extra){return'<div class="fld" style="width:'+w+'px"><div class="lb">'+ic(icn)+'<span>'+lbl+'</span></div>'+val+'</div>'}
+/* Safwat 24 Nov («المسافة بين الأوردرات الفرعية و إجمالي القيمة … لازقين في بعض»): w as a string = the field's own style (its text's width) */
+function field(lbl,icn,val,w,extra){return'<div class="fld" style="'+(typeof w==='string'?w:'width:'+w+'px')+'"><div class="lb">'+ic(icn)+'<span>'+lbl+'</span></div>'+val+'</div>'}
 function header(o,l,open){
  var cd=o.cdate;
  return'<div class="oh">'+ocb(o)
  +field('رقم الأوردر','tag','<div class="vv"><span class="oid">IB-'+o.id+'</span>'+tkChip(o)+'</div>',88)
  +field('تاريخ الأوردر','cal','<div class="vv"><b style="font-weight:600">'+dt(o.date)+'</b></div>',100)
- +field(LBX('subs'),'box','<div class="vv" data-subn>'+subTxt(o)+'</div>',115)
+ +field(LBX('subs'),'box','<div class="vv" data-subn style="width:auto">'+subTxt(o)+'</div>','width:max-content;min-width:115px;padding-inline-end:8px;flex:none')
  +field('إجمالي القيمة','coins','<div class="vv"><b style="font-weight:600">'+fmt(o.tot)+' ج.م</b></div>',104)
  +field('حالة التأكيد','check','<label class="in dd" style="justify-content:flex-start;width:100%;padding-inline:8px;gap:8px">'+ic('down')+'<span style="flex:1;text-align:right;overflow:hidden;text-overflow:ellipsis"'+(o.cf==='غير مؤكد'?' class="unconf"':'')+'>'+esc(LB('confirm',o.cf))+'</span><select data-cf="'+o.id+'" aria-label="حالة التأكيد">'+opts(CF,o.cf,'','confirm')+'</select></label>',148)
  +field('تاريخ التأكيد','cal',''+dfield('cd:'+o.id,cd,'تاريخ التأكيد',0,'أضف تاريخ التأكيد')+'',134)

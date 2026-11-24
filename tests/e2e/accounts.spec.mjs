@@ -121,6 +121,7 @@ test('a subscription needs its name, end date and alerts; it is stored with them
 
 test('makers: Dokan balance, the open Dokan request, a deposit recorded here lowers the net; the brief and the Dokan statement read-only', async ({ page }) => {
   await openAccounts(page);
+  await page.evaluate(() => window.IBReportBlocks.periodSet('makers-acc', { from: '2020-01-01', to: '2030-12-31' })); // Safwat 24 Nov: the tab's period — every date here
   await tab(page, 'حسابات المبتكرين').click();
   const table = main(page).locator('table.vendors-table');
   await expect(table.locator('thead th')).toContainText(['رصيد Dokan', 'الصافي']);
@@ -373,6 +374,7 @@ test('subscriptions: «جدّد» opens a new expense a year on; the sales show 
 
 test('«تحديث من Dokan» brings a new request now; the withdraw filter shows only the makers with one', async ({ page }) => {
   await openAccounts(page, ACCOUNTS);
+  await page.evaluate(() => window.IBReportBlocks.periodSet('makers-acc', { from: '2020-01-01', to: '2030-12-31' })); // Safwat 24 Nov: the tab's period — every date here
   await tab(page, 'حسابات المبتكرين').click();
   const table = main(page).locator('table.vendors-table');
   await expect(table.locator('tbody tr', { hasText: 'Antikiano' }).locator('[data-wd]')).toHaveText('تم الرفض'); // [#19]: its cancelled request
@@ -469,12 +471,12 @@ test('5.5: the makers\' table shows the latest Dokan request per maker; the actu
 
 // the accounts report by period (decision 4): tests/e2e/reports.spec.mjs (phase 9 opened the reports page)
 
-test('the meeting of 23 Nov [#27]: «كشف بالفترة» left the makers\' accounts — the balance now, no sub-tab and no period', async ({ page }) => {
+test('the meeting of 23 Nov [#27]: «كشف بالفترة» left the makers\' accounts — no sub-tab; Safwat 24 Nov: the tab\'s own period (this month) over the moves and the requests', async ({ page }) => {
   await openAccounts(page);
   await tab(page, 'حسابات المبتكرين').click();
   await expect(main(page).locator('table.vendors-table')).toBeVisible();
   await expect(main(page).getByRole('tab', { name: 'كشف بالفترة' })).toHaveCount(0);
-  await expect(main(page).locator('.toolbar .date-field')).toHaveCount(0);
+  await expect(main(page).locator('[data-acc-period] .date-field')).toHaveCount(1);
   expect(mock.statements.length).toBe(0); // no statement asked from Dokan
 });
 
@@ -502,9 +504,10 @@ const mvRow = (id, vendor_id, on_date, direction, kind, amount, extra = {}) => (
 
 test('0078: «الرصيد دلوقتي» is now (no period) and chains to the net; «إجراء» = «سحب» (عربون · مواصلات · أخرى) or «إيداع» (a correction with its title and description)', async ({ page }) => {
   await openAccounts(page);
+  await page.evaluate(() => window.IBReportBlocks.periodSet('makers-acc', { from: '2020-01-01', to: '2030-12-31' })); // Safwat 24 Nov: the tab's period — every date here
   await tab(page, 'حسابات المبتكرين').click();
-  await expect(main(page).locator('.toolbar [aria-label="اختيار الفترة"]')).toHaveCount(0); // the balance now: no period picker
-  await expect(main(page).locator('.table-title h2', { hasText: 'حسابات المبتكرين — الرصيد دلوقتي' })).toBeVisible();
+  await expect(main(page).locator('[data-acc-period]')).toHaveCount(1); // Safwat 24 Nov: the tab's period (the moves and the requests; the balance now)
+  await expect(main(page).locator('.table-title h2', { hasText: 'حسابات المبتكرين' })).toBeVisible();
   await main(page).getByRole('button', { name: 'إضافة مبلغ', exact: true }).click();
   await expect(page.locator('[role=menu]')).toContainText('سحب — عربون · مواصلات · أخرى');
   await expect(page.locator('[role=menu]')).toContainText('إيداع خارجي');

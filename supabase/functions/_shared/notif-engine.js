@@ -122,6 +122,8 @@ export function metaOf(rule, e) {
     m.ost = String(o.status || '').slice(0, 40); m.dl = o.dl === 'late' || o.dl === 'risk' ? o.dl : 'ok';
     if (Number.isFinite(Number(o.subs))) m.subs = Number(o.subs);
     m.lm = nm(o.late); m.rm = nm(o.risk);
+    // a row per maker in the order (Safwat 25 Nov): his name, pieces, his products' status and delay — names and counts only
+    const mk = C.makersOf ? C.makersOf(o.mk) : []; if (mk.length) m.mk = mk;
   }
   return m;
 }

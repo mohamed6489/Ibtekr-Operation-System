@@ -76,12 +76,13 @@
   const waOf = (p) => { let d = String(p || '').replace(/[^\d]/g, ''); if (/^0020/.test(d)) d = d.slice(2); if (/^01\d{9}$/.test(d)) return '2' + d; if (/^1\d{9}$/.test(d)) return '20' + d; return d; };
   // every alert's card, drawn from its rule's template (Safwat 25 Nov — «قوالب التنبيهات ذكية بنفس الشكل اللي ظاهر» · «قوالب الرسايل كلها
   // تشتغل بنفس الطريقة»): the lines and parts of IBNotifCatalog.cardLines — an order alert's default its card (the phone, the status,
-  // «محتاج متابعة», the sub-orders, the late makers), any other's its line. null = the plain line (no rule, or a rule with no template
-  // and no order facts)
+  // «محتاج متابعة», the sub-orders, a row per maker), any other's its line in its pieces. null = the plain line (no rule)
   function cardOf(a) {
     const C = window.IBNotifCatalog; if (!C || !C.cardLines || !a.ruleId) return null;
+    // every alert of a rule is its template's card (Safwat 25 Nov — «خلي التصميم لكل التنبيهات يكون احترافي و منظم … قابلة للتعديل من
+    // قوالب الرسالة»): the admin's template, else the rule's default ({التفاصيل} — the entity's line in its pieces)
     const r = ruleTpl.get(a.ruleId); const m = a.meta || {}; const order = m.g === 'customer' && m.ost != null;
-    if (!r || (!order && !(typeof r.template === 'string' && r.template.trim()))) return null;
+    if (!r) return null;
     const phone = order ? phones.get(String(m.gid)) || '' : '';
     const lines = C.cardLines(C.templateOf(order && !(r.template || '').trim() ? { element: 'orders', type: 'confirm' } : r), C.alertVars(m, a.body, phone));
     return { lines, phone, dial: fullPhone(phone), wa: fullPhone(phone) ? 'https://wa.me/' + waOf(phone) : null, dl: m.dl || 'ok', order };

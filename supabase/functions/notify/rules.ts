@@ -18,7 +18,8 @@ export type Group = { g: 'vendor' | 'member' | 'agent' | 'customer'; id: string;
 export type Ent = { id: string; name?: string; ref?: string; state?: string; line?: string; entity?: string; users?: string[]; only?: boolean; perm?: [string, string]; per?: Json;
   group?: Group; n?: number; pcs?: number; st?: string; o?: OrderFacts };
 // an order's alert (customer service — Safwat 25 Nov): its status, its delay, its sub-orders and the makers behind the delay
-export type OrderFacts = { status: string; dl: string; subs: number; late: string[]; risk: string[] };
+export type MakerRow = { n: string; p: number; s: string; d: string };
+export type OrderFacts = { status: string; dl: string; subs: number; late: string[]; risk: string[]; mk: MakerRow[] };
 type Ctx = { now: string; nowMs: number; cairo: { day: string; time: string } };
 
 const rows = (r: { data?: unknown }) => (Array.isArray(r?.data) ? r.data as Json[] : []);
@@ -106,7 +107,19 @@ function custOf(r: OrdersRead, o: Json): { group: Group; o: OrderFacts } {
   const names = (st: string) => [...new Set(mine.filter((it) => r.lineState.get(String(it.id)) === st).map((it) => String(it.vendor_id)))].map((v) => String(r.V.get(v)?.name ?? 'مبتكر')).slice(0, 5);
   const late = names('late');
   return { group: { g: 'customer', id: String(o.id), name: String(o.customer_name ?? '').trim() || 'عميل' },
-    o: { status: String(o.status_custom || o.status || ''), dl: r.orderState.get(String(o.id)) || 'ok', subs: new Set(mine.map((it) => String(it.vendor_id))).size, late, risk: names('risk').filter((n) => !late.includes(n)) } };
+    o: { status: String(o.status_custom || o.status || ''), dl: r.orderState.get(String(o.id)) || 'ok', subs: new Set(mine.map((it) => String(it.vendor_id))).size, late, risk: names('risk').filter((n) => !late.includes(n)), mk: makerRows(r, mine) } };
+}
+// a row per maker in the order (Safwat 25 Nov — «كل فيندور قداموا عدد القطع و حالة التسليم»): his pieces, the status most of his
+// pieces are in, and the worst delay of his lines — the late first, then about to be, then by name
+const DL_RANK: Record<string, number> = { late: 2, risk: 1 };
+function makerRows(r: OrdersRead, mine: Json[]): MakerRow[] {
+  const by = new Map<string, Json[]>(); for (const it of mine) { const k = String(it.vendor_id); if (!by.has(k)) by.set(k, []); by.get(k)!.push(it); }
+  return [...by.entries()].map(([v, L]) => {
+    const cnt = new Map<string, number>(); for (const it of L) { const s = String(it.status ?? '').trim(); if (s) cnt.set(s, (cnt.get(s) || 0) + (Number(it.qty) > 0 ? Number(it.qty) : 1)); }
+    const s = [...cnt.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || '';
+    const d = L.some((it) => r.lineState.get(String(it.id)) === 'late') ? 'late' : L.some((it) => r.lineState.get(String(it.id)) === 'risk') ? 'risk' : 'ok';
+    return { n: String(r.V.get(v)?.name ?? 'مبتكر'), p: pcsOf(L), s, d };
+  }).sort((a, b) => (DL_RANK[b.d] || 0) - (DL_RANK[a.d] || 0) || a.n.localeCompare(b.n)).slice(0, 8);
 }
 const pcsOf = (L: Json[]) => L.reduce((s, it) => s + (Number(it.qty) > 0 ? Number(it.qty) : 1), 0);
 

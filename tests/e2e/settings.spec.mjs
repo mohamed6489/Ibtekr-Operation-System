@@ -305,12 +305,12 @@ test('the brand page: «شاشة التحميل» (speed, a picture of one\'s ow
   // the owner 16 Nov: no «دودة اللوجو» button and no colours row — the worm keeps the logo's colours
   await expect(pg.locator('[data-ldr-kind], [data-ldr-color]')).toHaveCount(0);
   await pg.locator('#ldr-speed').click(); await page.getByRole('option', { name: 'سريعة' }).click();
-  await expect.poll(() => settingsRow('brand').data.loader.speed).toBe(1.1);
+  await expect.poll(() => settingsRow('brand')?.data?.loader?.speed).toBe(1.1);
   await expect.poll(() => settingsRow('brand').data.colors['--color-brand-default']).toBe('#114433'); // the colour saved first is kept by the preloader's saves
   // a picture of one's own in place of the worm
   const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
   await pg.locator('#ldr-up').setInputFiles({ name: 'loader.png', mimeType: 'image/png', buffer: PNG });
-  await expect.poll(() => settingsRow('brand').data.loader.kind).toBe('image');
+  await expect.poll(() => settingsRow('brand')?.data?.loader?.kind).toBe('image');
   await expect(pg.locator('[data-ldr-pv] img.ib-ldr-img').first()).toBeVisible();
   // the favicon: drawn 64 × 64 here, saved as a PNG, in the page's head
   await pg.locator('#fav-up').setInputFiles({ name: 'icon.png', mimeType: 'image/png', buffer: PNG });

@@ -110,6 +110,23 @@
     return card;
   }
 
+  // ---- how long its chats stay (0168 — Safwat 25 Nov: «مدة تخزين المحادثات … ٢٤ ساعة او ٤٨ ساعة او ٧٢ ساعة او اسبوع او شهر او ٣ شهور …
+  // و خلي الديفولت ٤٨ ساعة»): agents.<id>.keep in hours; the server's hourly job deletes a chat whose last message is older
+  const KEEP = [[24, '24 ساعة', '24 hours'], [48, '48 ساعة', '48 hours'], [72, '72 ساعة', '72 hours'], [168, 'أسبوع', 'A week'], [720, 'شهر', 'A month'], [2160, '3 شهور', '3 months']];
+  const KEEP_DEF = 48;
+  function keepOf(aiRow, id) { const k = Number(rowOf(aiRow, id).keep); return KEEP.some((x) => x[0] === k) ? k : KEEP_DEF; }
+  function keepCard(agent, o) {
+    const S0 = SET(); if (!S0 || !S0.section) return null;
+    const ai = S0.section('ai') || {}; const admin = !!(S0.can && S0.can().admin); const cur = keepOf(ai, agent.id);
+    const label = (k) => { const x = KEEP.find((y) => y[0] === k); return x ? tx(x[1], x[2]) : String(k); };
+    const sel = U.Select({ id: 'ag-keep-' + agent.id, label: tx('مدة تخزين المحادثات', 'Keep the chats for'), value: String(cur), disabled: !admin, search: false,
+      options: KEEP.map((x) => ({ value: String(x[0]), label: tx(x[1], x[2]) + (x[0] === KEEP_DEF ? tx(' (الافتراضي)', ' (default)') : '') })),
+      onChange: (v) => { const k = Number(v); saveAgent(agent.id, { keep: k === KEEP_DEF ? null : k }, 'keep=' + k, o.redraw, tx('اتحفظ — الشات بيتمسح بعد ', 'Saved — a chat goes after ') + label(k)); } });
+    return K.Section(tx('مدة تخزين المحادثات', 'Keeping the chats'), [h('div', { class: 'ag-keep', 'data-ag-keep': String(cur), 'data-set-instant': '' }, h('span', { class: 'set-ic' }, Icon('clock')),
+      h('div', { class: 'ag-brain-f' }, sel), h('p', { class: 't-small sub ag-brain-n' }, tx('الشات اللي آخر رسالة فيه عدّى عليها المدة دي بيتمسح لوحده — السيرفر بيشيّك كل ساعة.', 'A chat whose last message is older than this is deleted by itself — the server checks every hour.')))],
+      null, { sub: tx('بعدها الشات ورسايله بيتمسحوا من عند الكل', 'After it the chat and its messages are deleted for everyone'), th: false, cols: false });
+  }
+
   // ---- the sources of one assistant
   function sourcesCard(agent, o) {
     const S0 = SET(); if (!S0 || !S0.section) return null;
@@ -184,5 +201,5 @@
     return card;
   }
 
-  window.IBAgentsSet = { tabs, brainCard, rulesCard, sourcesCard, sourcesOf, brainOf, shipped };
+  window.IBAgentsSet = { tabs, brainCard, keepCard, keepOf, KEEP, rulesCard, sourcesCard, sourcesOf, brainOf, shipped };
 })();

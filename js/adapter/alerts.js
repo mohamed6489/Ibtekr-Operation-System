@@ -23,11 +23,12 @@
   // under its rule's sub-section; an alert whose «تفاصيل الظهور» passed (hide_at) is gone. Before 0157 the columns are missing and
   // the old select runs (tree stays null — block 28 keeps its old groups).
   let ruleSec = new Map(); // a working rule's id → its sub-section
+  let ruleTpl = new Map(); // a rule's id → { element, type, template } — every alert's card is drawn from its template
   let tree = null; // { mains: [{ id, name, icon, subs: [{ id, name, elements: [] }] }] }
   async function loadTree(cl) {
     try {
       const [s, r] = await Promise.all([cl.from('notif_sections').select('id, parent_id, name, icon, sort').order('sort', { ascending: true }).limit(500),
-        cl.from('notif_rules').select('id, section_id, element, active, roles').limit(1000)]);
+        cl.from('notif_rules').select('id, section_id, element, type, active, roles, template').limit(1000)]);
       if (s.error || r.error) { tree = null; return; }
       const all = s.data || []; const rules = r.data || [];
       // the bell by role (Safwat 24 Nov — «تقسم التنبيهات على دور بالشكل الجديد والأقسام الفرعية تبقى جاهزة حتى لو فيها صفر»): a sub-section
@@ -37,6 +38,7 @@
       // اعدادات التنبيهات»): an alert shows only under the sub-section of its rule, a working rule that is still there
       const subIds = new Set(all.filter((x) => x.parent_id).map((x) => x.id));
       ruleSec = new Map(rules.filter((y) => y.active !== false && subIds.has(y.section_id)).map((y) => [y.id, y.section_id]));
+      ruleTpl = new Map(rules.map((y) => [y.id, { element: y.element, type: y.type, template: y.template }])); // the card is drawn from the rule's template (decision 17)
       tree = { mains: all.filter((x) => !x.parent_id).map((m) => ({ id: m.id, name: m.name, icon: m.icon || null,
         subs: all.filter((x) => x.parent_id === m.id).map((x) => ({ id: x.id, name: x.name, roles: rolesOf(x.id), elements: [...new Set(rules.filter((y) => y.section_id === x.id).map((y) => y.element))] })) })) };
     } catch (e) { tree = null; }
@@ -72,13 +74,17 @@
   }
   const fullPhone = (p) => /^\d{8,15}$/.test(String(p || ''));
   const waOf = (p) => { let d = String(p || '').replace(/[^\d]/g, ''); if (/^0020/.test(d)) d = d.slice(2); if (/^01\d{9}$/.test(d)) return '2' + d; if (/^1\d{9}$/.test(d)) return '20' + d; return d; };
-  // the card's lines for an order alert: the phone, the status, «محتاج متابعة», the sub-orders and the late makers
-  function custOf(a) {
-    const m = a.meta || {}; if (m.g !== 'customer' || m.ost == null) return null;
-    const phone = phones.get(String(m.gid)) || '';
-    return { name: m.gname || '', phone, dial: fullPhone(phone), wa: fullPhone(phone) ? 'https://wa.me/' + waOf(phone) : null, status: m.ost || '',
-      follow: m.dl === 'late' || m.dl === 'risk', dl: m.dl || 'ok', subs: Number.isFinite(Number(m.subs)) ? Number(m.subs) : null,
-      late: Array.isArray(m.lm) ? m.lm : [], risk: Array.isArray(m.rm) ? m.rm : [] };
+  // every alert's card, drawn from its rule's template (Safwat 25 Nov — «قوالب التنبيهات ذكية بنفس الشكل اللي ظاهر» · «قوالب الرسايل كلها
+  // تشتغل بنفس الطريقة»): the lines and parts of IBNotifCatalog.cardLines — an order alert's default its card (the phone, the status,
+  // «محتاج متابعة», the sub-orders, the late makers), any other's its line. null = the plain line (no rule, or a rule with no template
+  // and no order facts)
+  function cardOf(a) {
+    const C = window.IBNotifCatalog; if (!C || !C.cardLines || !a.ruleId) return null;
+    const r = ruleTpl.get(a.ruleId); const m = a.meta || {}; const order = m.g === 'customer' && m.ost != null;
+    if (!r || (!order && !(typeof r.template === 'string' && r.template.trim()))) return null;
+    const phone = order ? phones.get(String(m.gid)) || '' : '';
+    const lines = C.cardLines(C.templateOf(order && !(r.template || '').trim() ? { element: 'orders', type: 'confirm' } : r), C.alertVars(m, a.body, phone));
+    return { lines, phone, dial: fullPhone(phone), wa: fullPhone(phone) ? 'https://wa.me/' + waOf(phone) : null, dl: m.dl || 'ok', order };
   }
   // 0124 — the assistants' notes (docs/superpowers/plans/2026-11-17-agents-brain.md decision 1): the ones the member sees (RLS: his
   // assistants, the last 30 days) with his own read marks; before 0124 the table is missing and the section stays away
@@ -168,7 +174,7 @@
     const ch = channel; channel = null;
     if (ch && c()) { try { Promise.resolve(c().removeChannel(ch)).catch(() => {}); } catch (e) { /* already closed */ } }
   }
-  const clear = () => { items = null; notes = null; tree = null; ruleSec = new Map(); phones = new Map(); };
+  const clear = () => { items = null; notes = null; tree = null; ruleSec = new Map(); ruleTpl = new Map(); phones = new Map(); };
   const toneOf = (kind) => { const k = String(kind || ''); return /fail|error|down|late|overdue/i.test(k) ? 'error' : /\.(ok|done|success|info)$/i.test(k) ? 'info' : 'warning'; };
   function relTime(iso, nowMs) {
     const t = Date.parse(iso); if (!Number.isFinite(t)) return '';
@@ -227,7 +233,7 @@
     const keep = (p) => (readF === 'unread' ? !p.a.read : readF === 'read' ? !!p.a.read : true); // the read filter beside the sort
     const time = (x) => Date.parse(x.at);
     const asItem = ({ a }) => { const tone = toneOf(a.kind); const lv = lvOf(a); return { key: 'sa:' + a.id, title: a.title, sub: a.body || '', meta: relTime(a.at, Date.now()), tone, icon: tone === 'error' ? 'alert' : 'bell', muted: a.read, fresh: !a.read,
-      lv, lvWord: LV_WORD[lv] || '', av: avatarOf(a), at: a.at, cust: custOf(a),
+      lv, lvWord: LV_WORD[lv] || '', av: avatarOf(a), at: a.at, card: cardOf(a),
       run: () => { markRead(a.id); if (typeof open === 'function' && open(a) !== false) return; if (a.entity && HASH.test(a.entity)) window.location.hash = a.entity; } }; };
     // one card per maker for his delay alerts (two or more — one stays a row with his logo)
     const atoms = (list) => {

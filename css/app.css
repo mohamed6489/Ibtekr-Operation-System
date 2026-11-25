@@ -2562,3 +2562,7 @@ input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-
 .ntf-ph .icon-btn.sm{width:28px;height:28px}
 .ntf-ph .ntf-wa{color:var(--color-brand-default)}
 .ntf-late{color:var(--color-text-secondary);font-size:12px;white-space:normal}
+/* the order alert's card drawn from the template: a line per line (decision 17 follow-up) and its preview in the rule's form */
+.ntf-cust .ntf-line.ph{display:flex;align-items:center;gap:4px}
+.nr-card-prev{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.nr-card-prev .ntf-item.prev{cursor:default;border:1px solid var(--color-border-subtle);background:var(--color-bg-base)}

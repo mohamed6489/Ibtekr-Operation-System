@@ -82,8 +82,8 @@ test('a phone: the header, the account sheet, the floating action, the period pi
   await page.evaluate(() => { window.__sr.onresult({ results: [Object.assign([{ transcript: 'اعرض الأوردرات المتأخرة' }], { isFinal: true })] }); });
   await expect(page.locator('.ai-panel .ai-input')).toHaveValue('اعرض الأوردرات المتأخرة'); expect(await page.locator('.ai-panel .ai-msg.user').count()).toBe(0); // nothing is sent by voice alone
   await mic.tap(); await expect(mic).toHaveAttribute('data-ai-mic', 'off'); await page.locator('.ai-panel .ai-input').fill('');
-  await page.evaluate(() => { document.documentElement.style.setProperty('--m-vv-h', '420px'); document.documentElement.classList.add('m-kb'); });
-  expect(await page.evaluate(() => [Math.round(document.querySelector('.ai-panel').getBoundingClientRect().height), getComputedStyle(document.querySelector('.bottom-nav')).display])).toEqual([420, 'none']);
+  // set the keyboard and read in one step — the viewport handler can clear m-kb between two calls
+  expect(await page.evaluate(() => { document.documentElement.style.setProperty('--m-vv-h', '420px'); document.documentElement.classList.add('m-kb'); return [Math.round(document.querySelector('.ai-panel').getBoundingClientRect().height), getComputedStyle(document.querySelector('.bottom-nav')).display]; })).toEqual([420, 'none']);
   await page.evaluate(() => { document.documentElement.classList.remove('m-kb'); window.dispatchEvent(new Event('resize')); });
   await page.tap('.ai-panel .ai-head .icon-btn'); await expect(page.locator('.ai-panel')).toBeHidden();
   // no page scrolls sideways with all of this on

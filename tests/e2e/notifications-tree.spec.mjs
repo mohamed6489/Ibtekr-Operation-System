@@ -335,7 +335,8 @@ test('0167 the assistants\' section: a new alert there offers the assistants\' e
 test('customer service\'s order alert: the customer\'s first letter, the phone (copy / WhatsApp), the status, «محتاج متابعة», the sub-orders and the late maker', async ({ page, context }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   mock.alerts = [{ id: 601, at: iso(3), kind: 'rule:orders.confirm', title: 'أوردر غير مؤكد — IB-180686', body: 'غير مؤكد · عمره 8 يوم', role_id: null, user_id: ADMIN_ID, entity: 'orders/180686', entity_id: 'o:180686', read_at: null, rule_id: 'r1', section_id: S1, hide_at: null,
-    meta: { lv: 'important', g: 'customer', gid: '180686', gname: 'هدير عميل', ost: 'جاري التنفيذ', dl: 'late', subs: 2, lm: ['Art Craft'], rm: ['Antikiano'] } }];
+    meta: { lv: 'important', g: 'customer', gid: '180686', gname: 'هدير عميل', ost: 'جاري التنفيذ', dl: 'late', subs: 2, lm: ['Art Craft'], rm: ['Antikiano'],
+      mk: [{ n: 'Art Craft', p: 3, s: 'جاري التنفيذ', d: 'late' }, { n: 'Antikiano', p: 1, s: 'جاهز للشحن من المبتكر للمخزن', d: 'risk' }] } }];
   await signIn(page, 'dashboard');
   await page.locator('.notif-btn').click();
   const card = page.locator('.menu.notif .ntf-item.cust');
@@ -343,12 +344,38 @@ test('customer service\'s order alert: the customer\'s first letter, the phone (
   await expect(card.locator('.av.letter')).toHaveText('ه');
   await expect(card.locator('[data-ntf-phone]')).toHaveText('01000007030');
   await expect(card.locator('[data-ntf-wa]')).toHaveAttribute('href', 'https://wa.me/201000007030');
-  await expect(card.locator('[data-ntf-ost]')).toHaveText('جاري التنفيذ');
+  // Safwat 25 Nov — «انا عايز اسم العميل و شيل حالة الاوردر الرئيسي بس عدد الاوردرات الفرعية و كل فيندور قداموا عدد القطع و حالة التسليم»
+  await expect(card.locator('[data-ntf-name]')).toHaveText('هدير عميل');
+  await expect(card.locator('[data-ntf-chip]')).toHaveText(['2 أوردر فرعي']);
+  await expect(card).not.toContainText('جاري التنفيذ · محتاج');
   await expect(card.locator('[data-ntf-follow]')).toHaveText('محتاج متابعة');
-  await expect(card.locator('[data-ntf-subs]')).toHaveText('2 أوردر فرعي');
-  await expect(card.locator('[data-ntf-late]')).toHaveText('المتأخر: Art Craft · قابل للتأخير: Antikiano');
+  const rows = card.locator('[data-ntf-maker]');
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(0)).toHaveAttribute('data-ntf-maker', 'late');
+  await expect(rows.nth(0)).toContainText('Art Craft'); await expect(rows.nth(0).locator('[data-ntf-pcs]')).toHaveText('3 قطع'); await expect(rows.nth(0)).toContainText('متأخر · جاري التنفيذ');
+  await expect(rows.nth(1)).toHaveAttribute('data-ntf-maker', 'risk'); await expect(rows.nth(1).locator('[data-ntf-pcs]')).toHaveText('قطعة'); await expect(rows.nth(1)).toContainText('قابل للتأخير');
   // «نسخ» copies the number and leaves the bell open (the card's own click is the order)
   await card.locator('[data-ntf-copy]').click();
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('01000007030');
   await expect(page.locator('.menu.notif')).toBeVisible();
+});
+
+// the template is the card (Safwat 25 Nov — «خليه قوالب التنبيهات ذكية بنفس الشكل اللي ظاهر عشان المستخدم لو عايز يعدل يقدر يعدل»): the
+// order rule's form shows the card under its template as it is typed, and «حط القالب الأساسي» fills the default
+test('the order rule\'s template: the card under it as it is typed; the default one button away', async ({ page }) => {
+  await signIn(page, 'settings-notifications');
+  await page.locator('[data-nr-rule="r1"]').getByRole('button', { name: 'إجراءات' }).click(); await page.getByRole('menuitem', { name: 'تعديل' }).click();
+  const form = page.locator('.modal[role=dialog]', { hasText: 'تعديل التنبيه' });
+  await form.locator('[data-nr-tpl-default]').click();
+  await expect(form.locator('#nr-tpl')).toHaveValue(/\{التليفون\}/);
+  const prev = form.locator('[data-nr-card-prev]');
+  await expect(prev.locator('[data-ntf-phone]')).toHaveText('01012345678');
+  await expect(prev.locator('[data-ntf-follow]')).toHaveText('محتاج متابعة');
+  await expect(prev.locator('[data-ntf-maker]')).toHaveCount(2);
+  await form.locator('#nr-tpl').fill('{العميل} · {حالة_الأوردر}');
+  await expect(form.locator('[data-nr-card-prev] [data-ntf-chip]')).toHaveText(['جاري التنفيذ']);
+  await expect(form.locator('[data-nr-card-prev] [data-ntf-phone]')).toHaveCount(0);
+  await expect(form.locator('[data-nr-card-prev] [data-ntf-maker]')).toHaveCount(0);
+  await expect(form.locator('[data-nr-vars]')).toContainText('{المبتكرين}');
+  await expect(form.locator('[data-nr-vars]')).toContainText('{المبتكر_القابل_للتأخير}');
 });

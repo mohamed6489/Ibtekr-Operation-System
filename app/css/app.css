@@ -2553,12 +2553,38 @@ input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-
 .ar-parts { margin: 0 0 10px; flex-wrap: wrap; }
 .ar-tbl tr.ar-go { cursor: pointer; }
 .ar-tbl tr.ar-go:hover td { background: var(--color-bg-hover); }
-/* customer service's order alert (Safwat 25 Nov — bell-redesign decision 17): the phone with «نسخ» / WhatsApp, the order's status,
-   «محتاج متابعة», the sub-orders and the late makers under the title */
+/* an alert's card drawn from its rule's template (Safwat 25 Nov — bell-redesign decision 17 and its follow-ups: «خلي التصميم لكل
+   التنبيهات يكون احترافي و منظم»): the head (the customer's name bold, the phone with «نسخ» / WhatsApp), the chips with their icons,
+   a row per maker (name · pieces · his products' status — late red, about to be yellow, with the word), the entity's line in pieces */
 .ntf-item.cust{align-items:flex-start}
-.ntf-cust{display:flex;flex-direction:column;gap:4px;margin-top:2px}
-.ntf-ph{display:inline-flex;align-items:center;gap:4px;color:var(--color-text-secondary);font-size:13px}
-.ntf-ph bdi{font-variant-numeric:tabular-nums;color:var(--color-text-primary)}
-.ntf-ph .icon-btn.sm{width:28px;height:28px}
+.ntf-item.cust .txt>b{margin-bottom:2px}
+.ntf-cust{display:flex;flex-direction:column;gap:6px;margin-top:2px;min-width:0}
+.ntf-cust .ntf-line.ph{display:flex;align-items:center;flex-wrap:wrap;gap:4px 10px;min-height:28px}
+.ntf-nm{font-size:14px;font-weight:700;color:var(--color-text-primary);min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ntf-ph{display:inline-flex;align-items:center;gap:2px;color:var(--color-text-secondary);font-size:13px}
+.ntf-ph bdi{font-variant-numeric:tabular-nums;color:var(--color-text-secondary);padding-inline-end:2px}
+.ntf-ph .icon-btn.sm{width:28px;height:28px;border-radius:6px}
 .ntf-ph .ntf-wa{color:var(--color-brand-default)}
+.ntf-cust .ntf-chips{gap:6px}
+.ntf-cust .ntf-chip{display:inline-flex;align-items:center;gap:4px;height:22px;line-height:22px;padding:0 8px;border-radius:11px;white-space:nowrap}
+.ntf-cust .ntf-chip svg{width:13px;height:13px;flex:none}
 .ntf-late{color:var(--color-text-secondary);font-size:12px;white-space:normal}
+.ntf-det{display:flex;flex-wrap:wrap;align-items:center;gap:2px 0;color:var(--color-text-secondary);font-size:12px;line-height:18px}
+.ntf-det>span{white-space:nowrap}
+.ntf-det>span:first-child{color:var(--color-text-primary)}
+.ntf-det>span+span::before{content:'•';margin:0 6px;color:var(--color-border-strong,var(--color-text-secondary));opacity:.6}
+.ntf-mk{display:flex;flex-direction:column;border:1px solid var(--color-border-subtle);border-radius:8px;background:var(--color-bg-base);overflow:hidden}
+.ntf-mk-row{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,auto);align-items:center;gap:10px;padding:6px 10px;font-size:12px;line-height:18px;border-inline-start:3px solid transparent}
+.ntf-mk-row+.ntf-mk-row{border-top:1px solid var(--color-border-subtle)}
+.ntf-mk-row.late{border-inline-start-color:var(--color-error-text)}
+.ntf-mk-row.risk{border-inline-start-color:var(--color-warning-base)}
+.ntf-mk-row .nm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;color:var(--color-text-primary)}
+.ntf-mk-row .pc{color:var(--color-text-secondary);white-space:nowrap;font-variant-numeric:tabular-nums}
+.ntf-mk-row .st{min-width:0;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 8px;border-radius:10px;background:var(--color-bg-container);color:var(--color-text-secondary)}
+.ntf-mk-row.late .st{background:var(--color-error-bg);color:var(--color-error-text)}
+.ntf-mk-row.risk .st{background:var(--color-warning-bg);color:var(--color-warning-base)}
+.ntf-mk-row .st .w{font-weight:700}
+@media (max-width:767px){.ntf-mk-row{grid-template-columns:minmax(0,1fr) auto;gap:2px 8px}.ntf-mk-row .st{grid-column:1/-1;justify-self:start;max-width:100%}}
+.nr-card-prev{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.nr-card-prev .ntf-item.prev{cursor:default;border:1px solid var(--color-border-subtle);background:var(--color-bg-base)}
+.nr-card-prev .ntf-mk{background:var(--color-bg-container)}

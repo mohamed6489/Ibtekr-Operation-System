@@ -116,8 +116,14 @@
           h('div', { class: 'nr-checks', 'data-nr-roles': '' }, roleList().map((r) => K().Checkbox({ label: r.name, checked: f.roles.includes(r.id), onChange: (v) => { f.roles = v ? f.roles.concat(r.id) : f.roles.filter((x) => x !== r.id); draw(); } }))),
           h('p', { class: 't-small help', style: 'margin:0' }, 'بيوصل لأعضاء الأدوار دي اللي بيشوفوا الصفحة بتاعته بس.')),
         sec(['msg', 'قالب الرسالة', 'اختياري'],
-          U().Textarea({ id: 'nr-tpl', label: 'نص التنبيه', value: f.template || '', maxlength: 500, rows: 3, placeholder: 'مثال: {الرقم} لسه ما اتأكدش — {التفاصيل}', onInput: (v) => { f.template = v; } }),
-          h('div', { class: 'nr-vars t-small', 'data-nr-vars': '' }, 'متغيرات: ', (c.VARS || ['الاسم', 'الرقم', 'الوضع', 'التفاصيل']).map((x) => h('code', null, '{' + x + '}')))), // the order's own (customer service — Safwat 25 Nov) fill on an order's alert only
+          // the template is the alert's card in the bell (Safwat 25 Nov — «خليه قوالب التنبيهات ذكية بنفس الشكل اللي ظاهر عشان المستخدم لو
+          // عايز يعدل يقدر يعدل» · «قوالب الرسايل كلها تشتغل بنفس الطريقة»): a line per line, « · » between the parts, the card shown under
+          // it as it is typed (a sample alert of this element)
+          U().Textarea({ id: 'nr-tpl', label: 'نص التنبيه', value: f.template || '', maxlength: 500, rows: 4, placeholder: 'سطر لكل سطر في الكارت، و « · » بين الأجزاء — فاضي = ' + (c.isOrderRule(f) ? 'كارت الأوردر الأساسي' : '{التفاصيل}'),
+            onInput: (v) => { f.template = v; const pv = document.querySelector('[data-nr-card-prev]'); if (pv && window.IBNtfCard) pv.replaceWith(window.IBNtfCard.preview(f, curState() ? curState().label : '')); } }),
+          window.IBNtfCard && f.element ? window.IBNtfCard.preview(f, curState() ? curState().label : '') : null,
+          !(f.template || '').trim() && f.element ? h('button', { type: 'button', class: 'btn sm', 'data-nr-tpl-default': '', onClick: () => { f.template = c.templateOf(f); draw(); } }, 'حط القالب الأساسي') : null,
+          h('div', { class: 'nr-vars t-small', 'data-nr-vars': '' }, 'متغيرات: ', c.varsOf(f).map((x) => h('code', null, '{' + x + '}')))),
         err ? h('p', { class: 'ferr t-small', role: 'alert' }, err) : null);
     };
     draw();

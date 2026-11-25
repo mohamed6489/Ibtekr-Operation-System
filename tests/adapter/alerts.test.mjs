@@ -290,19 +290,59 @@ test('treeSections: one card per maker with his counts, the critical first, the 
 // customer service's order alert (Safwat 25 Nov — bell-redesign decision 17): the card carries the customer, his phone read from orders_v
 // (a full one: copy + WhatsApp; a masked one shown as it is, no links), the order's status, «محتاج متابعة», its sub-orders and late makers
 test('treeSections: an order alert of customer service — the phone from orders_v, the status, the follow-up, the sub-orders and the late makers', async () => {
-  const meta = (gid, dl) => ({ lv: 'important', g: 'customer', gid, gname: 'منى أحمد', ost: 'جاري التنفيذ', dl, subs: 2, lm: dl === 'late' ? ['Art Craft'] : [], rm: dl === 'risk' ? ['sala'] : [] });
+  const meta = (gid, dl) => ({ lv: 'important', g: 'customer', gid, gname: 'منى أحمد', ost: 'جاري التنفيذ', dl, subs: 2, lm: dl === 'late' ? ['Art Craft'] : [], rm: dl === 'risk' ? ['sala'] : [],
+    mk: [{ n: 'Art Craft', p: 3, s: 'جاري التنفيذ', d: dl === 'late' ? 'late' : 'ok' }] });
   const rows = [
     { id: 31, at: '2026-11-25T09:00:00Z', kind: 'rule:orders.delay', title: 'أوردر متأخر — IB-1', body: 'x', entity: 'orders/1', entity_id: 'o:1', rule_id: 'r1', section_id: 's1', hide_at: null, meta: meta('o1', 'late') },
     { id: 32, at: '2026-11-25T08:00:00Z', kind: 'rule:orders.delay', title: 'أوردر متأخر — IB-2', body: 'x', entity: 'orders/2', entity_id: 'o:2', rule_id: 'r1', section_id: 's1', hide_at: null, meta: meta('o2', 'ok') }];
   const responses = { alerts: { data: rows, error: null }, alert_reads: { data: [], error: null },
     orders_v: { data: [{ id: 'o1', customer_phone: '01011112222' }, { id: 'o2', customer_phone: '010•••2222' }], error: null },
     notif_sections: { data: [{ id: 'm1', parent_id: null, name: 'خدمة العملاء', sort: 0 }, { id: 's1', parent_id: 'm1', name: 'أوردر متأخر', sort: 0 }], error: null },
-    notif_rules: { data: [{ id: 'r1', section_id: 's1', element: 'orders', active: true }], error: null } };
-  const { A, calls } = load({ responses });
+    notif_rules: { data: [{ id: 'r1', section_id: 's1', element: 'orders', active: true, template: null }], error: null } };
+  const { A, calls, window } = load({ responses });
+  await import(new URL('../../app/js/pages/notif-catalog.js', import.meta.url).href); window.IBNotifCatalog = globalThis.IBNotifCatalog;
   await A.load();
   assert.deepEqual(opsOf(calls, 'orders_v'), [{ op: 'select', args: ['id, customer_phone'] }, { op: 'in', args: ['id', ['o1', 'o2']] }]);
   const all = A.treeSections(() => true, 'new')[0].tabs[0][2];
-  assert.deepEqual(plain(all[0].cust), { name: 'منى أحمد', phone: '01011112222', dial: true, wa: 'https://wa.me/201011112222', status: 'جاري التنفيذ', follow: true, dl: 'late', subs: 2, late: ['Art Craft'], risk: [] });
-  assert.equal(all[1].cust.dial, false); assert.equal(all[1].cust.wa, null); assert.equal(all[1].cust.follow, false);
+  // the card's lines from the default template (no template on the rule): the name and phone · «محتاج متابعة», the sub-orders · a row per
+  // maker (Safwat 25 Nov — «اسم العميل و شيل حالة الاوردر الرئيسي … كل فيندور قداموا عدد القطع و حالة التسليم»)
+  assert.deepEqual(plain(all[0].card.lines), [[{ kind: 'name', text: 'منى أحمد' }, { kind: 'phone', text: '01011112222' }], [{ kind: 'follow', text: 'محتاج متابعة' }, { kind: 'subs', text: '2 أوردر فرعي' }],
+    [{ kind: 'makers', text: 'Art Craft: 3 قطع (متأخر · جاري التنفيذ)', items: [{ n: 'Art Craft', p: 3, s: 'جاري التنفيذ', d: 'late' }] }]]);
+  assert.deepEqual([all[0].card.dial, all[0].card.wa, all[0].card.dl], [true, 'https://wa.me/201011112222', 'late']);
+  assert.equal(all[1].card.dial, false); assert.equal(all[1].card.wa, null); assert.ok(!all[1].card.lines.flat().some((p) => p.kind === 'follow'), 'no «محتاج متابعة» on an order not late');
+  assert.deepEqual(plain(all[1].card.lines[0]), [{ kind: 'name', text: 'منى أحمد' }, { kind: 'phone', text: '010•••2222' }], 'a masked phone shown as it is');
   assert.deepEqual(plain(all[0].av), { letter: 'م', tone: 'customer' }, 'the customer\'s first letter');
+});
+
+// the template is the card (Safwat 25 Nov — «خليه قوالب التنبيهات ذكية بنفس الشكل اللي ظاهر عشان المستخدم لو عايز يعدل يقدر يعدل»): the
+// admin's own template draws the order alert's card — its lines and parts, the empty ones left out
+test('treeSections: the order alert\'s card drawn from its rule\'s template', async () => {
+  const rows = [{ id: 41, at: '2026-11-25T09:00:00Z', kind: 'rule:orders.confirm', title: 'أوردر غير مؤكد — IB-1', body: 'x', entity: 'orders/1', entity_id: 'o:1', rule_id: 'r1', section_id: 's1', hide_at: null,
+    meta: { lv: 'important', g: 'customer', gid: 'o1', gname: 'منى', ost: 'معلّق', dl: 'ok', subs: 1, lm: [], rm: [] } }];
+  const responses = { alerts: { data: rows, error: null }, alert_reads: { data: [], error: null }, orders_v: { data: [{ id: 'o1', customer_phone: '01011112222' }], error: null },
+    notif_sections: { data: [{ id: 'm1', parent_id: null, name: 'خدمة العملاء', sort: 0 }, { id: 's1', parent_id: 'm1', name: 'غير مؤكدة', sort: 0 }], error: null },
+    notif_rules: { data: [{ id: 'r1', section_id: 's1', element: 'orders', active: true, template: '{حالة_الأوردر} · {المتابعة}\nاتصل بـ {العميل} على {التليفون}' }], error: null } };
+  const { A, window } = load({ responses });
+  await import(new URL('../../app/js/pages/notif-catalog.js', import.meta.url).href); window.IBNotifCatalog = globalThis.IBNotifCatalog;
+  await A.load();
+  const it = A.treeSections(() => true, 'new')[0].tabs[0][2][0];
+  assert.deepEqual(plain(it.card.lines), [[{ kind: 'chip', text: 'معلّق' }], [{ kind: 'phone', text: 'اتصل بـ منى على 01011112222' }]], '«محتاج متابعة» empty — gone; the phone line as the admin wrote it');
+});
+
+// every template works the same way (Safwat 25 Nov — «قوالب الرسايل كلها تشتغل بنفس الطريقة»): a rule of any element with a template draws
+// its alert's card from the alert's own variables (meta.v); without one its line ({التفاصيل}) in its pieces
+test('treeSections: any rule\'s template draws its alert\'s card from meta.v; no template = its line as the card', async () => {
+  const rows = [
+    { id: 51, at: '2026-11-25T09:00:00Z', kind: 'rule:team.status', title: 'لم يسجل حضور', body: 'سارة مسجّلتش حضور', entity: 'hr-team', entity_id: 'noin:1', rule_id: 'r1', section_id: 's1', hide_at: null,
+      meta: { lv: 'important', g: 'member', gid: 'm1', gname: 'سارة', v: { n: 'سارة', r: '', s: 'لم يسجل حضور', d: 'سارة مسجّلتش حضور لحد دلوقتي' } } },
+    { id: 52, at: '2026-11-25T08:00:00Z', kind: 'rule:team.status', title: 'لم يسجل انصراف', body: 'x', entity: 'hr-team', entity_id: 'noout:1', rule_id: 'r2', section_id: 's1', hide_at: null, meta: { lv: 'important', v: { n: 'علي', s: 'لم يسجل انصراف', d: 'x' } } }];
+  const responses = { alerts: { data: rows, error: null }, alert_reads: { data: [], error: null },
+    notif_sections: { data: [{ id: 'm1', parent_id: null, name: 'الفريق', sort: 0 }, { id: 's1', parent_id: 'm1', name: 'الحضور', sort: 0 }], error: null },
+    notif_rules: { data: [{ id: 'r1', section_id: 's1', element: 'team', type: 'status', active: true, template: '{الوضع}\n{الاسم} — كلّمه' }, { id: 'r2', section_id: 's1', element: 'team', type: 'status', active: true, template: null }], error: null } };
+  const { A, window } = load({ responses });
+  await import(new URL('../../app/js/pages/notif-catalog.js', import.meta.url).href); window.IBNotifCatalog = globalThis.IBNotifCatalog;
+  await A.load();
+  const L = A.treeSections(() => true, 'new')[0].tabs[0][2];
+  assert.deepEqual(plain(L[0].card.lines), [[{ kind: 'chip', text: 'لم يسجل حضور' }], [{ kind: 'text', text: 'سارة — كلّمه' }]]);
+  assert.deepEqual(plain(L[1].card.lines), [[{ kind: 'details', text: 'x' }]], 'no template: the card of its line — every alert a card (Safwat 25 Nov — «خلي التصميم لكل التنبيهات يكون احترافي و منظم»)');
 });

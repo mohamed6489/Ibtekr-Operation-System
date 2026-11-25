@@ -35,7 +35,7 @@ test('every built-in assistant has its own type with the three states', () => {
 test('metaOf: the level, who it is about and the counts — and nothing else', () => {
   const rule = { element: 'subs', type: 'delay', state: 'late' };
   assert.deepEqual(metaOf(rule, { id: 's:1', group: { g: 'vendor', id: 'v1', name: 'Art Craft' }, n: 1, pcs: 4, st: 'late', line: 'x', users: ['a'] }),
-    { lv: 'critical', g: 'vendor', gid: 'v1', gname: 'Art Craft', n: 1, pcs: 4, st: 'late' });
+    { lv: 'critical', v: { n: '', r: '', s: '', d: 'x' }, g: 'vendor', gid: 'v1', gname: 'Art Craft', n: 1, pcs: 4, st: 'late' }); // v: the template's own variables
   assert.deepEqual(metaOf({ element: 'daily', type: 'summary', state: 'day' }, { id: 'd' }), { lv: 'info' });
   assert.deepEqual(metaOf(rule, { id: 'x', group: { g: 'phone', id: '010' } }), { lv: 'critical' }, 'an unknown owner kind is dropped');
 });
@@ -44,17 +44,31 @@ test('metaOf: the level, who it is about and the counts — and nothing else', (
 // ride in the meta — never a phone
 test('metaOf: an order\'s facts for the customer service card', () => {
   const rule = { element: 'orders', type: 'confirm', state: 'غير مؤكد' };
-  const m = metaOf(rule, { id: 'o:1', group: { g: 'customer', id: '77', name: 'منى أحمد' }, phone: '01011112222', o: { status: 'جاري التنفيذ', dl: 'late', subs: 3, late: ['Art Craft', 'x'.repeat(60)], risk: ['sala'] } });
-  assert.deepEqual({ ...m, lv: undefined }, { lv: undefined, g: 'customer', gid: '77', gname: 'منى أحمد', ost: 'جاري التنفيذ', dl: 'late', subs: 3, lm: ['Art Craft', 'x'.repeat(40)], rm: ['sala'] });
+  const mk = [{ n: 'Art Craft', p: 3, s: 'جاري التنفيذ', d: 'late', phone: '0101' }, { n: 'sala', p: 0, s: '', d: 'weird' }, { n: '' }];
+  const m = metaOf(rule, { id: 'o:1', group: { g: 'customer', id: '77', name: 'منى أحمد' }, phone: '01011112222', o: { status: 'جاري التنفيذ', dl: 'late', subs: 3, late: ['Art Craft', 'x'.repeat(60)], risk: ['sala'], mk } });
+  assert.deepEqual({ ...m, lv: undefined }, { lv: undefined, g: 'customer', gid: '77', gname: 'منى أحمد', ost: 'جاري التنفيذ', dl: 'late', subs: 3, lm: ['Art Craft', 'x'.repeat(40)], rm: ['sala'],
+    mk: [{ n: 'Art Craft', p: 3, s: 'جاري التنفيذ', d: 'late' }, { n: 'sala', p: 0, s: '', d: 'ok' }] }, 'a row per maker: name, pieces, status, delay — nothing else');
   assert.ok(!JSON.stringify(m).includes('0101'), 'no phone');
   assert.equal(metaOf(rule, { id: 'o:2', o: { status: 'x', dl: 'weird', subs: 'a' } }).dl, 'ok');
 });
 
 test('render: the order\'s variables in the template', () => {
-  const rule = { name: 'أوردر متأخر', template: '{العميل} · {حالة_الأوردر} · {المتابعة} · {الأوردرات_الفرعية} فرعي · {المبتكر_المتأخر}' };
+  const rule = { name: 'أوردر متأخر', template: '{العميل} · {حالة_الأوردر} · {المتابعة} · {الأوردرات_الفرعية} فرعي · {المبتكر_المتأخر} · {المبتكر_القابل_للتأخير}' };
   const ent = { ref: 'IB-1', group: { g: 'customer', id: '1', name: 'منى' }, o: { status: 'جاري التنفيذ', dl: 'risk', subs: 2, late: ['Art Craft'], risk: ['sala'] } };
-  assert.equal(C.render(rule, ent).body, 'منى · جاري التنفيذ · محتاج متابعة · 2 فرعي · Art Craft، sala');
-  assert.equal(C.render(rule, { ref: 'IB-2' }).body, ' ·  ·  ·  فرعي · ', 'no order facts: the variables empty');
+  assert.equal(C.render(rule, ent).body, 'منى · جاري التنفيذ · محتاج متابعة · 2 فرعي · Art Craft · sala');
+  // a part whose variables all came out empty goes with its words
+  assert.equal(C.render(rule, { ref: 'IB-2' }).body, '', 'no order facts: nothing left');
+  const t2 = { name: 'x', template: C.ORDER_TPL };
+  assert.equal(C.render(t2, { ref: 'IB-3', group: { g: 'customer', id: '3', name: 'سارة' }, o: { status: 'معلّق', dl: 'ok', subs: 1, late: [], risk: [] } }).body, 'سارة\n1 أوردر فرعي', 'the default template: the name, no phone on the server, no order status, the empty parts gone');
+  // the makers' rows (Safwat 25 Nov — «كل فيندور قداموا عدد القطع و حالة التسليم»): one text line on the server (the email)
+  const mk = [{ n: 'Art Craft', p: 3, s: 'جاري التنفيذ', d: 'late' }, { n: 'sala', p: 1, s: 'وصل المخزن', d: 'ok' }, { n: 'Nour', p: 2, s: '', d: 'risk' }];
+  assert.equal(C.render(t2, { ref: 'IB-5', group: { g: 'customer', id: '5', name: 'منى' }, o: { status: 'x', dl: 'late', subs: 3, late: [], risk: [], mk } }).body,
+    'منى\nمحتاج متابعة · 3 أوردر فرعي\nArt Craft: 3 قطع (متأخر · جاري التنفيذ)، sala: قطعة (وصل المخزن)، Nour: قطعتين (قابل للتأخير)');
+  assert.deepEqual([1, 2, 3, 10, 11, 0].map(C.pcsWord), ['قطعة', 'قطعتين', '3 قطع', '10 قطع', '11 قطعة', '0 قطعة']);
+  const L = C.cardLines(C.ORDER_TPL, C.orderVars({ customer: 'منى', dl: 'late', subs: 3, mk }, '01011112222'));
+  assert.deepEqual(L.map((l) => l.map((p) => p.kind)), [['name', 'phone'], ['follow', 'subs'], ['makers']]);
+  assert.deepEqual(L[2][0].items, mk, 'the makers part carries its rows');
+  assert.equal(C.render({ name: 'x', template: 'لسه ما اتأكدش — {الرقم}' }, { ref: 'IB-4' }).body, 'لسه ما اتأكدش — IB-4', 'a template with no « · » as before');
   assert.ok(C.VARS.includes('المبتكر_المتأخر'));
 });
 

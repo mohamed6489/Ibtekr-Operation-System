@@ -441,9 +441,9 @@ Deno.test('the bell\'s redesign: a withdrawal waiting two days and a lost piece 
   await cron(s.deps);
   const A = s.db.rows('alerts');
   const wd = A.filter((a: any) => a.rule_id === 'r-wd'); assertEquals(wd.length, 1, 'only the one waiting more than two days');
-  assertEquals(wd[0].meta, { lv: 'important', g: 'vendor', gid: s.db.rows('vendors')[0].id, gname: 'آرت كرافت' });
+  const { v: wv, ...wm } = wd[0].meta; assertEquals(wm, { lv: 'important', g: 'vendor', gid: s.db.rows('vendors')[0].id, gname: 'آرت كرافت' }); assert(wv && typeof wv.d === 'string', 'the template\'s own variables (meta.v)');
   assert(String(wd[0].body).includes('مستني من 3 يوم'), wd[0].body);
-  const neg = A.filter((a: any) => a.rule_id === 'r-neg'); assertEquals(neg.map((a: any) => a.entity_id), ['neg:كاش']); assertEquals(neg[0].meta, { lv: 'critical' });
+  const neg = A.filter((a: any) => a.rule_id === 'r-neg'); assertEquals(neg.map((a: any) => a.entity_id), ['neg:كاش']); assertEquals(neg[0].meta.lv, 'critical'); assertEquals(Object.keys(neg[0].meta).sort(), ['lv', 'v']);
   const lost = A.find((a: any) => a.rule_id === 'r-lost'); assertEquals(lost.meta.g, 'vendor'); assertEquals(lost.meta.lv, 'critical'); assertEquals(lost.hide_at, '2026-11-11T08:00:00.000Z');
   for (const a of A) assertFalse(/0109/.test(JSON.stringify(a)), 'no phone in an alert');
 });

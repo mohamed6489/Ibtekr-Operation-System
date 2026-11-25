@@ -107,6 +107,9 @@ export const partOfKey = (id) => { const m = /^x(\d)\|/.exec(String(id)); return
 const G_KINDS = ['vendor', 'member', 'agent', 'customer'];
 export function metaOf(rule, e) {
   const m = { lv: C.levelOf(rule) };
+  // the template's own variables (Safwat 25 Nov — the card in the bell is drawn from the rule's template): the entity's name · ref ·
+  // state · line — the texts the engine already writes in the title and the body, never a phone
+  if (e && (e.name || e.ref || e.state || e.line)) m.v = { n: String(e.name || '').slice(0, 80), r: String(e.ref || '').slice(0, 40), s: String(e.state || '').slice(0, 60), d: String(e.line || '').slice(0, 300) };
   const g = e && e.group;
   if (g && G_KINDS.includes(g.g) && g.id != null) { m.g = g.g; m.gid = String(g.id).slice(0, 64); m.gname = String(g.name || '').slice(0, 80); }
   if (e && Number.isFinite(Number(e.n)) && e.n != null) m.n = Number(e.n);
@@ -119,6 +122,8 @@ export function metaOf(rule, e) {
     m.ost = String(o.status || '').slice(0, 40); m.dl = o.dl === 'late' || o.dl === 'risk' ? o.dl : 'ok';
     if (Number.isFinite(Number(o.subs))) m.subs = Number(o.subs);
     m.lm = nm(o.late); m.rm = nm(o.risk);
+    // a row per maker in the order (Safwat 25 Nov): his name, pieces, his products' status and delay — names and counts only
+    const mk = C.makersOf ? C.makersOf(o.mk) : []; if (mk.length) m.mk = mk;
   }
   return m;
 }

@@ -2602,3 +2602,7 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 #### 2.7.143 مدة تخزين محادثات المساعدين (`0168`، المرحلة 1 في `docs/superpowers/plans/2026-11-25-agent-chat-flows.md`)
 1. **`0168`** — مفيش Edge Function؛ الواجهة مع الدمج.
 2. **اتأكد:** `select jobname, schedule from cron.job where jobname = 'ai-chats-expire'` (الدقيقة 17 كل ساعة)، و«الإعدادات › الذكاء الاصطناعي › المساعدين» فيها «مدة تخزين المحادثات» (48 ساعة افتراضي).
+#### 2.7.144 قالب رسالة الأوردر في خدمة العملاء (`0169`، متابعة قرار 17)
+1. **`0169`** ثم **انشر `notify`** (`meta.v` بتاع القالب، والقالب بيشيل الأجزاء الفاضية — `render` / `cardLines`)؛ والواجهة مع الدمج (`ntf-card.js`).
+2. **اتأكد:** `select name, template from notif_rules where element = 'orders'` — القالب الجديد على «أوردر غير مؤكد» و«أوردر متأخر».
+3. **`0170`** (متابعة 2 — اسم العميل وصف لكل مبتكر): بيبدّل قالب قواعد الأوردر لـ `{العميل} · {التليفون}` / `{المتابعة} · {الأوردرات_الفرعية} أوردر فرعي` / `{المبتكرين}` بس لو لسه قالب `0169` (تعديل الأدمن بيفضل)؛ ثم **انشر `notify`** (`o.mk` → `meta.mk`). التنبيهات اللي اتكتبت قبلها مالهاش صفوف مبتكرين لحد ما القاعدة تكتب تاني (أو `update notif_rules set last_run = null where element = 'orders' and type in ('confirm','delay','status')` بعد مسح تنبيهاتها الحالية).

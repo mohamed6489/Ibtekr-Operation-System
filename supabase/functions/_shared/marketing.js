@@ -542,8 +542,15 @@ export function parseAgent(b) {
   const pf = parseFiles(b.files); if (pf.error) return bad('files');
   const question = paras(b.question, AGENT_Q_MAX) || (pf.files.length ? 'بص على ' + (pf.files.length > 1 ? 'الملفات دي' : 'الملف ده') + ' وقولّي رأيك' : '');
   if (!question) return bad('question');
-  return { req: { agent: b.agent, chatId, question, files: pf.files } };
+  // Safwat 25 Nov («زرار ستوب اوقف الطلب مانيوال»): the page's id for this request — its «إيقاف» marks it, and a stopped one writes nothing
+  const nonce = b.nonce == null || b.nonce === '' ? null : typeof b.nonce === 'string' && UUID.test(b.nonce) ? b.nonce.toLowerCase() : undefined;
+  if (nonce === undefined) return bad('nonce');
+  return { req: { agent: b.agent, chatId, question, files: pf.files, nonce } };
 }
+/** The member's «إيقاف»: the page keeps the ids of the requests it stopped in the member's own prefs (user_prefs «chat.stops»). */
+export const STOPS_KEY = 'chat.stops';
+export const STOPS_MAX = 20;
+export const stoppedIn = (data, nonce) => !!nonce && isObj(data) && Array.isArray(data.ids) && data.ids.includes(nonce);
 /** A new chat's name: its first question on one line, cut at a word within 60 characters. */
 export function agentTitle(question) {
   const t = line(question, 200);

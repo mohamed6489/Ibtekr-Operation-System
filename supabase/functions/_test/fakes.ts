@@ -86,6 +86,7 @@ const COLUMNS: Record<string, string[]> = {
   mkt_requests: ['id', 'kind', 'title', 'details', 'project', 'status', 'created_by', 'created_at', 'updated_by', 'updated_at', 'done_at'],
   mkt_video_jobs: ['id', 'campaign_id', 'piece', 'kind', 'scene', 'creation_ref', 'status', 'url', 'path', 'bytes', 'duration', 'error', 'data', 'created_by', 'created_at', 'updated_at', 'done_at'], // 0054 (phase 9.5.5)
   mkt_agent_chats: ['id', 'member_id', 'agent', 'title', 'created_at', 'updated_at', 'deleted_at'], // 0084 (the assistants' chats)
+  user_prefs: ['user_id', 'key', 'data', 'updated_at'], // 0006 — the member's «إيقاف» in an assistant's chat reads «chat.stops» (Safwat 25 Nov)
   mkt_agent_messages: ['id', 'chat_id', 'role', 'text', 'images', 'run_id', 'created_at', 'source', 'shared'], // 0150: who answered and the data kinds it was given
   mkt_competitors: ['id', 'name', 'page_id', 'page_url', 'keyword', 'note', 'created_by', 'created_at', 'updated_by', 'archived_at', 'brief', 'brief_at'], // 0109 + 0160 (buyer-brain)
   mkt_trends: ['id', 'batch', 'title', 'summary', 'source', 'url', 'kind', 'found_at', 'created_by', // 0109 (the designer's «آخر التريندات»)
@@ -175,7 +176,7 @@ const UNIQUE: Record<string, string[][]> = {
   cs_oauth_states: [['state']], cs_channel_events: [['id']], cs_posts: [['id']], cs_wa_state: [['channel']], cs_campaigns: [['id']], cs_campaign_recipients: [['id'], ['campaign_id', 'customer_id']],
   cs_templates: [['id'], ['quick_key']], cs_quick_replies: [['id'], ['key']], cs_auto_rules: [['id']], cs_auto_runs: [['id'], ['rule_id', 'entity']], cs_carts: [['cart_id']], ticket_events: [['id']], // the live index on (rule_id, entity) is partial (result <> failed): the fake is stricter
   profiles: [['id'], ['email'], ['phone'], ['member_code']], roles: [['id']], hr_members: [['member_id']], mkt_posts: [['id'], ['platform', 'external_id']], mkt_ad_objects: [['platform', 'kind', 'id']], mkt_ad_stats: [['platform', 'level', 'object_id', 'day']],
-  mkt_suggestions: [['id']], mkt_requests: [['id']], mkt_video_jobs: [['id']], alerts: [['id']], mkt_agent_chats: [['id']], mkt_agent_messages: [['id']], mkt_trends: [['id']], site_checks: [['kind']], ai_agent_state: [['id']],
+  mkt_suggestions: [['id']], mkt_requests: [['id']], mkt_video_jobs: [['id']], alerts: [['id']], mkt_agent_chats: [['id']], mkt_agent_messages: [['id']], mkt_trends: [['id']], site_checks: [['kind']], user_prefs: [['user_id', 'key']], ai_agent_state: [['id']],
   alert_reads: [['alert_id', 'user_id']], alert_state: [['source_key', 'entity_id', 'target']], tickets: [['id']], hr_requests: [['id']], hr_overtime: [['id']], hr_meetings: [['id']], hr_payroll: [['month']], inv_consolidations: [['id']], acc_expenses: [['id']], company_docs: [['id']],
 };
 const NOT_NULL: Record<string, string[]> = {

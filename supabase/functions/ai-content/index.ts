@@ -57,7 +57,7 @@ import { LEGACY_AGENTS, agentBase, dataBlock, kbFor, seesOf } from '../_shared/a
 import { sourcesBlock, sourcesOf } from '../_shared/agent-sources.js';
 import { OPEN as TEAM_OPEN, teamBlock, teamSummary } from '../_shared/agent-team.js';
 import { cleanKbRewrite, kbRewriteRequest, parseKbRewrite } from '../_shared/agent-kb.js';
-import { AGENT_HISTORY, REQ_RULE, agentHistory, agentRequest, agentTitle, buyerRequest, campaignTarget, cleanAgent, cleanBuyer, cleanMarketing, marketingRequest, parseAgent, parseBuyer, parseMarketing, templateNotes } from '../_shared/marketing.js';
+import { AGENT_HISTORY, REQ_RULE, agentHistory, agentRequest, agentTitle, buyerRequest, campaignTarget, cleanAgent, cleanBuyer, cleanMarketing, marketingRequest, parseAgent, parseBuyer, parseMarketing, STOPS_KEY, stoppedIn, templateNotes } from '../_shared/marketing.js';
 import { SUGGEST_DAYS, buyerRules, windowOf } from '../_shared/mkt-ads.js';
 import { cleanScenes, scenesRequest } from '../_shared/mkt-video.js';
 import { SEARCH_USD, TREND_CONTINUES, cleanTrends, parseTrends, readTrends, searchCount, searchError, searchResults, trendRowV1, trendSources, trendTags, trendsRequest, trendsText } from '../_shared/mkt-trends.js';
@@ -566,10 +566,19 @@ async function brains(deps: Deps, uid: string, jwt: string) {
 const shareRule = (agentId: string, share: string[]) => `
 Privacy (the admin's rule): this message carries the member's words and only the blocks of the system's data you can see in it${share.length ? ' (approved for this message: ' + share.join(', ') + ')' : ' — none this time'}. Never guess a number of the system or say you have data you do not see.
 When the answer needs data of the system that is not in the message, ask for it in need.data (its kinds)${agentId === 'buyer' ? ' — the ads\' numbers (<ads_data>) with need.ads (level campaign, days 7)' : ''}${agentId === 'dev' ? ' — the site\'s checks (<site_status>) with a need.data read of kind "site"' : ''} and say in text, in one line, what you want to check; the member is asked to approve each kind first. When the answer needs no data of the system (writing, an idea, a how-to), just answer.`;
-async function agent(deps: Deps, uid: string, args: Json, jwt = '') {
+async function agent(deps: Deps, uid: string, args: Json, jwt = '', signal?: AbortSignal) {
   const parsed = parseAgent(args);
   if ('error' in parsed) return json(400, parsed);
   const req = parsed.req;
+  // Safwat 25 Nov («زرار ستوب اوقف الطلب مانيوال»): the member's «إيقاف» — the page drops the request and marks its id in the member's
+  // own prefs; a stopped request makes no (second) call and writes no turn, so the chat stays as the member saw it
+  const stopped = async () => {
+    if (signal?.aborted) return true;
+    if (!req.nonce) return false;
+    const { data } = await deps.db.from('user_prefs').select('data').eq('user_id', uid).eq('key', STOPS_KEY).maybeSingle();
+    return stoppedIn(isObj(data) ? data.data : null, req.nonce);
+  };
+  const halt = () => json(499, { error: 'stopped' });
   const member = deps.userDb && jwt ? deps.userDb(jwt) : null;
   if (!member) return json(401, { error: 'unauthorized' });
   // the owner 22 Nov — the company the member agreed to for this message (a linked text company), and with `share` the message alone:
@@ -661,6 +670,7 @@ async function agent(deps: Deps, uid: string, args: Json, jwt = '') {
   const clean = (answer: Json) => cleanAgent(answer, req.agent, teamIds);
   // decision 9: the message's level first (a message with files keeps the assistant's own level — the light model does not see them)
   const size = (req.files ?? []).length ? undefined : { turns: past.map((r: Json) => ({ role: r.role, text: r.text })), question: req.question, build: (k: Cfg) => agentRequest(req, { ...ctx0, model: k.model, effort: k.effort }) };
+  if (await stopped()) return halt();
   let c = await aiCall(deps, run0, cfg, agentRequest(req, ctx0), clean, size);
   if ('res' in c) return c.res;
   const ran = c.cfg; // the level the first answer ran on — the second one of this turn stays on it
@@ -693,12 +703,14 @@ async function agent(deps: Deps, uid: string, args: Json, jwt = '') {
       extra.push(dataReadBlock(reads));
     }
     if (need.ads) { if (sharing) give('ads'); const { data: mv } = member ? await member.rpc('has_perm', { key: 'marketing.view' }) : { data: 'N' }; extra.push(String(mv ?? 'N') !== 'N' ? liveAdsBlock(await liveAds(deps, need.ads), need.ads) : '<ads_live>\nThis member does not see the ads — say it is outside his permissions.\n</ads_live>'); }
+    if (await stopped()) return halt();
     const c2 = await aiCall(deps, { ...run0, label: line('↻ ' + req.question, 200) }, ran, agentRequest(req, { ...ctx0, model: ran.model, effort: ran.effort, extra: extra.join('\n\n') }), clean);
     if ('res' in c2) return c2.res;
     c = c2; cost += c2.cost;
   }
   const out = c.out; out.need = null; out.sources = sources;
   if (Array.isArray(out.plan) && out.plan.length && plan) out.plan = resolvePlan(out.plan, plan); else out.plan = [];
+  if (await stopped()) return halt(); // the answer came after the member stopped it: nothing is kept
   const now = deps.now();
   if (!chat) {
     const { data: made, error } = await deps.db.from('mkt_agent_chats').insert({ member_id: uid, agent: req.agent, title: agentTitle(req.question), created_at: now, updated_at: now }).select('id, agent, title, created_at, updated_at').single();
@@ -1007,7 +1019,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
   if (!uid) return json(401, { error: 'unauthorized' });
   if (!ACTIONS.includes(action)) return json(400, { error: 'unknown_action' });
   try {
-    return action === 'write' ? await write(deps, uid, args) : action === 'prompts' ? await prompts(deps, uid, args) : action === 'marketing' ? await marketing(deps, uid, args) : action === 'buyer' ? await buyer(deps, uid, args) : action === 'agent' ? await agent(deps, uid, args, jwtOf(req))
+    return action === 'write' ? await write(deps, uid, args) : action === 'prompts' ? await prompts(deps, uid, args) : action === 'marketing' ? await marketing(deps, uid, args) : action === 'buyer' ? await buyer(deps, uid, args) : action === 'agent' ? await agent(deps, uid, args, jwtOf(req), req.signal)
       : action === 'brains' ? await brains(deps, uid, jwtOf(req)) : action === 'assistant' ? await assistant(deps, uid, args, jwtOf(req)) : action === 'extract' ? await extract(deps, uid, args) : action === 'trends' ? await trends(deps, uid, args) : action === 'competitor_brief' ? await competitorBrief(deps, uid, args) : action === 'kb' ? await kbRewrite(deps, uid, args) : await studio(deps, uid, args);
   } catch (e) {
     console.error('ai-content failed', e instanceof Error ? e.name : typeof e);

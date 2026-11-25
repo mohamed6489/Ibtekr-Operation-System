@@ -2618,3 +2618,7 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 #### 2.7.147 كارت المبتكر الثابت ومسح تنبيهات «الأوردرات الفرعية» المضافة (`0172`، قرار 19 في `docs/superpowers/plans/2026-11-24-bell-redesign.md`)
 1. **`0172`** (بيمسح قواعد عنصر «الأوردرات الفرعية» بس — العنصر فاضل في الكتالوج) ثم **انشر `notify`** (`meta.nums` / `sk` / `sm` — `metaOf` و`makers.*` في `rules.ts`)؛ والواجهة مع الدمج.
 2. **اتأكد:** `select count(*) from notif_rules where element = 'subs'` = 0، وبعد أول تيك تنبيهات «المبتكرين» الجديدة عليها `meta.nums` و`meta.sk` (`select meta from alerts where kind like 'rule:makers.%' order by at desc limit 3`) — ومفيش تليفون في `meta`.
+
+#### 2.7.148 الشات الذكي — «إيقاف» وسؤال «نكمّل ولا نبتدي في الجديد»، والبوب أبات فوق الصفحة (القرارات 1–3 في `docs/superpowers/plans/2026-11-25-agent-chat-flows.md` — مفيش migration)
+1. **انشر `ai-content`** (`agent` بياخد `nonce` وبيشيّك «chat.stops» في `user_prefs` قبل كل نداء وقبل ما يكتب الرسايل — طلب اتوقف = 499 `stopped` من غير أي كتابة). الواجهة على `main`.
+2. **اتأكد:** في شات أي مساعد ابعت سؤال يروح للمخ الخارجي ودوس «إيقاف» وهو بيفكر — السؤال يرجع في الخانة، وبعد رفرش الشات مايبانش السؤال ولا رده (`select count(*) from mkt_agent_messages where created_at > now() - interval '5 minutes'` مايزيدش). وابعت رسالة وهو بيفكر — كارت «ألغي اللي بعمله ونبتدي في الكلام الجديد؟». و«افتح البوب أب — مصروف» من المحاسب الذكي بيفتح البوب أب فوق الشات من غير ما الصفحة تتغيّر.

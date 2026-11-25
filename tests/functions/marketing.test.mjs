@@ -2,7 +2,7 @@ import { test } from 'node:test'; import assert from 'node:assert/strict';
 import {
   parseCampaign, parseCampaignEdit, campaignTarget, campaignRefs, campaignPrompt, pinsPrompt, campaignPathOk, campaignGenPath, parseMarketing, marketingSchema,
   marketingRequest, cleanMarketing, templateNotes, MKT_LIM, parseBuyer, buyerRequest, cleanBuyer, BUYER_ANSWER_MAX, BUYER_HISTORY,
-  parseAgent, agentTitle, agentHistory, agentRequest, cleanAgent, parseAgentImage, agentImagePath, agentImagePathOk, AGENT_ANSWER_MAX, AGENT_HISTORY,
+  parseAgent, stoppedIn, agentTitle, agentHistory, agentRequest, cleanAgent, parseAgentImage, agentImagePath, agentImagePathOk, AGENT_ANSWER_MAX, AGENT_HISTORY,
 } from '../../supabase/functions/_shared/marketing.js';
 import { scenesRequest } from '../../supabase/functions/_shared/mkt-video.js';
 // The marketing campaign's AI (phase 9.5.1, decisions 8–10): the request checks, the piece read from the state the page saved, its
@@ -211,7 +211,11 @@ test('marketingRequest / cleanMarketing for a video piece: rewrite its idea or i
 // ---------------------------------------------------------------- 0084: the assistants' chats (decisions 5 and 6)
 test('parseAgent: the assistant, an optional chat uuid, the question (≤ 1000); agentTitle: the first question on one line, cut at a word', () => {
   const U = 'c0000000-0000-4000-8000-0000000000aa';
-  assert.deepEqual(parseAgent({ agent: 'designer', question: '  بوست\r\nللشتا ' }), { req: { agent: 'designer', chatId: null, question: 'بوست\nللشتا', files: [] } });
+  assert.deepEqual(parseAgent({ agent: 'designer', question: '  بوست\r\nللشتا ' }), { req: { agent: 'designer', chatId: null, question: 'بوست\nللشتا', files: [], nonce: null } });
+  // Safwat 25 Nov («زرار ستوب»): the page's id of the request — a uuid or nothing; its «إيقاف» is read from the member's prefs (stoppedIn)
+  assert.equal(parseAgent({ agent: 'dev', question: 'x', nonce: U.toUpperCase() }).req.nonce, U);
+  assert.deepEqual(parseAgent({ agent: 'dev', question: 'x', nonce: 'stop-me' }), { error: 'bad_request', field: 'nonce' });
+  assert.equal(stoppedIn({ ids: [U] }, U), true); assert.equal(stoppedIn({ ids: [U] }, null), false); assert.equal(stoppedIn(null, U), false); assert.equal(stoppedIn({ ids: 'x' }, U), false);
   assert.deepEqual(parseAgent({ agent: 'dev', chat_id: U.toUpperCase(), question: 'x' }).req.chatId, U);
   assert.deepEqual(parseAgent({ agent: 'SEO!', question: 'x' }), { error: 'bad_request', field: 'agent' });
   assert.equal(parseAgent({ agent: 'stock', question: 'x' }).req.agent, 'stock', '0120: any assistant id — the server checks the registry');

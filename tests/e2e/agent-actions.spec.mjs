@@ -31,7 +31,13 @@ test('T3 — the accountant answers with «افتح البوب أب — مصرو
   const md = page.locator('.modal[role=dialog]').last();
   await expect(md).toBeVisible();
   await expect(md.locator('input[inputmode="decimal"], input[type="number"], input').filter({ hasNotText: 'x' }).first()).toBeVisible();
-  await expect(page.locator('#pg-accounts, main.content:not([hidden])').first()).toBeVisible();
+  // Safwat 25 Nov (agent-chat-flows decision 2): the popup opens over the chat — the page did not change behind it, and closing it is the chat
+  await expect(page).toHaveURL(/#ai-accountant/); await expect(pg(page).locator('#mk-ask')).toBeVisible();
+  await md.getByRole('button', { name: /إلغاء|إغلاق/ }).first().click(); await expect(md).toBeHidden(); await expect(page).toHaveURL(/#ai-accountant/);
+  // «افتح الحسابات» (a page) = a popup with the link; the page only by its link (decision 10)
+  await links.locator('[data-mk-page="accounts"]').click();
+  const lk = page.locator('.modal[data-mk-link]'); await expect(lk).toBeVisible(); await expect(page).toHaveURL(/#ai-accountant/);
+  await lk.locator('[data-mk-link-go]').click(); await expect(page.locator('#main')).toBeVisible(); await expect(pg(page)).toHaveCount(0); // the accounts page (a block page, not a .mod)
 });
 
 test('T4 — the accountant: «افتح البوب أب — مكافأة / خصم» opens the payroll\'s popup filled (deduction, label, amount) for the member named; «تسوية المبتكر» opens the maker\'s settle popup', async ({ page }) => {
@@ -51,9 +57,10 @@ test('T4 — the accountant: «افتح البوب أب — مكافأة / خص�
   await expect(md.getByRole('radio', { name: 'خصم' })).toBeChecked();
   await expect(md.locator('input[value="غياب"]')).toHaveCount(1);
   await expect(md.locator('input[value="300"]')).toHaveCount(1);
+  await expect(page).toHaveURL(/#ai-accountant/); // decision 9: the payroll's popup over the chat, no page opened behind it
   if (maker) {
     await md.getByRole('button', { name: /إلغاء|إغلاق/ }).first().click();
-    await page.evaluate(() => { location.hash = 'ai-accountant'; });
+    await expect(page).toHaveURL(/#ai-accountant/);
     await pg(page).locator('[data-mk-form="vendor_settle"]').click();
     await expect(page.locator('.modal[role=dialog]').last()).toContainText(maker);
   }

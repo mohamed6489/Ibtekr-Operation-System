@@ -474,7 +474,11 @@
     return D.withCarry(D.deductTransport(D.deriveVendors(list.map((v) => ({ ...v })), open), by), ACC() && ACC().carryOf ? ACC().carryOf() : {}); };
   const vendorsNow = () => vendorsOf(SEED.vendors);
   const accountsNow = () => D.deriveAccounts(SEED.accounts, store.accountMoves);
-  const setNote = (n) => { state.note = n; };
+  // Safwat 25 Nov («اي بوباب في السيستم بفتح و يقفل جوه نفس الصفحة» — agent-chat-flows decision 2): a popup of a page opened over another
+  // page (the assistant's «افتح البوب أب») says how it went in a toast — that page's own note is out of sight
+  const offToast = (here, n) => { if (!here && n && n.text && window.IBKit) window.IBKit.toast(n.text, n.kind === 'warning' || n.kind === 'error' || n.kind === 'success' ? n.kind : ''); };
+  const accHere = () => state.page === 'accounts' || (state.page === 'vendors' && state.vtab === 'accounts');
+  const setNote = (n) => { state.note = n; offToast(accHere(), n); };
 
   // ---------- shell ----------
   const NAV = [['home', 'لوحة التحكم', 'dashboard'], ['box', 'الأوردرات', 'orders'], ['users', 'المبتكرين', 'vendors'], ['wallet', 'الحسابات', 'accounts'], ['tag', 'المخزون', 'inventory'], ['package', 'المنتجات', 'products'], ['headset', 'خدمة العملاء', 'cs'], ['bot', 'الرد الآلي', 'autoreply'], ['ticket', 'طلبات الفريق', 'tickets'], ['chart', 'التقارير', 'reports'], ['megaphone', 'التسويق', 'marketing'], ['sparkle', 'الذكاء الاصطناعي', 'ai'], ['briefcase', 'الموارد البشرية', 'hr'], ['gear', 'الإعدادات', 'settings']];
@@ -1053,7 +1057,7 @@
     const b = aiBuild(msg.confirm);
     if (b.error) { aiSay('ما قدرتش أسجّل: ' + b.error); return; }
     adapter.add(b.kind, b.res.value, AI_ACTOR);
-    state.tab = TAB_OF[b.kind]; setNote({ kind: 'success', text: 'اتسجّلت الحركة بواسطة AI.' }); go('accounts');
+    state.tab = TAB_OF[b.kind]; state.note = { kind: 'success', text: 'اتسجّلت الحركة بواسطة AI.' }; go('accounts'); // the note on the page it opens (no toast too)
     aiSay('اتسجّلت وفتحتلك التاب. ' + (b.kind === 'expenses' && !inRange(b.res.value.date) ? 'التاريخ خارج الفترة المعروضة — غيّر الفترة عشان تشوفها. ' : '') + 'الحركة متسجلة في سجل الأحداث باسم AI بأمرك.');
     if (aiServer !== false) ai.turns.push({ role: 'user', text: '[النظام: المستخدم أكّد وتم تسجيل الحركة الأخيرة.]' }, { role: 'assistant', text: 'تمام، اتسجّلت.' });
   }
@@ -1150,18 +1154,21 @@
     const no = () => { throw new Error('الصلاحية دي مش معاك'); };
     const hrApi = () => { const a = P().hr && P().hr.api; if (!a || !window.IBHR) throw new Error('الموارد البشرية مش جاهزة'); return a; };
     switch (form) {
-      case 'vendor_add': if (!admin() && can('vendors.edit') !== 'F') no(); if (state.page !== 'vendors') go('vendors'); setTimeout(() => openAddVendor(null, v), 60); return 'form vendor_add';
+      // agent-chat-flows decision 2 (Safwat 25 Nov — «عمرك ما تخرج من صفحة المساعد … اي بوباب في السيستم بفتح و يقفل جوه نفس الصفحة»): every
+      // popup here opens over the page the member is on (the assistant's chat stays behind it) — no page is opened before it; a page
+      // only by a link the member presses inside a popup
+      case 'vendor_add': if (!admin() && can('vendors.edit') !== 'F') no(); openAddVendor(null, v, state.page === 'vendors' ? undefined : (nv) => openVendor(nv.id, { inPlace: true })); return 'form vendor_add';
       case 'member_add': if (!admin()) no(); hrApi().addMember(Object.fromEntries(['name', 'title', 'email', 'phone', 'hire'].filter((k) => v[k] != null && String(v[k]).trim()).map((k) => [k, String(v[k]).trim().slice(0, 200)]))); return 'form member_add';
       case 'customer_add': { const a = P().cs && P().cs.api; if (!a || !a.addCustomer || !a.addCustomer(v)) no(); return 'form customer_add'; }
       case 'ticket_new': { if (!tCanManage()) no(); const pre = {}; for (const k of ['title', 'description', 'reason']) if (v[k]) pre[k] = String(v[k]).slice(0, 1000); if (['customer', 'vendor', 'internal'].includes(v.type)) pre.type = v.type;
         if (['low', 'normal', 'high', 'urgent'].includes(v.priority)) pre.priority = v.priority; if (v.orderId) pre.orderId = String(v.orderId).replace(/\D/g, '').slice(0, 12); if (v.vendor) { const n = aiVendorName(v.vendor); if (n) pre.vendor = n; }
-        if (state.page !== 'tickets') go('tickets'); setTimeout(() => openNewTicket(pre), 60); return 'form ticket_new'; }
+        openNewTicket(pre); return 'form ticket_new'; }
       case 'hr_leave': hrApi().leaveRequest(null, v); return 'form hr_leave';
       case 'hr_advance': hrApi().advanceRequest(null, v); return 'form hr_advance';
       case 'hr_remote': hrApi().remoteRequest(null, v); return 'form hr_remote';
       // owner batch 14 Nov decision 12: no manual task any more — «إضافة مهمة» opens a team request («طلب جديد») with the same title
       case 'task_add': { if (!tCanManage()) no(); const pre = { type: 'internal', title: String(v.title || '').slice(0, 200) };
-        if (state.page !== 'tickets') go('tickets'); setTimeout(() => openNewTicket(pre), 60); return 'form ticket_new'; }
+        openNewTicket(pre); return 'form ticket_new'; }
       case 'order_update': { const OA = window.OrdersApp; if (!OA || !OA.aiUpdate) throw new Error('الأوردرات مش جاهزة'); if (can('orders.status') !== 'F' && !admin()) no(); const r = OA.aiUpdate({ id: String(v.order || '').replace(/\D/g, ''), status: v.status || '', confirm: v.confirm || '' }); if (r === 'missing') throw new Error('الأوردر ده مش ظاهر عندي'); if (r === 'nothing') throw new Error('مفيش تغيير — الحالة دي مش من اللي المساعد يقدر يغيّرها أو هي نفسها'); return 'form order_update'; }
       // decision 40 (owner 10 Nov — «لما أسأل المساعد على إضافة مصروفات أو حسابات عامة يفتحلي بوب أب أحط فيه بياناتي بعد ما أحددله
       // إيداع ولا سحب»): the accounts page's own «سحب / إيداع» popup (openForm) filled with what was said; «حفظ» in it is the confirmation
@@ -1177,9 +1184,8 @@
         } else if (kind === 'accountMoves') { if (D.ACCOUNTS.includes(v.account)) pre.account = v.account; }
         else { if (v.vendor) { const n = aiVendorName(v.vendor); if (n) pre.vendor = n; } if (dir === 'withdraw' && D.VENDOR_TYPES.includes(v.type)) pre.type = v.type; // 0078: a «إيداع» has no kind
           if (v.otherName) pre.otherName = String(v.otherName).slice(0, 80); if (v.note) pre.note = String(v.note).slice(0, 500); }
-        state.tab = kind === 'expenses' ? 'expenses' : kind === 'accountMoves' ? 'actual' : 'vendors';
-        if (state.page !== 'accounts') go('accounts'); else render();
-        setTimeout(() => openForm(kind, dir, null, false, pre), 60); return 'form ' + form;
+        refreshSeed(); // the makers and the balances the popup reads (the accounts page fills them when it draws)
+        openForm(kind, dir, null, false, pre); return 'form ' + form;
       }
       // agents-brain T4 (the owner 17 Nov — «عايز ادفع او اخصم او اكافيء … يطلعلي الاسكرين المناسبة»): the payroll's «مكافأة / خصم» /
       // «تحويل المرتب» (sensitive.salaries F — the page's own rule) and the maker's «تسوية دلوقتي» (accounts.approve F), filled
@@ -1187,18 +1193,17 @@
         if (!admin() && can('sensitive.salaries') !== 'F') no(); const api = hrApi();
         const mem = (window.IBHR.everyone ? window.IBHR.everyone() : []).find((m) => String(m.name || '').trim() === String(v.member || '').trim())
           || (window.IBHR.everyone ? window.IBHR.everyone() : []).find((m) => v.member && String(m.name || '').includes(String(v.member).trim()));
-        if (form === 'salary_pay') { if (!mem) throw new Error('مش لاقي العضو ده'); if (location.hash.slice(1) !== 'hr-payroll') location.hash = 'hr-payroll'; const r = api.payPopup(mem.id); if (r === 'paid') throw new Error('مرتب ' + mem.name + ' اتحوّل الشهر ده'); if (r === 'none') throw new Error(mem.name + ' مالوش سطر في كشف الشهر ده');
+        if (form === 'salary_pay') { if (!mem) throw new Error('مش لاقي العضو ده'); const r = api.payPopup(mem.id); /* the sheet loads by itself (linesOf) — the popup waits for it below */ if (r === 'paid') throw new Error('مرتب ' + mem.name + ' اتحوّل الشهر ده'); if (r === 'none') throw new Error(mem.name + ' مالوش سطر في كشف الشهر ده');
           // agents-brain decision 22: the sheet loads with the page — the popup waits for it (up to ~5 s) rather than ask the member to press again
           if (r === 'loading') { let tries = 0; const open = () => { const x = api.payPopup(mem.id); if (x === 'loading' && ++tries < 25) { setTimeout(open, 200); return; } if (x === 'paid') K.toast('مرتب ' + mem.name + ' اتحوّل الشهر ده', 'warning'); else if (x === 'none') K.toast(mem.name + ' مالوش سطر في كشف الشهر ده', 'warning'); else if (x === 'loading') K.toast('الكشف لسه بيتحمّل — جرّب كمان ثانية', 'warning'); }; setTimeout(open, 200); }
           return 'form salary_pay'; }
         const amt = Number(String(v.amount || '').replace(/[,٬]/g, ''));
-        if (location.hash.slice(1) !== 'hr-payroll') location.hash = 'hr-payroll';
         setTimeout(() => api.adjustPopup(mem ? mem.id : null, { kind: v.kind === 'خصم' ? 'خصم' : 'بدل', label: String(v.label || '').slice(0, 80), amount: Number.isFinite(amt) && amt > 0 ? String(amt) : '' }), 60); return 'form salary_adjust'; }
       case 'vendor_settle': { if (!admin() && can('accounts.approve') !== 'F') no();
-        // the accounts' makers load with the page: open it first, then find the maker (up to ~4 s), then its «تسوية دلوقتي» popup
-        state.tab = 'vendors'; if (state.page !== 'accounts') go('accounts'); else render();
+        // the accounts' makers come with the sign-in: find the maker (up to ~4 s), then its «تسوية دلوقتي» popup over this page
+        refreshSeed();
         const want = String(v.vendor || '').trim(); let tries = 0;
-        const find = () => { const n = aiVendorName(want) || (SEED.vendors.find((x) => want && x.name.toLowerCase().includes(want.toLowerCase())) || {}).name; if (n) { openSettle(n); return; } if (++tries < 20) setTimeout(find, 200); else if (window.IBKit) window.IBKit.toast('مش لاقي المبتكر «' + want + '» في الحسابات', 'error'); };
+        const find = () => { if (tries) refreshSeed(); const n = aiVendorName(want) || (SEED.vendors.find((x) => want && x.name.toLowerCase().includes(want.toLowerCase())) || {}).name; if (n) { openSettle(n); return; } if (++tries < 20) setTimeout(find, 200); else if (window.IBKit) window.IBKit.toast('مش لاقي المبتكر «' + want + '» في الحسابات', 'error'); };
         setTimeout(find, 60); return 'form vendor_settle'; }
       default: throw new Error('النوع ده مش من الإجراءات المتاحة');
     }
@@ -3204,7 +3209,7 @@
   function ticketTasks() { return TK.filterTickets(tstore.all(), { status: 'open_any' }).filter((t) => (t.followUp && t.followUp < TODAY) || t.reopenCount > 0).map((t) => ({ id: t.id, role: t.assigneeRole, title: t.title, prio: t.priority, sub: t.followUp && t.followUp < TODAY ? 'عدّى موعد المتابعة ' + D.formatDateNumeric(t.followUp) : 'أُعيد فتحه ×' + t.reopenCount })); }
   function showTickets() { if (state.page !== 'tickets') go('tickets'); }
   let tnote = null; let tshown = null; // tshown: the note on the screen — a redraw for the server's answer keeps it (page-notes plan decision 3)
-  const notify = (kind, text) => { tnote = { kind, text }; renderTickets(); };
+  const notify = (kind, text) => { tnote = { kind, text }; offToast(state.page === 'tickets', tnote); renderTickets(); };
   // the page follows the adapter: a load / a write / a live ping redraws it (and the open drawer)
   let drawerRedraw = null;
   document.addEventListener('ib:tickets', () => { if (state.page === 'tickets') { if (!tnote && tshown && document.querySelector('#tickets [data-page-note]')) tnote = tshown; renderTickets(); } if (drawerRedraw) drawerRedraw(); document.dispatchEvent(new CustomEvent('ib:notify')); }); // decision 9: the bell recounts
@@ -3534,9 +3539,10 @@
   function openTicket(id) {
     const t0 = tstore.get(id); if (!t0) { notify('error', 'الطلب ' + id + ' مش موجود أو مش متاح ليك.'); return; }
     if (drawerApi) drawerApi.close();
-    try { history.replaceState(null, '', '#tickets/' + id); } catch (e) { /* sandboxed */ }
+    const here = state.page === 'tickets'; // agent-chat-flows decision 2: opened over another page (the assistant's popup) = that page's address stays
+    if (here) { try { history.replaceState(null, '', '#tickets/' + id); } catch (e) { /* sandboxed */ } }
     let busy = false; const replyFiles = []; let replyMsg = ''; let replyDraft = '';
-    drawerApi = U.Drawer({ label: 'الطلب ' + id, onClose: () => { drawerApi = null; drawerRedraw = null; try { history.replaceState(null, '', '#tickets'); } catch (e) { /* sandboxed */ } renderTickets(); } });
+    drawerApi = U.Drawer({ label: 'الطلب ' + id, onClose: () => { drawerApi = null; drawerRedraw = null; if (here) { try { history.replaceState(null, '', '#tickets'); } catch (e) { /* sandboxed */ } } renderTickets(); } });
     // a write: one at a time; the drawer redraws from the adapter after it (ib:tickets), the note says how it went
     const act = (run, okMsg) => { if (busy || !TA()) return; busy = true; Promise.resolve().then(run).catch(() => offline).then((r) => { busy = false; if (r && r.ok === false) notify('error', r.message || 'تعذّر الحفظ'); else if (okMsg) notify('success', okMsg); if (drawerApi) draw(); }); };
     function moreMenu(t) {
@@ -3759,7 +3765,7 @@
   function goMakerProducts(v) { const a = PAPI(); if (vdrawer) vdrawer.close(); if (!a) return; go('products'); a.openRecords({ vendor: v.name }); }
   // the drawer's products tab follows the mirror (a load, a write); the makers list carries no product counts of its own
   document.addEventListener('ib:products', () => { if (vredraw && vtab === 'products') vredraw(); if (state.page === 'vendors' && (state.vsel.size || state.vtab === 'records') && !document.querySelector('.pop-anchor .menu, .modal[role=dialog]')) { vkeep(); renderVendors(true); } }); // records: the brands column / filter read the products' brands
-  let vnote = null; const vnotify = (kind, text) => { vnote = { kind, text }; renderVendors(); };
+  let vnote = null; const vnotify = (kind, text) => { vnote = { kind, text }; offToast(state.page === 'vendors', vnote); renderVendors(); };
   // the owner 15 Nov (docs/superpowers/plans/2026-11-15-page-notes.md — «Keep the makers page note visible after a save»): the note
   // was taken by the first draw, and the redraw for the save's own reload (ib:vendors), the bell's recount or a teammate's change drew
   // the page without it a blink later. A redraw for the server's answer keeps the note that is on the screen (the accounts page's

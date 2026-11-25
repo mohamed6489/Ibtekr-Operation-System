@@ -288,19 +288,21 @@
   }
 
   // ---------- the AI (decisions 8–10) ----------
-  async function invoke(fn, body) {
+  // signal: the member's «إيقاف» in an assistant's chat (Safwat 25 Nov) — the request is aborted and its answer never lands
+  async function invoke(fn, body, signal) {
     const cl = c(); if (!cl) return { ok: false, reason: 'network' };
     try {
-      const { data: d, error } = await cl.functions.invoke(fn, { body });
+      const { data: d, error } = await cl.functions.invoke(fn, signal ? { body, signal } : { body });
+      if (signal && signal.aborted) return { ok: false, reason: 'stopped' };
       if (error || !d) {
         const s = error && error.context && error.context.status;
         let b = null; try { b = error && error.context && typeof error.context.json === 'function' ? await error.context.json() : null; } catch (e) { b = null; }
-        const reason = s === 401 || s === 403 ? 'forbidden' : s === 400 ? 'invalid' : s === 404 ? 'notfound' : s === 402 ? 'ai_cap' : s === 429 ? 'busy' : s === 503 ? 'not_configured' : s === 502 ? 'ai_error' : s === 409 ? 'conflict' : 'network';
+        const reason = s === 401 || s === 403 ? 'forbidden' : s === 400 ? 'invalid' : s === 404 ? 'notfound' : s === 402 ? 'ai_cap' : s === 429 ? 'busy' : s === 503 ? 'not_configured' : s === 502 ? 'ai_error' : s === 409 ? 'conflict' : s === 499 ? 'stopped' : 'network';
         return { ok: false, reason, field: b && b.field ? String(b.field) : null, status: b && Number.isInteger(b.status) ? b.status : null, configured: b && typeof b.configured === 'boolean' ? b.configured : null,
           code: b && typeof b.error === 'string' ? b.error.slice(0, 60) : null, text: b && typeof b.text === 'string' ? b.text.slice(0, 200) : null };
       }
       return { ok: true, body: d };
-    } catch (e) { return { ok: false, reason: 'network' }; }
+    } catch (e) { return { ok: false, reason: signal && signal.aborted ? 'stopped' : 'network' }; }
   }
   const AI_FIELDS = { piece: 'القطعة دي مش موجودة في الكامبين — احفظ وجرّب تاني', image: 'القطعة لسه مالهاش صورة', text: 'اكتب الكلام الأول', kind: 'نوع الخانة مش معروف',
     model: 'الموديل مش متاح', size: 'المقاس مش متاح', pins: 'التعليقات كتير أو فاضية', note: 'اكتب التعديل الأول', reference: 'المرجعيات مش متاحة' };
@@ -1166,9 +1168,12 @@
     if (!AGENT_RE.test(String(agent || ''))) return { ok: false, reason: 'invalid', field: 'agent', message: MESSAGES.invalid };
     const fs = (Array.isArray(files) ? files : []).slice(0, 4).map((f) => ({ name: String(f.name || '').slice(0, 120), kind: f.kind, data: f.data || undefined, text: f.text || undefined, note: f.note || '' }));
     const q = String(question == null ? '' : question).trim().slice(0, 1000); if (!q && !fs.length) return { ok: false, reason: 'invalid', field: 'question', message: 'اكتب رسالتك الأول' };
-    const opt = o && typeof o === 'object' ? o : null; const share = opt ? kindsOf(opt.share) : null; const provider = opt && ['claude', 'openai', 'gemini'].includes(opt.provider) ? opt.provider : null;
-    const body = Object.assign({ action: 'agent', agent, chat_id: chatId || null, question: q }, fs.length ? { files: fs } : {}, provider ? { provider } : {}, share ? { share } : {});
-    const r = await invoke('ai-content', body);
+    const opt = o && typeof o === 'object' ? o : null; const share = opt && Array.isArray(opt.share) ? kindsOf(opt.share) : null; const provider = opt && ['claude', 'openai', 'gemini'].includes(opt.provider) ? opt.provider : null;
+    // Safwat 25 Nov — the request's id (its «إيقاف» marks it in the member's prefs «chat.stops»; the server then keeps nothing of it)
+    const nonce = opt && typeof opt.nonce === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(opt.nonce) ? opt.nonce.toLowerCase() : null;
+    const body = Object.assign({ action: 'agent', agent, chat_id: chatId || null, question: q }, fs.length ? { files: fs } : {}, provider ? { provider } : {}, share ? { share } : {}, nonce ? { nonce } : {});
+    const r = await invoke('ai-content', body, opt && opt.signal);
+    if (!r.ok && r.reason === 'stopped') return r;
     if (!r.ok) return Object.assign(r, { message: r.reason === 'notfound' ? 'الشات ده اتمسح أو مش بتاعك (أو المساعد اتأرشف) — افتح شات جديد' : r.reason === 'unauthorized' || r.reason === 'forbidden' ? 'المساعد ده مش متاح لدورك'
       : r.reason === 'invalid' ? (r.field === 'files' ? 'ملف من الملفات مش مقبول (الصور لحد 5 ميجا، الـ PDF لحد 8، والمجموع لحد 12)' : 'اكتب رسالتك الأول') : aiMessage(r, 'text') });
     const b = r.body || {};

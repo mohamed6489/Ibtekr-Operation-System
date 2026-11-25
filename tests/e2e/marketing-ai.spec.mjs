@@ -51,6 +51,76 @@ async function signIn(page, email) {
   }
   await expect(page.locator('#root')).toBeVisible();
 }
+// Safwat 25 Nov — «عايز الشات يكون ذكي … يقولي الغي اللي بعملوا ولا نبتدي في الكلام الجديد و يكون في الشات زرار ستوب اوقف الطلب مانيوال»
+// (agent-chat-flows decision 1): «إيقاف» beside «ابعت» while the answer is on its way — the request's id goes to the member's prefs
+// («chat.stops») and the server keeps nothing of it, the question back in the box; a new message asks first, and «وقّف ونبتدي في الجديد»
+// stops the one running and sends the new one
+test('chat-flows decision 1 — «إيقاف» stops the answer on its way (nothing kept, the question back in the box); a new message asks «نكمّل ولا نبتدي في الجديد»', async ({ page }) => {
+  await start(page);
+  await openAi(page, ADMIN);
+  const P = pg(page);
+  let release; mock.mkt.agentHold = new Promise((r) => { release = r; });
+  await P.locator('#mk-ask').fill('اكتبلي بوست طويل للشتا'); await P.locator('#mk-ask').press('Enter');
+  await expect(P.locator('.mk-ask [data-mk-stop]')).toBeVisible({ timeout: 10000 });
+  await P.locator('.mk-ask [data-mk-stop]').click();
+  await expect(P.locator('[data-mk-thinking]')).toHaveCount(0); await expect(P.locator('.mk-ask [data-mk-stop]')).toHaveCount(0);
+  await expect(P.locator('#mk-ask')).toHaveValue('اكتبلي بوست طويل للشتا'); // back in the box, not lost
+  await expect(P.locator('.mk-msg.user')).toHaveCount(0);
+  await expect.poll(() => ((mock.prefs.find((x) => x.key === 'chat.stops') || {}).data || { ids: [] }).ids.length).toBe(1);
+  release(); // the stopped request reaches the server: it writes nothing (its id is in «chat.stops»)
+  await page.waitForTimeout(400);
+  expect(mock.mkt.agentMsgs.length, 'nothing kept of the stopped one').toBe(0);
+  // a new message while the next answer is on its way: asked first; «وقّف ونبتدي في الجديد»
+  let release2; mock.mkt.agentHold = new Promise((r) => { release2 = r; });
+  await P.locator('#mk-ask').fill('سؤال أول'); await P.locator('#mk-ask').press('Enter');
+  await expect(P.locator('.mk-ask [data-mk-stop]')).toBeVisible({ timeout: 10000 });
+  await P.locator('#mk-ask').fill('لا — خليها عن الصيف'); await P.locator('#mk-ask').press('Enter');
+  const sw = P.locator('[data-mk-switch="reply"]'); await expect(sw).toContainText('لا — خليها عن الصيف'); await expect(sw).toContainText('ألغي اللي بعمله ونبتدي في الكلام الجديد؟');
+  await P.locator('#mk-ask').fill('تالتة'); await P.locator('#mk-ask').press('Enter'); await expect(P.locator('#mk-ask')).toHaveValue('تالتة'); // one question at a time
+  await P.locator('#mk-ask').fill('');
+  await sw.locator('[data-mk-sw-new]').click(); await expect(sw).toHaveCount(0);
+  await expect.poll(() => mock.mkt.agentMsgs.map((m) => m.text)).toEqual(['لا — خليها عن الصيف', expect.any(String)]);
+  release2(); await page.waitForTimeout(400);
+  expect(mock.mkt.agentMsgs.filter((m) => m.role === 'user').map((m) => m.text), 'the first one stopped, the new one kept').toEqual(['لا — خليها عن الصيف']);
+  await expect(P.locator('.mk-msg.user')).toHaveText(['لا — خليها عن الصيف']);
+});
+// …and «رفع منتجات» open in the warehouse's chat: «كمّل اللي كنا فيه» = the message back in the box and the steps stay (his answer);
+// «ألغي ونبتدي في الجديد» = the steps gone and the message sent; «إلغاء» on the card while no step runs
+test('chat-flows decision 1 — «رفع منتجات» open: a new message asks first; «كمّل اللي كنا فيه» keeps the steps (the message back in the box); «ألغي ونبتدي في الجديد» drops them; «إلغاء» on the card', async ({ page }) => {
+  await start(page);
+  await openAi(page, ADMIN, 'التشغيل الذكي');
+  const P = pg(page);
+  await P.locator('.mk-agent-chips .chip', { hasText: 'ارفع منتجات' }).click();
+  await expect(P.locator('[data-mk-wiz] .sc-card')).toBeVisible();
+  await P.locator('#mk-ask').fill('كام أوردر متأخر؟'); await P.locator('#mk-ask').press('Enter');
+  const sw = P.locator('[data-mk-switch="wiz"]'); await expect(sw).toContainText('لسه في نص خطوات رفع المنتجات'); await expect(sw).toContainText('كام أوردر متأخر؟');
+  await sw.locator('[data-mk-sw-keep]').click();
+  await expect(sw).toHaveCount(0); await expect(P.locator('#mk-ask')).toHaveValue('كام أوردر متأخر؟'); await expect(P.locator('[data-mk-wiz] .sc-card')).toBeVisible();
+  await expect(P.locator('.mk-msg.user')).toHaveCount(0);
+  await P.locator('#mk-ask').press('Enter');
+  await P.locator('[data-mk-switch="wiz"] [data-mk-sw-new]').click();
+  await expect(P.locator('[data-mk-wiz]')).toHaveCount(0);
+  await expect(P.locator('.mk-msg.user', { hasText: 'كام أوردر متأخر؟' })).toBeVisible();
+  await P.locator('.mk-agent-chips .chip', { hasText: 'ارفع منتجات' }).click();
+  await expect(P.locator('[data-mk-wiz] [data-sc-cancel]')).toBeVisible();
+  await P.locator('[data-mk-wiz] [data-sc-cancel]').click();
+  await expect(P.locator('[data-mk-wiz]')).toHaveCount(0);
+});
+// Safwat 25 Nov — «اي بوباب في السيستم بفتح و يقفل جوه نفس الصفحة» (agent-chat-flows decision 2): the system's popups an assistant
+// opens («افتح البوب أب») open over the chat — no page opened behind them
+test('chat-flows decision 2 — an assistant\'s popup opens over the chat: «إضافة مبتكر» and «طلب جديد» with no page behind them', async ({ page }) => {
+  await start(page);
+  await openAi(page, ADMIN);
+  expect(await page.evaluate(() => window.IBAiAction('open_form', { form: 'vendor_add', values: { name: 'ورشة الفخار' } }))).toBe('form vendor_add');
+  const add = page.locator('.modal[role=dialog]', { hasText: 'إضافة مبتكر' }); await expect(add).toBeVisible();
+  await expect(add.locator('#v-name')).toHaveValue('ورشة الفخار');
+  await expect(page).toHaveURL(/#ai/); await expect(page.locator('#vendors')).toBeHidden();
+  await page.keyboard.press('Escape'); await expect(add).toHaveCount(0); await expect(page).toHaveURL(/#ai/); await expect(pg(page).locator('#mk-ask')).toBeVisible();
+  expect(await page.evaluate(() => window.IBAiAction('open_form', { form: 'ticket_new', values: { title: 'شحنة ناقصة', type: 'internal' } }))).toBe('form ticket_new');
+  const tk = page.locator('.modal[role=dialog]').last(); await expect(tk).toBeVisible(); await expect(tk.locator('input').first()).toBeVisible();
+  await expect(page).toHaveURL(/#ai/); await expect(page.locator('#tickets')).toBeHidden();
+});
+
 async function openAi(page, email, sub) {
   await signIn(page, email);
   await page.locator('.sidebar .nav-item[data-page="ai"]').click(); // 0120: «الذكاء الاصطناعي» is its own page
@@ -781,9 +851,10 @@ test('comment 72 — on a phone the history is a drawer: «الشاتات» in t
   expect(await box.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
 });
 
-// ش45 decision 4 — the designer trusted with content: its answer carries a filled campaign → «كامبين جديدة» opens by itself on the
-// details (the goal, the idea, the counts); nothing saved or generated; «افتح الكامبين» under the answer opens it again
-test('ش45 — the designer\'s content task: after its questions it fills the campaign and the page opens «كامبين جديدة» with it, nothing generated', async ({ page }) => {
+// ش45 decision 4 — the designer trusted with content: its answer carries a filled campaign → «افتح الكامبين» under the answer; Safwat
+// 25 Nov (agent-chat-flows decision 3 — «عمرك ما تخرج من صفحة المساعد»): nothing opens by itself — the button's popup says what it is and
+// its link opens «كامبين جديدة» on the details (the goal, the idea, the counts); nothing saved or generated
+test('ش45 — the designer\'s content task: after its questions it fills the campaign; «افتح الكامبين» → its popup → «كامبين جديدة» with it, nothing generated', async ({ page }) => {
   await start(page);
   mock.mkt.agentAnswer = (req) => (/عرض/.test(req.question)
     ? { text: 'تمام — جهزتلك الكامبين: 2 بوست وريل 15 ثانية لعرض المكرمية. هتفتح متملّية في التسويق، راجعها واضغط توليد.', image_prompt: '', request: { title: '', details: '' },
@@ -795,9 +866,14 @@ test('ش45 — the designer\'s content task: after its questions it fills the ca
   await expect(pg(page)).toContainText('عن إيه المحتوى؟');
   await expect(pg(page).locator('[data-mk-draft-from]')).toHaveCount(0);
   await input.fill('عرض الشتا على المكرمية 2 بوست وريل'); await input.press('Enter');
+  const open = pg(page).locator('[data-mk-draft-from]'); await expect(open).toHaveCount(1);
+  await expect(page).toHaveURL(/#ai/); // the chat stays — no page opened by itself
+  await open.click();
+  const lk = page.locator('.modal[data-mk-link]'); await expect(lk).toContainText('عرض الشتا على المكرمية — خصم 20% لحد آخر الشهر');
+  await lk.locator('[data-mk-link-close]').click(); await expect(lk).toHaveCount(0); await expect(page).toHaveURL(/#ai/); // «إغلاق» = back to the chat
+  await open.click(); await page.locator('.modal[data-mk-link] [data-mk-link-go]').click();
   await expect(pg(page).locator('[data-cw-goal] [aria-checked="true"]')).toHaveText('عرض / خصم');
   await expect(pg(page).locator('textarea').first()).toHaveValue('عرض الشتا على المكرمية — خصم 20% لحد آخر الشهر');
-  await expect(page.locator('body')).toContainText('فتحتلك الكامبين متملّية');
   expect(mock.mkt.campaigns.length, 'nothing saved').toBe(0);
   expect(mock.mkt.calls.filter((c) => ['marketing', 'campaign', 'campaign_edit', 'video_clip'].includes(c.action)).length, 'nothing generated').toBe(0);
 });
@@ -953,7 +1029,11 @@ test('the owner 17 Nov — the chat bar like Claude\'s: «+» files (an image re
   let release; mock.mkt.agentHold = new Promise((r) => { release = r; });
   await P.locator('#mk-ask').fill('بص على البوست ده'); await P.locator('#mk-ask').press('Enter');
   await expect(P.locator('[data-mk-files]')).toHaveCount(0); // the files went with the message
+  await expect(P.locator('.mk-ask [data-mk-stop]')).toBeVisible(); // Safwat 25 Nov: «إيقاف» beside «ابعت» while the answer is on its way
   await P.locator('#mk-ask').fill('وكمان قولّي أحسن وقت للنشر'); await P.locator('#mk-ask').press('Enter');
+  // Safwat 25 Nov (agent-chat-flows decision 1): asked first — «كمّل وابعتها بعده» = the queue as before
+  const sw = P.locator('[data-mk-switch="reply"]'); await expect(sw).toContainText('أحسن وقت للنشر');
+  await sw.locator('[data-mk-sw-keep]').click(); await expect(sw).toHaveCount(0);
   await expect(P.locator('[data-mk-queue="1"]')).toContainText('أحسن وقت للنشر');
   release();
   await expect(P.locator('[data-mk-queue]')).toHaveCount(0);
@@ -1098,7 +1178,7 @@ test('agents-brain T5 — the buyer\'s five videos: choices in the chat, then a 
   await pg(page).locator('[data-ib-ask-opt="مكرمية على الحيطة (تيك توك)"]').click();
   const open = pg(page).locator('[data-mk-draft-from]');
   await expect(open).toHaveCount(1);
-  await open.click();
+  await open.click(); await page.locator('.modal[data-mk-link] [data-mk-link-go]').click(); // agent-chat-flows decision 3: the link in a popup
   await expect(pg(page).locator('textarea').first()).toHaveValue(/تعليقة مكرمية على الحيطة/);
   await expect.poll(() => pg(page).locator('textarea, input').evaluateAll((els) => els.some((e) => /مشهد 1 \(5ث\)/.test(e.value || '')))).toBe(true); // the video's «تعليمات»
   expect(mock.mkt.campaigns.length, 'nothing saved').toBe(0);

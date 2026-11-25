@@ -97,7 +97,9 @@ test('decision 40: an expense / an account move opens the accounts page\'s own �
   await dep.getByRole('button', { name: 'حفظ' }).click();
   await expect.poll(() => mock.accWrites.length).toBe(1);
   expect(mock.accWrites[0]).toMatchObject({ table: 'acc_account_moves', op: 'insert', direction: 'deposit', account: 'حساب البنك', amount: 2000 });
-  await expect(page.locator('.sidebar .nav-item[data-page="accounts"]')).toHaveAttribute('aria-current', 'page');
+  // Safwat 25 Nov (agent-chat-flows decision 2): the popup was over the page the member is on — no page opened, the result in a toast
+  await expect(page.locator('.sidebar .nav-item[data-page="dashboard"]')).toHaveAttribute('aria-current', 'page');
+  await expect(page.locator('.toast.show')).toContainText('اتسجّلت الحركة');
   // no direction → nothing opens, the panel says to pick one
   next = { text: 'تمام.', actions: [{ name: 'open_form', input: { form: 'vendor_move', values: { amount: '300' } } }] };
   await ask(page, 'حركة مبتكر 300');
@@ -265,7 +267,7 @@ test('decision 36: open_form customer_add / hr_leave / task_add open their forms
   next = { text: 'فتحتلك المهمة.', actions: [{ name: 'open_form', input: { form: 'task_add', values: { title: 'مراجعة فواتير' } } }] };
   await ask(page, 'ضيفلي مهمة مراجعة فواتير');
   await openLink(page); // decision 41: the popup opens from the link under the answer
-  await expect(page).toHaveURL(/#tickets/);
+  await expect(page).toHaveURL(/#dashboard/); // Safwat 25 Nov (agent-chat-flows decision 2): over the page the member is on — no page opened behind it
   const req = page.locator('.modal[role=dialog]').last();
   await expect(req.locator('input[value="مراجعة فواتير"]')).toHaveCount(1);
   expect(mock.hr.tasks.some((t) => t.title === 'مراجعة فواتير')).toBe(false);
@@ -601,7 +603,7 @@ test('add / edit by words from the system: a customer, a team request, an expens
   const cust = page.locator('.modal[role=dialog]', { hasText: 'إضافة عميل' }).last();
   await expect(cust.locator('#name')).toHaveValue('أحمد سامي'); await expect(cust.locator('#phone')).toHaveValue('01001234567'); await expect(cust.locator('#city')).toHaveValue('طنطا');
   await cust.getByRole('button', { name: 'إلغاء' }).click();
-  await say(page, 'افتح طلب الطابعة بايظة عاجل'); await openLink(page); await expect(page).toHaveURL(/#tickets/);
+  await say(page, 'افتح طلب الطابعة بايظة عاجل'); await openLink(page); await expect(page).toHaveURL(/#dashboard/); // decision 9: over the page
   const req = page.locator('.modal[role=dialog]').last(); await expect(req.locator('input[value="الطابعة بايظة"]')).toHaveCount(1); await req.getByRole('button', { name: 'إلغاء' }).click();
   await say(page, 'سجل مصروف 500 كهربا'); await expect(last.locator('.ai-form-link')).toContainText('سحب — المصروفات'); await openLink(page);
   const exp = page.locator('.modal[role=dialog]').last(); await expect(exp.locator('#f-amount')).toHaveValue('500'); await expect(exp.locator('#f-details')).toHaveValue('كهربا'); await exp.getByRole('button', { name: 'إلغاء' }).click();

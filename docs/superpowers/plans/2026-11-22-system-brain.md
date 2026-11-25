@@ -45,3 +45,8 @@
 ## الاختبارات
 
 `tests/domain/system-brain.test.mjs` · `agent-brain.test.mjs` · `agent-rules.test.mjs`، `tests/functions/agent-facts.test.mjs` · `agent-sources.test.mjs` · `share-kinds.test.mjs`، `tests/adapter/ai.test.mjs`، Deno `ai-content` («0150 …») و`notify` («0150 …»)، `supabase/tests/rls_system_brain.sql`، و`tests/e2e/assistant.spec.mjs` · `agent-system.spec.mjs` · `agents-settings.spec.mjs` · `ai-routing.spec.mjs` · `touch-layer.spec.mjs`.
+
+## متابعة 25 نوفمبر — اسم المساعد بدل «من السيستم» (صفوت: «بدل من السيستم يبقا اسم المساعد علي سبيل المثال "الديزاينر الذكي، المبرمج الذكي" و بدل مش فاهم يقول هحتاج مساعدة خارجية»)
+- في شات المساعدين («الذكاء الاصطناعي») الرد اللي من السيستم عليه اسم المساعد (`agName` — «المبرمج الذكي»، «المحاسب الذكي»…) مكان «من السيستم»؛ رد الشركة الخارجية زي ما هو «الرد من Claude».
+- كارت الموافقة: «هحتاج مساعدة خارجية في ده (Claude). أستخدمها؟» / «… أستخدم أنهي واحد؟»، و«لا» = «تمام، من غير مساعدة خارجية.»؛ ومن غير شركة مربوطة: «هحتاج مساعدة خارجية في ده، ومفيش مخ خارجي مربوط …».
+- الاختبار `tests/e2e/agent-system.spec.mjs` و`buyer-brain.spec.mjs`.

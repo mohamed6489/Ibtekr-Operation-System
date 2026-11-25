@@ -1780,7 +1780,7 @@
     if (q && !files.length && await agSystem(a, q)) return;
     const S0 = window.IBSettings; if (S0 && S0.brainsReady && !S0.brainsReady()) await S0.loadBrains(); // the linked companies, read the first time they are needed
     const brains = agBrains(a);
-    if (!brains.length) { await agLocalTurn(a, [q, flLine(files)].filter(Boolean).join('\n'), 'مش فاهم الطلب ده من السيستم، ومفيش مخ خارجي مربوط أسأله — الأدمن يربطه من «الإعدادات › الربط بالمنصات».'); return; }
+    if (!brains.length) { await agLocalTurn(a, [q, flLine(files)].filter(Boolean).join('\n'), 'هحتاج مساعدة خارجية في ده، ومفيش مخ خارجي مربوط — الأدمن يربطه من «الإعدادات › الربط بالمنصات».'); return; }
     tmpTurn(key, [q, flLine(files)].filter(Boolean).join('\n')); AG.consent[key] = { q, files, brains }; R();
   }
   // buyer-brain decision 2 (Safwat 24 Nov — «يعرف انا اداء الكامبينز بتاعتي ايه واحسن كامبن شغال و احسن كريتايفز»): the media buyer
@@ -1818,7 +1818,7 @@
   }
   function agConsentPick(a, key, brain) {
     const x = AG.consent[key]; if (!x || AG.asking) return; delete AG.consent[key];
-    if (!brain) { AG.turns[key] = (AG.turns[key] || []).filter((t) => t.id !== 'tmp'); agLocalTurn(a, [x.q, flLine(x.files)].filter(Boolean).join('\n'), 'تمام، ما استخدمتش مخ خارجي.').then(() => agDrain(a)); return; }
+    if (!brain) { AG.turns[key] = (AG.turns[key] || []).filter((t) => t.id !== 'tmp'); agLocalTurn(a, [x.q, flLine(x.files)].filter(Boolean).join('\n'), 'تمام، من غير مساعدة خارجية.').then(() => agDrain(a)); return; }
     agSendNow(a, x.q, x.files, { provider: brain.id, share: [] }).then(() => agDrain(a));
   }
   function agNeedPick(a, key, ok) {
@@ -1826,17 +1826,18 @@
     if (!ok) { AG.turns[key] = (AG.turns[key] || []).filter((t) => t.id !== 'tmp'); agLocalTurn(a, [x.q, flLine(x.files)].filter(Boolean).join('\n'), 'تمام، مااتبعتش أي بيانات لـ ' + x.name + '. من غيرها مش هيقدر يجاوب على ده.').then(() => agDrain(a)); return; }
     agSendNow(a, x.q, x.files, { provider: x.provider, share: x.kinds }).then(() => agDrain(a));
   }
-  const srcChip = (sys, name) => h('span', { class: 'ai-src' + (sys ? ' sys' : ''), 'data-mk-src': sys ? 'system' : 'brain' }, sys ? 'من السيستم' : ['الرد من ', h('bdi', null, name)]);
+  // the system's own answer carries the assistant's name, not «من السيستم» (Safwat 25 Nov — «بدل من السيستم يبقا اسم المساعد … الديزاينر الذكي ، المبرمج الذكي»)
+  const srcChip = (sys, name, a) => h('span', { class: 'ai-src' + (sys ? ' sys' : ''), 'data-mk-src': sys ? 'system' : 'brain' }, sys ? h('bdi', null, (a && agName(a)) || 'المساعد') : ['الرد من ', h('bdi', null, name)]);
   function consentRow(a, key) {
     const x = AG.consent[key];
-    return h('div', { class: 'mk-row ai' }, agMark(a), h('div', { class: 'mk-col' }, h('div', { class: 'mk-msg ai', 'data-mk-consent': '' }, srcChip(true),
-      h('p', null, x.brains.length > 1 ? 'مش فاهم الطلب ده من السيستم. أستخدم مخ خارجي؟ اختار أنهي واحد:' : 'مش فاهم الطلب ده من السيستم. أستخدم مخ خارجي (' + x.brains[0].name + ')؟'),
+    return h('div', { class: 'mk-row ai' }, agMark(a), h('div', { class: 'mk-col' }, h('div', { class: 'mk-msg ai', 'data-mk-consent': '' }, srcChip(true, '', a),
+      h('p', null, x.brains.length > 1 ? 'هحتاج مساعدة خارجية في ده. أستخدم أنهي واحد؟' : 'هحتاج مساعدة خارجية في ده (' + x.brains[0].name + '). أستخدمها؟'), // Safwat 25 Nov — «بدل مش فاهم يقول هحتاج مساعدة خارجية»
       h('div', { class: 'mk-msg-req ai-consent' }, x.brains.map((b) => Button({ type: 'primary', size: 'sm', label: x.brains.length > 1 ? b.name : 'أيوه، استخدمه', attrs: Object.assign({ 'data-mk-brain': b.id }, x.brains.length > 1 ? { 'data-i18n-off': '' } : {}), onClick: () => agConsentPick(a, key, b) })),
         Button({ size: 'sm', label: 'لا', attrs: { 'data-mk-brain': '' }, onClick: () => agConsentPick(a, key, null) })))));
   }
   function needRow(a, key) {
     const x = AG.need[key]; const BS = window.IBBrainShare;
-    return h('div', { class: 'mk-row ai' }, agMark(a), h('div', { class: 'mk-col' }, h('div', { class: 'mk-msg ai', 'data-mk-need': x.ask.join(' ') }, srcChip(true),
+    return h('div', { class: 'mk-row ai' }, agMark(a), h('div', { class: 'mk-col' }, h('div', { class: 'mk-msg ai', 'data-mk-need': x.ask.join(' ') }, srcChip(true, '', a),
       h('p', null, 'عشان يكمّل، ' + x.name + ' محتاج يشوف البيانات دي من السيستم. أوافق؟'),
       h('ul', { class: 'ai-need' }, x.ask.map((k) => h('li', { 'data-mk-need-kind': k }, h('b', null, BS.KINDS[k].label), h('span', null, BS.KINDS[k].has), h('small', null, BS.KINDS[k].not)))),
       h('div', { class: 'mk-msg-req ai-consent' }, Button({ type: 'primary', size: 'sm', label: 'وافق المرة دي', attrs: { 'data-mk-share-ok': '' }, onClick: () => agNeedPick(a, key, true) }),
@@ -1937,7 +1938,7 @@
       return h('div', { class: 'mk-row ' + (mine ? 'user' : 'ai') }, mine ? null : agMark(a),
         h('div', { class: 'mk-col' },
           h('div', { class: 'mk-msg ' + (mine ? 'user' : 'ai'), 'data-mk-turn': String(t.id) },
-            !mine && t.src ? srcChip(t.src === 'system', BRAIN_NAME[t.src] || '') : null,
+            !mine && t.src ? srcChip(t.src === 'system', BRAIN_NAME[t.src] || '', a) : null,
             t.text ? h('p', null, t.text) : null,
             !mine && t.src && t.src !== 'system' && window.IBBrainShare ? h('p', { class: 'ai-shared t-small', 'data-mk-shared': (t.shared || []).join(' ') }, Icon('lock', 'sm'), h('span', null, t.shared && t.shared.length ? 'اتبعتله: رسالتك + ' + window.IBBrainShare.names(t.shared) : 'اتبعتله: رسالتك بس — من غير بيانات من السيستم')) : null,
             t.images.length ? h('div', { class: 'mk-msg-imgs' }, t.images.map((pth) => Img(pth, 'mk-agent-img', 'صورة من الديزاينر'))) : null,

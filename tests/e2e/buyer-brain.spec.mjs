@@ -44,7 +44,7 @@ const asks = () => mock.mkt.calls.filter((c) => c.fn === 'ai-content' && c.actio
 test('the buyer\'s chat: the best campaign, the best creatives, what to stop — from the system, with the real return, no model called', async ({ page }) => {
   await openBuyer(page);
   await send(page, 'إيه أحسن كامبين شغالة؟');
-  await expect(lastAns(page).locator('[data-mk-src]')).toHaveText('من السيستم');
+  await expect(lastAns(page).locator('[data-mk-src]')).toHaveText('الميديا باير الذكي');
   await expect(lastAns(page)).toContainText('أحسن حملة شغّالة'); await expect(lastAns(page)).toContainText('كولكشن الشتا');
   await expect(lastAns(page)).toContainText('العائد الحقيقي 3.81×'); // 8,000 ÷ 2,100 — the cancelled orders out
   await expect(lastAns(page)).toContainText('كسبان');

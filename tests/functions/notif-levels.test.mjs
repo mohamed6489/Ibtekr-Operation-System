@@ -40,6 +40,24 @@ test('metaOf: the level, who it is about and the counts — and nothing else', (
   assert.deepEqual(metaOf(rule, { id: 'x', group: { g: 'phone', id: '010' } }), { lv: 'critical' }, 'an unknown owner kind is dropped');
 });
 
+// customer service's order alert (Safwat 25 Nov — bell-redesign decision 17): the order's status, delay, sub-orders and late makers' names
+// ride in the meta — never a phone
+test('metaOf: an order\'s facts for the customer service card', () => {
+  const rule = { element: 'orders', type: 'confirm', state: 'غير مؤكد' };
+  const m = metaOf(rule, { id: 'o:1', group: { g: 'customer', id: '77', name: 'منى أحمد' }, phone: '01011112222', o: { status: 'جاري التنفيذ', dl: 'late', subs: 3, late: ['Art Craft', 'x'.repeat(60)], risk: ['sala'] } });
+  assert.deepEqual({ ...m, lv: undefined }, { lv: undefined, g: 'customer', gid: '77', gname: 'منى أحمد', ost: 'جاري التنفيذ', dl: 'late', subs: 3, lm: ['Art Craft', 'x'.repeat(40)], rm: ['sala'] });
+  assert.ok(!JSON.stringify(m).includes('0101'), 'no phone');
+  assert.equal(metaOf(rule, { id: 'o:2', o: { status: 'x', dl: 'weird', subs: 'a' } }).dl, 'ok');
+});
+
+test('render: the order\'s variables in the template', () => {
+  const rule = { name: 'أوردر متأخر', template: '{العميل} · {حالة_الأوردر} · {المتابعة} · {الأوردرات_الفرعية} فرعي · {المبتكر_المتأخر}' };
+  const ent = { ref: 'IB-1', group: { g: 'customer', id: '1', name: 'منى' }, o: { status: 'جاري التنفيذ', dl: 'risk', subs: 2, late: ['Art Craft'], risk: ['sala'] } };
+  assert.equal(C.render(rule, ent).body, 'منى · جاري التنفيذ · محتاج متابعة · 2 فرعي · Art Craft، sala');
+  assert.equal(C.render(rule, { ref: 'IB-2' }).body, ' ·  ·  ·  فرعي · ', 'no order facts: the variables empty');
+  assert.ok(C.VARS.includes('المبتكر_المتأخر'));
+});
+
 test('hidePlan: an info alert leaves 24 hours after it was written, read or not; a critical one stays', () => {
   const now = '2026-11-25T12:00:00Z';
   const old = { id: 1, entity_id: 'a', at: '2026-11-24T10:00:00Z', hide_at: null }; const fresh = { id: 2, entity_id: 'b', at: '2026-11-25T10:00:00Z', hide_at: null };

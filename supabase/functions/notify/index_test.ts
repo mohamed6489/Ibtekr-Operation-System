@@ -81,6 +81,8 @@ Deno.test('rules: a «state» rule (an unconfirmed order) → a row per member o
   assertEquals(A.map((a: any) => a.user_id).sort(), [ADMIN, CS].sort(), 'the admin and the cs member (ops is not in the rule; the suspended member never)');
   const a0 = A[0]; assertEquals([a0.rule_id, a0.section_id, a0.entity_id, a0.entity, a0.hide_at, a0.kind], ['r-unconf', SEC_SUB, 'o:1002', 'orders/1002', null, 'rule:orders.confirm']);
   assert(/IB-1002 لسه ما اتأكدش — غير مؤكد · عمره 2 يوم/.test(a0.body), a0.body); assertEquals(a0.title, 'أوردر غير مؤكد — IB-1002');
+  // the customer service card (Safwat 25 Nov — bell-redesign decision 17): the customer, the order's status, delay and sub-orders — never a phone
+  assertEquals([a0.meta.g, a0.meta.gid, typeof a0.meta.ost, a0.meta.dl, typeof a0.meta.subs, Array.isArray(a0.meta.lm)], ['customer', '1002', 'string', 'ok', 'number', true]); assert(!/\d{8,}/.test(JSON.stringify(a0.meta)), 'no phone in the meta');
   assertEquals(s.db.rows('notif_rules')[0].last_run, NOW);
   // 15 minutes later: not due again (24h) — nothing written
   await cron({ ...s.deps, now: () => '2026-11-08T08:15:00.000Z' }); assertEquals(s.db.rows('alerts').length, 2);

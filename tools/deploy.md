@@ -2596,3 +2596,6 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 #### 2.7.141 الجرس = الإعدادات بالظبط وتنبيهات المساعدين في المساعدين (`0167`، قرار 16 في `docs/superpowers/plans/2026-11-24-bell-redesign.md`)
 1. **`0167`** — مفيش Edge Function؛ الواجهة مع الدمج.
 2. **اتأكد:** مفيش قسم رئيسي «التسويق»، و«الإعلانات» / «التصميم» / «البرمجة» تحت «مساعدين الذكاء الاصطناعي»، ومفيش تنبيه من غير قاعدة ظاهر (`select count(*) from alerts where rule_id is null and (hide_at is null or hide_at > now())` = 0).
+#### 2.7.142 كارت تنبيه الأوردر في خدمة العملاء (قرار 17 في `docs/superpowers/plans/2026-11-24-bell-redesign.md`)
+1. **انشر `notify`** (`deploy-functions.yml` بـ `notify`) — مفيش migration؛ الواجهة مع الدمج.
+2. **اتأكد:** بعد أول تيك تنبيهات «أوردر غير مؤكد» / «أوردر متأخر» الجديدة عليها `meta.g = 'customer'` و`ost` و`subs` (`select meta from alerts where kind like 'rule:orders.%' order by at desc limit 3`)، والجرس بيعرض التليفون و«نسخ» وواتساب.

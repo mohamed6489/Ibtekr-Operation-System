@@ -117,7 +117,7 @@
           h('p', { class: 't-small help', style: 'margin:0' }, 'بيوصل لأعضاء الأدوار دي اللي بيشوفوا الصفحة بتاعته بس.')),
         sec(['msg', 'قالب الرسالة', 'اختياري'],
           U().Textarea({ id: 'nr-tpl', label: 'نص التنبيه', value: f.template || '', maxlength: 500, rows: 3, placeholder: 'مثال: {الرقم} لسه ما اتأكدش — {التفاصيل}', onInput: (v) => { f.template = v; } }),
-          h('div', { class: 'nr-vars t-small' }, 'متغيرات: ', ['{الاسم}', '{الرقم}', '{الوضع}', '{التفاصيل}'].map((x) => h('code', null, x)))),
+          h('div', { class: 'nr-vars t-small', 'data-nr-vars': '' }, 'متغيرات: ', (c.VARS || ['الاسم', 'الرقم', 'الوضع', 'التفاصيل']).map((x) => h('code', null, '{' + x + '}')))), // the order's own (customer service — Safwat 25 Nov) fill on an order's alert only
         err ? h('p', { class: 'ferr t-small', role: 'alert' }, err) : null);
     };
     draw();

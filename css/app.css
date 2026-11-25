@@ -2553,3 +2553,12 @@ input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-
 .ar-parts { margin: 0 0 10px; flex-wrap: wrap; }
 .ar-tbl tr.ar-go { cursor: pointer; }
 .ar-tbl tr.ar-go:hover td { background: var(--color-bg-hover); }
+/* customer service's order alert (Safwat 25 Nov — bell-redesign decision 17): the phone with «نسخ» / WhatsApp, the order's status,
+   «محتاج متابعة», the sub-orders and the late makers under the title */
+.ntf-item.cust{align-items:flex-start}
+.ntf-cust{display:flex;flex-direction:column;gap:4px;margin-top:2px}
+.ntf-ph{display:inline-flex;align-items:center;gap:4px;color:var(--color-text-secondary);font-size:13px}
+.ntf-ph bdi{font-variant-numeric:tabular-nums;color:var(--color-text-primary)}
+.ntf-ph .icon-btn.sm{width:28px;height:28px}
+.ntf-ph .ntf-wa{color:var(--color-brand-default)}
+.ntf-late{color:var(--color-text-secondary);font-size:12px;white-space:normal}

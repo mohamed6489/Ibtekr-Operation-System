@@ -919,10 +919,26 @@
             im.addEventListener('error', () => { box.className = 'av letter vendor'; box.replaceChildren(a.letter || '؟'); }); return box; }
           if (a.letter) return h('span', { class: 'av letter ' + (a.tone || ''), 'aria-hidden': 'true' }, a.letter);
           return h('span', { class: 'av ' + (a.tone || it.tone), 'aria-hidden': 'true' }, Icon(a.icon, 'sm')); };
-        const list = h('div', { class: 'ntf-list', role: 'list' }, items.length ? items.map((it) => h('button', { type: 'button', class: 'ntf-item' + (it.muted ? ' muted' : '') + (it.fresh ? ' fresh' : '') + (it.lv ? ' lv-' + it.lv : '') + (it.group ? ' grp' : ''), role: 'listitem', 'data-ntf-lv': it.lv || null, onClick: () => { close(); it.run(); } },
+        // an order alert of customer service (Safwat 25 Nov — bell-redesign decision 17): the customer's first letter, his phone with
+        // «نسخ» / WhatsApp (a masked one — no rights to the phone — shown as it is), then the order's status, «محتاج متابعة» when late or
+        // about to be, its sub-orders and the late makers; the card is a div so its buttons are its own (a button cannot hold buttons)
+        const stop = (e) => e.stopPropagation();
+        const copyPh = (e, p) => { e.stopPropagation(); try { navigator.clipboard.writeText(p).then(() => K.toast('اتنسخ الرقم', 'success'), () => K.toast('ماقدرتش أنسخ', 'error')); } catch (x) { K.toast('ماقدرتش أنسخ', 'error'); } };
+        const custEl = (c) => h('span', { class: 'ntf-cust', 'data-ntf-cust': '' },
+          c.phone ? h('span', { class: 'ntf-ph' }, h('bdi', { dir: 'ltr', 'data-ntf-phone': '' }, c.phone),
+            c.dial ? h('button', { type: 'button', class: 'icon-btn sm', title: 'نسخ الرقم', 'aria-label': 'نسخ الرقم', 'data-ntf-copy': '', onClick: (e) => copyPh(e, c.phone) }, Icon('copy', 'sm')) : null,
+            c.wa ? h('a', { class: 'icon-btn sm ntf-wa', href: c.wa, target: '_blank', rel: 'noopener', title: 'واتساب', 'aria-label': 'واتساب', 'data-ntf-wa': '', onClick: stop }, Icon('whatsapp', 'sm')) : null) : null,
+          h('span', { class: 'ntf-chips' },
+            c.status ? h('span', { class: 'ntf-chip neutral', 'data-ntf-ost': '' }, c.status) : null,
+            c.follow ? h('span', { class: 'ntf-chip ' + (c.dl === 'late' ? 'error' : 'warning'), 'data-ntf-follow': c.dl }, 'محتاج متابعة') : null,
+            c.subs != null ? h('span', { class: 'ntf-chip neutral', 'data-ntf-subs': '' }, c.subs + ' أوردر فرعي') : null),
+          c.late.length || c.risk.length ? h('small', { class: 'ntf-late', 'data-ntf-late': '' }, [c.late.length ? 'المتأخر: ' + c.late.join('، ') : null, c.risk.length ? 'قابل للتأخير: ' + c.risk.join('، ') : null].filter(Boolean).join(' · ')) : null);
+        const cls = (it) => 'ntf-item' + (it.muted ? ' muted' : '') + (it.fresh ? ' fresh' : '') + (it.lv ? ' lv-' + it.lv : '') + (it.group ? ' grp' : '') + (it.cust ? ' cust' : '');
+        const list = h('div', { class: 'ntf-list', role: 'list' }, items.length ? items.map((it) => h(it.cust ? 'div' : 'button', Object.assign({ class: cls(it), role: 'listitem', 'data-ntf-lv': it.lv || null, onClick: () => { close(); it.run(); } },
+            it.cust ? { tabindex: '0', onKeydown: (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) { e.preventDefault(); close(); it.run(); } } } : { type: 'button' }),
           it.fresh ? h('span', { class: 'ntf-dot', 'aria-label': 'جديد' }) : null,
           avEl(it), h('span', { class: 'txt' }, h('b', null, h('span', { class: 'tt' }, it.title), it.lvWord && !it.muted ? h('span', { class: 'ntf-lv ' + it.lv }, it.lvWord) : null, it.muted ? h('span', { class: 'ntf-fyi' }, 'للعلم') : null),
-            it.chips && it.chips.length ? h('span', { class: 'ntf-chips' }, it.chips.map(([t, tone]) => h('span', { class: 'ntf-chip ' + tone }, t))) : h('small', null, it.sub)),
+            it.cust ? custEl(it.cust) : it.chips && it.chips.length ? h('span', { class: 'ntf-chips' }, it.chips.map(([t, tone]) => h('span', { class: 'ntf-chip ' + tone }, t))) : h('small', null, it.sub)),
           it.meta ? h('span', { class: 'meta' }, it.meta) : null, h('span', { class: 'ext', 'aria-hidden': 'true' }, Icon(it.group ? 'chevL' : 'external', 'sm'))))
           : h('div', { class: 'ntf-empty' }, U.EmptyState('كله تمام هنا', sec.empty)));
         list.addEventListener('keydown', (e) => { const its = [...list.querySelectorAll('.ntf-item')]; const i = its.indexOf(document.activeElement); if (!its.length) return; if (e.key === 'ArrowDown') { e.preventDefault(); its[(i + 1) % its.length].focus(); } if (e.key === 'ArrowUp') { e.preventDefault(); its[(i - 1 + its.length) % its.length].focus(); } });

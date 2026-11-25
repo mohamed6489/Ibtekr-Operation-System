@@ -1375,6 +1375,42 @@
     try { const { error } = await cl.rpc('ai_agent_order', { p_ids: (ids || []).map(String) }); if (error) return fail(error); log('agent.order', String((ids || []).length), null); await agents(true); return { ok: true }; }
     catch (e) { return fail(null); }
   }
+  // ---- «طلبات جاهزة» / «تقارير جاهزة» of one assistant (0171 — agent chat flows phase 3): [{ id, agent, kind: request | report, name,
+  // role (null = everyone who opens it), parts: [{ element, type, state }] }] — what the member sees (his role); the admin writes
+  const READY = {}; const READY_PART = /^[^<>\u0000-\u001f]{1,60}$/;
+  async function readyList(agent, force) {
+    const a = String(agent || ''); if (!a) return { ok: true, items: [] };
+    if (!force && READY[a]) return { ok: true, items: READY[a] };
+    const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
+    try {
+      const { data: d, error } = await cl.rpc('ai_agent_ready_list', { p_agent: a });
+      if (error) { if (error.code === 'PGRST202' || error.code === '42883') { READY[a] = []; return { ok: true, items: [], missing: true }; } return fail(error); } // before 0171
+      READY[a] = (Array.isArray(d) ? d : []).filter((x) => x && (x.kind === 'request' || x.kind === 'report')).map((x) => ({ id: String(x.id), agent: a, kind: x.kind, name: String(x.name || ''), role: x.role ? String(x.role) : null,
+        parts: (Array.isArray(x.parts) ? x.parts : []).filter((p) => p && READY_PART.test(String(p.element || '')) && READY_PART.test(String(p.type || '')) && READY_PART.test(String(p.state || ''))).map((p) => ({ element: String(p.element), type: String(p.type), state: String(p.state) })) }));
+      return { ok: true, items: READY[a] };
+    } catch (e) { return fail(null); }
+  }
+  const readyNow = (agent) => READY[String(agent || '')] || null;
+  async function readySave(p) {
+    if (!isAdmin()) return { ok: false, reason: 'forbidden', message: 'الطلبات والتقارير الجاهزة للأدمن بس' };
+    const x = p && typeof p === 'object' ? p : {};
+    const name = String(x.name || '').trim(); if (!name || name.length > 60 || /[<>]/.test(name)) return { ok: false, reason: 'invalid', field: 'name', message: 'الاسم لحد 60 حرف ومن غير < >' };
+    if (x.kind !== 'request' && x.kind !== 'report') return { ok: false, reason: 'invalid', field: 'kind', message: 'اختار طلب ولا تقرير' };
+    const parts = (Array.isArray(x.parts) ? x.parts : []).map((q) => ({ element: String((q && q.element) || ''), type: String((q && q.type) || ''), state: String((q && q.state) || '') }));
+    if (!parts.length || parts.length > 6 || parts.some((q) => !READY_PART.test(q.element) || !READY_PART.test(q.type) || !READY_PART.test(q.state))) return { ok: false, reason: 'invalid', field: 'parts', message: 'اختار العنصر ونوع البيانات والوضع (لحد 6 عناصر)' };
+    const body = { agent: String(x.agent || ''), kind: x.kind, name, role: x.role ? String(x.role) : '', parts }; if (x.id) body.id = String(x.id);
+    const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
+    try {
+      const { data: id, error } = await cl.rpc('ai_agent_ready_save', { p: body }); if (error) return fail(error);
+      log(x.id ? 'ready.save' : 'ready.add', body.agent + ' · ' + body.kind, id); await readyList(body.agent, true); return { ok: true, id: String(id) };
+    } catch (e) { return fail(null); }
+  }
+  async function readyDelete(id, agent) {
+    if (!isAdmin()) return { ok: false, reason: 'forbidden', message: 'الطلبات والتقارير الجاهزة للأدمن بس' };
+    const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
+    try { const { error } = await cl.rpc('ai_agent_ready_delete', { p_id: String(id) }); if (error) return fail(error); log('ready.delete', String(agent || ''), id); await readyList(agent, true); return { ok: true }; }
+    catch (e) { return fail(null); }
+  }
   // the rules and skills, one list each — [{ id, kind, section, title, text, agents: [id…] (empty = all) }]; before 0120 the old sections, read only
   let KBL = null;
   async function kbList(force) {
@@ -1532,7 +1568,7 @@
     adsStatus, adsNow, adsSync, adsData, adsLinkSet, adsLinkStart, adsLinkPick, adsUnlink, adsWhy,
     suggestions, suggNow, decide, campaignSet, adsDataNow, rules, rulesNow, rulesSet, setLive, requests, reqsNow, addRequest, REQ_KIND: KIND_OF, buyerChat,
     agentChats, agentTurns, agentAsk, agentFacts, agentLocal, agentImage, agentRename, agentDelete, agentSettings, agentSettingsNow, agentSettingsSet, AGENT_KEYS,
-    agents, agentsNow, agentOf, agentSave, agentArchive, agentOrder, kbList, kbListNow, kbSetAll, kbReset, kbRewrite, AGENT_PERMS, AGENT_SEES,
+    agents, agentsNow, agentOf, agentSave, agentArchive, agentOrder, readyList, readyNow, readySave, readyDelete, kbList, kbListNow, kbSetAll, kbReset, kbRewrite, AGENT_PERMS, AGENT_SEES,
     trends, trendsNow, trendsReadyNow, trendsRefresh, trendThumbsFill, trendThumbs, trendThumbNow, trendSettings, trendSettingsNow, trendSettingsSet, adTagsSet, agentKbSet, KB, competitors, competitorsNow, competitorsReadyNow, competitorSave, competitorArchive, competitorBrief,
     siteCheck, siteCheckNow, siteReadyNow, siteCheckRun, siteSpeed, siteSpeedNow, siteSpeedRun, pixel, pixelNow, pixelRun, siteSubs, siteSubsNow, aiSpend, aiSpendNow,
     addTemplate, editTemplate, removeTemplate, templateUsed, subscribe, unsubscribe, check, MAX_BYTES, MIME, BUCKET,

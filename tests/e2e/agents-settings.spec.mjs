@@ -266,3 +266,25 @@ test('before the rules reach the server (no ai_agent_rules_status) the assistant
   await page.locator('#pg-settings').getByRole('tab', { name: 'المساعدين' }).click(); await page.locator('[data-ag-tab="dev"]').click();
   await expect(page.locator('[data-ag-sources]')).toBeVisible(); await expect(page.locator('[data-ag-rules]')).toHaveCount(0);
 });
+
+// 0168 (Safwat 25 Nov — «مدة تخزين المحادثات … ٢٤ ساعة او ٤٨ ساعة او ٧٢ ساعة او اسبوع او شهر او ٣ شهور … و خلي الديفولت ٤٨ ساعة»): each
+// assistant's tab has its own time, 48 hours until the admin picks; saved in agents.<id>.keep (hours), the default left out
+test('0168 how long an assistant\'s chats stay: 48 hours by default, the admin picks per assistant', async ({ page }) => {
+  await signIn(page);
+  await page.evaluate(() => { location.hash = 'settings-ai'; });
+  await page.locator('#pg-settings').getByRole('tab', { name: 'المساعدين' }).click();
+  await page.locator('[data-ag-tab="designer"]').click();
+  await expect(page.locator('[data-ag-keep]')).toHaveAttribute('data-ag-keep', '48');
+  await page.locator('#ag-keep-designer').click();
+  await expect(page.getByRole('option')).toHaveText(['24 ساعة', '48 ساعة (الافتراضي)', '72 ساعة', 'أسبوع', 'شهر', '3 شهور']);
+  await page.getByRole('option', { name: 'أسبوع' }).click();
+  const keepOf = (id) => { const r = (mock.settings || []).find((x) => x.section === 'ai'); return r && r.data && r.data.agents && r.data.agents[id] ? r.data.agents[id].keep : undefined; };
+  await expect.poll(() => keepOf('designer')).toBe(168);
+  await expect(page.locator('[data-ag-keep]')).toHaveAttribute('data-ag-keep', '168');
+  // another assistant keeps its own (the default)
+  await page.locator('[data-ag-tab="dev"]').click();
+  await expect(page.locator('[data-ag-keep]')).toHaveAttribute('data-ag-keep', '48');
+  // back to the default: the key goes
+  await page.locator('[data-ag-tab="designer"]').click(); await page.locator('#ag-keep-designer').click(); await page.getByRole('option', { name: '48 ساعة (الافتراضي)' }).click();
+  await expect.poll(() => keepOf('designer')).toBeUndefined();
+});

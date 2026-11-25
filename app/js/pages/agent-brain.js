@@ -32,7 +32,7 @@
     // another assistant's number: the question goes to it (its numbers are its own to say)
     const others = Object.keys(F).filter((id) => id !== agent); let far = null;
     for (const id of others) { const b = best(t, F[id].metrics || []); if (b && (!far || b.n > far.n)) far = { id, n: b.n }; }
-    if (far) return { type: 'handoff', agent: far.id, question: raw.slice(0, 1000), text: tx('ده تخصص «', 'This is the speciality of “') + F[far.id].name + tx('» — الأرقام دي عنده. اضغط وسؤالك يتكتب في الشات بتاعه.', '” — these numbers are its own. Press, and your question is written in its chat.') };
+    if (far) return { type: 'handoff', agent: far.id, question: raw.slice(0, 1000), text: tx('ده تخصص «', 'This is the speciality of “') + F[far.id].name + tx('» — الأرقام دي عنده. اضغط وطلبك هيوصله ويبدأ معاك على طول.', '” — these numbers are its own. Press, and your request goes to it and it starts right away.') };
     if (!status) return null;
     if (agent === 'manager') { // every assistant's desk in a line: what holds, by name
       const rows = [agent].concat(others).filter((id) => (F[id].metrics || []).length).map((id) => { const hold = F[id].metrics.filter((m) => m.rule);

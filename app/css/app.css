@@ -2668,3 +2668,13 @@ input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-
 .menu.notif .ntf-nav .ntf-nav-item .cnt.zero{background:rgba(255,247,239,.16);color:var(--color-text-on-brand)}
 .menu.notif .ntf-nav .ntf-nav-item .cnt.hot{background:var(--color-error-text);color:#fff}
 .menu.notif .ntf-nav .foot{color:var(--color-text-on-brand);opacity:.75}
+/* «طلبات جاهزة» / «تقارير جاهزة» in an assistant's chat header (0171 — chat flows phase 3): one menu, the item and the admin's ✎ / 🗑 on a line */
+.ag-rd-menu{min-width:240px;max-height:360px}
+.ag-rd-row{display:flex;align-items:center;gap:2px}
+.ag-rd-row>.opt{flex:1 1 auto;min-width:0}
+.ag-rd-acts{display:inline-flex;gap:2px;flex:none}
+.ag-rd-ic{display:inline-grid;place-items:center;width:28px;height:28px;border:0;border-radius:var(--radius-sm);background:none;color:var(--color-text-secondary);cursor:pointer}
+.ag-rd-ic:hover,.ag-rd-ic:focus-visible{background:var(--color-bg-hover);color:var(--color-brand-default)}
+.ag-rd-parts{display:flex;flex-direction:column;gap:8px;margin:8px 0}
+.ag-rd-st{display:flex;align-items:flex-end;gap:6px}.ag-rd-st>:first-child{flex:1 1 auto;min-width:0}
+.ag-rd-x{margin-bottom:8px}

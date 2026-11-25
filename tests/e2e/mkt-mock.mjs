@@ -128,6 +128,7 @@ export function mktState(opts = {}) {
     agents: JSON.parse(JSON.stringify(opts.mktAgents || {})), agentFail: null, agentAnswer: null, agentImgFail: null, nchat: 0,
     // 0120: the assistants' registry (the eight built-ins unless opts.mktAiAgents) and their one list of rules and skills;
     // noRegistry = 0120 not applied yet (the RPCs are not there — the page falls back to the three of marketing)
+    ready: (opts.mktReady || []).map((x, i) => ({ id: 'rd' + (i + 1), role: null, sort: i, ...x })), nready: 0,
     aiAgents: (opts.mktAiAgents || AI_BUILTINS).map((x, i) => ({ about: '', intro: '', instructions: '', suggestions: [], role: null, sees: [], builtin: false, sort: (i + 1) * 10, archived_at: null, ...x })),
     aiKb: (opts.mktAiKb || []).map((x, i) => ({ id: i + 1, text: '', agents: [], ...x })), aiKbDefaults: (opts.mktAiKbDefaults || []).map((x) => ({ text: '', agents: [], ...x })), noRegistry: !!opts.mktNoRegistry, nagent: 0,
     // 0124: the assistants' notes (opts.agentNotes — { agent, kind, title, body?, link? }); noNotes = 0124 not applied yet
@@ -229,6 +230,18 @@ export function mktRoute(c) {
     if (name === 'ai_agents_list') return json(200, H.aiAgents.filter((a) => (isAdmin(u) ? true : !a.archived_at && hasPerm(u, a.perm) !== 'N')).slice().sort((a, b2) => a.sort - b2.sort)
       .map((a) => ({ id: a.id, name: a.name, icon: a.icon, perm: a.perm, sees: a.sees, role: a.role, about: a.about, intro: a.intro, instructions: isAdmin(u) ? a.instructions : '', suggestions: a.suggestions, builtin: a.builtin, sort: a.sort, archived: !!a.archived_at })));
     if (name === 'ai_agent_can') return json(200, agentCan(u, b.p_agent));
+    // 0171: the ready requests and reports — who sees the assistant and holds the row's role (main or extra); the admin writes
+    if (name === 'ai_agent_ready_list') { const mine = [u.role_id].concat(u.extra_roles || []);
+      return json(200, H.ready.filter((r) => r.agent === b.p_agent && (isAdmin(u) || (agentCan(u, r.agent) && (!r.role || mine.includes(r.role))))).slice().sort((x, y) => x.sort - y.sort)
+        .map((r) => ({ id: r.id, agent: r.agent, kind: r.kind, name: r.name, role: r.role, parts: r.parts, sort: r.sort }))); }
+    if (name === 'ai_agent_ready_save') { if (!isAdmin(u)) return refuse(403, '42501', 'not allowed'); const p = b.p || {};
+      if (!['request', 'report'].includes(p.kind)) return refuse(400, '22023', 'invalid: kind'); if (!p.name || /[<>]/.test(p.name) || p.name.length > 60) return refuse(400, '22023', 'invalid: name');
+      if (!Array.isArray(p.parts) || !p.parts.length || p.parts.length > 6 || p.parts.some((q) => !q.element || !q.type || !q.state)) return refuse(400, '22023', 'invalid: parts');
+      const row = { agent: p.agent, kind: p.kind, name: p.name, role: p.role || null, parts: p.parts.map((q) => ({ element: q.element, type: q.type, state: q.state })) };
+      if (p.id) { const cur = H.ready.find((r) => r.id === p.id); if (!cur) return refuse(404, 'P0002', 'not found'); Object.assign(cur, row); H.writes.push({ table: 'ai_agent_ready', op: 'save', id: cur.id, ...row }); return json(200, cur.id); }
+      const id = 'rdn' + (++H.nready); H.ready.push({ id, sort: H.ready.length, ...row }); H.writes.push({ table: 'ai_agent_ready', op: 'add', id, ...row }); return json(200, id); }
+    if (name === 'ai_agent_ready_delete') { if (!isAdmin(u)) return refuse(403, '42501', 'not allowed'); const i = H.ready.findIndex((r) => r.id === b.p_id); if (i < 0) return refuse(404, 'P0002', 'not found');
+      H.ready.splice(i, 1); H.writes.push({ table: 'ai_agent_ready', op: 'delete', id: b.p_id }); return json(200, null); }
     // the owner 22 Nov — an assistant's chat answers from the system first: the numbers it watches, for the assistants this member sees
     if (name === 'ai_agent_facts') { if (!H.rulesOn) return refuse(404, 'PGRST202', 'Could not find the function public.' + name); return json(200, agentFacts(mock, (id) => agentCan(u, id), (perm) => isAdmin(u) || hasPerm(u, perm) === 'F')); }
     // … and the system's own answer is kept in the member's chat (made on its first message), marked as the system's — text only

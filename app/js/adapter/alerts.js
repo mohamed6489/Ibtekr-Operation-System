@@ -22,6 +22,7 @@
   // settings' tree — the main sections (its groups) and their sub-sections (the filters) as the admin built them, and every alert
   // under its rule's sub-section; an alert whose «تفاصيل الظهور» passed (hide_at) is gone. Before 0157 the columns are missing and
   // the old select runs (tree stays null — block 28 keeps its old groups).
+  let ruleSec = new Map(); // a working rule's id → its sub-section
   let tree = null; // { mains: [{ id, name, icon, subs: [{ id, name, elements: [] }] }] }
   async function loadTree(cl) {
     try {
@@ -32,6 +33,10 @@
       // the bell by role (Safwat 24 Nov — «تقسم التنبيهات على دور بالشكل الجديد والأقسام الفرعية تبقى جاهزة حتى لو فيها صفر»): a sub-section
       // carries the roles its working rules go to; treeSections shows a member the ones of his roles (primary + extra), the admin all
       const rolesOf = (id) => [...new Set(rules.filter((y) => y.section_id === id && y.active !== false).flatMap((y) => (Array.isArray(y.roles) ? y.roles : [])))];
+      // the bell is the settings and nothing else (Safwat 25 Nov — «مش عايز اشوف في كل تاب … الا نفس العناصر و الاقسام الموجودة في
+      // اعدادات التنبيهات»): an alert shows only under the sub-section of its rule, a working rule that is still there
+      const subIds = new Set(all.filter((x) => x.parent_id).map((x) => x.id));
+      ruleSec = new Map(rules.filter((y) => y.active !== false && subIds.has(y.section_id)).map((y) => [y.id, y.section_id]));
       tree = { mains: all.filter((x) => !x.parent_id).map((m) => ({ id: m.id, name: m.name, icon: m.icon || null,
         subs: all.filter((x) => x.parent_id === m.id).map((x) => ({ id: x.id, name: x.name, roles: rolesOf(x.id), elements: [...new Set(rules.filter((y) => y.section_id === x.id).map((y) => y.element))] })) })) };
     } catch (e) { tree = null; }
@@ -143,7 +148,7 @@
     const ch = channel; channel = null;
     if (ch && c()) { try { Promise.resolve(c().removeChannel(ch)).catch(() => {}); } catch (e) { /* already closed */ } }
   }
-  const clear = () => { items = null; notes = null; tree = null; };
+  const clear = () => { items = null; notes = null; tree = null; ruleSec = new Map(); };
   const toneOf = (kind) => { const k = String(kind || ''); return /fail|error|down|late|overdue/i.test(k) ? 'error' : /\.(ok|done|success|info)$/i.test(k) ? 'info' : 'warning'; };
   function relTime(iso, nowMs) {
     const t = Date.parse(iso); if (!Number.isFinite(t)) return '';
@@ -196,14 +201,9 @@
   // readF (Safwat 24 Nov — «شيل خانة غير مقروء و مقروء … و حط مع زرار الاحدث و الاقدم معاه مقروء او غير مقروء»): 'unread' | 'read' | anything = all
   function treeSections(open, sort, readF) {
     if (!tree || !tree.mains.length || !items) return null;
-    const C = window.IBNotifCatalog; const subOf = new Map(); tree.mains.forEach((m) => m.subs.forEach((x) => subOf.set(x.id, m.id)));
-    const placeOf = (a) => {
-      if (a.sectionId && subOf.has(a.sectionId)) return a.sectionId;
-      const el = C && C.elementOfKind ? C.elementOfKind(a.kind) : null;
-      for (const m of tree.mains) for (const x of m.subs) if (el && x.elements.includes(el)) return x.id;
-      return null; // the first group's «الكل»
-    };
-    const placed = items.map((a) => ({ a, sub: placeOf(a) }));
+    // only an alert of a working rule in the settings, under that rule's sub-section — one written with no rule (a database function's,
+    // a rule deleted since) or of a rule switched off is not in the bell
+    const placed = items.map((a) => ({ a, sub: a.ruleId ? ruleSec.get(a.ruleId) || null : null })).filter((p) => p.sub);
     const keep = (p) => (readF === 'unread' ? !p.a.read : readF === 'read' ? !!p.a.read : true); // the read filter beside the sort
     const time = (x) => Date.parse(x.at);
     const asItem = ({ a }) => { const tone = toneOf(a.kind); const lv = lvOf(a); return { key: 'sa:' + a.id, title: a.title, sub: a.body || '', meta: relTime(a.at, Date.now()), tone, icon: tone === 'error' ? 'alert' : 'bell', muted: a.read, fresh: !a.read,
@@ -241,10 +241,11 @@
     const admin = !me || me.role_id === 'admin';
     const has = new Set(placed.map((p) => p.sub).filter(Boolean));
     const mineSub = (x) => admin || has.has(x.id) || (x.roles || []).some((r) => myRoles.includes(r));
-    const firstWith = tree.mains.findIndex((m) => m.subs.some(mineSub));
-    return tree.mains.map((m, i) => ({ m, i, subs: m.subs.filter(mineSub) })).filter((x) => x.subs.length || (x.i === 0 && placed.some((p) => !p.sub))).map(({ m, i, subs }) => {
+    // every main section and sub-section of the settings, no more and no less (Safwat 25 Nov — «لا أزيد ولا أقل»): the admin all of them, even
+    // an empty main; a member his roles' (0163)
+    return tree.mains.map((m) => ({ m, subs: m.subs.filter(mineSub) })).filter((x) => admin || x.subs.length).map(({ m, subs }) => {
       const subIds = new Set(m.subs.map((x) => x.id));
-      const mine = placed.filter((p) => (p.sub ? subIds.has(p.sub) : i === (firstWith > -1 ? firstWith : 0)));
+      const mine = placed.filter((p) => subIds.has(p.sub));
       const shown = mine.filter(keep); const all = ord(atoms(shown)); const unreadAll = mine.filter((p) => !p.a.read);
       const tabs = [['all', 'الكل', all]].concat(subs.map((x) => ['s:' + x.id, x.name, ord(atoms(shown.filter((p) => p.sub === x.id)))]));
       const critical = unreadAll.filter((p) => lvOf(p.a) === 'critical').length;

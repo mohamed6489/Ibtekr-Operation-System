@@ -33,19 +33,24 @@ test('load merges reads, asked for the loaded alert ids only (bounded by the ale
 });
 
 // the notifications' new structure (Safwat 24 Nov — 0157): the bell = the settings' tree — a group per main section, «الكل», one tab
-// per sub-section, «غير مقروء» / «مقروء»; an alert without a rule sits under the first sub-section whose rules are of its kind's element
-test('treeSections: the settings\' tree as the bell\'s groups and filters; a rule-less alert placed by its element; the sort', async () => {
+// per sub-section; and nothing else (Safwat 25 Nov — «لا أزيد ولا أقل»): an alert shows only under its working rule's sub-section — one
+// with no rule, or of a rule switched off or gone, is not in the bell; every main section shows for the admin, even an empty one
+test('treeSections: the settings\' tree as the bell\'s groups and filters, nothing more and nothing less; the sort', async () => {
   const R1 = { id: 11, at: '2026-11-24T08:00:00Z', kind: 'rule:orders.confirm', title: 'أوردر غير مؤكد — IB-1', body: 'x', entity: 'orders/1', entity_id: 'o:1', rule_id: 'r1', section_id: 's1', hide_at: null };
-  const R2 = { id: 12, at: '2026-11-24T09:00:00Z', kind: 'hr.overtime', title: 'وقت إضافي', body: null, entity: 'hr', entity_id: null, rule_id: null, section_id: null, hide_at: null };
-  const responses = { alerts: { data: [R2, R1], error: null }, alert_reads: { data: [{ alert_id: 11 }], error: null },
-    notif_sections: { data: [{ id: 'm1', parent_id: null, name: 'خدمة العملاء', sort: 0 }, { id: 's1', parent_id: 'm1', name: 'غير مؤكدة', sort: 0 }, { id: 'm2', parent_id: null, name: 'الفريق', sort: 1 }, { id: 's2', parent_id: 'm2', name: 'الحضور والانصراف', sort: 0 }], error: null },
-    notif_rules: { data: [{ id: 'r1', section_id: 's1', element: 'orders', active: true }, { id: 'r2', section_id: 's2', element: 'team', active: true }], error: null } };
+  const R2 = { id: 12, at: '2026-11-24T09:00:00Z', kind: 'rule:team.status', title: 'لم يسجل حضور', body: null, entity: 'hr', entity_id: null, rule_id: 'r2', section_id: 's2', hide_at: null };
+  const R3 = { id: 13, at: '2026-11-24T10:00:00Z', kind: 'rule:subs.delay', title: 'أوردر فرعي قابل للتأخير', body: null, entity: 'orders/3', entity_id: null, rule_id: null, section_id: null, hide_at: null };
+  const R4 = { id: 14, at: '2026-11-24T10:30:00Z', kind: 'hr.overtime', title: 'وقت إضافي', body: null, entity: 'hr', entity_id: null, rule_id: null, section_id: 's2', hide_at: null };
+  const R5 = { id: 15, at: '2026-11-24T11:00:00Z', kind: 'rule:orders.delay', title: 'أوردر متأخر', body: null, entity: 'orders/5', entity_id: null, rule_id: 'r3', section_id: 's1', hide_at: null };
+  const responses = { alerts: { data: [R5, R4, R3, R2, R1], error: null }, alert_reads: { data: [{ alert_id: 11 }], error: null },
+    notif_sections: { data: [{ id: 'm1', parent_id: null, name: 'خدمة العملاء', sort: 0 }, { id: 's1', parent_id: 'm1', name: 'غير مؤكدة', sort: 0 }, { id: 'm2', parent_id: null, name: 'الفريق', sort: 1 }, { id: 's2', parent_id: 'm2', name: 'الحضور والانصراف', sort: 0 }, { id: 'm3', parent_id: null, name: 'قسم فاضي', sort: 2 }], error: null },
+    notif_rules: { data: [{ id: 'r1', section_id: 's1', element: 'orders', active: true }, { id: 'r2', section_id: 's2', element: 'team', active: true }, { id: 'r3', section_id: 's1', element: 'orders', active: false }], error: null } };
   const { A, window } = load({ responses });
-  window.IBNotifCatalog = { elementOfKind: (k) => (/^hr/.test(k) ? 'team' : null) };
+  window.IBNotifCatalog = { elementOfKind: (k) => (/^hr/.test(k) ? 'team' : /subs/.test(k) ? 'subs' : null) };
   await A.load();
   assert.equal(A.hasTree(), true);
   const S = A.treeSections(() => true, 'new');
-  assert.deepEqual(plain(S.map((x) => [x.label, x.tabs.map((t) => t[1] + ':' + t[2].length)])), [['خدمة العملاء', ['الكل:1', 'غير مؤكدة:1']], ['الفريق', ['الكل:1', 'الحضور والانصراف:1']]]); // no «غير مقروء» / «مقروء» tabs (Safwat 24 Nov)
+  // the rule-less ones (R3, R4) and the stopped rule's (R5) are nowhere; the empty main section is there
+  assert.deepEqual(plain(S.map((x) => [x.label, x.tabs.map((t) => t[1] + ':' + t[2].length)])), [['خدمة العملاء', ['الكل:1', 'غير مؤكدة:1']], ['الفريق', ['الكل:1', 'الحضور والانصراف:1']], ['قسم فاضي', ['الكل:0']]]); // no «غير مقروء» / «مقروء» tabs (Safwat 24 Nov)
   assert.equal(S[1].received, 1); assert.equal(S[0].received, 0);
   assert.equal(S[1].tabs[0][2][0].fresh, true, 'the green dot on the unread one');
   // the read filter beside the sort: «غير مقروء» drops the read one, «مقروء» keeps it only

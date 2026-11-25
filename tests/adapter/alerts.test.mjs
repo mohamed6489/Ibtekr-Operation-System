@@ -286,3 +286,23 @@ test('treeSections: one card per maker with his counts, the critical first, the 
   assert.deepEqual(plain(opened), [{ vendorLate: 'Art Craft', vendorId: 'v1', kind: 'all' }]);
   assert.equal(A.list().filter((a) => a.read).length, 3, 'the card marks the maker\'s alerts read');
 });
+
+// customer service's order alert (Safwat 25 Nov — bell-redesign decision 17): the card carries the customer, his phone read from orders_v
+// (a full one: copy + WhatsApp; a masked one shown as it is, no links), the order's status, «محتاج متابعة», its sub-orders and late makers
+test('treeSections: an order alert of customer service — the phone from orders_v, the status, the follow-up, the sub-orders and the late makers', async () => {
+  const meta = (gid, dl) => ({ lv: 'important', g: 'customer', gid, gname: 'منى أحمد', ost: 'جاري التنفيذ', dl, subs: 2, lm: dl === 'late' ? ['Art Craft'] : [], rm: dl === 'risk' ? ['sala'] : [] });
+  const rows = [
+    { id: 31, at: '2026-11-25T09:00:00Z', kind: 'rule:orders.delay', title: 'أوردر متأخر — IB-1', body: 'x', entity: 'orders/1', entity_id: 'o:1', rule_id: 'r1', section_id: 's1', hide_at: null, meta: meta('o1', 'late') },
+    { id: 32, at: '2026-11-25T08:00:00Z', kind: 'rule:orders.delay', title: 'أوردر متأخر — IB-2', body: 'x', entity: 'orders/2', entity_id: 'o:2', rule_id: 'r1', section_id: 's1', hide_at: null, meta: meta('o2', 'ok') }];
+  const responses = { alerts: { data: rows, error: null }, alert_reads: { data: [], error: null },
+    orders_v: { data: [{ id: 'o1', customer_phone: '01011112222' }, { id: 'o2', customer_phone: '010•••2222' }], error: null },
+    notif_sections: { data: [{ id: 'm1', parent_id: null, name: 'خدمة العملاء', sort: 0 }, { id: 's1', parent_id: 'm1', name: 'أوردر متأخر', sort: 0 }], error: null },
+    notif_rules: { data: [{ id: 'r1', section_id: 's1', element: 'orders', active: true }], error: null } };
+  const { A, calls } = load({ responses });
+  await A.load();
+  assert.deepEqual(opsOf(calls, 'orders_v'), [{ op: 'select', args: ['id, customer_phone'] }, { op: 'in', args: ['id', ['o1', 'o2']] }]);
+  const all = A.treeSections(() => true, 'new')[0].tabs[0][2];
+  assert.deepEqual(plain(all[0].cust), { name: 'منى أحمد', phone: '01011112222', dial: true, wa: 'https://wa.me/201011112222', status: 'جاري التنفيذ', follow: true, dl: 'late', subs: 2, late: ['Art Craft'], risk: [] });
+  assert.equal(all[1].cust.dial, false); assert.equal(all[1].cust.wa, null); assert.equal(all[1].cust.follow, false);
+  assert.deepEqual(plain(all[0].av), { letter: 'م', tone: 'customer' }, 'the customer\'s first letter');
+});

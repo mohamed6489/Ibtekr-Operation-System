@@ -16,7 +16,9 @@ type Json = Record<string, any>;
 // group / n / pcs / st: who the alert is about and its counts — the bell draws and groups by them (alerts.meta — the bell's redesign)
 export type Group = { g: 'vendor' | 'member' | 'agent' | 'customer'; id: string; name: string };
 export type Ent = { id: string; name?: string; ref?: string; state?: string; line?: string; entity?: string; users?: string[]; only?: boolean; perm?: [string, string]; per?: Json;
-  group?: Group; n?: number; pcs?: number; st?: string };
+  group?: Group; n?: number; pcs?: number; st?: string; o?: OrderFacts };
+// an order's alert (customer service — Safwat 25 Nov): its status, its delay, its sub-orders and the makers behind the delay
+export type OrderFacts = { status: string; dl: string; subs: number; late: string[]; risk: string[] };
 type Ctx = { now: string; nowMs: number; cairo: { day: string; time: string } };
 
 const rows = (r: { data?: unknown }) => (Array.isArray(r?.data) ? r.data as Json[] : []);
@@ -97,6 +99,15 @@ function subsOf(r: OrdersRead, pick: (it: Json) => boolean): Map<string, { order
   return out;
 }
 const DELAY_WORD: Record<string, string> = { late: 'متأخر', risk: 'قابل للتأخير', ok: 'غير متأخر' };
+// the customer an order's alert is about (the bell: his first letter, his phone read on the page under the member's own rights — never
+// stored here) and the order's facts the card shows
+function custOf(r: OrdersRead, o: Json): { group: Group; o: OrderFacts } {
+  const mine = r.lines.filter((it) => String(it.order_id) === String(o.id) && it.vendor_id);
+  const names = (st: string) => [...new Set(mine.filter((it) => r.lineState.get(String(it.id)) === st).map((it) => String(it.vendor_id)))].map((v) => String(r.V.get(v)?.name ?? 'مبتكر')).slice(0, 5);
+  const late = names('late');
+  return { group: { g: 'customer', id: String(o.id), name: String(o.customer_name ?? '').trim() || 'عميل' },
+    o: { status: String(o.status_custom || o.status || ''), dl: r.orderState.get(String(o.id)) || 'ok', subs: new Set(mine.map((it) => String(it.vendor_id))).size, late, risk: names('risk').filter((n) => !late.includes(n)) } };
+}
 const pcsOf = (L: Json[]) => L.reduce((s, it) => s + (Number(it.qty) > 0 ? Number(it.qty) : 1), 0);
 
 // ---------------------------------------------------------------- the events in the activity log since a time
@@ -198,12 +209,12 @@ async function read(db: Db, w: World, ctx: Ctx, rule: Json, since: string): Prom
     case 'orders.confirm': case 'orders.status': {
       const r = await orders(db, w, ctx);
       return r.O.filter((o) => ty === 'confirm' ? String(o.confirm) === st : (String(o.status) === st || String(o.status_custom ?? '') === st))
-        .map((o) => ({ id: 'o:' + o.id, name: String(o.customer_name ?? '').trim(), ref: ref(o), state: st, line: st + ' · عمره ' + ageOf(o, today) + ' يوم', entity: 'orders/' + String(o.number ?? o.id) }));
+        .map((o) => ({ id: 'o:' + o.id, name: String(o.customer_name ?? '').trim(), ref: ref(o), state: st, line: st + ' · عمره ' + ageOf(o, today) + ' يوم', entity: 'orders/' + String(o.number ?? o.id), ...custOf(r, o) }));
     }
     case 'orders.delay': {
       const r = await orders(db, w, ctx);
       return r.O.filter((o) => (r.orderState.get(String(o.id)) || 'ok') === st)
-        .map((o) => ({ id: 'o:' + o.id, name: String(o.customer_name ?? '').trim(), ref: ref(o), state: DELAY_WORD[st], line: 'أوردر ' + DELAY_WORD[st] + ' · ' + String(o.status), entity: 'orders/' + String(o.number ?? o.id) }));
+        .map((o) => ({ id: 'o:' + o.id, name: String(o.customer_name ?? '').trim(), ref: ref(o), state: DELAY_WORD[st], line: 'أوردر ' + DELAY_WORD[st] + ' · ' + String(o.status), entity: 'orders/' + String(o.number ?? o.id), ...custOf(r, o) }));
     }
     case 'orders.update': {
       if (st === 'new') return rows(await db.from('orders').select('id, number, customer_name, created_at, deleted_at').gte('created_at', since).is('deleted_at', null).gte('placed_at', LIVE_FROM).limit(300))

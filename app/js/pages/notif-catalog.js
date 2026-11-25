@@ -138,11 +138,17 @@
   }
   // a part's name in a report's table: «العنصر › الوضع»
   function partLabel(part, lists) { const e = el(part.element); const s = stateOf(part.element, part.type, part.state, lists); return (e ? e.label : part.element) + ' › ' + (s ? s.label : part.state); }
-  // the message: the template's {الاسم} / {الرقم} / {الوضع} / {التفاصيل} filled, else the rule's name and the entity's line
+  // the message: the template's {الاسم} / {الرقم} / {الوضع} / {التفاصيل} filled, else the rule's name and the entity's line; an order's
+  // alert (customer service — Safwat 25 Nov) also fills {العميل} / {حالة_الأوردر} / {المتابعة} / {الأوردرات_الفرعية} / {المبتكر_المتأخر}
+  const VARS = ['الاسم', 'الرقم', 'الوضع', 'التفاصيل', 'العميل', 'حالة_الأوردر', 'المتابعة', 'الأوردرات_الفرعية', 'المبتكر_المتأخر'];
+  const followOf = (dl) => (dl === 'late' || dl === 'risk' ? 'محتاج متابعة' : '');
   function render(rule, ent) {
-    const v = { 'الاسم': ent && ent.name ? String(ent.name) : '', 'الرقم': ent && ent.ref ? String(ent.ref) : '', 'الوضع': ent && ent.state ? String(ent.state) : '', 'التفاصيل': ent && ent.line ? String(ent.line) : '' };
+    const o = ent && ent.o && typeof ent.o === 'object' ? ent.o : null;
+    const v = { 'الاسم': ent && ent.name ? String(ent.name) : '', 'الرقم': ent && ent.ref ? String(ent.ref) : '', 'الوضع': ent && ent.state ? String(ent.state) : '', 'التفاصيل': ent && ent.line ? String(ent.line) : '',
+      'العميل': ent && ent.group && ent.group.g === 'customer' ? String(ent.group.name || '') : '', 'حالة_الأوردر': o ? String(o.status || '') : '', 'المتابعة': o ? followOf(o.dl) : '',
+      'الأوردرات_الفرعية': o && Number.isFinite(Number(o.subs)) ? String(o.subs) : '', 'المبتكر_المتأخر': o ? (o.late || []).concat(o.risk || []).join('، ') : '' };
     const tpl = String(rule && rule.template ? rule.template : '').trim();
-    const body = tpl ? tpl.replace(/\{(الاسم|الرقم|الوضع|التفاصيل)\}/g, (_, k) => v[k]) : v['التفاصيل'];
+    const body = tpl ? tpl.replace(/\{(الاسم|الرقم|الوضع|التفاصيل|العميل|حالة_الأوردر|المتابعة|الأوردرات_الفرعية|المبتكر_المتأخر)\}/g, (_, k) => v[k]) : v['التفاصيل'];
     return { title: String(rule && rule.name ? rule.name : '').slice(0, 120) + (v['الرقم'] ? ' — ' + v['الرقم'] : ''), body: body.replace(/[<>]/g, '').slice(0, 300) };
   }
   // is a rule due now (Cairo's day / minute): its time passed today and the repeat's gap since its last run
@@ -201,7 +207,7 @@
     if (level === 'normal') return kind === 'state' ? { show: 'until_state', hours: 0 } : kind === 'due' ? { show: 'fixed', hours: 24 } : { show: 'until_read', hours: 2 };
     return { show: 'until_read', hours: 2 };
   }
-  const api = { ELEMENTS, AGENTS, LEVELS, LV_RANK, INFO_MAX_H, CONDS_MAX, MODES, partsOf, partLabel, levelOfAll, REPEATS, SHOWS, SHOW_HOURS, CHANNELS, LIVE_CHANNELS, el, typeOf, statesOf, stateOf, ruleError, render, due, runs, kindOf, levelOf, showOf, elementOfKind };
+  const api = { VARS, followOf, ELEMENTS, AGENTS, LEVELS, LV_RANK, INFO_MAX_H, CONDS_MAX, MODES, partsOf, partLabel, levelOfAll, REPEATS, SHOWS, SHOW_HOURS, CHANNELS, LIVE_CHANNELS, el, typeOf, statesOf, stateOf, ruleError, render, due, runs, kindOf, levelOf, showOf, elementOfKind };
   root.IBNotifCatalog = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

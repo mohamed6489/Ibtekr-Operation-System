@@ -56,9 +56,29 @@
       if (r.error) return;
       const read = new Set((r.data || []).map((x) => x.alert_id));
       items = rows.map((x) => toAlert(x, read.has(x.id)));
+      await loadPhones(cl);
       await loadNotes(cl, id);
       notify(); // the bell was drawn before the alerts arrived
     } catch (e) { /* offline: no server section */ }
+  }
+  // an order alert's customer (customer service — Safwat 25 Nov): his phone read from orders_v under the member's own rights — masked
+  // there without sensitive.customer_phone, and then no copy / WhatsApp; never kept in the alerts. By the order's id (meta.gid).
+  let phones = new Map();
+  async function loadPhones(cl) {
+    const ids = [...new Set((items || []).filter((a) => a.meta && a.meta.g === 'customer' && a.meta.ost != null && a.meta.gid).map((a) => String(a.meta.gid)))].slice(0, 200);
+    if (!ids.length) { phones = new Map(); return; }
+    try { const { data, error } = await cl.from('orders_v').select('id, customer_phone').in('id', ids);
+      if (!error) phones = new Map((data || []).map((x) => [String(x.id), String(x.customer_phone || '')])); } catch (e) { /* no phones: the card without them */ }
+  }
+  const fullPhone = (p) => /^\d{8,15}$/.test(String(p || ''));
+  const waOf = (p) => { let d = String(p || '').replace(/[^\d]/g, ''); if (/^0020/.test(d)) d = d.slice(2); if (/^01\d{9}$/.test(d)) return '2' + d; if (/^1\d{9}$/.test(d)) return '20' + d; return d; };
+  // the card's lines for an order alert: the phone, the status, «محتاج متابعة», the sub-orders and the late makers
+  function custOf(a) {
+    const m = a.meta || {}; if (m.g !== 'customer' || m.ost == null) return null;
+    const phone = phones.get(String(m.gid)) || '';
+    return { name: m.gname || '', phone, dial: fullPhone(phone), wa: fullPhone(phone) ? 'https://wa.me/' + waOf(phone) : null, status: m.ost || '',
+      follow: m.dl === 'late' || m.dl === 'risk', dl: m.dl || 'ok', subs: Number.isFinite(Number(m.subs)) ? Number(m.subs) : null,
+      late: Array.isArray(m.lm) ? m.lm : [], risk: Array.isArray(m.rm) ? m.rm : [] };
   }
   // 0124 — the assistants' notes (docs/superpowers/plans/2026-11-17-agents-brain.md decision 1): the ones the member sees (RLS: his
   // assistants, the last 30 days) with his own read marks; before 0124 the table is missing and the section stays away
@@ -148,7 +168,7 @@
     const ch = channel; channel = null;
     if (ch && c()) { try { Promise.resolve(c().removeChannel(ch)).catch(() => {}); } catch (e) { /* already closed */ } }
   }
-  const clear = () => { items = null; notes = null; tree = null; ruleSec = new Map(); };
+  const clear = () => { items = null; notes = null; tree = null; ruleSec = new Map(); phones = new Map(); };
   const toneOf = (kind) => { const k = String(kind || ''); return /fail|error|down|late|overdue/i.test(k) ? 'error' : /\.(ok|done|success|info)$/i.test(k) ? 'info' : 'warning'; };
   function relTime(iso, nowMs) {
     const t = Date.parse(iso); if (!Number.isFinite(t)) return '';
@@ -207,7 +227,7 @@
     const keep = (p) => (readF === 'unread' ? !p.a.read : readF === 'read' ? !!p.a.read : true); // the read filter beside the sort
     const time = (x) => Date.parse(x.at);
     const asItem = ({ a }) => { const tone = toneOf(a.kind); const lv = lvOf(a); return { key: 'sa:' + a.id, title: a.title, sub: a.body || '', meta: relTime(a.at, Date.now()), tone, icon: tone === 'error' ? 'alert' : 'bell', muted: a.read, fresh: !a.read,
-      lv, lvWord: LV_WORD[lv] || '', av: avatarOf(a), at: a.at,
+      lv, lvWord: LV_WORD[lv] || '', av: avatarOf(a), at: a.at, cust: custOf(a),
       run: () => { markRead(a.id); if (typeof open === 'function' && open(a) !== false) return; if (a.entity && HASH.test(a.entity)) window.location.hash = a.entity; } }; };
     // one card per maker for his delay alerts (two or more — one stays a row with his logo)
     const atoms = (list) => {

@@ -329,3 +329,26 @@ test('0167 the assistants\' section: a new alert there offers the assistants\' e
   await form.locator('#nr-el').click();
   await expect(page.getByRole('option')).toHaveText(['الذكاء الاصطناعي']);
 });
+
+// Safwat 25 Nov — «في تنبيهات خدمة العملاء عايز … اول حرف من اسم العميل و رقم تليفونه و اقدر اخدوا كوبي او اروح علي الواتساب و تحتيها
+// حالة الاوردر و لو متاخر او قابل للتاخير يبقا محتاج للمتابعة و عدد الاوردرات الفرعية و المورد المتأخر»: the order alert's card
+test('customer service\'s order alert: the customer\'s first letter, the phone (copy / WhatsApp), the status, «محتاج متابعة», the sub-orders and the late maker', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  mock.alerts = [{ id: 601, at: iso(3), kind: 'rule:orders.confirm', title: 'أوردر غير مؤكد — IB-180686', body: 'غير مؤكد · عمره 8 يوم', role_id: null, user_id: ADMIN_ID, entity: 'orders/180686', entity_id: 'o:180686', read_at: null, rule_id: 'r1', section_id: S1, hide_at: null,
+    meta: { lv: 'important', g: 'customer', gid: '180686', gname: 'هدير عميل', ost: 'جاري التنفيذ', dl: 'late', subs: 2, lm: ['Art Craft'], rm: ['Antikiano'] } }];
+  await signIn(page, 'dashboard');
+  await page.locator('.notif-btn').click();
+  const card = page.locator('.menu.notif .ntf-item.cust');
+  await expect(card).toHaveCount(1);
+  await expect(card.locator('.av.letter')).toHaveText('ه');
+  await expect(card.locator('[data-ntf-phone]')).toHaveText('01000007030');
+  await expect(card.locator('[data-ntf-wa]')).toHaveAttribute('href', 'https://wa.me/201000007030');
+  await expect(card.locator('[data-ntf-ost]')).toHaveText('جاري التنفيذ');
+  await expect(card.locator('[data-ntf-follow]')).toHaveText('محتاج متابعة');
+  await expect(card.locator('[data-ntf-subs]')).toHaveText('2 أوردر فرعي');
+  await expect(card.locator('[data-ntf-late]')).toHaveText('المتأخر: Art Craft · قابل للتأخير: Antikiano');
+  // «نسخ» copies the number and leaves the bell open (the card's own click is the order)
+  await card.locator('[data-ntf-copy]').click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('01000007030');
+  await expect(page.locator('.menu.notif')).toBeVisible();
+});

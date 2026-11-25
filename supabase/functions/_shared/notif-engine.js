@@ -112,6 +112,14 @@ export function metaOf(rule, e) {
   if (e && Number.isFinite(Number(e.n)) && e.n != null) m.n = Number(e.n);
   if (e && Number.isFinite(Number(e.pcs)) && e.pcs != null) m.pcs = Number(e.pcs);
   if (e && (e.st === 'late' || e.st === 'risk')) m.st = e.st;
+  // an order's facts (customer service — Safwat 25 Nov): its status, delay, sub-orders and late makers' names — never a phone
+  const o = e && e.o;
+  if (o && typeof o === 'object') {
+    const nm = (L) => (Array.isArray(L) ? L.slice(0, 5).map((x) => String(x || '').slice(0, 40)).filter(Boolean) : []);
+    m.ost = String(o.status || '').slice(0, 40); m.dl = o.dl === 'late' || o.dl === 'risk' ? o.dl : 'ok';
+    if (Number.isFinite(Number(o.subs))) m.subs = Number(o.subs);
+    m.lm = nm(o.late); m.rm = nm(o.risk);
+  }
   return m;
 }
 

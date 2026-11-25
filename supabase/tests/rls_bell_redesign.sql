@@ -1,6 +1,6 @@
 -- Tests for 0161 (the bell's redesign — docs/superpowers/plans/2026-11-24-bell-redesign.md): a member reads `meta` on his own alerts
 -- and no one else's; the rules' «تفاصيل الظهور» follow their level; the new alerts and the assistants' sub-sections are there with
--- their roles. Depends on 0001 … 0161. One transaction, rolled back; NOTICE 'rls_bell_redesign: ok' only if every case passed.
+-- their roles. Depends on 0001 … 0161 (and 0172 — the sub-orders' rules out). One transaction, rolled back; NOTICE 'rls_bell_redesign: ok' only if every case passed.
 -- Live-safe: made-up members and alerts.
 
 begin;
@@ -16,7 +16,9 @@ insert into public.alerts (kind, title, user_id, entity_id, meta) values
   ('rule:subs.delay', 'أوردر فرعي متأخر', '00000000-0000-4000-8000-000000161a02', 's:1:2', '{"lv":"critical"}');
 
 do $$ begin
-  if (select show from public.notif_rules where element = 'subs' and type = 'delay' and state = 'late' limit 1) is distinct from 'until_state' then raise exception 'case a critical state stays till it changes failed'; end if;
+  -- 0172: the sub-orders' rules are out (the element stays in the catalogue); a maker's waiting withdrawal is the state that stays
+  if (select show from public.notif_rules where element = 'makers' and type = 'accounts' and state = 'withdraw_wait' limit 1) is distinct from 'until_state' then raise exception 'case a state stays till it changes failed'; end if;
+  if exists (select 1 from public.notif_rules where element = 'subs') then raise exception 'case 0172 the sub-orders rules are out failed'; end if;
   if exists (select 1 from public.notif_rules where element = 'daily' and type = 'summary' and (show, hours) is distinct from ('until_read', 2)) then raise exception 'case the daily summary is info failed'; end if;
   if exists (select 1 from public.notif_rules where element = 'makers' and type = 'making' and state = 'confirmed' and (show, hours) is distinct from ('until_read', 2)) then raise exception 'case an info event goes 2 hours after read failed'; end if;
   if exists (select 1 from public.notif_rules where element = 'makers' and type = 'accounts' and state = 'withdraw' and (show, hours) is distinct from ('until_read', 6)) then raise exception 'case an important event stays till read + 6 failed'; end if;

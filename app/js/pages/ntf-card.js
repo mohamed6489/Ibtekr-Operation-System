@@ -5,16 +5,32 @@
        a line with the customer's name and phone = the card's head (the name bold, the number with «نسخ» / WhatsApp — a masked one,
        no rights to the phone, as it is with no buttons); «follow» = the red (late) / yellow (about to be) chip with its icon; «subs» =
        the sub-orders with a box; «makers» = a row per maker (name · pieces · his products' status, the late / about to be ones with a
-       word and a colour — never the colour alone); «details» = the entity's line, its « · » pieces apart; «chip» / «text» as they are.
+       word and a colour — never the colour alone); «details» = the entity's line, its « · » pieces apart; «chip» / «text» as they are;
+       «state» = the alert's state as a chip in its tone (late red · about to be yellow · confirmed green — the word on it); «nums» =
+       a maker's sub-order numbers, each a button that copies it, and «نسخ الكل» (Safwat 25 Nov — the maker's card)
      IBNtfCard.preview(rule, stateLabel) → the rule's card on a sample alert of its element, for its form (the settings) — every
        template works the same way (Safwat 25 Nov — «قوالب الرسايل كلها تشتغل بنفس الطريقة») */
 (function () {
   'use strict';
   const U = () => window.IBUI; const K = () => window.IBKit; const C = () => window.IBNotifCatalog || {};
   const stop = (e) => e.stopPropagation();
-  function copy(e, p) {
+  function copy(e, p, said) {
     e.stopPropagation();
-    try { navigator.clipboard.writeText(p).then(() => K().toast('اتنسخ الرقم', 'success'), () => K().toast('ماقدرتش أنسخ', 'error')); } catch (x) { K().toast('ماقدرتش أنسخ', 'error'); }
+    try { navigator.clipboard.writeText(p).then(() => K().toast(said || 'اتنسخ الرقم', 'success'), () => K().toast('ماقدرتش أنسخ', 'error')); } catch (x) { K().toast('ماقدرتش أنسخ', 'error'); }
+  }
+  const TONE = { late: 'error', risk: 'warning', ok: 'success', off: 'neutral' };
+  function stateEl(p) {
+    const { h } = U(); const L = p.items && p.items.length ? p.items : [{ t: p.text, d: '' }];
+    return L.map((x) => h('span', { class: 'ntf-chip ' + (TONE[x.d] || 'neutral'), 'data-ntf-state': x.d || '' }, x.t));
+  }
+  // a maker's sub-order numbers: each one copies itself, «نسخ الكل» copies them a line each (to paste to him)
+  function numsEl(p) {
+    const { h, Icon } = U(); const L = (p.items || []).filter((x) => x && x.n);
+    const all = L.map((x) => x.n).join('\n');
+    return h('span', { class: 'ntf-nums', role: 'group', 'aria-label': 'أرقام الأوردرات الفرعية', 'data-ntf-nums': String(L.length) },
+      L.map((x) => h('button', { type: 'button', class: 'ntf-num ' + (x.d || ''), title: 'نسخ ' + x.n, 'aria-label': 'نسخ الأوردر الفرعي ' + x.n, 'data-ntf-num': x.n,
+        onClick: (e) => copy(e, x.n, 'اتنسخ الرقم ' + x.n) }, h('bdi', { dir: 'ltr' }, '#' + x.n), Icon('copy', 'sm'))),
+      L.length > 1 ? h('button', { type: 'button', class: 'ntf-num all', 'aria-label': 'نسخ كل الأرقام', 'data-ntf-nums-all': '', onClick: (e) => copy(e, all, 'اتنسخت ' + L.length + ' أرقام') }, Icon('copy', 'sm'), 'نسخ الكل') : null);
   }
   const pcs = (n) => (C().pcsWord ? C().pcsWord(n) : String(n));
   const DL = { late: 'متأخر', risk: 'قابل للتأخير' };
@@ -34,6 +50,8 @@
   function part(p, c) {
     const { h, Icon } = U();
     if (p.kind === 'phone') return phoneEl(p, c);
+    if (p.kind === 'state') return stateEl(p);
+    if (p.kind === 'nums') return numsEl(p);
     if (p.kind === 'name') return h('span', { class: 'ntf-nm', 'data-ntf-name': '' }, h('bdi', null, p.text));
     if (p.kind === 'follow') return h('span', { class: 'ntf-chip ' + (c.dl === 'late' ? 'error' : 'warning'), 'data-ntf-follow': c.dl }, Icon('clock', 'sm'), p.text);
     if (p.kind === 'subs') return h('span', { class: 'ntf-chip neutral', 'data-ntf-chip': '', 'data-ntf-subs': '' }, Icon('package', 'sm'), p.text);
@@ -44,6 +62,7 @@
   function lineEl(L, c) {
     const { h } = U();
     if (L.length === 1 && L[0].kind === 'makers') return makersEl(L[0]);
+    if (L.length === 1 && L[0].kind === 'nums') return numsEl(L[0]);
     if (L.every((p) => p.kind === 'text')) return h('small', { class: 'ntf-late', 'data-ntf-line': '' }, L.map((p) => p.text).join(' · '));
     const head = L.some((p) => p.kind === 'phone' || p.kind === 'name');
     return h('span', { class: head ? 'ntf-line ph' : 'ntf-chips', 'data-ntf-line': '' }, L.map((p) => (p.kind === 'makers' ? makersEl(p) : part(p, c))));
@@ -55,11 +74,11 @@
   // the rule's card on a sample alert of its element (an order's facts for an order rule), for its form in the settings
   function preview(rule, stateLabel) {
     const Cat = C(); const { h } = U(); if (!Cat.cardLines) return null;
-    const order = Cat.isOrderRule(rule); const phone = order ? '01012345678' : '';
-    const c = { lines: Cat.cardLines(Cat.templateOf(rule), Cat.sampleVars(rule, stateLabel)), phone, dial: order, wa: order ? 'https://wa.me/201012345678' : null, dl: 'late' };
+    const order = Cat.isOrderRule(rule); const maker = !!(Cat.isMakerRule && Cat.isMakerRule(rule)); const phone = order || maker ? '01012345678' : '';
+    const c = { lines: Cat.cardLines(Cat.templateOf(rule), Cat.sampleVars(rule, stateLabel)), phone, dial: !!phone, wa: phone ? 'https://wa.me/201012345678' : null, dl: 'late' };
     return h('div', { class: 'nr-card-prev', 'data-nr-card-prev': '' }, h('span', { class: 't-small sub' }, 'شكله في الجرس (تنبيه مثال):'),
-      h('div', { class: 'ntf-item cust prev' }, h('span', { class: 'av letter customer', 'aria-hidden': 'true' }, order ? 'م' : '؟'),
-        h('span', { class: 'txt' }, h('b', null, h('span', { class: 'tt' }, String((rule && rule.name) || 'اسم التنبيه') + ' — IB-1001')), el(c))));
+      h('div', { class: 'ntf-item cust prev' }, h('span', { class: 'av letter ' + (maker ? 'vendor' : 'customer'), 'aria-hidden': 'true' }, order ? 'م' : maker ? 'A' : '؟'),
+        h('span', { class: 'txt' }, h('b', null, h('span', { class: 'tt' }, String((rule && rule.name) || 'اسم التنبيه') + (maker ? '' : ' — IB-1001'))), el(c))));
   }
   window.IBNtfCard = { el, preview };
 })();

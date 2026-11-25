@@ -82,3 +82,37 @@ test('hidePlan: until the state changes (+ its hours) · until read (+ its hours
   assert.equal(E.hidePlan({ rule: { ...base, active: false }, alerts: A, inState: null, reads: new Map(), now }).length, 2);
   assert.deepEqual(J(E.hidePlan({ rule: { ...base, type: 'update', state: 'new', hours: 0 }, alerts: A, inState: null, reads: new Map([['2', '2026-11-24T09:30:00Z']]), now })), [{ id: 2, hide_at: '2026-11-24T09:30:00.000Z' }]);
 });
+
+// the maker's card (Safwat 25 Nov — bell-redesign decision 19: «الكارت ثابت و الحالات بس اللي تتغير»): every alert of the makers' element
+// is one card — his name and phone, the state with its tone, his sub-orders and pieces (or the amount), and the numbers to copy
+test('the maker\'s card: one template for every state of the makers\' element; the numbers digits only; the phone only from the page', () => {
+  assert.equal(C.isMakerRule({ element: 'makers' }), true); assert.equal(C.isMakerRule({ element: 'orders' }), false);
+  assert.equal(C.templateOf({ element: 'makers', type: 'making', template: '' }), C.MAKER_TPL);
+  assert.equal(C.templateOf({ element: 'makers', type: 'accounts', template: '{الاسم}' }), '{الاسم}'); // the admin's own template wins
+  assert.ok(C.varsOf({ element: 'makers' }).includes('أرقام_الأوردرات')); assert.ok(!C.varsOf({ element: 'tickets' }).includes('أرقام_الأوردرات'));
+  assert.deepEqual(C.numsOf(['9101', '#9102', 'IB-9103', null, '', 'abc']), ['9101', '9102', '9103']);
+  assert.equal(C.numsOf(Array.from({ length: 40 }, (_, i) => String(i + 1))).length, C.NUMS_MAX);
+  const late = { g: 'vendor', gid: 'v1', gname: 'Glody', n: 2, pcs: 3, st: 'late', sk: 'late', nums: ['9101', '9102'], v: { n: 'Glody', s: 'متأخر' } };
+  const L = J(C.cardLines(C.MAKER_TPL, C.alertVars(late, '', '01012345678')));
+  assert.deepEqual(L.map((x) => x.map((p) => p.kind)), [['name', 'phone'], ['state', 'subs', 'chip'], ['nums']]);
+  assert.deepEqual(L[1].map((p) => p.text), ['متأخر', '2 أوردر فرعي', '3 قطع']);
+  assert.deepEqual(L[1][0].items, [{ t: 'متأخر', d: 'late' }]); assert.deepEqual(L[2][0].items, [{ n: '9101', d: 'late' }, { n: '9102', d: 'late' }]);
+  // a withdrawal: no sub-orders — the state and the amount; no phone on the page = no phone part
+  const wd = J(C.cardLines(C.MAKER_TPL, C.alertVars({ g: 'vendor', gid: 'v1', gname: 'Glody', sk: 'withdraw', sm: '1,200 ج.م', v: { n: 'Glody', s: 'طلب سحب' } }, '', '')));
+  assert.deepEqual(wd.map((x) => x.map((p) => p.text)), [['Glody'], ['طلب سحب', '1,200 ج.م']]);
+  // a confirmed order: green; the sample of the rule's form is the same card
+  const ok = J(C.cardLines(C.MAKER_TPL, C.alertVars({ g: 'vendor', gname: 'Glody', n: 1, sk: 'confirmed', nums: ['9301'], v: { s: 'أوردر مؤكد' } }, '', '')));
+  assert.equal(ok[1][0].items[0].d, 'ok');
+  const sample = J(C.cardLines(C.templateOf({ element: 'makers', type: 'making', state: 'risk' }), C.sampleVars({ element: 'makers', type: 'making', state: 'risk' }, 'أوردرات قابلة للتأخير')));
+  assert.deepEqual(sample[0].map((p) => p.kind), ['name', 'phone']); assert.equal(sample[2][0].items[0].d, 'risk');
+  // the engine's text (e-mail / WhatsApp) with the admin's template: the maker's variables, never a phone
+  const msg = C.render({ name: 'متأخرين', template: '{المبتكر} · {أرقام_الأوردرات}', element: 'makers' }, { name: 'Glody', state: 'متأخر', line: 'l', group: { g: 'vendor', id: 'v1', name: 'Glody' }, n: 2, st: 'late', nums: ['11', '22'] });
+  assert.deepEqual(msg, { title: 'متأخرين', body: 'Glody · 11، 22' });
+});
+test('metaOf: a maker\'s alert carries its state key, its numbers (digits) and its short line — no phone even if one slipped into the line', () => {
+  const m = E.metaOf({ element: 'makers', type: 'accounts', state: 'withdraw_wait', level: 'important' },
+    { id: 'wdw:1', name: 'Glody', state: 'طلب سحب مستني', line: 'Glody · x', group: { g: 'vendor', id: 'v1', name: 'Glody' }, sm: '900 ج.م · اتصل على 01012345678', nums: ['#77'] });
+  assert.equal(m.sk, 'withdraw_wait'); assert.deepEqual(m.nums, ['77']); assert.ok(!/0101234/.test(JSON.stringify(m)), JSON.stringify(m)); assert.ok(m.sm.startsWith('900 ج.م'));
+  const o = E.metaOf({ element: 'orders', type: 'confirm', state: 'غير مؤكد' }, { id: 'o:1', name: 'x' });
+  assert.equal(o.sk, undefined); // the state key is the makers' card's only
+});

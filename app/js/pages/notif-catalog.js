@@ -148,10 +148,31 @@
   // late / about to be (Safwat 25 Nov — «عدد الاوردرات الفرعية و كل فيندور قداموا عدد القطع و حالة التسليم»); in a text (the email) one
   // line «الاسم: N قطع (الحالة)». {العميل} = the customer's name, bold at the card's head.
   const VARS = ['الاسم', 'الرقم', 'الوضع', 'التفاصيل', 'العميل', 'التليفون', 'حالة_الأوردر', 'المتابعة', 'الأوردرات_الفرعية', 'المبتكرين', 'المبتكر_المتأخر', 'المبتكر_القابل_للتأخير'];
-  const VAR_RE = /\{(الاسم|الرقم|الوضع|التفاصيل|العميل|التليفون|حالة_الأوردر|المتابعة|الأوردرات_الفرعية|المبتكرين|المبتكر_المتأخر|المبتكر_القابل_للتأخير)\}/g;
+  // a maker's alert (Safwat 25 Nov — the maker's card): his name, the pieces, a short line of the state (an amount, a wait) and the
+  // sub-order numbers; his phone is {التليفون} — read on the page under the member's own rights, never in the alert
+  const MAKER_ONLY = ['المبتكر', 'القطع', 'الملخص', 'أرقام_الأوردرات'];
+  const VAR_RE = /\{(الاسم|الرقم|الوضع|التفاصيل|العميل|التليفون|حالة_الأوردر|المتابعة|الأوردرات_الفرعية|المبتكرين|المبتكر_المتأخر|المبتكر_القابل_للتأخير|المبتكر|القطع|الملخص|أرقام_الأوردرات)\}/g;
   // the order alert's template when the admin wrote none — the card as it shows (0170 writes it on the order rules): the customer's
   // name and phone, the follow-up and the sub-orders, a row per maker (Safwat 25 Nov — «شيل حالة الاوردر الرئيسي»)
   const ORDER_TPL = '{العميل} · {التليفون}\n{المتابعة} · {الأوردرات_الفرعية} أوردر فرعي\n{المبتكرين}';
+  // every alert of the makers' element has one card (Safwat 25 Nov — «الكارت ثابت و الحالات بس اللي تتغير»): the maker and his phone ·
+  // the state, his sub-orders and pieces (or the amount) · the sub-orders' numbers to copy
+  const MAKER_TPL = '{المبتكر} · {التليفون}\n{الوضع} · {الأوردرات_الفرعية} أوردر فرعي · {القطع} · {الملخص}\n{أرقام_الأوردرات}';
+  const NUMS_MAX = 30;
+  /** A maker alert's sub-order numbers (meta.nums — the engine writes them): digits only, at most NUMS_MAX. */
+  const numsOf = (L) => (Array.isArray(L) ? L.map((x) => String(x == null ? '' : x).replace(/[^\d]/g, '').slice(0, 12)).filter(Boolean).slice(0, NUMS_MAX) : []);
+  // the state's tone on the card: late red, about to be yellow, confirmed / settled green, the rest neutral — with its word, never the colour alone
+  const SK_TONE = { late: 'late', risk: 'risk', confirmed: 'ok', settle: 'ok', withdraw: 'risk', withdraw_wait: 'risk', cancelled: 'off', delete: 'late' };
+  /** The maker card's variables from an alert's meta (and the phone the page read). _nums / _st = the numbers and the state as items. */
+  function makerVars(meta, phone) {
+    const m = meta || {}; const v = m.v && typeof m.v === 'object' ? m.v : {}; const nums = numsOf(m.nums);
+    const st = m.st === 'late' || m.st === 'risk' ? m.st : ''; const tone = st || SK_TONE[m.sk] || '';
+    const word = String(v.s || DL_WORD[st] || '');
+    return { 'المبتكر': String(m.gname || v.n || ''), 'التليفون': phone ? String(phone) : '',
+      'الأوردرات_الفرعية': Number(m.n) > 0 ? String(Math.round(Number(m.n))) : '', 'القطع': Number(m.pcs) > 0 ? pcsWord(m.pcs) : '',
+      'الملخص': String(m.sm || '').replace(/[<>]/g, '').slice(0, 80), 'أرقام_الأوردرات': nums.join('، '), 'الوضع': word,
+      _nums: nums.map((n) => ({ n, d: tone })), _st: word ? [{ t: word, d: tone }] : [] };
+  }
   const followOf = (dl) => (dl === 'late' || dl === 'risk' ? 'محتاج متابعة' : '');
   const list = (L) => (Array.isArray(L) ? L.map(String).filter(Boolean).join('، ') : '');
   const DL_WORD = { late: 'متأخر', risk: 'قابل للتأخير' };
@@ -170,29 +191,37 @@
   // a part's look in the card: phone (with «نسخ» / WhatsApp) · makers (a row each) · name (bold) · follow (red / yellow) · subs (a chip
   // with a box) · chip · details (the entity's line, its « · » pieces apart) · text
   const partKind = (part) => { const t = part.trim();
-    return /\{التليفون\}/.test(part) ? 'phone' : t === '{المبتكرين}' ? 'makers' : /\{العميل\}/.test(part) ? 'name' : t === '{المتابعة}' ? 'follow'
-      : /\{الأوردرات_الفرعية\}/.test(part) ? 'subs' : /\{(حالة_الأوردر|الوضع|الرقم)\}/.test(part) ? 'chip' : t === '{التفاصيل}' ? 'details' : 'text'; };
+    return /\{التليفون\}/.test(part) ? 'phone' : t === '{المبتكرين}' ? 'makers' : t === '{أرقام_الأوردرات}' ? 'nums' : t === '{الوضع}' ? 'state'
+      : /\{(العميل|المبتكر)\}/.test(part) ? 'name' : t === '{المتابعة}' ? 'follow'
+      : /\{الأوردرات_الفرعية\}/.test(part) ? 'subs' : /\{(حالة_الأوردر|الوضع|الرقم|القطع|الملخص)\}/.test(part) ? 'chip' : t === '{التفاصيل}' ? 'details' : 'text'; };
   // every alert's variables on the page (Safwat 25 Nov — «قوالب الرسايل كلها تشتغل بنفس الطريقة»): the entity's own from meta.v (name ·
   // ref · state · line — the engine writes them), an order's facts from the meta, the phone read on the page; an older alert = its body
   function alertVars(meta, body, phone) {
     const m = meta || {}; const v = m.v && typeof m.v === 'object' ? m.v : null;
     return Object.assign({ 'الاسم': v ? String(v.n || '') : '', 'الرقم': v ? String(v.r || '') : '', 'الوضع': v ? String(v.s || '') : '', 'التفاصيل': v ? String(v.d || '') : String(body || '') },
-      orderVars(metaFacts(m), phone));
+      orderVars(metaFacts(m), phone), m.g === 'vendor' ? makerVars(m, phone) : null);
   }
   // the form's sample alert (its preview): an order's facts for an order rule, else a plain entity
   const SAMPLE_ORDER = { customer: 'منى أحمد', status: 'جاري التنفيذ', dl: 'late', subs: 2, late: ['Art Craft'], risk: ['sala'],
     mk: [{ n: 'Art Craft', p: 3, s: 'جاري التنفيذ', d: 'late' }, { n: 'sala', p: 1, s: 'جاهز للشحن من المبتكر للمخزن', d: 'risk' }] };
+  // a maker rule's sample: Art Craft, his three late sub-orders and their numbers (his state is the rule's own)
+  const SAMPLE_MAKER = (st, word) => ({ g: 'vendor', gname: 'Art Craft', n: st === 'late' || st === 'risk' || !st ? 3 : 1, pcs: 5, st: st === 'late' || st === 'risk' ? st : undefined, sk: st,
+    nums: st === 'late' || st === 'risk' || !st ? ['4512', '4520', '4533'] : ['4512'], v: { n: 'Art Craft', s: word } });
   function sampleVars(rule, stateLabel) {
-    const order = isOrderRule(rule);
-    return Object.assign({ 'الاسم': order ? 'منى أحمد' : 'مثال', 'الرقم': 'IB-1001', 'الوضع': String(stateLabel || 'الوضع'), 'التفاصيل': 'تفاصيل التنبيه زي ما السيستم بيكتبها' },
-      orderVars(order ? SAMPLE_ORDER : null, order ? '01012345678' : ''));
+    const order = isOrderRule(rule); const maker = isMakerRule(rule);
+    return Object.assign({ 'الاسم': order ? 'منى أحمد' : maker ? 'Art Craft' : 'مثال', 'الرقم': 'IB-1001', 'الوضع': String(stateLabel || 'الوضع'), 'التفاصيل': 'تفاصيل التنبيه زي ما السيستم بيكتبها' },
+      orderVars(order ? SAMPLE_ORDER : null, order ? '01012345678' : ''),
+      maker ? makerVars(SAMPLE_MAKER(rule.state, String(stateLabel || 'الوضع')), '01012345678') : null);
   }
   // the rules whose alerts carry an order's facts (customer service): their variables and their default card
   const isOrderRule = (r) => !!r && r.element === 'orders' && ['confirm', 'delay', 'status'].includes(r.type);
+  // every rule of the makers' element: the maker's card (Safwat 25 Nov)
+  const isMakerRule = (r) => !!r && r.element === 'makers';
   const BASE_VARS = ['الاسم', 'الرقم', 'الوضع', 'التفاصيل'];
-  const varsOf = (r) => (isOrderRule(r) ? VARS : BASE_VARS);
-  /** The template the card is drawn from: the admin's, else the order card for an order rule, else the entity's line. */
-  const templateOf = (r) => (r && typeof r.template === 'string' && r.template.trim() ? r.template : isOrderRule(r) ? ORDER_TPL : '{التفاصيل}');
+  const MAKER_VARS = BASE_VARS.concat(['المبتكر', 'التليفون', 'الأوردرات_الفرعية'], MAKER_ONLY.slice(1));
+  const varsOf = (r) => (isOrderRule(r) ? VARS : isMakerRule(r) ? MAKER_VARS : BASE_VARS);
+  /** The template the card is drawn from: the admin's, else the order card for an order rule, the maker's card for a maker rule, else the entity's line. */
+  const templateOf = (r) => (r && typeof r.template === 'string' && r.template.trim() ? r.template : isOrderRule(r) ? ORDER_TPL : isMakerRule(r) ? MAKER_TPL : '{التفاصيل}');
   /** The template's lines as the card draws them: [[{ kind, text, items? }]] — the empty ones left out; a makers part has its rows. */
   function cardLines(tpl, v) {
     const out = [];
@@ -201,7 +230,9 @@
       for (const part of line.split(' · ')) {
         const ks = [...part.matchAll(VAR_RE)].map((m) => m[1]); if (ks.length && ks.every((k) => !v[k])) continue;
         const text = part.replace(VAR_RE, (_, k) => v[k] || '').replace(/[<>]/g, '').trim(); if (!text) continue;
-        const kind = partKind(part); parts.push(kind === 'makers' ? { kind, text, items: v._mk || [] } : { kind, text });
+        // {الوضع} with its tone on a maker's card (v._st); on any other card it stays the plain chip it was
+        const kind = partKind(part) === 'state' && !(v._st && v._st.length) ? 'chip' : partKind(part);
+        parts.push(kind === 'makers' ? { kind, text, items: v._mk || [] } : kind === 'nums' ? { kind, text, items: v._nums || [] } : kind === 'state' ? { kind, text, items: v._st } : { kind, text });
       }
       if (parts.length) out.push(parts);
     }
@@ -210,7 +241,8 @@
   function render(rule, ent) {
     const o = ent && ent.o && typeof ent.o === 'object' ? ent.o : null;
     const v = Object.assign({ 'الاسم': ent && ent.name ? String(ent.name) : '', 'الرقم': ent && ent.ref ? String(ent.ref) : '', 'الوضع': ent && ent.state ? String(ent.state) : '', 'التفاصيل': ent && ent.line ? String(ent.line) : '' },
-      orderVars(o ? Object.assign({ customer: ent && ent.group && ent.group.g === 'customer' ? ent.group.name : '' }, o) : null, ''));
+      orderVars(o ? Object.assign({ customer: ent && ent.group && ent.group.g === 'customer' ? ent.group.name : '' }, o) : null, ''),
+      ent && ent.group && ent.group.g === 'vendor' ? makerVars({ g: 'vendor', gname: ent.group.name, n: ent.n, pcs: ent.pcs, st: ent.st, sm: ent.sm, nums: ent.nums, v: { n: ent.name, s: ent.state } }, '') : null);
     const tpl = String(rule && rule.template ? rule.template : '').trim();
     const body = tpl ? cardLines(tpl, v).map((L) => L.map((p) => p.text).join(' · ')).join('\n') : v['التفاصيل'];
     return { title: String(rule && rule.name ? rule.name : '').slice(0, 120) + (v['الرقم'] ? ' — ' + v['الرقم'] : ''), body: body.replace(/[<>]/g, '').slice(0, 300) };
@@ -271,7 +303,7 @@
     if (level === 'normal') return kind === 'state' ? { show: 'until_state', hours: 0 } : kind === 'due' ? { show: 'fixed', hours: 24 } : { show: 'until_read', hours: 2 };
     return { show: 'until_read', hours: 2 };
   }
-  const api = { VARS, BASE_VARS, ORDER_TPL, followOf, pcsWord, makersOf, DL_WORD, orderVars, metaFacts, cardLines, alertVars, sampleVars, isOrderRule, varsOf, templateOf, ELEMENTS, AGENTS, LEVELS, LV_RANK, INFO_MAX_H, CONDS_MAX, MODES, partsOf, partLabel, levelOfAll, REPEATS, SHOWS, SHOW_HOURS, CHANNELS, LIVE_CHANNELS, el, typeOf, statesOf, stateOf, ruleError, render, due, runs, kindOf, levelOf, showOf, elementOfKind };
+  const api = { VARS, BASE_VARS, MAKER_VARS, ORDER_TPL, MAKER_TPL, NUMS_MAX, numsOf, makerVars, isMakerRule, followOf, pcsWord, makersOf, DL_WORD, orderVars, metaFacts, cardLines, alertVars, sampleVars, isOrderRule, varsOf, templateOf, ELEMENTS, AGENTS, LEVELS, LV_RANK, INFO_MAX_H, CONDS_MAX, MODES, partsOf, partLabel, levelOfAll, REPEATS, SHOWS, SHOW_HOURS, CHANNELS, LIVE_CHANNELS, el, typeOf, statesOf, stateOf, ruleError, render, due, runs, kindOf, levelOf, showOf, elementOfKind };
   root.IBNotifCatalog = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

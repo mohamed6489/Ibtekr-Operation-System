@@ -16,7 +16,9 @@ type Json = Record<string, any>;
 // group / n / pcs / st: who the alert is about and its counts — the bell draws and groups by them (alerts.meta — the bell's redesign)
 export type Group = { g: 'vendor' | 'member' | 'agent' | 'customer'; id: string; name: string };
 export type Ent = { id: string; name?: string; ref?: string; state?: string; line?: string; entity?: string; users?: string[]; only?: boolean; perm?: [string, string]; per?: Json;
-  group?: Group; n?: number; pcs?: number; st?: string; o?: OrderFacts };
+  group?: Group; n?: number; pcs?: number; st?: string; o?: OrderFacts;
+  // a maker's alert (Safwat 25 Nov — the maker's card): his sub-orders' numbers to copy, and a short line of the state (an amount, a wait)
+  nums?: string[]; sm?: string };
 // an order's alert (customer service — Safwat 25 Nov): its status, its delay, its sub-orders and the makers behind the delay
 export type MakerRow = { n: string; p: number; s: string; d: string };
 export type OrderFacts = { status: string; dl: string; subs: number; late: string[]; risk: string[]; mk: MakerRow[] };
@@ -61,7 +63,7 @@ const about = (w: World, id: unknown): string[] => { const m = w.members.find((x
 
 // ---------------------------------------------------------------- the orders and their lines (the delay — the settings' rules)
 
-type OrdersRead = { O: Json[]; lines: Json[]; V: Map<string, Json>; orderState: Map<string, string>; lineState: Map<string, string> };
+type OrdersRead = { O: Json[]; lines: Json[]; V: Map<string, Json>; orderState: Map<string, string>; lineState: Map<string, string>; subNo: Map<string, string> };
 async function ordersRead(db: Db, w: World, ctx: Ctx): Promise<OrdersRead> {
   const today = ctx.cairo.day; const DR = delayRules((w.settings.makers ?? {}).delay);
   const [o, v] = await Promise.all([
@@ -72,7 +74,10 @@ async function ordersRead(db: Db, w: World, ctx: Ctx): Promise<OrdersRead> {
   const lines: Json[] = [];
   for (let i = 0; i < O.length; i += 300) lines.push(...rows(await db.from('order_items').select('id, order_id, sub_order_id, vendor_id, product_id, name, qty, status, expected_at, pulled').in('order_id', O.slice(i, i + 300).map((x) => x.id)).eq('removed', false).limit(10_000)));
   // the sub-orders' own status on the site — a line whose sub-order the site closed (shipped, completed …) is never late (lineIsOpen)
-  const SO = new Map<string, string>(); for (let i = 0; i < O.length; i += 300) for (const x of rows(await db.from('sub_orders').select('id, woo_status').in('order_id', O.slice(i, i + 300).map((y) => y.id)).limit(10_000))) SO.set(String(x.id), String(x.woo_status ?? ''));
+  // and their number on the site (the maker's card lists them to copy — Safwat 25 Nov)
+  const SO = new Map<string, string>(); const subNo = new Map<string, string>();
+  for (let i = 0; i < O.length; i += 300) for (const x of rows(await db.from('sub_orders').select('id, woo_status, woo_order_id').in('order_id', O.slice(i, i + 300).map((y) => y.id)).limit(10_000))) {
+    SO.set(String(x.id), String(x.woo_status ?? '')); if (x.woo_order_id != null) subNo.set(String(x.id), String(x.woo_order_id)); }
   const pids = [...new Set(lines.map((x) => x.product_id).filter((x) => x != null))];
   const PL = new Map<string, number>(); for (let i = 0; i < pids.length; i += 500) for (const x of rows(await db.from('product_lead_days').select('product_id, days').in('product_id', pids.slice(i, i + 500)))) PL.set(String(x.product_id), Number(x.days));
   const orderState = new Map<string, string>(); const lineState = new Map<string, string>();
@@ -85,8 +90,14 @@ async function ordersRead(db: Db, w: World, ctx: Ctx): Promise<OrdersRead> {
     orderState.set(String(ord.id), orderDelayOf({ status: ord.status, elapsed: orderElapsed(ov, today, DR), maxLead }, DR) || 'ok');
     for (const it of open) lineState.set(String(it.id), lineDelayOf(lineElapsed({ notifiedAt: it.expected_at, ...ov }, today, DR), leadOf(it), true, DR, ord.status) || 'ok');
   }
-  return { O, lines, V, orderState, lineState };
+  return { O, lines, V, orderState, lineState, subNo };
 }
+// a maker's line's number: its sub-order's on the site, else its order's (an order of one maker has no sub-order)
+const lineNo = (r: OrdersRead, it: Json): string => {
+  const sub = it.sub_order_id != null ? r.subNo.get(String(it.sub_order_id)) : undefined; if (sub) return sub;
+  const o = r.O.find((x) => String(x.id) === String(it.order_id)); return o ? String(o.number ?? o.id) : '';
+};
+const NUMS_MAX = 30;
 const ref = (o: Json) => 'IB-' + String(o.number ?? o.id);
 const ageOf = (o: Json, today: string) => daysBetween(String(o.placed_at ?? today).slice(0, 10), today);
 // a sub-order = the lines of one maker in one order
@@ -427,12 +438,13 @@ async function read(db: Db, w: World, ctx: Ctx, rule: Json, since: string): Prom
     // ---- the makers
     case 'makers.making': {
       if (st === 'late' || st === 'risk') {
-        const r = await orders(db, w, ctx); const per = new Map<string, Set<string>>(); const pcs = new Map<string, number>();
+        const r = await orders(db, w, ctx); const per = new Map<string, Set<string>>(); const pcs = new Map<string, number>(); const nos = new Map<string, Set<string>>();
         for (const it of r.lines) { if (r.lineState.get(String(it.id)) !== st || !it.vendor_id) continue; const s = per.get(String(it.vendor_id)) ?? new Set(); s.add(String(it.order_id)); per.set(String(it.vendor_id), s);
-          pcs.set(String(it.vendor_id), (pcs.get(String(it.vendor_id)) ?? 0) + pcsOf([it])); }
+          pcs.set(String(it.vendor_id), (pcs.get(String(it.vendor_id)) ?? 0) + pcsOf([it]));
+          const no = lineNo(r, it); if (no) { const L = nos.get(String(it.vendor_id)) ?? new Set(); L.add(no); nos.set(String(it.vendor_id), L); } }
         return [...per.entries()].map(([vid, s]) => { const v = r.V.get(vid); const n = v ? String(v.name) : 'مبتكر';
           return { id: 'mk:' + st + ':' + vid, name: n, state: DELAY_WORD[st], line: n + ' · ' + s.size + ' أوردر ' + (st === 'late' ? 'متأخر' : 'قابل للتأخير') + ' · ' + (pcs.get(vid) ?? 0) + ' قطعة', entity: 'makers',
-            group: ven(v, vid), n: s.size, pcs: pcs.get(vid) ?? 0, st }; });
+            group: ven(v, vid), n: s.size, pcs: pcs.get(vid) ?? 0, st, nums: [...(nos.get(vid) ?? [])].slice(0, NUMS_MAX) }; });
       }
       const acts = st === 'confirmed' ? ['order.confirm'] : ['order.cancel', 'order.status'];
       let L = await logSince(db, acts, since);
@@ -440,13 +452,18 @@ async function read(db: Db, w: World, ctx: Ctx, rule: Json, since: string): Prom
       if (st === 'confirmed') L = L.filter((l) => /مؤكد/.test(textOf(l.new_value)));
       if (!L.length) return [];
       const ids = [...new Set(L.map((l) => Number(l.entity_id)).filter((n) => Number.isFinite(n)))];
-      const its = ids.length ? rows(await db.from('order_items').select('order_id, vendor_id').in('order_id', ids).limit(3000)) : [];
+      const its = ids.length ? rows(await db.from('order_items').select('order_id, vendor_id, sub_order_id, qty').in('order_id', ids).limit(3000)) : [];
       const vs = new Map(rows(await db.from('vendors').select('id, name').limit(LIMIT)).map((v) => [String(v.id), String(v.name)]));
+      // the maker's sub-order number on the site (the card's number to copy), else the order's
+      const sids = [...new Set(its.map((x) => x.sub_order_id).filter((x) => x != null))];
+      const subNo = new Map(sids.length ? rows(await db.from('sub_orders').select('id, woo_order_id').in('id', sids).limit(3000)).map((x) => [String(x.id), x.woo_order_id == null ? '' : String(x.woo_order_id)]) : []);
       const out: Ent[] = []; const seen = new Set<string>();
       for (const l of L) for (const it of its.filter((x) => String(x.order_id) === String(l.entity_id))) {
         const k = l.id + ':' + it.vendor_id; if (!it.vendor_id || seen.has(k)) continue; seen.add(k); const n = vs.get(String(it.vendor_id)) ?? 'مبتكر';
+        const mine = its.filter((x) => String(x.order_id) === String(l.entity_id) && String(x.vendor_id) === String(it.vendor_id));
+        const no = (it.sub_order_id != null && subNo.get(String(it.sub_order_id))) || String(l.entity_id ?? '');
         out.push({ id: 'mk:' + st + ':' + k, name: n, ref: 'IB-' + String(l.entity_id), state: st === 'confirmed' ? 'أوردر مؤكد' : 'أوردر ملغي', line: n + ' · ' + (st === 'confirmed' ? 'اتأكد' : 'اتلغى') + ' أوردر IB-' + String(l.entity_id), entity: 'orders/' + String(l.entity_id),
-          group: { g: 'vendor', id: String(it.vendor_id), name: n } });
+          group: { g: 'vendor', id: String(it.vendor_id), name: n }, n: 1, pcs: pcsOf(mine), nums: no ? [no] : [] });
       }
       return out;
     }
@@ -454,16 +471,18 @@ async function read(db: Db, w: World, ctx: Ctx, rule: Json, since: string): Prom
       const vs = new Map(rows(await db.from('vendors').select('id, name').limit(LIMIT)).map((v) => [String(v.id), String(v.name)]));
       if (st === 'withdraw') return rows(await db.from('dokan_withdrawals').select('id, vendor_id, amount, status, requested_at, synced_at').eq('status', 'pending').gte('synced_at', since).limit(200))
         .map((x) => ({ id: 'wd:' + x.id, name: vs.get(String(x.vendor_id)) ?? 'مبتكر', state: 'طلب سحب', line: (vs.get(String(x.vendor_id)) ?? 'مبتكر') + ' طلب سحب ' + money(Number(x.amount)), entity: 'accounts-makers',
-          group: { g: 'vendor', id: String(x.vendor_id), name: vs.get(String(x.vendor_id)) ?? 'مبتكر' } }));
+          group: { g: 'vendor', id: String(x.vendor_id), name: vs.get(String(x.vendor_id)) ?? 'مبتكر' }, sm: money(Number(x.amount)) }));
       // the bell's redesign decision 5: a withdrawal request still waiting on Dokan after P days (2)
       if (st === 'withdraw_wait') {
         const limit = new Date(ctx.nowMs - (P ?? 2) * D).toISOString();
         return rows(await db.from('dokan_withdrawals').select('id, vendor_id, amount, status, requested_at').eq('status', 'pending').lte('requested_at', limit).limit(200))
           .map((x) => { const n = vs.get(String(x.vendor_id)) ?? 'مبتكر'; const d = Math.max(1, Math.floor((ctx.nowMs - Date.parse(String(x.requested_at))) / D));
-            return { id: 'wdw:' + x.id, name: n, state: 'طلب سحب مستني', line: n + ' · طلب سحب ' + money(Number(x.amount)) + ' مستني من ' + d + ' يوم', entity: 'accounts-makers', group: { g: 'vendor', id: String(x.vendor_id), name: n } } as Ent; });
+            return { id: 'wdw:' + x.id, name: n, state: 'طلب سحب مستني', line: n + ' · طلب سحب ' + money(Number(x.amount)) + ' مستني من ' + d + ' يوم', entity: 'accounts-makers', group: { g: 'vendor', id: String(x.vendor_id), name: n },
+              sm: money(Number(x.amount)) + ' · مستني من ' + d + ' يوم' } as Ent; });
       }
       return rows(await db.from('acc_vendor_settlements').select('id, vendor_id, cash, created_at').gte('created_at', since).limit(200))
-        .map((x) => ({ id: 'settle:' + x.id, name: vs.get(String(x.vendor_id)) ?? 'مبتكر', state: 'اتقفل حسابه', line: 'اتقفل حساب ' + (vs.get(String(x.vendor_id)) ?? 'مبتكر') + ' — اتحوّل ' + money(Number(x.cash)), entity: 'accounts-makers' }));
+        .map((x) => ({ id: 'settle:' + x.id, name: vs.get(String(x.vendor_id)) ?? 'مبتكر', state: 'اتقفل حسابه', line: 'اتقفل حساب ' + (vs.get(String(x.vendor_id)) ?? 'مبتكر') + ' — اتحوّل ' + money(Number(x.cash)), entity: 'accounts-makers',
+          group: { g: 'vendor', id: String(x.vendor_id), name: vs.get(String(x.vendor_id)) ?? 'مبتكر' }, sm: 'اتحوّل ' + money(Number(x.cash)) }));
     }
     case 'makers.update': {
       const map: Record<string, string[]> = { add: ['vendor.create'], delete: ['vendor.delete', 'vendor.archive', 'vendor.remove'], edit: ['vendor.update', 'vendor.bank', 'vendor.contract', 'vendor.photo'],
@@ -471,7 +490,10 @@ async function read(db: Db, w: World, ctx: Ctx, rule: Json, since: string): Prom
       let L = await logSince(db, map[st] ?? [], since);
       if (st === 'move') L = L.filter((l) => /\bvendor\b/.test(textOf(l.new_value)));
       const word = (CAT.stateOf(el, ty, st, null) || {}).label;
-      return L.map((l) => ({ id: 'vact:' + st + ':' + l.id, name: word, ref: String(l.entity_id ?? ''), state: word, line: word + ' · ' + nameOf(w, l.actor), entity: st === 'move' ? 'products' : 'makers' }));
+      const vs = st === 'move' ? new Map<string, string>() : new Map(rows(await db.from('vendors').select('id, name').limit(LIMIT)).map((v) => [String(v.id), String(v.name)]));
+      return L.map((l) => { const vn = vs.get(String(l.entity_id ?? ''));
+        return { id: 'vact:' + st + ':' + l.id, name: word, ref: String(l.entity_id ?? ''), state: word, line: word + ' · ' + nameOf(w, l.actor), entity: st === 'move' ? 'products' : 'makers',
+          ...(vn ? { group: { g: 'vendor', id: String(l.entity_id), name: vn } as Group, sm: 'بواسطة ' + nameOf(w, l.actor) } : {}) } as Ent; });
     }
     // ---- the bell's redesign decision 5 — the shipping, the stock and the links
     case 'orders.shipping': {

@@ -115,6 +115,11 @@ export function metaOf(rule, e) {
   if (e && Number.isFinite(Number(e.n)) && e.n != null) m.n = Number(e.n);
   if (e && Number.isFinite(Number(e.pcs)) && e.pcs != null) m.pcs = Number(e.pcs);
   if (e && (e.st === 'late' || e.st === 'risk')) m.st = e.st;
+  // a maker's card (Safwat 25 Nov — «الكارت ثابت و الحالات بس اللي تتغير»): the rule's state (its tone on the card), his sub-orders'
+  // numbers (digits only — to copy) and a short line of the state (an amount, a wait, who changed what) — never a phone
+  if (rule && rule.element === 'makers' && typeof rule.state === 'string' && rule.state) m.sk = rule.state.slice(0, 40);
+  if (e && Array.isArray(e.nums)) { const L = C.numsOf ? C.numsOf(e.nums) : []; if (L.length) m.nums = L; }
+  if (e && typeof e.sm === 'string' && e.sm.trim()) m.sm = e.sm.replace(/[<>]/g, '').replace(/\+?\d[\d\s-]{7,}\d/g, '').trim().slice(0, 80);
   // an order's facts (customer service — Safwat 25 Nov): its status, delay, sub-orders and late makers' names — never a phone
   const o = e && e.o;
   if (o && typeof o === 'object') {

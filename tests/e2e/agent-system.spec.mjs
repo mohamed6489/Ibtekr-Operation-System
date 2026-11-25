@@ -98,3 +98,26 @@ test('the general manager: where every assistant stands, from the system; no com
   await send(page, 'اقترح خطة للأسبوع الجاي'); await expect(lastAns(page)).toContainText('هحتاج مساعدة خارجية في ده، ومفيش مخ خارجي مربوط'); await expect(pg(page).locator('[data-mk-consent]')).toHaveCount(0);
   expect(asks().length).toBe(0);
 });
+
+// chat-flows phase 2 (Safwat 25 Nov — «في حالة طلب اي بيانات يقول بالرقم في الشات و يجيبلي لينك لبوب اب افتح فيه البيانات و اعملها
+// مشاركة»): the number in the chat, «افتح التفاصيل» under it opens the rows behind it (read from the member's own pages), «مشاركة» and the page
+test('a number from the system carries «افتح التفاصيل»: the rows behind it in a popup, «مشاركة» and its page; a status ask a link per number', async ({ page }) => {
+  mock.mkt.aiAgents.unshift({ id: 'manager', name: 'المدير العام', icon: 'sliders', perm: 'tickets.view', sees: ['orders', 'tickets'], role: 'مدير النظام', builtin: true, about: '', intro: '', instructions: '', suggestions: [], sort: 5, archived_at: null });
+  await openAi(page, 'المدير العام');
+  await send(page, 'كام طلب عاجل مفتوح؟');
+  await expect(lastAns(page)).toContainText('طلبات عاجلة مفتوحة: 1');
+  const dets = pg(page).locator('[data-mk-dets]').last();
+  await expect(dets.locator('[data-mk-det="tickets_urgent"]')).toHaveText('افتح التفاصيل'); await expect(dets.locator('[data-mk-det-go="tickets"]')).toBeVisible();
+  await dets.locator('[data-mk-det="tickets_urgent"]').click();
+  const pop = page.locator('.modal[data-ag-det="tickets_urgent"]'); await expect(pop).toBeVisible();
+  await expect(pop.locator('.modal-h')).toContainText('الطلبات العاجلة المفتوحة');
+  await expect(pop.locator('[data-ag-det-tbl] thead th')).toHaveText(['الرقم', 'العنوان', 'الأولوية', 'المسؤول', 'المتابعة']);
+  await expect(pop.locator('[data-ag-det-tbl] tbody tr')).toHaveCount(1); await expect(pop.locator('[data-ag-det-tbl] tbody tr')).toContainText('عاجل');
+  await pop.locator('[data-ag-det-share]').click(); await expect(page.locator('.modal', { hasText: 'Excel' }).last()).toBeVisible();
+  expect(asks().length).toBe(0);
+  await page.keyboard.press('Escape'); await page.keyboard.press('Escape'); await expect(pop).toHaveCount(0);
+  // a status ask: a link per number that holds
+  await send(page, 'إيه الأخبار؟'); await expect(lastAns(page)).toContainText('الوضع دلوقتي عند كل مساعد:');
+  await expect(pg(page).locator('[data-mk-dets]').last().locator('[data-mk-det="tickets_urgent"]')).toContainText('تفاصيل: طلبات عاجلة مفتوحة');
+  expect(asks().length).toBe(0);
+});

@@ -77,15 +77,49 @@
   // every alert's card, drawn from its rule's template (Safwat 25 Nov — «قوالب التنبيهات ذكية بنفس الشكل اللي ظاهر» · «قوالب الرسايل كلها
   // تشتغل بنفس الطريقة»): the lines and parts of IBNotifCatalog.cardLines — an order alert's default its card (the phone, the status,
   // «محتاج متابعة», the sub-orders, a row per maker), any other's its line in its pieces. null = the plain line (no rule)
+  // a maker's phone (Safwat 25 Nov — the maker's card: «حط رقم المبتكر و الواتساب عشان لو عايز اكلموا»): read on the page from the
+  // makers the member may see (IBVendors — his own rights), never kept in the alert; no makers' page = no phone on the card
+  const makerPhone = (id) => { const V = window.IBVendors; const v = V && V.store && V.store.get ? V.store.get(id) : null;
+    const p = v ? String(v.phone || v.altPhone || '').replace(/[^\d]/g, '') : ''; return p; };
+  // an older maker alert (written before its numbers were — Safwat 25 Nov): his late / about-to-be sub-orders as the orders page holds
+  // them now (OrdersApp.lateOrders — the same lines the sheet lists), a number each (the sub-order's, else the order's)
+  function liveNums(name, st) {
+    const O = window.OrdersApp; if (!O || !O.lateOrders || (st !== 'late' && st !== 'risk')) return [];
+    const out = []; try { for (const r of O.lateOrders(name, st)) { const n = String(r.sid || r.id || '').replace(/[^\d]/g, ''); if (n && !out.includes(n)) out.push(n); } } catch (e) { return []; }
+    return out.slice(0, 30);
+  }
+  const makerMeta = (m) => (Array.isArray(m.nums) && m.nums.length ? m : Object.assign({}, m, { nums: liveNums(m.gname, m.st) }));
+  const cardFrom = (C, tpl, vars, phone, extra) => Object.assign({ lines: C.cardLines(tpl, vars), phone, dial: fullPhone(phone), wa: fullPhone(phone) ? 'https://wa.me/' + waOf(phone) : null }, extra);
   function cardOf(a) {
     const C = window.IBNotifCatalog; if (!C || !C.cardLines || !a.ruleId) return null;
     // every alert of a rule is its template's card (Safwat 25 Nov — «خلي التصميم لكل التنبيهات يكون احترافي و منظم … قابلة للتعديل من
     // قوالب الرسالة»): the admin's template, else the rule's default ({التفاصيل} — the entity's line in its pieces)
     const r = ruleTpl.get(a.ruleId); const m = a.meta || {}; const order = m.g === 'customer' && m.ost != null;
     if (!r) return null;
+    // a maker's alert of the makers' element = the maker's card (Safwat 25 Nov — «الكارت ثابت و الحالات بس اللي تتغير»): his name and
+    // phone, the state, his sub-orders and pieces, their numbers to copy
+    const maker = m.g === 'vendor' && elOf(a) === 'makers' && !!C.MAKER_TPL;
+    const own = String(r.template || '').trim();
+    if (maker) { const phone = makerPhone(m.gid); return cardFrom(C, own ? r.template : C.MAKER_TPL, C.alertVars(makerMeta(m), a.body, phone), phone, { dl: m.st || 'ok', maker: true }); }
     const phone = order ? phones.get(String(m.gid)) || '' : '';
-    const lines = C.cardLines(C.templateOf(order && !(r.template || '').trim() ? { element: 'orders', type: 'confirm' } : r), C.alertVars(m, a.body, phone));
-    return { lines, phone, dial: fullPhone(phone), wa: fullPhone(phone) ? 'https://wa.me/' + waOf(phone) : null, dl: m.dl || 'ok', order };
+    const tpl = own ? r.template : order ? C.templateOf({ element: 'orders', type: 'confirm' }) : r.element === 'makers' ? '{التفاصيل}' : C.templateOf(r);
+    return cardFrom(C, tpl, C.alertVars(m, a.body, phone), phone, { dl: m.dl || 'ok', order });
+  }
+  // one card for a maker's late and about-to-be alerts in a tab (the bell's redesign decision 3) — the same maker's card: both states,
+  // their sub-orders and pieces, every number tinted by its state
+  function groupCard(L) {
+    const C = window.IBNotifCatalog; if (!C || !C.alertVars || !C.MAKER_TPL) return null;
+    const m0 = L[0].a.meta || {}; const r = ruleTpl.get(L[0].a.ruleId) || {}; const own = String(r.template || '').trim();
+    const sumOf = (st, k) => L.filter((p) => p.a.meta.st === st).reduce((s, p) => s + (Number(p.a.meta[k]) || 0), 0);
+    const lateN = sumOf('late', 'n'); const riskN = sumOf('risk', 'n');
+    const phone = makerPhone(m0.gid);
+    const v = C.alertVars({ g: 'vendor', gid: m0.gid, gname: m0.gname, n: lateN + riskN, pcs: sumOf('late', 'pcs') + sumOf('risk', 'pcs'), st: lateN ? 'late' : 'risk', v: { n: m0.gname, s: '' } }, '', phone);
+    v._st = [lateN ? { t: lateN + ' متأخر', d: 'late' } : null, riskN ? { t: riskN + ' قابل للتأخير', d: 'risk' } : null].filter(Boolean);
+    v['الوضع'] = v._st.map((x) => x.t).join(' · ');
+    const seen = new Set(); v._nums = [];
+    for (const st of ['late', 'risk']) for (const p of L.filter((x) => x.a.meta.st === st)) for (const n of C.numsOf(makerMeta(p.a.meta).nums)) if (!seen.has(n)) { seen.add(n); v._nums.push({ n, d: st }); }
+    v._nums = v._nums.slice(0, C.NUMS_MAX || 30); v['أرقام_الأوردرات'] = v._nums.map((x) => x.n).join('، ');
+    return cardFrom(C, own ? r.template : C.MAKER_TPL, v, phone, { dl: lateN ? 'late' : 'risk', maker: true });
   }
   // 0124 — the assistants' notes (docs/superpowers/plans/2026-11-17-agents-brain.md decision 1): the ones the member sees (RLS: his
   // assistants, the last 30 days) with his own read marks; before 0124 the table is missing and the section stays away
@@ -235,7 +269,9 @@
     const time = (x) => Date.parse(x.at);
     const asItem = ({ a }) => { const tone = toneOf(a.kind); const lv = lvOf(a); return { key: 'sa:' + a.id, title: a.title, sub: a.body || '', meta: relTime(a.at, Date.now()), tone, icon: tone === 'error' ? 'alert' : 'bell', muted: a.read, fresh: !a.read,
       lv, lvWord: LV_WORD[lv] || '', av: avatarOf(a), at: a.at, card: cardOf(a),
-      run: () => { markRead(a.id); if (typeof open === 'function' && open(a) !== false) return; if (a.entity && HASH.test(a.entity)) window.location.hash = a.entity; } }; };
+      run: () => { markRead(a.id); const m = a.meta || {};
+        if (m.g === 'vendor' && (m.st === 'late' || m.st === 'risk') && typeof open === 'function' && open({ vendorLate: m.gname, vendorId: m.gid, kind: m.st }) !== false) return;
+        if (typeof open === 'function' && open(a) !== false) return; if (a.entity && HASH.test(a.entity)) window.location.hash = a.entity; } }; };
     // one card per maker for his delay alerts (two or more — one stays a row with his logo)
     const atoms = (list) => {
       const by = new Map(); const out = [];
@@ -252,8 +288,9 @@
         const lv = late.length ? 'critical' : 'important'; const newest = L.reduce((b, p) => (time(p.a) > time(b.a) ? p : b), L[0]);
         const parts = [];
         if (late.length) parts.push(late.length + ' أوردر متأخر'); if (risk) parts.push(risk + ' قابل للتأخير'); if (pcs) parts.push(pcs + ' قطعة');
-        return { key: 'sv:' + m.gid, title: m.gname || 'مبتكر', sub: parts.join(' · '), meta: relTime(newest.a.at, Date.now()), tone: late.length ? 'error' : 'warning', icon: 'package',
-          muted: !unread.length, fresh: !!unread.length, lv, lvWord: LV_WORD[lv], av: avatarOf(L[0].a), at: newest.a.at, group: true, count: L.length,
+        const card = groupCard(L);
+        return { key: 'sv:' + m.gid, title: card ? String(newest.a.title || '').replace(/\s+—\s+IB-\d+$/, '') || m.gname || 'مبتكر' : m.gname || 'مبتكر', sub: parts.join(' · '), meta: relTime(newest.a.at, Date.now()), tone: late.length ? 'error' : 'warning', icon: 'package',
+          muted: !unread.length, fresh: !!unread.length, lv, lvWord: LV_WORD[lv], av: avatarOf(L[0].a), at: newest.a.at, group: true, count: L.length, card,
           chips: [late.length ? [late.length + ' متأخر', 'error'] : null, risk ? [risk + ' قابل للتأخير', 'warning'] : null, pcs ? [pcs + ' قطعة', 'neutral'] : null].filter(Boolean),
           run: () => { markMany(L.map((p) => p.a.id)); if (typeof open === 'function') open({ vendorLate: m.gname, vendorId: m.gid, kind: late.length && risk ? 'all' : late.length ? 'late' : 'risk' }); } };
       });

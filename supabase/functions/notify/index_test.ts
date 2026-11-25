@@ -441,7 +441,7 @@ Deno.test('the bell\'s redesign: a withdrawal waiting two days and a lost piece 
   await cron(s.deps);
   const A = s.db.rows('alerts');
   const wd = A.filter((a: any) => a.rule_id === 'r-wd'); assertEquals(wd.length, 1, 'only the one waiting more than two days');
-  const { v: wv, ...wm } = wd[0].meta; assertEquals(wm, { lv: 'important', g: 'vendor', gid: s.db.rows('vendors')[0].id, gname: 'آرت كرافت' }); assert(wv && typeof wv.d === 'string', 'the template\'s own variables (meta.v)');
+  const { v: wv, ...wm } = wd[0].meta; assertEquals(wm, { lv: 'important', g: 'vendor', gid: s.db.rows('vendors')[0].id, gname: 'آرت كرافت', sk: 'withdraw_wait', sm: '900 ج.م · مستني من 3 يوم' }); assert(wv && typeof wv.d === 'string', 'the template\'s own variables (meta.v)');
   assert(String(wd[0].body).includes('مستني من 3 يوم'), wd[0].body);
   const neg = A.filter((a: any) => a.rule_id === 'r-neg'); assertEquals(neg.map((a: any) => a.entity_id), ['neg:كاش']); assertEquals(neg[0].meta.lv, 'critical'); assertEquals(Object.keys(neg[0].meta).sort(), ['lv', 'v']);
   const lost = A.find((a: any) => a.rule_id === 'r-lost'); assertEquals(lost.meta.g, 'vendor'); assertEquals(lost.meta.lv, 'critical'); assertEquals(lost.hide_at, '2026-11-11T08:00:00.000Z');
@@ -470,6 +470,23 @@ Deno.test('0162 several elements in one alert: «فردي» writes each part\'s 
   assertEquals(rep[0].meta.items.map((x: any) => x.p).sort(), ['الحسابات › حساب بالسالب', 'المبتكرين › طلب سحب مستني'].sort());
   assert(String(rep[0].title).startsWith('تقرير المتأخر — 2'), rep[0].title);
   for (const a of A) assertFalse(/0109/.test(JSON.stringify(a)), 'no phone in an alert');
+});
+
+Deno.test('Safwat 25 Nov — the maker\'s card: a maker\'s late alert carries his late sub-orders\' numbers (the sub-order\'s on the site, else the order\'s), the state key and his counts — never a phone', async () => {
+  const s = withRules([rule('r-mk', { name: 'أوردر فرعي متأخر', element: 'makers', type: 'making', state: 'late', at: '00:00', roles: ['admin'] })], (seed) => {
+    const V = seed.vendors[0].id;
+    const ord = (id: number) => ({ id, number: String(id), customer_name: 'عميل', status: 'جاري التنفيذ', woo_status: 'processing', confirm: 'مؤكد بدون عربون', confirm_at: '2026-10-01T10:00:00Z', placed_at: '2026-10-01T09:00:00Z', created_at: '2026-10-01T09:00:00Z' });
+    seed.orders.push(ord(2101), ord(2102));
+    seed.sub_orders = (seed.sub_orders || []).concat([{ id: 'sa1', order_id: 2101, vendor_id: V, woo_order_id: 9101, woo_status: 'processing' }]);
+    const it = (id: number, order: number, so: string | null, qty = 1) => ({ id, order_id: order, sub_order_id: so, vendor_id: V, name: 'منتج', qty, status: 'جاري التنفيذ', pulled: false, removed: false });
+    seed.order_items.push(it(3101, 2101, 'sa1', 2), it(3102, 2101, 'sa1'), it(3103, 2102, null));
+  });
+  await cron(s.deps);
+  const a = s.db.rows('alerts').find((x: any) => x.rule_id === 'r-mk');
+  assert(a, 'a late maker alert');
+  assertEquals([a.meta.g, a.meta.st, a.meta.sk, a.meta.n, a.meta.pcs], ['vendor', 'late', 'late', 2, 4]);
+  assertEquals([...a.meta.nums].sort(), ['2102', '9101'], 'the sub-order\'s number on the site, else the order\'s — one each');
+  assertFalse(/0109/.test(JSON.stringify(a)), 'no phone in an alert');
 });
 
 Deno.test('Safwat 24 Nov: a line whose sub-order the site closed (shipped / completed), pulled from the hub or «ملغي» is never late — the orders page\'s own rule; an open one still is', async () => {

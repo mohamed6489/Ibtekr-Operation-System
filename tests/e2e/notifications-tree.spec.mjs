@@ -145,35 +145,55 @@ test('«إرسال برّه الجرس»: the admin\'s e-mail / WhatsApp switche
   await expect.poll(() => page.evaluate(() => window.IBSettings.section('notif').channels)).toEqual({ email: true, whatsapp: false });
 });
 
-// the bell's redesign (Safwat 24 Nov — docs/superpowers/plans/2026-11-24-bell-redesign.md): a maker's delay alerts are one card with
-// his counts that opens his late orders (with «مشاركة»); the critical first with its tag; a member's alert carries his first letter
-test('the bell\'s redesign: a maker\'s card opens his late orders, the critical first, the owner instead of the bell', async ({ page }) => {
-  const vm = (st, pcs) => ({ lv: st === 'late' ? 'critical' : 'important', g: 'vendor', gid: 'v-art', gname: 'Art Craft', n: 1, pcs, st });
+// the bell's redesign (Safwat 24 Nov — docs/superpowers/plans/2026-11-24-bell-redesign.md): a maker's delay alerts are one card that
+// opens his late orders (with «مشاركة»); the critical first with its tag; a member's alert carries his first letter. The maker's card
+// (Safwat 25 Nov — decision 19, «الكارت ثابت و الحالات بس اللي تتغير»): his logo, his name and phone (copy / WhatsApp — read on the page,
+// never in the alert), the states with their counts, his sub-orders and pieces, and every sub-order number to copy, «نسخ الكل» too
+test('the bell\'s redesign: a maker\'s card — logo, phone, states, numbers to copy — opens his late orders; the critical first, the owner instead of the bell', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  const ART = 'a0000000-0000-4000-8000-000000000001';
+  const vm = (st, pcs, nums) => ({ lv: st === 'late' ? 'critical' : 'important', g: 'vendor', gid: ART, gname: 'Art Craft', n: nums.length, pcs, st, sk: st, nums, v: { n: 'Art Craft', s: st === 'late' ? 'متأخر' : 'قابل للتأخير' } });
   mock.alerts = [
-    { id: 601, at: iso(10), kind: 'rule:subs.delay', title: 'أوردر فرعي متأخر — IB-1', body: 'x', role_id: null, user_id: ADMIN_ID, entity: 'orders/1', entity_id: 's:1', read_at: null, rule_id: 'r1', section_id: S1, hide_at: null, meta: vm('late', 4) },
-    { id: 602, at: iso(20), kind: 'rule:subs.delay', title: 'أوردر فرعي متأخر — IB-2', body: 'x', role_id: null, user_id: ADMIN_ID, entity: 'orders/2', entity_id: 's:2', read_at: null, rule_id: 'r1', section_id: S1, hide_at: null, meta: vm('late', 1) },
-    { id: 603, at: iso(30), kind: 'rule:subs.delay', title: 'أوردر فرعي قابل للتأخير — IB-3', body: 'x', role_id: null, user_id: ADMIN_ID, entity: 'orders/3', entity_id: 's:3', read_at: null, rule_id: 'r1', section_id: S1, hide_at: null, meta: vm('risk', 2) },
+    { id: 601, at: iso(10), kind: 'rule:makers.making', title: 'أوردر فرعي متأخر', body: 'x', role_id: null, user_id: ADMIN_ID, entity: 'makers', entity_id: 'mk:late:a', read_at: null, rule_id: 'r1', section_id: S1, hide_at: null, meta: vm('late', 5, ['9101', '9102']) },
+    { id: 603, at: iso(30), kind: 'rule:makers.making', title: 'أوردر فرعي متأخر', body: 'x', role_id: null, user_id: ADMIN_ID, entity: 'makers', entity_id: 'x1|mk:risk:a', read_at: null, rule_id: 'r1', section_id: S1, hide_at: null, meta: vm('risk', 2, ['9201']) },
     { id: 604, at: iso(1), kind: 'rule:orders.update', title: 'أوردر جديد — IB-9', body: 'x', role_id: null, user_id: ADMIN_ID, entity: 'orders/9', entity_id: 'onew:9', read_at: null, rule_id: 'r1', section_id: S1, hide_at: null, meta: { lv: 'info' } },
-    { id: 605, at: iso(5), kind: 'rule:team.status', title: 'لم يسجل انصراف', body: 'x', role_id: null, user_id: ADMIN_ID, entity: 'hr-team', entity_id: 'noout:1', read_at: null, rule_id: 'r2', section_id: S2, hide_at: null, meta: { lv: 'important', g: 'member', gid: 'm1', gname: 'سارة أحمد' } }];
+    { id: 605, at: iso(5), kind: 'rule:team.status', title: 'لم يسجل انصراف', body: 'x', role_id: null, user_id: ADMIN_ID, entity: 'hr-team', entity_id: 'noout:1', read_at: null, rule_id: 'r2', section_id: S2, hide_at: null, meta: { lv: 'important', g: 'member', gid: 'm1', gname: 'سارة أحمد' } },
+    // a confirmed order of his: the same card, its own state
+    { id: 606, at: iso(40), kind: 'rule:makers.making', title: 'أوردر مؤكد جديد للمبتكر — IB-180656', body: 'x', role_id: null, user_id: ADMIN_ID, entity: 'orders/180656', entity_id: 'mk:confirmed:1', read_at: null, rule_id: 'r1', section_id: S1, hide_at: null,
+      meta: { lv: 'info', g: 'vendor', gid: ART, gname: 'Art Craft', n: 1, pcs: 2, sk: 'confirmed', nums: ['9301'], v: { n: 'Art Craft', s: 'أوردر مؤكد' } } }];
   mock.alertReads = [];
   await signIn(page, 'dashboard');
   await page.locator('.notif-btn').click();
   const bell = page.locator('.menu.notif');
-  await expect(bell.locator('.ntf-head.tree')).toContainText('4 محتاج تتصرف'); await expect(bell.locator('.ntf-head.tree')).toContainText('2 حرج');
+  await expect(bell.locator('.ntf-head.tree')).toContainText('4 محتاج تتصرف'); await expect(bell.locator('.ntf-head.tree')).toContainText('1 حرج');
   await expect(bell.locator('.ntf-nav-item').first().locator('.cnt.hot')).toBeVisible();
   const items = bell.locator('.ntf-item');
-  await expect(items).toHaveCount(2); // the maker's three alerts = one card; the new order after it (info)
-  await expect(items.first()).toHaveClass(/lv-critical/); await expect(items.first()).toContainText('Art Craft');
-  await expect(items.first().locator('.ntf-chip')).toHaveText(['2 متأخر', '1 قابل للتأخير', '7 قطعة']);
-  await expect(items.first().locator('.ntf-lv')).toHaveText('حرج');
-  await expect(items.first().locator('.av.letter, .av.img')).toHaveCount(1);
+  await expect(items).toHaveCount(3); // the maker's late and about-to-be alerts = one card; the confirmed one its own card; the new order (info)
+  const card = items.first();
+  await expect(card).toHaveClass(/lv-critical/); await expect(card.locator('[data-ntf-name]')).toHaveText('Art Craft');
+  await expect(card.locator('.ntf-lv')).toHaveText('حرج');
+  await expect(card.locator('.av.img')).toHaveCount(1); // his logo
+  await expect(card.locator('[data-ntf-state]')).toHaveText(['2 متأخر', '1 قابل للتأخير']);
+  await expect(card.locator('[data-ntf-subs]')).toHaveText('3 أوردر فرعي'); await expect(card.locator('[data-ntf-chip]')).toContainText(['7 قطع']);
+  await expect(card.locator('[data-ntf-phone]')).toHaveText('01000000003'); await expect(card.locator('[data-ntf-wa]')).toHaveAttribute('href', 'https://wa.me/201000000003');
+  await expect(card.locator('[data-ntf-num]')).toHaveText(['#9101', '#9102', '#9201']);
+  await expect(card.locator('[data-ntf-num="9201"]')).toHaveClass(/risk/);
+  await card.locator('[data-ntf-num="9102"]').click(); // a number copies itself — the card stays
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('9102');
+  await card.locator('[data-ntf-nums-all]').click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('9101\n9102\n9201');
+  await expect(bell).toBeVisible();
+  // the confirmed order: the same card — his name, phone and number — its state green
+  const conf = items.filter({ has: page.locator('[data-ntf-state="ok"]') });
+  await expect(conf.locator('[data-ntf-state]')).toHaveText('أوردر مؤكد'); await expect(conf.locator('[data-ntf-num]')).toHaveText(['#9301']); await expect(conf.locator('[data-ntf-phone]')).toHaveText('01000000003');
+  for (const a of mock.alerts) expect(JSON.stringify(a.meta || {})).not.toContain('01000000003'); // the phone is never in the alert
   await bell.locator('.ntf-nav-item', { hasText: 'الفريق' }).click();
   await expect(bell.locator('.ntf-item').first().locator('.av.letter')).toHaveText('س');
   await bell.locator('.ntf-nav-item', { hasText: 'خدمة العملاء' }).click();
-  await bell.locator('.ntf-item').first().click();
+  await bell.locator('.ntf-item').first().locator('.txt>b').click();
   const pop = page.locator('.modal[data-vlate="all"]'); await expect(pop).toBeVisible(); await expect(pop).toContainText('Art Craft');
   await expect(pop.locator('[data-share]')).toHaveCount(1);
-  await expect.poll(() => [601, 602, 603].every((id) => mock.alertReads.some((r) => r.alert_id === id))).toBe(true);
+  await expect.poll(() => [601, 603].every((id) => mock.alertReads.some((r) => r.alert_id === id))).toBe(true);
 });
 
 test('the rule\'s roles: green labels with ×, and «+» adds one — saved at once', async ({ page }) => {

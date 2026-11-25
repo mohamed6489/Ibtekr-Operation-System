@@ -478,10 +478,13 @@ test('decision 22 — «تحويل المرتب» from an assistant: the payroll
   await openHr(page, ADMIN, 'hr-team');
   expect(await page.evaluate(() => window.IBAiAction('open_form', { form: 'salary_pay', values: { member: 'منى حسن' } }))).toBe('form salary_pay');
   const one = modal(page, 'تحويل مرتب منى حسن'); await expect(one).toBeVisible({ timeout: 10000 }); await expect(one.getByRole('button', { name: 'حوّل المرتب' })).toBeVisible();
-  await expect(page).toHaveURL(/#hr-payroll/); expect(calls('hr_pay_member')).toEqual([]);
+  await expect(page).toHaveURL(/#hr-team/); expect(calls('hr_pay_member')).toEqual([]); // agent-chat-flows decision 2: over the page the member is on
   await one.getByRole('button', { name: 'إلغاء' }).click(); await expect(one).toBeHidden();
   // a member with no salary has no line on the sheet: said outright, no popup, and not «the sheet is still loading»
   const none = await page.evaluate(() => { const m = window.IBHR.everyone().find((x) => !(x.salary > 0) && x.status !== 'suspended'); try { window.IBAiAction('open_form', { form: 'salary_pay', values: { member: m.name } }); return 'opened'; } catch (e) { return e.message.replace(m.name, '<الاسم>'); } });
-  expect(none).toBe('<الاسم> مالوش سطر في كشف الشهر ده'); await expect(page.locator('.modal[role=dialog]')).toHaveCount(0);
+  // over this page (agent-chat-flows decision 2) the sheet may still be reading: the same words then come in a toast once it is in
+  if (none === 'opened') await expect(page.locator('.toast.show')).toContainText('مالوش سطر في كشف الشهر ده', { timeout: 10000 });
+  else expect(none).toBe('<الاسم> مالوش سطر في كشف الشهر ده');
+  await expect(page.locator('.modal[role=dialog]')).toHaveCount(0);
   expect(calls('hr_pay_member')).toEqual([]);
 });

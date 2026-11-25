@@ -37,7 +37,10 @@
   const why = (code, field) => (REASON[code] || 'حصلت مشكلة (' + code + ')') + (field ? ' — ' + field : '');
 
   // ---------------- state ----------------
-  const S = { id: null, row: null, step: 1, loading: false, err: '', timer: null, sel: new Set(), busy: '', tr: new Set(), prog: { img: null, sheet: null }, results: null };
+  const S = { id: null, row: null, step: 1, loading: false, err: '', timer: null, sel: new Set(), busy: '', tr: new Set(), prog: { img: null, sheet: null }, results: null, chatRun: 0, halt: 0 };
+  // Safwat 25 Nov («زرار ستوب اوقف الطلب مانيوال»): the chat's «إيقاف» on a running step — it stops after the item in hand (a product's
+  // upload, a shot, a step of the batch) and says so. Only a step the chat started listens: the studio page's own buttons never see it.
+  const halted = () => S.chatRun > 0 && S.halt === S.chatRun;
   const st = () => S.row && S.row.state;
   const blank = (kase, type) => ({ flow: 2, case: kase, type, vendorId: null, vendorName: '', brandId: null, brandName: '', code: '', rate: null, fee: null, rows: [], kinds: { sizes: 0, colors: 0 }, products: [], shots: {}, sizeShot: {}, features: null, sheetName: '', items: [], screens: 0 });
   // the plan 2026-11-17-stores-single.md (T3): single-seller mode — no maker: the second step is «البراند» (its name and its SKU code), and
@@ -1104,6 +1107,7 @@
     if (!jobs.length) { K.toast('مفيش صور ناقصة', 'success'); return; }
     let ok = 0; let tried = 0;
     for (const [u, k] of jobs) {
+      if (halted()) { K.toast('وقفنا التوليد' + (ok ? ' بعد ' + ok + ' صورة' : ' قبل أول صورة'), 'info'); return; }
       tried += 1;
       if (await genShot(u, k, undefined, true)) { ok += 1; continue; }
       if (genStops(S.lastGen)) { // one message, and nothing more is asked for
@@ -1329,13 +1333,14 @@
     if (!todo.length) { K.toast('كل الصور مرفوعة على الموقع', 'success'); return; }
     S.prog.img = { done: all.length - todo.length, total: all.length, on: true }; R(); let fail = '';
     for (const m of todo) {
+      if (halted()) break;
       const r = await ST().media(S.id, m.path, m.name);
       if (!r.ok) { fail = why(r.reason); break; }
       if (r.result === 'skipped') { fail = why(r.reason); break; }
       S.prog.img.done += 1; R();
     }
     S.prog.img.on = false; await refreshRow(); R();
-    K.toast(fail ? 'وقف الرفع — ' + fail : 'اترفعت الصور على الموقع', fail ? 'error' : 'success');
+    K.toast(fail ? 'وقف الرفع — ' + fail : halted() ? 'وقفنا رفع الصور' : 'اترفعت الصور على الموقع', fail ? 'error' : halted() ? 'info' : 'success');
   }
   async function zipImages() {
     const all = mediaList(); if (!all.length) { K.toast('مفيش صور', 'warning'); return; }
@@ -1390,6 +1395,7 @@
     const items = buildItems(); st().items = items; await touch(true);
     S.prog.sheet = { done: 0, total: items.length, on: true }; S.results = []; R();
     for (let i = 0; i < items.length; i++) {
+      if (halted()) break;
       const r = await ST().upload(S.id, i);
       S.results[i] = r.ok ? (r.result === 'skipped' ? { error: 'push_disabled' } : r.item) : { error: r.reason, field: r.field };
       S.prog.sheet.done = i + 1; R();
@@ -1397,6 +1403,7 @@
     }
     S.prog.sheet.on = false; await refreshRow(); R();
     const bad = S.results.filter((x) => x && x.error).length;
+    if (halted()) { K.toast('وقفنا الرفع — اترفع ' + S.results.filter((x) => x && !x.error).length + ' منتج مسودة', 'info'); return; }
     K.toast(bad ? bad + ' منتج ماترفعش — شوف السبب تحت' : 'اترفعت المنتجات مسودة على الموقع', bad ? 'error' : 'success');
   }
   const Prog = (p) => (p ? h('div', { class: 'fl-prog' }, h('div', { class: 'bar' }, h('i', { style: 'width:' + Math.round((p.done / Math.max(1, p.total)) * 100) + '%' })), h('b', null, Math.round((p.done / Math.max(1, p.total)) * 100) + '%')) : null);
@@ -1626,7 +1633,12 @@
   // files go where the member would drop them, the AI fills what is missing, the prices are worked out — and the review popup shows the
   // studio's own screens («البيانات» · «الأسعار», or «الشيت» for photos only) to edit before anything goes to the site.
   const quiet = () => { CH.draw = () => {}; };
-  async function chatRun(pre, log) {
+  // a chat step: its own number (the stop names it), cleared when it ends whatever happened
+  let chatN = 0;
+  async function chatStep(fn) { S.chatRun = ++chatN; S.halt = 0; try { return await fn(); } finally { S.chatRun = 0; S.halt = 0; } }
+  const stopOf = (id) => ({ ok: false, stopped: true, id, message: 'وقفت — الدفعة اللي اتعملت محفوظة في «المنتجات › إضافة › الشغل المحفوظ»' });
+  const chatRun = (pre, log) => chatStep(() => chatRunNow(pre, log));
+  async function chatRunNow(pre, log) {
     const say = typeof log === 'function' ? log : () => {};
     if (!ST() || !ST().can()) return { ok: false, message: 'مش مسموحلك تضيف منتجات — اطلب صلاحية «إضافة منتجات»' };
     if (SINGLE()) return { ok: false, message: 'في البيع الفردي كمّل من الاستوديو', studio: true };
@@ -1638,25 +1650,28 @@
     const s0 = blank(kase, type); s0.vendorId = mk.id; s0.vendorName = mk.name;
     if (pre.kinds) s0.kinds = { sizes: Math.max(0, Math.min(10, Number(pre.kinds.sizes) || 0)), colors: Math.max(0, Math.min(10, Number(pre.kinds.colors) || 0)) };
     say('بعمل الدفعة…');
+    if (halted()) return { ok: false, stopped: true, message: 'وقفت قبل ما الدفعة تتعمل' };
     const r = await ST().create({ title: CASES[kase] + ' — ' + type + ' · ' + new Date().toISOString().slice(0, 10), type, state: s0, step: 1 });
     if (!r.ok) return { ok: false, message: 'مقدرناش نعمل الدفعة — ' + why(r.reason) };
+    if (halted()) return stopOf(r.id);
     S.id = r.id; S.row = { id: r.id, step: 1, status: 'draft', state: s0 }; S.step = 1; S.sel.clear(); S.results = null; S.autoAi = r.id; S.autoSku = r.id; S.fromAgent = true;
     const vd = Vs.data ? Vs.data() : null; autoBrand(mk, (vd ? vd.brands : []).filter((b) => String(b.owner) === String(mk.id)));
     const files = Array.isArray(pre.files) ? pre.files : []; const scr = new Set((pre.screens || []).map(String));
     const sheet = kase === 'sheet' ? files.find(isSheet) : null;
     const imgs = files.filter(isImage); const shots = kase === 'whatsapp' ? imgs.filter((f) => scr.has(f.name)) : []; const photos = imgs.filter((f) => !shots.includes(f));
-    if (sheet) { say('بقرا الشيت…'); await takeSheet(sheet); if (!rows().length) return { ok: false, id: r.id, message: 'الشيت مافيهوش صفوف بأسماء أو أسعار' }; }
-    if (photos.length) { say('برفع ' + photos.length + ' صورة…'); await takePhotos(photos); }
-    if (shots.length) { say('الـ AI بيقرا السكرين شوتس…'); await takeScreens(shots); if (!rows().length) return { ok: false, id: r.id, message: 'الـ AI مالقاش منتجات في السكرين شوتس' }; }
+    if (sheet) { say('بقرا الشيت…'); await takeSheet(sheet); if (halted()) return stopOf(r.id); if (!rows().length) return { ok: false, id: r.id, message: 'الشيت مافيهوش صفوف بأسماء أو أسعار' }; }
+    if (photos.length) { say('برفع ' + photos.length + ' صورة…'); await takePhotos(photos); if (halted()) return stopOf(r.id); }
+    if (shots.length) { say('الـ AI بيقرا السكرين شوتس…'); await takeScreens(shots); if (halted()) return stopOf(r.id); if (!rows().length) return { ok: false, id: r.id, message: 'الـ AI مالقاش منتجات في السكرين شوتس' }; }
     if (kase === 'photos') {
       if (!(st().products || []).length) return { ok: false, id: r.id, message: 'مفيش صور اترفعت' };
       say('الـ AI بيكتب الأسامي والأقسام والألوان من الصور…'); await aiFillProducts('');
     } else {
-      say('بعمل الـ SKU…'); await genSkus(true);
+      say('بعمل الـ SKU…'); await genSkus(true); if (halted()) { await touch(true); return stopOf(r.id); }
       say('الـ AI بيملا الناقص (الاسم والوصف والقسم والخامة)…'); await aiFill(null, true);
       rows().forEach((x) => { if (x.vendorPrice != null && (x.sale == null || !x.priceHand)) reprice(x); });
     }
     await touch(true); S.busy = '';
+    if (halted()) return stopOf(r.id);
     return { ok: true, id: r.id, count: kase === 'photos' ? st().products.length : groups().length };
   }
   // the review popup: the studio's own screens on this batch; «حفظ وكمّل» saves and hands back to the chat
@@ -1679,22 +1694,26 @@
     return groups().map((g) => rows()[g.rows[0]]).filter((r, i) => groups()[i].rows.some((ri) => { const x = rows()[ri]; return !FD.validSku(x.sku) || !(Number(x.sale) > 0) || !(x.nameAr || r.nameAr); }))
       .map((r) => r.nameAr || r.nameEn || r.sku || '—');
   }
-  async function chatImages() { quiet(); await genMissing(units()); await touch(true); return { ok: true, shots: units().reduce((t, u) => t + shotsOf(u).filter(Boolean).length, 0) }; }
+  const chatImages = () => chatStep(async () => { quiet(); await genMissing(units()); const stopped = halted(); await touch(true); return { ok: true, stopped, shots: units().reduce((t, u) => t + shotsOf(u).filter(Boolean).length, 0) }; });
   // to the site: the photos, then the products as drafts — a product with no shot goes up with the maker's own photo (the owner: «من غير
   // ما يولّد إلا لما أوافق»)
-  async function chatUpload(log) {
+  const chatUpload = (log) => chatStep(() => chatUploadNow(log));
+  async function chatUploadNow(log) {
     const say = typeof log === 'function' ? log : () => {}; quiet();
     if (st().case === 'photos') return { ok: false, message: 'الصور بس بتطلع شيت للمبتكر — الرفع بعد ما يرجّعه' };
     const gaps = chatGaps(); if (gaps.length) return { ok: false, gaps, message: gaps.length + ' منتج ناقصه بيانات (الـ SKU أو الاسم بالعربي أو سعر البيع)' };
     units().forEach((u) => { const sh = shotsOf(u); if (!sh.some(Boolean)) { const r = unitRow(u); if (r && r.ref) sh[0] = r.ref; } });
     await touch(true);
     say('برفع الصور على الموقع…'); await uploadImages();
+    if (halted()) return { ok: false, stopped: true, done: 0, failed: [], message: 'وقفت الرفع قبل المنتجات — اللي اترفع من الصور فاضل، وتكمّل من «ارفع على الموقع» تاني' };
     const have = resultOf().media || {}; if (mediaList().some((x) => !have[x.path])) return { ok: false, message: 'الصور مااترفعتش كلها — جرّب تاني' };
     say('برفع المنتجات مسودة…'); await uploadSheet();
     const res = S.results || []; const bad = res.filter((x) => x && x.error);
+    if (halted()) { const done = res.filter((x) => x && !x.error).length; return { ok: false, stopped: true, done, failed: bad.map((x) => why(x.error, x.field)), message: 'وقفت الرفع — اترفع ' + done + ' منتج مسودة، والباقي تكمّله من «ارفع على الموقع» تاني' }; }
     return { ok: !bad.length, done: res.length - bad.length, failed: bad.map((x) => why(x.error, x.field)), message: bad.length ? bad.length + ' منتج ماترفعش' : 'اترفعت ' + res.length + ' منتج مسودة على الموقع' };
   }
   const chat = { run: chatRun, review: chatReview, gaps: chatGaps, images: chatImages, previewImages: () => previewImages(), upload: chatUpload,
+    stop: () => { if (!S.chatRun) return false; S.halt = S.chatRun; return true; }, // the chat's «إيقاف»: the running step stops after the item in hand
     download: () => { quiet(); downloadPopup(); }, share: () => { quiet(); shareSheet(); }, id: () => S.id,
     open: () => { CH.draw = null; if (S.id) { const s = st(); go(hashFor(s && s.case === 'photos' ? 4 : 3)); } } };
 

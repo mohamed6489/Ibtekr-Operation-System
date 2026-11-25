@@ -443,6 +443,20 @@ Deno.test('agent (0084): marketing.view; a first message makes the member\'s cha
   assertEquals((await call(deps, { action: 'agent', agent: 'designer', chat_id: chat.id, question: 'x' }, 'jwt-mview')).res.status, 404, 'a deleted chat');
   const run = db.rows('ai_runs').find((x: any) => x.label === 'بوست للشتا بالماكرامية'); assertEquals([run.action, run.source, run.status], ['marketing', 'agent', 'ok']);
 });
+Deno.test('agent (Safwat 25 Nov — «زرار ستوب اوقف الطلب مانيوال»): a request the member stopped (its id in his prefs «chat.stops») makes no call and writes no turn; an answer that lands after the stop is not kept; a bad id = 400', async () => {
+  const STOP = 'a1b2c3d4-0000-4000-8000-00000000000f'; const LATE = 'a1b2c3d4-0000-4000-8000-0000000000ff';
+  const { deps, asked, db } = setup({ seed: { ...BUYER_SEED, user_prefs: [{ user_id: U.view, key: 'chat.stops', data: { ids: [STOP] } }] }, replies: [msg({ text: 'رد اتأخر' }), msg({ text: 'رد عادي' })] });
+  assertEquals((await call(deps, { action: 'agent', agent: 'designer', question: 'x', nonce: 'not-a-uuid' }, 'jwt-mview')).body.field, 'nonce');
+  const r = await call(deps, { action: 'agent', agent: 'designer', question: 'اتوقف قبل ما يبدأ', nonce: STOP }, 'jwt-mview');
+  assertEquals([r.res.status, r.body.error, asked.length, db.rows('mkt_agent_messages').length, db.rows('mkt_agent_chats').length], [499, 'stopped', 0, 0, 0]);
+  // the member stops while the answer is on its way: the answer lands but nothing is written
+  const claude = deps.claude; deps.claude = async (p: any) => { const out = await claude(p); await db.from('user_prefs').update({ data: { ids: [STOP, LATE] } }).eq('user_id', U.view).eq('key', 'chat.stops'); return out; };
+  const late = await call(deps, { action: 'agent', agent: 'designer', question: 'اتوقف وهو بيرد', nonce: LATE }, 'jwt-mview');
+  assertEquals([late.res.status, asked.length, db.rows('mkt_agent_messages').length], [499, 1, 0]);
+  deps.claude = claude;
+  const ok = await call(deps, { action: 'agent', agent: 'designer', question: 'كمّل عادي', nonce: 'a1b2c3d4-0000-4000-8000-000000000abc' }, 'jwt-mview');
+  assertEquals([ok.res.status, ok.body.text, db.rows('mkt_agent_messages').length], [200, 'رد عادي', 2]);
+});
 Deno.test('agent (0084): the buyer\'s chat carries the week\'s numbers read here in its last message; the dev\'s none', async () => {
   const { deps, asked } = setup({ seed: BUYER_SEED, replies: [msg({ text: 'Macrame الأحسن' }), msg({ text: 'خطوات الصفحة' })] });
   const rb = await call(deps, { action: 'agent', agent: 'buyer', question: 'أحسن حملة؟' }, 'jwt-mview');

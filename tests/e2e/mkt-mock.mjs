@@ -8,7 +8,7 @@
 // mkt.calls, every write the client sent in mkt.writes ({ table, op, ...columns }).
 import { resolvePlan } from '../../supabase/functions/_shared/product-plan.js';
 import { filesLine } from '../../supabase/functions/_shared/agent-files.js';
-import { agentImagePath, agentTitle, campaignGenPath, campaignPathOk, campaignTarget, cleanAgent, cleanBuyer, cleanMarketing, parseAgent, parseAgentImage, parseBuyer, parseCampaign, parseCampaignEdit, parseMarketing, campaignTargets, flowKey, campaignRefs, placeImage } from '../../supabase/functions/_shared/marketing.js';
+import { agentImagePath, agentTitle, campaignGenPath, campaignPathOk, campaignTarget, cleanAgent, cleanBuyer, cleanMarketing, parseAgent, stoppedIn, parseAgentImage, parseBuyer, parseCampaign, parseCampaignEdit, parseMarketing, campaignTargets, flowKey, campaignRefs, placeImage } from '../../supabase/functions/_shared/marketing.js';
 import { BUYER_DEFAULTS, MAX_STEP, budgetPlan, rulesPatch } from '../../supabase/functions/_shared/mkt-ads.js';
 import { PLATFORMS as AD_PLATFORMS, linkAccount, linkPublic, linkReady, parseLink, platformOf } from '../../supabase/functions/_shared/mkt-ads-link.js';
 import { MAX_OPEN_JOBS, cleanScenes, jobView, mixPlan, nextMix, parseVideo, videoPath } from '../../supabase/functions/_shared/mkt-video.js';
@@ -653,6 +653,8 @@ function mktAi(c, b) {
     if (Array.isArray(b.share)) { const miss = reads.filter((k) => !b.share.includes(k)); if (miss.length) { H.seq += 1; return json(200, { result: 'ok', need_data: miss, model: 'claude-opus-5-5', cost_usd: 0.001, run_id: H.seq }); } }
     const sharedNow = Array.isArray(b.share) ? reads.filter((k) => b.share.includes(k)) : [];
     out.need = null; out.plan = Array.isArray(out.plan) && out.plan.length && H.planData ? resolvePlan(out.plan, H.planData) : []; // the owner 17 Nov (ai-content resolves the names)
+    // Safwat 25 Nov («زرار ستوب»): a request the member stopped (its id in his prefs «chat.stops») writes nothing — as ai-content
+    const stops = (mock.prefs || []).find((x) => x.user_id === u.id && x.key === 'chat.stops'); if (stoppedIn(stops && stops.data, p.req.nonce)) return json(499, { error: 'stopped' });
     if (!chat) { H.nchat += 1; chat = { id: 'c0000000-0000-4000-8000-' + String(H.nchat).padStart(12, '0'), member_id: u.id, agent: p.req.agent, title: agentTitle(p.req.question), created_at: now, updated_at: now, deleted_at: null }; H.agentChats.push(chat); }
     else chat.updated_at = now;
     const mk = (role, text, source, shared) => { const id = H.agentMsgs.reduce((m, x) => Math.max(m, x.id), 0) + 1; const r = { id, chat_id: chat.id, role, text, images: [], run_id: null, created_at: now, source: source || null, shared: shared || [] }; H.agentMsgs.push(r); return r; };

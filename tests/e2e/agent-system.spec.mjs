@@ -116,6 +116,10 @@ test('a number from the system carries «افتح التفاصيل»: the rows b
   await pop.locator('[data-ag-det-share]').click(); await expect(page.locator('.modal', { hasText: 'Excel' }).last()).toBeVisible();
   expect(asks().length).toBe(0);
   await page.keyboard.press('Escape'); await page.keyboard.press('Escape'); await expect(pop).toHaveCount(0);
+  // Safwat 25 Nov (agent-chat-flows decision 3 — «عمرك ما تخرج من صفحة المساعد»): «افتح ‹الصفحة›» = a popup with the link; «إغلاق» = the chat
+  await dets.locator('[data-mk-det-go="tickets"]').click();
+  const lk = page.locator('.modal[data-mk-link]'); await expect(lk).toBeVisible(); await expect(page).toHaveURL(/#ai/);
+  await lk.locator('[data-mk-link-close]').click(); await expect(lk).toHaveCount(0); await expect(page).toHaveURL(/#ai/); await expect(pg(page).locator('#mk-ask')).toBeVisible();
   // a status ask: a link per number that holds
   await send(page, 'إيه الأخبار؟'); await expect(lastAns(page)).toContainText('الوضع دلوقتي عند كل مساعد:');
   await expect(pg(page).locator('[data-mk-dets]').last().locator('[data-mk-det="tickets_urgent"]')).toContainText('تفاصيل: طلبات عاجلة مفتوحة');

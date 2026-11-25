@@ -6,7 +6,11 @@
    files — then the studio's own steps run on a new batch (IBFlowView.chat.run), the studio's own screens open in a popup to edit
    (chat.review), and the chat asks what next: to the site (asking first whether to generate the AI pictures — nothing is generated unless
    the member says so), the sheet to download, or to share. Nothing goes to the site without the member's button.
-   IBStudioChat.create(pre) → the wizard's state; IBStudioChat.card(state, { redraw }) → its card in the chat. */
+   IBStudioChat.create(pre) → the wizard's state; IBStudioChat.card(state, { redraw, cancel, link }) → its card in the chat.
+   Safwat 25 Nov («زرار ستوب اوقف الطلب مانيوال» · «عمرك ما تخرج من صفحة المساعد»): a step stopped from the chat's «إيقاف» (the studio's
+   chat.stop) says where it stopped and goes back to a place to go on from; a wizard the chat cancelled (state.cancelled) never opens a
+   popup or writes a line again; «إلغاء» on the card (o.cancel) while no step runs; «افتح في الاستوديو» opens o.link's popup with the
+   studio's link — the chat stays until the member presses it. */
 (function () {
   'use strict';
   const U = window.IBUI, K = window.IBKit;
@@ -41,10 +45,11 @@
   const done = (q, a, back) => h('div', { class: 'sc-done' }, Icon('check', 'sm'), h('span', null, q + ': '), h('b', null, a), back ? h('button', { type: 'button', class: 'sc-edit', 'aria-label': 'غيّر ' + q, onClick: back }, 'غيّر') : null);
   const opts = (list, onPick) => h('div', { class: 'sc-opts' }, list.map(([v, l, hint]) => h('button', { type: 'button', class: 'sc-opt', 'data-sc-opt': v, onClick: () => onPick(v) }, h('b', null, l), hint ? h('small', null, hint) : null)));
 
+  const isBusy = (s) => s.phase === 'run' || s.phase === 'images' || s.phase === 'upload';
   function card(s, o) {
-    const redraw = (o && o.redraw) || (() => {}); const busy = s.phase === 'run' || s.phase === 'images' || s.phase === 'upload';
+    const redraw = (o && o.redraw) || (() => {}); const busy = isBusy(s); s.link = (o && o.link) || null;
     const back = (f) => (busy || s.phase === 'end' ? null : () => { f(); s.phase = 'ask'; s.res = null; s.next = ''; redraw(); });
-    const log = (t) => { s.log.push(t); redraw(); };
+    const log = (t) => { if (s.cancelled) return; s.log.push(t); redraw(); };
     const q = current(s); const out = [];
     if (s.kase) out.push(done('الطريقة', caseName(s.kase), back(() => { s.kase = ''; s.kinds = null; })));
     if (s.type) out.push(done('النوع', s.type, back(() => { s.type = ''; s.kinds = null; })));
@@ -56,7 +61,8 @@
     else if (q === 'maker') out.push(makerAsk(s, redraw));
     else if (q === 'files') out.push(filesAsk(s, redraw, log));
     if (s.phase !== 'ask') out.push(runView(s, redraw, log));
-    return h('div', { class: 'mk-msg-req sc-card', 'data-sc': q, 'data-sc-case': s.kase || '' }, h('div', { class: 'sc-head' }, Icon('plus', 'sm'), h('b', null, 'رفع منتجات')), out);
+    const cancel = o && o.cancel && !busy && s.phase !== 'end' ? h('button', { type: 'button', class: 'sc-edit sc-cancel', 'data-sc-cancel': '', onClick: () => o.cancel() }, 'إلغاء') : null;
+    return h('div', { class: 'mk-msg-req sc-card', 'data-sc': q, 'data-sc-case': s.kase || '' }, h('div', { class: 'sc-head' }, Icon('plus', 'sm'), h('b', null, 'رفع منتجات'), cancel), out);
   }
   // a Variable from photos or WhatsApp: the sheet's shape (the studio's «الشيت هيبقى عامل إزاي»)
   function kindsAsk(s, redraw) {
@@ -97,20 +103,23 @@
     s.phase = 'run'; s.log = []; s.err = ''; redraw();
     const files = (s.sheet ? [s.sheet] : []).concat(s.photos, s.screens);
     const r = await C.run({ kase: s.kase, type: s.type, kinds: s.kinds, vendor: s.maker, files, screens: s.screens.map((f) => f.name) }, log);
+    if (s.cancelled) return; s.halting = false;
+    if (!r.ok && r.stopped) { s.phase = 'ask'; s.err = ''; log(r.message); return; } // the chat's «إيقاف»: the files stay, «ابدأ» again when ready
     if (!r.ok) { s.phase = 'ask'; s.err = r.message || 'حصلت مشكلة'; K.toast(s.err, 'error'); redraw(); return; }
     s.res = r; s.phase = 'review'; log('خلصت — ' + r.count + ' منتج. راجعهم في البوب أب وعدّل اللي محتاجه.'); review(s, redraw);
   }
-  function review(s, redraw) { const C = FV(); if (C) C.review(() => { s.phase = 'next'; s.next = ''; redraw(); }); }
+  function review(s, redraw) { const C = FV(); if (C && !s.cancelled) C.review(() => { if (s.cancelled) return; s.phase = 'next'; s.next = ''; redraw(); }); }
   // after the review: to the site (photos and WhatsApp/sheet cases with data), the sheet down, or shared — the member picks
   function runView(s, redraw, log) {
     const C = FV(); const photosOnly = s.kase === 'photos'; const worm = () => (window.IBLoader && window.IBLoader.mark ? window.IBLoader.mark(16) : null);
-    const out = [h('div', { class: 'sc-log', 'aria-live': 'polite' }, s.log.map((t, i) => h('small', { class: 'help sc-line' }, (i === s.log.length - 1 && (s.phase === 'run' || s.phase === 'images' || s.phase === 'upload')) ? worm() : Icon('check', 'sm'), h('span', null, t))))];
+    const out = [h('div', { class: 'sc-log', 'aria-live': 'polite' }, s.log.map((t, i) => h('small', { class: 'help sc-line' }, (i === s.log.length - 1 && (s.phase === 'run' || s.phase === 'images' || s.phase === 'upload')) ? worm() : Icon('check', 'sm'), h('span', null, t))),
+      s.halting && isBusy(s) ? h('small', { class: 'help sc-line sc-halting', 'data-sc-halting': '' }, h('span', null, 'بوقّف — بعد الحاجة اللي في إيدي دلوقتي…')) : null)];
     if (s.phase === 'review' || s.phase === 'next' || s.phase === 'end') out.push(Button({ size: 'sm', icon: 'edit', label: 'راجع البيانات', attrs: { 'data-sc-review': '' }, onClick: () => review(s, redraw) }));
     if (s.phase === 'next') {
       if (s.next === 'site') {
         out.push(Q('أولّد صور المنتجات بالذكاء الاصطناعي الأول؟ (بيصرف كريدت صور)'), opts([['gen', 'ولّد الصور', 'الخمس لقطات لكل منتج وبعدها أسألك على الرفع'], ['own', 'ارفع بالصور اللي معاك', 'صور المبتكر زي ما هي'], ['back', 'رجوع', '']], async (v) => {
           if (v === 'back') { s.next = ''; redraw(); return; }
-          if (v === 'gen') { s.phase = 'images'; log('بولّد الصور…'); const r = await C.images(); s.phase = 'next'; s.next = 'after-gen'; log('اتولّد ' + r.shots + ' صورة — شوفها في المعاينة'); C.previewImages(); return; }
+          if (v === 'gen') { s.phase = 'images'; log('بولّد الصور…'); const r = await C.images(); if (s.cancelled) return; s.halting = false; s.phase = 'next'; s.next = 'after-gen'; log((r.stopped ? 'وقفت التوليد — ' : '') + 'اتولّد ' + r.shots + ' صورة — شوفها في المعاينة'); if (!r.stopped) C.previewImages(); return; }
           await upload(s, redraw, log); }));
       } else if (s.next === 'after-gen') {
         out.push(Q('أرفعهم على الموقع دلوقتي؟'), opts([['up', 'ارفع على الموقع', 'مسودة على متجر المبتكر'], ['see', 'معاينة الصور', ''], ['later', 'بعدين', 'الدفعة محفوظة في «الشغل المحفوظ»']], async (v) => {
@@ -118,7 +127,9 @@
           await upload(s, redraw, log); }));
       } else {
         out.push(Q('تحب تعمل إيه دلوقتي؟'), opts((photosOnly ? [] : [['site', 'ارفع على الموقع', 'المنتجات مسودة على متجر المبتكر']]).concat([['dl', 'تحميل الشيت', 'نسخة المبتكر أو نسخة السيستم'], ['share', 'مشاركة', 'واتساب أو إيميل أو تحميل'], ['open', 'افتح في الاستوديو', 'تكمّل الصور والرفع هناك']]), (v) => {
-          if (v === 'site') { s.next = 'site'; redraw(); } else if (v === 'dl') C.download(); else if (v === 'share') C.share(); else C.open(); }));
+          if (v === 'site') { s.next = 'site'; redraw(); } else if (v === 'dl') C.download(); else if (v === 'share') C.share();
+          else if (s.link) s.link({ title: 'افتح الدفعة في الاستوديو', text: 'الاستوديو صفحة تانية — بتكمّل فيه الصور والرفع، والشات هنا بيفضل زي ما هو وترجعله من «الذكاء الاصطناعي».', label: 'افتح الاستوديو', go: () => C.open() });
+          else C.open(); }));
       }
     }
     if (s.up && s.up.failed && s.up.failed.length) out.push(h('div', { class: 'sc-fail' }, s.up.failed.slice(0, 5).map((x) => h('small', { class: 'err-msg' }, x))));
@@ -126,10 +137,13 @@
   }
   async function upload(s, redraw, log) {
     const C = FV(); s.phase = 'upload'; redraw();
-    const r = await C.upload(log); s.up = r;
+    const r = await C.upload(log); if (s.cancelled) return; s.halting = false; s.up = r;
+    if (!r.ok && r.stopped) { s.phase = 'next'; s.next = 'after-gen'; log(r.message); return; } // the chat's «إيقاف»: what went up stays a draft
     if (!r.ok && r.gaps && r.gaps.length) { s.phase = 'next'; s.next = ''; log(r.message + ': ' + r.gaps.slice(0, 4).join('، ') + ' — كمّلهم في «راجع البيانات»'); K.toast(r.message, 'error'); return; }
     s.phase = r.ok ? 'end' : 'next'; s.next = r.ok ? '' : 'after-gen'; log(r.message); K.toast(r.message, r.ok ? 'success' : 'error');
   }
 
-  window.IBStudioChat = { create, card, current, ready };
+  // the chat's «إيقاف» on the step that runs (it stops after the item in hand); true when a step was running
+  function stop(s) { const C = FV(); if (!isBusy(s) || !C || !C.stop || !C.stop()) return false; s.halting = true; return true; }
+  window.IBStudioChat = { create, card, current, ready, busy: isBusy, stop };
 })();

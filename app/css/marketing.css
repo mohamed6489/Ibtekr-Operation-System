@@ -487,6 +487,13 @@ body.cal-dragging,body.cal-dragging * { cursor:grabbing !important;user-select:n
 :is(#pg-marketing,#pg-ai) .mk-ask-ic:hover { background:var(--color-bg-hover);color:var(--color-text-primary, #2e2a1b) }
 :is(#pg-marketing,#pg-ai) .mk-ask-ic:focus-visible { outline:2px solid var(--color-border-focus);outline-offset:1px }
 :is(#pg-marketing,#pg-ai) .mk-ask-send { color:var(--color-brand-default, #005642) }
+/* Safwat 25 Nov — «زرار ستوب اوقف الطلب مانيوال»: «إيقاف» beside «ابعت» while the answer or a step of «رفع منتجات» runs (a filled square) */
+:is(#pg-marketing,#pg-ai) .mk-ask-stop { background:var(--color-brand-default, #005642);color:var(--color-bg-base, #fff) }
+:is(#pg-marketing,#pg-ai) .mk-ask-stop:hover { background:var(--color-brand-hover, #00402f);color:var(--color-bg-base, #fff) }
+:is(#pg-marketing,#pg-ai) .mk-ask-stop .ic rect { fill:currentColor;stroke:none }
+:is(#pg-marketing,#pg-ai) .mk-ask-stop:disabled { opacity:.55;cursor:default }
+/* the switch question: the new message quoted under it */
+:is(#pg-marketing,#pg-ai) .mk-sw-q { margin:6px 0;padding:6px 10px;border-inline-start:3px solid var(--color-border-strong, #c9b99a);background:var(--color-bg-subtle, #faf6ee);border-radius:6px;white-space:pre-wrap;font-size:13px }
 :is(#pg-marketing,#pg-ai) .mk-ask-mic.on { background:#DA0001;color:#fff;animation:mk-mic 1.2s ease-in-out infinite }
 @keyframes mk-mic { 50% { box-shadow:0 0 0 6px rgba(218,0,1,.18) } }
 :is(#pg-marketing,#pg-ai) .mk-files { display:flex;flex-wrap:wrap;gap:6px }
@@ -654,6 +661,8 @@ a.mk-lib.disabled { opacity:.5;pointer-events:none }
 .sc-done { display:flex;align-items:center;gap:6px;font-size:13px;color:var(--color-text-secondary) }
 .sc-done b { color:var(--color-text-primary) }
 .sc-edit { margin-inline-start:auto;border:0;background:none;color:var(--color-brand-default);cursor:pointer;font:inherit;font-size:12px;text-decoration:underline }
+.sc-head .sc-cancel { color:var(--color-text-secondary, #5c5647) } /* «إلغاء» on the wizard's card while no step runs */
+.sc-halting { color:var(--color-text-secondary, #5c5647);font-style:italic }
 .sc-opts { display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px }
 .sc-opts.sm { display:flex;flex-wrap:wrap;gap:6px }
 .sc-opt { display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:10px 12px;min-height:44px;border:1px solid var(--color-border-subtle);border-radius:10px;background:var(--color-bg-base);cursor:pointer;text-align:start;font:inherit;color:inherit }

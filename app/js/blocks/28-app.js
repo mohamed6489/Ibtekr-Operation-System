@@ -940,11 +940,24 @@
             // the order: one small button (newest ⇄ oldest) instead of the list — the critical stay first either way
             h('button', { type: 'button', id: 'ntf-sort', class: 'icon-btn sm ntf-sortbtn', 'data-sort': ntfState.sort || 'new', title: (ntfState.sort === 'old' ? 'الأقدم الأول' : 'الأحدث الأول') + ' — دوس للتبديل', 'aria-label': ntfState.sort === 'old' ? 'الترتيب: الأقدم الأول' : 'الترتيب: الأحدث الأول',
               onClick: () => { ntfState.sort = ntfState.sort === 'old' ? 'new' : 'old'; draw(); const b = el.querySelector('#ntf-sort'); if (b) b.focus(); } }, Icon(ntfState.sort === 'old' ? 'chevU' : 'chevD', 'sm'), h('span', null, ntfState.sort === 'old' ? 'الأقدم' : 'الأحدث')),
-            // the read filter beside it (Safwat 24 Nov — instead of the «غير مقروء» / «مقروء» tabs): الكل → غير مقروء → مقروء
-            h('button', { type: 'button', id: 'ntf-read', class: 'icon-btn sm ntf-sortbtn' + (ntfState.readF ? ' on' : ''), 'data-read': ntfState.readF || 'all', title: 'دوس للتبديل: الكل · غير مقروء · مقروء',
-              'aria-label': 'عرض: ' + (ntfState.readF === 'unread' ? 'غير المقروء' : ntfState.readF === 'read' ? 'المقروء' : 'الكل'),
-              onClick: () => { ntfState.readF = !ntfState.readF ? 'unread' : ntfState.readF === 'unread' ? 'read' : null; draw(); const b = el.querySelector('#ntf-read'); if (b) b.focus(); } },
-              Icon(ntfState.readF === 'read' ? 'checkCircle' : 'bell', 'sm'), h('span', null, ntfState.readF === 'unread' ? 'غير مقروء' : ntfState.readF === 'read' ? 'مقروء' : 'الكل')))
+            // the read filter beside it (Safwat 24 Nov — instead of the «غير مقروء» / «مقروء» tabs), a dropdown since 25 Nov («خلي الكل
+            // يبقا فيها دروب داون اختار مقروء او غير مقروء او الكل»): the button opens a small list of the three, the picked one ticked
+            (() => { const RD = [[null, 'الكل', 'bell'], ['unread', 'غير مقروء', 'bell'], ['read', 'مقروء', 'checkCircle']]; const cur = RD.find((r) => r[0] === (ntfState.readF || null)) || RD[0];
+              const box = h('span', { class: 'pop-anchor ntf-readbox' });
+              const menu = h('div', { class: 'menu ntf-readmenu', id: 'ntf-readmenu', role: 'menu', 'aria-label': 'عرض التنبيهات', hidden: true },
+                RD.map(([v, t, ic]) => h('button', { type: 'button', class: 'opt', role: 'menuitemradio', 'aria-checked': String(v === cur[0]), 'data-read-opt': v || 'all',
+                  onClick: () => { ntfState.readF = v; draw(); const x = el.querySelector('#ntf-read'); if (x) x.focus(); } }, Icon(ic, 'sm'), h('span', null, t), v === cur[0] ? h('span', { class: 'ck', 'aria-hidden': 'true' }, Icon('check', 'sm')) : null)));
+              const shut = () => { menu.hidden = true; btn.setAttribute('aria-expanded', 'false'); document.removeEventListener('mousedown', away, true); };
+              const away = (e) => { if (!box.contains(e.target)) shut(); };
+              const btn = h('button', { type: 'button', id: 'ntf-read', class: 'icon-btn sm ntf-sortbtn' + (ntfState.readF ? ' on' : ''), 'data-read': ntfState.readF || 'all', title: 'اختار: الكل · غير مقروء · مقروء',
+                'aria-haspopup': 'menu', 'aria-expanded': 'false', 'aria-controls': 'ntf-readmenu', 'aria-label': 'عرض: ' + (ntfState.readF === 'unread' ? 'غير المقروء' : ntfState.readF === 'read' ? 'المقروء' : 'الكل'),
+                onClick: () => { if (!menu.hidden) { shut(); return; } menu.hidden = false; btn.setAttribute('aria-expanded', 'true'); document.addEventListener('mousedown', away, true);
+                  const o = menu.querySelector('[aria-checked=true]'); if (o) o.focus(); } },
+                Icon(cur[2], 'sm'), h('span', null, cur[1]), Icon('chevD', 'sm'));
+              menu.addEventListener('keydown', (e) => { const os = [...menu.querySelectorAll('.opt')]; const i = os.indexOf(document.activeElement);
+                if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); os[(i + (e.key === 'ArrowDown' ? 1 : os.length - 1)) % os.length].focus(); }
+                if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); shut(); btn.focus(); } });
+              box.append(btn, menu); return box; })())
             : h('div', { class: 'ntf-head' }, h('h3', { class: 't-h5' }, sec.label), h('span', { class: 'cnt' }, num(String(sec.received != null ? sec.received : sec.tabs[0][2].length)), ' ' + sec.unit, sec.received != null && sec.tabs[0][2].length > sec.received ? h('span', { class: 'fyi-c' }, ' · ', num(String(sec.tabs[0][2].length - sec.received)), ' للعلم') : null), h('span', { class: 'sp' }), Button({ type: 'text', size: 'sm', label: sec.allLabel, onClick: () => { close(); sec.all(); } })),
           tabs, list,
           h('div', { class: 'ntf-foot' }, h('span', null, '↑↓ للتنقل · Enter يفتح · Esc يقفل'), Button({ type: 'text', size: 'sm', label: 'تعليم القسم كمقروء', onClick: () => { if (sec.tree) { sec.all(); return; } ntfState.read = (ntfState.read || {}); items.forEach((it) => { ntfState.read[it.key] = true; }); } })));

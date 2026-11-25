@@ -2588,3 +2588,83 @@ input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-
 .nr-card-prev{display:flex;flex-direction:column;gap:6px;margin-top:8px}
 .nr-card-prev .ntf-item.prev{cursor:default;border:1px solid var(--color-border-subtle);background:var(--color-bg-base)}
 .nr-card-prev .ntf-mk{background:var(--color-bg-container)}
+/* the bell's rows as cards (Safwat 25 Nov — «كل تنبيه يبقا حواليه ستروك وخلفية فاتحة شوية عشان المستخدم يقدر يقراهم بسهولة … احترافي
+   و منظم» ثم «تنظم المعلومات و شكل الكارت يبقا شكلو منظم»): the list is a beige tray and every alert a card on it — lighter than the
+   tray, a 1px stroke, a soft lift, 8px between cards. Inside, one grid: the owner's circle at the start, the head (title · level tag)
+   with the time and the arrow at its end, and the body (the customer's line, the chips, the makers' table, the details) under the head
+   across the card's width (.txt is display:contents so its head and body are the grid's own cells). The level is a slim bar on the
+   card's start edge, the unread one a green dot on the owner's circle and a whiter card, the read one flat and quieter. */
+.menu.notif{--ntf-card:var(--color-bg-base);--ntf-stroke:#eadcc2;--ntf-lift:0 1px 3px rgba(60,45,20,.10),0 2px 8px rgba(60,45,20,.05)}
+.menu.notif .ntf-list{background:var(--color-bg-container);gap:8px;padding:10px 12px 12px}
+.menu.notif .ntf-list>.ntf-item{flex:none;display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;grid-template-rows:auto;align-items:start;column-gap:12px;row-gap:8px;
+  background:var(--ntf-card);border:1px solid var(--ntf-stroke);border-radius:12px;padding:12px 16px 12px 14px;box-shadow:var(--ntf-lift);overflow:hidden;
+  transition:border-color .15s ease,box-shadow .15s ease,background-color .15s ease}
+.menu.notif .ntf-list>.ntf-item.lv-critical:not(.muted),.menu.notif .ntf-list>.ntf-item.lv-important:not(.muted),.menu.notif .ntf-list>.ntf-item.lv-normal:not(.muted){box-shadow:var(--ntf-lift)}
+.menu.notif .ntf-list>.ntf-item::before{content:'';position:absolute;inset-block:10px;inset-inline-start:0;width:3px;border-start-end-radius:3px;border-end-end-radius:3px;background:transparent}
+.menu.notif .ntf-list>.ntf-item.lv-critical:not(.muted)::before{background:var(--color-error-text)}
+.menu.notif .ntf-list>.ntf-item.lv-important:not(.muted)::before{background:var(--color-warning-base)}
+.menu.notif .ntf-list>.ntf-item.lv-normal:not(.muted)::before{background:var(--color-brand-default)}
+.menu.notif .ntf-list>.ntf-item>.av{grid-column:1;grid-row:1 / span 2;align-self:start}
+.menu.notif .ntf-list>.ntf-item>.txt{display:contents}
+.menu.notif .ntf-list>.ntf-item>.txt>b{grid-column:2;grid-row:1;align-self:center;min-height:38px;font-size:14px;font-weight:600;line-height:20px;color:var(--color-text-primary)}
+.menu.notif .ntf-list>.ntf-item>.txt>:not(b){grid-column:2 / -1;grid-row:2;min-width:0}
+.menu.notif .ntf-list>.ntf-item>.txt>small{color:var(--color-text-secondary);font-size:13px;line-height:20px;white-space:normal}
+.menu.notif .ntf-list>.ntf-item>.meta{grid-column:3;grid-row:1;align-self:center;font-size:12px;color:var(--color-text-secondary);font-variant-numeric:tabular-nums}
+.menu.notif .ntf-list>.ntf-item>.ext{grid-column:4;grid-row:1;align-self:center;display:grid;place-items:center;width:24px;height:24px;border-radius:6px;color:var(--color-text-secondary);opacity:.7}
+.menu.notif .ntf-list>.ntf-item:is(:hover,:focus-visible)>.ext{opacity:1;color:var(--color-brand-default)}
+/* the unread one: a green dot on its owner's circle, a whiter card with a green-tinted stroke, its title bold */
+.menu.notif .ntf-list>.ntf-item.fresh{padding-inline-start:14px;background:var(--ntf-card);border-color:rgba(0,86,66,.30)}
+.menu.notif .ntf-list>.ntf-item>.ntf-dot{inset-inline-start:42px;top:12px;margin:0;width:10px;height:10px;box-shadow:0 0 0 2px var(--ntf-card);z-index:1}
+.menu.notif .ntf-list>.ntf-item.fresh>.txt>b{font-weight:700}
+/* the read one: flat on the tray, its words quieter */
+.menu.notif .ntf-list>.ntf-item.muted{opacity:1;background:#f9f1e2;box-shadow:0 1px 2px rgba(60,45,20,.06)}
+.menu.notif .ntf-list>.ntf-item.muted>:is(.txt>*,.av,.meta){opacity:.8}
+.menu.notif .ntf-list>.ntf-item:is(:hover,:focus-visible){border-color:rgba(0,86,66,.45);box-shadow:0 4px 12px rgba(60,45,20,.10);outline:0}
+.menu.notif .ntf-list>.ntf-item:focus-visible{box-shadow:0 0 0 3px rgba(0,86,66,.22)}
+/* the customer's card inside: the name line, the chips, the makers' table — one rhythm */
+.menu.notif .ntf-list>.ntf-item .ntf-cust{gap:8px;margin:0}
+.menu.notif .ntf-list>.ntf-item .ntf-cust:empty{display:none}
+.menu.notif .ntf-list>.ntf-item .ntf-cust .ntf-line.ph{min-height:0;padding-bottom:8px;border-bottom:1px dashed var(--ntf-stroke)}
+.menu.notif .ntf-list>.ntf-item .ntf-ph{margin-inline-start:auto;padding:0 2px 0 8px;border:1px solid var(--ntf-stroke);border-radius:16px;background:var(--color-bg-container)}
+.menu.notif .ntf-list>.ntf-item .ntf-ph .icon-btn.sm{width:26px;height:26px;border-radius:13px}
+.menu.notif .ntf-list>.ntf-item .ntf-mk{background:#fbf4e8;border-color:var(--ntf-stroke);border-radius:8px}
+.menu.notif .ntf-list>.ntf-item .ntf-mk-row{padding:7px 10px}
+.menu.notif .ntf-list>.ntf-item .ntf-mk-row+.ntf-mk-row{border-top-color:var(--ntf-stroke)}
+.menu.notif .ntf-list>.ntf-item .ntf-det{font-size:13px;line-height:20px}
+@media (max-width:767px){
+  .menu.notif .ntf-list{gap:6px;padding:8px}
+  .menu.notif .ntf-list>.ntf-item{padding:10px 12px;column-gap:10px}
+  .menu.notif .ntf-list>.ntf-item>.meta{display:block}
+  .menu.notif .ntf-list>.ntf-item>.txt>:not(b){grid-column:1 / -1}
+  .menu.notif .ntf-list>.ntf-item>.av{grid-row:1}
+  .menu.notif .ntf-list>.ntf-item>.ntf-dot{inset-inline-start:38px;top:10px}
+  .menu.notif .ntf-list>.ntf-item>.txt>b{flex-wrap:wrap;row-gap:2px}
+  .menu.notif .ntf-list>.ntf-item>.txt>b .tt{white-space:normal;overflow:visible}
+}
+@media (prefers-reduced-motion:reduce){.menu.notif .ntf-list>.ntf-item{transition:none}}
+/* the bell's read filter as a dropdown (Safwat 25 Nov — «خلي الكل يبقا فيها دروب داون اختار مقروء او غير مقروء او الكل»): the button
+   with its arrow, a small list of the three under it, the picked one ticked */
+.menu.notif .ntf-readbox{position:relative;display:inline-flex}
+.menu.notif .ntf-readbox>.ntf-sortbtn[aria-expanded=true]{border-color:var(--color-brand-default);color:var(--color-brand-default)}
+.menu.notif .ntf-readmenu{top:calc(100% + 6px);inset-inline-start:auto;inset-inline-end:0;min-width:168px;width:auto;max-height:none;padding:6px;border:1px solid var(--color-border-subtle);border-radius:10px;box-shadow:0 8px 24px rgba(60,45,20,.16);z-index:40}
+.menu.notif .ntf-readmenu[hidden]{display:none}
+.menu.notif .ntf-readmenu .opt{height:36px;font-size:13px;border-radius:6px;color:var(--color-text-primary)}
+.menu.notif .ntf-readmenu .opt svg{color:var(--color-text-secondary)}
+.menu.notif .ntf-readmenu .opt[aria-checked=true]{font-weight:600;color:var(--color-brand-default)}
+.menu.notif .ntf-readmenu .opt[aria-checked=true] svg{color:var(--color-brand-default)}
+.menu.notif .ntf-readmenu .opt .ck{margin-inline-start:auto;display:inline-flex}
+/* the bell's colours (Safwat 25 Nov — «الكروت خلفيتها بيج فاتح و قايمة الاقسام الرئيسية خلفيتها خضرا و الكلام بيج و خلي التنبيهات بدل
+   بيضة بيج فاتح و ليها شادو بستروك خفيف يفصل كل تنبيه عن التاني»): the cards light beige (the new one too — no white) with a shadow and a
+   light stroke between them (the variables above); the main sections' menu green with beige words like the side menu — the picked one
+   gold like the side menu's, its counts beige on the green, the critical red */
+.menu.notif .ntf-nav{background:var(--color-brand-default);border-inline-start:0;color:var(--color-text-on-brand)}
+.menu.notif .ntf-nav .t-h5{color:var(--color-text-gold)}
+.menu.notif .ntf-nav .ntf-nav-item{color:var(--color-text-on-brand);border-radius:8px}
+.menu.notif .ntf-nav .ntf-nav-item svg{color:inherit;opacity:.9}
+.menu.notif .ntf-nav .ntf-nav-item:hover{background:var(--color-brand-hover)}
+.menu.notif .ntf-nav .ntf-nav-item:focus-visible{outline:2px solid var(--color-text-gold);outline-offset:-2px}
+.menu.notif .ntf-nav .ntf-nav-item[aria-current=true]{background:var(--color-action-default);color:var(--color-text-on-action);font-weight:600}
+.menu.notif .ntf-nav .ntf-nav-item .cnt{background:var(--color-text-on-brand);color:var(--color-brand-default)}
+.menu.notif .ntf-nav .ntf-nav-item .cnt.zero{background:rgba(255,247,239,.16);color:var(--color-text-on-brand)}
+.menu.notif .ntf-nav .ntf-nav-item .cnt.hot{background:var(--color-error-text);color:#fff}
+.menu.notif .ntf-nav .foot{color:var(--color-text-on-brand);opacity:.75}

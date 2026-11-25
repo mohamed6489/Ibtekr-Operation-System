@@ -52,11 +52,14 @@ test('the bell = the settings\' tree: its groups and filters, nothing more (a ru
   // … the unread one stays first all the same (Safwat 24 Nov — «المقروء … بينزل دايما تحت غير المقروء»)
   await expect(bell.locator('.ntf-item').first()).toContainText('IB-180656'); await expect(bell.locator('.ntf-item').nth(1)).toContainText('IB-180651');
   // the read filter beside the sort: الكل → غير مقروء → مقروء → الكل
-  await bell.locator('#ntf-read').click(); await expect(bell.locator('#ntf-read')).toHaveAttribute('data-read', 'unread');
+  // a dropdown since 25 Nov («خلي الكل يبقا فيها دروب داون»): the button opens the three, the picked one ticked
+  await bell.locator('#ntf-read').click(); await expect(bell.locator('#ntf-readmenu .opt')).toHaveText(['الكل', 'غير مقروء', 'مقروء']);
+  await expect(bell.locator('#ntf-readmenu [aria-checked=true]')).toHaveText('الكل');
+  await bell.locator('[data-read-opt=unread]').click(); await expect(bell.locator('#ntf-read')).toHaveAttribute('data-read', 'unread'); await expect(bell.locator('#ntf-readmenu')).toBeHidden();
   await expect(bell.locator('.ntf-item')).toHaveCount(1); await expect(bell.locator('.ntf-item')).toContainText('IB-180656');
-  await bell.locator('#ntf-read').click(); await expect(bell.locator('#ntf-read')).toHaveAttribute('data-read', 'read');
+  await bell.locator('#ntf-read').click(); await bell.locator('[data-read-opt=read]').click(); await expect(bell.locator('#ntf-read')).toHaveAttribute('data-read', 'read');
   await expect(bell.locator('.ntf-item')).toHaveCount(1); await expect(bell.locator('.ntf-item')).toContainText('IB-180651');
-  await bell.locator('#ntf-read').click(); await expect(bell.locator('#ntf-read')).toHaveAttribute('data-read', 'all'); await expect(bell.locator('.ntf-item')).toHaveCount(2);
+  await bell.locator('#ntf-read').click(); await bell.locator('[data-read-opt=all]').click(); await expect(bell.locator('#ntf-read')).toHaveAttribute('data-read', 'all'); await expect(bell.locator('.ntf-item')).toHaveCount(2);
   // «الفريق»: the overtime alert written by the database (no rule) is not in the bell — only what the settings hold (Safwat 25 Nov — «لا أزيد
   // ولا أقل»); the group and its tab are there all the same, at zero
   await bell.locator('.ntf-nav-item', { hasText: 'الفريق' }).click();

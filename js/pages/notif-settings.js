@@ -35,6 +35,15 @@
   }
 
   // ---------- the alert's form (Safwat's drawing «إضافة تنبيه»)
+  // the assistants' alerts live in the assistants' main section only (Safwat 25 Nov — «كل تنبيهات المساعدين بتيجي جوه المساعدين بس»):
+  // there the element is «الذكاء الاصطناعي» and nothing else; anywhere else every element but it (a rule saved before keeps its own)
+  const AGENTS_MAIN = /مساعد/;
+  const isAgentsMain = (m) => !!m && (AGENTS_MAIN.test(m.name || '') || m.subs.some((x) => x.rules.some((r) => r.element === 'ai')));
+  const mainOfSub = (sub) => { const t = ST() && ST().notifTreeNow ? ST().notifTreeNow() : null; return t ? t.mains.find((m) => m.subs.some((x) => x.id === sub.id)) || null : null; };
+  function elementsFor(sub, keep) {
+    const c = C(); const agents = isAgentsMain(mainOfSub(sub));
+    return c.ELEMENTS.filter((e) => (agents ? e.id === 'ai' : e.id !== 'ai') || (keep && e.id === keep)).map((e) => ({ value: e.id, label: e.label }));
+  }
   function ruleForm(sub, rule, redraw) {
     const c = C(); const L = lists();
     const f = Object.assign({ section_id: sub.id, name: '', element: '', type: '', state: '', sub: null, param: null, at: '09:00', repeat: '24h', days: [], show: 'until_state', hours: 0, roles: [], channels: ['bell'], template: '', active: true, mode: 'single', conds: [], level: null }, rule ? JSON.parse(JSON.stringify(rule)) : {});
@@ -49,7 +58,7 @@
       return h('div', { class: 'nr-cond', 'data-nr-cond': String(i) },
         h('div', { class: 'nr-cond-h' }, h('span', { class: 'nr-cond-n' }, 'العنصر ' + n), h('button', { type: 'button', class: 'nr-cond-x', 'aria-label': 'شيل العنصر ' + n, title: 'شيل العنصر ' + n, 'data-nr-cond-x': String(i), onClick: () => { f.conds.splice(i, 1); reShow(); draw(); } }, '×')),
         h('div', { class: 'row cols3' },
-          U().Select({ id: 'nr-el-' + n, label: 'العنصر', required: true, value: x.element || null, options: c.ELEMENTS.map((e) => ({ value: e.id, label: e.label })), onChange: (v) => { Object.assign(x, { element: v, type: '', state: '', sub: null, param: null }); draw(); } }),
+          U().Select({ id: 'nr-el-' + n, label: 'العنصر', required: true, value: x.element || null, options: elementsFor(sub, x.element), onChange: (v) => { Object.assign(x, { element: v, type: '', state: '', sub: null, param: null }); draw(); } }),
           U().Select({ id: 'nr-type-' + n, label: 'نوع التنبيه', required: true, disabled: !x.element, value: x.type || null, options: ts.map((t) => ({ value: t.id, label: t.label })), onChange: (v) => { Object.assign(x, { type: v, state: '', sub: null, param: null }); draw(); } }),
           U().Select({ id: 'nr-state-' + n, label: 'الوضع', required: true, disabled: !x.type, value: x.state || null, options: ss.map((t) => ({ value: t.id, label: t.label })), onChange: (v) => { x.state = v; const s3 = c.stateOf(x.element, x.type, v, L); x.param = s3 && s3.param ? s3.param.def : null; reShow(); draw(); } })),
         s2 && s2.param ? U().TextInput({ id: 'nr-param-' + n, label: s2.param.label, inputmode: 'numeric', dir: 'ltr', value: x.param == null ? String(s2.param.def) : String(x.param), onInput: (v) => { x.param = v === '' ? null : Number(String(v).replace(/[^\d.]/g, '')); } }) : null);
@@ -70,7 +79,7 @@
         sec(['bell', 'تفاصيل التنبيه', 'إيه اللي يتابعه'],
           U().TextInput({ id: 'nr-name', label: 'اسم التنبيه', required: true, value: f.name, maxlength: 80, onInput: (v) => { f.name = v; } }),
           h('div', { class: 'nr-cond first' + (many ? '' : ' solo') }, many ? h('div', { class: 'nr-cond-h' }, h('span', { class: 'nr-cond-n' }, 'العنصر 1')) : null, h('div', { class: 'row cols3' },
-            U().Select({ id: 'nr-el', label: 'العنصر', required: true, value: f.element || null, options: c.ELEMENTS.map((e) => ({ value: e.id, label: e.label })), onChange: (v) => { f.element = v; f.type = ''; f.state = ''; f.sub = null; f.param = null; draw(); } }),
+            U().Select({ id: 'nr-el', label: 'العنصر', required: true, value: f.element || null, options: elementsFor(sub, rule ? rule.element : null), onChange: (v) => { f.element = v; f.type = ''; f.state = ''; f.sub = null; f.param = null; draw(); } }),
             U().Select({ id: 'nr-type', label: 'نوع التنبيه', required: true, disabled: !f.element, value: f.type || null, options: types().map((x) => ({ value: x.id, label: x.label })), onChange: (v) => { f.type = v; f.state = ''; f.sub = null; f.param = null; draw(); } }),
             U().Select({ id: 'nr-state', label: 'الوضع', required: true, disabled: !f.type, value: f.state || null, options: states().map((x) => ({ value: x.id, label: x.label })), onChange: (v) => { f.state = v; const s2 = c.stateOf(f.element, f.type, v, L); f.param = s2 && s2.param ? s2.param.def : null;
               reShow(); draw(); } }))),
@@ -226,5 +235,5 @@
       { th: false })];
   }
   const ready = () => !!(ST() && ST().notifTreeNow && ST().notifTreeNow());
-  window.IBNotifSettings = { render, ready, ruleForm, pathText };
+  window.IBNotifSettings = { render, ready, ruleForm, pathText, isAgentsMain };
 })();

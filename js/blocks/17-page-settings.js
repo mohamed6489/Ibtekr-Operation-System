@@ -161,7 +161,7 @@
         !x.builtin && !x.archived ? Button({ size: 'sm', type: 'text', icon: 'trash', label: 'أرشف', onClick: () => K.confirm({ title: 'تأرشف «' + x.name + '»؟', text: 'هيختفي من «الذكاء الاصطناعي» عند الكل وشاتاته بتفضل.', okType: 'danger', okLabel: 'أرشف', onOk: async () => { const r = await M.agentArchive(x.id, true); K.toast(r.ok ? 'اتأرشف' : r.message, r.ok ? 'success' : 'error'); R(); } }) }) : null,
         x.archived ? Button({ size: 'sm', icon: 'undo', label: 'رجّعه', onClick: async () => { const r = await M.agentArchive(x.id, false); K.toast(r.ok ? 'رجع' : r.message, r.ok ? 'success' : 'error'); R(); } }) : null].filter(Boolean),
       { th: false, cols: false, sub: 'بيقرا بصلاحيات اللي بيكلّمه، وبيرد من السيستم الأول — ومابينفّذش حاجة لوحده' });
-    const out = [strip, about, AS ? AS.brainCard(x, { live: (p) => provLive('text', p), read: !!LINKS.at, redraw: R }) : null, AS && AS.rulesCard ? AS.rulesCard(x, { redraw: R }) : null, kbAllSec('rules', kbl, live), kbAllSec('skills', kbl, live), AS ? AS.sourcesCard(x, { redraw: R }) : null];
+    const out = [strip, about, AS ? AS.brainCard(x, { live: (p) => provLive('text', p), read: !!LINKS.at, redraw: R }) : null, AS && AS.keepCard ? AS.keepCard(x, { redraw: R }) : null, AS && AS.rulesCard ? AS.rulesCard(x, { redraw: R }) : null, kbAllSec('rules', kbl, live), kbAllSec('skills', kbl, live), AS ? AS.sourcesCard(x, { redraw: R }) : null];
     if (x.id === 'designer') out.push(trendTagsSec());
     if (x.id === 'buyer') out.push(compsSec(), adTagsSec()); // ش44: the competitors and the ad tags
     return out.filter(Boolean);

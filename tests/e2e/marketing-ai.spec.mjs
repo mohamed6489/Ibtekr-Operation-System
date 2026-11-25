@@ -838,7 +838,7 @@ test('ش45 — the media buyer\'s «اقفل الحملة»: a confirm card unde
 // the owner 17 Nov («فاتح الميديا باير و قولتله اعملي فيديو يقولي ده مش اختصاصي هبعتك للمصمم و يبعتني ليه بالبرومت و ادوس علي ارسال»):
 // an ask outside the assistant's area comes back as a handoff to one of the member's team — «روح للـ…» opens that assistant on a new chat
 // with the question in its box; nothing is sent until the member presses «ابعت»; an id outside the team never gets a button
-test('handoff — the media buyer asked for a video sends the member to the designer with the question written in', async ({ page }) => {
+test('handoff — the media buyer asked for a video sends the member to the designer: it greets him by name and the request is sent at once (Safwat 25 Nov)', async ({ page }) => {
   await start(page);
   mock.mkt.agentAnswer = (req) => (/فيديو/.test(req.question)
     ? { text: 'ده مش اختصاصي — هبعتك للديزاينر الذكي، والطلب مكتوب عنده، دوس إرسال.', request: { title: '', details: '' }, handoff: { agent: 'designer', question: 'اعملي فيديو ريل 15 ثانية لفازة المكرمية الجديدة' } }
@@ -852,12 +852,11 @@ test('handoff — the media buyer asked for a video sends the member to the desi
   expect(call.team).not.toContain('buyer');
   const card = P.locator('[data-mk-handoff="designer"]');
   await expect(card).toContainText('اعملي فيديو ريل 15 ثانية');
-  const before = mock.mkt.calls.filter((c) => c.action === 'agent').length;
   await card.locator('[data-mk-handoff-go]').click();
   await expect(P.locator('#mk-ask')).toHaveAttribute('placeholder', /للديزاينر/);
-  await expect(P.locator('#mk-ask')).toHaveValue('اعملي فيديو ريل 15 ثانية لفازة المكرمية الجديدة');
-  expect(mock.mkt.calls.filter((c) => c.action === 'agent').length, 'nothing sent until «ابعت»').toBe(before);
-  await P.locator('#mk-ask').press('Enter');
+  await expect(P.locator('[data-mk-greet="designer"]')).toHaveText(/^أهلا يا \S+، عينيا حاضر — «الميديا باير الذكي» بعتلي طلبك وهبدأ فيه على طول\.$/);
+  await expect(P.locator('.mk-msg.user').last()).toHaveText('اعملي فيديو ريل 15 ثانية لفازة المكرمية الجديدة');
+  await expect(P.locator('#mk-ask')).toHaveValue('');
   // the consent card may show a moment after the send: looked at on every try, so the handler above answers it
   await expect(async () => { await expect(pg(page).locator('[data-mk-consent]')).toHaveCount(0, { timeout: 300 }); expect(mock.mkt.calls.filter((c) => c.action === 'agent').pop().agent).toBe('designer'); }).toPass({ timeout: 10000 });
   // an assistant outside the team: no button

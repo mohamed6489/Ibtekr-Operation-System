@@ -44,14 +44,16 @@ test('a number of its speciality is answered by the system — no model called, 
   await expect.poll(() => mock.activity.filter((a) => a.action === 'mkt.agent.system').map((a) => a.new_value)).toEqual(['dev', 'dev']);
 });
 
-test('another assistant’s number is handed over: «روح لـ…» opens its chat with the question in the box; a money entry is the system’s popup filled', async ({ page }) => {
+test('another assistant’s number is handed over: «روح لـ…» opens its chat, it greets the member by name and answers the request at once (Safwat 25 Nov); a money entry is the system’s popup filled', async ({ page }) => {
   await openAi(page, 'المبرمج');
   mock.acc.dokan_withdrawals.push({ id: 501, woo_vendor_id: 1, vendor_id: null, amount: 900, charge: 0, receivable: 900, status: 'pending', method: 'bank', requested_at: '2026-11-21 12:00:00', synced_at: new Date().toISOString() });
   await send(page, 'في طلبات سحب مستنية؟');
   await expect(lastAns(page).locator('[data-mk-src]')).toHaveText('المبرمج الذكي'); await expect(lastAns(page)).toContainText('ده تخصص «المحاسب الذكي»');
   expect(asks().length).toBe(0); await lastAns(page).locator('[data-mk-handoff-go]').click();
-  // the accountant's chat with the question in its box — sent by the member, answered by the system from its own number
-  await expect(pg(page).locator('#mk-ask')).toHaveValue('في طلبات سحب مستنية؟'); await pg(page).locator('[data-mk-ask]').click();
+  // Safwat 25 Nov — «يكون بعتله الطلب و التاني يستقبلني اهلا يا "اسم المستخدم" عينيا حاضر و بيتدي يساعدني»: the accountant's chat greets
+  // the member by name, the request is already sent, and the system answers it from its own number
+  await expect(pg(page).locator('[data-mk-greet="accountant"]')).toHaveText(/^أهلا يا \S+، عينيا حاضر — «المبرمج الذكي» بعتلي طلبك وهبدأ فيه على طول\.$/);
+  await expect(pg(page).locator('.mk-msg.user').last()).toHaveText('في طلبات سحب مستنية؟'); await expect(pg(page).locator('#mk-ask')).toHaveValue('');
   await expect(lastAns(page)).toContainText('طلبات سحب مستنية الموافقة: 1.'); await expect(lastAns(page).locator('[data-mk-src]')).toHaveText('المحاسب الذكي');
   // an expense said whole → the accounts page's own popup, filled, behind a button — nothing written
   await send(page, 'سجل سحب مرتبات 5000');

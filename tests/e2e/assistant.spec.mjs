@@ -436,7 +436,7 @@ test('plan_categories: the tree under a category of the site; a member without �
 
 // ش45 decisions 3 and 4 (the owner 17 Nov — «الايه اي اللي في الهيدر ده المدير»): a programming question goes to the developer's chat
 // (the marketing assistants open on it and the question is sent there); a content ask opens «كامبين جديدة» filled — nothing generated
-test('ش45: the header\'s assistant hands a programming question to the developer — «الذكاء الاصطناعي» opens on «المبرمج الذكي» with the question in the box, sent by the member', async ({ page }) => {
+test('ش45 → Safwat 25 Nov: the header\'s assistant hands a programming question to the developer — «الذكاء الاصطناعي» opens on «المبرمج الذكي», it greets the member by name and the request is sent at once', async ({ page }) => {
   mock.aiAnswer = (action) => (action === 'assistant' ? { text: 'حوّلت سؤالك للمبرمج.', actions: [{ name: 'ask_agent', input: { agent: 'dev', question: 'ليه الموقع بطيء على الموبايل؟' } }] } : null);
   await signIn(page, OPS);
   await page.getByRole('button', { name: 'مساعد AI' }).click();
@@ -444,10 +444,9 @@ test('ش45: the header\'s assistant hands a programming question to the develope
   await expect(panel(page).locator('.ai-msg.ai').last().locator('.ai-text')).toHaveText('حوّلت سؤالك للمبرمج.');
   await expect(page.locator('#pg-ai')).toBeVisible();
   await expect(page.locator('#pg-ai').getByRole('tab', { name: /المبرمج/ })).toHaveAttribute('aria-selected', 'true');
-  // the question waits in the box (nothing sent until the member presses) — then one call on a new chat
-  await expect(page.locator('#mk-ask')).toHaveValue('ليه الموقع بطيء على الموبايل؟');
-  expect(mock.mkt.calls.filter((c) => c.action === 'agent')).toEqual([]);
-  await page.locator('#mk-ask').press('Enter');
+  // the developer greets the member by name and the request is already sent (the outside model still waits for «موافق») — one call on a new chat
+  await expect(page.locator('[data-mk-greet="dev"]')).toHaveText(/^أهلا يا \S+، عينيا حاضر — وصلني طلبك وهبدأ فيه على طول\.$/);
+  await expect(page.locator('#mk-ask')).toHaveValue('');
   // the consent card may show a moment after the send: looked at on every try, so the handler above answers it
   await expect(async () => { await expect(page.locator('[data-mk-consent]')).toHaveCount(0, { timeout: 300 }); expect(mock.mkt.calls.filter((c) => c.action === 'agent').map((c) => [c.agent, c.chat])).toEqual([['dev', null]]); }).toPass({ timeout: 10000 });
   await expect(page.locator('#pg-ai')).toContainText('سؤالك: ليه الموقع بطيء على الموبايل؟');

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { installSupabaseMock, LIVE, DEV_PW } from './supabase-mock.mjs';
+import { installSupabaseMock, LIVE, DEV_PW, ART_LOGO, IMG } from './supabase-mock.mjs';
 
 // The notifications' new structure (Safwat 24 Nov — docs/superpowers/plans/2026-11-24-notifications.md, 0157): «الإعدادات › التنبيهات»
 // is the tree the bell shows — the admin adds a main section, a sub-section under it and an alert (element › type › state, time, repeat,
@@ -151,6 +151,9 @@ test('«إرسال برّه الجرس»: the admin\'s e-mail / WhatsApp switche
 // never in the alert), the states with their counts, his sub-orders and pieces, and every sub-order number to copy, «نسخ الكل» too
 test('the bell\'s redesign: a maker\'s card — logo, phone, states, numbers to copy — opens his late orders; the critical first, the owner instead of the bell', async ({ page, context }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  // his logo is the site's picture: answered here (never the real host — a host that does not resolve fails the image at once in CI
+  // and the card falls back to his first letter, which made this check pass or fail on timing)
+  await page.route(ART_LOGO, (route) => route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from(IMG.curtain.split(',')[1], 'base64') }));
   const ART = 'a0000000-0000-4000-8000-000000000001';
   const vm = (st, pcs, nums) => ({ lv: st === 'late' ? 'critical' : 'important', g: 'vendor', gid: ART, gname: 'Art Craft', n: nums.length, pcs, st, sk: st, nums, v: { n: 'Art Craft', s: st === 'late' ? 'متأخر' : 'قابل للتأخير' } });
   mock.alerts = [

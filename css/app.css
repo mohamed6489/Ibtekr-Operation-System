@@ -2678,3 +2678,19 @@ input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-
 .ag-rd-parts{display:flex;flex-direction:column;gap:8px;margin:8px 0}
 .ag-rd-st{display:flex;align-items:flex-end;gap:6px}.ag-rd-st>:first-child{flex:1 1 auto;min-width:0}
 .ag-rd-x{margin-bottom:8px}
+/* the maker's card in the bell (Safwat 25 Nov — bell-redesign decision 19: «الكارت ثابت و الحالات بس اللي تتغير»): the state chip in
+   its tone (late red · about to be yellow · confirmed green — always with its word), and his sub-orders' numbers: each a small button
+   that copies itself, tinted by its state, then «نسخ الكل» */
+.ntf-chip.success{background:var(--color-success-bg);color:var(--color-success-text)}
+.ntf-chip.neutral{background:var(--color-bg-container);color:var(--color-text-secondary)}
+.ntf-nums{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.ntf-num{display:inline-flex;align-items:center;gap:4px;height:26px;padding:0 8px;border:1px solid var(--color-border-subtle);border-radius:13px;background:var(--color-bg-base);color:var(--color-text-primary);font:inherit;font-size:12px;cursor:pointer;font-variant-numeric:tabular-nums}
+.ntf-num svg{width:12px;height:12px;flex:none;color:var(--color-text-secondary)}
+.ntf-num.late{border-color:var(--color-error-border,#f1b5b5);background:var(--color-error-bg);color:var(--color-error-text)}
+.ntf-num.risk{border-color:var(--color-warning-border,#f3d58c);background:var(--color-warning-bg);color:var(--color-warning-base)}
+.ntf-num.ok{border-color:var(--color-success-border);background:var(--color-success-bg);color:var(--color-success-text)}
+.ntf-num:hover,.ntf-num:focus-visible{border-color:var(--color-brand-default)}
+.ntf-num:focus-visible{outline:2px solid var(--color-brand-default);outline-offset:1px}
+.ntf-num.all{background:var(--color-brand-default);border-color:var(--color-brand-default);color:var(--color-text-on-brand)}
+.ntf-num.all svg{color:inherit}
+@media (pointer:coarse){.ntf-num{height:32px;padding:0 10px}}

@@ -36,7 +36,7 @@ async function signIn(page, hash) {
   if (hash) await page.evaluate((x) => { location.hash = x; }, hash);
 }
 
-test('the bell = the settings\' tree: its groups and filters, a rule-less alert under its element\'s sub-section, the hidden one gone, the green dot, the read below the unread, the read filter, the sort', async ({ page }) => {
+test('the bell = the settings\' tree: its groups and filters, nothing more (a rule-less alert is nowhere — Safwat 25 Nov), the hidden one gone, the green dot, the read below the unread, the read filter, the sort', async ({ page }) => {
   await signIn(page, 'dashboard');
   await page.locator('.notif-btn').click();
   const bell = page.locator('.menu.notif');
@@ -57,13 +57,12 @@ test('the bell = the settings\' tree: its groups and filters, a rule-less alert 
   await bell.locator('#ntf-read').click(); await expect(bell.locator('#ntf-read')).toHaveAttribute('data-read', 'read');
   await expect(bell.locator('.ntf-item')).toHaveCount(1); await expect(bell.locator('.ntf-item')).toContainText('IB-180651');
   await bell.locator('#ntf-read').click(); await expect(bell.locator('#ntf-read')).toHaveAttribute('data-read', 'all'); await expect(bell.locator('.ntf-item')).toHaveCount(2);
-  // «الفريق»: the overtime alert written by the database (no rule) sits under «الحضور والانصراف» (its element = team)
+  // «الفريق»: the overtime alert written by the database (no rule) is not in the bell — only what the settings hold (Safwat 25 Nov — «لا أزيد
+  // ولا أقل»); the group and its tab are there all the same, at zero
   await bell.locator('.ntf-nav-item', { hasText: 'الفريق' }).click();
-  await expect(bell.locator('.tab')).toHaveText([/الكل \(1\)/, /الحضور والانصراف \(1\)/]); // 0163 (the bell by role): every tab there, even at zero
-  await expect(bell.locator('.ntf-item')).toContainText('وقت إضافي محتاج قرارك');
-  // «تعليم القسم كمقروء» → the dot goes, written as reads
-  await bell.locator('.ntf-foot').getByRole('button', { name: 'تعليم القسم كمقروء' }).click();
-  await expect.poll(() => mock.alertReads.some((r) => r.alert_id === 503)).toBe(true);
+  await expect(bell.locator('.tab')).toHaveText([/الكل \(0\)/, /الحضور والانصراف \(0\)/]); // 0163 (the bell by role): every tab there, even at zero
+  await expect(bell.locator('.ntf-item')).toHaveCount(0);
+  await expect(bell).not.toContainText('وقت إضافي محتاج قرارك');
 });
 
 test('«الإعدادات › التنبيهات»: a main section, a sub-section and an alert by Safwat\'s form → the bell shows the new group and filter at once', async ({ page }) => {
@@ -94,7 +93,9 @@ test('«الإعدادات › التنبيهات»: a main section, a sub-secti
   await form.locator('[data-nr-save]').click();
   await expect(form.locator('.ferr')).toHaveText('اكتب اسم التنبيه');
   await form.locator('#nr-name').fill('العهدة قربت تخلص');
-  await form.locator('#nr-el').click(); await page.getByRole('option', { name: 'عهدة التشغيل' }).click();
+  await form.locator('#nr-el').click();
+  await expect(page.getByRole('option', { name: 'الذكاء الاصطناعي' })).toHaveCount(0); // the assistants' element lives in their section only (Safwat 25 Nov)
+  await page.getByRole('option', { name: 'عهدة التشغيل' }).click();
   await form.locator('#nr-type').click(); await page.getByRole('option', { name: 'الرصيد' }).click();
   await form.locator('#nr-state').click(); await page.getByRole('option', { name: 'العهدة قربت تخلص' }).click();
   await expect(form.locator('#nr-param')).toHaveValue('200'); // the state's number (the floor) with its default
@@ -313,4 +314,18 @@ test('0165 the alert\'s level: four to pick in its form — saved with the rule,
   await page.evaluate(() => window.IBAlerts.load());
   await page.locator('.notif-btn').click();
   await expect(page.locator('.menu.notif .ntf-item', { hasText: 'IB-180656' }).locator('.ntf-lv')).toHaveText('عادي');
+});
+
+// Safwat 25 Nov — «كل تنبيهات المساعدين بتيجي جوه المساعدين بس»: in the assistants' main section a new alert's element is «الذكاء الاصطناعي»
+// and nothing else
+test('0167 the assistants\' section: a new alert there offers the assistants\' element only', async ({ page }) => {
+  const M9 = '00000000-0000-4000-8000-0000000005d1'; const S9 = '00000000-0000-4000-8000-0000000005d2';
+  mock.notif.sections.push({ id: M9, parent_id: null, name: 'مساعدين الذكاء الاصطناعي', icon: null, sort: 9 }, { id: S9, parent_id: M9, name: 'التصميم', icon: null, sort: 0 });
+  await signIn(page, 'settings-notifications');
+  const tree = page.locator('[data-nr-tree]');
+  await tree.locator('[data-nr-tab]', { hasText: 'مساعدين الذكاء الاصطناعي' }).click();
+  await tree.locator('[data-nr-add="' + S9 + '"]').click();
+  const form = page.locator('.modal[role=dialog]', { hasText: 'إضافة تنبيه' });
+  await form.locator('#nr-el').click();
+  await expect(page.getByRole('option')).toHaveText(['الذكاء الاصطناعي']);
 });

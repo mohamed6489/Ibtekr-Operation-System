@@ -35,7 +35,7 @@ test('every built-in assistant has its own type with the three states', () => {
 test('metaOf: the level, who it is about and the counts — and nothing else', () => {
   const rule = { element: 'subs', type: 'delay', state: 'late' };
   assert.deepEqual(metaOf(rule, { id: 's:1', group: { g: 'vendor', id: 'v1', name: 'Art Craft' }, n: 1, pcs: 4, st: 'late', line: 'x', users: ['a'] }),
-    { lv: 'critical', g: 'vendor', gid: 'v1', gname: 'Art Craft', n: 1, pcs: 4, st: 'late' });
+    { lv: 'critical', v: { n: '', r: '', s: '', d: 'x' }, g: 'vendor', gid: 'v1', gname: 'Art Craft', n: 1, pcs: 4, st: 'late' }); // v: the template's own variables
   assert.deepEqual(metaOf({ element: 'daily', type: 'summary', state: 'day' }, { id: 'd' }), { lv: 'info' });
   assert.deepEqual(metaOf(rule, { id: 'x', group: { g: 'phone', id: '010' } }), { lv: 'critical' }, 'an unknown owner kind is dropped');
 });
@@ -51,10 +51,14 @@ test('metaOf: an order\'s facts for the customer service card', () => {
 });
 
 test('render: the order\'s variables in the template', () => {
-  const rule = { name: 'أوردر متأخر', template: '{العميل} · {حالة_الأوردر} · {المتابعة} · {الأوردرات_الفرعية} فرعي · {المبتكر_المتأخر}' };
+  const rule = { name: 'أوردر متأخر', template: '{العميل} · {حالة_الأوردر} · {المتابعة} · {الأوردرات_الفرعية} فرعي · {المبتكر_المتأخر} · {المبتكر_القابل_للتأخير}' };
   const ent = { ref: 'IB-1', group: { g: 'customer', id: '1', name: 'منى' }, o: { status: 'جاري التنفيذ', dl: 'risk', subs: 2, late: ['Art Craft'], risk: ['sala'] } };
-  assert.equal(C.render(rule, ent).body, 'منى · جاري التنفيذ · محتاج متابعة · 2 فرعي · Art Craft، sala');
-  assert.equal(C.render(rule, { ref: 'IB-2' }).body, ' ·  ·  ·  فرعي · ', 'no order facts: the variables empty');
+  assert.equal(C.render(rule, ent).body, 'منى · جاري التنفيذ · محتاج متابعة · 2 فرعي · Art Craft · sala');
+  // a part whose variables all came out empty goes with its words
+  assert.equal(C.render(rule, { ref: 'IB-2' }).body, '', 'no order facts: nothing left');
+  const t2 = { name: 'x', template: C.ORDER_TPL };
+  assert.equal(C.render(t2, { ref: 'IB-3', group: { g: 'customer', id: '3', name: 'سارة' }, o: { status: 'معلّق', dl: 'ok', subs: 1, late: [], risk: [] } }).body, 'معلّق · 1 أوردر فرعي', 'the default template: no phone on the server, the empty parts gone');
+  assert.equal(C.render({ name: 'x', template: 'لسه ما اتأكدش — {الرقم}' }, { ref: 'IB-4' }).body, 'لسه ما اتأكدش — IB-4', 'a template with no « · » as before');
   assert.ok(C.VARS.includes('المبتكر_المتأخر'));
 });
 

@@ -2,8 +2,9 @@
    اللي داخلالهم يوميا … و يديوني معلومات حقيقة ١٠٠٪ و لو احتاجوا مخ خارجي يسالوني و كل واحد متخصص في الحتة بتاعتوا» · «المدير
    العام … يرتب الشغل … و يوجهة المستخدم للموظف الصح»). Not a block. Pure (UMD), no model behind it.
      IBAgentBrain.answer(agent, text, ctx) → null (not the system's: the page asks before any outside model), or
-       { type: 'status', text }            the numbers the assistant watches now (the general manager: every assistant's)
-       { type: 'metric', text, key }       one number of its speciality, whether its rule holds, what to do
+       { type: 'status', text, keys }      the numbers the assistant watches now (the general manager: every assistant's that holds)
+                                           — keys [{ key, label }] for their «تفاصيل» links (agent-details.js)
+       { type: 'metric', text, key, label } one number of its speciality, whether its rule holds, what to do
        { type: 'handoff', text, agent, question }   another assistant's speciality: «روح لـ…» with the question
      ctx: { facts: { at, agents: { <id>: { name, metrics: [{ key, label, now, nowText, kw, tip, rule }] } } } (ai_agent_facts —
             the assistants this member sees), norm(text), thinks(text) (a model's work: a why, an opinion, writing), when, en }
@@ -26,7 +27,7 @@
     if (!asks && !status) return null; // an order, a wish, a text to write: not a question about a number
     const tail = c.when ? '\n' + tx('آخر تحديث: ', 'Last updated: ') + c.when : '';
     const line = (m) => (m.rule ? '⚠ ' : '• ') + m.label + ': ' + m.nowText;
-    const one = (m) => ({ type: 'metric', key: m.key, text: m.label + ': ' + m.nowText + '.' + (m.rule ? '\n' + tx('القاعدة متحققة: ', 'The rule holds: ') + m.rule + '.' : '') + (m.rule && m.tip ? '\n' + m.tip : '') + tail });
+    const one = (m) => ({ type: 'metric', key: m.key, label: m.label, text: m.label + ': ' + m.nowText + '.' + (m.rule ? '\n' + tx('القاعدة متحققة: ', 'The rule holds: ') + m.rule + '.' : '') + (m.rule && m.tip ? '\n' + m.tip : '') + tail });
     const own = F[agent].metrics || []; const mine = best(t, own);
     if (mine) return one(mine.m);
     // another assistant's number: the question goes to it (its numbers are its own to say)
@@ -37,9 +38,10 @@
     if (agent === 'manager') { // every assistant's desk in a line: what holds, by name
       const rows = [agent].concat(others).filter((id) => (F[id].metrics || []).length).map((id) => { const hold = F[id].metrics.filter((m) => m.rule);
         return (hold.length ? '⚠ ' : '• ') + F[id].name + ': ' + (hold.length ? hold.map((m) => m.label + ' (' + m.nowText + ')').join(tx('، ', ', ')) : tx('تمام', 'fine')); });
-      return rows.length ? { type: 'status', text: tx('الوضع دلوقتي عند كل مساعد:', 'Where every assistant stands now:') + '\n' + rows.join('\n') + tail } : null;
+      const keys = [agent].concat(others).flatMap((id) => (F[id].metrics || []).filter((m) => m.rule).map((m) => ({ key: m.key, label: m.label })));
+      return rows.length ? { type: 'status', keys, text: tx('الوضع دلوقتي عند كل مساعد:', 'Where every assistant stands now:') + '\n' + rows.join('\n') + tail } : null;
     }
-    return own.length ? { type: 'status', text: tx('الأرقام اللي براقبها دلوقتي:', 'The numbers I watch now:') + '\n' + own.map(line).join('\n') + tail } : null;
+    return own.length ? { type: 'status', keys: own.map((m) => ({ key: m.key, label: m.label })), text: tx('الأرقام اللي براقبها دلوقتي:', 'The numbers I watch now:') + '\n' + own.map(line).join('\n') + tail } : null;
   }
   return Object.freeze({ answer });
 });

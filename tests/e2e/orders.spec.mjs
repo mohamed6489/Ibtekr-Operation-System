@@ -335,6 +335,21 @@ test('the website note reads in full: its own lines, 3 shown, a longer one scrol
   await expect(wn('180686')).toHaveText('مفيش ملاحظة من العميل'); // blank: no note
 });
 
+// Safwat 25 Nov — «الاستروك لتفاصيل الاوردر في البوباب يبقا لونو اخضر عشان يعملو هايلايت» (order-edit-tabs plan, the end): the order
+// details card's stroke is the green of its head in both popups; the customer's card keeps its own
+test('the order details card in the popups: a green stroke like its head (the details popup and «تعديل الأوردر»); the customer card unchanged', async ({ page }) => {
+  await openOrders(page);
+  const dlg = page.locator('#orders #cdlg');
+  const stroke = (sel) => dlg.locator(sel).first().evaluate((e) => getComputedStyle(e).borderTopColor);
+  for (const open of [(x) => window.OrdersApp.details(x), (x) => window.OrdersApp.edit(x)]) {
+    await page.evaluate(open, '181668');
+    await expect(dlg.locator('.sec.det-sec')).toBeVisible();
+    expect(await stroke('.sec.det-sec')).toBe('rgb(0, 86, 66)');
+    expect(await stroke('.sec:not(.det-sec)')).not.toBe('rgb(0, 86, 66)');
+    await page.keyboard.press('Escape'); await expect(dlg).toHaveCount(0);
+  }
+});
+
 test('the details popup shows the governorate read-only next to the area (the city): its name, else its code, else «—»', async ({ page }) => {
   await openOrders(page);
   const dlg = page.locator('#orders #cdlg');

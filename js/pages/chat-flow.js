@@ -12,6 +12,8 @@
      card(state, o) → its card in the chat — o: { redraw, cancel, open(spec) → '' | an error to say, lists }
        lists: { kinds: [[value, label]], goals, priorities: [[value, label]], statuses: [[value, label]], makers: () => [name],
                 products: (q) => [{ id, name, sku }] | null (null = still loading), may: (requestType) → bool }
+       state.loading: the step in front waits on a list (the products searched, the makers) — the page draws the card again when
+       that list lands, so the matches show without a second press (CI 26 Nov)
    The popup it opens: { form, values } (block 28's open_form, under the same rights as by hand) · { draft } (the designer's «كامبين
    جديدة») · { trash: product } (the products page's own «مسح» confirmation). */
 (function (root, factory) {
@@ -142,7 +144,7 @@
     const def = FLOWS[id]; if (!def) return null;
     const v = {}; const p = pre || {};
     for (const s of def.steps) if (p[s.key] != null && p[s.key] !== '' && s.kind !== 'product' && s.kind !== 'maker') v[s.key] = p[s.key];
-    return { id, values: v, skipped: {}, q: p.q || '', draft: '', err: '', phase: 'ask', done: false };
+    return { id, values: v, skipped: {}, q: p.q || '', draft: '', err: '', phase: 'ask', done: false, loading: false };
   }
   const live = (st) => FLOWS[st.id].steps.filter((s) => !s.when || s.when(st.values));
   function current(st) {
@@ -179,7 +181,7 @@
   // ---- its card (the studio chat's look: answered lines with «غيّر», the question, its buttons or box)
   function card(st, o) {
     const U = root.IBUI; const h = U.h; const opt = o || {}; const redraw = opt.redraw || (() => {}); const L = opt.lists || {};
-    const def = FLOWS[st.id]; const s = current(st); const out = [];
+    const def = FLOWS[st.id]; const s = current(st); const out = []; st.loading = false; // its step says so below when it waits on a list
     const line = (x) => h('div', { class: 'sc-done', 'data-cf-done': x.key }, U.Icon('check', 'sm'), h('span', null, (x.label || x.q) + ': '), h('b', null, shown(st, x, L)),
       st.phase === 'opened' ? null : h('button', { type: 'button', class: 'sc-edit', 'data-cf-back': x.key, 'aria-label': 'غيّر ' + x.q, onClick: () => { back(st, x.key); redraw(); } }, 'غيّر'));
     for (const x of live(st)) { if (x === s) break; if (st.values[x.key] != null || st.skipped[x.key]) out.push(line(x)); }
@@ -202,7 +204,7 @@
       return h('div', null, Q, h('div', { class: 'sc-opts' }, list.map(([v, l, hint]) => h('button', { type: 'button', class: 'sc-opt', 'data-cf-opt': String(v), onClick: () => { answer(st, s.key, v); redraw(); } }, h('b', null, l), hint ? h('small', null, hint) : null))), note, skipBtn);
     }
     if (s.kind === 'maker') {
-      const names = (L.makers ? L.makers() : []) || [];
+      const names = (L.makers ? L.makers() : []) || []; st.loading = !names.length;
       return h('div', null, Q, h('div', { class: 'sc-maker' }, U.Select({ id: 'cf-maker', label: '', placeholder: names.length ? 'اختار المبتكر — اكتب أول حروف اسمه' : 'بنحمّل المبتكرين…', value: '',
         options: names.map((n) => ({ value: n, label: n })), onChange: (v) => { if (v) { answer(st, s.key, v); redraw(); } } })), err);
     }
@@ -218,12 +220,13 @@
   }
   // a product by its name or SKU: the matches as buttons (the member's own products list)
   function productAsk(st, s, L, redraw, h, U, Q, err) {
-    const q = st.q || ''; const found = q ? (L.products ? L.products(q) : []) : [];
+    const q = st.q || ''; const found = q ? (L.products ? L.products(q) : []) : []; st.loading = !!q && found === null;
     const search = () => { st.q = String(st.draft || '').trim(); st.draft = st.q; st.fk = ''; redraw(); };
     const inp = h('input', { id: 'cf-in', class: 'input cf-in', type: 'text', placeholder: 'اسم المنتج أو الـ SKU', value: st.draft || q, 'aria-label': s.q, 'data-cf-in': s.key,
       onInput: (e) => { st.draft = e.target.value; }, onKeydown: (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); search(); } } });
     focusOnce(st, s.key, 'cf-in');
-    const res = !q ? null : found === null ? h('p', { class: 'help', 'data-cf-loading': '' }, 'المنتجات لسه بتتحمّل — دوّر تاني كمان ثانية.')
+    const worm = () => (root.IBLoader && root.IBLoader.mark ? root.IBLoader.mark(16) : null); // the system's loading look (the logo's worm)
+    const res = !q ? null : found === null ? h('p', { class: 'help cf-wait', 'data-cf-loading': '' }, worm(), h('span', null, 'بنحمّل المنتجات — النتيجة هتظهر هنا لوحدها أول ما تخلص.'))
       : !found.length ? h('p', { class: 'help', 'data-cf-none': '' }, 'مالقيتش منتج بالاسم ده — جرّب جزء من الاسم أو الـ SKU.')
         : h('div', { class: 'sc-opts' }, found.slice(0, 8).map((p) => h('button', { type: 'button', class: 'sc-opt', 'data-cf-product': String(p.id), onClick: () => { answer(st, s.key, { id: p.id, name: p.name, sku: p.sku || '' }); redraw(); } }, h('b', null, p.name), p.sku ? h('small', { dir: 'ltr' }, p.sku) : null)));
     return h('div', null, Q, h('div', { class: 'cf-row' }, inp, U.Button({ size: 'sm', type: 'primary', icon: 'search', label: 'دوّر', attrs: { 'data-cf-search': '' }, onClick: search })), res, err);

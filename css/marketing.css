@@ -692,6 +692,7 @@ a.mk-lib.disabled { opacity:.5;pointer-events:none }
 .cf-row .cf-in { flex:1;min-width:180px }
 .cf-end { display:flex;flex-direction:column;gap:8px;align-items:flex-start }
 .cf-card [data-cf-note] { display:block;margin-top:4px }
+.cf-card .cf-wait { display:flex;align-items:center;gap:8px;margin-top:8px }
 .fl-rev-tabs { display:flex;gap:8px;margin-bottom:12px }
 .fl-rev-tabs .chip.on { border-color:var(--color-brand-default);background:var(--color-bg-hover);font-weight:700 }
 .fl.fl-rev { max-width:none;margin:0 }

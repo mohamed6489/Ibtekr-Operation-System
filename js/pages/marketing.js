@@ -1936,7 +1936,24 @@
     if (!flowMay(fl.id)) { await agLocalTurn(a, q, '«' + def.title + '» مش من صلاحياتك — لو محتاجها اطلبها من الأدمن.'); return; }
     if (!(await agLocalTurn(a, q, 'تمام — هسألك كام سؤال، وفي الآخر أفتحلك ' + def.popup + ' متملّي والتأكيد منك.'))) return;
     AG.flow[keyOf(a)] = F.create(fl.id, fl.pre); R();
+    // a list its steps search (the products) starts loading now, while the member types — not on the first «دوّر»
+    const PR = window.IBProducts; if (def.steps.some((s) => s.kind === 'product') && PR && PR.ensure) PR.ensure();
   }
+  // a step waiting on a list (the products searched, the makers — IBChatFlow's state.loading) is drawn again when that list lands: the
+  // matches show without a second press (CI 26 Nov — the first search said «loading» and waited on the member); the box being typed in
+  // keeps its focus and caret. After the event's own task: an adapter may emit from inside a render.
+  let flowT = 0;
+  function flowLanded() {
+    if (!here() || document.querySelector('.scrim')) return;
+    if (!Object.keys(AG.flow).some((k) => AG.flow[k] && AG.flow[k].loading && AG.flow[k].phase !== 'opened')) return;
+    const a0 = document.activeElement; const box = a0 && a0.id === 'cf-in' ? [a0.selectionStart, a0.selectionEnd] : null;
+    R();
+    const el = box ? document.getElementById('cf-in') : null;
+    if (el && document.activeElement !== el) { el.focus(); try { el.setSelectionRange(box[0], box[1]); } catch (e) { /* not a text box */ } }
+  }
+  const flowLater = (A) => { if (!A || !A.state || A.state() !== 'ready') return; clearTimeout(flowT); flowT = setTimeout(flowLanded, 0); };
+  document.addEventListener('ib:products', () => flowLater(window.IBProducts));
+  document.addEventListener('ib:vendors', () => flowLater(window.IBVendors));
   // the system's own answer: kept in the member's chat by the server (made on the first message), with what hangs under it this visit
   async function agLocalTurn(a, q, text, x) {
     const id = AG.active[a] || null; const key = id || 'new-' + a; tmpTurn(key, q); AG.asking = true; R();

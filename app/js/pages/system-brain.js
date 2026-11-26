@@ -170,7 +170,7 @@
   // ---- add / edit by words (the owner 22 Nov — «كل الاكشنز اللي ليها علاقة بالسيستم ادخال او اخراج او تعديل بيانات»): the ask names
   // one of the system's own popups and what to fill it with. Nothing is written here or by the page that opens it — the popup's
   // own button is the confirmation, under the same rights as by hand.
-  const ADD = ['ضيف', 'ضيفلي', 'اضف', 'اضافه', 'اعمل', 'اعملي', 'سجل', 'سجلي', 'افتح', 'افتحلي', 'قدم', 'قدملي', 'عايز', 'عاوز', 'محتاج', 'add', 'new', 'create', 'open', 'register', 'file'];
+  const ADD = ['ضيف', 'ضيفلي', 'اضف', 'اضيف', 'اضافه', 'اعمل', 'اعملي', 'سجل', 'سجلي', 'افتح', 'افتحلي', 'قدم', 'قدملي', 'عايز', 'عاوز', 'محتاج', 'add', 'new', 'create', 'open', 'register', 'file'];
   const NEW = ['جديد', 'جديده', 'new']; const NAMED = ['باسم', 'اسمه', 'اسمها', 'named', 'called', 'a', 'an', 'the', 'ل', 'لـ', 'for'];
   const KIND = [['vendor_add', ['مبتكر', 'مبتكره', 'maker', 'vendor'], 'vendors'], ['member_add', ['عضو', 'موظف', 'موظفه', 'member', 'employee'], 'hr'], ['customer_add', ['عميل', 'عميله', 'customer', 'client'], 'cs']];
   const ORDER_ST = ['قيد الانتظار', 'معلّق', 'جاري التنفيذ', 'جاهز للشحن', 'قيد الشحن', 'مكتمل']; const ORDER_NO = ['ملغي', 'الغاء', 'استرجاع', 'فشل', 'cancel', 'cancelled', 'refund', 'refunded', 'failed'];

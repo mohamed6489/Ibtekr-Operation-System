@@ -685,6 +685,13 @@ a.mk-lib.disabled { opacity:.5;pointer-events:none }
 .sc-line { display:flex;align-items:center;gap:6px }
 .sc-run > .btn { align-self:flex-start }
 .sc-fail { display:flex;flex-direction:column;gap:2px }
+/* chat-flows phase 4 (Safwat 25 Nov): an add / edit / delete as steps in the chat — the studio card's look, a box and «التالي» for a word or a number */
+:is(#pg-marketing,#pg-ai) .cf-card { width:520px;max-width:100%;align-items:stretch } /* its own width (a bubble shrinks to its content) and its lines from the start — .mk-msg-req centres its children */
+.cf-row { display:flex;align-items:center;gap:8px;flex-wrap:wrap }
+.cf-card .sc-done { flex-wrap:wrap } /* a long answer goes to the next line whole on a phone */
+.cf-row .cf-in { flex:1;min-width:180px }
+.cf-end { display:flex;flex-direction:column;gap:8px;align-items:flex-start }
+.cf-card [data-cf-note] { display:block;margin-top:4px }
 .fl-rev-tabs { display:flex;gap:8px;margin-bottom:12px }
 .fl-rev-tabs .chip.on { border-color:var(--color-brand-default);background:var(--color-bg-hover);font-weight:700 }
 .fl.fl-rev { max-width:none;margin:0 }

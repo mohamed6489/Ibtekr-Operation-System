@@ -94,6 +94,7 @@ test('add / edit by words: the popup and its values — a maker, a member, a cus
   const all = { vendors: ['Artisan Loft', 'Anticora'], today: '2026-11-22', pages: ['orders', 'vendors', 'accounts', 'inventory', 'products', 'cs', 'tickets', 'hr'].map((id) => ({ id, label: id })) };
   const f = (s, c) => { const r = B.understand(s, c || all); return r.type === 'openForm' ? [r.form, r.values] : r.type; };
   assert.deepEqual(f('ضيف مبتكر جديد اسمه ورشة النور'), ['vendor_add', { name: 'ورشة النور' }]);
+  assert.deepEqual(f('عايز أضيف مبتكر جديد'), ['vendor_add', {}]); // «أضيف» is the verb, not the maker's name (chat-flows phase 4)
   assert.deepEqual(f('ضيف عميل أحمد سامي 01001234567'), ['customer_add', { name: 'أحمد سامي', phone: '01001234567' }]); assert.deepEqual(f('add customer Sara Ali 01112223334'), ['customer_add', { name: 'Sara Ali', phone: '01112223334' }]);
   assert.deepEqual(f('ضيف موظف كريم عادل karim@x.com'), ['member_add', { name: 'كريم عادل', email: 'karim@x.com' }]);
   assert.deepEqual(f('افتح طلب الطابعة بايظة عاجل'), ['ticket_new', { title: 'الطابعة بايظة', priority: 'urgent' }]); assert.deepEqual(f('new request printer is broken'), ['ticket_new', { title: 'printer is broken' }]);

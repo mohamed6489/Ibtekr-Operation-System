@@ -28,6 +28,18 @@ test('detect: an add / edit / delete without what its popup needs is a flow, wit
   assert.deepEqual(d('ضيف مصروف للمبتكر'), { id: 'expense', pre: { direction: 'withdraw' } });
   assert.deepEqual(d('افتح طلب عاجل لعميل'), { id: 'request', pre: { type: 'customer', priority: 'urgent' } });
   assert.deepEqual(d('اعمل بوست عن الخصم الجديد على الكراسي'), { id: 'post', pre: { kind: 'post', idea: 'الخصم الجديد على الكراسي' } });
+  // part 2 (26 Nov): a maker's money — «عربون / مواصلات» off his net, «إيداع / تصحيح» on it; a number said is answered too
+  assert.deepEqual(d('عربون للمبتكر'), { id: 'makerMove', pre: { direction: 'withdraw', type: 'عربون' } });
+  assert.deepEqual(d('ضيف مواصلات لمبتكر'), { id: 'makerMove', pre: { direction: 'withdraw', type: 'مواصلات' } });
+  assert.deepEqual(d('سجل عربون ٣٠٠'), { id: 'makerMove', pre: { direction: 'withdraw', type: 'عربون', amount: '300' } });
+  assert.deepEqual(d('اخصم من المبتكر'), { id: 'makerMove', pre: { direction: 'withdraw' } });
+  assert.deepEqual(d('تصحيح رصيد المبتكر'), { id: 'makerMove', pre: { direction: 'deposit' } }); // «رصيد» here is the edit, not a read
+  assert.deepEqual(d('ايداع خارجي للمبتكر'), { id: 'makerMove', pre: { direction: 'deposit' } });
+  // one product's edit: the name to search, and what was said picked when that product allows it (state.want)
+  assert.deepEqual(d('عدل منتج'), { id: 'productEdit', pre: {} });
+  assert.deepEqual(d('غير سعر منتج Macrame Curtain'), { id: 'productEdit', pre: { q: 'Macrame Curtain', want: { what: 'price' } } });
+  assert.deepEqual(d('انقل المنتج Cushion لبراند تاني'), { id: 'productEdit', pre: { q: 'Cushion', want: { what: 'brand' } } });
+  assert.deepEqual(d('انشر المنتج Cushion'), { id: 'productEdit', pre: { q: 'Cushion', want: { what: 'publish' } } });
 });
 
 test('detect: an ask that says more than the steps understand is read whole by the engine or the assistant itself', () => {
@@ -37,7 +49,7 @@ test('detect: an ask that says more than the steps understand is read whole by t
 
 test('detect: an ask that carries what its popup needs stays with the engine; a read, a report or a maker\'s money is not a flow', () => {
   for (const t of ['مصروف 500 كهربا', 'سجل مصروف 1500', 'ضيف مبتكر احمد', 'افتح طلب التوصيل اتأخر', 'غير حالة الاوردر 1234 مكتمل', 'اكد الاوردر 1234 بعربون',
-    'عايز اجازة', 'افتح طلب اجازة', 'اعمل طلب سحب', 'عربون للمبتكر', 'اعرض المصروفات', 'كام مصروف النهارده', 'اعمل تقرير عن المصروفات', 'البوست ده', 'الطلب ده اتأخر', 'المصروفات', 'حساب المبتكر احمد', ''])
+    'عايز اجازة', 'افتح طلب اجازة', 'اعمل طلب سحب', 'عربون 300 لاحمد', 'رصيد المبتكر كام', 'مصروف مواصلات', 'ضيف منتج', 'اعرض المصروفات', 'كام مصروف النهارده', 'اعمل تقرير عن المصروفات', 'البوست ده', 'الطلب ده اتأخر', 'المصروفات', 'حساب المبتكر احمد', ''])
     assert.equal(d(t), null, t);
 });
 
@@ -85,4 +97,30 @@ test('a maker, an order, a post and a product: their popups', () => {
   const t = F.create('trash', { q: 'كرسي' }); assert.equal(t.q, 'كرسي'); assert.equal(F.current(t).key, 'product');
   F.answer(t, 'product', { id: 5, name: 'Chair', sku: 'IBTABC0999' }); assert.deepEqual(F.openSpec(t), { trash: { id: 5, name: 'Chair', sku: 'IBTABC0999' } });
   assert.equal(F.shown(t, F.FLOWS.trash.steps[0]), 'Chair · IBTABC0999');
+});
+
+test('a maker\'s money: «سحب» asks its kind (and «أخرى» its name), «إيداع» a title; the accounts\' maker popup filled', () => {
+  const s = F.create('makerMove', { direction: 'withdraw', type: 'عربون' });
+  assert.equal(F.current(s).key, 'vendor'); F.answer(s, 'vendor', 'Art Craft');
+  assert.equal(F.current(s).key, 'amount'); F.answer(s, 'amount', '300'); F.skip(s, 'note');
+  assert.deepEqual(F.openSpec(s), { form: 'vendor_move', values: { direction: 'withdraw', vendor: 'Art Craft', type: 'عربون', otherName: '', amount: '300', note: '' } });
+  F.back(s, 'type'); F.answer(s, 'type', 'أخرى'); assert.equal(F.current(s).key, 'otherName'); // «أخرى»: its name, like the popup's «اكتب النوع»
+  F.answer(s, 'otherName', 'شحن عينة'); assert.equal(F.openSpec(s).values.otherName, 'شحن عينة');
+  const dp = F.create('makerMove', { direction: 'deposit' }); F.answer(dp, 'vendor', 'Glody'); assert.equal(F.current(dp).key, 'title'); // no kind on a deposit
+  F.answer(dp, 'title', 'فرق سعر'); F.answer(dp, 'amount', '50'); F.answer(dp, 'note', 'مقاس مخصص');
+  assert.deepEqual(F.openSpec(dp), { form: 'vendor_move', values: { direction: 'deposit', vendor: 'Glody', type: '', otherName: 'فرق سعر', amount: '50', note: 'مقاس مخصص' } });
+  F.back(dp, 'direction'); F.answer(dp, 'direction', 'withdraw'); assert.ok(!('title' in dp.values)); assert.equal(F.current(dp).key, 'type'); // the deposit's title goes with it
+});
+
+test('one product\'s edit: the edits its product allows and the member may, then that product\'s own popup; another product asks again', () => {
+  const opts = (product, L) => F.FLOWS.productEdit.steps[1].options({ product }, L || {}).map(([v]) => v);
+  assert.deepEqual(opts({ priced: true, live: true }), ['price', 'draft', 'brand', 'maker', 'page']);
+  assert.deepEqual(opts({ priced: false, live: false }), ['publish', 'brand', 'maker', 'page']); // a Variable or no price: its page (the variations' prices)
+  assert.deepEqual(opts({ priced: true, live: true }, { productMay: (w) => w !== 'maker' }), ['price', 'draft', 'brand', 'page']); // another store needs products.bulk
+  const s = F.create('productEdit', { q: 'Cushion', want: { what: 'price' } }); assert.equal(s.q, 'Cushion'); assert.deepEqual(s.want, { what: 'price' });
+  const cushion = { id: 9001, name: 'Cushion', sku: 'X', priced: true, live: true };
+  F.answer(s, 'product', cushion); assert.equal(F.current(s).key, 'what');
+  F.answer(s, 'what', 'brand'); assert.deepEqual(F.openSpec(s), { productEdit: { product: cushion, what: 'brand' } });
+  assert.equal(F.shown(s, F.FLOWS.productEdit.steps[1], {}), 'البراند');
+  F.back(s, 'product'); F.answer(s, 'product', { id: 9002, name: 'Curtain', sku: 'Y' }); assert.equal(F.current(s).key, 'what'); // its edits asked again
 });

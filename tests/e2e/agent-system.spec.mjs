@@ -247,3 +247,44 @@ test('chat-flows phase 4 — by the member\'s rights: ops asks for an expense (n
   await expect(page.locator('.modal')).toBeVisible();
   await expect.poll(() => page.locator('.modal input, .modal textarea').evaluateAll((els) => els.map((e) => e.value))).toContain('العميل عايز يغيّر العنوان');
 });
+
+// part 2 (26 Nov — «وبعدها الباقي»): a maker's money and one product's edit, the same way — the steps, then the system's own popup
+test('chat-flows phase 4 part 2 — «سجل عربون»: the maker, the amount, then the accounts\' «سحب من رصيد المبتكر» filled over the chat', async ({ page }) => {
+  await openAi(page, 'المحاسب');
+  await send(page, 'سجل عربون');
+  const card = pg(page).locator('[data-cf="makerMove"]'); await expect(card).toBeVisible(); expect(asks().length).toBe(0);
+  await expect(card.locator('[data-cf-done="direction"]')).toContainText('سحب'); await expect(card.locator('[data-cf-done="type"]')).toContainText('عربون'); // said
+  await expect(card).toContainText('أنهي مبتكر؟'); await card.locator('#cf-maker').click(); await page.getByRole('option', { name: 'Art Craft', exact: true }).click();
+  await expect(card).toContainText('المبلغ كام؟'); await card.locator('[data-cf-in]').fill('350'); await card.locator('[data-cf-in]').press('Enter');
+  await card.locator('[data-cf-skip="note"]').click();
+  await card.locator('[data-cf-open="makerMove"]').click();
+  const m = page.locator('.modal'); await expect(m).toContainText('سحب من رصيد المبتكر');
+  await expect(m.locator('#f-vendor')).toContainText('Art Craft'); await expect(m.locator('#f-type')).toContainText('عربون'); await expect(m.locator('#f-amount')).toHaveValue('350');
+  expect(mock.acc.acc_vendor_moves.length).toBe(0); // only the popup's «حفظ» writes
+});
+
+test('chat-flows phase 4 part 2 — «غير سعر منتج Cushion»: the product found by itself, «السعر» picked as said, then the products page\'s price popup; «عدّل منتج» offers what its product allows', async ({ page }) => {
+  await openAi(page, 'التشغيل');
+  await send(page, 'غير سعر منتج Cushion');
+  const card = pg(page).locator('[data-cf="productEdit"]'); await expect(card).toBeVisible(); expect(asks().length).toBe(0);
+  await expect(card.locator('[data-cf-in]')).toHaveValue('Cushion'); // the name said is searched — the matches come when the list lands
+  await card.locator('[data-cf-product="9001"]').click();
+  await expect(card.locator('[data-cf-done="what"]')).toContainText('السعر'); // said, and this product has a price to change
+  await card.locator('[data-cf-open="productEdit"]').click();
+  await expect(page.locator('.modal')).toContainText('تعديل سعر منتج'); await expect(pg(page)).toBeVisible(); // over the chat
+  await page.keyboard.press('Escape'); await expect(page.locator('.modal')).toHaveCount(0);
+  await send(page, 'إيه الأخبار؟'); await expect(pg(page).locator('[data-cf]')).toHaveCount(0); // the opened flow ends with the next message
+  // nothing said about what: its choices — the price, «تحويل لمسودة» (it is published), the brand, the maker, its page
+  await send(page, 'عدل منتج');
+  const c2 = pg(page).locator('[data-cf="productEdit"]'); await c2.locator('[data-cf-in]').fill('IBTA4040'); await c2.locator('[data-cf-search]').click();
+  await c2.locator('[data-cf-product="9001"]').click();
+  await expect(c2.locator('[data-cf-opt]')).toHaveText([/السعر/, /تحويل لمسودة/, /البراند/, /المبتكر/, /باقي البيانات/]);
+  await c2.locator('[data-cf-opt="brand"]').click(); await c2.locator('[data-cf-open="productEdit"]').click();
+  await expect(page.locator('.modal')).toContainText('نقل منتج لبراند تاني'); await page.keyboard.press('Escape');
+  await expect(c2.locator('[data-cf-back]')).toHaveCount(0); // opened: «افتحه تاني» only — a new message starts the next one
+  await send(page, 'عدل المنتج Cushion');
+  const c3 = pg(page).locator('[data-cf="productEdit"]'); await c3.locator('[data-cf-product="9001"]').click();
+  await c3.locator('[data-cf-opt="page"]').click(); await c3.locator('[data-cf-open="productEdit"]').click();
+  const link = page.locator('.modal[data-mk-link]'); await expect(link).toContainText('صفحة المنتج'); // its page only by the member's press inside
+  await link.locator('[data-mk-link-go]').click(); await expect(page).toHaveURL(/#products-edit-9001/);
+});

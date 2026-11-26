@@ -16,9 +16,9 @@ test.beforeEach(async ({ page }) => {
 });
 test.afterEach(() => { if (LIVE) return; expect(pageErrors).toEqual([]); expect(mock.unhandled).toEqual([]); });
 const pg = (page) => page.locator('#pg-ai');
-async function openAi(page, tab) {
+async function openAi(page, tab, as) {
   await page.goto('/'); await expect(page.locator('#login')).toBeVisible();
-  await page.fill('#lg-id', ADMIN); await page.fill('#lg-pw', DEV_PW); await page.getByRole('button', { name: 'دخول', exact: true }).click();
+  await page.fill('#lg-id', as || ADMIN); await page.fill('#lg-pw', DEV_PW); await page.getByRole('button', { name: 'دخول', exact: true }).click();
   await expect(page.locator('#root')).toBeVisible();
   await page.locator('.sidebar .nav-item[data-page="ai"]').click(); await expect(pg(page)).toBeVisible();
   // the tab is drawn selected in the same render as its own box: the box of the tab before it is there already, and a message typed
@@ -175,4 +175,75 @@ test('«طلبات وتقارير»: the admin adds a ready report and a ready r
   // the admin deletes one
   page.once('dialog', (d) => d.accept()); await btn.click(); await menu.locator('[data-ag-ready-del]').first().click();
   await expect.poll(() => mock.mkt.writes.filter((w) => w.table === 'ai_agent_ready' && w.op === 'delete').length).toBe(1);
+});
+
+// chat-flows phase 4 (Safwat 25 Nov — «عايز المساعد ببساطة يجيب خطوات اي حاجة بطلبها جوه السيستم لو كانت اضافة او تعديل او حذف في شكل
+// اختيارات جوه الشات … بحسب الدور»): an add / edit / delete asked without what its popup needs is that popup's questions in the chat, one
+// at a time, «غيّر» on an answered one; the last step opens the system's own popup filled over the chat — nothing is written from the chat
+test('chat-flows phase 4 — «ضيف مصروف»: the popup\'s questions one at a time, a wrong amount refused, «غيّر», then «سحب / إيداع» filled over the chat', async ({ page }) => {
+  await openAi(page, 'المحاسب');
+  await send(page, 'ضيف مصروف');
+  const card = pg(page).locator('[data-cf="expense"]'); await expect(card).toBeVisible();
+  await expect(lastAns(page)).toContainText('هسألك كام سؤال'); await expect(lastAns(page).locator('[data-mk-src]')).toHaveText('المحاسب الذكي');
+  expect(asks().length).toBe(0); // the system's own steps: no model asked
+  await expect(card.locator('[data-cf-done="direction"]')).toContainText('سحب'); // «مصروف» = money out, already said
+  await expect(card).toContainText('نوع المصروف إيه؟'); await card.locator('[data-cf-opt="المصروفات"]').click();
+  await expect(card).toContainText('المبلغ كام؟'); await expect(card.locator('[data-cf-in]')).toBeFocused(); // its box takes the focus when its step comes
+  // …and never on a redraw: the member typing in the chat's own box keeps it
+  await pg(page).locator('#mk-ask').click(); await pg(page).locator('#mk-ask').pressSequentially('ab');
+  await page.evaluate(() => document.dispatchEvent(new CustomEvent('ib:marketing'))); await page.waitForTimeout(150);
+  await expect(pg(page).locator('#mk-ask')).toBeFocused(); await pg(page).locator('#mk-ask').fill('');
+  await card.locator('[data-cf-in]').fill('كتير'); await card.locator('[data-cf-next]').click(); await expect(card).toContainText('اكتب رقم أكبر من صفر');
+  await card.locator('[data-cf-in]').fill('1500'); await card.locator('[data-cf-in]').press('Enter');
+  await expect(card).toContainText('اتصرف على إيه؟'); await card.locator('[data-cf-skip="details"]').click();
+  await card.locator('[data-cf-back="amount"]').click(); await expect(card).toContainText('المبلغ كام؟'); // «غيّر» asks that one again
+  await card.locator('[data-cf-in]').fill('1750'); await card.locator('[data-cf-next]').click();
+  await expect(card.locator('[data-cf-done="amount"]')).toContainText('1750');
+  const hash = await page.evaluate(() => location.hash);
+  await card.locator('[data-cf-open="expense"]').click();
+  await expect(page.locator('.modal')).toContainText('سحب مصروفات');
+  await expect.poll(() => page.locator('.modal input').evaluateAll((els) => els.map((e) => e.value))).toContain('1750');
+  expect(await page.evaluate(() => location.hash)).toBe(hash); expect(mock.acc.acc_expenses.length).toBe(0); // the chat stays; only the popup's «حفظ» writes
+  await expect(card.locator('[data-cf-open="expense"]')).toHaveText('افتحه تاني');
+  await page.keyboard.press('Escape'); await expect(page.locator('.modal')).toHaveCount(0);
+  await send(page, 'إيه الأخبار؟'); // the next message: the opened flow is done — its card goes, the answer comes under the turns
+  await expect(pg(page).locator('[data-cf]')).toHaveCount(0); await expect(lastAns(page)).toContainText('الأرقام اللي براقبها دلوقتي');
+});
+
+test('chat-flows phase 4 — «امسح منتج»: a new message mid-steps asks first; the product by its name, then the products page\'s own confirmation over the chat', async ({ page }) => {
+  await openAi(page, 'التشغيل');
+  // the products start loading with the steps; held here so the one «دوّر» meets them still on their way (CI 26 Nov: a press that came
+  // before the list waited on another press)
+  let land; const gate = new Promise((r) => { land = r; });
+  await page.route('**/rest/v1/products*', async (route) => { await gate; await route.fallback(); });
+  await send(page, 'امسح منتج');
+  const card = pg(page).locator('[data-cf="trash"]'); await expect(card).toBeVisible(); expect(asks().length).toBe(0);
+  await send(page, 'إيه الأخبار؟'); // the switch question (decision 1): «كمّل اللي كنا فيه» puts the message back in the box
+  await expect(pg(page).locator('[data-mk-switch="flow"]')).toContainText('لسه في نص خطوات «مسح منتج»');
+  await pg(page).locator('[data-mk-sw-keep]').click(); await expect(pg(page).locator('#mk-ask')).toHaveValue('إيه الأخبار؟');
+  await pg(page).locator('#mk-ask').fill('');
+  await card.locator('[data-cf-in]').fill('Cushion'); await card.locator('[data-cf-search]').click();
+  await expect(card.locator('[data-cf-loading]')).toContainText('بنحمّل المنتجات'); await expect(card.locator('[data-cf-in]')).toBeFocused();
+  land(); // the list lands: its matches show by themselves — no second press — and the box keeps the focus
+  await expect(card.locator('[data-cf-product="9001"]')).toBeVisible(); await expect(card.locator('[data-cf-loading]')).toHaveCount(0);
+  await expect(card.locator('[data-cf-in]')).toBeFocused();
+  await card.locator('[data-cf-product="9001"]').click(); await expect(card.locator('[data-cf-done="product"]')).toContainText('Cushion');
+  await card.locator('[data-cf-open="trash"]').click();
+  await expect(page.locator('.modal')).toContainText('مسح المنتج؟'); // the page's own confirmation — nothing sent before its button
+  expect(mock.products.find((x) => x.id === 9001).status).not.toBe('trash');
+});
+
+test('chat-flows phase 4 — by the member\'s rights: ops asks for an expense (no accounts.add) and is told so; a request is its steps by type', async ({ page }) => {
+  await openAi(page, 'التشغيل', 'ops.dev@ibtekr.local');
+  await send(page, 'ضيف مصروف');
+  await expect(lastAns(page)).toContainText('«مصروف جديد» مش من صلاحياتك'); await expect(pg(page).locator('[data-cf]')).toHaveCount(0);
+  await send(page, 'افتح طلب');
+  const card = pg(page).locator('[data-cf="request"]'); await expect(card).toBeVisible();
+  await card.locator('[data-cf-opt="customer"]').click(); await expect(card).toContainText('رقم الأوردر؟');
+  await card.locator('[data-cf-skip="orderId"]').click();
+  await card.locator('[data-cf-in]').fill('العميل عايز يغيّر العنوان'); await card.locator('[data-cf-next]').click();
+  await card.locator('[data-cf-opt="high"]').click();
+  await card.locator('[data-cf-open="request"]').click();
+  await expect(page.locator('.modal')).toBeVisible();
+  await expect.poll(() => page.locator('.modal input, .modal textarea').evaluateAll((els) => els.map((e) => e.value))).toContain('العميل عايز يغيّر العنوان');
 });

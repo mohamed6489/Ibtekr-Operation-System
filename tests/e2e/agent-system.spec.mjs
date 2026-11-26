@@ -212,14 +212,21 @@ test('chat-flows phase 4 — «ضيف مصروف»: the popup\'s questions one a
 
 test('chat-flows phase 4 — «امسح منتج»: a new message mid-steps asks first; the product by its name, then the products page\'s own confirmation over the chat', async ({ page }) => {
   await openAi(page, 'التشغيل');
+  // the products start loading with the steps; held here so the one «دوّر» meets them still on their way (CI 26 Nov: a press that came
+  // before the list waited on another press)
+  let land; const gate = new Promise((r) => { land = r; });
+  await page.route('**/rest/v1/products*', async (route) => { await gate; await route.fallback(); });
   await send(page, 'امسح منتج');
   const card = pg(page).locator('[data-cf="trash"]'); await expect(card).toBeVisible(); expect(asks().length).toBe(0);
   await send(page, 'إيه الأخبار؟'); // the switch question (decision 1): «كمّل اللي كنا فيه» puts the message back in the box
   await expect(pg(page).locator('[data-mk-switch="flow"]')).toContainText('لسه في نص خطوات «مسح منتج»');
   await pg(page).locator('[data-mk-sw-keep]').click(); await expect(pg(page).locator('#mk-ask')).toHaveValue('إيه الأخبار؟');
   await pg(page).locator('#mk-ask').fill('');
-  await card.locator('[data-cf-in]').fill('Cushion');
-  await expect.poll(async () => { await card.locator('[data-cf-search]').click(); return card.locator('[data-cf-product="9001"]').count(); }, { timeout: 10000 }).toBe(1); // the products load the first time
+  await card.locator('[data-cf-in]').fill('Cushion'); await card.locator('[data-cf-search]').click();
+  await expect(card.locator('[data-cf-loading]')).toContainText('بنحمّل المنتجات'); await expect(card.locator('[data-cf-in]')).toBeFocused();
+  land(); // the list lands: its matches show by themselves — no second press — and the box keeps the focus
+  await expect(card.locator('[data-cf-product="9001"]')).toBeVisible(); await expect(card.locator('[data-cf-loading]')).toHaveCount(0);
+  await expect(card.locator('[data-cf-in]')).toBeFocused();
   await card.locator('[data-cf-product="9001"]').click(); await expect(card.locator('[data-cf-done="product"]')).toContainText('Cushion');
   await card.locator('[data-cf-open="trash"]').click();
   await expect(page.locator('.modal')).toContainText('مسح المنتج؟'); // the page's own confirmation — nothing sent before its button

@@ -1174,6 +1174,9 @@
       // إيداع ولا سحب»): the accounts page's own «سحب / إيداع» popup (openForm) filled with what was said; «حفظ» in it is the confirmation
       case 'expense_add': case 'account_move': case 'vendor_move': {
         if (!canAdd()) no();
+        // agent-chat-flows decision 4: the makers and the balances the popup reads (the accounts page fills them when it draws) — before a
+        // maker's name is looked for in them, or a maker said is lost when the accounts page was not opened this visit
+        refreshSeed();
         const dir = v.direction === 'deposit' || v.direction === 'withdraw' ? v.direction : null; if (!dir) throw new Error('قولّي إيداع ولا سحب الأول');
         const kind = { expense_add: 'expenses', account_move: 'accountMoves', vendor_move: 'vendorMoves' }[form]; const pre = {};
         const amt = Number(String(v.amount || '').replace(/[,٬]/g, '')); if (Number.isFinite(amt) && amt > 0) pre.amount = String(amt);
@@ -1184,7 +1187,6 @@
         } else if (kind === 'accountMoves') { if (D.ACCOUNTS.includes(v.account)) pre.account = v.account; }
         else { if (v.vendor) { const n = aiVendorName(v.vendor); if (n) pre.vendor = n; } if (dir === 'withdraw' && D.VENDOR_TYPES.includes(v.type)) pre.type = v.type; // 0078: a «إيداع» has no kind
           if (v.otherName) pre.otherName = String(v.otherName).slice(0, 80); if (v.note) pre.note = String(v.note).slice(0, 500); }
-        refreshSeed(); // the makers and the balances the popup reads (the accounts page fills them when it draws)
         openForm(kind, dir, null, false, pre); return 'form ' + form;
       }
       // agents-brain T4 (the owner 17 Nov — «عايز ادفع او اخصم او اكافيء … يطلعلي الاسكرين المناسبة»): the payroll's «مكافأة / خصم» /

@@ -1907,18 +1907,24 @@
     if (id === 'maker') return permOf('vendors.edit') === 'F' && !singleOn();
     if (id === 'order') return permOf('orders.status') === 'F';
     if (id === 'trash') return permOf('products.trash') === 'F';
+    if (id === 'makerMove') return permOf('accounts.add') === 'F' && !singleOn(); // the accounts' «سحب / إيداع» of a maker
+    if (id === 'productEdit') return permOf('products.edit') === 'F';
     return false;
   }
+  // one product's edit = its row menu's rights: the price, the status and the brand by products.edit, another maker's store by products.bulk
+  const productMay = (w) => (w === 'maker' ? permOf('products.bulk') === 'F' && !singleOn() : permOf('products.edit') === 'F');
   function flowLists() {
     const S = window.IBSettings; const D = window.IbtekrDomain; const T = window.IbtekrTickets; const F = window.IBChatFlow;
     const lab = (kind, v) => (S && S.statusLabel ? S.statusLabel(kind, v) || v : v);
     return { kinds: (D && D.CATEGORIES ? D.CATEGORIES : []).map((k) => [k, lab('expense', k)]), goals: W.GOALS,
       priorities: T && T.PRIORITIES ? T.PRIORITIES.slice().sort((x, y) => ['normal', 'high', 'urgent', 'low'].indexOf(x[0]) - ['normal', 'high', 'urgent', 'low'].indexOf(y[0])) : null,
-      statuses: F ? F.ORDER_ST.map((x) => [x, lab('order', x)]) : null, may: reqMay,
+      statuses: F ? F.ORDER_ST.map((x) => [x, lab('order', x)]) : null, may: reqMay, productMay,
       makers: () => { const Vs = window.IBVendors; if (Vs && Vs.state && Vs.state() === 'idle') Vs.load(); return Vs && Vs.store && Vs.store.all ? Vs.store.all().map((v) => v.name).sort((x, y) => x.localeCompare(y, 'ar')) : []; },
       products: (q) => { const PR = window.IBProducts; if (!PR || !PR.list) return []; if (PR.state && PR.state() !== 'ready') { if (PR.ensure) PR.ensure(); return null; }
         const N = window.IBChatFlow.norm; const n = N(q); const sk = String(q).trim().toLowerCase(); // a record: its English name and its Arabic one (the mirror's two languages)
-        return PR.list().filter((p) => N(p.nameEn).includes(n) || N(p.nameAr).includes(n) || (sk && String(p.sku || '').toLowerCase().includes(sk))).slice(0, 8).map((p) => ({ id: p.id, name: p.nameEn || p.nameAr || p.sku, sku: p.sku || '' })); } };
+        // live / priced: what its edit offers (the bulk price popup takes a simple product with a price and a maker — else its page)
+        return PR.list().filter((p) => N(p.nameEn).includes(n) || N(p.nameAr).includes(n) || (sk && String(p.sku || '').toLowerCase().includes(sk))).slice(0, 8)
+          .map((p) => ({ id: p.id, name: p.nameEn || p.nameAr || p.sku, sku: p.sku || '', type: p.type || '', live: p.wooStatus === 'publish', priced: p.type !== 'Variable' && !!p.sale && p.vendorId != null })); } };
   }
   // the popup at the end: the system's own (open_form — block 28, the same rights), the designer's «كامبين جديدة», the products' «مسح»
   function flowOpen(spec) {
@@ -1928,6 +1934,14 @@
       if (spec.trash) { const P = window.IBPages && window.IBPages.all ? window.IBPages.all().products : null; const PR = window.IBProducts;
         const rec = PR && PR.list ? PR.list().find((x) => String(x.id) === String(spec.trash.id)) : null;
         if (!P || !P.api || !P.api.toTrash || !rec) return 'المنتج ده مش ظاهر عندي دلوقتي — دوّر عليه تاني'; P.api.toTrash([rec]); return ''; }
+      // one product's edit: the products page's own popup for it (its confirmation / «انقل» / «حفظ» is the member's), or its page by a link
+      if (spec.productEdit) { const P = window.IBPages && window.IBPages.all ? window.IBPages.all().products : null; const PR = window.IBProducts; const x = spec.productEdit;
+        const rec = PR && PR.list ? PR.list().find((r) => String(r.id) === String(x.product && x.product.id)) : null; const api = P && P.api;
+        if (!api || !rec) return 'المنتج ده مش ظاهر عندي دلوقتي — دوّر عليه تاني';
+        if (x.what !== 'page' && !productMay(x.what === 'publish' || x.what === 'draft' ? 'status' : x.what)) return 'التعديل ده مش من صلاحياتك';
+        const fn = { price: api.bulkPrice, publish: api.publish, draft: api.toDraft, brand: api.moveBrand, maker: api.moveVendor }[x.what];
+        if (fn) { fn([rec]); return ''; }
+        if (x.what === 'page') { pagePopup({ title: '«' + (rec.nameEn || rec.nameAr || rec.sku) + '» في المنتجات', text: 'الاسم والوصف والصور والأقسام وأسعار التركيبات بتتعدّل من صفحة المنتج — الشات هنا بيفضل زي ما هو وترجعله من «الذكاء الاصطناعي».', label: 'افتح صفحة المنتج', go: () => { location.hash = 'products-edit-' + rec.id; } }); return ''; } }
     } catch (e) { return (e && e.message) || 'ماقدرتش أفتحه'; }
     return 'ماقدرتش أفتحه';
   }

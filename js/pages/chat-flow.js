@@ -4,18 +4,22 @@
    knows, asked without what its popup needs, becomes that popup's questions inside the chat — buttons for a choice, a box for a word or
    a number — one at a time, the answered ones a line above with «غيّر»; the last step opens the system's own popup filled over the chat
    (its own button — «حفظ», «امسح» — is the member's). Nothing is written from here. The order (the plan): an expense, a new post (the
-   designer), a team request, a maker, an order, a product to the trash.
+   designer), a team request, a maker, an order, a product to the trash; then (part 2) a maker's money (عربون / مواصلات / تصحيح رصيد)
+   and one product's edit.
      detect(text, ctx) → { id, pre } | null   — ctx: { kinds: [the expense kinds] }; null when the ask already carries what its popup
                                                 needs (the system's engine opens it as before) or is not an add / edit / delete
      create(id, pre) → the flow's state; current(state) → the step in front of the member (null = every step answered)
      answer(state, key, value) → '' | the reason it was refused · back(state, key) · shown(state, step, lists) · openSpec(state)
      card(state, o) → its card in the chat — o: { redraw, cancel, open(spec) → '' | an error to say, lists }
        lists: { kinds: [[value, label]], goals, priorities: [[value, label]], statuses: [[value, label]], makers: () => [name],
-                products: (q) => [{ id, name, sku }] | null (null = still loading), may: (requestType) → bool }
+                products: (q) => [{ id, name, sku, type, live, priced }] | null (null = still loading), may: (requestType) → bool,
+                productMay: ('price' | 'status' | 'brand' | 'maker') → bool — the products page's own rights for one product }
+       state.want: a choice said in the ask that hangs on an earlier answer (the product's edit) — picked when its step comes, if allowed
        state.loading: the step in front waits on a list (the products searched, the makers) — the page draws the card again when
        that list lands, so the matches show without a second press (CI 26 Nov)
    The popup it opens: { form, values } (block 28's open_form, under the same rights as by hand) · { draft } (the designer's «كامبين
-   جديدة») · { trash: product } (the products page's own «مسح» confirmation). */
+   جديدة») · { trash: product } (the products page's own «مسح» confirmation) · { productEdit: { product, what } } (the products page's own
+   popup — price · publish · draft · brand · maker — or its page by a link). */
 (function (root, factory) {
   const api = factory(root);
   if (typeof module === 'object' && module.exports) module.exports = api;
@@ -35,6 +39,17 @@
   const REQ_TYPES = [['customer', 'مشكلة عميل', 'أوردر أو عميل'], ['vendor', 'مبتكر', 'حاجة على مبتكر'], ['internal', 'طلب خاص', 'شغل لحد في الفريق'],
     ['hr_leave', 'إجازة', 'طلب إجازة'], ['hr_advance', 'سلفة', 'طلب سلفة'], ['hr_remote', 'شغل من البيت', 'يوم شغل عن بُعد']];
   const TICKET = (v) => ['customer', 'vendor', 'internal'].includes(v.type);
+  // a maker's money (0078): «سحب» = these off his net (D.VENDOR_TYPES), «إيداع» = a balance correction with a title
+  const MAKER_TYPES = ['عربون', 'مواصلات', 'أخرى'];
+  // what one product's edit opens — the products page's own popups (its row menu's rights), else its page by a link
+  const PRODUCT_EDITS = (p, L) => {
+    const x = p || {}; const may = (w) => !L.productMay || L.productMay(w);
+    return [x.priced && may('price') ? ['price', 'السعر', 'سعر المبتكر أو الخصم الوهمي'] : null,
+      may('status') ? (x.live ? ['draft', 'تحويل لمسودة', 'يختفي من الموقع لحد ما تنشره'] : ['publish', 'نشر', 'يظهر للعملاء على الموقع']) : null,
+      may('brand') ? ['brand', 'البراند', 'نقل لبراند تاني'] : null,
+      may('maker') ? ['maker', 'المبتكر', 'نقل لمتجر مبتكر تاني على Dokan'] : null,
+      ['page', 'باقي البيانات', 'الاسم والوصف والصور والأقسام' + (x.priced ? '' : ' والسعر') + ' — من صفحته']].filter(Boolean);
+  };
 
   // each step: key · label (its answered line) · q (the question) · kind: choice | text | number | maker | product · optional · when(values) · the values' checks
   const FLOWS = {
@@ -73,6 +88,21 @@
     trash: { title: 'مسح منتج', popup: 'تأكيد المسح', btn: 'افتح تأكيد المسح', icon: 'trash', steps: [
       { key: 'product', label: 'المنتج', q: 'أنهي منتج؟ اكتب اسمه أو الـ SKU', kind: 'product' }],
       open: (v) => ({ trash: v.product }) },
+    // part 2 (26 Nov — «وبعدها الباقي»): a maker's money, one product's edit
+    makerMove: { title: 'حركة على حساب مبتكر', popup: '«سحب / إيداع» للمبتكر في الحسابات', btn: 'افتح «سحب / إيداع»', icon: 'wallet', steps: [
+      { key: 'direction', label: 'الحركة', q: 'سحب ولا إيداع؟', kind: 'choice', options: () => [['withdraw', 'سحب', 'عربون أو مواصلات — بيتخصم من صافيه'], ['deposit', 'إيداع', 'تصحيح رصيد — بيتضاف على صافيه']] },
+      { key: 'vendor', label: 'المبتكر', q: 'أنهي مبتكر؟', kind: 'maker' },
+      { key: 'type', label: 'النوع', q: 'نوع السحب؟', kind: 'choice', options: () => MAKER_TYPES.map((k) => [k, k]), when: (v) => v.direction === 'withdraw' },
+      { key: 'otherName', label: 'اسم النوع', q: 'اكتب النوع؟', kind: 'text', max: 80, when: (v) => v.direction === 'withdraw' && v.type === 'أخرى' },
+      { key: 'title', label: 'عنوان المعاملة', q: 'عنوان المعاملة؟', kind: 'text', max: 80, hint: 'مثلًا: فرق سعر مقاس مخصص', when: (v) => v.direction === 'deposit' },
+      { key: 'amount', label: 'المبلغ', q: 'المبلغ كام؟', kind: 'number', unit: 'ج.م' },
+      { key: 'note', label: 'ملاحظة', q: 'ملاحظة؟', kind: 'text', optional: true, max: 200, hint: 'مثلًا: عربون أوردر 180656' }],
+      open: (v) => ({ form: 'vendor_move', values: { direction: v.direction, vendor: v.vendor, type: v.direction === 'withdraw' ? v.type : '',
+        otherName: (v.direction === 'deposit' ? v.title : v.otherName) || '', amount: v.amount, note: v.note || '' } }) },
+    productEdit: { title: 'تعديل منتج', popup: 'بوب أب المنتج', btn: 'افتحه', icon: 'sliders', steps: [
+      { key: 'product', label: 'المنتج', q: 'أنهي منتج؟ اكتب اسمه أو الـ SKU', kind: 'product', resets: ['what'] }, // another product: its edits asked again
+      { key: 'what', label: 'التعديل', q: 'عايز تعدّل إيه فيه؟', kind: 'choice', options: (v, L) => PRODUCT_EDITS(v.product, L) }],
+      open: (v) => ({ productEdit: { product: v.product, what: v.what } }) },
   };
 
   // ---- the ask: an add / edit / delete of one of the flows, with what it already carries. An ask that says more than the steps
@@ -95,10 +125,35 @@
   const TYPE_W = ['عميل', 'العميل', 'مبتكر', 'المبتكر', 'خاص', 'داخلي', 'عاجل', 'عاجله', 'customer', 'vendor', 'maker', 'internal', 'urgent'];
   const KIND_W = ['فيديو', 'الفيديو', 'video', 'بوست', 'منشور', 'ريل', 'كاروسيل'];
   const ORDER_W = ['حاله', 'الحاله', 'حالته', 'عربون', 'بعربون', 'بدون', 'غير', 'status', 'deposit', 'without', 'with', 'no'];
+  // a maker's money: «عربون / مواصلات» come off his net, «إيداع / تصحيح» go on it — not an order's deposit («أكد الأوردر بعربون»), not an
+  // expense («مصروف مواصلات»), not a withdrawal request on Dokan («طلب سحب»), not a read of his account («رصيد المبتكر كام»); a name or
+  // more words = the engine's popup with them («عربون 300 لـ ‹مبتكر›»)
+  const READ_MONEY = /\s(اعرف|اشوف|شوف|اعرض|اعرضلي|وريني|ورني|كام|كم|ايه|مين|فين|ليه|تقرير|ملخص|show|list|how|report|summary|what|which)\s/;
+  const MONEY_W = ['عربون', 'العربون', 'مواصلات', 'المواصلات', 'اوبر', 'transport', 'سحب', 'اسحب', 'ايداع', 'اودع', 'تصحيح', 'خصم', 'اخصم', 'withdraw', 'deposit', 'correct',
+    'correction', 'رصيد', 'الرصيد', 'رصيده', 'حساب', 'الحساب', 'حسابه', 'خارجي', 'جنيه', 'ج', 'egp'];
+  function makerMoney(raw, t, p) {
+    if (READ_MONEY.test(p) || ['order', 'expense', 'request', 'post', 'product'].some((k) => N[k].test(p))) return null;
+    const kind = /\s(ال)?عربون\s/.test(p) ? 'عربون' : /\s(ال)?(مواصلات|اوبر|transport)\s/.test(p) ? 'مواصلات' : '';
+    const maker = words(t).some((w) => N.maker.test(pad(w)) || N.maker.test(pad(w.replace(/^لل?/, ''))));
+    const dep = /\s(ايداع|اودع|تصحيح|deposit|correct|correction)\s/.test(p);
+    if (!kind && !(maker && (dep || /\s(سحب|اسحب|خصم|اخصم|withdraw)\s/.test(p)))) return null;
+    const am = /(^|\s)(\d[\d,]*(?:\.\d+)?)(\s|$)/.exec(t);
+    if (rest(t, (w) => MONEY_W.includes(w) || (!!am && w === am[2])).length) return null; // a maker's name or more: the engine reads it whole
+    const pre = { direction: dep && !kind ? 'deposit' : 'withdraw' }; if (pre.direction === 'withdraw' && kind) pre.type = kind;
+    const n = am ? Number(am[2].replace(/,/g, '')) : 0; if (n > 0 && n <= 10000000) pre.amount = String(n);
+    return { id: 'makerMove', pre };
+  }
+  // one product's edit: what was said («السعر», «البراند», «المبتكر», «انشر» / «مسودة») is picked by itself when that product allows it
+  const PE_VERB = /\s(انقل|نقل|انقله|انشر|انشره|نشر|move|publish)\s/;
+  const PE_WANT = [['price', /\s(ال)?(سعر|سعره|اسعار|price|prices)\s/], ['brand', /\s(ل|لل|ال)?(براند|brand)\s/], ['maker', /\s(ل|لل|ال)?(مبتكر|متجر|maker|vendor|store)\s/],
+    ['draft', /\s(ل|لل|ال)?(مسوده|draft)\s/], ['publish', /\s(انشر|انشره|نشر|publish)\s/]];
+  const PE_W = /\s(ل|لل|ال)?(سعر|سعره|اسعار|price|prices|براند|brand|متجر|store|حاله|حالته|status|مسوده|draft|انقل|نقل|انقله|انشر|انشره|نشر|move|publish|تاني|اخر|اخري|other)\s/;
 
   function detect(text, ctx) {
     const c = ctx || {}; const raw = String(text == null ? '' : text).trim(); const t = norm(raw); if (!t) return null;
-    const p = pad(t); if (READ.test(p) || words(t).length > 14) return null;
+    const p = pad(t); if (words(t).length > 14) return null;
+    const mm = makerMoney(raw, t, p); if (mm) return mm; // before the reads: «تصحيح رصيد المبتكر» is an edit, not his balance asked
+    if (READ.test(p)) return null;
     const add = ADD.test(p); const edit = EDIT.test(p); const del = DEL.test(p); const num = /(^|\s)\d[\d,]*(\.\d+)?(\s|$)/.test(t);
     // a team request — not «طلب سحب» (a maker's withdrawal) nor a request read
     if (N.request.test(p) && add && !/\sسحب\s/.test(p)) {
@@ -109,6 +164,11 @@
       return { id: 'request', pre };
     }
     if (N.product.test(p) && del) { const q = rest(t, (w) => w === 'sku'); if (q.length > 8) return null; const qs = asSaid(raw, t, q).slice(0, 80); return { id: 'trash', pre: qs ? { q: qs } : {} }; }
+    if (N.product.test(p) && (edit || PE_VERB.test(p))) {
+      const q = rest(t, (w) => w === 'sku' || PE_W.test(pad(w))); if (q.length > 8) return null; const qs = asSaid(raw, t, q).slice(0, 80);
+      const want = (PE_WANT.find(([, re]) => re.test(p)) || [])[0]; const pre = qs ? { q: qs } : {}; if (want) pre.want = { what: want };
+      return { id: 'productEdit', pre };
+    }
     if (N.order.test(p) && edit) {
       const on = /(^|\s)#?(\d{2,})(\s|$)/.exec(t); const order = on ? on[2] : '';
       const confirm = /\s(اكد|اكدلي|تاكيد|confirm)\s/.test(p); const st = ORDER_ST.find((x) => p.includes(pad(norm(x))));
@@ -144,7 +204,7 @@
     const def = FLOWS[id]; if (!def) return null;
     const v = {}; const p = pre || {};
     for (const s of def.steps) if (p[s.key] != null && p[s.key] !== '' && s.kind !== 'product' && s.kind !== 'maker') v[s.key] = p[s.key];
-    return { id, values: v, skipped: {}, q: p.q || '', draft: '', err: '', phase: 'ask', done: false, loading: false };
+    return { id, values: v, skipped: {}, q: p.q || '', draft: '', err: '', phase: 'ask', done: false, loading: false, want: Object.assign({}, p.want || {}) };
   }
   const live = (st) => FLOWS[st.id].steps.filter((s) => !s.when || s.when(st.values));
   function current(st) {
@@ -162,8 +222,9 @@
       if (s.email) { x = x.toLowerCase(); if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x)) return 'الإيميل مش مظبوط'; }
       if (!x) return 'اكتب حاجة'; st.values[key] = x.slice(0, s.max || 200); }
     else if (s.kind === 'choice') { if (value == null || value === '') return 'اختار'; st.values[key] = String(value); }
-    else st.values[key] = value; // maker (a name) · product ({ id, name, sku })
+    else st.values[key] = value; // maker (a name) · product ({ id, name, sku, … })
     delete st.skipped[key]; st.err = ''; st.draft = '';
+    for (const k of s.resets || []) { delete st.values[k]; delete st.skipped[k]; } // the steps that hang on this answer are asked again
     // a step that no longer applies after this answer drops its value («غيّر» the type of a request)
     for (const x of FLOWS[st.id].steps) if (x.when && !x.when(st.values)) { delete st.values[x.key]; delete st.skipped[x.key]; }
     return '';
@@ -181,10 +242,16 @@
   // ---- its card (the studio chat's look: answered lines with «غيّر», the question, its buttons or box)
   function card(st, o) {
     const U = root.IBUI; const h = U.h; const opt = o || {}; const redraw = opt.redraw || (() => {}); const L = opt.lists || {};
-    const def = FLOWS[st.id]; const s = current(st); const out = []; st.loading = false; // its step says so below when it waits on a list
+    const def = FLOWS[st.id]; let s = current(st); const out = []; st.loading = false; // its step says so below when it waits on a list
+    // a choice said in the ask that hangs on an earlier answer («غيّر سعر المنتج …» → «السعر» once that product has a price to change):
+    // picked by itself when its step comes and it is one of the options; else the step asks as usual
+    const said = s && s.kind === 'choice' && st.want ? st.want[s.key] : undefined;
+    if (said != null) { delete st.want[s.key]; if ((s.options(st.values, L) || []).some((x) => String(x[0]) === String(said))) { answer(st, s.key, said); s = current(st); } }
     const line = (x) => h('div', { class: 'sc-done', 'data-cf-done': x.key }, U.Icon('check', 'sm'), h('span', null, (x.label || x.q) + ': '), h('b', null, shown(st, x, L)),
       st.phase === 'opened' ? null : h('button', { type: 'button', class: 'sc-edit', 'data-cf-back': x.key, 'aria-label': 'غيّر ' + x.q, onClick: () => { back(st, x.key); redraw(); } }, 'غيّر'));
-    for (const x of live(st)) { if (x === s) break; if (st.values[x.key] != null || st.skipped[x.key]) out.push(line(x)); }
+    // every answered step above the question — the ones said in the ask too, even when their turn is later («سجل عربون»: «النوع: عربون»
+    // shows while the maker is asked)
+    for (const x of live(st)) { if (x === s) continue; if (st.values[x.key] != null || st.skipped[x.key]) out.push(line(x)); }
     if (s) out.push(ask(st, s, L, redraw, h, U));
     else out.push(end(st, def, opt, redraw, h, U));
     const cancel = opt.cancel && st.phase !== 'opened' ? h('button', { type: 'button', class: 'sc-edit sc-cancel', 'data-cf-cancel': '', onClick: () => opt.cancel() }, 'إلغاء') : null;
@@ -228,7 +295,7 @@
     const worm = () => (root.IBLoader && root.IBLoader.mark ? root.IBLoader.mark(16) : null); // the system's loading look (the logo's worm)
     const res = !q ? null : found === null ? h('p', { class: 'help cf-wait', 'data-cf-loading': '' }, worm(), h('span', null, 'بنحمّل المنتجات — النتيجة هتظهر هنا لوحدها أول ما تخلص.'))
       : !found.length ? h('p', { class: 'help', 'data-cf-none': '' }, 'مالقيتش منتج بالاسم ده — جرّب جزء من الاسم أو الـ SKU.')
-        : h('div', { class: 'sc-opts' }, found.slice(0, 8).map((p) => h('button', { type: 'button', class: 'sc-opt', 'data-cf-product': String(p.id), onClick: () => { answer(st, s.key, { id: p.id, name: p.name, sku: p.sku || '' }); redraw(); } }, h('b', null, p.name), p.sku ? h('small', { dir: 'ltr' }, p.sku) : null)));
+        : h('div', { class: 'sc-opts' }, found.slice(0, 8).map((p) => h('button', { type: 'button', class: 'sc-opt', 'data-cf-product': String(p.id), onClick: () => { answer(st, s.key, Object.assign({}, p, { sku: p.sku || '' })); redraw(); } }, h('b', null, p.name), p.sku ? h('small', { dir: 'ltr' }, p.sku) : null)));
     return h('div', null, Q, h('div', { class: 'cf-row' }, inp, U.Button({ size: 'sm', type: 'primary', icon: 'search', label: 'دوّر', attrs: { 'data-cf-search': '' }, onClick: search })), res, err);
   }
   // every step answered: the popup, opened by the member's press — its own button is the confirmation

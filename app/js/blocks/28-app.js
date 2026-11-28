@@ -1158,6 +1158,10 @@
       // popup here opens over the page the member is on (the assistant's chat stays behind it) — no page is opened before it; a page
       // only by a link the member presses inside a popup
       case 'vendor_add': if (!admin() && can('vendors.edit') !== 'F') no(); openAddVendor(null, v, state.page === 'vendors' ? undefined : (nv) => openVendor(nv.id, { inPlace: true })); return 'form vendor_add';
+      // agent-chat-flows decision 5: a maker's part — his file in place and that part's popup («بيانات الهوية» / «الاتصال» / «الاتفاق» / «الحساب البنكي»)
+      case 'vendor_edit': { const part = String(v.what || ''); if (part === 'bank' ? !vstore.canBank() : !(VD.EDIT_GROUPS[part] && vstore.canEdit())) no();
+        const mk = v.vendor ? vstore.findByName(String(v.vendor).trim()) : null; if (!mk) throw new Error('مش لاقي المبتكر ده');
+        openVendor(mk.id, { inPlace: true, edit: part }); return 'form vendor_edit'; }
       case 'member_add': if (!admin()) no(); hrApi().addMember(Object.fromEntries(['name', 'title', 'email', 'phone', 'hire'].filter((k) => v[k] != null && String(v[k]).trim()).map((k) => [k, String(v[k]).trim().slice(0, 200)]))); return 'form member_add';
       case 'customer_add': { const a = P().cs && P().cs.api; if (!a || !a.addCustomer || !a.addCustomer(v)) no(); return 'form customer_add'; }
       case 'ticket_new': { if (!tCanManage()) no(); const pre = {}; for (const k of ['title', 'description', 'reason']) if (v[k]) pre[k] = String(v[k]).slice(0, 1000); if (['customer', 'vendor', 'internal'].includes(v.type)) pre.type = v.type;
@@ -1343,11 +1347,19 @@
   // outside model's own question (its buttons / its popup) goes back to it: the same request going on.
   function aiRun(text, o) {
     const t = text.trim(); if (!t || ai.busy) return;
+    for (const m of ai.msgs) if (m.flow && m.flow.phase !== 'opened') m.flowOff = true; // a new message ends the steps not finished
     ai.msgs.push({ role: 'user', text: t });
     if (o && o.brain) { aiChat(t, o.brain); return; }
     const at = ai.msgs.length; const sys = () => ai.msgs.slice(at).forEach((m) => { if (m.role === 'ai') m.sys = true; });
     if (ai.pending) { aiLocal(t); sys(); aiDraw(); return; }
     const got = window.IBBrain ? window.IBBrain.understand(t, aiCtx()) : C.parseCommand(t, aiCtx());
+    // agent-chat-flows decision 6: an add / edit / delete said without what its popup needs = the same step card as the assistants' chat
+    // (IBChatFlowHost from marketing.js — the member's rights, then the system's own popup filled over the page; nothing written here) —
+    // when the engine did not take it whole (it asks a field, or did not understand); what it answers whole stays its own («أكد الأوردر 123»)
+    const FH = window.IBChatFlowHost; const fl = FH && (got.type === 'unknown' || (got.missing && got.missing.length)) ? FH.detect(t) : null;
+    if (fl) { if (!fl.may) aiSay('«' + fl.title + '» مش من صلاحياتك — لو محتاجها اطلبها من الأدمن.');
+      else { ai.msgs.push({ role: 'ai', text: 'تمام — هسألك كام سؤال، وفي الآخر أفتحلك ' + fl.popup + ' متملّي والتأكيد منك.', flow: FH.start(fl) }); }
+      sys(); aiDraw(); return; }
     if (got.type !== 'unknown') { aiExec(got); sys(); aiDraw(); return; }
     aiConsent(t);
   }
@@ -1388,6 +1400,8 @@
       const kids = [h('p', { class: 'ai-text' }, m.live && !m.text ? 'بفكّر…' : m.welcome ? aiWelcome() : m.text)];
       // where the answer came from: the system itself, or the outside model the member agreed to
       if (m.role === 'ai' && !m.welcome && !m.live && (m.sys || m.via)) kids.unshift(h('span', { class: 'ai-src' + (m.sys ? ' sys' : ''), 'data-ai-src': m.sys ? 'system' : 'brain' }, m.sys ? 'من السيستم' : ['الرد من ', h('bdi', null, m.via)]));
+      if (m.flow && window.IBChatFlowHost) kids.push(m.flowOff ? h('p', { class: 'ai-done t-small', 'data-ai-flow-off': '' }, 'الخطوات دي اتلغت.')
+        : window.IBChatFlowHost.card(m.flow, { redraw: aiDraw, cancel: () => { m.flowOff = true; aiDraw(); } }));
       if (m.consent) kids.push(m.consent.done ? h('p', { class: 'ai-done t-small' }, m.consent.done === 'no' ? 'ما استخدمتش مخ خارجي.' : ['اتبعت لـ ', h('bdi', null, m.consent.done), '.']) : h('div', { class: 'ai-actions ai-consent', 'data-ai-consent': '' },
         m.consent.brains.map((b) => Button({ type: 'primary', size: 'sm', label: m.consent.brains.length > 1 ? b.name : 'أيوه، استخدمه', attrs: Object.assign({ 'data-ai-brain': b.id }, m.consent.brains.length > 1 ? { 'data-i18n-off': '' } : {}), onClick: () => aiConsentPick(m, b) })),
         Button({ size: 'sm', label: 'لا', attrs: { 'data-ai-brain': '' }, onClick: () => aiConsentPick(m, null) })));
@@ -1504,6 +1518,12 @@
   function aiDragHead() { const head = h('div', { class: 'ai-head', title: 'اسحب من هنا عشان تحرّك المساعد — وكبّره أو صغّره من الركن' }, Icon('sparkle'), h('h2', { class: 't-h5' }, 'مساعد AI'), h('span', { class: 'grow' }), IconButton({ icon: 'close', label: 'إغلاق', onClick: () => aiToggle(false) })); aiDrag(head); return head; }
   function AiPanel() {
     aiList = h('div', { class: 'ai-list', role: 'log', 'aria-live': 'polite' });
+    // decision 6: a step card waiting on a list (the products searched, the makers) is drawn again when it lands, the box keeping its caret
+    if (window.IBChatFlowHost && !aiPanel) window.IBChatFlowHost.onLand(() => {
+      if (!aiPanel || aiPanel.hidden || !ai.msgs.some((m) => m.flow && !m.flowOff && m.flow.loading && m.flow.phase !== 'opened')) return;
+      const a0 = document.activeElement; const box = a0 && a0.id === 'cf-in' && aiPanel.contains(a0) ? [a0.selectionStart, a0.selectionEnd] : null;
+      aiDraw(); const el = box ? aiPanel.querySelector('#cf-in') : null;
+      if (el && document.activeElement !== el) { el.focus(); try { el.setSelectionRange(box[0], box[1]); } catch (e) { /* not a text box */ } } });
     aiInput = h('input', { class: 'ai-input', type: 'text', placeholder: 'اكتب أمرك… مثال: افتح الأوردرات', 'aria-label': 'أمر للمساعد', autocomplete: 'off', maxlength: '200' });
     aiSendBtn = h('button', { type: 'submit', class: 'icon-btn ai-send', 'aria-label': 'إرسال', title: 'إرسال' }, Icon('send'));
     aiStopBtn = Button({ size: 'sm', label: 'إيقاف', onClick: () => { if (aiCtl) aiCtl.abort(); } }); aiStopBtn.hidden = true;
@@ -4702,7 +4722,9 @@
         h('p', { class: 't-small help', style: 'margin:0' }, 'الفئات الفرعية بتاخد رقم الفئة اللي فوقها إلا لو ليها رقم خاص. التعديل من «تعديل» في الاتفاق التجاري.'),
         v.wooVendorId ? U.InlineNote({ children: 'النسبة بتتبعت للموقع: نوع العمولة ونسب الفئات بتتسجل على متجره مع الحفظ.' }) : null];
     }
+    const dw = vdrawer; // decision 5: a save that lands after this drawer closed draws nothing (another maker's drawer, or none)
     function draw() {
+      if (vdrawer !== dw) return;
       const v = vstore.get(id); if (!v) { if (vdrawer) vdrawer.close(); return; } const st = vendorStats()[v.id]; const canEdit = vstore.canEdit(), canBank = vstore.canBank(), canRate = vstore.canRate(), canLogin = !!(vstore.canLogin && vstore.canLogin()); const cstat = VD.contractStatus(v, VTODAY());
       // decision 9 c: what the maker still lacks (login / e-mail / bank), from the store
       // owner batch 2 decision 21: each missing item on its own, and a click opens where it is filled (the login, the contact, the bank)
@@ -4855,6 +4877,13 @@
       vdrawer.set(header, body);
     }
     draw(); vredraw = draw; const c = vdrawer.el.querySelector('.icon-btn'); if (c) c.focus();
+    // agent-chat-flows decision 5: «تعديل بيانات مبتكر» from the assistant's chat — his file where you are and the part's own popup over it
+    // (the same rights as its «تعديل» in the file: vendors.edit for a part, sensitive.vendor_bank F for the bank)
+    // — the file itself stays out of sight and goes with the last of the part's popups (the bank's confirm included): the chat stays
+    if (opts && opts.edit) { const ve = vstore.get(id); const sc = dw.el.closest('.scrim'); if (sc) sc.style.visibility = 'hidden';
+      if (opts.edit === 'bank') { if (vstore.canBank()) bankForm(ve); } else if (VD.EDIT_GROUPS[opts.edit] && vstore.canEdit()) editGroup(ve, opts.edit);
+      const open = () => !!document.querySelector('.scrim:not(.drawer-scrim) > .modal');
+      if (!open()) dw.close(); else { const ob = new MutationObserver(() => { if (vdrawer !== dw) { ob.disconnect(); return; } if (!open()) { ob.disconnect(); dw.close(); } }); ob.observe(document.body, { childList: true, subtree: true }); } }
     if (window.IBVendors) window.IBVendors.loadEvents(id).then(() => { if (vredraw === draw) draw(); }); // decision 6: the vendor's activity_log, once per open
   }
 

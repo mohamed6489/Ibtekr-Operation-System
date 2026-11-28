@@ -1909,16 +1909,19 @@
     if (id === 'trash') return permOf('products.trash') === 'F';
     if (id === 'makerMove') return permOf('accounts.add') === 'F' && !singleOn(); // the accounts' «سحب / إيداع» of a maker
     if (id === 'productEdit') return permOf('products.edit') === 'F';
+    if (id === 'makerEdit') return !singleOn() && (makerMay('contact') || makerMay('bank')); // a maker's file «تعديل» (decision 5)
     return false;
   }
   // one product's edit = its row menu's rights: the price, the status and the brand by products.edit, another maker's store by products.bulk
+  // a maker's part = his file's «تعديل» rights: the bank by sensitive.vendor_bank F, the other parts by vendors.edit (not N)
+  const makerMay = (w) => { const VS = window.IBVendors && window.IBVendors.store; return w === 'bank' ? (VS && VS.canBank ? VS.canBank() : permOf('sensitive.vendor_bank') === 'F') : (VS && VS.canEdit ? VS.canEdit() : permOf('vendors.edit') !== 'N'); };
   const productMay = (w) => (w === 'maker' ? permOf('products.bulk') === 'F' && !singleOn() : permOf('products.edit') === 'F');
   function flowLists() {
     const S = window.IBSettings; const D = window.IbtekrDomain; const T = window.IbtekrTickets; const F = window.IBChatFlow;
     const lab = (kind, v) => (S && S.statusLabel ? S.statusLabel(kind, v) || v : v);
     return { kinds: (D && D.CATEGORIES ? D.CATEGORIES : []).map((k) => [k, lab('expense', k)]), goals: W.GOALS,
       priorities: T && T.PRIORITIES ? T.PRIORITIES.slice().sort((x, y) => ['normal', 'high', 'urgent', 'low'].indexOf(x[0]) - ['normal', 'high', 'urgent', 'low'].indexOf(y[0])) : null,
-      statuses: F ? F.ORDER_ST.map((x) => [x, lab('order', x)]) : null, may: reqMay, productMay,
+      statuses: F ? F.ORDER_ST.map((x) => [x, lab('order', x)]) : null, may: reqMay, productMay, makerMay,
       makers: () => { const Vs = window.IBVendors; if (Vs && Vs.state && Vs.state() === 'idle') Vs.load(); return Vs && Vs.store && Vs.store.all ? Vs.store.all().map((v) => v.name).sort((x, y) => x.localeCompare(y, 'ar')) : []; },
       products: (q) => { const PR = window.IBProducts; if (!PR || !PR.list) return []; if (PR.state && PR.state() !== 'ready') { if (PR.ensure) PR.ensure(); return null; }
         const N = window.IBChatFlow.norm; const n = N(q); const sk = String(q).trim().toLowerCase(); // a record: its English name and its Arabic one (the mirror's two languages)
@@ -1965,7 +1968,17 @@
     const el = box ? document.getElementById('cf-in') : null;
     if (el && document.activeElement !== el) { el.focus(); try { el.setSelectionRange(box[0], box[1]); } catch (e) { /* not a text box */ } }
   }
-  const flowLater = (A) => { if (!A || !A.state || A.state() !== 'ready') return; clearTimeout(flowT); flowT = setTimeout(flowLanded, 0); };
+  // the header assistant's cards (block 28 decision 6) wait on the same lists — told when one lands, whatever the page
+  const hostLanders = new Set();
+  const flowLater = (A) => { if (!A || !A.state || A.state() !== 'ready') return; clearTimeout(flowT); flowT = setTimeout(() => { flowLanded(); hostLanders.forEach((fn) => { try { fn(); } catch (e) { /* its own redraw */ } }); }, 0); };
+  // agent-chat-flows phase 4 part 2b (Safwat 28 Nov — «كمل الباقي»): the assistant in the header walks the same steps — this page's
+  // detection with the member's rights, its lists and its opener (the system's own popups over the page the member is on)
+  window.IBChatFlowHost = {
+    detect: (t) => { const F = window.IBChatFlow; if (!F) return null; const fl = F.detect(t, { kinds: flowLists().kinds }); if (!fl) return null; const def = F.FLOWS[fl.id];
+      return { id: fl.id, pre: fl.pre, may: flowMay(fl.id), title: def.title, popup: def.popup }; },
+    start: (fl) => { const F = window.IBChatFlow; const PR = window.IBProducts; if (F.FLOWS[fl.id].steps.some((x) => x.kind === 'product') && PR && PR.ensure) PR.ensure(); return F.create(fl.id, fl.pre); },
+    card: (st, o) => window.IBChatFlow.card(st, { redraw: o.redraw, lists: flowLists(), open: flowOpen, cancel: o.cancel }),
+    onLand: (fn) => { hostLanders.add(fn); return () => hostLanders.delete(fn); } };
   document.addEventListener('ib:products', () => flowLater(window.IBProducts));
   document.addEventListener('ib:vendors', () => flowLater(window.IBVendors));
   // the system's own answer: kept in the member's chat by the server (made on the first message), with what hangs under it this visit
@@ -2049,6 +2062,10 @@
     m = U.Modal({ title: o.title, body: [h('p', { class: 't-small help' }, o.text || 'ده هيفتحلك صفحة تانية — الشات هنا بيفضل زي ما هو وترجعله من «الذكاء الاصطناعي».')].concat(o.body || []),
       footer: [Button({ type: 'primary', icon: 'external', label: o.label || 'افتح الصفحة', attrs: { 'data-mk-link-go': '' }, onClick: go }), Button({ label: 'إغلاق', attrs: { 'data-mk-link-close': '' }, onClick: () => m.close() })] });
     m.el.setAttribute('data-mk-link', ''); return m;
+  }
+  // the cards under the chat that lead to the settings (Safwat 28 Nov — «افتح بوب اب»): the same link popup, the chat stays
+  function settingsPopup(agent, title, text) {
+    return pagePopup({ title, text, label: 'افتح ' + title + ' في الإعدادات', go: () => { const s2 = window.IBPages.all().settings; if (s2 && s2.api && s2.api.openAgents) s2.api.openAgents(agent); else location.hash = '#settings-ai'; } });
   }
   // the designer's / the buyer's ready campaign: what it is, then its page by the member's click (nothing is saved or generated before)
   function draftPopup(d) {
@@ -2405,7 +2422,7 @@
     const chips = h('div', { class: 'mk-trend-bar', 'data-mk-trend-filter': '' }, tabs, fbtn);
     const picked = TRV.f.tag.length + TRV.f.pf.length;
     const set = window.IBDirectory && window.IBDirectory.me && (window.IBDirectory.me() || {}).role_id === 'admin'
-      ? Button({ size: 'sm', type: 'text', icon: 'gear', label: 'التاجز والمصادر', attrs: { 'data-mk-trends-settings': '' }, onClick: () => { const s2 = window.IBPages.all().settings; if (s2 && s2.api && s2.api.openAgents) s2.api.openAgents('designer'); else location.hash = '#settings-ai'; } }) : null;
+      ? Button({ size: 'sm', type: 'text', icon: 'gear', label: 'التاجز والمصادر', attrs: { 'data-mk-trends-settings': '' }, onClick: () => settingsPopup('designer', 'التاجز والمصادر', 'تاجز التريندات والمواقع اللي بيدوّر فيها الديزاينر بتتعدّل من «الإعدادات › تعليمات الذكاء الاصطناعي › المساعدين» — الشات هنا بيفضل زي ما هو وترجعله من «الذكاء الاصطناعي».') }) : null;
     const body = !L ? [K.Empty('بيحمّل…', '')] : !ready ? [U.InlineNote({ children: 'القسم ده مستني تحديث قاعدة البيانات — هيشتغل بعد التحديث الجاي.' })]
       : !all.length ? [K.Empty('لسه مفيش تريندات', can().create ? (cfg.tags.length ? 'دوس «حدّث التريندات» — بيدوّر على تيك توك وإنستجرام وفيسبوك بالتاجز بتاعتك.' : 'دوس «حدّث التريندات»' + (set ? '، وحط تاجز مجالك من «التاجز والمصادر» عشان يجيب فيديوهات وبوستات ليها علاقة بيه.' : '.')) : 'اللي معاه «التسويق: إنشاء» بيحدّثها.')]
       : [chips, shown.length ? h('div', { class: 'mk-reels' + (TRV.tab === 'video' ? ' is-video' : ''), 'data-mk-reels': TRV.tab }, shown.map(trTile))
@@ -2495,7 +2512,7 @@
     const isAdmin = window.IBDirectory && window.IBDirectory.me && (window.IBDirectory.me() || {}).role_id === 'admin';
     const tagsBox = h('div', { class: 'mk-strong', 'data-mk-strong': '' }, h('div', { class: 'mk-strong-h' }, h('b', null, 'أقوى الإعلانات بالتاجز'), h('small', null, 'كل تاج بيفتح مكتبة ميتا على الإعلانات الشغّالة بالكلمة دي في مصر — الإعلان اللي شغّال من مدة طويلة غالبًا هو اللي بيجيب نتيجة.')),
       adTags.length ? h('div', { class: 'chips' }, adTags.filter((t) => !CP.tag || t === CP.tag).map((t) => libLink({ keyword: t }, t, { class: 'chip mk-strong-tag', 'data-mk-strong-tag': t }))) : h('p', { class: 't-small help', style: 'margin:0' }, isAdmin ? 'لسه مفيش تاجز — حطها من «الإعدادات › تعليمات الذكاء الاصطناعي › المساعدين › الميديا باير الاصطناعي».' : 'الأدمن بيحط التاجز من الإعدادات.'));
-    const set = isAdmin ? Button({ size: 'sm', type: 'text', icon: 'gear', label: 'المنافسين والتاجز', attrs: { 'data-mk-comp-settings': '' }, onClick: () => { const s2 = window.IBPages.all().settings; if (s2 && s2.api && s2.api.openAgents) s2.api.openAgents('buyer'); else location.hash = '#settings-ai'; } }) : null;
+    const set = isAdmin ? Button({ size: 'sm', type: 'text', icon: 'gear', label: 'المنافسين والتاجز', attrs: { 'data-mk-comp-settings': '' }, onClick: () => settingsPopup('buyer', 'المنافسين والتاجز', 'المنافسين وتاجز الإعلانات بتوع الميديا باير بيتعدّلوا من «الإعدادات › تعليمات الذكاء الاصطناعي › المساعدين» — الشات هنا بيفضل زي ما هو وترجعله من «الذكاء الاصطناعي».') }) : null;
     return Card('إعلانات المنافسين', 'من مكتبة إعلانات ميتا · الإعلانات الشغّالة دلوقتي في مصر',
       [!L ? K.Empty('بيحمّل…', '') : !ready ? U.InlineNote({ children: 'القسم ده مستني تحديث قاعدة البيانات — هيشتغل بعد التحديث الجاي.' }) : [
         bar,
@@ -2550,7 +2567,7 @@
   const subLeft = (x) => (x.expired ? 'انتهى من ' + K.n0(Math.abs(x.daysLeft)) + ' يوم' : x.daysLeft === 0 ? 'بينتهي النهاردة' : 'باقي ' + K.n0(x.daysLeft) + ' يوم');
   function subsCard() {
     const L = MK().siteSubsNow ? MK().siteSubsNow() : undefined;
-    const openAcc = Button({ size: 'sm', label: 'كل الاشتراكات في الحسابات', iconEnd: 'chevL', attrs: { 'data-dv-subs-all': '' }, onClick: () => { location.hash = 'subscriptions'; } });
+    const openAcc = Button({ size: 'sm', label: 'كل الاشتراكات في الحسابات', iconEnd: 'chevL', attrs: { 'data-dv-subs-all': '' }, onClick: () => pagePopup({ title: 'كل الاشتراكات', label: 'افتح الاشتراكات في الحسابات', text: 'الاشتراكات كلها ومواعيد تجديدها وإضافتها في «الحسابات › الاشتراكات» — الشات هنا بيفضل زي ما هو وترجعله من «الذكاء الاصطناعي».', go: () => { location.hash = 'subscriptions'; } }) });
     if (L === null) return Card('اشتراكات الموقع', 'من «الحسابات › الاشتراكات»', [K.Empty('محتاجة صلاحية الحسابات', 'الاشتراكات ومواعيد تجديدها بتظهر للي بيشوف صفحة الحسابات.')], null, 'mk-dv-subs');
     const list = (L || []).slice().sort((a, b) => (Number(SITE_SUB.test(b.name)) - Number(SITE_SUB.test(a.name))) || (a.daysLeft - b.daysLeft));
     const due = list.filter((x) => x.due).length;

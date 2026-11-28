@@ -124,3 +124,24 @@ test('one product\'s edit: the edits its product allows and the member may, then
   assert.equal(F.shown(s, F.FLOWS.productEdit.steps[1], {}), 'البراند');
   F.back(s, 'product'); F.answer(s, 'product', { id: 9002, name: 'Curtain', sku: 'Y' }); assert.equal(F.current(s).key, 'what'); // its edits asked again
 });
+
+// part 2b (agent-chat-flows decision 5, Safwat 28 Nov — «كمل الباقي»): a maker's data, part by part — his file's own «تعديل» popup
+test('a maker\'s data: the part said is picked, the rest of the words his name; not a read, not his money, not an order or a product', () => {
+  assert.deepEqual(d('عدل بيانات المبتكر'), { id: 'makerEdit', pre: { want: {} } });
+  assert.deepEqual(d('غير تليفون المبتكر Art Craft'), { id: 'makerEdit', pre: { want: { what: 'contact', vendor: 'Art Craft' } } });
+  assert.deepEqual(d('عدل الحساب البنكي للمبتكر'), { id: 'makerEdit', pre: { want: { what: 'bank' } } }); // «حساب» here is his bank, not an account read
+  assert.deepEqual(d('غير نسبة المبتكر Glody'), { id: 'makerEdit', pre: { want: { what: 'terms', vendor: 'Glody' } } });
+  assert.deepEqual(d('عدل اسم المبتكر'), { id: 'makerEdit', pre: { want: { what: 'identity' } } });
+  for (const t of ['رصيد المبتكر كام', 'عدل رصيد المبتكر', 'غير تليفون المبتكر 01001234567', 'انقل المنتج Cushion لمبتكر تاني', 'عدل الاوردر 1234 للمبتكر', 'بيانات المبتكر احمد ايه'])
+    assert.notEqual((d(t) || {}).id, 'makerEdit', t);
+});
+
+test('a maker\'s data: the parts the member may, the maker said picked once the makers are there, then the file\'s popup', () => {
+  const parts = (L) => F.FLOWS.makerEdit.steps[1].options({}, L || {}).map(([v]) => v);
+  assert.deepEqual(parts(), ['identity', 'contact', 'terms', 'bank']);
+  assert.deepEqual(parts({ makerMay: (w) => w !== 'bank' }), ['identity', 'contact', 'terms']); // no sensitive.vendor_bank: no bank
+  const s = F.create('makerEdit', { want: { what: 'contact', vendor: 'art craft' } }); assert.equal(F.current(s).key, 'vendor');
+  assert.equal(s.want.vendor, 'art craft'); // kept for the maker step: picked when the makers land (card)
+  F.answer(s, 'vendor', 'Art Craft'); F.answer(s, 'what', 'contact');
+  assert.deepEqual(F.openSpec(s), { form: 'vendor_edit', values: { vendor: 'Art Craft', what: 'contact' } });
+});

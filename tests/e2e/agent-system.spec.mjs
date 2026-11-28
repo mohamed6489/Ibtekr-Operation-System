@@ -288,3 +288,27 @@ test('chat-flows phase 4 part 2 — «غير سعر منتج Cushion»: the prod
   const link = page.locator('.modal[data-mk-link]'); await expect(link).toContainText('صفحة المنتج'); // its page only by the member's press inside
   await link.locator('[data-mk-link-go]').click(); await expect(page).toHaveURL(/#products-edit-9001/);
 });
+
+// part 2b (agent-chat-flows decision 5, Safwat 28 Nov — «كمل الباقي»): a maker's data — the maker said picked, the part said picked,
+// then his file in place with that part's own «تعديل» popup over the chat; the other parts offered when none was said
+test('chat-flows phase 4 part 2b — «غير تليفون المبتكر Art Craft»: the maker and «بيانات الاتصال» picked, his file\'s contact popup over the chat', async ({ page }) => {
+  await openAi(page, 'خدمة المبتكرين');
+  await send(page, 'غير تليفون المبتكر Art Craft');
+  const card = pg(page).locator('[data-cf="makerEdit"]'); await expect(card).toBeVisible(); expect(asks().length).toBe(0);
+  await expect(card.locator('[data-cf-done="vendor"]')).toContainText('Art Craft'); await expect(card.locator('[data-cf-done="what"]')).toContainText('بيانات الاتصال');
+  const at = await page.evaluate(() => location.hash);
+  await card.locator('[data-cf-open="makerEdit"]').click();
+  const m = page.locator('.modal[role=dialog]', { hasText: 'بيانات الاتصال — Art Craft' }); await expect(m).toBeVisible();
+  expect(await page.evaluate(() => location.hash)).toBe(at); // the chat's page — his file opened where you are
+  await m.getByRole('button', { name: 'إلغاء' }).click(); await expect(m).toHaveCount(0);
+  await expect(page.locator('.drawer')).toHaveCount(0); // his file went with the popup — the chat as it was
+  // nothing said: the maker asked, then the parts
+  await send(page, 'عدل بيانات المبتكر');
+  const c2 = pg(page).locator('[data-cf="makerEdit"]'); await expect(c2).toContainText('أنهي مبتكر؟');
+  await c2.locator('#cf-maker').click(); await page.getByRole('option', { name: 'Art Craft', exact: true }).click();
+  await expect(c2.locator('[data-cf-opt]')).toHaveText([/بيانات الهوية/, /بيانات الاتصال/, /الاتفاق التجاري/, /الحساب البنكي/]);
+  await c2.locator('[data-cf-opt="identity"]').click(); await c2.locator('[data-cf-open="makerEdit"]').click();
+  const idm = page.locator('.modal[role=dialog]', { hasText: 'بيانات الهوية — Art Craft' }); await expect(idm).toBeVisible();
+  await idm.getByRole('button', { name: 'حفظ', exact: true }).click(); await expect(idm).toHaveCount(0); // the file's own save
+  await expect(page.locator('.drawer')).toHaveCount(0); await expect(pg(page).locator('#mk-ask')).toBeVisible();
+});

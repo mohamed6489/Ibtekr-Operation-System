@@ -629,3 +629,33 @@ test('the orders filter by description: the system\'s own parser first (no model
   expect(b.mode).toBe('ai'); expect(b.filter.items).toEqual([{ f: 'note', op: 'has', v: 'هدية' }]);
   expect(calls().length).toBe(1); expect(calls()[0].context.vendors).toEqual([]); expect(calls()[0].turns).toEqual([{ role: 'user', text: 'اللي عليها ملحوظة هدية' }]);
 });
+
+// agent-chat-flows decision 6 (Safwat 28 Nov — «كمل الباقي»): the header's assistant walks the same steps as the assistants' chat —
+// an add / edit said without what its popup needs = the step card in the panel, then the system's popup filled over the page; a new
+// message ends the steps not finished; a member without the right is told, no card
+test('decision 6: «سجل عربون» in the header — the step card in the panel, the maker and the amount, then the accounts\' popup filled over the page; nothing written, no model', async ({ page }) => {
+  await signIn(page, ADMIN); await page.getByRole('button', { name: 'مساعد AI' }).click();
+  await say(page, 'سجل عربون');
+  const card = panel(page).locator('[data-cf="makerMove"]'); await expect(card).toBeVisible();
+  await expect(panel(page).locator('.ai-msg.ai').last().locator('[data-ai-src]')).toHaveText('من السيستم');
+  await expect(card.locator('[data-cf-done="type"]')).toContainText('عربون');
+  await card.locator('#cf-maker').click(); await page.getByRole('option', { name: 'Art Craft', exact: true }).click();
+  await card.locator('[data-cf-in]').fill('250'); await card.locator('[data-cf-in]').press('Enter');
+  await card.locator('[data-cf-skip="note"]').click();
+  await card.locator('[data-cf-open="makerMove"]').click();
+  const m = page.locator('.modal[role=dialog]').last(); await expect(m).toContainText('سحب من رصيد المبتكر');
+  await expect(m.locator('#f-vendor')).toContainText('Art Craft'); await expect(m.locator('#f-amount')).toHaveValue('250');
+  await expect(page).toHaveURL(/#dashboard/); // over the page the member is on
+  await m.getByRole('button', { name: 'إلغاء' }).click();
+  // a new message ends the steps not finished
+  await say(page, 'عدل منتج'); const c2 = panel(page).locator('[data-cf="productEdit"]'); await expect(c2).toBeVisible();
+  await say(page, 'افتح الأوردرات'); await expect(panel(page).locator('[data-cf="productEdit"]')).toHaveCount(0); await expect(panel(page).locator('[data-ai-flow-off]')).toHaveCount(1);
+  expect((mock.acc && mock.acc.acc_vendor_moves || []).length).toBe(0);
+  expect(mock.aiCalls.filter((c) => c.action === 'assistant').length, 'no model').toBe(0);
+});
+
+test('decision 6: a member without the accounts\' «إضافة» asking for a maker\'s money in the header is told it is not his — no card', async ({ page }) => {
+  await signIn(page, 'vf.dev@ibtekr.local'); await page.getByRole('button', { name: 'مساعد AI' }).click();
+  await say(page, 'سجل عربون');
+  await expect(panel(page).locator('.ai-msg.ai').last()).toContainText('مش من صلاحياتك'); await expect(panel(page).locator('[data-cf]')).toHaveCount(0);
+});

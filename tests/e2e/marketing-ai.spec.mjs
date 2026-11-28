@@ -664,6 +664,17 @@ test('ش44 — the ad tags open the library on each word; the tag filter keeps o
   expect(Object.fromEntries(new URL(await chips.nth(1).getAttribute('href')).searchParams).q).toBe('ديكور منزلي');
   await card.locator('#mk-cf-tag').click(); await page.getByRole('option', { name: 'مكرمية', exact: true }).click();
   await expect(chips).toHaveText(['مكرمية']);
+  // Safwat 28 Nov — «افتح بوب اب»: the settings button under the chat opens the link popup first; «إغلاق» keeps the chat
+  const at = await page.evaluate(() => location.hash);
+  await card.locator('[data-mk-comp-settings]').click();
+  const pop = page.locator('[data-mk-link]');
+  await expect(pop).toContainText('المنافسين وتاجز الإعلانات');
+  await pop.locator('[data-mk-link-close]').click();
+  await expect(pop).toHaveCount(0);
+  expect(await page.evaluate(() => location.hash)).toBe(at);
+  await card.locator('[data-mk-comp-settings]').click();
+  await page.locator('[data-mk-link-go]').click();
+  await expect.poll(() => page.evaluate(() => location.hash)).toMatch(/^#settings/);
 });
 
 // comments decision 71 (the owner 15 Nov — «زودلي قسم المبرمج يجيبله ابديتس للوردر بريس و الاشتراكات بتاعت ورد بريس و الكريديتس»): the
@@ -701,6 +712,12 @@ test('comment 71 — the developer\'s tab: «افحص دلوقتي» lists WordP
   await expect(subs.locator('[data-dv-sub]').first()).toContainText('باقي 12 يوم');
   await expect(subs.locator('[data-dv-sub]').first()).toContainText('4,200');
   await expect(subs).toContainText('1 محتاج تجديد');
+  // «كل الاشتراكات في الحسابات» = the link popup (Safwat 28 Nov), the chat stays until «افتح»
+  const was = await page.evaluate(() => location.hash);
+  await subs.locator('[data-dv-subs-all]').click();
+  await expect(page.locator('[data-mk-link]')).toContainText('الحسابات › الاشتراكات');
+  expect(await page.evaluate(() => location.hash)).toBe(was);
+  await page.locator('[data-mk-link-close]').click();
   // the credits: the image credits against the cap, the AI spend for the admin
   const cr = pg(page).locator('.mk-dv-credits');
   await expect(cr.locator('[data-dv-credit="images"]')).toContainText('5,000');

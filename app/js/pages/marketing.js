@@ -1968,7 +1968,17 @@
     const el = box ? document.getElementById('cf-in') : null;
     if (el && document.activeElement !== el) { el.focus(); try { el.setSelectionRange(box[0], box[1]); } catch (e) { /* not a text box */ } }
   }
-  const flowLater = (A) => { if (!A || !A.state || A.state() !== 'ready') return; clearTimeout(flowT); flowT = setTimeout(flowLanded, 0); };
+  // the header assistant's cards (block 28 decision 6) wait on the same lists — told when one lands, whatever the page
+  const hostLanders = new Set();
+  const flowLater = (A) => { if (!A || !A.state || A.state() !== 'ready') return; clearTimeout(flowT); flowT = setTimeout(() => { flowLanded(); hostLanders.forEach((fn) => { try { fn(); } catch (e) { /* its own redraw */ } }); }, 0); };
+  // agent-chat-flows phase 4 part 2b (Safwat 28 Nov — «كمل الباقي»): the assistant in the header walks the same steps — this page's
+  // detection with the member's rights, its lists and its opener (the system's own popups over the page the member is on)
+  window.IBChatFlowHost = {
+    detect: (t) => { const F = window.IBChatFlow; if (!F) return null; const fl = F.detect(t, { kinds: flowLists().kinds }); if (!fl) return null; const def = F.FLOWS[fl.id];
+      return { id: fl.id, pre: fl.pre, may: flowMay(fl.id), title: def.title, popup: def.popup }; },
+    start: (fl) => { const F = window.IBChatFlow; const PR = window.IBProducts; if (F.FLOWS[fl.id].steps.some((x) => x.kind === 'product') && PR && PR.ensure) PR.ensure(); return F.create(fl.id, fl.pre); },
+    card: (st, o) => window.IBChatFlow.card(st, { redraw: o.redraw, lists: flowLists(), open: flowOpen, cancel: o.cancel }),
+    onLand: (fn) => { hostLanders.add(fn); return () => hostLanders.delete(fn); } };
   document.addEventListener('ib:products', () => flowLater(window.IBProducts));
   document.addEventListener('ib:vendors', () => flowLater(window.IBVendors));
   // the system's own answer: kept in the member's chat by the server (made on the first message), with what hangs under it this visit

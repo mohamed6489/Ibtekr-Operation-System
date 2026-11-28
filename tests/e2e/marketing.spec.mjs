@@ -322,11 +322,14 @@ test('the plan calendar: the waiting posts in their week; dragging one to anothe
   await page.setViewportSize({ width: 1440, height: 1600 }); // the post and the day it goes to on the screen together (the mouse works in the viewport)
   await openMarketing(page);
   await pg(page).getByRole('tab', { name: 'الخطة الإعلانية' }).click();
+  // the plan's default period is this month (meeting 23 Nov): a day of next month is drawn greyed with no drop — near a month's end the
+  // post's day (D2) or the day after it (D3) can be one; the target is the first droppable day of D3 / tomorrow / today (CI 28 Nov)
+  test.skip(!(await pg(page).locator('[data-cal-day="' + D2 + '"][data-cal-drop]').count()), 'the post\'s day is out of this month');
   const it = pg(page).locator('[data-cal-it="1"]');
   await expect(it).toBeVisible();
   await expect(pg(page).locator('[data-cal-day="' + D2 + '"]')).toContainText('دفا');
-  const target = pg(page).locator('[data-cal-day="' + D3 + '"]');
-  test.skip(!(await target.count()), 'the day after is out of the default period');
+  let to = null; for (const d of [D3, mktAddDays(TODAY, 1), TODAY]) if (await pg(page).locator('[data-cal-day="' + d + '"][data-cal-drop]').count()) { to = d; break; }
+  const target = pg(page).locator('[data-cal-day="' + to + '"]');
   await it.scrollIntoViewIfNeeded();
   const a = await it.boundingBox(); const b = await target.boundingBox();
   await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2); await page.mouse.down();
@@ -335,7 +338,7 @@ test('the plan calendar: the waiting posts in their week; dragging one to anothe
   const ask = page.locator('.modal[role=dialog][data-move="1"]');
   await expect(ask).toBeVisible();
   await ask.locator('[data-move-ok]').click();
-  await expect.poll(() => mock.mkt.posts.find((x) => x.id === 1).day).toBe(D3);
+  await expect.poll(() => mock.mkt.posts.find((x) => x.id === 1).day).toBe(to);
 });
 
 test('the templates: a new one with an upload and «اشرحها بالـ AI»; picked in a campaign\'s examples it counts', async ({ page }) => {

@@ -150,9 +150,11 @@
     const missing = () => (!st.kind ? 'اختار طلب ولا تقرير' : st.kind === 'request' ? R.check(rf) : A.check(af));
     const draw = () => {
       err = err ? missing() : '';
-      box.replaceChildren(...[h('p', { class: 'sc-q' }, 'عايز إيه؟'),
-        h('div', { class: 'sc-opts smart-kinds', role: 'radiogroup', 'aria-label': 'نوع الإجراء', 'data-smart-kinds': '' }, KINDS.filter(([v]) => v === 'request' || reports).map(([v, l, d]) =>
-          h('button', { type: 'button', class: 'sc-opt' + (st.kind === v ? ' on' : ''), role: 'radio', 'aria-checked': String(st.kind === v), 'data-smart-kind': v, onClick: () => { st.kind = v; err = ''; draw(); } }, h('b', null, l), h('small', null, d)))),
+      box.replaceChildren(...[h('p', { class: 'rqq-step' }, 'عايز إيه؟'),
+        h('div', { class: 'rqq-subs smart-kinds', role: 'radiogroup', 'aria-label': 'نوع الإجراء', 'data-smart-kinds': '' }, KINDS.filter(([v]) => v === 'request' || reports).map(([v, l, d]) =>
+          h('button', { type: 'button', class: 'rqq-sub' + (st.kind === v ? ' on' : ''), role: 'radio', 'aria-checked': String(st.kind === v), 'data-smart-kind': v, onClick: () => { st.kind = v; err = ''; draw(); } },
+            h('span', { class: 'rqq-ic' }, u.Icon(v === 'report' ? 'chart' : 'send', 'sm')), h('span', { class: 'rqq-st' }, h('b', null, l), h('small', null, d))))),
+        st.kind ? h('div', { class: 'rqq-sep' }) : null,
         st.kind === 'request' ? R.fields(rf, draw, { may: opt.may }) : null,
         st.kind === 'report' ? A.fields(af, draw) : null,
         err ? u.InlineNote({ kind: 'error', children: err }) : null].filter(Boolean));

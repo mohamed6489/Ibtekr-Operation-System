@@ -44,6 +44,7 @@
     const pick = arr(items).map(String); if (!pick.length || !LIST_OF[element]) return src;
     const has = new Set(pick); const s = Object.assign({}, src); const kind = LIST_OF[element];
     if (kind === 'makers') {
+      s.makersPicked = has; // a sub-order line of another maker in the same order stays out
       s.orders = arr(src.orders).filter((o) => arr(o.vendors).some((v) => has.has(String(v))));
       s.lateVendors = arr(src.lateVendors).filter((v) => has.has(String(v.vendor)));
       s.returns = arr(src.returns).filter((r) => has.has(String(r.vendor)));
@@ -73,13 +74,39 @@
       const s2 = narrow(src || {}, p.element, p.items); let r = null; const seen = new Set(); const titles = [];
       for (const st of arr(p.states)) {
         const x = A.rowsOfPart({ element: p.element, type: p.type, state: st }, s2); if (!x) continue;
-        if (!r) r = { title: '', headers: x.headers, rows: [] }; titles.push(x.title);
-        for (const row of x.rows) { const k = JSON.stringify(row); if (!seen.has(k)) { seen.add(k); r.rows.push(row); } }
+        if (!r) r = { title: '', headers: x.headers, rows: [], dates: x.dates ? [] : null, sum: x.sum || null }; titles.push(x.title);
+        x.rows.forEach((row, i) => { const k = JSON.stringify(row); if (seen.has(k)) return; seen.add(k); r.rows.push(row); if (r.dates) r.dates.push((x.dates && x.dates[i]) || ''); });
       }
-      if (r) r.title = titles.join(' + ');
+      if (r) { r.title = titles.join(' + '); if (!r.dates) delete r.dates; if (!r.sum) delete r.sum; }
       return { label: partLabel(p), items: arr(p.items), r };
     });
   }
+  // ---- the report popup's filter (Safwat 28 Nov — «يبقا فيها فللتر يسهل استخدام المستخدم للتقرير و … اختيار الفترة»), pure
+  const SKIP_COL = /تاريخ|يوم|اليوم|الرقم|رقم/;
+  /** The columns worth a filter: text values that repeat (2 to 30 different ones) — not the numbers, the days or the ids. */
+  function filterCols(r) {
+    if (!r || !r.rows.length) return [];
+    return r.headers.map((label, col) => ({ col, label })).filter(({ col, label }) => {
+      if (SKIP_COL.test(label) || arr(r.sum).includes(col)) return false;
+      const vals = r.rows.map((row) => row[col]); if (vals.every((v) => typeof v === 'number')) return false;
+      const set = new Set(vals.map((v) => String(v)).filter((v) => v && v !== '—'));
+      return set.size >= 2 && set.size <= 30 && set.size < vals.length; // a value that repeats (a name a row is not a filter)
+    }).map(({ col, label }) => ({ col, label, options: [...new Set(r.rows.map((row) => String(row[col])).filter((v) => v && v !== '—'))].sort((x, y) => x.localeCompare(y, 'ar')) }));
+  }
+  /** The rows' indexes a period ({ from, to } on `dates`), a search (any cell) and the columns' picks keep. */
+  function keep(r, f) {
+    if (!r) return []; const o = f || {}; const q = norm(o.q || ''); const picks = o.picks || {}; const range = o.range && o.range.from && o.range.to ? o.range : null;
+    const out = [];
+    r.rows.forEach((row, i) => {
+      if (range && r.dates) { const d = String(r.dates[i] || ''); if (!d || d < range.from || d > range.to) return; }
+      if (q && !row.some((c) => norm(c).includes(q))) return;
+      for (const col of Object.keys(picks)) { const vals = arr(picks[col]); if (vals.length && !vals.includes(String(row[col]))) return; }
+      out.push(i);
+    });
+    return out;
+  }
+  /** The money columns' totals over the rows kept. */
+  const totals = (r, idx) => arr(r && r.sum).map((col) => [col, idx.reduce((t, i) => t + (Number(r.rows[i][col]) || 0), 0)]);
   const summary = (spec) => 'تقرير: ' + arr(spec && spec.parts).map((p) => partLabel(p) + (arr(p.items).length ? ' — ' + p.items.join('، ') : '')).join(' + ');
 
   // ---- the browser
@@ -139,29 +166,68 @@
     if (m && m.el) { m.el.classList.add('wide'); m.el.setAttribute('data-rq', ''); }
     return m;
   }
+  const PER_KEY = 'ag-report'; // the system's own period picker (IBReportBlocks — «زي التقارير اللي جوه السيستم»), its own key
+  const cairoToday = () => { try { return new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo' }).format(new Date()); } catch (e) { return new Date().toISOString().slice(0, 10); } };
+  // «كل الفترات» = the picker's own «أقصى فترة» (so it shows ticked when the popup opens and after «مسح الفلاتر»)
+  const allPeriod = (B) => { if (!B || !B.periodSet) return; const D0 = w.IbtekrDomain; const mx = D0 && D0.presetRange ? D0.presetRange('max', cairoToday()) : null; B.periodSet(PER_KEY, mx ? Object.assign({ preset: 'max' }, mx) : null); };
   function result(spec) {
-    const u = U(); const D = w.IBAgentDetails; if (!u || !u.Modal) return null; const { h, Button } = u; const k = K();
-    const parts = rowsOf(spec, D && D.gather ? D.gather() : {}); const st = { at: 0 }; const box = h('div', { 'data-rq-result': '' }); let m = null;
-    const cur = () => parts[st.at] || null;
+    const u = U(); const D = w.IBAgentDetails; if (!u || !u.Modal) return null; const { h, Button, Icon } = u; const k = K(); const B = w.IBReportBlocks;
+    const parts = rowsOf(spec, D && D.gather ? D.gather() : {}); const st = { at: 0 }; const box = h('div', { class: 'rq-res', 'data-rq-result': '' }); let m = null;
+    const views = parts.map(() => ({ q: '', range: null, label: 'كل الفترات', picks: {}, open: false }));
+    const cur = () => parts[st.at] || null; const view = () => views[st.at];
+    const cell = (c) => (typeof c === 'number' && k && k.n0 ? k.n0(c) : String(c));
+    const kept = () => { const x = cur(); return x && x.r ? keep(x.r, view()) : []; };
+    const picked = (v) => Object.keys(v.picks).filter((c) => arr(v.picks[c]).length);
+    // the period: the system's picker on its trigger; «أقصى فترة» = every day
+    const periodBtn = (x) => {
+      const v = view(); const dated = !!(x && x.r && x.r.dates);
+      const btn = Button({ size: 'sm', icon: 'calendar', label: dated ? 'الفترة: ' + v.label : 'الفترة: لحظة دلوقتي', disabled: !dated, attrs: { 'data-rq-period': '', title: dated ? 'اختار الفترة' : 'التقرير ده للوضع دلوقتي — من غير فترة' } });
+      if (dated && B && B.periodPicker) btn.addEventListener('click', () => B.periodPicker(PER_KEY, btn, (nr) => {
+        if (!nr || nr.preset === 'max') { v.range = null; v.label = 'كل الفترات'; } else { v.range = { from: nr.from, to: nr.to, preset: nr.preset }; v.label = (B.periodLabel && B.periodLabel(PER_KEY)) || (nr.from + ' – ' + nr.to); }
+        draw(); }).toggle());
+      return btn;
+    };
+    const filterBox = (x) => {
+      const v = view(); const cols = filterCols(x.r); if (!v.open || !cols.length || !k || !k.MultiPick) return null;
+      return h('div', { class: 'rq-filters', 'data-rq-filters': '' }, cols.map((c) => k.MultiPick({ id: 'rq-f-' + st.at + '-' + c.col, label: c.label, field: true, search: c.options.length > 8,
+        placeholder: 'الكل', options: c.options.map((o) => [o, o]), value: arr(v.picks[c.col]), onChange: (val) => { v.picks[c.col] = val; draw(); } })));
+    };
     const draw = () => {
-      const x = cur(); const r = x && x.r;
+      const x = cur(); const r = x && x.r; const v = view(); const idx = kept(); const cols = r ? filterCols(r) : []; const n = picked(v).length;
+      const tools = r && r.rows.length ? h('div', { class: 'rq-tools', 'data-rq-tools': '' },
+        periodBtn(x),
+        h('label', { class: 'rq-search' }, Icon('search', 'sm'), h('input', { class: 'input', type: 'search', placeholder: 'ابحث في التقرير', 'aria-label': 'ابحث في التقرير', 'data-rq-q': '', value: v.q,
+          onInput: (e) => { v.q = e.target.value; const pos = e.target.selectionStart; draw(); const nx = box.querySelector('[data-rq-q]'); if (nx) { nx.focus(); try { nx.setSelectionRange(pos, pos); } catch (er) { /* search inputs */ } } } })),
+        cols.length ? Button({ size: 'sm', icon: 'sliders', type: v.open || n ? 'primary' : 'default', label: 'فلتر' + (n ? ' (' + n + ')' : ''), attrs: { 'data-rq-filter': '', 'aria-expanded': String(v.open) }, onClick: () => { v.open = !v.open; draw(); } }) : null,
+        n || v.q || v.range ? Button({ size: 'sm', type: 'text', label: 'مسح الفلاتر', attrs: { 'data-rq-clear': '' }, onClick: () => { v.q = ''; v.picks = {}; v.range = null; v.label = 'كل الفترات'; allPeriod(B); draw(); } }) : null) : null;
+      const sums = r ? totals(r, idx) : [];
       box.replaceChildren(...[
         parts.length > 1 ? h('div', { class: 'chips', role: 'group', 'aria-label': 'العنصر', style: 'margin:0 0 10px' }, parts.map((p, i) =>
-          h('button', { type: 'button', class: 'chip' + (i === st.at ? ' on' : ''), 'aria-pressed': String(i === st.at), 'data-rq-tab': String(i), onClick: () => { st.at = i; draw(); } }, p.label + (p.r ? ' (' + p.r.rows.length + ')' : '')))) : null,
-        h('p', { class: 't-small help', style: 'margin:0 0 8px' }, x ? x.label + (x.items.length ? ' — ' + x.items.join('، ') : '') + (r ? ' · ' + r.rows.length + (r.rows.length === 1 ? ' صف' : ' صفوف') : '') : ''),
-        r && r.rows.length ? h('div', { class: 'scroll-x' }, h('table', { class: 'tbl-v2 ag-det-tbl', 'data-rq-tbl': '' },
+          h('button', { type: 'button', class: 'chip' + (i === st.at ? ' on' : ''), 'aria-pressed': String(i === st.at), 'data-rq-tab': String(i), onClick: () => { st.at = i; const v2 = views[i]; if (v2.range && B && B.periodSet) B.periodSet(PER_KEY, v2.range); else allPeriod(B); draw(); } }, p.label + (p.r ? ' (' + p.r.rows.length + ')' : '')))) : null,
+        h('p', { class: 't-small help rq-line', 'data-rq-line': '' }, x ? x.label + (x.items.length ? ' — ' + x.items.join('، ') : '') + (r ? ' · ' + idx.length + (idx.length === r.rows.length ? '' : ' من ' + r.rows.length) + (r.rows.length === 1 ? ' صف' : ' صفوف') : '') : ''),
+        tools, r ? filterBox(x) : null,
+        r && r.rows.length && idx.length ? h('div', { class: 'scroll-x rq-tbl-wrap' }, h('table', { class: 'tbl-v2 ag-det-tbl', 'data-rq-tbl': '' },
           h('thead', null, h('tr', null, r.headers.map((c) => h('th', null, c)))),
-          h('tbody', null, r.rows.map((row) => h('tr', null, row.map((c) => h('td', null, typeof c === 'number' && k && k.n0 ? k.n0(c) : String(c))))))))
-          : h('p', { class: 't-small help', 'data-rq-empty': '' }, 'مفيش صفوف تقدر تشوفها هنا دلوقتي — ممكن الصفحة لسه بتتحمّل أو مش من صلاحياتك.')].filter(Boolean));
-      if (m) m.setFooter(foot());
+          h('tbody', null, idx.map((i) => h('tr', null, r.rows[i].map((c) => h('td', null, cell(c)))))),
+          sums.length ? h('tfoot', null, h('tr', { class: 'total', 'data-rq-total': '' }, r.headers.map((c, col) => { const t = sums.find((z) => z[0] === col); return h('td', null, t ? cell(t[1]) : col === 0 ? 'إجمالي النتايج' : ''); }))) : null))
+          : r && r.rows.length ? h('p', { class: 't-small help', 'data-rq-empty': '' }, 'مفيش صفوف بالفلتر ده — غيّر الفترة أو الفلتر أو امسحهم.')
+            : h('p', { class: 't-small help', 'data-rq-empty': '' }, 'مفيش صفوف تقدر تشوفها هنا دلوقتي — ممكن الصفحة لسه بتتحمّل أو مش من صلاحياتك.')].filter(Boolean));
+      if (m) m.setFooter(...foot());
     };
-    const share = () => { const x = cur(); if (!x || !x.r || !w.IBShare) return; w.IBShare.open({ title: 'تقرير', sub: x.label, name: 'تقرير — ' + x.label.split(' › ')[0], headers: x.r.headers, rows: x.r.rows }); };
+    // «مشاركة / تحميل»: the rows the period and the filter kept, and what they are
+    const share = () => {
+      const x = cur(); if (!x || !x.r || !w.IBShare) return; const v = view(); const idx = kept(); const sums = totals(x.r, idx);
+      const sub = [x.label, x.r.dates ? 'الفترة: ' + v.label : '', picked(v).length || v.q ? 'بفلتر' : ''].filter(Boolean).join(' · ');
+      w.IBShare.open({ title: 'تقرير', sub, name: 'تقرير — ' + x.label.split(' › ')[0], headers: x.r.headers, rows: idx.map((i) => x.r.rows[i]),
+        total: sums.length ? x.r.headers.map((c, col) => { const t = sums.find((z) => z[0] === col); return t ? t[1] : col === 0 ? 'إجمالي النتايج' : ''; }) : undefined });
+    };
     const foot = () => { const x = cur(); return [Button({ label: 'اقفل', onClick: () => m.close() })]
-      .concat(x && x.r && x.r.rows.length && w.IBShare ? [Button({ type: 'primary', icon: 'share', label: 'مشاركة / تحميل', attrs: { 'data-rq-share': '' }, onClick: share })] : []); };
+      .concat(x && x.r && kept().length && w.IBShare ? [Button({ type: 'primary', icon: 'share', label: 'مشاركة / تحميل', attrs: { 'data-rq-share': '' }, onClick: share })] : []); };
+    allPeriod(B);
     draw();
     m = u.Modal({ title: 'التقرير', body: [box], footer: foot() });
-    if (m && m.el) { m.el.classList.add('wide'); m.el.setAttribute('data-rq-report', ''); }
+    if (m && m.el) { m.el.classList.add('wide', 'rq-modal'); m.el.setAttribute('data-rq-report', ''); }
     return m;
   }
-  return Object.freeze({ detect, preOf, summary, narrow, rowsOf, formState, check, specOf, fields, ready, open, result, LIST_OF });
+  return Object.freeze({ detect, preOf, summary, narrow, rowsOf, filterCols, keep, totals, formState, check, specOf, fields, ready, open, result, LIST_OF });
 });

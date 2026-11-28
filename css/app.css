@@ -2674,8 +2674,44 @@ input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-
 .smart-l{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .smart-sep{height:1px;margin:6px 10px;background:var(--color-border-subtle)}
 .smart-empty{margin:2px 12px 8px}
-.smart-kinds{grid-template-columns:repeat(2,minmax(0,1fr));margin-bottom:12px}
+.smart-kinds{grid-template-columns:repeat(2,minmax(0,1fr))}
 .sc-opt.off,.sc-opt:disabled{opacity:.45;cursor:not-allowed}
+/* the request popup (Safwat 28 Nov — «بشكل احترافي و منظم»): numbered steps, the kind a segmented control, the elements icon tiles,
+   the sub-kinds small cards, the pick said in one line before «ابدأ» */
+.rqq-help{margin:0 0 4px}
+.rqq-step{display:flex;align-items:center;gap:8px;margin:16px 0 8px;font-weight:700;color:var(--color-text-primary)}
+.rqq-form>.rqq-step:first-of-type,.modal [data-smart-form]>.rqq-step:first-child{margin-top:4px}
+.rqq-n{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--color-brand-default);color:var(--color-text-on-brand);font-size:12px;line-height:1;flex:none}
+.rqq-seg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border:1px solid var(--color-border-subtle);border-radius:10px;overflow:hidden;background:var(--color-bg-base)}
+.rqq-segb{display:flex;align-items:center;justify-content:center;gap:6px;min-height:44px;padding:0 10px;border:0;border-inline-start:1px solid var(--color-border-subtle);background:none;font:inherit;font-weight:600;color:var(--color-text-primary);cursor:pointer}
+.rqq-segb:first-child{border-inline-start:0}
+.rqq-segb:hover{background:var(--color-bg-hover)}
+.rqq-segb.on,.rqq-segb.on:hover{background:var(--color-brand-default);color:var(--color-text-on-brand)}
+.rqq-tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.rqq-tile,.rqq-sub{display:flex;align-items:center;gap:10px;min-height:48px;padding:8px 12px;border:1px solid var(--color-border-subtle);border-radius:10px;background:var(--color-bg-base);font:inherit;font-weight:600;color:var(--color-text-primary);cursor:pointer;text-align:start}
+.rqq-ic{display:inline-grid;place-items:center;width:30px;height:30px;border-radius:8px;background:var(--color-brand-subtle-bg);color:var(--color-brand-default);flex:none}
+.rqq-tl{min-width:0;line-height:1.35;overflow-wrap:anywhere}
+.rqq-tile:not(:disabled):hover,.rqq-sub:not(:disabled):hover{border-color:var(--color-brand-default);background:var(--color-bg-hover)}
+.rqq-tile.on,.rqq-sub.on{border-color:var(--color-brand-default);box-shadow:inset 0 0 0 1px var(--color-brand-default);background:var(--color-bg-hover)}
+.rqq-tile.on .rqq-ic,.rqq-sub.on .rqq-ic{background:var(--color-brand-default);color:var(--color-text-on-brand)}
+.rqq-tile:disabled,.rqq-sub:disabled{opacity:.45;cursor:not-allowed}
+.rqq-subs{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px}
+.rqq-sub{align-items:flex-start;min-height:56px}
+.rqq-st{display:flex;flex-direction:column;gap:2px;min-width:0}.rqq-st b{font-weight:700}.rqq-st small{color:var(--color-text-secondary);font-size:12px;font-weight:400;line-height:1.5}
+.rqq-pick{display:flex;align-items:center;gap:8px;margin:16px 0 0;padding:10px 12px;border:1px dashed var(--color-border-subtle);border-radius:10px;color:var(--color-text-secondary);font-size:14px}
+.rqq-pick.done{border-style:solid;border-color:var(--color-brand-default);background:var(--color-brand-subtle-bg);color:var(--color-text-primary)}
+.rqq-pick.done svg{color:var(--color-brand-default)}
+.rqq-sep{height:1px;margin:16px 0 0;background:var(--color-border-subtle)}
+@media (max-width:767px){.rqq-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}.rqq-segb{min-height:44px;padding:0 6px}}
+/* the report popup (2026-11-28-smart-actions.md, «التقرير»): every column, the period, a search, «فلتر» and the totals — wider than the 800 of the other popups */
+@media (min-width:1024px){.modal.wide.rq-modal{width:min(1200px,calc(100vw - 32px));max-width:min(1200px,calc(100vw - 32px))}}
+.rq-line{margin:0 0 8px}
+.rq-tools{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 10px}
+.rq-search{position:relative;display:flex;align-items:center;flex:1 1 220px;min-width:180px;max-width:360px;margin:0}
+.rq-search svg{position:absolute;inset-inline-start:10px;color:var(--color-text-secondary);pointer-events:none}
+.rq-search .input{width:100%;padding-inline-start:34px}
+.rq-filters{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:8px 12px;margin:0 0 12px;padding:12px;border:1px solid var(--color-border-subtle);border-radius:var(--radius-md);background:var(--color-bg-base)}
+.rq-tbl-wrap td,.rq-tbl-wrap th{white-space:nowrap}
 /* the maker's card in the bell (Safwat 25 Nov — bell-redesign decision 19: «الكارت ثابت و الحالات بس اللي تتغير»): the state chip in
    its tone (late red · about to be yellow · confirmed green — always with its word), and his sub-orders' numbers: each a small button
    that copies itself, tinted by its state, then «نسخ الكل» */

@@ -25,6 +25,9 @@
   const OPEN = new Set(['open', 'in_progress', 'waiting']);
   const WORK_STATUSES = new Set(['in_progress', 'waiting']);
   const label = (list, key) => { const f = list.find((x) => x[0] === key); return f ? f[1] : key; };
+  // settings-lists-2 (Safwat 28 Nov — 2026-11-28-settings-lists-2.md decision 4): the statuses' and types' shown names are the admin's
+  // (IBSettings.statusLabel('ticket' | 'ticketType', code)) when the settings are loaded — the codes stay; the base names otherwise
+  const named = (kind, list) => { try { const S = typeof globalThis !== 'undefined' ? globalThis.IBSettings : null; if (S && S.statusLabel) return list.map(([k, l]) => [k, S.statusLabel(kind, k) || l]); } catch (e) { /* not loaded */ } return list; };
   const PRIO_RANK = { urgent: 0, high: 1, normal: 2, low: 3 };
   const TITLE_MAX = 80;
 
@@ -156,6 +159,6 @@
   const words = (text) => { let s = String(text == null ? '' : text); if (!/تذ(?:كر|اكر)/.test(s)) return s; for (const [a, b] of WORDS) s = s.split(a).join(b); return s; };
   // a description or a closing note may be a member's own words: only the server's own sentences in it change
   const phrases = (text) => { let s = String(text == null ? '' : text); if (!/تذكرة/.test(s)) return s; for (const [a, b] of [['من التذكرة دي أو من', 'من الطلب ده أو من'], ['الطلب في التذكرة TKT-', 'موجود في الطلب TKT-']]) s = s.split(a).join(b); return s; };
-  return Object.freeze({ words, phrases, TYPES, STATUSES, get PRIORITIES() { return prios(); }, BASE_PRIORITIES, get ROLES() { return ROLES; }, BASE_ROLES, setRoles, get ADMIN_ROLE() { return ADMIN; }, CUSTOMER_REASONS, VENDOR_REASONS, OUTCOMES, OPEN, WORK_STATUSES, TITLE_MAX, label, validateTicket, createStore, canWork, canClose, canReopen, isAdmin, summary, summaryDetails, filterTickets });
+  return Object.freeze({ words, phrases, get TYPES() { return named('ticketType', TYPES); }, get STATUSES() { return named('ticket', STATUSES); }, get PRIORITIES() { return prios(); }, BASE_PRIORITIES, get ROLES() { return ROLES; }, BASE_ROLES, setRoles, get ADMIN_ROLE() { return ADMIN; }, CUSTOMER_REASONS, VENDOR_REASONS, OUTCOMES, OPEN, WORK_STATUSES, TITLE_MAX, label, validateTicket, createStore, canWork, canClose, canReopen, isAdmin, summary, summaryDetails, filterTickets });
 });
 

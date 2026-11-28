@@ -149,7 +149,9 @@ test('the papers: list, add (the file into bucket company-docs then the row; a r
 test('lists(): the public slice first, then the row, else block 12\'s defaults — «أخرى» always last; saveLists cleans, refuses a bad list, writes the row «lists» whole and logs counts only', async () => {
   // no IbtekrOps in the test window → the bare default [أخرى]
   // owner batch 14 Nov (decisions 4 and 8): + the makers' stop reasons, the shipping companies and the shown status names
-  const X = { stop: ['تأخير متكرر', 'جودة', 'عدم رد', 'طلب المبتكر', 'أخرى'], shipping: ['بوسطة', 'أرامكس', 'مندوب إبتكر'], expenseKinds: [], labels: {} };
+  // settings-lists-2 (28 Nov): + the customers' ready tags, the hub's remove reasons («أخرى» last), the materials (none saved = null) and the groups' names
+  const X = { stop: ['تأخير متكرر', 'جودة', 'عدم رد', 'طلب المبتكر', 'أخرى'], shipping: ['بوسطة', 'أرامكس', 'مندوب إبتكر'], expenseKinds: [], labels: {},
+    csTags: ['منتظر الأوردر', 'استبدال', 'استرجاع', 'تعديل', 'مستعجل', 'غير مؤكد', 'متابعة', 'في انتظار عربون'], invRemove: ['طلعت أوردر ونسيت أسجلها', 'حصلها تلف من التخزين', 'حصلها تلف من الشحن', 'أخرى'], materials: null, groups: {} };
   const r0 = load(); await r0.S.load();
   eq(r0.S.lists(), { cancel: ['أخرى'], returns: ['أخرى'], ...X });
   // the row «lists» (the admin's page): cleaned, «أخرى» moved last
@@ -294,4 +296,25 @@ test('the menu icons are all in the kit (block 10 ICONS)', () => {
   const body = kit.slice(kit.indexOf('const ICONS = {'), kit.indexOf('};', kit.indexOf('const ICONS = {')));
   const names = new Set([...body.matchAll(/(?:^|[\s,{])([A-Za-z][A-Za-z0-9]*)\s*:\s*'/g)].map((m) => m[1]));
   const { S } = load(); eq(S.MENU_ICONS.filter((n) => !names.has(n)), []);
+});
+
+// settings-lists-2 (Safwat 28 Nov — docs/superpowers/plans/2026-11-28-settings-lists-2.md): every fixed list renamed through `labels`
+// (the value stays), the free lists (csTags, invRemove), the materials (pairs) and the groups' names
+test('settings-lists-2: the fixed lists\' shown names, the materials and the groups — cleaned, saved, read back', async () => {
+  const r = load(); await r.S.load();
+  eq([r.S.statusLabel('ticket', 'open'), r.S.statusLabel('maker', 'leave'), r.S.statusLabel('mood', 'متضايق'), r.S.statusLabel('retCond', 'ناقص')], ['مفتوح', 'في إجازة', 'متضايق', 'ناقص قطع / مش كامل']);
+  assert.equal((await r.S.saveLists({ cancel: ['سبب'], returns: ['عيب'] })).ok, true); // the two lists every save writes (no IbtekrOps defaults in the test window)
+  const s1 = await r.S.saveLists({ labels: { mood: { 'متضايق': 'زعلان' }, ticket: { open: 'جديد', nope: 'x' }, bogus: { a: 'b' } } });
+  assert.equal(s1.ok, true, JSON.stringify(s1)); eq(s1.lists.labels, { mood: { 'متضايق': 'زعلان' }, ticket: { open: 'جديد' } }, 'unknown kinds and values dropped');
+  eq([r.S.statusLabel('mood', 'متضايق'), r.S.statusLabel('ticket', 'open'), r.S.statusLabel('ticket', 'closed')], ['زعلان', 'جديد', 'مغلق']);
+  // the materials: English · Arabic pairs, a repeated English name refused, the list read back
+  eq(await r.S.saveLists({ materials: [['Oak', 'بلوط'], ['oak', 'تاني']] }), { ok: false, reason: 'invalid', field: 'materials' });
+  const s2 = await r.S.saveLists({ materials: [[' Oak ', 'بلوط'], ['Teak', 'تيك']] }); assert.equal(s2.ok, true);
+  eq(r.S.materials(), [['Oak', 'بلوط'], ['Teak', 'تيك']]);
+  // the groups' names: known ids, 2–30 characters, no < >
+  const s3 = await r.S.saveLists({ groups: { cs: 'العملاء', bad: 'x', orders: '<b>' } }); assert.equal(s3.ok, true);
+  eq(s3.lists.groups, { cs: 'العملاء' }); eq([r.S.groupName('cs', 'خدمة العملاء'), r.S.groupName('orders', 'الأوردرات')], ['العملاء', 'الأوردرات']);
+  // the free lists: «أخرى» last for the hub's reasons, the materials kept through a later save of another list
+  const s4 = await r.S.saveLists({ invRemove: ['اتسرقت'], csTags: ['VIP'] }); assert.equal(s4.ok, true);
+  eq([r.S.listOf('invRemove'), r.S.listOf('csTags'), r.S.materials()], [['اتسرقت', 'أخرى'], ['VIP'], [['Oak', 'بلوط'], ['Teak', 'تيك']]]);
 });

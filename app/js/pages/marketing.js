@@ -789,7 +789,7 @@
     const rows = camp.pieces.map((p) => { const s = camp.sched[p.id]; const ps = stOf(p);
       const why = (s.pl || []).length ? (s.pl.every((pl) => !pubOf(p, pl, cn).ok) ? 'داونلود — ' + ((s.pl || []).map((pl) => pubOf(p, pl, cn).why).find(Boolean) || '') : (s.pl.some((pl) => !pubOf(p, pl, cn).ok) ? 'بيتنشر لوحده على اللي يقدر، والباقي داونلود' : 'بيتنشر لوحده في ميعاده')) : 'اختار منصة الأول';
       return [cbx('حدد ' + pieceLabel(p), sel.has(p.id), (v) => { v ? sel.add(p.id) : sel.delete(p.id); R(); }), h('span', { class: 'prod' }, Img(pieceImg(p)), h('span', null, h('b', null, pieceLabel(p)), h('small', null, W.hookOf(p)))),
-        h('span', { 'data-cw-state': p.id, title: why }, Tag(PIECE_TONE[ps.status] || 'neutral', ps.status)),
+        h('span', { 'data-cw-state': p.id, title: why }, Tag(PIECE_TONE[ps.status] || 'neutral', ps.status === 'مسودة' ? ps.status : LBP(ps.status))),
         U.DateField({ id: 'sd-' + p.id, label: '', value: s.date, today: TODAY(), onChange: (v) => { s.date = v; persist(); R(); } }),
         U.Select({ id: 'st-' + p.id, label: '', options: W.timeOpts(s.time).map((x) => ({ value: x, label: tm(x) })), search: false, value: s.time, onChange: (v) => { s.time = v; persist(); R(); } }),
         h('div', { class: 'chips cw-pls', 'data-cw-pl': p.id }, W.PLATFORMS.map((pl) => plChip(pl, s.pl.includes(pl), () => { s.pl = s.pl.includes(pl) ? s.pl.filter((x) => x !== pl) : s.pl.concat(pl); persist(); R(); }))),
@@ -845,7 +845,9 @@
 
   // ---------- سجل النشر (decisions 15, 35–38): the system's posts and the platform's own, with their numbers ----------
   const srcTag = (x) => (x.src === 'platform' ? Tag('neutral', W.SRC_LABEL.platform) : Tag('brand', W.SRC_LABEL.system));
-  const stTag = (x) => (x.busy && W.canMove(x) ? Tag('info', 'بيتنشر…') : Tag(x.status === 'اتنشر' ? 'success' : x.status === 'مجدول' ? 'gold' : x.status === 'متوقف' ? 'orange' : x.status === 'اتحذف' ? 'neutral' : 'error', x.status));
+  const stTag = (x) => (x.busy && W.canMove(x) ? Tag('info', 'بيتنشر…') : Tag(x.status === 'اتنشر' ? 'success' : x.status === 'مجدول' ? 'gold' : x.status === 'متوقف' ? 'orange' : x.status === 'اتحذف' ? 'neutral' : 'error', LBP(x.status)));
+  // settings-lists-2 (2026-11-28-settings-lists-2.md decision 4): a post's status by the admin's name («الإعدادات › القوائم والحالات»)
+  function LBP(v) { const S0 = window.IBSettings; return S0 && S0.statusLabel ? S0.statusLabel('post', v) : v; }
   const PP_RATIO = { 'بوست': 'p45', 'كاروسيل': 'p11', 'ريل': 'p916', 'ستوري': 'p916' };
   const n0 = (v) => (v == null ? '—' : K.n0(v));
   // a log row's picture: the campaign's (the bucket) or the platform's own (https)

@@ -472,8 +472,27 @@
   // owner batch 14 Nov (decisions 4 and 8): two more lists — the makers' stop reasons (`stop`, «أخرى» last) and the shipping companies
   // (`shipping`, no «أخرى») — and `labels`: the shown name of an order / confirmation / sub-order status ({ order: { value: shown } … }).
   // The status itself (the value in the database, status_map, the reports) never changes; statusLabel(kind, value) is what the pages show.
-  const EXTRA_KEYS = ['stop', 'shipping']; const OTHER_KEYS = ['cancel', 'returns', 'stop'];
-  const EXTRA_DEF = { stop: ['تأخير متكرر', 'جودة', 'عدم رد', 'طلب المبتكر'], shipping: ['بوسطة', 'أرامكس', 'مندوب إبتكر'] };
+  // settings-lists-2 decision 1: the free lists added and deleted at will — the customers' ready tags (`csTags`), the reasons a piece
+  // leaves the hub (`invRemove`, «أخرى» last); the products' materials are pairs (`materials` — cleanMaterials)
+  const EXTRA_KEYS = ['stop', 'shipping', 'csTags', 'invRemove']; const OTHER_KEYS = ['cancel', 'returns', 'stop', 'invRemove'];
+  const EXTRA_DEF = { stop: ['تأخير متكرر', 'جودة', 'عدم رد', 'طلب المبتكر'], shipping: ['بوسطة', 'أرامكس', 'مندوب إبتكر'],
+    csTags: ['منتظر الأوردر', 'استبدال', 'استرجاع', 'تعديل', 'مستعجل', 'غير مؤكد', 'متابعة', 'في انتظار عربون'],
+    invRemove: ['طلعت أوردر ونسيت أسجلها', 'حصلها تلف من التخزين', 'حصلها تلف من الشحن'] };
+  // the products' materials (English · Arabic) — the studio's dropdowns; nothing saved = the page's own list (IbtekrFlow.MATERIALS)
+  const MAT_MAX = 60; const MAT_LEN = 40;
+  const cleanMaterials = (v, strict) => {
+    if (!Array.isArray(v)) return strict ? null : null; const out = [];
+    for (const x of v) {
+      const en = Array.isArray(x) && typeof x[0] === 'string' ? x[0].replace(/\s+/g, ' ').trim() : ''; const ar = Array.isArray(x) && typeof x[1] === 'string' ? x[1].replace(/\s+/g, ' ').trim() : '';
+      if (!en || !ar || en.length > MAT_LEN || ar.length > MAT_LEN || BAD_NAME.test(en) || BAD_NAME.test(ar) || out.some((y) => y[0].toLowerCase() === en.toLowerCase())) { if (strict) return null; continue; }
+      out.push([en, ar]);
+    }
+    return out.length > MAT_MAX ? (strict ? null : out.slice(0, MAT_MAX)) : out;
+  };
+  // decision 2: the names of the lists' groups (their ids → the shown name; 2–30 characters, no < >)
+  const GROUP_IDS = ['orders', 'makers', 'products', 'inventory', 'cs', 'tickets', 'accounts', 'marketing', 'system'];
+  const cleanGroups = (v) => { const out = {}; if (!v || typeof v !== 'object' || Array.isArray(v)) return out;
+    for (const k of GROUP_IDS) { const t = typeof v[k] === 'string' ? v[k].replace(/\s+/g, ' ').trim() : ''; if (t.length >= 2 && t.length <= 30 && !/[<>]/.test(t)) out[k] = t; } return out; };
   const STATUS_KINDS = {
     order: ['معلّق', 'قيد الانتظار', 'جاري التنفيذ', 'جاهز للشحن', 'قيد الشحن', 'مكتمل', 'استرجاع', 'ملغي', 'فشل'],
     confirm: ['مؤكد بعربون', 'مؤكد بدون عربون', 'غير مؤكد', 'في انتظار الرد'],
@@ -483,7 +502,26 @@
   // (2–30 characters, no < >, not a base one, at most 20 — the server's trigger 0093 takes a new expense in them or the base ones)
   STATUS_KINDS.expense = ['المرتبات', 'المصروفات', 'الاشتراكات', 'الإعلانات'];
   STATUS_KINDS.priority = ['urgent', 'high', 'normal', 'low'];
-  const SHOWN_DEF = { priority: { urgent: 'عاجل', high: 'عالي', normal: 'عادي', low: 'منخفض' } };
+  // settings-lists-2 (Safwat 28 Nov — «حالة العميل مش موجودة في القوائم و الحالات … كل حالات او قوائم السيستم يكون ليها مكان في الاعدادات»;
+  // docs/superpowers/plans/2026-11-28-settings-lists-2.md decision 1): every fixed list the system works by — renamed only (the value in
+  // the database, the server's checks and the reports stays; the pages show statusLabel(kind, value))
+  STATUS_KINDS.mood = ['سعيد', 'متوسط', 'متضايق'];
+  STATUS_KINDS.conv = ['جديدة', 'مستنية ردنا', 'مستنية العميل', 'مؤجلة', 'اتحلت'];
+  STATUS_KINDS.ticket = ['open', 'in_progress', 'waiting', 'resolved', 'closed'];
+  STATUS_KINDS.ticketType = ['customer', 'vendor', 'internal'];
+  STATUS_KINDS.tkCustomer = ['تأخير في التسليم', 'منتج تالف', 'منتج مختلف عن الطلب', 'مشكلة دفع أو استرجاع', 'العميل مش بيرد', 'أخرى'];
+  STATUS_KINDS.tkVendor = ['تأخير تسليم', 'جودة', 'خامة ناقصة', 'خلاف على الحساب أو العمولة', 'مش بيرد', 'أخرى'];
+  STATUS_KINDS.tkOutcome = ['اتحلت المشكلة', 'مش مشكلة', 'مكرر', 'العميل / المبتكر ما ردش'];
+  STATUS_KINDS.lot = ['وصل المخزن', 'جاهز يطلع كامل', 'بانتظار الفحص', 'مستني تصوير', 'اتصور', 'متاح', 'محجوز لأوردر', 'راجع للمبتكر', 'تالف'];
+  STATUS_KINDS.lotReason = ['تجميع أوردر', 'مرتجع', 'تصوير', 'متاح للبيع'];
+  STATUS_KINDS.retCond = ['سليم', 'تغليف متضرر', 'عيب بسيط', 'ناقص', 'تالف'];
+  STATUS_KINDS.maker = ['active', 'leave', 'inactive'];
+  STATUS_KINDS.post = ['مجدول', 'اتنشر', 'فشل', 'اتحذف', 'متوقف'];
+  const SHOWN_DEF = { priority: { urgent: 'عاجل', high: 'عالي', normal: 'عادي', low: 'منخفض' },
+    ticket: { open: 'مفتوح', in_progress: 'جاري العمل', waiting: 'بانتظار الرد', resolved: 'تم الحل', closed: 'مغلق' },
+    ticketType: { customer: 'مشكلة عميل', vendor: 'مشكلة مبتكر', internal: 'تعليق داخلي' },
+    retCond: { 'تغليف متضرر': 'التغليف متضرر', 'عيب بسيط': 'فيه عيب بسيط', 'ناقص': 'ناقص قطع / مش كامل' },
+    maker: { active: 'نشط', leave: 'في إجازة', inactive: 'غير نشط' } };
   const KINDS_MAX = 20; const KIND_MAX = 30;
   const kindOk = (t) => t.length >= 2 && t.length <= KIND_MAX && !/[<>]/.test(t) && !STATUS_KINDS.expense.includes(t);
   const cleanKinds = (v, strict) => {
@@ -559,10 +597,18 @@
     }
     out.expenseKinds = cleanKinds(src && src.expenseKinds);
     out.labels = cleanLabels(src && src.labels, src);
+    out.materials = cleanMaterials(src && src.materials) || null;
+    out.groups = cleanGroups(src && src.groups);
     return out;
   }
   // the shown name of a status (the value when nothing is set) — kind: order | confirm | sub | expense | priority (by its code)
   function statusLabel(kind, value) { const src = listSrc() || {}; const L = cleanLabels(src.labels, src); return (L[kind] && L[kind][value]) || (SHOWN_DEF[kind] && SHOWN_DEF[kind][value]) || value; }
+  // settings-lists-2: a free list as the pages take it (the saved one, else its defaults) — csTags / invRemove («أخرى» last) / stop / shipping
+  const listOf = (k) => { const L = lists(); return Array.isArray(L[k]) ? L[k].slice() : []; };
+  // the products' materials (pairs) — null when the admin never changed them (the page keeps its own list)
+  const materials = () => lists().materials;
+  // a lists' group shown name (decision 2) — the page's default when the admin did not rename it
+  const groupName = (id, def) => (lists().groups || {})[id] || def;
   // the expense types a new expense can take: the four base ones then the admin's (decision 1)
   const expenseKinds = () => STATUS_KINDS.expense.concat(cleanKinds((listSrc() || {}).expenseKinds));
   // decision 4: the first day of the week (settings «general».week, read with the sign-in) as a JS weekday — السبت 6 · الأحد 0 · الاتنين 1
@@ -646,6 +692,11 @@
     const lsrc = { expenseKinds: kinds, statusAdded: added };
     if (next && Object.prototype.hasOwnProperty.call(next, 'labels')) { const lb = cleanLabels(next.labels, lsrc); if (Object.keys(lb).length) row.labels = lb; }
     else if (saved && saved.labels) { const lb = cleanLabels(saved.labels, lsrc); if (Object.keys(lb).length) row.labels = lb; }
+    // settings-lists-2: the materials (pairs) and the groups' names — given → checked strictly, else what is saved
+    const matGiven = next && Object.prototype.hasOwnProperty.call(next, 'materials');
+    if (matGiven && next.materials !== null) { const m = cleanMaterials(next.materials, true); if (!m || !m.length) return { ok: false, reason: 'invalid', field: 'materials' }; row.materials = m; }
+    else if (!matGiven && saved && saved.materials) { const m = cleanMaterials(saved.materials); if (m && m.length) row.materials = m; }
+    const grp = cleanGroups(next && Object.prototype.hasOwnProperty.call(next, 'groups') ? next.groups : saved && saved.groups); if (Object.keys(grp).length) row.groups = grp;
     const r = await save('lists', row, { merge: false });
     if (!r.ok) return r;
     if (data.public && typeof data.public === 'object') data.public.lists = row;
@@ -779,7 +830,7 @@
     const T = window.IbtekrTickets; const types = T && T.TYPES ? (Array.isArray(T.TYPES) ? T.TYPES : Object.keys(T.TYPES)) : [];
     return { order: sl('order'), confirm: sl('confirm'), sub: sl('sub'), ticket: types.map((t) => (Array.isArray(t) ? t[0] : t && t.id ? t.id : t)).filter(Boolean) };
   }
-  window.IBSettings = { notifTree, notifTreeNow, notifSectionSave, notifSectionDelete, notifSectionOrder, notifRuleSave, notifRuleDelete, notifLists, textBrains, loadBrains, brainsReady, agentRules, MENU_ICONS, MENU_LOCKED, MENU_LABEL_MAX, cleanMenu, menuOf, menuNow, saveMenu, loginLocks, loginUnlock, load, ensure, loadPublic, clear, data, section, sections: () => Object.assign({}, data.sections), roles, liveRoles, public: () => data.public, can, PERMS, PERM_KEYS, lists, saveLists, statusLabel, STATUS_KINDS, setRoleLevelPerms, setMemberLevel, levelPermsOf, MEMBER_LEVELS: MLEVELS, quickList, quickSave, quickDelete, quickOrder, QUICK_SCOPES: Q_SCOPES, expenseKinds, statusList, addedStatuses, delayRules, fakeRule, saveFake, orderStatuses, orderStatusAdd, orderStatusSlug, orderStatusDelete, orderStatusOrder, ADDED_MAX, ADDED_LEN, weekStart, imageProvider, magnificOn, store, single, storeCaps, storeOf, STORE_PLATFORMS, STORE_READY, SINGLE_READY, STORE_CAPS, clock, dateFmt, KIND_MAX, KINDS_MAX,
+  window.IBSettings = { listOf, materials, groupName, GROUP_IDS, notifTree, notifTreeNow, notifSectionSave, notifSectionDelete, notifSectionOrder, notifRuleSave, notifRuleDelete, notifLists, textBrains, loadBrains, brainsReady, agentRules, MENU_ICONS, MENU_LOCKED, MENU_LABEL_MAX, cleanMenu, menuOf, menuNow, saveMenu, loginLocks, loginUnlock, load, ensure, loadPublic, clear, data, section, sections: () => Object.assign({}, data.sections), roles, liveRoles, public: () => data.public, can, PERMS, PERM_KEYS, lists, saveLists, statusLabel, STATUS_KINDS, setRoleLevelPerms, setMemberLevel, levelPermsOf, MEMBER_LEVELS: MLEVELS, quickList, quickSave, quickDelete, quickOrder, QUICK_SCOPES: Q_SCOPES, expenseKinds, statusList, addedStatuses, delayRules, fakeRule, saveFake, orderStatuses, orderStatusAdd, orderStatusSlug, orderStatusDelete, orderStatusOrder, ADDED_MAX, ADDED_LEN, weekStart, imageProvider, magnificOn, store, single, storeCaps, storeOf, STORE_PLATFORMS, STORE_READY, SINGLE_READY, STORE_CAPS, clock, dateFmt, KIND_MAX, KINDS_MAX,
     save, setRolePerms, createRole, updateRole, deleteRole, setMemberRole, setMemberRoles, setMemberPerms, setMemberStatus, sessions, revokeSession, deviceOf,
     links, setSecret, wooSet, testSecret, unlink, connections, notifyStatus, notifyTick, activity, pageOf, docs, addDoc, updateDoc, removeDoc, docUrl, uploadLogo, logoUrl, LOGO_SLOTS, uploadFont, removeFont, loadFont, fontList, FONT_MAX, FONTS_MAX, wipe, WIPE_SECTIONS, teamWipe, filesWipe };
 })();

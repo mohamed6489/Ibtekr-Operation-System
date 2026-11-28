@@ -232,3 +232,40 @@ test('the owner 18 Nov: «ستايلات المنتجات» in the lists — the
   expect(mock.styleWrites.at(-1)).toEqual({ action: 'style_update', id: 82, ar: 'حديث' });
   await expect(sec.locator('[data-style-ar="Modern"]')).toHaveText('حديث');
 });
+
+// settings-lists-2 (Safwat 28 Nov — docs/superpowers/plans/2026-11-28-settings-lists-2.md): every list of the system in «القوائم والحالات»
+// grouped by its department (each group renamed by the pencil), a fixed list renamed only, a free one added to, the materials in pairs
+test('settings-lists-2: the departments\' groups, «حالة العميل» renamed, a group renamed, a ready tag and a material added', async ({ page }) => {
+  await go(page, 'settings-lists');
+  const nav = page.locator('[data-lists-nav]');
+  await expect(nav.locator('[data-list-group]')).toHaveCount(9);
+  await expect(nav.locator('[data-list-group="cs"] [data-list-tab]')).toHaveText([/حالة العميل/, /حالات المحادثة/, /تاجز العملاء/]);
+  await expect(nav.locator('[data-list-group="tickets"] [data-list-tab]')).toHaveCount(6);
+  // a fixed list: its place and kind above it, renamed only
+  await nav.locator('[data-list-tab="mood"]').click();
+  await expect(page.locator('[data-list-crumb="mood"]')).toContainText('خدمة العملاء');
+  await expect(page.locator('[data-list-kind]')).toHaveAttribute('data-list-kind', 'fixed');
+  await rowMenu(page, page.locator('.lst-main'), '[data-fixed-value="mood:متضايق"]', 'تغيير الاسم');
+  await modal(page).locator('input').first().fill('زعلان'); await modal(page).getByRole('button', { name: 'حفظ' }).click();
+  await expect.poll(() => (lists().labels || {}).mood).toEqual({ 'متضايق': 'زعلان' });
+  await expect(page.locator('[data-fixed-label="mood:متضايق"]')).toHaveText('زعلان');
+  expect(await page.evaluate(() => window.IBSettings.statusLabel('mood', 'متضايق'))).toBe('زعلان');
+  // the group renamed by its pencil
+  await nav.locator('[data-list-group-rename="cs"]').click();
+  await modal(page).locator('input').first().fill('العملاء'); await modal(page).getByRole('button', { name: 'حفظ' }).click();
+  await expect.poll(() => (lists().groups || {}).cs).toBe('العملاء');
+  await expect(nav.locator('[data-list-group-name="cs"]')).toHaveText('العملاء');
+  // a free list: a ready tag added
+  await nav.locator('[data-list-tab="csTags"]').click();
+  await expect(page.locator('[data-list-kind]')).toHaveAttribute('data-list-kind', 'free');
+  await page.locator('[data-reason-add="csTags"]').click();
+  await modal(page).locator('input').first().fill('VIP'); await modal(page).getByRole('button', { name: 'إضافة' }).click();
+  await expect.poll(() => lists().csTags || []).toContain('VIP');
+  // the materials: English · Arabic
+  await nav.locator('[data-list-tab="materials"]').click();
+  await page.locator('[data-material-add]').click();
+  await modal(page).locator('input').nth(0).fill('Oak'); await modal(page).locator('input').nth(1).fill('بلوط');
+  await modal(page).getByRole('button', { name: 'إضافة' }).click();
+  await expect.poll(() => (lists().materials || []).at(-1)).toEqual(['Oak', 'بلوط']);
+  await expect.poll(() => page.evaluate(() => window.IbtekrFlow.MATERIALS.at(-1))).toEqual(['Oak', 'بلوط']); // the studio's list
+});

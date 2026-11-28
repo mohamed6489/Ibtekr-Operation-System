@@ -480,5 +480,8 @@
 
   return { money, FIELDS, LABELS, NUMERIC, TEMPLATE, HEAD_SIMPLE, HEAD_VARIABLE, PREVIEWS, mapHeaders, readSheet, blankRow, photoIndex, assignPhotos, placePhotos, brandCode3, validCode, sizeCode, skuOf, validSku, skuBase, baseName,
     groupRows, slugName, imageSku, fileName, siteUrl, pricesOf, rowIssues, sheetOf, makerSheetOf, MAKER_HEAD, photoSig, sigDistance, matchPhotos, photoGaps, SIG_MAX, fitKinds, blankSheetRows, colName, xlsxParts, xlsx, sheetFileName, norm,
-    MATERIALS, STYLES, pairOf, sizeEnOf, nameOrder };
+    // settings-lists-2 (2026-11-28-settings-lists-2.md decision 1): the materials the admin set in «الإعدادات › القوائم والحالات › الخامات»
+    // (IBSettings.materials() — English · Arabic) when the settings are loaded; the page's own list otherwise (node, the tests)
+    get MATERIALS() { try { const S = typeof globalThis !== 'undefined' ? globalThis.IBSettings : null; const m = S && S.materials ? S.materials() : null; if (m && m.length) return m; } catch (e) { /* not loaded */ } return MATERIALS; },
+    BASE_MATERIALS: MATERIALS, STYLES, pairOf, sizeEnOf, nameOrder };
 });

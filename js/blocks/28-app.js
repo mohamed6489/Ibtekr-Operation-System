@@ -3274,6 +3274,8 @@
   // Attachments (decision 2): images / PDF, ≤ 10, 10 MB each, uploaded into the bucket «tickets» before the ticket / reply is sent.
   // The reports tab is in the page (the v2 kit's reportTab / PanelButton are not in ours). No delete (decision 13).
   const TK = window.IbtekrTickets;
+  // settings-lists-2 (2026-11-28-settings-lists-2.md decision 4): a fixed list's shown name from «الإعدادات › القوائم والحالات»
+  const LBK = (kind, v) => { const S0 = window.IBSettings; return S0 && S0.statusLabel ? S0.statusLabel(kind, v) : v; };
   const TA = () => window.IBTickets || null;
   const ME = { get name() { return TA() ? TA().actor().name : ACTOR; }, get role() { return TA() ? TA().actor().role : TK.ADMIN_ROLE; } };
   const tstore = { all: () => (TA() ? TA().all() : []), get: (id) => (TA() ? TA().get(id) : null), events: (id) => (TA() ? TA().events(id) : []) };
@@ -3572,10 +3574,10 @@
           U.Select({ id: 't-type', label: 'النوع', required: true, options: typeOpts, value: f.type, error: errs.type, onChange: (v) => { f.type = v; f.reason = ''; errs = {}; draw(); } })),
         f.type === 'customer' ? orderPicker(true) : null,
         ctx ? h('div', { class: 'ctx-card', style: 'padding:8px 12px' }, h('div', { class: 'facts' }, U.DelayBadge(ctx.delivery), h('span', { class: 't-small' }, num(ctx.customer + ' · ' + (ctx.vendors || []).join('، ') + ' · ' + ctx.status + ' · ' + ctx.ageDays + ' يوم · ' + D.formatMoney(ctx.total) + ' ج.م')))) : null,
-        f.type === 'customer' ? U.Select({ id: 't-reason', label: 'سبب المشكلة', required: true, options: TK.CUSTOMER_REASONS.map((r) => ({ value: r, label: r })), value: f.reason, error: errs.reason, onChange: (v) => { f.reason = v; draw(); } }) : null,
+        f.type === 'customer' ? U.Select({ id: 't-reason', label: 'سبب المشكلة', required: true, options: TK.CUSTOMER_REASONS.map((r) => ({ value: r, label: LBK('tkCustomer', r) })), value: f.reason, error: errs.reason, onChange: (v) => { f.reason = v; draw(); } }) : null,
         f.type === 'vendor' ? U.Select({ id: 't-vendor', label: 'المبتكر', required: true, options: vendorOpts, value: f.vendor, error: errs.vendor, placeholder: 'اختار المبتكر', onChange: (v) => { f.vendor = v; f.vendorId = null; draw(); } }) : null,
         f.type === 'vendor' ? orderPicker(false) : null,
-        f.type === 'vendor' ? U.Select({ id: 't-reason', label: 'سبب المشكلة', required: true, options: TK.VENDOR_REASONS.map((r) => ({ value: r, label: r })), value: f.reason, error: errs.reason, onChange: (v) => { f.reason = v; draw(); } }) : null,
+        f.type === 'vendor' ? U.Select({ id: 't-reason', label: 'سبب المشكلة', required: true, options: TK.VENDOR_REASONS.map((r) => ({ value: r, label: LBK('tkVendor', r) })), value: f.reason, error: errs.reason, onChange: (v) => { f.reason = v; draw(); } }) : null,
         U.Textarea({ id: 't-desc', label: 'الوصف', required: true, value: f.description, error: errs.description, placeholder: 'إيه اللي حصل + إيه المطلوب من الفريق', onInput: (v) => { f.description = v; } }),
         h('div', { class: 'row cols2' }, U.Select({ id: 't-role', label: 'المسؤول (الدور)', required: true, options: roleOpts(), value: f.assigneeRole, error: errs.assigneeRole, placeholder: 'اختار الدور', onChange: (v) => { if (v !== f.assigneeRole) f.assigneeMember = ''; f.assigneeRole = v; draw(); } }),
           memberSelect('t-member', f.assigneeRole, f.assigneeMember, (v) => { f.assigneeMember = v; errs.assigneeMember = undefined; draw(); })),
@@ -3661,7 +3663,7 @@
     }
     function confirmResolve(t) {
       const f = { outcome: '', note: '' }; let errs = {}; let m = null;
-      const body = () => [U.Select({ id: 'r-out', label: 'نتيجة الحل', required: true, options: TK.OUTCOMES.map((o) => ({ value: o, label: o })), value: f.outcome, error: errs.outcome, onChange: (v) => { f.outcome = v; errs = {}; m.setBody(...body()); } }),
+      const body = () => [U.Select({ id: 'r-out', label: 'نتيجة الحل', required: true, options: TK.OUTCOMES.map((o) => ({ value: o, label: LBK('tkOutcome', o) })), value: f.outcome, error: errs.outcome, onChange: (v) => { f.outcome = v; errs = {}; m.setBody(...body()); } }),
         U.Textarea({ id: 'r-note', label: 'ملاحظة الإغلاق', value: f.note, placeholder: 'اكتب إيه اللي اتعمل بالظبط…', onInput: (v) => { f.note = v; } }),
         U.InlineNote({ children: 'هيتحوّل لـ «تم الحل» وصاحب الطلب (' + t.createdBy.name + ') أو الأدمن يقدر يقفله نهائي أو يرجّعه. مافيش قفل تلقائي.' })];
       m = U.Modal({ title: 'تم حل الطلب؟', body: body(), footer: [Button({ type: 'primary', label: 'تأكيد الحل', onClick: () => { if (!f.outcome) { errs.outcome = 'اختار نتيجة الحل'; m.setBody(...body()); return; } m.close(); act(() => TA().resolve(id, f), 'الطلب اتحوّل لـ «تم الحل».'); } }), Button({ label: 'إلغاء', onClick: () => m.close() })] });
@@ -3952,7 +3954,7 @@
     search.addEventListener('input', () => { state.vfilter.q = search.value; state.vpage = 1; renderVendors(true); });
     const check = (key, label) => h('label', { class: 'check', style: 'display:flex;align-items:center;gap:8px;cursor:pointer' }, (() => { const c = h('input', { type: 'checkbox', checked: state.vfilter[key] }); c.addEventListener('change', () => setF(key, c.checked)); return c; })(), label);
     // «فلتر» + «ترتيب» (phase 5.5 decision 3, owner 1 Nov): the kit's closed multi-value filter and sort next to the columns button, the picks as chips with their counts
-    const VF = { status: [['active', 'نشط'], ['leave', 'في إجازة'], ['inactive', 'غير نشط']], balance: [['due', 'ليه رصيد'], ['negative', 'عليه (عربون / مواصلات)'], ['zero', 'متصفّي']], contract: [['uploaded', 'ساري'], ['expiring', 'بينتهي خلال شهر'], ['expired', 'منتهي'], ['missing', 'مش مرفوع']] };
+    const VF = { status: [['active', LBK('maker', 'active')], ['leave', LBK('maker', 'leave')], ['inactive', LBK('maker', 'inactive')]], balance: [['due', 'ليه رصيد'], ['negative', 'عليه (عربون / مواصلات)'], ['zero', 'متصفّي']], contract: [['uploaded', 'ساري'], ['expiring', 'بينتهي خلال شهر'], ['expired', 'منتهي'], ['missing', 'مش مرفوع']] };
     // [#23]: «حالة العقد» from the contract's expiry (VD.contractStatus — 30 days = «بينتهي خلال شهر»)
     const contractTag = (v) => { const k = VD.contractStatus(v, VTODAY()); const lbl = (VF.contract.find((x) => x[0] === k) || [, '—'])[1];
       return h('span', { class: 'tg ' + (k === 'uploaded' ? 'tg-success' : k === 'expiring' ? 'tg-orange' : k === 'expired' ? 'tg-error' : 'tg-neutral'), 'data-contract': k, title: v.contract && v.contract.expires ? 'بينتهي ' + D.formatDateNumeric(v.contract.expires) : null }, lbl); };

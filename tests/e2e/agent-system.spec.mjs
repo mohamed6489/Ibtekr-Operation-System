@@ -350,3 +350,25 @@ test('ask popups A — «عايز تقرير بالأوردرات المتأخر
   expect(mine).toBeGreaterThan(0); const r2 = page.locator('[data-rq-report]'); if (mine) await expect(r2.locator('[data-rq-tbl] tbody tr')).toHaveCount(mine); else await expect(r2.locator('[data-rq-empty]')).toBeVisible();
   expect(asks().length).toBe(0);
 });
+
+// the ask popups, phase B (Safwat 28 Nov): «عايز أضيف حاجة» = «املا البيانات دي من اللينك ده»; the popup picks the kind and the element;
+// a pick with steps runs them in the chat, a pick without = its page behind a link popup
+test('ask popups B — «عايز أضيف حاجة»: the popup, «رقم مالي» › «حركة على حساب مبتكر» = the maker-money steps; «امسح قسم» (both said, no popup) = the categories page by a link', async ({ page }) => {
+  await openAi(page, 'المحاسب');
+  await send(page, 'عايز أضيف حاجة');
+  await expect(lastAns(page)).toContainText('املا البيانات دي من اللينك ده'); expect(asks().length).toBe(0);
+  await lastAns(page).locator('[data-mk-rqa-ask]').click();
+  const pop = page.locator('[data-rqq]'); await expect(pop.locator('[data-rqq-opt="verb:add"]')).toHaveAttribute('aria-checked', 'true'); // said
+  await pop.locator('[data-rqq-go]').click(); await expect(pop).toContainText('اختار العنصر');
+  await pop.locator('[data-rqq-opt="element:money"]').click(); await pop.locator('[data-rqq-opt="sub:makerMove"]').click(); await pop.locator('[data-rqq-go]').click();
+  await expect(pg(page).locator('.mk-msg.user').last()).toContainText('طلب: إضافة رقم مالي — حركة على حساب مبتكر');
+  const card = pg(page).locator('[data-cf="makerMove"]'); await expect(card).toBeVisible(); await expect(card).toContainText('سحب ولا إيداع؟');
+  // no steps for this one yet: its page behind the link popup — the chat stays
+  await send(page, 'امسح قسم'); await pg(page).getByRole('button', { name: 'ألغي ونبتدي في الجديد' }).click(); // the steps still open ask first (decision 1)
+  // the kind and the element both said: no popup between — the answer for that pick straight away
+  await expect(lastAns(page)).toContainText('تاب «الأقسام» في المنتجات'); await expect(lastAns(page).locator('[data-mk-rqa-ask]')).toHaveCount(0);
+  const at = await page.evaluate(() => location.hash);
+  await lastAns(page).locator('[data-mk-rqa-page="products-cats"]').click(); await expect(page.locator('[data-mk-link]')).toBeVisible();
+  expect(await page.evaluate(() => location.hash)).toBe(at);
+  expect(asks().length).toBe(0);
+});

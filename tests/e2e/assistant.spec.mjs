@@ -659,3 +659,18 @@ test('decision 6: a member without the accounts\' «إضافة» asking for a ma
   await say(page, 'سجل عربون');
   await expect(panel(page).locator('.ai-msg.ai').last()).toContainText('مش من صلاحياتك'); await expect(panel(page).locator('[data-cf]')).toHaveCount(0);
 });
+
+// ask-popups decision 1 (Safwat 28 Nov): a report asked in the header = the same link and popup; the sales / expenses read-outs stay the engine's
+test('ask popups A: «تقرير الأوردرات المتأخرة» in the header — the link, the popup filled, «ابعت», then «افتح التقرير»; «تقرير المبيعات» stays the system\'s read-out', async ({ page }) => {
+  await signIn(page, ADMIN); await page.getByRole('button', { name: 'مساعد AI' }).click();
+  await say(page, 'تقرير الأوردرات المتأخرة');
+  const last = () => panel(page).locator('.ai-msg.ai').last();
+  await expect(last()).toContainText('املا التفاصيل من اللينك ده'); await last().locator('[data-ai-rep-ask]').click();
+  const pop = page.locator('[data-rq]'); await expect(pop.locator('#rq-st-0')).toContainText('متأخر');
+  await pop.locator('[data-rq-send]').click();
+  await expect(panel(page).locator('.ai-msg.user').last()).toContainText('تقرير: الأوردرات الرئيسية › حالة التأخير › متأخر');
+  await expect(last()).toContainText('البيانات جاهزة في اللينك ده'); await last().locator('[data-ai-rep-open]').click();
+  await expect(page.locator('[data-rq-report]')).toBeVisible(); await page.locator('[data-rq-report]').getByRole('button', { name: 'اقفل' }).click();
+  await say(page, 'تقرير المبيعات الشهر ده'); await expect(last().locator('[data-ai-rep-ask]')).toHaveCount(0);
+  expect(mock.aiCalls.filter((c) => c.action === 'assistant').length, 'no model').toBe(0);
+});

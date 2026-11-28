@@ -312,3 +312,41 @@ test('chat-flows phase 4 part 2b — «غير تليفون المبتكر Art Cr
   await idm.getByRole('button', { name: 'حفظ', exact: true }).click(); await expect(idm).toHaveCount(0); // the file's own save
   await expect(page.locator('.drawer')).toHaveCount(0); await expect(pg(page).locator('#mk-ask')).toBeVisible();
 });
+
+// the ask popups (2026-11-28-ask-popups.md, phase A — Safwat 28 Nov): a report asked = «املا التفاصيل من اللينك ده»; its popup picks the
+// element, the data type, one state or more and the makers (none = all); «ابعت» = the member's line and «البيانات جاهزة في اللينك ده»,
+// whose popup lists the rows from his own pages — no model
+test('ask popups A — «عايز تقرير بالأوردرات المتأخرة»: the link, the popup filled from the words, a second state and a maker, then «افتح التقرير» with the rows', async ({ page }) => {
+  await openAi(page, 'التشغيل');
+  await send(page, 'عايز تقرير بالأوردرات المتأخرة');
+  await expect(lastAns(page)).toContainText('املا التفاصيل من اللينك ده'); expect(asks().length).toBe(0);
+  await lastAns(page).locator('[data-mk-rep-ask]').click();
+  const pop = page.locator('[data-rq]'); await expect(pop).toBeVisible();
+  await expect(pop.locator('#rq-el-0')).toContainText('الأوردرات الرئيسية'); await expect(pop.locator('#rq-ty-0')).toContainText('حالة التأخير');
+  await expect(pop.locator('#rq-st-0')).toContainText('متأخر');
+  await pop.locator('#rq-st-0').click(); await page.locator('[data-mp-menu="rq-st-0"] [data-mp-opt="risk"]').click(); await page.locator('[data-mp-menu="rq-st-0"] [data-mp-done]').click();
+  await expect(pop.locator('#rq-it-0')).toContainText('كل المبتكرين');
+  await pop.locator('[data-rq-send]').click(); await expect(pop).toHaveCount(0);
+  await expect(pg(page).locator('.mk-msg.user').last()).toContainText('تقرير: الأوردرات الرئيسية › حالة التأخير › متأخر، قابل للتأخير');
+  await expect(lastAns(page)).toContainText('البيانات جاهزة في اللينك ده');
+  const want = await page.evaluate(() => window.OrdersApp.query({}, 100000).rows.filter((o) => !['مكتمل', 'ملغي', 'استرجاع', 'فشل'].includes(o.status) && (o.delivery === 'late' || o.delivery === 'risk')).length);
+  await lastAns(page).locator('[data-mk-rep-open]').click();
+  const rep = page.locator('[data-rq-report]'); await expect(rep).toBeVisible();
+  expect(want).toBeGreaterThan(0); if (want) await expect(rep.locator('[data-rq-tbl] tbody tr')).toHaveCount(want); else await expect(rep.locator('[data-rq-empty]')).toBeVisible();
+  await rep.getByRole('button', { name: 'اقفل' }).click();
+  // a maker picked: his orders only, and a second element in the same report
+  await send(page, 'تقرير'); await lastAns(page).locator('[data-mk-rep-ask]').click();
+  const p2 = page.locator('[data-rq]'); await p2.locator('#rq-el-0').click(); await page.getByRole('option', { name: 'الأوردرات الرئيسية', exact: true }).click();
+  await p2.locator('#rq-ty-0').click(); await page.getByRole('option', { name: 'حالة التأخير', exact: true }).click();
+  await p2.locator('#rq-st-0').click(); await page.locator('[data-mp-menu="rq-st-0"] [data-mp-opt="risk"]').click(); await page.locator('[data-mp-menu="rq-st-0"] [data-mp-done]').click();
+  const maker = await page.evaluate(() => { const o = window.OrdersApp.query({}, 100000).rows.find((x) => x.delivery === 'risk' && x.vendors.length); return o ? o.vendors[0] : window.IBVendors.store.all()[0].name; });
+  await p2.locator('#rq-it-0').click(); await page.locator('[data-mp-menu="rq-it-0"] [data-mp-opt="' + maker + '"]').click(); await page.locator('[data-mp-menu="rq-it-0"] [data-mp-done]').click();
+  await p2.locator('[data-rq-more]').click(); await expect(p2.locator('[data-rq-part]')).toHaveCount(2);
+  await p2.locator('[data-rq-send]').click(); await expect(p2.locator('.inline-note, [role=alert]').first()).toContainText('اختار العنصر'); // the second row is empty
+  await p2.locator('[data-rq-x="1"]').click(); await p2.locator('[data-rq-send]').click();
+  await expect(pg(page).locator('.mk-msg.user').last()).toContainText('— ' + maker);
+  const mine = await page.evaluate((mk) => window.OrdersApp.query({}, 100000).rows.filter((o) => !['مكتمل', 'ملغي', 'استرجاع', 'فشل'].includes(o.status) && o.delivery === 'risk' && o.vendors.includes(mk)).length, maker);
+  await lastAns(page).locator('[data-mk-rep-open]').click();
+  expect(mine).toBeGreaterThan(0); const r2 = page.locator('[data-rq-report]'); if (mine) await expect(r2.locator('[data-rq-tbl] tbody tr')).toHaveCount(mine); else await expect(r2.locator('[data-rq-empty]')).toBeVisible();
+  expect(asks().length).toBe(0);
+});

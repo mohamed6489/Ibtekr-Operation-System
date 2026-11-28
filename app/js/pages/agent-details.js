@@ -76,6 +76,8 @@
     s.convs = w.IBCS && w.IBCS.data && Array.isArray(w.IBCS.data.convs) ? w.IBCS.data.convs : [];
     const A = w.IBAccounts; if (A && A.withdrawals) { s.withdrawals = A.withdrawals(); s.expenses = A.rows ? A.rows('expenses').map((e) => ({ category: e.category, subName: e.subName, subEnds: e.subEnds, voided: !!e.voided })) : []; }
     const V = w.IBVendors && w.IBVendors.store; s.vendorName = (id) => { const v = V && V.get ? V.get(id) : null; return v ? v.name : ''; };
+    try { const P = w.IBProducts; if (P && P.list && (!P.state || P.state() === 'ready')) s.products = P.list().map((p) => ({ name: p.nameEn || p.nameAr || p.sku || '', sku: p.sku || '', cats: Array.isArray(p.cats) ? p.cats : [],
+      stock: p.manageStock ? Number(p.stock) || 0 : null, out: p.stockStatus === 'outofstock' || (p.manageStock && (Number(p.stock) || 0) <= 0), vendorId: p.vendorId })); } catch (e) { /* the products are not loaded */ }
     const H = w.IBHR; if (H && H.data) { s.hrRequests = H.data.requests || []; s.overtime = H.data.overtime || []; }
     s.memberName = (code) => { const m = H && H.everyone ? H.everyone().find((x) => x.id === code) : null; return m ? m.name : ''; };
     s.priorityName = (k) => { const P = w.IbtekrTickets && w.IbtekrTickets.PRIORITIES; const p = P && P.find((x) => x[0] === k); return p ? p[1] : k || ''; };

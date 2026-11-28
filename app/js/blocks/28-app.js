@@ -1352,6 +1352,10 @@
     if (o && o.brain) { aiChat(t, o.brain); return; }
     const at = ai.msgs.length; const sys = () => ai.msgs.slice(at).forEach((m) => { if (m.role === 'ai') m.sys = true; });
     if (ai.pending) { aiLocal(t); sys(); aiDraw(); return; }
+    // ask-popups decision 1 (2026-11-28-ask-popups.md — Safwat 28 Nov): a report asked = «املا التفاصيل من اللينك ده» and its popup (IBReportAsk),
+    // before the engine — the sales / expenses read-outs stay the engine's (IBReportAsk.detect leaves them)
+    const RA = window.IBReportAsk;
+    if (RA && RA.detect(t)) { ai.msgs.push({ role: 'ai', text: 'املا التفاصيل من اللينك ده — اختار العنصر ونوع البيانات والوضع، وأنا أجهّزلك التقرير.', repAsk: RA.preOf(t) }); sys(); aiDraw(); return; }
     const got = window.IBBrain ? window.IBBrain.understand(t, aiCtx()) : C.parseCommand(t, aiCtx());
     // agent-chat-flows decision 6: an add / edit / delete said without what its popup needs = the same step card as the assistants' chat
     // (IBChatFlowHost from marketing.js — the member's rights, then the system's own popup filled over the page; nothing written here) —
@@ -1400,6 +1404,11 @@
       const kids = [h('p', { class: 'ai-text' }, m.live && !m.text ? 'بفكّر…' : m.welcome ? aiWelcome() : m.text)];
       // where the answer came from: the system itself, or the outside model the member agreed to
       if (m.role === 'ai' && !m.welcome && !m.live && (m.sys || m.via)) kids.unshift(h('span', { class: 'ai-src' + (m.sys ? ' sys' : ''), 'data-ai-src': m.sys ? 'system' : 'brain' }, m.sys ? 'من السيستم' : ['الرد من ', h('bdi', null, m.via)]));
+      if ((m.repAsk || m.rep) && window.IBReportAsk) { const RA = window.IBReportAsk;
+        kids.push(h('div', { class: 'ai-actions', 'data-ai-rep': m.rep ? 'open' : 'ask' }, m.rep
+          ? Button({ type: 'primary', size: 'sm', icon: 'eye', label: 'افتح التقرير', attrs: { 'data-ai-rep-open': '' }, onClick: () => { if (!RA.result(m.rep)) aiSay('مش قادر أفتح التقرير دلوقتي.'); } })
+          : Button({ type: 'primary', size: 'sm', icon: 'sliders', label: 'املا تفاصيل التقرير', attrs: { 'data-ai-rep-ask': '' }, onClick: () => RA.open({ pre: m.repAsk, onSend: (spec) => {
+            ai.msgs.push({ role: 'user', text: RA.summary(spec) }); ai.msgs.push({ role: 'ai', sys: true, text: 'البيانات جاهزة في اللينك ده.', rep: spec }); aiDraw(); } }) }))); }
       if (m.flow && window.IBChatFlowHost) kids.push(m.flowOff ? h('p', { class: 'ai-done t-small', 'data-ai-flow-off': '' }, 'الخطوات دي اتلغت.')
         : window.IBChatFlowHost.card(m.flow, { redraw: aiDraw, cancel: () => { m.flowOff = true; aiDraw(); } }));
       if (m.consent) kids.push(m.consent.done ? h('p', { class: 'ai-done t-small' }, m.consent.done === 'no' ? 'ما استخدمتش مخ خارجي.' : ['اتبعت لـ ', h('bdi', null, m.consent.done), '.']) : h('div', { class: 'ai-actions ai-consent', 'data-ai-consent': '' },

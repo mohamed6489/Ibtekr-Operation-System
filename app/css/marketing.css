@@ -711,3 +711,25 @@ a.mk-lib.disabled { opacity:.5;pointer-events:none }
 [data-rq-form] .rq-parts { display:flex;flex-direction:column;gap:10px;margin-bottom:10px }
 [data-rq-form] .rq-part { display:flex;flex-direction:column;gap:8px;padding:12px;border:1px solid var(--color-border-subtle);border-radius:10px;background:var(--color-bg-base) }
 [data-rq-form] .rq-x { align-self:flex-start;margin-inline-start:0 }
+
+/* the trends from free sources (2026-11-28-trends-free.md): the cards under the designer's / the media buyer's answer — the picture,
+   the source, the account, the numbers; Google's searches a list of their own; YouTube's and Google's tiles in the trends grid */
+:is(#pg-marketing,#pg-ai) .mk-trends-ans { display:flex;flex-direction:column;gap:8px;margin-top:6px;width:100% }
+.mk-trc-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px }
+.mk-trc { display:flex;flex-direction:column;border:1px solid var(--color-border-subtle);border-radius:10px;overflow:hidden;background:var(--color-bg-surface,#fff);color:inherit;text-decoration:none;min-width:0 }
+.mk-trc:focus-visible { outline:2px solid var(--color-brand-default);outline-offset:2px }
+.mk-trc img, .mk-trc-ph { display:block;width:100%;aspect-ratio:16/10;object-fit:cover;background:linear-gradient(160deg,#f4ead8,#e3d3b6) }
+.mk-trc-ph { display:grid;place-items:center;color:var(--color-text-secondary,#7a6a55) }
+.mk-trc-ph svg { width:26px;height:26px;opacity:.55 }
+.mk-trc-b { display:flex;flex-direction:column;gap:3px;padding:8px 10px;min-width:0 }
+.mk-trc-b b { font-size:13px;line-height:1.45;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden }
+.mk-trc-b small { white-space:nowrap;overflow:hidden;text-overflow:ellipsis }
+.mk-trc-pf, .mk-trc-n { display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--color-text-secondary,#7a6a55) }
+.mk-trc-n { font-weight:600;color:var(--color-text-primary,#2b2118) }
+.mk-trq { list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px }
+.mk-trq li { display:flex;align-items:baseline;gap:6px;flex-wrap:wrap;padding:6px 10px;border-radius:8px;background:var(--color-bg-base) }
+.mk-trq li svg { flex:none;align-self:center }
+.mk-trq a { color:inherit }
+.mk-tile.pf-yt .mk-tile-ph { background:linear-gradient(160deg,#3a1d1d,#7a2a2a);color:#fff }
+.mk-tile.pf-gg .mk-tile-ph { background:linear-gradient(160deg,#e6eefc,#c8d8f6) }
+@media (max-width:640px) { .mk-trc-grid { grid-template-columns:repeat(2,1fr);gap:6px } }

@@ -2763,6 +2763,11 @@ span.ntf-num{padding:0 2px 0 4px;gap:0}
 .ap-bub small{display:block;opacity:.75;font-size:11px}
 .ap-go{background:var(--color-brand-subtle-bg);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px}
 .ap-note{font-size:12px;color:var(--color-text-secondary);margin:0}
+/* «آخر التريندات» in the alert popup (0175): the batch's trends, each a link to its post */
+.ap-trends-l{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.ap-trends-l li{display:flex;flex-direction:column;gap:2px;padding:8px 10px;border-radius:8px;background:var(--color-bg-base)}
+.ap-trends-l a{color:inherit;text-decoration:none}.ap-trends-l a:focus-visible{outline:2px solid var(--color-brand-default);outline-offset:2px}
+.ap-trends-l small{font-size:12px;color:var(--color-text-secondary)}
 .ap-p{margin:0;white-space:pre-wrap}
 
 /* «إزاي…» — the ready answer in the assistants' chats and the header one (2026-11-28-faults-howto.md, phase B): numbered steps, the

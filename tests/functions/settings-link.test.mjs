@@ -45,7 +45,7 @@ test('secretPublic shows a secret as its tail only; probesOf names a safe read o
   assert.equal(probesOf('higgsfield', { key: 'x' }), null); assert.equal(probesOf('mcp_x', { url: 'https://m' }), null);
   assert.equal(probesOf('gemini', { key: 'k' })[0].headers['x-goog-api-key'], 'k');
   assert.deepEqual([401, 403, 404, 429, 500, 400, 200].map(probeCode), ['unauthorized', 'unauthorized', 'not_found', 'rate', 'provider', 'refused', 'ok']);
-  assert.equal(CARDS.length, 23); // + Shopify (17 Nov) assert.ok(CARDS.every((c) => !c.secret || nameOk(c.secret)));
+  assert.equal(CARDS.length, 25); // + YouTube and SerpApi (28 Nov — the trends from free sources) // + Shopify (17 Nov) assert.ok(CARDS.every((c) => !c.secret || nameOk(c.secret)));
 });
 
 test('shopify (the owner 17 Nov): the myshopify domain and an Admin API token; the probe reads the shop with the token header', async () => {
@@ -66,4 +66,20 @@ test('data-real decision 11: the WordPress user and its Application Password are
   // a stored pair keeps working when only the user is changed
   const stored = { ...base, wp_user: 'admin', wp_app_password: 'abcd efgh ijkl mnop' };
   assert.equal(parseSecret('woo', { wp_user: 'owner' }, stored).link.wp_user, 'owner');
+});
+
+test('youtube / serpapi (Safwat 28 Nov — the trends from free sources): a Google API key and SerpApi\'s key; YouTube\'s probe carries the key in a header, SerpApi\'s reads its account (no search counted)', async () => {
+  const yt = 'AIza' + 'B'.repeat(35); const serp = 'c'.repeat(64);
+  assert.equal(parseSecret('youtube', { key: 'sk-not-a-google-key' }, null).field, 'key');
+  const a = parseSecret('youtube', { key: yt }, null); assert.ok(linkReady('youtube', a.link));
+  const p = probesOf('youtube', a.link)[0];
+  assert.equal(p.headers['x-goog-api-key'], yt); assert.ok(!p.url.includes(yt), 'the YouTube key never in the address');
+  assert.deepEqual(p.ok(200, { items: [{}] }), { account: 'YouTube Data API شغّال' }); assert.equal(p.ok(403, {}), null);
+  assert.equal(parseSecret('serpapi', { key: 'short' }, null).field, 'key');
+  const b = parseSecret('serpapi', { key: serp }, null); assert.ok(linkReady('serpapi', b.link));
+  const q = probesOf('serpapi', b.link)[0];
+  assert.ok(q.url.startsWith('https://serpapi.com/account.json?api_key='));
+  assert.deepEqual(q.ok(200, { plan_name: 'Free Plan', plan_searches_left: 240 }), { account: 'Free Plan · 240 بحث فاضل الشهر ده' });
+  assert.ok(CARDS.some((c) => c.id === 'youtube' && c.secret === 'youtube' && c.kind === 'site') && CARDS.some((c) => c.id === 'serpapi' && c.secret === 'serpapi'));
+  assert.equal(secretPublic('serpapi', b.link).fields.key, '••••' + serp.slice(-4), 'only its last four');
 });

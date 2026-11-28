@@ -62,7 +62,8 @@
       { id: 'ratings', label: 'تقييم العملاء', kind: 'event', states: [S('low', 'تقييم عميل واطي', { level: 'critical', param: { key: 'stars', label: 'لحد كام نجمة', def: 2 } })] }] },
     // perm null: each assistant's alert names the members who see that assistant (ai_agents.perm) — notify/rules.ts
     { id: 'ai', label: 'الذكاء الاصطناعي', perm: null, types: [
-      { id: 'buyer', label: 'الميديا باير', kind: 'event', states: [S('campaigns', 'أداء الحملات'), S('pixel', 'حالة البيكسل'), S('post', 'نشر بوست')] },
+      // the trends from free sources (Safwat 28 Nov — «في الجرس تنبيهات الترندات بتيجي في المساعدين»): the media buyer's too
+      { id: 'buyer', label: 'الميديا باير', kind: 'event', states: [S('campaigns', 'أداء الحملات'), S('pixel', 'حالة البيكسل'), S('post', 'نشر بوست'), S('trends', 'آخر التريندات')] },
       { id: 'designer', label: 'الديزاينر', kind: 'event', states: [S('trends', 'آخر التريندات'), S('campaign', 'بناء حملة')] },
       { id: 'dev', label: 'المبرمج', kind: 'event', states: [S('wp', 'تحديثات ووردبريس'), S('api', 'مشاكل API'), S('speed', 'كفاءة أداء النظام')] },
       // the meeting's text: «لكل مساعد ذكاء اصطناعي التنبيهات اللي تناسب دوره بنفس الطريقة» — whatever the other assistants (the

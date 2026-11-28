@@ -14,6 +14,7 @@ import { PLATFORMS as AD_PLATFORMS, linkAccount, linkPublic, linkReady, parseLin
 import { MAX_OPEN_JOBS, cleanScenes, jobView, mixPlan, nextMix, parseVideo, videoPath } from '../../supabase/functions/_shared/mkt-video.js';
 import { creditsFor } from '../../supabase/functions/_shared/ai-images.js';
 import { refName, refUrl } from '../../supabase/functions/_shared/ref-link.js';
+import { answerText, keywordsOf, parseFree } from '../../supabase/functions/_shared/mkt-trends-free.js';
 import { cleanTrends, parseTrends } from '../../supabase/functions/_shared/mkt-trends.js';
 import { agentFacts, runRules } from './rules-mock.mjs';
 const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
@@ -139,6 +140,7 @@ export function mktState(opts = {}) {
     trends: (opts.mktTrends || []).map((x, i) => ({ id: i + 1, batch: 'b0000000-0000-4000-8000-000000000001', summary: null, kind: 'image', found_at: now, created_by: null, platform: 'web', tag: null, thumb: null, author: null, views: null, likes: null, comments: null, posted_at: null, external_id: null, ...x })),
     // 0118 (ش39): the designer's tags and sites; igOff = Instagram's hashtag search refused (the feature not granted) or not linked
     trendCfg: { tags: [...(opts.mktTrendTags || [])], sources: [...(opts.mktTrendSources || [])], adTags: [...(opts.mktAdTags || [])] }, igOff: opts.mktIgOff || null,
+    freeKeys: opts.mktFreeKeys || { youtube: true, google: true, instagram: true }, // 0175: which free trend sources are linked
     competitors: (opts.mktCompetitors || []).map((x, i) => ({ id: i + 1, page_id: null, page_url: null, keyword: null, note: null, created_by: null, created_at: now, updated_by: null, updated_at: now, archived_at: null, brief: null, brief_at: null, ...x })),
     noSections: !!opts.mktNoSections, trendsFail: null, trendsAnswer: null, trendsResults: null,
     siteChecks: (opts.siteChecks || []).map((x) => ({ kind: 'wp_updates', data: {}, checked_at: now, checked_by: null, ...x })),
@@ -786,6 +788,22 @@ function mktPublish(c, b) {
         platform: 'instagram', tag: t, thumb: null, author: null, views: null, likes: 1200 - i * 100 - k * 50, comments: 30, posted_at: now, external_id: code, found_at: now, created_by: u.id });
     }));
     return json(200, { result: 'ok', count, found: count, skipped: [] });
+  }
+  if (b.action === 'trends_free') { // 0175: the free sources as the server answers them — H.freeKeys says which are linked
+    if (!view) return json(401, { error: 'unauthorized' });
+    const p = parseFree(b); if (p.error) return json(400, p);
+    H.calls[H.calls.length - 1].q = p.req.q; H.calls[H.calls.length - 1].days = p.req.days;
+    const F = H.freeKeys; const kws = keywordsOf(p.req.q, H.trendCfg.tags); const tag = kws[0] ? kws[0].replace(/\s+/g, '_') : null;
+    const states = { youtube: F.youtube ? (kws.length ? 'ok' : 'no_words') : 'not_linked', google: F.google ? (kws.length ? 'ok' : 'no_words') : 'not_linked', instagram: F.instagram ? 'ok' : 'none' };
+    H.seq += 1; const batch = 'b0000000-0000-4000-8000-' + String(H.seq).padStart(12, '0'); let id = H.trends.reduce((m, r) => Math.max(m, r.id), 0); let count = 0; const rows = [];
+    const add = (r) => { const old = H.trends.find((x) => x.platform === r.platform && x.external_id === r.external_id); if (old) { rows.push(old); return; }
+      id += 1; count += 1; const row = { id, batch, found_at: now, created_by: u.id, thumb: null, summary: null, author: null, views: null, likes: null, comments: null, posted_at: now, tag, ...r }; H.trends.push(row); rows.push(row); };
+    if (states.youtube === 'ok') { add({ title: 'فيديو ' + kws[0] + ' الأكتر مشاهدة', source: 'YouTube', url: 'https://www.youtube.com/watch?v=AAAAAAAAAA1', kind: 'video', platform: 'youtube', external_id: 'AAAAAAAAAA1', author: 'قناة الهاند ميد', views: 52000 });
+      add({ title: 'شورت ' + kws[0], source: 'YouTube', url: 'https://www.youtube.com/shorts/BBBBBBBBBB2', kind: 'video', platform: 'youtube', external_id: 'BBBBBBBBBB2', author: 'ورشة', views: 9100 }); }
+    if (states.google === 'ok') add({ title: kws[0] + ' حائط', summary: 'طالع +250% في بحث جوجل في مصر — آخر أسبوع حوالين «' + kws[0] + '»', source: 'Google Trends', url: 'https://trends.google.com/trends/explore?geo=EG&q=x', kind: 'search', platform: 'google', external_id: 'gt-' + day + '-0a1b2c3d', posted_at: null });
+    if (states.instagram === 'ok') add({ title: 'كوليكشن جديد', summary: 'منافس: Etsy — كوليكشن جديد', source: 'Instagram', url: 'https://www.instagram.com/p/RIVAL01/', kind: 'image', platform: 'instagram', external_id: 'RIVAL01', author: '@etsy', likes: 3200, tag: null });
+    const out = JSON.parse(JSON.stringify(rows)).map((r) => { delete r.created_by; return r; });
+    return json(200, { result: 'ok', rows: out, states, words: kws, days: p.req.days, count, text: answerText(out, states, p.req.days, kws) });
   }
   if (b.action === 'autopublish') {
     if (!admin) return json(401, { error: 'unauthorized' }); if (typeof b.on !== 'boolean') return json(400, { error: 'bad_request', field: 'on' });

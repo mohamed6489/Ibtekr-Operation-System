@@ -515,7 +515,7 @@ test('comment 69 / ش39 — «آخر التريندات» in the designer\'s tab
   await expect(tile).toHaveAttribute('data-mk-trend-kind', 'image');
   expect(await tile.evaluate((a) => [a.getAttribute('href'), a.target, a.rel])).toEqual(['https://later.com/blog/instagram-trends/', '_blank', 'noopener noreferrer']);
   // a refresh: the instructions popup first, the focus sent, the new batch with its kinds, then the pictures (ai-images trend_thumbs)
-  await card.locator('[data-mk-trends-go]').click();
+  await card.locator('[data-mk-trends-web]').click();
   await page.fill('#ai-ask-notes', 'هدايا الشتا');
   await page.locator('[data-ai-go]').click();
   await expect(page.locator('body')).toContainText('اتحدّثت التريندات — 6 جديد');
@@ -531,7 +531,7 @@ test('comment 69 / ش39 — «آخر التريندات» in the designer\'s tab
   expect(JSON.stringify(mock.activityRows)).not.toContain('هدايا الشتا'); // the focus is not logged
   // the search answered nothing: its reason in words, the grid as it was
   mock.mkt.trendsFail = 'no_search';
-  await card.locator('[data-mk-trends-go]').click(); await page.locator('[data-ai-go]').click();
+  await card.locator('[data-mk-trends-web]').click(); await page.locator('[data-ai-go]').click();
   await expect(page.locator('body')).toContainText('Claude ماعرفش يبحث على الويب دلوقتي');
   await expect(card.locator('[data-mk-reels] a.mk-tile')).toHaveCount(3);
   // the other assistants' tabs do not have the section
@@ -548,7 +548,7 @@ test('ش39 — by the tags: TikTok, Facebook and Instagram posts, the tags in «
   await start(page, { mktTrendTags: ['macrame', 'ديكور_منزلي'] });
   await openAi(page, ADMIN, 'الديزاينر');
   const card = pg(page).locator('.mk-trends');
-  await card.locator('[data-mk-trends-go]').click(); await page.locator('[data-ai-go]').click();
+  await card.locator('[data-mk-trends-web]').click(); await page.locator('[data-ai-go]').click();
   await expect(page.locator('body')).toContainText('اتحدّثت التريندات');
   expect(mock.mkt.calls.filter((c) => c.action === 'trends_ig').length).toBe(1);
   await expect(card.locator('[data-mk-reels="video"] a.mk-tile')).toHaveCount(5); // TikTok, Facebook, a web roundup's reel, two Instagram reels
@@ -565,7 +565,7 @@ test('ش39 — by the tags: TikTok, Facebook and Instagram posts, the tags in «
   // the posts are kept once: a second refresh adds none of them again
   const before = mock.mkt.trends.length;
   mock.mkt.igOff = 'permission';
-  await card.locator('[data-mk-trends-go]').click(); await page.locator('[data-ai-go]').click();
+  await card.locator('[data-mk-trends-web]').click(); await page.locator('[data-ai-go]').click();
   await expect(page.locator('body')).toContainText('إنستجرام الرسمي مستني موافقة ميتا');
   expect(mock.mkt.trends.length).toBe(before + 2); // the two web articles only — the posts already there are skipped
 });
@@ -575,7 +575,7 @@ test('comment 69 — before the migration the section says it waits (no button, 
   await openAi(page, ADMIN, 'الديزاينر');
   const card = pg(page).locator('.mk-trends');
   await expect(card).toContainText('القسم ده مستني تحديث قاعدة البيانات');
-  await expect(card.locator('[data-mk-trends-go]')).toHaveCount(0);
+  await expect(card.locator('[data-mk-trends-go], [data-mk-trends-web]')).toHaveCount(0);
   expect(mock.mkt.calls.filter((c) => c.action === 'trends')).toEqual([]);
 });
 
@@ -983,7 +983,7 @@ test('«اعمل زيه» — a trend video opens «كامبين جديدة» fi
   await start(page, { mktTrendTags: ['macrame'], mktCompetitors: [{ name: 'Boho Corner', keyword: 'بوهو ديكور', page_url: 'https://www.facebook.com/bohocorner' }] });
   await openAi(page, ADMIN, 'الديزاينر');
   const card = pg(page).locator('.mk-trends');
-  await card.locator('[data-mk-trends-go]').click(); await page.locator('[data-ai-go]').click();
+  await card.locator('[data-mk-trends-web]').click(); await page.locator('[data-ai-go]').click();
   await expect(card.locator('[data-mk-reels="video"] a.mk-tile').first()).toBeVisible();
   // the owner 17 Nov: a TikTok video plays on hover (its own muted player over the picture) and stops when the pointer leaves
   await page.route(/^https:\/\/www\.(tiktok|instagram|facebook)\.com\//, (r) => r.fulfill({ status: 200, contentType: 'text/html', body: '<html></html>' }));
@@ -1200,4 +1200,66 @@ test('agents-brain T5 — the buyer\'s five videos: choices in the chat, then a 
   await expect.poll(() => pg(page).locator('textarea, input').evaluateAll((els) => els.some((e) => /مشهد 1 \(5ث\)/.test(e.value || '')))).toBe(true); // the video's «تعليمات»
   expect(mock.mkt.campaigns.length, 'nothing saved').toBe(0);
   expect(mock.mkt.calls.filter((c) => ['marketing', 'campaign', 'campaign_edit', 'video_clip'].includes(c.action)).length, 'nothing generated').toBe(0);
+});
+
+// the trends from free sources (2026-11-28-trends-free.md — Safwat 28 Nov: «حط للمساعد مصادر للتريندات تكون مجانية بس عايزة اكونت» ·
+// «لما اقولو اخر تريندات المكرمية … يجيبلي نتيجة اخر ٣ ايام»): the designer's / the media buyer's chat reads YouTube, Google Trends and the
+// competitors' Instagram itself (mkt-publish trends_free — no model), the lines in the answer and the cards under it; «حدّث التريندات» the same
+test('trends from free sources — «آخر تريندات المكرمية» in the designer\'s chat: the system reads the free sources (no model), the answer\'s lines and the cards; Google\'s searches a list', async ({ page }) => {
+  await start(page, { mktTrendTags: ['مكرمية'] });
+  await openAi(page, ADMIN, 'الديزاينر');
+  const P = pg(page);
+  await P.locator('#mk-ask').fill('آخر تريندات المكرمية'); await P.locator('#mk-ask').press('Enter');
+  const ans = P.locator('[data-mk-trends-ans]');
+  await expect(ans).toBeVisible();
+  const call = mock.mkt.calls.filter((c) => c.action === 'trends_free').pop();
+  expect([call.fn, call.q, call.days]).toEqual(['mkt-publish', 'المكرمية', 3]);
+  expect(mock.mkt.calls.some((c) => c.action === 'agent')).toBe(false); // the system answered — no model
+  await expect(P.locator('.mk-msg.ai').last()).toContainText('لقيت 4 تريند آخر 3 أيام حوالين «مكرمية» و«macrame»');
+  await expect(ans.locator('[data-mk-trc="youtube"]')).toHaveCount(2);
+  await expect(ans.locator('[data-mk-trc="instagram"]')).toHaveCount(1);
+  expect(await ans.locator('[data-mk-trc="youtube"]').first().evaluate((a) => [a.getAttribute('href'), a.target, a.rel])).toEqual(['https://www.youtube.com/watch?v=AAAAAAAAAA1', '_blank', 'noopener noreferrer']);
+  await expect(ans.locator('[data-mk-trq] li')).toHaveCount(1);
+  await expect(ans.locator('[data-mk-trq]')).toContainText('طالع +250% في بحث جوجل في مصر');
+  await expect(ans.locator('[data-mk-trends-off]')).toHaveCount(0); // every source linked
+  // a design request that only names a trend is not a trends read
+  const before = mock.mkt.calls.filter((c) => c.action === 'trends_free').length;
+  await P.locator('#mk-ask').fill('اعمل بوست على تريند الكريسماس'); await P.locator('#mk-ask').press('Enter');
+  await expect(P.locator('.mk-msg.user').last()).toContainText('اعمل بوست على تريند الكريسماس'); // its own way (the post's steps)
+  await page.waitForTimeout(400);
+  expect(mock.mkt.calls.filter((c) => c.action === 'trends_free').length).toBe(before);
+  await expect(P.locator('[data-mk-trends-ans]')).toHaveCount(1);
+});
+
+test('trends from free sources — the media buyer asks for a week: the window said; a source with no key says «مش مربوط لسه» and the admin\'s link to «الربط بالمنصات» opens over the chat', async ({ page }) => {
+  await start(page, { mktTrendTags: ['مكرمية'], mktFreeKeys: { youtube: false, google: false, instagram: true } });
+  await openAi(page, ADMIN, 'الميديا باير');
+  const P = pg(page);
+  await P.locator('#mk-ask').fill('هات آخر تريندات المكرمية آخر أسبوع'); await P.locator('#mk-ask').press('Enter');
+  const ans = P.locator('[data-mk-trends-ans]');
+  await expect(ans).toBeVisible();
+  expect(mock.mkt.calls.filter((c) => c.action === 'trends_free').pop().days).toBe(7);
+  await expect(P.locator('.mk-msg.ai').last()).toContainText('آخر 7 أيام');
+  await expect(ans.locator('[data-mk-trc="instagram"]')).toHaveCount(1);
+  await expect(ans.locator('[data-mk-trends-off]')).toHaveAttribute('data-mk-trends-off', 'youtube google');
+  await expect(ans.locator('[data-mk-trends-off]')).toContainText('مش مربوط لسه: يوتيوب · جوجل تريندز (SerpApi)');
+  await ans.locator('[data-mk-trends-link]').click();
+  await expect(page.locator('.scrim .modal')).toContainText('كارت YouTube وكارت SerpApi');
+  await expect(page).toHaveURL(/#ai/); // nothing left the chat
+});
+
+test('trends from free sources — «حدّث التريندات» in the designer\'s tab reads the free sources (its own popup first); Google\'s searches have a tab; Claude\'s web search is a button of its own', async ({ page }) => {
+  await start(page, { mktTrendTags: ['مكرمية'] });
+  await openAi(page, ADMIN, 'الديزاينر');
+  const card = pg(page).locator('.mk-trends');
+  await expect(card.locator('[data-mk-trends-web]')).toBeVisible();
+  await card.locator('[data-mk-trends-go]').click();
+  await page.fill('#ai-ask-notes', 'مكرمية'); await page.locator('[data-ai-go]').click();
+  await expect(page.locator('body')).toContainText('اتحدّثت التريندات — 4 جديد');
+  expect(mock.mkt.calls.filter((c) => c.action === 'trends').length).toBe(0); // no paid search
+  const tabs = card.locator('[data-mk-trend-tabs]');
+  await expect(tabs.getByRole('tab')).toHaveText([/فيديوهات\s*2/, /بوستات\s*1/, /بحث جوجل\s*1/]);
+  await expect(card.locator('[data-mk-reels="video"] .mk-tile-pf').first()).toContainText('YouTube');
+  await tabs.getByRole('tab', { name: /بحث جوجل/ }).click();
+  await expect(card.locator('[data-mk-trq] li')).toHaveCount(1);
 });

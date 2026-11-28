@@ -191,7 +191,7 @@ const NOT_NULL: Record<string, string[]> = {
   mkt_posts: ['kind', 'name', 'platform', 'day', 'time', 'how', 'status', 'src'], mkt_suggestions: ['kind', 'campaign_id', 'title'], mkt_requests: ['kind', 'title'], mkt_video_jobs: ['campaign_id', 'piece', 'kind', 'created_by'], alerts: ['kind', 'title'], mkt_trends: ['batch', 'title', 'source', 'url', 'kind'], mkt_agent_chats: ['member_id', 'agent', 'title'], mkt_agent_messages: ['chat_id', 'role'],
 };
 const CHECK: Record<string, Record<string, unknown[]>> = {
-  mkt_trends: { kind: ['image', 'video'] }, // 0109
+  mkt_trends: { kind: ['image', 'video', 'search'] }, // 0109 + 0175 (a Google Trends search)
   cs_customers: { created_from: ['orders', 'manual', 'import', 'channel'] }, cs_contacts: { platform: ['whatsapp', 'messenger', 'instagram', 'tiktok', 'facebook'] },
   cs_conversations: { seg: ['customers', 'vendors', 'comments'], platform: ['whatsapp', 'messenger', 'instagram', 'tiktok', 'facebook'], channel: ['wa1', 'wa2', 'messenger', 'instagram', 'tiktok', 'facebook'], status: ['جديدة', 'مستنية ردنا', 'مستنية العميل', 'مؤجلة', 'اتحلت'] },
   cs_messages: { kind: ['in', 'out', 'note', 'auto', 'event'], delivery: [null, 'queued', 'sent', 'delivered', 'read', 'failed'] }, // external_id ≤ 1000 (0037)

@@ -15,6 +15,13 @@ type Db = any;
 type Json = Record<string, any>;
 // group / n / pcs / st: who the alert is about and its counts — the bell draws and groups by them (alerts.meta — the bell's redesign)
 export type Group = { g: 'vendor' | 'member' | 'agent' | 'customer'; id: string; name: string };
+// a batch of trends in one line: how many, by source, and the first one's title (0175 — the trends from free sources)
+const TREND_PF: Record<string, string> = { youtube: 'يوتيوب', google: 'بحث جوجل', instagram: 'إنستجرام', tiktok: 'تيك توك', facebook: 'فيسبوك', web: 'مواقع' };
+export function trendLine(l: Json[]): string {
+  const by = new Map<string, number>(); for (const t of l) { const p = TREND_PF[String(t.platform ?? 'web')] ?? 'مواقع'; by.set(p, (by.get(p) ?? 0) + 1); }
+  const parts = [...by.entries()].sort((a, b) => b[1] - a[1]).map(([p, n]) => p + ' ' + n);
+  return l.length + ' تريند جديد' + (by.size > 1 ? ' (' + parts.join(' · ') + ')' : by.size ? ' من ' + [...by.keys()][0] : '') + ' — ' + String(l[0].title ?? '').slice(0, 60);
+}
 export type Ent = { id: string; name?: string; ref?: string; state?: string; line?: string; entity?: string; users?: string[]; only?: boolean; perm?: [string, string]; per?: Json;
   group?: Group; n?: number; pcs?: number; st?: string; o?: OrderFacts;
   // a maker's alert (Safwat 25 Nov — the maker's card): his sub-orders' numbers to copy, and a short line of the state (an amount, a wait)
@@ -426,10 +433,12 @@ async function read(db: Db, w: World, ctx: Ctx, rule: Json, since: string): Prom
         .map((s) => ({ id: 'sg:' + s.id, name: String(s.campaign_name ?? 'حملة'), state: String(s.kind), line: String(s.title ?? s.kind) + ' — ' + String(s.campaign_name ?? ''), entity: 'ai-buyer', users: mkt })));
       if (ty === 'buyer' && st === 'post') return rows(await db.from('mkt_posts').select('id, name, platform, kind, published_at').gte('published_at', since).limit(200))
         .map((p) => ({ id: 'post:' + p.id, name: String(p.name ?? 'بوست'), state: 'اتنشر', line: 'اتنشر ' + String(p.kind ?? 'بوست') + ' على ' + String(p.platform) + ' — ' + String(p.name ?? '').slice(0, 60), entity: 'marketing-log', users: mkt }));
-      if (ty === 'designer' && st === 'trends') {
-        const tr = rows(await db.from('mkt_trends').select('id, batch, title, found_at').gte('found_at', since).limit(300)); if (!tr.length) return [];
+      // «آخر التريندات» (the designer's, and the media buyer's from 0175): a batch of new trends since the last run — what each source
+      // brought (YouTube · Google's searches · Instagram …) and the first title; the popup opens the batch (alert-popup.js)
+      if ((ty === 'designer' || ty === 'buyer') && st === 'trends') {
+        const tr = rows(await db.from('mkt_trends').select('id, batch, title, platform, found_at').gte('found_at', since).limit(300)); if (!tr.length) return [];
         const batches = new Map<string, Json[]>(); for (const t of tr) { const k = String(t.batch ?? t.id); const l = batches.get(k) ?? []; l.push(t); batches.set(k, l); }
-        return [...batches.entries()].map(([k, l]) => ({ id: 'tr:' + k, name: 'آخر التريندات', state: 'تريندات جديدة', line: l.length + ' تريند جديد — ' + String(l[0].title ?? '').slice(0, 60), entity: 'ai-designer', users: mkt }));
+        return [...batches.entries()].map(([k, l]) => ({ id: 'tr:' + k, name: 'آخر التريندات', state: 'تريندات جديدة', line: trendLine(l), entity: 'ai-' + ty, users: mkt }));
       }
       if (ty === 'designer' && st === 'campaign') return rows(await db.from('mkt_campaigns').select('id, name, created_at, archived_at').gte('created_at', since).is('archived_at', null).limit(200))
         .map((c) => ({ id: 'camp:' + c.id, name: String(c.name ?? 'كامبين'), state: 'كامبين جديدة', line: 'كامبين جديدة: ' + String(c.name ?? '').slice(0, 80), entity: 'marketing', users: mkt }));

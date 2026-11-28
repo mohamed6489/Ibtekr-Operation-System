@@ -1379,6 +1379,10 @@
     if (o && o.brain) { aiChat(t, o.brain); return; }
     const at = ai.msgs.length; const sys = () => ai.msgs.slice(at).forEach((m) => { if (m.role === 'ai') m.sys = true; });
     if (ai.pending) { aiLocal(t); sys(); aiDraw(); return; }
+    // faults-howto phase B (2026-11-28-faults-howto.md — Safwat 28 Nov): «إزاي…» = the ready answer with the system's screens (IBHowTo),
+    // before everything else — «إزاي أضيف مبتكر» is a question, not «ضيف مبتكر»
+    const ht = window.IBHowTo ? window.IBHowTo.detect(t) : '';
+    if (ht) { ai.msgs.push({ role: 'ai', text: ht === 'menu' ? 'أشرحلك أنهي حاجة؟ اختار من دول وأوريك الخطوات بصور من السيستم:' : window.IBHowTo.GUIDES[ht].title + ' — خطوة خطوة بصور من السيستم:', howto: ht }); sys(); aiDraw(); return; }
     // ask-popups decision 1 (2026-11-28-ask-popups.md — Safwat 28 Nov): a report asked = «املا التفاصيل من اللينك ده» and its popup (IBReportAsk),
     // before the engine — the sales / expenses read-outs stay the engine's (IBReportAsk.detect leaves them)
     const RA = window.IBReportAsk;
@@ -1443,6 +1447,8 @@
       const kids = [h('p', { class: 'ai-text' }, m.live && !m.text ? 'بفكّر…' : m.welcome ? aiWelcome() : m.text)];
       // where the answer came from: the system itself, or the outside model the member agreed to
       if (m.role === 'ai' && !m.welcome && !m.live && (m.sys || m.via)) kids.unshift(h('span', { class: 'ai-src' + (m.sys ? ' sys' : ''), 'data-ai-src': m.sys ? 'system' : 'brain' }, m.sys ? 'من السيستم' : ['الرد من ', h('bdi', null, m.via)]));
+      if (m.howto && window.IBHowTo) { const HT = window.IBHowTo;
+        kids.push(m.howto === 'menu' ? HT.menu((gid) => { ai.msgs.push({ role: 'user', text: HT.GUIDES[gid].title }); ai.msgs.push({ role: 'ai', sys: true, text: HT.GUIDES[gid].title + ' — خطوة خطوة بصور من السيستم:', howto: gid }); aiDraw(); }) : HT.card(m.howto)); }
       if ((m.repAsk || m.rep) && window.IBReportAsk) { const RA = window.IBReportAsk;
         kids.push(h('div', { class: 'ai-actions', 'data-ai-rep': m.rep ? 'open' : 'ask' }, m.rep
           ? Button({ type: 'primary', size: 'sm', icon: 'eye', label: 'افتح التقرير', attrs: { 'data-ai-rep-open': '' }, onClick: () => { if (!RA.result(m.rep)) aiSay('مش قادر أفتح التقرير دلوقتي.'); } })
@@ -2685,7 +2691,7 @@
         if (LOST() && LOST().state() === 'idle') LOST().ensure().then(() => { if (state.vtab === 'accounts' || state.tab === 'vendors') rerender(); });
         const cols = VCOLS.filter(([k]) => (k === 'oth' ? some('other') : k === 'cor' ? some('corrections') : k === 'carry' ? some('carry') : k === 'lost' ? !!(LOST() && list.some((v) => accLost(makerId(v.name), PR) > 0)) : true));
         const pend = sorted.filter((v) => { const r = wdOf(v.name); return r && r.status === 'pending'; }).length;
-        return TableCard({ title: 'حسابات المبتكرين', count: '', th: { noun: ['مبتكر', 'المبتكرين'], when: num(D.formatDateNumeric(PR.from) + ' – ' + D.formatDateNumeric(PR.to)), total: pend + ' طلب مستني الموافقة' + (wdFiltered ? ' · ' + (WD_FILTERS.find((x) => x.value === state.wdFilter) || {}).label : '') }, action: refreshDokanBtn(),
+        return TableCard({ title: 'حسابات المبتكرين', count: '', th: { noun: ['مبتكر', 'المبتكرين'], when: D.formatDateNumeric(PR.from) + ' – ' + D.formatDateNumeric(PR.to), total: pend + ' طلب مستني الموافقة' + (wdFiltered ? ' · ' + (WD_FILTERS.find((x) => x.value === state.wdFilter) || {}).label : '') }, action: refreshDokanBtn(),
           body: !sorted.length ? U.EmptyState(wdFiltered ? 'مفيش مبتكرين عندهم طلبات سحب' : 'مفيش مبتكرين', wdFiltered ? 'اضغط «تحديث من Dokan» تجيب الطلبات الجديدة، أو رجّع الفلتر لـ «الكل».' : '') : U.Table({ cls: 'vendors-table', headers: cols.map(([, lb]) => lb), rows: sorted.map((v) => cols.map(([k]) => CELL[k](v))), totalRow: cols.map(([k]) => TOT[k]) }) });
       })(),
       sourceNote('المصدر: رصيد Dokan وطلبات السحب (بيتحدّثوا كل ساعة، ورصيد المبتكر أول ما أوردره يتقفل، و«تحديث من Dokan» بيجيبهم دلوقتي) + الحركات المتسجلة هنا في الفترة (العرابين والمواصلات والديون والإيداعات وطلبات السحب والمفقودات بتاريخها) — رصيد Dokan والصافي دلوقتي، والصافي بيخصم الحركات اللي لسه ماتصفّتش كلها · الصافي = رصيد Dokan − العرابين − المواصلات − الديون الأخرى + الإيداع الخارجي − المتبقي من آخر تسوية، وبيبقى بالسالب لو الخصومات أكبر · Dokan مابيعرفش الخصومات دي، فطلب السحب بيبقى بكل رصيد Dokan، ولما يتوافق عليه بتتصفّى منه واللي بيتحوّل للمبتكر = الطلب − الخصومات · الأوردرات بالفترة في «كشف بالفترة»'),

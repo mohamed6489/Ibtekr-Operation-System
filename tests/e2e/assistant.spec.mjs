@@ -686,3 +686,13 @@ test('ask popups B: «عايز أعدّل» in the header — the popup, «من�
   await expect(panel(page).locator('[data-cf="productEdit"]')).toBeVisible();
   expect(mock.aiCalls.filter((c) => c.action === 'assistant').length, 'no model').toBe(0);
 });
+
+// «إزاي…» (2026-11-28-faults-howto.md, phase B): the header's assistant answers the same way, from the system
+test('«إزاي…» in the header — «إزاي أعمل تصميم جديد» = the campaign\'s steps with their screens, no model', async ({ page }) => {
+  await signIn(page, ADMIN); await page.getByRole('button', { name: 'مساعد AI' }).click();
+  await say(page, 'إزاي أعمل تصميم جديد');
+  const card = panel(page).locator('.ai-msg.ai').last().locator('[data-howto="add.design"]');
+  await expect(card).toBeVisible(); await expect(card.locator('[data-ht-step]')).toHaveCount(2); await expect(card).toContainText('ابدأ كامبين');
+  await expect.poll(() => card.locator('img').first().evaluate((i) => i.complete && i.naturalWidth)).toBeGreaterThan(100);
+  expect(mock.aiCalls.filter((c) => c.action === 'assistant').length, 'no model').toBe(0);
+});

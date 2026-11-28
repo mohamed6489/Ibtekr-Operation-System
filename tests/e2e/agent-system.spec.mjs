@@ -372,3 +372,23 @@ test('ask popups B — «عايز أضيف حاجة»: the popup, «رقم ما�
   expect(await page.evaluate(() => location.hash)).toBe(at);
   expect(asks().length).toBe(0);
 });
+
+// «إزاي…» (2026-11-28-faults-howto.md, phase B — Safwat 28 Nov): a «how do I» in any assistant = the ready answer — numbered steps with the
+// system's screens (a click opens one big) — before the steps and the popups; a «how» it doesn't name = the guides as chips
+test('«إزاي…» — «إزاي أضيف مبتكر» = the steps with their screens, not the add-maker steps; «إزاي أستخدم السيستم» = the guides to pick', async ({ page }) => {
+  await openAi(page, 'المحاسب');
+  await send(page, 'إزاي أضيف مبتكر');
+  const card = lastAns(page).locator('[data-howto="add.maker"]');
+  await expect(card).toBeVisible(); await expect(card.locator('[data-ht-step]')).toHaveCount(3);
+  await expect(card.locator('[data-ht-step="1"]')).toContainText('إضافة مبتكر');
+  await expect.poll(() => card.locator('[data-ht-step="1"] img').evaluate((i) => i.complete && i.naturalWidth)).toBeGreaterThan(100); // the screen loads
+  await expect(pg(page).locator('[data-cf]')).toHaveCount(0); // not the add-maker steps
+  await card.locator('[data-ht-step="2"] .ht-shot').click(); await expect(page.locator('[data-ht-big]')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await send(page, 'إزاي أستخدم السيستم');
+  const menu = lastAns(page).locator('[data-howto-menu]'); await expect(menu).toBeVisible();
+  await menu.locator('[data-ht-pick="settle.maker"]').click();
+  await expect(pg(page).locator('.mk-msg.user').last()).toContainText('إزاي أحاسب مبتكر');
+  await expect(lastAns(page).locator('[data-howto="settle.maker"] [data-ht-step]')).toHaveCount(4);
+  expect(asks().length).toBe(0); // no model
+});

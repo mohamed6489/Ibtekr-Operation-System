@@ -2730,3 +2730,21 @@ span.ntf-num{padding:0 2px 0 4px;gap:0}
 .ap-go{background:var(--color-brand-subtle-bg);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px}
 .ap-note{font-size:12px;color:var(--color-text-secondary);margin:0}
 .ap-p{margin:0;white-space:pre-wrap}
+
+/* «إزاي…» — the ready answer in the assistants' chats and the header one (2026-11-28-faults-howto.md, phase B): numbered steps, the
+   system's screen under each (a click opens it big), and the guides as chips when the «how» names none */
+.ht-card{margin-top:8px;display:flex;flex-direction:column;gap:8px}
+.ht-title{margin:0;font-weight:700;color:var(--color-brand-default)}
+.ht-steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
+.ht-steps>li{display:flex;gap:8px;align-items:flex-start}
+.ht-n{flex:none;width:22px;height:22px;border-radius:50%;background:var(--color-brand-default);color:var(--color-text-gold,#e8d5b3);display:grid;place-items:center;font-size:12px;font-weight:700;margin-top:1px}
+.ht-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+.ht-body>p{margin:0;line-height:1.7}
+.ht-shot{display:block;padding:0;border:1px solid var(--color-border-subtle,#e5dccb);border-radius:8px;overflow:hidden;background:#fff;cursor:zoom-in;width:100%;max-width:440px}
+.ht-shot img{display:block;width:100%;height:auto;max-height:260px;object-fit:cover;object-position:top}
+.ht-shot:hover,.ht-shot:focus-visible{border-color:var(--color-brand-default)}
+.ht-note{margin:0}
+.ht-big{display:block;width:100%;height:auto;border-radius:8px}
+.ht-menu{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+.ht-grp b{display:block;font-size:12px;margin-bottom:4px;color:var(--color-text-secondary,#6b5f4c)}
+.ht-chips{display:flex;flex-wrap:wrap;gap:6px}

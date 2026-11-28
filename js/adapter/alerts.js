@@ -271,9 +271,10 @@
     const time = (x) => Date.parse(x.at);
     const asItem = ({ a }) => { const tone = toneOf(a.kind); const lv = lvOf(a); return { key: 'sa:' + a.id, title: a.title, sub: a.body || '', meta: relTime(a.at, Date.now()), tone, icon: tone === 'error' ? 'alert' : 'bell', muted: a.read, fresh: !a.read,
       lv, lvWord: LV_WORD[lv] || '', av: avatarOf(a), at: a.at, card: cardOf(a),
-      run: () => { markRead(a.id); const m = a.meta || {};
-        if (m.g === 'vendor' && (m.st === 'late' || m.st === 'risk') && typeof open === 'function' && open({ vendorLate: m.gname, vendorId: m.gid, kind: m.st }) !== false) return;
-        if (typeof open === 'function' && open(a) !== false) return; if (a.entity && HASH.test(a.entity)) window.location.hash = a.entity; } }; };
+      // Safwat 28 Nov (alert-popup.js): the click hands the alert and how the bell drew it (its mark, card, level, time) to one popup
+      run: () => { markRead(a.id); const m = a.meta || {}; const x = { av: avatarOf(a), card: cardOf(a), lv, lvWord: LV_WORD[lv] || '', when: relTime(a.at, Date.now()) };
+        if (m.g === 'vendor' && (m.st === 'late' || m.st === 'risk') && typeof open === 'function' && open({ id: a.id, title: a.title, body: a.body, vendorLate: m.gname, vendorId: m.gid, kind: m.st }, x) !== false) return;
+        if (typeof open === 'function' && open(a, x) !== false) return; if (a.entity && HASH.test(a.entity)) window.location.hash = a.entity; } }; };
     // one card per maker for his delay alerts (two or more — one stays a row with his logo)
     const atoms = (list) => {
       const by = new Map(); const out = [];
@@ -294,7 +295,8 @@
         return { key: 'sv:' + m.gid, title: card ? String(newest.a.title || '').replace(/\s+—\s+IB-\d+$/, '') || m.gname || 'مبتكر' : m.gname || 'مبتكر', sub: parts.join(' · '), meta: relTime(newest.a.at, Date.now()), tone: late.length ? 'error' : 'warning', icon: 'package',
           muted: !unread.length, fresh: !!unread.length, lv, lvWord: LV_WORD[lv], av: avatarOf(L[0].a), at: newest.a.at, group: true, count: L.length, card,
           chips: [late.length ? [late.length + ' متأخر', 'error'] : null, risk ? [risk + ' قابل للتأخير', 'warning'] : null, pcs ? [pcs + ' قطعة', 'neutral'] : null].filter(Boolean),
-          run: () => { markMany(L.map((p) => p.a.id)); if (typeof open === 'function') open({ vendorLate: m.gname, vendorId: m.gid, kind: late.length && risk ? 'all' : late.length ? 'late' : 'risk' }); } };
+          run: () => { markMany(L.map((p) => p.a.id)); if (typeof open === 'function') open({ title: m.gname || 'مبتكر', body: parts.join(' · '), vendorLate: m.gname, vendorId: m.gid, kind: late.length && risk ? 'all' : late.length ? 'late' : 'risk' },
+            { av: avatarOf(L[0].a), card, lv, lvWord: LV_WORD[lv], when: relTime(newest.a.at, Date.now()) }); } };
       });
     };
     // the unread first, always — a read one has no green dot and sits below them (Safwat 24 Nov); then critical, important, info; each by
@@ -333,6 +335,11 @@
     try { const { data, error } = await cl.rpc('ai_agent_note_open', { p_id: noteId }); if (error || !data) { window.location.hash = 'ai-' + agent; return true; }
       if (typeof window.IBAiOpen === 'function') window.IBAiOpen(agent, data); else window.location.hash = 'ai-' + agent; return true; } catch (e) { window.location.hash = 'ai-' + agent; return true; }
   }
+  // the chat an assistant's note opens (made on the server once) — the alert's popup talks to the assistant in it (Safwat 28 Nov)
+  async function noteChat(noteId) {
+    const cl = c(); if (!cl) return null;
+    try { const { data, error } = await cl.rpc('ai_agent_note_open', { p_id: noteId }); return error || !data ? null : data; } catch (e) { return null; }
+  }
   const hasTree = () => !!(tree && tree.mains.length);
-  window.IBAlerts = { load, treeSections, avatarOf, lvOf, hasTree, markMany, openNote, list, unread, markRead, markAllRead, subscribe, unsubscribe, clear, section, toneOf, relTime, noteList, noteRead, noteOpen, agentSection, draftOf };
+  window.IBAlerts = { load, treeSections, avatarOf, lvOf, hasTree, markMany, openNote, noteChat, list, unread, markRead, markAllRead, subscribe, unsubscribe, clear, section, toneOf, relTime, noteList, noteRead, noteOpen, agentSection, draftOf };
 })();

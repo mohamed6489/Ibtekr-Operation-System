@@ -837,11 +837,27 @@
     const lvm = m && m.level && m.level !== 'employee' && K.store.alertLevels && K.store.alertLevels[m.level]; const AM = lvm ? Object.assign({}, K.store.alertRoles, lvm) : K.store.alertRoles; // owner batch 2 decision 2: my level's matrix
     return (k) => { let c = NR.access(AM, perms, k, ci, ov[k]); if (c === 'R' && mute.includes(k)) c = 'S'; return c; };
   }
+  // an alert's mark (its owner): a maker's photo / logo / letter, a member's letter, an assistant's icon — the bell's rows and the alert's popup
+  function bellAv(it) { const a = it.av; if (!a) return h('span', { class: 'av ' + it.tone, 'aria-hidden': 'true' }, Icon(it.icon, 'sm'));
+          // bell-redesign decision 20 (Safwat 28 Nov — «في فيندورز اللوجو بتاعهم م ظاهر»): a maker's photo in the system (a signed link,
+          // asked for when drawn) — his store's logo or his letter until it comes
+          if (a.photo && window.IBVendors && window.IBVendors.photoUrl) {
+            const box = a.img ? h('span', { class: 'av img', 'aria-hidden': 'true' }, h('img', { src: a.img, alt: '', loading: 'lazy' })) : h('span', { class: 'av letter vendor', 'aria-hidden': 'true' }, a.letter || '؟');
+            window.IBVendors.photoUrl(a.photo).then((url) => { if (url) { box.className = 'av img'; box.replaceChildren(h('img', { src: url, alt: '', loading: 'lazy' })); } }).catch(() => { /* the letter stays */ });
+            return box; }
+          if (a.img) { const im = h('img', { src: a.img, alt: '', loading: 'lazy' }); const box = h('span', { class: 'av img', 'aria-hidden': 'true' }, im);
+            im.addEventListener('error', () => { box.className = 'av letter vendor'; box.replaceChildren(a.letter || '؟'); }); return box; }
+          if (a.letter) return h('span', { class: 'av letter ' + (a.tone || ''), 'aria-hidden': 'true' }, a.letter);
+          return h('span', { class: 'av ' + (a.tone || it.tone), 'aria-hidden': 'true' }, Icon(a.icon, 'sm')); }
   // the notifications' new structure (Safwat 24 Nov — 0157): once the settings' tree is there, the bell is that tree and nothing else —
   // its main sections (the groups), their sub-sections (the filters) and the alerts the rules wrote; a section, a sub-section or a rule
   // the admin adds shows here as it is. The click: an order opens its popup, a conversation its chat, a request its page, an
   // assistant's note its chat.
-  function treeOpen(a) {
+  function treeOpen(a, x) {
+    // Safwat 28 Nov (docs/superpowers/plans/2026-11-28-alert-popup.md decision 1): any alert opens ONE popup in the middle of the screen —
+    // its facts, what it is about and its actions inside it (alert-popup.js); the page behind never changes
+    if (a && window.IBAlertPopup) { window.IBAlertPopup.open(a, Object.assign({ avEl: bellAv, lateRows: vendorLateRows, lateShare: (v, k) => window.IBShare.open(vendorLateSpec(v, k)),
+      openVendor: (id) => openVendor(id, { inPlace: true }), labelOf: pageLabelOf, go: (hash) => { const o = /^orders\/([\w-]+)$/.exec(hash); if (o) showOrders({ q: o[1] }); else location.hash = hash; } }, x || {})); return true; }
     // the bell's redesign (docs/superpowers/plans/2026-11-24-bell-redesign.md decision 3): a maker's card opens his late orders — each
     // order opens from there, and «مشاركة» sends them to him
     if (a && a.vendorLate) { openVendorLate(a.vendorLate, a.kind || 'all'); return true; }
@@ -918,17 +934,7 @@
         tabs.setAttribute('aria-label', 'تابات ' + sec.label); if (sec.tree) tabs.classList.add('ntf-chiptabs');
         // the bell's redesign decision 2: the alert's owner instead of a bell — a maker's logo, a member's / a customer's first letter in a
         // circle, an assistant's icon, else its element's; the level as a tag (حرج / مهم), a maker's card with its counts as chips
-        const avEl = (it) => { const a = it.av; if (!a) return h('span', { class: 'av ' + it.tone, 'aria-hidden': 'true' }, Icon(it.icon, 'sm'));
-          // bell-redesign decision 20 (Safwat 28 Nov — «في فيندورز اللوجو بتاعهم م ظاهر»): a maker's photo in the system (a signed link,
-          // asked for when drawn) — his store's logo or his letter until it comes
-          if (a.photo && window.IBVendors && window.IBVendors.photoUrl) {
-            const box = a.img ? h('span', { class: 'av img', 'aria-hidden': 'true' }, h('img', { src: a.img, alt: '', loading: 'lazy' })) : h('span', { class: 'av letter vendor', 'aria-hidden': 'true' }, a.letter || '؟');
-            window.IBVendors.photoUrl(a.photo).then((url) => { if (url) { box.className = 'av img'; box.replaceChildren(h('img', { src: url, alt: '', loading: 'lazy' })); } }).catch(() => { /* the letter stays */ });
-            return box; }
-          if (a.img) { const im = h('img', { src: a.img, alt: '', loading: 'lazy' }); const box = h('span', { class: 'av img', 'aria-hidden': 'true' }, im);
-            im.addEventListener('error', () => { box.className = 'av letter vendor'; box.replaceChildren(a.letter || '؟'); }); return box; }
-          if (a.letter) return h('span', { class: 'av letter ' + (a.tone || ''), 'aria-hidden': 'true' }, a.letter);
-          return h('span', { class: 'av ' + (a.tone || it.tone), 'aria-hidden': 'true' }, Icon(a.icon, 'sm')); };
+        const avEl = bellAv; // bell-redesign decision 20 — at the top (the alert's popup draws the same mark, alert-popup decision 2)
         // an order alert of customer service (Safwat 25 Nov — bell-redesign decision 17): the customer's first letter, his phone with
         // «نسخ» / WhatsApp (a masked one — no rights to the phone — shown as it is), then the order's status, «محتاج متابعة» when late or
         // about to be, its sub-orders and the late makers; the card is a div so its buttons are its own (a button cannot hold buttons)
@@ -987,12 +993,27 @@
   }
 
   // ---------- vendor late / at-risk orders popup — Figma: Modal / Vendor late orders 259:390 ----------
+  // a maker's late / about-to-be lines (his aliases too), the late first then the oldest — his popup and the alert's popup (alert-popup.js)
+  function vendorLateRows(vendor, kind) {
+    const v = vstore.findByName ? vstore.findByName(vendor) : null;
+    const seen = new Set(); const rows = [];
+    for (const n of [vendor].concat(v ? [v.name].concat(v.aliases || []) : [])) for (const r of (OA().lateOrders ? OA().lateOrders(n, kind) : [])) { const k = r.id + '|' + r.sid; if (!seen.has(k)) { seen.add(k); rows.push(r); } }
+    return rows.sort((a, b) => (a.state === b.state ? 0 : a.state === 'late' ? -1 : 1) || b.age - a.age);
+  }
+  function vendorLateSpec(vendor, kind) {
+    const v = vstore.findByName ? vstore.findByName(vendor) : null; const rows = vendorLateRows(vendor, kind);
+    const title = (kind === 'all' ? 'أوردرات متأخرة وقابلة للتأخير — ' : kind === 'risk' ? 'أوردرات قابلة للتأخير — ' : 'أوردرات متأخرة — ') + vendor;
+    return { title, name: title, sub: rows.length + ' أوردر', phone: v && v.phone, email: v && v.email, text: title + ' — ' + rows.map((r) => 'IB-' + r.id + ' (' + r.age + ' يوم)').join('، '),
+      headers: ['رقم الأوردر'].concat(kind === 'all' ? ['التأخير'] : [], ['العميل', 'المنتج', 'SKU', 'الكمية', 'حالة المنتج', 'تاريخ تبليغ المبتكر', 'عمر الأوردر']),
+      rows: rows.map((r) => ['IB-' + r.id].concat(kind === 'all' ? [r.state === 'late' ? 'متأخر' : 'قابل للتأخير'] : [], [r.name, { text: r.prod, img: OA().thumb(r.sku) || '' }, r.sku || '—', r.qty, r.ss || '—', r.exp ? D.formatDateNumeric(r.exp) : '—', r.age + ' يوم'])),
+      onDone: (x) => log.append({ action: 'vendor.notify', actor: ACTOR, newValue: vendor + ' · ' + ({ whatsapp: 'واتساب', email: 'إيميل', download: 'تحميل' }[x.via] || x.via) + ' · ' + rows.length + ' أوردر' }) };
+  }
+  // a page's name for a link (the side menu's own, else the hash)
+  function pageLabelOf(hash) { const k = String(hash || '').split(/[-/]/)[0]; const n = NAV.find((x) => x[2] === k); return n ? n[1] : k === 'settings' ? 'الإعدادات' : k === 'ai' ? 'الذكاء الاصطناعي' : 'الصفحة'; }
   function openVendorLate(vendor, kind) {
     const v = vstore.findByName ? vstore.findByName(vendor) : null;
     // kind: 'risk' | 'late' | 'all' (both — owner 22 Oct, from the «قابلة للتأخير / متأخرة» details rows); aliases too
-    const seen = new Set(); const rows = [];
-    for (const n of [vendor].concat(v ? [v.name].concat(v.aliases || []) : [])) for (const r of (OA().lateOrders ? OA().lateOrders(n, kind) : [])) { const k = r.id + '|' + r.sid; if (!seen.has(k)) { seen.add(k); rows.push(r); } }
-    rows.sort((a, b) => (a.state === b.state ? 0 : a.state === 'late' ? -1 : 1) || b.age - a.age);
+    const rows = vendorLateRows(vendor, kind);
     const lateN = rows.filter((r) => r.state === 'late').length, riskN = rows.length - lateN;
     const oldest = rows.length ? Math.max(...rows.map((r) => r.age)) : 0;
     const title = (kind === 'all' ? 'أوردرات متأخرة وقابلة للتأخير — ' : kind === 'risk' ? 'أوردرات قابلة للتأخير — ' : 'أوردرات متأخرة — ') + vendor;

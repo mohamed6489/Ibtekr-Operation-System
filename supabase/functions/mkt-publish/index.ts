@@ -16,6 +16,13 @@
 //     delete       (marketing.publish F) { id } → a published row with its platform id: DELETE on Meta, then «اتحذف» (was_live);
 //                  Meta saying it is gone already counts as done; a refusal = 502 { error } and the row stays «اتنشر».
 //     due / stats  (the admin, by hand) as the crons.
+//     trends_free  (marketing.view) { q?, days? } → the free trend sources read now (2026-11-28-trends-free.md): YouTube's videos and
+//                  Shorts by views, Google Trends' rising searches in Egypt (SerpApi), the competitors' last Instagram posts (Business
+//                  Discovery through the page link) → the new ones into mkt_trends as one batch; { rows, states, words, days, count, text }
+//                  — a source not linked says not_linked (its key is added from «الربط بالمنصات»).
+//     trends_daily (the cron mkt-trends-daily hourly with the sync secret — 0175; or the admin by hand) → the same on the admin's tags,
+//                  once a day from DAILY_HOUR Cairo time (sync_state «trends_daily»); the bell says the new ones through the notify
+//                  engine's «آخر التريندات» rules.
 // Publishing (decisions 32–35): Facebook — a post = one photo published with its text; a carousel = hidden photos then one feed post
 // with them attached; a story = a hidden photo then a photo story; a reel (9.5.5, decision 63) = video_reels start → the MP4 by its
 // signed link on rupload → finish with the text. Instagram — a container (an image with its caption, a story, a REELS video, or the
@@ -31,6 +38,9 @@ import {
   STATS_DAYS, body, cairoParts, connectionOf, containerState, fbStatsOf, graphErrorCode, idOf, igStatsOf, linkOf, ourCode, path, planOf, platformRowsOf, scopesOf,
 } from '../_shared/mkt-publish.js';
 import { pin, postPath } from '../_shared/meta-pin.js';
+import { CACHE_HOURS, DAILY_HOUR, FREE_DAYS, GT_DAY_MAX, GT_MAX, YT_DAY_MAX, afterOf, answerText, bdRows, bdUrl, codeOf, competitorsOf, gtEmpty, gtRows, gtUrl, keywordsOf, mergeRows, parseFree, tagOf, ytIds, ytRows, ytSearchUrl, ytVideosUrl } from '../_shared/mkt-trends-free.js';
+import { sourcesOf } from '../_shared/agent-sources.js';
+import { vaultEnv } from '../_shared/secrets.js';
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -42,7 +52,7 @@ export type Deps = {
   fetch?: typeof fetch; sleep?: (ms: number) => Promise<void>;
 };
 
-const ACTIONS = ['status', 'autopublish', 'publish_now', 'delete', 'due', 'stats', 'trends_ig'];
+const ACTIONS = ['status', 'autopublish', 'publish_now', 'delete', 'due', 'stats', 'trends_ig', 'trends_free', 'trends_daily'];
 const GRAPH_MS = 20_000;
 const SIGN_SECONDS = 900;
 const VIDEO_SIGN_SECONDS = 3600; // a reel's video (decision 63): Meta fetches it while it processes
@@ -342,6 +352,128 @@ async function trendsIg(deps: Deps, who: Who): Promise<Response> {
   return json(200, { result: 'ok', count, found: fresh.length, skipped: skipped.slice(0, 30) });
 }
 
+// ---------------------------------------------------------------- the trends from the free sources (2026-11-28-trends-free.md)
+
+// YouTube (its Google Cloud key), Google Trends (SerpApi's key) and the competitors' Instagram posts (Business Discovery through the
+// page link above) — each read only, each skipped while it is not linked; the keys come from «الربط بالمنصات» (Vault, vaultEnv) and
+// never leave this function. A keyword asked lately is answered from what is stored (sync_state «trends_free»: YouTube and Instagram
+// for CACHE_HOURS, Google Trends once a day — the free plan's 250 a month). The new rows go to mkt_trends as one batch: the notify
+// engine's «آخر التريندات» rules (ai › designer / buyer › trends) say them in the bell under the assistants.
+const TREND_COLS = 'id, title, summary, source, url, kind, platform, external_id, tag, author, views, likes, comments, posted_at, thumb, found_at';
+const GT_HOURS = 20;
+type FreeOut = { rows: Json[]; states: Record<string, string>; kws: string[]; days: number; count: number };
+async function freeGet(deps: Deps, url: string, headers: Record<string, string>): Promise<{ status: number; body: Json | null }> {
+  const f = deps.fetch ?? fetch; const ctl = new AbortController(); const timer = setTimeout(() => ctl.abort(), GRAPH_MS);
+  try {
+    const res = await f(url, { method: 'GET', headers: { accept: 'application/json', ...headers }, signal: ctl.signal, redirect: 'manual' });
+    let b: unknown = null; try { b = await res.json(); } catch { b = null; }
+    return { status: res.status, body: isObj(b) ? b : null };
+  } catch { return { status: 0, body: null }; } finally { clearTimeout(timer); }
+}
+const listOf = (r: { data?: unknown }) => (Array.isArray(r.data) ? r.data as Json[] : []);
+async function readFree(deps: Deps, req: { q: string; days: number }, uid: string | null): Promise<FreeOut> {
+  const env = await vaultEnv(deps.db, deps.env);
+  const yt = String(env.YOUTUBE_API_KEY ?? '').trim(); const serp = String(env.SERPAPI_API_KEY ?? '').trim();
+  const set = await settingsOf(deps); const kws = keywordsOf(req.q, isObj(set.trends) ? set.trends.tags : null);
+  const at = deps.now(); const nowMs = Date.parse(at); const sinceMs = nowMs - req.days * 86400_000; const since = new Date(sinceMs).toISOString(); const day = cairoParts(nowMs).day;
+  const { data: cst } = await deps.db.from('sync_state').select('value').eq('key', 'trends_free').maybeSingle();
+  const last: Record<string, string> = isObj(cst) && isObj(cst.value) && isObj(cst.value.last) ? { ...cst.value.last } : {};
+  // the day's searches so far (Cairo's day) — the free plans' caps, whatever the members ask
+  const use0 = isObj(cst) && isObj(cst.value) && isObj(cst.value.use) && cst.value.use.day === day ? cst.value.use : null;
+  const use = { day, yt: Number(use0?.yt) || 0, gt: Number(use0?.gt) || 0 };
+  const fresh = (k: string, hours: number) => typeof last[k] === 'string' && nowMs - Date.parse(last[k]) < hours * 3600_000;
+  const states: Record<string, string> = {}; const lists: Json[][] = []; const stored: Json[] = [];
+  const fromTable = async (q: Db) => { stored.push(...listOf(await q.limit(40))); };
+  // YouTube: each keyword's most viewed videos of the window, then their numbers in one call
+  if (!yt) states.youtube = 'not_linked';
+  else if (!kws.length) states.youtube = 'no_words';
+  else {
+    const kwOf = new Map<string, string>(); let code: string | null = null; let asked = 0;
+    for (const kw of kws) {
+      if (fresh('yt:' + kw, CACHE_HOURS)) { const t = tagOf(kw); if (t) await fromTable(deps.db.from('mkt_trends').select(TREND_COLS).eq('platform', 'youtube').eq('tag', t).gte('posted_at', since).order('views', { ascending: false })); continue; }
+      if (use.yt >= YT_DAY_MAX) { code = 'quota'; break; }
+      use.yt += 1;
+      const s = await freeGet(deps, ytSearchUrl(kw, afterOf(at, req.days)), { 'x-goog-api-key': yt });
+      if (s.status !== 200) { code = codeOf(s.status); if (code === 'unauthorized' || code === 'quota') break; continue; }
+      asked += 1; last['yt:' + kw] = at;
+      for (const id of ytIds(s.body)) if (!kwOf.has(id)) kwOf.set(id, kw);
+    }
+    const ids = [...kwOf.keys()].slice(0, 50);
+    if (ids.length) { const v = await freeGet(deps, ytVideosUrl(ids), { 'x-goog-api-key': yt }); if (v.status === 200) lists.push(ytRows(v.body, kwOf, sinceMs)); else code = codeOf(v.status); }
+    states.youtube = asked || stored.length || !code ? 'ok' : code;
+  }
+  // Google Trends through SerpApi: the first GT_MAX keywords, each once a day
+  if (!serp) states.google = 'not_linked';
+  else if (!kws.length) states.google = 'no_words';
+  else {
+    let code: string | null = null; let ok = 0;
+    for (const kw of kws.slice(0, GT_MAX)) {
+      const t = tagOf(kw);
+      if (fresh('gt:' + kw, GT_HOURS)) { ok += 1; if (t) await fromTable(deps.db.from('mkt_trends').select(TREND_COLS).eq('platform', 'google').eq('tag', t).like('external_id', 'gt-' + cairoParts(Date.parse(last['gt:' + kw])).day + '-%')); continue; }
+      if (use.gt >= GT_DAY_MAX) { code = 'quota'; break; }
+      use.gt += 1;
+      const r = await freeGet(deps, gtUrl(kw, serp, req.days), {});
+      if (r.status === 200 && r.body && typeof r.body.error !== 'string') { lists.push(gtRows(r.body, kw, day, req.days)); ok += 1; last['gt:' + kw] = at; }
+      else if (r.status === 200 && gtEmpty(r.body)) { ok += 1; last['gt:' + kw] = at; }
+      else { code = codeOf(r.status === 200 ? 400 : r.status); if (code === 'unauthorized' || code === 'quota') break; }
+    }
+    states.google = ok || !code ? 'ok' : code;
+  }
+  // the competitors on Instagram: the accounts among the designer's and the media buyer's sources and the competitors' list
+  const { data: aiRow } = await deps.db.from('settings').select('data').eq('section', 'ai').maybeSingle();
+  const ai = isObj(aiRow) && isObj(aiRow.data) ? aiRow.data : {};
+  const { data: comps } = await deps.db.from('mkt_competitors').select('name, page_url').is('archived_at', null).limit(100);
+  const rivals = competitorsOf([...sourcesOf(ai, 'designer'), ...sourcesOf(ai, 'buyer')], Array.isArray(comps) ? comps : []);
+  const page = rivals.length ? await pageOf(deps) : null;
+  if (!rivals.length) states.instagram = 'none';
+  else if (!page || !page.ig || !/^\d{1,30}$/.test(String(page.ig.id))) states.instagram = 'not_linked';
+  else {
+    let code: string | null = null; let ok = 0;
+    for (const w of rivals) {
+      if (fresh('ig:' + w.username, CACHE_HOURS)) { ok += 1; await fromTable(deps.db.from('mkt_trends').select(TREND_COLS).eq('platform', 'instagram').eq('author', '@' + w.username).gte('posted_at', since)); continue; }
+      try { lists.push(bdRows(await graph(deps, 'GET', bdUrl(String(page.ig.id), w.username), { token: page.token }), w, sinceMs)); ok += 1; last['ig:' + w.username] = at; }
+      catch (e) { code = ourCode(e instanceof GraphError ? e.code : 'failed'); if (IG_TAG_PAUSE.has(code)) break; }
+    }
+    states.instagram = ok ? 'ok' : code ?? 'failed';
+  }
+  await deps.db.from('sync_state').upsert({ key: 'trends_free', value: { last, use }, updated_at: at }, { onConflict: 'key' });
+  const merged = mergeRows(lists, 60); let count = 0;
+  if (merged.length) {
+    const batch = crypto.randomUUID();
+    const { data } = await deps.db.from('mkt_trends').upsert(merged.map((r) => ({ ...r, batch, found_at: at, created_by: uid })), { onConflict: 'platform,external_id', ignoreDuplicates: true }).select('id');
+    count = Array.isArray(data) ? data.length : 0;
+  }
+  // the rows as stored (their id and picture) in the run's order, then the ones answered from the table
+  const ids = [...new Set(merged.map((r) => String(r.external_id)))];
+  const got = ids.length ? listOf(await deps.db.from('mkt_trends').select(TREND_COLS).in('external_id', ids).limit(200)) : [];
+  const byKey = new Map(got.concat(stored).map((r) => [r.platform + ':' + r.external_id, r] as [string, Json]));
+  const order = merged.map((r) => r.platform + ':' + r.external_id).concat(stored.map((r) => r.platform + ':' + r.external_id));
+  const rows = mergeRows([[...new Set(order)].map((k) => byKey.get(k)).filter(Boolean) as Json[]], 60);
+  return { rows, states, kws, days: req.days, count };
+}
+
+// trends_free (marketing.view): the chat's «آخر التريندات» and the trends card's refresh — the rows found and each source's state
+async function trendsFree(deps: Deps, who: Who, args: Json): Promise<Response> {
+  if (!who.view) return json(401, { error: 'unauthorized' });
+  const p = parseFree(args); if ('error' in p) return json(400, p);
+  if ((await deps.db.from('mkt_trends').select('id, platform').limit(1)).error) return json(503, { error: 'not_ready' }); // 0118
+  const out = await readFree(deps, p.req, who.uid);
+  await logActivity(deps, who, 'mkt.trends.free', 'trends', { days: out.days, words: out.kws.length, count: out.count, found: out.rows.length, ...out.states });
+  return json(200, { result: 'ok', rows: out.rows, states: out.states, words: out.kws, days: out.days, count: out.count, text: answerText(out.rows, out.states, out.days, out.kws) });
+}
+
+// trends_daily (the cron hourly, or the admin by hand): once a day from DAILY_HOUR Cairo time, on the admin's tags and the competitors
+async function trendsDaily(deps: Deps, byHand: Who | null): Promise<Response> {
+  if ((await deps.db.from('mkt_trends').select('id, platform').limit(1)).error) return json(503, { error: 'not_ready' });
+  const p = cairoParts(Date.parse(deps.now()));
+  if (!byHand && Number(p.time.slice(0, 2)) < DAILY_HOUR) return json(200, { result: 'skipped', reason: 'hour' });
+  const { data: st } = await deps.db.from('sync_state').select('value').eq('key', 'trends_daily').maybeSingle();
+  if (!byHand && isObj(st) && isObj(st.value) && st.value.day === p.day) return json(200, { result: 'skipped', reason: 'done' });
+  const out = await readFree(deps, { q: '', days: FREE_DAYS }, byHand ? byHand.uid : null);
+  await deps.db.from('sync_state').upsert({ key: 'trends_daily', value: { day: p.day, at: deps.now(), count: out.count, found: out.rows.length, states: out.states }, updated_at: deps.now() }, { onConflict: 'key' });
+  return json(200, { result: 'ok', day: p.day, count: out.count, found: out.rows.length, states: out.states });
+}
+
 // ---------------------------------------------------------------- the members' actions
 
 async function status(deps: Deps, who: Who): Promise<Response> {
@@ -415,8 +547,8 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
   // the crons: the sync secret of 0008, `due` and `stats` only — never a member's action
   const syncSecret = req.headers.get('x-sync-secret');
   if (syncSecret && !req.headers.get('authorization')) {
-    if ((action !== 'due' && action !== 'stats') || !(await syncAllowed(deps, syncSecret))) return json(401, { error: 'unauthorized' });
-    try { return action === 'due' ? await due(deps) : await stats(deps); }
+    if ((action !== 'due' && action !== 'stats' && action !== 'trends_daily') || !(await syncAllowed(deps, syncSecret))) return json(401, { error: 'unauthorized' });
+    try { return action === 'due' ? await due(deps) : action === 'stats' ? await stats(deps) : await trendsDaily(deps, null); }
     catch (e) { console.error('mkt-publish ' + action + ': ' + quiet(e)); return json(500, { error: 'failed' }); }
   }
   const who = await whoIs(req, deps);
@@ -428,8 +560,9 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'publish_now') return await publishNow(deps, who, args);
     if (action === 'delete') return await deleteLive(deps, who, args);
     if (action === 'trends_ig') return await trendsIg(deps, who);
-    if (!who.admin) return json(401, { error: 'unauthorized' }); // due / stats by hand: the admin
-    return action === 'due' ? await due(deps) : await stats(deps);
+    if (action === 'trends_free') return await trendsFree(deps, who, args);
+    if (!who.admin) return json(401, { error: 'unauthorized' }); // due / stats / trends_daily by hand: the admin
+    return action === 'due' ? await due(deps) : action === 'stats' ? await stats(deps) : await trendsDaily(deps, who);
   } catch (e) {
     console.error('mkt-publish ' + action + ': ' + quiet(e));
     return json(500, { error: 'failed' });

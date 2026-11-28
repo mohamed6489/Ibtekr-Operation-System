@@ -811,10 +811,10 @@
   // table is not there: the list is empty and `ready` is false. The log carries the count only.
   const noTable = (err) => !!err && (err.code === '42P01' || err.code === 'PGRST205' || /does not exist|schema cache/i.test(String(err.message || '')));
   let trendRows = null; let trendsAt = 0; let trendsReady = true;
-  const PLATFORMS = ['tiktok', 'instagram', 'facebook', 'web'];
+  const PLATFORMS = ['tiktok', 'instagram', 'facebook', 'youtube', 'google', 'web']; // + YouTube and Google Trends (0175 — the free sources)
   const cnt = (v) => (v !== '' && num(v) != null && num(v) >= 0 ? num(v) : null);
   const toTrend = (r) => ({ id: r.id, batch: r.batch || null, title: clean(r.title, 160), summary: clean(r.summary, 600), source: clean(r.source, 80) || '—', url: /^https:\/\/[^\s<>"]+$/.test(String(r.url || '')) ? String(r.url) : '',
-    kind: r.kind === 'video' ? 'video' : 'image', at: r.found_at || null,
+    kind: r.kind === 'video' ? 'video' : r.kind === 'search' ? 'search' : 'image', at: r.found_at || null,
     // ش39 (0118): the post's platform, the tag it came from, its picture (a path in the bucket — signed by trendThumbs), author and numbers
     platform: PLATFORMS.includes(r.platform) ? r.platform : 'web', tag: clean(r.tag, 40), thumb: /^trends\/[0-9]{4}-[0-9]{2}\/[0-9]+\.(png|jpg|webp)$/.test(String(r.thumb || '')) ? r.thumb : null,
     author: clean(r.author, 80), views: cnt(r.views), likes: cnt(r.likes), comments: cnt(r.comments), postedAt: r.posted_at || null });
@@ -856,6 +856,35 @@
     log('trends.refresh', String(n), null);
     await trends(true); emit();
     return { ok: true, count: n, ig };
+  }
+  // the trends from free sources (Safwat 28 Nov — docs/superpowers/plans/2026-11-28-trends-free.md): mkt-publish `trends_free` reads
+  // YouTube, Google Trends (SerpApi) and the competitors' Instagram posts now — each source that is not linked says so (its key is
+  // added from «الإعدادات › الربط بالمنصات»). The rows found (the stored ones, with their id and picture) and the answer's text; then
+  // the new rows' pictures and the list again. marketing.view; the log carries the counts only.
+  const FREE_STATES = ['youtube', 'google', 'instagram'];
+  async function trendsFree(o) {
+    if (!can().view) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
+    const q = clean((o && o.q) || '', 80); if (/[<>]/.test(q)) return { ok: false, reason: 'invalid', field: 'q', message: 'من غير < أو >' };
+    const days = Number((o && o.days) || 3); if (!(Number.isInteger(days) && days >= 1 && days <= 30)) return { ok: false, reason: 'invalid', field: 'days', message: 'الفترة من يوم لـ 30 يوم' };
+    const r = await invoke('mkt-publish', { action: 'trends_free', q, days });
+    if (!r.ok) return Object.assign(r, { message: (r.code && TREND_MESSAGES[r.code]) || r.message || 'ماقدرتش أجيب التريندات — جرّب تاني' });
+    const b = r.body || {};
+    const states = {}; FREE_STATES.forEach((k) => { const v = b.states && b.states[k]; if (typeof v === 'string' && /^[a-z_]{1,20}$/.test(v)) states[k] = v; });
+    const rows = (Array.isArray(b.rows) ? b.rows : []).map(toTrend).filter((x) => x.title && x.url);
+    if (Number(b.count) > 0) await trendThumbsFetch();
+    await trends(true); emit();
+    return { ok: true, rows: rows.map((x) => (trendRows || []).find((y) => y.id === x.id) || x), states, text: typeof b.text === 'string' ? b.text.slice(0, 4000) : '', words: (Array.isArray(b.words) ? b.words : []).map((w) => clean(w, 80)).filter(Boolean), days, count: Number(b.count) || 0 };
+  }
+  // one batch's rows (the bell's «آخر التريندات» alert opens its batch — alert-popup.js)
+  async function trendsBatch(batch) {
+    if (!can().view) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
+    if (!/^[0-9a-f-]{36}$/i.test(String(batch || ''))) return { ok: false, reason: 'invalid', message: MESSAGES.invalid };
+    const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
+    try {
+      const { data: d, error } = await cl.from('mkt_trends').select(TREND_COLS2).eq('batch', batch).order('id', { ascending: true }).limit(60);
+      if (error) return fail(error);
+      return { ok: true, items: (d || []).map(toTrend).filter((x) => x.title && x.url) };
+    } catch (e) { return fail(null); }
   }
   // the pictures of the rows that have none yet (12 a call on the server; three calls at most here)
   async function trendThumbsFetch() {
@@ -1574,7 +1603,7 @@
     suggestions, suggNow, decide, campaignSet, adsDataNow, rules, rulesNow, rulesSet, setLive, requests, reqsNow, addRequest, REQ_KIND: KIND_OF, buyerChat,
     agentChats, agentTurns, agentAsk, agentFacts, agentLocal, agentImage, agentRename, agentDelete, agentSettings, agentSettingsNow, agentSettingsSet, AGENT_KEYS,
     agents, agentsNow, agentOf, agentSave, agentArchive, agentOrder, readyList, readyNow, readySave, readyDelete, kbList, kbListNow, kbSetAll, kbReset, kbRewrite, AGENT_PERMS, AGENT_SEES,
-    trends, trendsNow, trendsReadyNow, trendsRefresh, trendThumbsFill, trendThumbs, trendThumbNow, trendSettings, trendSettingsNow, trendSettingsSet, adTagsSet, agentKbSet, KB, competitors, competitorsNow, competitorsReadyNow, competitorSave, competitorArchive, competitorBrief,
+    trends, trendsNow, trendsReadyNow, trendsRefresh, trendsFree, trendsBatch, trendThumbsFill, trendThumbs, trendThumbNow, trendSettings, trendSettingsNow, trendSettingsSet, adTagsSet, agentKbSet, KB, competitors, competitorsNow, competitorsReadyNow, competitorSave, competitorArchive, competitorBrief,
     siteCheck, siteCheckNow, siteReadyNow, siteCheckRun, siteSpeed, siteSpeedNow, siteSpeedRun, pixel, pixelNow, pixelRun, siteSubs, siteSubsNow, aiSpend, aiSpendNow,
     addTemplate, editTemplate, removeTemplate, templateUsed, subscribe, unsubscribe, check, MAX_BYTES, MIME, BUCKET,
     _test: { toCampaign, toPost, toTemplate, fail, aiMessage, fieldsOf, tplRow, pubMessage, toSuggestion, toRequest, toRules, toChat, toTurn } };

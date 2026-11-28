@@ -537,3 +537,26 @@ Deno.test('faults and storage (0173): the screen\'s errors, the site\'s sync, a 
   await cron({ ...s.deps, now: () => '2026-11-09T08:00:00.000Z' });
   assert(s.db.rows('alerts').filter((a: any) => a.rule_id === 'r-space').every((a: any) => a.hide_at), 'under 80% of the paid plan: the alert leaves the bell');
 });
+
+// the trends from free sources (0175 — Safwat 28 Nov: «في الجرس تنبيهات الترندات بتيجي في المساعدين و نضيفها في التنبهات زي ما السيستم»):
+// a batch of new trends since the last run = one «آخر التريندات» alert for the designer and one for the media buyer, by source
+Deno.test('«آخر التريندات» (0175): the designer\'s and the media buyer\'s rules each tell a new batch once, its count by source and the first title; the batch\'s id is the alert\'s', async () => {
+  const LAST = '2026-11-08T07:45:00.000Z'; const B = '00000000-0000-4000-8000-00000000b175';
+  const s = withRules([
+    rule('r-tr-d', { name: 'آخر التريندات', element: 'ai', type: 'designer', state: 'trends', at: '00:00', show: 'until_read', hours: 6, roles: ['admin'], last_run: LAST }),
+    rule('r-tr-b', { name: 'آخر التريندات', element: 'ai', type: 'buyer', state: 'trends', at: '00:00', show: 'until_read', hours: 6, roles: ['admin'], last_run: LAST })],
+  (seed) => {
+    seed.mkt_trends = [
+      { id: 1, batch: B, title: 'مكرمية حائط', platform: 'google', found_at: '2026-11-08T07:50:00Z' },
+      { id: 2, batch: B, title: 'فيديو 1', platform: 'youtube', found_at: '2026-11-08T07:50:00Z' },
+      { id: 3, batch: B, title: 'فيديو 2', platform: 'youtube', found_at: '2026-11-08T07:50:00Z' },
+      { id: 4, batch: B, title: 'بوست منافس', platform: 'instagram', found_at: '2026-11-08T07:50:00Z' },
+      { id: 5, batch: '00000000-0000-4000-8000-00000000b170', title: 'قديم', platform: 'web', found_at: '2026-11-08T07:00:00Z' }]; // before the last run
+  });
+  const r = await cron(s.deps); assertEquals(r.res.status, 200, JSON.stringify(r.body));
+  const A = s.db.rows('alerts').filter((a: any) => a.rule_id === 'r-tr-d' || a.rule_id === 'r-tr-b');
+  assertEquals(A.map((a: any) => [a.rule_id, a.entity, a.entity_id]).sort(), [['r-tr-b', 'ai-buyer', 'tr:' + B], ['r-tr-d', 'ai-designer', 'tr:' + B]]);
+  for (const a of A) assert(/4 تريند جديد \(يوتيوب 2 · (بحث جوجل 1 · إنستجرام 1|إنستجرام 1 · بحث جوجل 1)\) — /.test(String(a.body)), a.body);
+  await cron({ ...s.deps, now: () => '2026-11-08T08:30:00.000Z' });
+  assertEquals(s.db.rows('alerts').filter((a: any) => a.rule_id === 'r-tr-d').length, 1, 'the same batch is told once');
+});

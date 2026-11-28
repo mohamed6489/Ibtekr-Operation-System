@@ -8,7 +8,7 @@ const by = (sys, id) => sys.find((s) => s.id === id);
 
 test('nothing linked: every group says so; the server and the tools are on; the code is watched from GitHub', () => {
   const sys = M.systemsOf({ now: NOW });
-  assert.equal(sys.length, 11);
+  assert.equal(sys.length, 12); // + the trends' free sources (0175)
   assert.equal(by(sys, 'site').state, 'unlinked'); assert.equal(by(sys, 'text').state, 'unlinked'); assert.equal(by(sys, 'mail').state, 'unlinked');
   assert.equal(by(sys, 'core').state, 'on'); assert.equal(by(sys, 'tools').state, 'on'); assert.equal(by(sys, 'code').state, 'idle');
   assert.match(M.coreLine(sys), /مش مربوطين/);
@@ -42,4 +42,14 @@ test('Meta and the ads from the channels and the accounts; today\'s events count
   assert.equal(by(sys, 'site').today, 2); assert.equal(by(sys, 'meta').today, 1); assert.equal(by(sys, 'image').today, 1); assert.equal(by(sys, 'core').today, 1);
   assert.deepEqual(M.eventOf('order.status'), { sys: 'site', text: 'حالة أوردر اتغيّرت', out: false });
   assert.equal(M.eventOf('share.email').sys, 'mail');
+});
+
+test('the trends\' free sources (0175): YouTube and SerpApi as one group — unlinked until a key is added, on when one is, paused by its card', () => {
+  const by = (sys, id) => sys.find((s) => s.id === id);
+  const none = by(M.systemsOf({ now: NOW }), 'trends');
+  assert.equal(none.state, 'unlinked'); assert.equal(none.now, 'مش مربوطة'); assert.deepEqual(none.parts.map((p) => p.key), ['youtube', 'serpapi']);
+  const one = by(M.systemsOf({ now: NOW, links: { youtube: { ready: true } } }), 'trends');
+  assert.equal(one.parts[0].state, 'on'); assert.equal(one.now, 'YouTube');
+  const paused = by(M.systemsOf({ now: NOW, links: { youtube: { ready: true }, serpapi: { ready: true } }, paused: { youtube: '2099-01-01T00:00:00Z' } }), 'trends');
+  assert.equal(paused.parts[0].state, 'paused'); assert.equal(paused.parts[1].state, 'on');
 });

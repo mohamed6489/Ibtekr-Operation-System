@@ -488,3 +488,27 @@ test('decision 20 — a maker\'s photo in the system is his mark in the bell', a
   const item = page.locator('.menu.notif .ntf-item').first();
   await expect(item.locator('.av.img img')).toHaveAttribute('src', /vendor-photos/);
 });
+
+// the trends from free sources (0175 — Safwat 28 Nov: «في الجرس تنبيهات الترندات بتيجي في المساعدين»): «آخر التريندات» opens its batch in
+// the same popup — each trend a link to its post — with the assistant's chat and its page from there
+test('0175 — a «آخر التريندات» alert opens its batch in the popup: each trend a link, «كمّل مع المساعد» and «كل التريندات»', async ({ page }) => {
+  const B = 'b0000000-0000-4000-8000-00000000a175'; const now = new Date().toISOString();
+  mock.mkt.trends = [
+    { id: 91, batch: B, title: 'فيديو مكرمية الأكتر مشاهدة', summary: null, source: 'YouTube', url: 'https://www.youtube.com/watch?v=AAAAAAAAAA1', kind: 'video', platform: 'youtube', tag: 'مكرمية', thumb: null, author: 'قناة الهاند ميد', views: 52000, likes: null, comments: null, posted_at: now, external_id: 'AAAAAAAAAA1', found_at: now },
+    { id: 92, batch: B, title: 'مكرمية حائط', summary: 'طالع +250% في بحث جوجل في مصر', source: 'Google Trends', url: 'https://trends.google.com/trends/explore?geo=EG&q=x', kind: 'search', platform: 'google', tag: 'مكرمية', thumb: null, author: null, views: null, likes: null, comments: null, posted_at: null, external_id: 'gt-2026-11-28-0a1b2c3d', found_at: now },
+    { id: 93, batch: 'b0000000-0000-4000-8000-00000000a170', title: 'دفعة تانية', summary: null, source: 'Later', url: 'https://later.com/x', kind: 'image', platform: 'web', tag: null, thumb: null, author: null, views: null, likes: null, comments: null, posted_at: null, external_id: null, found_at: now }];
+  mock.alerts = [{ id: 811, at: iso(2), kind: 'rule:ai.designer', title: 'آخر التريندات', body: '2 تريند جديد (يوتيوب 1 · بحث جوجل 1) — فيديو مكرمية الأكتر مشاهدة', role_id: null, user_id: ADMIN_ID, entity: 'ai-designer', entity_id: 'tr:' + B, read_at: null, rule_id: 'r1', section_id: S1, hide_at: null, meta: { lv: 'normal' } }];
+  mock.alertReads = [];
+  await signIn(page, 'dashboard');
+  await page.locator('.notif-btn').click();
+  await page.locator('.menu.notif .ntf-item', { hasText: 'آخر التريندات' }).click();
+  const ap = page.locator('.modal[data-alert-popup]'); await expect(ap).toBeVisible();
+  const list = ap.locator('[data-ap-trends] .ap-trends-l li');
+  await expect(list).toHaveCount(2); // the batch's own, not the other one
+  await expect(ap.locator('[data-ap-trend="youtube"]')).toHaveAttribute('href', 'https://www.youtube.com/watch?v=AAAAAAAAAA1');
+  await expect(list.nth(0)).toContainText('52,000 مشاهدة');
+  await expect(list.nth(1)).toContainText('طالع +250%');
+  await expect(ap.locator('[data-ap-act="chat"]')).toBeVisible();
+  await ap.locator('[data-ap-act="page"]').click();
+  await expect(ap.locator('[data-ap-view="page"]')).toBeVisible(); await expect(page).toHaveURL(/#dashboard/); // the page only by its own button
+});

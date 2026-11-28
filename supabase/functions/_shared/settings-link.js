@@ -5,7 +5,7 @@
 // removes, an omitted one stays (the way 9.5.6 saves an ads link). probeOf names the one cheap read that proves a key works.
 
 export const SECRET_NAMES = Object.freeze(['woo', 'anthropic', 'openai', 'gemini', 'elevenlabs', 'higgsfield', 'magnific_api', 'resend',
-  'airtable', 'sheets', 'paymob', 'bosta', 'n8n', 'github', 'figma', 'shopify']);
+  'airtable', 'sheets', 'paymob', 'bosta', 'n8n', 'github', 'figma', 'shopify', 'youtube', 'serpapi']);
 export const DYNAMIC_NAME = /^(mcp|custom)_[a-z0-9][a-z0-9_]{0,39}$/;
 export const nameOk = (n) => SECRET_NAMES.includes(n) || DYNAMIC_NAME.test(String(n ?? ''));
 
@@ -31,6 +31,10 @@ export const SECRET_FIELDS = Object.freeze({
   figma: { key: { ...KEY, re: /^fig[a-z]{0,3}_[A-Za-z0-9_-]{20,120}$/ }, file: { kind: 'id', optional: true, re: /^[A-Za-z0-9]{10,60}$/ } },
   // the owner 17 Nov — «تحط في الربط بالمنصات امكانية الربط بشوبيفاي»: the store's myshopify domain and an Admin API access token
   shopify: { shop: { kind: 'id', re: /^[a-z0-9][a-z0-9-]{0,60}\.myshopify\.com$/ }, key: { ...KEY, re: /^shp(at|ca|pa)_[A-Za-z0-9]{20,80}$/ } },
+  // the trends from free sources (Safwat 28 Nov — 2026-11-28-trends-free.md, 0175): a Google Cloud API key for the YouTube Data API,
+  // and SerpApi's private key (its free plan — Google Trends now, the competitors' ads and Google Lens next)
+  youtube: { key: { ...KEY, re: /^AIza[0-9A-Za-z_-]{35}$/ } },
+  serpapi: { key: { ...KEY, re: /^[A-Za-z0-9]{32,128}$/ } },
   // an MCP server the system connects to (decision 4): the URL and an optional token; a custom tool (decision 13): the name,
   // how it connects and a key or URL
   mcp: { url: { kind: 'url' }, token: { ...KEY, optional: true, re: /^[^\s]{8,400}$/ }, name: { kind: 'text', optional: true, re: /^[^<>\u0000-\u001f]{1,60}$/ } },
@@ -137,6 +141,11 @@ export function probesOf(name, link, ctx) {
     case 'figma': return [{ id: 'me', method: 'GET', url: 'https://api.figma.com/v1/me', headers: { 'X-Figma-Token': L.key }, ok: acct((b) => b?.email ?? b?.handle) }];
     // the owner 19 Nov: the same check the site's Bosta plugin makes (checkValidApiKey) — the business the key belongs to
     case 'bosta': return [{ id: 'business', method: 'GET', url: 'https://app.bosta.co/api/v0/businesses/' + encodeURIComponent(L.key) + '/info', headers: { 'Content-Type': 'application/json', 'X-Requested-By': 'WooCommerce' }, ok: acct((b) => b?.name ?? b?.businessName ?? 'ok') }];
+    // YouTube: the cheapest read (1 unit of the day's 10,000), the key in a header; SerpApi: its own account read (free — it counts no
+    // search) — the key in the query, as SerpApi takes it (the probe's address is never logged)
+    case 'youtube': return [{ id: 'regions', method: 'GET', url: 'https://www.googleapis.com/youtube/v3/i18nRegions?part=snippet&hl=ar', headers: { 'x-goog-api-key': L.key }, ok: acct((b) => (Array.isArray(b?.items) ? 'YouTube Data API شغّال' : 'ok')) }];
+    case 'serpapi': return [{ id: 'account', method: 'GET', url: 'https://serpapi.com/account.json?api_key=' + encodeURIComponent(L.key), headers: {},
+      ok: acct((b) => [b?.plan_name, b?.plan_searches_left != null ? b.plan_searches_left + ' بحث فاضل الشهر ده' : ''].filter(Boolean).join(' · ')) }];
     default: return null; // higgsfield / sheets / paymob / n8n / mcp_* / custom_*: saved untested
   }
 }
@@ -170,4 +179,6 @@ export const CARDS = Object.freeze([
   { id: 'higgsfield', kind: 'ai', name: 'Higgsfield', secret: 'higgsfield', used: true },
   { id: 'resend', kind: 'site', name: 'Resend (إيميل)', secret: 'resend', used: true },
   { id: 'figma', kind: 'ai', name: 'Figma', secret: 'figma', used: false },
-  { id: 'shopify', kind: 'site', name: 'Shopify', secret: 'shopify', used: false }]);
+  { id: 'shopify', kind: 'site', name: 'Shopify', secret: 'shopify', used: false },
+  { id: 'youtube', kind: 'site', name: 'YouTube (التريندات)', secret: 'youtube', used: true }, // 0175 — the trends from free sources
+  { id: 'serpapi', kind: 'site', name: 'SerpApi (جوجل)', secret: 'serpapi', used: true }]);

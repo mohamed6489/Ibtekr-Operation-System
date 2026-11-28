@@ -26,9 +26,9 @@ test('«العقل الذكي»: the admin\'s button on «الذكاء الاص�
   const pg = page.locator('#pg-brain [data-sysmap]');
   await expect(pg.locator('h1')).toHaveText('العقل الذكي');
   await expect(page.locator('.sidebar .nav-item[data-page="ai"]')).toHaveAttribute('aria-current', 'page');
-  await expect(pg.locator('[data-sm-node]')).toHaveCount(11);
+  await expect(pg.locator('[data-sm-node]')).toHaveCount(12); // + the trends' free sources (0175)
   await expect(pg.locator('[data-sm-node="core"]')).toHaveAttribute('data-state', 'on');
-  await expect(pg.locator('[data-sm-k="on"]')).toContainText('من 11');
+  await expect(pg.locator('[data-sm-k="on"]')).toContainText('من 12');
   // the full list: every group's parts, the site's known plugins first
   await expect(pg.locator('[data-sm-rows] tr', { hasText: 'Dokan' })).toHaveCount(1);
   // Safwat 24 Nov («نفس شكل بقيت جداول السيستم»): the kit's standard table card — «بحث» / «فلتر» / «ترتيب» in its head, the green header
@@ -64,7 +64,7 @@ test('«العقل الذكي» for the whole team (Safwat 24 Nov — «يظهر
   await page.evaluate(() => { location.hash = 'brain'; });
   const pg = page.locator('#pg-brain [data-sysmap]');
   await expect(pg.locator('h1')).toHaveText('العقل الذكي');
-  await expect(pg.locator('[data-sm-node]')).toHaveCount(11);
+  await expect(pg.locator('[data-sm-node]')).toHaveCount(12); // + the trends' free sources (0175)
   await expect(pg.locator('[data-sm-node="mail"]')).toHaveAttribute('data-state', 'on'); // the e-mail's key read as linked through «map»
   await expect(pg.locator('[data-sm-check]')).toHaveCount(0);
   await pg.locator('[data-sm-node="mail"]').click();

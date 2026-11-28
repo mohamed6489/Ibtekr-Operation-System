@@ -457,3 +457,16 @@ test('0122 (the owner 17 Nov — «وقف نشر»): a waiting system post pause
   // a campaign with paused posts only is still «اتجدولت» (something waits)
   assert.deepEqual(W.campaignStatus({ id: 'c', step: 4, scheduledAt: 'x' }, [{ campaignId: 'c', status: 'متوقف' }, { campaignId: 'c', status: 'اتنشر' }]), ['اتجدولت', 'success']);
 });
+
+test('trendAsk (2026-11-28-trends-free.md): «آخر التريندات» to the designer or the media buyer = its words and its window (3 days unless it says another); a design request that names a trend is not one', () => {
+  assert.deepEqual(plain(W.trendAsk('آخر تريندات المكرمية')), { q: 'المكرمية', days: 3, rivals: false });
+  assert.deepEqual(plain(W.trendAsk('هات التريندات')), { q: '', days: 3, rivals: false });
+  assert.equal(W.trendAsk('إيه التريندات آخر أسبوع').days, 7);
+  assert.equal(W.trendAsk('تريندات المكرمية آخر ٥ أيام').days, 5);
+  assert.equal(W.trendAsk('هات آخر تريندات الهاندميد النهارده').days, 1);
+  assert.equal(W.trendAsk('التريندات الشهر ده').days, 30);
+  assert.deepEqual(plain(W.trendAsk('آخر بوستات المنافسين')), { q: '', days: 3, rivals: true });
+  assert.deepEqual(plain(W.trendAsk('المنافسين نزلوا ايه')), { q: '', days: 3, rivals: true });
+  assert.equal(W.trendAsk('what are the latest trends').q, '');
+  for (const t of ['اعمل بوست على تريند الكريسماس', 'عايز فيديو زي التريند ده', 'ليه الإعلان ده باع؟', 'صمملي بوست', '', null]) assert.equal(W.trendAsk(t), null, String(t));
+});

@@ -27,6 +27,13 @@
   const orderOf = (entity) => { const m = /^orders\/([\w-]+)$/.exec(String(entity || '')); return m ? m[1].replace(/^IB-/i, '') : null; };
   const convOf = (entity) => { const m = /^cs\/([0-9a-f-]{36})$/i.exec(String(entity || '')); return m ? m[1] : null; };
   const noteOf = (a) => { const m = /^note:(\d+)$/.exec(String(a.entityId || '')); return m ? Number(m[1]) : null; };
+  // «آخر التريندات» (0175 — the trends from free sources): the alert is a batch of new trends (entity_id «tr:<batch>»)
+  const trendOf = (a) => { const m = /^tr:([0-9a-f-]{36})$/i.exec(String(a.entityId || '')); return m ? m[1] : null; };
+  const TR_SRC = { youtube: 'يوتيوب', google: 'بحث جوجل', instagram: 'إنستجرام', tiktok: 'تيك توك', facebook: 'فيسبوك', web: 'موقع' };
+  const n0 = (v) => Math.round(Number(v) || 0).toLocaleString('en-US');
+  const trendList = (items, err) => (err ? [h('p', { class: 'ap-note' }, err)] : !items.length ? [h('p', { class: 'ap-note' }, 'التريندات دي مابقتش موجودة.')]
+    : [h('ul', { class: 'ap-trends-l' }, items.slice(0, 20).map((r) => h('li', null, h('a', { href: r.url, target: '_blank', rel: 'noopener noreferrer', 'data-ap-trend': r.platform }, h('b', null, r.title)),
+      h('small', null, [TR_SRC[r.platform] || r.source, r.author, r.views != null ? n0(r.views) + ' مشاهدة' : r.likes != null ? n0(r.likes) + ' لايك' : '', r.kind === 'search' ? r.summary : ''].filter(Boolean).join(' · ')))))]);
 
   function open(a, x) {
     x = x || {}; if (U().closePopover) U().closePopover();
@@ -111,7 +118,7 @@
       const card = x.card && window.IBNtfCard ? window.IBNtfCard.el(Object.assign({}, x.card, { onNum: (id) => push('order', orderView(id)) })) : null;
       const txt = String(a.body || a.sub || '').trim(); const cardOk = card && card.textContent.trim();
       if (cardOk || txt) body.push(sec('التنبيه', cardOk ? card : h('p', { class: 'ap-p' }, txt)));
-      const oid = orderOf(a.entity); const cv = convOf(a.entity); const nt = noteOf(a);
+      const oid = orderOf(a.entity); const cv = convOf(a.entity); const nt = noteOf(a); const tb = trendOf(a);
       if (a.vendorLate) {
         const rows = x.lateRows ? x.lateRows(a.vendorLate, a.kind || 'all') : [];
         body.push(sec('أوردراته المتأخرة والقابلة للتأخير (' + rows.length + ')', rows.length ? h('div', { class: 'scroll-x' }, h('table', { class: 'tbl ap-tbl', 'data-ap-late': '' },
@@ -131,6 +138,14 @@
         const ms = msgsEl(cv); if (ms) body.push(ms);
         if (window.IBCS && window.IBCS.can && window.IBCS.can().reply) acts.push(U().Button({ type: 'primary', icon: 'send', label: 'رد على العميل', attrs: { 'data-ap-act': 'reply' }, onClick: () => push('reply', replyView(cv)) }));
         acts.push(U().Button({ label: 'افتح المحادثة', attrs: { 'data-ap-act': 'cs-page' }, onClick: () => push('page', pageView('cs-inbox', 'المحادثة هتتفتح في خدمة العملاء.')) }));
+      } else if (tb) { // the batch's trends, each opening its post; the assistant's chat and its page from here
+        const ag = /^ai-([a-z0-9_]+)$/.exec(String(a.entity || '')); const agent = ag ? ag[1] : 'designer'; const Mk = window.IBMarketing;
+        const box = h('div', { class: 'ap-trends', 'data-ap-trends': tb }, h('p', { class: 'ap-note' }, 'بنحمّل التريندات…'));
+        if (Mk && Mk.trendsBatch) Mk.trendsBatch(tb).then((r) => box.replaceChildren(...trendList(r && r.ok ? r.items : [], r && !r.ok ? r.message || 'ماقدرتش أجيب التريندات' : null)));
+        else box.replaceChildren(h('p', { class: 'ap-note' }, 'التريندات بتظهر في صفحة المساعد.'));
+        body.push(sec('التريندات', box));
+        acts.push(U().Button({ type: 'primary', icon: 'sparkle', label: 'كمّل مع المساعد', attrs: { 'data-ap-act': 'chat' }, onClick: () => push('chat', chatView(null, agent)) }));
+        acts.push(U().Button({ label: 'كل التريندات', attrs: { 'data-ap-act': 'page' }, onClick: () => push('page', pageView(a.entity, 'التريندات كلها في «آخر التريندات» عند المساعد.')) }));
       } else if (nt != null) {
         const ag = /^ai-([a-z0-9_]+)$/.exec(String(a.entity || '')); const agent = ag ? ag[1] : 'manager';
         acts.push(U().Button({ type: 'primary', icon: 'sparkle', label: 'كمّل مع المساعد', attrs: { 'data-ap-act': 'chat' }, onClick: () => push('chat', chatView(nt, agent)) }));

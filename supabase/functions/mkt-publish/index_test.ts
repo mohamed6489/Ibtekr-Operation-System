@@ -16,14 +16,14 @@ const META_ENV = { ...ENV, META_APP_ID: '1234567890', META_APP_SECRET: 'app-secr
 const PAGE = { id: '111', name: 'Ibtekr Club', token: 'EAAB'.repeat(12), ig: { id: '777', username: 'ibtekr.club' } };
 const CID = '00000000-0000-4000-8000-00000000c051';
 type Route = { status?: number; body?: unknown } | ((call: GraphCall) => { status?: number; body?: unknown } | Error);
-type GraphCall = { method: string; path: string; query: Record<string, string>; auth: string | null; body: any };
+type GraphCall = { method: string; path: string; query: Record<string, string>; auth: string | null; body: any; host: string; key: string | null };
 function fakeGraph(routes: Record<string, Route> = {}) {
   const calls: GraphCall[] = [];
   const fetch = async (input: string | URL | Request, init: RequestInit = {}) => {
     const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
     const h = new Headers(init.headers); const ct = h.get('content-type') ?? '';
     const body = !init.body ? undefined : ct.includes('json') ? JSON.parse(String(init.body)) : Object.fromEntries(new URLSearchParams(String(init.body)));
-    const call: GraphCall = { method: init.method ?? 'GET', path: url.pathname.replace(/^\/v21\.0\//, ''), query: Object.fromEntries(url.searchParams), auth: h.get('authorization'), body };
+    const call: GraphCall = { method: init.method ?? 'GET', path: url.pathname.replace(/^\/v21\.0\//, ''), query: Object.fromEntries(url.searchParams), auth: h.get('authorization'), body, host: url.host, key: h.get('x-goog-api-key') };
     calls.push(call);
     const r = routes[`${call.method} ${call.path}`]; const reply = typeof r === 'function' ? r(call) : r;
     if (reply instanceof Error) throw reply;
@@ -34,8 +34,8 @@ function fakeGraph(routes: Record<string, Route> = {}) {
 }
 const timeout = () => Object.assign(new Error('aborted'), { name: 'AbortError' });
 const post = (extra: Record<string, any> = {}) => ({ id: 5001, src: 'system', campaign_id: CID, piece: 'P1', kind: 'بوست', name: 'دفا الشتا', caption: 'كابشن', tags: '#إبتكر', images: [CID + '/pub-a.jpg'], platform: 'فيسبوك', day: '2026-10-24', time: '19:00', how: 'publish', status: 'مجدول', attempts: 0, ...extra });
-type Opts = { posts?: any[]; routes?: Record<string, Route>; auto?: boolean | null; linked?: boolean | 'no_ig'; storage?: Record<string, Uint8Array>; env?: Record<string, string>; trends?: any; trendRows?: any[] };
-function setup({ posts = [], routes = {}, auto = true, linked = true, storage, env = META_ENV, trends, trendRows = [] }: Opts = {}) {
+type Opts = { posts?: any[]; routes?: Record<string, Route>; auto?: boolean | null; linked?: boolean | 'no_ig'; storage?: Record<string, Uint8Array>; env?: Record<string, string>; trends?: any; trendRows?: any[]; ai?: any; tables?: Record<string, any[]> };
+function setup({ posts = [], routes = {}, auto = true, linked = true, storage, env = META_ENV, trends, trendRows = [], ai, tables = {} }: Opts = {}) {
   const ref: { db: any } = { db: null };
   const nowMs = Date.parse(NOW);
   const busy = (r: any) => r.claimed_at && nowMs - Date.parse(r.claimed_at) < 300_000;
@@ -53,8 +53,8 @@ function setup({ posts = [], routes = {}, auto = true, linked = true, storage, e
     mkt_stats_put: async ({ p_rows }: any) => { for (const x of p_rows) await ref.db.from('mkt_posts').update({ views: x.views, reach: x.reach, likes: x.likes, comments: x.comments, shares: x.shares, saves: x.saves, eng: x.eng, stats_at: NOW }).eq('id', x.id); return p_rows.length; },
   };
   const files = storage ?? Object.fromEntries(['pub-a.jpg', 'pub-b.jpg', 'pub-c.jpg', 'p.png'].map((f) => [`marketing/${CID}/${f}`, new Uint8Array([1])]));
-  const settings = auto == null ? [] : [{ section: 'marketing', data: { autopublish: auto, ...(trends ? { trends } : {}) } }];
-  const db = fakeDb({ mkt_posts: posts, settings, mkt_trends: trendRows }, { rpc, storage: files });
+  const settings = (auto == null ? [] : [{ section: 'marketing', data: { autopublish: auto, ...(trends ? { trends } : {}) } }]).concat(ai ? [{ section: 'ai', data: ai }] : []);
+  const db = fakeDb({ mkt_posts: posts, settings, mkt_trends: trendRows, ...tables }, { rpc, storage: files });
   ref.db = db;
   const userDb = (jwt: string) => { const m = MEMBERS[jwt]; return fakeDb({}, { rpc: m ? { has_perm: ({ key }: any) => (key === 'marketing.view' ? m.view ?? 'N' : key === 'marketing.publish' ? m.publish ?? 'N' : key === 'marketing.create' ? m.create ?? 'N' : 'N'), is_admin: () => !!m.admin } : {} }); };
   const g = fakeGraph(routes);
@@ -329,6 +329,106 @@ Deno.test('ش39 trends_ig: marketing.create; each tag through Instagram\'s hasht
   const refused = setup({ trends: { tags: ['macrame'] }, routes: { 'GET ig_hashtag_search': { status: 400, body: { error: { code: 10, message: 'Application does not have permission' } } } } });
   const no = await call(refused.deps, { action: 'trends_ig' }, 'jwt-pub');
   assertEquals([no.body.result, no.body.code, refused.db.rows('mkt_trends').length], ['unavailable', 'permission', 0]);
+});
+
+// ---- the free trend sources (docs/superpowers/plans/2026-11-28-trends-free.md — Safwat 28 Nov)
+const YT_KEY = 'AIzaSy' + 'A'.repeat(33); const SERP_KEY = 'f'.repeat(64);
+const FREE_ENV = { ...META_ENV, YOUTUBE_API_KEY: YT_KEY, SERPAPI_API_KEY: SERP_KEY };
+const AI_SOURCES = { agents: { designer: { sources: [{ name: 'منافس محلي', url: 'https://www.instagram.com/rival.eg/', note: '' }, { name: 'موقع', url: 'https://example.com/', note: '' }] }, buyer: { sources: [] } } };
+const vid = (id: string, views: number, at = '2026-10-24T08:00:00Z', dur = 'PT45S') => ({ id, snippet: { title: 'فيديو ' + id, channelTitle: 'قناة ' + id, publishedAt: at, description: 'وصف ' + id + '\nسطر تاني', thumbnails: { high: { url: 'https://i.ytimg.com/vi/' + id + '/hqdefault.jpg' } } },
+  statistics: { viewCount: String(views), likeCount: '10', commentCount: '2' }, contentDetails: { duration: dur } });
+const FREE_ROUTES: Record<string, Route> = {
+  'GET /youtube/v3/search': (c) => ({ body: { items: c.query.q === 'مكرمية' ? [{ id: { videoId: 'AAAAAAAAAA1' } }, { id: { videoId: 'BBBBBBBBBB2' } }] : [{ id: { videoId: 'BBBBBBBBBB2' } }, { id: { videoId: 'CCCCCCCCCC3' } }] } }),
+  'GET /youtube/v3/videos': { body: { items: [vid('AAAAAAAAAA1', 900), vid('BBBBBBBBBB2', 5000, '2026-10-23T08:00:00Z', 'PT4M2S'), vid('CCCCCCCCCC3', 70, '2026-10-01T08:00:00Z')] } },
+  'GET /search.json': (c) => ({ body: c.query.q === 'مكرمية' ? { related_queries: { rising: [{ query: 'مكرمية حائط', value: '+250%', link: 'https://trends.google.com/trends/explore?q=x&geo=EG' }, { query: 'macrame plant hanger', value: 'Breakout' }] } } : { error: "Google Trends hasn't returned any results for this query." } }),
+  'GET 777': (c) => ({ body: { business_discovery: { username: 'rival.eg', media: { data: [
+    { id: '1', media_type: 'IMAGE', media_url: 'https://scontent-cai1-1.cdninstagram.com/v/r1.jpg', permalink: 'https://www.instagram.com/p/RIVAL01/', caption: 'كوليكشن جديد\n#macrame', like_count: 320, comments_count: 4, timestamp: '2026-10-24T10:00:00+0000' },
+    { id: '2', media_type: 'IMAGE', media_url: 'https://scontent-cai1-1.cdninstagram.com/v/r2.jpg', permalink: 'https://www.instagram.com/p/RIVAL02/', caption: 'قديم', like_count: 999, comments_count: 1, timestamp: '2026-09-01T10:00:00+0000' }] } }, fields: c.query.fields } }),
+};
+
+Deno.test('trends_free: marketing.view; YouTube by its key in a header (Arabic = Egypt), Google Trends by SerpApi, the competitors\' Instagram posts by Business Discovery — the new rows one batch, each source\'s state, no key in any row or log', async () => {
+  const { deps, db, graph } = setup({ routes: FREE_ROUTES, env: FREE_ENV, trends: { tags: ['مكرمية'] }, ai: AI_SOURCES });
+  assertEquals((await call(deps, { action: 'trends_free' }, 'jwt-none')).res.status, 401, 'marketing.view = N');
+  assertEquals((await call(deps, { action: 'trends_free', days: 99 }, 'jwt-view')).res.status, 400);
+  const r = await call(deps, { action: 'trends_free' }, 'jwt-view');
+  assertEquals([r.res.status, r.body.result, r.body.days], [200, 'ok', 3]);
+  assertEquals(r.body.words, ['مكرمية', 'macrame']);
+  assertEquals(r.body.states, { youtube: 'ok', google: 'ok', instagram: 'ok' });
+  const yt = graph.calls.filter((c) => c.host === 'www.googleapis.com');
+  assertEquals(yt.map((c) => c.path), ['/youtube/v3/search', '/youtube/v3/search', '/youtube/v3/videos']);
+  assertEquals([yt[0].query.q, yt[0].query.regionCode, yt[0].query.relevanceLanguage, yt[0].query.order, yt[0].key], ['مكرمية', 'EG', 'ar', 'viewCount', YT_KEY]);
+  assertEquals([yt[1].query.q, yt[1].query.regionCode], ['macrame', undefined], 'an English word: the world');
+  assert(!yt.some((c) => Object.values(c.query).includes(YT_KEY)), 'the YouTube key never in a link');
+  const gt = graph.calls.filter((c) => c.host === 'serpapi.com');
+  assertEquals(gt.map((c) => [c.query.engine, c.query.q, c.query.geo, c.query.date, c.query.data_type]), [['google_trends', 'مكرمية', 'EG', 'now 7-d', 'RELATED_QUERIES'], ['google_trends', 'macrame', 'EG', 'now 7-d', 'RELATED_QUERIES']]);
+  const bd = graph.calls.find((c) => c.path === '777')!;
+  assert(bd.query.fields.startsWith('business_discovery.username(rival.eg)'), 'the competitor from the sources');
+  assertEquals(bd.auth, 'Bearer ' + PAGE.token);
+  const rows = db.rows('mkt_trends');
+  assertEquals(rows.map((x: any) => x.platform + ':' + x.external_id).sort(), ['google:' + rows.find((x: any) => x.title === 'macrame plant hanger').external_id, 'google:' + rows.find((x: any) => x.title === 'مكرمية حائط').external_id, 'instagram:RIVAL01', 'youtube:AAAAAAAAAA1', 'youtube:BBBBBBBBBB2'].sort(),
+    'the video older than the window and the competitor\'s old post are left out');
+  assertEquals(new Set(rows.map((x: any) => x.batch)).size, 1, 'one batch');
+  const a1 = rows.find((x: any) => x.external_id === 'AAAAAAAAAA1'); const b2 = rows.find((x: any) => x.external_id === 'BBBBBBBBBB2');
+  assertEquals([a1.url, a1.kind, a1.author, a1.views, a1.tag, a1.thumb_src], ['https://www.youtube.com/shorts/AAAAAAAAAA1', 'video', 'قناة AAAAAAAAAA1', 900, 'مكرمية', 'https://i.ytimg.com/vi/AAAAAAAAAA1/hqdefault.jpg']);
+  assertEquals(b2.url, 'https://www.youtube.com/watch?v=BBBBBBBBBB2', 'a video over a minute is not a Short');
+  const g1 = rows.find((x: any) => x.title === 'مكرمية حائط');
+  assertEquals([g1.kind, g1.source, g1.url, g1.thumb_tries], ['search', 'Google Trends', 'https://trends.google.com/trends/explore?q=x&geo=EG', 2]);
+  assert(/^gt-2026-10-2[45]-[0-9a-f]{8}$/.test(g1.external_id));
+  const ig = rows.find((x: any) => x.external_id === 'RIVAL01');
+  assertEquals([ig.author, ig.likes], ['@rival.eg', 320]); assert(ig.summary.startsWith('منافس: منافس محلي'));
+  // the most seen first — a like counts as 20 views (a post's likes are ≈ 2–5% of who saw it): 320 likes before 5,000 views
+  assertEquals(r.body.rows.map((x: any) => x.external_id).slice(0, 3), ['RIVAL01', 'BBBBBBBBBB2', 'AAAAAAAAAA1']); assertEquals(r.body.count, 5);
+  assert(r.body.text.startsWith('لقيت 5 تريند آخر 3 أيام'));
+  const blob = JSON.stringify(db.rows('mkt_trends')) + JSON.stringify(db.rows('activity_log')) + JSON.stringify(db.rows('sync_state'));
+  assertFalse(blob.includes(YT_KEY) || blob.includes(SERP_KEY), 'no key in a row or a log');
+  assert(db.rows('activity_log').some((l: any) => l.action === 'mkt.trends.free' && l.new_value.count === 5 && l.new_value.youtube === 'ok'));
+  // asked again now: answered from what is stored — no second search, Google Trends once a day
+  const before = graph.calls.length;
+  const again = await call(deps, { action: 'trends_free' }, 'jwt-view');
+  assertEquals(graph.calls.length, before, 'no call on a fresh keyword');
+  assertEquals([again.body.count, again.body.rows.length >= 4], [0, true]);
+});
+
+Deno.test('trends_free: no key = «not_linked» for that source (the others still read); no competitor on Instagram = «none»; a refused key = its code', async () => {
+  const s = setup({ routes: FREE_ROUTES, env: META_ENV, trends: { tags: ['مكرمية'] }, ai: { agents: { designer: { sources: [] }, buyer: { sources: [] } } } });
+  const r = await call(s.deps, { action: 'trends_free' }, 'jwt-view');
+  assertEquals(r.body.states, { youtube: 'not_linked', google: 'not_linked', instagram: 'none' });
+  assertEquals([r.body.rows.length, s.graph.calls.length], [0, 0]);
+  assert(r.body.text.includes('مش مربوط لسه') && r.body.text.includes('الربط بالمنصات'));
+  const bad = setup({ routes: { ...FREE_ROUTES, 'GET /youtube/v3/search': { status: 403, body: { error: { code: 403 } } }, 'GET /search.json': { status: 401, body: { error: 'Invalid API key.' } } }, env: FREE_ENV, trends: { tags: ['مكرمية'] }, ai: AI_SOURCES, linked: 'no_ig' });
+  const b = await call(bad.deps, { action: 'trends_free', q: 'المكرمية' }, 'jwt-view');
+  assertEquals(b.body.states, { youtube: 'unauthorized', google: 'unauthorized', instagram: 'not_linked' });
+  assertEquals(bad.graph.calls.filter((c) => c.host === 'www.googleapis.com').length, 1, 'a refused key: no next keyword');
+});
+
+Deno.test('trends_free: the day\'s searches are capped (the free plans) — over the cap the source says «quota» and nothing is asked', async () => {
+  const s = setup({ routes: FREE_ROUTES, env: FREE_ENV, trends: { tags: ['مكرمية'] }, ai: { agents: { designer: { sources: [] }, buyer: { sources: [] } } },
+    tables: { sync_state: [{ key: 'trends_free', value: { last: {}, use: { day: '2026-10-25', yt: 60, gt: 6 } }, updated_at: NOW }] } });
+  const r = await call(s.deps, { action: 'trends_free', q: 'كروشيه' }, 'jwt-view');
+  assertEquals([r.body.states.youtube, r.body.states.google], ['quota', 'quota']);
+  assertEquals(s.graph.calls.filter((c) => c.host === 'www.googleapis.com' || c.host === 'serpapi.com').length, 0);
+  assert(r.body.text.includes('الباقة خلصت النهارده'));
+  // a new day starts over
+  s.deps.now = () => '2026-10-26T12:00:00.000Z';
+  const n = await call(s.deps, { action: 'trends_free', q: 'كروشيه' }, 'jwt-view');
+  assertEquals([n.body.states.youtube, n.body.states.google], ['ok', 'ok']);
+  assertEquals(s.db.rows('sync_state').find((x: any) => x.key === 'trends_free').value.use, { day: '2026-10-26', yt: 2, gt: 2 });
+});
+
+Deno.test('trends_daily: the cron with the sync secret, from 9 Cairo time, once a day; the admin by hand any time', async () => {
+  const s = setup({ routes: FREE_ROUTES, env: FREE_ENV, trends: { tags: ['مكرمية'] }, ai: AI_SOURCES });
+  assertEquals((await cron(s.deps, 'trends_daily', 'wrong')).res.status, 401);
+  assertEquals((await call(s.deps, { action: 'trends_daily' }, 'jwt-pub')).res.status, 401, 'by hand: the admin only');
+  // NOW is 2026-10-25 … — the hour decides
+  const early = setup({ routes: FREE_ROUTES, env: FREE_ENV, trends: { tags: ['مكرمية'] } }); early.deps.now = () => '2026-10-25T04:00:00.000Z'; // 07:00 Cairo
+  assertEquals((await cron(early.deps, 'trends_daily')).body, { result: 'skipped', reason: 'hour' });
+  s.deps.now = () => '2026-10-25T08:30:00.000Z'; // 11:30 Cairo
+  const r = await cron(s.deps, 'trends_daily');
+  assertEquals([r.body.result, r.body.day, r.body.count], ['ok', '2026-10-25', 5]);
+  assertEquals(s.db.rows('sync_state').find((x: any) => x.key === 'trends_daily').value.day, '2026-10-25');
+  assertEquals((await cron(s.deps, 'trends_daily')).body, { result: 'skipped', reason: 'done' });
+  const hand = await call(s.deps, { action: 'trends_daily' }, 'jwt-admin');
+  assertEquals(hand.body.result, 'ok', 'the admin runs it again by hand');
 });
 
 Deno.test('stats (the meeting of 23 Nov phase 8, 0156): a platform post\'s picture is kept in the bucket while its link is fresh; an older one asks Meta for its picture now; never a dead link', async () => {

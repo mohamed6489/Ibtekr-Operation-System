@@ -337,3 +337,23 @@ test('the brand page: «شاشة التحميل» (speed, a picture of one\'s ow
   await expect(page.locator('head link[data-ib-fav-logo]')).toHaveCount(1);
   expect(await page.locator('head link[data-ib-fav-logo]').getAttribute('href')).toMatch(/^data:image\/svg\+xml,/);
 });
+
+// the trends from free sources (2026-11-28-trends-free.md decision 3 — Safwat 28 Nov: «اعمل كل حاجة و خليهم واقفين علي اني اضيف حساب»):
+// YouTube and SerpApi are two cards in «الموقع والبيانات» like the others — «غير متصل» until a key is added; the popup says where the free
+// key comes from; the key goes to Vault only (its tail on the card)
+test('the trends\' free sources: YouTube and SerpApi cards wait for a key; the popup says where the free key comes from; saved to Vault only', async ({ page }) => {
+  await signIn(page, ADMIN);
+  await openSettings(page, 'integrations');
+  for (const id of ['youtube', 'serpapi']) await expect(page.locator('[data-integ="' + id + '"]')).toContainText('غير متصل');
+  const yt = page.locator('[data-integ="youtube"]');
+  await yt.locator('[data-integ-connect]').click();
+  const dlg = page.getByRole('dialog');
+  await expect(dlg).toContainText('Google Cloud Console'); await expect(dlg).toContainText('YouTube Data API v3');
+  const KEY = 'AIza' + 'Q'.repeat(35);
+  await dlg.locator('#key').fill(KEY); await dlg.getByRole('button', { name: 'حفظ واختبار' }).click();
+  await expect(yt).toContainText('متصل'); await expect(yt).toContainText('••••' + KEY.slice(-4));
+  expect(JSON.parse(mock.st.vault.youtube)).toEqual({ key: KEY });
+  expect(JSON.stringify(mock.activityRows) + JSON.stringify(mock.settings)).not.toContain(KEY);
+  await page.locator('[data-integ="serpapi"] [data-integ-connect]').click();
+  await expect(page.getByRole('dialog')).toContainText('serpapi.com'); await expect(page.getByRole('dialog')).toContainText('250 بحث في الشهر');
+});

@@ -503,7 +503,7 @@ test('the owner 18 Nov — ask_choice: the manager\'s options are buttons in the
   mock.aiAnswer = (action) => (action === 'assistant' ? { text: 'إيداع ولا سحب؟', actions: [{ name: 'ask_choice', input: { question: 'نوع الحركة', options: ['إيداع', 'سحب'], fields: [] } }] } : null);
   await signIn(page, OPS);
   await page.getByRole('button', { name: 'مساعد AI' }).click();
-  await ask(page, 'سجّل حركة');
+  await ask(page, 'ساعدني في حاجة'); // not an add / edit / delete (those are the request popup's now — 2026-11-28-ask-popups.md)
   const card = panel(page).locator('[data-ib-ask]').last();
   await expect(card.locator('[data-ib-ask-opt]')).toHaveCount(2);
   mock.aiAnswer = (action) => (action === 'assistant' ? { text: 'محتاج التفاصيل', actions: [{ name: 'ask_choice', input: { question: 'التفاصيل', options: [], fields: [{ label: 'المبلغ', kind: 'number' }, { label: 'السبب', kind: 'long' }] } }] } : null);
@@ -658,4 +658,31 @@ test('decision 6: a member without the accounts\' «إضافة» asking for a ma
   await signIn(page, 'vf.dev@ibtekr.local'); await page.getByRole('button', { name: 'مساعد AI' }).click();
   await say(page, 'سجل عربون');
   await expect(panel(page).locator('.ai-msg.ai').last()).toContainText('مش من صلاحياتك'); await expect(panel(page).locator('[data-cf]')).toHaveCount(0);
+});
+
+// ask-popups decision 1 (Safwat 28 Nov): a report asked in the header = the same link and popup; the sales / expenses read-outs stay the engine's
+test('ask popups A: «تقرير الأوردرات المتأخرة» in the header — the link, the popup filled, «ابعت», then «افتح التقرير»; «تقرير المبيعات» stays the system\'s read-out', async ({ page }) => {
+  await signIn(page, ADMIN); await page.getByRole('button', { name: 'مساعد AI' }).click();
+  await say(page, 'تقرير الأوردرات المتأخرة');
+  const last = () => panel(page).locator('.ai-msg.ai').last();
+  await expect(last()).toContainText('املا التفاصيل من اللينك ده'); await last().locator('[data-ai-rep-ask]').click();
+  const pop = page.locator('[data-rq]'); await expect(pop.locator('#rq-st-0')).toContainText('متأخر');
+  await pop.locator('[data-rq-send]').click();
+  await expect(panel(page).locator('.ai-msg.user').last()).toContainText('تقرير: الأوردرات الرئيسية › حالة التأخير › متأخر');
+  await expect(last()).toContainText('البيانات جاهزة في اللينك ده'); await last().locator('[data-ai-rep-open]').click();
+  await expect(page.locator('[data-rq-report]')).toBeVisible(); await page.locator('[data-rq-report]').getByRole('button', { name: 'اقفل' }).click();
+  await say(page, 'تقرير المبيعات الشهر ده'); await expect(last().locator('[data-ai-rep-ask]')).toHaveCount(0);
+  expect(mock.aiCalls.filter((c) => c.action === 'assistant').length, 'no model').toBe(0);
+});
+
+// ask-popups decision 2 (phase B): the header's assistant asks the same way — the kind and the element, then the steps in its panel
+test('ask popups B: «عايز أعدّل» in the header — the popup, «منتج» = the product-edit steps in the panel; a viewer gets «مش من صلاحياتك»', async ({ page }) => {
+  await signIn(page, ADMIN); await page.getByRole('button', { name: 'مساعد AI' }).click();
+  await say(page, 'عايز أعدّل');
+  const last = () => panel(page).locator('.ai-msg.ai').last();
+  await expect(last()).toContainText('املا البيانات دي من اللينك ده'); await last().locator('[data-ai-rqa-ask]').click();
+  const pop = page.locator('[data-rqq]'); await pop.locator('[data-rqq-opt="element:product"]').click(); await pop.locator('[data-rqq-go]').click();
+  await expect(panel(page).locator('.ai-msg.user').last()).toContainText('طلب: تعديل منتج');
+  await expect(panel(page).locator('[data-cf="productEdit"]')).toBeVisible();
+  expect(mock.aiCalls.filter((c) => c.action === 'assistant').length, 'no model').toBe(0);
 });

@@ -29,12 +29,13 @@ const SEED = () => ({
   acc_expenses: [{ id: '00000000-0000-4000-8000-0000000000e1', on_date: '2026-10-01', direction: 'withdraw', category: 'الاشتراكات', amount: 100, sub_name: 'Canva', sub_ends: '2026-11-05' }],
   settings: [{ section: 'notif', data: { channels: { email: true, whatsapp: true }, quiet: { days: 'الجمعة', hours: 'من 11:00 م إلى 9:00 ص', waMax: 'رسالتان في اليوم' }, whatsappTemplate: 'ibtekr_alert', accAlerts: { payDay: 25, lead: 3 } } }],
 });
-function setup(opts: { seed?: any; now?: string; wa?: boolean; resend?: boolean; graphStatus?: number } = {}) {
+function setup(opts: { seed?: any; now?: string; wa?: boolean; resend?: boolean; graphStatus?: number; rpc?: Record<string, (a: any) => unknown> } = {}) {
   const graph: any[] = []; const mails: any[] = [];
   const db = fakeDb(opts.seed ?? SEED(), { rpc: {
     sync_secret_matches: ({ candidate }: any) => candidate === 'sync-secret-ok',
     cs_secret_get: ({ p_name }: any) => (opts.wa !== false && p_name === 'meta_wa' ? JSON.stringify({ token: 'wa-token-1', waba_id: '1', phone_id: '555' }) : null),
     app_secret_env: () => (opts.resend !== false ? { RESEND_API_KEY: RESEND, RESEND_FROM: 'alerts@ibtekr.club' } : {}),
+    ...(opts.rpc ?? {}),
   } });
   const fetchFn = async (url: string, init: RequestInit = {}) => {
     const body = init.body ? JSON.parse(String(init.body)) : null; const headers = Object.fromEntries(Object.entries((init.headers ?? {}) as Record<string, string>));
@@ -67,11 +68,11 @@ Deno.test('auth: the cron needs the sync secret and the tick action only; member
 // the notifications' new structure (Safwat 24 Nov — 0157): the admin's rules under the sub-sections → the bell's rows
 const SEC_MAIN = '00000000-0000-4000-8000-0000000005a1'; const SEC_SUB = '00000000-0000-4000-8000-0000000005a2'; const SEC_SUB2 = '00000000-0000-4000-8000-0000000005a3';
 const rule = (id: string, x: any) => ({ id, section_id: SEC_SUB, name: 'تنبيه', sub: null, param: null, at: '09:00', repeat: '24h', days: [], show: 'until_state', hours: 0, roles: ['admin', 'cs'], channels: ['bell'], template: null, active: true, last_run: null, updated_at: '2026-11-01T00:00:00Z', ...x });
-function withRules(rules: any[], more: (s: any) => void = () => {}) {
+function withRules(rules: any[], more: (s: any) => void = () => {}, rpc?: Record<string, (a: any) => unknown>) {
   const seed: any = SEED();
   seed.notif_sections = [{ id: SEC_MAIN, parent_id: null, name: 'خدمة العملاء', sort: 0 }, { id: SEC_SUB, parent_id: SEC_MAIN, name: 'غير مؤكدة', sort: 0 }, { id: SEC_SUB2, parent_id: SEC_MAIN, name: 'جديد', sort: 1 }];
   seed.notif_rules = rules; seed.alerts = []; seed.alert_reads = []; more(seed);
-  return setup({ seed });
+  return setup({ seed, rpc });
 }
 
 Deno.test('rules: a «state» rule (an unconfirmed order) → a row per member of its roles who sees orders, under its sub-section; renewed by its repeat; hidden once the order leaves the state', async () => {
@@ -503,4 +504,36 @@ Deno.test('Safwat 24 Nov: a line whose sub-order the site closed (shipped / comp
   const ids = s.db.rows('alerts').filter((a: any) => a.rule_id === 'r-subs').map((a: any) => String(a.entity_id).split(':')[1]);
   assert(ids.includes('2002'), 'the open sub-order is late: ' + ids.join(','));
   for (const n of ['2001', '2003', '2004']) assertFalse(ids.includes(n), n + ' is closed / pulled / cancelled');
+});
+
+// Safwat 28 Nov — «الأعطال» (an event: told even if it is gone) and «مساحة التخزين» (the project's space against the Free plan)
+Deno.test('faults and storage (0173): the screen\'s errors, the site\'s sync, a failed job, a failed send and AI call since the last run, one alert each with its count; the space over 80% of the plan; names and counts only', async () => {
+  const LAST = '2026-11-08T07:45:00.000Z';
+  const s = withRules([
+    rule('r-fault', { name: 'وجود عطل', element: 'faults', type: 'fault', state: 'found', at: '00:00', show: 'fixed', hours: 72, roles: ['admin'], last_run: LAST }),
+    rule('r-space', { name: 'التخزين امتلأ', element: 'storage', type: 'space', state: 'full', param: 80, at: '00:00', roles: ['admin'] })],
+  (seed) => {
+    seed.activity_log = [{ id: 1, at: '2026-11-08T07:50:00Z', actor: OPS, action: 'app.crash', entity: 'app', new_value: { kind: 'error' } },
+      { id: 2, at: '2026-11-08T07:55:00Z', actor: OPS, action: 'app.crash', entity: 'app', new_value: { kind: 'blank' } },
+      { id: 3, at: '2026-11-08T07:00:00Z', actor: CS, action: 'app.crash', entity: 'app', new_value: { kind: 'error' } }]; // before the last run
+    seed.woo_sync_log = [{ id: 7, at: '2026-11-08T07:50:00Z', kind: 'cron', direction: 'in', entity: 'orders', result: 'error' }, { id: 8, at: '2026-11-08T07:51:00Z', kind: 'cron', direction: 'in', entity: 'orders', result: 'ok' }];
+    seed.cs_messages = [{ id: 'm9', conversation_id: 'c1', delivery: 'failed', created_at: '2026-11-08T07:52:00Z', meta: {} }];
+    seed.ai_runs = [{ id: 'a1', status: 'error', created_at: '2026-11-08T07:53:00Z' }, { id: 'a2', status: 'ok', created_at: '2026-11-08T07:53:00Z' }];
+  }, {
+    dev_cron_health: () => ({ jobs: [{ name: 'woo-sync-orders', runs: 4, failed: 2, last_failed_at: '2026-11-08T07:58:00+00:00', msg: 'x' }, { name: 'old-job', runs: 1, failed: 1, last_failed_at: '2026-11-08T07:10:00+00:00' }], http: { failed: 0 } }),
+    storage_usage: () => ({ db_bytes: 450 * 1048576, files_bytes: 100 * 1048576, files: 49 }),
+  });
+  const r = await cron(s.deps); assertEquals(r.res.status, 200, JSON.stringify(r.body));
+  const A = s.db.rows('alerts');
+  const F = A.filter((a: any) => a.rule_id === 'r-fault').map((a: any) => a.entity_id).sort();
+  assertEquals(F.length, 5, F.join(','));
+  assert(F.some((e: string) => e === 'fault:crash:1'), 'the two screen errors since the last run — one alert'); assert(F.some((e: string) => e.startsWith('fault:cron:woo-sync-orders')), 'the job that failed since');
+  assertFalse(F.some((e: string) => /old-job/.test(e)), 'a job that failed before the last run is not told again');
+  const crash = A.find((a: any) => a.entity_id === 'fault:crash:1'); assert(/2 خطأ على الشاشة عند علي/.test(String(crash.body)), crash.body); assertEquals(crash.meta.lv, 'critical');
+  const sp = A.filter((a: any) => a.rule_id === 'r-space'); assertEquals(sp.map((a: any) => a.entity_id), ['storage:db'], 'the database at 90%, the files at 10%');
+  assert(/450 ميجا من 500 ميجا \(90%\)/.test(String(sp[0].body)), sp[0].body);
+  // the limits from the settings (a paid plan): under the bar = the state left → hidden
+  await s.db.from('settings').insert({ section: 'system', data: { storage: { db_mb: 8192, files_mb: 102400 } } });
+  await cron({ ...s.deps, now: () => '2026-11-09T08:00:00.000Z' });
+  assert(s.db.rows('alerts').filter((a: any) => a.rule_id === 'r-space').every((a: any) => a.hide_at), 'under 80% of the paid plan: the alert leaves the bell');
 });

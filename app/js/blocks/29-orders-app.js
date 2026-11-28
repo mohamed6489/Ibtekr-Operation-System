@@ -140,7 +140,21 @@ function dbadge(k){var d=DB[k];return'<span class="badge '+d[0]+'">'+d[1]+ic(d[2
 var SEL={}; // التحديد الجماعي (owner 31 Oct): id → true
 function pageList(cur,n){if(n<=7){var all=[];for(var i=1;i<=n;i++)all.push(i);return all}var set=[1,n,cur-1,cur,cur+1];if(cur<=4)set.push(2,3,4,5);if(cur>=n-3)set.push(n-4,n-3,n-2,n-1);set=set.filter(function(x,i){return x>=1&&x<=n&&set.indexOf(x)===i}).sort(function(x,y){return x-y});var out=[];set.forEach(function(x,i){if(i&&x-set[i-1]>1)out.push('…');out.push(x)});return out}
 var SIZES=[25,50,100];/* owner 19 Nov: «اتحكم في عدد الصفوف يبقي 25 او 50 او 100» — remembered in this browser */function sizeOf(){try{var v=+localStorage.getItem('ib.orders.size');return SIZES.indexOf(v)>=0?v:25}catch(e){return 25}}
-var S={q:'',st:'الكل',deliv:'',conf:'',vendor:'',vc:'',sort:'new',page:1,size:sizeOf(),open:{},edit:null,fb:{op:'and',items:[]}};
+var S={q:'',st:'الكل',deliv:'',conf:'',vendor:'',vc:'',sort:'new',page:1,size:sizeOf(),open:{},edit:null,fb:{op:'and',items:[]},per:'',pf:'',pt:''};
+/* orders-batch decision 21 (Safwat 28 Nov — «حط في الاوردروات دروب داون الفترة الزمنية عشان المستخدم يقدر يختار الاوردرات في فترة زمنية معينة»):
+   the orders of a period by their order date (o.date — Cairo's day); «كل الفترات» by default (the page's work is every open order), the
+   week from the week's first day in the settings, a custom period by its two dates */
+var PER=[['','كل الفترات'],['today','النهارده'],['yest','امبارح'],['d7','آخر 7 أيام'],['week','الأسبوع ده'],['month','الشهر ده'],['lmonth','الشهر اللي فات'],['d30','آخر 30 يوم'],['d90','آخر 90 يوم'],['custom','فترة مخصصة…']];
+function ymd(d){return d.getUTCFullYear()+'-'+String(d.getUTCMonth()+1).padStart(2,'0')+'-'+String(d.getUTCDate()).padStart(2,'0')}
+function perRange(){var k=S.per;if(!k)return null;if(k==='custom')return S.pf&&S.pt?{from:S.pf<=S.pt?S.pf:S.pt,to:S.pf<=S.pt?S.pt:S.pf}:null;
+ var t=(window.IBOrders&&window.IBOrders.today?window.IBOrders.today():ymd(new Date())),d=new Date(t+'T00:00:00Z'),add=function(n){var x=new Date(d);x.setUTCDate(x.getUTCDate()+n);return ymd(x)};
+ if(k==='today')return{from:t,to:t};if(k==='yest'){var y=add(-1);return{from:y,to:y}}if(k==='d7')return{from:add(-6),to:t};if(k==='d30')return{from:add(-29),to:t};if(k==='d90')return{from:add(-89),to:t};
+ if(k==='week'){var ws=window.IBSettings&&window.IBSettings.weekStart?window.IBSettings.weekStart():6;return{from:add(-((d.getUTCDay()-ws+7)%7)),to:t}}
+ if(k==='month')return{from:t.slice(0,8)+'01',to:t};
+ if(k==='lmonth'){var m=new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth()-1,1)),e=new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),0));return{from:ymd(m),to:ymd(e)}}
+ return null}
+function perLabel(){if(S.per==='custom'){var r=perRange();return r?(r.from===r.to?r.from:r.from+' – '+r.to):'فترة مخصصة'}return (PER.filter(function(x){return x[0]===S.per})[0]||PER[0])[1]}
+function perIn(o){var r=perRange();return !r||(String(o.date)>=r.from&&String(o.date)<=r.to)}
 function sorted(a){var r=a.slice();
  if(S.sort==='new')r.sort(function(x,y){return x.date<y.date?1:x.date>y.date?-1:(+y.id)-(+x.id)});
  if(S.sort==='old')r.sort(function(x,y){return x.date>y.date?1:x.date<y.date?-1:(+x.id)-(+y.id)});
@@ -156,6 +170,7 @@ function match(o,skipStatus){
  if(S.vendor&&!o.subs.some(function(s){return s.vendor===S.vendor}))return false;
  if(S.vc){var n=vcount(o);if(S.vc==='2'?n<2:n!==1)return false}
  if(S.fb.items.length&&!fbEval(S.fb,o))return false;
+ if(S.per&&!perIn(o))return false;
  return true}
 /* owner batch 14 Nov decision 4: the shown name of a status from «الإعدادات › القوائم والحالات» (settings.lists.labels) — the value stays */
 function LB(k,x){var S0=window.IBSettings;return k&&x&&S0&&S0.statusLabel?S0.statusLabel(k,x):x}
@@ -278,6 +293,7 @@ function shell(){
  var nav=[['home','لوحة التحكم'],['box','الأوردرات'],['users','المبتكرين'],['wallet','الحسابات'],['tag','المخزون'],['headset','خدمة العملاء'],['chart','التقارير'],['sliders','الإعدادات']];
  return''
 +'<div class="content"><div class="ph"><div class="tb"><div class="tr"><h1>الأوردرات</h1><span class="chip-n" id="cn"></span></div></div><div class="grow"></div>'
+ +'<label class="dd btn" id="perl">'+ic('cal')+'<span id="perv">الفترة: كل الفترات</span>'+ic('down')+'<select id="per" aria-label="الفترة">'+PER.map(function(x){return'<option value="'+x[0]+'">'+x[1]+'</option>'}).join('')+'</select></label>'
  +'<label class="dd btn">'+ic('sliders')+'<span>ترتيب حسب</span>'+ic('down')+'<select id="so" aria-label="ترتيب حسب"><option value="new">الأحدث أولًا</option><option value="old">الأقدم أولًا</option><option value="val">الأعلى قيمة</option><option value="late">المتأخرة أولًا</option></select></label>'
  +'<button class="btn" id="fbtn" aria-haspopup="dialog" aria-expanded="false">'+ic('filter')+'<span>فلتر'+(S.fb.items.length?' ('+fbCount(S.fb)+')':'')+'</span>'+ic('down')+'</button><button class="btn" id="actbtn" aria-haspopup="menu" aria-expanded="false"><span>الملفات</span>'+ic('down')+'</button><button class="btn pri" id="sync">مزامنة مع الموقع</button></div>'
  +'<div class="toolbar"><div class="sc-car" data-car><button type="button" class="car-b car-prev" data-car-b="-1" aria-label="الحالات اللي قبل" hidden>'+ic('chr')+'</button><div class="chips" id="chips" role="group" aria-label="حالة الأوردر"></div><button type="button" class="car-b car-next" data-car-b="1" aria-label="الحالات اللي بعد" hidden>'+ic('chl')+'</button></div><div class="ff"><label class="sq" hidden>'+ic('search')+'<input id="oq" placeholder="رقم الأوردر · العميل · الهاتف" aria-label="بحث الأوردرات"></label>' // 5.5 decision 10: the top-bar search (Enter) feeds S.q; the field stays for the state (setQ / clear)
@@ -310,6 +326,7 @@ function drawActive(){var el=$('afc');if(!el)return;var ch=[],cnt=function(fn){r
  if(S.vendor)ch.push(['legacy:vendor','المبتكر: '+S.vendor,cnt(function(o){return o.subs.some(function(x){return x.vendor===S.vendor})})]);
  if(S.conf)ch.push(['legacy:conf','حالة التأكيد: '+S.conf,cnt(function(o){return o.cf===S.conf})]);
  if(S.deliv)ch.push(['legacy:deliv','حالة التسليم: '+(DLAB[S.deliv]||S.deliv),cnt(function(o){return dstate(o)===S.deliv})]);
+ if(S.per&&perRange())ch.push(['legacy:per','الفترة: '+perLabel(),cnt(perIn)]);
  if(S.vc)ch.push(['legacy:vc','عدد المبتكرين: '+(S.vc==='1'?'مبتكر واحد':'مبتكرين متعددين'),cnt(function(o){var n=vcount(o);return S.vc==='2'?n>=2:n===1})]);
  var ok=function(x){return x.items||x.op==='empty'||x.op==='nempty'||String(x.v==null?'':x.v).trim()};
  var one=function(k,x){ch.push([k,x.items?'مجموعة ('+fbCount(x)+' شروط)':fbChipText(x),cnt(function(o){return x.items?fbEval(x,o):fbTest(x,o)})])};
@@ -353,7 +370,7 @@ function draw(keepFilters){PEND={};FULL=false;
  if(DET&&DET.refresh)DET.refresh();
  if(EDT&&EDT.refresh)EDT.refresh();
  if(!keepFilters)drawFilters();
- $('so').value=S.sort;
+ $('so').value=S.sort;var pv=$('perv'),ps=$('per');if(pv)pv.textContent='الفترة: '+perLabel();if(ps)ps.value=S.per;
  var fbb=$('fbtn');if(fbb){fbb.querySelector('span').textContent='فلتر'+(S.fb.items.length?' ('+fbCount(S.fb)+')':'')}
 }
 function shipReady(o,s,v){var OPS=window.IbtekrOps;if(!OPS||!OPS.isShipReady||!OPS.isShipReady(v)||s.ss===v)return;var K=window.IBKit;s.readyAt=(window.IBOrders?window.IBOrders.today():K?K.TODAY:o.date)+' '+(K&&K.clockNow?K.clockNow():'12:00');s.waybill=null;
@@ -947,7 +964,7 @@ R.addEventListener('click',function(e){setTimeout(flush,0);
   var txt=csv?['رقم الأوردر,العميل,الموبايل,الحالة,التأكيد,الإجمالي'].concat(ids.map(function(id){var o=OM[id]||{};return[o.id,o.name,o.phone,o.st,o.cf,o.tot].map(function(x){return'"'+String(x==null?'':x).replace(/"/g,'""')+'"'}).join(',')})).join('\n'):ids.join('\n');
   window.__lastCopy=txt;try{var cp=navigator.clipboard.writeText(txt);if(cp&&cp.then)cp.then(null,function(){})}catch(er){}toast(csv?'اتنسخ CSV لـ '+ids.length+' أوردر — الصقه في إكسل':'اتنسخت '+ids.length+' أرقام أوردرات');return}
  if(t.closest('[data-car-b]')){var cc=$('chips'),dd=+t.closest('[data-car-b]').dataset.carB;cc.scrollBy({left:-dd*Math.max(160,cc.clientWidth*0.7),behavior:'smooth'});return}
- if(t.closest('[data-afc]')){var k=t.closest('[data-afc]').dataset.afc;if(k==='legacy:st'){S.st='الكل'}else if(k==='legacy:q'){S.q='';$('oq').value='';(document.getElementById('gq')||{}).value=''}else if(k.indexOf('legacy:')===0){S[k.slice(7)]=''}else{var ij=k.slice(3).split('.');if(ij.length>1){var g=S.fb.items[+ij[0]];g.items.splice(+ij[1],1);if(!g.items.length)S.fb.items.splice(+ij[0],1)}else S.fb.items.splice(+ij[0],1)}S.page=1;draw();var nx=R.querySelector('[data-afc]')||$('fbtn');if(nx)nx.focus();return}
+ if(t.closest('[data-afc]')){var k=t.closest('[data-afc]').dataset.afc;if(k==='legacy:st'){S.st='الكل'}else if(k==='legacy:q'){S.q='';$('oq').value='';(document.getElementById('gq')||{}).value=''}else if(k==='legacy:per'){S.per='';S.pf='';S.pt=''}else if(k.indexOf('legacy:')===0){S[k.slice(7)]=''}else{var ij=k.slice(3).split('.');if(ij.length>1){var g=S.fb.items[+ij[0]];g.items.splice(+ij[1],1);if(!g.items.length)S.fb.items.splice(+ij[0],1)}else S.fb.items.splice(+ij[0],1)}S.page=1;draw();var nx=R.querySelector('[data-afc]')||$('fbtn');if(nx)nx.focus();return}
  if(b=t.closest('[data-tk-order]')){e.stopPropagation();if(window.IbtekrApp&&window.IbtekrApp.ticketsFor)window.IbtekrApp.ticketsFor(b.dataset.tkOrder);return}
  if(b=t.closest('[data-more]')){e.stopPropagation();mpOpen(b);return}
  if(t.closest('#mpop')){var mb=t.closest('[data-ma]');if(mb)mpAct(mb.dataset.ma);return}
@@ -959,7 +976,7 @@ R.addEventListener('click',function(e){setTimeout(flush,0);
  if(b=t.closest('[data-ns]')){var id2=b.dataset.ns,ta=b.parentNode.querySelector('[data-ne]');var no=OM[id2],nb=snapO(no);no.note=ta.value.trim();S.edit=null;draw(1);ordW(no,nb);toast('تم حفظ التعليق');return}
  if(b=t.closest('[data-cs]')){var cn=b.dataset.cs,cta=b.parentNode.querySelector('[data-ce]');var cs=allSub(cn),cb=snapS(cs);cs.cm=cta.value.trim();S.edit=null;draw(1);subW(cs,cb);toast('تم حفظ التعليق');return}
  if(b=t.closest('[data-cm2]')){var cn2=b.dataset.cm2;S.edit=S.edit==='c'+cn2?null:'c'+cn2;draw(1);if(S.edit){var ci=R.querySelector('[data-ce="'+cn2+'"]');if(ci){ci.focus();ci.setSelectionRange(ci.value.length,ci.value.length)}}return}
- if(t.closest('#clr')){S.q='';S.st='الكل';S.deliv='';S.conf='';S.vendor='';S.vc='';S.fb={op:'and',items:[]};S.page=1;$('oq').value='';(R.getElementById('gq')||{}).value='';draw();return}
+ if(t.closest('#clr')){S.q='';S.st='الكل';S.deliv='';S.conf='';S.vendor='';S.vc='';S.per='';S.pf='';S.pt='';S.fb={op:'and',items:[]};S.page=1;$('oq').value='';(R.getElementById('gq')||{}).value='';draw();return}
  if(t.closest('#sync')){var ws=WS(),bad=function(r){toast(r&&r.reason==='forbidden'?'مش من صلاحياتك':'معرفناش نعمل مزامنة — جرّب تاني')};if(!ws||!ws.syncNow){bad(null);return}toast('بنزامن مع الموقع…');
   ws.syncNow().then(function(r){if(!r||!r.ok)return bad(r);var c=r.counts||{},n=function(k){var x=c[k]||{};return typeof x[k]==='number'?x[k]:typeof x.upserted==='number'?x.upserted:0};toast('تمت المزامنة · '+n('orders')+' أوردر · '+n('products')+' منتج · '+n('vendors')+' مبتكر')},bad);return}
  if(t.closest('[data-oretry]')){if(window.IBOrders&&window.IBOrders.load)window.IBOrders.load();return}
@@ -984,8 +1001,15 @@ R.addEventListener('change',function(e){var t=e.target,d=t.dataset;
  else if(t.id==='fd'){S.deliv=t.value;S.page=1;draw()}
  else if(t.id==='fn'){S.vc=t.value;S.page=1;draw()}
  else if(t.id==='so'){S.sort=t.value;S.page=1;draw(1)}
+ else if(t.id==='per'){if(t.value==='custom'){perCustom()}else{S.per=t.value;S.pf='';S.pt='';S.page=1;draw()}}
 });
 
+// a custom period: its two dates in the system's own popup over the page (the select goes back to what was picked until «تطبيق»)
+function perCustom(){var U=window.IBUI,sel=$('per');if(sel)sel.value=S.per;if(!U||!U.Modal)return;var h=U.h,r=perRange()||{},t=window.IBOrders&&window.IBOrders.today?window.IBOrders.today():ymd(new Date());
+ var f=h('input',{type:'date',class:'input',id:'per-f','aria-label':'من',value:S.pf||r.from||t.slice(0,8)+'01',max:t}),to=h('input',{type:'date',class:'input',id:'per-t','aria-label':'إلى',value:S.pt||r.to||t,max:t}),err=h('p',{class:'t-small','data-per-err':'',style:'color:var(--color-error-text);margin:0'});var m=null;
+ var ok=function(){if(!f.value||!to.value){err.textContent='اختار التاريخين';return}S.per='custom';S.pf=f.value;S.pt=to.value;S.page=1;m.close();draw()};
+ m=U.Modal({title:'فترة مخصصة',body:[h('div',{class:'row cols2'},h('label',{class:'field'},h('span',{class:'t-label'},'من'),f),h('label',{class:'field'},h('span',{class:'t-label'},'إلى'),to)),err],footer:[U.Button({type:'primary',label:'تطبيق',attrs:{'data-per-ok':''},onClick:ok}),U.Button({label:'إلغاء',onClick:function(){m.close()}})]});
+ if(m&&m.el)m.el.setAttribute('data-per-custom','')}
 var DPM=['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
 var WD=['سبت','أحد','اثنين','ثلاثاء','أربعاء','خميس','جمعة'];
 var DP=null,DPSUP=false;

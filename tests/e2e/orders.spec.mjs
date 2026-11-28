@@ -1548,3 +1548,27 @@ test('Safwat 24 Nov — a maker\'s late orders (the bell\'s card, «المتأخ
   expect(r.length).toBeGreaterThan(0);
   for (const x of r) { expect(x.rows.length).toBeGreaterThanOrEqual(x.count); expect(x.rows.every((s) => s === x.k)).toBe(true); expect(x.all).toBeGreaterThanOrEqual(x.rows.length); }
 });
+
+// orders-batch decision 21 (Safwat 28 Nov — «حط في الاوردروات دروب داون الفترة الزمنية»): the orders of a period by their order date —
+// «كل الفترات» by default, a preset or a custom period of two dates; its chip with the count, «مسح الفلاتر» clears it
+test('decision 21: «الفترة» — «الشهر ده» keeps this month\'s orders, a custom period its two dates; the chip and «مسح الفلاتر»', async ({ page }) => {
+  await signIn(page, ADMIN); await page.locator('.sidebar .nav-item[data-page="orders"]').click();
+  const O = page.locator('#orders');
+  await expect(O.locator('#perv')).toHaveText('الفترة: كل الفترات');
+  const today = await page.evaluate(() => window.IBOrders.today());
+  const month = today.slice(0, 8) + '01';
+  const count = (f, t) => page.evaluate(([a, b]) => { const R = window.OrdersApp.query({}, 1e6).rows; return R.filter((o) => { const g = window.OrdersApp.get(o.id); return g.date >= a && g.date <= b; }).length; }, [f, t]);
+  const inMonth = await count(month, today);
+  await O.locator('#per').selectOption('month');
+  await expect(O.locator('#perv')).toHaveText('الفترة: الشهر ده');
+  await expect(O.locator('[data-afc="legacy:per"]')).toContainText('الفترة: الشهر ده');
+  await expect(O.locator('#afcn')).toHaveText(inMonth + ' أوردر');
+  // a custom period
+  await O.locator('#per').selectOption('custom');
+  const dlg = page.locator('[data-per-custom]'); await expect(dlg).toBeVisible();
+  const from = await page.evaluate(() => { const d = new Date(window.IBOrders.today() + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - 7); return d.toISOString().slice(0, 10); });
+  await dlg.locator('#per-f').fill(from); await dlg.locator('#per-t').fill(today); await dlg.locator('[data-per-ok]').click();
+  await expect(O.locator('#perv')).toHaveText('الفترة: ' + from + ' – ' + today);
+  await expect(O.locator('#afcn')).toHaveText((await count(from, today)) + ' أوردر');
+  await O.locator('#clr').click(); await expect(O.locator('#perv')).toHaveText('الفترة: كل الفترات'); await expect(O.locator('[data-afc="legacy:per"]')).toHaveCount(0);
+});

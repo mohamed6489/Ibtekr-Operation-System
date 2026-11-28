@@ -245,7 +245,7 @@
   const LV_RANK = { critical: 0, important: 1, normal: 2, info: 3 }; // the four levels (Safwat 24 Nov — «عادي» between «مهم» and «للمعرفة»)
   const LV_WORD = { critical: 'حرج', important: 'مهم', normal: 'عادي' };
   const EL_ICON = { daily: 'chart', custody: 'wallet', team: 'users', orders: 'package', subs: 'box', products: 'tag', inventory: 'stock', accounts: 'wallet',
-    tickets: 'ticket', messages: 'msg', ai: 'sparkle', makers: 'users', system: 'gear' };
+    tickets: 'ticket', messages: 'msg', ai: 'sparkle', makers: 'users', system: 'gear', faults: 'alert', storage: 'gear' };
   const AGENT_ICON = { manager: 'sliders', buyer: 'chart', designer: 'image', dev: 'code', stock: 'truck', cs: 'headset', makers: 'users', accountant: 'wallet', hr: 'briefcase', content: 'image' };
   const elOf = (a) => { const m = /^rule:([a-z_]+)\./.exec(String(a.kind || '')); if (m) return m[1]; const C = window.IBNotifCatalog; return C && C.elementOfKind ? C.elementOfKind(a.kind) : null; };
   const lvOf = (a) => { const l = a.meta && a.meta.lv; return LV_RANK[l] != null ? l : toneOf(a.kind) === 'error' ? 'critical' : 'important'; };
@@ -253,7 +253,9 @@
   function avatarOf(a) {
     const m = a.meta || {};
     if (m.g === 'vendor') { const V = window.IBVendors; const v = V && V.store && V.store.get ? V.store.get(m.gid) : null;
-      return v && v.logoUrl ? { img: v.logoUrl, letter: firstLetter(m.gname) } : { letter: firstLetter(m.gname), tone: 'vendor' }; }
+      // Safwat 28 Nov («في فيندورز اللوجو بتاعهم م ظاهر»): his photo in the system (a signed link — the bell asks for it) before his store's logo on the site
+      const photo = v && v.photoPath ? v.id : null;
+      return v && (v.logoUrl || photo) ? { img: v.logoUrl || null, photo, letter: firstLetter(m.gname), tone: 'vendor' } : { letter: firstLetter(m.gname), tone: 'vendor' }; }
     if (m.g === 'member') return { letter: firstLetter(m.gname), tone: 'member' };
     if (m.g === 'customer') return { letter: firstLetter(m.gname), tone: 'customer' };
     if (m.g === 'agent') { const M = window.IBMarketing; const r = M && M.agentOf ? M.agentOf(m.gid) : null; return { icon: (r && r.icon) || AGENT_ICON[m.gid] || 'sparkle', tone: 'agent' }; }

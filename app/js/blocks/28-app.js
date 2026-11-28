@@ -919,6 +919,12 @@
         // the bell's redesign decision 2: the alert's owner instead of a bell — a maker's logo, a member's / a customer's first letter in a
         // circle, an assistant's icon, else its element's; the level as a tag (حرج / مهم), a maker's card with its counts as chips
         const avEl = (it) => { const a = it.av; if (!a) return h('span', { class: 'av ' + it.tone, 'aria-hidden': 'true' }, Icon(it.icon, 'sm'));
+          // bell-redesign decision 20 (Safwat 28 Nov — «في فيندورز اللوجو بتاعهم م ظاهر»): a maker's photo in the system (a signed link,
+          // asked for when drawn) — his store's logo or his letter until it comes
+          if (a.photo && window.IBVendors && window.IBVendors.photoUrl) {
+            const box = a.img ? h('span', { class: 'av img', 'aria-hidden': 'true' }, h('img', { src: a.img, alt: '', loading: 'lazy' })) : h('span', { class: 'av letter vendor', 'aria-hidden': 'true' }, a.letter || '؟');
+            window.IBVendors.photoUrl(a.photo).then((url) => { if (url) { box.className = 'av img'; box.replaceChildren(h('img', { src: url, alt: '', loading: 'lazy' })); } }).catch(() => { /* the letter stays */ });
+            return box; }
           if (a.img) { const im = h('img', { src: a.img, alt: '', loading: 'lazy' }); const box = h('span', { class: 'av img', 'aria-hidden': 'true' }, im);
             im.addEventListener('error', () => { box.className = 'av letter vendor'; box.replaceChildren(a.letter || '؟'); }); return box; }
           if (a.letter) return h('span', { class: 'av letter ' + (a.tone || ''), 'aria-hidden': 'true' }, a.letter);
@@ -1352,6 +1358,10 @@
     if (o && o.brain) { aiChat(t, o.brain); return; }
     const at = ai.msgs.length; const sys = () => ai.msgs.slice(at).forEach((m) => { if (m.role === 'ai') m.sys = true; });
     if (ai.pending) { aiLocal(t); sys(); aiDraw(); return; }
+    // ask-popups decision 1 (2026-11-28-ask-popups.md — Safwat 28 Nov): a report asked = «املا التفاصيل من اللينك ده» and its popup (IBReportAsk),
+    // before the engine — the sales / expenses read-outs stay the engine's (IBReportAsk.detect leaves them)
+    const RA = window.IBReportAsk;
+    if (RA && RA.detect(t)) { ai.msgs.push({ role: 'ai', text: 'املا التفاصيل من اللينك ده — اختار العنصر ونوع البيانات والوضع، وأنا أجهّزلك التقرير.', repAsk: RA.preOf(t) }); sys(); aiDraw(); return; }
     const got = window.IBBrain ? window.IBBrain.understand(t, aiCtx()) : C.parseCommand(t, aiCtx());
     // agent-chat-flows decision 6: an add / edit / delete said without what its popup needs = the same step card as the assistants' chat
     // (IBChatFlowHost from marketing.js — the member's rights, then the system's own popup filled over the page; nothing written here) —
@@ -1360,6 +1370,11 @@
     if (fl) { if (!fl.may) aiSay('«' + fl.title + '» مش من صلاحياتك — لو محتاجها اطلبها من الأدمن.');
       else { ai.msgs.push({ role: 'ai', text: 'تمام — هسألك كام سؤال، وفي الآخر أفتحلك ' + fl.popup + ' متملّي والتأكيد منك.', flow: FH.start(fl) }); }
       sys(); aiDraw(); return; }
+    // ask-popups decision 2 (phase B — Safwat 28 Nov): an add / edit / delete in a few words the engine and the flows did not take =
+    // «املا البيانات دي من اللينك ده» and the request popup (IBRequestAsk); the pick runs through IBChatFlowHost.requestRun
+    const RQx = window.IBRequestAsk;
+    if (FH && FH.requestRun && RQx && got.type === 'unknown' && RQx.detect(t)) { const pre = RQx.preOf(t);
+      ai.msgs.push(RQx.complete(pre) ? aiRequestMsg(FH.requestRun(pre)) : { role: 'ai', text: 'املا البيانات دي من اللينك ده — اختار نوع الطلب والعنصر، وأنا أسألك الباقي خطوة خطوة.', rqAsk: pre }); sys(); aiDraw(); return; }
     if (got.type !== 'unknown') { aiExec(got); sys(); aiDraw(); return; }
     aiConsent(t);
   }
@@ -1394,12 +1409,30 @@
     }
     aiExec(C.parseCommand(t, aiCtx()));
   }
+  // ask-popups decision 2: what a request pick ran, as the assistant's message (the steps' card, «مش من صلاحياتك», the popup said, or the page's link)
+  function aiRequestMsg(r) {
+    return r.kind === 'flow' ? { role: 'ai', sys: true, text: 'تمام — هسألك كام سؤال، وفي الآخر أفتحلك ' + r.popup + ' متملّي والتأكيد منك.', flow: r.state }
+      : r.kind === 'denied' ? { role: 'ai', sys: true, text: '«' + r.title + '» مش من صلاحياتك — لو محتاجها اطلبها من الأدمن.' }
+        : r.kind === 'form' ? { role: 'ai', sys: true, text: r.text }
+          : r.page ? { role: 'ai', sys: true, text: r.page.text + ' دوس على اللينك تحت.', rqPage: r.page } : { role: 'ai', sys: true, text: 'مش لاقي الطلب ده في السيستم — جرّب تختار تاني.' };
+  }
   function aiDraw() {
     if (!aiList) return;
     aiList.replaceChildren(...ai.msgs.map((m) => {
       const kids = [h('p', { class: 'ai-text' }, m.live && !m.text ? 'بفكّر…' : m.welcome ? aiWelcome() : m.text)];
       // where the answer came from: the system itself, or the outside model the member agreed to
       if (m.role === 'ai' && !m.welcome && !m.live && (m.sys || m.via)) kids.unshift(h('span', { class: 'ai-src' + (m.sys ? ' sys' : ''), 'data-ai-src': m.sys ? 'system' : 'brain' }, m.sys ? 'من السيستم' : ['الرد من ', h('bdi', null, m.via)]));
+      if ((m.repAsk || m.rep) && window.IBReportAsk) { const RA = window.IBReportAsk;
+        kids.push(h('div', { class: 'ai-actions', 'data-ai-rep': m.rep ? 'open' : 'ask' }, m.rep
+          ? Button({ type: 'primary', size: 'sm', icon: 'eye', label: 'افتح التقرير', attrs: { 'data-ai-rep-open': '' }, onClick: () => { if (!RA.result(m.rep)) aiSay('مش قادر أفتح التقرير دلوقتي.'); } })
+          : Button({ type: 'primary', size: 'sm', icon: 'sliders', label: 'املا تفاصيل التقرير', attrs: { 'data-ai-rep-ask': '' }, onClick: () => RA.open({ pre: m.repAsk, onSend: (spec) => {
+            ai.msgs.push({ role: 'user', text: RA.summary(spec) }); ai.msgs.push({ role: 'ai', sys: true, text: 'البيانات جاهزة في اللينك ده.', rep: spec }); aiDraw(); } }) }))); }
+      if ((m.rqAsk || m.rqPage) && window.IBRequestAsk && window.IBChatFlowHost) { const RQx = window.IBRequestAsk; const FH = window.IBChatFlowHost;
+        kids.push(h('div', { class: 'ai-actions', 'data-ai-rqa': m.rqPage ? 'page' : 'ask' }, m.rqPage
+          ? Button({ size: 'sm', icon: 'external', label: 'افتح ' + m.rqPage.label, attrs: { 'data-ai-rqa-page': m.rqPage.hash }, onClick: () => FH.pagePopup({ title: 'افتح ' + m.rqPage.label, text: m.rqPage.text, label: 'افتح ' + m.rqPage.label, go: () => { location.hash = m.rqPage.hash; } }) })
+          : Button({ type: 'primary', size: 'sm', icon: 'sliders', label: 'املا بيانات الطلب', attrs: { 'data-ai-rqa-ask': '' }, onClick: () => RQx.open({ pre: m.rqAsk, onPick: (p) => {
+            for (const x of ai.msgs) if (x.flow && x.flow.phase !== 'opened') x.flowOff = true;
+            ai.msgs.push({ role: 'user', text: RQx.summary(p) }); ai.msgs.push(aiRequestMsg(FH.requestRun(p))); aiDraw(); } }) }))); }
       if (m.flow && window.IBChatFlowHost) kids.push(m.flowOff ? h('p', { class: 'ai-done t-small', 'data-ai-flow-off': '' }, 'الخطوات دي اتلغت.')
         : window.IBChatFlowHost.card(m.flow, { redraw: aiDraw, cancel: () => { m.flowOff = true; aiDraw(); } }));
       if (m.consent) kids.push(m.consent.done ? h('p', { class: 'ai-done t-small' }, m.consent.done === 'no' ? 'ما استخدمتش مخ خارجي.' : ['اتبعت لـ ', h('bdi', null, m.consent.done), '.']) : h('div', { class: 'ai-actions ai-consent', 'data-ai-consent': '' },

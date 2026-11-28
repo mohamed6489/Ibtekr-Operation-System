@@ -2693,4 +2693,9 @@ input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-
 .ntf-num:focus-visible{outline:2px solid var(--color-brand-default);outline-offset:1px}
 .ntf-num.all{background:var(--color-brand-default);border-color:var(--color-brand-default);color:var(--color-text-on-brand)}
 .ntf-num.all svg{color:inherit}
+/* Safwat 28 Nov: the number opens its order's details, the copy mark beside it copies — two buttons in one chip */
+span.ntf-num{padding:0 2px 0 4px;gap:0}
+.ntf-num-open,.ntf-num-copy{border:0;background:none;color:inherit;font:inherit;cursor:pointer;display:inline-flex;align-items:center;height:100%;padding:0 4px;border-radius:12px}
+.ntf-num-open:hover{text-decoration:underline}
+.ntf-num-copy:hover,.ntf-num-copy:focus-visible,.ntf-num-open:focus-visible{background:var(--color-bg-hover)}
 @media (pointer:coarse){.ntf-num{height:32px;padding:0 10px}}

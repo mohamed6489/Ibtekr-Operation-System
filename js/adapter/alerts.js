@@ -245,7 +245,7 @@
   const LV_RANK = { critical: 0, important: 1, normal: 2, info: 3 }; // the four levels (Safwat 24 Nov — «عادي» between «مهم» and «للمعرفة»)
   const LV_WORD = { critical: 'حرج', important: 'مهم', normal: 'عادي' };
   const EL_ICON = { daily: 'chart', custody: 'wallet', team: 'users', orders: 'package', subs: 'box', products: 'tag', inventory: 'stock', accounts: 'wallet',
-    tickets: 'ticket', messages: 'msg', ai: 'sparkle', makers: 'users', system: 'gear' };
+    tickets: 'ticket', messages: 'msg', ai: 'sparkle', makers: 'users', system: 'gear', faults: 'alert', storage: 'gear' };
   const AGENT_ICON = { manager: 'sliders', buyer: 'chart', designer: 'image', dev: 'code', stock: 'truck', cs: 'headset', makers: 'users', accountant: 'wallet', hr: 'briefcase', content: 'image' };
   const elOf = (a) => { const m = /^rule:([a-z_]+)\./.exec(String(a.kind || '')); if (m) return m[1]; const C = window.IBNotifCatalog; return C && C.elementOfKind ? C.elementOfKind(a.kind) : null; };
   const lvOf = (a) => { const l = a.meta && a.meta.lv; return LV_RANK[l] != null ? l : toneOf(a.kind) === 'error' ? 'critical' : 'important'; };

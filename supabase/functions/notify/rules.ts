@@ -44,7 +44,7 @@ async function world(db: Db): Promise<World> {
   const [roles, members, st] = await Promise.all([
     db.from('roles').select('id, name, permissions, level_perms').limit(200),
     db.from('profiles').select('id, name, role_id, extra_roles, level, custom_perms, manager_id, status').eq('status', 'active').limit(500),
-    db.from('settings').select('section, data').in('section', ['hr', 'cs', 'makers']),
+    db.from('settings').select('section, data').in('section', ['hr', 'cs', 'makers', 'system']),
   ]);
   const settings: Record<string, Json> = {}; for (const r of rows(st)) settings[String(r.section)] = isObj(r.data) ? r.data : {};
   return { roles: rows(roles), members: rows(members), settings, cache: new Map() };
@@ -540,8 +540,52 @@ async function read(db: Db, w: World, ctx: Ctx, rule: Json, since: string): Prom
       if (last.length === 3 && last.every((x) => String(x.result) === 'error')) out.push({ id: 'link:woo', name: 'الموقع', state: 'وقف', line: 'مزامنة الموقع فشلت 3 مرات ورا بعض في آخر ساعة', entity: 'settings-integrations' });
       return out;
     }
+    // ---- a fault since the rule's last run (Safwat 28 Nov: «يعرفني انو حصل حتي لو اتحل او مانت تهنيجة») — each source once per run
+    case 'faults.fault': return faultsSince(db, w, since);
+    // ---- the project's space against the plan (Safwat 28 Nov — the Free plan: 500 MB of database, 1 GB of files)
+    case 'storage.space': {
+      const u = await db.rpc('storage_usage'); if (u.error || !isObj(u.data)) return [];
+      return storageFull(u.data, (w.settings.system ?? {}).storage, P ?? 80);
+    }
   }
   return [];
+}
+// ---- the faults: the screen's errors (app.crash — the members it happened to, never its text), the site's sync, the scheduled jobs,
+// a message our channels could not send and an AI call that failed — counts and names only
+export async function faultsSince(db: Db, w: World, since: string): Promise<Ent[]> {
+  const out: Ent[] = []; const at = since.slice(0, 16).replace('T', ' ');
+  const [crash, sync, cron, sent, ai] = await Promise.all([
+    db.from('activity_log').select('id, actor').eq('action', 'app.crash').gte('at', since).limit(500),
+    db.from('woo_sync_log').select('id, kind, entity').eq('result', 'error').gte('at', since).limit(500),
+    db.rpc('dev_cron_health', { p_hours: 1 }),
+    db.from('cs_messages').select('id').eq('delivery', 'failed').gte('created_at', since).limit(500),
+    db.from('ai_runs').select('id').eq('status', 'error').gte('created_at', since).limit(500),
+  ]);
+  const C = rows(crash);
+  if (C.length) { const who = [...new Set(C.map((x) => nameOf(w, x.actor)))]; const first = C[0].id;
+    out.push({ id: 'fault:crash:' + first, name: 'خطأ على الشاشة', state: 'وجود عطل', n: C.length, line: C.length + ' خطأ على الشاشة عند ' + who.slice(0, 4).join('، ') + (who.length > 4 ? ' و' + (who.length - 4) + ' غيرهم' : '') + ' — سجل النشاط فيه مكانه', entity: 'settings-activity' }); }
+  const S = rows(sync);
+  if (S.length) { const parts = [...new Set(S.map((x) => String(x.entity || x.kind || '')).filter(Boolean))].slice(0, 4);
+    out.push({ id: 'fault:sync:' + S[0].id, name: 'مزامنة الموقع', state: 'وجود عطل', n: S.length, line: 'مزامنة الموقع فشلت ' + S.length + ' مرة' + (parts.length ? ' (' + parts.join('، ') + ')' : ''), entity: 'settings-integrations' }); }
+  const J = isObj(cron.data) && Array.isArray(cron.data.jobs) ? cron.data.jobs as Json[] : [];
+  for (const j of J) if (j.last_failed_at && String(j.last_failed_at) >= since)
+    out.push({ id: 'fault:cron:' + String(j.name) + ':' + String(j.last_failed_at).slice(0, 16), name: 'مهمة مجدولة', state: 'وجود عطل', n: Number(j.failed) || 1, line: 'المهمة المجدولة «' + String(j.name).slice(0, 40) + '» فشلت ' + (Number(j.failed) || 1) + ' مرة', entity: 'settings-activity' });
+  const M = rows(sent);
+  if (M.length) out.push({ id: 'fault:send:' + M[0].id, name: 'إرسال رسايل', state: 'وجود عطل', n: M.length, line: M.length + ' رسالة ماتبعتتش للعملاء', entity: 'cs-inbox' });
+  const A = rows(ai);
+  if (A.length) out.push({ id: 'fault:ai:' + A[0].id, name: 'الذكاء الاصطناعي', state: 'وجود عطل', n: A.length, line: A.length + ' طلب للذكاء الاصطناعي فشل', entity: 'settings-ai' });
+  return out.map((e) => ({ ...e, ref: at }));
+}
+// ---- the space: the database and the files each against its limit (settings «system».storage { db_mb, files_mb } — the Free plan's by default)
+export const STORAGE_LIMITS = { db_mb: 500, files_mb: 1024 };
+export function storageFull(u: Json, set: unknown, pct: number): Ent[] {
+  const lim = { ...STORAGE_LIMITS, ...(isObj(set) ? set : {}) }; const out: Ent[] = []; const p = pct > 0 && pct <= 100 ? pct : 80;
+  const mb = (b: unknown) => Number(b || 0) / 1048576; const fmt = (n: number) => (n >= 1024 ? (n / 1024).toFixed(1) + ' جيجا' : Math.round(n) + ' ميجا');
+  for (const [k, used, max, name] of [['db', mb(u.db_bytes), Number(lim.db_mb), 'قاعدة البيانات'], ['files', mb(u.files_bytes), Number(lim.files_mb), 'الملفات المرفوعة']] as [string, number, number, string][]) {
+    if (!(max > 0)) continue; const r = Math.round((used / max) * 100);
+    if (r >= p) out.push({ id: 'storage:' + k, name, state: 'التخزين امتلأ', n: r, line: name + ' ' + fmt(used) + ' من ' + fmt(max) + ' (' + r + '%)', entity: 'settings' });
+  }
+  return out;
 }
 const addMin = (hhmm: string, min: number) => { const t = Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5)) + min; const c = Math.min(t, 23 * 60 + 59); return String(Math.floor(c / 60)).padStart(2, '0') + ':' + String(c % 60).padStart(2, '0'); };
 // a member's own start time: his schedule, else his primary role's (settings «hr».schedules — 0087 / 0101)

@@ -83,6 +83,14 @@
       { id: 'lost', label: 'المفقودات', kind: 'event', states: [S('new', 'قطعة اتعلّمت مفقود', { level: 'critical' })] }] },
     { id: 'system', label: 'السيستم', perm: 'settings.view', types: [
       { id: 'links', label: 'الربط بالمنصات', kind: 'state', states: [S('down', 'ربط منصة وقف', { level: 'critical' })] }] },
+    // Safwat 28 Nov — each its own element: «لو في مشكلة او اي خطأ حصل يعرفني انو حصل حتي لو اتحل» (an event — told once, even if it
+    // is gone by the next tick) and «لو المساحة دي قربت تتملي يبعت تنبيه» (the Supabase project's database and files against the plan's
+    // limits — the system lives there; Hostinger only serves the page's own files). perm null: the rule's roles (the admin's and the
+    // developer's by default — 0173)
+    { id: 'faults', label: 'الأعطال', perm: null, types: [
+      { id: 'fault', label: 'الأعطال', kind: 'event', states: [S('found', 'وجود عطل', { level: 'critical' })] }] },
+    { id: 'storage', label: 'مساحة التخزين', perm: null, types: [
+      { id: 'space', label: 'المساحة', kind: 'state', states: [S('full', 'التخزين امتلأ', { level: 'critical', param: { key: 'pct', label: 'لما توصل كام %', def: 80 } })] }] },
   ];
   const REPEATS = [['once', 'غير متكرر'], ['24h', 'كل 24 ساعة'], ['48h', 'كل 48 ساعة'], ['weekly', 'أسبوعيًا'], ['monthly', 'شهريًا'], ['days', 'أيام محددة من الشهر']];
   const SHOWS = [['fixed', 'مدة محددة'], ['until_state', 'حتى تغيير الوضع'], ['until_read', 'حتى التحوّل لمقروء']];

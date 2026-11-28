@@ -127,6 +127,26 @@ test('«الإعدادات › التنبيهات»: a main section, a sub-secti
   await expect(page.locator('.menu.notif .tab')).toHaveText([/الكل \(0\)/, /العهدة \(0\)/]); // 0163 (the bell by role): the sub-section ready at zero
 });
 
+test('Safwat 28 Nov — «+ تنبيه» outlined under the filled «+ قسم فرعي»; «الأعطال › وجود عطل» and «مساحة التخزين › التخزين امتلأ» (80% by default) in the form', async ({ page }) => {
+  await signIn(page, 'settings-notifications');
+  const tree = page.locator('[data-nr-tree]');
+  const add = tree.locator('[data-nr-add]').first(); const sub = tree.locator('[data-nr-add-sub]').first();
+  await expect(add).toBeVisible();
+  const bg = (l) => l.evaluate((e) => getComputedStyle(e).backgroundColor);
+  expect(await bg(add)).toBe('rgba(0, 0, 0, 0)');
+  expect(await bg(sub)).not.toBe('rgba(0, 0, 0, 0)');
+  expect(await add.evaluate((e) => getComputedStyle(e).borderTopStyle)).toBe('solid');
+  await add.click();
+  const form = page.locator('.modal[role=dialog]', { hasText: 'إضافة تنبيه' });
+  await form.locator('#nr-el').click(); await page.getByRole('option', { name: 'الأعطال' }).click();
+  await form.locator('#nr-type').click(); await page.getByRole('option', { name: 'الأعطال' }).click();
+  await form.locator('#nr-state').click(); await expect(page.getByRole('option', { name: 'وجود عطل' })).toHaveCount(1); await page.getByRole('option', { name: 'وجود عطل' }).click();
+  await form.locator('#nr-el').click(); await page.getByRole('option', { name: 'مساحة التخزين' }).click();
+  await form.locator('#nr-type').click(); await page.getByRole('option', { name: 'المساحة' }).click();
+  await form.locator('#nr-state').click(); await page.getByRole('option', { name: 'التخزين امتلأ' }).click();
+  await expect(form.locator('#nr-param')).toHaveValue('80');
+});
+
 test('an alert switched off and deleted from the settings; a sub-section renamed', async ({ page }) => {
   await signIn(page, 'settings-notifications');
   await page.locator('[data-nr-tab]').nth(1).click(); // r2 is under the second main section's tab

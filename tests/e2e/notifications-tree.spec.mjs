@@ -169,7 +169,7 @@ test('the bell\'s redesign: a maker\'s card — logo, phone, states, numbers to 
     { id: 605, at: iso(5), kind: 'rule:team.status', title: 'لم يسجل انصراف', body: 'x', role_id: null, user_id: ADMIN_ID, entity: 'hr-team', entity_id: 'noout:1', read_at: null, rule_id: 'r2', section_id: S2, hide_at: null, meta: { lv: 'important', g: 'member', gid: 'm1', gname: 'سارة أحمد' } },
     // a confirmed order of his: the same card, its own state
     { id: 606, at: iso(40), kind: 'rule:makers.making', title: 'أوردر مؤكد جديد للمبتكر — IB-180656', body: 'x', role_id: null, user_id: ADMIN_ID, entity: 'orders/180656', entity_id: 'mk:confirmed:1', read_at: null, rule_id: 'r1', section_id: S1, hide_at: null,
-      meta: { lv: 'info', g: 'vendor', gid: ART, gname: 'Art Craft', n: 1, pcs: 2, sk: 'confirmed', nums: ['9301'], v: { n: 'Art Craft', s: 'أوردر مؤكد' } } }];
+      meta: { lv: 'info', g: 'vendor', gid: ART, gname: 'Art Craft', n: 1, pcs: 2, sk: 'confirmed', nums: ['180656'], v: { n: 'Art Craft', s: 'أوردر مؤكد' } } }];
   mock.alertReads = [];
   await signIn(page, 'dashboard');
   await page.locator('.notif-btn').click();
@@ -187,15 +187,20 @@ test('the bell\'s redesign: a maker\'s card — logo, phone, states, numbers to 
   await expect(card.locator('[data-ntf-phone]')).toHaveText('01000000003'); await expect(card.locator('[data-ntf-wa]')).toHaveAttribute('href', 'https://wa.me/201000000003');
   await expect(card.locator('[data-ntf-num]')).toHaveText(['#9101', '#9102', '#9201']);
   await expect(card.locator('[data-ntf-num="9201"]')).toHaveClass(/risk/);
-  await card.locator('[data-ntf-num="9102"]').click(); // a number copies itself — the card stays
+  await card.locator('[data-ntf-num-copy="9102"]').click(); // its copy mark copies it — the card stays (Safwat 28 Nov)
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('9102');
   await card.locator('[data-ntf-nums-all]').click();
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('9101\n9102\n9201');
   await expect(bell).toBeVisible();
   // the confirmed order: the same card — his name, phone and number — its state green
   const conf = items.filter({ has: page.locator('[data-ntf-state="ok"]') });
-  await expect(conf.locator('[data-ntf-state]')).toHaveText('أوردر مؤكد'); await expect(conf.locator('[data-ntf-num]')).toHaveText(['#9301']); await expect(conf.locator('[data-ntf-phone]')).toHaveText('01000000003');
+  await expect(conf.locator('[data-ntf-state]')).toHaveText('أوردر مؤكد'); await expect(conf.locator('[data-ntf-num]')).toHaveText(['#180656']); await expect(conf.locator('[data-ntf-phone]')).toHaveText('01000000003');
   for (const a of mock.alerts) expect(JSON.stringify(a.meta || {})).not.toContain('01000000003'); // the phone is never in the alert
+  // bell-redesign decision 20 (Safwat 28 Nov): a number not on the orders page says so; one that is opens its order over the page
+  await card.locator('[data-ntf-num-open="9101"]').click(); await expect(page.getByRole('status').filter({ hasText: 'مش ظاهر في صفحة الأوردرات' })).toHaveCount(1);
+  await conf.locator('[data-ntf-num-open="180656"]').click();
+  await expect(page.locator('#orders #cdlg').first()).toBeVisible(); await expect(bell).toHaveCount(0);
+  await page.keyboard.press('Escape'); await page.locator('.notif-btn').click(); const bell2 = page.locator('.menu.notif'); await expect(bell2).toBeVisible();
   await bell.locator('.ntf-nav-item', { hasText: 'الفريق' }).click();
   await expect(bell.locator('.ntf-item').first().locator('.av.letter')).toHaveText('س');
   await bell.locator('.ntf-nav-item', { hasText: 'خدمة العملاء' }).click();
@@ -410,4 +415,17 @@ test('the order rule\'s template: the card under it as it is typed; the default 
   await expect(form.locator('[data-nr-card-prev] [data-ntf-maker]')).toHaveCount(0);
   await expect(form.locator('[data-nr-vars]')).toContainText('{المبتكرين}');
   await expect(form.locator('[data-nr-vars]')).toContainText('{المبتكر_القابل_للتأخير}');
+});
+
+// bell-redesign decision 20 (Safwat 28 Nov — «في فيندورز اللوجو بتاعهم م ظاهر»): a maker with his photo in the system and no store logo on
+// the site shows that photo (its signed link), not his letter
+test('decision 20 — a maker\'s photo in the system is his mark in the bell', async ({ page }) => {
+  const v = mock.vendors.find((x) => x.name === 'Art Craft'); v.logo_url = null; v.photo_path = v.id + '/photo.png'; mock.vendorPhotos.set(v.photo_path, { type: 'image/png', bytes: Buffer.alloc(0) });
+  mock.alerts = [{ id: 701, at: iso(5), kind: 'rule:makers.making', title: 'أوردر فرعي متأخر', body: 'x', role_id: null, user_id: ADMIN_ID, entity: 'makers', entity_id: 'mk:late:p', read_at: null, rule_id: 'r1', section_id: S1, hide_at: null,
+    meta: { lv: 'critical', g: 'vendor', gid: v.id, gname: 'Art Craft', n: 1, pcs: 1, st: 'late', sk: 'late', nums: ['9101'], v: { n: 'Art Craft', s: 'متأخر' } } }];
+  mock.alertReads = [];
+  await signIn(page, 'dashboard');
+  await page.locator('.notif-btn').click();
+  const item = page.locator('.menu.notif .ntf-item').first();
+  await expect(item.locator('.av.img img')).toHaveAttribute('src', /vendor-photos/);
 });

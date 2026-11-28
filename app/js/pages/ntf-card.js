@@ -7,7 +7,7 @@
        the sub-orders with a box; «makers» = a row per maker (name · pieces · his products' status, the late / about to be ones with a
        word and a colour — never the colour alone); «details» = the entity's line, its « · » pieces apart; «chip» / «text» as they are;
        «state» = the alert's state as a chip in its tone (late red · about to be yellow · confirmed green — the word on it); «nums» =
-       a maker's sub-order numbers, each a button that copies it, and «نسخ الكل» (Safwat 25 Nov — the maker's card)
+       a maker's sub-order numbers, each opening its order's details with a copy mark beside it, and «نسخ الكل» (Safwat 25 Nov — the maker's card; 28 Nov)
      IBNtfCard.preview(rule, stateLabel) → the rule's card on a sample alert of its element, for its form (the settings) — every
        template works the same way (Safwat 25 Nov — «قوالب الرسايل كلها تشتغل بنفس الطريقة») */
 (function () {
@@ -23,13 +23,26 @@
     const { h } = U(); const L = p.items && p.items.length ? p.items : [{ t: p.text, d: '' }];
     return L.map((x) => h('span', { class: 'ntf-chip ' + (TONE[x.d] || 'neutral'), 'data-ntf-state': x.d || '' }, x.t));
   }
-  // a maker's sub-order numbers: each one copies itself, «نسخ الكل» copies them a line each (to paste to him)
+  // the main order a sub-order number belongs to, on the orders page's own rows (its own number for an order of one maker)
+  function orderOfSub(n) {
+    const O = window.OrdersApp; if (!O || !O.query || !O.get) return null; const k = String(n);
+    for (const r of O.query({}, 1e6).rows) { if (String(r.id) === k) return r.id; const g = O.get(r.id); if (g && g.subs.some((s) => String(s.sid) === k)) return r.id; }
+    return null;
+  }
+  // Safwat 28 Nov — «زراير الاوردرات الفرعية لو دوست عليه تفتحلي تفاصيل الاوردر و لو دوست علي علامة كوبي اقدر انسخهم»: the number opens its
+  // order's details over the page (OrdersApp.peek), the copy mark beside it copies it; «نسخ الكل» copies them a line each (to paste to him)
+  function openSub(e, n) {
+    e.stopPropagation(); const id = orderOfSub(n); const O = window.OrdersApp;
+    if (id == null || !O || !O.peek) { K().toast('الأوردر الفرعي #' + n + ' مش ظاهر في صفحة الأوردرات دلوقتي', 'error'); return; }
+    if (U().closePopover) U().closePopover(); O.peek(id);
+  }
   function numsEl(p) {
     const { h, Icon } = U(); const L = (p.items || []).filter((x) => x && x.n);
     const all = L.map((x) => x.n).join('\n');
     return h('span', { class: 'ntf-nums', role: 'group', 'aria-label': 'أرقام الأوردرات الفرعية', 'data-ntf-nums': String(L.length) },
-      L.map((x) => h('button', { type: 'button', class: 'ntf-num ' + (x.d || ''), title: 'نسخ ' + x.n, 'aria-label': 'نسخ الأوردر الفرعي ' + x.n, 'data-ntf-num': x.n,
-        onClick: (e) => copy(e, x.n, 'اتنسخ الرقم ' + x.n) }, h('bdi', { dir: 'ltr' }, '#' + x.n), Icon('copy', 'sm'))),
+      L.map((x) => h('span', { class: 'ntf-num ' + (x.d || ''), 'data-ntf-num': x.n },
+        h('button', { type: 'button', class: 'ntf-num-open', title: 'تفاصيل الأوردر', 'aria-label': 'افتح تفاصيل الأوردر الفرعي ' + x.n, 'data-ntf-num-open': x.n, onClick: (e) => openSub(e, x.n) }, h('bdi', { dir: 'ltr' }, '#' + x.n)),
+        h('button', { type: 'button', class: 'ntf-num-copy', title: 'نسخ ' + x.n, 'aria-label': 'نسخ الأوردر الفرعي ' + x.n, 'data-ntf-num-copy': x.n, onClick: (e) => copy(e, x.n, 'اتنسخ الرقم ' + x.n) }, Icon('copy', 'sm')))),
       L.length > 1 ? h('button', { type: 'button', class: 'ntf-num all', 'aria-label': 'نسخ كل الأرقام', 'data-ntf-nums-all': '', onClick: (e) => copy(e, all, 'اتنسخت ' + L.length + ' أرقام') }, Icon('copy', 'sm'), 'نسخ الكل') : null);
   }
   const pcs = (n) => (C().pcsWord ? C().pcsWord(n) : String(n));

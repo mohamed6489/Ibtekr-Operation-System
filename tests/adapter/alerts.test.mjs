@@ -279,7 +279,7 @@ test('treeSections: one card per maker with his counts, the critical first, the 
   const all = S[0].tabs[0][2];
   assert.deepEqual(plain(all.map((x) => [x.title, x.lv])), [['Art Craft', 'critical'], ['لم يسجل حضور', 'important'], ['أوردر مؤكد جديد', 'info']]);
   assert.equal(all[0].sub, '2 أوردر متأخر · 1 قابل للتأخير · 6 قطعة'); assert.equal(all[0].group, true);
-  assert.deepEqual(plain(all[0].av), { img: 'https://ibtekr.club/logo.webp', letter: 'A' });
+  assert.deepEqual(plain(all[0].av), { img: 'https://ibtekr.club/logo.webp', photo: null, letter: 'A', tone: 'vendor' });
   assert.deepEqual(plain(all[1].av), { letter: 'س', tone: 'member' });
   assert.equal(S[0].received, 5); assert.equal(S[0].critical, 2);
   all[0].run();

@@ -919,6 +919,12 @@
         // the bell's redesign decision 2: the alert's owner instead of a bell — a maker's logo, a member's / a customer's first letter in a
         // circle, an assistant's icon, else its element's; the level as a tag (حرج / مهم), a maker's card with its counts as chips
         const avEl = (it) => { const a = it.av; if (!a) return h('span', { class: 'av ' + it.tone, 'aria-hidden': 'true' }, Icon(it.icon, 'sm'));
+          // bell-redesign decision 20 (Safwat 28 Nov — «في فيندورز اللوجو بتاعهم م ظاهر»): a maker's photo in the system (a signed link,
+          // asked for when drawn) — his store's logo or his letter until it comes
+          if (a.photo && window.IBVendors && window.IBVendors.photoUrl) {
+            const box = a.img ? h('span', { class: 'av img', 'aria-hidden': 'true' }, h('img', { src: a.img, alt: '', loading: 'lazy' })) : h('span', { class: 'av letter vendor', 'aria-hidden': 'true' }, a.letter || '؟');
+            window.IBVendors.photoUrl(a.photo).then((url) => { if (url) { box.className = 'av img'; box.replaceChildren(h('img', { src: url, alt: '', loading: 'lazy' })); } }).catch(() => { /* the letter stays */ });
+            return box; }
           if (a.img) { const im = h('img', { src: a.img, alt: '', loading: 'lazy' }); const box = h('span', { class: 'av img', 'aria-hidden': 'true' }, im);
             im.addEventListener('error', () => { box.className = 'av letter vendor'; box.replaceChildren(a.letter || '؟'); }); return box; }
           if (a.letter) return h('span', { class: 'av letter ' + (a.tone || ''), 'aria-hidden': 'true' }, a.letter);

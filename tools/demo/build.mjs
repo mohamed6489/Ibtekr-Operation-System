@@ -35,7 +35,7 @@ const demoText = (s) => s.replace(/fsynculhaupcktzkfkdd\.supabase\.co/g, DEMO_HO
 export function build(out) {
   out = resolve(out); rmSync(out, { recursive: true, force: true }); mkdirSync(out, { recursive: true });
   // 1) the app as it is: its styles and scripts (not the server's .htaccess, the other pages, or the real config)
-  for (const d of ['css', 'js']) cpSync(join(ROOT, 'app', d), join(out, d), { recursive: true, filter: (p) => !/\.md$/.test(p) });
+  for (const d of ['css', 'js', 'img']) cpSync(join(ROOT, 'app', d), join(out, d), { recursive: true, filter: (p) => !/\.md$/.test(p) });
   writeFileSync(join(out, 'config.js'), `// the demo copy: the stand-in's address (never resolves) and its made-up key\nwindow.IB_CONFIG = { supabaseUrl: 'https://${DEMO_HOST}', supabaseAnonKey: 'mock-anon-key', realtime: false };\n`);
   // 2) the stand-in backend, as browser modules next to the shim
   for (const f of mockFiles()) { const to = join(out, 'demo', f.replace(/\.mjs$/, '.js')); mkdirSync(dirname(to), { recursive: true }); writeFileSync(to, demoText(readFileSync(join(ROOT, f), 'utf8'))); }
@@ -50,7 +50,7 @@ export function build(out) {
   // 4) nothing real in the copy, and no raw control character or U+FFFD (an Artifact refuses a file that carries one — the vendored
   // xlsx and supabase-js hold a few inside their string literals; the same character written as its escape is the same string)
   const files = walk(out).filter((f) => f !== 'index.html' && f !== 'files.json').sort();
-  for (const f of ['index.html', ...files]) {
+  for (const f of ['index.html', ...files].filter((x) => !/\.(webp|png|jpe?g|gif)$/i.test(x))) { // pictures (the «إزاي…» screens) are bytes, not text
     let s = readFileSync(join(out, f), 'utf8'); const hit = FORBIDDEN.find((re) => re.test(s)); if (hit) throw new Error(`demo: ${f} still holds ${hit}`);
     if (!CONTROL.test(s)) continue; CONTROL.lastIndex = 0;
     if (!/\.js$/.test(f)) throw new Error(`demo: ${f} holds a raw control character`);

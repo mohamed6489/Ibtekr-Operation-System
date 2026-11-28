@@ -152,6 +152,11 @@ export function demoAfter(mock) {
     mock.brands.push({ id, name: 'Craft Home', code: 'C', aliases: [], store_vendor_id: null, origin_vendor_id: V(1), created_by: 'صفوت كمال', created_at: at, updated_at: at });
     (mock.brandOwners || []).push({ id: 99, brand_id: id, vendor_id: V(1), since: iso(40).slice(0, 10), return_on: null, reason: null, set_by: 'صفوت كمال', created_at: at });
   }
+  // two expenses written by hand (not the platforms' daily spend), so «سجل المصروفات التفصيلي» has a row to edit or delete — the «إزاي…» guides show it
+  if (mock.acc && !mock.acc.acc_expenses.some((e) => e.demo)) {
+    const exp = (id, d, category, who, amount) => ({ id, demo: true, on_date: cairoDay(d), direction: 'withdraw', category, beneficiary: who, beneficiary_other: true, amount, note: null, sub_name: null, sub_is_other: false, sub_ends: null, sub_alerts: [], sub_note: null, created_by: M(1), created_at: iso(d), voided_at: null });
+    mock.acc.acc_expenses.push(exp(901, 2, 'المصروفات', 'مكتب — أدوات تغليف', 650), exp(902, 5, 'المصروفات', 'شحن عينات', 240));
+  }
   // a few rows in the activity log, so every «سجل الحركات» opens with something under its date filter (codes and fields only, like the server's)
   if (mock.activityRows && !mock.activityRows.some((r) => r.demo)) {
     const rows = [

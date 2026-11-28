@@ -35,8 +35,8 @@ test('the stand-in runs as browser modules: every import is relative, ends in .j
   }
 });
 
-test('an Artifact takes every file: valid UTF-8 without a raw control character or U+FFFD (the vendored libraries are escaped)', () => {
-  for (const f of ['index.html', ...files]) {
+test('an Artifact takes every file: valid UTF-8 without a raw control character or U+FFFD (the vendored libraries are escaped); pictures go as bytes', () => {
+  for (const f of ['index.html', ...files].filter((x) => !/\.(webp|png|jpe?g|gif)$/i.test(x))) { // the «إزاي…» screens and the brain's pictures: binary files, which an Artifact takes as they are
     const bytes = readFileSync(join(out, f)); const s = bytes.toString('utf8');
     assert.ok(Buffer.compare(Buffer.from(s, 'utf8'), bytes) === 0, f + ' is UTF-8'); assert.ok(!/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f�]/.test(s), f + ' has no control character');
   }

@@ -18,8 +18,9 @@ const modal = (page) => page.locator('.modal').last();
 test('decision 1: «القوائم والحالات» — the lists in a side menu by group with their counts; a list opens beside it', async ({ page }) => {
   await signIn(page); await open(page, 'lists');
   const nav = page.locator('[data-lists-nav]');
-  await expect(nav.locator('.lst-gt')).toHaveText(['الحالات', 'الأسباب', 'قوائم تانية', 'شكل السيستم']); // the owner 17 Nov: «القائمة الجانبية» in its own group
-  await expect(nav.getByRole('tab')).toHaveCount(12);
+  // settings-lists-2 (Safwat 28 Nov): the groups by department, in the side menu's order — «القائمة الجانبية» in «شكل السيستم» (the owner 17 Nov)
+  await expect(nav.locator('.lst-gt')).toHaveText(['الأوردرات', 'المبتكرين', 'المنتجات', 'المخزن', 'خدمة العملاء', 'طلبات الفريق', 'الحسابات', 'التسويق', 'شكل السيستم']);
+  await expect(nav.getByRole('tab')).toHaveCount(27);
   await expect(nav.getByRole('tab', { name: /أسباب الإلغاء/ }).locator('.lst-n')).toBeVisible();
   await nav.getByRole('tab', { name: /شركات الشحن/ }).click();
   await expect(nav.getByRole('tab', { name: /شركات الشحن/ })).toHaveAttribute('aria-selected', 'true');

@@ -104,6 +104,42 @@
       S('بتفتح على خطوتها — عدّل القطع واحفظ، والمنشور ليه «سجل النشر».', IMG('edit.design', 2))] },
     'delete.design': { title: 'إزاي أمسح تصميم', steps: [
       S('في «آخر الشغل» اضغط «⋮» على الكامبين واختار «احذف الكامبين».', IMG('delete.design', 1))] },
+    // «إجراءات ذكية» (2026-11-28-smart-actions.md — «ونضيف كل العناصر»): the customer, the HR request, the hub's piece and the brand
+    'add.customer': { title: 'إزاي أضيف عميل', steps: [
+      S('افتح «خدمة العملاء» › تاب «العملاء» واضغط «+ إضافة عميل».', IMG('add.customer', 1)),
+      S('املا الاسم والموبايل (أو إنستجرام) والمدينة وجه منين، واضغط «إضافة» — العملاء اللي عندهم أوردرات بيتضافوا لوحدهم من الأوردرات.', IMG('add.customer', 2))] },
+    'edit.customer': { title: 'إزاي أعدّل بيانات عميل', steps: [
+      S('في «خدمة العملاء» › «العملاء» اضغط على اسم العميل.', IMG('edit.customer', 1)),
+      S('ملفه بيفتح — اضغط «تعديل» وعدّل الاسم والموبايل والعنوان واحفظ.', IMG('edit.customer', 2))] },
+    'delete.customer': { title: 'إزاي أمسح عميل', steps: [
+      S('العميل مابيتمسحش — لو مكرر: افتح ملفه من «العملاء» واضغط «⋮» فوق › «دمج مع عميل تاني».', IMG('delete.customer', 1)),
+      S('اختار العميل التاني واللي هيفضل — الأوردرات والمحادثات والتقييمات بتتجمع في ملف واحد.', IMG('delete.customer', 2))] },
+    'add.hr': { title: 'إزاي أقدّم طلب إجازة أو سلفة', steps: [
+      S('افتح «طلبات الفريق» واضغط «+ فتح طلب» — أو «فتح طلب» من «ملفي» › «طلباتي».', IMG('add.hr', 1)),
+      S('اختار النوع («طلب إجازة» · «طلب سلفة» · «طلب فترة راحة») واملا الأيام أو المبلغ — الطلب بيروح لمديرك المباشر والقرار منه.', IMG('add.hr', 2))] },
+    'edit.hr': { title: 'إزاي أعدّل طلب إجازة أو سلفة', steps: [
+      S('الطلب مابيتعدّلش بعد ما يتبعت — افتح «ملفي» › «طلباتي» واضغط على الطلب.', IMG('edit.hr', 1)),
+      S('لو لسه مستني القرار اضغط «إلغاء الطلب»، وبعدها اعمل طلب جديد بالتعديل.')] },
+    'delete.hr': { title: 'إزاي ألغي طلب إجازة أو سلفة', steps: [
+      S('افتح «ملفي» › «طلباتي» واضغط على الطلب.', IMG('delete.hr', 1)),
+      S('«إلغاء الطلب» — بينفع وهو لسه مستني القرار بس، والمتوافق عليه بيتلغي من مديرك.')] },
+    'add.lot': { title: 'إزاي أستلم قطعة في المخزن', steps: [
+      S('افتح «المخزون» من القايمة الجانبية واضغط «+ استلام في المخزن».', IMG('add.lot', 1)),
+      S('دوّر على الأوردر بالرقم أو اسم العميل واختار سطوره — أو «استلام يدوي» لقطعة من غير أوردر. المكان اختياري (تجميع · مرتجعات · تصوير).', IMG('add.lot', 2))] },
+    'edit.lot': { title: 'إزاي أعدّل قطعة في المخزن', steps: [
+      S('الكمية: «المخزون» › «سجل المخزون» › «⋮» على القطعة › «تسوية كمية» — لصاحب صلاحية الاعتماد.', IMG('edit.lot', 1)),
+      S('المكان والحالة من الجرد: «المخزون» › «الجرد» › «جرد جديد» (أو «افتح الجرد» لو فيه جرد شغال)، و«⋮» على القطعة › «تعديل المكان» أو «تعديل الحالة».', IMG('edit.lot', 2))] },
+    'delete.lot': { title: 'إزاي أشيل قطعة من المخزن', steps: [
+      S('من الجرد («المخزون» › «الجرد» › افتح الجرد) اضغط «⋮» على القطعة واختار «شيل من المخزن».', IMG('delete.lot', 1)),
+      S('اختار السبب والكمية — بتتسجل حركة خروج بالسبب، والسطر بيفضل بالباقي. والقطعة اللي طلعت في أوردر بتطلع لوحدها لما الأوردر يتشحن.', IMG('delete.lot', 2))] },
+    'add.brand': { title: 'إزاي أضيف براند', steps: [
+      S('افتح «المبتكرين» › «سجل المبتكرين» واضغط على اسم المبتكر.', IMG('add.brand', 1)),
+      S('في قسم «البراندات» اضغط «إضافة براند» واكتب الاسم والكود — و«⋮» › «اعمل البراند على الموقع» يعمله على الموقع.', IMG('add.brand', 2))] },
+    'edit.brand': { title: 'إزاي أعدّل براند', steps: [
+      S('في ملف المبتكر › «البراندات» اضغط «⋮» على البراند.', IMG('edit.brand', 1)),
+      S('«تعديل» للاسم والكود، أو «تغيير صورة البراند»، أو «نقل لمبتكر تاني».', IMG('edit.brand', 2))] },
+    'delete.brand': { title: 'إزاي أمسح براند', steps: [
+      S('البراند مابيتمسحش (ملكيته بتتحسب في الحسابات) — لو مابقاش بتاع المبتكر: «⋮» على البراند › «نقل لمبتكر تاني».', IMG('delete.brand', 1))] },
     'settle.maker': { title: 'إزاي أحاسب مبتكر', steps: [
       S('افتح «المبتكرين» › «حسابات المبتكرين» واضغط «⋮» على المبتكر.', IMG('settle.maker', 1)),
       S('اختار «تسوية دلوقتي (تقفيل الحساب)».', IMG('settle.maker', 2)),
@@ -113,9 +149,10 @@
   const ids = () => Object.keys(GUIDES);
 
   const HOW = /\s(ازاي|ازاى|إزاي|كيف|ازي|طريقه|خطوات|اعمل ايه عشان|اعمل اي عشان|علمني|اشرحلي|اشرح لي|how)\s/;
-  const VERB = [['add', /\s(اضيف|ضيف|اضف|اسجل|سجل|اعمل|انشئ|اضافه|add)\s/], ['edit', /\s(اعدل|عدل|تعديل|اغير|غير|edit|change)\s/], ['delete', /\s(امسح|مسح|احذف|حذف|اشيل|شيل|delete|remove)\s/]];
-  const EL = [['sub', /اوردر(ات)? فرعي|فرعيه/], ['order', /اوردر|order/], ['product', /منتج|product/], ['maker', /مبتكر|maker|vendor/], ['money', /مصروف|فلوس|رقم مالي|حركه ماليه|عربون|مواصلات|money/],
-    ['category', /قسم|اقسام|category/], ['member', /موظف|عضو|member|employee/], ['design', /تصميم|بوست|كامبين|design|post|campaign/]];
+  const VERB = [['add', /\s(اضيف|ضيف|اضف|اسجل|سجل|اعمل|انشئ|اضافه|اقدم|قدم|استلم|add)\s/], ['edit', /\s(اعدل|عدل|تعديل|اغير|غير|edit|change)\s/], ['delete', /\s(امسح|مسح|احذف|حذف|اشيل|شيل|الغي|الغاء|delete|remove|cancel)\s/]];
+  const EL = [['sub', /اوردر(ات)? فرعي|فرعيه/], ['order', /اوردر|order/], ['product', /منتج|product/], ['brand', /براند|brand/], ['maker', /مبتكر|maker|vendor/], ['money', /مصروف|فلوس|رقم مالي|حركه ماليه|عربون|مواصلات|money/],
+    ['category', /قسم|اقسام|category/], ['member', /موظف|عضو|member|employee/], ['design', /تصميم|بوست|كامبين|design|post|campaign/], ['customer', /عميل|عملاء|customer/],
+    ['hr', /اجاز|سلف|leave|advance/], ['lot', /قطعه|مخزن|inventory/]];
   /** «إزاي أضيف مبتكر» → 'add.maker'; «إزاي أحاسب مبتكر» → 'settle.maker'; «إزاي أعمل تصميم جديد» → 'add.design'; a «how» with
    *  nothing the guides know → 'menu'; anything else (no «how») → ''. */
   function detect(text) {
@@ -123,6 +160,7 @@
     if (/احاسب|حساب(ات)? (ال)?مبتكر|تسويه|اقفل حساب|تقفيل/.test(t) && /مبتكر|maker|vendor/.test(t)) return 'settle.maker';
     const el = (EL.find(([, re]) => re.test(t)) || [])[0]; const vb = (VERB.find(([, re]) => re.test(p)) || [])[0];
     if (el === 'design' && (!vb || vb === 'add')) return 'add.design';
+    if (el === 'customer' && /دمج/.test(t)) return 'delete.customer'; // a customer is merged, not deleted
     if (el && vb && GUIDES[vb + '.' + el]) return vb + '.' + el;
     if (el && !vb && GUIDES['add.' + el]) return 'add.' + el;
     return 'menu';
@@ -149,7 +187,9 @@
   const GROUPS = [['المنتجات', ['add.product', 'edit.product', 'delete.product']], ['المبتكرين', ['add.maker', 'edit.maker', 'delete.maker', 'settle.maker']],
     ['الأرقام المالية', ['add.money', 'edit.money', 'delete.money']], ['الأقسام', ['add.category', 'edit.category', 'delete.category']],
     ['الموظفين', ['add.member', 'edit.member', 'delete.member']], ['الأوردرات', ['add.order', 'edit.order', 'delete.order']],
-    ['الأوردرات الفرعية', ['add.sub', 'edit.sub', 'delete.sub']], ['التصميم', ['add.design', 'edit.design', 'delete.design']]];
+    ['الأوردرات الفرعية', ['add.sub', 'edit.sub', 'delete.sub']], ['التصميم', ['add.design', 'edit.design', 'delete.design']],
+    ['العملاء', ['add.customer', 'edit.customer', 'delete.customer']], ['طلبات الإجازة والسلفة', ['add.hr', 'edit.hr', 'delete.hr']],
+    ['المخزن', ['add.lot', 'edit.lot', 'delete.lot']], ['البراندات', ['add.brand', 'edit.brand', 'delete.brand']]];
   /** A «how» the guides don't name: every guide as a chip under its element. */
   function menu(onPick) {
     const u = U(); if (!u) return null; const { h } = u;

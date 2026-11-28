@@ -19,7 +19,10 @@ test('detect: the «how» with its verb and element; «أحاسب مبتكر»; 
   const cases = { 'إزاي أضيف مبتكر': 'add.maker', 'ازاي اعدل منتج؟': 'edit.product', 'إزاي أمسح أوردر فرعي': 'delete.sub', 'ازاي امسح اوردر': 'delete.order',
     'إزاي أحاسب مبتكر': 'settle.maker', 'إزاي أعمل تصميم جديد': 'add.design', 'ازاي اعمل كامبين': 'add.design', 'إزاي أسجل مصروف': 'add.money', 'ازاي اضيف قسم': 'add.category',
     'اشرحلي ازاي اضيف موظف': 'add.member', 'خطوات تعديل بيانات موظف': 'edit.member', 'إزاي أعمل أوردر جديد': 'add.order', 'ازاي منتج': 'add.product',
-    'إزاي أستخدم السيستم': 'menu', 'ازاي': 'menu' };
+    'إزاي أستخدم السيستم': 'menu', 'ازاي': 'menu',
+    // «إجراءات ذكية» — the elements added (2026-11-28-smart-actions.md)
+    'إزاي أضيف عميل': 'add.customer', 'ازاي ادمج عميل مكرر': 'delete.customer', 'ازاي الغي طلب اجازه': 'delete.hr', 'إزاي أقدم على سلفة': 'add.hr',
+    'إزاي أستلم قطعة في المخزن': 'add.lot', 'ازاي اشيل قطعه من المخزن': 'delete.lot', 'ازاي اعدل براند': 'edit.brand', 'إزاي أضيف براند للمبتكر': 'add.brand' };
   for (const [q, id] of Object.entries(cases)) assert.equal(HT.detect(q), id, q);
   for (const q of ['ضيف مبتكر', 'امسح الأوردر 123', 'كام أوردر متأخر', '', 'عايز تقرير المبتكرين']) assert.equal(HT.detect(q), '', q);
 });

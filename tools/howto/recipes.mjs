@@ -14,6 +14,11 @@ const ordMenu = (pg) => vis(pg.locator('button.ibtn[aria-label="المزيد"]')
 const ordItem = (pg, re) => vis(pg.locator('button').filter({ hasText: re }));
 const makerName = (pg) => vis(pg.locator('main table tbody tr .vendor-cell'));
 const expMenu = (pg) => vis(pg.locator('main button[aria-label="إجراءات الصف"]'));
+const custRow = (pg) => vis(pg.locator('button.who-cell'));
+const myReq = (pg) => vis(pg.locator('table tbody tr').filter({ hasText: 'TKT-' }));
+// the hub's place / status / «شيل من المخزن» are on a line of an open count: «جرد جديد» (the whole hub) opens it, ⋮ on its first line
+const countLine = async (pg) => { await btn(pg, 'جرد جديد').click(); await pg.waitForTimeout(500); await vis(modal(pg).getByRole('button', { name: 'ابدأ الجرد' })).click(); await pg.waitForTimeout(1800);
+  await vis(pg.locator('.scrim .modal button[aria-label^="إجراءات "]')).click(); await pg.waitForTimeout(400); };
 export const RECIPES = {
   'add.product': [
     { nav: 'المنتجات', hl: (pg) => btn(pg, 'دفعة منتجات جديدة') },
@@ -115,6 +120,52 @@ export const RECIPES = {
   ],
   'delete.design': [
     { nav: 'التسويق', tab: 'إنشاء', act: (pg) => vis(pg.locator('main button[aria-label="إجراءات"]')).click(), hl: (pg) => item(pg, 'احذف الكامبين') },
+  ],
+  // «إجراءات ذكية» (2026-11-28-smart-actions.md): the customer, the HR request, the hub's piece and the brand
+  'add.customer': [
+    { nav: 'خدمة العملاء', tab: 'العملاء', hl: (pg) => btn(pg, 'إضافة عميل') },
+    { act: (pg) => btn(pg, 'إضافة عميل').click(), clip: modal },
+  ],
+  'edit.customer': [
+    { nav: 'خدمة العملاء', tab: 'العملاء', hl: custRow },
+    { act: (pg) => custRow(pg).click(), clip: drawer, hl: (pg) => vis(drawer(pg).getByRole('button', { name: 'تعديل', exact: true })) },
+  ],
+  'delete.customer': [
+    { nav: 'خدمة العملاء', tab: 'العملاء', act: async (pg) => { await custRow(pg).click(); await pg.waitForTimeout(700); await vis(drawer(pg).locator('button[aria-label="إجراءات"]')).click(); }, hl: (pg) => item(pg, 'دمج مع عميل تاني') },
+    { act: (pg) => item(pg, 'دمج مع عميل تاني').click(), clip: modal },
+  ],
+  'add.hr': [
+    { nav: 'طلبات الفريق', hl: (pg) => btn(pg, 'فتح طلب') },
+    { act: async (pg) => { await btn(pg, 'فتح طلب').click(); await pg.waitForTimeout(600); await modal(pg).locator('#t-type').click(); await pg.waitForTimeout(300); await vis(pg.getByRole('option', { name: 'طلب إجازة' })).click(); }, clip: modal },
+  ],
+  'edit.hr': [
+    { go: 'profile-requests-mine', hl: myReq },
+  ],
+  'delete.hr': [
+    { go: 'profile-requests-mine', hl: myReq },
+  ],
+  'add.lot': [
+    { nav: 'المخزون', hl: (pg) => btn(pg, 'استلام في المخزن') },
+    { act: (pg) => btn(pg, 'استلام في المخزن').click(), clip: modal },
+  ],
+  'edit.lot': [
+    { nav: 'المخزون', tab: 'سجل المخزون', act: (pg) => rowMenu(pg, 0).click(), hl: (pg) => item(pg, 'تسوية كمية') },
+    { nav: 'المخزون', tab: 'الجرد', act: countLine, hl: (pg) => item(pg, 'تعديل المكان'), w: 1280, h: 560 },
+  ],
+  'delete.lot': [
+    { nav: 'المخزون', tab: 'الجرد', act: countLine, hl: (pg) => item(pg, 'شيل من المخزن'), w: 1280, h: 560 },
+    { act: (pg) => item(pg, 'شيل من المخزن').click(), clip: modal },
+  ],
+  'add.brand': [
+    { nav: 'المبتكرين', tab: 'سجل المبتكرين', hl: makerName },
+    { act: (pg) => makerName(pg).click(), clip: drawer, hl: (pg) => vis(drawer(pg).locator('[data-add-brand]')) },
+  ],
+  'edit.brand': [
+    { nav: 'المبتكرين', tab: 'سجل المبتكرين', act: (pg) => makerName(pg).click(), clip: drawer, hl: (pg) => vis(drawer(pg).locator('[data-brand-menu]')) },
+    { act: (pg) => vis(drawer(pg).locator('[data-brand-menu]')).click(), hl: (pg) => item(pg, 'تعديل') },
+  ],
+  'delete.brand': [
+    { nav: 'المبتكرين', tab: 'سجل المبتكرين', act: async (pg) => { await makerName(pg).click(); await pg.waitForTimeout(600); await vis(drawer(pg).locator('[data-brand-menu]')).click(); }, hl: (pg) => item(pg, 'نقل لمبتكر تاني') },
   ],
   'settle.maker': [
     { nav: 'المبتكرين', tab: 'حسابات المبتكرين', hl: (pg) => rowMenu(pg, 1) },

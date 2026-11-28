@@ -2668,16 +2668,14 @@ input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-
 .menu.notif .ntf-nav .ntf-nav-item .cnt.zero{background:rgba(255,247,239,.16);color:var(--color-text-on-brand)}
 .menu.notif .ntf-nav .ntf-nav-item .cnt.hot{background:var(--color-error-text);color:#fff}
 .menu.notif .ntf-nav .foot{color:var(--color-text-on-brand);opacity:.75}
-/* «طلبات جاهزة» / «تقارير جاهزة» in an assistant's chat header (0171 — chat flows phase 3): one menu, the item and the admin's ✎ / 🗑 on a line */
-.ag-rd-menu{min-width:240px;max-height:360px}
-.ag-rd-row{display:flex;align-items:center;gap:2px}
-.ag-rd-row>.opt{flex:1 1 auto;min-width:0}
-.ag-rd-acts{display:inline-flex;gap:2px;flex:none}
-.ag-rd-ic{display:inline-grid;place-items:center;width:28px;height:28px;border:0;border-radius:var(--radius-sm);background:none;color:var(--color-text-secondary);cursor:pointer}
-.ag-rd-ic:hover,.ag-rd-ic:focus-visible{background:var(--color-bg-hover);color:var(--color-brand-default)}
-.ag-rd-parts{display:flex;flex-direction:column;gap:8px;margin:8px 0}
-.ag-rd-st{display:flex;align-items:flex-end;gap:6px}.ag-rd-st>:first-child{flex:1 1 auto;min-width:0}
-.ag-rd-x{margin-bottom:8px}
+/* «إجراءات ذكية» (2026-11-28-smart-actions.md): the assistant chat header's menu — the five most asked, then «إضافة طلب ذكي» / «طلب بشري» */
+.smart-menu{min-width:250px;max-height:420px}
+.smart-menu .opt{display:flex;align-items:center;gap:8px}
+.smart-l{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.smart-sep{height:1px;margin:6px 10px;background:var(--color-border-subtle)}
+.smart-empty{margin:2px 12px 8px}
+.smart-kinds{grid-template-columns:repeat(2,minmax(0,1fr));margin-bottom:12px}
+.sc-opt.off,.sc-opt:disabled{opacity:.45;cursor:not-allowed}
 /* the maker's card in the bell (Safwat 25 Nov — bell-redesign decision 19: «الكارت ثابت و الحالات بس اللي تتغير»): the state chip in
    its tone (late red · about to be yellow · confirmed green — always with its word), and his sub-orders' numbers: each a small button
    that copies itself, tinted by its state, then «نسخ الكل» */

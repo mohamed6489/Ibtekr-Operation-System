@@ -335,6 +335,22 @@ test('ask popups A — «عايز تقرير بالأوردرات المتأخر
   await lastAns(page).locator('[data-mk-rep-open]').click();
   const rep = page.locator('[data-rq-report]'); await expect(rep).toBeVisible();
   expect(want).toBeGreaterThan(0); if (want) await expect(rep.locator('[data-rq-tbl] tbody tr')).toHaveCount(want); else await expect(rep.locator('[data-rq-empty]')).toBeVisible();
+  // the report popup (2026-11-28-smart-actions.md, report — Safwat 28 Nov): every column of the orders, a search, the filter, the period
+  // (the system's own picker — «كل الفترات» to begin) and the money totals over the rows kept
+  await expect(rep.locator('[data-rq-tbl] thead th')).toContainText(['رقم الأوردر', 'المحافظة', 'تاريخ الأوردر', 'تاريخ التأكيد', 'المبتكرين', 'القطع', 'التأخير', 'العربون', 'الإجمالي']);
+  await expect(rep.locator('[data-rq-period]')).toContainText('كل الفترات'); await expect(rep.locator('[data-rq-total]')).toContainText('إجمالي النتايج');
+  const first = ((await rep.locator('[data-rq-tbl] tbody tr').first().locator('td').first().textContent()) || '').trim();
+  await rep.locator('[data-rq-q]').fill('zzqq'); await expect(rep.locator('[data-rq-empty]')).toContainText('مفيش صفوف بالفلتر ده');
+  await expect(rep.locator('[data-rq-line]')).toContainText('0 من ' + want); await expect(rep.locator('[data-rq-q]')).toBeFocused(); // the box keeps its focus as the table redraws
+  await rep.locator('[data-rq-q]').fill(first.replace('#', '')); await expect(rep.locator('[data-rq-tbl] tbody tr')).toHaveCount(1);
+  await rep.locator('[data-rq-clear]').click(); await expect(rep.locator('[data-rq-tbl] tbody tr')).toHaveCount(want);
+  if (await rep.locator('[data-rq-filter]').count()) { await rep.locator('[data-rq-filter]').click(); await expect(rep.locator('[data-rq-filters]')).toBeVisible(); }
+  // a period with no late order in it: the note says so, «مسح الفلاتر» brings them back
+  await rep.locator('[data-rq-period]').click(); const dp = page.locator('.dp.range'); await expect(dp).toBeVisible();
+  await dp.getByLabel('من تاريخ').fill('01/01/2020'); await dp.getByLabel('من تاريخ').press('Tab'); await dp.getByLabel('إلى تاريخ').fill('02/01/2020'); await dp.getByLabel('إلى تاريخ').press('Tab');
+  await dp.getByRole('button', { name: 'تحديث' }).click(); await expect(dp).toBeHidden();
+  await expect(rep.locator('[data-rq-empty]')).toContainText('مفيش صفوف بالفلتر ده'); await expect(rep.locator('[data-rq-period]')).not.toContainText('كل الفترات');
+  await rep.locator('[data-rq-clear]').click(); await expect(rep.locator('[data-rq-tbl] tbody tr')).toHaveCount(want);
   await rep.getByRole('button', { name: 'اقفل' }).click();
   // a maker picked: his orders only, and a second element in the same report
   await send(page, 'تقرير'); await lastAns(page).locator('[data-mk-rep-ask]').click();

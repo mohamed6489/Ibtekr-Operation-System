@@ -102,22 +102,37 @@
   const check = (f) => (!f.verb ? 'اختار نوع الطلب' : !f.element ? 'اختار العنصر' : needsSub(f) && !f.sub ? 'اختار ' + SUB_Q[f.element] : '');
   const U = () => w.IBUI;
   /** The kind, the element (one the member may not do with that kind is greyed — `may({ verb, element })`) and the add's sub-kind. */
+  // the popup's look (Safwat 28 Nov — «راجع تصميم بوباب الطلبات عشان يطلع بشكل احترافي و منظم»): numbered steps, the kind a segmented
+  // control, the elements icon tiles in a fixed order (the products' side, the makers and the orders, the money, the team, the design),
+  // the sub-kinds small cards with a line each, and the pick said in one line before «ابدأ»
+  const VERB_IC = { add: 'plus', edit: 'edit', delete: 'trash' };
+  const EL_IC = { product: 'box', category: 'tag', brand: 'star', lot: 'stock', maker: 'users', order: 'package', sub: 'truck', customer: 'headset', money: 'wallet', member: 'briefcase', hr: 'calendar', design: 'image' };
+  const EL_ORDER = ['product', 'category', 'brand', 'lot', 'maker', 'order', 'sub', 'customer', 'money', 'member', 'hr', 'design'];
+  const SUB_IC = { expense: 'wallet', makerMove: 'users', leave: 'calendar', advance: 'wallet', remote: 'home' };
+  const shownEls = () => EL_ORDER.map((id) => ELEMENTS.find((e) => e[0] === id)).filter(Boolean).concat(ELEMENTS.filter((e) => !EL_ORDER.includes(e[0])));
   function fields(f, redraw, o) {
-    const u = U(); const { h } = u; const may = o && typeof o.may === 'function' ? o.may : null;
+    const u = U(); const { h, Icon } = u; const may = o && typeof o.may === 'function' ? o.may : null;
     const ok = (e, sub) => { try { return !!may({ verb: f.verb, element: e, sub: sub || '' }); } catch (x) { return false; } };
     // an element is open when its pick is — an add with sub-kinds when any of them is
     const off = (e) => !!(may && f.verb && !(needsSub({ verb: f.verb, element: e }) ? SUBS[e].some(([sub]) => ok(e, sub)) : ok(e)));
     const subOff = (sub) => !!(may && !ok(f.element, sub));
-    const chips = (key, list, val, on, dis) => h('div', { class: 'sc-opts', role: 'radiogroup', 'data-rqq-group': key }, list.map(([v, l, d]) => {
-      const no = !!(dis && dis(v));
-      return h('button', { type: 'button', class: 'sc-opt' + (val === v ? ' on' : '') + (no ? ' off' : ''), role: 'radio', 'aria-checked': String(val === v), disabled: no, title: no ? 'مش من صلاحياتك' : null, 'data-rqq-opt': key + ':' + v, onClick: () => on(v) }, h('b', null, l), d ? h('small', null, d) : null); }));
     if (f.element && off(f.element)) { f.element = ''; f.sub = ''; }
     if (f.sub && needsSub(f) && subOff(f.sub)) f.sub = '';
-    return h('div', { 'data-rqq-form': '' }, ...[h('p', { class: 't-small help', style: 'margin:0 0 10px' }, 'اختار نوع الطلب والعنصر، والمساعد هيسألك الباقي خطوة خطوة — وفي الآخر بوب أب السيستم نفسه متملّي والتأكيد منك.'),
-      h('p', { class: 'sc-q' }, 'نوع الطلب'), chips('verb', VERBS, f.verb, (v) => { f.verb = v; f.sub = ''; redraw(); }),
-      h('p', { class: 'sc-q' }, 'العنصر'), chips('element', ELEMENTS, f.element, (v) => { f.element = v; f.sub = ''; redraw(); }, off),
-      needsSub(f) ? h('p', { class: 'sc-q' }, SUB_Q[f.element]) : null,
-      needsSub(f) ? chips('sub', SUBS[f.element], f.sub, (v) => { f.sub = v; redraw(); }, subOff) : null].filter(Boolean));
+    const step = (n, t) => h('p', { class: 'rqq-step' }, h('span', { class: 'rqq-n' }, String(n)), t);
+    const radio = (key, v, on, no, kids, cls) => h('button', { type: 'button', class: cls + (on ? ' on' : ''), role: 'radio', 'aria-checked': String(on), disabled: no, title: no ? 'مش من صلاحياتك' : null, 'data-rqq-opt': key + ':' + v }, ...kids);
+    const verbs = h('div', { class: 'rqq-seg', role: 'radiogroup', 'aria-label': 'نوع الطلب', 'data-rqq-group': 'verb' }, VERBS.map(([v, l]) => {
+      const b = radio('verb', v, f.verb === v, false, [Icon(VERB_IC[v] || 'plus', 'sm'), h('span', null, l)], 'rqq-segb'); b.addEventListener('click', () => { f.verb = v; f.sub = ''; redraw(); }); return b; }));
+    const tiles = h('div', { class: 'rqq-tiles', role: 'radiogroup', 'aria-label': 'العنصر', 'data-rqq-group': 'element' }, shownEls().map(([v, l]) => {
+      const no = off(v); const b = radio('element', v, f.element === v, no, [h('span', { class: 'rqq-ic' }, Icon(EL_IC[v] || 'box', 'sm')), h('span', { class: 'rqq-tl' }, l)], 'rqq-tile');
+      b.addEventListener('click', () => { f.element = v; f.sub = ''; redraw(); }); return b; }));
+    const subs = needsSub(f) ? h('div', { class: 'rqq-subs', role: 'radiogroup', 'aria-label': SUB_Q[f.element], 'data-rqq-group': 'sub' }, SUBS[f.element].map(([v, l, d]) => {
+      const no = subOff(v); const b = radio('sub', v, f.sub === v, no, [h('span', { class: 'rqq-ic' }, Icon(SUB_IC[v] || 'plus', 'sm')), h('span', { class: 'rqq-st' }, h('b', null, l), d ? h('small', null, d) : null)], 'rqq-sub');
+      b.addEventListener('click', () => { f.sub = v; redraw(); }); return b; })) : null;
+    const left = check(f);
+    const pick = h('p', { class: 'rqq-pick' + (left ? '' : ' done'), 'data-rqq-pick': '' }, Icon(left ? 'sliders' : 'checkCircle', 'sm'),
+      left ? h('span', null, left) : h('span', null, 'هتطلب: ', h('b', null, shortLabel(f))));
+    return h('div', { class: 'rqq-form', 'data-rqq-form': '' }, ...[h('p', { class: 't-small help rqq-help' }, 'اختار نوع الطلب والعنصر — والمساعد هيكمّل معاك خطوة خطوة، وفي الآخر بوب أب السيستم نفسه متملّي والتأكيد منك.'),
+      step(1, 'نوع الطلب'), verbs, step(2, 'العنصر'), tiles, subs ? step(3, SUB_Q[f.element]) : null, subs, pick].filter(Boolean));
   }
   function open(o) {
     const u = U(); if (!u || !u.Modal) return null; const { h, Button } = u; const opt = o || {};
@@ -129,7 +144,7 @@
     };
     draw();
     m = u.Modal({ title: 'املا بيانات الطلب', body: [box], footer: [Button({ type: 'primary', icon: 'send', label: 'ابدأ', attrs: { 'data-rqq-go': '' }, onClick: go }), Button({ label: 'إلغاء', onClick: () => m.close() })] });
-    if (m && m.el) m.el.setAttribute('data-rqq', '');
+    if (m && m.el) { m.el.classList.add('wide'); m.el.setAttribute('data-rqq', ''); }
     return m;
   }
   /** Both said and nothing else to ask («ضيف منتجات», «امسح مبتكر») — runs with no popup; a money / HR add asks its kind first. */

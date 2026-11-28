@@ -71,6 +71,9 @@
   function gather() {
     const w = root || {}; const s = { today: today() };
     try { const O = w.OrdersApp; if (O) { s.orders = O.query({}, 100000).rows; s.lateVendors = O.alerts().lateVendors; } } catch (e) { /* the orders page is not loaded */ }
+    // the report popup's columns (2026-11-28-smart-actions.md, report): an order's own fields by its number — the day, the confirmation day,
+    // the governorate, the deposit and its product lines (the same lines, in the same order, as the query's `lines`)
+    try { const OD = w.IBOrders && w.IBOrders.data ? w.IBOrders.data() : null; if (OD && Array.isArray(OD.orders)) { const by = new Map(OD.orders.map((o) => [String(o.id), o])); s.orderOf = (id) => by.get(String(id)) || null; } } catch (e) { /* not loaded */ }
     try { if (w.IBTickets && w.IBTickets.all) s.tickets = w.IBTickets.all(); } catch (e) { /* not loaded */ }
     const K = w.IBKit; s.returns = K && K.store && Array.isArray(K.store.returns) ? K.store.returns : [];
     s.convs = w.IBCS && w.IBCS.data && Array.isArray(w.IBCS.data.convs) ? w.IBCS.data.convs : [];

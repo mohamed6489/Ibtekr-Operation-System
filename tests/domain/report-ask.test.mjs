@@ -40,11 +40,34 @@ test('rowsOf: the states together (one row once), the picked makers keep their o
 test('rowsOf: several elements; the products by their categories (a sub-category counts), the team by its members', () => {
   const r = RA.rowsOf({ parts: [{ element: 'products', type: 'stock', states: ['out', 'left1'], items: ['Home'] }, { element: 'team', type: 'update', states: ['req_leave', 'req_advance'], items: ['كريم'] }] }, SRC);
   assert.deepEqual(r[0].r.rows.map((x) => x[0]), ['Cushion']);
-  assert.deepEqual(r[1].r.rows, [['كريم', 'سلفة', '', '']]);
+  assert.deepEqual(r[1].r.rows, [['كريم', 'سلفة', '', '', 'جديد']]);
   assert.match(RA.summary({ parts: [{ element: 'products', type: 'stock', states: ['out'], items: ['Home'] }] }), /^تقرير: المنتجات › حالة المنتج › الكمية نفدت — Home$/);
 });
 
 test('narrow: an element with no list keeps the sources as they are', () => {
   assert.equal(RA.narrow(SRC, 'messages', ['x']), SRC);
   assert.deepEqual(RA.narrow(SRC, 'accounts', ['المرتبات']).expenses, []);
+});
+
+// the report popup (2026-11-28-smart-actions.md — Safwat 28 Nov: «يبقا فيها فللتر … و اختيار الفترة»): the period on each row's day, a search in
+// any cell, the picks of the columns that repeat, and the money totals over what is kept
+test('keep / filterCols / totals: the period, the search and the columns\' picks; only repeated text columns are filters', () => {
+  const r = { headers: ['رقم الأوردر', 'العميل', 'الحالة', 'المبتكرين', 'تاريخ الأوردر', 'عمره (يوم)', 'الإجمالي'], sum: [6],
+    rows: [['#1', 'أ', 'جاري التنفيذ', 'Glody', '2026-11-01', 27, 100], ['#2', 'ب', 'معلّق', 'Art Craft', '2026-11-20', 8, 200], ['#3', 'ج', 'جاري التنفيذ', 'Glody', '2026-11-25', 3, 50]],
+    dates: ['2026-11-01', '2026-11-20', '2026-11-25'] };
+  assert.deepEqual(RA.keep(r, {}), [0, 1, 2]);
+  assert.deepEqual(RA.keep(r, { range: { from: '2026-11-15', to: '2026-11-30' } }), [1, 2]);
+  assert.deepEqual(RA.keep(r, { q: 'glody' }), [0, 2]); // any cell, any case
+  assert.deepEqual(RA.keep(r, { picks: { 2: ['معلّق'] } }), [1]);
+  assert.deepEqual(RA.keep(r, { range: { from: '2026-11-15', to: '2026-11-30' }, picks: { 3: ['Glody'] } }), [2]);
+  assert.deepEqual(RA.keep(Object.assign({}, r, { dates: undefined }), { range: { from: '2026-11-15', to: '2026-11-30' } }), [0, 1, 2]); // a «now» list has no period
+  // the ids, the days, the numbers and the money are not filters; a column with one value is not either
+  assert.deepEqual(RA.filterCols(r).map((c) => c.label), ['الحالة', 'المبتكرين']);
+  assert.deepEqual(RA.filterCols(r).find((c) => c.label === 'المبتكرين').options, ['Art Craft', 'Glody']);
+  assert.deepEqual(RA.totals(r, [0, 2]), [[6, 150]]);
+});
+test('rowsOf carries each row\'s day and the money columns through the states together', () => {
+  const S2 = Object.assign({}, SRC, { orderOf: (id) => ({ 1: { date: '2026-11-19' }, 2: { date: '2026-11-21' }, 3: { date: '2026-11-25' } })[id] || null });
+  const x = RA.rowsOf({ parts: [{ element: 'orders', type: 'delay', states: ['late', 'risk'], items: [] }] }, S2)[0].r;
+  assert.deepEqual(x.rows.map((r) => r[0]), ['#1', '#3', '#2']); assert.deepEqual(x.dates, ['2026-11-19', '2026-11-25', '2026-11-21']); assert.deepEqual(x.sum, [12, 13]);
 });

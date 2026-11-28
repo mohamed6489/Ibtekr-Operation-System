@@ -283,7 +283,7 @@ test('treeSections: one card per maker with his counts, the critical first, the 
   assert.deepEqual(plain(all[1].av), { letter: 'س', tone: 'member' });
   assert.equal(S[0].received, 5); assert.equal(S[0].critical, 2);
   all[0].run();
-  assert.deepEqual(plain(opened), [{ vendorLate: 'Art Craft', vendorId: 'v1', kind: 'all' }]);
+  assert.deepEqual(plain(opened), [{ title: 'Art Craft', body: '2 أوردر متأخر · 1 قابل للتأخير · 6 قطعة', vendorLate: 'Art Craft', vendorId: 'v1', kind: 'all' }]); // the alert popup's head and line (Safwat 28 Nov)
   assert.equal(A.list().filter((a) => a.read).length, 3, 'the card marks the maker\'s alerts read');
 });
 

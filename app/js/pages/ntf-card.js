@@ -36,12 +36,12 @@
     if (id == null || !O || !O.peek) { K().toast('الأوردر الفرعي #' + n + ' مش ظاهر في صفحة الأوردرات دلوقتي', 'error'); return; }
     if (U().closePopover) U().closePopover(); O.peek(id);
   }
-  function numsEl(p) {
-    const { h, Icon } = U(); const L = (p.items || []).filter((x) => x && x.n);
+  function numsEl(p, c) {
+    const { h, Icon } = U(); const L = (p.items || []).filter((x) => x && x.n); const onNum = c && typeof c.onNum === 'function' ? c.onNum : null;
     const all = L.map((x) => x.n).join('\n');
     return h('span', { class: 'ntf-nums', role: 'group', 'aria-label': 'أرقام الأوردرات الفرعية', 'data-ntf-nums': String(L.length) },
       L.map((x) => h('span', { class: 'ntf-num ' + (x.d || ''), 'data-ntf-num': x.n },
-        h('button', { type: 'button', class: 'ntf-num-open', title: 'تفاصيل الأوردر', 'aria-label': 'افتح تفاصيل الأوردر الفرعي ' + x.n, 'data-ntf-num-open': x.n, onClick: (e) => openSub(e, x.n) }, h('bdi', { dir: 'ltr' }, '#' + x.n)),
+        h('button', { type: 'button', class: 'ntf-num-open', title: 'تفاصيل الأوردر', 'aria-label': 'افتح تفاصيل الأوردر الفرعي ' + x.n, 'data-ntf-num-open': x.n, onClick: (e) => { if (onNum) { e.stopPropagation(); const id = orderOfSub(x.n); if (id != null) onNum(id); else K().toast('الأوردر الفرعي #' + x.n + ' مش ظاهر في صفحة الأوردرات دلوقتي', 'error'); } else openSub(e, x.n); } }, h('bdi', { dir: 'ltr' }, '#' + x.n)),
         h('button', { type: 'button', class: 'ntf-num-copy', title: 'نسخ ' + x.n, 'aria-label': 'نسخ الأوردر الفرعي ' + x.n, 'data-ntf-num-copy': x.n, onClick: (e) => copy(e, x.n, 'اتنسخ الرقم ' + x.n) }, Icon('copy', 'sm')))),
       L.length > 1 ? h('button', { type: 'button', class: 'ntf-num all', 'aria-label': 'نسخ كل الأرقام', 'data-ntf-nums-all': '', onClick: (e) => copy(e, all, 'اتنسخت ' + L.length + ' أرقام') }, Icon('copy', 'sm'), 'نسخ الكل') : null);
   }
@@ -64,7 +64,7 @@
     const { h, Icon } = U();
     if (p.kind === 'phone') return phoneEl(p, c);
     if (p.kind === 'state') return stateEl(p);
-    if (p.kind === 'nums') return numsEl(p);
+    if (p.kind === 'nums') return numsEl(p, c);
     if (p.kind === 'name') return h('span', { class: 'ntf-nm', 'data-ntf-name': '' }, h('bdi', null, p.text));
     if (p.kind === 'follow') return h('span', { class: 'ntf-chip ' + (c.dl === 'late' ? 'error' : 'warning'), 'data-ntf-follow': c.dl }, Icon('clock', 'sm'), p.text);
     if (p.kind === 'subs') return h('span', { class: 'ntf-chip neutral', 'data-ntf-chip': '', 'data-ntf-subs': '' }, Icon('package', 'sm'), p.text);
@@ -75,7 +75,7 @@
   function lineEl(L, c) {
     const { h } = U();
     if (L.length === 1 && L[0].kind === 'makers') return makersEl(L[0]);
-    if (L.length === 1 && L[0].kind === 'nums') return numsEl(L[0]);
+    if (L.length === 1 && L[0].kind === 'nums') return numsEl(L[0], c);
     if (L.every((p) => p.kind === 'text')) return h('small', { class: 'ntf-late', 'data-ntf-line': '' }, L.map((p) => p.text).join(' · '));
     const head = L.some((p) => p.kind === 'phone' || p.kind === 'name');
     return h('span', { class: head ? 'ntf-line ph' : 'ntf-chips', 'data-ntf-line': '' }, L.map((p) => (p.kind === 'makers' ? makersEl(p) : part(p, c))));

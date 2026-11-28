@@ -225,8 +225,13 @@ test('the bell\'s redesign: a maker\'s card — logo, phone, states, numbers to 
   await expect(bell.locator('.ntf-item').first().locator('.av.letter')).toHaveText('س');
   await bell.locator('.ntf-nav-item', { hasText: 'خدمة العملاء' }).click();
   await bell.locator('.ntf-item').first().locator('.txt>b').click();
-  const pop = page.locator('.modal[data-vlate="all"]'); await expect(pop).toBeVisible(); await expect(pop).toContainText('Art Craft');
-  await expect(pop.locator('[data-share]')).toHaveCount(1);
+  // Safwat 28 Nov (alert-popup decision 1): the card opens the one alert popup — his mark and card, his late orders and «مشاركة مع المبتكر» inside
+  const pop = page.locator('.modal[data-alert-popup]'); await expect(pop).toBeVisible(); await expect(pop).toContainText('Art Craft');
+  await expect(pop.locator('.ap-head .av')).toHaveCount(1); await expect(pop.locator('.ap-lv')).toHaveText('حرج');
+  await expect(pop.locator('[data-ap-act="share"]')).toHaveCount(1); await expect(page).toHaveURL(/#dashboard/);
+  // a number on his card inside the popup: one not on the orders page says so, and the popup stays on the alert
+  await pop.locator('[data-ntf-num-open="9101"]').click(); await expect(page.getByRole('status').filter({ hasText: 'مش ظاهر في صفحة الأوردرات' }).first()).toBeVisible();
+  await expect(pop.locator('[data-ap-view="main"]')).toBeVisible();
   await expect.poll(() => [601, 603].every((id) => mock.alertReads.some((r) => r.alert_id === id))).toBe(true);
 });
 
@@ -272,6 +277,37 @@ test('0162 several elements in one alert: «+ عنصر تاني» with its own l
   await expect(page.locator('[data-nr-stats]')).toContainText('حرج');
 });
 
+test('Safwat 28 Nov — any alert opens one popup in the middle: an order\'s details editable inside it (the order page\'s own confirm), «رجوع للتنبيه»; a page only by «روح للصفحة»', async ({ page }) => {
+  mock.alerts = [
+    { id: 801, at: iso(2), kind: 'rule:orders.confirm', title: 'أوردر في انتظار الرد — IB-180656', body: 'في انتظار الرد · عمره 10 يوم', role_id: null, user_id: ADMIN_ID, entity: 'orders/180656', entity_id: 'o:180656', read_at: null, rule_id: 'r1', section_id: S1, hide_at: null, meta: { lv: 'important' } },
+    { id: 802, at: iso(4), kind: 'rule:team.status', title: 'لم يسجل انصراف', body: 'سارة مسجّلتش انصراف', role_id: null, user_id: ADMIN_ID, entity: 'hr-team', entity_id: 'noout:9', read_at: null, rule_id: 'r1', section_id: S1, hide_at: null, meta: { lv: 'important' } }];
+  mock.alertReads = [];
+  await signIn(page, 'dashboard');
+  await page.locator('.notif-btn').click();
+  await page.locator('.menu.notif .ntf-item', { hasText: 'IB-180656' }).click();
+  const ap = page.locator('.modal[data-alert-popup]'); await expect(ap).toBeVisible();
+  await expect(page.locator('.menu.notif')).toHaveCount(0); await expect(page).toHaveURL(/#dashboard/);
+  await expect.poll(() => mock.alertReads.some((r) => r.alert_id === 801)).toBe(true); // read as it opens
+  await expect(ap.locator('[data-ap-view="main"]')).toContainText('عمره 10 يوم');
+  await ap.locator('[data-ap-act="order"]').click();
+  await expect(ap.locator('[data-ap-view="order"]')).toContainText('IB-180656');
+  await expect(ap.locator('[data-ap-view="order"]')).toContainText('<img src=x'); // the customer's name is text
+  expect(await page.evaluate(() => window.__xss)).toBeUndefined();
+  // editable: the confirm status — the order page's own confirmation, then its write
+  await ap.locator('#ap-cf').selectOption('غير مؤكد');
+  const ok = page.locator('.modal[role=dialog]', { hasText: 'تحديث الأوردر IB-180656' }); await expect(ok).toBeVisible();
+  await ok.getByRole('button', { name: 'أكّد وسجّل' }).click();
+  await expect.poll(() => mock.orders.find((o) => o.id === 180656).confirm).toBe('غير مؤكد');
+  await ap.locator('[data-ap-back]').click(); await expect(ap.locator('[data-ap-view="main"]')).toBeVisible();
+  await ap.getByRole('button', { name: 'إغلاق', exact: true }).last().click(); await expect(ap).toHaveCount(0);
+  // another alert: a page — its name in the action, a view inside the popup, and the page only by «روح للصفحة»
+  await page.locator('.notif-btn').click();
+  await page.locator('.menu.notif .ntf-item', { hasText: 'لم يسجل انصراف' }).click();
+  await ap.locator('[data-ap-act="page"]').click();
+  await expect(ap.locator('[data-ap-page="hr-team"]')).toBeVisible(); await expect(page).toHaveURL(/#dashboard/);
+  await ap.locator('[data-ap-goto]').click(); await expect(ap).toHaveCount(0); await expect(page).toHaveURL(/#hr-team/);
+});
+
 test('0162 a «تقرير» alert in the bell opens one table with every thing of its elements — a chip per element filters it, a row opens its order, «مشاركة»', async ({ page }) => {
   const items = [{ p: 'الأوردرات الرئيسية › غير مؤكد', t: 'أوردر غير مؤكد — IB-180656', b: 'غير مؤكد · عمره 2 يوم', e: 'orders/180656', g: null },
     { p: 'الأوردرات الرئيسية › غير مؤكد', t: 'أوردر غير مؤكد — IB-180651', b: 'غير مؤكد', e: 'orders/180651', g: null },
@@ -281,16 +317,19 @@ test('0162 a «تقرير» alert in the bell opens one table with every thing o
   await signIn(page, 'dashboard');
   await page.locator('.notif-btn').click();
   await page.locator('.menu.notif .ntf-item').first().click();
-  const pop = page.locator('.modal[role=dialog]', { has: page.locator('[data-alert-report]') });
-  await expect(pop).toContainText('الشغل المتأخر (3)');
+  const pop = page.locator('.modal[data-alert-popup]', { has: page.locator('[data-alert-report]') });
+  await expect(pop).toContainText('الشغل المتأخر');
   await expect(pop.locator('[data-ar-row]')).toHaveCount(3);
   await expect(pop.locator('thead th')).toHaveText(['العنصر', 'التنبيه', 'التفاصيل', 'صاحبه']);
   await pop.locator('[data-ar-part="المبتكرين › أوردرات متأخرة"]').click();
   await expect(pop.locator('[data-ar-row]')).toHaveCount(1); await expect(pop.locator('[data-ar-row]')).toContainText('Art Craft');
   await pop.locator('[data-ar-part=""]').click(); await expect(pop.locator('[data-ar-row]')).toHaveCount(3);
-  await expect(pop.locator('[data-share]')).toBeEnabled();
+  await expect(pop.locator('[data-ap-act="share"]')).toBeEnabled();
+  // Safwat 28 Nov: a row opens its order inside the same popup, «رجوع للتنبيه» brings the table back
   await pop.locator('[data-ar-row]').first().click();
-  await expect(pop).toHaveCount(0); // the row opened its order (the bell's opener)
+  const ap = page.locator('.modal[data-alert-popup]'); // the same popup (the table is not in this view)
+  await expect(ap.locator('[data-ap-view="order"]')).toBeVisible(); await expect(page).toHaveURL(/#dashboard/);
+  await ap.locator('[data-ap-back]').click(); await expect(ap.locator('[data-ar-row]')).toHaveCount(3);
 });
 
 test('0163 the bell by role: a member sees only the main sections whose rules go to his roles, with all their sub-sections even at zero', async ({ page }) => {

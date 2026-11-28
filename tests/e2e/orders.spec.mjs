@@ -1549,26 +1549,40 @@ test('Safwat 24 Nov — a maker\'s late orders (the bell\'s card, «المتأخ
   for (const x of r) { expect(x.rows.length).toBeGreaterThanOrEqual(x.count); expect(x.rows.every((s) => s === x.k)).toBe(true); expect(x.all).toBeGreaterThanOrEqual(x.rows.length); }
 });
 
-// orders-batch decision 21 (Safwat 28 Nov — «حط في الاوردروات دروب داون الفترة الزمنية»): the orders of a period by their order date —
-// «كل الفترات» by default, a preset or a custom period of two dates; its chip with the count, «مسح الفلاتر» clears it
-test('decision 21: «الفترة» — «الشهر ده» keeps this month\'s orders, a custom period its two dates; the chip and «مسح الفلاتر»', async ({ page }) => {
+// orders-batch decisions 21–22 (Safwat 28 Nov — «حط في الاوردروات دروب داون الفترة الزمنية» · «خلي الدروب داون في الاوردروات نفس اللي
+// بنستخدموا في التقارير بس من غير مقارنة» · «العازدي بتاعو مش شغال لغاية لما المستخدم يقرر»): «كل الفترات» until a period is picked in the
+// reports' own picker (presets, calendars, «من» / «إلى», no comparison); its chip with the count, «أقصى فترة» and «مسح الفلاتر» clear it
+test('decisions 21–22: «الفترة» — the last 60 days by default, the reports\' picker without a comparison: «هذا الشهر», a typed period, «أقصى فترة» = all; the chip and «مسح الفلاتر»', async ({ page }) => {
   await signIn(page, ADMIN); await page.locator('.sidebar .nav-item[data-page="orders"]').click();
   const O = page.locator('#orders');
-  await expect(O.locator('#perv')).toHaveText('الفترة: كل الفترات');
+  // Safwat 28 Nov (orders only): the page opens on the last 60 days — no chip for the default
+  await expect(O.locator('#perv')).toHaveText('الفترة: آخر 60 يومًا'); await expect(O.locator('[data-afc="legacy:per"]')).toHaveCount(0);
   const today = await page.evaluate(() => window.IBOrders.today());
   const month = today.slice(0, 8) + '01';
   const count = (f, t) => page.evaluate(([a, b]) => { const R = window.OrdersApp.query({}, 1e6).rows; return R.filter((o) => { const g = window.OrdersApp.get(o.id); return g.date >= a && g.date <= b; }).length; }, [f, t]);
   const inMonth = await count(month, today);
-  await O.locator('#per').selectOption('month');
-  await expect(O.locator('#perv')).toHaveText('الفترة: الشهر ده');
-  await expect(O.locator('[data-afc="legacy:per"]')).toContainText('الفترة: الشهر ده');
+  await O.locator('#perb').click();
+  const dp = page.locator('[data-per-anchor="orders"] .dp.range'); await expect(dp).toBeVisible();
+  await expect(dp.locator('[data-rp-compare]')).toHaveCount(0); // no comparison
+  await expect(dp.getByRole('radio', { name: 'آخر 60 يومًا' })).toHaveAttribute('aria-checked', 'true'); // the orders' own default, picked
+  await expect(dp.getByRole('textbox', { name: 'إلى تاريخ' })).toHaveValue(today.slice(8, 10) + '/' + today.slice(5, 7) + '/' + today.slice(0, 4)); // the 60 days to today
+  await dp.getByRole('radio', { name: 'هذا الشهر' }).click(); await dp.getByRole('button', { name: 'تحديث' }).click();
+  await expect(dp).toHaveCount(0);
+  await expect(O.locator('#perv')).toHaveText('الفترة: هذا الشهر');
+  await expect(O.locator('[data-afc="legacy:per"]')).toContainText('الفترة: هذا الشهر');
   await expect(O.locator('#afcn')).toHaveText(inMonth + ' أوردر');
-  // a custom period
-  await O.locator('#per').selectOption('custom');
-  const dlg = page.locator('[data-per-custom]'); await expect(dlg).toBeVisible();
+  // a period typed in «من» / «إلى»
   const from = await page.evaluate(() => { const d = new Date(window.IBOrders.today() + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - 7); return d.toISOString().slice(0, 10); });
-  await dlg.locator('#per-f').fill(from); await dlg.locator('#per-t').fill(today); await dlg.locator('[data-per-ok]').click();
-  await expect(O.locator('#perv')).toHaveText('الفترة: ' + from + ' – ' + today);
+  const fmt = (iso) => iso.slice(8, 10) + '/' + iso.slice(5, 7) + '/' + iso.slice(0, 4);
+  await O.locator('#perb').click();
+  const f = dp.getByRole('textbox', { name: 'من تاريخ' }); await f.fill(fmt(from)); await f.press('Tab');
+  const t = dp.getByRole('textbox', { name: 'إلى تاريخ' }); await t.fill(fmt(today)); await t.press('Tab');
+  await dp.getByRole('button', { name: 'تحديث' }).click();
+  const label = await page.evaluate(([a, b]) => window.IbtekrDomain.rangeLabel(a, b), [from, today]);
+  await expect(O.locator('#perv')).toHaveText('الفترة: ' + label);
   await expect(O.locator('#afcn')).toHaveText((await count(from, today)) + ' أوردر');
-  await O.locator('#clr').click(); await expect(O.locator('#perv')).toHaveText('الفترة: كل الفترات'); await expect(O.locator('[data-afc="legacy:per"]')).toHaveCount(0);
+  // «أقصى فترة» = every order; «مسح الفلاتر» = back to the 60 days
+  await O.locator('#perb').click(); await dp.getByRole('radio', { name: 'أقصى فترة' }).click(); await dp.getByRole('button', { name: 'تحديث' }).click();
+  await expect(O.locator('#perv')).toHaveText('الفترة: كل الفترات'); await expect(O.locator('[data-afc="legacy:per"]')).toContainText('كل الفترات');
+  await O.locator('#clr').click(); await expect(O.locator('#perv')).toHaveText('الفترة: آخر 60 يومًا'); await expect(O.locator('[data-afc="legacy:per"]')).toHaveCount(0);
 });

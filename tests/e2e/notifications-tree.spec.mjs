@@ -34,6 +34,12 @@ async function signIn(page, hash) {
   await page.getByRole('button', { name: 'دخول', exact: true }).click();
   await expect(page.locator('#root')).toBeVisible();
   if (hash) await page.evaluate((x) => { location.hash = x; }, hash);
+  // the settings page draws again once its data lands (block 17 on ib:settings) and a redraw closes the header's popovers — the bell
+  // opened before that closed under the test (the 0164 flake on CI): wait for the data and the redraw after it
+  if (hash && /^settings/.test(hash)) {
+    await page.waitForFunction(() => window.IBSettings && window.IBSettings.data && window.IBSettings.data.loaded);
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  }
 }
 
 test('the bell = the settings\' tree: its groups and filters, nothing more (a rule-less alert is nowhere — Safwat 25 Nov), the hidden one gone, the green dot, the read below the unread, the read filter, the sort', async ({ page }) => {

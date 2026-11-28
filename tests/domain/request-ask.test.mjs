@@ -31,3 +31,26 @@ test('detect: an ask with details of its own («زي الشهر اللي فات�
   for (const t of ['عايز أسجل مصروف الكهربا زي الشهر اللي فات', 'ضيف منتج للمبتكر أنتيكيانو بسعر 500']) assert.equal(RQ.detect(t), false, t);
   for (const t of ['عايز أضيف منتجات', 'محتاج أمسح أوردر فرعي', 'ممكن أعدّل موظف']) assert.equal(RQ.detect(t), true, t);
 });
+
+// «إجراءات ذكية» (docs/superpowers/plans/2026-11-28-smart-actions.md — «ونضيف كل العناصر»): the customer, the HR request, the hub's
+// piece and the brand have their ways too; an HR add asks which request first; the short name for the menu
+test('the new elements: the customer\'s popup, the HR request by its kind, the hub\'s and the brand\'s pages', () => {
+  assert.deepEqual(RQ.route({ verb: 'add', element: 'customer' }), { form: 'customer_add', values: {} });
+  assert.deepEqual(RQ.route({ verb: 'add', element: 'hr', sub: 'advance' }), { form: 'hr_advance', values: {} });
+  assert.deepEqual(RQ.route({ verb: 'add', element: 'hr', sub: 'remote' }), { form: 'hr_remote', values: {} });
+  assert.deepEqual(RQ.route({ verb: 'add', element: 'hr', sub: 'leave' }), { form: 'hr_leave', values: {} });
+  assert.equal(RQ.route({ verb: 'delete', element: 'hr' }).page.hash, 'profile-requests-mine');
+  assert.equal(RQ.route({ verb: 'add', element: 'lot' }).page.hash, 'inventory');
+  assert.equal(RQ.route({ verb: 'edit', element: 'brand' }).page.hash, 'makers');
+  assert.equal(RQ.complete({ verb: 'add', element: 'hr' }), false); assert.equal(RQ.complete({ verb: 'add', element: 'hr', sub: 'leave' }), true);
+  assert.equal(RQ.complete({ verb: 'delete', element: 'hr' }), true);
+  assert.equal(RQ.check({ verb: 'add', element: 'hr', sub: '' }), 'اختار نوع الطلب'); assert.equal(RQ.check({ verb: 'add', element: 'money', sub: '' }), 'اختار نوع الحركة');
+  assert.equal(RQ.check({ verb: '', element: '', sub: '' }), 'اختار نوع الطلب'); assert.equal(RQ.check({ verb: 'edit', element: '', sub: '' }), 'اختار العنصر');
+  assert.equal(RQ.label({ verb: 'add', element: 'money', sub: 'expense' }), 'إضافة مصروف');
+  assert.equal(RQ.label({ verb: 'add', element: 'hr', sub: 'leave' }), 'إضافة طلب إجازة');
+  assert.equal(RQ.label({ verb: 'edit', element: 'customer' }), 'تعديل عميل');
+  assert.deepEqual(RQ.preOf('ضيف عميل'), { verb: 'add', element: 'customer' });
+  assert.deepEqual(RQ.preOf('عدّل البراند'), { verb: 'edit', element: 'brand' });
+  assert.deepEqual(RQ.preOf('امسح قطعة في المخزن'), { verb: 'delete', element: 'lot' });
+  assert.equal(RQ.detect('امسح قطعة في المخزن'), true);
+});

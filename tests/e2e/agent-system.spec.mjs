@@ -126,55 +126,57 @@ test('a number from the system carries «افتح التفاصيل»: the rows b
   expect(asks().length).toBe(0);
 });
 
-// chat-flows phase 3 (0171 — Safwat 25 Nov: «القايمتين حطهم بدل تقديم طلب يبقا فيه طلبات جاهزة و تقارير جاهزة»): the header's
-// «تقديم طلب» is a menu — the old popup first; the admin adds a ready report (element › type › state rows, the ones with a list only)
-// and a ready request; the report opens the member's own rows a chip per element with «مشاركة», the request the popup filled
-test('«طلبات وتقارير»: the admin adds a ready report and a ready request; the report a table per element with «مشاركة», the request the popup filled', async ({ page }) => {
-  mock.mkt.aiAgents.unshift({ id: 'manager', name: 'المدير العام', icon: 'sliders', perm: 'tickets.view', sees: ['orders', 'tickets'], role: 'مدير النظام', builtin: true, about: '', intro: '', instructions: '', suggestions: [], sort: 5, archived_at: null });
+// «إجراءات ذكية» (docs/superpowers/plans/2026-11-28-smart-actions.md — Safwat 28 Nov: «بدل طلبات و تقارير دروب داون اسمها إجراءات ذكية …
+// اكتر ٥ طلبات و تقارير بتطلب منوا … إضافة طلب ذكي ، و طلب بشري»): the chat header's menu — the assistant's own five («التشغيل الذكي»:
+// إضافة منتج · إضافة مبتكر · مبتكرين متأخرين …), an item runs at once in the chat; «إضافة طلب ذكي» = «طلب» (the kind × the element — every
+// element) or «تقرير» (element × data type × states); «طلب بشري» = the team's «طلب جديد»; what the member asks the most comes first
+test('«إجراءات ذكية»: the assistant\'s five, an item runs in the chat, «إضافة طلب ذكي» (طلب / تقرير), «طلب بشري»; the most asked first', async ({ page }) => {
   mock.tickets[0].follow_up = '2026-11-01';
-  await openAi(page, 'المدير العام');
-  const btn = pg(page).locator('[data-ag-ready-btn="manager"]'); await btn.click();
-  const menu = page.locator('[data-ag-ready-menu="manager"]'); await expect(menu).toBeVisible();
-  await expect(menu.locator('[data-mk-req-add="manager"]')).toHaveText('تقديم طلب'); // the old popup stays first
-  await menu.locator('[data-ag-ready-add="report"]').click();
-  const f = page.locator('.modal:has([data-ag-ready-form="report"])'); await expect(f).toBeVisible();
-  await f.locator('[data-ag-rd-save]').click(); await expect(f).toContainText('اكتب الاسم');
-  await f.locator('#ag-rd-name').fill('المتأخر');
-  await f.locator('#ag-rd-el-0').click(); await page.getByRole('option', { name: 'طلبات الفريق' }).click();
-  await f.locator('#ag-rd-ty-0').click(); await expect(page.getByRole('option', { name: 'تحديث' })).toHaveCount(0); // an event has no list
-  await page.getByRole('option', { name: 'نوع الطلب' }).click();
-  await f.locator('#ag-rd-st-0').click(); await page.getByRole('option', { name: 'طلبات متأخرة' }).click();
-  await f.locator('[data-ag-rd-more]').click();
-  await f.locator('#ag-rd-el-1').click(); await page.getByRole('option', { name: 'الأوردرات الرئيسية' }).click();
-  await f.locator('#ag-rd-ty-1').click(); await page.getByRole('option', { name: 'حالة التأخير' }).click();
-  await f.locator('#ag-rd-st-1').click(); await page.getByRole('option', { name: 'متأخر', exact: true }).click();
-  await f.locator('[data-ag-rd-save]').click(); await expect(f).toHaveCount(0);
-  expect(mock.mkt.writes.filter((w) => w.table === 'ai_agent_ready').map((w) => [w.op, w.kind, w.name, w.parts])).toEqual([['add', 'report', 'المتأخر',
-    [{ element: 'tickets', type: 'type', state: 'late' }, { element: 'orders', type: 'delay', state: 'late' }]]]);
-  // a ready request: an event is fine
-  await btn.click(); await menu.locator('[data-ag-ready-add="request"]').click();
-  const f2 = page.locator('.modal:has([data-ag-ready-form="request"])'); await f2.locator('#ag-rd-name').fill('متابعة أوردر جديد');
-  await f2.locator('#ag-rd-el-0').click(); await page.getByRole('option', { name: 'الأوردرات الرئيسية' }).click();
-  await f2.locator('#ag-rd-ty-0').click(); await page.getByRole('option', { name: 'تحديث' }).click();
-  await f2.locator('#ag-rd-st-0').click(); await page.getByRole('option', { name: 'أوردر جديد' }).click();
-  await f2.locator('[data-ag-rd-save]').click(); await expect(f2).toHaveCount(0);
-  // the report: a chip per element, the member's own rows, «مشاركة»
-  await btn.click(); await expect(menu.locator('[data-ag-ready]')).toHaveText(['متابعة أوردر جديد', 'المتأخر']);
-  await menu.locator('[data-ag-ready]', { hasText: 'المتأخر' }).click();
-  const rep = page.locator('.modal[data-ag-ready-report]'); await expect(rep).toBeVisible();
-  await expect(rep.locator('[data-ag-ready-part]')).toHaveCount(2);
-  await expect(rep.locator('[data-ag-ready-tbl] tbody tr')).toHaveCount(1); await expect(rep.locator('[data-ag-ready-tbl]')).toContainText('عاجل');
-  await rep.locator('[data-ag-ready-share]').click(); await expect(page.locator('.modal', { hasText: 'Excel' }).last()).toBeVisible();
-  await page.keyboard.press('Escape'); await page.keyboard.press('Escape'); await expect(rep).toHaveCount(0);
-  // the request: «طلب جديد» filled with its name and elements — the member sends it
-  await btn.click(); await menu.locator('[data-ag-ready]', { hasText: 'متابعة أوردر جديد' }).click();
-  const rq = page.locator('.modal[data-mk-req-form="manager"]'); await expect(rq).toBeVisible();
-  await expect(rq.locator('#mk-rq-title')).toHaveValue('متابعة أوردر جديد'); await expect(rq.locator('#mk-rq-desc')).toHaveValue(/الأوردرات الرئيسية › تحديث › أوردر جديد/);
-  expect(asks().length).toBe(0);
+  await openAi(page, 'التشغيل');
+  const btn = pg(page).locator('[data-smart-btn="stock"]'); await expect(btn).toContainText('إجراءات ذكية');
+  await expect(pg(page).locator('[data-ag-ready-btn]')).toHaveCount(0); // «طلبات وتقارير» is gone
+  const menu = page.locator('[data-smart-menu="stock"]');
+  await btn.click(); await expect(menu).toBeVisible();
+  await expect(menu.locator('[data-smart-item]')).toHaveText(['إضافة منتج', 'إضافة مبتكر', 'مبتكرين متأخرين', 'أوردرات متأخرة', 'مرتجعات مستنية الفحص']);
+  await expect(menu.locator('[data-smart-add]')).toHaveText('إضافة طلب ذكي'); await expect(menu.locator('[data-smart-human]')).toHaveText('طلب بشري');
+  // an item runs at once: a report = the member's message, the answer with its link, and its table open
+  await menu.locator('[data-smart-item]', { hasText: 'أوردرات متأخرة' }).click();
+  const rep = page.locator('[data-rq-report]'); await expect(rep).toBeVisible(); await page.keyboard.press('Escape'); await expect(rep).toHaveCount(0);
+  await expect(pg(page).locator('.mk-msg.user').last()).toContainText('تقرير: الأوردرات الرئيسية › حالة التأخير › متأخر');
+  await expect(lastAns(page)).toContainText('البيانات جاهزة في اللينك ده.'); await expect(pg(page).locator('[data-mk-rep-open]').last()).toBeVisible();
+  // «إضافة طلب ذكي» › «طلب»: every element is there; an order's edit = its steps in the chat
+  await btn.click(); await menu.locator('[data-smart-add]').click();
+  const pop = page.locator('.modal[data-smart]'); await expect(pop).toBeVisible();
+  await pop.locator('[data-smart-go]').click(); await expect(pop).toContainText('اختار طلب ولا تقرير');
+  await pop.locator('[data-smart-kind="request"]').click();
+  for (const e of ['product', 'maker', 'money', 'category', 'member', 'order', 'sub', 'design', 'customer', 'hr', 'lot', 'brand']) await expect(pop.locator('[data-rqq-opt="element:' + e + '"]')).toBeVisible();
+  await pop.locator('[data-rqq-opt="verb:edit"]').click(); await pop.locator('[data-smart-go]').click(); await expect(pop).toContainText('اختار العنصر');
+  await pop.locator('[data-rqq-opt="element:order"]').click(); await pop.locator('[data-smart-go]').click(); await expect(pop).toHaveCount(0);
+  await expect(pg(page).locator('.mk-msg.user').last()).toContainText('طلب: تعديل أوردر رئيسي');
+  await expect(pg(page).locator('[data-cf="order"]')).toBeVisible(); expect(asks().length).toBe(0);
+  await pg(page).locator('[data-cf="order"] [data-cf-cancel]').click();
+  // «إضافة طلب ذكي» › «تقرير»: the element, the data type and the states — the table opens
+  await btn.click(); await menu.locator('[data-smart-add]').click(); await expect(pop).toBeVisible();
+  await pop.locator('[data-smart-kind="report"]').click(); await expect(pop.locator('[data-rq-part]')).toHaveCount(1);
+  await pop.locator('#rq-el-0').click(); await page.getByRole('option', { name: 'طلبات الفريق' }).click();
+  await pop.locator('#rq-ty-0').click(); await page.getByRole('option', { name: 'نوع الطلب' }).click();
+  await pop.locator('#rq-st-0').click(); await page.locator('[data-mp-menu="rq-st-0"] [data-mp-opt="late"]').click(); await page.locator('[data-mp-menu="rq-st-0"] [data-mp-done]').click();
+  await pop.locator('[data-smart-go]').click(); await expect(pop).toHaveCount(0);
+  await expect(rep).toBeVisible(); await expect(rep.locator('[data-rq-tbl] tbody tr')).toHaveCount(1); await expect(rep.locator('[data-rq-tbl]')).toContainText('عاجل');
+  await page.keyboard.press('Escape'); await expect(rep).toHaveCount(0);
+  // «طلب بشري»: the team's «طلب جديد» over the chat — a «طلب خاص», the role picked in it
+  await btn.click(); await menu.locator('[data-smart-human]').click();
+  const tk = page.locator('.modal', { hasText: 'طلب جديد' }); await expect(tk).toBeVisible();
+  await expect(tk.locator('#t-type')).toContainText('طلب خاص'); await expect(tk.locator('#t-role')).toBeVisible();
+  await expect(pg(page)).toBeVisible(); await page.keyboard.press('Escape'); await expect(tk).toHaveCount(0);
+  // what he asked comes first now — the latest before the older at one use each, the assistant's own after them
+  await btn.click();
+  await expect(menu.locator('[data-smart-item]')).toHaveText(['طلبات الفريق المتأخرة', 'تعديل أوردر رئيسي', 'أوردرات متأخرة', 'إضافة منتج', 'إضافة مبتكر']);
   await page.keyboard.press('Escape');
-  // the admin deletes one
-  page.once('dialog', (d) => d.accept()); await btn.click(); await menu.locator('[data-ag-ready-del]').first().click();
-  await expect.poll(() => mock.mkt.writes.filter((w) => w.table === 'ai_agent_ready' && w.op === 'delete').length).toBe(1);
+  const kept = mock.prefs.find((r) => r.key === 'ai.smart'); expect(Object.keys(kept.data.stock)).toEqual(expect.arrayContaining(['rq:edit.order', 'rp:orders.delay.late', 'rp:tickets.type.late']));
+  // another assistant has its own five
+  await pg(page).getByRole('tab', { name: /المحاسب/ }).click(); await pg(page).locator('[data-smart-btn="accountant"]').click();
+  await expect(page.locator('[data-smart-menu="accountant"] [data-smart-item]')).toHaveText(['إضافة مصروف', 'إضافة حركة على حساب مبتكر', 'طلبات سحب مستنية', 'اشتراكات قرب ميعادها', 'تعديل رقم مالي']);
 });
 
 // chat-flows phase 4 (Safwat 25 Nov — «عايز المساعد ببساطة يجيب خطوات اي حاجة بطلبها جوه السيستم لو كانت اضافة او تعديل او حذف في شكل

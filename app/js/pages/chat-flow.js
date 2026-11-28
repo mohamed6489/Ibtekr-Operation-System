@@ -13,7 +13,8 @@
      card(state, o) → its card in the chat — o: { redraw, cancel, open(spec) → '' | an error to say, lists }
        lists: { kinds: [[value, label]], goals, priorities: [[value, label]], statuses: [[value, label]], makers: () => [name],
                 products: (q) => [{ id, name, sku, type, live, priced }] | null (null = still loading), may: (requestType) → bool,
-                productMay: ('price' | 'status' | 'brand' | 'maker') → bool — the products page's own rights for one product }
+                productMay: ('price' | 'status' | 'brand' | 'maker') → bool — the products page's own rights for one product,
+                makerMay: ('identity' | 'contact' | 'terms' | 'bank') → bool — the maker's file's own rights for a part }
        state.want: a choice said in the ask that hangs on an earlier answer (the product's edit) — picked when its step comes, if allowed
        state.loading: the step in front waits on a list (the products searched, the makers) — the page draws the card again when
        that list lands, so the matches show without a second press (CI 26 Nov)
@@ -50,6 +51,10 @@
       may('maker') ? ['maker', 'المبتكر', 'نقل لمتجر مبتكر تاني على Dokan'] : null,
       ['page', 'باقي البيانات', 'الاسم والوصف والصور والأقسام' + (x.priced ? '' : ' والسعر') + ' — من صفحته']].filter(Boolean);
   };
+
+  // a maker's parts — his file's own «تعديل» popups (agent-chat-flows decision 5): the bank by sensitive.vendor_bank F, the rest by vendors.edit
+  const MAKER_PARTS = [['identity', 'بيانات الهوية', 'الاسم والفئات والأسامي التانية والحالة'], ['contact', 'بيانات الاتصال', 'التليفون والإيميل والعنوان والسوشيال'],
+    ['terms', 'الاتفاق التجاري', 'مدة التصنيع والعربون والعمولة'], ['bank', 'الحساب البنكي', 'بيانات التحويل — بتتبعت لمتجره على الموقع']];
 
   // each step: key · label (its answered line) · q (the question) · kind: choice | text | number | maker | product · optional · when(values) · the values' checks
   const FLOWS = {
@@ -103,6 +108,11 @@
       { key: 'product', label: 'المنتج', q: 'أنهي منتج؟ اكتب اسمه أو الـ SKU', kind: 'product', resets: ['what'] }, // another product: its edits asked again
       { key: 'what', label: 'التعديل', q: 'عايز تعدّل إيه فيه؟', kind: 'choice', options: (v, L) => PRODUCT_EDITS(v.product, L) }],
       open: (v) => ({ productEdit: { product: v.product, what: v.what } }) },
+    // part 2b (28 Nov — «كمل الباقي»): a maker's data, part by part
+    makerEdit: { title: 'تعديل بيانات مبتكر', popup: '«تعديل» في ملف المبتكر', btn: 'افتح التعديل', icon: 'users', steps: [
+      { key: 'vendor', label: 'المبتكر', q: 'أنهي مبتكر؟', kind: 'maker' },
+      { key: 'what', label: 'الجزء', q: 'عايز تعدّل إيه؟', kind: 'choice', options: (v, L) => MAKER_PARTS.filter(([k]) => !L.makerMay || L.makerMay(k)) }],
+      open: (v) => ({ form: 'vendor_edit', values: { vendor: v.vendor, what: v.what } }) },
   };
 
   // ---- the ask: an add / edit / delete of one of the flows, with what it already carries. An ask that says more than the steps
@@ -149,10 +159,23 @@
     ['draft', /\s(ل|لل|ال)?(مسوده|draft)\s/], ['publish', /\s(انشر|انشره|نشر|publish)\s/]];
   const PE_W = /\s(ل|لل|ال)?(سعر|سعره|اسعار|price|prices|براند|brand|متجر|store|حاله|حالته|status|مسوده|draft|انقل|نقل|انقله|انشر|انشره|نشر|move|publish|تاني|اخر|اخري|other)\s/;
 
+  // a maker's data: the part said («تليفون» → الاتصال, «البنك» → الحساب البنكي …) picked by itself, the rest of the words = his name
+  const MK_WANT = [['bank', /\s(ال)?(بنك|بنكي|البنكي|ايبان|iban|bank)\s/], ['contact', /\s(ال)?(تليفون|تليفونه|موبايل|موبايله|رقم|رقمه|ايميل|ايميله|عنوان|عنوانه|سوشيال|phone|email|address)\s/],
+    ['identity', /\s(ال)?(اسم|اسمه|حاله|حالته|فئه|فئات|فئته|name|status)\s/], ['terms', /\s(ال)?(اتفاق|التجاري|تجاري|مده|التصنيع|تصنيع|عموله|نسبه|نسبته|terms|commission)\s/]];
+  const MK_W = /\s(ل|لل|ال)?(بيانات|بياناته|بنك|بنكي|البنكي|حساب|حسابه|ايبان|iban|bank|تليفون|تليفونه|موبايل|موبايله|رقم|رقمه|ايميل|ايميله|عنوان|عنوانه|سوشيال|phone|email|address|اسم|اسمه|حاله|حالته|فئه|فئات|فئته|name|status|اتفاق|التجاري|تجاري|مده|التصنيع|تصنيع|عموله|نسبه|نسبته|terms|commission|data|info)\s/;
+  function makerEdit(raw, t, p) {
+    if (READ_MONEY.test(p) || !words(t).some((w) => N.maker.test(pad(w)) || N.maker.test(pad(w.replace(/^لل?/, '')))) || !(EDIT.test(p) || /\s(بيانات|بياناته)\s/.test(p) && ADD.test(p)) || /(^|\s)\d/.test(t) || /\s(ال)?رصيد(ه)?\s/.test(p)
+      || ['order', 'expense', 'request', 'post', 'product'].some((k) => N[k].test(p))) return null;
+    const q = rest(t, (w) => MK_W.test(pad(w))); if (q.length > 4) return null; const name = asSaid(raw, t, q).slice(0, 80);
+    const what = (MK_WANT.find(([, re]) => re.test(p)) || [])[0]; const want = {}; if (what) want.what = what; if (name) want.vendor = name;
+    return { id: 'makerEdit', pre: { want } };
+  }
+
   function detect(text, ctx) {
     const c = ctx || {}; const raw = String(text == null ? '' : text).trim(); const t = norm(raw); if (!t) return null;
     const p = pad(t); if (words(t).length > 14) return null;
     const mm = makerMoney(raw, t, p); if (mm) return mm; // before the reads: «تصحيح رصيد المبتكر» is an edit, not his balance asked
+    const me = makerEdit(raw, t, p); if (me) return me; // before the reads too: «عدّل الحساب البنكي للمبتكر» is his bank, not an account read
     if (READ.test(p)) return null;
     const add = ADD.test(p); const edit = EDIT.test(p); const del = DEL.test(p); const num = /(^|\s)\d[\d,]*(\.\d+)?(\s|$)/.test(t);
     // a team request — not «طلب سحب» (a maker's withdrawal) nor a request read
@@ -245,6 +268,11 @@
     const def = FLOWS[st.id]; let s = current(st); const out = []; st.loading = false; // its step says so below when it waits on a list
     // a choice said in the ask that hangs on an earlier answer («غيّر سعر المنتج …» → «السعر» once that product has a price to change):
     // picked by itself when its step comes and it is one of the options; else the step asks as usual
+    // a maker said («عدّل تليفون Art Craft»): picked once the makers are there, when one name is it (else the step asks)
+    const named = s && s.kind === 'maker' && st.want ? st.want[s.key] : undefined;
+    if (named != null) { const names = (L.makers ? L.makers() : []) || [];
+      if (names.length) { delete st.want[s.key]; const n0 = norm(named); const near = names.filter((n) => norm(n).includes(n0)); const hit = names.find((n) => norm(n) === n0) || (near.length === 1 ? near[0] : null);
+        if (hit) { answer(st, s.key, hit); s = current(st); } } }
     const said = s && s.kind === 'choice' && st.want ? st.want[s.key] : undefined;
     if (said != null) { delete st.want[s.key]; if ((s.options(st.values, L) || []).some((x) => String(x[0]) === String(said))) { answer(st, s.key, said); s = current(st); } }
     const line = (x) => h('div', { class: 'sc-done', 'data-cf-done': x.key }, U.Icon('check', 'sm'), h('span', null, (x.label || x.q) + ': '), h('b', null, shown(st, x, L)),

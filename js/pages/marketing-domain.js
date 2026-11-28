@@ -603,7 +603,33 @@
     return w;
   }
 
-  const api = { PRICE_DEMO, VIDEO_SOON, VSIZES, videoImgSize, videoMethod, estimateVideo, METHOD_RATE, GOALS, MEDIA, VIDEO_RATE, METHODS, MAX, TEXT_FILL, DEFAULT_MODEL, clamp, defaults, buildPieces, splitScenes, CLIP, VIDEO_MAX, clipSeconds, sceneSeconds, scenesPending, sceneDurOf, videoSeconds, setSceneDur, setSceneD, setSceneCount, keepSceneDurs, cost, spend, built, approvable, approved, approveAll, progress, canBuildNext, canReviewNext, validateDetails, estimate, imgRate, videoRate,
+  // the trends from free sources (Safwat 28 Nov — «لما اقولو اخر تريندات المكرمية … يجيبلي نتيجة اخر ٣ ايام»; 2026-11-28-trends-free.md):
+  // a message that asks the designer or the media buyer for the latest trends → { q, days } (the words it is about, the window — 3 days
+  // unless it says a day, a week, a month or N days), else null. A design request that only names a trend («اعمل بوست على تريند …»)
+  // is not one: it asks for the trends themselves or the competitors' last posts.
+  const AR_DIGITS = (s) => String(s).replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
+  const TREND_WORD = /(التريندات|تريندات|التريند|تريند|الترندات|ترندات|الترند|ترند|trends?|trending)/i;
+  const TREND_ASK = /(^|\s)(اخر|آخر|هات|هاتلي|جيب|جبلي|جيبلي|ايه|إيه|ايش|شوف|شوفلي|دور|دوّر|دورلي|عايز|عاوز|محتاج|فيه|في|latest|show|what)(\s|$)/i;
+  const RIVALS = /(بوستات|منشورات|محتوى|اخر|آخر)\s+(ال)?منافسين|المنافسين\s+(نزلوا|بينزلوا|عملوا|بيعملوا)/;
+  const DESIGN = /(^|\s)(اعمل|اعملي|صمم|صمملي|ولّد|ولد|اكتب|اكتبلي)(\s|$)|(زي|على|علي)\s+(ال)?(تريند|ترند)/;
+  const FILLER = new Set(['اخر', 'آخر', 'هات', 'هاتلي', 'جيب', 'جبلي', 'جيبلي', 'ايه', 'إيه', 'ايش', 'هي', 'هو', 'شوف', 'شوفلي', 'دور', 'دوّر', 'دورلي', 'عايز', 'عاوز', 'محتاج', 'فيه', 'في', 'عن', 'على', 'علي', 'بتاعة', 'بتاع', 'بتوع',
+    'من', 'و', 'لي', 'ليا', 'النهارده', 'دلوقتي', 'الأيام', 'الايام', 'دي', 'ده', 'اللي', 'ماشية', 'ماشيه', 'الجديدة', 'الجديده', 'جديدة', 'latest', 'show', 'me', 'the', 'what', 'are', 'last', 'days', 'day', 'week', 'month', 'بوستات', 'منشورات', 'المنافسين', 'منافسين', 'نزلوا', 'بينزلوا', 'عملوا', 'بيعملوا', 'يوم', 'أيام', 'ايام', 'أسبوع', 'اسبوع', 'شهر', 'الشهر', 'الأسبوع', 'الاسبوع']);
+  function trendAsk(text) {
+    const raw = AR_DIGITS(String(text == null ? '' : text)).replace(/[؟?!.,،:«»"()]/g, ' ').replace(/\s+/g, ' ').trim(); if (!raw || raw.length > 200) return null;
+    const rivals = RIVALS.test(raw); const trend = TREND_WORD.test(raw);
+    if (!rivals && !trend) return null;
+    if (DESIGN.test(' ' + raw + ' ')) return null; // «اعمل بوست على تريند …» = a design request
+    if (trend && !rivals && !TREND_ASK.test(' ' + raw + ' ') && !/^(ال)?(تريندات|ترندات|تريند|ترند)/.test(raw)) return null;
+    let days = 3; let m;
+    if ((m = /(\d{1,2})\s*(يوم|أيام|ايام|days?)/i.exec(raw))) days = Math.min(30, Math.max(1, Number(m[1])));
+    else if (/(النهارده|اليوم|امبارح|إمبارح|today|yesterday|24 ساعة)/i.test(raw)) days = 1;
+    else if (/(أسبوع|اسبوع|week)/i.test(raw)) days = 7;
+    else if (/(شهر|month)/i.test(raw)) days = 30;
+    const words = raw.replace(TREND_WORD, ' ').split(' ').filter((w) => w && !FILLER.has(w.toLowerCase()) && !/^\d+$/.test(w) && !TREND_WORD.test(w));
+    return { q: words.join(' ').slice(0, 80), days, rivals };
+  }
+
+  const api = { PRICE_DEMO, VIDEO_SOON, VSIZES, trendAsk, videoImgSize, videoMethod, estimateVideo, METHOD_RATE, GOALS, MEDIA, VIDEO_RATE, METHODS, MAX, TEXT_FILL, DEFAULT_MODEL, clamp, defaults, buildPieces, splitScenes, CLIP, VIDEO_MAX, clipSeconds, sceneSeconds, scenesPending, sceneDurOf, videoSeconds, setSceneDur, setSceneD, setSceneCount, keepSceneDurs, cost, spend, built, approvable, approved, approveAll, progress, canBuildNext, canReviewNext, validateDetails, estimate, imgRate, videoRate,
     adLibraryUrl, competitorPage, competitorRow, draftOf, trendEmbed,
     campaignStatus, campaignName, PLATFORMS, CONNECTED, POST_STATUSES, CAP_MAX, TAGS, TIMES, timeOpts, postKind, pieceImages, hookOf, addD, suggest, scheduleItems, isPast, canMove, canPause, canResume, pieceState, moveCheck, safeName, zipPlan,
     PUBLISHABLE, PUB_KINDS, MAX_IMAGES, PL_KEY, pubText, notReady, publishable, pubImages, isVideoPath, igFit, jpegSize, isJpeg, PUB_ERRORS, pubError, seenSt, engOf, postTotals, SRC_LABEL,

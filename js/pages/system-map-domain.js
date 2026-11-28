@@ -125,6 +125,13 @@
     sys.push({ id: 'ship', glyph: 'ship', name: 'الشحن', now: 'بوسطة', job: 'البوالص والبيك أب والتحصيل', imp: 3, state: bosta.state, pauseKeys: ['bosta'], link: 'site', stops: 'إرسال البوالص والطباعة والبيك أب', parts: [bosta] });
     const resend = P('Resend', 'API', 'الإيميلات من السيستم', 'كتابة', { state: keyState(raw, 'resend') });
     sys.push({ id: 'mail', glyph: 'mail', name: 'الإيميل', now: 'Resend', job: 'إيميلات الفريق والتنبيهات والمشاركة', imp: 1, state: resend.state, pauseKeys: ['resend'], link: 'ai', stops: 'إيميل الباسورد للأعضاء والتنبيهات بالإيميل وإرسال الملفات بالإيميل', parts: [resend] });
+    // ---- the trends' free sources (0175 — 2026-11-28-trends-free.md): YouTube's key and SerpApi's (Google Trends); the competitors'
+    // Instagram posts come through the Meta page link above
+    const trParts = [P('YouTube Data API', 'API', 'فيديوهات وشورتس آخر الأيام بالمشاهدات', 'قراية', { key: 'youtube', state: keyState(raw, 'youtube') }),
+      P('SerpApi (Google Trends)', 'API', 'أكتر حاجات اتدوّر عليها في جوجل في مصر', 'قراية', { key: 'serpapi', state: keyState(raw, 'serpapi') })];
+    sys.push({ id: 'trends', glyph: 'tool', name: 'مصادر التريندات', now: trParts.filter((p) => p.state === 'on').map((p) => p.name.split(' ')[0]).join(' · ') || 'مش مربوطة',
+      job: 'تريندات الديزاينر والميديا باير في الشات وكل يوم الصبح في الجرس', imp: 1, state: groupState(trParts, null), pauseKeys: ['youtube', 'serpapi'], link: 'site',
+      stops: 'تريندات يوتيوب وبحث جوجل (بوستات المنافسين على إنستجرام بتفضل من ربط ميتا)', parts: trParts });
     // ---- the code (watched from GitHub, not from here)
     sys.push({ id: 'code', glyph: 'code', name: 'الكود والنشر', now: 'GitHub', job: 'كود السيستم واختباراته ونشره', imp: 2, state: linked(raw.links, 'github') ? 'on' : 'idle', locked: true,
       note: 'ده مكان الكود نفسه — بيتتابع ويتظبط من GitHub مش من هنا.', parts: [P('GitHub', 'الكود', 'الريبو والـ PRs', '—', { state: 'idle' }), P('GitHub Actions', 'الاختبارات والنشر', 'الـ CI ونشر الموقع والدوال', '—', { state: 'idle' })] });
@@ -149,7 +156,7 @@
     [/^accounts\.withdraw/, 'site', 'طلب سحب على Dokan'], [/bosta/, 'ship', 'حركة على بوسطة'],
     [/^mkt\.campaign\.image|^mkt\.ai\.image|^mkt\.agent\.image/, 'image', 'صورة كامبين اتولّدت'], [/^mkt\.video/, 'video', 'فيديو كامبين بيتعمل'],
     [/^mkt\.ai\.|^mkt\.agent\.|^assistant\./, 'text', 'مساعد رد أو كتب'], [/^mkt\.ads\.|^mkt\.buyer\./, 'ads', 'أرقام أو قرار إعلانات'],
-    [/^mkt\.post\./, 'meta', 'بوست اتنشر أو اتجدول'], [/^cs\.channel|^cs\.send|^cs\.msg|^cs\.reply/, 'meta', 'رسالة لعميل'], [/^cs\./, 'meta', 'حركة في خدمة العملاء'],
+    [/^mkt\.trends\.free/, 'trends', 'تريندات اتقرت من المصادر المجانية'], [/^mkt\.post\./, 'meta', 'بوست اتنشر أو اتجدول'], [/^cs\.channel|^cs\.send|^cs\.msg|^cs\.reply/, 'meta', 'رسالة لعميل'], [/^cs\./, 'meta', 'حركة في خدمة العملاء'],
     [/^share\.email|^hr\.member\.invite/, 'mail', 'إيميل اتبعت'], [/^settings\.integration/, 'core', 'ربط اتعدّل في الإعدادات'],
   ];
   const OUT = /اتبعت|اتنشر|اتولّد|بيتعمل|مساعد رد|اتكتب|على الموقع|بوسطة|طلب سحب|رسالة لعميل/;

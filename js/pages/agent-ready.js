@@ -29,6 +29,10 @@
   const openOrders = (s) => arr(s.orders).filter((o) => !CLOSED.includes(o.status));
   // a metric's list of the details popup (phase 2) under the report's own title
   const viaMetric = (key, title) => (s) => { const D = DT(); const r = D && D.rowsOf ? D.rowsOf(key, s) : null; return r ? { title: title || r.title, headers: r.headers, rows: r.rows } : null; };
+  const PROD_HEAD = ['المنتج', 'SKU', 'القسم', 'الكمية'];
+  const prodRows = (s, title, ok) => ({ title, headers: PROD_HEAD, rows: arr(s.products).filter(ok).map((p) => [p.name || '', p.sku || '', arr(p.cats).join('، '), p.stock == null ? '—' : n0(p.stock)]) });
+  const HR_WAIT = ['جديد', 'قيد المراجعة'];
+  const hrRows = (s, title, re) => ({ title, headers: ['الموظف', 'النوع', 'من', 'إلى'], rows: arr(s.hrRequests).filter((r) => HR_WAIT.includes(r.status) && re.test(String(r.type || ''))).map((r) => [(s.memberName && s.memberName(r.member)) || r.member || '', r.type || '', r.from || '', r.to || '']) });
   const LATE_MIN = 60; // «رسايل متأخرة» = waiting an hour or more (the SLA's default — settings.cs.sla_late_min)
 
   /** element.type.state (or element.type.* for the lists the statuses come from) → the rows behind it on the member's pages. */
@@ -47,6 +51,16 @@
     'messages.customers.waiting': viaMetric('cs_waiting'),
     'messages.customers.late': (s) => { const r = viaMetric('cs_waiting')(s); return r ? { title: 'رسايل عملاء متأخرة (ساعة أو أكتر)', headers: r.headers, rows: r.rows.filter((x) => Number(x[2]) >= LATE_MIN) } : null; },
     'accounts.subs.due': viaMetric('sub_days_left'),
+    // the ask popups (docs/superpowers/plans/2026-11-28-ask-popups.md, phase A): the products' stock from the mirror with their categories,
+    // the team's waiting HR requests by kind and its waiting overtime, and the team requests still new
+    'products.stock.out': (s) => prodRows(s, 'المنتجات اللي كميتها نفدت', (p) => p.out),
+    'products.stock.left1': (s) => prodRows(s, 'منتجات باقي منها 1', (p) => p.stock === 1),
+    'products.stock.left3': (s) => prodRows(s, 'منتجات باقي منها 3 أو أقل', (p) => p.stock != null && p.stock > 0 && p.stock <= 3),
+    'team.update.req_leave': (s) => hrRows(s, 'طلبات إجازة مستنية قرار', /اجاز|إجاز/),
+    'team.update.req_advance': (s) => hrRows(s, 'طلبات سلفة مستنية قرار', /سلف/),
+    'team.update.req_rest': (s) => hrRows(s, 'طلبات فترة راحة مستنية قرار', /راح/),
+    'team.update.req_ot': viaMetric('overtime_pending'),
+    'tickets.type.new': (s) => ({ title: 'طلبات الفريق الجديدة', headers: ['الرقم', 'العنوان', 'المسؤول', 'فتحه'], rows: arr(s.tickets).filter((t) => t.status === 'open').map((t) => [String(t.id), t.title || '', t.assigneeMemberName || t.assigneeRole || '', (t.createdBy && t.createdBy.name) || '']) }),
   };
   const readerOf = (p) => { if (!p) return null; const k = p.element + '.' + p.type; return READERS[k + '.' + p.state] || READERS[k + '.*'] || null; };
   const reportable = (element, type, state) => !!readerOf({ element, type, state });
@@ -75,7 +89,7 @@
     const cur = () => parts[st.at] || null;
     const draw = () => {
       const x = cur(); const r = x && x.r;
-      box.replaceChildren(
+      box.replaceChildren(...[ // a null child is the text «null» (28 Nov)
         parts.length > 1 ? h('div', { class: 'chips ar-parts', role: 'group', 'aria-label': 'العنصر', style: 'margin:0 0 10px' }, parts.map((p) =>
           h('button', { type: 'button', class: 'chip' + (p.i === st.at ? ' on' : ''), 'aria-pressed': String(p.i === st.at), 'data-ag-ready-part': String(p.i), onClick: () => { st.at = p.i; draw(); } },
             p.label + (p.r ? ' (' + p.r.rows.length + ')' : '')))) : null,
@@ -84,7 +98,7 @@
           : r.rows.length ? h('div', { class: 'scroll-x' }, h('table', { class: 'tbl-v2 ag-det-tbl', 'data-ag-ready-tbl': '' },
             h('thead', null, h('tr', null, r.headers.map((c) => h('th', null, c)))),
             h('tbody', null, r.rows.map((row) => h('tr', null, row.map((c) => h('td', null, typeof c === 'number' && K() && K().n0 ? K().n0(c) : String(c))))))))
-            : h('p', { class: 't-small help', 'data-ag-ready-empty': '' }, 'مفيش صفوف تقدر تشوفها هنا دلوقتي — ممكن الصفحة لسه بتتحمّل أو مش من صلاحياتك.'));
+            : h('p', { class: 't-small help', 'data-ag-ready-empty': '' }, 'مفيش صفوف تقدر تشوفها هنا دلوقتي — ممكن الصفحة لسه بتتحمّل أو مش من صلاحياتك.')].filter(Boolean));
       if (m) m.setFooter(foot());
     };
     const share = () => { const x = cur(); if (!x || !x.r || !w.IBShare) return; w.IBShare.open({ title: item.name, sub: x.label, name: item.name, headers: x.r.headers, rows: x.r.rows }); };
@@ -109,7 +123,7 @@
     let err = ''; let saving = false; let m = null; const box = h('div', { 'data-ag-ready-form': kind });
     const sel = (id, label, options, value, on) => u.Select({ id, label, options, value: value || '', placeholder: 'اختار', onChange: on });
     const draw = () => {
-      box.replaceChildren(
+      box.replaceChildren(...[ // a null child is the text «null» (28 Nov)
         h('div', { class: 'row cols2' }, u.TextInput({ id: 'ag-rd-name', label: report ? 'اسم التقرير' : 'اسم الطلب', required: true, value: f.name, maxlength: 60, placeholder: report ? 'مثال: الأوردرات المتأخرة' : 'مثال: متابعة أوردر متأخر', onInput: (v) => { f.name = v; } }),
           sel('ag-rd-role', 'يظهر لـ', [{ value: '', label: 'كل اللي بيفتح المساعد' }].concat(roles.map((r) => ({ value: r.id, label: r.name || r.id }))), f.role, (v) => { f.role = v; draw(); })),
         h('div', { class: 'ag-rd-parts' }, f.parts.map((p, i) => h('div', { class: 'row cols3 ag-rd-part', 'data-ag-rd-part': String(i) },
@@ -118,7 +132,7 @@
           h('div', { class: 'ag-rd-st' }, sel('ag-rd-st-' + i, 'الوضع', statesOf(p.element, p.type).map((s) => ({ value: s.id, label: s.label })), p.state, (v) => { p.state = v; draw(); }),
             f.parts.length > 1 ? h('button', { type: 'button', class: 'chip-x ag-rd-x', 'aria-label': 'شيل العنصر ' + (i + 1), 'data-ag-rd-x': String(i), onClick: () => { f.parts.splice(i, 1); draw(); } }, '×') : null)))),
         f.parts.length < 6 ? Button({ size: 'sm', icon: 'plus', label: 'عنصر تاني', attrs: { 'data-ag-rd-more': '' }, onClick: () => { f.parts.push({ element: '', type: '', state: '' }); draw(); } }) : null,
-        err ? u.InlineNote({ kind: 'error', children: err }) : u.InlineNote({ children: report ? 'التقرير بيعرض لكل عضو الصفوف اللي صفحاته بتوريهاله بس، وفيه «مشاركة».' : 'الطلب الجاهز بيفتح «طلب جديد» متملّي بالاسم والعناصر — والعضو هو اللي بيبعت.' }));
+        err ? u.InlineNote({ kind: 'error', children: err }) : u.InlineNote({ children: report ? 'التقرير بيعرض لكل عضو الصفوف اللي صفحاته بتوريهاله بس، وفيه «مشاركة».' : 'الطلب الجاهز بيفتح «طلب جديد» متملّي بالاسم والعناصر — والعضو هو اللي بيبعت.' })].filter(Boolean));
     };
     const save = async () => {
       if (saving) return; err = '';

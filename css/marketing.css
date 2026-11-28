@@ -706,3 +706,8 @@ a.mk-lib.disabled { opacity:.5;pointer-events:none }
 .mk-cc-brief-b p { margin:0;white-space:pre-line;font-size:13px;line-height:1.7;color:var(--color-text-primary) }
 .mk-cc-src { margin:6px 0 0;padding-inline-start:18px;font-size:12px }
 .mk-cc-src a { color:var(--color-brand-default);word-break:break-all }
+
+/* the ask popups (2026-11-28-ask-popups.md, phase A): a report's element rows in «تفاصيل التقرير» */
+[data-rq-form] .rq-parts { display:flex;flex-direction:column;gap:10px;margin-bottom:10px }
+[data-rq-form] .rq-part { display:flex;flex-direction:column;gap:8px;padding:12px;border:1px solid var(--color-border-subtle);border-radius:10px;background:var(--color-bg-base) }
+[data-rq-form] .rq-x { align-self:flex-start;margin-inline-start:0 }

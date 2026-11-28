@@ -26,3 +26,8 @@ test('route: every kind × element has its way — the steps where they exist, e
   assert.equal(RQ.route({ verb: 'delete', element: 'category' }).page.hash, 'products-cats');
   assert.equal(RQ.summary({ verb: 'add', element: 'money', sub: 'makerMove' }), 'طلب: إضافة رقم مالي — حركة على حساب مبتكر');
 });
+
+test('detect: an ask with details of its own («زي الشهر اللي فات», a name) goes its old way — the bare ask only', () => {
+  for (const t of ['عايز أسجل مصروف الكهربا زي الشهر اللي فات', 'ضيف منتج للمبتكر أنتيكيانو بسعر 500']) assert.equal(RQ.detect(t), false, t);
+  for (const t of ['عايز أضيف منتجات', 'محتاج أمسح أوردر فرعي', 'ممكن أعدّل موظف']) assert.equal(RQ.detect(t), true, t);
+});

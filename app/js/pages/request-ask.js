@@ -61,9 +61,14 @@
     return { verb: (VERB_RE.find(([, re]) => re.test(p)) || [])[0] || '', element: (EL_RE.find(([, re]) => re.test(t)) || [])[0] || '' };
   }
   /** An add / edit / delete said in a few words («عايز أضيف حاجة», «عايز أعدّل», «امسح») — the steps a flow knows were tried first. */
+  // the words around a bare ask — anything else is a detail («زي الشهر اللي فات», a name, an amount) and the ask goes its old way
+  const FILLER = /^(عايز|عاوز|عايزه|محتاج|محتاجه|ممكن|لو|سمحت|حاجه|حاجات|جديد|جديده|حد|انا|ان|اني|عايزين|يا|من|فضلك)$/;
+  const isWord = (w, re) => re.test(pad(w)) || re.test(w);
   function detect(text) {
     const t = norm(text); if (!t || t.split(' ').length > 8 || READ.test(pad(t))) return false;
-    return !!preOf(text).verb;
+    if (!preOf(text).verb) return false;
+    const extra = t.split(' ').filter((w) => !FILLER.test(w) && !VERB_RE.some(([, re]) => isWord(w, re)) && !EL_RE.some(([, re]) => re.test(w)));
+    return extra.length <= 1;
   }
 
   // ---- the browser

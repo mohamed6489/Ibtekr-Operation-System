@@ -2050,6 +2050,10 @@
       footer: [Button({ type: 'primary', icon: 'external', label: o.label || 'افتح الصفحة', attrs: { 'data-mk-link-go': '' }, onClick: go }), Button({ label: 'إغلاق', attrs: { 'data-mk-link-close': '' }, onClick: () => m.close() })] });
     m.el.setAttribute('data-mk-link', ''); return m;
   }
+  // the cards under the chat that lead to the settings (Safwat 28 Nov — «افتح بوب اب»): the same link popup, the chat stays
+  function settingsPopup(agent, title, text) {
+    return pagePopup({ title, text, label: 'افتح ' + title + ' في الإعدادات', go: () => { const s2 = window.IBPages.all().settings; if (s2 && s2.api && s2.api.openAgents) s2.api.openAgents(agent); else location.hash = '#settings-ai'; } });
+  }
   // the designer's / the buyer's ready campaign: what it is, then its page by the member's click (nothing is saved or generated before)
   function draftPopup(d) {
     if (!d || !can().create) { K.toast('الكامبين دي مش متاحة ليك', 'error'); return; }
@@ -2405,7 +2409,7 @@
     const chips = h('div', { class: 'mk-trend-bar', 'data-mk-trend-filter': '' }, tabs, fbtn);
     const picked = TRV.f.tag.length + TRV.f.pf.length;
     const set = window.IBDirectory && window.IBDirectory.me && (window.IBDirectory.me() || {}).role_id === 'admin'
-      ? Button({ size: 'sm', type: 'text', icon: 'gear', label: 'التاجز والمصادر', attrs: { 'data-mk-trends-settings': '' }, onClick: () => { const s2 = window.IBPages.all().settings; if (s2 && s2.api && s2.api.openAgents) s2.api.openAgents('designer'); else location.hash = '#settings-ai'; } }) : null;
+      ? Button({ size: 'sm', type: 'text', icon: 'gear', label: 'التاجز والمصادر', attrs: { 'data-mk-trends-settings': '' }, onClick: () => settingsPopup('designer', 'التاجز والمصادر', 'تاجز التريندات والمواقع اللي بيدوّر فيها الديزاينر بتتعدّل من «الإعدادات › تعليمات الذكاء الاصطناعي › المساعدين» — الشات هنا بيفضل زي ما هو وترجعله من «الذكاء الاصطناعي».') }) : null;
     const body = !L ? [K.Empty('بيحمّل…', '')] : !ready ? [U.InlineNote({ children: 'القسم ده مستني تحديث قاعدة البيانات — هيشتغل بعد التحديث الجاي.' })]
       : !all.length ? [K.Empty('لسه مفيش تريندات', can().create ? (cfg.tags.length ? 'دوس «حدّث التريندات» — بيدوّر على تيك توك وإنستجرام وفيسبوك بالتاجز بتاعتك.' : 'دوس «حدّث التريندات»' + (set ? '، وحط تاجز مجالك من «التاجز والمصادر» عشان يجيب فيديوهات وبوستات ليها علاقة بيه.' : '.')) : 'اللي معاه «التسويق: إنشاء» بيحدّثها.')]
       : [chips, shown.length ? h('div', { class: 'mk-reels' + (TRV.tab === 'video' ? ' is-video' : ''), 'data-mk-reels': TRV.tab }, shown.map(trTile))
@@ -2495,7 +2499,7 @@
     const isAdmin = window.IBDirectory && window.IBDirectory.me && (window.IBDirectory.me() || {}).role_id === 'admin';
     const tagsBox = h('div', { class: 'mk-strong', 'data-mk-strong': '' }, h('div', { class: 'mk-strong-h' }, h('b', null, 'أقوى الإعلانات بالتاجز'), h('small', null, 'كل تاج بيفتح مكتبة ميتا على الإعلانات الشغّالة بالكلمة دي في مصر — الإعلان اللي شغّال من مدة طويلة غالبًا هو اللي بيجيب نتيجة.')),
       adTags.length ? h('div', { class: 'chips' }, adTags.filter((t) => !CP.tag || t === CP.tag).map((t) => libLink({ keyword: t }, t, { class: 'chip mk-strong-tag', 'data-mk-strong-tag': t }))) : h('p', { class: 't-small help', style: 'margin:0' }, isAdmin ? 'لسه مفيش تاجز — حطها من «الإعدادات › تعليمات الذكاء الاصطناعي › المساعدين › الميديا باير الاصطناعي».' : 'الأدمن بيحط التاجز من الإعدادات.'));
-    const set = isAdmin ? Button({ size: 'sm', type: 'text', icon: 'gear', label: 'المنافسين والتاجز', attrs: { 'data-mk-comp-settings': '' }, onClick: () => { const s2 = window.IBPages.all().settings; if (s2 && s2.api && s2.api.openAgents) s2.api.openAgents('buyer'); else location.hash = '#settings-ai'; } }) : null;
+    const set = isAdmin ? Button({ size: 'sm', type: 'text', icon: 'gear', label: 'المنافسين والتاجز', attrs: { 'data-mk-comp-settings': '' }, onClick: () => settingsPopup('buyer', 'المنافسين والتاجز', 'المنافسين وتاجز الإعلانات بتوع الميديا باير بيتعدّلوا من «الإعدادات › تعليمات الذكاء الاصطناعي › المساعدين» — الشات هنا بيفضل زي ما هو وترجعله من «الذكاء الاصطناعي».') }) : null;
     return Card('إعلانات المنافسين', 'من مكتبة إعلانات ميتا · الإعلانات الشغّالة دلوقتي في مصر',
       [!L ? K.Empty('بيحمّل…', '') : !ready ? U.InlineNote({ children: 'القسم ده مستني تحديث قاعدة البيانات — هيشتغل بعد التحديث الجاي.' }) : [
         bar,
@@ -2550,7 +2554,7 @@
   const subLeft = (x) => (x.expired ? 'انتهى من ' + K.n0(Math.abs(x.daysLeft)) + ' يوم' : x.daysLeft === 0 ? 'بينتهي النهاردة' : 'باقي ' + K.n0(x.daysLeft) + ' يوم');
   function subsCard() {
     const L = MK().siteSubsNow ? MK().siteSubsNow() : undefined;
-    const openAcc = Button({ size: 'sm', label: 'كل الاشتراكات في الحسابات', iconEnd: 'chevL', attrs: { 'data-dv-subs-all': '' }, onClick: () => { location.hash = 'subscriptions'; } });
+    const openAcc = Button({ size: 'sm', label: 'كل الاشتراكات في الحسابات', iconEnd: 'chevL', attrs: { 'data-dv-subs-all': '' }, onClick: () => pagePopup({ title: 'كل الاشتراكات', label: 'افتح الاشتراكات في الحسابات', text: 'الاشتراكات كلها ومواعيد تجديدها وإضافتها في «الحسابات › الاشتراكات» — الشات هنا بيفضل زي ما هو وترجعله من «الذكاء الاصطناعي».', go: () => { location.hash = 'subscriptions'; } }) });
     if (L === null) return Card('اشتراكات الموقع', 'من «الحسابات › الاشتراكات»', [K.Empty('محتاجة صلاحية الحسابات', 'الاشتراكات ومواعيد تجديدها بتظهر للي بيشوف صفحة الحسابات.')], null, 'mk-dv-subs');
     const list = (L || []).slice().sort((a, b) => (Number(SITE_SUB.test(b.name)) - Number(SITE_SUB.test(a.name))) || (a.daysLeft - b.daysLeft));
     const due = list.filter((x) => x.due).length;

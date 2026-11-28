@@ -1909,16 +1909,19 @@
     if (id === 'trash') return permOf('products.trash') === 'F';
     if (id === 'makerMove') return permOf('accounts.add') === 'F' && !singleOn(); // the accounts' «سحب / إيداع» of a maker
     if (id === 'productEdit') return permOf('products.edit') === 'F';
+    if (id === 'makerEdit') return !singleOn() && (makerMay('contact') || makerMay('bank')); // a maker's file «تعديل» (decision 5)
     return false;
   }
   // one product's edit = its row menu's rights: the price, the status and the brand by products.edit, another maker's store by products.bulk
+  // a maker's part = his file's «تعديل» rights: the bank by sensitive.vendor_bank F, the other parts by vendors.edit (not N)
+  const makerMay = (w) => { const VS = window.IBVendors && window.IBVendors.store; return w === 'bank' ? (VS && VS.canBank ? VS.canBank() : permOf('sensitive.vendor_bank') === 'F') : (VS && VS.canEdit ? VS.canEdit() : permOf('vendors.edit') !== 'N'); };
   const productMay = (w) => (w === 'maker' ? permOf('products.bulk') === 'F' && !singleOn() : permOf('products.edit') === 'F');
   function flowLists() {
     const S = window.IBSettings; const D = window.IbtekrDomain; const T = window.IbtekrTickets; const F = window.IBChatFlow;
     const lab = (kind, v) => (S && S.statusLabel ? S.statusLabel(kind, v) || v : v);
     return { kinds: (D && D.CATEGORIES ? D.CATEGORIES : []).map((k) => [k, lab('expense', k)]), goals: W.GOALS,
       priorities: T && T.PRIORITIES ? T.PRIORITIES.slice().sort((x, y) => ['normal', 'high', 'urgent', 'low'].indexOf(x[0]) - ['normal', 'high', 'urgent', 'low'].indexOf(y[0])) : null,
-      statuses: F ? F.ORDER_ST.map((x) => [x, lab('order', x)]) : null, may: reqMay, productMay,
+      statuses: F ? F.ORDER_ST.map((x) => [x, lab('order', x)]) : null, may: reqMay, productMay, makerMay,
       makers: () => { const Vs = window.IBVendors; if (Vs && Vs.state && Vs.state() === 'idle') Vs.load(); return Vs && Vs.store && Vs.store.all ? Vs.store.all().map((v) => v.name).sort((x, y) => x.localeCompare(y, 'ar')) : []; },
       products: (q) => { const PR = window.IBProducts; if (!PR || !PR.list) return []; if (PR.state && PR.state() !== 'ready') { if (PR.ensure) PR.ensure(); return null; }
         const N = window.IBChatFlow.norm; const n = N(q); const sk = String(q).trim().toLowerCase(); // a record: its English name and its Arabic one (the mirror's two languages)

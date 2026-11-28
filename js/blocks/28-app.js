@@ -1158,6 +1158,10 @@
       // popup here opens over the page the member is on (the assistant's chat stays behind it) — no page is opened before it; a page
       // only by a link the member presses inside a popup
       case 'vendor_add': if (!admin() && can('vendors.edit') !== 'F') no(); openAddVendor(null, v, state.page === 'vendors' ? undefined : (nv) => openVendor(nv.id, { inPlace: true })); return 'form vendor_add';
+      // agent-chat-flows decision 5: a maker's part — his file in place and that part's popup («بيانات الهوية» / «الاتصال» / «الاتفاق» / «الحساب البنكي»)
+      case 'vendor_edit': { const part = String(v.what || ''); if (part === 'bank' ? !vstore.canBank() : !(VD.EDIT_GROUPS[part] && vstore.canEdit())) no();
+        const mk = v.vendor ? vstore.findByName(String(v.vendor).trim()) : null; if (!mk) throw new Error('مش لاقي المبتكر ده');
+        openVendor(mk.id, { inPlace: true, edit: part }); return 'form vendor_edit'; }
       case 'member_add': if (!admin()) no(); hrApi().addMember(Object.fromEntries(['name', 'title', 'email', 'phone', 'hire'].filter((k) => v[k] != null && String(v[k]).trim()).map((k) => [k, String(v[k]).trim().slice(0, 200)]))); return 'form member_add';
       case 'customer_add': { const a = P().cs && P().cs.api; if (!a || !a.addCustomer || !a.addCustomer(v)) no(); return 'form customer_add'; }
       case 'ticket_new': { if (!tCanManage()) no(); const pre = {}; for (const k of ['title', 'description', 'reason']) if (v[k]) pre[k] = String(v[k]).slice(0, 1000); if (['customer', 'vendor', 'internal'].includes(v.type)) pre.type = v.type;
@@ -4702,7 +4706,9 @@
         h('p', { class: 't-small help', style: 'margin:0' }, 'الفئات الفرعية بتاخد رقم الفئة اللي فوقها إلا لو ليها رقم خاص. التعديل من «تعديل» في الاتفاق التجاري.'),
         v.wooVendorId ? U.InlineNote({ children: 'النسبة بتتبعت للموقع: نوع العمولة ونسب الفئات بتتسجل على متجره مع الحفظ.' }) : null];
     }
+    const dw = vdrawer; // decision 5: a save that lands after this drawer closed draws nothing (another maker's drawer, or none)
     function draw() {
+      if (vdrawer !== dw) return;
       const v = vstore.get(id); if (!v) { if (vdrawer) vdrawer.close(); return; } const st = vendorStats()[v.id]; const canEdit = vstore.canEdit(), canBank = vstore.canBank(), canRate = vstore.canRate(), canLogin = !!(vstore.canLogin && vstore.canLogin()); const cstat = VD.contractStatus(v, VTODAY());
       // decision 9 c: what the maker still lacks (login / e-mail / bank), from the store
       // owner batch 2 decision 21: each missing item on its own, and a click opens where it is filled (the login, the contact, the bank)
@@ -4855,6 +4861,13 @@
       vdrawer.set(header, body);
     }
     draw(); vredraw = draw; const c = vdrawer.el.querySelector('.icon-btn'); if (c) c.focus();
+    // agent-chat-flows decision 5: «تعديل بيانات مبتكر» from the assistant's chat — his file where you are and the part's own popup over it
+    // (the same rights as its «تعديل» in the file: vendors.edit for a part, sensitive.vendor_bank F for the bank)
+    // — the file itself stays out of sight and goes with the last of the part's popups (the bank's confirm included): the chat stays
+    if (opts && opts.edit) { const ve = vstore.get(id); const sc = dw.el.closest('.scrim'); if (sc) sc.style.visibility = 'hidden';
+      if (opts.edit === 'bank') { if (vstore.canBank()) bankForm(ve); } else if (VD.EDIT_GROUPS[opts.edit] && vstore.canEdit()) editGroup(ve, opts.edit);
+      const open = () => !!document.querySelector('.scrim:not(.drawer-scrim) > .modal');
+      if (!open()) dw.close(); else { const ob = new MutationObserver(() => { if (vdrawer !== dw) { ob.disconnect(); return; } if (!open()) { ob.disconnect(); dw.close(); } }); ob.observe(document.body, { childList: true, subtree: true }); } }
     if (window.IBVendors) window.IBVendors.loadEvents(id).then(() => { if (vredraw === draw) draw(); }); // decision 6: the vendor's activity_log, once per open
   }
 

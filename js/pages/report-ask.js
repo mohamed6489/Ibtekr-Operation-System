@@ -9,6 +9,7 @@
      IBReportAsk.summary(spec)         → the member's message line
      IBReportAsk.narrow(src, el, items)→ pure: the sources an element's picked items keep
      IBReportAsk.rowsOf(spec, src)     → pure: [{ label, r: { title, headers, rows } | null }]
+     IBReportAsk.formState(pre) / check(f) / specOf(f) / fields(f, redraw) → the popup's part (the «إضافة طلب ذكي» popup uses it too)
      IBReportAsk.open({ pre, onSend }) / result(spec) → the popups (browser only) */
 (function (root, factory) {
   const api = factory(root);
@@ -93,37 +94,45 @@
     } catch (e) { /* the page's list is not there */ }
     return [];
   }
-  function open(o) {
-    const u = U(); const c = C(); const A = AR(); const k = K(); if (!u || !u.Modal || !c || !A || !k || !k.MultiPick) return null; const { h, Button } = u;
-    const opt = o || {}; const L = lists();
+  // the popup's part — its own popup and the «إضافة طلب ذكي» popup draw it (2026-11-28-smart-actions.md)
+  const blank = () => ({ element: '', type: '', states: [], items: [] });
+  function formState(pre) {
+    const c = C(); const A = AR(); const L = lists();
+    const okEl = (e) => !!e && permOf(e.perm) !== 'N' && A && e.types.some((t) => c.statesOf(e.id, t.id, L).some((s) => A.reportable(e.id, t.id, s.id)));
+    const parts = arr(pre && pre.parts).filter((p) => p.element && c && okEl(c.el(p.element)));
+    return { parts: parts.length ? parts.map((p) => ({ element: p.element, type: p.type || '', states: arr(p.states).slice(), items: arr(p.items).slice() })) : [blank()] };
+  }
+  const check = (f) => (arr(f && f.parts).some((p) => !p.element || !p.type || !arr(p.states).length) ? 'اختار العنصر ونوع البيانات ووضع واحد على الأقل في كل صف' : '');
+  const specOf = (f) => ({ parts: arr(f && f.parts).map((p) => ({ element: p.element, type: p.type, states: arr(p.states).slice(), items: arr(p.items).slice() })) });
+  function fields(f, redraw) {
+    const u = U(); const c = C(); const A = AR(); const k = K(); const { h, Button } = u; const L = lists();
     const okEl = (e) => permOf(e.perm) !== 'N' && e.types.some((t) => c.statesOf(e.id, t.id, L).some((s) => A.reportable(e.id, t.id, s.id)));
     const typesOf = (eid) => { const e = c.el(eid); return e ? e.types.filter((t) => c.statesOf(eid, t.id, L).some((s) => A.reportable(eid, t.id, s.id))) : []; };
     const statesOf = (eid, tid) => (eid && tid ? c.statesOf(eid, tid, L).filter((s) => A.reportable(eid, tid, s.id)) : []);
-    const pre = arr(opt.pre && opt.pre.parts).filter((p) => p.element && okEl(c.el(p.element) || { types: [] }));
-    const f = { parts: pre.length ? pre.map((p) => ({ element: p.element, type: p.type || '', states: arr(p.states).slice(), items: arr(p.items).slice() })) : [{ element: '', type: '', states: [], items: [] }] };
-    let err = ''; let m = null; const box = h('div', { 'data-rq-form': '' });
     const sel = (id, label, options, value, on) => u.Select({ id, label, options, value: value || '', placeholder: 'اختار', onChange: on });
     const row = (p, i) => {
       const kind = LIST_OF[p.element]; const items = kind ? itemsOf(kind) : [];
       return h('div', { class: 'rq-part', 'data-rq-part': String(i) },
         h('div', { class: 'row cols3' },
-          sel('rq-el-' + i, f.parts.length > 1 ? 'العنصر ' + (i + 1) : 'العنصر', c.ELEMENTS.filter(okEl).map((e) => ({ value: e.id, label: e.label })), p.element, (v) => { p.element = v; p.type = ''; p.states = []; p.items = []; draw(); }),
-          sel('rq-ty-' + i, 'نوع البيانات', typesOf(p.element).map((t) => ({ value: t.id, label: t.label })), p.type, (v) => { p.type = v; p.states = []; draw(); }),
+          sel('rq-el-' + i, f.parts.length > 1 ? 'العنصر ' + (i + 1) : 'العنصر', c.ELEMENTS.filter(okEl).map((e) => ({ value: e.id, label: e.label })), p.element, (v) => { p.element = v; p.type = ''; p.states = []; p.items = []; redraw(); }),
+          sel('rq-ty-' + i, 'نوع البيانات', typesOf(p.element).map((t) => ({ value: t.id, label: t.label })), p.type, (v) => { p.type = v; p.states = []; redraw(); }),
           k.MultiPick({ id: 'rq-st-' + i, label: 'الوضع', field: true, placeholder: p.type ? 'اختار وضع أو أكتر' : 'اختار نوع البيانات الأول', options: statesOf(p.element, p.type).map((s) => [s.id, s.label]), value: p.states, onChange: (v) => { p.states = v; } })),
         kind ? h('div', { class: 'rq-items' }, k.MultiPick({ id: 'rq-it-' + i, label: LIST_NAME[kind], field: true, search: true, placeholder: 'كل ' + LIST_NAME[kind] + (items.length ? ' (' + items.length + ')' : ''), options: items.map((x) => [x, x]), value: p.items,
           help: 'من غير اختيار = كلهم — دوس عشان تختار أسامي معيّنة', onChange: (v) => { p.items = v; } })) : null,
-        f.parts.length > 1 ? h('button', { type: 'button', class: 'sc-edit rq-x', 'data-rq-x': String(i), 'aria-label': 'شيل العنصر ' + (i + 1), onClick: () => { f.parts.splice(i, 1); draw(); } }, 'شيل العنصر ده') : null);
+        f.parts.length > 1 ? h('button', { type: 'button', class: 'sc-edit rq-x', 'data-rq-x': String(i), 'aria-label': 'شيل العنصر ' + (i + 1), onClick: () => { f.parts.splice(i, 1); redraw(); } }, 'شيل العنصر ده') : null);
     };
-    const draw = () => {
-      box.replaceChildren(...[h('p', { class: 't-small help', style: 'margin:0 0 10px' }, 'اختار العنصر ونوع البيانات والوضع (ممكن أكتر من وضع)، وتحتهم اللي عايزه منهم — والمساعد هيجهّزلك التقرير.'),
-        h('div', { class: 'rq-parts' }, f.parts.map(row)),
-        f.parts.length < 6 ? Button({ size: 'sm', icon: 'plus', label: 'عنصر تاني', attrs: { 'data-rq-more': '' }, onClick: () => { f.parts.push({ element: '', type: '', states: [], items: [] }); draw(); } }) : null,
-        err ? u.InlineNote({ kind: 'error', children: err }) : null].filter(Boolean));
-    };
+    return h('div', { 'data-rq-form': '' }, ...[h('p', { class: 't-small help', style: 'margin:0 0 10px' }, 'اختار العنصر ونوع البيانات والوضع (ممكن أكتر من وضع)، وتحتهم اللي عايزه منهم — والمساعد هيجهّزلك التقرير.'),
+      h('div', { class: 'rq-parts' }, f.parts.map(row)),
+      f.parts.length < 6 ? Button({ size: 'sm', icon: 'plus', label: 'عنصر تاني', attrs: { 'data-rq-more': '' }, onClick: () => { f.parts.push(blank()); redraw(); } }) : null].filter(Boolean));
+  }
+  const ready = () => { const u = U(); const k = K(); return !!(u && u.Modal && C() && AR() && k && k.MultiPick); };
+  function open(o) {
+    if (!ready()) return null; const u = U(); const { h, Button } = u; const opt = o || {};
+    const f = formState(opt.pre); let err = ''; let m = null; const box = h('div', { 'data-rq-box': '' });
+    const draw = () => { box.replaceChildren(fields(f, draw), ...(err ? [u.InlineNote({ kind: 'error', children: err })] : [])); };
     const send = () => {
-      err = ''; if (f.parts.some((p) => !p.element || !p.type || !arr(p.states).length)) { err = 'اختار العنصر ونوع البيانات ووضع واحد على الأقل في كل صف'; draw(); return; }
-      const spec = { parts: f.parts.map((p) => ({ element: p.element, type: p.type, states: p.states.slice(), items: p.items.slice() })) };
-      m.close(); if (typeof opt.onSend === 'function') opt.onSend(spec);
+      err = check(f); if (err) { draw(); return; }
+      m.close(); if (typeof opt.onSend === 'function') opt.onSend(specOf(f));
     };
     draw();
     m = u.Modal({ title: 'تفاصيل التقرير', body: [box], footer: [Button({ type: 'primary', icon: 'send', label: 'ابعت', attrs: { 'data-rq-send': '' }, onClick: send }), Button({ label: 'إلغاء', onClick: () => m.close() })] });
@@ -154,5 +163,5 @@
     if (m && m.el) { m.el.classList.add('wide'); m.el.setAttribute('data-rq-report', ''); }
     return m;
   }
-  return Object.freeze({ detect, preOf, summary, narrow, rowsOf, open, result, LIST_OF });
+  return Object.freeze({ detect, preOf, summary, narrow, rowsOf, formState, check, specOf, fields, ready, open, result, LIST_OF });
 });

@@ -509,7 +509,7 @@
 
   // ---- Vendors components (Figma: Vendor logo, Info row, Secure field, Contract card, Vendor status) ----
   function VendorLogo({ letter, size = 'md' }) { return h('span', { class: 'vlogo vlogo-' + size, 'aria-hidden': 'true' }, (letter || '؟').charAt(0)); }
-  function VendorStatus(status) { return h('span', { class: 'vstatus vs-' + status }, status === 'active' ? 'نشط' : status === 'leave' ? 'في إجازة' : 'غير نشط'); }
+  function VendorStatus(status) { const S0 = window.IBSettings; return h('span', { class: 'vstatus vs-' + status }, S0 && S0.statusLabel ? S0.statusLabel('maker', status) : status === 'active' ? 'نشط' : status === 'leave' ? 'في إجازة' : 'غير نشط'); } // settings-lists-2 decision 4: the admin's name for the maker's status
   function InfoRow({ label, value, copy, onCopy }) {
     return h('div', { class: 'info-row' }, h('span', { class: 't-body lab' }, label),
       h('span', { class: 'val' }, h('span', { class: 't-body' }, value == null || value === '' ? '—' : value), copy && value ? IconButton({ icon: 'copy', label: 'نسخ ' + label, onClick: () => onCopy(value, label) }) : null));

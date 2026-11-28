@@ -24,6 +24,9 @@
   const R = () => window.IBPages.render('inventory');
   const rerender = () => { if (window.IBPages.current === 'inventory') R(); else window.OrdersSetSub && window.OrdersSetSub('__redraw__', null); if (countPop) countPop.refresh(); document.dispatchEvent(new CustomEvent('ib:notify')); };
   const REASON_TONE = { 'تجميع أوردر': 'info', 'مرتجع': 'orange', 'تصوير': 'gold', 'متاح للبيع': 'success' };
+  // settings-lists-2 (Safwat 28 Nov — 2026-11-28-settings-lists-2.md decision 4): the shown names from «الإعدادات › القوائم والحالات» —
+  // a piece's status / reason / the return's condition (the values stay); and «شيل من المخزن» takes the saved list «invRemove»
+  const LBI = (kind, v) => { const S0 = window.IBSettings; return S0 && S0.statusLabel ? S0.statusLabel(kind, v) : v; };
   const STATUS_TONE = { 'وصل المخزن': 'info', 'جاهز يطلع كامل': 'success', 'بانتظار الفحص': 'orange', 'مستني تصوير': 'gold', 'اتصور': 'brand', 'متاح': 'success', 'محجوز لأوردر': 'orange', 'راجع للمبتكر': 'neutral', 'تالف': 'error' };
   const STATUSES = ['وصل المخزن', 'جاهز يطلع كامل', 'بانتظار الفحص', 'مستني تصوير', 'اتصور', 'متاح', 'محجوز لأوردر', 'راجع للمبتكر', 'تالف'];
   const age = (s) => K.daysBetween(s.since, TODAY);
@@ -154,12 +157,12 @@
       // B6: one of the three fixed places (or none), saved on each lot
       { id: 'loc', label: 'نقل لمكان', icon: 'box', run: (ids, done) => K.form({ title: 'نقل ' + ids.length + ' منتجات لمكان تاني', values: { loc: '' }, submitLabel: 'انقل', fields: (f, e, set) => [K.field.select('loc', 'المكان الجديد', LOC_OPTS(), f, e, set)], submit: (f) => { list.filter((x) => ids.includes(String(x.key))).forEach((x) => { const it = S.stock.find((y) => y.key === x.key); if (it) it.loc = f.loc || '—'; patchLot(x.key, { loc: f.loc }, 'inventory.place'); K.logEvent('stock.move', x.name + ' → ' + (f.loc || '—')); }); done(f.loc ? 'اتنقلوا لـ ' + locName(f.loc) : 'اتشال مكانهم'); } }) },
       { id: 'export', label: 'تصدير', icon: 'download', run: (ids, done) => { K.xlsxExport('ibtekr-stock-' + TODAY + '.xlsx', 'المخزن', [['المنتج', 'SKU', 'المبتكر', 'السبب', 'الحالة', 'المكان', 'الكمية']].concat(list.filter((x) => ids.includes(String(x.key))).map((x) => [x.name, x.sku, x.vendor, x.reason, x.status, x.loc, x.onHand]))); done(); } }] });
-    const rows = list.map((s) => [IB.box(s.key, s.name), prodCell(s), s.vendor, K.Tag(REASON_TONE[s.reason], s.reason), K.Tag(STATUS_TONE[s.status] || 'neutral', s.status), s.ref ? h('a', { href: '#orders', class: 'num' }, s.ref) : '—', K.Num(s.loc), h('span', null, K.Num(String(s.onHand))), h('span', waiting(s) ? { class: 't-small', 'data-inv-wait': '' } : null, enteredTxt(s)), h('span', { class: tooLong(s) || waitLate(s) ? 'late' : '' }, stayTxt(s), tooLong(s) || waitLate(s) ? ' ⚠' : ''), K.RowMenu(actionsFor(s), 'إجراءات ' + s.name)]); // comments decision 17: «الخطوة الجاية» left the table (it stays in the piece's details)
+    const rows = list.map((s) => [IB.box(s.key, s.name), prodCell(s), s.vendor, K.Tag(REASON_TONE[s.reason], LBI('lotReason', s.reason)), K.Tag(STATUS_TONE[s.status] || 'neutral', LBI('lot', s.status)), s.ref ? h('a', { href: '#orders', class: 'num' }, s.ref) : '—', K.Num(s.loc), h('span', null, K.Num(String(s.onHand))), h('span', waiting(s) ? { class: 't-small', 'data-inv-wait': '' } : null, enteredTxt(s)), h('span', { class: tooLong(s) || waitLate(s) ? 'late' : '' }, stayTxt(s), tooLong(s) || waitLate(s) ? ' ⚠' : ''), K.RowMenu(actionsFor(s), 'إجراءات ' + s.name)]); // comments decision 17: «الخطوة الجاية» left the table (it stays in the piece's details)
     // the owner 13 Nov (decision 2 of docs/superpowers/plans/2026-11-13-owner-ui-batch.md): «فلتر» and «ترتيب» in the table card's head next to
     // «بحث» like the other big tables — the search moves into the search row (the kit's tableSearch); the «فلاتر المخزن» card is gone
     return [K.Section('سجل المخزون', [h('div', { class: 'toolbar', 'data-inv-toolbar': '' }, search('ابحث بالمنتج أو الأوردر أو الـ SKU', 'q', 'بحث في المخزن')), activeRow(all, list), IB.bar(), list.length ? U.Table({ cls: 'inv-table', headers: [IB.head(), 'المنتج', 'المبتكر', 'السبب', 'الحالة', 'المرجع', 'المكان', 'الكمية', 'دخل المخزن', 'بقاله', ''], rows }) : K.Empty('مفيش قطع بالفلتر ده', 'غيّر الفلتر أو البحث، أو سجّل استلام جديد.', Button({ type: 'primary', label: 'استلام في المخزن', onClick: () => receive() })),
       h('p', { class: 't-small help', style: 'margin:0' }, 'كل قطعة في المخزن ليها «سبب» و«حالة». السبب: تجميع أوردر · مرتجع · تصوير · متاح للبيع. منتجات التصوير ممكن بعد التصوير ترجع للمبتكر أو تتحوّل «متاح للبيع». السحب من المخزن بيبقى من الأوردر («اسحب من المخزن») على «متاح للبيع» بس، وتلقائي لو «السحب التلقائي» شغّال من الإعدادات. الكمية بتتحسب من الحركات.'),
-      h('div', { class: 'legend t-small' }, h('b', null, 'الحالات:'), STATUSES.map((x) => K.Tag(STATUS_TONE[x], x)))], [stockFilterMenu(all), stockSortMenu()], { cls: 'own-filter', noun: ['صنف', 'الأصناف'], count: [list.length, all.length], total: sumQ(list, 'onHand') + ' قطعة في المخزن' })]; // the kit's line (2026-11-13-table-head.md): «اليوم … · N من M صنف · … قطعة في المخزن»
+      h('div', { class: 'legend t-small' }, h('b', null, 'الحالات:'), STATUSES.map((x) => K.Tag(STATUS_TONE[x], LBI('lot', x))))], [stockFilterMenu(all), stockSortMenu()], { cls: 'own-filter', noun: ['صنف', 'الأصناف'], count: [list.length, all.length], total: sumQ(list, 'onHand') + ' قطعة في المخزن' })]; // the kit's line (2026-11-13-table-head.md): «اليوم … · N من M صنف · … قطعة في المخزن»
   }
   function actionsFor(s) {
     return [{ label: 'تفاصيل المنتج', icon: 'box', run: () => details(s) },
@@ -419,6 +422,7 @@
   // count becomes what is left — inv_count_approve compares a count with the quantity NOW, so the approval adds no second adjustment)
   const RC = () => { R(); if (countPop) countPop.refresh(); }; // the tab behind and the count's popup
   const REMOVE_REASONS = ['طلعت أوردر ونسيت أسجلها', 'حصلها تلف من التخزين', 'حصلها تلف من الشحن', 'أخرى'];
+  const removeReasons = () => { const S0 = window.IBSettings; const L = S0 && S0.listOf ? S0.listOf('invRemove') : []; return L.length ? L : REMOVE_REASONS; }; // settings-lists-2: «أخرى» last, from the settings
   const removedOf = (l) => /^اتشال /.test(String(l.note || ''));
   function countLineMenu(c, l) {
     const lot = () => S.stock.find((x) => x.key === l.key) || null;
@@ -434,7 +438,7 @@
     const it = K.stockNow().find((x) => x.key === l.key); const have = it ? it.onHand : l.system; // the quantity now (from the moves)
     if (!have) { K.toast('القطعة دي مش في المخزن دلوقتي', 'error'); return; }
     K.form({ title: 'شيل من المخزن — ' + l.name, values: { reason: '', other: '', qty: String(have) },
-      fields: (f, e, set) => [K.Radios({ label: 'السبب *', value: f.reason, onChange: (v) => set('reason', v, true), options: REMOVE_REASONS.map((r) => ({ value: r, label: r })) }), e.reason ? h('div', { class: 'err-msg', role: 'alert' }, e.reason) : null,
+      fields: (f, e, set) => [K.Radios({ label: 'السبب *', value: f.reason, onChange: (v) => set('reason', v, true), options: removeReasons().map((r) => ({ value: r, label: r })) }), e.reason ? h('div', { class: 'err-msg', role: 'alert' }, e.reason) : null,
         f.reason === 'أخرى' ? K.field.text('other', 'اكتب السبب', f, e, set, { required: true, maxlength: 120 }) : null,
         K.field.text('qty', 'العدد', f, e, set, { required: true, inputmode: 'numeric', help: 'في المخزن ' + have })],
       validate: (f) => { const e = {}; const n = Number(O.toLatin(String(f.qty || ''))); if (!f.reason) e.reason = 'اختار السبب'; if (f.reason === 'أخرى' && !String(f.other || '').trim()) e.other = 'اكتب السبب'; if (!Number.isInteger(n) || n < 1 || n > have) e.qty = 'العدد من 1 لـ ' + have; return e; },
@@ -465,7 +469,7 @@
     const now = K.stockNow().filter((x) => x.onHand > 0);
     const rep = inventoryReport(now, S.returns, S.ledger.filter((m) => { const d = String(m.at || '').slice(0, 10); return d >= rr.from && d <= rr.to; }));
     const rowsH = ['القطعة', 'المبتكر', 'سبب الدخول', 'الحالة', 'في المخزن', 'المتاح', 'التكلفة', 'من إمتى'];
-    const rows = rep.rows.map((x) => [x.name, x.vendor, x.reason, K.Tag(STATUS_TONE[x.status] || 'neutral', x.status), K.Num(String(x.onHand)), K.Num(String(x.available)), K.Num(K.money(x.cost)), K.dshort(x.since)]);
+    const rows = rep.rows.map((x) => [x.name, x.vendor, LBI('lotReason', x.reason), K.Tag(STATUS_TONE[x.status] || 'neutral', LBI('lot', x.status)), K.Num(String(x.onHand)), K.Num(String(x.available)), K.Num(K.money(x.cost)), K.dshort(x.since)]);
     const maxR = Math.max(1, ...rep.byReason.map((x) => x.count)); const maxS = Math.max(1, ...rep.byStatus.map((x) => x.count));
     const bars = (list, max) => (list.length ? h('div', { class: 'bars' }, list.map((x, i) => U.BarRow({ tone: i === 0 ? 'brand' : i === 1 ? 'gold' : 'neutral', label: x.label, value: String(x.count), pct: x.count / max }))) : U.EmptyState('المخزن فاضي', 'مفيش قطع مسجلة.'));
     return [RB && RB.range ? h('div', { class: 'toolbar pr-rep-bar' }, RB.range()) : null,
@@ -489,9 +493,9 @@
     K.form({ title: 'وصل المخزن — فرعي #' + info.sid, wide: true, values: { reason: O.arrivalReason(info.inConsolidation), loc: '', mode: 'أمانة', date: TODAY },
       note: h('div', { class: 'prod arrival-prod' }, Thumb(info.sku, info.prod), h('span', null, h('b', null, info.prod + ' × ' + (info.qty || 1)), h('small', { dir: 'ltr' }, (info.sku || '—')), h('small', null, info.vendor + ' · IB-' + info.order + ' · ' + K.money(info.tot || 0) + ' ج.م'))),
       fields: (f, e, set) => [
-        K.Radios({ label: 'سبب التخزين *', value: f.reason, onChange: (v) => set('reason', v, true), options: O.REASONS.map((r) => ({ value: r, label: r, hint: hints[r] })) }), e.reason ? h('div', { class: 'err-msg', role: 'alert' }, e.reason) : null,
+        K.Radios({ label: 'سبب التخزين *', value: f.reason, onChange: (v) => set('reason', v, true), options: O.REASONS.map((r) => ({ value: r, label: LBI('lotReason', r), hint: hints[r] })) }), e.reason ? h('div', { class: 'err-msg', role: 'alert' }, e.reason) : null,
         info.inConsolidation && f.reason && f.reason !== 'تجميع أوردر' ? U.InlineNote({ kind: 'warning', children: 'الأوردر ده بيتجمع في المخزن — لو السبب مش «تجميع أوردر» القطعة مش هتتحسب في التجميع.' }) : null,
-        f.reason === 'مرتجع' ? K.Radios({ label: 'حالة المنتج *', value: f.condition, onChange: (v) => set('condition', v, true), options: O.RETURN_CONDITIONS.map((c) => ({ value: c.value, label: c.label, hint: c.hint })) }) : null,
+        f.reason === 'مرتجع' ? K.Radios({ label: 'حالة المنتج *', value: f.condition, onChange: (v) => set('condition', v, true), options: O.RETURN_CONDITIONS.map((c) => ({ value: c.value, label: LBI('retCond', c.value), hint: c.hint })) }) : null,
         f.reason === 'مرتجع' && e.condition ? h('div', { class: 'err-msg', role: 'alert' }, e.condition) : null,
         f.reason === 'مرتجع' && f.condition ? K.field.area('conditionNote', 'وصف الحالة', f, e, set, { required: ['عيب بسيط', 'ناقص', 'تالف'].includes(f.condition), placeholder: f.condition === 'ناقص' ? 'إيه اللي ناقص؟' : f.condition === 'سليم' ? 'اختياري' : 'وصف العيب أو التلف' }) : null,
         f.reason === 'مرتجع' && (f.condition === 'تالف' || f.condition === 'عيب بسيط') ? K.field.file('conditionPhoto', 'صورة الحالة', f, e, set) : null,
@@ -560,9 +564,9 @@
         return [o ? h('div', { class: 'field' }, h('span', { class: 'flabel' }, 'الأوردر'), h('div', { class: 'row', style: 'display:flex;gap:8px;align-items:center;flex-wrap:wrap' }, h('b', { dir: 'ltr' }, 'IB-' + o.id), h('span', null, (o.name || '—') + ' · ' + K.money(o.tot || 0) + ' ج.م · ' + (o.st || '')),
             Button({ type: 'text', size: 'sm', label: 'غيّر الأوردر', onClick: () => { f.pick = {}; set('order', '', true); } }))) : picker(f, e, set),
           o ? linesOf(o, f, e, set) : null,
-          o ? K.Radios({ label: 'سبب الاستلام *', value: f.reason, onChange: (v) => set('reason', v, true), options: O.REASONS.map((r) => ({ value: r, label: r, hint: REASON_HINT()[r] })) }) : null,
+          o ? K.Radios({ label: 'سبب الاستلام *', value: f.reason, onChange: (v) => set('reason', v, true), options: O.REASONS.map((r) => ({ value: r, label: LBI('lotReason', r), hint: REASON_HINT()[r] })) }) : null,
           o && e.reason ? h('div', { class: 'err-msg', role: 'alert' }, e.reason) : null,
-          o && f.reason === 'مرتجع' ? K.Radios({ label: 'حالة المنتج *', value: f.condition, onChange: (v) => set('condition', v, true), options: O.RETURN_CONDITIONS.map((c) => ({ value: c.value, label: c.label, hint: c.hint })) }) : null,
+          o && f.reason === 'مرتجع' ? K.Radios({ label: 'حالة المنتج *', value: f.condition, onChange: (v) => set('condition', v, true), options: O.RETURN_CONDITIONS.map((c) => ({ value: c.value, label: LBI('retCond', c.value), hint: c.hint })) }) : null,
           o && f.reason === 'مرتجع' && e.condition ? h('div', { class: 'err-msg', role: 'alert' }, e.condition) : null,
           o && f.reason === 'مرتجع' && f.condition ? K.field.area('conditionNote', 'وصف الحالة', f, e, set, { required: ['عيب بسيط', 'ناقص', 'تالف'].includes(f.condition), placeholder: f.condition === 'ناقص' ? 'إيه اللي ناقص؟' : f.condition === 'سليم' ? 'اختياري' : 'وصف العيب أو التلف' }) : null,
           o && f.reason === 'متاح للبيع' ? K.Radios({ label: 'الملكية', value: f.mode, onChange: (v) => set('mode', v, true), options: [{ value: 'أمانة', label: 'أمانة (فلوس المبتكر بعد البيع)' }, { value: 'ملك', label: 'ملك ابتكر' }] }) : null,
@@ -605,9 +609,9 @@
   function receiveManual() {
     K.form({ title: 'استلام في المخزن', wide: true, values: { qty: '1', loc: '', mode: 'أمانة' }, note: U.InlineNote({ children: 'السبب مطلوب — هو اللي بيحدد الحالة والخطوة الجاية.' }),
       fields: (f, e, set) => [K.two(K.field.text('name', 'المنتج', f, e, set, { required: true }), K.field.text('sku', 'SKU', f, e, set, { required: true, help: f._owner ? 'المنتج ده على الموقع بتاع «' + f._owner + '»' : undefined, onInput: (v) => { set('sku', v); skuFill(v, f, set); } })), K.two(K.field.select('vendor', 'المبتكر', makerNames(), f, e, set, { required: true }), K.field.text('qty', 'الكمية', f, e, set, { required: true, inputmode: 'numeric' })),
-        K.Radios({ label: 'سبب الاستلام *', value: f.reason, onChange: (v) => set('reason', v, true), options: O.REASONS.map((r) => ({ value: r, label: r, hint: REASON_HINT()[r] })) }), e.reason ? h('div', { class: 'err-msg', role: 'alert' }, e.reason) : null,
+        K.Radios({ label: 'سبب الاستلام *', value: f.reason, onChange: (v) => set('reason', v, true), options: O.REASONS.map((r) => ({ value: r, label: LBI('lotReason', r), hint: REASON_HINT()[r] })) }), e.reason ? h('div', { class: 'err-msg', role: 'alert' }, e.reason) : null,
         f.reason === 'تجميع أوردر' || f.reason === 'مرتجع' ? K.field.text('order', f.reason === 'مرتجع' ? 'الأوردر الفرعي' : 'رقم الأوردر', f, e, set, { required: true, placeholder: f.reason === 'مرتجع' ? '180549' : '180662' }) : null,
-        f.reason === 'مرتجع' ? K.Radios({ label: 'حالة المنتج *', value: f.condition, onChange: (v) => set('condition', v, true), options: O.RETURN_CONDITIONS.map((c) => ({ value: c.value, label: c.label, hint: c.hint })) }) : null,
+        f.reason === 'مرتجع' ? K.Radios({ label: 'حالة المنتج *', value: f.condition, onChange: (v) => set('condition', v, true), options: O.RETURN_CONDITIONS.map((c) => ({ value: c.value, label: LBI('retCond', c.value), hint: c.hint })) }) : null,
         f.reason === 'مرتجع' && e.condition ? h('div', { class: 'err-msg', role: 'alert' }, e.condition) : null,
         f.reason === 'مرتجع' && f.condition ? K.field.area('conditionNote', 'وصف الحالة', f, e, set, { required: ['عيب بسيط', 'ناقص', 'تالف'].includes(f.condition), placeholder: f.condition === 'ناقص' ? 'إيه اللي ناقص؟' : f.condition === 'سليم' ? 'اختياري' : 'وصف العيب أو التلف' }) : null,
         f.reason === 'مرتجع' && (f.condition === 'تالف' || f.condition === 'عيب بسيط') ? K.field.file('conditionPhoto', 'صورة الحالة', f, e, set) : null,
@@ -633,14 +637,14 @@
   // the piece's report as a file, or its page's link when the product is on the site.
   function details(s) {
     const mv = S.ledger.filter((m) => m.key === s.key); const site = siteOf(s.sku).link; const link = /^https:\/\//.test(site) ? site : '';
-    const cond = s.condition ? (O.RETURN_CONDITIONS.find((c) => c.value === s.condition) || {}).label + (s.conditionNote ? ' — ' + s.conditionNote : '') : '';
+    const cond = s.condition ? LBI('retCond', s.condition) + (s.conditionNote ? ' — ' + s.conditionNote : '') : '';
     const box = (label, value, wide) => (value == null || value === '' ? null : h('div', { class: 'pd-box' + (wide ? ' wide' : '') }, h('span', { class: 'pd-l' }, label), h('span', { class: 'pd-v' }, value)));
     const qty = (label, n, tone) => h('div', { class: 'pd-q' + (tone ? ' ' + tone : '') }, h('b', null, K.Num(String(n))), h('span', null, label));
     const sign = (m) => (m.type === 'in' ? '+ ' : m.type === 'out' || m.type === 'ship' || m.type === 'reserve' ? '− ' : m.type === 'adjust' ? (m.qty >= 0 ? '+ ' : '− ') : '');
     const body = h('div', { class: 'pd', 'data-pd': String(s.key) },
       h('div', { class: 'pd-head' }, Thumb(s.sku, s.name, true),
         h('div', { class: 'pd-id' }, h('b', { class: 'pd-name' }, s.name), h('small', { dir: 'ltr' }, s.sku || '—'),
-          h('div', { class: 'pd-tags' }, K.Tag(REASON_TONE[s.reason], s.reason), K.Tag(STATUS_TONE[s.status] || 'neutral', s.status), siteLink(s.sku, s.name)))),
+          h('div', { class: 'pd-tags' }, K.Tag(REASON_TONE[s.reason], LBI('lotReason', s.reason)), K.Tag(STATUS_TONE[s.status] || 'neutral', LBI('lot', s.status)), siteLink(s.sku, s.name)))),
       h('div', { class: 'pd-qty', role: 'group', 'aria-label': 'الكمية' }, qty('في المخزن', s.onHand), qty('متاح', s.available, s.available > 0 ? 'ok' : ''), qty('محجوز', s.reserved, s.reserved > 0 ? 'hold' : '')),
       h('div', { class: 'pd-grid' }, (() => { // the short facts two a row (an odd last one takes the row), then the long ones a row each
         const small = [box('المبتكر', s.vendor + (s.mode ? ' · ' + s.mode : '')), box('المكان', s.loc && s.loc !== '—' ? locName(s.loc) : '—'),

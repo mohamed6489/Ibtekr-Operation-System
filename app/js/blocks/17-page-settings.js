@@ -2369,7 +2369,10 @@
     cancel: { title: 'أسباب الإلغاء والمسح', one: 'سبب', other: true, sub: 'بتظهر في بوب أب «إلغاء» الأوردر (الملغي بيتسجل بسببه في تقرير «أوردرات ملغية») — «أخرى» بتفتح خانة نص إجبارية' },
     returns: { title: 'أسباب المرتجع', one: 'سبب', other: true, sub: 'بتظهر في بوب أب «استرجاع» الأوردر و«مرتجع للمخزن / للمبتكر» للفرعي — «أخرى» بتفتح خانة نص إجبارية' },
     stop: { title: 'أسباب إيقاف المبتكر', one: 'سبب', other: true, sub: 'بتظهر لما مبتكر يتوقف — «أخرى» بتفتح خانة نص' },
-    shipping: { title: 'شركات الشحن', one: 'شركة', other: false, sub: 'بتظهر في «شحن كامل من المخزن» وفي «التنبيهات › التوصيل»' } };
+    shipping: { title: 'شركات الشحن', one: 'شركة', other: false, sub: 'بتظهر في «شحن كامل من المخزن» وفي «التنبيهات › التوصيل»' },
+    // settings-lists-2 (Safwat 28 Nov — 2026-11-28-settings-lists-2.md decision 1): the free lists of the customers and the hub
+    csTags: { title: 'تاجز العملاء', one: 'تاج', other: false, sub: 'التاجز الجاهزة في ملف العميل («+ تاج») وفي فلتر العملاء — التاج اللي اتشال بيفضل على العملاء اللي عليهم' },
+    invRemove: { title: 'أسباب «شيل من المخزن»', one: 'سبب', other: true, sub: 'بتظهر في «شيل من المخزن» في الجرد — «أخرى» بتفتح خانة نص إجبارية' } };
   const REASON_LISTS = { cancel: SAVED_LISTS.cancel.title, returns: SAVED_LISTS.returns.title };
   function reasonsSec(k) {
     const S0 = SETT(); const L = S0 && S0.lists ? S0.lists() : { cancel: [], returns: [] }; const items = L[k] || []; const def = SAVED_LISTS[k];
@@ -2479,6 +2482,52 @@
   }
   // the priorities (2026-11-14-settings-lists.md decision 3): the four levels keep their code (the urgent card, the sort, the server's
   // rules and the reports read it) and take a shown name only — ⋮ «تغيير الاسم» / «رجّع الاسم الأصلي»; no level is added or removed
+  // settings-lists-2 decision 1: a fixed list — renamed only. The value stays what the database, the server's checks and the reports
+  // know; the pages show IBSettings.statusLabel(kind, value)
+  const FIXED_LISTS = {
+    mood: ['حالة العميل', 'حالة العميل في ملفه وفي فلتر العملاء والشرايح — «متضايق» بيطلّع محادثته لفوق'],
+    conv: ['حالات المحادثة', 'حالة محادثة العميل في «خدمة العملاء» — الأولى والتانية «مستنية ردنا» في العدّادات والتأخير'],
+    ticket: ['حالات الطلب', 'حالة طلب الفريق — المفتوح والشغّال والمستني والمتحل والمقفول'],
+    ticketType: ['أنواع الطلب', 'نوع طلب الفريق في «طلب جديد» والفلاتر'],
+    tkCustomer: ['أسباب مشكلة العميل', 'في طلب «مشكلة عميل»'],
+    tkVendor: ['أسباب مشكلة المبتكر', 'في طلب «مشكلة مبتكر»'],
+    tkOutcome: ['نتيجة إقفال الطلب', 'بتتختار لما الطلب يتقفل «تم الحل»'],
+    lot: ['حالات القطعة في المخزن', 'حالة كل قطعة في «سجل المخزون»'],
+    lotReason: ['أسباب دخول المخزن', 'سبب استلام القطعة — بيحدد خطوتها الجاية'],
+    retCond: ['نتيجة فحص المرتجع', 'في «فحص مرتجع» — السليم بيرجع «متاح للبيع»'],
+    maker: ['حالات المبتكر', 'حالة المبتكر في السجل والملف'],
+    post: ['حالات البوست', 'حالة البوست في «سجل النشر» و«الخطة الإعلانية»'] };
+  const DEF_SHOWN = { ticket: { open: 'مفتوح', in_progress: 'جاري العمل', waiting: 'بانتظار الرد', resolved: 'تم الحل', closed: 'مغلق' }, ticketType: { customer: 'مشكلة عميل', vendor: 'مشكلة مبتكر', internal: 'تعليق داخلي' },
+    retCond: { 'تغليف متضرر': 'التغليف متضرر', 'عيب بسيط': 'فيه عيب بسيط', 'ناقص': 'ناقص قطع / مش كامل' }, maker: { active: 'نشط', leave: 'في إجازة', inactive: 'غير نشط' } };
+  function labelSec(kind) {
+    const S0 = SETT(); const L = S0 && S0.lists ? S0.lists() : { labels: {} }; const labels = L.labels || {}; const cur = labels[kind] || {}; const admin = isAdminMe();
+    const values = (S0 && S0.STATUS_KINDS && S0.STATUS_KINDS[kind]) || []; const base = (v) => (DEF_SHOWN[kind] || {})[v] || v;
+    const saveLabel = async (v, shown) => { const next = JSON.parse(JSON.stringify(labels)); next[kind] = Object.assign({}, next[kind]); if (shown && shown !== base(v)) next[kind][v] = shown; else delete next[kind][v];
+      const r = await S0.saveLists({ labels: next }); if (!r.ok) return fail(r, 'حفظ الاسم'); LOGV('settings.lists.label', kind); K.toast('اتحفظ الاسم', 'success'); R(); document.dispatchEvent(new Event('ib:settings')); };
+    const rows = values.map((v) => { const shown = cur[v] || base(v); return [h('span', { 'data-fixed-value': kind + ':' + v }, base(v)), h('b', { 'data-fixed-label': kind + ':' + v }, shown), admin ? K.RowMenu([
+      { label: 'تغيير الاسم', icon: 'sliders', run: () => K.form({ title: 'تغيير اسم «' + shown + '»', values: { v: shown }, note: U.InlineNote({ children: 'الاسم اللي بيظهر في الصفحات والفلاتر بس — القيمة نفسها جوه السيستم والتقارير زي ما هي.' }),
+        fields: (f, e, set) => [K.field.text('v', 'الاسم اللي بيظهر', f, e, set, { required: true, maxlength: 40 })], validate: (f) => { const e = K.req(f, ['v']); if (!e.v && /[<>]/.test(f.v)) e.v = 'من غير < أو >'; return e; },
+        submitLabel: 'حفظ', submit: (f) => saveLabel(v, String(f.v).replace(/\s+/g, ' ').trim()) }) },
+      cur[v] ? { label: 'رجّع الاسم الأصلي', icon: 'refresh', run: () => saveLabel(v, '') } : null].filter(Boolean)) : null].filter((c) => c !== null); });
+    const [title, sub] = FIXED_LISTS[kind];
+    return K.Section(title, U.Table({ headers: ['القيمة جوه السيستم', 'الاسم اللي بيظهر'].concat(admin ? [''] : []), rows }), null, { th: false, sub });
+  }
+  // settings-lists-2 decision 1: the products' materials (English · Arabic) — the studio's dropdowns; «+ إضافة» / ⋮ تعديل · حذف
+  function materialsSec() {
+    const S0 = SETT(); const admin = isAdminMe(); const FL = window.IbtekrFlow;
+    const saved = S0 && S0.materials ? S0.materials() : null; const items = (saved || (FL && (FL.BASE_MATERIALS || FL.MATERIALS)) || []).map((x) => [x[0], x[1]]);
+    const put = async (next, msg) => { const r = await S0.saveLists({ materials: next }); if (!r.ok) return fail(r, 'حفظ الخامات'); LOGV('settings.lists.save', 'materials = ' + next.length); K.toast(msg || 'اتحفظت الخامات', 'success'); R(); document.dispatchEvent(new Event('ib:settings')); };
+    const bad = /[<>"'&]/;
+    const form = (x) => K.form({ title: x ? 'تعديل «' + x[1] + '»' : 'خامة جديدة', values: { en: x ? x[0] : '', ar: x ? x[1] : '' },
+      fields: (f, e, set) => [K.field.text('en', 'بالإنجليزي (على الموقع)', f, e, set, { required: true, maxlength: 40 }), K.field.text('ar', 'بالعربي', f, e, set, { required: true, maxlength: 40 })],
+      validate: (f) => { const e = K.req(f, ['en', 'ar']); if (!e.en && bad.test(f.en)) e.en = 'من غير رموز < > " & \''; if (!e.ar && bad.test(f.ar)) e.ar = 'من غير رموز < > " & \'';
+        if (!e.en && items.some((y) => y[0].toLowerCase() === String(f.en).trim().toLowerCase() && (!x || y[0] !== x[0]))) e.en = 'موجودة'; return e; },
+      submitLabel: x ? 'حفظ' : 'إضافة', submit: (f) => { const v = [String(f.en).trim(), String(f.ar).trim()]; const next = items.slice(); if (x) next[next.findIndex((y) => y[0] === x[0])] = v; else next.push(v); put(next); } });
+    const rows = items.map((x) => [h('span', { 'data-material': x[0] }, x[0]), x[1], admin ? K.RowMenu([{ label: 'تعديل', icon: 'sliders', run: () => form(x) },
+      { label: 'حذف', icon: 'close', danger: true, run: () => { if (items.length < 2) return K.toast('لازم تفضل خامة واحدة على الأقل', 'error'); K.confirm({ title: 'حذف «' + x[1] + '»', text: 'مش هتظهر في الاستوديو تاني؛ المنتجات اللي عليها بتفضل زي ما هي.', okType: 'danger', okLabel: 'حذف', onOk: () => put(items.filter((y) => y[0] !== x[0]), 'اتشالت الخامة') }); } }]) : null].filter((c) => c !== null));
+    return K.Section('الخامات', U.Table({ headers: ['بالإنجليزي', 'بالعربي'].concat(admin ? [''] : []), rows }), admin ? [Button({ label: '+ إضافة', attrs: { 'data-material-add': '' }, onClick: () => form(null) })] : null,
+      { th: false, sub: 'خامات المنتجات في الاستوديو (دروب داون «الخامة» باللغتين)' });
+  }
   function prioritySec() {
     const S0 = SETT(); const L = S0 && S0.lists ? S0.lists() : { labels: {} }; const labels = L.labels || {}; const cur = labels.priority || {}; const admin = isAdminMe();
     const base = { urgent: 'عاجل', high: 'عالي', normal: 'عادي', low: 'منخفض' }; const codes = (S0 && S0.STATUS_KINDS && S0.STATUS_KINDS.priority) || Object.keys(base);
@@ -2558,36 +2607,67 @@
       { th: false, sub: 'أقسام الموقع الرئيسية — «الفئة الأساسية» في ملف المبتكر، وبتتعدّل كمان من «المنتجات › الأقسام»' });
   }
   function lists() {
-    const L = C.otherLists; const tabs = [{ id: 'order', label: 'حالات الأوردر' }, { id: 'confirm', label: 'حالات التأكيد' }, { id: 'sub', label: 'حالات المنتج' }, { id: 'cancel', label: 'أسباب الإلغاء والمسح' }, { id: 'returns', label: 'أسباب المرتجع' }, { id: 'stop', label: 'أسباب إيقاف المبتكر' }, { id: 'shipping', label: 'شركات الشحن' }, { id: 'expenses', label: 'أنواع المصروفات' }, { id: 'categories', label: 'فئات المبتكرين' }, { id: 'styles', label: 'ستايلات المنتجات' }, { id: 'priorities', label: 'الأولويات' }, { id: 'menu', label: 'القائمة الجانبية' }];
+    const L = C.otherLists;
+    // settings-lists-2 (Safwat 28 Nov — «كل حالات او قوائم السيستم يكون ليها مكان في الاعدادات … اعيد تصميم الواجهة بشكل احترافي و منظم يسهل
+    // علي المستخدم التفرقة بين الاقسام و يكون ترتيبهم منطقي و في امكانية لتعديل اسم القسم الرئيسي»; decisions 1–3): every list of the
+    // system, grouped by the department it belongs to, in the side menu's order; each group with its icon and its name the admin renames
+    // (lists.groups — the pencil beside it); each list says whether it is fixed (renamed only) or free (added and deleted)
+    const tabs = [{ id: 'order', label: 'حالات الأوردر' }, { id: 'confirm', label: 'حالات التأكيد' }, { id: 'sub', label: 'حالات المنتج' }, { id: 'cancel', label: 'أسباب الإلغاء والمسح' }, { id: 'returns', label: 'أسباب المرتجع' }, { id: 'shipping', label: 'شركات الشحن' },
+      { id: 'maker', label: 'حالات المبتكر' }, { id: 'stop', label: 'أسباب إيقاف المبتكر' }, { id: 'categories', label: 'فئات المبتكرين' },
+      { id: 'styles', label: 'ستايلات المنتجات' }, { id: 'materials', label: 'الخامات' },
+      { id: 'lot', label: 'حالات القطعة' }, { id: 'lotReason', label: 'أسباب دخول المخزن' }, { id: 'retCond', label: 'نتيجة فحص المرتجع' }, { id: 'invRemove', label: 'أسباب «شيل من المخزن»' },
+      { id: 'mood', label: 'حالة العميل' }, { id: 'conv', label: 'حالات المحادثة' }, { id: 'csTags', label: 'تاجز العملاء' },
+      { id: 'ticket', label: 'حالات الطلب' }, { id: 'ticketType', label: 'أنواع الطلب' }, { id: 'priorities', label: 'الأولويات' }, { id: 'tkCustomer', label: 'أسباب مشكلة العميل' }, { id: 'tkVendor', label: 'أسباب مشكلة المبتكر' }, { id: 'tkOutcome', label: 'نتيجة إقفال الطلب' },
+      { id: 'expenses', label: 'أنواع المصروفات' }, { id: 'post', label: 'حالات البوست' }, { id: 'menu', label: 'القائمة الجانبية' }];
     const cur = tabs.some((t) => t.id === st.list) ? st.list : 'order';
-    // ق1 (the owner 16 Nov — «ظبط ال ui بتاع هنا بشكل احترافي و منظم»): the lists in a side menu by group with their counts (tabs on a
-    // phone — one row that scrolls), the chosen list in its card beside it; the items keep role=tab so the keyboard and the tests still work
     const S0 = SETT(); const LL = (S0 && S0.lists ? S0.lists() : {}) || {};
+    const FREE = ['cancel', 'returns', 'shipping', 'stop', 'categories', 'styles', 'materials', 'invRemove', 'csTags', 'expenses', 'order', 'confirm', 'sub', 'menu'];
     const countOf = (id) => { try {
       if (id === 'order') { askStatuses(); return statusRows ? statusRows.length : null; }
       if (id === 'confirm' || id === 'sub') return S0 && S0.statusList ? S0.statusList(id).length : null;
       if (SAVED_LISTS[id]) return Array.isArray(LL[id]) ? LL[id].length : (L[id] || []).length;
+      if (FIXED_LISTS[id]) return ((S0 && S0.STATUS_KINDS && S0.STATUS_KINDS[id]) || []).length;
+      if (id === 'materials') { const m = S0 && S0.materials ? S0.materials() : null; return (m || (window.IbtekrFlow && window.IbtekrFlow.MATERIALS) || []).length; }
       if (id === 'expenses') return ((S0 && S0.STATUS_KINDS && S0.STATUS_KINDS.expense) || []).length + (LL.expenseKinds || []).length;
       if (id === 'priorities') return ((S0 && S0.STATUS_KINDS && S0.STATUS_KINDS.priority) || ['urgent', 'high', 'normal', 'low']).length;
       if (id === 'categories') return mainCatNames().length;
       if (id === 'styles') return window.IBStudio && window.IBStudio.siteStyles ? (window.IBStudio.siteStyles().length || null) : null;
       if (id === 'menu') return window.IBNav ? window.IBNav.base().length : null;
     } catch (e) { /* not loaded yet */ } return null; };
-    const GROUPS_L = [['الحالات', ['order', 'confirm', 'sub']], ['الأسباب', ['cancel', 'returns', 'stop']], ['قوائم تانية', ['shipping', 'expenses', 'categories', 'styles', 'priorities']], ['شكل السيستم', ['menu']]];
+    const GROUPS_L = [['orders', 'الأوردرات', 'box', ['order', 'confirm', 'sub', 'cancel', 'returns', 'shipping']], ['makers', 'المبتكرين', 'users', ['maker', 'stop', 'categories']],
+      ['products', 'المنتجات', 'package', ['styles', 'materials']], ['inventory', 'المخزن', 'tag', ['lot', 'lotReason', 'retCond', 'invRemove']],
+      ['cs', 'خدمة العملاء', 'headset', ['mood', 'conv', 'csTags']], ['tickets', 'طلبات الفريق', 'ticket', ['ticket', 'ticketType', 'priorities', 'tkCustomer', 'tkVendor', 'tkOutcome']],
+      ['accounts', 'الحسابات', 'wallet', ['expenses']], ['marketing', 'التسويق', 'megaphone', ['post']], ['system', 'شكل السيستم', 'gear', ['menu']]];
+    const gName = (g) => (S0 && S0.groupName ? S0.groupName(g[0], g[1]) : g[1]);
+    const admin = isAdminMe();
+    const renameGroup = (g) => K.form({ title: 'تغيير اسم «' + gName(g) + '»', values: { v: gName(g) }, note: U.InlineNote({ children: 'اسم المجموعة هنا في «القوائم والحالات» بس — القوايم اللي جواها زي ما هي.' }),
+      fields: (f, e, set) => [K.field.text('v', 'اسم المجموعة', f, e, set, { required: true, maxlength: 30 })], validate: (f) => { const e = K.req(f, ['v']); const t = String(f.v || '').trim(); if (!e.v && (t.length < 2 || /[<>]/.test(t))) e.v = 'من 2 لـ 30 حرف ومن غير < >'; return e; },
+      submitLabel: 'حفظ', submit: async (f) => { const t = String(f.v).replace(/\s+/g, ' ').trim(); const next = Object.assign({}, LL.groups || {}); if (t === g[1]) delete next[g[0]]; else next[g[0]] = t;
+        const r = await S0.saveLists({ groups: next }); if (!r.ok) return fail(r, 'حفظ الاسم'); LOGV('settings.lists.group', g[0]); K.toast('اتغيّر اسم المجموعة', 'success'); R(); } });
     const label = (id) => (tabs.find((t) => t.id === id) || {}).label;
-    const nav = h('nav', { class: 'lst-nav', role: 'tablist', 'aria-label': 'القوائم', 'data-lists-nav': '' }, GROUPS_L.map(([g, ids]) => h('div', { class: 'lst-grp' }, h('div', { class: 'lst-gt t-small' }, g),
-      ids.map((id) => { const n = countOf(id); return h('button', { type: 'button', role: 'tab', class: 'lst-item' + (id === cur ? ' on' : ''), 'aria-selected': String(id === cur), 'data-list-tab': id, onClick: () => { st.list = id; R(); } },
+    const groupOf = (id) => GROUPS_L.find((g) => g[3].includes(id)) || GROUPS_L[0];
+    const nav = h('nav', { class: 'lst-nav', role: 'tablist', 'aria-label': 'القوائم', 'data-lists-nav': '' }, GROUPS_L.map((g) => h('div', { class: 'lst-grp', 'data-list-group': g[0] },
+      h('div', { class: 'lst-gt' }, h('span', { class: 'lst-gi' }, Icon(g[2], 'sm')), h('span', { class: 'lst-gn', 'data-list-group-name': g[0] }, gName(g)),
+        admin ? h('button', { type: 'button', class: 'lst-gr', 'aria-label': 'غيّر اسم «' + gName(g) + '»', title: 'غيّر الاسم', 'data-list-group-rename': g[0], onClick: () => renameGroup(g) }, Icon('edit', 'sm')) : null),
+      g[3].map((id) => { const n = countOf(id); return h('button', { type: 'button', role: 'tab', class: 'lst-item' + (id === cur ? ' on' : ''), 'aria-selected': String(id === cur), 'data-list-tab': id, onClick: () => { st.list = id; R(); } },
         h('span', { class: 'lst-l' }, label(id)), n == null ? null : h('span', { class: 'lst-n' }, U.num(String(n)))); }))));
     const out = [];
     if (STATUS_LISTS[cur]) out.push(statusSec(cur));
     else if (SAVED_LISTS[cur]) out.push(reasonsSec(cur));
+    else if (FIXED_LISTS[cur]) out.push(labelSec(cur));
+    else if (cur === 'materials') out.push(materialsSec());
     else if (cur === 'expenses') out.push(expensesSec());
     else if (cur === 'priorities') out.push(prioritySec());
     else if (cur === 'categories') out.push(makerCatsSec());
     else if (cur === 'styles') out.push(stylesSec());
     else if (cur === 'menu') out.push(menuSec());
     else { const titles = Object.fromEntries(tabs.map((t) => [t.id, t.label])); const items = L[cur] || []; out.push(K.Section(titles[cur], U.Table({ headers: ['الاسم'], rows: items.map((x) => [x]) }), null, { th: false })); }
-    return [h('div', { class: 'lst-layout', 'data-lists': cur }, nav, h('div', { class: 'lst-main', role: 'tabpanel', 'aria-label': label(cur) }, ...out))];
+    const gp = groupOf(cur); const free = FREE.includes(cur);
+    const crumb = h('div', { class: 'lst-crumb', 'data-list-crumb': cur }, h('span', { class: 'lst-gi' }, Icon(gp[2], 'sm')), h('span', null, gName(gp)), h('span', { class: 'lst-sep', 'aria-hidden': 'true' }, '›'), h('b', null, label(cur)),
+      h('span', { class: 'lst-kind ' + (free ? 'free' : 'fixed'), 'data-list-kind': free ? 'free' : 'fixed' }, free ? 'قايمة بتتعدّل — إضافة وتعديل وحذف' : 'قايمة ثابتة — بيتغيّر الاسم اللي بيظهر بس'));
+    // the open list in view inside the side menu (it scrolls on its own — the departments are long)
+    setTimeout(() => { const on = nav.querySelector('.lst-item.on'); if (on && nav.scrollHeight > nav.clientHeight) { const t = on.offsetTop - nav.clientHeight / 2 + on.offsetHeight / 2; nav.scrollTop = Math.max(0, t); } }, 0);
+    return [h('div', { class: 'lst-layout', 'data-lists': cur }, nav, h('div', { class: 'lst-main', role: 'tabpanel', 'aria-label': label(cur) }, crumb, ...out))];
   }
   // ---------- the makers' defaults (decision 17): the row «makers» + the real rules of the makers ----------
   function loginBankSec(m) {

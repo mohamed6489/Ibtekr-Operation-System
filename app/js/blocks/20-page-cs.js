@@ -58,6 +58,12 @@
   const MOODS = [['سعيد', 'success'], ['متوسط', 'gold'], ['متضايق', 'error']];
   const moodOf = (cu) => (cu && cu.mood) || 'متوسط';
   const moodTone = (m) => { const x = MOODS.find((y) => y[0] === m); return x ? x[1] : 'neutral'; };
+  // settings-lists-2 (Safwat 28 Nov — 2026-11-28-settings-lists-2.md decision 4): the names the admin gave in «الإعدادات › القوائم والحالات»
+  // — حالة العميل / حالات المحادثة shown by IBSettings.statusLabel (the value stays what the database keeps), and the ready tags = the
+  // saved list «csTags» (each keeps the tone it had; a new one «info»). LBC(kind, v) is the shown name
+  const LBC = (kind, v) => { const S0 = window.IBSettings; return S0 && S0.statusLabel ? S0.statusLabel(kind, v) : v; };
+  const syncTags = () => { const S0 = window.IBSettings; const L = S0 && S0.listOf ? S0.listOf('csTags') : []; if (!L.length) return;
+    const tone = Object.fromEntries(STATUS_TAGS); const next = L.map((n) => [n, tone[n] || 'info']); if (next.map((x) => x[0]).join('\n') !== STATUS_TAGS.map((x) => x[0]).join('\n')) STATUS_TAGS.splice(0, STATUS_TAGS.length, ...next); };
   const TONES = [['error', 'أحمر'], ['orange', 'برتقالي'], ['gold', 'دهبي'], ['success', 'أخضر فاتح'], ['brand', 'أخضر'], ['info', 'أزرق مخضر'], ['neutral', 'رمادي']];
   const done = (r, okMsg, okTone) => { if (!r || !r.ok) { K.toast(r && r.reason === 'forbidden' ? 'مش مسموح — الصلاحية دي مش عندك' : r && r.reason === 'invalid' ? (r.message || 'البيانات مش صحيحة') : 'حصلت مشكلة في الاتصال — جرّب تاني', 'error'); return false; } if (okMsg) K.toast(okMsg, okTone || 'success'); return true; };
   // بوب أب «حالة جديدة» لتاجز حالة المحادثة: الاسم + اللون (معاينة لايف)
@@ -73,9 +79,9 @@
   function moodPick(cu) {
     const cur = moodOf(cu);
     const wrap = h('span', { class: 'pop-anchor st-pick', 'data-popover-root': '', onClick: (e) => e.stopPropagation(), onKeydown: (e) => e.stopPropagation() });
-    const btn = h('button', { type: 'button', class: 'st-btn', 'aria-haspopup': 'listbox', 'aria-expanded': 'false', 'aria-label': 'حالة العميل: ' + cur + ' — تغيير', 'data-mood-pick': cur, disabled: !can().reply }, K.Tag(moodTone(cur), cur), Icon('chevD', 'sm'));
-    const opts = MOODS.map(([t, tone]) => ({ value: t, label: t, content: K.Tag(tone, t) }));
-    const apply = (v) => A().setMood(cu.id, v).then((r) => { if (done(r, 'حالة ' + cu.name + ' بقت «' + v + '»', '')) R(); });
+    const btn = h('button', { type: 'button', class: 'st-btn', 'aria-haspopup': 'listbox', 'aria-expanded': 'false', 'aria-label': 'حالة العميل: ' + LBC('mood', cur) + ' — تغيير', 'data-mood-pick': cur, disabled: !can().reply }, K.Tag(moodTone(cur), LBC('mood', cur)), Icon('chevD', 'sm'));
+    const opts = MOODS.map(([t, tone]) => ({ value: t, label: LBC('mood', t), content: K.Tag(tone, LBC('mood', t)) }));
+    const apply = (v) => A().setMood(cu.id, v).then((r) => { if (done(r, 'حالة ' + cu.name + ' بقت «' + LBC('mood', v) + '»', '')) R(); });
     const pop = U.popover(wrap, btn, (close) => U.DropdownMenu({ options: opts, value: cur, onSelect: (v) => { close(); if (v !== cur) apply(v); } }));
     btn.addEventListener('click', (e) => { e.stopPropagation(); pop.toggle(e); }); wrap.append(btn); return wrap;
   }
@@ -145,7 +151,7 @@
     const last = [...c.msgs].reverse().find((m) => m.t !== 'event' && m.t !== 'day');
     const preview = last ? last.text : '';
     const stTag = statusOf(c);
-    const tag = c.tag ? K.Tag(c.tag[1], c.tag[0]) : lvl === 'late' ? K.Tag('error', 'متأخرة عن الرد') : K.Tag(STATUS_TONE[c.status], c.status);
+    const tag = c.tag ? K.Tag(c.tag[1], c.tag[0]) : lvl === 'late' ? K.Tag('error', 'متأخرة عن الرد') : K.Tag(STATUS_TONE[c.status], LBC('conv', c.status));
     return h('div', { role: 'option', tabindex: '0', 'aria-selected': String(sel), class: 'cv' + (sel ? ' sel' : '') + (c.unread ? ' unread' : ''), 'data-id': c.id, onClick: () => select(c.id), onKeydown: (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) { e.preventDefault(); select(c.id); } } },
       U.Avatar(whoName(c)),
       h('span', { class: 'cv-b' },
@@ -218,6 +224,7 @@
         for (const x of S.convs) { if (x.who && x.seg !== 'vendors') continue; const nt = fix(x.tags || []); if (changed(nt, x.tags || [])) await A().setConvTags(x.id, nt); }
         st.fTags = fix(st.fTags);
         STATUS_TAGS.splice(0, STATUS_TAGS.length, ...rows.map((r) => [r.name.trim(), r.tone]));
+        { const S0 = window.IBSettings; if (S0 && S0.saveLists && S0.can && S0.can().admin) { const r0 = await S0.saveLists({ csTags: STATUS_TAGS.map((x) => x[0]) }); if (!r0 || !r0.ok) K.toast('الحالات اتغيّرت هنا بس — ماتحفظتش في الإعدادات', 'error'); } } // settings-lists-2: the list is the settings' «csTags»
         const added = rows.filter((r) => !r.orig).map((r) => r.name.trim());
         K.logEvent('cs.statuses', [added.length ? 'إضافة: ' + added.join('، ') : '', ren.length ? 'تعديل: ' + ren.map((x) => x[0] + '→' + x[1]).join('، ') : '', del.length ? 'مسح: ' + del.join('، ') : ''].filter(Boolean).join(' · ') || 'ألوان');
         if (forConv && added.length === 1) setStatus(forConv, added[0]);
@@ -441,7 +448,7 @@
         h('div', { class: 'cc-outcome', 'data-cc-outcome': '' },
           K.Radios({ label: 'نتيجة المحادثة', required: true, error: e.outcome, options: OUTCOMES.map((x) => ({ value: x, label: x })), value: f.outcome, onChange: (v) => set('outcome', v, true) })),
         cu ? h('div', { class: 'field', 'data-cc-mood': '' }, h('span', { class: 'flabel' }, 'حالة العميل'),
-          h('div', { class: 'chips', role: 'radiogroup', 'aria-label': 'حالة العميل' }, MOODS.map(([t, tone]) => h('button', { type: 'button', class: 'chip mood-chip', role: 'radio', 'aria-checked': String(f.mood === t), 'data-cc-mood-v': t, onClick: () => set('mood', t, true) }, K.Tag(tone, t))))) : null,
+          h('div', { class: 'chips', role: 'radiogroup', 'aria-label': 'حالة العميل' }, MOODS.map(([t, tone]) => h('button', { type: 'button', class: 'chip mood-chip', role: 'radio', 'aria-checked': String(f.mood === t), 'data-cc-mood-v': t, onClick: () => set('mood', t, true) }, K.Tag(tone, LBC('mood', t)))))) : null,
         cu ? h('fieldset', { class: 'blk', 'data-cc-rate': '' }, h('legend', null, 'تقييم العميل (اختياري)'),
           KEYS.map(([k, l]) => K.StarPicker({ id: 'cc-' + k, label: l, value: f[k], error: e[k], onChange: (n) => set(k, n, true) })),
           h('p', { class: 't-small help', style: 'margin:0' }, 'بيتسجل في «تقييم الفريق للعميل» في ملفه وبيتحسب في الشرايح.')) : null,
@@ -644,7 +651,7 @@
     const all = S.customers;
     const sel = (id, label, opts, key) => U.Select({ id: idp + id, label: null, options: [{ value: '', label: label + ': الكل' }].concat(opts.map((o) => (typeof o === 'string' ? { value: o, label: label + ': ' + o } : o))), value: f[key], onChange: (v) => { f[key] = v; onChange(); } });
     const q = h('input', { type: 'search', value: f.q || '', placeholder: 'ابحث بالاسم أو الرقم أو الحساب', 'aria-label': 'بحث في العملاء' }); q.addEventListener('change', () => { f.q = q.value; onChange(); });
-    return [h('label', { class: 'search search-field' }, Icon('search', 'sm'), q), sel('stage', 'الحالة', MOODS.map((x) => x[0]), 'stage'), sel('tag', 'التاج', [...new Set(all.flatMap((x) => x.tags))], 'tag'), sel('rate', 'التقييم', [{ value: '4', label: 'التقييم: 4+' }, { value: '3', label: 'التقييم: 3+' }], 'rating'), sel('prov', 'المحافظة', [...new Set(all.map((x) => x.province).filter((x) => x && x !== '—'))], 'prov'), sel('chan', 'القناة', [{ value: 'whatsapp', label: 'القناة: واتساب' }, { value: 'messenger', label: 'القناة: ماسنجر' }, { value: 'instagram', label: 'القناة: إنستجرام' }, { value: 'tiktok', label: 'القناة: تيك توك' }], 'chan'), K.Checkbox({ label: 'عندهم مشكلة بس', checked: !!f.problems, onChange: (v) => { f.problems = v; onChange(); } })];
+    return [h('label', { class: 'search search-field' }, Icon('search', 'sm'), q), sel('stage', 'الحالة', MOODS.map((x) => ({ value: x[0], label: 'الحالة: ' + LBC('mood', x[0]) })), 'stage'), sel('tag', 'التاج', [...new Set(all.flatMap((x) => x.tags))], 'tag'), sel('rate', 'التقييم', [{ value: '4', label: 'التقييم: 4+' }, { value: '3', label: 'التقييم: 3+' }], 'rating'), sel('prov', 'المحافظة', [...new Set(all.map((x) => x.province).filter((x) => x && x !== '—'))], 'prov'), sel('chan', 'القناة', [{ value: 'whatsapp', label: 'القناة: واتساب' }, { value: 'messenger', label: 'القناة: ماسنجر' }, { value: 'instagram', label: 'القناة: إنستجرام' }, { value: 'tiktok', label: 'القناة: تيك توك' }], 'chan'), K.Checkbox({ label: 'عندهم مشكلة بس', checked: !!f.problems, onChange: (v) => { f.problems = v; onChange(); } })];
   }
   const CUST_SORTS = [['recent', 'آخر تعامل: الأحدث للأقدم'], ['oldest', 'آخر تعامل: الأقدم للأحدث'], ['rating_desc', 'التقييم: الأعلى للأقل'], ['rating_asc', 'التقييم: الأقل للأعلى'], ['orders_desc', 'مرات الشراء: الأكتر للأقل'], ['orders_asc', 'مرات الشراء: الأقل للأكتر']];
   const lastAct = (cu) => (cu.lastActive ? Date.parse(cu.lastActive) || 0 : 0);
@@ -680,10 +687,10 @@
     const toF = (d) => (seg ? { moods: d.moods.slice(), rating: d.rating.length ? String(Math.min(...d.rating.map(Number))) : '', provs: d.provs.slice(), chans: d.chans.slice(), problems: d.problems.length > 0 }
       : { chans: d.chans.slice(), moods: d.moods.slice(), ordersN: d.ordersN.slice(), totalN: d.totalN.slice(), lastOrd: d.lastOrd.slice(), stars: d.stars.slice(), team: d.team.slice(), act: d.act.slice() });
     const provs = [...new Set(S.customers.map((x) => x.province).filter((x) => x && x !== '—'))];
-    const groups = seg ? [{ key: 'moods', label: 'الحالة', options: MOODS.map(([t]) => [t, t]) }, { key: 'rating', label: 'التقييم', options: [['4', '4 نجوم وأكتر'], ['3', '3 نجوم وأكتر']] }]
+    const groups = seg ? [{ key: 'moods', label: 'الحالة', options: MOODS.map(([t]) => [t, LBC('mood', t)]) }, { key: 'rating', label: 'التقييم', options: [['4', '4 نجوم وأكتر'], ['3', '3 نجوم وأكتر']] }]
       .concat(provs.length ? [{ key: 'provs', label: 'المحافظة', options: provs.map((p) => [p, p]) }] : [])
       .concat([{ key: 'chans', label: 'القناة', options: CHANS }, { key: 'problems', label: 'أخرى', options: [['1', 'عندهم مشكلة بس']] }])
-      : [{ key: 'chans', label: 'القنوات', options: CHANS }, { key: 'moods', label: 'الحالة', options: MOODS.map(([t]) => [t, t]) },
+      : [{ key: 'chans', label: 'القنوات', options: CHANS }, { key: 'moods', label: 'الحالة', options: MOODS.map(([t]) => [t, LBC('mood', t)]) },
         { key: 'ordersN', label: 'الأوردرات', num: true, options: NUM }, { key: 'totalN', label: 'إجمالي الشراء', num: true, options: NUM },
         { key: 'lastOrd', label: 'آخر أوردر', range: true, options: [] }, { key: 'stars', label: 'التقييم', options: [['5', '5 نجوم'], ['4', '4 نجوم'], ['3', '3 نجوم'], ['2', 'نجمتين'], ['1', 'نجمة'], ['none', 'من غير تقييم']] },
         { key: 'team', label: 'تقييم الفريق', num: true, options: NUM }, { key: 'act', label: 'آخر نشاط', range: true, options: [] }];
@@ -768,7 +775,7 @@
         }
         const upd = (k, x) => { set(k, x); refresh(ff); };
         return [K.field.text('name', 'اسم الشريحة', ff, e, set, { required: true, placeholder: 'مثلاً: VIP راضيين' }),
-          h('fieldset', { class: 'blk', 'data-sg-moods': '' }, h('legend', null, 'حالة العميل'), h('div', { class: 'chips' }, MOODS.map(([m_, tone]) => { const on = ff.moods.includes(m_); return h('button', { type: 'button', class: 'mood-chip', role: 'checkbox', 'aria-checked': String(on), 'data-sg-mood': m_, onClick: () => { const a = ff.moods; const i_ = a.indexOf(m_); if (i_ > -1) a.splice(i_, 1); else a.push(m_); set('moods', a, true); } }, h('span', { class: 'mchk', 'aria-hidden': 'true' }, on ? Icon('check', 'sm') : null), K.Tag(tone, m_)); })), h('p', { class: 't-small help', style: 'margin:0' }, 'اختار حالة أو أكتر — من غير اختيار = أي حالة.')),
+          h('fieldset', { class: 'blk', 'data-sg-moods': '' }, h('legend', null, 'حالة العميل'), h('div', { class: 'chips' }, MOODS.map(([m_, tone]) => { const on = ff.moods.includes(m_); return h('button', { type: 'button', class: 'mood-chip', role: 'checkbox', 'aria-checked': String(on), 'data-sg-mood': m_, onClick: () => { const a = ff.moods; const i_ = a.indexOf(m_); if (i_ > -1) a.splice(i_, 1); else a.push(m_); set('moods', a, true); } }, h('span', { class: 'mchk', 'aria-hidden': 'true' }, on ? Icon('check', 'sm') : null), K.Tag(tone, LBC('mood', m_))); })), h('p', { class: 't-small help', style: 'margin:0' }, 'اختار حالة أو أكتر — من غير اختيار = أي حالة.')),
           h('fieldset', { class: 'blk', 'data-sg-last': '' }, h('legend', null, 'تاريخ آخر أوردر'), K.field.select('last', null, lastOpts, ff, e, (k, x) => set(k, x, true)),
             ff.last === 'range' ? h('div', { class: 'row cols2' }, K.field.date('lastFrom', 'من', ff, e, (k, x) => set(k, x, true)), K.field.date('lastTo', 'لحد', ff, e, (k, x) => set(k, x, true))) : null,
             e.last ? h('div', { class: 'err-msg', role: 'alert' }, e.last) : null),
@@ -1271,7 +1278,7 @@
         K.Stat('محادثات مفتوحة', K.n0(open.length), 'محادثة', K.n0(waiting.length) + ' مستنية ردنا دلوقتي', 'off'),
         K.Stat('متأخرة عن الرد', K.n0(late), 'محادثة', 'عدّت الـ SLA (' + settings().slaLate + ' دقيقة)', late ? 'negative' : 'off')),
       h('div', { class: 'grid3' },
-        K.Section('المحادثات حسب الحالة', CONV_STATUSES.map((k) => U.BarRow({ tone: 'brand', label: k, value: K.n0(stN(k)), pct: stN(k) / maxSt })), null, { sub: 'دلوقتي · ' + K.n0(S.convs.length) + ' محادثة' }),
+        K.Section('المحادثات حسب الحالة', CONV_STATUSES.map((k) => U.BarRow({ tone: 'brand', label: LBC('conv', k), value: K.n0(stN(k)), pct: stN(k) / maxSt })), null, { sub: 'دلوقتي · ' + K.n0(S.convs.length) + ' محادثة' }),
         K.Section('الترافيك حسب القناة', chRows.length ? chRows.map(([k, r]) => U.BarRow({ tone: 'brand', label: k, value: K.n0(r.in + r.out + r.auto) + ' رسالة · ' + K.n0(r.convs.size) + ' محادثة', pct: (r.in + r.out + r.auto) / maxCh })) : [h('div', { class: 't-small help' }, 'مفيش رسايل في الفترة دي')], null, { sub: 'آخر 30 يوم' }),
         K.Section('القنوات', chans.length ? K.Kv(chans.map(([, c]) => [c.name || '—', K.Tag((CH_ST[c.status] || CH_ST.disconnected)[0], (CH_ST[c.status] || CH_ST.disconnected)[1])])) : h('div', { class: 't-small help' }, 'مفيش قنوات'), null, { sub: 'حالة الربط' })),
       K.Section('الترافيك اليومي — آخر 14 يوم', h('div', { class: 'cs-days', 'data-cs-days': '' }, perDay.map(([d, i, o]) => U.BarRow({ tone: 'brand', label: d.slice(8) + '/' + d.slice(5, 7), value: K.n0(i) + ' وارد · ' + K.n0(o) + ' صادر', pct: (i + o) / maxDay }))), null, { sub: 'الوارد والصادر (الفريق + الآلي) كل يوم' }),
@@ -1472,6 +1479,7 @@
   // phase 13 decision 63 (owner 11 Nov — «شيل الأداء وضيف نظرة عامة في أول قسم بأعداد الرسايل وحالاتها والقنوات والترافيك بتاعها وكل المفيد»)
   const TABS = [['overview', 'نظرة عامة'], ['inbox', 'الرسايل'], ['customers', 'العملاء'], ['segments', 'شرايح العملاء'], ['campaigns', 'الحملات'], ['channels', 'القنوات'], ['reports', 'التقارير']];
   function view() {
+    syncTags(); // settings-lists-2: the ready tags from «الإعدادات › القوائم والحالات»
     if (can().view === 'N') return [K.PageHead('خدمة العملاء', 'كل محادثات العملاء والمبتكرين في مكان واحد'), K.Empty('مش مسموح', 'صفحة خدمة العملاء محتاجة صلاحية «عرض خدمة العملاء».')];
     const manage = can().manage; const reply = can().reply;
     const actions = { inbox: reply ? [Button({ type: 'brand', icon: 'plus', label: 'رسالة جديدة', onClick: () => newMessage() })] : [], customers: manage ? [Button({ type: 'brand', icon: 'plus', label: 'إضافة عميل', onClick: addCustomer })] : [], segments: [], channels: [],

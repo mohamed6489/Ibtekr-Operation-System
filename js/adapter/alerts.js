@@ -253,7 +253,9 @@
   function avatarOf(a) {
     const m = a.meta || {};
     if (m.g === 'vendor') { const V = window.IBVendors; const v = V && V.store && V.store.get ? V.store.get(m.gid) : null;
-      return v && v.logoUrl ? { img: v.logoUrl, letter: firstLetter(m.gname) } : { letter: firstLetter(m.gname), tone: 'vendor' }; }
+      // Safwat 28 Nov («في فيندورز اللوجو بتاعهم م ظاهر»): his photo in the system (a signed link — the bell asks for it) before his store's logo on the site
+      const photo = v && v.photoPath ? v.id : null;
+      return v && (v.logoUrl || photo) ? { img: v.logoUrl || null, photo, letter: firstLetter(m.gname), tone: 'vendor' } : { letter: firstLetter(m.gname), tone: 'vendor' }; }
     if (m.g === 'member') return { letter: firstLetter(m.gname), tone: 'member' };
     if (m.g === 'customer') return { letter: firstLetter(m.gname), tone: 'customer' };
     if (m.g === 'agent') { const M = window.IBMarketing; const r = M && M.agentOf ? M.agentOf(m.gid) : null; return { icon: (r && r.icon) || AGENT_ICON[m.gid] || 'sparkle', tone: 'agent' }; }

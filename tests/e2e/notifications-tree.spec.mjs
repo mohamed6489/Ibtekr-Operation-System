@@ -293,6 +293,14 @@ test('Safwat 28 Nov — any alert opens one popup in the middle: an order\'s det
   await expect(ap.locator('[data-ap-view="order"]')).toContainText('IB-180656');
   await expect(ap.locator('[data-ap-view="order"]')).toContainText('<img src=x'); // the customer's name is text
   expect(await page.evaluate(() => window.__xss)).toBeUndefined();
+  // Safwat 28 Nov («نحط صور المنتجات في تفاصيل الاوردرات … منظم و احترافي»): the money in one strip, the products by sub-order, each with
+  // its picture (the site's image of the SKU, else a mark) — one line per product
+  await expect(ap.locator('[data-ap-money]')).toContainText('المتبقي');
+  const lines = ap.locator('[data-ap-line]'); const n = await lines.count(); expect(n).toBeGreaterThan(0);
+  await expect(ap.locator('.ap-line .ap-pic')).toHaveCount(n);
+  expect(await ap.locator('.ap-grp').count()).toBeGreaterThan(0);
+  const srcs = await ap.locator('.ap-pic img').evaluateAll((els) => els.map((e) => e.getAttribute('src')));
+  expect(srcs.every((s) => /^(https:|data:image\/)/.test(s))).toBe(true);
   // editable: the confirm status — the order page's own confirmation, then its write
   await ap.locator('#ap-cf').selectOption('غير مؤكد');
   const ok = page.locator('.modal[role=dialog]', { hasText: 'تحديث الأوردر IB-180656' }); await expect(ok).toBeVisible();

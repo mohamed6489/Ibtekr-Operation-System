@@ -2734,7 +2734,7 @@ span.ntf-num{padding:0 2px 0 4px;gap:0}
 .ntf-num-copy:hover,.ntf-num-copy:focus-visible,.ntf-num-open:focus-visible{background:var(--color-bg-hover)}
 @media (pointer:coarse){.ntf-num{height:32px;padding:0 10px}}
 /* Safwat 28 Nov — one popup for every alert (alert-popup.js): its head, its sections with green heads, the views inside it */
-.modal.ap-modal{width:min(720px,100%)}
+.modal.ap-modal{width:min(780px,100%)}
 .ap-body{display:flex;flex-direction:column;gap:12px;min-width:0}
 .ap-head{display:flex;align-items:center;gap:10px}
 .ap-head .av{flex:none}
@@ -2769,6 +2769,30 @@ span.ntf-num{padding:0 2px 0 4px;gap:0}
 .ap-trends-l a{color:inherit;text-decoration:none}.ap-trends-l a:focus-visible{outline:2px solid var(--color-brand-default);outline-offset:2px}
 .ap-trends-l small{font-size:12px;color:var(--color-text-secondary)}
 .ap-p{margin:0;white-space:pre-wrap}
+/* the order inside the alert popup (Safwat 28 Nov — «نحط صور المنتجات في تفاصيل الاوردرات … منظم و احترافي»): head + states, the money,
+   the customer and the order side by side, the products by sub-order with their pictures */
+.ap-ohead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;border:1px solid var(--color-border-subtle);border-radius:10px;background:var(--color-bg-base)}
+.ap-ot{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.35}.ap-ot b{font-size:15px;color:var(--color-brand-default)}.ap-ot span{font-size:13px;color:var(--color-text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ap-pills{display:flex;gap:6px;flex-wrap:wrap}.ap-pills .ap-chip{padding:2px 10px}.ap-chip.st{background:var(--color-brand-default);color:var(--color-text-on-brand)}
+.ap-money{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border:1px solid var(--color-border-subtle);border-radius:10px;overflow:hidden;background:var(--color-bg-base)}
+.ap-m{display:flex;flex-direction:column;gap:2px;padding:8px 12px;min-width:0}.ap-m+.ap-m{border-inline-start:1px solid var(--color-border-subtle)}
+.ap-m span{font-size:11.5px;color:var(--color-text-secondary)}.ap-m b{font-size:14px;white-space:nowrap}.ap-m.hi{background:var(--color-brand-subtle-bg)}.ap-m.hi b{color:var(--color-brand-default)}
+.ap-two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.ap-card{border:1px solid var(--color-border-subtle);border-radius:10px;background:var(--color-bg-base);padding:10px 12px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.ap-card h4{margin:0 0 2px;font-size:13px;color:var(--color-brand-default);display:flex;align-items:center;gap:6px}
+.ap-f{display:grid;grid-template-columns:84px minmax(0,1fr);gap:8px;align-items:center;font-size:13px}.ap-f>span{color:var(--color-text-secondary)}.ap-f>div{font-weight:600;min-width:0;overflow-wrap:anywhere}
+.ap-f .ap-sel{width:100%}
+.ap-groups{display:flex;flex-direction:column;gap:10px}
+.ap-grp{border:1px solid var(--color-border-subtle);border-radius:10px;overflow:hidden;background:var(--color-bg-elevated,#fff)}
+.ap-gh{display:flex;align-items:center;gap:8px;padding:7px 12px;background:var(--color-brand-subtle-bg);font-size:13px}.ap-gh b{color:var(--color-brand-default)}.ap-gh .grow{flex:1}
+.ap-line{display:grid;grid-template-columns:56px minmax(0,1fr) minmax(150px,200px);gap:12px;align-items:center;padding:10px 12px}.ap-line+.ap-line{border-top:1px solid var(--color-border-subtle)}
+.ap-pic{width:56px;height:56px;border-radius:8px;overflow:hidden;background:var(--color-bg-tint);display:grid;place-items:center;color:var(--color-text-secondary);border:1px solid var(--color-border-subtle)}
+.ap-pic img{width:100%;height:100%;object-fit:cover;display:block}
+.ap-lt{display:flex;flex-direction:column;gap:2px;min-width:0}.ap-lt b{font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ap-lt small{font-size:12px;color:var(--color-text-secondary)}
+.ap-lt .ap-sku{font-size:11px;text-align:end;align-self:flex-start;opacity:.85}
+.ap-ls .ap-sel{width:100%}.ap-ss{font-size:12.5px;font-weight:600}
+@media (max-width:640px){.ap-money{grid-template-columns:repeat(2,minmax(0,1fr))}.ap-m:nth-child(3){border-inline-start:0}.ap-m:nth-child(n+3){border-top:1px solid var(--color-border-subtle)}
+  .ap-two{grid-template-columns:1fr}.ap-line{grid-template-columns:48px minmax(0,1fr)}.ap-pic{width:48px;height:48px}.ap-ls{grid-column:1/-1}}
 
 /* «إزاي…» — the ready answer in the assistants' chats and the header one (2026-11-28-faults-howto.md, phase B): numbered steps, the
    system's screen under each (a click opens it big), and the guides as chips when the «how» names none */

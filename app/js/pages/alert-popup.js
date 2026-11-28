@@ -60,17 +60,33 @@
       const stSel = sel('ap-st', o.stc || o.st, stList.includes(o.stc) ? stList : stList, (v, s) => { const r = O.aiUpdate({ id: o.id, status: v }); if (r !== true) { s.value = o.stc || o.st; } });
       const cfSel = sel('ap-cf', o.cf, O.confirms ? O.confirms() : [o.cf], (v, s) => { const r = O.aiUpdate({ id: o.id, confirm: v }); if (r !== true) s.value = o.cf; });
       const ssList = O.subStatuses ? O.subStatuses() : [];
-      const lines = h('div', { class: 'scroll-x' }, h('table', { class: 'tbl ap-tbl' },
-        h('thead', null, h('tr', null, ['الأوردر الفرعي', 'المبتكر', 'المنتج', 'حالة المنتج', 'التأخير'].map((t) => h('th', null, t)))),
-        h('tbody', null, o.subs.map((s) => h('tr', { 'data-ap-line': s.n },
-          h('td', null, s.sid ? '#' + s.sid : '—'), h('td', null, s.vendor || '—'), h('td', null, s.prod + ' × ' + s.qty),
-          h('td', null, s.open && can ? sel('ap-ss-' + s.n, s.ss, ssList.includes(s.ss) || !s.ss ? ssList : [s.ss].concat(ssList), (v) => { O.patchSub(s.sid || s.n, { ss: v }); toast('حالة المنتج اتحفظت', 'success'); }) : (s.ss || '—')),
-          h('td', null, s.open ? chip(DL[s.delivery || 'ok'][0], DL[s.delivery || 'ok'][1]) : chip('مقفول', '')))))));
+      // Safwat 28 Nov («نحط صور المنتجات في تفاصيل الاوردرات و نراجع ان التصميم معمول بشكل منظم و احترافي»): the order's head with its
+      // states, the money in one strip, the customer and the order side by side, and the products by sub-order — each with its picture
+      const money = (v) => n0(v) + ' ج.م';
+      const subsN = new Set(o.subs.map((s) => s.sid || s.vendor || '')).size;
+      const strip = h('div', { class: 'ap-money', 'data-ap-money': '' }, [['الإجمالي', money(o.tot)], ['العربون', money(o.dep)], ['المتبقي', money(Math.max(0, (o.tot || 0) - (o.dep || 0))), 'hi'],
+        ['الأوردرات الفرعية', String(subsN)]].map(([k, v, c]) => h('div', { class: 'ap-m' + (c ? ' ' + c : '') }, h('span', null, k), h('b', null, v))));
+      const field = (k, v) => h('div', { class: 'ap-f' }, h('span', null, k), h('div', null, v));
+      const cust = h('div', { class: 'ap-card' }, h('h4', null, I('users'), 'العميل'), field('الاسم', o.name || '—'), field('الموبايل', phoneEl(o.phone)),
+        o.addr || o.city ? field('العنوان', [o.city, o.addr].filter(Boolean).join(' — ')) : null);
+      const ord = h('div', { class: 'ap-card' }, h('h4', null, I('package'), 'الأوردر'), field('حالة الأوردر', stSel), field('التأكيد', cfSel),
+        field('التاريخ', (o.date || '—') + ' · عمره ' + o.age + ' يوم'), can ? null : h('p', { class: 'ap-note' }, 'التعديل محتاج صلاحية تعديل حالة الأوردرات.'));
+      const pic = (s) => { const u = O.thumb ? O.thumb(s.sku) : ''; return h('span', { class: 'ap-pic' }, u ? h('img', { src: u, alt: '', loading: 'lazy' }) : I('package')); };
+      const line = (s) => h('div', { class: 'ap-line', 'data-ap-line': s.n }, pic(s),
+        h('div', { class: 'ap-lt' }, h('b', null, s.prod || '—'), h('small', null, 'الكمية ' + s.qty + (s.tot != null ? ' · ' + money(s.tot) : '')), s.sku ? h('small', { class: 'ap-sku', dir: 'ltr' }, s.sku) : null),
+        h('div', { class: 'ap-ls' }, s.open && can ? sel('ap-ss-' + s.n, s.ss, ssList.includes(s.ss) || !s.ss ? ssList : [s.ss].concat(ssList), (v) => { O.patchSub(s.sid || s.n, { ss: v }); toast('حالة المنتج اتحفظت', 'success'); })
+          : h('span', { class: 'ap-ss' }, s.ss || '—')));
+      const groups = []; o.subs.forEach((s) => { const k = String(s.sid || s.vendor || ''); let g = groups.find((x) => x.k === k); if (!g) groups.push(g = { k, sid: s.sid, vendor: s.vendor, rows: [] }); g.rows.push(s); });
+      const worst = (rows) => { const open = rows.filter((s) => s.open); if (!open.length) return chip('مقفول', ''); const d = open.some((s) => s.delivery === 'late') ? 'late' : open.some((s) => s.delivery === 'risk') ? 'risk' : 'ok'; return chip(DL[d][0], DL[d][1]); };
+      const lines = h('div', { class: 'ap-groups' }, groups.map((g) => h('div', { class: 'ap-grp', 'data-ap-sub': g.sid || '' },
+        h('div', { class: 'ap-gh' }, g.sid ? h('b', { dir: 'ltr' }, '#' + g.sid) : null, h('span', null, g.vendor || '—'), h('span', { class: 'grow' }), worst(g.rows)),
+        ...g.rows.map(line))));
       return [back(),
-        sec('تفاصيل الأوردر IB-' + o.id, kv([['العميل', [o.name || '—', ' · ', phoneEl(o.phone)]], ['حالة الأوردر', stSel], ['التأكيد', cfSel],
-          ['الإجمالي', String(o.tot || 0) + ' ج.م' + (o.dep ? ' · عربون ' + o.dep : '')], ['التاريخ', (o.date || '') + ' · عمر الأوردر ' + o.age + ' يوم'], o.addr ? ['العنوان', [o.city, o.addr].filter(Boolean).join(' — ')] : null]),
-          can ? null : h('p', { class: 'ap-note' }, 'التعديل محتاج صلاحية تعديل حالة الأوردرات.')),
-        sec('المنتجات والأوردرات الفرعية', lines),
+        h('div', { class: 'ap-ohead' }, h('div', { class: 'ap-ot' }, h('b', null, 'الأوردر ', h('bdi', { dir: 'ltr' }, 'IB-' + o.id)), h('span', null, o.name || '')),
+          h('div', { class: 'ap-pills' }, chip(o.stc || o.st || '—', 'st'), chip(o.cf || '—', o.cf === 'غير مؤكد' ? 'warn' : ''), o.delivery && o.delivery !== 'ok' ? chip(DL[o.delivery][0], DL[o.delivery][1]) : null)),
+        strip,
+        h('div', { class: 'ap-two' }, cust, ord),
+        sec('المنتجات (' + o.subs.length + ')', lines),
         [U().Button({ label: 'كل تفاصيل الأوردر', icon: 'external', attrs: { 'data-ap-full': '' }, onClick: () => { if (O.peek) O.peek(o.id); } }),
           U().Button({ label: 'افتح في صفحة الأوردرات', attrs: { 'data-ap-act': 'orders-page' }, onClick: () => push('page', pageView('orders', 'صفحة الأوردرات هتتفتح مفلترة على IB-' + o.id + '.')) })]];
     };

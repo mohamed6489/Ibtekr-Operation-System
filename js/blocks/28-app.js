@@ -1347,11 +1347,19 @@
   // outside model's own question (its buttons / its popup) goes back to it: the same request going on.
   function aiRun(text, o) {
     const t = text.trim(); if (!t || ai.busy) return;
+    for (const m of ai.msgs) if (m.flow && m.flow.phase !== 'opened') m.flowOff = true; // a new message ends the steps not finished
     ai.msgs.push({ role: 'user', text: t });
     if (o && o.brain) { aiChat(t, o.brain); return; }
     const at = ai.msgs.length; const sys = () => ai.msgs.slice(at).forEach((m) => { if (m.role === 'ai') m.sys = true; });
     if (ai.pending) { aiLocal(t); sys(); aiDraw(); return; }
     const got = window.IBBrain ? window.IBBrain.understand(t, aiCtx()) : C.parseCommand(t, aiCtx());
+    // agent-chat-flows decision 6: an add / edit / delete said without what its popup needs = the same step card as the assistants' chat
+    // (IBChatFlowHost from marketing.js — the member's rights, then the system's own popup filled over the page; nothing written here) —
+    // when the engine did not take it whole (it asks a field, or did not understand); what it answers whole stays its own («أكد الأوردر 123»)
+    const FH = window.IBChatFlowHost; const fl = FH && (got.type === 'unknown' || (got.missing && got.missing.length)) ? FH.detect(t) : null;
+    if (fl) { if (!fl.may) aiSay('«' + fl.title + '» مش من صلاحياتك — لو محتاجها اطلبها من الأدمن.');
+      else { ai.msgs.push({ role: 'ai', text: 'تمام — هسألك كام سؤال، وفي الآخر أفتحلك ' + fl.popup + ' متملّي والتأكيد منك.', flow: FH.start(fl) }); }
+      sys(); aiDraw(); return; }
     if (got.type !== 'unknown') { aiExec(got); sys(); aiDraw(); return; }
     aiConsent(t);
   }
@@ -1392,6 +1400,8 @@
       const kids = [h('p', { class: 'ai-text' }, m.live && !m.text ? 'بفكّر…' : m.welcome ? aiWelcome() : m.text)];
       // where the answer came from: the system itself, or the outside model the member agreed to
       if (m.role === 'ai' && !m.welcome && !m.live && (m.sys || m.via)) kids.unshift(h('span', { class: 'ai-src' + (m.sys ? ' sys' : ''), 'data-ai-src': m.sys ? 'system' : 'brain' }, m.sys ? 'من السيستم' : ['الرد من ', h('bdi', null, m.via)]));
+      if (m.flow && window.IBChatFlowHost) kids.push(m.flowOff ? h('p', { class: 'ai-done t-small', 'data-ai-flow-off': '' }, 'الخطوات دي اتلغت.')
+        : window.IBChatFlowHost.card(m.flow, { redraw: aiDraw, cancel: () => { m.flowOff = true; aiDraw(); } }));
       if (m.consent) kids.push(m.consent.done ? h('p', { class: 'ai-done t-small' }, m.consent.done === 'no' ? 'ما استخدمتش مخ خارجي.' : ['اتبعت لـ ', h('bdi', null, m.consent.done), '.']) : h('div', { class: 'ai-actions ai-consent', 'data-ai-consent': '' },
         m.consent.brains.map((b) => Button({ type: 'primary', size: 'sm', label: m.consent.brains.length > 1 ? b.name : 'أيوه، استخدمه', attrs: Object.assign({ 'data-ai-brain': b.id }, m.consent.brains.length > 1 ? { 'data-i18n-off': '' } : {}), onClick: () => aiConsentPick(m, b) })),
         Button({ size: 'sm', label: 'لا', attrs: { 'data-ai-brain': '' }, onClick: () => aiConsentPick(m, null) })));
@@ -1508,6 +1518,12 @@
   function aiDragHead() { const head = h('div', { class: 'ai-head', title: 'اسحب من هنا عشان تحرّك المساعد — وكبّره أو صغّره من الركن' }, Icon('sparkle'), h('h2', { class: 't-h5' }, 'مساعد AI'), h('span', { class: 'grow' }), IconButton({ icon: 'close', label: 'إغلاق', onClick: () => aiToggle(false) })); aiDrag(head); return head; }
   function AiPanel() {
     aiList = h('div', { class: 'ai-list', role: 'log', 'aria-live': 'polite' });
+    // decision 6: a step card waiting on a list (the products searched, the makers) is drawn again when it lands, the box keeping its caret
+    if (window.IBChatFlowHost && !aiPanel) window.IBChatFlowHost.onLand(() => {
+      if (!aiPanel || aiPanel.hidden || !ai.msgs.some((m) => m.flow && !m.flowOff && m.flow.loading && m.flow.phase !== 'opened')) return;
+      const a0 = document.activeElement; const box = a0 && a0.id === 'cf-in' && aiPanel.contains(a0) ? [a0.selectionStart, a0.selectionEnd] : null;
+      aiDraw(); const el = box ? aiPanel.querySelector('#cf-in') : null;
+      if (el && document.activeElement !== el) { el.focus(); try { el.setSelectionRange(box[0], box[1]); } catch (e) { /* not a text box */ } } });
     aiInput = h('input', { class: 'ai-input', type: 'text', placeholder: 'اكتب أمرك… مثال: افتح الأوردرات', 'aria-label': 'أمر للمساعد', autocomplete: 'off', maxlength: '200' });
     aiSendBtn = h('button', { type: 'submit', class: 'icon-btn ai-send', 'aria-label': 'إرسال', title: 'إرسال' }, Icon('send'));
     aiStopBtn = Button({ size: 'sm', label: 'إيقاف', onClick: () => { if (aiCtl) aiCtl.abort(); } }); aiStopBtn.hidden = true;

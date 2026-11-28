@@ -1627,6 +1627,20 @@
   // until the member picks one. A page puts IBReportBlocks.period(key, def) where its filter is and reads periodOf(key);
   // periodSet(key, range | null) moves it from the page (a calendar's «السابق» / «التالي», «النهارده» = back to the default).
   state.pranges = state.pranges || {}; const perDefs = {};
+  // Safwat 28 Nov (orders-batch decision 22 — «خلي الدروب داون في الاوردروات نفس اللي بنستخدموا في التقارير بس من غير مقارنة»): a page
+  // whose own button lives elsewhere (the orders' shadow root) opens this same picker under it — periodPicker(key, button, onPick); the
+  // picker sits in a light-DOM anchor of its own (the system's styles) and floats over the button; `per:` targets never compare
+  const perHooks = {}; const perAnchors = {};
+  function periodPicker(key, trigger, onPick) {
+    if (typeof onPick === 'function') perHooks[key] = onPick;
+    let a = perAnchors[key]; if (!a || !a.isConnected) { a = perAnchors[key] = h('div', { class: 'pop-anchor', 'data-popover-root': '', 'data-per-anchor': key }); document.body.append(a); }
+    return U.popover(a, trigger, (close) => RangePicker(close, 'per:' + key));
+  }
+  // the orders' own default «آخر 60 يومًا» (Safwat 28 Nov — «نفس التقارير بس اللي التاريخ الديفولت مختار اخر ٦٠ يوم»), in their picker only
+  const PER_PRESETS = { orders: [['last60', 'آخر 60 يومًا', 59]] };
+  const presetsOf = (target) => { const extra = PER_PRESETS[perKey(target)] || []; if (!extra.length) return PRESETS; const out = PRESETS.slice(); const at = out.findIndex((x) => x[0] === 'last30') + 1; out.splice(at, 0, ...extra.map((x) => [x[0], x[1]])); return out; };
+  const extraRange = (target, k, today) => { const x = (PER_PRESETS[perKey(target)] || []).find((p) => p[0] === k); return x ? { from: D.addDays(today, -x[2]), to: today } : null; };
+  const presetName = (p) => (PRESETS.concat(...Object.values(PER_PRESETS)).find((x) => x[0] === p) || [0, ''])[1];
   const perKey = (target) => (typeof target === 'string' && target.indexOf('per:') === 0 ? target.slice(4) : '');
   const perRange = (key) => { const r = state.pranges[key]; if (r && r.from && r.to) return r; let d = null; try { d = perDefs[key] ? perDefs[key]() : null; } catch (e) { d = null; }
     return d && d.from && d.to ? d : { from: TODAY.slice(0, 8) + '01', to: TODAY, preset: 'thisMonth' }; };
@@ -1648,7 +1662,7 @@
     const canCmp = COMPARE_T.includes(target);
     const cur = rangeOf(target); const own = !!(cur.cfrom && cur.cto);
     const draft = { from: cur.from, to: cur.to, preset: cur.preset, compare: compareOf(target), cfrom: own ? cur.cfrom : null, cto: own ? cur.cto : null, cauto: !own };
-    let [y, m] = draft.from.split('-').map(Number); let picking = false, hover = null, err = '', cerr = '';
+    let [y, m] = (draft.preset === 'max' ? TODAY : draft.from).split('-').map(Number); let picking = false, hover = null, err = '', cerr = ''; // «أقصى فترة» opens on this month (orders-batch decision 22)
     // chat ش10 (the owner 16 Nov — «فلتر التاريخ المقارنة مفيهاش الcalender اللي بحدد منها التاريخ»): the calendars pick the comparison
     // period too — «الفترة» / «فترة المقارنة» above them, and a click in a comparison field turns them to it
     let mode = 'main';
@@ -1691,9 +1705,9 @@
       dp.replaceChildren(...[
         h('div', { class: 'dp-body' },
           h('div', { class: 'presets', role: 'radiogroup', 'aria-label': 'فترات جاهزة' },
-            PRESETS.map(([k, label]) => h('button', { type: 'button', class: 'radio', role: 'radio', 'aria-checked': String(draft.preset === k), onClick: () => { if (k === 'custom') { draft.preset = 'custom'; } else { const r = D.presetRange(k, TODAY); draft.from = r.from; draft.to = r.to; draft.preset = k; [y, m] = r.from.split('-').map(Number); } picking = false; err = ''; before(); draw(); } }, h('i'), label))),
+            presetsOf(target).map(([k, label]) => h('button', { type: 'button', class: 'radio', role: 'radio', 'aria-checked': String(draft.preset === k), onClick: () => { if (k === 'custom') { draft.preset = 'custom'; } else { const r = extraRange(target, k, TODAY) || D.presetRange(k, TODAY); draft.from = r.from; draft.to = r.to; draft.preset = k; [y, m] = r.from.split('-').map(Number); } picking = false; err = ''; before(); draw(); } }, h('i'), label))),
           calsWrap()),
-        h('div', { class: 'range-row' }, h('div', { class: 'input', style: 'width:180px' }, h('input', { type: 'text', readonly: true, value: (PRESETS.find((p) => p[0] === draft.preset) || [0, 'مخصص'])[1], 'aria-label': 'الفترة الجاهزة', dir: 'rtl' })),
+        h('div', { class: 'range-row' }, h('div', { class: 'input', style: 'width:180px' }, h('input', { type: 'text', readonly: true, value: (presetsOf(target).find((p) => p[0] === draft.preset) || [0, 'مخصص'])[1], 'aria-label': 'الفترة الجاهزة', dir: 'rtl' })),
           dateInput('from', 'من تاريخ'), h('span', null, '–'), dateInput('to', 'إلى تاريخ'),
           canCmp ? h('label', { class: 'check on', 'data-rp-compare': target }, h('input', { type: 'checkbox', checked: draft.compare ? true : null, onChange: (e) => { draft.compare = e.target.checked; cerr = ''; if (draft.compare) before(); else mode = 'main'; draw(); const c = dp.querySelector('[data-rp-compare] input'); if (c) c.focus(); } }), 'مقارنة بفترة سابقة') : null),
         err ? h('div', { class: 'err-msg', role: 'alert', style: 'padding:0 16px 8px' }, err) : null,
@@ -1708,7 +1722,7 @@
           Button({ label: 'إلغاء', onClick: close }),
           Button({ type: 'primary', label: 'تحديث', disabled: !draft.from || !draft.to || !!err || (cmpOn && (!!cerr || !draft.cfrom || !draft.cto)), onClick: () => { const nr = { from: draft.from, to: draft.to, preset: draft.preset };
             if (canCmp) { nr.compare = !!draft.compare; if (draft.compare && !draft.cauto) { nr.cfrom = draft.cfrom; nr.cto = draft.cto; } }
-            if (target === 'reports') { state.rrange = nr; state.rcompare = !!draft.compare; close(); renderReports(); if (window.IBPages && (window.IBPages.current === 'products' || window.IBPages.current === 'hr' || window.IBPages.current === 'marketing')) window.IBPages.render(window.IBPages.current); } else if (target === 'dash') { state.drange = nr; close(); window.IBPages.render('dashboard'); } else if (target === 'mlog') { state.mrange = nr; close(); render(); } else if (target === 'plan') { state.prange = nr; close(); window.IBPages.render('marketing'); } else if (target === 'vledger') { state.vlrange = nr; close(); render(); } else if (logKey(target)) { state.lranges[logKey(target)] = nr; close(); logRedraw(); } else if (perKey(target)) { state.pranges[perKey(target)] = nr; close(); logRedraw(); } else { state.range = nr; close(); render(); } } }))].filter(Boolean));
+            if (target === 'reports') { state.rrange = nr; state.rcompare = !!draft.compare; close(); renderReports(); if (window.IBPages && (window.IBPages.current === 'products' || window.IBPages.current === 'hr' || window.IBPages.current === 'marketing')) window.IBPages.render(window.IBPages.current); } else if (target === 'dash') { state.drange = nr; close(); window.IBPages.render('dashboard'); } else if (target === 'mlog') { state.mrange = nr; close(); render(); } else if (target === 'plan') { state.prange = nr; close(); window.IBPages.render('marketing'); } else if (target === 'vledger') { state.vlrange = nr; close(); render(); } else if (logKey(target)) { state.lranges[logKey(target)] = nr; close(); logRedraw(); } else if (perKey(target)) { state.pranges[perKey(target)] = nr; close(); if (perHooks[perKey(target)]) perHooks[perKey(target)](nr); else logRedraw(); } else { state.range = nr; close(); render(); } } }))].filter(Boolean));
     }
     draw(); return dp;
   }
@@ -5058,7 +5072,7 @@
   window.IBReportBlocks = { range: () => DateRangeField('reports'), get: () => state.rrange, staff: () => StaffReportView(), rangeField: (t) => DateRangeField(t), rangeOf: (t) => rangeOf(t), logPeriod: (key, extra) => LogPeriod(key, extra), logRange: (key) => logRange(key), logIn: (key, at) => logIn(key, at), compare: (key) => CompareCard('reports', CMP[key]), compareOn: (t) => compareOf(t || 'reports'), previous: (t) => R.previousRange(rangeOf(t || 'reports')),
     // comments decisions 75–77: a page's own period on the big picker, and the comparison card for two periods a page names
     period: (key, def) => { if (typeof def === 'function') perDefs[key] = def; return DateRangeField('per:' + key); }, periodOf: (key, def) => { if (typeof def === 'function') perDefs[key] = def; const r = perRange(key); return { from: r.from, to: r.to, preset: r.preset || 'custom', picked: !!state.pranges[key] }; },
-    periodSet: (key, r) => { if (r && r.from && r.to) state.pranges[key] = { from: r.from, to: r.to, preset: r.preset || 'custom' }; else delete state.pranges[key]; },
+    periodPicker: (key, trigger, onPick) => periodPicker(key, trigger, onPick), periodLabel: (key) => { const r = perRange(key); return r.preset && r.preset !== 'custom' && presetName(r.preset) ? presetName(r.preset) : D.rangeLabel(r.from, r.to); }, periodSet: (key, r) => { if (r && r.from && r.to) state.pranges[key] = { from: r.from, to: r.to, preset: r.preset || 'custom' }; else delete state.pranges[key]; },
     line: (label, value, kind, good, unit) => CL(label, value, kind, good, unit),
     comparePair: (key, o) => { let cur = null, was = null; try { cur = o.lines(o.cur, true); was = o.lines(o.was, false); } catch (e) { cur = was = false; } return cmpCard(key, o.cur, o.was, cur, was, { names: o.names, note: o.note }); } }; // rangeField / rangeOf: the v5's (phase 9.5.1 — the marketing plan's «plan») // staff: the HR page's own «التقارير» (phase 10 T8)
   window.IBShowOrders = () => { if (state.page !== 'orders') go('orders'); };
